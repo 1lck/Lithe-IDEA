@@ -305,28 +305,28 @@ Core 操作会随协议演进持续增加，逐个新增 Tauri command 会在
 
 ## 验证
 
-- `./scripts/architecture/verify-service-boundaries.sh`
-- `./scripts/architecture/verify-shared-contracts.sh`
-- `./scripts/rust-core/verify-rust-core.sh`
-- `./scripts/windows/verify/verify-windows-boundaries.sh`
-- `./scripts/rust-core/verify-rust-core-comments.sh`
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
+- ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）
+- ~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）
+- ~~./scripts/rust-core/verify-rust-core-comments.sh~~（随旧客户端移除）
 
 仓库布局和所有权规则还需要通过受影响平台的构建和测试验证。契约变化
 必须同时检查相关夹具和所有平台消费者。
 
 ## 适用范围
 
-- `macos/Sources/Lithe/`
-- `macos/Sources/Lithe*Module/`
-- `macos/Sources/LitheModuleAPI/`
-- `macos/Sources/LitheCoreContracts/`
-- `macos/Sources/LitheRustCore/`
-- `Plugins/mac/`
-- `Plugins/win/`
+- ~~`macos/Sources/Lithe/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe*Module/`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheModuleAPI/`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheCoreContracts/`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheRustCore/`~~（已随 #1794 移除）
+- ~~`Plugins/mac/`~~（已随 #1794 移除）
+- ~~`Plugins/win/`~~（已随 #1794 移除）
 - Lithe-core-rust 锁定修订：[rust/lithe-core/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/b085d0866d45ba76cfef1450d61e820b22ddc6e7/rust/lithe-core)
 - Lithe-core-rust 锁定修订：[rust/lithe-git-host/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/b085d0866d45ba76cfef1450d61e820b22ddc6e7/rust/lithe-git-host)
-- `windows/`
+- ~~`windows/`~~（已随 #1794 移除）
 - `shared/`
-- `frontend/editor/`
+- ~~`frontend/editor/`~~（已随 #1794 移除）
 - `scripts/`
-- `third_party/`
+- ~~`third_party/`~~（已随 #1794 移除）

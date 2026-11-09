@@ -180,9 +180,9 @@ cargo test --manifest-path rust/Cargo.toml -p lithe-core project_generators
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/declarative.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/declarative.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/capabilities.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/capabilities.rs)
 - `shared/contracts/plugins/v1/`
-- `macos/Sources/Lithe/Views/Workspace/NewProjectView.swift`
-- `macos/Sources/Lithe/Application/Features/NewProjectFeatureModel.swift`
-- `macos/Sources/Lithe/Services/ProjectGeneration/`
-- `macos/Sources/Lithe/Platform/MacOS/ProjectGeneration/`（含 `MacProjectToolInstallations.swift`、`MacProjectToolPins.swift`）
-- `macos/Sources/Lithe/Views/Components/LitheSidebarList.swift`
-- `macos/Sources/Lithe/Views/Components/PluginFieldControls.swift`
+- ~~`macos/Sources/Lithe/Views/Workspace/NewProjectView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/NewProjectFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Services/ProjectGeneration/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/ProjectGeneration/`~~（已随 #1794 移除）（含 `MacProjectToolInstallations.swift`、`MacProjectToolPins.swift`）
+- ~~`macos/Sources/Lithe/Views/Components/LitheSidebarList.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Components/PluginFieldControls.swift`~~（已随 #1794 移除）

@@ -53,16 +53,16 @@ Windows 提供两个独立的 Git 设置：`showGitChangelists` 和 `showGitPare
 
 ## 验证
 
-- `macos/Tests/LitheGitModuleTests/GitLocalChangelistsTests.swift`：共享范围夹具、持久化序列化、重命名保留、仓库隔离与元数据校验。
-- `macos/Tests/LitheGitModuleTests/GitModuleTests.swift`：原生列表管理、当前列表批量暂存、提交范围传递、确认与重试固定范围、存储故障阻止提交。
-- `macos/Tests/LitheTests/MacGitChangelistStorageTests.swift`：偏好持久化、工作区隔离、损坏数据保留和写入失败。
-- `macos/Tests/LitheTests/CommitWorkflowChangelistTests.swift`：用有界测试闸门控制差异读取和 AI 返回，在选择变化后阻止旧说明回填或弹出替换确认。
-- `macos/Tests/LitheTests/GitChangeSectionsCacheTests.swift`：移动文件后缓存重新分组并保留所有列表可见。
+- ~~`macos/Tests/LitheGitModuleTests/GitLocalChangelistsTests.swift`~~（已随 #1794 移除）：共享范围夹具、持久化序列化、重命名保留、仓库隔离与元数据校验。
+- ~~`macos/Tests/LitheGitModuleTests/GitModuleTests.swift`~~（已随 #1794 移除）：原生列表管理、当前列表批量暂存、提交范围传递、确认与重试固定范围、存储故障阻止提交。
+- ~~`macos/Tests/LitheTests/MacGitChangelistStorageTests.swift`~~（已随 #1794 移除）：偏好持久化、工作区隔离、损坏数据保留和写入失败。
+- ~~`macos/Tests/LitheTests/CommitWorkflowChangelistTests.swift`~~（已随 #1794 移除）：用有界测试闸门控制差异读取和 AI 返回，在选择变化后阻止旧说明回填或弹出替换确认。
+- ~~`macos/Tests/LitheTests/GitChangeSectionsCacheTests.swift`~~（已随 #1794 移除）：移动文件后缓存重新分组并保留所有列表可见。
 - 旧客户端的 [macOS 测试入口](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/macos/test/test-macos.sh) 和稳定性计时结果不能代替 Viva 验收。
 
-- `windows/tauri/src/features/git/stores/git-changelists.store.test.ts`：两个已初始化实例交错保存后第三个实例重载、旧格式迁移、加载前禁用保护、干净路径保留、工作区/仓库/工作树隔离、重命名、损坏与保存失败、共享范围夹具。
-- `windows/tauri/src/features/git/components/status/git-workspace-status-panel.test.tsx`：批量暂存保护与单分组勾选。
-- `windows/tauri/src/features/git/components/git-commit-panel.test.tsx`：按钮、快捷键与范围传递。
+- ~~`windows/tauri/src/features/git/stores/git-changelists.store.test.ts`~~（已随 #1794 移除）：两个已初始化实例交错保存后第三个实例重载、旧格式迁移、加载前禁用保护、干净路径保留、工作区/仓库/工作树隔离、重命名、损坏与保存失败、共享范围夹具。
+- ~~`windows/tauri/src/features/git/components/status/git-workspace-status-panel.test.tsx`~~（已随 #1794 移除）：批量暂存保护与单分组勾选。
+- ~~`windows/tauri/src/features/git/components/git-commit-panel.test.tsx`~~（已随 #1794 移除）：按钮、快捷键与范围传递。
 - `rust/lithe-core/src/git/workspace_commit/tests.rs`：列表限制、父引用、确认变化、重试和续接校验。
 - `rust/lithe-core/src/tests/git_workspace_commit.rs`：真实 Git 拦截范围外暂存、不改变索引和工作树、保留部分暂存、刷新前重命名。
 - `shared/fixtures/git/changelists-reducer-v1.json`：Core 和两端适配器验证同一归属及范围结果；旧 `local-changelist-scope-v1.json` 保留旧客户端契约。

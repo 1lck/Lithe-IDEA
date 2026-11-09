@@ -30,8 +30,8 @@ JDT工作区入口搜索可能遗漏默认或不可见项目中的单文件，�
 
 ## 适用范围
 
-- `windows/tauri/src/features/run/services/java-main-launch.ts`
-- `windows/tauri/src/features/run/services/java-main-launch.test.ts`
-- `windows/tauri/src/features/run/services/java-context-entrypoint.ts`
-- `windows/tauri/src/features/run/services/java-context-entrypoint.test.ts`
-- `windows/tauri/src/features/run/stores/run.store.ts`
+- ~~`windows/tauri/src/features/run/services/java-main-launch.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/run/services/java-main-launch.test.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/run/services/java-context-entrypoint.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/run/services/java-context-entrypoint.test.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/run/stores/run.store.ts`~~（已随 #1794 移除）

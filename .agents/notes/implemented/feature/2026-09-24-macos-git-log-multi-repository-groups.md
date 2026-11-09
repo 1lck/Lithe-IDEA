@@ -230,7 +230,7 @@ body 都会重建，比较它会让所有行每帧都重建）。现在把它从
 ## 验证
 
 - `node scripts/agent-notes/verify-agent-notes.mjs`：本笔记格式与路径校验统一走这个入口。
-- `macos/Tests/LitheGitModuleTests/GitModuleTests.swift` 新增测试：
+- ~~`macos/Tests/LitheGitModuleTests/GitModuleTests.swift`~~（已随 #1794 移除） 新增测试：
   - `linkedWorktreeDetectionUsesPathComponentBoundaries`（含 `op-platform` vs `op-platform-extra`
     边界）；
   - `visibleRepositoryRootsHideWorktreesButAlwaysKeepActive`；
@@ -240,19 +240,19 @@ body 都会重建，比较它会让所有行每帧都重建）。现在把它从
     提交列表仍先发布）；
   - `supersededRepositoryReferencesLoadDoesNotPublishAStalePage`（仓库引用读取期间切分支，
     旧刷新返回后不能覆盖新页）。
-- `macos/Tests/LitheTests/GitReferenceRowsBuilderTests.swift` 的 `Git reference row menu` 套件
+- ~~`macos/Tests/LitheTests/GitReferenceRowsBuilderTests.swift`~~（已随 #1794 移除） 的 `Git reference row menu` 套件
   校验菜单策略：只读行返回空条目，活动行的本地 / 远程 / 标签菜单项与启用状态符合预期，
   分支操作进行中时写操作项被禁用，并新增 Copy Branch Name（本地 / 远程有、标签无）与
   Tracking Branch（仅本地有）两条策略断言。
-- `macos/Tests/LitheTests/GitReferenceRowRenderKeyTests.swift` 校验行的刷新契约：只增 / 只删
+- ~~`macos/Tests/LitheTests/GitReferenceRowRenderKeyTests.swift`~~（已随 #1794 移除） 校验行的刷新契约：只增 / 只删
   远程分支时 `GitReferenceRowRenderKey` 必须判不相等（保证子菜单重建），远程分支列表不变时
   判相等（保证不白重建），行自身字段变化时仍然判不相等。
-- `macos/Tests/LitheTests/GitRepositoryColorTests.swift` 校验配色：8 色互不相同且不透明，
+- ~~`macos/Tests/LitheTests/GitRepositoryColorTests.swift`~~（已随 #1794 移除） 校验配色：8 色互不相同且不透明，
   N 个仓库拿到互不相同的色号，隐藏中间仓库时后续仓库色号不变（证明按完整仓库列表定色），
   超过 8 个仓库回绕，单仓库不启用颜色，未知仓库回退到 0 号色。
-- `macos/Tests/LitheTests/ContextMenuCoverageTests.swift` 更新提交右键断言：重置现在是子菜单，
+- ~~`macos/Tests/LitheTests/ContextMenuCoverageTests.swift`~~（已随 #1794 移除） 更新提交右键断言：重置现在是子菜单，
   可执行 mixed / hard 两项并回调到 `onReset(commit, mode)`。
-- `macos/Tests/LitheTests/AppLocalizationTests.swift` 的英 / 中对照校验扩展到新增的
+- ~~`macos/Tests/LitheTests/AppLocalizationTests.swift`~~（已随 #1794 移除） 的英 / 中对照校验扩展到新增的
   Copy Branch Name、Tracking Branch、Stop Tracking Branch、No Remote Branches 与
   soft / mixed / hard 三档重置的标题和确认文案。
 - 上游写操作复用 Core 已有的 `setUpstream` / `unsetUpstream`（`rust/lithe-core` 内已有测试

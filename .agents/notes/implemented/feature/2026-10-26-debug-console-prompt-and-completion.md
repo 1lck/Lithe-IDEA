@@ -68,20 +68,20 @@
 
 ## 验证
 
-- `./scripts/macos/test/test-macos.sh --filter LitheDebugModuleTests`
-- `./scripts/macos/test/test-macos.sh --filter 'DeclarativeDebugAdapterConsoleTests'`
+- ~~./scripts/macos/test/test-macos.sh --filter LitheDebugModuleTests~~（随旧客户端移除）
+- ~~./scripts/macos/test/test-macos.sh --filter 'DeclarativeDebugAdapterConsoleTests'~~（随旧客户端移除）
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml console_completions`
-- `./scripts/architecture/verify-shared-contracts.sh`
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
 - `node scripts/i18n/generate-i18n.mjs --check`
 - `node scripts/i18n/verify-app-language-localization.mjs`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Views/Debug/DebugConsolePromptView.swift`
-- `macos/Sources/LitheDebugModule/Application/DebugConsoleCompletion.swift`
-- `macos/Sources/LitheDebugModule/Application/DebugConsolePromptModel.swift`
-- `macos/Sources/LitheDebugModule/Application/GenericDebugFeatureModel.swift`
-- `macos/Sources/LitheDebugModule/Runtime/CoreDebugAdapterProtocolSession.swift`
+- ~~`macos/Sources/Lithe/Views/Debug/DebugConsolePromptView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheDebugModule/Application/DebugConsoleCompletion.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheDebugModule/Application/DebugConsolePromptModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheDebugModule/Application/GenericDebugFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheDebugModule/Runtime/CoreDebugAdapterProtocolSession.swift`~~（已随 #1794 移除）
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/engine.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug/engine.rs)
 - `shared/contracts/plugins/v1/`

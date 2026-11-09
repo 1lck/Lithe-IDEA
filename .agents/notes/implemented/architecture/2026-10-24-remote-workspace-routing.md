@@ -88,7 +88,7 @@
 
 ## 验证
 
-- `./scripts/remote/verify-remote-workspace.sh --tests` 覆盖守护进程启动与退出：用未释放标准输入的候选进程和已过期截止时间，确定性验证已有 socket 不能绕过启动决定，并验证锁归属本候选、候选已退出两条成功路径；并发连接集成测试确认显式关闭后锁释放。Linux CI 与 macOS 本机分别覆盖各自适配器，本机通过不能代替 Linux 验证。
+- ~~./scripts/remote/verify-remote-workspace.sh --tests~~（随旧客户端移除） 覆盖守护进程启动与退出：用未释放标准输入的候选进程和已过期截止时间，确定性验证已有 socket 不能绕过启动决定，并验证锁归属本候选、候选已退出两条成功路径；并发连接集成测试确认显式关闭后锁释放。Linux CI 与 macOS 本机分别覆盖各自适配器，本机通过不能代替 Linux 验证。
 
 ```bash
 ./scripts/macos/test/test-macos.sh --filter RemoteConnections
@@ -105,15 +105,15 @@ node scripts/resources/test-reuse-worktree-resources.mjs
 ## 适用范围
 
 - Lithe-core-rust 锁定修订：[rust/lithe-remote/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote)
-- `scripts/remote/build-remote-servers.sh`
-- `scripts/remote/verify-remote-workspace.sh`
-- `macos/Sources/Lithe/Services/Remote/RemoteWorkspaceRouting.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteWorkspaceRoots.swift`
-- `macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`
-- `macos/Sources/Lithe/Models/AppModel/AppModel+RemoteConnections.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteTerminalTransport.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteRuntimeLocator.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteShellDiscovery.swift`
+- ~~`scripts/remote/build-remote-servers.sh`~~（脚本已随旧客户端移除）
+- ~~`scripts/remote/verify-remote-workspace.sh`~~（脚本已随旧客户端移除）
+- ~~`macos/Sources/Lithe/Services/Remote/RemoteWorkspaceRouting.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteWorkspaceRoots.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Models/AppModel/AppModel+RemoteConnections.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteTerminalTransport.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteRuntimeLocator.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteShellDiscovery.swift`~~（已随 #1794 移除）
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/remote/workspace.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/remote/workspace.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/remote/workspace_host.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/remote/workspace_host.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/remote/workspace_io.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/remote/workspace_io.rs)

@@ -127,7 +127,7 @@ macOS 插件 API 计划里的 API-15（`editor.open/reveal`）、API-16（`previ
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - `node scripts/i18n/verify-app-language-localization.mjs`
 - `node scripts/i18n/generate-i18n.mjs --check`
-- `macos/Tests/LitheTests/` 下的 `PluginHostEditorServiceTests`、`PluginHostBrowserServiceTests`、`PluginHostMessageServiceTests`、`HTMLPreviewBridgeIsolationTests` 和 `HTMLBrowserOpenerTests`（需要在 Mac 上用 `xcodebuild test` 运行）。
+- ~~`macos/Tests/LitheTests/`~~（已随 #1794 移除） 下的 `PluginHostEditorServiceTests`、`PluginHostBrowserServiceTests`、`PluginHostMessageServiceTests`、`HTMLPreviewBridgeIsolationTests` 和 `HTMLBrowserOpenerTests`（需要在 Mac 上用 `xcodebuild test` 运行）。
 
 ## 适用范围
 

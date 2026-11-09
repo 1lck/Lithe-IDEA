@@ -42,8 +42,8 @@ Windows Git Log 的英文日期不再由翻译模板固定为日/月/年，而�
 
 ## 适用范围
 
-- `windows/tauri/src/platform/system-date-time.ts`
-- `windows/tauri/src-tauri/src/date_time.rs`
-- `windows/tauri/src/features/git/utils/git-log-date.ts`
-- `windows/tauri/src/features/git/components/log/git-log-date-cell.tsx`
+- ~~`windows/tauri/src/platform/system-date-time.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src-tauri/src/date_time.rs`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/git/utils/git-log-date.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/git/components/log/git-log-date-cell.tsx`~~（已随 #1794 移除）
 - `shared/platform-feature-matrix/features/git-history.json`

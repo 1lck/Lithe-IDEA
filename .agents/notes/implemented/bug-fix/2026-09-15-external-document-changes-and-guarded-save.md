@@ -274,15 +274,15 @@ Viva 适配器的 `desktop/internal/documentio` 测试已在 Windows Server 2022
 不能当作当前 Viva 产品的运行验证。
 
 共享 fixture 位于 `shared/fixtures/documents/lifecycle-v1.json`。
-运行 `./scripts/architecture/verify-shared-contracts.sh`、`./scripts/rust-core/verify-rust-core.sh`、
-`./scripts/architecture/verify-core.sh` 和 `./scripts/rust-core/verify-rust-core-comments.sh`。
+运行 ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）、
+`./scripts/architecture/verify-core.sh` 和 ~~./scripts/rust-core/verify-rust-core-comments.sh~~（随旧客户端移除）。
 
-macOS 使用 `./scripts/macos/test/test-macos.sh` 及
+macOS 使用 ~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除） 及
 `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh`，验证等长同时间
 修改、缺失重建、过期基线、Unicode 字节差异、异步保存期间输入及关闭流程。
 `DocumentSaveBatchTests` 验证跨工作区保存后的新输入和新增会话；
 `MacDocumentObservationTests` 验证普通事件路径筛选、目录替换和丢失事件恢复。
-Windows 使用 `./scripts/windows/build/build-windows.ps1 -Configuration Release`，以及
+Windows 使用 ~~./scripts/windows/build/build-windows.ps1 -Configuration Release~~（随旧客户端移除），以及
 `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1`；原生测试覆盖
 替换通知、多窗口释放、提交前变化与暂存清理，前端测试覆盖注册代次、保存延后
 核对和冲突选择。连续打断后的调度、保存等待和关闭取消使用手动调度器验证，
@@ -303,24 +303,24 @@ WindowsRust 范围单独运行 `lithe-project`；只运行宿主不会执行依�
 `RemoteWorkspaceRoutingTests` 覆盖生产路由转发本地两种保存授权和拒绝远程使用本地授权；
 计时报告不替代真实弹窗操作验收。
 
-边界和笔记分别使用 `./scripts/architecture/verify-service-boundaries.sh`、
-`./scripts/windows/verify/verify-windows-boundaries.sh`、`./scripts/agent-notes/verify-agent-notes.sh`。
+边界和笔记分别使用 ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）、
+~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）、`./scripts/agent-notes/verify-agent-notes.sh`。
 实际运行结果和未通过的既有测试写入交付说明；单元测试不冒充完整产品界面验收。
 
 ## 迁移前的源码范围
 
 以下路径属于迁移前基线，不代表当前工作树中仍存在这些文件。
 
-- `windows/tauri/crates/project/src/document_file.rs`
-- `windows/tauri/crates/project/src/document_watcher.rs`
-- `windows/tauri/crates/project/src/lib.rs`
-- `windows/tauri/src-tauri/src/document.rs`
-- `windows/tauri/src/features/editor/`
-- `windows/tauri/src/features/file-system/services/file-watcher-listener.ts`
-- `windows/tauri/src/features/file-system/stores/file-watcher.store.ts`
-- `macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`
-- `macos/Sources/Lithe/Platform/MacOS/FileWatching/MacDocumentObservation.swift`
-- `macos/Sources/Lithe/Platform/MacOS/FileSystem/MacWorkspaceFileOperations.swift`
+- ~~`windows/tauri/crates/project/src/document_file.rs`~~（已随 #1794 移除）
+- ~~`windows/tauri/crates/project/src/document_watcher.rs`~~（已随 #1794 移除）
+- ~~`windows/tauri/crates/project/src/lib.rs`~~（已随 #1794 移除）
+- ~~`windows/tauri/src-tauri/src/document.rs`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/editor/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/file-system/services/file-watcher-listener.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/file-system/stores/file-watcher.store.ts`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/FileWatching/MacDocumentObservation.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/FileSystem/MacWorkspaceFileOperations.swift`~~（已随 #1794 移除）
 - `rust/lithe-core/src/project/document_lifecycle.rs`
 
 ## 适用范围

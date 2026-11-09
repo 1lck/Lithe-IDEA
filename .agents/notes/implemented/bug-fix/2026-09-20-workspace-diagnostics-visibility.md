@@ -132,7 +132,7 @@ if (!isDocumentOpen(published)) return;
   （`diagnostics-file-path.test.ts` 覆盖工作区内保留、已知 buffer 优先、工作区外
   丢弃、同名前缀目录不算包含、分隔符归一、POSIX 大小写敏感；
   `diagnostics-retention.test.ts` 覆盖三种结果、上限行为和"已打开文件不受限"）。
-- 边界校验：`./scripts/windows/verify/verify-windows-boundaries.sh`
+- 边界校验：~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）
 - 测试稳定性门禁：`./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - 类型检查：`cd windows/tauri && bun run typecheck`
 - 未在本次执行：Windows 实机验证。需要在 Windows 上打开若依 Plus，点运行，
@@ -212,7 +212,7 @@ IDEA 的该预览可编辑；此次 Lithe 提供只读源码预览。独立预�
 
 验证入口：会话生命周期与保存归属使用 `MonacoWorkbenchSessionLifetimeTests`，
 分栏使用 `LitheSplitPaneGeometryTests` / `LitheSplitPaneCollapseTests`，真实 WebKit 使用
-`./scripts/macos/probe/probe-macos-monaco.sh --workbench-tests`。测试工具栏开关、分栏拖动和完整工作区
+~~./scripts/macos/probe/probe-macos-monaco.sh --workbench-tests~~（随旧客户端移除）。测试工具栏开关、分栏拖动和完整工作区
 焦点流时，仍须进行应用级交互验收。
 
 

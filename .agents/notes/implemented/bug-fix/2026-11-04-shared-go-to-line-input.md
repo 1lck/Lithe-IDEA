@@ -48,7 +48,7 @@ macOS 确认按钮暂不可用；已过期的校验结果不会覆盖新输入�
 ## 适用范围
 
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/editor/navigation_input.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/editor/navigation_input.rs)
-- `macos/Sources/Lithe/Models/Editor/GoToLineInput.swift`
-- `macos/Sources/Lithe/Views/Editor/GoToLineDialog.swift`
-- `windows/tauri/src/features/keymaps/commands/navigation-command-actions.ts`
-- `windows/tauri/src/features/editor/components/code-editor.tsx`
+- ~~`macos/Sources/Lithe/Models/Editor/GoToLineInput.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Editor/GoToLineDialog.swift`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/keymaps/commands/navigation-command-actions.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/editor/components/code-editor.tsx`~~（已随 #1794 移除）

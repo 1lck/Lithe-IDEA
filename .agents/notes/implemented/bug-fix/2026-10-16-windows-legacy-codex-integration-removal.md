@@ -76,7 +76,7 @@ API Key 对话之外的 Agent 能力在 Windows 上仍然缺失。`windows/tauri
 
 ## 适用范围
 
-- `windows/tauri/src/features/ai/hooks/use-agent-options.ts`
-- `windows/tauri/src/features/settings/components/tabs/ai-settings.tsx`
-- `windows/tauri/src/platform/tauri-core.ts`
-- `windows/tauri/src/features/ai/services/ai-chat-service.ts`
+- ~~`windows/tauri/src/features/ai/hooks/use-agent-options.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/settings/components/tabs/ai-settings.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/platform/tauri-core.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/ai/services/ai-chat-service.ts`~~（已随 #1794 移除）

@@ -65,8 +65,8 @@ Issue #706 提出图表支持，原实现只保留 `language-plantuml` 类名，
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Platform/MacOS/MarkdownPlantUMLRenderer.swift`
-- `macos/Sources/Lithe/Platform/MacOS/MarkdownPreviewWebView.swift`
-- `macos/Sources/Lithe/Resources/MarkdownPreview/`
-- `macos/Tests/LitheTests/MarkdownPlantUMLTests.swift`
+- ~~`macos/Sources/Lithe/Platform/MacOS/MarkdownPlantUMLRenderer.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/MarkdownPreviewWebView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Resources/MarkdownPreview/`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/MarkdownPlantUMLTests.swift`~~（已随 #1794 移除）
 - `scripts/resources/worktree-resources.json`

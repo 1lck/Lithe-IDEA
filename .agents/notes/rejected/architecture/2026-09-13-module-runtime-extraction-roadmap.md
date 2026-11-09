@@ -91,7 +91,7 @@ command、DTO、错误码、取消或陈旧结果语义。因此先保持 Rust �
   禁用时不构造，休眠后没有活动资源，唤醒可以重建。
 - 新插件在 Bundle 加载前通过静态 manifest、宿主兼容性和所有权校验，
   并有失败回滚、资源清理和 Safe Mode 测试。
-- `./scripts/architecture/verify-module-boundaries.sh`、`./scripts/architecture/verify-service-boundaries.sh`
+- ~~./scripts/architecture/verify-module-boundaries.sh~~（随旧客户端移除）、~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
   和受影响模块测试通过，且已有 macOS、Rust、共享契约行为不变。
 - 每完成一个模块，更新本 Note 的适用范围或将已完成部分沉淀到
   `implemented/`，不要把执行清单永久留在这里。

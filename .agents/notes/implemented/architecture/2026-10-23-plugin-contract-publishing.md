@@ -65,7 +65,7 @@ Store 的 `validate-index.mjs` 仍然实现索引规则。它的 CI 原来比较
 
 两边都对这个地址做严格检查：
 
-- 主仓库的 `scripts/architecture/verify-shared-contracts.sh` 用常量 `published_plugin_schema_base` 要求目录下每个 `*.schema.json` 的 `$id` 完全相等。
+- 主仓库的 ~~scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除） 用常量 `published_plugin_schema_base` 要求目录下每个 `*.schema.json` 的 `$id` 完全相等。
 - docs 仓库的 `contract.mjs` 要求每份 schema 的 `$id` 等于它自己的发布地址。
 
 因此，如果主仓库改了地址而 docs 仓库没跟上，或者 docs 仓库里的文件不是从主仓库同步来的，CI 都会失败。
@@ -200,7 +200,7 @@ npm 是 Node 开发者最熟悉的方式。但插件包安装后没有 `npm inst
 ## 验证
 
 - `node --test --test-timeout=10000 scripts/plugins/plugin-settings-schema.test.mjs`：设置相关正则在 JavaScript 与 Python 中一致接受正常值、拒绝换行反例。
-- `./scripts/architecture/verify-shared-contracts.sh`：两份 schema 的 `$id` 必须等于 docs 仓库的发布地址；契约 README 的相对链接不能离开目录；fixture ID 必须以 `dev.lithe.fixture.` 开头。
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）：两份 schema 的 `$id` 必须等于 docs 仓库的发布地址；契约 README 的相对链接不能离开目录；fixture ID 必须以 `dev.lithe.fixture.` 开头。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib -- declarative_plugins build_systems marketplace_plugins build_runtime_versions`：改名后的 fixture 仍然得到相同的标准答案。
 - `bash scripts/ci/common/test-classify-ci-changes.sh`：主仓库的 CI 分类不再有 `sdk/` 路由。
 - 在 lithe-plugin-docs 运行 `node --test scripts/*.test.mjs` 和 `node scripts/contract.mjs verify --upstream`：同步脚本的测试通过，副本与锁定 commit 的契约目录完全一致。
@@ -210,11 +210,11 @@ npm 是 Node 开发者最熟悉的方式。但插件包安装后没有 `npm inst
 
 - `AGENTS.md`
 - `shared/contracts/plugins/v1/`
-- `scripts/architecture/verify-shared-contracts.sh`
-- `scripts/plugins/plugin-settings-schema.test.mjs`
-- `scripts/rust-core/verify-rust-core-crates.sh`
-- `scripts/ci/common/classify-ci-changes.sh`
-- `.github/workflows/ci-macos.yml`
-- `Plugins/README.md`
+- ~~scripts/architecture/verify-shared-contracts.sh~~（脚本已随旧客户端移除）
+- ~~`scripts/plugins/plugin-settings-schema.test.mjs`~~（已随 #1794 移除）
+- ~~`scripts/rust-core/verify-rust-core-crates.sh`~~（已随 #1794 移除）
+- ~~`scripts/ci/common/classify-ci-changes.sh`~~（脚本已随旧客户端移除）
+- ~~`.github/workflows/ci-macos.yml`~~（已随 #1794 移除）
+- ~~`Plugins/README.md`~~（已随 #1794 移除）
 - `https://github.com/Lithe-IDEA/lithe-plugin-docs`
-- `macos/Tests/LitheTests/Fixtures/BuildSystems/`
+- ~~`macos/Tests/LitheTests/Fixtures/BuildSystems/`~~（已随 #1794 移除）

@@ -38,7 +38,7 @@
 
 ## 验证
 
-- `windows/tauri`: `bun run typecheck` 通过；`bun run build` 通过；`bun run lint` 通过，仅有既有警告。
+- ~~`windows/tauri`~~（已随 #1794 移除）: `bun run typecheck` 通过；`bun run build` 通过；`bun run lint` 通过，仅有既有警告。
 - `src/features/agent` 套件 106 条通过，覆盖计划解析与进度、非法计划忽略、模式同步、思考与正文顺序、搜索分组及 Markdown 导出。
 - 仓库门禁：功能矩阵 `--check`、矩阵变更门禁、`verify-agent-notes.mjs`、`verify-windows-boundaries.ps1`、插件隔离与构建产物扫描均通过。
 - 真机验收仍需在 Windows 上执行：真实 Agent 上报计划、整轮过程默认折叠与手动展开、搜索保持展开、计划模式往返后选择器同步、中英文文案及深浅主题。

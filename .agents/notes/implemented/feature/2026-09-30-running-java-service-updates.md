@@ -52,9 +52,9 @@ JVM agent。Run 保留启动目标和源码路径；更新前重新向 JDT 查�
 ## 验证
 
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 检查双端安装目录只读边界。
-- `./scripts/architecture/verify-shared-contracts.sh` 校验共享契约。
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除） 校验共享契约。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh` 检查测试有界性。
-- `./scripts/macos/test/test-macos.sh` 执行 macOS 工作流测试。
+- ~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除） 执行 macOS 工作流测试。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend`
   执行 Windows 前端测试并记录单测试耗时。
 - 原生验收：启动本地 HTTP 服务，修改方法体并更新，检查响应变化；Debug 检查 PID
@@ -64,8 +64,8 @@ JVM agent。Run 保留启动目标和源码路径；更新前重新向 JDT 查�
 ## 适用范围
 
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug)
-- `macos/Sources/LitheDebugModule/`
-- `macos/Sources/LitheExecutionModule/`
-- `macos/Sources/LitheLanguageIntelligenceModule/`
-- `windows/tauri/src/features/run/`
-- `windows/tauri/src/features/debugger/`
+- ~~`macos/Sources/LitheDebugModule/`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheExecutionModule/`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheLanguageIntelligenceModule/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/run/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/debugger/`~~（已随 #1794 移除）

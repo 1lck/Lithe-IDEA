@@ -158,7 +158,7 @@ Agent 的查询先执行只读目录检测，返回已准入清单、Core 校验
 - `node --test scripts/ide-mcp/test-ide-mcp.mjs` 在先构建辅助程序后验证真实 stdio
   握手、工具发现、结构化结果和可见工具错误。Windows CI 在共享 Rust 测试后
   显式构建 helper 并执行同一协议矩阵，不能仅测试依赖库而遗漏发行平台的 stdio 程序。
-- `./scripts/architecture/verify-shared-contracts.sh`、`./scripts/windows/verify/verify-windows-boundaries.sh`、
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）、
   `./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 验证契约和平台边界。
 - Windows 的 `ide-capabilities.test.ts` 验证旧执行 ID、撤销期间的设置写入、
   设置补丁和共享权限拒绝；macOS 的 `IdeCapabilitiesTests.swift` 验证授权与
@@ -189,13 +189,13 @@ Agent 的查询先执行只读目录检测，返回已准入清单、Core 校验
   的 25 项原生计时通过：损坏 POM 时不激活执行模块即可保存工具链，已有草稿返回忙碌，
   损坏配置保留原字节；旧 Maven 工具和 XML 参数在激活前拒绝。真实 Maven 模块编译约
   2.57 秒。三种真实 stdio 会话、14 项 IDE Host 与 23 项前端测试通过；前端测试运行在
-  macOS Bun，不算 Windows 原生证据。完整 `./scripts/rust-core/verify-rust-core.sh` 用时约 111 秒通过。
+  macOS Bun，不算 Windows 原生证据。完整 ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除） 用时约 111 秒通过。
 
 ## 适用范围
 
 - Lithe-core-rust 锁定修订：[rust/lithe-ide-host/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-ide-host)
 - `shared/contracts/ide-api/v1.md`
-- `macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift`
-- `macos/Sources/LitheModuleAPI/Plugins/IDECapabilities.swift`
-- `windows/tauri/src/features/host-api/`
+- ~~`macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheModuleAPI/Plugins/IDECapabilities.swift`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/host-api/`~~（已随 #1794 移除）
 - `scripts/resources/worktree-resources.json`

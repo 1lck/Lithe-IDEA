@@ -61,9 +61,9 @@ Windows 的中途补充直接复用 Rust host 的 ACP steering 协议；额度�
 
 ## 验证
 
-- `windows/tauri`: `bun run typecheck` 通过；`bun run lint` 与 `bun run build` 通过。
+- ~~`windows/tauri`~~（已随 #1794 移除）: `bun run typecheck` 通过；`bun run lint` 与 `bun run build` 通过。
 - Agent 与 i18n 测试覆盖：steering 的 `injected`、`promptRequired` 单次续发、停止撤销、拒绝与断连，用户回显去重，供应商默认模型与空模型保留。
-- `windows/tauri/tests/agent-provider-editor.test.tsx` 覆盖 Codex TOML/auth JSON 与 Claude settings JSON 的“文本导入 → 直接保存”，确认保存使用导入的模型、地址与密钥，普通设置不含密钥。
+- ~~`windows/tauri/tests/agent-provider-editor.test.tsx`~~（已随 #1794 移除） 覆盖 Codex TOML/auth JSON 与 Claude settings JSON 的“文本导入 → 直接保存”，确认保存使用导入的模型、地址与密钥，普通设置不含密钥。
 - 仓库门禁：功能矩阵 `--check`、矩阵变更门禁、`verify-agent-notes.mjs`、`verify-windows-boundaries.ps1`、测试稳定性检查与 Windows 插件隔离检查均通过。
 - 真机验收仍需在 Windows 上执行：真实 Codex 订阅与 Claude API Key 的输出中补充、工具执行中补充、等待授权时补充、斜杠命令续发；额度圆环颜色与悬停卡片；登录、取消与 API Key 切换。
 

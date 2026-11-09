@@ -111,7 +111,7 @@ Equinox（JDT LS 使用的 OSGi 框架，负责加载插件）会往 `-configura
   完成导入、构建、classpath 解析后，断言安装目录的文件清单和大小与启动前一致，
   并且 `org.eclipse.osgi` 出现在缓存配置区。临时恢复旧行为时，这个断言会因为安装包
   配置目录里多出 `org.eclipse.osgi` 等目录而失败。
-- `./scripts/rust-core/verify-rust-core.sh`
+- ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 
@@ -122,7 +122,7 @@ Equinox（JDT LS 使用的 OSGi 框架，负责加载插件）会往 `-configura
 - 已迁出：原 `rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
 - `shared/contracts/rust-core-api.md`
 - `scripts/macos/verify/verify-runtime-bundle-immutability.sh`
-- `scripts/macos/verify/verify-macos-app-build-safety.sh`
-- `scripts/macos/test/test-macos.sh`
+- ~~`scripts/macos/verify/verify-macos-app-build-safety.sh`~~（已随 #1794 移除）
+- ~~`scripts/macos/test/test-macos.sh`~~（已随 #1794 移除）
 - `.agents/skills/develop-lithe/SKILL.md`
 - `docs/architecture/macos-updates.md`

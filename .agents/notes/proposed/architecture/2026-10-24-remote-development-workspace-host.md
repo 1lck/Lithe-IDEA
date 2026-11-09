@@ -88,7 +88,7 @@ Linux 静态版用 Rust 自带的 `rust-lld` 链接，在 macOS 和 Linux 上都
 
 开发者需要遵守的动作：
 
-- `scripts/remote/verify-remote-workspace.sh --static` 会构建两个 Linux 静态版，超过 1.5 MiB 就失败。要提高上限，必须先在本 Note 里写明实测原因。
+- ~~`scripts/remote/verify-remote-workspace.sh --static`~~（脚本已随旧客户端移除） 会构建两个 Linux 静态版，超过 1.5 MiB 就失败。要提高上限，必须先在本 Note 里写明实测原因。
 - 给服务加依赖前先量体积。异步运行时（如 tokio）、HTTP 库、正则库这类大依赖，只有在实测证明标准库线程做不到时才考虑。
 - 功能留在客户端能做的，就不要放进服务，例如解析项目结构、计算 diff、渲染。服务只提供主机必须提供的能力：文件、进程、终端、监听、端口。
 - 不要在服务里内嵌语言服务器、JDK 这类大资源。它们按插件单独上传，按需安装。

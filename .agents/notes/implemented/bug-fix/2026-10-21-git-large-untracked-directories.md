@@ -86,12 +86,12 @@ LazyVStack {
 ## 验证
 
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib untracked`
-- `./scripts/macos/test/test-macos.sh --filter 'GitChangeSectionsCacheTests|GitLocalChangelistsTests|treeStatus|untrackedDirectorySummary|GitStatusObservationTests'`
-- `./scripts/rust-core/verify-rust-core.sh`
-- `./scripts/architecture/verify-service-boundaries.sh`
+- ~~./scripts/macos/test/test-macos.sh --filter 'GitChangeSectionsCacheTests|GitLocalChangelistsTests|treeStatus|untrackedDirectorySummary|GitStatusObservationTests'~~（随旧客户端移除）
+- ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
-- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- ~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 
 实机验收步骤见功能矩阵 `git-large-untracked-directories`。组件测试不能替代真实仓库下的滚动和帧率检查。
@@ -100,11 +100,11 @@ LazyVStack {
 
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/untracked_directories.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/untracked_directories.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/mod.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/mod.rs)
-- `macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`
-- `macos/Sources/LitheGitModule/Models/GitModels.swift`
-- `macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift`
-- `macos/Sources/Lithe/Views/Git/GitChangeSectionsCache.swift`
-- `windows/tauri/src/features/git/api/git-status-api.ts`
-- `windows/tauri/src/features/git/services/git-untracked-directory-expansions.ts`
-- `windows/tauri/src/features/git/utils/git-untracked-directories.ts`
-- `windows/tauri/src/features/git/components/status/git-status-panel.tsx`
+- ~~`macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheGitModule/Models/GitModels.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/GitChangeSectionsCache.swift`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/git/api/git-status-api.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/git/services/git-untracked-directory-expansions.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/git/utils/git-untracked-directories.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/git/components/status/git-status-panel.tsx`~~（已随 #1794 移除）

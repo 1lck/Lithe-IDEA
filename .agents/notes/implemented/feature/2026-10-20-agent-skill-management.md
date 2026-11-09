@@ -81,8 +81,8 @@ Windows 已能使用共享 Core 与 Host 操作，但设置页面和真实 Windo
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AgentSkillsFeatureModelTests|AgentSkillsRustBridgeTests|AgentSkillsAppearanceTests|SettingsSidebarLayoutTests|SettingsSearchVocabularyTests'`
 - `node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs --manifest rust/Cargo.toml --package lithe-agent-host --report .artifacts/test-stability/agent-skills-rust.json`
 - Windows 在原生 CI 中运行相同 Host 测试，覆盖暂存后出现的空目录、普通文件和非空目录都不覆盖，缺失的 Unicode 目标完整发布，以及 NUL 路径不按截断名称发布。这些文件系统用例不等于 Windows 设置页或真实 Agent 会话验收。
-- `./scripts/architecture/verify-shared-contracts.sh`
-- `./scripts/architecture/verify-service-boundaries.sh`
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
@@ -95,8 +95,8 @@ Windows 已能使用共享 Core 与 Host 操作，但设置页面和真实 Windo
 - Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/skills/files.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/skills/files.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/skills/settings.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/skills/settings.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/agent/mod.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/agent/mod.rs)
-- `macos/Sources/LitheCoreContracts/Agent/AgentSkills.swift`
-- `macos/Sources/Lithe/Application/Features/AgentSkillsFeatureModel.swift`
-- `macos/Sources/Lithe/Views/Agent/AgentSkillsSettingsView.swift`
-- `macos/Sources/Lithe/Views/Agent/AgentSkillSheets.swift`
+- ~~`macos/Sources/LitheCoreContracts/Agent/AgentSkills.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/AgentSkillsFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Agent/AgentSkillsSettingsView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Agent/AgentSkillSheets.swift`~~（已随 #1794 移除）
 - `shared/fixtures/agent/skills-management-v1.json`

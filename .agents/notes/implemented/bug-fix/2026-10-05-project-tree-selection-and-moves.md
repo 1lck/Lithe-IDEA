@@ -141,7 +141,7 @@ Windows 现已加入 Ctrl/Shift 可见范围多选、批量复制/剪切/删除�
   输入框和无效目标隔离；真实 WebView2 焦点及四项修复的完整 Windows 构建另行验收。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'ProjectTree|batchMove'`
-- `./scripts/architecture/verify-service-boundaries.sh`
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
@@ -174,29 +174,29 @@ Windows 现已加入 Ctrl/Shift 可见范围多选、批量复制/剪切/删除�
 
 以下路径位于[迁移前的 preview 修订](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36)，不代表当前工作树仍有这些实现。
 
-- `windows/tauri/src/features/keymaps/hooks/use-file-open-target.ts`
-- `windows/tauri/src/features/global-search/components/global-search-buffer.tsx`
-- `windows/tauri/src/features/global-search/components/global-search-results.tsx`
-- `windows/tauri/src/features/global-search/components/search-excerpt-results.tsx`
-- `windows/tauri/src/features/global-search/components/f4-file-navigation.integration.test.tsx`
-- `windows/tauri/src/features/file-explorer/components/file-explorer-tree.tsx`
-- `windows/tauri/src/features/file-explorer/hooks/use-file-explorer-sync.ts`
-- `windows/tauri/src/features/file-explorer/components/file-explorer-reveal.test.tsx`
-- `windows/tauri/src/features/file-explorer/hooks/use-file-explorer-drag-drop.ts`
-- `windows/tauri/src/features/file-explorer/hooks/use-file-explorer-context-menu.tsx`
-- `windows/tauri/src/features/file-explorer/hooks/use-file-explorer-drag-drop.test.tsx`
-- `windows/tauri/src/features/file-explorer/components/file-explorer-selection.test.tsx`
-- `windows/tauri/src/features/sidebar/utils/tree-selection.ts`
+- ~~`windows/tauri/src/features/keymaps/hooks/use-file-open-target.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/global-search/components/global-search-buffer.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/global-search/components/global-search-results.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/global-search/components/search-excerpt-results.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/global-search/components/f4-file-navigation.integration.test.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/file-explorer/components/file-explorer-tree.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/file-explorer/hooks/use-file-explorer-sync.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/file-explorer/components/file-explorer-reveal.test.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/file-explorer/hooks/use-file-explorer-drag-drop.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/file-explorer/hooks/use-file-explorer-context-menu.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/file-explorer/hooks/use-file-explorer-drag-drop.test.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/file-explorer/components/file-explorer-selection.test.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/sidebar/utils/tree-selection.ts`~~（已随 #1794 移除）
 
-- `macos/Sources/Lithe/Models/AppModel/AppModel+SearchModule.swift`
-- `macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift`
-- `macos/Sources/Lithe/Views/Workspace/ProjectTreeSelection.swift`
-- `macos/Sources/Lithe/Platform/MacOS/UI/ProjectTreeRowInteraction.swift`
-- `macos/Sources/Lithe/Platform/MacOS/UI/ProjectTreeKeyboardCommands.swift`
-- `macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift`
-- `macos/Tests/LitheTests/ProjectTreeSelectionTests.swift`
-- `macos/Tests/LitheTests/ProjectTreeBatchFileWorkflowTests.swift`
-- `macos/Tests/LitheTests/LitheCoreLogicTests.swift`
+- ~~`macos/Sources/Lithe/Models/AppModel/AppModel+SearchModule.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Workspace/ProjectTreeSelection.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/UI/ProjectTreeRowInteraction.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/UI/ProjectTreeKeyboardCommands.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/ProjectTreeSelectionTests.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/ProjectTreeBatchFileWorkflowTests.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/LitheCoreLogicTests.swift`~~（已随 #1794 移除）
 
 ## 适用范围
 

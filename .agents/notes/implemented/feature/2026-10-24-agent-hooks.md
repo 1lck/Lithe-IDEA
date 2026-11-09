@@ -120,11 +120,11 @@ Swift 功能模型负责草稿与 UI 状态，Rust Core 负责严格命令分派
   Swift 桥接与 TypeScript 请求测试共同读取，固定每个字段码。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AgentHooks|SettingsSidebarLayoutTests|SettingsSearchVocabularyTests|ContextMenuCoverageTests'`。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`./scripts/architecture/verify-service-boundaries.sh`、
-  `./scripts/architecture/verify-shared-contracts.sh`、`./scripts/agent-notes/verify-agent-notes.sh`、
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`、~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）、
+  ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、`./scripts/agent-notes/verify-agent-notes.sh`、
   `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
 - `node --test scripts/resources/test-reuse-worktree-resources.mjs`。
-- `./scripts/rust-core/verify-rust-core.sh` 全量通过，含 1,157 项 Core 单元测试、C ABI、
+- ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除） 全量通过，含 1,157 项 Core 单元测试、C ABI、
   链接符号和 Git/Swift 桥接；更新后的实际 macOS 开发预览已确认 AI > Hooks 入口。
 - 本机隔离用户目录 smoke：Codex 0.160.0 通过原生 `hooks/list` 识别生成
   的配置，初始保持未信任，临时目录中显式设置原生信任后首轮触发
@@ -171,7 +171,7 @@ Swift 功能模型负责草稿与 UI 状态，Rust Core 负责严格命令分派
 - Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/hooks.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/hooks.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/hooks/storage.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/hooks/storage.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/agent/hooks.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/agent/hooks.rs)
-- `macos/Sources/Lithe/Views/Agent/AgentHooksSettingsView.swift`
-- `macos/Sources/Lithe/Application/Features/AgentHooksFeatureModel.swift`
-- `windows/tauri/src/features/settings/components/tabs/agent-hooks-settings.tsx`
+- ~~`macos/Sources/Lithe/Views/Agent/AgentHooksSettingsView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/AgentHooksFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/settings/components/tabs/agent-hooks-settings.tsx`~~（已随 #1794 移除）
 - `shared/fixtures/agent/hooks-management-v1.json`

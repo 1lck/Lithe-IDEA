@@ -81,7 +81,7 @@ languageID 对应描述元数据已有的 `languageServerLaunch.executableNames`
 本次没有新缓存目录、下载或安装资源写入，运行时只读发行基线不变。
 
 LSP 子进程、stdio、JSON-RPC 状态机、文档版本、请求 deadline、诊断和
-结果归一化统一收归 Rust Core（[`rust/lithe-core/src/lsp/`](../../../../rust/lithe-core/src/lsp/)），
+结果归一化统一收归 Rust Core（`rust/lithe-core/src/lsp/`（已随 #1794 移除）），
 平台 adapter 只负责可执行文件与运行环境发现。Swift 只保留 UI 投影和
 由不透明 operation ID 标识的应用层完成回调，不再持有 LSP 请求 ID、
 原始 JSON、framing 缓冲区、子进程句柄或文档 open 状态的真值。
@@ -254,7 +254,7 @@ Git 失败保留日志并允许语言服务继续，沿用底层操作的有界�
 ### Catalog 与工具发现边界
 
 内置 provider catalog 位于
-[`rust/lithe-core/resources/lsp/language-providers.json`](../../../../rust/lithe-core/resources/lsp/language-providers.json)，
+`rust/lithe-core/resources/lsp/language-providers.json`（已随 #1794 移除），
 项目可通过 `.lithe/lsp/language-providers.json` 按 `id` 覆盖字段、
 新增 provider 或用 `disabled: true` 禁用；格式由
 [`docs/reference/language-providers.schema.json`](../../../../docs/reference/language-providers.schema.json)
@@ -391,9 +391,9 @@ frame 缓冲区、open-document 集合、pending LSP 请求或语言服务器子
 进程。
 
 真实 gopls 集成验证见
-[`macos/Tests/LitheTests/RealGoplsIntegrationTests.swift`](../../../../macos/Tests/LitheTests/RealGoplsIntegrationTests.swift)
+`macos/Tests/LitheTests/RealGoplsIntegrationTests.swift`（已随 #1794 移除）
 头部注释里的运行方式和所需环境变量。接入新语言服务器的检查清单见
-[`rust/lithe-core/src/lsp/languages/catalog.rs`](../../../../rust/lithe-core/src/lsp/languages/catalog.rs)
+`rust/lithe-core/src/lsp/languages/catalog.rs`（已随 #1794 移除）
 头部注释。
 
 ## 适用范围
@@ -401,9 +401,9 @@ frame 缓冲区、open-document 集合、pending LSP 请求或语言服务器子
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/resources/lsp/language-providers.json](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/resources/lsp/language-providers.json)
 - `docs/reference/language-providers.schema.json`
-- `macos/Sources/LitheLanguageIntelligenceModule/`
-- `macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift`
-- `macos/Sources/Lithe/Core/Ports/LanguageTooling.swift`
-- `macos/Tests/LitheTests/RealGoplsIntegrationTests.swift`
-- `windows/tauri/src/features/editor/lsp/`
-- `windows/tauri/src/features/workspace/services/workspace-git-bootstrap.ts`
+- ~~`macos/Sources/LitheLanguageIntelligenceModule/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Core/Ports/LanguageTooling.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/RealGoplsIntegrationTests.swift`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/editor/lsp/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/workspace/services/workspace-git-bootstrap.ts`~~（已随 #1794 移除）

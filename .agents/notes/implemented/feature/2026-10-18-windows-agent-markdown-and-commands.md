@@ -43,7 +43,7 @@
 
 - Markdown 链接解析测试显式加入 Windows Agent CI 套件，和 Agent/编辑区测试一起记录逐项计时；不能只在本机运行而遗漏工作流入口。
 
-- `windows/tauri`: `bun run typecheck` 通过；`bun run lint` 通过，仅有既有警告。
+- ~~`windows/tauri`~~（已随 #1794 移除）: `bun run typecheck` 通过；`bun run lint` 通过，仅有既有警告。
 - `src/features/agent`、`src/i18n` 与 `src/utils/markdown-links.test.ts` 共 131 条通过，覆盖链接分类、命令触发与按键状态机、命令解析去重、轮次切分与预览截断、footer 复制文本以及原有连接与统计套件。
 - 仓库门禁：功能矩阵 `--check`、矩阵变更门禁、`verify-agent-notes.mjs`、`verify-windows-boundaries.ps1` 均通过。
 - 真机验收仍需在 Windows 上执行：表格复制到文本编辑器与表格软件、文件链接定位、`/`、`$` 与中文输入法触发、方向键与 Tab、长列表滚动、轮次轨道悬停与跳转、深浅主题与窄宽面板。

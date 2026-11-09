@@ -135,7 +135,7 @@ Claude Code 会在会话开始时自己发一次“起标题”请求（系统�
 ## 验证
 
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-agent-host model_`：压缩/分片与字节级透传、预热不计数、完整/增量上下文、未知前序降级、超限及连接清理；三种协议的 SSE/非流式解析、格式漂移降级、上下文分配、代理透传（含 API Key 头与响应字节不变）、令牌路径隔离、上游不可达，以及会话归属与 `modelCall` 事件形状。
-- `./scripts/macos/test/test-macos.sh --filter "AgentConversationFeatureModelTests|AgentConversationPresentationTests|AgentSessionSelectorLayoutTests|WorkbenchHoverTooltipTests"`：模型调用聚合、未归属事件丢弃、工具与授权用时只计一次、重新加载后按已保存合计继续累加且不重复计数、辅助请求不抵消缺失 usage、只有辅助请求时的 Token 显示与持久化、旧统计文档兼容、损坏文档与 200 条上限、ACP 用量的缓存口径判断，以及悬停卡片布局。
+- ~~./scripts/macos/test/test-macos.sh --filter "AgentConversationFeatureModelTests|AgentConversationPresentationTests|AgentSessionSelectorLayoutTests|WorkbenchHoverTooltipTests"~~（随旧客户端移除）：模型调用聚合、未归属事件丢弃、工具与授权用时只计一次、重新加载后按已保存合计继续累加且不重复计数、辅助请求不抵消缺失 usage、只有辅助请求时的 Token 显示与持久化、旧统计文档兼容、损坏文档与 200 条上限、ACP 用量的缓存口径判断，以及悬停卡片布局。
 - `node --test scripts/agent/test-codex-config-relay.mjs`：订阅路由证明、未知/受限/失败/迟到账户结果不得开启观察，账户变更关闭连接。
 - 原生订阅集成测试（显式设置 LITHE_CODEX_OBSERVATION_CLI 后运行忽略测试）：隔离 CODEX_HOME、假凭据、本地假账户与模型服务，经过真实原生中继完成两轮 WebSocket 请求，确认预热排除、用量与上下文构成；不调用真实模型。
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：代理不向安装目录写入任何内容。
@@ -150,6 +150,6 @@ Claude Code 会在会话开始时自己发一次“起标题”请求（系统�
 - Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/lib.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/lib.rs)
 - `shared/fixtures/agent/acp-events-v1.json`
 - `shared/contracts/rust-core-api.md`
-- `macos/Sources/LitheAgentConversationModule/Application/AgentModelCall.swift`
-- `macos/Sources/LitheAgentConversationModule/Application/AgentSessionStatistics.swift`
-- `macos/Sources/Lithe/Views/Agent/AgentSessionStatusView.swift`
+- ~~`macos/Sources/LitheAgentConversationModule/Application/AgentModelCall.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheAgentConversationModule/Application/AgentSessionStatistics.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Agent/AgentSessionStatusView.swift`~~（已随 #1794 移除）

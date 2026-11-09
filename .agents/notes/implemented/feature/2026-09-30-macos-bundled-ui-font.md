@@ -68,7 +68,7 @@ Nerd Font Mono；常规、粗体、斜体、粗斜体下的圆弧、箭头、Git
 直接来自同一个文字字型，避免系统缺字或不匹配的回退度量。
 设置 `LITHE_TERMINAL_CAPTURE_DIR` 可捕获真实 SwiftTerm 的明暗 CoreGraphics 样图；
 该样图不代替 Metal 实机验收。2026-10-07 在重新构建的预览中确认 Metal 终端的
-Starship 圆弧、箭头、Git/Bun 图标正常，用户随后明确确认已修复。运行 `./scripts/macos/test/test-macos.sh --filter BundledUIFontTests`、
+Starship 圆弧、箭头、Git/Bun 图标正常，用户随后明确确认已修复。运行 ~~./scripts/macos/test/test-macos.sh --filter BundledUIFontTests~~（随旧客户端移除）、
 `node scripts/resources/test-reuse-worktree-resources.mjs` 和 `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`。
 
 ### 原生 Diff 的编辑器字体与中央行号
@@ -238,7 +238,7 @@ node scripts/resources/test-reuse-worktree-resources.mjs
 ./scripts/agent-notes/verify-agent-notes.sh
 ```
 
-完整安装包由 `scripts/macos/verify/verify-macos-package.sh` 检查全部字型及许可信息。
+完整安装包由 ~~scripts/macos/verify/verify-macos-package.sh~~（随旧客户端移除） 检查全部字型及许可信息。
 本次字体注册/字重与明暗弹窗圆角渲染测试通过；按用户要求不启动预览，当前运行界面的视觉验收尚未完成。Windows 原生界面不在本次验证范围内。
 
 此次标题/工具栏修正的主 `LitheTests` 目标报告 1,379 项 / 178 个 suite 成功，
@@ -255,11 +255,11 @@ node scripts/resources/test-reuse-worktree-resources.mjs
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Theme/LitheTheme.swift`
-- `macos/Sources/Lithe/Platform/MacOS/UI/MacBundledFontRegistry.swift`
-- `macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift`
-- `macos/EditorFrontend`
-- `macos/Resources/Fonts`
+- ~~`macos/Sources/Lithe/Theme/LitheTheme.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/UI/MacBundledFontRegistry.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift`~~（已随 #1794 移除）
+- ~~`macos/EditorFrontend`~~（已随 #1794 移除）
+- ~~`macos/Resources/Fonts`~~（已随 #1794 移除）
 - `scripts/resources/worktree-resources.json`
 
 

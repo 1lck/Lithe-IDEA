@@ -87,7 +87,7 @@ Windows 尚未实现该模式，功能矩阵单独标记缺失。
 
 ## 适用范围
 
-- `macos/Sources/LitheDebugModule/Application/DebugVariableJSONSnapshot.swift`
-- `macos/Sources/LitheDebugModule/Application/GenericDebugFeatureModel.swift`
-- `macos/Sources/Lithe/Views/Debug/DebugVariableJSONView.swift`
-- `macos/Sources/Lithe/Views/Debug/GenericDebugView.swift`
+- ~~`macos/Sources/LitheDebugModule/Application/DebugVariableJSONSnapshot.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheDebugModule/Application/GenericDebugFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Debug/DebugVariableJSONView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Debug/GenericDebugView.swift`~~（已随 #1794 移除）

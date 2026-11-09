@@ -93,28 +93,28 @@ Provider 自身负责服务器与工作副本的原子性，宿主不保证其�
 
 ## 验证
 
-- `macos/Tests/LitheTests/VcsProviderHostTests.swift`：真实菜单回调、精确排序批次、能力缺失、嵌套和歧义根、
+- ~~`macos/Tests/LitheTests/VcsProviderHostTests.swift`~~（已随 #1794 移除）：真实菜单回调、精确排序批次、能力缺失、嵌套和歧义根、
   异步所有权过期、操作互斥与重置后的迟到结果、废纸篓前重新发现确认期间新增的嵌套根；同文件的
   `VcsProviderAppModelTests` 覆盖新标签请求生命周期，以及真实 Git 目录删除避开 Provider 歧义根和确认期间新增的根。
-- `macos/Tests/LitheTests/CommitFileDeletionTests.swift`：取消、替换、同意重放、同步输入后脏/过期/取消/失败，
+- ~~`macos/Tests/LitheTests/CommitFileDeletionTests.swift`~~（已随 #1794 移除）：取消、替换、同意重放、同步输入后脏/过期/取消/失败，
   Provider 批次、首错停止和干净文档清理；原生窗口 Escape/关闭及实际按钮分别验证取消和确认。
-- `macos/Tests/LitheTests/GitStatusObservationTests.swift`：真实 Git 仓库中的提交准备、废纸篓动作前新嵌套仓库保护；
+- ~~`macos/Tests/LitheTests/GitStatusObservationTests.swift`~~（已随 #1794 移除）：真实 Git 仓库中的提交准备、废纸篓动作前新嵌套仓库保护；
   删除后清理缺失新增项、部分失败时保留未删除项、保留普通跟踪删除与无关部分暂存，以及复制来源保护。
-- `macos/Tests/LitheGitModuleTests/GitModuleTests.swift`：本次操作的根先发布状态、不等待工作区解冻、
+- ~~`macos/Tests/LitheGitModuleTests/GitModuleTests.swift`~~（已随 #1794 移除）：本次操作的根先发布状态、不等待工作区解冻、
   不扫描同级仓库；竞争写入、旧快照、跨根批次部分请求替代、父/子模型独立展开及迟到结果、读取失败和重置隔离。
 - 使用 `write-stable-tests` 的 macOS 计时入口生成逐项 HTML/JUnit；中英文明暗截图用携带当前语言、字体和图标的临时宿主。
-- `./scripts/architecture/verify-service-boundaries.sh`、`./scripts/architecture/verify-shared-contracts.sh`、
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）、~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、
   `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`./scripts/agent-notes/verify-agent-notes.sh`、
   `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh` 和共享 i18n 检查。
 - fake Provider 与原生组件不替代真实 SVN 插件整机验收；Windows 未实现这些新增 macOS 入口，矩阵验证保持 pending。
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Application/Features/CommitFileDeletionFeatureModel.swift`
-- `macos/Sources/Lithe/Application/Features/VcsProvidersFeatureModel.swift`
-- `macos/Sources/Lithe/Models/AppModel/AppModel+GitOperations.swift`
-- `macos/Sources/Lithe/Models/AppModel/AppModel+VcsProviders.swift`
-- `macos/Sources/Lithe/Views/Git/CommitFileDeletionPresentation.swift`
-- `macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift`
-- `macos/Sources/Lithe/Views/Git/GitWorktreeChangesView.swift`
-- `macos/Sources/Lithe/Views/Vcs/VcsProviderToolWindowView.swift`
+- ~~`macos/Sources/Lithe/Application/Features/CommitFileDeletionFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/VcsProvidersFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Models/AppModel/AppModel+GitOperations.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Models/AppModel/AppModel+VcsProviders.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/CommitFileDeletionPresentation.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/GitWorktreeChangesView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Vcs/VcsProviderToolWindowView.swift`~~（已随 #1794 移除）

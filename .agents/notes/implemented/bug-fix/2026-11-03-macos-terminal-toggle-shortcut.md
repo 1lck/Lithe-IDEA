@@ -33,6 +33,6 @@ macOS 事件监听器复用当前有效注册，先识别命令；终端持有�
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Platform/MacOS/UI/MacShortcutDetector.swift`
-- `macos/Tests/LitheTests/TerminalShortcutInputPolicyTests.swift`
+- ~~`macos/Sources/Lithe/Platform/MacOS/UI/MacShortcutDetector.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/TerminalShortcutInputPolicyTests.swift`~~（已随 #1794 移除）
 - `shared/platform-feature-matrix/features/terminal-interaction.json`

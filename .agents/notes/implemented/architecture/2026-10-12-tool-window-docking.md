@@ -79,8 +79,8 @@ macOS 的工具窗口位置由工作台维护，功能模块继续维护自己�
 ## 验证
 
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
-- `./scripts/macos/test/test-macos.sh --filter 'ToolWindowDockingTests|WorkbenchFeatureModelTests|WorkbenchMavenLayoutTests'`
-- `./scripts/architecture/verify-service-boundaries.sh`
+- ~~./scripts/macos/test/test-macos.sh --filter 'ToolWindowDockingTests|WorkbenchFeatureModelTests|WorkbenchMavenLayoutTests'~~（随旧客户端移除）
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
@@ -90,12 +90,12 @@ macOS 的工具窗口位置由工作台维护，功能模块继续维护自己�
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Application/Features/WorkbenchFeatureModel.swift`
-- `macos/Sources/Lithe/Services/Workbench/WorkbenchLayoutStore.swift`
-- `macos/Sources/Lithe/Views/Workbench/`
-- `macos/Tests/LitheTests/ToolWindowDockingTests.swift`
-- `windows/tauri/src/features/layout/components/terminal-dock-layout.tsx`
-- `windows/tauri/src/features/layout/components/bottom-pane/bottom-pane.tsx`
+- ~~`macos/Sources/Lithe/Application/Features/WorkbenchFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Services/Workbench/WorkbenchLayoutStore.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Workbench/`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/ToolWindowDockingTests.swift`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/layout/components/terminal-dock-layout.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/layout/components/bottom-pane/bottom-pane.tsx`~~（已随 #1794 移除）
 
 ## Windows 终端入口拖动与左、右、底部停靠
 

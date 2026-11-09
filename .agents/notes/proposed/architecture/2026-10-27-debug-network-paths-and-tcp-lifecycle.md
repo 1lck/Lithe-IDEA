@@ -84,15 +84,15 @@ IDE -- DAP（调试适配器协议，stdio 或 TCP）--> 调试适配器
 
 ## 验证
 
-原提案阶段仅补充设计；TCP 实现与验证入口以已实现决策为准。维护本提案时运行 `./scripts/agent-notes/verify-agent-notes.sh`、`./scripts/architecture/verify-shared-contracts.sh`、`./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh` 和 `git diff --check`，不据此声称有运行时连接证据。
+原提案阶段仅补充设计；TCP 实现与验证入口以已实现决策为准。维护本提案时运行 `./scripts/agent-notes/verify-agent-notes.sh`、~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、`./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh` 和 `git diff --check`，不据此声称有运行时连接证据。
 
 后续实现先加载 `write-stable-tests`，用可控 socket 和有界等待覆盖验收标准，再执行对应平台测试与真实适配器流程；同步平台功能矩阵，验证发行包只读，清理本次启动的所有进程。
 
 ## 适用范围
 
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug)
-- `macos/Sources/Lithe/Platform/MacOS/Debug/`
-- `windows/tauri/src-tauri/src/debug.rs`
+- ~~`macos/Sources/Lithe/Platform/MacOS/Debug/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src-tauri/src/debug.rs`~~（已随 #1794 移除）
 - `shared/contracts/plugins/v1/`
 - Lithe-core-rust 锁定修订：[rust/lithe-remote/src/client/transport.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/client/transport.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-remote/src/client/forward.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/client/forward.rs)

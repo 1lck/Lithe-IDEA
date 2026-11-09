@@ -199,7 +199,7 @@ IDEA 的 [BranchesTreeComponent](https://github.com/JetBrains/intellij-community
 
 ## 验证
 
-- `./scripts/architecture/verify-service-boundaries.sh`
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
 - `git diff --check`
 - 相关 macOS 或 Windows 产品构建
 - Windows 标签滚轮行为测试：
@@ -231,11 +231,11 @@ IDEA 的 [BranchesTreeComponent](https://github.com/JetBrains/intellij-community
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Views/`
-- `macos/Sources/Lithe/Theme/`
-- `windows/tauri/src/features/`
-- `windows/tauri/src/ui/`
-- `macos/Tests/LitheTests/`
+- ~~`macos/Sources/Lithe/Views/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Theme/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/ui/`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/`~~（已随 #1794 移除）
 
 ### 编辑器标签的浮动拖动预览
 

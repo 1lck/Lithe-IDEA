@@ -86,13 +86,13 @@ leading padding 降为 0，退出全屏后自动恢复预留，行为对齐 IDEA
 - 手工验证：启动应用，点击主窗口绿色按钮，确认进入独立全屏 Space（窗口
   `styleMask` 出现 `.fullScreen`、frame 覆盖整屏），再次点击或按 Esc 退出后
   窗口回到原位置。
-- 回归检查：`./scripts/macos/test/test-macos.sh`（CI 执行）；本地受 Swift 6.2.4 工具链
+- 回归检查：~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除）（CI 执行）；本地受 Swift 6.2.4 工具链
   类型检查超时限制无法完整编译时，以 CI 结果为准。
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Views/App/RootView.swift`
-- `macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift`（工作台顶栏的全屏态留白）
-- `macos/Tests/LitheTests/WindowFullScreenCapabilityGuardTests.swift`
+- ~~`macos/Sources/Lithe/Views/App/RootView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift`~~（已随 #1794 移除）（工作台顶栏的全屏态留白）
+- ~~`macos/Tests/LitheTests/WindowFullScreenCapabilityGuardTests.swift`~~（已随 #1794 移除）
 - 仅覆盖经由 `RootView` 呈现的主窗口（欢迎页、项目工作台、独立文件窗口）。
   设置窗口与软件更新窗口不经过 `RootView`，不受本守卫影响。

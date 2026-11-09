@@ -85,5 +85,5 @@ WebKit 预览，证明原生模态验证没有污染后续用例。
 
 ## 适用范围
 
-`Package.swift`、`scripts/macos/test/test-macos.sh`、`macos/Tests/LitheTestDesktopIsolation/`、
+`Package.swift`、~~scripts/macos/test/test-macos.sh~~（随旧客户端移除）、`macos/Tests/LitheTestDesktopIsolation/`、
 `macos/Tests/LitheTestDesktopIsolationTests/` 和 `macos/Tests/LitheTests/`。

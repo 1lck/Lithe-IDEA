@@ -77,8 +77,8 @@ Windows Quick Open（双击 Shift）也复用同一份索引：在默认搜索�
 - `cd windows/tauri && bun test src/features/quick-open/hooks/use-quick-open.test.tsx src/features/quick-open/utils/endpoint-results.test.ts`
 - `cd windows/tauri && bun run typecheck`
 - `node .agents/skills/write-stable-tests/scripts/verify-test-stability.mjs --platform windows`
-- `./scripts/windows/verify/verify-windows-boundaries.sh`
-- `./scripts/architecture/verify-shared-contracts.sh`
+- ~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 - Windows 实机验证：打开 Spring 项目，用命令面板进入接口列表，筛选并点击接口；
@@ -86,8 +86,8 @@ Windows Quick Open（双击 Shift）也复用同一份索引：在默认搜索�
 
 ## 适用范围
 
-- `windows/tauri/src/features/spring/`
-- `windows/tauri/src/features/quick-open/`
-- `windows/tauri/src/features/file-system/services/file-watcher-listener.ts`
-- `windows/tauri/src/features/layout/components/bottom-pane/bottom-pane.tsx`
+- ~~`windows/tauri/src/features/spring/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/quick-open/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/file-system/services/file-watcher-listener.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/layout/components/bottom-pane/bottom-pane.tsx`~~（已随 #1794 移除）
 - `shared/contracts/rust-core-api.md`

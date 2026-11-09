@@ -29,8 +29,8 @@ properties由Monaco的ini tokenizer处理，不能依赖Java或YAML语言服务�
 
 ## 适用范围
 
-- `windows/tauri/src/features/spring/hooks/use-spring-index.ts`
-- `windows/tauri/src/features/spring/hooks/use-spring-index.test.tsx`
-- `windows/tauri/src/features/spring/utils/spring-property-completion.ts`
-- `windows/tauri/src/features/spring/utils/spring-property-completion.test.ts`
-- `windows/tauri/src/features/editor/engines/monaco/lsp-providers.ts`
+- ~~`windows/tauri/src/features/spring/hooks/use-spring-index.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/spring/hooks/use-spring-index.test.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/spring/utils/spring-property-completion.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/spring/utils/spring-property-completion.test.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/editor/engines/monaco/lsp-providers.ts`~~（已随 #1794 移除）

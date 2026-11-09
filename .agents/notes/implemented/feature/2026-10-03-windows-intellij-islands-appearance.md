@@ -111,10 +111,10 @@ IntelliJ 用 Java2D 的 `arc`（圆角直径）描述圆角：卡片 `Island.arc
 
 ## 适用范围
 
-- `windows/tauri/src/extensions/themes/builtin/lithe.json`
-- `windows/tauri/src/styles/`
-- `windows/tauri/src/ui/tab-bar.tsx`
-- `windows/tauri/src/features/tabs/`
-- `windows/tauri/src/features/window/`
-- `windows/tauri/src/features/git/utils/diff-buffer-label.ts`
-- `macos/Sources/Lithe/Views/Workspace/ProjectIdentityAppearance.swift`（只作为颜色算法的对照，本次未修改）
+- ~~`windows/tauri/src/extensions/themes/builtin/lithe.json`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/styles/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/ui/tab-bar.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/tabs/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/window/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/git/utils/diff-buffer-label.ts`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Workspace/ProjectIdentityAppearance.swift`~~（已随 #1794 移除）（只作为颜色算法的对照，本次未修改）

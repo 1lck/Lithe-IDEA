@@ -496,7 +496,7 @@ Windows 连接桥已接入共享 Host，面板 UI 也已落地（活动栏入口
 - 真实模型切换集成测试必须选择不同的上游模型值，并在确认后发送最小消息，不能仅对当前值做一次成功往返。后续选项取自最新确认的目录；例如 Claude 切到 Haiku 后不再提供思考强度，应验证该能力消失，不向它发送旧目录里的 effort 选项。
 - 真实 Agent 端到端测试默认忽略，需要设置 `LITHE_ACP_E2E_*` 环境变量后运行：`cargo test -p lithe-agent-host --test real_agent -- --ignored`。设置 `LITHE_ACP_E2E_DATA_DIR` 时，会先用 npm 安装适配器，再从 Lithe 数据目录启动。
 - `shared/fixtures/agent/acp-events-v1.json` 同时由 Rust 序列化测试和 Swift 功能模型测试读取。
-- `macos/Tests/LitheTests/AgentConversationEntryPolicyTests.swift` 使用真实模块运行时覆盖默认关闭、启用和再次关闭，验证静态入口及 action/renderer 绑定可用、不重复、不提前调用 factory，其他关闭模块不会跟着暴露。
+- ~~`macos/Tests/LitheTests/AgentConversationEntryPolicyTests.swift`~~（已随 #1794 移除） 使用真实模块运行时覆盖默认关闭、启用和再次关闭，验证静态入口及 action/renderer 绑定可用、不重复、不提前调用 factory，其他关闭模块不会跟着暴露。
 - 配置选项与确认、部分工具更新、停止期间拒绝新消息、虚拟时钟驱动的取消超时、加载失败恢复记录均有回归测试。空会话测试直接驱动连接事件，覆盖供应商重连、意外退出、多个临时标签清理、首条消息和文件排队、发送失败以及空历史和已收到消息的保护；测试连接在成功和失败路径都关闭。真实 Agent 集成测试在自动清理的临时项目执行“读取、修改、运行 Node 测试、继续追问”，另验证配置切换、取消恢复及进程重启后历史加载；不操作用户项目代码。
 - 文件引用回归覆盖中文/空格 URL、重复拖入与移除后重加、数量限制与无效批次、首条消息与历史加载排队、会话切换后的发送目标、发送失败可重试，以及 SDK 真实 `session/prompt` 中的 `resource_link` 和兼容文字消息；测试不读取或发送用户项目文件。
 - CLI 来源测试覆盖 Homebrew 与 npm 共存、formula/cask/渠道、npm bin 身份、另一套 Node 环境、Claude 原生、未知与坏链接、查询取消/超时、非零退出但实际升级成功、可用旧版本未变化、降级、数字等价版本和更新后 PATH 仍过旧；不执行用户级安装或外部网络下载。

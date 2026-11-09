@@ -64,7 +64,7 @@ Issue #1662 要求把两端重复的确定性逻辑下沉到 Core。Windows 前�
 
 ## 构建与 CI
 
-- `scripts/windows/prepare/prepare-core-rules-wasm.mjs` 把 `lithe_core_rules.wasm` 编译（release，`opt-level="s"`、LTO、strip）
+- ~~`scripts/windows/prepare/prepare-core-rules-wasm.mjs`~~（脚本已随旧客户端移除） 把 `lithe_core_rules.wasm` 编译（release，`opt-level="s"`、LTO、strip）
   并放到 `windows/tauri/public/core-rules/`。该目录被 `.gitignore` 忽略，**不提交**。
 - 接入 Windows `dev`、`build`（`desktop:build` 的 beforeBuildCommand 经 `bun run build` 间接包含）、`ci-windows.yml`
   前端 job（安装 `wasm32-unknown-unknown` target 并构建）、`release-windows.yml`、`release-preview-windows.yml`。

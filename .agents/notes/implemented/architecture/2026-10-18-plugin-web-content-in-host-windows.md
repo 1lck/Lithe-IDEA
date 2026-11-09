@@ -113,7 +113,7 @@
 - `shared/contracts/plugins/v1/`
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/declarative.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/declarative.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/capabilities.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/capabilities.rs)
-- `macos/Sources/Lithe/Views/Workbench/`
-- `macos/Sources/Lithe/Application/Features/PluginWebBridge.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/Web/`
-- `windows/`
+- ~~`macos/Sources/Lithe/Views/Workbench/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/PluginWebBridge.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/Web/`~~（已随 #1794 移除）
+- ~~`windows/`~~（已随 #1794 移除）

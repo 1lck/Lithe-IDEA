@@ -583,9 +583,9 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
 明暗主题下修改文件名的实际像素色、无逐行分隔线，以及可视宽度变化后的滚动范围。
 
 
-- `./scripts/macos/build/build-macos.sh`
+- ~~./scripts/macos/build/build-macos.sh~~（随旧客户端移除）
 - `./scripts/git-graph/verify-git-graph.sh`
-- `./scripts/architecture/verify-service-boundaries.sh`
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
 - `git diff --check`
 
 上游对照 fixture 固定保存在
@@ -607,27 +607,27 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
 下列旧平台路径位于[迁移前的 preview 修订](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36)；Core 链接指向当前锁定修订。
 
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/graph.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/graph.rs)
-- `macos/Sources/LitheGitModule/Services/GitGraphLayoutService.swift`
-- `macos/Sources/Lithe/Views/Git/GitGraphColor.swift`
-- `macos/Sources/Lithe/Views/Git/GitGraphGeometry.swift`
-- `macos/Sources/Lithe/Views/Git/GitGraphView.swift`
-- `macos/Sources/Lithe/Views/Git/GitLogView.swift`
-- `macos/Sources/Lithe/Views/Git/GitWorktreesView.swift`
-- `macos/Sources/Lithe/Views/Git/GitWorktreeRowsView.swift`
-- `macos/Sources/Lithe/Views/Workbench/WorkbenchToolWindowDock.swift`
-- `macos/Sources/Lithe/Views/Workbench/SplitHandleView.swift`
-- `macos/Sources/Lithe/Views/Components/LitheSplitPaneView.swift`
-- `macos/Tests/LitheTests/GitLogReferenceResizeTests.swift`
-- `macos/Tests/LitheTests/SplitHandleHitTestTests.swift`
-- `macos/Tests/LitheTests/DiffScrollSynchronizationTests.swift`
-- `macos/Tests/LitheTests/GitWorktreeAppearanceTests.swift`
-- `macos/Sources/Lithe/Views/Git/GitCommitFileTreeView.swift`
-- `macos/Tests/LitheTests/GitCommitFileTreeLayoutTests.swift`
+- ~~`macos/Sources/LitheGitModule/Services/GitGraphLayoutService.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/GitGraphColor.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/GitGraphGeometry.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/GitGraphView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/GitLogView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/GitWorktreesView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/GitWorktreeRowsView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Workbench/WorkbenchToolWindowDock.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Workbench/SplitHandleView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Components/LitheSplitPaneView.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/GitLogReferenceResizeTests.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/SplitHandleHitTestTests.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/DiffScrollSynchronizationTests.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/GitWorktreeAppearanceTests.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/GitCommitFileTreeView.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/GitCommitFileTreeLayoutTests.swift`~~（已随 #1794 移除）
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/history.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/history.rs)
-- `macos/Sources/Lithe/Core/Rust/RustGitOperations.swift`
+- ~~`macos/Sources/Lithe/Core/Rust/RustGitOperations.swift`~~（已随 #1794 移除）
 - `shared/fixtures/git/graph-idea/`
-- `macos/Tests/LitheTests/Fixtures/GitGraph/`
-- `macos/Resources/GitGraph/`
+- ~~`macos/Tests/LitheTests/Fixtures/GitGraph/`~~（已随 #1794 移除）
+- ~~`macos/Resources/GitGraph/`~~（已随 #1794 移除）
 
 ## 适用范围
 

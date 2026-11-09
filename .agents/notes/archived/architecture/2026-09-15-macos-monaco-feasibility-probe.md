@@ -173,7 +173,7 @@ drain 期间改名、改回或开始保存时，旧磁盘快照不得替换当�
 文档、再触发真实 Monaco 主视图与分屏的焦点／光标事件，最后验证其他文档仍可
 编辑并完成同步；关闭文档的编辑和保存请求另验证拒绝。此回归在旧策略下复现
 `Document closed` 红条，在取消策略下通过；运行入口仍为
-`scripts/macos/probe/probe-macos-monaco.sh --workbench-tests`。没有新增运行时资源或 bundle 写入。
+~~scripts/macos/probe/probe-macos-monaco.sh --workbench-tests~~（随旧客户端移除）。没有新增运行时资源或 bundle 写入。
 
 ### 关闭模型后的过期符号高亮
 
@@ -196,7 +196,7 @@ PR #1046 的 arm64 探针在分屏清理之后报告空模型的 URI 访问。�
 三个真实回归，上游自身拒绝过期模型后删除钩子。不要关闭整个符号高亮功能，
 也不要忽略所有 TypeError 或解除同步失败保护来使 CI 通过。
 
-macOS 的 `scripts/macos/probe/probe-macos-monaco.sh --workbench-tests` 覆盖主视图、分屏和 diff
+macOS 的 ~~scripts/macos/probe/probe-macos-monaco.sh --workbench-tests~~（随旧客户端移除） 覆盖主视图、分屏和 diff
 释放后的回调，仍验证存活文档可编辑、文本不变；每个高亮等待最多两秒，窗口和
 模型均清理。共享逻辑被 Windows 复用，但 macOS 原生探针不能代替 WebView2 实机
 验收，功能矩阵保持 pending。
@@ -795,11 +795,11 @@ UTF-16 编辑、保存屏障、Worker 和迟到语义结果；Swift 串行回归
 仍必须以 Release
 工作台和真实项目采样作为性能依据；不能凭独立宿主通过就宣布卡顿彻底解决。
 
-- `./scripts/macos/probe/probe-macos-monaco.sh`：需要 Bun、Node
+- ~~./scripts/macos/probe/probe-macos-monaco.sh~~（随旧客户端移除）：需要 Bun、Node
   和 Swift，脚本安装共享编辑器锁定依赖；可通过 `LITHE_MONACO_PACKAGE_DIR` 指定已有包位置。原生宿主以 `-O`
   构建，记录实际工具链版本。附加 `--manual` 可手工体验，也可再传入文件路径。
-  锁屏时可运行 `./scripts/macos/probe/probe-macos-monaco.sh --logic-only`，但不能据此判断流畅度。
-- `./scripts/macos/probe/probe-macos-monaco.sh --workbench-tests`：在真实 WebKit 中运行工作台
+  锁屏时可运行 ~~./scripts/macos/probe/probe-macos-monaco.sh --logic-only~~（随旧客户端移除），但不能据此判断流畅度。
+- ~~./scripts/macos/probe/probe-macos-monaco.sh --workbench-tests~~（随旧客户端移除）：在真实 WebKit 中运行工作台
   同一份实现，验证 CRLF/UTF-16 编辑、保存屏障、跨标签页撤销、诊断、模型释放
   和过期外部更新，并覆盖后台多行状态、主题变化、语义缓存与迟到结果。
   语言响应使用受控夹具，不代表真实 JDTLS 功能验证。
@@ -811,28 +811,28 @@ UTF-16 编辑、保存屏障、Worker 和迟到语义结果；Swift 串行回归
   `monaco.document.activate` 与 `LITHE_MONACO_OPEN`。后者区分模型建立、挂载、
   首次动画帧和 1.5 秒内的帧间隔；首个动画帧不是精确屏幕呈现时间。隐藏/锁屏时
   动画帧可能不执行，观测仍有界结束，不阻塞激活；必须检查 `hidden` 和帧数。
-- `./scripts/macos/test/test-macos.sh` 与 Swift 测试计时框架验证文档同步范围和关闭时最后一批
+- ~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除） 与 Swift 测试计时框架验证文档同步范围和关闭时最后一批
   输入的行为；测试使用明确释放的回调，不依靠 sleep 同步。
 - 场景覆盖 Unicode 增量、撤销重做、保存屏障、旧版本与非法范围拒绝、真实
   Worker 镜像、1k/10k/50k 行 Java、折行、大量诊断与装饰、保留模型和撤销历史。
 - 实验是独立原生集成程序，不属于产品 Swift Testing 测试目标；每场景输出
   时间，复用现有报告生成器生成 HTML 和 JUnit。失败或中断不得沿用旧通过结果。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
-- `./scripts/architecture/verify-service-boundaries.sh`
-- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
+- ~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）
 - `./scripts/agent-notes/verify-agent-notes.sh`
 - `git diff --check`
 
 ## 适用范围
 
-- `frontend/editor/`
-- `macos/EditorFrontend/`
-- `macos/Experiments/Monaco/`
-- `scripts/macos/probe/probe-macos-monaco.sh`
+- ~~`frontend/editor/`~~（已随 #1794 移除）
+- ~~`macos/EditorFrontend/`~~（已随 #1794 移除）
+- ~~`macos/Experiments/Monaco/`~~（已随 #1794 移除）
+- ~~scripts/macos/probe/probe-macos-monaco.sh~~（随旧客户端移除）
 - `scripts/editor/package-macos-monaco.sh`
-- `macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift`
-- `macos/Sources/Lithe/Models/Editor/EditorDocument.swift`
-- `macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`
+- ~~`macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Models/Editor/EditorDocument.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`~~（已随 #1794 移除）
 
 
 ### 悬停说明显隐回归（macOS）
@@ -950,6 +950,6 @@ Windows 在 Monaco 环境入口注入指纹化资源 URL，主编辑区、独立
 共享 fixture `shared/fixtures/editor/basic-file-highlighting-v1.json` 描述文件关联和实际 token，
 真实 WebKit workbench 回归覆盖选择语法、着色、编辑和撤销，原有清单回归覆盖深浅主题。
 Windows 单元回归消费同一 fixture；Windows WebView2 实机验收仍以功能矩阵为准。
-验证入口：`./scripts/macos/probe/probe-macos-monaco.sh --workbench-tests`、
+验证入口：~~./scripts/macos/probe/probe-macos-monaco.sh --workbench-tests~~（随旧客户端移除）、
 `node --test scripts/resources/test-reuse-worktree-resources.mjs`、
 `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`。

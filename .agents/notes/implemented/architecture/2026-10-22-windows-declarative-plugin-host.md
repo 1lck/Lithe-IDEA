@@ -136,29 +136,29 @@ M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁�
 - 共享 fixtures 全量验收在 Windows 二进制内完成：`invalid-manifests.json` 全部 154 个用例经宿主校验路径断言同一稳定错误码（不带 hostCapabilities 的契约等价模式），合法样例在不带与带 v0 能力声明两种模式下分别断言通过与 `plugin.api.unsupported` 门控。测试入口：`windows/tauri/src-tauri/src/plugin_host/tests.rs`，运行 `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml plugin_host`。
 - 存储与启动的单测覆盖安装记录缺失/损坏隔离、bundled 最高版本选择、版本比较（含 prerelease）、扩展与文件名匹配（大小写与前导点）、packaged 路径逃逸拒绝、runtime 的 `LITHE_<TOOL>_PATH` 导出与 `PATH` 前置。
 - 前端回落链路测试：`windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.test.ts` 断言契约插件启动映射与无归属文件返回 null；启动扫描步骤在 bootstrap 中执行。
-- M1 尚属静态与进程内验证：真实插件包安装→启用→语言服务器拉起的全链路实机验收随 M2/M3 完成，期间矩阵 `verificationStatus` 保持 pending。`./scripts/windows/verify/verify-windows-boundaries.sh`、`./scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh <base> HEAD` 随 PR 通过。
+- M1 尚属静态与进程内验证：真实插件包安装→启用→语言服务器拉起的全链路实机验收随 M2/M3 完成，期间矩阵 `verificationStatus` 保持 pending。~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）、`./scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh <base> HEAD` 随 PR 通过。
 
 ## 迁移前的源码范围
 
 以下旧平台路径位于[迁移前的 preview 修订](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36)。
 
-- `windows/tauri/src-tauri/build.rs`、`capabilities/plugin-web.json` 与 `permissions/declarative-web/bridge.toml`（应用内桥插件及最小来源权限）
+- ~~`windows/tauri/src-tauri/build.rs`~~（已随 #1794 移除）、`capabilities/plugin-web.json` 与 `permissions/declarative-web/bridge.toml`（应用内桥插件及最小来源权限）
 
-- `windows/tauri/src-tauri/src/plugin_host/`（存储、扫描、启动接线与 fixtures 验收测试）
-- `windows/tauri/src-tauri/src/main.rs`（模块注册与命令注册）
-- `windows/tauri/src-tauri/src/language_tools.rs`（复用的系统工具查找）
-- `windows/tauri/src-tauri/src/plugin_host/install.rs`（磁盘导入、卸载、回滚、启停）
-- `windows/tauri/src-tauri/src/extension_store_placeholder.rs`（Worker 扩展落盘命令的显式占位）
-- `windows/tauri/src/features/plugins/declarative-plugin-launch.ts`（前端宿主 API）
-- `windows/tauri/src-tauri/src/plugin_host/settings.rs`（设置双层存储与命令）
-- `windows/tauri/src-tauri/src/plugin_host/run_plans.rs`（运行/测试计划命令）
-- `windows/tauri/src/features/plugins/declarative-plugin-settings-editor.tsx`（设置编辑）
-- `windows/tauri/src/features/plugins/declarative-plugin-run.ts`（契约插件运行入口）
-- `windows/tauri/src-tauri/src/plugin_host/web.rs`（Web 工具窗口 scheme、桥与状态）
-- `Plugins/win/Official/PhpSupportContract/`（契约版 PHP bundled 包）
-- `windows/tauri/src/features/plugins/declarative-plugins-section.tsx`（设置内管理页）
-- `windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.ts`（契约插件回落来源）
-- `windows/tauri/src/features/bootstrap/bootstrap-async.ts`（启动扫描步骤）
+- ~~`windows/tauri/src-tauri/src/plugin_host/`~~（已随 #1794 移除）（存储、扫描、启动接线与 fixtures 验收测试）
+- ~~`windows/tauri/src-tauri/src/main.rs`~~（已随 #1794 移除）（模块注册与命令注册）
+- ~~`windows/tauri/src-tauri/src/language_tools.rs`~~（已随 #1794 移除）（复用的系统工具查找）
+- ~~`windows/tauri/src-tauri/src/plugin_host/install.rs`~~（已随 #1794 移除）（磁盘导入、卸载、回滚、启停）
+- ~~`windows/tauri/src-tauri/src/extension_store_placeholder.rs`~~（已随 #1794 移除）（Worker 扩展落盘命令的显式占位）
+- ~~`windows/tauri/src/features/plugins/declarative-plugin-launch.ts`~~（已随 #1794 移除）（前端宿主 API）
+- ~~`windows/tauri/src-tauri/src/plugin_host/settings.rs`~~（已随 #1794 移除）（设置双层存储与命令）
+- ~~`windows/tauri/src-tauri/src/plugin_host/run_plans.rs`~~（已随 #1794 移除）（运行/测试计划命令）
+- ~~`windows/tauri/src/features/plugins/declarative-plugin-settings-editor.tsx`~~（已随 #1794 移除）（设置编辑）
+- ~~`windows/tauri/src/features/plugins/declarative-plugin-run.ts`~~（已随 #1794 移除）（契约插件运行入口）
+- ~~`windows/tauri/src-tauri/src/plugin_host/web.rs`~~（已随 #1794 移除）（Web 工具窗口 scheme、桥与状态）
+- ~~`Plugins/win/Official/PhpSupportContract/`~~（已随 #1794 移除）（契约版 PHP bundled 包）
+- ~~`windows/tauri/src/features/plugins/declarative-plugins-section.tsx`~~（已随 #1794 移除）（设置内管理页）
+- ~~`windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.ts`~~（已随 #1794 移除）（契约插件回落来源）
+- ~~`windows/tauri/src/features/bootstrap/bootstrap-async.ts`~~（已随 #1794 移除）（启动扫描步骤）
 - `shared/platform-feature-matrix/features/declarative-plugin-contract.json`、`plugin-marketplace.json`、`plugin-extension-management.json`、`declarative-plugin-settings.json`、`php-optional-plugin.json`、`plugin-web-tool-windows.json`
 
 ## 适用范围

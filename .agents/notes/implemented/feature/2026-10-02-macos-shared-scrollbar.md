@@ -81,7 +81,7 @@ Diff 替换多一行/反向删除用例检查同一个配对范围、源行号�
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Views/Components/LitheScrollViewChrome.swift`
-- `macos/Sources/Lithe/Views/Diff/DiffScrollSynchronization.swift`
-- `macos/Sources/Lithe/Views/Diff/DiffHorizontalScrollSupport.swift`
-- `macos/Tests/LitheTests/LitheScrollBarStyleTests.swift`
+- ~~`macos/Sources/Lithe/Views/Components/LitheScrollViewChrome.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Diff/DiffScrollSynchronization.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Diff/DiffHorizontalScrollSupport.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/LitheScrollBarStyleTests.swift`~~（已随 #1794 移除）

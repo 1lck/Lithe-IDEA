@@ -63,9 +63,9 @@ Core 返回碰撞后保留下来的输入序号，Windows 据此保留断点身�
 
 ## 适用范围
 
-- `frontend/editor/src/source-text.ts`
-- `frontend/editor/src/model-source.ts`
-- `windows/tauri/src/features/editor/components/monaco-editor.tsx`
-- `windows/tauri/src/features/debugger/services/breakpoint-relocation.ts`
-- `windows/tauri/src/features/debugger/stores/debugger.store.ts`
-- `windows/tauri/src/features/debugger/services/debug-adapter-service.ts`
+- ~~`frontend/editor/src/source-text.ts`~~（已随 #1794 移除）
+- ~~`frontend/editor/src/model-source.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/editor/components/monaco-editor.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/debugger/services/breakpoint-relocation.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/debugger/stores/debugger.store.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/debugger/services/debug-adapter-service.ts`~~（已随 #1794 移除）

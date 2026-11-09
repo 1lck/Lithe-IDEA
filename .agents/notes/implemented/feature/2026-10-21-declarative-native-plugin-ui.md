@@ -152,11 +152,11 @@ Git未跟踪目录摘要和可见行缓存；这些界面仍使用完整公共�
 
 ## 验证
 
-- `./scripts/architecture/verify-shared-contracts.sh`
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib native_ui_validates_version_ownership_actions_and_budgets`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginNativeUI|PluginWeb|WorkbenchContributionHostTests'`
 - `LITHE_PLUGIN_SDK_ROOT=<lithe-plugin-docs/sdk/node> node --test macos/Tests/Fixtures/native-ui-lab/native-ui-lab.test.mjs`
-- `./scripts/architecture/verify-service-boundaries.sh`
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 
@@ -164,10 +164,10 @@ Git未跟踪目录摘要和可见行缓存；这些界面仍使用完整公共�
 
 - `shared/contracts/plugins/v1/native-ui.schema.json`
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/native_ui.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/native_ui.rs)
-- `macos/Sources/LitheModuleAPI/Plugins/PluginNativeUI.swift`
-- `macos/Sources/Lithe/Application/Features/PluginNativeUIFeature.swift`
-- `macos/Sources/Lithe/Views/Workbench/PluginNativeToolWindowView.swift`
-- `macos/Tests/Fixtures/native-ui-lab/`（宿主验收 fixture，打包使用外部官方 SDK）
+- ~~`macos/Sources/LitheModuleAPI/Plugins/PluginNativeUI.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/PluginNativeUIFeature.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Workbench/PluginNativeToolWindowView.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/Fixtures/native-ui-lab/`~~（已随 #1794 移除）（宿主验收 fixture，打包使用外部官方 SDK）
 
 ## 2026-10-23 SDK 迁移后的验收归属
 

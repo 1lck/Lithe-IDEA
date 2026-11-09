@@ -82,7 +82,7 @@ Windows 只替换一轮占位符，避免把用户传入的 `{name}` 当成另�
 - `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs -- src/i18n/locale.test.ts src/i18n/shared-i18n.test.ts src/features/settings/lib/settings-normalization.test.ts`：Windows 前端资源与设置；宿主平台必须在报告中注明。
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：同时检查 macOS 与 Windows 运行时资源路径。
 - `node --test --test-timeout=15000 scripts/resources/test-reuse-worktree-resources.mjs`：拒绝跨工作树资源复制。
-- `./scripts/architecture/verify-shared-contracts.sh`、`./scripts/windows/verify/verify-windows-boundaries.sh` 和
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除） 和
   `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`：共享边界与能力记录。
 
 生成器测试与原生测试共同消费 `shared/fixtures/i18n/format-v1.json` 和 `native-abi-v1.json`，覆盖32位有符号、64位无符号参数及参数重排、重复、
@@ -101,8 +101,8 @@ Node 22 会把命令行超时同时应用到整份文件。词条增加后，mac
 - `shared/fixtures/i18n/format-v1.json`
 - `scripts/i18n/generate-i18n.mjs`
 - `scripts/macos/package/package-macos-localizations.sh`
-- `windows/tauri/src/i18n/`
-- `macos/Resources/en.lproj/Localizable.strings`
-- `macos/Resources/zh-Hans.lproj/Localizable.strings`
-- `macos/Sources/Lithe/Models/Settings/AppLanguage.generated.swift`
-- `.github/workflows/verify-i18n.yml`
+- ~~`windows/tauri/src/i18n/`~~（已随 #1794 移除）
+- ~~`macos/Resources/en.lproj/Localizable.strings`~~（已随 #1794 移除）
+- ~~`macos/Resources/zh-Hans.lproj/Localizable.strings`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Models/Settings/AppLanguage.generated.swift`~~（已随 #1794 移除）
+- ~~`.github/workflows/verify-i18n.yml`~~（已随 #1794 移除）

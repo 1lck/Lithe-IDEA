@@ -75,7 +75,7 @@ macOS 数据库侧栏保留混合类型的分组文件夹，在每个 MySQL/Mari
 
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'DatabaseWorkspaceLifecycleTests/databaseTree|LitheTreeRowStyleTests'`
-- `./scripts/architecture/verify-service-boundaries.sh`
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
@@ -84,9 +84,9 @@ macOS 数据库侧栏保留混合类型的分组文件夹，在每个 MySQL/Mari
 
 ## 适用范围
 
-- `macos/Sources/LitheDatabaseModule/Application/DatabaseFeatureModel.swift`
-- `macos/Sources/Lithe/Views/Database/DatabaseSidebarView.swift`
-- `macos/Tests/LitheTests/DatabaseWorkspaceLifecycleTests.swift`
+- ~~`macos/Sources/LitheDatabaseModule/Application/DatabaseFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Database/DatabaseSidebarView.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/DatabaseWorkspaceLifecycleTests.swift`~~（已随 #1794 移除）
 - `shared/platform-feature-matrix/features/database-connections.json`
 
 ## 成功气泡源码核对（2026-10-23）

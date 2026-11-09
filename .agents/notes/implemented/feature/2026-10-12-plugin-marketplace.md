@@ -137,7 +137,7 @@ Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安�
 Viva 插件安装或宿主能力已经接通的证据。
 
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib marketplace_plugins`：索引校验、平台与 API 判断、命名空间、源地址解析、安装审查的标准答案。
-- `./scripts/architecture/verify-shared-contracts.sh`：市场 fixture 与错误码登记。
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）：市场 fixture 与错误码登记。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginMarketplaceLayoutTests|PluginDetailLayoutTests|PluginSettingsLayoutTests'`：市场用内存索引驱动真实页面，覆盖中英文描述、深浅主题、窗口宽高变化、原生分隔条拖动、释放后刷新不移位，以及窄视口横向滚动到正文末端；单独保留“已安装”详情和路径控件回归。可用 `LITHE_MARKETPLACE_LAYOUT_CAPTURES` 导出市场原生视图截图；测试拥有并清理自己的偏好域和窗口。
 - `node --test scripts/plugins/official-plugin-releases.test.mjs`：只为版本变化的插件生成标签，内容变化未升版本时失败；已发布未登记的版本会被重新登记。
 - `node scripts/resources/test-reuse-worktree-resources.mjs`：磁盘快照、安装 staging、版本和审批记录不出现在可复用列表，显式选择时在访问工作树或复制前拒绝。
@@ -156,11 +156,11 @@ Viva 插件安装或宿主能力已经接通的证据。
 - `Plugins/marketplace/`
 - 已迁出：原 `scripts/plugins/official-plugin-releases.mjs`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - 已迁出：原 `.github/workflows/release-official-plugins.yml`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
-- `macos/Sources/LitheCoreContracts/Plugins/PluginMarketplaceContracts.swift`
-- `macos/Sources/Lithe/Application/Features/PluginMarketplace.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/`
-- `macos/Sources/Lithe/Views/App/PluginMarketplaceView.swift`
-- `macos/Sources/Lithe/Views/App/PluginManagementView.swift`
+- ~~`macos/Sources/LitheCoreContracts/Plugins/PluginMarketplaceContracts.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/PluginMarketplace.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/App/PluginMarketplaceView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/App/PluginManagementView.swift`~~（已随 #1794 移除）
 
 ## 适用范围
 

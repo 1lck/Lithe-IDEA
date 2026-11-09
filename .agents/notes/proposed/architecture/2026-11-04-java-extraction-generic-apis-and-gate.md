@@ -175,7 +175,7 @@ Windows 现在还通过 Core 的命令调用 Maven 和 Java 功能，而 Windows
 
 ### 七、验收闸门脚本
 
-`scripts/architecture/verify-no-host-language-specifics.mjs` 扫描六个目录：`rust/lithe-core/src`、`macos/Sources`、`frontend/editor/src`、`shared/contracts/plugins/v1`、`windows/tauri/src`、`windows/tauri/src-tauri/src`。跳过 `vendor`、`node_modules` 和以点开头的目录。
+~~scripts/architecture/verify-no-host-language-specifics.mjs~~（随旧客户端移除） 扫描六个目录：`rust/lithe-core/src`、`macos/Sources`、`frontend/editor/src`、`shared/contracts/plugins/v1`、`windows/tauri/src`、`windows/tauri/src-tauri/src`。跳过 `vendor`、`node_modules` 和以点开头的目录。
 
 检查什么：
 
@@ -273,21 +273,21 @@ node scripts/architecture/verify-java-semantic-ownership.mjs
 ./scripts/agent-notes/verify-agent-notes.sh
 ```
 
-后续 PR 按受影响边界运行 `./scripts/architecture/verify-core.sh`、`./scripts/architecture/verify-shared-contracts.sh`、`./scripts/rust-core/verify-rust-core.sh`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh`，修改后端协议时在 `lithe-plugin-docs` 运行 `node scripts/sdk-e2e.mjs`，合并后按[契约发布规则](../../implemented/architecture/2026-10-23-plugin-contract-publishing.md)同步契约副本。
+后续 PR 按受影响边界运行 `./scripts/architecture/verify-core.sh`、~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh`，修改后端协议时在 `lithe-plugin-docs` 运行 `node scripts/sdk-e2e.mjs`，合并后按[契约发布规则](../../implemented/architecture/2026-10-23-plugin-contract-publishing.md)同步契约副本。
 
 ## 适用范围
 
-- `scripts/architecture/verify-no-host-language-specifics.mjs`
-- `scripts/architecture/language-specifics-baseline.json`
-- `scripts/architecture/language-specifics-allowlist.json`
-- `.github/workflows/verify-host-language-specifics.yml`
+- ~~scripts/architecture/verify-no-host-language-specifics.mjs~~（脚本已随旧客户端移除）
+- ~~`scripts/architecture/language-specifics-baseline.json`~~（脚本已随旧客户端移除）
+- ~~`scripts/architecture/language-specifics-allowlist.json`~~（脚本已随旧客户端移除）
+- ~~`.github/workflows/verify-host-language-specifics.yml`~~（已随 #1794 移除）
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/plugin_function.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/plugin_function.rs)
 - `shared/contracts/plugins/v1/`
-- `macos/Sources/`
-- `frontend/editor/src/`
-- `windows/tauri/src/`
-- `windows/tauri/src-tauri/src/`
+- ~~`macos/Sources/`~~（已随 #1794 移除）
+- ~~`frontend/editor/src/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src-tauri/src/`~~（已随 #1794 移除）
 - `docs/development/macos-plugin-api-plan.md`
 - 外部仓库：[lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs)、[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)
 - 关联决策：[Maven/Java 领域插件迁移](2026-10-26-maven-java-domain-plugin-migration.md)、[插件依赖与导出](2026-10-25-plugin-dependencies-and-exports.md)、[Java 独立分发](2026-10-24-java-support-independent-distribution.md)、[公共扩展契约](2026-10-13-public-extension-contract-and-provider-api.md)、[编辑器扩展 API](../../implemented/architecture/2026-10-31-plugin-editor-extension-apis.md)、[契约发布](../../implemented/architecture/2026-10-23-plugin-contract-publishing.md)、[真实配置读写](../../implemented/architecture/2026-10-25-settings-native-configuration-editing.md)、[共享契约](../../../../shared/contracts/plugins/v1/README.md)

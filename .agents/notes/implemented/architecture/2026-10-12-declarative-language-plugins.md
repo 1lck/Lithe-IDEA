@@ -99,7 +99,7 @@ gopls 把 `fmt.Println` 的定义指向 `GOROOT/src/fmt/print.go`，Intelephense
 ## 验证
 
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib declarative_plugins`：合法样例、非法样例错误码、命令展开标准答案，以及仓库里的官方 `plugin.json`。
-- `./scripts/architecture/verify-shared-contracts.sh`：契约目录自洽（schema、fixture 引用、错误码均已在 README 中登记）。
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）：契约目录自洽（schema、fixture 引用、错误码均已在 README 中登记）。
 - 官方插件包的组装与校验（原 verify-official-plugins 脚本：组装官方包并用 `LitheOfficialPluginVerifier` 检查信任策略、打包入口和"包内无 Mach-O"。）已随插件移出本仓库，由各插件仓库的 CI 负责（#1495）。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'Plugin|LanguageExtensionProcessLifecycleTests|LanguageServerToolServiceTests|LanguageNavigationCoordinatorTests|ExternalNavigationTests'`：包校验、旧包过渡、签名、启停与进程清理、打包入口固定、跨工作区跳转边界。
 - `LITHE_RUN_PHP_INTEGRATION=1 ./scripts/macos/test/test-macos.sh --filter RealPhpIntegrationTests`：真实 Intelephense 与 PHPUnit。
@@ -110,13 +110,13 @@ gopls 把 `fmt.Println` 的定义指向 `GOROOT/src/fmt/print.go`，Intelephense
 
 - `shared/contracts/plugins/v1/`
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/declarative.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/declarative.rs)
-- `macos/Sources/Lithe/Core/Rust/RustDeclarativePluginOperations.swift`
-- `macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/`
-- `macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`
-- `macos/Sources/Lithe/Application/Features/LanguageNavigationCoordinator.swift`
-- `macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`
-- `macos/Sources/LitheExecutionModule/Modules/BundledLanguageExecutionModule.swift`
-- `macos/Sources/LitheLanguageIntelligenceModule/Modules/BundledLanguageServerModule.swift`
+- ~~`macos/Sources/Lithe/Core/Rust/RustDeclarativePluginOperations.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/LanguageNavigationCoordinator.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheExecutionModule/Modules/BundledLanguageExecutionModule.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheLanguageIntelligenceModule/Modules/BundledLanguageServerModule.swift`~~（已随 #1794 移除）
 - 已迁出：原 `Plugins/mac/Official/`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - 已迁出：原 `scripts/plugins/build-official-plugins.sh`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。

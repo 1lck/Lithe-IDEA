@@ -105,7 +105,7 @@ IDEA 自定义配色现在有独立的受校验覆盖层 `ImportedEditorTheme`�
 ## 验证
 
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'EditorSettingsImportTests|AppSettingsTests'`：隔离存储/临时目录验证来源只读、版本和 Profile、字段隔离、JSONC、XML 实体拒绝、单位换算、字体缺失、来源/目标冲突、持久化、部分写入失败、重启恢复及撤销保护。
-- `./scripts/architecture/verify-service-boundaries.sh`
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
 - `node scripts/i18n/generate-i18n.mjs --check`
 - `node scripts/i18n/verify-app-language-localization.mjs`
@@ -130,12 +130,12 @@ Cursor/空配置发现修复后，相关测试 60 项通过，包含显式开启
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Platform/MacOS/MacEditorSettingsImportReader.swift`
-- `macos/Sources/Lithe/Application/Features/EditorSettingsImportFeatureModel.swift`
-- `macos/Sources/Lithe/Models/Settings/EditorSettingsImport.swift`
-- `macos/Sources/Lithe/Models/Settings/AppSettings.swift`
-- `macos/Sources/Lithe/Views/App/EditorSettingsImportView.swift`
-- `macos/Tests/LitheTests/EditorSettingsImportTests.swift`
+- ~~`macos/Sources/Lithe/Platform/MacOS/MacEditorSettingsImportReader.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/EditorSettingsImportFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Models/Settings/EditorSettingsImport.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Models/Settings/AppSettings.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/App/EditorSettingsImportView.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/EditorSettingsImportTests.swift`~~（已随 #1794 移除）
 
 同值导入仍重新扫描并验证来源和所选目标基线，成功后反馈结果；无变化时不新建撤销记录、不写设置。已有自定义但与来源相同的字段可默认选择，不将其误当成覆盖冲突。原生回归覆盖同值类别可点击、全同值导入成功且不生成撤销记录，以及预览后目标变化被拒绝。
 

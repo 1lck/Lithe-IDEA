@@ -56,7 +56,7 @@ Windows 编辑器原本已有 `agent` 缓冲区类型，但它渲染的是旧的
 
 ## 验证
 
-- `windows/tauri`: `bun run typecheck` 通过。
+- ~~`windows/tauri`~~（已随 #1794 移除）: `bun run typecheck` 通过。
 - `src/features/agent` 套件 104 条通过；编辑区标签 `buffer-agent-conversation.test.ts` 4 条通过。`agent-surface.store.test.ts` 覆盖放置登记、按会话草稿隔离和工作区切换清理。
 - `agent-editor-binding.test.ts` 覆盖工具窗口跟随全局选择、编辑区读取绑定会话、跨 Agent 标签被识别为外来标签，以及没有 Agent 归属的旧标签回退。
 - `buffer-agent-conversation.test.ts` 覆盖同一会话只开一个标签、不同会话使用确定性虚拟路径、标签保留所属 Agent、Agent 标签不被自动淘汰。

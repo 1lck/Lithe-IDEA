@@ -29,15 +29,15 @@
 
 ## 验证
 
-- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- ~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope WindowsRust`
 - 运行配置已有失败回滚测试同时断言每次写入和恢复都在事务内；剪贴板测试覆盖内容相同但身份不同的新复制；终端测试覆盖关闭、迟到登记、重复关闭及其他窗口隔离。
 
 ## 适用范围
 
-- `windows/tauri/src-tauri/src/run.rs`
-- `windows/tauri/src-tauri/src/maven.rs`
-- `windows/tauri/src-tauri/src/host.rs`
-- `windows/tauri/src-tauri/src/terminal.rs`
-- `windows/tauri/src-tauri/src/main.rs`
+- ~~`windows/tauri/src-tauri/src/run.rs`~~（已随 #1794 移除）
+- ~~`windows/tauri/src-tauri/src/maven.rs`~~（已随 #1794 移除）
+- ~~`windows/tauri/src-tauri/src/host.rs`~~（已随 #1794 移除）
+- ~~`windows/tauri/src-tauri/src/terminal.rs`~~（已随 #1794 移除）
+- ~~`windows/tauri/src-tauri/src/main.rs`~~（已随 #1794 移除）

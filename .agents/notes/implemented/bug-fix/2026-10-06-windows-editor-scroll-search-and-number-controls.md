@@ -63,17 +63,17 @@ IDEA 参考版本为 `fb72b4df43aba102479eb0502d20b03586b9c5b8`：
 - 浏览器组件探针检查真实输入居中、间距、按钮尺寸、手动输入及相同滚轮事件的位移。
   组件探针不等于完整 WebView2 应用与 IDEA 的帧性能对照。
 - 运行 `.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend`、
-  `scripts/windows/build/build-windows.ps1 -Configuration Release`、`scripts/windows/verify/verify-windows-boundaries.sh`、
+  ~~scripts/windows/build/build-windows.ps1 -Configuration Release~~（随旧客户端移除）、~~scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）、
   `scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`scripts/platform-feature-matrix/verify-platform-feature-matrix.sh` 和 `scripts/agent-notes/verify-agent-notes.sh`。
 
 ## 适用范围
 
-- `windows/tauri/src/features/quick-open/hooks`
-- `windows/tauri/src/features/editor/config/constants.ts`
-- `windows/tauri/src/features/editor/components/monaco-editor.tsx`
-- `windows/tauri/src/features/editor/notebook/notebook-code-cell-editor.tsx`
-- `windows/tauri/src/features/git/components/diff/independent-commit-diff-surface.ts`
-- `windows/tauri/src/features/settings/components/settings-section.tsx`
-- `windows/tauri/src/features/settings/components/settings-panels.tsx`
-- `windows/tauri/src/features/settings/components/editor-settings-routing.test.tsx`
-- `windows/tauri/src/ui/number-input.tsx`
+- ~~`windows/tauri/src/features/quick-open/hooks`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/editor/config/constants.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/editor/components/monaco-editor.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/editor/notebook/notebook-code-cell-editor.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/git/components/diff/independent-commit-diff-surface.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/settings/components/settings-section.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/settings/components/settings-panels.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/settings/components/editor-settings-routing.test.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/ui/number-input.tsx`~~（已随 #1794 移除）

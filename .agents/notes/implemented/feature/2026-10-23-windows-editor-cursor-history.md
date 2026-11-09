@@ -56,9 +56,9 @@ macOS 已加载原生 Monaco 动作；本次的 Ctrl+Z 策略和产品命令入�
 
 ## 适用范围
 
-- `frontend/editor/src/editor-commands.ts`
-- `windows/tauri/src/features/editor/engines/monaco/cursor-aware-undo.ts`
-- `windows/tauri/src/features/editor/components/monaco-editor.tsx`
-- `windows/tauri/src/features/keymaps`
-- `windows/tauri/src/features/command-palette/constants/navigation-actions.tsx`
-- `windows/tauri/src/i18n/locale.ts`
+- ~~`frontend/editor/src/editor-commands.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/editor/engines/monaco/cursor-aware-undo.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/editor/components/monaco-editor.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/keymaps`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/command-palette/constants/navigation-actions.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/i18n/locale.ts`~~（已随 #1794 移除）

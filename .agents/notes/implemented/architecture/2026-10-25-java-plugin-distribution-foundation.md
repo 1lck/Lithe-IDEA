@@ -94,11 +94,11 @@ JDT LS、JDK、Lombok、Debug 和 Test 扩展保持当前锁定版本。资源�
 
 ## 验证
 
-- `./scripts/rust-core/verify-rust-core-comments.sh`、`./scripts/architecture/verify-shared-contracts.sh`：契约、注释和共享输入一致。
+- ~~./scripts/rust-core/verify-rust-core-comments.sh~~（随旧客户端移除）、~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）：契约、注释和共享输入一致。
 - Rust 的 `declarative_plugins` 与 `marketplace_plugins`：来源策略必须声明能力、非法组合拒绝、旧宿主在下载前拒绝。
 - `PluginBundledPublisherTrustTests`：真实 Core、生产包管理器及注入测试公钥验证签名安装、单一来源、包篡改、伪造来源和缺失运行时，比较安装资源内容。
 - 同一套包存储回归覆盖卸载后重新启动扫描得到 `.removed` 快照时的提示，状态矩阵保留禁用、暂存更新和待重启副本的管理流程；`PluginInstallationGuidancePresentationTests` 用真实原生视图核对深浅主题的缺包通知、模板入口及主动打开市场的按钮，不执行安装或工具。
-- `./scripts/macos/verify/verify-macos-package.sh --slim`：以临时完整索引构建精简 universal app，拒绝 JDT/JDK 下载输入，检查资源缺失、签名和 DMG；默认模式检查保留过渡包。
+- ~~./scripts/macos/verify/verify-macos-package.sh --slim~~（随旧客户端移除）：以临时完整索引构建精简 universal app，拒绝 JDT/JDK 下载输入，检查资源缺失、签名和 DMG；默认模式检查保留过渡包。
 - `node --test scripts/plugins/test-official-plugin-distribution.mjs`：完整与部分上架、来源/能力不匹配和后续版本门槛。
 - `node --test scripts/plugins/official-plugin-releases.test.mjs`：双架构索引、部分归档拒绝、历史标签元数据以及上游输入变更约束。
 - `node scripts/resources/test-reuse-worktree-resources.mjs`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：生成资源拒绝复用、发行目录只读边界。
@@ -113,11 +113,11 @@ JDT LS、JDK、Lombok、Debug 和 Test 扩展保持当前锁定版本。资源�
 - 已迁出：原 `Plugins/marketplace/official-plugins.json`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - `shared/contracts/plugins/v1/`
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins)
-- `macos/Sources/LitheModuleAPI/`
-- `macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift`
+- ~~`macos/Sources/LitheModuleAPI/`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift`~~（已随 #1794 移除）
 - 已迁出：原 `macos/Tests/LitheTests/PluginBundledPublisherTrustTests.swift`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
-- `macos/Tests/LitheOfficialPluginVerifier/OfficialPluginVerifier.swift`
+- ~~`macos/Tests/LitheOfficialPluginVerifier/OfficialPluginVerifier.swift`~~（已随 #1794 移除）
 - 已迁出：原 `scripts/plugins/build-official-plugins.sh`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - 已迁出：原 `scripts/plugins/official-plugin-releases.mjs`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - 已迁出：原 `.github/workflows/release-official-plugins.yml`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。

@@ -28,9 +28,9 @@
 
 ## 适用范围
 
-- `windows/tauri/src/features/debugger/utils/debug-source-path.ts`
-- `windows/tauri/src/features/debugger/stores/debugger.store.ts`
-- `windows/tauri/src/features/debugger/stores/debugger-breakpoints.test.ts`
-- `windows/tauri/src/features/debugger/services/monaco-debug-decorations.ts`
-- `.github/workflows/ci-windows.yml`
+- ~~`windows/tauri/src/features/debugger/utils/debug-source-path.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/debugger/stores/debugger.store.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/debugger/stores/debugger-breakpoints.test.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/debugger/services/monaco-debug-decorations.ts`~~（已随 #1794 移除）
+- ~~`.github/workflows/ci-windows.yml`~~（已随 #1794 移除）
 - `shared/platform-feature-matrix/features/debug-breakpoints.json`

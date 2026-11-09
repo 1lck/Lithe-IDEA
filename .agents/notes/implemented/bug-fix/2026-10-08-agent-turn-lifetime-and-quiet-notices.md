@@ -77,8 +77,8 @@ Windows 共享 Host 完整对话接入仍是已有的待完成能力，不能因
 - `node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs --manifest rust/Cargo.toml --package lithe-agent-host`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AgentConversationFeatureModelTests|AgentConversationPresentationTests|AgentHistoryTests|AgentNextTurnConfigurationTests|AgentActivityTests'`
 - `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs -- src/features/ai/lib/acp-activity-monitor.test.ts src/i18n/locale.test.ts`
-- `./scripts/architecture/verify-shared-contracts.sh`
-- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
+- ~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
@@ -98,8 +98,8 @@ Windows 类型检查也被已有的 `diff` 模块声明缺失阻挡；未把这�
 
 - Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/lib.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/lib.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/prompt_retry.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/prompt_retry.rs)
-- `macos/Sources/LitheAgentConversationModule/Application/AgentConnectionModel.swift`
-- `macos/Sources/Lithe/Views/Agent/AgentTurnStatisticsView.swift`
-- `windows/tauri/src/features/ai/lib/acp-activity-monitor.ts`
-- `windows/tauri/src/features/ai/services/acp-stream-handler.ts`
+- ~~`macos/Sources/LitheAgentConversationModule/Application/AgentConnectionModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Agent/AgentTurnStatisticsView.swift`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/ai/lib/acp-activity-monitor.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/ai/services/acp-stream-handler.ts`~~（已随 #1794 移除）
 - `shared/contracts/rust-core-api.md`

@@ -49,7 +49,7 @@
 
 ### 2. 会话模型 v2：第一版就为扩展留位置
 
-会话投影版本 2 已在 Rust Core 落地，类型与校验见 [`projection_v2.rs`](../../../../rust/lithe-core/src/debug/projection_v2.rs)，共享回归样例见 [`projection-v2-examples.json`](../../../../shared/fixtures/debug/projection-v2-examples.json)。实现与共享 fixture 是当前真源，不再维护独立的评审 schema。与 v1 相比：
+会话投影版本 2 已在 Rust Core 落地，类型与校验见 `projection_v2.rs`（已随 #1794 移除），共享回归样例见 [`projection-v2-examples.json`](../../../../shared/fixtures/debug/projection-v2-examples.json)。实现与共享 fixture 是当前真源，不再维护独立的评审 schema。与 v1 相比：
 
 | 预留 | 规则 | 为什么第一版就要定 |
 | --- | --- | --- |
@@ -317,9 +317,9 @@ P0–P5 完成后关闭 #1210。可选扩展、插件依赖和私有 resolver �
 
 ## 验证
 
-文档与共享 fixture 运行 `./scripts/agent-notes/verify-agent-notes.sh`、`./scripts/architecture/verify-shared-contracts.sh`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和 `git diff --check`。会话投影 v2 的解码、拒绝与往返一致性由正式 fixture 及现有 Rust、Swift 测试验证，不再依赖草案 schema。这些静态检查不构成运行时证据。
+文档与共享 fixture 运行 `./scripts/agent-notes/verify-agent-notes.sh`、~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和 `git diff --check`。会话投影 v2 的解码、拒绝与往返一致性由正式 fixture 及现有 Rust、Swift 测试验证，不再依赖草案 schema。这些静态检查不构成运行时证据。
 
-实施阶段加载 `write-stable-tests`，按改动范围运行 `./scripts/rust-core/verify-rust-core-comments.sh`、`./scripts/rust-core/verify-rust-core.sh`、`./scripts/macos/test/test-macos.sh`、`./scripts/architecture/verify-service-boundaries.sh` 和 `./scripts/windows/verify/verify-windows-boundaries.sh`；Windows 另外执行 `./scripts/windows/build/build-windows.ps1 -Configuration Release`、宿主 Rust 测试和前端测试。所有等待都有上限，失败时也释放资源，结束后确认本次启动的进程都已退出。平台行为变化时同步功能矩阵，运行 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。正式契约与 Core 一起修改，合并后按[两仓库发布规则](../../implemented/architecture/2026-10-23-plugin-contract-publishing.md)同步 `lithe-plugin-docs`。
+实施阶段加载 `write-stable-tests`，按改动范围运行 ~~./scripts/rust-core/verify-rust-core-comments.sh~~（随旧客户端移除）、~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）、~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除）、~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除） 和 ~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）；Windows 另外执行 ~~./scripts/windows/build/build-windows.ps1 -Configuration Release~~（随旧客户端移除）、宿主 Rust 测试和前端测试。所有等待都有上限，失败时也释放资源，结束后确认本次启动的进程都已退出。平台行为变化时同步功能矩阵，运行 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。正式契约与 Core 一起修改，合并后按[两仓库发布规则](../../implemented/architecture/2026-10-23-plugin-contract-publishing.md)同步 `lithe-plugin-docs`。
 
 ## 适用范围
 
@@ -328,12 +328,12 @@ P0–P5 完成后关闭 #1210。可选扩展、插件依赖和私有 resolver �
 - `shared/contracts/plugins/v1/`
 - `shared/contracts/rust-core-api.md`
 - `shared/fixtures/debug/`
-- `macos/Sources/LitheCoreContracts/Debug/`
-- `macos/Sources/LitheDebugModule/`
-- `macos/Sources/Lithe/Services/Debug/`
-- `macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`
-- `windows/tauri/src/features/debugger/`
-- `windows/tauri/src-tauri/src/debug.rs`
+- ~~`macos/Sources/LitheCoreContracts/Debug/`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheDebugModule/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Services/Debug/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/debugger/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src-tauri/src/debug.rs`~~（已随 #1794 移除）
 
 ## 依据
 

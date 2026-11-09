@@ -63,6 +63,6 @@ SDK 复制只发生在打包阶段，staging 在成功或失败后清理；发�
 ## 适用范围
 
 - [Cargo 插件仓库](https://github.com/Lithe-IDEA/lithe-plugin-cargo) 的 `test/`、`scripts/`、`sdk.lock.json` 与 `.github/workflows/`
-- `Plugins/mac/README.md`
+- ~~`Plugins/mac/README.md`~~（已随 #1794 移除）
 - `docs/ci-builds.md`
 - `shared/platform-feature-matrix/features/cargo-build-plugin.json`

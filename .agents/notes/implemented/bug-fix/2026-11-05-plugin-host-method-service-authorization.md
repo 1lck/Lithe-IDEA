@@ -30,6 +30,6 @@ Core 的宿主方法表是方法和服务关系的真源。macOS 在分发前调
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Application/Features/PluginHostServiceDispatch.swift`
+- ~~`macos/Sources/Lithe/Application/Features/PluginHostServiceDispatch.swift`~~（已随 #1794 移除）
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/host_api.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/host_api.rs)
-- `macos/Tests/LitheTests/PluginPublicHostAPITests.swift`
+- ~~`macos/Tests/LitheTests/PluginPublicHostAPITests.swift`~~（已随 #1794 移除）

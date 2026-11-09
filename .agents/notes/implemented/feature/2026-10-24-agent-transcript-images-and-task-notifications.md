@@ -156,18 +156,18 @@ issue #1462 指出的多余复制按钮来自不属于最终回复的过程文�
 
 ## 验证
 
-- `./scripts/macos/test/test-macos.sh --filter AgentImageTests`
-- `./scripts/macos/test/test-macos.sh --filter AgentDesktopCardTests`
+- ~~./scripts/macos/test/test-macos.sh --filter AgentImageTests~~（随旧客户端移除）
+- ~~./scripts/macos/test/test-macos.sh --filter AgentDesktopCardTests~~（随旧客户端移除）
 - `cargo test -p lithe-agent-host claude_earlier_history`
 - `cargo test -p lithe-agent-host claude_desktop`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 
 ## 适用范围
 
-- `macos/Sources/LitheAgentConversationModule/Application/AgentImage.swift`
-- `macos/Sources/Lithe/Views/Agent/AgentImageViews.swift`
-- `macos/Sources/Lithe/Views/Agent/AgentToolGroupView.swift`
+- ~~`macos/Sources/LitheAgentConversationModule/Application/AgentImage.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Agent/AgentImageViews.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Agent/AgentToolGroupView.swift`~~（已随 #1794 移除）
 - Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/claude_earlier_history.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/claude_earlier_history.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/claude_desktop.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/claude_desktop.rs)
-- `macos/Sources/LitheAgentConversationModule/Application/AgentDesktopCard.swift`
-- `macos/Sources/Lithe/Views/Agent/AgentDesktopCardView.swift`
+- ~~`macos/Sources/LitheAgentConversationModule/Application/AgentDesktopCard.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Agent/AgentDesktopCardView.swift`~~（已随 #1794 移除）

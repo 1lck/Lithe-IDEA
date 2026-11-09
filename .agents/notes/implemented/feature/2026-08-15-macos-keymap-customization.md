@@ -100,11 +100,11 @@ AppKit 重新获得焦点，若内容恰为 `/` 则把插入点放到 `/` 后，
 
 ## 验证
 
-- `./scripts/macos/test/test-macos.sh`
-- `./scripts/architecture/verify-service-boundaries.sh`
-- `macos/Tests/LitheTests/KeyboardShortcutTests.swift`
-- `macos/Tests/LitheTests/AppLocalizationTests.swift`
-- `macos/Tests/LitheTests/SearchEverywhereQueryModeTests.swift`
+- ~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除）
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
+- ~~`macos/Tests/LitheTests/KeyboardShortcutTests.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/AppLocalizationTests.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/SearchEverywhereQueryModeTests.swift`~~（已随 #1794 移除）
 - `./scripts/agent-notes/verify-agent-notes.sh`
 
 原生验证步骤：从编辑器、侧栏及第二个项目窗口按 `⇧⌘A`，确认输入聚焦，
@@ -118,12 +118,12 @@ AppKit 重新获得焦点，若内容恰为 `/` 则把插入点放到 `/` 后，
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Models/Keymap/LitheCommandCatalog.swift`
-- `macos/Sources/Lithe/Models/Keymap/KeyboardShortcutModels.swift`
-- `macos/Sources/Lithe/Models/Settings/AppSettings.swift`
-- `macos/Sources/Lithe/Application/Features/KeyboardShortcutFeatureModel.swift`
-- `macos/Sources/Lithe/Application/Features/ShortcutSessionCoordinator.swift`
-- `macos/Sources/Lithe/Platform/MacOS/UI/MacShortcutDetector.swift`
-- `macos/Sources/Lithe/Views/App/KeyboardShortcutSettingsView.swift`
-- `macos/Tests/LitheTests/KeyboardShortcutTests.swift`
-- `macos/Tests/LitheTests/AppLocalizationTests.swift`
+- ~~`macos/Sources/Lithe/Models/Keymap/LitheCommandCatalog.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Models/Keymap/KeyboardShortcutModels.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Models/Settings/AppSettings.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/KeyboardShortcutFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/ShortcutSessionCoordinator.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/UI/MacShortcutDetector.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/App/KeyboardShortcutSettingsView.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/KeyboardShortcutTests.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/AppLocalizationTests.swift`~~（已随 #1794 移除）

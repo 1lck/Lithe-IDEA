@@ -96,10 +96,10 @@ macOS 使用声明式插件包和 publisher Ed25519 包签名；Windows 使用�
 
 - 已迁出：原 `Plugins/mac/Official/`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - 已迁出：原 `scripts/plugins/build-official-plugins.sh`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/`
-- `macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeToolDiscovery.swift`
-- `macos/Sources/LitheLanguageIntelligenceModule/`
-- `windows/tauri/src/extensions/`
-- `windows/tauri/src-tauri/src/language_tools.rs`
+- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeToolDiscovery.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheLanguageIntelligenceModule/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/extensions/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src-tauri/src/language_tools.rs`~~（已随 #1794 移除）
 - `scripts/resources/worktree-resources.json`
 - `docs/ci-builds.md`

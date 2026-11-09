@@ -84,13 +84,13 @@ cargo test --manifest-path rust/Cargo.toml -p lithe-core remote::
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Views/Workspace/RemoteConnectionsView.swift`
-- `macos/Sources/Lithe/Application/Features/RemoteConnectionsFeatureModel.swift`
-- `macos/Sources/Lithe/Services/Remote/RemoteConnectionStore.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Remote/`
+- ~~`macos/Sources/Lithe/Views/Workspace/RemoteConnectionsView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/RemoteConnectionsFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Services/Remote/RemoteConnectionStore.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Remote/`~~（已随 #1794 移除）
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/remote/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/remote)
 - Lithe-core-rust 锁定修订：[rust/lithe-remote/src/client/launch.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/client/launch.rs)
-- `scripts/remote/build-remote-servers.sh`
+- ~~`scripts/remote/build-remote-servers.sh`~~（脚本已随旧客户端移除）
 
 
 ### 远程开发主面板的统一呈现

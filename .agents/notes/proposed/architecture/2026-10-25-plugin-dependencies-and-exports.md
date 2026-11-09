@@ -96,7 +96,7 @@
 
 ## 验证
 
-第一阶段的跨插件调用由 Core 测试（`plugins::plugin_functions`、`lsp::interface::function_relay`、`lsp::interface::engine`）和 macOS 单测（`MacPluginBackendSessionsTests`、`PluginHostServiceDispatchTests`、`PluginPublicHostAPITests`）覆盖，细节见实现 Note 的“验证”。依赖解析器和安装期规则仍没有实现，不能声称安装、版本冲突或依赖授权用例通过。实施时使用 `write-stable-tests`、`./scripts/architecture/verify-shared-contracts.sh`、`./scripts/rust-core/verify-rust-core.sh`，并分别验证两个宿主和函数 SDK；新增资源时遵守工作树复用与安装目录只读要求。
+第一阶段的跨插件调用由 Core 测试（`plugins::plugin_functions`、`lsp::interface::function_relay`、`lsp::interface::engine`）和 macOS 单测（`MacPluginBackendSessionsTests`、`PluginHostServiceDispatchTests`、`PluginPublicHostAPITests`）覆盖，细节见实现 Note 的“验证”。依赖解析器和安装期规则仍没有实现，不能声称安装、版本冲突或依赖授权用例通过。实施时使用 `write-stable-tests`、~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除），并分别验证两个宿主和函数 SDK；新增资源时遵守工作树复用与安装目录只读要求。
 
 ## 适用范围
 
@@ -104,6 +104,6 @@
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/plugin_function.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/plugin_function.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/function_relay.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/function_relay.rs)
 - `shared/contracts/plugins/v1/`
-- `macos/Sources/Lithe/Platform/MacOS/`
-- `windows/tauri/src-tauri/src/plugin_host/`
+- ~~`macos/Sources/Lithe/Platform/MacOS/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src-tauri/src/plugin_host/`~~（已随 #1794 移除）
 - [插件契约与 SDK 仓库](https://github.com/Lithe-IDEA/lithe-plugin-docs)

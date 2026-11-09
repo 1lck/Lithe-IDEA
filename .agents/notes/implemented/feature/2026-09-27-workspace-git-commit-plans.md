@@ -65,9 +65,9 @@ Git 的多个仓库没有跨仓库原子事务，已成功的提交不会因后�
 
 以下记录是迁移前客户端和 Core 的历史验证，不代表 Viva 的多仓库端到端能力已经通过。完成接线后应重新运行真实仓库、子模块、失败重试及目标平台交互验证。
 
-- `windows/tauri/src/features/git/services/git-workspace-commit-workflow.test.ts` 消费同一份共享夹具，验证计划转发、再次确认、重试、取消与迟到响应；`git-workspace-status-panel.test.tsx` 验证分组勾选写入所属仓库、忽略不可暂存的脏子模块引用。Tauri dispatcher 测试保护原生认证超时与部分结果透传。
+- ~~`windows/tauri/src/features/git/services/git-workspace-commit-workflow.test.ts`~~（已随 #1794 移除） 消费同一份共享夹具，验证计划转发、再次确认、重试、取消与迟到响应；`git-workspace-status-panel.test.tsx` 验证分组勾选写入所属仓库、忽略不可暂存的脏子模块引用。Tauri dispatcher 测试保护原生认证超时与部分结果透传。
 
-- `macos/Tests/LitheGitModuleTests/GitModuleTests.swift` 消费共享夹具和预设 Core 响应，验证确认与再次确认、联动选项与重试转发、步骤驱动、复选框资格和项目切换隔离；不在测试替身中重新实现业务算法。
+- ~~`macos/Tests/LitheGitModuleTests/GitModuleTests.swift`~~（已随 #1794 移除） 消费共享夹具和预设 Core 响应，验证确认与再次确认、联动选项与重试转发、步骤驱动、复选框资格和项目切换隔离；不在测试替身中重新实现业务算法。
 - 同文件的 `commitFiles` 用例验证右键准备的执行顺序、变更列表、部分暂存、首错停止、重置与重入保护；
   `macos/Tests/LitheTests/GitStatusObservationTests.swift` 的 `realGitCommitFiles` 用例通过真实 Git 验证最终索引路径、
   已暂存块保留、未跟踪目录展开和复制来源隔离；`CommitDraftFeatureModelTests` 验证焦点请求保留说明与修订选项。

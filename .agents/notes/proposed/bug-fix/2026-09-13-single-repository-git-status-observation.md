@@ -13,7 +13,7 @@ Changes、当前分支、Git Log、stash 和进行中的 merge/rebase 等状态�
 Lithe 最终都必须重新读取仓库状态并让界面收敛到 Git 的真实结果——但
 当前实现做不到这一点。
 
-当前 `MacDirectoryWatcher`（[`macos/Sources/Lithe/Platform/MacOS/FileWatching/MacDirectoryWatcher.swift`](../../../../macos/Sources/Lithe/Platform/MacOS/FileWatching/MacDirectoryWatcher.swift)）
+当前 `MacDirectoryWatcher`（`macos/Sources/Lithe/Platform/MacOS/FileWatching/MacDirectoryWatcher.swift`（已随 #1794 移除））
 只用 FSEventStream 监听用户打开的 `workspaceRoot` 一个目录，并在上报
 事件前应用 `FileVisibilityRules.isHiddenPath` 过滤路径，这漏掉两类
 变化：事件位于工作区内但被隐藏规则过滤（例如普通仓库的 `.git/**`）；
@@ -89,7 +89,7 @@ submodule 内部文件、远端变化但本地未 fetch、自动 fetch 或网络
 
 ### Rust Core 契约
 
-Rust Core（[`rust/lithe-core/src/git/`](../../../../rust/lithe-core/src/git/)）
+Rust Core（`rust/lithe-core/src/git/`（已随 #1794 移除））
 新增只负责路径解析的 `GitWatchContext`（`repositoryRoot` /
 `gitDirectory` / `gitCommonDirectory`），使用绝对路径、对存在的路径
 规范化、无仓库时返回空 context、不把 `.git` 是文件还是目录的判断
@@ -119,7 +119,7 @@ macOS adapter 接收 `workspaceRoot`、`repositoryRoot`、
 | `gitDirectory` / `gitCommonDirectory` 内 | 不进入工作区流程 | 请求 Git 刷新 |
 | Git context 或监听根变化 | 不作为普通文件处理 | 重新解析 context、重建 watcher 并刷新 |
 
-Git 相关分类必须发生在 `FileVisibilityRules`（[`macos/Sources/LitheCoreContracts/Workspace/FileVisibilityRules.swift`](../../../../macos/Sources/LitheCoreContracts/Workspace/FileVisibilityRules.swift)）
+Git 相关分类必须发生在 `FileVisibilityRules`（`macos/Sources/LitheCoreContracts/Workspace/FileVisibilityRules.swift`（已随 #1794 移除））
 过滤之前——`.git` 对项目树保持隐藏，不等于对 Git 状态监听不可见。
 第一版对 `gitDirectory`/`gitCommonDirectory` 下的任意事件都标记 Git
 状态可能变化，不只放行 `index`/`HEAD`/`refs/**`，因为还有
@@ -149,7 +149,7 @@ Git-only 事件独立防抖后调用 `refreshGit()`，禁止触发项目树重�
 Lithe 内部 Git 写操作继续用现有 freeze depth：freeze 期间不读取
 index/worktree 中间状态，Git 事件只标记 pending，最外层 freeze
 结束后合并为一次最终刷新，且不得因与 `GitFeatureModel`
-（[`macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`](../../../../macos/Sources/LitheGitModule/Application/GitFeatureModel.swift)）
+（`macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`（已随 #1794 移除））
 已有显式刷新去重而丢掉最终刷新。
 
 ### FSEvents 恢复与初始化顺序
@@ -185,7 +185,7 @@ worktree、submodule 和 separate git-dir 增加真实仓库测试，更新共�
 JSON 契约和 Swift bridge payload。Core Ports / Application 定义
 平台无关的结构化目录事件，让 watcher factory 接收逻辑监听根，在
 `WorkspaceFeatureModel`
-（[`macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift`](../../../../macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift)）
+（`macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift`（已随 #1794 移除））
 中路由普通/Git-only/恢复事件并与 Git operation freeze 协调。macOS
 Adapter 用 FSEvents 监听去重后的多根目录，在隐藏过滤前识别 Git 和
 repository root 事件，解释 FSEvents flags，只上报结构化事件不直接
@@ -287,8 +287,8 @@ separate git-dir 均通过验收；Git-only 事件不触发项目树/编辑器/�
 ## 适用范围
 
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git)
-- `macos/Sources/Lithe/Platform/MacOS/FileWatching/MacDirectoryWatcher.swift`
-- `macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift`
-- `macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`
-- `macos/Sources/LitheCoreContracts/Workspace/FileVisibilityRules.swift`
+- ~~`macos/Sources/Lithe/Platform/MacOS/FileWatching/MacDirectoryWatcher.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheCoreContracts/Workspace/FileVisibilityRules.swift`~~（已随 #1794 移除）
 - `shared/contracts/`

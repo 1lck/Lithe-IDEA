@@ -88,11 +88,11 @@ Issue 举的是通用、Git 和 Agent 管理三个页面，但同类常驻说明
 
 以下测试和手工流程属于迁移前客户端，保留验收要求，不能代表 Viva 已通过。
 
-- `./scripts/macos/test/test-macos.sh --filter ContextMenuCoverageTests`：深浅主题下，已请求打开的弹层先在窗口外创建，再挂载锚点，必须自动显示；移除锚点必须关闭。
+- ~~./scripts/macos/test/test-macos.sh --filter ContextMenuCoverageTests~~（随旧客户端移除）：深浅主题下，已请求打开的弹层先在窗口外创建，再挂载锚点，必须自动显示；移除锚点必须关闭。
 
-- `./scripts/macos/test/test-macos.sh --filter GitSettingsPresentationTests` 与 `cargo test --manifest-path rust/Cargo.toml -p lithe-core git::configuration::`（Git 布尔等价写法、无值/空值、原始编辑值不变、远程覆盖以及 prune/all/none/reachable 回显）
-- `./scripts/macos/test/test-macos.sh --filter SettingsSearchVocabularyTests`
-- `./scripts/macos/test/test-macos.sh --filter SettingsSidebarLayoutTests`
+- ~~./scripts/macos/test/test-macos.sh --filter GitSettingsPresentationTests~~（随旧客户端移除） 与 `cargo test --manifest-path rust/Cargo.toml -p lithe-core git::configuration::`（Git 布尔等价写法、无值/空值、原始编辑值不变、远程覆盖以及 prune/all/none/reachable 回显）
+- ~~./scripts/macos/test/test-macos.sh --filter SettingsSearchVocabularyTests~~（随旧客户端移除）
+- ~~./scripts/macos/test/test-macos.sh --filter SettingsSidebarLayoutTests~~（随旧客户端移除）
 - `./scripts/agent-notes/verify-agent-notes.sh`
 - 实机打开设置通用、Git 和 Agents 页：默认只显示标签和 ⓘ；悬停约半秒出现说明，移开关闭；点击图标固定；用 Tab 聚焦后 Space/Return 打开；错误、警告和空态仍然直接可见。
 - 实机打开编辑器页：下拉框和步进器贴内容区右缘；切换字体后旧字体和新字体并列显示约 2.5 秒再淡出；调整字号时预览同步变化。
@@ -109,21 +109,21 @@ Issue 举的是通用、Git 和 Agent 管理三个页面，但同类常驻说明
 
 以下路径位于[迁移前的 preview 修订](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36)，不代表当前工作树仍有这些实现。
 
-- `macos/Sources/Lithe/Views/Components/LitheInfoTip.swift`
-- `macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift`
-- `macos/Sources/Lithe/Views/App/SettingsView.swift`
-- `macos/Sources/Lithe/Views/App/GitExecutionSettingsView.swift`
-- `macos/Sources/Lithe/Views/App/GitFetchSettingsView.swift`
-- `macos/Sources/Lithe/Views/App/PluginSettingsSection.swift`
-- `macos/Sources/Lithe/Views/App/ContributedSettingsPageView.swift`
-- `macos/Sources/Lithe/Views/App/McpSettingsView.swift`
-- `macos/Sources/Lithe/Application/Features/AgentSetupDiagnostics.swift`
-- `macos/Sources/LitheGitModule/Application/GitRepositorySetupFeatureModel.swift`
-- `macos/Sources/Lithe/Views/Agent/AgentPanelSettingsView.swift`
-- `macos/Sources/Lithe/Views/Agent/AgentProviderConfigurationView.swift`
-- `macos/Sources/Lithe/Views/Run/RunConfigurationEditorView.swift`
-- `macos/Resources/en.lproj/Localizable.strings`
-- `macos/Resources/zh-Hans.lproj/Localizable.strings`
+- ~~`macos/Sources/Lithe/Views/Components/LitheInfoTip.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/App/SettingsView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/App/GitExecutionSettingsView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/App/GitFetchSettingsView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/App/PluginSettingsSection.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/App/ContributedSettingsPageView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/App/McpSettingsView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/AgentSetupDiagnostics.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheGitModule/Application/GitRepositorySetupFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Agent/AgentPanelSettingsView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Agent/AgentProviderConfigurationView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Run/RunConfigurationEditorView.swift`~~（已随 #1794 移除）
+- ~~`macos/Resources/en.lproj/Localizable.strings`~~（已随 #1794 移除）
+- ~~`macos/Resources/zh-Hans.lproj/Localizable.strings`~~（已随 #1794 移除）
 
 ## 适用范围
 

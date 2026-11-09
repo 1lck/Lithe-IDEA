@@ -42,5 +42,5 @@ macOS 没有改动。确认对话框不能再作为网页链接动作的前置�
 
 ## 适用范围
 
-- `windows/tauri/src/features/terminal/hooks/use-terminal-addons.ts`
-- `windows/tauri/src/i18n/locale.ts`
+- ~~`windows/tauri/src/features/terminal/hooks/use-terminal-addons.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/i18n/locale.ts`~~（已随 #1794 移除）

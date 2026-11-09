@@ -254,7 +254,7 @@ JDT 尚未完成发现时，已有确认入口可沿用上次生成结果；没�
   精确运行这两个非传统命名测试并检查执行标记。
 - 真实 JDT 测试 `real_jdtls_lists_entrypoints_and_classpaths_behind_a_symbolic_link`
   通过符号链接打开工作区，要求仍然列出入口；去掉作用域解析后它会得到空列表。
-- `scripts/architecture/verify-no-host-language-specifics.mjs` 阻止已删除的本地入口/测试扫描标识符
+- ~~scripts/architecture/verify-no-host-language-specifics.mjs~~（脚本已随旧客户端移除） 阻止已删除的本地入口/测试扫描标识符
   回到 Rust、macOS 或 Windows 产品源码。
 - Windows 和 macOS 打包同一份上游 `contributes.javaExtensions` bundle 列表；
   Windows CI 的独立真实 JDT 任务只在 Java/JDT 相关路径变化时运行。
@@ -296,13 +296,13 @@ JDT 尚未完成发现时，已有确认入口可沿用上次生成结果；没�
 - 已迁出：原 `rust/lithe-core/src/languages/`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/languages/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/languages)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/execution/configuration.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/execution/configuration.rs)
-- `third_party/jdtls/manifest.json`
+- ~~`third_party/jdtls/manifest.json`~~（已随 #1794 移除）
 - 已迁出：原 `scripts/macos/prepare/prepare-jdtls.sh`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
-- `scripts/windows/prepare/prepare-jdtls.ps1`
-- `windows/tauri/src/features/run/`
-- `windows/tauri/src/platform/lsp-core-adapter.ts`
-- `macos/Sources/LitheExecutionModule/Services/`
-- `.github/workflows/ci-windows.yml`
+- ~~`scripts/windows/prepare/prepare-jdtls.ps1`~~（脚本已随旧客户端移除）
+- ~~`windows/tauri/src/features/run/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/platform/lsp-core-adapter.ts`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheExecutionModule/Services/`~~（已随 #1794 移除）
+- ~~`.github/workflows/ci-windows.yml`~~（已随 #1794 移除）
 - 相关笔记：
   `.agents/notes/implemented/feature/2026-09-20-run-configuration-discovery-quality.md`、
   `.agents/notes/implemented/architecture/2026-09-18-java-project-build-and-launch-boundary.md`

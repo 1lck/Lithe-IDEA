@@ -128,9 +128,9 @@ m2e 内嵌的 Maven，而不是用户配置的 Maven 或 mvnd，违反“依赖�
   覆盖计划参数（含 `-N` 与 `outputFile` 校验）、共享 fixture
   `shared/fixtures/maven/dependency-tree-v2.json`（LF 与 CRLF）、6,000 与
   10,000 节点的大树、字节/节点/行长/深度上限、格式漂移与缺失文件。完整校验运行
-  `./scripts/rust-core/verify-rust-core.sh`。
-- Rust Core 注释规范：`./scripts/rust-core/verify-rust-core-comments.sh`。
-- 共享契约：`./scripts/architecture/verify-shared-contracts.sh`。
+  ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）。
+- Rust Core 注释规范：~~./scripts/rust-core/verify-rust-core-comments.sh~~（随旧客户端移除）。
+- 共享契约：~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）。
 - Windows 前端：在 `windows/tauri` 运行
   `bun test --preload ./src/test-utils/vite-assets.ts src/features/maven`，覆盖
   每条结束路径都删除临时文件、读完才删除、删除失败只记日志。
@@ -147,6 +147,6 @@ m2e 内嵌的 Maven，而不是用户配置的 Maven 或 mvnd，违反“依赖�
 - 已迁出：原 `rust/lithe-core/src/project/maven.rs`。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）。
 - `shared/contracts/rust-core-api.md`
 - `shared/fixtures/maven/dependency-tree-v2.json`
-- `windows/tauri/src-tauri/src/maven.rs`
-- `windows/tauri/src/features/maven/`
-- `macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift`
+- ~~`windows/tauri/src-tauri/src/maven.rs`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/maven/`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift`~~（已随 #1794 移除）

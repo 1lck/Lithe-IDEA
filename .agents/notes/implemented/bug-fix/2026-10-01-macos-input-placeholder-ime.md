@@ -66,7 +66,7 @@ Commit 编辑器在 `setMarkedText` 和 `unmarkText` 后标记完整视图需要
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Theme/LitheTheme.swift`
-- `macos/Sources/Lithe/Views/Git/CommitMessageEditor.swift`
-- `macos/Tests/LitheTests/LitheSearchFieldStyleTests.swift`
-- `macos/Tests/LitheTests/CommitMessageEditorTests.swift`
+- ~~`macos/Sources/Lithe/Theme/LitheTheme.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/CommitMessageEditor.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/LitheSearchFieldStyleTests.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/CommitMessageEditorTests.swift`~~（已随 #1794 移除）

@@ -14,7 +14,7 @@ Windows 设置页的固定选项和可搜索选项统一通过 `SettingsSelect` 
 
 ## 决策
 
-- `windows/tauri/src/ui/settings-select.tsx` 规定设置页的触发按钮密度、默认宽度和菜单内搜索。字体、快捷键等可搜索选择器也使用同样的按钮，避免关闭时仍呈现另一套输入框圆角和边框。菜单、搜索、定位、关闭和键盘操作继续交给既有 `Select` 与 Base UI（现有的无障碍交互组件库）。调用处可以按内容调整宽度，不能另画菜单外框或重新选择按钮字号。
+- ~~`windows/tauri/src/ui/settings-select.tsx`~~（已随 #1794 移除） 规定设置页的触发按钮密度、默认宽度和菜单内搜索。字体、快捷键等可搜索选择器也使用同样的按钮，避免关闭时仍呈现另一套输入框圆角和边框。菜单、搜索、定位、关闭和键盘操作继续交给既有 `Select` 与 Base UI（现有的无障碍交互组件库）。调用处可以按内容调整宽度，不能另画菜单外框或重新选择按钮字号。
 - 固定列表提供选项数组，可搜索列表保留原来的搜索与自定义值能力。AI 服务商和模型选择器的设置外观使用同一入口，聊天输入区继续使用自己的紧凑布局。
 - 空字符串可以代表“自动选择”。存在对应选项时，选择组件必须把空字符串作为有效选中值，而不是没有选择。例如从指定工具链切回自动配置后，自动项仍应显示选中态，保存的值仍为空字符串。
 - 带 `id` 的选择控件保留外部标签的命名作用；未提供标签关系的设置行显式提供可访问名称。不能用通用的“请选择”覆盖已经关联的字段标签。
@@ -39,8 +39,8 @@ Windows 设置页的固定选项和可搜索选项统一通过 `SettingsSelect` 
 
 - 旧版 Windows 发行构建命令见上方迁移前笔记，当前工作树已移除该脚本。
 - `.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend` 验证现有设置路由、持久化与新增的空值选择回归。
-- `windows/tauri/src/ui/settings-select.test.tsx` 验证自动配置选中态、切换后恢复自动配置、禁用选项和外部标签；此回归不能由类型检查证明。
-- `windows/tauri/src/ui/settings-path-input.test.tsx` 通过实际输入和 Esc 键盘事件验证任意路径草稿保留、继续编辑及手动清空，并以独立进程接入 Windows CI（持续集成），避免其他组件测试的浏览器环境干扰。
+- ~~`windows/tauri/src/ui/settings-select.test.tsx`~~（已随 #1794 移除） 验证自动配置选中态、切换后恢复自动配置、禁用选项和外部标签；此回归不能由类型检查证明。
+- ~~`windows/tauri/src/ui/settings-path-input.test.tsx`~~（已随 #1794 移除） 通过实际输入和 Esc 键盘事件验证任意路径草稿保留、继续编辑及手动清空，并以独立进程接入 Windows CI（持续集成），避免其他组件测试的浏览器环境干扰。
 - `scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`、`scripts/macos/verify/verify-runtime-bundle-immutability.sh` 与 `scripts/agent-notes/verify-agent-notes.sh` 检查当前矩阵、只读边界和文档；旧 Windows 边界脚本已移除，等价检查恢复前不能记作通过。
 - 在实际设置窗口检查深浅色、普通与可搜索列表、键盘选择与 Esc、点击外部关闭、切换分类、长列表滚动和选项持久化。
 

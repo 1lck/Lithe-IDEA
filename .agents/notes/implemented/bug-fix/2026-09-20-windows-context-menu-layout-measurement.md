@@ -47,14 +47,14 @@
 
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend`
-- `./scripts/windows/build/build-windows.ps1 -Configuration Release`
+- ~~./scripts/windows/build/build-windows.ps1 -Configuration Release~~（随旧客户端移除）
 - `node scripts/agent-notes/verify-agent-notes.mjs`
-- `windows/tauri/src/ui/dropdown.test.tsx` 用独立的布局尺寸与动画尺寸替身验证焦点重新渲染、
+- ~~`windows/tauri/src/ui/dropdown.test.tsx`~~（已随 #1794 移除） 用独立的布局尺寸与动画尺寸替身验证焦点重新渲染、
   普通坐标、锚点移动和内容变高，不依赖真实动画等待。
 - 在 Windows WebView2 中对靠近底部的文件反复右键，按下菜单项后比较位置，再松开确认操作完成。
 
 ## 适用范围
 
-- `windows/tauri/src/ui/dropdown.tsx`
-- `windows/tauri/src/features/file-explorer/hooks/use-file-explorer-context-menu.tsx`
-- `windows/tauri/src/ui/dropdown.test.tsx`
+- ~~`windows/tauri/src/ui/dropdown.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/file-explorer/hooks/use-file-explorer-context-menu.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/ui/dropdown.test.tsx`~~（已随 #1794 移除）

@@ -32,7 +32,7 @@ macOS 和 Windows 编辑器都在状态栏提供编码入口，并支持“以�
 
 用户明确选择外部编辑器时，解码和大小限制由该编辑器处理，不先要求 Lithe 原生读取成功。Windows 内置编辑器首次打开与会话恢复复用 `loadFileContent`；点击已经在后台加载的标签必须等待该次读取和判定结束。共享 Monaco 层直接注册随 0.55.1 分发的 INI tokenizer，其上游扩展名包含 `.properties`，无需为这个问题新增 tree-sitter 语法或自写高亮器。原有原生编辑器高亮实现不参与 Monaco 路径。
 
-`WorkspaceTextFilePolicy` 的 Swift 入口转发到 Core，不再维护第二份控制字符算法。因此 macOS 测试也必须链接真实 Core；`scripts/macos/test/test-macos.sh` 使用现有构建路径完成链接，不能用弱符号的不可用结果来验证正常文本。
+`WorkspaceTextFilePolicy` 的 Swift 入口转发到 Core，不再维护第二份控制字符算法。因此 macOS 测试也必须链接真实 Core；~~scripts/macos/test/test-macos.sh~~（随旧客户端移除） 使用现有构建路径完成链接，不能用弱符号的不可用结果来验证正常文本。
 
 ## 考虑过的备选方案
 

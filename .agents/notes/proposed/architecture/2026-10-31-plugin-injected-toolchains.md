@@ -176,7 +176,7 @@ macOS 的声明式路线由 `MacToolchainDiscovery` 执行，宿主不认识任�
 当前验证覆盖文档、契约、Core 纯数据边界和 macOS 设置页的扫描与布局测试，不声称运行时流程已验收：
 
 - `./scripts/agent-notes/verify-agent-notes.sh`：中文笔记格式、生命周期、链接与路径。
-- `./scripts/architecture/verify-shared-contracts.sh`：现行共享契约及 JSON 有效性；不检查 Core 语义，语义由下面的 Core 测试保护。
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）：现行共享契约及 JSON 有效性；不检查 Core 语义，语义由下面的 Core 测试保护。
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`：矩阵记录实际 Core 切片与平台待接入状态，不把纯数据测试标成产品运行时已验证。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib toolchain_definitions -- --test-threads=1`：任何插件可定义短 ID、多个插件定义同一短 ID 时都不注册且 `conflicts` 排序稳定、其余定义照常注册、重复插件 ID 整批拒绝、嵌套字段失败即拒绝、只报告安装的提供方，以及定义插件为自己的工具声明提供方。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib toolchain_pins -- --test-threads=1`：目录按组件继承、失效数据、跨平台路径语法、数量边界和 legacy 数据保留。
@@ -192,11 +192,11 @@ macOS 的声明式路线由 `MacToolchainDiscovery` 执行，宿主不认识任�
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/execution/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/execution)
 - 已迁出：原 `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
-- `macos/Sources/Lithe/Platform/MacOS/Runtime/`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/`
-- `windows/tauri/src/platform/`
-- `Plugins/mac/`
-- `Plugins/win/`
+- ~~`macos/Sources/Lithe/Platform/MacOS/Runtime/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/platform/`~~（已随 #1794 移除）
+- ~~`Plugins/mac/`~~（已随 #1794 移除）
+- ~~`Plugins/win/`~~（已随 #1794 移除）
 
 ## 阶段 D 的固定提交预集成
 

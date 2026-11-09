@@ -127,20 +127,20 @@ Maven 安装目录。做法参考 OpenIDEA（Apache-2.0），出处写在仓库�
 
 ## 验证
 
-- `./scripts/rust-core/verify-rust-core.sh`：`automatic_java_selection_uses_shared_fixture_and_current_requirements`
+- ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）：`automatic_java_selection_uses_shared_fixture_and_current_requirements`
   读取 `shared/fixtures/run-configuration/automatic-java-selection.json`，覆盖精确版本优先、
   最旧的更新版本、同版本内按来源优先级。
-- `./scripts/macos/test/test-macos.sh`：`MacLoginShellEnvironmentTests` 用假 shell 覆盖
+- ~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除）：`MacLoginShellEnvironmentTests` 用假 shell 覆盖
   标记解析、rc 后台任务导致的超时、冷/热启动缓存、关闭开关、“已有值优先”和
   不含变量值的日志；`MacRuntimeDiscoveryTests`
   覆盖 mise/asdf/`~/.jdks` 的 JDK 和跳过 shim 的 Maven 发现。
-- `./scripts/architecture/verify-shared-contracts.sh`。
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）。
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Platform/MacOS/Runtime/MacLoginShellEnvironment.swift`
+- ~~`macos/Sources/Lithe/Platform/MacOS/Runtime/MacLoginShellEnvironment.swift`~~（已随 #1794 移除）
 - 已迁出：原 `macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeDiscovery.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
-- `macos/Sources/Lithe/Platform/MacOS/MacApplicationEntryPoint.swift`
+- ~~`macos/Sources/Lithe/Platform/MacOS/MacApplicationEntryPoint.swift`~~（已随 #1794 移除）
 - 已迁出：原 `rust/lithe-core/src/execution/java_selection.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
-- `windows/tauri/src-tauri/src/run.rs`
+- ~~`windows/tauri/src-tauri/src/run.rs`~~（已随 #1794 移除）
 - `NOTICE`

@@ -62,7 +62,7 @@ LSP 控制中心对已迁移的语言单独给出引导：没装插件时提示�
 
 ### 5. 主仓库的残留
 
-- `Plugins/mac/Official/` 只剩随应用发行的 Java Support。Go/PHP 最后一版官方 `plugin.json` 移到 `macos/Tests/LitheTests/Fixtures/RetiredOfficialPlugins/`，只给宿主测试使用。
+- ~~`Plugins/mac/Official/`~~（已随 #1794 移除） 只剩随应用发行的 Java Support。Go/PHP 最后一版官方 `plugin.json` 移到 `macos/Tests/LitheTests/Fixtures/RetiredOfficialPlugins/`，只给宿主测试使用。
 - `Plugins/marketplace/official-plugins.json` 和 `index.json` 为空。官方插件发布流程（`build-official-plugins.sh`、`official-plugin-releases.mjs`、`release-official-plugins.yml`）保留给以后的官方插件，测试改用合成的样例插件。
 - `scripts/prepare-php-language-server.sh` 和 `php-language-server-downloads` 工作树资源一并删除。
 - Windows 的 `Plugins/win/Official/PhpSupport` 是另一套 Worker 包格式，这次不动。

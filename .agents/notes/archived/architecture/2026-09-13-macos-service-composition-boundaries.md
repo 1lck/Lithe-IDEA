@@ -229,9 +229,9 @@ re-entry 统一走 `WorkflowActionPorts.swift` 协议。
 
 ## 验证
 
-- `./scripts/architecture/verify-service-boundaries.sh`
-- `./scripts/architecture/verify-shared-contracts.sh`
-- `./scripts/rust-core/verify-rust-core.sh`
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
+- ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）
 
 `verify-service-boundaries.sh` 会拒绝 Core/Services 中的平台 import 和
 具体适配器引用、View 对 workflow service 的直接依赖、`AppModel` 中的
@@ -241,11 +241,11 @@ diff、working-tree diff、worktrees、branch switcher）对聚合对象的反�
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Views/`
-- `macos/Sources/Lithe/Models/`
-- `macos/Sources/Lithe/Application/`
-- `macos/Sources/Lithe/Services/`
-- `macos/Sources/Lithe/Core/Ports/`
-- `macos/Sources/Lithe/Core/Rust/`
-- `macos/Sources/Lithe/Platform/MacOS/`
-- `scripts/architecture/verify-service-boundaries.sh`
+- ~~`macos/Sources/Lithe/Views/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Models/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Services/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Core/Ports/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Core/Rust/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/`~~（已随 #1794 移除）
+- ~~scripts/architecture/verify-service-boundaries.sh~~（脚本已随旧客户端移除）
