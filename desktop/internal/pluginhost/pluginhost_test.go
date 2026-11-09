@@ -54,14 +54,22 @@ func TestValidateRefusesBrokenValidator(t *testing.T) {
 	}
 }
 
-func TestDeclaredServesLanguagesOnly(t *testing.T) {
+func TestDeclaredServesLanguagesAndBaseLanguageServers(t *testing.T) {
 	declared := Declared()
-	if len(declared) != 1 {
+	if len(declared) != 3 {
 		t.Fatalf("declared = %v", declared)
 	}
-	versions := declared["languages"]
-	if len(versions) != 2 || versions[0] != 1 || versions[1] != 3 {
+	if versions := declared["languages"]; len(versions) != 2 || versions[0] != 1 || versions[1] != 3 {
 		t.Fatalf("languages = %v", versions)
+	}
+	// A language server is served at its base version: the host resolves the launch,
+	// runs the process and syncs documents, but does not yet forward the requests a
+	// version 3 plugin backend would drive it with.
+	if versions := declared["languageServers"]; len(versions) != 1 || versions[0] != 1 {
+		t.Fatalf("languageServers = %v", versions)
+	}
+	if versions := declared["serverProcess"]; len(versions) != 1 || versions[0] != 1 {
+		t.Fatalf("serverProcess = %v", versions)
 	}
 }
 

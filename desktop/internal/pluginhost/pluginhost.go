@@ -54,30 +54,36 @@ type Capabilities map[string][]int
 
 // Declared is what this client can serve today.
 //
-// A plugin language needs nothing but a grammar file and a few editor delimiters,
-// and both are wired: the grammar is decoded by Core and registered with the
-// editor, and the delimiters reach the language's comment and bracket rules.
+// A plugin language needs a grammar file and a few editor delimiters, and both are
+// wired: the grammar is decoded by Core and registered with the editor, and the
+// delimiters reach the language's comment and bracket rules.
 //
-// A language server is deliberately not declared yet, even though this client can
-// start one, sync documents to it and draw its diagnostics. Three things the
-// contract requires are still missing:
+// A language server is served at its base version. This client resolves the
+// launch Core plans (a packaged program, a packaged runtime, or a bare command the
+// host finds on PATH), starts the process, keeps the session's documents in step
+// with the editor, and draws the diagnostics it publishes.
 //
-//   - serverProcess 1 covers a packaged program and a system command, and the
-//     second needs the host's tool discovery (PATH, project toolchains, user
-//     overrides); this client resolves neither, so a plugin that launches a
-//     command it expects the host to find would fail at start.
+// Three things the contract can ask for are still missing, and they are why the
+// versions above are the base ones:
+//
 //   - languageServers 3 adds requestMethods, commands, serializedCommands,
 //     forwardNotifications, state and remote, which let a plugin backend drive its
 //     own server; nothing forwards those requests yet.
 //   - only diagnostics are presented. Completion, hover, navigation, rename and
-//     formatting have no editor surface, so a server would start and appear to do
-//     almost nothing.
+//     formatting have no editor surface, so a server runs and reports problems but
+//     cannot yet answer a question about the code.
+//   - tool discovery reads PATH only. A plan that depends on a project toolchain or
+//     a user override is refused rather than started with whatever PATH holds.
 //
 // Everything else a manifest can ask for — user interface contributions, build,
-// debug, toolchains — is not served either, and claiming one would let a plugin
+// debug, plugin functions — is not served, and claiming one would let a plugin
 // install and then fail the first time a user reaches for it.
 func Declared() Capabilities {
-	return Capabilities{"languages": {1, 3}}
+	return Capabilities{
+		"languages":       {1, 3},
+		"languageServers": {1},
+		"serverProcess":   {1},
+	}
 }
 
 // Clone returns a copy callers may modify without touching the original.
