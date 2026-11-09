@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -133,9 +134,11 @@ func (r *runner) scan(rt []rune, textstart int, quick bool, timeout time.Duratio
 		return nil, nil
 	}
 
+	// Lithe: the option is read once, not at every position.
+	debug := r.re.Debug()
 	r.startTimeoutWatch()
 	for {
-		if r.re.Debug() {
+		if debug {
 			//fmt.Printf("\nSearch content: %v\n", string(r.runtext))
 			fmt.Printf("\nSearch range: from 0 to %v\n", r.runtextend)
 			fmt.Printf("Firstchar search starting at %v stopping at %v\n", r.runtextpos, stoppos)
@@ -151,7 +154,7 @@ func (r *runner) scan(rt []rune, textstart int, quick bool, timeout time.Duratio
 				initted = true
 			}
 
-			if r.re.Debug() {
+			if debug {
 				fmt.Printf("Executing engine starting at %v\n\n", r.runtextpos)
 			}
 
@@ -189,10 +192,12 @@ func (r *runner) scan(rt []rune, textstart int, quick bool, timeout time.Duratio
 func (r *runner) execute() error {
 
 	r.goTo(0)
+	// Lithe: the option is read once, not at every instruction.
+	debug := r.re.Debug()
 
 	for {
 
-		if r.re.Debug() {
+		if debug {
 			r.dumpState()
 		}
 
@@ -1320,7 +1325,20 @@ func (r *runner) findFirstChar() bool {
 		}
 
 		return true // found a valid start or end anchor
-	} else if r.code.BmPrefix != nil {
+	}
+
+	// Lithe: a match that starts at a line start, as ^ does with Multiline, starts at the
+	// text's start or right after a line break, so the search moves to the next one.
+	if 0 != (r.code.Anchors&syntax.AnchorBol) && !r.code.RightToLeft && r.runtextpos > 0 && r.runtext[r.runtextpos-1] != '\n' {
+		i := slices.Index(r.runtext[r.runtextpos:r.runtextend], '\n')
+		if i < 0 {
+			r.runtextpos = r.runtextend
+			return false
+		}
+		r.runtextpos += i + 1
+	}
+
+	if r.code.BmPrefix != nil {
 		r.runtextpos = r.code.BmPrefix.Scan(r.runtext, r.runtextpos, 0, r.runtextend)
 
 		if r.runtextpos == -1 {

@@ -15,10 +15,30 @@ type Prefix struct {
 }
 
 // It takes a RegexTree and computes the set of chars that can start it.
+//
+// Lithe: when that finds no set, it tries again reading positive lookaheads. Upstream treats a
+// lookahead as matching nothing, so a pattern that is only a lookahead, as TextMate grammars
+// often write, has no first characters and is tried at every position. A lookahead (?=X) at
+// the start of a match needs X to match there, so the match starts with one of X's first
+// characters. That set can be wider than the one of what follows the lookahead, which is why
+// it is only the fallback.
 func getFirstCharsPrefix(tree *RegexTree) *Prefix {
+	if p := firstCharsPrefix(tree, false); p != nil {
+		return p
+	}
+	if tree.options&RightToLeft != 0 {
+		return nil
+	}
+	return firstCharsPrefix(tree, true)
+}
+
+// firstCharsPrefix is the set of chars that can start a match of tree, reading the content of
+// positive lookaheads when lookahead is set.
+func firstCharsPrefix(tree *RegexTree, lookahead bool) *Prefix {
 	s := regexFcd{
-		fcStack:  make([]regexFc, 32),
-		intStack: make([]int, 32),
+		fcStack:   make([]regexFc, 32),
+		intStack:  make([]int, 32),
+		lookahead: lookahead,
 	}
 	fc := s.regexFCFromRegexTree(tree)
 
@@ -37,6 +57,9 @@ type regexFcd struct {
 	skipAllChildren bool // don't process any more children at the current level
 	skipchild       bool // don't process the current child.
 	failed          bool
+	// lookahead reads the content of positive lookaheads as the first characters they need
+	// (Lithe).
+	lookahead bool
 }
 
 /*
@@ -224,6 +247,12 @@ func (s *regexFcd) calculateFC(nt nodeType, node *regexNode, CurIndex int) {
 		break
 
 	case ntRequire | beforeChild, ntPrevent | beforeChild:
+		if s.lookahead && nt == ntRequire|beforeChild && node.options&RightToLeft == 0 {
+			// Lithe: the lookahead's first characters are those of its content, which the walk
+			// leaves on the stack. A lookbehind (RightToLeft) reads the text before the
+			// position and says nothing about the character at it.
+			break
+		}
 		s.skipChild()
 		s.pushFC(regexFc{nullable: true})
 		break
@@ -798,11 +827,16 @@ const (
 )
 
 func getAnchors(tree *RegexTree) AnchorLoc {
+	return anchorsOf(tree.root)
+}
+
+// anchorsOf is the anchor every match of the subtree at node starts with, as getAnchors.
+func anchorsOf(node *regexNode) AnchorLoc {
 
 	var concatNode *regexNode
 	nextChild, result := 0, AnchorLoc(0)
 
-	curNode := tree.root
+	curNode := node
 
 	for {
 		switch curNode.t {
@@ -821,6 +855,10 @@ func getAnchors(tree *RegexTree) AnchorLoc {
 			ntStart, ntEndZ, ntEnd:
 			return result | anchorFromType(curNode.t)
 
+		case ntAlternate:
+			// Lithe addition.
+			return result | alternateAnchor(curNode)
+
 		case ntEmpty, ntRequire, ntPrevent:
 
 		default:
@@ -834,6 +872,31 @@ func getAnchors(tree *RegexTree) AnchorLoc {
 		curNode = concatNode.children[nextChild]
 		nextChild++
 	}
+}
+
+// alternateAnchor is the anchor every branch of an alternation starts with, or 0 when they do
+// not agree (Lithe). TextMate grammars write (^|\G) and alternations of lines that each start
+// with ^; where \G cannot match, the grammar compiler writes it as (?!), a branch that never
+// matches and so does not count. Only the anchors the search skips by are kept.
+func alternateAnchor(node *regexNode) AnchorLoc {
+	const skipped = AnchorBeginning | AnchorBol | AnchorStart | AnchorEndZ | AnchorEnd
+	anchor := AnchorLoc(0)
+	for _, branch := range node.children {
+		if neverMatches(branch) {
+			continue
+		}
+		a := anchorsOf(branch)
+		if a&skipped == 0 || (anchor != 0 && a != anchor) {
+			return 0
+		}
+		anchor = a
+	}
+	return anchor
+}
+
+// neverMatches reports a node no text matches: nothing, or a negative lookahead of nothing, (?!).
+func neverMatches(node *regexNode) bool {
+	return node.t == ntNothing || (node.t == ntPrevent && len(node.children) == 1 && node.children[0].t == ntEmpty)
 }
 
 func anchorFromType(t nodeType) AnchorLoc {

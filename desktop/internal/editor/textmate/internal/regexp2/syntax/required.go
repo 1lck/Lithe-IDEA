@@ -24,8 +24,14 @@ const maxRequiredLength = 64
 // Required is a set of literals at least one of which occurs, in every match, inside the
 // match or inside a lookahead the match makes. A search from a position after which none of
 // them occurs finds nothing.
+//
+// When the match and its lookaheads need no literal, the set may instead come from what its
+// lookbehinds need, as (?<=\bconst\b)\s*(\w+) needs "const". A lookbehind reads the text
+// before the match, which can lie before the search start, so then anywhere is set and the
+// literal can occur anywhere in the text.
 type Required struct {
 	literals [][]rune
+	anywhere bool
 	// ascii holds the ASCII runes a literal starts with; other is set when a literal starts
 	// with a rune outside ASCII.
 	ascii [2]uint64
@@ -41,8 +47,16 @@ func (q *Required) Literals() []string {
 	return out
 }
 
-// In reports whether one of the literals occurs in text at or after from.
+// Anywhere reports whether the literals come from lookbehinds and can occur anywhere in the
+// text, for tests and dumps.
+func (q *Required) Anywhere() bool { return q.anywhere }
+
+// In reports whether one of the literals occurs in text at or after from, or anywhere in text
+// when the literals come from lookbehinds.
 func (q *Required) In(text []rune, from int) bool {
+	if q.anywhere {
+		from = 0
+	}
 	for i := from; i < len(text); i++ {
 		r := text[i]
 		if uint32(r) < utf8.RuneSelf {
@@ -67,11 +81,14 @@ func requiredOf(tree *RegexTree) *Required {
 	if tree.options&RightToLeft != 0 {
 		return nil
 	}
-	literals := required(tree.root)
+	literals, anywhere := required(tree.root, false), false
+	if len(literals) == 0 {
+		literals, anywhere = required(tree.root, true), true
+	}
 	if len(literals) == 0 {
 		return nil
 	}
-	q := &Required{literals: literals}
+	q := &Required{literals: literals, anywhere: anywhere}
 	for _, literal := range literals {
 		if r := literal[0]; uint32(r) < utf8.RuneSelf {
 			q.ascii[r>>6] |= 1 << (uint32(r) & 63)
@@ -84,10 +101,13 @@ func requiredOf(tree *RegexTree) *Required {
 
 // required is a set of literals one of which every match of n contains, or nil when there is
 // none to rely on. It is conservative: a node it does not understand requires nothing.
-func required(n *regexNode) [][]rune {
-	if n.options&(IgnoreCase|RightToLeft) != 0 {
-		// Case-folded text can differ from the literal, and a lookbehind reads text before
-		// the search start.
+//
+// A lookbehind reads text before the search start, so it counts only when behind is set and
+// the caller checks the whole text. Its literals are in text order, as the parser writes them
+// for right-to-left nodes too.
+func required(n *regexNode, behind bool) [][]rune {
+	if n.options&IgnoreCase != 0 || (!behind && n.options&RightToLeft != 0) {
+		// Case-folded text can differ from the literal.
 		return nil
 	}
 	switch n.t {
@@ -112,18 +132,18 @@ func required(n *regexNode) [][]rune {
 		if n.m < 1 || len(n.children) == 0 {
 			return nil
 		}
-		return required(n.children[0])
+		return required(n.children[0], behind)
 	case ntCapture, ntGroup, ntGreedy, ntRequire:
 		// A positive lookahead reads text at or after the match start, which is at or after
 		// the search start.
 		if len(n.children) == 0 {
 			return nil
 		}
-		return required(n.children[0])
+		return required(n.children[0], behind)
 	case ntConcatenate:
 		var best [][]rune
 		for _, child := range n.children {
-			if set := required(child); set != nil && (best == nil || moreSelective(set, best)) {
+			if set := required(child, behind); set != nil && (best == nil || moreSelective(set, best)) {
 				best = set
 			}
 		}
@@ -131,7 +151,7 @@ func required(n *regexNode) [][]rune {
 	case ntAlternate:
 		var union [][]rune
 		for _, child := range n.children {
-			set := required(child)
+			set := required(child, behind)
 			if set == nil {
 				return nil
 			}
