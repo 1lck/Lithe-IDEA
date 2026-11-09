@@ -49,7 +49,7 @@ func benchConfig(b *testing.B, kind editorperf.Kind, text []byte, highlight bool
 	cfg := Config{
 		HitID:           gfx.Item(1),
 		Label:           "bench",
-		Text:            text,
+		Content:         Prepare(text),
 		MinimapID:       gfx.Item(2),
 		MinimapToggleID: gfx.Item(3),
 		VerticalBarID:   gfx.Item(4),
@@ -364,10 +364,10 @@ func BenchmarkEditorViewPaste(b *testing.B) {
 	}
 }
 
-// BenchmarkEditorViewOpen is what the window thread does to show a file whose bytes a worker has
-// read: it builds the view, which builds the rope and scans the widest line, and paints the first
-// frame, which colors the first screen. It is the pause between the file being ready and the user
-// seeing it.
+// BenchmarkEditorViewOpen is what the window thread does to show a file a worker has read and
+// prepared: it builds the view of the prepared content and paints the first frame, which colors
+// the first screen. It is the pause between the file being ready and the user seeing it. The
+// worker's half is BenchmarkEditorViewPrepareReload.
 func BenchmarkEditorViewOpen(b *testing.B) {
 	for _, kind := range editorperf.Kinds() {
 		for _, size := range editorperf.Sizes() {
@@ -389,9 +389,11 @@ func BenchmarkEditorViewOpen(b *testing.B) {
 	}
 }
 
-// BenchmarkEditorViewPrepareReload is the half of a reload that runs on a worker: the rope built from
-// the bytes of the changed file and the scan for its widest line. Both are linear in the file, and
-// they are what keeps a reload from freezing the window as long as they stay off the window thread.
+// BenchmarkEditorViewPrepareReload is the half of opening or reloading a file that runs on a worker:
+// Prepare, which builds the rope from the bytes read and scans for the widest line. Both are linear
+// in the file, and they keep the window from freezing as long as they stay off the window thread.
+// The name is older than opening a file prepared on a worker too, and is kept so that the history
+// stays comparable.
 func BenchmarkEditorViewPrepareReload(b *testing.B) {
 	for _, kind := range editorperf.Kinds() {
 		for _, size := range editorperf.Sizes() {
@@ -400,7 +402,7 @@ func BenchmarkEditorViewPrepareReload(b *testing.B) {
 				text := editorperf.Text(kind, size.Bytes)
 				b.SetBytes(int64(len(text)))
 				for b.Loop() {
-					PrepareReload(text)
+					Prepare(text)
 				}
 			})
 		}
@@ -453,10 +455,15 @@ func BenchmarkEditorViewMemory(b *testing.B) {
 				warm.hl.Close()
 				frame(warm, canvas)
 				warm.Close()
+				// The rope is part of what a document keeps, so each view is opened from content
+				// prepared inside the measured span, and the warm view's content is let go.
+				cfg.Content = Content{}
 				var retained uint64
 				for b.Loop() {
 					before := editorperf.LiveHeap()
-					v := New(cfg)
+					open := cfg
+					open.Content = Prepare(text)
+					v := New(open)
 					// The background pass would add checkpoints while the heap is read, so how far it
 					// got would decide the result; its memory is the syntax package's to measure.
 					v.hl.Close()

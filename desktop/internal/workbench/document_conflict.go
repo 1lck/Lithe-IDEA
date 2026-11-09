@@ -107,9 +107,9 @@ func (a *App) loadDocumentDisk(p *project, d *document) {
 	read := a.documentReader
 	a.background(p, 0, func(context.Context) func(*App) {
 		data, err := read(d.path)
-		var content editorview.ReloadContent
+		var content editorview.Content
 		if err == nil {
-			content = editorview.PrepareReload(data)
+			content = editorview.Prepare(data)
 		}
 		return func(a *App) {
 			d.resolvingConflict = false

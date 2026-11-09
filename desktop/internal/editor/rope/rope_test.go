@@ -162,6 +162,51 @@ func TestReplaceMatchesAStringModel(t *testing.T) {
 	}
 }
 
+// Equal agrees with comparing the bytes, whether the ropes share their unedited nodes, are built
+// separately with other leaf boundaries, or differ in one byte with the same length and lines.
+func TestEqualMatchesComparingTheBytes(t *testing.T) {
+	random := rand.New(rand.NewPCG(3, 4))
+	model := strings.Repeat("hello world\n", 3000)
+	r := FromString(model)
+	type version struct {
+		rope Rope
+		text string
+	}
+	versions := []version{{r, model}, {FromString(model), model}}
+	for step := range 400 {
+		at := random.IntN(len(model) + 1)
+		switch random.IntN(4) {
+		case 0:
+			// A byte typed and deleted again: equal text, a new path to the leaf.
+			r = r.Insert(at, []byte{'k'}).Delete(at, at+1)
+		case 1:
+			if at < len(model) && model[at] != '\n' {
+				r = r.Replace(at, at+1, []byte{'Z'})
+				model = model[:at] + "Z" + model[at+1:]
+			}
+		case 2:
+			insert := strings.Repeat("big\n", random.IntN(800))
+			r = r.Insert(at, []byte(insert))
+			model = model[:at] + insert + model[at:]
+		default:
+			end := min(len(model), at+random.IntN(3000))
+			r = r.Delete(at, end)
+			model = model[:at] + model[end:]
+		}
+		if step%20 == 0 {
+			versions = append(versions, version{r, model}, version{FromString(model), model})
+		}
+	}
+	versions = append(versions, version{r, model}, version{Rope{}, ""}, version{FromString(""), ""})
+	for i, a := range versions {
+		for j, b := range versions {
+			if got, want := a.rope.Equal(b.rope), a.text == b.text; got != want {
+				t.Fatalf("versions %d and %d: Equal = %v, want %v", i, j, got, want)
+			}
+		}
+	}
+}
+
 func TestDeletingEverythingLeavesAnEmptyRope(t *testing.T) {
 	r := FromString(strings.Repeat("abc\n", 5000))
 	r = r.Delete(0, r.Len())

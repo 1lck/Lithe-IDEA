@@ -24,7 +24,7 @@ var (
 func newChromeView(t *testing.T, text string) *View {
 	t.Helper()
 	v := New(Config{
-		HitID: gfx.Item(1), Label: "test", Text: []byte(text),
+		HitID: gfx.Item(1), Label: "test", Content: Prepare([]byte(text)),
 		MinimapID: testMinimap, MinimapToggleID: testToggle,
 		VerticalBarID: testVertical, HorizontalBarID: testSideways,
 	})

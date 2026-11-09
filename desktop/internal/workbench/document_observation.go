@@ -185,10 +185,10 @@ func (a *App) scheduleDocumentChecks(p *project) {
 		a.background(p, 0, func(context.Context) func(*App) {
 			data, err := read(d.path)
 			changed := err == nil && (missing || !bytes.Equal(data, baseline.Bytes()))
-			var content editorview.ReloadContent
+			var content editorview.Content
 			prepared := changed
 			if prepared {
-				content = editorview.PrepareReload(data)
+				content = editorview.Prepare(data)
 			}
 			return func(a *App) {
 				p.docs.checking--
@@ -222,11 +222,11 @@ func (a *App) scheduleDocumentChecks(p *project) {
 func (a *App) clearDocumentConflict(d *document) {
 	d.conflicted = false
 	d.conflictMissing = false
-	d.conflictContent = editorview.ReloadContent{}
+	d.conflictContent = editorview.Content{}
 	d.conflictGeneration++
 }
 
-func (a *App) applyDocumentCheck(p *project, d *document, baseline rope.Rope, content editorview.ReloadContent, changed, prepared bool, err error) {
+func (a *App) applyDocumentCheck(p *project, d *document, baseline rope.Rope, content editorview.Content, changed, prepared bool, err error) {
 	if d.saving || !d.view.HasSavedSnapshot(baseline) {
 		d.checkPending = true
 		return

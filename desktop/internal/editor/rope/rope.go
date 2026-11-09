@@ -80,6 +80,91 @@ func (r Rope) Same(other Rope) bool {
 	return r.root == other.root
 }
 
+// Equal reports whether r and other hold the same bytes. Two versions of one text share every
+// node no edit touched, so Equal skips a node both reach at the same offset and compares bytes
+// only along the paths the edits between them made: a keystroke away from the saved text costs
+// a few leaves, not the document.
+func (r Rope) Equal(other Rope) bool {
+	if r.root == other.root {
+		return true
+	}
+	if r.Len() != other.Len() || r.LineCount() != other.LineCount() {
+		return false
+	}
+	var aPath, bPath [walkDepth]step
+	a := walker{path: aPath[:0], node: r.root}
+	b := walker{path: bPath[:0], node: other.root}
+	// Both walkers are always at the same offset: they move past a node they share, or past the
+	// same number of bytes of the leaves they are in.
+	for a.node != nil && b.node != nil {
+		switch {
+		case a.node == b.node && a.skip == 0 && b.skip == 0:
+			a.next()
+			b.next()
+		case a.node.children != nil && (b.node.children == nil || a.node.height >= b.node.height):
+			a.down()
+		case b.node.children != nil:
+			b.down()
+		default:
+			x, y := a.node.text[a.skip:], b.node.text[b.skip:]
+			n := min(len(x), len(y))
+			if !bytes.Equal(x[:n], y[:n]) {
+				return false
+			}
+			if a.skip += n; a.skip == a.node.length {
+				a.next()
+			}
+			if b.skip += n; b.skip == b.node.length {
+				b.next()
+			}
+		}
+	}
+	// One walker passed the end, so both did: they compared or shared every byte. An empty leaf
+	// the other may still be at holds none.
+	return true
+}
+
+// walkDepth is the path a walker keeps without allocating: deeper than any tree of a text
+// that fits in memory, as a tree of n leaves is about log4(n) levels deep.
+const walkDepth = 16
+
+// step is an inner node on a walker's path and the child of it the walker is in.
+type step struct {
+	node  *node
+	child int
+}
+
+// walker steps through a tree a subtree at a time, so that two walkers can pass over what their
+// trees share without visiting it.
+type walker struct {
+	// path is the inner nodes above node, from the root.
+	path []step
+	// node is the subtree the walker is at; nil past the end.
+	node *node
+	// skip is how many bytes of node, a leaf, have been passed.
+	skip int
+}
+
+// down moves to the first child of node, an inner node.
+func (w *walker) down() {
+	w.path = append(w.path, step{node: w.node})
+	w.node = w.node.children[0]
+}
+
+// next moves past node to the subtree after it.
+func (w *walker) next() {
+	w.skip = 0
+	for len(w.path) > 0 {
+		top := &w.path[len(w.path)-1]
+		if top.child++; top.child < len(top.node.children) {
+			w.node = top.node.children[top.child]
+			return
+		}
+		w.path = w.path[:len(w.path)-1]
+	}
+	w.node = nil
+}
+
 // LineStart returns the offset at which line (counted from 0) begins. A line past the last one
 // begins at Len.
 func (r Rope) LineStart(line int) int {

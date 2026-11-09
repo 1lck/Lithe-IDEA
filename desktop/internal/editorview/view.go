@@ -40,8 +40,10 @@ type Config struct {
 	HitID gfx.ID
 	// Label names the view for assistive technology: the file's name.
 	Label string
-	// Text is the document's content as it was read.
-	Text []byte
+	// Content is the document as it was read, made by Prepare on a worker: building its rope
+	// and measuring its lines take time in proportion to the file, which the window thread
+	// must not spend.
+	Content Content
 	// Syntax colors the text; nil shows it in one color.
 	Syntax *syntax.Syntax
 	// Notify wakes the window when the background highlighter has colored lines anew.
@@ -102,6 +104,9 @@ type snapshot struct {
 	text            rope.Rope
 	anchor, caret   int
 	scrollX, scroll float32
+	// widest is the view's widest at the time, no less than the widest line of text, so undo
+	// restores the scroll range without measuring the document again.
+	widest int
 }
 
 // editKind says how an edit merges with the one before it into one undo step.
@@ -212,9 +217,16 @@ type View struct {
 
 // New makes the view of a document.
 func New(cfg Config) *View {
-	text := rope.New(cfg.Text)
-	v := &View{cfg: cfg, text: text, saved: text, goal: -1, indentUnit: indentUnit(text)}
-	v.widest = v.scanWidest(0, text.LineCount()-1)
+	content := cfg.Content
+	// The view keeps cfg for its hits and callbacks. It must not keep the text it opened with
+	// alive once edits have replaced it.
+	cfg.Content = Content{}
+	text := content.text
+	v := &View{cfg: cfg, text: text, saved: text, goal: -1, indentUnit: content.indent, widest: content.widest}
+	if v.indentUnit == "" {
+		// A zero Content is an empty document, which Prepare was not asked to measure.
+		v.indentUnit = indentUnit(text)
+	}
 	notify := cfg.Notify
 	v.hl = syntax.NewHighlighter(cfg.Syntax, text, syntax.HighlighterOptions{
 		OnChange: func(first, last int) {
@@ -299,7 +311,7 @@ func (v *View) Dirty() bool { return v.dirty }
 
 // compare works out whether the text differs from the saved text, after it changed.
 func (v *View) compare() {
-	v.dirty = !v.text.Same(v.saved) && (v.text.Len() != v.saved.Len() || !bytes.Equal(v.text.Bytes(), v.saved.Bytes()))
+	v.dirty = !v.text.Equal(v.saved)
 }
 
 // Revision counts the changes made to the text since the file was read, undo and redo
@@ -309,19 +321,20 @@ func (v *View) Revision() int { return v.revision }
 // Text is the document's current content, and the rope it was taken from for MarkSaved.
 func (v *View) Text() ([]byte, rope.Rope) { return v.text.Bytes(), v.text }
 
-// ReloadContent contains the expensive rope and layout summary prepared away from the
-// window thread. It is immutable and may be discarded when the read becomes stale.
-type ReloadContent struct {
+// Content is a document read and laid out away from the window thread: its rope, the indent it
+// uses and its widest line. A view opens with it or reloads it. It never changes, so a read that
+// has become stale may simply be dropped.
+type Content struct {
 	text   rope.Rope
 	indent string
 	widest int
 }
 
-// PrepareReload constructs the new document and scans its width on a worker.
-func PrepareReload(data []byte) ReloadContent {
+// Prepare makes the content of data, the bytes of a file as they were read. It takes time in
+// proportion to data, so it runs on a worker, not on the window thread.
+func Prepare(data []byte) Content {
 	text := rope.New(data)
-	view := View{text: text}
-	return ReloadContent{text: text, indent: indentUnit(text), widest: view.scanWidest(0, text.LineCount()-1)}
+	return Content{text: text, indent: indentUnit(text), widest: widestLine(text, 0, text.LineCount()-1)}
 }
 
 // SavedSnapshot returns an immutable baseline for background comparison.
@@ -332,7 +345,7 @@ func (v *View) HasSavedSnapshot(snapshot rope.Rope) bool { return v.saved.Same(s
 
 // Reload installs an externally changed file only while no local edit or input-method
 // composition needs protection. Undo retains the previous contents as a recovery path.
-func (v *View) Reload(content ReloadContent) bool {
+func (v *View) Reload(content Content) bool {
 	if v.dirty || v.preedit.Composing {
 		return false
 	}
@@ -340,7 +353,7 @@ func (v *View) Reload(content ReloadContent) bool {
 }
 
 // ResolveWithDisk applies an explicit conflict decision while preserving undo history.
-func (v *View) ResolveWithDisk(content ReloadContent) bool {
+func (v *View) ResolveWithDisk(content Content) bool {
 	if v.preedit.Composing {
 		return false
 	}
@@ -348,9 +361,9 @@ func (v *View) ResolveWithDisk(content ReloadContent) bool {
 }
 
 // Snapshot returns the immutable disk contents that were prepared on a worker.
-func (c ReloadContent) Snapshot() rope.Rope { return c.text }
+func (c Content) Snapshot() rope.Rope { return c.text }
 
-func (v *View) replaceFromDisk(content ReloadContent) bool {
+func (v *View) replaceFromDisk(content Content) bool {
 	edit := v.wholeDocumentEdit(content.text)
 	v.undo = append(v.undo, v.snapshot())
 	if len(v.undo) > undoLimit {
@@ -564,17 +577,69 @@ func runeCells(r rune, at int) int {
 	return max(term.Width(r), 1)
 }
 
-// scanWidest is the most cells a line from first to last takes.
-func (v *View) scanWidest(first, last int) int {
-	widest := 0
-	for line := first; line <= last && line < v.text.LineCount(); line++ {
-		n := v.text.LineEnd(line) - v.text.LineStart(line)
-		if n <= widest {
-			continue
-		}
-		widest = max(widest, cellsOf(v.text.Line(line), n))
+// widestLine is the most cells a line of text from first to last takes. It reads the lines
+// once, a leaf at a time and without copying them, and counts the cells of a line only when it
+// could be wider than the widest so far: a character takes at most a cell per byte, and a tab
+// at most tabSize.
+func widestLine(text rope.Rope, first, last int) int {
+	last = min(last, text.LineCount()-1)
+	if first > last {
+		return 0
 	}
+	widest := 0
+	start := text.LineStart(first)
+	offset, lineStart, length, tabs := start, start, 0, 0
+	// ended measures the line that ends at offset, when it may be the widest.
+	ended := func() {
+		if length+(tabSize-1)*tabs > widest {
+			widest = max(widest, rangeCells(text, lineStart, offset))
+		}
+	}
+	text.Chunks(start, text.LineEnd(last), func(chunk []byte) bool {
+		for {
+			i := bytes.IndexByte(chunk, '\n')
+			part := chunk
+			if i >= 0 {
+				part = chunk[:i]
+			}
+			length += len(part)
+			tabs += bytes.Count(part, tabBytes)
+			offset += len(part)
+			if i < 0 {
+				return true
+			}
+			ended()
+			offset++
+			lineStart, length, tabs = offset, 0, 0
+			chunk = chunk[i+1:]
+		}
+	})
+	ended()
 	return widest
+}
+
+// tabBytes is a tab, as the separator bytes.Count counts.
+var tabBytes = []byte{'\t'}
+
+// rangeCells is the cells the bytes of text from start to end take, the first at column 0, as
+// cellsOf counts them. It reads the text a leaf at a time without copying it: a leaf never
+// ends inside a character of valid UTF-8.
+func rangeCells(text rope.Rope, start, end int) int {
+	cells := 0
+	text.Chunks(start, end, func(chunk []byte) bool {
+		for i := 0; i < len(chunk); {
+			if c := chunk[i]; c < utf8.RuneSelf {
+				cells += runeCells(rune(c), cells)
+				i++
+				continue
+			}
+			r, size := utf8.DecodeRune(chunk[i:])
+			cells += runeCells(r, cells)
+			i += size
+		}
+		return true
+	})
+	return cells
 }
 
 // edit replaces the bytes from start to end with text, leaves the caret after it and keeps
@@ -625,7 +690,7 @@ func (v *View) edit(start, end int, text []byte, kind editKind) {
 	if kind == editDeleting {
 		v.lastEnd = start
 	}
-	v.widest = max(v.widest, v.scanWidest(firstLine, v.text.LineOf(v.caret)))
+	v.widest = max(v.widest, widestLine(v.text, firstLine, v.text.LineOf(v.caret)))
 	v.compare()
 	v.moved()
 	v.reportEdit(Edit{StartLine: startLine, StartColumn: startColumn, EndLine: endLine, EndColumn: endColumn, Text: string(text)})
@@ -657,7 +722,7 @@ func (v *View) reportEdit(edit Edit) {
 
 // snapshot is the text and selection as they are now.
 func (v *View) snapshot() snapshot {
-	return snapshot{text: v.text, anchor: v.anchor, caret: v.caret, scroll: v.scroll, scrollX: v.scrollX}
+	return snapshot{text: v.text, anchor: v.anchor, caret: v.caret, scroll: v.scroll, scrollX: v.scrollX, widest: v.widest}
 }
 
 // restore makes s the view's text and selection.
@@ -669,7 +734,7 @@ func (v *View) restore(s snapshot) {
 	v.forgetRows()
 	v.anchor, v.caret = s.anchor, s.caret
 	v.lastKind = editOther
-	v.widest = max(v.widest, v.scanWidest(0, v.text.LineCount()-1))
+	v.widest = max(v.widest, s.widest)
 	v.compare()
 	v.moved()
 	v.reportEdit(edit)

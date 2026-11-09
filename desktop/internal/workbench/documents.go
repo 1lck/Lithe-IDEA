@@ -83,7 +83,7 @@ type document struct {
 	checking           bool
 	conflicted         bool
 	conflictMissing    bool
-	conflictContent    editorview.ReloadContent
+	conflictContent    editorview.Content
 	conflictGeneration uint64
 	resolvingConflict  bool
 	// recreateMissing records the user's explicit choice to save a deleted file.
@@ -190,9 +190,13 @@ func (a *App) openFile(p *project, path string) {
 	name := filepath.Base(path)
 	a.background(p, 0, func(context.Context) func(*App) {
 		data, err := readDocument(path)
+		var content editorview.Content
 		var grammar *syntax.Syntax
 		languageID := ""
 		if err == nil {
+			// The rope and the measure of the lines take time in proportion to the file, so
+			// they are made here and the window thread only shows them.
+			content = editorview.Prepare(data)
 			if language, ok := registry.ForPath(path); ok {
 				grammar = registry.Syntax(language.ID)
 				languageID = language.ID
@@ -207,7 +211,7 @@ func (a *App) openFile(p *project, path string) {
 				a.notify(a.text.Editor.OpenFailed(name, a.documentReason(err)))
 				return
 			}
-			a.placeDocument(p, path, name, data, grammar, languageID)
+			a.placeDocument(p, path, name, content, grammar, languageID)
 			// A plugin that serves this language starts its server the first time a
 			// file of it is opened, not when the project opens: a workspace of Go
 			// files must not pay for a Java server.
@@ -362,7 +366,7 @@ func (a *App) documentReason(err error) string {
 }
 
 // placeDocument opens a read file as a new tab, shown and given the keyboard.
-func (a *App) placeDocument(p *project, path, name string, data []byte, grammar *syntax.Syntax, languageID string) {
+func (a *App) placeDocument(p *project, path, name string, content editorview.Content, grammar *syntax.Syntax, languageID string) {
 	if d := p.docs.byPath(path); d != nil {
 		a.selectDocument(p, d.id)
 		return
@@ -388,7 +392,7 @@ func (a *App) placeDocument(p *project, path, name string, data []byte, grammar 
 	d.view = editorview.New(editorview.Config{
 		HitID:           docViews.At(id),
 		Label:           name,
-		Text:            data,
+		Content:         content,
 		Syntax:          grammar,
 		Notify:          a.invalidator.Invalidate,
 		Save:            func() { a.saveDocument(p, id) },

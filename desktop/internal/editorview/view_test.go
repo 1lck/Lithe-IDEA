@@ -10,7 +10,7 @@ import (
 // newTestView is a view of text with no grammar, its caret at the start.
 func newTestView(t *testing.T, text string) *View {
 	t.Helper()
-	v := New(Config{HitID: gfx.Item(1), Label: "test", Text: []byte(text)})
+	v := New(Config{HitID: gfx.Item(1), Label: "test", Content: Prepare([]byte(text))})
 	t.Cleanup(v.Close)
 	return v
 }
@@ -179,7 +179,7 @@ func TestCellsCountTabsAndWideCharacters(t *testing.T) {
 
 func TestReloadKeepsRecoverableOldTextAndRefusesDirtyEdits(t *testing.T) {
 	v := newTestView(t, "first")
-	if !v.Reload(PrepareReload([]byte("second"))) {
+	if !v.Reload(Prepare([]byte("second"))) {
 		t.Fatal("clean document did not reload")
 	}
 	if got := v.contents(); got != "second" || v.Dirty() {
@@ -188,7 +188,7 @@ func TestReloadKeepsRecoverableOldTextAndRefusesDirtyEdits(t *testing.T) {
 	if !v.Undo() || v.contents() != "first" || !v.Dirty() {
 		t.Fatal("reload discarded the previous text")
 	}
-	if v.Reload(PrepareReload([]byte("third"))) {
+	if v.Reload(Prepare([]byte("third"))) {
 		t.Fatal("reload replaced dirty input")
 	}
 	if v.contents() != "first" {
@@ -274,7 +274,7 @@ func TestCaretUTF16TracksEditsAndUndo(t *testing.T) {
 
 func TestEditCallbackReportsLSPRange(t *testing.T) {
 	var edits []Edit
-	v := New(Config{HitID: gfx.Item(1), Label: "test", Text: []byte("abc\ndef"), OnEdit: func(edit Edit) { edits = append(edits, edit) }})
+	v := New(Config{HitID: gfx.Item(1), Label: "test", Content: Prepare([]byte("abc\ndef")), OnEdit: func(edit Edit) { edits = append(edits, edit) }})
 	t.Cleanup(v.Close)
 	if !v.GoToNavigation(1, 1, false) {
 		t.Fatal("navigation refused")
