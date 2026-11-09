@@ -8,7 +8,18 @@ package core
 */
 import "C"
 
-import "unsafe"
+import (
+	"runtime"
+	"unsafe"
+)
+
+// classifyTextBytes borrows the Go byte slice only for the synchronous Core
+// call. The slice contains no pointers, and Core neither retains nor mutates it.
+func classifyTextBytes(data []byte) int {
+	result := C.lithe_core_is_plain_text((*C.uint8_t)(unsafe.Pointer(unsafe.SliceData(data))), C.size_t(len(data)))
+	runtime.KeepAlive(data)
+	return int(result)
+}
 
 // executeJSON sends one JSON request to the kernel and returns its JSON response. It returns
 // nil when the kernel produced no response at all.

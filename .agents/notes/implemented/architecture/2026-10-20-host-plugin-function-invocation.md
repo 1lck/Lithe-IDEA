@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态：下文的网页和设置入口、权限同意及进程清理是旧 macOS 客户端的历史实现。Viva 已具备通用 Core 会话及函数调用的基础桥接，尚未接入插件安装、权限审查、网页或设置入口。本文当时暂缓宿主方法的决定不等于现行协议不支持宿主方法；其当前契约及授权要求以 `shared/contracts/plugins/v1/README.md` 为准。
+
 ## 先说结论
 
 macOS 现在能调用插件函数了。入口只有一个：插件自己的网页窗口通过 `window.lithe` 调用 `functions.list`、`functions.invoke`、`functions.cancel`，宿主把请求交给**这个插件自己启动的构建 Provider 进程**。Rust Core 的 `lsp.functionRequest` 负责路由和结果。
@@ -134,7 +136,7 @@ if pluginID == "dev.lithe.maven" { 启动带函数的会话 }   // 宿主按插�
 
 ## 验证
 
-- `scripts/macos/test/test-macos.sh --filter "PluginWebBridgeTests|MacBuildProviderSessionsTests"`，覆盖以下场景：
+- 旧版 macOS 测试入口已移除，见[历史测试脚本](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/macos/test/test-macos.sh)；它曾覆盖以下场景，不能作为 Viva 已通过的证据：
   - 页面只能访问本插件的实例，并且必须同意。
   - 结果、进度和 `pluginErrorCode` 能到达页面。
   - 取消调用和关闭页面都会取消函数。
@@ -159,15 +161,8 @@ if pluginID == "dev.lithe.maven" { 启动带函数的会话 }   // 宿主按插�
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Application/Features/PluginWebBridge.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/Web/MacPluginWebPage.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Build/MacBuildProviderSessions.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Process/MacPluginBackendProcesses.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Process/MacProcessScope.swift`
-- `macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift`
-- `macos/Sources/Lithe/Core/Rust/RustLanguageServerRuntimeAdapter.swift`
-- `macos/Sources/LitheLanguageIntelligenceModule/Runtime/LanguageServerSession.swift`
-- `macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift`
-- `macos/Sources/LitheCoreContracts/Language/LanguageServerRuntimeContracts.swift`
-- `macos/Sources/LitheCoreContracts/Execution/BuildSystemContracts.swift`
+- `desktop/internal/core/plugin_session.go`
+- `desktop/internal/core/plugin_session_test.go`
+- `shared/platform-feature-matrix/features/plugin-functions.json`
+- [旧版实现、验证与原适用范围](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-10-20-host-plugin-function-invocation.md)
 - `shared/contracts/plugins/v1/README.md`

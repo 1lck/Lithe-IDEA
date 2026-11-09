@@ -92,9 +92,6 @@ type TitleMessages struct {
 	CloneItem        string
 	OpenProjects     string
 	NoRecentProjects string
-	// NewProjectLater and CloneLater explain project menu items that come later.
-	NewProjectLater string
-	CloneLater      string
 }
 
 // ToolMessages name the tool windows on the stripes.

@@ -2267,7 +2267,8 @@
       "id": "agent.state.cancel",
       "description": "Windows UI: agent.state.cancel",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -13542,7 +13543,8 @@
       "id": "footer.change",
       "description": "Windows UI: footer.change",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "count": "string"
@@ -13552,7 +13554,8 @@
       "id": "footer.changes",
       "description": "Windows UI: footer.changes",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "count": "string"
@@ -13848,7 +13851,8 @@
       "id": "git.amend",
       "description": "Windows UI: git.amend",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -13965,7 +13969,8 @@
       "id": "git.branches",
       "description": "Windows UI: git.branches",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -14049,7 +14054,8 @@
       "id": "git.changelists.default",
       "description": "Windows UI: git.changelists.default",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -14148,7 +14154,8 @@
       "id": "git.changesCommitted",
       "description": "Windows UI: git.changesCommitted",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -14169,14 +14176,16 @@
       "id": "git.changesPushed",
       "description": "Windows UI: git.changesPushed",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.checkout",
       "description": "Windows UI: git.checkout",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -14281,7 +14290,8 @@
       "id": "git.commit",
       "description": "Windows UI: git.commit",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -14340,7 +14350,8 @@
       "id": "git.commitMessagePlaceholder",
       "description": "Windows UI: git.commitMessagePlaceholder",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -14757,7 +14768,8 @@
       "id": "git.console.title",
       "description": "Windows UI: git.console.title",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -14806,14 +14818,16 @@
       "id": "git.contextMenu.fetch",
       "description": "Windows UI: git.contextMenu.fetch",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.contextMenu.newBranch",
       "description": "Windows UI: git.contextMenu.newBranch",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -14931,7 +14945,8 @@
       "id": "git.create",
       "description": "Windows UI: git.create",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -14986,14 +15001,16 @@
       "id": "git.delete",
       "description": "Windows UI: git.delete",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.deleteBranch",
       "description": "Windows UI: git.deleteBranch",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -15107,7 +15124,8 @@
       "id": "git.detachedHead",
       "description": "Windows UI: git.detachedHead",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -15930,7 +15948,8 @@
       "id": "git.execution.continue",
       "description": "Windows UI: git.execution.continue",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -17239,7 +17258,8 @@
       "description": "Windows UI: git.log.branchNameAlreadyExists",
       "platforms": [
         "windows",
-        "macos"
+        "macos",
+        "desktop"
       ],
       "parameters": {
         "name": "string"
@@ -17250,7 +17270,8 @@
       "description": "Windows UI: git.log.branchNameClashesWithBranchPrefix",
       "platforms": [
         "windows",
-        "macos"
+        "macos",
+        "desktop"
       ],
       "parameters": {
         "name": "string",
@@ -17262,7 +17283,8 @@
       "description": "Windows UI: git.log.branchNameClashesWithDirectory",
       "platforms": [
         "windows",
-        "macos"
+        "macos",
+        "desktop"
       ],
       "parameters": {
         "name": "string"
@@ -17273,7 +17295,8 @@
       "description": "Windows UI: git.log.branchNameClashesWithRemote",
       "platforms": [
         "windows",
-        "macos"
+        "macos",
+        "desktop"
       ],
       "parameters": {
         "name": "string"
@@ -17284,7 +17307,8 @@
       "description": "Windows UI: git.log.branchNameEmpty",
       "platforms": [
         "windows",
-        "macos"
+        "macos",
+        "desktop"
       ]
     },
     {
@@ -17292,7 +17316,8 @@
       "description": "Windows UI: git.log.branchNameHead",
       "platforms": [
         "windows",
-        "macos"
+        "macos",
+        "desktop"
       ]
     },
     {
@@ -17417,7 +17442,8 @@
       "id": "git.log.commitDetails",
       "description": "Windows UI: git.log.commitDetails",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -17438,7 +17464,8 @@
       "id": "git.log.commitMessage",
       "description": "Windows UI: git.log.commitMessage",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -17632,7 +17659,8 @@
       "id": "git.log.fileCountOne",
       "description": "Windows UI: git.log.fileCountOne",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "count": "string"
@@ -17642,7 +17670,8 @@
       "id": "git.log.filesCount",
       "description": "Windows UI: git.log.filesCount",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "count": "string"
@@ -17666,7 +17695,8 @@
       "id": "git.log.filterBranch",
       "description": "Windows UI: git.log.filterBranch",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -17717,7 +17747,8 @@
       "id": "git.log.headCurrentBranch",
       "description": "Windows UI: git.log.headCurrentBranch",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -17738,7 +17769,8 @@
       "id": "git.log.loadMore",
       "description": "Windows UI: git.log.loadMore",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -17752,14 +17784,16 @@
       "id": "git.log.loadingChangedFiles",
       "description": "Windows UI: git.log.loadingChangedFiles",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.log.loadingCommits",
       "description": "Windows UI: git.log.loadingCommits",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -17773,7 +17807,8 @@
       "id": "git.log.local",
       "description": "Windows UI: git.log.local",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -17855,7 +17890,8 @@
       "id": "git.log.noChangedFiles",
       "description": "Windows UI: git.log.noChangedFiles",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -18044,7 +18080,8 @@
       "id": "git.log.remote",
       "description": "Windows UI: git.log.remote",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -18100,14 +18137,16 @@
       "id": "git.log.retry",
       "description": "Windows UI: git.log.retry",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.log.selectCommit",
       "description": "Windows UI: git.log.selectCommit",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -18180,7 +18219,8 @@
       "id": "git.log.tags",
       "description": "Windows UI: git.log.tags",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -18236,7 +18276,8 @@
       "id": "git.log.toolbar.newBranch",
       "description": "Windows UI: git.log.toolbar.newBranch",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -18522,14 +18563,16 @@
       "id": "git.noMatchingBranches",
       "description": "Windows UI: git.noMatchingBranches",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.noMatchingCommits",
       "description": "Windows UI: git.noMatchingCommits",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -19504,7 +19547,8 @@
       "id": "git.pushDialog.publishSameName",
       "description": "Windows UI: git.pushDialog.publishSameName",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "branch": "string",
@@ -20928,14 +20972,16 @@
       "id": "git.staged",
       "description": "Windows UI: git.staged",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.stagedFilesCount",
       "description": "Windows UI: git.stagedFilesCount",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "count": "string"
@@ -21219,7 +21265,8 @@
       "id": "git.unstageAllChanges",
       "description": "Windows UI: git.unstageAllChanges",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -21260,7 +21307,8 @@
       "id": "git.unstaged",
       "description": "Windows UI: git.unstaged",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -21320,35 +21368,40 @@
       "id": "git.workspaceCommit.attention",
       "description": "Windows UI: git.workspaceCommit.attention",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.workspaceCommit.changed",
       "description": "Windows UI: git.workspaceCommit.changed",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.workspaceCommit.committed",
       "description": "Windows UI: git.workspaceCommit.committed",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.workspaceCommit.committedAndPushed",
       "description": "Windows UI: git.workspaceCommit.committedAndPushed",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.workspaceCommit.committedPushPending",
       "description": "Windows UI: git.workspaceCommit.committedPushPending",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -21369,14 +21422,16 @@
       "id": "git.workspaceCommit.headAdvanced",
       "description": "Windows UI: git.workspaceCommit.headAdvanced",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.workspaceCommit.notIncluded",
       "description": "Windows UI: git.workspaceCommit.notIncluded",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -21390,7 +21445,8 @@
       "id": "git.workspaceCommit.outcomeUnknown",
       "description": "Windows UI: git.workspaceCommit.outcomeUnknown",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -21404,14 +21460,16 @@
       "id": "git.workspaceCommit.pending",
       "description": "Windows UI: git.workspaceCommit.pending",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.workspaceCommit.pushFailed",
       "description": "Windows UI: git.workspaceCommit.pushFailed",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -21457,7 +21515,8 @@
       "id": "git.workspaceCommit.waitingForSubmodule",
       "description": "Windows UI: git.workspaceCommit.waitingForSubmodule",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -21665,7 +21724,8 @@
       "id": "git.worktrees",
       "description": "Windows UI: git.worktrees",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -24781,7 +24841,8 @@
       "id": "image.resize",
       "description": "Windows UI: image.resize",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -25850,7 +25911,8 @@
       "id": "keybindings.categories.Workbench",
       "description": "Windows UI: keybindings.categories.Workbench",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -26943,7 +27005,8 @@
       "id": "layout.pinned",
       "description": "Windows UI: layout.pinned",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -27303,7 +27366,8 @@
       "id": "logs.exportV2.channels",
       "description": "Diagnostic export and notification control",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Channels",
@@ -27327,7 +27391,8 @@
       "id": "logs.exportV2.contents",
       "description": "Diagnostic export and notification control",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Contents",
@@ -27339,7 +27404,8 @@
       "id": "logs.exportV2.currentFilter",
       "description": "Diagnostic export and notification control",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Only the current filter",
@@ -27351,7 +27417,8 @@
       "id": "logs.exportV2.diagnosticHint",
       "description": "Diagnostic export and notification control",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Detailed diagnostics cover all channels and expire after 15 minutes.",
@@ -27375,7 +27442,8 @@
       "id": "logs.exportV2.environment",
       "description": "Diagnostic export and notification control",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Include environment summary",
@@ -27399,7 +27467,8 @@
       "id": "logs.exportV2.exportFailed",
       "description": "Diagnostic export and notification control",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Could not export diagnostic logs. Try again.",
@@ -27411,7 +27480,8 @@
       "id": "logs.exportV2.last24Hours",
       "description": "Diagnostic export and notification control",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Last 24 hours",
@@ -27423,7 +27493,8 @@
       "id": "logs.exportV2.packing",
       "description": "Diagnostic export and notification control",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Packing…",
@@ -27435,7 +27506,8 @@
       "id": "logs.exportV2.prepareFailed",
       "description": "Diagnostic export and notification control",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Could not prepare diagnostic logs. Try again.",
@@ -27447,7 +27519,8 @@
       "id": "logs.exportV2.privacy",
       "description": "Diagnostic export and notification control",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Privacy",
@@ -27459,7 +27532,8 @@
       "id": "logs.exportV2.range",
       "description": "Diagnostic export and notification control",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Range",
@@ -27471,7 +27545,8 @@
       "id": "logs.exportV2.recentSessions",
       "description": "Diagnostic export and notification control",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Last 3 sessions",
@@ -27483,7 +27558,8 @@
       "id": "logs.exportV2.recentSessionsHint",
       "description": "Diagnostic export and notification control",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Includes the previous run, useful after a crash",
@@ -27495,7 +27571,8 @@
       "id": "logs.exportV2.redactionNote",
       "description": "Diagnostic export and notification control",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Logs are redacted by Core before they are written to disk, so exports are always redacted: paths, URLs, tokens and user content appear as ‹redacted›.",
@@ -27519,7 +27596,8 @@
       "id": "logs.exportV2.size",
       "description": "Core estimated collection size and file count",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "parameters": {
         "size": "string",
@@ -27537,7 +27615,8 @@
       "id": "logs.exportV2.subtitle",
       "description": "Diagnostic export and notification control",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Packs recent logs into a zip you can attach to an issue. Nothing is uploaded.",
@@ -27549,70 +27628,80 @@
       "id": "logs.filter.emptyValue",
       "description": "Log filter validation: emptyValue",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ]
     },
     {
       "id": "logs.filter.expressionTooLong",
       "description": "Log filter validation: expressionTooLong",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ]
     },
     {
       "id": "logs.filter.invalidEscape",
       "description": "Log filter validation: invalidEscape",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ]
     },
     {
       "id": "logs.filter.invalidLevel",
       "description": "Log filter validation: invalidLevel",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ]
     },
     {
       "id": "logs.filter.invalidOperator",
       "description": "Log filter validation: invalidOperator",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ]
     },
     {
       "id": "logs.filter.invalidQuote",
       "description": "Log filter validation: invalidQuote",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ]
     },
     {
       "id": "logs.filter.invalidRegex",
       "description": "Log filter validation: invalidRegex",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ]
     },
     {
       "id": "logs.filter.regexTooLong",
       "description": "Log filter validation: regexTooLong",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ]
     },
     {
       "id": "logs.filter.unterminatedQuote",
       "description": "Log filter validation: unterminatedQuote",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ]
     },
     {
       "id": "logs.filter.unterminatedRegex",
       "description": "Log filter validation: unterminatedRegex",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ]
     },
     {
@@ -27685,7 +27774,8 @@
       "id": "logs.window.absoluteTime",
       "description": "macOS log window: Absolute time",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Absolute time",
@@ -27696,7 +27786,8 @@
       "id": "logs.window.allChannels",
       "description": "macOS log window: All channels",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "All channels",
@@ -27707,7 +27798,8 @@
       "id": "logs.window.autoOffIn",
       "description": "macOS log window: Auto-off in {remaining}",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "parameters": {
         "remaining": "string"
@@ -27723,7 +27815,8 @@
       "id": "logs.window.bundle",
       "description": "Log window prototype: Export bundle…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Export bundle…",
@@ -27734,7 +27827,8 @@
       "id": "logs.window.callChain",
       "description": "macOS log window: Call chain",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Call chain",
@@ -27745,7 +27839,8 @@
       "id": "logs.window.category",
       "description": "macOS log window: Category: {category}",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "parameters": {
         "category": "string"
@@ -27761,7 +27856,8 @@
       "id": "logs.window.changeDirectory",
       "description": "Log window: Change Log Directory…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Change Log Directory…",
@@ -27772,7 +27868,8 @@
       "id": "logs.window.channel",
       "description": "macOS log window: Channel",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Channel",
@@ -27783,7 +27880,8 @@
       "id": "logs.window.channelHelp",
       "description": "Channel multi-selection instructions",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Click a channel to select it. Command-click adds or removes a channel; Shift-click selects a range. Selected channels are combined with OR, then intersected with level, time and text filters. All channels clears the channel restriction.",
@@ -27794,7 +27892,8 @@
       "id": "logs.window.clearOnlyTheDisplayLogFilesAreKept",
       "description": "macOS log window: Clear only the display; log files are kept",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Clear only the display; log files are kept",
@@ -27805,7 +27904,8 @@
       "id": "logs.window.clearStorage",
       "description": "Log window: Clear Logs (used %@)…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Clear Logs (used %@)…",
@@ -27821,7 +27921,8 @@
       "id": "logs.window.clearTimeRange",
       "description": "macOS log window: Clear time range",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Clear time range",
@@ -27832,7 +27933,8 @@
       "id": "logs.window.clearView",
       "description": "macOS log window: Clear view",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Clear view",
@@ -27843,7 +27945,8 @@
       "id": "logs.window.clickToJumpDragForTimeRange",
       "description": "macOS log window: Click to jump · drag for time range",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Click to jump · drag for time range",
@@ -27854,7 +27957,8 @@
       "id": "logs.window.clickToSelectSeveral",
       "description": "macOS log window: ⌘-click to select several",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "⌘-click to select several",
@@ -27865,7 +27969,8 @@
       "id": "logs.window.collapseRepeats",
       "description": "macOS log window: Collapse repeats",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Collapse repeats",
@@ -27876,7 +27981,8 @@
       "id": "logs.window.columns",
       "description": "macOS log window: Columns",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Columns",
@@ -27887,7 +27993,8 @@
       "id": "logs.window.copyAsJSON",
       "description": "macOS log window: Copy as JSON",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Copy as JSON",
@@ -27898,7 +28005,8 @@
       "id": "logs.window.copyAsMarkdown",
       "description": "macOS log window: Copy as Markdown",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Copy as Markdown",
@@ -27909,7 +28017,8 @@
       "id": "logs.window.copyFieldValue",
       "description": "macOS log window: Copy field value",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Copy field value",
@@ -27920,7 +28029,8 @@
       "id": "logs.window.copyLine",
       "description": "macOS log window: Copy line",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Copy line",
@@ -27931,7 +28041,8 @@
       "id": "logs.window.copySelectionAsMarkdown",
       "description": "macOS log window: Copy selection as Markdown",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Copy selection as Markdown",
@@ -27942,7 +28053,8 @@
       "id": "logs.window.couldNotLoadLogsTryAgain",
       "description": "macOS log window: Could not load logs. Try again.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Could not load logs. Try again.",
@@ -27953,7 +28065,8 @@
       "id": "logs.window.detail",
       "description": "macOS log window: Detail",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Detail",
@@ -27964,7 +28077,8 @@
       "id": "logs.window.disableDiagnostics",
       "description": "Disable the active detailed diagnostics session",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Disable diagnostics",
@@ -27991,7 +28105,8 @@
       "id": "logs.window.enableDiagnostics",
       "description": "Log window: enable detailed diagnostics",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Enable diagnostics",
@@ -28002,7 +28117,8 @@
       "id": "logs.window.endTime",
       "description": "End date and time label",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "End time",
@@ -28013,7 +28129,8 @@
       "id": "logs.window.event",
       "description": "macOS log window: Event",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Event",
@@ -28024,7 +28141,8 @@
       "id": "logs.window.eventsOverTime",
       "description": "macOS log window: Events over time",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Events over time",
@@ -28035,7 +28153,8 @@
       "id": "logs.window.export",
       "description": "macOS log window: Export",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Export",
@@ -28046,7 +28165,8 @@
       "id": "logs.window.exportAccessibility",
       "description": "Log window control label",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "parameters": {},
       "macos": {
@@ -28058,7 +28178,8 @@
       "id": "logs.window.fields",
       "description": "macOS log window: Fields",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Fields",
@@ -28069,7 +28190,8 @@
       "id": "logs.window.filterChannel",
       "description": "macOS log window: Filter channel",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Filter channel",
@@ -28080,7 +28202,8 @@
       "id": "logs.window.filterErrorAtLldLld",
       "description": "macOS log window: Filter error at {start}–{end}: {reason}",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "parameters": {
         "start": "integer",
@@ -28100,7 +28223,8 @@
       "id": "logs.window.filterHelp",
       "description": "Log filter syntax and intersection rules",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Spaces combine conditions with AND. level>=warn includes WARN and ERROR; level:info is exact. event:, channel: and op: match prefixes. server:gopls and key:value match field substrings. /regex/ searches messages, ignoring case; - excludes a condition. Use double quotes around values containing spaces. Channel, level and time controls also intersect with the expression. Invalid expressions keep the last valid results.",
@@ -28111,7 +28235,8 @@
       "id": "logs.window.filterServerJdtlsLevelWarnEventLspTraceReceivedRegexOpC0ffee",
       "description": "macOS log window: Filter: server:gopls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Filter: server:gopls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee",
@@ -28122,7 +28247,8 @@
       "id": "logs.window.followHelp",
       "description": "Live follow and batching behavior",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Live follow appends logs in their recorded order and scrolls to the latest record. The writer delivers short batches; bursts reflect real activity. Scrolling up pauses automatic scrolling while collection continues. Resume to return to the latest logs.",
@@ -28144,7 +28270,8 @@
       "id": "logs.window.hideThisEvent",
       "description": "macOS log window: Hide this event",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Hide this event",
@@ -28177,7 +28304,8 @@
       "id": "logs.window.level",
       "description": "macOS log window: Level",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Level",
@@ -28188,7 +28316,8 @@
       "id": "logs.window.liveFollow",
       "description": "Log window prototype: Live follow",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Live follow",
@@ -28215,7 +28344,8 @@
       "id": "logs.window.logsAndDiagnostics",
       "description": "macOS settings menu: open the Logs and Diagnostics window",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Logs and Diagnostics…",
@@ -28226,7 +28356,8 @@
       "id": "logs.window.maintenance",
       "description": "Log window: Log directory and cleanup",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Log directory and cleanup",
@@ -28237,7 +28368,8 @@
       "id": "logs.window.message",
       "description": "macOS log window: Message",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Message",
@@ -28248,7 +28380,8 @@
       "id": "logs.window.nameForThisFilter",
       "description": "macOS log window: Name for this filter",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Name for this filter",
@@ -28259,7 +28392,8 @@
       "id": "logs.window.noMatchesTryAnotherLevelOrChannel",
       "description": "macOS log window: No matches — try another level or channel",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "No matches — try another level or channel",
@@ -28270,7 +28404,8 @@
       "id": "logs.window.noSavedFilters",
       "description": "macOS log window: No saved filters",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "No saved filters",
@@ -28312,7 +28447,8 @@
       "id": "logs.window.pausedScrolledUp",
       "description": "macOS log window: Paused (scrolled up)",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Paused (scrolled up)",
@@ -28323,7 +28459,8 @@
       "id": "logs.window.previous",
       "description": "macOS log window: Δ previous",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Δ previous",
@@ -28334,7 +28471,8 @@
       "id": "logs.window.redactedValuesWereMaskedByCoreTheWindowAndExportsNeverShowTheOriginal",
       "description": "macOS log window: ‹redacted› values were masked by Core; the window and exports never show the original",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "‹redacted› values were masked by Core; the window and exports never show the original",
@@ -28363,7 +28501,8 @@
       "id": "logs.window.restoreDirectory",
       "description": "Log window: Restore Default Directory",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Restore Default Directory",
@@ -28374,7 +28513,8 @@
       "id": "logs.window.revealDirectory",
       "description": "Log window: Reveal Log Directory in Finder",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Reveal Log Directory in Finder",
@@ -28385,7 +28525,8 @@
       "id": "logs.window.reversedTime",
       "description": "Invalid time range validation",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "The end time must be after the start time.",
@@ -28396,7 +28537,8 @@
       "id": "logs.window.saveCurrentFilter",
       "description": "macOS log window: Save current filter…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Save current filter…",
@@ -28407,7 +28549,8 @@
       "id": "logs.window.savedFilters",
       "description": "macOS log window: Saved filters",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Saved filters",
@@ -28418,7 +28561,8 @@
       "id": "logs.window.selected",
       "description": "macOS log window: Δ selected",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Δ selected",
@@ -28429,7 +28573,8 @@
       "id": "logs.window.sessionAll",
       "description": "macOS log window: Session: all",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Session: all",
@@ -28440,7 +28585,8 @@
       "id": "logs.window.sessionCurrent",
       "description": "macOS log window: Session: current",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Session: current",
@@ -28451,7 +28597,8 @@
       "id": "logs.window.sessionPrevious",
       "description": "macOS log window: Session: previous",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Session: previous",
@@ -28462,7 +28609,8 @@
       "id": "logs.window.showOnlyThisChannel",
       "description": "macOS log window: Show only this channel",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Show only this channel",
@@ -28473,7 +28621,8 @@
       "id": "logs.window.showOnlyThisEvent",
       "description": "macOS log window: Show only this event",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Show only this event",
@@ -28500,7 +28649,8 @@
       "id": "logs.window.startTime",
       "description": "Start date and time label",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Start time",
@@ -28511,7 +28661,8 @@
       "id": "logs.window.tailing",
       "description": "Log window prototype: Tailing",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Tailing",
@@ -28522,7 +28673,8 @@
       "id": "logs.window.thisRecordHasNoOpId",
       "description": "macOS log window: This record has no op id",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "This record has no op id",
@@ -28533,7 +28685,8 @@
       "id": "logs.window.time",
       "description": "macOS log window: Time",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Time",
@@ -28544,7 +28697,8 @@
       "id": "logs.window.timeHelp",
       "description": "Inclusive local second precision range explanation",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Choose the start and end dates, then edit hours, minutes and seconds. Times use your local time zone; Apply includes the entire final second. The range also applies to live logs and intersects with other filters. Dragging the histogram selects a range too; Clear time range removes it.",
@@ -28555,7 +28709,8 @@
       "id": "logs.window.timeRange",
       "description": "Time range control",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Time range",
@@ -28566,7 +28721,8 @@
       "id": "logs.window.traceHelp",
       "description": "Operation trace timing explanation",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "The call chain lists records sharing an operation ID in time order. +N ms is the offset from the first record, not its execution duration. The bar shows that offset across the operation span. Click a record to locate it in the log table.",
@@ -28577,7 +28733,8 @@
       "id": "logs.window.traceOperation",
       "description": "macOS log window: Trace operation",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Trace operation",
@@ -28588,7 +28745,8 @@
       "id": "logs.window.traceThisOperation",
       "description": "macOS log window: Trace this operation",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Trace this operation",
@@ -28599,7 +28757,8 @@
       "id": "logs.window.unreadErrors",
       "description": "macOS log window: Unread errors",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Unread errors",
@@ -28610,7 +28769,8 @@
       "id": "logs.window.verboseDiagnosticsOn",
       "description": "macOS log window: Verbose diagnostics on",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Verbose diagnostics on",
@@ -28621,7 +28781,8 @@
       "id": "logs.window.viewClearedFilesOnDiskAreUntouchedNewRecordsWillAppearHere",
       "description": "macOS log window: View cleared — files on disk are untouched; new records will appear here",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "View cleared — files on disk are untouched; new records will appear here",
@@ -28632,7 +28793,8 @@
       "id": "logs.window.visibleCount",
       "description": "Log window prototype: %@ / %@ rows · line %@",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "%@ / %@ rows · line %@",
@@ -29899,7 +30061,8 @@
       "id": "menu.closeTab",
       "description": "Windows UI: menu.closeTab",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -30288,7 +30451,8 @@
       "description": "Windows UI: menu.run",
       "platforms": [
         "macos",
-        "windows"
+        "windows",
+        "desktop"
       ],
       "macos": {
         "key": "Run",
@@ -30353,7 +30517,8 @@
       "id": "menu.settings",
       "description": "Windows UI: menu.settings",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -32125,7 +32290,8 @@
       "id": "native.ai",
       "description": "Native UI: AI",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "AI",
@@ -37336,7 +37502,8 @@
       "id": "native.closeProject",
       "description": "Native UI: Close Project",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Close Project",
@@ -37891,7 +38058,8 @@
       "id": "native.collapseDirectory",
       "description": "Native UI: Collapse directory",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Collapse directory",
@@ -41747,7 +41915,8 @@
       "id": "native.debug",
       "description": "Native UI: Debug",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Debug",
@@ -46023,7 +46192,8 @@
       "id": "native.expandDirectory",
       "description": "Native UI: Expand directory",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Expand directory",
@@ -47171,7 +47341,8 @@
       "id": "native.findInFiles",
       "description": "Native UI: Find in Files",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Find in Files",
@@ -47846,7 +48017,8 @@
       "id": "native.getMoreLanguagesAndFrameworksFromPlugins",
       "description": "Native UI: Get more languages and frameworks from plugins…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Get more languages and frameworks from plugins…",
@@ -52302,7 +52474,8 @@
       "id": "native.keymap",
       "description": "Native UI: Keymap…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Keymap…",
@@ -53168,7 +53341,8 @@
       "id": "native.lithe",
       "description": "Native UI: Lithe",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Lithe",
@@ -55073,7 +55247,8 @@
       "id": "native.local",
       "description": "Native UI: Local",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Local",
@@ -57067,7 +57242,8 @@
       "id": "native.moreActions",
       "description": "Native UI: More actions",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "More actions",
@@ -57111,7 +57287,8 @@
       "id": "native.moreInformation",
       "description": "Native UI: More information",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "More information",
@@ -57307,7 +57484,8 @@
       "id": "native.moveToBottomLeft",
       "description": "Native UI: Move to Bottom Left",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Move to Bottom Left",
@@ -57318,7 +57496,8 @@
       "id": "native.moveToBottomRight",
       "description": "Native UI: Move to Bottom Right",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Move to Bottom Right",
@@ -57362,7 +57541,8 @@
       "id": "native.moveToLeftBottom",
       "description": "Native UI: Move to Left Bottom",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Move to Left Bottom",
@@ -57373,7 +57553,8 @@
       "id": "native.moveToLeftTop",
       "description": "Native UI: Move to Left Top",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Move to Left Top",
@@ -57395,7 +57576,8 @@
       "id": "native.moveToRightBottom",
       "description": "Native UI: Move to Right Bottom",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Move to Right Bottom",
@@ -57406,7 +57588,8 @@
       "id": "native.moveToRightTop",
       "description": "Native UI: Move to Right Top",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Move to Right Top",
@@ -61731,7 +61914,8 @@
       "id": "native.openProject.variant2",
       "description": "Native UI: Open Project…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Open Project…",
@@ -63360,7 +63544,8 @@
       "id": "native.plugins",
       "description": "Native UI: Plugins…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Plugins…",
@@ -63821,7 +64006,8 @@
       "id": "native.problems",
       "description": "Native UI: Problems",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Problems",
@@ -63887,7 +64073,8 @@
       "id": "native.processTerminationPolicy",
       "description": "Native UI: Process Termination Policy",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Process Termination Policy",
@@ -66339,7 +66526,8 @@
       "id": "native.remoteDevelopment",
       "description": "Native UI: Remote Development",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Remote Development",
@@ -66670,7 +66858,8 @@
       "id": "native.removeFromRecentProjects",
       "description": "Native UI: Remove from Recent Projects",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Remove from Recent Projects",
@@ -70366,7 +70555,8 @@
       "id": "native.security",
       "description": "Native UI: Security",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Security",
@@ -71181,7 +71371,8 @@
       "id": "native.settings",
       "description": "Native UI: Settings…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Settings…",
@@ -78878,7 +79069,8 @@
       "id": "native.theme.variant2",
       "description": "Native UI: Theme…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Theme…",
@@ -83291,7 +83483,8 @@
       "id": "native.updates",
       "description": "Native UI: Updates",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Updates",
@@ -86404,7 +86597,8 @@
       "id": "notifications.title",
       "description": "Windows UI: notifications.title",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -87406,7 +87600,8 @@
       "id": "projectPicker.open",
       "description": "Windows UI: projectPicker.open",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -88540,7 +88735,8 @@
       "id": "run.run",
       "description": "Windows UI: run.run",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -90686,7 +90882,8 @@
       "id": "settings.editor.section",
       "description": "Windows UI: settings.editor.section",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -92219,35 +92416,40 @@
       "id": "settings.groups.appearance",
       "description": "Windows UI: settings.groups.appearance",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "settings.groups.build",
       "description": "Windows UI: settings.groups.build",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "settings.groups.languages",
       "description": "Windows UI: settings.groups.languages",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "settings.groups.tools",
       "description": "Windows UI: settings.groups.tools",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "settings.groups.versionControl",
       "description": "Windows UI: settings.groups.versionControl",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -93288,7 +93490,8 @@
       "description": "Settings label: Appearance.",
       "platforms": [
         "macos",
-        "windows"
+        "windows",
+        "desktop"
       ],
       "macos": {
         "key": "Appearance",
@@ -93306,7 +93509,8 @@
       "id": "settings.mac.appearanceMode",
       "description": "Windows UI: settings.mac.appearanceMode",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -93400,7 +93604,8 @@
       "id": "settings.mac.dark",
       "description": "Windows UI: settings.mac.dark",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -93596,7 +93801,8 @@
       "description": "Settings label: Language.",
       "platforms": [
         "macos",
-        "windows"
+        "windows",
+        "desktop"
       ],
       "macos": {
         "key": "Language",
@@ -93628,7 +93834,8 @@
       "id": "settings.mac.light",
       "description": "Windows UI: settings.mac.light",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -93697,7 +93904,8 @@
       "description": "Windows UI: settings.mac.restoreDefaults",
       "platforms": [
         "macos",
-        "windows"
+        "windows",
+        "desktop"
       ],
       "macos": {
         "key": "Restore Defaults",
@@ -94348,7 +94556,8 @@
       "id": "settings.network.title",
       "description": "Native UI: Network",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Network",
@@ -94546,7 +94755,8 @@
       "description": "Settings label: Search settings.",
       "platforms": [
         "macos",
-        "windows"
+        "windows",
+        "desktop"
       ],
       "macos": {
         "key": "Search settings",
@@ -94613,14 +94823,16 @@
       "id": "settings.tabs.general",
       "description": "Windows UI: settings.tabs.general",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "settings.tabs.git",
       "description": "Windows UI: settings.tabs.git",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -94634,7 +94846,8 @@
       "id": "settings.tabs.keyboard",
       "description": "Windows UI: settings.tabs.keyboard",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -94662,7 +94875,8 @@
       "id": "settings.tabs.plugins",
       "description": "Windows UI: settings.tabs.plugins",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -94676,7 +94890,8 @@
       "id": "settings.tabs.updates",
       "description": "Windows UI: settings.tabs.updates",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -95518,7 +95733,8 @@
       "id": "terminal.contextClose",
       "description": "Windows UI: terminal.contextClose",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -95686,7 +95902,8 @@
       "id": "terminal.newTerminal",
       "description": "Windows UI: terminal.newTerminal",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -95964,7 +96181,8 @@
       "id": "titleProject.cloneRepository",
       "description": "Windows UI: titleProject.cloneRepository",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -96005,7 +96223,8 @@
       "id": "titleProject.newProject",
       "description": "Windows UI: titleProject.newProject",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -96026,7 +96245,8 @@
       "id": "titleProject.open",
       "description": "Windows UI: titleProject.open",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -96054,14 +96274,16 @@
       "id": "titleProject.openProjects",
       "description": "Windows UI: titleProject.openProjects",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "titleProject.recentProjects",
       "description": "Windows UI: titleProject.recentProjects",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -96358,7 +96580,8 @@
       "description": "Common action: Delete.",
       "platforms": [
         "macos",
-        "windows"
+        "windows",
+        "desktop"
       ],
       "macos": {
         "key": "Delete",
@@ -96594,7 +96817,8 @@
       "description": "Common action: Save.",
       "platforms": [
         "macos",
-        "windows"
+        "windows",
+        "desktop"
       ],
       "macos": {
         "key": "Save",
@@ -97641,7 +97865,8 @@
       "id": "welcome.cloneRepository",
       "description": "Windows UI: welcome.cloneRepository",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -97676,7 +97901,8 @@
       "id": "welcome.newProject",
       "description": "Windows UI: welcome.newProject",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -97735,7 +97961,8 @@
       "id": "welcome.openProject",
       "description": "Windows UI: welcome.openProject",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -97749,7 +97976,8 @@
       "id": "welcome.projects",
       "description": "Windows UI: welcome.projects",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -97773,14 +98001,16 @@
       "id": "welcome.searchProjects",
       "description": "Windows UI: welcome.searchProjects",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "welcome.title",
       "description": "Windows UI: welcome.title",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -98631,14 +98861,16 @@
       "id": "workbench.commit",
       "description": "Windows UI: workbench.commit",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "workbench.currentFile",
       "description": "Windows UI: workbench.currentFile",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -98701,7 +98933,8 @@
       "id": "workbench.project",
       "description": "Windows UI: workbench.project",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -98722,14 +98955,16 @@
       "id": "workbench.run",
       "description": "Windows UI: workbench.run",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "workbench.search",
       "description": "Windows UI: workbench.search",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -98757,7 +98992,8 @@
       "id": "workbench.terminal",
       "description": "Windows UI: workbench.terminal",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -98945,6 +99181,31 @@
       ]
     },
     {
+      "id": "desktop.marketplace.source",
+      "description": "Label for the plugin marketplace source selector.",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.marketplace.communitySource",
+      "description": "Community plugin marketplace source.",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.marketplace.officialSource",
+      "description": "Official plugin marketplace source.",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.marketplace.search",
+      "description": "Search plugin names or IDs in the current marketplace.",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.marketplace.queryTooLong",
+      "description": "The plugin search query exceeds the size limit.",
+      "platforms": ["desktop"]
+    },
+    {
       "id": "desktop.navigation.title",
       "description": "Title of the go to line and column dialog.",
       "platforms": ["desktop"]
@@ -99003,6 +99264,2007 @@
       "id": "desktop.everywhere.watchUnavailable",
       "description": "Global search could not monitor changes; reopening the search refreshes it.",
       "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.project.rootUnavailable",
+      "description": "The project root directory cannot be listed.",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.project.watchUnavailable",
+      "description": "Project tree directory monitoring failed or reached its resource limit.",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.settings.noMatches",
+      "description": "Desktop settings: NoMatches",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.categories",
+      "description": "Desktop settings: Categories",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.pageLater",
+      "description": "Desktop settings: PageLater",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.appearanceHelp",
+      "description": "Desktop settings: AppearanceHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.system",
+      "description": "Desktop settings: System",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.languageHelp",
+      "description": "Desktop settings: LanguageHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.layoutHint",
+      "description": "Desktop settings: LayoutHint",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.resetLayout",
+      "description": "Desktop settings: ResetLayout",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about",
+      "description": "Desktop settings: About",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.ok",
+      "description": "Desktop settings: OK",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.followSystemEffective",
+      "description": "Current system appearance or language in the settings selector.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "effective": "string"
+      }
+    },
+    {
+      "id": "desktop.app.version",
+      "description": "Application version displayed on the welcome and settings screens.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.app.coreVersion",
+      "description": "Core version shown in application information.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.app.devBadge",
+      "description": "Development build badge on the application icon.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.welcome.unavailable",
+      "description": "Desktop welcome: Unavailable",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.welcome.emptyTitle",
+      "description": "Desktop welcome: EmptyTitle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.welcome.emptyHint",
+      "description": "Desktop welcome: EmptyHint",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.welcome.noMatches",
+      "description": "Desktop welcome: NoMatches",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.welcome.menuReveal",
+      "description": "Desktop welcome: MenuReveal",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.welcome.menuRevealWindows",
+      "description": "Desktop welcome: reveal a recent project in Windows File Explorer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.welcome.menuRevealOther",
+      "description": "Desktop welcome: reveal a recent project in the file manager",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.welcome.menuPin",
+      "description": "Desktop welcome: MenuPin",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.welcome.menuUnpin",
+      "description": "Desktop welcome: MenuUnpin",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.welcome.missing",
+      "description": "Desktop welcome: Missing",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.title.projectMenu",
+      "description": "Desktop title bar: ProjectMenu",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.title.branchMenu",
+      "description": "Desktop title bar: BranchMenu",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.title.runLater",
+      "description": "Desktop title bar: RunLater",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.title.pluginsLater",
+      "description": "Desktop title bar: PluginsLater",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.title.keymapLater",
+      "description": "Desktop title bar: KeymapLater",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.title.logsUnavailable",
+      "description": "Desktop title bar: LogsUnavailable",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.title.noRecentProjects",
+      "description": "Desktop title bar: NoRecentProjects",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.title.newProjectLater",
+      "description": "Desktop title bar: NewProjectLater",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.clone.more",
+      "description": "Desktop welcome: More project actions",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.clone.title",
+      "description": "Desktop clone repository: title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.clone.source",
+      "description": "Desktop clone repository: source",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.clone.sourcePlaceholder",
+      "description": "Desktop clone repository: sourcePlaceholder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.clone.parent",
+      "description": "Desktop clone repository: parent",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.clone.choose",
+      "description": "Desktop clone repository: choose",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.clone.name",
+      "description": "Desktop clone repository: name",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.clone.namePlaceholder",
+      "description": "Desktop clone repository: namePlaceholder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.clone.cancel",
+      "description": "Desktop clone repository: cancel",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.clone.submit",
+      "description": "Desktop clone repository: submit",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.clone.busy",
+      "description": "Desktop clone repository: busy",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.clone.failed",
+      "description": "Desktop clone repository: failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.clone.invalidName",
+      "description": "Desktop clone repository: invalidName",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.title.cloneLater",
+      "description": "Desktop title bar: CloneLater",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.tools.structure",
+      "description": "Desktop tools: Structure",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.tools.assistant",
+      "description": "Desktop tools: Assistant",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.tools.background",
+      "description": "Desktop tools: Background",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.tools.dragHint",
+      "description": "Desktop tools: DragHint",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.panel.hide",
+      "description": "Desktop panel: Hide",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.panel.placeholder",
+      "description": "Desktop panel: Placeholder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editor.goToFile",
+      "description": "Desktop editor: GoToFile",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editor.recentFiles",
+      "description": "Desktop editor: RecentFiles",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editor.dropFiles",
+      "description": "Desktop editor: DropFiles",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editor.softWrap",
+      "description": "Desktop editor: SoftWrap",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editor.notText",
+      "description": "Desktop editor: NotText",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editor.unsupportedEncoding",
+      "description": "Desktop editor: refuse text the UTF-8 editor cannot safely edit",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editor.tooLarge",
+      "description": "Desktop editor: TooLarge",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editor.openFailed",
+      "description": "Desktop editor: OpenFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.editor.saveFailed",
+      "description": "Desktop editor: SaveFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.project.loading",
+      "description": "Desktop project: Loading",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.project.empty",
+      "description": "Desktop project: Empty",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.project.readFailed",
+      "description": "Desktop project tree read failure.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.git.log",
+      "description": "Desktop Git: Log",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.allReferences",
+      "description": "Desktop Git: AllReferences",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.showAll",
+      "description": "Desktop Git: ShowAll",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.actions",
+      "description": "Desktop Git: Actions",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.fetchAll",
+      "description": "Desktop Git: FetchAll",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.fetchOptions",
+      "description": "Desktop Git: FetchOptions",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.updateBranch",
+      "description": "Desktop Git: UpdateBranch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.refreshLog",
+      "description": "Desktop Git: RefreshLog",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.showChanges",
+      "description": "Desktop Git: ShowChanges",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.hideBranches",
+      "description": "Desktop Git: HideBranches",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.showBranches",
+      "description": "Desktop Git: ShowBranches",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.deleteBranch",
+      "description": "Desktop Git: DeleteBranch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.compareWorkingTree",
+      "description": "Desktop Git: CompareWorkingTree",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.compareWithCurrent",
+      "description": "Desktop Git: CompareWithCurrent",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.findBranch",
+      "description": "Desktop Git: FindBranch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.locateBranch",
+      "description": "Desktop Git: LocateBranch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.branchSettings",
+      "description": "Desktop Git: BranchSettings",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.expandAll",
+      "description": "Desktop Git: ExpandAll",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.collapseAll",
+      "description": "Desktop Git: CollapseAll",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.branchSearch",
+      "description": "Desktop Git: BranchSearch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.noMatchingReferences",
+      "description": "Desktop Git: NoMatchingReferences",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.textOrHash",
+      "description": "Desktop Git: TextOrHash",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.filterUser",
+      "description": "Desktop Git: FilterUser",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.filterDate",
+      "description": "Desktop Git: FilterDate",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.filterPaths",
+      "description": "Desktop Git: FilterPaths",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.clearFilter",
+      "description": "Desktop Git: ClearFilter",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.compareBranch",
+      "description": "Desktop Git: CompareBranch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.showDetails",
+      "description": "Desktop Git: ShowDetails",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.decorations",
+      "description": "Desktop Git: Decorations",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.findInLog",
+      "description": "Desktop Git: FindInLog",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.longEdges",
+      "description": "Desktop Git: LongEdges",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pathTitle",
+      "description": "Desktop Git: PathTitle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pathPlaceholder",
+      "description": "Desktop Git: PathPlaceholder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.clear",
+      "description": "Desktop Git: Clear",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.cancel",
+      "description": "Desktop Git: Cancel",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.apply",
+      "description": "Desktop Git: Apply",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.searchUsers",
+      "description": "Desktop Git: SearchUsers",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.noMatchingUsers",
+      "description": "Desktop Git: NoMatchingUsers",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.anyTime",
+      "description": "Desktop Git: AnyTime",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.today",
+      "description": "Desktop Git: Today",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.yesterday",
+      "description": "Desktop Git: Yesterday",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.last7Days",
+      "description": "Desktop Git: Last7Days",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.last30Days",
+      "description": "Desktop Git: Last30Days",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.olderOutside",
+      "description": "Desktop Git: OlderOutside",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.loading",
+      "description": "Desktop Git: Loading",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.notRepository",
+      "description": "Desktop Git: NotRepository",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.noCommits",
+      "description": "Desktop Git: NoCommits",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.loadMoreFailed",
+      "description": "Desktop Git: LoadMoreFailed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.filesFailed",
+      "description": "Desktop Git: FilesFailed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.compareChanges",
+      "description": "Desktop Git: CompareChanges",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.fileHistory",
+      "description": "Desktop Git: FileHistory",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.logTab",
+      "description": "Desktop Git: LogTab",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reference": "string"
+      }
+    },
+    {
+      "id": "desktop.git.filterValue",
+      "description": "Desktop Git: FilterValue",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "filter": "string",
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.git.on",
+      "description": "Desktop Git: On",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "date": "string"
+      }
+    },
+    {
+      "id": "desktop.git.failed",
+      "description": "Desktop Git: Failed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.errors.dismiss",
+      "description": "Dismiss an application error notification.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.errors.folderMissing",
+      "description": "Desktop application error: FolderMissing",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "path": "string"
+      }
+    },
+    {
+      "id": "desktop.errors.openFailed",
+      "description": "Desktop application error: OpenFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.errors.core",
+      "description": "Desktop application error: Core",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.errors.saveFailed",
+      "description": "Desktop application error: SaveFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.errors.logsFailed",
+      "description": "Desktop application error: LogsFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.errors.settingsFailed",
+      "description": "Desktop application error: SettingsFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.commit.refresh",
+      "description": "Desktop commit: Refresh",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.stageAll",
+      "description": "Desktop commit: StageAll",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.partlyStagedState",
+      "description": "Desktop commit: PartlyStagedState",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.clean",
+      "description": "Desktop commit: Clean",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.commitAndPush",
+      "description": "Desktop commit: CommitAndPush",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.committing",
+      "description": "Desktop commit: Committing",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.dismiss",
+      "description": "Desktop commit: Dismiss",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.retry",
+      "description": "Desktop commit: Retry",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.reviewTitle",
+      "description": "Desktop commit: ReviewTitle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.reviewPushTitle",
+      "description": "Desktop commit: ReviewPushTitle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.reviewRetry",
+      "description": "Desktop commit: ReviewRetry",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.order",
+      "description": "Desktop commit: Order",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.amendNote",
+      "description": "Desktop commit: AmendNote",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.stepPush",
+      "description": "Desktop commit: StepPush",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.stepPushOnly",
+      "description": "Desktop commit: StepPushOnly",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.noCommits",
+      "description": "Desktop commit: NoCommits",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.commitFailed",
+      "description": "Desktop commit: CommitFailed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.reviewRequired",
+      "description": "Desktop commit: ReviewRequired",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.enterMessage",
+      "description": "Desktop commit: EnterMessage",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.chooseTarget",
+      "description": "Desktop commit: ChooseTarget",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.search",
+      "description": "Desktop branch: Search",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.checkoutRevision",
+      "description": "Desktop branch: CheckoutRevision",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.recent",
+      "description": "Desktop branch: Recent",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.loading",
+      "description": "Desktop branch: Loading",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.current",
+      "description": "Desktop branch: Current",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.rename",
+      "description": "Desktop branch: Rename",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.branchName",
+      "description": "Desktop branch: BranchName",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.checkoutAfter",
+      "description": "Desktop branch: CheckoutAfter",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.renameTitle",
+      "description": "Desktop branch: RenameTitle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.renameButton",
+      "description": "Desktop branch: RenameButton",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.revisionTitle",
+      "description": "Desktop branch: RevisionTitle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.revisionPrompt",
+      "description": "Desktop branch: RevisionPrompt",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.revision",
+      "description": "Desktop branch: Revision",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.detachedNote",
+      "description": "Desktop branch: DetachedNote",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.conflictTitle",
+      "description": "Desktop branch: ConflictTitle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.conflictHint",
+      "description": "Desktop branch: ConflictHint",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.smartCheckout",
+      "description": "Desktop branch: SmartCheckout",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.forceCheckout",
+      "description": "Desktop branch: ForceCheckout",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.deleteTitle",
+      "description": "Desktop branch: DeleteTitle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.terminal.label",
+      "description": "Desktop terminal: Label",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.terminal.scrollbarLabel",
+      "description": "Desktop terminal: ScrollbarLabel",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.terminal.sessionEnded",
+      "description": "Desktop terminal: SessionEnded",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.terminal.restartHint",
+      "description": "Desktop terminal: RestartHint",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.terminal.noTerminals",
+      "description": "Desktop terminal: NoTerminals",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.status.path",
+      "description": "Desktop status: Path",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.status.caret",
+      "description": "Desktop status: Caret",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.status.writable",
+      "description": "Desktop status: Writable",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.status.readOnly",
+      "description": "Desktop status: ReadOnly",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.status.lSPNotStarted",
+      "description": "Desktop status: LSPNotStarted",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.status.memory",
+      "description": "Desktop status: Memory",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.status.fPS",
+      "description": "Desktop status: FPS",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.status.noChanges",
+      "description": "Desktop status: NoChanges",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.status.healthy",
+      "description": "Desktop status: Healthy",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.terminal.sessionEndedStatus",
+      "description": "Desktop terminal or status value.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "status": "integer"
+      }
+    },
+    {
+      "id": "desktop.terminal.startFailed",
+      "description": "Desktop terminal or status value.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.terminal.localNumber",
+      "description": "Desktop terminal or status value.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "number": "integer"
+      }
+    },
+    {
+      "id": "desktop.status.memoryValue",
+      "description": "Desktop terminal or status value.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "integer"
+      }
+    },
+    {
+      "id": "desktop.status.fpsValue",
+      "description": "Desktop terminal or status value.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "integer"
+      }
+    },
+    {
+      "id": "desktop.commit.stageFile",
+      "description": "Desktop commit: StageFile",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "path": "string"
+      }
+    },
+    {
+      "id": "desktop.commit.unstageFile",
+      "description": "Desktop commit: UnstageFile",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "path": "string"
+      }
+    },
+    {
+      "id": "desktop.commit.result",
+      "description": "Desktop commit: Result",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repository": "string",
+        "status": "string"
+      }
+    },
+    {
+      "id": "desktop.commit.messageLine",
+      "description": "Desktop commit: MessageLine",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "message": "string"
+      }
+    },
+    {
+      "id": "desktop.commit.where",
+      "description": "Desktop commit: Where",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "branch": "string",
+        "head": "string"
+      }
+    },
+    {
+      "id": "desktop.commit.pushTo",
+      "description": "Desktop commit: PushTo",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "upstream": "string"
+      }
+    },
+    {
+      "id": "desktop.commit.stageFailed",
+      "description": "Desktop commit: StageFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.commit.unstageFailed",
+      "description": "Desktop commit: UnstageFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.commit.failed",
+      "description": "Desktop commit: Failed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.loadFailed",
+      "description": "Desktop branch: LoadFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.rowMenu",
+      "description": "Desktop branch: RowMenu",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.newBranchFrom",
+      "description": "Desktop branch: NewBranchFrom",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.createFrom",
+      "description": "Desktop branch: CreateFrom",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.renameFrom",
+      "description": "Desktop branch: RenameFrom",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.conflictPrompt",
+      "description": "Desktop branch: ConflictPrompt",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.alreadyOn",
+      "description": "Desktop branch: AlreadyOn",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.checkedOut",
+      "description": "Desktop branch: CheckedOut",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.detached",
+      "description": "Desktop branch: Detached",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "revision": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.created",
+      "description": "Desktop branch: Created",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.renamed",
+      "description": "Desktop branch: Renamed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.checkoutFailed",
+      "description": "Desktop branch: CheckoutFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.createFailed",
+      "description": "Desktop branch: CreateFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.renameFailed",
+      "description": "Desktop branch: RenameFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.deleteFailed",
+      "description": "Desktop branch: DeleteFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.commit.tracksDifferent",
+      "description": "Desktop commit: TracksDifferent",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "local": "string",
+        "upstream": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.deletePrompt",
+      "description": "Desktop branch: DeletePrompt",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.deleted",
+      "description": "Desktop branch: Deleted",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "target": "string"
+      }
+    },
+    {
+      "id": "desktop.commit.step",
+      "description": "Ordered workspace commit or push step.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "number": "integer",
+        "action": "string",
+        "repository": "string"
+      }
+    },
+    {
+      "id": "desktop.logs.logs",
+      "description": "Desktop log window: Logs",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.logs.invalidTime",
+      "description": "Desktop log window: InvalidTime",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.logs.paused",
+      "description": "Desktop log window: Paused",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.logs.chooseDirectory",
+      "description": "Desktop log window: ChooseDirectory",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.logs.logDirectory",
+      "description": "Desktop log window: LogDirectory",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.logs.clearSearch",
+      "description": "Desktop log window: ClearSearch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.logs.choose",
+      "description": "Desktop log window: Choose",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.logs.clearTitle",
+      "description": "Desktop log window: ClearTitle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.logs.clearAction",
+      "description": "Desktop log window: ClearAction",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.logs.clearMessage",
+      "description": "Desktop log window: ClearMessage",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.logs.apply",
+      "description": "Desktop log window: Apply",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.logs.diagnostics",
+      "description": "Desktop log window: Diagnostics",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.logs.revealInFinder",
+      "description": "Desktop log window: RevealInFinder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.logs.exportDialog.currentSession",
+      "description": "Desktop log window: ExportDialog.CurrentSession",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.logs.exportDialog.export",
+      "description": "Desktop log window: ExportDialog.Export",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.logs.newLogs",
+      "description": "Desktop log window: NewLogs",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.logs.histogramTooltip",
+      "description": "Desktop log window: HistogramTooltip",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "time": "string",
+        "errors": "integer",
+        "warnings": "integer",
+        "other": "integer"
+      }
+    },
+    {
+      "id": "desktop.logs.sourceLine",
+      "description": "Desktop log window: SourceLine",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "line": "integer"
+      }
+    },
+    {
+      "id": "desktop.logs.operation",
+      "description": "Desktop log window: Operation",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "op": "string",
+        "count": "integer",
+        "duration": "string"
+      }
+    },
+    {
+      "id": "desktop.logs.dropped",
+      "description": "Desktop log window: Dropped",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.logs.writeFailures",
+      "description": "Desktop log window: WriteFailures",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.logs.repeated",
+      "description": "Desktop log window: Repeated",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer",
+        "last": "string"
+      }
+    },
+    {
+      "id": "desktop.logs.environmentHint",
+      "description": "Desktop log window: EnvironmentHint",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "osName": "string"
+      }
+    },
+    {
+      "id": "desktop.logs.savedTo",
+      "description": "Desktop log window: SavedTo",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "path": "string"
+      }
+    },
+    {
+      "id": "desktop.newProject.title",
+      "description": "Desktop new project: title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.section",
+      "description": "Desktop new project: section",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.empty",
+      "description": "Desktop new project: empty",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.description",
+      "description": "Desktop new project: description",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.name",
+      "description": "Desktop new project: name",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.location",
+      "description": "Desktop new project: location",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.choose",
+      "description": "Desktop new project: choose",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.git",
+      "description": "Desktop new project: git",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.cancel",
+      "description": "Desktop new project: cancel",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.create",
+      "description": "Desktop new project: create",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.creating",
+      "description": "Desktop new project: creating",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.openCreated",
+      "description": "Desktop new project: openCreated",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.invalidName",
+      "description": "Desktop new project: invalidName",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.invalidLocation",
+      "description": "Desktop new project: invalidLocation",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.exists",
+      "description": "Desktop new project: exists",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.failed",
+      "description": "Desktop new project: failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.gitFailed",
+      "description": "Desktop new project: gitFailed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.chooseFailed",
+      "description": "Desktop new project: chooseFailed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.pathPreview",
+      "description": "Desktop new project: resulting directory",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "path": "string"
+      }
+    },
+    {
+      "id": "desktop.newProject.defaultName",
+      "description": "Desktop new project: default folder name",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.createdInterrupted",
+      "description": "Desktop new project: operation interrupted after creating the directory",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

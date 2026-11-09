@@ -63,7 +63,7 @@ JVM agent。Run 保留启动目标和源码路径；更新前重新向 JDT 查�
 
 ## 适用范围
 
-- `rust/lithe-core/src/debug/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug)
 - `macos/Sources/LitheDebugModule/`
 - `macos/Sources/LitheExecutionModule/`
 - `macos/Sources/LitheLanguageIntelligenceModule/`

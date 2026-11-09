@@ -98,8 +98,8 @@ LazyVStack {
 
 ## 适用范围
 
-- `rust/lithe-core/src/git/untracked_directories.rs`
-- `rust/lithe-core/src/git/mod.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/untracked_directories.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/untracked_directories.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/mod.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/mod.rs)
 - `macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`
 - `macos/Sources/LitheGitModule/Models/GitModels.swift`
 - `macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift`

@@ -46,6 +46,8 @@ import (
 type Kernel interface {
 	Version() string
 	ReduceRecentProjects(ctx context.Context, entries []core.RecentProject, action core.RecentAction, capacity int) (core.RecentProjectsResult, error)
+	GitCheckoutBranch(ctx context.Context, text string) (string, error)
+	GitDirectoryPointer(ctx context.Context, text string) (string, error)
 	ReduceChromeLayout(ctx context.Context, catalog []core.ChromeItem, state core.ChromeLayout, action core.ChromeAction) (core.ChromeLayout, bool, error)
 	GitStatus(ctx context.Context, root string) (core.GitStatus, error)
 	GitReferences(ctx context.Context, root string) (core.GitReferences, error)
@@ -58,6 +60,9 @@ type Kernel interface {
 	GitHistoryDates(ctx context.Context, entries []core.HistoryDateEntry, after, before *int64) ([]string, error)
 	ReduceEditorWorkbench(ctx context.Context, state core.EditorWorkbench, action core.EditorAction) (core.EditorWorkbench, []string, error)
 	GitStage(ctx context.Context, root string, paths []string) error
+	GitClone(ctx context.Context, root, source, destination string) error
+	CheckProjectName(context.Context, string) (core.ProjectNameProblem, error)
+	InitializeGit(context.Context, string) error
 	GitUnstage(ctx context.Context, root string, paths []string) error
 	GitStageAll(ctx context.Context, root string) error
 	WorkspaceCommitPrepare(ctx context.Context, request core.WorkspaceCommitRequest) (core.WorkspaceCommitPreparation, error)
@@ -78,6 +83,7 @@ type Kernel interface {
 	FilterWorkspaceChanges(ctx context.Context, paths []string) ([]string, error)
 	UpdateWorkspaceSearch(ctx context.Context, root string, paths []string) error
 	SearchEverywherePage(ctx context.Context, request core.EverywhereSearchRequest) (core.EverywhereSearchPage, error)
+	RankNames(context.Context, string, []core.RankCandidate) ([]int, error)
 	ParseNavigationInput(context.Context, string) (*core.NavigationTarget, error)
 	ResolveMarketplaceSource(context.Context, string) (core.MarketplaceSource, error)
 	ValidateMarketplaceIndex(context.Context, json.RawMessage, core.MarketplaceSourceKind, string, map[string][]int) (core.MarketplaceIndex, error)
@@ -178,8 +184,10 @@ type App struct {
 	// settingsWindow opens the settings window and keeps at most one open.
 	settingsWindow *settingswindow.Controller
 
-	welcome welcomeState
-	recent  []core.RecentProject
+	welcome    welcomeState
+	clone      cloneState
+	newProject newProjectState
+	recent     []core.RecentProject
 	// missing marks recent projects whose folder was gone when the list last changed.
 	missing map[string]bool
 
@@ -293,7 +301,7 @@ func New(options Options) *App {
 // Run shows the window and returns when it is closed.
 func (a *App) Run() error {
 	app.SetNativeAppearance(nativeAppearance(a.settings.Theme))
-	stop := app.WatchSystemAppearance(a.invalidator.Invalidate)
+	stop := app.WatchSystemAppearance(a.systemAppearanceChanged)
 	defer stop()
 	// app.Run opens a bare window that never paints; the window with the frame callbacks
 	// is opened by the application.
@@ -318,9 +326,24 @@ func (a *App) Run() error {
 	return err
 }
 
+// systemAppearanceChanged hands the system event to the workbench thread before
+// publishing the effective palette to its other windows.
+func (a *App) systemAppearanceChanged() {
+	a.post(func(a *App) {
+		if a.settings.Theme != themeSystem {
+			return
+		}
+		a.theme, a.colors = look(themeSystem)
+		a.shared.dark.Store(a.colors.Dark)
+		if a.logs != nil {
+			a.logs.Invalidate()
+		}
+	})
+}
+
 // Config is the window's configuration.
 func (a *App) Config() app.Config {
-	a.fields = flex.Fields(&a.welcome.search, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField, &a.searchView.query, &a.searchView.mask, &a.everywhereView.query,
+	a.fields = flex.Fields(&a.welcome.search, &a.clone.source, &a.clone.parent, &a.clone.name, &a.newProject.name, &a.newProject.parent, &a.newProject.search, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField, &a.searchView.query, &a.searchView.mask, &a.everywhereView.query,
 		&a.branch.search, &a.branch.name, &a.branch.revision, &a.navigation.input)
 	return app.Config{
 		Title:          a.text.App.Name,
@@ -348,6 +371,9 @@ func (a *App) Config() app.Config {
 // closed runs when the window has closed: the project closes, and so does the log window,
 // which would otherwise keep the application running without the window it belongs to.
 func (a *App) closed() {
+	a.closeClone()
+	a.closeNewProject()
+	a.closeWelcomeBranchReads()
 	a.closeProject()
 	a.settingsWindow.Close()
 	if a.logs != nil {
@@ -418,7 +444,13 @@ func (a *App) paint(canvas *ui.Canvas, size ui.Size) {
 	a.logView.beginFrame()
 	a.commitView.beginFrame()
 	a.beginTerminalFrame()
-	a.view.Draw(canvas, a.theme, bounds, func(f *flex.Frame) {
+	paintTheme := a.theme
+	if a.clone.open || a.newProject.open {
+		// The original centered clone panel opens without a fade. The rest of
+		// the window is blocked by its modal scope while this theme is used.
+		paintTheme.Transition.Duration = 0
+	}
+	a.view.Draw(canvas, paintTheme, bounds, func(f *flex.Frame) {
 		// Popups go on a layer of their own so the commit rows painted after Draw stay
 		// under them.
 		f.PopupLayer(1)
@@ -428,6 +460,16 @@ func (a *App) paint(canvas *ui.Canvas, size ui.Size) {
 			a.drawNavigation(f, a.project)
 		} else {
 			a.drawWelcome(f)
+		}
+		a.drawCloneDialog(f)
+		a.drawNewProjectDialog(f)
+		if a.newProject.restoreFocus {
+			f.Canvas().RequestFocus(a.newProject.returnFocus)
+			a.newProject.restoreFocus = false
+		}
+		if a.clone.restoreFocus {
+			f.Canvas().RequestFocus(a.clone.returnFocus)
+			a.clone.restoreFocus = false
 		}
 		a.drawNotice(f)
 	})
@@ -490,10 +532,16 @@ func (a *App) onPointer(event ui.PointerEvent) ui.EventResult {
 	if result, handled := a.documentPointer(event); handled {
 		return result
 	}
+	if result, handled := a.treePointer(event); handled {
+		return result
+	}
 	return ui.EventResult{}
 }
 
 func (a *App) onKey(event ui.KeyEvent) ui.EventResult {
+	if result := a.welcomeMenuKey(event); result.Handled {
+		return result
+	}
 	if a.project != nil && a.navigation.open {
 		if result := a.navigationKey(a.project, event); result.Handled {
 			return result
@@ -505,6 +553,18 @@ func (a *App) onKey(event ui.KeyEvent) ui.EventResult {
 		}
 	}
 	if !event.Release && event.Key == ui.KeyEscape {
+		if a.project == nil && a.welcome.moreOpen {
+			a.welcome.moreOpen = false
+			a.welcome.moreFocus = false
+			a.welcome.moreRestore = true
+			return ui.EventResult{Handled: true, Repaint: true}
+		}
+		if a.project == nil && a.welcome.menuPath != "" {
+			a.welcome.restoreMenuFocus = a.welcome.menuPath
+			a.welcome.menuPath = ""
+			a.welcome.menuFocus = ui.ID{}
+			return ui.EventResult{Handled: true, Repaint: true}
+		}
 		// Both are called: at most one gesture is under way, and neither may be left behind.
 		button, tab := a.cancelDrag(), a.cancelTabDrag()
 		if button || tab {
@@ -553,6 +613,18 @@ func (a *App) onKey(event ui.KeyEvent) ui.EventResult {
 // to the terminal that has the keyboard: Control-C and the other chords of the shell arrive
 // here, not in onKey.
 func (a *App) onShortcut(event ui.KeyEvent) ui.EventResult {
+	if a.newProject.open {
+		if event.Target == newProjectName || event.Target == newProjectParent || event.Target == newProjectSearch {
+			return ui.EventResult{}
+		}
+		return ui.EventResult{Handled: true}
+	}
+	if a.clone.open {
+		if event.Target == cloneSource || event.Target == cloneParent || event.Target == cloneName {
+			return ui.EventResult{}
+		}
+		return ui.EventResult{Handled: true}
+	}
 	if a.navigation.open {
 		// Let the field's text system handle copy, paste, and select-all, while
 		// keeping workbench shortcuts from changing the project behind a modal.
@@ -582,7 +654,8 @@ func (a *App) onShortcut(event ui.KeyEvent) ui.EventResult {
 // windowShortcut handles the window's own command shortcuts: ⌘, opens the settings, ⌘O asks
 // for a project folder, ⇧⌘L shows the log window and ⌘↩ in the commit message commits.
 func (a *App) windowShortcut(event ui.KeyEvent) ui.EventResult {
-	if event.Modifiers == ui.ModifierMeta && strings.EqualFold(event.Text, "l") && a.project != nil {
+	if isNavigationShortcut(runtime.GOOS, event) && a.project != nil && a.focusedTerminal(event.Target) == nil &&
+		(runtime.GOOS == "darwin" || a.focusedDocument(event.Target) != nil) {
 		if a.openNavigation(a.project) {
 			return ui.EventResult{Handled: true, Repaint: true}
 		}
@@ -628,6 +701,13 @@ func (a *App) setLanguage(code string) {
 	}
 	a.settings.Language = code
 	a.text = i18n.For(a.language())
+	a.shared.text.Store(a.text)
+	if a.settingsWindow != nil {
+		a.settingsWindow.Invalidate()
+	}
+	if a.logs != nil {
+		a.logs.Invalidate()
+	}
 	a.saveSettings()
 }
 
@@ -638,6 +718,14 @@ func (a *App) setTheme(choice themeChoice) {
 	}
 	a.settings.Theme = choice
 	app.SetNativeAppearance(nativeAppearance(choice))
+	a.theme, a.colors = look(choice)
+	a.shared.dark.Store(a.colors.Dark)
+	if a.settingsWindow != nil {
+		a.settingsWindow.Invalidate()
+	}
+	if a.logs != nil {
+		a.logs.Invalidate()
+	}
 	a.saveSettings()
 }
 
@@ -704,8 +792,16 @@ func (a *App) reduceRecent(entries []core.RecentProject, action core.RecentActio
 	defer cancel()
 	result, err := a.kernel.ReduceRecentProjects(ctx, entries, action, 0)
 	if err != nil {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_recent_reduce", documentLogError(err)))
 		a.notify(a.text.Errors.Core(err.Error()))
 		return
+	}
+	if save {
+		if err := a.store.Save(recentFile, result.Entries); err != nil {
+			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_recent_save", documentLogError(err)))
+			a.notify(a.text.Errors.SaveFailed(err.Error()))
+			return
+		}
 	}
 	a.recent = result.Entries
 	clear(a.missing)
@@ -714,12 +810,7 @@ func (a *App) reduceRecent(entries []core.RecentProject, action core.RecentActio
 			a.missing[entry.Path] = true
 		}
 	}
-	if !save {
-		return
-	}
-	if err := a.store.Save(recentFile, a.recent); err != nil {
-		a.notify(a.text.Errors.SaveFailed(err.Error()))
-	}
+	a.refreshWelcomeBranches()
 }
 
 // chooseProject asks for a project folder and opens it; surface is where the user asked.
@@ -746,10 +837,15 @@ func (a *App) chooseProject(surface string) {
 func (a *App) openProject(path string) {
 	root, err := filepath.Abs(path)
 	if err != nil {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_open", documentLogError(err)))
 		a.notify(a.text.Errors.OpenFailed(err.Error()))
 		return
 	}
 	if info, err := os.Stat(root); err != nil || !info.IsDir() {
+		if err == nil {
+			err = errors.New("not a directory")
+		}
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_open", documentLogError(err)))
 		a.notify(a.text.Errors.FolderMissing(root))
 		return
 	}
@@ -793,6 +889,7 @@ func (a *App) requestCloseProject(after func()) {
 			a.closeNavigation()
 		}
 		p.cancel()
+		a.closeTree(p)
 		a.releaseProjectSearch(p)
 		a.closeDocuments(p)
 		a.closeTerminals(p)

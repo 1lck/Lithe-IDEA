@@ -36,7 +36,7 @@ Core 一次处理最多 4,096 条，macOS 在后台分批并丢弃过期结果�
 
 ## 适用范围
 
-- `rust/lithe-core/src/git/history_query.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/history_query.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/history_query.rs)
 - `macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`
 - `macos/Sources/Lithe/Views/Git/GitGraphView.swift`
 - `windows/tauri/src/features/git/utils/git-log-date.ts`

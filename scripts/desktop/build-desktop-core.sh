@@ -27,8 +27,8 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
-# The merge of Lithe-IDEA/Lithe-core-rust#1 (workbench.chromeLayout.reduce) into main.
-PINNED_CORE_REVISION="b085d0866d45ba76cfef1450d61e820b22ddc6e7"
+# The merge of Lithe-IDEA/Lithe-core-rust#2 (TextMate languages 3) into main.
+PINNED_CORE_REVISION="0ffd327b4329261e393b08ed76fbd134b4dd17e9"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -74,6 +74,11 @@ else
     if [[ "$(git -C "$CORE_DIR" rev-parse HEAD 2>/dev/null || true)" != "$PINNED_CORE_REVISION" ]]; then
         git -C "$CORE_DIR" fetch --filter=blob:none origin "$PINNED_CORE_REVISION" >&2
         git -C "$CORE_DIR" checkout --detach --force "$PINNED_CORE_REVISION" >&2
+    elif [[ ! -e "$CORE_DIR/.git/index" ]]; then
+        # A fresh --no-checkout clone can already point at the pin without
+        # having any worktree files. Do not force: untracked user files must
+        # prevent checkout rather than being overwritten.
+        git -C "$CORE_DIR" checkout --detach "$PINNED_CORE_REVISION" >&2
     fi
 fi
 

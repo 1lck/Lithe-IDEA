@@ -837,6 +837,26 @@ var Image = ui.Icon{
 	},
 }
 
+// info is a compiled vector icon.
+var Info = ui.Icon{
+	ViewBox: 24.0,
+	Stroke:  2.0,
+	Cap:     ui.CapRound,
+	Join:    ui.JoinRound,
+	Commands: []ui.PathCommand{
+		ui.MoveTo(22.0, 12.0),
+		ui.CubicTo(22.0, 17.5228, 17.5228, 22.0, 12.0, 22.0),
+		ui.CubicTo(6.47715, 22.0, 2.0, 17.5228, 2.0, 12.0),
+		ui.CubicTo(2.0, 6.47715, 6.47715, 2.0, 12.0, 2.0),
+		ui.CubicTo(17.5228, 2.0, 22.0, 6.47715, 22.0, 12.0),
+		ui.ClosePath(),
+		ui.MoveTo(12.0, 16.0),
+		ui.LineTo(12.0, 12.0),
+		ui.MoveTo(12.0, 8.0),
+		ui.LineTo(12.01, 8.0),
+	},
+}
+
 // layout-grid is a compiled vector icon.
 var LayoutGrid = ui.Icon{
 	ViewBox: 24.0,

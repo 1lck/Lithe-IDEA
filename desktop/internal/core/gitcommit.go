@@ -17,6 +17,9 @@ type gitWriteRequest struct {
 	GitReference *gitReferenceRequest `json:"gitReference,omitempty"`
 	// Name is the new name of a created or renamed branch.
 	Name string `json:"name,omitempty"`
+	// Remote and Destination are passed unchanged to Core for a clone.
+	Remote      string `json:"remote,omitempty"`
+	Destination string `json:"destination,omitempty"`
 	// Revision is the commit, tag or other revision a detached checkout goes to.
 	Revision string `json:"revision,omitempty"`
 	// Checkout switches to a branch right after creating it.
@@ -25,6 +28,16 @@ type gitWriteRequest struct {
 	Force bool `json:"force,omitempty"`
 	// AutoStash stashes the local changes before a checkout and restores them after it.
 	AutoStash bool `json:"autoStash,omitempty"`
+}
+
+// GitClone clones source into destination using Core's Git process and validation.
+// root is an existing directory used as Git's working directory. Git owns the
+// destination and refuses an existing nonempty directory; on failure or cancellation
+// callers must not assume it removed all partial output.
+//
+// GitClone starts Git and blocks; call it from a background goroutine.
+func (c *Client) GitClone(ctx context.Context, root, source, destination string) error {
+	return c.gitWrite(ctx, gitWriteRequest{Root: root, Operation: "clone", Remote: source, Destination: destination})
 }
 
 // gitWriteResponse is the part of git.write's answer the client reads: whether the operation
@@ -183,6 +196,10 @@ type WorkspaceCommitRequest struct {
 	// IncludeParentReferences also records, in a parent repository, the new commits of the
 	// child repositories committed with it.
 	IncludeParentReferences bool
+	// PathScope is Core's ChangeList scope. Nil means unrestricted staged
+	// changes; callers using lists must supply the validated scope explicitly
+	// and keep its snapshot unchanged while preparing the request.
+	PathScope *ChangeListScope
 	// Previous is the session of a failed attempt to retry; nil starts afresh.
 	Previous *WorkspaceCommitSession
 	// Reviewed is the session whose plan the user confirmed; the kernel reports
@@ -198,6 +215,7 @@ type workspaceCommitPrepareRequest struct {
 	Push                    bool                                 `json:"push"`
 	PushTargets             map[string]WorkspaceCommitPushTarget `json:"pushTargets,omitempty"`
 	IncludeParentReferences bool                                 `json:"includeParentReferences"`
+	PathScope               *ChangeListScope                     `json:"pathScope,omitempty"`
 	Previous                *WorkspaceCommitSession              `json:"previous,omitempty"`
 	Reviewed                json.RawMessage                      `json:"reviewed,omitempty"`
 }
@@ -356,6 +374,7 @@ func (c *Client) WorkspaceCommitPrepare(ctx context.Context, request WorkspaceCo
 		Push:                    request.Push,
 		PushTargets:             request.PushTargets,
 		IncludeParentReferences: request.IncludeParentReferences,
+		PathScope:               request.PathScope,
 		Previous:                request.Previous,
 	}
 	if request.Reviewed != nil {

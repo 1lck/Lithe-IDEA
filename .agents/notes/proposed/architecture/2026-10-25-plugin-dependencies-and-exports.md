@@ -100,9 +100,9 @@
 
 ## 适用范围
 
-- `rust/lithe-core/src/plugins/`
-- `rust/lithe-core/src/lsp/interface/plugin_function.rs`
-- `rust/lithe-core/src/lsp/interface/function_relay.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/plugin_function.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/plugin_function.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/function_relay.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/function_relay.rs)
 - `shared/contracts/plugins/v1/`
 - `macos/Sources/Lithe/Platform/MacOS/`
 - `windows/tauri/src-tauri/src/plugin_host/`

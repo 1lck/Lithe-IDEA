@@ -1,7 +1,6 @@
 package workbench
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io/fs"
@@ -26,8 +25,6 @@ import (
 const (
 	// documentMemberPrefix starts the member name of an open file in a tab group: "file:3".
 	documentMemberPrefix = "file:"
-	// documentSniff is how much of a file is searched for the NUL byte that marks it as binary.
-	documentSniff = 8 << 10
 	// documentDirty is the side of the dot a tab shows while its file has unsaved changes.
 	documentDirty = 6
 
@@ -51,11 +48,12 @@ var (
 	docWrap  = tree.Sub(shellPage, tree.Name("document-soft-wrap"))
 )
 
-// errNotText and errTooLarge are why a file is not opened, besides the system's errors.
+// These errors explain why a file cannot be opened, besides the system's errors.
 var (
-	errNotText   = errors.New("not a text file")
-	errTooLarge  = documentio.ErrTooLarge
-	errComposing = errors.New("input method composition is active")
+	errNotText             = errors.New("not a text file")
+	errUnsupportedEncoding = errors.New("unsupported text encoding")
+	errTooLarge            = documentio.ErrTooLarge
+	errComposing           = errors.New("input method composition is active")
 )
 
 // document is a file open in a tab of the editor area.
@@ -212,14 +210,21 @@ func (a *App) openFileAt(p *project, path string, line int) {
 	a.openFile(p, path)
 }
 
-// readDocument reads the file at path for the editor, refusing one that is too large or
-// holds a NUL byte near its start, the mark of a binary file.
+// readDocument reads an editor file and asks Core to classify its complete
+// contents, refusing binary controls or bytes that cannot be edited as UTF-8.
 func readDocument(path string) ([]byte, error) {
 	data, err := documentio.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	if bytes.IndexByte(data[:min(len(data), documentSniff)], 0) >= 0 {
+	kind, err := core.ClassifyDocumentText(data)
+	if err != nil {
+		return nil, err
+	}
+	switch kind {
+	case core.DocumentInvalidUTF8:
+		return nil, errUnsupportedEncoding
+	case core.DocumentBinary:
 		return nil, errNotText
 	}
 	return data, nil
@@ -265,6 +270,8 @@ func documentOpenReason(err error) string {
 	switch {
 	case errors.Is(err, errNotText):
 		return "not_text"
+	case errors.Is(err, errUnsupportedEncoding):
+		return "unsupported_encoding"
 	case errors.Is(err, errTooLarge):
 		return "too_large"
 	case errors.Is(err, documentio.ErrNotRegular):
@@ -285,6 +292,8 @@ func (a *App) documentReason(err error) string {
 	switch {
 	case errors.Is(err, errNotText):
 		return a.text.Editor.NotText
+	case errors.Is(err, errUnsupportedEncoding):
+		return i18n.Shared(a.language(), "desktop.editor.unsupportedEncoding")
 	case errors.Is(err, errTooLarge):
 		return a.text.Editor.TooLarge
 	case errors.Is(err, documentio.ErrNotRegular):

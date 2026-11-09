@@ -384,6 +384,36 @@ Swift 单元和插件 CI 通道通过 Swatinem/rust-cache 复用裁剪后的 Rus
 
 ### 独立工作树的本地编译
 
+Viva Go 计时结果写入当前工作树的 `.artifacts/test-stability/{macos,windows}-desktop-go.{json,html,junit.xml,log}`
+及 `index.html`。它们只属于这一次运行，受源码修订、平台、架构、Go/Core 工具链、所选用例、预算和机器状态影响；没有可验证的跨树身份 stamp。`desktop-go-timing-reports` 排除路由在任何复制阶段拒绝复用；本地由开发者清理，CI 报告按 artifact 保留策略处理。原始日志可能含测试数据，不进入安装包，也不会改变代码签名或 Sparkle delta。
+
+Viva 的 Core 源码检出、Cargo 目标目录和暂存静态库位于当前工作树的
+`.artifacts/desktop/lithe-core-rust/` 与 `.artifacts/desktop/lithe-core/`。暂存身份记录包含
+修订、目标、profile 与编译器，但尚不是可跨工作树复用的完整密封清单，故资源清单中的
+`viva-core-build-state` 明确拒绝复制；每个工作树独立构建和校验。下方有关 Swift、Tauri、
+JDTLS 和旧工作流的描述记录迁移前流程，不能当作 Viva 的当前构建或复用能力。
+恢复的旧资源测试仍引用本分支已删除的 PlantUML、远程服务及旧 Windows 工作流；
+此外 preview 的 JDK 缓存测试存量问题已有 [#1797](https://github.com/1lck/Lithe-IDEA/issues/1797)。
+在这些测试与 Viva 的资源和工作流完成迁移前，不要把完整资源测试记为通过。
+
+Viva 文件与项目树图标的 SVG 和生成的 Go 数据由 Git 管理，生成脚本限定 Python 3.9 或 3.11、
+picosvg 与直接依赖以及 Viva 编译器版本，在本工作树重建；没有自动发现受支持的 Python 时可用
+`LITHE_ICON_PYTHON` 指定受支持的解释器，该变量不是缓存路径。临时转换目录退出时删除。它们不是跨工作树的可复制缓存，
+`viva-file-icons` 在资源复用入口拒绝复制。运行期图标只读编译数据，不写入安装包，因而不改变
+代码签名或 Sparkle 增量更新基线。只更新树的展开箭头时，使用生成脚本的 `--tree-only`，
+避免重新生成其他文件类型图标。完整生成器在 SVG 未变时仍可能改变既有曲线，原因和完整
+工具链可重复性由 [#1801](https://github.com/1lck/Lithe-IDEA/issues/1801) 跟踪。固定工具链后，
+macOS 上用 Python 3.9 和 3.11 完整生成的 95 个旧图标向量与提交基线一致，两份生成文件
+逐字节相同；Windows 和其他架构的依赖包已确认可获取，
+但还未在目标机器完成生成比对，不能据此判定跨平台可重复。
+
+Viva 的市场包传输由操作系统提供的临时目录持有，目录形如
+`<file-storage-temp>/lithe-plugin-transfer-<random>/archive.zip`。它是一次下载私有状态，
+不具备平台、架构或工具链可复用身份：下载时逐块限额并对照 Core 校验过的索引 SHA-256，
+失败或取消时清理，成功后由接收者在后续审查结束时清理。摘要仅证明与索引一致，不能代替
+发布者签名和安装审批。它不进入 app bundle、插件包或任何 worktree 复制阶段，不影响签名和
+Sparkle 增量更新基线；`plugin-marketplace-state` 在资源复用入口显式拒绝该状态。
+
 通用工具使用方偏好保存在工作区现有 `.lithe/run/local.json` 的 `toolchain.preferences`，
 生命周期随该工作区本机配置，显式重置或移除后结束；没有增加并行缓存。目录/消费者引用
 每次运行重新解析，运行前 native adapter 读取文档并在探测后核对原始内容，不写应用或

@@ -1,5 +1,9 @@
 # macOS and Swift Test Stability
 
+The Swift client was removed from the current Viva branch. The macOS entry
+now times desktop Go tests; the Swift-specific guidance below is historical and
+does not establish coverage of the current client.
+
 The macOS harness requires only Swift, zsh, and Node.js. Bun is not installed,
 loaded, or invoked anywhere in this path.
 
@@ -43,7 +47,7 @@ mutable storage because the runtime may clear them.
 
 ## Timing and verification
 
-Use `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh`. It forces serial execution so the
+The former Swift entry forced serial execution so the
 currently running test is unambiguous, records every Swift Testing/XCTest case,
 warns about slow cases, and fails the run when a reported duration exceeds its
 local budget. Because the runner writes to a block-buffered pipe, a finish line

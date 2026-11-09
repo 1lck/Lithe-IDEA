@@ -2,6 +2,10 @@
 
 状态：已实现
 
+归档日期：2026-11-08
+
+> Swift 客户端的组合根和服务目录已被 Viva 桌面客户端取代。当前共享规则、桥接与平台适配的职责见 Viva 仓库所有权笔记；本文保留迁移前的分层理由。
+
 ## 先说结论
 
 macOS 界面只负责展示和收集用户操作，功能状态由应用层管理，服务层负责协调流程，平台适配器负责调用系统能力。这样新增功能时，应把代码放到它真正负责的层里，不要让 View 直接调用 Rust、文件系统或具体平台服务。
@@ -16,7 +20,7 @@ macOS 应用需要在 SwiftUI/AppKit 呈现层、`AppModel`、功能状态、平
 的 feature model。
 
 这篇 Note 记录仓库顶层所有权之下、macOS 内部这一层的组合和边界决策，
-补在 [`repository-ownership-and-sharing-boundaries.md`](2026-09-13-repository-ownership-and-sharing-boundaries.md)
+补在 [旧版仓库所有权与共享边界](2026-09-13-repository-ownership-and-sharing-boundaries.md)
 之下。
 
 ## 决策
@@ -180,9 +184,9 @@ macOS 拥有这些能力的平台侧：workspace 选择、FSEvents、原子/原�
 应用内更新通过 macOS 更新适配器使用 Sparkle，签名、差分包、旧客户端
 兼容性和发布校验见 [`macos-updates.md`](../../../../docs/architecture/macos-updates.md)。
 macOS Git 提交图投影和原生长边导航遵循
-[`2026-09-13-macos-git-graph-intellij-layout.md`](../feature/2026-09-13-macos-git-graph-intellij-layout.md)
+[`2026-09-13-macos-git-graph-intellij-layout.md`](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/feature/2026-09-13-macos-git-graph-intellij-layout.md)
 钉住的 IntelliJ 规则。语言工具分层见
-[`2026-09-13-language-tooling-and-lsp-runtime-ownership.md`](2026-09-13-language-tooling-and-lsp-runtime-ownership.md)。
+[`2026-09-13-language-tooling-and-lsp-runtime-ownership.md`](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-09-13-language-tooling-and-lsp-runtime-ownership.md)。
 
 ## 考虑过的备选方案
 

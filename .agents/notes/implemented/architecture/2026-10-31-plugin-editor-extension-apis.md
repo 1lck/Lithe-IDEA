@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态：下文的 Monaco 注册、动作和 Provider 接线及 `languages:2` 描述属于旧客户端。当前锁定的 Core 契约使用 `languages:3` TextMate；Viva 只有静态语法解码桥接和共享样例验证，插件安装、编辑器注册及动作/Provider 宿主均未接入。旧版的权限隔离、版本检查与不透明链接限制仍是后续验收要求。
+
 ## 先说结论
 
 普通工具插件可以独立提供文本高亮、编辑器配置、位置动作和编辑器语言功能（跳转、悬浮、补全、CodeLens、折叠、语义着色、文档链接），不要求实现 LSP（语言服务器协议）、构建、运行或调试提供者。静态资源使用 `languages:2`；位置动作与语言功能都通过函数协议 3 的独立宿主方法注册，再复用原有函数调用执行；没有 `runMarkers` 清单能力，也不修改 `commands/didRun`。语言功能只“补充”语言服务器：服务器先答，插件的答案只增加不替换。当前接线限 macOS，运行和界面验收以功能矩阵为准，不把静态校验当作产品验收。
@@ -103,29 +105,17 @@ grammar 从只读插件包有界读取，校验结果仅在本次进程内缓存
 
 ## 验证
 
-- `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib plugin_editor_resources`：静态资源、配置及 include 预算。
-- `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib plugins::editor_actions`：HTTP/SQL 同构动作、范围、重复身份及不透明数据。
-- `bun test frontend/editor/src`：活跃文件匹配、别名身份、配置独立应用与撤回。
-- `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib plugins::editor_providers`：注册、答案形状、预算和定义合并，含共享契约 fixture。
-- `bun test frontend/editor/src/plugin-editor-action-rules.test.ts frontend/editor/src/plugin-editor-provider-rules.test.ts`：车道与备选项排布、位置换算、不透明链接 URL、语义着色合并。
-- `scripts/macos/test/test-macos.sh --filter 'PluginEditorLanguagesTests|PluginEditorActionTests|PluginEditorProviderTests|MonacoWorkbenchSessionLifetimeTests'`：真实 catalog 接纳、独立模块、动作与 Provider 注册清理、查询丢弃规则。
-- `node scripts/architecture/verify-editor-boundaries.mjs`：宿主图标表与网页图标键一致。
+- 旧版 Core、Monaco 与 macOS 的测试覆盖静态资源及预算、动作和 Provider 注册与撤回、查询过期处理、不透明链接和语义着色合并；测试命令和原证据见[历史记录](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-10-31-plugin-editor-extension-apis.md)，不能作为 Viva 已通过的证据。
+- `scripts/desktop/desktop-go.sh test ./internal/core -run '^TestPluginTextMateGrammarUsesPinnedCore$'`：当前共享语法样例经锁定 Core 解码；不证明插件安装和编辑器注册。
 - `scripts/macos/verify/verify-runtime-bundle-immutability.sh`：发行路径只读静态边界。
 
 ## 适用范围
 
-- `rust/lithe-core/src/plugins/grammar.rs`
-- `rust/lithe-core/src/plugins/editor_actions.rs`
-- `macos/Sources/Lithe/Application/Features/PluginEditorActionHostService.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginEditorLanguages.swift`
-- `frontend/editor/src/plugin-languages.ts`
-- `frontend/editor/src/plugin-editor-actions.ts`
-- `rust/lithe-core/src/plugins/editor_providers.rs`
-- `macos/Sources/Lithe/Application/Features/PluginEditorProviderHostService.swift`
-- `macos/Sources/Lithe/Models/AppModel/AppModel+PluginDefinitions.swift`
-- `macos/Sources/Lithe/Platform/MacOS/MonacoPluginEditorProviders.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/PluginEditorHostOptions+macOS.swift`
-- `frontend/editor/src/plugin-editor-action-rules.ts`
-- `frontend/editor/src/plugin-editor-provider-rules.ts`
-- `frontend/editor/src/plugin-editor-providers.ts`
-- `frontend/editor/src/plugin-grammar-tokenizer.ts`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/grammar.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/grammar.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/editor_actions.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/editor_actions.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/editor_providers.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/editor_providers.rs)
+- `desktop/internal/core/plugin_session.go`
+- `desktop/internal/core/plugin_session_test.go`
+- `shared/contracts/plugins/v1/README.md`
+- `shared/platform-feature-matrix/features/plugin-editor-grammars.json`
+- [旧版实现和原适用范围](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-10-31-plugin-editor-extension-apis.md)

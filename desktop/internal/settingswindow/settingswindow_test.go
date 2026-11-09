@@ -9,7 +9,7 @@ import (
 )
 
 // The tests here cover the logic that needs no screen: which pages a search lists, what the
-// breadcrumb says, how the draft maps onto the controls, and what Enter and Escape mean.
+// breadcrumb says, how the values map onto the controls, and what Enter and Escape mean.
 // Opening, raising and closing a native window need a running application and are left to
 // the manual check of the window.
 
@@ -361,16 +361,10 @@ func TestSanitizeKeepsWhatTheControlsCanShow(t *testing.T) {
 	}
 }
 
-func TestDefaultValuesFollowTheSystem(t *testing.T) {
-	if got := defaultValues(); got != (Values{}) {
-		t.Fatalf("defaultValues() = %+v, want the empty values", got)
-	}
-}
-
 func TestNewSessionStartsFromTheSettingsInForce(t *testing.T) {
 	s := newSession(Values{Language: "zh-Hans", Theme: themeDark})
-	if s.draft != (Values{Language: "zh-Hans", Theme: themeDark}) {
-		t.Errorf("draft = %+v, want the settings in force", s.draft)
+	if s.values != (Values{Language: "zh-Hans", Theme: themeDark}) {
+		t.Errorf("values = %+v, want the settings in force", s.values)
 	}
 	if s.page != initialPage || s.open != initialOpen() {
 		t.Errorf("page = %d, open = %v, want the initial ones", s.page, s.open)
@@ -378,37 +372,18 @@ func TestNewSessionStartsFromTheSettingsInForce(t *testing.T) {
 	if s.finished.Load() {
 		t.Error("a new session is already finished")
 	}
-	if got := newSession(Values{Language: "fr", Theme: "sepia"}).draft; got != (Values{}) {
-		t.Errorf("draft of unknown settings = %+v, want the defaults", got)
+	if got := newSession(Values{Language: "fr", Theme: "sepia"}).values; got != (Values{}) {
+		t.Errorf("displayed unknown settings = %+v, want the defaults", got)
 	}
 }
 
-func TestRestoreDefaultsChangesOnlyTheDraft(t *testing.T) {
-	s := newSession(Values{Language: "en", Theme: themeLight})
-	s.page = pageAI
-	s.restoreDefaults()
-	if s.draft != (Values{}) {
-		t.Errorf("draft = %+v, want the defaults", s.draft)
-	}
-	if s.page != pageAI || s.finished.Load() {
-		t.Error("restoring defaults must neither leave the page nor finish the session")
-	}
-}
-
-func TestAcceptAppliesTheDraftOnce(t *testing.T) {
-	var applied []Values
-	apply := func(v Values) { applied = append(applied, v) }
+func TestAcceptClosesOnce(t *testing.T) {
 	s := newSession(Values{})
-	s.draft = Values{Language: "en", Theme: themeDark}
-
-	if !s.accept(apply) {
+	if !s.accept() {
 		t.Fatal("the first OK did nothing")
 	}
-	if s.accept(apply) {
+	if s.accept() {
 		t.Fatal("a second OK acted")
-	}
-	if want := []Values{{Language: "en", Theme: themeDark}}; !slices.Equal(applied, want) {
-		t.Fatalf("applied = %+v, want %+v", applied, want)
 	}
 	if !s.finished.Load() {
 		t.Fatal("the session is not finished after OK")
@@ -419,13 +394,12 @@ func TestAcceptAppliesTheDraftOnce(t *testing.T) {
 }
 
 func TestCancelAppliesNothing(t *testing.T) {
-	called := false
 	s := newSession(Values{})
-	s.draft.Theme = themeDark
+	s.values.Theme = themeDark
 	if !s.cancel() {
 		t.Fatal("the first Cancel did nothing")
 	}
-	if s.accept(func(Values) { called = true }) || called {
+	if s.accept() {
 		t.Fatal("OK applied after Cancel")
 	}
 	if s.cancel() {
@@ -433,20 +407,12 @@ func TestCancelAppliesNothing(t *testing.T) {
 	}
 }
 
-func TestAcceptWithoutApplyStillFinishes(t *testing.T) {
-	s := newSession(Values{})
-	if !s.accept(nil) || !s.finished.Load() {
-		t.Fatal("OK with nothing to apply with must still finish the session")
-	}
-}
-
 func TestClosedWindowIsNotAcceptedAgain(t *testing.T) {
 	// The system's close button marks the session finished without choosing OK or Cancel;
-	// a late Enter must not apply the draft of a window that is gone.
-	called := false
+	// a late Enter must not act on a window that is gone.
 	s := newSession(Values{})
 	s.finished.Store(true)
-	if s.accept(func(Values) { called = true }) || called {
+	if s.accept() {
 		t.Fatal("OK applied after the window had closed")
 	}
 }

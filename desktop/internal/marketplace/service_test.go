@@ -38,6 +38,71 @@ func TestFetchValidatesIndexThroughCore(t *testing.T) {
 	}
 }
 
+func TestFetchCurrentOfficialEmptyIndex(t *testing.T) {
+	if OfficialIndexURL != "https://raw.githubusercontent.com/1lck/Lithe-IDEA/HEAD/Plugins/marketplace/index.json" {
+		t.Fatalf("official index is not the current main repository: %s", OfficialIndexURL)
+	}
+	index, err := os.ReadFile("../core/testdata/marketplace/lithe-official-index.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const url = OfficialIndexURL
+	client := &http.Client{Transport: transportFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.String() != url {
+			t.Errorf("URL = %s", r.URL)
+		}
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(index))), Request: r}, nil
+	})}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	snapshot, err := New(core.NewClient(), client).Fetch(ctx, url, core.MarketplaceOfficial, strings.Join([]string{"darwin", "arm64"}, "-"), map[string][]int{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Index.Plugins) != 0 || len(snapshot.Index.Rejected) != 0 {
+		t.Fatalf("official index = %+v", snapshot.Index)
+	}
+}
+
+// The published official URL points into this repository's default branch.
+// Deleting that file from the replacement client would make it return 404
+// after the branch containing the deletion reaches the default branch.
+func TestPublishedOfficialIndexExistsInRepository(t *testing.T) {
+	data, err := os.ReadFile("../../../Plugins/marketplace/index.json")
+	if err != nil {
+		t.Fatalf("official marketplace endpoint has no repository source: %v", err)
+	}
+	var index struct {
+		SchemaVersion int               `json:"schemaVersion"`
+		Plugins       []json.RawMessage `json:"plugins"`
+	}
+	if err := json.Unmarshal(data, &index); err != nil || index.SchemaVersion != 1 || index.Plugins == nil {
+		t.Fatalf("official marketplace source is not a version 1 index: %v", err)
+	}
+}
+
+func TestFetchOfficialSourceKeepsOfficialNamespace(t *testing.T) {
+	index, err := os.ReadFile("../../../shared/contracts/plugins/v1/fixtures/marketplace/index.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Transport: transportFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(index))), Request: r}, nil
+	})}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	snapshot, err := New(core.NewClient(), client).Fetch(ctx, OfficialIndexURL, core.MarketplaceOfficial, strings.Join([]string{"darwin", "arm64"}, "-"), map[string][]int{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, plugin := range snapshot.Index.Plugins {
+		if strings.HasPrefix(plugin.ID, "dev.lithe.") {
+			return
+		}
+	}
+	t.Fatal("official namespace was not retained for the official source")
+}
+
 func TestFetchRejectsOversizedAndInvalidIndexes(t *testing.T) {
 	for _, tc := range []struct {
 		name, body string

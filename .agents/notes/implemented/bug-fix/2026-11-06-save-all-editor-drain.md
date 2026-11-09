@@ -32,5 +32,5 @@
 
 - `macos/Sources/Lithe/Application/Features/DocumentSaveBatch.swift`
 - `macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`
-- `rust/lithe-core/src/project/document_save_batch.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/project/document_save_batch.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/project/document_save_batch.rs)
 - `macos/Tests/LitheTests/LitheCoreLogicTests.swift`

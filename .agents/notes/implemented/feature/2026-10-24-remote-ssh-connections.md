@@ -88,8 +88,8 @@ cargo test --manifest-path rust/Cargo.toml -p lithe-core remote::
 - `macos/Sources/Lithe/Application/Features/RemoteConnectionsFeatureModel.swift`
 - `macos/Sources/Lithe/Services/Remote/RemoteConnectionStore.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Remote/`
-- `rust/lithe-core/src/remote/`
-- `rust/lithe-remote/src/client/launch.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/remote/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/remote)
+- Lithe-core-rust 锁定修订：[rust/lithe-remote/src/client/launch.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/client/launch.rs)
 - `scripts/remote/build-remote-servers.sh`
 
 

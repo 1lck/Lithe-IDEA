@@ -168,9 +168,9 @@ Swift 功能模型负责草稿与 UI 状态，Rust Core 负责严格命令分派
 
 ## 适用范围
 
-- `rust/lithe-agent-host/src/hooks.rs`
-- `rust/lithe-agent-host/src/hooks/storage.rs`
-- `rust/lithe-core/src/agent/hooks.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/hooks.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/hooks.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/hooks/storage.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/hooks/storage.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/agent/hooks.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/agent/hooks.rs)
 - `macos/Sources/Lithe/Views/Agent/AgentHooksSettingsView.swift`
 - `macos/Sources/Lithe/Application/Features/AgentHooksFeatureModel.swift`
 - `windows/tauri/src/features/settings/components/tabs/agent-hooks-settings.tsx`

@@ -74,6 +74,6 @@ Docker 插件需要一键进入容器，但公共 API 计划中的 API-24 只有
 - `macos/Sources/Lithe/Models/AppModel/AppModel+PluginTerminal.swift`
 - `macos/Sources/LitheTerminalModule/`
 - `macos/Sources/Lithe/Platform/MacOS/Terminal/MacTerminalTransport.swift`
-- `rust/lithe-core/src/lsp/interface/plugin_function.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/plugin_function.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/plugin_function.rs)
 - `shared/contracts/plugins/v1/`
 - `docs/development/macos-plugin-api-plan.md`

@@ -2,17 +2,16 @@
 // window of its own, laid out like the settings dialog of an IDE and like the macOS
 // client's, with a sidebar of pages that can be searched and the page itself beside it.
 //
-// The window edits a draft of the settings. Nothing takes effect while the user changes
-// the controls; OK hands the draft to Options.Apply and closes, Cancel closes without
-// applying and Restore Defaults puts the defaults in the draft for the user to confirm.
+// Appearance and language apply when selected; closing the window does not undo them.
 // The package knows nothing of the workbench: the workbench gives it the settings in force
-// and a function to apply the new ones with.
+// and callbacks for individual changes.
 package settingswindow
 
 import (
 	"context"
 	"sync"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/vivaui/viva/app"
@@ -32,7 +31,12 @@ type Values struct {
 // Options configure the settings window.
 type Options struct {
 	// Marketplace fetches the enabled source only while the plugin page is open.
-	Marketplace         func(context.Context) (marketplace.Snapshot, error)
+	Marketplace func(context.Context) (marketplace.Snapshot, error)
+	// MarketplaceOfficial fetches the separately validated official source.
+	MarketplaceOfficial func(context.Context) (marketplace.Snapshot, error)
+	MarketplaceRank     func(context.Context, string, []core.RankCandidate) ([]int, error)
+	// MarketplaceError must be safe from a worker: a cancelled request may fail
+	// after the window has discarded its result.
 	MarketplaceError    func(error)
 	MarketplaceRejected func(int)
 	// MarketplaceResized persists a completed splitter gesture or keyboard step.
@@ -45,7 +49,7 @@ type Options struct {
 	// for the look "follow the system" resolves to when SystemDark is nil.
 	Dark func() bool
 	// SystemDark says whether the system is set to a dark look, which is what the choice
-	// "follow the system" shows and what a draft that follows the system is painted in.
+	// "follow the system" shows and how the window following the system is painted.
 	// Dark cannot stand in for it once the user has picked a look of their own, because
 	// then Dark reports that pick and not the system. Nil falls back to Dark.
 	SystemDark func() bool
@@ -54,18 +58,18 @@ type Options struct {
 	SystemLanguage i18n.Language
 	// Version is the application's version, shown on the About card.
 	Version string
-	// Apply receives the draft when the user confirms with OK. It runs on the settings
-	// window's thread, so it must hand the values to the thread that owns the settings and
-	// return; it may be called from any goroutine's point of view.
-	Apply func(Values)
+	// SetLanguage and SetTheme run on the settings window's thread and must hand their
+	// individual changes to the settings owner without waiting for its window thread.
+	SetLanguage func(string)
+	SetTheme    func(string)
 	// ResetLayout puts the workbench's buttons back where the catalog puts them. It runs
 	// at once, on the settings window's thread, when the user presses the button, because
-	// the layout is not one of the draft's settings: pressing it is its own confirmation.
+	// pressing it is its own confirmation.
 	ResetLayout func()
 }
 
 // Controller opens the settings window and keeps at most one open: opening it again brings
-// the open one to the front and leaves its draft as it was.
+// the open one to the front and keeps its current page and values.
 type Controller struct {
 	opts Options
 
@@ -104,8 +108,8 @@ func (c *Controller) systemDark() bool {
 }
 
 // Open shows the settings window, opening it when none is open. A new window starts its
-// draft from current, the settings in force; one that is already open is raised with its
-// draft and page untouched, and current is ignored. It must run on a window thread of
+// values from current, the settings in force; one that is already open is raised with its
+// values and page untouched, and current is ignored. It must run on a window thread of
 // application, as app.Application.OpenWindow requires.
 func (c *Controller) Open(application *app.Application, current Values) error {
 	return c.open(application, current, false)
@@ -142,13 +146,13 @@ func (c *Controller) open(application *app.Application, current Values, plugins 
 	w.win = win
 	c.current = w
 	c.mu.Unlock()
-	// A draft that follows the system is painted in the system's look, so the window
+	// A window that follows the system is painted in the system's look, so it
 	// repaints when the system switches.
 	w.watchSystem()
 	return nil
 }
 
-// Close closes the open window, if any, without applying its draft. It is safe from any
+// Close closes the open window, if any, without undoing settings. It is safe from any
 // goroutine.
 func (c *Controller) Close() {
 	c.mu.Lock()
@@ -156,5 +160,15 @@ func (c *Controller) Close() {
 	c.mu.Unlock()
 	if current != nil && current.win != nil {
 		current.win.Close()
+	}
+}
+
+// Invalidate repaints the open settings window after shared application state changes.
+func (c *Controller) Invalidate() {
+	c.mu.Lock()
+	current := c.current
+	c.mu.Unlock()
+	if current != nil {
+		current.inv.Invalidate()
 	}
 }

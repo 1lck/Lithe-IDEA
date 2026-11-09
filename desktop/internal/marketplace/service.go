@@ -15,6 +15,9 @@ import (
 )
 
 const (
+	// OfficialIndexURL follows the current main repository, rather than the
+	// retired organization URL that redirects to a temporary repository (#1781).
+	OfficialIndexURL = "https://raw.githubusercontent.com/1lck/Lithe-IDEA/HEAD/Plugins/marketplace/index.json"
 	// MaxIndexBytes matches the existing macOS market's index budget.
 	MaxIndexBytes = 5 << 20
 	fetchTimeout  = 20 * time.Second
@@ -42,12 +45,18 @@ type Service struct {
 // New creates a marketplace service. A nil client uses Go's default transport;
 // a client can be supplied to apply product network policy or test offline.
 func New(evaluator Evaluator, client *http.Client) *Service {
+	return &Service{core: evaluator, http: marketplaceHTTPClient(client, fetchTimeout)}
+}
+
+// marketplaceHTTPClient preserves the supplied transport and redirect policy,
+// while refusing redirects that would downgrade or embed credentials.
+func marketplaceHTTPClient(client *http.Client, timeout time.Duration) *http.Client {
 	if client == nil {
 		client = &http.Client{}
 	}
 	copy := *client
-	if copy.Timeout == 0 || copy.Timeout > fetchTimeout {
-		copy.Timeout = fetchTimeout
+	if copy.Timeout == 0 || copy.Timeout > timeout {
+		copy.Timeout = timeout
 	}
 	previous := copy.CheckRedirect
 	copy.CheckRedirect = func(request *http.Request, via []*http.Request) error {
@@ -59,7 +68,7 @@ func New(evaluator Evaluator, client *http.Client) *Service {
 		}
 		return nil
 	}
-	return &Service{core: evaluator, http: &copy}
+	return &copy
 }
 
 // Snapshot pairs a validated catalog with the canonical source that produced it.

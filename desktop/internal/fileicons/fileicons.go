@@ -1,6 +1,7 @@
 // Package fileicons provides file, folder, symbol, and debugger breakpoint icons for the desktop
 // client. File and folder names follow the classification rules of the previous macOS client.
-// icons.go is generated from svg/ by scripts/desktop/generate-desktop-file-icons.sh; see NOTICE.
+// icons.go and icons_tree.go are generated from svg/ by
+// scripts/desktop/generate-desktop-file-icons.sh; see NOTICE.
 package fileicons
 
 import (
@@ -193,6 +194,14 @@ func ForFile(name string, dark bool) ui.Icon {
 // ForDirectory returns the icon for a directory name, using its dark variant when available.
 func ForDirectory(name string, dark bool) ui.Icon {
 	return iconForKind(directoryKind(name), dark)
+}
+
+// TreeChevron returns the native project's original disclosure icon.
+func TreeChevron(expanded, dark bool) ui.Icon {
+	if expanded {
+		return iconForVariant(&TreechevronDown, &TreechevronDownDark, dark)
+	}
+	return iconForVariant(&TreechevronRight, &TreechevronRightDark, dark)
 }
 
 // ForDirectoryMark returns the icon for an explicit directory role, treating unknown marks as plain.

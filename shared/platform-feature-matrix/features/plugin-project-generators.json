@@ -4,22 +4,26 @@
   "group": "项目",
   "capability": "新建项目窗口按 IDEA 的布局列出“新建项目”和“生成器”两组条目：空项目由宿主提供，其余条目由插件通过 projectGenerators 1 注入（Java、Maven Archetype、Spring Boot 条目由独立的 Java、Maven、Gradle 插件提供）。名称、位置、创建 Git 仓库由宿主绘制；字段、派生默认值、显示条件和生成计划由 Rust Core 计算；先在目标目录旁的临时目录生成，完成后整体移动到位，失败或取消不留残留。条目需要的语言或构建系统插件未启用时提示一键启用，未安装时跳转插件市场搜索；所选 JDK 写入新项目的运行时设置，模板指定的文件随项目一起打开。projectGenerators 2 增加通用的工具字段（type:tool）：生成器只写工具定义 ID 和最低版本，宿主通过通用工具解析列出已安装的候选，所选工具写入新项目的工具 pin（.lithe/run/local.json），步骤可引用 ${field.<id>} 与 ${field.<id>.executable}；找不到工具时提示启用或到插件市场查找，低于最低版本的安装不可创建。只含生成器或工具定义的插件安装、更新、卸载后免重启，新建项目窗口随之刷新条目",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/new_project.go",
+      "desktop/internal/core/project.go",
+      "desktop/internal/workbench/new_project_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/new_project.go",
+      "desktop/internal/core/project.go",
+      "desktop/internal/workbench/new_project_test.go"
     ]
   },
   "owner": "Plugin Platform",
   "verification": "macOS：从欢迎页和项目切换器点“新建项目”，确认左栏有“新建项目”（Java、空项目）和“生成器”（Maven Archetype、Spring Boot）两组且可搜索。Java 选 Maven、默认 JDK 创建，确认生成 pom.xml（maven.compiler.release 等于所选 JDK 主版本）、.gitignore 和 src/main/java/org/example/Main.java，项目打开后 Main.java 已打开、Build 工具窗口识别 Maven 项目。勾选“创建 Git 仓库”时项目根目录有 .git。Spring Boot 选几个依赖创建，确认从 start.spring.io 下载并解压、mvnw 可执行；把服务器 URL 改成不可达地址时报错且目标目录下没有残留的 .*.lithe-creating-* 临时目录。Maven Archetype 在已安装 mvn 时生成 quickstart 项目，未安装时提示找不到 mvn。停用 Java Support 后，三个条目变灰、创建按钮不可用，只出现一条“启用 Java Support”，点击后条目恢复可用；未安装 Maven 插件时出现“在插件市场中查找”并跳到市场搜索 maven。目标目录已存在时拒绝创建且不改动原目录。工具字段：用 shared/contracts/plugins/v1/fixtures/project-generators/project-generator-tool-field.plugin.json 和一个定义了同名工具的插件做本地开发安装，新建项目里该生成器的工具下拉列出本机已发现的安装（含版本），选低于最低版本的安装时创建按钮不可用并提示，选满足版本的安装创建后新项目的 .lithe/run/local.json 里有该工具的 pin，设置里的工具链页面显示同一个固定值；没有任何插件定义该工具时出现“在插件市场中查找”，插件已安装未启用时出现“启用”。在新建项目窗口保持打开时安装或卸载只含生成器的插件，条目立即出现或消失且无需重启。Windows：宿主不声明 projectGenerators，需要它的插件在市场中隐藏。",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva 已接入宿主空项目：欢迎页与项目菜单打开表单，Core 校验名称并可初始化 Git；侧栏搜索通过 Core 匹配，插件入口打开插件市场，面板按原版尺寸与布局调整；同名目录拒绝覆盖，Git 初始化失败时保留已建目录并允许打开。macOS 和 Windows 无头测试覆盖真实 Core、Git 初始化、错误和关闭取消；侧栏搜索与面板交互已通过两端无头验证，两端原生窗口仍待验证。插件生成器目录、表单、执行、工具发现和安装后的热更新尚未接入；当前窗口尚未达到原版视觉对齐。legacy 是迁移前基线。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

@@ -67,9 +67,9 @@ Claude 与 Codex 的官方订阅都可以保存多个账号。每个账号对应
 
 ## 适用范围
 
-- `rust/lithe-agent-host/src/claude_subscription.rs`
-- `rust/lithe-agent-host/src/subscription.rs`
-- `rust/lithe-agent-host/src/codex_history.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/claude_subscription.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/claude_subscription.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/subscription.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/subscription.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/codex_history.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/codex_history.rs)
 - `macos/Sources/Lithe/Models/Settings/AgentAccounts.swift`
 - `macos/Sources/Lithe/Models/AppModel/AppModel+AgentAccounts.swift`
 - `macos/Sources/Lithe/Views/Agent/AgentAccountsSection.swift`

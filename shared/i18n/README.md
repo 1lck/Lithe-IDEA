@@ -23,7 +23,7 @@ node scripts/i18n/generate-i18n.mjs --coverage
 node --test --test-timeout=60000 scripts/i18n/test-i18n.mjs
 ```
 
-提交共享源文件和生成结果。Viva 使用 `desktop/internal/i18n/shared.generated.go` 和 `i18n.Shared`；新词条不能手写进 Go 字典。Windows `shared.generated.ts`、macOS
+提交共享源文件和生成结果。Viva 使用 `desktop/internal/i18n/shared.generated.go` 和 `i18n.Shared`；带参数的词条使用 `i18n.SharedFormat`，以字面量参数表提供词条声明的参数名，参数仅替换一次，传入的内容不会被再次解释。检查器核对固定词条键及参数名。新词条不能手写进 Go 字典。Windows `shared.generated.ts`、macOS
 `AppLanguage.generated.swift` 和各语言的整个 `Localizable.strings` 都是生成物。
 不要手工维护这些文件，不要在 Windows 再添加一份翻译字典，也不要在页面重新判断中英文。
 开发、构建、打包与独立跨平台 CI 会检查结果是否最新；`--check` 只读，不写文件。

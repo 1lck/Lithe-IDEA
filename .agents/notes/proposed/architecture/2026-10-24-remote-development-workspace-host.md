@@ -2,6 +2,8 @@
 
 状态：提议中
 
+> Viva 迁移状态：下文的产品接入与持续集成描述属于旧客户端。当前 Viva 尚未接入完整远程工作区或远端服务发布路径；本地 Core 仓库锁定修订与旧版测试记录不能代替远端部署、跨平台连接和断线恢复验收。
+
 ## 先说结论
 
 Lithe 要支持“完整的远程开发”：项目放在 SSH 主机、Docker 容器（包括 Dev Container）或远程 Mac 上，本地只负责界面，文件读写、终端、构建、运行、调试、LSP、Git 和 Agent 都在远端执行。做法是把远端能力全部放进一个独立的远端服务 `lithe-remote-server`。SSH、`docker exec` 这些连接方式只叫传输链（transport chain，从本机到工作区所在位置的一串跳转），它们只负责“把服务启动起来、接通标准输入输出”，不实现任何功能。Linux 和 macOS 远端的差异放在服务内部的平台适配器里，并且以能力描述（capabilities，服务在握手时报告的主机事实）的形式告诉客户端。客户端只看能力，不写“如果远端是 Mac 就怎样”的分支。
@@ -357,8 +359,8 @@ M2 接入“打开远程文件夹”时，SSH 连接的配置界面参考用户�
 
 ## 适用范围
 
-- `rust/lithe-remote/src/protocol/`
-- `rust/lithe-remote/src/server/`
-- `rust/lithe-remote/src/client/`
+- Lithe-core-rust 锁定修订：[rust/lithe-remote/src/protocol/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/protocol)
+- Lithe-core-rust 锁定修订：[rust/lithe-remote/src/server/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/server)
+- Lithe-core-rust 锁定修订：[rust/lithe-remote/src/client/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/client)
 - `shared/contracts/remote-workspace-protocol-v1.md`
-- `.github/workflows/ci-remote.yml`
+- [旧版远程持续集成工作流](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.github/workflows/ci-remote.yml)；Viva 的对应远端构建与验收仍需重建。

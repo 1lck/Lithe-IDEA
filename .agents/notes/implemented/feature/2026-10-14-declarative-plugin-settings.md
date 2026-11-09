@@ -83,7 +83,7 @@ cargo test --manifest-path rust/lithe-core/Cargo.toml jdt
 
 ## 适用范围
 
-- `rust/lithe-core/src/plugins/declarative.rs`：声明校验、`effective_settings`、模板代入。
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/declarative.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/declarative.rs)：声明校验、`effective_settings`、模板代入。
 - 已迁出：原 `rust/lithe-core/src/lsp/languages/jdt.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
 - `macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift`：`DeclarativePluginSetting`、`PluginSettingsStoring`。
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginSettingsStore.swift`：保存。

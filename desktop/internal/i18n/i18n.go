@@ -77,6 +77,10 @@ func For(language Language) *Messages {
 
 // Shared resolves a key generated from shared/i18n for the current language.
 func Shared(language Language, key string) string {
+	return lookupShared(language, key)
+}
+
+func lookupShared(language Language, key string) string {
 	locale := "en-US"
 	if language == Chinese {
 		locale = "zh-CN"
@@ -85,4 +89,26 @@ func Shared(language Language, key string) string {
 		return value
 	}
 	return sharedCatalogs["en-US"][key]
+}
+
+// SharedFormat substitutes arguments in a generated shared template in one pass.
+// A value containing a placeholder is inserted literally, not interpreted again.
+func SharedFormat(language Language, key string, arguments map[string]string) string {
+	return formatSharedTemplate(lookupShared(language, key), arguments)
+}
+
+func formatSharedTemplate(value string, arguments map[string]string) string {
+	if len(arguments) == 0 {
+		return value
+	}
+	if len(arguments) == 1 {
+		for name, argument := range arguments {
+			return strings.ReplaceAll(value, "{"+name+"}", argument)
+		}
+	}
+	pairs := make([]string, 0, len(arguments)*2)
+	for name, argument := range arguments {
+		pairs = append(pairs, "{"+name+"}", argument)
+	}
+	return strings.NewReplacer(pairs...).Replace(value)
 }

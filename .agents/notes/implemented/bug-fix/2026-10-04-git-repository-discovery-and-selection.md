@@ -62,8 +62,8 @@ macOS 点击另一仓库的分支时，先刷新目标仓库，再设置目标�
 
 ## 适用范围
 
-- `rust/lithe-core/src/git/mod.rs`
-- `rust/lithe-core/src/project/files.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/mod.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/mod.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/project/files.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/project/files.rs)
 - `macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`
 - `macos/Sources/Lithe/Views/Git/GitLogView.swift`
 - `windows/tauri/src/features/git/api/git-repo-api.ts`

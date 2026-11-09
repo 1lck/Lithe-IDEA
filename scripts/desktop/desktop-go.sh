@@ -23,6 +23,20 @@ native_path() {
     fi
 }
 
+# Go parses CGO_* flags with quoted.Split, so quote the entire argument, not
+# just the path portion. This also covers worktrees and Cargo homes with spaces.
+cgo_arg() {
+    local value="$1"
+    if [[ "$value" == *'"'* && "$value" == *"'"* ]]; then
+        printf '%s\n' 'A cgo path contains both kinds of quotation mark.' >&2
+        return 1
+    elif [[ "$value" == *'"'* ]]; then
+        printf "'%s'" "$value"
+    else
+        printf '"%s"' "$value"
+    fi
+}
+
 GOOS="$(go env GOOS)"
 GOHOSTOS="$(go env GOHOSTOS)"
 if [[ "$GOOS" != "$GOHOSTOS" ]]; then
@@ -71,10 +85,58 @@ export CGO_ENABLED=1
 CGO_INCLUDE_DIR="$(native_path "$STAGE_DIR/include")"
 CGO_LIBRARY_DIR="$(native_path "$STAGE_DIR/lib")"
 NATIVE_STATIC_LIBS="$(<"$STAGE_DIR/native-static-libs.txt")"
-export CGO_CFLAGS="${CGO_CFLAGS:-} -I$CGO_INCLUDE_DIR"
+# Rust's Windows staticlib can name import archives supplied by Cargo crates,
+# not just system libraries. Cargo records each crate's native search path in
+# its target-specific build output; Go's external linker needs those paths too.
+# Do not infer registry versions or copy mutable Cargo files into the app bundle.
+NATIVE_SEARCH_FLAGS=""
+if [[ "$GOOS" == "windows" ]]; then
+    CARGO_HOST_TARGET="$(rustc -vV | sed -n 's/^host: //p')"
+    CARGO_BUILD_ROOT="$ROOT_DIR/.artifacts/desktop/lithe-core-rust/target"
+    if [[ "$LITHE_CORE_TARGET" != "$CARGO_HOST_TARGET" ]]; then
+        CARGO_BUILD_ROOT="$CARGO_BUILD_ROOT/$LITHE_CORE_TARGET"
+    fi
+    CARGO_BUILD_ROOT="$CARGO_BUILD_ROOT/$PROFILE/build"
+    read -r -a NATIVE_ARGS <<< "$NATIVE_STATIC_LIBS"
+    FOUND_NAMES=()
+    FOUND_ARCHIVES=()
+    for output in "$CARGO_BUILD_ROOT"/*/output; do
+        [[ -f "$output" ]] || continue
+        while IFS= read -r line; do
+            line="${line%$'\r'}"
+            case "$line" in
+                cargo:rustc-link-search=native=*) native_dir="${line#cargo:rustc-link-search=native=}" ;;
+                cargo::rustc-link-search=native=*) native_dir="${line#cargo::rustc-link-search=native=}" ;;
+                *) continue ;;
+            esac
+            native_dir="$(cygpath -u "$native_dir")"
+            used_dir=false
+            for arg in "${NATIVE_ARGS[@]}"; do
+                case "$arg" in -l*) lib_name="${arg#-l}" ;; *) continue ;; esac
+                archive="$native_dir/lib$lib_name.a"
+                [[ -f "$archive" ]] || continue
+                for i in "${!FOUND_NAMES[@]}"; do
+                    if [[ "${FOUND_NAMES[$i]}" == "$lib_name" ]] && ! cmp -s "$archive" "${FOUND_ARCHIVES[$i]}"; then
+                        printf 'Conflicting Cargo import libraries for %s: %s and %s\n' "$lib_name" "$archive" "${FOUND_ARCHIVES[$i]}" >&2
+                        exit 1
+                    fi
+                done
+                FOUND_NAMES+=("$lib_name")
+                FOUND_ARCHIVES+=("$archive")
+                used_dir=true
+            done
+            if [[ "$used_dir" == true ]]; then
+                NATIVE_SEARCH_FLAGS="$NATIVE_SEARCH_FLAGS $(cgo_arg "-L$(native_path "$native_dir")")"
+            fi
+        done < "$output"
+    done
+fi
+CGO_CFLAGS="${CGO_CFLAGS:-} $(cgo_arg "-I$CGO_INCLUDE_DIR")"
+export CGO_CFLAGS
 # GNU ld and MinGW resolve static archives from left to right, so rustc's native libraries must
 # follow liblithe_core.a, which depends on them.
-export CGO_LDFLAGS="${CGO_LDFLAGS:-} -L$CGO_LIBRARY_DIR -llithe_core $NATIVE_STATIC_LIBS"
+CGO_LDFLAGS="${CGO_LDFLAGS:-} $(cgo_arg "-L$CGO_LIBRARY_DIR") -llithe_core $NATIVE_SEARCH_FLAGS $NATIVE_STATIC_LIBS"
+export CGO_LDFLAGS
 
 cd "$ROOT_DIR/desktop"
 if [[ "${1:-}" == "--exec" ]]; then

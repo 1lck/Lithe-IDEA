@@ -19,12 +19,20 @@ import (
 func (a *App) newSettingsWindow() *settingswindow.Controller {
 	service := marketplace.New(a.kernel, nil)
 	return settingswindow.NewController(settingswindow.Options{
+		MarketplaceRank: a.kernel.RankNames,
 		Marketplace: func(ctx context.Context) (marketplace.Snapshot, error) {
 			arch := runtime.GOARCH
 			if arch == "amd64" {
 				arch = "x64"
 			}
 			return service.Fetch(ctx, "https://github.com/Lithe-IDEA/Lithe-store", core.MarketplaceThirdParty, runtime.GOOS+"-"+arch, map[string][]int{})
+		},
+		MarketplaceOfficial: func(ctx context.Context) (marketplace.Snapshot, error) {
+			arch := runtime.GOARCH
+			if arch == "amd64" {
+				arch = "x64"
+			}
+			return service.Fetch(ctx, marketplace.OfficialIndexURL, core.MarketplaceOfficial, runtime.GOOS+"-"+arch, map[string][]int{})
 		},
 		MarketplaceError: func(err error) {
 			a.post(func(a *App) {
@@ -56,13 +64,11 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SystemDark:     func() bool { return app.SystemAppearance() == app.AppearanceDark },
 		SystemLanguage: a.systemLanguage,
 		Version:        a.version,
-		// OK arrives on the settings window's thread, and the settings belong to the
-		// workbench's, so the draft is queued and applied there.
-		Apply: func(values settingswindow.Values) {
-			a.post(func(a *App) {
-				a.setLanguage(values.Language)
-				a.setTheme(themeChoice(values.Theme))
-			})
+		SetLanguage: func(language string) {
+			a.post(func(a *App) { a.setLanguage(language) })
+		},
+		SetTheme: func(theme string) {
+			a.post(func(a *App) { a.setTheme(themeChoice(theme)) })
 		},
 		ResetLayout: func() {
 			a.post(func(a *App) { a.resetLayout() })

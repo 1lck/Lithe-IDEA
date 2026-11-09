@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态：下文描述旧 Windows 客户端的表单组件。Viva 当前设置窗口已使用 Viva 控件处理外观、语言和市场来源，但旧版工具路径、Git、运行和 AI 等设置尚未全部迁移；不能把旧组件测试或 Windows 验收算作当前结果。历史实现与命令见[迁移前笔记](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/simplification/2026-10-08-windows-settings-controls.md)。
+
 ## 先说结论
 
 Windows 设置页的固定选项和可搜索选项统一通过 `SettingsSelect` 使用现有 `Select`，由共享组件负责触发按钮、菜单表面、选中态和键盘操作。设置页不再使用原生下拉框，也不再各自选择按钮字号和表面样式。文本、多行文本和复选框复用现有表单控件，保存时机仍由对应设置功能负责。
@@ -33,21 +35,17 @@ Windows 设置页的固定选项和可搜索选项统一通过 `SettingsSelect` 
 
 ## 验证
 
-- `scripts/windows/build/build-windows.ps1 -Configuration Release` 验证类型、前端与 Windows 应用构建。
+以下旧客户端验证保留为行为参考；Viva 需要重新验证真实设置来源、焦点、键盘交互和 Windows 实机。
+
+- 旧版 Windows 发行构建命令见上方迁移前笔记，当前工作树已移除该脚本。
 - `.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend` 验证现有设置路由、持久化与新增的空值选择回归。
 - `windows/tauri/src/ui/settings-select.test.tsx` 验证自动配置选中态、切换后恢复自动配置、禁用选项和外部标签；此回归不能由类型检查证明。
 - `windows/tauri/src/ui/settings-path-input.test.tsx` 通过实际输入和 Esc 键盘事件验证任意路径草稿保留、继续编辑及手动清空，并以独立进程接入 Windows CI（持续集成），避免其他组件测试的浏览器环境干扰。
-- `scripts/windows/verify/verify-windows-boundaries.sh`、`scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`、`scripts/macos/verify/verify-runtime-bundle-immutability.sh` 与 `scripts/agent-notes/verify-agent-notes.sh` 检查边界和文档。
+- `scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`、`scripts/macos/verify/verify-runtime-bundle-immutability.sh` 与 `scripts/agent-notes/verify-agent-notes.sh` 检查当前矩阵、只读边界和文档；旧 Windows 边界脚本已移除，等价检查恢复前不能记作通过。
 - 在实际设置窗口检查深浅色、普通与可搜索列表、键盘选择与 Esc、点击外部关闭、切换分类、长列表滚动和选项持久化。
 
 ## 适用范围
 
-- `windows/tauri/src/ui/settings-select.tsx`
-- `windows/tauri/src/ui/settings-path-input.tsx`
-- `windows/tauri/src/ui/settings-path-input.test.tsx`
-- `windows/tauri/src/ui/select.tsx`
-- `windows/tauri/src/features/settings/components/`
-- `windows/tauri/src/features/ai/components/selectors/`
-- `windows/tauri/src/features/settings/components/tabs/ai-settings.tsx`
-- `windows/tauri/src/features/run/components/run-configuration-editor.tsx`
-- `windows/tauri/src/features/host-api/mcp-settings.tsx`
+- `desktop/internal/settingswindow/window.go`
+- `desktop/internal/settingswindow/general_view_test.go`
+- `desktop/internal/settingswindow/marketplace_view.go`

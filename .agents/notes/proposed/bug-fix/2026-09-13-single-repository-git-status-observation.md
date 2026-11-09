@@ -286,7 +286,7 @@ separate git-dir 均通过验收；Git-only 事件不触发项目树/编辑器/�
 
 ## 适用范围
 
-- `rust/lithe-core/src/git/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git)
 - `macos/Sources/Lithe/Platform/MacOS/FileWatching/MacDirectoryWatcher.swift`
 - `macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift`
 - `macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`

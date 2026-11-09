@@ -2,6 +2,15 @@
 
 状态：已实现
 
+> 2026-11-08 Viva 迁移：本文记录旧 macOS Git Log 的行为与历史验证，不代表 Viva
+> 已具备多仓库分组、只读边界或相应右键菜单。迁移时应逐项核对当前代码及功能矩阵，
+> 并重新验证活动仓库和写操作归属；旧测试不能替代新客户端验收。
+> 当前桌面 Core 适配层已接入仓库发现与颜色编号，在 macOS 用临时仓库和共享 fixture
+> 验证；这些接口还没有被 Git Log 页面调用，不代表多仓库功能已可用。
+> 当前 Git Log 的历史、分页、详情和游标清理仍以项目根目录发起，分支与提交写操作
+> 使用现有 Git 状态中的仓库根。新增跨仓库选择时必须把请求归属与操作目标一起迁移，
+> 并让迟到的分页游标按原请求的仓库释放；不能只替换引用面板的显示根。
+
 ## 先说结论
 
 macOS 版 Git Log 的引用面板（reference pane）现在支持按仓库分组：当一个工作区里
@@ -250,29 +259,22 @@ body 都会重建，比较它会让所有行每帧都重建）。现在把它从
   `git_write` 覆盖），macOS 侧只做接线，不新增 Rust 改动。
 - git 控件本地化词条（含新增的两个开关文案）纳入
   `macos/Tests/LitheTests/AppLocalizationTests.swift` 的英 / 中对照校验。
-- 完整 macOS 编译与测试需要在 macOS 上运行：`./scripts/macos/test/test-macos.sh`。
-- `./scripts/architecture/verify-service-boundaries.sh`。
+- 旧客户端使用 [macOS 测试入口](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/macos/test/test-macos.sh) 和 [服务边界检查](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/architecture/verify-service-boundaries.sh)；它们不能证明 Viva 的多仓库能力已经实现或通过验收。
+- `scripts/desktop/desktop-go.sh test -race ./internal/core -run 'Test(WorkspaceRepositoryDiscoveryUsesCoreRules|RepositoryColorAssignmentsUseCoreFixtures)' -count=3 -timeout=90s`：macOS 临时仓库验证发现顺序、嵌套目录的外层仓库、隐藏目录和失效标记，Core fixture 验证颜色分页与错误拒绝；不代表界面或 Windows 验收。
 - **限制**：本次改动没有 macOS 工具链可用，Swift 代码和 UI 均未在本机编译或手工验证；
   上述 Swift 测试由 macOS CI 执行。UI（仓库分组、工作树开关、跨仓库选中、仓库配色、新增
   菜单项）未手工验证。
 
 ## 适用范围
 
-- `macos/Sources/LitheGitModule/Models/GitModels.swift`
-- `macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`
-- `macos/Sources/LitheGitModule/Services/GitService.swift`
-- `macos/Sources/Lithe/Core/Rust/RustGitOperations.swift`
-- `macos/Sources/Lithe/Views/Git/GitLogView.swift`
-- `macos/Sources/Lithe/Views/Git/GitReferenceRows.swift`
-- `macos/Sources/Lithe/Views/Git/GitGraphView.swift`
-- `macos/Sources/Lithe/Views/Git/GitRepositoryColor.swift`
-- `macos/Resources/en.lproj/Localizable.strings`
-- `macos/Resources/zh-Hans.lproj/Localizable.strings`
-- `macos/Tests/LitheGitModuleTests/GitModuleTests.swift`
-- `macos/Tests/LitheTests/GitReferenceRowRenderKeyTests.swift`
-- `macos/Tests/LitheTests/GitRepositoryColorTests.swift`
-- `macos/Tests/LitheTests/ContextMenuCoverageTests.swift`
-- `macos/Tests/LitheTests/AppLocalizationTests.swift`
+- `desktop/internal/workbench/gitlog.go`
+- `desktop/internal/workbench/gitlog_view.go`
+- `desktop/internal/core/gitlog.go`
+- `desktop/internal/core/workspace.go`
+- `desktop/internal/core/repository_colors.go`
+- `shared/i18n/`
+- `shared/platform-feature-matrix/features/git-multi-repository-references.json`
+- [旧客户端实现和原适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/feature/2026-09-24-macos-git-log-multi-repository-groups.md)
 
 上游写操作复用 `rust/lithe-core/src/git/mod.rs` 已有的 `setUpstream` / `unsetUpstream`，
 本笔记不改变这些命令的入参或契约。

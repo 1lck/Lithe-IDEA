@@ -135,6 +135,16 @@ func (c *Controller) Close() {
 	}
 }
 
+// Invalidate repaints an open log window after shared application state changes.
+func (c *Controller) Invalidate() {
+	c.mu.Lock()
+	current := c.current
+	c.mu.Unlock()
+	if current != nil {
+		current.inv.Invalidate()
+	}
+}
+
 // Wait waits for the background work of every window the controller opened. Call it after
 // the windows have closed.
 func (c *Controller) Wait() {

@@ -1,12 +1,17 @@
 package workbench
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
-	"unicode/utf8"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/appicon"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
 )
@@ -14,46 +19,68 @@ import (
 // The identities of the start screen's controls.
 var (
 	welcomeSearch      = tree.ID(welcomePage, "search")
+	welcomeNew         = tree.ID(welcomePage, "new")
 	welcomeOpen        = tree.ID(welcomePage, "open")
+	welcomeMore        = tree.ID(welcomePage, "more")
+	welcomeMoreDismiss = tree.ID(welcomePage, "more-dismiss")
+	welcomeMorePanel   = tree.ID(welcomePage, "more-panel")
+	welcomeClone       = tree.ID(welcomePage, "clone")
 	welcomeNavProjects = tree.ID(welcomePage, "nav-projects")
 	welcomeNavSettings = tree.ID(welcomePage, "nav-settings")
 	welcomeList        = tree.ID(welcomePage, "list")
+	welcomeMenuDismiss = tree.ID(welcomePage, "menu-dismiss")
+	welcomeMenuPanel   = tree.ID(welcomePage, "menu-panel")
+	welcomeMenuOpen    = tree.ID(welcomePage, "menu-open")
+	welcomeMenuReveal  = tree.ID(welcomePage, "menu-reveal")
+	welcomeMenuRemove  = tree.ID(welcomePage, "menu-remove")
 	// welcomeRows identifies the recent project rows: welcomeRows.At(i) is a.recent[i],
 	// whether or not the filter currently shows it.
-	welcomeRows = tree.Sub(welcomePage, tree.Name("rows"))
+	welcomeRows  = tree.Sub(welcomePage, tree.Name("rows"))
+	welcomeMenus = tree.Sub(welcomePage, tree.Name("row-menus"))
 )
 
 const (
-	welcomeSidebarWidth = 240
+	welcomeSidebarWidth = 224
 	welcomeRowHeight    = 48
-	// welcomeAvatarSize is the side of the badge that starts a recent project's row; the
-	// row is 16 pixels taller, so the badge has 8 above and below it.
-	welcomeAvatarSize = 32
+	// The original welcome list uses the same 20-point badge as the project switcher.
+	welcomeAvatarSize = 20
 )
 
 // welcomeState is what the start screen remembers between frames.
 type welcomeState struct {
 	// search filters the project list. App.Config hands it to the platform text
 	// service, so it lives as long as the window.
-	search flex.Field
+	search                           flex.Field
+	moreOpen, moreFocus, moreRestore bool
 
 	// query is the search text folded for matching and queryText the text it was folded
 	// from, so the fold runs when the text changes and not on every frame.
 	queryText string
 	query     string
 
-	// version is the sidebar's version line in the language versionFor, kept so a frame
-	// does not format it again.
-	version    string
-	versionFor *i18n.Messages
-
 	// rows holds what a recent project shows, by path. The list repaints on every hover,
 	// and splitting names, shortening paths and folding case for each row each time would
 	// allocate for nothing, so it is derived once per path.
 	rows map[string]welcomeRow
+	// branches are read on one cancellable worker. Newer recent lists supersede
+	// older reads without allowing stale results to reintroduce removed entries.
+	branches         map[string]string
+	branchGeneration uint64
+	branchCancel     context.CancelFunc
+	branchRunning    bool
+	branchPending    bool
+	branchClosed     bool
 	// home is the user's home folder, read once; paths under it show as "~/...".
 	home     string
 	homeRead bool
+	// menuPath is stable across sorting and filtering, unlike a row index.
+	menuPath string
+	// A context click opens at the pointer; the ellipsis opens beside its row.
+	menuAtPointer bool
+	menuPosition  ui.Point
+	menuFocus     ui.ID
+	// restoreMenuFocus identifies the row whose menu button regains focus after Escape.
+	restoreMenuFocus string
 }
 
 // welcomeRow is the derived text of one recent project.
@@ -117,48 +144,74 @@ func welcomeShorten(path, home string) string {
 	return "~" + rest
 }
 
-// welcomeInitial is the first letter of the application's name, the brand mark on the
-// sidebar. It slices the name instead of building a string, so a frame allocates nothing.
-func welcomeInitial(name string) string {
-	_, size := utf8.DecodeRuneInString(name)
-	return name[:size]
-}
-
 // drawWelcome is the screen shown while no project is open: a sidebar with the
 // application's name and the places it leads to, and the list of recent projects.
 func (a *App) drawWelcome(f *flex.Frame) {
-	f.Row().Fill().Background(a.colors.Editor).Children(func() {
+	a.startWelcomeBranchReads()
+	surface := ui.RGB24(0xFFFFFF)
+	if a.colors.Dark {
+		surface = ui.RGB24(0x191A1C)
+	}
+	f.Row().Fill().PadSides(0, 8, 8, 8).Background(surface).Children(func() {
 		a.drawWelcomeSidebar(f)
-		f.Divider()
+		f.Column().Width(1).FillHeight().Shrink(0).Children(func() {
+			f.Row().FillWidth().Height(titleBarHeight).Shrink(0)
+			f.Row().FillWidth().Grow(1).Background(a.welcomeSeparator())
+		})
 		a.drawWelcomeContent(f)
+		// The macOS welcome title sits after the traffic lights; the workbench hides it.
+		title := f.Row().Absolute().Top(0).Right(0)
+		if runtime.GOOS == "darwin" {
+			leading, _ := app.TitlebarInsets()
+			title.Left(max(84, leading+10)).Height(32).Items(flex.Center)
+		} else {
+			title.Left(0).Height(titleBarHeight).Center()
+		}
+		title.Children(func() {
+			f.Text(i18n.Shared(a.language(), "welcome.title")).FontSize(13).Bold()
+		})
 	})
 }
 
-func (a *App) drawWelcomeSidebar(f *flex.Frame) {
-	w := &a.welcome
-	if w.versionFor != a.text {
-		w.version, w.versionFor = a.text.App.Version(a.version), a.text
+func (a *App) welcomeSeparator() ui.Color {
+	if a.colors.Dark {
+		return ui.RGB24(0x26282C)
 	}
-	f.Column().Width(welcomeSidebarWidth).Shrink(0).Background(a.colors.Panel).Children(func() {
+	return ui.RGB24(0xDFE1E5)
+}
+
+func (a *App) drawWelcomeSidebar(f *flex.Frame) {
+	sidebar := ui.RGB24(0xF7F8FA)
+	if a.colors.Dark {
+		sidebar = ui.RGB24(0x191A1C)
+	}
+	selection := ui.RGB24(0xD4E2FF)
+	if a.colors.Dark {
+		selection = ui.RGB24(0x2A4371)
+	}
+	f.Column().Width(welcomeSidebarWidth).Shrink(0).Background(sidebar).Children(func() {
 		// The system's window buttons sit in this strip, so it stays empty; it only has
 		// to move the window like a title bar does.
 		f.Row().FillWidth().Height(titleBarHeight).MovesWindow()
-		f.Row().Items(flex.Center).Gap(12).PadX(16).PadY(8).Children(func() {
-			// The mark takes the primary color and its foreground as a pair, so the letter is
-			// readable in both themes without the screen choosing colors of its own.
-			f.Row().Size(32, 32).Shrink(0).Center().Radius(a.theme.Metrics.RadiusItem()).Background(a.theme.Primary).Children(func() {
-				f.Text(welcomeInitial(a.text.App.Name)).Bold().Color(a.theme.PrimaryForeground)
-			})
+		f.Row().Items(flex.Center).Gap(11).PadSides(22, 20, 34, 20).Children(func() {
+			f.Image(appicon.Welcome()).Size(28, 28).Shrink(0)
 			f.Column().Children(func() {
-				f.Text(a.text.App.Name).Bold()
-				f.Text(w.version).Muted().FontSize(a.theme.Metrics.FontSizeS)
+				f.Text(a.text.App.Name).FontSize(13)
+				f.Text(a.version).Muted().FontSize(11)
 			})
 		})
-		f.Column().Gap(4).Pad(8).Children(func() {
-			// Projects is the screen being shown, so its button is only a marker of the
-			// place; Settings opens the dialog.
-			f.Button(welcomeNavProjects, a.text.Welcome.Projects).Secondary().FillWidth()
-			if f.Button(welcomeNavSettings, a.text.Welcome.Settings).Ghost().FillWidth().Clicked() {
+		f.Column().PadX(14).Children(func() {
+			// Projects marks the selected location; it is not an action on this screen.
+			f.Row().FillWidth().Height(32).Items(flex.Center).Gap(9).PadX(14).
+				Radius(4).Background(selection).
+				HitWith(welcomeNavProjects, a.text.Welcome.Projects, ui.HitOptions{Role: ui.RoleButton, Selected: true}).Children(func() {
+				f.Icon(icons.Folder).Size(15, 15).Color(a.colors.Subtle)
+				f.Text(a.text.Welcome.Projects).FontSize(13)
+			})
+		})
+		f.Spacer()
+		f.Row().PadSides(0, 14, 14, 14).Children(func() {
+			if a.logIconButton(f, welcomeNavSettings, a.text.Welcome.Settings, icons.Settings, false, false) {
 				a.openSettings(surfaceButton)
 			}
 		})
@@ -166,21 +219,76 @@ func (a *App) drawWelcomeSidebar(f *flex.Frame) {
 }
 
 func (a *App) drawWelcomeContent(f *flex.Frame) {
+	var moreAnchor flex.Box
 	f.Column().Grow(1).Children(func() {
 		f.Row().FillWidth().Height(titleBarHeight).MovesWindow()
-		f.Row().Items(flex.Center).Gap(8).PadX(24).PadY(8).Children(func() {
-			f.Field(&a.welcome.search, welcomeSearch, a.text.Welcome.SearchLabel, a.text.Welcome.SearchPlaceholder).Grow(1)
-			if f.Button(welcomeOpen, a.text.Welcome.Open).Clicked() {
+		f.Row().FillWidth().Height(68).Items(flex.Center).Gap(10).PadX(17).Children(func() {
+			var input flex.Box
+			frame := f.Row().Width(214).MinWidth(0).Shrink(1).Height(30).Items(flex.Center).PadX(8).Gap(6).
+				Border(1, a.theme.Input).Radius(a.theme.Metrics.RadiusControl).
+				Draw(func(d *flex.DrawContext) {
+					d.Canvas.HitLabel(welcomeSearch, d.Rect, a.text.Welcome.SearchLabel, false)
+				}).
+				Focused(flex.Look{}.Border(a.theme.Primary).Ring(1, a.theme.Primary))
+			frame.Children(func() {
+				f.Icon(icons.Search).Size(15, 15).Shrink(0).Color(a.colors.Subtle)
+				input = f.FieldBase(&a.welcome.search, welcomeSearch, a.text.Welcome.SearchLabel, a.text.Welcome.SearchPlaceholder).
+					Grow(1).MinWidth(0).Height(28).FontSize(13).Color(a.colors.Text)
+			})
+			frame.StateFrom(input)
+			f.Spacer()
+			if f.Button(welcomeNew, a.text.Welcome.NewProject).MinWidth(72).Height(28).Clicked() {
+				a.openNewProject(surfaceButton)
+			}
+			if f.Button(welcomeOpen, a.text.Welcome.Open).Outline().MinWidth(72).Height(28).Clicked() {
 				a.chooseProject(surfaceButton)
 			}
+			moreAnchor = f.Button(welcomeMore, i18n.Shared(a.language(), "desktop.clone.more")).Outline().MinWidth(72).Height(28)
+			if moreAnchor.Clicked() {
+				a.welcome.moreOpen = !a.welcome.moreOpen
+				a.welcome.moreFocus = a.welcome.moreOpen
+			}
+		})
+		f.Row().FillWidth().Height(1).Shrink(0).PadX(12).Children(func() {
+			f.Row().Fill().Background(a.welcomeSeparator())
 		})
 		a.drawWelcomeProjects(f)
 	})
+	if a.welcome.moreOpen {
+		dismissed := f.Popup().At(0, 0).Fill().HitWith(welcomeMoreDismiss, a.text.Errors.Dismiss,
+			ui.HitOptions{Role: ui.RoleButton, SkipFocus: true, Backdrop: true}).Clicked()
+		cloned := false
+		f.Popup().BelowBox(moreAnchor, 4, flex.End).Width(220).
+			Background(a.theme.Popover).Border(1, a.theme.Border).Radius(chromeMenuRadius).Shadow(ui.ShadowMD).
+			HitWith(welcomeMorePanel, a.text.Welcome.MoreActions, ui.HitOptions{Role: ui.RoleMenu, SkipFocus: true}).
+			Pad(chromeMenuPadding).Children(func() {
+			cloned = a.drawBranchMenuItem(f, welcomeClone, i18n.Shared(a.language(), "desktop.clone.title"))
+		})
+		if dismissed || cloned {
+			a.welcome.moreOpen = false
+			a.welcome.moreFocus = false
+		}
+		if cloned {
+			a.openClone(surfaceMenu)
+		}
+		if a.welcome.moreFocus {
+			if f.Canvas().Focused() == welcomeClone {
+				a.welcome.moreFocus = false
+			} else {
+				f.Canvas().RequestFocus(welcomeClone)
+			}
+		}
+	} else if a.welcome.moreRestore {
+		f.Canvas().RequestFocus(welcomeMore)
+		a.welcome.moreRestore = false
+	}
 }
 
 // drawWelcomeProjects is the recent project list, or what stands in for it.
 func (a *App) drawWelcomeProjects(f *flex.Frame) {
 	if len(a.recent) == 0 {
+		a.welcome.menuPath = ""
+		a.welcome.restoreMenuFocus = ""
 		f.Column().Grow(1).Center().Gap(4).Children(func() {
 			f.Text(a.text.Welcome.EmptyTitle).Bold()
 			f.Text(a.text.Welcome.EmptyHint).Muted()
@@ -192,7 +300,10 @@ func (a *App) drawWelcomeProjects(f *flex.Frame) {
 	// open is acted on after the list is declared: opening a project replaces the recent
 	// list, which this loop is still reading.
 	open := ""
-	f.ScrollArea(welcomeList).Grow(1).PadX(16).PadY(4).Gap(4).Children(func() {
+	var menuAnchor flex.Box
+	hasMenu := false
+	hasRestore := false
+	f.ScrollArea(welcomeList).Grow(1).PadX(22).PadY(4).Gap(4).Children(func() {
 		for i := range a.recent {
 			entry := &a.recent[i]
 			row := a.welcome.row(entry.Path, len(a.recent))
@@ -206,9 +317,16 @@ func (a *App) drawWelcomeProjects(f *flex.Frame) {
 			if a.missing[entry.Path] {
 				missing = a.text.Welcome.Missing
 			}
-			item := f.Row().Height(welcomeRowHeight).Items(flex.Center).Gap(12).PadX(12).
+			rowID := welcomeRows.At(i)
+			menuID := welcomeMenus.At(i)
+			branch := a.welcome.branches[entry.Path]
+			rowHeight := float32(welcomeRowHeight)
+			if branch != "" {
+				rowHeight += 20
+			}
+			item := f.Row().Height(rowHeight).Items(flex.Center).Gap(12).PadX(12).
 				Radius(a.theme.Metrics.RadiusItem()).
-				HitWith(welcomeRows.At(i), row.name, ui.HitOptions{
+				HitWith(rowID, row.name, ui.HitOptions{
 					Role:        ui.RoleButton,
 					Cursor:      ui.PointerCursorHand,
 					Description: row.path,
@@ -217,19 +335,58 @@ func (a *App) drawWelcomeProjects(f *flex.Frame) {
 				Hover(flex.Look{}.Background(a.colors.Hover)).
 				Pressed(flex.Look{}.Background(a.colors.Active))
 			item.Children(func() {
-				avatar := drawProjectAvatar(f, row.identity, welcomeAvatarSize)
-				if missing != "" {
-					// The warning beside the name says why; the faded badge says it at a glance.
-					avatar.Opacity(identityMissingOpacity)
-				}
-				f.Column().Grow(1).Children(func() {
+				f.Column().FillHeight().Shrink(0).PadSides(14, 0, 0, 0).Children(func() {
+					avatar := drawProjectAvatar(f, row.identity, welcomeAvatarSize)
+					if missing != "" {
+						// The warning beside the name says why; the faded badge says it at a glance.
+						avatar.Opacity(identityMissingOpacity)
+					}
+				})
+				f.Column().Grow(1).PadSides(8, 0, 0, 0).Children(func() {
 					f.Text(row.name).Ellipsis()
 					f.Text(row.path).Ellipsis().Muted().FontSize(a.theme.Metrics.FontSizeS)
+					if branch != "" {
+						f.Row().Height(16).Items(flex.Center).Gap(4).Children(func() {
+							f.Icon(icons.RecentProjectVCS(a.colors.Dark)).Size(16, 16).Shrink(0).Color(a.colors.Subtle)
+							f.Text(branch).Ellipsis().Muted().FontSize(a.theme.Metrics.FontSizeS)
+						})
+					}
 				})
 				if missing != "" {
 					f.Text(missing).Shrink(0).Color(a.colors.Warning).FontSize(a.theme.Metrics.FontSizeS)
 				}
+				if item.State().Hovered || item.State().Focused || f.Canvas().Hovered() == menuID || f.Canvas().Focused() == menuID || a.welcome.menuPath == entry.Path || a.welcome.restoreMenuFocus == entry.Path {
+					if a.logIconButton(f, menuID, a.text.Welcome.MoreActions, icons.Ellipsis, a.welcome.menuPath == entry.Path, false) {
+						a.welcome.menuPath = entry.Path
+						a.welcome.restoreMenuFocus = ""
+						a.welcome.menuAtPointer = false
+						a.welcome.menuFocus = a.welcomeInitialMenuFocus(entry.Path)
+					}
+				}
 			})
+			if a.welcome.restoreMenuFocus == entry.Path {
+				hasRestore = true
+				if f.Canvas().Focused() == menuID {
+					a.welcome.restoreMenuFocus = ""
+				} else {
+					f.Canvas().RequestFocus(menuID)
+				}
+			}
+			if event, ok := f.Canvas().PointerOn(rowID); ok && event.Kind == ui.PointerDown && event.Button == ui.PointerButtonSecondary {
+				a.welcome.menuPath = entry.Path
+				a.welcome.restoreMenuFocus = ""
+				a.welcome.menuAtPointer = true
+				a.welcome.menuFocus = a.welcomeInitialMenuFocus(entry.Path)
+				// Leave room for all three rows, even when the click is near a window edge.
+				a.welcome.menuPosition = ui.Point{
+					X: max(8, min(event.X, event.Viewport.Width-228)),
+					Y: max(8, min(event.Y, event.Viewport.Height-120)),
+				}
+				f.Canvas().Consume()
+			}
+			if a.welcome.menuPath == entry.Path {
+				menuAnchor, hasMenu = item, true
+			}
 			if item.Clicked() {
 				open = entry.Path
 			}
@@ -238,8 +395,113 @@ func (a *App) drawWelcomeProjects(f *flex.Frame) {
 			f.Text(a.text.Welcome.NoMatches).Muted().TextCenter().PadY(24)
 		}
 	})
+	if !hasRestore {
+		a.welcome.restoreMenuFocus = ""
+	}
+	if hasMenu {
+		a.drawWelcomeProjectMenu(f, menuAnchor)
+	} else {
+		a.welcome.menuPath = ""
+	}
 	if open != "" {
+		a.welcome.menuPath = ""
 		a.performed("workspace.recent.open", surfaceButton)
 		a.openProject(open)
 	}
+}
+
+// drawWelcomeProjectMenu applies actions to the path captured when the menu opened,
+// never to the row index, which can change when the recent list is reduced.
+func (a *App) drawWelcomeProjectMenu(f *flex.Frame, anchor flex.Box) {
+	path := a.welcome.menuPath
+	dismissed := f.Popup().At(0, 0).Fill().
+		HitWith(welcomeMenuDismiss, a.text.Errors.Dismiss, ui.HitOptions{Role: ui.RoleButton, SkipFocus: true, Backdrop: true, PassSecondary: true}).Clicked()
+	var open, reveal, remove bool
+	panel := f.Popup()
+	if a.welcome.menuAtPointer {
+		panel = panel.At(a.welcome.menuPosition.X, a.welcome.menuPosition.Y)
+	} else {
+		panel = panel.BelowBox(anchor, 4, flex.End)
+	}
+	panel.Width(220).
+		Background(a.theme.Popover).Border(1, a.theme.Border).Radius(chromeMenuRadius).Shadow(ui.ShadowMD).
+		HitWith(welcomeMenuPanel, a.text.Welcome.MoreActions, ui.HitOptions{Role: ui.RoleMenu, SkipFocus: true}).
+		Pad(chromeMenuPadding).Gap(chromeMenuItems).Children(func() {
+		if !a.missing[path] {
+			open = a.drawBranchMenuItem(f, welcomeMenuOpen, a.text.Welcome.MenuOpen)
+			label := a.text.Welcome.MenuReveal
+			switch runtime.GOOS {
+			case "windows":
+				label = i18n.Shared(a.language(), "desktop.welcome.menuRevealWindows")
+			case "linux":
+				label = i18n.Shared(a.language(), "desktop.welcome.menuRevealOther")
+			}
+			reveal = a.drawBranchMenuItem(f, welcomeMenuReveal, label)
+		}
+		remove = a.drawBranchMenuItem(f, welcomeMenuRemove, a.text.Welcome.MenuRemove)
+	})
+	if !a.welcome.menuFocus.IsZero() {
+		if f.Canvas().Focused() == a.welcome.menuFocus {
+			a.welcome.menuFocus = ui.ID{}
+		} else {
+			f.Canvas().RequestFocus(a.welcome.menuFocus)
+		}
+	}
+	if dismissed || open || reveal || remove {
+		a.welcome.menuPath = ""
+	}
+	switch {
+	case open:
+		a.performed("workspace.recent.open", surfaceMenu)
+		a.openProject(path)
+	case reveal:
+		a.performed("workspace.recent.reveal", surfaceMenu)
+		a.background(nil, 0, func(context.Context) func(*App) {
+			err := app.RevealPath(path)
+			return func(a *App) {
+				if err != nil {
+					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_reveal_recent", documentLogError(err)))
+					a.notify(a.text.Errors.OpenFailed(err.Error()))
+				}
+			}
+		})
+	case remove:
+		a.performed("workspace.recent.remove", surfaceMenu)
+		a.reduceRecent(a.recent, core.RemoveRecent(path), true)
+	}
+}
+
+func (a *App) welcomeInitialMenuFocus(path string) ui.ID {
+	if a.missing[path] {
+		return welcomeMenuRemove
+	}
+	return welcomeMenuOpen
+}
+
+// welcomeMenuKey keeps Tab within an open menu; Escape is handled by onKey.
+func (a *App) welcomeMenuKey(event ui.KeyEvent) ui.EventResult {
+	if a.project != nil || a.welcome.menuPath == "" || event.Release || event.Key != ui.KeyTab {
+		return ui.EventResult{}
+	}
+	items := []ui.ID{welcomeMenuOpen, welcomeMenuReveal, welcomeMenuRemove}
+	if a.missing[a.welcome.menuPath] {
+		items = items[2:]
+	}
+	index := -1
+	for i, id := range items {
+		if event.Target == id {
+			index = i
+			break
+		}
+	}
+	if event.Modifiers&ui.ModifierShift != 0 {
+		if index < 0 {
+			index = 0
+		}
+		index = (index + len(items) - 1) % len(items)
+	} else {
+		index = (index + 1) % len(items)
+	}
+	a.welcome.menuFocus = items[index]
+	return ui.EventResult{Handled: true, Repaint: true}
 }

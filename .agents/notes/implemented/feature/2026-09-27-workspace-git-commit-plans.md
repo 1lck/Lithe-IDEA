@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态：下文的多仓库计划、子模块联动和重试描述的是旧客户端。Viva 当前提交界面只操作当前仓库；仓库发现、ChangeList 归约及提交范围已有 Core 适配和测试，但尚未接入完整多仓库确认、提交与重试流程。原客户端实现和历史验证见[迁移前笔记](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/feature/2026-09-27-workspace-git-commit-plans.md)。
+
 ## 先说结论
 
 Changes 中的勾选继续代表 Git 的暂存状态；用户一次提交，系统按文件所属仓库分别执行。
@@ -61,6 +63,8 @@ Git 的多个仓库没有跨仓库原子事务，已成功的提交不会因后�
 
 ## 验证
 
+以下记录是迁移前客户端和 Core 的历史验证，不代表 Viva 的多仓库端到端能力已经通过。完成接线后应重新运行真实仓库、子模块、失败重试及目标平台交互验证。
+
 - `windows/tauri/src/features/git/services/git-workspace-commit-workflow.test.ts` 消费同一份共享夹具，验证计划转发、再次确认、重试、取消与迟到响应；`git-workspace-status-panel.test.tsx` 验证分组勾选写入所属仓库、忽略不可暂存的脏子模块引用。Tauri dispatcher 测试保护原生认证超时与部分结果透传。
 
 - `macos/Tests/LitheGitModuleTests/GitModuleTests.swift` 消费共享夹具和预设 Core 响应，验证确认与再次确认、联动选项与重试转发、步骤驱动、复选框资格和项目切换隔离；不在测试替身中重新实现业务算法。
@@ -77,18 +81,12 @@ Git 的多个仓库没有跨仓库原子事务，已成功的提交不会因后�
 
 ## 适用范围
 
-- `macos/Sources/LitheGitModule/Application/GitFeatureModel+WorkspaceCommit.swift`
-- `macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`
-- `macos/Sources/LitheGitModule/Models/GitModels.swift`
-- `macos/Sources/LitheGitModule/Services/GitService.swift`
-- `macos/Sources/Lithe/Views/Git/CommitAreaView.swift`
-- `macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift`
-- `rust/lithe-core/src/git/commit_state.rs`
-- `rust/lithe-core/src/git/workspace_commit.rs`
-- `macos/Sources/LitheGitModule/Models/GitWorkspaceCommitModels.swift`
+- `desktop/internal/workbench/commit.go`
+- `desktop/internal/workbench/commit_view.go`
+- `desktop/internal/core/changelists.go`
+- `desktop/internal/core/changelists_test.go`
+- `desktop/internal/core/repository_discovery_test.go`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/commit_state.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/commit_state.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/workspace_commit.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/workspace_commit.rs)
 - `shared/contracts/rust-core-api.md`
-
-- `windows/tauri/src/features/git/services/git-workspace-commit-workflow.ts`
-- `windows/tauri/src/features/git/components/git-workspace-commit-review.tsx`
-- `windows/tauri/src/features/git/components/status/git-status-panel.tsx`
-- `windows/tauri/src-tauri/src/platform.rs`
+- `shared/platform-feature-matrix/features/git-submodule-commit-plan.json`

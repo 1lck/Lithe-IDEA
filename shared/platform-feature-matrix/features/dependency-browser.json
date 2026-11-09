@@ -4,22 +4,24 @@
   "group": "项目浏览",
   "capability": "项目依赖与模块浏览",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "missing",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/catalog.go",
+      ".agents/notes/implemented/architecture/2026-09-18-workspace-dependency-browser.md"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "missing",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/catalog.go",
+      ".agents/notes/implemented/architecture/2026-09-18-workspace-dependency-browser.md"
     ]
   },
   "owner": "Workspace / Java",
   "verification": "打开 Maven 项目依赖和模块树，验证导航、刷新和空项目状态；在 macOS 打开 /tmp 或 /var 下的 Maven 项目，Java 服务就绪后依赖树由 JDT LS 的运行时 classpath 给出第三方 JAR，JDT LS 日志中没有 java.project.getClasspaths 的 NullPointerException。 Windows 在工作区子目录 backend 打开 Maven reactor，双击根模块与 service 模块的依赖，分别导航 backend/pom.xml 与 backend/service/pom.xml；同时检查根目录 reactor 和 WSL UNC 路径。",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva 当前没有依赖浏览器及语言插件依赖快照接入，旧客户端的导航、索引与平台验收尚未迁移；legacy 是迁移前基线，不代表当前实现。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

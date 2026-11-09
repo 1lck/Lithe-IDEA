@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -34,6 +35,14 @@ type navigationView struct {
 	cancel                          context.CancelFunc
 	// A negative delay lets tests exercise the async path without a clock wait.
 	delay time.Duration
+}
+
+// The macOS product uses Command-L; the Windows default keymap uses Control-G.
+func isNavigationShortcut(platform string, event ui.KeyEvent) bool {
+	if platform == "darwin" {
+		return event.Modifiers == ui.ModifierMeta && strings.EqualFold(event.Text, "l")
+	}
+	return event.Modifiers == ui.ModifierControl && strings.EqualFold(event.Text, "g")
 }
 
 func (a *App) openNavigation(p *project) bool {

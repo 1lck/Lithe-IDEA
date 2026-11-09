@@ -382,9 +382,9 @@ macOS 接入规则（2026-10-18）：
 
 ## 适用范围
 
-- `rust/lithe-core/src/build/`
-- `rust/lithe-core/src/plugins/declarative.rs`
-- `rust/lithe-core/src/plugins/marketplace.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/build/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/build)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/declarative.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/declarative.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/marketplace.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/marketplace.rs)
 - `macos/Sources/LitheCoreContracts/Execution/BuildSystemContracts.swift`
 - `macos/Sources/Lithe/Core/Rust/RustBuildSystemOperations.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Build/`
@@ -393,8 +393,8 @@ macOS 接入规则（2026-10-18）：
 - `macos/Sources/Lithe/Views/Workbench/BuildSystemToolWindowRegistration.swift`
 - `macos/Sources/Lithe/Views/Run/BuildSystemToolWindowView.swift`
 - `macos/Sources/Lithe/Views/Run/BuildOutputView.swift`
-- `rust/lithe-core/src/runtime/dispatcher.rs`
-- `rust/lithe-core/src/tests/build_systems.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/runtime/dispatcher.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/runtime/dispatcher.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/tests/build_systems.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/tests/build_systems.rs)
 - `shared/contracts/plugins/v1/`
 - `shared/contracts/rust-core-api.md`
 - `scripts/architecture/verify-shared-contracts.sh`

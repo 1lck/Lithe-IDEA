@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态：能力版本规则存在于固定修订的 Rust Core 和共享插件契约；当前桌面端已有市场索引校验与后端桥接，尚未完成插件安装和各能力的产品接入。下文的旧客户端验收不代表 Viva 已支持所有列出的能力；历史验证入口见[迁移前笔记](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-10-17-plugin-capability-versions.md)。
+
 ## 先说结论
 
 插件 API 级别 1 和 2 给整份 `plugin.json` 只有一个版本号：清单里任何一段改了，所有插件都得跟着升级，旧宿主也会把根本用不到那一段的插件一起挡在外面。从级别 3 起改成按能力（Capability，清单里一个可以独立演进的段，例如语言服务器、构建系统）分版本：`pluginAPIVersion: 3` 只表示“这是按能力分版本的清单”，清单在 `requires` 里写明自己用到的每个能力，以及各自按哪一版契约编写。
@@ -149,18 +151,21 @@ backend 模块，不增加第二个开关。正确做法是让纯定义插件通
 
 ## 验证
 
+以下为旧仓库结构的历史验证；Viva 需要按实际实现声明能力，完成对应插件安装与运行后重新验证。
+
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib declarative_plugins`：`invalid-manifests.json` 中关于 `requires` 的用例（级别 3 缺少 `requires`、低级别出现 `requires`、空表、非正整数版本、格式错误的 ID、未知能力、未知能力先于未知段被报出、未知版本、少列、多列、自有 Provider 缺少 `serverProcess`）；`level_3_manifests_list_exactly_the_capabilities_they_use` 检查报错字段、规范化输出里的 `requires`，以及 `hostCapabilities` 对级别 3 和低级别的不同效果；`build_providers_require_their_own_host_capability` 覆盖自有与共享 Provider 在缺少或不支持 `buildProviders` 版本时被拒绝、完整支持时通过，以及不传宿主表时 Core 仍能校验并生成启动计划。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib marketplace_plugins`：`index-cases.json` 验证只有 `buildSystems` 的宿主保留语言服务器版本；`build_provider_versions_require_host_support_before_download` 覆盖自有与共享 Provider 的版本筛选；`install-reviews.json` 覆盖两种 Provider 的能力缺失、版本不支持、完整支持和不传宿主表的审查，纯模板插件只需 `buildSystems`；`invalid-index-entries.json` 中三个 `requires` 用例；`level_3_versions_list_their_capabilities` 和 `host_capabilities_do_not_change_legacy_levels`。
-- `./scripts/architecture/verify-shared-contracts.sh`：schema 与 fixture 一致，新增的拒绝码都有文档。
-- `./scripts/rust-core/verify-rust-core-comments.sh`：`plugins/capabilities.rs` 的注释规范。
+- 旧版共享契约和 Rust Core 注释检查的命令保留在上面的迁移前笔记；等价检查恢复前不能把它们记作当前门禁已通过。
 
 ## 适用范围
 
-- `rust/lithe-core/src/plugins/capabilities.rs`
-- `rust/lithe-core/src/plugins/declarative.rs`
-- `rust/lithe-core/src/plugins/marketplace.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/capabilities.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/capabilities.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/declarative.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/declarative.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/marketplace.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/marketplace.rs)
 - `shared/contracts/plugins/v1/`
 - `shared/contracts/rust-core-api.md`
+- `desktop/internal/core/plugin_session.go`
+- `desktop/internal/marketplace/`
 
 
 ### 共享可执行文件候选能力

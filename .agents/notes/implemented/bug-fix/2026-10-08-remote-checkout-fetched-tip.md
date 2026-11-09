@@ -44,8 +44,8 @@ IntelliJ Community `fb72b4df43aba102479eb0502d20b03586b9c5b8` 的 `GitRemoteBran
 
 ## 适用范围
 
-- `rust/lithe-core/src/git/mod.rs`
-- `rust/lithe-core/src/tests/git_remote_checkout.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/mod.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/mod.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/tests/git_remote_checkout.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/tests/git_remote_checkout.rs)
 - `shared/contracts/rust-core-api.md`
 - `shared/fixtures/git/remote-checkout-v1.json`
 - `windows/tauri/src/features/git/api/git-branches-api.ts`

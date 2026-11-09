@@ -66,8 +66,8 @@ macOS 的普通 TCP 调试连接现在共用一个传输实现：语言服务器
 - `macos/Sources/Lithe/Views/Debug/ExternalDebugAdapterView.swift`
 - `macos/Sources/Lithe/Application/Features/ExternalDebugAdapterConnection.swift`
 - `macos/Sources/Lithe/Core/Rust/RustDebugTransportCore.swift`
-- `rust/lithe-core/src/debug/endpoint.rs`
-- `rust/lithe-core/src/debug/transport_lifecycle.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/endpoint.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug/endpoint.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/transport_lifecycle.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug/transport_lifecycle.rs)
 - `shared/fixtures/debug/adapter-endpoints-v1.json`
 - `shared/fixtures/debug/transport-lifecycle-v1.json`
 - `shared/contracts/rust-core-api.md`

@@ -104,7 +104,7 @@ node scripts/resources/test-reuse-worktree-resources.mjs
 
 ## 适用范围
 
-- `rust/lithe-remote/`
+- Lithe-core-rust 锁定修订：[rust/lithe-remote/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote)
 - `scripts/remote/build-remote-servers.sh`
 - `scripts/remote/verify-remote-workspace.sh`
 - `macos/Sources/Lithe/Services/Remote/RemoteWorkspaceRouting.swift`
@@ -114,6 +114,6 @@ node scripts/resources/test-reuse-worktree-resources.mjs
 - `macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteTerminalTransport.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteRuntimeLocator.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteShellDiscovery.swift`
-- `rust/lithe-core/src/remote/workspace.rs`
-- `rust/lithe-core/src/remote/workspace_host.rs`
-- `rust/lithe-core/src/remote/workspace_io.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/remote/workspace.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/remote/workspace.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/remote/workspace_host.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/remote/workspace_host.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/remote/workspace_io.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/remote/workspace_io.rs)

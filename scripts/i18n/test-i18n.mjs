@@ -475,8 +475,40 @@ test("desktop catalogs use declared shared translations and detect stale output"
   const source = await readFile(file, "utf8");
   assert.match(source, /editor\.externalConflict/);
   assert.match(source, /该文件已在 Lithe 外部更改/);
+  assert.match(source, /desktop\.settings\.followSystemEffective/);
+  assert.match(source, /Follow System \(\{effective\}\)/);
   await writeFile(file, `${source}// stale\n`);
   await assert.rejects(generate(root, true), /generated files are stale/);
+});
+
+test("desktop templates validate parameters and require formatted lookup", { timeout: 15000 }, async (t) => {
+  const root = await fixture(t);
+  const dir = path.join(root, "desktop/internal/sample");
+  await mkdir(dir, { recursive: true });
+  const sample = path.join(dir, "sample.go");
+  await writeFile(sample, 'package sample\nvar s = i18n.Shared(language, "desktop.settings.followSystemEffective")\n');
+  const verify = () => spawnSync(process.execPath, [path.join(root, "scripts/i18n/verify-app-language-localization.mjs")], { encoding: "utf8", timeout: 5000 });
+  assert.match(verify().stderr, /desktop key requires SharedFormat/);
+  await writeFile(sample, 'package sample\nvar s = i18n.SharedFormat(language, "desktop.settings.followSystemEffective", map[string]string{"effective": value})\n');
+  assert.equal(verify().status, 0);
+  const catalogSample = path.join(root, "desktop/internal/i18n/sample.go");
+  await writeFile(catalogSample, 'package i18n\nvar s = Shared(language, "desktop.settings.followSystemEffective")\n');
+  assert.match(verify().stderr, /desktop key requires SharedFormat/);
+  await writeFile(catalogSample, 'package i18n\nvar s = SharedFormat(language, "desktop.settings.followSystemEffective", map[string]string{"effective": value})\n');
+  await writeFile(sample, 'package sample\nvar s = unrelated.Shared(language, "not-an-i18n-key")\n');
+  assert.equal(verify().status, 0);
+  await writeFile(sample, 'package sample\nvar s = i18n.SharedFormat(language, "desktop.settings.followSystemEffective", map[string]string{"wrong": value})\n');
+  assert.match(verify().stderr, /desktop SharedFormat parameters differ/);
+  await writeFile(sample, 'package sample\nvar s = i18n.SharedFormat(language, "desktop.settings.followSystemEffective", values)\n');
+  assert.match(verify().stderr, /desktop SharedFormat requires a literal parameter map/);
+  await writeFile(sample, 'package sample\nvar s = i18n.Shared(language, key)\n');
+  assert.match(verify().stderr, /desktop shared lookup requires a literal key/);
+  await writeFile(sample, 'package sample\nvar s = i18n.Shared(\n language,\n key,\n)\n');
+  assert.match(verify().stderr, /desktop shared lookup requires a literal key/);
+  await edit(root, "shared/i18n/locales/en-US.json", (locale) => {
+    locale.messages["desktop.settings.followSystemEffective"] = "Follow System";
+  });
+  await assert.rejects(planGeneration(root), /placeholder names differ from effective/);
 });
 
 test("desktop localization verifier rejects unregistered keys", { timeout: 15000 }, async (t) => {
@@ -487,4 +519,36 @@ test("desktop localization verifier rejects unregistered keys", { timeout: 15000
   const result = spawnSync(process.execPath, [path.join(root, "scripts/i18n/verify-app-language-localization.mjs")], { encoding: "utf8", timeout: 5000 });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /desktop key missing from shared\/i18n/);
+});
+
+test("desktop localization verifier rejects handwritten catalog and visible UI text", { timeout: 15000 }, async (t) => {
+  const root = await fixture(t);
+  const catalog = path.join(root, "desktop/internal/i18n/en.go");
+  const verify = () => spawnSync(process.execPath, [path.join(root, "scripts/i18n/verify-app-language-localization.mjs")], { encoding: "utf8", timeout: 5000 });
+  await writeFile(catalog, 'package i18n\nvar c = Catalog{\n Title: "Settings",\n}\n');
+  assert.match(verify().stderr, /desktop catalog contains handwritten interface text/);
+  await writeFile(catalog, 'package i18n\nvar c = Catalog{\n Title: Shared(English, "menu.settings"),\n}\n');
+  const uiDir = path.join(root, "desktop/internal/workbench");
+  await mkdir(uiDir, { recursive: true });
+  const ui = path.join(uiDir, "sample.go");
+  for (const statement of ['f.Text("Settings")', 'f.Button(buttonID, "Open")', 'f.Paragraph("Warning", 3)', 'row.HitWith(id, "Actions", options)', 'f.FieldBase(input, id, "Search", "")', 'options := HitOptions{Hint: "Help"}']) {
+    await writeFile(ui, `package workbench\nfunc draw(f Frame) {\n ${statement}\n}\n`);
+    assert.match(verify().stderr, /desktop interface text must use shared\/i18n/, statement);
+  }
+  await writeFile(ui, 'package workbench\nfunc draw(f Frame) {\n f.Text(i18n.Shared(language, "menu.settings"))\n f.Text(":" + value)\n}\n');
+  assert.equal(verify().status, 0);
+});
+
+test("desktop localization verifier checks marketplace wrapper keys", { timeout: 15000 }, async (t) => {
+  const root = await fixture(t);
+  const dir = path.join(root, "desktop/internal/settingswindow");
+  await mkdir(dir, { recursive: true });
+  const sample = path.join(dir, "sample.go");
+  const verify = () => spawnSync(process.execPath, [path.join(root, "scripts/i18n/verify-app-language-localization.mjs")], { encoding: "utf8", timeout: 5000 });
+  await writeFile(sample, 'package settingswindow\nvar s = w.marketText("desktop.notRegistered")\n');
+  assert.match(verify().stderr, /desktop key missing from shared\/i18n/);
+  await writeFile(sample, 'package settingswindow\nvar s = w.marketText("desktop.settings.followSystemEffective")\n');
+  assert.match(verify().stderr, /desktop key requires SharedFormat/);
+  await writeFile(sample, 'package settingswindow\nvar s = w.marketText("native.marketplace")\n');
+  assert.equal(verify().status, 0);
 });

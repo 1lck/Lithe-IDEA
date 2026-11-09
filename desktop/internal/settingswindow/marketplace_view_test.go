@@ -14,6 +14,199 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
+func TestMarketplaceSourceSelectorLoadsTheChosenIndex(t *testing.T) {
+	makeFetch := func(id string) func(context.Context) (marketplace.Snapshot, error) {
+		return func(context.Context) (marketplace.Snapshot, error) {
+			return marketplace.Snapshot{Index: core.MarketplaceIndex{Plugins: []core.MarketplacePlugin{{ID: id, Name: id}}}}, nil
+		}
+	}
+	w := newWindow(NewController(Options{Marketplace: makeFetch("community"), MarketplaceOfficial: makeFetch("official")}), Values{})
+	driver, err := app.NewDriver(w.config(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { w.market.close(); driver.Close() })
+	w.sess.page = pagePlugins
+	w.inv.Invalidate()
+	if err := driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	waitReady := func(id string) {
+		t.Helper()
+		for w.market.status != marketReady || w.market.selected != id {
+			select {
+			case <-driver.Wakes():
+				if err := driver.Pump(); err != nil {
+					t.Fatal(err)
+				}
+			case <-timer.C:
+				t.Fatalf("source %s did not load", id)
+			}
+		}
+	}
+	waitReady("community")
+	click := func(id ui.ID) {
+		t.Helper()
+		for _, hit := range driver.Snapshot().Hits {
+			if hit.ID == id {
+				if err := driver.Click(hit.Bounds.X+hit.Bounds.Width/2, hit.Bounds.Y+hit.Bounds.Height/2); err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+		}
+		t.Fatalf("source control %v not visible", id)
+	}
+	click(marketSourceScope.At(2))
+	click(marketSourceScope.At(1))
+	waitReady("official")
+	if w.market.source != 1 {
+		t.Fatalf("source = %d", w.market.source)
+	}
+}
+
+func TestMarketplaceSourceSelectorRemainsAvailableWhileLoading(t *testing.T) {
+	started, stopped := make(chan struct{}), make(chan struct{})
+	w := newWindow(NewController(Options{
+		Marketplace: func(ctx context.Context) (marketplace.Snapshot, error) {
+			close(started)
+			<-ctx.Done()
+			close(stopped)
+			return marketplace.Snapshot{}, ctx.Err()
+		},
+		MarketplaceOfficial: func(context.Context) (marketplace.Snapshot, error) {
+			return marketplace.Snapshot{Index: core.MarketplaceIndex{Plugins: []core.MarketplacePlugin{{ID: "official", Name: "official"}}}}, nil
+		},
+	}), Values{})
+	driver, err := app.NewDriver(w.config(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		w.market.close()
+		select {
+		case <-started:
+			select {
+			case <-stopped:
+			case <-time.After(5 * time.Second):
+				t.Error("community fetch did not stop")
+			}
+		default:
+		}
+		driver.Close()
+	})
+	w.sess.page = pagePlugins
+	w.inv.Invalidate()
+	if err := driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-started:
+	case <-timer.C:
+		t.Fatal("community fetch did not start")
+	}
+	click := func(id ui.ID) {
+		t.Helper()
+		for _, hit := range driver.Snapshot().Hits {
+			if hit.ID == id {
+				if err := driver.Click(hit.Bounds.X+hit.Bounds.Width/2, hit.Bounds.Y+hit.Bounds.Height/2); err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+		}
+		t.Fatalf("source control %v is not visible while loading", id)
+	}
+	click(marketSourceScope.At(2))
+	click(marketSourceScope.At(1))
+	select {
+	case <-stopped:
+	case <-timer.C:
+		t.Fatal("old source was not cancelled")
+	}
+	for w.market.status != marketReady || w.market.selected != "official" {
+		select {
+		case <-driver.Wakes():
+			if err := driver.Pump(); err != nil {
+				t.Fatal(err)
+			}
+		case <-timer.C:
+			t.Fatal("official source did not load")
+		}
+	}
+}
+
+func TestMarketplaceSearchUsesCoreAndOpensMatchingSelection(t *testing.T) {
+	client := core.NewClient()
+	plugins := []core.MarketplacePlugin{{ID: "dev.example.cargo", Name: "Cargo"}, {ID: "dev.example.go", Name: "Go Support"}, {ID: "dev.example.lua", Name: "Lua Support"}}
+	w := newWindow(NewController(Options{Marketplace: func(context.Context) (marketplace.Snapshot, error) {
+		return marketplace.Snapshot{Index: core.MarketplaceIndex{Plugins: plugins}}, nil
+	}, MarketplaceRank: client.RankNames}), Values{})
+	w.market.search.delay = -1
+	driver, err := app.NewDriver(w.config(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { w.market.close(); driver.Close() })
+	w.sess.page = pagePlugins
+	w.inv.Invalidate()
+	if err := driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	timer := time.NewTimer(8 * time.Second)
+	defer timer.Stop()
+	wait := func(ready func() bool) {
+		t.Helper()
+		for !ready() {
+			select {
+			case <-driver.Wakes():
+				if err := driver.Pump(); err != nil {
+					t.Fatal(err)
+				}
+			case <-timer.C:
+				t.Fatal("marketplace search did not settle")
+			}
+		}
+	}
+	wait(func() bool { return w.market.status == marketReady })
+	var rect ui.Rect
+	for _, hit := range driver.Snapshot().Hits {
+		if hit.ID == marketQueryID {
+			rect = hit.Bounds
+			break
+		}
+	}
+	if rect.Width == 0 {
+		t.Fatal("marketplace search field is missing")
+	}
+	if err := driver.Click(rect.X+rect.Width/2, rect.Y+rect.Height/2); err != nil {
+		t.Fatal(err)
+	}
+	if err := driver.Type("Lua"); err != nil {
+		t.Fatal(err)
+	}
+	wait(func() bool {
+		return w.market.search.known && w.market.search.query == "Lua" && !w.market.search.loading
+	})
+	if w.market.search.failed || w.market.selected != "dev.example.lua" || len(w.market.search.visible()) != 1 {
+		t.Fatalf("Lua search = %+v selection=%q", w.market.search.visible(), w.market.selected)
+	}
+	if _, err := driver.ShortcutChord(ui.ModifierMeta, 'a'); err != nil {
+		t.Fatal(err)
+	}
+	if err := driver.Type("dev.example.go"); err != nil {
+		t.Fatal(err)
+	}
+	wait(func() bool { return w.market.search.query == "dev.example.go" && !w.market.search.loading })
+	if w.market.search.failed || w.market.selected != "dev.example.go" || len(w.market.search.visible()) != 1 {
+		t.Fatalf("ID search = %+v selection=%q", w.market.search.visible(), w.market.selected)
+	}
+}
+
 func TestMarketplaceWindowLoadsAndVirtualizes(t *testing.T) {
 	plugins := make([]core.MarketplacePlugin, 1000)
 	for i := range plugins {
@@ -345,8 +538,8 @@ func TestMarketplaceDividerDragResizeAndRestore(t *testing.T) {
 				if err := driver.Resize(760, 680); err != nil {
 					t.Fatal(err)
 				}
-				if got := w.marketSplit.Size(w.marketExtent); got != 354 {
-					t.Fatalf("narrow size = %v, want 354", got)
+				if got := w.marketSplit.Size(w.marketExtent); got != 358 {
+					t.Fatalf("narrow size = %v, want 358", got)
 				}
 				checkDetail()
 				// A click or outward drag at the temporary boundary must not erase

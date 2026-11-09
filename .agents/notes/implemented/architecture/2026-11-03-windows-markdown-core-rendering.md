@@ -66,6 +66,6 @@ Windows 的数学公式与图表展示没有因此自动达到 macOS 的能力�
 
 - `windows/tauri/src/features/editor/markdown/`
 - `windows/tauri/src/features/github/components/github-markdown.tsx`
-- `rust/lithe-core/src/project/markdown.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/project/markdown.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/project/markdown.rs)
 - `shared/fixtures/editor/markdown-render-v1.json`
 - `shared/platform-feature-matrix/features/markdown-rendering.json`

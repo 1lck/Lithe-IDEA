@@ -107,10 +107,10 @@
 
 ## 适用范围
 
-- `rust/lithe-core/src/lsp/interface/plugin_server.rs`
-- `rust/lithe-core/src/lsp/interface/plugin_function.rs`
-- `rust/lithe-core/src/plugins/language_server_sessions.rs`
-- `rust/lithe-core/src/plugins/content_providers.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/plugin_server.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/plugin_server.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/plugin_function.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/plugin_function.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/language_server_sessions.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/language_server_sessions.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/content_providers.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/content_providers.rs)
 - `shared/contracts/plugins/v1/README.md`
 - `macos/Sources/Lithe/Application/Features/PluginLanguageServerHostService.swift`
 - `macos/Sources/Lithe/Application/Features/PluginContentProviderHostService.swift`

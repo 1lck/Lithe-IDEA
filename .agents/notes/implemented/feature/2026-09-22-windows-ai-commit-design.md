@@ -90,7 +90,7 @@ Codex/Claude 的 OAuth 登录不等同于可用 API 密钥，本次不实现 CLI
 
 ## 适用范围
 
-- `rust/lithe-core/src/ai/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/ai/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/ai)
 - `macos/Sources/Lithe/Core/Rust/RustAICommitPlanning.swift`
 - `macos/Sources/LitheAIAssistanceModule/Services/CommitMessageGenerationService.swift`
 - `windows/tauri/src-tauri/src/ai_commit.rs`

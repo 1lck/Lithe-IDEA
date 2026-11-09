@@ -224,7 +224,7 @@ func TestProjectSearchTracksExternalChanges(t *testing.T) {
 	}
 	awaitDocumentState(t, h, func() bool { return !p.search.loading && len(p.search.matches) == 0 })
 	h.app.cancelProjectSearch(p)
-	if p.search.watch != nil {
+	if p.search.watchAttached || (p.search.watch != nil && !p.tree.recursiveWatch) {
 		t.Fatal("closing search retained its filesystem watch")
 	}
 }
@@ -288,7 +288,7 @@ func TestProjectSearchFallsBackWhenWatchCannotStart(t *testing.T) {
 	h.open(t.TempDir())
 	p := h.app.project
 	slot := &documentWatch{}
-	p.search.watch = slot
+	replaceSearchWatchForTest(p, slot)
 	p.search.watchAttached = true
 	slot.finish(nil, errors.New("watch unavailable"))
 	h.app.drainProjectSearchWatch(p, slot)
@@ -318,7 +318,7 @@ func TestProjectSearchReopensWatchAfterLostEvents(t *testing.T) {
 	old := &lostSearchWatch{}
 	slot := &documentWatch{}
 	slot.finish(old, nil)
-	p.search.watch = slot
+	replaceSearchWatchForTest(p, slot)
 	h.app.drainProjectSearchWatch(p, slot)
 	if !old.closed || p.search.watch == nil || p.search.watch == slot || !p.search.fullResync {
 		t.Fatal("lost events did not reopen the watch and invalidate the index")
@@ -356,7 +356,8 @@ func TestProjectSearchFiltersEventsBeforeChoosingFullRebuild(t *testing.T) {
 	slot := &documentWatch{}
 	slot.finish(&batchSearchWatch{names: make([]string, searchUpdateLimit+1)}, nil)
 	slot.state() // A previously installed watch, not a new registration.
-	p.search.watch, p.search.watchReady, p.search.watchAvailable = slot, true, true
+	replaceSearchWatchForTest(p, slot)
+	p.search.watchReady, p.search.watchAvailable = true, true
 	p.search.want = searchQuery{text: "needle"}
 	h.app.drainProjectSearchWatch(p, slot)
 	awaitDocumentState(t, h, func() bool { return !p.search.loading })
@@ -385,7 +386,8 @@ func TestProjectSearchRebuildsAfterInterruptedIndexUpdate(t *testing.T) {
 	slot := &documentWatch{}
 	slot.finish(&batchSearchWatch{names: []string{"source.go"}}, nil)
 	slot.state()
-	p.search.watch, p.search.watchReady, p.search.watchAvailable = slot, true, true
+	replaceSearchWatchForTest(p, slot)
+	p.search.watchReady, p.search.watchAvailable = true, true
 	p.search.want = searchQuery{text: "first"}
 	h.app.drainProjectSearchWatch(p, slot)
 	select {

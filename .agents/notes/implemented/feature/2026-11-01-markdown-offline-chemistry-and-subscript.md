@@ -62,7 +62,7 @@ GitHub 特有媒体及 Windows 方言对齐不是本批已交付能力；macOS P
 
 ## 适用范围
 
-- `rust/lithe-core/src/project/markdown.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/project/markdown.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/project/markdown.rs)
 - `macos/Sources/Lithe/Resources/MarkdownPreview/`
 - `macos/Tests/LitheTests/MarkdownPreviewRichContentTests.swift`
 - `shared/fixtures/editor/markdown-rich-content-v1.json`

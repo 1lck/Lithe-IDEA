@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态（2026-11-08）：本文记录旧 macOS 客户端的 HTML 预览与安全约束。Viva 目前只有文本编辑器，尚未接入 HTML 预览；下列功能和旧 WebKit 测试不能当作 Viva 已完成或已验证，迁移时仍需逐项满足安全与交互要求。
+
 ## 先说结论
 
 macOS 的 HTML 预览不再是“把 HTML 字符串塞进 WebView、点什么都取消”的静态画面，而是一个内嵌的单标签浏览器：有后退、前进、刷新/停止、可输入的地址栏、页面缩放（− / 百分比 / +）、常驻滚动条、系统浏览器按钮和开发者工具；页面里的链接、锚点、`alert`/`confirm`/`prompt`、文件选择、下载和 `window.open` 都按浏览器的方式工作；此外还有页内查找、右键菜单、打印 / 导出 PDF，以及页面申请摄像头 / 麦克风时的确认弹窗和地址栏右侧的“设备使用中”指示器。功能范围对标 VS Code 的 Simple Browser，多标签、书签、历史以后做成插件，不要加在这里。当前编辑的文档来自编辑器缓冲区（所以没保存的修改也能看到），其余资源按只读的静态网站从磁盘提供。开发者以后要改预览行为，改 `HTMLPreviewBrowserController` 和它旁边的纯规则文件，不要回到 `loadHTMLString` 加“取消全部导航”的做法。页面（或其子视图）有焦点时，⌘F / ⌘G / ⇧⌘G、⌘P 和缩放快捷键归页面，应用键位监听器必须让路，否则默认键位会先把 ⌘F 交给编辑器（见“页面快捷键与应用键位的先后”）。摄像头 / 麦克风这部分代码已经就位，但目前在运行的应用里是休眠的（Info.plist 没有用途说明，页面里没有 `navigator.mediaDevices`）；2026-10-22 决定继续保持休眠，因为 Lithe 启动的子孙进程会继承摄像头授权，不经过这里的任何弹窗，原因和以后启用的前提见“补用途说明之前必须知道的事”。
@@ -255,10 +257,7 @@ WebKit 没有公开的 Web Inspector 开关，所以：
 
 ## 验证
 
-- `./scripts/macos/test/test-macos.sh --filter HTMLPreview`
-- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter HTMLPreview`：带单测试计时运行。这些用例都跑真实 `WKWebView`，每项要在 1 秒告警线以内；模拟摄像头 / 麦克风那一组必须串行，原因见“摄像头和麦克风”。
-- `./scripts/macos/test/test-macos.sh --filter HTMLPreviewPageShortcut`：页面快捷键的放行规则，以及经 `NSApplication.sendEvent` 驱动真实监听器的回归测试（先确认页面认领每个按键，再装上监听器确认页面有焦点时按键没有被键位拿走，最后把焦点移到页面外确认同样的按键归键位）。
-- `./scripts/macos/test/test-macos.sh --filter AppLocalizationTests`
+- 旧客户端用 [macOS 测试入口（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/macos/test/test-macos.sh) 运行 HTMLPreview、HTMLPreviewPageShortcut、AppLocalizationTests 和 WebMedia 相关测试，并用稳定测试入口对真实 `WKWebView` 逐项计时；模拟摄像头 / 麦克风的测试必须串行。Viva 尚无这些功能的等价验收。
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
@@ -269,24 +268,10 @@ WebKit 没有公开的 Web Inspector 开关，所以：
 - 在运行的应用中按 ⌘F 打开查找条，输入文字确认页面里的匹配项被选中；⌘G / ⇧⌘G 与 Return / ⇧Return 前进、后退并回绕；输入页面里没有的文字显示 “No matches”；Esc 收起后键盘回到页面；用默认键位，焦点在预览页面里按 ⌘F / ⌘G / ⇧⌘G 打开并驱动的是预览的查找条而不是编辑器的查找；分屏时焦点在编辑器里按 ⌘F / ⌘G / ⌘P 仍归编辑器。
 - 在页面空白处、链接和图片上右键：没有“在新窗口中打开”，链接上有“拷贝链接”，空白处在“检查元素”上方有 Print… 和 Export as PDF…。⌘P 或 Print… 以窗口 sheet 打开系统打印面板；Export as PDF… 保存整页，文件名取页面标题。
 - 补上 Info.plist 用途说明之后，在运行的应用中打开调用 `getUserMedia` 的页面：弹窗写明页面名称，默认按钮是 Don’t Allow；允许后地址栏右侧出现指示器，菜单里的静音 / 停止生效；再次打开同一页面仍会询问；页面里没有 `getDisplayMedia`。再用一个调用 `getUserMedia` 的插件页确认：弹窗写“插件“X”……”并带插件 ID，点 Don’t Allow 页面收到 `NotAllowedError`，允许后隐藏该工具窗口，系统菜单栏的绿点 / 橙点随之消失；再显示窗口并让页面第二次调用 `getUserMedia`，记录是否再次询问，并据此校对插件弹窗里的说明。当前构建没有这些用途说明，这一步还不能做；补用途说明时还要同时验证子进程隔离（在 Lithe 的内置终端和插件后端里尝试打开摄像头应当失败），验收标准见提议 Note `2026-10-22-child-process-media-isolation.md`。
-- `./scripts/macos/test/test-macos.sh --filter 'WebMedia|MockCapture|PluginMediaCapture|HTMLPreviewMediaCapture'`：门的决策、源码扫描、拒绝委托和两条端到端路径（HTML 预览、插件页）。
+- 旧客户端的 WebMedia 测试覆盖授权决策、源码扫描、拒绝委托及 HTML 预览与插件页两条端到端路径；Viva 迁移时需要重新覆盖。
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewBrowser.swift`
-- `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewResources.swift`
-- `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewNavigation.swift`
-- `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewDialogs.swift`
-- `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewZoom.swift`（含页面快捷键识别器 `HTMLPreviewPageShortcut`）
-- `macos/Sources/Lithe/Platform/MacOS/UI/MacShortcutDetector.swift`（应用键位监听器对预览页面快捷键让路）
-- `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewFind.swift`
-- `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewPrint.swift`
-- `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewMediaCapture.swift`
-- `macos/Sources/Lithe/Platform/MacOS/WebMediaCapture.swift`（摄像头 / 麦克风的统一门和 Lithe 自有页面的拒绝委托）
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/Web/MacPluginWebPage.swift`（插件页的询问、隐藏即停止）
-- `macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift`、`Updates/ReleaseNotesWebView.swift`（各一行 `uiDelegate`；`MonacoDiffEditor.swift` 已在 #1498 删除）
-- `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewScrollbars.swift`
-- `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewWebView.swift`
-- `macos/Sources/Lithe/Platform/MacOS/LocalFileSchemeSupport.swift`
-- `macos/Sources/Lithe/Platform/MacOS/MarkdownPreviewWebView.swift`（共用任务簿记与包含检查）
-- `macos/Sources/Lithe/Views/Editor/HTMLPreviewView.swift`
+- `desktop/internal/workbench/documents.go`
+- `shared/platform-feature-matrix/features/embedded-viewers.json`
+- [旧客户端的预览实现与原适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/feature/2026-10-22-html-preview-embedded-browser.md)

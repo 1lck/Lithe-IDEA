@@ -35,7 +35,28 @@ func TestReadFilePreservesContentAndEnforcesSize(t *testing.T) {
 
 func TestReadBoundsBytesWhenSizeChanges(t *testing.T) {
 	reader := strings.NewReader(strings.Repeat("x", maxBytes+1))
-	if data, err := readBounded(reader, 0); !errors.Is(err, ErrTooLarge) || data != nil {
+	if data, err := readBoundedLimit(reader, 0, maxBytes); !errors.Is(err, ErrTooLarge) || data != nil {
 		t.Fatalf("growing stream returned %d bytes and %v", len(data), err)
+	}
+}
+
+func TestReadFileLimitEnforcesSmallMetadataBudget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "metadata")
+	if err := os.WriteFile(path, []byte("1234"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := ReadFileLimit(path, 4); err != nil || string(data) != "1234" {
+		t.Fatalf("bounded read = %q, %v", data, err)
+	}
+	if _, err := ReadFileLimit(path, 3); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("oversized metadata error = %v", err)
+	}
+	for _, tc := range []struct {
+		content string
+		limit   int64
+	}{{"x", 0}, {"12345", 4}, {strings.Repeat("x", 4097), 4096}} {
+		if data, err := readBoundedLimit(strings.NewReader(tc.content), 0, tc.limit); !errors.Is(err, ErrTooLarge) || data != nil {
+			t.Fatalf("growing content of %d bytes with limit %d returned %d bytes, %v", len(tc.content), tc.limit, len(data), err)
+		}
 	}
 }

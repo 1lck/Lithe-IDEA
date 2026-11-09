@@ -61,7 +61,7 @@ Gradle 与 Maven 在导入设置上结构对称，行为可预期、可扩展。
 ## 适用范围
 
 - 已迁出：原 `rust/lithe-core/src/lsp/languages/jdt.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
-- `rust/lithe-core/src/lsp/interface/engine.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/engine.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/engine.rs)
 - `windows/tauri/src-tauri/src/lsp.rs`
 - `windows/tauri/src-tauri/src/lsp/jdt_workspace.rs`
 - `windows/tauri/src/features/editor/lsp/java-lsp-host-api.ts`

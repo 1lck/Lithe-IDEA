@@ -62,9 +62,9 @@ macOS 的界面（推送弹窗与提交并推送审阅单）已接入，但**尚
 
 ## 适用范围
 
-- `rust/lithe-core/src/git/mod.rs`：`createBranch`、`resolve_push_target`、`divergent_push_destination`、`push`、`push_preview`、`validate_push_expectation`。
-- `rust/lithe-core/src/git/workspace_commit.rs`：`pushTargetQuestions`、`pushTargets`、按仓库的确认与重试时的恢复。
-- `rust/lithe-core/src/protocol/contracts.rs`：`GitPushTargetKind`、`GitPushPreviewResponse`。
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/mod.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/mod.rs)：`createBranch`、`resolve_push_target`、`divergent_push_destination`、`push`、`push_preview`、`validate_push_expectation`。
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/workspace_commit.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/workspace_commit.rs)：`pushTargetQuestions`、`pushTargets`、按仓库的确认与重试时的恢复。
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/protocol/contracts.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/protocol/contracts.rs)：`GitPushTargetKind`、`GitPushPreviewResponse`。
 - `windows/tauri/src/features/git/`：推送弹窗、目标提示、提交面板、工作区提交工作流与推送 API。
 - `macos/Sources/Lithe/Core/Rust/RustCoreBridge+GitPush.swift`、`macos/Sources/LitheGitModule/Services/GitService.swift`、`GitFeatureModel.swift`、`GitFeatureModel+WorkspaceCommit.swift`、`macos/Sources/LitheGitModule/Models/GitPushModels.swift`、`GitWorkspaceCommitModels.swift`：推送预览、审阅后的推送、`pushTargets` 与 `pushTargetQuestions` 的原生承载；只转发 Core 的解析结果。
 - `macos/Sources/Lithe/Views/Git/GitPushDialog.swift`、`GitLogView.swift`、`WorkbenchView.swift`、`CommitAreaView.swift`：推送弹窗（分支列表、顶栏分支弹窗）与提交并推送审阅单。

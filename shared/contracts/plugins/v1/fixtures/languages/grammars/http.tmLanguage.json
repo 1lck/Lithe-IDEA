@@ -1,0 +1,61 @@
+{
+  "name": "HTTP Request",
+  "scopeName": "source.http",
+  "patterns": [
+    { "include": "#separator" },
+    { "include": "#comment" },
+    { "include": "#variable-definition" },
+    { "include": "#request-line" },
+    { "include": "#header" },
+    { "include": "#body" }
+  ],
+  "repository": {
+    "separator": {
+      "match": "^###.*$",
+      "name": "comment.line.separator.http"
+    },
+    "comment": {
+      "match": "^\\s*(?:#|//).*$",
+      "name": "comment.line.http"
+    },
+    "variable-definition": {
+      "match": "^(@[A-Za-z_][\\w.-]*)\\s*(=)\\s*(.*)$",
+      "captures": {
+        "1": { "name": "variable.other.definition.http" },
+        "2": { "name": "keyword.operator.assignment.http" },
+        "3": { "name": "string.unquoted.http", "patterns": [{ "include": "#variables" }] }
+      }
+    },
+    "request-line": {
+      "match": "^(GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS|TRACE|CONNECT)\\s+(\\S+)(?:\\s+(HTTP/[\\d.]+))?\\s*$",
+      "captures": {
+        "1": { "name": "keyword.other.method.http" },
+        "2": { "name": "string.unquoted.uri.http", "patterns": [{ "include": "#variables" }] },
+        "3": { "name": "keyword.other.version.http" }
+      }
+    },
+    "header": {
+      "begin": "^([A-Za-z][\\w-]*)\\s*(:)\\s*",
+      "beginCaptures": {
+        "1": { "name": "entity.name.tag.header.http" },
+        "2": { "name": "punctuation.separator.key-value.http" }
+      },
+      "end": "$",
+      "contentName": "string.unquoted.header-value.http",
+      "patterns": [{ "include": "#variables" }]
+    },
+    "body": {
+      "patterns": [
+        { "include": "#variables" },
+        { "match": "\"(?:[^\"\\\\]|\\\\.)*\"", "name": "string.quoted.double.http" },
+        { "match": "-?\\d+(?:\\.\\d+)?(?:[eE][-+]?\\d+)?", "name": "constant.numeric.http" },
+        { "match": "\\b(?:true|false|null)\\b", "name": "constant.language.http" },
+        { "match": "[{}\\[\\]]", "name": "punctuation.section.brackets.http" }
+      ]
+    },
+    "variables": {
+      "match": "\\{\\{[^}]*\\}\\}",
+      "name": "variable.other.template.http"
+    }
+  }
+}

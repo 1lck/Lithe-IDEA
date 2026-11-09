@@ -2,6 +2,10 @@
 
 状态：已实现
 
+归档日期：2026-11-08
+
+> 本文记录 Swift 与 React/Tauri 双客户端时期的决策。Viva 迁移后，当前边界见新的 Viva 仓库所有权笔记；本篇不再描述当前目录和验收状态。
+
 ## 先说结论
 
 macOS 和 Windows 是两套独立产品。平台层只负责调用操作系统和界面框架的 API、呈现结果；除此之外的逻辑必须放进 Rust Core，即使目前只有一个平台用到。
@@ -136,7 +140,7 @@ Swift 源码。新文件以主要类型
 调用边界）的兼容性；共享事件解码和凭据脱敏留在 `rust/lithe-core/src/git/`。
 认证界面和凭据存储仍由各平台负责。新增 Git 操作应复用此执行边界，
 不能在视图或工作流服务里直接启动进程；否则取消时容易漏掉凭据助手等
-子进程。具体取舍见 [Git 执行与项目控制台](2026-09-12-git-execution-and-project-console.md)。
+子进程。具体取舍见 [Git 执行与项目控制台](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-09-12-git-execution-and-project-console.md)。
 
 Rust Core 按稳定的所有权边界组织：
 
@@ -200,7 +204,7 @@ Rust 的依赖方向是 `protocol <- domain packages <- runtime/FFI`。领域模
 界面只能依赖功能模型和共享模型，不得依赖具体适配器。Core 和 Services
 必须保持不依赖 AppKit、SwiftUI、Tauri、WebView2、Win32、`Process` 以及
 直接的平台文件 API。语言工具还遵循协议层与应用层分离的规则，具体说明
-见[语言工具分层与 LSP Runtime 归属](2026-09-13-language-tooling-and-lsp-runtime-ownership.md)。
+见[语言工具分层与 LSP Runtime 归属](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-09-13-language-tooling-and-lsp-runtime-ownership.md)。
 
 `rust/lithe-core/` 下的第一方生产模块必须以简短的英文 `//!` 模块边界
 说明开头。这是 Rust 源码注释规范，不代表工程文档使用英文。导出的 API、
@@ -319,8 +323,8 @@ Core 操作会随协议演进持续增加，逐个新增 Tauri command 会在
 - `macos/Sources/LitheRustCore/`
 - `Plugins/mac/`
 - `Plugins/win/`
-- `rust/lithe-core/`
-- `rust/lithe-git-host/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/b085d0866d45ba76cfef1450d61e820b22ddc6e7/rust/lithe-core)
+- Lithe-core-rust 锁定修订：[rust/lithe-git-host/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/b085d0866d45ba76cfef1450d61e820b22ddc6e7/rust/lithe-git-host)
 - `windows/`
 - `shared/`
 - `frontend/editor/`

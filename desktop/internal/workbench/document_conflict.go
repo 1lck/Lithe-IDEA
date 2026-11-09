@@ -21,9 +21,9 @@ var (
 // drawDocumentConflict places the conflict beside the affected editor, following the
 // original editor notification's icon, message and link actions.
 func (a *App) drawDocumentConflict(f *flex.Frame, d *document) {
-	message := "native.thisFileChangedOutsideLitheWhileYouHadUnsavedEdits"
+	message := i18n.Shared(a.language(), "native.thisFileChangedOutsideLitheWhileYouHadUnsavedEdits")
 	if d.conflictMissing {
-		message = "native.thisFileWasDeletedOutsideLitheYourEditorContentIsPreserved"
+		message = i18n.Shared(a.language(), "native.thisFileWasDeletedOutsideLitheYourEditorContentIsPreserved")
 	}
 	busy := d.saving || d.checking || d.checkPending || d.resolvingConflict || d.view.IsComposing()
 	background, border, foreground, link, disabled := ui.RGB24(0xFFF6E9), ui.RGB24(0xF4CD9A), ui.RGB24(0x000000), ui.RGB24(0x2F5EB9), ui.RGB24(0x9FA2A8)
@@ -35,13 +35,13 @@ func (a *App) drawDocumentConflict(f *flex.Frame, d *document) {
 		f.Row().FillWidth().Gap(8).PadX(12).PadY(10).Items(flex.Start).Children(func() {
 			f.Icon(icons.BannerWarning).Size(16, 16).Color(ui.RGB24(0xFFFFFF))
 			f.Column().Grow(1).Gap(8).Children(func() {
-				f.Paragraph(i18n.Shared(a.language(), message), 3).FontSize(13).Color(foreground)
+				f.Paragraph(message, 3).FontSize(13).Color(foreground)
 				f.Row().Gap(16).Children(func() {
-					keepLabel := "native.keepEditor"
+					keepLabel := i18n.Shared(a.language(), "native.keepEditor")
 					if d.conflictMissing {
-						keepLabel = "native.allowRecreatingFile"
+						keepLabel = i18n.Shared(a.language(), "native.allowRecreatingFile")
 					}
-					if a.drawConflictLink(f, docKeep.At(d.id), i18n.Shared(a.language(), keepLabel), busy, link, disabled) {
+					if a.drawConflictLink(f, docKeep.At(d.id), keepLabel, busy, link, disabled) {
 						a.keepDocumentEditor(a.project, d)
 					}
 					if a.drawConflictLink(f, docLoad.At(d.id), i18n.Shared(a.language(), "native.loadDiskVersion"), busy || d.conflictMissing, link, disabled) {

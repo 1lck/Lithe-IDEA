@@ -96,8 +96,8 @@ Windows 类型检查也被已有的 `diff` 模块声明缺失阻挡；未把这�
 
 ## 适用范围
 
-- `rust/lithe-agent-host/src/lib.rs`
-- `rust/lithe-agent-host/src/prompt_retry.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/lib.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/lib.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/prompt_retry.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/prompt_retry.rs)
 - `macos/Sources/LitheAgentConversationModule/Application/AgentConnectionModel.swift`
 - `macos/Sources/Lithe/Views/Agent/AgentTurnStatisticsView.swift`
 - `windows/tauri/src/features/ai/lib/acp-activity-monitor.ts`

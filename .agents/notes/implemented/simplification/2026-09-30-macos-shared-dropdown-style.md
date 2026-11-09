@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态（2026-11-08）：本文保留旧 macOS 客户端的视觉和交互基准；旧 Swift/Monaco 实现与测试不代表 Viva 已实现或达到像素一致。Viva 菜单和设置控件需要按当前代码、真实原生参考及目标平台重新验证。
+
 ## 先说结论
 
 项目侧边栏的 Project/Dependencies 标题下拉框，与 Git Log Branch/User/Date/Paths、设置窗口下拉框共同使用的样式，是 macOS 产品下拉框的唯一视觉基准。Git Log 设置、Terminal、欢迎页和右键菜单均使用同一个菜单呈现器（负责弹窗定位、键盘操作和关闭的组件），不再允许调用方选择另一套外观。设置页选择控件仍保留选择值、定位和关闭的交互逻辑，但复用相同外框和尺寸定义。
@@ -1101,7 +1103,7 @@ SwiftUI 更新锚点时，AppKit（macOS 原生界面库）可能还在计算父
 - `AgentMavenAppearanceTests` 验证 Agent 表面在所有应用配色和明暗外观中跟随共享主题，并逐个用 AppKit 解码 Maven 的明暗 SVG，检查 16×16（Profiles 为 17×16）原始尺寸与可见像素；这些资源检查不代替完整应用交互验收。
 
 - `MonacoEditorContextMenuTests` 检查真实原生菜单面板在明暗主题下的共享尺寸、无动画、禁用跳过、选中/取消回复、官方 SVG 的 16×16 尺寸与资源可解析性，以及非法展示数据拒绝。
-- `./scripts/macos/probe/probe-macos-monaco.sh --workbench-tests` 使用正式 macOS 前端入口，验证真实 Monaco 菜单经过原生桥接而不产生网页菜单，同时保留既有菜单事件。`context-menu.integration.ts` 验证动态条目、分组、快捷键、实例前缀映射、动作上下文、原 action runner、取消/失败/替换和卸载后的旧响应。
+- [旧版 Monaco 探针](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/macos/probe/probe-macos-monaco.sh) 验证过旧原生桥接菜单；旧测试覆盖动态条目、分组、快捷键、动作上下文和失效响应，不能替代 Viva 的测试。
 
 - `ContextMenuCoverageTests.contextMenusCannotSilentlyBypassSharedStyle` 阻止产品重新使用 SwiftUI `Menu`、`.popover`、`NSPopUpButton` 或非 segmented 的原生 `Picker`。
 - `nestedDropdownKeepsParentAndRoutesKeysToChild` 验证子菜单右侧对齐、靠右边缘时向左打开、不关闭父面板、按键只选择子菜单动作、两层独立关闭。
@@ -1122,27 +1124,16 @@ SwiftUI 更新锚点时，AppKit（macOS 原生界面库）可能还在计算父
 - `ContextMenuCoverageTests.searchableDropdownUsesSharedWindowAndDismissal` 验证可搜索面板的透明无边框窗口、动态尺寸、Esc 关闭与关闭回调只执行一次。
 - `ContextMenuCoverageTests.anchoredActionAndSearchableDropdownsShareTopLeft` 验证相同锚点下 Date 操作菜单与可搜索内容的左上角一致、无动画、键盘关闭回调及屏幕边界限制。
 - `SettingsSelectPopupGeometryTests` 验证设置选择控件定位边界；真实父/子面板验证 Database 一类表单弹窗内打开选值菜单时保留父面板，Esc 只关闭子菜单并解除窗口关系。
-- 执行 `./scripts/agent-notes/verify-agent-notes.sh`、`./scripts/architecture/verify-service-boundaries.sh`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
-- 组件检查不能替代 `./scripts/macos/build/preview.sh` 的完整应用检查；实际预览还需确认
+- 执行 `./scripts/agent-notes/verify-agent-notes.sh`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`；[旧服务边界检查](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/architecture/verify-service-boundaries.sh) 尚无 Viva 等价门禁。
+- 组件检查不能替代旧版 [完整应用预览入口](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/macos/build/preview.sh) 的检查；Viva 实际预览还需确认
   分组开合、原生侧向子菜单、搜索焦点与输入、通知历史入口以及主工具栏动作。
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Views/Components/LitheDropdown.swift`
-- `macos/Sources/Lithe/Views/Components/LitheContextMenu.swift`
-- `macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift`
-- `macos/Sources/Lithe/Theme/LitheTheme.swift`
-- `macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift`
-- `macos/Sources/Lithe/Views/Workspace/ProjectSwitcherPopover.swift`
-- `macos/Sources/Lithe/Views/Git/BranchSwitcherPopover.swift`
-- `macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift`
-- `macos/Sources/Lithe/Views/Git/GitLogView.swift`
-- `macos/Sources/Lithe/Views/Git/GitLogFilterPopover.swift`
-- `macos/Sources/Lithe/Views/Terminal/TerminalView.swift`
-- `macos/Sources/Lithe/Views/App/WelcomeView.swift`
-
-- `macos/EditorFrontend/context-menu.ts`
-- `macos/Sources/Lithe/Views/Editor/MonacoEditorContextMenu.swift`
+- `desktop/internal/workbench/`
+- `desktop/internal/settingswindow/`
+- `shared/i18n/`
+- [旧客户端菜单实现及原适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/simplification/2026-09-30-macos-shared-dropdown-style.md)
 
 ### 统一 Repository Diff 面板
 
@@ -1992,7 +1983,7 @@ JDT Run marker 的测试元数据，不根据文件名包含 Test 推断。深�
 
 ### 2026-10-17 软换行覆盖按钮光标
 
-软换行按钮已改为 WebKit 文档内的标准 HTML 按钮，与 Monaco 正文使用同一套光标系统；旧的 `EditorSoftWrapToggle` 原生覆盖层及手动光标回调已删除，不再使用 `onContinuousHover` 强制设置箭头。按钮尺寸和绘制参数仍来自共享图标按钮样式，悬停使用小手，正文与空白编辑区保留 I 形光标。可见性、禁用和点击继续通过现有 configure 与同源消息处理。原因和真实 WebKit 验证见[Monaco 可行性与原生桥接 Note](../architecture/2026-09-15-macos-monaco-feasibility-probe.md)的软换行按钮决策；独立组件测试不代替完整应用悬停验收。
+软换行按钮已改为 WebKit 文档内的标准 HTML 按钮，与 Monaco 正文使用同一套光标系统；旧的 `EditorSoftWrapToggle` 原生覆盖层及手动光标回调已删除，不再使用 `onContinuousHover` 强制设置箭头。按钮尺寸和绘制参数仍来自共享图标按钮样式，悬停使用小手，正文与空白编辑区保留 I 形光标。可见性、禁用和点击继续通过现有 configure 与同源消息处理。原因和真实 WebKit 验证见[Monaco 可行性与原生桥接 Note](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-09-15-macos-monaco-feasibility-probe.md)的软换行按钮决策；独立组件测试不代替完整应用悬停验收。
 
 
 ### 2026-10-23 数据库范围列表的外部点击提交

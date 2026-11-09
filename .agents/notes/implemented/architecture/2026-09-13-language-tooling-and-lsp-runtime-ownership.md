@@ -398,8 +398,8 @@ frame 缓冲区、open-document 集合、pending LSP 请求或语言服务器子
 
 ## 适用范围
 
-- `rust/lithe-core/src/lsp/`
-- `rust/lithe-core/resources/lsp/language-providers.json`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/resources/lsp/language-providers.json](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/resources/lsp/language-providers.json)
 - `docs/reference/language-providers.schema.json`
 - `macos/Sources/LitheLanguageIntelligenceModule/`
 - `macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift`

@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态（2026-11-08）：本文记录旧客户端已实现的行为，不能视作新客户端已完成。Viva 目前仅有 `desktop/internal/core/agent.go` 到 Rust Core 的 ACP 连接桥及模拟进程测试，Agent 面板、配置、会话状态与用户可见流程尚未接通；以跨平台功能矩阵的当前状态为准。
+
 ## 先说结论
 
 Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 Agent。每个项目的每种 Agent 只有一个对话连接，一个连接里可以有多个会话；会话历史由 Agent 自己保存；Lithe 负责显示，并单独保存收藏、自定义标题和可恢复的隐藏状态。供应商管理允许 Codex 在自定义 API Key 和本机 ChatGPT 订阅间切换，Claude 在自定义 API Key 和本机 Claude Code 已登录的 claude.ai 订阅间切换。订阅额度放在输入框上下文的右侧，不新增页面。Agent 需要的 Node.js 由用户自己安装，Lithe 只负责检测；ACP 适配器由 Lithe 提供一键安装，安装时用的是用户本机的 npm。ACP（Agent Client Protocol，编辑器与 Agent 之间的对话协议）连接和进程管理写在同一个 Rust crate 里：Mac 通过 C ABI 调用，Windows 通过 `windows/tauri/src-tauri/src/agent.rs` 的连接桥调用，两端只各自实现界面。
@@ -502,13 +504,18 @@ Windows 连接桥已接入共享 Host，面板 UI 也已落地（活动栏入口
 - `node --test rust/lithe-agent-host/tests/npm-progress.test.mjs`（本地 HTTP 响应不被观察器消费，归档字节计数准确，元数据与重定向不计入）
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter AgentHistoryTests`（元数据隔离、筛选、刷新 token、导出回放/失败/取消及窄宽主题布局；可选 `LITHE_AGENT_HISTORY_SCREENSHOTS` 使用合成数据输出截图）
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
-- `./scripts/architecture/verify-module-boundaries.sh`
+- 旧客户端模块边界检查（[旧脚本固定版本](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/architecture/verify-module-boundaries.sh)；Viva 尚无等价检查）。
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - 在 Mac 上实测：连续对话、权限选择、刚发出就取消、切换项目标签后旧会话继续运行、打开历史会话、关闭项目后进程全部退出。
 
 ## 适用范围
 
-`rust/lithe-agent-host/`、`rust/lithe-core/src/agent/`、`rust/lithe-core/src/runtime/ffi.rs`、`macos/Sources/Lithe/Views/Agent/`、`macos/Sources/LitheAgentConversationModule/`、`macos/Sources/Lithe/Platform/MacOS/Agent/`、`windows/tauri/src-tauri/src/agent.rs`、`windows/tauri/src-tauri/src/bin/fake_acp_adapter.rs`、`shared/contracts/rust-core-api.md`、`shared/contracts/application-boundary.md`、`windows/tauri/src-tauri/src/platform.rs`、`windows/tauri/src/features/agent/services/`、`windows/tauri/src/features/agent/components/`、`windows/tauri/src/features/agent/stores/`、`windows/tauri/src/features/agent/hooks/`、`windows/tauri/src/features/agent/types/`、`windows/tauri/src/features/agent/actions/`、`windows/tauri/src/config/backend-capabilities.ts`、`windows/tauri/src/features/file-system/utils/file-system-drop-controller.ts`、`windows/tauri/src/features/file-system/hooks/use-file-system-folder-drop.ts`、`windows/tauri/src/features/file-explorer/hooks/use-file-explorer-drag-drop.ts`、`windows/tauri/src/features/layout/`、`windows/tauri/src/features/settings/`、`windows/tauri/src/platform/app-data-directory.ts`、`shared/fixtures/agent/agent-management-v1.json`。
+- `desktop/internal/core/agent.go`
+- `desktop/internal/core/agent_bridge.go`
+- `shared/contracts/rust-core-api.md`
+- `shared/fixtures/agent/`
+- [固定 Core 的 Agent 宿主](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host)
+- [旧客户端 Agent 实现及原适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-09-25-shared-acp-agent-conversation.md)
 
 - 编辑区限宽验证：72项测试、4组套件通过（5.751秒），实际AgentConversationView原生宿主覆盖320/900/1400pt与工具窗口；检查底栏锚点位置并查看窄宽截图，900pt宿主输入框700pt、左右各100pt。未启动完整产品或真实Agent会话，完整窗口验收仍待执行。
 

@@ -3,7 +3,32 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 )
+
+// DocumentTextKind distinguishes decoded text, binary controls and invalid UTF-8.
+type DocumentTextKind int
+
+const (
+	DocumentInvalidUTF8 DocumentTextKind = iota
+	DocumentBinary
+	DocumentPlainText
+)
+
+// ClassifyDocumentText uses Core's shared whole-document policy without copying
+// the input into JSON. Core borrows data only until this synchronous call ends.
+func ClassifyDocumentText(data []byte) (DocumentTextKind, error) {
+	switch result := classifyTextBytes(data); result {
+	case -1:
+		return DocumentInvalidUTF8, nil
+	case 0:
+		return DocumentBinary, nil
+	case 1:
+		return DocumentPlainText, nil
+	default:
+		return DocumentInvalidUTF8, fmt.Errorf("core: unexpected text classification %d", result)
+	}
+}
 
 // DocumentStatus is the Core persistence state of one open document.
 type DocumentStatus string

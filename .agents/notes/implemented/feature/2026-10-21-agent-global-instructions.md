@@ -85,9 +85,9 @@ Swift 适配器在启动工作任务前检查取消，并通过 `RustCoreCancell
 
 ## 适用范围
 
-- `rust/lithe-agent-host/src/instructions.rs`
-- `rust/lithe-agent-host/src/instructions/shared.rs`
-- `rust/lithe-core/src/agent/instructions.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/instructions.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/instructions.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/instructions/shared.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/instructions/shared.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/agent/instructions.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/agent/instructions.rs)
 - `macos/Sources/Lithe/Application/Features/AgentInstructionsFeatureModel.swift`
 - `macos/Sources/Lithe/Views/Agent/AgentInstructionsSettingsView.swift`
 - `shared/fixtures/agent/agent-instructions-v1.json`

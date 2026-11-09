@@ -2,6 +2,21 @@
 
 状态：已实现
 
+> 2026-11-08 Viva 迁移：下文大部分 Swift/Tauri 工作流、缓存和测试记录是迁移前历史，
+> 不能当作当前分支仍有这些门禁。当前 `desktop-ci.yml` 对 Draft PR 运行 Linux 格式、
+> 脚本和桌面测试，非 Draft 另运行 macOS 与 Windows 测试；Core 的源码和构建缓存按
+> 系统、架构、工具链与构建脚本身份区分。旧资源复用脚本、旧分片和 lane 复用尚未迁移。
+
+Windows 的 Rust 静态库还会依赖 Cargo crate 提供的导入库，不能只传系统库名称给
+Go 链接器。桌面构建入口读取对应 target/profile 的 Cargo 构建输出，把实际使用的
+导入库目录加入链接搜索路径；相同库名对应不同字节时拒绝构建，避免误用旧缓存。
+路径按 Go 的参数解析规则整体引用，包含空格的工作树和 Cargo 目录也可使用。
+
+首次克隆 Core 使用 `--no-checkout`。即使克隆的 HEAD 已经等于固定修订，也必须在
+没有 Git 索引时检出工作树；否则 Cargo 清单不存在。这个恢复不使用 `--force`，
+因此冲突的未跟踪文件会阻止检出。已有索引的工作树如果缺少清单则报错，不静默
+恢复用户删除的文件。
+
 ## 先说结论
 
 CI 缓存的是经过版本和依赖约束的中间构建结果，不缓存最终安装包。普通
@@ -467,6 +482,16 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 
 ## 验证
 
+- `make -C desktop check`：当前 macOS 本机的格式、vet 和 Go 测试；它不证明 GitHub Actions 或 Windows 已通过。
+- `scripts/desktop/desktop-go.sh test ./internal/core -run '^TestDesktopGoFindsWindowsCargoImportLibraries$'`：受控 Cargo 输出夹具验证导入库发现、带空格路径和冲突拒绝；Windows 实机仍须编译与链接实际 Core。
+- `scripts/desktop/desktop-go.sh test ./internal/core -run '^TestBuildDesktopCoreChecksOutFreshPinnedRevision$'`：使用本地 Git 仓库和编译器替身验证空工作树检出，并确认不会恢复已有工作树中主动删除的文件。
+- `node --test scripts/ci/cancel-closed-pr-runs/cancel-closed-pr-runs.test.mjs`：当前关闭 PR 后取消运行的离线测试。
+- 真实 Linux、Windows CI 和发布流程需要各自执行验收；旧 Windows 工作流已删除，稳定测试工具的旧工作流自测目前不能通过。
+
+## 迁移前的验证记录
+
+下列命令和测试结果针对迁移前工作流，仅用于追溯，不能证明当前 Viva 工作流具备相同门禁。
+
 2026-11-03 的完整验证还修复两处既有测试夹具问题，不能靠跳过测试或放宽预算
 取得耗时收益。箭头测试的 1× 事件上下文复现与恢复边界见
 [Git 图谱决策](../feature/2026-09-13-macos-git-graph-intellij-layout.md)。本地历史
@@ -498,7 +523,9 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 具体下载方式、工作流入口和历史耗时记录见
 [`docs/ci-builds.md`](../../../../docs/ci-builds.md)。
 
-## 适用范围
+## 迁移前的源码范围
+
+以下旧路径位于[迁移前的 preview 修订](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36)；Core 链接指向当前锁定修订。
 
 - `docs/ci-builds.md`
 - `.github/workflows/ci-macos.yml`
@@ -517,6 +544,15 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 - `scripts/resources/test-reuse-worktree-resources.mjs`
 - `scripts/rust-core/verify-rust-core.sh`
 - `scripts/macos/build/MacOS13SDKCompatibility.h`
-- `rust/`
+- Lithe-core-rust 锁定修订：[rust/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust)
 - `macos/`
 - `windows/tauri/`
+
+## 适用范围
+
+- `.github/workflows/desktop-ci.yml`
+- `.github/workflows/desktop-release.yml`
+- `scripts/desktop/build-desktop-core.sh`
+- `scripts/desktop/desktop-go.sh`
+- `scripts/ci/cancel-closed-pr-runs/`
+- `docs/ci-builds.md`

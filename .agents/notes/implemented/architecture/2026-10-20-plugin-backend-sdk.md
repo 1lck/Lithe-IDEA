@@ -2,9 +2,11 @@
 
 状态：已实现
 
+> 当前边界：SDK 源码与发布由 [lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs) 持有，其 `sdk/` 现有 Node、Java 和 Rust 三套实现；下文记录最初 Node/Java 两套 SDK 的决策和历史验证。Viva 的 Core 后端会话桥接已有测试，但插件安装和面向用户的完整宿主工作流仍未接入，不能把 SDK 或 Core 的存在当作端到端验收。
+
 ## 先说结论
 
-Lithe 有两个官方插件后端 SDK：`sdk/node`（包名 `@lithe/plugin-sdk`）和 `sdk/java`（`lithe-plugin-sdk-java`，Java 8 起可用）。插件作者只写处理器（handler，收到一次请求后执行的函数）；JSON-RPC 帧、`litheBuild` 和 `litheFunctions` 协商、取消、进程清理、错误映射都由 SDK 负责。两个 SDK 的规则和错误语义相同。
+最初提供的两个官方插件后端 SDK 是 `sdk/node`（包名 `@lithe/plugin-sdk`）和 `sdk/java`（`lithe-plugin-sdk-java`，Java 8 起可用）。插件作者只写处理器（handler，收到一次请求后执行的函数）；JSON-RPC 帧、`litheBuild` 和 `litheFunctions` 协商、取消、进程清理、错误映射都由 SDK 负责。这两个 SDK 的规则和错误语义相同。
 
 SDK 只**实现**契约，不**定义**契约。协议仍以 `shared/contracts/plugins/v1/README.md` 为准，SDK 不新增任何线上字段；不用 SDK 手写的后端同样合法。SDK 的价值是把“不能破坏 Lithe 统一管理”的规则变成默认行为：不发 `lithe/*` 回调、stdout 只走协议、状态只写宿主给的目录、调用结束时进程树一起结束。
 
@@ -128,5 +130,7 @@ Maven、Gradle 这类插件需要在后端里调用 JVM 生态的工具，并长
 ## 适用范围
 
 - `https://github.com/Lithe-IDEA/lithe-plugin-docs`
-- `rust/lithe-core/src/plugins/declarative.rs`（运行时启动计划的版本探测参数）
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/declarative.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/declarative.rs)（运行时启动计划的版本探测参数）
 - `shared/contracts/plugins/v1/README.md`
+- `desktop/internal/core/plugin_session.go`
+- `desktop/internal/core/plugin_session_test.go`

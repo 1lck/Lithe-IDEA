@@ -95,7 +95,7 @@ func (a *App) closeEverywhere(p *project) {
 		s.cancel()
 	}
 	s.watchAttached = false
-	if !p.search.watchAttached && p.search.watch != nil {
+	if !p.search.watchAttached && !p.tree.recursiveWatch && p.search.watch != nil {
 		p.search.watch.close()
 		p.search.watch = nil
 		p.search.watchReady, p.search.watchAvailable = false, false
@@ -354,11 +354,18 @@ func (a *App) drawEverywhere(f *flex.Frame, p *project) {
 	f.Popup().At((bounds.Width-width)/2, 84).Width(width).Height(height).
 		Background(background).Border(1, border).Radius(a.theme.Metrics.RadiusPopup()).Shadow(ui.ShadowMD).Children(func() {
 		f.Row().FillWidth().Height(40).Items(flex.Center).PadX(8).Gap(4).Children(func() {
-			keys := []string{"desktop.everywhere.all", "desktop.everywhere.classes", "desktop.everywhere.files", "desktop.everywhere.symbols", "desktop.everywhere.actions", "desktop.everywhere.text"}
-			for index, key := range keys {
+			labels := [...]string{
+				i18n.Shared(a.language(), "desktop.everywhere.all"),
+				i18n.Shared(a.language(), "desktop.everywhere.classes"),
+				i18n.Shared(a.language(), "desktop.everywhere.files"),
+				i18n.Shared(a.language(), "desktop.everywhere.symbols"),
+				i18n.Shared(a.language(), "desktop.everywhere.actions"),
+				i18n.Shared(a.language(), "desktop.everywhere.text"),
+			}
+			for index, label := range labels {
 				disabled := index == 1 || index == 3 || index == 4
 				tab := f.Row().Height(30).PadX(8).Center().Radius(a.theme.Metrics.RadiusItem()).
-					HitWith(everywhereTabs.At(index), i18n.Shared(a.language(), key), ui.HitOptions{Role: ui.RoleButton, Disabled: disabled, Cursor: ui.PointerCursorHand})
+					HitWith(everywhereTabs.At(index), label, ui.HitOptions{Role: ui.RoleButton, Disabled: disabled, Cursor: ui.PointerCursorHand})
 				if index == v.scope {
 					tab = tab.Background(a.colors.Active)
 				} else if !disabled {
@@ -368,7 +375,7 @@ func (a *App) drawEverywhere(f *flex.Frame, p *project) {
 				if disabled {
 					color = a.colors.Subtle
 				}
-				tab.Children(func() { f.Text(i18n.Shared(a.language(), key)).FontSize(13).Color(color) })
+				tab.Children(func() { f.Text(label).FontSize(13).Color(color) })
 				if !disabled && tab.Clicked() {
 					a.performed("workspace.searchEverywhere.scope", surfaceButton)
 					v.scope = index

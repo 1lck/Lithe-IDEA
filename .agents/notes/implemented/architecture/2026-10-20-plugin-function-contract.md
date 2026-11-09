@@ -191,15 +191,15 @@ Maven 插件窗口的“刷新快照”按钮
 
 ## 适用范围
 
-- `rust/lithe-core/src/lsp/interface/plugin_function.rs`
-- `rust/lithe-core/src/lsp/interface/function_relay.rs`
-- `rust/lithe-core/src/lsp/interface/engine_function_relay.rs`
-- `rust/lithe-core/src/plugins/plugin_functions.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/plugin_function.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/plugin_function.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/function_relay.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/function_relay.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/engine_function_relay.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/engine_function_relay.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/plugin_functions.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/plugin_functions.rs)
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginBackendSessions.swift`
-- `rust/lithe-core/src/lsp/interface/client.rs`
-- `rust/lithe-core/src/lsp/interface/engine.rs`
-- `rust/lithe-core/src/protocol/command.rs`
-- `rust/lithe-core/src/runtime/dispatcher.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/client.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/client.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/engine.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/engine.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/protocol/command.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/protocol/command.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/runtime/dispatcher.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/runtime/dispatcher.rs)
 - `shared/contracts/plugins/v1/README.md`
 - `shared/contracts/plugins/v1/fixtures/backend/function-protocol.json`
 - `shared/contracts/rust-core-api.md`

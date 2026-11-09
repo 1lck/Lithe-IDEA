@@ -139,6 +139,7 @@ func TestExecuteDoneContextDoesNotCallKernel(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			client := NewClient()
+			before := nextCoreOperation.Load()
 			err := client.Execute(tt.ctx, "workspace.visibilityDefaults", nil, nil)
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("Execute() = %v, want %v", err, tt.want)
@@ -147,8 +148,101 @@ func TestExecuteDoneContextDoesNotCallKernel(t *testing.T) {
 			if errors.As(err, &coreErr) {
 				t.Fatalf("Execute() = %v, want the bare context error", err)
 			}
-			if used := client.nextOperation.Load(); used != 0 {
-				t.Fatalf("Execute() numbered %d operations, want 0: the kernel must not be called", used)
+			if after := nextCoreOperation.Load(); after != before {
+				t.Fatal("Execute() numbered an operation for a completed context")
+			}
+		})
+	}
+}
+
+type cancelDuringEncoding struct{ cancel context.CancelFunc }
+
+func (p cancelDuringEncoding) MarshalJSON() ([]byte, error) {
+	p.cancel()
+	return []byte(`{}`), nil
+}
+
+func TestExecuteCancellationDuringEncodingStopsRequest(t *testing.T) {
+	t.Run("ordinary", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		requestErr := NewClient().Execute(ctx, "core.ping", cancelDuringEncoding{cancel}, nil)
+		if !errors.Is(requestErr, context.Canceled) {
+			t.Fatalf("request error = %v", requestErr)
+		}
+	})
+	t.Run("observed", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var observed bool
+		observationErr, requestErr := NewClient().ExecuteWithEvents(ctx, "core.ping", cancelDuringEncoding{cancel}, nil, func(json.RawMessage) {
+			observed = true
+		})
+		if observationErr != nil || !errors.Is(requestErr, context.Canceled) || observed {
+			t.Fatalf("observation=%v request=%v core event observed=%v", observationErr, requestErr, observed)
+		}
+	})
+}
+
+func TestCancellationRetriesUntilCoreRegistersOrRequestFinishes(t *testing.T) {
+	tests := []struct {
+		name          string
+		finishRequest bool
+	}{
+		{name: "retry when registration appears"},
+		{name: "stop when request finishes", finishRequest: true},
+	}
+	for _, item := range tests {
+		t.Run(item.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			release := make(chan struct{})
+			retry := make(chan time.Time, 1)
+			attempted := make(chan int, 2)
+			finished := make(chan struct{})
+			go func() {
+				defer close(finished)
+				attempt := 0
+				cancelUntilRegistered(release, retry, func() bool {
+					attempt++
+					attempted <- attempt
+					return attempt == 2
+				})
+			}()
+			select {
+			case <-attempted:
+			case <-ctx.Done():
+				close(release)
+				t.Fatal("initial cancellation lookup did not run")
+			}
+			if item.finishRequest {
+				close(release)
+			} else {
+				retry <- time.Time{}
+			}
+			select {
+			case <-finished:
+			case <-ctx.Done():
+				if !item.finishRequest {
+					close(release)
+				}
+				t.Fatal("cancellation watcher did not finish")
+			}
+			if item.finishRequest {
+				select {
+				case <-attempted:
+					t.Fatal("retried after the request completed")
+				default:
+				}
+			} else {
+				select {
+				case attempt := <-attempted:
+					if attempt != 2 {
+						t.Fatalf("second lookup = %d", attempt)
+					}
+				default:
+					t.Fatal("did not retry after registration")
+				}
 			}
 		})
 	}
@@ -313,9 +407,6 @@ func TestClientIsSafeForConcurrentUse(t *testing.T) {
 		if err != nil {
 			t.Errorf("concurrent call failed: %v", err)
 		}
-	}
-	if used := client.nextOperation.Load(); used != callers {
-		t.Errorf("client numbered %d operations, want %d", used, callers)
 	}
 }
 

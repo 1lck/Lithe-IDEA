@@ -2,6 +2,8 @@
 
 状态：提议中
 
+> Viva 迁移状态（2026-11-08）：下文关于 Swift/Tauri 的现状和已完成内容属于旧客户端，不代表 Viva 已实现统一账本、确认或崩溃兜底。Viva 目前有独立的终端管理和尚未接入用户界面的 Core Agent 会话桥；本提案的所有权与用户确认目标仍需结合新架构逐项实现并在两平台验证。
+
 ## 先说结论
 
 用户反馈：退出 Lithe 后，终端里启动的 Spring 服务、运行配置、LSP 和插件
@@ -705,23 +707,15 @@ Windows 仍未完成的部分：终端（ConPTY）和 Agent 进程树还没有 J
 
 ## 适用范围
 
-- `macos/Sources/Lithe/LitheApp.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Process/`
-- `macos/Sources/Lithe/Platform/MacOS/Terminal/MacTerminalTransport.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/`
-- `macos/Sources/LitheTerminalModule/`
-- `windows/tauri/src-tauri/src/main.rs`
-- `windows/tauri/src-tauri/src/run.rs`
-- `windows/tauri/crates/terminal/src/`
-- `macos/Sources/Lithe/Views/App/SettingsView.swift`
-- `macos/Sources/Lithe/Views/App/SettingsSearchVocabulary.swift`
-- `windows/tauri/src/ui/`
-- `macos/Sources/LitheAgentConversationModule/`
-- `rust/lithe-agent-host/`
-- `rust/lithe-core/`
+- `desktop/internal/term/`
+- `desktop/internal/localshell/`
+- `desktop/internal/workbench/terminals.go`
+- `desktop/internal/core/agent.go`
+- `desktop/internal/settingswindow/`
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core)
 - `shared/contracts/`
 - `shared/fixtures/process-lifecycle/`
-- `macos/Sources/Lithe/Application/Features/ProcessExitCoordinator.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Agent/MacAgentProcessRegistry.swift`
 - `shared/contracts/plugins/v1/`
+- [旧客户端实现与原适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/proposed/architecture/2026-10-16-unified-child-process-lifecycle.md)
 - 相关决策：[模块运行时边界与生命周期](../../implemented/architecture/2026-09-13-module-runtime-boundaries-and-lifecycle.md)

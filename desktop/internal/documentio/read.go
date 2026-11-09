@@ -9,40 +9,50 @@ import (
 // the opened object is a regular file, and bounds the bytes actually read. It
 // permits hard links: their effect matters only when a later write is requested.
 func ReadFile(path string) (data []byte, err error) {
+	return ReadFileLimit(path, maxBytes)
+}
+
+// ReadFileLimit reads a regular file without following its final symlink and
+// refuses content beyond limit, including bytes added after the size check.
+// It is intended for small native metadata whose limit comes from a Core contract.
+func ReadFileLimit(path string, limit int64) (data []byte, err error) {
+	if limit < 0 || limit > maxBytes {
+		return nil, ErrTooLarge
+	}
 	source, info, err := openReadable(path)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { err = errors.Join(err, source.Close()) }()
-	if info.Size() > maxBytes {
+	if info.Size() > limit {
 		return nil, ErrTooLarge
 	}
-	return readBounded(source, info.Size())
+	return readBoundedLimit(source, info.Size(), limit)
 }
 
-// readBounded enforces the budget even when a file grows after its size check.
+// readBoundedLimit enforces the budget even when a file grows after its size check.
 // The stat-sized first read avoids repeated allocations for ordinary files.
-func readBounded(source io.Reader, size int64) ([]byte, error) {
-	if size > maxBytes {
+func readBoundedLimit(source io.Reader, size, limit int64) ([]byte, error) {
+	if size > limit {
 		return nil, ErrTooLarge
 	}
-	initial := max(int64(512), size+1)
+	initial := min(max(int64(512), size+1), limit+1)
 	buffer := make([]byte, int(initial))
 	n, err := io.ReadFull(source, buffer)
+	if int64(n) > limit {
+		return nil, ErrTooLarge
+	}
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return buffer[:n], nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	if n > maxBytes {
-		return nil, ErrTooLarge
-	}
-	more, err := io.ReadAll(io.LimitReader(source, int64(maxBytes+1-n)))
+	more, err := io.ReadAll(io.LimitReader(source, limit+1-int64(n)))
 	if err != nil {
 		return nil, err
 	}
-	if n+len(more) > maxBytes {
+	if int64(n+len(more)) > limit {
 		return nil, ErrTooLarge
 	}
 	return append(buffer[:n], more...), nil

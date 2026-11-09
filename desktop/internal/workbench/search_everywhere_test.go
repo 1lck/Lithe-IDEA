@@ -117,7 +117,7 @@ func TestEverywhereTextScopeFindsContentAndClosesWithEscape(t *testing.T) {
 	if h.app.everywhereView.open {
 		t.Fatal("Escape did not close global search")
 	}
-	if p.everywhere.watchAttached || p.search.watch != nil {
+	if p.everywhere.watchAttached || (p.search.watch != nil && !p.tree.recursiveWatch) {
 		t.Fatal("closing global search retained its filesystem watch")
 	}
 }
@@ -212,8 +212,8 @@ func TestSearchPanelsShareAndReleaseOneTreeWatch(t *testing.T) {
 		t.Fatal("closing sidebar search stopped the global watch")
 	}
 	h.app.closeEverywhere(p)
-	if p.search.watch != nil {
-		t.Fatal("last search did not release the shared watch")
+	if p.search.watchAttached || p.everywhere.watchAttached || (p.search.watch != nil && !p.tree.recursiveWatch) || (p.tree.recursiveWatch && p.search.watch != slot) {
+		t.Fatal("closing the last search did not preserve only the tree's watch")
 	}
 }
 
@@ -225,7 +225,8 @@ func TestSearchPanelsBothResyncAfterLostWatchEvents(t *testing.T) {
 	old := &lostSearchWatch{}
 	slot := &documentWatch{}
 	slot.finish(old, nil)
-	p.search.watch, p.search.watchAttached = slot, true
+	replaceSearchWatchForTest(p, slot)
+	p.search.watchAttached = true
 	p.search.want = searchQuery{text: "needle"}
 	p.everywhere.watchAttached, p.everywhere.query = true, "needle"
 	h.app.drainProjectSearchWatch(p, slot)
@@ -235,10 +236,11 @@ func TestSearchPanelsBothResyncAfterLostWatchEvents(t *testing.T) {
 	if !p.search.fullResync || !p.everywhere.fullResync || !p.search.loading || !p.everywhere.loading {
 		t.Fatal("lost events did not schedule both searches for a full resync")
 	}
+	replacement := p.search.watch
 	h.app.cancelProjectSearch(p)
 	h.app.closeEverywhere(p)
-	if p.search.watch != nil {
-		t.Fatal("replacement watch was not released")
+	if p.search.watchAttached || p.everywhere.watchAttached || (p.search.watch != nil && !p.tree.recursiveWatch) || (p.tree.recursiveWatch && p.search.watch != replacement) {
+		t.Fatal("replacement watch did not follow the remaining tree owner")
 	}
 }
 
@@ -364,7 +366,7 @@ func TestEverywhereFallsBackWhenSharedWatchCannotStart(t *testing.T) {
 	p := h.app.project
 	h.app.openEverywhere(p)
 	slot := &documentWatch{}
-	p.search.watch = slot
+	replaceSearchWatchForTest(p, slot)
 	p.everywhere.watchAttached = true
 	slot.finish(nil, errors.New("watch unavailable"))
 	h.app.drainProjectSearchWatch(p, slot)
@@ -403,7 +405,8 @@ func TestEverywhereRebuildsAfterInterruptedIndexUpdate(t *testing.T) {
 	slot := &documentWatch{}
 	slot.finish(&batchSearchWatch{names: []string{"source.go"}}, nil)
 	slot.state()
-	p.search.watch, p.search.watchReady, p.search.watchAvailable = slot, true, true
+	replaceSearchWatchForTest(p, slot)
+	p.search.watchReady, p.search.watchAvailable = true, true
 	p.everywhere.watchAttached, p.everywhere.watchReady, p.everywhere.watchAvailable = true, true, true
 	p.everywhere.query = "first"
 	p.everywhere.request = core.EverywhereSearchRequest{Root: p.root, Query: "first", PageSize: 50, ResultKinds: []string{"file"}}

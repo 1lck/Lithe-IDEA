@@ -323,8 +323,8 @@ P0–P5 完成后关闭 #1210。可选扩展、插件依赖和私有 resolver �
 
 ## 适用范围
 
-- `rust/lithe-core/src/debug/`
-- `rust/lithe-core/src/plugins/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins)
 - `shared/contracts/plugins/v1/`
 - `shared/contracts/rust-core-api.md`
 - `shared/fixtures/debug/`

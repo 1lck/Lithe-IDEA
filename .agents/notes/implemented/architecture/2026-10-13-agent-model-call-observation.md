@@ -142,12 +142,12 @@ Claude Code 会在会话开始时自己发一次“起标题”请求（系统�
 
 ## 适用范围
 
-- `rust/lithe-agent-host/src/model_proxy.rs`
-- `rust/lithe-agent-host/src/model_proxy/websocket.rs`
-- `rust/lithe-agent-host/src/model_proxy/websocket/tests.rs`
-- `rust/lithe-agent-host/src/subscription.rs`
-- `rust/lithe-agent-host/src/model_calls.rs`
-- `rust/lithe-agent-host/src/lib.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/model_proxy.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/model_proxy.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/model_proxy/websocket.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/model_proxy/websocket.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/model_proxy/websocket/tests.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/model_proxy/websocket/tests.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/subscription.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/subscription.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/model_calls.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/model_calls.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/lib.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/lib.rs)
 - `shared/fixtures/agent/acp-events-v1.json`
 - `shared/contracts/rust-core-api.md`
 - `macos/Sources/LitheAgentConversationModule/Application/AgentModelCall.swift`

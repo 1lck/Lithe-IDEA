@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态：以下记录的是旧 macOS 与 Windows 客户端的设置行为，不能视为 Viva 已完成。当前 Viva 只接入部分页面，外观与语言选择后即时应用；分类、其他各项真实配置读写和保存时机仍需逐项迁移并在 Windows 实机验证，见 `shared/platform-feature-matrix/features/application-settings.json`。
+
 ## 先说结论
 
 Windows 设置改为与 macOS 相同的分类树、搜索、面包屑和标题分组线。页面继续调用已有 Windows 功能，不新增另一套设置存储或跨平台 UI 实现。普通设置即时生效；底部左侧保留恢复默认，右侧只提供“关闭”，关闭时丢弃页面尚未提交的草稿，不回滚已经保存的设置。
@@ -60,30 +62,21 @@ Windows 设置组件使用 `settings-panels.tsx`、`SettingsPanel` 和 `Settings
 
 ## 验证
 
-- `scripts/windows/build/build-windows.ps1 -Configuration Release` 验证类型、前端和 Windows 构建。
+- 旧版构建入口验证类型、前端和 Windows 构建；该入口已随旧客户端移除，历史文件见[旧版构建脚本](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/windows/build/build-windows.ps1)。
 - `.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1` 与 `.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend` 检查测试稳定性并生成计时报告。
 - `windows/tauri/src/features/settings/components/settings-hierarchy.test.tsx` 覆盖两种界面语言下的中英文字段检索、不可见字段排除、折叠组搜索、无结果、重复外部请求、面包屑和 Esc 清空查询，并固定每个页面恰好属于一个分组或一级页面、分组内容与一级入口顺序、中英文分组标题，以及快捷键、MCP、AI 与提交在搜索命中和外部请求时展开新的所属分组，并验证无结果搜索、命中后的自动跳转、手动切换和外部导航均保留项目与 Maven 草稿，关闭后清除且释放页面资源。这些交互不能由类型检查证明。
 - `windows/tauri/src/extensions/ui/components/extensions-sidebar-focus.test.tsx` 挂载真实插件浏览器，验证设置模式保留全局搜索焦点、独立入口仍自动聚焦；原生发现和市场请求使用立即完成的测试替身，不访问网络。分层、主题、下拉控件、更新状态和插件焦点回归分别以独立进程接入 Windows CI（持续集成）。
 - 编辑器路由测试验证字号即时写入，关闭不会回滚；快捷键测试准确定位页面内搜索，避免与新全局搜索混淆。
 - 核对共用中英文标签及说明与 macOS 设置语境一致，保留变量占位符；检查命令入口、搜索匹配和无障碍名称使用同一文案。Windows 专有说明按实际功能验收。
 - `windows/tauri/src/features/settings/lib/settings-theme-sync.test.ts` 用受控媒体查询和原生接口模拟验证手动浅色切回系统深色、系统明暗变化、重复启用不重复监听，以及手动模式清理监听。真实 Windows 另验证浅色 → 跟随系统立即恢复当前系统模式；系统变化由既有窗口事件与 WebView2 媒体查询传递。
-- `scripts/windows/verify/verify-windows-boundaries.sh`、`scripts/platform-feature-matrix/verify-platform-feature-matrix.sh` 和 `scripts/agent-notes/verify-agent-notes.sh` 验证边界及记录。
+- 旧版 Windows 边界验证入口已移除，见[历史脚本](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/windows/verify/verify-windows-boundaries.sh)；当前通过 `scripts/platform-feature-matrix/verify-platform-feature-matrix.sh` 和 `scripts/agent-notes/verify-agent-notes.sh` 验证能力记录。
 - 真实 Windows 窗口中确认一级入口依次为外观与行为、插件、版本控制、构建/执行/部署、语言与框架、工具、AI；快捷键和编辑器在外观与行为下，MCP 配置、AI 与提交、AI 聊天与编辑在 AI 下；搜索和外部请求跳转到这些页面时展开所属分组且面包屑一致。本次只运行了浏览器组件测试，尚未在真实 Windows 上验证。
 - 深浅色检查分类、下拉菜单、字体检索、外部关闭、Esc 和底部按钮；连续拖动时确认存储不变，松开后保存，重开恢复宽度；分别以 720px、768px、769px 和 800px 视口检查正文至少 500px、弹窗无水平溢出及底部按钮可用，再从已保存的宽布局缩至最小窗口。
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Views/App/SettingsView.swift`（行为参考，未改动）
-- `windows/tauri/src/features/settings/lib/settings-navigation.ts`
-- `windows/tauri/src/features/settings/components/settings-dialog.tsx`
-- `windows/tauri/src/features/settings/components/settings-section.tsx`
-- `windows/tauri/src/features/settings/components/settings-panels.tsx`
-- `windows/tauri/src/i18n/locale.ts`
+- `desktop/internal/settingswindow/`
+- `desktop/internal/workbench/settings.go`
 - `shared/i18n/messages.json`
-- `windows/tauri/src/features/settings/lib/settings-effects.ts`
-- `windows/tauri/src/features/settings/lib/theme-resolution.ts`
-- `windows/tauri/src/features/settings/lib/settings-theme-sync.test.ts`
-- `windows/tauri/src-tauri/src/host.rs`
-- `macos/Resources/zh-Hans.lproj/Localizable.strings`（文案参考，未改动）
-- `windows/tauri/src/extensions/ui/components/extensions-sidebar.tsx`（复用既有插件能力）
-- `windows/tauri/src/extensions/ui/components/extensions-browser-layout.tsx`
+- `shared/platform-feature-matrix/features/application-settings.json`
+- [旧客户端设置实现与原适用范围](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/feature/2026-10-08-windows-settings-hierarchy.md)

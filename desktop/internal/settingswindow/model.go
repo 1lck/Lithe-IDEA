@@ -8,8 +8,8 @@ import (
 )
 
 // This file holds the logic of the settings window that needs no screen: which pages the
-// sidebar lists for a search, what the breadcrumb says, and how the draft of the two
-// settings maps onto the controls that edit them. It takes the catalog's words as an
+// sidebar lists for a search, what the breadcrumb says, and how the two current
+// settings map onto the controls that edit them. It takes the catalog's words as an
 // argument and touches no Viva type, so the tests run it without a window.
 
 // pageID names one entry of the sidebar: a group that holds pages, a page inside a group
@@ -272,7 +272,7 @@ func languageLabelsFor(messages *i18n.SettingsMessages, system i18n.Language) []
 	return labels
 }
 
-// windowDark says whether the window is painted dark for the draft theme: a theme the
+// windowDark says whether the window is painted dark for the current theme: a theme the
 // user picked decides, and anything else follows the system's look.
 func windowDark(theme string, system bool) bool {
 	switch theme {
@@ -284,13 +284,9 @@ func windowDark(theme string, system bool) bool {
 	return system
 }
 
-// defaultValues are the settings Restore Defaults puts in the draft: follow the system's
-// language and look.
-func defaultValues() Values { return Values{} }
-
 // sanitize returns v with a value the window cannot show put back to following the
-// system. A stored setting the client no longer knows would otherwise sit in the draft
-// unseen, since no control shows it, and be written back by OK.
+// system. This only determines the initial displayed value; opening the window does not
+// write the stored setting.
 func sanitize(v Values) Values {
 	if _, ok := i18n.Parse(v.Language); !ok {
 		v.Language = ""
@@ -301,48 +297,34 @@ func sanitize(v Values) Values {
 	return v
 }
 
-// session is what one settings window remembers: the draft the controls edit, the page
+// session is what one settings window remembers: the values shown by the controls, the page
 // open, which groups of the sidebar are expanded, and whether the window has finished.
 // Reopening a window that is still open keeps all of it, so the user finds the page and
-// the unconfirmed changes where they left them.
+// its current values where they left them.
 //
 // Everything but finished is touched only on the window's thread. finished is atomic
 // because Controller.Open reads it from the thread of whichever window asked to open
 // settings.
 type session struct {
-	draft Values
-	page  pageID
-	open  [pageCount]bool
+	values Values
+	page   pageID
+	open   [pageCount]bool
 	// finished says OK or Cancel was chosen or the window is gone, so a second OK, a late
 	// Enter or a reopen does not act on a window that is closing.
 	finished atomic.Bool
 }
 
 // newSession returns the session of a window that opens on the page initialPage with the
-// draft starting from the settings in force.
+// values starting from the settings in force.
 func newSession(current Values) *session {
-	return &session{draft: sanitize(current), page: initialPage, open: initialOpen()}
+	return &session{values: sanitize(current), page: initialPage, open: initialOpen()}
 }
 
-// restoreDefaults puts the default settings in the draft. It applies nothing: the user
-// confirms with OK, or leaves with Cancel and keeps what was in force.
-func (s *session) restoreDefaults() { s.draft = defaultValues() }
+// accept ends the session once, so a click and an Enter cannot close it twice.
+func (s *session) accept() bool { return s.finished.CompareAndSwap(false, true) }
 
-// accept hands the draft to apply and reports whether it did. It does so once: after the
-// session has finished it does nothing and reports false, so a click and an Enter that
-// arrive together do not apply twice. The caller closes the window when it reports true.
-func (s *session) accept(apply func(Values)) bool {
-	if !s.finished.CompareAndSwap(false, true) {
-		return false
-	}
-	if apply != nil {
-		apply(s.draft)
-	}
-	return true
-}
-
-// cancel ends the session without applying the draft and reports whether it was still
-// going. The caller closes the window when it reports true.
+// cancel ends the session and reports whether it was still going. Previously selected
+// values are already applied. The caller closes the window when it reports true.
 func (s *session) cancel() bool { return s.finished.CompareAndSwap(false, true) }
 
 // keyKind is the keys the window gives a meaning of its own, apart from the toolkit's key

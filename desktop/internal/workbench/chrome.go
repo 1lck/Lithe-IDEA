@@ -578,13 +578,13 @@ func (a *App) drawProjectMenu(f *flex.Frame, anchor flex.Box) {
 	switch {
 	case created:
 		a.title.projectOpen = false
-		a.notify(a.text.Title.NewProjectLater)
+		a.openNewProject(surfaceMenu)
 	case chosen:
 		a.title.projectOpen = false
 		a.chooseProject(surfaceMenu)
 	case cloned:
 		a.title.projectOpen = false
-		a.notify(a.text.Title.CloneLater)
+		a.openClone(surfaceMenu)
 	case closing:
 		a.title.projectOpen = false
 		a.performed("workspace.close", surfaceMenu)

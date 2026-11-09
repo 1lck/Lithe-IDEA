@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态：本文记录旧 macOS 客户端的分组、终端和 Diff 行为，不代表 Viva 已全部实现。Viva 已有部分文本与终端分组展示；跨类型拖放、Diff 会话、焦点及生命周期需按下述要求逐项核验，原版像素对照和 Windows 实机验收仍未完成。Go 宿主现有分组状态转换下沉 Core 的债务已登记 [#1806](https://github.com/1lck/Lithe-IDEA/issues/1806)。
+
 ## 先说结论
 
 用户把标签拖到编辑区边缘后，工作台将该标签移入新的编辑分组；每组有自己的标签和选中内容。
@@ -112,7 +114,7 @@ Windows 的既有分栏实现不受此次 macOS 呈现改动影响，完整两�
 
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter EditorTabOrderFeatureModelTests`
-- `./scripts/architecture/verify-service-boundaries.sh`
+- 旧版服务边界入口已移除，见[历史验证脚本](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/architecture/verify-service-boundaries.sh)；不得把该项记为 Viva 已通过。
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
@@ -126,17 +128,7 @@ Windows 的既有分栏实现不受此次 macOS 呈现改动影响，完整两�
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Application/Features/EditorTabOrderFeatureModel.swift`
-- `macos/Sources/Lithe/Application/Features/EditorGroupLayout.swift`
-- `macos/Sources/Lithe/Models/AppModel/AppModel+EditorGroups.swift`
-- `macos/Sources/Lithe/Models/AppModel/AppModel+Terminal.swift`
-- `macos/Sources/Lithe/Views/Editor/EditorAreaView.swift`
-- `macos/Sources/Lithe/Views/Editor/EditorGroupContainer.swift`
-- `macos/Sources/Lithe/Views/Editor/EditorTabFrameStore.swift`
-- `macos/Sources/Lithe/Views/Terminal/TerminalTabInteraction.swift`
-- `macos/Sources/Lithe/Views/Terminal/TerminalTabDragPayload.swift`
-- `macos/Sources/Lithe/Views/Terminal/TerminalView.swift`
-- `macos/Tests/LitheTests/EditorTabOrderFeatureModelTests.swift`
-- `macos/Tests/LitheTests/EditorTabLayoutTests.swift`
-- `macos/Tests/LitheTests/TerminalPlacementFeatureModelTests.swift`
-- `macos/Tests/LitheTests/MonacoWorkbenchSessionLifetimeTests.swift`
+- `desktop/internal/workbench/editorgroups.go`
+- `desktop/internal/editorview/`
+- `shared/platform-feature-matrix/features/editor-text-tabs.json`
+- [旧版实现、测试和原适用范围](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-10-12-editor-tab-split-docking.md)

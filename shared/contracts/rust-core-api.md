@@ -1592,7 +1592,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `toolchains.instantiateLaunch` | Expand an enabled tool definition's `launch` template for a selected executable, entry, runtime arguments and arguments; a part the template cannot carry is `plugin.toolchain.launchMismatch`; performs no I/O |
 | `toolchains.discoveryPlan` | Return platform-filtered definition-owned scan declarations, layouts, probes, PATH entries, login-shell home variables and budgets; never scans native directories |
 | `toolchains.candidates` | List one tool's login-shell homes and host-scanned installations with checked executables, versions or skip reasons, and the automatic-layer choice; never starts a probe |
-| `plugins.declarative.decodeGrammar` | Validate independent static editor resources (`languages` 2) |
+| `plugins.declarative.decodeGrammar` | Validate independent static editor resources (`languages` 3) |
 | `plugins.editorActions.decode` | Validate independent action registration, collection or click results |
 | `plugins.hostApi.describe` | Describe backend host methods and their required grants from Core's method table |
 | `plugins.hostApi.authorize` | Check a method, service and current session grants using Core's capability rules; the host still checks session and resource ownership |
@@ -5302,10 +5302,12 @@ Success returns `plan` (`executable`, `arguments`, `workingDirectory`, plus
 
 `plugins.declarative.languageServerLaunchPlan` accepts
 `{ "manifest": object, "languageID"?: string, "buildSystemID"?: string,
-"request": object }` with exactly one of `languageID` (a language server) and
-`buildSystemID` (a build provider); naming neither or both is an
-`invalid_request` failure. The request is `{ pluginDirectory, stateDirectory,
-workspaceStateDirectory, architecture, settings?, projectSettings? }`. The directories are absolute host paths used only
+"vcsProviderID"?: string, "backend"?: boolean, "debugAdapterID"?: string,
+"request": object }` with exactly one selector: `languageID` (a language server),
+`buildSystemID` (a build provider), `vcsProviderID` (a VCS provider),
+`backend: true` (the plugin backend), or `debugAdapterID` (a debug adapter).
+Naming none or more than one is an `invalid_request` failure. The request is `{ pluginDirectory, stateDirectory,
+workspaceStateDirectory?, logDirectory?, temporaryDirectory?, architecture, settings?, projectSettings? }`. The directories are absolute host paths used only
 as substitution text; the command does not read or create them. `settings` maps
 setting IDs to the values the user stored for every project, and
 `projectSettings` to the open project's overrides; a project value counts only
@@ -5323,6 +5325,12 @@ architecture or an empty directory is refused with
 `plugin.launch.invalidRequest`; a language without a server, an undeclared
 build system, and a build system without a provider with
 `plugin.launch.unavailable`.
+
+A backend plan additionally returns `backend.hostServices` (and `version`
+for backend capability version 2 and later). These are the declared grants;
+the host must provide only services it actually implements and must verify the
+package and approved programs before starting the plan. A VCS or debug-adapter
+plan likewise includes its corresponding typed descriptor.
 
 A language server declared with `launch.kind: "backend"` (`serverProcess` 3) has
 no command line in its manifest; the plugin's backend chooses it. The plan this
@@ -5454,10 +5462,11 @@ for the plan's `launch.versionArguments`, and returns
 `plugins.declarative.decodeGrammar` accepts `{ manifest, languageID, grammar }`,
 where `grammar` is the text the host read from the language's `grammar.path`
 inside the installed package, and returns `language: { id, fileExtensions,
-fileNames, grammar: { kind, source }, configuration }`. `source` is the
-validated original JSON text, kept opaque through host dictionaries so Monarch's
-ordered `cases` retain their precedence. Only the terminable worker parses and
-compiles it, explicitly using `root` when `start` is absent. A grammar Core
+fileNames, grammar: { kind, scopeName, source }, configuration }`. `kind` is
+`textmate`; `source` is the validated original JSON text, byte for byte, which
+the editor's TextMate engine parses and registers under `scopeName`, the
+grammar's own scope. Hosts run plugin grammars only off the editor UI thread,
+with bounded backtracking and a time budget per line. A grammar Core
 refuses is `plugin.grammar.invalid` with the failing `field`; a language
 without static editor resources is `plugin.grammar.unavailable`. Configuration-only
 languages return `grammar:null` and require no file read. Core reads no files.

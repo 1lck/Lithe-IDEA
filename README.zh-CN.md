@@ -254,7 +254,7 @@ open dist/Lithe.app
 ./scripts/rust-core/verify-rust-core.sh
 ```
 
-目录归属、跨平台边界、共享规则以及 Rust Core 必须遵守的注释规范见[仓库所有权与共享边界](./.agents/notes/implemented/architecture/2026-09-13-repository-ownership-and-sharing-boundaries.md)。提交功能改动时，请说明验证方式和已知限制。
+目录归属、跨平台边界、共享规则以及 Rust Core 必须遵守的注释规范见[仓库所有权与共享边界](./.agents/notes/implemented/architecture/2026-11-08-viva-repository-ownership-and-sharing-boundaries.md)。提交功能改动时，请说明验证方式和已知限制。
 
 </details>
 

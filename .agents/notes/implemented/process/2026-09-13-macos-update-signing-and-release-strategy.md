@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态：本文的 Sparkle、AutoBuild、插件签名和回滚实现及验收记录属于旧客户端。Viva 当前有独立预发布打包工作流，但应用内更新页面仍是占位，尚不能据此宣称渠道、签名验证、差分更新或回滚已接入；这些安全要求必须在迁移时重新落实和验证。
+
 ## 先说结论
 
 更新包和独立官方插件包的真实性分别由 Sparkle EdDSA 与 Lithe Ed25519 签名保证，Developer ID 签名是可选的分发能力，不是这两类内容信任的唯一依据。正式版与旧共享身份客户端默认选择正式版，用户确认风险后才能选择从 preview 分支构建的 AutoBuild；独立安装的 `Lithe-Dev` 首次启动默认使用 AutoBuild。两个渠道跨版本安装和回滚不混用版本比较规则。AutoBuild 以统一 UTC 构建时间作为更新身份，界面显示“构建自”时间，回滚和插件安装仍只接受内置公钥信任的内容。AutoBuild 的 macOS 只构建 Apple Silicon（`arm64`），Intel（`x86_64`）只随正式版发布。
@@ -426,21 +428,7 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
 
 ## 验证
 
-```bash
-./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AppUpdateChannelTests|StableRollbackTests|UpdateCheckerTests|UpdateManifestTests'
-# 在仓库根目录运行；Bun 包装器自动选择 windows/tauri 作为工作目录。
-node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --report .artifacts/test-stability/windows-updater.json -- src/features/settings/lib/update-channel.test.ts src/features/settings/stores/update.store.test.ts src/features/settings/components/update-channel-selector.test.tsx src/features/layout/components/installed-build-label.test.tsx
-./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --max-seconds 60 -- --filter StableRollbackDiskImageIntegrationTests
-./scripts/macos/test/test-macos.sh
-./scripts/macos/verify/verify-macos-package.sh
-./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginLocalDevelopmentTests|PluginPackageSignatureTests|PluginPackageStoreTests'
-sparkle_tools=$(zsh scripts/release/sparkle/prepare-sparkle-tools.sh)
-ruby scripts/release/sparkle/test-sparkle-update.rb "$sparkle_tools"
-node scripts/release/sparkle/test-download-sparkle-baseline.mjs
-node --test scripts/release/autobuild/test-publish-autobuild.mjs
-node scripts/resources/test-reuse-worktree-resources.mjs
-actionlint .github/workflows/release-macos.yml .github/workflows/release-preview-macos.yml .github/workflows/release-preview-windows.yml .github/workflows/ci-macos.yml
-```
+旧版更新、插件签名、工作流与 Sparkle 集成检查的完整命令见[历史记录](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/process/2026-09-13-macos-update-signing-and-release-strategy.md)。这些入口随旧客户端移除，历史通过结果不能作为 Viva 的验收结果。当前能力状态和待验收项见 `shared/platform-feature-matrix/features/updates-check-download.json` 与 `shared/platform-feature-matrix/features/updates-failure-rollback.json`。
 
 本地 Sparkle 集成检查创建一次性 ad-hoc 签名 fixture，覆盖全量
 bootstrap、连续版本差分生成、逐字节 patch 应用、代码签名完整性、
@@ -454,22 +442,10 @@ Sparkle 版本间升级、缺失/损坏的 delta、下载中断、权限不足�
 
 ## 适用范围
 
-- `scripts/release/sparkle/prepare-sparkle-tools.sh`
-- `scripts/release/sparkle/create-sparkle-update.sh`
-- `scripts/release/autobuild/publish-autobuild.mjs`
-- `scripts/release/autobuild/test-publish-autobuild.mjs`
 - `scripts/resources/worktree-resources.json`
 - `scripts/resources/reuse-worktree-resources.mjs`
-- `scripts/release/sparkle/download-sparkle-baseline.mjs`
-- `scripts/release/sparkle/test-download-sparkle-baseline.mjs`
-- `scripts/macos/verify/verify-macos-package.sh`
-- `scripts/release/sparkle/test-sparkle-update.rb`
-- `scripts/release/macos/create-macos-update-manifest.rb`
-- `.github/workflows/release-macos.yml`
-- `.github/workflows/release-preview-macos.yml`
-- `.github/workflows/release-preview-windows.yml`
-- `macos/Sources/LithePluginPackageSigning/`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift`
-- `macos/Tools/LithePluginPackageSigner/`
-- `docs/architecture/macos-updates.md`
+- `.github/workflows/desktop-release.yml`
+- `desktop/internal/settingswindow/window.go`
+- `shared/platform-feature-matrix/features/updates-check-download.json`
+- `shared/platform-feature-matrix/features/updates-failure-rollback.json`
+- [旧版更新和签名实现的原适用范围](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/process/2026-09-13-macos-update-signing-and-release-strategy.md)

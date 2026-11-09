@@ -321,16 +321,16 @@ fixture 覆盖往返、转义、非法输入、路径段、轮转与保留、共
 
 ## 适用范围
 
-- `rust/lithe-core/src/diagnostics/`
-- `rust/lithe-core/src/git/command_trace.rs`
-- `rust/lithe-core/src/runtime/dispatcher.rs`
-- `rust/lithe-core/src/tests/core_request_traces.rs`
-- `rust/lithe-core/src/debug/engine.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/diagnostics/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/diagnostics)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/command_trace.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/command_trace.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/runtime/dispatcher.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/runtime/dispatcher.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/tests/core_request_traces.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/tests/core_request_traces.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/engine.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug/engine.rs)
 - `macos/Sources/LitheModuleAPI/Logging/PluginOperationReporter.swift`
-- `rust/lithe-agent-host/src/failure_log.rs`
-- `rust/lithe-git-host/src/failure_log.rs`
-- `rust/lithe-ide-host/src/failure_log.rs`
-- `rust/lithe-remote/src/failure_log.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/failure_log.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/failure_log.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-git-host/src/failure_log.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-git-host/src/failure_log.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-ide-host/src/failure_log.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-ide-host/src/failure_log.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-remote/src/failure_log.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/failure_log.rs)
 - `shared/logging/`
 - `scripts/logging/`
 - `shared/contracts/rust-core-api.md`

@@ -35,6 +35,7 @@ function formatDuration(milliseconds) {
 }
 
 function reportLabel(report) {
+  if (report.runner === "go") return `${report.platform === "darwin" ? "macOS" : report.platform === "win32" ? "Windows" : report.platform ?? "Desktop"} · Go`;
   if (report.runner === "swift") return "macOS · Swift";
   if (report.runner === "bun") return "Windows · Frontend";
   if (report.runner === "rust") {
@@ -202,6 +203,7 @@ export function renderHTML(reportEntries, title = "Lithe Test Stability Report")
   const issueCount = summary.issues;
   const overallTone = issueCount > 0 ? "critical" : summary.slow > 0 ? "warning" : "success";
   const overallLabel = issueCount > 0 ? "需要处理" : summary.slow > 0 ? "通过，有性能预警" : "全部通过";
+  const containsGo = reportEntries.some(({ report }) => report.runner === "go");
   const generatedAt = new Date().toISOString();
   const moduleHTML = modules.map((module) => {
     const issues = module.summary.issues;
@@ -244,12 +246,12 @@ export function renderHTML(reportEntries, title = "Lithe Test Stability Report")
 <main>
   <header><div><h1>${escapeHTML(title)}</h1><p>生成时间 ${escapeHTML(generatedAt)} · 慢测试以各 runner 的 warn/max 预算判定</p></div><div class="overall"><span class="health ${overallTone}"></span><strong>${overallLabel}</strong></div></header>
   <section class="summary-grid">
-    ${summaryCard("测试总数", summary.total, "", "全部 runner")}
+    ${summaryCard("测试总数", summary.total, "", containsGo ? "含 Go 父测试与子测试行" : "全部 runner")}
     ${summaryCard("正常通过", summary.passed, "success", "未触发性能预警")}
     ${summaryCard("失败 / 超时", summary.failed, summary.failed ? "critical" : "", "功能或稳定性问题")}
     ${summaryCard("超过硬预算", summary.overBudget, summary.overBudget ? "critical" : "", "会导致测试门禁失败")}
     ${summaryCard("性能预警", summary.slow, summary.slow ? "warning" : "", "超过 warn，尚未超过 max")}
-    ${summaryCard("累计测试耗时", formatDuration(summary.durationMs), "", "逐测试耗时之和")}
+    ${summaryCard("累计测试耗时", formatDuration(summary.durationMs), "", containsGo ? "Go 父子测试耗时重叠，不等于墙钟时间" : "逐测试耗时之和")}
   </section>
   <section class="panel"><h2>模块健康度</h2><div class="table-wrap"><table><thead><tr><th>模块 / Suite</th><th class="number">测试</th><th class="number">问题</th><th class="number">慢测试</th><th class="number">耗时</th></tr></thead><tbody>${moduleHTML || '<tr><td colspan="5" class="empty">没有测试数据</td></tr>'}</tbody></table></div></section>
   <section class="panel"><h2>问题与性能优化队列</h2><div class="table-wrap"><table><thead><tr><th>等级</th><th>测试</th><th class="number">耗时</th><th class="number">预警线比例</th><th>建议</th></tr></thead><tbody>${performanceRows(tests) || '<tr><td colspan="5" class="empty">没有失败、超时或性能预警</td></tr>'}</tbody></table></div></section>

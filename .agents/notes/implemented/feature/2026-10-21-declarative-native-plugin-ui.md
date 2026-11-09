@@ -163,7 +163,7 @@ Git未跟踪目录摘要和可见行缓存；这些界面仍使用完整公共�
 ## 适用范围
 
 - `shared/contracts/plugins/v1/native-ui.schema.json`
-- `rust/lithe-core/src/plugins/native_ui.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/native_ui.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/native_ui.rs)
 - `macos/Sources/LitheModuleAPI/Plugins/PluginNativeUI.swift`
 - `macos/Sources/Lithe/Application/Features/PluginNativeUIFeature.swift`
 - `macos/Sources/Lithe/Views/Workbench/PluginNativeToolWindowView.swift`

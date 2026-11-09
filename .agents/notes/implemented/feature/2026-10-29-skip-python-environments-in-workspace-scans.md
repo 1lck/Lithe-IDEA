@@ -4,10 +4,9 @@
 
 ## 先说结论
 
-打开一个 Python 项目时，Core 会把整个工作区扫一遍（快照，`workspace.snapshot`），而虚拟环境（`.venv`、`venv`）和字节码缓存（`__pycache__`、`*.pyc`）占了绝大多数文件。
-现在这四项和 `node_modules` 一样，写进 Rust Core 的内置隐藏名单：扫描时整个目录不再被读取，也不会进入搜索索引。
-同时 Windows 请求快照时只要文件清单，不再让 Core 顺带构造整棵目录树。
-开发者要记住：名单按名字匹配，名字不同的虚拟环境不会被识别；Windows 文件树仍然读磁盘目录，所以这次没有让 `.venv` 从 Windows 文件树里消失。
+Rust Core 的默认工作区规则排除 `.venv`、`venv`、`__pycache__` 和 `*.pyc`。当前 Viva 项目树和工作区搜索均调用 Core，macOS 与 Windows 因而共用这些默认规则；测试覆盖了目录列举与搜索。规则按名字匹配，其他名称的虚拟环境不会因此自动识别。
+
+本文下方关于 Swift 设置、Tauri 文件树和旧版 Windows 快照调用的描述是迁移前记录；旧版 Windows 文件树仍显示 `.venv` 的结论不适用于当前 Viva 项目树。
 
 ## 问题
 
@@ -61,13 +60,17 @@ IntelliJ 把 `.venv` 登记成外部库：保留补全和跳转，但不算项�
 
 ## 验证
 
-- `cargo test --lib workspace_snapshot_skips_python_environments_and_bytecode_caches`（在 `rust/lithe-core` 下运行）
-- `bun test src/features/file-search`（在 `windows/tauri` 下运行）
-- `./scripts/agent-notes/verify-agent-notes.sh`
+- `scripts/desktop/desktop-go.sh test -race ./internal/core -run TestWorkspaceDirectoryAndSearchHidePythonEnvironments -count=3`：真实 Core 的目录列举和搜索均排除四类路径，并保留普通源码文件。
+- 下方保留旧版快照与 Windows 搜索的历史测试，不用它们证明当前 Viva 的设置页面或外部监听已完成。
 
 ## 适用范围
 
-- `rust/lithe-core/src/project/files.rs`
-- `macos/Sources/LitheCoreContracts/Workspace/FileVisibilityRules.swift`
-- `windows/tauri/src/features/file-search/lib/file-search-api.ts`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/project/files.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/project/files.rs)
+- `desktop/internal/core/workspace.go`
+- `desktop/internal/core/workspace_tree_test.go`
+- `desktop/internal/workbench/filetree.go`
 - `shared/contracts/rust-core-api.md`
+
+## 迁移前的实现与验证记录
+
+旧版 [FileVisibilityRules.swift](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/LitheCoreContracts/Workspace/FileVisibilityRules.swift) 和 [file-search-api.ts](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/windows/tauri/src/features/file-search/lib/file-search-api.ts) 固定在迁移前提交。当时分别运行 Core 的快照测试和 Tauri 的文件搜索测试；这些旧测试不代表 Viva 功能已经完成。

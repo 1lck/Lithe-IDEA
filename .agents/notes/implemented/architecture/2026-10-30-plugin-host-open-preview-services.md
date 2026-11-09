@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态：本文描述旧 macOS 宿主的窗口服务与历史验证。Viva 的通用 Core 会话桥接不等于这些方法已接入；编辑器、预览、浏览器与消息服务的权限检查、窗口和工作区代际隔离及错误映射仍需实现并验证。下述路径竞态等历史限制也需在重新实现时单独评估。
+
 ## 先说结论
 
 macOS 插件 API 计划里的 API-15（`editor.open/reveal`）、API-16（`preview.openHTML`、`browser.openExternal`）和 API-17 的三种消息（`window.showInformation/Warning/Error`）由内部 Swift 服务复用现有窗口 owner，并通过 `PluginWindowHostService` 对协议 3 插件开放。每次调用都必须显式带上“哪个插件、哪个窗口、哪个工作区（含代际）”，服务不会回退到“当前活动窗口”；资源用“根 ID + 工作区相对路径”表示，不收绝对路径。
@@ -121,7 +123,7 @@ macOS 插件 API 计划里的 API-15（`editor.open/reveal`）、API-16（`previ
 ## 验证
 
 - `./scripts/agent-notes/verify-agent-notes.sh`
-- `./scripts/architecture/verify-service-boundaries.sh`
+- 旧版服务边界入口已移除，见[历史脚本](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/architecture/verify-service-boundaries.sh)；不能将其结果视为 Viva 验证通过。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - `node scripts/i18n/verify-app-language-localization.mjs`
 - `node scripts/i18n/generate-i18n.mjs --check`
@@ -129,16 +131,7 @@ macOS 插件 API 计划里的 API-15（`editor.open/reveal`）、API-16（`previ
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Application/Features/PluginHostScope.swift`
-- `macos/Sources/Lithe/Application/Features/PluginHostEditorService.swift`
-- `macos/Sources/Lithe/Application/Features/PluginHostPreviewService.swift`
-- `macos/Sources/Lithe/Application/Features/PluginHostBrowserService.swift`
-- `macos/Sources/Lithe/Application/Features/PluginHostMessageService.swift`
-- `macos/Sources/Lithe/Application/Features/PluginHostMessageFeatureModel.swift`
-- `macos/Sources/Lithe/Application/Features/PluginHostEditorFlush.swift`
-- `macos/Sources/Lithe/Application/Features/PluginHostWindowServices.swift`
-- `macos/Sources/Lithe/Models/AppModel/AppModel+PluginHostWindow.swift`
-- `macos/Sources/Lithe/Models/Workspace/ProjectSessionManager+PluginHost.swift`
-- `macos/Sources/Lithe/Platform/MacOS/UI/MacHTMLBrowserOpener.swift`
-- `macos/Sources/Lithe/Views/Workbench/PluginHostMessageStack.swift`
-- `macos/Tests/LitheTests/HTMLPreviewBridgeIsolationTests.swift`
+- `desktop/internal/core/plugin_session.go`
+- `shared/contracts/plugins/v1/README.md`
+- `shared/platform-feature-matrix/features/plugin-functions.json`
+- [旧版服务、测试和原适用范围](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-10-30-plugin-host-open-preview-services.md)

@@ -109,7 +109,7 @@ gopls 把 `fmt.Println` 的定义指向 `GOROOT/src/fmt/print.go`，Intelephense
 ## 适用范围
 
 - `shared/contracts/plugins/v1/`
-- `rust/lithe-core/src/plugins/declarative.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/declarative.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/declarative.rs)
 - `macos/Sources/Lithe/Core/Rust/RustDeclarativePluginOperations.swift`
 - `macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/`

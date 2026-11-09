@@ -83,5 +83,5 @@
 - `macos/Sources/LitheDebugModule/Application/DebugConsolePromptModel.swift`
 - `macos/Sources/LitheDebugModule/Application/GenericDebugFeatureModel.swift`
 - `macos/Sources/LitheDebugModule/Runtime/CoreDebugAdapterProtocolSession.swift`
-- `rust/lithe-core/src/debug/engine.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/engine.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug/engine.rs)
 - `shared/contracts/plugins/v1/`

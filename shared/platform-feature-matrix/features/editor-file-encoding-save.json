@@ -5,17 +5,19 @@
   "id": "editor-file-encoding-save",
   "capability": "按指定编码保存文本文件",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "missing",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/documents.go",
+      "desktop/internal/workbench/documents_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "missing",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/documents.go",
+      "desktop/internal/workbench/documents_test.go"
     ]
   },
   "verification": "在 macOS 和 Windows 实机验证 UTF-8、UTF-8 BOM、UTF-16 LE/BE BOM 与 GBK/GB18030 的自动识别，并分别验证 UTF-16 LE/BE（无 BOM）、Big5、Shift JIS、EUC-JP、EUC-KR、Windows-1250/1251/1252、KOI8-R 的指定编码重新打开、编码转换保存、脏文件选择和外部修改保护。",
@@ -41,5 +43,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva 尚无按指定编码保存或转换；不合法的 UTF-8 会被拒绝打开，但有效 UTF-8 字节无法证明原文件编码。legacy 是迁移前基线，不代表当前实现。"
 }

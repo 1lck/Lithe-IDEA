@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-两个New菜单共享一个创建请求与对话框所有者；文件写入复用既有文件系统接口，并验证名称、同名目标及请求所属工作区；完成后不把结果打开到已切换的新工作区。切换工作区不会重定向或取消已发出的文件写入。Java模板只生成初始文本，包名建议不替代JDT源码根事实。资源树只处理物理包含在树内的DOM事件。
+旧 Windows 客户端的两个 New 菜单共享创建请求与对话框所有者，并验证名称、同名目标及请求所属工作区。这个记录描述迁移前的实现；Viva 目前只有项目树浏览，尚未接入这些新建菜单和 Java 模板，不能把旧客户端的验收当作 Viva 已通过。
 
 ## 问题
 
@@ -24,25 +24,10 @@ File菜单与资源树入口分散，Java类型和包缺少一致的创建入口
 
 ## 验证
 
-- `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory windows/tauri -- src/utils/java-name-validation.test.ts`
-- `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory windows/tauri -- src/features/file-explorer/lib/java-source-template.test.ts`
-- `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory windows/tauri -- src/features/file-explorer/lib/tree-dom-event.test.tsx`
-- `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory windows/tauri -- src/features/file-explorer/services/create-java-entry.test.ts`
-- `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory windows/tauri -- src/features/file-explorer/stores/new-entry.store.test.ts`
+- 迁移前的测试命令、创建服务及菜单入口保留在[旧客户端笔记](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/bug-fix/2026-10-07-windows-java-new-menu.md)中；这些命令不能直接用于当前工作树。
+- Viva 补齐新建功能后，需要重新验证名称及冲突保护、工作区切换、模板生成和菜单事件，并在目标平台验收。
 
 ## 适用范围
 
-- `windows/tauri/src/features/file-explorer/components/new-java-entry-dialog.tsx`
-- `windows/tauri/src/features/file-explorer/components/file-explorer-tree.tsx`
-- `windows/tauri/src/features/file-explorer/lib/java-source-template.ts`
-- `windows/tauri/src/features/file-explorer/lib/java-source-template.test.ts`
-- `windows/tauri/src/features/file-explorer/lib/tree-dom-event.ts`
-- `windows/tauri/src/features/file-explorer/lib/tree-dom-event.test.tsx`
-- `windows/tauri/src/features/file-explorer/services/create-java-entry.ts`
-- `windows/tauri/src/features/file-explorer/services/create-java-entry.test.ts`
-- `windows/tauri/src/features/file-explorer/stores/new-entry.store.ts`
-- `windows/tauri/src/features/file-explorer/stores/new-entry.store.test.ts`
-- `windows/tauri/src/features/file-explorer/components/new-entry-dialog-host.tsx`
-- `windows/tauri/src/features/file-explorer/hooks/use-file-explorer-context-menu.tsx`
-- `windows/tauri/src/features/window/components/window-menu-bar.tsx`
-- `windows/tauri/src/features/window/components/title-bar/title-bar.tsx`
+- `desktop/internal/workbench/filetree.go`
+- `desktop/internal/core/workspace.go`

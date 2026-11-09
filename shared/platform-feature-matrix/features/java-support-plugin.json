@@ -4,17 +4,19 @@
   "group": "Java",
   "capability": "Java 语言支持由独立插件 io.github.lithe-idea.java-support 提供：JDT LS、调试适配器、测试与运行入口由插件包和插件后端拥有，可安装、卸载和更新；宿主只提供通用的语言服务器、构建、工具链、调试适配器与插件函数中转契约，不内置任何 Java 逻辑",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "missing",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/core/plugin_session.go",
+      ".agents/notes/proposed/architecture/2026-10-24-java-support-independent-distribution.md"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "missing",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/core/plugin_session.go",
+      ".agents/notes/proposed/architecture/2026-10-24-java-support-independent-distribution.md"
     ]
   },
   "owner": "Java Support",
@@ -47,5 +49,5 @@
       "verificationStatus": "not-applicable"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Java 插件与 Store 位于独立组织仓库；Viva 已有部分 Core 桥接，但尚未接入插件安装、JDT 语言服务和 Java 运行调试，不能将插件仓库已有能力视为客户端已完成。legacy 是迁移前基线，不代表当前实现。"
 }

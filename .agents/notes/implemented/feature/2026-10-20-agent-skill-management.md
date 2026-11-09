@@ -91,10 +91,10 @@ Windows 已能使用共享 Core 与 Host 操作，但设置页面和真实 Windo
 
 ## 适用范围
 
-- `rust/lithe-agent-host/src/skills.rs`
-- `rust/lithe-agent-host/src/skills/files.rs`
-- `rust/lithe-agent-host/src/skills/settings.rs`
-- `rust/lithe-core/src/agent/mod.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/skills.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/skills.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/skills/files.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/skills/files.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/skills/settings.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/skills/settings.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/agent/mod.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/agent/mod.rs)
 - `macos/Sources/LitheCoreContracts/Agent/AgentSkills.swift`
 - `macos/Sources/Lithe/Application/Features/AgentSkillsFeatureModel.swift`
 - `macos/Sources/Lithe/Views/Agent/AgentSkillsSettingsView.swift`

@@ -463,9 +463,6 @@ export async function planGeneration(root = ROOT) {
   }
   if (hasDesktop) {
     const desktopMessages = messages.filter((message) => message.platforms.includes("desktop"));
-    for (const message of desktopMessages) {
-      if (Object.keys(message.parameters ?? {}).length) fail(`${message.id}: desktop parameters are not supported yet`);
-    }
     const mappings = manifest.locales.map((locale) => {
       const entries = desktopMessages.map((message) => `\t\t${JSON.stringify(message.id)}: ${JSON.stringify(resolveMessage(contract, locale.id, "desktop", message.id))},`).join("\n");
       return `\t${JSON.stringify(locale.id)}: {\n${entries}\n\t},`;

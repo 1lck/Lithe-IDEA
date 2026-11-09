@@ -88,7 +88,7 @@ func (a *App) cancelProjectSearch(p *project) {
 		p.search.cancel()
 	}
 	p.search.watchAttached = false
-	if !p.everywhere.watchAttached && p.search.watch != nil {
+	if !p.everywhere.watchAttached && !p.tree.recursiveWatch && p.search.watch != nil {
 		p.search.watch.close()
 		p.search.watch = nil
 		p.search.watchReady, p.search.watchAvailable = false, false
@@ -142,7 +142,11 @@ func (a *App) drainProjectSearchWatch(p *project, slot *documentWatch) {
 	if watch != nil {
 		events = watch.Changes(nil)
 		if events.Resync {
-			a.emit(core.LevelWarn, "app.notification.operation_rejected", map[string]any{"operation": "workspace_search_incremental_update", "reason": "watch_events_lost"})
+			operation := "workspace_search_incremental_update"
+			if !s.watchAttached && !p.everywhere.watchAttached && p.tree.recursiveWatch {
+				operation = "project_tree_watch"
+			}
+			a.emit(core.LevelWarn, "app.notification.operation_rejected", map[string]any{"operation": operation, "reason": "watch_events_lost"})
 			// The root may have been replaced, so install a fresh watch before
 			// rebuilding. The new watch covers changes during the rebuild.
 			slot.close()
@@ -164,6 +168,9 @@ func (a *App) drainProjectSearchWatch(p *project, slot *documentWatch) {
 	}
 	if p.everywhere.watchAttached {
 		a.applyEverywhereWatch(p, ready, watch != nil, err, events)
+	}
+	if p.tree.recursiveWatch {
+		a.applyTreeRecursiveWatch(p, ready, watch != nil, err, events)
 	}
 	if changed {
 		s.generation++

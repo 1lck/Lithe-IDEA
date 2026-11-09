@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-Viva 的状态栏和 ⌘L 使用 Rust Core 的 `editor.parseNavigationInput`，行列从 1 开始显示，Core 返回的坐标从 0 开始且列以 UTF-16 计数。只输入行号选择整行内容，输入列号放置光标；越界位置按当前文档限制，半个代理项落到字符前的 UTF-8 边界。
+Viva 的状态栏、macOS ⌘L 和 Windows Ctrl+G 使用 Rust Core 的 `editor.parseNavigationInput`，行列从 1 开始显示，Core 返回的坐标从 0 开始且列以 UTF-16 计数。只输入行号选择整行内容，输入列号放置光标；越界位置按当前文档限制，半个代理项落到字符前的 UTF-8 边界。
 
 ## 问题
 

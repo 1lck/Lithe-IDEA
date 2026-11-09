@@ -1,12 +1,12 @@
 # Agent 笔记：模块运行时的剩余抽取路线
 
-状态：提议中
+状态：已否决：Swift 模块 target 抽取路线已由 Viva 客户端迁移取代
 
 > 2026-11-07 更新：本文提到的部分文件已不存在。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
 
 ## 先说结论
 
-这是一份逐步完成模块边界的路线图，不代表所有功能现在都已经抽取完成。后续每一步都要先证明模块有真实的所有权和独立测试价值，不能为了目录看起来整齐而制造空壳 target 或包装层。
+这份路线面向已经移除的 Swift 客户端，不再按原 target 抽取步骤实施。它对真实所有权、独立测试和插件生命周期的要求仍应在 Viva 迁移中重新验证，不能为了目录整齐制造空壳模块或把旧进度当作新宿主已完成。
 
 ## 问题
 
@@ -105,17 +105,18 @@ command、DTO、错误码、取消或陈旧结果语义。因此先保持 Rust �
 - 原生 Bundle 在同一进程内不可安全卸载，插件禁用、升级和回滚仍可能需要
   重启；不能把“模块休眠”误写成“代码已经卸载”。
 - Windows 是独立实现，Windows 对齐路线由
-  [`Windows React/Tauri 产品对齐完成度`](2026-09-13-windows-tauri-product-parity.md)
+  [当时的 Windows React/Tauri 对齐提案](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/proposed/architecture/2026-09-13-windows-tauri-product-parity.md)
   单独管理，本提案不把两个平台的 target 结构强行合并。
+
+## 否决理由
+
+[#1794](https://github.com/1lck/Lithe-IDEA/issues/1794) 选择以 Viva 统一桌面客户端，原 Swift target、组合根和 Tauri 宿主已从本分支移除，继续执行这份按旧目录拆 target 的路线无法直接改善当前产品。插件真实所有权、禁用与资源清理仍须由新的 Core 契约与 Viva 宿主落实，原提案不是这些能力已经完成的证据。
 
 ## 适用范围
 
-- `Package.swift`
-- `macos/Sources/Lithe/Application/Composition/AppServices.swift`
-- `macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`
-- `macos/Sources/LitheCoreContracts/`
-- `macos/Sources/Lithe*Module/`
+- 历史：[Package.swift](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/Package.swift)、[AppServices.swift](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/Lithe/Application/Composition/AppServices.swift)、[MacServiceContainer.swift](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift)。
+- 历史：[LitheCoreContracts](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/LitheCoreContracts) 和 [Swift 功能模块](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources)。
 - 已迁出：原 `Plugins/mac/Official/`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
-- `scripts/architecture/verify-module-boundaries.sh`
-- `macos/Tests/LitheApplicationKernelTests/`
+- 历史：[模块边界检查](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/architecture/verify-module-boundaries.sh)、[LitheApplicationKernelTests](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Tests/LitheApplicationKernelTests)。
+- `desktop/internal/core/`
 - 各功能模块的对应测试 target

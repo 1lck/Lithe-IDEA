@@ -131,8 +131,12 @@ func exercisePackagedWorkbench(t *testing.T) {
 	if _, err := input.OnEvent(app.TextEvent{Kind: app.TextInsert, Text: "updated "}); err != nil {
 		t.Fatal(err)
 	}
+	previousNotice := h.app.notice
 	h.app.saveDocument(p, doc.id)
-	awaitDocumentState(t, h, func() bool { return !doc.dirty() })
+	awaitDocumentState(t, h, func() bool { return !doc.dirty() || (!doc.saving && h.app.notice != previousNotice) })
+	if doc.dirty() {
+		t.Fatalf("packaged workbench could not save the document: %s", h.app.notice)
+	}
 	h.click(center(h.button(itemFind)))
 	h.app.searchView.query.SetText("searchable")
 	h.app.invalidator.Invalidate()

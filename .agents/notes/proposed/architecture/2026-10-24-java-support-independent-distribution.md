@@ -2,6 +2,8 @@
 
 状态：提议中
 
+> Viva 迁移状态：本提案的基线、内置包与旧平台路径描述的是迁移前客户端。Java 插件源码和 Store 在独立组织仓库；Viva 当前尚未完成插件安装、语言服务器和 Java 运行调试接入，不能把旧客户端或插件仓库的能力直接视为已接通。历史提案与验收入口见[迁移前笔记](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/proposed/architecture/2026-10-24-java-support-independent-distribution.md)。
+
 > 2026-11-07 更新：本文提到的部分文件已不存在。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护；宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
 
 ## 先说结论
@@ -213,22 +215,14 @@ node scripts/architecture/verify-java-semantic-ownership.mjs
 ## 适用范围
 
 - 已迁出：原 `Plugins/mac/Official/JavaSupport/`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
-- `Plugins/marketplace/`
+- `desktop/internal/marketplace/`
+- `desktop/internal/core/plugin_session.go`
 - 已迁出：原 `scripts/plugins/build-official-plugins.sh`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - 已迁出：原 `scripts/plugins/official-plugin-releases.mjs`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
-- `scripts/macos/package/package-app.sh`
-- `scripts/macos/verify/verify-macos-package.sh`
 - `scripts/resources/worktree-resources.json`
 - `scripts/resources/reuse-worktree-resources.mjs`
 - `docs/ci-builds.md`
-- `third_party/jdtls/manifest.json`
-- `third_party/jdk/manifest.json`
-- `macos/Sources/LitheModuleAPI/Catalog/BuiltInModuleCatalog.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/`
 - 已迁出：原 `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
-- `macos/Sources/LithePluginPackageSigning/`
-- `rust/lithe-core/src/lsp/languages/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/languages/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/languages)
 - `shared/contracts/plugins/v1/`
 - `shared/platform-feature-matrix/features/java-support-plugin.json`
-- `windows/tauri/src/extensions/`
-- `windows/tauri/src-tauri/src/language_tools.rs`

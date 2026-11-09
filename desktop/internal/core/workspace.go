@@ -2,6 +2,27 @@ package core
 
 import "context"
 
+// WorkspaceRepository is a Git root discovered by Core. Path is an absolute
+// path and can be outside the opened folder when the folder is inside a
+// containing repository. Core uses forward slashes on Windows too; callers
+// that compare native paths must normalize separators. Ordering belongs to Core.
+type WorkspaceRepository struct {
+	Path string `json:"path"`
+}
+
+// DiscoverWorkspaceRepositories returns Core's ordered repository roots. Core
+// owns discovery, nested checkout validation and exclusions. This reads the
+// filesystem and must run away from the window thread.
+func (c *Client) DiscoverWorkspaceRepositories(ctx context.Context, root string) ([]WorkspaceRepository, error) {
+	var response struct {
+		Repositories []WorkspaceRepository `json:"repositories"`
+	}
+	err := c.Execute(ctx, "workspace.repositories", struct {
+		Root string `json:"root"`
+	}{Root: root}, &response)
+	return response.Repositories, err
+}
+
 // WorkspaceNode is a file or a directory of a project, as the kernel lists it.
 type WorkspaceNode struct {
 	// Path is relative to the project root with "/" separators.

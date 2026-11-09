@@ -102,7 +102,7 @@ macOS 提交面板复用原来的弯箭头按钮，先打开可重新勾选文�
 
 ## 适用范围
 
-- `rust/lithe-core/src/git/rollback.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/rollback.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/rollback.rs)
 - `windows/tauri/src/features/git/api/git-status-api.ts`
 - `windows/tauri/src/features/git/components/status/git-status-panel.tsx`
 - `macos/Sources/LitheGitModule/Models/GitRollbackSelection.swift`

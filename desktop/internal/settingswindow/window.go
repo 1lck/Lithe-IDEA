@@ -1,13 +1,16 @@
 package settingswindow
 
 import (
+	"runtime"
 	"sync/atomic"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/appicon"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/splitpane"
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
 )
@@ -36,18 +39,19 @@ var (
 	// language list.
 	themeScope    = tree.Sub(root, tree.Name("theme"))
 	languageScope = tree.Sub(root, tree.Name("language"))
+	infoScope     = tree.Sub(root, tree.Name("info"))
 )
 
 // The metrics of the window, after the macOS client's settings window and the log window.
 const (
-	windowWidth, windowHeight = 960, 680
+	windowWidth, windowHeight = 1040, 720
 	windowMinWidth            = 760
 	windowMinHeight           = 520
 
 	// titleHeight is the height of the title bar, which the system's window buttons sit in.
 	titleHeight = 28
 	// sidebarWidth is the width of the column of pages.
-	sidebarWidth = 240
+	sidebarWidth = 236
 	// searchHeight is the height of the search field itself and searchIcon the size of the
 	// magnifier in front of it.
 	searchHeight = 28
@@ -78,10 +82,10 @@ const (
 	contentPad = 24
 	// The cards of a page.
 	cardRadius = 8
-	cardPad    = 16
+	cardPad    = 14
 	cardGap    = 12
 	// selectWidth is the width of the language list.
-	selectWidth = 260
+	selectWidth = 190
 	// emptyWidth is the width the sentence of a page that is not available yet wraps at.
 	emptyWidth = 360
 	// footerHeight is the height of the bar with the buttons.
@@ -114,11 +118,15 @@ type window struct {
 	marketExtent   float32
 	requestPlugins atomic.Bool
 	search         flex.Field
+	marketQuery    flex.Field
 	// focusSearch asks the next paint to focus the search field (⌘F).
 	focusSearch bool
 	// language is the state of the language list: whether it is open and the first option
 	// it shows.
-	language flex.SelectState
+	language     flex.SelectState
+	marketSource flex.SelectState
+	info         components.HoverTooltip
+	pinnedInfo   ui.ID
 
 	// What the current paint works from.
 	text  *i18n.Messages
@@ -164,7 +172,7 @@ type labelsKey struct {
 	systemDark bool
 }
 
-// newWindow returns a window whose draft starts from the settings in force.
+// newWindow returns a window whose values start from the settings in force.
 func newWindow(c *Controller, current Values) *window {
 	w := &window{ctrl: c, sess: newSession(current)}
 	width := current.MarketplaceWidth
@@ -173,6 +181,11 @@ func newWindow(c *Controller, current Values) *window {
 	}
 	w.marketSplit = splitpane.New(width, 200, 520, 160, marketDividerWidth)
 	w.market = newMarketplaceState(c.opts.Marketplace, w.inv.Invalidate)
+	w.market.official = c.opts.MarketplaceOfficial
+	w.market.reportDiscarded = c.opts.MarketplaceError
+	w.market.search.rank = c.opts.MarketplaceRank
+	w.market.search.wake = w.inv.Invalidate
+	w.market.search.report = c.opts.MarketplaceError
 	return w
 }
 
@@ -193,7 +206,7 @@ func (w *window) config() app.Config {
 		OnPointer:      w.onPointer,
 		OnShortcut:     w.onShortcut,
 		OnScroll:       w.onScroll,
-		TextInput:      flex.Fields(&w.search),
+		TextInput:      flex.Fields(&w.search, &w.marketQuery),
 		Invalidator:    &w.inv,
 		OnWake:         w.marketWake,
 		OnClosed:       w.closed,
@@ -201,7 +214,7 @@ func (w *window) config() app.Config {
 }
 
 // watchSystem makes the window repaint when the system switches between its light and dark
-// looks, because a draft that follows the system is painted in the system's look. A window
+// looks, because a window following the system is painted in the system's look. A window
 // that is already gone is not watched.
 func (w *window) watchSystem() {
 	stop := app.WatchSystemAppearance(w.inv.Invalidate)
@@ -245,15 +258,15 @@ func (w *window) closed() {
 	}
 }
 
-// accept is OK: it applies the draft and closes the window. A second OK, such as an Enter
+// accept is OK: it closes the window. A second OK, such as an Enter
 // that arrives with a click, does nothing.
 func (w *window) accept() {
-	if w.sess.accept(w.ctrl.opts.Apply) {
+	if w.sess.accept() {
 		w.closeNative()
 	}
 }
 
-// cancel is Cancel: it closes the window and leaves the settings in force as they were.
+// cancel is Cancel: it closes the window without undoing already applied settings.
 func (w *window) cancel() {
 	if w.sess.cancel() {
 		w.closeNative()
@@ -268,14 +281,14 @@ func (w *window) closeNative() {
 	}
 }
 
-// paint draws the window for the draft as it is now.
+// paint draws the window for its current settings.
 func (w *window) paint(canvas *ui.Canvas, size ui.Size) {
 	w.marketExtent = max(0, size.Width-sidebarWidth-1)
 	if w.sess.page != pagePlugins || w.market.status != marketReady {
 		w.marketSplit.Cancel()
 	}
 	w.text = w.ctrl.text()
-	w.dark = windowDark(w.sess.draft.Theme, w.ctrl.systemDark())
+	w.dark = windowDark(w.sess.values.Theme, w.ctrl.systemDark())
 	w.pal = paletteFor(w.dark)
 	if !w.themed || w.themedDark != w.dark {
 		w.theme, w.themed, w.themedDark = windowTheme(w.dark, w.pal), true, w.dark
@@ -287,6 +300,10 @@ func (w *window) paint(canvas *ui.Canvas, size ui.Size) {
 		// The language list lives on the general page. One left open there would go on
 		// taking Enter and Escape from the window with nothing on the screen to show why.
 		w.language.Open = false
+		w.pinnedInfo = ui.ID{}
+	}
+	if w.sess.page != pagePlugins {
+		w.marketSource.Open = false
 	}
 
 	bounds := ui.Rect{Width: size.Width, Height: size.Height}
@@ -315,18 +332,36 @@ func (w *window) paint(canvas *ui.Canvas, size ui.Size) {
 			w.drawFooter(f)
 		})
 	})
+	// The native settings help uses the settings card surface in both themes.
+	tipTheme := w.theme
+	tipTheme.Foreground, tipTheme.Background = w.pal.card, w.pal.text
+	if !w.pinnedInfo.IsZero() {
+		found := false
+		for _, hit := range canvas.Hits() {
+			if hit.ID == w.pinnedInfo && hit.Hint != "" {
+				components.BeginTooltip(canvas, tipTheme, bounds, hit.Bounds, components.TooltipOptions{Layer: 3, Side: components.TooltipBottom, MaxWidth: 320}).Paint(hit.Hint)
+				found = true
+				break
+			}
+		}
+		if !found {
+			w.pinnedInfo = ui.ID{}
+		}
+	} else {
+		w.info.Paint(canvas, tipTheme, bounds, components.TooltipOptions{Layer: 3, MaxWidth: 320}, 500*time.Millisecond)
+	}
 	w.listRect = w.listBox.Rect()
 	if w.sess.page == pagePlugins && w.market.status == marketReady {
 		rect := w.marketDivider.Rect()
 		rect.X -= (marketDividerHitWidth - rect.Width) / 2
 		rect.Width = marketDividerHitWidth
 		lo, hi := w.marketSplit.Limits(w.marketExtent)
-		canvas.HitWithOptions(marketDividerID, rect, w.marketText("settings.resizePlugins"), ui.HitOptions{
+		canvas.HitWithOptions(marketDividerID, rect, i18n.Shared(w.marketLanguage(), "settings.resizePlugins"), ui.HitOptions{
 			Role: ui.RoleSlider, Cursor: ui.PointerCursorResizeHorizontal,
 			Range: ui.ValueRange{Now: float64(w.marketSplit.Size(w.marketExtent)), Min: float64(lo), Max: float64(hi), Step: 16, Set: true},
 		})
 	}
-	if w.sess.page == pagePlugins && w.market.status == marketReady && len(w.market.snapshot.Index.Plugins) > 0 {
+	if w.sess.page == pagePlugins && w.market.status == marketReady && !w.market.search.loading && !w.market.search.failed && !w.market.search.tooLong && len(w.market.search.visible()) > 0 {
 		w.marketListRect = w.marketListBox.Rect()
 	} else {
 		w.marketListRect = ui.Rect{}
@@ -357,14 +392,11 @@ func (w *window) refreshLabels() {
 	w.labelsFor, w.labelsValid = key, true
 }
 
-// drawTitle is the title bar: the window's name, centered between the system's window
-// buttons and the far edge. The whole bar moves the window.
+// drawTitle keeps the native window title beside the system controls.
 func (w *window) drawTitle(f *flex.Frame) {
 	leading, trailing := app.TitlebarInsets()
 	f.Stack().FillWidth().Height(titleHeight).Shrink(0).Background(w.pal.titleBar).MovesWindow().Children(func() {
-		// The window buttons sit at the leading end, so the title keeps clear of them on that
-		// side and is centered in what is left.
-		f.Row().Fill().PadSides(0, max(60, trailing+60), 0, max(80, leading+10)).Center().Children(func() {
+		f.Row().Fill().PadSides(0, max(8, trailing), 0, max(80, leading+10)).Items(flex.Center).Children(func() {
 			f.Text(w.text.Settings.Title).FontSize(13).Weight(ui.WeightSemibold).Color(w.pal.text).Ellipsis()
 		})
 	})
@@ -375,11 +407,15 @@ func (w *window) drawSidebar(f *flex.Frame) {
 	p := &w.pal
 	settings := &w.text.Settings
 	f.Column().Width(sidebarWidth).FillHeight().Shrink(0).Background(p.sidebar).Clip().Children(func() {
-		// Viva's field paints its own frame, so the magnifier sits beside the frame and not
-		// inside it, as in the log window.
-		f.Row().FillWidth().Shrink(0).PadSides(10, 12, 8, 12).Gap(8).Items(flex.Center).Children(func() {
-			f.Icon(icons.Search).Size(searchIcon, searchIcon).Color(p.muted).Shrink(0)
-			f.Field(&w.search, searchID, settings.Search, settings.Search).Grow(1).MinWidth(0).Height(searchHeight)
+		f.Row().FillWidth().Shrink(0).PadSides(10, 12, 8, 12).Children(func() {
+			border := p.border
+			if f.Canvas().Focused() == searchID {
+				border = p.accent
+			}
+			f.Row().FillWidth().Height(searchHeight).PadX(8).Gap(6).Items(flex.Center).Border(1, border).Radius(6).Children(func() {
+				f.Icon(icons.Search).Size(searchIcon, searchIcon).Color(p.muted).Shrink(0)
+				f.FieldBase(&w.search, searchID, settings.Search, settings.Search).Grow(1).MinWidth(0).Height(searchHeight - 2).FontSize(13).Color(p.text)
+			})
 		})
 		// The list's container is declared with the rectangle the list had in the last frame,
 		// ahead of the rows, so assistive technology finds the rows inside it. The first frame
@@ -483,7 +519,7 @@ func (w *window) drawContent(f *flex.Frame) {
 func (w *window) drawBreadcrumb(f *flex.Frame) {
 	p := &w.pal
 	w.crumbs = appendBreadcrumb(w.crumbs[:0], &w.text.Settings, w.sess.page)
-	f.Row().FillWidth().Shrink(0).PadSides(16, contentPad, 8, contentPad).Gap(6).Items(flex.Center).Children(func() {
+	f.Row().FillWidth().Height(46).Shrink(0).PadX(contentPad).Gap(6).Items(flex.Center).Background(p.card).Children(func() {
 		for i, crumb := range w.crumbs {
 			if i > 0 {
 				f.Icon(icons.ChevronRight).Size(chevronGlyph, chevronGlyph).Color(p.subtle).Shrink(0)
@@ -495,6 +531,7 @@ func (w *window) drawBreadcrumb(f *flex.Frame) {
 			}
 		}
 	})
+	f.Row().FillWidth().Height(1).Shrink(0).Background(p.line)
 }
 
 // drawUnavailable is the body of a page the new desktop client does not offer yet: an icon
@@ -507,41 +544,78 @@ func (w *window) drawUnavailable(f *flex.Frame) {
 	})
 }
 
-// drawGeneral is the general page: the cards that edit the draft, then the one that
+// setLanguage and setTheme notify only the field the user changed, avoiding overwriting
+// another setting with an old window snapshot.
+func (w *window) setLanguage(value string, force bool) {
+	if w.sess.finished.Load() || (!force && w.sess.values.Language == value) {
+		return
+	}
+	w.sess.values.Language = value
+	if w.ctrl.opts.SetLanguage != nil {
+		w.ctrl.opts.SetLanguage(value)
+	}
+}
+
+func (w *window) setTheme(value string, force bool) {
+	if w.sess.finished.Load() || (!force && w.sess.values.Theme == value) {
+		return
+	}
+	w.sess.values.Theme = value
+	if w.ctrl.opts.SetTheme != nil {
+		w.ctrl.opts.SetTheme(value)
+	}
+}
+
+// drawGeneral is the general page: the cards that edit settings, then the one that
 // reports the version.
 func (w *window) drawGeneral(f *flex.Frame) {
 	p := &w.pal
 	settings := &w.text.Settings
 	scroll := pageScrollScope.At(int(pageGeneral))
-	f.ScrollArea(scroll).Grow(1).Shrink(1).MinHeight(0).PadSides(4, contentPad, contentPad, contentPad).Gap(cardGap).Children(func() {
-		w.card(f, settings.Appearance, settings.AppearanceHelp, func() {
-			f.Row().FillWidth().Gap(12).Items(flex.Center).Children(func() {
-				f.Text(settings.AppearanceMode).FontSize(12).Color(p.text).Grow(1).Shrink(1).MinWidth(0).Ellipsis()
-				choice := f.Choice(themeScope, w.themeLabels, themeIndex(w.sess.draft.Theme)).Label(settings.AppearanceMode)
+	f.ScrollArea(scroll).Grow(1).Shrink(1).MinHeight(0).PadSides(18, contentPad, contentPad, contentPad).Gap(cardGap).Children(func() {
+		w.card(f, 0, settings.Appearance, settings.AppearanceHelp, func() {
+			choice := func() {
+				choice := f.Choice(themeScope, w.themeLabels, themeIndex(w.sess.values.Theme)).Width(420).Shrink(1).MinWidth(0).Label(settings.AppearanceMode)
 				if index, ok := choice.ChosenIndex(); ok {
-					w.sess.draft.Theme = themeValue(index)
+					w.setTheme(themeValue(index), false)
 				}
-			})
+			}
+			if w.marketExtent-2*contentPad-2*cardPad < 590 {
+				f.Column().FillWidth().Gap(8).Children(func() {
+					f.Text(settings.AppearanceMode).FontSize(12).Color(p.text)
+					choice()
+				})
+			} else {
+				f.Row().FillWidth().Height(28).Gap(12).Items(flex.Center).Children(func() {
+					f.Row().WidthPercent(34).Shrink(1).MinWidth(0).Items(flex.Center).Children(func() {
+						f.Text(settings.AppearanceMode).FontSize(12).Color(p.text).Ellipsis()
+					})
+					choice()
+				})
+			}
 		})
-		w.card(f, settings.Language, settings.LanguageHelp, func() {
-			f.Row().FillWidth().Items(flex.Center).Children(func() {
-				pick := f.Select(languageScope, &w.language, w.languageLabels, languageIndex(w.sess.draft.Language)).
+		w.card(f, 1, settings.Language, "", func() {
+			f.Row().FillWidth().Height(28).Items(flex.Center).Gap(12).Children(func() {
+				f.Row().WidthPercent(34).Shrink(1).MinWidth(0).Items(flex.Center).Gap(6).Children(func() {
+					f.Text(settings.Language).FontSize(12).Color(p.text)
+					w.infoButton(f, 1, settings.LanguageHelp)
+				})
+				pick := f.Select(languageScope, &w.language, w.languageLabels, languageIndex(w.sess.values.Language)).
 					Width(selectWidth).Label(settings.Language)
 				if index, ok := pick.Picked(); ok {
-					w.sess.draft.Language = languageCode(index)
+					w.setLanguage(languageCode(index), false)
 				}
 			})
 		})
-		w.card(f, settings.Workbench, settings.LayoutHint, func() {
+		w.card(f, 2, settings.Workbench, settings.LayoutHint, func() {
 			f.Row().FillWidth().Items(flex.Center).Children(func() {
-				// Putting the layout back is not part of the draft: pressing the button is its
-				// own confirmation, so it acts at once.
+				// Pressing the button is its own confirmation, so it acts at once.
 				if f.Button(resetLayoutID, settings.ResetLayout).Outline().Clicked() && w.ctrl.opts.ResetLayout != nil {
 					w.ctrl.opts.ResetLayout()
 				}
 			})
 		})
-		w.card(f, settings.About, "", func() {
+		w.card(f, 3, settings.About, "", func() {
 			f.Column().FillWidth().Gap(2).Children(func() {
 				f.Text(w.text.App.Name).FontSize(13).Weight(ui.WeightSemibold).Color(p.text).Ellipsis()
 				f.Text(w.text.App.Version(w.ctrl.opts.Version)).FontSize(12).Color(p.muted).Ellipsis()
@@ -550,20 +624,32 @@ func (w *window) drawGeneral(f *flex.Frame) {
 	})
 }
 
-// card declares one card of a page: a title and, when there is one, the sentence that
-// explains it, then whatever body declares.
-func (w *window) card(f *flex.Frame, title, help string, body func()) {
+// card puts the section label outside its bounded settings rows, as in the native client.
+func (w *window) card(f *flex.Frame, id int, title, help string, body func()) {
 	p := &w.pal
-	f.Column().FillWidth().Shrink(0).MinWidth(0).Pad(cardPad).Gap(cardGap).Radius(cardRadius).
-		Background(p.card).Stroke(1, p.line).Children(func() {
-		f.Column().FillWidth().Gap(4).Children(func() {
-			f.Text(title).FontSize(13).Weight(ui.WeightSemibold).Color(p.text).Ellipsis()
+	f.Column().FillWidth().Shrink(0).MinWidth(0).Gap(6).Children(func() {
+		f.Row().FillWidth().PadX(6).Gap(6).Items(flex.Center).Children(func() {
+			f.Text(title).FontSize(12).Weight(ui.WeightSemibold).Color(p.muted).Ellipsis()
 			if help != "" {
-				f.Wrap(help).FontSize(12).Color(p.subtle)
+				w.infoButton(f, id, help)
 			}
 		})
-		body()
+		f.Column().FillWidth().Shrink(0).MinWidth(0).PadX(cardPad).PadY(7).Radius(cardRadius).
+			Background(p.card).Stroke(1, p.line).Children(body)
 	})
+}
+
+func (w *window) infoButton(f *flex.Frame, index int, help string) {
+	id := infoScope.At(index)
+	button := f.Row().Size(18, 18).Shrink(0).Center().HitWith(id, i18n.Shared(w.marketLanguage(), "native.moreInformation"), ui.HitOptions{Role: ui.RoleButton, Hint: help})
+	button.Children(func() { f.Icon(icons.Info).Size(13, 13).Color(w.pal.muted) })
+	if button.Clicked() {
+		if w.pinnedInfo == id {
+			w.pinnedInfo = ui.ID{}
+		} else {
+			w.pinnedInfo = id
+		}
+	}
 }
 
 // drawFooter is the bar along the bottom: Restore Defaults at the leading end, Cancel and OK
@@ -571,8 +657,11 @@ func (w *window) card(f *flex.Frame, title, help string, body func()) {
 func (w *window) drawFooter(f *flex.Frame) {
 	settings := &w.text.Settings
 	f.Row().FillWidth().Height(footerHeight).Shrink(0).PadX(footerPad).Gap(8).Items(flex.Center).Children(func() {
-		if f.Button(restoreID, settings.RestoreDefaults).Ghost().Clicked() {
-			w.sess.restoreDefaults()
+		if f.Button(restoreID, settings.RestoreDefaults).Outline().Clicked() {
+			// Reset is explicit even when an unknown stored value is displayed as the
+			// system default. Forward it so the owner's real setting is cleared.
+			w.setLanguage("", true)
+			w.setTheme("", true)
 		}
 		f.Spacer()
 		if f.Button(cancelID, settings.Cancel).Outline().Clicked() {
@@ -603,6 +692,15 @@ func (w *window) onKey(event ui.KeyEvent) ui.EventResult {
 	if event.Release {
 		return ui.EventResult{}
 	}
+	if event.Key == ui.KeyEscape && event.Modifiers == 0 {
+		if !w.pinnedInfo.IsZero() {
+			w.pinnedInfo = ui.ID{}
+			return ui.EventResult{Handled: true, Repaint: true}
+		}
+		if w.info.Dismiss() {
+			return ui.EventResult{Handled: true, Repaint: true}
+		}
+	}
 	if w.sess.page == pagePlugins && w.market.status == marketReady {
 		if result, committed := w.marketSplit.Key(event, marketDividerID, w.marketExtent); result.Handled {
 			if committed && w.ctrl.opts.MarketplaceResized != nil {
@@ -615,6 +713,9 @@ func (w *window) onKey(event ui.KeyEvent) ui.EventResult {
 		}
 	}
 	// The type-ahead of the language list goes first, as the toolkit asks.
+	if result := w.marketSource.Key(event); result.Handled {
+		return result
+	}
 	if result := w.language.Key(event); result.Handled {
 		return result
 	}
@@ -631,7 +732,7 @@ func (w *window) onKey(event ui.KeyEvent) ui.EventResult {
 		key = keyEscape
 	}
 	switch decideKey(key, keyContext{
-		selectOpen: w.language.Open,
+		selectOpen: w.language.Open || w.marketSource.Open,
 		searching:  event.Target == searchID,
 		queryEmpty: w.search.Text() == "",
 		ownsEnter:  w.ownsEnter(event.Target),
@@ -649,21 +750,29 @@ func (w *window) onKey(event ui.KeyEvent) ui.EventResult {
 }
 
 func (w *window) onPointer(event ui.PointerEvent) ui.EventResult {
+	dismissed := event.Kind == ui.PointerDown && !w.pinnedInfo.IsZero() && event.Target != w.pinnedInfo
+	if dismissed {
+		w.pinnedInfo = ui.ID{}
+	}
 	if w.sess.page != pagePlugins || w.market.status != marketReady {
 		w.marketSplit.Cancel()
-		return ui.EventResult{}
+		return ui.EventResult{Repaint: dismissed}
 	}
 	result, committed := w.marketSplit.Pointer(event, marketDividerID, w.marketExtent)
+	result.Repaint = result.Repaint || dismissed
 	if committed && w.ctrl.opts.MarketplaceResized != nil {
 		w.ctrl.opts.MarketplaceResized(w.marketSplit.Preferred())
 	}
 	return result
 }
 
-// onShortcut handles the window's command shortcuts: ⌘F focuses the search field and ⌘W
-// closes the window as Cancel does.
+// onShortcut handles the platform's command shortcuts for search and close.
 func (w *window) onShortcut(event ui.KeyEvent) ui.EventResult {
-	if event.Release || event.Modifiers != ui.ModifierMeta {
+	modifier := ui.ModifierControl
+	if runtime.GOOS == "darwin" {
+		modifier = ui.ModifierMeta
+	}
+	if event.Release || event.Modifiers != modifier {
 		return ui.EventResult{}
 	}
 	switch event.Text {
@@ -680,6 +789,9 @@ func (w *window) onShortcut(event ui.KeyEvent) ui.EventResult {
 // onScroll scrolls the open language list when there is one, and otherwise the area under
 // the pointer.
 func (w *window) onScroll(event ui.ScrollEvent) ui.EventResult {
+	if result := w.marketSource.Wheel(event); result.Handled {
+		return result
+	}
 	if result := w.language.Wheel(event); result.Handled {
 		return result
 	}

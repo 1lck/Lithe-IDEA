@@ -4,7 +4,9 @@
 
 ## 先说结论
 
-macOS 项目树里 `v0.1.12.md` 曾排在 `v0.1.4.md` 前面，因为各处只是把名字转成小写后逐字符比较。现在同一层的目录始终排在文件前，名字则沿用 IDEA 项目视图的“自然排序”：数字按数值比较、忽略大小写、`-` 与 `_` 相邻。Rust Core 的目录列表、macOS 兜底扫描和树内新增文件三处使用同一套规则，由共享 fixture 保证一致。快照 `files` 和搜索索引的遍历顺序不属于显示顺序，保持原样，因此 Windows 快速打开等依赖它的功能不受影响。
+项目树里 `v0.1.12.md` 曾排在 `v0.1.4.md` 前面。当前 Viva 项目树直接显示 Rust Core 的 `workspace.listDirectories` 顺序：目录在文件前，名称采用 IDEA 自然排序；macOS 和 Windows 共用这条路径。快照和搜索索引仍使用各自的遍历顺序。Viva 在 macOS 和 Windows 用共享的递归监听接收外部变化，再重新采用 Core 列表；旧版 Swift 兜底扫描和完整增量插入验证属于迁移前历史。
+
+以下有关 Swift、Tauri 和旧版快速打开的实现描述记录迁移前决策，不代表当前桌面实现。
 
 ## 问题
 
@@ -55,16 +57,19 @@ macOS 项目树的主路径是 Rust Core 的目录列表，兜底扫描只在 Co
 
 ## 验证
 
-- `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib file_name_order`：共享 fixture、特殊字符的全序检查、`workspace.listDirectories` 的目录优先与版本号顺序，以及快照 `files`（含与不含 `includeTree`）保持遍历顺序。
-- `./scripts/macos/test/test-macos.sh --filter ProjectTreeNameOrderTests`：fixture、兜底扫描和新增文件的位置；另需运行 `GitGraphLayoutTests` 确认分支名排序不变。
-- 在 macOS 打开含 `docs/releases/v0.1.4.md`、`v0.1.12.md` 的仓库，确认树中 `v0.1.4` 在 `v0.1.12` 之前，并在外部新建 `v0.1.5.md` 后插入到 `v0.1.4` 与 `v0.1.12` 之间。
+- `scripts/desktop/desktop-go.sh test -race ./internal/core -run TestWorkspaceDirectoryTreeUsesCoreNaturalOrder -count=3`：真实 Core 消费共享版本号 fixture，验证目录优先及文件自然排序。
+- 旧版 Swift 兜底扫描、树内增量插入和快照遍历的历史验证见下方；Viva 的原生窗口和大项目监听覆盖仍需验收。
 
 ## 适用范围
 
-- `rust/lithe-core/src/project/file_name_order.rs`
-- `rust/lithe-core/src/project/files.rs`
-- `rust/lithe-core/src/project/search_index.rs`
-- `macos/Sources/LitheCoreContracts/Workspace/NaturalNameOrder.swift`
-- `macos/Sources/LitheCoreContracts/Workspace/FileNodePathLookup.swift`
-- `macos/Sources/Lithe/Platform/MacOS/FileSystem/MacWorkspaceSnapshotBuilder.swift`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/project/file_name_order.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/project/file_name_order.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/project/files.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/project/files.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/project/search_index.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/project/search_index.rs)
+- `desktop/internal/core/workspace.go`
+- `desktop/internal/core/workspace_tree_test.go`
+- `desktop/internal/workbench/filetree.go`
 - `shared/fixtures/workspace/file-name-order-v1.json`
+
+## 迁移前的实现与验证记录
+
+旧版路径固定在提交 [5a54c41](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36)：[NaturalNameOrder.swift](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/LitheCoreContracts/Workspace/NaturalNameOrder.swift)、[FileNodePathLookup.swift](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/LitheCoreContracts/Workspace/FileNodePathLookup.swift)、[MacWorkspaceSnapshotBuilder.swift](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/Lithe/Platform/MacOS/FileSystem/MacWorkspaceSnapshotBuilder.swift)。当时的 Rust 排序测试覆盖 fixture、全序检查和快照遍历顺序；[macOS 测试入口](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/macos/test/test-macos.sh)运行 ProjectTreeNameOrderTests 和 GitGraphLayoutTests，并人工检查外部新增文件的插入位置。这些历史记录不能证明 Viva 在原生窗口中的表现。

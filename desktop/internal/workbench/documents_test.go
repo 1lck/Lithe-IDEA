@@ -1,6 +1,8 @@
 package workbench
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +14,68 @@ import (
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/ui"
 )
+
+// Until encoding conversion is available, an editor must not accept bytes it
+// cannot represent as UTF-8 and let an edit split an encoded character.
+func TestOpenRejectsUnsupportedEncodingWithoutChangingTheFile(t *testing.T) {
+	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
+	root := t.TempDir()
+	path := filepath.Join(root, "legacy.txt")
+	original := []byte{0xd6, 0xd0, 0xce, 0xc4} // GBK bytes for two Chinese characters.
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.open(root)
+	h.app.openFile(h.app.project, path)
+	h.settle()
+	if doc := h.app.project.docs.byPath(path); doc != nil {
+		t.Fatal("unsupported encoding was opened for editing")
+	}
+	if !strings.Contains(h.app.notice, "not valid UTF-8") {
+		t.Fatalf("unsupported encoding did not explain why the file cannot be edited: %q", h.app.notice)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(data, original) {
+		t.Fatalf("file changed after rejected open: %x, error %v", data, err)
+	}
+}
+
+func TestReadDocumentUsesWholeFileClassification(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "document.txt")
+	valid := []byte("中文 and emoji 😀\n")
+	if err := os.WriteFile(path, valid, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readDocument(path)
+	if err != nil || !bytes.Equal(got, valid) {
+		t.Fatalf("valid UTF-8 read = %x, error %v", got, err)
+	}
+	invalid := append(bytes.Repeat([]byte{'a'}, (8<<10)+1), 0xff)
+	if err := os.WriteFile(path, invalid, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readDocument(path); !errors.Is(err, errUnsupportedEncoding) {
+		t.Fatalf("invalid UTF-8 after sniff region returned %v", err)
+	}
+	lateControl := append(bytes.Repeat([]byte{'a'}, (8<<10)+1), 0)
+	if err := os.WriteFile(path, lateControl, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readDocument(path); !errors.Is(err, errNotText) {
+		t.Fatalf("binary control after the former sniff region returned %v", err)
+	}
+}
+
+func TestUnsupportedEncodingReasonFollowsLanguage(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	if got := h.app.documentReason(errUnsupportedEncoding); !strings.Contains(got, "不是有效的 UTF-8") {
+		t.Fatalf("Chinese encoding reason = %q", got)
+	}
+	h.app.setLanguage("en")
+	if got := h.app.documentReason(errUnsupportedEncoding); !strings.Contains(got, "not valid UTF-8") {
+		t.Fatalf("English encoding reason = %q", got)
+	}
+}
 
 // The switch at the end of the strip of a group that shows a file turns soft wrapping on and
 // off, says which it is to assistive technology, and sits to the right of the file's tab.

@@ -44,7 +44,7 @@ Core 比较文档身份时规范化百分号转义的写法与 Windows 盘符，
 
 ## 适用范围
 
-- `rust/lithe-core/src/lsp/interface/document_uri.rs`
-- `rust/lithe-core/src/lsp/interface/client.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/document_uri.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/document_uri.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/client.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/client.rs)
 - `macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift`
 - `windows/tauri/src/platform/lsp-core-adapter.ts`

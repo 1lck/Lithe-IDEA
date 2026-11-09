@@ -1,10 +1,10 @@
 # Agent 笔记：Windows React/Tauri 产品对齐完成度
 
-状态：提议中
+状态：已否决：Viva 工作台取代 React/Tauri 客户端，旧迁移路线不再适用。
 
 ## 先说结论
 
-Windows React/Tauri 的基础迁移已经完成，但产品能力和真实 Windows 验证还不完整。这份提案只列剩余对齐工作，不能把“已有目录或命令入口”误认为功能已经真正完成。
+原提案要求继续完善 Windows React/Tauri 客户端；当前重构改为使用 Viva 工作台，因此不再按这份旧路线实施。用户能力与真实 Windows 验收仍然需要完成，当前状态以跨平台功能矩阵为准。下文保留当时的提案与取舍，不代表 Viva 已完成对应功能。
 
 ## 问题
 
@@ -15,6 +15,10 @@ Windows 已经完成从 Qt/C++ 到 React/Tauri 的地基迁移（工作台、编
 Core 契约，也还没有在真实 Windows 机器上跑过完整回归。继续把功能
 迁过去之前，需要一份明确的、可核对的剩余工作清单，否则容易出现
 "表面上迁移完成，实际上某个功能仍是硬编码或伪造成功值"的状态。
+
+## 否决理由
+
+本仓库已移除 React/Tauri 客户端，继续针对该客户端实现或运行旧检查无法验证 Viva 产品。原提案中的共享契约、真实 Windows 测试和不伪造成功等原则仍适用，应落实到当前桌面代码和 Core，而不是恢复已移除的客户端。
 
 ## 提案
 
@@ -55,9 +59,9 @@ Core 契约，也还没有在真实 Windows 机器上跑过完整回归。继续
 
 - `bun run typecheck` 和 `bun run build` 在 `windows/tauri` 下通过。
 - Windows Tauri crate 能格式化、构建并通过测试。
-- [`scripts/windows/verify/verify-windows-boundaries.sh`](../../../../scripts/windows/verify/verify-windows-boundaries.sh)
+- [旧版 Windows 边界检查脚本](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/windows/verify/verify-windows-boundaries.sh)
   和它的 PowerShell 对应版本
-  [`scripts/windows/verify/verify-windows-boundaries.ps1`](../../../../scripts/windows/verify/verify-windows-boundaries.ps1)
+  [旧版 PowerShell 检查脚本](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/windows/verify/verify-windows-boundaries.ps1)
   通过。
 - Windows CI 能构建出真实可执行文件，并同时测试 `lithe-core` 和
   Tauri host。
@@ -82,8 +86,7 @@ Core 契约，也还没有在真实 Windows 机器上跑过完整回归。继续
 
 ## 适用范围
 
-- `windows/tauri/src/`
-- `windows/tauri/src-tauri/`
-- `scripts/windows/verify/verify-windows-boundaries.sh`
-- `scripts/windows/verify/verify-windows-boundaries.ps1`
+- `desktop/`
 - `shared/contracts/application-boundary.md`
+- `shared/platform-feature-matrix/`
+- [旧 Windows 客户端（历史版本）](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/windows/tauri)

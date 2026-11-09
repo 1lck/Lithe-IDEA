@@ -4,17 +4,39 @@
   "group": "首次启动",
   "capability": "欢迎页、项目入口与首次启动引导",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/welcome.go",
+      "desktop/internal/workbench/welcome_test.go",
+      "desktop/internal/workbench/clone.go",
+      "desktop/internal/workbench/clone_test.go",
+      "desktop/internal/core/git_clone_test.go",
+      "desktop/internal/workbench/recent_branch.go",
+      "desktop/internal/workbench/recent_branch_test.go",
+      "desktop/internal/gitmetadata/read.go",
+      "desktop/internal/gitmetadata/read_test.go",
+      "desktop/internal/core/git_checkout.go",
+      "desktop/internal/workbench/app_test.go",
+      "desktop/internal/i18n/welcome_messages.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/welcome.go",
+      "desktop/internal/workbench/welcome_test.go",
+      "desktop/internal/workbench/clone.go",
+      "desktop/internal/workbench/clone_test.go",
+      "desktop/internal/core/git_clone_test.go",
+      "desktop/internal/workbench/recent_branch.go",
+      "desktop/internal/workbench/recent_branch_test.go",
+      "desktop/internal/gitmetadata/read.go",
+      "desktop/internal/gitmetadata/read_test.go",
+      "desktop/internal/core/git_checkout.go",
+      "desktop/internal/workbench/app_test.go",
+      "desktop/internal/i18n/welcome_messages.go"
     ]
   },
   "owner": "Onboarding",
@@ -44,5 +66,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva 已有欢迎页、最近项目列表与搜索、打开项目和设置入口；最近项目支持右键、悬停或键盘菜单打开、定位和从列表移除，移除操作交给 Core 且不会删除目录。欢迎页词条和标题已接入共享 i18n；侧栏、搜索框、标题及徽标位置已结合当前 macOS 原版截图和无头截图调整，但完整像素对齐尚未完成。欢迎页在后台有界读取 Git 元数据，由 Core 解析普通仓库、worktree 和分离 HEAD；Windows 实机已运行真实 Core 桥接和欢迎页测试，并检查普通仓库分支的无头截图，但完整原生窗口工作流尚未验收。项目切换菜单仍会扫描完整 Git 状态，跟踪 #1808；欢迎页和项目菜单可通过 Core 克隆仓库，macOS 无头测试用本地仓库验证成功、失败、取消及目标目录保护；URL 自动建议名称、克隆弹窗原版视觉、远程认证及 Windows 原生流程仍待验证或实现。空项目创建已接入，插件生成器和完整首次启动引导仍待完成；legacy 是迁移前基线，不代表当前实现。"
 }

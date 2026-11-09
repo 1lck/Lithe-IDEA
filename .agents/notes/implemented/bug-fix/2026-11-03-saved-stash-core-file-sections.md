@@ -36,8 +36,8 @@ macOS 和 Windows 的 Stash、Shelf 及 Windows 普通 Git 差异使用 Rust Cor
 
 ## 适用范围
 
-- `rust/lithe-core/src/git/mod.rs`
-- `rust/lithe-core/src/git/patch_exchange.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/mod.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/mod.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/patch_exchange.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/patch_exchange.rs)
 - `macos/Sources/LitheGitModule/Services/GitService.swift`
 - `macos/Sources/Lithe/Core/Rust/RustGitOperations.swift`
 - `windows/tauri/src/platform/core-result-adapter.ts`

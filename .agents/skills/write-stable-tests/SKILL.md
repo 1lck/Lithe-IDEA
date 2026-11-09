@@ -1,6 +1,6 @@
 ---
 name: write-stable-tests
-description: Write and review deterministic, bounded Lithe tests for macOS Swift, Windows TypeScript, and Rust. Use whenever creating, modifying, or reviewing test code or test infrastructure, especially concurrency, timers, polling, subprocess, watcher, lifecycle, or cancellation tests that could hang CI.
+description: Write and review deterministic, bounded Lithe tests and test infrastructure, including Viva desktop Go and shared Rust. Use especially for concurrency, timers, polling, subprocess, watcher, lifecycle, or cancellation tests that could hang CI.
 ---
 
 # Write Stable Tests
@@ -10,9 +10,11 @@ fail locally with a useful diagnostic instead of waiting for a CI job timeout.
 
 ## Toolchain boundaries
 
-- macOS uses Swift, `zsh`, and Node.js. It does not require Bun, `npm`, or a
-  JavaScript package installation for stability checks, timing, JUnit output,
-  or HTML report generation.
+- Viva desktop timing uses Go, Node.js and the existing Core build wrapper;
+  macOS also uses `zsh`, while Windows uses PowerShell and Git Bash. Reuse an
+  existing matching Core build instead of repeatedly performing cold builds.
+- The old Swift and Tauri clients are absent on this branch. Their legacy timing
+  scripts and historical reports do not prove Viva behavior or current CI coverage.
 - Windows Rust scopes use Node.js plus Cargo. Windows `Frontend` additionally
   uses the repository's Bun toolchain because the product tests run under Bun;
   this dependency is isolated to that scope.
@@ -91,14 +93,25 @@ fail locally with a useful diagnostic instead of waiting for a CI job timeout.
    node .agents/skills/write-stable-tests/scripts/test-verify-test-stability.mjs
    ```
 
+   The current static scanner covers Swift, TypeScript and Rust, not Go.
+   Passing it does not establish Go test stability: manually inspect Go waits,
+   cancellation and cleanup, and run the Go timing and race checks below.
+
 4. Run the platform timing harness. A changed test is not verified until its
    individual duration appears in the generated HTML and JUnit reports:
 
    ```bash
-   ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter '<focused-test>'
-   ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend
-   ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope WindowsRust
+   ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --package ./internal/workbench -- --filter '<focused-test>'
+   ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope DesktopGo -GoPackages ./internal/workbench -GoTestPattern '<focused-test>'
    ```
+
+   Go runs serially with `-count=1` and records Go's own per-test elapsed time;
+   zero matching tests, unfinished tests, failures and budget overruns fail the
+   runner. A suite deadline stops the process tree; individual durations are
+   checked after Go reports them, rather than interrupting a buffered result.
+   Parent and subtest durations overlap, so totals are not wall time.
+   The former Swift/Frontend/WindowsRust scopes remain historical and cannot
+   verify the removed clients; do not report their absence as a passing lane.
 
 5. Run the broader affected validation required by `develop-lithe`. Report the
    HTML report path, slowest changed tests, exact commands, and any suite that

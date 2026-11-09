@@ -176,9 +176,9 @@ cargo test --manifest-path rust/Cargo.toml -p lithe-core project_generators
 
 ## 适用范围
 
-- `rust/lithe-core/src/project_generators/`
-- `rust/lithe-core/src/plugins/declarative.rs`
-- `rust/lithe-core/src/plugins/capabilities.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/project_generators/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/project_generators)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/declarative.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/declarative.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/capabilities.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/capabilities.rs)
 - `shared/contracts/plugins/v1/`
 - `macos/Sources/Lithe/Views/Workspace/NewProjectView.swift`
 - `macos/Sources/Lithe/Application/Features/NewProjectFeatureModel.swift`

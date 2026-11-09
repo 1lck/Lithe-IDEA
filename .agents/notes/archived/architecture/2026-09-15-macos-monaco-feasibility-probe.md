@@ -2,6 +2,10 @@
 
 状态：已实现
 
+归档日期：2026-11-08
+
+> Monaco 实验及其旧客户端已被 Viva 原生编辑器迁移取代。本文保留历史验证与约束，不代表 Viva 已完成对应功能验收。
+
 ## 先说结论
 
 先用独立原生窗口验证 Monaco 能否在 macOS 的网页容器 WKWebView 中工作，
@@ -681,7 +685,7 @@ CoreText 注册，因此 `MonacoWorkbenchAssets` 从安装包现有 `Fonts` 目�
 提供 TTF；编辑器 HTML 用 `@font-face` 引用同一字型，加载后重新度量 Monaco。
 字体路径必须校验目录边界、真实路径与扩展名，不能为了取字体开放安装目录的
 任意文件。具体资源所有权见
-[全局字体决策](../feature/2026-09-30-macos-bundled-ui-font.md)。
+[全局字体决策](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/feature/2026-09-30-macos-bundled-ui-font.md)。
 默认语法和语义颜色读取原生 `color-mappings.json`，不复制一套色值；Monaco
 表面、光标、选择、行号和引导线读取原生宿主解析后的主题颜色。
 

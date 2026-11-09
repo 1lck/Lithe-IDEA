@@ -2,6 +2,10 @@
 
 状态：已实现
 
+> 2026-11-08 Viva 迁移：本文中的 Swift/Tauri 消费者、旧端到端验证和阶段进度属于迁移前实现。
+> Rust Core 与公开插件契约仍是行为依据，但 Viva 的插件宿主和构建任务用户流程尚未完成接线；
+> 不能把旧客户端的 Maven、运行、测试或调试验收当作 Viva 已完成。
+
 ## 先说结论
 
 构建插件在自己的工作区 Provider（提供构建能力的后端进程）里执行任务、准备应用和运行测试，宿主负责原生界面、操作身份与进程清理。Maven 的构建、配置、模型和精确测试已逐项切换到这条路径，并删除了对应的 macOS 旧服务；自动运行发现已改为通用声明/目标选择器，旧运行配置与工具链、部分启动规划和 Windows 消费者仍待迁移。本文记录阶段 C 的基础能力及阶段 D 已实现的增量，不代表 Maven/Java 全部迁移或正式发行已经完成。
@@ -440,7 +444,7 @@ Debug 在缺少精确源码路径时，也必须按当前通用 Build 归属定�
 ## 验证
 
 2026-10-29 协议 9 增量的本机验证：350 项 macOS 原生计时、1368 项 Core 及其集成
-逐项计时均通过；完整 `scripts/rust-core/verify-rust-core.sh` 包含 Swift bridge 与 Git/AskPass
+逐项计时均通过；[旧版 Core 验证入口](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/rust-core/verify-rust-core.sh) 包含 Swift bridge 与 Git/AskPass
 检查通过。当前源码快照的 SDK 端到端 6 项通过，Node 65 项、Java 47 项和 TypeScript
 调用方检查通过。Maven 3.9.16／JDK 26 的受控后端和真实 Core reactor 各 15 项通过，
 最慢真实场景为跨模块精确测试约 4.16 秒；生产 macOS Provider 场景约 4.26 秒。
@@ -573,29 +577,16 @@ node scripts/sdk-e2e.mjs --source /path/to/Lithe-IDEA --working-tree --build-wor
 
 ## 适用范围
 
-- `rust/lithe-core/src/build/`、`rust/lithe-core/src/lsp/interface/`、`rust/lithe-core/src/plugins/`
-- `rust/lithe-core/src/execution/configuration.rs`
-- `macos/Sources/LitheCoreContracts/Execution/BuildSystemContracts.swift`
-- `macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift`
-- `macos/Sources/LitheExecutionModule/Services/RunService.swift`
-- `macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`
-- `macos/Sources/LitheExecutionModule/Application/BuildSystemsFeatureModel.swift`
-- `macos/Sources/Lithe/Views/Run/BuildSystemToolWindowView.swift`
-- `macos/Sources/LitheLanguageIntelligenceModule/Runtime/LanguageServerSession.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Build/MacBuildProviderSessions.swift`
-- `macos/Sources/Lithe/Core/Rust/RustBuildSystemOperations.swift`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/build/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/build)、`rust/lithe-core/src/lsp/interface/`、`rust/lithe-core/src/plugins/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/execution/configuration.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/execution/configuration.rs)
+- `desktop/internal/core/plugin_session.go`
+- `desktop/internal/workbench/`
 - `shared/contracts/plugins/v1/`
 - `shared/platform-feature-matrix/features/build-system-plugins.json`
 - `shared/contracts/run-configuration-v2.schema.json`
 - `shared/fixtures/run-configuration/build-provider.json`
-- `macos/Sources/Lithe/Platform/MacOS/RunConfiguration/MacRunConfigurationStore.swift`
-- `macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift`
-- `macos/Sources/LitheCoreContracts/Debug/DebugAdapterContracts.swift`
-- `macos/Sources/LitheDebugModule/Runtime/DebugAdapterSessionManager.swift`
-- `macos/Sources/LitheDebugModule/Application/GenericDebugFeatureModel.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacLivePluginRegistry.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Debug/MacBuildDebugLaunchResolver.swift`
 - `shared/fixtures/debug/adapter-selection-v1.json`
+- [旧客户端执行链与原适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-10-26-build-provider-task-execution.md)
 
 
 ### 运行选项的公开边界（2026-10-30，协议 10）

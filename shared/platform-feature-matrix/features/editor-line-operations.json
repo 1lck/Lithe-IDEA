@@ -1,0 +1,47 @@
+{
+  "id": "editor-line-operations",
+  "area": "编辑器",
+  "group": "编辑操作",
+  "capability": "行注释、复制、删除与上下移动",
+  "macos": {
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "desktop/internal/core/line_edit.go",
+      "desktop/internal/editorview/input.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "desktop/internal/core/line_edit.go",
+      "desktop/internal/editorview/input.go"
+    ]
+  },
+  "owner": "Editor",
+  "notes": "Viva 已提供 Core 行变换与注释符号适配并通过共享 fixture，但尚无产品快捷键或菜单入口。完整文档同步调用的实测成本和局部处理方案跟踪 #1805；不能据此宣称编辑操作可用。",
+  "verification": "两端分别验证单行、多行、空行、选区结束在行首、CRLF、非 BMP 字符、撤销重做、输入法组合和无操作时快捷键归属；覆盖请求期间编辑或关闭文件、过期结果不覆盖新内容，以及小文件和大文件的输入延迟与内存。Core fixture 不替代实际编辑器及平台验收。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "implementationStatus": "unassessed",
+      "verificationStatus": "pending",
+      "evidence": [
+        "macos/Sources/Lithe/Core/Ports/EditorLineEditing.swift",
+        "macos/Sources/Lithe/Core/Rust/RustCoreBridge+EditorLineEditing.swift",
+        "frontend/editor/src/editor-commands.ts",
+        "macos/Experiments/Monaco/workbench.integration.ts"
+      ]
+    },
+    "windows": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "windows/tauri/src/features/editor/utils/comment-toggle.ts",
+        "windows/tauri/src/features/editor/utils/line-operations.ts"
+      ]
+    },
+    "notes": "旧 macOS 有 Core 适配器，也有 Monaco 行操作及其集成测试；源码搜索尚未证明该 Core 适配器连接到产品入口，旧 macOS 的具体使用链路待核实。旧 Windows 的编辑器 API 和菜单使用本地行操作。"
+  }
+}

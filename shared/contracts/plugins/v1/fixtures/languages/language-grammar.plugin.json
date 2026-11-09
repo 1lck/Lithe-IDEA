@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "pluginAPIVersion": 3,
   "requires": {
-    "languages": 2
+    "languages": 3
   },
   "vendor": {
     "id": "org.example",
@@ -23,8 +23,8 @@
         "rest"
       ],
       "grammar": {
-        "kind": "monarch",
-        "path": "grammars/http.monarch.json"
+        "kind": "textmate",
+        "path": "grammars/http.tmLanguage.json"
       },
       "configuration": {
         "lineComment": "#",

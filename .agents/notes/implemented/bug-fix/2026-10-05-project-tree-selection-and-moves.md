@@ -2,6 +2,14 @@
 
 状态：已实现
 
+> 2026-11-08 Viva 迁移：本笔记记录的多选、批量移动和平台专属实现属于迁移前版本；
+> Viva 目前只接入目录单击选择、双击名称或点击箭头切换展开，以及方向键导航和选中项滚动到视口。
+> 多选、批量移动、右键菜单和实机交互验收仍待完成，不能用下文旧测试证明已迁移。
+> 当前 Go 可见行投影和导航目标尚未下沉，跟踪 [#1800](https://github.com/1lck/Lithe-IDEA/issues/1800)；
+> 不得在界面层继续增加多选等共享规则。
+> 同一次目录批量请求失败只记录一次宿主错误，不复用 Core 拥有的目录跳过事件；Viva 日志
+> 事件类型生成和静态使用门禁尚未恢复，跟踪 [#1802](https://github.com/1lck/Lithe-IDEA/issues/1802)。
+
 ## 先说结论
 
 目录是一个独立选项，选择目录不会让它的后代一起高亮。目录名称负责选择，
@@ -17,6 +25,10 @@ macOS 使用系统多文件拖动，工作区模块继续负责实际文件操�
 普通点击同时触发展开，递归非懒加载视图会实例化全部已展开行，必须区分选择成本与展开成本。
 
 ## 决策
+
+- Viva 项目树保留已展开行的顺序用于键盘导航，但只为视口及少量相邻行创建控件；目录变化时重新测量可见树中最长名称，保证最长行尚未滚入视口时也能横向滚动。按键移动选择时同步视口和焦点。该策略仍需遍历已加载且展开的行，不等于完整的增量虚拟树。
+- Viva 在 macOS 和 Windows 使用一个项目级递归原生监听，与项目搜索和 Search Everywhere 共用；后台先调用 Core 过滤隐藏路径，再只重列已加载的相关目录。事件队列有界，丢失事件或积压超限时重列已展开目录；目录请求同一时刻最多一个在途，过期结果不发布。重列复用仍存在的节点和已加载子树，选中的子节点消失时回退到最近仍存在的父目录，文件插在视口上方时按原可见行及像素偏移锚定。根目录不可用时释放失效监听并提供重试，关闭项目释放共享监听。
+- Linux 的递归监听会遍历并逐目录注册，故暂时沿用按需目录监听，最多 128 个，超限记录并提示，优先保留展开目录；未展开的非空目录和超限目录不保证即时更新。macOS、Windows 的递归流有系统事件队列上限，触发丢失时会重新列出已展开目录；完整旧版增量能力及大项目真实窗口性能仍需验收。
 
 - Windows 的“打开所选文件”命令为 `file.openSelected`，默认 F4，沿用现有快捷键设置的
   覆盖与禁用规则。查询输入框复用统一的两段式快捷键状态机；完成、未匹配按键和超时均重置，
@@ -113,6 +125,15 @@ Windows 现已加入 Ctrl/Shift 可见范围多选、批量复制/剪切/删除�
 
 ## 验证
 
+- `scripts/desktop/desktop-go.sh test -race ./internal/workbench -run '^TestProjectTree(FolderSelectionAndDisclosure|KeyboardKeepsSelectionVisible)$' -count=3`：Viva 无头窗口验证单击选择、第二次按下展开、松开不重复切换、空目录不展开、箭头与键盘导航，以及长列表的滚动和焦点连续性。
+- `scripts/desktop/desktop-go.sh test -race ./internal/workbench -run TestProjectTree -count=3`：覆盖真实文件系统新增、删除、空目录变化、视口锚定、过期结果、监听关闭和根目录重试；完整旧版功能和原生窗口仍待验收。
+- `scripts/desktop/desktop-go.sh test ./internal/workbench -run '^$' -bench '^BenchmarkProjectTreeResize1000$' -benchmem -benchtime=1s -count=3`：固定 1,000 行并反复改变窗口宽度。Apple M4 的同机 debug Core 样本中，调整前约 1.99 ms、4.67 MB Go 分配，调整后约 0.32–0.33 ms、0.73 KB Go 分配；只统计无头布局，不包括 GPU、目录扫描或 Windows 性能。
+- 多选、拖动和真实 macOS / Windows 窗口行为仍需实现并验收。
+
+## 迁移前的验证记录
+
+以下命令与验收流程针对旧 Swift 和 Tauri 客户端，保留原有约束，不代表当前 Viva 已通过。
+
 - Windows F4 回归使用 `test-stability-windows.ps1 -Scope Frontend` 运行
   `file-explorer-selection.test.tsx`、`f4-file-navigation.integration.test.tsx`、
   `use-keymaps.integration.test.tsx` 与 `tree-dom-event.test.tsx`。
@@ -149,7 +170,9 @@ Windows 现已加入 Ctrl/Shift 可见范围多选、批量复制/剪切/删除�
 - 项目根、目录、文件和多选右键菜单分别验证 Find in Files / Replace in Files；
   验证编辑器选中文字预填、查找输入框聚焦和替换预览/取消/确认，搜索范围仍为整个项目。
 
-## 适用范围
+## 迁移前的源码范围
+
+以下路径位于[迁移前的 preview 修订](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36)，不代表当前工作树仍有这些实现。
 
 - `windows/tauri/src/features/keymaps/hooks/use-file-open-target.ts`
 - `windows/tauri/src/features/global-search/components/global-search-buffer.tsx`
@@ -174,3 +197,8 @@ Windows 现已加入 Ctrl/Shift 可见范围多选、批量复制/剪切/删除�
 - `macos/Tests/LitheTests/ProjectTreeSelectionTests.swift`
 - `macos/Tests/LitheTests/ProjectTreeBatchFileWorkflowTests.swift`
 - `macos/Tests/LitheTests/LitheCoreLogicTests.swift`
+
+## 适用范围
+
+- `desktop/internal/workbench/filetree.go`
+- `desktop/internal/workbench/filetree_test.go`

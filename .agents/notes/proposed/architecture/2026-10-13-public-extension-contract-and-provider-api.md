@@ -2,6 +2,8 @@
 
 状态：提议中
 
+> Viva 迁移状态（2026-11-08）：下文记录旧 macOS 客户端的已实现能力及当时的后续计划，不代表 Viva 已完成对应宿主功能。当前目标为 macOS 和 Windows 共用 Viva 与 Core；新宿主的能力声明、可信安装及两平台验收以功能矩阵和实际代码为准。
+
 ## 先说结论
 
 PR #37 建立了第一阶段 UI Contribution（插件声明的界面入口）；到 2026-10-30，Mac 已有原生 Tree/List/Form、包内网页和独立后端，不再只是静态文本窗口。下一步先走 macOS 路线，把已有编辑器、文件和命令功能开放成有授权、版本与生命周期的公共 API，再接续领域 Provider（提供业务数据、行为或进程的实现）。不恢复任意第三方 Swift Bundle 动态加载，也不把 WASM 运行时作为补齐 API 的前置条件；任务与公开文档待办见 [macOS 插件 API 实施计划](../../../../docs/development/macos-plugin-api-plan.md)。
@@ -117,12 +119,12 @@ Agent 的 Skills、Hooks、MCP 是用户管理的 Codex/Claude 原生配置，�
 ## 适用范围
 
 - `shared/contracts/plugins/v1/`
-- `rust/lithe-core/src/plugins/`
-- `macos/Sources/LitheModuleAPI/`
-- `macos/Sources/LitheApplicationKernel/`
-- `macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`
-- `macos/Sources/Lithe/Views/Workbench/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins)
+- `desktop/internal/core/plugin_session.go`
+- `desktop/internal/workbench/`
+- `desktop/internal/settingswindow/`
 - `docs/development/macos-plugin-api-plan.md`
+- [旧客户端适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md)
 
 ## 跟踪任务
 

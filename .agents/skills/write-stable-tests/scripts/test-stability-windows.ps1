@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("All", "Frontend", "WindowsRust", "SharedRust", "SharedRustCore", "SharedRustHosts")]
-    [string]$Scope = "All",
+    [ValidateSet("All", "DesktopGo", "Frontend", "WindowsRust", "SharedRust", "SharedRustCore", "SharedRustHosts")]
+    [string]$Scope = "DesktopGo",
     [ValidateRange(1, 3600)]
     [int]$WarnSeconds = 1,
     [ValidateRange(1, 3600)]
@@ -9,6 +9,8 @@ param(
     [ValidateRange(1, 7200)]
     [int]$SuiteTimeoutSeconds = 1200,
     [string[]]$FrontendTestPath = @(),
+    [string]$GoTestPattern = ".",
+    [string[]]$GoPackages = @("./..."),
     [ValidateRange(1, 16)]
     [int]$CoreShardIndex = 1,
     [ValidateRange(1, 16)]
@@ -36,6 +38,34 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $warnMilliseconds = $WarnSeconds * 1000
 $maxMilliseconds = $MaxSeconds * 1000
 $suiteTimeoutMilliseconds = $SuiteTimeoutSeconds * 1000
+
+if ($Scope -in @("All", "DesktopGo")) {
+    # The system's bash.exe can be the WSL launcher. Use the Bash installed
+    # with Git for Windows, as the desktop wrapper relies on MSYS and cygpath.
+    $git = Get-Command git.exe -ErrorAction Stop
+    . (Join-Path $PSScriptRoot "git-bash-path.ps1")
+    $gitTools = Resolve-GitForWindowsTools -GitPath $git.Source
+    $bash = $gitTools.Bash
+    $cygpath = $gitTools.Cygpath
+    $wrapper = Join-Path $root "scripts/desktop/desktop-go.sh"
+    # Calling cygpath directly avoids PowerShell 5 stripping the inner quotes
+    # of a bash -c command when the native path contains spaces.
+    $wrapperUnix = & $cygpath -u $wrapper
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($wrapperUnix)) {
+        throw "Could not convert the desktop wrapper path for Git Bash."
+    }
+    $arguments = @(
+        (Join-Path $PSScriptRoot "run-go-tests-with-timing.mjs"),
+        "--warn-ms", $warnMilliseconds,
+        "--max-ms", $maxMilliseconds,
+        "--suite-timeout-ms", $suiteTimeoutMilliseconds,
+        "--report", (Join-Path $reportRoot "windows-desktop-go.json"),
+        "--", $bash, $wrapperUnix.Trim(), "test", "-json", "-count=1", "-p=1", "-parallel=1",
+        "-timeout=${SuiteTimeoutSeconds}s", "-run", $GoTestPattern
+    ) + $GoPackages
+    & node @arguments
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
 
 function Invoke-TimedRustTests {
     param(

@@ -1,0 +1,286 @@
+package core
+
+import (
+	"context"
+	"encoding/json"
+)
+
+// PluginBackendStart is the host-resolved process and workspace. The host must
+// only supply programs and grants from an approved, verified plugin package.
+type PluginBackendStart struct {
+	ProviderID                    string            `json:"providerId"`
+	PluginID                      string            `json:"pluginId"`
+	Role                          string            `json:"role"`
+	ExecutablePath                string            `json:"executablePath"`
+	Arguments                     []string          `json:"arguments,omitempty"`
+	Environment                   map[string]string `json:"environment,omitempty"`
+	RootURI                       any               `json:"rootUri"`
+	WorkingDirectory              string            `json:"workingDirectory"`
+	HostServices                  []string          `json:"hostServices,omitempty"`
+	InitializationOptions         json.RawMessage   `json:"initializationOptions,omitempty"`
+	InitializeTimeoutMilliseconds int               `json:"initializeTimeoutMilliseconds,omitempty"`
+	RequestTimeoutMilliseconds    int               `json:"requestTimeoutMilliseconds,omitempty"`
+	ShutdownTimeoutMilliseconds   int               `json:"shutdownTimeoutMilliseconds,omitempty"`
+}
+
+// NativeDocumentPath asks Core to convert a native absolute path to a URI.
+type NativeDocumentPath struct {
+	Path     string `json:"path"`
+	Platform string `json:"platform"`
+}
+
+type PluginBackendStarted struct {
+	Channel   string `json:"channel"`
+	SessionID string `json:"sessionId"`
+	State     string `json:"state"`
+	ProcessID *int   `json:"processId"`
+}
+
+// PluginBackendPlan is Core's launch selection and package requirements. The
+// host must verify package paths and trust, resolve tools, and create the
+// requested writable directories before starting a process.
+type PluginBackendPlan struct {
+	Launch struct {
+		Kind             string   `json:"kind"`
+		Path             string   `json:"path"`
+		Commands         []string `json:"commands"`
+		Tool             string   `json:"tool"`
+		Entry            string   `json:"entry"`
+		PackagedRuntime  string   `json:"packagedRuntime"`
+		MinimumVersion   string   `json:"minimumVersion"`
+		RuntimeArguments []string `json:"runtimeArguments"`
+		VersionArguments []string `json:"versionArguments"`
+	} `json:"launch"`
+	Arguments             []string        `json:"arguments"`
+	ValidationArguments   []string        `json:"validationArguments"`
+	RequiredDirectories   []string        `json:"requiredDirectories"`
+	RequiredPackagePaths  []string        `json:"requiredPackagePaths"`
+	RuntimeRequirements   json.RawMessage `json:"runtimeRequirements"`
+	InitializationOptions json.RawMessage `json:"initializationOptions"`
+	Settings              json.RawMessage `json:"settings"`
+	Backend               struct {
+		HostServices []string `json:"hostServices"`
+		Version      int      `json:"version"`
+	} `json:"backend"`
+}
+
+type PluginBackendDirectories struct {
+	PluginDirectory         string                     `json:"pluginDirectory"`
+	StateDirectory          string                     `json:"stateDirectory"`
+	WorkspaceStateDirectory string                     `json:"workspaceStateDirectory,omitempty"`
+	LogDirectory            string                     `json:"logDirectory,omitempty"`
+	TemporaryDirectory      string                     `json:"temporaryDirectory,omitempty"`
+	Architecture            string                     `json:"architecture"`
+	Settings                map[string]json.RawMessage `json:"settings,omitempty"`
+	ProjectSettings         map[string]json.RawMessage `json:"projectSettings,omitempty"`
+}
+
+// PluginEditorLanguage is Core's validated static language declaration. A
+// configuration-only contribution has no grammar and does not require a file.
+type PluginEditorLanguage struct {
+	ID             string          `json:"id"`
+	FileExtensions []string        `json:"fileExtensions"`
+	FileNames      []string        `json:"fileNames"`
+	Grammar        *PluginGrammar  `json:"grammar"`
+	Configuration  json.RawMessage `json:"configuration"`
+}
+
+// PluginGrammar is a validated TextMate source, retained byte for byte.
+type PluginGrammar struct {
+	Kind      string `json:"kind"`
+	ScopeName string `json:"scopeName"`
+	Source    string `json:"source"`
+}
+
+// DecodePluginGrammar asks Core to validate static editor resources. The
+// caller reads the package file off the UI thread after verifying the package,
+// bounded by the contract's grammar size limit; decoding does not authenticate
+// the source or register it with an editor.
+func (c *Client) DecodePluginGrammar(ctx context.Context, manifest json.RawMessage, languageID, source string) (PluginEditorLanguage, error) {
+	const command = "plugins.declarative.decodeGrammar"
+	var result struct {
+		Status   string                `json:"status"`
+		Error    *MarketplaceRejection `json:"error"`
+		Language *PluginEditorLanguage `json:"language"`
+	}
+	if err := c.Execute(ctx, command, struct {
+		Manifest   json.RawMessage `json:"manifest"`
+		LanguageID string          `json:"languageID"`
+		Grammar    string          `json:"grammar"`
+	}{manifest, languageID, source}, &result); err != nil {
+		return PluginEditorLanguage{}, err
+	}
+	if result.Status == "rejected" && result.Error != nil {
+		return PluginEditorLanguage{}, result.Error
+	}
+	if result.Status != "ok" || result.Language == nil || result.Language.ID == "" {
+		return PluginEditorLanguage{}, newParseError(command, "grammar validation returned an invalid outcome", "")
+	}
+	return *result.Language, nil
+}
+
+// ValidatePluginManifest obtains Core's normalized manifest and rejects any
+// capability that the host does not explicitly claim to implement.
+func (c *Client) ValidatePluginManifest(ctx context.Context, manifest json.RawMessage, capabilities map[string][]int) (json.RawMessage, error) {
+	const command = "plugins.declarative.validate"
+	if capabilities == nil {
+		capabilities = map[string][]int{}
+	}
+	var result struct {
+		Status string                `json:"status"`
+		Error  *MarketplaceRejection `json:"error"`
+		Plugin json.RawMessage       `json:"plugin"`
+	}
+	if err := c.Execute(ctx, command, struct {
+		Manifest     json.RawMessage  `json:"manifest"`
+		Capabilities map[string][]int `json:"hostCapabilities"`
+	}{manifest, capabilities}, &result); err != nil {
+		return nil, err
+	}
+	if result.Status == "rejected" && result.Error != nil {
+		return nil, result.Error
+	}
+	if result.Status != "ok" || len(result.Plugin) == 0 || string(result.Plugin) == "null" {
+		return nil, newParseError(command, "plugin validation returned an invalid outcome", "")
+	}
+	return result.Plugin, nil
+}
+
+// PlanPluginBackend asks Core to expand a previously validated declaration.
+// Planning does not verify an archive's provenance or approve its programs.
+func (c *Client) PlanPluginBackend(ctx context.Context, manifest json.RawMessage, directories PluginBackendDirectories) (PluginBackendPlan, error) {
+	const command = "plugins.declarative.languageServerLaunchPlan"
+	var result struct {
+		Status string                `json:"status"`
+		Error  *MarketplaceRejection `json:"error"`
+		Plan   *PluginBackendPlan    `json:"plan"`
+	}
+	if err := c.Execute(ctx, command, struct {
+		Manifest json.RawMessage          `json:"manifest"`
+		Backend  bool                     `json:"backend"`
+		Request  PluginBackendDirectories `json:"request"`
+	}{manifest, true, directories}, &result); err != nil {
+		return PluginBackendPlan{}, err
+	}
+	if result.Status == "rejected" && result.Error != nil {
+		return PluginBackendPlan{}, result.Error
+	}
+	if result.Status != "ok" || result.Plan == nil {
+		return PluginBackendPlan{}, newParseError(command, "plugin launch returned an invalid outcome", "")
+	}
+	return *result.Plan, nil
+}
+
+// BackendEvent preserves Core's ordered, typed facts without interpreting
+// plugin-owned result JSON in the platform layer.
+type BackendEvent struct {
+	Type         string          `json:"type"`
+	Channel      string          `json:"channel"`
+	Sequence     uint64          `json:"sequence"`
+	SessionID    string          `json:"sessionId"`
+	ProviderID   string          `json:"providerId"`
+	PluginID     string          `json:"pluginId"`
+	Role         string          `json:"role"`
+	State        string          `json:"state"`
+	OperationID  string          `json:"operationId"`
+	Method       string          `json:"method"`
+	URI          string          `json:"uri"`
+	Version      *int64          `json:"version"`
+	Diagnostics  json.RawMessage `json:"diagnostics"`
+	Result       json.RawMessage `json:"result"`
+	Error        json.RawMessage `json:"error"`
+	Event        string          `json:"event"`
+	Fields       json.RawMessage `json:"fields"`
+	Level        string          `json:"catalogLevel"`
+	Message      string          `json:"message"`
+	Detail       string          `json:"detail"`
+	LegacyLevel  string          `json:"level"`
+	Capabilities []string        `json:"capabilities"`
+	ServerInfo   json.RawMessage `json:"serverInfo"`
+}
+
+type pluginFunctionReference struct {
+	PluginID   string `json:"pluginID"`
+	FunctionID string `json:"functionID"`
+}
+
+// PluginHostFailure is a host service failure sent back through Core. The
+// code and details are optional and require the negotiated protocol version.
+type PluginHostFailure struct {
+	Message string          `json:"message"`
+	Code    string          `json:"code,omitempty"`
+	Details json.RawMessage `json:"details,omitempty"`
+}
+
+// RespondPluginHostRequest answers one Core-forwarded host request. A nil
+// result is a successful null response; an error must not include a result.
+func (c *Client) RespondPluginHostRequest(ctx context.Context, session, requestID string, result json.RawMessage, failure *PluginHostFailure) error {
+	const command = "lsp.hostResponse"
+	if failure != nil && len(result) != 0 {
+		return newParseError(command, "a host response cannot contain both result and error", "")
+	}
+	return c.Execute(ctx, command, struct {
+		SessionID string             `json:"sessionId"`
+		RequestID string             `json:"hostRequestID"`
+		Result    json.RawMessage    `json:"result,omitempty"`
+		Error     *PluginHostFailure `json:"error,omitempty"`
+	}{session, requestID, result, failure}, nil)
+}
+
+// StartPluginBackend starts a Core-owned process; initialization completes via
+// session events. No host service is granted unless explicitly supplied.
+func (c *Client) StartPluginBackend(ctx context.Context, request PluginBackendStart) (PluginBackendStarted, error) {
+	request.Role = "backend"
+	var response PluginBackendStarted
+	err := c.Execute(ctx, "lsp.startServer", request, &response)
+	return response, err
+}
+
+// WaitBackendEvents blocks until events are available or Core's timeout elapses.
+func (c *Client) WaitBackendEvents(ctx context.Context, session string, timeoutMilliseconds int) ([]BackendEvent, error) {
+	var response struct {
+		Events []BackendEvent `json:"events"`
+	}
+	err := c.Execute(ctx, "lsp.waitEvents", struct {
+		SessionID string `json:"sessionId"`
+		Timeout   int    `json:"timeoutMilliseconds"`
+	}{session, timeoutMilliseconds}, &response)
+	return response.Events, err
+}
+
+// InvokePluginFunction returns Core's opaque correlation ID; completion and
+// progress arrive in the session's ordered event stream.
+func (c *Client) InvokePluginFunction(ctx context.Context, session, operation, plugin, function string, params json.RawMessage) (string, error) {
+	var response struct {
+		OperationID string `json:"operationId"`
+	}
+	err := c.Execute(ctx, "lsp.functionRequest", struct {
+		SessionID   string                  `json:"sessionId"`
+		OperationID string                  `json:"operationId,omitempty"`
+		Function    pluginFunctionReference `json:"function"`
+		Params      json.RawMessage         `json:"params,omitempty"`
+	}{session, operation, pluginFunctionReference{plugin, function}, params}, &response)
+	return response.OperationID, err
+}
+
+// CancelPluginOperation asks Core to cancel an outstanding host operation.
+func (c *Client) CancelPluginOperation(ctx context.Context, session, operation string) error {
+	return c.Execute(ctx, "lsp.cancelOperation", struct {
+		SessionID   string `json:"sessionId"`
+		OperationID string `json:"operationId"`
+	}{session, operation}, nil)
+}
+
+// StopPluginBackend requests shutdown; the session remains owned until it is terminal.
+func (c *Client) StopPluginBackend(ctx context.Context, session string) error {
+	return c.Execute(ctx, "lsp.stopServer", struct {
+		SessionID string `json:"sessionId"`
+	}{session}, nil)
+}
+
+// DestroyPluginBackend disposes a terminal session. It must not race stop.
+func (c *Client) DestroyPluginBackend(ctx context.Context, session string) error {
+	return c.Execute(ctx, "lsp.destroyServer", struct {
+		SessionID string `json:"sessionId"`
+	}{session}, nil)
+}

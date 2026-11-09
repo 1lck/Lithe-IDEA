@@ -5,15 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync/atomic"
+	"time"
 )
 
 // Client sends commands to the Rust kernel. The zero value is ready to use and a Client is safe
-// for concurrent use; every call gets its own operation id, so concurrent calls and their
-// cancellations never interfere. A Client must not be copied after first use.
-type Client struct {
-	// nextOperation numbers the calls so each one gets a unique operation id.
-	nextOperation atomic.Uint64
-}
+// for concurrent use. IDs are process-wide because Core's cancellation registry is shared by
+// all clients, including independent Client instances. See #1803.
+type Client struct{}
+
+var nextCoreOperation atomic.Uint64
 
 // NewClient returns a Client.
 func NewClient() *Client {
@@ -61,27 +61,57 @@ type wireError struct {
 // Execute blocks the calling goroutine; see the package documentation for which callers must
 // use a background goroutine.
 func (c *Client) Execute(ctx context.Context, command string, payload, result any) error {
+	_, err := c.execute(ctx, command, payload, result, nil)
+	return err
+}
+
+// ExecuteWithEvents runs one request with Core's synchronous event observer.
+// The observer runs on the request's goroutine, may retain its copied JSON, and
+// must return promptly; it must not wait for a UI thread. Run the request off
+// the UI thread. Core completes all callbacks before the request returns.
+//
+// observationErr and requestErr are independent: an observer panic or an
+// oversized event invalidates observation, but the operation may have succeeded
+// or changed state. Callers must inspect requestErr and refresh actual state,
+// not automatically repeat a request after an observation failure. A nil
+// observer is equivalent to Execute.
+func (c *Client) ExecuteWithEvents(ctx context.Context, command string, payload, result any, observer func(json.RawMessage)) (observationErr error, requestErr error) {
+	return c.execute(ctx, command, payload, result, observer)
+}
+
+func (c *Client) execute(ctx context.Context, command string, payload, result any, observer func(json.RawMessage)) (error, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return nil, err
 	}
 	if payload == nil {
 		payload = struct{}{}
 	}
-	operationID := fmt.Sprintf("desktop-%d", c.nextOperation.Add(1))
+	operationID := fmt.Sprintf("desktop-%d", nextCoreOperation.Add(1))
 	request, err := json.Marshal(requestEnvelope{
 		OperationID: operationID,
 		Command:     command,
 		Payload:     payload,
 	})
 	if err != nil {
-		return &Error{
+		return nil, &Error{
 			Command: command,
 			Code:    CodeInvalidRequest,
 			Message: "request could not be encoded",
 			Details: err.Error(),
 		}
 	}
-	return decodeResponse(ctx, command, call(ctx, operationID, request), result)
+	// Encoding may itself take time or call user-provided marshalers. Do not
+	// start a kernel operation that was already cancelled during encoding.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if observer == nil {
+		return nil, decodeResponse(ctx, command, call(ctx, operationID, request), result)
+	}
+	stop := watchCancellation(ctx, operationID)
+	defer stop()
+	response, observationErr := executeJSONWithEvents(request, observer)
+	return observationErr, decodeResponse(ctx, command, response, result)
 }
 
 // call sends one encoded request while a watcher forwards cancellation of ctx to the kernel.
@@ -106,13 +136,37 @@ func watchCancellation(ctx context.Context, operationID string) (stop func()) {
 		defer close(exited)
 		select {
 		case <-done:
-			cancelOperation(operationID)
+			// The context can end after the last check but before Core has
+			// registered this request. Retry only that unsuccessful lookup
+			// until registration or request completion; IDs are process-wide
+			// so a retry cannot cancel another Client's request. See #1804.
+			ticker := time.NewTicker(5 * time.Millisecond)
+			defer ticker.Stop()
+			cancelUntilRegistered(release, ticker.C, func() bool { return cancelOperation(operationID) })
 		case <-release:
 		}
 	}()
 	return func() {
 		close(release)
 		<-exited
+	}
+}
+
+// cancelUntilRegistered retries a cancellation that arrived before Core
+// registered the request. A successful lookup or completion stops retries.
+func cancelUntilRegistered(release <-chan struct{}, retry <-chan time.Time, cancel func() bool) {
+	if cancel() {
+		return
+	}
+	for {
+		select {
+		case <-release:
+			return
+		case <-retry:
+			if cancel() {
+				return
+			}
+		}
 	}
 }
 

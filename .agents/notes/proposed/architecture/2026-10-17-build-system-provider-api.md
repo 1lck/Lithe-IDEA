@@ -2,6 +2,8 @@
 
 状态：提议中
 
+> Viva 迁移状态：下文关于 macOS 宿主已经接入 Provider 的描述属于旧客户端；Viva 当前只有通用 Core 后端通信基础，尚未接入构建 Provider、工具窗口与运行配置。原有信任、生命周期、取消和诊断验收要求仍适用。
+
 > 2026-11-07 更新：本文提到的部分文件已不存在。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）；宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
 
 ## 先说结论
@@ -337,24 +339,22 @@ Core 契约部分的验收已在已实现的 Note 里完成。剩下的工作按
 ## 适用范围
 
 - `shared/contracts/plugins/v1/`
-- `rust/lithe-core/src/plugins/declarative.rs`
-- `rust/lithe-core/src/execution/detectors/`
-- `rust/lithe-core/src/execution/types.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/declarative.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/declarative.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/execution/detectors/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/execution/detectors)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/execution/types.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/execution/types.rs)
 - 已迁出：原 `rust/lithe-core/src/project/maven.rs`。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）。
-- `rust/lithe-core/src/execution/configuration.rs`
-- `rust/lithe-core/src/lsp/interface/engine.rs`
-- `rust/lithe-core/src/runtime/dispatcher.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/execution/configuration.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/execution/configuration.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/engine.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/engine.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/runtime/dispatcher.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/runtime/dispatcher.rs)
 - `shared/contracts/rust-core-api.md`
 - 已迁出：原 `macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeDiscovery.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
 - 已迁出：原 `macos/Sources/Lithe/Platform/MacOS/Persistence/MacLegacyMavenConfigurationMigration.swift`。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）。
-- `macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift`
-- `macos/Sources/LitheExecutionModule/Services/StandardLanguageTestProvider.swift`
+- [旧版 macOS 构建服务与测试 Provider](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/LitheExecutionModule/Services)
 - 已迁出：原 `macos/Sources/LitheCoreContracts/Execution/MavenContracts.swift`。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）。
-- `macos/Sources/Lithe/Views/Run/BuildSystemToolWindowView.swift`
-- `windows/tauri/src/features/maven/`
-- `windows/tauri/src/features/run/`
-- `windows/tauri/src-tauri/src/maven.rs`
-- `windows/tauri/src-tauri/src/run.rs`
+- [旧版 macOS 构建工具窗口](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/Lithe/Views/Run/BuildSystemToolWindowView.swift)
+- [旧版 Windows Maven 与运行功能](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/windows/tauri/src/features)
+- [旧版 Windows 宿主实现](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/windows/tauri/src-tauri/src)
+- `desktop/internal/core/plugin_session.go`
 
 ## 调研来源
 

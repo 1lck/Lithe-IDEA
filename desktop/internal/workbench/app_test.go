@@ -34,22 +34,30 @@ func (k *testKernel) ReduceChromeLayout(ctx context.Context, catalog []core.Chro
 
 // harness is a window driven without a screen.
 type harness struct {
-	t      *testing.T
+	t      testing.TB
 	app    *App
 	driver *app.Driver
 	store  *store.Store
 }
 
+// A test replacing the shared native watch must release its existing owner.
+func replaceSearchWatchForTest(p *project, slot *documentWatch) {
+	if p.search.watch != nil && p.search.watch != slot {
+		p.search.watch.close()
+	}
+	p.search.watch = slot
+}
+
 // newHarness makes a Chinese window over a fresh store and paints its first frame. The
 // window's clock is the driver's virtual time, so the frame counter never depends on how
 // fast the test runs.
-func newHarness(t *testing.T, kernel Kernel) *harness {
+func newHarness(t testing.TB, kernel Kernel) *harness {
 	return newHarnessWithLanguages(t, kernel, []string{"zh-Hans"})
 }
 
 // newHarnessWithLanguages makes a window whose language is chosen by the test and paints
 // its first frame without opening a native window.
-func newHarnessWithLanguages(t *testing.T, kernel Kernel, languages []string) *harness {
+func newHarnessWithLanguages(t testing.TB, kernel Kernel, languages []string) *harness {
 	t.Helper()
 	dir := t.TempDir()
 	// An explicit theme keeps New from asking the system for its appearance, which
@@ -94,6 +102,7 @@ func newHarnessWithLanguages(t *testing.T, kernel Kernel, languages []string) *h
 	dispose:
 		if p := h.app.project; p != nil {
 			p.cancel()
+			h.app.closeTree(p)
 			h.app.releaseProjectSearch(p)
 			h.app.closeDocuments(p)
 			h.app.closeTerminals(p)
@@ -790,5 +799,42 @@ func TestMarketplaceWidthPersistsWithOtherSettings(t *testing.T) {
 	}
 	if saved.MarketplaceWidth != 420 || saved.Language != "zh-Hans" || saved.Theme != themeDark {
 		t.Fatalf("saved settings lost values: %+v", saved)
+	}
+}
+
+func TestSettingsChangesUpdateSharedStateAndPersist(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.app.setLanguage("en")
+	h.app.setTheme(themeLight)
+	if h.app.shared.text.Load() != i18n.For(i18n.English) || h.app.shared.dark.Load() {
+		t.Fatal("shared window state did not reflect the selected language and appearance")
+	}
+	var saved settings
+	found, err := h.store.Load(settingsFile, &saved)
+	if err != nil || !found || saved.Language != "en" || saved.Theme != themeLight {
+		t.Fatalf("persisted settings = %+v, found=%v err=%v", saved, found, err)
+	}
+}
+
+func TestSystemAppearanceChangesSharedStateWhenFollowingSystem(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.app.setTheme(themeSystem)
+	h.driver.SetSystemAppearance(app.AppearanceDark)
+	h.app.systemAppearanceChanged()
+	if err := h.driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	if !h.app.shared.dark.Load() {
+		t.Fatal("shared appearance did not follow the system")
+	}
+	h.app.setTheme(themeLight)
+	h.driver.SetSystemAppearance(app.AppearanceLight)
+	h.driver.SetSystemAppearance(app.AppearanceDark)
+	h.app.systemAppearanceChanged()
+	if err := h.driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	if h.app.shared.dark.Load() {
+		t.Fatal("system appearance overrode the explicit light setting")
 	}
 }

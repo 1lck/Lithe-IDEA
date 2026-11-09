@@ -1,6 +1,8 @@
 #!/bin/zsh
 # Regenerates the compiled file-type icons of the Viva desktop client
-# (desktop/internal/fileicons/icons.go) from the SVGs in desktop/internal/fileicons/svg/.
+# (desktop/internal/fileicons/icons.go and icons_tree.go) from the SVGs in
+# desktop/internal/fileicons/svg/. Pass --tree-only to regenerate disclosure icons without
+# changing the existing file-type and folder vectors.
 #
 # The SVGs are IntelliJ Community icons (see desktop/internal/fileicons/NOTICE). Many of them
 # draw colored strokes, and the Viva icon compiler keeps the colors of filled shapes only, so
@@ -11,42 +13,86 @@
 # db_set_breakpoint.svg becomes DbSetBreakpoint.
 #
 # To add or change an icon, edit svg/ and run this script again; do not edit icons.go by hand.
-# picosvg is installed at the pinned PICOSVG_VERSION into a virtual environment in a fresh
-# temporary directory that is removed on exit; nothing is written outside
-# desktop/internal/fileicons/. The compiler runs through "go run <module>@<version>", pinned to
-# the same Viva version as desktop/go.mod.
+# Python 3.9 or 3.11, picosvg and its dependencies are fixed to versions that reproduce the
+# existing icon vectors. Set LITHE_ICON_PYTHON to a supported executable when it is not on PATH.
+# Dependencies are installed in a fresh temporary virtual environment that is removed on exit;
+# nothing is written outside desktop/internal/fileicons/. The compiler runs through
+# "go run <module>@<version>", pinned to the same Viva version as desktop/go.mod.
 set -euo pipefail
 
 ROOT_DIR="${0:A:h:h:h}"
-PICOSVG_VERSION="0.22.3"
 VIVA_VERSION="v0.5.1-0.20261108113640-16ca40bd07ab"
 ICON_DIR="$ROOT_DIR/desktop/internal/fileicons"
 OUT_FILE="$ICON_DIR/icons.go"
+TREE_OUT_FILE="$ICON_DIR/icons_tree.go"
 NOTICE_FILE="$ICON_DIR/NOTICE"
+TREE_ONLY=false
+if [[ "${1:-}" == "--tree-only" && $# == 1 ]]; then
+    TREE_ONLY=true
+elif [[ $# != 0 ]]; then
+    print -u2 -- "Usage: $0 [--tree-only]"
+    exit 2
+fi
+
+is_supported_python() {
+    "$1" -c 'import sys; sys.exit(0 if sys.version_info[:2] in ((3, 9), (3, 11)) else 1)' >/dev/null 2>&1
+}
+
+PYTHON="${LITHE_ICON_PYTHON:-}"
+if [[ -n "$PYTHON" ]]; then
+    if ! is_supported_python "$PYTHON"; then
+        print -u2 -- "LITHE_ICON_PYTHON must name a working Python 3.9 or 3.11 interpreter."
+        exit 1
+    fi
+else
+    for candidate in python3.11 python3.9 /usr/bin/python3 python3; do
+        if command -v "$candidate" >/dev/null 2>&1 && is_supported_python "$candidate"; then
+            PYTHON="$candidate"
+            break
+        fi
+    done
+    if [[ -z "$PYTHON" ]]; then
+        print -u2 -- "Python 3.9 or 3.11 is required; set LITHE_ICON_PYTHON to its executable."
+        exit 1
+    fi
+fi
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-python3 -m venv "$TMP_DIR/venv"
-"$TMP_DIR/venv/bin/python" -m pip install --quiet --disable-pip-version-check "picosvg==$PICOSVG_VERSION"
+"$PYTHON" -m venv "$TMP_DIR/venv"
+"$TMP_DIR/venv/bin/python" -m pip install --quiet --disable-pip-version-check \
+    "picosvg==0.22.3" "skia-pathops==0.8.0.post2" "lxml==6.1.3" "absl-py==2.3.1"
 
-mkdir "$TMP_DIR/svg"
-for source in "$ICON_DIR"/svg/*.svg; do
-    name="${source:t}"
-    name="${name//_/-}"
-    # picosvg runs from the temporary directory so it never reads from the repository's.
-    (cd "$TMP_DIR" && "$TMP_DIR/venv/bin/picosvg" "$source") > "$TMP_DIR/$name.pico"
-    sed -E '/<path /{/ fill=/!s/<path /<path fill="#000000" /;}' "$TMP_DIR/$name.pico" > "$TMP_DIR/svg/$name"
-done
+compile_icons() {
+    local source_dir="$1" output="$2" name source
+    local converted_dir="$TMP_DIR/converted"
+    mkdir "$converted_dir"
+    for source in "$source_dir"/*.svg; do
+        name="${source:t}"
+        name="${name//_/-}"
+        # picosvg runs from the temporary directory so it never reads from the repository's.
+        (cd "$TMP_DIR" && "$TMP_DIR/venv/bin/picosvg" "$source") > "$TMP_DIR/$name.pico"
+        sed -E '/<path /{/ fill=/!s/<path /<path fill="#000000" /;}' "$TMP_DIR/$name.pico" > "$converted_dir/$name"
+    done
+    # Run from the repository root so the compiler resolves the pinned module outside any go.mod.
+    (cd "$ROOT_DIR" && go run "github.com/vivaui/viva/cmd/viva@$VIVA_VERSION" icons \
+        -o "$output" -pkg fileicons -license "$NOTICE_FILE" "$converted_dir"/*.svg)
+    rm "$converted_dir"/*.svg
+    rmdir "$converted_dir"
+}
 
-# Run from the repository root so the compiler resolves the pinned module outside any go.mod.
-cd "$ROOT_DIR"
-go run "github.com/vivaui/viva/cmd/viva@$VIVA_VERSION" icons \
-    -o "$OUT_FILE" -pkg fileicons -license "$NOTICE_FILE" "$TMP_DIR"/svg/*.svg
+if [[ "$TREE_ONLY" == false ]]; then
+    compile_icons "$ICON_DIR/svg" "$OUT_FILE"
+fi
+compile_icons "$ICON_DIR/svg/tree" "$TREE_OUT_FILE"
 
-UNFORMATTED="$(gofmt -l "$OUT_FILE")"
+UNFORMATTED="$(gofmt -l "$OUT_FILE" "$TREE_OUT_FILE")"
 if [[ -n "$UNFORMATTED" ]]; then
     print -u2 -- "gofmt reports that the generated file is not formatted: $UNFORMATTED"
     exit 1
 fi
-print -r -- "$OUT_FILE"
+if [[ "$TREE_ONLY" == false ]]; then
+    print -r -- "$OUT_FILE"
+fi
+print -r -- "$TREE_OUT_FILE"

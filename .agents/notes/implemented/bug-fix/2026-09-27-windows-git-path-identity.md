@@ -44,9 +44,9 @@ Issue #627 中，前端先判断绝对路径再替换反斜杠，把原生 UNC �
 
 ## 适用范围
 
-- `rust/lithe-core/src/git/mod.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/mod.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/mod.rs)
 - `windows/tauri/src/features/git/api/git-repository-path.ts`
 - `windows/tauri/src/features/git/api/git-repo-api.ts`
-- `rust/lithe-core/tests/git_path_roundtrip.rs`
+- 迁移前测试：[rust/lithe-core/tests/git_path_roundtrip.rs](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/rust/lithe-core/tests/git_path_roundtrip.rs)；当前 Core 修订不含该路径，Viva 的对应验收仍待补齐。
 - `windows/tauri/crates/project/src/git_watcher.rs`
 - `shared/contracts/rust-core-api.md`

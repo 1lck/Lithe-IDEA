@@ -140,7 +140,7 @@ JDT 就绪后才出现，JDT 不可用时这一项没有提示（其他输入照
 - `windows/tauri/src/features/run/stores/run.store.ts`
 - `windows/tauri/src/features/run/stores/run-project-load.test.ts`
 - `windows/tauri/src/features/run/api/run-core-api.ts`
-- `rust/lithe-core/src/execution/configuration.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/execution/configuration.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/execution/configuration.rs)
 - `shared/contracts/run-configuration-v2.schema.json`
 - `macos/Sources/LitheExecutionModule/Services/RunService.swift`
 - 已迁出：原 `macos/Sources/Lithe/Models/AppModel/AppModel+JavaEntrypoints.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。

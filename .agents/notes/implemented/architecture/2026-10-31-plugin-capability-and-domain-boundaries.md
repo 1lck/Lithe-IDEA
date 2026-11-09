@@ -70,6 +70,6 @@
 - `.agents/skills/develop-lithe/SKILL.md`
 - `.agents/skills/lithe-code-review/`
 - `shared/contracts/plugins/v1/`
-- `rust/lithe-core/src/plugins/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins)
 - `macos/Sources/Lithe/Application/Features/`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/`

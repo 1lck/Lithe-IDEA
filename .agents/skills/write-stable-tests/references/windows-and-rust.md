@@ -1,5 +1,9 @@
 # Windows, TypeScript, and Rust Test Stability
 
+Viva desktop Go uses `test-stability-windows.ps1 -Scope DesktopGo`; it needs
+Git Bash and the Windows Go/Core build toolchain. The old Tauri frontend and
+Windows Rust scopes below describe the removed client and cannot verify Viva.
+
 Bun is a Windows Frontend test-runtime dependency only. The report generator,
 static verifier, Swift runner, and Rust runner are Node.js-only.
 

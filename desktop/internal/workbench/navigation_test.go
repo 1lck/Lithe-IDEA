@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -28,7 +29,12 @@ func TestNavigationDialogSelectsLineAndClampsUTF16Column(t *testing.T) {
 	if doc == nil {
 		t.Fatal("document did not open")
 	}
-	if handled, err := h.driver.ShortcutChord(ui.ModifierMeta, 'l'); err != nil || !handled {
+	awaitDocumentState(t, h, func() bool { return doc.view.Owns(h.driver.Snapshot().Focused) })
+	modifier, key := ui.ModifierControl, 'g'
+	if runtime.GOOS == "darwin" {
+		modifier, key = ui.ModifierMeta, 'l'
+	}
+	if handled, err := h.driver.ShortcutChord(modifier, key); err != nil || !handled {
 		t.Fatalf("shortcut handled=%v err=%v", handled, err)
 	}
 	awaitDocumentState(t, h, func() bool { return h.app.navigation.target != nil && h.driver.Snapshot().Focused == navigationField })
@@ -211,5 +217,24 @@ func TestNavigationDialogKeepsTabFocusInside(t *testing.T) {
 	}
 	if got := h.driver.Snapshot().Focused; got != navigationCancel {
 		t.Fatalf("reverse focus = %v, want cancel", got)
+	}
+}
+
+func TestNavigationShortcutMatchesPlatformDefaults(t *testing.T) {
+	for _, tc := range []struct {
+		platform  string
+		modifiers ui.Modifiers
+		key       string
+		want      bool
+	}{
+		{"darwin", ui.ModifierMeta, "l", true},
+		{"darwin", ui.ModifierControl, "g", false},
+		{"windows", ui.ModifierControl, "g", true},
+		{"windows", ui.ModifierMeta, "l", false},
+		{"windows", ui.ModifierControl | ui.ModifierShift, "g", false},
+	} {
+		if got := isNavigationShortcut(tc.platform, ui.KeyEvent{Modifiers: tc.modifiers, Text: tc.key}); got != tc.want {
+			t.Errorf("%+v: got %v", tc, got)
+		}
 	}
 }

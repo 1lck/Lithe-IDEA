@@ -90,12 +90,12 @@ IDE -- DAP（调试适配器协议，stdio 或 TCP）--> 调试适配器
 
 ## 适用范围
 
-- `rust/lithe-core/src/debug/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug)
 - `macos/Sources/Lithe/Platform/MacOS/Debug/`
 - `windows/tauri/src-tauri/src/debug.rs`
 - `shared/contracts/plugins/v1/`
-- `rust/lithe-remote/src/client/transport.rs`
-- `rust/lithe-remote/src/client/forward.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-remote/src/client/transport.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/client/transport.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-remote/src/client/forward.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/client/forward.rs)
 
 ## 依据
 

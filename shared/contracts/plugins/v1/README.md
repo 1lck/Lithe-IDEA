@@ -195,9 +195,9 @@ present. A leading dot is optional only in `fileExtensions` (`.php` equals
 is part of the name, so `.toolrc` and `.env.example` stay hidden-file names. Optional `dependencies` lists `managementFileNames`,
 `projectDependencyPaths`, and `projectBinaryPaths` relative to the project.
 
-#### Grammars and editor configuration (`languages` 2)
+#### Grammars and editor configuration (`languages` 3)
 
-`languages` 2 adds two optional fields to a language. Both are data: the host
+`languages` 3 adds two optional fields to a language. Both are data: the host
 reads them from the package and the editor applies them without starting any
 process, so a language with a grammar needs no language server, backend, or
 activation event, and a plugin may consist of grammars alone.
@@ -207,7 +207,7 @@ activation event, and a plugin may consist of grammars alone.
   "id": "http",
   "displayName": "HTTP Request",
   "fileExtensions": ["http", "rest"],
-  "grammar": { "kind": "monarch", "path": "grammars/http.monarch.json" },
+  "grammar": { "kind": "textmate", "path": "grammars/http.tmLanguage.json" },
   "configuration": {
     "lineComment": "#",
     "blockComment": ["/*", "*/"],
@@ -217,9 +217,15 @@ activation event, and a plugin may consist of grammars alone.
 }
 ```
 
-- `grammar.kind` names the highlighting engine. Version 2 defines only
-  `monarch`; another engine is added as a new kind in a later version, so a
+- `grammar.kind` names the highlighting engine. Version 3 defines only
+  `textmate`; another engine is added as a new kind in a later version, so a
   plugin can move between engines without changing anything else.
+- Version 2 defined `monarch`, the JSON form of a Monaco Monarch tokenizer.
+  The desktop editor does not embed Monaco, so version 2 is withdrawn: Core
+  does not support it, and a manifest that requires `languages: 2` is
+  `plugin.api.unsupported`. A Monarch grammar is rewritten as a TextMate
+  grammar under `languages: 3`; the manifest changes only in `kind`, `path`,
+  and the required version.
 - This is a static package contribution: `languages[]` belongs to the manifest
   and `grammar.path` references a package JSON file. No public host method accepts
   inline grammar JSON to dynamically register, replace, or dispose a highlighting
@@ -237,33 +243,51 @@ activation event, and a plugin may consist of grammars alone.
   existing LSP support and `editor/registerActions` are separate capabilities.
 - `grammar.path` is a package-relative file that stays inside the package.
   Hosts read it read-only from the installed package, pass its text to
-  `plugins.declarative.decodeGrammar`, and hand the returned object to the
-  editor as validated source text, never through a reconstructed JSON object:
-  Monarch `cases` are evaluated in source order. The worker parses that text and
-  defaults `start` to `root` when absent. A grammar Core refuses is `plugin.grammar.invalid` with the
-  failing field (such as `grammar.tokenizer.root[3][1].log`); the language then
-  opens as plain text and the rest of the plugin keeps working.
-- A Monarch grammar is the JSON form of a
-  [Monaco Monarch](https://microsoft.github.io/monaco-editor/monarch.html)
-  definition: rule regexes are strings, and attribute values are strings or
-  string lists. Core accepts at most 256 KiB, 256 states, 4096 rules, regexes
-  of 2048 bytes, attribute lists of 4096 entries, 64 `cases` guards, 32
-  brackets, and actions nested 8 deep. It refuses `log` actions, `next`,
-  `switchTo`, and `include` targets that are not states of the grammar
-  (`@a.b` resolves to the longest declared prefix, as in Monarch), `cases`
-  guards naming an undeclared attribute, and `nextEmbedded` values other
-  than `@pop` or a language ID. The fixture
-  [`fixtures/languages/grammars/http.monarch.json`](fixtures/languages/grammars/http.monarch.json)
-  is a complete example.
+  `plugins.declarative.decodeGrammar`, and register the returned `source`, the
+  text Core validated byte for byte, under the returned `scopeName`. A grammar
+  Core refuses is `plugin.grammar.invalid` with the failing field (such as
+  `grammar.repository.string.patterns[2].begin`); the language then opens as
+  plain text and the rest of the plugin keeps working.
+- A TextMate grammar is the JSON form VS Code reads, a `.tmLanguage.json`
+  file; plist and YAML grammars are converted to JSON first. The fixture
+  [`fixtures/languages/grammars/http.tmLanguage.json`](fixtures/languages/grammars/http.tmLanguage.json)
+  is a complete example. A grammar is an object with `scopeName`, 1 to 128
+  bytes of ASCII letters, digits, `.`, `-`, `_`, and `+`, and a `patterns`
+  array, and optionally `repository` and `name`. Every rule is an object. The
+  editor reads `include`, `match`, `begin`, `end`, `while`, `name`,
+  `contentName`, `captures`, `beginCaptures`, `endCaptures`, `whileCaptures`,
+  `patterns`, `repository`, and `applyEndPatternLast` (`true`, `false`, `0`,
+  or `1`), and Core refuses a grammar where one of them has another type.
+  Captures are an object keyed by group number or an array by position;
+  object keys that are not group numbers are ignored. Every other key, such as
+  `comment`, `fileTypes`, `firstLineMatch`, or `uuid`, is ignored and not
+  checked.
+- Core accepts at most 2 MiB, 16384 rules counting every pattern, repository
+  entry, and capture, rules nested 32 deep, regexes of 32 KiB, capture group
+  4096, `name` and `contentName` of 1024 bytes, and `include` targets and
+  repository keys of 256 bytes. VS Code's own grammars, the largest of which is
+  C++ at 662 KiB and 3165 rules, are well within these bounds.
+- Regexes use the Oniguruma syntax TextMate grammars are written in. Core does
+  not compile them: a pattern the editor's engine cannot compile never
+  matches, and the rest of the grammar still applies.
+- `include` is `$self`, `$base`, `#name` for a repository entry, or `scope` or
+  `scope#name` for another grammar. Another grammar resolves against those the
+  editor has, its own and those of enabled plugins, which is how a grammar
+  embeds a language such as CSS inside HTML; an include that resolves to
+  nothing matches nothing, as in VS Code. `injections` and `injectionSelector`
+  are not supported, so they are ignored and not checked.
+- A plugin grammar replaces the editor's own grammar of the same `scopeName`
+  while the plugin is enabled. Two plugin languages cannot register the same
+  scope: the first keeps it, and the other is reported and opens as plain
+  text.
 - `configuration` sets `lineComment`, `blockComment` (open and close),
   `brackets`, and `autoClosingPairs`. Each delimiter is 1 to 16 bytes without
   control characters; each list has at most 32 pairs.
-- Grammar compilation and matching run only in a terminable worker. No plugin
-  regex runs on the editor UI thread. Include cycles and expanded rule counts
-  over 4096 are refused; a stalled worker is terminated after its local deadline.
-  Buffers over 128 Ki UTF-16 units or 10,000 lines remain plain/editable. Embedded
-  languages are plain text in this first worker adapter.
-- Declaring `languages: 2` without using either field is
+- Plugin grammars never run on the editor UI thread. The host bounds the
+  backtracking of each regex search and the time one line may take, so a
+  grammar cannot stall editing; a line not yet tokenized, or that the grammar
+  could not tokenize within that budget, is drawn as plain text.
+- Declaring `languages: 3` without using either field is
   `plugin.manifest.invalid`; using them under `languages: 1` is too.
 
 ### Language servers
@@ -897,7 +921,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 
 | Capability | Covers | Versions |
 | --- | --- | --- |
-| `languages` | `languages[]` | `1`, `2` (adds [`grammar` and `configuration`](#grammars-and-editor-configuration-languages-2)) |
+| `languages` | `languages[]` | `1`, `3` (adds a TextMate [`grammar` and `configuration`](#grammars-and-editor-configuration-languages-3)); `2`, a Monarch grammar, is withdrawn |
 | `packageTrust` | `vendor.bundledSignatureRequirement`: origin-scoped trust for a host-sealed bundled copy of a publisher-signed plugin | `1` |
 | `languageServers` | `languageServers[]` apart from their launch fields | `1`, `2` (adds [`workspaceConfiguration`](#workspace-configuration-languageservers-2)), `3` (adds the [session fields](#plugin-owned-sessions-languageservers-3)) |
 | `serverProcess` | The launch fields of language servers, of build providers with a process of their own, of VCS providers, and of the plugin backend: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1`, `2` (adds `runSelectedRuntime` for [debug adapters](#api-level-4-debug-adapters); level 4; v2 Core only), `3` (adds the [backend-resolved launch](#backend-resolved-launch-serverprocess-3) of a language server), `4` (names runtimes by [tool-definition ID](#tool-references-serverprocess-4)). Versions are cumulative: a manifest declares the lowest one covering every launch it uses. macOS advertises `1`, `3`, and `4`, Windows `1` |
@@ -1085,7 +1109,7 @@ every product shows the same catalog and the same install review.
   `Plugins/marketplace/index.json` in the Lithe repository. A copy is bundled
   read-only with the application so the catalog works offline; refreshing
   fetches the same file from
-  `https://raw.githubusercontent.com/Lithe-IDEA/Lithe-IDEA/HEAD/Plugins/marketplace/index.json`.
+  `https://raw.githubusercontent.com/1lck/Lithe-IDEA/HEAD/Plugins/marketplace/index.json`.
 - Hosts also preset one **community** source, Lithe Store
   (`https://github.com/Lithe-IDEA/Lithe-store`, index
   `https://raw.githubusercontent.com/Lithe-IDEA/Lithe-store/HEAD/lithe-plugin-index.json`).
@@ -3813,7 +3837,7 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.launch.outsidePackage` | Core | The answer's packaged executable leaves the plugin package |
 | `plugin.launch.undeclaredTool` | Core | The answer's tool is not one of the plugin's tool definitions |
 | `plugin.launch.unwritablePath` | Core | The answer writes outside the state, workspace state, log, and temporary directories |
-| `plugin.grammar.invalid` | Core | A language's grammar file is not a Monarch grammar Core accepts; `field` names the failing part |
+| `plugin.grammar.invalid` | Core | A language's grammar file is not a TextMate grammar Core accepts; `field` names the failing part |
 | `plugin.grammar.unavailable` | Core | The plugin declares no grammar for the language |
 | `plugin.vcs.reserved` | Core | A VCS provider claims the ID of the built-in Git support |
 | `plugin.vcs.invalidOutput` | Core | A VCS provider's reply does not fit the [VCS provider contract](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/vcs-provider-v1.md) |

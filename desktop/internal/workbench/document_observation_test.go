@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -16,6 +17,43 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/app"
 )
+
+func TestExternalUnsupportedEncodingKeepsOpenBufferAndDiskBytes(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	root := t.TempDir()
+	path := filepath.Join(root, "document.txt")
+	if err := os.WriteFile(path, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.open(root)
+	h.app.openFile(h.app.project, path)
+	h.settle()
+	p := h.app.project
+	doc := p.docs.byPath(path)
+	if doc == nil {
+		t.Fatal("document was not opened")
+	}
+	// Drive the external check explicitly, without a second OS watcher racing it.
+	if watch := p.docs.watches[root]; watch != nil {
+		watch.close()
+		delete(p.docs.watches, root)
+	}
+	h.settle()
+	awaitDocumentState(t, h, func() bool { return !doc.checking && !doc.checkPending })
+	external := []byte{0xd6, 0xd0, 0xce, 0xc4}
+	if err := os.WriteFile(path, external, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doc.checkPending = true
+	h.app.scheduleDocumentChecks(p)
+	awaitDocumentState(t, h, func() bool { return doc.checkFailed && !doc.checking })
+	if data, _ := doc.view.Text(); string(data) != "original" || !doc.checkFailed {
+		t.Fatalf("unsupported external content replaced the open buffer: %q, failed %v", data, doc.checkFailed)
+	}
+	if data, err := os.ReadFile(path); err != nil || !bytes.Equal(data, external) {
+		t.Fatalf("external content was changed: %x, error %v", data, err)
+	}
+}
 
 // Wait on actual watcher and background completion signals rather than sleeping.
 func awaitDocumentState(t *testing.T, h *harness, condition func() bool) {

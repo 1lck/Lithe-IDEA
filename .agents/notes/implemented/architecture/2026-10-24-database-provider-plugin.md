@@ -2,6 +2,10 @@
 
 状态：已实现
 
+> 2026-11-08 Viva 迁移：数据库插件仍由组织仓库和市场提供，但本文的旧客户端宿主、
+> 安装、网页桥和数据迁移验收不能证明 Viva 已支持它。Viva 的可信安装及完整插件宿主
+> 尚未接通；迁移时需重新验证插件实际支持的平台和功能，不得把市场索引存在视为可用。
+
 ## 先说结论
 
 数据库连接功能已经从 Lithe 主仓库和主安装包中移出，成为组织仓库 `Lithe-IDEA/lithe-plugin-database` 中的社区插件 `io.github.lithe-idea.database`，在 Lithe Store 上架。只装 IDE 时没有任何数据库入口；从插件市场安装后才能使用。插件的界面是包内网页，后端用 Rust 编写，macOS 和 Windows 将共用同一份代码。
@@ -226,8 +230,8 @@
 - `macos/Sources/Lithe/Application/Features/PluginHostServices.swift`
 - `macos/Sources/Lithe/Models/AppModel/AppModel+DatabasePlugin.swift`
 - `shared/contracts/plugins/v1/`
-- `rust/lithe-core/src/plugins/backend.rs`
-- `rust/lithe-core/src/lsp/interface/plugin_function.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/backend.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/backend.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/plugin_function.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/plugin_function.rs)
 - `shared/platform-feature-matrix/features/`
 
-相关 Note：[统一 VCS 模型与 Provider 接入](../../proposed/architecture/2026-10-22-unified-vcs-provider-model.md)（同类 provider 做法）、[模块运行时抽取路线](../../proposed/architecture/2026-09-13-module-runtime-extraction-roadmap.md)（数据库被列为适合插件化）、[插件自带网页界面](2026-10-18-plugin-web-content-in-host-windows.md)、[插件市场](../feature/2026-10-12-plugin-marketplace.md)。
+相关 Note：[统一 VCS 模型与 Provider 接入](../../proposed/architecture/2026-10-22-unified-vcs-provider-model.md)（同类 provider 做法）、[旧模块运行时抽取路线](../../rejected/architecture/2026-09-13-module-runtime-extraction-roadmap.md)（当时将数据库列为适合插件化；Swift 抽取路线已被 Viva 迁移取代）、[插件自带网页界面](2026-10-18-plugin-web-content-in-host-windows.md)、[插件市场](../feature/2026-10-12-plugin-marketplace.md)。

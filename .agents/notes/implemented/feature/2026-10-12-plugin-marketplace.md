@@ -79,8 +79,19 @@ Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安�
 悬停或拖动不增亮。布局偏好保存在用户配置目录，不写入发行资源。无头事件测试
 覆盖中英文、深浅色、拖动、键盘、刷新和缩窗恢复。选中插件的索引只在市场数据
 更新时重建，拖动每帧不扫描全部插件；原版界面截图已用于对照，
-尚未完成逐像素验收。Viva 的市场搜索、来源筛选、插件安装和宿主仍未接通，
-此分栏实现不能作为这些功能已完成的证据。
+尚未完成逐像素验收。Viva 可分别查看社区 Lithe Store 和官方索引，前者按第三方、
+后者按官方策略交给 Core 校验。官方索引使用当前主仓库 `1lck/Lithe-IDEA`；
+旧组织地址已重定向到临时仓库，见 [#1781](https://github.com/1lck/Lithe-IDEA/issues/1781)，
+当前主仓库索引为空，不能把旧索引中的两个条目当作当前官方发行。切换来源会取消旧请求并丢弃迟到结果；每个窗口最多同时保留两个请求，快速切换时只排队最新来源。选择仅保留
+在本次设置窗口中，尚不支持同时聚合、持久化源管理、离线官方索引或自定义源。
+名称或插件 ID 搜索复用 Core 的 `workspace.rankNames`，仅传索引已列出的名称和 ID；
+输入合并后后台查询，同一窗口最多一个查询在执行，切换输入或来源后旧结果不得覆盖新结果。
+搜索暂不覆盖描述和标签；插件安装和宿主仍未接通，此分栏、来源选择和搜索不能作为这些功能已完成的证据。
+
+**Viva 下载基础。** `ArchiveDownloader` 接收 Core 已选择的市场版本，将响应流写入操作系统的
+临时目录，最多接收 512 MiB；不安全重定向、超限、取消、读取或关闭错误及 SHA-256 不匹配
+都会返回失败并清理临时目录。成功返回的文件由接收者显式销毁；摘要只证明字节与索引一致，
+不能证明发布者身份。它目前没有生产调用者，也没有解压、签名验证、安装审批或安装能力。
 
 正确做法：新增官方插件时登记到 `official-plugins.json`，改插件内容时同时升 `plugin.json` 的版本。
 
@@ -115,7 +126,10 @@ Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安�
 ## 验证
 
 - `scripts/desktop/desktop-go.sh test ./internal/core ./internal/marketplace ./internal/settingswindow`：市场索引校验、获取、详情与分栏交互。
+- `scripts/desktop/desktop-go.sh test -race ./internal/marketplace -run 'TestArchive|TestFetch' -count=3`：离线验证下载校验、已声明及实际流量超限、重定向、取消后清理与响应关闭失败；不代表插件安装已接通。
+- `node --test --test-name-pattern='Viva Core outputs' scripts/resources/test-reuse-worktree-resources.mjs`：资源复用入口拒绝临时下载和 Viva Core 可变构建状态；旧资源完整测试仍因被移除的源码失败。
 - `scripts/macos/verify/verify-runtime-bundle-immutability.sh`：统一客户端的资源路径静态检查，不能替代正式发行包的运行前后哈希比较。
+- `scripts/desktop/desktop-go.sh test ./internal/core -run '^$' -bench '^BenchmarkRankNamesMarketplace1000$' -benchmem -benchtime=1s -count=3`：在 Apple M4 上用缓存的 debug Core 对 1,000 个合成名称和 ID 查询 `cargo`，测量为每次约 20.5–20.9 ms、371–404 KB Go 分配；工作放在单一后台任务，另有 180 ms 防抖。这只是当前单机场景，不含 Rust 内存、网络或真实窗口的端到端时延，也没有迁移前同口径基线。
 
 ## 迁移前的验证记录
 

@@ -167,7 +167,7 @@ issue #1462 指出的多余复制按钮来自不属于最终回复的过程文�
 - `macos/Sources/LitheAgentConversationModule/Application/AgentImage.swift`
 - `macos/Sources/Lithe/Views/Agent/AgentImageViews.swift`
 - `macos/Sources/Lithe/Views/Agent/AgentToolGroupView.swift`
-- `rust/lithe-agent-host/src/claude_earlier_history.rs`
-- `rust/lithe-agent-host/src/claude_desktop.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/claude_earlier_history.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/claude_earlier_history.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/claude_desktop.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/claude_desktop.rs)
 - `macos/Sources/LitheAgentConversationModule/Application/AgentDesktopCard.swift`
 - `macos/Sources/Lithe/Views/Agent/AgentDesktopCardView.swift`

@@ -50,7 +50,7 @@
         "executableResolution": { "enum": [1, 2], "description": "Shared executable candidate ordering and strict selection." },
         "executionProviders": { "enum": [1] },
         "languageServers": { "description": "Required exactly when languageServers is non-empty. Version 2 adds languageServers[].workspaceConfiguration. Version 3 adds the session fields requestMethods, commands, serializedCommands, forwardNotifications, state, and remote.", "enum": [1, 2, 3] },
-        "languages": { "description": "Version 2 adds languages[].grammar and languages[].configuration and is required exactly when one of them is used.", "enum": [1, 2] },
+        "languages": { "description": "Version 3 adds languages[].grammar, a TextMate grammar, and languages[].configuration, and is required exactly when one of them is used. Version 2, a Monaco Monarch grammar, is withdrawn.", "enum": [1, 3] },
         "outputLinkMatchers": { "description": "Required exactly when outputLinkMatchers is non-empty.", "const": 1 },
         "packageTrust": { "description": "Required exactly when vendor.bundledSignatureRequirement is present.", "enum": [1] },
         "projectGenerators": { "description": "Entries of the New Project window: fields, requirements, and steps. Version 2 adds the tool field and retires the runtime field.", "enum": [1, 2] },
@@ -1381,17 +1381,17 @@
           }
         },
         "grammar": {
-          "description": "languages 2: syntax highlighting from a package file, applied by the editor without any process.",
+          "description": "languages 3: syntax highlighting from a package file, applied by the editor without any process.",
           "type": "object",
           "additionalProperties": false,
           "required": ["kind", "path"],
           "properties": {
-            "kind": { "description": "Highlighting engine of the file. Version 2 defines monarch: the JSON form of a Monaco Monarch definition.", "enum": ["monarch"] },
+            "kind": { "description": "Highlighting engine of the file. Version 3 defines textmate: a TextMate grammar in the JSON form VS Code reads (.tmLanguage.json).", "enum": ["textmate"] },
             "path": { "description": "Package-relative grammar file inside the package.", "type": "string", "minLength": 1 }
           }
         },
         "configuration": {
-          "description": "languages 2: comment and bracket behavior of the editor.",
+          "description": "languages 3: comment and bracket behavior of the editor.",
           "type": "object",
           "additionalProperties": false,
           "properties": {

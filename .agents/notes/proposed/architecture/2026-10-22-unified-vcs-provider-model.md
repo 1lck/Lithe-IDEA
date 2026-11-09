@@ -2,6 +2,8 @@
 
 状态：提议中
 
+> Viva 迁移状态：下文对 macOS 原生 VCS 宿主的实现与验证描述属于旧客户端。Viva 有 Git 相关界面和通用 Core 后端通信基础，但尚未接入统一 VCS Provider 宿主或 SVN 插件；原有权限、生命周期和真实工作副本验收要求仍适用。
+
 ## 先说结论
 
 Lithe 现在只认识 Git：Rust Core、macOS 和 Windows 的变更列表、提交面板、项目树文件颜色、编辑器行标记（gutter）都直接使用 Git 类型。[Issue #827](https://github.com/1lck/Lithe-IDEA/issues/827) 要求支持 SVN，以后还可能有 Mercurial、Perforce 等其他 VCS（Version Control System，版本控制系统）。
@@ -224,20 +226,16 @@ P2 的第一版就是这样：插件放在 `Plugins/mac/Official/SvnSupport/`，
 
 ## 适用范围
 
-- `rust/lithe-core/src/vcs/`
-- `rust/lithe-core/src/plugins/`
-- `rust/lithe-core/src/lsp/interface/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/vcs/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/vcs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface)
 - [SVN 插件仓库](https://github.com/Lithe-IDEA/lithe-plugin-svn)
-- `rust/lithe-core/src/git/`
-- `rust/lithe-git-host/`
-- `macos/Sources/LitheGitModule/`
-- `macos/Sources/Lithe/Views/Git/`
-- `macos/Sources/Lithe/Views/Workspace/`
-- `macos/Sources/Lithe/Views/Vcs/`
-- `macos/Sources/Lithe/Platform/MacOS/Vcs/`
-- `macos/Sources/Lithe/Application/Features/VcsProvidersFeatureModel.swift`
-- `macos/Sources/Lithe/Views/Editor/`
-- `windows/tauri/src/features/git/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git)
+- Lithe-core-rust 锁定修订：[rust/lithe-git-host/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-git-host)
+- [旧版 macOS Git、VCS 与编辑器实现](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources)
+- [旧版 Windows Git 实现](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/windows/tauri/src/features/git)
+- `desktop/internal/workbench/`
+- `desktop/internal/core/plugin_session.go`
 - `shared/contracts/plugins/v1/`
 - `shared/contracts/vcs-provider-v1.md`
 - `shared/fixtures/vcs/`
