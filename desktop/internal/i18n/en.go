@@ -6,6 +6,7 @@ var english = Messages{
 	App:     appMessages(English),
 	Welcome: welcomeMessages(English),
 	Title:   titleMessages(English),
+	Window:  windowMessages(English),
 	Tools:   toolMessages(English),
 	Dock:    dockMessages(English),
 	Panel:   panelMessages(English),

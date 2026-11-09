@@ -260,3 +260,35 @@ func TestGeneralNarrowWindowKeepsSystemAppearanceVisible(t *testing.T) {
 	}
 	t.Fatalf("system appearance label %q is missing", want)
 }
+
+// TestWindowControlsFollowTheTitleBar covers the buttons Viva draws in the custom title bar on
+// Windows and Linux: unstyled, they took Viva's ink for its default dark clear color and were
+// white on the light title bar. They must take the ink of the title bar and the language of
+// the client, and follow the look when it changes.
+func TestWindowControlsFollowTheTitleBar(t *testing.T) {
+	w := newWindow(NewController(Options{Text: func() *i18n.Messages { return i18n.For(i18n.Chinese) }}),
+		Values{Language: "zh-Hans", Theme: themeLight})
+	config := w.config()
+	if config.WindowControls == nil {
+		t.Fatal("the settings window leaves its window buttons to Viva's default ink")
+	}
+	driver, err := app.NewDriver(config, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { w.market.close(); driver.Close() })
+	check := func(look string, ink gfx.Color) {
+		t.Helper()
+		style := config.WindowControls()
+		if style.Foreground != ink || style.Minimize != "最小化" {
+			t.Fatalf("%s look: glyph color %v and minimize name %q, want %v and %q", look, style.Foreground, style.Minimize, ink, "最小化")
+		}
+	}
+	check("light", lightPalette().text)
+	w.sess.values.Theme = themeDark
+	w.inv.Invalidate()
+	if err := driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	check("dark", darkPalette().text)
+}
