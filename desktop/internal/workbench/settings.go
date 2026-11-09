@@ -8,6 +8,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/vivaui/viva/app"
 )
@@ -25,14 +26,14 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			if arch == "amd64" {
 				arch = "x64"
 			}
-			return service.Fetch(ctx, "https://github.com/Lithe-IDEA/Lithe-store", core.MarketplaceThirdParty, runtime.GOOS+"-"+arch, map[string][]int{})
+			return service.Fetch(ctx, "https://github.com/Lithe-IDEA/Lithe-store", core.MarketplaceThirdParty, runtime.GOOS+"-"+arch, pluginhost.Declared().Clone())
 		},
 		MarketplaceOfficial: func(ctx context.Context) (marketplace.Snapshot, error) {
 			arch := runtime.GOARCH
 			if arch == "amd64" {
 				arch = "x64"
 			}
-			return service.Fetch(ctx, marketplace.OfficialIndexURL, core.MarketplaceOfficial, runtime.GOOS+"-"+arch, map[string][]int{})
+			return service.Fetch(ctx, marketplace.OfficialIndexURL, core.MarketplaceOfficial, runtime.GOOS+"-"+arch, pluginhost.Declared().Clone())
 		},
 		MarketplaceError: func(err error) {
 			a.post(func(a *App) {

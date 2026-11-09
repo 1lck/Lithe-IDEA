@@ -54,13 +54,14 @@ type Capabilities map[string][]int
 
 // Declared is what this client can serve today.
 //
-// It is deliberately empty. Extracting, installing and approving a package is
-// implemented, but no editor, user interface, backend, build or debug capability
-// is wired yet. Claiming one here would let a plugin install and then fail the
-// first time a user reaches for the feature, which is exactly what the contract's
-// capability negotiation exists to prevent.
+// A plugin language needs nothing but a grammar file and a few editor delimiters,
+// and both are wired: the grammar is decoded by Core and registered with the
+// editor, and the delimiters reach the language's comment and bracket rules.
+// Everything else a manifest can ask for — a backend process, user interface
+// contributions, build, debug, toolchains — is not served yet, and claiming one
+// would let a plugin install and then fail the first time a user reaches for it.
 func Declared() Capabilities {
-	return Capabilities{}
+	return Capabilities{"languages": {1, 3}}
 }
 
 // Clone returns a copy callers may modify without touching the original.

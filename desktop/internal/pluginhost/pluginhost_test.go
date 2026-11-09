@@ -25,7 +25,7 @@ func (v *fakeValidator) ValidatePluginManifest(_ context.Context, _ json.RawMess
 
 func TestValidatePassesCapabilitiesToCore(t *testing.T) {
 	validator := &fakeValidator{manifest: json.RawMessage(`{"id":"example"}`)}
-	capabilities := Declared().With("languages", 3)
+	capabilities := Declared().With("backend", 1)
 	normalised, err := Validate(context.Background(), validator, json.RawMessage(`{"id":"example"}`), capabilities)
 	if err != nil {
 		t.Fatalf("validate: %v", err)
@@ -36,7 +36,7 @@ func TestValidatePassesCapabilitiesToCore(t *testing.T) {
 	if !validator.called {
 		t.Fatal("the validator was never called")
 	}
-	if versions := validator.capabilities["languages"]; len(versions) != 1 || versions[0] != 3 {
+	if versions := validator.capabilities["backend"]; len(versions) != 1 || versions[0] != 1 {
 		t.Fatalf("capabilities = %v", validator.capabilities)
 	}
 }
@@ -54,24 +54,29 @@ func TestValidateRefusesBrokenValidator(t *testing.T) {
 	}
 }
 
-func TestDeclaredIsEmpty(t *testing.T) {
-	if len(Declared()) != 0 {
-		t.Fatalf("declared = %v", Declared())
+func TestDeclaredServesLanguagesOnly(t *testing.T) {
+	declared := Declared()
+	if len(declared) != 1 {
+		t.Fatalf("declared = %v", declared)
+	}
+	versions := declared["languages"]
+	if len(versions) != 2 || versions[0] != 1 || versions[1] != 3 {
+		t.Fatalf("languages = %v", versions)
 	}
 }
 
 func TestCapabilitiesAreIndependent(t *testing.T) {
-	base := Declared().With("languages", 2)
-	extended := base.With("languages", 3)
-	if len(base["languages"]) != 1 || base["languages"][0] != 2 {
+	base := Declared().With("backend", 1)
+	extended := base.With("backend", 2)
+	if len(base["backend"]) != 1 || base["backend"][0] != 1 {
 		t.Fatalf("the original was mutated: %v", base)
 	}
-	if len(extended["languages"]) != 2 || extended["languages"][1] != 3 {
+	if len(extended["backend"]) != 2 || extended["backend"][1] != 2 {
 		t.Fatalf("extended = %v", extended)
 	}
 	cloned := base.Clone()
-	cloned["languages"][0] = 99
-	if base["languages"][0] != 2 {
+	cloned["backend"][0] = 99
+	if base["backend"][0] != 1 {
 		t.Fatalf("the clone shares storage: %v", base)
 	}
 }

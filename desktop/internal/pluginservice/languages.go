@@ -67,6 +67,12 @@ type languageDeclaration struct {
 			Kind string `json:"kind"`
 			Path string `json:"path"`
 		} `json:"grammar"`
+		Configuration *struct {
+			LineComment      string     `json:"lineComment"`
+			BlockComment     []string   `json:"blockComment"`
+			Brackets         [][]string `json:"brackets"`
+			AutoClosingPairs [][]string `json:"autoClosingPairs"`
+		} `json:"configuration"`
 	} `json:"languages"`
 }
 
@@ -107,9 +113,43 @@ func (s *Service) pluginLanguages(ctx context.Context, directory string) ([]synt
 				language.Grammar = []byte(decoded.Grammar.Source)
 			}
 		}
+		if configuration := item.Configuration; configuration != nil {
+			language.Comments.Line = configuration.LineComment
+			if pair, ok := delimiterPair(configuration.BlockComment); ok {
+				language.Comments.Block = pair
+			}
+			language.Brackets = delimiterPairs(configuration.Brackets)
+			language.AutoClosing = delimiterPairs(configuration.AutoClosingPairs)
+		}
 		languages = append(languages, language)
 	}
 	return languages, nil
+}
+
+// delimiterPair converts one two-element delimiter declaration.
+func delimiterPair(values []string) (syntax.Pair, bool) {
+	if len(values) != 2 || values[0] == "" || values[1] == "" {
+		return syntax.Pair{}, false
+	}
+	return syntax.Pair{Open: values[0], Close: values[1]}, true
+}
+
+// delimiterPairs converts a list of two-element delimiter declarations, dropping
+// the ones that are not a pair.
+func delimiterPairs(values [][]string) []syntax.Pair {
+	if len(values) == 0 {
+		return nil
+	}
+	pairs := make([]syntax.Pair, 0, len(values))
+	for _, value := range values {
+		if pair, ok := delimiterPair(value); ok {
+			pairs = append(pairs, pair)
+		}
+	}
+	if len(pairs) == 0 {
+		return nil
+	}
+	return pairs
 }
 
 // readBounded reads a whole file, refusing one over limit bytes.

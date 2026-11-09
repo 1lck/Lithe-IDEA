@@ -93,7 +93,7 @@ func TestOpenAssemblesEveryPart(t *testing.T) {
 	if service.Root == "" {
 		t.Fatal("the service has no root")
 	}
-	if len(service.Capabilities()) != 0 {
+	if versions := service.Capabilities()["languages"]; len(versions) != 2 {
 		t.Fatalf("capabilities = %v", service.Capabilities())
 	}
 }
@@ -148,7 +148,7 @@ func TestReviewerAdaptsCoreReview(t *testing.T) {
 	}
 	// The capabilities handed to Core must be the ones this client implements, not
 	// what Core could parse.
-	if len(kernel.reviewCaps) != 0 {
+	if len(kernel.reviewCaps["languages"]) != 2 {
 		t.Fatalf("capabilities = %v", kernel.reviewCaps)
 	}
 }
@@ -193,6 +193,54 @@ func installedPackage(t *testing.T, manifest string, files map[string]string) pl
 }
 
 const languageManifest = `{"id":"example","version":"1.0.0","languages":[{"id":"examplelang","displayName":"Example","fileExtensions":[".ex"],"fileNames":["Examplefile"],"grammar":{"kind":"textmate","path":"grammars/example.json"}}]}`
+
+func TestLoadLanguagesMapsConfiguration(t *testing.T) {
+	manifest := `{"id":"example","version":"1.0.0","languages":[{"id":"examplelang","displayName":"Example","configuration":{"lineComment":"//","blockComment":["/*","*/"],"brackets":[["{","}"],["[","]"]],"autoClosingPairs":[["(",")"]]}}]}`
+	service, err := Open(&fakeKernel{}, store.At(t.TempDir()), t.TempDir())
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	languages, err := service.LoadLanguages(context.Background(), []pluginmanager.Entry{installedPackage(t, manifest, nil)})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(languages) != 1 {
+		t.Fatalf("languages = %+v", languages)
+	}
+	language := languages[0]
+	if language.Comments.Line != "//" {
+		t.Fatalf("line comment = %q", language.Comments.Line)
+	}
+	if language.Comments.Block.Open != "/*" || language.Comments.Block.Close != "*/" {
+		t.Fatalf("block comment = %+v", language.Comments.Block)
+	}
+	if len(language.Brackets) != 2 || language.Brackets[1].Open != "[" {
+		t.Fatalf("brackets = %+v", language.Brackets)
+	}
+	if len(language.AutoClosing) != 1 || language.AutoClosing[0].Close != ")" {
+		t.Fatalf("auto closing = %+v", language.AutoClosing)
+	}
+	if len(language.Grammar) != 0 {
+		t.Fatalf("a language without a grammar carries one: %s", language.Grammar)
+	}
+}
+
+func TestDelimiterPairsDropsMalformedEntries(t *testing.T) {
+	if pair, ok := delimiterPair([]string{"{", "}"}); !ok || pair.Open != "{" {
+		t.Fatalf("pair = %+v, ok = %v", pair, ok)
+	}
+	for _, values := range [][]string{nil, {"{"}, {"{", "}", "}"}, {"", "}"}} {
+		if _, ok := delimiterPair(values); ok {
+			t.Fatalf("%v was accepted as a pair", values)
+		}
+	}
+	if pairs := delimiterPairs(nil); pairs != nil {
+		t.Fatalf("pairs = %+v", pairs)
+	}
+	if pairs := delimiterPairs([][]string{{"{"}}); pairs != nil {
+		t.Fatalf("pairs = %+v", pairs)
+	}
+}
 
 func TestLoadLanguagesReadsGrammarFromThePackage(t *testing.T) {
 	kernel := &fakeKernel{}
