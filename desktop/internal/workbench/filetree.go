@@ -84,15 +84,20 @@ type fileTree struct {
 	drawn         bool
 	areaRect      gfx.Rect
 	// pending and reading coalesce native events into one bounded Core request.
-	pending        map[string]*treeNode
-	reading        bool
-	watches        map[string]*documentWatch
-	watchLimitHit  bool
-	recursiveWatch bool
-	resyncOnAttach bool
-	eventPending   []string
-	eventFiltering bool
-	eventEpoch     uint64
+	pending map[string]*treeNode
+	reading bool
+	// failureReported says the current run of listing failures was already logged. A
+	// user action can need several requests — a frame that paints while the first one
+	// is in flight adds more paths — and each of them failing is one error to the user,
+	// not one per request.
+	failureReported bool
+	watches         map[string]*documentWatch
+	watchLimitHit   bool
+	recursiveWatch  bool
+	resyncOnAttach  bool
+	eventPending    []string
+	eventFiltering  bool
+	eventEpoch      uint64
 }
 
 // node makes a node of the tree from what the kernel listed.
@@ -240,8 +245,12 @@ func (a *App) pumpTreeListings(p *project) {
 		listings, err := a.kernel.ListDirectories(ctx, p.root, paths)
 		return func(a *App) {
 			t.reading = false
+			if err == nil {
+				// The tree listed again, so a later failure is a new one to report.
+				t.failureReported = false
+			}
 			anchor, anchorOffset := a.treeViewportAnchor(t)
-			loggedFailure := false
+			loggedFailure := t.failureReported
 			byPath := make(map[string]core.DirectoryListing, len(listings))
 			for _, listing := range listings {
 				byPath[listing.Path] = listing
@@ -257,6 +266,7 @@ func (a *App) pumpTreeListings(p *project) {
 					if !loggedFailure {
 						a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("project_tree_list", err))
 						loggedFailure = true
+						t.failureReported = true
 					}
 					if n == t.root {
 						t.failed = i18n.Shared(a.language(), "desktop.project.rootUnavailable")

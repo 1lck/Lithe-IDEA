@@ -88,6 +88,55 @@ func TestProjectTreeBatchFailureLogsOnce(t *testing.T) {
 	}
 }
 
+// treeFailureCount reports how many failure events the recorder holds.
+func treeFailureCount(logger *treeRecordingLog) int {
+	logger.mu.Lock()
+	defer logger.mu.Unlock()
+	return len(logger.events)
+}
+
+func TestProjectTreeRepeatedFailureLogsOnceUntilItListsAgain(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"a", "b"} {
+		if err := os.Mkdir(filepath.Join(root, name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	kernel := &failingTreeListingKernel{testKernel: &testKernel{Client: core.NewClient()}}
+	h := newHarness(t, kernel)
+	h.open(root)
+	p := h.app.project
+	awaitDocumentState(t, h, func() bool { return p.tree.root != nil && p.tree.root.listed })
+	logger := &treeRecordingLog{}
+	h.app.logSink = logger
+	settled := func() bool {
+		return !p.tree.reading && !p.tree.find("a").loading && !p.tree.find("b").loading
+	}
+
+	kernel.armed.Store(true)
+	h.app.listTree(p, "a", "b")
+	awaitDocumentState(t, h, settled)
+	// One user action can need more than one request, because a frame that paints
+	// while the first is in flight adds more paths. Every one of them failing is
+	// still the same problem to the user.
+	h.app.listTree(p, "a", "b")
+	awaitDocumentState(t, h, settled)
+	if count := treeFailureCount(logger); count != 1 {
+		t.Fatalf("repeated failures logged %d events: %+v", count, logger.events)
+	}
+
+	// Once the tree lists again, a later failure is a new problem.
+	kernel.armed.Store(false)
+	h.app.listTree(p, "a", "b")
+	awaitDocumentState(t, h, settled)
+	kernel.armed.Store(true)
+	h.app.listTree(p, "a", "b")
+	awaitDocumentState(t, h, settled)
+	if count := treeFailureCount(logger); count != 2 {
+		t.Fatalf("a failure after a successful listing logged %d events in total", count)
+	}
+}
+
 func (k *blockedTreeFilterKernel) FilterWorkspaceChanges(ctx context.Context, paths []string) ([]string, error) {
 	if k.armed.Load() {
 		close(k.started)
