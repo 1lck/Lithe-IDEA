@@ -209,7 +209,7 @@ func TestProviderModelTaskAndCancellation(t *testing.T) {
 		ProviderID:       "dev.lithe.fixture.build-provider-test/fixture",
 		BuildSystemID:    "fixture",
 		StateDirectory:   filepath.Join(packageDirectory, "state"),
-		Architecture:     architecture(),
+		Architecture:     core.PluginArchitecture(),
 		RootURI:          rootURI,
 		WorkingDirectory: workspace,
 		Environment:      map[string]string{buildProviderHelperEnv: "1"},
@@ -308,11 +308,4 @@ func testContext(t *testing.T) context.Context {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
 	return ctx
-}
-
-func architecture() string {
-	if runtime.GOARCH == "amd64" {
-		return "x64"
-	}
-	return runtime.GOARCH
 }

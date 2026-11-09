@@ -145,7 +145,7 @@ func (r *buildRuntime) provider(ctx context.Context, runner *pluginbackend.Runne
 		WorkspaceStateDirectory: workspaceState,
 		LogDirectory:            logDirectory,
 		TemporaryDirectory:      temporaryDirectory,
-		Architecture:            backendArchitecture(),
+		Architecture:            core.PluginArchitecture(),
 		RootURI:                 rootURI,
 		WorkingDirectory:        root,
 	})
@@ -224,7 +224,7 @@ func (a *App) sharedBuildProvider(ctx context.Context, p *project, instance buil
 	session, err := a.plugins.StartLanguageServer(ctx, entries, languageID, pluginservice.BackendRequest{
 		RootURI:          rootURI,
 		WorkingDirectory: p.root,
-		Architecture:     backendArchitecture(),
+		Architecture:     core.PluginArchitecture(),
 	})
 	if err != nil {
 		return nil, err

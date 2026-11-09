@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"runtime"
 )
 
 // PluginBackendStart is the host-resolved process and workspace. The host must
@@ -86,6 +87,22 @@ type PluginBackendDirectories struct {
 	Architecture            string                     `json:"architecture"`
 	Settings                map[string]json.RawMessage `json:"settings,omitempty"`
 	ProjectSettings         map[string]json.RawMessage `json:"projectSettings,omitempty"`
+}
+
+// PluginArchitecture is this host's CPU in the plugin contract's names, which
+// are what Core accepts when it plans a backend launch.
+func PluginArchitecture() string {
+	return pluginArchitecture(runtime.GOARCH)
+}
+
+// pluginArchitecture maps a Go architecture to the plugin contract's name. The
+// contract allows only arm64 and x86_64, and Go calls x86_64 amd64. Marketplace
+// platforms such as windows-x64 are a different naming and do not use this.
+func pluginArchitecture(goarch string) string {
+	if goarch == "amd64" {
+		return "x86_64"
+	}
+	return goarch
 }
 
 // PluginEditorLanguage is Core's validated static language declaration. A

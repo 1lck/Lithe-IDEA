@@ -3,26 +3,12 @@ package workbench
 import (
 	"context"
 	"errors"
-	"runtime"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprovider"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 )
-
-func TestBackendArchitecture(t *testing.T) {
-	got := backendArchitecture()
-	if runtime.GOARCH == "amd64" {
-		if got != "x64" {
-			t.Fatalf("architecture = %q", got)
-		}
-		return
-	}
-	if got != runtime.GOARCH {
-		t.Fatalf("architecture = %q, want %q", got, runtime.GOARCH)
-	}
-}
 
 func TestPluginServerBuildReadinessIsRealAndAttachable(t *testing.T) {
 	server := &pluginServer{}

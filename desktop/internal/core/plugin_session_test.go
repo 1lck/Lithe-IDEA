@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -18,6 +17,17 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/textmate"
 )
+
+// Core rejects any launch architecture outside the contract's names, so an
+// x86_64 host that sent Go's amd64 or the marketplace's x64 could start no
+// plugin backend.
+func TestPluginArchitectureUsesContractNames(t *testing.T) {
+	for goarch, want := range map[string]string{"amd64": "x86_64", "arm64": "arm64"} {
+		if got := pluginArchitecture(goarch); got != want {
+			t.Errorf("pluginArchitecture(%q) = %q, want %q", goarch, got, want)
+		}
+	}
+}
 
 func TestPluginBackendPlanUsesCoreManifestAndCapabilities(t *testing.T) {
 	manifest, err := os.ReadFile("../../../shared/contracts/plugins/v1/fixtures/backend/backend.plugin.json")
@@ -253,11 +263,7 @@ func TestPluginBackendCoreSessionInvokesFunctionAndCleansUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	arch := runtime.GOARCH
-	if arch == "amd64" {
-		arch = "x86_64"
-	}
-	plan, err := client.PlanPluginBackend(ctx, validated, PluginBackendDirectories{PluginDirectory: filepath.Dir(executable), StateDirectory: root, Architecture: arch})
+	plan, err := client.PlanPluginBackend(ctx, validated, PluginBackendDirectories{PluginDirectory: filepath.Dir(executable), StateDirectory: root, Architecture: PluginArchitecture()})
 	if err != nil {
 		t.Fatal(err)
 	}

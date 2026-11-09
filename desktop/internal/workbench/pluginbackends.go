@@ -2,7 +2,6 @@ package workbench
 
 import (
 	"context"
-	"runtime"
 	"sync"
 	"time"
 
@@ -328,22 +327,13 @@ func (a *App) stopPluginSession(session *pluginservice.LanguageSession) {
 
 // pluginBackendRequest is the workspace a language server serves.
 func (a *App) pluginBackendRequest() pluginservice.BackendRequest {
-	request := pluginservice.BackendRequest{Architecture: backendArchitecture()}
+	request := pluginservice.BackendRequest{Architecture: core.PluginArchitecture()}
 	if a.project != nil {
 		// The root URI is resolved by Core from the absolute path in the start
 		// goroutine; a map here would not fit lsp.startServer's string field.
 		request.WorkingDirectory = a.project.root
 	}
 	return request
-}
-
-// backendArchitecture is the architecture name Core plans for.
-func backendArchitecture() string {
-	architecture := runtime.GOARCH
-	if architecture == "amd64" {
-		return "x64"
-	}
-	return architecture
 }
 
 // isCurrentPluginServer reads the shared registry while a build may register a server.
