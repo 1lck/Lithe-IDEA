@@ -146,7 +146,7 @@ func (s *Service) Prepare(ctx context.Context, request Request) (plan Plan, err 
 			err = errors.Join(err, os.RemoveAll(staging))
 		}
 	}()
-	extracted, err := extractVerified(request, staging)
+	extracted, err := extractVerified(ctx, request, staging)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -276,7 +276,10 @@ func hashFile(writer io.Writer, source io.Reader) error {
 // The download layer checked the digest of the bytes it received. Hashing a path
 // and then opening it again would leave a window in which the file is replaced,
 // so the check and the extraction share one open file.
-func extractVerified(request Request, staging string) (pluginpkg.Package, error) {
+func extractVerified(ctx context.Context, request Request, staging string) (pluginpkg.Package, error) {
+	if err := ctx.Err(); err != nil {
+		return pluginpkg.Package{}, err
+	}
 	file, err := os.Open(request.ArchivePath)
 	if err != nil {
 		return pluginpkg.Package{}, err
@@ -298,7 +301,7 @@ func extractVerified(request Request, staging string) (pluginpkg.Package, error)
 			return pluginpkg.Package{}, err
 		}
 	}
-	return pluginpkg.ExtractReader(file, info.Size(), staging)
+	return pluginpkg.ExtractFrom(ctx, file, info.Size(), staging)
 }
 
 // verifyDigest hashes the open archive and compares it with the digest the

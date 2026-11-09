@@ -2,6 +2,7 @@ package pluginpkg
 
 import (
 	"archive/zip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -28,6 +29,16 @@ import (
 // A caller that verified a digest must use ExtractReader with the same open handle
 // instead: a path can be replaced between two opens, an open file cannot.
 func Extract(archivePath, directory string) (Package, error) {
+	return ExtractReader(context.Background(), archivePath, directory)
+}
+
+// ExtractReader reads an archive the caller already holds open, so that a digest
+// checked over the handle is checked over the bytes that are extracted.
+//
+// Cancelling ctx stops the extraction between entries and inside a single entry's
+// copy, so a caller that gave up does not keep a background goroutine reading a
+// large archive while the application waits for it to finish.
+func ExtractReader(ctx context.Context, archivePath, directory string) (Package, error) {
 	file, err := os.Open(archivePath)
 	if err != nil {
 		return Package{}, fmt.Errorf("%w: %w", ErrNotArchive, err)
@@ -41,20 +52,49 @@ func Extract(archivePath, directory string) (Package, error) {
 		// A directory, device or named pipe would block or read something else.
 		return Package{}, fmt.Errorf("%w: %s is not a regular file", ErrNotArchive, archivePath)
 	}
-	return ExtractReader(file, info.Size(), directory)
+	return ExtractFrom(ctx, file, info.Size(), directory)
 }
 
-// ExtractReader reads an archive the caller already holds open, so that a digest
-// checked over the handle is checked over the bytes that are extracted.
-func ExtractReader(source io.ReaderAt, size int64, directory string) (Package, error) {
-	reader, err := zip.NewReader(source, size)
+// ExtractFrom reads an archive through a handle the caller owns, which is what
+// binds a verified digest to the bytes that are written.
+func ExtractFrom(ctx context.Context, source io.ReaderAt, size int64, directory string) (Package, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reader, err := zip.NewReader(contextReaderAt{ctx: ctx, source: source}, size)
 	if err != nil {
 		return Package{}, fmt.Errorf("%w: %w", ErrNotArchive, err)
 	}
-	return extractEntries(reader.File, directory)
+	return extractEntries(ctx, reader.File, directory)
 }
 
-func extractEntries(entries []*zip.File, directory string) (pkg Package, err error) {
+// contextReaderAt stops a read once its context ends.
+type contextReaderAt struct {
+	ctx    context.Context
+	source io.ReaderAt
+}
+
+func (r contextReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.source.ReadAt(p, off)
+}
+
+// contextReader stops a copy once its context ends.
+type contextReader struct {
+	ctx    context.Context
+	source io.Reader
+}
+
+func (r contextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.source.Read(p)
+}
+
+func extractEntries(ctx context.Context, entries []*zip.File, directory string) (pkg Package, err error) {
 	if len(entries) > MaxEntries {
 		return Package{}, fmt.Errorf("%w: %d entries, limit %d", ErrTooManyEntries, len(entries), MaxEntries)
 	}
@@ -74,6 +114,9 @@ func extractEntries(entries []*zip.File, directory string) (pkg Package, err err
 	var total int64
 
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return Package{}, err
+		}
 		name := entry.Name
 		if entry.FileInfo().IsDir() {
 			// ZIP marks a directory by a trailing separator, which is not part of
@@ -119,7 +162,7 @@ func extractEntries(entries []*zip.File, directory string) (pkg Package, err err
 		if err := addParents(name, files, directories); err != nil {
 			return Package{}, err
 		}
-		file, size, writeErr := writeEntry(entry, directory, name, total)
+		file, size, writeErr := writeEntry(ctx, entry, directory, name, total)
 		if writeErr != nil {
 			return Package{}, writeErr
 		}
@@ -150,7 +193,7 @@ func addParents(name string, files, directories map[string]struct{}) error {
 // writeEntry writes one regular file entry under root and reports what it wrote.
 // It trusts no size the archive declares: the declared size only decides whether
 // the entry is worth opening, and the copy itself is bounded.
-func writeEntry(entry *zip.File, root, name string, total int64) (File, int64, error) {
+func writeEntry(ctx context.Context, entry *zip.File, root, name string, total int64) (File, int64, error) {
 	declared := int64(entry.UncompressedSize64)
 	if declared > MaxFileBytes {
 		return File{}, 0, fmt.Errorf("%w: %q declares %d bytes, limit %d", ErrFileTooLarge, name, declared, MaxFileBytes)
@@ -194,7 +237,7 @@ func writeEntry(entry *zip.File, root, name string, total int64) (File, int64, e
 		}
 		return File{}, 0, err
 	}
-	written, copyErr := io.Copy(file, io.LimitReader(source, limit+1))
+	written, copyErr := io.Copy(file, io.LimitReader(contextReader{ctx: ctx, source: source}, limit+1))
 	closeErr := file.Close()
 	sourceErr := source.Close()
 	if copyErr != nil || closeErr != nil || sourceErr != nil {

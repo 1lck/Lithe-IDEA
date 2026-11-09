@@ -413,6 +413,27 @@ func TestCommitInstallsAndRecordsTheApproval(t *testing.T) {
 	}
 }
 
+func TestPrepareStopsWhenCancelled(t *testing.T) {
+	service, _, root := newService(t, &fakeValidator{}, sampleReviewer())
+	archive := writeArchive(t, sampleManifest, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := service.Prepare(ctx, Request{
+		ArchivePath: archive,
+		Root:        root,
+		Source:      plugintrust.Marketplace,
+	}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+	entries, readErr := os.ReadDir(filepath.Join(root, ".staging"))
+	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+		t.Fatalf("read staging: %v", readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("a cancelled preparation left %d staging entries", len(entries))
+	}
+}
+
 func TestPrepareRefusesAReplacedArchive(t *testing.T) {
 	service, _, root := newService(t, &fakeValidator{}, sampleReviewer())
 	archive := writeArchive(t, sampleManifest, map[string]string{"lib/a.txt": "code"})
