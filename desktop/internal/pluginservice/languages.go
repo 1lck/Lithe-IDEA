@@ -22,6 +22,12 @@ const (
 	// language is well under a megabyte; the ceiling only stops a malformed
 	// package from being read into memory.
 	MaxGrammarBytes = 16 << 20
+	// MaxDelimiterBytes bounds one comment or bracket delimiter, matching the
+	// contract's editorDelimiter.
+	MaxDelimiterBytes = 16
+	// MaxDelimiterPairs bounds the bracket and auto-closing lists, matching the
+	// contract's editorDelimiterPair arrays.
+	MaxDelimiterPairs = 32
 )
 
 // ErrPackageRead reports an installed package this service cannot read.
@@ -131,7 +137,9 @@ func (s *Service) pluginLanguages(ctx context.Context, directory string) ([]synt
 			}
 		}
 		if configuration := item.Configuration; configuration != nil {
-			language.Comments.Line = configuration.LineComment
+			if validDelimiter(configuration.LineComment) {
+				language.Comments.Line = configuration.LineComment
+			}
 			if pair, ok := delimiterPair(configuration.BlockComment); ok {
 				language.Comments.Block = pair
 			}
@@ -172,20 +180,23 @@ func (s *Service) grammar(ctx context.Context, directory string, manifest json.R
 
 // delimiterPair converts one two-element delimiter declaration.
 func delimiterPair(values []string) (syntax.Pair, bool) {
-	if len(values) != 2 || values[0] == "" || values[1] == "" {
+	if len(values) != 2 || !validDelimiter(values[0]) || !validDelimiter(values[1]) {
 		return syntax.Pair{}, false
 	}
 	return syntax.Pair{Open: values[0], Close: values[1]}, true
 }
 
 // delimiterPairs converts a list of two-element delimiter declarations, dropping
-// the ones that are not a pair.
+// the ones that are not a pair and capping the list at the contract's limit.
 func delimiterPairs(values [][]string) []syntax.Pair {
 	if len(values) == 0 {
 		return nil
 	}
-	pairs := make([]syntax.Pair, 0, len(values))
+	pairs := make([]syntax.Pair, 0, min(len(values), MaxDelimiterPairs))
 	for _, value := range values {
+		if len(pairs) == MaxDelimiterPairs {
+			break
+		}
 		if pair, ok := delimiterPair(value); ok {
 			pairs = append(pairs, pair)
 		}
@@ -194,6 +205,23 @@ func delimiterPairs(values [][]string) []syntax.Pair {
 		return nil
 	}
 	return pairs
+}
+
+// validDelimiter reports whether a delimiter may reach the editor.
+//
+// The contract bounds a delimiter to MaxDelimiterBytes without control characters.
+// Core validates a manifest when it is reviewed, but this file is read again on
+// every reload, so the same bounds are applied to the bytes that are actually used.
+func validDelimiter(value string) bool {
+	if value == "" || len(value) > MaxDelimiterBytes {
+		return false
+	}
+	for _, r := range value {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 // readBounded reads a whole file, refusing one over limit bytes.

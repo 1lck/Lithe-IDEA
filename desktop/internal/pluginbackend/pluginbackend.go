@@ -93,6 +93,11 @@ type Runner struct {
 
 // New returns a runner that answers host requests with services.
 func New(kernel Kernel, services *pluginhost.Services) *Runner {
+	if services == nil {
+		// A runner always holds a registry: a nil one would panic the first time a
+		// backend asked the host for anything.
+		services = pluginhost.NewServices()
+	}
 	return &Runner{kernel: kernel, services: services}
 }
 
@@ -174,6 +179,11 @@ func (r *Runner) Stop(ctx context.Context, session Session) error {
 // Every answer goes through pluginhost.Services, so a method the host never
 // registered is refused with the contract's methodNotDeclared code rather than
 // leaving the plugin waiting.
+//
+// Returning nil means Core reported the session's exit event, not that the Core
+// session is gone: Core keeps it until it is disposed, so the caller must still
+// call Stop. Serve does not dispose it itself, because a caller that stops the
+// session concurrently would then dispose it twice.
 func (r *Runner) Serve(ctx context.Context, session Session) error {
 	if r == nil || r.kernel == nil {
 		return errors.New("pluginbackend: no kernel")

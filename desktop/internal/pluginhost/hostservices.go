@@ -28,6 +28,11 @@ const (
 	CodeCancelled = "plugin.host.cancelled"
 	// CodeUnsupportedOption reports an option the method does not define.
 	CodeUnsupportedOption = "plugin.host.unsupportedOption"
+	// CodeHostFailure reports a failure in this host's own handler rather than in
+	// the request. The contract has no code for it because the plugin is not at
+	// fault; reporting it as an undeclared method would make the plugin drop the
+	// capability for good.
+	CodeHostFailure = "plugin.host.failure"
 )
 
 // ErrServiceRegistration reports a handler that cannot be registered.
@@ -88,6 +93,9 @@ func (s *Services) Register(method string, handler Handler) error {
 // request may advertise; advertising a method that is not registered would let a
 // backend call into a hole.
 func (s *Services) Grant() []string {
+	if s == nil {
+		return nil
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	methods := make([]string, 0, len(s.handlers))
@@ -105,6 +113,9 @@ func (s *Services) Grant() []string {
 // context ends is reported as cancelled. A machine request is bounded by
 // RequestTimeout unless the caller already set a deadline.
 func (s *Services) Respond(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, *Failure) {
+	if s == nil {
+		return nil, &Failure{Code: CodeMethodNotDeclared, Message: "no handler is registered for " + method}
+	}
 	s.mu.RLock()
 	handler, ok := s.handlers[method]
 	s.mu.RUnlock()
@@ -129,7 +140,9 @@ func (s *Services) Respond(ctx context.Context, method string, params json.RawMe
 		return nil, &Failure{Code: CodeCancelled, Message: err.Error()}
 	}
 	if len(result) != 0 && !json.Valid(result) {
-		return nil, &Failure{Code: CodeMethodNotDeclared, Message: "the handler returned invalid JSON"}
+		// The handler, not the plugin, is at fault. Reporting this as an undeclared
+		// method would make the plugin drop the capability for good.
+		return nil, &Failure{Code: CodeHostFailure, Message: "the handler for " + method + " returned invalid JSON"}
 	}
 	return result, nil
 }
