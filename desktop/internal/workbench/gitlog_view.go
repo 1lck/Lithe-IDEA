@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"math"
 	"path"
 	"slices"
 	"strconv"
@@ -54,6 +55,22 @@ const (
 	logRefIconSize   = 12
 	logRefChipGap    = 4
 )
+
+// The author line of the commit details: the short hash, the author, the email and the
+// date. drawLogMeta lays the parts out and metaRows measures them with the same numbers:
+// parts stand logAuthorGap apart along a line, and the lines they wrap onto logAuthorLineGap.
+const (
+	logAuthorGap     = 6
+	logAuthorLineGap = 2
+)
+
+// logMetaPart is one part of the author line of the commit details, drawn whole in color,
+// in the fixed-pitch font when mono is set.
+type logMetaPart struct {
+	text  string
+	mono  bool
+	color gfx.Color
+}
 
 var (
 	logSearchID     = tree.ID(shellPage, "log-search")
@@ -161,6 +178,12 @@ type logView struct {
 	// next frame reuses their arrays.
 	refWidths []float32
 	refStarts []int
+	// metaParts are the parts of the selected commit's author line, metaWidths the widths
+	// metaRows measured them at, and metaStarts the index of the first part of each line
+	// they wrap onto; all are kept so the next frame reuses their arrays.
+	metaParts  []logMetaPart
+	metaWidths []float32
+	metaStarts []int
 
 	// file is the path of the selected changed file, and folder the path of the selected
 	// folder of the changed files; at most one of them is set.
@@ -1094,14 +1117,7 @@ func (a *App) drawLogCommitDetail(f *ui.Frame, p *project) ui.Box {
 					f.Text(line).Mono().Bold().FontSize(logFontSize).FillWidth()
 				}
 			})
-			f.Row().FillWidth().Items(ui.Center).Gap(6).Children(func() {
-				f.Text(d.Commit.ShortHash).Mono().Muted().Shrink(0)
-				f.Text(d.Commit.AuthorName).Ellipsis().Shrink(1)
-				if d.Commit.AuthorEmail != "" {
-					f.Text("<" + d.Commit.AuthorEmail + ">").Color(a.colors.Accent).Ellipsis().Shrink(1)
-				}
-				f.Text(g.On(a.logView.date(d.Commit))).Muted().Ellipsis().Shrink(1)
-			})
+			a.drawLogMeta(f, d)
 			if chips := slices.DeleteFunc(slices.Clone(labels), func(x core.GraphLabel) bool { return x.Kind == "head" }); len(chips) > 0 {
 				// Viva has no wrapping row, so the chips are broken into lines here, each line
 				// a row of the chips that fit it whole.
@@ -1161,6 +1177,67 @@ func (v *logView) refRows(canvas *gfx.Canvas, labels []core.GraphLabel, size flo
 	}
 	v.refStarts = wrapTabs(v.refStarts[:0], v.refWidths, avail, logRefChipGap)
 	return v.refStarts
+}
+
+// drawLogMeta declares the author line of commit d's details: the short hash, the author,
+// the email and the date. None of them is cut short. The parts wrap onto more lines when the
+// details are narrow, as metaRows breaks them, and a part wider than a line, such as a long
+// email, has one to itself and breaks inside it as a ui Wrap does. The short hash is a few
+// characters, so the fixed-pitch part never needs breaking.
+func (a *App) drawLogMeta(f *ui.Frame, d *core.GitCommitDetail) {
+	v := &a.logView
+	muted := a.theme.MutedForeground
+	parts := append(v.metaParts[:0],
+		logMetaPart{text: d.Commit.ShortHash, mono: true, color: muted},
+		logMetaPart{text: d.Commit.AuthorName, color: a.theme.Foreground})
+	if d.Commit.AuthorEmail != "" {
+		parts = append(parts, logMetaPart{text: "<" + d.Commit.AuthorEmail + ">", color: a.colors.Accent})
+	}
+	parts = append(parts, logMetaPart{text: a.text.Git.On(v.date(d.Commit)), color: muted})
+	v.metaParts = parts
+	starts := v.metaRows(f.Canvas(), parts, a.theme.Metrics.FontSizeM)
+	avail := v.detailWidth - 2*logDetailPad
+	f.Column().FillWidth().Gap(logAuthorLineGap).Children(func() {
+		for line, start := range starts {
+			end := len(parts)
+			if line+1 < len(starts) {
+				end = starts[line+1]
+			}
+			if end-start == 1 && start < len(v.metaWidths) && v.metaWidths[start] > avail {
+				f.Wrap(parts[start].text).FillWidth().Color(parts[start].color)
+				continue
+			}
+			f.Row().FillWidth().Items(ui.Center).Gap(logAuthorGap).Children(func() {
+				for _, part := range parts[start:end] {
+					text := f.Text(part.text).Color(part.color).Shrink(0)
+					if part.mono {
+						text.Mono()
+					}
+				}
+			})
+		}
+	})
+}
+
+// metaRows is where the lines of the author line's parts start when the commit details wrap
+// it, drawn at font size size: the index of the first part of each line. Each part is
+// measured in the font drawLogMeta draws it in and rounded up to a whole point, so a line
+// that fits by these numbers fits once laid out, and the lines are as wide as refRows wraps
+// the reference chips at. A part wider than a line has one to itself. Without a canvas to
+// measure with the parts stay in one line.
+func (v *logView) metaRows(canvas *gfx.Canvas, parts []logMetaPart, size float32) []int {
+	avail := v.detailWidth - 2*logDetailPad
+	v.metaWidths = v.metaWidths[:0]
+	if canvas == nil || avail <= 0 {
+		v.metaStarts = append(v.metaStarts[:0], 0)
+		return v.metaStarts
+	}
+	for _, part := range parts {
+		width := canvas.TextWidthStyle(part.text, gfx.TextStyle{Size: size, Weight: gfx.WeightRegular, Mono: part.mono})
+		v.metaWidths = append(v.metaWidths, float32(math.Ceil(float64(width))))
+	}
+	v.metaStarts = wrapTabs(v.metaStarts[:0], v.metaWidths, avail, logAuthorGap)
+	return v.metaStarts
 }
 
 // drawLogRefChip declares one reference chip of the commit details, laid out with the

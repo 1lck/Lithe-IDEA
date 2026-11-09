@@ -9,6 +9,93 @@ import (
 	"github.com/vivaui/viva/app"
 )
 
+// TestLogCommitDetailsShowWholeAuthorLine checks that the author line of the commit details
+// is never cut short in a narrow pane: the short hash, the author, the email and the date
+// wrap onto more lines, each drawn whole inside the details, and an email wider than a line
+// has one to itself and breaks inside it, its lines together the whole email.
+func TestLogCommitDetailsShowWholeAuthorLine(t *testing.T) {
+	h := newHarness(t, gitKernel{core.NewClient()})
+	dir := newTestRepository(t)
+	author := "Lithe Test Author With A Long Name"
+	email := "a-mailbox-far-wider-than-the-commit-details-" + strings.Repeat("x", 80) + "@example.invalid"
+	gitRun(t, dir, "commit", "--allow-empty", "--author", author+" <"+email+">", "-m", "long author")
+	head := gitRun(t, dir, "rev-parse", "HEAD")
+	h.app.delays = logDelays{}
+	h.open(dir)
+	p := h.app.project
+	if p == nil || !p.git.isRepository() {
+		t.Fatalf("the project is not a loaded repository: %+v", p)
+	}
+	v := &h.app.logView
+	// The details at their least width are the narrow pane; a tall bottom area and short
+	// changed files leave the commit details room for every line.
+	v.detailWidth = logDetailsMin
+	v.filesSplit.Pos = logFilesMin
+	h.app.layout.bottom = 10000
+	h.app.layout.gitTab = 0
+	h.settle()
+	if !p.log.started {
+		h.click(center(h.button(itemGit)))
+		h.settle()
+	}
+	h.app.selectCommit(p, head)
+	h.settle()
+	h.settle()
+	if p.log.detail == nil {
+		t.Fatalf("no details of %q: files %v", head, p.log.filesState)
+	}
+
+	parts := v.metaParts
+	if len(parts) != 4 || parts[1].text != author || parts[2].text != "<"+email+">" {
+		t.Fatalf("the author line is %+v, want the hash, %q, <%s> and the date", parts, author, email)
+	}
+	if len(v.metaWidths) != len(parts) || len(v.metaStarts) < 2 {
+		t.Fatalf("%d parts measured %v and wrapped at %v, want all in at least two lines", len(parts), v.metaWidths, v.metaStarts)
+	}
+	if line := slices.Index(v.metaStarts, 2); line < 0 || line+1 >= len(v.metaStarts) || v.metaStarts[line+1] != 3 {
+		t.Fatalf("the email wider than a line does not have one to itself: lines start at %v", v.metaStarts)
+	}
+
+	// Every text of the details at the body size lies inside the pane's padding and none
+	// ends in an ellipsis; the email's lines join into the whole email, and the other parts
+	// are drawn whole. The details pane starts after its splitter, is detailWidth wide and
+	// as tall as the splitter; the commit details lie below the splitter of the changed
+	// files, which this commit, changing none, leaves empty.
+	split, files := h.hit(logSplitDetails), h.hit(logSplitFiles)
+	left, top, bottom := split.Right(), files.Bottom(), split.Bottom()
+	contentLeft, contentRight := left+logDetailPad, left+v.detailWidth-logDetailPad
+	const slack = 0.5
+	var drawn []app.Label
+	var joined strings.Builder
+	for _, label := range h.driver.Snapshot().Labels {
+		if label.FontSize != h.app.theme.Metrics.FontSizeM || label.Bounds.X < left || label.Bounds.Y < top || label.Bounds.Y >= bottom {
+			continue
+		}
+		drawn = append(drawn, label)
+		joined.WriteString(label.Value)
+		if strings.Contains(label.Value, "…") {
+			t.Errorf("%q is cut short", label.Value)
+		}
+		if label.Bounds.X < contentLeft-slack || label.Bounds.Right() > contentRight+slack {
+			t.Errorf("%q drawn at %+v, outside the details' %v..%v", label.Value, label.Bounds, contentLeft, contentRight)
+		}
+	}
+	if !strings.Contains(joined.String(), parts[2].text) {
+		t.Errorf("the email is not drawn whole across its lines; drawn %+v", drawn)
+	}
+	for i, part := range parts {
+		if i == 2 {
+			continue
+		}
+		at := slices.IndexFunc(drawn, func(label app.Label) bool { return label.Value == part.text })
+		if at < 0 {
+			t.Errorf("%q is not drawn whole; drawn %+v", part.text, drawn)
+		} else if drawn[at].Bounds.Width < v.metaWidths[i]-1 {
+			t.Errorf("%q is %v wide, want its whole %v", part.text, drawn[at].Bounds.Width, v.metaWidths[i])
+		}
+	}
+}
+
 // TestLogCommitDetailsWrapReferenceChips checks that the reference chips under the author
 // line of the commit details wrap onto more lines in a narrow pane instead of running past
 // its edge: every chip is drawn inside the details, a chip that fits a line is drawn whole,
