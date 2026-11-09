@@ -48,6 +48,7 @@ jobs:
           bash -n scripts/desktop/build-desktop-core.sh
           bash -n scripts/desktop/desktop-go.sh
           bash -n scripts/desktop/package-desktop.sh
+          bash -n scripts/desktop/perf/editor-bench.sh
           bash -n scripts/ci/desktop-release/package-release.sh
           bash -n scripts/ci/desktop-release/resolve-release-version.sh
           zsh -n scripts/desktop/generate-desktop-icons.sh
@@ -59,6 +60,7 @@ jobs:
             scripts/desktop/build-desktop-core.sh \
             scripts/desktop/desktop-go.sh \
             scripts/desktop/package-desktop.sh \
+            scripts/desktop/perf/editor-bench.sh \
             scripts/ci/desktop-release/package-release.sh \
             scripts/ci/desktop-release/resolve-release-version.sh
 
@@ -77,6 +79,7 @@ jobs:
         run: |
           node --test \
             scripts/release/notes/test-validate-stable-release-notes.mjs \
+            scripts/desktop/perf/editor-perf-report.test.mjs \
             scripts/ci/cancel-closed-pr-runs/cancel-closed-pr-runs.test.mjs
 
   linux-test:
