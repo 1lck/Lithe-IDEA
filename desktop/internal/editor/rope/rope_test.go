@@ -1,7 +1,7 @@
 package rope
 
 import (
-	"bytes"
+	"fmt"
 	"math/rand/v2"
 	"strings"
 	"testing"
@@ -25,7 +25,7 @@ func check(t *testing.T, r Rope) {
 			if depth != leafDepth {
 				t.Fatalf("leaf at depth %d, want %d", depth, leafDepth)
 			}
-			if n.length != len(n.text) || n.newlines != bytes.Count(n.text, newline) {
+			if n.length != len(n.text) || n.newlines != strings.Count(n.text, "\n") {
 				t.Fatalf("leaf counts %d/%d do not match its text", n.length, n.newlines)
 			}
 			if n.length == 0 || n.length > maxLeaf {
@@ -96,6 +96,84 @@ func TestEmptyRopeHasOneEmptyLine(t *testing.T) {
 	same(t, r.Insert(0, []byte("a\nb")), "a\nb")
 }
 
+// A line that lies inside one leaf is a substring of the leaf: Line returns it without an
+// allocation, and LineCopied says so. Only a line that crosses leaves is joined into a new string.
+func TestLineSharesTheLeafItLiesIn(t *testing.T) {
+	var b strings.Builder
+	for i := range 2000 {
+		fmt.Fprintf(&b, "line %04d of the text\n", i)
+	}
+	text := b.String()
+	r := New([]byte(text))
+	check(t, r)
+	if r.root.children == nil {
+		t.Fatal("the text fits in one leaf, so no line could straddle one")
+	}
+	lines := strings.Split(text, "\n")
+	if r.LineCount() != len(lines) {
+		t.Fatalf("LineCount %d, want %d", r.LineCount(), len(lines))
+	}
+	for i, want := range lines {
+		if got := r.Line(i); got != want {
+			t.Fatalf("Line(%d) = %q, want %q", i, got, want)
+		}
+		// Every line is far shorter than a leaf, and a split falls after a line break, so no
+		// line of a freshly built rope crosses leaves.
+		got, copied := r.LineCopied(i)
+		if got != want || copied {
+			t.Fatalf("LineCopied(%d) = %q, %v, want %q, false", i, got, copied, want)
+		}
+	}
+	if allocs := testing.AllocsPerRun(100, func() { _ = r.Line(5) }); allocs != 0 {
+		t.Fatalf("Line of a line inside one leaf allocates %v times", allocs)
+	}
+
+	// One line longer than a leaf must be joined from several.
+	long := strings.Repeat("y", 3*maxLeaf)
+	r2 := New([]byte(long))
+	if got, copied := r2.LineCopied(0); got != long || !copied {
+		t.Fatalf("LineCopied of a line across leaves = %d bytes, %v, want %d bytes, true", len(got), copied, len(long))
+	}
+	if got := r2.Line(0); got != long {
+		t.Fatalf("Line of a line across leaves = %d bytes, want %d", len(got), len(long))
+	}
+
+	// A line that does not exist is empty and was not copied.
+	for _, line := range []int{-1, r.LineCount(), r.LineCount() + 10} {
+		if got, copied := r.LineCopied(line); got != "" || copied {
+			t.Fatalf("LineCopied(%d) = %q, %v, want \"\", false", line, trim(got), copied)
+		}
+		if got := r.Line(line); got != "" {
+			t.Fatalf("Line(%d) = %q, want \"\"", line, trim(got))
+		}
+	}
+	var empty Rope
+	if got := empty.Line(0); got != "" {
+		t.Fatalf("Line(0) of an empty rope = %q", got)
+	}
+	if got, copied := empty.LineCopied(0); got != "" || copied {
+		t.Fatalf("LineCopied(0) of an empty rope = %q, %v", got, copied)
+	}
+}
+
+// FromString keeps the string it is given, which cannot change, instead of copying it.
+func TestFromStringSharesItsText(t *testing.T) {
+	s := strings.Repeat("share me\n", 1000)
+	r := FromString(s)
+	check(t, r)
+	if got := r.String(); got != s {
+		t.Fatalf("String = %q..., want %q...", trim(got), trim(s))
+	}
+	if !r.Equal(New([]byte(s))) {
+		t.Fatal("a rope from a string is not Equal to one from the same bytes")
+	}
+	// A rope of one leaf is that leaf's memory, so reading it back allocates nothing.
+	small := FromString("one leaf")
+	if allocs := testing.AllocsPerRun(100, func() { _ = small.String() }); allocs != 0 {
+		t.Fatalf("String of a one-leaf rope allocates %v times", allocs)
+	}
+}
+
 func TestNewBuildsBalancedTrees(t *testing.T) {
 	for _, size := range []int{1, maxLeaf, maxLeaf + 1, 2 * maxLeaf, 2*maxLeaf + 1, 100_000, 1 << 20} {
 		var b strings.Builder
@@ -113,8 +191,8 @@ func TestLeavesDoNotSplitCharacters(t *testing.T) {
 	text := strings.Repeat("汉字测试", 4000)
 	r := FromString(text)
 	check(t, r)
-	r.Chunks(0, r.Len(), func(chunk []byte) bool {
-		if !utf8.Valid(chunk) {
+	r.Chunks(0, r.Len(), func(chunk string) bool {
+		if !utf8.ValidString(chunk) {
 			t.Fatalf("leaf of %d bytes splits a character", len(chunk))
 		}
 		return true
@@ -223,7 +301,7 @@ func TestReplaceClampsItsRange(t *testing.T) {
 func TestChunksStopsWhenAsked(t *testing.T) {
 	r := FromString(strings.Repeat("x", 10*maxLeaf))
 	calls := 0
-	r.Chunks(0, r.Len(), func([]byte) bool { calls++; return false })
+	r.Chunks(0, r.Len(), func(string) bool { calls++; return false })
 	if calls != 1 {
 		t.Fatalf("yield called %d times after returning false", calls)
 	}

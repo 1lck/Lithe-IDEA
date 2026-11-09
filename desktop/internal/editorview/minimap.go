@@ -261,7 +261,7 @@ func (v *View) markRows(first, last, cols int) {
 	line, sub := v.rowLine(first)
 	row := first
 	for row <= last && line < v.text.LineCount() {
-		text := v.text.Line(line)
+		text := v.line(line)
 		rows := v.minimapRows(line, text)
 		v.mm.tokens = v.hl.Line(v.mm.tokens[:0], line)
 		for k := sub; k < len(rows) && row <= last; k++ {

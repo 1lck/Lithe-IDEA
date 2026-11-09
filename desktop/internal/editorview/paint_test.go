@@ -1,7 +1,9 @@
 package editorview
 
 import (
+	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -100,8 +102,8 @@ func TestWideViewSplitsALineIntoAdjacentLabels(t *testing.T) {
 	}
 }
 
-// A character the left edge of the view cuts keeps its column: a tab shows only its spaces from
-// the first visible column, and a wide character starts the label a cell early, still inside
+// A character the left edge of the view cuts keeps its column: the text after a tab the edge
+// cuts starts at the tab stop, and a wide character starts the label a cell early, still inside
 // the window.
 func TestCharacterCutByTheLeftEdgeKeepsItsColumn(t *testing.T) {
 	canvas := new(gfx.Canvas)
@@ -114,11 +116,11 @@ func TestCharacterCutByTheLeftEdgeKeepsItsColumn(t *testing.T) {
 	canvas.Reset()
 	tab.Paint(canvas, area, Look{})
 	labels := lineLabels(canvas, tab)
-	if len(labels) != 1 || !strings.HasPrefix(labels[0].Value, "  abc") {
-		t.Fatalf("labels = %d, first %.8q…, want one starting with the tab's last two spaces", len(labels), labels[0].Value)
+	if len(labels) != 1 || !strings.HasPrefix(labels[0].Value, "abc") {
+		t.Fatalf("labels = %d, first %.8q…, want one starting with the text after the tab", len(labels), labels[0].Value)
 	}
-	if got, want := labels[0].Bounds.X, tab.textLeft+2*tab.cellW-tab.scrollX; math.Abs(float64(got-want)) > 0.01 {
-		t.Fatalf("label starts at %v, want %v, at column 2", got, want)
+	if got, want := labels[0].Bounds.X, tab.textLeft+tabSize*tab.cellW-tab.scrollX; math.Abs(float64(got-want)) > 0.01 {
+		t.Fatalf("label starts at %v, want %v, at the tab stop", got, want)
 	}
 
 	wide := newTestView(t, "中abc"+tail)
@@ -135,5 +137,95 @@ func TestCharacterCutByTheLeftEdgeKeepsItsColumn(t *testing.T) {
 	}
 	if got, want := labels[0].Bounds.X, wide.textLeft-wide.scrollX; math.Abs(float64(got-want)) > 0.01 {
 		t.Fatalf("label starts at %v, want %v, at column 0", got, want)
+	}
+}
+
+// A label shows the line as it is: a tab or another control character is blank cells between
+// labels, a carriage return ends the label before it, and a byte that is not UTF-8 is a label
+// of its own that shows U+FFFD. Every other label is part of the line, so drawing it copies
+// nothing.
+func TestLabelsArePartsOfTheLine(t *testing.T) {
+	canvas := new(gfx.Canvas)
+	line := "ab\tcd\x01e\xffé\r"
+	v := newTestView(t, line+"\nnext")
+	v.Paint(canvas, gfx.Rect{Width: 900, Height: 200}, Look{})
+	labels := lineLabels(canvas, v)
+	stop := 2 + tabSize - 2%tabSize
+	wants := []struct {
+		value        string
+		column       int
+		bytes, cells int32
+	}{
+		{"ab", 0, 2, 2}, {"cd", stop, 2, 2}, {"e", stop + 3, 1, 1},
+		{"\uFFFD", stop + 4, 3, 1}, {"é", stop + 5, 2, 1}, {"next", 0, 4, 4},
+	}
+	if len(labels) != len(wants) {
+		values := make([]string, len(labels))
+		for i, label := range labels {
+			values[i] = label.Value
+		}
+		t.Fatalf("labels = %q, want %d", values, len(wants))
+	}
+	for i, want := range wants {
+		label := labels[i]
+		if label.Value != want.value {
+			t.Fatalf("label %d is %q, want %q", i, label.Value, want.value)
+		}
+		if got, x := label.Bounds.X, v.textLeft+float32(want.column)*v.cellW; math.Abs(float64(got-x)) > 0.01 {
+			t.Fatalf("label %q starts at %v, want %v, at column %d", label.Value, got, x, want.column)
+		}
+		runs := canvas.TextRuns(label)
+		if len(runs) != 1 || runs[0].Column != 0 || runs[0].Bytes != want.bytes || runs[0].Cells != want.cells {
+			t.Fatalf("label %q runs = %+v, want one of %d bytes over %d cells", label.Value, runs, want.bytes, want.cells)
+		}
+		if want.value != "\uFFFD" && !strings.Contains(line+"\nnext", label.Value) {
+			t.Fatalf("label %q is not part of the text", label.Value)
+		}
+	}
+}
+
+// Painting a screen again, as the caret's blink or the pointer does, allocates nothing: the
+// labels are parts of the lines, a line is part of the rope or kept once it had to be joined
+// across leaves, and the line numbers are parts of one string.
+func TestRepaintAllocatesNothing(t *testing.T) {
+	var text strings.Builder
+	for i := range 3000 {
+		fmt.Fprintf(&text, "\tline %d\tof 中文 and é\n", i)
+	}
+	v := newTestView(t, text.String())
+	canvas := new(gfx.Canvas)
+	area := gfx.Rect{Width: 900, Height: 600}
+	paint := func() {
+		canvas.Reset()
+		v.Paint(canvas, area, Look{})
+	}
+	paint()
+	v.scroll = 1000 * v.lineH
+	paint()
+	if len(lineLabels(canvas, v)) == 0 || len(numberLabels(canvas, v)) == 0 {
+		t.Fatal("the paint drew no text or no line numbers")
+	}
+	if allocs := testing.AllocsPerRun(20, paint); allocs != 0 {
+		t.Fatalf("a repaint allocates %v times, want none", allocs)
+	}
+}
+
+// The gutter's numbers are parts of a window of formatted numbers that moves only when a line
+// leaves it, so a screen of numbers formats nothing while it stays inside the window.
+func TestLineNumbersComeFromAWindowOfNumbers(t *testing.T) {
+	var numbers lineNumbers
+	for _, line := range []int{0, 9, 127, 128, 383, 384, 99_999, 5} {
+		if got, want := numbers.number(line), strconv.Itoa(line+1); got != want {
+			t.Fatalf("number of line %d = %q, want %q", line, got, want)
+		}
+	}
+	numbers.number(130)
+	if allocs := testing.AllocsPerRun(10, func() { numbers.number(128); numbers.number(511) }); allocs != 0 {
+		t.Fatalf("numbers inside the window allocate %v times, want none", allocs)
+	}
+	for n, want := range map[int]int{0: 1, 9: 1, 10: 2, 99: 2, 100: 3, 99_999: 5, 100_000: 6} {
+		if got := decimalDigits(n); got != want {
+			t.Fatalf("decimalDigits(%d) = %d, want %d", n, got, want)
+		}
 	}
 }

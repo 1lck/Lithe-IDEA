@@ -9,6 +9,7 @@ package editorview
 
 import (
 	"bytes"
+	"strings"
 	"sync/atomic"
 	"time"
 	"unicode"
@@ -208,11 +209,18 @@ type View struct {
 	blinkFrom time.Duration
 	clock     time.Duration
 
-	tokens  []syntax.Token
-	runs    []gfx.TextRun
-	display []byte
-	// numbers is the line numbers a paint puts in the gutter once the text is drawn.
-	numbers []gutterNumber
+	tokens []syntax.Token
+	runs   []gfx.TextRun
+	// joined keeps the lines the rope had to copy to read while the text is at joinedRevision,
+	// so a frame that shows one again does not copy it again, and joinedSize is their bytes.
+	// See line in paint.go.
+	joined         map[int]string
+	joinedRevision int
+	joinedSize     int
+	// numbers is the line numbers a paint puts in the gutter once the text is drawn, and
+	// numberText their text.
+	numbers    []gutterNumber
+	numberText lineNumbers
 }
 
 // New makes the view of a document.
@@ -436,9 +444,9 @@ func (v *View) GoToNavigation(line, column int, wholeLine bool) bool {
 		v.caret = end
 	} else {
 		remaining := max(column, 0)
-		v.text.Chunks(start, end, func(chunk []byte) bool {
+		v.text.Chunks(start, end, func(chunk string) bool {
 			for len(chunk) > 0 && remaining > 0 {
-				r, size := utf8.DecodeRune(chunk)
+				r, size := utf8.DecodeRuneInString(chunk)
 				units := 1
 				if r > 0xffff {
 					units = 2
@@ -485,7 +493,17 @@ func utf16Length(data []byte) int {
 
 func (v *View) utf16Units(start, end int) int {
 	units := 0
-	v.text.Chunks(start, end, func(chunk []byte) bool { units += utf16Length(chunk); return true })
+	v.text.Chunks(start, end, func(chunk string) bool {
+		// A character past the Basic Multilingual Plane takes a surrogate pair. Invalid UTF-8
+		// decodes as U+FFFD, one unit, as utf16Length counts it.
+		for _, r := range chunk {
+			units++
+			if r > 0xffff {
+				units++
+			}
+		}
+		return true
+	})
 	return units
 }
 
@@ -595,15 +613,15 @@ func widestLine(text rope.Rope, first, last int) int {
 			widest = max(widest, rangeCells(text, lineStart, offset))
 		}
 	}
-	text.Chunks(start, text.LineEnd(last), func(chunk []byte) bool {
+	text.Chunks(start, text.LineEnd(last), func(chunk string) bool {
 		for {
-			i := bytes.IndexByte(chunk, '\n')
+			i := strings.IndexByte(chunk, '\n')
 			part := chunk
 			if i >= 0 {
 				part = chunk[:i]
 			}
 			length += len(part)
-			tabs += bytes.Count(part, tabBytes)
+			tabs += strings.Count(part, "\t")
 			offset += len(part)
 			if i < 0 {
 				return true
@@ -618,22 +636,19 @@ func widestLine(text rope.Rope, first, last int) int {
 	return widest
 }
 
-// tabBytes is a tab, as the separator bytes.Count counts.
-var tabBytes = []byte{'\t'}
-
 // rangeCells is the cells the bytes of text from start to end take, the first at column 0, as
 // cellsOf counts them. It reads the text a leaf at a time without copying it: a leaf never
 // ends inside a character of valid UTF-8.
 func rangeCells(text rope.Rope, start, end int) int {
 	cells := 0
-	text.Chunks(start, end, func(chunk []byte) bool {
+	text.Chunks(start, end, func(chunk string) bool {
 		for i := 0; i < len(chunk); {
 			if c := chunk[i]; c < utf8.RuneSelf {
 				cells += runeCells(rune(c), cells)
 				i++
 				continue
 			}
-			r, size := utf8.DecodeRune(chunk[i:])
+			r, size := utf8.DecodeRuneInString(chunk[i:])
 			cells += runeCells(r, cells)
 			i += size
 		}

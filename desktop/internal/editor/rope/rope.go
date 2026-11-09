@@ -1,5 +1,5 @@
-// Package rope is the text of an open document: a persistent B-tree of byte chunks in which
-// every node knows how many bytes and line breaks it holds.
+// Package rope is the text of an open document: a persistent B-tree of immutable byte strings
+// in which every node knows how many bytes and line breaks it holds.
 //
 // A Rope never changes. Replace returns a new one that shares every node the edit did not
 // touch, so an edit costs O(log n) in the size of the text, and keeping the text as it was
@@ -11,7 +11,7 @@
 package rope
 
 import (
-	"bytes"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -37,9 +37,9 @@ type node struct {
 	newlines int
 	// children are an inner node's subtrees, in order; nil at a leaf.
 	children []*node
-	// text is a leaf's bytes, never appended to: a leaf made from part of another one
-	// shares its array with a capacity that ends where the part does.
-	text []byte
+	// text is a leaf's bytes. A leaf made from part of another one shares its memory, as a
+	// substring shares the backing array of the string it is cut from.
+	text string
 }
 
 // Rope is an immutable text. The zero Rope is empty.
@@ -49,12 +49,12 @@ type Rope struct {
 
 // New returns a rope holding a copy of text.
 func New(text []byte) Rope {
-	return Rope{root: build(text)}
+	return Rope{root: build(string(text))}
 }
 
-// FromString returns a rope holding text.
+// FromString returns a rope holding text, sharing its memory: a string never changes.
 func FromString(text string) Rope {
-	return New([]byte(text))
+	return Rope{root: build(text)}
 }
 
 // Len returns the number of bytes in r.
@@ -108,7 +108,7 @@ func (r Rope) Equal(other Rope) bool {
 		default:
 			x, y := a.node.text[a.skip:], b.node.text[b.skip:]
 			n := min(len(x), len(y))
-			if !bytes.Equal(x[:n], y[:n]) {
+			if x[:n] != y[:n] {
 				return false
 			}
 			if a.skip += n; a.skip == a.node.length {
@@ -209,11 +209,8 @@ func (r Rope) LineOf(offset int) int {
 			line += child.newlines
 		}
 	}
-	return line + bytes.Count(n.text[:offset], newline)
+	return line + strings.Count(n.text[:offset], "\n")
 }
-
-// newline is the byte that ends a line, as a slice for bytes.Count.
-var newline = []byte{'\n'}
 
 // newlineOffset returns the offset of the k-th "\n" below n, counted from 1; n holds at least k.
 func newlineOffset(n *node, k int) int {
@@ -230,14 +227,14 @@ func newlineOffset(n *node, k int) int {
 	}
 	at := -1
 	for ; k > 0; k-- {
-		at += 1 + bytes.IndexByte(n.text[at+1:], '\n')
+		at += 1 + strings.IndexByte(n.text[at+1:], '\n')
 	}
 	return offset + at
 }
 
 // AppendRange appends the bytes from start to end of r to dst. The range is clamped to r.
 func (r Rope) AppendRange(dst []byte, start, end int) []byte {
-	r.Chunks(start, end, func(chunk []byte) bool {
+	r.Chunks(start, end, func(chunk string) bool {
 		dst = append(dst, chunk...)
 		return true
 	})
@@ -252,9 +249,55 @@ func (r Rope) AppendLine(dst []byte, line int) []byte {
 	return r.AppendRange(dst, r.LineStart(line), r.LineEnd(line))
 }
 
-// Line returns line, without the "\n" that ends it.
+// Line returns line, without the "\n" that ends it. See LineCopied for what it costs.
 func (r Rope) Line(line int) string {
-	return string(r.AppendLine(nil, line))
+	text, _ := r.LineCopied(line)
+	return text
+}
+
+// LineCopied returns line, without the "\n" that ends it, and whether it had to be copied. A
+// line that lies in one leaf, as a line shorter than a quarter of a leaf does unless an edit
+// split it, is part of r's own memory and costs nothing, so reading the lines of a screen
+// allocates nothing. A line across leaves is joined into a new string; a caller that reads
+// it again and again should keep it for as long as r is its text.
+func (r Rope) LineCopied(line int) (string, bool) {
+	if r.root == nil || line < 0 || line > r.root.newlines {
+		return "", false
+	}
+	start, end := r.LineStart(line), r.LineEnd(line)
+	if text, ok := r.span(start, end); ok {
+		return text, false
+	}
+	var joined strings.Builder
+	joined.Grow(end - start)
+	r.Chunks(start, end, func(chunk string) bool {
+		joined.WriteString(chunk)
+		return true
+	})
+	return joined.String(), true
+}
+
+// span returns the bytes from start to end of r, offsets inside r, when one leaf holds them
+// all, as part of that leaf's memory.
+func (r Rope) span(start, end int) (string, bool) {
+	if start >= end {
+		return "", true
+	}
+	n := r.root
+	for n.children != nil {
+		for _, child := range n.children {
+			if start < child.length {
+				n = child
+				break
+			}
+			start -= child.length
+			end -= child.length
+		}
+	}
+	if end > n.length {
+		return "", false
+	}
+	return n.text[start:end], true
 }
 
 // Bytes returns a copy of all of r.
@@ -262,9 +305,22 @@ func (r Rope) Bytes() []byte {
 	return r.AppendRange(make([]byte, 0, r.Len()), 0, r.Len())
 }
 
-// String returns all of r.
+// String returns all of r. A rope of one leaf returns the leaf's own memory; a larger one is
+// joined into a new string.
 func (r Rope) String() string {
-	return string(r.Bytes())
+	if r.root == nil {
+		return ""
+	}
+	if r.root.children == nil {
+		return r.root.text
+	}
+	var b strings.Builder
+	b.Grow(r.Len())
+	r.Chunks(0, r.Len(), func(chunk string) bool {
+		b.WriteString(chunk)
+		return true
+	})
+	return b.String()
 }
 
 // ByteAt returns the byte at offset, which must be within r.
@@ -283,10 +339,9 @@ func (r Rope) ByteAt(offset int) byte {
 }
 
 // Chunks calls yield with the bytes from start to end of r, a leaf's worth at a time and in
-// order, until yield returns false. The range is clamped to r. A chunk is r's own memory and
-// must not be changed or kept past the next edit's interest in it; it stays valid as long as
-// r does.
-func (r Rope) Chunks(start, end int, yield func(chunk []byte) bool) {
+// order, until yield returns false. The range is clamped to r. A chunk is part of r's own
+// memory and costs no copy.
+func (r Rope) Chunks(start, end int, yield func(chunk string) bool) {
 	start, end = max(start, 0), min(end, r.Len())
 	if start >= end {
 		return
@@ -295,7 +350,7 @@ func (r Rope) Chunks(start, end int, yield func(chunk []byte) bool) {
 }
 
 // chunks walks the leaves of n that overlap start to end, offsets relative to n.
-func chunks(n *node, start, end int, yield func([]byte) bool) bool {
+func chunks(n *node, start, end int, yield func(string) bool) bool {
 	if n.children == nil {
 		return yield(n.text[max(start, 0):min(end, n.length)])
 	}
@@ -332,7 +387,7 @@ func (r Rope) Replace(start, end int, text []byte) Rope {
 	}
 	left := slice(r.root, 0, start)
 	right := slice(r.root, end, r.root.length)
-	return Rope{root: concat(concat(left, build(text)), right)}
+	return Rope{root: concat(concat(left, build(string(text))), right)}
 }
 
 // Insert returns r with text inserted at offset.
@@ -354,11 +409,12 @@ func replaceInLeaf(n *node, start, end int, text []byte) (*node, bool) {
 		if size == 0 || size > maxLeaf {
 			return nil, false
 		}
-		b := make([]byte, 0, size)
-		b = append(b, n.text[:start]...)
-		b = append(b, text...)
-		b = append(b, n.text[end:]...)
-		return newLeaf(b), true
+		var b strings.Builder
+		b.Grow(size)
+		b.WriteString(n.text[:start])
+		b.Write(text)
+		b.WriteString(n.text[end:])
+		return newLeaf(b.String()), true
 	}
 	offset := 0
 	for i, child := range n.children {
@@ -398,7 +454,7 @@ func slice(n *node, start, end int) *node {
 	}
 	if n.children == nil {
 		start, end = max(start, 0), min(end, n.length)
-		return newLeaf(n.text[start:end:end])
+		return newLeaf(n.text[start:end])
 	}
 	var out *node
 	offset := 0
@@ -481,13 +537,16 @@ func mergeNodes(first, second []*node) *node {
 // mergeLeaves joins two leaves of which at least one is too small, into one leaf or two that
 // are each big enough.
 func mergeLeaves(a, b *node) *node {
-	text := make([]byte, 0, a.length+b.length)
-	text = append(append(text, a.text...), b.text...)
+	var joined strings.Builder
+	joined.Grow(a.length + b.length)
+	joined.WriteString(a.text)
+	joined.WriteString(b.text)
+	text := joined.String()
 	if len(text) <= maxLeaf {
 		return newLeaf(text)
 	}
 	at := splitPoint(text)
-	return fromNodes([]*node{newLeaf(text[:at:at]), newLeaf(text[at:])})
+	return fromNodes([]*node{newLeaf(text[:at]), newLeaf(text[at:])})
 }
 
 // fromNodes returns an inner node over a copy of children, which share a height.
@@ -502,29 +561,27 @@ func fromNodes(children []*node) *node {
 }
 
 // newLeaf returns a leaf over text, which it keeps.
-func newLeaf(text []byte) *node {
-	return &node{length: len(text), newlines: bytes.Count(text, newline), text: text}
+func newLeaf(text string) *node {
+	return &node{length: len(text), newlines: strings.Count(text, "\n"), text: text}
 }
 
-// build returns a balanced tree holding a copy of text, or nil when text is empty.
-func build(text []byte) *node {
+// build returns a balanced tree over text, which it keeps, or nil when text is empty.
+func build(text string) *node {
 	if len(text) == 0 {
 		return nil
 	}
-	owned := make([]byte, len(text))
-	copy(owned, text)
 	var leaves []*node
-	for len(owned) > maxLeaf {
+	for len(text) > maxLeaf {
 		var at int
-		if len(owned) <= 2*maxLeaf {
-			at = splitPoint(owned)
+		if len(text) <= 2*maxLeaf {
+			at = splitPoint(text)
 		} else {
-			at = cutPoint(owned)
+			at = cutPoint(text)
 		}
-		leaves = append(leaves, newLeaf(owned[:at:at]))
-		owned = owned[at:]
+		leaves = append(leaves, newLeaf(text[:at]))
+		text = text[at:]
 	}
-	leaves = append(leaves, newLeaf(owned))
+	leaves = append(leaves, newLeaf(text))
 	for len(leaves) > 1 {
 		parents := (len(leaves) + maxChildren - 1) / maxChildren
 		level := make([]*node, 0, parents)
@@ -539,15 +596,15 @@ func build(text []byte) *node {
 // splitPoint is where text of more than maxLeaf and at most 2*maxLeaf bytes splits into two
 // leaves that are each between minLeaf and maxLeaf: after the line break nearest the middle
 // when there is one in range, at the middle otherwise, never inside a UTF-8 sequence.
-func splitPoint(text []byte) int {
+func splitPoint(text string) int {
 	lo := max(minLeaf, len(text)-maxLeaf)
 	hi := min(maxLeaf, len(text)-minLeaf)
 	mid := min(max(len(text)/2, lo), hi)
 	best := -1
-	if i := bytes.IndexByte(text[mid:hi], '\n'); i >= 0 {
+	if i := strings.IndexByte(text[mid:hi], '\n'); i >= 0 {
 		best = mid + i + 1
 	}
-	if i := bytes.LastIndexByte(text[lo:mid], '\n'); i >= 0 {
+	if i := strings.LastIndexByte(text[lo:mid], '\n'); i >= 0 {
 		if at := lo + i + 1; best < 0 || mid-at < best-mid {
 			best = at
 		}
@@ -560,9 +617,9 @@ func splitPoint(text []byte) int {
 
 // cutPoint is where the first leaf of text, which is longer than 2*maxLeaf, ends: after the
 // last line break in its last quarter, or at maxLeaf, never inside a UTF-8 sequence.
-func cutPoint(text []byte) int {
+func cutPoint(text string) int {
 	lo := maxLeaf - maxLeaf/4
-	if i := bytes.LastIndexByte(text[lo:maxLeaf], '\n'); i >= 0 {
+	if i := strings.LastIndexByte(text[lo:maxLeaf], '\n'); i >= 0 {
 		return lo + i + 1
 	}
 	return runeBoundary(text, maxLeaf, lo, maxLeaf)
@@ -570,7 +627,7 @@ func cutPoint(text []byte) int {
 
 // runeBoundary moves at back to the start of the UTF-8 sequence it is in, or forward past it
 // when going back would leave lo. Invalid UTF-8 is split anywhere after three tries.
-func runeBoundary(text []byte, at, lo, hi int) int {
+func runeBoundary(text string, at, lo, hi int) int {
 	for i := 0; i < utf8.UTFMax && at-i > lo; i++ {
 		if utf8.RuneStart(text[at-i]) {
 			return at - i

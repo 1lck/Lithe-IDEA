@@ -39,7 +39,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	v.lineH = float32(math.Round(float64(cellH * lineSpacing)))
 	v.applyLook(look)
 	lines := v.text.LineCount()
-	digits := max(len(strconv.Itoa(lines)), 2)
+	digits := max(decimalDigits(lines), 2)
 	gutter := float32(digits)*cellW + 2*gutterPad
 	v.area = area
 	v.textLeft = area.X + gutter + textPad
@@ -83,7 +83,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	canvas.Clip(textArea)
 	top := area.Y + float32(firstRow-firstSub)*v.lineH - v.scroll
 	for line := firstLine; line <= lastLine; line++ {
-		text := v.text.Line(line)
+		text := v.line(line)
 		wraps := v.rowsOf(line, text)
 		if top+v.lineH > area.Y {
 			v.numbers = append(v.numbers, gutterNumber{line: line, y: top})
@@ -138,21 +138,102 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	style := gfx.TextStyle{Size: fontSize, Color: look.Subtle, Mono: true}
 	right := area.X + gutter - gutterPad
 	for _, number := range v.numbers {
-		v.display = strconv.AppendInt(v.display[:0], int64(number.line+1), 10)
-		n := len(v.display)
+		label := v.numberText.number(number.line)
+		n := len(label)
 		style.Color = look.Subtle
 		if number.line == caretLine {
 			style.Color = look.Foreground
 		}
 		run := [1]gfx.TextRun{{Bytes: int32(n), Cells: int32(n), Color: style.Color}}
 		rect := gfx.Rect{X: right - float32(n)*cellW, Y: number.y + (v.lineH-cellH)/2, Width: float32(n)*cellW + 1, Height: cellH}
-		canvas.LabelRuns(string(v.display), rect, style, cellW, run[:])
+		canvas.LabelRuns(label, rect, style, cellW, run[:])
 	}
-	v.display = v.display[:0]
 	canvas.Unclip()
 	v.paintMinimap(canvas, look, selStart, selEnd)
 	v.paintScrollbars(canvas, look)
 	v.paintToggle(canvas, look)
+}
+
+// joinedLines is how many copied lines the view keeps for a text, joinedBytes the longest line
+// it keeps and joinedLimit how many bytes of them it keeps in all: a screen holds a line or two
+// that a leaf boundary cuts. A longer line is copied again each time it is read.
+const (
+	joinedLines = 256
+	joinedBytes = 64 << 10
+	joinedLimit = 1 << 20
+)
+
+// line returns line of the text. A line in one leaf of the rope is part of the rope's memory;
+// a line across leaves is copied, and the copy is kept until the text changes, so a frame that
+// shows the line again copies nothing.
+func (v *View) line(line int) string {
+	if v.joinedRevision != v.revision {
+		clear(v.joined)
+		v.joinedRevision, v.joinedSize = v.revision, 0
+	}
+	if text, ok := v.joined[line]; ok {
+		return text
+	}
+	text, copied := v.text.LineCopied(line)
+	if copied && len(text) <= joinedBytes {
+		if v.joined == nil {
+			v.joined = make(map[int]string)
+		} else if len(v.joined) >= joinedLines || v.joinedSize+len(text) > joinedLimit {
+			clear(v.joined)
+			v.joinedSize = 0
+		}
+		v.joined[line] = text
+		v.joinedSize += len(text)
+	}
+	return text
+}
+
+// numberStep and numberSpan place the window of line numbers the gutter keeps as text: it
+// starts at a multiple of numberStep and holds numberSpan numbers, as Viva's code editor keeps
+// them, so a screen inside it formats nothing and scrolling moves it once in numberStep lines.
+const (
+	numberStep = 128
+	numberSpan = 3 * numberStep
+)
+
+// lineNumbers is the text of the line numbers in a window of lines, one after the other.
+type lineNumbers struct {
+	// from is the first line of the window, counted from 0.
+	from int
+	// text is the numbers of the window's lines, counted from 1, and ends where each ends in
+	// text; buf is where text is formatted.
+	text string
+	ends []int32
+	buf  []byte
+}
+
+// number is the number of line, counted from 0, as the gutter shows it: part of the window's
+// text, moving the window to line when it does not hold it.
+func (n *lineNumbers) number(line int) string {
+	if line < n.from || line >= n.from+len(n.ends) {
+		n.from = line - line%numberStep
+		n.buf, n.ends = n.buf[:0], n.ends[:0]
+		for k := range numberSpan {
+			n.buf = strconv.AppendInt(n.buf, int64(n.from+k+1), 10)
+			n.ends = append(n.ends, int32(len(n.buf)))
+		}
+		n.text = string(n.buf)
+	}
+	k := line - n.from
+	start := int32(0)
+	if k > 0 {
+		start = n.ends[k-1]
+	}
+	return n.text[start:n.ends[k]]
+}
+
+// decimalDigits is how many digits n, at least 0, has in decimal.
+func decimalDigits(n int) int {
+	digits := 1
+	for ; n >= 10; n /= 10 {
+		digits++
+	}
+	return digits
 }
 
 // gutterNumber is a line number to paint: the line, and the top of its first row.
@@ -206,23 +287,27 @@ func (v *View) selectionCells(line int, text string, selStart, selEnd int) (int,
 
 // paintRow draws the columns from to to of a row of a line, whose text is text, in its tokens'
 // colors, which v.tokens holds; the row starts at row and is drawn shift columns to the left.
-// Tabs become spaces to the next tab stop, and every character that is not ASCII is a run of
-// its own at its own cell, so a wide or fallback glyph never moves the text after it off its
-// column.
+// Every character that is not ASCII is a run of its own at its own cell, so a wide or fallback
+// glyph never moves the text after it off its column.
 //
-// Only the columns the view shows are drawn, as one label that starts at the first of them,
-// the way Viva's own code editor draws a row, so a frame of the single line of a minified
-// JSON file costs the width of the view, not the length of the line. The macOS renderer
-// splits a label wider than a texture across textures, but the Windows one refuses a label
-// texture wider than 16384 pixels, so a view wider than labelWidth draws its columns as
-// several labels side by side, each starting where the one before it ended.
+// A label shows part of the line as it is, so drawing a row copies nothing: a tab or another
+// control character is a blank stretch of cells between two labels instead of spaces inside
+// one, a character of no width ends the label before it, and a byte that is not UTF-8 is a
+// label of its own that shows U+FFFD. Indentation therefore only moves where a row's label
+// starts.
+//
+// Only the columns the view shows are drawn, starting at the first of them, the way Viva's own
+// code editor draws a row, so a frame of the single line of a minified JSON file costs the
+// width of the view, not the length of the line. The macOS renderer splits a label wider than
+// a texture across textures, but the Windows one refuses a label texture wider than 16384
+// pixels, so a view wider than labelWidth draws its columns as several labels side by side,
+// each starting where the one before it ended.
 func (v *View) paintRow(canvas *gfx.Canvas, text string, row wrapRow, from, to, shift int, y float32) {
 	if row.at >= len(text) {
 		return
 	}
 	limit := v.labelCells()
 	v.runs = v.runs[:0]
-	v.display = v.display[:0]
 	defaultStyle := v.theme.Default()
 	textStyle := gfx.TextStyle{Size: fontSize, Color: uiColor(defaultStyle.Foreground), Mono: true}
 	// token is the last token that starts at or before the row.
@@ -230,13 +315,18 @@ func (v *View) paintRow(canvas *gfx.Canvas, text string, row wrapRow, from, to, 
 	cells := row.cells
 	run := -1
 	runASCII := false
-	// label is the first column of the label being gathered, and labelEnd the column after its
-	// last character.
-	label, labelEnd := -1, 0
-	for i, r := range text[row.at:] {
-		i += row.at
+	// label is the first column of the label being gathered, or -1 while there is none, and
+	// labelEnd the column after its last character; labelAt and labelTo are the bytes of the
+	// line it shows.
+	label, labelEnd, labelAt, labelTo := -1, 0, 0, 0
+	for i := row.at; i < len(text); {
+		at := i
+		r, size := utf8.DecodeRuneInString(text[i:])
+		i += size
 		width := runeCells(r, cells)
 		if width == 0 {
+			v.paintLabel(canvas, text[labelAt:labelTo], label, labelEnd, shift, y, textStyle)
+			label = -1
 			continue
 		}
 		if cells+width <= from {
@@ -246,17 +336,18 @@ func (v *View) paintRow(canvas *gfx.Canvas, text string, row wrapRow, from, to, 
 		if cells >= to {
 			break
 		}
-		// A tab that starts before the first visible column shows only its spaces from there,
-		// so the label still starts at that column.
-		if r == '\t' && cells < from {
-			width -= from - cells
-			cells = from
+		if r == '\t' || r < 0x20 {
+			v.paintLabel(canvas, text[labelAt:labelTo], label, labelEnd, shift, y, textStyle)
+			label = -1
+			cells += width
+			continue
 		}
-		if label < 0 || cells+width-label > limit {
-			v.paintLabel(canvas, label, labelEnd, shift, y, textStyle)
-			label, run = cells, -1
+		invalid := r == utf8.RuneError && size == 1
+		if label < 0 || invalid || cells+width-label > limit {
+			v.paintLabel(canvas, text[labelAt:labelTo], label, labelEnd, shift, y, textStyle)
+			label, labelAt, labelTo, run = cells, at, at, -1
 		}
-		for token+1 < len(v.tokens) && int(v.tokens[token+1].Start) <= i {
+		for token+1 < len(v.tokens) && int(v.tokens[token+1].Start) <= at {
 			token++
 		}
 		style := defaultStyle
@@ -270,43 +361,35 @@ func (v *View) paintRow(canvas *gfx.Canvas, text string, row wrapRow, from, to, 
 		}
 		italic := style.Font&syntax.Italic != 0
 		ascii := r < 0x80
-		if r == '\t' || r < 0x20 {
-			r = ' '
-		}
-		column := cells - label
-		if ascii && runASCII && run >= 0 && int(v.runs[run].Column+v.runs[run].Cells) == column &&
+		if ascii && runASCII && run >= 0 &&
 			v.runs[run].Color == color && v.runs[run].Weight == weight && v.runs[run].Italic == italic {
-			for range width {
-				v.display = append(v.display, byte(r))
-			}
-			v.runs[run].Bytes += int32(width)
+			v.runs[run].Bytes += int32(size)
 			v.runs[run].Cells += int32(width)
-			cells += width
-			labelEnd = cells
-			continue
-		}
-		before := len(v.display)
-		if ascii {
-			for range width {
-				v.display = append(v.display, byte(r))
-			}
 		} else {
-			v.display = utf8.AppendRune(v.display, r)
+			bytes := size
+			if invalid {
+				bytes = len(replacementChar)
+			}
+			v.runs = append(v.runs, gfx.TextRun{
+				Column: int32(cells - label), Bytes: int32(bytes), Cells: int32(width),
+				Color: color, Weight: weight, Italic: italic, Underline: style.Font&syntax.Underline != 0,
+				Strike: style.Font&syntax.Strikethrough != 0,
+			})
+			run, runASCII = len(v.runs)-1, ascii
 		}
-		v.runs = append(v.runs, gfx.TextRun{
-			Column: int32(column), Bytes: int32(len(v.display) - before), Cells: int32(width),
-			Color: color, Weight: weight, Italic: italic, Underline: style.Font&syntax.Underline != 0,
-			Strike: style.Font&syntax.Strikethrough != 0,
-		})
-		run, runASCII = len(v.runs)-1, ascii
 		cells += width
-		labelEnd = cells
+		labelEnd, labelTo = cells, i
+		if invalid {
+			v.paintLabel(canvas, replacementChar, label, labelEnd, shift, y, textStyle)
+			label = -1
+		}
 	}
-	v.paintLabel(canvas, label, labelEnd, shift, y, textStyle)
+	v.paintLabel(canvas, text[labelAt:labelTo], label, labelEnd, shift, y, textStyle)
 }
 
-// paintLabel draws the runs gathered for a row from column start to column end as one label,
-// shift columns to the left, and empties them for the next label.
+// replacementChar is what a byte that is not UTF-8 shows, as range over a string reads it.
+const replacementChar = "\uFFFD"
+
 // markerThickness is how tall an underline is, in pixels. Two is the thinnest line
 // that survives a device pixel ratio above one.
 const markerThickness = 2
@@ -348,15 +431,16 @@ func markerColor(severity MarkerSeverity) gfx.Color {
 	}
 }
 
-func (v *View) paintLabel(canvas *gfx.Canvas, start, end, shift int, y float32, style gfx.TextStyle) {
+// paintLabel draws the runs gathered for a row from column start to column end as one label of
+// value, shift columns to the left, and empties them for the next label.
+func (v *View) paintLabel(canvas *gfx.Canvas, value string, start, end, shift int, y float32, style gfx.TextStyle) {
 	if len(v.runs) == 0 {
 		return
 	}
 	width := float32(math.Ceil(float64(float32(end-start)*v.cellW))) + 1
 	rect := gfx.Rect{X: v.textLeft + float32(start-shift)*v.cellW - v.scrollX, Y: y + (v.lineH-v.cellH)/2, Width: width, Height: v.cellH}
-	canvas.LabelRuns(string(v.display), rect, style, v.cellW, v.runs)
+	canvas.LabelRuns(value, rect, style, v.cellW, v.runs)
 	v.runs = v.runs[:0]
-	v.display = v.display[:0]
 }
 
 // labelCells is how many columns one label of a line holds at most: as many as fit in

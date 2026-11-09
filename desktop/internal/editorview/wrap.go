@@ -1,9 +1,9 @@
 package editorview
 
 import (
-	"bytes"
 	"slices"
 	"sort"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -164,9 +164,9 @@ func (v *View) ensureRows() {
 	if len(v.wraps) != v.text.LineCount() {
 		v.wraps = v.wraps[:0]
 		size := 0
-		v.text.Chunks(0, v.text.Len(), func(chunk []byte) bool {
+		v.text.Chunks(0, v.text.Len(), func(chunk string) bool {
 			for {
-				i := bytes.IndexByte(chunk, '\n')
+				i := strings.IndexByte(chunk, '\n')
 				if i < 0 {
 					size += len(chunk)
 					return true
@@ -253,7 +253,7 @@ func (v *View) rowLine(row int) (int, int) {
 // caretPlace is the caret's line, the line's text and rows, and which row the caret is on.
 func (v *View) caretPlace() (int, string, []wrapRow, int) {
 	line := v.text.LineOf(v.caret)
-	text := v.text.Line(line)
+	text := v.line(line)
 	rows := v.rowsOf(line, text)
 	return line, text, rows, rowIndex(rows, v.caret-v.text.LineStart(line))
 }
@@ -268,7 +268,7 @@ func (v *View) caretRow() int {
 // the end of a row the line goes on from is the start of the row's last character: the end of
 // such a row is where the next row starts, and the caret there shows on the next row.
 func (v *View) columnOnRow(line, sub int, cells float32) int {
-	text := v.text.Line(line)
+	text := v.line(line)
 	rows := v.rowsOf(line, text)
 	sub = min(max(sub, 0), len(rows)-1)
 	row := rows[sub]
