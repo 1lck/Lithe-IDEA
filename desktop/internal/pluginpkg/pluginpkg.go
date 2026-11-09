@@ -77,6 +77,8 @@ var (
 	ErrCompressionRatio = errors.New("plugin package entry expands past the compression limit")
 	// ErrNotArchive reports bytes that are not a readable ZIP archive.
 	ErrNotArchive = errors.New("plugin package is not a readable ZIP archive")
+	// ErrStagingNotEmpty reports an extraction target that already holds entries.
+	ErrStagingNotEmpty = errors.New("plugin package staging directory is not empty")
 	// ErrManifestMissing reports an archive without ManifestFile at its root.
 	ErrManifestMissing = errors.New("plugin package has no plugin.json at its root")
 	// ErrInvalidIdentity reports a plugin ID or version that is not a safe path segment.

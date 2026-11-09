@@ -28,6 +28,22 @@ type Installed struct {
 	Path string
 }
 
+// NewStaging creates a fresh staging directory below root.
+//
+// It lives under the root so that Install can rename it into place atomically:
+// a rename across file systems is a copy, and an interrupted copy would leave a
+// partial package behind.
+func NewStaging(root string) (string, error) {
+	if err := checkRoot(root); err != nil {
+		return "", err
+	}
+	staging := filepath.Join(root, stagingDirectory)
+	if err := os.MkdirAll(staging, 0o700); err != nil {
+		return "", err
+	}
+	return os.MkdirTemp(staging, "package-")
+}
+
 // Install moves the validated staging directory into root as one plugin version.
 // Staging must be on the same file system as root, which it is when it was
 // created below the root's staging directory, because a rename across file

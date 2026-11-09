@@ -13,9 +13,12 @@ import (
 )
 
 // Extract reads the ZIP archive at archivePath and writes its entries into
-// directory. The directory must not exist yet: Extract creates it with owner-only
-// permissions and removes it again when any entry is refused, so a failed
-// extraction never leaves a partial package behind.
+// directory. The directory may be absent, or present and empty; a directory that
+// already holds entries is refused so an extraction never merges into an earlier
+// attempt.
+//
+// On any refusal Extract removes directory, whether or not this call created it:
+// the caller gives up ownership of the directory when it calls Extract.
 //
 // The archive must carry ManifestFile at its root. Extract does not interpret the
 // manifest, verify a publisher signature, or approve execution; those belong to
@@ -33,7 +36,7 @@ func extractEntries(entries []*zip.File, directory string) (pkg Package, err err
 	if len(entries) > MaxEntries {
 		return Package{}, fmt.Errorf("%w: %d entries, limit %d", ErrTooManyEntries, len(entries), MaxEntries)
 	}
-	if err := os.Mkdir(directory, 0o700); err != nil {
+	if err := ensureEmptyDirectory(directory); err != nil {
 		return Package{}, err
 	}
 	defer func() {
@@ -191,6 +194,22 @@ func writeEntry(entry *zip.File, root, name string, total int64) (File, int64, e
 		return File{}, 0, err
 	}
 	return File{Path: name, Size: written, Mode: perm}, written, nil
+}
+
+// ensureEmptyDirectory creates directory when it is absent and refuses one that
+// already holds entries.
+func ensureEmptyDirectory(directory string) error {
+	entries, err := os.ReadDir(directory)
+	if errors.Is(err, fs.ErrNotExist) {
+		return os.Mkdir(directory, 0o700)
+	}
+	if err != nil {
+		return err
+	}
+	if len(entries) != 0 {
+		return fmt.Errorf("%w: %s", ErrStagingNotEmpty, directory)
+	}
+	return nil
 }
 
 // targetPath maps a validated package-relative path to an absolute path under

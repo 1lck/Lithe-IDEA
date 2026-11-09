@@ -212,13 +212,27 @@ func TestExtractRefusesUnreadableArchive(t *testing.T) {
 	}
 }
 
-func TestExtractRefusesExistingDirectory(t *testing.T) {
+func TestExtractRefusesNonEmptyDirectory(t *testing.T) {
 	archive := writeArchive(t, []archiveEntry{{name: ManifestFile, body: []byte("{}"), mode: 0o644}})
 	target := filepath.Join(t.TempDir(), "package")
 	if err := os.Mkdir(target, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Extract(archive, target); err == nil {
-		t.Fatal("extraction into an existing directory succeeded")
+	if err := os.WriteFile(filepath.Join(target, "leftover"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Extract(archive, target); !errors.Is(err, ErrStagingNotEmpty) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestExtractAcceptsEmptyExistingDirectory(t *testing.T) {
+	archive := writeArchive(t, []archiveEntry{{name: ManifestFile, body: []byte("{}"), mode: 0o644}})
+	target := filepath.Join(t.TempDir(), "package")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Extract(archive, target); err != nil {
+		t.Fatalf("extract: %v", err)
 	}
 }
