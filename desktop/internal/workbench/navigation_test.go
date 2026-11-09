@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 func TestNavigationDialogSelectsLineAndClampsUTF16Column(t *testing.T) {
@@ -30,9 +30,9 @@ func TestNavigationDialogSelectsLineAndClampsUTF16Column(t *testing.T) {
 		t.Fatal("document did not open")
 	}
 	awaitDocumentState(t, h, func() bool { return doc.view.Owns(h.driver.Snapshot().Focused) })
-	modifier, key := ui.ModifierControl, 'g'
+	modifier, key := gfx.ModifierControl, 'g'
 	if runtime.GOOS == "darwin" {
-		modifier, key = ui.ModifierMeta, 'l'
+		modifier, key = gfx.ModifierMeta, 'l'
 	}
 	if handled, err := h.driver.ShortcutChord(modifier, key); err != nil || !handled {
 		t.Fatalf("shortcut handled=%v err=%v", handled, err)
@@ -45,7 +45,7 @@ func TestNavigationDialogSelectsLineAndClampsUTF16Column(t *testing.T) {
 		t.Fatal(err)
 	}
 	awaitDocumentState(t, h, func() bool { return h.app.navigation.target != nil && h.app.navigation.validated == "2" })
-	if err := h.driver.Key(ui.KeyEnter, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
 	if h.app.navigation.open || doc.view.SelectedText() != "A😀中Z" {
@@ -60,7 +60,7 @@ func TestNavigationDialogSelectsLineAndClampsUTF16Column(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Enter before validation completes must wait for the matching response.
-	if err := h.driver.Key(ui.KeyEnter, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
 	awaitDocumentState(t, h, func() bool { return !h.app.navigation.open })
@@ -111,7 +111,7 @@ func TestNavigationDropsStaleValidation(t *testing.T) {
 	case <-timer.C:
 		t.Fatal("validation did not start")
 	}
-	if _, err := h.driver.ShortcutChord(ui.ModifierMeta, 'a'); err != nil {
+	if _, err := h.driver.ShortcutChord(gfx.ModifierMeta, 'a'); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.driver.Type("0"); err != nil {
@@ -171,14 +171,14 @@ func TestNavigationDialogRejectsInvalidAndCancelPreservesCaret(t *testing.T) {
 	if err := h.driver.Type("0"); err != nil {
 		t.Fatal(err)
 	}
-	if err := h.driver.Key(ui.KeyEnter, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
 	awaitDocumentState(t, h, func() bool { return h.app.navigation.validated == "0" && h.app.navigation.cancel == nil })
 	if !h.app.navigation.open || h.app.navigation.target != nil {
 		t.Fatal("invalid input was accepted")
 	}
-	if err := h.driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 	line, col := doc.view.CaretUTF16()
@@ -200,8 +200,8 @@ func TestNavigationDialogKeepsTabFocusInside(t *testing.T) {
 	h.settle()
 	h.click(center(h.button(itemCaret)))
 	awaitDocumentState(t, h, func() bool { return h.app.navigation.target != nil && h.driver.Snapshot().Focused == navigationField })
-	for _, want := range []ui.ID{navigationCancel, navigationConfirm, navigationField} {
-		if err := h.driver.Key(ui.KeyTab, 0); err != nil {
+	for _, want := range []gfx.ID{navigationCancel, navigationConfirm, navigationField} {
+		if err := h.driver.Key(gfx.KeyTab, 0); err != nil {
 			t.Fatal(err)
 		}
 		if got := h.driver.Snapshot().Focused; got != want {
@@ -212,7 +212,7 @@ func TestNavigationDialogKeepsTabFocusInside(t *testing.T) {
 		t.Fatal(err)
 	}
 	awaitDocumentState(t, h, func() bool { return h.app.navigation.validated == "0" && h.app.navigation.cancel == nil })
-	if err := h.driver.Key(ui.KeyTab, ui.ModifierShift); err != nil {
+	if err := h.driver.Key(gfx.KeyTab, gfx.ModifierShift); err != nil {
 		t.Fatal(err)
 	}
 	if got := h.driver.Snapshot().Focused; got != navigationCancel {
@@ -223,17 +223,17 @@ func TestNavigationDialogKeepsTabFocusInside(t *testing.T) {
 func TestNavigationShortcutMatchesPlatformDefaults(t *testing.T) {
 	for _, tc := range []struct {
 		platform  string
-		modifiers ui.Modifiers
+		modifiers gfx.Modifiers
 		key       string
 		want      bool
 	}{
-		{"darwin", ui.ModifierMeta, "l", true},
-		{"darwin", ui.ModifierControl, "g", false},
-		{"windows", ui.ModifierControl, "g", true},
-		{"windows", ui.ModifierMeta, "l", false},
-		{"windows", ui.ModifierControl | ui.ModifierShift, "g", false},
+		{"darwin", gfx.ModifierMeta, "l", true},
+		{"darwin", gfx.ModifierControl, "g", false},
+		{"windows", gfx.ModifierControl, "g", true},
+		{"windows", gfx.ModifierMeta, "l", false},
+		{"windows", gfx.ModifierControl | gfx.ModifierShift, "g", false},
 	} {
-		if got := isNavigationShortcut(tc.platform, ui.KeyEvent{Modifiers: tc.modifiers, Text: tc.key}); got != tc.want {
+		if got := isNavigationShortcut(tc.platform, gfx.KeyEvent{Modifiers: tc.modifiers, Text: tc.key}); got != tc.want {
 			t.Errorf("%+v: got %v", tc, got)
 		}
 	}

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -200,15 +200,15 @@ func (w *window) sidebarSelection(rows []sidebarRow) map[string]bool {
 // Control toggles the row and Shift extends the selection, as in the macOS client. The
 // model is asked to restrict the channels only when the selection changes. Choosing the
 // "all channels" row together with others clears the restriction, as does an empty selection.
-func (w *window) sidebarChoose(rows []sidebarRow, target string, modifiers ui.Modifiers) {
+func (w *window) sidebarChoose(rows []sidebarRow, target string, modifiers gfx.Modifiers) {
 	order := make([]string, 0, len(rows))
 	for _, row := range rows {
 		if row.selectable() {
 			order = append(order, row.id)
 		}
 	}
-	extending := modifiers&ui.ModifierShift != 0
-	toggling := modifiers&(ui.ModifierMeta|ui.ModifierControl) != 0
+	extending := modifiers&gfx.ModifierShift != 0
+	toggling := modifiers&(gfx.ModifierMeta|gfx.ModifierControl) != 0
 	current := w.sidebarSelection(rows)
 	chosen := sidebarSelect(target, order, current, w.sidebar.anchor, w.sidebar.hasAnchor, extending, toggling)
 	if !extending || !w.sidebar.hasAnchor {
@@ -232,9 +232,9 @@ func (w *window) sidebarChoose(rows []sidebarRow, target string, modifiers ui.Mo
 
 // sidebarPointer follows a press on a row of the list. The macOS client selects when the
 // button goes down, so this does too.
-func (w *window) sidebarPointer(canvas *ui.Canvas, rows []sidebarRow) {
+func (w *window) sidebarPointer(canvas *gfx.Canvas, rows []sidebarRow) {
 	index, event, ok := canvas.PointerIn(sidebarRowScope)
-	if !ok || event.Kind != ui.PointerDown || event.Button != ui.PointerButtonPrimary {
+	if !ok || event.Kind != gfx.PointerDown || event.Button != gfx.PointerButtonPrimary {
 		return
 	}
 	if index >= len(rows) || !rows[index].selectable() {
@@ -247,7 +247,7 @@ func (w *window) sidebarPointer(canvas *ui.Canvas, rows []sidebarRow) {
 // drawSidebar is the column at the leading side of the window: the list of channels, which
 // scrolls; under it the hint on selecting several channels; and at the bottom the card of
 // the detailed diagnostics.
-func (w *window) drawSidebar(f *flex.Frame) {
+func (w *window) drawSidebar(f *ui.Frame) {
 	rows := sidebarChannelRows(w.model.channels)
 	canvas := f.Canvas()
 	w.sidebarPointer(canvas, rows)
@@ -264,7 +264,7 @@ func (w *window) drawSidebar(f *flex.Frame) {
 			}
 		}
 	})
-	f.Row().Shrink(0).Gap(4).Items(flex.Center).Children(func() {
+	f.Row().Shrink(0).Gap(4).Items(ui.Center).Children(func() {
 		f.Row().Shrink(1).MinWidth(0).PadX(sidebarInset).PadY(6).Children(func() {
 			w.mono(f, w.text.Logs.SelectSeveral, 10.5, w.pal.tx3).LineHeight(13).Ellipsis()
 		})
@@ -279,17 +279,17 @@ func (w *window) drawSidebar(f *flex.Frame) {
 
 // drawSidebarRow declares row i of the list. A heading is text; the other rows are hits that
 // highlight when selected.
-func (w *window) drawSidebarRow(f *flex.Frame, i int, row sidebarRow, selected, focused bool) {
+func (w *window) drawSidebarRow(f *ui.Frame, i int, row sidebarRow, selected, focused bool) {
 	if !row.selectable() {
 		f.Row().Height(sidebarRowHeight).Shrink(0).Children(func() {
-			f.Row().Grow(1).MarginX(sidebarInset).Items(flex.Center).Children(func() {
+			f.Row().Grow(1).MarginX(sidebarInset).Items(ui.Center).Children(func() {
 				w.sidebarName(f, row.heading, w.pal.tx3)
 			})
 		})
 		return
 	}
 	name, color := "□ "+w.text.Logs.AllChannels, w.pal.tx
-	options := ui.HitOptions{Role: ui.RoleOption, Selected: selected}
+	options := gfx.HitOptions{Role: gfx.RoleOption, Selected: selected}
 	if row.id != "" {
 		name, color = "■ "+sidebarTitle(row.id), channelColor(row.id)
 		if w.model.unreadErrors[row.id] {
@@ -300,7 +300,7 @@ func (w *window) drawSidebarRow(f *flex.Frame, i int, row sidebarRow, selected, 
 	// The hit spans the whole width, as a table row does; the highlight and the text inside it
 	// keep the list's inset.
 	f.Row().Height(sidebarRowHeight).Shrink(0).HitWith(sidebarRowScope.At(i), name, options).Children(func() {
-		inner := f.Row().Grow(1).MarginX(sidebarInset).Radius(sidebarRadius).Gap(4).Items(flex.Center)
+		inner := f.Row().Grow(1).MarginX(sidebarInset).Radius(sidebarRadius).Gap(4).Items(ui.Center)
 		if selected {
 			inner = inner.Background(w.sidebarSelectionColor(focused))
 		}
@@ -313,54 +313,54 @@ func (w *window) drawSidebarRow(f *flex.Frame, i int, row sidebarRow, selected, 
 }
 
 // sidebarName declares the text of a row's name, in the interface font.
-func (w *window) sidebarName(f *flex.Frame, s string, color ui.Color) flex.Box {
+func (w *window) sidebarName(f *ui.Frame, s string, color gfx.Color) ui.Box {
 	return f.Text(s).FontSize(12).LineHeight(18).Color(color)
 }
 
 // sidebarSelectionColor is the fill of a selected row: the accent tint while the list has
 // the keyboard focus and the neutral one otherwise. They are the colors of the macOS
 // client's lists.
-func (w *window) sidebarSelectionColor(focused bool) ui.Color {
+func (w *window) sidebarSelectionColor(focused bool) gfx.Color {
 	switch {
 	case w.pal.dark && focused:
-		return ui.RGB24(0x2A4371)
+		return gfx.RGB24(0x2A4371)
 	case w.pal.dark:
-		return ui.RGB24(0x33353B)
+		return gfx.RGB24(0x33353B)
 	case focused:
-		return ui.RGB24(0xD0DFFE)
+		return gfx.RGB24(0xD0DFFE)
 	}
-	return ui.RGB24(0xE9EAEE)
+	return gfx.RGB24(0xE9EAEE)
 }
 
 // sidebarCard declares the box of the diagnostics card, with the margin around it, and
 // returns it for the caller to fill.
-func (w *window) sidebarCard(f *flex.Frame, fill, outline ui.Color) flex.Box {
+func (w *window) sidebarCard(f *ui.Frame, fill, outline gfx.Color) ui.Box {
 	return f.Column().Height(sidebarCardHeight).Shrink(0).PadX(10).PadY(8).Gap(3).
 		MarginSides(0, 10, 6, 10).Radius(sidebarCardRadius).Background(fill).Stroke(1, outline)
 }
 
 // drawDiagnosticsOn is the green card shown while detailed diagnostics are on: what it is,
 // the category it covers, the time left before it turns itself off and a way to turn it off.
-func (w *window) drawDiagnosticsOn(f *flex.Frame, left time.Duration) {
+func (w *window) drawDiagnosticsOn(f *ui.Frame, left time.Duration) {
 	category := w.model.diagnosticCategory
 	if category == "" {
 		category = w.text.Logs.AllChannels
 	}
 	seconds := int(left / time.Second)
 	remaining := fmt.Sprintf("%02d:%02d", seconds/60, seconds%60)
-	small := func(s string) flex.Box {
+	small := func(s string) ui.Box {
 		return w.mono(f, s, 10.5, w.pal.tx2).LineHeight(13)
 	}
 	w.sidebarCard(f, w.pal.grn.WithAlpha(0.10), w.pal.grn.WithAlpha(0.4)).Children(func() {
-		f.Row().Gap(5).Items(flex.Center).Children(func() {
+		f.Row().Gap(5).Items(ui.Center).Children(func() {
 			w.mono(f, "●", 12.5, w.pal.grn).LineHeight(15)
 			w.mono(f, w.text.Logs.DiagnosticsOn, 12.5, w.pal.grn).LineHeight(15).Ellipsis()
 		})
 		small(w.text.Logs.Category(category)).Ellipsis()
-		f.Row().Gap(4).Items(flex.Center).Children(func() {
+		f.Row().Gap(4).Items(ui.Center).Children(func() {
 			small(w.text.Logs.AutoOff(remaining))
 			small("·")
-			stop := f.Row().HitWith(sidebarStop, w.text.Logs.StopDiagnostics, ui.HitOptions{Role: ui.RoleButton}).Children(func() {
+			stop := f.Row().HitWith(sidebarStop, w.text.Logs.StopDiagnostics, gfx.HitOptions{Role: gfx.RoleButton}).Children(func() {
 				w.mono(f, w.text.Logs.StopDiagnostics, 10.5, w.pal.blu).LineHeight(13)
 			})
 			if stop.Clicked() {
@@ -372,9 +372,9 @@ func (w *window) drawDiagnosticsOn(f *flex.Frame, left time.Duration) {
 
 // drawDiagnosticsOff is the card shown while detailed diagnostics are off: its title with an
 // explanation, and the button that turns them on.
-func (w *window) drawDiagnosticsOff(f *flex.Frame) {
+func (w *window) drawDiagnosticsOff(f *ui.Frame) {
 	w.sidebarCard(f, w.pal.bg3, w.pal.bd).Children(func() {
-		f.Row().Gap(5).Items(flex.Center).Children(func() {
+		f.Row().Gap(5).Items(ui.Center).Children(func() {
 			w.mono(f, w.text.Logs.Diagnostics, 12.5, w.pal.tx).LineHeight(15).Ellipsis()
 			w.info(f, sidebarDiagnosticsHelp, w.text.Logs.DiagnosticsHelp)
 		})

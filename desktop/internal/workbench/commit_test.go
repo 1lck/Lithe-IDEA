@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // requireTestGit skips the test without Git and gives Git an empty, isolated
@@ -93,7 +93,7 @@ const gitChainSteps = 6
 
 // click clicks at point and paints what it did, after every background step the click
 // chained. Each settle waits for the running work, so the count is a bound, not a timer.
-func (h *harness) click(point ui.Point) {
+func (h *harness) click(point gfx.Point) {
 	h.t.Helper()
 	if err := h.driver.Click(point.X, point.Y); err != nil {
 		h.t.Fatal(err)
@@ -105,9 +105,9 @@ func (h *harness) click(point ui.Point) {
 
 // topHit is the smallest rectangle the hit id was laid out in: a dialog's scrim shares its
 // id with the cancel button, and the button is the one inside the surface.
-func (h *harness) topHit(id ui.ID) ui.Rect {
+func (h *harness) topHit(id gfx.ID) gfx.Rect {
 	h.t.Helper()
-	var found ui.Rect
+	var found gfx.Rect
 	for _, hit := range h.driver.Snapshot().Hits {
 		if hit.ID == id && (found.Width == 0 || hit.Bounds.Width*hit.Bounds.Height < found.Width*found.Height) {
 			found = hit.Bounds

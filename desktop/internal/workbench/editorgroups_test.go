@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // leaves lists the groups a split tree shows, in layout order: left to right and top to
@@ -134,25 +134,25 @@ func TestSplitTreeContains(t *testing.T) {
 }
 
 func TestSettleHoldsThePositionInsideTheLimits(t *testing.T) {
-	row := ui.Rect{Width: 1000, Height: 400}
-	column := ui.Rect{Width: 400, Height: 400}
+	row := gfx.Rect{Width: 1000, Height: 400}
+	column := gfx.Rect{Width: 400, Height: 400}
 	cases := []struct {
 		name      string
 		row       bool
-		container ui.Rect
-		first     ui.Rect
+		container gfx.Rect
+		first     gfx.Rect
 		want      float32
 	}{
-		{"row, size inside the limits", true, row, ui.Rect{Width: 497, Height: 400}, 497},
-		{"row, first too small", true, row, ui.Rect{Width: 100, Height: 400}, editorGroupMinWidth},
+		{"row, size inside the limits", true, row, gfx.Rect{Width: 497, Height: 400}, 497},
+		{"row, first too small", true, row, gfx.Rect{Width: 100, Height: 400}, editorGroupMinWidth},
 		// The second child keeps its least width and the splitter's 8 pixels: 1000-8-160.
-		{"row, first too large", true, row, ui.Rect{Width: 950, Height: 400}, 832},
+		{"row, first too large", true, row, gfx.Rect{Width: 950, Height: 400}, 832},
 		// Neither child can have its least width: the first keeps its own.
-		{"row, container too small", true, ui.Rect{Width: 200, Height: 400}, ui.Rect{Width: 100, Height: 400}, editorGroupMinWidth},
-		{"column, size inside the limits", false, column, ui.Rect{Width: 400, Height: 150}, 150},
-		{"column, first too small", false, column, ui.Rect{Width: 400, Height: 50}, editorGroupMinHeight},
+		{"row, container too small", true, gfx.Rect{Width: 200, Height: 400}, gfx.Rect{Width: 100, Height: 400}, editorGroupMinWidth},
+		{"column, size inside the limits", false, column, gfx.Rect{Width: 400, Height: 150}, 150},
+		{"column, first too small", false, column, gfx.Rect{Width: 400, Height: 50}, editorGroupMinHeight},
 		// 400-8-96.
-		{"column, first too large", false, column, ui.Rect{Width: 400, Height: 380}, 296},
+		{"column, first too large", false, column, gfx.Rect{Width: 400, Height: 380}, 296},
 	}
 	for _, c := range cases {
 		n := &splitNode{id: 1, row: c.row, ratio: 0.5}
@@ -168,7 +168,7 @@ func TestSettleHoldsThePositionInsideTheLimits(t *testing.T) {
 	// A container with no room is not laid out yet; nothing is learned from it.
 	n := &splitNode{id: 1, row: true, ratio: 0.5}
 	n.state.Pos = 123
-	n.settle(ui.Rect{}, ui.Rect{})
+	n.settle(gfx.Rect{}, gfx.Rect{})
 	if n.state.Pos != 123 {
 		t.Errorf("Pos = %v after an empty container, want 123", n.state.Pos)
 	}
@@ -176,7 +176,7 @@ func TestSettleHoldsThePositionInsideTheLimits(t *testing.T) {
 
 func TestSplitEdgeAt(t *testing.T) {
 	// The bands are a quarter of the width, 100, and of the height, 50.
-	body := ui.Rect{X: 100, Y: 50, Width: 400, Height: 200}
+	body := gfx.Rect{X: 100, Y: 50, Width: 400, Height: 200}
 	cases := []struct {
 		name string
 		x, y float32
@@ -201,7 +201,7 @@ func TestSplitEdgeAt(t *testing.T) {
 	}
 
 	// A tie goes to the first of left, right, top and bottom.
-	square := ui.Rect{Width: 100, Height: 100}
+	square := gfx.Rect{Width: 100, Height: 100}
 	if got := splitEdgeAt(square, 10, 10); got != edgeLeft {
 		t.Errorf("tie of left and top = %d, want left", got)
 	}
@@ -209,24 +209,24 @@ func TestSplitEdgeAt(t *testing.T) {
 		t.Errorf("tie of right and top = %d, want right", got)
 	}
 	// A body with no area has no edge.
-	if got := splitEdgeAt(ui.Rect{}, 0, 0); got != edgeNone {
+	if got := splitEdgeAt(gfx.Rect{}, 0, 0); got != edgeNone {
 		t.Errorf("empty body = %d, want none", got)
 	}
-	if got := splitEdgeAt(ui.Rect{Width: 100}, 1, 0); got != edgeNone {
+	if got := splitEdgeAt(gfx.Rect{Width: 100}, 1, 0); got != edgeNone {
 		t.Errorf("body with no height = %d, want none", got)
 	}
 }
 
 func TestEdgePreviewIsTheHalfOnThatSide(t *testing.T) {
-	body := ui.Rect{X: 100, Y: 50, Width: 400, Height: 200}
+	body := gfx.Rect{X: 100, Y: 50, Width: 400, Height: 200}
 	cases := []struct {
 		edge edge
-		want ui.Rect
+		want gfx.Rect
 	}{
-		{edgeLeft, ui.Rect{X: 100, Y: 50, Width: 200, Height: 200}},
-		{edgeRight, ui.Rect{X: 300, Y: 50, Width: 200, Height: 200}},
-		{edgeTop, ui.Rect{X: 100, Y: 50, Width: 400, Height: 100}},
-		{edgeBottom, ui.Rect{X: 100, Y: 150, Width: 400, Height: 100}},
+		{edgeLeft, gfx.Rect{X: 100, Y: 50, Width: 200, Height: 200}},
+		{edgeRight, gfx.Rect{X: 300, Y: 50, Width: 200, Height: 200}},
+		{edgeTop, gfx.Rect{X: 100, Y: 50, Width: 400, Height: 100}},
+		{edgeBottom, gfx.Rect{X: 100, Y: 150, Width: 400, Height: 100}},
 		{edgeNone, body},
 	}
 	for _, c := range cases {
@@ -239,9 +239,9 @@ func TestEdgePreviewIsTheHalfOnThatSide(t *testing.T) {
 func TestInsertionIndex(t *testing.T) {
 	// Three tabs 100 wide; their middles are 50, 154 and 258.
 	others := []tabSlot{
-		{term: 1, rect: ui.Rect{X: 0, Width: 100}},
-		{term: 2, rect: ui.Rect{X: 104, Width: 100}},
-		{term: 3, rect: ui.Rect{X: 208, Width: 100}},
+		{term: 1, rect: gfx.Rect{X: 0, Width: 100}},
+		{term: 2, rect: gfx.Rect{X: 104, Width: 100}},
+		{term: 3, rect: gfx.Rect{X: 208, Width: 100}},
 	}
 	cases := []struct {
 		x    float32
@@ -258,33 +258,33 @@ func TestInsertionIndex(t *testing.T) {
 }
 
 func TestInsertionMark(t *testing.T) {
-	strip := ui.Rect{X: 10, Y: 20, Width: 400, Height: 32}
+	strip := gfx.Rect{X: 10, Y: 20, Width: 400, Height: 32}
 	others := []tabSlot{
-		{term: 1, rect: ui.Rect{X: 20, Y: 24, Width: 100, Height: 24}},
-		{term: 2, rect: ui.Rect{X: 124, Y: 24, Width: 100, Height: 24}},
+		{term: 1, rect: gfx.Rect{X: 20, Y: 24, Width: 100, Height: 24}},
+		{term: 2, rect: gfx.Rect{X: 124, Y: 24, Width: 100, Height: 24}},
 	}
 	// The line is 2 wide and 24 high, 4 below the strip's top, and stands in the middle of
 	// the 4 pixel gap between two tabs.
 	cases := []struct {
 		name   string
-		strip  ui.Rect
+		strip  gfx.Rect
 		others []tabSlot
 		index  int
-		want   ui.Rect
+		want   gfx.Rect
 	}{
-		{"no tabs", strip, nil, 0, ui.Rect{X: 12, Y: 24, Width: 2, Height: 24}},
-		{"before the first", strip, others, 0, ui.Rect{X: 17, Y: 24, Width: 2, Height: 24}},
-		{"between the two", strip, others, 1, ui.Rect{X: 121, Y: 24, Width: 2, Height: 24}},
-		{"after the last", strip, others, 2, ui.Rect{X: 225, Y: 24, Width: 2, Height: 24}},
+		{"no tabs", strip, nil, 0, gfx.Rect{X: 12, Y: 24, Width: 2, Height: 24}},
+		{"before the first", strip, others, 0, gfx.Rect{X: 17, Y: 24, Width: 2, Height: 24}},
+		{"between the two", strip, others, 1, gfx.Rect{X: 121, Y: 24, Width: 2, Height: 24}},
+		{"after the last", strip, others, 2, gfx.Rect{X: 225, Y: 24, Width: 2, Height: 24}},
 		{
 			"held inside the strip at the start", strip,
-			[]tabSlot{{term: 1, rect: ui.Rect{X: 10, Y: 24, Width: 50, Height: 24}}}, 0,
-			ui.Rect{X: 10, Y: 24, Width: 2, Height: 24},
+			[]tabSlot{{term: 1, rect: gfx.Rect{X: 10, Y: 24, Width: 50, Height: 24}}}, 0,
+			gfx.Rect{X: 10, Y: 24, Width: 2, Height: 24},
 		},
 		{
-			"held inside the strip at the end", ui.Rect{X: 10, Y: 20, Width: 100, Height: 32},
-			[]tabSlot{{term: 1, rect: ui.Rect{X: 108, Y: 24, Width: 100, Height: 24}}}, 1,
-			ui.Rect{X: 108, Y: 24, Width: 2, Height: 24},
+			"held inside the strip at the end", gfx.Rect{X: 10, Y: 20, Width: 100, Height: 32},
+			[]tabSlot{{term: 1, rect: gfx.Rect{X: 108, Y: 24, Width: 100, Height: 24}}}, 1,
+			gfx.Rect{X: 108, Y: 24, Width: 2, Height: 24},
 		},
 	}
 	for _, c := range cases {
@@ -295,15 +295,15 @@ func TestInsertionMark(t *testing.T) {
 }
 
 func TestUnionRectAndPointInRect(t *testing.T) {
-	a := ui.Rect{X: 0, Y: 0, Width: 10, Height: 10}
-	b := ui.Rect{X: 20, Y: 5, Width: 10, Height: 10}
-	if got := unionRect(a, b); got != (ui.Rect{X: 0, Y: 0, Width: 30, Height: 15}) {
+	a := gfx.Rect{X: 0, Y: 0, Width: 10, Height: 10}
+	b := gfx.Rect{X: 20, Y: 5, Width: 10, Height: 10}
+	if got := unionRect(a, b); got != (gfx.Rect{X: 0, Y: 0, Width: 30, Height: 15}) {
 		t.Errorf("unionRect = %v, want {0 0 30 15}", got)
 	}
-	if got := unionRect(ui.Rect{}, b); got != b {
+	if got := unionRect(gfx.Rect{}, b); got != b {
 		t.Errorf("a rectangle with no area changed the union: %v", got)
 	}
-	if got := unionRect(a, ui.Rect{Width: 5}); got != a {
+	if got := unionRect(a, gfx.Rect{Width: 5}); got != a {
 		t.Errorf("a rectangle with no height changed the union: %v", got)
 	}
 
@@ -317,7 +317,7 @@ func TestUnionRectAndPointInRect(t *testing.T) {
 			t.Errorf("pointInRect(%v, %v) = %v, want %v", c.x, c.y, got, c.want)
 		}
 	}
-	if pointInRect(ui.Rect{X: 5, Y: 5}, 5, 5) {
+	if pointInRect(gfx.Rect{X: 5, Y: 5}, 5, 5) {
 		t.Errorf("a rectangle with no area contains a point")
 	}
 }
@@ -349,20 +349,20 @@ func dragFixture() []dropPlace {
 	return []dropPlace{
 		{
 			group: toolGroup, tool: true,
-			strip: ui.Rect{X: 0, Y: 600, Width: 400, Height: 32},
-			body:  ui.Rect{X: 0, Y: 632, Width: 400, Height: 200},
+			strip: gfx.Rect{X: 0, Y: 600, Width: 400, Height: 32},
+			body:  gfx.Rect{X: 0, Y: 632, Width: 400, Height: 200},
 			tabs: []tabSlot{
-				{term: 1, rect: ui.Rect{X: 10, Y: 604, Width: 100, Height: 24}},
-				{term: 2, rect: ui.Rect{X: 114, Y: 604, Width: 100, Height: 24}},
+				{term: 1, rect: gfx.Rect{X: 10, Y: 604, Width: 100, Height: 24}},
+				{term: 2, rect: gfx.Rect{X: 114, Y: 604, Width: 100, Height: 24}},
 			},
 		},
 		{
 			group: "editor:1",
-			strip: ui.Rect{X: 400, Y: 0, Width: 600, Height: 32},
-			body:  ui.Rect{X: 400, Y: 32, Width: 600, Height: 568},
+			strip: gfx.Rect{X: 400, Y: 0, Width: 600, Height: 32},
+			body:  gfx.Rect{X: 400, Y: 32, Width: 600, Height: 568},
 			tabs: []tabSlot{
-				{term: 3, rect: ui.Rect{X: 404, Y: 4, Width: 100, Height: 24}},
-				{term: 4, rect: ui.Rect{X: 508, Y: 4, Width: 100, Height: 24}},
+				{term: 3, rect: gfx.Rect{X: 404, Y: 4, Width: 100, Height: 24}},
+				{term: 4, rect: gfx.Rect{X: 508, Y: 4, Width: 100, Height: 24}},
 			},
 		},
 	}
@@ -372,24 +372,24 @@ func TestDropAtStrips(t *testing.T) {
 	places := dragFixture()
 
 	// A tab from the tool window dropped at the right end of the editor's strip joins it last.
-	got := dropAt(places, ui.Rect{}, 1, 900, 10)
+	got := dropAt(places, gfx.Rect{}, 1, 900, 10)
 	if got.kind != dropJoin || got.group != "editor:1" || got.index != 2 || !got.hasLine || got.preview != places[1].strip {
 		t.Errorf("end of the editor strip = %+v, want a join at index 2 with a line", got)
 	}
 	// Dropped before the middle of the first tab it goes first, and the line stands in front
 	// of that tab.
-	got = dropAt(places, ui.Rect{}, 1, 430, 10)
-	if got.kind != dropJoin || got.index != 0 || got.line != (ui.Rect{X: 401, Y: 4, Width: 2, Height: 24}) {
+	got = dropAt(places, gfx.Rect{}, 1, 430, 10)
+	if got.kind != dropJoin || got.index != 0 || got.line != (gfx.Rect{X: 401, Y: 4, Width: 2, Height: 24}) {
 		t.Errorf("front of the editor strip = %+v, want a join at index 0 with its line at 401", got)
 	}
 	// A tab of the editor's own group dropped in its strip reorders it: the dragged tab is
 	// not counted, so the only other tab, 4, is before the pointer.
-	got = dropAt(places, ui.Rect{}, 3, 900, 10)
-	if got.kind != dropJoin || got.group != "editor:1" || got.index != 1 || got.line != (ui.Rect{X: 609, Y: 4, Width: 2, Height: 24}) {
+	got = dropAt(places, gfx.Rect{}, 3, 900, 10)
+	if got.kind != dropJoin || got.group != "editor:1" || got.index != 1 || got.line != (gfx.Rect{X: 609, Y: 4, Width: 2, Height: 24}) {
 		t.Errorf("own strip = %+v, want a join at index 1 with its line at 609", got)
 	}
 	// And a tab from the editor dropped in the tool window's strip joins that.
-	got = dropAt(places, ui.Rect{}, 3, 300, 610)
+	got = dropAt(places, gfx.Rect{}, 3, 300, 610)
 	if got.kind != dropJoin || got.group != toolGroup || got.index != 2 {
 		t.Errorf("tool strip = %+v, want a join of the tool window at index 2", got)
 	}
@@ -400,33 +400,33 @@ func TestDropAtBodies(t *testing.T) {
 	body := places[1].body
 
 	// The middle of a group's body joins it at the end and tints the whole group.
-	got := dropAt(places, ui.Rect{}, 1, 700, 300)
+	got := dropAt(places, gfx.Rect{}, 1, 700, 300)
 	if got.kind != dropJoin || got.group != "editor:1" || got.index != 2 || got.hasLine ||
-		got.preview != (ui.Rect{X: 400, Y: 0, Width: 600, Height: 600}) {
+		got.preview != (gfx.Rect{X: 400, Y: 0, Width: 600, Height: 600}) {
 		t.Errorf("middle of the editor body = %+v, want a join at the end over the whole group", got)
 	}
 	// Near an edge of the body the tab splits the group, and the preview is that half.
-	got = dropAt(places, ui.Rect{}, 1, 990, 300)
+	got = dropAt(places, gfx.Rect{}, 1, 990, 300)
 	if got.kind != dropSplit || got.group != "editor:1" || got.edge != edgeRight || got.preview != edgePreview(body, edgeRight) {
 		t.Errorf("right of the editor body = %+v, want a split on the right", got)
 	}
 	// A group with other tabs can be split by its own tab.
-	got = dropAt(places, ui.Rect{}, 3, 410, 300)
+	got = dropAt(places, gfx.Rect{}, 3, 410, 300)
 	if got.kind != dropSplit || got.group != "editor:1" || got.edge != edgeLeft {
 		t.Errorf("left of its own body = %+v, want a split on the left", got)
 	}
 	// But the middle of its own group is nowhere to go.
-	if got = dropAt(places, ui.Rect{}, 3, 700, 300); got.kind != dropNone {
+	if got = dropAt(places, gfx.Rect{}, 3, 700, 300); got.kind != dropNone {
 		t.Errorf("middle of its own body = %+v, want no place", got)
 	}
 	// The Terminal tool window is never split: near its edge the tab joins it.
-	got = dropAt(places, ui.Rect{}, 3, 5, 700)
+	got = dropAt(places, gfx.Rect{}, 3, 5, 700)
 	if got.kind != dropJoin || got.group != toolGroup || got.index != 2 ||
-		got.preview != (ui.Rect{X: 0, Y: 600, Width: 400, Height: 232}) {
+		got.preview != (gfx.Rect{X: 0, Y: 600, Width: 400, Height: 232}) {
 		t.Errorf("edge of the tool body = %+v, want a join, not a split", got)
 	}
 	// A tool window tab dropped on its own body is nowhere to go either.
-	if got = dropAt(places, ui.Rect{}, 1, 5, 700); got.kind != dropNone {
+	if got = dropAt(places, gfx.Rect{}, 1, 5, 700); got.kind != dropNone {
 		t.Errorf("own tool body = %+v, want no place", got)
 	}
 }
@@ -434,26 +434,26 @@ func TestDropAtBodies(t *testing.T) {
 func TestDropAtSoloPlaceAcceptsNothing(t *testing.T) {
 	places := []dropPlace{{
 		group: "editor:2",
-		strip: ui.Rect{X: 0, Y: 0, Width: 300, Height: 32},
-		body:  ui.Rect{X: 0, Y: 32, Width: 300, Height: 200},
-		tabs:  []tabSlot{{term: 5, rect: ui.Rect{X: 4, Y: 4, Width: 100, Height: 24}}},
+		strip: gfx.Rect{X: 0, Y: 0, Width: 300, Height: 32},
+		body:  gfx.Rect{X: 0, Y: 32, Width: 300, Height: 200},
+		tabs:  []tabSlot{{term: 5, rect: gfx.Rect{X: 4, Y: 4, Width: 100, Height: 24}}},
 	}}
 	for _, at := range [][2]float32{{10, 10}, {100, 100}, {2, 100}} {
-		if got := dropAt(places, ui.Rect{}, 5, at[0], at[1]); got.kind != dropNone {
+		if got := dropAt(places, gfx.Rect{}, 5, at[0], at[1]); got.kind != dropNone {
 			t.Errorf("solo place at %v = %+v, want no place", at, got)
 		}
 	}
 	// Another terminal can still be dropped into it.
-	if got := dropAt(places, ui.Rect{}, 6, 10, 10); got.kind != dropJoin || got.index != 0 {
+	if got := dropAt(places, gfx.Rect{}, 6, 10, 10); got.kind != dropJoin || got.index != 0 {
 		t.Errorf("strip of the solo place for another terminal = %+v, want a join at 0", got)
 	}
-	if got := dropAt(places, ui.Rect{}, 6, 100, 100); got.kind != dropJoin || got.index != 1 {
+	if got := dropAt(places, gfx.Rect{}, 6, 100, 100); got.kind != dropJoin || got.index != 1 {
 		t.Errorf("body of the solo place for another terminal = %+v, want a join at 1", got)
 	}
 }
 
 func TestDropAtEmptyEditorAndOutside(t *testing.T) {
-	empty := ui.Rect{X: 0, Y: 32, Width: 1000, Height: 568}
+	empty := gfx.Rect{X: 0, Y: 32, Width: 1000, Height: 568}
 	got := dropAt(nil, empty, 1, 500, 300)
 	if got.kind != dropEmpty || got.preview != empty {
 		t.Errorf("empty editor = %+v, want dropEmpty over the editor", got)
@@ -461,11 +461,11 @@ func TestDropAtEmptyEditorAndOutside(t *testing.T) {
 	if got = dropAt(nil, empty, 1, 500, 10); got.kind != dropNone {
 		t.Errorf("above the empty editor = %+v, want no place", got)
 	}
-	if got = dropAt(nil, ui.Rect{}, 1, 0, 0); got.kind != dropNone {
+	if got = dropAt(nil, gfx.Rect{}, 1, 0, 0); got.kind != dropNone {
 		t.Errorf("no editor box = %+v, want no place", got)
 	}
 	// Between the tool window and the editor is no place.
-	if got = dropAt(dragFixture(), ui.Rect{}, 1, 200, 300); got.kind != dropNone {
+	if got = dropAt(dragFixture(), gfx.Rect{}, 1, 200, 300); got.kind != dropNone {
 		t.Errorf("gap = %+v, want no place", got)
 	}
 }
@@ -536,7 +536,7 @@ func TestGroupDeclPlaceReadsOnlyWhatTheFrameDeclared(t *testing.T) {
 	// A group whose boxes were not declared has no zero Box read: its place is empty.
 	g := groupDecl{id: "editor:1"}
 	p := g.place()
-	if p.group != "editor:1" || p.tool || p.strip != (ui.Rect{}) || p.body != (ui.Rect{}) || len(p.tabs) != 0 {
+	if p.group != "editor:1" || p.tool || p.strip != (gfx.Rect{}) || p.body != (gfx.Rect{}) || len(p.tabs) != 0 {
 		t.Errorf("place of an undeclared group = %+v, want only its name", p)
 	}
 	if got := (&groupDecl{id: toolGroup, tool: true}).place(); !got.tool {
@@ -588,12 +588,12 @@ func TestBeginTerminalFrameKeepsTheGesture(t *testing.T) {
 func TestTabDragStartsOnlyOnATerminalTab(t *testing.T) {
 	a := &App{project: &project{}}
 	a.project.terms.list = []*terminal{{id: 1, number: 1}, {id: 2, number: 2}}
-	down := func(button ui.PointerButton, target ui.ID) ui.PointerEvent {
-		return ui.PointerEvent{Kind: ui.PointerDown, Button: button, X: 10, Y: 10, Target: target}
+	down := func(button gfx.PointerButton, target gfx.ID) gfx.PointerEvent {
+		return gfx.PointerEvent{Kind: gfx.PointerDown, Button: button, X: 10, Y: 10, Target: target}
 	}
 
 	// A press on a terminal's tab is followed, and the tab still gets it.
-	if result, handled := a.tabDragPointer(down(ui.PointerButtonPrimary, termTabs.At(2))); handled || result.Handled {
+	if result, handled := a.tabDragPointer(down(gfx.PointerButtonPrimary, termTabs.At(2))); handled || result.Handled {
 		t.Errorf("a press was taken: the tab would not get its click")
 	}
 	if d := a.term.drag; !d.pressed || d.active || d.term != 2 {
@@ -601,11 +601,11 @@ func TestTabDragStartsOnlyOnATerminalTab(t *testing.T) {
 	}
 
 	// A press anywhere else, with another button, or on a terminal that is gone, is not.
-	for name, event := range map[string]ui.PointerEvent{
-		"secondary button": down(ui.PointerButtonSecondary, termTabs.At(1)),
-		"other control":    down(ui.PointerButtonPrimary, termClose.At(1)),
-		"no target":        down(ui.PointerButtonPrimary, ui.ID{}),
-		"unknown terminal": down(ui.PointerButtonPrimary, termTabs.At(9)),
+	for name, event := range map[string]gfx.PointerEvent{
+		"secondary button": down(gfx.PointerButtonSecondary, termTabs.At(1)),
+		"other control":    down(gfx.PointerButtonPrimary, termClose.At(1)),
+		"no target":        down(gfx.PointerButtonPrimary, gfx.ID{}),
+		"unknown terminal": down(gfx.PointerButtonPrimary, termTabs.At(9)),
 	} {
 		a.tabDragPointer(event)
 		if a.term.drag != (tabDrag{}) {
@@ -618,12 +618,12 @@ func TestTabDragWaitsForTheThresholdThenTakesTheGesture(t *testing.T) {
 	a := &App{project: &project{}}
 	a.project.terms.list = []*terminal{{id: 1, number: 1}}
 	a.term.places = dragFixture()
-	viewport := ui.Size{Width: 1000, Height: 840}
+	viewport := gfx.Size{Width: 1000, Height: 840}
 
-	a.tabDragPointer(ui.PointerEvent{Kind: ui.PointerDown, Button: ui.PointerButtonPrimary, X: 10, Y: 10, Target: termTabs.At(1)})
+	a.tabDragPointer(gfx.PointerEvent{Kind: gfx.PointerDown, Button: gfx.PointerButtonPrimary, X: 10, Y: 10, Target: termTabs.At(1)})
 
 	// A move of a pixel or two is still the click's.
-	if _, handled := a.tabDragPointer(ui.PointerEvent{Kind: ui.PointerMove, X: 12, Y: 11, Viewport: viewport}); handled {
+	if _, handled := a.tabDragPointer(gfx.PointerEvent{Kind: gfx.PointerMove, X: 12, Y: 11, Viewport: viewport}); handled {
 		t.Errorf("a move below the threshold was taken")
 	}
 	if a.term.drag.active {
@@ -631,7 +631,7 @@ func TestTabDragWaitsForTheThresholdThenTakesTheGesture(t *testing.T) {
 	}
 
 	// A longer one makes it a drag, which is aimed at the place under the pointer.
-	result, handled := a.tabDragPointer(ui.PointerEvent{Kind: ui.PointerMove, X: 900, Y: 10, Viewport: viewport})
+	result, handled := a.tabDragPointer(gfx.PointerEvent{Kind: gfx.PointerMove, X: 900, Y: 10, Viewport: viewport})
 	if !handled || !result.Handled || !result.Repaint {
 		t.Fatalf("a move past the threshold = %+v, %v, want taken with a repaint", result, handled)
 	}
@@ -655,12 +655,12 @@ func TestTabDragWaitsForTheThresholdThenTakesTheGesture(t *testing.T) {
 func TestTabDragReleaseAndExit(t *testing.T) {
 	a := &App{project: &project{}}
 	a.project.terms.list = []*terminal{{id: 1, number: 1}}
-	press := ui.PointerEvent{Kind: ui.PointerDown, Button: ui.PointerButtonPrimary, X: 10, Y: 10, Target: termTabs.At(1)}
-	far := ui.PointerEvent{Kind: ui.PointerMove, X: 200, Y: 200}
+	press := gfx.PointerEvent{Kind: gfx.PointerDown, Button: gfx.PointerButtonPrimary, X: 10, Y: 10, Target: termTabs.At(1)}
+	far := gfx.PointerEvent{Kind: gfx.PointerMove, X: 200, Y: 200}
 
 	// A release without a drag is a click: it is left to the tab.
 	a.tabDragPointer(press)
-	if _, handled := a.tabDragPointer(ui.PointerEvent{Kind: ui.PointerUp, X: 10, Y: 10}); handled {
+	if _, handled := a.tabDragPointer(gfx.PointerEvent{Kind: gfx.PointerUp, X: 10, Y: 10}); handled {
 		t.Errorf("the release of a click was taken")
 	}
 	if a.term.drag != (tabDrag{}) {
@@ -671,7 +671,7 @@ func TestTabDragReleaseAndExit(t *testing.T) {
 	// place to drop and nothing moves.
 	a.tabDragPointer(press)
 	a.tabDragPointer(far)
-	result, handled := a.tabDragPointer(ui.PointerEvent{Kind: ui.PointerUp, X: 200, Y: 200})
+	result, handled := a.tabDragPointer(gfx.PointerEvent{Kind: gfx.PointerUp, X: 200, Y: 200})
 	if !handled || !result.Handled || !result.Repaint || a.term.drag != (tabDrag{}) {
 		t.Errorf("release of a drag = %+v, %v, drag %+v, want taken and cleared", result, handled, a.term.drag)
 	}
@@ -679,10 +679,10 @@ func TestTabDragReleaseAndExit(t *testing.T) {
 	// A pointer that left the window ends a drag, and a hover that leaves does nothing.
 	a.tabDragPointer(press)
 	a.tabDragPointer(far)
-	if result, handled = a.tabDragPointer(ui.PointerEvent{Kind: ui.PointerExit}); !handled || !result.Repaint || a.term.drag != (tabDrag{}) {
+	if result, handled = a.tabDragPointer(gfx.PointerEvent{Kind: gfx.PointerExit}); !handled || !result.Repaint || a.term.drag != (tabDrag{}) {
 		t.Errorf("exit during a drag = %+v, %v, drag %+v", result, handled, a.term.drag)
 	}
-	if _, handled = a.tabDragPointer(ui.PointerEvent{Kind: ui.PointerExit}); handled {
+	if _, handled = a.tabDragPointer(gfx.PointerEvent{Kind: gfx.PointerExit}); handled {
 		t.Errorf("exit without a drag was taken")
 	}
 }
@@ -690,7 +690,7 @@ func TestTabDragReleaseAndExit(t *testing.T) {
 func TestTabDragLocateStaysInsideTheWindow(t *testing.T) {
 	a := &App{}
 	a.term.places = dragFixture()
-	viewport := ui.Size{Width: 1000, Height: 840}
+	viewport := gfx.Size{Width: 1000, Height: 840}
 
 	if got := a.tabDragLocate(1, 900, 10, viewport); got.kind != dropJoin || got.group != "editor:1" {
 		t.Errorf("inside the window = %+v, want a join of editor:1", got)

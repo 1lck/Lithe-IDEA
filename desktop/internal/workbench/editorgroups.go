@@ -1,7 +1,7 @@
 package workbench
 
 import (
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
@@ -68,7 +68,7 @@ type splitNode struct {
 	first, second *splitNode
 	// state is the splitter between the children. Its Pos is the size of the first child,
 	// which is what a drag measures from (see settle).
-	state flex.SplitterState
+	state ui.SplitterState
 	// extent is the container's extent along its axis in the last frame, which turns a
 	// position the keyboard gave the splitter into a ratio before the next frame.
 	extent float32
@@ -150,7 +150,7 @@ func removeLeaf(root *splitNode, group string) *splitNode {
 // inside the limits Viva measures (the same bounds as its splitLimits). Pos is then always
 // where the next press will start from, and Viva never finds it out of range, which would
 // make it ask for another frame.
-func (n *splitNode) settle(container, first ui.Rect) {
+func (n *splitNode) settle(container, first gfx.Rect) {
 	extent, size, least := container.Height, first.Height, float32(editorGroupMinHeight)
 	if n.row {
 		extent, size, least = container.Width, first.Width, editorGroupMinWidth
@@ -169,7 +169,7 @@ func (n *splitNode) settle(container, first ui.Rect) {
 // tabSlot is where the chip of one terminal's tab was laid out.
 type tabSlot struct {
 	term int
-	rect ui.Rect
+	rect gfx.Rect
 }
 
 // dropPlace is one tab group as the last frame laid it out: where its strip of tabs and its
@@ -178,7 +178,7 @@ type dropPlace struct {
 	group string
 	// tool says the place is the Terminal tool window, which a tab can join but not split.
 	tool        bool
-	strip, body ui.Rect
+	strip, body gfx.Rect
 	tabs        []tabSlot
 }
 
@@ -233,8 +233,8 @@ type dropTarget struct {
 	index int
 	// preview is the area the drop would fill, in window coordinates, and line the
 	// insertion line when hasLine says there is one.
-	preview ui.Rect
-	line    ui.Rect
+	preview gfx.Rect
+	line    gfx.Rect
 	hasLine bool
 }
 
@@ -245,7 +245,7 @@ type dropTarget struct {
 // else in the body it joins the group at the end. The Terminal tool window never splits.
 // A place whose only tab is the dragged one accepts nothing, and neither does the middle of
 // the dragged tab's own group. Over an editor with no group the tab opens the first one.
-func dropAt(places []dropPlace, empty ui.Rect, dragged int, x, y float32) dropTarget {
+func dropAt(places []dropPlace, empty gfx.Rect, dragged int, x, y float32) dropTarget {
 	for _, p := range places {
 		inStrip, inBody := pointInRect(p.strip, x, y), pointInRect(p.body, x, y)
 		if !inStrip && !inBody {
@@ -294,7 +294,7 @@ func insertionIndex(others []tabSlot, x float32) int {
 // would stand: in the middle of the gap in front of the tab it precedes, or after the last
 // one. It runs along the strip's height, like the line of a dragged tool button, and
 // stays inside the strip.
-func insertionMark(strip ui.Rect, others []tabSlot, index int) ui.Rect {
+func insertionMark(strip gfx.Rect, others []tabSlot, index int) gfx.Rect {
 	x := strip.X + dragMarkLead
 	switch {
 	case len(others) == 0:
@@ -304,14 +304,14 @@ func insertionMark(strip ui.Rect, others []tabSlot, index int) ui.Rect {
 		x = others[len(others)-1].rect.Right() + (chromeGap-dragMark)/2
 	}
 	x = min(max(x, strip.X), strip.Right()-dragMark)
-	return ui.Rect{X: x, Y: strip.Y + tabMarkInset, Width: dragMark, Height: max(strip.Height-2*tabMarkInset, 0)}
+	return gfx.Rect{X: x, Y: strip.Y + tabMarkInset, Width: dragMark, Height: max(strip.Height-2*tabMarkInset, 0)}
 }
 
 // splitEdgeAt is the edge of body the point (x, y) is within splitBand of, as a share of
 // the body's width for the sides and of its height for the top and bottom. The nearest edge
 // wins; a tie goes to the first of left, right, top and bottom. It is edgeNone for a point
 // in the middle, and for a body with no area.
-func splitEdgeAt(body ui.Rect, x, y float32) edge {
+func splitEdgeAt(body gfx.Rect, x, y float32) edge {
 	if body.Width <= 0 || body.Height <= 0 {
 		return edgeNone
 	}
@@ -333,7 +333,7 @@ func splitEdgeAt(body ui.Rect, x, y float32) edge {
 }
 
 // edgePreview is the half of body that a tab split off on edge e would fill.
-func edgePreview(body ui.Rect, e edge) ui.Rect {
+func edgePreview(body gfx.Rect, e edge) gfx.Rect {
 	halfW, halfH := body.Width/2, body.Height/2
 	switch e {
 	case edgeLeft:
@@ -352,7 +352,7 @@ func edgePreview(body ui.Rect, e edge) ui.Rect {
 
 // unionRect is the smallest rectangle that holds both a and b; a rectangle with no area
 // does not count.
-func unionRect(a, b ui.Rect) ui.Rect {
+func unionRect(a, b gfx.Rect) gfx.Rect {
 	if a.Width <= 0 || a.Height <= 0 {
 		return b
 	}
@@ -360,19 +360,19 @@ func unionRect(a, b ui.Rect) ui.Rect {
 		return a
 	}
 	x, y := min(a.X, b.X), min(a.Y, b.Y)
-	return ui.Rect{X: x, Y: y, Width: max(a.Right(), b.Right()) - x, Height: max(a.Bottom(), b.Bottom()) - y}
+	return gfx.Rect{X: x, Y: y, Width: max(a.Right(), b.Right()) - x, Height: max(a.Bottom(), b.Bottom()) - y}
 }
 
 // pointInRect says (x, y) is inside r. The far edges are outside, so two neighbours never
 // both contain a point on their border, and a rectangle with no area contains nothing.
-func pointInRect(r ui.Rect, x, y float32) bool {
+func pointInRect(r gfx.Rect, x, y float32) bool {
 	return r.Width > 0 && r.Height > 0 && x >= r.X && x < r.Right() && y >= r.Y && y < r.Bottom()
 }
 
 // drawEditorGroups declares the editor area as its tree of groups and reports whether
 // there is one. With no tree the editor is empty, and drawShellEditor declares what an
 // empty editor shows instead.
-func (a *App) drawEditorGroups(f *flex.Frame) bool {
+func (a *App) drawEditorGroups(f *ui.Frame) bool {
 	p := a.project
 	if p == nil || p.terms.layout == nil {
 		return false
@@ -391,7 +391,7 @@ func (a *App) drawEditorGroups(f *flex.Frame) bool {
 // that was chosen in a larger window never pushes the second child out of a smaller one.
 // The splitter's own limits are the same minimums. What the layout gave the first child is
 // handed to settle once the frame is laid out.
-func (a *App) drawEditorNode(f *flex.Frame, n *splitNode) flex.Box {
+func (a *App) drawEditorNode(f *ui.Frame, n *splitNode) ui.Box {
 	if n.leaf() {
 		return a.drawEditorGroup(f, n.group)
 	}
@@ -401,7 +401,7 @@ func (a *App) drawEditorNode(f *flex.Frame, n *splitNode) flex.Box {
 		least = editorGroupMinWidth
 		declare = f.Row
 	}
-	var first, second flex.Box
+	var first, second ui.Box
 	container := declare().Clip().Children(func() {
 		first = a.drawEditorNode(f, n.first)
 		f.Splitter(editorSplits.At(n.id), &n.state).Mins(least, least).Label(a.text.Panel.Resize)
@@ -424,20 +424,20 @@ func (a *App) drawEditorNode(f *flex.Frame, n *splitNode) flex.Box {
 // body that the selected terminal is painted into after the frame is laid out (see
 // paintTerminal). The group is recorded for the drag, which aims at the strip and the body.
 // A group that shows an open file ends its strip with the soft wrap switch.
-func (a *App) drawEditorGroup(f *flex.Frame, id string) flex.Box {
+func (a *App) drawEditorGroup(f *ui.Frame, id string) ui.Box {
 	u := &a.term
 	decl := groupDecl{id: id}
 	decl.selected = a.project.terms.selected(id)
 	decl.doc = a.project.selectedDocument(id)
 	group := f.Column().Background(a.colors.Editor).Clip()
 	group.Children(func() {
-		decl.strip = f.Row().FillWidth().Height(panelHeaderHeight).Shrink(0).Items(flex.Center).
+		decl.strip = f.Row().FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).
 			Gap(chromeGap).PadX(chromeGap).Background(a.colors.Panel).Clip()
 		decl.stripSet = true
 		decl.strip.Children(func() {
 			// The tabs fill the strip and give up their room before the switch does, so it
 			// stays at the strip's end however many files are open.
-			f.Row().Fill().Items(flex.Center).Gap(chromeGap).Clip().Children(func() {
+			f.Row().Fill().Items(ui.Center).Gap(chromeGap).Clip().Children(func() {
 				decl.tabs = a.drawTerminalChips(f, id)
 			})
 			if decl.doc != nil {
@@ -458,21 +458,21 @@ func (a *App) drawEditorGroup(f *flex.Frame, id string) flex.Box {
 // off, at the end of the strip of the group that shows document doc. It looks pressed while
 // wrapping is on. The click takes effect in this frame's paint, which sets every view it
 // paints to the new state.
-func (a *App) drawSoftWrapSwitch(f *flex.Frame, doc int) {
+func (a *App) drawSoftWrapSwitch(f *ui.Frame, doc int) {
 	on := a.softWrap
 	button := f.Row().Size(shellHideSize, shellHideSize).Shrink(0).Center().Radius(a.theme.Metrics.RadiusItem()).
-		HitWith(docWrap.At(doc), a.text.Editor.SoftWrap, ui.HitOptions{Role: ui.RoleSwitch, Checked: on, Cursor: ui.PointerCursorHand}).
-		Pressed(flex.Look{}.Background(a.colors.Active))
+		HitWith(docWrap.At(doc), a.text.Editor.SoftWrap, gfx.HitOptions{Role: gfx.RoleSwitch, Checked: on, Cursor: gfx.PointerCursorHand}).
+		Pressed(ui.Look{}.Background(a.colors.Active))
 	icon := a.colors.Subtle
 	if on {
 		button = button.Background(a.colors.Active)
 		icon = a.colors.Text
 	} else {
-		button = button.Hover(flex.Look{}.Background(a.colors.Hover))
+		button = button.Hover(ui.Look{}.Background(a.colors.Hover))
 	}
 	button.Children(func() {
 		f.Icon(icons.WrapText).Size(shellIconSize, shellIconSize).Color(icon).
-			StateFrom(button).Hover(flex.Look{}.Color(a.colors.Text))
+			StateFrom(button).Hover(ui.Look{}.Color(a.colors.Text))
 	})
 	if button.Clicked() {
 		a.softWrap = !on
@@ -481,7 +481,7 @@ func (a *App) drawSoftWrapSwitch(f *flex.Frame, doc int) {
 
 // declareEmptyEditor records the box of the editor while it has no group, which is the area
 // a tab can be dropped into to open the first one.
-func (a *App) declareEmptyEditor(editor flex.Box) {
+func (a *App) declareEmptyEditor(editor ui.Box) {
 	a.term.empty, a.term.emptyDrawn = editor, true
 }
 
@@ -489,7 +489,7 @@ func (a *App) declareEmptyEditor(editor flex.Box) {
 // frame declared; only the one that has the keyboard focus acts on it. The position the
 // key gave it becomes the split's ratio at once, since the next frame lays the children
 // out by the ratio.
-func (a *App) editorSplitKey(event ui.KeyEvent) ui.EventResult {
+func (a *App) editorSplitKey(event gfx.KeyEvent) gfx.EventResult {
 	for _, s := range a.term.splits {
 		n := s.node
 		if result := n.state.Key(event); result.Handled {
@@ -499,5 +499,5 @@ func (a *App) editorSplitKey(event ui.KeyEvent) ui.EventResult {
 			return result
 		}
 	}
-	return ui.EventResult{}
+	return gfx.EventResult{}
 }

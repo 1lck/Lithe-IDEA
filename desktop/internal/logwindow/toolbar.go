@@ -7,7 +7,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -120,7 +120,7 @@ type toolbarItem struct {
 // display options and the log directory. The controls wrap onto further lines when the
 // window is too narrow for one; only the filter field, always the first control, grows into
 // the room a line has left. A one point line closes the band at the bottom.
-func (w *window) drawToolbar(f *flex.Frame) {
+func (w *window) drawToolbar(f *ui.Frame) {
 	// An editor or a menu that is not open will be seeded again the next time it opens.
 	if w.menu.kind != menuTimeRange {
 		w.toolbar.rangeSeeded = false
@@ -132,7 +132,7 @@ func (w *window) drawToolbar(f *flex.Frame) {
 	f.Stack().FillWidth().Shrink(0).Background(w.pal.bg3).Children(func() {
 		f.Column().FillWidth().PadSides(toolbarPadY, toolbarPadX, toolbarPadY, toolbarPadX).Gap(toolbarGap).Children(func() {
 			for _, line := range lines {
-				f.Row().FillWidth().Gap(toolbarGap).Items(flex.Center).Children(func() {
+				f.Row().FillWidth().Gap(toolbarGap).Items(ui.Center).Children(func() {
 					for _, item := range line {
 						item.draw()
 					}
@@ -167,7 +167,7 @@ func toolbarWrap(items []toolbarItem, width float32) [][]toolbarItem {
 
 // toolbarButtonWidth is the width of the button w.button declares for a symbol and a title:
 // the room at the sides, the border, the text and, when it has both, the space between them.
-func toolbarButtonWidth(canvas *ui.Canvas, symbol, title string) float32 {
+func toolbarButtonWidth(canvas *gfx.Canvas, symbol, title string) float32 {
 	width := 2*toolbarButtonPad + 2 + monoWidth(canvas, symbol, toolbarFont) + monoWidth(canvas, title, toolbarFont)
 	if symbol != "" && title != "" {
 		width += toolbarButtonGap
@@ -178,7 +178,7 @@ func toolbarButtonWidth(canvas *ui.Canvas, symbol, title string) float32 {
 // toolbarItems lists the toolbar's controls in the order of the macOS client's toolbar,
 // each with its width and the code that declares it. A control that depends on the model
 // reads it when it is declared.
-func (w *window) toolbarItems(f *flex.Frame) []toolbarItem {
+func (w *window) toolbarItems(f *ui.Frame) []toolbarItem {
 	logs := &w.text.Logs
 	m := w.model
 	levelCell, _ := f.Canvas().CellSize(toolbarLevelFont)
@@ -188,7 +188,7 @@ func (w *window) toolbarItems(f *flex.Frame) []toolbarItem {
 		items = append(items, toolbarItem{width: width, draw: draw})
 	}
 	// addButton adds a plain button that runs click, unless it is disabled.
-	addButton := func(id ui.ID, symbol, title string, o buttonOptions, click func()) {
+	addButton := func(id gfx.ID, symbol, title string, o buttonOptions, click func()) {
 		add(toolbarButtonWidth(f.Canvas(), symbol, title), func() {
 			if w.button(f, id, symbol, title, o).Clicked() && !o.disabled {
 				click()
@@ -196,7 +196,7 @@ func (w *window) toolbarItems(f *flex.Frame) []toolbarItem {
 		})
 	}
 	// addMenu adds a button that opens the menu kind under itself.
-	addMenu := func(kind menuKind, id ui.ID, symbol, title string, o buttonOptions) {
+	addMenu := func(kind menuKind, id gfx.ID, symbol, title string, o buttonOptions) {
 		add(toolbarButtonWidth(f.Canvas(), symbol, title), func() {
 			w.toolbarMenuButton(f, kind, id, symbol, title, o)
 		})
@@ -226,7 +226,7 @@ func (w *window) toolbarItems(f *flex.Frame) []toolbarItem {
 
 // toolbarMenuButton declares a button that opens the menu kind under itself, and registers
 // it as the anchor the menu is placed by.
-func (w *window) toolbarMenuButton(f *flex.Frame, kind menuKind, id ui.ID, symbol, title string, o buttonOptions) {
+func (w *window) toolbarMenuButton(f *ui.Frame, kind menuKind, id gfx.ID, symbol, title string, o buttonOptions) {
 	box := w.button(f, id, symbol, title, o)
 	w.anchors[kind] = box
 	if box.Clicked() {
@@ -237,16 +237,16 @@ func (w *window) toolbarMenuButton(f *flex.Frame, kind menuKind, id ui.ID, symbo
 // drawToolbarSearch is the filter field. Viva's field paints its own frame, so the
 // magnifier, the button that clears the text, the ⓘ and the ⌘F badge sit beside the frame
 // and not inside it as they do in the macOS client.
-func (w *window) drawToolbarSearch(f *flex.Frame) {
+func (w *window) drawToolbarSearch(f *ui.Frame) {
 	logs := &w.text.Logs
 	f.Row().Basis(toolbarSearchMin).MinWidth(toolbarSearchMin).Grow(1).Shrink(0).
-		Height(toolbarSearchHeight).PadX(toolbarSearchPad).Gap(toolbarSearchGap).Items(flex.Center).Children(func() {
+		Height(toolbarSearchHeight).PadX(toolbarSearchPad).Gap(toolbarSearchGap).Items(ui.Center).Children(func() {
 		f.Icon(icons.Search).Size(toolbarSearchIcon, toolbarSearchIcon).Color(w.pal.tx2).Shrink(0)
 		f.Field(&w.filter, filterID, logs.FilterPlaceholder, logs.FilterPlaceholder).Grow(1).MinWidth(0).Height(toolbarSearchField)
 		if w.filter.Text() != "" {
 			erase := f.Row().Size(toolbarSearchIcon, toolbarSearchIcon).Shrink(0).Center().Radius(4).
-				Hover(flex.Look{}.Background(w.pal.bg)).
-				HitWith(toolbarClearSearchID, logs.ClearSearch, ui.HitOptions{Role: ui.RoleButton, Hint: logs.ClearSearch, SkipFocus: true})
+				Hover(ui.Look{}.Background(w.pal.bg)).
+				HitWith(toolbarClearSearchID, logs.ClearSearch, gfx.HitOptions{Role: gfx.RoleButton, Hint: logs.ClearSearch, SkipFocus: true})
 			erase.Children(func() {
 				f.Icon(icons.X).Size(14, 14).Color(w.pal.tx2)
 			})
@@ -265,7 +265,7 @@ func (w *window) drawToolbarSearch(f *flex.Frame) {
 
 // drawLevelToggle is the button that shows or hides one level. A shown level is filled in
 // its own color (gray for DEBUG); a hidden one is an outline on the window's background.
-func (w *window) drawLevelToggle(f *flex.Frame, index int, level core.LogLevel) {
+func (w *window) drawLevelToggle(f *ui.Frame, index int, level core.LogLevel) {
 	enabled := w.model.levelEnabled(level)
 	fill, stroke, textColor := w.pal.bg, w.pal.bd, w.pal.tx2
 	if enabled {
@@ -279,13 +279,13 @@ func (w *window) drawLevelToggle(f *flex.Frame, index int, level core.LogLevel) 
 			textColor = w.pal.bg
 		}
 	}
-	box := f.Row().Height(toolbarLevelHeight).Shrink(0).PadX(toolbarLevelPad).Items(flex.Center).
+	box := f.Row().Height(toolbarLevelHeight).Shrink(0).PadX(toolbarLevelPad).Items(ui.Center).
 		Background(fill).Radius(toolbarLevelRadius).Stroke(1, stroke).
-		HitWith(toolbarLevelScope.At(index), string(level), ui.HitOptions{Role: ui.RoleButton, Checked: enabled})
+		HitWith(toolbarLevelScope.At(index), string(level), gfx.HitOptions{Role: gfx.RoleButton, Checked: enabled})
 	box.Children(func() {
 		label := w.mono(f, string(level), toolbarLevelFont, textColor)
 		if enabled {
-			label.Weight(ui.WeightSemibold)
+			label.Weight(gfx.WeightSemibold)
 		}
 	})
 	if box.Clicked() {
@@ -385,12 +385,12 @@ func (w *window) timeZoneLine() string {
 
 // drawToolbarMenu declares the open menu of a toolbar button, under the button. A menu whose
 // button was not declared in this frame is not drawn.
-func (w *window) drawToolbarMenu(f *flex.Frame) {
+func (w *window) drawToolbarMenu(f *ui.Frame) {
 	anchor, ok := w.anchors[w.menu.kind]
 	if !ok {
 		return
 	}
-	below := func(b flex.Box) flex.Box { return b.BelowBox(anchor, toolbarMenuGap, flex.Start) }
+	below := func(b ui.Box) ui.Box { return b.BelowBox(anchor, toolbarMenuGap, ui.Start) }
 	switch w.menu.kind {
 	case menuSession:
 		w.drawSessionMenu(f, below)
@@ -406,7 +406,7 @@ func (w *window) drawToolbarMenu(f *flex.Frame) {
 }
 
 // drawSessionMenu is the choice between the current, the previous and every session.
-func (w *window) drawSessionMenu(f *flex.Frame, place func(flex.Box) flex.Box) {
+func (w *window) drawSessionMenu(f *ui.Frame, place func(ui.Box) ui.Box) {
 	w.menuSurface(f, place, 170, func() {
 		for index, session := range sessions {
 			chosen := w.menuItem(f, toolbarSessionScope.At(index), w.sessionTitle(session),
@@ -419,7 +419,7 @@ func (w *window) drawSessionMenu(f *flex.Frame, place func(flex.Box) flex.Box) {
 }
 
 // drawColumnMenu is the list of the table's columns, each checked while it is shown.
-func (w *window) drawColumnMenu(f *flex.Frame, place func(flex.Box) flex.Box) {
+func (w *window) drawColumnMenu(f *ui.Frame, place func(ui.Box) ui.Box) {
 	w.menuSurface(f, place, 160, func() {
 		for index, column := range columns {
 			shown := !w.model.columnHidden(column)
@@ -433,10 +433,10 @@ func (w *window) drawColumnMenu(f *flex.Frame, place func(flex.Box) flex.Box) {
 // drawSavedMenu is the list of the saved filters, each opening a submenu that applies or
 // deletes it, and the item that saves the current filter. The submenu is a panel of its own
 // beside the item, declared after the menu so it is painted over it.
-func (w *window) drawSavedMenu(f *flex.Frame, place func(flex.Box) flex.Box) {
+func (w *window) drawSavedMenu(f *ui.Frame, place func(ui.Box) ui.Box) {
 	logs := &w.text.Logs
 	bookmarks := w.model.prefs.Bookmarks
-	rows := make([]flex.Box, len(bookmarks))
+	rows := make([]ui.Box, len(bookmarks))
 	w.menuSurface(f, place, 200, func() {
 		if len(bookmarks) == 0 {
 			w.menuHeading(f, logs.NoSavedFilters)
@@ -454,9 +454,9 @@ func (w *window) drawSavedMenu(f *flex.Frame, place func(flex.Box) flex.Box) {
 		return
 	}
 	id := bookmarks[sub].ID
-	beside := func(b flex.Box) flex.Box {
-		return b.BesideBox(rows[sub], 2, flex.Start).
-			HitWith(toolbarSavedPanelID, "", ui.HitOptions{Role: ui.RoleGroup, SkipFocus: true})
+	beside := func(b ui.Box) ui.Box {
+		return b.BesideBox(rows[sub], 2, ui.Start).
+			HitWith(toolbarSavedPanelID, "", gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true})
 	}
 	w.menuPanel(f, beside, 110, func() {
 		if w.menuItem(f, toolbarApplyID, logs.Apply, itemOptions{}) {
@@ -471,14 +471,14 @@ func (w *window) drawSavedMenu(f *flex.Frame, place func(flex.Box) flex.Box) {
 // drawMaintenanceMenu is the menu of the log directory: its path, showing it in the file
 // manager, changing it, restoring the default one, and clearing the logs with the space
 // they use. The space is measured each time the menu opens.
-func (w *window) drawMaintenanceMenu(f *flex.Frame, place func(flex.Box) flex.Box) {
+func (w *window) drawMaintenanceMenu(f *ui.Frame, place func(ui.Box) ui.Box) {
 	logs := &w.text.Logs
 	m := w.model
 	if !w.toolbar.usedLoaded {
 		w.toolbar.usedLoaded = true
 		m.loadUsedBytes()
 	}
-	bounded := func(b flex.Box) flex.Box { return place(b).MaxWidth(toolbarPathMax) }
+	bounded := func(b ui.Box) ui.Box { return place(b).MaxWidth(toolbarPathMax) }
 	w.menuSurface(f, bounded, 240, func() {
 		w.menuItem(f, toolbarMaintenanceScope.At(0), w.logDirectoryPath(), itemOptions{disabled: true})
 		if w.menuItem(f, toolbarMaintenanceScope.At(1), logs.RevealDirectory, itemOptions{disabled: m.directory == ""}) {
@@ -501,7 +501,7 @@ func (w *window) drawMaintenanceMenu(f *flex.Frame, place func(flex.Box) flex.Bo
 // the system's calendar and clock controls; Viva has none, so each endpoint is a text field
 // that holds the local time as YYYY-MM-DD HH:MM:SS. Apply is available while both times
 // read and the end is not before the start.
-func (w *window) drawRangeMenu(f *flex.Frame, place func(flex.Box) flex.Box) {
+func (w *window) drawRangeMenu(f *ui.Frame, place func(ui.Box) ui.Box) {
 	logs := &w.text.Logs
 	if !w.toolbar.rangeSeeded {
 		w.toolbar.rangeSeeded = true
@@ -514,15 +514,15 @@ func (w *window) drawRangeMenu(f *flex.Frame, place func(flex.Box) flex.Box) {
 	readable := startOK && endOK
 	reversed := readable && start.After(end)
 	// The panel takes presses on its own room, so only a press outside it closes the menu.
-	panel := func(b flex.Box) flex.Box {
-		return place(b).HitWith(toolbarRangePanelID, "", ui.HitOptions{Role: ui.RoleGroup, SkipFocus: true})
+	panel := func(b ui.Box) ui.Box {
+		return place(b).HitWith(toolbarRangePanelID, "", gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true})
 	}
 	// The menu panel adds 5 points above and below the items; the editor makes up the rest of
 	// its 12.
 	pad := float32(toolbarRangePad - menuPadY)
 	w.menuSurface(f, panel, toolbarRangeWidth, func() {
 		f.Column().FillWidth().PadSides(pad, toolbarRangePad, pad, toolbarRangePad).Gap(toolbarRangePad).Children(func() {
-			f.Row().Gap(toolbarGap).Items(flex.Center).Children(func() {
+			f.Row().Gap(toolbarGap).Items(ui.Center).Children(func() {
 				f.Text(logs.TimeRange).FontSize(toolbarFont).Color(w.pal.tx)
 				w.info(f, toolbarRangeInfoID, logs.TimeHelp)
 			})
@@ -537,7 +537,7 @@ func (w *window) drawRangeMenu(f *flex.Frame, place func(flex.Box) flex.Box) {
 			case !readable:
 				f.Text(logs.InvalidTime).FontSize(toolbarFont).Color(w.pal.red)
 			}
-			f.Row().FillWidth().Items(flex.Center).Children(func() {
+			f.Row().FillWidth().Items(ui.Center).Children(func() {
 				if f.Button(toolbarRangeClearID, logs.ClearTimeRange).Outline().Clicked() {
 					w.model.clearRange()
 					w.closeMenu()
@@ -555,7 +555,7 @@ func (w *window) drawRangeMenu(f *flex.Frame, place func(flex.Box) flex.Box) {
 }
 
 // drawRangeEndpoint is one end of the time range: its title over a field for the time.
-func (w *window) drawRangeEndpoint(f *flex.Frame, field *flex.Field, id ui.ID, title string) {
+func (w *window) drawRangeEndpoint(f *ui.Frame, field *ui.Field, id gfx.ID, title string) {
 	f.Column().Width(toolbarEndpointWidth).Shrink(0).Gap(toolbarGap).Children(func() {
 		f.Text(title).FontSize(toolbarFont).Color(w.pal.tx)
 		f.Field(field, id, title, toolbarTimeHint).FillWidth().Height(toolbarSearchField)

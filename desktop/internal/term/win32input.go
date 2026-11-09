@@ -3,7 +3,7 @@ package term
 import (
 	"strconv"
 
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // EncodeWin32Key turns a key event into one win32-input-mode packet:
@@ -15,7 +15,7 @@ import (
 // release, Cs the console control-key bitset and Rc the repeat count. It
 // returns nil when the event carries no console identity, which is every key
 // on a platform without one.
-func EncodeWin32Key(event ui.KeyEvent) []byte {
+func EncodeWin32Key(event gfx.KeyEvent) []byte {
 	key := event.Win32
 	if key.VirtualKey == 0 && key.Unicode == 0 {
 		return nil

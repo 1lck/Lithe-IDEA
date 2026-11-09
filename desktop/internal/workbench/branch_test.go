@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // openBranches opens dir and the branch popup, and waits for the references.
@@ -30,19 +30,19 @@ func (h *harness) openBranches(dir string) *project {
 
 // branchRow is where the row of the reference named name was laid out in the last frame:
 // the first one, as the recent branches are listed again under Local.
-func (h *harness) branchRow(name string) ui.Rect {
+func (h *harness) branchRow(name string) gfx.Rect {
 	h.t.Helper()
 	for _, hit := range h.driver.Snapshot().Hits {
-		if hit.Role == ui.RoleMenuItem && hit.Label == name {
+		if hit.Role == gfx.RoleMenuItem && hit.Label == name {
 			return hit.Bounds
 		}
 	}
 	h.t.Fatalf("no row for %q in the branch popup", name)
-	return ui.Rect{}
+	return gfx.Rect{}
 }
 
 // typeInto empties field, clicks the control id and types value into it.
-func (h *harness) typeInto(id ui.ID, clear func(), value string) {
+func (h *harness) typeInto(id gfx.ID, clear func(), value string) {
 	h.t.Helper()
 	clear()
 	h.settle()
@@ -180,7 +180,7 @@ func TestBranchPopupClosesOnEscape(t *testing.T) {
 	h.click(center(h.branchRow("other")))
 
 	escape := func() {
-		if err := h.driver.Key(ui.KeyEscape, 0); err != nil {
+		if err := h.driver.Key(gfx.KeyEscape, 0); err != nil {
 			t.Fatal(err)
 		}
 		h.settle()

@@ -12,11 +12,11 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/appicon"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/monogrid"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/sysinfo"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	vivatext "github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
 )
@@ -73,7 +73,7 @@ func (c *Controller) Open(application *app.Application) error {
 	}
 	c.mu.Unlock()
 
-	w := &window{ctrl: c, filterRevision: -1, anchors: map[menuKind]flex.Box{}}
+	w := &window{ctrl: c, filterRevision: -1, anchors: map[menuKind]ui.Box{}}
 	opts := c.opts.Options
 	opts.Wake = w.inv.Invalidate
 	if opts.Clipboard == nil {
@@ -159,7 +159,7 @@ func (c *Controller) Wait() {
 // The identities of the window's frame. The toolbar, the table, the channel list, the
 // histogram and the details declare their own under page, next to their code.
 var (
-	tree = ui.Tree{}
+	tree = gfx.Tree{}
 	page = tree.Feature("logs")
 
 	// The text fields of the window. A field the window paints must also be listed in
@@ -227,16 +227,16 @@ type window struct {
 	model *Model
 	win   *app.Window
 	inv   app.Invalidator
-	view  flex.View
+	view  ui.View
 	pal   palette
-	theme ui.Theme
+	theme gfx.Theme
 	text  *i18n.Messages
 	tip   components.HoverTooltip
 
 	// started says the model was started, in the window's first paint.
 	started bool
 
-	filter, bookmarkName, rangeStart, rangeEnd flex.Field
+	filter, bookmarkName, rangeStart, rangeEnd ui.Field
 	// filterRevision is the model's expressionRevision the filter field shows, and
 	// lastFilter the text it had after the last paint: a change the user typed is told
 	// apart from one the model made.
@@ -250,12 +250,12 @@ type window struct {
 
 	menu menuState
 	// anchors are the controls the toolbar's menus open under, for the frame being drawn.
-	anchors map[menuKind]flex.Box
+	anchors map[menuKind]ui.Box
 	dialog  dialogKind
 
 	// bodyBox is the column of the table and the details; bodyHeight is its height in the
 	// last frame, which bounds the details' height.
-	bodyBox    flex.Box
+	bodyBox    ui.Box
 	bodyHeight float32
 	// detailsHeight is the height the user dragged the details to; zero is the default.
 	detailsHeight float32
@@ -286,7 +286,7 @@ func (w *window) config() app.Config {
 		OnKey:          w.onKey,
 		OnShortcut:     w.onShortcut,
 		OnScroll:       w.onScroll,
-		TextInput:      flex.Fields(&w.filter, &w.bookmarkName, &w.rangeStart, &w.rangeEnd),
+		TextInput:      ui.Fields(&w.filter, &w.bookmarkName, &w.rangeStart, &w.rangeEnd),
 		Invalidator:    &w.inv,
 		OnWake:         w.model.drain,
 		OnClosed:       w.closed,
@@ -311,12 +311,12 @@ func (w *window) closed() {
 
 // windowTheme maps the palette onto the theme the Viva controls paint with, so a field, a
 // button or a dialog in the window takes the log window's colors.
-func windowTheme(p palette) ui.Theme {
-	theme := ui.LightTheme()
+func windowTheme(p palette) gfx.Theme {
+	theme := gfx.LightTheme()
 	if p.dark {
-		theme = ui.DarkTheme()
+		theme = gfx.DarkTheme()
 	}
-	theme.Metrics = theme.Metrics.WithDensity(ui.DensityCompact)
+	theme.Metrics = theme.Metrics.WithDensity(gfx.DensityCompact)
 	theme.Background, theme.Foreground = p.bg, p.tx
 	theme.Card, theme.CardForeground, theme.CardElevated = p.bg2, p.tx, p.menu
 	theme.Popover, theme.PopoverForeground = p.menu, p.tx
@@ -327,16 +327,14 @@ func windowTheme(p palette) ui.Theme {
 	return theme
 }
 
-func (w *window) paint(canvas *ui.Canvas, size ui.Size) {
-	// Everything this pass paints in a fixed-pitch font goes on the cell grid it was laid out on.
-	defer monogrid.Snap(canvas, len(canvas.Texts()))
+func (w *window) paint(canvas *gfx.Canvas, size gfx.Size) {
 	w.text = w.ctrl.text()
 	w.pal = lightPalette()
 	if w.ctrl.opts.Dark != nil && w.ctrl.opts.Dark() {
 		w.pal = darkPalette()
 	}
 	w.theme = windowTheme(w.pal)
-	bounds := ui.Rect{Width: size.Width, Height: size.Height}
+	bounds := gfx.Rect{Width: size.Width, Height: size.Height}
 	canvas.Fill(bounds, w.pal.bg)
 	if !w.started {
 		w.started = true
@@ -356,7 +354,7 @@ func (w *window) paint(canvas *ui.Canvas, size ui.Size) {
 	w.syncFilter()
 	clear(w.anchors)
 
-	w.view.Draw(canvas, w.theme, bounds, func(f *flex.Frame) {
+	w.view.Draw(canvas, w.theme, bounds, func(f *ui.Frame) {
 		f.PopupLayer(1)
 		f.Column().Fill().Children(func() {
 			w.drawTitle(f)
@@ -402,7 +400,7 @@ func (w *window) syncFilter() {
 
 // drawTitle is the title bar: the directory of the session the window shows, and the
 // shortcut that opens the window at the trailing end. The whole bar moves the window.
-func (w *window) drawTitle(f *flex.Frame) {
+func (w *window) drawTitle(f *ui.Frame) {
 	title := w.text.Logs.Logs
 	if w.model.directory != "" {
 		title = abbreviateHome(filepath.Join(w.model.directory, w.model.currentSessionPath))
@@ -412,10 +410,10 @@ func (w *window) drawTitle(f *flex.Frame) {
 		// The system's window buttons sit at the leading end, so the title keeps clear of
 		// them on that side and is centered in what is left.
 		f.Row().Fill().PadSides(0, max(60, trailing+60), 0, max(80, leading+10)).Center().Children(func() {
-			f.Text(title).FontSize(13).Weight(ui.WeightSemibold).Color(w.pal.tx).Ellipsis()
+			f.Text(title).FontSize(13).Weight(gfx.WeightSemibold).Color(w.pal.tx).Ellipsis()
 		})
 		if w.ctrl.opts.Shortcut != "" {
-			f.Row().Absolute().Top(0).Bottom(0).Right(12).Items(flex.Center).Children(func() {
+			f.Row().Absolute().Top(0).Bottom(0).Right(12).Items(ui.Center).Children(func() {
 				f.Row().PadX(5).PadY(1).Radius(4).Border(1, w.pal.bd).Children(func() {
 					w.mono(f, w.ctrl.opts.Shortcut, 11, w.pal.tx2)
 				})
@@ -426,7 +424,7 @@ func (w *window) drawTitle(f *flex.Frame) {
 
 // drawFilterError shows the first syntax error of the filter with a caret under the part of
 // the expression it is about.
-func (w *window) drawFilterError(f *flex.Frame) {
+func (w *window) drawFilterError(f *ui.Frame) {
 	if len(w.model.diagnostics) == 0 {
 		return
 	}
@@ -468,11 +466,11 @@ func (w *window) filterReason(code, message string) string {
 }
 
 // drawLoadError says the logs could not be read and offers to read them again.
-func (w *window) drawLoadError(f *flex.Frame) {
+func (w *window) drawLoadError(f *ui.Frame) {
 	if !w.model.failed {
 		return
 	}
-	f.Row().FillWidth().Shrink(0).PadX(10).PadY(4).Gap(8).Items(flex.Center).Children(func() {
+	f.Row().FillWidth().Shrink(0).PadX(10).PadY(4).Gap(8).Items(ui.Center).Children(func() {
 		w.mono(f, w.text.Logs.LoadFailed, 12.5, w.pal.red)
 		if f.Button(retryID, w.text.Logs.Retry).XSmall().Outline().Clicked() {
 			w.model.retry()
@@ -481,7 +479,7 @@ func (w *window) drawLoadError(f *flex.Frame) {
 }
 
 // drawBody is the channel list beside the table, with the details under the table.
-func (w *window) drawBody(f *flex.Frame) {
+func (w *window) drawBody(f *ui.Frame) {
 	f.Row().FillWidth().Grow(1).Shrink(1).MinHeight(0).Children(func() {
 		f.Column().Width(sidebarWidth).FillHeight().Shrink(0).Background(w.pal.bg2).Clip().PadSides(8, 0, 0, 0).Children(func() {
 			w.drawSidebar(f)
@@ -505,7 +503,7 @@ func (w *window) drawBody(f *flex.Frame) {
 			})
 			height := w.detailsPaneHeight(f.Canvas())
 			f.Row().FillWidth().Height(1).Shrink(0).Background(w.pal.line).
-				HitWith(detailsDivider, "", ui.HitOptions{Role: ui.RoleSeparator, Cursor: ui.PointerCursorResizeVertical, SkipFocus: true}).
+				HitWith(detailsDivider, "", gfx.HitOptions{Role: gfx.RoleSeparator, Cursor: gfx.PointerCursorResizeVertical, SkipFocus: true}).
 				HitOutset(3, 0, 3, 0)
 			f.Column().FillWidth().Height(height).Shrink(0).Background(w.pal.bg2).Clip().Children(func() {
 				w.drawDetails(f)
@@ -516,10 +514,10 @@ func (w *window) drawBody(f *flex.Frame) {
 
 // drawNewLogs is the capsule at the bottom of the table that says how many records arrived
 // while the user looked elsewhere, and jumps to them.
-func (w *window) drawNewLogs(f *flex.Frame) {
-	f.Row().Fill().Justify(flex.Center).Items(flex.End).PadSides(0, 0, 8, 0).Children(func() {
+func (w *window) drawNewLogs(f *ui.Frame) {
+	f.Row().Fill().Justify(ui.Center).Items(ui.End).PadSides(0, 0, 8, 0).Children(func() {
 		capsule := f.Row().PadX(14).PadY(4).Radius(999).Background(w.pal.blu).
-			HitWith(newLogsID, w.text.Logs.NewLogs(w.model.newCount), ui.HitOptions{Role: ui.RoleButton, Cursor: ui.PointerCursorHand}).
+			HitWith(newLogsID, w.text.Logs.NewLogs(w.model.newCount), gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}).
 			Children(func() {
 				w.mono(f, w.text.Logs.NewLogs(w.model.newCount), 12.5, w.pal.white)
 			})
@@ -531,22 +529,22 @@ func (w *window) drawNewLogs(f *flex.Frame) {
 
 // detailsPaneHeight follows a drag of the divider over the details and returns the height
 // the details take in this frame.
-func (w *window) detailsPaneHeight(canvas *ui.Canvas) float32 {
+func (w *window) detailsPaneHeight(canvas *gfx.Canvas) float32 {
 	if event, ok := canvas.PointerOn(detailsDivider); ok {
 		switch event.Kind {
-		case ui.PointerDown:
-			if event.Button == ui.PointerButtonPrimary {
+		case gfx.PointerDown:
+			if event.Button == gfx.PointerButtonPrimary {
 				w.dragging = true
 				w.dragStartY = event.Y
 				w.dragStartH = w.currentDetailsHeight()
 				canvas.Consume()
 			}
-		case ui.PointerMove:
+		case gfx.PointerMove:
 			if w.dragging {
 				w.detailsHeight = w.clampDetails(w.dragStartH - (event.Y - w.dragStartY))
 				canvas.Consume()
 			}
-		case ui.PointerUp, ui.PointerExit:
+		case gfx.PointerUp, gfx.PointerExit:
 			if w.dragging {
 				w.dragging = false
 				canvas.Consume()
@@ -580,10 +578,10 @@ func (w *window) clampDetails(height float32) float32 {
 
 // drawStatus is the bar along the bottom: whether the window follows the log, how many rows
 // it shows, and the writer's counters.
-func (w *window) drawStatus(f *flex.Frame) {
+func (w *window) drawStatus(f *ui.Frame) {
 	m := w.model
-	f.Row().FillWidth().Height(statusHeight).Shrink(0).PadX(10).Gap(16).Items(flex.Center).Background(w.pal.foot).Children(func() {
-		f.Row().Gap(5).Items(flex.Center).Children(func() {
+	f.Row().FillWidth().Height(statusHeight).Shrink(0).PadX(10).Gap(16).Items(ui.Center).Background(w.pal.foot).Children(func() {
+		f.Row().Gap(5).Items(ui.Center).Children(func() {
 			label := w.text.Logs.Paused
 			if m.follows {
 				f.Row().Size(7, 7).Radius(3.5).Background(w.pal.pulse).Opacity(pulseOpacity(f.Canvas().Now()))
@@ -617,10 +615,10 @@ func pulseOpacity(now time.Duration) float32 {
 }
 
 // drawDialogs declares the dialog that is open.
-func (w *window) drawDialogs(f *flex.Frame) {
+func (w *window) drawDialogs(f *ui.Frame) {
 	switch w.dialog {
 	case dialogClear:
-		dialog := f.Dialog(flex.DialogSpec{
+		dialog := f.Dialog(ui.DialogSpec{
 			Title:       w.text.Logs.ClearTitle,
 			Description: w.text.Logs.ClearMessage,
 			Width:       420,
@@ -639,7 +637,7 @@ func (w *window) drawDialogs(f *flex.Frame) {
 			w.dialog = dialogNone
 		}
 	case dialogBookmark:
-		dialog := f.Dialog(flex.DialogSpec{
+		dialog := f.Dialog(ui.DialogSpec{
 			Title:          w.text.Logs.NameForFilter,
 			Width:          360,
 			Scope:          bookmarkScope,
@@ -668,25 +666,25 @@ func (w *window) drawDialogs(f *flex.Frame) {
 	}
 }
 
-func (w *window) onScroll(event ui.ScrollEvent) ui.EventResult {
+func (w *window) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 	result := w.view.Wheel(event)
 	w.tableScrolled()
 	return result
 }
 
-func (w *window) onKey(event ui.KeyEvent) ui.EventResult {
+func (w *window) onKey(event gfx.KeyEvent) gfx.EventResult {
 	if event.Release {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
-	if event.Key == ui.KeyEscape && w.menu.kind != menuNone {
+	if event.Key == gfx.KeyEscape && w.menu.kind != menuNone {
 		w.closeMenu()
-		return ui.EventResult{Handled: true, Repaint: true}
+		return gfx.EventResult{Handled: true, Repaint: true}
 	}
 	if w.model.export.presented {
 		return w.exportKey(event)
 	}
 	if w.dialog != dialogNone || w.editing {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	return w.tableKey(event)
 }
@@ -694,12 +692,12 @@ func (w *window) onKey(event ui.KeyEvent) ui.EventResult {
 // onShortcut handles the window's command shortcuts: ⌘F focuses the filter, ⌘C copies the
 // selected records and ⌘W closes the window. While a dialog or the export sheet is open, only
 // ⌘W works.
-func (w *window) onShortcut(event ui.KeyEvent) ui.EventResult {
-	if event.Release || event.Modifiers != ui.ModifierMeta {
-		return ui.EventResult{}
+func (w *window) onShortcut(event gfx.KeyEvent) gfx.EventResult {
+	if event.Release || event.Modifiers != gfx.ModifierMeta {
+		return gfx.EventResult{}
 	}
 	if (w.dialog != dialogNone || w.model.export.presented) && event.Text != "w" {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	switch event.Text {
 	case "f":
@@ -707,15 +705,15 @@ func (w *window) onShortcut(event ui.KeyEvent) ui.EventResult {
 	case "c":
 		if w.editing {
 			// The field copies its own selection.
-			return ui.EventResult{}
+			return gfx.EventResult{}
 		}
 		w.model.copyFormatted(w.model.selectedRecords(), "json")
 	case "w":
 		w.win.Close()
 	default:
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
-	return ui.EventResult{Handled: true, Repaint: true}
+	return gfx.EventResult{Handled: true, Repaint: true}
 }
 
 // revealRecord shows the file of the selected record in the file manager.
@@ -752,7 +750,7 @@ type buttonOptions struct {
 // button declares one of the window's own buttons, in the look of the macOS client's: a
 // symbol and a title on the window's background with a thin border. It returns the button,
 // for Clicked and as the anchor of a menu it opens.
-func (w *window) button(f *flex.Frame, id ui.ID, symbol, title string, o buttonOptions) flex.Box {
+func (w *window) button(f *ui.Frame, id gfx.ID, symbol, title string, o buttonOptions) ui.Box {
 	height := o.height
 	if height == 0 {
 		height = 28
@@ -772,16 +770,16 @@ func (w *window) button(f *flex.Frame, id ui.ID, symbol, title string, o buttonO
 	if o.active {
 		border = w.pal.blu
 	}
-	box := f.Row().Height(height).Shrink(0).PadX(9).Gap(5).Items(flex.Center).
+	box := f.Row().Height(height).Shrink(0).PadX(9).Gap(5).Items(ui.Center).
 		Background(w.pal.bg).Radius(6).Border(1, border).
-		HitWith(id, label, ui.HitOptions{Role: ui.RoleButton, Hint: o.hint, Disabled: o.disabled})
+		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Hint: o.hint, Disabled: o.disabled})
 	if o.fullWidth {
-		box = box.FillWidth().Justify(flex.Start)
+		box = box.FillWidth().Justify(ui.Start)
 	}
 	if o.disabled {
 		box = box.Opacity(0.45)
 	} else {
-		box = box.Pressed(flex.Look{}.Background(w.pal.bg3))
+		box = box.Pressed(ui.Look{}.Background(w.pal.bg3))
 	}
 	box.Children(func() {
 		if symbol != "" {
@@ -798,10 +796,10 @@ func (w *window) button(f *flex.Frame, id ui.ID, symbol, title string, o buttonO
 	return box
 }
 
-// mono declares a line of monospaced text. Viva measures a monospaced text as one cell for
-// every character, too few for a wide one such as a Chinese one, so a text that is not all
-// printable ASCII is given the width monogrid draws it at.
-func (w *window) mono(f *flex.Frame, s string, size float32, color ui.Color) flex.Box {
+// mono declares a line of monospaced text. A ui Text measures a monospaced text as one cell
+// for every character, too few for a wide one such as a Chinese one, which is drawn on two,
+// so a text that is not all printable ASCII is given the width it is drawn at.
+func (w *window) mono(f *ui.Frame, s string, size float32, color gfx.Color) ui.Box {
 	b := f.Text(s).Mono().FontSize(size).Color(color)
 	if !printableASCII(s) {
 		b = b.Width(monoWidth(f.Canvas(), s, size))
@@ -810,8 +808,8 @@ func (w *window) mono(f *flex.Frame, s string, size float32, color ui.Color) fle
 }
 
 // monoWidth is how wide a line of monospaced text at size is drawn.
-func monoWidth(canvas *ui.Canvas, s string, size float32) float32 {
-	return monogrid.Width(canvas, s, ui.TextStyle{Size: size, Weight: ui.WeightRegular, Mono: true})
+func monoWidth(canvas *gfx.Canvas, s string, size float32) float32 {
+	return canvas.TextWidthStyle(s, gfx.TextStyle{Size: size, Weight: gfx.WeightRegular, Mono: true})
 }
 
 // printableASCII says s holds nothing but printable ASCII, each character one cell of a
@@ -836,28 +834,20 @@ func monoCells(s string) int {
 }
 
 // badge declares a small framed key, such as the ⌘F beside the filter.
-func (w *window) badge(f *flex.Frame, s string) {
+func (w *window) badge(f *ui.Frame, s string) {
 	f.Row().PadX(5).Radius(4).Border(1, w.pal.bd).Shrink(0).Children(func() {
 		w.mono(f, s, 11, w.pal.tx2)
 	})
 }
 
 // info declares the ⓘ that explains a control when the pointer rests on it.
-func (w *window) info(f *flex.Frame, id ui.ID, hint string) {
+func (w *window) info(f *ui.Frame, id gfx.ID, hint string) {
 	f.Row().Size(18, 18).Shrink(0).Center().
-		HitWith(id, hint, ui.HitOptions{Hint: hint, SkipFocus: true}).
+		HitWith(id, hint, gfx.HitOptions{Hint: hint, SkipFocus: true}).
 		Children(func() {
-			f.Icon(infoIcon).Size(12, 12).Color(w.pal.tx3)
+			f.Icon(icons.Info).Size(12, 12).Color(w.pal.tx3)
 		})
 }
-
-// infoIcon is Lucide's "info" (ISC license, https://lucide.dev), which Viva's icon set does
-// not include.
-var infoIcon = ui.Icon{ViewBox: 24, Stroke: 2, Cap: ui.CapRound, Join: ui.JoinRound, Commands: []ui.PathCommand{
-	ui.MoveTo(22, 12), ui.CubicTo(22, 17.5228, 17.5228, 22, 12, 22), ui.CubicTo(6.47715, 22, 2, 17.5228, 2, 12),
-	ui.CubicTo(2, 6.47715, 6.47715, 2, 12, 2), ui.CubicTo(17.5228, 2, 22, 6.47715, 22, 12), ui.ClosePath(),
-	ui.MoveTo(12, 16), ui.LineTo(12, 12), ui.MoveTo(12, 8), ui.LineTo(12.01, 8),
-}}
 
 // formatBytes is a size in the decimal units the macOS client shows: whole bytes and
 // kilobytes, megabytes and gigabytes with one decimal.

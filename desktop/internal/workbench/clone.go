@@ -10,7 +10,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -29,12 +29,12 @@ var (
 // cloneState belongs to the window, not to a project: cloning can start on the
 // welcome screen or replace a project after the existing close checks succeed.
 type cloneState struct {
-	source, parent, name   flex.Field
+	source, parent, name   ui.Field
 	open, busy, cancelling bool
 	generation             uint64
 	cancel                 context.CancelFunc
 	err                    string
-	returnFocus            ui.ID
+	returnFocus            gfx.ID
 	restoreFocus           bool
 }
 
@@ -187,7 +187,7 @@ func (a *App) submitClone() {
 	})
 }
 
-func (a *App) drawCloneDialog(f *flex.Frame) {
+func (a *App) drawCloneDialog(f *ui.Frame) {
 	c := &a.clone
 	if !c.open {
 		return
@@ -197,7 +197,7 @@ func (a *App) drawCloneDialog(f *flex.Frame) {
 	sourceLabel := i18n.Shared(language, "desktop.clone.source")
 	parentLabel := i18n.Shared(language, "desktop.clone.parent")
 	nameLabel := i18n.Shared(language, "desktop.clone.name")
-	d := f.Dialog(flex.DialogSpec{Title: title, Width: 570,
+	d := f.Dialog(ui.DialogSpec{Title: title, Width: 570,
 		Scope: cloneScope, DismissID: cloneDismiss, CloseID: cloneClose, InitialFocusID: cloneSource})
 	submitted := false
 	d.Body(func() {

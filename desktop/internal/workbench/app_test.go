@@ -12,7 +12,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // testKernel answers the layout and recent project reducers with the real kernel and Git
@@ -141,7 +141,7 @@ func (h *harness) shows(value string) bool {
 }
 
 // button is where catalog item id was laid out in the last frame.
-func (h *harness) button(id string) ui.Rect {
+func (h *harness) button(id string) gfx.Rect {
 	h.t.Helper()
 	rect := h.app.chrome.rects[catalogIndex[id]]
 	if rect.Width == 0 || rect.Height == 0 {
@@ -151,14 +151,14 @@ func (h *harness) button(id string) ui.Rect {
 }
 
 // drag presses at from, moves to to in steps and releases there.
-func (h *harness) drag(from, to ui.Point) {
+func (h *harness) drag(from, to gfx.Point) {
 	h.t.Helper()
-	steps := []error{h.driver.Press(from.X, from.Y, ui.PointerButtonPrimary)}
+	steps := []error{h.driver.Press(from.X, from.Y, gfx.PointerButtonPrimary)}
 	for i := 1; i <= 4; i++ {
 		f := float32(i) / 4
 		steps = append(steps, h.driver.Move(from.X+(to.X-from.X)*f, from.Y+(to.Y-from.Y)*f))
 	}
-	steps = append(steps, h.driver.Release(to.X, to.Y, ui.PointerButtonPrimary))
+	steps = append(steps, h.driver.Release(to.X, to.Y, gfx.PointerButtonPrimary))
 	for _, err := range steps {
 		if err != nil {
 			h.t.Fatalf("drag: %v", err)
@@ -166,7 +166,7 @@ func (h *harness) drag(from, to ui.Point) {
 	}
 }
 
-func center(r ui.Rect) ui.Point { return ui.Point{X: r.X + r.Width/2, Y: r.Y + r.Height/2} }
+func center(r gfx.Rect) gfx.Point { return gfx.Point{X: r.X + r.Width/2, Y: r.Y + r.Height/2} }
 
 // zoneItems is the ids of the buttons in z, in display order.
 func (h *harness) zoneItems(z zone) []string {
@@ -222,7 +222,7 @@ func TestDragToolButtonToAnotherStripeZone(t *testing.T) {
 	if target.Height == 0 {
 		t.Fatal("the right stripe's bottom zone is not shown")
 	}
-	h.drag(center(h.button(itemCommit)), ui.Point{X: target.X + target.Width/2, Y: target.Y + target.Height - 2})
+	h.drag(center(h.button(itemCommit)), gfx.Point{X: target.X + target.Width/2, Y: target.Y + target.Height - 2})
 	h.settle()
 
 	if got := h.zoneItems(zoneBottomRight); strings.Join(got, ",") != strings.Join([]string{itemUpdates, itemBackground, itemCommit}, ",") {
@@ -261,7 +261,7 @@ func TestDragToolButtonToEmptySplitZone(t *testing.T) {
 			t.Fatalf("drag: %v", err)
 		}
 	}
-	must(h.driver.Press(from.X, from.Y, ui.PointerButtonPrimary))
+	must(h.driver.Press(from.X, from.Y, gfx.PointerButtonPrimary))
 	must(h.driver.Move(from.X, from.Y+2*dragThreshold))
 
 	target := h.app.chrome.zoneRects[zoneLeftBottom]
@@ -270,7 +270,7 @@ func TestDragToolButtonToEmptySplitZone(t *testing.T) {
 	}
 	to := center(target)
 	must(h.driver.Move(to.X, to.Y))
-	must(h.driver.Release(to.X, to.Y, ui.PointerButtonPrimary))
+	must(h.driver.Release(to.X, to.Y, gfx.PointerButtonPrimary))
 	h.settle()
 
 	if got := h.zoneItems(zoneLeftBottom); strings.Join(got, ",") != itemCommit {
@@ -286,7 +286,7 @@ func TestStripeZonesKeepTheSplitGroupAboveTheBottomGroup(t *testing.T) {
 	h.open(t.TempDir())
 
 	from := center(h.button(itemCommit))
-	if err := h.driver.Press(from.X, from.Y, ui.PointerButtonPrimary); err != nil {
+	if err := h.driver.Press(from.X, from.Y, gfx.PointerButtonPrimary); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.driver.Move(from.X, from.Y+2*dragThreshold); err != nil {
@@ -294,7 +294,7 @@ func TestStripeZonesKeepTheSplitGroupAboveTheBottomGroup(t *testing.T) {
 	}
 	h.settle()
 
-	stripes := dragStripeRects(ui.Rect{Width: float32(h.driver.Snapshot().Width), Height: float32(h.driver.Snapshot().Height)})
+	stripes := dragStripeRects(gfx.Rect{Width: float32(h.driver.Snapshot().Width), Height: float32(h.driver.Snapshot().Height)})
 	cases := []struct {
 		name            string
 		side            stripeSide
@@ -341,8 +341,8 @@ func TestSnappedStripeDragReordersAndLocksTheGhostToItsColumn(t *testing.T) {
 
 	from := center(h.button(itemAssistant))
 	targetButton := h.button(itemNotifications)
-	to := ui.Point{X: from.X, Y: targetButton.Y + dragThreshold}
-	if err := h.driver.Press(from.X, from.Y, ui.PointerButtonPrimary); err != nil {
+	to := gfx.Point{X: from.X, Y: targetButton.Y + dragThreshold}
+	if err := h.driver.Press(from.X, from.Y, gfx.PointerButtonPrimary); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.driver.Move(to.X, to.Y); err != nil {
@@ -372,7 +372,7 @@ func TestSnappedStripeDragReordersAndLocksTheGhostToItsColumn(t *testing.T) {
 		t.Fatal("the snapped drag has no 32 by 32 accent-bordered ghost on the drag layer")
 	}
 
-	if err := h.driver.Release(to.X, to.Y, ui.PointerButtonPrimary); err != nil {
+	if err := h.driver.Release(to.X, to.Y, gfx.PointerButtonPrimary); err != nil {
 		t.Fatal(err)
 	}
 	h.settle()
@@ -385,39 +385,39 @@ func TestSnappedStripeDragReordersAndLocksTheGhostToItsColumn(t *testing.T) {
 func TestDetachedStripeDragTargetsDockAreasAndOtherStripeButtons(t *testing.T) {
 	cases := []struct {
 		name   string
-		point  func(*harness) ui.Point
+		point  func(*harness) gfx.Point
 		zone   zone
 		before string
 	}{
 		{
 			name: "right lower half",
-			point: func(h *harness) ui.Point {
-				area := h.app.dragDockAnchors(ui.Size{Width: 1280, Height: 800})[dockAnchorRight].area
-				return ui.Point{X: area.X + area.Width/2, Y: area.Y + 3*area.Height/4}
+			point: func(h *harness) gfx.Point {
+				area := h.app.dragDockAnchors(gfx.Size{Width: 1280, Height: 800})[dockAnchorRight].area
+				return gfx.Point{X: area.X + area.Width/2, Y: area.Y + 3*area.Height/4}
 			},
 			zone: zoneRightBottom,
 		},
 		{
 			name: "bottom right half",
-			point: func(h *harness) ui.Point {
-				area := h.app.dragDockAnchors(ui.Size{Width: 1280, Height: 800})[dockAnchorBottom].area
-				return ui.Point{X: area.X + 3*area.Width/4, Y: h.button(itemUpdates).Y + dragThreshold}
+			point: func(h *harness) gfx.Point {
+				area := h.app.dragDockAnchors(gfx.Size{Width: 1280, Height: 800})[dockAnchorBottom].area
+				return gfx.Point{X: area.X + 3*area.Width/4, Y: h.button(itemUpdates).Y + dragThreshold}
 			},
 			zone: zoneBottomRight, before: itemUpdates,
 		},
 		{
 			name: "upper left area",
-			point: func(h *harness) ui.Point {
-				area := h.app.dragDockAnchors(ui.Size{Width: 1280, Height: 800})[dockAnchorLeft].area
-				return ui.Point{X: area.X + area.Width/2, Y: area.Y + dragMarkLead}
+			point: func(h *harness) gfx.Point {
+				area := h.app.dragDockAnchors(gfx.Size{Width: 1280, Height: 800})[dockAnchorLeft].area
+				return gfx.Point{X: area.X + area.Width/2, Y: area.Y + dragMarkLead}
 			},
 			zone: zoneLeftTop, before: itemProject,
 		},
 		{
 			name: "other stripe button",
-			point: func(h *harness) ui.Point {
+			point: func(h *harness) gfx.Point {
 				button := h.button(itemCommit)
-				return ui.Point{X: button.X + button.Width/2, Y: button.Y + dragThreshold}
+				return gfx.Point{X: button.X + button.Width/2, Y: button.Y + dragThreshold}
 			},
 			zone: zoneLeftTop, before: itemCommit,
 		},
@@ -430,9 +430,9 @@ func TestDetachedStripeDragTargetsDockAreasAndOtherStripeButtons(t *testing.T) {
 			kernel.chromeActions = nil
 
 			from := center(h.button(itemAssistant))
-			stripes := dragStripeRects(ui.Rect{Width: 1280, Height: 800})
-			detached := ui.Point{X: stripes[stripeRight].X - dragDetachDistance - 1, Y: from.Y}
-			if err := h.driver.Press(from.X, from.Y, ui.PointerButtonPrimary); err != nil {
+			stripes := dragStripeRects(gfx.Rect{Width: 1280, Height: 800})
+			detached := gfx.Point{X: stripes[stripeRight].X - dragDetachDistance - 1, Y: from.Y}
+			if err := h.driver.Press(from.X, from.Y, gfx.PointerButtonPrimary); err != nil {
 				t.Fatal(err)
 			}
 			if err := h.driver.Move(detached.X, detached.Y); err != nil {
@@ -446,7 +446,7 @@ func TestDetachedStripeDragTargetsDockAreasAndOtherStripeButtons(t *testing.T) {
 			if err := h.driver.Move(to.X, to.Y); err != nil {
 				t.Fatal(err)
 			}
-			if err := h.driver.Release(to.X, to.Y, ui.PointerButtonPrimary); err != nil {
+			if err := h.driver.Release(to.X, to.Y, gfx.PointerButtonPrimary); err != nil {
 				t.Fatal(err)
 			}
 			h.settle()
@@ -469,11 +469,11 @@ func TestDetachedStripeDragWithoutATargetDoesNotCommit(t *testing.T) {
 	kernel.chromeActions = nil
 
 	from := center(h.button(itemAssistant))
-	stripes := dragStripeRects(ui.Rect{Width: 1280, Height: 800})
-	detached := ui.Point{X: stripes[stripeRight].X - dragDetachDistance - 1, Y: from.Y}
+	stripes := dragStripeRects(gfx.Rect{Width: 1280, Height: 800})
+	detached := gfx.Point{X: stripes[stripeRight].X - dragDetachDistance - 1, Y: from.Y}
 	main := h.app.layout.main.Rect()
-	noTarget := ui.Point{X: main.X + main.Width/2, Y: main.Y + main.Height/4}
-	if err := h.driver.Press(from.X, from.Y, ui.PointerButtonPrimary); err != nil {
+	noTarget := gfx.Point{X: main.X + main.Width/2, Y: main.Y + main.Height/4}
+	if err := h.driver.Press(from.X, from.Y, gfx.PointerButtonPrimary); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.driver.Move(detached.X, detached.Y); err != nil {
@@ -485,7 +485,7 @@ func TestDetachedStripeDragWithoutATargetDoesNotCommit(t *testing.T) {
 	if h.app.drag.phase != dragDetached || h.app.drag.hasTarget {
 		t.Fatalf("phase and target at the editor center = %v and %v, want detached without a target", h.app.drag.phase, h.app.drag.hasTarget)
 	}
-	if err := h.driver.Release(noTarget.X, noTarget.Y, ui.PointerButtonPrimary); err != nil {
+	if err := h.driver.Release(noTarget.X, noTarget.Y, gfx.PointerButtonPrimary); err != nil {
 		t.Fatal(err)
 	}
 	h.settle()
@@ -504,11 +504,11 @@ func TestDetachedDropPreviewUsesTheLocalizedDockTitle(t *testing.T) {
 			h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{language.Code()})
 			h.open(t.TempDir())
 			from := center(h.button(itemAssistant))
-			stripes := dragStripeRects(ui.Rect{Width: 1280, Height: 800})
-			detached := ui.Point{X: stripes[stripeRight].X - dragDetachDistance - 1, Y: from.Y}
-			area := h.app.dragDockAnchors(ui.Size{Width: 1280, Height: 800})[dockAnchorRight].area
-			to := ui.Point{X: area.X + area.Width/2, Y: area.Y + 3*area.Height/4}
-			if err := h.driver.Press(from.X, from.Y, ui.PointerButtonPrimary); err != nil {
+			stripes := dragStripeRects(gfx.Rect{Width: 1280, Height: 800})
+			detached := gfx.Point{X: stripes[stripeRight].X - dragDetachDistance - 1, Y: from.Y}
+			area := h.app.dragDockAnchors(gfx.Size{Width: 1280, Height: 800})[dockAnchorRight].area
+			to := gfx.Point{X: area.X + area.Width/2, Y: area.Y + 3*area.Height/4}
+			if err := h.driver.Press(from.X, from.Y, gfx.PointerButtonPrimary); err != nil {
 				t.Fatal(err)
 			}
 			if err := h.driver.Move(detached.X, detached.Y); err != nil {
@@ -551,7 +551,7 @@ func closedSlots() [slotCount]int {
 // a column takes its width for either slot, and shows both tool windows one over the
 // other, the lower one at its chosen height, when both are open.
 func TestShellColumnsSplitWhenBothTheirSlotsAreOpen(t *testing.T) {
-	window := ui.Rect{Width: 1400, Height: 900}
+	window := gfx.Rect{Width: 1400, Height: 900}
 
 	t.Run("one slot takes the whole column", func(t *testing.T) {
 		for _, s := range []slot{slotLeftTop, slotLeftBottom} {
@@ -670,7 +670,7 @@ func TestDragTitleItemReorders(t *testing.T) {
 	h.open(t.TempDir())
 
 	first := h.button(itemRunConfig)
-	h.drag(center(h.button(itemTitleSettings)), ui.Point{X: first.X + 2, Y: first.Y + first.Height/2})
+	h.drag(center(h.button(itemTitleSettings)), gfx.Point{X: first.X + 2, Y: first.Y + first.Height/2})
 	h.settle()
 
 	got := h.zoneItems(zoneTitle)
@@ -726,7 +726,7 @@ func TestClosingProjectReturnsToWelcome(t *testing.T) {
 }
 
 // hit is where the hit id was laid out in the last frame.
-func (h *harness) hit(id ui.ID) ui.Rect {
+func (h *harness) hit(id gfx.ID) gfx.Rect {
 	h.t.Helper()
 	for _, hit := range h.driver.Snapshot().Hits {
 		if hit.ID == id {
@@ -734,7 +734,7 @@ func (h *harness) hit(id ui.ID) ui.Rect {
 		}
 	}
 	h.t.Fatalf("hit %v is not shown", id)
-	return ui.Rect{}
+	return gfx.Rect{}
 }
 
 func TestSettingsButtonOpensItsMenu(t *testing.T) {

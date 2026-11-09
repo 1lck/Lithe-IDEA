@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 func TestEverywhereFindsPagesAndOpensSelectedFile(t *testing.T) {
@@ -41,7 +41,7 @@ func TestEverywhereFindsPagesAndOpensSelectedFile(t *testing.T) {
 		t.Fatal("first page did not offer a continuation")
 	}
 	area := center(h.hit(everywhereRows.At(0)))
-	if err := h.driver.Scroll(ui.ScrollEvent{X: area.X, Y: area.Y, DeltaY: 20000, Precise: true}); err != nil {
+	if err := h.driver.Scroll(gfx.ScrollEvent{X: area.X, Y: area.Y, DeltaY: 20000, Precise: true}); err != nil {
 		t.Fatal(err)
 	}
 	at = center(h.hit(everywhereMoreID))
@@ -52,7 +52,7 @@ func TestEverywhereFindsPagesAndOpensSelectedFile(t *testing.T) {
 	if p.everywhere.cursor != nil {
 		t.Fatal("last page unexpectedly has a continuation")
 	}
-	if err := h.driver.Key(ui.KeyEnter, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
 	awaitDocumentState(t, h, func() bool { return p.docs.byPath(filepath.Join(root, "file-00.txt")) != nil })
@@ -64,7 +64,7 @@ func TestEverywhereFindsPagesAndOpensSelectedFile(t *testing.T) {
 func TestEverywhereOpensWithFileSearchShortcut(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.open(t.TempDir())
-	handled, err := h.driver.ShortcutChord(ui.ModifierMeta|ui.ModifierShift, 'o')
+	handled, err := h.driver.ShortcutChord(gfx.ModifierMeta|gfx.ModifierShift, 'o')
 	if err != nil || !handled {
 		t.Fatalf("shortcut: handled=%v error=%v", handled, err)
 	}
@@ -111,7 +111,7 @@ func TestEverywhereTextScopeFindsContentAndClosesWithEscape(t *testing.T) {
 	awaitDocumentState(t, h, func() bool {
 		return !p.everywhere.loading && len(p.everywhere.matches) == 1 && p.everywhere.matches[0].Line != nil && *p.everywhere.matches[0].Line == 1
 	})
-	if err := h.driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 	if h.app.everywhereView.open {
@@ -310,8 +310,8 @@ func TestEverywhereLeavesCompositionKeysToInputMethod(t *testing.T) {
 	}
 	p := h.app.project
 	p.everywhere.matches = []core.WorkspaceSearchMatch{{Kind: "file", Path: "file.txt"}}
-	for _, key := range []ui.Key{ui.KeyEnter, ui.KeyEscape, ui.KeyUp, ui.KeyDown} {
-		result := h.app.everywhereKey(p, ui.KeyEvent{Target: everywhereQueryID, Key: key})
+	for _, key := range []gfx.Key{gfx.KeyEnter, gfx.KeyEscape, gfx.KeyUp, gfx.KeyDown} {
+		result := h.app.everywhereKey(p, gfx.KeyEvent{Target: everywhereQueryID, Key: key})
 		if result.Handled || !h.app.everywhereView.open {
 			t.Fatalf("composition key %v was intercepted", key)
 		}

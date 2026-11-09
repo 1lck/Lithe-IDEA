@@ -40,6 +40,6 @@ logos.
 
 Modification: icons.go is not the SVGs themselves. scripts/desktop/generate-desktop-file-icons.sh
 rewrites each SVG into filled paths only (its strokes become outlines of the same color)
-with picosvg and compiles the result into ui.Icon values. The SVG sources in svg/ are
+with picosvg and compiles the result into gfx.Icon values. The SVG sources in svg/ are
 unmodified. The generator changes underscores in SVG filenames to hyphens when deriving Go
 names, so db_set_breakpoint.svg is exposed as DbSetBreakpoint.

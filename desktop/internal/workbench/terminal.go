@@ -5,7 +5,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/termview"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // terminalMessages are the terminal's words in the window's current language.
@@ -47,12 +47,12 @@ func (a *App) terminalLook() termview.Look {
 		Dark:       a.colors.Dark,
 		Background: a.colors.Editor,
 		Foreground: a.colors.Text,
-		Cursor:     ui.Color{Red: 0.18, Green: 0.43, Blue: 0.79, Alpha: 1},
-		Selection:  ui.Color{Red: 0.69, Green: 0.82, Blue: 0.98, Alpha: 1},
+		Cursor:     gfx.Color{Red: 0.18, Green: 0.43, Blue: 0.79, Alpha: 1},
+		Selection:  gfx.Color{Red: 0.69, Green: 0.82, Blue: 0.98, Alpha: 1},
 	}
 	if look.Dark {
-		look.Cursor = ui.Color{Red: 0.35, Green: 0.67, Blue: 0.98, Alpha: 1}
-		look.Selection = ui.Color{Red: 0.16, Green: 0.31, Blue: 0.48, Alpha: 1}
+		look.Cursor = gfx.Color{Red: 0.35, Green: 0.67, Blue: 0.98, Alpha: 1}
+		look.Selection = gfx.Color{Red: 0.16, Green: 0.31, Blue: 0.48, Alpha: 1}
 	}
 	return look
 }
@@ -74,7 +74,7 @@ func (a *App) pumpTerminal() {
 // focusedTerminal is the open project's terminal that owns the hit id, and nil when none
 // does. A key, a scroll or a text input is a terminal's only while the hit it targets is
 // that terminal's.
-func (a *App) focusedTerminal(id ui.ID) *termview.View {
+func (a *App) focusedTerminal(id gfx.ID) *termview.View {
 	p := a.project
 	if p == nil {
 		return nil
@@ -91,23 +91,23 @@ func (a *App) focusedTerminal(id ui.ID) *termview.View {
 // the events that are its own, which include the moves and the release of a selection or
 // a scrollbar drag that left its hit, so the window does not route by target here: the
 // first terminal that takes the event gets it.
-func (a *App) terminalPointer(event ui.PointerEvent) (ui.EventResult, bool) {
+func (a *App) terminalPointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 	p := a.project
 	if p == nil {
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
 	for _, t := range p.terms.list {
 		if result, handled := t.view.Pointer(event); handled {
 			return result, true
 		}
 	}
-	return ui.EventResult{}, false
+	return gfx.EventResult{}, false
 }
 
 // onScroll gives a wheel turn over a terminal to the terminal, which scrolls its history
 // or reports the wheel to a program that asked for the mouse; anything else scrolls the
 // view under the pointer.
-func (a *App) onScroll(event ui.ScrollEvent) ui.EventResult {
+func (a *App) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 	if t := a.focusedTerminal(event.Target); t != nil {
 		if result, ok := t.Scroll(event); ok {
 			return result
@@ -120,7 +120,7 @@ func (a *App) onScroll(event ui.ScrollEvent) ui.EventResult {
 	}
 	if event.Target == commitMessageID && a.project != nil {
 		a.project.commit.layout.ScrollBy(event.DeltaY)
-		return ui.EventResult{Handled: true, Repaint: true}
+		return gfx.EventResult{Handled: true, Repaint: true}
 	}
 	if result, ok := a.treeScroll(event); ok {
 		return result

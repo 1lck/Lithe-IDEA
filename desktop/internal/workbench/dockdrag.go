@@ -1,6 +1,6 @@
 package workbench
 
-import "github.com/vivaui/viva/ui"
+import "github.com/vivaui/viva/gfx"
 
 const (
 	// dragDetachDistance is how far a snapped pointer must pass the stripe's inner edge
@@ -38,9 +38,9 @@ const (
 
 // dragStripeRects returns the window's left and right stripe bounds. Their vertical
 // extent excludes the title and status bars, which cannot receive tool button drops.
-func dragStripeRects(viewport ui.Rect) [2]ui.Rect {
+func dragStripeRects(viewport gfx.Rect) [2]gfx.Rect {
 	height := max(viewport.Height-titleBarHeight-statusBarHeight, 0)
-	return [2]ui.Rect{
+	return [2]gfx.Rect{
 		{X: viewport.X, Y: viewport.Y + titleBarHeight, Width: stripeWidth, Height: height},
 		{X: viewport.X + viewport.Width - stripeWidth, Y: viewport.Y + titleBarHeight, Width: stripeWidth, Height: height},
 	}
@@ -69,7 +69,7 @@ func stripeZones(side stripeSide) [3]zone {
 // different boundaries leave a band where the current phase is retained, and a pointer
 // event that crosses the whole workbench can detach and re-snap on the other stripe in one
 // step.
-func dragPhaseAt(phase dragPhase, snapped stripeSide, point ui.Point, stripes [2]ui.Rect) (dragPhase, stripeSide) {
+func dragPhaseAt(phase dragPhase, snapped stripeSide, point gfx.Point, stripes [2]gfx.Rect) (dragPhase, stripeSide) {
 	left, right := stripes[stripeLeft], stripes[stripeRight]
 	if phase == dragSnapped {
 		crossedInnerEdge := false
@@ -107,7 +107,7 @@ func dragPhaseAt(phase dragPhase, snapped stripeSide, point ui.Point, stripes [2
 // dragStripeZoneAt chooses a snapped target from the midpoints of the free gaps. The
 // pointer may be just inside the editor while still snapped, so the stripe rectangle
 // supplies its valid vertical range and the three zone rectangles supply only the gaps.
-func dragStripeZoneAt(point ui.Point, stripe ui.Rect, side stripeSide, top, split, bottom ui.Rect) (zone, bool) {
+func dragStripeZoneAt(point gfx.Point, stripe gfx.Rect, side stripeSide, top, split, bottom gfx.Rect) (zone, bool) {
 	if point.Y < stripe.Y || point.Y >= stripe.Y+stripe.Height {
 		return 0, false
 	}
@@ -140,13 +140,13 @@ func dragStripeZoneAt(point ui.Point, stripe ui.Rect, side stripeSide, top, spli
 
 // snappedToolGhostRect keeps the ghost centered in its stripe and preserves the press
 // offset vertically, clamping it between the title and status bars.
-func snappedToolGhostRect(point, grab ui.Point, stripe, viewport ui.Rect) ui.Rect {
+func snappedToolGhostRect(point, grab gfx.Point, stripe, viewport gfx.Rect) gfx.Rect {
 	top := viewport.Y + titleBarHeight
 	lastTop := viewport.Y + viewport.Height - statusBarHeight - dragSnappedGhostSize
 	if lastTop < top {
 		lastTop = top
 	}
-	return ui.Rect{
+	return gfx.Rect{
 		X:      stripe.X + (stripe.Width-dragSnappedGhostSize)/2,
 		Y:      min(max(point.Y-grab.Y, top), lastTop),
 		Width:  dragSnappedGhostSize,
@@ -156,8 +156,8 @@ func snappedToolGhostRect(point, grab ui.Point, stripe, viewport ui.Rect) ui.Rec
 
 // detachedToolGhostRect follows the pointer while preserving where the user grabbed the
 // source button.
-func detachedToolGhostRect(point, grab ui.Point) ui.Rect {
-	return ui.Rect{
+func detachedToolGhostRect(point, grab gfx.Point) gfx.Rect {
+	return gfx.Rect{
 		X:      point.X - grab.X,
 		Y:      point.Y - grab.Y,
 		Width:  dragFloatingGhostSize,
@@ -178,14 +178,14 @@ const (
 // dragDockAnchor holds the actual or remembered area for one anchor, plus its panes when
 // both groups are open. Side anchors split vertically; the bottom anchor splits across.
 type dragDockAnchor struct {
-	area, hitArea         ui.Rect
+	area, hitArea         gfx.Rect
 	first, second         zone
-	firstPane, secondPane ui.Rect
+	firstPane, secondPane gfx.Rect
 	horizontal, split     bool
 }
 
 // previewFor returns the pane or half-area used to preview a drop in z.
-func (a dragDockAnchor) previewFor(z zone) (ui.Rect, bool) {
+func (a dragDockAnchor) previewFor(z zone) (gfx.Rect, bool) {
 	switch z {
 	case a.first:
 		if a.split {
@@ -200,13 +200,13 @@ func (a dragDockAnchor) previewFor(z zone) (ui.Rect, bool) {
 		_, second := dockAreaHalves(a.area, a.horizontal)
 		return second, second.Width > 0 && second.Height > 0
 	}
-	return ui.Rect{}, false
+	return gfx.Rect{}, false
 }
 
 // targetAt chooses the group under point when it lies inside this anchor's dock area.
-func (a dragDockAnchor) targetAt(point ui.Point) (zone, ui.Rect, bool) {
+func (a dragDockAnchor) targetAt(point gfx.Point) (zone, gfx.Rect, bool) {
 	if !rectContainsPoint(a.hitArea, point) {
-		return 0, ui.Rect{}, false
+		return 0, gfx.Rect{}, false
 	}
 	if a.split {
 		if a.horizontal {
@@ -241,7 +241,7 @@ func (a dragDockAnchor) targetAt(point ui.Point) (zone, ui.Rect, bool) {
 }
 
 // dockAreaHalves divides an unsplit anchor into the two zones it can receive.
-func dockAreaHalves(area ui.Rect, horizontal bool) (ui.Rect, ui.Rect) {
+func dockAreaHalves(area gfx.Rect, horizontal bool) (gfx.Rect, gfx.Rect) {
 	first, second := area, area
 	if horizontal {
 		first.Width = area.Width / 2
@@ -259,13 +259,13 @@ func dockAreaHalves(area ui.Rect, horizontal bool) (ui.Rect, ui.Rect) {
 type dragDockButton struct {
 	item int
 	zone zone
-	rect ui.Rect
+	rect gfx.Rect
 }
 
 // dragDockTargetAt gives a visible stripe button priority, then checks dock areas in
 // source-anchor-first order. Its inputs are only geometry and a point, so release targets
 // can be tested without clocks, animation or a running application.
-func dragDockTargetAt(point ui.Point, sourceItem int, sourceZone zone, buttons []dragDockButton, anchors [dockAnchorCount]dragDockAnchor) (zone, ui.Rect, bool) {
+func dragDockTargetAt(point gfx.Point, sourceItem int, sourceZone zone, buttons []dragDockButton, anchors [dockAnchorCount]dragDockAnchor) (zone, gfx.Rect, bool) {
 	for _, button := range buttons {
 		if button.item == sourceItem || !rectContainsPoint(button.rect, point) {
 			continue
@@ -284,7 +284,7 @@ func dragDockTargetAt(point ui.Point, sourceItem int, sourceZone zone, buttons [
 			return z, preview, true
 		}
 	}
-	return 0, ui.Rect{}, false
+	return 0, gfx.Rect{}, false
 }
 
 // dockAnchorForZone maps a stripe zone to the tool window anchor it opens.
@@ -321,11 +321,11 @@ func dockAnchorOrder(source zone) [dockAnchorCount]dockAnchorID {
 }
 
 // dragDockAnchors builds the open or remembered pane rectangles used by detached drags.
-func (a *App) dragDockAnchors(viewport ui.Size) [dockAnchorCount]dragDockAnchor {
+func (a *App) dragDockAnchors(viewport gfx.Size) [dockAnchorCount]dragDockAnchor {
 	main := a.layout.main.Rect()
 	plan := a.layout.frame
 	if main.Width <= 0 || main.Height <= 0 {
-		main = ui.Rect{
+		main = gfx.Rect{
 			X:      stripeWidth,
 			Y:      titleBarHeight,
 			Width:  max(viewport.Width-2*stripeWidth, 0),
@@ -351,7 +351,7 @@ func (a *App) dragDockAnchors(viewport ui.Size) [dockAnchorCount]dragDockAnchor 
 		leftWidth = plan.leftW
 	}
 	leftWidth = min(max(leftWidth, 0), workspaceWidth)
-	leftArea := ui.Rect{X: main.X, Y: main.Y, Width: leftWidth, Height: topHeight}
+	leftArea := gfx.Rect{X: main.X, Y: main.Y, Width: leftWidth, Height: topHeight}
 	leftHit := leftArea
 	leftHit.X -= stripeWidth
 	leftHit.Width += stripeWidth
@@ -361,8 +361,8 @@ func (a *App) dragDockAnchors(viewport ui.Size) [dockAnchorCount]dragDockAnchor 
 	}
 	if plan.leftSplit() {
 		leftAnchor.split = true
-		leftAnchor.firstPane = ui.Rect{X: leftArea.X, Y: leftArea.Y, Width: leftArea.Width, Height: plan.leftUpperH}
-		leftAnchor.secondPane = ui.Rect{
+		leftAnchor.firstPane = gfx.Rect{X: leftArea.X, Y: leftArea.Y, Width: leftArea.Width, Height: plan.leftUpperH}
+		leftAnchor.secondPane = gfx.Rect{
 			X: leftArea.X, Y: leftArea.Y + plan.leftUpperH + shellSplitter,
 			Width: leftArea.Width, Height: plan.leftLowerH,
 		}
@@ -373,7 +373,7 @@ func (a *App) dragDockAnchors(viewport ui.Size) [dockAnchorCount]dragDockAnchor 
 		rightWidth = plan.rightW
 	}
 	rightWidth = min(max(rightWidth, 0), workspaceWidth)
-	rightArea := ui.Rect{
+	rightArea := gfx.Rect{
 		X: main.X + workspaceWidth - rightWidth, Y: main.Y,
 		Width: rightWidth, Height: topHeight,
 	}
@@ -385,8 +385,8 @@ func (a *App) dragDockAnchors(viewport ui.Size) [dockAnchorCount]dragDockAnchor 
 	}
 	if plan.rightSplit() {
 		rightAnchor.split = true
-		rightAnchor.firstPane = ui.Rect{X: rightArea.X, Y: rightArea.Y, Width: rightArea.Width, Height: plan.rightUpperH}
-		rightAnchor.secondPane = ui.Rect{
+		rightAnchor.firstPane = gfx.Rect{X: rightArea.X, Y: rightArea.Y, Width: rightArea.Width, Height: plan.rightUpperH}
+		rightAnchor.secondPane = gfx.Rect{
 			X: rightArea.X, Y: rightArea.Y + plan.rightUpperH + shellSplitter,
 			Width: rightArea.Width, Height: plan.rightLowerH,
 		}
@@ -399,7 +399,7 @@ func (a *App) dragDockAnchors(viewport ui.Size) [dockAnchorCount]dragDockAnchor 
 		bottomHeight = max(dragFallbackBottomMinimum, main.Height*dragFallbackBottomFraction)
 	}
 	bottomHeight = min(max(bottomHeight, 0), workspaceHeight)
-	bottomArea := ui.Rect{
+	bottomArea := gfx.Rect{
 		X: main.X, Y: main.Y + workspaceHeight - bottomHeight,
 		Width: workspaceWidth, Height: bottomHeight,
 	}
@@ -409,11 +409,11 @@ func (a *App) dragDockAnchors(viewport ui.Size) [dockAnchorCount]dragDockAnchor 
 	}
 	if plan.bottomLeft && plan.bottomRight {
 		bottomAnchor.split = true
-		bottomAnchor.firstPane = ui.Rect{
+		bottomAnchor.firstPane = gfx.Rect{
 			X: bottomArea.X, Y: bottomArea.Y, Width: plan.bottomLeftW, Height: bottomArea.Height,
 		}
 		secondX := bottomArea.X + plan.bottomLeftW + shellSplitter
-		bottomAnchor.secondPane = ui.Rect{
+		bottomAnchor.secondPane = gfx.Rect{
 			X: secondX, Y: bottomArea.Y,
 			Width: max(bottomArea.X+bottomArea.Width-secondX, 0), Height: bottomArea.Height,
 		}
@@ -441,7 +441,7 @@ func (a *App) dragDockButtons(sourceItem int) []dragDockButton {
 
 // rectContainsPoint uses half-open bounds so adjacent panes never both own their shared
 // edge.
-func rectContainsPoint(rect ui.Rect, point ui.Point) bool {
+func rectContainsPoint(rect gfx.Rect, point gfx.Point) bool {
 	return rect.Width > 0 && rect.Height > 0 &&
 		point.X >= rect.X && point.X < rect.X+rect.Width &&
 		point.Y >= rect.Y && point.Y < rect.Y+rect.Height

@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // EncodeKey turns a raw key event into the bytes a program reading a terminal
@@ -14,17 +14,17 @@ import (
 // line edits below belongs to the application, which is why this path sends
 // nothing for it; EncodeKeyEvent decides who owns the chord when the program
 // reports kitty keys).
-func EncodeKey(key ui.Key, modifiers ui.Modifiers, text string, appCursorKeys bool) []byte {
-	if modifiers&ui.ModifierMeta != 0 {
+func EncodeKey(key gfx.Key, modifiers gfx.Modifiers, text string, appCursorKeys bool) []byte {
+	if modifiers&gfx.ModifierMeta != 0 {
 		letter, ok := CommandLineEdit(key, modifiers)
 		if !ok {
 			return nil
 		}
-		return EncodeKey(ui.KeyUnknown, ui.ModifierControl, letter, appCursorKeys)
+		return EncodeKey(gfx.KeyUnknown, gfx.ModifierControl, letter, appCursorKeys)
 	}
-	shift := modifiers&ui.ModifierShift != 0
-	alt := modifiers&ui.ModifierAlt != 0
-	control := modifiers&ui.ModifierControl != 0
+	shift := modifiers&gfx.ModifierShift != 0
+	alt := modifiers&gfx.ModifierAlt != 0
+	control := modifiers&gfx.ModifierControl != 0
 	// The xterm modifier parameter: 1 plus shift 1, alt 2, control 4.
 	parameter := 1
 	if shift {
@@ -66,55 +66,55 @@ func EncodeKey(key ui.Key, modifiers ui.Modifiers, text string, appCursorKeys bo
 	}
 
 	switch key {
-	case ui.KeyEnter:
+	case gfx.KeyEnter:
 		if parameter > 1 && (!alt || shift || control) {
 			return []byte("\x1b[13;" + strconv.Itoa(parameter) + "u")
 		}
 		return prefix([]byte{'\r'})
-	case ui.KeyTab:
+	case gfx.KeyTab:
 		if shift {
 			return []byte("\x1b[Z")
 		}
 		return prefix([]byte{'\t'})
-	case ui.KeyEscape:
+	case gfx.KeyEscape:
 		return prefix([]byte{0x1b})
-	case ui.KeyBackspace:
+	case gfx.KeyBackspace:
 		if control {
 			return prefix([]byte{0x08})
 		}
 		return prefix([]byte{0x7f})
-	case ui.KeySpace:
+	case gfx.KeySpace:
 		if control {
 			return prefix([]byte{0})
 		}
 		return prefix([]byte{' '})
-	case ui.KeyUp:
+	case gfx.KeyUp:
 		return cursor('A')
-	case ui.KeyDown:
+	case gfx.KeyDown:
 		return cursor('B')
-	case ui.KeyRight:
+	case gfx.KeyRight:
 		return cursor('C')
-	case ui.KeyLeft:
+	case gfx.KeyLeft:
 		return cursor('D')
-	case ui.KeyHome:
+	case gfx.KeyHome:
 		return cursor('H')
-	case ui.KeyEnd:
+	case gfx.KeyEnd:
 		return cursor('F')
-	case ui.KeyInsert:
+	case gfx.KeyInsert:
 		return tilde(2)
-	case ui.KeyDelete:
+	case gfx.KeyDelete:
 		return tilde(3)
-	case ui.KeyPageUp:
+	case gfx.KeyPageUp:
 		return tilde(5)
-	case ui.KeyPageDown:
+	case gfx.KeyPageDown:
 		return tilde(6)
-	case ui.KeyF1, ui.KeyF2, ui.KeyF3, ui.KeyF4:
-		return function(byte('P' + (key - ui.KeyF1)))
-	case ui.KeyF5, ui.KeyF6, ui.KeyF7, ui.KeyF8, ui.KeyF9, ui.KeyF10, ui.KeyF11, ui.KeyF12:
-		return tilde(functionNumbers[key-ui.KeyF5])
+	case gfx.KeyF1, gfx.KeyF2, gfx.KeyF3, gfx.KeyF4:
+		return function(byte('P' + (key - gfx.KeyF1)))
+	case gfx.KeyF5, gfx.KeyF6, gfx.KeyF7, gfx.KeyF8, gfx.KeyF9, gfx.KeyF10, gfx.KeyF11, gfx.KeyF12:
+		return tilde(functionNumbers[key-gfx.KeyF5])
 	}
 
-	if key != ui.KeyUnknown || text == "" {
+	if key != gfx.KeyUnknown || text == "" {
 		return nil
 	}
 	// A chord: its character with the modifiers applied.
@@ -138,16 +138,16 @@ func EncodeKey(key ui.Key, modifiers ui.Modifiers, text string, appCursorKeys bo
 // start and the end of the line, Ctrl+U deletes back to its start. Shells and
 // full-screen programs understand them without any setup, unlike Home and End.
 // Any other chord, one with a further modifier included, is not a line edit.
-func CommandLineEdit(key ui.Key, modifiers ui.Modifiers) (string, bool) {
-	if modifiers != ui.ModifierMeta {
+func CommandLineEdit(key gfx.Key, modifiers gfx.Modifiers) (string, bool) {
+	if modifiers != gfx.ModifierMeta {
 		return "", false
 	}
 	switch key {
-	case ui.KeyLeft:
+	case gfx.KeyLeft:
 		return "a", true
-	case ui.KeyRight:
+	case gfx.KeyRight:
 		return "e", true
-	case ui.KeyBackspace:
+	case gfx.KeyBackspace:
 		return "u", true
 	}
 	return "", false

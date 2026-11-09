@@ -145,6 +145,15 @@ type EditorMessages struct {
 	// SoftWrap names the button at the end of the tab bar that wraps long lines at the
 	// editor's width instead of scrolling them sideways.
 	SoftWrap string
+	// Minimap names the small picture of the file down the editor's right side, and
+	// HideMinimap and ShowMinimap the button beside it that hides it, and shows it again, in
+	// every editor.
+	Minimap     string
+	HideMinimap string
+	ShowMinimap string
+	// VerticalScrollbar and HorizontalScrollbar name the editor's scrollbars.
+	VerticalScrollbar   string
+	HorizontalScrollbar string
 	// OpenFailed and SaveFailed say a file could not be read or written, and why.
 	OpenFailed func(name, reason string) string
 	SaveFailed func(name, reason string) string

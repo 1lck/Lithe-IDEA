@@ -12,7 +12,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/documentio"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // Until encoding conversion is available, an editor must not accept bytes it
@@ -95,7 +95,7 @@ func TestSoftWrapSwitchWrapsTheOpenFile(t *testing.T) {
 		t.Fatal("the file did not open")
 	}
 	id := docWrap.At(d.id)
-	switchHit := func() ui.Hit {
+	switchHit := func() gfx.Hit {
 		t.Helper()
 		for _, hit := range h.driver.Snapshot().Hits {
 			if hit.ID == id {
@@ -103,10 +103,10 @@ func TestSoftWrapSwitchWrapsTheOpenFile(t *testing.T) {
 			}
 		}
 		t.Fatal("the soft wrap switch is not shown")
-		return ui.Hit{}
+		return gfx.Hit{}
 	}
 	hit := switchHit()
-	if hit.Label != h.app.text.Editor.SoftWrap || hit.Role != ui.RoleSwitch || hit.Checked {
+	if hit.Label != h.app.text.Editor.SoftWrap || hit.Role != gfx.RoleSwitch || hit.Checked {
 		t.Fatalf("switch = %q role %v checked %v, want %q, an unchecked switch", hit.Label, hit.Role, hit.Checked, h.app.text.Editor.SoftWrap)
 	}
 	if tab := h.hit(docTabs.At(d.id)); hit.Bounds.X < tab.X+tab.Width {
@@ -340,3 +340,109 @@ func TestCloseKeepsDocumentWhileInputMethodIsComposing(t *testing.T) {
 	h.app.closeDocument(p, d.id)
 	awaitDocumentState(t, h, func() bool { return p.docs.find(d.id) == nil })
 }
+
+// An open file shows its minimap with the button that hides it, which appears only while the
+// pointer is over the minimap. Its click hides the minimap of every editor and keeps the
+// choice; the button that shows it again then appears near the text's right edge.
+func TestMinimapButtonHidesAndShowsTheMinimap(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	project := t.TempDir()
+	path := filepath.Join(project, "main.go")
+	if err := os.WriteFile(path, []byte("package main\n\n"+strings.Repeat("func f() { return }\n", 300)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.open(project)
+	h.app.openFile(h.app.project, path)
+	h.settle()
+	d := h.app.project.docs.byPath(path)
+	if d == nil {
+		t.Fatal("the file did not open")
+	}
+	toggle := docMinimapToggle.At(d.id)
+	shown := func(id gfx.ID) (gfx.Hit, bool) {
+		for _, hit := range h.driver.Snapshot().Hits {
+			if hit.ID == id {
+				return hit, true
+			}
+		}
+		return gfx.Hit{}, false
+	}
+	hover := func(at gfx.Point) {
+		t.Helper()
+		if err := h.driver.Move(at.X, at.Y); err != nil {
+			t.Fatal(err)
+		}
+		if err := h.driver.Advance(400 * time.Millisecond); err != nil {
+			t.Fatal(err)
+		}
+	}
+	click := func(id gfx.ID) {
+		t.Helper()
+		at := center(h.hit(id))
+		if err := h.driver.Click(at.X, at.Y); err != nil {
+			t.Fatal(err)
+		}
+		h.settle()
+	}
+
+	minimap := h.hit(docMinimap.At(d.id))
+	text := h.hit(docViews.At(d.id))
+	if _, ok := shown(toggle); ok {
+		t.Fatal("the minimap's button shows before the pointer is over the minimap")
+	}
+	hover(gfx.Point{X: text.X + (minimap.X-text.X)/2, Y: text.Y + text.Height/2})
+	if _, ok := shown(toggle); ok {
+		t.Fatal("the minimap's button shows with the pointer in the middle of the text")
+	}
+	// The button is reached from the text too: it shows as the pointer nears the minimap.
+	hover(gfx.Point{X: minimap.X - 30, Y: text.Y + text.Height/3})
+	if button, ok := shown(toggle); !ok || button.Label != h.app.text.Editor.HideMinimap {
+		t.Fatalf("near the minimap over the text the button is %+v (shown %v)", button, ok)
+	}
+	hover(center(minimap))
+	button, ok := shown(toggle)
+	if !ok {
+		t.Fatal("the pointer over the minimap does not show its button")
+	}
+	if button.Label != h.app.text.Editor.HideMinimap || button.Role != gfx.RoleButton {
+		t.Fatalf("button = %q role %v, want %q, a button", button.Label, button.Role, h.app.text.Editor.HideMinimap)
+	}
+	if button.Bounds.X+button.Bounds.Width > minimap.X+0.5 {
+		t.Fatalf("the button ends at %v, over the minimap, which starts at %v", button.Bounds.X+button.Bounds.Width, minimap.X)
+	}
+
+	click(toggle)
+	if !h.app.settings.HideMinimap {
+		t.Fatal("the click did not hide the minimap")
+	}
+	if _, ok := shown(docMinimap.At(d.id)); ok {
+		t.Fatal("the minimap still shows after it was hidden")
+	}
+	var saved settings
+	if found, err := h.store.Load(settingsFile, &saved); err != nil || !found || !saved.HideMinimap {
+		t.Fatalf("saved settings = %+v (found %v, %v), want the minimap hidden", saved, found, err)
+	}
+
+	// Away from the right edge the button stays hidden; near it, it shows to bring the minimap
+	// back.
+	hover(gfx.Point{X: text.X + text.Width/2, Y: text.Y + text.Height/2})
+	if _, ok := shown(toggle); ok {
+		t.Fatal("the button that shows the minimap is out in the middle of the text")
+	}
+	hover(gfx.Point{X: text.X + text.Width - barTrackForTest - 20, Y: text.Y + text.Height/3})
+	button, ok = shown(toggle)
+	if !ok || button.Label != h.app.text.Editor.ShowMinimap {
+		t.Fatalf("near the right edge the button is %+v (shown %v), want %q", button, ok, h.app.text.Editor.ShowMinimap)
+	}
+	click(toggle)
+	if h.app.settings.HideMinimap {
+		t.Fatal("the button did not bring the minimap back")
+	}
+	if _, ok := shown(docMinimap.At(d.id)); !ok {
+		t.Fatal("the minimap is not shown again")
+	}
+}
+
+// barTrackForTest is the width of the editor's vertical scrollbar track, at the text's right
+// edge.
+const barTrackForTest = 10

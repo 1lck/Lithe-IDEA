@@ -6,7 +6,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -64,26 +64,26 @@ var branchSectionKeys = [4]string{"recent", "local", "remote", "tag"}
 // drawChromeBranch declares the checked-out branch as the button that opens the branch
 // popup, and shows nothing when the project is not a repository. It returns the button,
 // which the popup is placed under, whether it is shown, and whether it was clicked.
-func (a *App) drawChromeBranch(f *flex.Frame) (button flex.Box, shown, clicked bool) {
+func (a *App) drawChromeBranch(f *ui.Frame) (button ui.Box, shown, clicked bool) {
 	name := a.project.git.branch()
 	if name == "" {
-		return flex.Box{}, false, false
+		return ui.Box{}, false, false
 	}
 	open := a.branch.open
-	button = f.Row().Height(chromeIconButton).Shrink(0).Items(flex.Center).Gap(chromeGap).PadX(chromeEdge).
+	button = f.Row().Height(chromeIconButton).Shrink(0).Items(ui.Center).Gap(chromeGap).PadX(chromeEdge).
 		Radius(a.theme.Metrics.RadiusItem()).
-		HitWith(chromeBranchButton, a.text.Title.BranchMenu, ui.HitOptions{
-			Role:       ui.RoleButton,
-			Cursor:     ui.PointerCursorHand,
+		HitWith(chromeBranchButton, a.text.Title.BranchMenu, gfx.HitOptions{
+			Role:       gfx.RoleButton,
+			Cursor:     gfx.PointerCursorHand,
 			Value:      name,
 			Expandable: true,
 			Expanded:   open,
 		}).
-		Pressed(flex.Look{}.Background(a.colors.Active))
+		Pressed(ui.Look{}.Background(a.colors.Active))
 	if open {
 		button = button.Background(a.colors.Active)
 	} else {
-		button = button.Hover(flex.Look{}.Background(a.colors.Hover))
+		button = button.Hover(ui.Look{}.Background(a.colors.Hover))
 	}
 	button.Children(func() {
 		f.Icon(icons.GitBranch).Size(chromeIconSize, chromeIconSize).Color(a.colors.Subtle)
@@ -102,11 +102,11 @@ func branchRowKey(section string, r core.GitReference) string {
 // drawBranchPopup declares the open popup under anchor, the branch button: a backdrop that
 // closes it, the panel with the search field, the actions and the references, and the menu
 // of the row the user opened. What a click asks for is done once everything is declared.
-func (a *App) drawBranchPopup(f *flex.Frame, anchor flex.Box) {
+func (a *App) drawBranchPopup(f *ui.Frame, anchor ui.Box) {
 	p, b, t := a.project, &a.branch, a.text.Branch
 	dismissed := f.Popup().At(0, 0).Fill().
-		HitWith(branchDismiss, a.text.Errors.Dismiss, ui.HitOptions{
-			Role:          ui.RoleButton,
+		HitWith(branchDismiss, a.text.Errors.Dismiss, gfx.HitOptions{
+			Role:          gfx.RoleButton,
 			SkipFocus:     true,
 			Backdrop:      true,
 			PassSecondary: true,
@@ -115,15 +115,15 @@ func (a *App) drawBranchPopup(f *flex.Frame, anchor flex.Box) {
 	var creating, revision bool
 	toggled := -1
 	opened := ""
-	var menuAnchor flex.Box
+	var menuAnchor ui.Box
 	var menuRef core.GitReference
 	hasMenu := false
 	n := 0
 	current := b.currentReference()
-	f.Popup().BelowBox(anchor, chromeMenuOffset, flex.Start).
+	f.Popup().BelowBox(anchor, chromeMenuOffset, ui.Start).
 		Width(branchPopupWidth).MaxHeight(branchPopupMaxHeight).
-		Background(a.theme.Popover).Border(1, a.theme.Border).Radius(chromeMenuRadius).Shadow(ui.ShadowMD).
-		HitWith(branchPanel, t.Popup, ui.HitOptions{Role: ui.RoleMenu, SkipFocus: true}).
+		Background(a.theme.Popover).Border(1, a.theme.Border).Radius(chromeMenuRadius).Shadow(gfx.ShadowMD).
+		HitWith(branchPanel, t.Popup, gfx.HitOptions{Role: gfx.RoleMenu, SkipFocus: true}).
 		Children(func() {
 			f.Column().FillWidth().Pad(chromeMenuPadding).Gap(chromeMenuItems).Children(func() {
 				f.Field(&b.search, branchSearchID, t.Search, t.Search).FillWidth()
@@ -184,7 +184,7 @@ func (a *App) drawBranchPopup(f *flex.Frame, anchor flex.Box) {
 			})
 		})
 
-	var choice ui.ID
+	var choice gfx.ID
 	if hasMenu {
 		choice = a.drawBranchRowMenu(f, menuAnchor, menuRef, menuRef.FullName == current.FullName)
 	} else {
@@ -236,20 +236,20 @@ func matchingReferences(refs []core.GitReference, query string) []core.GitRefere
 }
 
 // drawBranchNote declares a line of the list that says why it shows no branch.
-func (a *App) drawBranchNote(f *flex.Frame, note string) {
-	f.Row().Height(chromeMenuRow).Shrink(0).Items(flex.Center).PadX(chromeEdge).Children(func() {
+func (a *App) drawBranchNote(f *ui.Frame, note string) {
+	f.Row().Height(chromeMenuRow).Shrink(0).Items(ui.Center).PadX(chromeEdge).Children(func() {
 		f.Text(note).Color(a.colors.Subtle).LineHeight(chromeLineHeight)
 	})
 }
 
 // drawBranchSection declares the head of section i and reports a click on it. A head folds
 // its section while the list is not filtered; a filtered list shows every match.
-func (a *App) drawBranchSection(f *flex.Frame, i int, label string, collapsed, foldable bool) bool {
-	options := ui.HitOptions{Role: ui.RoleButton, Cursor: ui.PointerCursorHand, Expandable: true, Expanded: !collapsed}
+func (a *App) drawBranchSection(f *ui.Frame, i int, label string, collapsed, foldable bool) bool {
+	options := gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Expandable: true, Expanded: !collapsed}
 	if !foldable {
-		options.Cursor, options.Disabled = ui.PointerCursorDefault, true
+		options.Cursor, options.Disabled = gfx.PointerCursorDefault, true
 	}
-	head := f.Row().Height(chromeMenuTitle).Shrink(0).Items(flex.Center).Gap(chromeGap).PadX(chromeEdge).
+	head := f.Row().Height(chromeMenuTitle).Shrink(0).Items(ui.Center).Gap(chromeGap).PadX(chromeEdge).
 		Radius(a.theme.Metrics.RadiusItem()).HitWith(branchSections.At(i), label, options)
 	if foldable {
 		head = a.chromeHover(head)
@@ -268,7 +268,7 @@ func (a *App) drawBranchSection(f *flex.Frame, i int, label string, collapsed, f
 // drawBranchRow declares the row of reference r, the n-th of the list: its mark, its name,
 // its upstream and how far the two are apart, and the chevron of its menu. It returns the
 // row, which the menu is placed beside, and whether it was clicked.
-func (a *App) drawBranchRow(f *flex.Frame, n int, r core.GitReference, current, open bool) (flex.Box, bool) {
+func (a *App) drawBranchRow(f *ui.Frame, n int, r core.GitReference, current, open bool) (ui.Box, bool) {
 	t := a.text.Branch
 	kind := map[string]string{"local": "branch", "remote": "remote", "tag": "tag"}[r.Kind]
 	icon := icons.GitBranch
@@ -285,11 +285,11 @@ func (a *App) drawBranchRow(f *flex.Frame, n int, r core.GitReference, current, 
 	if r.Behind > 0 {
 		trailing = strings.TrimSpace(trailing + " ↓" + strconv.Itoa(r.Behind))
 	}
-	options := ui.HitOptions{Role: ui.RoleMenuItem, Cursor: ui.PointerCursorHand, Expandable: true, Expanded: open, Selected: current}
+	options := gfx.HitOptions{Role: gfx.RoleMenuItem, Cursor: gfx.PointerCursorHand, Expandable: true, Expanded: open, Selected: current}
 	if current {
 		options.Value = t.Current
 	}
-	row := f.Row().Height(chromeMenuRow).Shrink(0).FillWidth().Items(flex.Center).Gap(chromeMenuGap).PadX(chromeEdge).
+	row := f.Row().Height(chromeMenuRow).Shrink(0).FillWidth().Items(ui.Center).Gap(chromeMenuGap).PadX(chromeEdge).
 		Radius(a.theme.Metrics.RadiusItem()).HitWith(branchRows.At(n), r.ShortName, options)
 	if open {
 		row = row.Background(a.colors.Selection)
@@ -311,15 +311,15 @@ func (a *App) drawBranchRow(f *flex.Frame, n int, r core.GitReference, current, 
 // drawBranchRowMenu declares the menu of reference r beside its row and returns the item
 // clicked, the zero ID for none. The checked-out branch is not checked out again, nor
 // deleted; only a local branch is renamed or deleted.
-func (a *App) drawBranchRowMenu(f *flex.Frame, anchor flex.Box, r core.GitReference, current bool) ui.ID {
+func (a *App) drawBranchRowMenu(f *ui.Frame, anchor ui.Box, r core.GitReference, current bool) gfx.ID {
 	t := a.text.Branch
-	var chosen ui.ID
-	f.Popup().BesideBox(anchor, chromeMenuOffset, flex.Start).Width(branchMenuWidth).
-		Background(a.theme.Popover).Border(1, a.theme.Border).Radius(chromeMenuRadius).Shadow(ui.ShadowMD).
-		HitWith(branchMenuPanel, t.RowMenu(r.ShortName), ui.HitOptions{Role: ui.RoleMenu, SkipFocus: true}).
+	var chosen gfx.ID
+	f.Popup().BesideBox(anchor, chromeMenuOffset, ui.Start).Width(branchMenuWidth).
+		Background(a.theme.Popover).Border(1, a.theme.Border).Radius(chromeMenuRadius).Shadow(gfx.ShadowMD).
+		HitWith(branchMenuPanel, t.RowMenu(r.ShortName), gfx.HitOptions{Role: gfx.RoleMenu, SkipFocus: true}).
 		Pad(chromeMenuPadding).Gap(chromeMenuItems).
 		Children(func() {
-			item := func(id ui.ID, label string) {
+			item := func(id gfx.ID, label string) {
 				if a.drawBranchMenuItem(f, id, label) {
 					chosen = id
 				}
@@ -339,10 +339,10 @@ func (a *App) drawBranchRowMenu(f *flex.Frame, anchor flex.Box, r core.GitRefere
 }
 
 // drawBranchMenuItem declares one item of a row's menu and reports a click on it.
-func (a *App) drawBranchMenuItem(f *flex.Frame, id ui.ID, label string) bool {
-	row := a.chromeHover(f.Row().Height(chromeMenuRow).Shrink(0).FillWidth().Items(flex.Center).PadX(chromeEdge).
+func (a *App) drawBranchMenuItem(f *ui.Frame, id gfx.ID, label string) bool {
+	row := a.chromeHover(f.Row().Height(chromeMenuRow).Shrink(0).FillWidth().Items(ui.Center).PadX(chromeEdge).
 		Radius(a.theme.Metrics.RadiusItem()).
-		HitWith(id, label, ui.HitOptions{Role: ui.RoleMenuItem, Cursor: ui.PointerCursorHand}))
+		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleMenuItem, Cursor: gfx.PointerCursorHand}))
 	row.Children(func() {
 		f.Text(label).Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis()
 	})
@@ -350,7 +350,7 @@ func (a *App) drawBranchMenuItem(f *flex.Frame, id ui.ID, label string) bool {
 }
 
 // drawBranchDialog declares the dialog the popup opened, if any.
-func (a *App) drawBranchDialog(f *flex.Frame) {
+func (a *App) drawBranchDialog(f *ui.Frame) {
 	p, b := a.project, &a.branch
 	if p == nil || b.dialog == branchDialogNone {
 		return
@@ -369,14 +369,14 @@ func (a *App) drawBranchDialog(f *flex.Frame) {
 
 // branchDialogSpec is the spec every branch dialog shares, with its words and the control
 // that takes the focus when it opens.
-func branchDialogSpec(title, description string, focus ui.ID) flex.DialogSpec {
-	return flex.DialogSpec{Title: title, Description: description, Width: branchDialogWidth,
+func branchDialogSpec(title, description string, focus gfx.ID) ui.DialogSpec {
+	return ui.DialogSpec{Title: title, Description: description, Width: branchDialogWidth,
 		Scope: branchDialogScope, DismissID: branchDialogCancel, CloseID: branchDialogClose, InitialFocusID: focus}
 }
 
 // drawBranchNameDialog declares the dialog that creates a branch or renames one: the name
 // field, cleaned by the kernel as the user types, and why the name cannot be used.
-func (a *App) drawBranchNameDialog(f *flex.Frame, p *project) {
+func (a *App) drawBranchNameDialog(f *ui.Frame, p *project) {
 	b, t := &a.branch, a.text.Branch
 	a.syncBranchName(p)
 	creating := b.dialog == branchDialogCreate
@@ -420,7 +420,7 @@ func (a *App) drawBranchNameDialog(f *flex.Frame, p *project) {
 }
 
 // drawBranchRevisionDialog declares the dialog that checks out a typed tag or revision.
-func (a *App) drawBranchRevisionDialog(f *flex.Frame, p *project) {
+func (a *App) drawBranchRevisionDialog(f *ui.Frame, p *project) {
 	b, t := &a.branch, a.text.Branch
 	ready := !b.busy && strings.TrimSpace(b.revision.Text()) != ""
 	submitted := false
@@ -446,7 +446,7 @@ func (a *App) drawBranchRevisionDialog(f *flex.Frame, p *project) {
 
 // drawBranchConflictDialog declares the dialog that lists the local changes a checkout
 // would overwrite and offers to carry them over or to discard them.
-func (a *App) drawBranchConflictDialog(f *flex.Frame, p *project) {
+func (a *App) drawBranchConflictDialog(f *ui.Frame, p *project) {
 	b, t := &a.branch, a.text.Branch
 	d := f.Dialog(branchDialogSpec(t.ConflictTitle, t.ConflictPrompt(b.target.ShortName), branchDialogConfirm))
 	d.Body(func() {
@@ -479,7 +479,7 @@ func (a *App) drawBranchConflictDialog(f *flex.Frame, p *project) {
 
 // drawBranchDeleteDialog declares the dialog that confirms deleting a local branch. The
 // focus starts on Cancel, so Enter does not delete by accident.
-func (a *App) drawBranchDeleteDialog(f *flex.Frame, p *project) {
+func (a *App) drawBranchDeleteDialog(f *ui.Frame, p *project) {
 	b, t := &a.branch, a.text.Branch
 	d := f.Dialog(branchDialogSpec(t.DeleteTitle, t.DeletePrompt(b.target.ShortName), branchDialogCancel))
 	cancelled, confirmed := false, false

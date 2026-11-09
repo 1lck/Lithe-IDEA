@@ -9,6 +9,7 @@ package editorview
 
 import (
 	"bytes"
+	"sync/atomic"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -17,7 +18,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/term"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 const (
@@ -36,7 +37,7 @@ const (
 // Config is what a view needs from its window.
 type Config struct {
 	// HitID is the view's hit, which takes the keyboard focus.
-	HitID ui.ID
+	HitID gfx.ID
 	// Label names the view for assistive technology: the file's name.
 	Label string
 	// Text is the document's content as it was read.
@@ -47,6 +48,22 @@ type Config struct {
 	Notify func()
 	// Save asks the window to write the text out, for the save chord.
 	Save func()
+	// MinimapID is the minimap's hit and MinimapToggleID the button beside it that hides and
+	// shows it; VerticalBarID and HorizontalBarID are the tracks of the scrollbars. The window
+	// owns what the toggle does: it asks canvas.Clicked of MinimapToggleID and calls
+	// SetMinimap. A zero ID leaves the part out of the hits, and the bar or the minimap does
+	// not take the pointer.
+	MinimapID, MinimapToggleID     gfx.ID
+	VerticalBarID, HorizontalBarID gfx.ID
+}
+
+// Messages are the words the view gives assistive technology for its parts.
+type Messages struct {
+	// Minimap names the minimap, and HideMinimap and ShowMinimap the button that hides it and
+	// shows it again.
+	Minimap, HideMinimap, ShowMinimap string
+	// VerticalScrollbar and HorizontalScrollbar name the scrollbars.
+	VerticalScrollbar, HorizontalScrollbar string
 }
 
 // Look is the view's colors for the frame being painted.
@@ -54,12 +71,15 @@ type Look struct {
 	Dark bool
 	// Background is the editor's ground, Foreground its plain text and Subtle the line
 	// numbers.
-	Background, Foreground, Subtle ui.Color
+	Background, Foreground, Subtle gfx.Color
 	// CurrentLine is the band behind the caret's line, Selection the selected text's ground
 	// and Caret the caret.
-	CurrentLine, Selection, Caret ui.Color
+	CurrentLine, Selection, Caret gfx.Color
 	// Scrollbar is the thumb of the scrollbars.
-	Scrollbar ui.Color
+	Scrollbar gfx.Color
+	// Button is the ground of the button that hides and shows the minimap, ButtonHover its
+	// ground under the pointer and ButtonBorder its edge.
+	Button, ButtonHover, ButtonBorder gfx.Color
 }
 
 // snapshot is the text and the selection before or after an edit, as undo restores them.
@@ -112,7 +132,7 @@ type View struct {
 	theme *syntax.Theme
 	// themeDark and themeFG are what theme was built for.
 	themeDark bool
-	themeFG   ui.Color
+	themeFG   gfx.Color
 
 	// wrap says soft wrapping is on, and wrapCols is the columns the last paint wrapped the text
 	// at, 0 when it did not. wraps keeps every line's rows at wrapCols and rowStart where each
@@ -126,22 +146,38 @@ type View struct {
 	rowCache  map[int][]wrapRow
 	rowBuf    []wrapRow
 
+	// minimap says the window wants the minimap shown; a view too narrow for it leaves it out.
+	// See minimap.go.
+	minimap bool
+	mm      minimapState
+	// hlGen counts the highlighter's reports of lines colored anew, from its goroutine, so
+	// the minimap knows its colors are stale.
+	hlGen atomic.Uint64
+	words Messages
+
 	// scroll and scrollX are how far the text is scrolled, in pixels.
 	scroll, scrollX float32
 	// reveal asks the next paint to scroll the caret into view.
 	reveal bool
-	// The geometry of the last paint, which the pointer and the text input use.
-	area             ui.Rect
-	textLeft         float32
-	cellW, cellH     float32
-	lineH            float32
-	painted, focused bool
+	// The geometry of the last paint, which the pointer and the text input use. textRight is
+	// where the text ends: at the minimap while it shows, else at the view's right edge.
+	area                gfx.Rect
+	textLeft, textRight float32
+	cellW, cellH        float32
+	lineH               float32
+	painted, focused    bool
 
 	dragging bool
 	// dragUnit is what a drag selects by: 1 characters, 2 words, 3 lines; dragFrom and
 	// dragTo are the unit the drag started on.
 	dragUnit         int
 	dragFrom, dragTo int
+	// grip is the scrollbar thumb or the minimap slider a press holds, and the last paint's
+	// scrollbars; edgeHot says the pointer is near the right edge, which shows the button
+	// that brings the minimap back. See scrollbar.go.
+	grip    grip
+	bars    barLayout
+	edgeHot bool
 
 	preedit app.TextState
 	input   app.TextInput
@@ -150,7 +186,7 @@ type View struct {
 	clock     time.Duration
 
 	tokens  []syntax.Token
-	runs    []ui.TextRun
+	runs    []gfx.TextRun
 	display []byte
 	// numbers is the line numbers a paint puts in the gutter once the text is drawn.
 	numbers []gutterNumber
@@ -164,6 +200,7 @@ func New(cfg Config) *View {
 	notify := cfg.Notify
 	v.hl = syntax.NewHighlighter(cfg.Syntax, text, syntax.HighlighterOptions{
 		OnChange: func(first, last int) {
+			v.hlGen.Add(1)
 			if notify != nil {
 				notify()
 			}
@@ -172,8 +209,19 @@ func New(cfg Config) *View {
 	return v
 }
 
-// Owns reports whether id is the view's hit.
-func (v *View) Owns(id ui.ID) bool { return id == v.cfg.HitID }
+// Owns reports whether id is one of the view's hits: the text, the minimap, its button or a
+// scrollbar.
+func (v *View) Owns(id gfx.ID) bool {
+	if id.IsZero() {
+		return false
+	}
+	c := &v.cfg
+	return id == c.HitID || id == c.MinimapID || id == c.MinimapToggleID || id == c.VerticalBarID || id == c.HorizontalBarID
+}
+
+// SetMessages hands the view the words for its parts, each frame, so a change of language
+// reaches it at once.
+func (v *View) SetMessages(words Messages) { v.words = words }
 
 // Close stops the view's background highlighter.
 func (v *View) Close() { v.hl.Close() }

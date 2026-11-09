@@ -5,13 +5,13 @@ import (
 	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/term"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // bgSpan is a stretch of cells painted with a background color.
 type bgSpan struct {
 	from, to int // cell columns, to exclusive
-	color    ui.Color
+	color    gfx.Color
 }
 
 // cellSpan is a stretch of cells of one line, to exclusive. The zero value is
@@ -38,7 +38,7 @@ type rowEntry struct {
 	usedCols int
 	used     uint32 // paint generation that last used the entry
 	text     string
-	runs     []ui.TextRun
+	runs     []gfx.TextRun
 	spans    []bgSpan
 }
 
@@ -122,8 +122,8 @@ func (cache *rowCache) row(line term.Row, cols, cursor int, covered cellSpan, pa
 // cellStyle is what a cell looks like once its colors and attributes are
 // resolved against the palette.
 type cellStyle struct {
-	fg        ui.Color
-	bg        ui.Color
+	fg        gfx.Color
+	bg        gfx.Color
 	hasBG     bool
 	weight    float32
 	italic    bool
@@ -161,7 +161,7 @@ func resolveCell(cell term.Cell, pal *palette) cellStyle {
 		style.fg.Alpha *= 0.6
 	}
 	if bold {
-		style.weight = ui.WeightBold
+		style.weight = gfx.WeightBold
 	}
 	style.italic = cell.Attr&term.Italic != 0
 	style.underline = cell.Attr&term.Underline != 0
@@ -209,7 +209,7 @@ func (cache *rowCache) build(entry *rowEntry, line term.Row, cols, cursor int, c
 	var (
 		spanFrom  = -1
 		spanTo    int
-		spanColor ui.Color
+		spanColor gfx.Color
 	)
 	closeSpan := func() {
 		if spanFrom >= 0 {
@@ -294,7 +294,7 @@ func (cache *rowCache) build(entry *rowEntry, line term.Row, cols, cursor int, c
 			text = utf8.AppendRune(text, marks[0].R)
 			marks = marks[1:]
 		}
-		entry.runs = append(entry.runs, ui.TextRun{
+		entry.runs = append(entry.runs, gfx.TextRun{
 			Column: int32(x), Bytes: int32(len(text) - before), Cells: int32(width),
 			Color: ink.fg, Weight: ink.weight, Italic: ink.italic, Underline: ink.underline, Strike: ink.strike,
 		})
@@ -359,7 +359,7 @@ func asciiOnly(value string) bool {
 
 // sameRunInk reports whether a cell drawn with style can extend run: they must agree on
 // every property a run carries as a whole.
-func sameRunInk(run ui.TextRun, style cellStyle) bool {
+func sameRunInk(run gfx.TextRun, style cellStyle) bool {
 	return run.Color == style.fg && run.Weight == style.weight &&
 		run.Italic == style.italic && run.Underline == style.underline && run.Strike == style.strike
 }

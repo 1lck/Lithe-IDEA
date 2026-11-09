@@ -3,7 +3,7 @@ package workbench
 import (
 	"unicode"
 
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -17,7 +17,7 @@ type projectIdentity struct {
 	initials string
 	// start and end are the colors of the gradient, from the top left corner to the bottom
 	// right one.
-	start, end ui.Color
+	start, end gfx.Color
 }
 
 // identityGradients are the nine gradients a project can get, as 0xRRGGBB pairs. Their
@@ -66,15 +66,15 @@ const (
 )
 
 // identityInk is the color of the initials on every gradient.
-var identityInk = ui.RGB24(0xFFFFFF)
+var identityInk = gfx.RGB24(0xFFFFFF)
 
 // identityOf is the badge of the project at path whose folder is called name.
 func identityOf(path, name string) projectIdentity {
 	gradient := identityGradients[identityColorIndex(path)]
 	return projectIdentity{
 		initials: identityInitials(name),
-		start:    ui.RGB24(gradient[0]),
-		end:      ui.RGB24(gradient[1]),
+		start:    gfx.RGB24(gradient[0]),
+		end:      gfx.RGB24(gradient[1]),
 	}
 }
 
@@ -160,11 +160,11 @@ func identityFont(initials string, side float32) (size float32, mono bool) {
 // drawProjectAvatar declares the badge of a project: a rounded square of the given side
 // with the initials in white on the project's gradient. It returns the badge, so the caller
 // can fade it. It is a function, not a method, because it needs nothing but the identity.
-func drawProjectAvatar(f *flex.Frame, identity projectIdentity, side float32) flex.Box {
+func drawProjectAvatar(f *ui.Frame, identity projectIdentity, side float32) ui.Box {
 	size, mono := identityFont(identity.initials, side)
 	badge := f.Row().Size(side, side).Shrink(0).Center().
 		Radius(side*identityRadius).
-		Gradient(flex.ToBottomRight, identity.start, identity.end)
+		Gradient(ui.ToBottomRight, identity.start, identity.end)
 	return badge.Children(func() {
 		// The line is as tall as the badge, so the letters sit in its middle on whole pixels.
 		text := f.Text(identity.initials).FontSize(size).Bold().Color(identityInk).LineHeight(side)

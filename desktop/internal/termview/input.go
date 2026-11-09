@@ -7,7 +7,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/term"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // wheelStepLimit caps how many wheel reports, or arrow keys standing in for them, one
@@ -30,24 +30,24 @@ const (
 // Shift+Insert and Control+Insert are the classic aliases every terminal honors on every
 // platform. Both Text spellings of the letter are accepted, since a platform may report
 // the shifted one for a chord that holds Shift.
-func clipboardChord(event ui.KeyEvent) clipboardAction {
+func clipboardChord(event gfx.KeyEvent) clipboardAction {
 	switch event.Key {
-	case ui.KeyInsert:
+	case gfx.KeyInsert:
 		switch event.Modifiers {
-		case ui.ModifierShift:
+		case gfx.ModifierShift:
 			return clipboardPaste
-		case ui.ModifierControl:
+		case gfx.ModifierControl:
 			return clipboardCopy
 		}
 		return clipboardNone
-	case ui.KeyUnknown:
+	case gfx.KeyUnknown:
 		// A printable chord: Text holds its character without the modifiers.
 	default:
 		return clipboardNone
 	}
-	want := ui.ModifierControl | ui.ModifierShift
+	want := gfx.ModifierControl | gfx.ModifierShift
 	if runtime.GOOS == "darwin" {
-		want = ui.ModifierMeta
+		want = gfx.ModifierMeta
 	}
 	if event.Modifiers != want {
 		return clipboardNone
@@ -66,11 +66,11 @@ func clipboardChord(event ui.KeyEvent) clipboardAction {
 // character arrives as text (see terminalText), except while a program has negotiated the
 // kitty keyboard protocol or win32-input-mode, when Viva delivers the whole keyboard as
 // presses and releases.
-func (v *View) Key(event ui.KeyEvent) (ui.EventResult, bool) {
+func (v *View) Key(event gfx.KeyEvent) (gfx.EventResult, bool) {
 	if event.Target != v.cfg.HitID {
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
-	handled := ui.EventResult{Handled: true}
+	handled := gfx.EventResult{Handled: true}
 	if action := clipboardChord(event); action != clipboardNone {
 		// The window's shortcut hook normally takes the lettered chords first. The named
 		// Insert keys never reach it, and a lettered chord it let through also ends here,
@@ -83,22 +83,22 @@ func (v *View) Key(event ui.KeyEvent) (ui.EventResult, bool) {
 			return v.copySelection(), true
 		}
 		v.paste()
-		return ui.EventResult{Handled: true, Repaint: true}, true
+		return gfx.EventResult{Handled: true, Repaint: true}, true
 	}
 	modes := v.screen.Modes()
 	flags := v.screen.KeyboardFlags()
-	if v.preedit.Composing && event.Key == ui.KeyEnter && event.Modifiers == 0 && !modes.AltScreen {
+	if v.preedit.Composing && event.Key == gfx.KeyEnter && event.Modifiers == 0 && !modes.AltScreen {
 		// The input method used this Enter to commit its composition, which the text
 		// system reports on its own; sent as well, it would end the line the composition
 		// went into.
 		return handled, true
 	}
-	if event.Modifiers&ui.ModifierMeta != 0 && !event.Key.IsModifier() {
+	if event.Modifiers&gfx.ModifierMeta != 0 && !event.Key.IsModifier() {
 		if letter, ok := term.CommandLineEdit(event.Key, event.Modifiers); ok && runtime.GOOS == "darwin" {
 			// Command+Left, Command+Right and Command+Backspace are the Mac's line edits.
 			// They go on as the Control letters that shells and full-screen programs
 			// understand without any setup.
-			event.Key, event.Modifiers, event.Text, event.Typed = ui.KeyUnknown, ui.ModifierControl, letter, ""
+			event.Key, event.Modifiers, event.Text, event.Typed = gfx.KeyUnknown, gfx.ModifierControl, letter, ""
 		} else if flags == 0 {
 			// A Command chord the window did not claim is still not the program's: it
 			// never asked for a Super key. Once it negotiated kitty keyboard reports it
@@ -109,20 +109,20 @@ func (v *View) Key(event ui.KeyEvent) (ui.EventResult, bool) {
 	if v.shell == nil {
 		// Nothing is listening: Enter starts the session again. Every other key is
 		// swallowed, and the ended session has already said why on the screen.
-		if event.Key == ui.KeyEnter && !event.Repeat && !event.Release && v.restart() {
-			return ui.EventResult{Handled: true, Repaint: true}, true
+		if event.Key == gfx.KeyEnter && !event.Repeat && !event.Release && v.restart() {
+			return gfx.EventResult{Handled: true, Repaint: true}, true
 		}
 		return handled, true
 	}
-	if event.Modifiers&ui.ModifierShift != 0 && event.Modifiers&ui.ModifierMeta == 0 && !modes.AltScreen {
+	if event.Modifiers&gfx.ModifierShift != 0 && event.Modifiers&gfx.ModifierMeta == 0 && !modes.AltScreen {
 		// Shift with the page keys pages through the history, as every terminal does. The
 		// alternate screen has none, so its program gets the keys.
 		_, rows := v.screen.Size()
 		lines := 0
 		switch event.Key {
-		case ui.KeyPageUp:
+		case gfx.KeyPageUp:
 			lines = rows - 1
-		case ui.KeyPageDown:
+		case gfx.KeyPageDown:
 			lines = -(rows - 1)
 		}
 		if lines != 0 {
@@ -136,7 +136,7 @@ func (v *View) Key(event ui.KeyEvent) (ui.EventResult, bool) {
 	if modes.Win32Input {
 		encoded = term.EncodeWin32Key(event)
 	} else if runtime.GOOS == "darwin" && flags == 0 && !modes.AltScreen &&
-		event.Modifiers == ui.ModifierAlt && !event.Release {
+		event.Modifiers == gfx.ModifierAlt && !event.Release {
 		// Match macOS Terminal's word movement when the shell owns the key. Alternate-screen
 		// programs and negotiated keyboard modes keep their keys.
 		//
@@ -146,9 +146,9 @@ func (v *View) Key(event ui.KeyEvent) (ui.EventResult, bool) {
 		// Shift+Option is macOS's "select a whole word", a different intent that the
 		// default encoding serves.
 		switch event.Key {
-		case ui.KeyRight:
+		case gfx.KeyRight:
 			encoded = []byte("\x1bf")
-		case ui.KeyLeft:
+		case gfx.KeyLeft:
 			encoded = []byte("\x1bb")
 		}
 	}
@@ -168,18 +168,18 @@ func (v *View) Key(event ui.KeyEvent) (ui.EventResult, bool) {
 // Shortcut handles the chords the terminal owns, copy and paste, before the text system
 // sees them. The second result is false for everything else, which then goes on as text or
 // as a key.
-func (v *View) Shortcut(event ui.KeyEvent) (ui.EventResult, bool) {
+func (v *View) Shortcut(event gfx.KeyEvent) (gfx.EventResult, bool) {
 	if event.Target != v.cfg.HitID || event.Release {
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
 	switch clipboardChord(event) {
 	case clipboardCopy:
 		return v.copySelection(), true
 	case clipboardPaste:
 		v.paste()
-		return ui.EventResult{Handled: true, Repaint: true}, true
+		return gfx.EventResult{Handled: true, Repaint: true}, true
 	}
-	return ui.EventResult{}, false
+	return gfx.EventResult{}, false
 }
 
 // TextInput resolves the native text surface for the focused terminal: a preedit surface at
@@ -195,7 +195,7 @@ func (v *View) TextInput(ctx app.TextInputContext) *app.TextInput {
 	if v.preedit.Composing {
 		cells += displayCells(v.preedit.Value)
 	}
-	v.input.Bounds = ui.Rect{
+	v.input.Bounds = gfx.Rect{
 		X:     v.layout.left + float32(cursor.X)*v.cellW,
 		Y:     v.layout.top + float32(cursor.Y)*v.cellH,
 		Width: float32(cells) * v.cellW, Height: v.cellH,
@@ -255,11 +255,11 @@ func (v *View) terminalText(event app.TextEvent) app.TextState {
 
 // copySelection hands the selected text to the clipboard. It is handled either way, so a
 // copy chord with nothing selected is not sent on to the program.
-func (v *View) copySelection() ui.EventResult {
+func (v *View) copySelection() gfx.EventResult {
 	if !v.selection.selected {
-		return ui.EventResult{Handled: true}
+		return gfx.EventResult{Handled: true}
 	}
-	return ui.EventResult{Handled: true, ClipboardText: v.selection.text(v.screen)}
+	return gfx.EventResult{Handled: true, ClipboardText: v.selection.text(v.screen)}
 }
 
 // paste sends the system clipboard to a live shell as a paste. A clipboard that cannot be
@@ -281,29 +281,29 @@ func (v *View) paste() {
 // scrollView moves the view by lines, positive going back into history. It is handled even
 // when the view does not move, so the key or press that asked is not taken for something
 // else.
-func (v *View) scrollView(lines int) ui.EventResult {
+func (v *View) scrollView(lines int) gfx.EventResult {
 	if lines == 0 {
-		return ui.EventResult{Handled: true}
+		return gfx.EventResult{Handled: true}
 	}
-	return ui.EventResult{Handled: true, Repaint: v.screen.Scroll(lines)}
+	return gfx.EventResult{Handled: true, Repaint: v.screen.Scroll(lines)}
 }
 
 // Scroll turns the wheel into a program's mouse reports, into arrow keys on the alternate
 // screen, where a pager or editor owns the display and has no history, and otherwise into
 // scrolling of the history. The second result is false for an event of another target.
-func (v *View) Scroll(event ui.ScrollEvent) (ui.EventResult, bool) {
+func (v *View) Scroll(event gfx.ScrollEvent) (gfx.EventResult, bool) {
 	if event.Target != v.cfg.HitID && event.Target != v.cfg.BarID {
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
 	if v.cellW <= 0 || v.cellH <= 0 {
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
-	handled := ui.EventResult{Handled: true}
+	handled := gfx.EventResult{Handled: true}
 	modes := v.screen.Modes()
 	// Shift hands the wheel back to the terminal. With no shell there is no program to
 	// report to, and its modes may still be armed, so the wheel keeps working on the history.
 	if modes.Mouse != term.MouseOff && v.shell != nil && event.Target == v.cfg.HitID &&
-		event.Modifiers&ui.ModifierShift == 0 {
+		event.Modifiers&gfx.ModifierShift == 0 {
 		return v.mouseScroll(event), true
 	}
 	if modes.AltScreen && (modes.Mouse != term.MouseOff || !modes.AlternateScroll) {
@@ -318,9 +318,9 @@ func (v *View) Scroll(event ui.ScrollEvent) (ui.EventResult, bool) {
 	v.wheelY -= float32(lines)
 	// Positive deltas reveal content below, that is, newer output.
 	if modes.AltScreen {
-		key := ui.KeyDown
+		key := gfx.KeyDown
 		if lines < 0 {
-			key, lines = ui.KeyUp, -lines
+			key, lines = gfx.KeyUp, -lines
 		}
 		for range min(lines, wheelStepLimit) {
 			v.sendInput(term.EncodeKey(key, 0, "", modes.AppCursorKeys))
@@ -333,7 +333,7 @@ func (v *View) Scroll(event ui.ScrollEvent) (ui.EventResult, bool) {
 // mouseScroll reports the wheel to a program that asked for the mouse, as wheel presses at
 // the cell under the pointer. The distance is kept in whole cells, as it is for the history,
 // and the horizontal wheel is reported the same way.
-func (v *View) mouseScroll(event ui.ScrollEvent) ui.EventResult {
+func (v *View) mouseScroll(event gfx.ScrollEvent) gfx.EventResult {
 	position := v.positionAt(event.X, event.Y)
 	modifiers := terminalMouseModifiers(event.Modifiers)
 	repaint := false
@@ -363,5 +363,5 @@ func (v *View) mouseScroll(event ui.ScrollEvent) ui.EventResult {
 		button, horizontal = term.MouseWheelLeft, -horizontal
 	}
 	report(button, horizontal)
-	return ui.EventResult{Handled: true, Repaint: repaint}
+	return gfx.EventResult{Handled: true, Repaint: repaint}
 }

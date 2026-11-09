@@ -7,7 +7,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -135,29 +135,29 @@ type titleState struct {
 
 // chromeBox gives the container of the rearrangeable button of catalog item i its
 // identity, its looks and its place in the frame, and returns it for its content to be
-// declared in. A container is used and not a flex Button because a Button shows text
+// declared in. A container is used and not a ui Button because a Button shows text
 // only: these buttons carry icons, take their colors from the palette and report their
 // state to assistive technology. value is the reading of a status item, empty for the
 // other buttons.
-func (a *App) chromeBox(row flex.Box, i int, open bool, value string) flex.Box {
+func (a *App) chromeBox(row ui.Box, i int, open bool, value string) ui.Box {
 	it := catalog[i]
 	label := it.label(a.text)
 	if it.id == itemChanges {
 		// The label of the changes item is a fixed "No changes"; the reading says how many.
 		label = value
 	}
-	options := ui.HitOptions{Role: ui.RoleButton, Hint: a.text.Tools.DragHint, Selected: open, Value: value}
+	options := gfx.HitOptions{Role: gfx.RoleButton, Hint: a.text.Tools.DragHint, Selected: open, Value: value}
 	if it.zone.surface() != surfaceStatus {
 		// The status items only show a reading, so they do not offer a click.
-		options.Cursor = ui.PointerCursorHand
+		options.Cursor = gfx.PointerCursorHand
 	}
 	row = row.Radius(a.theme.Metrics.RadiusItem()).
 		HitWith(chromeButtons.At(i), label, options).
-		Pressed(flex.Look{}.Background(a.colors.Active))
+		Pressed(ui.Look{}.Background(a.colors.Active))
 	if open {
 		row = row.Background(a.colors.Active)
 	} else {
-		row = row.Hover(flex.Look{}.Background(a.colors.Hover))
+		row = row.Hover(ui.Look{}.Background(a.colors.Hover))
 	}
 	if a.drag.active && a.drag.item == i {
 		row = row.Opacity(chromeDragDim)
@@ -169,11 +169,11 @@ func (a *App) chromeBox(row flex.Box, i int, open bool, value string) flex.Box {
 // drawChromeGlyph declares a square button that shows the icon of catalog item i and
 // reports a click on it. The icon is rest while the pointer is away and hover while it
 // is over the button.
-func (a *App) drawChromeGlyph(f *flex.Frame, i int, side float32, rest, hover ui.Color, open bool) bool {
+func (a *App) drawChromeGlyph(f *ui.Frame, i int, side float32, rest, hover gfx.Color, open bool) bool {
 	box := a.chromeBox(f.Row().Size(side, side).Shrink(0).Center(), i, open, "")
 	box.Children(func() {
 		f.Icon(*catalog[i].icon).Size(chromeIconSize, chromeIconSize).Color(rest).
-			StateFrom(box).Hover(flex.Look{}.Color(hover))
+			StateFrom(box).Hover(ui.Look{}.Color(hover))
 	})
 	return box.Clicked()
 }
@@ -181,21 +181,21 @@ func (a *App) drawChromeGlyph(f *flex.Frame, i int, side float32, rest, hover ui
 // drawTitleBar is the strip across the top of the workbench: the project, the branch
 // and, at the trailing end, the buttons the user can arrange. The whole bar moves the
 // window; the controls in it take their own presses.
-func (a *App) drawTitleBar(f *flex.Frame) {
+func (a *App) drawTitleBar(f *ui.Frame) {
 	// The system's window buttons sit at one end of the strip, so the content keeps clear
 	// of them.
 	leading, trailing := app.TitlebarInsets()
 	// What a click asks for is done after the bar is declared. A button changes the
 	// arrangement, which this loop is still reading.
 	clicked, opening, branching, branched := -1, false, false, false
-	var project, branch flex.Box
+	var project, branch ui.Box
 	f.Row().FillWidth().Height(titleBarHeight).Shrink(0).Background(a.colors.Chrome).
-		Items(flex.Center).Gap(chromeGap).PadSides(0, trailing+chromeEdge, 0, leading+chromeEdge).
+		Items(ui.Center).Gap(chromeGap).PadSides(0, trailing+chromeEdge, 0, leading+chromeEdge).
 		MovesWindow().Children(func() {
 		project, opening = a.drawChromeProject(f)
 		branch, branched, branching = a.drawChromeBranch(f)
 		f.Spacer()
-		zoneBox := f.Row().Items(flex.Center).Gap(chromeGap).Children(func() {
+		zoneBox := f.Row().Items(ui.Center).Gap(chromeGap).Children(func() {
 			for _, i := range a.chrome.items[zoneTitle] {
 				if a.drawChromeTitleButton(f, i) {
 					clicked = i
@@ -244,30 +244,30 @@ func (a *App) drawTitleBar(f *flex.Frame) {
 
 // chromeHover gives a control the backgrounds the chrome's buttons take while the pointer
 // is over them and while they are pressed.
-func (a *App) chromeHover(box flex.Box) flex.Box {
-	return box.Hover(flex.Look{}.Background(a.colors.Hover)).Pressed(flex.Look{}.Background(a.colors.Active))
+func (a *App) chromeHover(box ui.Box) ui.Box {
+	return box.Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
 }
 
 // drawChromeProject declares the project's badge and name with the chevron that opens its
 // menu. It returns the button, which the menu is placed under, and whether it was clicked.
-func (a *App) drawChromeProject(f *flex.Frame) (flex.Box, bool) {
+func (a *App) drawChromeProject(f *ui.Frame) (ui.Box, bool) {
 	open := a.title.projectOpen
 	row := a.welcome.row(a.project.root, len(a.recent))
-	button := f.Row().Height(chromeIconButton).Shrink(0).Items(flex.Center).Gap(chromeTitleGap).PadX(chromeEdge).
+	button := f.Row().Height(chromeIconButton).Shrink(0).Items(ui.Center).Gap(chromeTitleGap).PadX(chromeEdge).
 		Radius(a.theme.Metrics.RadiusItem()).
-		HitWith(chromeProjectButton, a.text.Title.ProjectMenu, ui.HitOptions{
-			Role:        ui.RoleButton,
-			Cursor:      ui.PointerCursorHand,
+		HitWith(chromeProjectButton, a.text.Title.ProjectMenu, gfx.HitOptions{
+			Role:        gfx.RoleButton,
+			Cursor:      gfx.PointerCursorHand,
 			Value:       a.project.name,
 			Description: row.path,
 			Expandable:  true,
 			Expanded:    open,
 		}).
-		Pressed(flex.Look{}.Background(a.colors.Active))
+		Pressed(ui.Look{}.Background(a.colors.Active))
 	if open {
 		button = button.Background(a.colors.Active)
 	} else {
-		button = button.Hover(flex.Look{}.Background(a.colors.Hover))
+		button = button.Hover(ui.Look{}.Background(a.colors.Hover))
 	}
 	button.Children(func() {
 		drawProjectAvatar(f, row.identity, chromeAvatarTitle)
@@ -279,10 +279,10 @@ func (a *App) drawChromeProject(f *flex.Frame) (flex.Box, bool) {
 
 // drawChromeTitleButton declares the title bar button of catalog item i and reports a
 // click on it.
-func (a *App) drawChromeTitleButton(f *flex.Frame, i int) bool {
+func (a *App) drawChromeTitleButton(f *ui.Frame, i int) bool {
 	switch catalog[i].id {
 	case itemRunConfig:
-		box := a.chromeBox(f.Row().Height(chromeIconButton).Shrink(0).Items(flex.Center).Gap(chromeGap).PadX(chromeEdge), i, false, "")
+		box := a.chromeBox(f.Row().Height(chromeIconButton).Shrink(0).Items(ui.Center).Gap(chromeGap).PadX(chromeEdge), i, false, "")
 		box.Children(func() {
 			f.Icon(*catalog[i].icon).Size(chromeIconSize, chromeIconSize).Color(a.colors.Subtle)
 			f.Text(a.text.Title.CurrentFile).Color(a.colors.Text).LineHeight(chromeLineHeight)
@@ -306,7 +306,7 @@ func (a *App) drawChromeTitleButton(f *flex.Frame, i int) bool {
 // While a tool button is dragged, every zone gets at least the height of a button, so an
 // empty zone remains visible and can be hit. No separator is needed between the top and
 // split groups: the flexible space makes their placement clear.
-func (a *App) drawStripe(f *flex.Frame, left bool) {
+func (a *App) drawStripe(f *ui.Frame, left bool) {
 	top, split, end := zoneLeftTop, zoneLeftBottom, zoneBottomLeft
 	if !left {
 		top, split, end = zoneRightTop, zoneRightBottom, zoneBottomRight
@@ -344,7 +344,7 @@ func (a *App) drawStripe(f *flex.Frame, left bool) {
 // drawStripe pushes the split and bottom groups to the stripe's end. While a tool button
 // is dragged, every zone is at least one button high, which makes an empty zone a place
 // the button can be dropped.
-func (a *App) drawChromeStripeZone(f *flex.Frame, z zone, dragging bool) int {
+func (a *App) drawChromeStripeZone(f *ui.Frame, z zone, dragging bool) int {
 	clicked := -1
 	column := f.Column().Gap(chromeGap)
 	if dragging {
@@ -368,14 +368,14 @@ func (a *App) drawChromeStripeZone(f *flex.Frame, z zone, dragging bool) int {
 
 // drawStatusBar is the strip across the bottom of the workbench: the project on the
 // left, and at the trailing end the readouts the user can arrange.
-func (a *App) drawStatusBar(f *flex.Frame) {
+func (a *App) drawStatusBar(f *ui.Frame) {
 	clicked := -1
 	f.Row().FillWidth().Height(statusBarHeight).Shrink(0).Background(a.colors.Chrome).
-		Items(flex.Center).PadX(chromeEdge).Children(func() {
+		Items(ui.Center).PadX(chromeEdge).Children(func() {
 		f.Text(a.project.name).Grow(1).Ellipsis().FontSize(a.theme.Metrics.FontSizeS).LineHeight(chromeLineHeight).
 			Color(a.colors.Subtle).
-			HitWith(chromeStatusPath, a.text.Status.Path, ui.HitOptions{Role: ui.RoleStatus, Value: a.project.name, SkipFocus: true})
-		zoneBox := f.Row().Items(flex.Center).Gap(chromeGap).Children(func() {
+			HitWith(chromeStatusPath, a.text.Status.Path, gfx.HitOptions{Role: gfx.RoleStatus, Value: a.project.name, SkipFocus: true})
+		zoneBox := f.Row().Items(ui.Center).Gap(chromeGap).Children(func() {
 			for _, i := range a.chrome.items[zoneStatus] {
 				if a.drawChromeStatusItem(f, i) {
 					clicked = i
@@ -392,9 +392,9 @@ func (a *App) drawStatusBar(f *flex.Frame) {
 
 // drawChromeStatusItem declares the status bar item of catalog item i and reports a
 // click on it.
-func (a *App) drawChromeStatusItem(f *flex.Frame, i int) bool {
+func (a *App) drawChromeStatusItem(f *ui.Frame, i int) bool {
 	text := a.chromeStatusText(i)
-	box := a.chromeBox(f.Row().Height(chromeStatusItem).Shrink(0).Items(flex.Center).Gap(chromeGap).PadX(chromeEdge), i, false, text)
+	box := a.chromeBox(f.Row().Height(chromeStatusItem).Shrink(0).Items(ui.Center).Gap(chromeGap).PadX(chromeEdge), i, false, text)
 	box.Children(func() {
 		switch catalog[i].id {
 		case itemLock:
@@ -411,7 +411,7 @@ func (a *App) drawChromeStatusItem(f *flex.Frame, i int) bool {
 	return box.Clicked()
 }
 
-func (a *App) drawChromeStatusText(f *flex.Frame, text string) {
+func (a *App) drawChromeStatusText(f *ui.Frame, text string) {
 	f.Text(text).FontSize(a.theme.Metrics.FontSizeS).LineHeight(chromeLineHeight).Color(a.colors.Subtle)
 }
 
@@ -509,12 +509,12 @@ func (a *App) menuRecents(buf *[chromeMenuRecents]int) []int {
 // projectMenuKey closes the open project menu on Escape and reports the key handled, so the
 // same press does not also reach the terminal. It leaves every other key, and Escape with
 // the menu shut, to the caller.
-func (a *App) projectMenuKey(event ui.KeyEvent) ui.EventResult {
-	if !a.title.projectOpen || event.Release || event.Key != ui.KeyEscape {
-		return ui.EventResult{}
+func (a *App) projectMenuKey(event gfx.KeyEvent) gfx.EventResult {
+	if !a.title.projectOpen || event.Release || event.Key != gfx.KeyEscape {
+		return gfx.EventResult{}
 	}
 	a.title.projectOpen = false
-	return ui.EventResult{Handled: true, Repaint: true}
+	return gfx.EventResult{Handled: true, Repaint: true}
 }
 
 // drawProjectMenu declares the open project menu under anchor, the project button: a
@@ -525,10 +525,10 @@ func (a *App) projectMenuKey(event ui.KeyEvent) ui.EventResult {
 // What a click asks for is done once the panel is declared. Opening or closing a project
 // replaces the state the panel is built from, so those two are queued with post and run
 // before the next frame.
-func (a *App) drawProjectMenu(f *flex.Frame, anchor flex.Box) {
+func (a *App) drawProjectMenu(f *ui.Frame, anchor ui.Box) {
 	dismissed := f.Popup().At(0, 0).Fill().
-		HitWith(chromeMenuDismiss, a.text.Errors.Dismiss, ui.HitOptions{
-			Role:          ui.RoleButton,
+		HitWith(chromeMenuDismiss, a.text.Errors.Dismiss, gfx.HitOptions{
+			Role:          gfx.RoleButton,
 			SkipFocus:     true,
 			Backdrop:      true,
 			PassSecondary: true,
@@ -540,10 +540,10 @@ func (a *App) drawProjectMenu(f *flex.Frame, anchor flex.Box) {
 	picked := -1
 	// The panel has a hit of its own to take the presses on its padding and between its rows.
 	// Without one they would fall through to the backdrop and close the menu.
-	panel := ui.HitOptions{Role: ui.RoleMenu, SkipFocus: true}
-	f.Popup().BelowBox(anchor, chromeMenuOffset, flex.Start).
+	panel := gfx.HitOptions{Role: gfx.RoleMenu, SkipFocus: true}
+	f.Popup().BelowBox(anchor, chromeMenuOffset, ui.Start).
 		Width(chromeMenuWidth).MaxHeight(chromeMenuMaxHeight).
-		Background(a.theme.Popover).Border(1, a.theme.Border).Radius(chromeMenuRadius).Shadow(ui.ShadowMD).
+		Background(a.theme.Popover).Border(1, a.theme.Border).Radius(chromeMenuRadius).Shadow(gfx.ShadowMD).
 		HitWith(chromeMenuPanel, a.text.Title.ProjectMenu, panel).
 		Children(func() {
 			f.ScrollArea(chromeMenuScroll).MaxHeight(chromeMenuMaxHeight).Pad(chromeMenuPadding).Gap(chromeMenuItems).Children(func() {
@@ -559,7 +559,7 @@ func (a *App) drawProjectMenu(f *flex.Frame, anchor flex.Box) {
 				a.drawMenuDivider(f)
 				a.drawMenuTitle(f, a.text.Title.RecentProjects)
 				if len(recents) == 0 {
-					f.Row().Height(chromeMenuRow).Shrink(0).Items(flex.Center).PadX(chromeEdge).Children(func() {
+					f.Row().Height(chromeMenuRow).Shrink(0).Items(ui.Center).PadX(chromeEdge).Children(func() {
 						f.Text(a.text.Title.NoRecentProjects).Color(a.colors.Subtle).LineHeight(chromeLineHeight)
 					})
 				}
@@ -603,10 +603,10 @@ func (a *App) drawProjectMenu(f *flex.Frame, anchor flex.Box) {
 
 // drawMenuAction declares one of the actions at the top of the project menu, an icon and
 // its name, and reports a click on it.
-func (a *App) drawMenuAction(f *flex.Frame, id ui.ID, icon ui.Icon, label string) bool {
-	row := a.chromeHover(f.Row().Height(chromeMenuRow).Shrink(0).Items(flex.Center).Gap(chromeMenuGap).PadX(chromeEdge).
+func (a *App) drawMenuAction(f *ui.Frame, id gfx.ID, icon gfx.Icon, label string) bool {
+	row := a.chromeHover(f.Row().Height(chromeMenuRow).Shrink(0).Items(ui.Center).Gap(chromeMenuGap).PadX(chromeEdge).
 		Radius(a.theme.Metrics.RadiusItem()).
-		HitWith(id, label, ui.HitOptions{Role: ui.RoleMenuItem, Cursor: ui.PointerCursorHand}))
+		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleMenuItem, Cursor: gfx.PointerCursorHand}))
 	row.Children(func() {
 		f.Icon(icon).Size(chromeIconSize, chromeIconSize).Color(a.colors.Subtle)
 		f.Text(label).Color(a.colors.Text).LineHeight(chromeLineHeight)
@@ -616,14 +616,14 @@ func (a *App) drawMenuAction(f *flex.Frame, id ui.ID, icon ui.Icon, label string
 
 // drawMenuDivider declares the line between two parts of the project menu. The room
 // around it keeps the sections apart without a heavier rule.
-func (a *App) drawMenuDivider(f *flex.Frame) {
+func (a *App) drawMenuDivider(f *ui.Frame) {
 	f.Row().FillWidth().Height(1).Shrink(0).Background(a.colors.Line).
 		MarginSides(chromeMenuGap, chromeMenuPadding, chromeMenuGap, chromeMenuPadding)
 }
 
 // drawMenuTitle declares the name of a section of the project menu.
-func (a *App) drawMenuTitle(f *flex.Frame, label string) {
-	f.Row().Height(chromeMenuTitle).Shrink(0).Items(flex.Center).PadX(chromeEdge).Children(func() {
+func (a *App) drawMenuTitle(f *ui.Frame, label string) {
+	f.Row().Height(chromeMenuTitle).Shrink(0).Items(ui.Center).PadX(chromeEdge).Children(func() {
 		f.Text(label).FontSize(a.theme.Metrics.FontSizeS).Bold().Color(a.colors.Subtle).LineHeight(chromeLineHeight)
 	})
 }
@@ -632,12 +632,12 @@ func (a *App) drawMenuTitle(f *flex.Frame, label string) {
 // when it is a repository, its branch. It reports a click on the row and, for the open
 // project, a click on the button at its end that closes the project. The open project is
 // marked as selected. A project whose folder is gone is faded and inert.
-func (a *App) drawProjectMenuRow(f *flex.Frame, id ui.ID, row welcomeRow, branch string, current, missing bool) (clicked, closed bool) {
-	options := ui.HitOptions{Role: ui.RoleMenuItem, Cursor: ui.PointerCursorHand, Description: row.path, Selected: current}
+func (a *App) drawProjectMenuRow(f *ui.Frame, id gfx.ID, row welcomeRow, branch string, current, missing bool) (clicked, closed bool) {
+	options := gfx.HitOptions{Role: gfx.RoleMenuItem, Cursor: gfx.PointerCursorHand, Description: row.path, Selected: current}
 	if missing {
-		options.Cursor, options.Disabled, options.Hint = ui.PointerCursorDefault, true, a.text.Welcome.Missing
+		options.Cursor, options.Disabled, options.Hint = gfx.PointerCursorDefault, true, a.text.Welcome.Missing
 	}
-	item := f.Row().MinHeight(chromeMenuProject).Shrink(0).Items(flex.Center).Gap(chromeMenuGap).PadX(chromeEdge).PadY(chromeMenuRowPad).
+	item := f.Row().MinHeight(chromeMenuProject).Shrink(0).Items(ui.Center).Gap(chromeMenuGap).PadX(chromeEdge).PadY(chromeMenuRowPad).
 		Radius(a.theme.Metrics.RadiusItem()).HitWith(id, row.name, options)
 	switch {
 	case current:
@@ -653,7 +653,7 @@ func (a *App) drawProjectMenuRow(f *flex.Frame, id ui.ID, row welcomeRow, branch
 			f.Text(row.name).Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis()
 			f.Text(row.path).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).LineHeight(chromeLineHeight).Ellipsis()
 			if branch != "" {
-				f.Row().Items(flex.Center).Gap(chromeGap).Children(func() {
+				f.Row().Items(ui.Center).Gap(chromeGap).Children(func() {
 					f.Icon(icons.GitBranch).Size(chromeMarkSize, chromeMarkSize).Shrink(0).Color(a.colors.Subtle)
 					f.Text(branch).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).LineHeight(chromeLineHeight).Ellipsis()
 				})
@@ -668,13 +668,13 @@ func (a *App) drawProjectMenuRow(f *flex.Frame, id ui.ID, row welcomeRow, branch
 
 // drawMenuClose declares the button at the end of the open project's row that closes the
 // project, and reports a click on it.
-func (a *App) drawMenuClose(f *flex.Frame) bool {
+func (a *App) drawMenuClose(f *ui.Frame) bool {
 	button := a.chromeHover(f.Row().Size(chromeMenuClosing, chromeMenuClosing).Shrink(0).Center().
 		Radius(a.theme.Metrics.RadiusItem()).
-		HitWith(chromeMenuClose, a.text.Title.CloseProject, ui.HitOptions{Role: ui.RoleButton, Cursor: ui.PointerCursorHand}))
+		HitWith(chromeMenuClose, a.text.Title.CloseProject, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}))
 	button.Children(func() {
 		f.Icon(icons.X).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle).
-			StateFrom(button).Hover(flex.Look{}.Color(a.colors.Text))
+			StateFrom(button).Hover(ui.Look{}.Color(a.colors.Text))
 	})
 	return button.Clicked()
 }
@@ -684,14 +684,14 @@ func (a *App) drawMenuClose(f *flex.Frame) bool {
 // placed against the rectangle of a button the user can move, which is known only once the
 // frame is laid out. The project menu does not wait for that: it is declared in the frame
 // that declares its button (drawProjectMenu).
-func (a *App) paintChromeMenus(canvas *ui.Canvas, viewport ui.Rect) {
+func (a *App) paintChromeMenus(canvas *gfx.Canvas, viewport gfx.Rect) {
 	a.paintGearMenu(canvas, viewport)
 }
 
 // paintGearMenu paints the settings button's menu, as the macOS title bar's gear shows it,
 // and acts on a choice in it. The button is rearrangeable, so the menu is placed against
 // where it was laid out in the frame just finished, opening toward the inside of the window.
-func (a *App) paintGearMenu(canvas *ui.Canvas, viewport ui.Rect) {
+func (a *App) paintGearMenu(canvas *gfx.Canvas, viewport gfx.Rect) {
 	if !a.title.gearOpen {
 		return
 	}
@@ -713,7 +713,7 @@ func (a *App) paintGearMenu(canvas *ui.Canvas, viewport ui.Rect) {
 	if anchor.X+anchor.Width/2 > viewport.X+viewport.Width/2 {
 		x = anchor.X + anchor.Width - gearMenuWidth
 	}
-	bounds := ui.Rect{X: x, Y: anchor.Y + anchor.Height + chromeMenuOffset, Width: gearMenuWidth, Height: height}
+	bounds := gfx.Rect{X: x, Y: anchor.Y + anchor.Height + chromeMenuOffset, Width: gearMenuWidth, Height: height}
 
 	menu := components.BeginDropdownMenu(canvas, a.theme, bounds, components.DropdownMenuOptions{
 		Layer:     1,

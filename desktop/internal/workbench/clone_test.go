@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 func TestWelcomeClonesRepositoryThroughRealCore(t *testing.T) {
@@ -44,7 +44,7 @@ func TestWelcomeMoreMenuClosesOnEscape(t *testing.T) {
 	if got := h.driver.Snapshot().Focused; got != welcomeClone {
 		t.Fatalf("opening the more menu focused %v, want the clone action", got)
 	}
-	if err := h.driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 	if h.app.welcome.moreOpen {
@@ -73,13 +73,13 @@ func TestCloneDirectoryPickerUsesSelectedDirectory(t *testing.T) {
 func TestCloneDialogCanBeOpenedAndDismissedByKeyboard(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.click(center(h.hit(welcomeMore)))
-	if err := h.driver.Key(ui.KeyEnter, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
 	if !h.app.clone.open || h.driver.Snapshot().Focused != cloneSource {
 		t.Fatalf("clone open = %v, focused = %v", h.app.clone.open, h.driver.Snapshot().Focused)
 	}
-	if err := h.driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 	h.settle()

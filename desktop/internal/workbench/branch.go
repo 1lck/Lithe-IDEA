@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -15,7 +15,7 @@ import (
 type branchState struct {
 	// search filters the list; name is the name typed in the create and rename dialogs;
 	// revision is the revision typed in the checkout dialog.
-	search, name, revision flex.Field
+	search, name, revision ui.Field
 	branchSession
 }
 
@@ -122,17 +122,17 @@ func (a *App) loadBranches(p *project) {
 }
 
 // branchMenuKey closes the row menu, then the popup, on Escape. A dialog closes itself.
-func (a *App) branchMenuKey(event ui.KeyEvent) ui.EventResult {
+func (a *App) branchMenuKey(event gfx.KeyEvent) gfx.EventResult {
 	b := &a.branch
-	if !b.open || b.dialog != branchDialogNone || event.Release || event.Key != ui.KeyEscape {
-		return ui.EventResult{}
+	if !b.open || b.dialog != branchDialogNone || event.Release || event.Key != gfx.KeyEscape {
+		return gfx.EventResult{}
 	}
 	if b.menu != "" {
 		b.menu = ""
 	} else {
 		b.open = false
 	}
-	return ui.EventResult{Handled: true, Repaint: true}
+	return gfx.EventResult{Handled: true, Repaint: true}
 }
 
 // currentReference is the checked-out local branch among the loaded references, or HEAD

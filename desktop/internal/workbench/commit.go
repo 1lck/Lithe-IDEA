@@ -12,8 +12,8 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
-	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/text"
+	"github.com/vivaui/viva/ui"
 )
 
 // This file keeps the state of the Commit tool window and the actions it starts: staging a
@@ -78,14 +78,14 @@ func (r *commitReview) answered() bool {
 // splitter between the change list and the commit area, and what the frame declared for the
 // capture after it.
 type commitView struct {
-	split flex.SplitterState
+	split ui.SplitterState
 	// areaHeight is the chosen height of the commit area; the change list takes what is
 	// left, so the commit area keeps its height when the tool window is resized.
 	areaHeight float32
 	// bodyHeight is the height the list and the area shared in the last frame, and derived
 	// the splitter position that frame was declared with.
 	bodyHeight, derived float32
-	body                flex.Box
+	body                ui.Box
 	hasBody             bool
 	// input connects the message box to the platform's text service; its Editor is the open
 	// project's.

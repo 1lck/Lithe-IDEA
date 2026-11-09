@@ -6,46 +6,46 @@ import (
 	"unicode/utf8"
 
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // commandKey is the modifier of the editing chords: Command on a Mac, Control elsewhere.
-func commandKey() ui.Modifiers {
+func commandKey() gfx.Modifiers {
 	if runtime.GOOS == "darwin" {
-		return ui.ModifierMeta
+		return gfx.ModifierMeta
 	}
-	return ui.ModifierControl
+	return gfx.ModifierControl
 }
 
 // handled is a key or a chord the view took, with a frame to show what it did.
-var handled = ui.EventResult{Handled: true, Repaint: true}
+var handled = gfx.EventResult{Handled: true, Repaint: true}
 
 // Shortcut does the chords the editor owns before the text system sees them: select all,
 // copy, cut, paste, undo, redo and save. The second result is false for any other chord.
-func (v *View) Shortcut(event ui.KeyEvent) (ui.EventResult, bool) {
-	if event.Target != v.cfg.HitID || event.Release || event.Key != ui.KeyUnknown {
-		return ui.EventResult{}, false
+func (v *View) Shortcut(event gfx.KeyEvent) (gfx.EventResult, bool) {
+	if event.Target != v.cfg.HitID || event.Release || event.Key != gfx.KeyUnknown {
+		return gfx.EventResult{}, false
 	}
 	cmd := commandKey()
-	shift := event.Modifiers&ui.ModifierShift != 0
-	if event.Modifiers&^ui.ModifierShift != cmd {
-		return ui.EventResult{}, false
+	shift := event.Modifiers&gfx.ModifierShift != 0
+	if event.Modifiers&^gfx.ModifierShift != cmd {
+		return gfx.EventResult{}, false
 	}
 	switch strings.ToLower(event.Text) {
 	case "a":
 		v.SelectAll()
 	case "c":
 		if text := v.SelectedText(); text != "" {
-			return ui.EventResult{Handled: true, ClipboardText: text}, true
+			return gfx.EventResult{Handled: true, ClipboardText: text}, true
 		}
-		return ui.EventResult{Handled: true}, true
+		return gfx.EventResult{Handled: true}, true
 	case "x":
 		text := v.SelectedText()
 		if text == "" {
-			return ui.EventResult{Handled: true}, true
+			return gfx.EventResult{Handled: true}, true
 		}
 		v.insert("", editOther)
-		return ui.EventResult{Handled: true, Repaint: true, ClipboardText: text}, true
+		return gfx.EventResult{Handled: true, Repaint: true, ClipboardText: text}, true
 	case "v":
 		if text, err := app.ClipboardText(); err == nil && text != "" {
 			v.insert(text, editOther)
@@ -58,7 +58,7 @@ func (v *View) Shortcut(event ui.KeyEvent) (ui.EventResult, bool) {
 		}
 	case "y":
 		if runtime.GOOS == "darwin" {
-			return ui.EventResult{}, false
+			return gfx.EventResult{}, false
 		}
 		v.Redo()
 	case "s":
@@ -66,35 +66,35 @@ func (v *View) Shortcut(event ui.KeyEvent) (ui.EventResult, bool) {
 			v.cfg.Save()
 		}
 	default:
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
 	return handled, true
 }
 
 // Key moves the caret and edits with the named keys. Typed characters come as text input (see
 // TextInput); the second result is false for a key of another target.
-func (v *View) Key(event ui.KeyEvent) (ui.EventResult, bool) {
+func (v *View) Key(event gfx.KeyEvent) (gfx.EventResult, bool) {
 	if event.Target != v.cfg.HitID {
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
 	if event.Release {
-		return ui.EventResult{Handled: true}, true
+		return gfx.EventResult{Handled: true}, true
 	}
 	if v.preedit.Composing {
 		// The input method owns the keys while it composes.
-		return ui.EventResult{Handled: true}, true
+		return gfx.EventResult{Handled: true}, true
 	}
 	mods := event.Modifiers
-	extend := mods&ui.ModifierShift != 0
-	word := mods&ui.ModifierAlt != 0
-	if runtime.GOOS != "darwin" && mods&ui.ModifierControl != 0 {
+	extend := mods&gfx.ModifierShift != 0
+	word := mods&gfx.ModifierAlt != 0
+	if runtime.GOOS != "darwin" && mods&gfx.ModifierControl != 0 {
 		word = true
 	}
-	edge := runtime.GOOS == "darwin" && mods&ui.ModifierMeta != 0
+	edge := runtime.GOOS == "darwin" && mods&gfx.ModifierMeta != 0
 	start, end := v.Selection()
 	line := v.text.LineOf(v.caret)
 	switch event.Key {
-	case ui.KeyLeft:
+	case gfx.KeyLeft:
 		switch {
 		case edge:
 			v.moveTo(v.homeOf(line), extend)
@@ -105,7 +105,7 @@ func (v *View) Key(event ui.KeyEvent) (ui.EventResult, bool) {
 		default:
 			v.moveTo(v.prevRune(v.caret), extend)
 		}
-	case ui.KeyRight:
+	case gfx.KeyRight:
 		switch {
 		case edge:
 			v.moveTo(v.lineEnd(line), extend)
@@ -117,34 +117,34 @@ func (v *View) Key(event ui.KeyEvent) (ui.EventResult, bool) {
 			v.moveTo(v.nextRune(v.caret), extend)
 		}
 	// Up and down go by rows, so they step through a wrapped line row by row.
-	case ui.KeyUp:
+	case gfx.KeyUp:
 		switch row := v.caretRow(); {
 		case edge || row == 0:
 			v.moveTo(0, extend)
 		default:
 			v.vertical(row-1, extend)
 		}
-	case ui.KeyDown:
+	case gfx.KeyDown:
 		switch row := v.caretRow(); {
 		case edge || row >= v.rowCount()-1:
 			v.moveTo(v.text.Len(), extend)
 		default:
 			v.vertical(row+1, extend)
 		}
-	case ui.KeyHome:
+	case gfx.KeyHome:
 		v.moveTo(v.homeOf(line), extend)
-	case ui.KeyEnd:
+	case gfx.KeyEnd:
 		v.moveTo(v.lineEnd(line), extend)
-	case ui.KeyPageUp, ui.KeyPageDown:
+	case gfx.KeyPageUp, gfx.KeyPageDown:
 		rows := max(int(v.area.Height/max(v.lineH, 1))-1, 1)
-		if event.Key == ui.KeyPageUp {
+		if event.Key == gfx.KeyPageUp {
 			rows = -rows
 		}
 		row := v.caretRow()
 		target := min(max(row+rows, 0), v.rowCount()-1)
 		v.scroll += float32(target-row) * v.lineH
 		v.vertical(target, extend)
-	case ui.KeyBackspace:
+	case gfx.KeyBackspace:
 		switch {
 		case start != end:
 			v.insert("", editOther)
@@ -155,7 +155,7 @@ func (v *View) Key(event ui.KeyEvent) (ui.EventResult, bool) {
 		default:
 			v.edit(v.backspaceFrom(line), v.caret, nil, editDeleting)
 		}
-	case ui.KeyDelete:
+	case gfx.KeyDelete:
 		switch {
 		case start != end:
 			v.insert("", editOther)
@@ -166,23 +166,23 @@ func (v *View) Key(event ui.KeyEvent) (ui.EventResult, bool) {
 		default:
 			v.edit(v.caret, v.nextRune(v.caret), nil, editOther)
 		}
-	case ui.KeyEnter:
-		if mods&^ui.ModifierShift != 0 {
-			return ui.EventResult{}, false
+	case gfx.KeyEnter:
+		if mods&^gfx.ModifierShift != 0 {
+			return gfx.EventResult{}, false
 		}
 		v.newline()
-	case ui.KeyTab:
-		if mods&^ui.ModifierShift != 0 {
-			return ui.EventResult{}, false
+	case gfx.KeyTab:
+		if mods&^gfx.ModifierShift != 0 {
+			return gfx.EventResult{}, false
 		}
 		v.tab(extend)
-	case ui.KeyEscape:
+	case gfx.KeyEscape:
 		if start == end {
-			return ui.EventResult{}, false
+			return gfx.EventResult{}, false
 		}
 		v.moveTo(v.caret, false)
 	default:
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
 	return handled, true
 }
@@ -311,7 +311,7 @@ func (v *View) TextInput(ctx app.TextInputContext) *app.TextInput {
 		}
 	}
 	x, y := v.caretPoint()
-	v.input.Bounds = ui.Rect{X: x, Y: y + (v.lineH-v.cellH)/2, Width: float32(cells) * v.cellW, Height: v.cellH}
+	v.input.Bounds = gfx.Rect{X: x, Y: y + (v.lineH-v.cellH)/2, Width: float32(cells) * v.cellW, Height: v.cellH}
 	v.input.FontSize = fontSize
 	v.input.Color = v.themeFG
 	v.input.State = v.preedit
@@ -354,34 +354,37 @@ func (v *View) applyText(event app.TextEvent) app.TextState {
 
 // Pointer places the caret and selects with the pointer: a click puts the caret, a double
 // click selects a word and a triple click a line, Shift extends the selection and a drag
-// selects by the unit it started with. The second result is false for an event that is not
-// the view's.
-func (v *View) Pointer(event ui.PointerEvent) (ui.EventResult, bool) {
+// selects by the unit it started with. The scrollbars and the minimap take it first (see
+// chromePointer). The second result is false for an event that is not the view's.
+func (v *View) Pointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
+	if result, ok := v.chromePointer(event); ok {
+		return result, true
+	}
 	switch {
-	case event.Kind == ui.PointerDown && event.Target == v.cfg.HitID:
-	case v.dragging && (event.Kind == ui.PointerMove || event.Kind == ui.PointerUp):
+	case event.Kind == gfx.PointerDown && event.Target == v.cfg.HitID:
+	case v.dragging && (event.Kind == gfx.PointerMove || event.Kind == gfx.PointerUp):
 	default:
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
 	if !v.painted {
-		return ui.EventResult{Handled: true}, true
+		return gfx.EventResult{Handled: true}, true
 	}
 	offset := v.offsetAt(event.X, event.Y)
 	switch event.Kind {
-	case ui.PointerDown:
-		if event.Button != ui.PointerButtonPrimary {
-			return ui.EventResult{Handled: true, Focus: v.cfg.HitID}, true
+	case gfx.PointerDown:
+		if event.Button != gfx.PointerButtonPrimary {
+			return gfx.EventResult{Handled: true, Focus: v.cfg.HitID}, true
 		}
 		v.dragging = true
 		v.dragUnit = min(max(event.ClickCount, 1), 3)
-		if event.Modifiers&ui.ModifierShift != 0 && v.dragUnit == 1 {
+		if event.Modifiers&gfx.ModifierShift != 0 && v.dragUnit == 1 {
 			v.dragFrom, v.dragTo = v.anchor, v.anchor
 		} else {
 			v.dragFrom, v.dragTo = v.unitAt(offset)
 		}
 		v.dragSelect(offset)
-		return ui.EventResult{Handled: true, Repaint: true, Focus: v.cfg.HitID}, true
-	case ui.PointerMove:
+		return gfx.EventResult{Handled: true, Repaint: true, Focus: v.cfg.HitID}, true
+	case gfx.PointerMove:
 		v.dragSelect(offset)
 		return handled, true
 	}
@@ -422,13 +425,14 @@ func (v *View) offsetAt(x, y float32) int {
 }
 
 // Scroll scrolls the text with the wheel or the trackpad: up and down, and sideways with a
-// sideways swipe or with Shift held. The second result is false for an event over another hit.
-func (v *View) Scroll(event ui.ScrollEvent) (ui.EventResult, bool) {
-	if event.Target != v.cfg.HitID || !v.painted {
-		return ui.EventResult{}, false
+// sideways swipe or with Shift held, over the text, the minimap or a scrollbar. The second
+// result is false for an event over another hit.
+func (v *View) Scroll(event gfx.ScrollEvent) (gfx.EventResult, bool) {
+	if !v.Owns(event.Target) || !v.painted {
+		return gfx.EventResult{}, false
 	}
 	dx, dy := event.DeltaX, event.DeltaY
-	if dx == 0 && event.Modifiers&ui.ModifierShift != 0 {
+	if dx == 0 && event.Modifiers&gfx.ModifierShift != 0 {
 		dx, dy = dy, 0
 	}
 	if !event.Precise {
@@ -438,7 +442,7 @@ func (v *View) Scroll(event ui.ScrollEvent) (ui.EventResult, bool) {
 	v.scroll += dy
 	v.scrollX += dx
 	v.clampScroll()
-	return ui.EventResult{Handled: true, Repaint: v.scroll != beforeY || v.scrollX != beforeX}, true
+	return gfx.EventResult{Handled: true, Repaint: v.scroll != beforeY || v.scrollX != beforeX}, true
 }
 
 // notch makes a mouse wheel's step at least a line, as a trackpad's is exactly what it reports.

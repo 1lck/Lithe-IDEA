@@ -13,7 +13,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -37,7 +37,7 @@ const (
 )
 
 type everywhereView struct {
-	query       flex.Field
+	query       ui.Field
 	open, focus bool
 	scope       int
 	// Tests can request zero delay without changing production timing.
@@ -327,7 +327,7 @@ func (a *App) finishEverywhere(p *project, generation uint64, next bool, page co
 	s.cursor = page.NextCursor
 }
 
-func (a *App) drawEverywhere(f *flex.Frame, p *project) {
+func (a *App) drawEverywhere(f *ui.Frame, p *project) {
 	v, s := &a.everywhereView, &p.everywhere
 	if !v.open {
 		return
@@ -337,7 +337,7 @@ func (a *App) drawEverywhere(f *flex.Frame, p *project) {
 		f.Canvas().RequestFocus(everywhereQueryID)
 		v.focus = false
 	}
-	if f.Popup().At(0, 0).Fill().HitWith(everywhereDismissID, a.text.Errors.Dismiss, ui.HitOptions{Role: ui.RoleButton, SkipFocus: true, Backdrop: true}).Clicked() {
+	if f.Popup().At(0, 0).Fill().HitWith(everywhereDismissID, a.text.Errors.Dismiss, gfx.HitOptions{Role: gfx.RoleButton, SkipFocus: true, Backdrop: true}).Clicked() {
 		a.closeEverywhere(p)
 		return
 	}
@@ -347,13 +347,13 @@ func (a *App) drawEverywhere(f *flex.Frame, p *project) {
 	if strings.TrimSpace(v.query.Text()) != "" {
 		height = min(684, max(84, bounds.Height-100))
 	}
-	background, border := ui.RGB24(0xF7F8F9), ui.RGB24(0xDDDFE4)
+	background, border := gfx.RGB24(0xF7F8F9), gfx.RGB24(0xDDDFE4)
 	if a.colors.Dark {
-		background, border = ui.RGB24(0x26282C), ui.RGB24(0x33353B)
+		background, border = gfx.RGB24(0x26282C), gfx.RGB24(0x33353B)
 	}
 	f.Popup().At((bounds.Width-width)/2, 84).Width(width).Height(height).
-		Background(background).Border(1, border).Radius(a.theme.Metrics.RadiusPopup()).Shadow(ui.ShadowMD).Children(func() {
-		f.Row().FillWidth().Height(40).Items(flex.Center).PadX(8).Gap(4).Children(func() {
+		Background(background).Border(1, border).Radius(a.theme.Metrics.RadiusPopup()).Shadow(gfx.ShadowMD).Children(func() {
+		f.Row().FillWidth().Height(40).Items(ui.Center).PadX(8).Gap(4).Children(func() {
 			labels := [...]string{
 				i18n.Shared(a.language(), "desktop.everywhere.all"),
 				i18n.Shared(a.language(), "desktop.everywhere.classes"),
@@ -365,11 +365,11 @@ func (a *App) drawEverywhere(f *flex.Frame, p *project) {
 			for index, label := range labels {
 				disabled := index == 1 || index == 3 || index == 4
 				tab := f.Row().Height(30).PadX(8).Center().Radius(a.theme.Metrics.RadiusItem()).
-					HitWith(everywhereTabs.At(index), label, ui.HitOptions{Role: ui.RoleButton, Disabled: disabled, Cursor: ui.PointerCursorHand})
+					HitWith(everywhereTabs.At(index), label, gfx.HitOptions{Role: gfx.RoleButton, Disabled: disabled, Cursor: gfx.PointerCursorHand})
 				if index == v.scope {
 					tab = tab.Background(a.colors.Active)
 				} else if !disabled {
-					tab = tab.Hover(flex.Look{}.Background(a.colors.Hover))
+					tab = tab.Hover(ui.Look{}.Background(a.colors.Hover))
 				}
 				color := a.colors.Text
 				if disabled {
@@ -385,7 +385,7 @@ func (a *App) drawEverywhere(f *flex.Frame, p *project) {
 			}
 			f.Row().Grow(1)
 			closeButton := f.Row().Size(24, 24).Center().Radius(a.theme.Metrics.RadiusItem()).
-				HitWith(everywhereCloseID, a.text.Errors.Dismiss, ui.HitOptions{Role: ui.RoleButton, Cursor: ui.PointerCursorHand}).Hover(flex.Look{}.Background(a.colors.Hover))
+				HitWith(everywhereCloseID, a.text.Errors.Dismiss, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}).Hover(ui.Look{}.Background(a.colors.Hover))
 			closeButton.Children(func() { f.Icon(icons.X).Size(15, 15).Color(a.colors.Subtle) })
 			if closeButton.Clicked() {
 				a.closeEverywhere(p)
@@ -393,9 +393,9 @@ func (a *App) drawEverywhere(f *flex.Frame, p *project) {
 		})
 		f.Row().FillWidth().Height(1).Background(a.colors.Line)
 		f.Row().FillWidth().PadSides(5, 8, 5, 8).Children(func() {
-			var input flex.Box
-			frame := f.Row().FillWidth().Height(30).Items(flex.Center).PadX(8).Gap(7).
-				Border(1, a.theme.Input).Radius(a.theme.Metrics.RadiusControl).Focused(flex.Look{}.Border(a.theme.Primary).Ring(1, a.theme.Primary))
+			var input ui.Box
+			frame := f.Row().FillWidth().Height(30).Items(ui.Center).PadX(8).Gap(7).
+				Border(1, a.theme.Input).Radius(a.theme.Metrics.RadiusControl).Focused(ui.Look{}.Border(a.theme.Primary).Ring(1, a.theme.Primary))
 			frame.Children(func() {
 				f.Icon(icons.Search).Size(15, 15).Color(a.colors.Subtle)
 				input = f.FieldBase(&v.query, everywhereQueryID, i18n.Shared(a.language(), "desktop.everywhere.title"), "").Grow(1).MinWidth(0).Height(28).FontSize(13).Color(a.colors.Text)
@@ -423,7 +423,7 @@ func (a *App) drawEverywhere(f *flex.Frame, p *project) {
 	})
 }
 
-func (a *App) drawEverywhereResults(f *flex.Frame, p *project) {
+func (a *App) drawEverywhereResults(f *ui.Frame, p *project) {
 	s := &p.everywhere
 	rowHeight := everywhereFileHeight
 	if s.scope == 5 {
@@ -447,12 +447,12 @@ func (a *App) drawEverywhereResults(f *flex.Frame, p *project) {
 			if result.Line != nil {
 				label += ":" + strconv.Itoa(*result.Line)
 			}
-			row := f.Row().FillWidth().Height(float32(rowHeight)).Items(flex.Center).PadX(10).Gap(8).Radius(a.theme.Metrics.RadiusItem()).
-				HitWith(everywhereRows.At(i), label, ui.HitOptions{Role: ui.RoleButton, Value: result.Preview, Cursor: ui.PointerCursorHand})
+			row := f.Row().FillWidth().Height(float32(rowHeight)).Items(ui.Center).PadX(10).Gap(8).Radius(a.theme.Metrics.RadiusItem()).
+				HitWith(everywhereRows.At(i), label, gfx.HitOptions{Role: gfx.RoleButton, Value: result.Preview, Cursor: gfx.PointerCursorHand})
 			if i == s.selected {
 				row = row.Background(a.colors.Selection)
 			} else {
-				row = row.Hover(flex.Look{}.Background(a.colors.Hover))
+				row = row.Hover(ui.Look{}.Background(a.colors.Hover))
 			}
 			row.Children(func() {
 				name := filepath.Base(filepath.FromSlash(result.Path))
@@ -490,37 +490,37 @@ func (a *App) drawEverywhereResults(f *flex.Frame, p *project) {
 	})
 }
 
-func (a *App) everywhereKey(p *project, event ui.KeyEvent) ui.EventResult {
+func (a *App) everywhereKey(p *project, event gfx.KeyEvent) gfx.EventResult {
 	if event.Release || event.Modifiers != 0 {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	if event.Target == everywhereQueryID {
 		input := a.fields(app.TextInputContext{ID: everywhereQueryID})
 		if input != nil && input.Editor != nil {
 			if _, composing := input.Editor.Composition(); composing {
-				return ui.EventResult{}
+				return gfx.EventResult{}
 			}
 		}
 	}
 	s := &p.everywhere
 	switch event.Key {
-	case ui.KeyEscape:
+	case gfx.KeyEscape:
 		a.closeEverywhere(p)
-		return ui.EventResult{Handled: true, Repaint: true}
-	case ui.KeyUp:
+		return gfx.EventResult{Handled: true, Repaint: true}
+	case gfx.KeyUp:
 		s.selected = max(0, s.selected-1)
-	case ui.KeyDown:
+	case gfx.KeyDown:
 		s.selected = min(max(0, len(s.matches)-1), s.selected+1)
-	case ui.KeyEnter:
+	case gfx.KeyEnter:
 		if s.selected >= 0 && s.selected < len(s.matches) {
 			result := s.matches[s.selected]
 			a.performed("workspace.searchEverywhere.openResult", surfaceShortcut)
 			a.closeEverywhere(p)
 			a.openSearchResult(p, result)
 		}
-		return ui.EventResult{Handled: true, Repaint: true}
+		return gfx.EventResult{Handled: true, Repaint: true}
 	default:
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	scroll := a.view.ScrollState(everywhereListID)
 	rowHeight := everywhereFileHeight
@@ -533,5 +533,5 @@ func (a *App) everywhereKey(p *project, event ui.KeyEvent) ui.EventResult {
 	} else if bottom > scroll.Offset+scroll.Viewport {
 		scroll.ScrollTo(bottom - scroll.Viewport)
 	}
-	return ui.EventResult{Handled: true, Repaint: true}
+	return gfx.EventResult{Handled: true, Repaint: true}
 }

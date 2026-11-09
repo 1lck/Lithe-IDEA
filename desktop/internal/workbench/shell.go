@@ -4,7 +4,7 @@ import (
 	"math"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -71,7 +71,7 @@ const (
 )
 
 var (
-	shellSplitIDs = [shellSplitCount]ui.ID{
+	shellSplitIDs = [shellSplitCount]gfx.ID{
 		shellSplitLeft:        tree.ID(shellPage, "split-left"),
 		shellSplitRight:       tree.ID(shellPage, "split-right"),
 		shellSplitBottom:      tree.ID(shellPage, "split-bottom"),
@@ -114,7 +114,7 @@ type layoutState struct {
 	// gitLabels keeps the tab labels alive for the frame; Viva holds the slice until End.
 	gitLabels [3]string
 
-	split [shellSplitCount]flex.SplitterState
+	split [shellSplitCount]ui.SplitterState
 
 	// frame is what the last drawWorkbench declared, which a drag or a key press is
 	// measured against. drawn says the workbench was declared since capture last ran.
@@ -123,7 +123,7 @@ type layoutState struct {
 	// main is the column between the stripes in the frame being drawn. The room it was
 	// given in the last frame tells how much of the window the chrome around it takes,
 	// so the panels are sized against the room that is really there.
-	main flex.Box
+	main ui.Box
 	// insetW and insetH are the window's width and height less the main column's.
 	insetW, insetH   float32
 	windowW, windowH float32
@@ -221,7 +221,7 @@ func (p shellPlan) pos(which shellSplit) float32 {
 // 120, or 96 + 8 + 96 when a column is split, so that the column's own limits never
 // cross. The left column is limited first, so a window too small for everything gives
 // the right column the less.
-func (l *layoutState) arrange(window ui.Rect, open [slotCount]int) shellPlan {
+func (l *layoutState) arrange(window gfx.Rect, open [slotCount]int) shellPlan {
 	l.windowW, l.windowH = window.Width, window.Height
 	p := shellPlan{
 		width:       shellFloor(window.Width - l.insetW),
@@ -312,14 +312,14 @@ func (l *layoutState) capture() {
 // key gives a key press to the splitters; only the one that has the keyboard focus acts
 // on it, and its answer is the answer. An arrow key moves a splitter by a step the
 // frame has not been drawn with yet, so the new position is remembered at once.
-func (l *layoutState) key(event ui.KeyEvent) ui.EventResult {
+func (l *layoutState) key(event gfx.KeyEvent) gfx.EventResult {
 	for which := range l.split {
 		if result := l.split[which].Key(event); result.Handled {
 			l.adopt(shellSplit(which))
 			return result
 		}
 	}
-	return ui.EventResult{}
+	return gfx.EventResult{}
 }
 
 // adopt remembers the position of a splitter as the size it stands for, measured against
@@ -353,7 +353,7 @@ func shellFloor(v float32) float32         { return float32(math.Floor(float64(v
 // drawWorkbench is the window of an open project: the title bar over the tool stripes
 // and the main column, over the status bar. The main column holds the tool windows
 // around the editor, and the bottom area under them when a bottom tool window is open.
-func (a *App) drawWorkbench(f *flex.Frame) {
+func (a *App) drawWorkbench(f *ui.Frame) {
 	// A copy: a click on a stripe button changes a.chrome while this frame is still being
 	// declared, and the panels must be declared for the same tool windows the sizes were
 	// worked out for.
@@ -384,7 +384,7 @@ func (a *App) drawWorkbench(f *flex.Frame) {
 // The columns and the panels have fixed sizes and the editor and the top row fill what is
 // left; each splitter is declared right after the pane its Pos measures and before the
 // next one.
-func (a *App) drawShellMain(f *flex.Frame, plan shellPlan, open [slotCount]int, hidden *slot) {
+func (a *App) drawShellMain(f *ui.Frame, plan shellPlan, open [slotCount]int, hidden *slot) {
 	f.Row().Fill().Children(func() {
 		if plan.left() {
 			a.drawShellColumn(f, open, hidden, slotLeftTop, slotLeftBottom, shellSplitLeftColumn, plan.leftUpperH).Width(plan.leftW).Shrink(0)
@@ -420,7 +420,7 @@ func (a *App) drawShellMain(f *flex.Frame, plan shellPlan, open [slotCount]int, 
 // lower one (the bottom slot), the upper one upperH high and the lower one filling, with
 // the column's splitter between them. The caller gives the column its width. The splitter
 // is declared right after the upper tool window, the pane its Pos measures.
-func (a *App) drawShellColumn(f *flex.Frame, open [slotCount]int, hidden *slot, top, bottom slot, which shellSplit, upperH float32) flex.Box {
+func (a *App) drawShellColumn(f *ui.Frame, open [slotCount]int, hidden *slot, top, bottom slot, which shellSplit, upperH float32) ui.Box {
 	return f.Column().Children(func() {
 		switch {
 		case open[top] >= 0 && open[bottom] >= 0:
@@ -437,7 +437,7 @@ func (a *App) drawShellColumn(f *flex.Frame, open [slotCount]int, hidden *slot, 
 
 // drawShellSplitter declares one of the workbench's splitters. Its accessibility label
 // is set because Viva's own is an English word that would ignore the chosen language.
-func (a *App) drawShellSplitter(f *flex.Frame, which shellSplit) flex.Box {
+func (a *App) drawShellSplitter(f *ui.Frame, which shellSplit) ui.Box {
 	return f.Splitter(shellSplitIDs[which], &a.layout.split[which]).Label(a.text.Panel.Resize)
 }
 
@@ -447,7 +447,7 @@ func (a *App) drawShellSplitter(f *flex.Frame, which shellSplit) flex.Box {
 // header, the tabs its views will be shown under, and a body of its own on the log tab; the
 // Terminal tool window of an open project holds that project's terminals, one tab each in
 // its header, and the body shows the selected one.
-func (a *App) drawShellPanel(f *flex.Frame, s slot, index int, hidden *slot) flex.Box {
+func (a *App) drawShellPanel(f *ui.Frame, s slot, index int, hidden *slot) ui.Box {
 	tool := catalog[index]
 	tabbed := tool.id == itemGit
 	// The log tab of the Git tool window has its own body and adds buttons to the header.
@@ -466,8 +466,8 @@ func (a *App) drawShellPanel(f *flex.Frame, s slot, index int, hidden *slot) fle
 		header = 39
 	}
 	return f.Column().Background(a.colors.Panel).Clip().Children(func() {
-		f.Row().Height(header).Items(flex.Center).Gap(shellHeaderGap).PadSides(0, 8, 0, 12).Children(func() {
-			f.Text(tool.label(a.text)).Color(a.colors.Text).Weight(ui.WeightMedium).Ellipsis()
+		f.Row().Height(header).Items(ui.Center).Gap(shellHeaderGap).PadSides(0, 8, 0, 12).Children(func() {
+			f.Text(tool.label(a.text)).Color(a.colors.Text).Weight(gfx.WeightMedium).Ellipsis()
 			if tabbed {
 				a.drawShellGitTabs(f)
 			}
@@ -486,13 +486,13 @@ func (a *App) drawShellPanel(f *flex.Frame, s slot, index int, hidden *slot) fle
 			if search {
 				a.drawSearchRefresh(f, a.project)
 			}
-			// A flex Button cannot show an icon in this version of Viva, so the hide
+			// A ui Button cannot show an icon in this version of Viva, so the hide
 			// control is a hit row with an icon, as the notice's dismiss button is.
 			hide := f.Row().Size(shellHideSize, shellHideSize).Shrink(0).Center().Radius(a.theme.Metrics.RadiusItem()).
-				HitWith(panelHide.At(int(s)), a.text.Panel.Hide, ui.HitOptions{Role: ui.RoleButton, Cursor: ui.PointerCursorHand}).
-				Hover(flex.Look{}.Background(a.colors.Hover)).Pressed(flex.Look{}.Background(a.colors.Active))
+				HitWith(panelHide.At(int(s)), a.text.Panel.Hide, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}).
+				Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
 			hide.Children(func() {
-				f.Icon(icons.Minus).Size(shellIconSize, shellIconSize).Color(a.colors.Subtle).StateFrom(hide).Hover(flex.Look{}.Color(a.colors.Text))
+				f.Icon(icons.Minus).Size(shellIconSize, shellIconSize).Color(a.colors.Subtle).StateFrom(hide).Hover(ui.Look{}.Color(a.colors.Text))
 			})
 			if hide.Clicked() {
 				*hidden = s
@@ -518,7 +518,7 @@ func (a *App) drawShellPanel(f *flex.Frame, s slot, index int, hidden *slot) fle
 			a.drawProjectSearch(f, a.project)
 			return
 		}
-		f.Row().Fill().Items(flex.Center).PadX(shellContentPad).Children(func() {
+		f.Row().Fill().Items(ui.Center).PadX(shellContentPad).Children(func() {
 			f.Paragraph(a.text.Panel.Placeholder, 3).Grow(1).TextCenter().Color(a.colors.Subtle)
 		})
 	})
@@ -527,7 +527,7 @@ func (a *App) drawShellPanel(f *flex.Frame, s slot, index int, hidden *slot) fle
 // drawShellGitTabs declares the tabs of the Git tool window's header and takes a click
 // on one as the new selection. The strip may give up width, with the labels cut, before
 // it pushes the hide button out of a narrow panel.
-func (a *App) drawShellGitTabs(f *flex.Frame) {
+func (a *App) drawShellGitTabs(f *ui.Frame) {
 	l := &a.layout
 	l.gitLabels = [3]string{a.text.Git.Log, a.text.Git.Worktrees, a.text.Git.Console}
 	if p := a.project; p != nil && p.log.reference != "" {
@@ -544,7 +544,7 @@ func (a *App) drawShellGitTabs(f *flex.Frame) {
 // editor, so it shows what an empty one shows: the commands that open something and where
 // to drop files, which is also where a dragged tab opens the first group. The shortcuts are
 // key symbols, not words, and so are not translated.
-func (a *App) drawShellEditor(f *flex.Frame) {
+func (a *App) drawShellEditor(f *ui.Frame) {
 	if a.drawEditorGroups(f) {
 		return
 	}
@@ -559,12 +559,12 @@ func (a *App) drawShellEditor(f *flex.Frame) {
 			// Labels end and shortcuts start at one line down the middle, so the two
 			// read as columns however long the words are.
 			for _, hint := range hints {
-				f.Row().Height(rowHeight).Items(flex.Center).Gap(12).Children(func() {
+				f.Row().Height(rowHeight).Items(ui.Center).Gap(12).Children(func() {
 					f.Text(hint.label).Color(a.colors.Subtle).TextEnd().Ellipsis().FillWidth()
 					f.Text(hint.keys).Color(a.colors.Text).FillWidth()
 				})
 			}
-			f.Row().Height(rowHeight).Items(flex.Center).Children(func() {
+			f.Row().Height(rowHeight).Items(ui.Center).Children(func() {
 				f.Text(a.text.Editor.DropFiles).Color(a.colors.Subtle).TextCenter().Ellipsis().FillWidth()
 			})
 		})

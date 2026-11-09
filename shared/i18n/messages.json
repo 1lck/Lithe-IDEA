@@ -99677,6 +99677,41 @@
       ]
     },
     {
+      "id": "desktop.editor.minimap",
+      "description": "Desktop editor: the small picture of the file down the editor's right side",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editor.hideMinimap",
+      "description": "Desktop editor: button beside the minimap that hides it in every editor",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editor.showMinimap",
+      "description": "Desktop editor: button at the editor's edge that shows the hidden minimap again",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editor.verticalScrollbar",
+      "description": "Desktop editor: accessibility label of the editor's vertical scrollbar",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editor.horizontalScrollbar",
+      "description": "Desktop editor: accessibility label of the editor's horizontal scrollbar",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.editor.notText",
       "description": "Desktop editor: NotText",
       "platforms": [

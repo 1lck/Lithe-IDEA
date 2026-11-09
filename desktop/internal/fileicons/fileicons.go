@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // kind identifies a file or directory icon family.
@@ -116,7 +116,7 @@ const (
 )
 
 // kindIcons stores the light and optional dark icon for each file kind.
-var kindIcons = [kindCount][2]*ui.Icon{
+var kindIcons = [kindCount][2]*gfx.Icon{
 	kindUnknown:        {&Unknown, &UnknownDark},
 	kindFolder:         {&Folder, &FolderDark},
 	kindExcludedFolder: {&ExcludeRoot, &ExcludeRootDark},
@@ -187,17 +187,17 @@ const (
 )
 
 // ForFile returns the icon for a file basename, using its dark variant when available.
-func ForFile(name string, dark bool) ui.Icon {
+func ForFile(name string, dark bool) gfx.Icon {
 	return iconForKind(fileKind(name), dark)
 }
 
 // ForDirectory returns the icon for a directory name, using its dark variant when available.
-func ForDirectory(name string, dark bool) ui.Icon {
+func ForDirectory(name string, dark bool) gfx.Icon {
 	return iconForKind(directoryKind(name), dark)
 }
 
 // TreeChevron returns the native project's original disclosure icon.
-func TreeChevron(expanded, dark bool) ui.Icon {
+func TreeChevron(expanded, dark bool) gfx.Icon {
 	if expanded {
 		return iconForVariant(&TreechevronDown, &TreechevronDownDark, dark)
 	}
@@ -205,7 +205,7 @@ func TreeChevron(expanded, dark bool) ui.Icon {
 }
 
 // ForDirectoryMark returns the icon for an explicit directory role, treating unknown marks as plain.
-func ForDirectoryMark(mark DirectoryMark, dark bool) ui.Icon {
+func ForDirectoryMark(mark DirectoryMark, dark bool) gfx.Icon {
 	iconKind := kindFolder
 	switch mark {
 	case MarkSources:
@@ -224,7 +224,7 @@ func ForDirectoryMark(mark DirectoryMark, dark bool) ui.Icon {
 
 // ForSourceDirectory returns a package icon for a valid segment inside a known source root,
 // unless the directory name identifies an excluded directory.
-func ForSourceDirectory(name string, dark bool) ui.Icon {
+func ForSourceDirectory(name string, dark bool) gfx.Icon {
 	return iconForKind(directoryKindInSourceRoot(name, true), dark)
 }
 
@@ -249,17 +249,17 @@ func IsPackageSegmentName(name string) bool {
 }
 
 // ForType returns the icon for a type symbol in outline and symbol-search lists.
-func ForType(dark bool) ui.Icon {
+func ForType(dark bool) gfx.Icon {
 	return iconForKind(kindTypeSymbol, dark)
 }
 
 // ForSymbol returns the icon for a non-type symbol, using the light asset because no dark variant exists.
-func ForSymbol(dark bool) ui.Icon {
+func ForSymbol(dark bool) gfx.Icon {
 	return iconForKind(kindSymbol, dark)
 }
 
 // ForBreakpoint returns a debugger gutter icon, preferring muted, disabled, verified, then set state.
-func ForBreakpoint(enabled, verified, muted, dark bool) ui.Icon {
+func ForBreakpoint(enabled, verified, muted, dark bool) gfx.Icon {
 	if muted {
 		return iconForVariant(&DbMutedBreakpoint, &DbMutedBreakpointDark, dark)
 	}
@@ -410,13 +410,13 @@ func splitExt(name string) (stem, ext string) {
 }
 
 // iconForKind returns a kind's light icon unless a requested dark variant exists.
-func iconForKind(iconKind kind, dark bool) ui.Icon {
+func iconForKind(iconKind kind, dark bool) gfx.Icon {
 	variants := kindIcons[iconKind]
 	return iconForVariant(variants[0], variants[1], dark)
 }
 
 // iconForVariant returns a dark asset when available and otherwise preserves the light asset.
-func iconForVariant(light, darkVariant *ui.Icon, dark bool) ui.Icon {
+func iconForVariant(light, darkVariant *gfx.Icon, dark bool) gfx.Icon {
 	if dark && darkVariant != nil {
 		return *darkVariant
 	}

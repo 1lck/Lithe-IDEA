@@ -9,7 +9,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -69,20 +69,20 @@ type fileTree struct {
 	// rows are the rows the last frame declared, top to bottom, and byID finds the node of
 	// a row's hit, for the keyboard.
 	rows []*treeNode
-	byID map[ui.ID]*treeNode
-	// The tree scrolls sideways itself, as a flex scroll area scrolls only up and down: the
+	byID map[gfx.ID]*treeNode
+	// The tree scrolls sideways itself, as a ui scroll area scrolls only up and down: the
 	// rows are laid out on a column as wide as the widest row, moved left by scrollX. width
 	// is that widest row and viewport the width of the list, as the last frame measured them.
 	scrollX, width, viewport float32
 	// area and content are the list and its column in the frame being drawn; drawn says the
 	// frame declared them. areaRect is where the list was
 	// painted, for the wheel, and empty when the tree is not shown.
-	area, content flex.Box
-	focus         ui.ID
+	area, content ui.Box
+	focus         gfx.ID
 	measureDirty  bool
 	measureFont   float32
 	drawn         bool
-	areaRect      ui.Rect
+	areaRect      gfx.Rect
 	// pending and reading coalesce native events into one bounded Core request.
 	pending        map[string]*treeNode
 	reading        bool
@@ -168,7 +168,7 @@ func (t *fileTree) replaceChildren(parent *treeNode, entries []core.WorkspaceNod
 	if t.selected != nil && t.find(t.selected.path) != t.selected {
 		selectedPath := t.selected.path
 		t.selected = nil
-		t.focus = ui.ID{}
+		t.focus = gfx.ID{}
 		for ancestor := path.Dir(selectedPath); ancestor != "." && ancestor != "/"; ancestor = path.Dir(ancestor) {
 			if n := t.find(ancestor); n != nil && n.dir {
 				t.selected = n
@@ -370,11 +370,11 @@ func (a *App) activateTreeNode(p *project, n *treeNode) {
 // drawProjectTree declares the body of the Project tool window: the rows of the project's
 // folders and files, nested under the folders that are expanded. The root is listed the first
 // time the tree is shown.
-func (a *App) drawProjectTree(f *flex.Frame, p *project) {
+func (a *App) drawProjectTree(f *ui.Frame, p *project) {
 	t := &p.tree
 	if !t.focus.IsZero() {
 		f.Canvas().RequestFocus(t.focus)
-		t.focus = ui.ID{}
+		t.focus = gfx.ID{}
 	}
 	if t.root == nil {
 		t.root = &treeNode{name: p.name, dir: true, expanded: true}
@@ -383,7 +383,7 @@ func (a *App) drawProjectTree(f *flex.Frame, p *project) {
 	}
 	t.rows = t.rows[:0]
 	if t.byID == nil {
-		t.byID = map[ui.ID]*treeNode{}
+		t.byID = map[gfx.ID]*treeNode{}
 	}
 	clear(t.byID)
 	switch {
@@ -468,35 +468,35 @@ func (a *App) drawProjectTree(f *flex.Frame, p *project) {
 }
 
 // drawTreeMessage fills the tree's room with one line of words, for a tree that has no rows.
-func (a *App) drawTreeMessage(f *flex.Frame, message string) {
-	f.Row().Fill().Items(flex.Center).PadX(shellContentPad).Children(func() {
+func (a *App) drawTreeMessage(f *ui.Frame, message string) {
+	f.Row().Fill().Items(ui.Center).PadX(shellContentPad).Children(func() {
 		f.Paragraph(message, 3).Grow(1).TextCenter().Color(a.colors.Subtle)
 	})
 }
 
 // drawTreeRow declares one row of the tree: the arrow of a folder, its icon and its name,
 // moved in by its depth. The disclosure arrow is a separate hit target.
-func (a *App) drawTreeRow(f *flex.Frame, p *project, n *treeNode) (bool, bool) {
+func (a *App) drawTreeRow(f *ui.Frame, p *project, n *treeNode) (bool, bool) {
 	t := &p.tree
 	id := treeRows.At(n.id)
 	selected := t.selected == n
 	_, rowFocused := f.Canvas().Focused().In(treeRows)
 	_, arrowFocused := f.Canvas().Focused().In(treeArrows)
-	focusedColor, inactiveColor := ui.RGB24(0xD0DFFE), ui.RGB24(0xE9EAEE)
-	textColor := ui.RGB24(0x000000)
-	hover := ui.RGB24(0x000000)
+	focusedColor, inactiveColor := gfx.RGB24(0xD0DFFE), gfx.RGB24(0xE9EAEE)
+	textColor := gfx.RGB24(0x000000)
+	hover := gfx.RGB24(0x000000)
 	hover.Alpha = 8.0 / 255
 	if a.colors.Dark {
-		focusedColor, inactiveColor = ui.RGB24(0x2A4371), ui.RGB24(0x33353B)
-		textColor = ui.RGB24(0xD1D3D9)
-		hover = ui.RGB24(0xFFFFFF)
+		focusedColor, inactiveColor = gfx.RGB24(0x2A4371), gfx.RGB24(0x33353B)
+		textColor = gfx.RGB24(0xD1D3D9)
+		hover = gfx.RGB24(0xFFFFFF)
 		hover.Alpha = 16.0 / 255
 	}
-	row := f.Row().Height(rowHeight).FillWidth().Shrink(0).Items(flex.Center).Gap(2).
+	row := f.Row().Height(rowHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(2).
 		MarginSides(0, treeGutter, 0, treeGutter).Radius(4).
 		PadSides(0, 8, 0, float32(n.depth*treeIndent)).
-		HitWith(id, n.name, ui.HitOptions{Role: ui.RoleOption, Selected: selected, Expandable: n.dir && !n.empty, Expanded: n.dir && n.expanded}).
-		Pressed(flex.Look{}.Background(focusedColor))
+		HitWith(id, n.name, gfx.HitOptions{Role: gfx.RoleOption, Selected: selected, Expandable: n.dir && !n.empty, Expanded: n.dir && n.expanded}).
+		Pressed(ui.Look{}.Background(focusedColor))
 	if selected {
 		color := inactiveColor
 		if rowFocused || arrowFocused {
@@ -504,7 +504,7 @@ func (a *App) drawTreeRow(f *flex.Frame, p *project, n *treeNode) (bool, bool) {
 		}
 		row = row.Background(color)
 	} else {
-		row = row.Hover(flex.Look{}.Background(hover))
+		row = row.Hover(ui.Look{}.Background(hover))
 	}
 	arrowClicked := false
 	row.Children(func() {
@@ -516,7 +516,7 @@ func (a *App) drawTreeRow(f *flex.Frame, p *project, n *treeNode) (bool, bool) {
 			if n.expanded {
 				label = i18n.Shared(a.language(), "native.collapseDirectory")
 			}
-			button := f.Row().Size(treeChevron, treeIcon).Shrink(0).Items(flex.Center).HitWith(treeArrows.At(n.id), label+" "+n.name, ui.HitOptions{Role: ui.RoleButton})
+			button := f.Row().Size(treeChevron, treeIcon).Shrink(0).Items(ui.Center).HitWith(treeArrows.At(n.id), label+" "+n.name, gfx.HitOptions{Role: gfx.RoleButton})
 			button.Children(func() { f.Icon(fileicons.TreeChevron(n.expanded, a.colors.Dark)).Size(treeIcon, treeIcon) })
 			arrowClicked = button.Clicked()
 		}
@@ -535,36 +535,36 @@ func (a *App) drawTreeRow(f *flex.Frame, p *project, n *treeNode) (bool, bool) {
 
 // A folder name selects on one click and toggles on the second press, matching
 // the native tree. The ensuing release must not toggle it again.
-func (a *App) treePointer(event ui.PointerEvent) (ui.EventResult, bool) {
-	if a.project == nil || event.Kind != ui.PointerDown || event.Button != ui.PointerButtonPrimary || event.Modifiers != 0 || event.ClickCount != 2 {
-		return ui.EventResult{}, false
+func (a *App) treePointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
+	if a.project == nil || event.Kind != gfx.PointerDown || event.Button != gfx.PointerButtonPrimary || event.Modifiers != 0 || event.ClickCount != 2 {
+		return gfx.EventResult{}, false
 	}
 	if _, ok := event.Target.In(treeRows); !ok {
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
 	n := a.project.tree.byID[event.Target]
 	if n == nil || !n.dir {
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
 	a.project.tree.selected = n
 	if !n.empty {
 		a.toggleFolder(a.project, n)
 	}
-	return ui.EventResult{Handled: true, Repaint: true}, true
+	return gfx.EventResult{Handled: true, Repaint: true}, true
 }
 
 // treeKey moves through the tree with the keyboard while one of its rows has the focus: the
 // up and down arrows step between rows, right expands a folder or steps into it, left
 // collapses it or steps out to its parent, and Enter opens the row.
-func (a *App) treeKey(event ui.KeyEvent) ui.EventResult {
+func (a *App) treeKey(event gfx.KeyEvent) gfx.EventResult {
 	p := a.project
 	if p == nil || event.Release {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	t := &p.tree
 	n, ok := t.byID[event.Target]
 	if !ok || event.Modifiers != 0 {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	// The keyboard stays on the row that was clicked, and the arrows move the selection, so
 	// the keys act on the selected row.
@@ -578,7 +578,7 @@ func (a *App) treeKey(event ui.KeyEvent) ui.EventResult {
 			break
 		}
 	}
-	move := func(i int) ui.EventResult {
+	move := func(i int) gfx.EventResult {
 		if i >= 0 && i < len(t.rows) {
 			t.selected = t.rows[i]
 			t.focus = treeRows.At(t.selected.id)
@@ -591,40 +591,40 @@ func (a *App) treeKey(event ui.KeyEvent) ui.EventResult {
 				scroll.ScrollTo(bottom - scroll.Viewport)
 			}
 		}
-		return ui.EventResult{Handled: true, Repaint: true}
+		return gfx.EventResult{Handled: true, Repaint: true}
 	}
 	switch event.Key {
-	case ui.KeyUp:
+	case gfx.KeyUp:
 		return move(at - 1)
-	case ui.KeyDown:
+	case gfx.KeyDown:
 		return move(at + 1)
-	case ui.KeyRight:
+	case gfx.KeyRight:
 		if n.dir && !n.expanded {
 			t.selected = n
 			a.toggleFolder(p, n)
-			return ui.EventResult{Handled: true, Repaint: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		}
 		if n.dir && len(n.children) > 0 {
 			return move(at + 1)
 		}
-		return ui.EventResult{Handled: true}
-	case ui.KeyLeft:
+		return gfx.EventResult{Handled: true}
+	case gfx.KeyLeft:
 		if n.dir && n.expanded {
 			t.selected = n
 			a.toggleFolder(p, n)
-			return ui.EventResult{Handled: true, Repaint: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		}
 		for i := at - 1; i >= 0; i-- {
 			if t.rows[i].depth < n.depth {
 				return move(i)
 			}
 		}
-		return ui.EventResult{Handled: true}
-	case ui.KeyEnter:
+		return gfx.EventResult{Handled: true}
+	case gfx.KeyEnter:
 		a.activateTreeNode(p, n)
-		return ui.EventResult{Handled: true, Repaint: true}
+		return gfx.EventResult{Handled: true, Repaint: true}
 	}
-	return ui.EventResult{}
+	return gfx.EventResult{}
 }
 
 // treeScrollPad is the room after the end of the widest name when the tree is scrolled to its
@@ -637,14 +637,14 @@ const (
 // captureTree reads what the frame just laid out for the project tree: how wide its widest
 // row is and how wide its list, keeping the sideways scroll in range. It paints the thumb of
 // the sideways scrollbar along the bottom of the list while there is more to scroll to.
-func (a *App) captureTree(canvas *ui.Canvas) {
+func (a *App) captureTree(canvas *gfx.Canvas) {
 	p := a.project
 	if p == nil {
 		return
 	}
 	t := &p.tree
 	if !t.drawn {
-		t.areaRect = ui.Rect{}
+		t.areaRect = gfx.Rect{}
 		return
 	}
 	t.drawn = false
@@ -655,9 +655,9 @@ func (a *App) captureTree(canvas *ui.Canvas) {
 		width = 0
 		for _, n := range t.rows {
 			prefix := float32(2*treeGutter + n.depth*treeIndent + treeChevron + treeIcon + 4 + 8)
-			weight := ui.WeightRegular
+			weight := gfx.WeightRegular
 			if n == t.root {
-				weight = ui.WeightSemibold
+				weight = gfx.WeightSemibold
 			}
 			width = max(width, prefix+canvas.TextWidthWeight(n.name, fontSize, weight))
 		}
@@ -678,33 +678,33 @@ func (a *App) captureTree(canvas *ui.Canvas) {
 	x := area.X + (viewport-length)*(t.scrollX/(width-viewport))
 	thumb := a.colors.Subtle
 	thumb.Alpha *= 0.45
-	canvas.Rounded(ui.Rect{X: x, Y: area.Y + area.Height - treeBar - 2, Width: length, Height: treeBar}, treeBar/2, thumb)
+	canvas.Rounded(gfx.Rect{X: x, Y: area.Y + area.Height - treeBar - 2, Width: length, Height: treeBar}, treeBar/2, thumb)
 }
 
 // treeScroll scrolls the project tree sideways with a sideways swipe, or the wheel with Shift
 // held, over the list. Up and down scrolling is the scroll area's own. The second result says
 // whether the event was the tree's.
-func (a *App) treeScroll(event ui.ScrollEvent) (ui.EventResult, bool) {
+func (a *App) treeScroll(event gfx.ScrollEvent) (gfx.EventResult, bool) {
 	p := a.project
 	if p == nil {
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
 	t := &p.tree
 	r := t.areaRect
 	if r.Width <= 0 || event.X < r.X || event.X >= r.X+r.Width || event.Y < r.Y || event.Y >= r.Y+r.Height {
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
 	dx := event.DeltaX
-	if dx == 0 && event.Modifiers&ui.ModifierShift != 0 {
+	if dx == 0 && event.Modifiers&gfx.ModifierShift != 0 {
 		dx = event.DeltaY
 	}
-	if dx == 0 || absFloat32(dx) < absFloat32(event.DeltaY) && event.Modifiers&ui.ModifierShift == 0 {
-		return ui.EventResult{}, false
+	if dx == 0 || absFloat32(dx) < absFloat32(event.DeltaY) && event.Modifiers&gfx.ModifierShift == 0 {
+		return gfx.EventResult{}, false
 	}
 	if !event.Precise && absFloat32(dx) < rowHeight {
 		dx = rowHeight * dx / absFloat32(dx)
 	}
 	before := t.scrollX
 	t.scrollX = min(max(t.scrollX+dx, 0), max(t.width-t.viewport, 0))
-	return ui.EventResult{Handled: true, Repaint: t.scrollX != before}, true
+	return gfx.EventResult{Handled: true, Repaint: t.scrollX != before}, true
 }

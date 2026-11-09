@@ -8,14 +8,14 @@ import (
 	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // This file paints the rows of the commit list: the graph, the subject, the author, the
 // date and the reference labels. The rows themselves (their hit, selection, hover and
-// current branch backgrounds) are flex boxes declared by gitlog_view.go; what is drawn
+// current branch backgrounds) are ui boxes declared by gitlog_view.go; what is drawn
 // in them is painted here after Draw, into the rectangles the boxes were laid out at,
-// because the graph is vector geometry no flex box can show.
+// because the graph is vector geometry no ui box can show.
 //
 // The measurements are those of the macOS log, which scales the 22 point grid of the
 // IntelliJ log to its 26 point rows.
@@ -107,7 +107,7 @@ func titleOffset(row core.GraphRow) float32 {
 
 // graphColor is the color of an edge or node with a color id: a hue derived from the id
 // as the IntelliJ log derives it, at the saturation and brightness of the theme.
-func graphColor(id int32, dark bool, text ui.Color) ui.Color {
+func graphColor(id int32, dark bool, text gfx.Color) gfx.Color {
 	if id == 0 {
 		return text
 	}
@@ -150,7 +150,7 @@ func hue(r, g, b float64) float64 {
 }
 
 // hsb is the color with a hue in turns, a saturation and a brightness.
-func hsb(h, s, v float64) ui.Color {
+func hsb(h, s, v float64) gfx.Color {
 	h = (h - math.Floor(h)) * 6
 	f := h - math.Floor(h)
 	p, q, t := v*(1-s), v*(1-s*f), v*(1-s*(1-f))
@@ -169,11 +169,11 @@ func hsb(h, s, v float64) ui.Color {
 	default:
 		r, g, b = v, p, q
 	}
-	return ui.Color{Red: float32(r), Green: float32(g), Blue: float32(b), Alpha: 1}
+	return gfx.Color{Red: float32(r), Green: float32(g), Blue: float32(b), Alpha: 1}
 }
 
 // referenceColor is the color of a reference label's icon by kind.
-func referenceColor(kind string, dark bool) ui.Color {
+func referenceColor(kind string, dark bool) gfx.Color {
 	switch kind {
 	case "head":
 		return pick(dark, 0xF5D273, 0xFFAF0F)
@@ -186,27 +186,27 @@ func referenceColor(kind string, dark bool) ui.Color {
 	}
 }
 
-func pick(dark bool, darkRGB, lightRGB uint32) ui.Color {
+func pick(dark bool, darkRGB, lightRGB uint32) gfx.Color {
 	if dark {
-		return ui.RGB24(darkRGB)
+		return gfx.RGB24(darkRGB)
 	}
-	return ui.RGB24(lightRGB)
+	return gfx.RGB24(lightRGB)
 }
 
 // currentBranchBackground is the background of the rows of the checked out branch.
-func currentBranchBackground(dark bool) ui.Color {
+func currentBranchBackground(dark bool) gfx.Color {
 	if dark {
-		return ui.RGB(29, 35, 54)
+		return gfx.RGB(29, 35, 54)
 	}
-	return ui.RGB(237, 243, 255)
+	return gfx.RGB(237, 243, 255)
 }
 
 // mergeForeground is the text color of a merge commit's row.
-func mergeForeground(dark bool) ui.Color {
+func mergeForeground(dark bool) gfx.Color {
 	if dark {
-		return ui.RGB(111, 115, 122)
+		return gfx.RGB(111, 115, 122)
 	}
-	return ui.RGB(129, 133, 148)
+	return gfx.RGB(129, 133, 148)
 }
 
 // referenceGroup is what a row's reference labels show: one title, the icons of the
@@ -334,7 +334,7 @@ func (g referenceGroup) iconWidth(h float32) float32 {
 
 // shortenTitle keeps at least 22 characters of a title, shortening a long one first by
 // its leading folder and then from the end.
-func shortenTitle(canvas *ui.Canvas, title string, available, size float32) string {
+func shortenTitle(canvas *gfx.Canvas, title string, available, size float32) string {
 	if utf8.RuneCountInString(title) <= 22 || canvas.TextWidth(title, size) <= available {
 		return title
 	}
@@ -357,7 +357,7 @@ func shortenTitle(canvas *ui.Canvas, title string, available, size float32) stri
 }
 
 // tagIcon traces the reference label icon, a tag, in a size×size box.
-func tagIcon(b *ui.PathBuilder, size float32) ui.Path {
+func tagIcon(b *gfx.PathBuilder, size float32) gfx.Path {
 	s := size / 16
 	b.MoveTo(13.4495*s, 7.5001*s)
 	b.LineTo(7.01028*s, 13.9394*s)
@@ -375,7 +375,7 @@ func tagIcon(b *ui.PathBuilder, size float32) ui.Path {
 }
 
 // paintGitLog paints the rows of the commit list the frame declared.
-func (a *App) paintGitLog(canvas *ui.Canvas) {
+func (a *App) paintGitLog(canvas *gfx.Canvas) {
 	v := &a.logView
 	if len(v.rows) == 0 || a.project == nil {
 		return
@@ -387,9 +387,9 @@ func (a *App) paintGitLog(canvas *ui.Canvas) {
 	}
 	dark := a.colors.Dark
 	if v.colorsDark != dark || v.colors == nil {
-		v.colors, v.colorsDark = map[int32]ui.Color{}, dark
+		v.colors, v.colorsDark = map[int32]gfx.Color{}, dark
 	}
-	color := func(id int32) ui.Color {
+	color := func(id int32) gfx.Color {
 		c, ok := v.colors[id]
 		if !ok {
 			c = graphColor(id, dark, a.colors.Text)
@@ -419,7 +419,7 @@ func (a *App) paintGitLog(canvas *ui.Canvas) {
 		start := titleOffset(row)
 		labelsWidth := float32(0)
 		var group referenceGroup
-		var labelRect ui.Rect
+		var labelRect gfx.Rect
 		labelText := ""
 		if l.decorations && len(row.Labels) > 0 {
 			group = groupReferences(row.Labels, l.current, upstream)
@@ -435,11 +435,11 @@ func (a *App) paintGitLog(canvas *ui.Canvas) {
 			}
 			width := min(column, icon+textW+8)
 			labelsWidth = width
-			labelRect = ui.Rect{X: rect.X + end - width, Y: rect.Y, Width: width, Height: rect.Height}
+			labelRect = gfx.Rect{X: rect.X + end - width, Y: rect.Y, Width: width, Height: rect.Height}
 		}
-		a.paintText(canvas, commit.Subject, ui.Rect{X: rect.X + start, Y: rect.Y, Width: max(0, rect.Width-start-dateWidth-logMetaGap-labelsWidth), Height: rect.Height}, logFontSize, foreground, ui.AlignStart)
-		a.paintText(canvas, commit.AuthorName, ui.Rect{X: rect.X + max(0, rect.Width-dateWidth-112), Y: rect.Y, Width: logAuthorWidth, Height: rect.Height}, logMetaSize, foreground, ui.AlignStart)
-		a.paintText(canvas, v.date(commit), ui.Rect{X: rect.X + max(0, rect.Width-dateWidth-logDatePad), Y: rect.Y, Width: dateWidth, Height: rect.Height}, logMetaSize, foreground, ui.AlignEnd)
+		a.paintText(canvas, commit.Subject, gfx.Rect{X: rect.X + start, Y: rect.Y, Width: max(0, rect.Width-start-dateWidth-logMetaGap-labelsWidth), Height: rect.Height}, logFontSize, foreground, gfx.AlignStart)
+		a.paintText(canvas, commit.AuthorName, gfx.Rect{X: rect.X + max(0, rect.Width-dateWidth-112), Y: rect.Y, Width: logAuthorWidth, Height: rect.Height}, logMetaSize, foreground, gfx.AlignStart)
+		a.paintText(canvas, v.date(commit), gfx.Rect{X: rect.X + max(0, rect.Width-dateWidth-logDatePad), Y: rect.Y, Width: dateWidth, Height: rect.Height}, logMetaSize, foreground, gfx.AlignEnd)
 		if labelRect.Width > 0 {
 			background := a.colors.Editor
 			switch {
@@ -454,9 +454,9 @@ func (a *App) paintGitLog(canvas *ui.Canvas) {
 }
 
 // paintGraphRow strokes the edges of one row and fills its node.
-func (a *App) paintGraphRow(canvas *ui.Canvas, m graphMetrics, rect ui.Rect, row core.GraphRow, color func(int32) ui.Color) {
+func (a *App) paintGraphRow(canvas *gfx.Canvas, m graphMetrics, rect gfx.Rect, row core.GraphRow, color func(int32) gfx.Color) {
 	width := titleOffset(row)
-	box := ui.Rect{X: rect.X, Y: rect.Y, Width: width, Height: logRowHeight}
+	box := gfx.Rect{X: rect.X, Y: rect.Y, Width: width, Height: logRowHeight}
 	for _, e := range row.PrintElements {
 		x0, y0, x1, y1 := m.line(e)
 		b := canvas.PathBuilder()
@@ -475,12 +475,12 @@ func (a *App) paintGraphRow(canvas *ui.Canvas, m graphMetrics, rect ui.Rect, row
 				b.LineTo(x1+vx*sqrt07-sign*vy*sqrt03, y1+sign*vx*sqrt03+vy*sqrt07)
 			}
 		}
-		canvas.DrawPath(b.Path(width, logRowHeight), box, ui.PathStyle{
-			Stroke: color(e.ColorID), StrokeWidth: m.lineWidth, Cap: ui.CapRound, Join: ui.JoinRound,
+		canvas.DrawPath(b.Path(width, logRowHeight), box, gfx.PathStyle{
+			Stroke: color(e.ColorID), StrokeWidth: m.lineWidth, Cap: gfx.CapRound, Join: gfx.JoinRound,
 		})
 	}
 	x := rect.X + m.laneCenter + float32(row.Lane)*m.laneSpacing - m.nodeRadius
-	node := ui.Rect{X: x, Y: rect.Y + m.rowCenter - m.nodeRadius, Width: m.nodeDiameter, Height: m.nodeDiameter}
+	node := gfx.Rect{X: x, Y: rect.Y + m.rowCenter - m.nodeRadius, Width: m.nodeDiameter, Height: m.nodeDiameter}
 	canvas.Rounded(node, m.nodeDiameter/2, color(row.ColorID))
 }
 
@@ -491,7 +491,7 @@ var (
 
 // dashLine traces a dotted edge as the IntelliJ log dashes it: one dash and one gap
 // fitted into a row, the pattern starting half a dash in.
-func dashLine(b *ui.PathBuilder, x0, y0, x1, y1 float32) {
+func dashLine(b *gfx.PathBuilder, x0, y0, x1, y1 float32) {
 	space := float32(logRowHeight/2 - 2)
 	segment := float32(math.Hypot(float64(x1-x0), float64(y1-y0)))
 	if segment <= 0 {
@@ -517,37 +517,37 @@ func dashLine(b *ui.PathBuilder, x0, y0, x1, y1 float32) {
 
 // paintLabels paints a row's reference group: the overlapping tag icons of its kinds,
 // the last with its hole, and the title beside them.
-func (a *App) paintLabels(canvas *ui.Canvas, rect ui.Rect, g referenceGroup, text string, background ui.Color) {
+func (a *App) paintLabels(canvas *gfx.Canvas, rect gfx.Rect, g referenceGroup, text string, background gfx.Color) {
 	size := float32(logRefSize + 3)
 	canvas.Clip(rect)
 	defer canvas.Unclip()
 	for i := len(g.kinds) - 1; i >= 0; i-- {
 		kind := g.kinds[i]
 		index := len(g.kinds) - 1 - i
-		box := ui.Rect{X: rect.X + 4 + float32(index)*size/6.25*2, Y: rect.Y + rect.Height/2 - size/2, Width: size, Height: size}
+		box := gfx.Rect{X: rect.X + 4 + float32(index)*size/6.25*2, Y: rect.Y + rect.Height/2 - size/2, Width: size, Height: size}
 		stroke := referenceColor(kind, a.colors.Dark)
-		canvas.DrawPath(tagIcon(canvas.PathBuilder(), size), box, ui.PathStyle{
-			Fill: background, Stroke: stroke, StrokeWidth: size / 16, Join: ui.JoinRound,
+		canvas.DrawPath(tagIcon(canvas.PathBuilder(), size), box, gfx.PathStyle{
+			Fill: background, Stroke: stroke, StrokeWidth: size / 16, Join: gfx.JoinRound,
 		})
 		if index == len(g.kinds)-1 {
-			hole := ui.Rect{X: box.X + 9.5*size/16, Y: box.Y + 4.5*size/16, Width: size / 8, Height: size / 8}
+			hole := gfx.Rect{X: box.X + 9.5*size/16, Y: box.Y + 4.5*size/16, Width: size / 8, Height: size / 8}
 			canvas.Rounded(hole, size/16, stroke)
 		}
 	}
 	icon := g.iconWidth(size)
-	a.paintText(canvas, text, ui.Rect{X: rect.X + 5 + icon, Y: rect.Y, Width: max(0, rect.Width-icon-9), Height: rect.Height}, logRefSize, a.colors.Text, ui.AlignStart)
+	a.paintText(canvas, text, gfx.Rect{X: rect.X + 5 + icon, Y: rect.Y, Width: max(0, rect.Width-icon-9), Height: rect.Height}, logRefSize, a.colors.Text, gfx.AlignStart)
 }
 
 // paintText paints one line cut to its rectangle with an ellipsis.
-func (a *App) paintText(canvas *ui.Canvas, text string, rect ui.Rect, size float32, color ui.Color, align ui.Alignment) {
+func (a *App) paintText(canvas *gfx.Canvas, text string, rect gfx.Rect, size float32, color gfx.Color, align gfx.Alignment) {
 	if rect.Width <= 0 || text == "" {
 		return
 	}
-	line := canvas.FitLine(text, size, ui.WeightRegular, rect.Width)
+	line := canvas.FitLine(text, size, gfx.WeightRegular, rect.Width)
 	if line == "" {
 		return
 	}
-	canvas.LabelAligned(line, rect, ui.TextStyle{Size: size, Color: color}, align)
+	canvas.LabelAligned(line, rect, gfx.TextStyle{Size: size, Color: color}, align)
 }
 
 // date is the date a row shows, in local time, cached by commit.

@@ -8,7 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	vivatext "github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
 )
@@ -131,7 +131,7 @@ type detailsState struct {
 var detailsToken = regexp.MustCompile(`"(?:\\.|[^"\\])*"|\b(?:true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?`)
 
 // detailColor is the color of a role.
-func (p palette) detailColor(role detailRole) ui.Color {
+func (p palette) detailColor(role detailRole) gfx.Color {
 	switch role {
 	case detailKey:
 		return p.cyn
@@ -317,7 +317,7 @@ func wrapDetailWords(s string, cols int) []string {
 
 // drawDetails is the details pane: the tabs and the selected record's JSON or call chain on
 // the left, the actions on the right. The caller draws the line above it.
-func (w *window) drawDetails(f *flex.Frame) {
+func (w *window) drawDetails(f *ui.Frame) {
 	record, selected := w.model.selectedRecord()
 	f.Row().Fill().Children(func() {
 		f.Column().Grow(1).Shrink(1).MinWidth(0).FillHeight().Children(func() {
@@ -335,13 +335,13 @@ func (w *window) drawDetails(f *flex.Frame) {
 
 // drawDetailTabs is the strip of tabs, with the call chain's record count, the help for the
 // call chain, and a line under the whole strip.
-func (w *window) drawDetailTabs(f *flex.Frame) {
+func (w *window) drawDetailTabs(f *ui.Frame) {
 	m := w.text.Logs
 	count := -1
 	if trace := w.model.trace; trace != nil && trace.OpSummary != nil {
 		count = trace.OpSummary.Count
 	}
-	f.Row().FillWidth().Shrink(0).PadSides(4, 8, 0, 8).Gap(2).Items(flex.Center).Children(func() {
+	f.Row().FillWidth().Shrink(0).PadSides(4, 8, 0, 8).Gap(2).Items(ui.Center).Children(func() {
 		w.drawDetailTab(f, detailsTabID, detailsTabFields, m.Detail, -1)
 		w.drawDetailTab(f, detailsTraceTabID, detailsTabTrace, m.CallChain, count)
 		w.info(f, detailsHelpID, m.TraceHelp)
@@ -354,14 +354,14 @@ func (w *window) drawDetailTabs(f *flex.Frame) {
 
 // drawDetailTab is one tab: its title, the count after it when count is not negative, and a
 // 2 point underline in the accent color when it is the open one.
-func (w *window) drawDetailTab(f *flex.Frame, id ui.ID, index int, title string, count int) {
+func (w *window) drawDetailTab(f *ui.Frame, id gfx.ID, index int, title string, count int) {
 	open := w.details.tab == index
 	color := w.pal.tx2
 	if open {
 		color = w.pal.tx
 	}
-	tab := f.Row().Shrink(0).PadSides(3, 10, 5, 10).Gap(5).Items(flex.Center).
-		HitWith(id, title, ui.HitOptions{Role: ui.RoleTab, Selected: open})
+	tab := f.Row().Shrink(0).PadSides(3, 10, 5, 10).Gap(5).Items(ui.Center).
+		HitWith(id, title, gfx.HitOptions{Role: gfx.RoleTab, Selected: open})
 	tab.Children(func() {
 		w.mono(f, title, detailsFontSize, color).Shrink(0)
 		if count >= 0 {
@@ -396,7 +396,7 @@ func (w *window) layoutDetail(fields map[string]string, header string, cols int)
 
 // drawDetailFields is the Detail tab: the file and line of the record, then its JSON as the
 // kernel formats it, colored. Nothing is drawn while no record is selected.
-func (w *window) drawDetailFields(f *flex.Frame, record core.LogRecord, selected bool) {
+func (w *window) drawDetailFields(f *ui.Frame, record core.LogRecord, selected bool) {
 	cw, ch := f.Canvas().CellSize(detailsFontSize)
 	area := f.ScrollArea(detailsFieldsID).FillWidth().Grow(1).Shrink(1).MinHeight(0).
 		PadSides(detailsPadY, detailsPadX, detailsPadY, detailsPadX)
@@ -424,7 +424,7 @@ func (w *window) drawDetailFields(f *flex.Frame, record core.LogRecord, selected
 
 // drawDetailRows declares rows of the JSON, each as a row of monospaced spans. link counts the
 // clickable spans of the frame so that each gets an identity of its own.
-func (w *window) drawDetailRows(f *flex.Frame, rows []detailRow, height float32, record core.LogRecord, link *int) {
+func (w *window) drawDetailRows(f *ui.Frame, rows []detailRow, height float32, record core.LogRecord, link *int) {
 	for _, row := range rows {
 		f.Row().FillWidth().Height(height).Shrink(0).Children(func() {
 			for _, span := range row {
@@ -436,7 +436,7 @@ func (w *window) drawDetailRows(f *flex.Frame, rows []detailRow, height float32,
 
 // drawDetailSpan declares one span. The value of a field of the record is a link: it turns to
 // the accent color under the pointer and, when clicked, adds the field to the filter.
-func (w *window) drawDetailSpan(f *flex.Frame, span detailSpan, record core.LogRecord, link *int) {
+func (w *window) drawDetailSpan(f *ui.Frame, span detailSpan, record core.LogRecord, link *int) {
 	color := w.pal.detailColor(span.role)
 	if span.field == "" {
 		w.mono(f, span.text, detailsFontSize, color).Shrink(0)
@@ -444,9 +444,9 @@ func (w *window) drawDetailSpan(f *flex.Frame, span detailSpan, record core.LogR
 	}
 	id := detailsLinks.At(*link)
 	*link++
-	holder := f.Row().Shrink(0).HitWith(id, span.text, ui.HitOptions{Role: ui.RoleLink, Cursor: ui.PointerCursorHand})
+	holder := f.Row().Shrink(0).HitWith(id, span.text, gfx.HitOptions{Role: gfx.RoleLink, Cursor: gfx.PointerCursorHand})
 	holder.Children(func() {
-		w.mono(f, span.text, detailsFontSize, color).Shrink(0).StateFrom(holder).Hover(flex.Look{}.Color(w.pal.blu))
+		w.mono(f, span.text, detailsFontSize, color).Shrink(0).StateFrom(holder).Hover(ui.Look{}.Color(w.pal.blu))
 	})
 	if holder.Clicked() {
 		w.model.compose(core.LogFilterTerm{Kind: "field", Key: span.field, Value: record.Fields[span.field]})
@@ -455,7 +455,7 @@ func (w *window) drawDetailSpan(f *flex.Frame, span detailSpan, record core.LogR
 
 // drawDetailTrace is the Call chain tab: that the record has no operation, or the operation's
 // header and its records in time order. Only the rows in view are declared.
-func (w *window) drawDetailTrace(f *flex.Frame, record core.LogRecord, selected bool) {
+func (w *window) drawDetailTrace(f *ui.Frame, record core.LogRecord, selected bool) {
 	m := w.text.Logs
 	_, ch := f.Canvas().CellSize(detailsFontSize)
 	var records []core.LogRecord
@@ -508,37 +508,37 @@ func (w *window) drawDetailTrace(f *flex.Frame, record core.LogRecord, selected 
 // span. A click selects the record in the table. The macOS window gives the columns fixed
 // widths and scrolls sideways; here the narrow ones keep theirs and the others shrink, the
 // bar first, so that nothing runs out of the pane.
-func (w *window) drawDetailTraceRow(f *flex.Frame, i int, record core.LogRecord, summary *core.LogOpSummary) {
+func (w *window) drawDetailTraceRow(f *ui.Frame, i int, record core.LogRecord, summary *core.LogOpSummary) {
 	offset := int64(0)
 	if record.OpOffsetMs != nil {
 		offset = *record.OpOffsetMs
 	}
 	selected := w.model.selection[recordID(record)]
-	row := f.Row().FillWidth().Height(detailsTraceRowHeight).Shrink(0).PadX(4).Gap(10).Items(flex.Center).
-		HitWith(detailsTraceRows.At(i), record.Msg, ui.HitOptions{Role: ui.RoleOption, Selected: selected})
+	row := f.Row().FillWidth().Height(detailsTraceRowHeight).Shrink(0).PadX(4).Gap(10).Items(ui.Center).
+		HitWith(detailsTraceRows.At(i), record.Msg, gfx.HitOptions{Role: gfx.RoleOption, Selected: selected})
 	if selected {
 		row = row.Background(w.pal.hl)
 	}
 	row.Children(func() {
-		f.Row().Width(70).Shrink(0).Items(flex.Center).Children(func() {
+		f.Row().Width(70).Shrink(0).Items(ui.Center).Children(func() {
 			w.mono(f, "+"+strconv.FormatInt(offset, 10)+" ms", detailsTraceFontSize, w.pal.tx3).Shrink(0)
 		})
-		f.Row().Width(64).Shrink(0).Items(flex.Center).Children(func() {
+		f.Row().Width(64).Shrink(0).Items(ui.Center).Children(func() {
 			w.mono(f, levelSymbol(record.Level)+" "+string(record.Level), detailsTraceFontSize, w.pal.levelColor(record.Level)).Shrink(0)
 		})
-		f.Row().Width(150).Shrink(1).MinWidth(0).Items(flex.Center).Children(func() {
+		f.Row().Width(150).Shrink(1).MinWidth(0).Items(ui.Center).Children(func() {
 			color := channelColor(record.Channel)
-			f.Row().PadX(5).Shrink(1).MinWidth(0).Radius(3).Background(color.WithAlpha(0.15)).Items(flex.Center).Children(func() {
+			f.Row().PadX(5).Shrink(1).MinWidth(0).Radius(3).Background(color.WithAlpha(0.15)).Items(ui.Center).Children(func() {
 				w.mono(f, record.Channel, detailsTraceFontSize, color).Ellipsis()
 			})
 		})
-		f.Row().Width(210).Shrink(1).MinWidth(0).Items(flex.Center).Children(func() {
+		f.Row().Width(210).Shrink(1).MinWidth(0).Items(ui.Center).Children(func() {
 			w.mono(f, record.Event, detailsTraceFontSize, w.pal.pur).Ellipsis()
 		})
-		f.Row().Basis(180).Grow(1).Shrink(1).MinWidth(0).Items(flex.Center).Children(func() {
+		f.Row().Basis(180).Grow(1).Shrink(1).MinWidth(0).Items(ui.Center).Children(func() {
 			w.mono(f, record.Msg, detailsTraceFontSize, w.pal.tx).Ellipsis()
 		})
-		f.Row().Width(160).Shrink(2).MinWidth(0).Items(flex.Center).Children(func() {
+		f.Row().Width(160).Shrink(2).MinWidth(0).Items(ui.Center).Children(func() {
 			span := int64(1)
 			if summary != nil {
 				span = max(1, summary.DurationMs)
@@ -560,9 +560,9 @@ func (w *window) drawDetailTraceRow(f *flex.Frame, i int, record core.LogRecord,
 // redacted values are masked. Every action needs a selected record, and tracing the
 // operation one with an operation. Exporting a bundle opens the same sheet as the toolbar's
 // Export, as in the macOS client.
-func (w *window) drawDetailActions(f *flex.Frame, record core.LogRecord, selected bool) {
+func (w *window) drawDetailActions(f *ui.Frame, record core.LogRecord, selected bool) {
 	m := w.text.Logs
-	action := func(id ui.ID, symbol, title string, disabled bool) bool {
+	action := func(id gfx.ID, symbol, title string, disabled bool) bool {
 		button := w.button(f, id, symbol, title, buttonOptions{fullWidth: true, height: detailsButtonHeight, disabled: disabled})
 		return !disabled && button.Clicked()
 	}

@@ -10,7 +10,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
 )
@@ -24,11 +24,11 @@ var (
 )
 
 type navigationView struct {
-	input                           flex.Field
+	input                           ui.Field
 	project                         *project
 	document                        int
 	open, focus, selectAll, pending bool
-	requestedFocus                  ui.ID
+	requestedFocus                  gfx.ID
 	validated                       string
 	target                          *core.NavigationTarget
 	generation                      uint64
@@ -38,11 +38,11 @@ type navigationView struct {
 }
 
 // The macOS product uses Command-L; the Windows default keymap uses Control-G.
-func isNavigationShortcut(platform string, event ui.KeyEvent) bool {
+func isNavigationShortcut(platform string, event gfx.KeyEvent) bool {
 	if platform == "darwin" {
-		return event.Modifiers == ui.ModifierMeta && strings.EqualFold(event.Text, "l")
+		return event.Modifiers == gfx.ModifierMeta && strings.EqualFold(event.Text, "l")
 	}
-	return event.Modifiers == ui.ModifierControl && strings.EqualFold(event.Text, "g")
+	return event.Modifiers == gfx.ModifierControl && strings.EqualFold(event.Text, "g")
 }
 
 func (a *App) openNavigation(p *project) bool {
@@ -79,7 +79,7 @@ func (a *App) closeNavigation() {
 		}
 	}
 	v.open, v.focus, v.selectAll, v.pending = false, false, false, false
-	v.requestedFocus = ui.ID{}
+	v.requestedFocus = gfx.ID{}
 	v.project, v.target = nil, nil
 }
 
@@ -155,7 +155,7 @@ func (a *App) confirmNavigation(p *project) {
 	}
 }
 
-func (a *App) drawNavigation(f *flex.Frame, p *project) {
+func (a *App) drawNavigation(f *ui.Frame, p *project) {
 	v := &a.navigation
 	if !v.open {
 		return
@@ -171,22 +171,22 @@ func (a *App) drawNavigation(f *flex.Frame, p *project) {
 	}
 	if !v.requestedFocus.IsZero() {
 		f.Canvas().RequestFocus(v.requestedFocus)
-		v.requestedFocus = ui.ID{}
+		v.requestedFocus = gfx.ID{}
 	}
-	f.Popup().At(0, 0).Fill().HitWith(navigationDismiss, a.text.Errors.Dismiss, ui.HitOptions{Role: ui.RoleButton, SkipFocus: true, Backdrop: true})
+	f.Popup().At(0, 0).Fill().HitWith(navigationDismiss, a.text.Errors.Dismiss, gfx.HitOptions{Role: gfx.RoleButton, SkipFocus: true, Backdrop: true})
 	bounds := f.Bounds()
 	width, height := float32(340), float32(128)
-	bg := ui.RGB24(0xF5F5F6)
+	bg := gfx.RGB24(0xF5F5F6)
 	if a.colors.Dark {
-		bg = ui.RGB24(0x1E2128)
+		bg = gfx.RGB24(0x1E2128)
 	}
 	f.Popup().At((bounds.Width-width)/2, (bounds.Height-height)/2).Size(width, height).
-		Background(bg).Border(1, a.theme.Border).Radius(10).Shadow(ui.ShadowMD).Children(func() {
-		f.Row().FillWidth().Height(44).Items(flex.Start).PadX(8).PadY(9).Gap(9).Children(func() {
+		Background(bg).Border(1, a.theme.Border).Radius(10).Shadow(gfx.ShadowMD).Children(func() {
+		f.Row().FillWidth().Height(44).Items(ui.Start).PadX(8).PadY(9).Gap(9).Children(func() {
 			for i := 0; i < 3; i++ {
-				dot := f.Row().Size(14, 14).Radius(7).Background(ui.RGB24(0x41444B))
+				dot := f.Row().Size(14, 14).Radius(7).Background(gfx.RGB24(0x41444B))
 				if i == 0 {
-					dot = dot.HitWith(navigationClose, a.text.Errors.Dismiss, ui.HitOptions{Role: ui.RoleButton, SkipFocus: true})
+					dot = dot.HitWith(navigationClose, a.text.Errors.Dismiss, gfx.HitOptions{Role: gfx.RoleButton, SkipFocus: true})
 					if dot.Clicked() {
 						a.closeNavigation()
 					}
@@ -195,13 +195,13 @@ func (a *App) drawNavigation(f *flex.Frame, p *project) {
 			f.Row().Width(0)
 			f.Text(i18n.Shared(a.language(), "desktop.navigation.title")).FontSize(13).Color(a.colors.Subtle)
 		})
-		f.Row().FillWidth().Height(37).Items(flex.Center).PadX(16).Gap(8).Children(func() {
+		f.Row().FillWidth().Height(37).Items(ui.Center).PadX(16).Gap(8).Children(func() {
 			f.Text(i18n.Shared(a.language(), "desktop.navigation.label")).FontSize(13).Color(a.colors.Text)
-			f.Row().Grow(1).MinWidth(0).Height(24).Items(flex.Center).PadX(6).Border(1, a.colors.Line).Radius(6).Children(func() {
+			f.Row().Grow(1).MinWidth(0).Height(24).Items(ui.Center).PadX(6).Border(1, a.colors.Line).Radius(6).Children(func() {
 				f.FieldBase(&v.input, navigationField, i18n.Shared(a.language(), "desktop.navigation.label"), "").Grow(1).MinWidth(0).Height(22).FontSize(13).Color(a.colors.Text)
 			})
 		})
-		f.Row().FillWidth().Height(44).Items(flex.Center).PadX(16).Gap(6).Children(func() {
+		f.Row().FillWidth().Height(44).Items(ui.Center).PadX(16).Gap(6).Children(func() {
 			f.Row().Grow(1)
 			if f.Button(navigationCancel, a.text.Settings.Cancel).Width(72).Height(28).Outline().Clicked() {
 				a.closeNavigation()
@@ -219,12 +219,12 @@ func (a *App) drawNavigation(f *flex.Frame, p *project) {
 	}
 }
 
-func (a *App) navigationKey(p *project, event ui.KeyEvent) ui.EventResult {
+func (a *App) navigationKey(p *project, event gfx.KeyEvent) gfx.EventResult {
 	if event.Release {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
-	if event.Key == ui.KeyTab && (event.Modifiers == 0 || event.Modifiers == ui.ModifierShift) {
-		ids := []ui.ID{navigationField, navigationCancel}
+	if event.Key == gfx.KeyTab && (event.Modifiers == 0 || event.Modifiers == gfx.ModifierShift) {
+		ids := []gfx.ID{navigationField, navigationCancel}
 		if a.navigation.target != nil && a.navigation.validated == a.navigation.input.Text() {
 			ids = append(ids, navigationConfirm)
 		}
@@ -235,33 +235,33 @@ func (a *App) navigationKey(p *project, event ui.KeyEvent) ui.EventResult {
 				break
 			}
 		}
-		if event.Modifiers == ui.ModifierShift {
+		if event.Modifiers == gfx.ModifierShift {
 			index = (index + len(ids) - 1) % len(ids)
 		} else {
 			index = (index + 1) % len(ids)
 		}
 		a.navigation.requestedFocus = ids[index]
-		return ui.EventResult{Handled: true, Repaint: true}
+		return gfx.EventResult{Handled: true, Repaint: true}
 	}
 	if event.Modifiers != 0 {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	if event.Target == navigationField {
 		input := a.fields(app.TextInputContext{ID: navigationField})
 		if input != nil && input.Editor != nil {
 			if _, composing := input.Editor.Composition(); composing {
-				return ui.EventResult{}
+				return gfx.EventResult{}
 			}
 		}
 	}
 	switch event.Key {
-	case ui.KeyEscape:
+	case gfx.KeyEscape:
 		a.closeNavigation()
-	case ui.KeyEnter:
+	case gfx.KeyEnter:
 		a.syncNavigation(p)
 		a.confirmNavigation(p)
 	default:
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
-	return ui.EventResult{Handled: true, Repaint: true}
+	return gfx.EventResult{Handled: true, Repaint: true}
 }

@@ -2,7 +2,7 @@ package termview
 
 import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/term"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // The 16 ANSI colors of the terminal, one table per look. They are the colors the macOS
@@ -48,13 +48,13 @@ func newPalette(look Look, epoch uint32) palette {
 }
 
 // termColor resolves a terminal color; fallback stands in for the default.
-func (pal *palette) termColor(color term.Color, fallback ui.Color) ui.Color {
+func (pal *palette) termColor(color term.Color, fallback gfx.Color) gfx.Color {
 	switch color.Kind() {
 	case term.PaletteColor:
 		red, green, blue := term.Resolve(color.Index(), &pal.ansi)
-		return ui.RGB(red, green, blue)
+		return gfx.RGB(red, green, blue)
 	case term.TrueColor:
-		return ui.RGB(color.Components())
+		return gfx.RGB(color.Components())
 	}
 	return fallback
 }
@@ -72,14 +72,14 @@ func brighten(color term.Color) term.Color {
 
 // withAlpha is the color with its alpha multiplied by alpha, so a color that is already
 // translucent stays proportionally so.
-func withAlpha(color ui.Color, alpha float32) ui.Color {
+func withAlpha(color gfx.Color, alpha float32) gfx.Color {
 	color.Alpha *= alpha
 	return color
 }
 
 // rgb8 is the 8-bit channels of a color, the inverse of ui.RGB: each channel is clamped to
 // 0 to 1 and rounded to the nearest of 255 steps.
-func rgb8(color ui.Color) [3]uint8 {
+func rgb8(color gfx.Color) [3]uint8 {
 	channel := func(value float32) uint8 { return uint8(min(max(value, 0), 1)*255 + 0.5) }
 	return [3]uint8{channel(color.Red), channel(color.Green), channel(color.Blue)}
 }

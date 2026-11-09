@@ -10,7 +10,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/monogrid"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -109,9 +109,9 @@ const (
 // logView is the window's state of the log tab that is not the project's: the fields,
 // the splitters, and what the frame declared for the paint after it.
 type logView struct {
-	search, refSearch, userSearch, pathField flex.Field
+	search, refSearch, userSearch, pathField ui.Field
 
-	refSplit, detailSplit, filesSplit flex.SplitterState
+	refSplit, detailSplit, filesSplit ui.SplitterState
 	// detailWidth is the chosen width of the details pane; the commit list takes what
 	// is left, so the details keep their width when the tool window is resized.
 	detailWidth float32
@@ -121,13 +121,13 @@ type logView struct {
 
 	// body, list, rows, chips and menu are boxes of the frame being drawn; they are
 	// valid until the next frame starts. hasBody says body was declared.
-	body    flex.Box
+	body    ui.Box
 	hasBody bool
 	details bool
-	list    flex.Box
+	list    ui.Box
 	rows    []logPaintRow
-	chips   [logChipCount]flex.Box
-	menu    flex.Box
+	chips   [logChipCount]ui.Box
+	menu    ui.Box
 	hasMenu bool
 
 	// subject is the selected commit's subject broken into the lines the commit details draw
@@ -140,9 +140,9 @@ type logView struct {
 	// file is the path of the selected changed file.
 	file string
 	// focus is the field to give the keyboard to in the next frame.
-	focus ui.ID
+	focus gfx.ID
 
-	colors       map[int32]ui.Color
+	colors       map[int32]gfx.Color
 	colorsDark   bool
 	dates        map[string]string
 	upstream     map[string]string
@@ -152,7 +152,7 @@ type logView struct {
 
 // logPaintRow is one commit row the frame declared: its box and its row of the graph.
 type logPaintRow struct {
-	box   flex.Box
+	box   ui.Box
 	index int
 }
 
@@ -165,7 +165,7 @@ func newLogView() logView {
 
 // reset empties the fields for a project that was just opened.
 func (v *logView) reset() {
-	for _, field := range []*flex.Field{&v.search, &v.refSearch, &v.userSearch, &v.pathField} {
+	for _, field := range []*ui.Field{&v.search, &v.refSearch, &v.userSearch, &v.pathField} {
 		field.SetText("")
 	}
 	v.file = ""
@@ -200,15 +200,15 @@ func (v *logView) adoptDetails() {
 
 // key gives a key press to the log tab: Escape closes a popover, a focused splitter
 // takes the arrows, and the commit list takes Up and Down while it has the keyboard.
-func (a *App) logKey(event ui.KeyEvent) ui.EventResult {
+func (a *App) logKey(event gfx.KeyEvent) gfx.EventResult {
 	p := a.project
 	if p == nil || a.layout.gitTab != 0 || !p.log.started {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	v, l := &a.logView, &p.log
-	if event.Key == ui.KeyEscape && l.popover != logPopoverNone {
+	if event.Key == gfx.KeyEscape && l.popover != logPopoverNone {
 		l.popover = logPopoverNone
-		return ui.EventResult{Handled: true, Repaint: true}
+		return gfx.EventResult{Handled: true, Repaint: true}
 	}
 	if r := v.refSplit.Key(event); r.Handled {
 		return r
@@ -222,29 +222,29 @@ func (a *App) logKey(event ui.KeyEvent) ui.EventResult {
 	}
 	switch event.Target {
 	case logSearchID, logRefSearchID, logUserSearchID, logPathID:
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	if !l.listFocus || l.popover != logPopoverNone {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	delta := 0
 	switch event.Key {
-	case ui.KeyUp:
+	case gfx.KeyUp:
 		delta = -1
-	case ui.KeyDown:
+	case gfx.KeyDown:
 		delta = 1
 	default:
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	if a.moveLogSelection(p, delta) {
-		return ui.EventResult{Handled: true, Repaint: true}
+		return gfx.EventResult{Handled: true, Repaint: true}
 	}
-	return ui.EventResult{}
+	return gfx.EventResult{}
 }
 
 // drawLogHeaderLeading declares what the log tab adds after the tabs of the header:
 // the button that shows every reference again once the log walks one.
-func (a *App) drawLogHeaderLeading(f *flex.Frame, p *project) {
+func (a *App) drawLogHeaderLeading(f *ui.Frame, p *project) {
 	if p.log.reference == "" {
 		return
 	}
@@ -255,8 +255,8 @@ func (a *App) drawLogHeaderLeading(f *flex.Frame, p *project) {
 }
 
 // drawLogHeaderTrailing declares the log tab's menu button before the hide button.
-func (a *App) drawLogHeaderTrailing(f *flex.Frame, p *project) {
-	var button flex.Box
+func (a *App) drawLogHeaderTrailing(f *ui.Frame, p *project) {
+	var button ui.Box
 	if a.logIconButtonBox(f, logButtons.At(logButtonMenu), a.text.Git.Actions, icons.EllipsisVertical, p.log.popover == logPopoverMenu, false, &button) {
 		a.toggleLogPopover(p, logPopoverMenu)
 	}
@@ -264,7 +264,7 @@ func (a *App) drawLogHeaderTrailing(f *flex.Frame, p *project) {
 }
 
 // drawGitLog declares the body of the log tab.
-func (a *App) drawGitLog(f *flex.Frame, p *project) {
+func (a *App) drawGitLog(f *ui.Frame, p *project) {
 	l, v := &p.log, &a.logView
 	if !l.started {
 		a.loadLog(p)
@@ -301,7 +301,7 @@ func (a *App) drawGitLog(f *flex.Frame, p *project) {
 	a.drawLogPopover(f, p)
 	if !v.focus.IsZero() {
 		f.Canvas().RequestFocus(v.focus)
-		v.focus = ui.ID{}
+		v.focus = gfx.ID{}
 	}
 }
 
@@ -317,7 +317,7 @@ func (a *App) syncLogFilters(p *project) {
 }
 
 // drawLogStripe declares the action stripe of the reference pane.
-func (a *App) drawLogStripe(f *flex.Frame, p *project) {
+func (a *App) drawLogStripe(f *ui.Frame, p *project) {
 	l := &p.log
 	g := a.text.Git
 	selected, hasSelected := l.findReference(l.refSelected)
@@ -326,7 +326,7 @@ func (a *App) drawLogStripe(f *flex.Frame, p *project) {
 	if hasSelected && !selected.IsCurrent {
 		compare = g.CompareWithCurrent
 	}
-	f.Column().Width(logStripeWidth).Shrink(0).FillHeight().Items(flex.Center).PadY(6).Gap(4).Background(a.colors.Panel).Children(func() {
+	f.Column().Width(logStripeWidth).Shrink(0).FillHeight().Items(ui.Center).PadY(6).Gap(4).Background(a.colors.Panel).Children(func() {
 		if a.logIconButton(f, logButtons.At(logButtonHide), g.HideBranches, icons.ChevronLeft, false, false) {
 			l.branchesHidden = true
 		}
@@ -372,8 +372,8 @@ func (a *App) drawLogStripe(f *flex.Frame, p *project) {
 }
 
 // drawLogHiddenStripe is the stripe that stands for the reference pane while it is hidden.
-func (a *App) drawLogHiddenStripe(f *flex.Frame, p *project) {
-	f.Column().Width(logStripeWidth).Shrink(0).FillHeight().Items(flex.Center).PadY(6).Gap(4).Background(a.colors.Panel).Children(func() {
+func (a *App) drawLogHiddenStripe(f *ui.Frame, p *project) {
+	f.Column().Width(logStripeWidth).Shrink(0).FillHeight().Items(ui.Center).PadY(6).Gap(4).Background(a.colors.Panel).Children(func() {
 		if a.logIconButton(f, logButtons.At(logButtonShow), a.text.Git.ShowBranches, icons.GitBranch, false, false) {
 			p.log.branchesHidden = false
 		}
@@ -383,11 +383,11 @@ func (a *App) drawLogHiddenStripe(f *flex.Frame, p *project) {
 
 // drawLogReferences declares the reference pane: its search field over HEAD and the
 // sections of local branches, remote branches and tags.
-func (a *App) drawLogReferences(f *flex.Frame, p *project) flex.Box {
+func (a *App) drawLogReferences(f *ui.Frame, p *project) ui.Box {
 	l, v := &p.log, &a.logView
 	query := strings.ToLower(strings.TrimSpace(v.refSearch.Text()))
 	return f.Column().FillHeight().Background(a.colors.Panel).Clip().Children(func() {
-		f.Row().Height(logToolbarHeight).Shrink(0).Items(flex.Center).PadX(6).Children(func() {
+		f.Row().Height(logToolbarHeight).Shrink(0).Items(ui.Center).PadX(6).Children(func() {
 			f.Field(&v.refSearch, logRefSearchID, a.text.Git.BranchSearch, a.text.Git.BranchSearch).Grow(1)
 		})
 		f.Divider()
@@ -430,7 +430,7 @@ func (a *App) drawLogReferences(f *flex.Frame, p *project) flex.Box {
 }
 
 // drawLogSection declares the header row of a section and reports whether it is open.
-func (a *App) drawLogSection(f *flex.Frame, p *project, n *int, label, kind string, open bool) bool {
+func (a *App) drawLogSection(f *ui.Frame, p *project, n *int, label, kind string, open bool) bool {
 	key := "s" + kind
 	chevron := icons.ChevronRight
 	if open {
@@ -440,7 +440,7 @@ func (a *App) drawLogSection(f *flex.Frame, p *project, n *int, label, kind stri
 	*n++
 	row.Children(func() {
 		f.Icon(chevron).Size(12, 12).Color(a.colors.Subtle)
-		f.Text(label).Weight(ui.WeightMedium).Ellipsis().Grow(1)
+		f.Text(label).Weight(gfx.WeightMedium).Ellipsis().Grow(1)
 	})
 	if row.Clicked() {
 		p.log.collapsed[key] = open
@@ -449,7 +449,7 @@ func (a *App) drawLogSection(f *flex.Frame, p *project, n *int, label, kind stri
 }
 
 // drawLogNodes declares the folders and references of a section's tree.
-func (a *App) drawLogNodes(f *flex.Frame, p *project, n *int, s *logSection, nodes []core.ReferenceTreeNode, depth int) {
+func (a *App) drawLogNodes(f *ui.Frame, p *project, n *int, s *logSection, nodes []core.ReferenceTreeNode, depth int) {
 	for i := range nodes {
 		node := &nodes[i]
 		if node.Reference != nil {
@@ -481,7 +481,7 @@ func (a *App) drawLogNodes(f *flex.Frame, p *project, n *int, s *logSection, nod
 }
 
 // drawLogReference declares the row of one reference.
-func (a *App) drawLogReference(f *flex.Frame, p *project, n *int, depth int, r core.GitReference, name string) {
+func (a *App) drawLogReference(f *ui.Frame, p *project, n *int, depth int, r core.GitReference, name string) {
 	kind := map[string]string{"local": "branch", "remote": "remote", "tag": "tag"}[r.Kind]
 	icon := icons.GitBranch
 	switch {
@@ -501,7 +501,7 @@ func (a *App) drawLogReference(f *flex.Frame, p *project, n *int, depth int, r c
 }
 
 // drawLogRefRow declares a selectable reference row; selecting it makes the log walk it.
-func (a *App) drawLogRefRow(f *flex.Frame, p *project, n *int, depth int, icon ui.Icon, tint ui.Color, label, trailing, full, short string) {
+func (a *App) drawLogRefRow(f *ui.Frame, p *project, n *int, depth int, icon gfx.Icon, tint gfx.Color, label, trailing, full, short string) {
 	l := &p.log
 	row := a.logTreeRow(f, logRefRows.At(*n), label, depth, l.refSelected == full)
 	*n++
@@ -521,18 +521,18 @@ func (a *App) drawLogRefRow(f *flex.Frame, p *project, n *int, depth int, icon u
 }
 
 // logTreeRow is a row of the reference pane or of the changed files, indented by depth.
-func (a *App) logTreeRow(f *flex.Frame, id ui.ID, label string, depth int, selected bool) flex.Box {
-	row := f.Row().Height(logItemHeight).FillWidth().Shrink(0).Items(flex.Center).Gap(4).
+func (a *App) logTreeRow(f *ui.Frame, id gfx.ID, label string, depth int, selected bool) ui.Box {
+	row := f.Row().Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(4).
 		PadSides(0, 8, 0, float32(6+depth*logIndent)).
-		HitWith(id, label, ui.HitOptions{Role: ui.RoleButton})
+		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton})
 	if selected {
 		return row.Background(a.colors.Selection)
 	}
-	return row.Hover(flex.Look{}.Background(a.colors.Hover))
+	return row.Hover(ui.Look{}.Background(a.colors.Hover))
 }
 
 // drawLogCommits declares the commit pane: the filter bar over the list.
-func (a *App) drawLogCommits(f *flex.Frame, p *project) flex.Box {
+func (a *App) drawLogCommits(f *ui.Frame, p *project) ui.Box {
 	return f.Column().FillHeight().MinWidth(logCommitsMin).Clip().Children(func() {
 		a.drawLogToolbar(f, p)
 		f.Divider()
@@ -542,9 +542,9 @@ func (a *App) drawLogCommits(f *flex.Frame, p *project) flex.Box {
 
 // drawLogToolbar declares the filter bar: the text filter, the filter chips and the
 // view buttons.
-func (a *App) drawLogToolbar(f *flex.Frame, p *project) {
+func (a *App) drawLogToolbar(f *ui.Frame, p *project) {
 	l, v, g := &p.log, &a.logView, a.text.Git
-	f.Row().Height(logToolbarHeight).Shrink(0).Items(flex.Center).Gap(4).PadX(6).Children(func() {
+	f.Row().Height(logToolbarHeight).Shrink(0).Items(ui.Center).Gap(4).PadX(6).Children(func() {
 		f.Field(&v.search, logSearchID, g.TextOrHash, g.TextOrHash).MinWidth(150).Grow(1).MaxWidth(320)
 		dates := [logDateCount]string{g.AnyTime, g.Today, g.Yesterday, g.Last7Days, g.Last30Days}
 		chips := [logChipCount]struct {
@@ -599,21 +599,21 @@ func (a *App) drawLogToolbar(f *flex.Frame, p *project) {
 }
 
 // logChip declares a filter chip: its name, or the filter it applies, and a chevron.
-func (a *App) logChip(f *flex.Frame, id ui.ID, label, value string, open bool) flex.Box {
+func (a *App) logChip(f *ui.Frame, id gfx.ID, label, value string, open bool) ui.Box {
 	text := label
 	if value != "" {
 		text = a.text.Git.FilterValue(label, value)
 	}
-	chip := f.Row().Height(logButtonSize).Shrink(0).Items(flex.Center).Gap(4).PadX(8).
+	chip := f.Row().Height(logButtonSize).Shrink(0).Items(ui.Center).Gap(4).PadX(8).
 		Radius(a.theme.Metrics.RadiusItem()).
-		HitWith(id, text, ui.HitOptions{Role: ui.RoleButton, Cursor: ui.PointerCursorHand})
+		HitWith(id, text, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand})
 	switch {
 	case open:
 		chip = chip.Background(a.colors.Active)
 	case value != "":
 		chip = chip.Background(a.colors.Hover)
 	default:
-		chip = chip.Hover(flex.Look{}.Background(a.colors.Hover))
+		chip = chip.Hover(ui.Look{}.Background(a.colors.Hover))
 	}
 	chip.Children(func() {
 		color := a.colors.Subtle
@@ -628,7 +628,7 @@ func (a *App) logChip(f *flex.Frame, id ui.ID, label, value string, open bool) f
 
 // drawLogList declares the commit list, or what stands in for it. Only the rows in
 // view are declared; spacers stand for the rest, so a long history costs what fits.
-func (a *App) drawLogList(f *flex.Frame, p *project) {
+func (a *App) drawLogList(f *ui.Frame, p *project) {
 	l, v, g := &p.log, &a.logView, a.text.Git
 	switch {
 	case !p.git.loaded || l.loading && len(l.commits) == 0:
@@ -679,14 +679,14 @@ func (a *App) drawLogList(f *flex.Frame, p *project) {
 			row := rows[i]
 			commit, _ := l.commit(row.CommitHash)
 			box := f.Row().Height(logRowHeight).FillWidth().Shrink(0).
-				HitWith(logRows.At(i), commit.Subject, ui.HitOptions{Role: ui.RoleOption})
+				HitWith(logRows.At(i), commit.Subject, gfx.HitOptions{Role: gfx.RoleOption})
 			switch {
 			case row.CommitHash == l.selected:
 				box = box.Background(a.colors.Selection)
 			case l.currentRows[row.CommitHash]:
-				box = box.Background(currentBranchBackground(a.colors.Dark)).Hover(flex.Look{}.Background(a.colors.Hover))
+				box = box.Background(currentBranchBackground(a.colors.Dark)).Hover(ui.Look{}.Background(a.colors.Hover))
 			default:
-				box = box.Hover(flex.Look{}.Background(a.colors.Hover))
+				box = box.Hover(ui.Look{}.Background(a.colors.Hover))
 			}
 			if box.Clicked() {
 				l.listFocus = true
@@ -702,12 +702,12 @@ func (a *App) drawLogList(f *flex.Frame, p *project) {
 }
 
 // drawLogFooter declares the row under the list that loads the next page.
-func (a *App) drawLogFooter(f *flex.Frame, p *project) {
+func (a *App) drawLogFooter(f *ui.Frame, p *project) {
 	l, g := &p.log, a.text.Git
 	if !l.hasMore && !l.loadingMore {
 		return
 	}
-	f.Row().Height(logRowHeight * 1.5).FillWidth().Shrink(0).Items(flex.Center).Gap(8).PadX(12).Children(func() {
+	f.Row().Height(logRowHeight * 1.5).FillWidth().Shrink(0).Items(ui.Center).Gap(8).PadX(12).Children(func() {
 		f.Spacer()
 		switch {
 		case l.loadingMore:
@@ -728,14 +728,14 @@ func (a *App) drawLogFooter(f *flex.Frame, p *project) {
 }
 
 // logEmpty declares the message that stands for an empty pane.
-func (a *App) logEmpty(f *flex.Frame, message string) {
+func (a *App) logEmpty(f *ui.Frame, message string) {
 	f.Column().Fill().Center().PadX(shellContentPad).Children(func() {
 		f.Paragraph(message, 3).TextCenter().Color(a.colors.Subtle)
 	})
 }
 
 // drawLogDetails declares the details pane: the changed files over the commit details.
-func (a *App) drawLogDetails(f *flex.Frame, p *project) flex.Box {
+func (a *App) drawLogDetails(f *ui.Frame, p *project) ui.Box {
 	v := &a.logView
 	return f.Column().FillHeight().Clip().Background(a.colors.Editor).Children(func() {
 		a.drawLogFiles(f, p).Height(v.filesSplit.Pos).Shrink(0)
@@ -745,13 +745,13 @@ func (a *App) drawLogDetails(f *flex.Frame, p *project) flex.Box {
 }
 
 // drawLogFiles declares the files the selected commit changed, grouped by folder.
-func (a *App) drawLogFiles(f *flex.Frame, p *project) flex.Box {
+func (a *App) drawLogFiles(f *ui.Frame, p *project) ui.Box {
 	l, v, g := &p.log, &a.logView, a.text.Git
 	if !slices.ContainsFunc(l.files, func(file core.GitCommitFile) bool { return file.Path == v.file }) {
 		v.file = ""
 	}
 	return f.Column().FillWidth().Clip().Children(func() {
-		f.Row().Height(logToolbarHeight).Shrink(0).Items(flex.Center).Gap(4).PadX(6).Children(func() {
+		f.Row().Height(logToolbarHeight).Shrink(0).Items(ui.Center).Gap(4).PadX(6).Children(func() {
 			if a.logIconButton(f, logButtons.At(logButtonCompareFile), g.CompareChanges, icons.ArrowLeftRight, false, v.file == "") {
 				a.notify(a.text.Welcome.Unavailable)
 			}
@@ -799,7 +799,7 @@ func (a *App) drawLogFiles(f *flex.Frame, p *project) flex.Box {
 			for _, dir := range dirs {
 				depth := 0
 				if dir != "." {
-					f.Row().Height(logItemHeight).FillWidth().Shrink(0).Items(flex.Center).Gap(6).PadX(8).Children(func() {
+					f.Row().Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
 						f.Icon(fileicons.ForDirectory(path.Base(dir), a.colors.Dark)).Size(14, 14).Color(a.colors.Subtle)
 						f.Text(dir).Muted().Ellipsis().Grow(1)
 					})
@@ -830,7 +830,7 @@ func statusLetter(status string) string {
 	return strings.ToUpper(status[:1])
 }
 
-func (a *App) fileStatusColor(status string) ui.Color {
+func (a *App) fileStatusColor(status string) gfx.Color {
 	switch statusLetter(status) {
 	case "A":
 		return a.colors.Success
@@ -843,7 +843,7 @@ func (a *App) fileStatusColor(status string) ui.Color {
 }
 
 // drawLogCommitDetail declares the details of the selected commit.
-func (a *App) drawLogCommitDetail(f *flex.Frame, p *project) flex.Box {
+func (a *App) drawLogCommitDetail(f *ui.Frame, p *project) ui.Box {
 	l, g := &p.log, a.text.Git
 	return f.Column().FillWidth().Clip().Children(func() {
 		f.Divider()
@@ -871,7 +871,7 @@ func (a *App) drawLogCommitDetail(f *flex.Frame, p *project) flex.Box {
 					f.Text(line).Mono().Bold().FontSize(logFontSize).FillWidth()
 				}
 			})
-			f.Row().FillWidth().Items(flex.Center).Gap(6).Children(func() {
+			f.Row().FillWidth().Items(ui.Center).Gap(6).Children(func() {
 				f.Text(d.Commit.ShortHash).Mono().Muted().Shrink(0)
 				f.Text(d.Commit.AuthorName).Ellipsis().Shrink(1)
 				if d.Commit.AuthorEmail != "" {
@@ -882,7 +882,7 @@ func (a *App) drawLogCommitDetail(f *flex.Frame, p *project) flex.Box {
 			if chips := slices.DeleteFunc(slices.Clone(labels), func(x core.GraphLabel) bool { return x.Kind == "head" }); len(chips) > 0 {
 				f.Row().FillWidth().Gap(4).Clip().Children(func() {
 					for _, label := range chips {
-						f.Row().Height(20).Shrink(0).Items(flex.Center).Gap(4).PadX(6).Radius(a.theme.Metrics.RadiusItem()).Background(a.colors.Hover).Children(func() {
+						f.Row().Height(20).Shrink(0).Items(ui.Center).Gap(4).PadX(6).Radius(a.theme.Metrics.RadiusItem()).Background(a.colors.Hover).Children(func() {
 							f.Icon(icons.Tag).Size(12, 12).Color(referenceColor(label.Kind, a.colors.Dark))
 							f.Text(label.Title).FontSize(a.theme.Metrics.FontSizeS)
 						})
@@ -897,13 +897,13 @@ func (a *App) drawLogCommitDetail(f *flex.Frame, p *project) flex.Box {
 }
 
 // subjectLines is subject broken into the lines the commit details draw it in, monospaced and
-// bold. A flex Wrap breaks a Mono text where the proportional font fills the line, so its
+// bold. A ui Wrap breaks a Mono text where the proportional font fills the line, so its
 // lines would run past the pane and lose their ends. The lines are kept until the subject,
 // the width of the details or the fonts change.
-func (v *logView) subjectLines(canvas *ui.Canvas, subject string) []string {
+func (v *logView) subjectLines(canvas *gfx.Canvas, subject string) []string {
 	width := v.detailWidth - 2*logDetailPad
 	if fonts := canvas.FontGeneration(); subject != v.subjectOf || width != v.subjectWidth || fonts != v.subjectFonts {
-		style := ui.TextStyle{Size: logFontSize, Weight: ui.WeightSemibold, Mono: true}
+		style := gfx.TextStyle{Size: logFontSize, Weight: gfx.WeightSemibold, Mono: true}
 		v.subject = monogrid.Lines(canvas, v.subject[:0], subject, style, width)
 		v.subjectOf, v.subjectWidth, v.subjectFonts = subject, width, fonts
 	}
@@ -930,19 +930,19 @@ func (a *App) toggleLogPopover(p *project, which logPopover) {
 
 // drawLogPopover declares the open popover of the log tab, over a backdrop that closes
 // it when clicked.
-func (a *App) drawLogPopover(f *flex.Frame, p *project) {
+func (a *App) drawLogPopover(f *ui.Frame, p *project) {
 	l, v := &p.log, &a.logView
 	if l.popover == logPopoverNone {
 		return
 	}
-	anchor, align, width := flex.Box{}, flex.Start, float32(logPopoverWidth)
+	anchor, align, width := ui.Box{}, ui.Start, float32(logPopoverWidth)
 	switch l.popover {
 	case logPopoverMenu:
 		if !v.hasMenu {
 			l.popover = logPopoverNone
 			return
 		}
-		anchor, align = v.menu, flex.End
+		anchor, align = v.menu, ui.End
 	case logPopoverBranch:
 		anchor = v.chips[logChipBranch]
 	case logPopoverUser:
@@ -958,7 +958,7 @@ func (a *App) drawLogPopover(f *flex.Frame, p *project) {
 		return
 	}
 	f.Popup().BelowBox(anchor, 4, align).Width(width).Pad(4).
-		Background(a.theme.Popover).Border(1, a.theme.Border).Radius(a.theme.Metrics.RadiusPopup()).Shadow(ui.ShadowMD).
+		Background(a.theme.Popover).Border(1, a.theme.Border).Radius(a.theme.Metrics.RadiusPopup()).Shadow(gfx.ShadowMD).
 		Children(func() {
 			switch l.popover {
 			case logPopoverMenu:
@@ -976,7 +976,7 @@ func (a *App) drawLogPopover(f *flex.Frame, p *project) {
 }
 
 // drawLogMenu declares the items of the log tab's menu.
-func (a *App) drawLogMenu(f *flex.Frame, p *project) {
+func (a *App) drawLogMenu(f *ui.Frame, p *project) {
 	l, g := &p.log, a.text.Git
 	unavailable := func() { a.notify(a.text.Welcome.Unavailable) }
 	items := []struct {
@@ -1004,7 +1004,7 @@ func (a *App) drawLogMenu(f *flex.Frame, p *project) {
 }
 
 // drawLogBranchFilter declares the references the log can walk.
-func (a *App) drawLogBranchFilter(f *flex.Frame, p *project) {
+func (a *App) drawLogBranchFilter(f *ui.Frame, p *project) {
 	l := &p.log
 	f.ScrollArea(logBranchListID).FillWidth().MaxHeight(logListMaxHeight).Children(func() {
 		n := 0
@@ -1031,7 +1031,7 @@ func (a *App) drawLogBranchFilter(f *flex.Frame, p *project) {
 
 // drawLogUserFilter declares the user filter: a search over the authors of the loaded
 // commits.
-func (a *App) drawLogUserFilter(f *flex.Frame, p *project) {
+func (a *App) drawLogUserFilter(f *ui.Frame, p *project) {
 	l, v, g := &p.log, &a.logView, a.text.Git
 	query := strings.ToLower(strings.TrimSpace(v.userSearch.Text()))
 	f.Row().PadY(4).PadX(4).Children(func() {
@@ -1075,7 +1075,7 @@ func (a *App) setLogUser(p *project, user string) {
 }
 
 // drawLogDateFilter declares the date presets.
-func (a *App) drawLogDateFilter(f *flex.Frame, p *project) {
+func (a *App) drawLogDateFilter(f *ui.Frame, p *project) {
 	l, g := &p.log, a.text.Git
 	labels := [logDateCount]string{g.AnyTime, g.Today, g.Yesterday, g.Last7Days, g.Last30Days}
 	for d := logAnyTime; d < logDateCount; d++ {
@@ -1096,7 +1096,7 @@ func (a *App) drawLogDateFilter(f *flex.Frame, p *project) {
 }
 
 // drawLogPathFilter declares the path filter: a field and the buttons that apply it.
-func (a *App) drawLogPathFilter(f *flex.Frame, p *project) {
+func (a *App) drawLogPathFilter(f *ui.Frame, p *project) {
 	l, v, g := &p.log, &a.logView, a.text.Git
 	apply := func(value string) {
 		l.popover = logPopoverNone
@@ -1110,11 +1110,11 @@ func (a *App) drawLogPathFilter(f *flex.Frame, p *project) {
 		}
 	}
 	f.Column().FillWidth().Pad(8).Gap(8).Children(func() {
-		f.Text(g.PathTitle).Weight(ui.WeightMedium)
+		f.Text(g.PathTitle).Weight(gfx.WeightMedium)
 		if f.Field(&v.pathField, logPathID, g.PathTitle, g.PathPlaceholder).FillWidth().Submitted() {
 			apply(v.pathField.Text())
 		}
-		f.Row().FillWidth().Gap(8).Items(flex.Center).Children(func() {
+		f.Row().FillWidth().Gap(8).Items(ui.Center).Children(func() {
 			if f.Button(logPathClear, g.Clear).Ghost().Clicked() {
 				v.pathField.SetText("")
 				apply("")
@@ -1132,12 +1132,12 @@ func (a *App) drawLogPathFilter(f *flex.Frame, p *project) {
 
 // logMenuItem declares one item of a popover, with a check mark when it is chosen, and
 // reports a click on it.
-func (a *App) logMenuItem(f *flex.Frame, id ui.ID, label string, checked, disabled bool) bool {
-	item := f.Row().Height(logItemHeight+2).FillWidth().Shrink(0).Items(flex.Center).Gap(8).PadX(8).
+func (a *App) logMenuItem(f *ui.Frame, id gfx.ID, label string, checked, disabled bool) bool {
+	item := f.Row().Height(logItemHeight+2).FillWidth().Shrink(0).Items(ui.Center).Gap(8).PadX(8).
 		Radius(a.theme.Metrics.RadiusItem()).
-		HitWith(id, label, ui.HitOptions{Role: ui.RoleMenuItem}).Disabled(disabled)
+		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleMenuItem}).Disabled(disabled)
 	if !disabled {
-		item = item.Hover(flex.Look{}.Background(a.colors.Hover)).Pressed(flex.Look{}.Background(a.colors.Active))
+		item = item.Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
 	}
 	item.Children(func() {
 		if checked {
@@ -1156,25 +1156,25 @@ func (a *App) logMenuItem(f *flex.Frame, id ui.ID, label string, checked, disabl
 
 // logIconButton declares an icon button of the log tab and reports a click on it. on
 // shows it pressed, for the buttons that toggle a view.
-func (a *App) logIconButton(f *flex.Frame, id ui.ID, label string, icon ui.Icon, on, disabled bool) bool {
+func (a *App) logIconButton(f *ui.Frame, id gfx.ID, label string, icon gfx.Icon, on, disabled bool) bool {
 	return a.logIconButtonBox(f, id, label, icon, on, disabled, nil)
 }
 
-func (a *App) logIconButtonBox(f *flex.Frame, id ui.ID, label string, icon ui.Icon, on, disabled bool, out *flex.Box) bool {
+func (a *App) logIconButtonBox(f *ui.Frame, id gfx.ID, label string, icon gfx.Icon, on, disabled bool, out *ui.Box) bool {
 	button := f.Row().Size(logButtonSize, logButtonSize).Shrink(0).Center().Radius(a.theme.Metrics.RadiusItem()).
-		HitWith(id, label, ui.HitOptions{Role: ui.RoleButton, Cursor: ui.PointerCursorHand}).Disabled(disabled)
+		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}).Disabled(disabled)
 	switch {
 	case on:
 		button = button.Background(a.colors.Active)
 	case !disabled:
-		button = button.Hover(flex.Look{}.Background(a.colors.Hover)).Pressed(flex.Look{}.Background(a.colors.Active))
+		button = button.Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
 	}
 	tint := a.colors.Subtle
 	if disabled {
 		tint.Alpha *= 0.4
 	}
 	button.Children(func() {
-		f.Icon(icon).Size(logIconSize, logIconSize).Color(tint).StateFrom(button).Hover(flex.Look{}.Color(a.colors.Text))
+		f.Icon(icon).Size(logIconSize, logIconSize).Color(tint).StateFrom(button).Hover(ui.Look{}.Color(a.colors.Text))
 	})
 	if out != nil {
 		*out = button

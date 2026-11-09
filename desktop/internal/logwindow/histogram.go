@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -43,7 +43,7 @@ type histogramState struct {
 // events of the log over time as stacked bars, and the first, middle and last time of the
 // chart under the bars. A click on a bar jumps to the first record from that time; a drag
 // limits the table to the time range it covers.
-func (w *window) drawHistogram(f *flex.Frame) {
+func (w *window) drawHistogram(f *ui.Frame) {
 	histogram := w.model.histogram
 	// The strip spans the window and the bars start after the legend, so the bars' extent is
 	// known without reading a box back from the layout, whose rectangle belongs to the
@@ -75,16 +75,16 @@ func (w *window) drawHistogram(f *flex.Frame) {
 // drawHistogramLegend is the text at the leading end of the strip: the chart's title, what
 // the colors stand for and how to use the chart. It is as wide as the channel list below it
 // and centered along the strip, as the macOS client's is.
-func (w *window) drawHistogramLegend(f *flex.Frame) {
-	text := func(s string) flex.Box {
+func (w *window) drawHistogramLegend(f *ui.Frame) {
+	text := func(s string) ui.Box {
 		return w.mono(f, s, 11, w.pal.tx3).LineHeight(13)
 	}
-	f.Column().Width(sidebarWidth).Shrink(0).Self(flex.Center).Children(func() {
+	f.Column().Width(sidebarWidth).Shrink(0).Self(ui.Center).Children(func() {
 		text(w.text.Logs.EventsOverTime).Ellipsis()
 		f.Row().Gap(4).Children(func() {
 			for _, key := range []struct {
 				name  string
-				color ui.Color
+				color gfx.Color
 			}{{"ERROR", w.pal.red}, {"WARN", w.pal.yel}, {"INFO", w.pal.blu}} {
 				w.mono(f, "■", 11, key.color).LineHeight(13)
 				text(key.name)
@@ -99,7 +99,7 @@ func (w *window) drawHistogramLegend(f *flex.Frame) {
 // drawHistogramBars declares one column per bucket, side by side, each one stacking its
 // errors on its warnings on the rest, from the top down, and growing from the bottom of the
 // chart. The tallest bucket reaches histogramBarMax.
-func (w *window) drawHistogramBars(f *flex.Frame, histogram *core.LogHistogram) {
+func (w *window) drawHistogramBars(f *ui.Frame, histogram *core.LogHistogram) {
 	maximum := 1
 	for _, bucket := range histogram.Buckets {
 		maximum = max(maximum, bucket.Debug+bucket.Info+bucket.Warn+bucket.Error)
@@ -111,7 +111,7 @@ func (w *window) drawHistogramBars(f *flex.Frame, histogram *core.LogHistogram) 
 		hint := w.text.Logs.HistogramTooltip(
 			histogramTime(histogram.StartEpochMs+int64(i)*histogram.BucketMs), bucket.Error, bucket.Warn, other)
 		column := f.Column().Grow(1).Basis(0).MinWidth(0).
-			HitWith(histogramBucketScope.At(i), hint, ui.HitOptions{Hint: hint, SkipFocus: true}).
+			HitWith(histogramBucketScope.At(i), hint, gfx.HitOptions{Hint: hint, SkipFocus: true}).
 			// The one pixel between two buckets belongs to the chart as well, so a drag never
 			// crosses a dead line.
 			HitOutset(0, 0.5, 0, 0.5)
@@ -136,11 +136,11 @@ func (w *window) drawHistogramBars(f *flex.Frame, histogram *core.LogHistogram) 
 
 // drawHistogramTimes is the line under the bars with the time the chart starts, the time in
 // its middle and the time it ends.
-func (w *window) drawHistogramTimes(f *flex.Frame, histogram *core.LogHistogram) {
+func (w *window) drawHistogramTimes(f *ui.Frame, histogram *core.LogHistogram) {
 	stamp := func(ms int64) {
 		w.mono(f, histogramTime(ms), 10, w.pal.tx3).LineHeight(12).Shrink(0)
 	}
-	f.Row().Shrink(0).Items(flex.Center).Children(func() {
+	f.Row().Shrink(0).Items(ui.Center).Children(func() {
 		stamp(histogram.StartEpochMs)
 		f.Spacer()
 		stamp(histogram.StartEpochMs + (histogram.EndEpochMs-histogram.StartEpochMs)/2)
@@ -153,7 +153,7 @@ func (w *window) drawHistogramTimes(f *flex.Frame, histogram *core.LogHistogram)
 // the pointer, moving with the press held stretches it, and releasing either jumps to the
 // time of the bucket (the range is one bucket) or limits the table to the buckets covered.
 // left and width are where the chart's bars are in the window.
-func (w *window) histogramPointer(canvas *ui.Canvas, histogram *core.LogHistogram, left, width float32) {
+func (w *window) histogramPointer(canvas *gfx.Canvas, histogram *core.LogHistogram, left, width float32) {
 	state := &w.histogram
 	_, event, ok := canvas.PointerIn(histogramBucketScope)
 	if !ok {
@@ -169,18 +169,18 @@ func (w *window) histogramPointer(canvas *ui.Canvas, histogram *core.LogHistogra
 	}
 	at := histogramBucket(event.X-left, width, len(histogram.Buckets))
 	switch event.Kind {
-	case ui.PointerDown:
-		if event.Button != ui.PointerButtonPrimary {
+	case gfx.PointerDown:
+		if event.Button != gfx.PointerButtonPrimary {
 			return
 		}
 		state.active, state.start, state.end = true, at, at
 		canvas.Consume()
-	case ui.PointerMove:
+	case gfx.PointerMove:
 		if state.active {
 			state.end = at
 			canvas.Consume()
 		}
-	case ui.PointerUp:
+	case gfx.PointerUp:
 		if !state.active {
 			return
 		}

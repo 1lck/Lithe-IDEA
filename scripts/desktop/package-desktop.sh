@@ -19,7 +19,7 @@ native_path() {
     fi
 }
 
-VIVA_VERSION="v0.5.1-0.20261108113640-16ca40bd07ab"
+VIVA_VERSION="v0.5.2-0.20261109020342-0c11a3d0950d"
 GOOS="$(go env GOOS)"
 GOHOSTOS="$(go env GOHOSTOS)"
 if [[ "$GOOS" != "$GOHOSTOS" ]]; then

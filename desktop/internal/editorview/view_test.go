@@ -4,13 +4,13 @@ import (
 	"testing"
 
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // newTestView is a view of text with no grammar, its caret at the start.
 func newTestView(t *testing.T, text string) *View {
 	t.Helper()
-	v := New(Config{HitID: ui.Item(1), Label: "test", Text: []byte(text)})
+	v := New(Config{HitID: gfx.Item(1), Label: "test", Text: []byte(text)})
 	t.Cleanup(v.Close)
 	return v
 }
@@ -21,8 +21,8 @@ func (v *View) typeText(text string) {
 	}
 }
 
-func (v *View) press(key ui.Key, modifiers ui.Modifiers) {
-	v.Key(ui.KeyEvent{Key: key, Modifiers: modifiers, Target: v.cfg.HitID})
+func (v *View) press(key gfx.Key, modifiers gfx.Modifiers) {
+	v.Key(gfx.KeyEvent{Key: key, Modifiers: modifiers, Target: v.cfg.HitID})
 }
 
 func (v *View) contents() string {
@@ -56,9 +56,9 @@ func TestTypingIsOneUndoStepPerWord(t *testing.T) {
 
 func TestBackspacesAreOneUndoStep(t *testing.T) {
 	v := newTestView(t, "abcdef")
-	v.press(ui.KeyEnd, 0)
+	v.press(gfx.KeyEnd, 0)
 	for range 3 {
-		v.press(ui.KeyBackspace, 0)
+		v.press(gfx.KeyBackspace, 0)
 	}
 	if got := v.contents(); got != "abc" {
 		t.Fatalf("text = %q", got)
@@ -71,9 +71,9 @@ func TestBackspacesAreOneUndoStep(t *testing.T) {
 
 func TestEnterBetweenBracesIndentsAndClosesOnItsOwnLine(t *testing.T) {
 	v := newTestView(t, "    func() {}")
-	v.press(ui.KeyEnd, 0)
-	v.press(ui.KeyLeft, 0)
-	v.press(ui.KeyEnter, 0)
+	v.press(gfx.KeyEnd, 0)
+	v.press(gfx.KeyLeft, 0)
+	v.press(gfx.KeyEnter, 0)
 	want := "    func() {\n        \n    }"
 	if got := v.contents(); got != want {
 		t.Fatalf("text = %q, want %q", got, want)
@@ -85,11 +85,11 @@ func TestEnterBetweenBracesIndentsAndClosesOnItsOwnLine(t *testing.T) {
 
 func TestWordMovesAndSelection(t *testing.T) {
 	v := newTestView(t, "alpha beta.gamma")
-	v.press(ui.KeyRight, ui.ModifierAlt)
+	v.press(gfx.KeyRight, gfx.ModifierAlt)
 	if _, col := v.Caret(); col != 5 {
 		t.Fatalf("after a word right caret col = %d, want 5", col)
 	}
-	v.press(ui.KeyRight, ui.ModifierAlt|ui.ModifierShift)
+	v.press(gfx.KeyRight, gfx.ModifierAlt|gfx.ModifierShift)
 	if got := v.SelectedText(); got != " beta" {
 		t.Fatalf("selected %q, want %q", got, " beta")
 	}
@@ -102,11 +102,11 @@ func TestWordMovesAndSelection(t *testing.T) {
 func TestTabIndentsAndOutdentsSelectedLines(t *testing.T) {
 	v := newTestView(t, "a\nb\n")
 	v.SelectAll()
-	v.press(ui.KeyTab, 0)
+	v.press(gfx.KeyTab, 0)
 	if got := v.contents(); got != "    a\n    b\n" {
 		t.Fatalf("after Tab = %q", got)
 	}
-	v.press(ui.KeyTab, ui.ModifierShift)
+	v.press(gfx.KeyTab, gfx.ModifierShift)
 	if got := v.contents(); got != "a\nb\n" {
 		t.Fatalf("after Shift-Tab = %q", got)
 	}
@@ -258,7 +258,7 @@ func TestCaretUTF16TracksEditsAndUndo(t *testing.T) {
 	if _, col := v.CaretUTF16(); col != 5 {
 		t.Fatalf("after insertion column %d", col)
 	}
-	v.press(ui.KeyBackspace, 0)
+	v.press(gfx.KeyBackspace, 0)
 	if _, col := v.CaretUTF16(); col != 3 {
 		t.Fatalf("after deletion column %d", col)
 	}

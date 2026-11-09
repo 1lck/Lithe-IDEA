@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // The tests here cover the logic that needs no screen: which pages a search lists, what the
@@ -447,7 +447,7 @@ func TestDecideKey(t *testing.T) {
 
 func TestTilesColorTheTopLevelOnly(t *testing.T) {
 	for id := pageID(0); id < pageCount; id++ {
-		colored := tiles[id].color != (ui.Color{})
+		colored := tiles[id].color != (gfx.Color{})
 		if want := parents[id] == noPage; colored != want {
 			t.Errorf("page %d has a tile color: %v, want %v", id, colored, want)
 		}

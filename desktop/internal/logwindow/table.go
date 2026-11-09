@@ -12,7 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	vivatext "github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
 )
@@ -306,8 +306,8 @@ func (w *window) tableColumnTitle(column int) string {
 // its column's base width plus the spacing, and the expanding columns also grow in
 // proportion to their base widths to fill the table, which is the share fit computes. While
 // a header drag is in progress every cell keeps a fixed width.
-func (w *window) sizeTableCell(cell flex.Box, grid *tableGrid, column int, height float32) flex.Box {
-	cell = cell.Height(height).PadX(tableCellPad).Clip().Items(flex.Center)
+func (w *window) sizeTableCell(cell ui.Box, grid *tableGrid, column int, height float32) ui.Box {
+	cell = cell.Height(height).PadX(tableCellPad).Clip().Items(ui.Center)
 	if t := &w.table; t.dragging {
 		width := t.frozen[column]
 		if column == t.dragColumn {
@@ -326,7 +326,7 @@ func (w *window) sizeTableCell(cell flex.Box, grid *tableGrid, column int, heigh
 // only the visible ones are declared. The area follows the end of the log while the model
 // follows it, scrolls to the row the model asks for, and keeps the row at its top where it
 // was when rows appear above it.
-func (w *window) drawTable(f *flex.Frame) {
+func (w *window) drawTable(f *ui.Frame) {
 	m := w.model
 	t := &w.table
 	canvas := f.Canvas()
@@ -401,7 +401,7 @@ func (w *window) drawTable(f *flex.Frame) {
 	first = min(first, last)
 
 	paint := tableRowPaint{}
-	paint.cellW, _ = canvas.MonoCellSize(tableCellFont, ui.MonoSystem)
+	paint.cellW, _ = canvas.MonoCellSize(tableCellFont, gfx.MonoSystem)
 	if record, ok := m.selectedRecord(); ok {
 		paint.hasSelected, paint.selectedOp, paint.selectedEpoch = true, record.Op, record.EpochMs
 	}
@@ -411,7 +411,7 @@ func (w *window) drawTable(f *flex.Frame) {
 		}
 	}
 
-	f.Column().Fill().HitWith(tableID, w.text.Logs.Logs, ui.HitOptions{Role: ui.RoleGrid, SkipFocus: true}).Children(func() {
+	f.Column().Fill().HitWith(tableID, w.text.Logs.Logs, gfx.HitOptions{Role: gfx.RoleGrid, SkipFocus: true}).Children(func() {
 		w.drawTableHeader(f, &grid)
 		f.ScrollArea(tableScrollID).Grow(1).Shrink(1).MinHeight(0).FillWidth().Follow(m.follows).Children(func() {
 			if first > 0 {
@@ -429,7 +429,7 @@ func (w *window) drawTable(f *flex.Frame) {
 
 // tableReveal scrolls the area the least that shows the whole row at index, the way a native
 // table scrolls a row to visible. It reports whether it scrolled.
-func tableReveal(s *flex.ScrollState, index int) bool {
+func tableReveal(s *ui.ScrollState, index int) bool {
 	top := float32(index) * tableRowHeight
 	bottom := top + tableRowHeight
 	switch {
@@ -467,9 +467,9 @@ func (w *window) tableScrolled() {
 
 // trackHeader handles the pointer on the header: a press of the secondary button opens the
 // menu of columns, and the primary button on a cell's handle drags the column's width.
-func (w *window) trackHeader(canvas *ui.Canvas, grid *tableGrid, viewport float32) {
+func (w *window) trackHeader(canvas *gfx.Canvas, grid *tableGrid, viewport float32) {
 	t := &w.table
-	if ev, ok := canvas.PointerOn(tableHeaderID); ok && ev.Kind == ui.PointerDown && ev.Button == ui.PointerButtonSecondary {
+	if ev, ok := canvas.PointerOn(tableHeaderID); ok && ev.Kind == gfx.PointerDown && ev.Button == gfx.PointerButtonSecondary {
 		w.openContextMenu(menuHeader, ev.X, ev.Y, "")
 		canvas.Consume()
 	}
@@ -478,9 +478,9 @@ func (w *window) trackHeader(canvas *ui.Canvas, grid *tableGrid, viewport float3
 		return
 	}
 	switch ev.Kind {
-	case ui.PointerDown:
+	case gfx.PointerDown:
 		switch ev.Button {
-		case ui.PointerButtonPrimary:
+		case gfx.PointerButtonPrimary:
 			t.dragging = true
 			t.dragColumn = column
 			t.dragStartX = ev.X
@@ -488,16 +488,16 @@ func (w *window) trackHeader(canvas *ui.Canvas, grid *tableGrid, viewport float3
 			t.dragStartWidth = t.frozen[column]
 			t.dragWidth = t.dragStartWidth
 			canvas.Consume()
-		case ui.PointerButtonSecondary:
+		case gfx.PointerButtonSecondary:
 			w.openContextMenu(menuHeader, ev.X, ev.Y, "")
 			canvas.Consume()
 		}
-	case ui.PointerMove:
+	case gfx.PointerMove:
 		if t.dragging && column == t.dragColumn {
 			t.dragWidth = min(maxColumnWidth, max(minColumnWidth, t.dragStartWidth+ev.X-t.dragStartX))
 			canvas.Consume()
 		}
-	case ui.PointerUp, ui.PointerExit:
+	case gfx.PointerUp, gfx.PointerExit:
 		if !t.dragging {
 			return
 		}
@@ -513,7 +513,7 @@ func (w *window) trackHeader(canvas *ui.Canvas, grid *tableGrid, viewport float3
 // of a run folds or unfolds it, on a field value adds the field to the filter, and elsewhere
 // on a row selects it (⌘ or Ctrl adds the row, ⇧ extends from the anchor). A press of the
 // secondary button selects a row that is not selected and opens its menu.
-func (w *window) trackRows(canvas *ui.Canvas) {
+func (w *window) trackRows(canvas *gfx.Canvas) {
 	m := w.model
 	if i, ev, ok := canvas.PointerIn(tableRowsScope); ok {
 		w.pressRow(canvas, i, ev)
@@ -521,22 +521,22 @@ func (w *window) trackRows(canvas *ui.Canvas) {
 	if i, ev, ok := canvas.PointerIn(tableMessagesScope); ok {
 		w.pressRow(canvas, i, ev)
 	}
-	if i, ev, ok := canvas.PointerIn(tableRunsScope); ok && ev.Kind == ui.PointerDown {
+	if i, ev, ok := canvas.PointerIn(tableRunsScope); ok && ev.Kind == gfx.PointerDown {
 		rows := m.displayRows()
-		if i >= 0 && i < len(rows) && ev.Button == ui.PointerButtonPrimary {
+		if i >= 0 && i < len(rows) && ev.Button == gfx.PointerButtonPrimary {
 			m.toggleRun(rows[i].id)
 			canvas.Consume()
 		} else {
 			w.pressRow(canvas, i, ev)
 		}
 	}
-	if slot, ev, ok := canvas.PointerIn(tableFieldsScope); ok && ev.Kind == ui.PointerDown {
+	if slot, ev, ok := canvas.PointerIn(tableFieldsScope); ok && ev.Kind == gfx.PointerDown {
 		i := slot / tableFieldSlots
 		rows := m.displayRows()
 		if i < 0 || i >= len(rows) || rows[i].index >= len(m.records) {
 			return
 		}
-		if ev.Button != ui.PointerButtonPrimary {
+		if ev.Button != gfx.PointerButtonPrimary {
 			w.pressRow(canvas, i, ev)
 			return
 		}
@@ -551,19 +551,19 @@ func (w *window) trackRows(canvas *ui.Canvas) {
 
 // pressRow selects the row at position i or opens its menu, for a press of the primary or
 // the secondary button.
-func (w *window) pressRow(canvas *ui.Canvas, i int, ev ui.PointerEvent) {
+func (w *window) pressRow(canvas *gfx.Canvas, i int, ev gfx.PointerEvent) {
 	m := w.model
 	rows := m.displayRows()
-	if ev.Kind != ui.PointerDown || i < 0 || i >= len(rows) {
+	if ev.Kind != gfx.PointerDown || i < 0 || i >= len(rows) {
 		return
 	}
 	id := rows[i].id
 	switch ev.Button {
-	case ui.PointerButtonPrimary:
-		m.selectRow(id, ev.Modifiers&(ui.ModifierMeta|ui.ModifierControl) != 0, ev.Modifiers&ui.ModifierShift != 0)
+	case gfx.PointerButtonPrimary:
+		m.selectRow(id, ev.Modifiers&(gfx.ModifierMeta|gfx.ModifierControl) != 0, ev.Modifiers&gfx.ModifierShift != 0)
 		w.table.cursor = id
 		canvas.Consume()
-	case ui.PointerButtonSecondary:
+	case gfx.PointerButtonSecondary:
 		if !m.selection[id] {
 			m.selectRow(id, false, false)
 		}
@@ -575,23 +575,23 @@ func (w *window) pressRow(canvas *ui.Canvas, i int, ev ui.PointerEvent) {
 
 // drawTableHeader is the header: a title for each visible column on the secondary
 // background, a short divider at the end of each cell, and the line under the whole header.
-func (w *window) drawTableHeader(f *flex.Frame, grid *tableGrid) {
-	f.Row().FillWidth().Height(tableHeaderHeight).Shrink(0).Items(flex.Center).Background(w.pal.bg2).
-		HitWith(tableHeaderID, w.text.Logs.Columns, ui.HitOptions{Role: ui.RoleGroup, SkipFocus: true}).
+func (w *window) drawTableHeader(f *ui.Frame, grid *tableGrid) {
+	f.Row().FillWidth().Height(tableHeaderHeight).Shrink(0).Items(ui.Center).Background(w.pal.bg2).
+		HitWith(tableHeaderID, w.text.Logs.Columns, gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).
 		Children(func() {
 			for _, column := range grid.visible[:grid.count] {
 				title := w.tableColumnTitle(column)
 				cell := w.sizeTableCell(f.Row(), grid, column, tableHeaderHeight)
 				if column == tableColSeq {
-					cell = cell.Justify(flex.End)
+					cell = cell.Justify(ui.End)
 				}
 				cell.Children(func() {
 					w.mono(f, title, tableHeaderFont, w.pal.tx3).Ellipsis()
 					f.Row().Absolute().Top(4).Bottom(4).Right(0).Width(1).Background(w.pal.bd)
 					f.Row().Absolute().Top(0).Bottom(0).Right(0).Width(tableHandleWidth).
-						HitWith(tableResizeScope.At(column), title, ui.HitOptions{
-							Role:      ui.RoleSeparator,
-							Cursor:    ui.PointerCursorResizeHorizontal,
+						HitWith(tableResizeScope.At(column), title, gfx.HitOptions{
+							Role:      gfx.RoleSeparator,
+							Cursor:    gfx.PointerCursorResizeHorizontal,
 							SkipFocus: true,
 						})
 				})
@@ -617,7 +617,7 @@ type tableRowPaint struct {
 // drawTableRow declares the row at position i: its background, which tells an error, a
 // selected row and a row of the selected record's operation apart, its cells, the bar at its
 // start and the line under it.
-func (w *window) drawTableRow(f *flex.Frame, i int, rows []displayRow, grid *tableGrid, widths *[tableColumnCount]float32, p *tableRowPaint) {
+func (w *window) drawTableRow(f *ui.Frame, i int, rows []displayRow, grid *tableGrid, widths *[tableColumnCount]float32, p *tableRowPaint) {
 	m := w.model
 	row := rows[i]
 	if row.index < 0 || row.index >= len(m.records) {
@@ -630,7 +630,7 @@ func (w *window) drawTableRow(f *flex.Frame, i int, rows []displayRow, grid *tab
 	isOperation := record.Op != "" && p.hasSelected && record.Op == p.selectedOp
 
 	background := w.pal.bg
-	stripe := ui.Color{}
+	stripe := gfx.Color{}
 	hasStripe := false
 	switch {
 	case selected:
@@ -649,13 +649,13 @@ func (w *window) drawTableRow(f *flex.Frame, i int, rows []displayRow, grid *tab
 	}
 
 	label := strings.TrimSpace(record.Event + " " + truncateRunes(record.Msg, 120))
-	box := f.Row().FillWidth().Height(tableRowHeight).Shrink(0).Items(flex.Center).Background(background).
-		HitWith(tableRowsScope.At(i), label, ui.HitOptions{Role: ui.RoleOption, Selected: selected, SkipFocus: true})
+	box := f.Row().FillWidth().Height(tableRowHeight).Shrink(0).Items(ui.Center).Background(background).
+		HitWith(tableRowsScope.At(i), label, gfx.HitOptions{Role: gfx.RoleOption, Selected: selected, SkipFocus: true})
 	box.Children(func() {
 		for _, column := range grid.visible[:grid.count] {
 			cell := w.sizeTableCell(f.Row(), grid, column, tableRowHeight)
 			if column == tableColSeq {
-				cell = cell.Justify(flex.End)
+				cell = cell.Justify(ui.End)
 			}
 			cell.Children(func() {
 				w.drawTableCell(f, column, i, rows, widths[column], p)
@@ -670,7 +670,7 @@ func (w *window) drawTableRow(f *flex.Frame, i int, rows []displayRow, grid *tab
 
 // drawTableCell declares the content of one cell of the row at position i, whose column
 // shows width points of text.
-func (w *window) drawTableCell(f *flex.Frame, column, i int, rows []displayRow, width float32, p *tableRowPaint) {
+func (w *window) drawTableCell(f *ui.Frame, column, i int, rows []displayRow, width float32, p *tableRowPaint) {
 	m := w.model
 	row := rows[i]
 	record := &m.records[row.index]
@@ -681,10 +681,10 @@ func (w *window) drawTableCell(f *flex.Frame, column, i int, rows []displayRow, 
 		w.mono(f, w.tableTime(i, rows, record, p), tableCellFont, w.pal.tx3).Ellipsis()
 	case tableColLevel:
 		w.mono(f, levelSymbol(record.Level)+" "+string(record.Level), tableSmallFont, w.pal.levelColor(record.Level)).
-			Weight(ui.WeightSemibold).Ellipsis()
+			Weight(gfx.WeightSemibold).Ellipsis()
 	case tableColChannel:
 		color := channelColor(record.Channel)
-		f.Row().Height(tableChipHeight).PadX(tableCellPad).Items(flex.Center).Radius(tableChipRadius).
+		f.Row().Height(tableChipHeight).PadX(tableCellPad).Items(ui.Center).Radius(tableChipRadius).
 			Background(color.WithAlpha(tableChipFill)).Children(func() {
 			w.mono(f, record.Channel, tableSmallFont, color).Ellipsis()
 		})
@@ -721,11 +721,11 @@ func (w *window) tableTime(i int, rows []displayRow, record *core.LogRecord, p *
 // badge that counts the run, and a click on the start of the cell folds or unfolds it; the
 // cell tells how many records the run holds and when the last one arrived in a tooltip. The
 // parts of the message that match a text term of the filter are marked.
-func (w *window) drawMessageCell(f *flex.Frame, i int, row displayRow, record *core.LogRecord, width float32, p *tableRowPaint) {
+func (w *window) drawMessageCell(f *ui.Frame, i int, row displayRow, record *core.LogRecord, width float32, p *tableRowPaint) {
 	avail := width
 	if row.isRun {
 		avail -= tableTextOffset
-		f.Row().Size(tableBadgeWidth, tableBadgeHeight).Shrink(0).PadSides(0, 0, 0, 4).Items(flex.Center).
+		f.Row().Size(tableBadgeWidth, tableBadgeHeight).Shrink(0).PadSides(0, 0, 0, 4).Items(ui.Center).
 			Radius(tableBadgeRadius).Background(w.pal.bg3).Border(1, w.pal.bd).Children(func() {
 			w.mono(f, "×"+strconv.Itoa(row.count), tableHeaderFont, w.pal.tx2).Shrink(0)
 		})
@@ -753,16 +753,16 @@ func (w *window) drawMessageCell(f *flex.Frame, i int, row displayRow, record *c
 	if row.isRun {
 		hint := w.text.Logs.Repeated(row.count, row.last)
 		f.Row().Absolute().Left(0).Right(0).Top(0).Bottom(0).
-			HitWith(tableMessagesScope.At(i), hint, ui.HitOptions{Role: ui.RoleOption, Hint: hint, SkipFocus: true})
+			HitWith(tableMessagesScope.At(i), hint, gfx.HitOptions{Role: gfx.RoleOption, Hint: hint, SkipFocus: true})
 		f.Row().Absolute().Left(tableCellPad).Top(0).Bottom(0).Width(tableFoldWidth).
-			HitWith(tableRunsScope.At(i), hint, ui.HitOptions{Role: ui.RoleButton, Hint: hint, SkipFocus: true})
+			HitWith(tableRunsScope.At(i), hint, gfx.HitOptions{Role: gfx.RoleButton, Hint: hint, SkipFocus: true})
 	}
 }
 
 // drawFieldsCell declares the fields of a row as key=value pairs: keys in cyan, values in
 // pink (booleans), blue (numbers), green (text, quoted) or gray (redacted). A value that is
 // not redacted adds the field to the filter when it is pressed.
-func (w *window) drawFieldsCell(f *flex.Frame, i int, record *core.LogRecord, width float32, p *tableRowPaint) {
+func (w *window) drawFieldsCell(f *ui.Frame, i int, record *core.LogRecord, width float32, p *tableRowPaint) {
 	cells := 0
 	if p.cellW > 0 {
 		cells = int(width / p.cellW)
@@ -787,7 +787,7 @@ func (w *window) drawFieldsCell(f *flex.Frame, i int, record *core.LogRecord, wi
 		}
 		parts := [2]struct {
 			text  string
-			color ui.Color
+			color gfx.Color
 			link  bool
 		}{{key + "=", w.pal.cyn, false}, {shown, color, !redacted}}
 		for _, part := range parts {
@@ -797,7 +797,7 @@ func (w *window) drawFieldsCell(f *flex.Frame, i int, record *core.LogRecord, wi
 			}
 			box := w.mono(f, tableFlatten(text), tableCellFont, part.color).Shrink(0)
 			if part.link && slot < tableFieldSlots {
-				box.HitWith(tableFieldsScope.At(i*tableFieldSlots+slot), key, ui.HitOptions{Role: ui.RoleLink, SkipFocus: true})
+				box.HitWith(tableFieldsScope.At(i*tableFieldSlots+slot), key, gfx.HitOptions{Role: gfx.RoleLink, SkipFocus: true})
 			}
 			used += taken
 			if cut {
@@ -918,62 +918,62 @@ func tableIsNumber(value string) bool {
 // tableKey handles the keys of the table. Up and Down move the selection by a row (⇧
 // extends it from the anchor) and scroll it into view; Home, End, Page Up and Page Down
 // scroll without changing the selection; Escape clears the selection.
-func (w *window) tableKey(event ui.KeyEvent) ui.EventResult {
+func (w *window) tableKey(event gfx.KeyEvent) gfx.EventResult {
 	if event.Release || w.menu.kind != menuNone ||
-		event.Modifiers&(ui.ModifierMeta|ui.ModifierControl|ui.ModifierAlt) != 0 {
-		return ui.EventResult{}
+		event.Modifiers&(gfx.ModifierMeta|gfx.ModifierControl|gfx.ModifierAlt) != 0 {
+		return gfx.EventResult{}
 	}
-	handled := ui.EventResult{Handled: true, Repaint: true}
+	handled := gfx.EventResult{Handled: true, Repaint: true}
 	m := w.model
 	t := &w.table
 	s := w.view.ScrollState(tableScrollID)
 	step := max(tableRowHeight, s.Viewport-tableRowHeight)
 	switch event.Key {
-	case ui.KeyUp, ui.KeyDown:
+	case gfx.KeyUp, gfx.KeyDown:
 		rows := m.displayRows()
 		if len(rows) == 0 {
-			return ui.EventResult{}
+			return gfx.EventResult{}
 		}
 		current := w.tableActiveRow(rows)
 		var next int
 		switch {
-		case current < 0 && event.Key == ui.KeyDown:
+		case current < 0 && event.Key == gfx.KeyDown:
 			next = 0
 		case current < 0:
 			next = len(rows) - 1
-		case event.Key == ui.KeyDown:
+		case event.Key == gfx.KeyDown:
 			next = min(len(rows)-1, current+1)
 		default:
 			next = max(0, current-1)
 		}
 		id := rows[next].id
-		m.selectRow(id, false, event.Modifiers&ui.ModifierShift != 0)
+		m.selectRow(id, false, event.Modifiers&gfx.ModifierShift != 0)
 		t.cursor, t.reveal = id, id
 		return handled
-	case ui.KeyHome:
+	case gfx.KeyHome:
 		s.ScrollTo(0)
 		w.tableScrolled()
 		return handled
-	case ui.KeyEnd:
+	case gfx.KeyEnd:
 		t.toEnd = true
 		return handled
-	case ui.KeyPageUp:
+	case gfx.KeyPageUp:
 		s.ScrollTo(s.Offset - step)
 		w.tableScrolled()
 		return handled
-	case ui.KeyPageDown:
+	case gfx.KeyPageDown:
 		s.ScrollTo(min(s.Max(), s.Offset+step))
 		w.tableScrolled()
 		return handled
-	case ui.KeyEscape:
+	case gfx.KeyEscape:
 		if len(m.selection) == 0 {
-			return ui.EventResult{}
+			return gfx.EventResult{}
 		}
 		m.selectIDs(nil)
 		t.cursor = ""
 		return handled
 	}
-	return ui.EventResult{}
+	return gfx.EventResult{}
 }
 
 // tableActiveRow is the position of the row the arrow keys move from: the row the last key
@@ -1005,9 +1005,9 @@ func (w *window) tableRecordByID(id string) (core.LogRecord, bool) {
 
 // drawRowMenu declares the table's open context menu: the menu of a row, or the menu of the
 // header that shows and hides columns.
-func (w *window) drawRowMenu(f *flex.Frame) {
+func (w *window) drawRowMenu(f *ui.Frame) {
 	m := w.model
-	place := func(b flex.Box) flex.Box { return b.At(w.menu.at.X, w.menu.at.Y) }
+	place := func(b ui.Box) ui.Box { return b.At(w.menu.at.X, w.menu.at.Y) }
 	if w.menu.kind == menuHeader {
 		w.menuSurface(f, place, tableHeaderMenuWidth, func() {
 			for i, name := range columns {
@@ -1026,7 +1026,7 @@ func (w *window) drawRowMenu(f *flex.Frame) {
 	}
 	text := w.text.Logs
 	top := itemOptions{top: true}
-	var anchor flex.Box
+	var anchor ui.Box
 	w.menuSurface(f, place, tableRowMenuWidth, func() {
 		if w.menuItem(f, tableMenuCopyLine, text.CopyLine, top) {
 			m.copyFormatted([]core.LogRecord{record}, "json")
@@ -1061,7 +1061,7 @@ func (w *window) drawRowMenu(f *flex.Frame) {
 	if len(keys) == 0 {
 		return
 	}
-	beside := func(b flex.Box) flex.Box { return b.BesideBox(anchor, 2, flex.Start) }
+	beside := func(b ui.Box) ui.Box { return b.BesideBox(anchor, 2, ui.Start) }
 	w.menuPanel(f, beside, tableSubmenuWidth, func() {
 		for k, key := range keys {
 			if w.menuItem(f, tableFieldItems.At(k), key, itemOptions{}) {

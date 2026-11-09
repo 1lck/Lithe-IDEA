@@ -5,13 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // lineLabels is the labels a paint of v drew for the text of lines: the ones clipped to the
 // text, right of the gutter.
-func lineLabels(canvas *ui.Canvas, v *View) []ui.Text {
-	var labels []ui.Text
+func lineLabels(canvas *gfx.Canvas, v *View) []gfx.Text {
+	var labels []gfx.Text
 	for _, text := range canvas.Texts() {
 		if text.RunCount > 0 && text.HasClip && text.ClipOf.X >= v.textLeft-textPad-0.01 {
 			labels = append(labels, text)
@@ -21,8 +21,8 @@ func lineLabels(canvas *ui.Canvas, v *View) []ui.Text {
 }
 
 // numberLabels is the line numbers a paint of v drew: the labels clipped to the gutter.
-func numberLabels(canvas *ui.Canvas, v *View) []ui.Text {
-	var labels []ui.Text
+func numberLabels(canvas *gfx.Canvas, v *View) []gfx.Text {
+	var labels []gfx.Text
 	for _, text := range canvas.Texts() {
 		if text.HasClip && text.ClipOf.X+text.ClipOf.Width <= v.textLeft-textPad+0.01 {
 			labels = append(labels, text)
@@ -38,10 +38,10 @@ func numberLabels(canvas *ui.Canvas, v *View) []ui.Text {
 func TestLongLineIsOneLabelOfTheVisibleColumnsInsideTheWindow(t *testing.T) {
 	line := `{"items":[` + strings.Repeat(`{"id":1,"name":"x"},`, 5000) + `{}]}`
 	v := newTestView(t, line)
-	canvas := new(ui.Canvas)
+	canvas := new(gfx.Canvas)
 
 	for _, left := range []float32{0, 240} {
-		area := ui.Rect{X: left, Y: 30, Width: 900, Height: 400}
+		area := gfx.Rect{X: left, Y: 30, Width: 900, Height: 400}
 		for _, scrollX := range []float32{0, 3.3, 61.7, 1037.25, 123_456.5, 1e9} {
 			canvas.Reset()
 			v.scrollX = scrollX
@@ -79,11 +79,11 @@ func TestLongLineIsOneLabelOfTheVisibleColumnsInsideTheWindow(t *testing.T) {
 // A view wider than labelWidth draws a line as labels side by side, and a wide character that
 // would cross the end of one starts the next, whose runs count columns from its own start.
 func TestWideViewSplitsALineIntoAdjacentLabels(t *testing.T) {
-	canvas := new(ui.Canvas)
+	canvas := new(gfx.Canvas)
 	cellW, _ := canvas.MonoCellSize(fontSize, 0)
 	limit := max(int(labelWidth/cellW), 1)
 	v := newTestView(t, strings.Repeat("a", limit-1)+"中bc")
-	v.Paint(canvas, ui.Rect{Width: 2 * labelWidth, Height: 200}, Look{})
+	v.Paint(canvas, gfx.Rect{Width: 2 * labelWidth, Height: 200}, Look{})
 	labels := lineLabels(canvas, v)
 	if len(labels) != 2 {
 		t.Fatalf("drew %d labels, want two", len(labels))
@@ -104,8 +104,8 @@ func TestWideViewSplitsALineIntoAdjacentLabels(t *testing.T) {
 // the first visible column, and a wide character starts the label a cell early, still inside
 // the window.
 func TestCharacterCutByTheLeftEdgeKeepsItsColumn(t *testing.T) {
-	canvas := new(ui.Canvas)
-	area := ui.Rect{Width: 900, Height: 200}
+	canvas := new(gfx.Canvas)
+	area := gfx.Rect{Width: 900, Height: 200}
 	tail := strings.Repeat("x", 400)
 
 	tab := newTestView(t, "\tabc"+tail)

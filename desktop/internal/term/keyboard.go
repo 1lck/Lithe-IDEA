@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"unicode/utf8"
 
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // The kitty keyboard protocol's progressive enhancement flags. Every one of
@@ -81,7 +81,7 @@ func (t *Terminal) kittyPop(count int) {
 // terminal expects. flags is the active screen's kitty keyboard enhancement
 // flags; with no flags it is exactly EncodeKey.
 // Application shortcut ownership is decided by the caller, not the encoder.
-func EncodeKeyEvent(event ui.KeyEvent, flags uint32, appCursorKeys bool) []byte {
+func EncodeKeyEvent(event gfx.KeyEvent, flags uint32, appCursorKeys bool) []byte {
 	flags &= kittySupportedFlags
 	if flags == 0 {
 		if event.Release {
@@ -89,7 +89,7 @@ func EncodeKeyEvent(event ui.KeyEvent, flags uint32, appCursorKeys bool) []byte 
 		}
 		// Raw printable keys carry their shifted text in Typed; legacy text
 		// events do not set it, so this only matters across a mode change.
-		if event.Key == ui.KeyUnknown && event.Typed != "" && event.Modifiers&(ui.ModifierControl|ui.ModifierAlt|ui.ModifierMeta) == 0 {
+		if event.Key == gfx.KeyUnknown && event.Typed != "" && event.Modifiers&(gfx.ModifierControl|gfx.ModifierAlt|gfx.ModifierMeta) == 0 {
 			return []byte(event.Typed)
 		}
 		return EncodeKey(event.Key, event.Modifiers, event.Text, appCursorKeys)
@@ -115,8 +115,8 @@ func EncodeKeyEvent(event ui.KeyEvent, flags uint32, appCursorKeys bool) []byte 
 	// them after a program that changed the mode exits. With Shift, Alt or
 	// Control they have no legacy form to preserve, and programs such as Codex
 	// tell Shift+Enter (newline) from Enter (submit) only by its escape code.
-	plain := event.Modifiers&(ui.ModifierShift|ui.ModifierAlt|ui.ModifierControl|ui.ModifierMeta) == 0
-	exception := plain && (event.Key == ui.KeyEnter || event.Key == ui.KeyTab || event.Key == ui.KeyBackspace)
+	plain := event.Modifiers&(gfx.ModifierShift|gfx.ModifierAlt|gfx.ModifierControl|gfx.ModifierMeta) == 0
+	exception := plain && (event.Key == gfx.KeyEnter || event.Key == gfx.KeyTab || event.Key == gfx.KeyBackspace)
 	if namedOK && exception && flags&8 == 0 {
 		if event.Release {
 			return nil
@@ -146,7 +146,7 @@ func EncodeKeyEvent(event ui.KeyEvent, flags uint32, appCursorKeys bool) []byte 
 		if text == "" {
 			return nil
 		}
-		if event.Modifiers&(ui.ModifierControl|ui.ModifierAlt) != 0 {
+		if event.Modifiers&(gfx.ModifierControl|gfx.ModifierAlt) != 0 {
 			return EncodeKey(event.Key, event.Modifiers, event.Text, appCursorKeys)
 		}
 		return []byte(text)
@@ -160,7 +160,7 @@ func EncodeKeyEvent(event ui.KeyEvent, flags uint32, appCursorKeys bool) []byte 
 	}
 
 	shifted, hasShifted := 0, false
-	if flags&4 != 0 && !namedOK && event.Modifiers&ui.ModifierShift != 0 && event.Typed != "" {
+	if flags&4 != 0 && !namedOK && event.Modifiers&gfx.ModifierShift != 0 && event.Typed != "" {
 		if character, size := utf8.DecodeRuneInString(event.Typed); size == len(event.Typed) && character != utf8.RuneError && int(character) != code {
 			shifted, hasShifted = int(character), true
 		}
@@ -174,8 +174,8 @@ func EncodeKeyEvent(event ui.KeyEvent, flags uint32, appCursorKeys bool) []byte 
 
 // kittyUsesCSI reports whether a key event must use the kitty escape form
 // rather than legacy bytes.
-func kittyUsesCSI(event ui.KeyEvent, flags uint32, named, exception bool) bool {
-	if flags&8 != 0 || event.Modifiers&ui.ModifierMeta != 0 {
+func kittyUsesCSI(event gfx.KeyEvent, flags uint32, named, exception bool) bool {
+	if flags&8 != 0 || event.Modifiers&gfx.ModifierMeta != 0 {
 		return true
 	}
 	if named {
@@ -186,7 +186,7 @@ func kittyUsesCSI(event ui.KeyEvent, flags uint32, named, exception bool) bool {
 		}
 		return flags&(1|2) != 0
 	}
-	return flags&1 != 0 && event.Modifiers&(ui.ModifierControl|ui.ModifierAlt) != 0
+	return flags&1 != 0 && event.Modifiers&(gfx.ModifierControl|gfx.ModifierAlt) != 0
 }
 
 // kittyNamedKey maps a non-text key to its kitty functional code or final.
@@ -196,72 +196,72 @@ type kittyKeySpec struct {
 	tilde bool
 }
 
-func kittyNamedKey(key ui.Key) (kittyKeySpec, bool) {
+func kittyNamedKey(key gfx.Key) (kittyKeySpec, bool) {
 	switch key {
-	case ui.KeyEscape:
+	case gfx.KeyEscape:
 		return kittyKeySpec{code: 27}, true
-	case ui.KeyEnter:
+	case gfx.KeyEnter:
 		return kittyKeySpec{code: 13}, true
-	case ui.KeyTab:
+	case gfx.KeyTab:
 		return kittyKeySpec{code: 9}, true
-	case ui.KeyBackspace:
+	case gfx.KeyBackspace:
 		return kittyKeySpec{code: 127}, true
-	case ui.KeyUp:
+	case gfx.KeyUp:
 		return kittyKeySpec{code: 1, final: 'A'}, true
-	case ui.KeyDown:
+	case gfx.KeyDown:
 		return kittyKeySpec{code: 1, final: 'B'}, true
-	case ui.KeyRight:
+	case gfx.KeyRight:
 		return kittyKeySpec{code: 1, final: 'C'}, true
-	case ui.KeyLeft:
+	case gfx.KeyLeft:
 		return kittyKeySpec{code: 1, final: 'D'}, true
-	case ui.KeyHome:
+	case gfx.KeyHome:
 		return kittyKeySpec{code: 1, final: 'H'}, true
-	case ui.KeyEnd:
+	case gfx.KeyEnd:
 		return kittyKeySpec{code: 1, final: 'F'}, true
-	case ui.KeyInsert:
+	case gfx.KeyInsert:
 		return kittyKeySpec{code: 2, tilde: true}, true
-	case ui.KeyDelete:
+	case gfx.KeyDelete:
 		return kittyKeySpec{code: 3, tilde: true}, true
-	case ui.KeyPageUp:
+	case gfx.KeyPageUp:
 		return kittyKeySpec{code: 5, tilde: true}, true
-	case ui.KeyPageDown:
+	case gfx.KeyPageDown:
 		return kittyKeySpec{code: 6, tilde: true}, true
-	case ui.KeyF1:
+	case gfx.KeyF1:
 		return kittyKeySpec{code: 1, final: 'P'}, true
-	case ui.KeyF2:
+	case gfx.KeyF2:
 		return kittyKeySpec{code: 1, final: 'Q'}, true
-	case ui.KeyF3:
+	case gfx.KeyF3:
 		return kittyKeySpec{code: 1, final: 'R'}, true
-	case ui.KeyF4:
+	case gfx.KeyF4:
 		return kittyKeySpec{code: 1, final: 'S'}, true
-	case ui.KeyF5, ui.KeyF6, ui.KeyF7, ui.KeyF8, ui.KeyF9, ui.KeyF10, ui.KeyF11, ui.KeyF12:
-		return kittyKeySpec{code: functionNumbers[key-ui.KeyF5], tilde: true}, true
-	case ui.KeyShiftLeft:
+	case gfx.KeyF5, gfx.KeyF6, gfx.KeyF7, gfx.KeyF8, gfx.KeyF9, gfx.KeyF10, gfx.KeyF11, gfx.KeyF12:
+		return kittyKeySpec{code: functionNumbers[key-gfx.KeyF5], tilde: true}, true
+	case gfx.KeyShiftLeft:
 		return kittyKeySpec{code: 57441}, true
-	case ui.KeyShiftRight:
+	case gfx.KeyShiftRight:
 		return kittyKeySpec{code: 57447}, true
-	case ui.KeyControlLeft:
+	case gfx.KeyControlLeft:
 		return kittyKeySpec{code: 57442}, true
-	case ui.KeyControlRight:
+	case gfx.KeyControlRight:
 		return kittyKeySpec{code: 57448}, true
-	case ui.KeyAltLeft:
+	case gfx.KeyAltLeft:
 		return kittyKeySpec{code: 57443}, true
-	case ui.KeyAltRight:
+	case gfx.KeyAltRight:
 		return kittyKeySpec{code: 57449}, true
-	case ui.KeyMetaLeft:
+	case gfx.KeyMetaLeft:
 		return kittyKeySpec{code: 57444}, true
-	case ui.KeyMetaRight:
+	case gfx.KeyMetaRight:
 		return kittyKeySpec{code: 57450}, true
 	}
 	return kittyKeySpec{}, false
 }
 
 // kittyTextCode is the unshifted Unicode code point of a key that types text.
-func kittyTextCode(key ui.Key, text string) (int, bool) {
-	if key == ui.KeySpace {
+func kittyTextCode(key gfx.Key, text string) (int, bool) {
+	if key == gfx.KeySpace {
 		return ' ', true
 	}
-	if key != ui.KeyUnknown || text == "" {
+	if key != gfx.KeyUnknown || text == "" {
 		return 0, false
 	}
 	character, size := utf8.DecodeRuneInString(text)
@@ -273,18 +273,18 @@ func kittyTextCode(key ui.Key, text string) (int, bool) {
 
 // kittyModifiers encodes the six modifiers the protocol knows, plus the four
 // it adds; Viva's Meta bit is the protocol's super on every platform.
-func kittyModifiers(modifiers ui.Modifiers) int {
+func kittyModifiers(modifiers gfx.Modifiers) int {
 	value := 1
-	if modifiers&ui.ModifierShift != 0 {
+	if modifiers&gfx.ModifierShift != 0 {
 		value += 1
 	}
-	if modifiers&ui.ModifierAlt != 0 {
+	if modifiers&gfx.ModifierAlt != 0 {
 		value += 2
 	}
-	if modifiers&ui.ModifierControl != 0 {
+	if modifiers&gfx.ModifierControl != 0 {
 		value += 4
 	}
-	if modifiers&ui.ModifierMeta != 0 {
+	if modifiers&gfx.ModifierMeta != 0 {
 		value += 8
 	}
 	return value

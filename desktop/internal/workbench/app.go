@@ -32,11 +32,10 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/monogrid"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -126,6 +125,8 @@ type settings struct {
 	Language         string      `json:"language,omitempty"`
 	Theme            themeChoice `json:"theme,omitempty"`
 	MarketplaceWidth float32     `json:"marketplaceWidth,omitempty"`
+	// HideMinimap hides the minimap of every editor; the editors show it by default.
+	HideMinimap bool `json:"hideMinimap,omitempty"`
 }
 
 const (
@@ -166,7 +167,7 @@ type App struct {
 	store       *store.Store
 	now         func() time.Time
 	invalidator app.Invalidator
-	view        flex.View
+	view        ui.View
 	tasks       taskQueue
 	// languages are the languages the editor knows, made when the first file is opened.
 	languages *syntax.Registry
@@ -176,7 +177,7 @@ type App struct {
 	// text is the catalog of the current language; theme and colors are the look
 	// of the frame being painted.
 	text   *i18n.Messages
-	theme  ui.Theme
+	theme  gfx.Theme
 	colors palette
 
 	// notice is the message of the banner, empty when there is none.
@@ -343,7 +344,7 @@ func (a *App) systemAppearanceChanged() {
 
 // Config is the window's configuration.
 func (a *App) Config() app.Config {
-	a.fields = flex.Fields(&a.welcome.search, &a.clone.source, &a.clone.parent, &a.clone.name, &a.newProject.name, &a.newProject.parent, &a.newProject.search, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField, &a.searchView.query, &a.searchView.mask, &a.everywhereView.query,
+	a.fields = ui.Fields(&a.welcome.search, &a.clone.source, &a.clone.parent, &a.clone.name, &a.newProject.name, &a.newProject.parent, &a.newProject.search, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField, &a.searchView.query, &a.searchView.mask, &a.everywhereView.query,
 		&a.branch.search, &a.branch.name, &a.branch.revision, &a.navigation.input)
 	return app.Config{
 		Title:          a.text.App.Name,
@@ -431,13 +432,11 @@ func (a *App) language() i18n.Language {
 	return a.systemLanguage
 }
 
-func (a *App) paint(canvas *ui.Canvas, size ui.Size) {
-	// Everything this pass paints in a fixed-pitch font goes on the cell grid it was laid out on.
-	defer monogrid.Snap(canvas, len(canvas.Texts()))
+func (a *App) paint(canvas *gfx.Canvas, size gfx.Size) {
 	a.theme, a.colors = look(a.settings.Theme)
 	a.shared.text.Store(a.text)
 	a.shared.dark.Store(a.colors.Dark)
-	bounds := ui.Rect{Width: size.Width, Height: size.Height}
+	bounds := gfx.Rect{Width: size.Width, Height: size.Height}
 	canvas.Fill(bounds, a.colors.Chrome)
 	a.status.frame(canvas, a.now())
 	a.chrome.beginFrame()
@@ -450,7 +449,7 @@ func (a *App) paint(canvas *ui.Canvas, size ui.Size) {
 		// the window is blocked by its modal scope while this theme is used.
 		paintTheme.Transition.Duration = 0
 	}
-	a.view.Draw(canvas, paintTheme, bounds, func(f *flex.Frame) {
+	a.view.Draw(canvas, paintTheme, bounds, func(f *ui.Frame) {
 		// Popups go on a layer of their own so the commit rows painted after Draw stay
 		// under them.
 		f.PopupLayer(1)
@@ -492,14 +491,14 @@ func (a *App) paint(canvas *ui.Canvas, size ui.Size) {
 func (a *App) notify(message string) { a.notice = message }
 
 // drawNotice is the banner above the bottom right corner of the window.
-func (a *App) drawNotice(f *flex.Frame) {
+func (a *App) drawNotice(f *ui.Frame) {
 	if a.notice == "" {
 		return
 	}
 	bounds := f.Bounds()
-	anchor := ui.Rect{X: bounds.X, Y: bounds.Y + bounds.Height - 32, Width: bounds.Width - 16, Height: 32}
-	f.Popup().Above(anchor, 8, flex.End).Width(400).Pad(12).Gap(8).Items(flex.Start).
-		Background(a.theme.Popover).Border(1, a.theme.Border).Radius(a.theme.Metrics.RadiusPopup()).Shadow(ui.ShadowMD).
+	anchor := gfx.Rect{X: bounds.X, Y: bounds.Y + bounds.Height - 32, Width: bounds.Width - 16, Height: 32}
+	f.Popup().Above(anchor, 8, ui.End).Width(400).Pad(12).Gap(8).Items(ui.Start).
+		Background(a.theme.Popover).Border(1, a.theme.Border).Radius(a.theme.Metrics.RadiusPopup()).Shadow(gfx.ShadowMD).
 		Children(func() {
 			f.Row().Children(func() {
 				f.Icon(icons.CircleAlert).Size(16, 16).Color(a.colors.Warning)
@@ -507,9 +506,9 @@ func (a *App) drawNotice(f *flex.Frame) {
 			f.Paragraph(a.notice, 4).Grow(1)
 			dismiss := f.Row().Size(20, 20).Center().Radius(a.theme.Metrics.RadiusItem()).
 				Hit(noticeDismiss, a.text.Errors.Dismiss).
-				Hover(flex.Look{}.Background(a.colors.Hover)).Pressed(flex.Look{}.Background(a.colors.Active))
+				Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
 			dismiss.Children(func() {
-				f.Icon(icons.X).Size(12, 12).Color(a.colors.Subtle).StateFrom(dismiss).Hover(flex.Look{}.Color(a.colors.Text))
+				f.Icon(icons.X).Size(12, 12).Color(a.colors.Subtle).StateFrom(dismiss).Hover(ui.Look{}.Color(a.colors.Text))
 			})
 			if dismiss.Clicked() {
 				a.notice = ""
@@ -517,7 +516,7 @@ func (a *App) drawNotice(f *flex.Frame) {
 		})
 }
 
-func (a *App) onPointer(event ui.PointerEvent) ui.EventResult {
+func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
 	// A drag of a tool button or of a terminal's tab comes first, so it keeps its gestures
 	// over a terminal.
 	if result, handled := a.dragPointer(event); handled {
@@ -535,10 +534,10 @@ func (a *App) onPointer(event ui.PointerEvent) ui.EventResult {
 	if result, handled := a.treePointer(event); handled {
 		return result
 	}
-	return ui.EventResult{}
+	return gfx.EventResult{}
 }
 
-func (a *App) onKey(event ui.KeyEvent) ui.EventResult {
+func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
 	if result := a.welcomeMenuKey(event); result.Handled {
 		return result
 	}
@@ -552,23 +551,23 @@ func (a *App) onKey(event ui.KeyEvent) ui.EventResult {
 			return result
 		}
 	}
-	if !event.Release && event.Key == ui.KeyEscape {
+	if !event.Release && event.Key == gfx.KeyEscape {
 		if a.project == nil && a.welcome.moreOpen {
 			a.welcome.moreOpen = false
 			a.welcome.moreFocus = false
 			a.welcome.moreRestore = true
-			return ui.EventResult{Handled: true, Repaint: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		}
 		if a.project == nil && a.welcome.menuPath != "" {
 			a.welcome.restoreMenuFocus = a.welcome.menuPath
 			a.welcome.menuPath = ""
-			a.welcome.menuFocus = ui.ID{}
-			return ui.EventResult{Handled: true, Repaint: true}
+			a.welcome.menuFocus = gfx.ID{}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		}
 		// Both are called: at most one gesture is under way, and neither may be left behind.
 		button, tab := a.cancelDrag(), a.cancelTabDrag()
 		if button || tab {
-			return ui.EventResult{Handled: true, Repaint: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		}
 		if r := a.projectMenuKey(event); r.Handled {
 			return r
@@ -589,7 +588,7 @@ func (a *App) onKey(event ui.KeyEvent) ui.EventResult {
 		}
 	}
 	if event.Release {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	if r := a.treeKey(event); r.Handled {
 		return r
@@ -612,26 +611,26 @@ func (a *App) onKey(event ui.KeyEvent) ui.EventResult {
 // onShortcut handles the window's command shortcuts, and gives the ones that are not its own
 // to the terminal that has the keyboard: Control-C and the other chords of the shell arrive
 // here, not in onKey.
-func (a *App) onShortcut(event ui.KeyEvent) ui.EventResult {
+func (a *App) onShortcut(event gfx.KeyEvent) gfx.EventResult {
 	if a.newProject.open {
 		if event.Target == newProjectName || event.Target == newProjectParent || event.Target == newProjectSearch {
-			return ui.EventResult{}
+			return gfx.EventResult{}
 		}
-		return ui.EventResult{Handled: true}
+		return gfx.EventResult{Handled: true}
 	}
 	if a.clone.open {
 		if event.Target == cloneSource || event.Target == cloneParent || event.Target == cloneName {
-			return ui.EventResult{}
+			return gfx.EventResult{}
 		}
-		return ui.EventResult{Handled: true}
+		return gfx.EventResult{Handled: true}
 	}
 	if a.navigation.open {
 		// Let the field's text system handle copy, paste, and select-all, while
 		// keeping workbench shortcuts from changing the project behind a modal.
 		if event.Target == navigationField {
-			return ui.EventResult{}
+			return gfx.EventResult{}
 		}
-		return ui.EventResult{Handled: true}
+		return gfx.EventResult{Handled: true}
 	}
 	if !event.Release {
 		if result := a.windowShortcut(event); result.Handled {
@@ -648,40 +647,40 @@ func (a *App) onShortcut(event ui.KeyEvent) ui.EventResult {
 			return result
 		}
 	}
-	return ui.EventResult{}
+	return gfx.EventResult{}
 }
 
 // windowShortcut handles the window's own command shortcuts: ⌘, opens the settings, ⌘O asks
 // for a project folder, ⇧⌘L shows the log window and ⌘↩ in the commit message commits.
-func (a *App) windowShortcut(event ui.KeyEvent) ui.EventResult {
+func (a *App) windowShortcut(event gfx.KeyEvent) gfx.EventResult {
 	if isNavigationShortcut(runtime.GOOS, event) && a.project != nil && a.focusedTerminal(event.Target) == nil &&
 		(runtime.GOOS == "darwin" || a.focusedDocument(event.Target) != nil) {
 		if a.openNavigation(a.project) {
-			return ui.EventResult{Handled: true, Repaint: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		}
 	}
-	if event.Modifiers == ui.ModifierMeta|ui.ModifierShift && strings.EqualFold(event.Text, "o") && a.project != nil {
+	if event.Modifiers == gfx.ModifierMeta|gfx.ModifierShift && strings.EqualFold(event.Text, "o") && a.project != nil {
 		a.performed("workspace.searchEverywhere.open", surfaceShortcut)
 		a.openEverywhere(a.project)
-		return ui.EventResult{Handled: true, Repaint: true}
+		return gfx.EventResult{Handled: true, Repaint: true}
 	}
-	if event.Modifiers == ui.ModifierMeta|ui.ModifierShift && strings.EqualFold(event.Text, "f") && a.project != nil {
+	if event.Modifiers == gfx.ModifierMeta|gfx.ModifierShift && strings.EqualFold(event.Text, "f") && a.project != nil {
 		a.reduceChrome(core.SetChromeOpen(itemFind, true))
 		a.searchView.focus = true
-		return ui.EventResult{Handled: true, Repaint: true}
+		return gfx.EventResult{Handled: true, Repaint: true}
 	}
-	if event.Modifiers == ui.ModifierMeta && event.Key == ui.KeyEnter && event.Target == commitMessageID && a.project != nil {
+	if event.Modifiers == gfx.ModifierMeta && event.Key == gfx.KeyEnter && event.Target == commitMessageID && a.project != nil {
 		if a.project.canCommit() {
 			a.startCommit(a.project, false, surfaceShortcut)
 		}
-		return ui.EventResult{Handled: true, Repaint: true}
+		return gfx.EventResult{Handled: true, Repaint: true}
 	}
-	if event.Modifiers == ui.ModifierMeta|ui.ModifierShift && strings.EqualFold(event.Text, "l") {
+	if event.Modifiers == gfx.ModifierMeta|gfx.ModifierShift && strings.EqualFold(event.Text, "l") {
 		a.openLogs()
-		return ui.EventResult{Handled: true, Repaint: true}
+		return gfx.EventResult{Handled: true, Repaint: true}
 	}
-	if event.Modifiers != ui.ModifierMeta {
-		return ui.EventResult{}
+	if event.Modifiers != gfx.ModifierMeta {
+		return gfx.EventResult{}
 	}
 	switch event.Text {
 	case ",":
@@ -689,9 +688,9 @@ func (a *App) windowShortcut(event ui.KeyEvent) ui.EventResult {
 	case "o":
 		a.chooseProject(surfaceShortcut)
 	default:
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
-	return ui.EventResult{Handled: true, Repaint: true}
+	return gfx.EventResult{Handled: true, Repaint: true}
 }
 
 // setLanguage switches the window to a stored i18n code; empty follows the system.
@@ -927,7 +926,7 @@ const (
 // shown; after the last paint of a burst one more paint is asked for a second later, so
 // the readout settles instead of keeping the count of the burst. That paint asks for no
 // other.
-func (s *statusState) frame(canvas *ui.Canvas, now time.Time) {
+func (s *statusState) frame(canvas *gfx.Canvas, now time.Time) {
 	cutoff := now.Add(-time.Second)
 	drop := 0
 	for drop < len(s.frames) && !s.frames[drop].After(cutoff) {

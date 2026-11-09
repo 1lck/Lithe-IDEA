@@ -3,7 +3,7 @@ package workbench
 import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 const (
@@ -80,13 +80,13 @@ type dragState struct {
 	startX, startY float32
 	x, y           float32
 	// grab is the press point inside the source button, retained by both stripe ghosts.
-	grab ui.Point
+	grab gfx.Point
 	// target is where the button would land if it were dropped now; hasTarget is false
 	// while the pointer is somewhere a button of its surface cannot go.
 	target    dragTarget
 	hasTarget bool
 	// viewport is the window's size at the last move, which keeps the ghost inside it.
-	viewport ui.Size
+	viewport gfx.Size
 }
 
 // dragTarget is a place a dragged button can be dropped.
@@ -96,9 +96,9 @@ type dragTarget struct {
 	// empty means the end of the zone. It is what the kernel's move action takes.
 	before string
 	// mark is the insertion line, in window coordinates.
-	mark ui.Rect
+	mark gfx.Rect
 	// preview is the dock pane rectangle highlighted while a tool button is detached.
-	preview ui.Rect
+	preview gfx.Rect
 }
 
 // dragPointer follows a press on a rearrangeable button. It leaves the press alone until
@@ -106,13 +106,13 @@ type dragTarget struct {
 // from then on it takes every event of the gesture. Taking an event is what keeps the
 // release from becoming a click, because the runtime clicks only when neither the
 // press nor the release was handled.
-func (a *App) dragPointer(event ui.PointerEvent) (ui.EventResult, bool) {
+func (a *App) dragPointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 	d := &a.drag
 	switch event.Kind {
-	case ui.PointerDown:
+	case gfx.PointerDown:
 		*d = dragState{}
-		if event.Button != ui.PointerButtonPrimary {
-			return ui.EventResult{}, false
+		if event.Button != gfx.PointerButtonPrimary {
+			return gfx.EventResult{}, false
 		}
 		if i, ok := event.Target.In(chromeButtons); ok && i < len(catalog) {
 			button := a.chrome.rects[i]
@@ -121,45 +121,45 @@ func (a *App) dragPointer(event ui.PointerEvent) (ui.EventResult, bool) {
 			*d = dragState{
 				pressed: true, item: i, sourceZone: source, snappedStripe: side,
 				startX: event.X, startY: event.Y,
-				grab: ui.Point{X: event.X - button.X, Y: event.Y - button.Y},
+				grab: gfx.Point{X: event.X - button.X, Y: event.Y - button.Y},
 			}
 		}
 		// The button under the pointer still gets its press.
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 
-	case ui.PointerMove:
+	case gfx.PointerMove:
 		if !d.pressed {
-			return ui.EventResult{}, false
+			return gfx.EventResult{}, false
 		}
 		if !d.active {
 			dx, dy := event.X-d.startX, event.Y-d.startY
 			if dx*dx+dy*dy < dragThreshold*dragThreshold {
-				return ui.EventResult{}, false
+				return gfx.EventResult{}, false
 			}
 			d.active = true
 		}
 		d.x, d.y, d.viewport = event.X, event.Y, event.Viewport
-		point := ui.Point{X: event.X, Y: event.Y}
+		point := gfx.Point{X: event.X, Y: event.Y}
 		if d.sourceZone.surface() == surfaceStripes {
-			d.phase, d.snappedStripe = dragPhaseAt(d.phase, d.snappedStripe, point, dragStripeRects(ui.Rect{
+			d.phase, d.snappedStripe = dragPhaseAt(d.phase, d.snappedStripe, point, dragStripeRects(gfx.Rect{
 				Width: event.Viewport.Width, Height: event.Viewport.Height,
 			}))
 		}
 		d.target, d.hasTarget = a.dragLocate(d.item, d.sourceZone, point, event.Viewport, d.phase, d.snappedStripe)
-		return ui.EventResult{Handled: true, Repaint: true}, true
+		return gfx.EventResult{Handled: true, Repaint: true}, true
 
-	case ui.PointerUp:
+	case gfx.PointerUp:
 		if !d.active {
 			*d = dragState{}
-			return ui.EventResult{}, false
+			return gfx.EventResult{}, false
 		}
 		// The place is worked out again at the release: the last move may be older than
 		// the release by a frame in which the layout changed.
 		item, source := d.item, d.sourceZone
 		phase, snappedStripe := d.phase, d.snappedStripe
-		point := ui.Point{X: event.X, Y: event.Y}
+		point := gfx.Point{X: event.X, Y: event.Y}
 		if source.surface() == surfaceStripes {
-			phase, snappedStripe = dragPhaseAt(phase, snappedStripe, point, dragStripeRects(ui.Rect{
+			phase, snappedStripe = dragPhaseAt(phase, snappedStripe, point, dragStripeRects(gfx.Rect{
 				Width: event.Viewport.Width, Height: event.Viewport.Height,
 			}))
 		}
@@ -168,16 +168,16 @@ func (a *App) dragPointer(event ui.PointerEvent) (ui.EventResult, bool) {
 		if ok {
 			a.reduceChrome(core.MoveChrome(catalog[item].id, zoneNames[target.zone], target.before))
 		}
-		return ui.EventResult{Handled: true, Repaint: true}, true
+		return gfx.EventResult{Handled: true, Repaint: true}, true
 
-	case ui.PointerExit:
+	case gfx.PointerExit:
 		// The runtime reports an exit during a held press only once the button is released,
 		// so this ends a gesture whose release was lost.
 		active := d.active
 		*d = dragState{}
-		return ui.EventResult{Repaint: active}, active
+		return gfx.EventResult{Repaint: active}, active
 	}
-	return ui.EventResult{}, false
+	return gfx.EventResult{}, false
 }
 
 // cancelDrag drops the gesture without moving anything and reports whether a drag was
@@ -197,7 +197,7 @@ func (a *App) draggingToolButton() bool {
 // dragLocate finds where dropping item at point would put it. Tool buttons use their
 // snapped stripe or detached dock geometry; title and status items keep their existing
 // bar-only targets. A point outside the window never produces a target.
-func (a *App) dragLocate(item int, source zone, point ui.Point, viewport ui.Size, phase dragPhase, snapped stripeSide) (dragTarget, bool) {
+func (a *App) dragLocate(item int, source zone, point gfx.Point, viewport gfx.Size, phase dragPhase, snapped stripeSide) (dragTarget, bool) {
 	var target dragTarget
 	if point.X < 0 || point.Y < 0 || point.X >= viewport.Width || point.Y >= viewport.Height {
 		return target, false
@@ -216,7 +216,7 @@ func (a *App) dragLocate(item int, source zone, point ui.Point, viewport ui.Size
 	default:
 		if phase == dragSnapped {
 			zones := stripeZones(snapped)
-			stripes := dragStripeRects(ui.Rect{Width: viewport.Width, Height: viewport.Height})
+			stripes := dragStripeRects(gfx.Rect{Width: viewport.Width, Height: viewport.Height})
 			z, ok := dragStripeZoneAt(point, stripes[snapped], snapped,
 				a.chrome.zoneRects[zones[0]], a.chrome.zoneRects[zones[1]], a.chrome.zoneRects[zones[2]])
 			if !ok {
@@ -233,7 +233,7 @@ func (a *App) dragLocate(item int, source zone, point ui.Point, viewport ui.Size
 
 // dragDetachedTarget finds a button or dock area under a floating tool drag and adds the
 // insertion line in that zone's stripe.
-func (a *App) dragDetachedTarget(item int, source zone, point ui.Point, viewport ui.Size) (dragTarget, bool) {
+func (a *App) dragDetachedTarget(item int, source zone, point gfx.Point, viewport gfx.Size) (dragTarget, bool) {
 	z, preview, ok := dragDockTargetAt(
 		point, item, source, a.dragDockButtons(item), a.dragDockAnchors(viewport),
 	)
@@ -253,7 +253,7 @@ func (a *App) dragDetachedTarget(item int, source zone, point ui.Point, viewport
 // As in motty, the line crosses the whole zone (a vertical line in a bar, a horizontal
 // one in a stripe), so it reads as the place between two buttons rather than as part of
 // either.
-func (a *App) dragInsertion(item int, z zone, x, y float32) (string, ui.Rect) {
+func (a *App) dragInsertion(item int, z zone, x, y float32) (string, gfx.Rect) {
 	vertical := z.vertical()
 	zr := a.chrome.zoneRects[z]
 	// position is where the line starts along the zone; before is the button it precedes.
@@ -283,10 +283,10 @@ func (a *App) dragInsertion(item int, z zone, x, y float32) (string, ui.Rect) {
 	}
 	if vertical {
 		position = min(max(position, zr.Y), zr.Y+zr.Height-dragMark)
-		return before, ui.Rect{X: zr.X + dragMarkInset, Y: position, Width: zr.Width - 2*dragMarkInset, Height: dragMark}
+		return before, gfx.Rect{X: zr.X + dragMarkInset, Y: position, Width: zr.Width - 2*dragMarkInset, Height: dragMark}
 	}
 	position = min(max(position, zr.X), zr.X+zr.Width-dragMark)
-	return before, ui.Rect{X: position, Y: zr.Y + dragMarkInset, Width: dragMark, Height: zr.Height - 2*dragMarkInset}
+	return before, gfx.Rect{X: position, Y: zr.Y + dragMarkInset, Width: dragMark, Height: zr.Height - 2*dragMarkInset}
 }
 
 // paintDrag paints the gesture above the frame: stripe zones stay tinted, detached dock
@@ -294,7 +294,7 @@ func (a *App) dragInsertion(item int, z zone, x, y float32) (string, ui.Rect) {
 // position in the target zone. A snapped stripe ghost stays in its button column, while a
 // detached ghost follows the pointer with its original grab point. The source button stays
 // where it is, dimmed (see chromeBox).
-func (a *App) paintDrag(canvas *ui.Canvas) {
+func (a *App) paintDrag(canvas *gfx.Canvas) {
 	d := &a.drag
 	if !d.active {
 		return
@@ -311,7 +311,7 @@ func (a *App) paintDrag(canvas *ui.Canvas) {
 			tint = dragTargetTint
 		}
 		if r := a.chrome.zoneRects[z]; r.Width > 0 && r.Height > 0 {
-			canvas.Rounded(r.Inset(ui.All(-dragZoneOutset)), dragZoneRadius, a.colors.Accent.WithAlpha(tint))
+			canvas.Rounded(r.Inset(gfx.All(-dragZoneOutset)), dragZoneRadius, a.colors.Accent.WithAlpha(tint))
 		}
 	}
 	if surface == surfaceStripes && d.phase == dragDetached && d.hasTarget {
@@ -334,50 +334,50 @@ func (a *App) paintDrag(canvas *ui.Canvas) {
 
 // paintSnappedToolGhost keeps the button over its stripe and preserves the press point
 // inside the icon as the pointer moves vertically.
-func (a *App) paintSnappedToolGhost(canvas *ui.Canvas, d *dragState) {
+func (a *App) paintSnappedToolGhost(canvas *gfx.Canvas, d *dragState) {
 	column := a.dragStripeColumn(d.snappedStripe)
 	ghost := snappedToolGhostRect(
-		ui.Point{X: d.x, Y: d.y}, d.grab, column,
-		ui.Rect{Width: d.viewport.Width, Height: d.viewport.Height},
+		gfx.Point{X: d.x, Y: d.y}, d.grab, column,
+		gfx.Rect{Width: d.viewport.Width, Height: d.viewport.Height},
 	)
 	canvas.RoundedBorder(ghost, dragGhostRadius, dragGhostBorderWidth, a.colors.Accent, a.colors.Editor)
 	if icon := catalog[d.item].icon; icon != nil {
-		canvas.DrawIcon(*icon, ghost.Inset(ui.All(dragSnappedGhostIconInset)), a.colors.Text)
+		canvas.DrawIcon(*icon, ghost.Inset(gfx.All(dragSnappedGhostIconInset)), a.colors.Text)
 	}
 }
 
 // dragStripeColumn returns a laid out button column for side, falling back to the stripe
 // bounds before the first drag frame has given empty zones a rectangle.
-func (a *App) dragStripeColumn(side stripeSide) ui.Rect {
+func (a *App) dragStripeColumn(side stripeSide) gfx.Rect {
 	for _, z := range stripeZones(side) {
 		if column := a.chrome.zoneRects[z]; column.Width > 0 {
 			return column
 		}
 	}
-	return dragStripeRects(ui.Rect{Width: a.drag.viewport.Width, Height: a.drag.viewport.Height})[side]
+	return dragStripeRects(gfx.Rect{Width: a.drag.viewport.Width, Height: a.drag.viewport.Height})[side]
 }
 
 // paintDetachedToolGhost draws the detached icon in the previous client's rounded square
 // with the original pointer-to-button grab offset and theme-specific surface color.
-func (a *App) paintDetachedToolGhost(canvas *ui.Canvas, d *dragState) {
-	ghost := detachedToolGhostRect(ui.Point{X: d.x, Y: d.y}, d.grab)
-	color := ui.RGB24(dragFloatingGhostLightRGB)
+func (a *App) paintDetachedToolGhost(canvas *gfx.Canvas, d *dragState) {
+	ghost := detachedToolGhostRect(gfx.Point{X: d.x, Y: d.y}, d.grab)
+	color := gfx.RGB24(dragFloatingGhostLightRGB)
 	if a.colors.Dark {
-		color = ui.RGB24(dragFloatingGhostDarkRGB)
+		color = gfx.RGB24(dragFloatingGhostDarkRGB)
 	}
 	color = color.WithAlpha(dragFloatingGhostOpacity)
 	canvas.RoundedBorder(ghost, dragFloatingGhostRadius, dragFloatingGhostBorderWidth, color, color)
 	if icon := catalog[d.item].icon; icon != nil {
-		canvas.DrawIcon(*icon, ghost.Inset(ui.All(dragFloatingGhostIconInset)), a.colors.Text.WithAlpha(dragFloatingGhostOpacity))
+		canvas.DrawIcon(*icon, ghost.Inset(gfx.All(dragFloatingGhostIconInset)), a.colors.Text.WithAlpha(dragFloatingGhostOpacity))
 	}
 }
 
 // paintDetachedDropPreview highlights the pane a floating tool button would open in and
 // labels it with the destination name from the typed language catalog.
-func (a *App) paintDetachedDropPreview(canvas *ui.Canvas, target dragTarget) {
-	previewColor := ui.RGB24(dragPreviewLightRGB)
+func (a *App) paintDetachedDropPreview(canvas *gfx.Canvas, target dragTarget) {
+	previewColor := gfx.RGB24(dragPreviewLightRGB)
 	if a.colors.Dark {
-		previewColor = ui.RGB24(dragPreviewDarkRGB)
+		previewColor = gfx.RGB24(dragPreviewDarkRGB)
 	}
 	canvas.Fill(target.preview, previewColor.WithAlpha(dragPreviewAlpha))
 
@@ -386,30 +386,30 @@ func (a *App) paintDetachedDropPreview(canvas *ui.Canvas, target dragTarget) {
 		return
 	}
 	labelWidth := min(
-		canvas.TextWidthWeight(title, dragPreviewLabelFontSize, ui.WeightRegular)+2*dragPreviewLabelPadding,
+		canvas.TextWidthWeight(title, dragPreviewLabelFontSize, gfx.WeightRegular)+2*dragPreviewLabelPadding,
 		target.preview.Width,
 	)
 	labelHeight := min(
 		float32(dragPreviewLabelFontSize+2*dragPreviewLabelPadding),
 		target.preview.Height,
 	)
-	label := ui.Rect{
+	label := gfx.Rect{
 		X:     target.preview.X + (target.preview.Width-labelWidth)/2,
 		Y:     target.preview.Y + (target.preview.Height-labelHeight)/2,
 		Width: labelWidth, Height: labelHeight,
 	}
 	canvas.Rounded(label, dragPreviewLabelRadius, a.colors.Editor)
-	canvas.LabelCenter(title, label, ui.TextStyle{
-		Size: dragPreviewLabelFontSize, Weight: ui.WeightRegular, Color: a.colors.Text,
+	canvas.LabelCenter(title, label, gfx.TextStyle{
+		Size: dragPreviewLabelFontSize, Weight: gfx.WeightRegular, Color: a.colors.Text,
 	})
 }
 
 // paintLegacyDragGhost keeps title and status drags on their original below-right ghost,
 // because those bars do not detach into the workbench.
-func (a *App) paintLegacyDragGhost(canvas *ui.Canvas, d *dragState) {
+func (a *App) paintLegacyDragGhost(canvas *gfx.Canvas, d *dragState) {
 	icon := catalog[d.item].icon
 	text := a.dragGhostText(d.item)
-	ghost := ui.Rect{X: d.x + dragGhostOffset, Y: d.y + dragGhostOffset, Width: dragGhostSize, Height: dragGhostSize}
+	ghost := gfx.Rect{X: d.x + dragGhostOffset, Y: d.y + dragGhostOffset, Width: dragGhostSize, Height: dragGhostSize}
 	if text != "" {
 		ghost.Width = max(dragGhostSize, a.chrome.rects[d.item].Width)
 		ghost.Height = max(chromeStatusItem, a.chrome.rects[d.item].Height)
@@ -420,20 +420,20 @@ func (a *App) paintLegacyDragGhost(canvas *ui.Canvas, d *dragState) {
 	}
 	canvas.RoundedBorder(ghost, dragGhostRadius, dragGhostBorderWidth, a.colors.Accent, a.colors.Editor)
 
-	style := ui.TextStyle{Size: a.theme.Metrics.FontSizeS, Weight: ui.WeightRegular, Color: a.colors.Text}
+	style := gfx.TextStyle{Size: a.theme.Metrics.FontSizeS, Weight: gfx.WeightRegular, Color: a.colors.Text}
 	switch {
 	case icon != nil && text == "":
-		canvas.DrawIcon(*icon, ghost.Inset(ui.All((dragGhostSize-chromeIconSize)/2)), a.colors.Text)
+		canvas.DrawIcon(*icon, ghost.Inset(gfx.All((dragGhostSize-chromeIconSize)/2)), a.colors.Text)
 	case icon != nil:
 		// An icon with words, as the run configuration has: the icon first and the words
 		// after it, as in the button.
-		canvas.DrawIcon(*icon, ui.Rect{
+		canvas.DrawIcon(*icon, gfx.Rect{
 			X:      ghost.X + chromeEdge,
 			Y:      ghost.Y + (ghost.Height-chromeIconSize)/2,
 			Width:  chromeIconSize,
 			Height: chromeIconSize,
 		}, a.colors.Subtle)
-		canvas.Label(text, ui.Rect{
+		canvas.Label(text, gfx.Rect{
 			X:      ghost.X + chromeEdge + chromeIconSize + chromeGap,
 			Y:      ghost.Y,
 			Width:  ghost.Width - 2*chromeEdge - chromeIconSize - chromeGap,

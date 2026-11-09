@@ -3,7 +3,7 @@ package termview
 import (
 	"time"
 
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // The cursor is lit for cursorBlinkHalf, dark for as long, and keeps going for
@@ -31,7 +31,7 @@ type cursorBlink struct {
 // on reports whether the cursor is lit in this frame, and asks for the frame
 // that turns it over. It restarts the phase when the cursor has moved or the
 // pane has just got the keyboard.
-func (blink *cursorBlink) on(canvas *ui.Canvas, x, y int) bool {
+func (blink *cursorBlink) on(canvas *gfx.Canvas, x, y int) bool {
 	now := canvas.Now()
 	if !blink.seen || blink.x != x || blink.y != y {
 		blink.since, blink.x, blink.y, blink.seen = now, x, y, true

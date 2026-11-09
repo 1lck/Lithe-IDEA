@@ -1,12 +1,12 @@
 package workbench
 
-import "github.com/vivaui/viva/ui"
+import "github.com/vivaui/viva/gfx"
 
 // The identity tree of the client. Each screen is a feature; each file declares the
 // identities of the controls it paints next to its code, in its own var block, so
 // the shared names below are only the ones more than one file uses.
 var (
-	tree = ui.Tree{}
+	tree = gfx.Tree{}
 
 	// welcomePage is the start screen, shown while no project is open.
 	welcomePage = tree.Feature("welcome")

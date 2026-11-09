@@ -4,14 +4,14 @@ import (
 	"math"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/term"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // Paint draws the terminal into area: the ground, the character grid with its cursor and
 // selection, and the scrollbar over the right edge. It also lays the grid out, so the screen
 // and the shell always have the size of the area they are painted in, and it starts the
 // shell on the first paint, once that size is known.
-func (v *View) Paint(canvas *ui.Canvas, area ui.Rect, look Look) {
+func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	v.clock = canvas.Now()
 	// The cell is measured on this canvas, since the display scale decides the width. Nothing
 	// can be laid out before the font has a size.
@@ -41,7 +41,7 @@ func (v *View) Paint(canvas *ui.Canvas, area ui.Rect, look Look) {
 // paintGrid draws the character grid: for each row its background spans and one fixed-pitch
 // label, then the cursor. Rows are prepared once per change of their content; painting a
 // screen that did not change builds nothing.
-func (v *View) paintGrid(canvas *ui.Canvas, layout geometry) {
+func (v *View) paintGrid(canvas *gfx.Canvas, layout geometry) {
 	pal := &v.pal
 	focused := canvas.Focused() == v.cfg.HitID
 	cols, rows := v.screen.Size()
@@ -68,7 +68,7 @@ func (v *View) paintGrid(canvas *ui.Canvas, layout geometry) {
 	if composing && cursor.Y < rows {
 		covered = cellSpan{from: cursor.X, to: cursor.X + displayCells(v.preedit.Value)}
 	}
-	style := ui.TextStyle{Size: fontSize, Color: pal.termFG, Mono: true, MonoFace: v.face}
+	style := gfx.TextStyle{Size: fontSize, Color: pal.termFG, Mono: true, MonoFace: v.face}
 	labelWidth := float32(math.Ceil(float64(float32(cols)*cellWidth))) + 1
 
 	// The edge scroll of a selection drag steps on a clock, not on pointer events, so the
@@ -90,7 +90,7 @@ func (v *View) paintGrid(canvas *ui.Canvas, layout geometry) {
 		for _, span := range entry.spans {
 			from := snap(layout.left + float32(span.from)*cellWidth)
 			to := snap(layout.left + float32(span.to)*cellWidth)
-			canvas.Fill(ui.Rect{X: from, Y: y, Width: to - from, Height: cellHeight}, span.color)
+			canvas.Fill(gfx.Rect{X: from, Y: y, Width: to - from, Height: cellHeight}, span.color)
 		}
 	}
 	// The second pass paints the selection over the backgrounds and each row's text over
@@ -106,13 +106,13 @@ func (v *View) paintGrid(canvas *ui.Canvas, layout geometry) {
 		if from, to, selected := v.selection.span(v.screen.LineNumber(row), line, cols); selected {
 			left := snap(layout.left + float32(from)*cellWidth)
 			right := snap(layout.left + float32(to)*cellWidth)
-			canvas.Fill(ui.Rect{X: left, Y: y, Width: right - left, Height: cellHeight}, pal.selection)
+			canvas.Fill(gfx.Rect{X: left, Y: y, Width: right - left, Height: cellHeight}, pal.selection)
 		}
 		if len(entry.runs) > 0 {
 			last := entry.runs[len(entry.runs)-1]
 			rowCols := min(int(last.Column+last.Cells)+1, cols)
 			rowWidth := min(float32(math.Ceil(float64(float32(rowCols)*cellWidth)))+1, labelWidth)
-			canvas.LabelRuns(entry.text, ui.Rect{X: layout.left, Y: y, Width: rowWidth, Height: cellHeight}, style, cellWidth, entry.runs)
+			canvas.LabelRuns(entry.text, gfx.Rect{X: layout.left, Y: y, Width: rowWidth, Height: cellHeight}, style, cellWidth, entry.runs)
 		}
 	}
 	v.cache.end(rows)
@@ -127,15 +127,15 @@ func (v *View) paintGrid(canvas *ui.Canvas, layout geometry) {
 		case composing:
 			// The input method draws over these cells, which the rows left empty.
 		case cursor.Style == term.CursorUnderline:
-			canvas.Fill(ui.Rect{X: x, Y: y + cellHeight - cursorUnderlineHeight, Width: cellWidth, Height: cursorUnderlineHeight}, cursorColor)
+			canvas.Fill(gfx.Rect{X: x, Y: y + cellHeight - cursorUnderlineHeight, Width: cellWidth, Height: cursorUnderlineHeight}, cursorColor)
 		case cursor.Style == term.CursorBar:
-			canvas.Fill(ui.Rect{X: x, Y: y, Width: cursorBarWidth, Height: cellHeight}, cursorColor)
+			canvas.Fill(gfx.Rect{X: x, Y: y, Width: cursorBarWidth, Height: cellHeight}, cursorColor)
 		case !focused:
 			// A block cursor outlines its cell while the terminal does not have the keyboard.
-			canvas.Fill(ui.Rect{X: x, Y: y, Width: cellWidth, Height: 1}, cursorColor)
-			canvas.Fill(ui.Rect{X: x, Y: y + cellHeight - 1, Width: cellWidth, Height: 1}, cursorColor)
-			canvas.Fill(ui.Rect{X: x, Y: y, Width: 1, Height: cellHeight}, cursorColor)
-			canvas.Fill(ui.Rect{X: x + cellWidth - 1, Y: y, Width: 1, Height: cellHeight}, cursorColor)
+			canvas.Fill(gfx.Rect{X: x, Y: y, Width: cellWidth, Height: 1}, cursorColor)
+			canvas.Fill(gfx.Rect{X: x, Y: y + cellHeight - 1, Width: cellWidth, Height: 1}, cursorColor)
+			canvas.Fill(gfx.Rect{X: x, Y: y, Width: 1, Height: cellHeight}, cursorColor)
+			canvas.Fill(gfx.Rect{X: x + cellWidth - 1, Y: y, Width: 1, Height: cellHeight}, cursorColor)
 		}
 	}
 	if covered != (cellSpan{}) {
@@ -143,13 +143,13 @@ func (v *View) paintGrid(canvas *ui.Canvas, layout geometry) {
 		// cells it will sit on.
 		x := layout.left + float32(covered.from)*cellWidth
 		y := layout.top + float32(cursor.Y)*cellHeight
-		canvas.Fill(ui.Rect{X: x, Y: y, Width: float32(covered.to-covered.from) * cellWidth, Height: cellHeight}, pal.terminal)
+		canvas.Fill(gfx.Rect{X: x, Y: y, Width: float32(covered.to-covered.from) * cellWidth, Height: cellHeight}, pal.terminal)
 	}
 	canvas.Unclip()
 
 	// The hit comes after the grid and before the scrollbar, whose track is declared later
 	// and so wins the pointer over the strip it covers.
-	canvas.HitWithOptions(v.cfg.HitID, layout.area, v.cfg.Messages.Label, ui.HitOptions{Role: ui.RoleTerminal})
+	canvas.HitWithOptions(v.cfg.HitID, layout.area, v.cfg.Messages.Label, gfx.HitOptions{Role: gfx.RoleTerminal})
 }
 
 // coveredOn is covered when it is on the row being prepared, else nothing.

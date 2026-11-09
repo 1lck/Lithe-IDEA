@@ -1,7 +1,7 @@
 package logwindow
 
 import (
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -26,7 +26,7 @@ const (
 type menuState struct {
 	kind menuKind
 	// at is where a context menu opens, in window coordinates.
-	at ui.Point
+	at gfx.Point
 	// row is the record a row menu is about.
 	row string
 	// sub is the index of the open submenu, or -1 when none is.
@@ -56,7 +56,7 @@ func (w *window) openMenu(kind menuKind) {
 
 // openContextMenu opens a context menu at x, y about the record row.
 func (w *window) openContextMenu(kind menuKind, x, y float32, row string) {
-	w.menu = menuState{kind: kind, at: ui.Point{X: x, Y: y}, row: row, sub: -1}
+	w.menu = menuState{kind: kind, at: gfx.Point{X: x, Y: y}, row: row, sub: -1}
 }
 
 func (w *window) closeMenu() {
@@ -65,8 +65,8 @@ func (w *window) closeMenu() {
 
 // menuSurface declares an open menu: a backdrop over the whole window that closes the menu
 // when pressed, and the panel of items, placed by place. It returns the panel.
-func (w *window) menuSurface(f *flex.Frame, place func(flex.Box) flex.Box, minWidth float32, items func()) flex.Box {
-	backdrop := f.Popup().At(0, 0).Fill().HitWith(menuDismiss, "", ui.HitOptions{SkipFocus: true})
+func (w *window) menuSurface(f *ui.Frame, place func(ui.Box) ui.Box, minWidth float32, items func()) ui.Box {
+	backdrop := f.Popup().At(0, 0).Fill().HitWith(menuDismiss, "", gfx.HitOptions{SkipFocus: true})
 	if backdrop.Clicked() {
 		w.closeMenu()
 	}
@@ -74,9 +74,9 @@ func (w *window) menuSurface(f *flex.Frame, place func(flex.Box) flex.Box, minWi
 }
 
 // menuPanel declares the panel of a menu or a submenu, without a backdrop.
-func (w *window) menuPanel(f *flex.Frame, place func(flex.Box) flex.Box, minWidth float32, items func()) flex.Box {
+func (w *window) menuPanel(f *ui.Frame, place func(ui.Box) ui.Box, minWidth float32, items func()) ui.Box {
 	return place(f.Popup()).MinWidth(minWidth).PadY(menuPadY).
-		Background(w.pal.menu).Border(1, w.pal.bd).Radius(menuRadius).Shadow(ui.ShadowMD).
+		Background(w.pal.menu).Border(1, w.pal.bd).Radius(menuRadius).Shadow(gfx.ShadowMD).
 		Children(func() {
 			// A popup lays its children in a row; the items stack in a column that takes
 			// the panel's whole width.
@@ -95,12 +95,12 @@ type itemOptions struct {
 }
 
 // menuItem declares an item and reports whether it was chosen. Choosing it closes the menu.
-func (w *window) menuItem(f *flex.Frame, id ui.ID, label string, o itemOptions) bool {
+func (w *window) menuItem(f *ui.Frame, id gfx.ID, label string, o itemOptions) bool {
 	row := f.Row().Height(menuRowHeight).MarginX(menuInset).PadSides(0, 10, 0, menuGap).
-		Radius(menuItemRad).Items(flex.Center).
-		HitWith(id, label, ui.HitOptions{Role: ui.RoleMenuItem, Disabled: o.disabled, Checked: o.checked})
+		Radius(menuItemRad).Items(ui.Center).
+		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleMenuItem, Disabled: o.disabled, Checked: o.checked})
 	if !o.disabled {
-		row = row.Hover(flex.Look{}.Background(w.pal.blu))
+		row = row.Hover(ui.Look{}.Background(w.pal.blu))
 	}
 	color := w.pal.tx
 	if o.disabled {
@@ -133,27 +133,27 @@ func (w *window) menuItem(f *flex.Frame, id ui.ID, label string, o itemOptions) 
 }
 
 // menuText is the text of an item, which turns white while the item is hovered.
-func (w *window) menuText(f *flex.Frame, row flex.Box, s string, color ui.Color, disabled bool) flex.Box {
+func (w *window) menuText(f *ui.Frame, row ui.Box, s string, color gfx.Color, disabled bool) ui.Box {
 	text := f.Text(s).FontSize(menuFont).Color(color)
 	if !disabled {
-		text = text.StateFrom(row).Hover(flex.Look{}.Color(w.pal.white))
+		text = text.StateFrom(row).Hover(ui.Look{}.Color(w.pal.white))
 	}
 	return text
 }
 
 // menuSubmenu declares an item that opens the submenu index beside it, when hovered or
 // clicked. It returns the item, the anchor of the submenu's panel.
-func (w *window) menuSubmenu(f *flex.Frame, id ui.ID, label string, index int) flex.Box {
+func (w *window) menuSubmenu(f *ui.Frame, id gfx.ID, label string, index int) ui.Box {
 	open := w.menu.sub == index
 	row := f.Row().Height(menuRowHeight).MarginX(menuInset).PadSides(0, 8, 0, menuGap).
-		Radius(menuItemRad).Items(flex.Center).
-		HitWith(id, label, ui.HitOptions{Role: ui.RoleMenuItem, Expandable: true, Expanded: open})
+		Radius(menuItemRad).Items(ui.Center).
+		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleMenuItem, Expandable: true, Expanded: open})
 	color := w.pal.tx
 	if open {
 		row = row.Background(w.pal.blu)
 		color = w.pal.white
 	} else {
-		row = row.Hover(flex.Look{}.Background(w.pal.blu))
+		row = row.Hover(ui.Look{}.Background(w.pal.blu))
 	}
 	row.Children(func() {
 		f.Row().Width(menuCheckW).Shrink(0)
@@ -168,20 +168,20 @@ func (w *window) menuSubmenu(f *flex.Frame, id ui.ID, label string, index int) f
 }
 
 // menuSeparator declares the line between two groups of items.
-func (w *window) menuSeparator(f *flex.Frame) {
+func (w *window) menuSeparator(f *ui.Frame) {
 	f.Row().Height(1).Shrink(0).MarginSides(menuInset, 10, menuInset, 10).Background(w.pal.line)
 }
 
 // menuHeading declares the title of a group of items.
-func (w *window) menuHeading(f *flex.Frame, s string) {
-	f.Row().Height(20).PadX(15).Items(flex.Center).Children(func() {
-		f.Text(s).FontSize(11).Weight(ui.WeightSemibold).Color(w.pal.tx3)
+func (w *window) menuHeading(f *ui.Frame, s string) {
+	f.Row().Height(20).PadX(15).Items(ui.Center).Children(func() {
+		f.Text(s).FontSize(11).Weight(gfx.WeightSemibold).Color(w.pal.tx3)
 	})
 }
 
 // drawMenus declares the open menu. The table owns its context menus; the toolbar the
 // menus of its buttons.
-func (w *window) drawMenus(f *flex.Frame) {
+func (w *window) drawMenus(f *ui.Frame) {
 	switch w.menu.kind {
 	case menuNone:
 	case menuRow, menuHeader:

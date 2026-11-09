@@ -41,114 +41,114 @@
 //
 // Modification: icons.go is not the SVGs themselves. scripts/desktop/generate-desktop-file-icons.sh
 // rewrites each SVG into filled paths only (its strokes become outlines of the same color)
-// with picosvg and compiles the result into ui.Icon values. The SVG sources in svg/ are
+// with picosvg and compiles the result into gfx.Icon values. The SVG sources in svg/ are
 // unmodified. The generator changes underscores in SVG filenames to hyphens when deriving Go
 // names, so db_set_breakpoint.svg is exposed as DbSetBreakpoint.
 
 package fileicons
 
-import "github.com/vivaui/viva/ui"
+import "github.com/vivaui/viva/gfx"
 
 // treechevronDown is a compiled vector icon.
-var TreechevronDown = ui.Icon{
+var TreechevronDown = gfx.Icon{
 	ViewBox: 16.0,
 	Stroke:  2.0,
-	Cap:     ui.CapRound,
-	Join:    ui.JoinRound,
-	Layers: []ui.IconLayer{
-		{Fill: ui.Color{Red: 0.505882, Green: 0.521569, Blue: 0.580392, Alpha: 1.0}, Commands: []ui.PathCommand{
-			ui.MoveTo(11.854, 6.604),
-			ui.LineTo(8.0, 10.457),
-			ui.LineTo(4.146, 6.604),
-			ui.QuadTo(4.0, 6.457, 4.0, 6.25),
-			ui.QuadTo(4.0, 6.043, 4.146, 5.896),
-			ui.QuadTo(4.293, 5.75, 4.5, 5.75),
-			ui.QuadTo(4.707, 5.75, 4.854, 5.896),
-			ui.LineTo(8.0, 9.043),
-			ui.LineTo(11.146, 5.896),
-			ui.QuadTo(11.293, 5.75, 11.5, 5.75),
-			ui.QuadTo(11.707, 5.75, 11.854, 5.896),
-			ui.QuadTo(12.0, 6.043, 12.0, 6.25),
-			ui.QuadTo(12.0, 6.457, 11.854, 6.604),
-			ui.ClosePath(),
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Layers: []gfx.IconLayer{
+		{Fill: gfx.Color{Red: 0.505882, Green: 0.521569, Blue: 0.580392, Alpha: 1.0}, Commands: []gfx.PathCommand{
+			gfx.MoveTo(11.854, 6.604),
+			gfx.LineTo(8.0, 10.457),
+			gfx.LineTo(4.146, 6.604),
+			gfx.QuadTo(4.0, 6.457, 4.0, 6.25),
+			gfx.QuadTo(4.0, 6.043, 4.146, 5.896),
+			gfx.QuadTo(4.293, 5.75, 4.5, 5.75),
+			gfx.QuadTo(4.707, 5.75, 4.854, 5.896),
+			gfx.LineTo(8.0, 9.043),
+			gfx.LineTo(11.146, 5.896),
+			gfx.QuadTo(11.293, 5.75, 11.5, 5.75),
+			gfx.QuadTo(11.707, 5.75, 11.854, 5.896),
+			gfx.QuadTo(12.0, 6.043, 12.0, 6.25),
+			gfx.QuadTo(12.0, 6.457, 11.854, 6.604),
+			gfx.ClosePath(),
 		}},
 	},
 }
 
 // treechevronDown-dark is a compiled vector icon.
-var TreechevronDownDark = ui.Icon{
+var TreechevronDownDark = gfx.Icon{
 	ViewBox: 16.0,
 	Stroke:  2.0,
-	Cap:     ui.CapRound,
-	Join:    ui.JoinRound,
-	Layers: []ui.IconLayer{
-		{Fill: ui.Color{Red: 0.705882, Green: 0.721569, Blue: 0.74902, Alpha: 1.0}, Commands: []ui.PathCommand{
-			ui.MoveTo(11.854, 6.604),
-			ui.LineTo(8.0, 10.457),
-			ui.LineTo(4.146, 6.604),
-			ui.QuadTo(4.0, 6.457, 4.0, 6.25),
-			ui.QuadTo(4.0, 6.043, 4.146, 5.896),
-			ui.QuadTo(4.293, 5.75, 4.5, 5.75),
-			ui.QuadTo(4.707, 5.75, 4.854, 5.896),
-			ui.LineTo(8.0, 9.043),
-			ui.LineTo(11.146, 5.896),
-			ui.QuadTo(11.293, 5.75, 11.5, 5.75),
-			ui.QuadTo(11.707, 5.75, 11.854, 5.896),
-			ui.QuadTo(12.0, 6.043, 12.0, 6.25),
-			ui.QuadTo(12.0, 6.457, 11.854, 6.604),
-			ui.ClosePath(),
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Layers: []gfx.IconLayer{
+		{Fill: gfx.Color{Red: 0.705882, Green: 0.721569, Blue: 0.74902, Alpha: 1.0}, Commands: []gfx.PathCommand{
+			gfx.MoveTo(11.854, 6.604),
+			gfx.LineTo(8.0, 10.457),
+			gfx.LineTo(4.146, 6.604),
+			gfx.QuadTo(4.0, 6.457, 4.0, 6.25),
+			gfx.QuadTo(4.0, 6.043, 4.146, 5.896),
+			gfx.QuadTo(4.293, 5.75, 4.5, 5.75),
+			gfx.QuadTo(4.707, 5.75, 4.854, 5.896),
+			gfx.LineTo(8.0, 9.043),
+			gfx.LineTo(11.146, 5.896),
+			gfx.QuadTo(11.293, 5.75, 11.5, 5.75),
+			gfx.QuadTo(11.707, 5.75, 11.854, 5.896),
+			gfx.QuadTo(12.0, 6.043, 12.0, 6.25),
+			gfx.QuadTo(12.0, 6.457, 11.854, 6.604),
+			gfx.ClosePath(),
 		}},
 	},
 }
 
 // treechevronRight is a compiled vector icon.
-var TreechevronRight = ui.Icon{
+var TreechevronRight = gfx.Icon{
 	ViewBox: 16.0,
 	Stroke:  2.0,
-	Cap:     ui.CapRound,
-	Join:    ui.JoinRound,
-	Layers: []ui.IconLayer{
-		{Fill: ui.Color{Red: 0.505882, Green: 0.521569, Blue: 0.580392, Alpha: 1.0}, Commands: []ui.PathCommand{
-			ui.MoveTo(5.646, 11.146),
-			ui.LineTo(8.793, 8.0),
-			ui.LineTo(5.646, 4.854),
-			ui.QuadTo(5.5, 4.707, 5.5, 4.5),
-			ui.QuadTo(5.5, 4.293, 5.646, 4.146),
-			ui.QuadTo(5.793, 4.0, 6.0, 4.0),
-			ui.QuadTo(6.207, 4.0, 6.354, 4.146),
-			ui.LineTo(10.207, 8.0),
-			ui.LineTo(6.354, 11.854),
-			ui.QuadTo(6.207, 12.0, 6.0, 12.0),
-			ui.QuadTo(5.793, 12.0, 5.646, 11.854),
-			ui.QuadTo(5.5, 11.707, 5.5, 11.5),
-			ui.QuadTo(5.5, 11.293, 5.646, 11.146),
-			ui.ClosePath(),
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Layers: []gfx.IconLayer{
+		{Fill: gfx.Color{Red: 0.505882, Green: 0.521569, Blue: 0.580392, Alpha: 1.0}, Commands: []gfx.PathCommand{
+			gfx.MoveTo(5.646, 11.146),
+			gfx.LineTo(8.793, 8.0),
+			gfx.LineTo(5.646, 4.854),
+			gfx.QuadTo(5.5, 4.707, 5.5, 4.5),
+			gfx.QuadTo(5.5, 4.293, 5.646, 4.146),
+			gfx.QuadTo(5.793, 4.0, 6.0, 4.0),
+			gfx.QuadTo(6.207, 4.0, 6.354, 4.146),
+			gfx.LineTo(10.207, 8.0),
+			gfx.LineTo(6.354, 11.854),
+			gfx.QuadTo(6.207, 12.0, 6.0, 12.0),
+			gfx.QuadTo(5.793, 12.0, 5.646, 11.854),
+			gfx.QuadTo(5.5, 11.707, 5.5, 11.5),
+			gfx.QuadTo(5.5, 11.293, 5.646, 11.146),
+			gfx.ClosePath(),
 		}},
 	},
 }
 
 // treechevronRight-dark is a compiled vector icon.
-var TreechevronRightDark = ui.Icon{
+var TreechevronRightDark = gfx.Icon{
 	ViewBox: 16.0,
 	Stroke:  2.0,
-	Cap:     ui.CapRound,
-	Join:    ui.JoinRound,
-	Layers: []ui.IconLayer{
-		{Fill: ui.Color{Red: 0.705882, Green: 0.721569, Blue: 0.74902, Alpha: 1.0}, Commands: []ui.PathCommand{
-			ui.MoveTo(5.646, 11.146),
-			ui.LineTo(8.793, 8.0),
-			ui.LineTo(5.646, 4.854),
-			ui.QuadTo(5.5, 4.707, 5.5, 4.5),
-			ui.QuadTo(5.5, 4.293, 5.646, 4.146),
-			ui.QuadTo(5.793, 4.0, 6.0, 4.0),
-			ui.QuadTo(6.207, 4.0, 6.354, 4.146),
-			ui.LineTo(10.207, 8.0),
-			ui.LineTo(6.354, 11.854),
-			ui.QuadTo(6.207, 12.0, 6.0, 12.0),
-			ui.QuadTo(5.793, 12.0, 5.646, 11.854),
-			ui.QuadTo(5.5, 11.707, 5.5, 11.5),
-			ui.QuadTo(5.5, 11.293, 5.646, 11.146),
-			ui.ClosePath(),
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Layers: []gfx.IconLayer{
+		{Fill: gfx.Color{Red: 0.705882, Green: 0.721569, Blue: 0.74902, Alpha: 1.0}, Commands: []gfx.PathCommand{
+			gfx.MoveTo(5.646, 11.146),
+			gfx.LineTo(8.793, 8.0),
+			gfx.LineTo(5.646, 4.854),
+			gfx.QuadTo(5.5, 4.707, 5.5, 4.5),
+			gfx.QuadTo(5.5, 4.293, 5.646, 4.146),
+			gfx.QuadTo(5.793, 4.0, 6.0, 4.0),
+			gfx.QuadTo(6.207, 4.0, 6.354, 4.146),
+			gfx.LineTo(10.207, 8.0),
+			gfx.LineTo(6.354, 11.854),
+			gfx.QuadTo(6.207, 12.0, 6.0, 12.0),
+			gfx.QuadTo(5.793, 12.0, 5.646, 11.854),
+			gfx.QuadTo(5.5, 11.707, 5.5, 11.5),
+			gfx.QuadTo(5.5, 11.293, 5.646, 11.146),
+			gfx.ClosePath(),
 		}},
 	},
 }

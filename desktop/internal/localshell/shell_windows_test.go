@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/term"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 	"golang.org/x/sys/windows"
 )
 
@@ -50,12 +50,12 @@ func TestConPTYWin32ControlCharactersReachRawReader(t *testing.T) {
 	command := windows.ComposeCommandLine([]string{executable, "-test.run=^TestConPTYRawReader$"})
 	shell.Write([]byte(command + "\r"))
 	untilWindows(t, shell, wakes, "RAW-READER-READY")
-	for _, record := range []ui.Win32Key{
+	for _, record := range []gfx.Win32Key{
 		{VirtualKey: 13, ScanCode: 28, Unicode: 13},
 		{VirtualKey: 'D', ScanCode: 32, Unicode: 4, ControlState: 8},
 	} {
 		for _, release := range []bool{false, true} {
-			if !shell.Write(term.EncodeWin32Key(ui.KeyEvent{Win32: record, Release: release})) {
+			if !shell.Write(term.EncodeWin32Key(gfx.KeyEvent{Win32: record, Release: release})) {
 				t.Fatal("Write refused")
 			}
 		}

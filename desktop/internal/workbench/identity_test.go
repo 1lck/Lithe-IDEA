@@ -4,7 +4,7 @@ import (
 	"hash/fnv"
 	"testing"
 
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 func TestIdentityInitials(t *testing.T) {
@@ -74,7 +74,7 @@ func TestIdentityOf(t *testing.T) {
 	if got.initials != "LI" {
 		t.Errorf("initials = %q, want LI", got.initials)
 	}
-	if got.start != ui.RGB24(gradient[0]) || got.end != ui.RGB24(gradient[1]) {
+	if got.start != gfx.RGB24(gradient[0]) || got.end != gfx.RGB24(gradient[1]) {
 		t.Errorf("gradient = %v to %v, want the entry %v of the palette", got.start, got.end, gradient)
 	}
 	if again := identityOf(path, "lithe-idea"); again != got {

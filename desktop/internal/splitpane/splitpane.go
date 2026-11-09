@@ -5,7 +5,7 @@ package splitpane
 import (
 	"math"
 
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // State remembers the user's preferred size separately from a temporary window constraint.
@@ -40,15 +40,15 @@ func (s *State) Preferred() float32 { return s.preferred }
 
 // Pointer consumes a captured primary drag. committed is true only after release
 // changed the requested size; intermediate moves never persist anything.
-func (s *State) Pointer(event ui.PointerEvent, id ui.ID, extent float32) (result ui.EventResult, committed bool) {
+func (s *State) Pointer(event gfx.PointerEvent, id gfx.ID, extent float32) (result gfx.EventResult, committed bool) {
 	switch event.Kind {
-	case ui.PointerDown:
-		if event.Target != id || (event.Button != ui.PointerButtonPrimary && event.Button != ui.PointerButtonNone) {
+	case gfx.PointerDown:
+		if event.Target != id || (event.Button != gfx.PointerButtonPrimary && event.Button != gfx.PointerButtonNone) {
 			return
 		}
 		s.dragging, s.startX, s.startSize, s.original = true, event.X, s.Size(extent), s.preferred
-		return ui.EventResult{Handled: true, Focus: id, Repaint: true}, false
-	case ui.PointerMove, ui.PointerUp:
+		return gfx.EventResult{Handled: true, Focus: id, Repaint: true}, false
+	case gfx.PointerMove, gfx.PointerUp:
 		if !s.dragging {
 			return
 		}
@@ -62,47 +62,47 @@ func (s *State) Pointer(event ui.PointerEvent, id ui.ID, extent float32) (result
 		}
 		changed := preference != s.preferred
 		s.preferred = preference
-		if event.Kind == ui.PointerUp {
+		if event.Kind == gfx.PointerUp {
 			s.dragging = false
-			return ui.EventResult{Handled: true, Repaint: changed}, preference != s.original
+			return gfx.EventResult{Handled: true, Repaint: changed}, preference != s.original
 		}
-		return ui.EventResult{Handled: true, Repaint: changed}, false
-	case ui.PointerExit:
+		return gfx.EventResult{Handled: true, Repaint: changed}, false
+	case gfx.PointerExit:
 		if s.dragging {
 			s.preferred, s.dragging = s.original, false
-			return ui.EventResult{Repaint: true}, false
+			return gfx.EventResult{Repaint: true}, false
 		}
 	}
 	return
 }
 
 // Key supports the same keyboard controls as Viva's Splitter.
-func (s *State) Key(event ui.KeyEvent, id ui.ID, extent float32) (ui.EventResult, bool) {
+func (s *State) Key(event gfx.KeyEvent, id gfx.ID, extent float32) (gfx.EventResult, bool) {
 	if event.Target != id || event.Release || event.Modifiers != 0 {
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
 	lo, hi := s.Limits(extent)
 	current := s.Size(extent)
 	next := current
 	switch event.Key {
-	case ui.KeyLeft, ui.KeyUp:
+	case gfx.KeyLeft, gfx.KeyUp:
 		next -= 16
-	case ui.KeyRight, ui.KeyDown:
+	case gfx.KeyRight, gfx.KeyDown:
 		next += 16
-	case ui.KeyHome:
+	case gfx.KeyHome:
 		next = lo
-	case ui.KeyEnd:
+	case gfx.KeyEnd:
 		next = hi
 	default:
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
 	next = min(max(next, lo), hi)
 	if next == current {
-		return ui.EventResult{Handled: true}, false
+		return gfx.EventResult{Handled: true}, false
 	}
 	changed := next != s.preferred
 	s.preferred = next
-	return ui.EventResult{Handled: true, Repaint: changed}, changed
+	return gfx.EventResult{Handled: true, Repaint: changed}, changed
 }
 
 // Cancel restores the preference when the pane disappears mid-drag.

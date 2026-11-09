@@ -12,7 +12,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -50,7 +50,7 @@ const (
 type welcomeState struct {
 	// search filters the project list. App.Config hands it to the platform text
 	// service, so it lives as long as the window.
-	search                           flex.Field
+	search                           ui.Field
 	moreOpen, moreFocus, moreRestore bool
 
 	// query is the search text folded for matching and queryText the text it was folded
@@ -77,8 +77,8 @@ type welcomeState struct {
 	menuPath string
 	// A context click opens at the pointer; the ellipsis opens beside its row.
 	menuAtPointer bool
-	menuPosition  ui.Point
-	menuFocus     ui.ID
+	menuPosition  gfx.Point
+	menuFocus     gfx.ID
 	// restoreMenuFocus identifies the row whose menu button regains focus after Escape.
 	restoreMenuFocus string
 }
@@ -146,11 +146,11 @@ func welcomeShorten(path, home string) string {
 
 // drawWelcome is the screen shown while no project is open: a sidebar with the
 // application's name and the places it leads to, and the list of recent projects.
-func (a *App) drawWelcome(f *flex.Frame) {
+func (a *App) drawWelcome(f *ui.Frame) {
 	a.startWelcomeBranchReads()
-	surface := ui.RGB24(0xFFFFFF)
+	surface := gfx.RGB24(0xFFFFFF)
 	if a.colors.Dark {
-		surface = ui.RGB24(0x191A1C)
+		surface = gfx.RGB24(0x191A1C)
 	}
 	f.Row().Fill().PadSides(0, 8, 8, 8).Background(surface).Children(func() {
 		a.drawWelcomeSidebar(f)
@@ -163,7 +163,7 @@ func (a *App) drawWelcome(f *flex.Frame) {
 		title := f.Row().Absolute().Top(0).Right(0)
 		if runtime.GOOS == "darwin" {
 			leading, _ := app.TitlebarInsets()
-			title.Left(max(84, leading+10)).Height(32).Items(flex.Center)
+			title.Left(max(84, leading+10)).Height(32).Items(ui.Center)
 		} else {
 			title.Left(0).Height(titleBarHeight).Center()
 		}
@@ -173,27 +173,27 @@ func (a *App) drawWelcome(f *flex.Frame) {
 	})
 }
 
-func (a *App) welcomeSeparator() ui.Color {
+func (a *App) welcomeSeparator() gfx.Color {
 	if a.colors.Dark {
-		return ui.RGB24(0x26282C)
+		return gfx.RGB24(0x26282C)
 	}
-	return ui.RGB24(0xDFE1E5)
+	return gfx.RGB24(0xDFE1E5)
 }
 
-func (a *App) drawWelcomeSidebar(f *flex.Frame) {
-	sidebar := ui.RGB24(0xF7F8FA)
+func (a *App) drawWelcomeSidebar(f *ui.Frame) {
+	sidebar := gfx.RGB24(0xF7F8FA)
 	if a.colors.Dark {
-		sidebar = ui.RGB24(0x191A1C)
+		sidebar = gfx.RGB24(0x191A1C)
 	}
-	selection := ui.RGB24(0xD4E2FF)
+	selection := gfx.RGB24(0xD4E2FF)
 	if a.colors.Dark {
-		selection = ui.RGB24(0x2A4371)
+		selection = gfx.RGB24(0x2A4371)
 	}
 	f.Column().Width(welcomeSidebarWidth).Shrink(0).Background(sidebar).Children(func() {
 		// The system's window buttons sit in this strip, so it stays empty; it only has
 		// to move the window like a title bar does.
 		f.Row().FillWidth().Height(titleBarHeight).MovesWindow()
-		f.Row().Items(flex.Center).Gap(11).PadSides(22, 20, 34, 20).Children(func() {
+		f.Row().Items(ui.Center).Gap(11).PadSides(22, 20, 34, 20).Children(func() {
 			f.Image(appicon.Welcome()).Size(28, 28).Shrink(0)
 			f.Column().Children(func() {
 				f.Text(a.text.App.Name).FontSize(13)
@@ -202,9 +202,9 @@ func (a *App) drawWelcomeSidebar(f *flex.Frame) {
 		})
 		f.Column().PadX(14).Children(func() {
 			// Projects marks the selected location; it is not an action on this screen.
-			f.Row().FillWidth().Height(32).Items(flex.Center).Gap(9).PadX(14).
+			f.Row().FillWidth().Height(32).Items(ui.Center).Gap(9).PadX(14).
 				Radius(4).Background(selection).
-				HitWith(welcomeNavProjects, a.text.Welcome.Projects, ui.HitOptions{Role: ui.RoleButton, Selected: true}).Children(func() {
+				HitWith(welcomeNavProjects, a.text.Welcome.Projects, gfx.HitOptions{Role: gfx.RoleButton, Selected: true}).Children(func() {
 				f.Icon(icons.Folder).Size(15, 15).Color(a.colors.Subtle)
 				f.Text(a.text.Welcome.Projects).FontSize(13)
 			})
@@ -218,18 +218,18 @@ func (a *App) drawWelcomeSidebar(f *flex.Frame) {
 	})
 }
 
-func (a *App) drawWelcomeContent(f *flex.Frame) {
-	var moreAnchor flex.Box
+func (a *App) drawWelcomeContent(f *ui.Frame) {
+	var moreAnchor ui.Box
 	f.Column().Grow(1).Children(func() {
 		f.Row().FillWidth().Height(titleBarHeight).MovesWindow()
-		f.Row().FillWidth().Height(68).Items(flex.Center).Gap(10).PadX(17).Children(func() {
-			var input flex.Box
-			frame := f.Row().Width(214).MinWidth(0).Shrink(1).Height(30).Items(flex.Center).PadX(8).Gap(6).
+		f.Row().FillWidth().Height(68).Items(ui.Center).Gap(10).PadX(17).Children(func() {
+			var input ui.Box
+			frame := f.Row().Width(214).MinWidth(0).Shrink(1).Height(30).Items(ui.Center).PadX(8).Gap(6).
 				Border(1, a.theme.Input).Radius(a.theme.Metrics.RadiusControl).
-				Draw(func(d *flex.DrawContext) {
+				Draw(func(d *ui.DrawContext) {
 					d.Canvas.HitLabel(welcomeSearch, d.Rect, a.text.Welcome.SearchLabel, false)
 				}).
-				Focused(flex.Look{}.Border(a.theme.Primary).Ring(1, a.theme.Primary))
+				Focused(ui.Look{}.Border(a.theme.Primary).Ring(1, a.theme.Primary))
 			frame.Children(func() {
 				f.Icon(icons.Search).Size(15, 15).Shrink(0).Color(a.colors.Subtle)
 				input = f.FieldBase(&a.welcome.search, welcomeSearch, a.text.Welcome.SearchLabel, a.text.Welcome.SearchPlaceholder).
@@ -256,11 +256,11 @@ func (a *App) drawWelcomeContent(f *flex.Frame) {
 	})
 	if a.welcome.moreOpen {
 		dismissed := f.Popup().At(0, 0).Fill().HitWith(welcomeMoreDismiss, a.text.Errors.Dismiss,
-			ui.HitOptions{Role: ui.RoleButton, SkipFocus: true, Backdrop: true}).Clicked()
+			gfx.HitOptions{Role: gfx.RoleButton, SkipFocus: true, Backdrop: true}).Clicked()
 		cloned := false
-		f.Popup().BelowBox(moreAnchor, 4, flex.End).Width(220).
-			Background(a.theme.Popover).Border(1, a.theme.Border).Radius(chromeMenuRadius).Shadow(ui.ShadowMD).
-			HitWith(welcomeMorePanel, a.text.Welcome.MoreActions, ui.HitOptions{Role: ui.RoleMenu, SkipFocus: true}).
+		f.Popup().BelowBox(moreAnchor, 4, ui.End).Width(220).
+			Background(a.theme.Popover).Border(1, a.theme.Border).Radius(chromeMenuRadius).Shadow(gfx.ShadowMD).
+			HitWith(welcomeMorePanel, a.text.Welcome.MoreActions, gfx.HitOptions{Role: gfx.RoleMenu, SkipFocus: true}).
 			Pad(chromeMenuPadding).Children(func() {
 			cloned = a.drawBranchMenuItem(f, welcomeClone, i18n.Shared(a.language(), "desktop.clone.title"))
 		})
@@ -285,7 +285,7 @@ func (a *App) drawWelcomeContent(f *flex.Frame) {
 }
 
 // drawWelcomeProjects is the recent project list, or what stands in for it.
-func (a *App) drawWelcomeProjects(f *flex.Frame) {
+func (a *App) drawWelcomeProjects(f *ui.Frame) {
 	if len(a.recent) == 0 {
 		a.welcome.menuPath = ""
 		a.welcome.restoreMenuFocus = ""
@@ -300,7 +300,7 @@ func (a *App) drawWelcomeProjects(f *flex.Frame) {
 	// open is acted on after the list is declared: opening a project replaces the recent
 	// list, which this loop is still reading.
 	open := ""
-	var menuAnchor flex.Box
+	var menuAnchor ui.Box
 	hasMenu := false
 	hasRestore := false
 	f.ScrollArea(welcomeList).Grow(1).PadX(22).PadY(4).Gap(4).Children(func() {
@@ -324,16 +324,16 @@ func (a *App) drawWelcomeProjects(f *flex.Frame) {
 			if branch != "" {
 				rowHeight += 20
 			}
-			item := f.Row().Height(rowHeight).Items(flex.Center).Gap(12).PadX(12).
+			item := f.Row().Height(rowHeight).Items(ui.Center).Gap(12).PadX(12).
 				Radius(a.theme.Metrics.RadiusItem()).
-				HitWith(rowID, row.name, ui.HitOptions{
-					Role:        ui.RoleButton,
-					Cursor:      ui.PointerCursorHand,
+				HitWith(rowID, row.name, gfx.HitOptions{
+					Role:        gfx.RoleButton,
+					Cursor:      gfx.PointerCursorHand,
 					Description: row.path,
 					Hint:        missing,
 				}).
-				Hover(flex.Look{}.Background(a.colors.Hover)).
-				Pressed(flex.Look{}.Background(a.colors.Active))
+				Hover(ui.Look{}.Background(a.colors.Hover)).
+				Pressed(ui.Look{}.Background(a.colors.Active))
 			item.Children(func() {
 				f.Column().FillHeight().Shrink(0).PadSides(14, 0, 0, 0).Children(func() {
 					avatar := drawProjectAvatar(f, row.identity, welcomeAvatarSize)
@@ -346,7 +346,7 @@ func (a *App) drawWelcomeProjects(f *flex.Frame) {
 					f.Text(row.name).Ellipsis()
 					f.Text(row.path).Ellipsis().Muted().FontSize(a.theme.Metrics.FontSizeS)
 					if branch != "" {
-						f.Row().Height(16).Items(flex.Center).Gap(4).Children(func() {
+						f.Row().Height(16).Items(ui.Center).Gap(4).Children(func() {
 							f.Icon(icons.RecentProjectVCS(a.colors.Dark)).Size(16, 16).Shrink(0).Color(a.colors.Subtle)
 							f.Text(branch).Ellipsis().Muted().FontSize(a.theme.Metrics.FontSizeS)
 						})
@@ -372,13 +372,13 @@ func (a *App) drawWelcomeProjects(f *flex.Frame) {
 					f.Canvas().RequestFocus(menuID)
 				}
 			}
-			if event, ok := f.Canvas().PointerOn(rowID); ok && event.Kind == ui.PointerDown && event.Button == ui.PointerButtonSecondary {
+			if event, ok := f.Canvas().PointerOn(rowID); ok && event.Kind == gfx.PointerDown && event.Button == gfx.PointerButtonSecondary {
 				a.welcome.menuPath = entry.Path
 				a.welcome.restoreMenuFocus = ""
 				a.welcome.menuAtPointer = true
 				a.welcome.menuFocus = a.welcomeInitialMenuFocus(entry.Path)
 				// Leave room for all three rows, even when the click is near a window edge.
-				a.welcome.menuPosition = ui.Point{
+				a.welcome.menuPosition = gfx.Point{
 					X: max(8, min(event.X, event.Viewport.Width-228)),
 					Y: max(8, min(event.Y, event.Viewport.Height-120)),
 				}
@@ -412,20 +412,20 @@ func (a *App) drawWelcomeProjects(f *flex.Frame) {
 
 // drawWelcomeProjectMenu applies actions to the path captured when the menu opened,
 // never to the row index, which can change when the recent list is reduced.
-func (a *App) drawWelcomeProjectMenu(f *flex.Frame, anchor flex.Box) {
+func (a *App) drawWelcomeProjectMenu(f *ui.Frame, anchor ui.Box) {
 	path := a.welcome.menuPath
 	dismissed := f.Popup().At(0, 0).Fill().
-		HitWith(welcomeMenuDismiss, a.text.Errors.Dismiss, ui.HitOptions{Role: ui.RoleButton, SkipFocus: true, Backdrop: true, PassSecondary: true}).Clicked()
+		HitWith(welcomeMenuDismiss, a.text.Errors.Dismiss, gfx.HitOptions{Role: gfx.RoleButton, SkipFocus: true, Backdrop: true, PassSecondary: true}).Clicked()
 	var open, reveal, remove bool
 	panel := f.Popup()
 	if a.welcome.menuAtPointer {
 		panel = panel.At(a.welcome.menuPosition.X, a.welcome.menuPosition.Y)
 	} else {
-		panel = panel.BelowBox(anchor, 4, flex.End)
+		panel = panel.BelowBox(anchor, 4, ui.End)
 	}
 	panel.Width(220).
-		Background(a.theme.Popover).Border(1, a.theme.Border).Radius(chromeMenuRadius).Shadow(ui.ShadowMD).
-		HitWith(welcomeMenuPanel, a.text.Welcome.MoreActions, ui.HitOptions{Role: ui.RoleMenu, SkipFocus: true}).
+		Background(a.theme.Popover).Border(1, a.theme.Border).Radius(chromeMenuRadius).Shadow(gfx.ShadowMD).
+		HitWith(welcomeMenuPanel, a.text.Welcome.MoreActions, gfx.HitOptions{Role: gfx.RoleMenu, SkipFocus: true}).
 		Pad(chromeMenuPadding).Gap(chromeMenuItems).Children(func() {
 		if !a.missing[path] {
 			open = a.drawBranchMenuItem(f, welcomeMenuOpen, a.text.Welcome.MenuOpen)
@@ -442,7 +442,7 @@ func (a *App) drawWelcomeProjectMenu(f *flex.Frame, anchor flex.Box) {
 	})
 	if !a.welcome.menuFocus.IsZero() {
 		if f.Canvas().Focused() == a.welcome.menuFocus {
-			a.welcome.menuFocus = ui.ID{}
+			a.welcome.menuFocus = gfx.ID{}
 		} else {
 			f.Canvas().RequestFocus(a.welcome.menuFocus)
 		}
@@ -471,7 +471,7 @@ func (a *App) drawWelcomeProjectMenu(f *flex.Frame, anchor flex.Box) {
 	}
 }
 
-func (a *App) welcomeInitialMenuFocus(path string) ui.ID {
+func (a *App) welcomeInitialMenuFocus(path string) gfx.ID {
 	if a.missing[path] {
 		return welcomeMenuRemove
 	}
@@ -479,11 +479,11 @@ func (a *App) welcomeInitialMenuFocus(path string) ui.ID {
 }
 
 // welcomeMenuKey keeps Tab within an open menu; Escape is handled by onKey.
-func (a *App) welcomeMenuKey(event ui.KeyEvent) ui.EventResult {
-	if a.project != nil || a.welcome.menuPath == "" || event.Release || event.Key != ui.KeyTab {
-		return ui.EventResult{}
+func (a *App) welcomeMenuKey(event gfx.KeyEvent) gfx.EventResult {
+	if a.project != nil || a.welcome.menuPath == "" || event.Release || event.Key != gfx.KeyTab {
+		return gfx.EventResult{}
 	}
-	items := []ui.ID{welcomeMenuOpen, welcomeMenuReveal, welcomeMenuRemove}
+	items := []gfx.ID{welcomeMenuOpen, welcomeMenuReveal, welcomeMenuRemove}
 	if a.missing[a.welcome.menuPath] {
 		items = items[2:]
 	}
@@ -494,7 +494,7 @@ func (a *App) welcomeMenuKey(event ui.KeyEvent) ui.EventResult {
 			break
 		}
 	}
-	if event.Modifiers&ui.ModifierShift != 0 {
+	if event.Modifiers&gfx.ModifierShift != 0 {
 		if index < 0 {
 			index = 0
 		}
@@ -503,5 +503,5 @@ func (a *App) welcomeMenuKey(event ui.KeyEvent) ui.EventResult {
 		index = (index + 1) % len(items)
 	}
 	a.welcome.menuFocus = items[index]
-	return ui.EventResult{Handled: true, Repaint: true}
+	return gfx.EventResult{Handled: true, Repaint: true}
 }

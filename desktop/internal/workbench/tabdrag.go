@@ -2,7 +2,7 @@ package workbench
 
 import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // tabDrag is the gesture that moves a terminal's tab: within its strip, to another group,
@@ -17,7 +17,7 @@ type tabDrag struct {
 	startX, startY float32
 	x, y           float32
 	// viewport is the window's size at the last move, which keeps the ghost inside it.
-	viewport ui.Size
+	viewport gfx.Size
 	// target is where the tab would land if it were dropped now.
 	target dropTarget
 }
@@ -27,39 +27,39 @@ type tabDrag struct {
 // the tab still gets its ordinary click, and from then on it takes every event of the
 // gesture. Taking an event is what keeps the release from becoming a click, because the
 // runtime clicks only when neither the press nor the release was handled.
-func (a *App) tabDragPointer(event ui.PointerEvent) (ui.EventResult, bool) {
+func (a *App) tabDragPointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 	d := &a.term.drag
 	switch event.Kind {
-	case ui.PointerDown:
+	case gfx.PointerDown:
 		*d = tabDrag{}
-		if event.Button != ui.PointerButtonPrimary {
-			return ui.EventResult{}, false
+		if event.Button != gfx.PointerButtonPrimary {
+			return gfx.EventResult{}, false
 		}
 		if id, ok := event.Target.In(termTabs); ok && a.project != nil && a.project.terms.find(id) != nil {
 			*d = tabDrag{pressed: true, term: id, startX: event.X, startY: event.Y}
 		}
 		// The tab under the pointer still gets its press.
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 
-	case ui.PointerMove:
+	case gfx.PointerMove:
 		if !d.pressed {
-			return ui.EventResult{}, false
+			return gfx.EventResult{}, false
 		}
 		if !d.active {
 			dx, dy := event.X-d.startX, event.Y-d.startY
 			if dx*dx+dy*dy < dragThreshold*dragThreshold {
-				return ui.EventResult{}, false
+				return gfx.EventResult{}, false
 			}
 			d.active = true
 		}
 		d.x, d.y, d.viewport = event.X, event.Y, event.Viewport
 		d.target = a.tabDragLocate(d.term, event.X, event.Y, event.Viewport)
-		return ui.EventResult{Handled: true, Repaint: true}, true
+		return gfx.EventResult{Handled: true, Repaint: true}, true
 
-	case ui.PointerUp:
+	case gfx.PointerUp:
 		if !d.active {
 			*d = tabDrag{}
-			return ui.EventResult{}, false
+			return gfx.EventResult{}, false
 		}
 		// The place is worked out again at the release: the last move may be older than the
 		// release by a frame in which the layout changed.
@@ -67,16 +67,16 @@ func (a *App) tabDragPointer(event ui.PointerEvent) (ui.EventResult, bool) {
 		target := a.tabDragLocate(term, event.X, event.Y, event.Viewport)
 		*d = tabDrag{}
 		a.dropTerminal(term, target)
-		return ui.EventResult{Handled: true, Repaint: true}, true
+		return gfx.EventResult{Handled: true, Repaint: true}, true
 
-	case ui.PointerExit:
+	case gfx.PointerExit:
 		// The runtime reports an exit during a held press only once the button is released,
 		// so this ends a gesture whose release was lost.
 		active := d.active
 		*d = tabDrag{}
-		return ui.EventResult{Repaint: active}, active
+		return gfx.EventResult{Repaint: active}, active
 	}
-	return ui.EventResult{}, false
+	return gfx.EventResult{}, false
 }
 
 // cancelTabDrag drops the gesture without moving anything and reports whether a drag was
@@ -90,7 +90,7 @@ func (a *App) cancelTabDrag() bool {
 // tabDragLocate finds where dropping terminal term at (x, y) would put it, from where the
 // last frame laid the groups out. Outside the window there is no place. viewport is the
 // window's size.
-func (a *App) tabDragLocate(term int, x, y float32, viewport ui.Size) dropTarget {
+func (a *App) tabDragLocate(term int, x, y float32, viewport gfx.Size) dropTarget {
 	if x < 0 || y < 0 || x >= viewport.Width || y >= viewport.Height {
 		return dropTarget{}
 	}
@@ -102,7 +102,7 @@ func (a *App) tabDragLocate(term int, x, y float32, viewport ui.Size) dropTarget
 // insertion line in the accent color, and a small copy of the tab follows the pointer below
 // and to the right of it, so it never hides the line. The tab itself stays where it is,
 // dimmed (see drawTerminalTab).
-func (a *App) paintTabDrag(canvas *ui.Canvas) {
+func (a *App) paintTabDrag(canvas *gfx.Canvas) {
 	d := &a.term.drag
 	if !d.active || a.project == nil {
 		return
@@ -117,7 +117,7 @@ func (a *App) paintTabDrag(canvas *ui.Canvas) {
 	if target := d.target; target.kind != dropNone {
 		preview := target.preview
 		if target.kind == dropJoin {
-			preview = preview.Inset(ui.All(-dragZoneOutset))
+			preview = preview.Inset(gfx.All(-dragZoneOutset))
 		}
 		canvas.Rounded(preview, dragZoneRadius, a.colors.Accent.WithAlpha(dragTargetTint))
 		if target.hasLine {
@@ -128,21 +128,21 @@ func (a *App) paintTabDrag(canvas *ui.Canvas) {
 	// The copy is the tab's icon and title in a box of the width of the words, kept inside
 	// the window and no wider than a tab is.
 	title := a.text.Terminal.Tab(t.number)
-	style := ui.TextStyle{Size: a.theme.Metrics.FontSizeM, Weight: ui.WeightRegular, Color: a.colors.Text}
+	style := gfx.TextStyle{Size: a.theme.Metrics.FontSizeM, Weight: gfx.WeightRegular, Color: a.colors.Text}
 	width := min(chromeEdge+terminalChipIcon+terminalChipGap+canvas.TextWidthStyle(title, style)+chromeEdge, terminalChipMaxWidth)
-	ghost := ui.Rect{X: d.x + dragGhostOffset, Y: d.y + dragGhostOffset, Width: width, Height: rowHeight}
+	ghost := gfx.Rect{X: d.x + dragGhostOffset, Y: d.y + dragGhostOffset, Width: width, Height: rowHeight}
 	if d.viewport.Width > 0 {
 		ghost.X = max(min(ghost.X, d.viewport.Width-ghost.Width-dragGhostMargin), 0)
 		ghost.Y = max(min(ghost.Y, d.viewport.Height-ghost.Height-dragGhostMargin), 0)
 	}
 	canvas.RoundedBorder(ghost, dragGhostRadius, 1, a.colors.Accent, a.colors.Editor)
-	canvas.DrawIcon(icons.SquareTerminal, ui.Rect{
+	canvas.DrawIcon(icons.SquareTerminal, gfx.Rect{
 		X:      ghost.X + chromeEdge,
 		Y:      ghost.Y + (ghost.Height-terminalChipIcon)/2,
 		Width:  terminalChipIcon,
 		Height: terminalChipIcon,
 	}, a.colors.Subtle)
-	canvas.Label(title, ui.Rect{
+	canvas.Label(title, gfx.Rect{
 		X:      ghost.X + chromeEdge + terminalChipIcon + terminalChipGap,
 		Y:      ghost.Y,
 		Width:  ghost.Width - 2*chromeEdge - terminalChipIcon - terminalChipGap,

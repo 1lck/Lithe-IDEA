@@ -13,7 +13,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -46,10 +46,10 @@ type searchQuery struct {
 
 // searchView contains only controls and options; results belong to a project.
 type searchView struct {
-	query, mask                                      flex.Field
+	query, mask                                      ui.Field
 	optionsOpen, matchCase, wholeWords, regex, focus bool
-	optionButton                                     flex.Box
-	rowFocus                                         ui.ID
+	optionButton                                     ui.Box
+	rowFocus                                         gfx.ID
 	// delay is overridden in deterministic tests; negative means the normal delay.
 	delay time.Duration
 }
@@ -58,7 +58,7 @@ func (v *searchView) reset() {
 	v.query.SetText("")
 	v.mask.SetText("")
 	v.optionsOpen, v.matchCase, v.wholeWords, v.regex, v.focus = false, false, false, false, false
-	v.rowFocus = ui.ID{}
+	v.rowFocus = gfx.ID{}
 }
 
 type projectSearch struct {
@@ -83,7 +83,7 @@ func (a *App) cancelProjectSearch(p *project) {
 	p.search.want = searchQuery{}
 	p.search.loading = false
 	a.searchView.optionsOpen = false
-	a.searchView.rowFocus = ui.ID{}
+	a.searchView.rowFocus = gfx.ID{}
 	if p.search.cancel != nil {
 		p.search.cancel()
 	}
@@ -229,11 +229,11 @@ func (a *App) refreshProjectSearch(p *project) {
 	a.updateProjectSearch(p, query)
 }
 
-func (a *App) drawSearchRefresh(f *flex.Frame, p *project) {
+func (a *App) drawSearchRefresh(f *ui.Frame, p *project) {
 	disabled := strings.TrimSpace(p.search.want.text) == ""
 	button := f.Row().Size(shellHideSize, shellHideSize).Shrink(0).Center().Radius(a.theme.Metrics.RadiusItem()).
-		HitWith(searchRefreshID, i18n.Shared(a.language(), "ui.refresh"), ui.HitOptions{Role: ui.RoleButton, Cursor: ui.PointerCursorHand, Disabled: disabled}).
-		Hover(flex.Look{}.Background(a.colors.Hover))
+		HitWith(searchRefreshID, i18n.Shared(a.language(), "ui.refresh"), gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Disabled: disabled}).
+		Hover(ui.Look{}.Background(a.colors.Hover))
 	button.Children(func() { f.Icon(icons.RefreshCw).Size(shellIconSize, shellIconSize).Color(a.colors.Subtle) })
 	if !disabled && button.Clicked() {
 		a.performed("workspace.search.refresh", surfaceButton)
@@ -364,7 +364,7 @@ func (a *App) finishProjectSearch(p *project, generation uint64, matches []core.
 	s.matches = matches
 }
 
-func (a *App) drawProjectSearch(f *flex.Frame, p *project) {
+func (a *App) drawProjectSearch(f *ui.Frame, p *project) {
 	v := &a.searchView
 	query := searchQuery{text: v.query.Text(), mask: v.mask.Text(), matchCase: v.matchCase, wholeWords: v.wholeWords, regex: v.regex}
 	a.updateProjectSearch(p, query)
@@ -374,13 +374,13 @@ func (a *App) drawProjectSearch(f *flex.Frame, p *project) {
 	}
 	if !v.rowFocus.IsZero() {
 		f.Canvas().RequestFocus(v.rowFocus)
-		v.rowFocus = ui.ID{}
+		v.rowFocus = gfx.ID{}
 	}
 	f.Column().FillWidth().Grow(1).Shrink(1).MinHeight(0).Children(func() {
 		f.Row().FillWidth().PadSides(3, 10, 6, 10).Children(func() {
-			var field flex.Box
-			frame := f.Row().FillWidth().Height(30).PadX(7).Gap(7).Items(flex.Center).
-				Border(1, a.theme.Input).Radius(a.theme.Metrics.RadiusControl).Focused(flex.Look{}.Border(a.theme.Primary))
+			var field ui.Box
+			frame := f.Row().FillWidth().Height(30).PadX(7).Gap(7).Items(ui.Center).
+				Border(1, a.theme.Input).Radius(a.theme.Metrics.RadiusControl).Focused(ui.Look{}.Border(a.theme.Primary))
 			frame.Children(func() {
 				f.Icon(icons.Search).Size(15, 15).Shrink(0).Color(a.colors.Subtle)
 				field = f.FieldBase(&v.query, searchQueryID, i18n.Shared(a.language(), "native.searchFilesAndContents"), i18n.Shared(a.language(), "native.searchFilesAndContents")).Grow(1).MinWidth(0).Height(28).FontSize(13).Color(a.colors.Text)
@@ -391,7 +391,7 @@ func (a *App) drawProjectSearch(f *flex.Frame, p *project) {
 						f.Canvas().RequestFrame()
 					}
 				}
-				button := f.Row().Size(22, 22).Shrink(0).Center().Radius(a.theme.Metrics.RadiusItem()).HitWith(searchOptionsID, i18n.Shared(a.language(), "native.searchOptions"), ui.HitOptions{Role: ui.RoleButton, Cursor: ui.PointerCursorHand, Expandable: true, Expanded: v.optionsOpen}).Hover(flex.Look{}.Background(a.colors.Hover))
+				button := f.Row().Size(22, 22).Shrink(0).Center().Radius(a.theme.Metrics.RadiusItem()).HitWith(searchOptionsID, i18n.Shared(a.language(), "native.searchOptions"), gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Expandable: true, Expanded: v.optionsOpen}).Hover(ui.Look{}.Background(a.colors.Hover))
 				v.optionButton = button
 				button.Children(func() { f.Icon(icons.Settings).Size(16, 16).Color(a.colors.Subtle) })
 				if button.Clicked() {
@@ -401,9 +401,9 @@ func (a *App) drawProjectSearch(f *flex.Frame, p *project) {
 			frame.StateFrom(field)
 		})
 		f.Row().FillWidth().PadX(10).PadSides(0, 10, 10, 10).Children(func() {
-			var field flex.Box
-			frame := f.Row().FillWidth().Height(30).PadX(7).Gap(7).Items(flex.Center).
-				Border(1, a.theme.Input).Radius(a.theme.Metrics.RadiusControl).Focused(flex.Look{}.Border(a.theme.Primary))
+			var field ui.Box
+			frame := f.Row().FillWidth().Height(30).PadX(7).Gap(7).Items(ui.Center).
+				Border(1, a.theme.Input).Radius(a.theme.Metrics.RadiusControl).Focused(ui.Look{}.Border(a.theme.Primary))
 			frame.Children(func() {
 				f.Icon(icons.Search).Size(15, 15).Shrink(0).Color(a.colors.Subtle)
 				field = f.FieldBase(&v.mask, searchMaskID, i18n.Shared(a.language(), "native.fileMask"), i18n.Shared(a.language(), "desktop.search.fileMaskPlaceholder")).Grow(1).MinWidth(0).Height(28).FontSize(13).Color(a.colors.Text)
@@ -437,10 +437,10 @@ func (a *App) drawProjectSearch(f *flex.Frame, p *project) {
 	}
 }
 
-func (a *App) drawSearchClear(f *flex.Frame, id ui.ID) bool {
+func (a *App) drawSearchClear(f *ui.Frame, id gfx.ID) bool {
 	button := f.Row().Size(18, 18).Shrink(0).Center().Radius(a.theme.Metrics.RadiusItem()).
-		HitWith(id, i18n.Shared(a.language(), "native.clearSearch"), ui.HitOptions{Role: ui.RoleButton, Cursor: ui.PointerCursorHand}).
-		Hover(flex.Look{}.Background(a.colors.Hover))
+		HitWith(id, i18n.Shared(a.language(), "native.clearSearch"), gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}).
+		Hover(ui.Look{}.Background(a.colors.Hover))
 	button.Children(func() { f.Icon(icons.X).Size(14, 14).Color(a.colors.Subtle) })
 	if !button.Clicked() {
 		return false
@@ -449,10 +449,10 @@ func (a *App) drawSearchClear(f *flex.Frame, id ui.ID) bool {
 	return true
 }
 
-func (a *App) drawSearchOptions(f *flex.Frame) {
+func (a *App) drawSearchOptions(f *ui.Frame) {
 	v := &a.searchView
-	dismiss := f.Popup().At(0, 0).Fill().HitWith(searchDismissID, a.text.Errors.Dismiss, ui.HitOptions{Role: ui.RoleButton, SkipFocus: true, Backdrop: true}).Clicked()
-	f.Popup().BelowBox(v.optionButton, 4, flex.End).Width(210).Pad(8).Gap(6).Background(a.theme.Popover).Border(1, a.theme.Border).Radius(a.theme.Metrics.RadiusPopup()).Children(func() {
+	dismiss := f.Popup().At(0, 0).Fill().HitWith(searchDismissID, a.text.Errors.Dismiss, gfx.HitOptions{Role: gfx.RoleButton, SkipFocus: true, Backdrop: true}).Clicked()
+	f.Popup().BelowBox(v.optionButton, 4, ui.End).Width(210).Pad(8).Gap(6).Background(a.theme.Popover).Border(1, a.theme.Border).Radius(a.theme.Metrics.RadiusPopup()).Children(func() {
 		if f.Checkbox(searchOptionIDs.At(0), v.matchCase).Label(i18n.Shared(a.language(), "native.matchCase")).Clicked() {
 			a.performed("workspace.search.matchCase", surfaceButton)
 			v.matchCase = !v.matchCase
@@ -474,7 +474,7 @@ func (a *App) drawSearchOptions(f *flex.Frame) {
 	}
 }
 
-func (a *App) drawSearchResults(f *flex.Frame, p *project) {
+func (a *App) drawSearchResults(f *ui.Frame, p *project) {
 	results := p.search.matches
 	scroll := a.view.ScrollState(searchListID)
 	height := scroll.Viewport
@@ -494,9 +494,9 @@ func (a *App) drawSearchResults(f *flex.Frame, p *project) {
 			if result.Line != nil {
 				label += ":" + strconv.Itoa(*result.Line)
 			}
-			row := f.Column().FillWidth().Height(searchResultHeight).Shrink(0).PadX(11).PadY(6).Gap(2).HitWith(searchRows.At(i), label, ui.HitOptions{Role: ui.RoleButton, Value: result.Preview, Cursor: ui.PointerCursorHand}).Hover(flex.Look{}.Background(a.colors.Hover))
+			row := f.Column().FillWidth().Height(searchResultHeight).Shrink(0).PadX(11).PadY(6).Gap(2).HitWith(searchRows.At(i), label, gfx.HitOptions{Role: gfx.RoleButton, Value: result.Preview, Cursor: gfx.PointerCursorHand}).Hover(ui.Look{}.Background(a.colors.Hover))
 			row.Children(func() {
-				f.Row().FillWidth().Items(flex.Center).Gap(6).Children(func() {
+				f.Row().FillWidth().Items(ui.Center).Gap(6).Children(func() {
 					name := filepath.Base(filepath.FromSlash(result.Path))
 					f.Icon(fileicons.ForFile(name, a.colors.Dark)).Size(treeIcon, treeIcon).Shrink(0).Color(a.colors.Subtle)
 					f.Text(name).Grow(1).Shrink(1).FontSize(12.5).Color(a.colors.Text).Ellipsis()
@@ -540,26 +540,26 @@ func (a *App) openSearchResult(p *project, result core.WorkspaceSearchMatch) {
 	a.openFileAt(p, path, line)
 }
 
-func (a *App) searchKey(event ui.KeyEvent) ui.EventResult {
-	if !event.Release && event.Key == ui.KeyEscape && a.searchView.optionsOpen {
+func (a *App) searchKey(event gfx.KeyEvent) gfx.EventResult {
+	if !event.Release && event.Key == gfx.KeyEscape && a.searchView.optionsOpen {
 		a.searchView.optionsOpen = false
-		return ui.EventResult{Handled: true, Repaint: true}
+		return gfx.EventResult{Handled: true, Repaint: true}
 	}
 	index, ok := event.Target.In(searchRows)
 	if !ok || event.Release || event.Modifiers != 0 || a.project == nil {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	results := a.project.search.matches
 	if index < 0 || index >= len(results) {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	switch event.Key {
-	case ui.KeyUp:
+	case gfx.KeyUp:
 		index = max(0, index-1)
-	case ui.KeyDown:
+	case gfx.KeyDown:
 		index = min(len(results)-1, index+1)
 	default:
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	scroll := a.view.ScrollState(searchListID)
 	top, bottom := float32(index)*searchResultHeight, float32(index+1)*searchResultHeight
@@ -569,5 +569,5 @@ func (a *App) searchKey(event ui.KeyEvent) ui.EventResult {
 		scroll.ScrollTo(bottom - scroll.Viewport)
 	}
 	a.searchView.rowFocus = searchRows.At(index)
-	return ui.EventResult{Handled: true, Repaint: true}
+	return gfx.EventResult{Handled: true, Repaint: true}
 }

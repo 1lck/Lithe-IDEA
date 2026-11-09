@@ -13,7 +13,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/sheet"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -36,12 +36,12 @@ var (
 // to the project it may replace. created records a directory that was created
 // successfully even if Git initialization subsequently failed.
 type newProjectState struct {
-	name, parent, search                                     flex.Field
+	name, parent, search                                     ui.Field
 	open, busy, git, cancelling                              bool
 	generation                                               uint64
 	cancel                                                   context.CancelFunc
 	err, created                                             string
-	returnFocus                                              ui.ID
+	returnFocus                                              gfx.ID
 	restoreFocus                                             bool
 	searchQuery                                              string
 	searchRaw                                                string
@@ -343,7 +343,7 @@ func (a *App) submitNewProject() {
 	})
 }
 
-func (a *App) drawNewProjectDialog(f *flex.Frame) {
+func (a *App) drawNewProjectDialog(f *ui.Frame) {
 	n := &a.newProject
 	if !n.open {
 		return
@@ -351,20 +351,20 @@ func (a *App) drawNewProjectDialog(f *flex.Frame) {
 	language := a.language()
 	submitted := false
 	cancelled, confirmed := false, false
-	background, sidebar, footer, divider := ui.RGB24(0xF7F8FA), ui.RGB24(0xECECEE), ui.RGB24(0xF7F8FA), ui.RGB24(0xD9DADF)
+	background, sidebar, footer, divider := gfx.RGB24(0xF7F8FA), gfx.RGB24(0xECECEE), gfx.RGB24(0xF7F8FA), gfx.RGB24(0xD9DADF)
 	if a.colors.Dark {
-		background, sidebar, footer, divider = ui.RGB24(0x242529), ui.RGB24(0x232427), ui.RGB24(0x191A1C), ui.RGB24(0x333438)
+		background, sidebar, footer, divider = gfx.RGB24(0x242529), gfx.RGB24(0x232427), gfx.RGB24(0x191A1C), gfx.RGB24(0x333438)
 	}
 	dismissed := sheet.Draw(f, sheet.Options{Width: 880, Height: 660, Background: background,
 		Scope: newProjectScope, Dismiss: newProjectDismiss, InitialFocus: newProjectSearch,
 		DismissLabel: i18n.Shared(language, "desktop.newProject.cancel")}, func() {
 		f.Row().FillWidth().Grow(1).Children(func() {
-			f.Column().Width(240).FillHeight().Shrink(0).Draw(func(d *flex.DrawContext) { sheet.PaintLeadingBackground(d, sidebar) }).Children(func() {
+			f.Column().Width(240).FillHeight().Shrink(0).Draw(func(d *ui.DrawContext) { sheet.PaintLeadingBackground(d, sidebar) }).Children(func() {
 				f.Column().FillWidth().Grow(1).PadSides(10, 12, 0, 12).Gap(12).Children(func() {
-					var input flex.Box
-					frame := f.Row().FillWidth().Height(30).Items(flex.Center).PadX(8).Gap(6).
+					var input ui.Box
+					frame := f.Row().FillWidth().Height(30).Items(ui.Center).PadX(8).Gap(6).
 						Border(1, a.theme.Input).Radius(a.theme.Metrics.RadiusControl).
-						Focused(flex.Look{}.Border(a.theme.Primary).Ring(1, a.theme.Primary))
+						Focused(ui.Look{}.Border(a.theme.Primary).Ring(1, a.theme.Primary))
 					frame.Children(func() {
 						f.Icon(icons.Search).Size(15, 15).Shrink(0).Color(a.colors.Subtle)
 						input = f.FieldBase(&n.search, newProjectSearch, i18n.Shared(language, "search.search"), i18n.Shared(language, "search.search")).Grow(1).MinWidth(0).Height(28).FontSize(13).Color(a.colors.Text)
@@ -386,20 +386,20 @@ func (a *App) drawNewProjectDialog(f *flex.Frame) {
 					a.updateNewProjectSearch()
 					f.Text(i18n.Shared(language, "desktop.newProject.section")).Muted()
 					if n.searchVisible {
-						selection := ui.RGB24(0xE4E6EA)
+						selection := gfx.RGB24(0xE4E6EA)
 						if a.colors.Dark {
-							selection = ui.RGB24(0x303137)
+							selection = gfx.RGB24(0x303137)
 						}
-						f.Row().FillWidth().Height(24).Items(flex.Center).Gap(8).PadX(10).Radius(4).Background(selection).Children(func() {
+						f.Row().FillWidth().Height(24).Items(ui.Center).Gap(8).PadX(10).Radius(4).Background(selection).Children(func() {
 							f.Icon(icons.Folder).Size(15, 15).Color(a.colors.Subtle)
 							f.Text(i18n.Shared(language, "desktop.newProject.empty"))
 						})
 					}
 				})
 				f.Row().FillWidth().Height(1).Shrink(0).Background(divider)
-				f.Row().FillWidth().Height(40).Shrink(0).Items(flex.Center).PadX(14).Children(func() {
+				f.Row().FillWidth().Height(40).Shrink(0).Items(ui.Center).PadX(14).Children(func() {
 					label := i18n.Shared(language, "native.getMoreLanguagesAndFrameworksFromPlugins")
-					if f.Text(label).FontSize(12).Color(a.colors.Accent).HitWith(newProjectMore, label, ui.HitOptions{Role: ui.RoleButton, Cursor: ui.PointerCursorHand}).Clicked() {
+					if f.Text(label).FontSize(12).Color(a.colors.Accent).HitWith(newProjectMore, label, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}).Clicked() {
 						a.openPluginSettings(surfaceButton)
 					}
 				})
@@ -407,11 +407,11 @@ func (a *App) drawNewProjectDialog(f *flex.Frame) {
 			f.Column().Width(1).FillHeight().Shrink(0).Background(divider)
 			f.Column().Grow(1).FillHeight().PadSides(20, 24, 0, 24).Gap(12).Children(func() {
 				f.Text(i18n.Shared(language, "desktop.newProject.description")).FontSize(12.5).Muted()
-				f.Row().FillWidth().Items(flex.Center).Gap(12).Children(func() {
+				f.Row().FillWidth().Items(ui.Center).Gap(12).Children(func() {
 					f.Text(i18n.Shared(language, "desktop.newProject.name")).Width(120).Shrink(0)
 					submitted = f.Field(&n.name, newProjectName, i18n.Shared(language, "desktop.newProject.name"), "").Grow(1).MaxWidth(360).Disabled(n.busy || n.created != "").Submitted()
 				})
-				f.Row().FillWidth().Items(flex.Center).Gap(12).Children(func() {
+				f.Row().FillWidth().Items(ui.Center).Gap(12).Children(func() {
 					f.Text(i18n.Shared(language, "desktop.newProject.location")).Width(120).Shrink(0)
 					f.Field(&n.parent, newProjectParent, i18n.Shared(language, "desktop.newProject.location"), "").Grow(1).Disabled(n.busy || n.created != "")
 					if a.logIconButton(f, newProjectChoose, i18n.Shared(language, "desktop.newProject.choose"), icons.Folder, false, n.busy || n.created != "") {
@@ -421,10 +421,10 @@ func (a *App) drawNewProjectDialog(f *flex.Frame) {
 				f.Row().FillWidth().PadSides(0, 0, 0, 132).Children(func() {
 					f.Text(i18n.SharedFormat(language, "desktop.newProject.pathPreview", map[string]string{"path": filepath.Join(n.parent.Text(), n.name.Text())})).Muted()
 				})
-				f.Row().FillWidth().Items(flex.Center).PadSides(0, 0, 0, 132).Gap(4).Children(func() {
+				f.Row().FillWidth().Items(ui.Center).PadSides(0, 0, 0, 132).Gap(4).Children(func() {
 					disabled := n.busy || n.created != ""
 					checked := f.Checkbox(newProjectGit, n.git).Label(i18n.Shared(language, "desktop.newProject.git")).Disabled(disabled).Clicked()
-					label := f.Text(i18n.Shared(language, "desktop.newProject.git")).HitWith(newProjectGitText, i18n.Shared(language, "desktop.newProject.git"), ui.HitOptions{Role: ui.RoleButton, SkipFocus: true}).Clicked()
+					label := f.Text(i18n.Shared(language, "desktop.newProject.git")).HitWith(newProjectGitText, i18n.Shared(language, "desktop.newProject.git"), gfx.HitOptions{Role: gfx.RoleButton, SkipFocus: true}).Clicked()
 					if !disabled && (checked || label) {
 						n.git = !n.git
 					}
@@ -435,8 +435,8 @@ func (a *App) drawNewProjectDialog(f *flex.Frame) {
 			})
 		})
 		f.Row().FillWidth().Height(1).Shrink(0).Background(divider)
-		f.Row().FillWidth().Height(56).Shrink(0).Items(flex.Center).Justify(flex.End).PadX(14).Gap(8).
-			Draw(func(d *flex.DrawContext) { sheet.PaintFooterBackground(d, footer) }).Children(func() {
+		f.Row().FillWidth().Height(56).Shrink(0).Items(ui.Center).Justify(ui.End).PadX(14).Gap(8).
+			Draw(func(d *ui.DrawContext) { sheet.PaintFooterBackground(d, footer) }).Children(func() {
 			cancelled = f.Button(newProjectCancel, i18n.Shared(language, "desktop.newProject.cancel")).Outline().Disabled(n.cancelling).Clicked()
 			label := i18n.Shared(language, "desktop.newProject.create")
 			if n.busy {

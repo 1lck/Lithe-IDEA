@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // A reconnect keeps the screen but not the old program: the flags a program
@@ -67,64 +67,64 @@ func TestKittyKeyboardFlagsPerScreenAndStack(t *testing.T) {
 func TestEncodeKeyEventFollowsKittyProtocol(t *testing.T) {
 	tests := []struct {
 		name  string
-		event ui.KeyEvent
+		event gfx.KeyEvent
 		flags uint32
 		want  string
 	}{
-		{"legacy escape", ui.KeyEvent{Key: ui.KeyEscape}, 0, "\x1b"},
-		{"legacy raw shifted text", ui.KeyEvent{Modifiers: ui.ModifierShift, Text: "x", Typed: "X"}, 0, "X"},
-		{"legacy raw release", ui.KeyEvent{Text: "x", Typed: "x", Release: true}, 0, ""},
-		{"kitty escape", ui.KeyEvent{Key: ui.KeyEscape}, 1, "\x1b[27u"},
-		{"kitty escape release", ui.KeyEvent{Key: ui.KeyEscape, Release: true}, 1 | 2, "\x1b[27;1:3u"},
-		{"alt x", ui.KeyEvent{Modifiers: ui.ModifierAlt, Text: "x"}, 1, "\x1b[120;3u"},
-		{"control c", ui.KeyEvent{Modifiers: ui.ModifierControl, Text: "c"}, 1, "\x1b[99;5u"},
-		{"control shift c", ui.KeyEvent{Modifiers: ui.ModifierControl | ui.ModifierShift, Text: "c", Typed: "C"}, 1, "\x1b[99;6u"},
-		{"shift alt x", ui.KeyEvent{Modifiers: ui.ModifierShift | ui.ModifierAlt, Text: "x", Typed: "X"}, 1, "\x1b[120;4u"},
-		{"shift x stays text", ui.KeyEvent{Modifiers: ui.ModifierShift, Text: "x", Typed: "X"}, 1, "X"},
-		{"plain x stays text", ui.KeyEvent{Text: "x", Typed: "x"}, 1, "x"},
-		{"all keys x", ui.KeyEvent{Text: "x", Typed: "x"}, 8, "\x1b[120u"},
-		{"all keys shifted x", ui.KeyEvent{Modifiers: ui.ModifierShift, Text: "x", Typed: "X"}, 8 | 4, "\x1b[120:88;2u"},
-		{"all keys control c press", ui.KeyEvent{Modifiers: ui.ModifierControl, Text: "c"}, 8 | 2, "\x1b[99;5:1u"},
-		{"all keys control c release", ui.KeyEvent{Modifiers: ui.ModifierControl, Text: "c", Release: true}, 8 | 2, "\x1b[99;5:3u"},
-		{"text release without all keys", ui.KeyEvent{Text: "x", Typed: "x", Release: true}, 1 | 2, ""},
-		{"enter stays carriage return", ui.KeyEvent{Key: ui.KeyEnter}, 1, "\r"},
-		{"shift enter is an escape code", ui.KeyEvent{Key: ui.KeyEnter, Modifiers: ui.ModifierShift}, 1, "\x1b[13;2u"},
-		{"shift enter with event types", ui.KeyEvent{Key: ui.KeyEnter, Modifiers: ui.ModifierShift}, 1 | 2 | 4, "\x1b[13;2:1u"},
-		{"alt enter is an escape code", ui.KeyEvent{Key: ui.KeyEnter, Modifiers: ui.ModifierAlt}, 1, "\x1b[13;3u"},
-		{"shift enter without flags sends escape code", ui.KeyEvent{Key: ui.KeyEnter, Modifiers: ui.ModifierShift}, 0, "\x1b[13;2u"},
-		{"shift alt enter without flags sends escape code", ui.KeyEvent{Key: ui.KeyEnter, Modifiers: ui.ModifierShift | ui.ModifierAlt}, 0, "\x1b[13;4u"},
-		{"control alt enter without flags sends escape code", ui.KeyEvent{Key: ui.KeyEnter, Modifiers: ui.ModifierControl | ui.ModifierAlt}, 0, "\x1b[13;7u"},
-		{"all keys enter", ui.KeyEvent{Key: ui.KeyEnter}, 8, "\x1b[13u"},
-		{"all keys enter release", ui.KeyEvent{Key: ui.KeyEnter, Release: true}, 8 | 2, "\x1b[13;1:3u"},
-		{"arrow", ui.KeyEvent{Key: ui.KeyUp}, 1, "\x1b[A"},
-		{"control arrow", ui.KeyEvent{Key: ui.KeyUp, Modifiers: ui.ModifierControl}, 1, "\x1b[1;5A"},
-		{"control arrow press", ui.KeyEvent{Key: ui.KeyUp, Modifiers: ui.ModifierControl}, 1 | 2, "\x1b[1;5:1A"},
-		{"control arrow release", ui.KeyEvent{Key: ui.KeyUp, Modifiers: ui.ModifierControl, Release: true}, 1 | 2, "\x1b[1;5:3A"},
-		{"F5 press", ui.KeyEvent{Key: ui.KeyF5}, 1 | 2, "\x1b[15;1:1~"},
-		{"insert all keys", ui.KeyEvent{Key: ui.KeyInsert}, 8, "\x1b[2~"},
-		{"space stays text", ui.KeyEvent{Key: ui.KeySpace, Text: " "}, 1, " "},
-		{"control space", ui.KeyEvent{Key: ui.KeySpace, Modifiers: ui.ModifierControl, Text: " "}, 1, "\x1b[32;5u"},
-		{"associated text", ui.KeyEvent{Text: "x", Typed: "x"}, 8 | 16, "\x1b[120;1;120u"},
-		{"shift modifier key", ui.KeyEvent{Key: ui.KeyShiftLeft, Modifiers: ui.ModifierShift}, 8, "\x1b[57441;2u"},
-		{"meta modifier key", ui.KeyEvent{Key: ui.KeyMetaLeft, Modifiers: ui.ModifierMeta}, 8, "\x1b[57444;9u"},
-		{"command chord", ui.KeyEvent{Modifiers: ui.ModifierMeta, Text: "x"}, 8, "\x1b[120;9u"},
-		{"command chord disambiguation", ui.KeyEvent{Modifiers: ui.ModifierMeta, Text: "x"}, 1, "\x1b[120;9u"},
-		{"command press with event types", ui.KeyEvent{Modifiers: ui.ModifierMeta, Text: "j"}, 1 | 2, "\x1b[106;9:1u"},
-		{"command release with event types", ui.KeyEvent{Modifiers: ui.ModifierMeta, Text: "j", Release: true}, 1 | 2, "\x1b[106;9:3u"},
-		{"command enter", ui.KeyEvent{Key: ui.KeyEnter, Modifiers: ui.ModifierMeta}, 1, "\x1b[13;9u"},
-		{"legacy command chord", ui.KeyEvent{Modifiers: ui.ModifierMeta, Text: "x"}, 0, ""},
-		{"legacy command left", ui.KeyEvent{Key: ui.KeyLeft, Modifiers: ui.ModifierMeta}, 0, "\x01"},
-		{"legacy command left release", ui.KeyEvent{Key: ui.KeyLeft, Modifiers: ui.ModifierMeta, Release: true}, 0, ""},
-		{"kitty command left", ui.KeyEvent{Key: ui.KeyLeft, Modifiers: ui.ModifierMeta}, 1, "\x1b[1;9D"},
-		{"kitty command right", ui.KeyEvent{Key: ui.KeyRight, Modifiers: ui.ModifierMeta}, 1 | 4, "\x1b[1;9C"},
-		{"kitty command backspace repeat", ui.KeyEvent{Key: ui.KeyBackspace, Modifiers: ui.ModifierMeta, Repeat: true}, 1 | 2, "\x1b[127;9:2u"},
-		{"kitty command left release", ui.KeyEvent{Key: ui.KeyLeft, Modifiers: ui.ModifierMeta, Release: true}, 1 | 2, "\x1b[1;9:3D"},
-		{"kitty command shift left", ui.KeyEvent{Key: ui.KeyLeft, Modifiers: ui.ModifierMeta | ui.ModifierShift}, 1, "\x1b[1;10D"},
-		{"all keys command left", ui.KeyEvent{Key: ui.KeyLeft, Modifiers: ui.ModifierMeta}, 8, "\x1b[1;9D"},
-		{"all keys command backspace", ui.KeyEvent{Key: ui.KeyBackspace, Modifiers: ui.ModifierMeta}, 8, "\x1b[127;9u"},
-		{"all keys command left press", ui.KeyEvent{Key: ui.KeyLeft, Modifiers: ui.ModifierMeta}, 8 | 2, "\x1b[1;9:1D"},
-		{"all keys command left release", ui.KeyEvent{Key: ui.KeyLeft, Modifiers: ui.ModifierMeta, Release: true}, 8 | 2, "\x1b[1;9:3D"},
-		{"all keys command shift left", ui.KeyEvent{Key: ui.KeyLeft, Modifiers: ui.ModifierMeta | ui.ModifierShift}, 8, "\x1b[1;10D"},
+		{"legacy escape", gfx.KeyEvent{Key: gfx.KeyEscape}, 0, "\x1b"},
+		{"legacy raw shifted text", gfx.KeyEvent{Modifiers: gfx.ModifierShift, Text: "x", Typed: "X"}, 0, "X"},
+		{"legacy raw release", gfx.KeyEvent{Text: "x", Typed: "x", Release: true}, 0, ""},
+		{"kitty escape", gfx.KeyEvent{Key: gfx.KeyEscape}, 1, "\x1b[27u"},
+		{"kitty escape release", gfx.KeyEvent{Key: gfx.KeyEscape, Release: true}, 1 | 2, "\x1b[27;1:3u"},
+		{"alt x", gfx.KeyEvent{Modifiers: gfx.ModifierAlt, Text: "x"}, 1, "\x1b[120;3u"},
+		{"control c", gfx.KeyEvent{Modifiers: gfx.ModifierControl, Text: "c"}, 1, "\x1b[99;5u"},
+		{"control shift c", gfx.KeyEvent{Modifiers: gfx.ModifierControl | gfx.ModifierShift, Text: "c", Typed: "C"}, 1, "\x1b[99;6u"},
+		{"shift alt x", gfx.KeyEvent{Modifiers: gfx.ModifierShift | gfx.ModifierAlt, Text: "x", Typed: "X"}, 1, "\x1b[120;4u"},
+		{"shift x stays text", gfx.KeyEvent{Modifiers: gfx.ModifierShift, Text: "x", Typed: "X"}, 1, "X"},
+		{"plain x stays text", gfx.KeyEvent{Text: "x", Typed: "x"}, 1, "x"},
+		{"all keys x", gfx.KeyEvent{Text: "x", Typed: "x"}, 8, "\x1b[120u"},
+		{"all keys shifted x", gfx.KeyEvent{Modifiers: gfx.ModifierShift, Text: "x", Typed: "X"}, 8 | 4, "\x1b[120:88;2u"},
+		{"all keys control c press", gfx.KeyEvent{Modifiers: gfx.ModifierControl, Text: "c"}, 8 | 2, "\x1b[99;5:1u"},
+		{"all keys control c release", gfx.KeyEvent{Modifiers: gfx.ModifierControl, Text: "c", Release: true}, 8 | 2, "\x1b[99;5:3u"},
+		{"text release without all keys", gfx.KeyEvent{Text: "x", Typed: "x", Release: true}, 1 | 2, ""},
+		{"enter stays carriage return", gfx.KeyEvent{Key: gfx.KeyEnter}, 1, "\r"},
+		{"shift enter is an escape code", gfx.KeyEvent{Key: gfx.KeyEnter, Modifiers: gfx.ModifierShift}, 1, "\x1b[13;2u"},
+		{"shift enter with event types", gfx.KeyEvent{Key: gfx.KeyEnter, Modifiers: gfx.ModifierShift}, 1 | 2 | 4, "\x1b[13;2:1u"},
+		{"alt enter is an escape code", gfx.KeyEvent{Key: gfx.KeyEnter, Modifiers: gfx.ModifierAlt}, 1, "\x1b[13;3u"},
+		{"shift enter without flags sends escape code", gfx.KeyEvent{Key: gfx.KeyEnter, Modifiers: gfx.ModifierShift}, 0, "\x1b[13;2u"},
+		{"shift alt enter without flags sends escape code", gfx.KeyEvent{Key: gfx.KeyEnter, Modifiers: gfx.ModifierShift | gfx.ModifierAlt}, 0, "\x1b[13;4u"},
+		{"control alt enter without flags sends escape code", gfx.KeyEvent{Key: gfx.KeyEnter, Modifiers: gfx.ModifierControl | gfx.ModifierAlt}, 0, "\x1b[13;7u"},
+		{"all keys enter", gfx.KeyEvent{Key: gfx.KeyEnter}, 8, "\x1b[13u"},
+		{"all keys enter release", gfx.KeyEvent{Key: gfx.KeyEnter, Release: true}, 8 | 2, "\x1b[13;1:3u"},
+		{"arrow", gfx.KeyEvent{Key: gfx.KeyUp}, 1, "\x1b[A"},
+		{"control arrow", gfx.KeyEvent{Key: gfx.KeyUp, Modifiers: gfx.ModifierControl}, 1, "\x1b[1;5A"},
+		{"control arrow press", gfx.KeyEvent{Key: gfx.KeyUp, Modifiers: gfx.ModifierControl}, 1 | 2, "\x1b[1;5:1A"},
+		{"control arrow release", gfx.KeyEvent{Key: gfx.KeyUp, Modifiers: gfx.ModifierControl, Release: true}, 1 | 2, "\x1b[1;5:3A"},
+		{"F5 press", gfx.KeyEvent{Key: gfx.KeyF5}, 1 | 2, "\x1b[15;1:1~"},
+		{"insert all keys", gfx.KeyEvent{Key: gfx.KeyInsert}, 8, "\x1b[2~"},
+		{"space stays text", gfx.KeyEvent{Key: gfx.KeySpace, Text: " "}, 1, " "},
+		{"control space", gfx.KeyEvent{Key: gfx.KeySpace, Modifiers: gfx.ModifierControl, Text: " "}, 1, "\x1b[32;5u"},
+		{"associated text", gfx.KeyEvent{Text: "x", Typed: "x"}, 8 | 16, "\x1b[120;1;120u"},
+		{"shift modifier key", gfx.KeyEvent{Key: gfx.KeyShiftLeft, Modifiers: gfx.ModifierShift}, 8, "\x1b[57441;2u"},
+		{"meta modifier key", gfx.KeyEvent{Key: gfx.KeyMetaLeft, Modifiers: gfx.ModifierMeta}, 8, "\x1b[57444;9u"},
+		{"command chord", gfx.KeyEvent{Modifiers: gfx.ModifierMeta, Text: "x"}, 8, "\x1b[120;9u"},
+		{"command chord disambiguation", gfx.KeyEvent{Modifiers: gfx.ModifierMeta, Text: "x"}, 1, "\x1b[120;9u"},
+		{"command press with event types", gfx.KeyEvent{Modifiers: gfx.ModifierMeta, Text: "j"}, 1 | 2, "\x1b[106;9:1u"},
+		{"command release with event types", gfx.KeyEvent{Modifiers: gfx.ModifierMeta, Text: "j", Release: true}, 1 | 2, "\x1b[106;9:3u"},
+		{"command enter", gfx.KeyEvent{Key: gfx.KeyEnter, Modifiers: gfx.ModifierMeta}, 1, "\x1b[13;9u"},
+		{"legacy command chord", gfx.KeyEvent{Modifiers: gfx.ModifierMeta, Text: "x"}, 0, ""},
+		{"legacy command left", gfx.KeyEvent{Key: gfx.KeyLeft, Modifiers: gfx.ModifierMeta}, 0, "\x01"},
+		{"legacy command left release", gfx.KeyEvent{Key: gfx.KeyLeft, Modifiers: gfx.ModifierMeta, Release: true}, 0, ""},
+		{"kitty command left", gfx.KeyEvent{Key: gfx.KeyLeft, Modifiers: gfx.ModifierMeta}, 1, "\x1b[1;9D"},
+		{"kitty command right", gfx.KeyEvent{Key: gfx.KeyRight, Modifiers: gfx.ModifierMeta}, 1 | 4, "\x1b[1;9C"},
+		{"kitty command backspace repeat", gfx.KeyEvent{Key: gfx.KeyBackspace, Modifiers: gfx.ModifierMeta, Repeat: true}, 1 | 2, "\x1b[127;9:2u"},
+		{"kitty command left release", gfx.KeyEvent{Key: gfx.KeyLeft, Modifiers: gfx.ModifierMeta, Release: true}, 1 | 2, "\x1b[1;9:3D"},
+		{"kitty command shift left", gfx.KeyEvent{Key: gfx.KeyLeft, Modifiers: gfx.ModifierMeta | gfx.ModifierShift}, 1, "\x1b[1;10D"},
+		{"all keys command left", gfx.KeyEvent{Key: gfx.KeyLeft, Modifiers: gfx.ModifierMeta}, 8, "\x1b[1;9D"},
+		{"all keys command backspace", gfx.KeyEvent{Key: gfx.KeyBackspace, Modifiers: gfx.ModifierMeta}, 8, "\x1b[127;9u"},
+		{"all keys command left press", gfx.KeyEvent{Key: gfx.KeyLeft, Modifiers: gfx.ModifierMeta}, 8 | 2, "\x1b[1;9:1D"},
+		{"all keys command left release", gfx.KeyEvent{Key: gfx.KeyLeft, Modifiers: gfx.ModifierMeta, Release: true}, 8 | 2, "\x1b[1;9:3D"},
+		{"all keys command shift left", gfx.KeyEvent{Key: gfx.KeyLeft, Modifiers: gfx.ModifierMeta | gfx.ModifierShift}, 8, "\x1b[1;10D"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -144,7 +144,7 @@ func TestKittyQueryRoundTripsWithoutBreakingLegacyKeys(t *testing.T) {
 	if strings.Join(replies, "|") != "\x1b[?1u" {
 		t.Fatalf("replies = %q", replies)
 	}
-	if got := string(EncodeKeyEvent(ui.KeyEvent{Key: ui.KeyEscape}, term.KeyboardFlags(), false)); got != "\x1b[27u" {
+	if got := string(EncodeKeyEvent(gfx.KeyEvent{Key: gfx.KeyEscape}, term.KeyboardFlags(), false)); got != "\x1b[27u" {
 		t.Fatalf("escape with flags = %q", got)
 	}
 }
@@ -162,7 +162,7 @@ func TestKittySequencesMayBeSplitAcrossWrites(t *testing.T) {
 }
 
 func BenchmarkEncodeKittyKey(b *testing.B) {
-	event := ui.KeyEvent{Modifiers: ui.ModifierControl | ui.ModifierShift, Text: "c", Typed: "C"}
+	event := gfx.KeyEvent{Modifiers: gfx.ModifierControl | gfx.ModifierShift, Text: "c", Typed: "C"}
 	b.ReportAllocs()
 	for b.Loop() {
 		_ = EncodeKeyEvent(event, 1|2|8|16, false)

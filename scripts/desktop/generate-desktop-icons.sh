@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Regenerates the icon package of the Viva desktop client (desktop/internal/icons/):
 #
-#   icons.go   every icon below compiled into a ui.Icon value by the Viva icon compiler
+#   icons.go   every icon below compiled into a gfx.Icon value by the Viva icon compiler
 #   NOTICE     the Lucide copyright and ISC license text that icons.go carries in its header
 #
 # The icons are the Lucide icons named in ICONS, downloaded at the pinned LUCIDE_VERSION tag.
@@ -14,7 +14,7 @@ set -euo pipefail
 
 ROOT_DIR="${0:A:h:h:h}"
 LUCIDE_VERSION="0.469.0"
-VIVA_VERSION="v0.5.1-0.20261108113640-16ca40bd07ab"
+VIVA_VERSION="v0.5.2-0.20261109020342-0c11a3d0950d"
 ICONS=(
     folder folder-open folder-tree file file-text file-code chevron-down chevron-right
     git-commit-horizontal git-branch list-tree search square-terminal circle-alert play bug

@@ -9,7 +9,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 func TestWelcomeTitleAndVersionMatchWindowChrome(t *testing.T) {
@@ -112,7 +112,7 @@ func TestWelcomeProjectMenuRevealsExistingAndKeepsMissingEntryRemovable(t *testi
 	openMenu := func(index int) {
 		t.Helper()
 		row := center(h.hit(welcomeRows.At(index)))
-		if err := h.driver.ClickButton(row.X, row.Y, ui.PointerButtonSecondary); err != nil {
+		if err := h.driver.ClickButton(row.X, row.Y, gfx.PointerButtonSecondary); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -129,7 +129,7 @@ func TestWelcomeProjectMenuRevealsExistingAndKeepsMissingEntryRemovable(t *testi
 	if got := h.driver.Snapshot().Focused; got != welcomeMenuRemove {
 		t.Fatalf("missing project menu focus = %v, want remove action", got)
 	}
-	if err := h.driver.Key(ui.KeyTab, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyTab, 0); err != nil {
 		t.Fatal(err)
 	}
 	if got := h.driver.Snapshot().Focused; got != welcomeMenuRemove {
@@ -162,7 +162,7 @@ func TestWelcomeRevealFailureIsReportedAndLoggedWithoutThePath(t *testing.T) {
 	logger := &treeRecordingLog{}
 	h.app.logSink = logger
 	row := center(h.hit(welcomeRows.At(0)))
-	if err := h.driver.ClickButton(row.X, row.Y, ui.PointerButtonSecondary); err != nil {
+	if err := h.driver.ClickButton(row.X, row.Y, gfx.PointerButtonSecondary); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(path); err != nil {
@@ -239,7 +239,7 @@ func TestWelcomeRemoveKeepsRecentEntryWhenSavingFails(t *testing.T) {
 	logger := &treeRecordingLog{}
 	h.app.logSink = logger
 	row := center(h.hit(welcomeRows.At(0)))
-	if err := h.driver.ClickButton(row.X, row.Y, ui.PointerButtonSecondary); err != nil {
+	if err := h.driver.ClickButton(row.X, row.Y, gfx.PointerButtonSecondary); err != nil {
 		t.Fatal(err)
 	}
 	remove := center(h.hit(welcomeMenuRemove))
@@ -270,7 +270,7 @@ func TestWelcomeProjectMenuRemovesOnlyTheChosenRecentEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	row := center(h.hit(welcomeRows.At(1)))
-	if err := h.driver.ClickButton(row.X, row.Y, ui.PointerButtonSecondary); err != nil {
+	if err := h.driver.ClickButton(row.X, row.Y, gfx.PointerButtonSecondary); err != nil {
 		t.Fatal(err)
 	}
 	if h.app.welcome.menuPath != second || h.app.project != nil {
@@ -279,7 +279,7 @@ func TestWelcomeProjectMenuRemovesOnlyTheChosenRecentEntry(t *testing.T) {
 	if panel := h.hit(welcomeMenuPanel); panel.X != row.X || panel.Y != row.Y {
 		t.Fatalf("context menu at %v; want it at click %v", panel, row)
 	}
-	if err := h.driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 	if h.app.welcome.menuPath != "" {
@@ -324,20 +324,20 @@ func TestWelcomeProjectMenuIsKeyboardReachable(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 12 && h.driver.Snapshot().Focused != welcomeRows.At(0); i++ {
-		if err := h.driver.Key(ui.KeyTab, 0); err != nil {
+		if err := h.driver.Key(gfx.KeyTab, 0); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if h.driver.Snapshot().Focused != welcomeRows.At(0) {
 		t.Fatal("keyboard focus did not reach the recent project")
 	}
-	if err := h.driver.Key(ui.KeyTab, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyTab, 0); err != nil {
 		t.Fatal(err)
 	}
 	if got := h.driver.Snapshot().Focused; got != welcomeMenus.At(0) {
 		t.Fatalf("keyboard focus = %v, want the project menu button", got)
 	}
-	if err := h.driver.Key(ui.KeyEnter, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
 	if h.app.welcome.menuPath != h.app.recent[0].Path {
@@ -346,32 +346,32 @@ func TestWelcomeProjectMenuIsKeyboardReachable(t *testing.T) {
 	if got := h.driver.Snapshot().Focused; got != welcomeMenuOpen {
 		t.Fatalf("initial menu focus = %v, want %v", got, welcomeMenuOpen)
 	}
-	if err := h.driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 	if got := h.driver.Snapshot().Focused; got != welcomeMenus.At(0) {
 		t.Fatalf("focus after closing menu = %v, want its button", got)
 	}
-	if err := h.driver.Key(ui.KeyEnter, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
-	for index, want := range []ui.ID{welcomeMenuReveal, welcomeMenuRemove, welcomeMenuOpen, welcomeMenuReveal, welcomeMenuRemove} {
-		if err := h.driver.Key(ui.KeyTab, 0); err != nil {
+	for index, want := range []gfx.ID{welcomeMenuReveal, welcomeMenuRemove, welcomeMenuOpen, welcomeMenuReveal, welcomeMenuRemove} {
+		if err := h.driver.Key(gfx.KeyTab, 0); err != nil {
 			t.Fatal(err)
 		}
 		if got := h.driver.Snapshot().Focused; got != want {
 			t.Fatalf("menu focus after tab %d = %v, want %v (open %v, reveal %v, remove %v)", index+1, got, want, welcomeMenuOpen, welcomeMenuReveal, welcomeMenuRemove)
 		}
 	}
-	for _, want := range []ui.ID{welcomeMenuReveal, welcomeMenuOpen, welcomeMenuRemove} {
-		if err := h.driver.Key(ui.KeyTab, ui.ModifierShift); err != nil {
+	for _, want := range []gfx.ID{welcomeMenuReveal, welcomeMenuOpen, welcomeMenuRemove} {
+		if err := h.driver.Key(gfx.KeyTab, gfx.ModifierShift); err != nil {
 			t.Fatal(err)
 		}
 		if got := h.driver.Snapshot().Focused; got != want {
 			t.Fatalf("reverse menu focus = %v, want %v", got, want)
 		}
 	}
-	if err := h.driver.Key(ui.KeyEnter, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
 	if len(h.app.recent) != 0 {

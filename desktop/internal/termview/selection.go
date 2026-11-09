@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/term"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // terminalSelection is anchored to buffer lines, not view rows, so it stays on
@@ -233,15 +233,15 @@ func (selection terminalSelection) span(lineNumber uint64, line term.Row, cols i
 // Pointer handles a pointer event for the view: the scrollbar's, or the grid's.
 // The second result is false for an event that is none of the view's, so the
 // caller can hand it on. Every press on the grid takes the keyboard.
-func (v *View) Pointer(event ui.PointerEvent) (ui.EventResult, bool) {
+func (v *View) Pointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 	if event.Target == v.cfg.BarID || v.bar.dragging {
 		return v.barPointer(event)
 	}
 	if !v.holdsPointer(event) {
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
 	result := v.terminalPointer(event)
-	if event.Kind == ui.PointerDown {
+	if event.Kind == gfx.PointerDown {
 		result.Focus = v.cfg.HitID
 	}
 	return result, true
@@ -251,16 +251,16 @@ func (v *View) Pointer(event ui.PointerEvent) (ui.EventResult, bool) {
 // or it continues a drag or a held button the grid started. A held pointer keeps
 // reporting to the hit it was pressed on, but the grid does not rely on that to
 // end a drag it began.
-func (v *View) holdsPointer(event ui.PointerEvent) bool {
+func (v *View) holdsPointer(event gfx.PointerEvent) bool {
 	if event.Target == v.cfg.HitID {
 		return true
 	}
-	return event.Kind != ui.PointerDown && (v.selection.dragging || v.mouseButton != term.MouseButtonNone)
+	return event.Kind != gfx.PointerDown && (v.selection.dragging || v.mouseButton != term.MouseButtonNone)
 }
 
 // terminalPointer is the grid's pointer handling: a program's mouse reports when
 // it asked for the mouse, the middle-click paste, and otherwise the selection.
-func (v *View) terminalPointer(event ui.PointerEvent) ui.EventResult {
+func (v *View) terminalPointer(event gfx.PointerEvent) gfx.EventResult {
 	selection := &v.selection
 	position := v.positionAt(event.X, event.Y)
 	if result, handled := v.terminalMousePointer(event, position); handled {
@@ -271,21 +271,21 @@ func (v *View) terminalPointer(event ui.PointerEvent) ui.EventResult {
 		position.Column--
 	}
 	switch event.Kind {
-	case ui.PointerDown:
+	case gfx.PointerDown:
 		switch event.Button {
-		case ui.PointerButtonMiddle:
+		case gfx.PointerButtonMiddle:
 			// A program that asked for the mouse already had this press; what reaches
 			// here is the terminal's own. Nothing can take the text once the shell
 			// has ended.
 			if v.shell != nil {
 				v.paste()
 			}
-			return ui.EventResult{Handled: true, Repaint: true}
-		case ui.PointerButtonPrimary, ui.PointerButtonNone:
+			return gfx.EventResult{Handled: true, Repaint: true}
+		case gfx.PointerButtonPrimary, gfx.PointerButtonNone:
 		default:
 			// The secondary button has no menu to open, and the side buttons mean
 			// nothing to a terminal.
-			return ui.EventResult{}
+			return gfx.EventResult{}
 		}
 		if event.ClickCount >= 2 {
 			// A double click takes the word, a triple click the whole line, soft
@@ -296,29 +296,29 @@ func (v *View) terminalPointer(event ui.PointerEvent) ui.EventResult {
 				unit = unitLine
 			}
 			selection.beginUnit(v.screen, v.screen.PointAt(position), unit)
-			return ui.EventResult{Handled: true, Repaint: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		}
-		if event.Modifiers&ui.ModifierShift != 0 {
+		if event.Modifiers&gfx.ModifierShift != 0 {
 			// Shift-click stretches the selection to here. It is the terminal's own
 			// selection even when a program has the mouse, which Shift hands back.
 			if changed, ok := selection.extendTo(v.screen.PointAt(position)); ok {
-				return ui.EventResult{Handled: true, Repaint: changed}
+				return gfx.EventResult{Handled: true, Repaint: changed}
 			}
 		}
-		return ui.EventResult{Handled: true, Repaint: selection.begin(v.screen.PointAt(position))}
-	case ui.PointerMove:
+		return gfx.EventResult{Handled: true, Repaint: selection.begin(v.screen.PointAt(position))}
+	case gfx.PointerMove:
 		if !selection.dragging || !event.Captured {
-			return ui.EventResult{}
+			return gfx.EventResult{}
 		}
 		changed := selection.extendUnit(v.screen, v.screen.PointAt(position))
 		v.armSelectionScroll(event, position.Column)
-		return ui.EventResult{Handled: true, Repaint: changed}
-	case ui.PointerUp, ui.PointerExit:
+		return gfx.EventResult{Handled: true, Repaint: changed}
+	case gfx.PointerUp, gfx.PointerExit:
 		if !selection.dragging {
-			return ui.EventResult{Handled: event.Captured}
+			return gfx.EventResult{Handled: event.Captured}
 		}
 		changed := false
-		if event.Kind == ui.PointerUp {
+		if event.Kind == gfx.PointerUp {
 			changed = selection.extendUnit(v.screen, v.screen.PointAt(position))
 		}
 		selection.dragging = false
@@ -327,16 +327,16 @@ func (v *View) terminalPointer(event ui.PointerEvent) ui.EventResult {
 			// A click selects nothing; it only leaves the mark a Shift-click starts from.
 			changed = selection.dismiss() || changed
 		}
-		return ui.EventResult{Handled: true, Repaint: changed}
+		return gfx.EventResult{Handled: true, Repaint: changed}
 	}
-	return ui.EventResult{}
+	return gfx.EventResult{}
 }
 
 // armSelectionScroll decides from where a drag's pointer is whether the view
 // has to follow it. A pointer held above or below the grid keeps scrolling
 // even when it stops moving, so the steps come from the frames paint asks for
 // (see stepSelectionScroll), not from further pointer events.
-func (v *View) armSelectionScroll(event ui.PointerEvent, column int) {
+func (v *View) armSelectionScroll(event gfx.PointerEvent, column int) {
 	selection := &v.selection
 	_, rows := v.screen.Size()
 	bottom := v.layout.top + float32(rows)*v.cellH
@@ -397,25 +397,25 @@ func (v *View) stepSelectionScroll(now time.Duration) {
 // asked for the mouse. It reports false when the event is the terminal's own: no
 // program wants the mouse, Shift hands it back, a selection is being dragged, or
 // the shell has ended and nothing is left to report to.
-func (v *View) terminalMousePointer(event ui.PointerEvent, position term.Position) (ui.EventResult, bool) {
+func (v *View) terminalMousePointer(event gfx.PointerEvent, position term.Position) (gfx.EventResult, bool) {
 	if v.selection.dragging {
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
 	if v.shell == nil {
 		// A session that ended with a button held would otherwise keep reporting a
 		// release to nobody; the selection still works on what it left in the grid.
 		v.mouseButton, v.mousePositionValid = term.MouseButtonNone, false
-		return ui.EventResult{}, false
+		return gfx.EventResult{}, false
 	}
 	modes := v.screen.Modes()
 	switch event.Kind {
-	case ui.PointerDown:
-		if modes.Mouse == term.MouseOff || event.Modifiers&ui.ModifierShift != 0 {
-			return ui.EventResult{}, false
+	case gfx.PointerDown:
+		if modes.Mouse == term.MouseOff || event.Modifiers&gfx.ModifierShift != 0 {
+			return gfx.EventResult{}, false
 		}
 		button, ok := terminalMouseButton(event.Button)
 		if !ok {
-			return ui.EventResult{}, false
+			return gfx.EventResult{}, false
 		}
 		v.mouseButton = button
 		v.mousePosition = position
@@ -424,16 +424,16 @@ func (v *View) terminalMousePointer(event ui.PointerEvent, position term.Positio
 			Kind: term.MousePress, Button: button, Modifiers: terminalMouseModifiers(event.Modifiers),
 			Column: position.Column, Row: position.Row,
 		})
-		return ui.EventResult{Handled: true, Repaint: repaint}, true
-	case ui.PointerMove:
+		return gfx.EventResult{Handled: true, Repaint: repaint}, true
+	case gfx.PointerMove:
 		button := v.mouseButton
 		if button == term.MouseButtonNone {
-			if modes.Mouse != term.MouseAny || event.Modifiers&ui.ModifierShift != 0 {
-				return ui.EventResult{}, false
+			if modes.Mouse != term.MouseAny || event.Modifiers&gfx.ModifierShift != 0 {
+				return gfx.EventResult{}, false
 			}
 		}
 		if v.mousePositionValid && v.mousePosition == position {
-			return ui.EventResult{Handled: true}, true
+			return gfx.EventResult{Handled: true}, true
 		}
 		v.mousePosition = position
 		v.mousePositionValid = true
@@ -441,11 +441,11 @@ func (v *View) terminalMousePointer(event ui.PointerEvent, position term.Positio
 			Kind: term.MouseMotion, Button: button, Modifiers: terminalMouseModifiers(event.Modifiers),
 			Column: position.Column, Row: position.Row,
 		})
-		return ui.EventResult{Handled: true, Repaint: repaint}, true
-	case ui.PointerUp:
+		return gfx.EventResult{Handled: true, Repaint: repaint}, true
+	case gfx.PointerUp:
 		button := v.mouseButton
 		if button == term.MouseButtonNone {
-			return ui.EventResult{}, false
+			return gfx.EventResult{}, false
 		}
 		v.mouseButton = term.MouseButtonNone
 		v.mousePosition = position
@@ -454,11 +454,11 @@ func (v *View) terminalMousePointer(event ui.PointerEvent, position term.Positio
 			Kind: term.MouseRelease, Button: button, Modifiers: terminalMouseModifiers(event.Modifiers),
 			Column: position.Column, Row: position.Row,
 		})
-		return ui.EventResult{Handled: true, Repaint: repaint}, true
-	case ui.PointerExit:
+		return gfx.EventResult{Handled: true, Repaint: repaint}, true
+	case gfx.PointerExit:
 		button := v.mouseButton
 		if button == term.MouseButtonNone {
-			return ui.EventResult{}, false
+			return gfx.EventResult{}, false
 		}
 		v.mouseButton = term.MouseButtonNone
 		// The pointer left the grid with the button down: release where it was last
@@ -470,9 +470,9 @@ func (v *View) terminalMousePointer(event ui.PointerEvent, position term.Positio
 			Kind: term.MouseRelease, Button: button, Modifiers: terminalMouseModifiers(event.Modifiers),
 			Column: position.Column, Row: position.Row,
 		})
-		return ui.EventResult{Handled: true, Repaint: repaint}, true
+		return gfx.EventResult{Handled: true, Repaint: repaint}, true
 	}
-	return ui.EventResult{}, false
+	return gfx.EventResult{}, false
 }
 
 // sendMouse writes the report of one mouse event, if the program's mouse mode
@@ -493,13 +493,13 @@ func (v *View) sendMouse(event term.MouseEvent) bool {
 
 // terminalMouseButton maps a pointer button to the button a mouse report names.
 // The side buttons have no report.
-func terminalMouseButton(button ui.PointerButton) (term.MouseEventButton, bool) {
+func terminalMouseButton(button gfx.PointerButton) (term.MouseEventButton, bool) {
 	switch button {
-	case ui.PointerButtonPrimary:
+	case gfx.PointerButtonPrimary:
 		return term.MouseButtonLeft, true
-	case ui.PointerButtonMiddle:
+	case gfx.PointerButtonMiddle:
 		return term.MouseButtonMiddle, true
-	case ui.PointerButtonSecondary:
+	case gfx.PointerButtonSecondary:
 		return term.MouseButtonRight, true
 	default:
 		return term.MouseButtonNone, false
@@ -507,15 +507,15 @@ func terminalMouseButton(button ui.PointerButton) (term.MouseEventButton, bool) 
 }
 
 // terminalMouseModifiers maps the held modifiers to the ones a mouse report carries.
-func terminalMouseModifiers(modifiers ui.Modifiers) term.MouseModifiers {
+func terminalMouseModifiers(modifiers gfx.Modifiers) term.MouseModifiers {
 	var result term.MouseModifiers
-	if modifiers&ui.ModifierShift != 0 {
+	if modifiers&gfx.ModifierShift != 0 {
 		result |= term.MouseModifierShift
 	}
-	if modifiers&ui.ModifierMeta != 0 {
+	if modifiers&gfx.ModifierMeta != 0 {
 		result |= term.MouseModifierMeta
 	}
-	if modifiers&ui.ModifierControl != 0 {
+	if modifiers&gfx.ModifierControl != 0 {
 		result |= term.MouseModifierControl
 	}
 	return result

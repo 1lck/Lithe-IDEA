@@ -14,7 +14,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 func TestProjectSearchOpensMatchingLine(t *testing.T) {
@@ -139,7 +139,7 @@ func TestProjectSearchOptionsAndMaskUseCore(t *testing.T) {
 		t.Fatal(err)
 	}
 	awaitDocumentState(t, h, func() bool { return !p.search.loading && p.search.want.matchCase && len(p.search.matches) == 2 })
-	if err := h.driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 	at = center(h.hit(searchMaskID))
@@ -473,7 +473,7 @@ func TestProjectSearchVirtualizesAndDisclosesResultLimit(t *testing.T) {
 		t.Fatalf("visible rows = %d", got)
 	}
 	at := center(h.hit(searchRows.At(0)))
-	if err := h.driver.Scroll(ui.ScrollEvent{X: at.X, Y: at.Y, DeltaY: 20000, Precise: true}); err != nil {
+	if err := h.driver.Scroll(gfx.ScrollEvent{X: at.X, Y: at.Y, DeltaY: 20000, Precise: true}); err != nil {
 		t.Fatal(err)
 	}
 	if got := countRows(); got > 20 {

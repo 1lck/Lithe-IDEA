@@ -9,7 +9,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/termview"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -166,7 +166,7 @@ type tabAction struct {
 // tabDecl is a terminal's tab as the frame declared it.
 type tabDecl struct {
 	term int
-	box  flex.Box
+	box  ui.Box
 }
 
 // groupDecl is a tab group as the frame declared it: the boxes of its strip of tabs and of
@@ -176,7 +176,7 @@ type groupDecl struct {
 	id string
 	// tool says the group is the Terminal tool window.
 	tool              bool
-	strip, body       flex.Box
+	strip, body       ui.Box
 	stripSet, bodySet bool
 	tabs              []tabDecl
 	selected          *terminal
@@ -203,7 +203,7 @@ func (g *groupDecl) place() dropPlace {
 // the box of its first child, which is what settle needs to reconcile the splitter.
 type splitDraw struct {
 	node             *splitNode
-	container, first flex.Box
+	container, first ui.Box
 }
 
 // terminalUI is what the window keeps for the terminals besides the project's own state:
@@ -217,14 +217,14 @@ type terminalUI struct {
 	groups []groupDecl
 	// empty is the box of the editor while it has no group, and emptyDrawn says the frame
 	// declared it.
-	empty      flex.Box
+	empty      ui.Box
 	emptyDrawn bool
 	// splits are the containers of the editor's split tree the frame declared.
 	splits []splitDraw
 	// places and emptyRect are where the last frame laid the groups and the empty editor out,
 	// as plain rectangles: the drag aims at them between frames, when the boxes are gone.
 	places    []dropPlace
-	emptyRect ui.Rect
+	emptyRect gfx.Rect
 	// actions are the clicks the frame recorded, done after it is painted.
 	actions []tabAction
 	// focus is the terminal and docFocus the document that is to receive the keyboard once it
@@ -287,20 +287,20 @@ func (a *App) beginTerminalFrame() {
 // title: a tab for each terminal of the tool window's group and a button that opens another.
 // The strip is recorded as the place a dragged tab can join the group. The tabs shrink, down
 // to their least width, before the button is pushed out of a narrow panel.
-func (a *App) drawTerminalTabs(f *flex.Frame) {
+func (a *App) drawTerminalTabs(f *ui.Frame) {
 	u := &a.term
-	strip := f.Row().Fill().Items(flex.Center).Gap(chromeGap).Clip()
+	strip := f.Row().Fill().Items(ui.Center).Gap(chromeGap).Clip()
 	var tabs []tabDecl
 	strip.Children(func() {
 		tabs = a.drawTerminalChips(f, toolGroup)
-		// A flex Button cannot show an icon in this version of Viva, so this is a hit row
+		// A ui Button cannot show an icon in this version of Viva, so this is a hit row
 		// with an icon, like the tool window's hide control.
 		add := f.Row().Size(shellHideSize, shellHideSize).Shrink(0).Center().Radius(a.theme.Metrics.RadiusItem()).
-			HitWith(termNew, a.text.Terminal.NewTab, ui.HitOptions{Role: ui.RoleButton, Cursor: ui.PointerCursorHand}).
-			Hover(flex.Look{}.Background(a.colors.Hover)).Pressed(flex.Look{}.Background(a.colors.Active))
+			HitWith(termNew, a.text.Terminal.NewTab, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}).
+			Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
 		add.Children(func() {
 			f.Icon(icons.Plus).Size(shellIconSize, shellIconSize).Color(a.colors.Subtle).
-				StateFrom(add).Hover(flex.Look{}.Color(a.colors.Text))
+				StateFrom(add).Hover(ui.Look{}.Color(a.colors.Text))
 		})
 		if add.Clicked() {
 			u.actions = append(u.actions, tabAction{kind: actionNew})
@@ -313,13 +313,13 @@ func (a *App) drawTerminalTabs(f *flex.Frame) {
 // room under the header. The selected terminal paints into the box's rectangle after the
 // frame is laid out (see paintTerminal), the way the commit rows are painted into the log's
 // list. When every terminal was moved to the editor the body says so instead.
-func (a *App) drawTerminal(f *flex.Frame) {
+func (a *App) drawTerminal(f *ui.Frame) {
 	u := &a.term
 	set := &a.project.terms
 	u.tool.selected = set.selected(toolGroup)
 	body := f.Row().Fill().Background(a.colors.Editor)
 	if u.tool.selected == nil && len(set.list) > 0 {
-		body.Items(flex.Center).PadX(shellContentPad).Children(func() {
+		body.Items(ui.Center).PadX(shellContentPad).Children(func() {
 			f.Paragraph(a.text.Terminal.NoTerminals, 3).Grow(1).TextCenter().Color(a.colors.Subtle)
 		})
 	}
@@ -331,7 +331,7 @@ func (a *App) drawTerminal(f *flex.Frame) {
 //
 // The group's open files get their tabs among the terminals', in the same order; they are not
 // returned, as a file's tab cannot be dragged yet.
-func (a *App) drawTerminalChips(f *flex.Frame, group string) []tabDecl {
+func (a *App) drawTerminalChips(f *ui.Frame, group string) []tabDecl {
 	p := a.project
 	set := &p.terms
 	g := set.bench.Group(group)
@@ -369,45 +369,45 @@ func (a *App) drawTerminalChips(f *flex.Frame, group string) []tabDecl {
 // selected tab has the active background and the others a hover one; the tab being dragged
 // is dimmed where it stands. A click on the tab or on its close button is recorded for
 // paintTerminal to do. pos is the tab's place among size tabs, for assistive technology.
-func (a *App) drawTerminalTab(f *flex.Frame, t *terminal, selected bool, pos, size int) tabDecl {
+func (a *App) drawTerminalTab(f *ui.Frame, t *terminal, selected bool, pos, size int) tabDecl {
 	u := &a.term
 	title := a.text.Terminal.Tab(t.number)
-	chip := f.Row().Height(rowHeight).Items(flex.Center).Gap(terminalChipGap).PadSides(0, 2, 0, 8).
+	chip := f.Row().Height(rowHeight).Items(ui.Center).Gap(terminalChipGap).PadSides(0, 2, 0, 8).
 		MinWidth(terminalChipMinWidth).MaxWidth(terminalChipMaxWidth).Shrink(1).
 		Radius(a.theme.Metrics.RadiusItem()).
-		HitWith(termTabs.At(t.id), title, ui.HitOptions{
-			Role:     ui.RoleTab,
-			Cursor:   ui.PointerCursorHand,
+		HitWith(termTabs.At(t.id), title, gfx.HitOptions{
+			Role:     gfx.RoleTab,
+			Cursor:   gfx.PointerCursorHand,
 			Selected: selected,
 			Hint:     a.text.Tools.DragHint,
 			PosInSet: int32(pos + 1),
 			SetSize:  int32(size),
 		}).
-		Pressed(flex.Look{}.Background(a.colors.Active))
+		Pressed(ui.Look{}.Background(a.colors.Active))
 	if selected {
 		chip = chip.Background(a.colors.Active)
 	} else {
-		chip = chip.Hover(flex.Look{}.Background(a.colors.Hover))
+		chip = chip.Hover(ui.Look{}.Background(a.colors.Hover))
 	}
 	if u.drag.active && u.drag.term == t.id {
 		chip = chip.Opacity(chromeDragDim)
 	}
-	var closeButton flex.Box
+	var closeButton ui.Box
 	chip.Children(func() {
 		f.Icon(icons.SquareTerminal).Size(terminalChipIcon, terminalChipIcon).Shrink(0).Color(a.colors.Subtle)
 		label := f.Text(title).Ellipsis()
 		if selected {
 			label.Color(a.colors.Text)
 		} else {
-			label.Color(a.colors.Subtle).StateFrom(chip).Hover(flex.Look{}.Color(a.colors.Text))
+			label.Color(a.colors.Subtle).StateFrom(chip).Hover(ui.Look{}.Color(a.colors.Text))
 		}
 		closeButton = f.Row().Size(terminalCloseSize, terminalCloseSize).Shrink(0).Center().
 			Radius(a.theme.Metrics.RadiusItem()).
-			HitWith(termClose.At(t.id), a.text.Terminal.CloseTab, ui.HitOptions{Role: ui.RoleButton, Cursor: ui.PointerCursorHand}).
-			Hover(flex.Look{}.Background(a.colors.Hover)).Pressed(flex.Look{}.Background(a.colors.Active))
+			HitWith(termClose.At(t.id), a.text.Terminal.CloseTab, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}).
+			Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
 		closeButton.Children(func() {
 			f.Icon(icons.X).Size(terminalCloseIcon, terminalCloseIcon).Color(a.colors.Subtle).
-				StateFrom(closeButton).Hover(flex.Look{}.Color(a.colors.Text))
+				StateFrom(closeButton).Hover(ui.Look{}.Color(a.colors.Text))
 		})
 	})
 	switch {
@@ -426,7 +426,7 @@ func (a *App) captureTerminals() {
 	u := &a.term
 	u.places = u.places[:0]
 	u.each(func(g *groupDecl) { u.places = append(u.places, g.place()) })
-	u.emptyRect = ui.Rect{}
+	u.emptyRect = gfx.Rect{}
 	if u.emptyDrawn {
 		u.emptyRect = u.empty.Rect()
 	}
@@ -445,7 +445,7 @@ func (a *App) captureTerminals() {
 //
 // A Terminal tool window that is open with no terminal anywhere gets one: the user closed
 // the last tab, hid the window and showed it again, or a failed start left it empty.
-func (a *App) paintTerminal(canvas *ui.Canvas) {
+func (a *App) paintTerminal(canvas *gfx.Canvas) {
 	p := a.project
 	if p == nil {
 		return
@@ -466,6 +466,7 @@ func (a *App) paintTerminal(canvas *ui.Canvas) {
 	// once; what a terminal already wrote into its grid stays in the language it was
 	// written in.
 	messages, look, editorLook := a.terminalMessages(), a.terminalLook(), a.editorLook()
+	editorWords := a.editorMessages()
 	u.each(func(g *groupDecl) {
 		if !g.bodySet {
 			return
@@ -475,7 +476,14 @@ func (a *App) paintTerminal(canvas *ui.Canvas) {
 			return
 		}
 		if d := g.doc; d != nil {
+			// The minimap's button was declared by the last paint; its click turns the minimap
+			// of every view off or on, so the views painted after it in this frame follow too.
+			if canvas.Clicked(docMinimapToggle.At(d.id)) {
+				a.toggleMinimap(canvas)
+			}
 			d.view.SetWrap(a.softWrap)
+			d.view.SetMinimap(!a.settings.HideMinimap)
+			d.view.SetMessages(editorWords)
 			d.view.Paint(canvas, rect, editorLook)
 			hit := docViews.At(d.id)
 			if canvas.Focused() == hit {

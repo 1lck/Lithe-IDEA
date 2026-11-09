@@ -7,7 +7,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -181,7 +181,7 @@ type item struct {
 	id   string
 	zone zone // the default zone; its surface is the only one the item may sit in
 	// icon is the glyph of the button; nil for a status item that is text only.
-	icon *ui.Icon
+	icon *gfx.Icon
 	// label is the button's name, shown as its tooltip and read by assistive
 	// technology.
 	label func(*i18n.Messages) string
@@ -255,21 +255,21 @@ type chromeState struct {
 
 	// boxes and zoneBoxes are the elements declared for the buttons and zones in the
 	// frame being drawn; drawn and zoneDrawn say which were declared at all.
-	boxes     []flex.Box
+	boxes     []ui.Box
 	drawn     []bool
-	zoneBoxes [zoneCount]flex.Box
+	zoneBoxes [zoneCount]ui.Box
 	zoneDrawn [zoneCount]bool
 	// rects and zoneRects are where they were laid out in the last finished frame;
 	// a zero rectangle means the button or zone was not shown.
-	rects     []ui.Rect
-	zoneRects [zoneCount]ui.Rect
+	rects     []gfx.Rect
+	zoneRects [zoneCount]gfx.Rect
 }
 
 func newChromeState() chromeState {
 	c := chromeState{
-		boxes: make([]flex.Box, len(catalog)),
+		boxes: make([]ui.Box, len(catalog)),
 		drawn: make([]bool, len(catalog)),
-		rects: make([]ui.Rect, len(catalog)),
+		rects: make([]gfx.Rect, len(catalog)),
 	}
 	c.apply(defaultLayout())
 	return c
@@ -350,26 +350,26 @@ func (c *chromeState) beginFrame() {
 }
 
 // place records the element declared for the button of catalog item index.
-func (c *chromeState) place(index int, box flex.Box) {
+func (c *chromeState) place(index int, box ui.Box) {
 	c.boxes[index], c.drawn[index] = box, true
 }
 
 // placeZone records the element declared for a zone: the container its buttons are
 // laid out in, which is also where a dragged button can be dropped.
-func (c *chromeState) placeZone(z zone, box flex.Box) {
+func (c *chromeState) placeZone(z zone, box ui.Box) {
 	c.zoneBoxes[z], c.zoneDrawn[z] = box, true
 }
 
 // capture keeps where the frame that just finished laid out each button and zone.
 func (c *chromeState) capture() {
 	for i := range c.rects {
-		c.rects[i] = ui.Rect{}
+		c.rects[i] = gfx.Rect{}
 		if c.drawn[i] {
 			c.rects[i] = c.boxes[i].Rect()
 		}
 	}
 	for z := range c.zoneRects {
-		c.zoneRects[z] = ui.Rect{}
+		c.zoneRects[z] = gfx.Rect{}
 		if c.zoneDrawn[z] {
 			c.zoneRects[z] = c.zoneBoxes[z].Rect()
 		}

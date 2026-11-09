@@ -11,14 +11,14 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/splitpane"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
 // The identities of the window's frame. A control the window paints must have one, and a
 // text field must also be listed in config's TextInput.
 var (
-	tree = ui.Tree{}
+	tree = gfx.Tree{}
 	root = tree.Feature("settings")
 
 	searchID      = tree.ID(root, "search")
@@ -107,32 +107,32 @@ type window struct {
 	gone      bool
 
 	inv  app.Invalidator
-	view flex.View
+	view ui.View
 
 	market         *marketplaceState
-	marketFocus    ui.ID
-	marketListBox  flex.Box
-	marketListRect ui.Rect
-	marketDivider  flex.Box
+	marketFocus    gfx.ID
+	marketListBox  ui.Box
+	marketListRect gfx.Rect
+	marketDivider  ui.Box
 	marketSplit    splitpane.State
 	marketExtent   float32
 	requestPlugins atomic.Bool
-	search         flex.Field
-	marketQuery    flex.Field
+	search         ui.Field
+	marketQuery    ui.Field
 	// focusSearch asks the next paint to focus the search field (⌘F).
 	focusSearch bool
 	// language is the state of the language list: whether it is open and the first option
 	// it shows.
-	language     flex.SelectState
-	marketSource flex.SelectState
+	language     ui.SelectState
+	marketSource ui.SelectState
 	info         components.HoverTooltip
-	pinnedInfo   ui.ID
+	pinnedInfo   gfx.ID
 
 	// What the current paint works from.
 	text  *i18n.Messages
 	dark  bool
 	pal   palette
-	theme ui.Theme
+	theme gfx.Theme
 	// themed says theme has been built and themedDark which look it was built for, so it
 	// is built again only when the look changes.
 	themed      bool
@@ -155,8 +155,8 @@ type window struct {
 
 	// listBox is the scroll area of the sidebar's rows and listRect where it was in the last
 	// frame, which the accessibility container of the list is declared with.
-	listBox  flex.Box
-	listRect ui.Rect
+	listBox  ui.Box
+	listRect gfx.Rect
 }
 
 // rowsKey is everything the sidebar's rows are computed from.
@@ -206,7 +206,7 @@ func (w *window) config() app.Config {
 		OnPointer:      w.onPointer,
 		OnShortcut:     w.onShortcut,
 		OnScroll:       w.onScroll,
-		TextInput:      flex.Fields(&w.search, &w.marketQuery),
+		TextInput:      ui.Fields(&w.search, &w.marketQuery),
 		Invalidator:    &w.inv,
 		OnWake:         w.marketWake,
 		OnClosed:       w.closed,
@@ -282,7 +282,7 @@ func (w *window) closeNative() {
 }
 
 // paint draws the window for its current settings.
-func (w *window) paint(canvas *ui.Canvas, size ui.Size) {
+func (w *window) paint(canvas *gfx.Canvas, size gfx.Size) {
 	w.marketExtent = max(0, size.Width-sidebarWidth-1)
 	if w.sess.page != pagePlugins || w.market.status != marketReady {
 		w.marketSplit.Cancel()
@@ -300,13 +300,13 @@ func (w *window) paint(canvas *ui.Canvas, size ui.Size) {
 		// The language list lives on the general page. One left open there would go on
 		// taking Enter and Escape from the window with nothing on the screen to show why.
 		w.language.Open = false
-		w.pinnedInfo = ui.ID{}
+		w.pinnedInfo = gfx.ID{}
 	}
 	if w.sess.page != pagePlugins {
 		w.marketSource.Open = false
 	}
 
-	bounds := ui.Rect{Width: size.Width, Height: size.Height}
+	bounds := gfx.Rect{Width: size.Width, Height: size.Height}
 	canvas.Fill(bounds, w.pal.window)
 	if w.focusSearch {
 		w.focusSearch = false
@@ -314,11 +314,11 @@ func (w *window) paint(canvas *ui.Canvas, size ui.Size) {
 	}
 	if !w.marketFocus.IsZero() {
 		canvas.RequestFocus(w.marketFocus)
-		w.marketFocus = ui.ID{}
+		w.marketFocus = gfx.ID{}
 	}
 	_, w.treeFocused = canvas.Focused().In(rowScope)
 
-	w.view.Draw(canvas, w.theme, bounds, func(f *flex.Frame) {
+	w.view.Draw(canvas, w.theme, bounds, func(f *ui.Frame) {
 		// The language list opens over the page, on a layer of its own.
 		f.PopupLayer(1)
 		f.Column().Fill().Children(func() {
@@ -345,7 +345,7 @@ func (w *window) paint(canvas *ui.Canvas, size ui.Size) {
 			}
 		}
 		if !found {
-			w.pinnedInfo = ui.ID{}
+			w.pinnedInfo = gfx.ID{}
 		}
 	} else {
 		w.info.Paint(canvas, tipTheme, bounds, components.TooltipOptions{Layer: 3, MaxWidth: 320}, 500*time.Millisecond)
@@ -356,15 +356,15 @@ func (w *window) paint(canvas *ui.Canvas, size ui.Size) {
 		rect.X -= (marketDividerHitWidth - rect.Width) / 2
 		rect.Width = marketDividerHitWidth
 		lo, hi := w.marketSplit.Limits(w.marketExtent)
-		canvas.HitWithOptions(marketDividerID, rect, i18n.Shared(w.marketLanguage(), "settings.resizePlugins"), ui.HitOptions{
-			Role: ui.RoleSlider, Cursor: ui.PointerCursorResizeHorizontal,
-			Range: ui.ValueRange{Now: float64(w.marketSplit.Size(w.marketExtent)), Min: float64(lo), Max: float64(hi), Step: 16, Set: true},
+		canvas.HitWithOptions(marketDividerID, rect, i18n.Shared(w.marketLanguage(), "settings.resizePlugins"), gfx.HitOptions{
+			Role: gfx.RoleSlider, Cursor: gfx.PointerCursorResizeHorizontal,
+			Range: gfx.ValueRange{Now: float64(w.marketSplit.Size(w.marketExtent)), Min: float64(lo), Max: float64(hi), Step: 16, Set: true},
 		})
 	}
 	if w.sess.page == pagePlugins && w.market.status == marketReady && !w.market.search.loading && !w.market.search.failed && !w.market.search.tooLong && len(w.market.search.visible()) > 0 {
 		w.marketListRect = w.marketListBox.Rect()
 	} else {
-		w.marketListRect = ui.Rect{}
+		w.marketListRect = gfx.Rect{}
 	}
 }
 
@@ -393,17 +393,17 @@ func (w *window) refreshLabels() {
 }
 
 // drawTitle keeps the native window title beside the system controls.
-func (w *window) drawTitle(f *flex.Frame) {
+func (w *window) drawTitle(f *ui.Frame) {
 	leading, trailing := app.TitlebarInsets()
 	f.Stack().FillWidth().Height(titleHeight).Shrink(0).Background(w.pal.titleBar).MovesWindow().Children(func() {
-		f.Row().Fill().PadSides(0, max(8, trailing), 0, max(80, leading+10)).Items(flex.Center).Children(func() {
-			f.Text(w.text.Settings.Title).FontSize(13).Weight(ui.WeightSemibold).Color(w.pal.text).Ellipsis()
+		f.Row().Fill().PadSides(0, max(8, trailing), 0, max(80, leading+10)).Items(ui.Center).Children(func() {
+			f.Text(w.text.Settings.Title).FontSize(13).Weight(gfx.WeightSemibold).Color(w.pal.text).Ellipsis()
 		})
 	})
 }
 
 // drawSidebar is the column at the leading side: the search field above the list of pages.
-func (w *window) drawSidebar(f *flex.Frame) {
+func (w *window) drawSidebar(f *ui.Frame) {
 	p := &w.pal
 	settings := &w.text.Settings
 	f.Column().Width(sidebarWidth).FillHeight().Shrink(0).Background(p.sidebar).Clip().Children(func() {
@@ -412,7 +412,7 @@ func (w *window) drawSidebar(f *flex.Frame) {
 			if f.Canvas().Focused() == searchID {
 				border = p.accent
 			}
-			f.Row().FillWidth().Height(searchHeight).PadX(8).Gap(6).Items(flex.Center).Border(1, border).Radius(6).Children(func() {
+			f.Row().FillWidth().Height(searchHeight).PadX(8).Gap(6).Items(ui.Center).Border(1, border).Radius(6).Children(func() {
 				f.Icon(icons.Search).Size(searchIcon, searchIcon).Color(p.muted).Shrink(0)
 				f.FieldBase(&w.search, searchID, settings.Search, settings.Search).Grow(1).MinWidth(0).Height(searchHeight - 2).FontSize(13).Color(p.text)
 			})
@@ -420,7 +420,7 @@ func (w *window) drawSidebar(f *flex.Frame) {
 		// The list's container is declared with the rectangle the list had in the last frame,
 		// ahead of the rows, so assistive technology finds the rows inside it. The first frame
 		// has no rectangle yet and declares nothing.
-		f.Canvas().Container(w.listRect, ui.RoleListBox, settings.Categories)
+		f.Canvas().Container(w.listRect, gfx.RoleListBox, settings.Categories)
 		w.listBox = f.ScrollArea(sidebarListID).Grow(1).Shrink(1).MinHeight(0).PadSides(2, 0, 8, 0).Children(func() {
 			for _, r := range w.rows {
 				w.drawRow(f, r)
@@ -437,25 +437,25 @@ func (w *window) drawSidebar(f *flex.Frame) {
 // drawRow declares one row of the sidebar. A group expands and collapses; any other row
 // opens its page. The hit spans the whole width of the list, as the log window's rows do,
 // while the highlight and the content keep the list's inset.
-func (w *window) drawRow(f *flex.Frame, r row) {
+func (w *window) drawRow(f *ui.Frame, r row) {
 	p := &w.pal
 	title := titleOf(&w.text.Settings, r.page)
 	selected := !r.group && r.page == w.sess.page
-	options := ui.HitOptions{Role: ui.RoleOption, Selected: selected, Level: r.level + 1}
+	options := gfx.HitOptions{Role: gfx.RoleOption, Selected: selected, Level: r.level + 1}
 	if r.group {
 		// The toolkit has no tree role, so a group is a button that expands.
-		options = ui.HitOptions{Role: ui.RoleButton, Expandable: true, Expanded: r.expanded, Level: r.level + 1}
+		options = gfx.HitOptions{Role: gfx.RoleButton, Expandable: true, Expanded: r.expanded, Level: r.level + 1}
 	}
 	outer := f.Row().FillWidth().Height(rowHeight).Shrink(0).HitWith(rowScope.At(int(r.page)), title, options)
 	outer.Children(func() {
 		// The look of the pointer and of the keyboard focus belongs to the highlight, which
 		// follows the hit's state.
-		inner := f.Row().Grow(1).MarginSides(rowLift, rowInset, rowLift, rowInset).PadX(8).Gap(rowGap).Items(flex.Center).
-			Radius(rowRadius).StateFrom(outer).Focus(flex.Look{}.Ring(2, p.accent))
+		inner := f.Row().Grow(1).MarginSides(rowLift, rowInset, rowLift, rowInset).PadX(8).Gap(rowGap).Items(ui.Center).
+			Radius(rowRadius).StateFrom(outer).Focus(ui.Look{}.Ring(2, p.accent))
 		if selected {
 			inner = inner.Background(p.selectionColor(w.treeFocused))
 		} else {
-			inner = inner.Hover(flex.Look{}.Background(p.hover))
+			inner = inner.Hover(ui.Look{}.Background(p.hover))
 		}
 		inner.Children(func() {
 			if r.level > 0 {
@@ -477,7 +477,7 @@ func (w *window) drawRow(f *flex.Frame, r row) {
 
 // drawRowLead declares what leads a top-level row: the chevron of a group in its slot, and
 // the page's tile.
-func (w *window) drawRowLead(f *flex.Frame, r row) {
+func (w *window) drawRowLead(f *ui.Frame, r row) {
 	p := &w.pal
 	f.Row().Size(chevronSlot, tileSize).Shrink(0).Center().Children(func() {
 		if !r.group {
@@ -496,7 +496,7 @@ func (w *window) drawRowLead(f *flex.Frame, r row) {
 }
 
 // drawContent is the page beside the sidebar: the breadcrumb above the page itself.
-func (w *window) drawContent(f *flex.Frame) {
+func (w *window) drawContent(f *ui.Frame) {
 	if w.sess.page != pagePlugins && w.market.status == marketLoading {
 		w.market.close()
 	}
@@ -516,16 +516,16 @@ func (w *window) drawContent(f *flex.Frame) {
 
 // drawBreadcrumb names where the open page is: its group, then the page. The last title is
 // the page itself and is set apart by its weight; a page on the top level has only that.
-func (w *window) drawBreadcrumb(f *flex.Frame) {
+func (w *window) drawBreadcrumb(f *ui.Frame) {
 	p := &w.pal
 	w.crumbs = appendBreadcrumb(w.crumbs[:0], &w.text.Settings, w.sess.page)
-	f.Row().FillWidth().Height(46).Shrink(0).PadX(contentPad).Gap(6).Items(flex.Center).Background(p.card).Children(func() {
+	f.Row().FillWidth().Height(46).Shrink(0).PadX(contentPad).Gap(6).Items(ui.Center).Background(p.card).Children(func() {
 		for i, crumb := range w.crumbs {
 			if i > 0 {
 				f.Icon(icons.ChevronRight).Size(chevronGlyph, chevronGlyph).Color(p.subtle).Shrink(0)
 			}
 			if i == len(w.crumbs)-1 {
-				f.Text(crumb).FontSize(13).Weight(ui.WeightSemibold).Color(p.text).Ellipsis()
+				f.Text(crumb).FontSize(13).Weight(gfx.WeightSemibold).Color(p.text).Ellipsis()
 			} else {
 				f.Text(crumb).FontSize(13).Color(p.muted).Ellipsis()
 			}
@@ -536,7 +536,7 @@ func (w *window) drawBreadcrumb(f *flex.Frame) {
 
 // drawUnavailable is the body of a page the new desktop client does not offer yet: an icon
 // and a sentence in the middle of the page.
-func (w *window) drawUnavailable(f *flex.Frame) {
+func (w *window) drawUnavailable(f *ui.Frame) {
 	p := &w.pal
 	f.Column().FillWidth().Grow(1).Shrink(1).MinHeight(0).Center().Gap(10).Children(func() {
 		f.Icon(icons.Clock).Size(28, 28).Color(p.subtle)
@@ -568,7 +568,7 @@ func (w *window) setTheme(value string, force bool) {
 
 // drawGeneral is the general page: the cards that edit settings, then the one that
 // reports the version.
-func (w *window) drawGeneral(f *flex.Frame) {
+func (w *window) drawGeneral(f *ui.Frame) {
 	p := &w.pal
 	settings := &w.text.Settings
 	scroll := pageScrollScope.At(int(pageGeneral))
@@ -586,8 +586,8 @@ func (w *window) drawGeneral(f *flex.Frame) {
 					choice()
 				})
 			} else {
-				f.Row().FillWidth().Height(28).Gap(12).Items(flex.Center).Children(func() {
-					f.Row().WidthPercent(34).Shrink(1).MinWidth(0).Items(flex.Center).Children(func() {
+				f.Row().FillWidth().Height(28).Gap(12).Items(ui.Center).Children(func() {
+					f.Row().WidthPercent(34).Shrink(1).MinWidth(0).Items(ui.Center).Children(func() {
 						f.Text(settings.AppearanceMode).FontSize(12).Color(p.text).Ellipsis()
 					})
 					choice()
@@ -595,8 +595,8 @@ func (w *window) drawGeneral(f *flex.Frame) {
 			}
 		})
 		w.card(f, 1, settings.Language, "", func() {
-			f.Row().FillWidth().Height(28).Items(flex.Center).Gap(12).Children(func() {
-				f.Row().WidthPercent(34).Shrink(1).MinWidth(0).Items(flex.Center).Gap(6).Children(func() {
+			f.Row().FillWidth().Height(28).Items(ui.Center).Gap(12).Children(func() {
+				f.Row().WidthPercent(34).Shrink(1).MinWidth(0).Items(ui.Center).Gap(6).Children(func() {
 					f.Text(settings.Language).FontSize(12).Color(p.text)
 					w.infoButton(f, 1, settings.LanguageHelp)
 				})
@@ -608,7 +608,7 @@ func (w *window) drawGeneral(f *flex.Frame) {
 			})
 		})
 		w.card(f, 2, settings.Workbench, settings.LayoutHint, func() {
-			f.Row().FillWidth().Items(flex.Center).Children(func() {
+			f.Row().FillWidth().Items(ui.Center).Children(func() {
 				// Pressing the button is its own confirmation, so it acts at once.
 				if f.Button(resetLayoutID, settings.ResetLayout).Outline().Clicked() && w.ctrl.opts.ResetLayout != nil {
 					w.ctrl.opts.ResetLayout()
@@ -617,7 +617,7 @@ func (w *window) drawGeneral(f *flex.Frame) {
 		})
 		w.card(f, 3, settings.About, "", func() {
 			f.Column().FillWidth().Gap(2).Children(func() {
-				f.Text(w.text.App.Name).FontSize(13).Weight(ui.WeightSemibold).Color(p.text).Ellipsis()
+				f.Text(w.text.App.Name).FontSize(13).Weight(gfx.WeightSemibold).Color(p.text).Ellipsis()
 				f.Text(w.text.App.Version(w.ctrl.opts.Version)).FontSize(12).Color(p.muted).Ellipsis()
 			})
 		})
@@ -625,11 +625,11 @@ func (w *window) drawGeneral(f *flex.Frame) {
 }
 
 // card puts the section label outside its bounded settings rows, as in the native client.
-func (w *window) card(f *flex.Frame, id int, title, help string, body func()) {
+func (w *window) card(f *ui.Frame, id int, title, help string, body func()) {
 	p := &w.pal
 	f.Column().FillWidth().Shrink(0).MinWidth(0).Gap(6).Children(func() {
-		f.Row().FillWidth().PadX(6).Gap(6).Items(flex.Center).Children(func() {
-			f.Text(title).FontSize(12).Weight(ui.WeightSemibold).Color(p.muted).Ellipsis()
+		f.Row().FillWidth().PadX(6).Gap(6).Items(ui.Center).Children(func() {
+			f.Text(title).FontSize(12).Weight(gfx.WeightSemibold).Color(p.muted).Ellipsis()
 			if help != "" {
 				w.infoButton(f, id, help)
 			}
@@ -639,13 +639,13 @@ func (w *window) card(f *flex.Frame, id int, title, help string, body func()) {
 	})
 }
 
-func (w *window) infoButton(f *flex.Frame, index int, help string) {
+func (w *window) infoButton(f *ui.Frame, index int, help string) {
 	id := infoScope.At(index)
-	button := f.Row().Size(18, 18).Shrink(0).Center().HitWith(id, i18n.Shared(w.marketLanguage(), "native.moreInformation"), ui.HitOptions{Role: ui.RoleButton, Hint: help})
+	button := f.Row().Size(18, 18).Shrink(0).Center().HitWith(id, i18n.Shared(w.marketLanguage(), "native.moreInformation"), gfx.HitOptions{Role: gfx.RoleButton, Hint: help})
 	button.Children(func() { f.Icon(icons.Info).Size(13, 13).Color(w.pal.muted) })
 	if button.Clicked() {
 		if w.pinnedInfo == id {
-			w.pinnedInfo = ui.ID{}
+			w.pinnedInfo = gfx.ID{}
 		} else {
 			w.pinnedInfo = id
 		}
@@ -654,9 +654,9 @@ func (w *window) infoButton(f *flex.Frame, index int, help string) {
 
 // drawFooter is the bar along the bottom: Restore Defaults at the leading end, Cancel and OK
 // at the trailing one.
-func (w *window) drawFooter(f *flex.Frame) {
+func (w *window) drawFooter(f *ui.Frame) {
 	settings := &w.text.Settings
-	f.Row().FillWidth().Height(footerHeight).Shrink(0).PadX(footerPad).Gap(8).Items(flex.Center).Children(func() {
+	f.Row().FillWidth().Height(footerHeight).Shrink(0).PadX(footerPad).Gap(8).Items(ui.Center).Children(func() {
 		if f.Button(restoreID, settings.RestoreDefaults).Outline().Clicked() {
 			// Reset is explicit even when an unknown stored value is displayed as the
 			// system default. Forward it so the owner's real setting is cleared.
@@ -676,7 +676,7 @@ func (w *window) drawFooter(f *flex.Frame) {
 // ownsEnter says the control with the focus acts on Enter itself, so Enter must not also
 // press OK. A page row of the page that is already open is the one exception: Enter there
 // would only open the page again, so it means OK, as the default button does in a dialog.
-func (w *window) ownsEnter(target ui.ID) bool {
+func (w *window) ownsEnter(target gfx.ID) bool {
 	if target.IsZero() {
 		return false
 	}
@@ -688,17 +688,17 @@ func (w *window) ownsEnter(target ui.ID) bool {
 
 // onKey gives Enter its meaning of OK and Escape its meaning of Cancel, unless the control
 // with the focus needs the key. Whatever it does not handle is left to the toolkit.
-func (w *window) onKey(event ui.KeyEvent) ui.EventResult {
+func (w *window) onKey(event gfx.KeyEvent) gfx.EventResult {
 	if event.Release {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
-	if event.Key == ui.KeyEscape && event.Modifiers == 0 {
+	if event.Key == gfx.KeyEscape && event.Modifiers == 0 {
 		if !w.pinnedInfo.IsZero() {
-			w.pinnedInfo = ui.ID{}
-			return ui.EventResult{Handled: true, Repaint: true}
+			w.pinnedInfo = gfx.ID{}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		}
 		if w.info.Dismiss() {
-			return ui.EventResult{Handled: true, Repaint: true}
+			return gfx.EventResult{Handled: true, Repaint: true}
 		}
 	}
 	if w.sess.page == pagePlugins && w.market.status == marketReady {
@@ -722,13 +722,13 @@ func (w *window) onKey(event ui.KeyEvent) ui.EventResult {
 	// Only a plain press of Enter or Escape means OK or Cancel. A held key repeats, and
 	// one pressed with a modifier belongs to the platform or to a control.
 	if event.Repeat || event.Modifiers != 0 {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	key := keyOther
 	switch event.Key {
-	case ui.KeyEnter:
+	case gfx.KeyEnter:
 		key = keyEnter
-	case ui.KeyEscape:
+	case gfx.KeyEscape:
 		key = keyEscape
 	}
 	switch decideKey(key, keyContext{
@@ -744,19 +744,19 @@ func (w *window) onKey(event ui.KeyEvent) ui.EventResult {
 	case actionClearSearch:
 		w.search.SetText("")
 	default:
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
-	return ui.EventResult{Handled: true, Repaint: true}
+	return gfx.EventResult{Handled: true, Repaint: true}
 }
 
-func (w *window) onPointer(event ui.PointerEvent) ui.EventResult {
-	dismissed := event.Kind == ui.PointerDown && !w.pinnedInfo.IsZero() && event.Target != w.pinnedInfo
+func (w *window) onPointer(event gfx.PointerEvent) gfx.EventResult {
+	dismissed := event.Kind == gfx.PointerDown && !w.pinnedInfo.IsZero() && event.Target != w.pinnedInfo
 	if dismissed {
-		w.pinnedInfo = ui.ID{}
+		w.pinnedInfo = gfx.ID{}
 	}
 	if w.sess.page != pagePlugins || w.market.status != marketReady {
 		w.marketSplit.Cancel()
-		return ui.EventResult{Repaint: dismissed}
+		return gfx.EventResult{Repaint: dismissed}
 	}
 	result, committed := w.marketSplit.Pointer(event, marketDividerID, w.marketExtent)
 	result.Repaint = result.Repaint || dismissed
@@ -767,13 +767,13 @@ func (w *window) onPointer(event ui.PointerEvent) ui.EventResult {
 }
 
 // onShortcut handles the platform's command shortcuts for search and close.
-func (w *window) onShortcut(event ui.KeyEvent) ui.EventResult {
-	modifier := ui.ModifierControl
+func (w *window) onShortcut(event gfx.KeyEvent) gfx.EventResult {
+	modifier := gfx.ModifierControl
 	if runtime.GOOS == "darwin" {
-		modifier = ui.ModifierMeta
+		modifier = gfx.ModifierMeta
 	}
 	if event.Release || event.Modifiers != modifier {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	switch event.Text {
 	case "f":
@@ -781,14 +781,14 @@ func (w *window) onShortcut(event ui.KeyEvent) ui.EventResult {
 	case "w":
 		w.cancel()
 	default:
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
-	return ui.EventResult{Handled: true, Repaint: true}
+	return gfx.EventResult{Handled: true, Repaint: true}
 }
 
 // onScroll scrolls the open language list when there is one, and otherwise the area under
 // the pointer.
-func (w *window) onScroll(event ui.ScrollEvent) ui.EventResult {
+func (w *window) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 	if result := w.marketSource.Wheel(event); result.Handled {
 		return result
 	}

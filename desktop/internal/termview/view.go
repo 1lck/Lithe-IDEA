@@ -19,7 +19,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/term"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // The terminal's fixed-pitch font size and the margins around its grid.
@@ -81,10 +81,10 @@ type Messages struct {
 // a new palette epoch, so every cached row is prepared again in the new colors.
 type Look struct {
 	Dark       bool
-	Background ui.Color
-	Foreground ui.Color
-	Cursor     ui.Color
-	Selection  ui.Color
+	Background gfx.Color
+	Foreground gfx.Color
+	Cursor     gfx.Color
+	Selection  gfx.Color
 }
 
 // Failure is a failure the terminal reports to the client's log.
@@ -112,7 +112,7 @@ type Config struct {
 	// Shell is the program to run; empty runs the user's default shell.
 	Shell string
 	// HitID is the grid's hit; keyboard focus rests on it. BarID is the scrollbar's.
-	HitID, BarID ui.ID
+	HitID, BarID gfx.ID
 	// Messages are the words the view shows.
 	Messages Messages
 	// Notify asks the window for a wake (its OnWake then calls Pump). It is called from the
@@ -145,7 +145,7 @@ type shell interface {
 // geometry is where the grid of the last paint was: the area the view was given, the
 // top-left corner of its first cell and its size in cells.
 type geometry struct {
-	area      ui.Rect
+	area      gfx.Rect
 	left, top float32
 	cols      int
 	rows      int
@@ -155,10 +155,10 @@ type geometry struct {
 // prepared in older colors is never reused.
 type palette struct {
 	dark      bool
-	terminal  ui.Color // the ground the grid is painted on
-	termFG    ui.Color // the default ink
-	cursor    ui.Color
-	selection ui.Color
+	terminal  gfx.Color // the ground the grid is painted on
+	termFG    gfx.Color // the default ink
+	cursor    gfx.Color
+	selection gfx.Color
 	ansi      [16][3]uint8 // the 16 ANSI colors; term.Resolve derives the 240 others
 	epoch     uint32
 }
@@ -187,7 +187,7 @@ type View struct {
 	// cellW and cellH are the cell at the terminal's font, measured on the window's canvas
 	// at each paint; zero before the first.
 	cellW, cellH float32
-	face         ui.MonoFace
+	face         gfx.MonoFace
 	layout       geometry // the grid of the last paint
 
 	look    Look
@@ -242,7 +242,7 @@ func New(cfg Config) *View {
 }
 
 // Owns reports whether a hit belongs to the view: its grid or its scrollbar.
-func (v *View) Owns(id ui.ID) bool {
+func (v *View) Owns(id gfx.ID) bool {
 	return !id.IsZero() && (id == v.cfg.HitID || id == v.cfg.BarID)
 }
 

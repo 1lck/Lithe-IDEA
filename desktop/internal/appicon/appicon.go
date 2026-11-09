@@ -10,7 +10,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/assets"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/app/iconpng"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // windowIcon decodes once because every native window uses the same image.
@@ -27,7 +27,7 @@ func Window() app.WindowIcon { return windowIcon() }
 
 // welcomeIcon is a small premultiplied BGRA copy for the welcome page. Decoding
 // it once avoids keeping another full-size texture or allocating on every frame.
-var welcomeIcon = sync.OnceValue(func() ui.Bitmap {
+var welcomeIcon = sync.OnceValue(func() gfx.Bitmap {
 	icon, err := iconpng.DecodeFit(assets.Icon, 64)
 	if err != nil {
 		panic("appicon: could not decode the embedded desktop icon: " + err.Error())
@@ -42,7 +42,7 @@ var welcomeIcon = sync.OnceValue(func() ui.Bitmap {
 		pix[i+2] = byte((uint16(icon.RGBA[i])*alpha + 127) / 255)
 		pix[i+3] = byte(alpha)
 	}
-	return ui.Bitmap{Pix: pix, Width: icon.Size, Height: icon.Size, Stride: icon.Size * 4, ID: 0x4c6974686549636f, Version: 1}
+	return gfx.Bitmap{Pix: pix, Width: icon.Size, Height: icon.Size, Stride: icon.Size * 4, ID: 0x4c6974686549636f, Version: 1}
 })
 
 // welcomeIconCoverage antialiases the 0.24-side corner radius used by the
@@ -66,4 +66,4 @@ func welcomeIconCoverage(x, y, side int) uint16 {
 }
 
 // Welcome returns the immutable image used in the welcome sidebar.
-func Welcome() ui.Bitmap { return welcomeIcon() }
+func Welcome() gfx.Bitmap { return welcomeIcon() }

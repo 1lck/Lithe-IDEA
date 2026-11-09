@@ -9,7 +9,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/components"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -53,7 +53,7 @@ const (
 const commitReviewHeight = 320
 
 // drawCommitPanel declares the body of the Commit tool window.
-func (a *App) drawCommitPanel(f *flex.Frame, p *project) {
+func (a *App) drawCommitPanel(f *ui.Frame, p *project) {
 	v := &a.commitView
 	f.Column().Fill().Background(a.colors.Editor).Children(func() {
 		a.drawCommitToolbar(f, p)
@@ -79,9 +79,9 @@ func (a *App) drawCommitPanel(f *flex.Frame, p *project) {
 
 // drawCommitToolbar declares the buttons over the change list: read the status again, and
 // stage or unstage everything.
-func (a *App) drawCommitToolbar(f *flex.Frame, p *project) {
+func (a *App) drawCommitToolbar(f *ui.Frame, p *project) {
 	c, t := &p.commit, a.text.Commit
-	f.Row().Height(logToolbarHeight).Shrink(0).Items(flex.Center).Gap(4).PadX(6).Children(func() {
+	f.Row().Height(logToolbarHeight).Shrink(0).Items(ui.Center).Gap(4).PadX(6).Children(func() {
 		if a.logIconButton(f, commitButtons.At(commitButtonRefresh), t.Refresh, icons.RefreshCw, false, false) {
 			a.refreshChanges(p)
 		}
@@ -97,7 +97,7 @@ func (a *App) drawCommitToolbar(f *flex.Frame, p *project) {
 
 // drawCommitStatus declares what stands for the change list while there is none to show,
 // and reports whether there is one.
-func (a *App) drawCommitStatus(f *flex.Frame, p *project) bool {
+func (a *App) drawCommitStatus(f *ui.Frame, p *project) bool {
 	g := a.text.Git
 	switch {
 	case !p.git.loaded:
@@ -119,7 +119,7 @@ func (a *App) drawCommitStatus(f *flex.Frame, p *project) bool {
 
 // drawCommitChanges declares the change list: one checkbox for the whole list, then every
 // change with its own.
-func (a *App) drawCommitChanges(f *flex.Frame, p *project) flex.Box {
+func (a *App) drawCommitChanges(f *ui.Frame, p *project) ui.Box {
 	c, t := &p.commit, a.text.Commit
 	changes := p.git.status.Changes
 	return f.Column().FillWidth().Clip().Children(func() {
@@ -131,11 +131,11 @@ func (a *App) drawCommitChanges(f *flex.Frame, p *project) flex.Box {
 			return
 		}
 		f.ScrollArea(commitListID).Grow(1).PadY(4).Children(func() {
-			f.Row().Height(logItemHeight).FillWidth().Shrink(0).Items(flex.Center).Gap(6).PadX(8).Children(func() {
+			f.Row().Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
 				if f.Checkbox(commitAllID, p.git.allStaged()).Label(t.ChangeList).Disabled(c.busy || !p.git.hasToggleable()).Clicked() {
 					a.stageAll(p, surfaceButton)
 				}
-				f.Text(t.ChangeList).Weight(ui.WeightMedium).Ellipsis().Shrink(1)
+				f.Text(t.ChangeList).Weight(gfx.WeightMedium).Ellipsis().Shrink(1)
 				f.Text(t.Files(p.git.fileCount())).Muted().Shrink(0)
 			})
 			for i, change := range changes {
@@ -147,7 +147,7 @@ func (a *App) drawCommitChanges(f *flex.Frame, p *project) flex.Box {
 
 // drawCommitChange declares the row of one change: its checkbox, its icon, its name and
 // folder, and whether it is staged.
-func (a *App) drawCommitChange(f *flex.Frame, p *project, i int, change core.GitChange) {
+func (a *App) drawCommitChange(f *ui.Frame, p *project, i int, change core.GitChange) {
 	c, t := &p.commit, a.text.Commit
 	state, label := t.UnstagedState, t.StageFile(change.Path)
 	switch {
@@ -162,8 +162,8 @@ func (a *App) drawCommitChange(f *flex.Frame, p *project, i int, change core.Git
 	if change.OriginalPath != "" && change.OriginalPath != change.Path {
 		name = path.Base(change.OriginalPath) + " → " + name
 	}
-	f.Row().Height(logItemHeight).FillWidth().Shrink(0).Items(flex.Center).Gap(6).
-		PadSides(0, 8, 0, float32(8+logIndent)).Hover(flex.Look{}.Background(a.colors.Hover)).Children(func() {
+	f.Row().Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).
+		PadSides(0, 8, 0, float32(8+logIndent)).Hover(ui.Look{}.Background(a.colors.Hover)).Children(func() {
 		if f.Checkbox(commitChecks.At(i), change.Staged).Label(label).Disabled(c.busy || !change.CanToggleStaging).Clicked() {
 			a.stageChange(p, change)
 		}
@@ -180,7 +180,7 @@ func (a *App) drawCommitChange(f *flex.Frame, p *project, i int, change core.Git
 
 // changeColor is the color of a change's name, by the side of the change the row shows: the
 // index when something is staged, the worktree otherwise.
-func (a *App) changeColor(change core.GitChange) ui.Color {
+func (a *App) changeColor(change core.GitChange) gfx.Color {
 	status := change.Status
 	switch {
 	case change.Untracked || status == "??":
@@ -231,10 +231,10 @@ func (g gitState) fileCount() int {
 
 // drawCommitArea declares the commit area: amend and the staged count, the message, the
 // results of the last run, and the commit buttons.
-func (a *App) drawCommitArea(f *flex.Frame, p *project) flex.Box {
+func (a *App) drawCommitArea(f *ui.Frame, p *project) ui.Box {
 	c, t := &p.commit, a.text.Commit
 	return f.Column().FillWidth().Clip().Pad(8).Gap(6).Children(func() {
-		f.Row().FillWidth().Shrink(0).Items(flex.Center).Gap(6).Children(func() {
+		f.Row().FillWidth().Shrink(0).Items(ui.Center).Gap(6).Children(func() {
 			if f.Checkbox(commitAmendID, c.amend).Label(t.Amend).Disabled(c.busy).Clicked() {
 				c.amend = !c.amend
 			}
@@ -246,7 +246,7 @@ func (a *App) drawCommitArea(f *flex.Frame, p *project) flex.Box {
 		if c.attempt != nil {
 			a.drawCommitResults(f, p)
 		}
-		f.Row().FillWidth().Shrink(0).Items(flex.Center).Gap(6).Children(func() {
+		f.Row().FillWidth().Shrink(0).Items(ui.Center).Gap(6).Children(func() {
 			label := t.Commit
 			if c.busy {
 				label = t.Committing
@@ -264,7 +264,7 @@ func (a *App) drawCommitArea(f *flex.Frame, p *project) flex.Box {
 
 // drawCommitMessage declares the message box. The box paints the text itself and the
 // platform's editor behind it only takes the input, so the caret starts on the first row.
-func (a *App) drawCommitMessage(f *flex.Frame, p *project) flex.Box {
+func (a *App) drawCommitMessage(f *ui.Frame, p *project) ui.Box {
 	c, t := &p.commit, a.text.Commit
 	value := c.editor.String()
 	selection := c.editor.Selection()
@@ -301,7 +301,7 @@ func byteOffsetOfRune(value string, n int) int {
 
 // drawCommitResults declares how each repository of the last run ended, and the buttons
 // that forget the results or continue the run.
-func (a *App) drawCommitResults(f *flex.Frame, p *project) {
+func (a *App) drawCommitResults(f *ui.Frame, p *project) {
 	c, t := &p.commit, a.text.Commit
 	session := c.attempt
 	f.Column().FillWidth().Shrink(0).Gap(2).Children(func() {
@@ -311,7 +311,7 @@ func (a *App) drawCommitResults(f *flex.Frame, p *project) {
 			if result.Status == core.CommitCommittedAndPushed || result.Status == core.CommitCommitted && !session.Push {
 				tint = a.colors.Success
 			}
-			f.Row().FillWidth().Items(flex.Center).Gap(6).Children(func() {
+			f.Row().FillWidth().Items(ui.Center).Gap(6).Children(func() {
 				f.Icon(icons.CircleAlert).Size(14, 14).Color(tint)
 				f.Text(t.Result(p.commitRepositoryName(id), a.commitStatusLabel(result.Status))).Color(tint).Ellipsis().Grow(1)
 			})
@@ -319,7 +319,7 @@ func (a *App) drawCommitResults(f *flex.Frame, p *project) {
 				f.Paragraph(result.Detail, 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 			}
 		}
-		f.Row().FillWidth().Items(flex.Center).Gap(6).Children(func() {
+		f.Row().FillWidth().Items(ui.Center).Gap(6).Children(func() {
 			if f.Button(commitDismissID, t.Dismiss).Ghost().Clicked() {
 				a.dismissResults(p)
 			}
@@ -363,7 +363,7 @@ func (a *App) commitStatusLabel(status core.WorkspaceCommitStatus) string {
 
 // drawCommitReview declares the review of a plan: the message, then each repository in the
 // order the plan runs them with where it commits, what it pushes and the files it takes.
-func (a *App) drawCommitReview(f *flex.Frame, p *project) {
+func (a *App) drawCommitReview(f *ui.Frame, p *project) {
 	c, t := &p.commit, a.text.Commit
 	r := c.review
 	session := r.prep.Session
@@ -378,7 +378,7 @@ func (a *App) drawCommitReview(f *flex.Frame, p *project) {
 	for i, q := range r.prep.PushTargetQuestions {
 		questions[q.RepositoryID] = i
 	}
-	d := f.Dialog(flex.DialogSpec{Title: title, Description: t.Order, Width: 520,
+	d := f.Dialog(ui.DialogSpec{Title: title, Description: t.Order, Width: 520,
 		Scope: commitReviewScope, DismissID: commitReviewCancel, CloseID: commitReviewClose, InitialFocusID: commitReviewConfirm})
 	d.Body(func() {
 		f.Column().FillWidth().Gap(8).Children(func() {
@@ -419,7 +419,7 @@ func (a *App) drawCommitReview(f *flex.Frame, p *project) {
 
 // drawCommitReviewStep declares one repository of a review. question is the push of it the
 // user is asked about, nil when there is none.
-func (a *App) drawCommitReviewStep(f *flex.Frame, p *project, n int, id string, question *core.PushTargetQuestion) {
+func (a *App) drawCommitReviewStep(f *ui.Frame, p *project, n int, id string, question *core.PushTargetQuestion) {
 	r, t := p.commit.review, a.text.Commit
 	session := r.prep.Session
 	state := session.States[id]
@@ -439,13 +439,13 @@ func (a *App) drawCommitReviewStep(f *flex.Frame, p *project, n int, id string, 
 		head = state.Head[:min(len(state.Head), 10)]
 	}
 	f.Column().FillWidth().Gap(4).Children(func() {
-		f.Text(t.Step(n+1, action, p.commitRepositoryName(id))).Weight(ui.WeightMedium).Ellipsis()
+		f.Text(t.Step(n+1, action, p.commitRepositoryName(id))).Weight(gfx.WeightMedium).Ellipsis()
 		f.Text(t.Where(branch, head)).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
 		if question != nil {
 			a.drawCommitTarget(f, r, n, *question)
 		}
 		for _, staged := range state.StagedPaths {
-			f.Row().FillWidth().Items(flex.Center).Gap(6).PadX(8).Children(func() {
+			f.Row().FillWidth().Items(ui.Center).Gap(6).PadX(8).Children(func() {
 				f.Icon(fileicons.ForFile(path.Base(staged), a.colors.Dark)).Size(14, 14).Color(a.colors.Subtle)
 				f.Text(staged).FontSize(a.theme.Metrics.FontSizeS).Ellipsis().Grow(1)
 			})
@@ -455,7 +455,7 @@ func (a *App) drawCommitReviewStep(f *flex.Frame, p *project, n int, id string, 
 
 // drawCommitTarget declares the question of a push whose branch tracks one with another
 // name: publish the branch under its own name, or push to the branch it tracks.
-func (a *App) drawCommitTarget(f *flex.Frame, r *commitReview, n int, q core.PushTargetQuestion) {
+func (a *App) drawCommitTarget(f *ui.Frame, r *commitReview, n int, q core.PushTargetQuestion) {
 	t := a.text.Commit
 	choice, picked := r.choices[q.RepositoryID]
 	f.Paragraph(t.TracksDifferent(q.LocalBranch, q.Upstream), 3).Color(a.colors.Warning)
@@ -487,10 +487,10 @@ func firstLine(message string) string {
 
 // commitKey gives a key press to the Commit tool window: a focused splitter takes the
 // arrows, and the message box moves its caret by the rows it shows.
-func (a *App) commitKey(event ui.KeyEvent) ui.EventResult {
+func (a *App) commitKey(event gfx.KeyEvent) gfx.EventResult {
 	p := a.project
 	if p == nil {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	v, c := &a.commitView, &p.commit
 	if r := v.split.Key(event); r.Handled {
@@ -498,14 +498,14 @@ func (a *App) commitKey(event ui.KeyEvent) ui.EventResult {
 		return r
 	}
 	if event.Target != commitMessageID {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	movement, extend := components.TextareaMovementForKey(event.Key, event.Modifiers)
 	if movement == components.TextareaMoveNone {
-		return ui.EventResult{}
+		return gfx.EventResult{}
 	}
 	value := c.editor.String()
 	to := c.layout.Move(value, byteOffsetOfRune(value, c.editor.Caret()), movement)
 	c.editor.MoveTo(utf8.RuneCountInString(value[:to]), extend)
-	return ui.EventResult{Handled: true, Repaint: true}
+	return gfx.EventResult{Handled: true, Repaint: true}
 }

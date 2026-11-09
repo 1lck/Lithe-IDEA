@@ -9,7 +9,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
-	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -20,20 +20,20 @@ var (
 
 // drawDocumentConflict places the conflict beside the affected editor, following the
 // original editor notification's icon, message and link actions.
-func (a *App) drawDocumentConflict(f *flex.Frame, d *document) {
+func (a *App) drawDocumentConflict(f *ui.Frame, d *document) {
 	message := i18n.Shared(a.language(), "native.thisFileChangedOutsideLitheWhileYouHadUnsavedEdits")
 	if d.conflictMissing {
 		message = i18n.Shared(a.language(), "native.thisFileWasDeletedOutsideLitheYourEditorContentIsPreserved")
 	}
 	busy := d.saving || d.checking || d.checkPending || d.resolvingConflict || d.view.IsComposing()
-	background, border, foreground, link, disabled := ui.RGB24(0xFFF6E9), ui.RGB24(0xF4CD9A), ui.RGB24(0x000000), ui.RGB24(0x2F5EB9), ui.RGB24(0x9FA2A8)
+	background, border, foreground, link, disabled := gfx.RGB24(0xFFF6E9), gfx.RGB24(0xF4CD9A), gfx.RGB24(0x000000), gfx.RGB24(0x2F5EB9), gfx.RGB24(0x9FA2A8)
 	if a.colors.Dark {
-		background, border, foreground, link, disabled = ui.RGB24(0x44321D), ui.RGB24(0x694820), ui.RGB24(0xD1D3D9), ui.RGB24(0x71A1FE), ui.RGB24(0x4C4F56)
+		background, border, foreground, link, disabled = gfx.RGB24(0x44321D), gfx.RGB24(0x694820), gfx.RGB24(0xD1D3D9), gfx.RGB24(0x71A1FE), gfx.RGB24(0x4C4F56)
 	}
 	f.Column().FillWidth().Shrink(0).Background(background).Children(func() {
 		f.Row().FillWidth().Height(1).Background(border)
-		f.Row().FillWidth().Gap(8).PadX(12).PadY(10).Items(flex.Start).Children(func() {
-			f.Icon(icons.BannerWarning).Size(16, 16).Color(ui.RGB24(0xFFFFFF))
+		f.Row().FillWidth().Gap(8).PadX(12).PadY(10).Items(ui.Start).Children(func() {
+			f.Icon(icons.BannerWarning).Size(16, 16).Color(gfx.RGB24(0xFFFFFF))
 			f.Column().Grow(1).Gap(8).Children(func() {
 				f.Paragraph(message, 3).FontSize(13).Color(foreground)
 				f.Row().Gap(16).Children(func() {
@@ -54,12 +54,12 @@ func (a *App) drawDocumentConflict(f *flex.Frame, d *document) {
 	})
 }
 
-func (a *App) drawConflictLink(f *flex.Frame, id ui.ID, label string, disabled bool, link, muted ui.Color) bool {
+func (a *App) drawConflictLink(f *ui.Frame, id gfx.ID, label string, disabled bool, link, muted gfx.Color) bool {
 	color := link
 	if disabled {
 		color = muted
 	}
-	button := f.Row().HitWith(id, label, ui.HitOptions{Role: ui.RoleButton, Cursor: ui.PointerCursorHand, Disabled: disabled})
+	button := f.Row().HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Disabled: disabled})
 	button.Children(func() { f.Text(label).FontSize(13).Color(color) })
 	return !disabled && button.Clicked()
 }

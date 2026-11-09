@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 func TestWelcomeCreatesEmptyProjectWithGitThroughCore(t *testing.T) {
@@ -125,7 +125,7 @@ func TestNewProjectEscapeRestoresWelcomeFocus(t *testing.T) {
 	if h.driver.Snapshot().Focused != newProjectSearch {
 		t.Fatal("search did not receive focus")
 	}
-	if err := h.driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 	h.settle()
@@ -223,7 +223,7 @@ func TestNewProjectSheetKeepsFocusAndBlocksSurfaceClicks(t *testing.T) {
 		t.Fatal("an empty area inside the sheet dismissed it or reached the background")
 	}
 	for range 8 {
-		if err := h.driver.Key(ui.KeyTab, 0); err != nil {
+		if err := h.driver.Key(gfx.KeyTab, 0); err != nil {
 			t.Fatal(err)
 		}
 		focus := h.driver.Snapshot().Focused

@@ -3,7 +3,7 @@ package fileicons
 import (
 	"testing"
 
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // TestFileKind covers the supported name rules and their precedence.
@@ -136,7 +136,7 @@ func TestForFileUsesDarkVariant(t *testing.T) {
 	cases := []struct {
 		name string
 		dark bool
-		want *ui.Icon
+		want *gfx.Icon
 	}{
 		{"a.json", true, &JsonDark},
 		{"a.json", false, &Json},
@@ -159,8 +159,8 @@ func TestForDirectoryMark(t *testing.T) {
 	cases := []struct {
 		name      string
 		mark      DirectoryMark
-		lightIcon *ui.Icon
-		darkIcon  *ui.Icon
+		lightIcon *gfx.Icon
+		darkIcon  *gfx.Icon
 	}{
 		{"plain", MarkPlain, &Folder, &FolderDark},
 		{"sources", MarkSources, &SourceRoot, &SourceRootDark},
@@ -182,8 +182,8 @@ func TestForSourceDirectory(t *testing.T) {
 	cases := []struct {
 		label     string
 		directory string
-		lightIcon *ui.Icon
-		darkIcon  *ui.Icon
+		lightIcon *gfx.Icon
+		darkIcon  *gfx.Icon
 	}{
 		{"com", "com", &Package, &PackageDark},
 		{"_internal", "_internal", &Package, &PackageDark},
@@ -248,8 +248,8 @@ func TestForBreakpoint(t *testing.T) {
 		enabled   bool
 		verified  bool
 		muted     bool
-		lightIcon *ui.Icon
-		darkIcon  *ui.Icon
+		lightIcon *gfx.Icon
+		darkIcon  *gfx.Icon
 	}{
 		{"disabled-unverified", false, false, false, &DbDisabledBreakpoint, &DbDisabledBreakpointDark},
 		{"muted-disabled-unverified", false, false, true, &DbMutedBreakpoint, &DbMutedBreakpointDark},
@@ -268,7 +268,7 @@ func TestForBreakpoint(t *testing.T) {
 	}
 }
 
-func requireGeneratedIcon(t *testing.T, got ui.Icon, want *ui.Icon) {
+func requireGeneratedIcon(t *testing.T, got gfx.Icon, want *gfx.Icon) {
 	t.Helper()
 	if len(got.Layers) == 0 || len(want.Layers) == 0 || &got.Layers[0] != &want.Layers[0] {
 		t.Errorf("got icon with %d layers; want generated asset with %d layers", len(got.Layers), len(want.Layers))

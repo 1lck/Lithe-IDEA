@@ -8,15 +8,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 // paintWrapped paints v with soft wrapping in area and returns the canvas and the columns the
 // text wrapped at.
-func paintWrapped(t *testing.T, v *View, area ui.Rect) (*ui.Canvas, int) {
+func paintWrapped(t *testing.T, v *View, area gfx.Rect) (*gfx.Canvas, int) {
 	t.Helper()
 	v.SetWrap(true)
-	canvas := new(ui.Canvas)
+	canvas := new(gfx.Canvas)
 	v.Paint(canvas, area, Look{})
 	if v.wrapCols <= 0 {
 		t.Fatalf("the view wrapped at %d columns", v.wrapCols)
@@ -58,8 +58,8 @@ func TestLineNumbersAreClippedAndRightAlignedOnTheGrid(t *testing.T) {
 		fmt.Fprintf(&text, "line %d\n", i+1)
 	}
 	v := newTestView(t, text.String())
-	canvas := new(ui.Canvas)
-	area := ui.Rect{X: 40, Y: 30, Width: 600, Height: 400}
+	canvas := new(gfx.Canvas)
+	area := gfx.Rect{X: 40, Y: 30, Width: 600, Height: 400}
 	v.Paint(canvas, area, Look{})
 	v.scroll = 92.5 * v.lineH
 	canvas.Reset()
@@ -101,7 +101,7 @@ func TestLineNumbersAreClippedAndRightAlignedOnTheGrid(t *testing.T) {
 // its rows.
 func TestWrappedLineShowsItsNumberOnItsFirstRow(t *testing.T) {
 	v := newTestView(t, "short\n"+strings.Repeat("x", 200)+"\nend")
-	canvas, cols := paintWrapped(t, v, ui.Rect{Width: 400, Height: 600})
+	canvas, cols := paintWrapped(t, v, gfx.Rect{Width: 400, Height: 600})
 	rows := (200 + cols - 1) / cols
 	if rows < 2 {
 		t.Fatalf("200 columns wrapped at %d take %d rows, want several", cols, rows)
@@ -134,21 +134,21 @@ func TestWrappedLineShowsItsNumberOnItsFirstRow(t *testing.T) {
 // Up and down step through a wrapped line row by row, and a click lands on the row under it.
 func TestUpDownAndClicksGoByRows(t *testing.T) {
 	v := newTestView(t, strings.Repeat("x", 100)+"\nend")
-	_, cols := paintWrapped(t, v, ui.Rect{Width: 300, Height: 600})
+	_, cols := paintWrapped(t, v, gfx.Rect{Width: 300, Height: 600})
 	v.moveTo(3, false)
-	v.press(ui.KeyDown, 0)
+	v.press(gfx.KeyDown, 0)
 	if v.caret != cols+3 {
 		t.Fatalf("down from column 3 went to %d, want %d on the next row", v.caret, cols+3)
 	}
 	if _, y := v.caretPoint(); math.Abs(float64(y-v.lineH)) > 0.01 {
 		t.Fatalf("caret on the second row is at y %v, want %v", y, v.lineH)
 	}
-	v.press(ui.KeyUp, 0)
+	v.press(gfx.KeyUp, 0)
 	if v.caret != 3 {
 		t.Fatalf("up went back to %d, want 3", v.caret)
 	}
 	for v.text.LineOf(v.caret) == 0 {
-		v.press(ui.KeyDown, 0)
+		v.press(gfx.KeyDown, 0)
 	}
 	if line, col := v.Caret(); line != 1 || col != 3 {
 		t.Fatalf("down past the wrapped line went to line %d column %d, want line 1 column 3", line, col)
@@ -165,7 +165,7 @@ func TestUpDownAndClicksGoByRows(t *testing.T) {
 // Edits keep the rows of every line what laying out the whole text again gives.
 func TestEditsKeepTheRowsOfEveryLine(t *testing.T) {
 	v := newTestView(t, strings.Repeat("word ", 30)+"\nshort\n"+strings.Repeat("中文", 40)+"\n\tend")
-	_, cols := paintWrapped(t, v, ui.Rect{Width: 300, Height: 600})
+	_, cols := paintWrapped(t, v, gfx.Rect{Width: 300, Height: 600})
 	check := func(step string) {
 		t.Helper()
 		v.ensureRows()
@@ -204,8 +204,8 @@ func TestTogglingWrapKeepsTheTopLine(t *testing.T) {
 		text.WriteString(strconv.Itoa(i) + " " + strings.Repeat("abc ", 30) + "\n")
 	}
 	v := newTestView(t, text.String())
-	canvas := new(ui.Canvas)
-	area := ui.Rect{Width: 300, Height: 400}
+	canvas := new(gfx.Canvas)
+	area := gfx.Rect{Width: 300, Height: 400}
 	v.Paint(canvas, area, Look{})
 	part := v.lineH / 4
 	v.scroll = 50*v.lineH + part

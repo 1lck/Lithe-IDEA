@@ -11,7 +11,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 func TestMarketplaceSourceSelectorLoadsTheChosenIndex(t *testing.T) {
@@ -47,7 +47,7 @@ func TestMarketplaceSourceSelectorLoadsTheChosenIndex(t *testing.T) {
 		}
 	}
 	waitReady("community")
-	click := func(id ui.ID) {
+	click := func(id gfx.ID) {
 		t.Helper()
 		for _, hit := range driver.Snapshot().Hits {
 			if hit.ID == id {
@@ -109,7 +109,7 @@ func TestMarketplaceSourceSelectorRemainsAvailableWhileLoading(t *testing.T) {
 	case <-timer.C:
 		t.Fatal("community fetch did not start")
 	}
-	click := func(id ui.ID) {
+	click := func(id gfx.ID) {
 		t.Helper()
 		for _, hit := range driver.Snapshot().Hits {
 			if hit.ID == id {
@@ -173,7 +173,7 @@ func TestMarketplaceSearchUsesCoreAndOpensMatchingSelection(t *testing.T) {
 		}
 	}
 	wait(func() bool { return w.market.status == marketReady })
-	var rect ui.Rect
+	var rect gfx.Rect
 	for _, hit := range driver.Snapshot().Hits {
 		if hit.ID == marketQueryID {
 			rect = hit.Bounds
@@ -195,7 +195,7 @@ func TestMarketplaceSearchUsesCoreAndOpensMatchingSelection(t *testing.T) {
 	if w.market.search.failed || w.market.selected != "dev.example.lua" || len(w.market.search.visible()) != 1 {
 		t.Fatalf("Lua search = %+v selection=%q", w.market.search.visible(), w.market.selected)
 	}
-	if _, err := driver.ShortcutChord(ui.ModifierMeta, 'a'); err != nil {
+	if _, err := driver.ShortcutChord(gfx.ModifierMeta, 'a'); err != nil {
 		t.Fatal(err)
 	}
 	if err := driver.Type("dev.example.go"); err != nil {
@@ -273,7 +273,7 @@ func TestMarketplaceWindowLoadsAndVirtualizes(t *testing.T) {
 	}
 	snap := driver.Snapshot()
 	rows := 0
-	var second ui.Rect
+	var second gfx.Rect
 	for _, hit := range snap.Hits {
 		if i, ok := hit.ID.In(marketRows); ok {
 			rows++
@@ -289,10 +289,10 @@ func TestMarketplaceWindowLoadsAndVirtualizes(t *testing.T) {
 		t.Fatal("second plugin is not selectable")
 	}
 	x, y := second.X+second.Width/2, second.Y+second.Height/2
-	if err := driver.Press(x, y, ui.PointerButtonPrimary); err != nil {
+	if err := driver.Press(x, y, gfx.PointerButtonPrimary); err != nil {
 		t.Fatal(err)
 	}
-	if err := driver.Release(x, y, ui.PointerButtonPrimary); err != nil {
+	if err := driver.Release(x, y, gfx.PointerButtonPrimary); err != nil {
 		t.Fatal(err)
 	}
 	found := false
@@ -306,14 +306,14 @@ func TestMarketplaceWindowLoadsAndVirtualizes(t *testing.T) {
 	}
 	marketListAccessible := false
 	for _, hit := range driver.Snapshot().Hits {
-		if hit.Container && hit.Role == ui.RoleListBox && hit.Label == "Marketplace" {
+		if hit.Container && hit.Role == gfx.RoleListBox && hit.Label == "Marketplace" {
 			marketListAccessible = true
 		}
 	}
 	if !marketListAccessible {
 		t.Fatal("marketplace has no accessible list container")
 	}
-	if err := driver.Key(ui.KeyDown, 0); err != nil {
+	if err := driver.Key(gfx.KeyDown, 0); err != nil {
 		t.Fatal(err)
 	}
 	found = false
@@ -325,7 +325,7 @@ func TestMarketplaceWindowLoadsAndVirtualizes(t *testing.T) {
 	if !found {
 		t.Fatal("keyboard selection did not update the details")
 	}
-	if err := driver.Scroll(ui.ScrollEvent{X: x, Y: y, DeltaY: 1800, Precise: true}); err != nil {
+	if err := driver.Scroll(gfx.ScrollEvent{X: x, Y: y, DeltaY: 1800, Precise: true}); err != nil {
 		t.Fatal(err)
 	}
 	rows, minimum := 0, len(plugins)
@@ -338,7 +338,7 @@ func TestMarketplaceWindowLoadsAndVirtualizes(t *testing.T) {
 	if minimum == 0 || rows > 20 {
 		t.Fatalf("after scrolling: first row %d, painted %d", minimum, rows)
 	}
-	if err := driver.Scroll(ui.ScrollEvent{X: x, Y: y, DeltaY: -1800, Precise: true}); err != nil {
+	if err := driver.Scroll(gfx.ScrollEvent{X: x, Y: y, DeltaY: -1800, Precise: true}); err != nil {
 		t.Fatal(err)
 	}
 	selected := false
@@ -384,7 +384,7 @@ func TestMarketplaceWindowCancelsWhenLeavingPage(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("marketplace fetch did not start")
 	}
-	var general ui.Rect
+	var general gfx.Rect
 	for _, hit := range driver.Snapshot().Hits {
 		if i, ok := hit.ID.In(rowScope); ok && i == int(pageGeneral) {
 			general = hit.Bounds
@@ -395,10 +395,10 @@ func TestMarketplaceWindowCancelsWhenLeavingPage(t *testing.T) {
 		t.Fatal("general page is not visible")
 	}
 	x, y := general.X+general.Width/2, general.Y+general.Height/2
-	if err := driver.Press(x, y, ui.PointerButtonPrimary); err != nil {
+	if err := driver.Press(x, y, gfx.PointerButtonPrimary); err != nil {
 		t.Fatal(err)
 	}
-	if err := driver.Release(x, y, ui.PointerButtonPrimary); err != nil {
+	if err := driver.Release(x, y, gfx.PointerButtonPrimary); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -478,7 +478,7 @@ func TestMarketplaceDividerDragResizeAndRestore(t *testing.T) {
 					t.Fatal(err)
 				}
 				t.Cleanup(func() { w.market.close(); driver.Close() })
-				divider := func() ui.Rect {
+				divider := func() gfx.Rect {
 					t.Helper()
 					for _, hit := range driver.Snapshot().Hits {
 						if hit.ID == marketDividerID {
@@ -486,7 +486,7 @@ func TestMarketplaceDividerDragResizeAndRestore(t *testing.T) {
 						}
 					}
 					t.Fatal("resize handle missing")
-					return ui.Rect{}
+					return gfx.Rect{}
 				}
 				checkDetail := func() {
 					t.Helper()
@@ -506,7 +506,7 @@ func TestMarketplaceDividerDragResizeAndRestore(t *testing.T) {
 					t.Fatalf("initial divider = %+v, width=%v", r, w.marketSplit.Size(w.marketExtent))
 				}
 				x, y := r.X+r.Width/2, r.Y+r.Height/2
-				if err := driver.Press(x, y, ui.PointerButtonPrimary); err != nil {
+				if err := driver.Press(x, y, gfx.PointerButtonPrimary); err != nil {
 					t.Fatal(err)
 				}
 				if err := driver.Move(x+100, y); err != nil {
@@ -519,7 +519,7 @@ func TestMarketplaceDividerDragResizeAndRestore(t *testing.T) {
 					t.Fatalf("drag size = %v", w.marketSplit.Size(w.marketExtent))
 				}
 				checkDetail()
-				if err := driver.Release(x+100, y, ui.PointerButtonPrimary); err != nil {
+				if err := driver.Release(x+100, y, gfx.PointerButtonPrimary); err != nil {
 					t.Fatal(err)
 				}
 				if len(saved) != 1 || saved[0] != 420 {
@@ -546,13 +546,13 @@ func TestMarketplaceDividerDragResizeAndRestore(t *testing.T) {
 				// the wider preference chosen before the window was narrowed.
 				r = divider()
 				x, y = r.X+r.Width/2, r.Y+r.Height/2
-				if err := driver.Press(x, y, ui.PointerButtonPrimary); err != nil {
+				if err := driver.Press(x, y, gfx.PointerButtonPrimary); err != nil {
 					t.Fatal(err)
 				}
 				if err := driver.Move(x+30, y); err != nil {
 					t.Fatal(err)
 				}
-				if err := driver.Release(x+30, y, ui.PointerButtonPrimary); err != nil {
+				if err := driver.Release(x+30, y, gfx.PointerButtonPrimary); err != nil {
 					t.Fatal(err)
 				}
 				if len(saved) != 1 {
@@ -567,7 +567,7 @@ func TestMarketplaceDividerDragResizeAndRestore(t *testing.T) {
 				if len(saved) != 1 {
 					t.Fatal("window resizing persisted a temporary clamp")
 				}
-				if err := driver.Key(ui.KeyEnd, 0); err != nil {
+				if err := driver.Key(gfx.KeyEnd, 0); err != nil {
 					t.Fatal(err)
 				}
 				if got := w.marketSplit.Size(w.marketExtent); got != 520 {

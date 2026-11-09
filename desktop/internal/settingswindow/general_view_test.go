@@ -8,7 +8,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/gfx"
 )
 
 func TestGeneralAppearanceAppliesBeforeCloseAndRestore(t *testing.T) {
@@ -22,7 +22,7 @@ func TestGeneralAppearanceAppliesBeforeCloseAndRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { w.market.close(); driver.Close() })
-	click := func(id ui.ID) {
+	click := func(id gfx.ID) {
 		t.Helper()
 		for _, hit := range driver.Snapshot().Hits {
 			if hit.ID == id {
@@ -101,7 +101,7 @@ func TestGeneralLanguageChangeRepaintsOpenWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { w.market.close(); driver.Close() })
-	click := func(id ui.ID) {
+	click := func(id gfx.ID) {
 		t.Helper()
 		for _, hit := range driver.Snapshot().Hits {
 			if hit.ID == id {
@@ -134,7 +134,7 @@ func TestGeneralInfoHoverClickAndKeyboard(t *testing.T) {
 	}
 	t.Cleanup(func() { w.market.close(); driver.Close() })
 	id := infoScope.At(0)
-	var trigger ui.Hit
+	var trigger gfx.Hit
 	for _, hit := range driver.Snapshot().Hits {
 		if hit.ID == id {
 			trigger = hit
@@ -176,7 +176,7 @@ func TestGeneralInfoHoverClickAndKeyboard(t *testing.T) {
 	if w.pinnedInfo != id {
 		t.Fatal("moving away dismissed pinned help")
 	}
-	if err := driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 	if !w.pinnedInfo.IsZero() || w.sess.finished.Load() {
@@ -185,7 +185,7 @@ func TestGeneralInfoHoverClickAndKeyboard(t *testing.T) {
 	if err := driver.Click(x, y); err != nil {
 		t.Fatal(err)
 	}
-	if err := driver.Key(ui.KeyEnter, 0); err != nil {
+	if err := driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
 	if !w.pinnedInfo.IsZero() || w.sess.finished.Load() {
@@ -214,9 +214,9 @@ func TestSettingsSearchUsesPlatformShortcutAndClears(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { w.market.close(); driver.Close() })
-	modifier := ui.ModifierControl
+	modifier := gfx.ModifierControl
 	if runtime.GOOS == "darwin" {
-		modifier = ui.ModifierMeta
+		modifier = gfx.ModifierMeta
 	}
 	if handled, err := driver.ShortcutChord(modifier, 'f'); err != nil || !handled {
 		t.Fatalf("search shortcut handled=%v error=%v", handled, err)
@@ -230,7 +230,7 @@ func TestSettingsSearchUsesPlatformShortcutAndClears(t *testing.T) {
 	if w.search.Text() != "Network" || len(w.rows) != 2 || w.rows[1].page != pageNetwork {
 		t.Fatalf("search=%q rows=%+v", w.search.Text(), w.rows)
 	}
-	if err := driver.Key(ui.KeyEscape, 0); err != nil {
+	if err := driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
 	if w.search.Text() != "" || w.sess.finished.Load() {
