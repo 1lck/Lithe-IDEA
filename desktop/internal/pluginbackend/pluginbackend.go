@@ -124,11 +124,17 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 		return Session{}, err
 	}
 	granted := pluginhost.GrantServices(plan.Backend.HostServices, r.services)
+	// A packaged launch runs the program the package ships; a runtime launch runs the
+	// packaged runtime, which VerifyLaunch put in Runtime.
+	executable := resolved.Executable
+	if executable == "" {
+		executable = resolved.Runtime
+	}
 	started, err := r.kernel.StartPluginBackend(ctx, core.PluginBackendStart{
 		ProviderID:            request.ProviderID,
 		PluginID:              request.PluginID,
-		ExecutablePath:        resolved.Executable,
-		Arguments:             Arguments(plan),
+		ExecutablePath:        executable,
+		Arguments:             Arguments(plan, resolved.Entry),
 		RootURI:               request.RootURI,
 		WorkingDirectory:      request.WorkingDirectory,
 		HostServices:          granted,
@@ -243,14 +249,16 @@ func LaunchFromPlan(plan core.PluginBackendPlan) pluginhost.Launch {
 
 // Arguments composes the process arguments a plan describes.
 //
-// Core reports a packaged runtime's own arguments and the entry file separately,
-// so the order is: runtime arguments, the entry file, then the plan's arguments.
-// A packaged launch has no runtime prefix and uses the plan's arguments as-is.
-func Arguments(plan core.PluginBackendPlan) []string {
+// Core reports a packaged runtime's own arguments and the entry file separately, so
+// the order is: runtime arguments, the entry file, then the plan's arguments. entry
+// must be the path VerifyLaunch resolved, not the plan's package-relative one: the
+// runtime resolves a relative path against its working directory, so the file that
+// was verified and the file that is loaded would differ.
+func Arguments(plan core.PluginBackendPlan, entry string) []string {
 	arguments := make([]string, 0, len(plan.Launch.RuntimeArguments)+1+len(plan.Arguments))
 	arguments = append(arguments, plan.Launch.RuntimeArguments...)
-	if plan.Launch.Kind == pluginhost.LaunchRuntime && plan.Launch.Entry != "" {
-		arguments = append(arguments, plan.Launch.Entry)
+	if plan.Launch.Kind == pluginhost.LaunchRuntime && entry != "" {
+		arguments = append(arguments, entry)
 	}
 	arguments = append(arguments, plan.Arguments...)
 	return arguments

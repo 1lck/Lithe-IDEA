@@ -43,18 +43,41 @@ func (s *Service) LoadLanguages(ctx context.Context, entries []pluginmanager.Ent
 	}
 	var languages []syntax.PluginLanguage
 	var failures []error
-	for _, entry := range entries {
-		if !entry.Enabled {
-			continue
-		}
+	for _, entry := range newestVersions(entries) {
 		loaded, err := s.pluginLanguages(ctx, entry.Installed.Path)
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))
-			continue
 		}
 		languages = append(languages, loaded...)
 	}
 	return languages, errors.Join(failures...)
+}
+
+// newestVersions keeps one entry per plugin, its newest version.
+//
+// Installing a version does not remove an earlier one, so an upgrade leaves both
+// on disk. Registering both would make the editor keep whichever came first — the
+// older one — while the plugin page reports the newer one.
+func newestVersions(entries []pluginmanager.Entry) []pluginmanager.Entry {
+	latest := make(map[string]pluginmanager.Entry, len(entries))
+	order := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.Enabled {
+			continue
+		}
+		id := entry.Installed.ID
+		if _, seen := latest[id]; !seen {
+			order = append(order, id)
+		}
+		// pluginpkg.List sorts by plugin then version, so a later entry of the same
+		// plugin is the newer version.
+		latest[id] = entry
+	}
+	newest := make([]pluginmanager.Entry, 0, len(order))
+	for _, id := range order {
+		newest = append(newest, latest[id])
+	}
+	return newest
 }
 
 // languageDeclaration is the part of a manifest this package reads.
@@ -87,6 +110,7 @@ func (s *Service) pluginLanguages(ctx context.Context, directory string) ([]synt
 		return nil, fmt.Errorf("%w: %w", ErrPackageRead, err)
 	}
 	languages := make([]syntax.PluginLanguage, 0, len(declaration.Languages))
+	var failures []error
 	for _, item := range declaration.Languages {
 		if item.ID == "" {
 			continue
@@ -97,20 +121,13 @@ func (s *Service) pluginLanguages(ctx context.Context, directory string) ([]synt
 			FileNames:  item.FileNames,
 		}
 		if item.Grammar != nil {
-			path, err := pluginhost.ResolvePackagePath(directory, item.Grammar.Path)
-			if err != nil {
-				return nil, err
-			}
-			source, err := readBounded(path, MaxGrammarBytes)
-			if err != nil {
-				return nil, err
-			}
-			decoded, err := s.kernel.DecodePluginGrammar(ctx, manifest, item.ID, string(source))
-			if err != nil {
-				return nil, err
-			}
-			if decoded.Grammar != nil {
-				language.Grammar = []byte(decoded.Grammar.Source)
+			// The contract has a language whose grammar is refused open as plain text
+			// while the rest of the plugin keeps working, so a bad grammar costs that
+			// language its highlighting and nothing else.
+			if grammar, err := s.grammar(ctx, directory, manifest, item.ID, item.Grammar.Path); err != nil {
+				failures = append(failures, fmt.Errorf("%s: %w", item.ID, err))
+			} else {
+				language.Grammar = grammar
 			}
 		}
 		if configuration := item.Configuration; configuration != nil {
@@ -121,9 +138,36 @@ func (s *Service) pluginLanguages(ctx context.Context, directory string) ([]synt
 			language.Brackets = delimiterPairs(configuration.Brackets)
 			language.AutoClosing = delimiterPairs(configuration.AutoClosingPairs)
 		}
+		if len(language.Extensions) == 0 && len(language.FileNames) == 0 {
+			// The editor only matches a language by extension or base name. A language
+			// that declares neither is invisible, which the user would read as "the
+			// plugin does nothing".
+			failures = append(failures, fmt.Errorf("%s: declares no file extensions or file names", item.ID))
+			continue
+		}
 		languages = append(languages, language)
 	}
-	return languages, nil
+	return languages, errors.Join(failures...)
+}
+
+// grammar reads one grammar file from the package and has Core validate it.
+func (s *Service) grammar(ctx context.Context, directory string, manifest json.RawMessage, languageID, name string) ([]byte, error) {
+	path, err := pluginhost.ResolvePackagePath(directory, name)
+	if err != nil {
+		return nil, err
+	}
+	source, err := readBounded(path, MaxGrammarBytes)
+	if err != nil {
+		return nil, err
+	}
+	decoded, err := s.kernel.DecodePluginGrammar(ctx, manifest, languageID, string(source))
+	if err != nil {
+		return nil, err
+	}
+	if decoded.Grammar == nil {
+		return nil, nil
+	}
+	return []byte(decoded.Grammar.Source), nil
 }
 
 // delimiterPair converts one two-element delimiter declaration.

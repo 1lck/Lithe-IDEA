@@ -28,6 +28,35 @@ type Installed struct {
 	Path string
 }
 
+// Sweep removes what an interrupted install or uninstall left behind.
+//
+// Nothing else cleans the staging and trash areas: a process killed mid-install, or
+// a delete that failed, leaves a complete extracted package there. Call it before
+// any installation can start, so it never races one.
+func Sweep(root string) error {
+	if err := checkRoot(root); err != nil {
+		return err
+	}
+	var failures []error
+	for _, name := range []string{stagingDirectory, trashDirectory} {
+		directory := filepath.Join(root, name)
+		entries, err := os.ReadDir(directory)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		for _, entry := range entries {
+			if err := os.RemoveAll(filepath.Join(directory, entry.Name())); err != nil {
+				failures = append(failures, err)
+			}
+		}
+	}
+	return errors.Join(failures...)
+}
+
 // NewStaging creates a fresh staging directory below root.
 //
 // It lives under the root so that Install can rename it into place atomically:

@@ -195,7 +195,7 @@ func installedPackage(t *testing.T, manifest string, files map[string]string) pl
 const languageManifest = `{"id":"example","version":"1.0.0","languages":[{"id":"examplelang","displayName":"Example","fileExtensions":[".ex"],"fileNames":["Examplefile"],"grammar":{"kind":"textmate","path":"grammars/example.json"}}]}`
 
 func TestLoadLanguagesMapsConfiguration(t *testing.T) {
-	manifest := `{"id":"example","version":"1.0.0","languages":[{"id":"examplelang","displayName":"Example","configuration":{"lineComment":"//","blockComment":["/*","*/"],"brackets":[["{","}"],["[","]"]],"autoClosingPairs":[["(",")"]]}}]}`
+	manifest := `{"id":"example","version":"1.0.0","languages":[{"id":"examplelang","displayName":"Example","fileExtensions":[".ex"],"configuration":{"lineComment":"//","blockComment":["/*","*/"],"brackets":[["{","}"],["[","]"]],"autoClosingPairs":[["(",")"]]}}]}`
 	service, err := Open(&fakeKernel{}, store.At(t.TempDir()), t.TempDir())
 	if err != nil {
 		t.Fatalf("open: %v", err)
@@ -317,8 +317,29 @@ func TestLoadLanguagesReportsARejectedGrammar(t *testing.T) {
 	if !errors.Is(err, refusal) {
 		t.Fatalf("err = %v", err)
 	}
+	// The contract has a language whose grammar is refused open as plain text while
+	// the rest of the plugin keeps working, so the language is still registered.
+	if len(languages) != 1 {
+		t.Fatalf("languages = %+v", languages)
+	}
+	if len(languages[0].Grammar) != 0 {
+		t.Fatalf("a rejected grammar was registered: %s", languages[0].Grammar)
+	}
+}
+
+func TestLoadLanguagesReportsALanguageWithNoMatchingRule(t *testing.T) {
+	manifest := `{"id":"example","version":"1.0.0","languages":[{"id":"examplelang","displayName":"Example","grammar":{"kind":"textmate","path":"grammars/example.json"}}]}`
+	service, err := Open(&fakeKernel{}, store.At(t.TempDir()), t.TempDir())
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	entry := installedPackage(t, manifest, map[string]string{"grammars/example.json": `{}`})
+	languages, err := service.LoadLanguages(context.Background(), []pluginmanager.Entry{entry})
+	if err == nil {
+		t.Fatal("a language the editor could never match was accepted")
+	}
 	if len(languages) != 0 {
-		t.Fatalf("a rejected grammar was registered: %+v", languages)
+		t.Fatalf("languages = %+v", languages)
 	}
 }
 

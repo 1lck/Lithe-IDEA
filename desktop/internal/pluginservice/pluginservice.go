@@ -21,6 +21,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugininstall"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugintrust"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
@@ -68,6 +69,11 @@ func Open(kernel Kernel, preferences *store.Store, root string) (*Service, error
 	approvals := plugintrust.New(preferences)
 	state := pluginstate.New(preferences)
 	hostServices := pluginhost.NewServices()
+	// Nothing else removes what an interrupted install or uninstall left behind, and
+	// Open runs before any installation can start.
+	if err := pluginpkg.Sweep(root); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrAssembly, err)
+	}
 	return &Service{
 		Root:         root,
 		Manager:      pluginmanager.New(root, approvals, state),

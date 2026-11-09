@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -93,10 +94,13 @@ func (a *App) installPlugin(plugin core.MarketplacePlugin) {
 	}
 	a.pluginInstall.generation++
 	generation := a.pluginInstall.generation
+	// A review may still be open in the settings window's own page; the user can
+	// start another install from there, so the earlier package is dropped here
+	// rather than left in the staging area with no owner.
+	a.discardPluginInstall()
 	a.pluginInstall.plugin = plugin
 	a.pluginInstall.busy = true
 	a.pluginInstall.open = false
-	a.pluginInstall.plan = plugininstall.Plan{}
 	a.performed("plugin.install", "marketplace")
 	availability := plugin.Availability
 	a.background(nil, pluginDownloadTimeout, func(ctx context.Context) func(*App) {
@@ -149,8 +153,19 @@ func (a *App) confirmPluginInstall() {
 		_, err := a.plugins.Installer.Commit(plan)
 		return func(a *App) {
 			if err != nil {
-				a.notify(i18n.Shared(a.language(), "desktop.marketplace.installFailed"))
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_commit", err))
+				var approval *plugininstall.ApprovalError
+				if errors.As(err, &approval) {
+					// The package is on disk; only its approval record failed, so the
+					// user is not told the installation failed. The next installation
+					// of the same version asks again.
+					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_approval", err))
+				} else {
+					a.notify(i18n.Shared(a.language(), "desktop.marketplace.installFailed"))
+					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_commit", err))
+					// A refused install leaves the extracted package behind; Discard
+					// is a no-op once the rename consumed it.
+					_ = a.plugins.Installer.Discard(plan)
+				}
 			}
 			a.refreshPluginState()
 			a.reloadPluginLanguages()
@@ -160,10 +175,15 @@ func (a *App) confirmPluginInstall() {
 
 // cancelPluginInstall drops a prepared package the user declined.
 func (a *App) cancelPluginInstall() {
-	plan := a.pluginInstall.plan
 	a.pluginInstall.open = false
-	a.pluginInstall.plan = plugininstall.Plan{}
 	a.pluginInstall.generation++
+	a.discardPluginInstall()
+}
+
+// discardPluginInstall drops the prepared package that will not be installed.
+func (a *App) discardPluginInstall() {
+	plan := a.pluginInstall.plan
+	a.pluginInstall.plan = plugininstall.Plan{}
 	if a.plugins != nil && plan.Staging != "" {
 		_ = a.plugins.Installer.Discard(plan)
 	}

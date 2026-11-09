@@ -136,14 +136,6 @@ func (s *Service) Prepare(ctx context.Context, request Request) (plan Plan, err 
 	if s.validator == nil || s.reviewer == nil || s.approvals == nil {
 		return Plan{}, errors.New("plugininstall: the service is missing a collaborator")
 	}
-	// The download layer checked the digest of the bytes it received. This checks
-	// the bytes that are about to be extracted, so an archive replaced in between
-	// is refused rather than installed.
-	if request.ArchiveSHA256 != "" {
-		if err := verifyArchive(request.ArchivePath, request.ArchiveSHA256); err != nil {
-			return Plan{}, err
-		}
-	}
 	staging, err := pluginpkg.NewStaging(request.Root)
 	if err != nil {
 		return Plan{}, err
@@ -154,7 +146,7 @@ func (s *Service) Prepare(ctx context.Context, request Request) (plan Plan, err 
 			err = errors.Join(err, os.RemoveAll(staging))
 		}
 	}()
-	extracted, err := pluginpkg.Extract(request.ArchivePath, staging)
+	extracted, err := extractVerified(request, staging)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -278,25 +270,47 @@ func hashFile(writer io.Writer, source io.Reader) error {
 	return nil
 }
 
-// verifyArchive hashes the archive as it sits on disk and compares it with the
-// digest the download layer checked against the index.
+// extractVerified opens the archive once, checks the digest over that handle and
+// extracts from the same handle.
 //
-// The download layer covered the bytes it received; this covers the bytes about
-// to be extracted, which is the pair the marketplace contract asks for.
-func verifyArchive(path, want string) error {
+// The download layer checked the digest of the bytes it received. Hashing a path
+// and then opening it again would leave a window in which the file is replaced,
+// so the check and the extraction share one open file.
+func extractVerified(request Request, staging string) (pluginpkg.Package, error) {
+	file, err := os.Open(request.ArchivePath)
+	if err != nil {
+		return pluginpkg.Package{}, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return pluginpkg.Package{}, err
+	}
+	if !info.Mode().IsRegular() {
+		// A named pipe or a directory would block or read something else.
+		return pluginpkg.Package{}, fmt.Errorf("%w: %s is not a regular file", ErrArchiveDigest, request.ArchivePath)
+	}
+	if request.ArchiveSHA256 != "" {
+		if err := verifyDigest(file, request.ArchivePath, request.ArchiveSHA256); err != nil {
+			return pluginpkg.Package{}, err
+		}
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return pluginpkg.Package{}, err
+		}
+	}
+	return pluginpkg.ExtractReader(file, info.Size(), staging)
+}
+
+// verifyDigest hashes the open archive and compares it with the digest the
+// download layer checked against the index.
+func verifyDigest(source io.Reader, path, want string) error {
 	expected, err := hex.DecodeString(want)
 	if err != nil || len(expected) != sha256.Size {
 		return fmt.Errorf("%w: %q is not a SHA-256 digest", ErrArchiveDigest, want)
 	}
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
 	hash := sha256.New()
-	copyErr := hashFile(hash, file)
-	closeErr := file.Close()
-	if copyErr != nil || closeErr != nil {
-		return errors.Join(copyErr, closeErr)
+	if err := hashFile(hash, source); err != nil {
+		return err
 	}
 	if subtle.ConstantTimeCompare(hash.Sum(nil), expected) != 1 {
 		return fmt.Errorf("%w: %s", ErrArchiveDigest, path)

@@ -278,7 +278,7 @@ func TestArgumentsComposition(t *testing.T) {
 	packaged.Launch.Kind = pluginhost.LaunchPackaged
 	packaged.Launch.Path = "bin/server"
 	packaged.Arguments = []string{"--stdio"}
-	if got := Arguments(packaged); len(got) != 1 || got[0] != "--stdio" {
+	if got := Arguments(packaged, ""); len(got) != 1 || got[0] != "--stdio" {
 		t.Fatalf("packaged arguments = %v", got)
 	}
 
@@ -288,14 +288,50 @@ func TestArgumentsComposition(t *testing.T) {
 	runtime.Launch.Entry = "lib/main.js"
 	runtime.Launch.RuntimeArguments = []string{"--inspect"}
 	runtime.Arguments = []string{"--stdio"}
-	want := []string{"--inspect", "lib/main.js", "--stdio"}
-	got := Arguments(runtime)
+	// The entry that is passed is the resolved one, not the plan's relative path.
+	want := []string{"--inspect", "/package/lib/main.js", "--stdio"}
+	got := Arguments(runtime, "/package/lib/main.js")
 	if len(got) != len(want) {
 		t.Fatalf("runtime arguments = %v", got)
 	}
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("runtime arguments = %v", got)
+		}
+	}
+}
+
+func TestStartUsesTheVerifiedRuntime(t *testing.T) {
+	root := backendPackage(t)
+	if err := os.Chmod(filepath.Join(root, "bin", "server"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plan := core.PluginBackendPlan{}
+	plan.Launch.Kind = pluginhost.LaunchRuntime
+	plan.Launch.PackagedRuntime = "bin/server"
+	plan.Launch.Entry = "lib/data.js"
+	plan.Launch.RuntimeArguments = []string{"--inspect"}
+	plan.Arguments = []string{"--stdio"}
+	kernel := &fakeKernel{plan: plan, started: core.PluginBackendStarted{SessionID: "session-1"}}
+	session, err := New(kernel, echoServices(t)).Start(context.Background(), startRequest(root))
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if session.ID != "session-1" {
+		t.Fatalf("session = %+v", session)
+	}
+	// A runtime launch must not start with an empty executable path.
+	if want := filepath.Join(root, "bin", "server"); kernel.started_.ExecutablePath != want {
+		t.Fatalf("executable = %q, want %q", kernel.started_.ExecutablePath, want)
+	}
+	want := []string{"--inspect", filepath.Join(root, "lib", "data.js"), "--stdio"}
+	got := kernel.started_.Arguments
+	if len(got) != len(want) {
+		t.Fatalf("arguments = %v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("arguments = %v", got)
 		}
 	}
 }

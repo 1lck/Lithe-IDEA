@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
@@ -37,6 +38,7 @@ type file struct {
 
 // Store keeps enablement choices in one preference file.
 type Store struct {
+	mu          sync.Mutex
 	preferences *store.Store
 }
 
@@ -48,6 +50,8 @@ func New(preferences *store.Store) *Store {
 // Enabled reports whether a plugin is enabled. A plugin with no record is
 // disabled.
 func (s *Store) Enabled(id string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err := checkID(id); err != nil {
 		return false, err
 	}
@@ -64,6 +68,8 @@ func (s *Store) Enabled(id string) (bool, error) {
 
 // SetEnabled records an explicit choice for a plugin.
 func (s *Store) SetEnabled(id string, enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err := checkID(id); err != nil {
 		return err
 	}
@@ -78,6 +84,8 @@ func (s *Store) SetEnabled(id string, enabled bool) error {
 // Forget drops a choice, so a later installation starts disabled again. It is
 // called when the last installed version of a plugin is removed.
 func (s *Store) Forget(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err := checkID(id); err != nil {
 		return err
 	}
@@ -94,6 +102,8 @@ func (s *Store) Forget(id string) error {
 
 // List reports every explicit choice, ordered by plugin ID.
 func (s *Store) List() ([]Entry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	contents, err := s.load()
 	if err != nil {
 		return nil, err

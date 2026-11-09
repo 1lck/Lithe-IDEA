@@ -17,18 +17,40 @@ import (
 // already holds entries is refused so an extraction never merges into an earlier
 // attempt.
 //
-// On any refusal Extract removes directory, whether or not this call created it:
-// the caller gives up ownership of the directory when it calls Extract.
+// On any refusal after the directory is accepted, Extract removes it: the caller
+// gives up ownership at that point. A directory that already holds entries is
+// refused without being touched.
 //
 // The archive must carry ManifestFile at its root. Extract does not interpret the
 // manifest, verify a publisher signature, or approve execution; those belong to
 // the install review.
+//
+// A caller that verified a digest must use ExtractReader with the same open handle
+// instead: a path can be replaced between two opens, an open file cannot.
 func Extract(archivePath, directory string) (Package, error) {
-	reader, err := zip.OpenReader(archivePath)
+	file, err := os.Open(archivePath)
 	if err != nil {
 		return Package{}, fmt.Errorf("%w: %w", ErrNotArchive, err)
 	}
-	defer reader.Close()
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return Package{}, fmt.Errorf("%w: %w", ErrNotArchive, err)
+	}
+	if !info.Mode().IsRegular() {
+		// A directory, device or named pipe would block or read something else.
+		return Package{}, fmt.Errorf("%w: %s is not a regular file", ErrNotArchive, archivePath)
+	}
+	return ExtractReader(file, info.Size(), directory)
+}
+
+// ExtractReader reads an archive the caller already holds open, so that a digest
+// checked over the handle is checked over the bytes that are extracted.
+func ExtractReader(source io.ReaderAt, size int64, directory string) (Package, error) {
+	reader, err := zip.NewReader(source, size)
+	if err != nil {
+		return Package{}, fmt.Errorf("%w: %w", ErrNotArchive, err)
+	}
 	return extractEntries(reader.File, directory)
 }
 
