@@ -2,7 +2,6 @@ package workbench
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,16 +15,37 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugintrust"
 )
 
-// TestRepackedOfficialCargoPluginBuildsAWorkspace is an opt-in end-to-end check
-// of the official Cargo 0.1.0 plugin contents. The test uses a copy repacked so
-// plugin.json is at the ZIP root; the raw GitHub release has a top-level
-// directory and is covered by the separate layout test instead. It needs Node
-// and Cargo on PATH and does not run in normal suites.
+// TestOfficialCargoReleasePluginBuildsAWorkspace is an opt-in end-to-end check
+// of the published official Cargo 0.1.0 release archive. The archive keeps the
+// contract's <plugin-id>/ layout, so this test covers downloading the release as
+// published: install, enable, detect the Cargo instance, load its provider model
+// and run a real cargo build. It needs Node and Cargo on PATH and does not run
+// in normal suites.
+func TestOfficialCargoReleasePluginBuildsAWorkspace(t *testing.T) {
+	archive := os.Getenv("LITHE_RAW_CARGO_PLUGIN_ARCHIVE")
+	if archive == "" {
+		t.Skip("set LITHE_RAW_CARGO_PLUGIN_ARCHIVE to the unmodified official cargo-build-0.1.0-darwin.zip")
+	}
+	runOfficialCargoPluginWorkspace(t, archive)
+}
+
+// TestRepackedOfficialCargoPluginBuildsAWorkspace covers the flat archive layout
+// this host accepted before the contract layout was wired: the same official
+// Cargo 0.1.0 contents with plugin.json at the ZIP root. Both layouts must keep
+// producing the same package, so the test prevents a layout fix from dropping
+// flat archives that were already installable.
 func TestRepackedOfficialCargoPluginBuildsAWorkspace(t *testing.T) {
 	archive := os.Getenv("LITHE_REPACKED_CARGO_PLUGIN_ARCHIVE")
 	if archive == "" {
 		t.Skip("set LITHE_REPACKED_CARGO_PLUGIN_ARCHIVE to the official Cargo 0.1.0 contents repacked with plugin.json at the archive root")
 	}
+	runOfficialCargoPluginWorkspace(t, archive)
+}
+
+// runOfficialCargoPluginWorkspace installs the official Cargo 0.1.0 archive,
+// enables it, detects a workspace and runs its build task.
+func runOfficialCargoPluginWorkspace(t *testing.T, archive string) {
+	t.Helper()
 	workspace := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(workspace, "src"), 0o700); err != nil {
 		t.Fatal(err)
@@ -50,15 +70,30 @@ func TestRepackedOfficialCargoPluginBuildsAWorkspace(t *testing.T) {
 		Source:      plugintrust.Disk,
 	})
 	if err != nil {
-		t.Fatalf("prepare the repacked official plugin: %v", err)
+		t.Fatalf("prepare the official plugin: %v", err)
 	}
 	if plan.ID != "io.github.lithe-idea.cargo-build" || plan.Version != "0.1.0" {
 		_ = service.Installer.Discard(plan)
 		t.Fatalf("unexpected official plugin identity: %s %s", plan.ID, plan.Version)
 	}
-	if _, err := service.Installer.Commit(plan); err != nil {
+	// The published package carries no publisher signature, so a disk install
+	// must still ask the user; the layout fix may not turn that into trust.
+	if !plan.NeedsApproval() {
 		_ = service.Installer.Discard(plan)
-		t.Fatalf("install the repacked official plugin: %v", err)
+		t.Fatal("an unsigned package from disk reused an approval")
+	}
+	installed, err := service.Installer.Commit(plan)
+	if err != nil {
+		_ = service.Installer.Discard(plan)
+		t.Fatalf("install the official plugin: %v", err)
+	}
+	// The contract's <plugin-id>/ directory is the package's content root, not a
+	// second directory below the installed package.
+	if _, err := os.Stat(filepath.Join(installed.Path, pluginpkg.ManifestFile)); err != nil {
+		t.Fatalf("the installed package has no plugin.json at its root: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(installed.Path, plan.ID)); !os.IsNotExist(err) {
+		t.Fatalf("the installed package kept its archive directory: %v", err)
 	}
 	if err := service.Manager.SetEnabled("io.github.lithe-idea.cargo-build", true); err != nil {
 		t.Fatal(err)
@@ -91,33 +126,5 @@ func TestRepackedOfficialCargoPluginBuildsAWorkspace(t *testing.T) {
 	}
 	if !strings.Contains(output, "Finished") && !strings.Contains(output, "Compiling") {
 		t.Fatalf("cargo build produced no build output: %q", output)
-	}
-}
-
-// TestRawOfficialCargoReleaseLayoutIsRejected preserves the exact published
-// archive behaviour: the GitHub release ZIP places the package under its
-// <plugin-id>/ directory (the contract's package layout), while the current
-// pluginpkg extractor only looks for plugin.json at the extracted root. This
-// test is opt-in and must fail with the layout error, not be masked by installer
-// code.
-func TestRawOfficialCargoReleaseLayoutIsRejected(t *testing.T) {
-	archive := os.Getenv("LITHE_RAW_CARGO_PLUGIN_ARCHIVE")
-	if archive == "" {
-		t.Skip("set LITHE_RAW_CARGO_PLUGIN_ARCHIVE to the unmodified official cargo-build-0.1.0-darwin.zip")
-	}
-	h := newHarness(t, &testKernel{Client: core.NewClient()})
-	service, err := pluginservice.Open(core.NewClient(), h.store, t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	_, err = service.Installer.Prepare(ctx, plugininstall.Request{
-		ArchivePath: archive,
-		Root:        service.Root,
-		Source:      plugintrust.Disk,
-	})
-	if !errors.Is(err, pluginpkg.ErrManifestMissing) {
-		t.Fatalf("raw release layout = %v, want ErrManifestMissing", err)
 	}
 }

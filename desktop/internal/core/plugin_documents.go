@@ -97,12 +97,11 @@ func (c *Client) ClosePluginDocument(ctx context.Context, session, uri string) e
 // operation name rather than a raw LSP method, so Core decides which server
 // feature answers it.
 type PluginSemanticRequest struct {
-	SessionID       string
-	Operation       string
-	URI             string
-	Position        *PluginDocumentPosition
-	DocumentVersion *int64
-	Extra           json.RawMessage
+	SessionID         string
+	Operation         string
+	URI               string
+	Position          *PluginDocumentPosition
+	CompletionContext json.RawMessage
 }
 
 // PluginDocumentURI asks Core to convert a native absolute path into the
@@ -128,13 +127,12 @@ func (c *Client) PluginDocumentURI(ctx context.Context, path, platform string) (
 // operation ID. Completion and results arrive in the session's ordered events.
 func (c *Client) RequestPluginSemantics(ctx context.Context, request PluginSemanticRequest) (string, error) {
 	body := struct {
-		SessionID       string                  `json:"sessionId"`
-		Operation       string                  `json:"operation"`
-		URI             string                  `json:"uri,omitempty"`
-		Position        *PluginDocumentPosition `json:"position,omitempty"`
-		DocumentVersion *int64                  `json:"documentVersion,omitempty"`
-		Extra           json.RawMessage         `json:"extra,omitempty"`
-	}{request.SessionID, request.Operation, request.URI, request.Position, request.DocumentVersion, request.Extra}
+		SessionID         string                  `json:"sessionId"`
+		Operation         string                  `json:"operation"`
+		URI               string                  `json:"uri,omitempty"`
+		Position          *PluginDocumentPosition `json:"position,omitempty"`
+		CompletionContext json.RawMessage         `json:"completionContext,omitempty"`
+	}{request.SessionID, request.Operation, request.URI, request.Position, request.CompletionContext}
 	var response struct {
 		OperationID string `json:"operationId"`
 	}

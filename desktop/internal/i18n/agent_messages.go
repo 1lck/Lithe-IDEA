@@ -23,6 +23,25 @@ type AgentMessages struct {
 	Stop         string
 	Stopping     string
 
+	History                string
+	NewChat                string
+	Back                   string
+	Refresh                string
+	HistoryTitle           string
+	HistoryLoading         string
+	HistoryEmpty           string
+	HistoryUnsupported     string
+	HistoryLoadUnsupported string
+	HistoryLimited         string
+	HistoryFailed          string
+	HistoryRestoreFailed   string
+	Untitled               string
+	Current                string
+	ConfigModel            string
+	ConfigThinking         string
+	ConfigPermissions      string
+	ConfigFailed           string
+
 	StatusChecking          string
 	StatusStarting          string
 	StatusReady             string
@@ -30,6 +49,10 @@ type AgentMessages struct {
 	StatusStopping          string
 	StatusFailed            string
 	StatusWaitingPermission string
+	StatusSignIn            string
+	StatusSigningIn         string
+	StatusRestoring         string
+	StatusConfiguring       string
 
 	Empty         string
 	RoleUser      string
@@ -39,10 +62,12 @@ type AgentMessages struct {
 	PermissionTool  func(tool string) string
 	Deny            string
 
-	Dismiss          string
-	ConnectionClosed string
-	ErrorOverflow    string
-	RequestFailed    string
+	Dismiss                string
+	ConnectionClosed       string
+	ConnectionLost         string
+	ErrorOverflow          string
+	RequestFailed          string
+	AuthenticationRequired string
 
 	ErrorCredential      string
 	ErrorDetection       string
@@ -99,6 +124,25 @@ func agentMessages(language Language) AgentMessages {
 		Stop:         Shared(language, "desktop.agent.composer.stop"),
 		Stopping:     Shared(language, "desktop.agent.composer.stopping"),
 
+		History:                Shared(language, "desktop.agent.toolbar.history"),
+		NewChat:                Shared(language, "desktop.agent.toolbar.newChat"),
+		Back:                   Shared(language, "desktop.agent.toolbar.back"),
+		Refresh:                Shared(language, "desktop.agent.history.refresh"),
+		HistoryTitle:           Shared(language, "desktop.agent.history.title"),
+		HistoryLoading:         Shared(language, "desktop.agent.history.loading"),
+		HistoryEmpty:           Shared(language, "desktop.agent.history.empty"),
+		HistoryUnsupported:     Shared(language, "desktop.agent.history.unsupportedList"),
+		HistoryLoadUnsupported: Shared(language, "desktop.agent.history.unsupportedLoad"),
+		HistoryLimited:         Shared(language, "desktop.agent.history.limited"),
+		HistoryFailed:          Shared(language, "desktop.agent.history.failed"),
+		HistoryRestoreFailed:   Shared(language, "desktop.agent.history.restoreFailed"),
+		Untitled:               Shared(language, "desktop.agent.history.untitled"),
+		Current:                Shared(language, "desktop.agent.history.current"),
+		ConfigModel:            Shared(language, "desktop.agent.config.model"),
+		ConfigThinking:         Shared(language, "desktop.agent.config.thinking"),
+		ConfigPermissions:      Shared(language, "desktop.agent.config.permissions"),
+		ConfigFailed:           Shared(language, "desktop.agent.config.failed"),
+
 		StatusChecking:          Shared(language, "desktop.agent.status.checking"),
 		StatusStarting:          Shared(language, "desktop.agent.status.starting"),
 		StatusReady:             Shared(language, "desktop.agent.status.ready"),
@@ -106,6 +150,10 @@ func agentMessages(language Language) AgentMessages {
 		StatusStopping:          Shared(language, "desktop.agent.status.stopping"),
 		StatusFailed:            Shared(language, "desktop.agent.status.failed"),
 		StatusWaitingPermission: Shared(language, "desktop.agent.status.permission"),
+		StatusSignIn:            Shared(language, "desktop.agent.status.signIn"),
+		StatusSigningIn:         Shared(language, "desktop.agent.status.signingIn"),
+		StatusRestoring:         Shared(language, "desktop.agent.status.restoring"),
+		StatusConfiguring:       Shared(language, "desktop.agent.status.configuring"),
 
 		Empty:         Shared(language, "desktop.agent.transcript.empty"),
 		RoleUser:      Shared(language, "desktop.agent.transcript.user"),
@@ -117,10 +165,12 @@ func agentMessages(language Language) AgentMessages {
 		},
 		Deny: Shared(language, "desktop.agent.permission.deny"),
 
-		Dismiss:          Shared(language, "desktop.agent.error.dismiss"),
-		ConnectionClosed: Shared(language, "desktop.agent.error.closed"),
-		ErrorOverflow:    Shared(language, "desktop.agent.error.overflow"),
-		RequestFailed:    Shared(language, "desktop.agent.error.request"),
+		Dismiss:                Shared(language, "desktop.agent.error.dismiss"),
+		ConnectionClosed:       Shared(language, "desktop.agent.error.closed"),
+		ConnectionLost:         Shared(language, "desktop.agent.error.lost"),
+		ErrorOverflow:          Shared(language, "desktop.agent.error.overflow"),
+		RequestFailed:          Shared(language, "desktop.agent.error.request"),
+		AuthenticationRequired: Shared(language, "desktop.agent.auth.required"),
 
 		ErrorCredential:    Shared(language, "desktop.agent.error.credential"),
 		ErrorDetection:     Shared(language, "desktop.agent.error.detection"),

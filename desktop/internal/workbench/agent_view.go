@@ -353,19 +353,12 @@ func agentFormatDuration(milliseconds uint64) string {
 // message list itself is bounded in agent.go.
 func (a *App) drawAgentConversation(f *ui.Frame, p *project) {
 	t := a.text.Agent
-	agent, _ := p.selectedAgent()
-	provider, _ := p.selectedProvider()
-	title := agent.Name
-	if provider.Name != "" {
-		title += " · " + provider.Name
-	}
 	f.Column().Fill().Children(func() {
-		f.Row().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(8).PadSides(0, 8, 0, 12).Children(func() {
-			f.Text(title).Weight(gfx.WeightMedium).Ellipsis().Grow(1)
-			if f.Button(agentChange, t.Change).Ghost().Clicked() {
-				a.disconnectAgent(p)
-			}
-		})
+		a.drawAgentConversationHeader(f, p)
+		if p.agent.history.open {
+			a.drawAgentHistoryPanel(f, p)
+			return
+		}
 		if p.agent.err != "" {
 			f.Row().FillWidth().Shrink(0).Items(ui.Center).Gap(6).Pad(8).Background(a.colors.Active).Children(func() {
 				f.Paragraph(p.agent.err, 4).Grow(1).Color(a.colors.Text)
@@ -375,8 +368,10 @@ func (a *App) drawAgentConversation(f *ui.Frame, p *project) {
 				}
 			})
 		}
+		a.drawAgentConfigBar(f, p)
 		scroll := a.view.ScrollState(agentTranscript)
 		first, last, before, after := agentVisibleRange(p.agent.messages, scroll.Offset, scroll.Viewport)
+		assistantRole, _ := p.selectedAgent()
 		f.ScrollArea(agentTranscript).Grow(1).Pad(8).Follow(true).Children(func() {
 			if len(p.agent.messages) == 0 {
 				f.Paragraph(t.Empty, 3).Color(a.colors.Subtle)
@@ -389,7 +384,7 @@ func (a *App) drawAgentConversation(f *ui.Frame, p *project) {
 				message := p.agent.messages[i]
 				role := t.RoleUser
 				if message.Role == agentRoleAssistant {
-					role = agent.Name
+					role = assistantRole.Name
 					if role == "" {
 						role = t.RoleAssistant
 					}
@@ -463,7 +458,7 @@ func (a *App) drawAgentComposer(f *ui.Frame, p *project) {
 		Label:          a.text.Agent.MessageLabel,
 		Value:          value,
 		Placeholder:    a.text.Agent.Placeholder,
-		Disabled:       p.agent.phase == agentPhaseCancelling,
+		Disabled:       p.agent.phase == agentPhaseCancelling || p.agent.auth != agentAuthNone || p.agent.history.restoring(),
 		HideEditorText: true,
 		ShowCaret:      true,
 		Layout:         p.agent.layout,

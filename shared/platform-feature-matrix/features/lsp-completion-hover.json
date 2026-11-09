@@ -4,28 +4,30 @@
   "group": "语言服务",
   "capability": "补全与 Hover",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/workbench/app.go",
-      "desktop/internal/workbench/chrome.go"
+      "desktop/internal/workbench/pluginsemantics.go",
+      "desktop/internal/workbench/pluginsemantics_test.go",
+      "desktop/internal/workbench/pluginsemantics_e2e_test.go",
+      "desktop/internal/editorview/semantics.go",
+      "desktop/internal/core/plugin_semantics.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/workbench/app.go",
-      "desktop/internal/workbench/chrome.go"
+      "desktop/internal/workbench/pluginsemantics.go",
+      "desktop/internal/workbench/pluginsemantics_test.go",
+      "desktop/internal/workbench/pluginsemantics_e2e_test.go",
+      "desktop/internal/editorview/semantics.go",
+      "desktop/internal/core/plugin_semantics.go"
     ]
   },
   "owner": "Language Tooling",
-  "verification": "在相同 Java fixture 中验证补全、Hover、排序、超时和空结果。Java 构造器和方法补全使用 JDT LS 的 guessMethodArguments=off：输入 new No 后接受 Node 候选应得到 Node()，光标在括号内；方法调用同样不插入参数名，构造器重载候选由 JDT LS 合并为类型候选。验证 initialize、didChangeConfiguration 与 workspace/configuration 三个配置入口一致，父级和叶级 section 均保留插件 favoriteStaticMembers、filteredTypes 等其他补全配置，其他语言 snippet、Java 方法补全签名展示及自动导入仍正常。 连续输入时保留 isIncomplete 并通过 LSP triggerKind=3 重新请求候选；验证空未完整列表、完整/空响应、触发字符、快速修改及文档关闭/会话替换后的过期结果。 #1662 LSP-09：多个补全来源的合并由 Core 的 lsp.mergeCompletions 决定：同一来源的候选全部保留（同名不同签名的重载不再被丢弃），低优先级来源中与高优先级来源同 label 的候选被遮蔽。Windows 只有一个补全来源，原样显示服务器列表，不调用该命令。macOS 删除私有的 Go/Swift/Rust/Python/JS/TS 关键词表，关键词改由语言服务器或插件提供，与 Windows 一致。在 macOS 打开有重载方法的 Java/TS 文件，确认同名重载全部出现；未运行语言服务器的 Go 文件不再出现内置关键词候选，当前文件标识符仍会出现。",
-  "notes": "Viva 当前的运行、调试和问题面板为占位，语言服务状态为静态未启动；桌面客户端尚未接入对应的 LSP、DAP 或构建 Provider 工作流。Core 接口及编辑器内部语义高亮数据结构不能代替端到端接入。",
+  "verification": "Viva（2026-11-09）：Hover 支持 F1 与 500 ms 指针停留，补全由 Control+Space 显式触发，上下键选择、回车/Tab 通过 Core 的 lsp.applyTextEdits 与 lsp.plainSnippet 接受；无头 Viva 窗口使用真实 clangd 隔离插件验证了 Hover 内容、补全列表和接受后的文本与光标位置。连续输入自动重新请求、isIncomplete 刷新、触发字符和多来源合并尚未接入，因此保持部分实现。 在相同 Java fixture 中验证补全、Hover、排序、超时和空结果。Java 构造器和方法补全使用 JDT LS 的 guessMethodArguments=off：输入 new No 后接受 Node 候选应得到 Node()，光标在括号内；方法调用同样不插入参数名，构造器重载候选由 JDT LS 合并为类型候选。验证 initialize、didChangeConfiguration 与 workspace/configuration 三个配置入口一致，父级和叶级 section 均保留插件 favoriteStaticMembers、filteredTypes 等其他补全配置，其他语言 snippet、Java 方法补全签名展示及自动导入仍正常。 连续输入时保留 isIncomplete 并通过 LSP triggerKind=3 重新请求候选；验证空未完整列表、完整/空响应、触发字符、快速修改及文档关闭/会话替换后的过期结果。 #1662 LSP-09：多个补全来源的合并由 Core 的 lsp.mergeCompletions 决定：同一来源的候选全部保留（同名不同签名的重载不再被丢弃），低优先级来源中与高优先级来源同 label 的候选被遮蔽。Windows 只有一个补全来源，原样显示服务器列表，不调用该命令。macOS 删除私有的 Go/Swift/Rust/Python/JS/TS 关键词表，关键词改由语言服务器或插件提供，与 Windows 一致。在 macOS 打开有重载方法的 Java/TS 文件，确认同名重载全部出现；未运行语言服务器的 Go 文件不再出现内置关键词候选，当前文件标识符仍会出现。",
+  "notes": "Viva 已接入显式补全与接受（含 Core 的 snippet 转换）以及 Hover（F1 与指针停留）；自动触发、isIncomplete 连续请求、触发字符和多来源合并尚未接入。无头 clangd 测试不是原生窗口验收，平台验证保持 pending。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

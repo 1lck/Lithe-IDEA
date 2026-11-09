@@ -102024,6 +102024,174 @@
       ]
     },
     {
+      "id": "desktop.agent.error.lost",
+      "description": "Agent panel: connection lost while streaming",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.auth.required",
+      "description": "Agent panel: the Agent requires its own CLI sign-in",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.toolbar.history",
+      "description": "Agent panel: open conversation history",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.toolbar.newChat",
+      "description": "Agent panel: start a new conversation",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.toolbar.back",
+      "description": "Agent panel: leave the history panel",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.history.title",
+      "description": "Agent panel: conversation history title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.history.refresh",
+      "description": "Agent panel: refresh conversation history",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.history.loading",
+      "description": "Agent panel: conversation history is loading",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.history.empty",
+      "description": "Agent panel: the Agent listed no conversations",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.history.unsupportedList",
+      "description": "Agent panel: the Agent has no conversation listing capability",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.history.unsupportedLoad",
+      "description": "Agent panel: the Agent has no conversation reload capability",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.history.limited",
+      "description": "Agent panel: only the most recent conversations are shown",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.history.failed",
+      "description": "Agent panel: conversation listing failed without an upstream message",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.history.restoreFailed",
+      "description": "Agent panel: conversation restore failed without an upstream message",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.history.untitled",
+      "description": "Agent panel: a listed conversation has no title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.history.current",
+      "description": "Agent panel: the listed conversation is the open one",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.config.model",
+      "description": "Agent panel: ACP model category label",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.config.thinking",
+      "description": "Agent panel: ACP thought-level category label",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.config.permissions",
+      "description": "Agent panel: ACP mode category label",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.config.failed",
+      "description": "Agent panel: session setting change failed without an upstream message",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.status.signIn",
+      "description": "Agent panel: status needs the Agent's own sign-in",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.status.signingIn",
+      "description": "Agent panel: status while the Agent signs in",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.status.restoring",
+      "description": "Agent panel: status while a conversation is replayed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.status.configuring",
+      "description": "Agent panel: status while a session setting is confirmed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.agent.error.detection",
       "description": "Agent panel: adapter detection failed",
       "platforms": [
@@ -102132,6 +102300,41 @@
     {
       "id": "desktop.agent.install.failedDetail",
       "description": "Agent panel: install failure detail",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.definitions",
+      "description": "Accessibility title of the definition target list.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.completion",
+      "description": "Accessibility title of the explicit completion list.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.hover",
+      "description": "Accessibility title of the hover information popup.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.noDefinition",
+      "description": "Banner shown when a definition request returns no openable target.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.completionFailed",
+      "description": "Banner shown when Core cannot apply the accepted completion.",
       "platforms": [
         "desktop"
       ]

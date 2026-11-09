@@ -17,7 +17,13 @@
       "desktop/internal/core/rank_names.go",
       "desktop/internal/core/marketplace.go",
       "desktop/internal/marketplace/download.go",
-      "desktop/internal/marketplace/download_test.go"
+      "desktop/internal/marketplace/download_test.go",
+      "desktop/internal/pluginpkg/extract.go",
+      "desktop/internal/pluginpkg/extract_test.go",
+      "desktop/internal/plugininstall/plugininstall.go",
+      "desktop/internal/plugininstall/plugininstall_test.go",
+      "desktop/internal/workbench/official_cargo_test.go",
+      ".agents/notes/implemented/architecture/2026-11-09-viva-plugin-build-run.md"
     ]
   },
   "windows": {
@@ -38,8 +44,8 @@
     ]
   },
   "owner": "Extensions",
-  "notes": "Viva 可分别读取 Lithe Store 社区索引和当前主仓库的官方索引，通过 Core 校验并支持名称或 ID 搜索；旧官方地址指向临时仓库（#1781），当前主仓库官方索引为空。保留官方索引文件以维持客户端已使用的公开地址，不能将社区索引改标为官方来源。来源聚合、自定义源、离线官方索引、描述及标签搜索、插件安装、更新、卸载和宿主接入尚未完成，Windows 整机验收待做。下载适配器可流式限额并校验索引摘要、清理临时文件，但尚无生产调用者，不能代替签名、审批或安装。",
-  "verification": "macOS 无头界面覆盖来源选择、下载中切换、搜索、取消、迟到结果隔离及并发上限；市场服务以 Core 校验固定的社区和官方索引，搜索使用共享匹配样例。已对照原版窗口截图；完整布局、聚合搜索、可信安装与宿主接入后仍需在 macOS 和 Windows 验收并核对发行包只读。 下载适配器以离线传输测试摘要不匹配、超限、取消、危险重定向及清理；尚未接通真实安装。",
+  "notes": "Viva 可分别读取 Lithe Store 社区索引和当前主仓库的官方索引，通过 Core 校验并支持名称或 ID 搜索；旧官方地址指向临时仓库（#1781），当前主仓库官方索引为空。保留官方索引文件以维持客户端已使用的公开地址，不能将社区索引改标为官方来源。来源聚合、自定义源、离线官方索引、描述及标签搜索、插件安装、更新、卸载和宿主接入尚未完成，Windows 整机验收待做。下载适配器可流式限额并校验索引摘要、清理临时文件，但尚无生产调用者，不能代替签名、审批或安装。安装器现在同时接受契约的 `<plugin-id>/plugin.json` 目录布局和旧的无外层目录布局：内容根由唯一清单确定，内容根目录必须等于插件 ID，内容根外的条目、第二个清单或更深层的清单会拒绝安装，不会 flatten 后继续；磁盘来源没有发布者签名时仍必须经过用户审批，布局支持不改变信任判断。官方 Cargo 0.1.0 原包已在 macOS 完成安装、启用、模型加载和 `cargo build`，但这只证明该包和该安装路径，不代表所有官方或社区插件已支持。",
+  "verification": "macOS 无头界面覆盖来源选择、下载中切换、搜索、取消、迟到结果隔离及并发上限；市场服务以 Core 校验固定的社区和官方索引，搜索使用共享匹配样例。已对照原版窗口截图；完整布局、聚合搜索、可信安装与宿主接入后仍需在 macOS 和 Windows 验收并核对发行包只读。 下载适配器以离线传输测试摘要不匹配、超限、取消、危险重定向及清理；尚未接通真实安装。安装器回归同时覆盖契约目录布局与 flat 布局、内容根目录与清单 ID 不一致、两个清单、内容根外文件和深层清单会被拒绝且不留 staging、符号链接与大小写冲突；真实原包验收使用未修改的官方 Cargo 0.1.0 ZIP 执行安装、启用、provider 模型加载和 cargo build，命令为 LITHE_RAW_CARGO_PLUGIN_ARCHIVE=<zip> ./scripts/desktop/desktop-go.sh test ./internal/workbench -run TestOfficialCargoReleasePluginBuildsAWorkspace -v；修复前同一测试以“plugin package has no plugin.json at its root”失败。该证据只覆盖 macOS 上的安装器与 Cargo 包，不代表市场 UI 全流程或 Windows 已验收。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

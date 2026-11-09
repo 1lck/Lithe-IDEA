@@ -98,6 +98,8 @@ type Kernel interface {
 	RankNames(context.Context, string, []core.RankCandidate) ([]int, error)
 	ParseNavigationInput(context.Context, string) (*core.NavigationTarget, error)
 	PluginDocumentURI(ctx context.Context, path, platform string) (string, error)
+	ApplyPluginTextEdits(ctx context.Context, text string, edits []core.PluginTextEdit) (string, error)
+	PlainPluginSnippet(ctx context.Context, value string) (string, error)
 	QueryProblems(ctx context.Context, request core.ProblemsQuery) (core.ProblemsResult, error)
 	ResolveMarketplaceSource(context.Context, string) (core.MarketplaceSource, error)
 	ValidateMarketplaceIndex(context.Context, json.RawMessage, core.MarketplaceSourceKind, string, map[string][]int) (core.MarketplaceIndex, error)
@@ -248,6 +250,8 @@ type App struct {
 	// the files of the open project, keyed by plugin so stopping one server
 	// withdraws only its own diagnostics.
 	pluginDiagnostics map[string]*plugindiag.Set
+	// semantics is the editor's pending and presented language answers.
+	semantics pluginSemantics
 
 	welcome    welcomeState
 	clone      cloneState
@@ -555,6 +559,7 @@ func (a *App) paint(canvas *gfx.Canvas, size gfx.Size) {
 		f.PopupLayer(1)
 		if a.project != nil {
 			a.drawWorkbench(f)
+			a.drawPluginSemantics(f)
 			a.drawEverywhere(f, a.project)
 			a.drawNavigation(f, a.project)
 		} else {
@@ -621,6 +626,9 @@ func (a *App) drawNotice(f *ui.Frame) {
 }
 
 func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
+	// A semantic popup or request belongs to the caret and symbol it was opened
+	// at; any pointer work that moved either closes it before the frame paints.
+	defer a.pluginSemanticsCaretSync()
 	// A drag of a tool button or of a terminal's tab comes first, so it keeps its gestures
 	// over a terminal.
 	if result, handled := a.dragPointer(event); handled {
@@ -630,6 +638,9 @@ func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
 		return result
 	}
 	if result, handled := a.terminalPointer(event); handled {
+		return result
+	}
+	if result, handled := a.pluginSemanticsPointer(event); handled {
 		return result
 	}
 	if result, handled := a.documentPointer(event); handled {
@@ -642,6 +653,9 @@ func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
 }
 
 func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
+	// A semantic request belongs to the caret it was placed at. Every key path
+	// ends here, so one sync covers arrows, edits and commands.
+	defer a.pluginSemanticsCaretSync()
 	if result := a.welcomeMenuKey(event); result.Handled {
 		return result
 	}
@@ -654,6 +668,12 @@ func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
 		if result := a.everywhereKey(a.project, event); result.Handled {
 			return result
 		}
+	}
+	if result := a.pluginSemanticsKey(event); result.Handled {
+		return result
+	}
+	if result := a.pluginSemanticsShortcut(event); result.Handled {
+		return result
 	}
 	if !event.Release && event.Key == gfx.KeyEscape {
 		if a.project == nil && a.welcome.moreOpen {
@@ -687,6 +707,9 @@ func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
 		}
 	}
 	if v := a.focusedDocument(event.Target); v != nil {
+		if result, handled := a.pluginSemanticsTrigger(event); handled {
+			return result
+		}
 		if result, handled := v.Key(event); handled {
 			return result
 		}
@@ -737,6 +760,9 @@ func (a *App) onShortcut(event gfx.KeyEvent) gfx.EventResult {
 		return gfx.EventResult{Handled: true}
 	}
 	if !event.Release {
+		if result := a.pluginSemanticsShortcut(event); result.Handled {
+			return result
+		}
 		if result := a.windowShortcut(event); result.Handled {
 			return result
 		}

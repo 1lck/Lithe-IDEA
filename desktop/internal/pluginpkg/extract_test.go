@@ -131,6 +131,117 @@ func TestExtractDefaultsPermissionWithoutMode(t *testing.T) {
 	}
 }
 
+func TestExtractAcceptsTheContractDirectoryLayout(t *testing.T) {
+	const root = "io.github.lithe-idea.cargo-build"
+	pkg, target, err := extractInto(t, []archiveEntry{
+		{name: root + "/", mode: fs.ModeDir | 0o755},
+		{name: root + "/plugin.json", body: []byte(`{"id":"io.github.lithe-idea.cargo-build"}`), mode: 0o644},
+		{name: root + "/backend/main.mjs", body: []byte("export {};"), mode: 0o644},
+		{name: root + "/templates/project/plugin.json.template", body: []byte("{}"), mode: 0o644},
+	})
+	if err != nil {
+		t.Fatalf("extract: %v", err)
+	}
+	if pkg.ContentRoot != root {
+		t.Fatalf("content root = %q, want %q", pkg.ContentRoot, root)
+	}
+	want := []string{"backend/main.mjs", "plugin.json", "templates/project/plugin.json.template"}
+	if len(pkg.Files) != len(want) {
+		t.Fatalf("files = %+v", pkg.Files)
+	}
+	for i, path := range want {
+		if pkg.Files[i].Path != path {
+			t.Fatalf("file %d = %q, want %q", i, pkg.Files[i].Path, path)
+		}
+	}
+	// The content root is the package, so the staging directory holds
+	// plugin.json directly and no copy of the archive directory.
+	if _, err := os.Stat(filepath.Join(target, ManifestFile)); err != nil {
+		t.Fatalf("the manifest is not at the package root: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(target, root)); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the archive directory survived extraction: %v", err)
+	}
+}
+
+func TestExtractAcceptsAFlatArchive(t *testing.T) {
+	pkg, _, err := extractInto(t, []archiveEntry{
+		{name: ManifestFile, body: []byte("{}"), mode: 0o644},
+		{name: "backend/main.mjs", body: []byte("export {};"), mode: 0o644},
+	})
+	if err != nil {
+		t.Fatalf("a flat archive was refused: %v", err)
+	}
+	if pkg.ContentRoot != "" {
+		t.Fatalf("content root = %q, want the archive root", pkg.ContentRoot)
+	}
+}
+
+func TestExtractRefusesAmbiguousOrEscapingLayouts(t *testing.T) {
+	cases := []struct {
+		name    string
+		entries []archiveEntry
+		want    error
+	}{
+		{"two content roots", []archiveEntry{
+			{name: "first/plugin.json", body: []byte("{}"), mode: 0o644},
+			{name: "second/plugin.json", body: []byte("{}"), mode: 0o644},
+		}, ErrManifestAmbiguous},
+		{"root manifest beside a directory manifest", []archiveEntry{
+			{name: ManifestFile, body: []byte("{}"), mode: 0o644},
+			{name: "package/plugin.json", body: []byte("{}"), mode: 0o644},
+		}, ErrManifestAmbiguous},
+		{"manifest deeper than the content root", []archiveEntry{
+			{name: ManifestFile, body: []byte("{}"), mode: 0o644},
+			{name: "templates/project/plugin.json", body: []byte("{}"), mode: 0o644},
+		}, ErrManifestAmbiguous},
+		{"manifest spelled with an uppercase letter", []archiveEntry{
+			{name: "package/Plugin.json", body: []byte("{}"), mode: 0o644},
+		}, ErrManifestAmbiguous},
+		{"sibling file beside the content root", []archiveEntry{
+			{name: "package/plugin.json", body: []byte("{}"), mode: 0o644},
+			{name: "README.md", body: []byte("notes"), mode: 0o644},
+		}, ErrOutsideContentRoot},
+		{"sibling directory beside the content root", []archiveEntry{
+			{name: "package/plugin.json", body: []byte("{}"), mode: 0o644},
+			{name: "other/", mode: fs.ModeDir | 0o755},
+		}, ErrOutsideContentRoot},
+		{"content root is also a file", []archiveEntry{
+			{name: "package", body: []byte("x"), mode: 0o644},
+			{name: "package/plugin.json", body: []byte("{}"), mode: 0o644},
+		}, ErrPathConflict},
+		{"nested parent segment", []archiveEntry{
+			{name: "package/plugin.json", body: []byte("{}"), mode: 0o644},
+			{name: "package/../escape.txt", body: []byte("x"), mode: 0o644},
+		}, ErrUnsafePath},
+		{"nested symbolic link", []archiveEntry{
+			{name: "package/plugin.json", body: []byte("{}"), mode: 0o644},
+			{name: "package/link", body: []byte("/etc/passwd"), mode: fs.ModeSymlink | 0o777},
+		}, ErrSymbolicLink},
+		{"nested duplicate differing in case", []archiveEntry{
+			{name: "package/plugin.json", body: []byte("{}"), mode: 0o644},
+			{name: "package/lib/a.txt", body: []byte("x"), mode: 0o644},
+			{name: "package/lib/A.txt", body: []byte("y"), mode: 0o644},
+		}, ErrDuplicatePath},
+		{"nested file used as a directory", []archiveEntry{
+			{name: "package/plugin.json", body: []byte("{}"), mode: 0o644},
+			{name: "package/lib", body: []byte("x"), mode: 0o644},
+			{name: "package/lib/a.txt", body: []byte("y"), mode: 0o644},
+		}, ErrPathConflict},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, target, err := extractInto(t, tc.entries)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("err = %v, want %v", err, tc.want)
+			}
+			if _, statErr := os.Stat(target); !errors.Is(statErr, fs.ErrNotExist) {
+				t.Fatalf("a refused extraction left its directory behind: %v", statErr)
+			}
+		})
+	}
+}
+
 func TestExtractRefusesUnsafeArchives(t *testing.T) {
 	manifest := archiveEntry{name: ManifestFile, body: []byte("{}"), mode: 0o644}
 	cases := []struct {
@@ -180,8 +291,8 @@ func TestExtractRefusesUnsafeArchives(t *testing.T) {
 		{"no manifest", []archiveEntry{
 			{name: "lib/a.txt", body: []byte("x"), mode: 0o644},
 		}, ErrManifestMissing},
-		{"manifest below the root", []archiveEntry{
-			{name: "sub/plugin.json", body: []byte("{}"), mode: 0o644},
+		{"manifest two directories down", []archiveEntry{
+			{name: "sub/nested/plugin.json", body: []byte("{}"), mode: 0o644},
 		}, ErrManifestMissing},
 		{"no entries", nil, ErrManifestMissing},
 		{"expansion bomb", []archiveEntry{

@@ -11,6 +11,13 @@
 // ending in a dot or a space, no duplicate file path, and no path that is both a
 // file and a directory.
 //
+// The contract lays a package out as <plugin-id>/plugin.json, so an archive may
+// hold that one directory as its content root; the older flat archive, where
+// plugin.json sits at the ZIP root, is still accepted. Extract strips the
+// content-root directory, and Files therefore always describes the package, not
+// the archive. An archive with a second manifest, or with entries beside the
+// single content root, is refused rather than flattened.
+//
 // Install moves a validated staging directory into the plugin root with a single
 // rename, so an interrupted install leaves either nothing or the whole package.
 // Uninstall renames a package out of the root before deleting it and never
@@ -79,8 +86,16 @@ var (
 	ErrNotArchive = errors.New("plugin package is not a readable ZIP archive")
 	// ErrStagingNotEmpty reports an extraction target that already holds entries.
 	ErrStagingNotEmpty = errors.New("plugin package staging directory is not empty")
-	// ErrManifestMissing reports an archive without ManifestFile at its root.
+	// ErrManifestMissing reports an archive with no package root: ManifestFile is
+	// neither at the archive root nor directly inside one top-level directory.
 	ErrManifestMissing = errors.New("plugin package has no plugin.json at its root")
+	// ErrManifestAmbiguous reports a manifest the host cannot identify
+	// unambiguously: the archive carries more than one, or the single one is not
+	// spelled plugin.json, so it would resolve only on a case-insensitive volume.
+	ErrManifestAmbiguous = errors.New("plugin package manifest is ambiguous")
+	// ErrOutsideContentRoot reports an entry that sits beside, not inside, the
+	// single directory the package occupies.
+	ErrOutsideContentRoot = errors.New("plugin package entry is outside its content root")
 	// ErrInvalidIdentity reports a plugin ID or version that is not a safe path segment.
 	ErrInvalidIdentity = errors.New("plugin identity is not a safe path segment")
 	// ErrPackageExists reports an install whose target version is already present.
@@ -101,6 +116,11 @@ type File struct {
 
 // Package describes what one extraction wrote.
 type Package struct {
+	// ContentRoot is the archive-root directory the package was stored under,
+	// or empty when ManifestFile sat at the archive root. Every path in Files is
+	// relative to this directory, so two archives that carry the same package in
+	// different layouts produce the same Files and Total.
+	ContentRoot string
 	// Files holds every extracted file, ordered by path.
 	Files []File
 	// Total is the number of bytes written for all files.

@@ -48,6 +48,10 @@ var (
 	// ErrArchiveDigest reports an archive that no longer matches the digest the
 	// download layer verified.
 	ErrArchiveDigest = errors.New("plugin archive does not match the verified digest")
+	// ErrContentRoot reports a package stored under a directory that does not
+	// name the plugin the manifest declares. The contract's layout is
+	// <plugin-id>/plugin.json, so the directory is part of package identity.
+	ErrContentRoot = errors.New("plugin package directory does not match its plugin ID")
 )
 
 // Reviewer is Core's install review. Review is a local shape rather than
@@ -160,6 +164,9 @@ func (s *Service) Prepare(ctx context.Context, request Request) (plan Plan, err 
 	}
 	identity, err := decodeIdentity(normalised)
 	if err != nil {
+		return Plan{}, err
+	}
+	if err := checkContentRoot(extracted.ContentRoot, identity.ID); err != nil {
 		return Plan{}, err
 	}
 	digest, err := ContentDigest(staging, extracted.Files)
@@ -339,6 +346,16 @@ func readManifest(directory string) (json.RawMessage, error) {
 		return nil, fmt.Errorf("%w: not valid JSON", ErrManifest)
 	}
 	return json.RawMessage(data), nil
+}
+
+// checkContentRoot enforces the contract's <plugin-id>/ directory for an archive
+// that stores its package inside one. A flat archive has no directory to compare
+// and keeps the identity Core validated.
+func checkContentRoot(directory, id string) error {
+	if directory == "" || directory == id {
+		return nil
+	}
+	return fmt.Errorf("%w: archive directory %q, manifest ID %q", ErrContentRoot, directory, id)
 }
 
 // identity is the two manifest fields this package keys everything by.

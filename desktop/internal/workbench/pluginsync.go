@@ -79,6 +79,9 @@ func (a *App) documentEdited(p *project, d *document, edit editorview.Edit) {
 	if a.plugins == nil || a.project != p || p.docs.byPath(d.path) != d {
 		return
 	}
+	// A definition or completion answer describes the text the trigger saw.
+	// Keeping it after an edit would apply or jump from stale positions.
+	a.pluginSemanticsEdited(d)
 	s := &d.sync
 	if s.full || len(s.pending) >= maxPendingDocumentChanges {
 		s.full, s.pending = true, nil
@@ -180,6 +183,7 @@ func (a *App) finishDocumentOpen(p *project, d *document, server *pluginServer, 
 		s.full = true
 		a.startDocumentSync(p, d)
 	}
+	a.resumeDeferredSemantics()
 }
 
 // closeLateDocument closes a document whose Open finished after the editor or
@@ -216,6 +220,7 @@ func (a *App) finishDocumentChange(p *project, d *document, generation uint64, r
 	if d.view.Revision() != revision || s.full || len(s.pending) > 0 {
 		a.startDocumentSync(p, d)
 	}
+	a.resumeDeferredSemantics()
 }
 
 // reportDocumentSyncFailure logs a failed synchronization, unless the project
@@ -265,6 +270,7 @@ func (a *App) syncDocumentSaved(p *project, d *document, text []byte) {
 // diagnostics that server published for it. Core clears its own state on
 // didClose; the host's copy must not outlive the document.
 func (a *App) closeDocumentInSession(p *project, d *document) {
+	a.pluginSemanticsDocumentClosed(d)
 	s := &d.sync
 	server, pluginID := a.documentSyncServer(d)
 	uri, opened := s.uri, s.opened && s.pluginID == pluginID
@@ -289,6 +295,7 @@ func (a *App) releasePluginDocuments(pluginID string) {
 	if a.project == nil {
 		return
 	}
+	a.pluginSemanticsReset()
 	for _, d := range a.project.docs.list {
 		if d.sync.pluginID == pluginID {
 			d.sync.reset()
@@ -302,6 +309,7 @@ func (a *App) releaseAllPluginDocuments() {
 	if a.project == nil {
 		return
 	}
+	a.pluginSemanticsReset()
 	for _, d := range a.project.docs.list {
 		d.sync.reset()
 	}

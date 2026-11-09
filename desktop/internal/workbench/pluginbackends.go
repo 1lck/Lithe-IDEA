@@ -82,6 +82,16 @@ func (s *pluginServer) forwardBuild(event core.BackendEvent) {
 	}
 }
 
+// isReady reports whether Core announced the session's language server ready.
+func (s *pluginServer) isReady() bool {
+	if s == nil {
+		return false
+	}
+	s.buildMu.Lock()
+	defer s.buildMu.Unlock()
+	return s.buildReady && !s.buildEnded
+}
+
 func (s *pluginServer) endBuild() {
 	s.buildMu.Lock()
 	s.buildEnded = true
@@ -203,14 +213,26 @@ func (a *App) servePluginServer(server *pluginServer, ctx context.Context) {
 		defer server.endBuild()
 		observe := func(event core.BackendEvent) {
 			server.forwardBuild(event)
-			if event.Type != pluginbackend.EventDiagnostics {
-				return
+			switch event.Type {
+			case "stateChanged":
+				if event.State == "ready" {
+					a.post(func(a *App) {
+						if a.isCurrentPluginServer(server.session.PluginID, server) {
+							a.resumeDeferredSemantics()
+						}
+					})
+				}
+			case pluginSemanticCompleted:
+				// The answer is handed to the window thread with the session it
+				// belongs to, so a retired server cannot reopen a popup.
+				a.post(func(a *App) { a.applyPluginSemanticEvent(server, event) })
+			case pluginbackend.EventDiagnostics:
+				decoded, decodeErr := core.PluginDiagnosticsFromEvent(event)
+				if decodeErr != nil {
+					return
+				}
+				a.post(func(a *App) { a.applyServerDiagnostics(server, decoded) })
 			}
-			decoded, decodeErr := core.PluginDiagnosticsFromEvent(event)
-			if decodeErr != nil {
-				return
-			}
-			a.post(func(a *App) { a.applyServerDiagnostics(server, decoded) })
 		}
 		if serveErr := a.plugins.ServeLanguageSession(ctx, server.session, observe); serveErr != nil && ctx.Err() == nil {
 			a.post(func(a *App) {

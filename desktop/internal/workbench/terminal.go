@@ -114,6 +114,7 @@ func (a *App) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 		}
 	}
 	if v := a.focusedDocument(event.Target); v != nil {
+		a.pluginSemanticsScrolled(event.Target)
 		if result, ok := v.Scroll(event); ok {
 			return result
 		}

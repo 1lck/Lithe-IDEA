@@ -433,6 +433,9 @@ func (a *App) selectDocument(p *project, id int) {
 	if g == nil {
 		return
 	}
+	if a.semantics.documentID != 0 && a.semantics.documentID != id {
+		a.closePluginSemantics()
+	}
 	if g.Selected != member && !a.reduceTerminals(p, p.terms.bench, core.ActivateEditor(g.ID, member)) {
 		return
 	}

@@ -166,6 +166,12 @@ type agentState struct {
 	permission     *agentPermission
 	messages       []agentMessage
 	bytes          int
+	// history is this project connection's Agent-owned conversation list;
+	// config is the adapter-declared session settings; auth is Core's sign-in
+	// state. All three are dropped with the project or the connection.
+	history agentHistoryState
+	config  agentSessionConfig
+	auth    agentAuthState
 
 	editor *text.Editor
 	layout *components.TextareaLayout
@@ -185,6 +191,8 @@ func newAgentState() agentState {
 		editor:       text.NewEditor(""),
 		layout:       new(components.TextareaLayout),
 		installRelay: new(agentInstallProgressRelay),
+		history:      newAgentHistoryState(),
+		config:       newAgentSessionConfig(),
 	}
 }
 
@@ -508,7 +516,7 @@ func (a *App) agentConnectionFailed(p *project, conn *agentConnection, err error
 			}
 		}
 	} else {
-		p.agent.err = a.text.Agent.ErrorConnection
+		p.agent.err = a.text.Agent.ConnectionLost
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("agent_stream", err))
 	}
 	a.dropAgentConnection(p, conn)
@@ -528,6 +536,9 @@ func (a *App) dropAgentConnection(p *project, conn *agentConnection) {
 	p.agent.sessionID = ""
 	p.agent.pending = ""
 	p.agent.permission = nil
+	p.agent.auth = agentAuthNone
+	p.agent.history = newAgentHistoryState()
+	p.agent.config = newAgentSessionConfig()
 	conn.cancel()
 	a.closeAgentSession(conn.session)
 }
@@ -586,14 +597,17 @@ func (a *App) closeAgent(p *project) {
 // ignored.
 func (a *App) applyAgentEvent(p *project, conn *agentConnection, raw json.RawMessage) {
 	var event struct {
-		Kind       string          `json:"kind"`
-		Token      string          `json:"token"`
-		SessionID  string          `json:"sessionId"`
-		StopReason string          `json:"stopReason"`
-		Message    string          `json:"message"`
-		RequestID  string          `json:"requestId"`
-		Request    json.RawMessage `json:"request"`
-		Update     json.RawMessage `json:"update"`
+		Kind            string                `json:"kind"`
+		Token           string                `json:"token"`
+		SessionID       string                `json:"sessionId"`
+		Message         string                `json:"message"`
+		RequestID       string                `json:"requestId"`
+		Request         json.RawMessage       `json:"request"`
+		Update          json.RawMessage       `json:"update"`
+		ConfigOptions   json.RawMessage       `json:"configOptions"`
+		CanListSessions bool                  `json:"canListSessions"`
+		CanLoadSessions bool                  `json:"canLoadSessions"`
+		Sessions        []agentSessionSummary `json:"sessions"`
 	}
 	if err := json.Unmarshal(raw, &event); err != nil {
 		p.agent.err = a.text.Agent.ErrorConnection
@@ -602,50 +616,61 @@ func (a *App) applyAgentEvent(p *project, conn *agentConnection, raw json.RawMes
 	}
 	switch event.Kind {
 	case "ready":
+		a.clearAgentAuthentication(p)
+		p.agent.history.canList = event.CanListSessions
+		p.agent.history.canLoad = event.CanLoadSessions
 		p.agent.phase = agentPhaseReady
 		p.agent.connecting = false
-		if p.agent.sessionID == "" && p.agent.pending == "" {
+		if p.agent.sessionID == "" && p.agent.pending == "" && !p.agent.history.restoring() {
 			a.newAgentSession(p, conn)
 		}
 	case "sessionCreated":
 		if event.Token != "" && event.Token != p.agent.pending {
 			return
 		}
-		p.agent.pending = ""
-		p.agent.sessionID = event.SessionID
-		p.agent.connecting = false
-		p.agent.phase = agentPhaseReady
+		a.agentSessionCreated(p, event.SessionID, event.ConfigOptions)
+	case "sessionLoaded":
+		a.applyAgentSessionLoaded(p, event.Token, event.SessionID, event.ConfigOptions)
+	case "sessionsPage":
+		a.applyAgentSessionsPage(p, event.Token, event.Sessions)
+	case "sessions":
+		a.applyAgentSessions(p, event.Token, event.Sessions)
+	case "sessionConfigured":
+		a.applyAgentSessionConfigured(p, event.Token, event.SessionID, event.ConfigOptions)
 	case "update":
-		a.applyAgentUpdate(p, event.Update)
+		a.applyAgentUpdate(p, event.SessionID, event.Update)
 	case "permission":
+		if !agentEventForCurrentSession(p, event.SessionID) {
+			return
+		}
 		a.applyAgentPermission(p, event.RequestID, event.Request)
 	case "turnCancelling":
+		if !agentEventForCurrentSession(p, event.SessionID) {
+			return
+		}
 		p.agent.phase = agentPhaseCancelling
 		p.agent.permission = nil
 	case "turnFinished":
+		if !agentEventForCurrentSession(p, event.SessionID) {
+			return
+		}
 		p.agent.connecting = false
 		p.agent.permission = nil
 		p.agent.phase = agentPhaseReady
-		if event.StopReason == "cancelled" {
-			p.agent.phase = agentPhaseReady
-		}
 	case "requestFailed":
-		p.agent.connecting = false
-		p.agent.phase = agentPhaseFailed
-		p.agent.err = event.Message
-		if p.agent.err == "" {
-			p.agent.err = a.text.Agent.RequestFailed
-		}
+		a.agentRequestFailed(p, event.Token, event.SessionID, event.Message)
 	case "stopped":
-		p.agent.connecting = false
-		p.agent.err = event.Message
-		if p.agent.err == "" {
-			p.agent.err = a.text.Agent.ConnectionClosed
+		a.agentStopped(p, conn, event.Message)
+	case "account":
+		// Core's whitelisted account event only proves authentication succeeded;
+		// the panel does not read or display account details of its own.
+		a.clearAgentAuthentication(p)
+		if p.agent.phase == agentPhaseFailed {
+			p.agent.phase = agentPhaseReady
+			p.agent.err = ""
 		}
-		a.dropAgentConnection(p, conn)
-		p.agent.phase = agentPhaseFailed
 	case "authenticationRequired", "authenticating":
-		p.agent.phase = agentPhaseStarting
+		a.applyAgentAuthentication(p, event.Kind)
 	}
 }
 
@@ -661,14 +686,25 @@ func (a *App) newAgentSession(p *project, conn *agentConnection) {
 	}
 	if err := conn.session.Send(command); err != nil {
 		p.agent.pending = ""
+		p.agent.connecting = false
 		p.agent.err = a.agentSessionError(err)
 		p.agent.phase = agentPhaseFailed
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("agent_new_session", err))
 	}
 }
 
-func (a *App) applyAgentUpdate(p *project, raw json.RawMessage) {
-	if p.agent.phase != agentPhaseBusy && p.agent.phase != agentPhaseCancelling {
+// applyAgentUpdate renders live chunks and Core's replayed history. A replayed
+// update is accepted only for the conversation being restored (or its replay
+// tail) and never turns a restored conversation busy.
+func (a *App) applyAgentUpdate(p *project, sessionID string, raw json.RawMessage) {
+	h := &p.agent.history
+	live := p.agent.phase == agentPhaseBusy || p.agent.phase == agentPhaseCancelling
+	restoring := h.restoreSession != "" && (sessionID == "" || sessionID == h.restoreSession)
+	replaying := h.replaySession != "" && (sessionID == "" || sessionID == h.replaySession)
+	if !live && !restoring && !replaying {
+		return
+	}
+	if live && sessionID != "" && p.agent.sessionID != "" && sessionID != p.agent.sessionID {
 		return
 	}
 	var update struct {
@@ -682,25 +718,75 @@ func (a *App) applyAgentUpdate(p *project, raw json.RawMessage) {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("agent_update", err))
 		return
 	}
-	if update.SessionUpdate != "agent_message_chunk" || update.Content.Type != "text" || update.Content.Text == "" {
+	if update.Content.Type != "text" || update.Content.Text == "" {
 		return
 	}
-	text := agentDisplayPrefix(update.Content.Text, agentMessageTextLimit)
-	if len(p.agent.messages) > 0 && p.agent.messages[len(p.agent.messages)-1].Role == agentRoleAssistant && p.agent.messages[len(p.agent.messages)-1].Streaming {
-		last := &p.agent.messages[len(p.agent.messages)-1]
+	// A load's replay is staged until sessionLoaded; the open conversation stays
+	// untouched if Core rejects the load.
+	messages, bytes := &p.agent.messages, &p.agent.bytes
+	if restoring {
+		messages, bytes = &h.replayMessages, &h.replayBytes
+	}
+	switch update.SessionUpdate {
+	case "user_message_chunk":
+		// A live prompt is already in the transcript; only replay supplies user
+		// rows here, so a duplicated live echo is ignored.
+		if live {
+			return
+		}
+		appendAgentUserText(messages, bytes, update.Content.Text)
+	case "agent_message_chunk":
+		appendAgentAssistantText(messages, bytes, update.Content.Text)
+		if live {
+			p.agent.phase = agentPhaseBusy
+		}
+	default:
+		return
+	}
+	trimAgentMessages(messages, bytes)
+}
+
+// appendAgentAssistantText merges a streamed chunk into the last assistant row,
+// bounded by the display limit. Core's original event is unchanged.
+func appendAgentAssistantText(messages *[]agentMessage, bytes *int, value string) {
+	text := agentDisplayPrefix(value, agentMessageTextLimit)
+	if len(*messages) > 0 && (*messages)[len(*messages)-1].Role == agentRoleAssistant && (*messages)[len(*messages)-1].Streaming {
+		last := &(*messages)[len(*messages)-1]
 		room := agentMessageTextLimit - len(last.Text)
 		if room > 0 {
 			text = agentDisplayPrefix(text, room)
 			last.Text += text
 			last.height = 0
-			p.agent.bytes += len(text)
+			*bytes += len(text)
 		}
-	} else {
-		p.agent.messages = append(p.agent.messages, agentMessage{Role: agentRoleAssistant, Text: text, Streaming: true})
-		p.agent.bytes += len(text)
+		return
 	}
-	p.agent.phase = agentPhaseBusy
-	a.trimAgentTranscript(p)
+	*messages = append(*messages, agentMessage{Role: agentRoleAssistant, Text: text, Streaming: true})
+	*bytes += len(text)
+}
+
+// appendAgentUserText rebuilds replayed user turns. Consecutive chunks of one
+// upstream message stay one row; a new chunk after an assistant row starts one.
+func appendAgentUserText(messages *[]agentMessage, bytes *int, value string) {
+	text := agentDisplayPrefix(value, agentMessageTextLimit)
+	if len(*messages) > 0 {
+		last := &(*messages)[len(*messages)-1]
+		if last.Role == agentRoleAssistant {
+			last.Streaming = false
+		}
+		if last.Role == agentRoleUser {
+			room := agentMessageTextLimit - len(last.Text)
+			if room <= 0 {
+				return
+			}
+			text = agentDisplayPrefix(text, room)
+			last.Text += text
+			*bytes += len(text)
+			return
+		}
+	}
+	*messages = append(*messages, agentMessage{Role: agentRoleUser, Text: text})
+	*bytes += len(text)
 }
 
 // agentDisplayPrefix bounds the rendered text without splitting a UTF-8 rune.
@@ -773,6 +859,8 @@ func (a *App) answerAgentPermission(p *project, optionID string) {
 // agentCanSend reports that the composer can submit the current draft.
 func (a *App) agentCanSend(p *project) bool {
 	if p == nil || p.agent.conn == nil || p.agent.sessionID == "" || p.agent.connecting ||
+		p.agent.pending != "" || p.agent.history.restoring() || p.agent.config.pendingToken != "" ||
+		p.agent.auth != agentAuthNone ||
 		p.agent.permission != nil || p.agent.phase == agentPhaseBusy || p.agent.phase == agentPhaseCancelling {
 		return false
 	}
@@ -803,6 +891,8 @@ func (a *App) sendAgentPrompt(p *project) {
 	p.agent.phase = agentPhaseBusy
 	p.agent.err = ""
 	p.agent.permission = nil
+	p.agent.history.replaySession = ""
+	p.agent.history.open = false
 	a.trimAgentTranscript(p)
 	a.performed("agent.prompt", surfaceButton)
 }
@@ -831,9 +921,15 @@ func (a *App) cancelAgentTurn(p *project) {
 // trimAgentTranscript drops the oldest messages while the transcript exceeds
 // either bound. It never splits a message.
 func (a *App) trimAgentTranscript(p *project) {
-	for len(p.agent.messages) > agentMessageLimit || (p.agent.bytes > agentMessageBytesLimit && len(p.agent.messages) > 1) {
-		p.agent.bytes -= len(p.agent.messages[0].Text)
-		p.agent.messages = p.agent.messages[1:]
+	trimAgentMessages(&p.agent.messages, &p.agent.bytes)
+}
+
+// trimAgentMessages drops the oldest rows while either bound is exceeded. It is
+// shared by the live transcript and the load replay buffer.
+func trimAgentMessages(messages *[]agentMessage, bytes *int) {
+	for len(*messages) > agentMessageLimit || (*bytes > agentMessageBytesLimit && len(*messages) > 1) {
+		*bytes -= len((*messages)[0].Text)
+		*messages = (*messages)[1:]
 	}
 }
 
@@ -872,6 +968,18 @@ func (a *App) agentStatusText(p *project) string {
 	}
 	if p.agent.permission != nil {
 		return t.StatusWaitingPermission
+	}
+	switch p.agent.auth {
+	case agentAuthRequired:
+		return t.StatusSignIn
+	case agentAuthSigningIn:
+		return t.StatusSigningIn
+	}
+	if p.agent.history.restoring() {
+		return t.StatusRestoring
+	}
+	if p.agent.config.pendingToken != "" {
+		return t.StatusConfiguring
 	}
 	switch p.agent.phase {
 	case agentPhaseLoading:

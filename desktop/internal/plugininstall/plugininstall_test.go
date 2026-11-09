@@ -102,8 +102,16 @@ func canonicalProgram(raw json.RawMessage) string {
 	return string(encoded)
 }
 
-// writeArchive writes a plugin archive holding a manifest and extra files.
+// writeArchive writes a plugin archive holding a manifest and extra files. The
+// manifest sits at the archive root, which is the flat layout.
 func writeArchive(t *testing.T, manifest string, files map[string]string) string {
+	t.Helper()
+	return writeArchiveUnder(t, "", manifest, files)
+}
+
+// writeArchiveUnder writes an archive whose content root is directory, following
+// the contract's <plugin-id>/package.json layout when directory is not empty.
+func writeArchiveUnder(t *testing.T, directory, manifest string, files map[string]string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "package.zip")
 	file, err := os.Create(path)
@@ -112,6 +120,9 @@ func writeArchive(t *testing.T, manifest string, files map[string]string) string
 	}
 	writer := zip.NewWriter(file)
 	write := func(name, body string) {
+		if directory != "" {
+			name = directory + "/" + name
+		}
 		header := &zip.FileHeader{Name: name, Method: zip.Deflate}
 		header.SetMode(0o644)
 		part, err := writer.CreateHeader(header)
@@ -136,6 +147,10 @@ func writeArchive(t *testing.T, manifest string, files map[string]string) string
 }
 
 const sampleManifest = `{"id":"io.github.lithe-idea.java-support","version":"1.0.0"}`
+
+// sampleID is the plugin ID sampleManifest declares and the content-root
+// directory the contract's layout uses.
+const sampleID = "io.github.lithe-idea.java-support"
 
 // newService builds a service with an isolated plugin root and approval file.
 func newService(t *testing.T, validator pluginhost.ManifestValidator, reviewer Reviewer) (*Service, *plugintrust.Store, string) {
@@ -178,6 +193,87 @@ func TestPrepareAsksForApprovalOnFirstInstall(t *testing.T) {
 	}
 	if err := service.Discard(plan); err != nil {
 		t.Fatalf("discard: %v", err)
+	}
+}
+
+func TestPrepareAcceptsTheContractDirectoryLayout(t *testing.T) {
+	service, _, root := newService(t, &fakeValidator{}, sampleReviewer())
+	directoryArchived := writeArchiveUnder(t, sampleID, sampleManifest, map[string]string{"lib/a.txt": "code"})
+	flatArchived := writeArchive(t, sampleManifest, map[string]string{"lib/a.txt": "code"})
+	nested, err := service.Prepare(context.Background(), Request{
+		ArchivePath: directoryArchived,
+		Root:        root,
+		Source:      plugintrust.Disk,
+	})
+	if err != nil {
+		t.Fatalf("prepare the contract layout: %v", err)
+	}
+	if nested.ID != sampleID {
+		_ = service.Discard(nested)
+		t.Fatalf("identity = %q", nested.ID)
+	}
+	// The archive has no signature document and comes from disk, so the package
+	// stays unapproved until the user confirms it.
+	if !nested.NeedsApproval() {
+		_ = service.Discard(nested)
+		t.Fatal("a directory-layout package from disk reused an approval")
+	}
+	flat, err := service.Prepare(context.Background(), Request{
+		ArchivePath: flatArchived,
+		Root:        root,
+		Source:      plugintrust.Disk,
+	})
+	if err != nil {
+		_ = service.Discard(nested)
+		t.Fatalf("prepare the flat layout: %v", err)
+	}
+	defer service.Discard(flat)
+	defer service.Discard(nested)
+	// The digest covers package files, not the archive directory, so the same
+	// content in either layout is the same package.
+	if flat.ContentDigest != nested.ContentDigest {
+		t.Fatalf("the same content digested differently: flat %q, directory %q", flat.ContentDigest, nested.ContentDigest)
+	}
+}
+
+func TestPrepareRefusesADirectoryThatDoesNotNameThePlugin(t *testing.T) {
+	service, _, root := newService(t, &fakeValidator{}, sampleReviewer())
+	_, err := service.Prepare(context.Background(), Request{
+		ArchivePath: writeArchiveUnder(t, "other-directory", sampleManifest, map[string]string{"lib/a.txt": "code"}),
+		Root:        root,
+		Source:      plugintrust.Disk,
+	})
+	if !errors.Is(err, ErrContentRoot) {
+		t.Fatalf("err = %v, want ErrContentRoot", err)
+	}
+	entries, readErr := os.ReadDir(filepath.Join(root, ".staging"))
+	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+		t.Fatalf("read staging: %v", readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("a refused layout left %d staging entries", len(entries))
+	}
+}
+
+func TestCommitInstallsTheContentRootAtThePackageRoot(t *testing.T) {
+	service, _, root := newService(t, &fakeValidator{}, sampleReviewer())
+	plan, err := service.Prepare(context.Background(), Request{
+		ArchivePath: writeArchiveUnder(t, sampleID, sampleManifest, map[string]string{"lib/a.txt": "code"}),
+		Root:        root,
+		Source:      plugintrust.Marketplace,
+	})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	installed, err := service.Commit(plan)
+	if err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(installed.Path, pluginpkg.ManifestFile)); err != nil {
+		t.Fatalf("the manifest is not at the installed package root: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(installed.Path, sampleID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the archive directory was installed below the package root: %v", err)
 	}
 }
 

@@ -6,7 +6,9 @@
 
 Viva 通过 Rust Core 的 C ABI 创建 ACP 连接、发送原始契约命令并接收事件，也可读取 Core 检测到的运行时和 Agent 管理状态。2026-11-09 起，工作台的 AI Assistant 面板接通了最小会话纵向切片：从本机 Codex/Claude 配置发现已有 provider、启动 Core 管理的 ACP 适配器、发送文本、增量显示回复、停止轮次、显示错误，并要求用户真实点选权限选项。
 
-Agent 协议、进程树、会话生命周期和 provider 配置解析仍由 Core 负责；Go 只做类型化桥接、平台文件/环境读取和呈现。历史、安装、订阅登录、模型/权限/思考设置、附件、远程/MCP 和完整供应商管理不在本切片内。
+同日补齐了当前项目的会话历史列出/恢复、新建会话、按适配器声明的 select 选项选择模型/思考程度/权限模式，以及登录要求与连接丢失的准确呈现。历史由 Agent 拥有：Go 只转发 `listSessions`/`loadSession`，显示 Core 回放的事件，不读写适配器自己的 transcript 文件。
+
+Agent 协议、进程树、会话生命周期和 provider 配置解析仍由 Core 负责；Go 只做类型化桥接、平台文件/环境读取和呈现。收藏/重命名/归档/导出历史、订阅登录、下一轮配置预选、CLI 安装与更新、附件、远程/MCP、计划/工具/用量展示和完整供应商管理仍不在本切片内。
 
 ## 问题
 
@@ -23,6 +25,10 @@ Viva 还没有自己的 AI provider 设置存储。用户已有的 provider 只�
 - **权限必须由用户确认。** 收到 `permission` 后只显示上游工具标题和上游选项；不预设默认选项、不自动发送 `permission`、不在取消或超时时替用户放行。用户点选后发送 `{kind:"permission", requestId, optionId}`；上游没有选项时才显示明确的拒绝按钮。停止轮次会清除待处理权限卡。
 - **生命周期有界。** 事件队列沿用 Core 桥的 256 条、16 MiB、单条 4 MiB 上限，溢出时关闭连接并丢弃不完整会话；面板自己的 transcript 限制 200 条、1 MiB、单条 64 KiB，超出时丢弃最旧消息；面板只绘制滚动视口及前后一条消息，用上一帧测得的行高和保守估计放置上下占位，不一次创建全部消息行。关闭 Core 会话在窗口线程之外执行，`App.wait` 等待这些关闭完成，避免退出后留下子进程。
 - **错误走日志和界面。** 启动、检测、provider 发现、发送、取消、权限答复和事件流失败都记录现有 `app.notification.operation_failed` 目录事件，并在面板显示可操作错误；连接关闭和溢出有固定文案，不把上游 stderr 或凭据写进界面。
+- **历史按项目连接隔离，不复制持久化。** 打开历史只发送一次只读 `listSessions`，分页先显示、最终快照替换并按会话 ID 去重，最多保留 200 条；选择会话发送 `loadSession`，只接受当前 token 的 `sessionLoaded`。历史列表、恢复中的会话和回放尾随更新都属于该项目的 `agentState`，切换或关闭项目时随连接一起丢弃，迟到事件不会写入新项目。`user_message_chunk`/`agent_message_chunk` 只在恢复或回放期间重建 transcript，实时轮次仍使用本地发送记录。
+- **恢复是事务式的。** 回放先写入独立的有界缓冲；`sessionLoaded` 确认后才替换当前 transcript 和配置，`requestFailed` 则丢弃缓冲并保留原会话 ID、文本、字节数和已确认设置。新建会话失败同理不清除现有配置。
+- **会话设置只呈现适配器声明项。** `sessionCreated`/`sessionLoaded`/`sessionConfigured` 的 `configOptions` 是唯一来源；只提供 Core 的 `setConfigOption` 能设置的 select 项，模型、思考程度和权限模式使用本地化类别标签，当前值和选项名称保留上游原文。未收到 `sessionConfigured` 前不把选择当作已生效；失败保留已确认值。响应期间改配置、下一轮预选和 boolean 选项不在本切片内。
+- **认证与连接状态如实呈现。** `authenticationRequired` 显示“需要登录”并停止把连接当作就绪，`authenticating` 显示等待登录，`account`/`ready` 才清除登录要求；面板不读取或显示账户邮箱。事件流异常丢失使用独立文案，`stopped` 的请求停止与上游错误分开。
 
 ## 考虑过的备选方案
 
@@ -36,15 +42,15 @@ Viva 还没有自己的 AI provider 设置存储。用户已有的 provider 只�
 
 收益是 Viva 有了真实可用的最小 Agent 闭环，且协议和配置解析没有第二份实现。代价是：
 
-- 本切片只支持已安装的 `codex-acp` / `claude-acp` 和本机已有 API provider；适配器 Install 只覆盖 ACP 适配器本身，CLI 安装/更新、卸载、Node/npm 预检、订阅登录、历史恢复、模型/权限/思考设置、文件附件、工具/计划/用量展示、远程/MCP、子代理和导出仍未接入。
+- 本切片只支持已安装的 `codex-acp` / `claude-acp` 和本机已有 API provider；适配器 Install 只覆盖 ACP 适配器本身，CLI 安装/更新、卸载、Node/npm 预检、订阅登录、收藏/重命名/归档/导出历史、下一轮配置预选、文件附件、工具/计划/用量展示、远程/MCP、子代理和导出仍未接入。
 - 数据目录暂用 Viva 的 Application Support/Lithe Desktop，尚未迁移旧 macOS `Lithe` 或 Windows Tauri 目录；旧目录里的适配器不会自动出现。
 - 真实供应商端到端、Windows 原生窗口和 macOS 原生窗口验收仍为 pending；本地测试使用脚本化 ACP 连接和 Core 的固定 ACP fixture，不能替代真实模型调用。
-- transcript 只做纯文本增量显示，不解析 Markdown、工具或计划；这是有意的最小呈现。
+- transcript 只做纯文本增量显示，不解析 Markdown、工具或计划；这是有意的最小呈现。历史回放也只重建用户与助手文本，不重建工具卡片或计划。
 
 ## 验证
 
 - `scripts/desktop/desktop-go.sh test -race ./internal/core -run 'TestAIConfiguration|TestAgent' -count=3 -timeout=120s`：Core 配置来源/解析、凭据定位器不泄露密钥、ACP 连接、会话、流式事件、并发关闭、独立连接、队列溢出、取消等待和子进程退出。
-- `scripts/desktop/desktop-go.sh test -race ./internal/workbench -run 'TestAgent' -count=3 -timeout=120s`：provider 发现与选择、显式适配器安装及进度/取消/重试/状态重读、启动 JSON、发送、增量回复、权限不自动答复、取消等待 `turnFinished`、请求失败/断连显示、transcript 上限与虚拟窗口、凭据不进入日志/UI、项目关闭/替换清理。
+- `scripts/desktop/desktop-go.sh test -race ./internal/workbench -run 'TestAgent' -count=1 -timeout=240s`：provider 发现与选择、显式适配器安装及进度/取消/重试/状态重读、启动 JSON、发送、增量回复、权限不自动答复、取消等待 `turnFinished`、请求失败/断连显示、transcript 上限与虚拟窗口、凭据不进入日志/UI、项目关闭/替换清理，以及历史列出→恢复→继续、迟到 token/项目切换拒绝、配置确认/失败、认证状态。
 - `scripts/desktop/desktop-go.sh test -race ./internal/workbench -count=1 -timeout=300s`：工作台回归。
 - `node scripts/i18n/generate-i18n.mjs --check`、`node scripts/i18n/verify-app-language-localization.mjs`、`node --test --test-timeout=60000 scripts/i18n/test-i18n.mjs`：面板文案走共享 i18n。
 - 真实端到端仍需在 macOS 和 Windows 原生窗口用已安装的 Codex/Claude 和真实 provider 执行发送、权限、停止和退出清理；未执行前功能矩阵保持 `pending`。
@@ -54,7 +60,11 @@ Viva 还没有自己的 AI provider 设置存储。用户已有的 provider 只�
 - `desktop/internal/workbench/agent.go`
 - `desktop/internal/workbench/agent_provider.go`
 - `desktop/internal/workbench/agent_view.go`
+- `desktop/internal/workbench/agent_history.go`
+- `desktop/internal/workbench/agent_config.go`
+- `desktop/internal/workbench/agent_toolbar.go`
 - `desktop/internal/workbench/agent_test.go`
+- `desktop/internal/workbench/agent_history_test.go`
 - `desktop/internal/core/agent.go`
 - `desktop/internal/core/agent_bridge.go`
 - `desktop/internal/core/agent_management.go`

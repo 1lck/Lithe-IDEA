@@ -497,7 +497,7 @@ func TestAgentTranscriptLimitPreservesUTF8(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			(&App{}).applyAgentUpdate(p, raw)
+			(&App{}).applyAgentUpdate(p, "", raw)
 			got := p.agent.messages[0].Text
 			if !utf8.ValidString(got) || got != prefix || p.agent.bytes != len(got) {
 				t.Fatalf("invalid display truncation: valid=%v length=%d accounted=%d", utf8.ValidString(got), len(got), p.agent.bytes)

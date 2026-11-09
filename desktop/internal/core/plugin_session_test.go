@@ -389,3 +389,36 @@ func TestPluginBackendCoreSessionInvokesFunctionAndCleansUp(t *testing.T) {
 		t.Fatal("destroyed session is still accessible")
 	}
 }
+
+// Verify accepted and rejected architecture spellings through the real Core planner.
+func TestPluginLaunchArchitectureAcceptsOnlyTheContractSpelling(t *testing.T) {
+	manifest, err := os.ReadFile("../../../shared/contracts/plugins/v1/fixtures/backend/backend.plugin.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, ctx := NewClient(), testContext(t)
+	validated, err := client.ValidatePluginManifest(ctx, manifest, map[string][]int{"backend": {1}, "serverProcess": {1}, "ui": {2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	directories := func(architecture string) PluginBackendDirectories {
+		return PluginBackendDirectories{PluginDirectory: root, StateDirectory: filepath.Join(root, "state"), Architecture: architecture}
+	}
+	for _, architecture := range []string{"arm64", "x86_64"} {
+		if _, err := client.PlanPluginBackend(ctx, validated, directories(architecture)); err != nil {
+			t.Errorf("architecture %q was refused: %v", architecture, err)
+		}
+	}
+	for _, architecture := range []string{"amd64", "x64", "sparc"} {
+		_, err := client.PlanPluginBackend(ctx, validated, directories(architecture))
+		var rejection *MarketplaceRejection
+		if !errors.As(err, &rejection) || rejection.Code != "plugin.launch.invalidRequest" {
+			t.Errorf("architecture %q returned %v, want plugin.launch.invalidRequest", architecture, err)
+			continue
+		}
+		if !strings.Contains(rejection.Message, architecture) {
+			t.Errorf("the refusal for %q does not name it: %q", architecture, rejection.Message)
+		}
+	}
+}

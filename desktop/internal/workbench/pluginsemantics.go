@@ -1,0 +1,1341 @@
+package workbench
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/ui"
+)
+
+// Language semantics for the editor: definition, hover and explicit completion.
+//
+// Core owns the language-server protocol and normalises every answer
+// (locations, hover contents and completion items). This file only decides when
+// to ask, how to present the normalised answer, and which answers are stale. It
+// never parses a raw LSP Location and never derives completion rules: the
+// completion list keeps Core's order and Core applies the accepted text edits.
+
+const (
+	// pluginSemanticCompleted is the Core runtime event carrying a finished
+	// semantic operation.
+	pluginSemanticCompleted = "requestCompleted"
+	// The semantic operations the editor asks for.
+	pluginSemanticDefinition = "definition"
+	pluginSemanticHover      = "hover"
+	pluginSemanticCompletion = "completion"
+	// The LSP methods Core reports on a completed event. They are matched only
+	// against the host's own pending operation, never used to derive a rule.
+	pluginMethodDefinition = "textDocument/definition"
+	pluginMethodHover      = "textDocument/hover"
+	pluginMethodCompletion = "textDocument/completion"
+
+	// semanticStartTimeout bounds one asynchronous request submission. The
+	// request only enters Core's queue, so this is a failure bound, not a wait.
+	semanticStartTimeout = 10 * time.Second
+	// semanticEditTimeout bounds snippet conversion and Core's edit validation
+	// when a completion is accepted.
+	semanticEditTimeout = 10 * time.Second
+	// semanticCancelTimeout bounds one cancellation write.
+	semanticCancelTimeout = 5 * time.Second
+	// maxCompletionItems bounds the completion list the window keeps. Core's
+	// answer is already normalised; excess candidates are dropped instead of
+	// growing an unbounded popup.
+	maxCompletionItems = 500
+	// maxDefinitionTargets bounds a multi-target list the same way.
+	maxDefinitionTargets = 50
+	// visibleSemanticRows is how many rows of a list are laid out, whatever the
+	// candidate count, so a large answer never declares one view per item.
+	visibleSemanticRows = 10
+	// maxHoverBytes bounds the hover text the window keeps and paints.
+	maxHoverBytes = 8 * 1024
+	// maxSemanticPending bounds outstanding semantic operations. One per
+	// operation kind is enough; a newer request cancels the older one.
+	maxSemanticPending = 3
+
+	semanticPopupWidth      = float32(360)
+	semanticDefinitionWidth = float32(480)
+	semanticRowHeight       = float32(24)
+	semanticPopupPad        = float32(4)
+	semanticHoverWidth      = float32(420)
+	semanticHoverMaxHeight  = float32(240)
+	// semanticHoverDelay is how long the pointer rests on a symbol before the
+	// hover request starts. Negative lets tests exercise it without a clock wait.
+	semanticHoverDelay = 500 * time.Millisecond
+)
+
+var (
+	semanticChoices   = tree.Sub(shellPage, tree.Name("semantic-choices"))
+	semanticHoverID   = tree.ID(shellPage, "semantic-hover")
+	semanticHoverText = tree.ID(shellPage, "semantic-hover-text")
+)
+
+// semanticKind is one editor semantic operation.
+type semanticKind string
+
+func (k semanticKind) method() string {
+	switch k {
+	case pluginSemanticDefinition:
+		return pluginMethodDefinition
+	case pluginSemanticHover:
+		return pluginMethodHover
+	default:
+		return pluginMethodCompletion
+	}
+}
+
+// semanticPending is one submitted request whose answer has not arrived. The
+// generation is checked on every hand-off so a result from a replaced document,
+// session or trigger cannot change the window.
+type semanticPending struct {
+	kind         semanticKind
+	generation   uint64
+	project      *project
+	server       *pluginServer
+	documentID   int
+	path         string
+	uri          string
+	revision     int
+	line, column int
+	// requireCaret says the request was placed at the caret, so a caret move
+	// makes the answer stale. A modifier-click request uses the pointer instead.
+	requireCaret bool
+	// fromPointer marks a hover started by pointer movement; its anchor is the
+	// pointer point rather than the caret cell.
+	fromPointer bool
+	anchor      gfx.Rect
+	operation   string
+}
+
+// completionState is the explicit completion popup.
+type completionState struct {
+	open         bool
+	items        []core.PluginSemanticCompletionItem
+	selected     int
+	offset       int
+	documentID   int
+	revision     int
+	line, column int
+}
+
+// definitionState is the multi-target definition popup.
+type definitionState struct {
+	open       bool
+	targets    []core.PluginSemanticLocation
+	selected   int
+	offset     int
+	documentID int
+	revision   int
+}
+
+// hoverState is the hover popup.
+type hoverState struct {
+	open     bool
+	contents string
+	anchor   gfx.Rect
+}
+
+// hoverCandidate is the symbol under the resting pointer.
+type hoverCandidate struct {
+	active       bool
+	documentID   int
+	line, column int
+	anchor       gfx.Rect
+	// cancel ends the delay before the request. It is replaced or called when
+	// the pointer moves, the document changes or the window closes.
+	cancel context.CancelFunc
+}
+
+// pluginSemantics is the window's semantic state. It is touched only on the
+// window thread; background work only reports back through post.
+type pluginSemantics struct {
+	project    *project
+	documentID int
+	generation uint64
+	pending    []*semanticPending
+	// deferred starts the user's request once the document's pending changes
+	// have reached Core, so a definition never asks about stale text.
+	deferred   func(*App)
+	completion completionState
+	definition definitionState
+	hover      hoverState
+	candidate  hoverCandidate
+	hoverDelay time.Duration
+}
+
+// pluginSemanticHit is the open document whose text is id.
+func (a *App) pluginSemanticHit(id gfx.ID) (*project, *document) {
+	p := a.project
+	if p == nil || id.IsZero() {
+		return nil, nil
+	}
+	for _, d := range p.docs.list {
+		if docViews.At(d.id) == id {
+			return p, d
+		}
+	}
+	return nil, nil
+}
+
+// currentSemanticDocument is the document a popup belongs to, and nil when the
+// project, tab or session was replaced.
+func (a *App) currentSemanticDocument(id int) (*project, *document) {
+	p := a.project
+	if p == nil || id <= 0 {
+		return nil, nil
+	}
+	return p, p.docs.find(id)
+}
+
+// pluginSemanticsKey handles the keys an open semantic popup consumes. It is
+// called before the editor, so a completion list can own Up, Down, Enter, Tab
+// and Escape without changing how the text editor treats them.
+func (a *App) pluginSemanticsKey(event gfx.KeyEvent) gfx.EventResult {
+	if event.Release {
+		return gfx.EventResult{}
+	}
+	if a.semantics.completion.open {
+		return a.completionKey(event)
+	}
+	if a.semantics.definition.open {
+		return a.definitionKey(event)
+	}
+	if a.semantics.hover.open && event.Key == gfx.KeyEscape {
+		a.closeSemanticHover()
+		return gfx.EventResult{Handled: true, Repaint: true}
+	}
+	return gfx.EventResult{}
+}
+
+func (a *App) completionKey(event gfx.KeyEvent) gfx.EventResult {
+	state := &a.semantics.completion
+	switch event.Key {
+	case gfx.KeyEscape:
+		a.closeSemanticCompletion()
+		return gfx.EventResult{Handled: true, Repaint: true}
+	case gfx.KeyUp:
+		if state.selected > 0 {
+			state.selected--
+			a.scrollCompletionWindow()
+		}
+		return gfx.EventResult{Handled: true, Repaint: true}
+	case gfx.KeyDown:
+		if state.selected+1 < len(state.items) {
+			state.selected++
+			a.scrollCompletionWindow()
+		}
+		return gfx.EventResult{Handled: true, Repaint: true}
+	case gfx.KeyPageUp:
+		state.selected = max(state.selected-visibleSemanticRows, 0)
+		a.scrollCompletionWindow()
+		return gfx.EventResult{Handled: true, Repaint: true}
+	case gfx.KeyPageDown:
+		state.selected = min(state.selected+visibleSemanticRows, max(len(state.items)-1, 0))
+		a.scrollCompletionWindow()
+		return gfx.EventResult{Handled: true, Repaint: true}
+	case gfx.KeyEnter, gfx.KeyTab:
+		if len(state.items) > 0 {
+			a.acceptPluginCompletion(state.selected)
+			return gfx.EventResult{Handled: true, Repaint: true}
+		}
+		a.closeSemanticCompletion()
+		return gfx.EventResult{Handled: true, Repaint: true}
+	}
+	// Any other key ends the list and belongs to the editor.
+	a.closeSemanticCompletion()
+	return gfx.EventResult{}
+}
+
+func (a *App) definitionKey(event gfx.KeyEvent) gfx.EventResult {
+	state := &a.semantics.definition
+	switch event.Key {
+	case gfx.KeyEscape:
+		a.closeSemanticDefinition()
+		return gfx.EventResult{Handled: true, Repaint: true}
+	case gfx.KeyUp:
+		if state.selected > 0 {
+			state.selected--
+			a.scrollDefinitionWindow()
+		}
+		return gfx.EventResult{Handled: true, Repaint: true}
+	case gfx.KeyDown:
+		if state.selected+1 < len(state.targets) {
+			state.selected++
+			a.scrollDefinitionWindow()
+		}
+		return gfx.EventResult{Handled: true, Repaint: true}
+	case gfx.KeyPageUp:
+		state.selected = max(state.selected-visibleSemanticRows, 0)
+		a.scrollDefinitionWindow()
+		return gfx.EventResult{Handled: true, Repaint: true}
+	case gfx.KeyPageDown:
+		state.selected = min(state.selected+visibleSemanticRows, max(len(state.targets)-1, 0))
+		a.scrollDefinitionWindow()
+		return gfx.EventResult{Handled: true, Repaint: true}
+	case gfx.KeyEnter, gfx.KeyTab:
+		if len(state.targets) > 0 {
+			a.choosePluginDefinition(state.selected)
+			return gfx.EventResult{Handled: true, Repaint: true}
+		}
+		a.closeSemanticDefinition()
+		return gfx.EventResult{Handled: true, Repaint: true}
+	}
+	return gfx.EventResult{}
+}
+
+// pluginSemanticsTrigger handles the unmodified keys that start a semantic
+// operation for the editor that owns the keyboard.
+func (a *App) pluginSemanticsTrigger(event gfx.KeyEvent) (gfx.EventResult, bool) {
+	if event.Release || event.Modifiers != 0 {
+		return gfx.EventResult{}, false
+	}
+	p, d := a.pluginSemanticHit(event.Target)
+	if d == nil || d.view.IsComposing() {
+		return gfx.EventResult{}, false
+	}
+	switch event.Key {
+	case gfx.KeyF12:
+		line, column := d.view.CaretUTF16()
+		a.startPluginDefinition(p, d, line, column, true)
+		return gfx.EventResult{Handled: true, Repaint: true}, true
+	case gfx.KeyF1:
+		line, column := d.view.CaretUTF16()
+		rect, _ := d.view.CaretRect()
+		a.startPluginHover(p, d, line, column, rect, false, true)
+		return gfx.EventResult{Handled: true, Repaint: true}, true
+	}
+	return gfx.EventResult{}, false
+}
+
+// pluginSemanticsShortcut handles Control+Space, the explicit completion
+// trigger. A platform may deliver it as a shortcut text without the key code,
+// so the space text is accepted as well as KeySpace.
+func (a *App) pluginSemanticsShortcut(event gfx.KeyEvent) gfx.EventResult {
+	if event.Release || (event.Key != gfx.KeySpace && event.Text != " ") {
+		return gfx.EventResult{}
+	}
+	if event.Modifiers != gfx.ModifierControl {
+		return gfx.EventResult{}
+	}
+	p, d := a.pluginSemanticHit(event.Target)
+	if d == nil || d.view.IsComposing() {
+		return gfx.EventResult{}
+	}
+	line, column := d.view.CaretUTF16()
+	a.startPluginCompletion(p, d, line, column)
+	return gfx.EventResult{Handled: true, Repaint: true}
+}
+
+// pluginSemanticsPointer handles modifier-click definition and pointer hover.
+// It runs before the editor's own pointer handling.
+func (a *App) pluginSemanticsPointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
+	p, d := a.pluginSemanticHit(event.Target)
+	switch event.Kind {
+	case gfx.PointerDown:
+		if a.semanticPopupHit(event.Target) {
+			// A row click is handled by the row's Clicked state during paint.
+			return gfx.EventResult{}, true
+		}
+		if a.semantics.completion.open || a.semantics.definition.open || a.semantics.hover.open {
+			a.closePluginSemantics()
+		}
+		if d == nil || event.Button != gfx.PointerButtonPrimary {
+			return gfx.EventResult{}, false
+		}
+		modifier := gfx.ModifierControl
+		if runtime.GOOS == "darwin" {
+			modifier = gfx.ModifierMeta
+		}
+		if event.Modifiers&modifier == 0 {
+			return gfx.EventResult{}, false
+		}
+		line, column, ok := d.view.PositionAt(event.X, event.Y)
+		if !ok {
+			return gfx.EventResult{}, false
+		}
+		a.startPluginDefinition(p, d, line, column, false)
+		return gfx.EventResult{Handled: true, Repaint: true}, true
+	case gfx.PointerMove:
+		if a.semantics.completion.open || a.semantics.definition.open {
+			return gfx.EventResult{}, false
+		}
+		if d == nil {
+			if !a.semanticPopupHit(event.Target) {
+				a.closeSemanticHover()
+				a.cancelSemanticKind(pluginSemanticHover)
+			}
+			return gfx.EventResult{}, false
+		}
+		line, column, ok := d.view.PositionAt(event.X, event.Y)
+		if !ok {
+			return gfx.EventResult{}, false
+		}
+		a.pointPluginHover(p, d, line, column, gfx.Rect{X: event.X + 12, Y: event.Y + 18})
+		return gfx.EventResult{}, false
+	case gfx.PointerExit:
+		a.closeSemanticHover()
+		a.cancelSemanticKind(pluginSemanticHover)
+	}
+	return gfx.EventResult{}, false
+}
+
+// semanticPopupHit reports whether id belongs to a semantic popup.
+func (a *App) semanticPopupHit(id gfx.ID) bool {
+	if id.IsZero() {
+		return false
+	}
+	for i := 0; i < len(a.semantics.completion.items) && i < visibleSemanticRows; i++ {
+		if id == semanticChoices.At(i) {
+			return true
+		}
+	}
+	for i := 0; i < len(a.semantics.definition.targets) && i < visibleSemanticRows; i++ {
+		if id == semanticChoices.At(i) {
+			return true
+		}
+	}
+	return id == semanticHoverID || id == semanticHoverText
+}
+
+// scrollCompletionWindow keeps the selected row inside the virtualised window.
+func (a *App) scrollCompletionWindow() {
+	a.semantics.completion.offset = choiceOffset(a.semantics.completion.selected, len(a.semantics.completion.items), a.semantics.completion.offset)
+}
+
+func (a *App) scrollDefinitionWindow() {
+	a.semantics.definition.offset = choiceOffset(a.semantics.definition.selected, len(a.semantics.definition.targets), a.semantics.definition.offset)
+}
+
+// choiceOffset is the first visible row for selected among total rows.
+func choiceOffset(selected, total, current int) int {
+	if total <= visibleSemanticRows {
+		return 0
+	}
+	first := min(max(current, 0), total-visibleSemanticRows)
+	if selected < first {
+		first = selected
+	} else if selected >= first+visibleSemanticRows {
+		first = selected - visibleSemanticRows + 1
+	}
+	return min(max(first, 0), max(total-visibleSemanticRows, 0))
+}
+
+// startPluginDefinition asks for the definition at a position. A request that
+// would race the document's pending changes waits for them first.
+func (a *App) startPluginDefinition(p *project, d *document, line, column int, requireCaret bool) {
+	if a.plugins == nil || p == nil || d == nil || a.project != p {
+		return
+	}
+	if d.view.IsComposing() {
+		return
+	}
+	a.closeSemanticHover()
+	a.closeSemanticCompletion()
+	a.closeSemanticDefinition()
+	if !a.semanticDocumentReady(d) {
+		a.deferSemantic(p, d, func(a *App) { a.startPluginDefinition(p, d, line, column, requireCaret) })
+		a.startDocumentSync(p, d)
+		return
+	}
+	server, ok := a.semanticServer(d)
+	if !ok {
+		return
+	}
+	if !server.isReady() {
+		a.deferSemantic(p, d, func(a *App) { a.startPluginDefinition(p, d, line, column, requireCaret) })
+		return
+	}
+	position := core.PluginDocumentPosition{Line: line, UTF16Column: column}
+	a.cancelSemanticKind(pluginSemanticDefinition)
+	pending := a.newSemanticPending(pluginSemanticDefinition, p, d, server, line, column, requireCaret, false)
+	a.semantics.pending = append(a.semantics.pending, pending)
+	request := core.PluginSemanticRequest{
+		Operation: pluginSemanticDefinition,
+		URI:       d.sync.uri,
+		Position:  &position,
+	}
+	a.submitSemantic(pending, request)
+}
+
+// startPluginHover asks for hover contents at a caret position.
+func (a *App) startPluginHover(p *project, d *document, line, column int, anchor gfx.Rect, fromPointer, requireCaret bool) {
+	if a.plugins == nil || p == nil || d == nil || a.project != p {
+		return
+	}
+	if d.view.IsComposing() {
+		return
+	}
+	a.closeSemanticCompletion()
+	a.closeSemanticDefinition()
+	if !a.semanticDocumentReady(d) {
+		a.deferSemantic(p, d, func(a *App) {
+			a.startPluginHover(p, d, line, column, anchor, fromPointer, requireCaret)
+		})
+		a.startDocumentSync(p, d)
+		return
+	}
+	server, ok := a.semanticServer(d)
+	if !ok {
+		return
+	}
+	if !server.isReady() {
+		a.deferSemantic(p, d, func(a *App) {
+			a.startPluginHover(p, d, line, column, anchor, fromPointer, requireCaret)
+		})
+		return
+	}
+	position := core.PluginDocumentPosition{Line: line, UTF16Column: column}
+	a.cancelSemanticKind(pluginSemanticHover)
+	pending := a.newSemanticPending(pluginSemanticHover, p, d, server, line, column, requireCaret, fromPointer)
+	pending.anchor = anchor
+	a.semantics.pending = append(a.semantics.pending, pending)
+	request := core.PluginSemanticRequest{
+		Operation: pluginSemanticHover,
+		URI:       d.sync.uri,
+		Position:  &position,
+	}
+	a.submitSemantic(pending, request)
+}
+
+// startPluginCompletion asks for an explicit completion list.
+func (a *App) startPluginCompletion(p *project, d *document, line, column int) {
+	if a.plugins == nil || p == nil || d == nil || a.project != p {
+		return
+	}
+	if d.view.IsComposing() {
+		return
+	}
+	a.closeSemanticHover()
+	a.closeSemanticDefinition()
+	a.closeSemanticCompletion()
+	if !a.semanticDocumentReady(d) {
+		a.deferSemantic(p, d, func(a *App) { a.startPluginCompletion(p, d, line, column) })
+		a.startDocumentSync(p, d)
+		return
+	}
+	server, ok := a.semanticServer(d)
+	if !ok {
+		return
+	}
+	if !server.isReady() {
+		a.deferSemantic(p, d, func(a *App) { a.startPluginCompletion(p, d, line, column) })
+		return
+	}
+	position := core.PluginDocumentPosition{Line: line, UTF16Column: column}
+	a.cancelSemanticKind(pluginSemanticCompletion)
+	pending := a.newSemanticPending(pluginSemanticCompletion, p, d, server, line, column, true, false)
+	a.semantics.pending = append(a.semantics.pending, pending)
+	request := core.PluginSemanticRequest{
+		Operation:         pluginSemanticCompletion,
+		URI:               d.sync.uri,
+		Position:          &position,
+		CompletionContext: completionTriggerContext(),
+	}
+	a.submitSemantic(pending, request)
+}
+
+// completionTriggerContext asks the server for an explicit invocation. Core
+// validates the context; the host does not decide which server feature answers.
+func completionTriggerContext() json.RawMessage {
+	return json.RawMessage(`{"triggerKind":1}`)
+}
+
+func (a *App) newSemanticPending(kind semanticKind, p *project, d *document, server *pluginServer, line, column int, requireCaret, fromPointer bool) *semanticPending {
+	a.semantics.generation++
+	a.semantics.project = p
+	a.semantics.documentID = d.id
+	return &semanticPending{
+		kind:         kind,
+		generation:   a.semantics.generation,
+		project:      p,
+		server:       server,
+		documentID:   d.id,
+		path:         d.path,
+		uri:          d.sync.uri,
+		revision:     d.view.Revision(),
+		line:         line,
+		column:       column,
+		requireCaret: requireCaret,
+		fromPointer:  fromPointer,
+	}
+}
+
+func (a *App) submitSemantic(pending *semanticPending, request core.PluginSemanticRequest) {
+	a.performed("editor.semantics."+string(pending.kind), surfaceShortcut)
+	a.background(pending.project, semanticStartTimeout, func(ctx context.Context) func(*App) {
+		operation, err := a.plugins.RequestLanguageSession(ctx, pending.server.session, request)
+		return func(a *App) { a.semanticRequestStarted(pending, operation, err, ctx.Err()) }
+	})
+}
+
+// semanticRequestStarted records Core's operation ID. An answer may have
+// arrived before this hand-off; that answer settled the pending request and the
+// late ID is cancelled instead of leaving a pending server operation.
+func (a *App) semanticRequestStarted(pending *semanticPending, operation string, err, ctxErr error) {
+	if !a.hasPending(pending) {
+		if operation != "" {
+			a.cancelSemanticOperation(pending, operation)
+		}
+		return
+	}
+	pending.operation = operation
+	if err != nil {
+		a.removePending(pending)
+		if errors.Is(err, context.Canceled) || errors.Is(ctxErr, context.Canceled) {
+			return
+		}
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_semantics", err))
+	}
+}
+
+// applyPluginSemanticEvent takes one completed request from a language server.
+func (a *App) applyPluginSemanticEvent(server *pluginServer, event core.BackendEvent) {
+	if a.project == nil || server == nil || server.session == nil {
+		return
+	}
+	pending := a.matchPending(server, event)
+	if pending == nil {
+		// A late answer from a cancelled or replaced request. Core already
+		// dropped operations it timed out; nothing may reopen a popup.
+		return
+	}
+	a.removePending(pending)
+	if pending.project != a.project || !a.isCurrentPluginServer(server.session.PluginID, server) {
+		return
+	}
+	if len(event.Error) != 0 && string(event.Error) != "null" {
+		a.logSemanticError(pending.kind, event.Error)
+		return
+	}
+	switch pending.kind {
+	case pluginSemanticDefinition:
+		a.applySemanticDefinition(pending, event)
+	case pluginSemanticHover:
+		a.applySemanticHover(pending, event)
+	case pluginSemanticCompletion:
+		a.applySemanticCompletion(pending, event)
+	}
+}
+
+func (a *App) matchPending(server *pluginServer, event core.BackendEvent) *semanticPending {
+	if event.OperationID != "" {
+		for _, pending := range a.semantics.pending {
+			if pending.server == server && pending.operation == event.OperationID {
+				return pending
+			}
+		}
+	}
+	for _, pending := range a.semantics.pending {
+		if pending.server == server && pending.kind.method() == event.Method &&
+			(pending.operation == "" || pending.operation == event.OperationID) {
+			return pending
+		}
+	}
+	return nil
+}
+
+func (a *App) applySemanticDefinition(pending *semanticPending, event core.BackendEvent) {
+	p, d := a.currentSemanticDocument(pending.documentID)
+	if p != pending.project || d == nil || d.view.Revision() != pending.revision || !a.semanticPositionCurrent(pending, d) {
+		return
+	}
+	locations, err := core.PluginSemanticLocations(event)
+	if err != nil {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_semantics", err))
+		return
+	}
+	targets := a.usableDefinitionTargets(locations)
+	if len(targets) == 0 {
+		a.notify(i18n.Shared(a.language(), "desktop.semantics.noDefinition"))
+		return
+	}
+	if len(targets) == 1 {
+		a.openDefinitionTarget(targets[0])
+		return
+	}
+	a.semantics.definition = definitionState{
+		open:       true,
+		targets:    targets,
+		documentID: d.id,
+		revision:   pending.revision,
+	}
+}
+
+func (a *App) applySemanticHover(pending *semanticPending, event core.BackendEvent) {
+	p, d := a.currentSemanticDocument(pending.documentID)
+	if p != pending.project || d == nil || d.view.Revision() != pending.revision || !a.semanticPositionCurrent(pending, d) {
+		return
+	}
+	hover, err := core.PluginSemanticHoverFromEvent(event)
+	if err != nil {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_semantics", err))
+		return
+	}
+	if hover == nil || hover.Contents == "" {
+		a.closeSemanticHover()
+		return
+	}
+	a.semantics.hover = hoverState{open: true, contents: truncateHover(hover.Contents), anchor: pending.anchor}
+}
+
+func (a *App) applySemanticCompletion(pending *semanticPending, event core.BackendEvent) {
+	p, d := a.currentSemanticDocument(pending.documentID)
+	if p != pending.project || d == nil || d.view.Revision() != pending.revision || !a.semanticPositionCurrent(pending, d) {
+		return
+	}
+	items, _, err := core.PluginSemanticCompletions(event)
+	if err != nil {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_semantics", err))
+		return
+	}
+	if len(items) > maxCompletionItems {
+		items = items[:maxCompletionItems]
+	}
+	if len(items) == 0 {
+		a.closeSemanticCompletion()
+		return
+	}
+	a.semantics.completion = completionState{
+		open:       true,
+		items:      items,
+		documentID: d.id,
+		revision:   pending.revision,
+		line:       pending.line,
+		column:     pending.column,
+	}
+}
+
+// semanticPositionCurrent says the trigger position still names the same place.
+func (a *App) semanticPositionCurrent(pending *semanticPending, d *document) bool {
+	if !pending.requireCaret {
+		return true
+	}
+	line, column := d.view.CaretUTF16()
+	return line == pending.line && column == pending.column
+}
+
+// usableDefinitionTargets drops targets this editor cannot open and collapses
+// exact duplicates. A non-file URI (a class inside a jar) has no FilePath and
+// stays out until the editor has a read-only preview.
+func (a *App) usableDefinitionTargets(locations []core.PluginSemanticLocation) []core.PluginSemanticLocation {
+	targets := make([]core.PluginSemanticLocation, 0, min(len(locations), maxDefinitionTargets))
+	seen := make(map[string]struct{}, len(locations))
+	for _, location := range locations {
+		if location.FilePath == "" || !filepath.IsAbs(location.FilePath) {
+			continue
+		}
+		key := location.FilePath + "\x00" + strconv.FormatInt(int64(location.Range.Start.Line), 10) + "\x00" + strconv.FormatInt(int64(location.Range.Start.UTF16Column), 10)
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		targets = append(targets, location)
+		if len(targets) >= maxDefinitionTargets {
+			break
+		}
+	}
+	return targets
+}
+
+func (a *App) openDefinitionTarget(target core.PluginSemanticLocation) {
+	p := a.project
+	if p == nil {
+		return
+	}
+	a.closePluginSemantics()
+	a.openFileAtPosition(p, target.FilePath, int(target.Range.Start.Line), int(target.Range.Start.UTF16Column))
+}
+
+func (a *App) choosePluginDefinition(index int) {
+	state := &a.semantics.definition
+	if index < 0 || index >= len(state.targets) {
+		a.closeSemanticDefinition()
+		return
+	}
+	a.openDefinitionTarget(state.targets[index])
+}
+
+// acceptPluginCompletion applies the selected completion through Core and
+// closes the list. The submission runs off the window thread; the answer is
+// applied only while the same document revision is still showing.
+func (a *App) acceptPluginCompletion(index int) {
+	state := &a.semantics.completion
+	if index < 0 || index >= len(state.items) {
+		a.closeSemanticCompletion()
+		return
+	}
+	p, d := a.currentSemanticDocument(state.documentID)
+	if d == nil || a.project != p {
+		a.closeSemanticCompletion()
+		return
+	}
+	item := state.items[index]
+	documentID := state.documentID
+	line, column := state.line, state.column
+	revision := d.view.Revision()
+	snapshot := d.view.TextSnapshot()
+	a.closeSemanticCompletion()
+	edits := a.prepareCompletionEdits(d, item, line, column)
+	if len(edits) == 0 {
+		return
+	}
+	a.background(p, semanticEditTimeout, func(ctx context.Context) func(*App) {
+		applied, caret, err := a.applyCompletionEdits(ctx, snapshot.String(), edits)
+		var change editorview.TextChange
+		if err == nil {
+			change = editorview.PrepareTextChange(snapshot, applied, caret)
+		}
+		return func(a *App) {
+			current, document := a.currentSemanticDocument(documentID)
+			if err != nil {
+				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_completion_apply", err))
+				a.notify(i18n.Shared(a.language(), "desktop.semantics.completionFailed"))
+				return
+			}
+			if current != p || document == nil || a.project != p || document.view.Revision() != revision {
+				return
+			}
+			document.view.ApplyTextChange(change)
+		}
+	})
+}
+
+// preparedEdit is one completion edit with its original byte range, so the
+// final caret survives edits that land before the primary edit (imports).
+type preparedEdit struct {
+	start, end int
+	editRange  core.PluginDocumentRange
+	text       string
+	snippet    bool
+	primary    bool
+}
+
+func (a *App) prepareCompletionEdits(d *document, item core.PluginSemanticCompletionItem, line, column int) []preparedEdit {
+	snippet := item.InsertTextFormat == 2
+	edits := make([]preparedEdit, 0, len(item.AdditionalTextEdits)+1)
+	if item.TextEdit != nil {
+		edit := item.TextEdit
+		start, okStart := d.view.ByteOffset(int(edit.Range.Start.Line), int(edit.Range.Start.UTF16Column))
+		end, okEnd := d.view.ByteOffset(int(edit.Range.End.Line), int(edit.Range.End.UTF16Column))
+		if !okStart || !okEnd {
+			return nil
+		}
+		edits = append(edits, preparedEdit{start: start, end: end, editRange: edit.Range, text: edit.NewText, snippet: snippet, primary: true})
+	} else {
+		at, ok := d.view.ByteOffset(line, column)
+		if !ok {
+			return nil
+		}
+		text := item.InsertText
+		if text == "" {
+			text = item.Label
+		}
+		position := core.PluginDocumentPosition{Line: line, UTF16Column: column}
+		edits = append(edits, preparedEdit{
+			start: at, end: at,
+			editRange: core.PluginDocumentRange{Start: position, End: position},
+			text:      text, snippet: snippet, primary: true,
+		})
+	}
+	for _, additional := range item.AdditionalTextEdits {
+		start, okStart := d.view.ByteOffset(int(additional.Range.Start.Line), int(additional.Range.Start.UTF16Column))
+		end, okEnd := d.view.ByteOffset(int(additional.Range.End.Line), int(additional.Range.End.UTF16Column))
+		if !okStart || !okEnd {
+			continue
+		}
+		edits = append(edits, preparedEdit{start: start, end: end, editRange: additional.Range, text: additional.NewText, snippet: snippet})
+	}
+	return edits
+}
+
+// applyCompletionEdits converts snippets and applies the batch through Core.
+// The caret is the primary edit's start shifted by every edit before it and the
+// primary replacement itself.
+func (a *App) applyCompletionEdits(ctx context.Context, text string, prepared []preparedEdit) (string, int, error) {
+	edits := make([]core.PluginTextEdit, 0, len(prepared))
+	replacements := make([]string, len(prepared))
+	primaryStart := -1
+	for i := range prepared {
+		edit := &prepared[i]
+		replacement := edit.text
+		if edit.snippet {
+			converted, err := a.kernel.PlainPluginSnippet(ctx, replacement)
+			if err != nil {
+				return "", 0, err
+			}
+			replacement = converted
+		}
+		replacements[i] = replacement
+		if edit.primary {
+			primaryStart = edit.start
+		}
+		edits = append(edits, core.PluginTextEdit{Range: edit.editRange, NewText: replacement})
+	}
+	if primaryStart < 0 {
+		return "", 0, errors.New("completion has no primary edit")
+	}
+	applied, err := a.kernel.ApplyPluginTextEdits(ctx, text, edits)
+	if err != nil {
+		return "", 0, err
+	}
+	caret := primaryStart
+	for i := range prepared {
+		if prepared[i].primary {
+			caret = primaryStart + len(replacements[i])
+			break
+		}
+	}
+	for i := range prepared {
+		if prepared[i].primary {
+			continue
+		}
+		if prepared[i].start == primaryStart && prepared[i].end == primaryStart {
+			// A zero-length insertion at the primary start, such as an import
+			// completion's additional edit, lands before the replacement and
+			// shifts the caret with it.
+			caret += len(replacements[i])
+			continue
+		}
+		if prepared[i].start >= primaryStart {
+			continue
+		}
+		caret += len(replacements[i]) - (prepared[i].end - prepared[i].start)
+	}
+	caret = min(max(caret, 0), len(applied))
+	return applied, caret, nil
+}
+
+func (a *App) semanticDocumentReady(d *document) bool {
+	if d == nil || !d.sync.opened || d.sync.uri == "" {
+		return false
+	}
+	return !d.sync.running && !d.sync.full && len(d.sync.pending) == 0
+}
+
+func (a *App) semanticServer(d *document) (*pluginServer, bool) {
+	if a.plugins == nil || d == nil {
+		return nil, false
+	}
+	server, _ := a.documentSyncServer(d)
+	if server == nil || server.session == nil || server.session.Documents == nil {
+		return nil, false
+	}
+	return server, true
+}
+
+// deferSemantic runs one request after the document's pending changes reach
+// Core. Only the newest request is kept; an older one is included in the newer
+// request anyway.
+func (a *App) deferSemantic(p *project, d *document, run func(*App)) {
+	if p == nil || d == nil {
+		return
+	}
+	a.semantics.project = p
+	a.semantics.documentID = d.id
+	a.semantics.deferred = run
+}
+
+// resumeDeferredSemantics is called when a document synchronization finishes.
+func (a *App) resumeDeferredSemantics() {
+	run := a.semantics.deferred
+	if run == nil {
+		return
+	}
+	p, d := a.currentSemanticDocument(a.semantics.documentID)
+	if p == nil || d == nil || !a.semanticDocumentReady(d) {
+		return
+	}
+	server, ok := a.semanticServer(d)
+	if !ok || !server.isReady() {
+		return
+	}
+	a.semantics.deferred = nil
+	run(a)
+}
+
+func (a *App) pointPluginHover(p *project, d *document, line, column int, anchor gfx.Rect) {
+	candidate := &a.semantics.candidate
+	if candidate.active && candidate.documentID == d.id && candidate.line == line && candidate.column == column {
+		return
+	}
+	a.cancelSemanticKind(pluginSemanticHover)
+	if candidate.cancel != nil {
+		candidate.cancel()
+	}
+	*candidate = hoverCandidate{active: true, documentID: d.id, line: line, column: column, anchor: anchor}
+	delay := a.semantics.hoverDelay
+	if delay == 0 {
+		delay = semanticHoverDelay
+	}
+	ctx, cancel := context.WithCancel(p.ctx)
+	candidate.cancel = cancel
+	a.background(p, 0, func(context.Context) func(*App) {
+		defer cancel()
+		if delay > 0 {
+			timer := time.NewTimer(delay)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				// log-exempt: 用户取消：指针移动、切换文档或关闭项目会取消等待。
+				return nil
+			}
+		}
+		return func(a *App) {
+			candidate := &a.semantics.candidate
+			if !candidate.active || candidate.documentID != d.id || candidate.line != line || candidate.column != column {
+				return
+			}
+			candidate.cancel = nil
+			a.startPluginHover(p, d, line, column, anchor, true, false)
+		}
+	})
+}
+
+// pluginSemanticsCaretSync runs after keyboard and pointer work. A popup or
+// request belongs to the caret it was opened at; moving the caret makes it
+// stale and closes it.
+func (a *App) pluginSemanticsCaretSync() {
+	state := &a.semantics
+	if state.project == nil || a.project != state.project {
+		return
+	}
+	if state.completion.open {
+		p, d := a.currentSemanticDocument(state.completion.documentID)
+		if d == nil || p != a.project {
+			a.closeSemanticCompletion()
+			return
+		}
+		line, column := d.view.CaretUTF16()
+		if d.view.Revision() != state.completion.revision || line != state.completion.line || column != state.completion.column {
+			a.closeSemanticCompletion()
+		}
+	}
+	if state.definition.open {
+		p, d := a.currentSemanticDocument(state.definition.documentID)
+		if d == nil || p != a.project || d.view.Revision() != state.definition.revision {
+			a.closeSemanticDefinition()
+		}
+	}
+	for _, pending := range append([]*semanticPending(nil), state.pending...) {
+		if !pending.requireCaret {
+			continue
+		}
+		p, d := a.currentSemanticDocument(pending.documentID)
+		if d == nil || p != pending.project {
+			a.cancelSemantic(pending)
+			continue
+		}
+		if d.view.Revision() != pending.revision || !a.semanticPositionCurrent(pending, d) {
+			a.cancelSemantic(pending)
+		}
+	}
+}
+
+// pluginSemanticsScrolled closes popups whose screen position the scroll moved.
+func (a *App) pluginSemanticsScrolled(target gfx.ID) {
+	if target.IsZero() {
+		return
+	}
+	if a.focusedDocument(target) == nil {
+		return
+	}
+	a.closeSemanticHover()
+	a.cancelSemanticKind(pluginSemanticHover)
+	a.closeSemanticCompletion()
+	a.closeSemanticDefinition()
+}
+
+// pluginSemanticsEdited closes popups and requests when one document's text
+// changes. The request's original positions no longer describe the document.
+func (a *App) pluginSemanticsEdited(d *document) {
+	if d == nil || a.semantics.documentID != d.id {
+		return
+	}
+	a.closePluginSemantics()
+}
+
+// pluginSemanticsDocumentClosed drops state that belonged to a closed tab.
+func (a *App) pluginSemanticsDocumentClosed(d *document) {
+	if d == nil || a.semantics.documentID != d.id {
+		return
+	}
+	a.closePluginSemantics()
+}
+
+// pluginSemanticsReset drops every popup, deferred request and pending
+// operation, for a project switch or a stopped server.
+func (a *App) pluginSemanticsReset() {
+	a.closePluginSemantics()
+	a.semantics.deferred = nil
+	a.semantics.project = nil
+	a.semantics.documentID = 0
+	a.semantics.hoverDelay = 0
+}
+
+func (a *App) closePluginSemantics() {
+	a.closeSemanticCompletion()
+	a.closeSemanticDefinition()
+	a.closeSemanticHover()
+	a.cancelSemanticKind(pluginSemanticDefinition)
+	a.cancelSemanticKind(pluginSemanticHover)
+	a.cancelSemanticKind(pluginSemanticCompletion)
+	if a.semantics.candidate.cancel != nil {
+		a.semantics.candidate.cancel()
+	}
+	a.semantics.candidate = hoverCandidate{}
+}
+
+func (a *App) closeSemanticCompletion() {
+	a.semantics.completion = completionState{}
+}
+
+func (a *App) closeSemanticDefinition() {
+	a.semantics.definition = definitionState{}
+}
+
+func (a *App) closeSemanticHover() {
+	a.semantics.hover = hoverState{}
+}
+
+// cancelSemanticKind drops pending operations of one kind and asks Core to
+// cancel the ones that already have an operation ID.
+func (a *App) cancelSemanticKind(kind semanticKind) {
+	for _, pending := range append([]*semanticPending(nil), a.semantics.pending...) {
+		if pending.kind == kind {
+			a.cancelSemantic(pending)
+		}
+	}
+}
+
+func (a *App) cancelSemantic(pending *semanticPending) {
+	if pending == nil || !a.removePending(pending) {
+		return
+	}
+	if pending.operation != "" {
+		a.cancelSemanticOperation(pending, pending.operation)
+	}
+}
+
+func (a *App) cancelSemanticOperation(pending *semanticPending, operation string) {
+	if a.plugins == nil || pending == nil || pending.server == nil || pending.server.session == nil {
+		return
+	}
+	session := pending.server.session
+	a.background(pending.project, semanticCancelTimeout, func(ctx context.Context) func(*App) {
+		// log-exempt: 取消：过期结果已被 generation 丢弃，取消失败不影响界面状态。
+		_ = a.plugins.CancelLanguageOperation(ctx, session, operation)
+		return nil
+	})
+}
+
+func (a *App) hasPending(pending *semanticPending) bool {
+	for _, candidate := range a.semantics.pending {
+		if candidate == pending {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *App) removePending(pending *semanticPending) bool {
+	for i, candidate := range a.semantics.pending {
+		if candidate == pending {
+			a.semantics.pending = append(a.semantics.pending[:i], a.semantics.pending[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// logSemanticError records Core's stable error code without copying server
+// internals into the user's log.
+func (a *App) logSemanticError(kind semanticKind, raw json.RawMessage) {
+	var failure struct {
+		Code string `json:"code"`
+	}
+	fields := map[string]any{"operation": "plugin_semantics", "request": string(kind)}
+	if err := json.Unmarshal(raw, &failure); err == nil && failure.Code != "" {
+		fields["code"] = failure.Code
+	}
+	a.emit(operationFailedLevel, operationFailedEvent, fields)
+}
+
+func truncateHover(contents string) string {
+	if len(contents) <= maxHoverBytes {
+		return contents
+	}
+	cut := maxHoverBytes
+	for cut > 0 && (contents[cut]&0xc0) == 0x80 {
+		cut--
+	}
+	return contents[:cut]
+}
+
+// drawPluginSemantics declares the open definition, completion and hover
+// popups. Lists lay out only the visible window, so a large server answer costs
+// a constant number of views.
+func (a *App) drawPluginSemantics(f *ui.Frame) {
+	state := &a.semantics
+	if a.project == nil || state.project != a.project {
+		return
+	}
+	if state.definition.open {
+		a.drawDefinitionPopup(f)
+		return
+	}
+	if state.completion.open {
+		a.drawCompletionPopup(f)
+		return
+	}
+	if state.hover.open {
+		a.drawHoverPopup(f)
+	}
+}
+
+func (a *App) drawDefinitionPopup(f *ui.Frame) {
+	state := &a.semantics.definition
+	p, d := a.currentSemanticDocument(state.documentID)
+	if d == nil || p != a.project || d.view.Revision() != state.revision {
+		a.closeSemanticDefinition()
+		return
+	}
+	anchor, ok := d.view.CaretRect()
+	if !ok {
+		a.closeSemanticDefinition()
+		return
+	}
+	first, last := semanticWindow(state.selected, len(state.targets))
+	bounds := f.Bounds()
+	x, y := popupOrigin(anchor.X, anchor.Y+anchor.Height+2, semanticDefinitionWidth, bounds)
+	chosen := -1
+	f.Popup().At(x, y).Width(semanticDefinitionWidth).MaxHeight(float32(visibleSemanticRows)*semanticRowHeight+2*semanticPopupPad).
+		Pad(semanticPopupPad).Background(a.theme.Popover).Border(1, a.theme.Border).
+		Radius(a.theme.Metrics.RadiusPopup()).Shadow(gfx.ShadowMD).
+		HitWith(semanticHoverID, i18n.Shared(a.language(), "desktop.semantics.definitions"), gfx.HitOptions{Role: gfx.RoleMenu, SkipFocus: true}).
+		Children(func() {
+			f.Column().FillWidth().Gap(1).Children(func() {
+				for i := first; i < last; i++ {
+					target := state.targets[i]
+					label := a.definitionLabel(target)
+					row := f.Row().FillWidth().Height(semanticRowHeight).Items(ui.Center).PadX(8).Gap(8).
+						Radius(a.theme.Metrics.RadiusItem()).
+						HitWith(semanticChoices.At(i), label, gfx.HitOptions{Role: gfx.RoleOption, SkipFocus: true, Cursor: gfx.PointerCursorHand}).
+						Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
+					if i == state.selected {
+						row = row.Background(a.colors.Active)
+					}
+					row.Children(func() {
+						f.Text(label).FontSize(12).Color(a.colors.Text).Ellipsis()
+					})
+					if row.Clicked() {
+						chosen = i
+						return
+					}
+				}
+			})
+		})
+	if chosen >= 0 {
+		a.choosePluginDefinition(chosen)
+	}
+}
+
+func (a *App) drawCompletionPopup(f *ui.Frame) {
+	state := &a.semantics.completion
+	p, d := a.currentSemanticDocument(state.documentID)
+	if d == nil || p != a.project || d.view.Revision() != state.revision {
+		a.closeSemanticCompletion()
+		return
+	}
+	anchor, ok := d.view.CaretRect()
+	if !ok {
+		a.closeSemanticCompletion()
+		return
+	}
+	first, last := semanticWindow(state.selected, len(state.items))
+	bounds := f.Bounds()
+	x, y := popupOrigin(anchor.X, anchor.Y+anchor.Height+2, semanticPopupWidth, bounds)
+	chosen := -1
+	f.Popup().At(x, y).Width(semanticPopupWidth).MaxHeight(float32(visibleSemanticRows)*semanticRowHeight+2*semanticPopupPad).
+		Pad(semanticPopupPad).Background(a.theme.Popover).Border(1, a.theme.Border).
+		Radius(a.theme.Metrics.RadiusPopup()).Shadow(gfx.ShadowMD).
+		HitWith(semanticHoverID, i18n.Shared(a.language(), "desktop.semantics.completion"), gfx.HitOptions{Role: gfx.RoleMenu, SkipFocus: true}).
+		Children(func() {
+			f.Column().FillWidth().Gap(1).Children(func() {
+				for i := first; i < last; i++ {
+					item := state.items[i]
+					row := f.Row().FillWidth().Height(semanticRowHeight).Items(ui.Center).PadX(8).Gap(8).
+						Radius(a.theme.Metrics.RadiusItem()).
+						HitWith(semanticChoices.At(i), item.Label, gfx.HitOptions{Role: gfx.RoleOption, SkipFocus: true, Cursor: gfx.PointerCursorHand}).
+						Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
+					if i == state.selected {
+						row = row.Background(a.colors.Active)
+					}
+					row.Children(func() {
+						f.Text(item.Label).FontSize(12).Color(a.colors.Text).Ellipsis()
+						if item.Detail != "" {
+							f.Text(item.Detail).FontSize(11).Color(a.colors.Subtle).Ellipsis().Grow(1)
+						}
+					})
+					if row.Clicked() {
+						chosen = i
+						return
+					}
+				}
+			})
+		})
+	if chosen >= 0 {
+		a.acceptPluginCompletion(chosen)
+	}
+}
+
+func (a *App) drawHoverPopup(f *ui.Frame) {
+	state := &a.semantics.hover
+	bounds := f.Bounds()
+	width := semanticHoverWidth
+	x, y := popupOrigin(state.anchor.X, state.anchor.Y, width, bounds)
+	f.Popup().At(x, y).Width(width).MaxHeight(semanticHoverMaxHeight).Pad(10).
+		Background(a.theme.Popover).Border(1, a.theme.Border).
+		Radius(a.theme.Metrics.RadiusPopup()).Shadow(gfx.ShadowMD).
+		HitWith(semanticHoverID, i18n.Shared(a.language(), "desktop.semantics.hover"), gfx.HitOptions{Role: gfx.RoleMenu, SkipFocus: true}).
+		Children(func() {
+			f.ScrollArea(semanticHoverText).FillWidth().MaxHeight(semanticHoverMaxHeight - 20).Children(func() {
+				f.Wrap(state.contents).FontSize(12).Mono().Color(a.colors.Text)
+			})
+		})
+}
+
+func (a *App) definitionLabel(target core.PluginSemanticLocation) string {
+	path := target.FilePath
+	if a.project != nil {
+		if relative, err := filepath.Rel(a.project.root, path); err == nil && relative != ".." && !filepath.IsAbs(relative) {
+			path = relative
+		}
+	}
+	return path + ":" + strconv.FormatInt(int64(target.Range.Start.Line)+1, 10) + ":" + strconv.FormatInt(int64(target.Range.Start.UTF16Column)+1, 10)
+}
+
+func semanticWindow(selected, total int) (int, int) {
+	if total <= visibleSemanticRows {
+		return 0, total
+	}
+	first := choiceOffset(selected, total, selected-visibleSemanticRows/2)
+	return first, min(first+visibleSemanticRows, total)
+}
+
+func popupOrigin(x, y, width float32, bounds gfx.Rect) (float32, float32) {
+	if width > bounds.Width-8 {
+		width = bounds.Width - 8
+	}
+	x = min(max(x, bounds.X+4), max(bounds.X+bounds.Width-width-4, bounds.X+4))
+	y = min(max(y, bounds.Y+4), max(bounds.Y+bounds.Height-8, bounds.Y+4))
+	return x, y
+}

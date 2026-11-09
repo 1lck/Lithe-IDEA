@@ -179,6 +179,16 @@ Viva 的文档同步入口在 `desktop/internal/workbench/pluginsync.go`：文�
 `desktop/internal/workbench/pluginsync_e2e_test.go`，覆盖打开、增量编辑、诊断到达
 Problems 面板、保存、关闭和项目切换。
 
+Viva 的编辑器语义入口在 `desktop/internal/workbench/pluginsemantics.go`：定义跳转
+（F12、Command/Ctrl+点击、多目标列表）、Hover（F1 和 500 ms 指针停留）与显式补全
+（Control+Space，上下键选择，回车/Tab 接受）都通过 `lsp.request` 提交，只消费 Core
+规范化后的 `requestCompleted` 结果；接受补全时由 Core 的 `lsp.applyTextEdits` 与
+`lsp.plainSnippet` 计算最终文本，宿主不解析原始 LSP Location，也不自行排序或去重候选。
+请求只在文档同步完成且会话 ready 后提交；光标、文档版本、标签页、服务器或项目变化会
+取消旧操作并丢弃迟到结果。无头 Viva 窗口用真实 clangd 隔离插件覆盖这三条路径
+（`pluginsemantics_e2e_test.go`）；自动补全、`isIncomplete` 连续刷新、引用、语义标记、
+格式化与重命名仍未接入。
+
 会话生命周期必须是单一判别状态；capability 协商单独表示为 `unknown`
 或 `known`，不能由 `ready`、`featuresKnown`、`supportsFeature` 等多个
 布尔字段组合推导。跨边界失败必须保留稳定的 `code`、`stage`、退出码和
@@ -406,6 +416,8 @@ frame 缓冲区、open-document 集合、pending LSP 请求或语言服务器子
 头部注释里的运行方式和所需环境变量。接入新语言服务器的检查清单见
 `rust/lithe-core/src/lsp/languages/catalog.rs`（已随 #1794 移除）
 头部注释。
+
+补全接受与当前编辑器增量模型保持一致：窗口只取不可变 rope 快照，后台调用 Core 应用语义编辑并使用既有 rope 差异接口计算变更范围，回到窗口后确认版本再应用该范围。不得把 Core 返回的整篇结果作为整篇编辑重新发送给 LSP。`TestSemanticReplacementKeepsUnchangedTextOutOfEditAndUndo` 覆盖局部通知及撤销/重做；Core 的现有 `lsp.applyTextEdits` 仍接收完整文本，后台跨边界开销尚未改为增量接口。
 
 ## 适用范围
 

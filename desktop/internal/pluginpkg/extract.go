@@ -22,9 +22,10 @@ import (
 // gives up ownership at that point. A directory that already holds entries is
 // refused without being touched.
 //
-// The archive must carry ManifestFile at its root. Extract does not interpret the
-// manifest, verify a publisher signature, or approve execution; those belong to
-// the install review.
+// The archive must carry ManifestFile at its root or directly inside exactly one
+// top-level directory, which is then the package's content root. Extract does not
+// interpret the manifest, verify a publisher signature, or approve execution;
+// those belong to the install review.
 //
 // A caller that verified a digest must use ExtractReader with the same open handle
 // instead: a path can be replaced between two opens, an open file cannot.
@@ -94,6 +95,14 @@ func (r contextReader) Read(p []byte) (int, error) {
 	return r.source.Read(p)
 }
 
+// archiveMember is one validated ZIP entry whose name is relative to the archive
+// root and whose trailing directory separator is gone.
+type archiveMember struct {
+	entry *zip.File
+	name  string
+	dir   bool
+}
+
 func extractEntries(ctx context.Context, entries []*zip.File, directory string) (pkg Package, err error) {
 	if len(entries) > MaxEntries {
 		return Package{}, fmt.Errorf("%w: %d entries, limit %d", ErrTooManyEntries, len(entries), MaxEntries)
@@ -108,17 +117,17 @@ func extractEntries(ctx context.Context, entries []*zip.File, directory string) 
 		}
 	}()
 
-	files := make(map[string]struct{}, len(entries))
-	directories := make(map[string]struct{}, len(entries))
-	written := make([]File, 0, len(entries))
-	var total int64
-
+	// The first pass validates every archive path and entry type before anything
+	// is written, and decides which directory is the package's content root. A
+	// refusal here therefore also leaves no half-written content behind.
+	members := make([]archiveMember, 0, len(entries))
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
 			return Package{}, err
 		}
 		name := entry.Name
-		if entry.FileInfo().IsDir() {
+		dir := entry.FileInfo().IsDir()
+		if dir {
 			// ZIP marks a directory by a trailing separator, which is not part of
 			// the path itself.
 			name = strings.TrimSuffix(name, "/")
@@ -130,8 +139,43 @@ func extractEntries(ctx context.Context, entries []*zip.File, directory string) 
 		if entry.Mode()&fs.ModeSymlink != 0 {
 			return Package{}, fmt.Errorf("%w: %q", ErrSymbolicLink, name)
 		}
+		if !dir && !entry.Mode().IsRegular() {
+			return Package{}, fmt.Errorf("%w: %q", ErrSpecialFile, name)
+		}
+		members = append(members, archiveMember{entry: entry, name: name, dir: dir})
+	}
+	contentRoot, err := contentRootOf(members)
+	if err != nil {
+		return Package{}, err
+	}
+
+	files := make(map[string]struct{}, len(entries))
+	directories := make(map[string]struct{}, len(entries))
+	written := make([]File, 0, len(entries))
+	var total int64
+	manifestWritten := false
+
+	for _, member := range members {
+		if err := ctx.Err(); err != nil {
+			return Package{}, err
+		}
+		name := member.name
+		if contentRoot != "" {
+			if name == contentRoot {
+				if !member.dir {
+					return Package{}, fmt.Errorf("%w: %q is both the content root and a file", ErrPathConflict, name)
+				}
+				// The staging directory already is the content root.
+				continue
+			}
+			prefix := contentRoot + "/"
+			if !strings.HasPrefix(name, prefix) {
+				return Package{}, fmt.Errorf("%w: %q is beside %q", ErrOutsideContentRoot, name, contentRoot)
+			}
+			name = strings.TrimPrefix(name, prefix)
+		}
 		key := foldPath(name)
-		if entry.FileInfo().IsDir() {
+		if member.dir {
 			if _, ok := files[key]; ok {
 				return Package{}, fmt.Errorf("%w: %q is also a file", ErrPathConflict, name)
 			}
@@ -145,13 +189,10 @@ func extractEntries(ctx context.Context, entries []*zip.File, directory string) 
 			}
 			// The owner needs write access to fill the directory even when the
 			// package records it as read-only.
-			if mkErr := os.MkdirAll(target, entry.Mode().Perm()|0o700); mkErr != nil {
+			if mkErr := os.MkdirAll(target, member.entry.Mode().Perm()|0o700); mkErr != nil {
 				return Package{}, mkErr
 			}
 			continue
-		}
-		if !entry.Mode().IsRegular() {
-			return Package{}, fmt.Errorf("%w: %q", ErrSpecialFile, name)
 		}
 		if _, ok := files[key]; ok {
 			return Package{}, fmt.Errorf("%w: %q", ErrDuplicatePath, name)
@@ -162,20 +203,73 @@ func extractEntries(ctx context.Context, entries []*zip.File, directory string) 
 		if err := addParents(name, files, directories); err != nil {
 			return Package{}, err
 		}
-		file, size, writeErr := writeEntry(ctx, entry, directory, name, total)
+		file, size, writeErr := writeEntry(ctx, member.entry, directory, name, total)
 		if writeErr != nil {
 			return Package{}, writeErr
 		}
 		total += size
 		files[key] = struct{}{}
 		written = append(written, file)
+		if name == ManifestFile {
+			manifestWritten = true
+		}
 	}
 
-	if _, ok := files[foldPath(ManifestFile)]; !ok {
+	if !manifestWritten {
 		return Package{}, ErrManifestMissing
 	}
 	sort.Slice(written, func(i, j int) bool { return written[i].Path < written[j].Path })
-	return Package{Files: written, Total: total}, nil
+	return Package{ContentRoot: contentRoot, Files: written, Total: total}, nil
+}
+
+// contentRootOf reports the single archive-root directory that holds the
+// manifest, or "" when the manifest sits at the archive root.
+//
+// The contract's package layout is <plugin-id>/plugin.json, so a distributed
+// archive has one top-level directory. A flat archive is accepted as well for
+// packages that were already installable that way. The manifest is located
+// first, then the whole archive is checked for a second manifest at any depth:
+// a package that carries two candidate manifests is ambiguous even when neither
+// would be used, so the host refuses it instead of choosing one.
+func contentRootOf(members []archiveMember) (string, error) {
+	var manifests []string
+	for _, member := range members {
+		if member.dir {
+			continue
+		}
+		if strings.EqualFold(pathBase(member.name), ManifestFile) {
+			manifests = append(manifests, member.name)
+		}
+	}
+	if len(manifests) == 0 {
+		return "", ErrManifestMissing
+	}
+	if len(manifests) > 1 {
+		sort.Strings(manifests)
+		return "", fmt.Errorf("%w: %s", ErrManifestAmbiguous, strings.Join(manifests, ", "))
+	}
+	manifest := manifests[0]
+	if manifest == ManifestFile {
+		return "", nil
+	}
+	if pathBase(manifest) != ManifestFile {
+		// A spelling difference such as Plugin.json would resolve only on a
+		// case-insensitive volume, so the package is not portable.
+		return "", fmt.Errorf("%w: %q is not spelled plugin.json", ErrManifestAmbiguous, manifest)
+	}
+	segments := strings.Split(manifest, "/")
+	if len(segments) != 2 {
+		return "", fmt.Errorf("%w: %q is not at the archive root or one directory below it", ErrManifestMissing, manifest)
+	}
+	return segments[0], nil
+}
+
+// pathBase returns the last "/"-separated segment of a validated archive path.
+func pathBase(name string) string {
+	if slash := strings.LastIndexByte(name, '/'); slash >= 0 {
+		return name[slash+1:]
+	}
+	return name
 }
 
 // addParents records the directories name lives in and refuses a path that would
