@@ -69,10 +69,14 @@ type Diagnostic struct {
 	DisplayPath string
 	Line        int
 	Column      int
-	Severity    Severity
-	Message     string
-	Source      string
-	Code        string
+	// EndLine and EndColumn close the range the diagnostic covers, so an editor can
+	// underline the whole token rather than one cell.
+	EndLine   int
+	EndColumn int
+	Severity  Severity
+	Message   string
+	Source    string
+	Code      string
 }
 
 // Validate reports whether a diagnostic can be stored.
@@ -90,6 +94,19 @@ func (d Diagnostic) Validate() error {
 	}
 	if d.Column < 0 {
 		return fmt.Errorf("%w: column %d is negative", ErrInvalidDiagnostic, d.Column)
+	}
+	if d.EndLine < 0 || d.EndColumn < 0 {
+		return fmt.Errorf("%w: end position %d:%d is negative", ErrInvalidDiagnostic, d.EndLine, d.EndColumn)
+	}
+	// A diagnostic that names no end covers its start only, which is what a caller
+	// that does not track ranges produces.
+	endLine, endColumn := d.EndLine, d.EndColumn
+	if endLine == 0 && endColumn == 0 {
+		endLine, endColumn = d.Line, d.Column
+	}
+	if endLine < d.Line || (endLine == d.Line && endColumn < d.Column) {
+		return fmt.Errorf("%w: end position %d:%d precedes the start %d:%d",
+			ErrInvalidDiagnostic, endLine, endColumn, d.Line, d.Column)
 	}
 	if !d.Severity.Valid() {
 		return fmt.Errorf("%w: severity %d is not an LSP severity", ErrInvalidDiagnostic, int(d.Severity))

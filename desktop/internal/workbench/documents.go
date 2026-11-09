@@ -177,9 +177,11 @@ func (a *App) openFile(p *project, path string) {
 	a.background(p, 0, func(context.Context) func(*App) {
 		data, err := readDocument(path)
 		var grammar *syntax.Syntax
+		languageID := ""
 		if err == nil {
 			if language, ok := registry.ForPath(path); ok {
 				grammar = registry.Syntax(language.ID)
+				languageID = language.ID
 			}
 		}
 		return func(a *App) {
@@ -192,6 +194,12 @@ func (a *App) openFile(p *project, path string) {
 				return
 			}
 			a.placeDocument(p, path, name, data, grammar)
+			// A plugin that serves this language starts its server the first time a
+			// file of it is opened, not when the project opens: a workspace of Go
+			// files must not pay for a Java server.
+			if languageID != "" {
+				a.startPluginServer(languageID)
+			}
 			if d := p.docs.byPath(path); d != nil && line > 0 {
 				d.view.GoToLine(line)
 			}

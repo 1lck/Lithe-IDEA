@@ -119,6 +119,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 				canvas.Fill(gfx.Rect{X: left, Y: y, Width: float32(hi-lo) * v.cellW, Height: v.lineH}, look.Selection)
 			}
 			v.paintRow(canvas, text, row, from, to, shift, y)
+			v.paintMarkers(canvas, line, from, to, shift, y)
 		}
 		top += float32(len(wraps)) * v.lineH
 	}
@@ -306,6 +307,47 @@ func (v *View) paintRow(canvas *gfx.Canvas, text string, row wrapRow, from, to, 
 
 // paintLabel draws the runs gathered for a row from column start to column end as one label,
 // shift columns to the left, and empties them for the next label.
+// markerThickness is how tall an underline is, in pixels. Two is the thinnest line
+// that survives a device pixel ratio above one.
+const markerThickness = 2
+
+// paintMarkers underlines the diagnostics that fall inside one wrapped row.
+//
+// A marker is laid out on the cell grid like the text above it, so the underline
+// stays under the characters it belongs to when the row is scrolled or wrapped.
+func (v *View) paintMarkers(canvas *gfx.Canvas, line, from, to, shift int, y float32) {
+	if len(v.markers) == 0 {
+		return
+	}
+	for _, marker := range v.markers[line] {
+		start, end := max(marker.Start, from), min(marker.End, to)
+		if end <= start {
+			continue
+		}
+		left := v.textLeft + float32(start-shift)*v.cellW - v.scrollX
+		canvas.Fill(gfx.Rect{
+			X:      left,
+			Y:      y + v.lineH - markerThickness,
+			Width:  float32(end-start) * v.cellW,
+			Height: markerThickness,
+		}, markerColor(marker.Severity))
+	}
+}
+
+// markerColor is the colour of one severity. These are the editor's own diagnostic
+// colours rather than theme entries: a theme may restyle syntax, but a problem has
+// to stay recognisable in every theme.
+func markerColor(severity MarkerSeverity) gfx.Color {
+	switch severity {
+	case MarkerError:
+		return gfx.RGB24(0xD13B3B)
+	case MarkerWarning:
+		return gfx.RGB24(0xC07A00)
+	default:
+		return gfx.RGB24(0x3B76D1)
+	}
+}
+
 func (v *View) paintLabel(canvas *gfx.Canvas, start, end, shift int, y float32, style gfx.TextStyle) {
 	if len(v.runs) == 0 {
 		return

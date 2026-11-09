@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -113,17 +114,53 @@ func DecodePluginDiagnostics(raw json.RawMessage) (PluginDiagnosticsEvent, error
 	if err := json.Unmarshal(raw, &event); err != nil {
 		return PluginDiagnosticsEvent{}, fmt.Errorf("%w: %w", ErrDiagnostics, err)
 	}
+	if err := validateDiagnostics(event); err != nil {
+		return PluginDiagnosticsEvent{}, err
+	}
+	return event, nil
+}
+
+// PluginDiagnosticsFromEvent decodes the diagnostics one runtime event carries.
+//
+// Core relays the document identity on the event itself and may put a bare array
+// in the diagnostics field, so this accepts both that shape and a payload that
+// repeats the identity.
+func PluginDiagnosticsFromEvent(event BackendEvent) (PluginDiagnosticsEvent, error) {
+	raw := event.Diagnostics
+	if len(raw) == 0 {
+		return PluginDiagnosticsEvent{}, fmt.Errorf("%w: the event carries no diagnostics", ErrDiagnostics)
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return PluginDiagnosticsEvent{}, fmt.Errorf("%w: the event carries no diagnostics", ErrDiagnostics)
+	}
+	if trimmed[0] != '[' {
+		return DecodePluginDiagnostics(raw)
+	}
+	var diagnostics []PluginDiagnostic
+	if err := json.Unmarshal(trimmed, &diagnostics); err != nil {
+		return PluginDiagnosticsEvent{}, fmt.Errorf("%w: %w", ErrDiagnostics, err)
+	}
+	decoded := PluginDiagnosticsEvent{URI: event.URI, Version: event.Version, Diagnostics: diagnostics}
+	if err := validateDiagnostics(decoded); err != nil {
+		return PluginDiagnosticsEvent{}, err
+	}
+	return decoded, nil
+}
+
+// validateDiagnostics checks what the host relies on when it stores the records.
+func validateDiagnostics(event PluginDiagnosticsEvent) error {
 	if event.URI == "" {
-		return PluginDiagnosticsEvent{}, fmt.Errorf("%w: the payload names no document", ErrDiagnostics)
+		return fmt.Errorf("%w: the payload names no document", ErrDiagnostics)
 	}
 	for _, diagnostic := range event.Diagnostics {
 		if diagnostic.Range.Start.Line < 0 || diagnostic.Range.Start.UTF16Column < 0 ||
 			diagnostic.Range.End.Line < 0 || diagnostic.Range.End.UTF16Column < 0 {
-			return PluginDiagnosticsEvent{}, fmt.Errorf("%w: a range is negative", ErrDiagnostics)
+			return fmt.Errorf("%w: a range is negative", ErrDiagnostics)
 		}
 		if diagnostic.Message == "" {
-			return PluginDiagnosticsEvent{}, fmt.Errorf("%w: a diagnostic has no message", ErrDiagnostics)
+			return fmt.Errorf("%w: a diagnostic has no message", ErrDiagnostics)
 		}
 	}
-	return event, nil
+	return nil
 }

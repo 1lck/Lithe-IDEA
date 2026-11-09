@@ -32,6 +32,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/plugindiag"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
@@ -201,6 +202,16 @@ type App struct {
 	// pluginState is what the settings window reads from its own thread about
 	// installed plugins; it is replaced whole, never mutated in place.
 	pluginState atomic.Pointer[map[string]settingswindow.PluginState]
+	// pluginServers are the language servers this window started, keyed by plugin.
+	pluginServers map[string]*pluginServer
+	// pluginServerLanguages maps a language to the plugin serving it, so opening a
+	// second file does not resolve the provider again.
+	pluginServerLanguages map[string]string
+	// pluginServerStarting marks a language whose first start is in flight.
+	pluginServerStarting map[string]bool
+	// pluginDiagnostics holds what the running language servers published for the
+	// files of the open project.
+	pluginDiagnostics *plugindiag.Set
 
 	welcome    welcomeState
 	clone      cloneState
@@ -941,6 +952,10 @@ func (a *App) requestCloseProject(after func()) {
 		a.releaseProjectSearch(p)
 		a.closeDocuments(p)
 		a.closeTerminals(p)
+		// A language server is bound to the workspace it was started for, so it goes
+		// with the project rather than outliving it.
+		a.stopAllPluginServers()
+		a.clearPluginDiagnostics()
 		a.project = nil
 		a.cancelDrag()
 		a.cancelTabDrag()

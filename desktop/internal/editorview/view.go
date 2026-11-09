@@ -127,6 +127,9 @@ type View struct {
 	// widest is the most cells any line takes, for the horizontal scroll range. It only grows
 	// while the view is open.
 	widest int
+	// markers are the diagnostics to underline, grouped by line. They are the view's only
+	// knowledge of a language server: the text and the caret never depend on them.
+	markers map[int][]Marker
 
 	hl    *syntax.Highlighter
 	theme *syntax.Theme
@@ -222,6 +225,53 @@ func (v *View) Owns(id gfx.ID) bool {
 // SetMessages hands the view the words for its parts, each frame, so a change of language
 // reaches it at once.
 func (v *View) SetMessages(words Messages) { v.words = words }
+
+// MarkerSeverity chooses the colour a marker is drawn in.
+type MarkerSeverity uint8
+
+const (
+	// MarkerError is a problem that stops the code from working.
+	MarkerError MarkerSeverity = iota + 1
+	// MarkerWarning is a problem worth reading.
+	MarkerWarning
+	// MarkerInfo is a note the server chose to publish.
+	MarkerInfo
+)
+
+// Marker is one diagnostic the view underlines.
+//
+// Line, Start and End are zero-based, and End counts UTF-16 code units within the
+// line, which is the unit the language protocol reports.
+type Marker struct {
+	Line     int
+	Start    int
+	End      int
+	Severity MarkerSeverity
+}
+
+// SetMarkers replaces the diagnostics the view underlines.
+//
+// A marker that covers no cell is dropped: an underline of zero width is invisible
+// and would only cost paint time. Markers never affect the text, the caret or the
+// selection, so a server cannot change what the document says.
+func (v *View) SetMarkers(markers []Marker) {
+	if len(markers) == 0 {
+		v.markers = nil
+		return
+	}
+	grouped := make(map[int][]Marker, len(markers))
+	for _, marker := range markers {
+		if marker.Line < 0 || marker.Start < 0 || marker.End <= marker.Start {
+			continue
+		}
+		grouped[marker.Line] = append(grouped[marker.Line], marker)
+	}
+	if len(grouped) == 0 {
+		v.markers = nil
+		return
+	}
+	v.markers = grouped
+}
 
 // Close stops the view's background highlighter.
 func (v *View) Close() { v.hl.Close() }

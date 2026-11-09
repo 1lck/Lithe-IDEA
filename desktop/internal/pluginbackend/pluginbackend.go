@@ -174,17 +174,27 @@ func (r *Runner) Stop(ctx context.Context, session Session) error {
 	return errors.Join(stopErr, destroyErr)
 }
 
+// EventDiagnostics is the runtime event carrying a language server's diagnostics
+// for one document.
+const EventDiagnostics = "diagnostics"
+
+// EventObserver sees the events the runner does not act on itself, such as
+// diagnostics and completed requests. It runs on the serve goroutine, so it must
+// hand the event to its owner rather than block or touch the owner's state.
+type EventObserver func(event core.BackendEvent)
+
 // Serve answers forwarded host requests until the session ends or ctx is done.
 //
 // Every answer goes through pluginhost.Services, so a method the host never
 // registered is refused with the contract's methodNotDeclared code rather than
-// leaving the plugin waiting.
+// leaving the plugin waiting. Every event the runner does not act on is passed to
+// observe, which may be nil.
 //
 // Returning nil means Core reported the session's exit event, not that the Core
 // session is gone: Core keeps it until it is disposed, so the caller must still
 // call Stop. Serve does not dispose it itself, because a caller that stops the
 // session concurrently would then dispose it twice.
-func (r *Runner) Serve(ctx context.Context, session Session) error {
+func (r *Runner) Serve(ctx context.Context, session Session, observe EventObserver) error {
 	if r == nil || r.kernel == nil {
 		return errors.New("pluginbackend: no kernel")
 	}
@@ -209,6 +219,10 @@ func (r *Runner) Serve(ctx context.Context, session Session) error {
 			case EventHostRequest:
 				if err := r.answer(ctx, session, event); err != nil {
 					return err
+				}
+			default:
+				if observe != nil {
+					observe(event)
 				}
 			}
 		}

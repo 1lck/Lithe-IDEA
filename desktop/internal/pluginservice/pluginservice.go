@@ -37,6 +37,9 @@ type Kernel interface {
 	pluginbackend.Kernel
 	ReviewMarketplaceInstall(ctx context.Context, manifest json.RawMessage, expectedID, expectedVersion string, approvedPrograms []json.RawMessage, hostCapabilities map[string][]int) (core.MarketplaceReview, error)
 	DecodePluginGrammar(ctx context.Context, manifest json.RawMessage, languageID, source string) (core.PluginEditorLanguage, error)
+	SyncPluginDocument(ctx context.Context, request core.PluginDocumentSyncRequest) (core.PluginDocumentSync, error)
+	SavePluginDocument(ctx context.Context, session, uri, text string) (sent bool, err error)
+	ClosePluginDocument(ctx context.Context, session, uri string) error
 }
 
 // Service is the assembled plugin stack.

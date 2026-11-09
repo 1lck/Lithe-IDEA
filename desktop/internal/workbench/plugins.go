@@ -200,6 +200,10 @@ func (a *App) setPluginEnabled(id string, enabled bool) {
 			if err != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_enable", err))
 			}
+			if !enabled {
+				// A disabled plugin keeps no process and no session.
+				a.stopPluginServer(id)
+			}
 			a.refreshPluginState()
 			a.reloadPluginLanguages()
 		}
@@ -224,6 +228,8 @@ func (a *App) uninstallPlugin(id string) {
 			if err != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_uninstall", err))
 			}
+			// The package is gone, so its server cannot outlive it.
+			a.stopPluginServer(id)
 			a.refreshPluginState()
 			a.reloadPluginLanguages()
 		}

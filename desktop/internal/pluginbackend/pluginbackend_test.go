@@ -230,7 +230,7 @@ func TestServeAnswersHostRequestsAndStopsAtExit(t *testing.T) {
 		{{Type: EventHostRequest, Method: pluginhost.MethodPrefix + "editor/applyEdits", Result: json.RawMessage(`{"hostRequestID":"req-2","params":{}}`)}},
 		{{Type: EventExit}},
 	}}
-	if err := New(kernel, echoServices(t)).Serve(context.Background(), Session{ID: "session-1"}); err != nil {
+	if err := New(kernel, echoServices(t)).Serve(context.Background(), Session{ID: "session-1"}, nil); err != nil {
 		t.Fatalf("serve: %v", err)
 	}
 	if len(kernel.answered) != 2 {
@@ -259,7 +259,7 @@ func TestServeRefusesRequestsWithoutIdentity(t *testing.T) {
 	kernel := &fakeKernel{events: [][]core.BackendEvent{
 		{{Type: EventHostRequest, Method: pluginhost.MethodPrefix + "workspace/stat", Result: json.RawMessage(`{"params":{}}`)}},
 	}}
-	if err := New(kernel, echoServices(t)).Serve(context.Background(), Session{ID: "session-1"}); err == nil {
+	if err := New(kernel, echoServices(t)).Serve(context.Background(), Session{ID: "session-1"}, nil); err == nil {
 		t.Fatal("a host request without an identifier was answered")
 	}
 }
@@ -268,7 +268,7 @@ func TestServeStopsWhenTheContextEnds(t *testing.T) {
 	kernel := &fakeKernel{}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := New(kernel, echoServices(t)).Serve(ctx, Session{ID: "session-1"}); !errors.Is(err, context.Canceled) {
+	if err := New(kernel, echoServices(t)).Serve(ctx, Session{ID: "session-1"}, nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v", err)
 	}
 }

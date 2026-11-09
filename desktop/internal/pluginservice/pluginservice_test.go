@@ -32,6 +32,8 @@ type fakeKernel struct {
 	hostResponseErr error
 	decoded         []string
 	grammarErr      error
+	synced          []string
+	documentVersion int64
 }
 
 func (k *fakeKernel) ValidatePluginManifest(_ context.Context, manifest json.RawMessage, _ map[string][]int) (json.RawMessage, error) {
@@ -81,6 +83,18 @@ func (k *fakeKernel) DecodePluginGrammar(_ context.Context, _ json.RawMessage, l
 		Grammar: &core.PluginGrammar{Kind: "textmate", ScopeName: "source." + languageID, Source: source},
 	}, nil
 }
+
+func (k *fakeKernel) SyncPluginDocument(_ context.Context, request core.PluginDocumentSyncRequest) (core.PluginDocumentSync, error) {
+	k.synced = append(k.synced, request.URI)
+	k.documentVersion++
+	return core.PluginDocumentSync{DocumentVersion: k.documentVersion, Changed: true, URI: request.URI}, nil
+}
+
+func (k *fakeKernel) SavePluginDocument(context.Context, string, string, string) (bool, error) {
+	return true, nil
+}
+
+func (k *fakeKernel) ClosePluginDocument(context.Context, string, string) error { return nil }
 
 func TestOpenAssemblesEveryPart(t *testing.T) {
 	service, err := Open(&fakeKernel{}, store.At(t.TempDir()), t.TempDir())

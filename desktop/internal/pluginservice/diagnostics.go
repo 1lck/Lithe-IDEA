@@ -32,6 +32,8 @@ func DiagnosticsFromEvent(event core.PluginDiagnosticsEvent, resolve Resolver) [
 			DisplayPath: displayPath,
 			Line:        diagnostic.Range.Start.Line,
 			Column:      diagnostic.Range.Start.UTF16Column,
+			EndLine:     diagnostic.Range.End.Line,
+			EndColumn:   diagnostic.Range.End.UTF16Column,
 			Severity:    severityOf(diagnostic),
 			Message:     diagnostic.Message,
 			Source:      diagnostic.Source,
