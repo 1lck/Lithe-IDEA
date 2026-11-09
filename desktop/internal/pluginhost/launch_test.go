@@ -1,0 +1,145 @@
+package pluginhost
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+// launchPackage creates a package holding an executable program and a data file.
+func launchPackage(t *testing.T) string {
+	t.Helper()
+	root := writePackage(t, map[string]string{
+		"bin/server":  "binary",
+		"lib/data.js": "code",
+		"lib/main.js": "entry",
+	})
+	if err := os.Chmod(filepath.Join(root, "bin", "server"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func TestVerifyLaunchPackaged(t *testing.T) {
+	root := launchPackage(t)
+	resolved, err := VerifyLaunch(root, Launch{
+		Kind:     LaunchPackaged,
+		Path:     "bin/server",
+		Required: []string{"lib/data.js"},
+	})
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if resolved.Executable != filepath.Join(root, "bin", "server") {
+		t.Fatalf("executable = %q", resolved.Executable)
+	}
+	if len(resolved.Required) != 1 || resolved.Required[0] != filepath.Join(root, "lib", "data.js") {
+		t.Fatalf("required = %v", resolved.Required)
+	}
+	if resolved.Entry != "" || resolved.Runtime != "" {
+		t.Fatalf("resolved = %+v", resolved)
+	}
+}
+
+func TestVerifyLaunchPackagedRefusals(t *testing.T) {
+	root := launchPackage(t)
+	cases := map[string]Launch{
+		"no program":       {Kind: LaunchPackaged},
+		"missing program":  {Kind: LaunchPackaged, Path: "bin/absent"},
+		"not executable":   {Kind: LaunchPackaged, Path: "lib/data.js"},
+		"escaping program": {Kind: LaunchPackaged, Path: "../server"},
+		"missing required": {Kind: LaunchPackaged, Path: "bin/server", Required: []string{"lib/absent"}},
+		"unknown kind":     {Kind: "container"},
+	}
+	for name, launch := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := VerifyLaunch(root, launch); !errors.Is(err, ErrPackagePath) && !errors.Is(err, ErrNotExecutable) {
+				t.Fatalf("err = %v", err)
+			}
+		})
+	}
+}
+
+func TestVerifyLaunchRuntime(t *testing.T) {
+	root := launchPackage(t)
+	resolved, err := VerifyLaunch(root, Launch{
+		Kind:            LaunchRuntime,
+		PackagedRuntime: "bin/server",
+		Entry:           "lib/main.js",
+		Required:        []string{"lib/data.js"},
+	})
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if resolved.Runtime != filepath.Join(root, "bin", "server") {
+		t.Fatalf("runtime = %q", resolved.Runtime)
+	}
+	if resolved.Entry != filepath.Join(root, "lib", "main.js") {
+		t.Fatalf("entry = %q", resolved.Entry)
+	}
+	if len(resolved.Required) != 1 {
+		t.Fatalf("required = %v", resolved.Required)
+	}
+}
+
+func TestVerifyLaunchRuntimeWithoutEntry(t *testing.T) {
+	root := launchPackage(t)
+	resolved, err := VerifyLaunch(root, Launch{Kind: LaunchRuntime, PackagedRuntime: "bin/server"})
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if resolved.Entry != "" {
+		t.Fatalf("entry = %q", resolved.Entry)
+	}
+}
+
+func TestVerifyLaunchRuntimeRefusesMissingRuntime(t *testing.T) {
+	root := launchPackage(t)
+	if _, err := VerifyLaunch(root, Launch{Kind: LaunchRuntime, Entry: "lib/main.js"}); !errors.Is(err, ErrPackagePath) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestVerifyLaunchRefusesSymlinkedProgram(t *testing.T) {
+	root := launchPackage(t)
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.WriteFile(outside, []byte("binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "linked")); err != nil {
+		t.Skipf("this platform cannot create symbolic links: %v", err)
+	}
+	if _, err := VerifyLaunch(root, Launch{Kind: LaunchPackaged, Path: "linked"}); !errors.Is(err, ErrPackageSymlink) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestGrantServicesIntersects(t *testing.T) {
+	services := NewServices()
+	for _, method := range []string{MethodPrefix + "workspace/stat", MethodPrefix + "documents/list"} {
+		if err := services.Register(method, func(context.Context, json.RawMessage) (json.RawMessage, *Failure) {
+			return json.RawMessage(`{}`), nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	granted := GrantServices([]string{
+		MethodPrefix + "workspace/stat",
+		MethodPrefix + "editor/applyEdits",
+	}, services)
+	if len(granted) != 1 || granted[0] != MethodPrefix+"workspace/stat" {
+		t.Fatalf("granted = %v", granted)
+	}
+	if GrantServices([]string{MethodPrefix + "editor/applyEdits"}, services) != nil {
+		t.Fatal("an unregistered method was granted")
+	}
+	if GrantServices(nil, services) != nil {
+		t.Fatal("an empty request granted something")
+	}
+	if GrantServices([]string{MethodPrefix + "workspace/stat"}, nil) != nil {
+		t.Fatal("a nil registry granted something")
+	}
+}

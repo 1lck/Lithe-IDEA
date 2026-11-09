@@ -1,0 +1,301 @@
+package pluginbackend
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
+)
+
+// fakeKernel records what the runner asked Core to do.
+type fakeKernel struct {
+	plan       core.PluginBackendPlan
+	planErr    error
+	started    core.PluginBackendStarted
+	startErr   error
+	started_   core.PluginBackendStart
+	events     [][]core.BackendEvent
+	answered   []answeredRequest
+	stopErr    error
+	destroyErr error
+	stopped    bool
+	destroyed  bool
+}
+
+type answeredRequest struct {
+	session   string
+	requestID string
+	result    json.RawMessage
+	failure   *core.PluginHostFailure
+}
+
+func (k *fakeKernel) PlanPluginBackend(context.Context, json.RawMessage, core.PluginBackendDirectories) (core.PluginBackendPlan, error) {
+	return k.plan, k.planErr
+}
+
+func (k *fakeKernel) StartPluginBackend(_ context.Context, request core.PluginBackendStart) (core.PluginBackendStarted, error) {
+	k.started_ = request
+	return k.started, k.startErr
+}
+
+func (k *fakeKernel) WaitBackendEvents(context.Context, string, int) ([]core.BackendEvent, error) {
+	if len(k.events) == 0 {
+		return nil, nil
+	}
+	batch := k.events[0]
+	k.events = k.events[1:]
+	return batch, nil
+}
+
+func (k *fakeKernel) StopPluginBackend(context.Context, string) error {
+	k.stopped = true
+	return k.stopErr
+}
+
+func (k *fakeKernel) DestroyPluginBackend(context.Context, string) error {
+	k.destroyed = true
+	return k.destroyErr
+}
+
+func (k *fakeKernel) RespondPluginHostRequest(_ context.Context, session, requestID string, result json.RawMessage, failure *core.PluginHostFailure) error {
+	k.answered = append(k.answered, answeredRequest{session: session, requestID: requestID, result: result, failure: failure})
+	return nil
+}
+
+// backendPackage creates a package holding an executable and a data file.
+func backendPackage(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	for name, body := range map[string]string{"bin/server": "binary", "lib/data.js": "code"} {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(filepath.Join(root, "bin", "server"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// packagedPlan is a plan that starts the package's own program.
+func packagedPlan() core.PluginBackendPlan {
+	plan := core.PluginBackendPlan{}
+	plan.Launch.Kind = pluginhost.LaunchPackaged
+	plan.Launch.Path = "bin/server"
+	plan.RequiredPackagePaths = []string{"lib/data.js"}
+	plan.Arguments = []string{"--stdio"}
+	plan.InitializationOptions = json.RawMessage(`{"a":1}`)
+	return plan
+}
+
+// startRequest is a valid request for the given package.
+func startRequest(root string) StartRequest {
+	return StartRequest{
+		Manifest:         json.RawMessage(`{"id":"example","version":"1.0.0"}`),
+		PackageDirectory: root,
+		PluginID:         "example",
+		ProviderID:       "example/provider",
+		StateDirectory:   filepath.Join(root, "state"),
+		Architecture:     "arm64",
+		RootURI:          "file:///workspace",
+		WorkingDirectory: "/workspace",
+	}
+}
+
+// echoServices registers one host method that answers a fixed result.
+func echoServices(t *testing.T) *pluginhost.Services {
+	t.Helper()
+	services := pluginhost.NewServices()
+	if err := services.Register(pluginhost.MethodPrefix+"workspace/stat", func(context.Context, json.RawMessage) (json.RawMessage, *pluginhost.Failure) {
+		return json.RawMessage(`{"kind":"file"}`), nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return services
+}
+
+func TestStartVerifiesThePlanAndStartsTheProcess(t *testing.T) {
+	root := backendPackage(t)
+	plan := packagedPlan()
+	plan.Backend.HostServices = []string{pluginhost.MethodPrefix + "workspace/stat", pluginhost.MethodPrefix + "editor/applyEdits"}
+	kernel := &fakeKernel{plan: plan, started: core.PluginBackendStarted{SessionID: "session-1"}}
+	runner := New(kernel, echoServices(t))
+
+	session, err := runner.Start(context.Background(), startRequest(root))
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if session.ID != "session-1" || session.PluginID != "example" || session.ProviderID != "example/provider" {
+		t.Fatalf("session = %+v", session)
+	}
+	if want := filepath.Join(root, "bin", "server"); kernel.started_.ExecutablePath != want {
+		t.Fatalf("executable = %q, want %q", kernel.started_.ExecutablePath, want)
+	}
+	if len(kernel.started_.HostServices) != 1 || kernel.started_.HostServices[0] != pluginhost.MethodPrefix+"workspace/stat" {
+		t.Fatalf("host services = %v", kernel.started_.HostServices)
+	}
+	if string(kernel.started_.InitializationOptions) != `{"a":1}` {
+		t.Fatalf("initialization options = %s", kernel.started_.InitializationOptions)
+	}
+	if kernel.started_.RootURI != "file:///workspace" {
+		t.Fatalf("root uri = %v", kernel.started_.RootURI)
+	}
+	if len(kernel.started_.Arguments) != 1 || kernel.started_.Arguments[0] != "--stdio" {
+		t.Fatalf("arguments = %v", kernel.started_.Arguments)
+	}
+}
+
+func TestStartRefusesAnUnverifiedProgram(t *testing.T) {
+	root := backendPackage(t)
+	plan := packagedPlan()
+	plan.Launch.Path = "bin/absent"
+	kernel := &fakeKernel{plan: plan, started: core.PluginBackendStarted{SessionID: "session-1"}}
+	if _, err := New(kernel, nil).Start(context.Background(), startRequest(root)); !errors.Is(err, pluginhost.ErrPackagePath) {
+		t.Fatalf("err = %v", err)
+	}
+	if kernel.started_.ExecutablePath != "" {
+		t.Fatal("the process was started despite a refused plan")
+	}
+}
+
+func TestStartRefusesAnUnusableRequest(t *testing.T) {
+	root := backendPackage(t)
+	kernel := &fakeKernel{plan: packagedPlan()}
+	cases := map[string]func(*StartRequest){
+		"no manifest":    func(r *StartRequest) { r.Manifest = nil },
+		"relative root":  func(r *StartRequest) { r.PackageDirectory = "relative" },
+		"no plugin ID":   func(r *StartRequest) { r.PluginID = "" },
+		"no provider":    func(r *StartRequest) { r.ProviderID = "" },
+		"no state":       func(r *StartRequest) { r.StateDirectory = "" },
+		"relative state": func(r *StartRequest) { r.StateDirectory = "state" },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			request := startRequest(root)
+			mutate(&request)
+			if _, err := New(kernel, nil).Start(context.Background(), request); !errors.Is(err, ErrRequest) {
+				t.Fatalf("err = %v", err)
+			}
+		})
+	}
+}
+
+func TestStartRefusesWithoutKernel(t *testing.T) {
+	runner := New(nil, nil)
+	if _, err := runner.Start(context.Background(), StartRequest{}); err == nil {
+		t.Fatal("a runner without a kernel started something")
+	}
+}
+
+func TestStopStopsAndDisposes(t *testing.T) {
+	kernel := &fakeKernel{}
+	if err := New(kernel, nil).Stop(context.Background(), Session{ID: "session-1"}); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	if !kernel.stopped || !kernel.destroyed {
+		t.Fatalf("stopped = %v, destroyed = %v", kernel.stopped, kernel.destroyed)
+	}
+}
+
+func TestStopDisposesEvenWhenShutdownFails(t *testing.T) {
+	refusal := errors.New("shutdown refused")
+	kernel := &fakeKernel{stopErr: refusal}
+	err := New(kernel, nil).Stop(context.Background(), Session{ID: "session-1"})
+	if !errors.Is(err, refusal) {
+		t.Fatalf("err = %v", err)
+	}
+	if !kernel.destroyed {
+		t.Fatal("the session was not disposed")
+	}
+}
+
+func TestStopRefusesEmptySession(t *testing.T) {
+	if err := New(&fakeKernel{}, nil).Stop(context.Background(), Session{}); !errors.Is(err, ErrNoSession) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestServeAnswersHostRequestsAndStopsAtExit(t *testing.T) {
+	kernel := &fakeKernel{events: [][]core.BackendEvent{
+		{{Type: EventHostRequest, Method: pluginhost.MethodPrefix + "workspace/stat", Result: json.RawMessage(`{"hostRequestID":"req-1","service":"lithe/host/workspace/stat","params":{}}`)}},
+		{{Type: EventHostRequest, Method: pluginhost.MethodPrefix + "editor/applyEdits", Result: json.RawMessage(`{"hostRequestID":"req-2","params":{}}`)}},
+		{{Type: EventExit}},
+	}}
+	if err := New(kernel, echoServices(t)).Serve(context.Background(), Session{ID: "session-1"}); err != nil {
+		t.Fatalf("serve: %v", err)
+	}
+	if len(kernel.answered) != 2 {
+		t.Fatalf("answered = %+v", kernel.answered)
+	}
+	first := kernel.answered[0]
+	if first.requestID != "req-1" || first.session != "session-1" {
+		t.Fatalf("first = %+v", first)
+	}
+	if string(first.result) != `{"kind":"file"}` {
+		t.Fatalf("first result = %s", first.result)
+	}
+	if first.failure != nil {
+		t.Fatalf("first failure = %+v", first.failure)
+	}
+	second := kernel.answered[1]
+	if second.failure == nil || second.failure.Code != pluginhost.CodeMethodNotDeclared {
+		t.Fatalf("second = %+v", second)
+	}
+	if second.result != nil {
+		t.Fatalf("a refused request returned a result: %s", second.result)
+	}
+}
+
+func TestServeRefusesRequestsWithoutIdentity(t *testing.T) {
+	kernel := &fakeKernel{events: [][]core.BackendEvent{
+		{{Type: EventHostRequest, Method: pluginhost.MethodPrefix + "workspace/stat", Result: json.RawMessage(`{"params":{}}`)}},
+	}}
+	if err := New(kernel, echoServices(t)).Serve(context.Background(), Session{ID: "session-1"}); err == nil {
+		t.Fatal("a host request without an identifier was answered")
+	}
+}
+
+func TestServeStopsWhenTheContextEnds(t *testing.T) {
+	kernel := &fakeKernel{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := New(kernel, echoServices(t)).Serve(ctx, Session{ID: "session-1"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestArgumentsComposition(t *testing.T) {
+	packaged := core.PluginBackendPlan{}
+	packaged.Launch.Kind = pluginhost.LaunchPackaged
+	packaged.Launch.Path = "bin/server"
+	packaged.Arguments = []string{"--stdio"}
+	if got := Arguments(packaged); len(got) != 1 || got[0] != "--stdio" {
+		t.Fatalf("packaged arguments = %v", got)
+	}
+
+	runtime := core.PluginBackendPlan{}
+	runtime.Launch.Kind = pluginhost.LaunchRuntime
+	runtime.Launch.PackagedRuntime = "bin/runtime"
+	runtime.Launch.Entry = "lib/main.js"
+	runtime.Launch.RuntimeArguments = []string{"--inspect"}
+	runtime.Arguments = []string{"--stdio"}
+	want := []string{"--inspect", "lib/main.js", "--stdio"}
+	got := Arguments(runtime)
+	if len(got) != len(want) {
+		t.Fatalf("runtime arguments = %v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("runtime arguments = %v", got)
+		}
+	}
+}
