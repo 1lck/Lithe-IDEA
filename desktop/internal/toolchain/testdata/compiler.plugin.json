@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.example.toolsmith",
+  "displayName": "Fictional compiler tools",
+  "version": "1.0.0",
+  "pluginAPIVersion": 3,
+  "requires": {
+    "toolDefinitions": 1,
+    "executableResolution": 2
+  },
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Fixture publisher",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [],
+  "toolDefinitions": [
+    {
+      "id": "dev.example.toolsmith:compiler",
+      "displayName": "Fictional compiler",
+      "executableLayouts": [
+        {
+          "path": "bin/cc"
+        }
+      ],
+      "executables": [
+        {
+          "id": "shell",
+          "kind": "command",
+          "command": "fictional-cc"
+        },
+        {
+          "id": "detected",
+          "kind": "toolchain",
+          "scope": "installed"
+        }
+      ],
+      "version": {
+        "arguments": [
+          "--version"
+        ],
+        "pattern": "Compiler (\\d+(?:\\.\\d+)*)"
+      },
+      "homeLayouts": [
+        {
+          "match": "compiler-*",
+          "home": "."
+        }
+      ],
+      "discovery": [
+        {
+          "root": {
+            "kind": "home"
+          },
+          "pattern": "tools/*"
+        }
+      ],
+      "commands": [
+        "fictional-cc"
+      ],
+      "exports": [
+        {
+          "name": "FICTIONAL_CC_HOME",
+          "value": "${home}"
+        }
+      ],
+      "pathPrepend": [
+        "${home}/bin"
+      ],
+      "launch": [
+        "${executable}",
+        "${arguments}"
+      ]
+    }
+  ]
+}

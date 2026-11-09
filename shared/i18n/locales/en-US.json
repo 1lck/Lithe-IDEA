@@ -10682,7 +10682,27 @@
     "desktop.debug.noFrames": "No stack frames",
     "desktop.debug.openFrame": "Open the frame's source location",
     "desktop.debug.noAdapters": "No installed plugin declares a stdio debug adapter.",
-    "desktop.debug.noDocument": "Open a file first to toggle its breakpoint."
+    "desktop.debug.noDocument": "Open a file first to toggle its breakpoint.",
+    "desktop.toolchains.title": "Toolchains",
+    "desktop.toolchains.description": "Tools declared by enabled plugins. The effective value and its source come from the shared Core resolver; nothing is written until Save.",
+    "desktop.toolchains.loading": "Reading toolchains…",
+    "desktop.toolchains.loadFailed": "Could not read toolchains: {reason}",
+    "desktop.toolchains.reload": "Reload",
+    "desktop.toolchains.save": "Save",
+    "desktop.toolchains.reset": "Use automatic",
+    "desktop.toolchains.saving": "Saving…",
+    "desktop.toolchains.saveFailed": "Could not save toolchains: {reason}",
+    "desktop.toolchains.saved": "Saved",
+    "desktop.toolchains.effective": "Effective: {value}",
+    "desktop.toolchains.unavailable": "Unavailable: {reason}",
+    "desktop.toolchains.automatic": "Automatic ({value})",
+    "desktop.toolchains.installation": "{home} · {version} · {provider}",
+    "desktop.toolchains.noInstallations": "No installations found.",
+    "desktop.toolchains.providerUnsupported": "This build cannot query plugin backends yet; provider-reported installations are not shown.",
+    "desktop.toolchains.conflict": "{tool} is defined by {plugins}; disable all but one of those plugins.",
+    "desktop.toolchains.noProject": "Open a project to read its toolchains.",
+    "desktop.toolchains.pinSource": "Pinned in {directory}",
+    "desktop.toolchains.chooseHelp": "Selecting a row only changes the draft. Save writes the choice to this project's .lithe/toolchains/local.json; Cancel leaves the file unchanged."
   },
   "overrides": {
     "windows": {

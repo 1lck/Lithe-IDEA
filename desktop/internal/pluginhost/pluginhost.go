@@ -96,6 +96,12 @@ func Declared() Capabilities {
 		// are complete.
 		"buildSystems":   {1},
 		"buildProviders": {1, 2},
+		// Tool definitions and strict executable resolution behind them are
+		// wired: settings discovery and Build/Run selection use the shared Core
+		// resolver. Provider queries are not, so toolchainProviders stays out
+		// rather than admitting a backend whose answers this client cannot read.
+		"executableResolution": {2},
+		"toolDefinitions":      {1},
 	}
 }
 

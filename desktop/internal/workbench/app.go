@@ -75,6 +75,12 @@ type Kernel interface {
 	PlanBuildRun(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildPlanRequest) (core.BuildPlan, error)
 	DecodeBuildModel(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeModelRequest) (core.BuildModel, error)
 	DecodeBuildRun(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeRunRequest) (core.BuildLaunch, error)
+	ToolchainRegistryOf(ctx context.Context, manifests []json.RawMessage) (core.ToolchainRegistry, error)
+	ToolchainDiscoveryPlanOf(ctx context.Context, registry json.RawMessage, platform string) (core.ToolchainDiscoveryPlan, error)
+	ToolchainCandidatesOf(ctx context.Context, request core.ToolchainCandidatesRequest) (core.ToolchainCandidates, error)
+	ResolveToolchain(ctx context.Context, request core.ToolchainResolveRequest) (core.ToolchainResolution, error)
+	ResolveToolchainPins(ctx context.Context, document json.RawMessage, directory, tool string) (core.ToolchainPinResolution, error)
+	EditToolchainPins(ctx context.Context, document json.RawMessage, directory string, edits []core.ToolchainPinEdit) (json.RawMessage, error)
 	CloseGitHistoryCursor(ctx context.Context, root, cursor string) (bool, error)
 	GitCommitFiles(ctx context.Context, root, commit string) ([]core.GitCommitFile, error)
 	GitCommit(ctx context.Context, root, commit string) (core.GitCommitDetail, error)
@@ -275,17 +281,23 @@ type App struct {
 	// missing marks recent projects whose folder was gone when the list last changed.
 	missing map[string]bool
 
-	project         *project
-	closingProject  bool
-	documentWriter  func(string, []byte, []byte) error
-	documentCreator func(string, []byte) error
-	documentReader  func(string) ([]byte, error)
-	chrome          chromeState
-	drag            dragState
-	title           titleState
-	layout          layoutState
-	status          statusState
-	logView         logView
+	project *project
+	// toolchainRoot is the open project's root, read by the settings window from
+	// its own thread. Nil means no project is open.
+	toolchainRoot atomic.Pointer[string]
+	// toolchainResolve is the execution-side selector; tests replace it to keep
+	// workspace file reads out of the window. Production leaves it nil.
+	toolchainResolve func(ctx context.Context, root, directory, tool, minimumVersion string) (core.ToolchainSelection, error)
+	closingProject   bool
+	documentWriter   func(string, []byte, []byte) error
+	documentCreator  func(string, []byte) error
+	documentReader   func(string) ([]byte, error)
+	chrome           chromeState
+	drag             dragState
+	title            titleState
+	layout           layoutState
+	status           statusState
+	logView          logView
 	// branch is the title bar's branch popup and the dialogs it opens.
 	branch branchState
 	// commitView is the Commit tool window's splitter and message input.
@@ -1012,6 +1024,8 @@ func (a *App) openProject(path string) {
 		a.searchView.reset()
 		a.openTerminals(p)
 		a.project = p
+		rootCopy := root
+		a.toolchainRoot.Store(&rootCopy)
 		a.notice = ""
 		a.logView.reset()
 		a.loadGit(p)
@@ -1062,6 +1076,7 @@ func (a *App) requestCloseProject(after func()) {
 		a.stopAllPluginServers()
 		a.clearAllPluginDiagnostics()
 		a.problems.reset()
+		a.toolchainRoot.Store(nil)
 		a.project = nil
 		a.cancelDrag()
 		a.cancelTabDrag()

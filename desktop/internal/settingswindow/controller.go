@@ -14,6 +14,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 	"github.com/vivaui/viva/app"
 )
 
@@ -36,6 +37,13 @@ type Values struct {
 	Theme string
 	// MarketplaceWidth is a layout preference, applied on completed resize, not a draft setting.
 	MarketplaceWidth float32
+}
+
+// ToolchainLoader reads and writes the toolchain facts the Build settings page
+// shows. Both calls run off the window thread.
+type ToolchainLoader interface {
+	Load(context.Context) (toolchain.Snapshot, error)
+	Save(context.Context, toolchain.Snapshot, []toolchain.Edit) (toolchain.Snapshot, error)
 }
 
 // Options configure the settings window.
@@ -87,6 +95,8 @@ type Options struct {
 	// at once, on the settings window's thread, when the user presses the button, because
 	// pressing it is its own confirmation.
 	ResetLayout func()
+	// Toolchains is the Build settings page's loader. Nil leaves the page unavailable.
+	Toolchains ToolchainLoader
 }
 
 // Controller opens the settings window and keeps at most one open: opening it again brings

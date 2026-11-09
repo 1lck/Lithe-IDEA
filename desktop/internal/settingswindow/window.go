@@ -118,8 +118,10 @@ type window struct {
 	marketSplit    splitpane.State
 	marketExtent   float32
 	requestPlugins atomic.Bool
-	search         ui.Field
-	marketQuery    ui.Field
+	// toolchains is the Build settings page's draft and loaded snapshot.
+	toolchains  toolchainState
+	search      ui.Field
+	marketQuery ui.Field
 	// focusSearch asks the next paint to focus the search field (⌘F).
 	focusSearch bool
 	// language is the state of the language list: whether it is open and the first option
@@ -187,6 +189,7 @@ func newWindow(c *Controller, current Values) *window {
 	w.market.search.rank = c.opts.MarketplaceRank
 	w.market.search.wake = w.inv.Invalidate
 	w.market.search.report = c.opts.MarketplaceError
+	w.toolchains = newToolchainState(c.opts.Toolchains, w.inv.Invalidate)
 	return w
 }
 
@@ -243,6 +246,7 @@ func (w *window) native() *app.Window {
 // the system look is no longer watched and the controller forgets the window, so the next
 // Open makes a new one.
 func (w *window) closed() {
+	w.toolchains.close()
 	w.marketSplit.Cancel()
 	w.market.close()
 	w.sess.finished.Store(true)
@@ -285,6 +289,7 @@ func (w *window) closeNative() {
 
 // paint draws the window for its current settings.
 func (w *window) paint(canvas *gfx.Canvas, size gfx.Size) {
+	w.toolchains.drain()
 	w.marketExtent = max(0, size.Width-sidebarWidth-1)
 	if w.sess.page != pagePlugins || w.market.status != marketReady {
 		w.marketSplit.Cancel()
@@ -508,9 +513,12 @@ func (w *window) drawContent(f *ui.Frame) {
 			return
 		}
 		w.drawBreadcrumb(f)
-		if w.sess.page == pageGeneral {
+		switch {
+		case w.sess.page == pageGeneral:
 			w.drawGeneral(f)
-		} else {
+		case w.sess.page == pageBuild && w.ctrl.opts.Toolchains != nil:
+			w.drawToolchains(f)
+		default:
 			w.drawUnavailable(f)
 		}
 	})

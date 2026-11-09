@@ -27,8 +27,9 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
-# The merge of Lithe-IDEA/Lithe-core-rust#2 (TextMate languages 3) into main.
-PINNED_CORE_REVISION="0ffd327b4329261e393b08ed76fbd134b4dd17e9"
+# Lithe-IDEA/Lithe-core-rust#3 adds atomic pin editing for Draft client #1799.
+# This exact dependency commit is intentionally pinned before the Core PR is merged.
+PINNED_CORE_REVISION="8d6415aafdc1ff094251ff238302d22c178b9fff"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

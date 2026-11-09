@@ -1,0 +1,56 @@
+{
+  "request": {
+    "document": {
+      "version": 1,
+      "toolchains": {
+        "legacy": {
+          "home": "legacy home"
+        }
+      },
+      "pins": {
+        ".": {
+          "java": {
+            "home": "/fixture/java",
+            "version": "21",
+            "provider": "host:manual"
+          }
+        }
+      }
+    },
+    "directory": "apps/web",
+    "edits": [
+      {
+        "tool": "node",
+        "pin": {
+          "home": "/fixture/node",
+          "version": "22",
+          "provider": "host:manual"
+        }
+      }
+    ]
+  },
+  "document": {
+    "version": 1,
+    "toolchains": {
+      "legacy": {
+        "home": "legacy home"
+      }
+    },
+    "pins": {
+      ".": {
+        "java": {
+          "home": "/fixture/java",
+          "version": "21",
+          "provider": "host:manual"
+        }
+      },
+      "apps/web": {
+        "node": {
+          "home": "/fixture/node",
+          "version": "22",
+          "provider": "host:manual"
+        }
+      }
+    }
+  }
+}

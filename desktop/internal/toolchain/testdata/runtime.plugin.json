@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.example.runtime",
+  "displayName": "Fictional runtime tools",
+  "version": "1.0.0",
+  "pluginAPIVersion": 3,
+  "requires": {
+    "toolDefinitions": 1,
+    "executableResolution": 2
+  },
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Fixture publisher",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [],
+  "toolDefinitions": [
+    {
+      "id": "dev.example.runtime:vm",
+      "displayName": "Fictional VM",
+      "executableLayouts": [
+        {
+          "path": "jre/bin/vm"
+        }
+      ],
+      "executables": [
+        {
+          "id": "home",
+          "kind": "environment",
+          "variable": "FICTIONAL_VM_HOME",
+          "path": "jre/bin/vm"
+        },
+        {
+          "id": "shell",
+          "kind": "command",
+          "command": "fictional-vm"
+        },
+        {
+          "id": "detected",
+          "kind": "toolchain",
+          "scope": "installed"
+        }
+      ],
+      "version": {
+        "arguments": [
+          "-v"
+        ],
+        "pattern": "vm (\\d+(?:\\.\\d+)*)"
+      },
+      "homeLayouts": [
+        {
+          "match": "vm-*",
+          "home": "jre"
+        }
+      ],
+      "discovery": [
+        {
+          "root": {
+            "kind": "home"
+          },
+          "pattern": "runtimes/*"
+        }
+      ],
+      "homeVariable": "FICTIONAL_VM_HOME",
+      "commands": [
+        "fictional-vm"
+      ],
+      "exports": [
+        {
+          "name": "FICTIONAL_VM_HOME",
+          "value": "${home}"
+        }
+      ],
+      "pathPrepend": [
+        "${home}/jre/bin"
+      ],
+      "launch": [
+        "${executable}",
+        "${arguments}"
+      ]
+    }
+  ]
+}

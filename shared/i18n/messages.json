@@ -102612,5 +102612,173 @@
         "desktop"
       ]
     }
+,
+    {
+      "id": "desktop.toolchains.title",
+      "description": "Toolchain settings page title.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.description",
+      "description": "Explains what the toolchain page shows and that Core decides the effective source.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.loading",
+      "description": "Shown while toolchain facts are being read.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.loadFailed",
+      "description": "Toolchain discovery failed. {reason} is the diagnostic.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.toolchains.reload",
+      "description": "Button that re-reads toolchain facts.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.save",
+      "description": "Button that writes the selected directory pins.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.reset",
+      "description": "Button that clears the draft selections back to automatic.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.saving",
+      "description": "Shown while directory pins are being written.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.saveFailed",
+      "description": "Saving directory pins failed. {reason} is the diagnostic.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.toolchains.saved",
+      "description": "Shown after directory pins were saved and re-read.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.effective",
+      "description": "The value and layer the shared resolver selected. {value} is the formatted selection.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.toolchains.unavailable",
+      "description": "The shared resolver found no usable installation. {reason} is the stable reason code.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.toolchains.automatic",
+      "description": "Automatic choice row. {value} is the selected installation or a missing-state sentence.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.toolchains.installation",
+      "description": "One discovered installation row. {home}, {version} and {provider} describe it.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "home": "string",
+        "version": "string",
+        "provider": "string"
+      }
+    },
+    {
+      "id": "desktop.toolchains.noInstallations",
+      "description": "Shown when a declared tool has no installation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.providerUnsupported",
+      "description": "Provider query support is missing, so only declared scans and shell homes are shown.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.conflict",
+      "description": "A tool ID two plugins define. {tool} is the ID and {plugins} the plugin IDs.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "tool": "string",
+        "plugins": "string"
+      }
+    },
+    {
+      "id": "desktop.toolchains.noProject",
+      "description": "Shown when no project is open.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.pinSource",
+      "description": "A saved directory pin. {directory} is the workspace-relative directory.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "directory": "string"
+      }
+    },
+    {
+      "id": "desktop.toolchains.chooseHelp",
+      "description": "Explains how the draft selection and Save behave.",
+      "platforms": [
+        "desktop"
+      ]
+    }
   ]
 }

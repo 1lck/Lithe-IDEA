@@ -158,10 +158,10 @@ func (a *App) executeTestCommand(ctx context.Context, p *project, instance build
 	operation := &testOperation{}
 	workingDirectory := filepath.Join(p.root, filepath.FromSlash(plan.WorkingDirectory))
 	process, err := buildprocess.Start(ctx, buildprocess.Spec{
-		Executable:       executable,
+		Executable:       executable.Executable,
 		Arguments:        plan.Arguments,
 		WorkingDirectory: workingDirectory,
-		Environment:      plan.Environment,
+		Environment:      applyToolchainSelection(plan.Environment, executable.selection()),
 	}, func(_ buildprocess.Stream, text string) {
 		output.append(text)
 		a.post(func(a *App) { a.appendTestOutput(p, generation, text) })

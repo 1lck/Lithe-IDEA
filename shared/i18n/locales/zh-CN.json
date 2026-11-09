@@ -10682,7 +10682,27 @@
     "desktop.debug.noFrames": "没有栈帧",
     "desktop.debug.openFrame": "打开栈帧的源码位置",
     "desktop.debug.noAdapters": "已安装的插件没有声明 stdio 调试适配器。",
-    "desktop.debug.noDocument": "请先打开一个文件，再切换它的断点。"
+    "desktop.debug.noDocument": "请先打开一个文件，再切换它的断点。",
+    "desktop.toolchains.title": "工具链",
+    "desktop.toolchains.description": "已启用插件声明的工具。生效值与来源由共享 Core 解析得出；点击保存前不会写入任何文件。",
+    "desktop.toolchains.loading": "正在读取工具链…",
+    "desktop.toolchains.loadFailed": "无法读取工具链：{reason}",
+    "desktop.toolchains.reload": "重新读取",
+    "desktop.toolchains.save": "保存",
+    "desktop.toolchains.reset": "使用自动",
+    "desktop.toolchains.saving": "正在保存…",
+    "desktop.toolchains.saveFailed": "无法保存工具链：{reason}",
+    "desktop.toolchains.saved": "已保存",
+    "desktop.toolchains.effective": "生效：{value}",
+    "desktop.toolchains.unavailable": "不可用：{reason}",
+    "desktop.toolchains.automatic": "自动（{value}）",
+    "desktop.toolchains.installation": "{home} · {version} · {provider}",
+    "desktop.toolchains.noInstallations": "没有找到安装。",
+    "desktop.toolchains.providerUnsupported": "当前版本还不能查询插件后端；由提供方报告的安装不会显示。",
+    "desktop.toolchains.conflict": "{tool} 同时由 {plugins} 定义；请只保留其中一个插件。",
+    "desktop.toolchains.noProject": "打开项目后才能读取其工具链。",
+    "desktop.toolchains.pinSource": "固定在 {directory}",
+    "desktop.toolchains.chooseHelp": "选择一行只修改草稿。保存会写入本项目的 .lithe/toolchains/local.json；取消不会改动文件。"
   },
   "overrides": {
     "macos": {

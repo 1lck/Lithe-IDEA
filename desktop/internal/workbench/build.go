@@ -21,6 +21,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 )
 
 const (
@@ -426,12 +427,12 @@ func (a *App) commandModel(ctx context.Context, p *project, instance buildInstan
 	if plan.Provider != nil {
 		return core.BuildModel{}, errors.New("the build system answered with a provider model")
 	}
-	executable, err := a.resolveBuildExecutable(ctx, p, instance, messages)
+	execution, err := a.resolveBuildExecutable(ctx, p, instance, messages)
 	if err != nil {
 		return core.BuildModel{}, err
 	}
 	workingDirectory := filepath.Join(p.root, filepath.FromSlash(plan.WorkingDirectory))
-	output, runErr := captureBuildProcess(ctx, executable, plan.Arguments, workingDirectory, plan.Environment)
+	output, runErr := captureBuildProcess(ctx, execution.Executable, plan.Arguments, workingDirectory, applyToolchainSelection(plan.Environment, execution.selection()))
 	request := core.BuildDecodeModelRequest{WorkspaceRoot: p.root, Root: instance.Root, Options: instance.Options}
 	if plan.Output == "outputFile" {
 		request.OutputFile = outputFile
@@ -594,16 +595,16 @@ func (a *App) runSelectedBuildTask(p *project) {
 // runCommandTask expands a command plan through Core, resolves the build tool
 // in Core's candidate order, and runs it as a host-owned process.
 func (a *App) runCommandTask(ctx context.Context, p *project, instance buildInstance, plan core.BuildPlan, messages i18n.BuildMessages) error {
-	executable, err := a.resolveBuildExecutable(ctx, p, instance, messages)
+	execution, err := a.resolveBuildExecutable(ctx, p, instance, messages)
 	if err != nil {
 		return err
 	}
 	workingDirectory := filepath.Join(p.root, filepath.FromSlash(plan.WorkingDirectory))
 	process, err := buildprocess.Start(ctx, buildprocess.Spec{
-		Executable:       executable,
+		Executable:       execution.Executable,
 		Arguments:        plan.Arguments,
 		WorkingDirectory: workingDirectory,
-		Environment:      plan.Environment,
+		Environment:      applyToolchainSelection(plan.Environment, execution.selection()),
 	}, func(_ buildprocess.Stream, text string) {
 		a.post(func(a *App) { a.appendBuildOutput(p, text) })
 	})
@@ -622,12 +623,12 @@ func (a *App) runCommandTask(ctx context.Context, p *project, instance buildInst
 // resolveBuildExecutable asks Core for the ordered candidates, checks them in
 // that order, and probes the declared minimum version. It never falls back to
 // a guessed tool name.
-func (a *App) resolveBuildExecutable(ctx context.Context, p *project, instance buildInstance, messages i18n.BuildMessages) (string, error) {
+func (a *App) resolveBuildExecutable(ctx context.Context, p *project, instance buildInstance, messages i18n.BuildMessages) (buildExecution, error) {
 	invocation, err := a.kernel.PlanBuildInvocation(ctx, instance.Manifest, instance.BuildSystemID, instance.Root, buildPlatform())
 	if err != nil {
-		return "", err
+		return buildExecution{}, err
 	}
-	executable := ""
+	execution := buildExecution{}
 	for _, candidate := range invocation.Executables {
 		switch candidate.Kind {
 		case "projectFile":
@@ -636,7 +637,7 @@ func (a *App) resolveBuildExecutable(ctx context.Context, p *project, instance b
 				continue
 			}
 			if info, statErr := os.Stat(path); statErr == nil && info.Mode().IsRegular() && (runtime.GOOS == "windows" || info.Mode().Perm()&0o111 != 0) {
-				executable = path
+				execution.Executable = path
 			}
 		case "environment":
 			base := os.Getenv(candidate.Variable)
@@ -645,47 +646,57 @@ func (a *App) resolveBuildExecutable(ctx context.Context, p *project, instance b
 			}
 			path := filepath.Join(base, filepath.FromSlash(candidate.Path))
 			if info, statErr := os.Stat(path); statErr == nil && info.Mode().IsRegular() {
-				executable = path
+				execution.Executable = path
 			}
 		case "setting":
 			if candidate.Path == "" {
 				continue
 			}
 			if info, statErr := os.Stat(candidate.Path); statErr == nil && info.Mode().IsRegular() {
-				executable = candidate.Path
+				execution.Executable = candidate.Path
 			}
 		case "command":
 			if path, lookupErr := exec.LookPath(candidate.Command); lookupErr == nil {
-				executable = path
+				execution.Executable = path
 			}
 		case "runtime":
 			if path, lookupErr := exec.LookPath(candidate.Runtime); lookupErr == nil {
-				executable = path
+				execution.Executable = path
 			}
 		case "toolchain":
-			return "", errors.New(messages.ToolchainGap(candidate.ToolchainID))
+			selection, selectErr := a.resolveToolchainSelection(ctx, p.root, instance.Root, candidate.ToolchainID, invocation.MinimumVersion)
+			if selectErr != nil {
+				var unavailable *toolchain.UnavailableError
+				if errors.As(selectErr, &unavailable) {
+					continue
+				}
+				return buildExecution{}, selectErr
+			}
+			execution.Executable = selection.Executable
+			execution.Environment = selection.Environment
+			execution.PathPrepend = selection.PathPrepend
 		}
-		if executable != "" {
+		if execution.Executable != "" {
 			break
 		}
 	}
-	if executable == "" {
-		return "", errors.New(messages.ExecutableMissing)
+	if execution.Executable == "" {
+		return buildExecution{}, errors.New(messages.ExecutableMissing)
 	}
 	if invocation.MinimumVersion != "" && invocation.Version != nil {
-		output, probeErr := probeBuildTool(ctx, executable, invocation.Version.Arguments, p.root, nil)
+		output, probeErr := probeBuildTool(ctx, execution.Executable, invocation.Version.Arguments, p.root, applyToolchainSelection(nil, execution.selection()))
 		if probeErr != nil {
-			return "", probeErr
+			return buildExecution{}, probeErr
 		}
 		version, checkErr := a.kernel.CheckBuildToolVersion(ctx, instance.Manifest, instance.BuildSystemID, "", output)
 		if checkErr != nil {
-			return "", checkErr
+			return buildExecution{}, checkErr
 		}
 		if !version.Satisfied {
-			return "", errors.New(messages.VersionTooOld(invocation.MinimumVersion, version.Version))
+			return buildExecution{}, errors.New(messages.VersionTooOld(invocation.MinimumVersion, version.Version))
 		}
 	}
-	return executable, nil
+	return execution, nil
 }
 
 func buildRequiresPresent(path string, required []string, root string) bool {
@@ -800,21 +811,33 @@ func (a *App) runBuildTarget(p *project, targetID, runID string) {
 		if err != nil {
 			return func(a *App) { a.finishBuildError(p, err) }
 		}
-		if launch.Executable.Kind != "command" {
+		execution := buildExecution{}
+		switch launch.Executable.Kind {
+		case "command":
+			executable, lookupErr := exec.LookPath(launch.Executable.Value)
+			if lookupErr != nil {
+				return func(a *App) { a.finishBuildError(p, lookupErr) }
+			}
+			execution.Executable = executable
+		case "toolchain":
+			selection, selectErr := a.resolveToolchainSelection(ctx, p.root, captured.Root, launch.Executable.Value, "")
+			if selectErr != nil {
+				return func(a *App) { a.finishBuildError(p, selectErr) }
+			}
+			execution.Executable = selection.Executable
+			execution.Environment = selection.Environment
+			execution.PathPrepend = selection.PathPrepend
+		default:
 			return func(a *App) {
 				a.finishBuildError(p, errors.New(messages.ToolchainGap(launch.Executable.Value)))
 			}
 		}
-		executable, err := exec.LookPath(launch.Executable.Value)
-		if err != nil {
-			return func(a *App) { a.finishBuildError(p, err) }
-		}
 		workingDirectory := filepath.Join(p.root, filepath.FromSlash(launch.WorkingDirectory))
 		process, err := buildprocess.Start(ctx, buildprocess.Spec{
-			Executable:       executable,
+			Executable:       execution.Executable,
 			Arguments:        launch.Arguments,
 			WorkingDirectory: workingDirectory,
-			Environment:      launch.Environment,
+			Environment:      applyToolchainSelection(launch.Environment, execution.selection()),
 		}, func(_ buildprocess.Stream, text string) {
 			a.post(func(a *App) { a.appendBuildOutput(p, text) })
 		})

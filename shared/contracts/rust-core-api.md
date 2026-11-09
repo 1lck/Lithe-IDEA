@@ -1585,6 +1585,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `toolchains.decodeReply` | Validate an inert toolchain query/reply pair against bound provider identity, generation, declared tools and host-native filesystem evidence; no transport or native I/O |
 | `toolchains.failureReply` | Build the JSON-RPC error reply for a query that missed its deadline or found no backend, so the host passes it to `toolchains.decodeReply` like a provider's own error; cancellation has none |
 | `toolchains.resolvePins` | Validate a captured local document and find the nearest ancestor directory pin, retaining dormant and legacy entries without probing or writing |
+| `toolchains.editPins` | Apply one bounded batch of directory pin edits to a captured local document without writing native files |
 | `toolchains.resolveConsumerPreferences` | Validate an inert consumer preference document and resolve one tool's explicit Run, consumer, directory or workspace choice while keeping workspace/consumer inheritance symbolic; no native files or launch authority |
 | `toolchains.editConsumerPreferences` | Edit or reset one exact consumer/directory tool preference; return the document and effective input without native writes |
 | `toolchains.resolve` | Resolve the fixed/project/global/automatic layers from one generation-bound snapshot, retaining unmet requirements, unavailable providers with their cause, conflicts and terminal fixed-value failures |
@@ -7023,3 +7024,21 @@ rename) before deleting anything. The result is `{delete, keep, seed}`, the firs
 seven days old or of unknown age), `abandoned` and `expired` (deleted). The cache and the
 ledger live in the platform cache directory, never in the app bundle or install directory.
 The fixture is `shared/fixtures/agent/attachment-retention-v1.json`.
+
+### Atomic local toolchain pin editing
+
+`toolchains.editPins` accepts `{document,directory,edits:[{tool,pin}]}` and returns
+`{status:"ok",edit:{document}}`. It uses the v1 local toolchain document and the
+same normalized directory, tool ID, pin and size limits as `resolvePins`.
+A batch contains 1–64 unique tool IDs. `pin:null` removes that directory's explicit
+override (ancestor inheritance remains effective); a pin object replaces it.
+Only emptied containers on the edited path are pruned. Legacy `toolchains`,
+dormant pins and unrelated directories remain intact. Unknown fields, duplicate
+IDs, malformed pins and over-budget documents reject the whole batch with no
+partial document. Rejections use the existing `plugin.toolchain.invalidParams`
+and `plugin.toolchain.limitExceeded` structured error envelope.
+
+The command performs no I/O and grants no execution authority. The host owns
+explicit Save confirmation, byte-baseline conflict detection, cancellation,
+ignore-file preparation, atomic native replacement, and re-reading the source.
+See `shared/fixtures/toolchain-pin-edit.json` for the cross-client vector.

@@ -56,8 +56,20 @@ func TestValidateRefusesBrokenValidator(t *testing.T) {
 
 func TestDeclaredServesLanguagesAndBaseLanguageServers(t *testing.T) {
 	declared := Declared()
-	if len(declared) != 5 {
+	if len(declared) != 7 {
 		t.Fatalf("declared = %v", declared)
+	}
+	// Tool definitions are resolved through the shared Core resolver for settings
+	// and for Build/Run selection. Provider queries are not wired, so
+	// toolchainProviders must stay absent.
+	if versions := declared["executableResolution"]; len(versions) != 1 || versions[0] != 2 {
+		t.Fatalf("executableResolution = %v", versions)
+	}
+	if versions := declared["toolDefinitions"]; len(versions) != 1 || versions[0] != 1 {
+		t.Fatalf("toolDefinitions = %v", versions)
+	}
+	if _, ok := declared["toolchainProviders"]; ok {
+		t.Fatal("toolchainProviders was declared without a provider query path")
 	}
 	if versions := declared["languages"]; len(versions) != 2 || versions[0] != 1 || versions[1] != 3 {
 		t.Fatalf("languages = %v", versions)

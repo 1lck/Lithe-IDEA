@@ -92,6 +92,7 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		ResetLayout: func() {
 			a.post(func(a *App) { a.resetLayout() })
 		},
+		Toolchains: settingsToolchains{app: a},
 	})
 }
 
