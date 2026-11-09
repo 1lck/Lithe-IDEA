@@ -53,6 +53,14 @@ type Failure struct {
 // never both.
 type Handler func(ctx context.Context, params json.RawMessage) (json.RawMessage, *Failure)
 
+// serviceHandler is one registered method and how its requests are bounded.
+type serviceHandler struct {
+	handler Handler
+	// userChoice says the request waits for the user, so the machine deadline
+	// does not apply to it.
+	userChoice bool
+}
+
 // Services dispatches the host requests Core forwards from a plugin backend.
 //
 // It is the caller of Core's host response path: nothing else in the client may
@@ -60,20 +68,34 @@ type Handler func(ctx context.Context, params json.RawMessage) (json.RawMessage,
 // and deadline rules.
 type Services struct {
 	mu       sync.RWMutex
-	handlers map[string]Handler
+	handlers map[string]serviceHandler
 }
 
 // NewServices returns an empty registry.
 func NewServices() *Services {
-	return &Services{handlers: make(map[string]Handler)}
+	return &Services{handlers: make(map[string]serviceHandler)}
 }
 
-// Register adds one handler under its full method name.
+// Register adds one machine handler under its full method name.
 //
 // A method may be registered once: the contract says a later registration cannot
 // replace an earlier one, so a second call is an error rather than a silent
 // override that would change what a running backend is talking to.
 func (s *Services) Register(method string, handler Handler) error {
+	return s.register(method, handler, false)
+}
+
+// RegisterUserChoice adds a handler whose requests wait for the user.
+//
+// The contract bounds machine requests at RequestTimeout but lets a user-choice
+// message wait until the user answers, the request is cancelled or the session
+// closes. Registering such a method as a machine handler would answer it with
+// "cancelled" after thirty seconds.
+func (s *Services) RegisterUserChoice(method string, handler Handler) error {
+	return s.register(method, handler, true)
+}
+
+func (s *Services) register(method string, handler Handler, userChoice bool) error {
 	if !validMethod(method) {
 		return fmt.Errorf("%w: %q is not a host method name", ErrServiceRegistration, method)
 	}
@@ -85,7 +107,7 @@ func (s *Services) Register(method string, handler Handler) error {
 	if _, exists := s.handlers[method]; exists {
 		return fmt.Errorf("%w: %q is already registered", ErrServiceRegistration, method)
 	}
-	s.handlers[method] = handler
+	s.handlers[method] = serviceHandler{handler: handler, userChoice: userChoice}
 	return nil
 }
 
@@ -117,7 +139,7 @@ func (s *Services) Respond(ctx context.Context, method string, params json.RawMe
 		return nil, &Failure{Code: CodeMethodNotDeclared, Message: "no handler is registered for " + method}
 	}
 	s.mu.RLock()
-	handler, ok := s.handlers[method]
+	entry, ok := s.handlers[method]
 	s.mu.RUnlock()
 	if !ok {
 		return nil, &Failure{Code: CodeMethodNotDeclared, Message: "no handler is registered for " + method}
@@ -125,18 +147,22 @@ func (s *Services) Respond(ctx context.Context, method string, params json.RawMe
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if _, bounded := ctx.Deadline(); !bounded {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, RequestTimeout)
-		defer cancel()
+	// A user-choice request waits for the user; only a machine request gets the
+	// contract's deadline.
+	if !entry.userChoice {
+		if _, bounded := ctx.Deadline(); !bounded {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, RequestTimeout)
+			defer cancel()
+		}
 	}
-	result, failure := handler(ctx, params)
+	result, failure := entry.handler(ctx, params)
 	if failure != nil {
 		return nil, failure
 	}
 	if err := ctx.Err(); err != nil {
-		// The handler may have finished after the deadline; the plugin must not
-		// receive a result it can no longer use.
+		// The handler may have finished after the deadline or after the session
+		// closed; the plugin must not receive a result it can no longer use.
 		return nil, &Failure{Code: CodeCancelled, Message: err.Error()}
 	}
 	if len(result) != 0 && !json.Valid(result) {

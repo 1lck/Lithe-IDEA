@@ -184,3 +184,43 @@ func TestDefaultRootIsAbsolute(t *testing.T) {
 		t.Fatalf("root = %q", root)
 	}
 }
+
+func TestSweepRemovesLeftoversAndKeepsInstalledPackages(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Install(root, "example", "1.0.0", newStaging(t, root)); err != nil {
+		t.Fatal(err)
+	}
+	leftovers := []string{
+		filepath.Join(root, stagingDirectory, "package-1"),
+		filepath.Join(root, trashDirectory, "uninstall-1"),
+	}
+	for _, directory := range leftovers {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "leftover"), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Sweep(root); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	for _, directory := range leftovers {
+		if _, err := os.Stat(directory); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s survived: %v", directory, err)
+		}
+	}
+	// A sweep cleans the reserved areas, never an installed package.
+	if _, err := os.Stat(filepath.Join(root, "example", "1.0.0", ManifestFile)); err != nil {
+		t.Fatalf("the installed package was removed: %v", err)
+	}
+}
+
+func TestSweepAcceptsAnEmptyRoot(t *testing.T) {
+	if err := Sweep(t.TempDir()); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if err := Sweep("relative"); !errors.Is(err, ErrUnsafePath) {
+		t.Fatalf("err = %v", err)
+	}
+}

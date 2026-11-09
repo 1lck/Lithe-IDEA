@@ -161,17 +161,54 @@ func TestServicesKeepCallerDeadline(t *testing.T) {
 	}
 }
 
-func TestServicesRefuseInvalidHandlerOutput(t *testing.T) {
+func TestServicesExemptUserChoiceFromTheDeadline(t *testing.T) {
+	services := NewServices()
+	method := MethodPrefix + "window/showInformation"
+	var bounded bool
+	if err := services.RegisterUserChoice(method, func(ctx context.Context, _ json.RawMessage) (json.RawMessage, *Failure) {
+		_, bounded = ctx.Deadline()
+		return json.RawMessage(`{"selectedIndex":0}`), nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, failure := services.Respond(context.Background(), method, nil); failure != nil {
+		t.Fatalf("failure = %+v", failure)
+	}
+	if bounded {
+		t.Fatal("a user-choice request was bounded by the machine deadline")
+	}
+}
+
+func TestServicesRefuseADuplicateUserChoice(t *testing.T) {
+	services := NewServices()
+	method := MethodPrefix + "window/showInformation"
+	if err := services.Register(method, echoHandler(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := services.RegisterUserChoice(method, echoHandler(`{}`)); !errors.Is(err, ErrServiceRegistration) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestServicesReportInvalidHandlerOutput(t *testing.T) {
 	services := NewServices()
 	method := MethodPrefix + "documents/list"
 	if err := services.Register(method, echoHandler("not json")); err != nil {
 		t.Fatal(err)
 	}
-	result, failure := services.Respond(context.Background(), method, nil)
-	if result != nil {
-		t.Fatalf("result = %s", result)
+	_, failure := services.Respond(context.Background(), method, nil)
+	if failure == nil || failure.Code != CodeHostFailure {
+		t.Fatalf("failure = %+v", failure)
 	}
-	if failure == nil {
-		t.Fatal("invalid handler output was accepted")
+}
+
+func TestServicesTolerateAnEmptyRegistry(t *testing.T) {
+	var services *Services
+	if granted := services.Grant(); granted != nil {
+		t.Fatalf("grant = %v", granted)
+	}
+	_, failure := services.Respond(context.Background(), MethodPrefix+"documents/list", nil)
+	if failure == nil || failure.Code != CodeMethodNotDeclared {
+		t.Fatalf("failure = %+v", failure)
 	}
 }
