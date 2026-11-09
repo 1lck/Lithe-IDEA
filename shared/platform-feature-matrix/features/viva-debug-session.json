@@ -13,7 +13,17 @@
       "desktop/internal/workbench/debug_view.go",
       "desktop/internal/workbench/debug_test.go",
       "desktop/internal/workbench/debug_adapter_test.go",
-      "desktop/internal/buildprocess/process.go"
+      "desktop/internal/buildprocess/process.go",
+      "desktop/internal/core/debug_launch.go",
+      "desktop/internal/workbench/debug_launch.go",
+      "desktop/internal/workbench/debug_launch_test.go",
+      "desktop/internal/workbench/debug_native_e2e_test.go",
+      "desktop/internal/workbench/debug_lookup_darwin.go",
+      "desktop/internal/workbench/debug_lookup_other.go",
+      "shared/fixtures/debug/launch-event-order.json",
+      "desktop/internal/pluginhost/executable_windows.go",
+      "desktop/internal/pluginhost/executable_other.go",
+      "desktop/internal/pluginhost/executable_windows_test.go"
     ]
   },
   "windows": {
@@ -26,10 +36,20 @@
       "desktop/internal/workbench/debug_view.go",
       "desktop/internal/workbench/debug_test.go",
       "desktop/internal/workbench/debug_adapter_test.go",
-      "desktop/internal/buildprocess/process.go"
+      "desktop/internal/buildprocess/process.go",
+      "desktop/internal/core/debug_launch.go",
+      "desktop/internal/workbench/debug_launch.go",
+      "desktop/internal/workbench/debug_launch_test.go",
+      "desktop/internal/workbench/debug_native_e2e_test.go",
+      "desktop/internal/workbench/debug_lookup_darwin.go",
+      "desktop/internal/workbench/debug_lookup_other.go",
+      "shared/fixtures/debug/launch-event-order.json",
+      "desktop/internal/pluginhost/executable_windows.go",
+      "desktop/internal/pluginhost/executable_other.go",
+      "desktop/internal/pluginhost/executable_windows_test.go"
     ]
   },
   "owner": "Debug",
-  "verification": "用隔离 fixture 插件和真实 stdio DAP 适配器进程验证：Core debug.createSession / debug.launch / debug.setBreakpoints / debug.execute / debug.inspect / debug.receive / debug.disconnect / debug.destroySession 的完整链路；测试覆盖断点写入、启动后暂停、栈帧解码与源码定位、继续后清空栈帧、暂停后重新获取栈帧、停止会话和关闭项目清理。宿主只做适配器进程、字节传输和界面呈现，不解析 DAP 或维护调试状态机。未验证：attach、变量/作用域、异常断点、条件断点、步进、TCP 适配器、多会话子会话、真实 Java/C++ 适配器、Windows 实机与原生窗口视觉。",
-  "notes": "Viva 原有 Debug 工具窗口为占位。本能力只覆盖最小可运行的 launch + 断点 + 暂停/继续 + 栈帧闭环；其余调试能力仍按各自能力行保持 missing/pending，不随本行提升。"
+  "verification": "用隔离 fixture 插件和真实 stdio DAP 适配器进程验证：Core debug.createSession / debug.launch / debug.setBreakpoints / debug.execute / debug.inspect / debug.receive / debug.disconnect / debug.destroySession 的完整链路；测试覆盖断点写入、启动后暂停、栈帧解码与源码定位、继续后清空栈帧、暂停后重新获取栈帧、停止会话和关闭项目清理。宿主只做适配器进程、字节传输和界面呈现，不解析 DAP 或维护调试状态机。未验证：attach、变量/作用域、异常断点、条件断点、步进、TCP 适配器、多会话子会话、真实 Java 适配器、Windows 真实 LLDB 与原生窗口视觉。 新增显式启用的 TestDebugRealLLDBLaunchTargetAndBreakpoints：验证真实 LLDB 的 program/cwd/stopOnEntry、源码断点与 main 栈帧、继续退出及插件清单字节不变；Core 59 项引擎逐项计时通过；macOS 当前宿主14条计时记录中13项通过、1项仅子进程夹具跳过，含真实 LLDB；Windows 相关41条记录中38项通过、3项条件跳过，原生进程与ACL回归通过。",
+  "notes": "Viva 原有 Debug 工具窗口为占位。本能力只覆盖最小可运行的 launch + 断点 + 暂停/继续 + 栈帧闭环；其余调试能力仍按各自能力行保持 missing/pending，不随本行提升。 本轮接入 Core 的进程启动计划、executablePlan 和 startArguments，提供显式适配器选择，原生启动前验证目标并消费插件默认参数；运行时入口走工具链与 Core 模板，尚未扩大 serverProcess 4 准入。Core 修复 launch 确认晚于暂停/结束事件时错误覆盖状态的缺陷。macOS 以官方 LLDB 原始 manifest 和真实 clang/lldb-dap 验证断点、main 栈帧、继续/退出三轮通过；后台串行发送帧、启动前取消、原子进程句柄与独占临时状态清理有回归。完整用户配置编辑、Java/TCP、Windows 真实 LLDB 与原生窗口仍 pending。 Windows 包内程序不再用 Unix 执行位判断，交给 GetBinaryTypeW 识别原生程序；伪 .exe 仍拒绝。退出回归核对实际进程存在，避免用启动失败冒充退出成功。"
 }

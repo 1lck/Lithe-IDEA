@@ -513,9 +513,8 @@ type ToolchainLaunch struct {
 	VersionArguments []string `json:"versionArguments"`
 }
 
-// InstantiateToolchainLaunch expands a definition's launch template for one
-// selected executable. The host never writes a tool's argv itself.
-func (c *Client) InstantiateToolchainLaunch(ctx context.Context, registry json.RawMessage, tool, executable, home string, runtimeArguments, arguments []string) (ToolchainLaunch, error) {
+// InstantiateToolchainLaunch expands a verified package entry using the tool's template.
+func (c *Client) InstantiateToolchainLaunch(ctx context.Context, registry json.RawMessage, tool, executable, home, entry string, runtimeArguments, arguments []string) (ToolchainLaunch, error) {
 	const command = "toolchains.instantiateLaunch"
 	var result struct {
 		Status string                `json:"status"`
@@ -527,9 +526,10 @@ func (c *Client) InstantiateToolchainLaunch(ctx context.Context, registry json.R
 		Tool             string          `json:"tool"`
 		Executable       string          `json:"executable"`
 		Home             string          `json:"home,omitempty"`
+		Entry            string          `json:"entry,omitempty"`
 		RuntimeArguments []string        `json:"runtimeArguments,omitempty"`
 		Arguments        []string        `json:"arguments,omitempty"`
-	}{registry, tool, executable, home, runtimeArguments, arguments}
+	}{registry, tool, executable, home, entry, runtimeArguments, arguments}
 	if err := c.Execute(ctx, command, payload, &result); err != nil {
 		return ToolchainLaunch{}, err
 	}

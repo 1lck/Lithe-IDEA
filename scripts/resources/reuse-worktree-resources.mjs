@@ -86,7 +86,8 @@ async function readRegistry() {
   // Both remain excluded before any source access or copy operation.
   // Build Provider snapshots remain under the excluded per-workspace PluginState
   // owner, including after removing the old macOS Maven tree output allocator.
-  // They are mutable upstream state and must never gain a download validator.
+  // They and Viva per-session Debug scratch directories are mutable runtime state
+  // and must never gain a download validator.
   // User-authored Build preferences, machine-local differences and source-identity migration receipts are never reusable.
   // Private instance defaults, Windows app-data/build-options/<workspace-digest>.json
   // and runtime-preference migration receipts follow that same refusal route; no validator or copy stage.

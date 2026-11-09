@@ -29,14 +29,8 @@ type DebugAdapterDeclaration struct {
 	DisplayName string
 	AdapterID   string
 	Transport   string
-	// LaunchKind is the process launch form: packaged or systemCommand.
+	// LaunchKind is used only to show transports this client can start.
 	LaunchKind string
-	// Path is the packaged executable, relative to the package root.
-	Path string
-	// Commands are bare command names for a systemCommand launch.
-	Commands []string
-	// Arguments are the adapter process arguments declared by the plugin.
-	Arguments []string
 }
 
 // DebugPlugins reads the newest enabled version of every plugin that declares
@@ -79,11 +73,8 @@ type rawDebugManifest struct {
 			Transport string `json:"transport"`
 			Process   *struct {
 				Launch struct {
-					Kind     string   `json:"kind"`
-					Path     string   `json:"path"`
-					Commands []string `json:"commands"`
+					Kind string `json:"kind"`
 				} `json:"launch"`
-				Arguments []string `json:"arguments"`
 			} `json:"process"`
 		} `json:"launch"`
 	} `json:"debugAdapters"`
@@ -105,9 +96,6 @@ func parseDebugAdapters(manifest json.RawMessage) ([]DebugAdapterDeclaration, er
 			AdapterID:   raw.AdapterID,
 			Transport:   raw.Launch.Transport,
 			LaunchKind:  raw.Launch.Process.Launch.Kind,
-			Path:        raw.Launch.Process.Launch.Path,
-			Commands:    append([]string(nil), raw.Launch.Process.Launch.Commands...),
-			Arguments:   append([]string(nil), raw.Launch.Process.Arguments...),
 		}
 		if declaration.AdapterID == "" {
 			declaration.AdapterID = declaration.ID

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -33,6 +35,7 @@ const debugFixtureManifest = `{
     "displayName": "Fixture DAP",
     "adapterID": "fixture-dap",
     "requests": ["launch"],
+    "configurations": {"launch":{"arguments":{"stopOnEntry":true}}},
     "launch": {
       "process": {
         "launch": {"kind": "packaged", "path": "adapter"},
@@ -42,6 +45,13 @@ const debugFixtureManifest = `{
     }
   }]
 }`
+
+func debugFixtureProgramName() string {
+	if runtime.GOOS == "windows" {
+		return "adapter.exe"
+	}
+	return "adapter"
+}
 
 // debugHarness installs the fixture adapter package and its copied test
 // binary. Every run below uses the real adapter process and the real Core
@@ -58,10 +68,14 @@ func debugHarness(t *testing.T) *harness {
 	if err := os.MkdirAll(installed, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(installed, "plugin.json"), []byte(debugFixtureManifest), 0o600); err != nil {
+	manifest := debugFixtureManifest
+	if runtime.GOOS == "windows" {
+		manifest = strings.ReplaceAll(manifest, `"path": "adapter"`, `"path": "adapter.exe"`)
+	}
+	if err := os.WriteFile(filepath.Join(installed, "plugin.json"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	copyTestBinary(t, filepath.Join(installed, "adapter"))
+	copyTestBinary(t, filepath.Join(installed, debugFixtureProgramName()))
 	if err := pluginstate.New(preferences).SetEnabled("dev.lithe.test.debug-adapter", true); err != nil {
 		t.Fatal(err)
 	}
@@ -115,6 +129,9 @@ func TestDebugPanelBreakpointPauseContinueFrames(t *testing.T) {
 
 	h.click(center(h.hit(debugStartID)))
 	awaitStateWithin(t, h, 30*time.Second, "the paused debuggee and its stack", func() bool {
+		if p.debug.failure != "" {
+			t.Fatalf("debug start failed: %s", p.debug.failure)
+		}
 		return p.debug.state == "paused" && len(p.debug.frames) == 2
 	})
 	if !h.shows("main") || !h.shows("worker") {
@@ -131,6 +148,9 @@ func TestDebugPanelBreakpointPauseContinueFrames(t *testing.T) {
 	})
 	h.click(center(h.hit(debugPauseID)))
 	awaitStateWithin(t, h, 20*time.Second, "the paused session", func() bool {
+		if p.debug.failure != "" {
+			t.Fatalf("debug start failed: %s", p.debug.failure)
+		}
 		return p.debug.state == "paused" && len(p.debug.frames) == 2
 	})
 
@@ -149,6 +169,9 @@ func TestDebugPanelCloseProjectStopsSession(t *testing.T) {
 	p := openDebugPanel(t, h, root)
 	h.click(center(h.hit(debugStartID)))
 	awaitStateWithin(t, h, 30*time.Second, "the paused session", func() bool {
+		if p.debug.failure != "" {
+			t.Fatalf("debug start failed: %s", p.debug.failure)
+		}
 		return p.debug.state == "paused"
 	})
 	h.app.closeProject()
@@ -197,7 +220,11 @@ func TestDebugPanelAdapterExitWithoutTerminated(t *testing.T) {
 	}
 	p := openDebugPanel(t, h, root)
 	h.app.startDebug(p)
+	session := p.debug.session
 	awaitStateWithin(t, h, 5*time.Second, "adapter exit to release session", func() bool { return p.debug.session == nil })
+	if session.process.Load() == nil {
+		t.Fatalf("the adapter never started: %s", p.debug.failure)
+	}
 }
 
 // delayedDebugCreate models a Core call already in flight when Stop is pressed.
@@ -291,5 +318,37 @@ func TestDebugBlockedWriteEndsOnCancellation(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("write did not unblock on cancellation")
+	}
+}
+
+// captureDebugLaunch observes the actual configuration sent to the DAP engine.
+type captureDebugLaunch struct {
+	Kernel
+	configurations chan core.DebugLaunchConfiguration
+}
+
+func (k *captureDebugLaunch) LaunchDebug(ctx context.Context, sessionID, operationID string, configuration core.DebugLaunchConfiguration) (core.DebugUpdate, error) {
+	select {
+	case k.configurations <- configuration:
+	case <-ctx.Done():
+		return core.DebugUpdate{}, ctx.Err()
+	}
+	return k.Kernel.LaunchDebug(ctx, sessionID, operationID, configuration)
+}
+
+func TestDebugLaunchUsesCoreDeclaredArguments(t *testing.T) {
+	h := debugHarness(t)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "debug.marker"), []byte("debug"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := openDebugPanel(t, h, root)
+	gate := &captureDebugLaunch{Kernel: h.app.kernel, configurations: make(chan core.DebugLaunchConfiguration, 1)}
+	h.app.kernel = gate
+	h.app.startDebug(p)
+	awaitStateWithin(t, h, 5*time.Second, "Core launch configuration", func() bool { return len(gate.configurations) == 1 })
+	configuration := <-gate.configurations
+	if configuration.Arguments["stopOnEntry"] != true {
+		t.Fatalf("DAP configuration discarded plugin defaults: %+v", configuration)
 	}
 }

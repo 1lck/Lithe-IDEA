@@ -14,19 +14,25 @@
       "desktop/internal/workbench/toolchains.go",
       "desktop/internal/workbench/build.go",
       "desktop/internal/pluginservice/toolchains.go",
-      "desktop/internal/pluginhost/pluginhost.go"
+      "desktop/internal/pluginhost/pluginhost.go",
+      "desktop/internal/toolchain/publish_windows.go",
+      "desktop/internal/toolchain/publish_other.go",
+      "desktop/internal/toolchain/pins_windows_test.go"
     ]
   },
   "windows": {
     "implementationStatus": "unassessed",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
+      "desktop/internal/toolchain/publish_windows.go",
+      "desktop/internal/toolchain/publish_other.go",
+      "desktop/internal/toolchain/pins_windows_test.go"
     ]
   },
   "owner": "Plugin Platform",
   "verification": "共享 Core：cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib toolchain，核对定义独占与官方短 ID、第二种通用工具、旧候选边界、答案身份/代次、Windows 路径大小写、工作区排除、固定值失效不回落、最近项目要求、冲突选择、最低版本、环境隔离和纯声明扫描；按逐项计时工具生成 HTML/JUnit。macOS 继续补齐下列消费者与保存验收，Windows 须先实现对应 adapter：启动提供方并协商、取消/超时和过期结果隔离、输入新建/删除后整体重查、目录固定保存/取消/冲突回读、插件停用撤回、真实 Build/LSP/Run 消费者取得同一选择、发行目录哈希不变与子进程清理。未完成原生流程前保持 pending，不以 Core 测试代替实机验证。 提供方查询：cargo test -p lithe-core --lib toolchain（含 lsp 引擎脚本后端：只有插件后端被提供 litheToolchains、未协商的提供方不写请求、错误回复原样返回；别名链接只有链接路径事实时仍选中规范 home）；MacToolchainDiscoveryTests 用真实临时目录与注入的查询验证全局与目录查询各带独立 operationID/代次、链接 home 规范化、工作区内 home 整份拒绝；ToolchainSettingsFeatureTests 验证监视文件连续变化只重载一次、外部输入观察随关闭释放。真实 mise 插件端到端尚未在应用内验证。 原生布局回归 ToolchainSettingsLayoutTests：同一设置宿主按900/1180/1400/900重复缩放，真实分隔条拖动；来源页按500/666/946/500缩放，检查AX控件边界、卡片不重叠、选择和快照不改变。此几何验证不代表提供方查询或保存功能已完成。 声明式扫描 MacToolchainDiscoveryTests：真实临时目录、注入的用户目录与探测，覆盖 homeLayouts 首个匹配、隐藏与未匹配条目、链接到工作区的条目不探测、只探测 Core 返回的可执行文件、同版本冲突、被拒声明不扫描，以及隔离预览样例清单通过 Core 准入；不运行本机安装的工具。 固定集成新增 MacToolchainDiscoveryTests 的运行前解析回归和 MacBuildToolResolverTests，验证两个目录使用各自 pin、最低版本、独立环境与失败不回落；RunLaunchEnvironmentTests 证明操作返回值不会留下共享执行许可槽。MacNativeBuildProviderIntegrationTests.installedDefinitionsResolveTheRealBuildAndRuntimeThroughSavedChoices 使用明确选定的真实 Java/Maven 经生产 resolver 完成版本检查和环境传递，比较两个插件目录清单不变；该测试不是完整应用 UI 验收。 生产准入回归 installedToolDeclarationsPassTheProductionHostAdmission 经 RustDeclarativePluginOperations 验证工具定义和提供者；真实 Maven 工作流同时覆盖安装准入、工具解析和原生配置。Build PATH 保留声明的附加目录，拒绝空目录项。 Windows 原生解析基础：lithe-project::defined_toolchain 逐项计时覆盖两个工具、声明式扫描、固定目录、最近继承、同版本冲突、最低版本、显式 Wrapper、输入撤销及宿主秘密不进入 RPC。真实 Windows 命令包装和进程清理继续由现有 CI 验证；准入仍关闭。macOS Wrapper 的真实 Maven 委托启动器覆盖声明最低版本，不运行被动探测。 本次回归另核对同目录两个 Run 独立选择、团队/本机逐项合并和显式清空、私有环境隔离、失效固定值不回落、工作区启动器被动零探测，以及未知默认值迁移失败保留源文件。 本批显式 LITHE_TEST_NODE 驱动真实 Core/Node 会话，逐项计时覆盖单次协商、多次查询、原始错误、无协商拒绝、静默超时、后端意外退出与撤销清理；原生解析验证查询与当前事实、来源在探测中变化及稳定模型摘要。安装状态按 plugin/operation/workspace 隔离且不可跨工作树复制。 #1581 最终合入回归包含固定值与未扫描目录、同轮次/上下文、冲突及提供方超时和不可用的来源展示。 通用默认增量：更改工作区工具 home 后，消费者继承读取新值，按 Run 固定值保持独立；失效明确路径不回落，来源在探测期间改变或越出工作区时拒绝。旧编辑保存保留通用偏好，显式空 v1 文档清除。矩阵保持 pending，未把手写测试文档当成设置页或旧配置迁移验收。 macOS Build 偏好编辑：ToolchainPreferencesTests 验证打开/草稿/取消/空重置不建文件、明确保存/回读与权限保留、外部冲突保留原始草稿基线、仅偏好文档不阻断旧默认迁移、缺失子目录的父链接/最终链接/只读安装目录拒绝及主动取消；原生 Save/Reset 按钮在深浅主题通过实际存储执行。ToolchainSettingsLoaderTests 验证使用方来自当前 Core invocation 并随停用撤回。运行全量 Core 与相关 macOS 逐项计时；完整产品、全局默认、旧消费者和 Windows 设置页仍待验收。 tool 引用验证：共享 fixture/Core 覆盖最近通用目录、根目录、跳过父消费者、目录与工作区默认变化、显式 Run 优先和禁止通用工具反向引用；MacToolchainDiscoveryTests 与 lithe-project::defined_toolchain 的真实临时安装/注入探测验证运行前重读，不冻结安装路径。 本机目录/重载回归覆盖仅消费者偏好、父目录连接、重置撤回、链接/非法层级拒绝、单次重试与可刷新错误、未修改表单更新、冲突草稿保留及自身保存通知不等待/撤销保存。真实 Maven 集成通过生产 Save 保存默认、切换两种明确选定的 JDK 并检查 Maven 进程输出，显式 Run 保持原 JDK，插件文件清单不变；该集成不代替完整 GUI。 运行前来源审计 missingPreferenceLeafBehindAParentAliasIsRejectedBeforeToolWork 覆盖两级父目录及存在/悬空链接，四种情况均在工具探测前拒绝。  ToolchainPluginAdmissionTests 使用正式契约 fixture 与真实 Core 验证市场可安装、完整安装审查、清单加载，以及无后端纯工具定义插件的启用模块和工厂登记；本地编译验证不代替真实 mise 与 Windows 工作流验收。 2026-11-02 本机 Swift 6.4.2：准入、后端、发现和加载器 42 项通过，新增两个准入用例分别 4/6 ms；Swift 6.3.3 在本机 Xcode 27.2 SDK 下编译依赖清单崩溃，不能作为固定工具链通过。真实 mise 0.2.1 发布包 SHA-256 与市场一致，Core 证明修复前 unsupported、修复后 available；真实后端完成协商、查询并停止销毁，当前环境未安装 mise，查询真实返回 miseNotFound，未验证安装列表和应用内工作流。",
-  "notes": "Viva：共享 Core toolchain 命令已接入 desktop/internal/core/toolchain.go；声明式扫描、文件事实、有界版本探测、toolchains.candidates/resolve 与目录 pin 保存位于 desktop/internal/toolchain/ 并有真实 Core 测试；设置窗口 Build 页可按插件声明展示工具、生效值与来源，显式 Save/Reset 写 .lithe/toolchains/local.json，Cancel 不写；Build 命令和 Provider Run 的 toolchain 候选使用 Core 解析出的可执行文件、环境导出和 PATH。提供方后端查询（toolchainProviders）未接入，因此未声明该能力；Windows 与完整 GUI/原生工作流未验收，状态保持 pending，legacy 证据不代表 Viva。 本轮通过外部 Core Draft PR #3 的精确提交接入 toolchains.editPins：平台不再编辑 pin schema；Core/Go 共用 fixture、批量保存和取消/外部并发修改回归通过。命令型 Tests 同样消费解析后的工具链环境。原生 Windows、提供方工具查询、完整 GUI 与发行验收仍 pending。",
+  "notes": "Viva：共享 Core toolchain 命令已接入 desktop/internal/core/toolchain.go；声明式扫描、文件事实、有界版本探测、toolchains.candidates/resolve 与目录 pin 保存位于 desktop/internal/toolchain/ 并有真实 Core 测试；设置窗口 Build 页可按插件声明展示工具、生效值与来源，显式 Save/Reset 写 .lithe/toolchains/local.json，Cancel 不写；Build 命令和 Provider Run 的 toolchain 候选使用 Core 解析出的可执行文件、环境导出和 PATH。提供方后端查询（toolchainProviders）未接入，因此未声明该能力；Windows 与完整 GUI/原生工作流未验收，状态保持 pending，legacy 证据不代表 Viva。 本轮通过外部 Core Draft PR #3 的精确提交接入 toolchains.editPins：平台不再编辑 pin schema；Core/Go 共用 fixture、批量保存和取消/外部并发修改回归通过。命令型 Tests 同样消费解析后的工具链环境。原生 Windows、提供方工具查询、完整 GUI 与发行验收仍 pending。 Windows 原生回归确认保存前后的文件模式以及真实访问控制描述符（所有者、组、DACL/继承保护）保留；元数据先准备到临时文件，再核对取消/冲突并原子发布。此证据不代表提供方查询或 GUI 已验收。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

@@ -6,7 +6,7 @@
 
 Viva 桌面端现在把插件声明的工具链接进了设置和构建执行：Core 仍是唯一决定“哪个安装生效”的地方，Go 只做声明式扫描、文件事实读取、有界版本探测和原子保存。设置页的 Build 页按插件声明的工具显示当前生效值与来源；用户选择只改草稿，明确 Save 才写 `.lithe/toolchains/local.json`，Cancel 不写。Build 命令任务、Build 模型和 Provider 应用的 `toolchain` 候选都复用同一次解析，启动时使用 Core 返回的可执行文件、导出环境和 PATH。
 
-这一批没有接入提供方后端查询（`toolchainProviders`），也没有因此声明该能力；Windows 实机和完整 GUI 流程仍未验收。
+这一批没有接入提供方后端查询（`toolchainProviders`），也没有因此声明该能力；Windows 原生保存与相关组件已在 Lithe-dev 验证，完整 GUI 流程仍未验收。
 
 ## 问题
 
@@ -54,7 +54,7 @@ Viva 桌面端现在把插件声明的工具链接进了设置和构建执行：
 
 收益是设置显示与 Build/Run 启动共享同一份 Core 结果，新增工具只需插件声明，不需改宿主工具表。代价是提供方查询、目录树多来源合并、手动“添加安装”和输入文件监听仍未实现；保存的 JSON 编辑规则由 Core 持有，平台仅负责有冲突检查的原生写入。
 
-Windows 使用同一 Go 实现和 Core 平台参数，但只在 macOS 上跑过真实 Core 测试；原生 Windows 路径大小写、GUI 和发行包验收仍待补。
+Windows 已运行真实 Core 的工具链与工作台组件测试，并以受保护的用户专属访问控制列表验证原子保存保留原权限。原生程序识别与权限发布的取舍见 `../bug-fix/2026-11-09-viva-windows-native-file-validation.md`；路径大小写的完整工作流、GUI 和发行包验收仍待补。
 
 ## 验证
 
@@ -69,7 +69,7 @@ node scripts/i18n/generate-i18n.mjs --check
 ./scripts/agent-notes/verify-agent-notes.sh
 ```
 
-`desktop/internal/toolchain/toolchain_test.go` 用真实 Core 和两个语义不同的虚构工具验证声明式发现、版本探测、生效环境、项目/子目录 pin、争用、保存冲突、未知顶层字段拒绝、页面批量保存；另外用可控 kernel 阻塞校验后取消，断言 `local.json` 与 `.gitignore` 字节均不变、无临时文件，并覆盖 ignore 写失败时文档不变。新增可控 kernel 在 Core 编辑期间写入外部修改，回归先失败、补齐二次基线检查后通过；Core 与 Go 桥接共同消费 `shared/fixtures/toolchain-pin-edit.json`。`settingswindow/toolchains_view_test.go` 验证草稿、显式保存和取消不写；`workbench/toolchains_test.go` 验证 Build 使用解析结果并在工具链不可用时按 Core 顺序回退。这些是组件与真实 Core 证据，不代替完整 GUI 或 Windows 实机验收。
+`desktop/internal/toolchain/toolchain_test.go` 用真实 Core 和两个语义不同的虚构工具验证声明式发现、版本探测、生效环境、项目/子目录 pin、争用、保存冲突、未知顶层字段拒绝、页面批量保存；另外用可控 kernel 阻塞校验后取消，断言 `local.json` 与 `.gitignore` 字节均不变、无临时文件，并覆盖 ignore 写失败时文档不变。新增可控 kernel 在 Core 编辑期间写入外部修改，回归先失败、补齐二次基线检查后通过；Core 与 Go 桥接共同消费 `shared/fixtures/toolchain-pin-edit.json`。`settingswindow/toolchains_view_test.go` 验证草稿、显式保存和取消不写；`workbench/toolchains_test.go` 验证 Build 使用解析结果并在工具链不可用时按 Core 顺序回退。这些是组件与真实 Core 证据；Windows 相关组件也已在 Lithe-dev 逐项计时通过，不代替完整 GUI 或发行包验收。
 
 ## 适用范围
 

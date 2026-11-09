@@ -155,7 +155,10 @@ func TestProjectTreeExpandAllStopsAtItsLimit(t *testing.T) {
 	writeTreeFiles(t, root, paths...)
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	p := h.openTree(t, root)
-	h.click(center(h.treeAction(treeActionExpand).Bounds))
+	// Observe this action's notice before unrelated native watcher completions
+	// can replace the single banner (Linux reaches its separate watch cap first).
+	// The button dispatch is exercised by TestProjectTreeExpandsAndCollapsesAll.
+	h.app.expandProjectTree(p)
 	if p.tree.expandingAll {
 		t.Fatal("Expand All went on past its limit")
 	}

@@ -4,12 +4,14 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
 var (
+	debugAdapterScope       = tree.Sub(shellPage, tree.Name("debug-adapter-select"))
 	debugStartID            = tree.ID(shellPage, "debug-start")
 	debugStopID             = tree.ID(shellPage, "debug-stop")
 	debugContinueID         = tree.ID(shellPage, "debug-continue")
@@ -35,6 +37,19 @@ func (a *App) drawDebugPanel(f *ui.Frame, p *project) {
 		a.loadDebugAdapters(p)
 	}
 	f.Column().Fill().Background(a.colors.Editor).Children(func() {
+		if len(d.adapters) > 0 {
+			labels := make([]string, len(d.adapters))
+			for index, adapter := range d.adapters {
+				labels[index] = adapter.Declaration.DisplayName
+			}
+			f.Row().Height(panelHeaderHeight).Shrink(0).PadX(8).Items(ui.Center).Children(func() {
+				pick := f.Select(debugAdapterScope, &d.adapterSelect, labels, d.selectedAdapter).
+					Label(i18n.Shared(a.language(), "desktop.debug.adapter")).Disabled(d.session != nil).Grow(1)
+				if index, ok := pick.Picked(); ok && index >= 0 && index < len(d.adapters) {
+					d.selectedAdapter = index
+				}
+			})
+		}
 		f.Row().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
 			if f.Button(debugStartID, t.Start).Disabled(d.session != nil || len(d.adapters) == 0).Clicked() {
 				a.startDebug(p)

@@ -3,10 +3,10 @@ package workbench
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -17,8 +17,10 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprocess"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/vivaui/viva/ui"
 )
 
 const (
@@ -37,16 +39,20 @@ const (
 type debugAdapter struct {
 	PluginID    string
 	Directory   string
+	Version     string
+	Manifest    json.RawMessage
 	Declaration pluginservice.DebugAdapterDeclaration
 }
 
 // debugState is the Debug tool window's state for one project.
 type debugState struct {
-	loaded   bool
-	loading  bool
-	adapters []debugAdapter
-	failure  string
-	status   string
+	loaded          bool
+	loading         bool
+	adapters        []debugAdapter
+	selectedAdapter int
+	adapterSelect   ui.SelectState
+	failure         string
+	status          string
 	// output is the adapter's bounded stderr and console text.
 	output []string
 	state  string
@@ -65,17 +71,20 @@ func (s *debugState) reset() { *s = debugState{} }
 var debugSessionSequence atomic.Uint64
 
 type debugSession struct {
-	id           string
-	adapterID    string
-	project      *project
-	process      *buildprocess.Process
-	stdin        *os.File
-	ctx          context.Context
-	startupDone  chan struct{}
-	exitObserved chan struct{}
-	cleanupOnce  sync.Once
-	writeMu      sync.Mutex
-	cancel       context.CancelFunc
+	id             string
+	adapterID      string
+	project        *project
+	process        atomic.Pointer[buildprocess.Process]
+	stdin          *os.File
+	stateDirectory string
+	ctx            context.Context
+	startupDone    chan struct{}
+	exitObserved   chan struct{}
+	created        bool
+	operationMu    sync.Mutex
+	cleanupOnce    sync.Once
+	writeMu        sync.Mutex
+	cancel         context.CancelFunc
 	// stopped is set when Stop or project close already took the session apart.
 	stopped atomic.Bool
 	// generation matches debugState.generation so an old pump publishes nothing.
@@ -148,12 +157,14 @@ func (a *App) loadDebugAdapters(p *project) {
 				if declaration.Transport != "stdio" {
 					continue
 				}
-				if declaration.LaunchKind != pluginhost.LaunchPackaged && declaration.LaunchKind != pluginhost.LaunchSystemCommand {
+				if declaration.LaunchKind != pluginhost.LaunchPackaged && declaration.LaunchKind != pluginhost.LaunchSystemCommand && declaration.LaunchKind != pluginhost.LaunchRuntime {
 					continue
 				}
 				adapters = append(adapters, debugAdapter{
 					PluginID:    plugin.PluginID,
 					Directory:   plugin.Directory,
+					Version:     plugin.Version,
+					Manifest:    plugin.Manifest,
 					Declaration: declaration,
 				})
 			}
@@ -180,12 +191,13 @@ func (a *App) startDebug(p *project) {
 	if p == nil || p.debug.session != nil || len(p.debug.adapters) == 0 {
 		return
 	}
-	adapter := p.debug.adapters[0]
-	executable, err := debugAdapterExecutable(adapter)
-	if err != nil {
-		p.debug.failure = err.Error()
-		return
+	adapter := p.debug.adapters[p.debug.selectedAdapter]
+	targetPath := ""
+	if doc := p.selectedDocument(p.docs.group); doc != nil {
+		targetPath = doc.path
 	}
+	pluginRoot := a.plugins.Root
+	targetUnavailable := i18n.Shared(a.language(), "desktop.debug.targetUnavailable")
 	p.debug.generation++
 	generation := p.debug.generation
 	p.debug.failure = ""
@@ -209,63 +221,84 @@ func (a *App) startDebug(p *project) {
 		exitObserved: make(chan struct{}),
 		generation:   generation,
 	}
+	stateRoot := filepath.Join(pluginRoot, ".state", adapter.PluginID, adapter.Version)
 	stdinReader, stdinWriter, err := os.Pipe()
 	if err != nil {
 		cancel()
 		p.debug.state = "failed"
 		p.debug.failure = err.Error()
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("debug", err))
 		return
 	}
-	defer stdinReader.Close()
 	session.stdin = stdinWriter
-	process, err := buildprocess.Start(ctx, buildprocess.Spec{
-		Executable:       executable,
-		Arguments:        adapter.Declaration.Arguments,
-		WorkingDirectory: p.root,
-		Stdin:            stdinReader,
-	}, func(stream buildprocess.Stream, text string) {
-		if stream == buildprocess.Stderr {
-			a.post(func(a *App) { a.appendDebugOutput(p, session, text) })
-			return
-		}
-		a.receiveDebug(p, session, []byte(text))
-	})
-	if err != nil {
-		cancel()
-		_ = stdinWriter.Close()
-		p.debug.state = "failed"
-		p.debug.failure = err.Error()
-		return
-	}
-	session.process = process
 	p.debug.session = session
 	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "debug.start", "surface": "debug"})
 
-	// Observe native exit even when the adapter cannot send a DAP terminated event.
-	go func() {
-		defer close(session.exitObserved)
-		err := process.Wait()
-		session.cancel()
-		_ = session.stdin.Close()
-		a.post(func(a *App) {
-			if a.project != p || p.debug.session != session {
-				return
-			}
-			if err != nil {
-				a.finishDebugError(p, session, err)
-				return
-			}
-			p.debug.session = nil
-			p.debug.frames = nil
-			p.debug.pausedThread = nil
-			p.debug.state = "terminated"
-			p.debug.status = a.text.Debug.Terminated
-			a.releaseDebugSession(p, session)
-		})
-	}()
 	a.background(p, 0, func(_ context.Context) func(*App) {
+		session.operationMu.Lock()
+		defer session.operationMu.Unlock()
 		defer close(session.startupDone)
 		ctx := session.ctx
+		defer stdinReader.Close()
+		// log-exempt: 用户取消：停止或关闭项目已接管会话清理。
+		if err := ctx.Err(); err != nil {
+			return nil
+		}
+		if err := os.MkdirAll(stateRoot, 0o700); err != nil {
+			return func(a *App) { a.finishDebugError(p, session, err) }
+		}
+		stateDirectory, err := os.MkdirTemp(stateRoot, "desktop-debug-")
+		if err != nil {
+			return func(a *App) { a.finishDebugError(p, session, err) }
+		}
+		// Assigned only by startup; cleanup reads it after startupDone closes.
+		session.stateDirectory = stateDirectory
+		preparationContext, cancelPreparation := context.WithTimeout(ctx, debugOperationTimeout)
+		prepared, err := a.prepareDebugLaunch(preparationContext, adapter, session.stateDirectory, p.root, targetPath, generation, targetUnavailable)
+		cancelPreparation()
+		if err != nil {
+			return func(a *App) { a.finishDebugError(p, session, err) }
+		}
+		process, err := buildprocess.Start(ctx, buildprocess.Spec{
+			Executable:       prepared.Executable,
+			Arguments:        prepared.Arguments,
+			Environment:      prepared.Environment,
+			WorkingDirectory: p.root,
+			Stdin:            stdinReader,
+		}, func(stream buildprocess.Stream, text string) {
+			if stream == buildprocess.Stderr {
+				a.post(func(a *App) { a.appendDebugOutput(p, session, text) })
+				return
+			}
+			a.receiveDebug(p, session, []byte(text))
+		})
+		_ = stdinReader.Close()
+		if err != nil {
+			return func(a *App) { a.finishDebugError(p, session, err) }
+		}
+		session.process.Store(process)
+		// Observe native exit even when the adapter cannot send a DAP terminated event.
+		go func() {
+			defer close(session.exitObserved)
+			err := process.Wait()
+			session.cancel()
+			_ = session.stdin.Close()
+			a.post(func(a *App) {
+				if a.project != p || p.debug.session != session {
+					return
+				}
+				if err != nil {
+					a.finishDebugError(p, session, err)
+					return
+				}
+				p.debug.session = nil
+				p.debug.frames = nil
+				p.debug.pausedThread = nil
+				p.debug.state = "terminated"
+				p.debug.status = a.text.Debug.Terminated
+				a.releaseDebugSession(p, session)
+			})
+		}()
 		update, err := a.kernel.CreateDebugSession(ctx, core.DebugCreateSessionRequest{
 			SessionID: session.id,
 			AdapterID: session.adapterID,
@@ -274,6 +307,7 @@ func (a *App) startDebug(p *project) {
 		if err != nil {
 			return func(a *App) { a.finishDebugError(p, session, err) }
 		}
+		session.created = true
 		if err := session.writeFrames(update.OutboundFrames); err != nil {
 			return func(a *App) { a.finishDebugError(p, session, err) }
 		}
@@ -292,11 +326,7 @@ func (a *App) startDebug(p *project) {
 			}
 			a.postDebugUpdate(p, session, update)
 		}
-		update, err = a.kernel.LaunchDebug(ctx, session.id, fmt.Sprintf("%s-launch", session.id), core.DebugLaunchConfiguration{
-			Name:      adapter.Declaration.DisplayName,
-			Request:   "launch",
-			Arguments: map[string]any{},
-		})
+		update, err = a.kernel.LaunchDebug(ctx, session.id, fmt.Sprintf("%s-launch", session.id), prepared.Configuration)
 		if err != nil {
 			return func(a *App) { a.finishDebugError(p, session, err) }
 		}
@@ -308,28 +338,15 @@ func (a *App) startDebug(p *project) {
 	})
 }
 
-// debugAdapterExecutable resolves the declared process through the same
-// package-path verification other plugin processes use.
-func debugAdapterExecutable(adapter debugAdapter) (string, error) {
-	launch := pluginhost.Launch{
-		Kind:     adapter.Declaration.LaunchKind,
-		Path:     adapter.Declaration.Path,
-		Commands: adapter.Declaration.Commands,
-	}
-	resolved, err := pluginhost.VerifyLaunch(adapter.Directory, launch)
-	if err != nil {
-		return "", err
-	}
-	if launch.Kind == pluginhost.LaunchSystemCommand {
-		return pluginhost.ResolveCommand(launch.Commands, exec.LookPath)
-	}
-	return resolved.Executable, nil
-}
-
 // receiveDebug feeds one stdout chunk to Core and publishes what it answered.
 // It runs on the transport's reader goroutine; Core buffers partial frames.
 func (a *App) receiveDebug(p *project, session *debugSession, chunk []byte) {
 	if p == nil || session == nil || session.stopped.Load() {
+		return
+	}
+	session.operationMu.Lock()
+	defer session.operationMu.Unlock()
+	if session.stopped.Load() {
 		return
 	}
 	update, err := a.kernel.ReceiveDebug(session.ctx, session.id, chunk)
@@ -406,6 +423,11 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 func (a *App) inspectDebugStack(p *project, session *debugSession, threadID int64) {
 	thread := threadID
 	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
+		session.operationMu.Lock()
+		defer session.operationMu.Unlock()
+		if session.stopped.Load() {
+			return nil
+		}
 		update, err := a.kernel.InspectDebug(ctx, core.DebugInspectRequest{
 			SessionID:   session.id,
 			OperationID: fmt.Sprintf("%s-stack-%d", session.id, thread),
@@ -440,6 +462,11 @@ func (a *App) executeDebug(p *project, command string) {
 	session := p.debug.session
 	thread := p.debug.pausedThread
 	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
+		session.operationMu.Lock()
+		defer session.operationMu.Unlock()
+		if session.stopped.Load() {
+			return nil
+		}
 		update, err := a.kernel.ExecuteDebug(ctx, session.id, fmt.Sprintf("%s-%s", session.id, command), command, thread)
 		if err != nil {
 			return func(a *App) { a.finishDebugError(p, session, err) }
@@ -497,6 +524,11 @@ func (a *App) sendDebugBreakpoints(p *project, path string) {
 		points = append(points, core.DebugSourceBreakpoint{Line: line, Enabled: true})
 	}
 	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
+		session.operationMu.Lock()
+		defer session.operationMu.Unlock()
+		if session.stopped.Load() {
+			return nil
+		}
 		update, err := a.kernel.SetDebugBreakpoints(ctx, session.id, path, points)
 		if err != nil {
 			return func(a *App) { a.finishDebugError(p, session, err) }
@@ -531,18 +563,27 @@ func (a *App) releaseDebugSession(_ *project, session *debugSession) {
 		session.stopped.Store(true)
 		session.cancel()
 		_ = session.stdin.Close()
-		if session.process != nil {
-			session.process.Stop()
+		if process := session.process.Load(); process != nil {
+			process.Stop()
 		}
 		// Cleanup belongs to the app, not the now-cancelled project.
 		a.background(nil, 0, func(_ context.Context) func(*App) {
 			<-session.startupDone
 			ctx, cancel := context.WithTimeout(context.Background(), debugStopTimeout)
 			defer cancel()
-			_, _ = a.kernel.DestroyDebugSession(ctx, session.id)
-			if session.process != nil {
-				_ = session.process.Wait()
+			var cleanupErr error
+			if session.created {
+				_, cleanupErr = a.kernel.DestroyDebugSession(ctx, session.id)
+			}
+			if process := session.process.Load(); process != nil {
+				_ = process.Wait()
 				<-session.exitObserved
+			}
+			if session.stateDirectory != "" {
+				cleanupErr = errors.Join(cleanupErr, os.RemoveAll(session.stateDirectory))
+			}
+			if cleanupErr != nil {
+				return func(a *App) { a.emit(core.LevelWarn, operationFailedEvent, operationFailedFields("debug", cleanupErr)) }
 			}
 			return nil
 		})

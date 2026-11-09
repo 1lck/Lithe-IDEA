@@ -174,12 +174,15 @@ func writeProtectedChecked(ctx context.Context, path string, data []byte, check 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if check != nil {
-		if err := check(); err != nil {
+	return publishProtectedFile(name, path, func() error {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
-	}
-	return os.Rename(name, path)
+		if check != nil {
+			return check()
+		}
+		return nil
+	})
 }
 
 // ensureLocalIgnore adds the exact ignore entry without replacing the file's

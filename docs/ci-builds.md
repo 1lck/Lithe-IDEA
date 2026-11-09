@@ -1055,3 +1055,10 @@ Maven Provider 随每次任务收集的报告快照在宿主提供的 `workspace
 完成后删除，崩溃残留沿用插件工作区状态清理。它不具备构建缓存 identity stamp，
 `maven-operation-report-snapshots` 排除项与脚本拒绝跨 worktree 复制、硬链接和符号链接。
 原始报告仍是上游写入工作区的输出，不可用于替代另一次运行；插件安装包始终只读。
+
+Viva stdio Debug 的临时状态位于可写插件根的
+`.state/<plugin-id>/<version>/desktop-debug-<session>/`。仅在启动时按 Core
+返回的 requiredDirectories 创建，进程退出且启动任务结束后删除；已安装的插件版本目录
+只读，不影响签名或 Sparkle delta。此状态沿用 `official-plugin-packages` 不可复用路由，
+没有 identity stamp，发现、校验和复制阶段均禁止跨工作树共享；复用脚本无 validator，
+其注册与拒绝由 `scripts/resources/test-reuse-worktree-resources.mjs` 验证。

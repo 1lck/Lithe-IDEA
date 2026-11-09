@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -17,6 +18,19 @@ func launchPackage(t *testing.T) string {
 		"lib/data.js": "code",
 		"lib/main.js": "entry",
 	})
+	if runtime.GOOS == "windows" {
+		current, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		image, err := os.ReadFile(current)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "bin", "server"), image, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := os.Chmod(filepath.Join(root, "bin", "server"), 0o755); err != nil {
 		t.Fatal(err)
 	}

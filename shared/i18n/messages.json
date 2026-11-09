@@ -102699,8 +102699,7 @@
       "platforms": [
         "desktop"
       ]
-    }
-,
+    },
     {
       "id": "desktop.toolchains.title",
       "description": "Toolchain settings page title.",
@@ -102864,6 +102863,20 @@
     {
       "id": "desktop.toolchains.chooseHelp",
       "description": "Explains how the draft selection and Save behave.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.targetUnavailable",
+      "description": "No native executable satisfied the debug adapter target lookup",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.adapter",
+      "description": "Debug adapter selection label",
       "platforms": [
         "desktop"
       ]

@@ -10713,7 +10713,9 @@
     "desktop.toolchains.conflict": "{tool} is defined by {plugins}; disable all but one of those plugins.",
     "desktop.toolchains.noProject": "Open a project to read its toolchains.",
     "desktop.toolchains.pinSource": "Pinned in {directory}",
-    "desktop.toolchains.chooseHelp": "Selecting a row only changes the draft. Save writes the choice to this project's .lithe/toolchains/local.json; Cancel leaves the file unchanged."
+    "desktop.toolchains.chooseHelp": "Selecting a row only changes the draft. Save writes the choice to this project's .lithe/toolchains/local.json; Cancel leaves the file unchanged.",
+    "desktop.debug.targetUnavailable": "No runnable debug target was found. Build the program first.",
+    "desktop.debug.adapter": "Debug adapter"
   },
   "overrides": {
     "windows": {

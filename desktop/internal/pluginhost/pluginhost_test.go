@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -206,6 +207,9 @@ func TestResolvePackagePathRefusesSymlinkAncestor(t *testing.T) {
 }
 
 func TestResolveExecutableRequiresExecuteBit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows uses native image validation, covered by TestResolveExecutableAcceptsWindowsImageAndRejectsData")
+	}
 	root := writePackage(t, map[string]string{"bin/server": "binary"})
 	if _, err := ResolveExecutable(root, "bin/server"); !errors.Is(err, ErrNotExecutable) {
 		t.Fatalf("err = %v", err)

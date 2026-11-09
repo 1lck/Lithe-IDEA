@@ -207,6 +207,10 @@ func TestSavePinPreservesUnrelatedEntriesAndDetectsConflicts(t *testing.T) {
 	if err := os.WriteFile(path, document, 0o640); err != nil {
 		t.Fatal(err)
 	}
+	originalInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20e9)
 	defer cancel()
 	pin := &core.ToolchainPin{Home: compilerHome, Version: "3.2.1", Provider: "host:system"}
@@ -234,8 +238,8 @@ func TestSavePinPreservesUnrelatedEntriesAndDetectsConflicts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o640 {
-		t.Fatalf("mode = %o, want 640", info.Mode().Perm())
+	if info.Mode().Perm() != originalInfo.Mode().Perm() {
+		t.Fatalf("mode = %o, want original native mode %o", info.Mode().Perm(), originalInfo.Mode().Perm())
 	}
 	ignore, err := os.ReadFile(filepath.Join(root, ".lithe", ".gitignore"))
 	if err != nil {

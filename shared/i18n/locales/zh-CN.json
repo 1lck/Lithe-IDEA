@@ -10713,7 +10713,9 @@
     "desktop.toolchains.conflict": "{tool} 同时由 {plugins} 定义；请只保留其中一个插件。",
     "desktop.toolchains.noProject": "打开项目后才能读取其工具链。",
     "desktop.toolchains.pinSource": "固定在 {directory}",
-    "desktop.toolchains.chooseHelp": "选择一行只修改草稿。保存会写入本项目的 .lithe/toolchains/local.json；取消不会改动文件。"
+    "desktop.toolchains.chooseHelp": "选择一行只修改草稿。保存会写入本项目的 .lithe/toolchains/local.json；取消不会改动文件。",
+    "desktop.debug.targetUnavailable": "没有找到可运行的调试目标，请先构建程序。",
+    "desktop.debug.adapter": "调试适配器"
   },
   "overrides": {
     "macos": {

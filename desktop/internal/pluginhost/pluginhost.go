@@ -1,7 +1,7 @@
 // Package pluginhost applies this client's plugin policy to a package on disk.
 //
 // It deliberately does not import the Core bridge. The interface it declares
-// uses only JSON and the standard library, so *core.Client satisfies it
+// uses JSON and native file APIs, so *core.Client satisfies it
 // directly while this policy stays testable without a C toolchain. Work that
 // needs Core's own types — the launch plan and the start request — is assembled
 // by the caller that already speaks to Core.
@@ -36,7 +36,7 @@ var (
 	// ErrPackageSymlink reports a plan path that is, or passes through, a
 	// symbolic link.
 	ErrPackageSymlink = errors.New("plugin package path is a symbolic link")
-	// ErrNotExecutable reports a program without an execute bit.
+	// ErrNotExecutable reports a file that fails native executable validation.
 	ErrNotExecutable = errors.New("plugin program is not executable")
 	// ErrCapabilityNotDeclared reports a capability set this client cannot serve.
 	ErrCapabilityNotDeclared = errors.New("plugin capability is not implemented by this client")
@@ -151,7 +151,7 @@ func ResolvePackagePath(packageDirectory, name string) (string, error) {
 }
 
 // ResolveExecutable is ResolvePackagePath for a program a launch plan will start.
-// The file must also carry an execute bit.
+// The file must also pass the running platform's native executable check.
 func ResolveExecutable(packageDirectory, name string) (string, error) {
 	return resolve(packageDirectory, name, true)
 }
@@ -196,8 +196,10 @@ func resolve(packageDirectory, name string, executable bool) (string, error) {
 			if !info.Mode().IsRegular() {
 				return "", fmt.Errorf("%w: %q is not a regular file", ErrPackagePath, name)
 			}
-			if executable && info.Mode().Perm()&0o111 == 0 {
-				return "", fmt.Errorf("%w: %q", ErrNotExecutable, name)
+			if executable {
+				if err := verifyNativeExecutable(current, info); err != nil {
+					return "", fmt.Errorf("%w: %q", err, name)
+				}
 			}
 			continue
 		}

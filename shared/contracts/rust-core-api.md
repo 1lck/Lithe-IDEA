@@ -7042,3 +7042,12 @@ The command performs no I/O and grants no execution authority. The host owns
 explicit Save confirmation, byte-baseline conflict detection, cancellation,
 ignore-file preparation, atomic native replacement, and re-reading the source.
 See `shared/fixtures/toolchain-pin-edit.json` for the cross-client vector.
+
+### Debug launch response ordering
+
+A debug adapter may emit `stopped` or `terminated` before replying to `launch`
+or `attach`. The acknowledgement completes that operation; it changes state to
+`running` only if the session is still `launching`. It never resumes a paused
+target or resurrects a terminated one. See
+`shared/fixtures/debug/launch-event-order.json`. Hosts serialize each Core update,
+its outbound frames and its UI publication in the order returned by the engine.
