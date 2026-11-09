@@ -35,6 +35,11 @@ type Spec struct {
 	Arguments        []string
 	WorkingDirectory string
 	Environment      map[string]string
+	// Stdin, when set, becomes the process's standard input. The caller owns
+	// the reader's other end, so a protocol session (for example a debug
+	// adapter) can write frames after the process starts while cancellation
+	// still ends the whole tree.
+	Stdin io.Reader
 }
 
 // Process is one running host-owned process. Wait must be called once to
@@ -77,6 +82,7 @@ func Start(ctx context.Context, spec Spec, observe func(Stream, string)) (*Proce
 	command := exec.Command(spec.Executable, spec.Arguments...)
 	command.Dir = spec.WorkingDirectory
 	command.Env = mergedEnvironment(spec.Environment)
+	command.Stdin = spec.Stdin
 	command.Stdout = stdoutWrite
 	command.Stderr = stderrWrite
 	platform := &processPlatform{}

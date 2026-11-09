@@ -61,6 +61,17 @@ type Kernel interface {
 	CheckBuildToolVersion(ctx context.Context, manifest json.RawMessage, buildSystemID, runtime, output string) (core.BuildToolVersion, error)
 	PlanBuildModel(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildPlanRequest) (core.BuildPlan, error)
 	PlanBuildTask(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildPlanRequest) (core.BuildPlan, error)
+	PlanBuildTest(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildTestRequest) (core.BuildPlan, error)
+	DecodeBuildTestResults(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildTestResultsRequest) (core.BuildTestResults, error)
+	ResolveBuildTestOutcome(ctx context.Context, termination core.BuildTestTermination, project, suite, caseName string, summary *core.BuildTestSummary) (core.BuildTestVerdict, error)
+	CreateDebugSession(ctx context.Context, request core.DebugCreateSessionRequest) (core.DebugUpdate, error)
+	LaunchDebug(ctx context.Context, sessionID, operationID string, configuration core.DebugLaunchConfiguration) (core.DebugUpdate, error)
+	SetDebugBreakpoints(ctx context.Context, sessionID, sourcePath string, breakpoints []core.DebugSourceBreakpoint) (core.DebugUpdate, error)
+	ExecuteDebug(ctx context.Context, sessionID, operationID, command string, threadID *int64) (core.DebugUpdate, error)
+	InspectDebug(ctx context.Context, request core.DebugInspectRequest) (core.DebugUpdate, error)
+	ReceiveDebug(ctx context.Context, sessionID string, data []byte) (core.DebugUpdate, error)
+	DisconnectDebug(ctx context.Context, sessionID string) (core.DebugUpdate, error)
+	DestroyDebugSession(ctx context.Context, sessionID string) ([]string, error)
 	PlanBuildRun(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildPlanRequest) (core.BuildPlan, error)
 	DecodeBuildModel(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeModelRequest) (core.BuildModel, error)
 	DecodeBuildRun(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeRunRequest) (core.BuildLaunch, error)
@@ -189,6 +200,10 @@ type project struct {
 	tree fileTree
 	// build is the Run tool window's provider-backed instances and output.
 	build buildState
+	// tests is the Tests tool window's run and decoded result tree.
+	tests testState
+	// debug is the Debug tool window's adapter session, breakpoints and stack.
+	debug debugState
 	// agent is the project's Agent panel and connection.
 	agent agentState
 }
@@ -1034,6 +1049,10 @@ func (a *App) requestCloseProject(after func()) {
 		a.releaseProjectSearch(p)
 		a.closeDocuments(p)
 		a.closeTerminals(p)
+		// A test run owns a process or provider request, so it is stopped before
+		// the build providers it borrowed close.
+		a.stopTestsForProject(p)
+		a.stopDebugForProject(p)
 		// Build providers and prepared applications belong to the workspace and
 		// are stopped before the project state is dropped.
 		a.stopBuild(p)

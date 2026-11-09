@@ -3,6 +3,7 @@ package buildprocess
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -42,6 +43,13 @@ func TestBuildProcessHelper(t *testing.T) {
 	case "orphan-child":
 		fmt.Fprintln(os.Stdout, "child holds the pipe")
 		time.Sleep(30 * time.Second)
+		os.Exit(0)
+	case "stdin":
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			os.Exit(5)
+		}
+		fmt.Fprintf(os.Stdout, "got:%s\n", data)
 		os.Exit(0)
 	case "bulk":
 		chunk := strings.Repeat("x", 4096) + "\n"
@@ -221,5 +229,37 @@ func TestProcessStopRacesWithNormalExit(t *testing.T) {
 			t.Fatalf("iteration %d did not finish after Stop raced with exit", i)
 		}
 		cancel()
+	}
+}
+
+func TestProcessReadsInjectedStdin(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	reader, writer := io.Pipe()
+	output := make(chan string, 8)
+	spec := processSpec(t, "stdin")
+	spec.Stdin = reader
+	process, err := Start(ctx, spec, func(_ Stream, text string) {
+		output <- text
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Write([]byte("frame")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := process.Wait(); err != nil {
+		t.Fatalf("wait: %v", err)
+	}
+	close(output)
+	var combined strings.Builder
+	for text := range output {
+		combined.WriteString(text)
+	}
+	if !strings.Contains(combined.String(), "got:frame") {
+		t.Fatalf("output = %q, want the bytes written to stdin", combined.String())
 	}
 }

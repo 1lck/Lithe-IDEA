@@ -234,6 +234,7 @@ type buildOutcome struct {
 	Plan       *BuildPlan            `json:"plan"`
 	Model      *BuildModel           `json:"model"`
 	Launch     *BuildLaunch          `json:"launch"`
+	Results    *BuildTestResults     `json:"results"`
 	Invocation *BuildInvocation      `json:"invocation"`
 	Version    *BuildToolVersion     `json:"version"`
 }

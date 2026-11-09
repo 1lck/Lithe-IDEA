@@ -974,6 +974,7 @@ func (a *App) invalidateBuild(p *project) {
 	if p == nil {
 		return
 	}
+	a.stopTestsForProject(p)
 	a.stopBuild(p)
 	// stopBuild captured the old runtime; replacing it lets the next detection
 	// start fresh sessions without waiting for the old close.

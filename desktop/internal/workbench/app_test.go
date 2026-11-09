@@ -204,7 +204,7 @@ func TestWorkbenchDefaultLayout(t *testing.T) {
 	want := map[zone][]string{
 		zoneLeftTop:     {itemProject, itemCommit, itemStructure, itemFind},
 		zoneLeftBottom:  nil,
-		zoneBottomLeft:  {itemGit, itemTerminal, itemProblems, itemRun, itemSecurity, itemDebug},
+		zoneBottomLeft:  {itemGit, itemTerminal, itemProblems, itemRun, itemTests, itemSecurity, itemDebug},
 		zoneRightTop:    {itemNotifications, itemAssistant},
 		zoneRightBottom: nil,
 		zoneBottomRight: {itemUpdates, itemBackground},

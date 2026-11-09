@@ -471,4 +471,6 @@ var english = Messages{
 	},
 	Errors: errorMessages(English),
 	Build:  buildMessages(English),
+	Tests:  testMessages(English),
+	Debug:  debugMessages(English),
 }

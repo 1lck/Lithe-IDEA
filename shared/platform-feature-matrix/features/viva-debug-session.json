@@ -1,0 +1,35 @@
+{
+  "id": "viva-debug-session",
+  "area": "运行与调试",
+  "group": "调试器",
+  "capability": "Viva 调试面板使用插件声明的 stdio 调试适配器：主机启动适配器进程、把原始字节交给共享 Core 的 DAP 会话状态机，支持源码断点、暂停/继续和暂停后的栈帧；不实现 attach、变量、异常断点、TCP 传输或调试控制台",
+  "macos": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/debug.go",
+      "desktop/internal/pluginservice/debug.go",
+      "desktop/internal/workbench/debug.go",
+      "desktop/internal/workbench/debug_view.go",
+      "desktop/internal/workbench/debug_test.go",
+      "desktop/internal/workbench/debug_adapter_test.go",
+      "desktop/internal/buildprocess/process.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/debug.go",
+      "desktop/internal/pluginservice/debug.go",
+      "desktop/internal/workbench/debug.go",
+      "desktop/internal/workbench/debug_view.go",
+      "desktop/internal/workbench/debug_test.go",
+      "desktop/internal/workbench/debug_adapter_test.go",
+      "desktop/internal/buildprocess/process.go"
+    ]
+  },
+  "owner": "Debug",
+  "verification": "用隔离 fixture 插件和真实 stdio DAP 适配器进程验证：Core debug.createSession / debug.launch / debug.setBreakpoints / debug.execute / debug.inspect / debug.receive / debug.disconnect / debug.destroySession 的完整链路；测试覆盖断点写入、启动后暂停、栈帧解码与源码定位、继续后清空栈帧、暂停后重新获取栈帧、停止会话和关闭项目清理。宿主只做适配器进程、字节传输和界面呈现，不解析 DAP 或维护调试状态机。未验证：attach、变量/作用域、异常断点、条件断点、步进、TCP 适配器、多会话子会话、真实 Java/C++ 适配器、Windows 实机与原生窗口视觉。",
+  "notes": "Viva 原有 Debug 工具窗口为占位。本能力只覆盖最小可运行的 launch + 断点 + 暂停/继续 + 栈帧闭环；其余调试能力仍按各自能力行保持 missing/pending，不随本行提升。"
+}

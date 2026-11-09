@@ -22,6 +22,8 @@ type Messages struct {
 	Logs     LogMessages
 	Errors   ErrorMessages
 	Build    BuildMessages
+	Tests    TestMessages
+	Debug    DebugMessages
 }
 
 // AppMessages names the application.
@@ -117,6 +119,7 @@ type ToolMessages struct {
 	Problems      string
 	Run           string
 	Build         string
+	Tests         string
 	Security      string
 	Debug         string
 	Notifications string

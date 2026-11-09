@@ -31,6 +31,19 @@ type BuildSystemDeclaration struct {
 	Provider bool
 	Tasks    []BuildTaskDeclaration
 	Runs     []BuildRunDeclaration
+	// Test is the presentation part of the optional test declaration. Core
+	// still owns whether a selection can run; the window only needs to know
+	// that the system offers tests and on which scopes.
+	Test *BuildTestDeclaration
+}
+
+// BuildTestDeclaration is one build system's declared test entry.
+type BuildTestDeclaration struct {
+	Scopes []string
+	// Source is "command" or "provider"; the window does not interpret it
+	// beyond choosing how to present the run.
+	Source    string
+	Discovery bool
 }
 
 // BuildTaskDeclaration is one task the Build window may offer.
@@ -105,6 +118,11 @@ type rawBuildManifest struct {
 				Tags []string `json:"tags"`
 			} `json:"fromTargets"`
 		} `json:"run"`
+		Test *struct {
+			Scopes    []string `json:"scopes"`
+			Source    string   `json:"source"`
+			Discovery bool     `json:"discovery"`
+		} `json:"test"`
 	} `json:"buildSystems"`
 }
 
@@ -151,6 +169,13 @@ func parseBuildSystems(manifest json.RawMessage) (map[string]BuildSystemDeclarat
 				Execution: run.Execution,
 				Tags:      append([]string(nil), run.FromTargets.Tags...),
 			})
+		}
+		if raw.Test != nil {
+			system.Test = &BuildTestDeclaration{
+				Scopes:    append([]string(nil), raw.Test.Scopes...),
+				Source:    raw.Test.Source,
+				Discovery: raw.Test.Discovery,
+			}
 		}
 		systems[raw.ID] = system
 	}

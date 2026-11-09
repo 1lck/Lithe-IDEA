@@ -154,6 +154,7 @@ const (
 	itemTerminal      = "terminal"
 	itemProblems      = "problems"
 	itemRun           = "run"
+	itemTests         = "tests"
 	itemSecurity      = "security"
 	itemDebug         = "debug"
 	itemNotifications = "notifications"
@@ -203,6 +204,7 @@ var catalog = []item{
 	{id: itemTerminal, zone: zoneBottomLeft, icon: &icons.SquareTerminal, label: func(m *i18n.Messages) string { return m.Tools.Terminal }, panel: true},
 	{id: itemProblems, zone: zoneBottomLeft, icon: &icons.CircleAlert, label: func(m *i18n.Messages) string { return m.Tools.Problems }, panel: true},
 	{id: itemRun, zone: zoneBottomLeft, icon: &icons.Play, label: func(m *i18n.Messages) string { return m.Tools.Build }, panel: true},
+	{id: itemTests, zone: zoneBottomLeft, icon: &icons.CircleCheck, label: func(m *i18n.Messages) string { return m.Tools.Tests }, panel: true},
 	{id: itemSecurity, zone: zoneBottomLeft, icon: &icons.ShieldCheck, label: func(m *i18n.Messages) string { return m.Tools.Security }, panel: true},
 	{id: itemDebug, zone: zoneBottomLeft, icon: &icons.Bug, label: func(m *i18n.Messages) string { return m.Tools.Debug }, panel: true},
 

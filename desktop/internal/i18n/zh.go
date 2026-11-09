@@ -471,4 +471,6 @@ var chinese = Messages{
 	},
 	Errors: errorMessages(Chinese),
 	Build:  buildMessages(Chinese),
+	Tests:  testMessages(Chinese),
+	Debug:  debugMessages(Chinese),
 }

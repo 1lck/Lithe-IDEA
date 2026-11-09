@@ -461,6 +461,10 @@ func (a *App) drawShellPanel(f *ui.Frame, s slot, index int, hidden *slot) ui.Bo
 	search := tool.id == itemFind && a.project != nil
 	// The Problems tool window of an open project lists what its servers published.
 	problems := tool.id == itemProblems && a.project != nil
+	// The Tests tool window runs one workspace test selection and shows its tree.
+	tests := tool.id == itemTests && a.project != nil
+	// The Debug tool window owns one adapter session, its breakpoints and stack.
+	debug := tool.id == itemDebug && a.project != nil
 	// The AI Assistant tool window holds the project's Agent conversation.
 	assistant := tool.id == itemAssistant && a.project != nil
 	header := float32(panelHeaderHeight)
@@ -531,6 +535,14 @@ func (a *App) drawShellPanel(f *ui.Frame, s slot, index int, hidden *slot) ui.Bo
 		}
 		if tool.id == itemRun {
 			a.drawBuildPanel(f, a.project)
+			return
+		}
+		if tests {
+			a.drawTestsPanel(f, a.project)
+			return
+		}
+		if debug {
+			a.drawDebugPanel(f, a.project)
 			return
 		}
 		if assistant {

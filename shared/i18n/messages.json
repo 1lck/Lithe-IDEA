@@ -75158,7 +75158,8 @@
       "id": "native.tests",
       "description": "Native UI: Tests",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Tests",
@@ -75169,7 +75170,8 @@
       "id": "native.testsFailed",
       "description": "Native UI: Tests failed",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Tests failed",
@@ -75180,7 +75182,8 @@
       "id": "native.testsPassed",
       "description": "Native UI: Tests passed",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Tests passed",
@@ -102345,6 +102348,266 @@
     {
       "id": "desktop.semantics.completionFailed",
       "description": "Banner shown when Core cannot apply the accepted completion.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.tests.run",
+      "description": "Run tests",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.tests.rerun",
+      "description": "Run tests again",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.tests.stop",
+      "description": "Stop the running tests",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.tests.running",
+      "description": "Running tests…",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.tests.preparing",
+      "description": "Preparing tests…",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.tests.stopping",
+      "description": "Stopping the test run…",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.tests.empty",
+      "description": "Run tests to see results.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.tests.noSystems",
+      "description": "No build system in this workspace declares tests.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.tests.exitedWithError",
+      "description": "Tests ended with an error before reporting a result.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.tests.noTestsMatched",
+      "description": "No test matched the selected scope.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.tests.noTestsFound",
+      "description": "No tests were found.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.tests.timedOut",
+      "description": "Tests timed out",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.tests.cancelled",
+      "description": "Test run cancelled",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.tests.resultsUnavailable",
+      "description": "Test results are unavailable: {error}",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "error": "string"
+      }
+    },
+    {
+      "id": "desktop.tests.summary",
+      "description": "Test summary: {passed} passed, {failed} failed, {skipped} skipped",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "passed": "integer",
+        "failed": "integer",
+        "skipped": "integer"
+      }
+    },
+    {
+      "id": "desktop.tests.openLocation",
+      "description": "Open the failing test's source location",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.pluginsUnavailable",
+      "description": "Debug plugins are unavailable in this window.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.start",
+      "description": "Start debugging",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.stop",
+      "description": "Stop debugging",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.continue",
+      "description": "Continue",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.pause",
+      "description": "Pause",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.starting",
+      "description": "Starting the debug adapter…",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.initialized",
+      "description": "Debug adapter initialized",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.paused",
+      "description": "Paused",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.running",
+      "description": "Running",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.terminated",
+      "description": "Debug session terminated",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.failed",
+      "description": "Debug session failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.toggleBreakpoint",
+      "description": "Toggle breakpoint at caret",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.removeBreakpoint",
+      "description": "Remove the breakpoint",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.breakpoints",
+      "description": "Breakpoints",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.noBreakpoints",
+      "description": "No breakpoints",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.frames",
+      "description": "Call stack",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.noFrames",
+      "description": "No stack frames",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.openFrame",
+      "description": "Open the frame's source location",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.noAdapters",
+      "description": "No installed plugin declares a stdio debug adapter.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.noDocument",
+      "description": "Open a file first to toggle its breakpoint.",
       "platforms": [
         "desktop"
       ]
