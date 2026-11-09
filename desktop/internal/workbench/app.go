@@ -32,6 +32,8 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/app"
@@ -107,6 +109,13 @@ type Options struct {
 	// Version is the client's version: the start screen and the settings window show it, and
 	// copied records carry it in their environment.
 	Version string
+	// PluginKernel runs plugin packages: it validates manifests, reviews installations and
+	// starts plugin backends. It is separate from Kernel so that a window can be built
+	// without the plugin stack; nil leaves plugins unavailable.
+	PluginKernel pluginservice.Kernel
+	// PluginRoot is the directory installed plugin packages live in. Empty asks
+	// pluginpkg.DefaultRoot, which is the platform's own data directory.
+	PluginRoot string
 }
 
 // LogSink is the client's log as the window uses it: the log window reads it and the
@@ -184,6 +193,9 @@ type App struct {
 	notice string
 	// settingsWindow opens the settings window and keeps at most one open.
 	settingsWindow *settingswindow.Controller
+	// plugins is the plugin stack, nil when the window was built without a plugin
+	// kernel or without a writable plugin root.
+	plugins *pluginservice.Service
 
 	welcome    welcomeState
 	clone      cloneState
@@ -293,10 +305,38 @@ func New(options Options) *App {
 			Shortcut: logsShortcut,
 		})
 	}
+	a.openPlugins(options)
 	a.settingsWindow = a.newSettingsWindow()
 	a.loadRecent()
 	a.loadChrome()
 	return a
+}
+
+// openPlugins assembles the plugin stack.
+//
+// A window without a plugin kernel, or one whose platform data directory cannot be
+// resolved, runs without plugins instead of refusing to start: nothing else in the
+// workbench depends on them, and a start-up failure here would take the whole client
+// down over an optional feature.
+func (a *App) openPlugins(options Options) {
+	if options.PluginKernel == nil {
+		return
+	}
+	root := options.PluginRoot
+	if root == "" {
+		resolved, err := pluginpkg.DefaultRoot()
+		if err != nil {
+			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_root", err))
+			return
+		}
+		root = resolved
+	}
+	service, err := pluginservice.Open(options.PluginKernel, a.store, root)
+	if err != nil {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_open", err))
+		return
+	}
+	a.plugins = service
 }
 
 // Run shows the window and returns when it is closed.
