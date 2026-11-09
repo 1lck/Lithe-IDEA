@@ -1,7 +1,9 @@
 package editorview
 
 import (
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
@@ -286,12 +288,56 @@ func TestEditCallbackReportsLSPRange(t *testing.T) {
 	if got := edits[0]; got.StartLine != 1 || got.StartColumn != 1 || got.EndLine != 1 || got.EndColumn != 1 || got.Text != "X" {
 		t.Fatalf("range edit = %+v", got)
 	}
-	// Undo replaces the whole document, so its edit covers it.
+	// Undo and redo report the bytes the step changes, as the keystroke they take back or do
+	// again, not a replacement of the whole document.
 	v.Undo()
 	if len(edits) != 2 {
 		t.Fatalf("edits after undo = %+v", edits)
 	}
-	if got := edits[1]; got.StartLine != 0 || got.StartColumn != 0 || got.EndLine != 1 || got.EndColumn != 4 || got.Text != "abc\ndef" {
+	if got := edits[1]; got != (Edit{StartLine: 1, StartColumn: 1, EndLine: 1, EndColumn: 2}) {
 		t.Fatalf("undo edit = %+v", got)
+	}
+	v.Redo()
+	if len(edits) != 3 {
+		t.Fatalf("edits after redo = %+v", edits)
+	}
+	if got := edits[2]; got != (Edit{StartLine: 1, StartColumn: 1, EndLine: 1, EndColumn: 1, Text: "X"}) {
+		t.Fatalf("redo edit = %+v", got)
+	}
+	if text, _ := v.Text(); string(text) != "abc\ndXef" {
+		t.Fatalf("text after redo = %q", text)
+	}
+}
+
+// The column of an offset is the same whether positionAt counts it from the start of its line or
+// from the caret's column that CaretUTF16 keeps, before or after the caret, on a line of characters
+// of one, two and three bytes and of one that takes two UTF-16 units.
+func TestPositionAtCountsFromTheNearerKnownColumn(t *testing.T) {
+	line := strings.Repeat("a\u00e9\u4e2d\U0001F600", 40)
+	v := New(Config{HitID: gfx.Item(1), Label: "test", Content: Prepare([]byte("first\n" + line + "\nlast"))})
+	t.Cleanup(v.Close)
+	lineStart, lineEnd := v.text.LineStart(1), v.text.LineStart(1)+len(line)
+	want := func(offset int) int { return utf16Length(line[:offset-lineStart]) }
+	boundary := func(offset int) bool { return offset == lineEnd || utf8.RuneStart(v.text.ByteAt(offset)) }
+	for caret := lineStart; caret <= lineEnd; caret++ {
+		if !boundary(caret) {
+			continue
+		}
+		v.anchor, v.caret = caret, caret
+		if _, column := v.CaretUTF16(); column != want(caret) {
+			t.Fatalf("caret at %d: CaretUTF16 column %d, want %d", caret, column, want(caret))
+		}
+		for offset := lineStart; offset <= lineEnd; offset++ {
+			if !boundary(offset) {
+				continue
+			}
+			if gotLine, column := v.positionAt(offset); gotLine != 1 || column != want(offset) {
+				t.Fatalf("caret at %d: positionAt(%d) = %d:%d, want 1:%d", caret, offset, gotLine, column, want(offset))
+			}
+		}
+	}
+	// An offset on another line than the caret's is counted from its own line's start.
+	if gotLine, column := v.positionAt(v.text.LineStart(2) + 2); gotLine != 2 || column != 2 {
+		t.Fatalf("positionAt on the last line = %d:%d, want 2:2", gotLine, column)
 	}
 }

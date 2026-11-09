@@ -8,7 +8,6 @@
 package editorview
 
 import (
-	"bytes"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -378,7 +377,10 @@ func (v *View) ResolveWithDisk(content Content) bool {
 func (c Content) Snapshot() rope.Rope { return c.text }
 
 func (v *View) replaceFromDisk(content Content) bool {
-	edit := v.wholeDocumentEdit(content.text)
+	var change Edit
+	if v.cfg.OnEdit != nil {
+		change = v.wholeDocumentEdit(content.text)
+	}
 	v.undo = append(v.undo, v.snapshot())
 	if len(v.undo) > undoLimit {
 		v.undo = v.undo[len(v.undo)-undoLimit:]
@@ -405,7 +407,7 @@ func (v *View) replaceFromDisk(content Content) bool {
 	v.lastKind, v.goal = editOther, -1
 	v.dirty = false
 	v.blinkFrom = v.clock
-	v.reportEdit(edit)
+	v.reportEdit(change)
 	return true
 }
 
@@ -484,15 +486,14 @@ func (v *View) CaretUTF16() (int, int) {
 	return line, column
 }
 
-func utf16Length(data []byte) int {
+func utf16Length(text string) int {
 	units := 0
-	for len(data) > 0 {
-		r, size := utf8.DecodeRune(data)
+	// Invalid UTF-8 ranges as U+FFFD, one unit, as utf16Units counts it.
+	for _, r := range text {
 		units++
 		if r > 0xffff {
 			units++
 		}
-		data = data[size:]
 	}
 	return units
 }
@@ -665,7 +666,7 @@ func rangeCells(text rope.Rope, start, end, cells int) int {
 // edit replaces the bytes from start to end with text, leaves the caret after it and keeps
 // what was there for undo. Typing and deleting on from where the last such edit stopped go
 // into its undo step.
-func (v *View) edit(start, end int, text []byte, kind editKind) {
+func (v *View) edit(start, end int, text string, kind editKind) {
 	if start == end && len(text) == 0 {
 		return
 	}
@@ -675,7 +676,7 @@ func (v *View) edit(start, end int, text []byte, kind editKind) {
 	switch kind {
 	case editTyping:
 		merge = merge && start == v.lastEnd &&
-			!bytes.ContainsRune(text, '\n') && !(len(text) > 0 && text[0] == ' ' && start > 0 && v.text.ByteAt(start-1) != ' ')
+			!strings.ContainsRune(text, '\n') && !(len(text) > 0 && text[0] == ' ' && start > 0 && v.text.ByteAt(start-1) != ' ')
 	case editDeleting:
 		merge = merge && (end == v.lastEnd || start == v.lastEnd)
 	}
@@ -686,18 +687,20 @@ func (v *View) edit(start, end int, text []byte, kind editKind) {
 		}
 	}
 	v.redo = v.redo[:0]
-	startLine, startColumn := v.positionAt(start)
-	endLine, endColumn := v.positionAt(end)
+	var change Edit
+	if v.cfg.OnEdit != nil {
+		change = v.editBetween(start, end, text)
+	}
 	firstLine, oldLast, oldCount := v.text.LineOf(start), v.text.LineOf(end), v.text.LineCount()
 	// Keep the status column incremental for ordinary typing and deletion, even
 	// on a very long line. Other edits invalidate the cached rope naturally.
 	cacheEdit := v.caretUTF16Valid && v.caretUTF16Text.Same(v.text) && v.caretUTF16Line == firstLine && firstLine == oldLast &&
-		start <= v.caretUTF16Offset && v.caretUTF16Offset <= end && !bytes.ContainsRune(text, '\n')
+		start <= v.caretUTF16Offset && v.caretUTF16Offset <= end && !strings.ContainsRune(text, '\n')
 	column := 0
 	if cacheEdit {
 		column = v.caretUTF16Column - v.utf16Units(start, v.caretUTF16Offset) + utf16Length(text)
 	}
-	v.text = v.text.Replace(start, end, text)
+	v.text = v.text.Replace(start, end, []byte(text))
 	v.revision++
 	newLast := v.text.LineOf(start + len(text))
 	v.keepStops(firstLine, oldLast, newLast, start-v.text.LineStart(firstLine))
@@ -715,27 +718,48 @@ func (v *View) edit(start, end int, text []byte, kind editKind) {
 	v.widest = max(v.widest, widestLine(v.text, firstLine, v.text.LineOf(v.caret)))
 	v.compare()
 	v.moved()
-	v.reportEdit(Edit{StartLine: startLine, StartColumn: startColumn, EndLine: endLine, EndColumn: endColumn, Text: string(text)})
+	v.reportEdit(change)
 }
 
-// positionAt is the zero-based LSP line and UTF-16 column of a byte offset in
-// the current text.
+// editBetween is the Edit that replaces the bytes from start to end of the current text with
+// text.
+func (v *View) editBetween(start, end int, text string) Edit {
+	startLine, startColumn := v.positionAt(start)
+	endLine, endColumn := v.positionAt(end)
+	return Edit{StartLine: startLine, StartColumn: startColumn, EndLine: endLine, EndColumn: endColumn, Text: text}
+}
+
+// positionAt is the zero-based LSP line and UTF-16 column of a byte offset in the current text.
+// It counts the UTF-16 units from whichever of two known columns is nearer: the start of the line,
+// or the caret's column that CaretUTF16 keeps while the caret's line is the offset's. The status
+// bar reads that column on every frame, so a keystroke on a line of megabytes counts the few bytes
+// between the caret and the edit, not the line before it.
 func (v *View) positionAt(offset int) (line, column int) {
 	line = v.text.LineOf(offset)
-	return line, v.utf16Units(v.text.LineStart(line), offset)
+	lineStart := v.text.LineStart(line)
+	if v.caretUTF16Valid && v.caretUTF16Line == line && v.caretUTF16Text.Same(v.text) {
+		known := v.caretUTF16Offset
+		switch {
+		case offset >= known && offset-known < offset-lineStart:
+			return line, v.caretUTF16Column + v.utf16Units(known, offset)
+		case offset < known && known-offset < offset-lineStart:
+			return line, v.caretUTF16Column - v.utf16Units(offset, known)
+		}
+	}
+	return line, v.utf16Units(lineStart, offset)
 }
 
-// wholeDocumentEdit is the replacement Edit for making replacement the view's
-// whole text.
+// wholeDocumentEdit is the Edit that makes replacement the view's whole text.
 func (v *View) wholeDocumentEdit(replacement rope.Rope) Edit {
 	last := v.text.LineCount() - 1
 	return Edit{
 		EndLine:   last,
 		EndColumn: v.utf16Units(v.text.LineStart(last), v.text.LineEnd(last)),
-		Text:      string(replacement.Bytes()),
+		Text:      replacement.String(),
 	}
 }
 
+// reportEdit gives edit to OnEdit, when the window set one.
 func (v *View) reportEdit(edit Edit) {
 	if v.cfg.OnEdit != nil {
 		v.cfg.OnEdit(edit)
@@ -750,9 +774,17 @@ func (v *View) snapshot() snapshot {
 // restore makes s the view's text and selection. The texts of an undo step are versions of one
 // text, so rope.Diff finds the bytes the step changes by reading little more than them, and the
 // view and the highlighter follow it as they follow an edit, keeping what they know of the rest.
+// OnEdit hears of the same bytes, not of a new document, so a language server receives what the
+// step changed. Those bytes lie in a leaf or two of s's text, which Substring shares rather than
+// copies.
 func (v *View) restore(s snapshot) {
-	edit := v.wholeDocumentEdit(s.text)
 	start, oldEnd, newEnd := rope.Diff(v.text, s.text)
+	changed := start != oldEnd || start != newEnd
+	var change Edit
+	if v.cfg.OnEdit != nil && changed {
+		text, _ := s.text.Substring(start, newEnd)
+		change = v.editBetween(start, oldEnd, text)
+	}
 	firstLine, oldLast, oldCount := v.text.LineOf(start), v.text.LineOf(oldEnd), v.text.LineCount()
 	v.text = s.text
 	v.revision++
@@ -765,7 +797,9 @@ func (v *View) restore(s snapshot) {
 	v.widest = max(v.widest, s.widest)
 	v.compare()
 	v.moved()
-	v.reportEdit(edit)
+	if changed {
+		v.reportEdit(change)
+	}
 }
 
 // Undo takes back the last edit; Redo does it again.
@@ -794,7 +828,7 @@ func (v *View) Redo() bool {
 // insert puts text in place of the selection.
 func (v *View) insert(text string, kind editKind) {
 	start, end := v.Selection()
-	v.edit(start, end, []byte(text), kind)
+	v.edit(start, end, text, kind)
 }
 
 // SelectAll selects the whole text.

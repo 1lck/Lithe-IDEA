@@ -149,22 +149,22 @@ func (v *View) Key(event gfx.KeyEvent) (gfx.EventResult, bool) {
 		case start != end:
 			v.insert("", editOther)
 		case edge:
-			v.edit(v.text.LineStart(line), v.caret, nil, editOther)
+			v.edit(v.text.LineStart(line), v.caret, "", editOther)
 		case word:
-			v.edit(v.wordLeft(v.caret), v.caret, nil, editOther)
+			v.edit(v.wordLeft(v.caret), v.caret, "", editOther)
 		default:
-			v.edit(v.backspaceFrom(line), v.caret, nil, editDeleting)
+			v.edit(v.backspaceFrom(line), v.caret, "", editDeleting)
 		}
 	case gfx.KeyDelete:
 		switch {
 		case start != end:
 			v.insert("", editOther)
 		case edge:
-			v.edit(v.caret, v.lineEnd(line), nil, editOther)
+			v.edit(v.caret, v.lineEnd(line), "", editOther)
 		case word:
-			v.edit(v.caret, v.wordRight(v.caret), nil, editOther)
+			v.edit(v.caret, v.wordRight(v.caret), "", editOther)
 		default:
-			v.edit(v.caret, v.nextRune(v.caret), nil, editOther)
+			v.edit(v.caret, v.nextRune(v.caret), "", editOther)
 		}
 	case gfx.KeyEnter:
 		if mods&^gfx.ModifierShift != 0 {
@@ -243,16 +243,16 @@ func (v *View) newline() {
 	}
 	closer, opens := closers[before]
 	if !opens {
-		v.edit(start, end, []byte("\n"+indent), editOther)
+		v.edit(start, end, "\n"+indent, editOther)
 		return
 	}
 	inner := "\n" + indent + v.indentUnit
 	if after == closer {
-		v.edit(start, end, []byte(inner+"\n"+indent), editOther)
+		v.edit(start, end, inner+"\n"+indent, editOther)
 		v.moveTo(start+len(inner), false)
 		return
 	}
-	v.edit(start, end, []byte(inner), editOther)
+	v.edit(start, end, inner, editOther)
 }
 
 // tab indents: a selection over lines indents or, with Shift, outdents every line it touches;
@@ -293,7 +293,7 @@ func (v *View) tab(outdent bool) {
 		}
 	}
 	joined := strings.Join(lines, "\n")
-	v.edit(from, to, []byte(joined), editOther)
+	v.edit(from, to, joined, editOther)
 	v.anchor, v.caret = from, from+len(joined)
 }
 

@@ -282,7 +282,7 @@ func TestLongLineStopsFollowEdits(t *testing.T) {
 	check("before any edit")
 	mid := strings.Index(line[len(line)/2:], "中") + len(line)/2
 
-	v.edit(mid, mid, []byte("\t中x"), editOther)
+	v.edit(mid, mid, "\t中x", editOther)
 	if s := v.stops[0]; s == nil || len(s.stops) < 2 || s.stops[len(s.stops)-1].at+utf8.UTFMax > mid {
 		t.Fatal("typing into the line dropped its stops before the edit, or kept ones after it")
 	}
@@ -291,17 +291,17 @@ func TestLongLineStopsFollowEdits(t *testing.T) {
 	}
 	check("after typing")
 
-	v.edit(mid+1, mid+2, nil, editOther)
+	v.edit(mid+1, mid+2, "", editOther)
 	check("after deleting the first byte of a character")
 
 	short := v.text.LineStart(1)
-	v.edit(short, short+1, []byte("S"), editOther)
+	v.edit(short, short+1, "S", editOther)
 	if s := v.stops[0]; s == nil || !s.done {
 		t.Fatal("editing another line dropped the stops of the long line before it")
 	}
 	check("after editing another line")
 
-	v.edit(mid-7, mid-7, []byte("\n"), editOther)
+	v.edit(mid-7, mid-7, "\n", editOther)
 	check("after breaking the line")
 
 	for v.Undo() {

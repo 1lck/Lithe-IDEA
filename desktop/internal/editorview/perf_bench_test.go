@@ -41,15 +41,17 @@ func benchSyntax(kind editorperf.Kind) *syntax.Syntax {
 }
 
 // benchConfig is the configuration the window gives a view of text: the same hits as the real
-// window declares, so a frame lays out the minimap and both scrollbars. It stops the benchmark when
-// a kind that has a language finds no syntax for it, which would otherwise time plain text under
-// the name of a colored document.
+// window declares, so a frame lays out the minimap and both scrollbars, and an OnEdit, which the
+// window sets for every document so that a language server can follow its edits, so an edit costs
+// what reporting it costs. It stops the benchmark when a kind that has a language finds no syntax
+// for it, which would otherwise time plain text under the name of a colored document.
 func benchConfig(b *testing.B, kind editorperf.Kind, text []byte, highlight bool) Config {
 	b.Helper()
 	cfg := Config{
 		HitID:           gfx.Item(1),
 		Label:           "bench",
 		Content:         Prepare(text),
+		OnEdit:          func(Edit) {},
 		MinimapID:       gfx.Item(2),
 		MinimapToggleID: gfx.Item(3),
 		VerticalBarID:   gfx.Item(4),
@@ -64,11 +66,18 @@ func benchConfig(b *testing.B, kind editorperf.Kind, text []byte, highlight bool
 	return cfg
 }
 
-// frame paints v into a canvas that starts empty, as the window does for every frame it draws.
+// frame paints v into a canvas that starts empty, as the window does for every frame it draws, and
+// reads the caret's UTF-16 position, as the window's status bar does for every frame.
 func frame(v *View, canvas *gfx.Canvas) {
 	canvas.Reset()
 	v.Paint(canvas, benchArea, benchLook)
+	line, column := v.CaretUTF16()
+	sinkPosition += line + column
 }
+
+// sinkPosition receives the caret positions frame reads, so that the compiler cannot drop the
+// work.
+var sinkPosition int
 
 // benchView is a view of the kind's document of the size, laid out and scrolled so that its middle
 // line is in the middle of the window, with the colors of that viewport ready. Each layout func
