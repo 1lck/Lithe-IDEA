@@ -90,6 +90,53 @@ func TestPluginDocumentResolver(t *testing.T) {
 	}
 }
 
+func TestStatusBarShowsProblemCount(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	index := -1
+	for i := range catalog {
+		if catalog[i].id == itemLSP {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		t.Fatal("the status bar has no language item")
+	}
+	// Without diagnostics the item keeps saying that no server has started.
+	if got := h.app.chromeStatusText(index); got != h.app.text.Status.LSPNotStarted {
+		t.Fatalf("text = %q", got)
+	}
+
+	set := plugindiag.NewSet()
+	if err := set.Replace("/w/A.java", []plugindiag.Diagnostic{
+		{FileKey: "/w/A.java", Line: 0, Column: 0, EndLine: 0, EndColumn: 1, Severity: plugindiag.SeverityError, Message: "a"},
+		{FileKey: "/w/A.java", Line: 1, Column: 0, EndLine: 1, EndColumn: 1, Severity: plugindiag.SeverityWarning, Message: "b"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h.app.pluginDiagnostics = set
+	if got, want := h.app.chromeStatusText(index), h.app.text.Status.Problems(2); got != want {
+		t.Fatalf("text = %q, want %q", got, want)
+	}
+	// One problem has its own wording, so the count is not "1 problems".
+	if err := set.Replace("/w/A.java", []plugindiag.Diagnostic{
+		{FileKey: "/w/A.java", Line: 0, Column: 0, EndLine: 0, EndColumn: 1, Severity: plugindiag.SeverityError, Message: "a"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := h.app.chromeStatusText(index), h.app.text.Status.Problems(1); got != want {
+		t.Fatalf("text = %q, want %q", got, want)
+	}
+	if h.app.pluginProblemCount() != 1 {
+		t.Fatalf("count = %d", h.app.pluginProblemCount())
+	}
+	// A server that fixed everything puts the item back to its idle text.
+	set.ClearAll()
+	if got := h.app.chromeStatusText(index); got != h.app.text.Status.LSPNotStarted {
+		t.Fatalf("text = %q", got)
+	}
+}
+
 func TestApplyPluginDiagnosticsWithoutAProject(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	// A window with no plugin stack ignores diagnostics instead of storing markers

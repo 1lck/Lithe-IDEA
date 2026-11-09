@@ -428,6 +428,11 @@ func (a *App) chromeStatusText(i int) string {
 		}
 		return "1:1"
 	case itemLSP:
+		// The count replaces the "not started" text only while a server has reported
+		// something: an empty count would read as a problem of its own.
+		if total := a.pluginProblemCount(); total > 0 {
+			return a.text.Status.Problems(total)
+		}
 		return a.text.Status.LSPNotStarted
 	case itemMemory:
 		return a.text.Status.MemoryValue(int(a.status.memory >> 20))

@@ -10451,6 +10451,8 @@
     "desktop.terminal.localNumber": "Local ({number})",
     "desktop.status.memoryValue": "{value} MB",
     "desktop.status.fpsValue": "{value} FPS",
+    "desktop.status.problems": "{count} problems",
+    "desktop.status.oneProblem": "1 problem",
     "desktop.commit.stageFile": "Stage {path}",
     "desktop.commit.unstageFile": "Unstage {path}",
     "desktop.commit.result": "{repository}: {status}",

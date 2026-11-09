@@ -457,7 +457,10 @@ type StatusMessages struct {
 	Writable      string
 	ReadOnly      string
 	LSPNotStarted string
-	Memory        string
+	// Problems is how many problems the language servers reported, for example
+	// "3 problems". One problem has its own wording.
+	Problems func(count int) string
+	Memory   string
 	// MemoryValue is the memory readout, for example "312 MB".
 	MemoryValue func(megabytes int) string
 	FPS         string

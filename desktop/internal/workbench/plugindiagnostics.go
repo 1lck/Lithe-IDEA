@@ -136,3 +136,12 @@ func (a *App) pluginDiagnosticCounts() map[plugindiag.Severity]int {
 	}
 	return a.pluginDiagnostics.Counts()
 }
+
+// pluginProblemCount reports how many problems the open project has in total.
+func (a *App) pluginProblemCount() int {
+	total := 0
+	for _, count := range a.pluginDiagnosticCounts() {
+		total += count
+	}
+	return total
+}

@@ -10451,6 +10451,8 @@
     "desktop.terminal.localNumber": "本地 ({number})",
     "desktop.status.memoryValue": "{value} MB",
     "desktop.status.fpsValue": "{value} FPS",
+    "desktop.status.problems": "{count} 个问题",
+    "desktop.status.oneProblem": "1 个问题",
     "desktop.commit.stageFile": "暂存 {path}",
     "desktop.commit.unstageFile": "取消暂存 {path}",
     "desktop.commit.result": "{repository}：{status}",

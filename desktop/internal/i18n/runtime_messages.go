@@ -32,6 +32,15 @@ func statusChanges(language Language, count int) string {
 	return SharedFormat(language, "footer.changes", map[string]string{"count": strconv.Itoa(count)})
 }
 
+// statusProblems is how many problems the language servers reported. One problem
+// has its own wording, because "1 problems" is not English.
+func statusProblems(language Language, count int) string {
+	if count == 1 {
+		return Shared(language, "desktop.status.oneProblem")
+	}
+	return SharedFormat(language, "desktop.status.problems", map[string]string{"count": strconv.Itoa(count)})
+}
+
 func commitFiles(language Language, count int) string {
 	if count == 1 {
 		return SharedFormat(language, "git.log.fileCountOne", map[string]string{"count": strconv.Itoa(count)})

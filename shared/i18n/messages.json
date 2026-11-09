@@ -100763,6 +100763,23 @@
       }
     },
     {
+      "id": "desktop.status.problems",
+      "description": "Number of problems the language servers reported for the open project.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.status.oneProblem",
+      "description": "One problem reported by a language server.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.commit.stageFile",
       "description": "Desktop commit: StageFile",
       "platforms": [

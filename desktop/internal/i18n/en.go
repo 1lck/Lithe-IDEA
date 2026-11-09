@@ -294,6 +294,7 @@ var english = Messages{
 		Writable:      Shared(English, "desktop.status.writable"),
 		ReadOnly:      Shared(English, "desktop.status.readOnly"),
 		LSPNotStarted: Shared(English, "desktop.status.lSPNotStarted"),
+		Problems:      func(count int) string { return statusProblems(English, count) },
 		Memory:        Shared(English, "desktop.status.memory"),
 		MemoryValue:   func(megabytes int) string { return statusMemory(English, megabytes) },
 		FPS:           Shared(English, "desktop.status.fPS"),

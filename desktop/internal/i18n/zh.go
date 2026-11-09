@@ -294,6 +294,7 @@ var chinese = Messages{
 		Writable:      Shared(Chinese, "desktop.status.writable"),
 		ReadOnly:      Shared(Chinese, "desktop.status.readOnly"),
 		LSPNotStarted: Shared(Chinese, "desktop.status.lSPNotStarted"),
+		Problems:      func(count int) string { return statusProblems(Chinese, count) },
 		Memory:        Shared(Chinese, "desktop.status.memory"),
 		MemoryValue:   func(megabytes int) string { return statusMemory(Chinese, megabytes) },
 		FPS:           Shared(Chinese, "desktop.status.fPS"),
