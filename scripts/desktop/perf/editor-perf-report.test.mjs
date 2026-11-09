@@ -334,6 +334,21 @@ test('renderMarkdown summarizes the run and explains the verdict of each row', (
   assert.ok(markdown.includes('This report never fails the build; overruns are findings to fix or to justify in the PR.'));
 });
 
+test('an over row lists only the overruns, with the limits that held in brackets', () => {
+  const budgets = budgetsOf({ pattern: '^BenchmarkEditorViewPaint/', allocsMax: 0, scaleMax: 1.5 });
+  const candidate = candidateOf(REFERENCE_CPU, {
+    [SMALL]: result(1000),
+    [LARGE]: result(1200, { allocs: 140 }),
+  });
+
+  const markdown = renderMarkdown(evaluate(candidate, budgets), {
+    machine: candidate.machine,
+    referenceMachine: budgets.referenceMachine,
+  });
+
+  assert.ok(markdown.includes('| ⚠️ over: allocs 140 > 0 (scale 1.20x vs 100KiB <= 1.5x) |'));
+});
+
 test('validateBudgets rejects malformed budget files', () => {
   const valid = () => JSON.parse(JSON.stringify(budgetsOf({ pattern: '^A/', nsMax: 1 })));
   const cases = [

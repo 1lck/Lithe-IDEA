@@ -407,7 +407,10 @@ function baseCell(row) {
 function budgetCell(row) {
   switch (row.status) {
     case 'over':
-      return `⚠️ over: ${[...row.findings, ...row.notes].join('; ')}`;
+      // Notes are limits that held or could not be judged; they stay apart from the overruns.
+      return row.notes.length > 0
+        ? `⚠️ over: ${row.findings.join('; ')} (${row.notes.join('; ')})`
+        : `⚠️ over: ${row.findings.join('; ')}`;
     case 'within':
       return row.notes.length > 0 ? `✅ within (${row.notes.join('; ')})` : '✅ within';
     case 'unjudged':
