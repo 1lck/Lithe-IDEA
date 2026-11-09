@@ -77,6 +77,18 @@ try {
     await assert.rejects(fs.access(targetRoot), { code: "ENOENT" });
   });
 
+  await test("editor performance reports remain owned by their benchmark run", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const reports = registry.excludedResources.find(item => item.id === "editor-perf-reports");
+    assert.ok(reports, "editor performance reports must be registered as nonreusable");
+    assert.equal(reports.reusable, false);
+    assert.ok(reports.locations.includes(".artifacts/editor-perf/*.txt"));
+    const refused = reuse(["--resource", reports.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /editor-perf-reports is isolated.*cannot be reused/);
+    await assert.rejects(fs.access(targetRoot), { code: "ENOENT" });
+  });
+
   await test("Viva Core outputs and marketplace transfers are never reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const core = registry.excludedResources.find(item => item.id === "viva-core-build-state");

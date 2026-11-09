@@ -44,6 +44,16 @@
       "reason": "Generated after each test run in the owning worktree and retained locally or by CI artifact policy. Never copy or share through any worktree reuse stage: a different run would give false validation evidence and logs can contain test-specific information. They are not runtime inputs and never enter installed packages, signatures or Sparkle delta baselines."
     },
     {
+      "id": "editor-perf-reports",
+      "reusable": false,
+      "locations": [
+        ".artifacts/editor-perf/*.txt",
+        ".artifacts/editor-perf/*.md"
+      ],
+      "identity": "One local editor benchmark run, its source revision, machine, CPU, load average, Go toolchain and large document size. Raw benchmark output and Markdown reports have no independently validated reusable identity.",
+      "reason": "Written by scripts/desktop/perf/editor-bench.sh in the owning worktree after each run and cleaned by the developer. Never copy or share through any worktree reuse stage: another run, machine or load would give false performance evidence. They are not runtime inputs and never enter installed packages, signatures or Sparkle delta baselines. The recorded history in desktop/benchmarks/history/*.jsonl is source tracked in Git, not a resource."
+    },
+    {
       "id": "viva-file-icons",
       "reusable": false,
       "locations": [

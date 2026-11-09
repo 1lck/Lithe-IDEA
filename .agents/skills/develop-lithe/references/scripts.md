@@ -17,6 +17,7 @@
 | `scripts/release/{sparkle,macos,windows,autobuild,notes}/` | 发布流水线：Sparkle 更新与验签、更新清单、AutoBuild 发布、发布说明校验 |
 | `scripts/macos/{build,package,prepare,test,verify,perf,probe}/` | 只服务 macOS 产品的脚本：构建、打包、依赖与资源准备、测试入口、门禁校验、性能基线、手动探针 |
 | `scripts/windows/{build,package,prepare,test,verify,perf}/` | 只服务 Windows 产品的脚本，子目录含义同上 |
+| `scripts/desktop/perf/` | Viva 桌面端的性能基线：编辑器基准的运行、记录、对比和报告 |
 | `scripts/desktop/` | 只服务 Viva 桌面端（`desktop/`，Go）的构建与运行入口：构建它链接的 Lithe-core-rust 静态库，以及带 cgo 参数运行 `desktop/` 里的 go 命令 |
 | `scripts/rust-core/`、`architecture/`、`i18n/`、`logging/`、`agent-notes/`、`platform-feature-matrix/`、`plugins/`、`remote/`、`ide-mcp/`、`editor/`、`git-graph/`、`agent/`、`resources/` | 跨平台领域的脚本，目录名就是领域名 |
 

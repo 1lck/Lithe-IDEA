@@ -387,6 +387,8 @@ Swift 单元和插件 CI 通道通过 Swatinem/rust-cache 复用裁剪后的 Rus
 Viva Go 计时结果写入当前工作树的 `.artifacts/test-stability/{macos,windows}-desktop-go.{json,html,junit.xml,log}`
 及 `index.html`。它们只属于这一次运行，受源码修订、平台、架构、Go/Core 工具链、所选用例、预算和机器状态影响；没有可验证的跨树身份 stamp。`desktop-go-timing-reports` 排除路由在任何复制阶段拒绝复用；本地由开发者清理，CI 报告按 artifact 保留策略处理。原始日志可能含测试数据，不进入安装包，也不会改变代码签名或 Sparkle delta。
 
+Viva 编辑器性能基线 `scripts/desktop/perf/editor-bench.sh` 把每次运行的原始输出和 Markdown 预算报告写入当前工作树的 `.artifacts/editor-perf/`（`run-<UTC 时间戳>.txt`、`record-<UTC 时间戳>.txt` 及同名 `.md`，以及开发者用 `--out` 指定在该目录下的文件）。它们只属于这一次运行，受源码修订、机器、CPU、运行时负载、Go 工具链和大文档大小（默认 10 MiB，可用 `LITHE_EDITOR_PERF_LARGE_BYTES` 或 `--large-bytes` 修改）影响；没有可验证的跨树身份 stamp。`editor-perf-reports` 排除路由在任何复制阶段拒绝复用，由开发者在本地清理；该基线不是 CI 必跑项，CI 不运行基准，也没有 artifact。随仓库提交的历史记录 `desktop/benchmarks/history/*.jsonl` 由 Git 跟踪，属于源码而不是下载或生成资源，各工作树从 Git 检出，不经复用脚本复制。这些文件都不进入安装包，也不会改变代码签名或 Sparkle delta。
+
 Viva 的 Core 源码检出、Cargo 目标目录和暂存静态库位于当前工作树的
 `.artifacts/desktop/lithe-core-rust/` 与 `.artifacts/desktop/lithe-core/`。暂存身份记录包含
 修订、目标、profile 与编译器，但尚不是可跨工作树复用的完整密封清单，故资源清单中的

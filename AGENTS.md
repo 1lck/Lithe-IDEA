@@ -57,6 +57,19 @@
 
 入口文件只保留这条提醒；具体决策原因、正确做法、反例和验证要求以 Agent Note 与 Skill 为准，避免三份规则长期漂移。
 
+## 编辑器性能
+
+改动 Viva 编辑器模块（`desktop/internal/editor/**`、`desktop/internal/editorview/**`、`desktop/benchmarks/editor-budgets.json`、`scripts/desktop/perf/**`）前，先阅读
+`.agents/skills/develop-lithe/references/editor-performance.md`。
+
+- 在同一台机器上分别运行改动前和改动后的基线（`scripts/desktop/perf/editor-bench.sh`），把对比写进 PR 说明。基线只在本地运行，不是 CI 必跑项。
+- 超出预算只报告，不阻塞；但改动新引入的超预算结果必须在 PR 说明中逐项解释。
+- 不得上调预算、删除场景或缩小文档规模来让结果变好看。
+- 只在空闲机器上用 `record` 记录历史；运行期间不要编译或运行其他程序。
+
+入口文件只保留这条提醒；规则和数值以 Skill 参考页为准，决策原因见
+`.agents/notes/implemented/testing/2026-11-09-viva-editor-performance-baseline.md`。
+
 ## 设置页分类
 
 新增或移动 macOS 设置页前，先阅读
