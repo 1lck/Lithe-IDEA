@@ -74,7 +74,12 @@ func frame(v *View, canvas *gfx.Canvas) {
 // line is in the middle of the window, with the colors of that viewport ready. Each layout func
 // runs after the first frame and before the second, for a change that the layout of the second
 // frame has to take in, such as soft wrapping.
-func benchView(b *testing.B, kind editorperf.Kind, size editorperf.Size, highlight bool, layout ...func(v *View)) *View {
+//
+// The frames that prepare the view are painted into canvas, the one the benchmark goes on to paint
+// into. The window paints every frame into the same canvas, which keeps the room it grew for the
+// first; a benchmark that started with a new canvas would count that growth, once, in its first
+// frame, and spread it over every frame it measures.
+func benchView(b *testing.B, canvas *gfx.Canvas, kind editorperf.Kind, size editorperf.Size, highlight bool, layout ...func(v *View)) *View {
 	b.Helper()
 	v := New(benchConfig(b, kind, editorperf.Text(kind, size.Bytes), highlight))
 	b.Cleanup(v.Close)
@@ -83,7 +88,6 @@ func benchView(b *testing.B, kind editorperf.Kind, size editorperf.Size, highlig
 	// pass is measured by the syntax package's FullPass and TypeCatchUp benchmarks, and running it
 	// beside these measurements would make them depend on scheduling.
 	v.hl.Close()
-	canvas := new(gfx.Canvas)
 	frame(v, canvas)
 	v.GoToLine(v.text.LineCount()/2 + 1)
 	for _, apply := range layout {
@@ -163,7 +167,7 @@ func BenchmarkEditorViewPaint(b *testing.B) {
 			b.Run(c.name+"/"+size.Name, func(b *testing.B) {
 				b.ReportAllocs()
 				canvas := new(gfx.Canvas)
-				v := benchView(b, c.kind, size, c.highlight, c.layout)
+				v := benchView(b, canvas, c.kind, size, c.highlight, c.layout)
 				if c.arrange != nil {
 					c.arrange(v)
 					frame(v, canvas)
@@ -185,7 +189,7 @@ func BenchmarkEditorViewType(b *testing.B) {
 		b.Run("go/"+size.Name, func(b *testing.B) {
 			b.ReportAllocs()
 			canvas := new(gfx.Canvas)
-			v := benchView(b, editorperf.Go, size, true)
+			v := benchView(b, canvas, editorperf.Go, size, true)
 			original := v.text.Len()
 			placeCaret(v, v.lineEnd(v.text.LineOf(v.caret)))
 			typed := app.TextEvent{Kind: app.TextInsert, Text: "x"}
@@ -211,7 +215,7 @@ func BenchmarkEditorViewEnter(b *testing.B) {
 		b.Run("go/"+size.Name, func(b *testing.B) {
 			b.ReportAllocs()
 			canvas := new(gfx.Canvas)
-			v := benchView(b, editorperf.Go, size, true)
+			v := benchView(b, canvas, editorperf.Go, size, true)
 			original := v.text.Len()
 			mid := v.text.LineOf(v.caret)
 			empty := -1
@@ -248,7 +252,7 @@ func BenchmarkEditorViewUndoRedo(b *testing.B) {
 		b.Run("go/"+size.Name, func(b *testing.B) {
 			b.ReportAllocs()
 			canvas := new(gfx.Canvas)
-			v := benchView(b, editorperf.Go, size, true)
+			v := benchView(b, canvas, editorperf.Go, size, true)
 			original := v.text.Len()
 			placeCaret(v, v.lineEnd(v.text.LineOf(v.caret)))
 			v.applyText(app.TextEvent{Kind: app.TextInsert, Text: "x"})
@@ -279,7 +283,7 @@ func BenchmarkEditorViewCaretMove(b *testing.B) {
 		b.Run("go/"+size.Name, func(b *testing.B) {
 			b.ReportAllocs()
 			canvas := new(gfx.Canvas)
-			v := benchView(b, editorperf.Go, size, true)
+			v := benchView(b, canvas, editorperf.Go, size, true)
 			for i := 0; b.Loop(); i++ {
 				if i%2 == 0 {
 					v.press(gfx.KeyDown, 0)
@@ -300,7 +304,7 @@ func BenchmarkEditorViewPageMove(b *testing.B) {
 		b.Run("go/"+size.Name, func(b *testing.B) {
 			b.ReportAllocs()
 			canvas := new(gfx.Canvas)
-			v := benchView(b, editorperf.Go, size, true)
+			v := benchView(b, canvas, editorperf.Go, size, true)
 			for i := 0; b.Loop(); i++ {
 				if i%2 == 0 {
 					v.press(gfx.KeyPageDown, 0)
@@ -321,7 +325,7 @@ func BenchmarkEditorViewScroll(b *testing.B) {
 		b.Run("go/"+size.Name, func(b *testing.B) {
 			b.ReportAllocs()
 			canvas := new(gfx.Canvas)
-			v := benchView(b, editorperf.Go, size, true)
+			v := benchView(b, canvas, editorperf.Go, size, true)
 			step := 3 * v.lineH
 			for i := 0; b.Loop(); i++ {
 				delta := step
@@ -346,7 +350,7 @@ func BenchmarkEditorViewPaste(b *testing.B) {
 		b.Run("go/"+size.Name, func(b *testing.B) {
 			b.ReportAllocs()
 			canvas := new(gfx.Canvas)
-			v := benchView(b, editorperf.Go, size, true)
+			v := benchView(b, canvas, editorperf.Go, size, true)
 			original := v.text.Len()
 			at := v.lineEnd(v.text.LineOf(v.caret))
 			paste := app.TextEvent{Kind: app.TextPaste, Text: string(editorperf.Text(editorperf.Go, 1<<20))}
@@ -418,7 +422,7 @@ func BenchmarkEditorViewRewrap(b *testing.B) {
 		b.Run("go/"+size.Name, func(b *testing.B) {
 			b.ReportAllocs()
 			canvas := new(gfx.Canvas)
-			v := benchView(b, editorperf.Go, size, true, func(v *View) { v.SetWrap(true) })
+			v := benchView(b, canvas, editorperf.Go, size, true, func(v *View) { v.SetWrap(true) })
 			// The view is laid out at the wide size now. A frame at the narrow one, before the loop,
 			// makes the first iteration a resize too, as every other one is.
 			canvas.Reset()

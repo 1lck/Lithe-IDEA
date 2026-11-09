@@ -31,7 +31,7 @@ var keystroke = []byte{'x'}
 // sizes, with the syntax of the kind compiled and the document of that size built before the
 // first iteration. The grammar is warmed first: tokenizing compiles its patterns the first time
 // each is reached, which would otherwise land in the first iteration.
-func runKinds(b *testing.B, sizes []editorperf.Size, fn func(b *testing.B, s *Syntax, text rope.Rope)) {
+func runKinds(b *testing.B, sizes []editorperf.Size, fn func(b *testing.B, kind editorperf.Kind, s *Syntax, text rope.Rope)) {
 	for _, kind := range grammarKinds {
 		for _, size := range sizes {
 			b.Run(string(kind)+"/"+size.Name, func(b *testing.B) {
@@ -39,7 +39,7 @@ func runKinds(b *testing.B, sizes []editorperf.Size, fn func(b *testing.B, s *Sy
 				warmGrammar(s, kind)
 				text := rope.New(editorperf.Text(kind, size.Bytes))
 				b.ReportAllocs()
-				fn(b, s, text)
+				fn(b, kind, s, text)
 			})
 		}
 	}
@@ -85,7 +85,7 @@ func typeAt(h *Highlighter, text rope.Rope, at, i int) rope.Rope {
 // is dragged: one iteration is a new highlighter preparing and reading the 60 lines of the
 // viewport, the time until that screen is colored.
 func BenchmarkEditorSyntaxViewportCold(b *testing.B) {
-	runKinds(b, editorperf.Sizes(), func(b *testing.B, s *Syntax, text rope.Rope) {
+	runKinds(b, editorperf.Sizes(), func(b *testing.B, kind editorperf.Kind, s *Syntax, text rope.Rope) {
 		mid := text.LineCount() / 2
 		dst := make([]Token, 0, 256)
 		for b.Loop() {
@@ -100,7 +100,7 @@ func BenchmarkEditorSyntaxViewportCold(b *testing.B) {
 // iteration prepares and reads the 60 lines of the viewport again. A repaint happens on every
 // cursor blink and scroll tick, so it must cost little and allocate nothing.
 func BenchmarkEditorSyntaxViewportWarm(b *testing.B) {
-	runKinds(b, editorperf.Sizes(), func(b *testing.B, s *Syntax, text rope.Rope) {
+	runKinds(b, editorperf.Sizes(), func(b *testing.B, kind editorperf.Kind, s *Syntax, text rope.Rope) {
 		mid := text.LineCount() / 2
 		h := testHighlighter(s, text, 0, nil)
 		b.Cleanup(h.Close)
@@ -119,9 +119,17 @@ func BenchmarkEditorSyntaxViewportWarm(b *testing.B) {
 // The background pass has finished before the first keystroke, as it has by the time anyone
 // types in a file they opened seconds ago; otherwise no checkpoint would reach the edited line
 // and each keystroke would tokenize it from a guessed state, which is not what typing costs.
+//
+// Every size edits the same line: the one in the middle of the small document, which each larger
+// document begins with. One keystroke costs what tokenizing its line costs, and that varies with
+// what the line holds almost sixfold, from a comment to a line of calls. Were each size to edit
+// the line in its own middle, the ratio of the large result to the small one would compare two
+// different lines and could not tell whether the cost grows with the document. On the same line,
+// a large document puts all of its length after the edit, where anything the edit shifts or checks
+// would make the cost grow.
 func BenchmarkEditorSyntaxTypeInLine(b *testing.B) {
-	runKinds(b, editorperf.Sizes(), func(b *testing.B, s *Syntax, text rope.Rope) {
-		mid := text.LineCount() / 2
+	runKinds(b, editorperf.Sizes(), func(b *testing.B, kind editorperf.Kind, s *Syntax, text rope.Rope) {
+		mid := rope.New(editorperf.Text(kind, editorperf.SmallBytes)).LineCount() / 2
 		length := text.Len()
 		at := text.LineEnd(mid + viewportLines/2)
 		h := testHighlighter(s, text, 0, nil)
@@ -149,7 +157,7 @@ func BenchmarkEditorSyntaxTypeInLine(b *testing.B) {
 // The background pass has finished before the first keystroke, as it has by the time anyone
 // types in a file they opened seconds ago.
 func BenchmarkEditorSyntaxTypeCatchUp(b *testing.B) {
-	runKinds(b, editorperf.Sizes(), func(b *testing.B, s *Syntax, text rope.Rope) {
+	runKinds(b, editorperf.Sizes(), func(b *testing.B, kind editorperf.Kind, s *Syntax, text rope.Rope) {
 		mid := text.LineCount() / 2
 		length := text.Len()
 		at := text.LineEnd(mid + viewportLines/2)
@@ -174,7 +182,7 @@ func BenchmarkEditorSyntaxTypeCatchUp(b *testing.B) {
 // checkpoint is known. Its throughput is what the pass costs per byte; a file 100 times as
 // large takes 100 times as long to finish coloring.
 func BenchmarkEditorSyntaxFullPass(b *testing.B) {
-	runKinds(b, []editorperf.Size{editorperf.Small()}, func(b *testing.B, s *Syntax, text rope.Rope) {
+	runKinds(b, []editorperf.Size{editorperf.Small()}, func(b *testing.B, kind editorperf.Kind, s *Syntax, text rope.Rope) {
 		b.SetBytes(int64(text.Len()))
 		for b.Loop() {
 			h := testHighlighter(s, text, 0, nil)
