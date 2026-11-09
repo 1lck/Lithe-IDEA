@@ -101,8 +101,9 @@ type minimapLayout struct {
 func (v *View) minimapLayout() minimapLayout {
 	mapH := v.mm.rect.Height
 	l := minimapLayout{maxScroll: v.maxScroll()}
-	l.sliderH = min(v.area.Height/max(v.lineH, 1)*minimapRowH, mapH)
-	extent := float32(v.rowCount()-1) * minimapRowH
+	l.sliderH = min(v.rowsHeight()/max(v.lineH, 1)*minimapRowH, mapH)
+	// extent is where the slider's top is in the minimap's rows at the bottom of the scroll.
+	extent := l.maxScroll / max(v.lineH, 1) * minimapRowH
 	ratio := float32(0)
 	if l.maxScroll > 0 {
 		ratio = min(max(v.scroll/l.maxScroll, 0), 1)

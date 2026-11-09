@@ -112,7 +112,7 @@ func TestMinimapSliderTravelsTheWholeHeightOfATallText(t *testing.T) {
 	area := gfx.Rect{Width: 800, Height: 400}
 	paintIn(v, area)
 	l := v.minimapLayout()
-	extent := float32(v.rowCount()-1) * minimapRowH
+	extent := v.maxScroll() / v.lineH * minimapRowH
 	if l.sliderTop != 0 || l.offset != 0 {
 		t.Fatalf("at the top the slider is at %v and the rows scrolled %v", l.sliderTop, l.offset)
 	}
@@ -141,16 +141,58 @@ func TestMinimapSliderTravelsTheWholeHeightOfATallText(t *testing.T) {
 	}
 }
 
-// The slider of a text that fits in the minimap moves over its rows and the rows stay still.
+// The slider of a text that fits in the minimap moves over its rows and the rows stay still,
+// and at the bottom of the scroll it ends where the last row does.
 func TestMinimapSliderOfAShortTextMovesOverItsRows(t *testing.T) {
 	v := newChromeView(t, numberedLines(60))
 	area := gfx.Rect{Width: 800, Height: 400}
 	v.scroll = 1e9
 	paintIn(v, area)
 	l := v.minimapLayout()
-	extent := float32(v.rowCount()-1) * minimapRowH
-	if l.offset != 0 || !near(l.sliderTop, extent) {
-		t.Fatalf("at the bottom the rows scrolled %v and the slider is at %v, want 0 and the last row %v", l.offset, l.sliderTop, extent)
+	end := float32(v.rowCount()) * minimapRowH
+	if l.offset != 0 || !near(l.sliderTop+l.sliderH, end) {
+		t.Fatalf("at the bottom the rows scrolled %v and the slider ends at %v, want 0 and the last row's end %v",
+			l.offset, l.sliderTop+l.sliderH, end)
+	}
+}
+
+// The text scrolls down until its last row is at the bottom of the view, not past it, and a
+// text that fits does not scroll. A horizontal bar keeps its track under the last row.
+func TestTheTextStopsScrollingAtItsLastRow(t *testing.T) {
+	area := gfx.Rect{X: 20, Y: 30, Width: 800, Height: 400}
+	lastRowEnd := func(v *View) float32 {
+		return area.Y + float32(v.rowCount())*v.lineH - v.scroll
+	}
+	wheel := func(v *View, dy float32) {
+		v.Scroll(gfx.ScrollEvent{Target: v.cfg.HitID, DeltaY: dy, Precise: true})
+		paintIn(v, area)
+	}
+
+	tall := newChromeView(t, numberedLines(200))
+	paintIn(tall, area)
+	wheel(tall, 1e6)
+	if end := lastRowEnd(tall); !near(end, area.Y+area.Height) {
+		t.Fatalf("at the bottom the last row ends at %v, want the view's bottom %v", end, area.Y+area.Height)
+	}
+	if _, ok := tall.Scroll(gfx.ScrollEvent{Target: tall.cfg.HitID, DeltaY: 30, Precise: true}); !ok || !near(lastRowEnd(tall), area.Y+area.Height) {
+		t.Fatalf("the wheel past the bottom moved the last row to %v", lastRowEnd(tall))
+	}
+
+	short := newChromeView(t, numberedLines(5))
+	paintIn(short, area)
+	wheel(short, 1e6)
+	if short.scroll != 0 {
+		t.Fatalf("a text that fits scrolled %v", short.scroll)
+	}
+
+	wide := newChromeView(t, strings.Repeat(strings.Repeat("w", 400)+"\n", 200))
+	paintIn(wide, area)
+	if thumb, _ := wide.horizontalThumb(); thumb.Width <= 0 {
+		t.Fatal("a text wider than the view has no horizontal bar")
+	}
+	wheel(wide, 1e6)
+	if end := lastRowEnd(wide); !near(end, area.Y+area.Height-barTrack) {
+		t.Fatalf("with the horizontal bar the last row ends at %v, want %v above the bar", end, area.Y+area.Height-barTrack)
 	}
 }
 

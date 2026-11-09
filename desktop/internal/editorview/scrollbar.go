@@ -57,9 +57,19 @@ func (v *View) layoutParts(gutter float32) {
 	v.bars.horizontal = gfx.Rect{X: area.X + gutter, Y: area.Y + area.Height - barTrack, Width: max(end-area.X-gutter, 0), Height: barTrack}
 }
 
-// maxScroll is how far the text scrolls down: until its last row is at the top.
+// maxScroll is how far the text scrolls down: until its last row is at the bottom of the rows in
+// view, and not at all while the text fits.
 func (v *View) maxScroll() float32 {
-	return max(float32(v.rowCount()-1)*v.lineH, 0)
+	return max(float32(v.rowCount())*v.lineH-v.rowsHeight(), 0)
+}
+
+// rowsHeight is how high the rows in view are: the view's height, less the horizontal bar's
+// track while it has something to scroll, so the bar's thumb never covers the last row.
+func (v *View) rowsHeight() float32 {
+	if v.maxScrollX() >= 0.5 {
+		return max(v.area.Height-barTrack, 0)
+	}
+	return v.area.Height
 }
 
 // maxScrollX is how far the text scrolls sideways: until a few cells past its widest line show,
@@ -78,7 +88,8 @@ func (v *View) verticalThumb() (gfx.Rect, float32) {
 	if maxY < 0.5 || track.Height <= 0 {
 		return gfx.Rect{}, 0
 	}
-	length := min(max(track.Height*v.area.Height/(maxY+v.area.Height), barMin), track.Height)
+	rows := v.rowsHeight()
+	length := min(max(track.Height*rows/(maxY+rows), barMin), track.Height)
 	y := track.Y + (track.Height-length)*min(max(v.scroll/maxY, 0), 1)
 	return gfx.Rect{X: track.X + (track.Width-barWidth)/2, Y: y, Width: barWidth, Height: length}, maxY
 }

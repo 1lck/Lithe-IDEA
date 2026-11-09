@@ -357,8 +357,8 @@ func (v *View) revealCaret() {
 	top := float32(v.lineRow(line)+k) * v.lineH
 	if top < v.scroll {
 		v.scroll = top
-	} else if bottom := top + v.lineH; bottom > v.scroll+v.area.Height {
-		v.scroll = bottom - v.area.Height
+	} else if bottom := top + v.lineH; bottom > v.scroll+v.rowsHeight() {
+		v.scroll = bottom - v.rowsHeight()
 	}
 	if v.wrapping() {
 		return
@@ -373,8 +373,8 @@ func (v *View) revealCaret() {
 	}
 }
 
-// clampScroll keeps the scroll in range: the last row can scroll up to the top, as editors
-// allow, and the text sideways as far as its widest line, and not at all while it wraps.
+// clampScroll keeps the scroll in range: down until the last row is at the bottom, and sideways
+// as far as its widest line, and not at all while the text wraps.
 func (v *View) clampScroll() {
 	v.scroll = min(max(v.scroll, 0), v.maxScroll())
 	v.scrollX = min(max(v.scrollX, 0), v.maxScrollX())
