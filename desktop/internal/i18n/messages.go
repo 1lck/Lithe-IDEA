@@ -16,10 +16,12 @@ type Messages struct {
 	Commit   CommitMessages
 	Branch   BranchMessages
 	Terminal TerminalMessages
+	Agent    AgentMessages
 	Status   StatusMessages
 	Settings SettingsMessages
 	Logs     LogMessages
 	Errors   ErrorMessages
+	Build    BuildMessages
 }
 
 // AppMessages names the application.
@@ -114,6 +116,7 @@ type ToolMessages struct {
 	Terminal      string
 	Problems      string
 	Run           string
+	Build         string
 	Security      string
 	Debug         string
 	Notifications string

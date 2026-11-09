@@ -4,23 +4,47 @@
   "group": "语言服务",
   "capability": "诊断与编译错误定位",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/workbench/catalog.go",
       "desktop/internal/workbench/shell.go",
       "desktop/internal/workbench/app.go",
-      "desktop/internal/workbench/chrome.go"
+      "desktop/internal/workbench/chrome.go",
+      "desktop/internal/core/problems.go",
+      "desktop/internal/workbench/problems.go",
+      "desktop/internal/workbench/plugindiagnostics.go",
+      "shared/fixtures/lsp/problems-query-v1.json",
+      "desktop/internal/workbench/problems_test.go",
+      "desktop/internal/core/problems_test.go",
+      "desktop/internal/workbench/pluginsync.go",
+      "desktop/internal/workbench/pluginsync_e2e_test.go",
+      "desktop/internal/core/plugin_documents.go",
+      "desktop/internal/editorview/view.go",
+      "desktop/internal/pluginbackend/pluginbackend.go",
+      "desktop/internal/workbench/pluginsync_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/workbench/catalog.go",
       "desktop/internal/workbench/shell.go",
       "desktop/internal/workbench/app.go",
-      "desktop/internal/workbench/chrome.go"
+      "desktop/internal/workbench/chrome.go",
+      "desktop/internal/core/problems.go",
+      "desktop/internal/workbench/problems.go",
+      "desktop/internal/workbench/plugindiagnostics.go",
+      "shared/fixtures/lsp/problems-query-v1.json",
+      "desktop/internal/workbench/problems_test.go",
+      "desktop/internal/core/problems_test.go",
+      "desktop/internal/workbench/pluginsync.go",
+      "desktop/internal/workbench/pluginsync_e2e_test.go",
+      "desktop/internal/core/plugin_documents.go",
+      "desktop/internal/editorview/view.go",
+      "desktop/internal/pluginbackend/pluginbackend.go",
+      "desktop/internal/workbench/pluginsync_test.go"
     ]
   },
   "owner": "Language Tooling",
@@ -52,5 +76,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 当前的运行、调试和问题面板为占位，语言服务状态为静态未启动；桌面客户端尚未接入对应的 LSP、DAP 或构建 Provider 工作流。Core 接口及编辑器内部语义高亮数据结构不能代替端到端接入。"
+  "notes": "Viva 已通过 Core lsp.problems.query 过滤、排序和分组语言服务器诊断，Problems 工具窗口按文件分组虚拟化展示并支持点击定位；文档打开、增量编辑、保存和关闭经 Core lsp.syncDocument 同步到插件语言服务器，服务器延迟启动后会补开已打开文档，项目切换、服务器重启/停止/崩溃及插件禁用后清理诊断。macOS 已用真实 clangd 进程完成非 mock 端到端验证；Windows 和真实 JDT LS 流程尚未验证，补全、悬停和跳转仍未接入。"
 }

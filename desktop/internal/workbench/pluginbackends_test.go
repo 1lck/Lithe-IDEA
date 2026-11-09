@@ -1,10 +1,14 @@
 package workbench
 
 import (
+	"context"
+	"errors"
 	"runtime"
 	"testing"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprovider"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 )
 
 func TestBackendArchitecture(t *testing.T) {
@@ -20,17 +24,42 @@ func TestBackendArchitecture(t *testing.T) {
 	}
 }
 
-func TestPluginDocumentURI(t *testing.T) {
-	uri := pluginDocumentURI("/workspace", "/workspace/src/Main.java")
-	if uri != "file:///src/Main.java" {
-		t.Fatalf("uri = %q", uri)
+func TestPluginServerBuildReadinessIsRealAndAttachable(t *testing.T) {
+	server := &pluginServer{}
+	first := server.attachBuild(nil, pluginbackend.Session{ID: "shared"})
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := first.WaitReady(cancelled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("a new session reported ready before initialize: %v", err)
 	}
-	// A document outside the workspace has no identity the server could match.
-	if uri := pluginDocumentURI("/workspace", "/elsewhere/Main.java"); uri != "file:///../elsewhere/Main.java" {
-		t.Fatalf("uri = %q", uri)
+	server.forwardBuild(core.BackendEvent{Type: "stateChanged", State: "ready"})
+	if err := first.WaitReady(context.Background()); err != nil {
+		t.Fatalf("the ready event did not reach the attached client: %v", err)
 	}
-	if uri := pluginDocumentURI("", "/workspace/src/Main.java"); uri != "" {
-		t.Fatalf("uri = %q", uri)
+	// A duplicated ready event must be harmless.
+	server.forwardBuild(core.BackendEvent{Type: "stateChanged", State: "ready"})
+	second := server.attachBuild(nil, pluginbackend.Session{ID: "shared"})
+	if err := second.WaitReady(context.Background()); err != nil {
+		t.Fatalf("an already-ready session was not attachable: %v", err)
+	}
+	_ = first.Close(context.Background())
+	_ = second.Close(context.Background())
+}
+
+func TestPluginServerAttachAfterExitIsClosed(t *testing.T) {
+	server := &pluginServer{}
+	server.forwardBuild(core.BackendEvent{Type: "exit"})
+	client := server.attachBuild(nil, pluginbackend.Session{ID: "shared"})
+	if err := client.WaitReady(context.Background()); !errors.Is(err, buildprovider.ErrClosed) {
+		t.Fatalf("attaching to an ended session returned %v, want ErrClosed", err)
+	}
+
+	readyThenExited := &pluginServer{}
+	readyThenExited.forwardBuild(core.BackendEvent{Type: "stateChanged", State: "ready"})
+	readyThenExited.forwardBuild(core.BackendEvent{Type: "exit"})
+	client = readyThenExited.attachBuild(nil, pluginbackend.Session{ID: "shared"})
+	if err := client.WaitReady(context.Background()); !errors.Is(err, buildprovider.ErrClosed) {
+		t.Fatalf("attaching to a ready-then-exited session returned %v, want ErrClosed", err)
 	}
 }
 

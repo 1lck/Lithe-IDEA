@@ -202,7 +202,7 @@ var catalog = []item{
 	{id: itemGit, zone: zoneBottomLeft, icon: &icons.GitBranch, label: func(m *i18n.Messages) string { return m.Tools.Git }, panel: true, open: true},
 	{id: itemTerminal, zone: zoneBottomLeft, icon: &icons.SquareTerminal, label: func(m *i18n.Messages) string { return m.Tools.Terminal }, panel: true},
 	{id: itemProblems, zone: zoneBottomLeft, icon: &icons.CircleAlert, label: func(m *i18n.Messages) string { return m.Tools.Problems }, panel: true},
-	{id: itemRun, zone: zoneBottomLeft, icon: &icons.Play, label: func(m *i18n.Messages) string { return m.Tools.Run }, panel: true},
+	{id: itemRun, zone: zoneBottomLeft, icon: &icons.Play, label: func(m *i18n.Messages) string { return m.Tools.Build }, panel: true},
 	{id: itemSecurity, zone: zoneBottomLeft, icon: &icons.ShieldCheck, label: func(m *i18n.Messages) string { return m.Tools.Security }, panel: true},
 	{id: itemDebug, zone: zoneBottomLeft, icon: &icons.Bug, label: func(m *i18n.Messages) string { return m.Tools.Debug }, panel: true},
 
@@ -426,6 +426,11 @@ func (a *App) reduceChrome(action core.ChromeAction) {
 	a.chrome.apply(layout)
 	if a.project != nil && !a.chrome.isOpen(catalogIndex[itemFind]) {
 		a.cancelProjectSearch(a.project)
+	}
+	// The Problems list copies the diagnostics it submits to Core. Drop that copy
+	// when the tool window closes; opening it again asks Core for a fresh answer.
+	if !a.chrome.isOpen(catalogIndex[itemProblems]) {
+		a.problems.reset()
 	}
 	if !changed {
 		return

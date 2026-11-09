@@ -53,7 +53,19 @@ func (k *fakeKernel) PlanPluginBackend(context.Context, json.RawMessage, core.Pl
 	return k.plan, k.planErr
 }
 
+func (k *fakeKernel) PlanPluginLanguageServer(context.Context, json.RawMessage, string, core.PluginBackendDirectories) (core.PluginBackendPlan, error) {
+	return k.plan, k.planErr
+}
+
+func (k *fakeKernel) PlanPluginBuildProvider(context.Context, json.RawMessage, string, core.PluginBackendDirectories) (core.PluginBackendPlan, error) {
+	return k.plan, k.planErr
+}
+
 func (k *fakeKernel) StartPluginBackend(context.Context, core.PluginBackendStart) (core.PluginBackendStarted, error) {
+	return k.started, k.startErr
+}
+
+func (k *fakeKernel) StartPluginLanguageServer(context.Context, core.PluginBackendStart) (core.PluginBackendStarted, error) {
 	return k.started, k.startErr
 }
 
@@ -101,6 +113,12 @@ func (k *fakeKernel) RequestPluginSemantics(_ context.Context, request core.Plug
 	k.semanticRequests = append(k.semanticRequests, request)
 	return "operation-1", nil
 }
+
+func (k *fakeKernel) RequestPluginBuild(context.Context, core.PluginBuildProviderRequest) (string, error) {
+	return "build-1", nil
+}
+
+func (k *fakeKernel) CancelPluginOperation(context.Context, string, string) error { return nil }
 
 func TestOpenAssemblesEveryPart(t *testing.T) {
 	service, err := Open(&fakeKernel{}, store.At(t.TempDir()), t.TempDir())

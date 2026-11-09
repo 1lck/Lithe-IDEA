@@ -1,0 +1,45 @@
+{
+  "id": "agent-minimal-conversation",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "Agent 最小会话纵向切片：从本机 Codex/Claude 配置发现并选择已有 AI provider，在用户显式点击后安装缺失的 Core 适配器（真实进度、取消、失败重试、成功后重读状态），启动 Core 管理的 ACP 适配器会话，发送文本，显示有界且按可见窗口虚拟化的增量回复，停止当前轮次，显示请求失败与连接关闭，权限请求只能由用户点选上游选项回答，关闭项目或窗口时关闭连接并清理进程树；不包含历史、远程、MCP、模型/权限设置、CLI 安装/更新与订阅登录",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/agent.go",
+      "desktop/internal/workbench/agent_view.go",
+      "desktop/internal/workbench/agent_provider.go",
+      "desktop/internal/workbench/agent_test.go",
+      "desktop/internal/core/agent.go",
+      "desktop/internal/core/agent_bridge.go",
+      "desktop/internal/core/ai_configuration.go",
+      "desktop/internal/core/ai_configuration_test.go",
+      "desktop/internal/i18n/agent_messages.go",
+      "shared/fixtures/ai/cli-configuration-v1.json",
+      "shared/fixtures/agent/acp-events-v1.json",
+      "shared/contracts/rust-core-api.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/agent.go",
+      "desktop/internal/workbench/agent_view.go",
+      "desktop/internal/workbench/agent_provider.go",
+      "desktop/internal/workbench/agent_test.go",
+      "desktop/internal/core/agent.go",
+      "desktop/internal/core/agent_bridge.go",
+      "desktop/internal/core/ai_configuration.go",
+      "desktop/internal/core/ai_configuration_test.go",
+      "desktop/internal/i18n/agent_messages.go",
+      "shared/fixtures/ai/cli-configuration-v1.json",
+      "shared/fixtures/agent/acp-events-v1.json",
+      "shared/contracts/rust-core-api.md"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "macOS：在已安装 codex-acp 且本机 ~/.codex/config.toml/auth.json（或 CLAUDE_CONFIG_DIR/settings.json）存在可用 API provider 的临时项目中打开 AI Assistant，确认只列出 Core 检测到的适配器和真实 provider，未安装时只显示 Install 入口且打开面板不触发安装；点击 Install 后确认真实字节/速度/耗时进度、取消、失败重试和成功后重新读取状态；选择后发送一条消息，确认界面先显示发送中，再按 agent_message_chunk 增量显示回复；回复期间点 Stop，确认只发一次 cancel，界面保持停止中直到 turnFinished(cancelled)，期间不能再发送；制造 requestFailed 和关闭 Agent 进程，确认错误与断连可见且不会伪造成功；让 Agent 发起权限请求，确认没有自动答复，只有点选上游选项后才发送 permission 命令；关闭项目、切换项目或关闭窗口后确认 Agent 子进程退出且没有残留。Windows：在真实 Tauri/Viva 窗口重复同一流程，确认 C ABI 桥接、进程树清理和 i18n 文案；Windows 原生实机验收仍待完成。自动化：scripts/desktop/desktop-go.sh test -race ./internal/core -run 'TestAIConfiguration|TestAgent' -count=3；scripts/desktop/desktop-go.sh test -race ./internal/workbench -run 'TestAgent' -count=3（含凭据不进日志/UI、权限不自动答复、虚拟窗口只绘制可见行、项目关闭/替换清理）；node scripts/i18n/generate-i18n.mjs --check。真实供应商端到端、历史、安装/订阅、模型/权限设置、远程/MCP 和旧数据目录迁移不在本切片范围。",
+  "notes": "2026-11-09：Viva 工作台 AI Assistant 已接入最小 Agent 会话纵向切片。provider 从本机 Codex/Claude 配置经 Core ai.configuration.sources/parse 发现，凭据只在内存解析且不落盘；Go 不实现 ACP。当前数据目录使用 Viva 的 Application Support/Lithe Desktop，尚未迁移旧 macOS Lithe 或 Windows Tauri 目录；TOML 内联 experimental_bearer_token 的 file locator 暂不支持；Windows 原生窗口和真实供应商验收仍为 pending。"
+}

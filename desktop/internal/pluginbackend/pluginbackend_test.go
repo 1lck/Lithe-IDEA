@@ -28,6 +28,12 @@ type fakeKernel struct {
 	semanticRequests []core.PluginSemanticRequest
 	semanticErr      error
 	operationID      string
+	// planLanguageID records the language the runner asked Core to plan, and
+	// startedRole records which start entry point it chose.
+	planLanguageID        string
+	startedLanguageServer bool
+	buildRequests         []core.PluginBuildProviderRequest
+	cancelled             bool
 }
 
 type answeredRequest struct {
@@ -41,8 +47,23 @@ func (k *fakeKernel) PlanPluginBackend(context.Context, json.RawMessage, core.Pl
 	return k.plan, k.planErr
 }
 
+func (k *fakeKernel) PlanPluginLanguageServer(_ context.Context, _ json.RawMessage, languageID string, _ core.PluginBackendDirectories) (core.PluginBackendPlan, error) {
+	k.planLanguageID = languageID
+	return k.plan, k.planErr
+}
+
+func (k *fakeKernel) PlanPluginBuildProvider(context.Context, json.RawMessage, string, core.PluginBackendDirectories) (core.PluginBackendPlan, error) {
+	return k.plan, k.planErr
+}
+
 func (k *fakeKernel) StartPluginBackend(_ context.Context, request core.PluginBackendStart) (core.PluginBackendStarted, error) {
 	k.started_ = request
+	return k.started, k.startErr
+}
+
+func (k *fakeKernel) StartPluginLanguageServer(_ context.Context, request core.PluginBackendStart) (core.PluginBackendStarted, error) {
+	k.started_ = request
+	k.startedLanguageServer = true
 	return k.started, k.startErr
 }
 
@@ -76,6 +97,16 @@ func (k *fakeKernel) RequestPluginSemantics(_ context.Context, request core.Plug
 	}
 	k.semanticRequests = append(k.semanticRequests, request)
 	return k.operationID, nil
+}
+
+func (k *fakeKernel) RequestPluginBuild(_ context.Context, request core.PluginBuildProviderRequest) (string, error) {
+	k.buildRequests = append(k.buildRequests, request)
+	return k.operationID, nil
+}
+
+func (k *fakeKernel) CancelPluginOperation(context.Context, string, string) error {
+	k.cancelled = true
+	return nil
 }
 
 // backendPackage creates a package holding an executable and a data file.
@@ -287,7 +318,7 @@ func TestServeStopsWhenTheContextEnds(t *testing.T) {
 func TestRequestFillsTheSessionAndReturnsTheOperation(t *testing.T) {
 	kernel := &fakeKernel{operationID: "operation-7"}
 	runner := New(kernel, echoServices(t))
-	position := core.PluginDocumentPosition{Line: 4, Character: 9}
+	position := core.PluginDocumentPosition{Line: 4, UTF16Column: 9}
 	operation, err := runner.Request(context.Background(), Session{ID: "session-1"}, core.PluginSemanticRequest{
 		Operation: "definition",
 		URI:       "file:///workspace/A.java",
@@ -307,7 +338,7 @@ func TestRequestFillsTheSessionAndReturnsTheOperation(t *testing.T) {
 	if sent.SessionID != "session-1" || sent.Operation != "definition" {
 		t.Fatalf("request = %+v", sent)
 	}
-	if sent.Position == nil || sent.Position.Line != 4 || sent.Position.Character != 9 {
+	if sent.Position == nil || sent.Position.Line != 4 || sent.Position.UTF16Column != 9 {
 		t.Fatalf("position = %+v", sent.Position)
 	}
 }
@@ -430,5 +461,25 @@ func TestStartUsesTheVerifiedRuntime(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("arguments = %v", got)
 		}
+	}
+}
+
+// A language server uses the language-specific planner and the language_server
+// role; a plugin backend keeps the backend plan and role.
+func TestStartUsesLanguageServerPlanAndRole(t *testing.T) {
+	root := backendPackage(t)
+	plan := packagedPlan()
+	kernel := &fakeKernel{plan: plan, started: core.PluginBackendStarted{SessionID: "session-1"}}
+	request := startRequest(root)
+	request.ProviderID = "example/language-server"
+	request.LanguageID = "java"
+	if _, err := New(kernel, echoServices(t)).Start(context.Background(), request); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if kernel.planLanguageID != "java" {
+		t.Fatalf("planned language = %q", kernel.planLanguageID)
+	}
+	if !kernel.startedLanguageServer {
+		t.Fatal("the runner used the plugin backend start entry point")
 	}
 }

@@ -63,6 +63,7 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 		PackageDirectory: entry.Installed.Path,
 		PluginID:         entry.Installed.ID,
 		ProviderID:       entry.Installed.ID + "/language-server",
+		LanguageID:       languageID,
 		StateDirectory:   stateDirectory,
 		Architecture:     request.Architecture,
 		Settings:         request.Settings,

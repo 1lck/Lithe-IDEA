@@ -9390,9 +9390,10 @@
     },
     {
       "id": "diagnostics.goToProblem",
-      "description": "Windows UI: diagnostics.goToProblem",
+      "description": "Problems tool window: go to a diagnostic's position.",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -59718,7 +59719,8 @@
       "id": "native.noProblemsIn",
       "description": "Native UI: No problems in %@",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "No problems in %@",
@@ -99285,97 +99287,135 @@
     {
       "id": "desktop.marketplace.source",
       "description": "Label for the plugin marketplace source selector.",
-      "platforms": ["desktop"]
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.marketplace.communitySource",
       "description": "Community plugin marketplace source.",
-      "platforms": ["desktop"]
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.marketplace.officialSource",
       "description": "Official plugin marketplace source.",
-      "platforms": ["desktop"]
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.marketplace.search",
       "description": "Search plugin names or IDs in the current marketplace.",
-      "platforms": ["desktop"]
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.marketplace.queryTooLong",
       "description": "The plugin search query exceeds the size limit.",
-      "platforms": ["desktop"]
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.navigation.title",
       "description": "Title of the go to line and column dialog.",
-      "platforms": ["desktop"]
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.navigation.label",
       "description": "Input label for the go to line and column dialog.",
-      "platforms": ["desktop"]
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.everywhere.title",
       "description": "Title and input label for the global search dialog.",
-      "platforms": ["desktop"]
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.everywhere.all",
       "description": "All sources tab in global search.",
-      "platforms": ["desktop"]
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.everywhere.classes",
       "description": "Classes tab in global search.",
-      "platforms": ["desktop"]
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.everywhere.files",
       "description": "Files tab in global search.",
-      "platforms": ["desktop"]
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.everywhere.symbols",
       "description": "Symbols tab in global search.",
-      "platforms": ["desktop"]
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.everywhere.actions",
       "description": "Actions tab in global search.",
-      "platforms": ["desktop"]
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.everywhere.text",
       "description": "Text tab in global search.",
-      "platforms": ["desktop"]
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.everywhere.more",
       "description": "Load another page of global search results.",
-      "platforms": ["desktop"]
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.everywhere.limit",
       "description": "Global search result limit has been reached.",
-      "platforms": ["desktop"]
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.everywhere.watchUnavailable",
       "description": "Global search could not monitor changes; reopening the search refreshes it.",
-      "platforms": ["desktop"]
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.project.rootUnavailable",
       "description": "The project root directory cannot be listed.",
-      "platforms": ["desktop"]
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.project.watchUnavailable",
       "description": "Project tree directory monitoring failed or reached its resource limit.",
-      "platforms": ["desktop"]
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.settings.noMatches",
@@ -101416,6 +101456,682 @@
     {
       "id": "desktop.newProject.createdInterrupted",
       "description": "Desktop new project: operation interrupted after creating the directory",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.pluginsUnavailable",
+      "description": "Build plugins are unavailable in this window.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.noBuildSystems",
+      "description": "No provider-backed build system was detected.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.chooseTask",
+      "description": "Choose a build task first.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.projectMissing",
+      "description": "The selected project is no longer in the build model. Refresh the build system.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.targetMissing",
+      "description": "The selected target is no longer in the build model. Refresh the build system.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.argumentsRequired",
+      "description": "This task asks for arguments, which this window cannot collect yet.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.commandUnsupported",
+      "description": "This build system answered with a command plan; provider-backed tasks are required here.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.running",
+      "description": "Running…",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.preparing",
+      "description": "Preparing…",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.succeeded",
+      "description": "Build succeeded",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.cancelled",
+      "description": "Build cancelled",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.refresh",
+      "description": "Detect build systems again",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.systems",
+      "description": "Build systems",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.projects",
+      "description": "Projects",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.targets",
+      "description": "Targets",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.tasks",
+      "description": "Tasks",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.output",
+      "description": "Build output",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.stop",
+      "description": "Stop build task",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.emptyOutput",
+      "description": "Run a build task to see output.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.noTasks",
+      "description": "No build tasks",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.noProjects",
+      "description": "No projects in the build model",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.loadingModel",
+      "description": "Loading build model…",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.modelFailed",
+      "description": "The build model could not be loaded: {error}",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "error": "string"
+      }
+    },
+    {
+      "id": "desktop.build.processFailed",
+      "description": "The process ended: {error}",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "error": "string"
+      }
+    },
+    {
+      "id": "desktop.build.toolchainGap",
+      "description": "The provider prepared {toolchain}. This build cannot launch a toolchain reference yet.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "toolchain": "string"
+      }
+    },
+    {
+      "id": "desktop.build.runTarget",
+      "description": "Run {name}",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.build.runSelected",
+      "description": "Run selected build task",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "workbench.build",
+      "description": "Windows UI: workbench.build",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.exited",
+      "description": "The build process exited with a non-zero code.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "code": "integer"
+      }
+    },
+    {
+      "id": "desktop.build.executableMissing",
+      "description": "No usable build executable was found for this build system.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.versionTooOld",
+      "description": "The build tool is {version}, older than the required {minimum}.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string",
+        "minimum": "string"
+      }
+    },
+    {
+      "id": "desktop.agent.setup.agent",
+      "description": "Agent panel: agent section title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.setup.provider",
+      "description": "Agent panel: provider section title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.setup.start",
+      "description": "Agent panel: start button",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.setup.change",
+      "description": "Agent panel: change agent button",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.setup.checking",
+      "description": "Agent panel: loading state",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.setup.retry",
+      "description": "Agent panel: retry detection button",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.setup.noAgents",
+      "description": "Agent panel: empty agent list",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.setup.noProviders",
+      "description": "Agent panel: empty provider list",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.setup.notInstalled",
+      "description": "Agent panel: agent version suffix",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.setup.missingKey",
+      "description": "Agent panel: provider has no credential",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.setup.unsupported",
+      "description": "Agent panel: provider cannot be launched",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.agent.error.status",
+      "description": "Agent panel: detection failed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "message": "string"
+      }
+    },
+    {
+      "id": "desktop.agent.error.provider",
+      "description": "Agent panel: provider discovery failed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "message": "string"
+      }
+    },
+    {
+      "id": "desktop.agent.composer.placeholder",
+      "description": "Agent panel: composer placeholder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.composer.label",
+      "description": "Agent panel: composer accessibility label",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.composer.send",
+      "description": "Agent panel: send button",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.composer.stop",
+      "description": "Agent panel: stop button",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.composer.stopping",
+      "description": "Agent panel: stop button while cancelling",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.status.checking",
+      "description": "Agent panel: status line",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.status.starting",
+      "description": "Agent panel: status line",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.status.ready",
+      "description": "Agent panel: status line",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.status.working",
+      "description": "Agent panel: status line",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.status.stopping",
+      "description": "Agent panel: status line",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.status.failed",
+      "description": "Agent panel: status line",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.status.permission",
+      "description": "Agent panel: status line",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.transcript.empty",
+      "description": "Agent panel: empty transcript",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.transcript.user",
+      "description": "Agent panel: user message role",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.transcript.assistant",
+      "description": "Agent panel: assistant message role fallback",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.permission.title",
+      "description": "Agent panel: permission card title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.permission.tool",
+      "description": "Agent panel: permission tool description",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "tool": "string"
+      }
+    },
+    {
+      "id": "desktop.agent.permission.deny",
+      "description": "Agent panel: deny permission",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.error.dismiss",
+      "description": "Agent panel: dismiss error",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.error.closed",
+      "description": "Agent panel: connection closed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.error.overflow",
+      "description": "Agent panel: event overflow",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.error.request",
+      "description": "Agent panel: request failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.error.credential",
+      "description": "Agent panel: credential file locator failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.error.home",
+      "description": "Agent panel: home directory unavailable",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.error.configRead",
+      "description": "Agent panel: local configuration file read failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.error.invalidConfig",
+      "description": "Agent panel: Core rejected the local configuration",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.error.unsupportedAuth",
+      "description": "Agent panel: unsupported local authentication",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.error.connection",
+      "description": "Agent panel: ACP bridge open failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.error.send",
+      "description": "Agent panel: prompt send failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.error.permission",
+      "description": "Agent panel: permission send failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.error.cancel",
+      "description": "Agent panel: cancel send failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.error.session",
+      "description": "Agent panel: new session command failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.error.detection",
+      "description": "Agent panel: adapter detection failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.install.button",
+      "description": "Agent panel: install adapter button",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.install.cancel",
+      "description": "Agent panel: cancel adapter install",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.install.cancelling",
+      "description": "Agent panel: install cancellation in progress",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.install.retry",
+      "description": "Agent panel: retry adapter install",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.install.preparing",
+      "description": "Agent panel: install stage preparing",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.install.downloading",
+      "description": "Agent panel: install stage downloading",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.install.updating",
+      "description": "Agent panel: install stage updating",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.install.waiting",
+      "description": "Agent panel: install progress stalled",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.install.progress",
+      "description": "Agent panel: install progress line",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "downloaded": "string",
+        "speed": "string",
+        "elapsed": "string"
+      }
+    },
+    {
+      "id": "desktop.agent.install.failed",
+      "description": "Agent panel: install failed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "message": "string"
+      }
+    },
+    {
+      "id": "desktop.agent.install.cancelled",
+      "description": "Agent panel: install cancelled",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.install.timedOut",
+      "description": "Agent panel: install timed out",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.install.progressLost",
+      "description": "Agent panel: install progress observation lost",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.install.failedDetail",
+      "description": "Agent panel: install failure detail",
       "platforms": [
         "desktop"
       ]

@@ -11,6 +11,7 @@ func toolMessages(language Language) ToolMessages {
 		Terminal:      Shared(language, "workbench.terminal"),
 		Problems:      Shared(language, "native.problems"),
 		Run:           Shared(language, "workbench.run"),
+		Build:         Shared(language, "workbench.build"),
 		Security:      Shared(language, "native.security"),
 		Debug:         Shared(language, "native.debug"),
 		Notifications: Shared(language, "notifications.title"),

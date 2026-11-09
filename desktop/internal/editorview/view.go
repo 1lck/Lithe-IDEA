@@ -48,6 +48,10 @@ type Config struct {
 	Notify func()
 	// Save asks the window to write the text out, for the save chord.
 	Save func()
+	// OnEdit reports every replacement made to the view, for a language
+	// server's versioned document synchronization. It runs on the view's thread
+	// and must not block.
+	OnEdit func(Edit)
 	// MinimapID is the minimap's hit and MinimapToggleID the button beside it that hides and
 	// shows it; VerticalBarID and HorizontalBarID are the tracks of the scrollbars. The window
 	// owns what the toggle does: it asks canvas.Clicked of MinimapToggleID and calls
@@ -55,6 +59,17 @@ type Config struct {
 	// not take the pointer.
 	MinimapID, MinimapToggleID     gfx.ID
 	VerticalBarID, HorizontalBarID gfx.ID
+}
+
+// Edit is one replaced range of the document. Start and End are zero-based LSP
+// lines and UTF-16 columns in the text before the replacement; Text is the
+// replacement text.
+type Edit struct {
+	StartLine   int
+	StartColumn int
+	EndLine     int
+	EndColumn   int
+	Text        string
 }
 
 // Messages are the words the view gives assistive technology for its parts.
@@ -336,6 +351,7 @@ func (v *View) ResolveWithDisk(content ReloadContent) bool {
 func (c ReloadContent) Snapshot() rope.Rope { return c.text }
 
 func (v *View) replaceFromDisk(content ReloadContent) bool {
+	edit := v.wholeDocumentEdit(content.text)
 	v.undo = append(v.undo, v.snapshot())
 	if len(v.undo) > undoLimit {
 		v.undo = v.undo[len(v.undo)-undoLimit:]
@@ -362,6 +378,7 @@ func (v *View) replaceFromDisk(content ReloadContent) bool {
 	v.lastKind, v.goal = editOther, -1
 	v.dirty = false
 	v.blinkFrom = v.clock
+	v.reportEdit(edit)
 	return true
 }
 
@@ -584,6 +601,8 @@ func (v *View) edit(start, end int, text []byte, kind editKind) {
 		}
 	}
 	v.redo = v.redo[:0]
+	startLine, startColumn := v.positionAt(start)
+	endLine, endColumn := v.positionAt(end)
 	firstLine, oldLast, oldCount := v.text.LineOf(start), v.text.LineOf(end), v.text.LineCount()
 	// Keep the status column incremental for ordinary typing and deletion, even
 	// on a very long line. Other edits invalidate the cached rope naturally.
@@ -609,6 +628,31 @@ func (v *View) edit(start, end int, text []byte, kind editKind) {
 	v.widest = max(v.widest, v.scanWidest(firstLine, v.text.LineOf(v.caret)))
 	v.compare()
 	v.moved()
+	v.reportEdit(Edit{StartLine: startLine, StartColumn: startColumn, EndLine: endLine, EndColumn: endColumn, Text: string(text)})
+}
+
+// positionAt is the zero-based LSP line and UTF-16 column of a byte offset in
+// the current text.
+func (v *View) positionAt(offset int) (line, column int) {
+	line = v.text.LineOf(offset)
+	return line, v.utf16Units(v.text.LineStart(line), offset)
+}
+
+// wholeDocumentEdit is the replacement Edit for making replacement the view's
+// whole text.
+func (v *View) wholeDocumentEdit(replacement rope.Rope) Edit {
+	last := v.text.LineCount() - 1
+	return Edit{
+		EndLine:   last,
+		EndColumn: v.utf16Units(v.text.LineStart(last), v.text.LineEnd(last)),
+		Text:      string(replacement.Bytes()),
+	}
+}
+
+func (v *View) reportEdit(edit Edit) {
+	if v.cfg.OnEdit != nil {
+		v.cfg.OnEdit(edit)
+	}
 }
 
 // snapshot is the text and selection as they are now.
@@ -618,6 +662,7 @@ func (v *View) snapshot() snapshot {
 
 // restore makes s the view's text and selection.
 func (v *View) restore(s snapshot) {
+	edit := v.wholeDocumentEdit(s.text)
 	v.text = s.text
 	v.revision++
 	v.hl.SetText(s.text)
@@ -627,6 +672,7 @@ func (v *View) restore(s snapshot) {
 	v.widest = max(v.widest, v.scanWidest(0, v.text.LineCount()-1))
 	v.compare()
 	v.moved()
+	v.reportEdit(edit)
 }
 
 // Undo takes back the last edit; Redo does it again.

@@ -68,19 +68,27 @@ func newHarnessWithLanguages(t testing.TB, kernel Kernel, languages []string) *h
 	if err := os.WriteFile(filepath.Join(dir, settingsFile), []byte(`{"theme":"dark"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	h := &harness{t: t, store: store.At(dir)}
-	start := time.Unix(1_700_000_000, 0)
-	h.app = New(Options{
+	return newHarnessWithOptions(t, Options{
 		Kernel:    kernel,
-		Store:     h.store,
+		Store:     store.At(dir),
 		Languages: languages,
-		Now: func() time.Time {
-			if h.driver == nil {
-				return start
-			}
-			return start.Add(h.driver.Now())
-		},
 	})
+}
+
+// newHarnessWithOptions makes a window from explicit options. The caller owns
+// the store and plugin root; the options' Now is replaced with the driver's
+// virtual clock so frame counters stay deterministic.
+func newHarnessWithOptions(t testing.TB, options Options) *harness {
+	t.Helper()
+	h := &harness{t: t, store: options.Store}
+	start := time.Unix(1_700_000_000, 0)
+	options.Now = func() time.Time {
+		if h.driver == nil {
+			return start
+		}
+		return start.Add(h.driver.Now())
+	}
+	h.app = New(options)
 	h.config = h.app.Config()
 	driver, err := app.NewDriver(h.config, nil)
 	if err != nil {
@@ -104,6 +112,9 @@ func newHarnessWithLanguages(t testing.TB, kernel Kernel, languages []string) *h
 			}
 		}
 	dispose:
+		// A test that fails while a real language server is running still owns
+		// the serve loops; cancel them before waiting for every task.
+		h.app.stopAllPluginServers()
 		if p := h.app.project; p != nil {
 			p.cancel()
 			h.app.closeTree(p)

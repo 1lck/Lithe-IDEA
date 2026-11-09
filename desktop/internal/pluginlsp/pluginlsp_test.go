@@ -247,8 +247,8 @@ func TestChangeCarriesRangesAsGiven(t *testing.T) {
 	}
 	changes := []core.PluginTextChange{{
 		Range: &core.PluginDocumentRange{
-			Start: core.PluginDocumentPosition{Line: 1, Character: 1},
-			End:   core.PluginDocumentPosition{Line: 1, Character: 2},
+			Start: core.PluginDocumentPosition{Line: 1, UTF16Column: 1},
+			End:   core.PluginDocumentPosition{Line: 1, UTF16Column: 2},
 		},
 		Text: "x",
 	}}
@@ -260,7 +260,7 @@ func TestChangeCarriesRangesAsGiven(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `[{"range":{"start":{"line":1,"character":1},"end":{"line":1,"character":2}},"text":"x"}]`
+	want := `[{"range":{"start":{"line":1,"utf16Column":1},"end":{"line":1,"utf16Column":2}},"text":"x"}]`
 	if string(encoded) != want {
 		t.Fatalf("changes = %s", encoded)
 	}

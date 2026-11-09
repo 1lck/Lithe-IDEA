@@ -194,3 +194,18 @@ func TestGrantServicesIntersects(t *testing.T) {
 		t.Fatal("a nil registry granted something")
 	}
 }
+
+func TestVerifyLaunchAcceptsHostRuntimeWithPackagedEntry(t *testing.T) {
+	root := writePackage(t, map[string]string{"provider/main.jar": "jar"})
+	resolved, err := VerifyLaunch(root, Launch{
+		Kind:  LaunchRuntime,
+		Tool:  "java",
+		Entry: "provider/main.jar",
+	})
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if resolved.Runtime != "" || resolved.Entry != filepath.Join(root, "provider", "main.jar") {
+		t.Fatalf("resolved = %+v", resolved)
+	}
+}

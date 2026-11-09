@@ -271,3 +271,27 @@ func TestCaretUTF16TracksEditsAndUndo(t *testing.T) {
 		t.Fatalf("after newline %d:%d", line, col)
 	}
 }
+
+func TestEditCallbackReportsLSPRange(t *testing.T) {
+	var edits []Edit
+	v := New(Config{HitID: gfx.Item(1), Label: "test", Text: []byte("abc\ndef"), OnEdit: func(edit Edit) { edits = append(edits, edit) }})
+	t.Cleanup(v.Close)
+	if !v.GoToNavigation(1, 1, false) {
+		t.Fatal("navigation refused")
+	}
+	v.typeText("X")
+	if len(edits) != 1 {
+		t.Fatalf("edits = %+v", edits)
+	}
+	if got := edits[0]; got.StartLine != 1 || got.StartColumn != 1 || got.EndLine != 1 || got.EndColumn != 1 || got.Text != "X" {
+		t.Fatalf("range edit = %+v", got)
+	}
+	// Undo replaces the whole document, so its edit covers it.
+	v.Undo()
+	if len(edits) != 2 {
+		t.Fatalf("edits after undo = %+v", edits)
+	}
+	if got := edits[1]; got.StartLine != 0 || got.StartColumn != 0 || got.EndLine != 1 || got.EndColumn != 4 || got.Text != "abc\ndef" {
+		t.Fatalf("undo edit = %+v", got)
+	}
+}

@@ -152,9 +152,11 @@ func (a *App) confirmPluginInstall() {
 	a.background(nil, pluginInstallTimeout, func(context.Context) func(*App) {
 		_, err := a.plugins.Installer.Commit(plan)
 		return func(a *App) {
+			installed := err == nil
 			if err != nil {
 				var approval *plugininstall.ApprovalError
 				if errors.As(err, &approval) {
+					installed = true
 					// The package is on disk; only its approval record failed, so the
 					// user is not told the installation failed. The next installation
 					// of the same version asks again.
@@ -166,6 +168,13 @@ func (a *App) confirmPluginInstall() {
 					// is a no-op once the rename consumed it.
 					_ = a.plugins.Installer.Discard(plan)
 				}
+			}
+			if installed && plan.ID != "" {
+				// A fresh installation is enabled unless the user disables it, so a
+				// disable tombstone from a previous version must not block its server.
+				a.pluginServerMu.Lock()
+				delete(a.pluginServerSuppressed, plan.ID)
+				a.pluginServerMu.Unlock()
 			}
 			a.refreshPluginState()
 			a.reloadPluginLanguages()
@@ -203,7 +212,14 @@ func (a *App) setPluginEnabled(id string, enabled bool) {
 			if !enabled {
 				// A disabled plugin keeps no process and no session.
 				a.stopPluginServer(id)
+			} else {
+				// An enable clears the tombstone a disable left for an in-flight start.
+				a.pluginServerMu.Lock()
+				delete(a.pluginServerSuppressed, id)
+				a.pluginServerMu.Unlock()
 			}
+			// Enabling and disabling both change the detected build systems.
+			a.invalidateBuild(a.project)
 			a.refreshPluginState()
 			a.reloadPluginLanguages()
 		}
@@ -230,6 +246,7 @@ func (a *App) uninstallPlugin(id string) {
 			}
 			// The package is gone, so its server cannot outlive it.
 			a.stopPluginServer(id)
+			a.invalidateBuild(a.project)
 			a.refreshPluginState()
 			a.reloadPluginLanguages()
 		}

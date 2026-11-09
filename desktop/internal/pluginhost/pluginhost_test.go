@@ -56,7 +56,7 @@ func TestValidateRefusesBrokenValidator(t *testing.T) {
 
 func TestDeclaredServesLanguagesAndBaseLanguageServers(t *testing.T) {
 	declared := Declared()
-	if len(declared) != 3 {
+	if len(declared) != 5 {
 		t.Fatalf("declared = %v", declared)
 	}
 	if versions := declared["languages"]; len(versions) != 2 || versions[0] != 1 || versions[1] != 3 {
@@ -70,6 +70,16 @@ func TestDeclaredServesLanguagesAndBaseLanguageServers(t *testing.T) {
 	}
 	if versions := declared["serverProcess"]; len(versions) != 1 || versions[0] != 1 {
 		t.Fatalf("serverProcess = %v", versions)
+	}
+	// A plugin that declares a provider cannot be installed until both the
+	// build system and provider capability are advertised. The provider version
+	// gates task execution (2) and application run preparation (4); tests and
+	// debug stay undeclared because their native surfaces do not exist yet.
+	if versions := declared["buildSystems"]; len(versions) != 1 || versions[0] != 1 {
+		t.Fatalf("buildSystems = %v", versions)
+	}
+	if versions := declared["buildProviders"]; len(versions) != 2 || versions[0] != 1 || versions[1] != 2 {
+		t.Fatalf("buildProviders = %v", versions)
 	}
 }
 

@@ -289,6 +289,8 @@ var chinese = Messages{
 		NoTerminals:        Shared(Chinese, "desktop.terminal.noTerminals"),
 	},
 
+	Agent: agentMessages(Chinese),
+
 	Status: StatusMessages{
 		Path:          Shared(Chinese, "desktop.status.path"),
 		Caret:         Shared(Chinese, "desktop.status.caret"),
@@ -468,4 +470,5 @@ var chinese = Messages{
 		},
 	},
 	Errors: errorMessages(Chinese),
+	Build:  buildMessages(Chinese),
 }

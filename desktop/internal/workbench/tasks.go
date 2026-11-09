@@ -73,4 +73,7 @@ func (a *App) background(p *project, timeout time.Duration, work func(ctx contex
 
 // wait blocks until every background task has returned, for shutdown and tests. The
 // results they posted stay queued until the next drain.
-func (a *App) wait() { a.tasks.running.Wait() }
+func (a *App) wait() {
+	a.tasks.running.Wait()
+	a.agentClosing.Wait()
+}

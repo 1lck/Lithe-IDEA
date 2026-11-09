@@ -40,16 +40,33 @@ var (
 	ErrRequest = errors.New("plugin backend start request is not usable")
 )
 
+// SharedProviderError reports a provider that reuses a language-server session.
+// The caller that owns that session must attach the build request to it rather
+// than let this runner start a second process.
+type SharedProviderError struct {
+	BuildSystemID string
+	LanguageID    string
+}
+
+func (e *SharedProviderError) Error() string {
+	return fmt.Sprintf("build provider %s shares the %s language-server session", e.BuildSystemID, e.LanguageID)
+}
+
 // Kernel is the part of the Core client this package uses. *core.Client
 // satisfies it.
 type Kernel interface {
 	PlanPluginBackend(ctx context.Context, manifest json.RawMessage, directories core.PluginBackendDirectories) (core.PluginBackendPlan, error)
+	PlanPluginLanguageServer(ctx context.Context, manifest json.RawMessage, languageID string, directories core.PluginBackendDirectories) (core.PluginBackendPlan, error)
+	PlanPluginBuildProvider(ctx context.Context, manifest json.RawMessage, buildSystemID string, directories core.PluginBackendDirectories) (core.PluginBackendPlan, error)
 	StartPluginBackend(ctx context.Context, request core.PluginBackendStart) (core.PluginBackendStarted, error)
+	StartPluginLanguageServer(ctx context.Context, request core.PluginBackendStart) (core.PluginBackendStarted, error)
 	WaitBackendEvents(ctx context.Context, session string, timeoutMilliseconds int) ([]core.BackendEvent, error)
 	StopPluginBackend(ctx context.Context, session string) error
 	DestroyPluginBackend(ctx context.Context, session string) error
 	RespondPluginHostRequest(ctx context.Context, session, requestID string, result json.RawMessage, failure *core.PluginHostFailure) error
 	RequestPluginSemantics(ctx context.Context, request core.PluginSemanticRequest) (string, error)
+	RequestPluginBuild(ctx context.Context, request core.PluginBuildProviderRequest) (string, error)
+	CancelPluginOperation(ctx context.Context, session, operation string) error
 }
 
 // StartRequest is everything the host must supply before a backend can run.
@@ -61,6 +78,15 @@ type StartRequest struct {
 	// PluginID and ProviderID identify what will run.
 	PluginID   string
 	ProviderID string
+	// LanguageID selects a language server declaration. Empty starts the
+	// plugin's backend instead.
+	LanguageID string
+	// BuildSystemID selects a build-system provider instead of a language
+	// server or generic backend. It is empty for those roles.
+	BuildSystemID string
+	// Role is the Core session role. Empty keeps the historical backend role;
+	// a build provider names "build".
+	Role string
 	// StateDirectory and the other directories are writable locations the host
 	// created before starting.
 	StateDirectory          string
@@ -71,6 +97,9 @@ type StartRequest struct {
 	Architecture string
 	// Settings are the plugin's own settings, opaque to this package.
 	Settings map[string]json.RawMessage
+	// Environment is added to the provider process environment. It is for host
+	// integration tests and host-owned facts, never plugin-controlled secrets.
+	Environment map[string]string
 	// RootURI and WorkingDirectory are the workspace the backend serves.
 	RootURI          any
 	WorkingDirectory string
@@ -125,9 +154,31 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 		Architecture:            request.Architecture,
 		Settings:                request.Settings,
 	}
-	plan, err := r.kernel.PlanPluginBackend(ctx, request.Manifest, directories)
+	var plan core.PluginBackendPlan
+	var err error
+	if request.BuildSystemID != "" {
+		plan, err = r.kernel.PlanPluginBuildProvider(ctx, request.Manifest, request.BuildSystemID, directories)
+	} else if request.LanguageID != "" {
+		plan, err = r.kernel.PlanPluginLanguageServer(ctx, request.Manifest, request.LanguageID, directories)
+	} else {
+		plan, err = r.kernel.PlanPluginBackend(ctx, request.Manifest, directories)
+	}
 	if err != nil {
 		return Session{}, err
+	}
+	if request.BuildSystemID != "" {
+		if plan.BuildProvider == nil {
+			return Session{}, fmt.Errorf("%w: the plan names no build provider", ErrRequest)
+		}
+		if plan.BuildProvider.LanguageServer != "" {
+			// A shared provider keeps one process per language. Returning the
+			// session it already uses is the caller's job; starting a second
+			// process would violate the contract.
+			return Session{}, &SharedProviderError{
+				BuildSystemID: request.BuildSystemID,
+				LanguageID:    plan.BuildProvider.LanguageServer,
+			}
+		}
 	}
 	resolved, err := pluginhost.VerifyLaunch(request.PackageDirectory, LaunchFromPlan(plan))
 	if err != nil {
@@ -147,19 +198,40 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 			return Session{}, err
 		}
 	}
+	if executable == "" && plan.Launch.Kind == pluginhost.LaunchRuntime && plan.Launch.Tool != "" {
+		// A runtime launch without a packaged runtime names the host runtime
+		// that loads the package's entry. The host resolves the tool; the entry
+		// was already verified above.
+		executable, err = pluginhost.ResolveCommand([]string{plan.Launch.Tool}, r.lookup)
+		if err != nil {
+			return Session{}, err
+		}
+	}
 	if executable == "" {
 		return Session{}, fmt.Errorf("%w: the plan names no program", ErrRequest)
 	}
-	started, err := r.kernel.StartPluginBackend(ctx, core.PluginBackendStart{
+	role := request.Role
+	if role == "" {
+		role = "backend"
+	}
+	start := core.PluginBackendStart{
 		ProviderID:            request.ProviderID,
 		PluginID:              request.PluginID,
+		Role:                  role,
 		ExecutablePath:        executable,
 		Arguments:             Arguments(plan, resolved.Entry),
+		Environment:           request.Environment,
 		RootURI:               request.RootURI,
 		WorkingDirectory:      request.WorkingDirectory,
 		HostServices:          granted,
 		InitializationOptions: plan.InitializationOptions,
-	})
+	}
+	var started core.PluginBackendStarted
+	if request.LanguageID != "" {
+		started, err = r.kernel.StartPluginLanguageServer(ctx, start)
+	} else {
+		started, err = r.kernel.StartPluginBackend(ctx, start)
+	}
 	if err != nil {
 		return Session{}, err
 	}
@@ -185,7 +257,19 @@ func (r *Runner) Stop(ctx context.Context, session Session) error {
 		return ErrNoSession
 	}
 	stopErr := r.kernel.StopPluginBackend(ctx, session.ID)
-	destroyErr := r.kernel.DestroyPluginBackend(ctx, session.ID)
+	// Core keeps the session until its shutdown reaches a terminal state, so a
+	// destroy immediately after stop is normally refused. Wait for queued
+	// lifecycle events instead of treating that refusal as a cleanup failure.
+	var destroyErr error
+	for {
+		destroyErr = r.kernel.DestroyPluginBackend(ctx, session.ID)
+		if destroyErr == nil || ctx.Err() != nil {
+			break
+		}
+		if _, waitErr := r.kernel.WaitBackendEvents(ctx, session.ID, 250); waitErr != nil {
+			break
+		}
+	}
 	return errors.Join(stopErr, destroyErr)
 }
 
@@ -296,6 +380,33 @@ func (r *Runner) Request(ctx context.Context, session Session, request core.Plug
 	return r.kernel.RequestPluginSemantics(ctx, request)
 }
 
+// RequestBuild submits one typed build-provider request to a session that
+// negotiated the protocol and returns Core's operation ID.
+func (r *Runner) RequestBuild(ctx context.Context, session Session, request core.PluginBuildProviderRequest) (string, error) {
+	if r == nil || r.kernel == nil {
+		return "", errors.New("pluginbackend: no kernel")
+	}
+	if session.ID == "" {
+		return "", ErrNoSession
+	}
+	request.SessionID = session.ID
+	return r.kernel.RequestPluginBuild(ctx, request)
+}
+
+// Cancel asks Core to cancel one outstanding build operation.
+func (r *Runner) Cancel(ctx context.Context, session Session, operation string) error {
+	if r == nil || r.kernel == nil {
+		return errors.New("pluginbackend: no kernel")
+	}
+	if session.ID == "" {
+		return ErrNoSession
+	}
+	if operation == "" {
+		return fmt.Errorf("%w: the operation is empty", ErrRequest)
+	}
+	return r.kernel.CancelPluginOperation(ctx, session.ID, operation)
+}
+
 // LaunchFromPlan extracts the fields pluginhost verifies from a Core plan.
 func LaunchFromPlan(plan core.PluginBackendPlan) pluginhost.Launch {
 	return pluginhost.Launch{
@@ -303,6 +414,7 @@ func LaunchFromPlan(plan core.PluginBackendPlan) pluginhost.Launch {
 		Path:            plan.Launch.Path,
 		Entry:           plan.Launch.Entry,
 		PackagedRuntime: plan.Launch.PackagedRuntime,
+		Tool:            plan.Launch.Tool,
 		Commands:        plan.Launch.Commands,
 		Required:        plan.RequiredPackagePaths,
 	}

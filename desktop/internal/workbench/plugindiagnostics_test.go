@@ -19,7 +19,7 @@ func TestDocumentMarkers(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	h.app.pluginDiagnostics = set
+	h.app.pluginDiagnostics = map[string]*plugindiag.Set{"java": set}
 
 	markers := h.app.documentMarkers("/w/A.java")
 	if len(markers) != 2 {
@@ -114,7 +114,7 @@ func TestStatusBarShowsProblemCount(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	h.app.pluginDiagnostics = set
+	h.app.pluginDiagnostics = map[string]*plugindiag.Set{"java": set}
 	if got, want := h.app.chromeStatusText(index), h.app.text.Status.Problems(2); got != want {
 		t.Fatalf("text = %q, want %q", got, want)
 	}
@@ -141,7 +141,7 @@ func TestApplyPluginDiagnosticsWithoutAProject(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	// A window with no plugin stack ignores diagnostics instead of storing markers
 	// for a document it cannot place.
-	h.app.applyPluginDiagnostics(core.PluginDiagnosticsEvent{URI: "file:///a.java"})
+	h.app.applyPluginDiagnostics("java", core.PluginDiagnosticsEvent{URI: "file:///a.java"})
 	if h.app.pluginDiagnostics != nil {
 		t.Fatalf("diagnostics = %v", h.app.pluginDiagnostics)
 	}

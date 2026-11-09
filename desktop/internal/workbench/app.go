@@ -21,6 +21,7 @@ import (
 	"runtime"
 	"runtime/metrics"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -55,6 +56,14 @@ type Kernel interface {
 	GitStatus(ctx context.Context, root string) (core.GitStatus, error)
 	GitReferences(ctx context.Context, root string) (core.GitReferences, error)
 	GitHistoryPage(ctx context.Context, root, reference, cursor string, limit int) (core.GitHistoryPage, error)
+	DetectBuildSystems(ctx context.Context, workspaceRoot string, manifests []json.RawMessage) (core.BuildDetection, error)
+	PlanBuildInvocation(ctx context.Context, manifest json.RawMessage, buildSystemID, root, platform string) (core.BuildInvocation, error)
+	CheckBuildToolVersion(ctx context.Context, manifest json.RawMessage, buildSystemID, runtime, output string) (core.BuildToolVersion, error)
+	PlanBuildModel(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildPlanRequest) (core.BuildPlan, error)
+	PlanBuildTask(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildPlanRequest) (core.BuildPlan, error)
+	PlanBuildRun(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildPlanRequest) (core.BuildPlan, error)
+	DecodeBuildModel(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeModelRequest) (core.BuildModel, error)
+	DecodeBuildRun(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeRunRequest) (core.BuildLaunch, error)
 	CloseGitHistoryCursor(ctx context.Context, root, cursor string) (bool, error)
 	GitCommitFiles(ctx context.Context, root, commit string) ([]core.GitCommitFile, error)
 	GitCommit(ctx context.Context, root, commit string) (core.GitCommitDetail, error)
@@ -88,6 +97,8 @@ type Kernel interface {
 	SearchEverywherePage(ctx context.Context, request core.EverywhereSearchRequest) (core.EverywhereSearchPage, error)
 	RankNames(context.Context, string, []core.RankCandidate) ([]int, error)
 	ParseNavigationInput(context.Context, string) (*core.NavigationTarget, error)
+	PluginDocumentURI(ctx context.Context, path, platform string) (string, error)
+	QueryProblems(ctx context.Context, request core.ProblemsQuery) (core.ProblemsResult, error)
 	ResolveMarketplaceSource(context.Context, string) (core.MarketplaceSource, error)
 	ValidateMarketplaceIndex(context.Context, json.RawMessage, core.MarketplaceSourceKind, string, map[string][]int) (core.MarketplaceIndex, error)
 }
@@ -118,6 +129,10 @@ type Options struct {
 	// PluginRoot is the directory installed plugin packages live in. Empty asks
 	// pluginpkg.DefaultRoot, which is the platform's own data directory.
 	PluginRoot string
+	// AgentKernel runs the Agent panel: adapter detection, credential-free
+	// provider discovery and the Core ACP connection. nil leaves the panel
+	// unavailable instead of refusing to start.
+	AgentKernel AgentKernel
 }
 
 // LogSink is the client's log as the window uses it: the log window reads it and the
@@ -170,6 +185,10 @@ type project struct {
 	everywhere everywhereSearch
 	// tree is the Project tool window's tree of the project folder.
 	tree fileTree
+	// build is the Run tool window's provider-backed instances and output.
+	build buildState
+	// agent is the project's Agent panel and connection.
+	agent agentState
 }
 
 // App is the state of the window.
@@ -203,6 +222,17 @@ type App struct {
 	// pluginState is what the settings window reads from its own thread about
 	// installed plugins; it is replaced whole, never mutated in place.
 	pluginState atomic.Pointer[map[string]settingswindow.PluginState]
+	// pluginServerMu guards the language-server maps because a build provider
+	// may attach to a shared session from a background model load.
+	pluginServerMu sync.Mutex
+	// agentKernel is the Agent panel's kernel, nil when the window was built
+	// without one.
+	agentKernel AgentKernel
+	// agentView is the window's Agent composer state; the project holds the rest.
+	agentView agentView
+	// agentClosing tracks Core sessions being closed off the window thread, so
+	// shutdown waits for their process trees.
+	agentClosing sync.WaitGroup
 	// pluginServers are the language servers this window started, keyed by plugin.
 	pluginServers map[string]*pluginServer
 	// pluginServerLanguages maps a language to the plugin serving it, so opening a
@@ -210,9 +240,14 @@ type App struct {
 	pluginServerLanguages map[string]string
 	// pluginServerStarting marks a language whose first start is in flight.
 	pluginServerStarting map[string]bool
-	// pluginDiagnostics holds what the running language servers published for the
-	// files of the open project.
-	pluginDiagnostics *plugindiag.Set
+	// pluginServerSuppressed marks plugins the user disabled or uninstalled while
+	// a start was in flight, so the finished start is disposed instead of
+	// registering a server the plugin no longer owns.
+	pluginServerSuppressed map[string]bool
+	// pluginDiagnostics holds what each running language server published for
+	// the files of the open project, keyed by plugin so stopping one server
+	// withdraws only its own diagnostics.
+	pluginDiagnostics map[string]*plugindiag.Set
 
 	welcome    welcomeState
 	clone      cloneState
@@ -238,7 +273,9 @@ type App struct {
 	commitView     commitView
 	searchView     searchView
 	everywhereView everywhereView
-	navigation     navigationView
+	// problems is the Problems tool window's cached Core answer.
+	problems   problemsView
+	navigation navigationView
 	// delays are how long the log waits before it acts on a selection or a filter.
 	delays logDelays
 	// term is what the frame being painted declared for the terminals, and the gesture that
@@ -293,6 +330,7 @@ func New(options Options) *App {
 		logView:         newLogView(),
 		commitView:      newCommitView(),
 		delays:          defaultLogDelays,
+		agentKernel:     options.AgentKernel,
 	}
 	if _, err := a.store.Load(settingsFile, &a.settings); err != nil {
 		a.settings = settings{}
@@ -501,6 +539,7 @@ func (a *App) paint(canvas *gfx.Canvas, size gfx.Size) {
 	canvas.Fill(bounds, a.colors.Chrome)
 	a.status.frame(canvas, a.now())
 	a.chrome.beginFrame()
+	a.agentView.beginFrame()
 	a.logView.beginFrame()
 	a.commitView.beginFrame()
 	a.beginTerminalFrame()
@@ -535,6 +574,9 @@ func (a *App) paint(canvas *gfx.Canvas, size gfx.Size) {
 		a.drawNotice(f)
 	})
 	a.chrome.capture()
+	if a.project != nil {
+		a.agentView.capture(&a.project.agent)
+	}
 	a.layout.capture()
 	a.logView.capture()
 	a.commitView.capture()
@@ -815,7 +857,16 @@ func (a *App) activate(index int) {
 		a.title.gearOpen = !a.title.gearOpen
 		a.title.projectOpen = false
 		a.closeBranches()
-	case it.id == itemRunConfig || it.id == itemTitleRun || it.id == itemTitleDebug:
+	case it.id == itemTitleRun:
+		if a.project != nil {
+			if !a.chrome.isOpen(catalogIndex[itemRun]) {
+				a.reduceChrome(core.ToggleChrome(itemRun))
+			}
+			a.runSelectedBuildTask(a.project)
+			return
+		}
+		a.notify(a.text.Title.RunLater)
+	case it.id == itemRunConfig || it.id == itemTitleDebug:
 		a.notify(a.text.Title.RunLater)
 	case it.id == itemTitleSearch:
 		if a.project != nil {
@@ -913,7 +964,7 @@ func (a *App) openProject(path string) {
 	a.requestCloseProject(func() {
 		a.reduceRecent(a.recent, core.RecordRecent(root, a.now()), true)
 		ctx, cancel := context.WithCancel(context.Background())
-		p := &project{root: root, name: filepath.Base(root), ctx: ctx, cancel: cancel, commit: newCommitState()}
+		p := &project{root: root, name: filepath.Base(root), ctx: ctx, cancel: cancel, commit: newCommitState(), agent: newAgentState()}
 		a.searchView.reset()
 		a.openTerminals(p)
 		a.project = p
@@ -954,10 +1005,15 @@ func (a *App) requestCloseProject(after func()) {
 		a.releaseProjectSearch(p)
 		a.closeDocuments(p)
 		a.closeTerminals(p)
+		// Build providers and prepared applications belong to the workspace and
+		// are stopped before the project state is dropped.
+		a.stopBuild(p)
+		a.closeAgent(p)
 		// A language server is bound to the workspace it was started for, so it goes
 		// with the project rather than outliving it.
 		a.stopAllPluginServers()
-		a.clearPluginDiagnostics()
+		a.clearAllPluginDiagnostics()
+		a.problems.reset()
 		a.project = nil
 		a.cancelDrag()
 		a.cancelTabDrag()

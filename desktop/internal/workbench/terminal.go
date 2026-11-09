@@ -139,6 +139,9 @@ func (a *App) textInput(ctx app.TextInputContext) *app.TextInput {
 	if v := a.focusedDocument(ctx.ID); v != nil {
 		return v.TextInput(ctx)
 	}
+	if input := a.agentTextInput(ctx); input != nil {
+		return input
+	}
 	if ctx.ID == commitMessageID && a.project != nil {
 		a.commitView.input.Editor = a.project.commit.editor
 		return &a.commitView.input

@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -10,14 +11,53 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 )
 
+// pluginDiagnosticSet returns the storage of one plugin, making it on first use.
+//
+// Diagnostics are kept per plugin rather than per workspace so that stopping or
+// disabling one server withdraws only what that server published. Core's query
+// receives the union of the sets; the owner never appears in its request or
+// result.
+func (a *App) pluginDiagnosticSet(pluginID string) *plugindiag.Set {
+	if a.pluginDiagnostics == nil {
+		a.pluginDiagnostics = make(map[string]*plugindiag.Set)
+	}
+	set := a.pluginDiagnostics[pluginID]
+	if set == nil {
+		set = plugindiag.NewSet()
+		a.pluginDiagnostics[pluginID] = set
+	}
+	return set
+}
+
+// pluginDiagnosticSets returns the stores to read, without allocating when there
+// are none.
+func (a *App) pluginDiagnosticSets() []*plugindiag.Set {
+	if len(a.pluginDiagnostics) == 0 {
+		return nil
+	}
+	owners := make([]string, 0, len(a.pluginDiagnostics))
+	for owner := range a.pluginDiagnostics {
+		owners = append(owners, owner)
+	}
+	// The union is what Core sees, and Core keeps submission order for ties. A Go
+	// map's order is random, so the owners are sorted to make equal diagnostics
+	// from two plugins reach the list in the same order on every query.
+	sort.Strings(owners)
+	sets := make([]*plugindiag.Set, 0, len(owners))
+	for _, owner := range owners {
+		sets = append(sets, a.pluginDiagnostics[owner])
+	}
+	return sets
+}
+
 // applyPluginDiagnostics stores the diagnostics one language server published for
 // one document.
 //
 // An empty set clears the document, which is how a server withdraws a problem it
 // fixed. A document this window cannot place in the workspace is dropped: storing
 // it under a path the user cannot open would only add a marker nobody can reach.
-func (a *App) applyPluginDiagnostics(event core.PluginDiagnosticsEvent) {
-	if a.plugins == nil {
+func (a *App) applyPluginDiagnostics(pluginID string, event core.PluginDiagnosticsEvent) {
+	if a.plugins == nil || pluginID == "" {
 		return
 	}
 	resolve := a.pluginDocumentResolver()
@@ -26,13 +66,13 @@ func (a *App) applyPluginDiagnostics(event core.PluginDiagnosticsEvent) {
 		return
 	}
 	records := pluginservice.DiagnosticsFromEvent(event, resolve)
-	if a.pluginDiagnostics == nil {
-		a.pluginDiagnostics = plugindiag.NewSet()
-	}
-	if err := a.pluginDiagnostics.Replace(fileKey, records); err != nil {
+	set := a.pluginDiagnosticSet(pluginID)
+	if err := set.Replace(fileKey, records); err != nil {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_diagnostics", err))
+		return
 	}
 	a.refreshDocumentMarkers(fileKey)
+	a.markProblemsChanged()
 }
 
 // refreshDocumentMarkers redraws one open document's underlines.
@@ -50,30 +90,33 @@ func (a *App) refreshDocumentMarkers(path string) {
 	document.view.SetMarkers(a.documentMarkers(path))
 }
 
-// documentMarkers turns the stored diagnostics of one file into view markers.
+// documentMarkers turns every server's stored diagnostics of one file into view
+// markers.
 //
 // A diagnostic that spans lines underlines only its first cell: the view draws one
 // row at a time, and an underline that crossed rows would need the range of every
 // row it covers.
 func (a *App) documentMarkers(path string) []editorview.Marker {
-	if a.pluginDiagnostics == nil {
+	if len(a.pluginDiagnostics) == 0 {
 		return nil
 	}
 	var markers []editorview.Marker
-	for _, record := range a.pluginDiagnostics.All() {
-		if record.FileKey != path {
-			continue
+	for _, set := range a.pluginDiagnosticSets() {
+		for _, record := range set.All() {
+			if record.FileKey != path {
+				continue
+			}
+			end := record.Column + 1
+			if record.EndLine == record.Line && record.EndColumn > record.Column {
+				end = record.EndColumn
+			}
+			markers = append(markers, editorview.Marker{
+				Line:     record.Line,
+				Start:    record.Column,
+				End:      end,
+				Severity: markerSeverity(record.Severity),
+			})
 		}
-		end := record.Column + 1
-		if record.EndLine == record.Line && record.EndColumn > record.Column {
-			end = record.EndColumn
-		}
-		markers = append(markers, editorview.Marker{
-			Line:     record.Line,
-			Start:    record.Column,
-			End:      end,
-			Severity: markerSeverity(record.Severity),
-		})
 	}
 	return markers
 }
@@ -90,9 +133,58 @@ func markerSeverity(severity plugindiag.Severity) editorview.MarkerSeverity {
 	}
 }
 
-// clearPluginDiagnostics drops everything a previous project's servers published.
-func (a *App) clearPluginDiagnostics() {
+// clearPluginDiagnostics withdraws everything one plugin's server published.
+// Other plugins' diagnostics for the same files stay.
+func (a *App) clearPluginDiagnostics(pluginID string) {
+	if a.pluginDiagnostics == nil {
+		return
+	}
+	if _, present := a.pluginDiagnostics[pluginID]; !present {
+		return
+	}
+	delete(a.pluginDiagnostics, pluginID)
+	if len(a.pluginDiagnostics) == 0 {
+		a.pluginDiagnostics = nil
+	}
+	a.refreshOpenDocumentMarkers()
+	a.markProblemsChanged()
+}
+
+// clearPluginFileDiagnostics withdraws one plugin's diagnostics for one file,
+// which is what closing the document in its session means for the Problems list.
+func (a *App) clearPluginFileDiagnostics(pluginID, fileKey string) {
+	if a.pluginDiagnostics == nil || fileKey == "" {
+		return
+	}
+	set := a.pluginDiagnostics[pluginID]
+	if set == nil {
+		return
+	}
+	set.Clear(fileKey)
+	a.refreshDocumentMarkers(fileKey)
+	a.markProblemsChanged()
+}
+
+// clearAllPluginDiagnostics drops every server's diagnostics, for a project
+// switch or close.
+func (a *App) clearAllPluginDiagnostics() {
+	if a.pluginDiagnostics == nil {
+		return
+	}
 	a.pluginDiagnostics = nil
+	a.refreshOpenDocumentMarkers()
+	a.markProblemsChanged()
+}
+
+// refreshOpenDocumentMarkers redraws the files that are open after a store was
+// replaced whole.
+func (a *App) refreshOpenDocumentMarkers() {
+	if a.project == nil {
+		return
+	}
+	for _, document := range a.project.docs.list {
+		document.view.SetMarkers(a.documentMarkers(document.path))
+	}
 }
 
 // pluginDocumentResolver places a document identity inside the open project.
@@ -129,12 +221,19 @@ func (a *App) pluginDocumentResolver() pluginservice.Resolver {
 	}
 }
 
-// pluginDiagnosticCounts reports how many problems the open project has.
+// pluginDiagnosticCounts reports how many problems every plugin published for the
+// open project has, summed by severity.
 func (a *App) pluginDiagnosticCounts() map[plugindiag.Severity]int {
-	if a.pluginDiagnostics == nil {
+	if len(a.pluginDiagnostics) == 0 {
 		return nil
 	}
-	return a.pluginDiagnostics.Counts()
+	counts := make(map[plugindiag.Severity]int, 4)
+	for _, set := range a.pluginDiagnosticSets() {
+		for severity, count := range set.Counts() {
+			counts[severity] += count
+		}
+	}
+	return counts
 }
 
 // pluginProblemCount reports how many problems the open project has in total.

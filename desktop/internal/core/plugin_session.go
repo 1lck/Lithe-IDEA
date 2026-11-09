@@ -10,7 +10,7 @@ import (
 type PluginBackendStart struct {
 	ProviderID                    string            `json:"providerId"`
 	PluginID                      string            `json:"pluginId"`
-	Role                          string            `json:"role"`
+	Role                          string            `json:"role,omitempty"`
 	ExecutablePath                string            `json:"executablePath"`
 	Arguments                     []string          `json:"arguments,omitempty"`
 	Environment                   map[string]string `json:"environment,omitempty"`
@@ -62,6 +62,19 @@ type PluginBackendPlan struct {
 		HostServices []string `json:"hostServices"`
 		Version      int      `json:"version"`
 	} `json:"backend"`
+	// BuildProvider is present when the plan was selected by buildSystemID.
+	// LanguageServer names a session this host already keeps for that language
+	// instead of a second process; the host must send build requests to it.
+	BuildProvider *PluginBuildProviderPlan `json:"buildProvider"`
+}
+
+// PluginBuildProviderPlan identifies the build system a provider serves and
+// whether the host reuses an existing language-server session.
+type PluginBuildProviderPlan struct {
+	BuildSystemID       string `json:"buildSystemID"`
+	ExecutesProjectCode bool   `json:"executesProjectCode"`
+	MayUseNetwork       bool   `json:"mayUseNetwork"`
+	LanguageServer      string `json:"languageServer,omitempty"`
 }
 
 type PluginBackendDirectories struct {
@@ -146,20 +159,50 @@ func (c *Client) ValidatePluginManifest(ctx context.Context, manifest json.RawMe
 	return result.Plugin, nil
 }
 
-// PlanPluginBackend asks Core to expand a previously validated declaration.
-// Planning does not verify an archive's provenance or approve its programs.
+// PlanPluginBackend asks Core to expand a previously validated backend
+// declaration. Planning does not verify an archive's provenance or approve its
+// programs.
 func (c *Client) PlanPluginBackend(ctx context.Context, manifest json.RawMessage, directories PluginBackendDirectories) (PluginBackendPlan, error) {
+	return c.planPluginLaunch(ctx, struct {
+		Manifest json.RawMessage          `json:"manifest"`
+		Backend  bool                     `json:"backend"`
+		Request  PluginBackendDirectories `json:"request"`
+	}{manifest, true, directories})
+}
+
+// PlanPluginLanguageServer asks Core to expand the language server declaration
+// for languageID. It is the same planner as a backend plan but selects the
+// language server entry instead of the plugin backend.
+func (c *Client) PlanPluginLanguageServer(ctx context.Context, manifest json.RawMessage, languageID string, directories PluginBackendDirectories) (PluginBackendPlan, error) {
+	return c.planPluginLaunch(ctx, struct {
+		Manifest   json.RawMessage          `json:"manifest"`
+		LanguageID string                   `json:"languageID"`
+		Request    PluginBackendDirectories `json:"request"`
+	}{manifest, languageID, directories})
+}
+
+// PlanPluginBuildProvider asks Core to expand one build system's provider
+// launch. The returned plan names buildProvider.buildSystemID and, for a shared
+// provider, the language whose existing session answers build requests.
+func (c *Client) PlanPluginBuildProvider(ctx context.Context, manifest json.RawMessage, buildSystemID string, directories PluginBackendDirectories) (PluginBackendPlan, error) {
+	if buildSystemID == "" {
+		return PluginBackendPlan{}, newParseError("plugins.declarative.languageServerLaunchPlan", "no build system was selected", "")
+	}
+	return c.planPluginLaunch(ctx, struct {
+		Manifest      json.RawMessage          `json:"manifest"`
+		BuildSystemID string                   `json:"buildSystemID"`
+		Request       PluginBackendDirectories `json:"request"`
+	}{manifest, buildSystemID, directories})
+}
+
+func (c *Client) planPluginLaunch(ctx context.Context, body any) (PluginBackendPlan, error) {
 	const command = "plugins.declarative.languageServerLaunchPlan"
 	var result struct {
 		Status string                `json:"status"`
 		Error  *MarketplaceRejection `json:"error"`
 		Plan   *PluginBackendPlan    `json:"plan"`
 	}
-	if err := c.Execute(ctx, command, struct {
-		Manifest json.RawMessage          `json:"manifest"`
-		Backend  bool                     `json:"backend"`
-		Request  PluginBackendDirectories `json:"request"`
-	}{manifest, true, directories}, &result); err != nil {
+	if err := c.Execute(ctx, command, body, &result); err != nil {
 		return PluginBackendPlan{}, err
 	}
 	if result.Status == "rejected" && result.Error != nil {
@@ -230,7 +273,21 @@ func (c *Client) RespondPluginHostRequest(ctx context.Context, session, requestI
 // StartPluginBackend starts a Core-owned process; initialization completes via
 // session events. No host service is granted unless explicitly supplied.
 func (c *Client) StartPluginBackend(ctx context.Context, request PluginBackendStart) (PluginBackendStarted, error) {
-	request.Role = "backend"
+	if request.Role == "" {
+		request.Role = "backend"
+	}
+	return c.startPluginServer(ctx, request)
+}
+
+// StartPluginLanguageServer starts one language server planned from a plugin's
+// languageServers declaration. The role is what makes Core route its process as
+// a language server rather than a plugin backend.
+func (c *Client) StartPluginLanguageServer(ctx context.Context, request PluginBackendStart) (PluginBackendStarted, error) {
+	request.Role = "language_server"
+	return c.startPluginServer(ctx, request)
+}
+
+func (c *Client) startPluginServer(ctx context.Context, request PluginBackendStart) (PluginBackendStarted, error) {
 	var response PluginBackendStarted
 	err := c.Execute(ctx, "lsp.startServer", request, &response)
 	return response, err

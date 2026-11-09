@@ -1,54 +1,67 @@
-# Agent 笔记：Viva 的 ACP Core 连接桥
+# Agent 笔记：Viva 的 ACP Core 连接桥与最小会话面板
 
 状态：已实现
 
 ## 先说结论
 
-Viva 可通过 Rust Core 的 C ABI 创建 ACP 连接、发送原始契约命令并接收事件，也可读取 Core 检测到的运行时和 Agent 管理状态。桥接层只负责跨语言句柄和回调，不实现 ACP 协议；产品的 Agent 面板、供应商配置、权限界面和会话编排仍未接入。
+Viva 通过 Rust Core 的 C ABI 创建 ACP 连接、发送原始契约命令并接收事件，也可读取 Core 检测到的运行时和 Agent 管理状态。2026-11-09 起，工作台的 AI Assistant 面板接通了最小会话纵向切片：从本机 Codex/Claude 配置发现已有 provider、启动 Core 管理的 ACP 适配器、发送文本、增量显示回复、停止轮次、显示错误，并要求用户真实点选权限选项。
+
+Agent 协议、进程树、会话生命周期和 provider 配置解析仍由 Core 负责；Go 只做类型化桥接、平台文件/环境读取和呈现。历史、安装、订阅登录、模型/权限/思考设置、附件、远程/MCP 和完整供应商管理不在本切片内。
 
 ## 问题
 
-Core 回调期间持有自身回调锁，关闭连接又要撤销并等待回调结束。界面线程或回调里同步关闭会死锁或造成明显卡顿；无界缓存事件则可能耗尽内存或在事件丢失后显示错误的会话状态。
+Core 桥已经存在，但 Viva 没有用户入口：助手工具窗口只有占位。若在 Go 里另写 ACP 或 provider 解析，会复制 Core 的状态机和协议；若在应用启动时预启动 Agent，不用这个功能的用户也要承担进程和内存开销；权限请求如果自动放行，Agent 可以在用户不知情时执行工具。
+
+Viva 还没有自己的 AI provider 设置存储。用户已有的 provider 只存在于本机 Codex/Claude CLI 配置中，因此必须读取真实配置，不能显示虚构的默认 provider，也不能把密钥写入普通设置或日志。
 
 ## 决策
 
-通过整数身份关联 Go 事件队列，C 不持有 Go 指针。发送和关闭由同一把锁串行化，Core 返回关闭后才删除身份；关闭必须在界面线程以外执行。回调仅复制事件并尝试入队，不等待消费者，也不关闭连接。队列限制为 256 条、总计 16 MiB、单条 4 MiB；任一限制被触发时明确报告溢出，调用方必须关闭并丢弃连接，不能继续展示不完整会话。
-
-启动配置可能包含凭据，桥接层不记录配置或命令。启动后异步失败由 Core 的事件报告，句柄创建成功不等于 Agent 已就绪。配置、权限和事件语义仍由 Core 及其契约决定；调用方不能把该桥当成已经完成的产品功能。
-
-管理状态由 `agent.status` 读取；实际检测及版本判定由 Core 完成。适配器和 CLI 的更新结果用可空布尔值区分“没有更新”和“无法确认”，显示用的更新提示不得作为命令执行。检测可能启动只读版本探测，不能在 UI 线程调用，也不能因为读取状态自动安装或升级。安装、卸载和更新接口必须由用户明确操作触发；Core 决定目标、权限与实际结果，Viva 只转发进度。
-
-通用请求事件经 `lithe_core_execute_json_with_events` 在请求线程同步交付，不把 Go 指针交给 C。观察者应立即返回，不等待界面；事件超过宿主大小限制或观察者发生 panic 时将观察失败与请求结果分开报告，因为操作可能已经成功或产生副作用。调用方不能因为进度观察失败自动重复安装，必须刷新实际状态。
-
-Core 在同一进程内按请求编号查找取消目标，所以所有 `Client` 实例共用递增编号，不能按实例分别从一开始计数；否则不同实例的活动请求会重号并可能取消到另一请求，见 [#1803](https://github.com/1lck/Lithe-IDEA/issues/1803)。
-
-请求编码结束后再次检查 context，避免编码期间已经取消的操作进入 Core；若取消先于 Core 注册请求，宿主重试取消查询直到注册成功或请求结束，见 [#1804](https://github.com/1lck/Lithe-IDEA/issues/1804)。Core 仍采用协作式取消：已经完成的请求保留真实结果，不能把取消当成必然回滚。
-
-生产接线需要由平台存储适配器明确提供数据根目录，不能直接使用当前 Viva 偏好存储的 `Lithe Desktop` 目录并假设已有安装在那里：旧 macOS 正式版使用 Application Support 下的 `Lithe`，开发版还经过身份隔离；旧 Windows 客户端使用 Tauri 的应用数据目录。用户已有适配器的发现与迁移必须按平台及应用身份验证；读取设置页不应复制、删除或修改旧目录。该桥目前只接受调用方提供的目录，还没有实现迁移。
+- **适配器安装是显式用户动作。** 面板打开时只调用 `agent.status` 和 `ai.configuration.*`，绝不自动安装。未安装的适配器只在用户点击 Install 后调用 Core 的 `agent.install`；进度、取消、失败重试和成功后的状态重读都走同一个 Core 桥。安装目录只用 Viva 自己的 `Application Support/Lithe Desktop/agents`，不读、不写旧版 `Lithe` 或 Tauri 目录。
+- **面板按需启动，跟着项目走。** AI Assistant 工具窗口第一次被绘制时才读取适配器状态和本机 provider；用户选择 provider 并点“开始对话”后才调用 `lithe_agent_open_json`。每个项目持有自己的 `agentState` 和连接；隐藏面板不结束会话，关闭项目、切换项目或关闭窗口时关闭连接并清理进程树。没有项目时不启动任何 Agent。
+- **provider 发现复用 Core 的配置解析，按 Core 声明的协议匹配 Agent。** `agent.status` 决定哪些适配器实际安装；`ai.configuration.sources` 决定平台要读哪些本机文件；`ai.configuration.parse` 返回不含密钥的 provider 元数据和凭据定位器。provider 是否属于当前 Agent 由 `AgentCatalogStatus.Protocol` 与 `AIConfigurationProvider.APIProtocol` 的 Core 值匹配，不按 `codex-acp`/`claude-acp` 名称写分支。Go 只按定位器读取同一份文件文本或进程环境，并把 `baseUrl`、`apiProtocol`、`model` 和内存中的 API Key 放进启动 JSON。凭据不写设置、不写日志、不放进错误信息。Codex `config.toml` 的内联 `experimental_bearer_token` 需要 TOML 路径解析，本切片明确报“无法读取”，不为了这一条路径新增第二份配置解析器。Core 的 API Key 启动路径无条件要求非空 Key，即使 provider 元数据声明 `requiresApiKey: false`；因此没有凭据的 provider 会被标为 MissingKey 并在界面解释，而不是永久静默禁用 Start。
+- **Go 不实现 ACP。** 连接、`newSession`、`prompt`、`cancel`、`permission` 命令和 `ready`、`sessionCreated`、`update`、`permission`、`turnFinished`、`requestFailed`、`stopped` 事件都按 `shared/fixtures/agent/acp-events-v1.json` 的固定形状转发。未知的增量事件忽略，不根据 Agent 名称或文本猜语义。核对固定 Core 后确认没有可复用的“已规范化 Agent 事件”命令：`lithe_agent_send_json` 是唯一 Agent 命令入口，`runtime/ffi.rs` 直接把 `lithe_agent_host::AgentEvent` 序列化成 JSON 回调；事件形状由 fixture 和契约固定。因此 Go 只解码这些契约字段，不新增按工具名分支。
+- **权限必须由用户确认。** 收到 `permission` 后只显示上游工具标题和上游选项；不预设默认选项、不自动发送 `permission`、不在取消或超时时替用户放行。用户点选后发送 `{kind:"permission", requestId, optionId}`；上游没有选项时才显示明确的拒绝按钮。停止轮次会清除待处理权限卡。
+- **生命周期有界。** 事件队列沿用 Core 桥的 256 条、16 MiB、单条 4 MiB 上限，溢出时关闭连接并丢弃不完整会话；面板自己的 transcript 限制 200 条、1 MiB、单条 64 KiB，超出时丢弃最旧消息；面板只绘制滚动视口及前后一条消息，用上一帧测得的行高和保守估计放置上下占位，不一次创建全部消息行。关闭 Core 会话在窗口线程之外执行，`App.wait` 等待这些关闭完成，避免退出后留下子进程。
+- **错误走日志和界面。** 启动、检测、provider 发现、发送、取消、权限答复和事件流失败都记录现有 `app.notification.operation_failed` 目录事件，并在面板显示可操作错误；连接关闭和溢出有固定文案，不把上游 stderr 或凭据写进界面。
 
 ## 考虑过的备选方案
 
-- 在 Go 中实现 ACP 和进程管理会复制 Core 的状态机，故直接调用已有 Core 接口。
-- 队列满时静默丢弃消息会让回复、权限请求或结束事件丢失，故使连接进入明确失败状态。
-- 在 Core 回调中关闭连接会与回调锁冲突，故由独立调用方处理关闭。
+- **在 Go 中实现 ACP 和进程管理**：会复制 Core 的协议、取消和进程树规则，故直接调用已有 Core 接口。
+- **先做完整供应商设置页**：会超出最小会话切片，且需要凭据安全存储、导入/编辑/删除和多窗口冲突处理；本次先只读发现本机已有 provider，完整管理继续留在 `agent-provider-configuration` 能力行。
+- **没有 provider 时显示一个默认配置**：会让用户以为 Agent 已配置，实际启动必然失败；故显示“未找到 provider”并保留真实错误。
+- **权限请求默认选择第一个允许项或自动拒绝**：都替用户做了决定；故只显示上游选项，等待用户点击。
+- **关闭面板就结束连接**：会让后台轮次中断，与旧客户端“关闭项目才停止”的行为不一致；故只在项目或窗口退出时关闭。
 
 ## 后果
 
-调用方必须持续消费事件、处理溢出并在项目关闭或退出时关闭连接。安装 API 已接到 Core，但没有用户入口或真实安装验收；配置、凭据存储、权限操作和 UI 仍未完成。Windows 实机及真实供应商验收仍待完成。队列是内存中的临时状态，不创建缓存或写入发行包。
+收益是 Viva 有了真实可用的最小 Agent 闭环，且协议和配置解析没有第二份实现。代价是：
+
+- 本切片只支持已安装的 `codex-acp` / `claude-acp` 和本机已有 API provider；适配器 Install 只覆盖 ACP 适配器本身，CLI 安装/更新、卸载、Node/npm 预检、订阅登录、历史恢复、模型/权限/思考设置、文件附件、工具/计划/用量展示、远程/MCP、子代理和导出仍未接入。
+- 数据目录暂用 Viva 的 Application Support/Lithe Desktop，尚未迁移旧 macOS `Lithe` 或 Windows Tauri 目录；旧目录里的适配器不会自动出现。
+- 真实供应商端到端、Windows 原生窗口和 macOS 原生窗口验收仍为 pending；本地测试使用脚本化 ACP 连接和 Core 的固定 ACP fixture，不能替代真实模型调用。
+- transcript 只做纯文本增量显示，不解析 Markdown、工具或计划；这是有意的最小呈现。
 
 ## 验证
 
-- `scripts/desktop/desktop-go.sh test -race ./internal/core -run 'TestAgent(SessionUsesCoreAndCleansUp|SessionsRemainIndependent|EventQueueOverflowIsExplicit|NextHonorsCancellation)' -count=3 -timeout=90s`：macOS 本地模拟 ACP 进程，验证连接、会话、流式事件、并发发送与关闭、独立连接、队列溢出、取消等待和子进程退出。
-- `scripts/desktop/desktop-go.sh test -race ./internal/core -run 'Test(CoreRequestEventsStayScoped|CoreObserverPanicDoesNotHideRequestResult|Agent)' -count=3 -timeout=90s`：并发请求事件隔离、观察者 panic 与请求结果分离、共享管理 fixture、相对目录拒绝和调用前取消；用不存在的 Agent 验证真实 Core `preparing` 事件后拒绝安装且临时目录不变，不启动或修改用户 CLI，未执行真实安装。
-- `scripts/desktop/desktop-go.sh test -race ./internal/core -run '^TestCoreRequestIDsUniqueAcrossClients$' -count=5 -timeout=90s`：两个客户端的请求同时活动时编号不同，取消一个请求不影响另一个。
-- `scripts/desktop/desktop-go.sh test -race ./internal/core -run 'Test(ExecuteCancellationDuringEncodingStopsRequest|CancellationRetriesUntilCoreRegistersOrRequestFinishes)' -count=5 -timeout=90s`：编码期间取消不进入 Core；以可控重试信号验证注册后取消和请求结束后停止重试。
-- 模拟进程不调用真实供应商；Windows 进程检查的测试文件已交叉编译，但桥接运行时验证仍待执行。
+- `scripts/desktop/desktop-go.sh test -race ./internal/core -run 'TestAIConfiguration|TestAgent' -count=3 -timeout=120s`：Core 配置来源/解析、凭据定位器不泄露密钥、ACP 连接、会话、流式事件、并发关闭、独立连接、队列溢出、取消等待和子进程退出。
+- `scripts/desktop/desktop-go.sh test -race ./internal/workbench -run 'TestAgent' -count=3 -timeout=120s`：provider 发现与选择、显式适配器安装及进度/取消/重试/状态重读、启动 JSON、发送、增量回复、权限不自动答复、取消等待 `turnFinished`、请求失败/断连显示、transcript 上限与虚拟窗口、凭据不进入日志/UI、项目关闭/替换清理。
+- `scripts/desktop/desktop-go.sh test -race ./internal/workbench -count=1 -timeout=300s`：工作台回归。
+- `node scripts/i18n/generate-i18n.mjs --check`、`node scripts/i18n/verify-app-language-localization.mjs`、`node --test --test-timeout=60000 scripts/i18n/test-i18n.mjs`：面板文案走共享 i18n。
+- 真实端到端仍需在 macOS 和 Windows 原生窗口用已安装的 Codex/Claude 和真实 provider 执行发送、权限、停止和退出清理；未执行前功能矩阵保持 `pending`。
 
 ## 适用范围
 
+- `desktop/internal/workbench/agent.go`
+- `desktop/internal/workbench/agent_provider.go`
+- `desktop/internal/workbench/agent_view.go`
+- `desktop/internal/workbench/agent_test.go`
 - `desktop/internal/core/agent.go`
 - `desktop/internal/core/agent_bridge.go`
 - `desktop/internal/core/agent_management.go`
-- `desktop/internal/core/events_bridge.go`
-- `desktop/internal/core/agent_test.go`
+- `desktop/internal/core/ai_configuration.go`
+- `desktop/internal/core/ai_configuration_test.go`
+- `desktop/internal/i18n/agent_messages.go`
 - `shared/contracts/rust-core-api.md`
+- `shared/fixtures/agent/acp-events-v1.json`
+- `shared/fixtures/ai/cli-configuration-v1.json`
+- `shared/platform-feature-matrix/features/agent-minimal-conversation.json`

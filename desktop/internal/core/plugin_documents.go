@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 )
 
-// PluginDocumentPosition is one position in a document: a one-based line and a
-// one-based UTF-16 column, which is what the editor contract uses.
+// PluginDocumentPosition is one position in a document: a zero-based LSP line
+// and a zero-based UTF-16 code-unit column.
 type PluginDocumentPosition struct {
-	Line      int `json:"line"`
-	Character int `json:"character"`
+	Line        int `json:"line"`
+	UTF16Column int `json:"utf16Column"`
 }
 
 // PluginDocumentRange is a half-open range in a document.
@@ -103,6 +103,25 @@ type PluginSemanticRequest struct {
 	Position        *PluginDocumentPosition
 	DocumentVersion *int64
 	Extra           json.RawMessage
+}
+
+// PluginDocumentURI asks Core to convert a native absolute path into the
+// canonical file URI a session uses. Core owns the platform differences and
+// percent-encoding; the host must not spell a file URI itself.
+func (c *Client) PluginDocumentURI(ctx context.Context, path, platform string) (string, error) {
+	if platform == "" {
+		platform = "auto"
+	}
+	var response struct {
+		URI string `json:"uri"`
+	}
+	if err := c.Execute(ctx, "lsp.documentUri", struct {
+		Path     string `json:"path"`
+		Platform string `json:"platform"`
+	}{path, platform}, &response); err != nil {
+		return "", err
+	}
+	return response.URI, nil
 }
 
 // RequestPluginSemantics submits a semantic request and returns Core's opaque

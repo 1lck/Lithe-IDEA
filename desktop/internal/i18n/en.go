@@ -289,6 +289,8 @@ var english = Messages{
 		NoTerminals:        Shared(English, "desktop.terminal.noTerminals"),
 	},
 
+	Agent: agentMessages(English),
+
 	Status: StatusMessages{
 		Path:          Shared(English, "desktop.status.path"),
 		Caret:         Shared(English, "desktop.status.caret"),
@@ -468,4 +470,5 @@ var english = Messages{
 		},
 	},
 	Errors: errorMessages(English),
+	Build:  buildMessages(English),
 }

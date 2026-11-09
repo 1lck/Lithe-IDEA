@@ -459,6 +459,10 @@ func (a *App) drawShellPanel(f *ui.Frame, s slot, index int, hidden *slot) ui.Bo
 	// The Project tool window of an open project shows the tree of its folder.
 	tree := tool.id == itemProject && a.project != nil
 	search := tool.id == itemFind && a.project != nil
+	// The Problems tool window of an open project lists what its servers published.
+	problems := tool.id == itemProblems && a.project != nil
+	// The AI Assistant tool window holds the project's Agent conversation.
+	assistant := tool.id == itemAssistant && a.project != nil
 	header := float32(panelHeaderHeight)
 	if tabbed {
 		header = shellTabsHeaderHeight
@@ -516,6 +520,18 @@ func (a *App) drawShellPanel(f *ui.Frame, s slot, index int, hidden *slot) ui.Bo
 		}
 		if search {
 			a.drawProjectSearch(f, a.project)
+			return
+		}
+		if problems {
+			a.drawProblemsPanel(f, a.project)
+			return
+		}
+		if tool.id == itemRun {
+			a.drawBuildPanel(f, a.project)
+			return
+		}
+		if assistant {
+			a.drawAgentPanel(f, a.project)
 			return
 		}
 		f.Row().Fill().Items(ui.Center).PadX(shellContentPad).Children(func() {

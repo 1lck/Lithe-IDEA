@@ -31,6 +31,9 @@ type Launch struct {
 	Entry string
 	// PackagedRuntime is the runtime executable, relative to the package.
 	PackagedRuntime string
+	// Tool is the host runtime a runtime launch starts when it ships no
+	// packaged runtime, such as a plugin-written program loaded by a JVM.
+	Tool string
 	// Commands are the bare command names a system-command launch offers, in the
 	// order the host should try them.
 	Commands []string
@@ -73,14 +76,19 @@ func VerifyLaunch(packageDirectory string, launch Launch) (Resolved, error) {
 		}
 		return Resolved{Executable: executable, Required: required}, nil
 	case LaunchRuntime:
-		if launch.PackagedRuntime == "" {
+		// A runtime launch either ships its runtime in the package or names a
+		// host runtime the caller resolves. The entry is always package-owned.
+		if launch.PackagedRuntime == "" && launch.Tool == "" {
 			return Resolved{}, fmt.Errorf("%w: a runtime launch names no runtime", ErrPackagePath)
 		}
-		runtime, err := ResolveExecutable(packageDirectory, launch.PackagedRuntime)
-		if err != nil {
-			return Resolved{}, err
+		resolved := Resolved{}
+		if launch.PackagedRuntime != "" {
+			runtime, err := ResolveExecutable(packageDirectory, launch.PackagedRuntime)
+			if err != nil {
+				return Resolved{}, err
+			}
+			resolved.Runtime = runtime
 		}
-		resolved := Resolved{Runtime: runtime}
 		if launch.Entry != "" {
 			entry, err := ResolvePackagePath(packageDirectory, launch.Entry)
 			if err != nil {

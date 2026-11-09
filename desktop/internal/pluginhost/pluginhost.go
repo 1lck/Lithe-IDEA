@@ -75,14 +75,27 @@ type Capabilities map[string][]int
 //   - tool discovery reads PATH only. A plan that depends on a project toolchain or
 //     a user override is refused rather than started with whatever PATH holds.
 //
-// Everything else a manifest can ask for — user interface contributions, build,
-// debug, plugin functions — is not served, and claiming one would let a plugin
-// install and then fail the first time a user reaches for it.
+// Build systems are served through both provider processes and command plans.
+// The Build window detects instances, loads their model, resolves the ordered
+// executable candidates Core returns, runs command and provider tasks, and
+// prepares application targets. A shared provider attaches to the language
+// server of the same plugin. Run preparation, tests and debug preparation are
+// not served. Everything else a manifest can ask for — user
+// interface contributions, debug, plugin functions — is likewise not served,
+// and claiming one would let a plugin install and then fail the first time a
+// user reaches for it.
 func Declared() Capabilities {
 	return Capabilities{
 		"languages":       {1, 3},
 		"languageServers": {1},
 		"serverProcess":   {1},
+		// The Build tool window detects the declared build systems, loads
+		// provider models and runs command or provider tasks. Version 2 is
+		// provider task execution. Run preparation (4), tests, debug and
+		// toolchain resolution remain undeclared until their native surfaces
+		// are complete.
+		"buildSystems":   {1},
+		"buildProviders": {1, 2},
 	}
 }
 

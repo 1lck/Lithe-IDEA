@@ -65,9 +65,14 @@ var (
 type document struct {
 	// id identifies the document for as long as the project is open; it is never reused.
 	id int
-	// path is the file's absolute path, and name its base name, which is the tab's title.
-	path, name         string
-	view               *editorview.View
+	// path is the file's absolute path, name its base name, which is the tab's
+	// title, and languageID the editor language a language server is selected
+	// by.
+	path, name string
+	languageID string
+	view       *editorview.View
+	// sync is the document's state in its language-server session.
+	sync               documentSync
 	saving             bool
 	saveAgain          bool
 	closeWaiters       []func(bool)
@@ -87,14 +92,23 @@ type document struct {
 
 func (d *document) dirty() bool { return d.view.Dirty() || d.recreateMissing }
 
+// documentLocation is where a document should place its caret once it has
+// opened. line is one-based, as the editor and search results use; column is
+// zero-based UTF-16, as Core and LSP report a position.
+type documentLocation struct {
+	line      int
+	column    int
+	columnSet bool
+}
+
 // documentSet is the files a project has open. The zero value has none.
 type documentSet struct {
 	list []*document
 	next int
 	// opening are the paths being read, so a second click while one is read opens nothing.
 	opening map[string]bool
-	// locations hold the latest requested one-based line while a document opens.
-	locations map[string]int
+	// locations hold the latest requested position while a document opens.
+	locations map[string]documentLocation
 	// group is the editor group a document was last shown or focused in, where the next file
 	// opens while it is still there.
 	group    string
@@ -186,22 +200,26 @@ func (a *App) openFile(p *project, path string) {
 		}
 		return func(a *App) {
 			delete(p.docs.opening, path)
-			line := p.docs.locations[path]
+			location := p.docs.locations[path]
 			delete(p.docs.locations, path)
 			if err != nil {
 				a.emit(documentFailedLevel, documentEventOpenFailed, documentOpenFields(err))
 				a.notify(a.text.Editor.OpenFailed(name, a.documentReason(err)))
 				return
 			}
-			a.placeDocument(p, path, name, data, grammar)
+			a.placeDocument(p, path, name, data, grammar, languageID)
 			// A plugin that serves this language starts its server the first time a
 			// file of it is opened, not when the project opens: a workspace of Go
 			// files must not pay for a Java server.
 			if languageID != "" {
 				a.startPluginServer(languageID)
 			}
-			if d := p.docs.byPath(path); d != nil && line > 0 {
-				d.view.GoToLine(line)
+			if d := p.docs.byPath(path); d != nil {
+				if location.columnSet {
+					d.view.GoToNavigation(location.line-1, location.column, false)
+				} else if location.line > 0 {
+					d.view.GoToLine(location.line)
+				}
 			}
 		}
 	})
@@ -209,6 +227,9 @@ func (a *App) openFile(p *project, path string) {
 
 // openFileAt coalesces repeated navigation requests while the file is being read.
 func (a *App) openFileAt(p *project, path string, line int) {
+	if path == "" {
+		return
+	}
 	if d := p.docs.byPath(path); d != nil {
 		a.selectDocument(p, d.id)
 		if line > 0 {
@@ -217,9 +238,28 @@ func (a *App) openFileAt(p *project, path string, line int) {
 		return
 	}
 	if p.docs.locations == nil {
-		p.docs.locations = make(map[string]int)
+		p.docs.locations = make(map[string]documentLocation)
 	}
-	p.docs.locations[path] = line
+	p.docs.locations[path] = documentLocation{line: line}
+	a.openFile(p, path)
+}
+
+// openFileAtPosition opens a file at a zero-based LSP line and UTF-16 column.
+// A file that is already open is selected and its caret moved without reading
+// it again.
+func (a *App) openFileAtPosition(p *project, path string, line, column int) {
+	if path == "" {
+		return
+	}
+	if d := p.docs.byPath(path); d != nil {
+		a.selectDocument(p, d.id)
+		d.view.GoToNavigation(line, column, false)
+		return
+	}
+	if p.docs.locations == nil {
+		p.docs.locations = make(map[string]documentLocation)
+	}
+	p.docs.locations[path] = documentLocation{line: line + 1, column: column, columnSet: true}
 	a.openFile(p, path)
 }
 
@@ -322,7 +362,7 @@ func (a *App) documentReason(err error) string {
 }
 
 // placeDocument opens a read file as a new tab, shown and given the keyboard.
-func (a *App) placeDocument(p *project, path, name string, data []byte, grammar *syntax.Syntax) {
+func (a *App) placeDocument(p *project, path, name string, data []byte, grammar *syntax.Syntax, languageID string) {
 	if d := p.docs.byPath(path); d != nil {
 		a.selectDocument(p, d.id)
 		return
@@ -344,7 +384,7 @@ func (a *App) placeDocument(p *project, path, name string, data []byte, grammar 
 		set.nextGroup++
 		set.layout = newLeaf(added)
 	}
-	d := &document{id: id, path: path, name: name}
+	d := &document{id: id, path: path, name: name, languageID: languageID}
 	d.view = editorview.New(editorview.Config{
 		HitID:           docViews.At(id),
 		Label:           name,
@@ -352,6 +392,7 @@ func (a *App) placeDocument(p *project, path, name string, data []byte, grammar 
 		Syntax:          grammar,
 		Notify:          a.invalidator.Invalidate,
 		Save:            func() { a.saveDocument(p, id) },
+		OnEdit:          func(edit editorview.Edit) { a.documentEdited(p, d, edit) },
 		MinimapID:       docMinimap.At(id),
 		MinimapToggleID: docMinimapToggle.At(id),
 		VerticalBarID:   docScrollY.At(id),
@@ -361,6 +402,7 @@ func (a *App) placeDocument(p *project, path, name string, data []byte, grammar 
 	a.watchDocument(p, d)
 	p.docs.group = group
 	a.focusDocument(id)
+	a.startDocumentSync(p, d)
 }
 
 // documentGroup is the editor group a file opens in: the one a document was last shown in,
@@ -452,6 +494,7 @@ func (a *App) saveDocument(p *project, id int) {
 			d.recreateMissing = false
 			d.savedRevision = revision
 			a.clearDocumentConflict(d)
+			a.syncDocumentSaved(p, d, data)
 			if d.view.IsComposing() && len(d.closeWaiters) > 0 {
 				a.saveFailed(id, d.view.Revision(), name, errComposing)
 				waiters := d.closeWaiters
@@ -564,6 +607,7 @@ func (a *App) closeDocument(p *project, id int) {
 		d.view.Close()
 		p.docs.list = slices.DeleteFunc(p.docs.list, func(x *document) bool { return x.id == id })
 		a.unwatchDocument(p, d)
+		a.closeDocumentInSession(p, d)
 		if next := p.selectedDocument(group); next != nil {
 			a.focusDocument(next.id)
 		} else if term := p.terms.selected(group); term != nil {

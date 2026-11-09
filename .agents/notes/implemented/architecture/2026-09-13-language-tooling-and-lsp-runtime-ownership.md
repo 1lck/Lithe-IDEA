@@ -168,6 +168,17 @@ JDT 用解析符号链接（symbolic link，指向另一个目录的快捷路径
 （`diagnostics_addressed_to_open_document`）。平台代码收到的诊断 URI 因此
 始终是它打开文档时用的那个，不需要、也不要各自再做一遍路径折叠。
 
+Viva 的文档同步入口在 `desktop/internal/workbench/pluginsync.go`：文档在编辑器
+打开后由 `pluginlsp.Tracker.Open` 按 Core 解析出的 URI 打开，编辑器每次替换通过
+`editorview.Config.OnEdit` 产生零基行和 UTF-16 列的范围，再由 `Tracker.Change`
+发送；保存和关闭分别调用 `Tracker.Save` 和 `Tracker.Close`。服务器晚于文档启动时，
+宿主在会话注册后补开该语言所有已打开文档。项目关闭、服务器停止或重启会让每个文档
+的 `documentSync.generation` 失效，旧的后台结果不能重新写回新会话；关闭文档还会
+撤下宿主为该文件保存的诊断，因为 Core 在 `didClose` 时已清除自己的副本。macOS
+的真实 clangd 进程端到端用例在
+`desktop/internal/workbench/pluginsync_e2e_test.go`，覆盖打开、增量编辑、诊断到达
+Problems 面板、保存、关闭和项目切换。
+
 会话生命周期必须是单一判别状态；capability 协商单独表示为 `unknown`
 或 `known`，不能由 `ready`、`featuresKnown`、`supportsFeature` 等多个
 布尔字段组合推导。跨边界失败必须保留稳定的 `code`、`stage`、退出码和
