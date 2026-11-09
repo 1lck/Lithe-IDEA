@@ -1579,6 +1579,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `debug.adapters.startArguments` | Check one debug start against a plugin's `debugAdapters[]` entry and return its DAP launch arguments |
 | `debug.adapters.executablePlan` | Say where to look for the program a launch debugs: the user's setting and the adapter's candidate paths |
 | `plugins.declarative.resolveSettings` | Merge a plugin's stored global and project setting layers into effective values with their source |
+| `plugins.declarative.settingsState` | Read complete plugin preference documents into Core-normalized rows, sources, and bounded native read plans |
+| `plugins.declarative.editSettings` | Validate one atomic setting edit batch and return replacement text while preserving unrelated plugins and dormant values |
 | `plugins.declarative.workspaceConfiguration` | Expand a language server's `workspaceConfiguration` with the merged setting values |
 | `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
 | `toolchains.registry` | Revalidate complete enabled plugin manifests, `{plugins:[{manifest}]}`, into a deterministic tool-definition/provider registry; the host supplies no origin evidence. A short tool ID defined by several enabled plugins belongs to none of them: none of those definitions is registered, the rest register as usual, and `conflicts: [{tool, pluginIDs}]` (sorted by tool, `pluginIDs` sorted) reports each contested tool. A repeated plugin ID rejects the batch. No native host capability claim |
@@ -5453,6 +5455,60 @@ the same payload plus a required `languageID` and returns `configuration`,
 the expanded object, or `null` when that server declares none; a language
 without a server of the plugin is refused with `plugin.launch.unavailable`.
 Hosts never merge layers themselves.
+
+`plugins.declarative.settingsState` accepts
+`{ manifest, globalDocument?: string|null, projectDocument?: string|null }`.
+Send each complete captured UTF-8 document; null or omission means a missing
+file. An existing empty, malformed, oversized, or duplicate-key document is an
+error, not an empty layer. Native adapters must reject undecodable bytes rather
+than replacing them before JSON transport. Storage remains
+`{ pluginID: { settingID: value } }`, including dormant values.
+
+Success returns `{ status: "ok", state }`. The state contains:
+
+- `pluginID`, `actions`, and `rows` in validated declaration order. Each row has
+  `declaration`, normalized `scope` and `effect`, `global` and `effective`
+  `{ id, value, source }`, and `globalStored`/`projectStored` flags. `global` is
+  the value without project overrides; `effective` uses the existing resolver.
+- `settings` and `projectSettings`: raw stored values for declared IDs only.
+  Pass these to launch planners. Do not replace them with effective values:
+  executable planning must still reject an explicitly invalid stored path.
+- `storage`: `{ globalRelativePath: "plugin-settings.json",
+  projectRelativePath: ".lithe/plugin-settings.json", maximumBytes: 1048576,
+  readRequired: bool }`. `readRequired` is false when the plugin has no setting
+  declarations; no preference document is then needed for that plugin.
+  Resolve these under the native application-preference and workspace roots.
+  A first call with missing documents provides this bounded read plan; publish
+  UI state only after the actual reads and the second checked projection.
+
+`plugins.declarative.editSettings` accepts
+`{ manifest, scope: "global"|"project", document?: string|null,
+  edits: [{ id, value }] }`. The batch has 1–32 unique declared IDs.
+Null removes only that layer's override. Other values must satisfy the current
+setting declaration; a global-only setting cannot be edited in project scope.
+All edits are validated before any replacement is returned.
+
+Success returns `{ status: "ok", edit: { document: string, delete: bool,
+changed: bool, effects: string[] } }`. `document` is complete UTF-8 JSON text.
+Unrelated plugin groups and dormant settings survive; an emptied edited group
+is removed. `delete` says the owned document is empty. `changed` compares stored
+values; a semantic no-op returns the captured text unchanged. `effects` lists
+only actually changed settings' declared effects, unique and alphabetically
+ordered. The source and result must each fit the storage byte limit.
+
+The native owner still confirms the scope, checks captured bytes and
+cancellation, preserves native permissions, publishes or deletes the owned
+file, and rereads that same source. A project switch cannot retarget a save.
+Only after publication may the host apply the declared effects. Core performs
+no file I/O, starts no process, and grants no plugin capability through these
+commands. They do not alter the plugin/SDK protocol or justify advertising
+`settings: 2` before its complete UI and effects are implemented.
+
+Invalid documents use `plugin.settings.invalidDocument`; invalid batches,
+values, or edit scopes use `plugin.settings.invalidEdit`, with a safe `field`.
+Malformed envelopes use `invalid_request`; manifest failures retain existing
+rejection codes. Rejection never includes partial replacement text. Rust and
+desktop consumers share `shared/fixtures/plugins/settings-documents.json`.
 
 `plugins.declarative.checkRuntimeVersion` accepts
 `{ tool, minimumVersion, output }`, where `output` is what the runtime printed

@@ -2,10 +2,12 @@ package settingswindow
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 )
 
@@ -136,8 +138,12 @@ func TestToolchainSaveConflictKeepsDraft(t *testing.T) {
 	state.beginSave()
 	waitFor(t, wake)
 	state.drain()
-	if state.failed == "" {
+	if state.failed == nil {
 		t.Fatal("a conflict was reported as success")
+	}
+	message := toolchainFailureMessage(i18n.Chinese, state.failed)
+	if !strings.Contains(message, "重新加载") || strings.Contains(message, toolchain.ErrPinConflict.Error()) {
+		t.Fatalf("conflict did not use the selected language: %q", message)
 	}
 	if state.snapshot.Tools[0].Pin != nil {
 		t.Fatal("a conflict changed the displayed pin")

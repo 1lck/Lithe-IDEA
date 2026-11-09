@@ -102880,6 +102880,20 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.toolchains.sourceChanged",
+      "description": "Toolchain draft source changed or its project closed; reload before saving",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.settingsUnreadable",
+      "description": "Debug plugin settings source cannot be read or validated; retry guidance",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

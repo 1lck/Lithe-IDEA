@@ -29,7 +29,7 @@ native_path() {
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-IDEA/Lithe-core-rust#3 adds pin editing and ordered DAP launch state for Draft client #1799.
 # This exact dependency commit is intentionally pinned before the Core PR is merged.
-PINNED_CORE_REVISION="b22c2ef80421a555a08d0a87eb9f39693c08a2b1"
+PINNED_CORE_REVISION="1bb3b71456f0bbeefbe94b6648dae26640270bcb"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

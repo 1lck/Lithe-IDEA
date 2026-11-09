@@ -112,10 +112,8 @@ func TestDebugRuntimeArgumentsComeFromTheToolDefinition(t *testing.T) {
 	}
 }
 
-func TestDebugExecutableLookupSkipsNonFileCandidates(t *testing.T) {
-	h := debugHarness(t)
-	p := openDebugPanel(t, h, t.TempDir())
-	adapter := p.debug.adapters[0]
+func debugAdapterWithProgramSetting(t *testing.T, adapter debugAdapter, candidates []string) debugAdapter {
+	t.Helper()
 	var manifest map[string]any
 	if err := json.Unmarshal(adapter.Manifest, &manifest); err != nil {
 		t.Fatal(err)
@@ -123,13 +121,20 @@ func TestDebugExecutableLookupSkipsNonFileCandidates(t *testing.T) {
 	manifest["requires"].(map[string]any)["settings"] = 2
 	manifest["settings"] = []any{map[string]any{"id": "program", "type": "file", "title": "Program", "default": "", "scope": "project", "effect": "nextRun"}}
 	launch := manifest["debugAdapters"].([]any)[0].(map[string]any)["configurations"].(map[string]any)["launch"].(map[string]any)
-	launch["executable"] = map[string]any{"setting": "program", "candidates": []string{"${workspaceFolder}/not-a-program", "${workspaceFolder}/build/program"}}
+	launch["executable"] = map[string]any{"setting": "program", "candidates": candidates}
 	launch["targetBindings"] = map[string]any{"program": "target.executable"}
 	var err error
 	adapter.Manifest, err = json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return adapter
+}
+
+func TestDebugExecutableLookupSkipsNonFileCandidates(t *testing.T) {
+	h := debugHarness(t)
+	p := openDebugPanel(t, h, t.TempDir())
+	adapter := debugAdapterWithProgramSetting(t, p.debug.adapters[0], []string{"${workspaceFolder}/not-a-program", "${workspaceFolder}/build/program"})
 	if err := os.MkdirAll(filepath.Join(p.root, "not-a-program"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -150,5 +155,63 @@ func TestDebugExecutableLookupSkipsNonFileCandidates(t *testing.T) {
 	program, ok := plan.Configuration.Arguments["program"].(string)
 	if !ok || filepath.Clean(program) != filepath.Clean(executable) {
 		t.Fatalf("target = %+v", plan.Configuration)
+	}
+}
+
+func TestDebugReadsProgramFromActualPluginSettingSources(t *testing.T) {
+	for _, invalid := range []bool{false, true} {
+		name := "project-override"
+		if invalid {
+			name = "invalid-override-does-not-fall-back"
+		}
+		t.Run(name, func(t *testing.T) {
+			h := debugHarness(t)
+			p := openDebugPanel(t, h, t.TempDir())
+			adapter := debugAdapterWithProgramSetting(t, p.debug.adapters[0], []string{"${workspaceFolder}/automatic"})
+			automatic, configured := filepath.Join(p.root, "automatic"), filepath.Join(p.root, "configured")
+			if debugFixtureProgramName() == "adapter.exe" {
+				automatic += ".exe"
+				configured += ".exe"
+			}
+			copyTestBinary(t, automatic)
+			if !invalid {
+				copyTestBinary(t, configured)
+			}
+			// The global value and automatic candidate are both runnable. A
+			// configured project value must win, and a bad one must fail.
+			global, err := json.Marshal(map[string]any{adapter.PluginID: map[string]any{"program": automatic}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(h.app.store.Dir(), "plugin-settings.json"), global, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			project, err := json.Marshal(map[string]any{adapter.PluginID: map[string]any{"program": configured}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Join(p.root, ".lithe"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(p.root, ".lithe", "plugin-settings.json"), project, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			plan, err := h.app.prepareDebugLaunch(ctx, adapter, filepath.Join(t.TempDir(), "state"), p.root, "", 1, "unavailable")
+			if invalid {
+				if err == nil {
+					t.Fatalf("invalid configured program fell back: %+v", plan.Configuration)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			program, ok := plan.Configuration.Arguments["program"].(string)
+			if !ok || filepath.Clean(program) != filepath.Clean(configured) {
+				t.Fatalf("actual project source was ignored: %+v", plan.Configuration)
+			}
+		})
 	}
 }

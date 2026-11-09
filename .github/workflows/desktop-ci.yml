@@ -113,10 +113,24 @@ jobs:
           restore-keys: |
             desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-x86_64-unknown-linux-gnu-debug-
 
+      - name: Verify Core cgo cache invalidation
+        run: |
+          mkdir -p .artifacts/test-stability
+          node --test --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/core-cache.junit.xml scripts/desktop/desktop-core-cache.test.mjs
+
       - name: Vet and test
         run: |
           scripts/desktop/desktop-go.sh vet ./...
           scripts/desktop/desktop-go.sh test ./...
+
+      - name: Upload native cache regression report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: core-cache-${{ runner.os }}-${{ runner.arch }}
+          path: .artifacts/test-stability/core-cache.junit.xml
+          if-no-files-found: warn
+          retention-days: 14
 
   macos:
     name: Vet and test on macOS
@@ -154,9 +168,23 @@ jobs:
           restore-keys: |
             desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-debug-
 
+      - name: Verify Core cgo cache invalidation
+        run: |
+          mkdir -p .artifacts/test-stability
+          node --test --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/core-cache.junit.xml scripts/desktop/desktop-core-cache.test.mjs
+
       - name: Vet and test
         working-directory: desktop
         run: make check
+
+      - name: Upload native cache regression report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: core-cache-${{ runner.os }}-${{ runner.arch }}
+          path: .artifacts/test-stability/core-cache.junit.xml
+          if-no-files-found: warn
+          retention-days: 14
 
   windows:
     name: Vet and test on Windows
@@ -211,7 +239,21 @@ jobs:
           restore-keys: |
             desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-x86_64-pc-windows-gnu-debug-
 
+      - name: Verify Core cgo cache invalidation
+        run: |
+          mkdir -p .artifacts/test-stability
+          node --test --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/core-cache.junit.xml scripts/desktop/desktop-core-cache.test.mjs
+
       - name: Vet and test
         run: |
           scripts/desktop/desktop-go.sh vet ./...
           scripts/desktop/desktop-go.sh test ./...
+
+      - name: Upload native cache regression report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: core-cache-${{ runner.os }}-${{ runner.arch }}
+          path: .artifacts/test-stability/core-cache.junit.xml
+          if-no-files-found: warn
+          retention-days: 14

@@ -92,6 +92,11 @@ try {
   await test("Viva Core outputs and marketplace transfers are never reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const core = registry.excludedResources.find(item => item.id === "viva-core-build-state");
+    assert.ok(core.locations.includes(".artifacts/desktop/lithe-core-rust/source/.artifacts/rust-core-checks/"));
+    assert.ok(core.locations.includes("<system-temp>/lithe core-cache-*/"));
+    const preferences = registry.excludedResources.find(item => item.id === "viva-plugin-preference-sources");
+    assert.equal(preferences.reusable, false);
+    assert.ok(preferences.locations.includes("<configuration-parent>/.lithe-config-*.tmp"));
     const transfer = registry.excludedResources.find(item => item.id === "plugin-marketplace-state");
     const icons = registry.excludedResources.find(item => item.id === "viva-file-icons");
     assert.equal(core.reusable, false);

@@ -1,0 +1,93 @@
+package workbench
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
+)
+
+func TestToolchainSettingsRejectSaveForAnotherOrClosedProject(t *testing.T) {
+	for _, closed := range []bool{false, true} {
+		name := "another-project"
+		if closed {
+			name = "closed-project"
+		}
+		t.Run(name, func(t *testing.T) {
+			original, current := t.TempDir(), t.TempDir()
+			app := &App{kernel: &testKernel{Client: core.NewClient()}}
+			if !closed {
+				app.toolchainRoot.Store(&current)
+			}
+			snapshot := toolchain.Snapshot{Root: original, Directory: "."}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_, err := (settingsToolchains{app: app}).Save(ctx, snapshot, []toolchain.Edit{{Tool: "dev.example:compiler"}})
+			if !errors.Is(err, toolchain.ErrPinConflict) {
+				t.Errorf("save error = %v, want a stale-source conflict", err)
+			}
+			for _, root := range []string{original, current} {
+				if _, err := os.Stat(filepath.Join(root, ".lithe")); !errors.Is(err, os.ErrNotExist) {
+					t.Errorf("stale draft created workspace state: %v", err)
+				}
+			}
+		})
+	}
+}
+
+type settingsScopeKernel struct {
+	*testKernel
+	onEdit func()
+}
+
+func (k *settingsScopeKernel) EditToolchainPins(ctx context.Context, document json.RawMessage, directory string, edits []core.ToolchainPinEdit) (json.RawMessage, error) {
+	k.onEdit()
+	return k.Client.EditToolchainPins(ctx, document, directory, edits)
+}
+
+// Switching projects after confirmation cannot retarget either publication or
+// the reread. The result must describe the source the user actually saved.
+func TestToolchainSettingsSaveRereadsItsCapturedProject(t *testing.T) {
+	original, current := t.TempDir(), t.TempDir()
+	kernel := &settingsScopeKernel{testKernel: &testKernel{Client: core.NewClient()}}
+	app := &App{kernel: kernel}
+	app.toolchainRoot.Store(&original)
+	kernel.onEdit = func() { app.toolchainRoot.Store(&current) }
+	plugins, err := pluginservice.Open(core.NewClient(), store.At(t.TempDir()), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.plugins = plugins
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	snapshot, err := (settingsToolchains{app: app}).Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := (settingsToolchains{app: app}).Save(ctx, snapshot, []toolchain.Edit{{Tool: "dev.example:compiler"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Root != snapshot.Root {
+		t.Errorf("saved source = %q, want captured source %q", updated.Root, snapshot.Root)
+	}
+	data, err := os.ReadFile(filepath.Join(original, ".lithe", "toolchains", "local.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(updated.Baseline, data) {
+		t.Error("save returned another project's baseline")
+	}
+	if _, err := os.Stat(filepath.Join(current, ".lithe")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("save created state in the newly selected project: %v", err)
+	}
+}

@@ -13,8 +13,16 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 )
+
+// debugSettingsError keeps native/Core diagnostics for logging while the UI
+// renders one localized, actionable failure for the configuration read stage.
+type debugSettingsError struct{ cause error }
+
+func (e *debugSettingsError) Error() string { return e.cause.Error() }
+func (e *debugSettingsError) Unwrap() error { return e.cause }
 
 // preparedDebugLaunch contains only Core's plan and verified native executable paths.
 type preparedDebugLaunch struct {
@@ -27,6 +35,14 @@ type preparedDebugLaunch struct {
 // prepareDebugLaunch runs off the window thread. The Core owns template expansion
 // and DAP argument bindings; this adapter only verifies and opens native resources.
 func (a *App) prepareDebugLaunch(ctx context.Context, adapter debugAdapter, stateDirectory, root, targetPath string, generation uint64, unavailable string) (preparedDebugLaunch, error) {
+	preferenceRoot := ""
+	if a.store != nil {
+		preferenceRoot = a.store.Dir()
+	}
+	settings, err := pluginsettings.New(a.kernel, preferenceRoot).Load(ctx, adapter.Manifest, root)
+	if err != nil {
+		return preparedDebugLaunch{}, &debugSettingsError{cause: err}
+	}
 	directories := core.PluginBackendDirectories{
 		PluginDirectory:         adapter.Directory,
 		StateDirectory:          stateDirectory,
@@ -34,6 +50,8 @@ func (a *App) prepareDebugLaunch(ctx context.Context, adapter debugAdapter, stat
 		LogDirectory:            filepath.Join(stateDirectory, "log"),
 		TemporaryDirectory:      filepath.Join(stateDirectory, "tmp"),
 		Architecture:            core.PluginArchitecture(),
+		Settings:                settings.State.Settings,
+		ProjectSettings:         settings.State.ProjectSettings,
 	}
 	plan, err := a.kernel.PlanPluginDebugAdapter(ctx, adapter.Manifest, adapter.Declaration.ID, directories)
 	if err != nil {
@@ -112,7 +130,7 @@ func (a *App) prepareDebugLaunch(ctx context.Context, adapter debugAdapter, stat
 	if executable == "" {
 		return preparedDebugLaunch{}, errors.New(unavailable)
 	}
-	lookup, err := a.kernel.PlanDebugExecutable(ctx, adapter.Manifest, adapter.Declaration.ID, root, targetPath, nil, nil)
+	lookup, err := a.kernel.PlanDebugExecutable(ctx, adapter.Manifest, adapter.Declaration.ID, root, targetPath, settings.State.Settings, settings.State.ProjectSettings)
 	if err != nil {
 		return preparedDebugLaunch{}, err
 	}

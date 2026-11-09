@@ -33,6 +33,8 @@ func TestDesktopGoFindsWindowsCargoImportLibraries(t *testing.T) {
 	write(filepath.Join(fixture, "scripts/desktop/desktop-go.sh"), string(read), 0o700)
 	write(filepath.Join(fixture, "scripts/desktop/build-desktop-core.sh"), "#!/usr/bin/env bash\nprintf '%s/.artifacts/desktop/lithe-core/x86_64-pc-windows-gnu/debug\\n' \"$(cd \"$(dirname \"$0\")/../..\" && pwd -P)\"\n", 0o700)
 	write(filepath.Join(fixture, ".artifacts/desktop/lithe-core/x86_64-pc-windows-gnu/debug/native-static-libs.txt"), "-lsystem -lwindows.0.52.0 -lwinapi_kernel32\n", 0o600)
+	write(filepath.Join(fixture, ".artifacts/desktop/lithe-core/x86_64-pc-windows-gnu/debug/lib/liblithe_core.a"), "core fixture", 0o600)
+	write(filepath.Join(fixture, ".artifacts/desktop/lithe-core/x86_64-pc-windows-gnu/debug/include/lithe_core.h"), "header fixture", 0o600)
 	write(filepath.Join(fixture, "bin/go"), "#!/usr/bin/env bash\ncase \"$1:$2\" in env:GOOS|env:GOHOSTOS) echo windows;; env:GOARCH) echo amd64;; *) printf 'CFLAGS=%s\\nLDFLAGS=%s\\n' \"$CGO_CFLAGS\" \"$CGO_LDFLAGS\";; esac\n", 0o700)
 	write(filepath.Join(fixture, "bin/rustc"), "#!/usr/bin/env bash\nprintf 'host: x86_64-pc-windows-msvc\\n'\n", 0o700)
 	if runtime.GOOS != "windows" {
@@ -72,6 +74,15 @@ func TestDesktopGoFindsWindowsCargoImportLibraries(t *testing.T) {
 	}
 	if !strings.Contains(out, `"-I`) || !strings.Contains(out, "-llithe_core") {
 		t.Fatalf("missing core include or library: %s", out)
+	}
+	// Changing a Cargo import archive at the same path must also invalidate cgo.
+	write(filepath.Join(winlibs, "libwindows.0.52.0.a"), "updated windows fixture", 0o600)
+	updated, err := run()
+	if err != nil {
+		t.Fatalf("updated import archive: %v\n%s", err, updated)
+	}
+	if strings.SplitN(updated, "\n", 2)[0] == strings.SplitN(out, "\n", 2)[0] {
+		t.Fatal("changed Windows import archive retained the old cgo action identity")
 	}
 	conflict := filepath.Join(fixture, "another cargo registry", "lib")
 	write(filepath.Join(conflict, "libwindows.0.52.0.a"), "different bytes", 0o600)

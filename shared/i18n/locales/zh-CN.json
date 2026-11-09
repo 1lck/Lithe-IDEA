@@ -10715,7 +10715,9 @@
     "desktop.toolchains.pinSource": "固定在 {directory}",
     "desktop.toolchains.chooseHelp": "选择一行只修改草稿。保存会写入本项目的 .lithe/toolchains/local.json；取消不会改动文件。",
     "desktop.debug.targetUnavailable": "没有找到可运行的调试目标，请先构建程序。",
-    "desktop.debug.adapter": "调试适配器"
+    "desktop.debug.adapter": "调试适配器",
+    "desktop.toolchains.sourceChanged": "项目或工具链文件已变更，请重新加载后再保存。当前草稿已保留。",
+    "desktop.debug.settingsUnreadable": "无法读取调试插件配置。请检查其设置文件，重新加载项目后重试。"
   },
   "overrides": {
     "macos": {

@@ -81,6 +81,11 @@ async function readRegistry() {
   // are mutable user state, never download artifacts. Runtime profile import is
   // owned by the platform startup adapters; this build reuse route always rejects
   // both original state and migration snapshots and must not gain a validator.
+  // Core comment-lexer/Rustdoc output uses that same excluded Cargo state.
+  // Plugin preference sources and adjacent configfile temporaries are user-owned,
+  // mutable native state, rejected by the registry before any copying.
+  // Native cgo cache fixtures own and remove temporary archives; the link digest
+  // invalidates Go actions only and does not make Core output reusable.
   // Viva's Core checkout, Cargo target and staged static libraries have no sealed
   // cross-worktree identity; marketplace transfer directories are runtime-owned.
   // Both remain excluded before any source access or copy operation.

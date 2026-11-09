@@ -90,6 +90,7 @@ NATIVE_STATIC_LIBS="$(<"$STAGE_DIR/native-static-libs.txt")"
 # its target-specific build output; Go's external linker needs those paths too.
 # Do not infer registry versions or copy mutable Cargo files into the app bundle.
 NATIVE_SEARCH_FLAGS=""
+CORE_LINK_INPUTS=("$STAGE_DIR/lib/liblithe_core.a" "$STAGE_DIR/include/lithe_core.h" "$STAGE_DIR/native-static-libs.txt")
 if [[ "$GOOS" == "windows" ]]; then
     CARGO_HOST_TARGET="$(rustc -vV | sed -n 's/^host: //p')"
     CARGO_BUILD_ROOT="$ROOT_DIR/.artifacts/desktop/lithe-core-rust/target"
@@ -123,6 +124,7 @@ if [[ "$GOOS" == "windows" ]]; then
                 done
                 FOUND_NAMES+=("$lib_name")
                 FOUND_ARCHIVES+=("$archive")
+                CORE_LINK_INPUTS+=("$archive")
                 used_dir=true
             done
             if [[ "$used_dir" == true ]]; then
@@ -131,7 +133,21 @@ if [[ "$GOOS" == "windows" ]]; then
         done < "$output"
     done
 fi
-CGO_CFLAGS="${CGO_CFLAGS:-} $(cgo_arg "-I$CGO_INCLUDE_DIR")"
+# Go does not track external C archives in its build cache (go help cache).
+# Bind cgo's action identity to the bytes actually staged, including Cargo's
+# Windows import archives. Unchanged inputs retain the ordinary Go cache;
+# no global cache cleaning or forced rebuild is needed.
+if command -v sha256sum >/dev/null 2>&1; then
+    CORE_HASH_COMMAND=(sha256sum)
+else
+    CORE_HASH_COMMAND=(shasum -a 256)
+fi
+CORE_LINK_ID="$(
+    for input in "${CORE_LINK_INPUTS[@]}"; do
+        "${CORE_HASH_COMMAND[@]}" < "$input" || exit 1
+    done | "${CORE_HASH_COMMAND[@]}" | cut -d ' ' -f 1
+)"
+CGO_CFLAGS="${CGO_CFLAGS:-} $(cgo_arg "-I$CGO_INCLUDE_DIR") -DLITHE_CORE_LINK_$CORE_LINK_ID=1"
 export CGO_CFLAGS
 # GNU ld and MinGW resolve static archives from left to right, so rustc's native libraries must
 # follow liblithe_core.a, which depends on them.

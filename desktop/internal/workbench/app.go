@@ -66,6 +66,8 @@ type Kernel interface {
 	DecodeBuildTestResults(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildTestResultsRequest) (core.BuildTestResults, error)
 	ResolveBuildTestOutcome(ctx context.Context, termination core.BuildTestTermination, project, suite, caseName string, summary *core.BuildTestSummary) (core.BuildTestVerdict, error)
 	InstantiateToolchainLaunch(context.Context, json.RawMessage, string, string, string, string, []string, []string) (core.ToolchainLaunch, error)
+	ReadPluginSettingsState(context.Context, json.RawMessage, *string, *string) (core.PluginSettingsState, error)
+	EditPluginSettings(context.Context, json.RawMessage, string, *string, []core.PluginSettingEdit) (core.PluginSettingsEditPlan, error)
 	PlanPluginDebugAdapter(context.Context, json.RawMessage, string, core.PluginBackendDirectories) (core.PluginBackendPlan, error)
 	PlanDebugExecutable(context.Context, json.RawMessage, string, string, string, map[string]json.RawMessage, map[string]json.RawMessage) (*core.DebugExecutablePlan, error)
 	DebugStartArguments(context.Context, json.RawMessage, string, string, core.DebugStartFacts) (map[string]any, error)

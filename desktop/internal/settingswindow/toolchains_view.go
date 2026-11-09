@@ -2,6 +2,7 @@ package settingswindow
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -41,7 +42,7 @@ type toolchainState struct {
 	saving     bool
 	loaded     bool
 	saved      bool
-	failed     string
+	failed     error
 
 	snapshot toolchain.Snapshot
 	// draft maps a tool ID to the directory home the user selected, empty for
@@ -53,6 +54,13 @@ func newToolchainState(loader ToolchainLoader, wake func()) toolchainState {
 	return toolchainState{loader: loader, wake: wake, results: make(chan toolchainResult, 2), draft: make(map[string]string)}
 }
 
+func toolchainFailureMessage(language i18n.Language, err error) string {
+	if errors.Is(err, toolchain.ErrPinConflict) {
+		return i18n.Shared(language, "desktop.toolchains.sourceChanged")
+	}
+	return i18n.SharedFormat(language, "desktop.toolchains.loadFailed", map[string]string{"reason": err.Error()})
+}
+
 // beginLoad reads the project's toolchains off the window thread.
 func (t *toolchainState) beginLoad() {
 	if t.loader == nil || t.loading || t.saving {
@@ -61,7 +69,7 @@ func (t *toolchainState) beginLoad() {
 	t.generation++
 	generation := t.generation
 	t.loading = true
-	t.failed = ""
+	t.failed = nil
 	loader := t.loader
 	wake := t.wake
 	ctx, cancel := context.WithCancel(context.Background())
@@ -88,7 +96,7 @@ func (t *toolchainState) beginSave() {
 	t.generation++
 	generation := t.generation
 	t.saving = true
-	t.failed = ""
+	t.failed = nil
 	loader := t.loader
 	snapshot := t.snapshot
 	wake := t.wake
@@ -122,7 +130,7 @@ func (t *toolchainState) drain() {
 			}
 			t.loading, t.saving = false, false
 			if result.err != nil {
-				t.failed = result.err.Error()
+				t.failed = result.err
 				t.saved = false
 				continue
 			}
@@ -137,7 +145,7 @@ func (t *toolchainState) apply(snapshot toolchain.Snapshot, saved bool) {
 	t.snapshot = snapshot
 	t.loaded = true
 	t.saved = saved
-	t.failed = ""
+	t.failed = nil
 	if !saved {
 		t.draft = make(map[string]string, len(snapshot.Tools))
 		for _, tool := range snapshot.Tools {
@@ -226,7 +234,7 @@ func (w *window) drawToolchains(f *ui.Frame) {
 		return
 	}
 	t := &w.toolchains
-	if !t.loaded && !t.loading && !t.saving && t.failed == "" {
+	if !t.loaded && !t.loading && !t.saving && t.failed == nil {
 		t.beginLoad()
 	}
 	language := w.marketLanguage()
@@ -252,8 +260,8 @@ func (w *window) drawToolchains(f *ui.Frame) {
 					f.Text(i18n.Shared(language, "desktop.toolchains.loading")).FontSize(12).Color(w.pal.muted)
 				case t.saving:
 					f.Text(i18n.Shared(language, "desktop.toolchains.saving")).FontSize(12).Color(w.pal.muted)
-				case t.failed != "":
-					f.Text(i18n.SharedFormat(language, "desktop.toolchains.loadFailed", map[string]string{"reason": t.failed})).FontSize(12).Color(w.pal.danger)
+				case t.failed != nil:
+					f.Text(toolchainFailureMessage(language, t.failed)).FontSize(12).Color(w.pal.danger)
 				case t.saved:
 					f.Text(i18n.Shared(language, "desktop.toolchains.saved")).FontSize(12).Color(w.pal.muted)
 				}

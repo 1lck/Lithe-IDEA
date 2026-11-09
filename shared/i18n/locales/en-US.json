@@ -10715,7 +10715,9 @@
     "desktop.toolchains.pinSource": "Pinned in {directory}",
     "desktop.toolchains.chooseHelp": "Selecting a row only changes the draft. Save writes the choice to this project's .lithe/toolchains/local.json; Cancel leaves the file unchanged.",
     "desktop.debug.targetUnavailable": "No runnable debug target was found. Build the program first.",
-    "desktop.debug.adapter": "Debug adapter"
+    "desktop.debug.adapter": "Debug adapter",
+    "desktop.toolchains.sourceChanged": "The project or toolchain file changed. Reload before saving; your draft has been kept.",
+    "desktop.debug.settingsUnreadable": "Could not read the debugger plugin settings. Check its settings files, reload the project, then try again."
   },
   "overrides": {
     "windows": {

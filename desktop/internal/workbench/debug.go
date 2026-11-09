@@ -610,6 +610,10 @@ func (a *App) finishDebugError(p *project, session *debugSession, err error) {
 		return
 	}
 	p.debug.failure = err.Error()
+	var settingsError *debugSettingsError
+	if errors.As(err, &settingsError) {
+		p.debug.failure = i18n.Shared(a.language(), "desktop.debug.settingsUnreadable")
+	}
 	p.debug.status = a.text.Debug.Failed
 	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("debug", err))
 	if p.debug.session == session {

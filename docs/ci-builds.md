@@ -392,11 +392,13 @@ Viva 编辑器性能基线 `scripts/desktop/perf/editor-bench.sh` 把每次运�
 Viva 的 Core 源码检出、Cargo 目标目录和暂存静态库位于当前工作树的
 `.artifacts/desktop/lithe-core-rust/` 与 `.artifacts/desktop/lithe-core/`。暂存身份记录包含
 修订、目标、profile 与编译器，但尚不是可跨工作树复用的完整密封清单，故资源清单中的
-`viva-core-build-state` 明确拒绝复制；每个工作树独立构建和校验。下方有关 Swift、Tauri、
+`viva-core-build-state` 明确拒绝复制；每个工作树独立构建和校验。Core 仓库恢复的 `scripts/rust-core/verify-rust-core-comments.sh` 先用固定词法器检查真实注释，再检查 Rustdoc；调用方应沿用本工作树的 `CARGO_TARGET_DIR`。独立 Core 检出未提供该变量时，输出只进入该检出的 `.artifacts/rust-core-checks/`（桌面默认检出内为 `.artifacts/desktop/lithe-core-rust/source/.artifacts/rust-core-checks/`）。词法器二进制、Cargo 状态与 Rustdoc 受 Core 修订、helper Cargo.lock、目标、编译器及环境约束，和已有 Core build state 一起排除，不注册复用 validator；只在构建/验证阶段生成，不进入安装包，不影响签名或增量更新。下方有关 Swift、Tauri、
 JDTLS 和旧工作流的描述记录迁移前流程，不能当作 Viva 的当前构建或复用能力。
-恢复的旧资源测试仍引用本分支已删除的 PlantUML、远程服务及旧 Windows 工作流；
-此外 preview 的 JDK 缓存测试存量问题已有 [#1797](https://github.com/1lck/Lithe-IDEA/issues/1797)。
-在这些测试与 Viva 的资源和工作流完成迁移前，不要把完整资源测试记为通过。
+当前资源复用脚本的自包含回归覆盖路径、身份校验与禁止复制的状态；测试通过不证明本分支已删除的 PlantUML、远程服务、Swift/Tauri 客户端或旧 Windows 工作流仍可构建。preview 的 JDK 缓存历史问题见 [#1797](https://github.com/1lck/Lithe-IDEA/issues/1797)；这些旧产品流程必须单独迁移和验证，不能用资源脚本自测替代。
+
+Viva 的 `desktop-go.sh` 把暂存 Core 静态库、头文件、原生链接参数和实际选中的 Windows import archive 的 SHA-256 纳入 cgo 编译参数。只改 Rust 或 Core pin 也会使 Go 构建缓存失效；相同字节仍复用 Go 缓存，不清空用户缓存。这个摘要只是本地构建身份，不是跨工作树资源密封清单。`scripts/desktop/desktop-core-cache.test.mjs` 在系统临时目录创建独占的 `lithe core-cache-*` 夹具，只替换 C 静态库来验证真实 Go 编译结果；子进程有本地时限，结束后删除夹具。该目录和 Core 构建状态一起排除复用，不进入安装包；三个原生 CI 车道都运行此回归。
+
+Viva 插件偏好的真实来源是平台偏好目录中的 `plugin-settings.json` 与工作区 `.lithe/plugin-settings.json`。它们是用户可变状态，没有可复用身份；`viva-plugin-preference-sources` 在所有复制阶段拒绝复用。原生保存只在来源同目录创建独占 `.lithe-config-*.tmp`，保留权限及原生元数据后原子发布，成功、失败、取消均清理本次临时文件。打开或读取不创建偏好文件；来源和暂存文件都不进入安装目录，不影响签名和 Sparkle delta。
 
 Viva 文件与项目树图标的 SVG 和生成的 Go 数据由 Git 管理，生成脚本限定 Python 3.9 或 3.11、
 picosvg 与直接依赖以及 Viva 编译器版本，在本工作树重建；没有自动发现受支持的 Python 时可用
