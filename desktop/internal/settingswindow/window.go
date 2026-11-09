@@ -9,6 +9,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/splitpane"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/windowcontrols"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
@@ -200,6 +201,7 @@ func (w *window) config() app.Config {
 		MinHeight:      windowMinHeight,
 		WindowMode:     app.WindowCustomTitlebar,
 		TitlebarHeight: titleHeight,
+		WindowControls: func() app.WindowControlsStyle { return windowcontrols.Style(w.pal.text, w.ctrl.text()) },
 		Tree:           &tree,
 		Paint:          w.paint,
 		OnKey:          w.onKey,

@@ -98031,14 +98031,16 @@
       "id": "window.close",
       "description": "Windows UI: window.close",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "window.maximize",
       "description": "Windows UI: window.maximize",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -98052,14 +98054,16 @@
       "id": "window.minimize",
       "description": "Windows UI: window.minimize",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "window.restore",
       "description": "Windows UI: window.restore",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {

@@ -36,6 +36,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/windowcontrols"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -403,6 +404,7 @@ func (a *App) Config() app.Config {
 		MinHeight:      600,
 		WindowMode:     app.WindowCustomTitlebar,
 		TitlebarHeight: titleBarHeight,
+		WindowControls: func() app.WindowControlsStyle { return windowcontrols.Style(a.colors.Text, a.text) },
 		Tree:           &tree,
 		Paint:          a.paint,
 		OnPointer:      a.onPointer,

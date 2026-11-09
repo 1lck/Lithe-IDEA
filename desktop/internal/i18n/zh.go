@@ -6,6 +6,7 @@ var chinese = Messages{
 	App:     appMessages(Chinese),
 	Welcome: welcomeMessages(Chinese),
 	Title:   titleMessages(Chinese),
+	Window:  windowMessages(Chinese),
 	Tools:   toolMessages(Chinese),
 	Dock:    dockMessages(Chinese),
 	Panel:   panelMessages(Chinese),

@@ -34,8 +34,11 @@ func (k *testKernel) ReduceChromeLayout(ctx context.Context, catalog []core.Chro
 
 // harness is a window driven without a screen.
 type harness struct {
-	t      testing.TB
-	app    *App
+	t   testing.TB
+	app *App
+	// config is the configuration the driver runs, so a test reads the callbacks the
+	// window was opened with instead of building a second configuration.
+	config app.Config
 	driver *app.Driver
 	store  *store.Store
 }
@@ -78,7 +81,8 @@ func newHarnessWithLanguages(t testing.TB, kernel Kernel, languages []string) *h
 			return start.Add(h.driver.Now())
 		},
 	})
-	driver, err := app.NewDriver(h.app.Config(), nil)
+	h.config = h.app.Config()
+	driver, err := app.NewDriver(h.config, nil)
 	if err != nil {
 		t.Fatalf("NewDriver: %v", err)
 	}
@@ -800,6 +804,30 @@ func TestMarketplaceWidthPersistsWithOtherSettings(t *testing.T) {
 	if saved.MarketplaceWidth != 420 || saved.Language != "zh-Hans" || saved.Theme != themeDark {
 		t.Fatalf("saved settings lost values: %+v", saved)
 	}
+}
+
+// TestWindowControlsFollowTheTitleBar covers the buttons Viva draws in the custom title bar on
+// Windows and Linux: unstyled, they took Viva's ink for its default dark clear color and were
+// white on the light title bar. They must take the ink of the title bar and the language of
+// the window, and follow both when they change.
+func TestWindowControlsFollowTheTitleBar(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	if h.config.WindowControls == nil {
+		t.Fatal("the workbench leaves its window buttons to Viva's default ink")
+	}
+	check := func(look string, ink gfx.Color, minimize string) {
+		t.Helper()
+		style := h.config.WindowControls()
+		if style.Foreground != ink || style.Minimize != minimize {
+			t.Fatalf("%s look: glyph color %v and minimize name %q, want %v and %q", look, style.Foreground, style.Minimize, ink, minimize)
+		}
+	}
+	_, darkColors := darkLook()
+	check("dark", darkColors.Text, "最小化")
+	h.app.setLanguage("en")
+	h.app.setTheme(themeLight)
+	_, lightColors := lightLook()
+	check("light", lightColors.Text, "Minimize")
 }
 
 func TestSettingsChangesUpdateSharedStateAndPersist(t *testing.T) {

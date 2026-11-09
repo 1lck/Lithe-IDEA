@@ -6,6 +6,7 @@ type Messages struct {
 	App      AppMessages
 	Welcome  WelcomeMessages
 	Title    TitleMessages
+	Window   WindowMessages
 	Tools    ToolMessages
 	Dock     DockMessages
 	Panel    PanelMessages
@@ -58,6 +59,15 @@ type WelcomeMessages struct {
 	Pinned     string
 	// Missing marks a recent project whose folder no longer exists.
 	Missing string
+}
+
+// WindowMessages names the minimize, maximize, restore and close buttons that Viva draws
+// in the title bar on Windows and Linux. Assistive technology reads them.
+type WindowMessages struct {
+	Minimize string
+	Maximize string
+	Restore  string
+	Close    string
 }
 
 // TitleMessages are the workbench title bar's words.
