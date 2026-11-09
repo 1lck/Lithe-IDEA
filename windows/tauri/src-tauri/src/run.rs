@@ -30,6 +30,9 @@ const MVND_LAUNCHERS: &[&str] = &["mvnd.exe", "mvnd.cmd", "mvnd.bat", "mvnd"];
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const TOOLCHAIN_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+/// A Maven wrapper starts a JVM and may unpack its distribution before it
+/// prints a version, which does not fit the plain executable budget.
+const MAVEN_WRAPPER_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 const PRE_LAUNCH_TIMEOUT: Duration = Duration::from_secs(600);
 const RUN_OUTPUT_FLUSH_INTERVAL: Duration = Duration::from_millis(100);
 const RUN_OUTPUT_HIGH_WATER_BYTES: usize = 1_048_576;
@@ -1526,7 +1529,7 @@ fn discover_toolchains_with_overrides(
     let maven = discover_maven_candidates(
         maven_executable_candidates(project_root),
         maven_executable_path,
-        probe_maven,
+        |executable| probe_maven_in(executable, project_root),
     );
 
     let mut runtimes = Vec::new();
@@ -1853,11 +1856,34 @@ pub(crate) fn probe_java_home(home: &Path) -> Option<JavaRuntime> {
 }
 
 fn probe_maven(executable: &Path) -> Option<MavenRuntime> {
+    probe_maven_in(executable, None)
+}
+
+/// Reports the Maven a candidate executable actually runs, or nothing when the
+/// probe cannot read a version. A candidate carrying an empty version compares
+/// as "older than every requirement", so the toolchain diagnostic would reject
+/// an installation that satisfies it; dropping the candidate keeps the host on
+/// the next one and reports a missing toolchain when none answers.
+fn probe_maven_in(executable: &Path, project_root: Option<&Path>) -> Option<MavenRuntime> {
     if !executable.is_file() {
         return None;
     }
-    let output = command_output(executable, &["-version"]);
-    let version = maven_version(&output).unwrap_or_default();
+    // A wrapper resolves `.mvn/wrapper/maven-wrapper.properties` from the
+    // working directory and may unpack its distribution on the first run, so it
+    // is probed from the project root with the longer wrapper deadline.
+    let is_wrapper = is_maven_wrapper(executable);
+    let working_directory = if is_wrapper {
+        project_root.or_else(|| executable.parent())
+    } else {
+        None
+    };
+    let timeout = if is_wrapper {
+        MAVEN_WRAPPER_PROBE_TIMEOUT
+    } else {
+        TOOLCHAIN_PROBE_TIMEOUT
+    };
+    let output = command_output_in(executable, &["-version"], working_directory, timeout);
+    let version = maven_version(&output)?;
     Some(MavenRuntime {
         executable_path: normalize_path(executable).to_string_lossy().into_owned(),
         version,
@@ -2204,13 +2230,28 @@ fn lookup_on_path(name: &str) -> Option<PathBuf> {
 }
 
 fn command_output(executable: &Path, arguments: &[&str]) -> String {
+    command_output_in(executable, arguments, None, TOOLCHAIN_PROBE_TIMEOUT)
+}
+
+/// Probes a tool from `working_directory`. Build wrappers read their own
+/// configuration relative to the working directory rather than to the script,
+/// so probing them from the host's directory fails and reports no version.
+fn command_output_in(
+    executable: &Path,
+    arguments: &[&str],
+    working_directory: Option<&Path>,
+    timeout: Duration,
+) -> String {
     let arguments = arguments
         .iter()
         .map(|argument| (*argument).to_string())
         .collect::<Vec<_>>();
     let mut command = command_for_executable(&executable.to_string_lossy(), &arguments);
+    if let Some(directory) = working_directory {
+        command.current_dir(directory);
+    }
     apply_creation_flags(&mut command);
-    toolchain_probe_output(&mut command, Instant::now() + TOOLCHAIN_PROBE_TIMEOUT)
+    toolchain_probe_output(&mut command, Instant::now() + timeout)
 }
 
 fn toolchain_probe_output(command: &mut Command, deadline: Instant) -> String {
