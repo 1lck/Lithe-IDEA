@@ -1,0 +1,27 @@
+{
+  "id": "editor-find-widget",
+  "area": "编辑器",
+  "group": "文本编辑",
+  "capability": "编辑器内查找框切换与关闭",
+  "macos": {
+    "evidence": [
+      "macos/EditorFrontend",
+      "macos/Sources/Lithe/Views/Editor"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/editor/components/monaco-editor.tsx",
+      "windows/tauri/src/features/editor/engines/monaco/find-widget-lifecycle.ts",
+      "windows/tauri/src/features/editor/engines/monaco/find-widget-lifecycle.test.ts",
+      "windows/tauri/src/features/panes/components/pane-container.tsx"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Editor",
+  "verification": "Windows：打开文件 A 并按 Ctrl+F，切换到文件 B 后再次按 Ctrl+F，确认编辑区只显示一个查找框；切回 A 时旧查找框不再出现，重新按 Ctrl+F 能保留上次查询。未切换文件时查找、替换、上一个/下一个和关闭操作保持正常。切换到其他分栏或面板后，失焦编辑器的查找框也必须关闭。",
+  "notes": "Windows 为保留滚动位置和撤销历史会继续挂载非活动编辑器；Monaco 的 find controller 状态因此独立存在。编辑器转为非活动表面时显式把 isRevealed 置为 false，保留查询与替换文本，避免多个查找框同时可见。"
+}
