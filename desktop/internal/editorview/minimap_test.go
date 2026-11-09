@@ -343,7 +343,7 @@ func TestMinimapBarsAreRunsOfOneColor(t *testing.T) {
 	text := "func ab\tcd//x"
 	v.mm.tokens = []syntax.Token{{Start: 0, Name: keyword}, {Start: 5, Name: comment}, {Start: 6, Name: comment}, {Start: 10, Name: keyword}}
 	v.mm.marks = v.mm.marks[:0]
-	v.markRow(text, wrapRow{}, len(text), 7, 100)
+	v.markRow(text, 0, wrapRow{}, len(text), 7, 100)
 	want := []minimapMark{
 		{row: 7, col: 0, cells: 4, color: color(keyword)},
 		// "ab" is two tokens of one color, one bar; the tab leaves the gap to column 8.
@@ -356,7 +356,7 @@ func TestMinimapBarsAreRunsOfOneColor(t *testing.T) {
 	}
 
 	v.mm.marks = v.mm.marks[:0]
-	v.markRow(text, wrapRow{}, len(text), 0, 6)
+	v.markRow(text, 0, wrapRow{}, len(text), 0, 6)
 	if got := v.mm.marks; len(got) != 2 || got[1].col+got[1].cells != 6 {
 		t.Fatalf("at 6 columns marks = %+v, want the bars cut at column 6", got)
 	}

@@ -217,6 +217,12 @@ type View struct {
 	joined         map[int]string
 	joinedRevision int
 	joinedSize     int
+	// stops is the stops of the long lines read while the text is at stopsRevision, and parts
+	// the parts of them painted while it is at partsRevision. See longline.go.
+	stops         map[int]*lineStops
+	stopsRevision int
+	parts         map[partKey]part
+	partsRevision int
 	// numbers is the line numbers a paint puts in the gutter once the text is drawn, and
 	// numberText their text.
 	numbers    []gutterNumber
@@ -610,7 +616,7 @@ func widestLine(text rope.Rope, first, last int) int {
 	// ended measures the line that ends at offset, when it may be the widest.
 	ended := func() {
 		if length+(tabSize-1)*tabs > widest {
-			widest = max(widest, rangeCells(text, lineStart, offset))
+			widest = max(widest, rangeCells(text, lineStart, offset, 0))
 		}
 	}
 	text.Chunks(start, text.LineEnd(last), func(chunk string) bool {
@@ -636,11 +642,10 @@ func widestLine(text rope.Rope, first, last int) int {
 	return widest
 }
 
-// rangeCells is the cells the bytes of text from start to end take, the first at column 0, as
-// cellsOf counts them. It reads the text a leaf at a time without copying it: a leaf never
-// ends inside a character of valid UTF-8.
-func rangeCells(text rope.Rope, start, end int) int {
-	cells := 0
+// rangeCells is the column the bytes of text from start to end reach, the first at column
+// cells, as cellsOf counts them. It reads the text a leaf at a time without copying it: a leaf
+// never ends inside a character of valid UTF-8.
+func rangeCells(text rope.Rope, start, end, cells int) int {
 	text.Chunks(start, end, func(chunk string) bool {
 		for i := 0; i < len(chunk); {
 			if c := chunk[i]; c < utf8.RuneSelf {
@@ -694,8 +699,10 @@ func (v *View) edit(start, end int, text []byte, kind editKind) {
 	}
 	v.text = v.text.Replace(start, end, text)
 	v.revision++
+	newLast := v.text.LineOf(start + len(text))
+	v.keepStops(firstLine, oldLast, newLast, start-v.text.LineStart(firstLine))
 	v.hl.Edit(v.text, start, end, start+len(text))
-	v.spliceRows(firstLine, oldLast, v.text.LineOf(start+len(text)), oldCount)
+	v.spliceRows(firstLine, oldLast, newLast, oldCount)
 	v.anchor, v.caret = start+len(text), start+len(text)
 	if cacheEdit {
 		v.caretUTF16Text, v.caretUTF16Offset = v.text, v.caret
@@ -963,8 +970,8 @@ func (v *View) leadingSpace(line int) string {
 // verticalTarget is the offset on row nearest the goal column, counted from the row's start.
 func (v *View) verticalTarget(row int) int {
 	if v.goal < 0 {
-		line, text, rows, k := v.caretPlace()
-		v.goal = cellsOf(text, v.caret-v.text.LineStart(line)) - rows[k].cells
+		l, rows, k := v.caretPlace()
+		v.goal = v.cellsAt(l, v.caret-l.start) - rows[k].cells
 	}
 	line, sub := v.rowLine(row)
 	return v.text.LineStart(line) + v.columnOnRow(line, sub, float32(v.goal))

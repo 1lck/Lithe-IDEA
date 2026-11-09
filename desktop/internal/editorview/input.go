@@ -263,8 +263,8 @@ func (v *View) tab(outdent bool) {
 	if first == last && !outdent {
 		unit := v.indentUnit
 		if unit != "\t" {
-			l := v.text.Line(first)
-			cells := cellsOf(l, start-v.text.LineStart(first))
+			l := v.ref(first)
+			cells := v.cellsAt(l, start-l.start)
 			unit = strings.Repeat(" ", tabSize-cells%tabSize)
 		}
 		v.insert(unit, editOther)

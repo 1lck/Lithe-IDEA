@@ -261,40 +261,47 @@ func (v *View) markRows(first, last, cols int) {
 	line, sub := v.rowLine(first)
 	row := first
 	for row <= last && line < v.text.LineCount() {
-		text := v.line(line)
-		rows := v.minimapRows(line, text)
+		l := v.ref(line)
+		rows := v.minimapRows(l)
 		v.mm.tokens = v.hl.Line(v.mm.tokens[:0], line)
 		for k := sub; k < len(rows) && row <= last; k++ {
-			end := len(text)
+			end := l.size
 			if k+1 < len(rows) {
 				end = rows[k+1].at
 			}
-			v.markRow(text, rows[k], end, int32(row), cols)
+			// A row shows its first cols columns, so of a long line only those are read.
+			p := v.part(l, rows[k], end, rows[k].cells, rows[k].cells+cols)
+			v.markRow(p.text, p.base, p.row, end, int32(row), cols)
 			row++
 		}
 		line, sub = line+1, 0
 	}
 }
 
-// minimapRows is the rows of line, whose text is text, as the view lays them out. A line the
-// view has not broken lately is broken into scratch space, so the minimap's many rows never
-// push the visible lines out of the view's cache.
-func (v *View) minimapRows(line int, text string) []wrapRow {
-	if !v.wrapping() || len(text)*tabSize <= v.wrapCols {
+// minimapRows is the rows of l as the view lays them out. A line the view has not broken lately
+// is broken into scratch space, so the minimap's many rows never push the visible lines out of
+// the view's cache.
+func (v *View) minimapRows(l lineRef) []wrapRow {
+	if !v.wrapping() || l.size*tabSize <= v.wrapCols {
 		return oneRow
 	}
-	if rows, ok := v.rowCache[line]; ok {
+	if rows, ok := v.rowCache[l.line]; ok {
 		return rows
 	}
-	v.mm.rows = wrapLine(v.mm.rows[:0], text, v.wrapCols)
+	if l.long {
+		v.mm.rows = wrapRange(v.mm.rows[:0], v.text, l.start, l.start+l.size, v.wrapCols)
+	} else {
+		v.mm.rows = wrapLine(v.mm.rows[:0], l.text, v.wrapCols)
+	}
 	return v.mm.rows
 }
 
-// markRow adds the bars of a row of a line, whose text is text: the bytes from row to end, row
-// being row of the view. A run of characters of one color is one bar, and spaces, tabs and
+// markRow adds the bars of a row of a line: the bytes from row to end, row being row of the
+// view. text is the line's bytes from byte base, as far as the bars need them; the row starts
+// at or after base, the same number of columns into the line as the row the view lays out. A run of characters of one color is one bar, and spaces, tabs and
 // control characters leave gaps. A wrapped row starts at the minimap's left edge, as it does in
 // the view; columns past cols are left out. The tokens of the line are in v.mm.tokens.
-func (v *View) markRow(text string, row wrapRow, end int, at int32, cols int) {
+func (v *View) markRow(text string, base int, row wrapRow, end int, at int32, cols int) {
 	tokens := v.mm.tokens
 	token := max(sort.Search(len(tokens), func(i int) bool { return int(tokens[i].Start) > row.at })-1, 0)
 	colored := -1
@@ -302,7 +309,7 @@ func (v *View) markRow(text string, row wrapRow, end int, at int32, cols int) {
 	// mark is the bar being made longer, -1 after a gap.
 	mark := -1
 	cells := row.cells
-	for i, r := range text[row.at:end] {
+	for i, r := range text[row.at-base : min(end-base, len(text))] {
 		i += row.at
 		w := runeCells(r, cells)
 		col := cells - row.cells

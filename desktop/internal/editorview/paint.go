@@ -83,15 +83,15 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	canvas.Clip(textArea)
 	top := area.Y + float32(firstRow-firstSub)*v.lineH - v.scroll
 	for line := firstLine; line <= lastLine; line++ {
-		text := v.line(line)
-		wraps := v.rowsOf(line, text)
+		l := v.ref(line)
+		wraps := v.rowsOf(l)
 		if top+v.lineH > area.Y {
 			v.numbers = append(v.numbers, gutterNumber{line: line, y: top})
 		}
 		if line == caretLine && selStart == selEnd {
 			canvas.Fill(gfx.Rect{X: textArea.X, Y: top, Width: textArea.Width, Height: float32(len(wraps)) * v.lineH}, look.CurrentLine)
 		}
-		selFrom, selTo := v.selectionCells(line, text, selStart, selEnd)
+		selFrom, selTo := v.selectionCells(l, selStart, selEnd)
 		v.tokens = v.hl.Line(v.tokens[:0], line)
 		for k, row := range wraps {
 			y := top + float32(k)*v.lineH
@@ -118,7 +118,12 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 				left := v.textLeft + float32(lo-shift)*v.cellW - v.scrollX
 				canvas.Fill(gfx.Rect{X: left, Y: y, Width: float32(hi-lo) * v.cellW, Height: v.lineH}, look.Selection)
 			}
-			v.paintRow(canvas, text, row, from, to, shift, y)
+			end := l.size
+			if k+1 < len(wraps) {
+				end = wraps[k+1].at
+			}
+			p := v.part(l, row, end, from, to)
+			v.paintRow(canvas, p.text, p.base, p.row, from, to, shift, y)
 			v.paintMarkers(canvas, line, from, to, shift, y)
 		}
 		top += float32(len(wraps)) * v.lineH
@@ -163,10 +168,12 @@ const (
 	joinedLimit = 1 << 20
 )
 
-// line returns line of the text. A line in one leaf of the rope is part of the rope's memory;
-// a line across leaves is copied, and the copy is kept until the text changes, so a frame that
-// shows the line again copies nothing.
-func (v *View) line(line int) string {
+// lineIn returns line of the text, which runs from byte start to byte end of it. A line in one
+// leaf of the rope is part of the rope's memory; a line across leaves is copied, and the copy
+// of a line no longer than joinedBytes is kept until the text changes, so a frame that shows
+// the line again copies nothing. The view reads a longer line a part at a time instead (see
+// longline.go).
+func (v *View) lineIn(line, start, end int) string {
 	if v.joinedRevision != v.revision {
 		clear(v.joined)
 		v.joinedRevision, v.joinedSize = v.revision, 0
@@ -174,7 +181,7 @@ func (v *View) line(line int) string {
 	if text, ok := v.joined[line]; ok {
 		return text
 	}
-	text, copied := v.text.LineCopied(line)
+	text, copied := v.text.Substring(start, end)
 	if copied && len(text) <= joinedBytes {
 		if v.joined == nil {
 			v.joined = make(map[int]string)
@@ -268,25 +275,26 @@ func uiColor(c syntax.Color) gfx.Color {
 	return gfx.Color{Red: float32(c>>16&0xff) / 255, Green: float32(c>>8&0xff) / 255, Blue: float32(c&0xff) / 255, Alpha: 1}
 }
 
-// selectionCells is the columns of line, whose text is text, that the selection from selStart
-// to selEnd covers; a line the selection runs past also gets its line break selected, one cell
-// wide. Both are 0 when the selection misses the line.
-func (v *View) selectionCells(line int, text string, selStart, selEnd int) (int, int) {
-	start := v.text.LineStart(line)
-	end := start + len(text)
+// selectionCells is the columns of l that the selection from selStart to selEnd covers; a line
+// the selection runs past also gets its line break selected, one cell wide. Both are 0 when the
+// selection misses the line.
+func (v *View) selectionCells(l lineRef, selStart, selEnd int) (int, int) {
+	start := l.start
+	end := start + l.size
 	if selStart == selEnd || selEnd < start || selStart > end {
 		return 0, 0
 	}
-	from := cellsOf(text, max(selStart-start, 0))
-	to := cellsOf(text, min(selEnd-start, len(text)))
+	from := v.cellsAt(l, max(selStart-start, 0))
+	to := v.cellsAt(l, min(selEnd-start, l.size))
 	if selEnd > end {
 		to++
 	}
 	return from, to
 }
 
-// paintRow draws the columns from to to of a row of a line, whose text is text, in its tokens'
-// colors, which v.tokens holds; the row starts at row and is drawn shift columns to the left.
+// paintRow draws the columns from to to of a row of a line in its tokens' colors, which v.tokens
+// holds; text is the line's bytes from byte base, as far as the paint needs them, the row starts
+// at row, at or after base, and it is drawn shift columns to the left.
 // Every character that is not ASCII is a run of its own at its own cell, so a wide or fallback
 // glyph never moves the text after it off its column.
 //
@@ -298,12 +306,14 @@ func (v *View) selectionCells(line int, text string, selStart, selEnd int) (int,
 //
 // Only the columns the view shows are drawn, starting at the first of them, the way Viva's own
 // code editor draws a row, so a frame of the single line of a minified JSON file costs the
-// width of the view, not the length of the line. The macOS renderer splits a label wider than
+// width of the view, not the length of the line, and of such a line text is only those columns
+// (see part in longline.go). The macOS renderer splits a label wider than
 // a texture across textures, but the Windows one refuses a label texture wider than 16384
 // pixels, so a view wider than labelWidth draws its columns as several labels side by side,
 // each starting where the one before it ended.
-func (v *View) paintRow(canvas *gfx.Canvas, text string, row wrapRow, from, to, shift int, y float32) {
-	if row.at >= len(text) {
+func (v *View) paintRow(canvas *gfx.Canvas, text string, base int, row wrapRow, from, to, shift int, y float32) {
+	stop := base + len(text)
+	if row.at >= stop {
 		return
 	}
 	limit := v.labelCells()
@@ -318,14 +328,14 @@ func (v *View) paintRow(canvas *gfx.Canvas, text string, row wrapRow, from, to, 
 	// label is the first column of the label being gathered, or -1 while there is none, and
 	// labelEnd the column after its last character; labelAt and labelTo are the bytes of the
 	// line it shows.
-	label, labelEnd, labelAt, labelTo := -1, 0, 0, 0
-	for i := row.at; i < len(text); {
+	label, labelEnd, labelAt, labelTo := -1, 0, base, base
+	for i := row.at; i < stop; {
 		at := i
-		r, size := utf8.DecodeRuneInString(text[i:])
+		r, size := utf8.DecodeRuneInString(text[i-base:])
 		i += size
 		width := runeCells(r, cells)
 		if width == 0 {
-			v.paintLabel(canvas, text[labelAt:labelTo], label, labelEnd, shift, y, textStyle)
+			v.paintLabel(canvas, text[labelAt-base:labelTo-base], label, labelEnd, shift, y, textStyle)
 			label = -1
 			continue
 		}
@@ -337,14 +347,14 @@ func (v *View) paintRow(canvas *gfx.Canvas, text string, row wrapRow, from, to, 
 			break
 		}
 		if r == '\t' || r < 0x20 {
-			v.paintLabel(canvas, text[labelAt:labelTo], label, labelEnd, shift, y, textStyle)
+			v.paintLabel(canvas, text[labelAt-base:labelTo-base], label, labelEnd, shift, y, textStyle)
 			label = -1
 			cells += width
 			continue
 		}
 		invalid := r == utf8.RuneError && size == 1
 		if label < 0 || invalid || cells+width-label > limit {
-			v.paintLabel(canvas, text[labelAt:labelTo], label, labelEnd, shift, y, textStyle)
+			v.paintLabel(canvas, text[labelAt-base:labelTo-base], label, labelEnd, shift, y, textStyle)
 			label, labelAt, labelTo, run = cells, at, at, -1
 		}
 		for token+1 < len(v.tokens) && int(v.tokens[token+1].Start) <= at {
@@ -384,7 +394,7 @@ func (v *View) paintRow(canvas *gfx.Canvas, text string, row wrapRow, from, to, 
 			label = -1
 		}
 	}
-	v.paintLabel(canvas, text[labelAt:labelTo], label, labelEnd, shift, y, textStyle)
+	v.paintLabel(canvas, text[labelAt-base:labelTo-base], label, labelEnd, shift, y, textStyle)
 }
 
 // replacementChar is what a byte that is not UTF-8 shows, as range over a string reads it.
@@ -460,9 +470,9 @@ func (v *View) visibleCells() (int, int) {
 
 // caretPoint is the top left corner of the caret.
 func (v *View) caretPoint() (float32, float32) {
-	line, text, rows, k := v.caretPlace()
-	cells := cellsOf(text, v.caret-v.text.LineStart(line)) - rows[k].cells
-	return v.textLeft + float32(cells)*v.cellW - v.scrollX, v.area.Y + float32(v.lineRow(line)+k)*v.lineH - v.scroll
+	l, rows, k := v.caretPlace()
+	cells := v.cellsAt(l, v.caret-l.start) - rows[k].cells
+	return v.textLeft + float32(cells)*v.cellW - v.scrollX, v.area.Y + float32(v.lineRow(l.line)+k)*v.lineH - v.scroll
 }
 
 // blinkOn says whether the caret shows in this frame, and asks for the frame that turns it
@@ -479,8 +489,8 @@ func (v *View) blinkOn(canvas *gfx.Canvas) bool {
 
 // revealCaret scrolls the least that brings the caret's row and column into view.
 func (v *View) revealCaret() {
-	line, text, _, k := v.caretPlace()
-	top := float32(v.lineRow(line)+k) * v.lineH
+	l, _, k := v.caretPlace()
+	top := float32(v.lineRow(l.line)+k) * v.lineH
 	if top < v.scroll {
 		v.scroll = top
 	} else if bottom := top + v.lineH; bottom > v.scroll+v.rowsHeight() {
@@ -490,7 +500,7 @@ func (v *View) revealCaret() {
 		return
 	}
 	width := v.textRight - v.textLeft
-	x := float32(cellsOf(text, v.caret-v.text.LineStart(line))) * v.cellW
+	x := float32(v.cellsAt(l, v.caret-l.start)) * v.cellW
 	margin := 4 * v.cellW
 	if x < v.scrollX {
 		v.scrollX = max(x-margin, 0)

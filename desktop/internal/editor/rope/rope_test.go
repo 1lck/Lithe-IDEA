@@ -156,6 +156,57 @@ func TestLineSharesTheLeafItLiesIn(t *testing.T) {
 	}
 }
 
+// Substring is the bytes of a range, part of the leaf when the range lies inside one and joined
+// from the leaves otherwise; it clamps the range, and an empty one is "" and was not copied.
+func TestSubstringSharesTheLeafItLiesIn(t *testing.T) {
+	var b strings.Builder
+	for i := range 4000 {
+		fmt.Fprintf(&b, "%d 中文\té ", i)
+	}
+	text := b.String()
+	r := New([]byte(text))
+	check(t, r)
+	if r.root.children == nil {
+		t.Fatal("the text fits in one leaf, so no range could cross leaves")
+	}
+	for _, c := range [][2]int{
+		{0, 0}, {0, 1}, {5, 900}, {0, maxLeaf + 3}, {maxLeaf - 7, maxLeaf + 7},
+		{len(text) / 2, len(text)/2 + 3*maxLeaf}, {len(text) - 9, len(text)}, {0, len(text)},
+	} {
+		start, end := c[0], c[1]
+		got, copied := r.Substring(start, end)
+		if got != text[start:end] {
+			t.Fatalf("Substring(%d, %d) = %d bytes, want %d", start, end, len(got), end-start)
+		}
+		joined := false
+		var leaves int
+		r.Chunks(start, end, func(string) bool { leaves++; return true })
+		if leaves > 1 {
+			joined = true
+		}
+		if copied != joined {
+			t.Fatalf("Substring(%d, %d) copied = %v, want %v, as it lies in %d leaves", start, end, copied, joined, leaves)
+		}
+	}
+	if allocs := testing.AllocsPerRun(100, func() { _, _ = r.Substring(10, 50) }); allocs != 0 {
+		t.Fatalf("Substring of a range inside one leaf allocates %v times", allocs)
+	}
+	for _, c := range [][2]int{{-5, 3}, {len(text) - 2, len(text) + 10}, {20, 10}, {len(text) + 1, len(text) + 5}} {
+		start, end := c[0], c[1]
+		want := ""
+		if s, e := max(start, 0), min(end, len(text)); s < e {
+			want = text[s:e]
+		}
+		if got, _ := r.Substring(start, end); got != want {
+			t.Fatalf("Substring(%d, %d) = %q, want %q", start, end, trim(got), trim(want))
+		}
+	}
+	var empty Rope
+	if got, copied := empty.Substring(0, 5); got != "" || copied {
+		t.Fatalf("Substring of an empty rope = %q, %v", got, copied)
+	}
+}
+
 // FromString keeps the string it is given, which cannot change, instead of copying it.
 func TestFromStringSharesItsText(t *testing.T) {
 	s := strings.Repeat("share me\n", 1000)

@@ -264,7 +264,17 @@ func (r Rope) LineCopied(line int) (string, bool) {
 	if r.root == nil || line < 0 || line > r.root.newlines {
 		return "", false
 	}
-	start, end := r.LineStart(line), r.LineEnd(line)
+	return r.Substring(r.LineStart(line), r.LineEnd(line))
+}
+
+// Substring returns the bytes from start to end of r, clamped to r, and whether they had to be
+// copied: bytes that lie in one leaf are part of r's own memory and cost nothing, and bytes
+// across leaves are joined into a new string.
+func (r Rope) Substring(start, end int) (string, bool) {
+	start, end = max(start, 0), min(end, r.Len())
+	if start >= end {
+		return "", false
+	}
 	if text, ok := r.span(start, end); ok {
 		return text, false
 	}

@@ -4,7 +4,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"unicode/utf8"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/rope"
 )
 
 // Soft wrapping breaks a line wider than the view into rows that fit it, so nothing scrolls
@@ -54,16 +55,48 @@ func (v *View) wrapping() bool { return v.wrapCols > 0 }
 // than a row breaks inside it. A character wider than a whole row takes a row of its own. Tabs
 // keep the stops of the whole line, so a tab takes as many cells wrapped as unwrapped.
 func wrapLine(dst []wrapRow, text string, cols int) []wrapRow {
-	dst = append(dst, wrapRow{})
-	if cols <= 0 {
-		return dst
+	w := wrapper{rows: append(dst, wrapRow{}), cols: cols, prev: -1}
+	if cols > 0 {
+		w.feed(text, 0)
 	}
+	return w.rows
+}
+
+// wrapRange is wrapLine for the line of text from byte start to byte end. It reads the line a
+// leaf at a time without copying it: a leaf never ends inside a character of valid UTF-8, so
+// the line reads the same as it would whole.
+func wrapRange(dst []wrapRow, text rope.Rope, start, end, cols int) []wrapRow {
+	w := wrapper{rows: append(dst, wrapRow{}), cols: cols, prev: -1}
+	if cols > 0 {
+		at := 0
+		text.Chunks(start, end, func(chunk string) bool {
+			w.feed(chunk, at)
+			at += len(chunk)
+			return true
+		})
+	}
+	return w.rows
+}
+
+// wrapper breaks a line into rows to fit cols columns as wrapLine does, a part of the line at a
+// time.
+type wrapper struct {
+	rows []wrapRow
+	cols int
 	// start is the column the row being filled starts at, and brk the last place in it where it
 	// may break; brk.at is 0 while there is none, as a row never breaks at the line's start.
-	start, cells := 0, 0
-	brk := wrapRow{}
-	prev := rune(-1)
-	for i, r := range text {
+	start, cells int
+	brk          wrapRow
+	// prev is the last character with a width, or -1 before the first.
+	prev rune
+}
+
+// feed breaks the part of the line from byte base, which comes after the parts fed before it.
+func (wr *wrapper) feed(part string, base int) {
+	dst, cols := wr.rows, wr.cols
+	start, cells, brk, prev := wr.start, wr.cells, wr.brk, wr.prev
+	for i, r := range part {
+		i += base
 		w := runeCells(r, cells)
 		if w == 0 {
 			continue
@@ -87,7 +120,8 @@ func wrapLine(dst []wrapRow, text string, cols int) []wrapRow {
 		cells += w
 		prev = r
 	}
-	return dst
+	wr.rows = dst
+	wr.start, wr.cells, wr.brk, wr.prev = start, cells, brk, prev
 }
 
 // rowIndex is which of rows holds byte col of their line. A column where a row starts is on
@@ -96,20 +130,25 @@ func rowIndex(rows []wrapRow, col int) int {
 	return max(sort.Search(len(rows), func(i int) bool { return rows[i].at > col })-1, 0)
 }
 
-// rowsOf is the rows of line, whose text is text, at the view's columns. The result is shared;
-// callers must not change it.
-func (v *View) rowsOf(line int, text string) []wrapRow {
-	if !v.wrapping() || len(text)*tabSize <= v.wrapCols {
+// rowsOf is the rows of l at the view's columns. The result is shared; callers must not change
+// it.
+func (v *View) rowsOf(l lineRef) []wrapRow {
+	if !v.wrapping() || l.size*tabSize <= v.wrapCols {
 		return oneRow
 	}
-	if rows, ok := v.rowCache[line]; ok {
+	if rows, ok := v.rowCache[l.line]; ok {
 		return rows
 	}
-	rows := wrapLine(nil, text, v.wrapCols)
+	var rows []wrapRow
+	if l.long {
+		rows = wrapRange(nil, v.text, l.start, l.start+l.size, v.wrapCols)
+	} else {
+		rows = wrapLine(nil, l.text, v.wrapCols)
+	}
 	if v.rowCache == nil || len(v.rowCache) >= rowCacheLimit {
 		v.rowCache = make(map[int][]wrapRow)
 	}
-	v.rowCache[line] = rows
+	v.rowCache[l.line] = rows
 	return rows
 }
 
@@ -141,21 +180,21 @@ func (v *View) setWrapCols(cols int) {
 }
 
 // countRows works out how many rows line takes at the view's columns, reading the line only
-// when it may be wider than them.
+// when it may be wider than them, and without copying it.
 func (v *View) countRows(line int) {
 	w := &v.wraps[line]
 	w.rows = 1
 	if int(w.cells) <= v.wrapCols {
 		return
 	}
-	text := v.text.Line(line)
+	start, end := v.text.LineStart(line), v.text.LineEnd(line)
 	if !w.exact {
-		w.cells, w.exact = int32(cellsOf(text, len(text))), true
+		w.cells, w.exact = int32(rangeCells(v.text, start, end, 0)), true
 		if int(w.cells) <= v.wrapCols {
 			return
 		}
 	}
-	v.rowBuf = wrapLine(v.rowBuf[:0], text, v.wrapCols)
+	v.rowBuf = wrapRange(v.rowBuf[:0], v.text, start, end, v.wrapCols)
 	w.rows = int32(len(v.rowBuf))
 }
 
@@ -250,36 +289,34 @@ func (v *View) rowLine(row int) (int, int) {
 	return line, min(max(row-int(v.rowStart[line]), 0), int(v.wraps[line].rows)-1)
 }
 
-// caretPlace is the caret's line, the line's text and rows, and which row the caret is on.
-func (v *View) caretPlace() (int, string, []wrapRow, int) {
-	line := v.text.LineOf(v.caret)
-	text := v.line(line)
-	rows := v.rowsOf(line, text)
-	return line, text, rows, rowIndex(rows, v.caret-v.text.LineStart(line))
+// caretPlace is the caret's line, the line's rows, and which row the caret is on.
+func (v *View) caretPlace() (lineRef, []wrapRow, int) {
+	l := v.ref(v.text.LineOf(v.caret))
+	rows := v.rowsOf(l)
+	return l, rows, rowIndex(rows, v.caret-l.start)
 }
 
 // caretRow is the row the caret is on.
 func (v *View) caretRow() int {
-	line, _, _, k := v.caretPlace()
-	return v.lineRow(line) + k
+	l, _, k := v.caretPlace()
+	return v.lineRow(l.line) + k
 }
 
 // columnOnRow is the byte column of line nearest cells columns into its row sub. A column past
 // the end of a row the line goes on from is the start of the row's last character: the end of
 // such a row is where the next row starts, and the caret there shows on the next row.
 func (v *View) columnOnRow(line, sub int, cells float32) int {
-	text := v.line(line)
-	rows := v.rowsOf(line, text)
+	l := v.ref(line)
+	rows := v.rowsOf(l)
 	sub = min(max(sub, 0), len(rows)-1)
 	row := rows[sub]
-	end := len(text)
+	end := l.size
 	if sub+1 < len(rows) {
 		end = rows[sub+1].at
 	}
-	col := columnIn(text, row.at, end, row.cells, float32(row.cells)+cells)
+	col := v.columnFrom(l, row.at, end, row.cells, float32(row.cells)+cells)
 	if sub+1 < len(rows) && col >= end && end > row.at {
-		_, size := utf8.DecodeLastRuneInString(text[row.at:end])
-		col = end - size
+		col = end - v.lastRuneSize(l, row.at, end)
 	}
 	return col
 }

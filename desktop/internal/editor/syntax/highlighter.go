@@ -100,12 +100,15 @@ type lineTokenizer struct {
 
 // tokenize appends the tokens of line, starting in state, to t.out as start and Name pairs,
 // merging neighbors of the same name, and returns the state the line ends in.
+//
+// A line longer than maxLineBytes is measured, not read, so neither its copy nor a buffer the
+// size of it outlives the call.
 func (t *lineTokenizer) tokenize(text rope.Rope, line int, state *textmate.StateStack) *textmate.StateStack {
-	t.line = text.AppendLine(t.line[:0], line)
-	if len(t.line) > maxLineBytes {
+	if text.LineEnd(line)-text.LineStart(line) > maxLineBytes {
 		t.out = append(t.out, 0, 0)
 		return state
 	}
+	t.line = text.AppendLine(t.line[:0], line)
 	tokens, end, stopped := t.tz.TokenizeLine(t.tokens[:0], t.line, state, t.limit)
 	t.tokens = tokens
 	if stopped {
@@ -409,15 +412,22 @@ func (h *Highlighter) guessLocked(line int) *textmate.StateStack {
 	return state
 }
 
-// indentLocked returns the bytes of white space line starts with, or -1 for a blank line.
+// indentLocked returns the bytes of white space line starts with, or -1 for a blank line. It
+// reads the line a leaf at a time and only up to its first other byte, so the one line of a
+// minified file costs nothing.
 func (h *Highlighter) indentLocked(line int) int {
-	h.ui.line = h.text.AppendLine(h.ui.line[:0], line)
-	for i, b := range h.ui.line {
-		if b != ' ' && b != '\t' {
-			return i
+	indent, offset := -1, 0
+	h.text.Chunks(h.text.LineStart(line), h.text.LineEnd(line), func(chunk string) bool {
+		for i := 0; i < len(chunk); i++ {
+			if b := chunk[i]; b != ' ' && b != '\t' {
+				indent = offset + i
+				return false
+			}
 		}
-	}
-	return -1
+		offset += len(chunk)
+		return true
+	})
+	return indent
 }
 
 func (h *Highlighter) kickLocked() {

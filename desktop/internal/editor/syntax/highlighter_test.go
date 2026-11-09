@@ -293,6 +293,24 @@ func TestHighlighterTokensLongLineAsOne(t *testing.T) {
 	if len(got) < 2 || got[0] != (Token{0, Intern("comment.block.java")}) {
 		t.Fatalf("line after the long line: tokens %v, want the comment to close first", got)
 	}
+	// The long line was measured, not read: no line buffer of the highlighter grew to its size.
+	drain(t, h)
+	if size := max(cap(h.ui.line), cap(h.worker.line)); size > maxLineBytes {
+		t.Fatalf("a tokenizer's line buffer holds %d bytes: the long line was copied", size)
+	}
+}
+
+// A line's indent is read up to its first byte that is not a space or a tab, across the leaves
+// of the rope; a line of only white space, or none, is blank.
+func TestHighlighterIndentReadsOnlyTheIndent(t *testing.T) {
+	long := "  " + strings.Repeat("a", 3*maxLineBytes)
+	text := rope.FromString("  \tx\n   \n\nx\n" + long + "\n" + strings.Repeat(" ", 5000) + "y")
+	h := newHighlighter(nil, text, HighlighterOptions{}, false)
+	for line, want := range []int{3, -1, -1, 0, 2, 5000} {
+		if got := h.indentLocked(line); got != want {
+			t.Fatalf("indent of line %d = %d, want %d", line, got, want)
+		}
+	}
 }
 
 func TestHighlighterPlainText(t *testing.T) {
