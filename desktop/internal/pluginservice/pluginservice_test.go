@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
 
@@ -26,6 +30,8 @@ type fakeKernel struct {
 	stopErr         error
 	destroyErr      error
 	hostResponseErr error
+	decoded         []string
+	grammarErr      error
 }
 
 func (k *fakeKernel) ValidatePluginManifest(_ context.Context, manifest json.RawMessage, _ map[string][]int) (json.RawMessage, error) {
@@ -63,6 +69,17 @@ func (k *fakeKernel) DestroyPluginBackend(context.Context, string) error { retur
 
 func (k *fakeKernel) RespondPluginHostRequest(context.Context, string, string, json.RawMessage, *core.PluginHostFailure) error {
 	return k.hostResponseErr
+}
+
+func (k *fakeKernel) DecodePluginGrammar(_ context.Context, _ json.RawMessage, languageID, source string) (core.PluginEditorLanguage, error) {
+	k.decoded = append(k.decoded, languageID)
+	if k.grammarErr != nil {
+		return core.PluginEditorLanguage{}, k.grammarErr
+	}
+	return core.PluginEditorLanguage{
+		ID:      languageID,
+		Grammar: &core.PluginGrammar{Kind: "textmate", ScopeName: "source." + languageID, Source: source},
+	}, nil
 }
 
 func TestOpenAssemblesEveryPart(t *testing.T) {
@@ -147,5 +164,128 @@ func TestReviewerPropagatesCoreRefusal(t *testing.T) {
 	kernel := &fakeKernel{reviewErr: refusal}
 	if _, err := NewReviewer(kernel).ReviewPluginInstall(context.Background(), json.RawMessage(`{}`), "", "", nil); !errors.Is(err, refusal) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// installedPackage writes an installed package holding manifest and files.
+func installedPackage(t *testing.T, manifest string, files map[string]string) pluginmanager.Entry {
+	t.Helper()
+	directory := filepath.Join(t.TempDir(), "example", "1.0.0")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, pluginpkg.ManifestFile), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range files {
+		path := filepath.Join(directory, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return pluginmanager.Entry{
+		Installed: pluginpkg.Installed{ID: "example", Version: "1.0.0", Path: directory},
+		Enabled:   true,
+	}
+}
+
+const languageManifest = `{"id":"example","version":"1.0.0","languages":[{"id":"examplelang","displayName":"Example","fileExtensions":[".ex"],"fileNames":["Examplefile"],"grammar":{"kind":"textmate","path":"grammars/example.json"}}]}`
+
+func TestLoadLanguagesReadsGrammarFromThePackage(t *testing.T) {
+	kernel := &fakeKernel{}
+	service, err := Open(kernel, store.At(t.TempDir()), t.TempDir())
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	entry := installedPackage(t, languageManifest, map[string]string{"grammars/example.json": `{"scopeName":"source.example"}`})
+	languages, err := service.LoadLanguages(context.Background(), []pluginmanager.Entry{entry})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(languages) != 1 {
+		t.Fatalf("languages = %+v", languages)
+	}
+	language := languages[0]
+	if language.ID != "examplelang" {
+		t.Fatalf("id = %q", language.ID)
+	}
+	if len(language.Extensions) != 1 || language.Extensions[0] != ".ex" {
+		t.Fatalf("extensions = %v", language.Extensions)
+	}
+	if string(language.Grammar) != `{"scopeName":"source.example"}` {
+		t.Fatalf("grammar = %s", language.Grammar)
+	}
+	if len(kernel.decoded) != 1 || kernel.decoded[0] != "examplelang" {
+		t.Fatalf("decoded = %v", kernel.decoded)
+	}
+}
+
+func TestLoadLanguagesSkipsDisabledPlugins(t *testing.T) {
+	service, err := Open(&fakeKernel{}, store.At(t.TempDir()), t.TempDir())
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	entry := installedPackage(t, languageManifest, map[string]string{"grammars/example.json": `{}`})
+	entry.Enabled = false
+	languages, err := service.LoadLanguages(context.Background(), []pluginmanager.Entry{entry})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(languages) != 0 {
+		t.Fatalf("a disabled plugin contributed %+v", languages)
+	}
+}
+
+func TestLoadLanguagesReportsABrokenPackage(t *testing.T) {
+	service, err := Open(&fakeKernel{}, store.At(t.TempDir()), t.TempDir())
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	broken := pluginmanager.Entry{
+		Installed: pluginpkg.Installed{ID: "broken", Version: "1.0.0", Path: filepath.Join(t.TempDir(), "absent")},
+		Enabled:   true,
+	}
+	healthy := installedPackage(t, languageManifest, map[string]string{"grammars/example.json": `{}`})
+	languages, err := service.LoadLanguages(context.Background(), []pluginmanager.Entry{broken, healthy})
+	if !errors.Is(err, ErrPackageRead) {
+		t.Fatalf("err = %v", err)
+	}
+	if len(languages) != 1 {
+		t.Fatalf("a broken plugin stopped the healthy one: %+v", languages)
+	}
+}
+
+func TestLoadLanguagesReportsARejectedGrammar(t *testing.T) {
+	refusal := errors.New("grammar rejected")
+	service, err := Open(&fakeKernel{grammarErr: refusal}, store.At(t.TempDir()), t.TempDir())
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	entry := installedPackage(t, languageManifest, map[string]string{"grammars/example.json": `{}`})
+	languages, err := service.LoadLanguages(context.Background(), []pluginmanager.Entry{entry})
+	if !errors.Is(err, refusal) {
+		t.Fatalf("err = %v", err)
+	}
+	if len(languages) != 0 {
+		t.Fatalf("a rejected grammar was registered: %+v", languages)
+	}
+}
+
+func TestLoadLanguagesRefusesAnEscapingGrammarPath(t *testing.T) {
+	manifest := `{"id":"example","version":"1.0.0","languages":[{"id":"examplelang","displayName":"Example","grammar":{"kind":"textmate","path":"../outside.json"}}]}`
+	service, err := Open(&fakeKernel{}, store.At(t.TempDir()), t.TempDir())
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	entry := installedPackage(t, manifest, nil)
+	languages, err := service.LoadLanguages(context.Background(), []pluginmanager.Entry{entry})
+	if err == nil {
+		t.Fatal("a grammar outside the package was accepted")
+	}
+	if len(languages) != 0 {
+		t.Fatalf("languages = %+v", languages)
 	}
 }

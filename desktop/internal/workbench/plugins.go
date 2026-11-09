@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -152,6 +153,7 @@ func (a *App) confirmPluginInstall() {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_commit", err))
 			}
 			a.refreshPluginState()
+			a.reloadPluginLanguages()
 		}
 	})
 }
@@ -179,6 +181,7 @@ func (a *App) setPluginEnabled(id string, enabled bool) {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_enable", err))
 			}
 			a.refreshPluginState()
+			a.reloadPluginLanguages()
 		}
 	})
 }
@@ -203,6 +206,36 @@ func (a *App) uninstallPlugin(id string) {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_uninstall", err))
 			}
 			a.refreshPluginState()
+			a.reloadPluginLanguages()
+		}
+	})
+}
+
+// reloadPluginLanguages registers the languages of the enabled plugins.
+//
+// The registry replaces its plugin languages whole, so a plugin that was disabled
+// or removed loses its highlighting in the same pass that registers a new one.
+func (a *App) reloadPluginLanguages() {
+	if a.plugins == nil {
+		return
+	}
+	a.background(nil, pluginStateTimeout, func(ctx context.Context) func(*App) {
+		entries, err := a.plugins.Manager.Installed()
+		if err != nil {
+			return func(a *App) {
+				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_languages", err))
+			}
+		}
+		languages, loadErr := a.plugins.LoadLanguages(ctx, entries)
+		return func(a *App) {
+			if loadErr != nil {
+				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_languages", loadErr))
+			}
+			failed, _ := a.syntaxRegistry().SetPluginLanguages(languages)
+			if len(failed) > 0 {
+				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_languages",
+					fmt.Errorf("%d plugin languages were rejected", len(failed))))
+			}
 		}
 	})
 }

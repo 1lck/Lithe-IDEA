@@ -358,6 +358,9 @@ func (a *App) Run() error {
 		if _, err := application.OpenWindow(a.Config(), nil); err != nil {
 			return err
 		}
+		// The plugin stack is assembled before the window exists, because opening a
+		// window is what installs the invalidator its background work needs.
+		a.reloadPluginLanguages()
 		// Development builds mark the Dock icon without changing the product name in the UI.
 		if buildinfo.Development {
 			application.SetDockBadge(a.text.App.DevBadge)

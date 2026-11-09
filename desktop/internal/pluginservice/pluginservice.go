@@ -35,6 +35,7 @@ type Kernel interface {
 	pluginhost.ManifestValidator
 	pluginbackend.Kernel
 	ReviewMarketplaceInstall(ctx context.Context, manifest json.RawMessage, expectedID, expectedVersion string, approvedPrograms []json.RawMessage, hostCapabilities map[string][]int) (core.MarketplaceReview, error)
+	DecodePluginGrammar(ctx context.Context, manifest json.RawMessage, languageID, source string) (core.PluginEditorLanguage, error)
 }
 
 // Service is the assembled plugin stack.
@@ -49,6 +50,8 @@ type Service struct {
 	Backend *pluginbackend.Runner
 	// HostServices is the registry a backend's grants are narrowed against.
 	HostServices *pluginhost.Services
+	// kernel reads what only Core can validate, such as a plugin's grammar.
+	kernel Kernel
 }
 
 // Open assembles the stack over one plugin root and one set of preferences.
@@ -71,6 +74,7 @@ func Open(kernel Kernel, preferences *store.Store, root string) (*Service, error
 		Installer:    plugininstall.New(kernel, NewReviewer(kernel), approvals, pluginhost.Declared()),
 		Backend:      pluginbackend.New(kernel, hostServices),
 		HostServices: hostServices,
+		kernel:       kernel,
 	}, nil
 }
 

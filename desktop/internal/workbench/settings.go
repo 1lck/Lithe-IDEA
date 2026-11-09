@@ -124,6 +124,7 @@ func (a *App) openSettingsPage(surface string, plugins bool) {
 		// The plugin page paints from memory, so its state is reloaded when the
 		// page is asked for rather than on every paint.
 		a.refreshPluginState()
+		a.reloadPluginLanguages()
 	}
 	a.post(func(a *App) {
 		if a.application == nil {
