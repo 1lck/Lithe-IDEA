@@ -220,7 +220,7 @@ func TestSearchOnATopLevelPageListsOnlyIt(t *testing.T) {
 	// The query is folded, so "  AI " finds the group, which names the whole group and
 	// keeps its pages.
 	rows := appendVisible(nil, english(), &open, foldQuery("  AI "))
-	if want := []row{{page: pageAI, group: true, expanded: true}, {page: pageAIAgents, level: 1}, {page: pageAIInstructions, level: 1}, {page: pageAISkills, level: 1}, {page: pageAIHooks, level: 1}, {page: pageMCP, level: 1}}; !slices.Equal(rows, want) {
+	if want := []row{{page: pageAI, group: true, expanded: true}, {page: pageAIAgents, level: 1}, {page: pageAIInstructions, level: 1}, {page: pageAISkills, level: 1}, {page: pageAIHooks, level: 1}, {page: pageMCP, level: 1}, {page: pageIDEAPI, level: 1}}; !slices.Equal(rows, want) {
 		t.Fatalf("rows = %v, want %v", rows, want)
 	}
 }

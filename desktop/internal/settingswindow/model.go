@@ -34,13 +34,14 @@ const (
 	// pageTools is the group "Tools"; the page after it belongs to it.
 	pageTools
 	pageTerminal
-	// pageAI is the group "AI"; the five pages after it belong to it.
+	// pageAI is the group "AI"; the six pages after it belong to it.
 	pageAI
 	pageAIAgents
 	pageAIInstructions
 	pageAISkills
 	pageAIHooks
 	pageMCP
+	pageIDEAPI
 	// pageCount is how many entries there are. As a parent it means "none": the parent
 	// of an entry on the top level.
 	pageCount
@@ -69,6 +70,7 @@ var parents = [pageCount]pageID{
 	pageAISkills:           pageAI,
 	pageAIHooks:            pageAI,
 	pageMCP:                pageAI,
+	pageIDEAPI:             pageAI,
 }
 
 // initialPage is the page a new window opens on: the one page the new client offers.
@@ -133,6 +135,8 @@ func titleOf(messages *i18n.SettingsMessages, id pageID) string {
 		return messages.AIHooks
 	case pageMCP:
 		return messages.MCP
+	case pageIDEAPI:
+		return messages.IDEAPI
 	}
 	return ""
 }

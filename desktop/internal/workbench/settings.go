@@ -165,7 +165,8 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 				a.setAgentContextLimits(id, agentContextLimit{WindowTokens: l.WindowTokens, AutoCompactTokens: l.AutoCompactTokens})
 			})
 		},
-		MCP: a.mcpSettingsLoader(),
+		MCP:    a.mcpSettingsLoader(),
+		IDEAPI: a.ideAPISettingsLoader(),
 	})
 }
 
@@ -173,6 +174,14 @@ func (a *App) setMarketplaceWidth(width float32) {
 	if a.settings.MarketplaceWidth != width {
 		a.settings.MarketplaceWidth = width
 		a.saveSettings()
+	}
+}
+
+// invalidateSettingsWindow repaints the open settings window after state one of its pages
+// reads changed off that window's thread.
+func (a *App) invalidateSettingsWindow() {
+	if a.settingsWindow != nil {
+		a.settingsWindow.Invalidate()
 	}
 }
 

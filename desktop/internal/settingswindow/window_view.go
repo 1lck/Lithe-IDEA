@@ -214,6 +214,8 @@ func (w *window) content(c ui.C) {
 			w.versionControlPage(c)
 		case w.sess.page == pageMCP && w.ctrl.opts.MCP != nil:
 			w.mcpPage(c)
+		case w.sess.page == pageIDEAPI && w.ctrl.opts.IDEAPI != nil:
+			w.ideAPIPage(c)
 		default:
 			w.unavailablePage(c)
 		}

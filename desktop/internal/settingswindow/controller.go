@@ -171,7 +171,9 @@ type Options struct {
 	AgentContextLimits    func(agentID string) AgentContextLimit
 	SetAgentContextLimits func(agentID string, limit AgentContextLimit)
 	// MCP is the MCP Configuration page's loader. Nil leaves the page unavailable.
-	MCP           MCPLoader
+	MCP MCPLoader
+	// IDEAPI is the IDE Connection page's loader. Nil leaves the page unavailable.
+	IDEAPI        IDEAPILoader
 	PluginRuntime func(string) PluginRuntimeState
 	RestartPlugin func(id, version, scope, workspace string)
 }

@@ -328,6 +328,8 @@ type App struct {
 	agentKernel AgentKernel
 	// inline is the editor's AI inline edit dialog (inlineedit.go).
 	inline inlineEditState
+	// ideAPIBridgeState lets the IDE Connection settings page reach the open project (settings_ide_api.go).
+	ideAPIBridgeState ideAPIBridge
 	// agentClosing tracks Core sessions being closed off the window thread, so
 	// shutdown waits for their process trees.
 	agentClosing sync.WaitGroup
@@ -823,6 +825,7 @@ func (a *App) openProject(path string) {
 		a.searchView.reset()
 		a.openTerminals(p)
 		a.project = p
+		a.ideAPISetProject(p)
 		rootCopy := root
 		a.toolchainRoot.Store(&rootCopy)
 		a.notice = ""
@@ -900,6 +903,7 @@ func (a *App) finishCloseProject(p *project, after func()) {
 		a.problems.reset()
 		a.toolchainRoot.Store(nil)
 		a.project = nil
+		a.ideAPISetProject(nil)
 		a.focus = focusTarget{}
 		a.dnd.tool.Cancel()
 		a.dnd.tab.Cancel()
