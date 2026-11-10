@@ -206,11 +206,22 @@ Swift 只负责读日志文件尾部、订阅 `MacLogStore` 的实时批次、�
 
 代价：Core 的诊断 API 变大，每个新字段都要同步契约、fixture 和 Swift 桥接。实时跟随每个批次都要调用一次 Core 查询，事件分布也由 Core 对有界窗口重新计算；高吞吐下的成本还需要整机测量，如果不可接受，应扩展 Core 的增量摘要接口，而不是在 Swift 里复制统计规则。门禁零额度意味着每个新的 `try?`、空 `catch` 或丢弃结果都必须当场记录或写明例外类别。
 
+## Viva Page 写法
+
+日志窗口用 `ui.NewPage` 和 `func (w *window) view(c ui.C)` 声明，不再持有 `*ui.Frame`，没有窗口级的按键、滚动和指针分发。取舍如下：
+
+- 记录表是 `ui.List`：只声明可见行，多选和键盘导航由列表给出，`RowWidth` 让窄窗口横向滚动，表头是单独一行并用 `ScrollWith` 跟随。列表按记录的稳定 key（`Model.keyBase` 加下标，永不复用）持有选中状态，Model 的 `selection`（按记录 id）仍是详情和复制读取的真源，两边用 `selectionRevision` 区分谁改了选择。
+- 日志查询是页面的 `ui.Effect`，以 `Model.queryKey` 为 key：新的过滤条件取消上一次查询，清屏只让在途结果过期、不重新查询（所以 key 和 `generation` 分开）。实时订阅是推送流，不是一次一个结果的任务，仍走 Model 的邮箱（`post`、`drain`），在 `OnWake` 里应用；查询以外的后台任务（用量、导出暂存、目录选择）同样没有迁。
+- 菜单、时间范围编辑器、确认框、命名框、导出面板分别用 `ui.Menu`、`ui.Popover`、`ui.Modal`；详情的上下分隔用 `ui.Splitter`（比例保持，不再限制最大高度）。直方图是 `ui.Control` 加 `Draw`，调用链是第二个 `ui.List`。
+- 等宽文字：Viva 当前没有按格子断行的等宽文字（vivaui/viva#187），`mono()` 里非 ASCII 的补宽和 `wrapDetailWords` 保留，上游修复后删除。
+- 被放弃的做法：把表头做成 `ListState.Header` 的第 0 行（记录下标整体错位，选择和 key 要处处减一）；把整个查询邮箱改成 Effect（实时流没有“一个 key 一个结果”的形状）。
+
 ## 验证
 
 旧客户端的复验入口保留在上方迁移前笔记。Viva 的 Core 桥接和窗口使用下列桌面测试；真实应用的整机验收（Java 项目、失败的 Git fetch、中英文、深浅色、长列表滚动）没有完成前保持 pending：
 
-- `scripts/desktop/desktop-go.sh test ./internal/core ./internal/logstore ./internal/logwindow`
+- `scripts/desktop/desktop-go.sh test ./internal/core ./internal/logstore ./internal/logwindow`（`page_test.go` 用无头驱动覆盖选择、键盘、菜单、导出面板、直方图和查询取消；`bench_test.go` 的 `go test -bench` 量表格滚动与按键的耗时和分配）
+- `scripts/desktop/desktop-go.sh --exec go run github.com/vivaui/viva/cmd/viva@<go.mod 里的版本> vet ./internal/logwindow/...`
 - `scripts/desktop/desktop-go.sh test -race ./internal/logwindow ./internal/workbench -run 'Test(Log|Welcome)'`
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`

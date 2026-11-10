@@ -126,8 +126,29 @@ type tableState struct {
 	hints    map[string]runHint
 	language *i18n.Messages
 
-	// fields are the painted fields of the records near the screen, by record key.
+	// fields and labels are the painted fields and the accessible names of the records near
+	// the screen, by record key.
 	fields map[int][]fieldItem
+	labels map[int]string
+}
+
+// label is the name of the row of record index, which assistive technology reads and typing
+// a row's first letters finds it by: its event and the start of its message.
+func (t *tableState) label(m *Model, index int) string {
+	if index < 0 || index >= len(m.records) {
+		return ""
+	}
+	key := m.keyBase + index
+	if label, ok := t.labels[key]; ok {
+		return label
+	}
+	if t.labels == nil || len(t.labels) > tableFieldCache {
+		t.labels = map[int]string{}
+	}
+	record := &m.records[index]
+	label := strings.TrimSpace(record.Event + " " + truncateRunes(record.Msg, 120))
+	t.labels[key] = label
+	return label
 }
 
 // runHint is the tooltip of one folded run.
@@ -140,7 +161,7 @@ type runHint struct {
 // runTooltip is what a folded run says of itself: how many records it holds and when the
 // last one arrived. The text is formatted once for a run that does not change.
 func (t *tableState) runTooltip(text *i18n.Messages, row displayRow) string {
-	if t.language != text || len(t.hints) > 4*maxRecords {
+	if t.language != text || len(t.hints) > tableFieldCache {
 		t.language, t.hints = text, map[string]runHint{}
 	}
 	if hint, ok := t.hints[row.id]; ok && hint.count == row.count && hint.last == row.last {
@@ -155,6 +176,7 @@ func (t *tableState) runTooltip(text *i18n.Messages, row displayRow) string {
 // the same while records come and go around it.
 func (t *tableState) init(w *window) {
 	t.list.Key = func(i int) int { return w.model.keyBase + t.rows[i].index }
+	t.list.Label = func(i int) string { return t.label(w.model, t.rows[i].index) }
 	t.list.Selection = &t.chosen
 	t.syncedRevision = -1
 }
