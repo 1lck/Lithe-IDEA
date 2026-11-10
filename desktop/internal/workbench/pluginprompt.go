@@ -5,8 +5,6 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/sheet"
-	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -14,17 +12,6 @@ import (
 // consent to run a program in a terminal. Both are one modal sheet over the
 // workbench, shown one at a time in the order they arrived. The user's choice, a
 // dismissal, the request's cancellation or the project closing ends a prompt.
-//
-// The sheet is drawn with the window's Frame engine, like the plugin review sheet
-// beside it, because the window around it is not on Viva Pages yet.
-
-var (
-	pluginPromptScope   = tree.ID(shellPage, "plugin-prompt-scope")
-	pluginPromptDismiss = tree.ID(shellPage, "plugin-prompt-dismiss")
-	pluginPromptScroll  = tree.ID(shellPage, "plugin-prompt-scroll")
-	// pluginPromptAction.At(i) is the i-th action button.
-	pluginPromptAction = tree.Sub(shellPage, tree.Name("plugin-prompt-action"))
-)
 
 // pluginPrompt is one question to the user.
 type pluginPrompt struct {
@@ -33,6 +20,8 @@ type pluginPrompt struct {
 	// mono shows the text in a fixed-pitch font, for commands and paths.
 	mono    bool
 	actions []string
+	// open is the flag the modal that shows the prompt keeps.
+	open bool
 	// answer receives the chosen index, or nil for a dismissal. It is buffered, so
 	// answering never blocks the window.
 	answer chan *int
@@ -107,47 +96,40 @@ func (w pluginWorkbench) Prompt(ctx context.Context, request pluginservice.Promp
 	return selected, nil
 }
 
-// drawPluginPrompt paints the first waiting prompt.
-func (a *App) drawPluginPrompt(f *ui.Frame) {
+// pluginPromptView declares the first waiting prompt.
+func (a *App) pluginPromptView(c ui.C) {
 	if len(a.prompts.queue) == 0 {
 		return
 	}
 	prompt := a.prompts.queue[0]
-	language := a.language()
-	background := gfx.RGB24(0xF7F8FA)
-	if a.colors.Dark {
-		background = gfx.RGB24(0x242529)
-	}
 	chosen := -1
-	dismissed := sheet.Draw(f, sheet.Options{Width: 520, Height: 320, Background: background,
-		Scope: pluginPromptScope, Dismiss: pluginPromptDismiss, InitialFocus: pluginPromptAction.At(len(prompt.actions) - 1),
-		DismissLabel: i18n.Shared(language, "desktop.pluginHost.messageDismiss")}, func() {
-		f.Column().Fill().Pad(24).Gap(12).Children(func() {
-			f.Text(prompt.title).FontSize(15).Weight(gfx.WeightBold).Color(a.colors.Text).Ellipsis()
-			f.ScrollArea(pluginPromptScroll).Grow(1).FillWidth().Children(func() {
-				text := f.Wrap(prompt.text).FontSize(13).Color(a.colors.Text)
-				if prompt.mono {
-					text.Mono()
-				}
-			})
-			f.Row().FillWidth().Gap(8).Items(ui.Center).Children(func() {
-				f.Spacer()
-				for i, action := range prompt.actions {
-					button := f.Button(pluginPromptAction.At(i), action)
-					if i < len(prompt.actions)-1 {
-						button.Outline()
-					}
-					if button.Clicked() {
-						chosen = i
-					}
-				}
-			})
+	// The modal is named by the prompt's own open flag, so a following prompt
+	// is a new dialog; it is raised again for each paint the prompt is first.
+	prompt.open = true
+	dismissed := ui.ModalWith(c, &prompt.open, prompt.title, ui.ModalSpec{Width: 520, Height: 320}, func() {
+		ui.Scroll(c).Grow(1).FillWidth().Children(func() {
+			text := ui.Wrap(c, prompt.text).FontSize(13)
+			if prompt.mono {
+				text.Mono()
+			}
 		})
+	}, func() {
+		for i, action := range prompt.actions {
+			button := ui.Button(c.KeyInt(i), action)
+			if i < len(prompt.actions)-1 {
+				button.Outline()
+			} else {
+				button.AutoFocus()
+			}
+			if button.Clicked() {
+				chosen = i
+			}
+		}
 	})
 	switch {
 	case chosen >= 0:
-		a.answerPrompt(&chosen)
+		c.After(func() { a.answerPrompt(&chosen) })
 	case dismissed:
-		a.answerPrompt(nil)
+		c.After(func() { a.answerPrompt(nil) })
 	}
 }

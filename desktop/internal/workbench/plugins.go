@@ -15,16 +15,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugininstall"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugintrust"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/sheet"
-	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
-)
-
-var (
-	pluginReviewScope   = tree.ID(shellPage, "plugin-review-scope")
-	pluginReviewDismiss = tree.ID(shellPage, "plugin-review-dismiss")
-	pluginReviewInstall = tree.ID(shellPage, "plugin-review-install")
-	pluginReviewCancel  = tree.ID(shellPage, "plugin-review-cancel")
 )
 
 const (
@@ -294,59 +285,46 @@ func (a *App) reloadPluginLanguages() {
 	})
 }
 
-// drawPluginReview declares the sheet that shows what a package asks for before it
-// is installed.
-func (a *App) drawPluginReview(f *ui.Frame) {
-	if !a.pluginInstall.open {
+// pluginReviewView declares the dialog that shows what a package asks for
+// before it is installed.
+func (a *App) pluginReviewView(c ui.C) {
+	in := &a.pluginInstall
+	if !in.open {
 		return
 	}
 	language := a.language()
-	plan := a.pluginInstall.plan
-	background := gfx.RGB24(0xF7F8FA)
-	if a.colors.Dark {
-		background = gfx.RGB24(0x242529)
-	}
+	plan := in.plan
 	confirmed, cancelled := false, false
-	dismissed := sheet.Draw(f, sheet.Options{Width: 620, Height: 480, Background: background,
-		Scope: pluginReviewScope, Dismiss: pluginReviewDismiss, InitialFocus: pluginReviewInstall,
-		DismissLabel: i18n.Shared(language, "desktop.marketplace.cancel")}, func() {
-		f.Column().Fill().Pad(24).Gap(12).Children(func() {
-			f.Text(i18n.Shared(language, "desktop.marketplace.reviewTitle")).FontSize(18).Weight(gfx.WeightBold).Color(a.colors.Text)
-			f.Text(a.pluginInstall.plugin.Name + " · " + plan.Version).FontSize(12).Color(a.colors.Subtle).Ellipsis()
-			if plan.Decision.Reuse {
-				f.Wrap(i18n.Shared(language, "desktop.marketplace.reviewReused")).FontSize(12).Color(a.colors.Subtle)
-			}
-			f.Text(i18n.Shared(language, "desktop.marketplace.reviewPermissions")).FontSize(13).Weight(gfx.WeightSemibold).Color(a.colors.Text)
-			if len(plan.Review.Permissions) == 0 && len(plan.Review.Programs) == 0 {
-				f.Wrap(i18n.Shared(language, "desktop.marketplace.reviewEmpty")).FontSize(12).Color(a.colors.Subtle)
-			}
-			for _, permission := range plan.Review.Permissions {
-				f.Text(permission).FontSize(12).Color(a.colors.Text).Ellipsis()
-			}
-			if len(plan.Review.Programs) > 0 {
-				f.Text(i18n.Shared(language, "desktop.marketplace.reviewPrograms")).FontSize(13).Weight(gfx.WeightSemibold).Color(a.colors.Text)
-				for _, program := range plan.Review.Programs {
-					f.Wrap(compactProgram(program)).FontSize(11).Mono().Color(a.colors.Subtle)
+	closed := ui.ModalWith(c, &in.open, i18n.Shared(language, "desktop.marketplace.reviewTitle"),
+		ui.ModalSpec{Width: 620, Description: in.plugin.Name + " \u00b7 " + plan.Version}, func() {
+			ui.Column(c).FillWidth().Gap(8).Children(func() {
+				if plan.Decision.Reuse {
+					ui.Wrap(c, i18n.Shared(language, "desktop.marketplace.reviewReused")).FontSize(12).Muted()
 				}
-			}
-			f.Spacer()
-			f.Row().FillWidth().Gap(8).Items(ui.Center).Children(func() {
-				f.Spacer()
-				if f.Button(pluginReviewCancel, i18n.Shared(language, "desktop.marketplace.cancel")).Outline().Clicked() {
-					cancelled = true
+				ui.Text(c, i18n.Shared(language, "desktop.marketplace.reviewPermissions")).FontSize(13).Bold()
+				if len(plan.Review.Permissions) == 0 && len(plan.Review.Programs) == 0 {
+					ui.Wrap(c, i18n.Shared(language, "desktop.marketplace.reviewEmpty")).FontSize(12).Muted()
 				}
-				if f.Button(pluginReviewInstall, i18n.Shared(language, "desktop.marketplace.confirmInstall")).Clicked() {
-					confirmed = true
+				for index, permission := range plan.Review.Permissions {
+					ui.Text(c.KeyInt(index), permission).FontSize(12).Ellipsis()
+				}
+				if len(plan.Review.Programs) > 0 {
+					ui.Text(c, i18n.Shared(language, "desktop.marketplace.reviewPrograms")).FontSize(13).Bold()
+					for index, program := range plan.Review.Programs {
+						ui.Wrap(c.KeyInt(index), compactProgram(program)).FontSize(11).Mono().Muted()
+					}
 				}
 			})
+		}, func() {
+			cancelled = ui.Button(c, i18n.Shared(language, "desktop.marketplace.cancel")).Outline().Clicked()
+			confirmed = ui.Button(c, i18n.Shared(language, "desktop.marketplace.confirmInstall")).AutoFocus().Clicked()
 		})
-	})
-	if confirmed {
-		a.confirmPluginInstall()
-		return
-	}
-	if cancelled || dismissed {
-		a.cancelPluginInstall()
+	switch {
+	case confirmed:
+		c.After(a.confirmPluginInstall)
+	case closed || cancelled:
+		in.open = true
+		c.After(a.cancelPluginInstall)
 	}
 }
 

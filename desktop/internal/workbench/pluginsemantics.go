@@ -14,7 +14,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/gfx"
-	"github.com/vivaui/viva/ui"
 )
 
 // Language semantics for the editor: definition, hover and explicit completion.
@@ -88,12 +87,6 @@ const (
 	// semanticAutoCompletionDelay is the typing pause before automatic
 	// completion asks. Negative lets tests skip the clock wait.
 	semanticAutoCompletionDelay = 120 * time.Millisecond
-)
-
-var (
-	semanticChoices   = tree.Sub(shellPage, tree.Name("semantic-choices"))
-	semanticHoverID   = tree.ID(shellPage, "semantic-hover")
-	semanticHoverText = tree.ID(shellPage, "semantic-hover-text")
 )
 
 // semanticKind is one editor semantic operation.
@@ -441,22 +434,10 @@ func (a *App) pluginSemanticsPointer(event gfx.PointerEvent) (gfx.EventResult, b
 	return gfx.EventResult{}, false
 }
 
-// semanticPopupHit reports whether id belongs to a semantic popup.
+// semanticPopupHit reports whether id belongs to a semantic popup, which the
+// overlay page paints.
 func (a *App) semanticPopupHit(id gfx.ID) bool {
-	if id.IsZero() {
-		return false
-	}
-	for i := 0; i < len(a.semantics.completion.items) && i < visibleSemanticRows; i++ {
-		if id == semanticChoices.At(i) {
-			return true
-		}
-	}
-	for i := 0; i < len(a.semantics.definition.targets) && i < visibleSemanticRows; i++ {
-		if id == semanticChoices.At(i) {
-			return true
-		}
-	}
-	return id == semanticHoverID || id == semanticHoverText
+	return !id.IsZero() && a.overlay.page != nil && a.overlay.page.Owns(id)
 }
 
 // scrollCompletionWindow keeps the selected row inside the virtualised window.
@@ -1393,143 +1374,6 @@ func truncateHover(contents string) string {
 		cut--
 	}
 	return contents[:cut]
-}
-
-// drawPluginSemantics declares the open definition, completion and hover
-// popups. Lists lay out only the visible window, so a large server answer costs
-// a constant number of views.
-func (a *App) drawPluginSemantics(f *ui.Frame) {
-	state := &a.semantics
-	if a.project == nil || state.project != a.project {
-		return
-	}
-	if state.rename.open {
-		a.drawRenameDialog(f)
-		return
-	}
-	if state.definition.open {
-		a.drawDefinitionPopup(f)
-		return
-	}
-	if state.completion.open {
-		a.drawCompletionPopup(f)
-		return
-	}
-	if state.hover.open {
-		a.drawHoverPopup(f)
-	}
-}
-
-func (a *App) drawDefinitionPopup(f *ui.Frame) {
-	state := &a.semantics.definition
-	p, d := a.currentSemanticDocument(state.documentID)
-	if d == nil || p != a.project || d.view.Revision() != state.revision {
-		a.closeSemanticDefinition()
-		return
-	}
-	anchor, ok := d.view.CaretRect()
-	if !ok {
-		a.closeSemanticDefinition()
-		return
-	}
-	first, last := semanticWindow(state.selected, len(state.targets))
-	bounds := f.Bounds()
-	x, y := popupOrigin(anchor.X, anchor.Y+anchor.Height+2, semanticDefinitionWidth, bounds)
-	chosen := -1
-	f.Popup().At(x, y).Width(semanticDefinitionWidth).MaxHeight(float32(visibleSemanticRows)*semanticRowHeight+2*semanticPopupPad).
-		Pad(semanticPopupPad).Background(a.theme.Popover).Border(1, a.theme.Border).
-		Radius(a.theme.Metrics.RadiusPopup()).Shadow(gfx.ShadowMD).
-		HitWith(semanticHoverID, a.definitionPopupTitle(state.references), gfx.HitOptions{Role: gfx.RoleMenu, SkipFocus: true}).
-		Children(func() {
-			f.Column().FillWidth().Gap(1).Children(func() {
-				for i := first; i < last; i++ {
-					target := state.targets[i]
-					label := a.definitionLabel(target)
-					row := f.Row().FillWidth().Height(semanticRowHeight).Items(ui.Center).PadX(8).Gap(8).
-						Radius(a.theme.Metrics.RadiusItem()).
-						HitWith(semanticChoices.At(i), label, gfx.HitOptions{Role: gfx.RoleOption, SkipFocus: true, Cursor: gfx.PointerCursorHand}).
-						Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
-					if i == state.selected {
-						row = row.Background(a.colors.Active)
-					}
-					row.Children(func() {
-						f.Text(label).FontSize(12).Color(a.colors.Text).Ellipsis()
-					})
-					if row.Clicked() {
-						chosen = i
-						return
-					}
-				}
-			})
-		})
-	if chosen >= 0 {
-		a.choosePluginDefinition(chosen)
-	}
-}
-
-func (a *App) drawCompletionPopup(f *ui.Frame) {
-	state := &a.semantics.completion
-	p, d := a.currentSemanticDocument(state.documentID)
-	if d == nil || p != a.project || d.view.Revision() != state.revision {
-		a.closeSemanticCompletion()
-		return
-	}
-	anchor, ok := d.view.CaretRect()
-	if !ok {
-		a.closeSemanticCompletion()
-		return
-	}
-	first, last := semanticWindow(state.selected, len(state.items))
-	bounds := f.Bounds()
-	x, y := popupOrigin(anchor.X, anchor.Y+anchor.Height+2, semanticPopupWidth, bounds)
-	chosen := -1
-	f.Popup().At(x, y).Width(semanticPopupWidth).MaxHeight(float32(visibleSemanticRows)*semanticRowHeight+2*semanticPopupPad).
-		Pad(semanticPopupPad).Background(a.theme.Popover).Border(1, a.theme.Border).
-		Radius(a.theme.Metrics.RadiusPopup()).Shadow(gfx.ShadowMD).
-		HitWith(semanticHoverID, i18n.Shared(a.language(), "desktop.semantics.completion"), gfx.HitOptions{Role: gfx.RoleMenu, SkipFocus: true}).
-		Children(func() {
-			f.Column().FillWidth().Gap(1).Children(func() {
-				for i := first; i < last; i++ {
-					item := state.items[i]
-					row := f.Row().FillWidth().Height(semanticRowHeight).Items(ui.Center).PadX(8).Gap(8).
-						Radius(a.theme.Metrics.RadiusItem()).
-						HitWith(semanticChoices.At(i), item.Label, gfx.HitOptions{Role: gfx.RoleOption, SkipFocus: true, Cursor: gfx.PointerCursorHand}).
-						Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
-					if i == state.selected {
-						row = row.Background(a.colors.Active)
-					}
-					row.Children(func() {
-						f.Text(item.Label).FontSize(12).Color(a.colors.Text).Ellipsis()
-						if item.Detail != "" {
-							f.Text(item.Detail).FontSize(11).Color(a.colors.Subtle).Ellipsis().Grow(1)
-						}
-					})
-					if row.Clicked() {
-						chosen = i
-						return
-					}
-				}
-			})
-		})
-	if chosen >= 0 {
-		a.acceptPluginCompletion(chosen)
-	}
-}
-
-func (a *App) drawHoverPopup(f *ui.Frame) {
-	state := &a.semantics.hover
-	bounds := f.Bounds()
-	width := semanticHoverWidth
-	x, y := popupOrigin(state.anchor.X, state.anchor.Y, width, bounds)
-	f.Popup().At(x, y).Width(width).MaxHeight(semanticHoverMaxHeight).Pad(10).
-		Background(a.theme.Popover).Border(1, a.theme.Border).
-		Radius(a.theme.Metrics.RadiusPopup()).Shadow(gfx.ShadowMD).
-		HitWith(semanticHoverID, i18n.Shared(a.language(), "desktop.semantics.hover"), gfx.HitOptions{Role: gfx.RoleMenu, SkipFocus: true}).
-		Children(func() {
-			f.ScrollArea(semanticHoverText).FillWidth().MaxHeight(semanticHoverMaxHeight - 20).Children(func() {
-				f.Wrap(state.contents).FontSize(12).Mono().Color(a.colors.Text)
-			})
-		})
 }
 
 func (a *App) definitionLabel(target core.PluginSemanticLocation) string {

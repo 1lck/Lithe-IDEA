@@ -31,7 +31,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/documentio"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugindiag"
@@ -272,8 +271,10 @@ type App struct {
 	theme  gfx.Theme
 	colors palette
 
-	// notice is the message of the banner, empty when there is none.
+	// notice is the last message shown as a toast; notify sets it.
 	notice string
+	// overlay hosts the dialogs and the notice painted over the workbench.
+	overlay overlayHost
 	// settingsWindow opens the settings window and keeps at most one open.
 	settingsWindow       *settingswindow.Controller
 	settingsSubscription *settingsSubscription
@@ -545,8 +546,8 @@ func (a *App) systemAppearanceChanged() {
 // Config is the window's configuration.
 func (a *App) Config() app.Config {
 	a.subscribeSettings()
-	a.fields = ui.Fields(&a.welcome.search, &a.clone.source, &a.clone.parent, &a.clone.name, &a.debugAttach.host, &a.debugAttach.port, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField, &a.searchView.query, &a.searchView.mask, &a.everywhereView.query,
-		&a.branch.search, &a.branch.name, &a.branch.revision, &a.navigation.input)
+	a.fields = ui.Fields(&a.welcome.search, &a.debugAttach.host, &a.debugAttach.port, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField, &a.searchView.query, &a.searchView.mask, &a.everywhereView.query,
+		&a.branch.search, &a.branch.name, &a.branch.revision)
 	return app.Config{
 		Title:          a.text.App.Name,
 		Icon:           appicon.Window(),
@@ -576,6 +577,7 @@ func (a *App) Config() app.Config {
 func (a *App) closed() {
 	a.unsubscribeSettings()
 	a.closeClone()
+	a.closeOverlay()
 	a.closeNewProject()
 	a.closeWelcomeBranchReads()
 	a.closeProject()
@@ -660,26 +662,16 @@ func (a *App) paint(canvas *gfx.Canvas, size gfx.Size) {
 		f.PopupLayer(1)
 		if a.project != nil {
 			a.drawWorkbench(f)
-			a.drawPluginSemantics(f)
-			a.drawEverywhere(f, a.project)
-			a.drawNavigation(f, a.project)
 		} else {
 			a.drawWelcome(f)
 		}
-		a.drawCloneDialog(f)
 		a.drawNewProjectDialog(f)
-		a.drawPluginReview(f)
-		a.drawPluginPrompt(f)
 		if a.newProject.restoreFocus {
 			f.Canvas().RequestFocus(a.newProject.returnFocus)
 			a.newProject.restoreFocus = false
 		}
-		if a.clone.restoreFocus {
-			f.Canvas().RequestFocus(a.clone.returnFocus)
-			a.clone.restoreFocus = false
-		}
-		a.drawNotice(f)
 	})
+	a.paintOverlay(canvas, bounds, paintTheme)
 	a.chrome.capture()
 	if a.project != nil {
 		a.agentView.capture(&a.project.agent)
@@ -699,37 +691,14 @@ func (a *App) paint(canvas *gfx.Canvas, size gfx.Size) {
 	a.paintTabDrag(canvas)
 }
 
-// notify shows message in the banner until it is dismissed or replaced.
-func (a *App) notify(message string) { a.notice = message }
-
-// drawNotice is the banner above the bottom right corner of the window.
-func (a *App) drawNotice(f *ui.Frame) {
-	if a.notice == "" {
-		return
-	}
-	bounds := f.Bounds()
-	anchor := gfx.Rect{X: bounds.X, Y: bounds.Y + bounds.Height - 32, Width: bounds.Width - 16, Height: 32}
-	f.Popup().Above(anchor, 8, ui.End).Width(400).Pad(12).Gap(8).Items(ui.Start).
-		Background(a.theme.Popover).Border(1, a.theme.Border).Radius(a.theme.Metrics.RadiusPopup()).Shadow(gfx.ShadowMD).
-		Children(func() {
-			f.Row().Children(func() {
-				f.Icon(icons.CircleAlert).Size(16, 16).Color(a.colors.Warning)
-			})
-			f.Paragraph(a.notice, 4).Grow(1)
-			dismiss := f.Row().Size(20, 20).Center().Radius(a.theme.Metrics.RadiusItem()).
-				Hit(noticeDismiss, a.text.Errors.Dismiss).
-				Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
-			dismiss.Children(func() {
-				f.Icon(icons.X).Size(12, 12).Color(a.colors.Subtle).StateFrom(dismiss).Hover(ui.Look{}.Color(a.colors.Text))
-			})
-			if dismiss.Clicked() {
-				a.notice = ""
-			}
-		})
+// notify shows message in a toast.
+func (a *App) notify(message string) {
+	a.notice = message
+	a.overlay.toaster.Show(message, "", ui.ToastWarning)
 }
 
 func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
-	if result, ok := a.newProjectPointer(event); ok {
+	if result, ok := a.pagePointer(event); ok {
 		return result
 	}
 	// A semantic popup or request belongs to the caret and symbol it was opened
@@ -765,7 +734,7 @@ func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
 }
 
 func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
-	if result, ok := a.newProjectKey(event); ok {
+	if result, ok := a.pageKey(event); ok {
 		return result
 	}
 	// A semantic request belongs to the caret it was placed at. Every key path
@@ -773,16 +742,6 @@ func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
 	defer a.pluginSemanticsCaretSync()
 	if result := a.welcomeMenuKey(event); result.Handled {
 		return result
-	}
-	if a.project != nil && a.navigation.open {
-		if result := a.navigationKey(a.project, event); result.Handled {
-			return result
-		}
-	}
-	if a.project != nil && a.everywhereView.open {
-		if result := a.everywhereKey(a.project, event); result.Handled {
-			return result
-		}
 	}
 	if result := a.pluginSemanticsKey(event); result.Handled {
 		return result
@@ -857,22 +816,8 @@ func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
 // to the terminal that has the keyboard: Control-C and the other chords of the shell arrive
 // here, not in onKey.
 func (a *App) onShortcut(event gfx.KeyEvent) gfx.EventResult {
-	if result, ok := a.newProjectShortcut(event); ok {
+	if result, ok := a.pageShortcut(event); ok {
 		return result
-	}
-	if a.clone.open {
-		if event.Target == cloneSource || event.Target == cloneParent || event.Target == cloneName {
-			return gfx.EventResult{}
-		}
-		return gfx.EventResult{Handled: true}
-	}
-	if a.navigation.open {
-		// Let the field's text system handle copy, paste, and select-all, while
-		// keeping workbench shortcuts from changing the project behind a modal.
-		if event.Target == navigationField {
-			return gfx.EventResult{}
-		}
-		return gfx.EventResult{Handled: true}
 	}
 	if !event.Release {
 		if result := a.pluginSemanticsShortcut(event); result.Handled {

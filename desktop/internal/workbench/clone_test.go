@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -27,7 +28,7 @@ func TestWelcomeClonesRepositoryThroughRealCore(t *testing.T) {
 	h.app.clone.name.SetText("cloned project")
 	h.app.invalidator.Invalidate()
 	h.settle()
-	h.click(center(h.hit(cloneConfirm)))
+	h.clickShared("desktop.clone.submit")
 	destination := filepath.Join(parent, "cloned project")
 	if h.app.clone.open || h.app.project == nil || h.app.project.root != destination {
 		t.Fatalf("clone dialog open = %v, project = %+v", h.app.clone.open, h.app.project)
@@ -64,7 +65,7 @@ func TestCloneDirectoryPickerUsesSelectedDirectory(t *testing.T) {
 	if err := h.driver.QueueOpenDirectory(want, nil); err != nil {
 		t.Fatal(err)
 	}
-	h.click(center(h.hit(cloneChoose)))
+	h.clickShared("desktop.clone.choose")
 	if got := h.app.clone.parent.Text(); got != want {
 		t.Fatalf("selected directory = %q, want %q", got, want)
 	}
@@ -76,8 +77,8 @@ func TestCloneDialogCanBeOpenedAndDismissedByKeyboard(t *testing.T) {
 	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
-	if !h.app.clone.open || h.driver.Snapshot().Focused != cloneSource {
-		t.Fatalf("clone open = %v, focused = %v", h.app.clone.open, h.driver.Snapshot().Focused)
+	if !h.app.clone.open || h.focusedName() != i18n.Shared(h.app.language(), "desktop.clone.source") {
+		t.Fatalf("clone open = %v, focused = %q", h.app.clone.open, h.focusedName())
 	}
 	if err := h.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)

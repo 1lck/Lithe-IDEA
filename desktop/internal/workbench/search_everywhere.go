@@ -3,29 +3,22 @@ package workbench
 import (
 	"context"
 	"errors"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
+// The dialog is named by the application so the query field can take the
+// keyboard when it opens and the host can tell when a key is typed in it.
 var (
+	everywhereScope     = tree.ID(shellPage, "everywhere-scope")
 	everywhereQueryID   = tree.ID(shellPage, "everywhere-query")
 	everywhereDismissID = tree.ID(shellPage, "everywhere-dismiss")
 	everywhereCloseID   = tree.ID(shellPage, "everywhere-close")
-	everywhereClearID   = tree.ID(shellPage, "everywhere-clear")
-	everywhereMoreID    = tree.ID(shellPage, "everywhere-more")
-	everywhereListID    = tree.ID(shellPage, "everywhere-list")
-	everywhereTabs      = tree.Sub(shellPage, tree.Name("everywhere-tab"))
-	everywhereRows      = tree.Sub(shellPage, tree.Name("everywhere-result"))
 )
 
 const (
@@ -40,6 +33,7 @@ type everywhereView struct {
 	query       ui.Field
 	open, focus bool
 	scope       int
+	list        ui.ListState
 	// Tests can request zero delay without changing production timing.
 	delay time.Duration
 }
@@ -107,14 +101,14 @@ func (a *App) closeEverywhere(p *project) {
 }
 
 func (a *App) updateEverywhere(p *project, query string, scope int) {
-	s := &p.everywhere
+	v, s := &a.everywhereView, &p.everywhere
 	if s.query == query && s.scope == scope {
 		return
 	}
 	s.query, s.scope = query, scope
 	s.generation++
 	s.matches, s.cursor, s.failed, s.selected = nil, nil, false, 0
-	a.view.ScrollState(everywhereListID).ScrollTo(0)
+	v.list.ScrollTo(0, ui.ListStart)
 	if s.cancel != nil {
 		s.cancel()
 	}
@@ -325,213 +319,4 @@ func (a *App) finishEverywhere(p *project, generation uint64, next bool, page co
 		s.matches = s.matches[:everywhereMaxResults]
 	}
 	s.cursor = page.NextCursor
-}
-
-func (a *App) drawEverywhere(f *ui.Frame, p *project) {
-	v, s := &a.everywhereView, &p.everywhere
-	if !v.open {
-		return
-	}
-	a.updateEverywhere(p, v.query.Text(), v.scope)
-	if v.focus {
-		f.Canvas().RequestFocus(everywhereQueryID)
-		v.focus = false
-	}
-	if f.Popup().At(0, 0).Fill().HitWith(everywhereDismissID, a.text.Errors.Dismiss, gfx.HitOptions{Role: gfx.RoleButton, SkipFocus: true, Backdrop: true}).Clicked() {
-		a.closeEverywhere(p)
-		return
-	}
-	bounds := f.Bounds()
-	width := min(float32(670), max(0, bounds.Width-32))
-	height := float32(84)
-	if strings.TrimSpace(v.query.Text()) != "" {
-		height = min(684, max(84, bounds.Height-100))
-	}
-	background, border := gfx.RGB24(0xF7F8F9), gfx.RGB24(0xDDDFE4)
-	if a.colors.Dark {
-		background, border = gfx.RGB24(0x26282C), gfx.RGB24(0x33353B)
-	}
-	f.Popup().At((bounds.Width-width)/2, 84).Width(width).Height(height).
-		Background(background).Border(1, border).Radius(a.theme.Metrics.RadiusPopup()).Shadow(gfx.ShadowMD).Children(func() {
-		f.Row().FillWidth().Height(40).Items(ui.Center).PadX(8).Gap(4).Children(func() {
-			labels := [...]string{
-				i18n.Shared(a.language(), "desktop.everywhere.all"),
-				i18n.Shared(a.language(), "desktop.everywhere.classes"),
-				i18n.Shared(a.language(), "desktop.everywhere.files"),
-				i18n.Shared(a.language(), "desktop.everywhere.symbols"),
-				i18n.Shared(a.language(), "desktop.everywhere.actions"),
-				i18n.Shared(a.language(), "desktop.everywhere.text"),
-			}
-			for index, label := range labels {
-				disabled := index == 1 || index == 3 || index == 4
-				tab := f.Row().Height(30).PadX(8).Center().Radius(a.theme.Metrics.RadiusItem()).
-					HitWith(everywhereTabs.At(index), label, gfx.HitOptions{Role: gfx.RoleButton, Disabled: disabled, Cursor: gfx.PointerCursorHand})
-				if index == v.scope {
-					tab = tab.Background(a.colors.Active)
-				} else if !disabled {
-					tab = tab.Hover(ui.Look{}.Background(a.colors.Hover))
-				}
-				color := a.colors.Text
-				if disabled {
-					color = a.colors.Subtle
-				}
-				tab.Children(func() { f.Text(label).FontSize(13).Color(color) })
-				if !disabled && tab.Clicked() {
-					a.performed("workspace.searchEverywhere.scope", surfaceButton)
-					v.scope = index
-					a.focusEverywhere(p)
-					f.Canvas().RequestFrame()
-				}
-			}
-			f.Row().Grow(1)
-			closeButton := f.Row().Size(24, 24).Center().Radius(a.theme.Metrics.RadiusItem()).
-				HitWith(everywhereCloseID, a.text.Errors.Dismiss, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}).Hover(ui.Look{}.Background(a.colors.Hover))
-			closeButton.Children(func() { f.Icon(icons.X).Size(15, 15).Color(a.colors.Subtle) })
-			if closeButton.Clicked() {
-				a.closeEverywhere(p)
-			}
-		})
-		f.Row().FillWidth().Height(1).Background(a.colors.Line)
-		f.Row().FillWidth().PadSides(5, 8, 5, 8).Children(func() {
-			var input ui.Box
-			frame := f.Row().FillWidth().Height(30).Items(ui.Center).PadX(8).Gap(7).
-				Border(1, a.theme.Input).Radius(a.theme.Metrics.RadiusControl).Focused(ui.Look{}.Border(a.theme.Primary).Ring(1, a.theme.Primary))
-			frame.Children(func() {
-				f.Icon(icons.Search).Size(15, 15).Color(a.colors.Subtle)
-				input = f.FieldBase(&v.query, everywhereQueryID, i18n.Shared(a.language(), "desktop.everywhere.title"), "").Grow(1).MinWidth(0).Height(28).FontSize(13).Color(a.colors.Text)
-				if v.query.Text() != "" && a.drawSearchClear(f, everywhereClearID) {
-					v.query.SetText("")
-					a.focusEverywhere(p)
-					f.Canvas().RequestFrame()
-				}
-			})
-			frame.StateFrom(input)
-		})
-		if strings.TrimSpace(v.query.Text()) == "" {
-			return
-		}
-		switch {
-		case s.loading && len(s.matches) == 0:
-			f.Text(i18n.Shared(a.language(), "quickOpen.searching")).Pad(12).Color(a.colors.Subtle)
-		case s.failed && len(s.matches) == 0:
-			f.Text(i18n.Shared(a.language(), "search.failed")).Pad(12).Color(a.theme.Danger)
-		case len(s.matches) == 0:
-			f.Text(i18n.Shared(a.language(), "native.noMatches")).Pad(12).Color(a.colors.Subtle)
-		default:
-			a.drawEverywhereResults(f, p)
-		}
-	})
-}
-
-func (a *App) drawEverywhereResults(f *ui.Frame, p *project) {
-	s := &p.everywhere
-	rowHeight := everywhereFileHeight
-	if s.scope == 5 {
-		rowHeight = everywhereTextHeight
-	}
-	scroll := a.view.ScrollState(everywhereListID)
-	height := scroll.Viewport
-	if height <= 0 {
-		height = 500
-	}
-	first := max(0, int(scroll.Offset/float32(rowHeight))-2)
-	last := min(len(s.matches), int((scroll.Offset+height)/float32(rowHeight))+3)
-	first = min(first, last)
-	f.ScrollArea(everywhereListID).FillWidth().Grow(1).Shrink(1).MinHeight(0).PadX(8).Children(func() {
-		if first > 0 {
-			f.Row().Height(float32(first * rowHeight)).Shrink(0)
-		}
-		for i := first; i < last; i++ {
-			result := s.matches[i]
-			label := result.Path
-			if result.Line != nil {
-				label += ":" + strconv.Itoa(*result.Line)
-			}
-			row := f.Row().FillWidth().Height(float32(rowHeight)).Items(ui.Center).PadX(10).Gap(8).Radius(a.theme.Metrics.RadiusItem()).
-				HitWith(everywhereRows.At(i), label, gfx.HitOptions{Role: gfx.RoleButton, Value: result.Preview, Cursor: gfx.PointerCursorHand})
-			if i == s.selected {
-				row = row.Background(a.colors.Selection)
-			} else {
-				row = row.Hover(ui.Look{}.Background(a.colors.Hover))
-			}
-			row.Children(func() {
-				name := filepath.Base(filepath.FromSlash(result.Path))
-				f.Icon(fileicons.ForFile(name, a.colors.Dark)).Size(16, 16).Color(a.colors.Subtle)
-				if result.Kind == "content" {
-					f.Column().Grow(1).Shrink(1).MinWidth(0).Children(func() {
-						f.Text(result.Preview).Mono().FontSize(12).Color(a.colors.Text).Ellipsis()
-						f.Text(label).FontSize(11).Color(a.colors.Subtle).Ellipsis()
-					})
-				} else {
-					f.Text(name).Grow(1).Shrink(1).MinWidth(0).FontSize(13).Color(a.colors.Text).Ellipsis()
-					f.Text(result.Path).FontSize(12).Color(a.colors.Subtle).Ellipsis()
-				}
-			})
-			if row.Clicked() {
-				a.performed("workspace.searchEverywhere.openResult", surfaceButton)
-				a.closeEverywhere(p)
-				a.openSearchResult(p, result)
-			}
-		}
-		if rest := len(s.matches) - last; rest > 0 {
-			f.Row().Height(float32(rest * rowHeight)).Shrink(0)
-		}
-		if s.failed {
-			f.Text(i18n.Shared(a.language(), "search.failed")).Pad(8).Color(a.theme.Danger)
-		}
-		if s.cursor != nil && len(s.matches) >= everywhereMaxResults {
-			f.Paragraph(i18n.Shared(a.language(), "desktop.everywhere.limit"), 2).Pad(8).Color(a.colors.Subtle)
-		} else if s.cursor != nil {
-			if f.Button(everywhereMoreID, i18n.Shared(a.language(), "desktop.everywhere.more")).Outline().Disabled(s.loading).Clicked() {
-				a.performed("workspace.searchEverywhere.more", surfaceButton)
-				a.runEverywhere(p, true)
-			}
-		}
-	})
-}
-
-func (a *App) everywhereKey(p *project, event gfx.KeyEvent) gfx.EventResult {
-	if event.Release || event.Modifiers != 0 {
-		return gfx.EventResult{}
-	}
-	if event.Target == everywhereQueryID {
-		input := a.fields(app.TextInputContext{ID: everywhereQueryID})
-		if input != nil && input.Editor != nil {
-			if _, composing := input.Editor.Composition(); composing {
-				return gfx.EventResult{}
-			}
-		}
-	}
-	s := &p.everywhere
-	switch event.Key {
-	case gfx.KeyEscape:
-		a.closeEverywhere(p)
-		return gfx.EventResult{Handled: true, Repaint: true}
-	case gfx.KeyUp:
-		s.selected = max(0, s.selected-1)
-	case gfx.KeyDown:
-		s.selected = min(max(0, len(s.matches)-1), s.selected+1)
-	case gfx.KeyEnter:
-		if s.selected >= 0 && s.selected < len(s.matches) {
-			result := s.matches[s.selected]
-			a.performed("workspace.searchEverywhere.openResult", surfaceShortcut)
-			a.closeEverywhere(p)
-			a.openSearchResult(p, result)
-		}
-		return gfx.EventResult{Handled: true, Repaint: true}
-	default:
-		return gfx.EventResult{}
-	}
-	scroll := a.view.ScrollState(everywhereListID)
-	rowHeight := everywhereFileHeight
-	if s.scope == 5 {
-		rowHeight = everywhereTextHeight
-	}
-	top, bottom := float32(s.selected*rowHeight), float32((s.selected+1)*rowHeight)
-	if top < scroll.Offset {
-		scroll.ScrollTo(top)
-	} else if bottom > scroll.Offset+scroll.Viewport {
-		scroll.ScrollTo(bottom - scroll.Viewport)
-	}
-	return gfx.EventResult{Handled: true, Repaint: true}
 }

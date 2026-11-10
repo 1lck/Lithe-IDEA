@@ -40,14 +40,11 @@ func TestEverywhereFindsPagesAndOpensSelectedFile(t *testing.T) {
 	if p.everywhere.cursor == nil {
 		t.Fatal("first page did not offer a continuation")
 	}
-	area := center(h.hit(everywhereRows.At(0)))
+	area := center(h.pageHit("file-00.txt").Bounds)
 	if err := h.driver.Scroll(gfx.ScrollEvent{X: area.X, Y: area.Y, DeltaY: 20000, Precise: true}); err != nil {
 		t.Fatal(err)
 	}
-	at = center(h.hit(everywhereMoreID))
-	if err := h.driver.Click(at.X, at.Y); err != nil {
-		t.Fatal(err)
-	}
+	h.clickShared("desktop.everywhere.more")
 	awaitDocumentState(t, h, func() bool { return !p.everywhere.loading && len(p.everywhere.matches) == 60 })
 	if p.everywhere.cursor != nil {
 		t.Fatal("last page unexpectedly has a continuation")
@@ -85,7 +82,7 @@ func TestEverywhereTextScopeFindsContentAndClosesWithEscape(t *testing.T) {
 	}
 	h.open(root)
 	h.click(center(h.button(itemTitleSearch)))
-	h.click(center(h.hit(everywhereTabs.At(5))))
+	h.clickShared("desktop.everywhere.text")
 	if err := h.driver.Advance(time.Second / 30); err != nil {
 		t.Fatal(err)
 	}

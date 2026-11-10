@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -200,12 +201,14 @@ func TestNavigationDialogKeepsTabFocusInside(t *testing.T) {
 	h.settle()
 	h.click(center(h.button(itemCaret)))
 	awaitDocumentState(t, h, func() bool { return h.app.navigation.target != nil && h.driver.Snapshot().Focused == navigationField })
-	for _, want := range []gfx.ID{navigationCancel, navigationConfirm, navigationField} {
+	cancel, confirm := h.app.text.Settings.Cancel, h.app.text.Settings.OK
+	label := i18n.Shared(h.app.language(), "desktop.navigation.label")
+	for _, want := range []string{cancel, confirm, label} {
 		if err := h.driver.Key(gfx.KeyTab, 0); err != nil {
 			t.Fatal(err)
 		}
-		if got := h.driver.Snapshot().Focused; got != want {
-			t.Fatalf("focus = %v, want %v", got, want)
+		if got := h.focusedName(); got != want {
+			t.Fatalf("focus = %q, want %q", got, want)
 		}
 	}
 	if err := h.driver.Type("0"); err != nil {
@@ -215,8 +218,8 @@ func TestNavigationDialogKeepsTabFocusInside(t *testing.T) {
 	if err := h.driver.Key(gfx.KeyTab, gfx.ModifierShift); err != nil {
 		t.Fatal(err)
 	}
-	if got := h.driver.Snapshot().Focused; got != navigationCancel {
-		t.Fatalf("reverse focus = %v, want cancel", got)
+	if got := h.focusedName(); got != cancel {
+		t.Fatalf("reverse focus = %q, want cancel", got)
 	}
 }
 
