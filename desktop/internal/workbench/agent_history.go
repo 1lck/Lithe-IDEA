@@ -231,6 +231,7 @@ func (a *App) openAgentHistorySession(p *project, sessionID string) {
 	h.replaySession = ""
 	h.replayMessages = nil
 	h.replayBytes = 0
+	p.agent.activity.tools = nil
 	h.open = false
 	h.listErr = ""
 	p.agent.err = ""
@@ -258,6 +259,8 @@ func (a *App) applyAgentSessionLoaded(p *project, token, sessionID string, confi
 	p.agent.permission = nil
 	p.agent.messages = h.replayMessages
 	p.agent.bytes = h.replayBytes
+	p.agent.steer.drop()
+	p.agent.files = nil
 	h.replayMessages = nil
 	h.replayBytes = 0
 	if n := len(p.agent.messages); n > 0 {
@@ -279,6 +282,9 @@ func (a *App) agentSessionCreated(p *project, sessionID string, configOptions js
 	p.agent.history.replayBytes = 0
 	p.agent.messages = nil
 	p.agent.bytes = 0
+	p.agent.activity.tools = nil
+	p.agent.activity.forget(sessionID)
+	p.agent.steer.drop()
 	p.agent.permission = nil
 	p.agent.phase = agentPhaseReady
 	p.agent.err = ""

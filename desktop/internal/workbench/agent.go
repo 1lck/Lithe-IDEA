@@ -84,6 +84,14 @@ type agentMessage struct {
 	Role      agentRole
 	Text      string
 	Streaming bool
+	// Tool is the tool row of a tool message; Expanded opens a reasoning row.
+	Tool     *agentToolCall
+	Expanded bool
+	// Files are the references the user attached; Delivery is the state of
+	// supplementary input sent while the turn ran (see agent_steer.go).
+	Files         []agentFileRef
+	Delivery      agentDelivery
+	DeliveryToken string
 }
 
 type agentRole uint8
@@ -91,6 +99,8 @@ type agentRole uint8
 const (
 	agentRoleUser agentRole = iota
 	agentRoleAssistant
+	agentRoleTool
+	agentRoleThought
 )
 
 type agentPermissionOption struct {
@@ -168,6 +178,13 @@ type agentState struct {
 	history agentHistoryState
 	config  agentSessionConfig
 	auth    agentAuthState
+	// activity is everything the Agent reports besides reply text (agent_activity.go);
+	// steer, files and slash are the composer's input state (agent_steer.go,
+	// agent_files.go, agent_slash.go).
+	activity agentActivityState
+	steer    agentSteerState
+	files    []agentFileRef
+	slash    agentSlashState
 
 	// editor is the composer's text, input the Field that shows it in the panel. The
 	// panel keeps the editor so Core-facing code reads the committed draft without the
@@ -315,17 +332,25 @@ func (a *App) startAgent(p *project) {
 	}
 	agent, _ := p.selectedAgent()
 	provider, _ := p.selectedProvider()
-	launch, err := json.Marshal(map[string]any{
+	request := map[string]any{
 		"agentId":       agent.ID,
 		"cwd":           p.root,
 		"dataDirectory": a.store.Dir(),
+		// The panel presents subagents and model-call statistics, so it asks Core
+		// to observe them (launch JSON in the Core contract).
+		"observeSubagents":  true,
+		"observeModelCalls": true,
 		"provider": map[string]any{
 			"protocol": provider.Protocol,
 			"baseUrl":  provider.Endpoint,
 			"apiKey":   provider.APIKey,
 			"model":    provider.Model,
 		},
-	})
+	}
+	if limits := a.agentLaunchLimits(agent.ID); limits != nil {
+		request["contextLimits"] = limits
+	}
+	launch, err := json.Marshal(request)
 	if err != nil {
 		p.agent.err = a.text.Agent.ErrorConnection
 		p.agent.phase = agentPhaseFailed
@@ -555,6 +580,9 @@ func (a *App) dropAgentConnection(p *project, conn *agentConnection) {
 	p.agent.auth = agentAuthNone
 	p.agent.history = newAgentHistoryState()
 	p.agent.config = newAgentSessionConfig()
+	p.agent.activity = agentActivityState{}
+	p.agent.steer.drop()
+	p.agent.slash = agentSlashState{}
 	conn.cancel()
 	a.closeAgentSession(conn.session)
 }
@@ -624,6 +652,13 @@ func (a *App) applyAgentEvent(p *project, conn *agentConnection, raw json.RawMes
 		CanListSessions bool                  `json:"canListSessions"`
 		CanLoadSessions bool                  `json:"canLoadSessions"`
 		Sessions        []agentSessionSummary `json:"sessions"`
+		CanSteer        bool                  `json:"canSteer"`
+		Usage           json.RawMessage       `json:"usage"`
+		Statistics      json.RawMessage       `json:"statistics"`
+		Snapshot        json.RawMessage       `json:"snapshot"`
+		Code            string                `json:"code"`
+		Outcome         string                `json:"outcome"`
+		Quiet           bool                  `json:"quiet"`
 	}
 	if err := json.Unmarshal(raw, &event); err != nil {
 		p.agent.err = a.text.Agent.ErrorConnection
@@ -635,6 +670,7 @@ func (a *App) applyAgentEvent(p *project, conn *agentConnection, raw json.RawMes
 		a.clearAgentAuthentication(p)
 		p.agent.history.canList = event.CanListSessions
 		p.agent.history.canLoad = event.CanLoadSessions
+		p.agent.activity.canSteer = event.CanSteer
 		p.agent.phase = agentPhaseReady
 		p.agent.connecting = false
 		if p.agent.sessionID == "" && p.agent.pending == "" && !p.agent.history.restoring() {
@@ -673,6 +709,31 @@ func (a *App) applyAgentEvent(p *project, conn *agentConnection, raw json.RawMes
 		p.agent.connecting = false
 		p.agent.permission = nil
 		p.agent.phase = agentPhaseReady
+		a.applyAgentTurnFinished(p, event.SessionID, event.Usage)
+		a.agentTurnEnded(p, conn)
+		if p.agent.activity.quotaSeen {
+			a.refreshAgentQuota(p)
+		}
+	case "modelCall":
+		a.applyAgentModelCall(p, event.SessionID, event.Statistics)
+	case "turnActivity":
+		if s := p.agent.activity.current(agentActivityID(p, event.SessionID)); s != nil {
+			s.quiet = event.Quiet
+		}
+	case "turnRetrying":
+		if id := agentActivityID(p, event.SessionID); id != "" {
+			p.agent.activity.session(id).retrying = true
+		}
+	case "quota":
+		a.applyAgentQuota(p, event.Snapshot, "")
+	case "quotaFailed":
+		failure := event.Code
+		if failure == "" {
+			failure = "unknown"
+		}
+		a.applyAgentQuota(p, nil, failure)
+	case "steeringResult":
+		a.applyAgentSteeringResult(p, conn, event.Token, event.SessionID, event.Outcome, event.Message)
 	case "requestFailed":
 		a.agentRequestFailed(p, event.Token, event.SessionID, event.Message)
 	case "stopped":
@@ -713,6 +774,21 @@ func (a *App) newAgentSession(p *project, conn *agentConnection) {
 // update is accepted only for the conversation being restored (or its replay
 // tail) and never turns a restored conversation busy.
 func (a *App) applyAgentUpdate(p *project, sessionID string, raw json.RawMessage) {
+	var update agentUpdateWire
+	if err := json.Unmarshal(raw, &update); err != nil {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("agent_update", err))
+		return
+	}
+	// Session-level updates (plan, usage, commands, subagent lifecycle) are not
+	// transcript rows and are accepted by their own scope rules.
+	if a.applyAgentSessionUpdate(p, sessionID, update) {
+		return
+	}
+	// A child session's output belongs to its subagent, never to the root transcript.
+	if sub := p.agent.subagent(sessionID); sub != nil {
+		a.applyAgentSubagentUpdate(sub, update)
+		return
+	}
 	h := &p.agent.history
 	live := p.agent.phase == agentPhaseBusy || p.agent.phase == agentPhaseCancelling
 	restoring := h.restoreSession != "" && (sessionID == "" || sessionID == h.restoreSession)
@@ -723,19 +799,12 @@ func (a *App) applyAgentUpdate(p *project, sessionID string, raw json.RawMessage
 	if live && sessionID != "" && p.agent.sessionID != "" && sessionID != p.agent.sessionID {
 		return
 	}
-	var update struct {
-		SessionUpdate string `json:"sessionUpdate"`
-		Content       struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-	}
-	if err := json.Unmarshal(raw, &update); err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("agent_update", err))
-		return
-	}
-	if update.Content.Type != "text" || update.Content.Text == "" {
-		return
+	if live {
+		if id := agentActivityID(p, sessionID); id != "" {
+			if s := p.agent.activity.current(id); s != nil {
+				s.retrying = false
+			}
+		}
 	}
 	// A load's replay is staged until sessionLoaded; the open conversation stays
 	// untouched if Core rejects the load.
@@ -747,15 +816,28 @@ func (a *App) applyAgentUpdate(p *project, sessionID string, raw json.RawMessage
 	case "user_message_chunk":
 		// A live prompt is already in the transcript; only replay supplies user
 		// rows here, so a duplicated live echo is ignored.
-		if live {
+		text := agentTextContent(update.Content)
+		if live || text == "" {
 			return
 		}
-		appendAgentUserText(messages, bytes, update.Content.Text)
+		appendAgentUserText(messages, bytes, text)
 	case "agent_message_chunk":
-		appendAgentAssistantText(messages, bytes, update.Content.Text)
+		text := agentTextContent(update.Content)
+		if text == "" {
+			return
+		}
+		appendAgentAssistantText(messages, bytes, text)
 		if live {
 			p.agent.phase = agentPhaseBusy
 		}
+	case "agent_thought_chunk":
+		text := agentTextContent(update.Content)
+		if text == "" {
+			return
+		}
+		appendAgentThought(messages, bytes, text)
+	case "tool_call", "tool_call_update":
+		a.applyAgentToolCall(p, update, messages, bytes)
 	default:
 		return
 	}
@@ -879,7 +961,7 @@ func (a *App) agentCanSend(p *project) bool {
 		p.agent.permission != nil || p.agent.phase == agentPhaseBusy || p.agent.phase == agentPhaseCancelling {
 		return false
 	}
-	return strings.TrimSpace(p.agent.editor.CommittedString()) != ""
+	return strings.TrimSpace(p.agent.editor.CommittedString()) != "" || len(p.agent.files) > 0
 }
 
 func (a *App) sendAgentPrompt(p *project) {
@@ -887,7 +969,12 @@ func (a *App) sendAgentPrompt(p *project) {
 		return
 	}
 	value := strings.TrimSpace(p.agent.editor.CommittedString())
-	command, err := json.Marshal(map[string]any{"kind": "prompt", "sessionId": p.agent.sessionID, "text": value})
+	files := append([]agentFileRef(nil), p.agent.files...)
+	request := map[string]any{"kind": "prompt", "sessionId": p.agent.sessionID, "text": value}
+	if wire := agentFileWire(files); wire != nil {
+		request["files"] = wire
+	}
+	command, err := json.Marshal(request)
 	if err != nil {
 		p.agent.err = a.text.Agent.ErrorSend
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("agent_prompt_encode", err))
@@ -899,9 +986,10 @@ func (a *App) sendAgentPrompt(p *project) {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("agent_prompt", err))
 		return
 	}
-	p.agent.messages = append(p.agent.messages, agentMessage{Role: agentRoleUser, Text: value})
+	p.agent.messages = append(p.agent.messages, agentMessage{Role: agentRoleUser, Text: value, Files: files})
 	p.agent.bytes += len(value)
 	p.agent.resetComposer()
+	p.agent.files = nil
 	p.agent.phase = agentPhaseBusy
 	p.agent.err = ""
 	p.agent.permission = nil
@@ -929,6 +1017,7 @@ func (a *App) cancelAgentTurn(p *project) {
 	}
 	p.agent.phase = agentPhaseCancelling
 	p.agent.permission = nil
+	p.agent.steer.queued = nil
 	a.performed("agent.cancel", surfaceButton)
 }
 
@@ -942,7 +1031,7 @@ func (a *App) trimAgentTranscript(p *project) {
 // shared by the live transcript and the load replay buffer.
 func trimAgentMessages(messages *[]agentMessage, bytes *int) {
 	for len(*messages) > agentMessageLimit || (*bytes > agentMessageBytesLimit && len(*messages) > 1) {
-		*bytes -= len((*messages)[0].Text)
+		*bytes -= agentMessageSize((*messages)[0])
 		*messages = (*messages)[1:]
 	}
 }
@@ -1008,4 +1097,13 @@ func (a *App) agentStatusText(p *project) string {
 		return t.StatusFailed
 	}
 	return t.StatusReady
+}
+
+// agentMessageSize is what a row counts against the transcript's byte bound.
+func agentMessageSize(m agentMessage) int {
+	size := len(m.Text)
+	if m.Tool != nil {
+		size += len(m.Tool.Title) + len(m.Tool.Output)
+	}
+	return size
 }

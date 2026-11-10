@@ -9250,6 +9250,280 @@
       ]
     },
     {
+      "id": "desktop.agent.activity.collapse",
+      "description": "Agent panel: collapse an activity row",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.activity.commandHint",
+      "description": "Agent panel: slash command argument hint",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "hint": "string"
+      }
+    },
+    {
+      "id": "desktop.agent.activity.context",
+      "description": "Agent panel: context window usage",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "used": "string",
+        "size": "string",
+        "percent": "string"
+      }
+    },
+    {
+      "id": "desktop.agent.activity.expand",
+      "description": "Agent panel: expand a collapsed activity row",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.activity.plan",
+      "description": "Agent panel: plan strip title",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "done": "string",
+        "total": "string"
+      }
+    },
+    {
+      "id": "desktop.agent.activity.planCurrent",
+      "description": "Agent panel: plan strip current step",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "step": "string"
+      }
+    },
+    {
+      "id": "desktop.agent.activity.planStatus.completed",
+      "description": "Agent panel: plan entry status",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.activity.planStatus.inProgress",
+      "description": "Agent panel: plan entry status",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.activity.planStatus.pending",
+      "description": "Agent panel: plan entry status",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.activity.quiet",
+      "description": "Agent panel: advisory: no progress",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.activity.quota",
+      "description": "Agent panel: quota window",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "percent": "string"
+      }
+    },
+    {
+      "id": "desktop.agent.activity.quotaFailed",
+      "description": "Agent panel: quota unavailable",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "code": "string"
+      }
+    },
+    {
+      "id": "desktop.agent.activity.quotaRefresh",
+      "description": "Agent panel: refresh quota",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.activity.quotaReset",
+      "description": "Agent panel: quota reset time",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "time": "string"
+      }
+    },
+    {
+      "id": "desktop.agent.activity.retrying",
+      "description": "Agent panel: turn retry notice",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.activity.statistics",
+      "description": "Agent panel: model-call statistics summary",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "steps": "string",
+        "input": "string",
+        "cacheRead": "string",
+        "output": "string"
+      }
+    },
+    {
+      "id": "desktop.agent.activity.statisticsFailed",
+      "description": "Agent panel: failed steps",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "failed": "string"
+      }
+    },
+    {
+      "id": "desktop.agent.activity.statisticsLatency",
+      "description": "Agent panel: model-call latency",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "first": "string",
+        "speed": "string"
+      }
+    },
+    {
+      "id": "desktop.agent.activity.statisticsLowerBound",
+      "description": "Agent panel: token sums are a lower bound",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.activity.subagentState.cancelled",
+      "description": "Agent panel: subagent state",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.activity.subagentState.completed",
+      "description": "Agent panel: subagent state",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.activity.subagentState.disconnected",
+      "description": "Agent panel: subagent state",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.activity.subagentState.failed",
+      "description": "Agent panel: subagent state",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.activity.subagentState.running",
+      "description": "Agent panel: subagent state",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.activity.subagentTask",
+      "description": "Agent panel: subagent task",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "task": "string"
+      }
+    },
+    {
+      "id": "desktop.agent.activity.subagents",
+      "description": "Agent panel: subagents strip title",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.agent.activity.thought",
+      "description": "Agent panel: reasoning row title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.activity.toolStatus.completed",
+      "description": "Agent panel: tool call status",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.activity.toolStatus.failed",
+      "description": "Agent panel: tool call status",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.activity.toolStatus.inProgress",
+      "description": "Agent panel: tool call status",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.activity.toolStatus.pending",
+      "description": "Agent panel: tool call status",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.activity.turnUsage",
+      "description": "Agent panel: last turn token usage",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "total": "string",
+        "input": "string",
+        "output": "string"
+      }
+    },
+    {
       "id": "desktop.agent.auth.required",
       "description": "Agent panel: the Agent requires its own CLI sign-in",
       "platforms": [
@@ -9450,6 +9724,33 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.agent.files.attachCurrent",
+      "description": "Agent panel: attach the active editor file",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.files.attached",
+      "description": "Agent panel: attached file chip label",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.agent.files.remove",
+      "description": "Agent panel: remove an attached file",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
     },
     {
       "id": "desktop.agent.history.current",
@@ -9739,6 +10040,20 @@
       }
     },
     {
+      "id": "desktop.agent.slash.none",
+      "description": "Agent panel: no matching command",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.slash.skills",
+      "description": "Agent panel: skills menu is loading",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.agent.status.checking",
       "description": "Agent panel: status line",
       "platforms": [
@@ -9811,6 +10126,41 @@
     {
       "id": "desktop.agent.status.working",
       "description": "Agent panel: status line",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.steer.failed",
+      "description": "Agent panel: supplementary input was not delivered",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.steer.pending",
+      "description": "Agent panel: supplementary input delivery pending",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.steer.queued",
+      "description": "Agent panel: supplementary input waits for the turn to end",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.steer.received",
+      "description": "Agent panel: supplementary input accepted by the agent",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.steer.send",
+      "description": "Agent panel: send supplementary input to the running turn",
       "platforms": [
         "desktop"
       ]

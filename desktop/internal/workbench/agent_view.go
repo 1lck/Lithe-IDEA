@@ -258,7 +258,10 @@ func (a *App) agentConversation(c ui.C, p *project) {
 		if p.agent.permission != nil {
 			a.agentPermission(c, p)
 		}
+		a.agentActivityStrip(c, p)
 		ui.Column(c).FillWidth().Shrink(0).Gap(6).Pad(8).Children(func() {
+			a.agentSlashMenu(c, p)
+			a.agentFileChips(c, p)
 			a.agentComposer(c, p)
 			ui.Row(c).FillWidth().Shrink(0).Items(ui.Center).Gap(8).Children(func() {
 				ui.Text(c, a.agentStatusText(p)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Grow(1).Ellipsis()
@@ -269,6 +272,11 @@ func (a *App) agentConversation(c ui.C, p *project) {
 					}
 					if ui.Button(c, label).Outline().Disabled(p.agent.phase == agentPhaseCancelling).Clicked() {
 						c.After(func() { a.cancelAgentTurn(p) })
+					}
+					if a.agentCanSteer(p) || (p.agent.activity.canSteer && p.agent.phase == agentPhaseBusy) {
+						if ui.Button(c.Key("steer"), t.Activity.SteerSend).Outline().Disabled(!a.agentCanSteer(p)).Clicked() {
+							c.After(func() { a.steerAgent(p) })
+						}
 					}
 				} else if ui.Button(c, t.Send).Disabled(!a.agentCanSend(p)).Clicked() {
 					c.After(func() { a.sendAgentPrompt(p) })
@@ -300,9 +308,23 @@ func (a *App) agentTranscript(c ui.C, p *project) {
 				role = t.RoleAssistant
 			}
 		}
+		if message.Role == agentRoleTool || message.Role == agentRoleThought {
+			a.agentActivityRow(row.C, p, row.Index, message)
+			return
+		}
 		ui.Column(row.C).FillWidth().Gap(2).PadY(4).Children(func() {
 			ui.Text(row.C, role).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 			ui.Wrap(row.C, message.Text).Color(a.colors.Text)
+			for i, file := range message.Files {
+				ui.Text(row.C.KeyInt(i), a.text.Agent.Activity.AttachedFile(file.Name)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
+			}
+			if label := a.agentDeliveryText(message.Delivery); label != "" {
+				color := a.colors.Subtle
+				if message.Delivery == agentDeliveryFailed {
+					color = a.theme.Danger
+				}
+				ui.Text(row.C.Key("delivery"), label).FontSize(a.theme.Metrics.FontSizeS).Color(color)
+			}
 		})
 	}).Grow(1).Pad(8).Follow(true)
 }

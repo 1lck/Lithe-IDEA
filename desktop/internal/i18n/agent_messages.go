@@ -94,10 +94,13 @@ type AgentMessages struct {
 	ErrorPermission      string
 	ErrorCancel          string
 	ErrorSession         string
+
+	Activity AgentActivityMessages
 }
 
 func agentMessages(language Language) AgentMessages {
 	return AgentMessages{
+		Activity:      agentActivityMessages(language),
 		AgentLabel:    Shared(language, "desktop.agent.setup.agent"),
 		ProviderLabel: Shared(language, "desktop.agent.setup.provider"),
 		Start:         Shared(language, "desktop.agent.setup.start"),
