@@ -212,6 +212,12 @@ func TestDebugLateErrorDoesNotChangeReplacementSession(t *testing.T) {
 	p.debug.session = nil
 }
 
+// debugAdapterExitWait bounds the wait for a real adapter process to start and
+// exit. The adapter is a copy of this test binary, whose startup depends on how
+// busy the machine is, so the bound is as generous as the other tests that wait
+// on that process; the wait itself ends on the event, not on the bound.
+const debugAdapterExitWait = 30 * time.Second
+
 func TestDebugPanelAdapterExitWithoutTerminated(t *testing.T) {
 	h := debugHarness(t)
 	root := t.TempDir()
@@ -221,7 +227,16 @@ func TestDebugPanelAdapterExitWithoutTerminated(t *testing.T) {
 	p := openDebugPanel(t, h, root)
 	h.app.startDebug(p)
 	session := p.debug.session
-	awaitStateWithin(t, h, 5*time.Second, "adapter exit to release session", func() bool { return p.debug.session == nil })
+	awaitStateWithin(t, h, debugAdapterExitWait, "adapter exit to release session", func() bool { return p.debug.session == nil })
+	// The adapter's first output can end the session before the startup goroutine,
+	// which stores the process right after Start returns, has run that line. Its
+	// startupDone is closed when startup finishes, so waiting for it orders the
+	// check after the store instead of racing it.
+	select {
+	case <-session.startupDone:
+	case <-time.After(debugAdapterExitWait):
+		t.Fatal("the debug startup did not finish before the deadline")
+	}
 	if session.process.Load() == nil {
 		t.Fatalf("the adapter never started: %s", p.debug.failure)
 	}
