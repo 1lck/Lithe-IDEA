@@ -24,8 +24,6 @@ const (
 	Trailing = 8
 	// PadY is the room above the first row and below the last.
 	PadY = 4
-	// Radius rounds the corners of a row's highlight.
-	Radius = 4
 )
 
 // Text is the color of a row's name in the native tree.

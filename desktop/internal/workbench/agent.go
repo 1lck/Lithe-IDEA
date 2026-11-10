@@ -603,10 +603,6 @@ func (a *App) closeAgent(p *project) {
 		}
 		p.agent.providers[source] = list
 	}
-	if p.agentPage != nil {
-		p.agentPage.Close()
-		p.agentPage = nil
-	}
 	p.agent = newAgentState()
 }
 

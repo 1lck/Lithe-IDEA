@@ -11,8 +11,7 @@ import (
 // This file declares the AI Assistant tool window as a component: provider selection
 // while no connection is open, then the conversation. The state is the project's
 // (agentState); the actions are in agent.go and agent_history.go. The toolbar, the
-// history panel and the session-setting bar are in agent_toolbar.go, and agent_page.go
-// hosts the component until the workbench window is one Page.
+// history panel and the session-setting bar are in agent_toolbar.go.
 
 // agentPanel declares the AI Assistant tool window's body.
 func (a *App) agentPanel(c ui.C) {

@@ -8,10 +8,6 @@ import (
 )
 
 const (
-	// dragThreshold is how far in pixels the pointer must move with a button held before
-	// the press counts as a drag. Below it the press stays an ordinary click, so a click
-	// that wobbles by a pixel still activates the button.
-	dragThreshold = 4
 	// dragLayer paints the ghost and the drop marks above Draw's content (layer 0) and
 	// above the menus (layer 1).
 	dragLayer uint16 = 2

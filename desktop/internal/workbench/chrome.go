@@ -60,13 +60,9 @@ const (
 	// between the rows.
 	chromeMenuGap   = 8
 	chromeMenuItems = 2
-	// The settings button's dropdown menu lays its rows out with fixed heights that Viva does
-	// not export. The surface has to be as tall as its rows, because a surface that is too
-	// short hides the last of them, so they are repeated here. The project menu uses the
-	// padding and the row height too, for its panel and for its actions.
-	chromeMenuPadding   = 4
-	chromeMenuRow       = 32
-	chromeMenuSeparator = 9
+	// The project menu's padding and the height of its actions.
+	chromeMenuPadding = 4
+	chromeMenuRow     = 32
 
 	// chromeDragDim is the opacity the source of a drag keeps while its ghost follows
 	// the pointer.

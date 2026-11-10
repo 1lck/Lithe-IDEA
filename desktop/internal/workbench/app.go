@@ -240,10 +240,8 @@ type project struct {
 	debug debugState
 	// panels are the pages of the Run, Tests and Debug tool windows.
 	panels runPanels
-	// agent is the project's Agent panel and connection; agentPage is the Page that
-	// hosts the panel while the window is a Frame (see agent_page.go).
-	agent     agentState
-	agentPage *ui.Page
+	// agent is the project's Agent panel and connection.
+	agent agentState
 }
 
 // App is the state of the window.

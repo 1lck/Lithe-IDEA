@@ -35,10 +35,6 @@ const (
 	// of the cross in it.
 	terminalCloseSize = 20
 	terminalCloseIcon = 12
-	// terminalFocusFrames is how many frames a request to give a terminal the keyboard waits
-	// for the terminal to be painted before it is given up. A terminal moved to another
-	// group is painted again within a frame or two, once the layout has settled.
-	terminalFocusFrames = 3
 )
 
 // terminal is one shell of a project: the view that draws it and what the tabs call it.
