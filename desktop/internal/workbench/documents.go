@@ -654,6 +654,7 @@ func (a *App) closeDocument(p *project, id int) {
 		if !a.reduceTerminals(p, p.terms.bench, core.CloseEditor(group, member, emptyPolicy(group), core.SelectAdjacent)) {
 			return
 		}
+		a.semanticTokensDropped(d)
 		d.view.Close()
 		p.docs.list = slices.DeleteFunc(p.docs.list, func(x *document) bool { return x.id == id })
 		a.unwatchDocument(p, d)

@@ -2,6 +2,7 @@ package editorview
 
 import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/rope"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
 	"strings"
 	"unicode/utf8"
 
@@ -122,3 +123,18 @@ func (v *View) ApplyTextChange(change TextChange) bool {
 	v.moved()
 	return true
 }
+
+// SetSemantic lays a language server's semantic tokens, which describe text, over the syntax
+// colors. It is safe to call off the window thread: the tokens are sorted and converted before
+// the highlighter's lock is taken. It reports false, laying nothing, when the view's text is no
+// longer text, so an answer for an edited document never colors the new one.
+func (v *View) SetSemantic(text rope.Rope, legend *syntax.SemanticLegend, tokens []syntax.SemanticToken) bool {
+	return v.hl.SetSemantic(text, legend, tokens)
+}
+
+// ClearSemantic drops the semantic colors, as when the language server stops.
+func (v *View) ClearSemantic() { v.hl.ClearSemantic() }
+
+// SyntaxLine appends the tokens of line, lexical and semantic, to dst. It is for tests and
+// diagnostics: painting reads the same tokens through the highlighter directly.
+func (v *View) SyntaxLine(dst []syntax.Token, line int) []syntax.Token { return v.hl.Line(dst, line) }

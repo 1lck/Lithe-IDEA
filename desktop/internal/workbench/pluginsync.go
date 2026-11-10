@@ -297,6 +297,7 @@ func (a *App) releasePluginDocuments(pluginID string) {
 		return
 	}
 	a.pluginSemanticsReset()
+	a.semanticTokensReleased(pluginID)
 	for _, d := range a.project.docs.list {
 		if d.sync.pluginID == pluginID {
 			d.sync.reset()
@@ -311,6 +312,7 @@ func (a *App) releaseAllPluginDocuments() {
 		return
 	}
 	a.pluginSemanticsReset()
+	a.semanticTokensReleased("")
 	for _, d := range a.project.docs.list {
 		d.sync.reset()
 	}

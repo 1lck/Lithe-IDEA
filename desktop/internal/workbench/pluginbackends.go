@@ -250,6 +250,8 @@ func (a *App) servePluginServer(server *pluginServer, ctx context.Context) {
 				}
 			case pluginFeaturesChanged:
 				a.post(func(a *App) { a.applyServerFeatures(server, event) })
+			case pluginSemanticTokensRefresh:
+				a.post(func(a *App) { a.semanticTokensRefresh(server) })
 			case pluginSemanticCompleted:
 				// The answer is handed to the window thread with the session it
 				// belongs to, so a retired server cannot reopen a popup.

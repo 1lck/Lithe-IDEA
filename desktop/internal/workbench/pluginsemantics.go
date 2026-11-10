@@ -634,6 +634,8 @@ func (a *App) applyServerFeatures(server *pluginServer, event core.BackendEvent)
 	if event.CompletionOptions != nil {
 		server.completionTriggers = event.CompletionOptions.TriggerCharacters
 	}
+	// The features arrive after the documents opened: ask for the colors now.
+	a.semanticTokensResume()
 }
 
 // scheduleAutoCompletion starts the debounce for one typed character. Each new
@@ -1137,6 +1139,7 @@ func (a *App) deferSemantic(p *project, d *document, run func(*App)) {
 func (a *App) resumeDeferredSemantics() {
 	// The outline waits for the synchronization too, and asks again on the next frame.
 	a.invalidator.Invalidate()
+	a.semanticTokensResume()
 	run := a.semantics.deferred
 	if run == nil {
 		return
@@ -1243,6 +1246,9 @@ func (a *App) pluginSemanticsScrolled(_ *document) {
 // pluginSemanticsEdited closes popups and requests when one document's text
 // changes. The request's original positions no longer describe the document.
 func (a *App) pluginSemanticsEdited(d *document) {
+	if p := a.project; p != nil && d != nil {
+		a.semanticTokensEdited(p, d)
+	}
 	if d == nil || a.semantics.documentID != d.id {
 		return
 	}
