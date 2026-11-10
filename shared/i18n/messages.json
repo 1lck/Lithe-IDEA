@@ -9524,6 +9524,68 @@
       }
     },
     {
+      "id": "desktop.agent.archived.cancel",
+      "description": "Agent panel: cancel restoring",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.archived.confirm",
+      "description": "Agent panel: confirm restoring an archived conversation",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "title": "string"
+      }
+    },
+    {
+      "id": "desktop.agent.archived.empty",
+      "description": "Agent panel: no archived conversations",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.archived.failed",
+      "description": "Agent panel: restoring failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.archived.incomplete",
+      "description": "Agent panel: archived list is truncated",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.archived.listFailed",
+      "description": "Agent panel: archived list failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.archived.restore",
+      "description": "Agent panel: restore an archived conversation",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.archived.title",
+      "description": "Agent panel: archived conversations group",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
       "id": "desktop.agent.auth.required",
       "description": "Agent panel: the Agent requires its own CLI sign-in",
       "platforms": [

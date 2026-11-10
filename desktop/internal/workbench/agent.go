@@ -653,6 +653,8 @@ func (a *App) applyAgentEvent(p *project, conn *agentConnection, raw json.RawMes
 		CanLoadSessions bool                  `json:"canLoadSessions"`
 		Sessions        []agentSessionSummary `json:"sessions"`
 		CanSteer        bool                  `json:"canSteer"`
+		CanListArchived bool                  `json:"canListArchivedSessions"`
+		Complete        bool                  `json:"complete"`
 		Usage           json.RawMessage       `json:"usage"`
 		Statistics      json.RawMessage       `json:"statistics"`
 		Snapshot        json.RawMessage       `json:"snapshot"`
@@ -671,6 +673,7 @@ func (a *App) applyAgentEvent(p *project, conn *agentConnection, raw json.RawMes
 		p.agent.history.canList = event.CanListSessions
 		p.agent.history.canLoad = event.CanLoadSessions
 		p.agent.activity.canSteer = event.CanSteer
+		p.agent.history.archive.canList = event.CanListArchived
 		p.agent.phase = agentPhaseReady
 		p.agent.connecting = false
 		if p.agent.sessionID == "" && p.agent.pending == "" && !p.agent.history.restoring() {
@@ -687,6 +690,10 @@ func (a *App) applyAgentEvent(p *project, conn *agentConnection, raw json.RawMes
 		a.applyAgentSessionsPage(p, event.Token, event.Sessions)
 	case "sessions":
 		a.applyAgentSessions(p, event.Token, event.Sessions)
+	case "archivedSessions":
+		a.applyAgentArchivedSessions(p, event.Token, event.Sessions, event.Complete)
+	case "sessionUnarchived":
+		a.applyAgentSessionUnarchived(p, event.Token)
 	case "sessionConfigured":
 		a.applyAgentSessionConfigured(p, event.Token, event.SessionID, event.ConfigOptions)
 	case "update":

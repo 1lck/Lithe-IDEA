@@ -368,3 +368,78 @@ func (a *App) agentFileChips(c ui.C, p *project) {
 		}
 	})
 }
+
+// agentArchivedSection declares the collapsed "Archived (N)" group of the history
+// panel. Only Agents that report canListArchivedSessions have one.
+func (a *App) agentArchivedSection(c ui.C, p *project) {
+	s := &p.agent.history.archive
+	if !s.canList {
+		return
+	}
+	t := a.text.Agent.Activity
+	small := a.theme.Metrics.FontSizeS
+	ui.Column(c.Key("archived")).FillWidth().Shrink(0).Gap(2).PadX(shellContentPad).PadY(4).Children(func() {
+		ui.Row(c).FillWidth().Items(ui.Center).Gap(8).Children(func() {
+			ui.Text(c, t.ArchivedTitle(fmt.Sprint(len(s.sessions)))).Color(a.colors.Text).Grow(1)
+			label := t.Expand
+			if s.open {
+				label = t.Collapse
+			}
+			if a.agentToggle(c.Key("toggle"), label) {
+				c.After(func() { a.toggleAgentArchived(p) })
+			}
+		})
+		if !s.open {
+			return
+		}
+		switch {
+		case s.loading && len(s.sessions) == 0:
+			ui.Text(c.Key("loading"), a.text.Agent.HistoryLoading).FontSize(small).Color(a.colors.Subtle)
+		case s.failed:
+			ui.Text(c.Key("failed"), t.ArchivedListFailed).FontSize(small).Color(a.theme.Danger)
+		case len(s.sessions) == 0:
+			ui.Text(c.Key("empty"), t.ArchivedEmpty).FontSize(small).Color(a.colors.Subtle)
+		}
+		for i, session := range s.sessions {
+			title := session.Title
+			if title == "" {
+				title = a.text.Agent.Untitled
+			}
+			if updated := formatAgentHistoryTime(session.UpdatedAt); updated != "" {
+				title += " · " + updated
+			}
+			ui.Row(c.Key("row/" + session.SessionID)).FillWidth().Items(ui.Center).Gap(8).Children(func() {
+				ui.Text(c, title).Ellipsis().Grow(1).Color(a.colors.Subtle)
+				if ui.Button(c.KeyInt(i), t.ArchivedRestore).Outline().Disabled(s.unarchiveToken != "").Clicked() {
+					id := session.SessionID
+					c.After(func() { a.askAgentUnarchive(p, id) })
+				}
+			})
+		}
+		if s.incomplete {
+			ui.Text(c.Key("incomplete"), t.ArchivedIncomplete).FontSize(small).Color(a.colors.Subtle)
+		}
+		if s.confirming != "" {
+			name := s.confirming
+			for _, session := range s.sessions {
+				if session.SessionID == s.confirming && session.Title != "" {
+					name = session.Title
+				}
+			}
+			ui.Column(c.Key("confirm")).FillWidth().Gap(4).Pad(6).Background(a.colors.Active).Children(func() {
+				ui.Paragraph(c, t.ArchivedConfirm(name), 3).Color(a.colors.Text)
+				if s.unarchiveFailed {
+					ui.Text(c.Key("restoreFailed"), t.ArchivedFailed).FontSize(small).Color(a.theme.Danger)
+				}
+				ui.Row(c).Gap(8).Children(func() {
+					if ui.Button(c.Key("yes"), t.ArchivedRestore).Disabled(s.unarchiveToken != "").Clicked() {
+						c.After(func() { a.confirmAgentUnarchive(p) })
+					}
+					if ui.Button(c.Key("no"), t.ArchivedCancel).Outline().Clicked() {
+						c.After(func() { s.confirming, s.unarchiveFailed = "", false })
+					}
+				})
+			})
+		}
+	})
+}

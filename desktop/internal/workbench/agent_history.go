@@ -61,6 +61,9 @@ type agentHistoryState struct {
 	// on failure, so a rejected load cannot lose the open conversation.
 	replayMessages []agentMessage
 	replayBytes    int
+
+	// archive is the Agent's archived group (agent_archive.go).
+	archive agentArchiveState
 }
 
 func newAgentHistoryState() agentHistoryState {
@@ -349,6 +352,17 @@ func (a *App) agentRequestFailed(p *project, token, sessionID, message string) {
 			p.agent.phase = agentPhaseFailed
 		}
 		a.emit(operationFailedLevel, operationFailedEvent, map[string]any{"operation": "agent_history_load"})
+		return
+	case token != "" && token == p.agent.history.archive.token:
+		p.agent.history.archive.token = ""
+		p.agent.history.archive.loading = false
+		p.agent.history.archive.failed = true
+		a.emit(operationFailedLevel, operationFailedEvent, map[string]any{"operation": "agent_archived_list"})
+		return
+	case token != "" && token == p.agent.history.archive.unarchiveToken:
+		p.agent.history.archive.unarchiveToken = ""
+		p.agent.history.archive.unarchiveFailed = true
+		a.emit(operationFailedLevel, operationFailedEvent, map[string]any{"operation": "agent_unarchive"})
 		return
 	case token != "" && token == p.agent.config.pendingToken:
 		p.agent.config.pendingToken = ""

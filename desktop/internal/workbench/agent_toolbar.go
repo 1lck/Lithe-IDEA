@@ -65,6 +65,7 @@ func (a *App) agentHistory(c ui.C, p *project) {
 				c.After(func() { a.closeAgentHistory(p) })
 			}
 		})
+		a.agentArchivedSection(c, p)
 		if !h.canList {
 			ui.Row(c).FillWidth().Pad(shellContentPad).Children(func() {
 				ui.Paragraph(c, t.HistoryUnsupported, 4).Color(a.colors.Subtle)

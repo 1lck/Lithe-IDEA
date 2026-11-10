@@ -229,3 +229,50 @@ func TestAgentSlashCandidatesAndLimits(t *testing.T) {
 		t.Fatalf("displayed capacity = %d", got)
 	}
 }
+
+func TestAgentArchivedHistoryBrowsesReadOnlyAndRestoresAfterConfirmation(t *testing.T) {
+	h, session := activityHarness(t)
+	p := h.app.project
+	// The harness's ready event does not carry canListArchivedSessions.
+	if p.agent.history.archive.canList {
+		t.Fatal("archived listing must follow the Agent's capability")
+	}
+	p.agent.history.archive.canList = true
+	h.app.toggleAgentArchived(p)
+	var token string
+	for _, command := range session.commands() {
+		if command["kind"] == "listArchivedSessions" {
+			token, _ = command["token"].(string)
+		}
+	}
+	if token == "" {
+		t.Fatal("opening the group did not list archived conversations")
+	}
+	session.push(map[string]any{"kind": "archivedSessions", "token": "stale", "sessions": []any{}, "complete": true})
+	session.push(map[string]any{"kind": "archivedSessions", "token": token, "complete": false,
+		"sessions": []any{map[string]any{"sessionId": "old-1", "title": "Earlier refactor"}}})
+	h.await("archived rows", func() bool { return p.agent.history.archive.loaded })
+	s := &p.agent.history.archive
+	if len(s.sessions) != 1 || !s.incomplete {
+		t.Fatalf("archived = %#v incomplete=%v", s.sessions, s.incomplete)
+	}
+	// Asking does not restore; only the confirmation sends the command.
+	h.app.askAgentUnarchive(p, "old-1")
+	for _, command := range session.commands() {
+		if command["kind"] == "unarchiveSession" {
+			t.Fatal("restore was sent before confirmation")
+		}
+	}
+	h.app.confirmAgentUnarchive(p)
+	var restore map[string]any
+	for _, command := range session.commands() {
+		if command["kind"] == "unarchiveSession" {
+			restore = command
+		}
+	}
+	if restore == nil || restore["sessionId"] != "old-1" {
+		t.Fatalf("restore command = %v", restore)
+	}
+	session.push(map[string]any{"kind": "sessionUnarchived", "token": restore["token"], "sessionId": "old-1"})
+	h.await("archived list refreshed", func() bool { return s.unarchiveToken == "" && s.confirming == "" })
+}

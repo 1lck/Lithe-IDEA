@@ -29,6 +29,10 @@ type AgentActivityMessages struct {
 	AttachCurrent                                                    string
 	RemoveFile, AttachedFile                                         func(name string) string
 	SkillsLoading, NoCommand                                         string
+
+	ArchivedTitle                                                                                          func(count string) string
+	ArchivedRestore, ArchivedCancel, ArchivedFailed, ArchivedListFailed, ArchivedEmpty, ArchivedIncomplete string
+	ArchivedConfirm                                                                                        func(title string) string
 }
 
 func agentActivityMessages(language Language) AgentActivityMessages {
@@ -123,6 +127,18 @@ func agentActivityMessages(language Language) AgentActivityMessages {
 		},
 		AttachedFile: func(name string) string {
 			return SharedFormat(language, "desktop.agent.files.attached", map[string]string{"name": name})
+		},
+		ArchivedTitle: func(count string) string {
+			return SharedFormat(language, "desktop.agent.archived.title", map[string]string{"count": count})
+		},
+		ArchivedRestore:    Shared(language, "desktop.agent.archived.restore"),
+		ArchivedCancel:     Shared(language, "desktop.agent.archived.cancel"),
+		ArchivedFailed:     Shared(language, "desktop.agent.archived.failed"),
+		ArchivedListFailed: Shared(language, "desktop.agent.archived.listFailed"),
+		ArchivedEmpty:      Shared(language, "desktop.agent.archived.empty"),
+		ArchivedIncomplete: Shared(language, "desktop.agent.archived.incomplete"),
+		ArchivedConfirm: func(title string) string {
+			return SharedFormat(language, "desktop.agent.archived.confirm", map[string]string{"title": title})
 		},
 		SkillsLoading: Shared(language, "desktop.agent.slash.skills"),
 		NoCommand:     Shared(language, "desktop.agent.slash.none"),
