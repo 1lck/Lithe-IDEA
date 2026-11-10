@@ -116,3 +116,31 @@ func TestGitRollbackAndWatchContext(t *testing.T) {
 		t.Fatalf("GitWatchContextOf(outside) = %v, %v; want no context", ok, err)
 	}
 }
+
+func TestGitRebasePreviewBlockersAndSession(t *testing.T) {
+	repo := committedRepository(t)
+	client := NewClient()
+	ctx := testContext(t)
+	preview, err := client.GitRebasePreview(ctx, repo, "HEAD")
+	if err != nil || preview.Allowed || len(preview.Blockers) == 0 {
+		t.Fatalf("GitRebasePreview(HEAD) = %+v, %v; want a blocker for the empty range", preview, err)
+	}
+	session, err := client.GitRebaseSession(ctx, repo)
+	if err != nil || session != nil {
+		t.Fatalf("GitRebaseSession() = %+v, %v; want none", session, err)
+	}
+	writeFile(t, filepath.Join(repo, "two.txt"), "two\n")
+	runGit(t, repo, "add", "two.txt")
+	runGit(t, repo, "commit", "-m", "two")
+	preview, err = client.GitRebasePreview(ctx, repo, "HEAD~1")
+	if err != nil || !preview.Allowed || len(preview.Commits) != 1 {
+		t.Fatalf("GitRebasePreview(HEAD~1) = %+v, %v; want one allowed commit", preview, err)
+	}
+	started, err := client.GitRebaseStart(ctx, repo, preview, []RebaseStep{{Hash: preview.Commits[0].Hash, Action: "reword", Message: "second\n"}})
+	if err != nil || started == nil || started.Status != "completed" {
+		t.Fatalf("GitRebaseStart() = %+v, %v; want a completed session", started, err)
+	}
+	if got := runGit(t, repo, "log", "-1", "--format=%s"); got != "second" {
+		t.Fatalf("subject after the reword = %q, want second", got)
+	}
+}

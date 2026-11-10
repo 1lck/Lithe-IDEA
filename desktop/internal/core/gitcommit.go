@@ -39,6 +39,11 @@ type gitWriteRequest struct {
 	Reference string `json:"reference,omitempty"`
 	// IncludeUntracked stashes untracked files too.
 	IncludeUntracked bool `json:"includeUntracked,omitempty"`
+	// PushTags, PushTarget and ExpectedPush shape a push: which tags go along, the answer for a
+	// divergent destination, and the reviewed preview the push is validated against.
+	PushTags     string          `json:"pushTags,omitempty"`
+	PushTarget   string          `json:"pushTarget,omitempty"`
+	ExpectedPush json.RawMessage `json:"expectedPush,omitempty"`
 }
 
 // GitClone clones source into destination using Core's Git process and validation.
