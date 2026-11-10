@@ -1392,7 +1392,7 @@ func (a *App) drawDefinitionPopup(f *ui.Frame) {
 	f.Popup().At(x, y).Width(semanticDefinitionWidth).MaxHeight(float32(visibleSemanticRows)*semanticRowHeight+2*semanticPopupPad).
 		Pad(semanticPopupPad).Background(a.theme.Popover).Border(1, a.theme.Border).
 		Radius(a.theme.Metrics.RadiusPopup()).Shadow(gfx.ShadowMD).
-		HitWith(semanticHoverID, i18n.Shared(a.language(), a.definitionPopupTitle(state.references)), gfx.HitOptions{Role: gfx.RoleMenu, SkipFocus: true}).
+		HitWith(semanticHoverID, a.definitionPopupTitle(state.references), gfx.HitOptions{Role: gfx.RoleMenu, SkipFocus: true}).
 		Children(func() {
 			f.Column().FillWidth().Gap(1).Children(func() {
 				for i := first; i < last; i++ {
@@ -1512,10 +1512,10 @@ func popupOrigin(x, y, width float32, bounds gfx.Rect) (float32, float32) {
 	return x, y
 }
 
-// definitionPopupTitle is the shared message naming the open location list.
+// definitionPopupTitle is the accessibility title of the open location list.
 func (a *App) definitionPopupTitle(references bool) string {
 	if references {
-		return "desktop.semantics.references"
+		return i18n.Shared(a.language(), "desktop.semantics.references")
 	}
-	return "desktop.semantics.definitions"
+	return i18n.Shared(a.language(), "desktop.semantics.definitions")
 }

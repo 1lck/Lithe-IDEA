@@ -122,13 +122,13 @@ func (a *App) applySemanticFormatting(pending *semanticPending, event core.Backe
 		a.notify(i18n.Shared(a.language(), "desktop.semantics.formatNothing"))
 		return
 	}
-	a.applyEditsToDocument(p, d, edits, "plugin_format", "desktop.semantics.formatFailed")
+	a.applyEditsToDocument(p, d, edits, "plugin_format")
 }
 
 // applyEditsToDocument has Core apply edits to the document's snapshot and puts
 // the result in the editor as one undoable edit spanning only the changed text.
 // The result is dropped when the document changed while Core worked.
-func (a *App) applyEditsToDocument(p *project, d *document, edits []core.PluginTextEdit, operation, failure string) {
+func (a *App) applyEditsToDocument(p *project, d *document, edits []core.PluginTextEdit, operation string) {
 	documentID, revision := d.id, d.view.Revision()
 	snapshot := d.view.TextSnapshot()
 	line, column := d.view.CaretUTF16()
@@ -143,7 +143,7 @@ func (a *App) applyEditsToDocument(p *project, d *document, edits []core.PluginT
 			current, document := a.currentSemanticDocument(documentID)
 			if err != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields(operation, err))
-				a.notify(i18n.Shared(a.language(), failure))
+				a.notify(i18n.Shared(a.language(), "desktop.semantics.formatFailed"))
 				return
 			}
 			if current != p || document == nil || a.project != p || document.view.Revision() != revision {
