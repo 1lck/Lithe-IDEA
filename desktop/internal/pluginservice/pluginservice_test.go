@@ -454,3 +454,11 @@ func (k *fakeKernel) ConfigureFunctionRelay(context.Context, []core.RelayPlugin,
 func (k *fakeKernel) DecodePluginLanguageServerLaunch(context.Context, json.RawMessage, string, core.PluginBackendDirectories, json.RawMessage) (core.PluginBackendPlan, error) {
 	return core.PluginBackendPlan{}, errors.New("fixture kernel does not decode launches")
 }
+
+func (k *fakeKernel) DecodeRunStart(context.Context, json.RawMessage, string, string, json.RawMessage) (core.RunStart, error) {
+	return core.RunStart{}, errors.New("fixture kernel does not decode run starts")
+}
+
+func (k *fakeKernel) DecodeOutputLinkResolution(context.Context, json.RawMessage) (*core.OutputLocation, error) {
+	return nil, errors.New("fixture kernel does not decode output links")
+}

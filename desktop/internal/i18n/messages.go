@@ -24,6 +24,7 @@ type Messages struct {
 	Build    BuildMessages
 	Tests    TestMessages
 	Debug    DebugMessages
+	Run      RunMessages
 	Sync     SyncMessages
 }
 

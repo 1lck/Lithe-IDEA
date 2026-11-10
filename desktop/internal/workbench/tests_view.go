@@ -3,7 +3,6 @@ package workbench
 import (
 	"path/filepath"
 	"strconv"
-	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
@@ -17,6 +16,8 @@ var (
 	testsStopID = tree.ID(shellPage, "tests-stop")
 	// testsListID is the scrolling result tree.
 	testsListID = tree.ID(shellPage, "tests-list")
+	// testOutputID is the scrolling console of a run that failed before results.
+	testOutputID = tree.ID(shellPage, "test-output")
 	// testsRows identifies the flattened result rows.
 	testsRows = tree.Sub(shellPage, tree.Name("tests-rows"))
 )
@@ -219,9 +220,8 @@ func (a *App) drawTestOutput(f *ui.Frame, p *project) {
 	if len(lines) > 12 {
 		lines = lines[len(lines)-12:]
 	}
-	text := strings.Join(lines, "")
 	f.Divider()
-	f.Column().Height(140).Shrink(0).Clip().Pad(8).Children(func() {
-		f.Paragraph(text, 6).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+	f.ScrollArea(testOutputID).Height(140).Shrink(0).Pad(8).Children(func() {
+		a.drawLinkedOutput(f, p, outputScopeTest, testOutputLinks, lines)
 	})
 }

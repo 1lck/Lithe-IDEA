@@ -103955,6 +103955,144 @@
       "parameters": {
         "uri": "string"
       }
+    },
+    {
+      "id": "desktop.debug.attachHost",
+      "description": "Debug attach form: host field label",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.attachPort",
+      "description": "Debug attach form: port field label",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.attachInvalid",
+      "description": "Debug attach form: the host or port is not valid",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.remotePrompt",
+      "description": "Confirmation before attaching to a non-local debuggee. {endpoint} is host:port.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "endpoint": "string"
+      }
+    },
+    {
+      "id": "desktop.debug.remoteAttach",
+      "description": "Button that confirms attaching to a remote debuggee",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.remoteCancel",
+      "description": "Button that cancels attaching to a remote debuggee",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.waitingServer",
+      "description": "Debug status while the language server that hosts the debug adapter starts",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.noEndpoint",
+      "description": "The language server answered the debug command without a usable port",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.connectFailed",
+      "description": "The TCP connection to the debug adapter failed. {endpoint} is host:port.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "endpoint": "string"
+      }
+    },
+    {
+      "id": "desktop.debug.timedOut",
+      "description": "The debug adapter did not answer the initialize request in time",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.connectionClosed",
+      "description": "The TCP connection to the debug adapter ended unexpectedly",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.build",
+      "description": "Name of the build output in the run output switcher",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.rerun",
+      "description": "Button that starts a finished run again",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.exited",
+      "description": "Run finished. {code} is the exit code.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "code": "string"
+      }
+    },
+    {
+      "id": "desktop.run.signalled",
+      "description": "Run ended by a signal. {signal} is the signal name.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "signal": "string"
+      }
+    },
+    {
+      "id": "desktop.run.ended",
+      "description": "Run finished without an exit status",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.linkMissing",
+      "description": "Clicked output link points to no existing file in the workspace",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.linkUnresolved",
+      "description": "The plugin could not turn a clicked output link into a file",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

@@ -39,7 +39,7 @@ func TestHostServicesGrantWhatIsServed(t *testing.T) {
 	granted := pluginhost.GrantServices([]string{
 		"workspace", "functions", "credentials", methodLSRequest, "lithe/host/run/start",
 	}, openHostService(t).HostServices)
-	want := []string{"workspace", "functions", "credentials", methodLSRequest}
+	want := []string{"workspace", "functions", "credentials", methodLSRequest, "lithe/host/run/start"}
 	if strings.Join(granted, ",") != strings.Join(want, ",") {
 		t.Fatalf("granted = %v, want %v", granted, want)
 	}

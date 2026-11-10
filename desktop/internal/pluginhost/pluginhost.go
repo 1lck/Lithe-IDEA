@@ -97,13 +97,17 @@ type Capabilities map[string][]int
 //     project toolchain or a user override is refused rather than started with
 //     whatever PATH holds.
 //
+// Run sessions a backend starts (run/start, run/stop, run/didExit) are served
+// by the host: it owns the process, the console and the end of the run, and
+// resolves the plugin's required tools or packaged executable.
+//
 // Build systems are served through both provider processes and command plans.
 // The Build window detects instances, loads their model, resolves the ordered
 // executable candidates Core returns, runs command and provider tasks, and
 // prepares application targets. A shared provider attaches to the language
 // server of the same plugin. Run preparation, tests and debug preparation are
 // not served. Everything else a manifest can ask for — user
-// interface contributions, debug, plugin functions — is likewise not served,
+// interface contributions, project generators — is likewise not served,
 // and claiming one would let a plugin install and then fail the first time a
 // user reaches for it.
 func Declared() Capabilities {
@@ -134,6 +138,15 @@ func Declared() Capabilities {
 		// Settings v2: pages per language and build system, sections, every
 		// control type, the project layer, setting effects and page buttons.
 		"settings": {1, 2},
+		// Debug adapters run over stdio, or inside the plugin's language server
+		// over loopback TCP (tcpLanguageServer). Launch and attach (including a
+		// remote host and port after the user confirms it), argument and
+		// environment bindings, and the declared features and defaults reach the
+		// shared debug engine.
+		"debugAdapters": {1, 2, 3},
+		// Console lines of Build, Run and Test output become links at the ranges
+		// Core finds; a matcher with resolve asks the plugin's backend on click.
+		"outputLinkMatchers": {1},
 	}
 }
 

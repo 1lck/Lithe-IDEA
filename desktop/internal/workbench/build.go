@@ -53,6 +53,10 @@ type buildState struct {
 
 	operation *buildOperation
 	runtime   buildRuntime
+	// runs are the plugin-started runs the panel keeps beside the build console,
+	// and view is the one it shows: "" for the build console, else a run's ID.
+	runs []*runEntry
+	view string
 	// generation rejects a detection or model load that a newer one replaced.
 	generation uint64
 }

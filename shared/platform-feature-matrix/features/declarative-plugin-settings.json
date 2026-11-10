@@ -112,5 +112,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "partial 包含原生双层存储、运行消费、离线目录、七类控件、声明动作、动态页面及同一应用内跨窗口通知。语言状态卡、完整 settings v2、独立进程同步及原生产品验收仍 pending；宿主仍不声明 settings 2。"
+  "notes": "partial 包含原生双层存储、运行消费、离线目录、七类控件、声明动作、动态页面及同一应用内跨窗口通知。语言状态卡、完整 settings v2、独立进程同步及原生产品验收仍 pending；宿主现已声明 settings 2。"
 }

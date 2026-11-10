@@ -50,6 +50,8 @@ type Kernel interface {
 	SavePluginDocument(ctx context.Context, session, uri, text string) (sent bool, err error)
 	ClosePluginDocument(ctx context.Context, session, uri string) error
 	ConfigureFunctionRelay(ctx context.Context, plugins []core.RelayPlugin, contexts []core.RelayContext) error
+	DecodeRunStart(ctx context.Context, manifest json.RawMessage, workspaceRoot, temporaryDirectory string, params json.RawMessage) (core.RunStart, error)
+	DecodeOutputLinkResolution(ctx context.Context, reply json.RawMessage) (*core.OutputLocation, error)
 	DecodePluginLanguageServerLaunch(ctx context.Context, manifest json.RawMessage, languageID string, directories core.PluginBackendDirectories, answer json.RawMessage) (core.PluginBackendPlan, error)
 }
 
@@ -85,6 +87,8 @@ type Service struct {
 	providers   *contentProviders
 	// resources are the subscriptions, providers and terminals backends hold.
 	resources *hostResources
+	// Runs owns the processes backends start through run/start.
+	Runs *Runs
 	// kernel reads what only Core can validate, such as a plugin's grammar.
 	kernel Kernel
 	// lsMu guards the running plugin-owned language servers backends reach.
@@ -125,6 +129,7 @@ func Open(kernel Kernel, preferences *store.Store, root string) (*Service, error
 		messages:     newMessageLimiter(),
 	}
 	service.Host = newBackendHost(service)
+	service.Runs = newRuns(service)
 	service.Contexts = newWorkspaceContexts(filepath.Join(root, pluginStateDirectory))
 	service.Contexts.SetObserver(service.contextsChanged)
 	service.Contexts.SetClosedObserver(service.resources.releaseContext)

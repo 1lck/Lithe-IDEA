@@ -16,6 +16,10 @@ var (
 	buildStopID    = tree.ID(shellPage, "build-stop")
 	buildListID    = tree.ID(shellPage, "build-list")
 	buildOutputID  = tree.ID(shellPage, "build-output")
+	runOutputID    = tree.ID(shellPage, "run-output")
+	runStopID      = tree.ID(shellPage, "run-stop")
+	runRerunID     = tree.ID(shellPage, "run-rerun")
+	runViews       = tree.Sub(shellPage, tree.Name("run-view"))
 
 	buildInstances  = tree.Sub(shellPage, tree.Name("build-instance"))
 	buildProjects   = tree.Sub(shellPage, tree.Name("build-project"))
@@ -43,6 +47,7 @@ func (a *App) drawBuildPanel(f *ui.Frame, p *project) {
 	f.Column().Fill().Background(a.colors.Editor).Children(func() {
 		f.Row().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
 			f.Text(t.Systems).Color(a.colors.Text).Weight(gfx.WeightMedium).Ellipsis().Shrink(1)
+			a.drawRunViews(f, p)
 			f.Spacer()
 			if b.operation != nil {
 				if f.Button(buildStopID, t.Stop).Outline().Clicked() {
@@ -59,6 +64,10 @@ func (a *App) drawBuildPanel(f *ui.Frame, p *project) {
 			}
 		})
 		f.Divider()
+		if run := p.activeRun(); run != nil {
+			a.drawRunConsole(f, p, run)
+			return
+		}
 		if b.loading || !b.loaded {
 			a.logEmpty(f, t.LoadingModel)
 			return
@@ -250,9 +259,7 @@ func (a *App) drawBuildOutput(f *ui.Frame, p *project) ui.Box {
 			return
 		}
 		f.ScrollArea(buildOutputID).Grow(1).PadX(8).Children(func() {
-			for _, line := range lines {
-				f.Text(strings.TrimSuffix(line, "\n")).FontSize(a.theme.Metrics.FontSizeS).Mono().Color(a.colors.Text)
-			}
+			a.drawLinkedOutput(f, p, outputScopeRun, buildOutputLinks, lines)
 		})
 	})
 }
@@ -301,4 +308,70 @@ func buildRunApplies(run pluginservice.BuildRunDeclaration, target core.BuildTar
 		}
 	}
 	return false
+}
+
+// drawRunViews declares the switcher between the build console and the runs
+// plugins started. It is empty until the first run.
+func (a *App) drawRunViews(f *ui.Frame, p *project) {
+	b := &p.build
+	if len(b.runs) == 0 {
+		return
+	}
+	choose := func(index int, id, label string) {
+		row := f.Row().Height(buildRowHeight).Shrink(0).Items(ui.Center).PadX(8).
+			HitWith(runViews.At(index), label, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand})
+		if b.view == id {
+			row = row.Background(a.colors.Active)
+		} else {
+			row = row.Hover(ui.Look{}.Background(a.colors.Hover))
+		}
+		row.Children(func() {
+			f.Text(label).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Text).Ellipsis().MaxWidth(160)
+		})
+		if row.Clicked() {
+			b.view = id
+		}
+	}
+	choose(0, "", a.text.Run.Build)
+	for index, run := range b.runs {
+		choose(index+1, run.id, run.label)
+	}
+}
+
+// drawRunConsole declares one run: its controls, its output with the links the
+// plugin's matchers found, and how it ended.
+func (a *App) drawRunConsole(f *ui.Frame, p *project, run *runEntry) {
+	t := a.text.Build
+	f.Column().Fill().Clip().Children(func() {
+		f.Row().Height(buildRowHeight + 8).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
+			f.Text(run.label).Color(a.colors.Text).Ellipsis().Shrink(1)
+			f.Spacer()
+			if run.running {
+				if f.Button(runStopID, t.Stop).Outline().Clicked() {
+					a.stopRun(p, run)
+				}
+			} else if run.rerun != nil {
+				if f.Button(runRerunID, a.text.Run.Rerun).Outline().Clicked() {
+					a.rerunRun(p, run)
+				}
+			}
+		})
+		f.Divider()
+		lines := buildVisibleOutput(run.output)
+		if len(lines) == 0 {
+			f.Row().Grow(1).Items(ui.Center).PadX(shellContentPad).Children(func() {
+				f.Text(t.EmptyOutput).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
+			})
+		} else {
+			f.ScrollArea(runOutputID).Grow(1).PadX(8).Children(func() {
+				a.drawLinkedOutput(f, p, outputScopeRun, runOutputLinks, lines)
+			})
+		}
+		if run.summary != "" {
+			f.Divider()
+			f.Row().Height(28).Shrink(0).Items(ui.Center).PadX(8).Children(func() {
+				f.Text(run.summary).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
+			})
+		}
+	})
 }

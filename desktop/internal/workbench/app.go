@@ -72,7 +72,9 @@ type Kernel interface {
 	EditPluginSettings(context.Context, json.RawMessage, string, *string, []core.PluginSettingEdit) (core.PluginSettingsEditPlan, error)
 	PlanPluginDebugAdapter(context.Context, json.RawMessage, string, core.PluginBackendDirectories) (core.PluginBackendPlan, error)
 	PlanDebugExecutable(context.Context, json.RawMessage, string, string, string, map[string]json.RawMessage, map[string]json.RawMessage) (*core.DebugExecutablePlan, error)
-	DebugStartArguments(context.Context, json.RawMessage, string, string, core.DebugStartFacts) (map[string]any, error)
+	PlanDebugStart(context.Context, json.RawMessage, string, string, core.DebugStartFacts) (core.DebugStart, error)
+	DebugTransportPolicy(context.Context) (core.DebugTransportPolicy, error)
+	MatchOutputLinks(context.Context, core.OutputLinkRequest) ([]core.OutputLink, error)
 	CreateDebugSession(ctx context.Context, request core.DebugCreateSessionRequest) (core.DebugUpdate, error)
 	LaunchDebug(ctx context.Context, sessionID, operationID string, configuration core.DebugLaunchConfiguration) (core.DebugUpdate, error)
 	SetDebugBreakpoints(ctx context.Context, sessionID, sourcePath string, breakpoints []core.DebugSourceBreakpoint) (core.DebugUpdate, error)
@@ -234,6 +236,8 @@ type project struct {
 	tree fileTree
 	// build is the Run tool window's provider-backed instances and output.
 	build buildState
+	// links are the output link matchers and the answers for the lines shown.
+	links outputLinkState
 	// tests is the Tests tool window's run and decoded result tree.
 	tests testState
 	// debug is the Debug tool window's adapter session, breakpoints and stack.
@@ -244,12 +248,19 @@ type project struct {
 
 // App is the state of the window.
 type App struct {
-	kernel      Kernel
-	store       *store.Store
-	now         func() time.Time
-	invalidator app.Invalidator
-	view        ui.View
-	tasks       taskQueue
+	// debugAttach are the host and port fields of the Debug panel's attach form.
+	debugAttach debugAttachFields
+	// debugHostedPort and debugInitializeWindow replace, in tests, asking the
+	// language server for a debug port and Core's initialize deadline. Production
+	// leaves both zero.
+	debugHostedPort       func(ctx context.Context, p *project, adapter debugAdapter) (int, error)
+	debugInitializeWindow time.Duration
+	kernel                Kernel
+	store                 *store.Store
+	now                   func() time.Time
+	invalidator           app.Invalidator
+	view                  ui.View
+	tasks                 taskQueue
 	// languages are the languages the editor knows, made when the first file is opened.
 	languages *syntax.Registry
 
@@ -476,6 +487,7 @@ func (a *App) openPlugins(options Options) {
 	if err := service.AttachWorkbench(pluginWorkbench{app: a}); err != nil {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_host_services", err))
 	}
+	a.wirePluginRuns()
 }
 
 // Run shows the window and returns when it is closed.
@@ -504,6 +516,11 @@ func (a *App) Run() error {
 	a.unsubscribeSettings()
 	a.closeProject()
 	a.wait()
+	if a.plugins != nil && a.plugins.Runs != nil {
+		// Runs of the closed project are already stopped; this ends any the
+		// project close did not own and refuses new ones during shutdown.
+		a.plugins.Runs.StopAll()
+	}
 	if a.logs != nil {
 		a.logs.Wait()
 	}
@@ -528,7 +545,7 @@ func (a *App) systemAppearanceChanged() {
 // Config is the window's configuration.
 func (a *App) Config() app.Config {
 	a.subscribeSettings()
-	a.fields = ui.Fields(&a.welcome.search, &a.clone.source, &a.clone.parent, &a.clone.name, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField, &a.searchView.query, &a.searchView.mask, &a.everywhereView.query,
+	a.fields = ui.Fields(&a.welcome.search, &a.clone.source, &a.clone.parent, &a.clone.name, &a.debugAttach.host, &a.debugAttach.port, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField, &a.searchView.query, &a.searchView.mask, &a.everywhereView.query,
 		&a.branch.search, &a.branch.name, &a.branch.revision, &a.navigation.input)
 	return app.Config{
 		Title:          a.text.App.Name,
@@ -1138,6 +1155,7 @@ func (a *App) requestCloseProject(after func()) {
 		// the build providers it borrowed close.
 		a.stopTestsForProject(p)
 		a.stopDebugForProject(p)
+		a.stopRunsForProject(p)
 		// Build providers and prepared applications belong to the workspace and
 		// are stopped before the project state is dropped.
 		a.stopBuild(p)

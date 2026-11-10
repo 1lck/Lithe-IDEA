@@ -65,6 +65,14 @@ func (s *Service) registerHostServices() error {
 	if err := s.registerCredentials(); err != nil {
 		return err
 	}
+	// run/start answers after the process started and returns at once, so the
+	// machine deadline is enough; the run itself outlives the request.
+	if err := s.HostServices.Register(methodRunStart, s.Runs.handleStart); err != nil {
+		return err
+	}
+	if err := s.HostServices.Register(methodRunStop, s.Runs.handleStop); err != nil {
+		return err
+	}
 	for _, grant := range []string{grantWorkspace, grantFunctions} {
 		if err := s.HostServices.GrantService(grant); err != nil {
 			return err
