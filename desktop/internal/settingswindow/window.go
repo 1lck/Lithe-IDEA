@@ -106,6 +106,8 @@ type window struct {
 	settingsNotices chan string
 	// terminal is the Terminal page's list of installed shells.
 	terminal terminalShellState
+	// agent is the AI pages' state (agent_settings.go).
+	agent *agentSettings
 	// mcp is the MCP Configuration page's state.
 	mcp *mcpState
 
@@ -187,6 +189,7 @@ func newWindow(c *Controller, current Values) *window {
 	w.pluginSettings.report = func(err error) { reportSettingsError(c.opts, err) }
 	w.toolchains = newToolchainState(c.opts.Toolchains)
 	w.terminal = newTerminalShellState(c.opts.TerminalShells)
+	w.agent = newAgentSettings(c.opts, func() { w.inv.Invalidate() })
 	w.mcp = newMCPState(c.opts.MCP)
 	w.nav.Node, w.nav.Key, w.nav.RowHeight, w.nav.Indent = w.navNode, w.navKey, rowHeight, childIndent
 	return w

@@ -202,6 +202,14 @@ func (w *window) content(c ui.C) {
 			w.toolchainsPage(c)
 		case w.sess.page == pageTerminal && w.ctrl.opts.TerminalShells != nil:
 			w.terminalPage(c)
+		case w.sess.page == pageAIAgents:
+			w.agentsPage(c)
+		case w.sess.page == pageAIInstructions:
+			w.instructionsPage(c)
+		case w.sess.page == pageAISkills:
+			w.skillsPage(c)
+		case w.sess.page == pageAIHooks:
+			w.hooksPage(c)
 		case w.sess.page == pageMCP && w.ctrl.opts.MCP != nil:
 			w.mcpPage(c)
 		default:

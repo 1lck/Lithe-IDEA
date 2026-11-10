@@ -141,7 +141,25 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		},
 		Toolchains:     settingsToolchains{app: a},
 		PluginSettings: pluginSettingsSources{app: a},
-		MCP:            a.mcpSettingsLoader(),
+		// The AI pages read and edit the Agents' own configuration through Core.
+		AgentSettings:      a.agentSettingsBackend(),
+		AgentDataDirectory: a.store.Dir,
+		AgentWorkspace: func() string {
+			if root := a.toolchainRoot.Load(); root != nil {
+				return *root
+			}
+			return ""
+		},
+		AgentContextLimits: func(id string) settingswindow.AgentContextLimit {
+			l := a.agentContextLimitsFor(id)
+			return settingswindow.AgentContextLimit{WindowTokens: l.WindowTokens, AutoCompactTokens: l.AutoCompactTokens}
+		},
+		SetAgentContextLimits: func(id string, l settingswindow.AgentContextLimit) {
+			a.post(func(a *App) {
+				a.setAgentContextLimits(id, agentContextLimit{WindowTokens: l.WindowTokens, AutoCompactTokens: l.AutoCompactTokens})
+			})
+		},
+		MCP: a.mcpSettingsLoader(),
 	})
 }
 

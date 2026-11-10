@@ -14528,6 +14528,20 @@
       ]
     },
     {
+      "id": "desktop.settings.agent.edit",
+      "description": "AI settings: edit row",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.hooks.agents",
+      "description": "AI settings: hook agents label",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.agent.hooks.command",
       "description": "AI settings page: hook command",
       "platforms": [
@@ -14792,6 +14806,34 @@
     {
       "id": "desktop.settings.agent.loading",
       "description": "AI settings page: loading",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.page.agents",
+      "description": "AI settings: sidebar page",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.page.hooks",
+      "description": "AI settings: sidebar page",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.page.instructions",
+      "description": "AI settings: sidebar page",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.page.skills",
+      "description": "AI settings: sidebar page",
       "platforms": [
         "desktop"
       ]

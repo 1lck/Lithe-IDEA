@@ -1,5 +1,7 @@
 package workbench
 
+import "github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
+
 // Agent context limits are the user's own settings. They travel in the launch JSON
 // as `contextLimits` (zero means unset, so the Agent keeps its default), and the
 // context indicator caps its displayed capacity at the configured window because
@@ -62,4 +64,13 @@ func (a *App) agentLaunchLimits(agentID string) map[string]uint64 {
 		out["autoCompactTokens"] = limit.AutoCompactTokens
 	}
 	return out
+}
+
+// agentSettingsBackend is the Core client the AI settings pages use, or nil when the
+// window was built without an Agent kernel (the pages then say they are unavailable).
+func (a *App) agentSettingsBackend() settingswindow.AgentSettingsBackend {
+	if kernel, ok := a.agentKernel.(CoreAgentKernel); ok && kernel.Client != nil {
+		return kernel.Client
+	}
+	return nil
 }

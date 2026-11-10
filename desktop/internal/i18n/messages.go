@@ -506,7 +506,8 @@ type StatusMessages struct {
 
 // SettingsMessages are the settings window's words.
 type SettingsMessages struct {
-	Title string
+	AIAgents, AIInstructions, AISkills, AIHooks string
+	Title                                       string
 	// Search is the sidebar's search field; NoMatches is the sidebar when it finds no page.
 	Search    string
 	NoMatches string

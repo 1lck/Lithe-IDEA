@@ -153,6 +153,15 @@ type Options struct {
 	// Toolchains is the Build settings page's loader. Nil leaves the page unavailable.
 	Toolchains     ToolchainLoader
 	PluginSettings PluginSettingsLoader
+	// AgentSettings is the Core surface of the AI pages; nil leaves them unavailable.
+	// AgentDataDirectory is the writable application-support directory the Hook library
+	// lives in, AgentWorkspace the open project's root (empty without one), and
+	// AgentContextLimits and SetAgentContextLimits read and save one Agent's launch limits.
+	AgentSettings         AgentSettingsBackend
+	AgentDataDirectory    func() string
+	AgentWorkspace        func() string
+	AgentContextLimits    func(agentID string) AgentContextLimit
+	SetAgentContextLimits func(agentID string, limit AgentContextLimit)
 	// MCP is the MCP Configuration page's loader. Nil leaves the page unavailable.
 	MCP           MCPLoader
 	PluginRuntime func(string) PluginRuntimeState

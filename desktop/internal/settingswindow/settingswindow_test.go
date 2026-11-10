@@ -130,7 +130,7 @@ func TestCollapsedGroupHidesItsPages(t *testing.T) {
 	var open [pageCount]bool
 	rows := appendVisible(nil, english(), &open, "")
 	if len(rows) != 7 {
-		t.Fatalf("rows = %v, want the two groups and the five pages on the top level", rows)
+		t.Fatalf("rows = %v, want the three groups and the four pages on the top level", rows)
 	}
 	for _, r := range rows {
 		if r.level != 0 || r.expanded {
@@ -217,9 +217,10 @@ func TestSearchOnAGroupTitleKeepsAllItsPages(t *testing.T) {
 
 func TestSearchOnATopLevelPageListsOnlyIt(t *testing.T) {
 	open := initialOpen()
-	// The query is folded, so "  AI " finds the group "AI", which keeps all its pages.
+	// The query is folded, so "  AI " finds the group, which names the whole group and
+	// keeps its pages.
 	rows := appendVisible(nil, english(), &open, foldQuery("  AI "))
-	if want := []row{{page: pageAI, group: true, expanded: true}, {page: pageMCP, level: 1}}; !slices.Equal(rows, want) {
+	if want := []row{{page: pageAI, group: true, expanded: true}, {page: pageAIAgents, level: 1}, {page: pageAIInstructions, level: 1}, {page: pageAISkills, level: 1}, {page: pageAIHooks, level: 1}, {page: pageMCP, level: 1}}; !slices.Equal(rows, want) {
 		t.Fatalf("rows = %v, want %v", rows, want)
 	}
 }
@@ -286,6 +287,7 @@ func TestBreadcrumb(t *testing.T) {
 		{pageAppearance, []string{"Appearance & Behavior"}},
 		{pagePlugins, []string{"Plugins"}},
 		{pageAI, []string{"AI"}},
+		{pageAISkills, []string{"AI", "Skills"}},
 		{pageMCP, []string{"AI", "MCP Configuration"}},
 		{pageTools, []string{"Tools"}},
 		{pageTerminal, []string{"Tools", "Terminal"}},
