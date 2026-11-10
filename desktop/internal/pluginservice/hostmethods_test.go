@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/credentials"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
@@ -37,7 +38,7 @@ func TestHostServicesGrantWhatIsServed(t *testing.T) {
 	granted := pluginhost.GrantServices([]string{
 		"workspace", "functions", "credentials", methodLSRequest, "lithe/host/run/start",
 	}, openHostService(t).HostServices)
-	want := []string{"workspace", "functions", methodLSRequest}
+	want := []string{"workspace", "functions", "credentials", methodLSRequest}
 	if strings.Join(granted, ",") != strings.Join(want, ",") {
 		t.Fatalf("granted = %v, want %v", granted, want)
 	}
@@ -293,4 +294,58 @@ func (k *callKernel) InvokePluginFunctionInContext(_ context.Context, _, operati
 	k.context = string(workspaceContext)
 	go k.backend.observe(core.BackendEvent{Type: "requestCompleted", OperationID: operation, Result: json.RawMessage(`{"value":{"executable":{}}}`)})
 	return operation, nil
+}
+
+func TestCredentialsHandlersUseThePluginNamespace(t *testing.T) {
+	service := openHostService(t)
+	backend := &memoryCredentials{items: map[string]string{}}
+	service.Credentials = credentials.New(backend, nil)
+
+	if _, refusal := respond(t, service, "a", "credentials/set", `{"key":"db.main","secret":"s3cret"}`); refusal != nil {
+		t.Fatalf("set: %+v", refusal)
+	}
+	result, refusal := respond(t, service, "a", "credentials/get", `{"key":"db.main"}`)
+	if refusal != nil || string(result) != `{"secret":"s3cret"}` {
+		t.Fatalf("get = %s %+v", result, refusal)
+	}
+	if result, refusal := respond(t, service, "b", "credentials/get", `{"key":"db.main"}`); refusal != nil || result != nil {
+		t.Fatalf("another plugin read the secret: %s %+v", result, refusal)
+	}
+	if _, refusal := respond(t, service, "a", "credentials/get", `{"key":"db.main","extra":1}`); refusal == nil || refusal.Code != "plugin.host.invalidParams" {
+		t.Fatalf("unknown param: %+v", refusal)
+	}
+	if _, refusal := respond(t, service, "a", "credentials/delete", `{"key":"db.main"}`); refusal != nil {
+		t.Fatalf("delete: %+v", refusal)
+	}
+	if _, refusal := respond(t, service, "a", "credentials/delete", `{"key":"db.main"}`); refusal != nil {
+		t.Fatalf("deleting twice: %+v", refusal)
+	}
+	if result, _ := respond(t, service, "a", "credentials/get", `{"key":"db.main"}`); result != nil {
+		t.Fatalf("still present: %s", result)
+	}
+	for _, item := range backend.log {
+		if strings.Contains(item, "s3cret") {
+			t.Fatalf("a secret reached a log: %q", item)
+		}
+	}
+}
+
+type memoryCredentials struct {
+	items map[string]string
+	log   []string
+}
+
+func (m *memoryCredentials) Get(service, account string) (string, error) {
+	if v, ok := m.items[service+"|"+account]; ok {
+		return v, nil
+	}
+	return "", credentials.ErrNotFound
+}
+func (m *memoryCredentials) Set(service, account, secret string) error {
+	m.items[service+"|"+account] = secret
+	return nil
+}
+func (m *memoryCredentials) Delete(service, account string) error {
+	delete(m.items, service+"|"+account)
+	return nil
 }

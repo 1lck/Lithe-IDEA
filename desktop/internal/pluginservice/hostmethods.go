@@ -1,6 +1,7 @@
 package pluginservice
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -59,6 +60,9 @@ func (s *Service) registerHostServices() error {
 	// A language-server request waits for the server, up to the request's own
 	// timeout (at most 300 s), so the machine deadline of 30 s must not cut it.
 	if err := s.HostServices.RegisterUserChoice(methodLSRequest, s.handleLanguageServerRequest); err != nil {
+		return err
+	}
+	if err := s.registerCredentials(); err != nil {
 		return err
 	}
 	for _, grant := range []string{grantWorkspace, grantFunctions} {
@@ -278,4 +282,15 @@ func coreFailure(err error) *pluginhost.Failure {
 		return &pluginhost.Failure{Code: coreErr.Details, Message: coreErr.Message}
 	}
 	return failure(pluginhost.CodeHostFailure, fmt.Sprint(err))
+}
+
+// decodeStrict decodes params and refuses a field the method does not define, as
+// the contract asks of a host that sees params Core did not type.
+func decodeStrict(params json.RawMessage, into any) error {
+	if len(bytes.TrimSpace(params)) == 0 {
+		params = json.RawMessage("{}")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(params))
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(into)
 }

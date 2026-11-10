@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/credentials"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugininstall"
@@ -66,6 +67,8 @@ type Service struct {
 	Settings *pluginsettings.Store
 	// HostServices is the registry a backend's grants are narrowed against.
 	HostServices *pluginhost.Services
+	// Credentials is the platform secret store behind credentials/*.
+	Credentials *credentials.Store
 	// Host starts plugin backends on demand and calls their functions.
 	Host *BackendHost
 	// Contexts holds the workspace contexts plugin backends see.
@@ -104,6 +107,7 @@ func Open(kernel Kernel, preferences *store.Store, root string) (*Service, error
 		Backend:      pluginbackend.New(kernel, hostServices),
 		Settings:     pluginsettings.New(kernel, preferences.Dir()),
 		HostServices: hostServices,
+		Credentials:  credentials.Default(),
 		kernel:       kernel,
 	}
 	service.Host = newBackendHost(service)
