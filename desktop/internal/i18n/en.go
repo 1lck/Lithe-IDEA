@@ -480,5 +480,6 @@ var english = Messages{
 	Debug:  debugMessages(English),
 	Run:    runMessages(English),
 	AI:     aiMessages(English),
+	MCP:    mcpMessages(English),
 	Sync:   syncMessages(English),
 }

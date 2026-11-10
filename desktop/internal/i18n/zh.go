@@ -480,5 +480,6 @@ var chinese = Messages{
 	Debug:  debugMessages(Chinese),
 	Run:    runMessages(Chinese),
 	AI:     aiMessages(Chinese),
+	MCP:    mcpMessages(Chinese),
 	Sync:   syncMessages(Chinese),
 }

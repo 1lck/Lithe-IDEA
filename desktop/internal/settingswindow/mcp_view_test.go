@@ -63,7 +63,7 @@ func TestMCPPageShowsRealServersAndDeletesAfterConfirmation(t *testing.T) {
 	if got := summary(w.mcp.library.Snapshot.Rows[0].Definition); got != "https://example.invalid/mcp" {
 		t.Fatalf("summary = %q", got)
 	}
-	del := w.mcpText("delete")
+	del := w.text.MCP.Delete
 	d.click(del)
 	if len(fake.applied) != 0 {
 		t.Fatal("delete did not ask first")

@@ -5,40 +5,32 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
-// mcpText is a catalog word of the MCP page.
-func (w *window) mcpText(key string) string {
-	return i18n.Shared(w.marketLanguage(), "desktop.mcp."+key)
-}
+func (w *window) mcpIssue(issue core.McpDraftIssue) string { return w.text.MCP.Issue(issue.Code) }
 
-func (w *window) mcpFormat(key, name, value string) string {
-	return i18n.SharedFormat(w.marketLanguage(), "desktop.mcp."+key, map[string]string{name: value})
-}
+func (w *window) mcpRejection(r *core.McpBatchRejection) string { return w.text.MCP.Rejection(r.Code) }
 
-// issueText is the words of one validation code from Core.
-func (w *window) mcpIssue(issue core.McpDraftIssue) string {
-	switch issue.Code {
-	case "nameRequired", "nameInvalid", "agentsRequired", "duplicateKeys", "commandRequired",
-		"commandMalformed", "urlInvalid", "bearerTokenRequired", "allowedDirectoriesRequired":
-		return w.mcpText("issue." + issue.Code)
+func (w *window) mcpAgentName(agent string) string {
+	if agent == "claude" {
+		return w.text.MCP.Claude
 	}
-	return w.mcpText("issue.other")
+	return w.text.MCP.Codex
 }
 
-func (w *window) mcpRejection(r *core.McpBatchRejection) string {
-	switch r.Code {
-	case "notOwned", "externallyModified", "agentHasNoGlobalConfiguration":
-		return w.mcpText("rejected." + r.Code)
+// mcpTransportName is the words of a transport.
+func (w *window) mcpTransportName(transport string) string {
+	switch transport {
+	case "http":
+		return w.text.MCP.Http
+	case "sse":
+		return w.text.MCP.Sse
 	}
-	return w.mcpText("rejected.other")
+	return w.text.MCP.Stdio
 }
-
-func (w *window) mcpAgentName(agent string) string { return w.mcpText(agent) }
 
 // mcpPage is the MCP Configuration page: the servers of the real Codex and Claude Code files,
 // an editor, and discovery from the featured catalog and the official registry.
@@ -47,9 +39,9 @@ func (w *window) mcpPage(c ui.C) {
 	s.begin()
 	p := &w.pal
 	w.pageScroll(c, pageMCP, func() {
-		ui.Wrap(c, w.mcpText("intro")).FontSize(12).Color(p.muted)
-		w.card(c, w.mcpText("servers"), w.mcpText("help"), func() { w.mcpServers(c) })
-		w.card(c, w.mcpText("registry"), "", func() { w.mcpDiscovery(c) })
+		ui.Wrap(c, w.text.MCP.Intro).FontSize(12).Color(p.muted)
+		w.card(c, w.text.MCP.Servers, w.text.MCP.Help, func() { w.mcpServers(c) })
+		w.card(c, w.text.MCP.Registry, "", func() { w.mcpDiscovery(c) })
 	})
 	if s.editor.open {
 		w.mcpEditorDialog(c)
@@ -66,38 +58,38 @@ func (w *window) mcpServers(c ui.C) {
 	s, p := w.mcp, &w.pal
 	ui.Column(c).FillWidth().Gap(6).Children(func() {
 		ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
-			if ui.Button(c, w.mcpText("add")).Disabled(s.working() || !s.loaded).Clicked() {
+			if ui.Button(c, w.text.MCP.Add).Disabled(s.working() || !s.loaded).Clicked() {
 				s.openEditor(nil, nil, "", func(command string, args []string) string { return w.mcpLine(command, args) })
 			}
-			if ui.Button(c, w.mcpText("reload")).Outline().Disabled(s.working()).Clicked() {
+			if ui.Button(c, w.text.MCP.Reload).Outline().Disabled(s.working()).Clicked() {
 				s.reload()
 			}
 			if s.working() {
-				ui.Text(c, w.mcpText("working")).FontSize(12).Color(p.muted)
+				ui.Text(c, w.text.MCP.Working).FontSize(12).Color(p.muted)
 			}
 		})
 		for _, failure := range s.library.ReadFailures {
-			ui.Wrap(c.Key("rf"+failure.File), w.mcpFormat("fileUnreadable", "file", failure.Path)).FontSize(12).Color(p.danger)
+			ui.Wrap(c.Key("rf"+failure.File), w.text.MCP.FileUnreadable(failure.Path)).FontSize(12).Color(p.danger)
 		}
 		for _, failure := range s.library.Snapshot.Failures {
-			ui.Wrap(c.Key("pf"+failure.File), w.mcpFormat("parseFailed", "file", failure.File)).FontSize(12).Color(p.danger)
+			ui.Wrap(c.Key("pf"+failure.File), w.text.MCP.ParseFailed(failure.File)).FontSize(12).Color(p.danger)
 		}
 		if s.load.err != nil {
-			ui.Wrap(c, w.mcpFormat("loadFailed", "reason", s.load.err.Error())).FontSize(12).Color(p.danger)
+			ui.Wrap(c, w.text.MCP.LoadFailed(s.load.err.Error())).FontSize(12).Color(p.danger)
 		}
 		if s.writeErr != nil {
-			ui.Wrap(c, w.mcpFormat("writeFailed", "reason", s.writeErr.Error())).FontSize(12).Color(p.danger)
+			ui.Wrap(c, w.text.MCP.WriteFailed(s.writeErr.Error())).FontSize(12).Color(p.danger)
 		} else if s.outcome != nil && s.outcome.Status == "ready" {
-			ui.Text(c, w.mcpText("saved")).FontSize(12).Color(p.muted)
+			ui.Text(c, w.text.MCP.Saved).FontSize(12).Color(p.muted)
 		} else if s.outcome != nil && s.outcome.Status == "rejected" && s.outcome.Rejection != nil && !s.editor.open {
 			ui.Wrap(c, w.mcpRejection(s.outcome.Rejection)).FontSize(12).Color(p.danger)
 		}
 		if !s.loaded {
-			ui.Text(c, w.mcpText("loading")).FontSize(12).Color(p.muted)
+			ui.Text(c, w.text.MCP.Loading).FontSize(12).Color(p.muted)
 			return
 		}
 		if len(s.library.Snapshot.Rows) == 0 {
-			ui.Text(c, w.mcpText("empty")).FontSize(12).Color(p.muted)
+			ui.Text(c, w.text.MCP.Empty).FontSize(12).Color(p.muted)
 		}
 		for i := range s.library.Snapshot.Rows {
 			w.mcpRow(c, &s.library.Snapshot.Rows[i])
@@ -116,23 +108,23 @@ func (w *window) mcpRow(c ui.C, row *core.McpLibraryRow) {
 				}
 			}
 			if row.ProjectOnly {
-				ui.Text(c, w.mcpText("projectOnly")).FontSize(11).Color(p.muted).Shrink(0)
+				ui.Text(c, w.text.MCP.ProjectOnly).FontSize(11).Color(p.muted).Shrink(0)
 			}
 			ui.Spacer(c)
 			global := len(globalFiles(*row)) > 0
-			if ui.Button(c, w.mcpText("detect")).Outline().Disabled(s.probe.busy || !global).Clicked() {
+			if ui.Button(c, w.text.MCP.Detect).Outline().Disabled(s.probe.busy || !global).Clicked() {
 				w.mcpDetect(row)
 			}
-			if ui.Button(c, w.mcpText("edit")).Outline().Disabled(s.working() || !global).Clicked() {
+			if ui.Button(c, w.text.MCP.Edit).Outline().Disabled(s.working() || !global).Clicked() {
 				s.openEditor(row, nil, "", func(command string, args []string) string { return w.mcpLine(command, args) })
 			}
-			if ui.Button(c, w.mcpText("delete")).Outline().Disabled(s.working() || !global).Clicked() {
+			if ui.Button(c, w.text.MCP.Delete).Outline().Disabled(s.working() || !global).Clicked() {
 				s.confirmDelete = row.ID
 			}
 		})
 		ui.Text(c, summary(row.Definition)).FontSize(12).Color(p.muted).Ellipsis()
 		if row.HasDefinitionConflict {
-			ui.Wrap(c, w.mcpText("conflictNote")).FontSize(11).Color(p.muted)
+			ui.Wrap(c, w.text.MCP.ConflictNote).FontSize(11).Color(p.muted)
 		}
 		w.mcpTools(c, row)
 	})
@@ -211,27 +203,27 @@ const errSSE = mcpError("sse")
 func (w *window) mcpTools(c ui.C, row *core.McpLibraryRow) {
 	s, p := w.mcp, &w.pal
 	if s.probe.busy && s.probeRow == row.ID {
-		ui.Text(c, w.mcpText("detecting")).FontSize(12).Color(p.muted)
+		ui.Text(c, w.text.MCP.Detecting).FontSize(12).Color(p.muted)
 	}
 	if err := s.probeErr[row.ID]; err != nil {
 		if err == errSSE {
-			ui.Text(c, w.mcpText("sseUnsupported")).FontSize(12).Color(p.muted)
+			ui.Text(c, w.text.MCP.SseUnsupported).FontSize(12).Color(p.muted)
 		} else {
-			ui.Wrap(c, w.mcpFormat("detectFailed", "reason", err.Error())).FontSize(12).Color(p.danger)
+			ui.Wrap(c, w.text.MCP.DetectFailed(err.Error())).FontSize(12).Color(p.danger)
 		}
 	}
 	if s.probe.err != nil && s.probeRow == row.ID && !s.probe.busy {
-		ui.Wrap(c, w.mcpFormat("detectFailed", "reason", s.probe.err.Error())).FontSize(12).Color(p.danger)
+		ui.Wrap(c, w.text.MCP.DetectFailed(s.probe.err.Error())).FontSize(12).Color(p.danger)
 	}
 	probed, ok := s.probed[row.ID]
 	if !ok {
 		return
 	}
 	if len(probed.tools) == 0 {
-		ui.Text(c, w.mcpText("noTools")).FontSize(12).Color(p.muted)
+		ui.Text(c, w.text.MCP.NoTools).FontSize(12).Color(p.muted)
 		return
 	}
-	ui.Text(c, w.mcpText("tools")).FontSize(11).Weight(gfx.WeightSemibold).Color(p.muted)
+	ui.Text(c, w.text.MCP.Tools).FontSize(11).Weight(gfx.WeightSemibold).Color(p.muted)
 	names := make([]string, len(probed.tools))
 	for i, tool := range probed.tools {
 		names[i] = tool.Name
@@ -256,13 +248,13 @@ func (w *window) mcpTools(c ui.C, row *core.McpLibraryRow) {
 					w.mcpSetTool(row, agent, names, tool.Name, on)
 				}
 				if !editable {
-					box.Tooltip(w.mcpText("toolLocked"))
+					box.Tooltip(w.text.MCP.ToolLocked)
 				}
 			}
 		})
 	}
 	if s.toolError != nil {
-		ui.Wrap(c, w.mcpFormat("toolFailed", "reason", s.toolError.Error())).FontSize(12).Color(p.danger)
+		ui.Wrap(c, w.text.MCP.ToolFailed(s.toolError.Error())).FontSize(12).Color(p.danger)
 	}
 }
 
@@ -279,32 +271,32 @@ func (w *window) mcpSetTool(row *core.McpLibraryRow, agent string, names []strin
 func (w *window) mcpEditorDialog(c ui.C) {
 	s, p := w.mcp, &w.pal
 	e := &s.editor
-	title := w.mcpText("addTitle")
+	title := w.text.MCP.AddTitle
 	if e.original != nil {
-		title = w.mcpText("editTitle")
+		title = w.text.MCP.EditTitle
 	}
 	open := true
 	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: 520}, func() {
 		ui.Scroll(c).FillWidth().MaxHeight(420).Children(func() {
 			ui.Column(c).FillWidth().Gap(8).Children(func() {
-				ui.TextField(c.Part("name"), &e.name, w.mcpText("name"), w.mcpText("name")).FillWidth()
+				ui.TextField(c.Part("name"), &e.name, w.text.MCP.Name, w.text.MCP.Name).FillWidth()
 				ui.Row(c).FillWidth().Gap(12).Items(ui.Center).Children(func() {
 					for _, t := range []string{"stdio", "http", "sse"} {
-						w.radio(c.Key("t"+t), &e.transport, t, w.mcpText(t), false)
+						w.radio(c.Key("t"+t), &e.transport, t, w.mcpTransportName(t), false)
 					}
 				})
 				if e.transport == "stdio" {
-					ui.TextField(c.Part("command"), &e.command, w.mcpText("command"), w.mcpText("commandHelp")).FillWidth()
+					ui.TextField(c.Part("command"), &e.command, w.text.MCP.Command, w.text.MCP.CommandHelp).FillWidth()
 				} else {
-					ui.TextField(c.Part("url"), &e.url, w.mcpText("url"), "https://").FillWidth()
+					ui.TextField(c.Part("url"), &e.url, w.text.MCP.Url, "https://").FillWidth()
 				}
 				if e.transport == "stdio" {
-					ui.TextArea(c.Part("env"), &e.env, w.mcpText("env"), w.mcpText("env")).FillWidth().Height(70)
+					ui.TextArea(c.Part("env"), &e.env, w.text.MCP.Env, w.text.MCP.Env).FillWidth().Height(70)
 				} else {
-					ui.TextArea(c.Part("headers"), &e.headers, w.mcpText("headers"), w.mcpText("headers")).FillWidth().Height(70)
+					ui.TextArea(c.Part("headers"), &e.headers, w.text.MCP.Headers, w.text.MCP.Headers).FillWidth().Height(70)
 				}
-				ui.Text(c, w.mcpText("secretsHint")).FontSize(11).Color(p.muted)
-				ui.Text(c, w.mcpText("agents")).FontSize(12).Weight(gfx.WeightSemibold).Color(p.muted)
+				ui.Text(c, w.text.MCP.SecretsHint).FontSize(11).Color(p.muted)
+				ui.Text(c, w.text.MCP.Agents).FontSize(12).Weight(gfx.WeightSemibold).Color(p.muted)
 				ui.Row(c).FillWidth().Gap(12).Children(func() {
 					for _, agent := range mcpAgents {
 						on := e.agents[agent]
@@ -320,15 +312,15 @@ func (w *window) mcpEditorDialog(c ui.C) {
 					ui.Wrap(c, w.mcpRejection(e.rejection)).FontSize(12).Color(p.danger)
 				}
 				if s.writeErr != nil {
-					ui.Wrap(c, w.mcpFormat("writeFailed", "reason", s.writeErr.Error())).FontSize(12).Color(p.danger)
+					ui.Wrap(c, w.text.MCP.WriteFailed(s.writeErr.Error())).FontSize(12).Color(p.danger)
 				}
 			})
 		})
 	}, func() {
-		if ui.Button(c, w.mcpText("cancel")).Outline().Clicked() {
+		if ui.Button(c, w.text.MCP.Cancel).Outline().Clicked() {
 			e.open = false
 		}
-		if ui.Button(c, w.mcpText("save")).Disabled(s.working()).Clicked() {
+		if ui.Button(c, w.text.MCP.Save).Disabled(s.working()).Clicked() {
 			w.mcpSave()
 		}
 	})
@@ -356,11 +348,11 @@ func (w *window) mcpDeleteDialog(c ui.C) {
 	s := w.mcp
 	id := s.confirmDelete
 	open := true
-	closed := ui.ModalWith(c, &open, w.mcpText("deleteTitle"), ui.ModalSpec{Description: w.mcpText("deleteBody"), Width: 420}, func() {}, func() {
-		if ui.Button(c, w.mcpText("cancel")).Outline().Clicked() {
+	closed := ui.ModalWith(c, &open, w.text.MCP.DeleteTitle, ui.ModalSpec{Description: w.text.MCP.DeleteBody, Width: 420}, func() {}, func() {
+		if ui.Button(c, w.text.MCP.Cancel).Outline().Clicked() {
 			s.confirmDelete = ""
 		}
-		if ui.Button(c, w.mcpText("delete")).Clicked() {
+		if ui.Button(c, w.text.MCP.Delete).Clicked() {
 			s.confirmDelete = ""
 			w.mcpDelete(id)
 		}
@@ -391,11 +383,11 @@ func (w *window) mcpProbeDialog(c ui.C) {
 	s := w.mcp
 	id := s.confirmProbe
 	open := true
-	closed := ui.ModalWith(c, &open, w.mcpText("detectConfirmTitle"), ui.ModalSpec{Description: w.mcpText("detectConfirmBody"), Width: 420}, func() {}, func() {
-		if ui.Button(c, w.mcpText("cancel")).Outline().Clicked() {
+	closed := ui.ModalWith(c, &open, w.text.MCP.DetectConfirmTitle, ui.ModalSpec{Description: w.text.MCP.DetectConfirmBody, Width: 420}, func() {}, func() {
+		if ui.Button(c, w.text.MCP.Cancel).Outline().Clicked() {
 			s.confirmProbe = ""
 		}
-		if ui.Button(c, w.mcpText("detectContinue")).Clicked() {
+		if ui.Button(c, w.text.MCP.DetectContinue).Clicked() {
 			s.confirmProbe = ""
 			w.mcpRunProbe(id)
 		}
@@ -410,31 +402,31 @@ func (w *window) mcpDiscovery(c ui.C) {
 	s, p := w.mcp, &w.pal
 	ui.Column(c).FillWidth().Gap(6).Children(func() {
 		ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
-			field := ui.TextField(c.Part("q"), &s.query, w.mcpText("searchPlaceholder"), w.mcpText("searchPlaceholder")).Icon(icons.Search).Grow(1).MinWidth(0).Height(30)
+			field := ui.TextField(c.Part("q"), &s.query, w.text.MCP.SearchPlaceholder, w.text.MCP.SearchPlaceholder).Icon(icons.Search).Grow(1).MinWidth(0).Height(30)
 			enter := field.Submitted()
-			if (ui.Button(c, w.mcpText("search")).Disabled(s.search.busy).Clicked() || enter) && !s.search.busy {
+			if (ui.Button(c, w.text.MCP.Search).Disabled(s.search.busy).Clicked() || enter) && !s.search.busy {
 				w.mcpSearch("", false)
 			}
 		})
-		page, title := s.featuredPage, w.mcpText("featured")
+		page, title := s.featuredPage, w.text.MCP.Featured
 		if s.searched {
-			page, title = s.searchPage, w.mcpText("search")
+			page, title = s.searchPage, w.text.MCP.Search
 		}
 		ui.Text(c, title).FontSize(11).Weight(gfx.WeightSemibold).Color(p.muted)
 		if s.search.busy {
-			ui.Text(c, w.mcpText("searching")).FontSize(12).Color(p.muted)
+			ui.Text(c, w.text.MCP.Searching).FontSize(12).Color(p.muted)
 		}
 		if s.search.err != nil {
-			ui.Wrap(c, w.mcpFormat("searchFailed", "reason", s.search.err.Error())).FontSize(12).Color(p.danger)
+			ui.Wrap(c, w.text.MCP.SearchFailed(s.search.err.Error())).FontSize(12).Color(p.danger)
 		}
 		if s.searched && len(page.Entries) == 0 && !s.search.busy && s.search.err == nil {
-			ui.Text(c, w.mcpText("noResults")).FontSize(12).Color(p.muted)
+			ui.Text(c, w.text.MCP.NoResults).FontSize(12).Color(p.muted)
 		}
 		for i := range page.Entries {
 			w.mcpRegistryRow(c, &page.Entries[i])
 		}
 		if s.searched && page.NextCursor != nil && !s.search.busy {
-			if ui.Button(c, w.mcpText("more")).Outline().Clicked() {
+			if ui.Button(c, w.text.MCP.More).Outline().Clicked() {
 				w.mcpSearch(*page.NextCursor, true)
 			}
 		}
@@ -463,10 +455,10 @@ func (w *window) mcpRegistryRow(c ui.C, entry *core.McpRegistryEntry) {
 			ui.Text(c, entry.Title).FontSize(13).Weight(gfx.WeightSemibold).Color(p.text).Ellipsis().Shrink(1)
 			ui.Spacer(c)
 			if entry.Draft == nil {
-				ui.Text(c, w.mcpText("docsOnly")).FontSize(11).Color(p.muted)
+				ui.Text(c, w.text.MCP.DocsOnly).FontSize(11).Color(p.muted)
 				return
 			}
-			if ui.Button(c, w.mcpText("addFromRegistry")).Outline().Disabled(s.working() || !s.loaded).Clicked() {
+			if ui.Button(c, w.text.MCP.AddFromRegistry).Outline().Disabled(s.working() || !s.loaded).Clicked() {
 				draft := *entry.Draft
 				s.openEditor(nil, &draft, entry.Setup, func(command string, args []string) string { return w.mcpLine(command, args) })
 			}
