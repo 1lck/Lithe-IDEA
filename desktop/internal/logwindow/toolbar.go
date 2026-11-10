@@ -60,6 +60,15 @@ const (
 	toolbarTimeHint = "YYYY-MM-DD HH:MM:SS"
 )
 
+// levelPart names the toggle of each level among the toolbar's controls.
+var levelPart = func() map[core.LogLevel]string {
+	parts := map[core.LogLevel]string{}
+	for _, level := range core.LogLevels {
+		parts[level] = "level-" + string(level)
+	}
+	return parts
+}()
+
 // toolbarTimeLayouts are the forms a time may be typed in the time range editor: the form
 // the editor writes, the same with a T between date and time, and without seconds.
 var toolbarTimeLayouts = []string{toolbarTimeFormat, "2006-01-02T15:04:05", "2006-01-02 15:04"}
@@ -341,7 +350,7 @@ func (w *window) levelToggle(c ui.C, level core.LogLevel) {
 		}
 	}
 	on := enabled
-	toggle := ui.ToggleBase(c.Part("level-"+string(level)), &on, string(level)).Height(toolbarLevelHeight).Shrink(0).
+	toggle := ui.ToggleBase(c.Part(levelPart[level]), &on, string(level)).Height(toolbarLevelHeight).Shrink(0).
 		PadX(toolbarLevelPad).Items(ui.Center).Background(fill).Radius(toolbarLevelRadius).Stroke(1, stroke).
 		Children(func() {
 			label := w.mono(c, string(level), toolbarLevelFont, textColor)

@@ -61,12 +61,18 @@ const (
 	tableHighlightAlpha = 0.3
 	// tableFieldSlots bounds the fields of one row that can be clicked.
 	tableFieldSlots = 256
+	// tableFieldCache is how many records keep their painted fields before the cache starts
+	// again.
+	tableFieldCache = 2048
 
 	// The widths of the context menus.
 	tableHeaderMenuWidth = 150
 	tableRowMenuWidth    = 220
 	tableSubmenuWidth    = 140
 )
+
+// tableColumnPart names the cells of a column in a row or in the header.
+var tableColumnPart = [tableColumnCount]string{"column-0", "column-1", "column-2", "column-3", "column-4", "column-5", "column-6"}
 
 // The columns of the table, in the order of the columns variable.
 const (
@@ -124,6 +130,9 @@ type tableState struct {
 	// them again. language is the messages they were made with.
 	hints    map[string]runHint
 	language *i18n.Messages
+
+	// fields are the painted fields of the records near the screen, by record key.
+	fields map[int][]fieldItem
 }
 
 // runHint is the tooltip of one folded run.
@@ -326,7 +335,7 @@ func (w *window) tableHeader(c ui.C, grid *tableGrid, widths *[tableColumnCount]
 		ui.Row(c).Width(max(rowWidth, viewport)).Height(tableHeaderHeight).Items(ui.Center).ScrollWith(&w.table.list).Children(func() {
 			for _, column := range grid.visible[:grid.count] {
 				title := w.tableColumnTitle(column)
-				cell := w.sizeTableCell(ui.Row(c.Part("column-"+strconv.Itoa(column))), grid, column, tableHeaderHeight)
+				cell := w.sizeTableCell(ui.Row(c.Part(tableColumnPart[column])), grid, column, tableHeaderHeight)
 				if column == tableColSeq {
 					cell = cell.Justify(ui.End)
 				}
@@ -444,7 +453,7 @@ func (w *window) tableRow(row ui.ListRow, grid *tableGrid, widths *[tableColumnC
 	ui.ContextMenu(c, row.Element, func(menu *ui.MenuItems) { w.rowMenu(menu, i) })
 
 	for _, column := range grid.visible[:grid.count] {
-		cell := w.sizeTableCell(ui.Row(c.Part("column-"+strconv.Itoa(column))), grid, column, tableRowHeight)
+		cell := w.sizeTableCell(ui.Row(c.Part(tableColumnPart[column])), grid, column, tableRowHeight)
 		if column == tableColSeq {
 			cell = cell.Justify(ui.End)
 		}
@@ -483,7 +492,7 @@ func (w *window) tableCell(c ui.C, column, i int, rows []displayRow, width float
 	case tableColMessage:
 		w.messageCell(c, row, record, width, p, hint)
 	case tableColFields:
-		w.fieldsCell(c, record, width, p)
+		w.fieldsCell(c, record, w.model.keyBase+row.index, width, p)
 	}
 }
 
@@ -529,46 +538,87 @@ func (w *window) messageCell(c ui.C, row displayRow, record *core.LogRecord, wid
 	}
 }
 
+// fieldKind says what a field value is, which decides its color.
+type fieldKind uint8
+
+const (
+	fieldText fieldKind = iota
+	fieldBool
+	fieldNumber
+	fieldRedacted
+)
+
+// fieldItem is one field of a record, ready to paint: its key and "key=" text, its value
+// as it is shown (quoted when it is text) and what kind of value it is.
+type fieldItem struct {
+	key, keyText, shown string
+	kind                fieldKind
+}
+
+// fieldItems are the fields of the record with the given key, sorted by key. The record
+// does not change, so they are made once while the row is near the screen.
+func (t *tableState) fieldItems(recordKey int, fields map[string]string) []fieldItem {
+	if items, ok := t.fields[recordKey]; ok {
+		return items
+	}
+	if t.fields == nil || len(t.fields) > tableFieldCache {
+		t.fields = map[int][]fieldItem{}
+	}
+	items := make([]fieldItem, 0, len(fields))
+	for _, key := range slices.Sorted(maps.Keys(fields)) {
+		value := fields[key]
+		item := fieldItem{key: key, keyText: key + "=", shown: value}
+		switch {
+		case tableRedacted(value):
+			item.kind = fieldRedacted
+		case value == "true" || value == "false":
+			item.kind = fieldBool
+		case tableIsNumber(value):
+			item.kind = fieldNumber
+		default:
+			item.shown = `"` + value + `"`
+		}
+		items = append(items, item)
+	}
+	t.fields[recordKey] = items
+	return items
+}
+
 // fieldsCell declares the fields of a row as key=value pairs: keys in cyan, values in pink
 // (booleans), blue (numbers), green (text, quoted) or gray (redacted). A value that is not
 // redacted adds the field to the filter when it is pressed.
-func (w *window) fieldsCell(c ui.C, record *core.LogRecord, width float32, p *tableRowPaint) {
+func (w *window) fieldsCell(c ui.C, record *core.LogRecord, recordKey int, width float32, p *tableRowPaint) {
 	cells := 0
 	if p.cellW > 0 {
 		cells = int(width / p.cellW)
 	}
 	used := 0
-	for slot, key := range slices.Sorted(maps.Keys(record.Fields)) {
+	for slot, item := range w.table.fieldItems(recordKey, record.Fields) {
 		if used >= cells {
 			return
 		}
-		value := record.Fields[key]
-		redacted := tableRedacted(value)
-		shown, color := value, w.pal.grn
-		switch {
-		case redacted:
+		color := w.pal.grn
+		switch item.kind {
+		case fieldRedacted:
 			color = w.pal.tx3
-		case value == "true" || value == "false":
+		case fieldBool:
 			color = w.pal.pnk
-		case tableIsNumber(value):
+		case fieldNumber:
 			color = w.pal.blu
-		default:
-			shown = `"` + value + `"`
 		}
-		parts := [2]struct {
-			text  string
-			color ui.Color
-			link  bool
-		}{{key + "=", w.pal.cyn, false}, {shown, color, !redacted}}
-		for _, part := range parts {
-			text, taken, cut := tableFit(part.text, cells-used)
+		for part := range 2 {
+			text, textColor := item.keyText, w.pal.cyn
+			if part == 1 {
+				text, textColor = item.shown, color
+			}
+			text, taken, cut := tableFit(text, cells-used)
 			if text == "" {
 				return
 			}
-			box := w.mono(c, tableFlatten(text), tableCellFont, part.color).Shrink(0)
-			if part.link && slot < tableFieldSlots {
-				if box.HitWith(ui.ID(c), key, gfx.HitOptions{Role: gfx.RoleLink, SkipFocus: true}).Clicked() {
-					w.model.compose(core.LogFilterTerm{Kind: "field", Key: key, Value: value})
+			box := w.mono(c, tableFlatten(text), tableCellFont, textColor).Shrink(0)
+			if part == 1 && item.kind != fieldRedacted && slot < tableFieldSlots {
+				if box.HitWith(ui.ID(c), item.key, gfx.HitOptions{Role: gfx.RoleLink, SkipFocus: true}).Clicked() {
+					w.model.compose(core.LogFilterTerm{Kind: "field", Key: item.key, Value: record.Fields[item.key]})
 				}
 			}
 			used += taken
