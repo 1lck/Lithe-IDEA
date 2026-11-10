@@ -9,7 +9,7 @@
     "evidence": [
       ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
       "desktop/internal/core/git_rebase.go",
-      "desktop/internal/core/git_worktrees.go",
+      "desktop/internal/core/git_stash.go",
       "desktop/internal/workbench/gitreview_tools.go",
       "desktop/internal/workbench/gitreview_tools_view.go",
       "desktop/internal/workbench/gitreview_test.go"
@@ -21,7 +21,7 @@
     "evidence": [
       ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
       "desktop/internal/core/git_rebase.go",
-      "desktop/internal/core/git_worktrees.go",
+      "desktop/internal/core/git_stash.go",
       "desktop/internal/workbench/gitreview_tools.go",
       "desktop/internal/workbench/gitreview_tools_view.go",
       "desktop/internal/workbench/gitreview_test.go"
