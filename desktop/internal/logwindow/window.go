@@ -16,7 +16,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/sysinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/windowcontrols"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
 	vivatext "github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
@@ -157,69 +156,21 @@ func (c *Controller) Wait() {
 	}
 }
 
-// The identities of the window's frame. The toolbar, the table, the channel list, the
-// histogram and the details declare their own under page, next to their code.
-var (
-	tree = gfx.Tree{}
-	page = tree.Feature("logs")
-
-	// The text fields of the window. A field the window paints must also be listed in
-	// config's TextInput.
-	filterID       = tree.ID(page, "filter")
-	bookmarkNameID = tree.ID(page, "bookmark-name")
-	rangeStartID   = tree.ID(page, "range-start")
-	rangeEndID     = tree.ID(page, "range-end")
-
-	retryID        = tree.ID(page, "retry")
-	newLogsID      = tree.ID(page, "new-logs")
-	detailsDivider = tree.ID(page, "details-divider")
-	// menuDismiss is the backdrop of an open menu: a press anywhere outside the menu closes
-	// it.
-	menuDismiss = tree.ID(page, "menu-dismiss")
-
-	clearScope   = tree.ID(page, "clear-dialog")
-	clearCancel  = tree.ID(page, "clear-cancel")
-	clearConfirm = tree.ID(page, "clear-confirm")
-	clearClose   = tree.ID(page, "clear-close")
-
-	bookmarkScope  = tree.ID(page, "bookmark-dialog")
-	bookmarkCancel = tree.ID(page, "bookmark-cancel")
-	bookmarkSave   = tree.ID(page, "bookmark-save")
-	bookmarkClose  = tree.ID(page, "bookmark-close")
-)
-
 const (
 	// titleHeight is the height of the window's title bar.
 	titleHeight = 28
 	// sidebarWidth is the width of the channel list.
 	sidebarWidth = 212
-	// The details pane is detailsDefault tall, or detailsShare of the body when that is
-	// more, and the user can drag it between detailsMin and detailsMax. The table keeps at
-	// least tableMin of the body.
-	detailsDefault = 196
-	detailsShare   = 0.28
-	detailsMin     = 130
-	detailsMax     = 420
-	tableMin       = 100
+	// The details pane takes detailsShare of the body at first and the user can drag the
+	// splitter above it. The table keeps at least tableMin of the body, the details
+	// detailsMin.
+	detailsShare = 0.36
+	detailsMin   = 130
+	tableMin     = 100
 	// statusHeight is the height of the status bar.
 	statusHeight = 24
 	// pulsePeriod is a full cycle of the following pulse, which dims and brightens again.
 	pulsePeriod = 1400 * time.Millisecond
-	// tooltipDelay is how long the pointer rests on a control before its hint shows.
-	tooltipDelay = 500 * time.Millisecond
-	// tooltipLayer is over the menus and the dialogs.
-	tooltipLayer = 6
-)
-
-// dialogKind is the dialog the window shows.
-type dialogKind int
-
-const (
-	dialogNone dialogKind = iota
-	// dialogClear confirms deleting the collected logs.
-	dialogClear
-	// dialogBookmark asks for the name of the filter to save.
-	dialogBookmark
 )
 
 // window is one open log window. Everything in it runs on its window thread.
@@ -228,57 +179,68 @@ type window struct {
 	model *Model
 	win   *app.Window
 	inv   app.Invalidator
-	view  ui.View
+	page  *ui.Page
 	pal   palette
-	theme gfx.Theme
-	text  *i18n.Messages
-	tip   components.HoverTooltip
+	theme ui.Theme
+	// background is the color the page fills the window with, which follows the palette.
+	background ui.Color
+	text       *i18n.Messages
 
 	// started says the model was started, in the window's first paint.
 	started bool
 
-	filter, bookmarkName, rangeStart, rangeEnd ui.Field
-	// filterRevision is the model's expressionRevision the filter field shows, and
-	// lastFilter the text it had after the last paint: a change the user typed is told
-	// apart from one the model made.
+	// filterText is what the filter field shows and filterRevision the model's
+	// expressionRevision it was set from: an expression the model changed (a composed term,
+	// an applied bookmark) replaces the text, and typing becomes the expression.
+	filterText     string
 	filterRevision int
-	lastFilter     string
 	// focusFilter asks the next paint to focus the filter field (⌘F).
 	focusFilter bool
-	// editing says a text field had the focus in the last paint, so ⌘C copies its text
-	// and not the selected records.
-	editing bool
 
-	menu menuState
-	// anchors are the controls the toolbar's menus open under, for the frame being drawn.
-	anchors map[menuKind]ui.Box
-	dialog  dialogKind
+	// The toolbar's menus and the time range editor, whether each is open, and the texts
+	// of the editor's fields. rangeSeeded says the fields were filled for the editor that is
+	// open, so typing in them is not overwritten; usedLoaded says the size of the log
+	// directory was measured for the maintenance menu that is open.
+	menus                   toolbarMenus
+	rangeStart, rangeEnd    string
+	rangeSeeded, usedLoaded bool
+	clearOpen, bookmarkOpen bool
+	bookmarkName            string
 
-	// bodyBox is the column of the table and the details; bodyHeight is its height in the
-	// last frame, which bounds the details' height.
-	bodyBox    ui.Box
-	bodyHeight float32
-	// detailsHeight is the height the user dragged the details to; zero is the default.
-	detailsHeight float32
-	dragging      bool
-	dragStartY    float32
-	dragStartH    float32
+	// split is the divider between the table and the details.
+	split ui.SplitterState
 
-	toolbar   toolbarState
 	table     tableState
 	sidebar   sidebarState
 	histogram histogramState
 	details   detailsState
 }
 
-// newWindow returns a window of c over model, which Open sets once the options are complete.
-func newWindow(c *Controller, model *Model) *window {
-	return &window{ctrl: c, model: model, filterRevision: -1, anchors: map[menuKind]ui.Box{}}
+// toolbarMenus say which of the toolbar's menus is open.
+type toolbarMenus struct {
+	session, timeRange, saved, columns, maintenance bool
 }
 
-// config is the native window's configuration.
+// newWindow returns a window of c over model, which Open sets once the options are complete.
+func newWindow(c *Controller, model *Model) *window {
+	w := &window{ctrl: c, model: model, filterRevision: -1}
+	w.split = ui.SplitterState{Pos: 400, Ratio: 1 - detailsShare}
+	w.table.init(w)
+	w.histogram.init(w)
+	w.sidebar.init()
+	return w
+}
+
+// config is the native window's configuration: the page paints it and takes its input.
 func (w *window) config() app.Config {
-	return app.Config{
+	w.look()
+	w.page = ui.NewPage(ui.PageConfig{
+		View:        w.view,
+		Theme:       &w.theme,
+		Background:  &w.background,
+		Invalidator: &w.inv,
+	})
+	config := w.page.Config(app.Config{
 		Title:          w.ctrl.text().Logs.Logs,
 		Icon:           appicon.Window(),
 		Width:          1100,
@@ -288,16 +250,29 @@ func (w *window) config() app.Config {
 		WindowMode:     app.WindowCustomTitlebar,
 		TitlebarHeight: titleHeight,
 		WindowControls: func() app.WindowControlsStyle { return windowcontrols.Style(w.pal.tx, w.ctrl.text()) },
-		Tree:           &tree,
-		Paint:          w.paint,
-		OnKey:          w.onKey,
-		OnShortcut:     w.onShortcut,
-		OnScroll:       w.onScroll,
-		TextInput:      ui.Fields(&w.filter, &w.bookmarkName, &w.rangeStart, &w.rangeEnd),
 		Invalidator:    &w.inv,
 		OnWake:         w.model.drain,
 		OnClosed:       w.closed,
+	})
+	// The language and the appearance can change between two paints: the palette and the
+	// theme that follows it are chosen again before the page reads them.
+	paint := config.Paint
+	config.Paint = func(canvas *gfx.Canvas, size gfx.Size) {
+		w.look()
+		paint(canvas, size)
 	}
+	return config
+}
+
+// look chooses the language, the palette and the theme the next paint uses.
+func (w *window) look() {
+	w.text = w.ctrl.text()
+	w.pal = lightPalette()
+	if w.ctrl.opts.Dark != nil && w.ctrl.opts.Dark() {
+		w.pal = darkPalette()
+	}
+	w.theme = windowTheme(w.pal)
+	w.background = w.pal.bg
 }
 
 // closed stops the model once the native window is gone. The export sheet goes first, so
@@ -318,10 +293,10 @@ func (w *window) closed() {
 
 // windowTheme maps the palette onto the theme the Viva controls paint with, so a field, a
 // button or a dialog in the window takes the log window's colors.
-func windowTheme(p palette) gfx.Theme {
-	theme := gfx.LightTheme()
+func windowTheme(p palette) ui.Theme {
+	theme := ui.LightTheme()
 	if p.dark {
-		theme = gfx.DarkTheme()
+		theme = ui.DarkTheme()
 	}
 	theme.Metrics = theme.Metrics.WithDensity(gfx.DensityCompact)
 	theme.Background, theme.Foreground = p.bg, p.tx
@@ -334,112 +309,77 @@ func windowTheme(p palette) gfx.Theme {
 	return theme
 }
 
-func (w *window) paint(canvas *gfx.Canvas, size gfx.Size) {
-	w.text = w.ctrl.text()
-	w.pal = lightPalette()
-	if w.ctrl.opts.Dark != nil && w.ctrl.opts.Dark() {
-		w.pal = darkPalette()
-	}
-	w.theme = windowTheme(w.pal)
-	bounds := gfx.Rect{Width: size.Width, Height: size.Height}
-	canvas.Fill(bounds, w.pal.bg)
+// view declares the window: the title bar, the toolbar, the errors, the histogram, the
+// channel list with the table and the details, the status bar, and over them the dialogs
+// and the export sheet.
+func (w *window) view(c ui.C) {
 	if !w.started {
 		w.started = true
 		w.model.start()
 		w.model.loadUsedBytes()
 	}
-	if w.focusFilter {
-		w.focusFilter = false
-		canvas.RequestFocus(filterID)
+	w.model.declareQuery(c)
+	if ui.Shortcut(c, ui.Primary, "f") {
+		w.focusFilter = true
 	}
-	switch canvas.Focused() {
-	case filterID, bookmarkNameID, rangeStartID, rangeEndID:
-		w.editing = true
-	default:
-		w.editing = false
+	if ui.Shortcut(c, ui.Primary, "w") {
+		w.win.Close()
 	}
-	w.syncFilter()
-	clear(w.anchors)
-
-	w.view.Draw(canvas, w.theme, bounds, func(f *ui.Frame) {
-		f.PopupLayer(1)
-		f.Column().Fill().Children(func() {
-			w.drawTitle(f)
-			w.drawToolbar(f)
-			w.drawFilterError(f)
-			w.drawLoadError(f)
-			w.drawHistogram(f)
-			w.drawBody(f)
-			w.drawStatus(f)
-		})
-		w.drawMenus(f)
-		w.drawDialogs(f)
-		w.drawExportSheet(f, bounds)
+	ui.Column(c).Fill().Children(func() {
+		w.title(c)
+		w.toolbar(c)
+		w.filterError(c)
+		w.loadError(c)
+		w.histogramStrip(c)
+		w.body(c)
+		w.status(c)
 	})
-	w.bodyHeight = w.bodyBox.Rect().Height
-	w.lastFilter = w.filter.Text()
-
-	w.tip.Paint(canvas, w.theme, bounds, components.TooltipOptions{Layer: tooltipLayer, MaxWidth: 320}, tooltipDelay)
+	w.dialogs(c)
+	w.exportSheet(c)
 	if w.model.follows {
 		// The pulse in the status bar breathes while the window follows the log.
-		canvas.RequestFrameIn(50 * time.Millisecond)
+		c.Canvas().RequestFrameIn(50 * time.Millisecond)
 	} else if w.model.diagnosticsLeft() > 0 {
 		// The diagnostics card counts down.
-		canvas.RequestFrameIn(time.Second)
+		c.Canvas().RequestFrameIn(time.Second)
 	}
 }
 
-// syncFilter keeps the filter field and the model's expression in step. An expression the
-// model changed (a composed term, an applied bookmark) replaces the field's text; text the
-// user typed becomes the expression.
-func (w *window) syncFilter() {
-	if w.filterRevision != w.model.expressionRevision {
-		w.filterRevision = w.model.expressionRevision
-		w.filter.SetText(w.model.prefs.Query.Expression)
-		w.lastFilter = w.filter.Text()
-		return
-	}
-	if text := w.filter.Text(); text != w.lastFilter {
-		w.lastFilter = text
-		w.model.setExpression(text)
-	}
-}
-
-// drawTitle is the title bar: the directory of the session the window shows, and the
-// shortcut that opens the window at the trailing end. The whole bar moves the window.
-func (w *window) drawTitle(f *ui.Frame) {
+// title is the title bar: the directory of the session the window shows, and the shortcut
+// that opens the window at the trailing end. The whole bar moves the window.
+func (w *window) title(c ui.C) {
 	title := w.text.Logs.Logs
 	if w.model.directory != "" {
 		title = abbreviateHome(filepath.Join(w.model.directory, w.model.currentSessionPath))
 	}
 	leading, trailing := app.TitlebarInsets()
-	f.Stack().FillWidth().Height(titleHeight).Shrink(0).Background(w.pal.bg3).MovesWindow().Children(func() {
+	ui.Stack(c).FillWidth().Height(titleHeight).Shrink(0).Background(w.pal.bg3).MovesWindow().Children(func() {
 		// The system's window buttons sit at the leading end, so the title keeps clear of
 		// them on that side and is centered in what is left.
-		f.Row().Fill().PadSides(0, max(60, trailing+60), 0, max(80, leading+10)).Center().Children(func() {
-			f.Text(title).FontSize(13).Weight(gfx.WeightSemibold).Color(w.pal.tx).Ellipsis()
+		ui.Row(c).Fill().PadSides(0, max(60, trailing+60), 0, max(80, leading+10)).Center().Children(func() {
+			ui.Text(c, title).FontSize(13).Weight(gfx.WeightSemibold).Color(w.pal.tx).Ellipsis()
 		})
 		if w.ctrl.opts.Shortcut != "" {
-			f.Row().Absolute().Top(0).Bottom(0).Right(12).Items(ui.Center).Children(func() {
-				f.Row().PadX(5).PadY(1).Radius(4).Border(1, w.pal.bd).Children(func() {
-					w.mono(f, w.ctrl.opts.Shortcut, 11, w.pal.tx2)
+			ui.Row(c).Absolute().Top(0).Bottom(0).Right(12).Items(ui.Center).Children(func() {
+				ui.Row(c).PadX(5).PadY(1).Radius(4).Border(1, w.pal.bd).Children(func() {
+					w.mono(c, w.ctrl.opts.Shortcut, 11, w.pal.tx2)
 				})
 			})
 		}
 	})
 }
 
-// drawFilterError shows the first syntax error of the filter with a caret under the part of
+// filterError shows the first syntax error of the filter with a caret under the part of
 // the expression it is about.
-func (w *window) drawFilterError(f *ui.Frame) {
+func (w *window) filterError(c ui.C) {
 	if len(w.model.diagnostics) == 0 {
 		return
 	}
 	d := w.model.diagnostics[0]
 	caret := strings.Repeat(" ", min(128, max(0, d.Start))) + strings.Repeat("^", max(1, min(128, d.End-d.Start)))
-	f.Column().FillWidth().Shrink(0).PadX(10).Gap(2).Children(func() {
-		w.mono(f, w.text.Logs.FilterError(d.Start, d.End, w.filterReason(d.Code, d.Message)), 12.5, w.pal.red)
-		w.mono(f, caret, 11, w.pal.red)
+	ui.Column(c).FillWidth().Shrink(0).PadX(10).Gap(2).Children(func() {
+		w.mono(c, w.text.Logs.FilterError(d.Start, d.End, w.filterReason(d.Code, d.Message)), 12.5, w.pal.red)
+		w.mono(c, caret, 11, w.pal.red)
 	})
 }
 
@@ -472,273 +412,135 @@ func (w *window) filterReason(code, message string) string {
 	return message
 }
 
-// drawLoadError says the logs could not be read and offers to read them again.
-func (w *window) drawLoadError(f *ui.Frame) {
+// loadError says the logs could not be read and offers to read them again.
+func (w *window) loadError(c ui.C) {
 	if !w.model.failed {
 		return
 	}
-	f.Row().FillWidth().Shrink(0).PadX(10).PadY(4).Gap(8).Items(ui.Center).Children(func() {
-		w.mono(f, w.text.Logs.LoadFailed, 12.5, w.pal.red)
-		if f.Button(retryID, w.text.Logs.Retry).XSmall().Outline().Clicked() {
+	ui.Row(c).FillWidth().Shrink(0).PadX(10).PadY(4).Gap(8).Items(ui.Center).Children(func() {
+		w.mono(c, w.text.Logs.LoadFailed, 12.5, w.pal.red)
+		if ui.Button(c, w.text.Logs.Retry).XSmall().Outline().Clicked() {
 			w.model.retry()
 		}
 	})
 }
 
-// drawBody is the channel list beside the table, with the details under the table.
-func (w *window) drawBody(f *ui.Frame) {
-	f.Row().FillWidth().Grow(1).Shrink(1).MinHeight(0).Children(func() {
-		f.Column().Width(sidebarWidth).FillHeight().Shrink(0).Background(w.pal.bg2).Clip().PadSides(8, 0, 0, 0).Children(func() {
-			w.drawSidebar(f)
+// body is the channel list beside the table, with the details under the table. ⌘C copies
+// the selected records while the keyboard focus is anywhere in it; in the toolbar it is the
+// filter field's.
+func (w *window) body(c ui.C) {
+	body := ui.Row(c).FillWidth().Grow(1).Shrink(1).MinHeight(0)
+	body.Children(func() {
+		ui.Column(c).Width(sidebarWidth).FillHeight().Shrink(0).Background(w.pal.bg2).Clip().PadSides(8, 0, 0, 0).Children(func() {
+			w.sidebarPanel(c)
 		})
-		f.Row().Width(1).FillHeight().Shrink(0).Background(w.pal.line)
-		w.bodyBox = f.Column().Grow(1).Shrink(1).FillHeight().MinWidth(0).Children(func() {
-			f.Stack().FillWidth().Grow(1).Shrink(1).MinHeight(0).Clip().Children(func() {
-				w.drawTable(f)
+		ui.Row(c).Width(1).FillHeight().Shrink(0).Background(w.pal.line)
+		ui.Column(c).Grow(1).Shrink(1).FillHeight().MinWidth(0).Children(func() {
+			ui.Stack(c).FillWidth().Height(w.split.Pos).Shrink(0).Clip().Children(func() {
+				w.tablePanel(c)
 				if len(w.model.records) == 0 {
 					empty := w.text.Logs.NoMatches
 					if w.model.cleared {
 						empty = w.text.Logs.ViewCleared
 					}
-					f.Row().Fill().Center().Children(func() {
-						w.mono(f, empty, 12.5, w.pal.tx3)
+					ui.Row(c).Fill().Center().Children(func() {
+						w.mono(c, empty, 12.5, w.pal.tx3)
 					})
 				}
 				if !w.model.follows && w.model.newCount > 0 {
-					w.drawNewLogs(f)
+					w.newLogs(c)
 				}
 			})
-			height := w.detailsPaneHeight(f.Canvas())
-			f.Row().FillWidth().Height(1).Shrink(0).Background(w.pal.line).
-				HitWith(detailsDivider, "", gfx.HitOptions{Role: gfx.RoleSeparator, Cursor: gfx.PointerCursorResizeVertical, SkipFocus: true}).
-				HitOutset(3, 0, 3, 0)
-			f.Column().FillWidth().Height(height).Shrink(0).Background(w.pal.bg2).Clip().Children(func() {
-				w.drawDetails(f)
+			ui.Splitter(c, &w.split).Mins(tableMin, detailsMin)
+			ui.Column(c).FillWidth().Grow(1).Shrink(1).MinHeight(0).Background(w.pal.bg2).Clip().Children(func() {
+				w.detailsPanel(c)
 			})
 		})
 	})
+	if body.Shortcut(ui.Primary, "c") {
+		w.model.copyFormatted(w.model.selectedRecords(), "json")
+	}
 }
 
-// drawNewLogs is the capsule at the bottom of the table that says how many records arrived
+// newLogs is the capsule at the bottom of the table that says how many records arrived
 // while the user looked elsewhere, and jumps to them.
-func (w *window) drawNewLogs(f *ui.Frame) {
-	f.Row().Fill().Justify(ui.Center).Items(ui.End).PadSides(0, 0, 8, 0).Children(func() {
-		capsule := f.Row().PadX(14).PadY(4).Radius(999).Background(w.pal.blu).
-			HitWith(newLogsID, w.text.Logs.NewLogs(w.model.newCount), gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}).
-			Children(func() {
-				w.mono(f, w.text.Logs.NewLogs(w.model.newCount), 12.5, w.pal.white)
-			})
+func (w *window) newLogs(c ui.C) {
+	ui.Row(c).Fill().Justify(ui.Center).Items(ui.End).PadSides(0, 0, 8, 0).Children(func() {
+		label := w.text.Logs.NewLogs(w.model.newCount)
+		capsule := ui.ButtonBase(c.Part("new-logs"), label).PadX(14).PadY(4).Radius(999).Background(w.pal.blu).Children(func() {
+			w.mono(c, label, 12.5, w.pal.white)
+		})
 		if capsule.Clicked() {
 			w.model.resume()
 		}
 	})
 }
 
-// detailsPaneHeight follows a drag of the divider over the details and returns the height
-// the details take in this frame.
-func (w *window) detailsPaneHeight(canvas *gfx.Canvas) float32 {
-	if event, ok := canvas.PointerOn(detailsDivider); ok {
-		switch event.Kind {
-		case gfx.PointerDown:
-			if event.Button == gfx.PointerButtonPrimary {
-				w.dragging = true
-				w.dragStartY = event.Y
-				w.dragStartH = w.currentDetailsHeight()
-				canvas.Consume()
-			}
-		case gfx.PointerMove:
-			if w.dragging {
-				w.detailsHeight = w.clampDetails(w.dragStartH - (event.Y - w.dragStartY))
-				canvas.Consume()
-			}
-		case gfx.PointerUp, gfx.PointerExit:
-			if w.dragging {
-				w.dragging = false
-				canvas.Consume()
-			}
-		}
-	}
-	return w.currentDetailsHeight()
-}
-
-// currentDetailsHeight is the height of the details: the one the user dragged to, or the
-// default share of the body, kept inside the bounds the body allows.
-func (w *window) currentDetailsHeight() float32 {
-	if w.bodyHeight <= 0 {
-		// The first frame does not know the body's height yet.
-		return detailsDefault
-	}
-	height := w.detailsHeight
-	if height == 0 {
-		height = max(detailsDefault, w.bodyHeight*detailsShare)
-	}
-	return w.clampDetails(height)
-}
-
-func (w *window) clampDetails(height float32) float32 {
-	limit := float32(detailsMax)
-	if w.bodyHeight > 0 {
-		limit = max(detailsMin, min(detailsMax, w.bodyHeight-tableMin-1))
-	}
-	return min(limit, max(detailsMin, height))
-}
-
-// drawStatus is the bar along the bottom: whether the window follows the log, how many rows
-// it shows, and the writer's counters.
-func (w *window) drawStatus(f *ui.Frame) {
+// status is the bar along the bottom: whether the window follows the log, how many rows it
+// shows, and the writer's counters.
+func (w *window) status(c ui.C) {
 	m := w.model
-	f.Row().FillWidth().Height(statusHeight).Shrink(0).PadX(10).Gap(16).Items(ui.Center).Background(w.pal.foot).Children(func() {
-		f.Row().Gap(5).Items(ui.Center).Children(func() {
+	ui.Row(c).FillWidth().Height(statusHeight).Shrink(0).PadX(10).Gap(16).Items(ui.Center).Background(w.pal.foot).Children(func() {
+		ui.Row(c).Gap(5).Items(ui.Center).Children(func() {
 			label := w.text.Logs.Paused
 			if m.follows {
-				f.Row().Size(7, 7).Radius(3.5).Background(w.pal.pulse).Opacity(pulseOpacity(f.Canvas().Now()))
+				ui.Row(c).Size(7, 7).Radius(3.5).Background(w.pal.pulse).Opacity(pulseOpacity(c.Canvas().Now()))
 				label = w.text.Logs.Tailing
 			} else {
-				w.mono(f, "❚❚", 11.5, w.pal.white)
+				w.mono(c, "❚❚", 11.5, w.pal.white)
 				if m.scrolledUp {
 					label = w.text.Logs.PausedScrolledUp
 				}
 			}
-			w.mono(f, label, 11.5, w.pal.white)
+			w.mono(c, label, 11.5, w.pal.white)
 		})
-		w.mono(f, w.text.Logs.VisibleCount(groupNumber(len(m.displayRows())), groupNumber(m.totalRecords()), strconv.Itoa(m.selectedLine())), 11.5, w.pal.white)
-		f.Spacer()
-		w.mono(f, w.text.Logs.Dropped(m.discarded+m.dropped), 11.5, w.pal.white)
-		w.mono(f, w.text.Logs.WriteFailures(m.writeFailures), 11.5, w.pal.white)
-		w.mono(f, "v2 · UTF-8 · NDJSON", 11.5, w.pal.white)
+		w.mono(c, w.text.Logs.VisibleCount(groupNumber(len(m.displayRows())), groupNumber(m.totalRecords()), strconv.Itoa(m.selectedLine())), 11.5, w.pal.white)
+		ui.Spacer(c)
+		w.mono(c, w.text.Logs.Dropped(m.discarded+m.dropped), 11.5, w.pal.white)
+		w.mono(c, w.text.Logs.WriteFailures(m.writeFailures), 11.5, w.pal.white)
+		w.mono(c, "v2 · UTF-8 · NDJSON", 11.5, w.pal.white)
 	})
 }
 
-// pulseOpacity is the opacity of the following pulse at time now: it eases from 1 down to
-// 0.25 and back over pulsePeriod.
-func pulseOpacity(now time.Duration) float32 {
-	half := pulsePeriod / 2
-	t := float64(now%pulsePeriod) / float64(half)
-	if t > 1 {
-		t = 2 - t
-	}
-	eased := (1 - math.Cos(math.Pi*t)) / 2
-	return float32(1 - 0.75*eased)
-}
-
-// drawDialogs declares the dialog that is open.
-func (w *window) drawDialogs(f *ui.Frame) {
-	switch w.dialog {
-	case dialogClear:
-		dialog := f.Dialog(ui.DialogSpec{
-			Title:       w.text.Logs.ClearTitle,
-			Description: w.text.Logs.ClearMessage,
-			Width:       420,
-			Scope:       clearScope,
-			DismissID:   clearCancel,
-			CloseID:     clearClose,
-		})
-		dialog.Footer(func() {
-			f.Button(clearCancel, w.text.Logs.Cancel).Outline()
-			if f.Button(clearConfirm, w.text.Logs.ClearAction).Destructive().Clicked() {
-				w.model.clearLogs()
-				w.dialog = dialogNone
-			}
-		})
-		if dialog.Dismissed() {
-			w.dialog = dialogNone
+// dialogs declares the dialog that is open: the confirmation of clearing the logs, and the
+// name of a filter to save.
+func (w *window) dialogs(c ui.C) {
+	logs := &w.text.Logs
+	ui.ModalWith(c, &w.clearOpen, logs.ClearTitle, ui.ModalSpec{Description: logs.ClearMessage, Width: 420}, nil, func() {
+		if ui.Button(c, logs.Cancel).Outline().Clicked() {
+			w.clearOpen = false
 		}
-	case dialogBookmark:
-		dialog := f.Dialog(ui.DialogSpec{
-			Title:          w.text.Logs.NameForFilter,
-			Width:          360,
-			Scope:          bookmarkScope,
-			DismissID:      bookmarkCancel,
-			CloseID:        bookmarkClose,
-			InitialFocusID: bookmarkNameID,
-		})
-		submitted := false
-		dialog.Body(func() {
-			submitted = f.Field(&w.bookmarkName, bookmarkNameID, w.text.Logs.NameForFilter, w.text.Logs.NameForFilter).FillWidth().Submitted()
-		})
-		dialog.Footer(func() {
-			f.Button(bookmarkCancel, w.text.Logs.Cancel).Outline()
-			if f.Button(bookmarkSave, w.text.Logs.Save).Clicked() {
-				submitted = true
-			}
-		})
-		if submitted {
-			w.model.saveBookmark(w.bookmarkName.Text())
-			w.bookmarkName.SetText("")
-			w.dialog = dialogNone
-		} else if dialog.Dismissed() {
-			w.bookmarkName.SetText("")
-			w.dialog = dialogNone
+		if ui.Button(c, logs.ClearAction).Destructive().Clicked() {
+			w.model.clearLogs()
+			w.clearOpen = false
 		}
-	}
-}
-
-func (w *window) onScroll(event gfx.ScrollEvent) gfx.EventResult {
-	result := w.view.Wheel(event)
-	w.tableScrolled()
-	return result
-}
-
-func (w *window) onKey(event gfx.KeyEvent) gfx.EventResult {
-	if event.Release {
-		return gfx.EventResult{}
-	}
-	if event.Key == gfx.KeyEscape && w.menu.kind != menuNone {
-		w.closeMenu()
-		return gfx.EventResult{Handled: true, Repaint: true}
-	}
-	if w.model.export.presented {
-		return w.exportKey(event)
-	}
-	if w.dialog != dialogNone || w.editing {
-		return gfx.EventResult{}
-	}
-	return w.tableKey(event)
-}
-
-// onShortcut handles the window's command shortcuts: ⌘F focuses the filter, ⌘C copies the
-// selected records and ⌘W closes the window. While a dialog or the export sheet is open, only
-// ⌘W works.
-func (w *window) onShortcut(event gfx.KeyEvent) gfx.EventResult {
-	if event.Release || event.Modifiers != gfx.ModifierMeta {
-		return gfx.EventResult{}
-	}
-	if (w.dialog != dialogNone || w.model.export.presented) && event.Text != "w" {
-		return gfx.EventResult{}
-	}
-	switch event.Text {
-	case "f":
-		w.focusFilter = true
-	case "c":
-		if w.editing {
-			// The field copies its own selection.
-			return gfx.EventResult{}
+	})
+	closed := ui.ModalWith(c, &w.bookmarkOpen, logs.NameForFilter, ui.ModalSpec{Width: 360}, func() {
+		field := ui.TextField(c, &w.bookmarkName, logs.NameForFilter, logs.NameForFilter).FillWidth()
+		if field.Submitted() {
+			w.saveBookmark()
 		}
-		w.model.copyFormatted(w.model.selectedRecords(), "json")
-	case "w":
-		w.win.Close()
-	default:
-		return gfx.EventResult{}
-	}
-	return gfx.EventResult{Handled: true, Repaint: true}
-}
-
-// revealRecord shows the file of the selected record in the file manager.
-func (w *window) revealRecord() {
-	record, ok := w.model.selectedRecord()
-	if !ok || w.model.directory == "" || w.model.opts.Reveal == nil {
-		return
-	}
-	relative := record.RelativePath
-	if !strings.HasPrefix(relative, "sessions/") {
-		relative = w.model.currentSessionPath + "/" + relative
-	}
-	if err := w.model.opts.Reveal(filepath.Join(w.model.directory, filepath.FromSlash(relative))); err != nil {
-		w.model.report(err)
+	}, func() {
+		if ui.Button(c, logs.Cancel).Outline().Clicked() {
+			w.bookmarkOpen = false
+		}
+		if ui.Button(c, logs.Save).Clicked() {
+			w.saveBookmark()
+		}
+	})
+	if closed {
+		w.bookmarkName = ""
 	}
 }
 
-// buttonOptions are the variations of a toolbar button.
+// saveBookmark saves the current filter under the name typed in the dialog and closes it.
+func (w *window) saveBookmark() {
+	w.model.saveBookmark(w.bookmarkName)
+	w.bookmarkName = ""
+	w.bookmarkOpen = false
+}
+
+// buttonOptions are the variations of one of the window's buttons.
 type buttonOptions struct {
 	// active draws the button in the accent color; recording draws its text green.
 	active, recording bool
@@ -755,9 +557,9 @@ type buttonOptions struct {
 }
 
 // button declares one of the window's own buttons, in the look of the macOS client's: a
-// symbol and a title on the window's background with a thin border. It returns the button,
-// for Clicked and as the anchor of a menu it opens.
-func (w *window) button(f *ui.Frame, id gfx.ID, symbol, title string, o buttonOptions) ui.Box {
+// symbol and a title on the window's background with a thin border. name tells it from the
+// buttons beside it. It returns the button, for Clicked and as the anchor of a menu it opens.
+func (w *window) button(c ui.C, name, symbol, title string, o buttonOptions) ui.Box {
 	height := o.height
 	if height == 0 {
 		height = 28
@@ -777,39 +579,42 @@ func (w *window) button(f *ui.Frame, id gfx.ID, symbol, title string, o buttonOp
 	if o.active {
 		border = w.pal.blu
 	}
-	box := f.Row().Height(height).Shrink(0).PadX(9).Gap(5).Items(ui.Center).
-		Background(w.pal.bg).Radius(6).Border(1, border).
-		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Hint: o.hint, Disabled: o.disabled})
+	box := ui.ButtonBase(c.Part(name), label).Height(height).Shrink(0).PadX(9).Gap(5).Items(ui.Center).
+		Background(w.pal.bg).Radius(6).Border(1, border)
+	if o.hint != "" {
+		box = box.Tooltip(o.hint)
+	}
 	if o.fullWidth {
 		box = box.FillWidth().Justify(ui.Start)
 	}
 	if o.disabled {
-		box = box.Opacity(0.45)
+		box = box.Disabled(true).Opacity(0.45)
 	} else {
 		box = box.Pressed(ui.Look{}.Background(w.pal.bg3))
 	}
-	box.Children(func() {
+	return box.Children(func() {
 		if symbol != "" {
-			w.mono(f, symbol, 12, color)
+			w.mono(c, symbol, 12, color)
 		}
 		switch {
 		case title == "":
 		case o.proportional:
-			f.Text(title).FontSize(12).Color(color).Ellipsis()
+			ui.Text(c, title).FontSize(12).Color(color).Ellipsis()
 		default:
-			w.mono(f, title, 12, color).Ellipsis()
+			w.mono(c, title, 12, color).Ellipsis()
 		}
 	})
-	return box
 }
 
 // mono declares a line of monospaced text. A ui Text measures a monospaced text as one cell
 // for every character, too few for a wide one such as a Chinese one, which is drawn on two,
-// so a text that is not all printable ASCII is given the width it is drawn at.
-func (w *window) mono(f *ui.Frame, s string, size float32, color gfx.Color) ui.Box {
-	b := f.Text(s).Mono().FontSize(size).Color(color)
+// so a text that is not all printable ASCII is given the width it is drawn at. Viva's Wrap
+// and Text have no monospaced break by cells yet (vivaui/viva#187), so wrapDetailWords and
+// the wide-character width below stay until they do.
+func (w *window) mono(c ui.C, s string, size float32, color ui.Color) ui.Box {
+	b := ui.Text(c, s).Mono().FontSize(size).Color(color)
 	if !printableASCII(s) {
-		b = b.Width(monoWidth(f.Canvas(), s, size))
+		b = b.Width(monoWidth(c.Canvas(), s, size))
 	}
 	return b
 }
@@ -841,19 +646,44 @@ func monoCells(s string) int {
 }
 
 // badge declares a small framed key, such as the ⌘F beside the filter.
-func (w *window) badge(f *ui.Frame, s string) {
-	f.Row().PadX(5).Radius(4).Border(1, w.pal.bd).Shrink(0).Children(func() {
-		w.mono(f, s, 11, w.pal.tx2)
+func (w *window) badge(c ui.C, s string) {
+	ui.Row(c).PadX(5).Radius(4).Border(1, w.pal.bd).Shrink(0).Children(func() {
+		w.mono(c, s, 11, w.pal.tx2)
 	})
 }
 
 // info declares the ⓘ that explains a control when the pointer rests on it.
-func (w *window) info(f *ui.Frame, id gfx.ID, hint string) {
-	f.Row().Size(18, 18).Shrink(0).Center().
-		HitWith(id, hint, gfx.HitOptions{Hint: hint, SkipFocus: true}).
-		Children(func() {
-			f.Icon(icons.Info).Size(12, 12).Color(w.pal.tx3)
-		})
+func (w *window) info(c ui.C, hint string) {
+	ui.Row(c).Size(18, 18).Shrink(0).Center().Hit(ui.ID(c), hint).Tooltip(hint).Children(func() {
+		ui.Icon(c, icons.Info).Size(12, 12).Color(w.pal.tx3)
+	})
+}
+
+// pulseOpacity is the opacity of the following pulse at time now: it eases from 1 down to
+// 0.25 and back over pulsePeriod.
+func pulseOpacity(now time.Duration) float32 {
+	half := pulsePeriod / 2
+	t := float64(now%pulsePeriod) / float64(half)
+	if t > 1 {
+		t = 2 - t
+	}
+	eased := (1 - math.Cos(math.Pi*t)) / 2
+	return float32(1 - 0.75*eased)
+}
+
+// revealRecord shows the file of the selected record in the file manager.
+func (w *window) revealRecord() {
+	record, ok := w.model.selectedRecord()
+	if !ok || w.model.directory == "" || w.model.opts.Reveal == nil {
+		return
+	}
+	relative := record.RelativePath
+	if !strings.HasPrefix(relative, "sessions/") {
+		relative = w.model.currentSessionPath + "/" + relative
+	}
+	if err := w.model.opts.Reveal(filepath.Join(w.model.directory, filepath.FromSlash(relative))); err != nil {
+		w.model.report(err)
+	}
 }
 
 // formatBytes is a size in the decimal units the macOS client shows: whole bytes and

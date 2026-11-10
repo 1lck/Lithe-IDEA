@@ -47,7 +47,7 @@ const (
 	toolbarRangeWidth    = 538
 	toolbarRangePad      = 12
 	toolbarEndpointWidth = 248
-	// toolbarMenuGap is the space between a button and the menu under it.
+	// toolbarMenuGap is the space between a button and the editor under it.
 	toolbarMenuGap = 4
 	// toolbarPathMax bounds the width of the maintenance menu, whose first item is the path of
 	// the log directory.
@@ -60,88 +60,9 @@ const (
 	toolbarTimeHint = "YYYY-MM-DD HH:MM:SS"
 )
 
-// The identities of the toolbar's controls and of the items of its menus.
-var (
-	toolbarScope = tree.Sub(page, tree.Name("toolbar"))
-
-	toolbarLevelScope       = tree.Sub(toolbarScope, tree.Name("levels"))
-	toolbarSessionScope     = tree.Sub(toolbarScope, tree.Name("session-items"))
-	toolbarColumnScope      = tree.Sub(toolbarScope, tree.Name("column-items"))
-	toolbarSavedScope       = tree.Sub(toolbarScope, tree.Name("saved-items"))
-	toolbarMaintenanceScope = tree.Sub(toolbarScope, tree.Name("maintenance-items"))
-
-	toolbarClearSearchID = tree.ID(toolbarScope, "clear-search")
-	toolbarFilterInfoID  = tree.ID(toolbarScope, "filter-info")
-	toolbarSessionID     = tree.ID(toolbarScope, "session")
-	toolbarRangeID       = tree.ID(toolbarScope, "time-range")
-	toolbarSavedID       = tree.ID(toolbarScope, "saved")
-	toolbarColumnsID     = tree.ID(toolbarScope, "columns")
-	toolbarExportID      = tree.ID(toolbarScope, "export")
-	toolbarCollapseID    = tree.ID(toolbarScope, "collapse")
-	toolbarTimeID        = tree.ID(toolbarScope, "time")
-	toolbarFollowID      = tree.ID(toolbarScope, "follow")
-	toolbarFollowInfoID  = tree.ID(toolbarScope, "follow-info")
-	toolbarClearViewID   = tree.ID(toolbarScope, "clear-view")
-	toolbarMaintenanceID = tree.ID(toolbarScope, "maintenance")
-
-	toolbarSaveID       = tree.ID(toolbarScope, "save-filter")
-	toolbarSavedPanelID = tree.ID(toolbarScope, "saved-panel")
-	toolbarApplyID      = tree.ID(toolbarScope, "apply-filter")
-	toolbarDeleteID     = tree.ID(toolbarScope, "delete-filter")
-	toolbarRangePanelID = tree.ID(toolbarScope, "range-panel")
-	toolbarRangeInfoID  = tree.ID(toolbarScope, "range-info")
-	toolbarRangeClearID = tree.ID(toolbarScope, "range-clear")
-	toolbarRangeApplyID = tree.ID(toolbarScope, "range-apply")
-)
-
 // toolbarTimeLayouts are the forms a time may be typed in the time range editor: the form
 // the editor writes, the same with a T between date and time, and without seconds.
 var toolbarTimeLayouts = []string{toolbarTimeFormat, "2006-01-02T15:04:05", "2006-01-02 15:04"}
-
-// toolbarState is what the toolbar keeps between frames.
-type toolbarState struct {
-	// rangeSeeded says the time range editor's fields were filled for the editor that is open.
-	// The fields are filled once when the editor opens, so typing in them is not overwritten.
-	rangeSeeded bool
-	// usedLoaded says the size of the log directory was measured for the maintenance menu that
-	// is open, so the menu shows a fresh size each time it opens but measures only once.
-	usedLoaded bool
-}
-
-// toolbarItem is one control of the toolbar: how wide it is, which decides where the line
-// breaks, and the code that declares it.
-type toolbarItem struct {
-	width float32
-	draw  func()
-}
-
-// drawToolbar is the band under the title bar: the filter field, the level toggles and the
-// buttons for the session, the time range, the saved filters, the columns, the export, the
-// display options and the log directory. The controls wrap onto further lines when the
-// window is too narrow for one; only the filter field, always the first control, grows into
-// the room a line has left. A one point line closes the band at the bottom.
-func (w *window) drawToolbar(f *ui.Frame) {
-	// An editor or a menu that is not open will be seeded again the next time it opens.
-	if w.menu.kind != menuTimeRange {
-		w.toolbar.rangeSeeded = false
-	}
-	if w.menu.kind != menuMaintenance {
-		w.toolbar.usedLoaded = false
-	}
-	lines := toolbarWrap(w.toolbarItems(f), f.Bounds().Width-2*toolbarPadX)
-	f.Stack().FillWidth().Shrink(0).Background(w.pal.bg3).Children(func() {
-		f.Column().FillWidth().PadSides(toolbarPadY, toolbarPadX, toolbarPadY, toolbarPadX).Gap(toolbarGap).Children(func() {
-			for _, line := range lines {
-				f.Row().FillWidth().Gap(toolbarGap).Items(ui.Center).Children(func() {
-					for _, item := range line {
-						item.draw()
-					}
-				})
-			}
-		})
-		f.Row().Absolute().Left(0).Right(0).Bottom(0).Height(1).Background(w.pal.line)
-	})
-}
 
 // toolbarWrap breaks the controls into lines no wider than width, the way the macOS
 // client's toolbar layout does: a control goes on the current line unless the line already
@@ -173,124 +94,6 @@ func toolbarButtonWidth(canvas *gfx.Canvas, symbol, title string) float32 {
 		width += toolbarButtonGap
 	}
 	return width
-}
-
-// toolbarItems lists the toolbar's controls in the order of the macOS client's toolbar,
-// each with its width and the code that declares it. A control that depends on the model
-// reads it when it is declared.
-func (w *window) toolbarItems(f *ui.Frame) []toolbarItem {
-	logs := &w.text.Logs
-	m := w.model
-	levelCell, _ := f.Canvas().CellSize(toolbarLevelFont)
-
-	items := []toolbarItem{{width: toolbarSearchMin, draw: func() { w.drawToolbarSearch(f) }}}
-	add := func(width float32, draw func()) {
-		items = append(items, toolbarItem{width: width, draw: draw})
-	}
-	// addButton adds a plain button that runs click, unless it is disabled.
-	addButton := func(id gfx.ID, symbol, title string, o buttonOptions, click func()) {
-		add(toolbarButtonWidth(f.Canvas(), symbol, title), func() {
-			if w.button(f, id, symbol, title, o).Clicked() && !o.disabled {
-				click()
-			}
-		})
-	}
-	// addMenu adds a button that opens the menu kind under itself.
-	addMenu := func(kind menuKind, id gfx.ID, symbol, title string, o buttonOptions) {
-		add(toolbarButtonWidth(f.Canvas(), symbol, title), func() {
-			w.toolbarMenuButton(f, kind, id, symbol, title, o)
-		})
-	}
-
-	for index, level := range core.LogLevels {
-		add(float32(len(level))*levelCell+2*toolbarLevelPad, func() { w.drawLevelToggle(f, index, level) })
-	}
-	session := w.sessionTitle(m.prefs.Query.Session)
-	addMenu(menuSession, toolbarSessionID, session, "⌄", buttonOptions{label: session})
-	addMenu(menuTimeRange, toolbarRangeID, logs.TimeRange, w.rangeLabel(), buttonOptions{})
-	addMenu(menuSaved, toolbarSavedID, "★", logs.SavedFilters, buttonOptions{})
-	addMenu(menuColumns, toolbarColumnsID, "▦", logs.Columns, buttonOptions{})
-	addButton(toolbarExportID, "⇩", logs.Export, buttonOptions{label: logs.ExportLabel}, w.openExport)
-	addButton(toolbarCollapseID, "⇊", logs.CollapseRepeats, buttonOptions{active: m.prefs.Collapse}, m.toggleCollapse)
-	addButton(toolbarTimeID, "⏱", w.timeModeTitle(), buttonOptions{}, m.cycleTime)
-	followSymbol, followTitle := "❚❚", logs.Paused
-	if m.follows {
-		followSymbol, followTitle = "●", logs.LiveFollow
-	}
-	addButton(toolbarFollowID, followSymbol, followTitle, buttonOptions{recording: m.follows}, m.toggleFollow)
-	add(toolbarInfoSize, func() { w.info(f, toolbarFollowInfoID, logs.FollowHelp) })
-	addButton(toolbarClearViewID, "⌫", logs.ClearView, buttonOptions{hint: logs.ClearViewHelp}, m.clearDisplay)
-	addMenu(menuMaintenance, toolbarMaintenanceID, "⋯", "", buttonOptions{label: logs.Maintenance})
-	return items
-}
-
-// toolbarMenuButton declares a button that opens the menu kind under itself, and registers
-// it as the anchor the menu is placed by.
-func (w *window) toolbarMenuButton(f *ui.Frame, kind menuKind, id gfx.ID, symbol, title string, o buttonOptions) {
-	box := w.button(f, id, symbol, title, o)
-	w.anchors[kind] = box
-	if box.Clicked() {
-		w.openMenu(kind)
-	}
-}
-
-// drawToolbarSearch is the filter field. Viva's field paints its own frame, so the
-// magnifier, the button that clears the text, the ⓘ and the ⌘F badge sit beside the frame
-// and not inside it as they do in the macOS client.
-func (w *window) drawToolbarSearch(f *ui.Frame) {
-	logs := &w.text.Logs
-	f.Row().Basis(toolbarSearchMin).MinWidth(toolbarSearchMin).Grow(1).Shrink(0).
-		Height(toolbarSearchHeight).PadX(toolbarSearchPad).Gap(toolbarSearchGap).Items(ui.Center).Children(func() {
-		f.Icon(icons.Search).Size(toolbarSearchIcon, toolbarSearchIcon).Color(w.pal.tx2).Shrink(0)
-		f.Field(&w.filter, filterID, logs.FilterPlaceholder, logs.FilterPlaceholder).Grow(1).MinWidth(0).Height(toolbarSearchField)
-		if w.filter.Text() != "" {
-			erase := f.Row().Size(toolbarSearchIcon, toolbarSearchIcon).Shrink(0).Center().Radius(4).
-				Hover(ui.Look{}.Background(w.pal.bg)).
-				HitWith(toolbarClearSearchID, logs.ClearSearch, gfx.HitOptions{Role: gfx.RoleButton, Hint: logs.ClearSearch, SkipFocus: true})
-			erase.Children(func() {
-				f.Icon(icons.X).Size(14, 14).Color(w.pal.tx2)
-			})
-			if erase.Clicked() {
-				// The field is emptied here and the model told too: the window compares the
-				// field with the text it had after the last paint, which this paint's end
-				// overwrites, so the field alone would not reach the model.
-				w.filter.SetText("")
-				w.model.replaceExpression("")
-			}
-		}
-		w.info(f, toolbarFilterInfoID, logs.FilterHelp)
-		w.badge(f, "⌘F")
-	})
-}
-
-// drawLevelToggle is the button that shows or hides one level. A shown level is filled in
-// its own color (gray for DEBUG); a hidden one is an outline on the window's background.
-func (w *window) drawLevelToggle(f *ui.Frame, index int, level core.LogLevel) {
-	enabled := w.model.levelEnabled(level)
-	fill, stroke, textColor := w.pal.bg, w.pal.bd, w.pal.tx2
-	if enabled {
-		fill = w.pal.levelColor(level)
-		if level == core.LevelDebug {
-			fill = w.pal.tx2
-		}
-		stroke = fill
-		textColor = w.pal.white
-		if w.pal.dark {
-			textColor = w.pal.bg
-		}
-	}
-	box := f.Row().Height(toolbarLevelHeight).Shrink(0).PadX(toolbarLevelPad).Items(ui.Center).
-		Background(fill).Radius(toolbarLevelRadius).Stroke(1, stroke).
-		HitWith(toolbarLevelScope.At(index), string(level), gfx.HitOptions{Role: gfx.RoleButton, Checked: enabled})
-	box.Children(func() {
-		label := w.mono(f, string(level), toolbarLevelFont, textColor)
-		if enabled {
-			label.Weight(gfx.WeightSemibold)
-		}
-	})
-	if box.Clicked() {
-		w.model.toggleLevel(level)
-	}
 }
 
 // sessionTitle is the session button's text for a session.
@@ -383,181 +186,311 @@ func (w *window) timeZoneLine() string {
 	return name + " (" + utc + ")"
 }
 
-// drawToolbarMenu declares the open menu of a toolbar button, under the button. A menu whose
-// button was not declared in this frame is not drawn.
-func (w *window) drawToolbarMenu(f *ui.Frame) {
-	anchor, ok := w.anchors[w.menu.kind]
-	if !ok {
-		return
-	}
-	below := func(b ui.Box) ui.Box { return b.BelowBox(anchor, toolbarMenuGap, ui.Start) }
-	switch w.menu.kind {
-	case menuSession:
-		w.drawSessionMenu(f, below)
-	case menuTimeRange:
-		w.drawRangeMenu(f, below)
-	case menuSaved:
-		w.drawSavedMenu(f, below)
-	case menuColumns:
-		w.drawColumnMenu(f, below)
-	case menuMaintenance:
-		w.drawMaintenanceMenu(f, below)
-	}
+// toolbarItem is one control of the toolbar: how wide it is, which decides where the line
+// breaks, and the code that declares it.
+type toolbarItem struct {
+	width float32
+	draw  func()
 }
 
-// drawSessionMenu is the choice between the current, the previous and every session.
-func (w *window) drawSessionMenu(f *ui.Frame, place func(ui.Box) ui.Box) {
-	w.menuSurface(f, place, 170, func() {
-		for index, session := range sessions {
-			chosen := w.menuItem(f, toolbarSessionScope.At(index), w.sessionTitle(session),
-				itemOptions{checked: w.model.prefs.Query.Session == session, top: true})
-			if chosen {
-				w.model.setSession(session)
+// toolbar is the band under the title bar: the filter field, the level toggles and the
+// buttons for the session, the time range, the saved filters, the columns, the export, the
+// display options and the log directory. The controls wrap onto further lines when the
+// window is too narrow for one; only the filter field, always the first control, grows into
+// the room a line has left. A one point line closes the band at the bottom.
+func (w *window) toolbar(c ui.C) {
+	// An editor or a menu that is not open will be seeded again the next time it opens.
+	if !w.menus.timeRange {
+		w.rangeSeeded = false
+	}
+	if !w.menus.maintenance {
+		w.usedLoaded = false
+	}
+	lines := toolbarWrap(w.toolbarItems(c), c.Bounds().Width-2*toolbarPadX)
+	ui.Stack(c).FillWidth().Shrink(0).Background(w.pal.bg3).Children(func() {
+		ui.Column(c).FillWidth().PadSides(toolbarPadY, toolbarPadX, toolbarPadY, toolbarPadX).Gap(toolbarGap).Children(func() {
+			for _, line := range lines {
+				ui.Row(c).FillWidth().Gap(toolbarGap).Items(ui.Center).Children(func() {
+					for _, item := range line {
+						item.draw()
+					}
+				})
 			}
-		}
+		})
+		ui.Row(c).Absolute().Left(0).Right(0).Bottom(0).Height(1).Background(w.pal.line)
 	})
 }
 
-// drawColumnMenu is the list of the table's columns, each checked while it is shown.
-func (w *window) drawColumnMenu(f *ui.Frame, place func(ui.Box) ui.Box) {
-	w.menuSurface(f, place, 160, func() {
-		for index, column := range columns {
-			shown := !w.model.columnHidden(column)
-			if w.menuItem(f, toolbarColumnScope.At(index), w.tableColumnTitle(index), itemOptions{checked: shown, top: true}) {
-				w.model.setColumnHidden(column, shown)
-			}
-		}
-	})
-}
-
-// drawSavedMenu is the list of the saved filters, each opening a submenu that applies or
-// deletes it, and the item that saves the current filter. The submenu is a panel of its own
-// beside the item, declared after the menu so it is painted over it.
-func (w *window) drawSavedMenu(f *ui.Frame, place func(ui.Box) ui.Box) {
-	logs := &w.text.Logs
-	bookmarks := w.model.prefs.Bookmarks
-	rows := make([]ui.Box, len(bookmarks))
-	w.menuSurface(f, place, 200, func() {
-		if len(bookmarks) == 0 {
-			w.menuHeading(f, logs.NoSavedFilters)
-		}
-		for index, saved := range bookmarks {
-			rows[index] = w.menuSubmenu(f, toolbarSavedScope.At(index), saved.Name, index)
-		}
-		w.menuSeparator(f)
-		if w.menuItem(f, toolbarSaveID, logs.SaveCurrentFilter, itemOptions{disabled: len(bookmarks) >= maxBookmarks, top: true}) {
-			w.dialog = dialogBookmark
-		}
-	})
-	sub := w.menu.sub
-	if w.menu.kind != menuSaved || sub < 0 || sub >= len(bookmarks) {
-		return
-	}
-	id := bookmarks[sub].ID
-	beside := func(b ui.Box) ui.Box {
-		return b.BesideBox(rows[sub], 2, ui.Start).
-			HitWith(toolbarSavedPanelID, "", gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true})
-	}
-	w.menuPanel(f, beside, 110, func() {
-		if w.menuItem(f, toolbarApplyID, logs.Apply, itemOptions{}) {
-			w.model.applyBookmark(id)
-		}
-		if w.menuItem(f, toolbarDeleteID, logs.Delete, itemOptions{}) {
-			w.model.deleteBookmark(id)
-		}
-	})
-}
-
-// drawMaintenanceMenu is the menu of the log directory: its path, showing it in the file
-// manager, changing it, restoring the default one, and clearing the logs with the space
-// they use. The space is measured each time the menu opens.
-func (w *window) drawMaintenanceMenu(f *ui.Frame, place func(ui.Box) ui.Box) {
+// toolbarItems lists the toolbar's controls in the order of the macOS client's toolbar,
+// each with its width and the code that declares it. A control that depends on the model
+// reads it when it is declared.
+func (w *window) toolbarItems(c ui.C) []toolbarItem {
 	logs := &w.text.Logs
 	m := w.model
-	if !w.toolbar.usedLoaded {
-		w.toolbar.usedLoaded = true
-		m.loadUsedBytes()
+	levelCell, _ := c.Canvas().CellSize(toolbarLevelFont)
+
+	items := []toolbarItem{{width: toolbarSearchMin, draw: func() { w.searchField(c) }}}
+	add := func(width float32, draw func()) {
+		items = append(items, toolbarItem{width: width, draw: draw})
 	}
-	bounded := func(b ui.Box) ui.Box { return place(b).MaxWidth(toolbarPathMax) }
-	w.menuSurface(f, bounded, 240, func() {
-		w.menuItem(f, toolbarMaintenanceScope.At(0), w.logDirectoryPath(), itemOptions{disabled: true})
-		if w.menuItem(f, toolbarMaintenanceScope.At(1), logs.RevealDirectory, itemOptions{disabled: m.directory == ""}) {
-			m.revealDirectory()
+	// addButton adds a plain button that runs click, unless it is disabled.
+	addButton := func(name, symbol, title string, o buttonOptions, click func()) {
+		add(toolbarButtonWidth(c.Canvas(), symbol, title), func() {
+			if w.button(c, name, symbol, title, o).Clicked() && !o.disabled {
+				click()
+			}
+		})
+	}
+	// addMenu adds a button that opens a menu or the editor under itself; declare puts it
+	// there, hanging off the button.
+	addMenu := func(name string, open *bool, symbol, title string, o buttonOptions, declare func(anchor ui.Box)) {
+		add(toolbarButtonWidth(c.Canvas(), symbol, title), func() {
+			anchor := w.button(c, name, symbol, title, o)
+			if anchor.Clicked() {
+				*open = !*open
+			}
+			declare(anchor)
+		})
+	}
+
+	for _, level := range core.LogLevels {
+		add(float32(len(level))*levelCell+2*toolbarLevelPad, func() { w.levelToggle(c, level) })
+	}
+	session := w.sessionTitle(m.prefs.Query.Session)
+	addMenu("session", &w.menus.session, session, "⌄", buttonOptions{label: session}, func(anchor ui.Box) {
+		ui.Menu(c, anchor, &w.menus.session, w.sessionMenu)
+	})
+	addMenu("time-range", &w.menus.timeRange, logs.TimeRange, w.rangeLabel(), buttonOptions{}, func(anchor ui.Box) {
+		w.rangeEditor(c, anchor)
+	})
+	addMenu("saved", &w.menus.saved, "★", logs.SavedFilters, buttonOptions{}, func(anchor ui.Box) {
+		ui.Menu(c, anchor, &w.menus.saved, w.savedMenu)
+	})
+	addMenu("columns", &w.menus.columns, "▦", logs.Columns, buttonOptions{}, func(anchor ui.Box) {
+		ui.Menu(c, anchor, &w.menus.columns, w.columnMenu)
+	})
+	addButton("export", "⇩", logs.Export, buttonOptions{label: logs.ExportLabel}, w.openExport)
+	addButton("collapse", "⇊", logs.CollapseRepeats, buttonOptions{active: m.prefs.Collapse}, m.toggleCollapse)
+	addButton("time", "⏱", w.timeModeTitle(), buttonOptions{}, m.cycleTime)
+	followSymbol, followTitle := "❚❚", logs.Paused
+	if m.follows {
+		followSymbol, followTitle = "●", logs.LiveFollow
+	}
+	addButton("follow", followSymbol, followTitle, buttonOptions{recording: m.follows}, m.toggleFollow)
+	add(toolbarInfoSize, func() { w.info(c, logs.FollowHelp) })
+	addButton("clear-view", "⌫", logs.ClearView, buttonOptions{hint: logs.ClearViewHelp}, m.clearDisplay)
+	addMenu("maintenance", &w.menus.maintenance, "⋯", "", buttonOptions{label: logs.Maintenance}, func(anchor ui.Box) {
+		ui.Menu(c, anchor, &w.menus.maintenance, w.maintenanceMenu)
+	})
+	return items
+}
+
+// searchField is the filter field with the magnifier and the button that clears it inside
+// its frame, and the ⓘ and the ⌘F badge beside it. Typing in it becomes the model's
+// expression; an expression the model changed replaces the text.
+func (w *window) searchField(c ui.C) {
+	logs := &w.text.Logs
+	m := w.model
+	if w.filterRevision != m.expressionRevision {
+		w.filterRevision = m.expressionRevision
+		w.filterText = m.prefs.Query.Expression
+	}
+	ui.Row(c).Basis(toolbarSearchMin).MinWidth(toolbarSearchMin).Grow(1).Shrink(0).
+		Height(toolbarSearchHeight).PadX(toolbarSearchPad).Gap(toolbarSearchGap).Items(ui.Center).Children(func() {
+		field := ui.TextField(c, &w.filterText, logs.FilterPlaceholder, logs.FilterPlaceholder).
+			Icon(icons.Search).Grow(1).MinWidth(0).Height(toolbarSearchField)
+		if w.filterText != "" {
+			field = field.Action(icons.X, logs.ClearSearch)
 		}
-		if w.menuItem(f, toolbarMaintenanceScope.At(2), logs.ChangeDirectory, itemOptions{disabled: m.busy}) {
-			m.chooseDirectory()
+		if w.focusFilter {
+			// The request is kept until the field has the focus: a paint that delivers a
+			// shortcut is not the one that is shown.
+			if field.State().Focused {
+				w.focusFilter = false
+			} else {
+				field.AutoFocus()
+				c.Canvas().RequestFrame()
+			}
 		}
-		if w.menuItem(f, toolbarMaintenanceScope.At(3), logs.RestoreDirectory, itemOptions{disabled: !m.canRestoreDirectory()}) {
-			m.restoreDirectory()
+		switch {
+		case field.ActionClicked():
+			w.filterText = ""
+			m.replaceExpression("")
+		case field.Changed():
+			m.setExpression(w.filterText)
 		}
-		w.menuSeparator(f)
-		if w.menuItem(f, toolbarMaintenanceScope.At(4), logs.ClearStorage(formatBytes(m.usedBytes)), itemOptions{disabled: m.busy}) {
-			w.dialog = dialogClear
-		}
+		w.info(c, logs.FilterHelp)
+		w.badge(c, "⌘F")
 	})
 }
 
-// drawRangeMenu is the editor of the time range. The macOS client edits the two times with
-// the system's calendar and clock controls; Viva has none, so each endpoint is a text field
-// that holds the local time as YYYY-MM-DD HH:MM:SS. Apply is available while both times
-// read and the end is not before the start.
-func (w *window) drawRangeMenu(f *ui.Frame, place func(ui.Box) ui.Box) {
+// levelToggle is the button that shows or hides one level. A shown level is filled in its
+// own color (gray for DEBUG); a hidden one is an outline on the window's background.
+func (w *window) levelToggle(c ui.C, level core.LogLevel) {
+	enabled := w.model.levelEnabled(level)
+	fill, stroke, textColor := w.pal.bg, w.pal.bd, w.pal.tx2
+	if enabled {
+		fill = w.pal.levelColor(level)
+		if level == core.LevelDebug {
+			fill = w.pal.tx2
+		}
+		stroke = fill
+		textColor = w.pal.white
+		if w.pal.dark {
+			textColor = w.pal.bg
+		}
+	}
+	on := enabled
+	toggle := ui.ToggleBase(c.Part("level-"+string(level)), &on, string(level)).Height(toolbarLevelHeight).Shrink(0).
+		PadX(toolbarLevelPad).Items(ui.Center).Background(fill).Radius(toolbarLevelRadius).Stroke(1, stroke).
+		Children(func() {
+			label := w.mono(c, string(level), toolbarLevelFont, textColor)
+			if enabled {
+				label.Weight(gfx.WeightSemibold)
+			}
+		})
+	if toggle.Changed() {
+		w.model.toggleLevel(level)
+	}
+}
+
+// sessionMenu is the choice between the current, the previous and every session.
+func (w *window) sessionMenu(menu *ui.MenuItems) {
+	menu.WidthRange(170, 0)
+	for _, session := range sessions {
+		if menu.Item(w.sessionTitle(session)).Checked(w.model.prefs.Query.Session == session).Clicked() {
+			w.model.setSession(session)
+		}
+	}
+}
+
+// columnMenu is the list of the table's columns, each checked while it is shown.
+func (w *window) columnMenu(menu *ui.MenuItems) {
+	menu.WidthRange(160, 0)
+	for index, column := range columns {
+		shown := !w.model.columnHidden(column)
+		if menu.Item(w.tableColumnTitle(index)).Checked(shown).Clicked() {
+			w.model.setColumnHidden(column, shown)
+		}
+	}
+}
+
+// savedMenu is the list of the saved filters, each opening a submenu that applies or
+// deletes it, and the item that saves the current filter.
+func (w *window) savedMenu(menu *ui.MenuItems) {
 	logs := &w.text.Logs
-	if !w.toolbar.rangeSeeded {
-		w.toolbar.rangeSeeded = true
+	bookmarks := w.model.prefs.Bookmarks
+	menu.WidthRange(200, 0)
+	if len(bookmarks) == 0 {
+		menu.Label(logs.NoSavedFilters)
+	}
+	for _, saved := range bookmarks {
+		menu.Sub(saved.Name, func(sub *ui.MenuItems) {
+			sub.WidthRange(110, 0)
+			if sub.Item(logs.Apply).Clicked() {
+				w.model.applyBookmark(saved.ID)
+			}
+			if sub.Item(logs.Delete).Clicked() {
+				w.model.deleteBookmark(saved.ID)
+			}
+		})
+	}
+	menu.Separator()
+	if menu.Item(logs.SaveCurrentFilter).Disabled(len(bookmarks) >= maxBookmarks).Clicked() {
+		w.bookmarkOpen = true
+	}
+}
+
+// maintenanceMenu is the menu of the log directory: its path, showing it in the file
+// manager, changing it, restoring the default one, and clearing the logs with the space
+// they use. The space is measured each time the menu opens.
+func (w *window) maintenanceMenu(menu *ui.MenuItems) {
+	logs := &w.text.Logs
+	m := w.model
+	if !w.usedLoaded {
+		w.usedLoaded = true
+		m.loadUsedBytes()
+	}
+	menu.WidthRange(240, toolbarPathMax)
+	menu.Item(w.logDirectoryPath()).Disabled(true)
+	if menu.Item(logs.RevealDirectory).Disabled(m.directory == "").Clicked() {
+		m.revealDirectory()
+	}
+	if menu.Item(logs.ChangeDirectory).Disabled(m.busy).Clicked() {
+		m.chooseDirectory()
+	}
+	if menu.Item(logs.RestoreDirectory).Disabled(!m.canRestoreDirectory()).Clicked() {
+		m.restoreDirectory()
+	}
+	menu.Separator()
+	if menu.Item(logs.ClearStorage(formatBytes(m.usedBytes))).Disabled(m.busy).Clicked() {
+		w.clearOpen = true
+	}
+}
+
+// rangeEditor is the editor of the time range, a popover under its button. The macOS client
+// edits the two times with the system's calendar and clock controls; Viva has none, so each
+// endpoint is a text field that holds the local time as YYYY-MM-DD HH:MM:SS. Apply is
+// available while both times read and the end is not before the start.
+func (w *window) rangeEditor(c ui.C, anchor ui.Box) {
+	if !w.menus.timeRange {
+		return
+	}
+	logs := &w.text.Logs
+	if !w.rangeSeeded {
+		w.rangeSeeded = true
 		start, end := w.rangeDefaults()
-		w.rangeStart.SetText(start.Format(toolbarTimeFormat))
-		w.rangeEnd.SetText(end.Format(toolbarTimeFormat))
+		w.rangeStart = start.Format(toolbarTimeFormat)
+		w.rangeEnd = end.Format(toolbarTimeFormat)
 	}
-	start, startOK := parseRangeTime(w.rangeStart.Text())
-	end, endOK := parseRangeTime(w.rangeEnd.Text())
-	readable := startOK && endOK
-	reversed := readable && start.After(end)
-	// The panel takes presses on its own room, so only a press outside it closes the menu.
-	panel := func(b ui.Box) ui.Box {
-		return place(b).HitWith(toolbarRangePanelID, "", gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true})
-	}
-	// The menu panel adds 5 points above and below the items; the editor makes up the rest of
-	// its 12.
-	pad := float32(toolbarRangePad - menuPadY)
-	w.menuSurface(f, panel, toolbarRangeWidth, func() {
-		f.Column().FillWidth().PadSides(pad, toolbarRangePad, pad, toolbarRangePad).Gap(toolbarRangePad).Children(func() {
-			f.Row().Gap(toolbarGap).Items(ui.Center).Children(func() {
-				f.Text(logs.TimeRange).FontSize(toolbarFont).Color(w.pal.tx)
-				w.info(f, toolbarRangeInfoID, logs.TimeHelp)
+	spec := ui.PopoverSpec{Width: toolbarRangeWidth, Align: ui.Start, Offset: toolbarMenuGap}
+	ui.PopoverWith(c, anchor, spec, &w.menus.timeRange, func() {
+		start, startOK := parseRangeTime(w.rangeStart)
+		end, endOK := parseRangeTime(w.rangeEnd)
+		readable := startOK && endOK
+		reversed := readable && start.After(end)
+		ui.Column(c).FillWidth().Gap(toolbarRangePad).Children(func() {
+			ui.Row(c).Gap(toolbarGap).Items(ui.Center).Children(func() {
+				ui.Text(c, logs.TimeRange).FontSize(toolbarFont).Color(w.pal.tx)
+				w.info(c, logs.TimeHelp)
 			})
-			f.Row().Gap(16).Children(func() {
-				w.drawRangeEndpoint(f, &w.rangeStart, rangeStartID, logs.StartTime)
-				w.drawRangeEndpoint(f, &w.rangeEnd, rangeEndID, logs.EndTime)
+			ui.Row(c).Gap(16).Children(func() {
+				w.rangeEndpoint(c, &w.rangeStart, logs.StartTime)
+				w.rangeEndpoint(c, &w.rangeEnd, logs.EndTime)
 			})
-			f.Text(w.timeZoneLine()).FontSize(11).Color(w.pal.tx2)
+			ui.Text(c, w.timeZoneLine()).FontSize(11).Color(w.pal.tx2)
 			switch {
 			case reversed:
-				f.Text(logs.ReversedTime).FontSize(toolbarFont).Color(w.pal.red)
+				ui.Text(c, logs.ReversedTime).FontSize(toolbarFont).Color(w.pal.red)
 			case !readable:
-				f.Text(logs.InvalidTime).FontSize(toolbarFont).Color(w.pal.red)
+				ui.Text(c, logs.InvalidTime).FontSize(toolbarFont).Color(w.pal.red)
 			}
-			f.Row().FillWidth().Items(ui.Center).Children(func() {
-				if f.Button(toolbarRangeClearID, logs.ClearTimeRange).Outline().Clicked() {
+			ui.Row(c).FillWidth().Items(ui.Center).Children(func() {
+				if ui.Button(c, logs.ClearTimeRange).Outline().Clicked() {
 					w.model.clearRange()
-					w.closeMenu()
+					w.menus.timeRange = false
 				}
-				f.Spacer()
+				ui.Spacer(c)
 				valid := readable && !reversed
-				if f.Button(toolbarRangeApplyID, logs.Apply).Outline().Disabled(!valid).Clicked() && valid {
+				if ui.Button(c, logs.Apply).Outline().Disabled(!valid).Clicked() && valid {
 					// The range includes the whole of the last second, as the macOS client's does.
 					w.model.setRange(start.Unix()*1000, end.Unix()*1000+999)
-					w.closeMenu()
+					w.menus.timeRange = false
 				}
 			})
 		})
 	})
 }
 
-// drawRangeEndpoint is one end of the time range: its title over a field for the time.
-func (w *window) drawRangeEndpoint(f *ui.Frame, field *ui.Field, id gfx.ID, title string) {
-	f.Column().Width(toolbarEndpointWidth).Shrink(0).Gap(toolbarGap).Children(func() {
-		f.Text(title).FontSize(toolbarFont).Color(w.pal.tx)
-		f.Field(field, id, title, toolbarTimeHint).FillWidth().Height(toolbarSearchField)
+// rangeEndpoint is one end of the time range: its title over a field for the time.
+func (w *window) rangeEndpoint(c ui.C, value *string, title string) {
+	ui.Column(c).Width(toolbarEndpointWidth).Shrink(0).Gap(toolbarGap).Children(func() {
+		ui.Text(c, title).FontSize(toolbarFont).Color(w.pal.tx)
+		ui.TextField(c, value, title, toolbarTimeHint).FillWidth().Height(toolbarSearchField)
 	})
+}
+
+// openExport opens the export sheet.
+func (w *window) openExport() {
+	w.model.presentExport()
 }

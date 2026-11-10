@@ -13,32 +13,6 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// The identities of the details pane.
-var (
-	detailsScope = tree.Sub(page, tree.Name("details"))
-
-	detailsTabID      = tree.ID(detailsScope, "detail-tab")
-	detailsTraceTabID = tree.ID(detailsScope, "trace-tab")
-	detailsHelpID     = tree.ID(detailsScope, "trace-help")
-
-	// The scrolling areas of the two tabs and of the column of actions.
-	detailsFieldsID  = tree.ID(detailsScope, "fields")
-	detailsTraceID   = tree.ID(detailsScope, "trace")
-	detailsActionsID = tree.ID(detailsScope, "actions")
-
-	detailsCopyJSONID     = tree.ID(detailsScope, "copy-json")
-	detailsCopyMarkdownID = tree.ID(detailsScope, "copy-markdown")
-	detailsChannelID      = tree.ID(detailsScope, "filter-channel")
-	detailsOperationID    = tree.ID(detailsScope, "trace-operation")
-	detailsRevealID       = tree.ID(detailsScope, "reveal")
-	detailsExportID       = tree.ID(detailsScope, "export")
-
-	// detailsLinks are the field values of the JSON that filter the log when clicked, and
-	// detailsTraceRows the records of the call chain.
-	detailsLinks     = tree.Sub(detailsScope, tree.Name("field-links"))
-	detailsTraceRows = tree.Sub(detailsScope, tree.Name("trace-rows"))
-)
-
 // The metrics of the details pane, after the macOS window's.
 const (
 	// detailsFontSize is the size of the JSON, the tabs and the call chain's header, which
@@ -116,6 +90,11 @@ type detailsState struct {
 	tokens             []detailRow
 	tokenID, tokenText string
 	tokenized          bool
+
+	// traceList is the call chain's list and records the records of the paint being declared,
+	// which its rows read.
+	traceList ui.ListState
+	records   []core.LogRecord
 
 	// header and body are the note and the tokens wrapped to laidCols columns, for the note
 	// laidHeader.
@@ -315,67 +294,6 @@ func wrapDetailWords(s string, cols int) []string {
 	return lines
 }
 
-// drawDetails is the details pane: the tabs and the selected record's JSON or call chain on
-// the left, the actions on the right. The caller draws the line above it.
-func (w *window) drawDetails(f *ui.Frame) {
-	record, selected := w.model.selectedRecord()
-	f.Row().Fill().Children(func() {
-		f.Column().Grow(1).Shrink(1).MinWidth(0).FillHeight().Children(func() {
-			w.drawDetailTabs(f)
-			if w.details.tab == detailsTabTrace {
-				w.drawDetailTrace(f, record, selected)
-			} else {
-				w.drawDetailFields(f, record, selected)
-			}
-		})
-		f.Row().Width(1).FillHeight().Shrink(0).Background(w.pal.line)
-		w.drawDetailActions(f, record, selected)
-	})
-}
-
-// drawDetailTabs is the strip of tabs, with the call chain's record count, the help for the
-// call chain, and a line under the whole strip.
-func (w *window) drawDetailTabs(f *ui.Frame) {
-	m := w.text.Logs
-	count := -1
-	if trace := w.model.trace; trace != nil && trace.OpSummary != nil {
-		count = trace.OpSummary.Count
-	}
-	f.Row().FillWidth().Shrink(0).PadSides(4, 8, 0, 8).Gap(2).Items(ui.Center).Children(func() {
-		w.drawDetailTab(f, detailsTabID, detailsTabFields, m.Detail, -1)
-		w.drawDetailTab(f, detailsTraceTabID, detailsTabTrace, m.CallChain, count)
-		w.info(f, detailsHelpID, m.TraceHelp)
-		f.Spacer()
-		// The line is declared last so that it paints over the bottom of the open tab's
-		// underline, as the macOS window's overlay does.
-		f.Row().Absolute().Left(0).Right(0).Bottom(0).Height(1).Background(w.pal.line)
-	})
-}
-
-// drawDetailTab is one tab: its title, the count after it when count is not negative, and a
-// 2 point underline in the accent color when it is the open one.
-func (w *window) drawDetailTab(f *ui.Frame, id gfx.ID, index int, title string, count int) {
-	open := w.details.tab == index
-	color := w.pal.tx2
-	if open {
-		color = w.pal.tx
-	}
-	tab := f.Row().Shrink(0).PadSides(3, 10, 5, 10).Gap(5).Items(ui.Center).
-		HitWith(id, title, gfx.HitOptions{Role: gfx.RoleTab, Selected: open})
-	tab.Children(func() {
-		w.mono(f, title, detailsFontSize, color).Shrink(0)
-		if count >= 0 {
-			w.mono(f, "("+strconv.Itoa(count)+")", detailsFontSize, color).Shrink(0)
-		}
-		if open {
-			f.Row().Absolute().Left(0).Right(0).Bottom(0).Height(2).Background(w.pal.blu)
-		}
-	})
-	if tab.Clicked() {
-		w.details.tab = index
-	}
-}
-
 // layoutDetail makes the tokens of the selected record's JSON when the record or its text
 // changed, and wraps the note and the tokens to cols columns when they or the width changed.
 func (w *window) layoutDetail(fields map[string]string, header string, cols int) {
@@ -394,11 +312,68 @@ func (w *window) layoutDetail(fields map[string]string, header string, cols int)
 	d.laidCols, d.laidHeader, d.laidOut = cols, header, true
 }
 
-// drawDetailFields is the Detail tab: the file and line of the record, then its JSON as the
+// detailsPanel is the details pane: the tabs and the selected record's JSON or call chain on
+// the left, the actions on the right. The caller draws the splitter above it.
+func (w *window) detailsPanel(c ui.C) {
+	record, selected := w.model.selectedRecord()
+	ui.Row(c).Fill().Children(func() {
+		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).FillHeight().Children(func() {
+			w.detailTabs(c)
+			if w.details.tab == detailsTabTrace {
+				w.detailTrace(c, record, selected)
+			} else {
+				w.detailFields(c, record, selected)
+			}
+		})
+		ui.Row(c).Width(1).FillHeight().Shrink(0).Background(w.pal.line)
+		w.detailActions(c, record, selected)
+	})
+}
+
+// detailTabs is the strip of tabs, with the call chain's record count, the help for the
+// call chain, and a line under the whole strip.
+func (w *window) detailTabs(c ui.C) {
+	m := w.text.Logs
+	count := -1
+	if trace := w.model.trace; trace != nil && trace.OpSummary != nil {
+		count = trace.OpSummary.Count
+	}
+	ui.Row(c).FillWidth().Shrink(0).PadSides(4, 8, 0, 8).Gap(2).Items(ui.Center).FocusGroup(ui.FocusHorizontal).Children(func() {
+		w.detailTab(c, "detail", detailsTabFields, m.Detail, -1)
+		w.detailTab(c, "call-chain", detailsTabTrace, m.CallChain, count)
+		w.info(c, m.TraceHelp)
+		ui.Spacer(c)
+		// The line is declared last so that it paints over the bottom of the open tab's
+		// underline, as the macOS window's overlay does.
+		ui.Row(c).Absolute().Left(0).Right(0).Bottom(0).Height(1).Background(w.pal.line)
+	})
+}
+
+// detailTab is one tab: its title, the count after it when count is not negative, and a 2
+// point underline in the accent color when it is the open one.
+func (w *window) detailTab(c ui.C, name string, index int, title string, count int) {
+	open := w.details.tab == index
+	color := w.pal.tx2
+	if open {
+		color = w.pal.tx
+	}
+	ui.TabBase(c.Part(name), &w.details.tab, index, title).Shrink(0).PadSides(3, 10, 5, 10).Gap(5).Items(ui.Center).
+		Children(func() {
+			w.mono(c, title, detailsFontSize, color).Shrink(0)
+			if count >= 0 {
+				w.mono(c, "("+strconv.Itoa(count)+")", detailsFontSize, color).Shrink(0)
+			}
+			if open {
+				ui.Row(c).Absolute().Left(0).Right(0).Bottom(0).Height(2).Background(w.pal.blu)
+			}
+		})
+}
+
+// detailFields is the Detail tab: the file and line of the record, then its JSON as the
 // kernel formats it, colored. Nothing is drawn while no record is selected.
-func (w *window) drawDetailFields(f *ui.Frame, record core.LogRecord, selected bool) {
-	cw, ch := f.Canvas().CellSize(detailsFontSize)
-	area := f.ScrollArea(detailsFieldsID).FillWidth().Grow(1).Shrink(1).MinHeight(0).
+func (w *window) detailFields(c ui.C, record core.LogRecord, selected bool) {
+	cw, ch := c.Canvas().CellSize(detailsFontSize)
+	area := ui.Scroll(c).FillWidth().Grow(1).Shrink(1).MinHeight(0).
 		PadSides(detailsPadY, detailsPadX, detailsPadY, detailsPadX)
 	if !selected {
 		area.Children(func() {})
@@ -406,7 +381,7 @@ func (w *window) drawDetailFields(f *ui.Frame, record core.LogRecord, selected b
 	}
 	// The pane's width is known without a layout: the window less the channel list, the
 	// column of actions and the lines between them.
-	width := f.Bounds().Width - sidebarWidth - 1 - 1 - detailsActionsWidth - 2*detailsPadX - detailsGutter
+	width := c.Bounds().Width - sidebarWidth - 1 - 1 - detailsActionsWidth - 2*detailsPadX - detailsGutter
 	cols := max(detailsMinCols, int(width/cw))
 	relative := record.RelativePath
 	if session := w.model.currentSessionPath; session != "" {
@@ -415,183 +390,159 @@ func (w *window) drawDetailFields(f *ui.Frame, record core.LogRecord, selected b
 	header := "// " + relative + "  ·  " + w.text.Logs.SourceLine(record.LineNumber)
 	w.layoutDetail(record.Fields, header, cols)
 	area.Children(func() {
-		link := 0
-		w.drawDetailRows(f, w.details.header, ch, record, &link)
-		f.Row().Height(2).Shrink(0)
-		w.drawDetailRows(f, w.details.body, ch, record, &link)
+		w.detailRows(c, w.details.header, ch, record)
+		ui.Row(c).Height(2).Shrink(0)
+		w.detailRows(c, w.details.body, ch, record)
 	})
 }
 
-// drawDetailRows declares rows of the JSON, each as a row of monospaced spans. link counts the
-// clickable spans of the frame so that each gets an identity of its own.
-func (w *window) drawDetailRows(f *ui.Frame, rows []detailRow, height float32, record core.LogRecord, link *int) {
+// detailRows declares rows of the JSON, each as a row of monospaced spans.
+func (w *window) detailRows(c ui.C, rows []detailRow, height float32, record core.LogRecord) {
 	for _, row := range rows {
-		f.Row().FillWidth().Height(height).Shrink(0).Children(func() {
+		ui.Row(c).FillWidth().Height(height).Shrink(0).Children(func() {
 			for _, span := range row {
-				w.drawDetailSpan(f, span, record, link)
+				w.detailSpan(c, span, record)
 			}
 		})
 	}
 }
 
-// drawDetailSpan declares one span. The value of a field of the record is a link: it turns to
+// detailSpan declares one span. The value of a field of the record is a link: it turns to
 // the accent color under the pointer and, when clicked, adds the field to the filter.
-func (w *window) drawDetailSpan(f *ui.Frame, span detailSpan, record core.LogRecord, link *int) {
+func (w *window) detailSpan(c ui.C, span detailSpan, record core.LogRecord) {
 	color := w.pal.detailColor(span.role)
 	if span.field == "" {
-		w.mono(f, span.text, detailsFontSize, color).Shrink(0)
+		w.mono(c, span.text, detailsFontSize, color).Shrink(0)
 		return
 	}
-	id := detailsLinks.At(*link)
-	*link++
-	holder := f.Row().Shrink(0).HitWith(id, span.text, gfx.HitOptions{Role: gfx.RoleLink, Cursor: gfx.PointerCursorHand})
+	holder := ui.Row(c).Shrink(0).HitWith(ui.ID(c), span.text, gfx.HitOptions{Role: gfx.RoleLink, Cursor: gfx.PointerCursorHand})
 	holder.Children(func() {
-		w.mono(f, span.text, detailsFontSize, color).Shrink(0).StateFrom(holder).Hover(ui.Look{}.Color(w.pal.blu))
+		w.mono(c, span.text, detailsFontSize, color).Shrink(0).StateFrom(holder).Hover(ui.Look{}.Color(w.pal.blu))
 	})
 	if holder.Clicked() {
 		w.model.compose(core.LogFilterTerm{Kind: "field", Key: span.field, Value: record.Fields[span.field]})
 	}
 }
 
-// drawDetailTrace is the Call chain tab: that the record has no operation, or the operation's
-// header and its records in time order. Only the rows in view are declared.
-func (w *window) drawDetailTrace(f *ui.Frame, record core.LogRecord, selected bool) {
+// detailTrace is the Call chain tab: that the record has no operation, or the operation's
+// header and its records in time order, a list that declares only the rows in view. Choosing
+// a record in it selects the record in the table.
+func (w *window) detailTrace(c ui.C, record core.LogRecord, selected bool) {
 	m := w.text.Logs
-	_, ch := f.Canvas().CellSize(detailsFontSize)
+	_, ch := c.Canvas().CellSize(detailsFontSize)
 	var records []core.LogRecord
 	var summary *core.LogOpSummary
 	if trace := w.model.trace; trace != nil {
 		records, summary = trace.Records, trace.OpSummary
 	}
 	noOp := !selected || record.Op == ""
-	top := float32(detailsTracePadY)
-	if noOp {
-		top += ch
-	}
-	if summary != nil {
-		top += ch + 4
-	}
-	state := w.view.ScrollState(detailsTraceID)
-	viewport := state.Viewport
-	if viewport <= 0 {
-		// The first frame does not know the area's height yet.
-		viewport = 800
-	}
-	first := max(0, int((state.Offset-top)/detailsTraceRowHeight)-detailsOverscan)
-	last := min(len(records), int((state.Offset+viewport-top)/detailsTraceRowHeight)+detailsOverscan+1)
-	first = min(first, last)
-	f.ScrollArea(detailsTraceID).FillWidth().Grow(1).Shrink(1).MinHeight(0).
-		PadSides(detailsTracePadY, detailsTracePadX, detailsTracePadY, detailsTracePadX).Children(func() {
+	d := &w.details
+	d.records = records
+	ui.Column(c).FillWidth().Grow(1).Shrink(1).MinHeight(0).PadSides(detailsTracePadY, detailsTracePadX, 0, detailsTracePadX).Children(func() {
 		if noOp {
-			w.mono(f, m.NoOperation, detailsFontSize, w.pal.tx3).Ellipsis().LineHeight(ch)
+			w.mono(c, m.NoOperation, detailsFontSize, w.pal.tx3).Ellipsis().LineHeight(ch)
 		}
 		if summary != nil {
 			duration := strconv.FormatInt(summary.DurationMs, 10) + " ms"
-			f.Row().FillWidth().Shrink(0).PadSides(0, 0, 4, 0).Children(func() {
-				w.mono(f, m.Operation(summary.Op, summary.Count, duration), detailsFontSize, w.pal.tx3).Ellipsis().LineHeight(ch)
+			ui.Row(c).FillWidth().Shrink(0).PadSides(0, 0, 4, 0).Children(func() {
+				w.mono(c, m.Operation(summary.Op, summary.Count, duration), detailsFontSize, w.pal.tx3).Ellipsis().LineHeight(ch)
 			})
 		}
-		if first > 0 {
-			f.Row().Height(float32(first) * detailsTraceRowHeight).Shrink(0)
-		}
-		for i := first; i < last; i++ {
-			w.drawDetailTraceRow(f, i, records[i], summary)
-		}
-		if rest := len(records) - last; rest > 0 {
-			f.Row().Height(float32(rest) * detailsTraceRowHeight).Shrink(0)
+		ui.List(c, &d.traceList, len(records), func(row ui.ListRow) {
+			w.detailTraceRow(row, summary)
+		}).Label(m.CallChain).FillWidth().Grow(1).Shrink(1).MinHeight(0)
+		if d.traceList.Changed() {
+			if i := d.traceList.Selected(); i >= 0 && i < len(records) {
+				w.model.jump(records[i].EpochMs)
+			}
 		}
 	})
 }
 
-// drawDetailTraceRow is one record of the call chain: its offset from the first record, its
+// detailTraceRow is one record of the call chain: its offset from the first record, its
 // level, channel and event, its message, and a bar that places the offset in the operation's
-// span. A click selects the record in the table. The macOS window gives the columns fixed
-// widths and scrolls sideways; here the narrow ones keep theirs and the others shrink, the
-// bar first, so that nothing runs out of the pane.
-func (w *window) drawDetailTraceRow(f *ui.Frame, i int, record core.LogRecord, summary *core.LogOpSummary) {
+// span. The macOS window gives the columns fixed widths and scrolls sideways; here the
+// narrow ones keep theirs and the others shrink, the bar first, so that nothing runs out of
+// the pane.
+func (w *window) detailTraceRow(row ui.ListRow, summary *core.LogOpSummary) {
+	c := row.C
+	record := w.details.records[row.Index]
 	offset := int64(0)
 	if record.OpOffsetMs != nil {
 		offset = *record.OpOffsetMs
 	}
-	selected := w.model.selection[recordID(record)]
-	row := f.Row().FillWidth().Height(detailsTraceRowHeight).Shrink(0).PadX(4).Gap(10).Items(ui.Center).
-		HitWith(detailsTraceRows.At(i), record.Msg, gfx.HitOptions{Role: gfx.RoleOption, Selected: selected})
-	if selected {
-		row = row.Background(w.pal.hl)
+	element := row.Element.FillWidth().Height(detailsTraceRowHeight).PadX(4).Gap(10).Items(ui.Center)
+	if w.model.selection[recordID(record)] {
+		element.Background(w.pal.hl)
 	}
-	row.Children(func() {
-		f.Row().Width(70).Shrink(0).Items(ui.Center).Children(func() {
-			w.mono(f, "+"+strconv.FormatInt(offset, 10)+" ms", detailsTraceFontSize, w.pal.tx3).Shrink(0)
-		})
-		f.Row().Width(64).Shrink(0).Items(ui.Center).Children(func() {
-			w.mono(f, levelSymbol(record.Level)+" "+string(record.Level), detailsTraceFontSize, w.pal.levelColor(record.Level)).Shrink(0)
-		})
-		f.Row().Width(150).Shrink(1).MinWidth(0).Items(ui.Center).Children(func() {
-			color := channelColor(record.Channel)
-			f.Row().PadX(5).Shrink(1).MinWidth(0).Radius(3).Background(color.WithAlpha(0.15)).Items(ui.Center).Children(func() {
-				w.mono(f, record.Channel, detailsTraceFontSize, color).Ellipsis()
-			})
-		})
-		f.Row().Width(210).Shrink(1).MinWidth(0).Items(ui.Center).Children(func() {
-			w.mono(f, record.Event, detailsTraceFontSize, w.pal.pur).Ellipsis()
-		})
-		f.Row().Basis(180).Grow(1).Shrink(1).MinWidth(0).Items(ui.Center).Children(func() {
-			w.mono(f, record.Msg, detailsTraceFontSize, w.pal.tx).Ellipsis()
-		})
-		f.Row().Width(160).Shrink(2).MinWidth(0).Items(ui.Center).Children(func() {
-			span := int64(1)
-			if summary != nil {
-				span = max(1, summary.DurationMs)
-			}
-			share := min(100, 100*float32(offset)/float32(span))
-			color := w.pal.pur
-			if record.Level == core.LevelError {
-				color = w.pal.red
-			}
-			f.Row().WidthPercent(share).MinWidth(3).Height(6).Radius(3).Background(color.WithAlpha(0.7))
+	ui.Row(c).Width(70).Shrink(0).Items(ui.Center).Children(func() {
+		w.mono(c, "+"+strconv.FormatInt(offset, 10)+" ms", detailsTraceFontSize, w.pal.tx3).Shrink(0)
+	})
+	ui.Row(c).Width(64).Shrink(0).Items(ui.Center).Children(func() {
+		w.mono(c, levelSymbol(record.Level)+" "+string(record.Level), detailsTraceFontSize, w.pal.levelColor(record.Level)).Shrink(0)
+	})
+	ui.Row(c).Width(150).Shrink(1).MinWidth(0).Items(ui.Center).Children(func() {
+		color := channelColor(record.Channel)
+		ui.Row(c).PadX(5).Shrink(1).MinWidth(0).Radius(3).Background(color.WithAlpha(0.15)).Items(ui.Center).Children(func() {
+			w.mono(c, record.Channel, detailsTraceFontSize, color).Ellipsis()
 		})
 	})
-	if row.Clicked() {
-		w.model.jump(record.EpochMs)
-	}
+	ui.Row(c).Width(210).Shrink(1).MinWidth(0).Items(ui.Center).Children(func() {
+		w.mono(c, record.Event, detailsTraceFontSize, w.pal.pur).Ellipsis()
+	})
+	ui.Row(c).Basis(180).Grow(1).Shrink(1).MinWidth(0).Items(ui.Center).Children(func() {
+		w.mono(c, record.Msg, detailsTraceFontSize, w.pal.tx).Ellipsis()
+	})
+	ui.Row(c).Width(160).Shrink(2).MinWidth(0).Items(ui.Center).Children(func() {
+		span := int64(1)
+		if summary != nil {
+			span = max(1, summary.DurationMs)
+		}
+		share := min(100, 100*float32(offset)/float32(span))
+		color := w.pal.pur
+		if record.Level == core.LevelError {
+			color = w.pal.red
+		}
+		ui.Row(c).WidthPercent(share).MinWidth(3).Height(6).Radius(3).Background(color.WithAlpha(0.7))
+	})
 }
 
-// drawDetailActions is the column of actions on the record, and under it the note that
-// redacted values are masked. Every action needs a selected record, and tracing the
-// operation one with an operation. Exporting a bundle opens the same sheet as the toolbar's
-// Export, as in the macOS client.
-func (w *window) drawDetailActions(f *ui.Frame, record core.LogRecord, selected bool) {
+// detailActions is the column of actions on the record, and under it the note that redacted
+// values are masked. Every action needs a selected record, and tracing the operation one
+// with an operation. Exporting a bundle opens the same sheet as the toolbar's Export, as in
+// the macOS client.
+func (w *window) detailActions(c ui.C, record core.LogRecord, selected bool) {
 	m := w.text.Logs
-	action := func(id gfx.ID, symbol, title string, disabled bool) bool {
-		button := w.button(f, id, symbol, title, buttonOptions{fullWidth: true, height: detailsButtonHeight, disabled: disabled})
+	action := func(name, symbol, title string, disabled bool) bool {
+		button := w.button(c, name, symbol, title, buttonOptions{fullWidth: true, height: detailsButtonHeight, disabled: disabled})
 		return !disabled && button.Clicked()
 	}
-	f.ScrollArea(detailsActionsID).Width(detailsActionsWidth).FillHeight().Shrink(0).
+	ui.Scroll(c).Width(detailsActionsWidth).FillHeight().Shrink(0).
 		Pad(detailsActionsPad).Gap(detailsActionsGap).Children(func() {
-		if action(detailsCopyJSONID, "⧉", m.CopyJSON, !selected) {
+		if action("copy-json", "⧉", m.CopyJSON, !selected) {
 			w.model.copyFormatted(w.model.selectedRecords(), "json")
 		}
-		if action(detailsCopyMarkdownID, "⧉", m.CopyMarkdown, !selected) {
+		if action("copy-markdown", "⧉", m.CopyMarkdown, !selected) {
 			w.model.copyFormatted(w.model.selectedRecords(), "markdown")
 		}
-		if action(detailsChannelID, "⊙", m.FilterChannel, !selected) {
+		if action("filter-channel", "⊙", m.FilterChannel, !selected) {
 			w.model.compose(core.LogFilterTerm{Kind: "channel", Value: record.Channel})
 		}
-		if action(detailsOperationID, "⇢", m.TraceOperation, !selected || record.Op == "") {
+		if action("trace-operation", "⇢", m.TraceOperation, !selected || record.Op == "") {
 			w.details.tab = detailsTabTrace
 			w.model.compose(core.LogFilterTerm{Kind: "op", Value: record.Op})
 		}
-		if action(detailsRevealID, "↗", m.RevealInFinder, !selected) {
+		if action("reveal", "↗", m.RevealInFinder, !selected) {
 			w.revealRecord()
 		}
-		if action(detailsExportID, "⇩", m.ExportBundle, !selected) {
+		if action("export-bundle", "⇩", m.ExportBundle, !selected) {
 			w.openExport()
 		}
 
-		cw, ch := f.Canvas().CellSize(detailsNoteSize)
+		cw, ch := c.Canvas().CellSize(detailsNoteSize)
 		cols := int((detailsActionsWidth - 2*detailsActionsPad) / cw)
 		for _, line := range wrapDetailWords(m.RedactedNote, cols) {
-			w.mono(f, line, detailsNoteSize, w.pal.tx3).Shrink(0).Height(ch)
+			w.mono(c, line, detailsNoteSize, w.pal.tx3).Shrink(0).Height(ch)
 		}
 	})
 }

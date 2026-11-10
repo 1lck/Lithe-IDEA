@@ -12,42 +12,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/gfx"
 	vivatext "github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
-)
-
-// The identities of the table: the table itself, its scrolling area and its header, and
-// one scope for each kind of control that is repeated.
-var (
-	tableScope    = tree.Sub(page, tree.Name("table"))
-	tableID       = tree.ID(tableScope, "table")
-	tableScrollID = tree.ID(tableScope, "scroll")
-	tableHeaderID = tree.ID(tableScope, "header")
-
-	// tableResizeScope holds the drag handle at the trailing edge of each header cell,
-	// numbered by column. tableRowsScope holds the rows, numbered by their position in the
-	// displayed rows. tableMessagesScope and tableRunsScope hold the parts of a folded run's
-	// message cell, numbered like the rows. tableFieldsScope holds the clickable field
-	// values; its number is the row position times tableFieldSlots plus the field's place
-	// among the row's sorted keys.
-	tableResizeScope   = tree.Sub(tableScope, tree.Name("resize"))
-	tableRowsScope     = tree.Sub(tableScope, tree.Name("rows"))
-	tableMessagesScope = tree.Sub(tableScope, tree.Name("messages"))
-	tableRunsScope     = tree.Sub(tableScope, tree.Name("runs"))
-	tableFieldsScope   = tree.Sub(tableScope, tree.Name("fields"))
-
-	// The items of the table's context menus.
-	tableMenuScope        = tree.Sub(page, tree.Name("table-menu"))
-	tableMenuCopyLine     = tree.ID(tableMenuScope, "copy-line")
-	tableMenuCopyMarkdown = tree.ID(tableMenuScope, "copy-markdown")
-	tableMenuShowEvent    = tree.ID(tableMenuScope, "show-event")
-	tableMenuHideEvent    = tree.ID(tableMenuScope, "hide-event")
-	tableMenuShowChannel  = tree.ID(tableMenuScope, "show-channel")
-	tableMenuTrace        = tree.ID(tableMenuScope, "trace")
-	tableMenuCopyField    = tree.ID(tableMenuScope, "copy-field")
-	tableColumnItems      = tree.Sub(tableMenuScope, tree.Name("columns"))
-	tableFieldItems       = tree.Sub(tableMenuScope, tree.Name("field-values"))
 )
 
 // The metrics of the table, after the macOS table: rows are 22 points tall, the header 26,
@@ -117,6 +85,16 @@ var tableDefaultWidths = [tableColumnCount]float32{52, 96, 62, 170, 230, 160, 30
 
 // tableState is what the table keeps from one frame to the next.
 type tableState struct {
+	// list is the rows' list and chosen the rows the user chose in it, by their keys (see
+	// Model.keyBase). The model's selection is the truth the details and the copy read: a
+	// choice the list reports is handed to it, and one the model made is handed back, which
+	// syncedRevision tells apart.
+	list           ui.ListState
+	chosen         ui.Selection
+	syncedRevision int
+	// rows are the displayed rows of the paint being declared, which list.Key reads.
+	rows []displayRow
+
 	// A drag of a header cell's resize handle. The columns keep the widths they had when the
 	// drag began (frozen) except the dragged one, which follows the pointer; the widths are
 	// adopted when the drag ends.
@@ -131,20 +109,522 @@ type tableState struct {
 	// revisionSeen is set.
 	revisionSeen bool
 	revision     int
-	// toEnd asks the next frame to scroll to the end (the End key).
-	toEnd bool
 
-	// cursor is the row the arrow keys move from, and reveal the row the next frame scrolls
-	// into view after a key moved to it.
-	cursor string
-	reveal string
-
-	// topID is the row at the top of the area, topIndex its position and topFrac how far its
-	// top is scrolled out of view. When rows appear or disappear above it the area scrolls to
-	// keep it where it was. topID is empty while the area follows the end.
+	// topID is the row at the top of the area and topIndex its position. When rows appear or
+	// disappear above it the area scrolls to keep it where it was. topID is empty while the
+	// area follows the end.
 	topIndex int
 	topID    string
-	topFrac  float32
+	// scrolled says the paint being declared asked the list to scroll, which it does when it
+	// lays out: until then the list is not where it was asked to be.
+	scrolled bool
+
+	// hints are the tooltips of the folded runs, which the i18n formats from a template:
+	// kept for the text, the run's length and its last time, so a paint formats none of
+	// them again. language is the messages they were made with.
+	hints    map[string]runHint
+	language *i18n.Messages
+}
+
+// runHint is the tooltip of one folded run.
+type runHint struct {
+	count int
+	last  string
+	text  string
+}
+
+// runTooltip is what a folded run says of itself: how many records it holds and when the
+// last one arrived. The text is formatted once for a run that does not change.
+func (t *tableState) runTooltip(text *i18n.Messages, row displayRow) string {
+	if t.language != text || len(t.hints) > 4*maxRecords {
+		t.language, t.hints = text, map[string]runHint{}
+	}
+	if hint, ok := t.hints[row.id]; ok && hint.count == row.count && hint.last == row.last {
+		return hint.text
+	}
+	hint := runHint{count: row.count, last: row.last, text: text.Logs.Repeated(row.count, row.last)}
+	t.hints[row.id] = hint
+	return hint.text
+}
+
+// init gives the list the key of a row: the key of the record the row shows, which stays
+// the same while records come and go around it.
+func (t *tableState) init(w *window) {
+	t.list.Key = func(i int) int { return w.model.keyBase + t.rows[i].index }
+	t.list.Selection = &t.chosen
+	t.syncedRevision = -1
+}
+
+// tablePanel is the table: the header and the rows of the model, a list that declares only
+// the visible ones. The list follows the end of the log while the model follows it, scrolls
+// to the row the model asks for, and keeps the row at its top where it was when rows appear
+// above it.
+func (w *window) tablePanel(c ui.C) {
+	m := w.model
+	t := &w.table
+	canvas := c.Canvas()
+	// The table is the window less the channel list and its divider. The layout does not
+	// say how wide an element was in an earlier frame, so the widths the columns show are
+	// worked out from this.
+	viewport := c.Bounds().Width - sidebarWidth - 1
+
+	grid := w.gridOfColumns()
+	widths := w.tableWidths(&grid, viewport)
+	rows := m.displayRows()
+	t.rows = rows
+	n := len(rows)
+	if !t.list.Changed() && t.syncedRevision != m.selectionRevision {
+		w.syncTableSelection(rows)
+	}
+	t.scrolled = w.scrollTable(c, rows)
+
+	var rowWidth float32
+	for _, column := range grid.visible[:grid.count] {
+		if t.dragging {
+			rowWidth += widths[column]
+		} else {
+			rowWidth += grid.base[column]
+		}
+		rowWidth += tableCellSpacing
+	}
+	t.list.RowWidth = rowWidth
+
+	paint := tableRowPaint{}
+	paint.cellW, _ = canvas.MonoCellSize(tableCellFont, gfx.MonoSystem)
+	if record, ok := m.selectedRecord(); ok {
+		paint.hasSelected, paint.selectedOp, paint.selectedEpoch = true, record.Op, record.EpochMs
+	}
+	for _, term := range m.terms {
+		if term.Kind == "text" && !term.Negate && term.Value != "" {
+			paint.needles = append(paint.needles, []rune(term.Value))
+		}
+	}
+
+	panel := ui.Column(c).Fill().Children(func() {
+		w.tableHeader(c, &grid, &widths, viewport, rowWidth)
+		area := ui.List(c, &t.list, n, func(row ui.ListRow) {
+			w.tableRow(row, &grid, &widths, &paint)
+		}).Label(w.text.Logs.Logs).Grow(1).Shrink(1).MinHeight(0).FillWidth().Follow(m.follows)
+		if t.list.Changed() {
+			w.applyTableSelection()
+		}
+		w.trackTable(area, rows)
+	})
+	// Escape clears the selection while the focus is in the table.
+	if panel.Shortcut(0, "escape") && len(m.selection) > 0 {
+		m.selectIDs(nil)
+	}
+}
+
+// syncTableSelection hands the model's selection to the list, which holds it by the keys
+// of the rows: after the model changed it (a jump, a new answer, a clear), not after the
+// list did.
+func (w *window) syncTableSelection(rows []displayRow) {
+	m := w.model
+	t := &w.table
+	t.syncedRevision = m.selectionRevision
+	t.chosen.Clear()
+	for i, row := range rows {
+		if m.selection[row.id] {
+			t.chosen.Add(m.keyBase + row.index)
+			t.list.Select(i)
+		}
+	}
+}
+
+// applyTableSelection hands a choice the user made in the list to the model.
+func (w *window) applyTableSelection() {
+	m := w.model
+	t := &w.table
+	ids := make(map[string]bool, t.chosen.Len())
+	for key := range t.chosen.All() {
+		if i := key - m.keyBase; i >= 0 && i < len(m.ids) {
+			ids[m.ids[i]] = true
+		}
+	}
+	m.selectIDs(ids)
+	t.syncedRevision = m.selectionRevision
+}
+
+// chooseTableRow chooses row i alone, as a press on it does.
+func (w *window) chooseTableRow(i int) {
+	m := w.model
+	t := &w.table
+	row := t.rows[i]
+	t.chosen.Clear()
+	t.chosen.Add(m.keyBase + row.index)
+	t.list.Select(i)
+	m.selectIDs(map[string]bool{row.id: true})
+	t.syncedRevision = m.selectionRevision
+}
+
+// scrollTable acts on what the model asks of the scroll position: to the end, or to a row,
+// and keeps the row that was at the top where it was when rows came or went above it.
+func (w *window) scrollTable(c ui.C, rows []displayRow) (scrolled bool) {
+	m := w.model
+	t := &w.table
+	if !t.revisionSeen || t.revision != m.scrollRevision {
+		t.revisionSeen, t.revision = true, m.scrollRevision
+		// The list places its rows from heights it has not measured yet, so the paint that
+		// scrolls it is followed by one that settles.
+		c.Canvas().RequestFrame()
+		if m.scrollTarget == "" {
+			t.list.ScrollToEnd()
+			t.topID = ""
+			return true
+		}
+		if i := tableRowIndex(rows, m.scrollTarget); i >= 0 {
+			t.list.ScrollIntoView(i)
+			t.list.Select(i)
+			t.topID = ""
+			return true
+		}
+	}
+	if m.follows || t.topID == "" {
+		return false
+	}
+	if t.topIndex < len(rows) && rows[t.topIndex].id == t.topID {
+		return false
+	}
+	if i := tableRowIndex(rows, t.topID); i >= 0 {
+		t.list.ScrollTo(i, ui.ListStart)
+		c.Canvas().RequestFrame()
+		return true
+	}
+	return false
+}
+
+// trackTable remembers the row at the top, and stops following when the table was
+// scrolled away from its end: by the wheel or the scroll bar.
+func (w *window) trackTable(area ui.Box, rows []displayRow) {
+	m := w.model
+	t := &w.table
+	s := area.ScrollState()
+	if m.follows {
+		t.topID = ""
+		if !t.scrolled && s.Viewport > 0 && s.Content > 0 && !s.AtEnd() {
+			m.userScrolledUp()
+		}
+		return
+	}
+	if len(rows) == 0 {
+		t.topID = ""
+		return
+	}
+	top := min(len(rows)-1, max(0, int(s.Offset/tableRowHeight)))
+	t.topIndex, t.topID = top, rows[top].id
+}
+
+// tableHeader is the header: a title for each visible column on the secondary background, a
+// short divider at the end of each cell, the handle that drags the column's width, and the
+// line under the whole header. A secondary press on it opens the menu of columns. The cells
+// follow the rows when they scroll sideways.
+func (w *window) tableHeader(c ui.C, grid *tableGrid, widths *[tableColumnCount]float32, viewport, rowWidth float32) {
+	header := ui.Row(c).FillWidth().Height(tableHeaderHeight).Shrink(0).Clip().Background(w.pal.bg2).
+		Hit(ui.ID(c), w.text.Logs.Columns)
+	header.Children(func() {
+		ui.Row(c).Width(max(rowWidth, viewport)).Height(tableHeaderHeight).Items(ui.Center).ScrollWith(&w.table.list).Children(func() {
+			for _, column := range grid.visible[:grid.count] {
+				title := w.tableColumnTitle(column)
+				cell := w.sizeTableCell(ui.Row(c.Part("column-"+strconv.Itoa(column))), grid, column, tableHeaderHeight)
+				if column == tableColSeq {
+					cell = cell.Justify(ui.End)
+				}
+				cell.Children(func() {
+					w.mono(c, title, tableHeaderFont, w.pal.tx3).Ellipsis()
+					ui.Row(c).Absolute().Top(4).Bottom(4).Right(0).Width(1).Background(w.pal.bd)
+					w.resizeHandle(c, grid, column, title, viewport)
+				})
+			}
+		})
+		ui.Row(c).Absolute().Left(0).Right(0).Bottom(0).Height(1).Background(w.pal.line)
+	})
+	ui.ContextMenu(c, header, w.headerMenu)
+}
+
+// headerMenu is the menu of the header that shows and hides columns.
+func (w *window) headerMenu(menu *ui.MenuItems) {
+	menu.WidthRange(tableHeaderMenuWidth, 0)
+	for i, name := range columns {
+		hidden := w.model.columnHidden(name)
+		if menu.Item(w.tableColumnTitle(i)).Checked(!hidden).Clicked() {
+			w.model.setColumnHidden(name, !hidden)
+		}
+	}
+}
+
+// resizeHandle is the strip at a header cell's trailing edge that drags the column's width:
+// the primary button down on it starts a drag, moving follows the pointer and releasing
+// adopts the width.
+func (w *window) resizeHandle(c ui.C, grid *tableGrid, column int, title string, viewport float32) {
+	id := ui.ID(c)
+	ui.Row(c).Absolute().Top(0).Bottom(0).Right(0).Width(tableHandleWidth).
+		HitWith(id, title, gfx.HitOptions{Role: gfx.RoleSeparator, Cursor: gfx.PointerCursorResizeHorizontal, SkipFocus: true})
+	canvas := c.Canvas()
+	ev, ok := canvas.PointerOn(id)
+	if !ok {
+		return
+	}
+	t := &w.table
+	switch ev.Kind {
+	case gfx.PointerDown:
+		if ev.Button != gfx.PointerButtonPrimary {
+			return
+		}
+		t.dragging = true
+		t.dragColumn = column
+		t.dragStartX = ev.X
+		t.frozen = grid.fit(viewport)
+		t.dragStartWidth = t.frozen[column]
+		t.dragWidth = t.dragStartWidth
+		canvas.Consume()
+	case gfx.PointerMove:
+		if t.dragging && column == t.dragColumn {
+			t.dragWidth = min(maxColumnWidth, max(minColumnWidth, t.dragStartWidth+ev.X-t.dragStartX))
+			canvas.Consume()
+		}
+	case gfx.PointerUp, gfx.PointerExit:
+		if !t.dragging || column != t.dragColumn {
+			return
+		}
+		t.dragging = false
+		if t.dragWidth != t.dragStartWidth {
+			w.applyColumnWidths(grid.adopt(t.dragColumn, t.dragWidth, viewport))
+		}
+		canvas.Consume()
+	}
+}
+
+// tableRow declares the row the list asks for: its background, which tells an error, a
+// selected row and a row of the selected record's operation apart, its cells, the bar at
+// its start and the line under it. A secondary press on it chooses it, if it is not chosen,
+// and opens its menu.
+func (w *window) tableRow(row ui.ListRow, grid *tableGrid, widths *[tableColumnCount]float32, p *tableRowPaint) {
+	c := row.C
+	m := w.model
+	rows := w.table.rows
+	i := row.Index
+	display := rows[i]
+	if display.index < 0 || display.index >= len(m.records) {
+		row.Element.FillWidth().Height(tableRowHeight)
+		return
+	}
+	record := &m.records[display.index]
+	selected := row.Selected()
+	isError := record.Level == core.LevelError
+	isOperation := record.Op != "" && p.hasSelected && record.Op == p.selectedOp
+
+	background := w.pal.bg
+	stripe := ui.Color{}
+	hasStripe := false
+	switch {
+	case selected:
+		background = w.pal.hl
+		if isError {
+			background = w.pal.errSel
+		}
+		stripe, hasStripe = w.pal.blu, true
+	case isError:
+		background = w.pal.errRow
+	case isOperation:
+		background = w.pal.opRow
+	}
+	if !selected && isOperation {
+		stripe, hasStripe = w.pal.pur, true
+	}
+	row.Element.FillWidth().Height(tableRowHeight).Items(ui.Center).Background(background)
+	hint := ""
+	if display.isRun {
+		hint = w.table.runTooltip(w.text, display)
+		row.Element.Tooltip(hint)
+	}
+	if ev, ok := c.Canvas().PointerOn(row.ID); ok && ev.Kind == gfx.PointerDown && ev.Button == gfx.PointerButtonSecondary && !selected {
+		w.chooseTableRow(i)
+	}
+	ui.ContextMenu(c, row.Element, func(menu *ui.MenuItems) { w.rowMenu(menu, i) })
+
+	for _, column := range grid.visible[:grid.count] {
+		cell := w.sizeTableCell(ui.Row(c.Part("column-"+strconv.Itoa(column))), grid, column, tableRowHeight)
+		if column == tableColSeq {
+			cell = cell.Justify(ui.End)
+		}
+		cell.Children(func() {
+			w.tableCell(c, column, i, rows, widths[column], p, hint)
+		})
+	}
+	ui.Row(c).Absolute().Left(0).Right(0).Bottom(0).Height(1).Background(w.pal.line)
+	if hasStripe {
+		ui.Row(c).Absolute().Left(0).Top(0).Bottom(0).Width(tableStripeWidth).Background(stripe)
+	}
+}
+
+// tableCell declares the content of one cell of the row at position i, whose column shows
+// width points of text.
+func (w *window) tableCell(c ui.C, column, i int, rows []displayRow, width float32, p *tableRowPaint, hint string) {
+	m := w.model
+	row := rows[i]
+	record := &m.records[row.index]
+	switch column {
+	case tableColSeq:
+		w.mono(c, strconv.FormatUint(record.Seq, 10), tableCellFont, w.pal.tx3).Ellipsis()
+	case tableColTime:
+		w.mono(c, w.tableTime(i, rows, record, p), tableCellFont, w.pal.tx3).Ellipsis()
+	case tableColLevel:
+		w.mono(c, levelSymbol(record.Level)+" "+string(record.Level), tableSmallFont, w.pal.levelColor(record.Level)).
+			Weight(gfx.WeightSemibold).Ellipsis()
+	case tableColChannel:
+		color := channelColor(record.Channel)
+		ui.Row(c).Height(tableChipHeight).PadX(tableCellPad).Items(ui.Center).Radius(tableChipRadius).
+			Background(color.WithAlpha(tableChipFill)).Children(func() {
+			w.mono(c, record.Channel, tableSmallFont, color).Ellipsis()
+		})
+	case tableColEvent:
+		w.mono(c, record.Event, tableCellFont, w.pal.pur).Ellipsis()
+	case tableColMessage:
+		w.messageCell(c, row, record, width, p, hint)
+	case tableColFields:
+		w.fieldsCell(c, record, width, p)
+	}
+}
+
+// messageCell declares the message of a row. The head of a folded run starts with a badge
+// that counts the run, and a click on the start of the cell folds or unfolds it; the row
+// tells how many records the run holds and when the last one arrived in a tooltip. The parts
+// of the message that match a text term of the filter are marked.
+func (w *window) messageCell(c ui.C, row displayRow, record *core.LogRecord, width float32, p *tableRowPaint, hint string) {
+	avail := width
+	if row.isRun {
+		avail -= tableTextOffset
+		ui.Row(c).Size(tableBadgeWidth, tableBadgeHeight).Shrink(0).PadSides(0, 0, 0, 4).Items(ui.Center).
+			Radius(tableBadgeRadius).Background(w.pal.bg3).Border(1, w.pal.bd).Children(func() {
+			w.mono(c, "×"+strconv.Itoa(row.count), tableHeaderFont, w.pal.tx2).Shrink(0)
+		})
+		ui.Row(c).Width(tableTextOffset - tableBadgeWidth).Shrink(0)
+	}
+	cells := 0
+	if p.cellW > 0 {
+		cells = int(avail / p.cellW)
+	}
+	text, _, _ := tableFit(record.Msg, cells)
+	text = tableFlatten(text)
+	runs := tableHighlight(text, p.needles)
+	if len(runs) == 1 && !runs[0].hit {
+		if text != "" {
+			w.mono(c, text, tableCellFont, w.pal.tx).Ellipsis()
+		}
+	} else {
+		for _, run := range runs {
+			mark := w.mono(c, run.text, tableCellFont, w.pal.tx).Shrink(0)
+			if run.hit {
+				mark.Background(w.pal.yel.WithAlpha(tableHighlightAlpha))
+			}
+		}
+	}
+	if row.isRun {
+		fold := ui.Row(c).Absolute().Left(tableCellPad).Top(0).Bottom(0).Width(tableFoldWidth).
+			HitWith(ui.ID(c), hint, gfx.HitOptions{Role: gfx.RoleButton, Hint: hint, SkipFocus: true})
+		if fold.Clicked() {
+			w.model.toggleRun(row.id)
+		}
+	}
+}
+
+// fieldsCell declares the fields of a row as key=value pairs: keys in cyan, values in pink
+// (booleans), blue (numbers), green (text, quoted) or gray (redacted). A value that is not
+// redacted adds the field to the filter when it is pressed.
+func (w *window) fieldsCell(c ui.C, record *core.LogRecord, width float32, p *tableRowPaint) {
+	cells := 0
+	if p.cellW > 0 {
+		cells = int(width / p.cellW)
+	}
+	used := 0
+	for slot, key := range slices.Sorted(maps.Keys(record.Fields)) {
+		if used >= cells {
+			return
+		}
+		value := record.Fields[key]
+		redacted := tableRedacted(value)
+		shown, color := value, w.pal.grn
+		switch {
+		case redacted:
+			color = w.pal.tx3
+		case value == "true" || value == "false":
+			color = w.pal.pnk
+		case tableIsNumber(value):
+			color = w.pal.blu
+		default:
+			shown = `"` + value + `"`
+		}
+		parts := [2]struct {
+			text  string
+			color ui.Color
+			link  bool
+		}{{key + "=", w.pal.cyn, false}, {shown, color, !redacted}}
+		for _, part := range parts {
+			text, taken, cut := tableFit(part.text, cells-used)
+			if text == "" {
+				return
+			}
+			box := w.mono(c, tableFlatten(text), tableCellFont, part.color).Shrink(0)
+			if part.link && slot < tableFieldSlots {
+				if box.HitWith(ui.ID(c), key, gfx.HitOptions{Role: gfx.RoleLink, SkipFocus: true}).Clicked() {
+					w.model.compose(core.LogFilterTerm{Kind: "field", Key: key, Value: value})
+				}
+			}
+			used += taken
+			if cut {
+				return
+			}
+		}
+		ui.Row(c).Width(p.cellW).Shrink(0)
+		used++
+	}
+}
+
+// rowMenu is the menu of the row at position i: copying it, filtering by its event, its
+// channel and its operation, and copying one of its field values.
+func (w *window) rowMenu(menu *ui.MenuItems, i int) {
+	m := w.model
+	rows := w.table.rows
+	if i >= len(rows) || rows[i].index >= len(m.records) {
+		return
+	}
+	record := m.records[rows[i].index]
+	text := w.text.Logs
+	menu.WidthRange(tableRowMenuWidth, 0)
+	if menu.Item(text.CopyLine).Clicked() {
+		m.copyFormatted([]core.LogRecord{record}, "json")
+	}
+	if menu.Item(text.CopySelectionMarkdown).Clicked() {
+		m.copyFormatted(m.selectedRecords(), "markdown")
+	}
+	menu.Separator()
+	if menu.Item(text.ShowOnlyEvent).Clicked() {
+		m.compose(core.LogFilterTerm{Kind: "event", Value: record.Event})
+	}
+	if menu.Item(text.HideEvent).Clicked() {
+		m.compose(core.LogFilterTerm{Kind: "event", Value: record.Event, Negate: true})
+	}
+	if menu.Item(text.ShowOnlyChannel).Clicked() {
+		m.compose(core.LogFilterTerm{Kind: "channel", Value: record.Channel})
+	}
+	if menu.Item(text.TraceThisOperation).Disabled(record.Op == "").Clicked() {
+		m.compose(core.LogFilterTerm{Kind: "op", Value: record.Op})
+	}
+	var keys []string
+	for _, key := range slices.Sorted(maps.Keys(record.Fields)) {
+		if !tableRedacted(record.Fields[key]) {
+			keys = append(keys, key)
+		}
+	}
+	menu.Sub(text.CopyFieldValue, func(sub *ui.MenuItems) {
+		sub.WidthRange(tableSubmenuWidth, 0)
+		for _, key := range keys {
+			if sub.Item(key).Clicked() {
+				m.copyText(record.Fields[key])
+			}
+		}
+	}).Disabled(len(keys) == 0)
 }
 
 // tableGrid is the columns the table shows and their base widths, read from the model's
@@ -322,127 +802,6 @@ func (w *window) sizeTableCell(cell ui.Box, grid *tableGrid, column int, height 
 	return cell.Shrink(0)
 }
 
-// drawTable is the table: the header and the rows of the model, which are virtualized so
-// only the visible ones are declared. The area follows the end of the log while the model
-// follows it, scrolls to the row the model asks for, and keeps the row at its top where it
-// was when rows appear above it.
-func (w *window) drawTable(f *ui.Frame) {
-	m := w.model
-	t := &w.table
-	canvas := f.Canvas()
-	// The table is the window less the channel list and its divider. The layout does not
-	// say how wide an element was in an earlier frame, so the widths the columns show are
-	// worked out from this.
-	viewport := f.Bounds().Width - sidebarWidth - 1
-
-	grid := w.gridOfColumns()
-	w.trackHeader(canvas, &grid, viewport)
-	w.trackRows(canvas)
-	grid = w.gridOfColumns()
-	widths := w.tableWidths(&grid, viewport)
-	rows := m.displayRows()
-	n := len(rows)
-
-	// Scroll before the area is declared: it reads its offset when declared.
-	s := w.view.ScrollState(tableScrollID)
-	toEnd, scrolled := false, false
-	if t.toEnd {
-		t.toEnd = false
-		s.ScrollToEnd()
-		toEnd = true
-	}
-	if !t.revisionSeen || t.revision != m.scrollRevision {
-		t.revisionSeen, t.revision = true, m.scrollRevision
-		if m.scrollTarget == "" {
-			s.ScrollToEnd()
-			toEnd = true
-		} else if i := tableRowIndex(rows, m.scrollTarget); i >= 0 {
-			scrolled = tableReveal(s, i) || scrolled
-		}
-	}
-	if t.reveal != "" {
-		id := t.reveal
-		t.reveal = ""
-		if i := tableRowIndex(rows, id); i >= 0 {
-			scrolled = tableReveal(s, i) || scrolled
-		}
-	}
-	atEnd := toEnd || (m.follows && (s.AtEnd() || s.Content <= 0))
-	if !atEnd && !scrolled && t.topID != "" && !(t.topIndex < n && rows[t.topIndex].id == t.topID) {
-		if i := tableRowIndex(rows, t.topID); i >= 0 {
-			s.ScrollTo(float32(i)*tableRowHeight + t.topFrac)
-		}
-	}
-	// A table that follows the log and finds itself away from its end was scrolled by
-	// something other than the wheel, such as the scroll bar: following stops.
-	if !toEnd && m.follows && s.Viewport > 0 && s.Content > 0 && !s.AtEnd() {
-		m.userScrolledUp()
-		atEnd = false
-	}
-
-	height := s.Viewport
-	if height <= 0 {
-		height = tableFallbackViewport
-	}
-	offset := s.Offset
-	if atEnd && m.follows || toEnd {
-		// The area is about to sit at its end, with rows the last layout did not have.
-		offset = max(0, float32(n)*tableRowHeight-height)
-	}
-	if atEnd && m.follows || toEnd || n == 0 {
-		t.topID = ""
-	} else {
-		top := min(n-1, max(0, int(offset/tableRowHeight)))
-		t.topIndex, t.topID = top, rows[top].id
-		t.topFrac = min(tableRowHeight, max(0, offset-float32(top)*tableRowHeight))
-	}
-	first := max(0, int(offset/tableRowHeight)-tableOverscan)
-	last := min(n, int((offset+height)/tableRowHeight)+tableOverscan+1)
-	first = min(first, last)
-
-	paint := tableRowPaint{}
-	paint.cellW, _ = canvas.MonoCellSize(tableCellFont, gfx.MonoSystem)
-	if record, ok := m.selectedRecord(); ok {
-		paint.hasSelected, paint.selectedOp, paint.selectedEpoch = true, record.Op, record.EpochMs
-	}
-	for _, term := range m.terms {
-		if term.Kind == "text" && !term.Negate && term.Value != "" {
-			paint.needles = append(paint.needles, []rune(term.Value))
-		}
-	}
-
-	f.Column().Fill().HitWith(tableID, w.text.Logs.Logs, gfx.HitOptions{Role: gfx.RoleGrid, SkipFocus: true}).Children(func() {
-		w.drawTableHeader(f, &grid)
-		f.ScrollArea(tableScrollID).Grow(1).Shrink(1).MinHeight(0).FillWidth().Follow(m.follows).Children(func() {
-			if first > 0 {
-				f.Row().Height(float32(first) * tableRowHeight).Shrink(0)
-			}
-			for i := first; i < last; i++ {
-				w.drawTableRow(f, i, rows, &grid, &widths, &paint)
-			}
-			if rest := n - last; rest > 0 {
-				f.Row().Height(float32(rest) * tableRowHeight).Shrink(0)
-			}
-		})
-	})
-}
-
-// tableReveal scrolls the area the least that shows the whole row at index, the way a native
-// table scrolls a row to visible. It reports whether it scrolled.
-func tableReveal(s *ui.ScrollState, index int) bool {
-	top := float32(index) * tableRowHeight
-	bottom := top + tableRowHeight
-	switch {
-	case s.Viewport <= 0 || top < s.Offset:
-		s.ScrollTo(top)
-	case bottom > s.Offset+s.Viewport:
-		s.ScrollTo(bottom - s.Viewport)
-	default:
-		return false
-	}
-	return true
-}
-
 // tableRowIndex is the position of the row with the given id, or -1.
 func tableRowIndex(rows []displayRow, id string) int {
 	for i, row := range rows {
@@ -451,153 +810,6 @@ func tableRowIndex(rows []displayRow, id string) int {
 		}
 	}
 	return -1
-}
-
-// tableScrolled follows a scroll of the wheel: a table that follows the log and is no longer
-// at its end pauses following. Scrolling back down does not resume it; the capsule over the
-// table does.
-func (w *window) tableScrolled() {
-	if !w.model.follows {
-		return
-	}
-	if !w.view.ScrollState(tableScrollID).AtEnd() {
-		w.model.userScrolledUp()
-	}
-}
-
-// trackHeader handles the pointer on the header: a press of the secondary button opens the
-// menu of columns, and the primary button on a cell's handle drags the column's width.
-func (w *window) trackHeader(canvas *gfx.Canvas, grid *tableGrid, viewport float32) {
-	t := &w.table
-	if ev, ok := canvas.PointerOn(tableHeaderID); ok && ev.Kind == gfx.PointerDown && ev.Button == gfx.PointerButtonSecondary {
-		w.openContextMenu(menuHeader, ev.X, ev.Y, "")
-		canvas.Consume()
-	}
-	column, ev, ok := canvas.PointerIn(tableResizeScope)
-	if !ok || column < 0 || column >= tableColumnCount {
-		return
-	}
-	switch ev.Kind {
-	case gfx.PointerDown:
-		switch ev.Button {
-		case gfx.PointerButtonPrimary:
-			t.dragging = true
-			t.dragColumn = column
-			t.dragStartX = ev.X
-			t.frozen = grid.fit(viewport)
-			t.dragStartWidth = t.frozen[column]
-			t.dragWidth = t.dragStartWidth
-			canvas.Consume()
-		case gfx.PointerButtonSecondary:
-			w.openContextMenu(menuHeader, ev.X, ev.Y, "")
-			canvas.Consume()
-		}
-	case gfx.PointerMove:
-		if t.dragging && column == t.dragColumn {
-			t.dragWidth = min(maxColumnWidth, max(minColumnWidth, t.dragStartWidth+ev.X-t.dragStartX))
-			canvas.Consume()
-		}
-	case gfx.PointerUp, gfx.PointerExit:
-		if !t.dragging {
-			return
-		}
-		t.dragging = false
-		if t.dragWidth != t.dragStartWidth {
-			w.applyColumnWidths(grid.adopt(t.dragColumn, t.dragWidth, viewport))
-		}
-		canvas.Consume()
-	}
-}
-
-// trackRows handles the pointer on the rows. A press of the primary button on the fold zone
-// of a run folds or unfolds it, on a field value adds the field to the filter, and elsewhere
-// on a row selects it (⌘ or Ctrl adds the row, ⇧ extends from the anchor). A press of the
-// secondary button selects a row that is not selected and opens its menu.
-func (w *window) trackRows(canvas *gfx.Canvas) {
-	m := w.model
-	if i, ev, ok := canvas.PointerIn(tableRowsScope); ok {
-		w.pressRow(canvas, i, ev)
-	}
-	if i, ev, ok := canvas.PointerIn(tableMessagesScope); ok {
-		w.pressRow(canvas, i, ev)
-	}
-	if i, ev, ok := canvas.PointerIn(tableRunsScope); ok && ev.Kind == gfx.PointerDown {
-		rows := m.displayRows()
-		if i >= 0 && i < len(rows) && ev.Button == gfx.PointerButtonPrimary {
-			m.toggleRun(rows[i].id)
-			canvas.Consume()
-		} else {
-			w.pressRow(canvas, i, ev)
-		}
-	}
-	if slot, ev, ok := canvas.PointerIn(tableFieldsScope); ok && ev.Kind == gfx.PointerDown {
-		i := slot / tableFieldSlots
-		rows := m.displayRows()
-		if i < 0 || i >= len(rows) || rows[i].index >= len(m.records) {
-			return
-		}
-		if ev.Button != gfx.PointerButtonPrimary {
-			w.pressRow(canvas, i, ev)
-			return
-		}
-		record := &m.records[rows[i].index]
-		keys := slices.Sorted(maps.Keys(record.Fields))
-		if k := slot % tableFieldSlots; k < len(keys) && !tableRedacted(record.Fields[keys[k]]) {
-			m.compose(core.LogFilterTerm{Kind: "field", Key: keys[k], Value: record.Fields[keys[k]]})
-			canvas.Consume()
-		}
-	}
-}
-
-// pressRow selects the row at position i or opens its menu, for a press of the primary or
-// the secondary button.
-func (w *window) pressRow(canvas *gfx.Canvas, i int, ev gfx.PointerEvent) {
-	m := w.model
-	rows := m.displayRows()
-	if ev.Kind != gfx.PointerDown || i < 0 || i >= len(rows) {
-		return
-	}
-	id := rows[i].id
-	switch ev.Button {
-	case gfx.PointerButtonPrimary:
-		m.selectRow(id, ev.Modifiers&(gfx.ModifierMeta|gfx.ModifierControl) != 0, ev.Modifiers&gfx.ModifierShift != 0)
-		w.table.cursor = id
-		canvas.Consume()
-	case gfx.PointerButtonSecondary:
-		if !m.selection[id] {
-			m.selectRow(id, false, false)
-		}
-		w.table.cursor = id
-		w.openContextMenu(menuRow, ev.X, ev.Y, id)
-		canvas.Consume()
-	}
-}
-
-// drawTableHeader is the header: a title for each visible column on the secondary
-// background, a short divider at the end of each cell, and the line under the whole header.
-func (w *window) drawTableHeader(f *ui.Frame, grid *tableGrid) {
-	f.Row().FillWidth().Height(tableHeaderHeight).Shrink(0).Items(ui.Center).Background(w.pal.bg2).
-		HitWith(tableHeaderID, w.text.Logs.Columns, gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).
-		Children(func() {
-			for _, column := range grid.visible[:grid.count] {
-				title := w.tableColumnTitle(column)
-				cell := w.sizeTableCell(f.Row(), grid, column, tableHeaderHeight)
-				if column == tableColSeq {
-					cell = cell.Justify(ui.End)
-				}
-				cell.Children(func() {
-					w.mono(f, title, tableHeaderFont, w.pal.tx3).Ellipsis()
-					f.Row().Absolute().Top(4).Bottom(4).Right(0).Width(1).Background(w.pal.bd)
-					f.Row().Absolute().Top(0).Bottom(0).Right(0).Width(tableHandleWidth).
-						HitWith(tableResizeScope.At(column), title, gfx.HitOptions{
-							Role:      gfx.RoleSeparator,
-							Cursor:    gfx.PointerCursorResizeHorizontal,
-							SkipFocus: true,
-						})
-				})
-			}
-			f.Row().Absolute().Left(0).Right(0).Bottom(0).Height(1).Background(w.pal.line)
-		})
 }
 
 // tableRowPaint is what the rows of one frame share.
@@ -612,89 +824,6 @@ type tableRowPaint struct {
 	selectedEpoch int64
 	// needles are the filter's text terms, which are marked in the messages.
 	needles [][]rune
-}
-
-// drawTableRow declares the row at position i: its background, which tells an error, a
-// selected row and a row of the selected record's operation apart, its cells, the bar at its
-// start and the line under it.
-func (w *window) drawTableRow(f *ui.Frame, i int, rows []displayRow, grid *tableGrid, widths *[tableColumnCount]float32, p *tableRowPaint) {
-	m := w.model
-	row := rows[i]
-	if row.index < 0 || row.index >= len(m.records) {
-		f.Row().FillWidth().Height(tableRowHeight).Shrink(0)
-		return
-	}
-	record := &m.records[row.index]
-	selected := m.selection[row.id]
-	isError := record.Level == core.LevelError
-	isOperation := record.Op != "" && p.hasSelected && record.Op == p.selectedOp
-
-	background := w.pal.bg
-	stripe := gfx.Color{}
-	hasStripe := false
-	switch {
-	case selected:
-		background = w.pal.hl
-		if isError {
-			background = w.pal.errSel
-		}
-		stripe, hasStripe = w.pal.blu, true
-	case isError:
-		background = w.pal.errRow
-	case isOperation:
-		background = w.pal.opRow
-	}
-	if !selected && isOperation {
-		stripe, hasStripe = w.pal.pur, true
-	}
-
-	label := strings.TrimSpace(record.Event + " " + truncateRunes(record.Msg, 120))
-	box := f.Row().FillWidth().Height(tableRowHeight).Shrink(0).Items(ui.Center).Background(background).
-		HitWith(tableRowsScope.At(i), label, gfx.HitOptions{Role: gfx.RoleOption, Selected: selected, SkipFocus: true})
-	box.Children(func() {
-		for _, column := range grid.visible[:grid.count] {
-			cell := w.sizeTableCell(f.Row(), grid, column, tableRowHeight)
-			if column == tableColSeq {
-				cell = cell.Justify(ui.End)
-			}
-			cell.Children(func() {
-				w.drawTableCell(f, column, i, rows, widths[column], p)
-			})
-		}
-		f.Row().Absolute().Left(0).Right(0).Bottom(0).Height(1).Background(w.pal.line)
-		if hasStripe {
-			f.Row().Absolute().Left(0).Top(0).Bottom(0).Width(tableStripeWidth).Background(stripe)
-		}
-	})
-}
-
-// drawTableCell declares the content of one cell of the row at position i, whose column
-// shows width points of text.
-func (w *window) drawTableCell(f *ui.Frame, column, i int, rows []displayRow, width float32, p *tableRowPaint) {
-	m := w.model
-	row := rows[i]
-	record := &m.records[row.index]
-	switch column {
-	case tableColSeq:
-		w.mono(f, strconv.FormatUint(record.Seq, 10), tableCellFont, w.pal.tx3).Ellipsis()
-	case tableColTime:
-		w.mono(f, w.tableTime(i, rows, record, p), tableCellFont, w.pal.tx3).Ellipsis()
-	case tableColLevel:
-		w.mono(f, levelSymbol(record.Level)+" "+string(record.Level), tableSmallFont, w.pal.levelColor(record.Level)).
-			Weight(gfx.WeightSemibold).Ellipsis()
-	case tableColChannel:
-		color := channelColor(record.Channel)
-		f.Row().Height(tableChipHeight).PadX(tableCellPad).Items(ui.Center).Radius(tableChipRadius).
-			Background(color.WithAlpha(tableChipFill)).Children(func() {
-			w.mono(f, record.Channel, tableSmallFont, color).Ellipsis()
-		})
-	case tableColEvent:
-		w.mono(f, record.Event, tableCellFont, w.pal.pur).Ellipsis()
-	case tableColMessage:
-		w.drawMessageCell(f, i, row, record, width, p)
-	case tableColFields:
-		w.drawFieldsCell(f, i, record, width, p)
-	}
 }
 
 // tableTime is the text of a row's time cell: the clock time of the record, or, in the
@@ -715,98 +844,6 @@ func (w *window) tableTime(i int, rows []displayRow, record *core.LogRecord, p *
 		reference = p.selectedEpoch
 	}
 	return fmt.Sprintf("%+.0f ms", float64(record.EpochMs-reference))
-}
-
-// drawMessageCell declares the message of a row. The head of a folded run starts with a
-// badge that counts the run, and a click on the start of the cell folds or unfolds it; the
-// cell tells how many records the run holds and when the last one arrived in a tooltip. The
-// parts of the message that match a text term of the filter are marked.
-func (w *window) drawMessageCell(f *ui.Frame, i int, row displayRow, record *core.LogRecord, width float32, p *tableRowPaint) {
-	avail := width
-	if row.isRun {
-		avail -= tableTextOffset
-		f.Row().Size(tableBadgeWidth, tableBadgeHeight).Shrink(0).PadSides(0, 0, 0, 4).Items(ui.Center).
-			Radius(tableBadgeRadius).Background(w.pal.bg3).Border(1, w.pal.bd).Children(func() {
-			w.mono(f, "×"+strconv.Itoa(row.count), tableHeaderFont, w.pal.tx2).Shrink(0)
-		})
-		f.Row().Width(tableTextOffset - tableBadgeWidth).Shrink(0)
-	}
-	cells := 0
-	if p.cellW > 0 {
-		cells = int(avail / p.cellW)
-	}
-	text, _, _ := tableFit(record.Msg, cells)
-	text = tableFlatten(text)
-	runs := tableHighlight(text, p.needles)
-	if len(runs) == 1 && !runs[0].hit {
-		if text != "" {
-			w.mono(f, text, tableCellFont, w.pal.tx).Ellipsis()
-		}
-	} else {
-		for _, run := range runs {
-			mark := w.mono(f, run.text, tableCellFont, w.pal.tx).Shrink(0)
-			if run.hit {
-				mark.Background(w.pal.yel.WithAlpha(tableHighlightAlpha))
-			}
-		}
-	}
-	if row.isRun {
-		hint := w.text.Logs.Repeated(row.count, row.last)
-		f.Row().Absolute().Left(0).Right(0).Top(0).Bottom(0).
-			HitWith(tableMessagesScope.At(i), hint, gfx.HitOptions{Role: gfx.RoleOption, Hint: hint, SkipFocus: true})
-		f.Row().Absolute().Left(tableCellPad).Top(0).Bottom(0).Width(tableFoldWidth).
-			HitWith(tableRunsScope.At(i), hint, gfx.HitOptions{Role: gfx.RoleButton, Hint: hint, SkipFocus: true})
-	}
-}
-
-// drawFieldsCell declares the fields of a row as key=value pairs: keys in cyan, values in
-// pink (booleans), blue (numbers), green (text, quoted) or gray (redacted). A value that is
-// not redacted adds the field to the filter when it is pressed.
-func (w *window) drawFieldsCell(f *ui.Frame, i int, record *core.LogRecord, width float32, p *tableRowPaint) {
-	cells := 0
-	if p.cellW > 0 {
-		cells = int(width / p.cellW)
-	}
-	used := 0
-	for slot, key := range slices.Sorted(maps.Keys(record.Fields)) {
-		if used >= cells {
-			return
-		}
-		value := record.Fields[key]
-		redacted := tableRedacted(value)
-		shown, color := value, w.pal.grn
-		switch {
-		case redacted:
-			color = w.pal.tx3
-		case value == "true" || value == "false":
-			color = w.pal.pnk
-		case tableIsNumber(value):
-			color = w.pal.blu
-		default:
-			shown = `"` + value + `"`
-		}
-		parts := [2]struct {
-			text  string
-			color gfx.Color
-			link  bool
-		}{{key + "=", w.pal.cyn, false}, {shown, color, !redacted}}
-		for _, part := range parts {
-			text, taken, cut := tableFit(part.text, cells-used)
-			if text == "" {
-				return
-			}
-			box := w.mono(f, tableFlatten(text), tableCellFont, part.color).Shrink(0)
-			if part.link && slot < tableFieldSlots {
-				box.HitWith(tableFieldsScope.At(i*tableFieldSlots+slot), key, gfx.HitOptions{Role: gfx.RoleLink, SkipFocus: true})
-			}
-			used += taken
-			if cut {
-				return
-			}
-		}
-		f.Row().Width(p.cellW).Shrink(0)
-		used++
-	}
 }
 
 // tableRun is a stretch of a message that is either marked as a match or not.
@@ -913,160 +950,4 @@ func tableRedacted(value string) bool {
 func tableIsNumber(value string) bool {
 	_, err := strconv.ParseFloat(value, 64)
 	return err == nil || errors.Is(err, strconv.ErrRange)
-}
-
-// tableKey handles the keys of the table. Up and Down move the selection by a row (⇧
-// extends it from the anchor) and scroll it into view; Home, End, Page Up and Page Down
-// scroll without changing the selection; Escape clears the selection.
-func (w *window) tableKey(event gfx.KeyEvent) gfx.EventResult {
-	if event.Release || w.menu.kind != menuNone ||
-		event.Modifiers&(gfx.ModifierMeta|gfx.ModifierControl|gfx.ModifierAlt) != 0 {
-		return gfx.EventResult{}
-	}
-	handled := gfx.EventResult{Handled: true, Repaint: true}
-	m := w.model
-	t := &w.table
-	s := w.view.ScrollState(tableScrollID)
-	step := max(tableRowHeight, s.Viewport-tableRowHeight)
-	switch event.Key {
-	case gfx.KeyUp, gfx.KeyDown:
-		rows := m.displayRows()
-		if len(rows) == 0 {
-			return gfx.EventResult{}
-		}
-		current := w.tableActiveRow(rows)
-		var next int
-		switch {
-		case current < 0 && event.Key == gfx.KeyDown:
-			next = 0
-		case current < 0:
-			next = len(rows) - 1
-		case event.Key == gfx.KeyDown:
-			next = min(len(rows)-1, current+1)
-		default:
-			next = max(0, current-1)
-		}
-		id := rows[next].id
-		m.selectRow(id, false, event.Modifiers&gfx.ModifierShift != 0)
-		t.cursor, t.reveal = id, id
-		return handled
-	case gfx.KeyHome:
-		s.ScrollTo(0)
-		w.tableScrolled()
-		return handled
-	case gfx.KeyEnd:
-		t.toEnd = true
-		return handled
-	case gfx.KeyPageUp:
-		s.ScrollTo(s.Offset - step)
-		w.tableScrolled()
-		return handled
-	case gfx.KeyPageDown:
-		s.ScrollTo(min(s.Max(), s.Offset+step))
-		w.tableScrolled()
-		return handled
-	case gfx.KeyEscape:
-		if len(m.selection) == 0 {
-			return gfx.EventResult{}
-		}
-		m.selectIDs(nil)
-		t.cursor = ""
-		return handled
-	}
-	return gfx.EventResult{}
-}
-
-// tableActiveRow is the position of the row the arrow keys move from: the row the last key
-// or click went to while it is still selected, otherwise the last selected row. It is -1
-// when no displayed row is selected.
-func (w *window) tableActiveRow(rows []displayRow) int {
-	m := w.model
-	if id := w.table.cursor; id != "" && m.selection[id] {
-		if i := tableRowIndex(rows, id); i >= 0 {
-			return i
-		}
-	}
-	if m.selected >= 0 && m.selected < len(m.ids) {
-		return tableRowIndex(rows, m.ids[m.selected])
-	}
-	return -1
-}
-
-// tableRecordByID is the record with the given id, which a row menu is about.
-func (w *window) tableRecordByID(id string) (core.LogRecord, bool) {
-	m := w.model
-	for i := len(m.ids) - 1; i >= 0; i-- {
-		if m.ids[i] == id && i < len(m.records) {
-			return m.records[i], true
-		}
-	}
-	return core.LogRecord{}, false
-}
-
-// drawRowMenu declares the table's open context menu: the menu of a row, or the menu of the
-// header that shows and hides columns.
-func (w *window) drawRowMenu(f *ui.Frame) {
-	m := w.model
-	place := func(b ui.Box) ui.Box { return b.At(w.menu.at.X, w.menu.at.Y) }
-	if w.menu.kind == menuHeader {
-		w.menuSurface(f, place, tableHeaderMenuWidth, func() {
-			for i, name := range columns {
-				hidden := m.columnHidden(name)
-				if w.menuItem(f, tableColumnItems.At(i), w.tableColumnTitle(i), itemOptions{checked: !hidden}) {
-					m.setColumnHidden(name, !hidden)
-				}
-			}
-		})
-		return
-	}
-	record, ok := w.tableRecordByID(w.menu.row)
-	if !ok {
-		w.closeMenu()
-		return
-	}
-	text := w.text.Logs
-	top := itemOptions{top: true}
-	var anchor ui.Box
-	w.menuSurface(f, place, tableRowMenuWidth, func() {
-		if w.menuItem(f, tableMenuCopyLine, text.CopyLine, top) {
-			m.copyFormatted([]core.LogRecord{record}, "json")
-		}
-		if w.menuItem(f, tableMenuCopyMarkdown, text.CopySelectionMarkdown, top) {
-			m.copyFormatted(m.selectedRecords(), "markdown")
-		}
-		w.menuSeparator(f)
-		if w.menuItem(f, tableMenuShowEvent, text.ShowOnlyEvent, top) {
-			m.compose(core.LogFilterTerm{Kind: "event", Value: record.Event})
-		}
-		if w.menuItem(f, tableMenuHideEvent, text.HideEvent, top) {
-			m.compose(core.LogFilterTerm{Kind: "event", Value: record.Event, Negate: true})
-		}
-		if w.menuItem(f, tableMenuShowChannel, text.ShowOnlyChannel, top) {
-			m.compose(core.LogFilterTerm{Kind: "channel", Value: record.Channel})
-		}
-		if w.menuItem(f, tableMenuTrace, text.TraceThisOperation, itemOptions{top: true, disabled: record.Op == ""}) {
-			m.compose(core.LogFilterTerm{Kind: "op", Value: record.Op})
-		}
-		anchor = w.menuSubmenu(f, tableMenuCopyField, text.CopyFieldValue, 0)
-	})
-	if w.menu.kind != menuRow || w.menu.sub != 0 {
-		return
-	}
-	var keys []string
-	for _, key := range slices.Sorted(maps.Keys(record.Fields)) {
-		if !tableRedacted(record.Fields[key]) {
-			keys = append(keys, key)
-		}
-	}
-	if len(keys) == 0 {
-		return
-	}
-	beside := func(b ui.Box) ui.Box { return b.BesideBox(anchor, 2, ui.Start) }
-	w.menuPanel(f, beside, tableSubmenuWidth, func() {
-		for k, key := range keys {
-			if w.menuItem(f, tableFieldItems.At(k), key, itemOptions{}) {
-				m.copyText(record.Fields[key])
-			}
-		}
-	})
 }
