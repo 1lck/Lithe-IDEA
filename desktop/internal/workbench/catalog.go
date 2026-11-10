@@ -160,6 +160,7 @@ const (
 	itemDebug         = "debug"
 	itemNotifications = "notifications"
 	itemAssistant     = "assistant"
+	itemMarkdown      = "markdownPreview"
 	itemUpdates       = "updates"
 	itemBackground    = "background"
 
@@ -212,6 +213,7 @@ var catalog = []item{
 	{id: itemDebug, zone: zoneBottomLeft, icon: &icons.Bug, label: func(m *i18n.Messages) string { return m.Tools.Debug }, panel: true},
 
 	{id: itemNotifications, zone: zoneRightTop, icon: &icons.Bell, label: func(m *i18n.Messages) string { return m.Tools.Notifications }, panel: true},
+	{id: itemMarkdown, zone: zoneRightTop, icon: &icons.FileText, label: func(m *i18n.Messages) string { return m.Tools.MarkdownPreview }, panel: true},
 	{id: itemAssistant, zone: zoneRightTop, icon: &icons.Sparkles, label: func(m *i18n.Messages) string { return m.Tools.Assistant }, panel: true},
 
 	{id: itemUpdates, zone: zoneBottomRight, icon: &icons.RefreshCw, label: func(m *i18n.Messages) string { return m.Tools.Updates }, panel: true},

@@ -114,23 +114,24 @@ type TitleMessages struct {
 
 // ToolMessages name the tool windows on the stripes.
 type ToolMessages struct {
-	Project       string
-	Commit        string
-	Structure     string
-	Find          string
-	Git           string
-	Terminal      string
-	Problems      string
-	References    string
-	Run           string
-	Build         string
-	Tests         string
-	Security      string
-	Debug         string
-	Notifications string
-	Assistant     string
-	Updates       string
-	Background    string
+	Project         string
+	Commit          string
+	Structure       string
+	Find            string
+	Git             string
+	Terminal        string
+	Problems        string
+	References      string
+	MarkdownPreview string
+	Run             string
+	Build           string
+	Tests           string
+	Security        string
+	Debug           string
+	Notifications   string
+	Assistant       string
+	Updates         string
+	Background      string
 	// DragHint tells assistive technology that a toolbar item can be dragged elsewhere.
 	DragHint string
 }

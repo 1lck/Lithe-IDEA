@@ -137,6 +137,8 @@ func (a *App) toolBody(c ui.C, tool item, p *project) {
 			a.projectTree(c, p)
 		case itemFind:
 			a.searchPanel(c)
+		case itemMarkdown:
+			a.markdownPreviewPanel(c, p)
 		case itemReferences:
 			a.referencesPanel(c, p)
 		case itemStructure:

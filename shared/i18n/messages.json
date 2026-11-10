@@ -12954,6 +12954,41 @@
       }
     },
     {
+      "id": "desktop.markdown.contents",
+      "description": "Name of the list of headings above the Markdown preview",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.markdown.noFile",
+      "description": "Markdown preview text when the selected file is not Markdown",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.markdown.preview",
+      "description": "Name of the rendered Markdown area",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.markdown.title",
+      "description": "Name of the Markdown preview tool window",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.markdown.tooLarge",
+      "description": "Markdown preview text when the file is too large to render",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.marketplace.cancel",
       "description": "Button that closes the review without installing.",
       "platforms": [
