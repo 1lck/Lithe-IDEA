@@ -73,3 +73,21 @@ func TestWindowControlsFollowTheTitleBar(t *testing.T) {
 	}
 	check("dark", darkPalette().tx, "最小化")
 }
+
+// A one-record selection is found from the previous answer outward, and a selection of
+// several still answers with the last of them in table order.
+func TestSelectedIndexSearchesFromThePreviousAnswer(t *testing.T) {
+	m := &Model{ids: []string{"a", "b", "c", "d", "e"}, selected: 3}
+	for _, tc := range []struct {
+		selection []string
+		want      int
+	}{{nil, -1}, {[]string{"d"}, 3}, {[]string{"a"}, 0}, {[]string{"e"}, 4}, {[]string{"zz"}, -1}, {[]string{"b", "c"}, 2}} {
+		m.selection = map[string]bool{}
+		for _, id := range tc.selection {
+			m.selection[id] = true
+		}
+		if got := m.selectedIndex(); got != tc.want {
+			t.Errorf("selection %v = %d, want %d", tc.selection, got, tc.want)
+		}
+	}
+}

@@ -342,6 +342,8 @@ type Model struct {
 
 	detailID   string
 	detailText string
+	// detailTimer is the pending format of detailID, owned by the window thread.
+	detailTimer *time.Timer
 
 	usedBytes int64
 	busy      bool
@@ -351,10 +353,12 @@ type Model struct {
 	// mu, as closing the window removes those no task holds.
 	staging map[string]bool
 
-	dirty      bool
-	rows       []displayRow
-	selected   int
-	totalCount int
+	dirty bool
+	// selectionDirty says only the selection changed, so selected is recomputed, not the rows.
+	selectionDirty bool
+	rows           []displayRow
+	selected       int
+	totalCount     int
 }
 
 // NewModel reads the preferences and returns a model that has not started reading logs.
@@ -468,6 +472,9 @@ func (m *Model) close() {
 		m.unsubscribe = nil
 	}
 	m.stopAll()
+	if m.detailTimer != nil && m.detailTimer.Stop() {
+		m.running.Done()
+	}
 	m.mu.Lock()
 	m.closed = true
 	m.pending = nil
@@ -856,9 +863,14 @@ func (m *Model) append(result core.LogQueryResult, summary *logstore.LiveSummary
 // ensure recomputes the rows and the selected record after a change.
 func (m *Model) ensure() {
 	if !m.dirty {
+		if m.selectionDirty {
+			m.selectionDirty = false
+			m.selected = m.selectedIndex()
+		}
 		return
 	}
 	m.dirty = false
+	m.selectionDirty = false
 	m.rows = m.rows[:0]
 	for index := 0; index < len(m.records); {
 		end := index + 1
@@ -876,19 +888,43 @@ func (m *Model) ensure() {
 		}
 		index = end
 	}
-	m.selected = -1
-	if len(m.selection) > 0 {
-		for i := len(m.ids) - 1; i >= 0; i-- {
-			if m.selection[m.ids[i]] {
-				m.selected = i
-				break
-			}
-		}
-	}
+	m.selected = m.selectedIndex()
 	m.totalCount = 0
 	for _, count := range m.channels {
 		m.totalCount += count.Total
 	}
+}
+
+// selectedIndex is the index of the last selected record in table order, or -1. A selection of
+// one record, which is what a click or an arrow key leaves, is searched from the previous
+// answer outward: the next record is next to it, so the rows and the other records are not
+// looked up one by one on every key.
+func (m *Model) selectedIndex() int {
+	if len(m.selection) == 0 {
+		return -1
+	}
+	if len(m.selection) == 1 {
+		var want string
+		for id := range m.selection {
+			want = id
+		}
+		near := min(max(m.selected, 0), len(m.ids)-1)
+		for distance := 0; near-distance >= 0 || near+distance < len(m.ids); distance++ {
+			if i := near + distance; i < len(m.ids) && m.ids[i] == want {
+				return i
+			}
+			if i := near - distance; i >= 0 && m.ids[i] == want {
+				return i
+			}
+		}
+		return -1
+	}
+	for i := len(m.ids) - 1; i >= 0; i-- {
+		if m.selection[m.ids[i]] {
+			return i
+		}
+	}
+	return -1
 }
 
 // displayRows are the rows the table shows.
@@ -938,7 +974,7 @@ func (m *Model) selectIDs(ids map[string]bool) {
 	}
 	m.selection = ids
 	m.selectionRevision++
-	m.dirty = true
+	m.selectionDirty = true // The rows do not depend on the selection.
 	m.syncDetail()
 	record, ok := m.selectedRecord()
 	op := ""
@@ -1002,8 +1038,24 @@ func (m *Model) syncDetail() {
 	if id == "" {
 		return
 	}
-	line := record.Line
-	m.spawn(func() {
+	m.scheduleDetail(id, record.Line)
+}
+
+// detailDelay is how long the selection must rest before its record is formatted.
+const detailDelay = 40 * time.Millisecond
+
+// scheduleDetail formats line for the details pane once the selection has rested for
+// detailDelay. Every selection change replaces the pending format by re-arming one timer, so
+// a held arrow key costs no goroutine per press: starting one makes the scheduler wake an
+// idle thread, about 170 µs on the window thread per key, for a result the next key
+// discards. The timer is part of running, so wait still sees a pending format.
+func (m *Model) scheduleDetail(id, line string) {
+	if m.detailTimer != nil && m.detailTimer.Stop() {
+		m.running.Done() // The replaced format never started.
+	}
+	m.running.Add(1)
+	m.detailTimer = time.AfterFunc(detailDelay, func() {
+		defer m.running.Done()
 		text, err := m.opts.Kernel.FormatLogRecords(m.ctx, []string{line}, "json", nil)
 		m.post(func() {
 			if m.detailID != id {

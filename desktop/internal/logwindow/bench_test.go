@@ -85,6 +85,11 @@ func BenchmarkTableKeyDown(b *testing.B) {
 		}
 	}
 	b.StopTimer()
+	// Every key must move the selection. A benchmark whose keys stop doing anything (the
+	// first version of this one stopped at row 14) measures nothing.
+	if fixture.model.selected < b.N {
+		b.Fatalf("the selection reached record %d after %d keys", fixture.model.selected, b.N)
+	}
 	if len(fixture.model.selection) != 1 {
 		b.Fatalf("%d records selected after the keys", len(fixture.model.selection))
 	}
