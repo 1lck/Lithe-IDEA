@@ -21,6 +21,10 @@ type fakeAgentBackend struct {
 	validate    core.AgentHookValidation
 	skills      core.AgentSkillListing
 	enabledCall []bool
+	shared      core.AgentSharedInstructions
+	sharedSaves []string
+	sharedErr   error
+	sharedTurns []bool
 }
 
 func (f *fakeAgentBackend) ReadAgentInstructions(context.Context, string) (core.AgentInstructionFile, error) {
@@ -231,4 +235,28 @@ func TestAgentPagesPaintAndShowWhatCoreRead(t *testing.T) {
 	if b.savedHook != nil || b.enabledCall != nil || b.savedWith != ([2]string{}) {
 		t.Fatal("opening the pages wrote something")
 	}
+}
+
+func (f *fakeAgentBackend) ReadAgentSharedInstructions(context.Context, string) (core.AgentSharedInstructions, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.shared, nil
+}
+
+func (f *fakeAgentBackend) SaveAgentSharedInstructions(_ context.Context, _, content, _ string, _ []core.AgentFileGuard) (core.AgentSharedInstructions, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sharedSaves = append(f.sharedSaves, content)
+	if f.sharedErr != nil {
+		return core.AgentSharedInstructions{}, f.sharedErr
+	}
+	f.shared.File.Content, f.shared.File.Revision = content, "shared-rev-2"
+	return f.shared, nil
+}
+
+func (f *fakeAgentBackend) SetAgentSharedInstructionsEnabled(_ context.Context, _, _ string, enabled bool, _ string, _ core.AgentFileGuard) (core.AgentSharedInstructions, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sharedTurns = append(f.sharedTurns, enabled)
+	return f.shared, nil
 }

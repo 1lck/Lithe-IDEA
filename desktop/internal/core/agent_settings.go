@@ -69,10 +69,16 @@ func (c *Client) sharedInstructions(ctx context.Context, payload any) (AgentShar
 
 // ReadAgentSharedInstructions reads the shared source and native targets.
 func (c *Client) ReadAgentSharedInstructions(ctx context.Context, dataDirectory string) (AgentSharedInstructions, error) {
-	return c.sharedInstructions(ctx, struct {
+	return c.sharedInstructions(ctx, sharedReadPayload(dataDirectory))
+}
+
+// sharedReadPayload is the read request of agent.instructions.shared, the payload the shared
+// instruction fixture records.
+func sharedReadPayload(dataDirectory string) any {
+	return struct {
 		DataDirectory string `json:"dataDirectory"`
 		Action        string `json:"action"`
-	}{dataDirectory, "read"})
+	}{dataDirectory, "read"}
 }
 
 // SaveAgentSharedInstructions saves the shared source and updates enabled targets.

@@ -15693,6 +15693,110 @@
       ]
     },
     {
+      "id": "desktop.settings.agent.shared.conflict",
+      "description": "AI settings page: shared instructions changed outside while draft unsaved",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.shared.dirty",
+      "description": "AI settings page: shared instructions has unsaved changes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.shared.enable",
+      "description": "AI settings page: switch to sync shared instructions to an Agent",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.agent.shared.help",
+      "description": "AI settings page: shared instructions help",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.shared.needsSync",
+      "description": "AI settings page: Agent block differs from saved shared text",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.shared.noFile",
+      "description": "AI settings page: Agent has no native instruction file to sync to",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.agent.shared.path",
+      "description": "AI settings page: shared instructions source path",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "path": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.agent.shared.placeholder",
+      "description": "AI settings page: shared instructions editor placeholder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.shared.save",
+      "description": "AI settings page: save shared instructions",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.shared.saved",
+      "description": "AI settings page: shared instructions saved",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.shared.target",
+      "description": "AI settings page: Agent native file path for shared sync",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "path": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.agent.shared.title",
+      "description": "AI settings page: shared instructions card",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.shared.unknown",
+      "description": "AI settings page: Agent sync state could not be read",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.agent.skills.create",
       "description": "AI settings page: create skill",
       "platforms": [

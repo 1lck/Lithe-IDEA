@@ -101,11 +101,13 @@ func (w *window) instructionsPage(c ui.C) {
 		return
 	}
 	s.beginInstructions(false)
+	s.beginShared(false)
 	w.pageScroll(c, pageAIInstructions, func() {
 		w.agentPicker(c)
 		s.mu.Lock()
 		st := s.instructions
 		s.mu.Unlock()
+		w.sharedCard(c)
 		w.card(c, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.instructions.title"), i18n.Shared(w.marketLanguage(), "desktop.settings.agent.instructions.help"), func() {
 			ui.Column(c).FillWidth().Gap(8).Children(func() {
 				if st.loading && !st.loaded {

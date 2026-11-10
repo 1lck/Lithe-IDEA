@@ -33,6 +33,9 @@ type AgentSettingsBackend interface {
 	SetAgentSkillEnabled(ctx context.Context, agentID, workspace, source, scope string, enabled bool) (core.AgentSkillListing, error)
 	CreateAgentSkill(ctx context.Context, agentID, workspace, scope, name, description, instructions string) (string, error)
 	ImportAgentSkill(ctx context.Context, agentID, workspace, scope, source string) (string, error)
+	ReadAgentSharedInstructions(ctx context.Context, dataDirectory string) (core.AgentSharedInstructions, error)
+	SaveAgentSharedInstructions(ctx context.Context, dataDirectory, content, expectedRevision string, files []core.AgentFileGuard) (core.AgentSharedInstructions, error)
+	SetAgentSharedInstructionsEnabled(ctx context.Context, dataDirectory, agentID string, enabled bool, expectedRevision string, file core.AgentFileGuard) (core.AgentSharedInstructions, error)
 }
 
 // AgentContextLimit is one Agent's context window and auto-compact threshold in
@@ -66,6 +69,7 @@ type agentSettings struct {
 
 	providerRead generationState
 	instructions instructionsState
+	shared       sharedState
 	skills       skillsState
 	hooks        hooksState
 	limitDraft   limitsState
