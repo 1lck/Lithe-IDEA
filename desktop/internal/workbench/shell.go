@@ -3,7 +3,6 @@ package workbench
 import (
 	"math"
 
-	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -75,17 +74,6 @@ const (
 	shellSplitCount
 )
 
-var (
-	shellSplitIDs = [shellSplitCount]gfx.ID{
-		shellSplitLeft:        tree.ID(shellPage, "split-left"),
-		shellSplitRight:       tree.ID(shellPage, "split-right"),
-		shellSplitBottom:      tree.ID(shellPage, "split-bottom"),
-		shellSplitMid:         tree.ID(shellPage, "split-bottom-mid"),
-		shellSplitLeftColumn:  tree.ID(shellPage, "split-left-column"),
-		shellSplitRightColumn: tree.ID(shellPage, "split-right-column"),
-	}
-	// shellGitTabs identifies the tabs of the Git tool window.
-	shellGitTabs = tree.Sub(shellPage, tree.Name("git-tabs"))
 )
 
 // layoutState is how the workbench divides its window: the sizes the user chose for the
@@ -121,15 +109,12 @@ type layoutState struct {
 
 	split [shellSplitCount]ui.SplitterState
 
-	// frame is what the last drawWorkbench declared, which a drag or a key press is
-	// measured against. drawn says the workbench was declared since capture last ran.
+	// frame is what the last paint declared the workbench with, which a drag or a key press
+	// is measured against. drawn says the workbench was declared since capture last ran.
 	frame shellPlan
 	drawn bool
-	// main is the column between the stripes in the frame being drawn. The room it was
-	// given in the last frame tells how much of the window the chrome around it takes,
-	// so the panels are sized against the room that is really there.
-	main ui.Box
-	// insetW and insetH are the window's width and height less the main column's.
+	// insetW and insetH are the window's width and height less the main column's: the
+	// stripes at both sides, the title bar and the status bar.
 	insetW, insetH   float32
 	windowW, windowH float32
 }
@@ -301,13 +286,13 @@ func (l *layoutState) arrange(window gfx.Rect, open [slotCount]int) shellPlan {
 	return p
 }
 
-// capture keeps what the frame that just finished tells: the sizes a drag chose and the
-// room the chrome around the main column takes.
+// capture keeps what the paint before this one tells: the sizes a drag chose.
 //
 // A position counts as the user's only while the splitter is being dragged and has moved
 // from where it was declared. Anything else that moved it would be Viva keeping it
 // inside limits, which says nothing about what the user wants and must not be
-// remembered.
+// remembered. It runs at the start of a paint, before arrange puts every splitter back
+// at the position the chosen sizes give.
 func (l *layoutState) capture() {
 	if !l.drawn {
 		return
@@ -317,9 +302,6 @@ func (l *layoutState) capture() {
 		if s := &l.split[which]; s.Dragging() && s.Pos != l.frame.pos(shellSplit(which)) {
 			l.adopt(shellSplit(which))
 		}
-	}
-	if r := l.main.Rect(); r.Width > 0 && r.Height > 0 {
-		l.insetW, l.insetH = l.windowW-r.Width, l.windowH-r.Height
 	}
 }
 
@@ -364,272 +346,3 @@ func shellClamp(v, lo, hi float32) float32 { return max(min(v, hi), lo) }
 func shellSnap(v float32) float32          { return float32(math.Round(float64(v))) }
 func shellFloor(v float32) float32         { return float32(math.Floor(float64(v))) }
 
-// drawWorkbench is the window of an open project: the title bar over the tool stripes
-// and the main column, over the status bar. The main column holds the tool windows
-// around the editor, and the bottom area under them when a bottom tool window is open.
-func (a *App) drawWorkbench(f *ui.Frame) {
-	// A copy: a click on a stripe button changes a.chrome while this frame is still being
-	// declared, and the panels must be declared for the same tool windows the sizes were
-	// worked out for.
-	open := a.chrome.open
-	plan := a.layout.arrange(f.Bounds(), open)
-	// The hide button is only noted while the frame is declared and acted on at its end,
-	// so the stripes and the status bar are declared with the same state as the panels.
-	hidden := slotCount
-	f.Column().Fill().Children(func() {
-		a.drawTitleBar(f)
-		f.Row().Fill().Children(func() {
-			a.drawStripe(f, true)
-			a.layout.main = f.Column().Fill().Children(func() {
-				a.drawShellMain(f, plan, open, &hidden)
-			})
-			a.drawStripe(f, false)
-		})
-		a.drawStatusBar(f)
-	})
-	if hidden != slotCount {
-		a.hidePanel(hidden)
-	}
-}
-
-// drawShellMain declares the top row, which holds the editor and the columns of tool
-// windows at its sides, and under it the bottom area when a bottom tool window is open.
-// The columns and the panels have fixed sizes and the editor and the top row fill what is
-// left; each splitter is declared right after the pane its Pos measures and before the
-// next one.
-func (a *App) drawShellMain(f *ui.Frame, plan shellPlan, open [slotCount]int, hidden *slot) {
-	f.Row().Fill().Children(func() {
-		if plan.left() {
-			a.drawShellColumn(f, open, hidden, slotLeftTop, slotLeftBottom, shellSplitLeftColumn, plan.leftUpperH).Width(plan.leftW).Shrink(0)
-			a.drawShellSplitter(f, shellSplitLeft).Mins(shellPanelMin, shellEditorMin)
-		}
-		a.drawShellEditor(f)
-		if plan.right() {
-			a.drawShellSplitter(f, shellSplitRight).Mins(shellEditorMin, shellPanelMin)
-			a.drawShellColumn(f, open, hidden, slotRightTop, slotRightBottom, shellSplitRightColumn, plan.rightUpperH).Width(plan.rightW).Shrink(0)
-		}
-	})
-	if !plan.bottom() {
-		return
-	}
-	a.drawShellSplitter(f, shellSplitBottom).Mins(plan.topMin, shellPanelHeightMin)
-	f.Row().Height(plan.bottomH).Children(func() {
-		switch {
-		case plan.bottomLeft && plan.bottomRight:
-			a.drawShellPanel(f, slotBottomLeft, open[slotBottomLeft], hidden).Width(plan.bottomLeftW).Shrink(0)
-			a.drawShellSplitter(f, shellSplitMid).Mins(shellPanelMin, shellPanelMin)
-			a.drawShellPanel(f, slotBottomRight, open[slotBottomRight], hidden).Fill()
-		case plan.bottomLeft:
-			a.drawShellPanel(f, slotBottomLeft, open[slotBottomLeft], hidden).Fill()
-		default:
-			a.drawShellPanel(f, slotBottomRight, open[slotBottomRight], hidden).Fill()
-		}
-	})
-}
-
-// drawShellColumn declares a column of tool windows beside the editor, which is the left
-// or the right one depending on its slots. A column with one tool window open shows it
-// over the whole height; with both open it shows the upper one (the top slot) over the
-// lower one (the bottom slot), the upper one upperH high and the lower one filling, with
-// the column's splitter between them. The caller gives the column its width. The splitter
-// is declared right after the upper tool window, the pane its Pos measures.
-func (a *App) drawShellColumn(f *ui.Frame, open [slotCount]int, hidden *slot, top, bottom slot, which shellSplit, upperH float32) ui.Box {
-	return f.Column().Children(func() {
-		switch {
-		case open[top] >= 0 && open[bottom] >= 0:
-			a.drawShellPanel(f, top, open[top], hidden).Height(upperH).Shrink(0)
-			a.drawShellSplitter(f, which).Mins(shellPanelHeightMin, shellPanelHeightMin)
-			a.drawShellPanel(f, bottom, open[bottom], hidden).Fill()
-		case open[top] >= 0:
-			a.drawShellPanel(f, top, open[top], hidden).Fill()
-		default:
-			a.drawShellPanel(f, bottom, open[bottom], hidden).Fill()
-		}
-	})
-}
-
-// drawShellSplitter declares one of the workbench's splitters. Its accessibility label
-// is set because Viva's own is an English word that would ignore the chosen language.
-func (a *App) drawShellSplitter(f *ui.Frame, which shellSplit) ui.Box {
-	return f.Splitter(shellSplitIDs[which], &a.layout.split[which]).Label(a.text.Panel.Resize)
-}
-
-// drawShellPanel declares the tool window open in slot s, the catalog item index: a
-// header with its name and a button that hides it, over a body. Most tool windows have no
-// contents yet, so their body says so, in the middle. The Git tool window has more in its
-// header, the tabs its views will be shown under, and a body of its own on the log tab; the
-// Terminal tool window of an open project holds that project's terminals, one tab each in
-// its header, and the body shows the selected one.
-func (a *App) drawShellPanel(f *ui.Frame, s slot, index int, hidden *slot) ui.Box {
-	tool := catalog[index]
-	tabbed := tool.id == itemGit
-	// The log tab of the Git tool window has a page of its own for a body.
-	log := tabbed && a.layout.gitTab == 0 && a.project != nil
-	// The Terminal tool window of an open project shows its terminals' tabs in its header.
-	terminals := tool.id == itemTerminal && a.project != nil
-	// The Commit tool window of an open project shows its changes and the commit area.
-	commit := tool.id == itemCommit && a.project != nil
-	// The Project tool window of an open project shows the tree of its folder.
-	tree := tool.id == itemProject && a.project != nil
-	search := tool.id == itemFind && a.project != nil
-	// The Problems tool window of an open project lists what its servers published.
-	problems := tool.id == itemProblems && a.project != nil
-	// The Tests tool window runs one workspace test selection and shows its tree.
-	tests := tool.id == itemTests && a.project != nil
-	// The Debug tool window owns one adapter session, its breakpoints and stack.
-	debug := tool.id == itemDebug && a.project != nil
-	// The AI Assistant tool window holds the project's Agent conversation.
-	assistant := tool.id == itemAssistant && a.project != nil
-	header := float32(panelHeaderHeight)
-	if tabbed {
-		header = shellTabsHeaderHeight
-	} else if search {
-		header = 39
-	}
-	return f.Column().Background(a.colors.Panel).Clip().Children(func() {
-		f.Row().Height(header).Items(ui.Center).Gap(shellHeaderGap).PadSides(0, 8, 0, 12).Children(func() {
-			f.Text(tool.label(a.text)).Color(a.colors.Text).Weight(gfx.WeightMedium).Ellipsis()
-			if tabbed {
-				a.drawShellGitTabs(f)
-			}
-			if terminals {
-				// The tabs of the open project's terminals take the room a spacer would.
-				a.drawTerminalTabs(f)
-			} else {
-				f.Spacer()
-			}
-			if tree {
-				a.drawProjectTreeActions(f, a.project)
-			}
-			// A ui Button cannot show an icon in this version of Viva, so the hide
-			// control is a hit row with an icon, as the notice's dismiss button is.
-			hide := f.Row().Size(shellHideSize, shellHideSize).Shrink(0).Center().Radius(a.theme.Metrics.RadiusItem()).
-				HitWith(panelHide.At(int(s)), a.text.Panel.Hide, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}).
-				Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
-			hide.Children(func() {
-				f.Icon(icons.Minus).Size(shellIconSize, shellIconSize).Color(a.colors.Subtle).StateFrom(hide).Hover(ui.Look{}.Color(a.colors.Text))
-			})
-			if hide.Clicked() {
-				*hidden = s
-			}
-		})
-		if log {
-			a.drawGitLog(f, a.project)
-			return
-		}
-		if terminals {
-			a.drawTerminal(f)
-			return
-		}
-		if commit {
-			a.drawCommitPanel(f, a.project)
-			return
-		}
-		if tree {
-			a.drawProjectTree(f, a.project)
-			return
-		}
-		if search {
-			a.drawProjectSearch(f, a.project)
-			return
-		}
-		if problems {
-			a.drawProblemsPanel(f, a.project)
-			return
-		}
-		if tool.id == itemRun {
-			a.drawBuildPanel(f, a.project)
-			return
-		}
-		if tests {
-			a.drawTestsPanel(f, a.project)
-			return
-		}
-		if debug {
-			a.drawDebugPanel(f, a.project)
-			return
-		}
-		if assistant {
-			a.drawAgentPanel(f, a.project)
-			return
-		}
-		f.Row().Fill().Items(ui.Center).PadX(shellContentPad).Children(func() {
-			f.Paragraph(a.text.Panel.Placeholder, 3).Grow(1).TextCenter().Color(a.colors.Subtle)
-		})
-	})
-}
-
-// toolIconButton declares an icon button of a tool window and reports a click on it. on
-// shows it pressed, for the buttons that toggle a view; a disabled one is dimmed and takes no
-// click. out, when not nil, receives the button's box, for a popover to hang from. A ui
-// Button cannot show an icon in this version of Viva, so the button is a hit row with one;
-// a box's Disabled dims only what it draws, so the hit says it is disabled itself.
-func (a *App) toolIconButton(f *ui.Frame, id gfx.ID, label string, icon gfx.Icon, on, disabled bool, out *ui.Box) bool {
-	button := f.Row().Size(shellHideSize, shellHideSize).Shrink(0).Center().Radius(a.theme.Metrics.RadiusItem()).
-		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Disabled: disabled}).Disabled(disabled)
-	switch {
-	case on:
-		button = button.Background(a.colors.Active)
-	case !disabled:
-		button = button.Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
-	}
-	tint := a.colors.Subtle
-	if disabled {
-		tint.Alpha *= 0.4
-	}
-	button.Children(func() {
-		f.Icon(icon).Size(shellIconSize, shellIconSize).Color(tint).StateFrom(button).Hover(ui.Look{}.Color(a.colors.Text))
-	})
-	if out != nil {
-		*out = button
-	}
-	return !disabled && button.Clicked()
-}
-
-// drawShellGitTabs declares the tabs of the Git tool window's header and takes a click
-// on one as the new selection. The strip may give up width, with the labels cut, before
-// it pushes the hide button out of a narrow panel.
-func (a *App) drawShellGitTabs(f *ui.Frame) {
-	l := &a.layout
-	l.gitLabels = [3]string{a.text.Git.Log, a.text.Git.Worktrees, a.text.Git.Console}
-	if p := a.project; p != nil && p.log.reference != "" {
-		l.gitLabels[0] = a.text.Git.LogTab(p.log.referenceLabel)
-	}
-	tabs := f.Tabs(shellGitTabs, l.gitLabels[:], l.gitTab).Line().Height(shellTabsHeaderHeight).Shrink(1)
-	if i, ok := tabs.TabClicked(); ok {
-		l.gitTab = i
-	}
-}
-
-// drawShellEditor declares the editor area. Once a terminal has been dragged into it, it is
-// the groups of tabs those terminals are in (see drawEditorGroups). Until then there is no
-// editor, so it shows what an empty one shows: the commands that open something and where
-// to drop files, which is also where a dragged tab opens the first group. The shortcuts are
-// key symbols, not words, and so are not translated.
-func (a *App) drawShellEditor(f *ui.Frame) {
-	if a.drawEditorGroups(f) {
-		return
-	}
-	hints := [...]struct{ label, keys string }{
-		{a.text.Editor.SearchEverywhere, "⇧⇧"},
-		{a.text.Editor.GoToFile, "⇧⌘O"},
-		{a.text.Editor.FindInFiles, "⇧⌘F"},
-		{a.text.Editor.RecentFiles, "⌘E"},
-	}
-	editor := f.Column().Fill().Clip().Center().Pad(shellContentPad).Background(a.colors.Editor).Children(func() {
-		f.Column().FillWidth().MaxWidth(shellHintWidth).Children(func() {
-			// Labels end and shortcuts start at one line down the middle, so the two
-			// read as columns however long the words are.
-			for _, hint := range hints {
-				f.Row().Height(rowHeight).Items(ui.Center).Gap(12).Children(func() {
-					f.Text(hint.label).Color(a.colors.Subtle).TextEnd().Ellipsis().FillWidth()
-					f.Text(hint.keys).Color(a.colors.Text).FillWidth()
-				})
-			}
-			f.Row().Height(rowHeight).Items(ui.Center).Children(func() {
-				f.Text(a.text.Editor.DropFiles).Color(a.colors.Subtle).TextCenter().Ellipsis().FillWidth()
-			})
-		})
-	})
-	a.declareEmptyEditor(editor)
-}

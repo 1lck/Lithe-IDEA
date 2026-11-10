@@ -255,23 +255,30 @@ type chromeState struct {
 	// open is the catalog index of the open tool window of each slot, -1 for none.
 	open [slotCount]int
 
-	// boxes and zoneBoxes are the elements declared for the buttons and zones in the
-	// frame being drawn; drawn and zoneDrawn say which were declared at all.
-	boxes     []ui.Box
-	drawn     []bool
-	zoneBoxes [zoneCount]ui.Box
-	zoneDrawn [zoneCount]bool
-	// rects and zoneRects are where they were laid out in the last finished frame;
-	// a zero rectangle means the button or zone was not shown.
+	// ids is the identity each button was declared with in the last paint, which the drag
+	// maps its source back to a catalog index by.
+	ids []gfx.ID
+	// rects and zoneRects are where the buttons and zones were laid out in the last paint,
+	// kept by draw hooks as the elements are painted; a zero rectangle means the button or
+	// zone was not shown. rectHooks and zoneHooks are made once, because a closure made in
+	// each paint allocates.
 	rects     []gfx.Rect
 	zoneRects [zoneCount]gfx.Rect
+	rectHooks []func(*ui.DrawContext)
+	zoneHooks [zoneCount]func(*ui.DrawContext)
 }
 
-func newChromeState() chromeState {
-	c := chromeState{
-		boxes: make([]ui.Box, len(catalog)),
-		drawn: make([]bool, len(catalog)),
-		rects: make([]gfx.Rect, len(catalog)),
+func newChromeState() *chromeState {
+	c := &chromeState{
+		ids:       make([]gfx.ID, len(catalog)),
+		rects:     make([]gfx.Rect, len(catalog)),
+		rectHooks: make([]func(*ui.DrawContext), len(catalog)),
+	}
+	for i := range c.rectHooks {
+		c.rectHooks[i] = func(d *ui.DrawContext) { c.rects[i] = d.Rect }
+	}
+	for z := range c.zoneHooks {
+		c.zoneHooks[z] = func(d *ui.DrawContext) { c.zoneRects[z] = d.Rect }
 	}
 	c.apply(defaultLayout())
 	return c
@@ -345,38 +352,19 @@ func (c *chromeState) isOpen(index int) bool {
 	return false
 }
 
-// beginFrame forgets the elements of the previous frame before a new one is declared.
+// beginFrame forgets where the previous paint laid the buttons and zones out, before a new
+// one declares them afresh.
 func (c *chromeState) beginFrame() {
-	clear(c.drawn)
-	c.zoneDrawn = [zoneCount]bool{}
+	clear(c.rects)
+	c.zoneRects = [zoneCount]gfx.Rect{}
 }
 
-// place records the element declared for the button of catalog item index.
-func (c *chromeState) place(index int, box ui.Box) {
-	c.boxes[index], c.drawn[index] = box, true
-}
+// place records where the element declared for the button of catalog item index is laid out.
+func (c *chromeState) place(index int, box ui.Box) ui.Box { return box.Draw(c.rectHooks[index]) }
 
-// placeZone records the element declared for a zone: the container its buttons are
-// laid out in, which is also where a dragged button can be dropped.
-func (c *chromeState) placeZone(z zone, box ui.Box) {
-	c.zoneBoxes[z], c.zoneDrawn[z] = box, true
-}
-
-// capture keeps where the frame that just finished laid out each button and zone.
-func (c *chromeState) capture() {
-	for i := range c.rects {
-		c.rects[i] = gfx.Rect{}
-		if c.drawn[i] {
-			c.rects[i] = c.boxes[i].Rect()
-		}
-	}
-	for z := range c.zoneRects {
-		c.zoneRects[z] = gfx.Rect{}
-		if c.zoneDrawn[z] {
-			c.zoneRects[z] = c.zoneBoxes[z].Rect()
-		}
-	}
-}
+// placeZone records where the element declared for a zone is laid out: the container its
+// buttons are in, which is also where a dragged button can be dropped.
+func (c *chromeState) placeZone(z zone, box ui.Box) { box.Draw(c.zoneHooks[z]) }
 
 // layoutFile is the saved arrangement of the rearrangeable buttons. The "v2" is there
 // because the first version had four zones and its "leftBottom" and "rightBottom" meant

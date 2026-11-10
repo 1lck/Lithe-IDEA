@@ -352,7 +352,7 @@ type App struct {
 	documentWriter   func(string, []byte, []byte) error
 	documentCreator  func(string, []byte) error
 	documentReader   func(string) ([]byte, error)
-	chrome           chromeState
+	chrome           *chromeState
 	drag             dragState
 	title            titleState
 	layout           layoutState

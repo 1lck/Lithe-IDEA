@@ -4,6 +4,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/ui"
 )
 
 const (
@@ -67,18 +68,16 @@ const (
 // dragState is the gesture that moves a rearrangeable button. The zero value is no
 // gesture.
 type dragState struct {
-	// pressed says the primary button went down on the button of catalog item item; active
-	// says the pointer then moved far enough for the press to be a drag.
-	pressed, active bool
-	item            int
+	// active says a button of catalog item item is being dragged.
+	active bool
+	item   int
 	// sourceZone stays fixed for the gesture so a detached drop keeps source-anchor
 	// priority. snappedStripe can change when a detached drag returns to either stripe.
 	sourceZone    zone
 	snappedStripe stripeSide
 	phase         dragPhase
-	// startX and startY are where the press began and x and y where the pointer is now.
-	startX, startY float32
-	x, y           float32
+	// x and y are where the pointer is now.
+	x, y float32
 	// grab is the press point inside the source button, retained by both stripe ghosts.
 	grab gfx.Point
 	// target is where the button would land if it were dropped now; hasTarget is false
@@ -101,97 +100,79 @@ type dragTarget struct {
 	preview gfx.Rect
 }
 
-// dragPointer follows a press on a rearrangeable button. It leaves the press alone until
-// the pointer has moved by dragThreshold, so the button still gets its ordinary click;
-// from then on it takes every event of the gesture. Taking an event is what keeps the
-// release from becoming a click, because the runtime clicks only when neither the
-// press nor the release was handled.
-func (a *App) dragPointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
-	d := &a.drag
-	switch event.Kind {
-	case gfx.PointerDown:
-		*d = dragState{}
-		if event.Button != gfx.PointerButtonPrimary {
-			return gfx.EventResult{}, false
-		}
-		if i, ok := event.Target.In(chromeButtons); ok && i < len(catalog) {
-			button := a.chrome.rects[i]
-			source := a.chrome.zoneOf(i)
-			side, _ := stripeForZone(source)
-			*d = dragState{
-				pressed: true, item: i, sourceZone: source, snappedStripe: side,
-				startX: event.X, startY: event.Y,
-				grab: gfx.Point{X: event.X - button.X, Y: event.Y - button.Y},
-			}
-		}
-		// The button under the pointer still gets its press.
-		return gfx.EventResult{}, false
-
-	case gfx.PointerMove:
-		if !d.pressed {
-			return gfx.EventResult{}, false
-		}
-		if !d.active {
-			dx, dy := event.X-d.startX, event.Y-d.startY
-			if dx*dx+dy*dy < dragThreshold*dragThreshold {
-				return gfx.EventResult{}, false
-			}
-			d.active = true
-		}
-		d.x, d.y, d.viewport = event.X, event.Y, event.Viewport
-		point := gfx.Point{X: event.X, Y: event.Y}
-		if d.sourceZone.surface() == surfaceStripes {
-			d.phase, d.snappedStripe = dragPhaseAt(d.phase, d.snappedStripe, point, dragStripeRects(gfx.Rect{
-				Width: event.Viewport.Width, Height: event.Viewport.Height,
-			}))
-		}
-		d.target, d.hasTarget = a.dragLocate(d.item, d.sourceZone, point, event.Viewport, d.phase, d.snappedStripe)
-		return gfx.EventResult{Handled: true, Repaint: true}, true
-
-	case gfx.PointerUp:
-		if !d.active {
-			*d = dragState{}
-			return gfx.EventResult{}, false
-		}
-		// The place is worked out again at the release: the last move may be older than
-		// the release by a frame in which the layout changed.
-		item, source := d.item, d.sourceZone
-		phase, snappedStripe := d.phase, d.snappedStripe
-		point := gfx.Point{X: event.X, Y: event.Y}
-		if source.surface() == surfaceStripes {
-			phase, snappedStripe = dragPhaseAt(phase, snappedStripe, point, dragStripeRects(gfx.Rect{
-				Width: event.Viewport.Width, Height: event.Viewport.Height,
-			}))
-		}
-		target, ok := a.dragLocate(item, source, point, event.Viewport, phase, snappedStripe)
-		*d = dragState{}
-		if ok {
-			a.reduceChrome(core.MoveChrome(catalog[item].id, zoneNames[target.zone], target.before))
-		}
-		return gfx.EventResult{Handled: true, Repaint: true}, true
-
-	case gfx.PointerExit:
-		// The runtime reports an exit during a held press only once the button is released,
-		// so this ends a gesture whose release was lost.
-		active := d.active
-		*d = dragState{}
-		return gfx.EventResult{Repaint: active}, active
-	}
-	return gfx.EventResult{}, false
+// dragDrop holds the page's drag and drop gestures: the tool buttons of the stripes, the
+// title bar and the status bar, and the terminals' tabs. Each is declared by the elements
+// that are its sources and by one target that covers the window; the places a drop can land
+// are worked out from the geometry of the last paint by pure functions (dragLocate, dropAt),
+// which the target's accept callback runs for the pointer's position.
+type dragDrop struct {
+	tool, tab ui.DragState
 }
 
-// cancelDrag drops the gesture without moving anything and reports whether a drag was
-// under way, so that the key that cancelled it is not also given to something else.
-func (a *App) cancelDrag() bool {
-	active := a.drag.active
+// toolAccept is the tool button target's accept callback: it follows the pointer of the drag
+// of a button, works out where dropping it would put it and says whether that is a place.
+// Viva asks it for every move of the drag and once more for the release.
+func (a *App) toolAccept(source, _ gfx.ID) bool {
+	item := -1
+	for i, id := range a.chrome.ids {
+		if id == source && !id.IsZero() {
+			item = i
+			break
+		}
+	}
+	if item < 0 {
+		return false
+	}
+	d := &a.drag
+	point := a.dnd.tool.At()
+	if !d.active || d.item != item {
+		button := a.chrome.rects[item]
+		z := a.chrome.zoneOf(item)
+		side, _ := stripeForZone(z)
+		*d = dragState{
+			active: true, item: item, sourceZone: z, snappedStripe: side,
+			grab: gfx.Point{X: point.X - button.X, Y: point.Y - button.Y},
+		}
+	}
+	d.x, d.y, d.viewport = point.X, point.Y, a.viewport()
+	if d.sourceZone.surface() == surfaceStripes {
+		d.phase, d.snappedStripe = dragPhaseAt(d.phase, d.snappedStripe, point, dragStripeRects(gfx.Rect{
+			Width: d.viewport.Width, Height: d.viewport.Height,
+		}))
+	}
+	d.target, d.hasTarget = a.dragLocate(d.item, d.sourceZone, point, d.viewport, d.phase, d.snappedStripe)
+	return d.hasTarget
+}
+
+// toolDrop moves the dragged button where toolAccept last found a place for it.
+func (a *App) toolDrop(_, _ gfx.ID) {
+	d := a.drag
 	a.drag = dragState{}
-	return active
+	if d.active && d.hasTarget {
+		a.reduceChrome(core.MoveChrome(catalog[d.item].id, zoneNames[d.target.zone], d.target.before))
+	}
+}
+
+// viewport is the size of the window as the last paint knew it.
+func (a *App) viewport() gfx.Size {
+	return gfx.Size{Width: a.layout.windowW, Height: a.layout.windowH}
+}
+
+// endDrags forgets the bookkeeping of a gesture that is over: Viva owns the press, so a
+// gesture it let go of (a release over no place, Escape, a lost release) is noticed here.
+func (a *App) endDrags() {
+	if !a.dnd.tool.Dragging() {
+		a.drag = dragState{}
+	}
+	if !a.dnd.tab.Dragging() {
+		a.term.drag = tabDrag{}
+	}
 }
 
 // draggingToolButton reports that a button of the tool stripes is being dragged, which is
-// when the stripes show every zone as a place to drop it (see drawStripe).
+// when the stripes show every zone as a place to drop it (see stripe).
 func (a *App) draggingToolButton() bool {
-	return a.drag.active && a.drag.sourceZone.surface() == surfaceStripes
+	return a.dnd.tool.Dragging() && a.drag.active && a.drag.sourceZone.surface() == surfaceStripes
 }
 
 // dragLocate finds where dropping item at point would put it. Tool buttons use their
