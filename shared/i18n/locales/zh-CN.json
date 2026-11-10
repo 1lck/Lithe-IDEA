@@ -11300,7 +11300,14 @@
     "workspace.nativeMenuDescription": "{arg1} — {arg2}",
     "workspace.openWith": "打开方式",
     "workspace.openWithAppStore": "App Store…",
-    "workspace.openWithOther": "其他…"
+    "workspace.openWithOther": "其他…",
+    "desktop.debug.threads": "线程",
+    "desktop.debug.threadFallback": "线程 {id}",
+    "desktop.debug.watches": "监视",
+    "desktop.debug.watchPlaceholder": "求值表达式",
+    "desktop.debug.addWatch": "添加监视",
+    "desktop.debug.removeWatch": "移除监视",
+    "desktop.debug.evaluateFailed": "无法对该表达式求值"
   },
   "overrides": {
     "macos": {

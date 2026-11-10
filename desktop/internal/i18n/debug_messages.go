@@ -1,5 +1,7 @@
 package i18n
 
+import "strconv"
+
 // DebugMessages are the Debug tool window's words.
 type DebugMessages struct {
 	PluginsUnavailable string
@@ -55,6 +57,15 @@ type DebugMessages struct {
 	RemotePrompt func(endpoint string) string
 	// ConnectFailed reports a failed connection to the debug adapter.
 	ConnectFailed func(endpoint string) string
+	// Threads names the thread selector and ThreadFallback words a thread without a name.
+	Threads        string
+	ThreadFallback func(id int64) string
+	// Watches, WatchPlaceholder, AddWatch, RemoveWatch and EvaluateFailed are the watch editor.
+	Watches          string
+	WatchPlaceholder string
+	AddWatch         string
+	RemoveWatch      string
+	EvaluateFailed   string
 }
 
 func debugMessages(language Language) DebugMessages {
@@ -114,5 +125,14 @@ func debugMessages(language Language) DebugMessages {
 		ConnectFailed: func(endpoint string) string {
 			return SharedFormat(language, "desktop.debug.connectFailed", map[string]string{"endpoint": endpoint})
 		},
+		Threads: Shared(language, "desktop.debug.threads"),
+		ThreadFallback: func(id int64) string {
+			return SharedFormat(language, "desktop.debug.threadFallback", map[string]string{"id": strconv.FormatInt(id, 10)})
+		},
+		Watches:          Shared(language, "desktop.debug.watches"),
+		WatchPlaceholder: Shared(language, "desktop.debug.watchPlaceholder"),
+		AddWatch:         Shared(language, "desktop.debug.addWatch"),
+		RemoveWatch:      Shared(language, "desktop.debug.removeWatch"),
+		EvaluateFailed:   Shared(language, "desktop.debug.evaluateFailed"),
 	}
 }

@@ -107486,6 +107486,58 @@
         "key": "Other…",
         "arguments": []
       }
+    },
+    {
+      "id": "desktop.debug.threads",
+      "description": "Label of the debug thread selector.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.threadFallback",
+      "description": "Name of a debug thread the adapter did not name. {id} is its numeric id.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "id": "string"
+      }
+    },
+    {
+      "id": "desktop.debug.watches",
+      "description": "Heading of the debug watch list.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.watchPlaceholder",
+      "description": "Placeholder of the debug watch expression field.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.addWatch",
+      "description": "Button that adds the typed expression to the watch list.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.removeWatch",
+      "description": "Button that removes a watch expression.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.evaluateFailed",
+      "description": "Shown when the debugger did not return a value for an expression.",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

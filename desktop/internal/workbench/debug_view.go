@@ -207,6 +207,7 @@ func (a *App) removeBreakpoint(p *project, path string, line int64) {
 // that location.
 func (a *App) debugFrames(c ui.C, p *project) {
 	t, d := a.text.Debug, &p.debug
+	a.debugThreadPicker(c, p)
 	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).PadX(8).Children(func() {
 		ui.Text(c, t.Frames).Color(a.colors.Text).Weight(gfx.WeightMedium).Ellipsis()
 	})

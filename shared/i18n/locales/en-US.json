@@ -11300,7 +11300,14 @@
     "workspace.nativeMenuDescription": "{arg1} — {arg2}",
     "workspace.openWith": "Open With",
     "workspace.openWithAppStore": "App Store…",
-    "workspace.openWithOther": "Other…"
+    "workspace.openWithOther": "Other…",
+    "desktop.debug.threads": "Threads",
+    "desktop.debug.threadFallback": "Thread {id}",
+    "desktop.debug.watches": "Watches",
+    "desktop.debug.watchPlaceholder": "Evaluate expression",
+    "desktop.debug.addWatch": "Add Watch",
+    "desktop.debug.removeWatch": "Remove Watch",
+    "desktop.debug.evaluateFailed": "The expression could not be evaluated"
   },
   "overrides": {
     "windows": {

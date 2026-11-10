@@ -62,8 +62,17 @@ type debugState struct {
 	frames      []core.DebugStackFrame
 	// pausedThread is the thread the last stopped event named.
 	pausedThread *int64
-	session      *debugSession
-	generation   uint64
+	// threads is the adapter's thread list for the current stop and selectedThread the
+	// one its stack shows; both are cleared when the debuggee continues.
+	threads        []core.DebugThread
+	selectedThread int64
+	threadsFailure string
+	// threadSequence numbers the thread requests of this connection.
+	threadSequence uint64
+	// watch holds the expressions the user added and their last values.
+	watch      debugWatch
+	session    *debugSession
+	generation uint64
 	// remote is the non-local attach the user has not yet confirmed.
 	remote *debugRemotePrompt
 	// pendingRemote is the start in flight, kept so a remote endpoint can be
@@ -315,15 +324,21 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 			p.debug.vars.reset()
 			p.debug.disassembly.reset()
 			p.debug.pausedThread = event.ThreadID
+			p.debug.threads, p.debug.selectedThread, p.debug.threadsFailure = nil, 0, ""
+			p.debug.watch.valuesCleared()
 			p.debug.status = a.text.Debug.Paused
 			if event.ThreadID != nil {
+				p.debug.selectedThread = *event.ThreadID
 				a.inspectDebugStack(p, session, *event.ThreadID)
 			}
+			a.inspectDebugThreads(p, session)
 		case "continued":
 			p.debug.vars.reset()
 			p.debug.disassembly.reset()
 			p.debug.frames = nil
 			p.debug.pausedThread = nil
+			p.debug.threads, p.debug.selectedThread, p.debug.threadsFailure = nil, 0, ""
+			p.debug.watch.valuesCleared()
 			p.debug.state = "running"
 			p.debug.status = a.text.Debug.Running
 		case "terminated":
@@ -331,6 +346,8 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 			p.debug.disassembly.reset()
 			p.debug.frames = nil
 			p.debug.pausedThread = nil
+			p.debug.threads, p.debug.selectedThread, p.debug.threadsFailure = nil, 0, ""
+			p.debug.watch.valuesCleared()
 			p.debug.state = "terminated"
 			p.debug.status = a.text.Debug.Terminated
 			// The adapter ended the session itself, so the host releases the
@@ -347,6 +364,10 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 			if a.completeDebugOperation(p, event) {
 				continue
 			}
+			if event.Result != nil && event.Result.Kind == "threads" {
+				a.applyDebugThreads(p, session, event.Result.Threads)
+				continue
+			}
 			if event.Result != nil && event.Result.Kind == "stackTrace" {
 				frames := event.Result.StackFrames
 				if len(frames) > debugMaxFrames {
@@ -354,6 +375,9 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 				}
 				p.debug.frames = frames
 				a.selectDebugFrame(p, 0)
+				// Watches belong to the stop: the first frame of the new stack evaluates
+				// them again without the user pressing anything.
+				a.refreshDebugWatches(p)
 			}
 		case "output":
 			p.debug.output = appendDebugOutput(p.debug.output, event.Output)

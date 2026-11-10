@@ -83,6 +83,7 @@ func (v *debugVariables) label(i int) string { return debugVariableLabel(v.rows[
 func (a *App) debugVariablesView(c ui.C, p *project) {
 	t, d := a.text.Debug, &p.debug
 	v := &d.vars
+	a.debugWatchView(c, p)
 	mode := "tree"
 	if v.json {
 		mode = "json"

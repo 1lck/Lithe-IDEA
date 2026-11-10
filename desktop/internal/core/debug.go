@@ -225,6 +225,10 @@ type DebugInspectRequest struct {
 	VariableFilter string `json:"variableFilter,omitempty"`
 	Start          *int64 `json:"start,omitempty"`
 	Count          *int64 `json:"count,omitempty"`
+	// Expression and Context are the evaluate inputs: the text to evaluate and its DAP
+	// context (watch, hover, repl, clipboard or variables).
+	Expression string `json:"expression,omitempty"`
+	Context    string `json:"context,omitempty"`
 	// Disassemble inputs (MemoryReference is opaque address text).
 	MemoryReference   string `json:"memoryReference,omitempty"`
 	Offset            *int64 `json:"offset,omitempty"`

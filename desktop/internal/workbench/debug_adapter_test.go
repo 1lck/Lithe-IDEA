@@ -172,7 +172,21 @@ func serveFixtureAdapter(input io.Reader, output io.Writer, workspace string) in
 		case "setExceptionBreakpoints":
 			respond(map[string]any{})
 		case "threads":
-			respond(map[string]any{"threads": []any{map[string]any{"id": 7, "name": "main"}}})
+			respond(map[string]any{"threads": []any{
+				map[string]any{"id": 7, "name": "main"},
+				map[string]any{"id": 8, "name": "worker"},
+			}})
+		case "evaluate":
+			var arguments struct {
+				Expression string `json:"expression"`
+			}
+			_ = json.Unmarshal(request.Body, &arguments)
+			if arguments.Expression == "missing" {
+				write(map[string]any{"type": "response", "request_seq": request.Seq, "success": false,
+					"command": request.Command, "message": "cannot evaluate"})
+				continue
+			}
+			respond(map[string]any{"result": "42", "type": "int", "variablesReference": 0})
 		case "continue":
 			respond(map[string]any{"allThreadsContinued": true})
 			event("continued", map[string]any{"threadId": 7, "allThreadsContinued": true})
