@@ -180,3 +180,52 @@ func TestGitStashDiffReadsTheSavedFiles(t *testing.T) {
 		t.Fatalf("GitStashDiff() = %+v; want base.txt and the untracked notes.txt, one line added each", files)
 	}
 }
+
+// GitComparison lists what differs between two branches, and between a branch or HEAD and the
+// working tree with its untracked files; GitDiff with the same sides reads a listed file.
+func TestGitComparisonListsAndDiffsTheDifferingFiles(t *testing.T) {
+	repo := committedRepository(t)
+	client := NewClient()
+	ctx := testContext(t)
+	current := localBranch(runGit(t, repo, "rev-parse", "--abbrev-ref", "HEAD"))
+	topic := localBranch("topic")
+	runGit(t, repo, "checkout", "-q", "-b", "topic")
+	writeFile(t, filepath.Join(repo, "base.txt"), "base\ntopic\n")
+	runGit(t, repo, "commit", "-qam", "topic")
+	runGit(t, repo, "checkout", "-q", current.ShortName)
+	writeFile(t, filepath.Join(repo, "notes.txt"), "new\n")
+
+	files, err := client.GitComparison(ctx, repo, current, &topic)
+	if err != nil || len(files) != 1 || files[0].Path != "base.txt" || files[0].Untracked {
+		t.Fatalf("GitComparison(current, topic) = %+v, %v; want base.txt", files, err)
+	}
+	diff, err := client.GitDiff(ctx, GitDiffRequest{Root: repo, Path: "base.txt", Base: &current, Target: &topic})
+	if err != nil || len(diff) != 1 || diff[0].Additions != 1 || diff[0].Deletions != 0 {
+		t.Fatalf("GitDiff(current, topic) = %+v, %v; want the topic line added", diff, err)
+	}
+
+	files, err = client.GitComparison(ctx, repo, topic, nil)
+	if err != nil {
+		t.Fatalf("GitComparison(topic, working tree) error: %v", err)
+	}
+	byPath := map[string]GitComparisonFile{}
+	for _, file := range files {
+		byPath[file.Path] = file
+	}
+	if len(files) != 2 || byPath["base.txt"].Untracked || !byPath["notes.txt"].Untracked {
+		t.Fatalf("GitComparison(topic, working tree) = %+v; want base.txt and the untracked notes.txt", files)
+	}
+	diff, err = client.GitDiff(ctx, GitDiffRequest{Root: repo, Path: "base.txt", Base: &topic})
+	if err != nil || len(diff) != 1 || diff[0].Deletions != 1 {
+		t.Fatalf("GitDiff(topic, working tree) = %+v, %v; want the topic line removed", diff, err)
+	}
+	diff, err = client.GitDiff(ctx, GitDiffRequest{Root: repo, Path: "notes.txt", Base: &topic, Untracked: true})
+	if err != nil || len(diff) != 1 || diff[0].Additions != 1 {
+		t.Fatalf("GitDiff(topic, untracked notes.txt) = %+v, %v; want the new line", diff, err)
+	}
+
+	files, err = client.GitComparison(ctx, repo, GitReference{FullName: "HEAD", ShortName: "HEAD"}, nil)
+	if err != nil || len(files) != 1 || files[0].Path != "notes.txt" {
+		t.Fatalf("GitComparison(HEAD, working tree) = %+v, %v; want notes.txt", files, err)
+	}
+}

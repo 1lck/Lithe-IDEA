@@ -116,6 +116,11 @@ func (a *App) diffSideLabels(t *diffTab) (left, right string) {
 	switch {
 	case t.stash != nil:
 		return t.stash.label + "^", t.stash.label
+	case t.compare != nil:
+		if t.compare.target == nil {
+			return t.compare.base.ShortName, worktree
+		}
+		return t.compare.base.ShortName, t.compare.target.ShortName
 	case t.commit != "":
 		return shortHash(t.commit) + "^", shortHash(t.commit)
 	case t.untracked():

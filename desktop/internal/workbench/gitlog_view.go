@@ -85,11 +85,11 @@ func (a *App) drawLogStripe(c ui.C, p *project) {
 	g := a.text.Git
 	selected, hasSelected := l.findReference(l.refSelected)
 	deletable := hasSelected && selected.Kind == "local" && !selected.IsCurrent
+	base, compareTarget, comparable := l.primaryComparison()
 	compare := g.CompareWorkingTree
-	if hasSelected && !selected.IsCurrent {
+	if compareTarget != nil {
 		compare = g.CompareWithCurrent
 	}
-	unavailable := func() { a.notify(a.text.Welcome.Unavailable) }
 	// The branch selected, or the checked out one without a selection, is what the
 	// buttons act on.
 	target := selected
@@ -118,8 +118,8 @@ func (a *App) drawLogStripe(c ui.C, p *project) {
 		if a.gitIconButton(c, g.DeleteBranch, icons.Trash2, false, !deletable) {
 			c.After(func() { a.beginDelete(selected) })
 		}
-		if a.gitIconButton(c, compare, icons.ArrowLeftRight, false, !hasSelected) {
-			c.After(unavailable)
+		if a.gitIconButton(c, compare, icons.ArrowLeftRight, false, !comparable || l.comparing) {
+			c.After(func() { a.compareReferences(p, base, compareTarget) })
 		}
 		if a.gitIconButton(c, g.FindBranch, icons.Search, false, false) {
 			a.logView.focus = logRefSearchID
@@ -135,9 +135,11 @@ func (a *App) drawLogStripe(c ui.C, p *project) {
 			c.After(func() { a.locateReference(p, short) })
 		}
 		ui.Divider(c).Width(20)
-		if a.gitIconButton(c, g.BranchSettings, icons.Settings, false, false) {
-			c.After(unavailable)
+		settings, clicked := a.gitToolButton(c, g.BranchSettings, icons.Settings, l.popover == logPopoverBranchSettings, false)
+		if clicked {
+			c.After(func() { a.toggleLogPopover(p, logPopoverBranchSettings) })
 		}
+		a.drawBranchSettingsMenu(c, p, settings)
 		a.drawGitReviewMenu(c, p)
 		if a.gitIconButton(c, g.ExpandAll, icons.ChevronsUpDown, false, false) {
 			c.After(func() { clear(l.collapsed) })
@@ -383,8 +385,8 @@ func (a *App) drawLogToolbar(c ui.C, p *project) {
 			}
 		}
 		ui.Spacer(c)
-		if a.gitIconButton(c, g.CompareBranch, icons.ArrowLeftRight, false, false) {
-			c.After(func() { a.notify(a.text.Welcome.Unavailable) })
+		if a.gitIconButton(c, g.CompareBranch, icons.ArrowLeftRight, false, l.comparing) {
+			c.After(func() { a.compareReferences(p, l.currentReference(), nil) })
 		}
 		if a.gitIconButton(c, g.ShowDetails, icons.PanelRight, l.showDetails, false) {
 			c.After(func() { l.showDetails = !l.showDetails })

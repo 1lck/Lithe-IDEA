@@ -69,6 +69,8 @@ const (
 	logPopoverUser
 	logPopoverDate
 	logPopoverPath
+	// logPopoverBranchSettings is the menu of the reference pane's settings.
+	logPopoverBranchSettings
 )
 
 // logSection is one section of the reference pane: the local branches, the remote ones
@@ -91,8 +93,10 @@ type gitLogState struct {
 
 	refs core.GitReferences
 	// current is the short name of the checked out branch, empty when HEAD is detached.
-	current  string
-	sections [3]logSection
+	current string
+	// comparing says a comparison of the Log tab's compare buttons is being read.
+	comparing bool
+	sections  [3]logSection
 
 	// reference is the full name of the reference the log walks, empty for all of them;
 	// referenceLabel is its short name, for the tab.

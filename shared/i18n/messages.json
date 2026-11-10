@@ -23377,7 +23377,8 @@
       "id": "git.diff.compareRefsFailed",
       "description": "Windows UI: git.diff.compareRefsFailed",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "base": "string",
@@ -26563,7 +26564,8 @@
       "id": "git.log.workingTreeComparisonFailed",
       "description": "Windows UI: git.log.workingTreeComparisonFailed",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "branch": "string",

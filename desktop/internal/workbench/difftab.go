@@ -106,10 +106,14 @@ type diffTab struct {
 	staged bool
 	// commit is the commit whose change of the file the tab shows against its first parent,
 	// "" for a change of the working tree. A commit's change is read only. For a stash it is
-	// the stash's commit, and stash holds what the tab shows.
+	// the stash's commit, and stash holds what the tab shows; for a comparison it is the
+	// comparison's key, and compare holds its two sides.
 	commit string
 	// stash is the stash whose saved file the tab shows, nil for any other change.
 	stash *stashSource
+	// compare is the comparison of two references whose file the tab shows, nil for any other
+	// change.
+	compare *diffComparison
 	// files are the changed files the tab steps through with its previous and next file
 	// buttons: the commit's files, or the checkout's changes when the tab opened.
 	files []core.GitChange
@@ -149,6 +153,31 @@ type stashSource struct {
 	files []core.GitDiffFile
 }
 
+// diffComparison is the comparison a Diff tab shows a file of: base against target, or against
+// the working tree when target is nil.
+type diffComparison struct {
+	base   core.GitReference
+	target *core.GitReference
+}
+
+// key is the comparison's identity among the tabs, kept in their commit: a comparison's file
+// opens in the tab that already shows it.
+func (c *diffComparison) key() string {
+	target := "worktree"
+	if c.target != nil {
+		target = c.target.FullName
+	}
+	return "compare:" + c.base.FullName + ".." + target
+}
+
+// diffOrigin is where a Diff tab of a commit reads its file instead of the commit: the files
+// a stash saved, or the comparison of two references. The zero value reads the commit, or the
+// working tree.
+type diffOrigin struct {
+	stash   *stashSource
+	compare *diffComparison
+}
+
 // diffItem is one row of a Diff tab's list: a line or an aligned row of the file, the header
 // of a block that carries its toggle and rollback, or a fold that stands for unchanged lines.
 type diffItem struct {
@@ -183,7 +212,7 @@ func (a *App) openDiff(p *project, change core.GitChange) *diffTab {
 // openDiffIn opens the Diff tab of a change of the checkout at root. The tab steps through the
 // checkout's other changes.
 func (a *App) openDiffIn(p *project, root string, change core.GitChange) *diffTab {
-	t := a.showDiff(p, root, "", change, a.changeSiblings(p, root), nil)
+	t := a.showDiff(p, root, "", change, a.changeSiblings(p, root), diffOrigin{})
 	if t != nil {
 		a.performed("git.diff.open", surfaceMenu)
 	}
@@ -202,7 +231,7 @@ func (a *App) openCommitDiff(p *project, root, commit string, file core.GitCommi
 			files = append(files, core.GitChange{Path: f.Path, Status: f.Status})
 		}
 	}
-	t := a.showDiff(p, root, commit, core.GitChange{Path: file.Path, Status: file.Status}, files, nil)
+	t := a.showDiff(p, root, commit, core.GitChange{Path: file.Path, Status: file.Status}, files, diffOrigin{})
 	if t != nil {
 		a.performed("git.diff.openCommit", surfaceButton)
 	}
@@ -221,7 +250,7 @@ func (a *App) openStashDiff(p *project, root string, stash core.GitStash, path s
 		changes[j] = core.GitChange{Path: f.Path, OriginalPath: f.OriginalPath, Status: f.Status}
 	}
 	source := &stashSource{label: stash.Reference, files: files}
-	t := a.showDiff(p, root, stash.OID, changes[i], changes, source)
+	t := a.showDiff(p, root, stash.OID, changes[i], changes, diffOrigin{stash: source})
 	if t != nil {
 		a.performed("git.diff.openStash", surfaceButton)
 	}
@@ -250,7 +279,7 @@ func (a *App) changeSiblings(p *project, root string) []core.GitChange {
 // showDiff shows change in a Diff tab and reads it: the tab that already shows the file, or a
 // new one in the group a file opens in. It is nil when the window's kernel has no review
 // commands, for a summarized directory, and when the kernel refuses the new tab.
-func (a *App) showDiff(p *project, root, commit string, change core.GitChange, files []core.GitChange, stash *stashSource) *diffTab {
+func (a *App) showDiff(p *project, root, commit string, change core.GitChange, files []core.GitChange, origin diffOrigin) *diffTab {
 	if _, ok := a.reviewKernel(); !ok || change.Path == "" || strings.HasSuffix(change.Path, "/") {
 		return nil
 	}
@@ -264,7 +293,7 @@ func (a *App) showDiff(p *project, root, commit string, change core.GitChange, f
 		s.next = t.id
 		s.list = append(s.list, t)
 	}
-	t.files, t.stash = files, stash
+	t.files, t.stash, t.compare = files, origin.stash, origin.compare
 	t.show(change)
 	a.selectDiff(p, t.id)
 	a.loadDiff(p, t)
@@ -359,9 +388,9 @@ func (p *project) live(t *diffTab, gen int) bool {
 }
 
 // loadDiff reads the diff of the tab's change again: the block plan for a tracked file of the
-// working tree or the index, and the plain diff for an untracked one, for a commit's change and
-// for a file the plan has no section for. A stash's file was read with the stash, so it shows at
-// once.
+// working tree or the index, and the plain diff for an untracked one, for a commit's change, for
+// a comparison's file and for a file the plan has no section for. A stash's file was read with
+// the stash, so it shows at once.
 func (a *App) loadDiff(p *project, t *diffTab) {
 	kernel, ok := a.reviewKernel()
 	if !ok {
@@ -379,7 +408,7 @@ func (a *App) loadDiff(p *project, t *diffTab) {
 		return
 	}
 	t.loading, t.gen = true, t.gen+1
-	gen, change, target, commit, untracked := t.gen, t.change, t.target(), t.commit, t.untracked()
+	gen, change, target, commit, untracked, compare := t.gen, t.change, t.target(), t.commit, t.untracked(), t.compare
 	a.background(p, reviewTimeout, func(ctx context.Context) func(*App) {
 		var (
 			file *core.GitDiffFile
@@ -399,7 +428,11 @@ func (a *App) loadDiff(p *project, t *diffTab) {
 			plan = nil
 			var files []core.GitDiffFile
 			request := core.GitDiffRequest{Root: target.Root, Path: change.Path, Commit: commit}
-			if commit == "" {
+			switch {
+			case compare != nil:
+				base := compare.base
+				request = core.GitDiffRequest{Root: target.Root, Path: change.Path, Base: &base, Target: compare.target, Untracked: untracked}
+			case commit == "":
 				request.Staged, request.Untracked = target.Staged, untracked
 			}
 			files, err = kernel.GitDiff(ctx, request)
@@ -434,10 +467,10 @@ func (t *diffTab) read(file *core.GitDiffFile, plan *core.DiffBlockPlan) {
 }
 
 // reloadDiffs reads again every tab that shows a change of the working tree or the index of the
-// checkout at root, after something wrote to it.
+// checkout at root, a comparison with the working tree among them, after something wrote to it.
 func (a *App) reloadDiffs(p *project, root string) {
 	for _, t := range p.diffs.list {
-		if t.root == root && t.commit == "" {
+		if t.root == root && (t.commit == "" || (t.compare != nil && t.compare.target == nil)) {
 			a.loadDiff(p, t)
 		}
 	}

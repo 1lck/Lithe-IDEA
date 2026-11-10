@@ -90,6 +90,25 @@ func (a *App) drawLogMenu(c ui.C, p *project, button ui.Box) {
 	}
 }
 
+// drawBranchSettingsMenu declares the menu of the reference pane's settings under its button,
+// while it is open. The macOS menu also shows the repositories of the linked worktrees in the
+// pane; the pane lists one repository's references, so that choice has nothing to act on yet.
+func (a *App) drawBranchSettingsMenu(c ui.C, p *project, button ui.Box) {
+	l, g := &p.log, a.text.Git
+	if l.popover != logPopoverBranchSettings {
+		return
+	}
+	open := true
+	ui.Menu(c, button, &open, func(menu *ui.MenuItems) {
+		if menu.Item(g.FetchOptions).Disabled(l.sync.busy).Clicked() {
+			c.After(func() { a.openFetchOptions(p) })
+		}
+	})
+	if !open {
+		l.popover = logPopoverNone
+	}
+}
+
 // drawLogBranchFilter declares the references the log can walk.
 func (a *App) drawLogBranchFilter(c ui.C, p *project) {
 	l := &p.log

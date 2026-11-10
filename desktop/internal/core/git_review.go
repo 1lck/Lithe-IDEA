@@ -59,18 +59,23 @@ type GitDiffRequest struct {
 	Reference string
 	// Commit shows one commit against its first parent when it is set.
 	Commit string
+	// Base compares the file of a reference: with Target when it is set, with the working tree
+	// otherwise. A Base without a kind is a revision such as HEAD and takes no Target.
+	Base, Target *GitReference
 }
 
 type gitDiffPayload struct {
-	Root                string   `json:"root"`
-	Pathspecs           []string `json:"pathspecs"`
-	Reference           string   `json:"reference,omitempty"`
-	Commit              string   `json:"commit,omitempty"`
-	Staged              bool     `json:"staged,omitempty"`
-	Untracked           bool     `json:"untracked,omitempty"`
-	StashReference      string   `json:"stashReference,omitempty"`
-	IncludeFileSections bool     `json:"includeFileSections"`
-	OmitFilePatch       bool     `json:"omitFilePatch"`
+	Root                string               `json:"root"`
+	Pathspecs           []string             `json:"pathspecs"`
+	Reference           string               `json:"reference,omitempty"`
+	GitReference        *gitReferenceRequest `json:"gitReference,omitempty"`
+	TargetGitReference  *gitReferenceRequest `json:"targetGitReference,omitempty"`
+	Commit              string               `json:"commit,omitempty"`
+	Staged              bool                 `json:"staged,omitempty"`
+	Untracked           bool                 `json:"untracked,omitempty"`
+	StashReference      string               `json:"stashReference,omitempty"`
+	IncludeFileSections bool                 `json:"includeFileSections"`
+	OmitFilePatch       bool                 `json:"omitFilePatch"`
 	// ContextLines is a pointer so the whole-file view's explicit 0 reaches Core.
 	ContextLines *int `json:"contextLines,omitempty"`
 }
@@ -93,7 +98,57 @@ func (c *Client) GitDiff(ctx context.Context, request GitDiffRequest) ([]GitDiff
 		IncludeFileSections: true,
 		OmitFilePatch:       true,
 	}
+	if request.Base != nil {
+		payload.Reference, payload.GitReference, payload.TargetGitReference = comparisonReferences(*request.Base, request.Target)
+	}
 	return c.gitDiffFiles(ctx, payload)
+}
+
+// GitComparisonFile is a file that differs between the two sides of a comparison. Untracked
+// marks a file of the working tree Git does not track yet.
+type GitComparisonFile struct {
+	Path      string `json:"path"`
+	Status    string `json:"status"`
+	Untracked bool   `json:"isUntracked"`
+}
+
+type gitComparisonPayload struct {
+	Root               string               `json:"root"`
+	Reference          string               `json:"reference,omitempty"`
+	GitReference       *gitReferenceRequest `json:"gitReference,omitempty"`
+	TargetGitReference *gitReferenceRequest `json:"targetGitReference,omitempty"`
+	IncludeUntracked   bool                 `json:"includeUntracked,omitempty"`
+}
+
+// GitComparison lists the files that differ between base and target, or between base and the
+// working tree, its untracked files among them, when target is nil. A base without a kind is a
+// revision such as HEAD and takes no target. GitDiff with the same Base and Target reads a
+// listed file's diff.
+//
+// GitComparison starts git and blocks; call it from a background goroutine.
+func (c *Client) GitComparison(ctx context.Context, root string, base GitReference, target *GitReference) ([]GitComparisonFile, error) {
+	payload := gitComparisonPayload{Root: root, IncludeUntracked: target == nil}
+	payload.Reference, payload.GitReference, payload.TargetGitReference = comparisonReferences(base, target)
+	var response struct {
+		Files []GitComparisonFile `json:"files"`
+	}
+	if err := c.Execute(ctx, "git.comparison", payload, &response); err != nil {
+		return nil, err
+	}
+	return nonNil(response.Files), nil
+}
+
+// comparisonReferences are base and target as Core's comparisons take them: a reference by its
+// identity, which Core checks against the repository, or a revision without a kind by name.
+func comparisonReferences(base GitReference, target *GitReference) (string, *gitReferenceRequest, *gitReferenceRequest) {
+	var typedTarget *gitReferenceRequest
+	if target != nil {
+		typedTarget = target.request()
+	}
+	if base.Kind == "" {
+		return base.FullName, nil, typedTarget
+	}
+	return "", base.request(), typedTarget
 }
 
 // GitStashDiff returns the files a stash saved, its untracked files among them, each with its
