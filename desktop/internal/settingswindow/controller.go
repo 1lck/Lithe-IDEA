@@ -80,6 +80,11 @@ type PluginSettingsLoader interface {
 	Save(context.Context, pluginservice.SettingsEditor, string, []core.PluginSettingEdit) (pluginsettings.SaveResult, error)
 }
 
+// PluginSettingsActionLoader executes explicit declared actions without saving drafts.
+type PluginSettingsActionLoader interface {
+	Action(context.Context, pluginservice.SettingsEditor, string, bool) (pluginservice.SettingsActionResult, error)
+}
+
 // Options configure the settings window.
 type Options struct {
 	// Marketplace fetches the enabled source only while the plugin page is open.

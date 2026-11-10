@@ -49,6 +49,7 @@ import (
 // the calls that read the disk or run Git, so a screen can be checked against answers the
 // test chooses.
 type Kernel interface {
+	SelectPluginFunctionProvider(context.Context, string, string, string, string, []core.PluginFunctionProviderCandidate) (string, error)
 	Version() string
 	ReduceRecentProjects(ctx context.Context, entries []core.RecentProject, action core.RecentAction, capacity int) (core.RecentProjectsResult, error)
 	GitCheckoutBranch(ctx context.Context, text string) (string, error)

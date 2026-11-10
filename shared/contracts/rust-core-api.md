@@ -7202,3 +7202,54 @@ or `attach`. The acknowledgement completes that operation; it changes state to
 target or resurrects a terminated one. See
 `shared/fixtures/debug/launch-event-order.json`. Hosts serialize each Core update,
 its outbound frames and its UI publication in the order returned by the engine.
+
+### Settings action planning
+
+`plugins.declarative.settingsActionPlan` accepts
+`{manifest,owner:{pluginID,version},actionID,confirmed,workspaceAvailable,enabled}`.
+All fields are required and unknown fields reject. It validates the complete
+manifest and its captured installed identity, then resolves the declared action
+without starting a process or reading preferences. Unknown actions reject with
+`plugin.settings.actionUnavailable`; registration mismatch uses
+`plugin.settings.ownerChanged`, in the ordinary declarative rejection envelope.
+
+The success envelope is `{status:"ok",plan:{kind,pluginID,version,actionID,title,...}}`.
+A disabled plugin returns `kind:"unavailable",reason:"pluginDisabled"`.
+Without an open project, `kind:"unavailable",reason:"projectRequired"` contains
+no function invocation. Otherwise an unconfirmed action whose declaration has
+`confirm:true` returns `kind:"confirmationRequired"`, also without a function.
+Once confirmed (or when the declaration needs no confirmation), `kind:"invoke"`
+adds `function` and `params:{}`. Labels and function identity always come from
+the validated manifest; callers cannot supply a different target or arguments.
+See `shared/fixtures/plugins/settings-actions.json`.
+
+`confirmed` and `workspaceAvailable` are facts from the native owner, not a
+capability grant. The host must capture user confirmation, check the installed
+package and project identity again before invocation, and use that plugin's
+provider session for the open project. Core's existing `lsp.functionRequest`
+continues to enforce runtime function registration, owner and permissions.
+This internal desktop C ABI command does not add a plugin host method or change
+the published plugin function protocol. Progress, cancellation and completion
+use the existing session event stream; settings drafts are not saved implicitly.
+
+### Workspace-bound function provider discovery
+
+Direct and backend-resolved plugin process plans include
+`owner:{pluginID,version}` from the validated manifest. Native session handles
+retain that version without inferring it from a path or mutable settings draft.
+
+`lsp.functionProvider` accepts `{pluginID,version,function,rootUri,candidates}`.
+`rootUri` is the canonical file URI produced by `lsp.documentUri` for the
+requesting workspace. Each native-owned candidate is `{sessionID,version}`;
+at most 64 unique IDs may be supplied. Strings and the root URI are bounded.
+Malformed or duplicate facts reject with `InvalidRequest`.
+
+The result is `{sessionID:string|null}`. Core requires the expected native
+version, the actual runtime plugin owner, the same file workspace URI and a
+ready session with the function currently registered. Candidate order does not
+affect selection: the first matching session ID in lexical order wins. This
+query performs no I/O, starts nothing and does not consume runtime events.
+There is no cross-workspace fallback. An absent match is explicit null; normal
+startup/admission and later function invocation checks remain required.
+The pure selection vector is `shared/fixtures/plugins/settings-function-provider.json`.
+This is an internal desktop command, not a new public plugin host method.

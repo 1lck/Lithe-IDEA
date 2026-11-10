@@ -10743,7 +10743,14 @@
     "desktop.pluginSettings.invalidDocument": "设置来源无效，请修正其中的 JSON 后重新加载，草稿已保留。",
     "desktop.pluginSettings.range": "范围：{minimum}–{maximum} {unit}",
     "desktop.toolchains.reloadAfterSave": "保存步骤已完成，但未能重新读取或正常关闭配置来源。再次保存前请重新加载；草稿已保留。",
-    "desktop.toolchains.sourceInvalid": "工具链或忽略配置无效、过大或无法安全访问。请检查来源文件后重新加载。"
+    "desktop.toolchains.sourceInvalid": "工具链或忽略配置无效、过大或无法安全访问。请检查来源文件后重新加载。",
+    "desktop.pluginSettings.actionCancel": "取消",
+    "desktop.pluginSettings.actionCompleted": "操作已完成。设置草稿未保存。",
+    "desktop.pluginSettings.actionCanceled": "操作已取消。",
+    "desktop.pluginSettings.actionProviderUnavailable": "此项目中没有可执行该操作的插件提供方会话。请启动其语言或构建提供方后重试。",
+    "desktop.pluginSettings.actionDisabled": "请先启用插件，再执行其操作。",
+    "desktop.pluginSettings.actionConfirm": "在此项目中执行“{action}”？未保存的设置仍保留为草稿。",
+    "desktop.pluginSettings.actionContinue": "执行操作"
   },
   "overrides": {
     "macos": {

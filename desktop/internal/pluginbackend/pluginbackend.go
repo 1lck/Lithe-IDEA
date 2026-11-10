@@ -66,6 +66,7 @@ type Kernel interface {
 	RespondPluginHostRequest(ctx context.Context, session, requestID string, result json.RawMessage, failure *core.PluginHostFailure) error
 	RequestPluginSemantics(ctx context.Context, request core.PluginSemanticRequest) (string, error)
 	RequestPluginBuild(ctx context.Context, request core.PluginBuildProviderRequest) (string, error)
+	InvokePluginFunction(ctx context.Context, session, operation, plugin, function string, params json.RawMessage) (string, error)
 	CancelPluginOperation(ctx context.Context, session, operation string) error
 }
 
@@ -114,6 +115,8 @@ type Session struct {
 	// PluginID and ProviderID identify what is running.
 	PluginID   string
 	ProviderID string
+	// Version comes from Core's validated launch plan, not a pathname or UI draft.
+	Version string
 	// ProcessID is the operating system process, when Core reports one.
 	ProcessID int
 }
@@ -183,6 +186,9 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 			}
 		}
 	}
+	if plan.Owner != nil && plan.Owner.PluginID != request.PluginID {
+		return Session{}, fmt.Errorf("%w: launch plan belongs to another plugin", ErrRequest)
+	}
 	resolved, err := pluginhost.VerifyLaunch(request.PackageDirectory, LaunchFromPlan(plan))
 	if err != nil {
 		return Session{}, err
@@ -243,6 +249,9 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 		ID:         started.SessionID,
 		PluginID:   request.PluginID,
 		ProviderID: request.ProviderID,
+	}
+	if plan.Owner != nil {
+		session.Version = plan.Owner.Version
 	}
 	if started.ProcessID != nil {
 		session.ProcessID = *started.ProcessID
@@ -395,6 +404,20 @@ func (r *Runner) RequestBuild(ctx context.Context, session Session, request core
 	}
 	request.SessionID = session.ID
 	return r.kernel.RequestPluginBuild(ctx, request)
+}
+
+// RequestFunction uses the owner of the running session. Core validates the
+// function declaration, negotiated protocol and request payload; the adapter
+// cannot retarget a settings action to another plugin. Completion and progress
+// share Serve's existing ordered event stream and Cancel's operation identity.
+func (r *Runner) RequestFunction(ctx context.Context, session Session, operation, function string, params json.RawMessage) (string, error) {
+	if r == nil || r.kernel == nil {
+		return "", errors.New("pluginbackend: no kernel")
+	}
+	if session.ID == "" || session.PluginID == "" {
+		return "", ErrNoSession
+	}
+	return r.kernel.InvokePluginFunction(ctx, session.ID, operation, session.PluginID, function, params)
 }
 
 // Cancel asks Core to cancel one outstanding build operation.

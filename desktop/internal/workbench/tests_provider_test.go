@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
@@ -125,11 +126,20 @@ func TestProviderTestRunner(t *testing.T) {
 		}
 		switch request.Method {
 		case "initialize":
-			reply(request.ID, map[string]any{
-				"capabilities": map[string]any{
-					"experimental": map[string]any{"litheBuild": map[string]any{"version": 8}},
-				},
-			})
+			experimental := map[string]any{"litheBuild": map[string]any{"version": 8}}
+			if _, err := os.Stat("settings-action.marker"); err == nil {
+				experimental["litheFunctions"] = map[string]any{"version": 2, "functions": []any{map[string]any{"id": "snapshot.refresh"}}}
+			}
+			reply(request.ID, map[string]any{"capabilities": map[string]any{"experimental": experimental}})
+		case "lithe/function/invoke":
+			if err := os.WriteFile("action-invoked.marker", []byte("called"), 0o600); err != nil {
+				os.Exit(8)
+			}
+			if _, err := os.Stat("block-action.marker"); err == nil {
+				pending = request.ID
+				continue
+			}
+			reply(request.ID, map[string]any{"value": "fixture action completed"})
 		case "lithe/build/model":
 			reply(request.ID, map[string]any{
 				"format":   "litheBuildModel",
@@ -175,7 +185,7 @@ func TestProviderTestRunner(t *testing.T) {
 
 // providerTestsHarness installs the provider plugin package with the running
 // test binary as its packaged provider executable.
-func providerTestsHarness(t *testing.T) *harness {
+func providerTestsHarness(t *testing.T, supplied ...pluginservice.Kernel) *harness {
 	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, settingsFile), []byte(`{"theme":"dark"}`), 0o600); err != nil {
@@ -212,9 +222,13 @@ func providerTestsHarness(t *testing.T) *harness {
 	if err := pluginstate.New(preferences).SetEnabled("dev.lithe.test.provider-tests", true); err != nil {
 		t.Fatal(err)
 	}
+	var backendKernel pluginservice.Kernel = &testKernel{Client: core.NewClient()}
+	if len(supplied) > 0 {
+		backendKernel = supplied[0]
+	}
 	return newHarnessWithOptions(t, Options{
 		Kernel:       &testKernel{Client: core.NewClient()},
-		PluginKernel: &testKernel{Client: core.NewClient()},
+		PluginKernel: backendKernel,
 		PluginRoot:   pluginRoot,
 		Store:        preferences,
 		Languages:    []string{"zh-Hans"},

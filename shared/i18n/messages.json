@@ -103081,6 +103081,58 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.pluginSettings.actionCancel",
+      "description": "Plugin settings explicit action control or outcome",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.actionCompleted",
+      "description": "Plugin settings explicit action control or outcome",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.actionCanceled",
+      "description": "Plugin settings explicit action control or outcome",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.actionProviderUnavailable",
+      "description": "Plugin settings explicit action control or outcome",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.actionDisabled",
+      "description": "Plugin settings explicit action control or outcome",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.actionConfirm",
+      "description": "Plugin settings explicit action control or outcome",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "action": "string"
+      }
+    },
+    {
+      "id": "desktop.pluginSettings.actionContinue",
+      "description": "Plugin settings explicit action control or outcome",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

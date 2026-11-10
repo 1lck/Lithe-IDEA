@@ -35,6 +35,7 @@ type fakeKernel struct {
 	startedLanguageServer bool
 	buildRequests         []core.PluginBuildProviderRequest
 	cancelled             bool
+	functionCalls         []functionCall
 }
 
 type answeredRequest struct {
@@ -526,5 +527,48 @@ func TestLanguageServerStartPreservesCoreWorkspaceConfiguration(t *testing.T) {
 	}
 	if string(actual["workspaceConfiguration"]) != `{"fixture":{"enabled":true,"checks":["lint"]}}` {
 		t.Fatalf("Core workspace configuration disappeared before start: %s", wire)
+	}
+}
+
+type functionCall struct {
+	session, operation, plugin, function string
+	params                               json.RawMessage
+}
+
+func (k *fakeKernel) InvokePluginFunction(_ context.Context, session, operation, plugin, function string, params json.RawMessage) (string, error) {
+	k.functionCalls = append(k.functionCalls, functionCall{session, operation, plugin, function, append(json.RawMessage(nil), params...)})
+	return k.operationID, k.semanticErr
+}
+
+func TestFunctionRequestUsesRunningSessionOwner(t *testing.T) {
+	kernel := &fakeKernel{operationID: "operation-function"}
+	runner := New(kernel, echoServices(t))
+	result, err := runner.RequestFunction(context.Background(), Session{ID: "session-function", PluginID: "dev.example.owner"}, "requested-operation", "cache.refresh", json.RawMessage(`{}`))
+	if err != nil || result != "operation-function" {
+		t.Fatalf("function request: %q %v", result, err)
+	}
+	if len(kernel.functionCalls) != 1 {
+		t.Fatalf("calls: %+v", kernel.functionCalls)
+	}
+	call := kernel.functionCalls[0]
+	if call.session != "session-function" || call.plugin != "dev.example.owner" || call.operation != "requested-operation" || call.function != "cache.refresh" || string(call.params) != "{}" {
+		t.Fatalf("retargeted function: %+v", call)
+	}
+}
+
+func TestFunctionRequestRejectsUnownedSessionAndPreservesCoreFailure(t *testing.T) {
+	kernel := &fakeKernel{semanticErr: errors.New("fixture Core refusal")}
+	runner := New(kernel, echoServices(t))
+	for _, session := range []Session{{}, {ID: "session"}, {PluginID: "dev.example.owner"}} {
+		if _, err := runner.RequestFunction(context.Background(), session, "operation", "cache.refresh", nil); !errors.Is(err, ErrNoSession) {
+			t.Fatalf("unowned session: %v", err)
+		}
+	}
+	if len(kernel.functionCalls) != 0 {
+		t.Fatal("unowned session reached Core")
+	}
+	_, err := runner.RequestFunction(context.Background(), Session{ID: "session", PluginID: "dev.example.owner"}, "operation", "cache.refresh", nil)
+	if !errors.Is(err, kernel.semanticErr) {
+		t.Fatalf("Core failure lost: %v", err)
 	}
 }

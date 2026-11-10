@@ -10743,7 +10743,14 @@
     "desktop.pluginSettings.invalidDocument": "The settings source is invalid. Correct its JSON before reloading; your draft is kept.",
     "desktop.pluginSettings.range": "Range: {minimum}–{maximum} {unit}",
     "desktop.toolchains.reloadAfterSave": "The save step completed, but its source could not be reloaded or closed cleanly. Reload before saving again; your draft has been kept.",
-    "desktop.toolchains.sourceInvalid": "The toolchain or ignore configuration is invalid, too large, or cannot be accessed safely. Check the source files, then reload."
+    "desktop.toolchains.sourceInvalid": "The toolchain or ignore configuration is invalid, too large, or cannot be accessed safely. Check the source files, then reload.",
+    "desktop.pluginSettings.actionCancel": "Cancel",
+    "desktop.pluginSettings.actionCompleted": "Action completed. Settings drafts have not been saved.",
+    "desktop.pluginSettings.actionCanceled": "Action canceled.",
+    "desktop.pluginSettings.actionProviderUnavailable": "The plugin has no running provider for this action in this project. Start its language or build provider, then try again.",
+    "desktop.pluginSettings.actionDisabled": "Enable this plugin before running its actions.",
+    "desktop.pluginSettings.actionConfirm": "Run “{action}” in this project? Unsaved settings remain drafts.",
+    "desktop.pluginSettings.actionContinue": "Run action"
   },
   "overrides": {
     "windows": {

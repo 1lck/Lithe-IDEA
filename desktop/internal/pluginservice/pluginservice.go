@@ -34,6 +34,7 @@ var ErrAssembly = errors.New("plugin service cannot be assembled")
 // Kernel is the Core client surface the plugin stack needs. *core.Client
 // satisfies it.
 type Kernel interface {
+	PlanPluginSettingsAction(context.Context, core.PluginSettingsActionRequest) (core.PluginSettingsActionPlan, error)
 	pluginhost.ManifestValidator
 	pluginbackend.Kernel
 	pluginsettings.Kernel

@@ -3,6 +3,7 @@ package settingswindow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"time"
 
@@ -33,6 +34,7 @@ type pluginSettingsResult struct {
 	editor     pluginservice.SettingsEditor
 	save       pluginsettings.SaveResult
 	saved      bool
+	action     *pluginservice.SettingsActionResult
 	err        error
 }
 
@@ -45,20 +47,25 @@ type pluginSettingLayout struct {
 }
 
 type pluginSettingsForm struct {
-	layout     []pluginSettingLayout
-	height     float32
-	report     func(error)
-	loader     PluginSettingsLoader
-	wake       func()
-	results    chan pluginSettingsResult
-	generation uint64
-	cancel     context.CancelFunc
-	running    bool
-	pending    string
-	id         string
-	loaded     bool
-	failed     error
-	saved      bool
+	acting             bool
+	actionComplete     bool
+	actionCanceled     bool
+	actionConfirmation *core.PluginSettingsActionPlan
+	actionUnavailable  string
+	layout             []pluginSettingLayout
+	height             float32
+	report             func(error)
+	loader             PluginSettingsLoader
+	wake               func()
+	results            chan pluginSettingsResult
+	generation         uint64
+	cancel             context.CancelFunc
+	running            bool
+	pending            string
+	id                 string
+	loaded             bool
+	failed             error
+	saved              bool
 	// scope and both drafts are view state; switching scope does not lose edits.
 	scope       int
 	scopeSelect ui.SelectState
@@ -71,6 +78,11 @@ func newPluginSettingsForm(loader PluginSettingsLoader, wake func()) pluginSetti
 }
 
 func (p *pluginSettingsForm) load(id string) {
+	p.actionConfirmation = nil
+	p.actionComplete = false
+	p.actionCanceled = false
+	p.actionUnavailable = ""
+	p.acting = false
 	if p.loader == nil {
 		return
 	}
@@ -112,6 +124,23 @@ func (p *pluginSettingsForm) drain() {
 		p.cancel = nil
 		if result.generation != p.generation {
 			p.launch()
+			return
+		}
+		if result.action != nil {
+			p.acting = false
+			p.failed = result.err
+			p.actionComplete = result.action.Completed
+			p.actionCanceled = errors.Is(result.err, context.Canceled)
+			if p.actionCanceled {
+				p.failed = nil
+			}
+			plan := result.action.Plan
+			if result.err == nil && plan.Kind == "confirmationRequired" {
+				p.actionConfirmation = &plan
+			}
+			if result.err == nil && plan.Kind == "unavailable" {
+				p.actionUnavailable = plan.Reason
+			}
 			return
 		}
 		p.failed, p.saved = result.err, false
@@ -292,4 +321,33 @@ func (p *pluginSettingsForm) close() {
 		p.cancel()
 		p.cancel = nil
 	}
+}
+
+// act shares the form's single worker with loads and saves. Closing or replacing
+// the form cancels the request; late completion cannot restore an old editor.
+func (p *pluginSettingsForm) act(id string, confirmed bool) {
+	loader, ok := p.loader.(PluginSettingsActionLoader)
+	if !ok || p.running || !p.loaded {
+		return
+	}
+	p.generation++
+	generation, editor := p.generation, p.editor
+	p.running, p.acting = true, true
+	p.failed = nil
+	p.saved = false
+	p.actionConfirmation = nil
+	p.actionComplete = false
+	p.actionCanceled = false
+	p.actionUnavailable = ""
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	p.cancel = cancel
+	results, wake := p.results, p.wake
+	go func() {
+		defer cancel()
+		result, err := loader.Action(ctx, editor, id, confirmed)
+		results <- pluginSettingsResult{generation: generation, action: &result, err: err}
+		if wake != nil {
+			wake()
+		}
+	}()
 }

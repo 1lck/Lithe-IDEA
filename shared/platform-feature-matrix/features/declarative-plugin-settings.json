@@ -2,7 +2,7 @@
   "id": "declarative-plugin-settings",
   "area": "插件",
   "group": "插件管理",
-  "capability": "声明式插件通过 Core 校验的设置声明提供整数、枚举、布尔、多选、文本、文件和目录设置，支持全局/项目继承、真实来源保存、通用界面、页面/动作注册及 restart/immediate/reload/nextRun 生效；实际启动与运行消费者必须读取同一来源。",
+  "capability": "声明式插件通过 Core 校验的设置声明提供整数、枚举、布尔、多选、文本、文件和目录设置，支持全局/项目继承、真实来源保存、通用界面、页面/动作注册及 restart/immediate/reload/nextRun 生效；实际启动与运行消费者必须读取同一来源。 声明动作经显式确认、安装/工作区身份复查与 Core 同工作区函数会话选择后调用；支持取消和完成状态，保留未保存草稿。",
   "macos": {
     "implementationStatus": "partial",
     "verificationStatus": "pending",
@@ -23,7 +23,15 @@
       "desktop/internal/settingswindow/plugin_settings_view_test.go",
       "desktop/internal/settingswindow/plugin_settings_model_test.go",
       "desktop/internal/workbench/settings_plugin_effects.go",
-      "desktop/internal/workbench/settings_plugin_effects_test.go"
+      "desktop/internal/workbench/settings_plugin_effects_test.go",
+      "desktop/internal/core/plugin_setting_actions.go",
+      "desktop/internal/settingswindow/plugin_settings_actions_view.go",
+      "desktop/internal/settingswindow/plugin_settings_actions_view_test.go",
+      "desktop/internal/workbench/settings_plugin_actions.go",
+      "desktop/internal/workbench/settings_plugin_actions_test.go",
+      "desktop/internal/pluginservice/settings_actions_test.go",
+      "shared/fixtures/plugins/settings-actions.json",
+      "shared/fixtures/plugins/settings-function-provider.json"
     ]
   },
   "windows": {
@@ -46,11 +54,19 @@
       "desktop/internal/settingswindow/plugin_settings_view_test.go",
       "desktop/internal/settingswindow/plugin_settings_model_test.go",
       "desktop/internal/workbench/settings_plugin_effects.go",
-      "desktop/internal/workbench/settings_plugin_effects_test.go"
+      "desktop/internal/workbench/settings_plugin_effects_test.go",
+      "desktop/internal/core/plugin_setting_actions.go",
+      "desktop/internal/settingswindow/plugin_settings_actions_view.go",
+      "desktop/internal/settingswindow/plugin_settings_actions_view_test.go",
+      "desktop/internal/workbench/settings_plugin_actions.go",
+      "desktop/internal/workbench/settings_plugin_actions_test.go",
+      "desktop/internal/pluginservice/settings_actions_test.go",
+      "shared/fixtures/plugins/settings-actions.json",
+      "shared/fixtures/plugins/settings-function-provider.json"
     ]
   },
   "owner": "Plugin Platform",
-  "verification": "Viva：共享 settings-documents fixture 经真实 Core C ABI 验证类型、作用层、整批拒绝及文档保留；原生来源覆盖权限/元数据、冲突、取消、捕获来源回读、提交后回读失败。Build/Debug 读取实际文件，明确失效路径不能静默回退；Build 全局专属程序不能被项目文件替换。LSP 启动同时传全局/项目设置、初始化选项与 Core 展开的 workspaceConfiguration。真实协议子进程在同一 Core 会话接收更新通知并重新拉取值；保存来源后服务层回读、展开并更新现有会话，损坏来源不推空配置。macOS 有定向测试与真实子进程证据；本次新增运行消费者的 Windows 复验仍 pending。已安装本地目录独立于商店网络，Core 绑定注册 ID/版本；原生快照拒绝安装替换。七种控件与全局/项目草稿已接线，macOS 无头驱动验证原生文本输入、明确保存回读、冲突保留、重新加载；共享模型验证七种类型及非法整数原文。保存后的即时通知与所属插件模型刷新已接线，旧模型回包不会覆盖待刷新状态，运行任务及无关模型保持。动态页面/动作、重启与完整生效状态、跨窗口全局更新、目标平台原生 UI 及正式市场准入尚未验收，宿主仍不声明 settings 2。",
+  "verification": "Viva：共享 settings-documents fixture 经真实 Core C ABI 验证类型、作用层、整批拒绝及文档保留；原生来源覆盖权限/元数据、冲突、取消、捕获来源回读、提交后回读失败。Build/Debug 读取实际文件，明确失效路径不能静默回退；Build 全局专属程序不能被项目文件替换。LSP 启动同时传全局/项目设置、初始化选项与 Core 展开的 workspaceConfiguration。真实协议子进程在同一 Core 会话接收更新通知并重新拉取值；保存来源后服务层回读、展开并更新现有会话，损坏来源不推空配置。macOS 有定向测试与真实子进程证据；本次新增运行消费者的 Windows 复验仍 pending。已安装本地目录独立于商店网络，Core 绑定注册 ID/版本；原生快照拒绝安装替换。七种控件与全局/项目草稿已接线，macOS 无头驱动验证原生文本输入、明确保存回读、冲突保留、重新加载；共享模型验证七种类型及非法整数原文。保存后的即时通知与所属插件模型刷新已接线，旧模型回包不会覆盖待刷新状态，运行任务及无关模型保持。动态页面、动作原生窗体、重启与完整生效状态、跨窗口全局更新、目标平台原生 UI 及正式市场准入尚未验收，宿主仍不声明 settings 2。 动作节点增加：实际按钮确认/取消，草稿不保存；真实提供方函数成功与取消、原进程复用、会话关闭后不可用；拒绝不同工作区/版本/未注册函数，显示版本不可替代私有身份，项目同路径重开不能接受过期动作。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -82,5 +98,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "当前 partial 表示 Core 规则、原生双层存储、运行消费、离线目录和七类通用控件已有接线；macOS 无头交互通过，完整 settings v2 及本次 Windows 原生复验仍 pending。旧 Swift/Tauri 验证保存在 legacy，不能替代 Viva。"
+  "notes": "当前 partial 包含原生双层存储、运行消费、离线目录、七类通用控件和声明动作链；动态页面、跨窗口全局更新、完整 settings v2 及整个平台验收仍 pending。仅记录本次目标平台实际验证证据，旧 Swift/Tauri 结果不能替代 Viva。"
 }

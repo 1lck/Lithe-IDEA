@@ -239,6 +239,23 @@ func (c *Client) WaitReady(ctx context.Context) error {
 // Execute sends one negotiated build method and returns the correlated
 // operation. The method and params must come from a Core build plan.
 func (c *Client) Execute(ctx context.Context, method string, params json.RawMessage, timeoutMilliseconds int) (*Operation, error) {
+	return c.execute(ctx, method, params, func(id string) error {
+		_, err := c.runner.RequestBuild(ctx, c.session, core.PluginBuildProviderRequest{OperationID: id, Method: method, Params: params, TimeoutMilliseconds: timeoutMilliseconds})
+		return err
+	})
+}
+
+// ExecuteFunction invokes a Core-planned plugin function on this provider's
+// existing session. It shares correlation, progress, cancellation and shutdown
+// with build operations; it never starts a second reader or provider process.
+func (c *Client) ExecuteFunction(ctx context.Context, function string, params json.RawMessage) (*Operation, error) {
+	return c.execute(ctx, function, params, func(id string) error {
+		_, err := c.runner.RequestFunction(ctx, c.session, id, function, params)
+		return err
+	})
+}
+
+func (c *Client) execute(ctx context.Context, method string, params json.RawMessage, send func(string) error) (*Operation, error) {
 	if c == nil {
 		return nil, ErrClosed
 	}
@@ -261,12 +278,7 @@ func (c *Client) Execute(ctx context.Context, method string, params json.RawMess
 	}
 	c.pending[id] = operation
 	c.mu.Unlock()
-	_, err := c.runner.RequestBuild(ctx, c.session, core.PluginBuildProviderRequest{
-		OperationID:         id,
-		Method:              method,
-		Params:              params,
-		TimeoutMilliseconds: timeoutMilliseconds,
-	})
+	err := send(id)
 	if err != nil {
 		c.forget(id)
 		operation.fail(err)

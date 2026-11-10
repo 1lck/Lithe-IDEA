@@ -1,0 +1,212 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "stable-same-workspace-selection",
+      "request": {
+        "pluginID": "dev.example.settings",
+        "version": "1.0.0",
+        "function": "index.refresh",
+        "rootUri": "file:///fixture/project",
+        "candidates": [
+          {
+            "sessionID": "b",
+            "version": "1.0.0"
+          },
+          {
+            "sessionID": "a",
+            "version": "1.0.0"
+          }
+        ]
+      },
+      "facts": [
+        {
+          "sessionID": "b",
+          "pluginID": "dev.example.settings",
+          "rootUri": "file:///fixture/project",
+          "serves": true
+        },
+        {
+          "sessionID": "a",
+          "pluginID": "dev.example.settings",
+          "rootUri": "file:///fixture/project/",
+          "serves": true
+        }
+      ],
+      "sessionID": "a"
+    },
+    {
+      "name": "never-fall-back-to-other-workspace",
+      "request": {
+        "pluginID": "dev.example.settings",
+        "version": "1.0.0",
+        "function": "index.refresh",
+        "rootUri": "file:///fixture/project",
+        "candidates": [
+          {
+            "sessionID": "b",
+            "version": "1.0.0"
+          },
+          {
+            "sessionID": "a",
+            "version": "1.0.0"
+          }
+        ]
+      },
+      "facts": [
+        {
+          "sessionID": "b",
+          "pluginID": "dev.example.settings",
+          "rootUri": "file:///fixture/other",
+          "serves": true
+        }
+      ],
+      "sessionID": null
+    },
+    {
+      "name": "wrong-plugin-is-not-selected",
+      "request": {
+        "pluginID": "dev.example.settings",
+        "version": "1.0.0",
+        "function": "index.refresh",
+        "rootUri": "file:///fixture/project",
+        "candidates": [
+          {
+            "sessionID": "b",
+            "version": "1.0.0"
+          },
+          {
+            "sessionID": "a",
+            "version": "1.0.0"
+          }
+        ]
+      },
+      "facts": [
+        {
+          "sessionID": "b",
+          "pluginID": "dev.example.other",
+          "rootUri": "file:///fixture/project",
+          "serves": true
+        }
+      ],
+      "sessionID": null
+    },
+    {
+      "name": "unregistered-or-not-ready",
+      "request": {
+        "pluginID": "dev.example.settings",
+        "version": "1.0.0",
+        "function": "index.refresh",
+        "rootUri": "file:///fixture/project",
+        "candidates": [
+          {
+            "sessionID": "b",
+            "version": "1.0.0"
+          },
+          {
+            "sessionID": "a",
+            "version": "1.0.0"
+          }
+        ]
+      },
+      "facts": [
+        {
+          "sessionID": "b",
+          "pluginID": "dev.example.settings",
+          "rootUri": "file:///fixture/project",
+          "serves": false
+        }
+      ],
+      "sessionID": null
+    },
+    {
+      "name": "old-installed-version",
+      "request": {
+        "pluginID": "dev.example.settings",
+        "version": "2.0.0",
+        "function": "index.refresh",
+        "rootUri": "file:///fixture/project",
+        "candidates": [
+          {
+            "sessionID": "b",
+            "version": "1.0.0"
+          },
+          {
+            "sessionID": "a",
+            "version": "1.0.0"
+          }
+        ]
+      },
+      "facts": [
+        {
+          "sessionID": "b",
+          "pluginID": "dev.example.settings",
+          "rootUri": "file:///fixture/project",
+          "serves": true
+        },
+        {
+          "sessionID": "a",
+          "pluginID": "dev.example.settings",
+          "rootUri": "file:///fixture/project/",
+          "serves": true
+        }
+      ],
+      "sessionID": null
+    },
+    {
+      "name": "duplicate-native-session-facts",
+      "request": {
+        "pluginID": "dev.example.settings",
+        "version": "1.0.0",
+        "function": "index.refresh",
+        "rootUri": "file:///fixture/project",
+        "candidates": [
+          {
+            "sessionID": "b",
+            "version": "1.0.0"
+          },
+          {
+            "sessionID": "b",
+            "version": "1.0.0"
+          }
+        ]
+      },
+      "facts": [
+        {
+          "sessionID": "b",
+          "pluginID": "dev.example.settings",
+          "rootUri": "file:///fixture/project",
+          "serves": true
+        },
+        {
+          "sessionID": "a",
+          "pluginID": "dev.example.settings",
+          "rootUri": "file:///fixture/project/",
+          "serves": true
+        }
+      ],
+      "invalid": true
+    },
+    {
+      "name": "non-file-root-is-invalid",
+      "request": {
+        "pluginID": "dev.example.settings",
+        "version": "1.0.0",
+        "function": "index.refresh",
+        "rootUri": "https://example.invalid/project",
+        "candidates": [
+          {
+            "sessionID": "b",
+            "version": "1.0.0"
+          },
+          {
+            "sessionID": "a",
+            "version": "1.0.0"
+          }
+        ]
+      },
+      "facts": [],
+      "invalid": true
+    }
+  ]
+}

@@ -328,6 +328,13 @@ func TestPluginBackendCoreSessionInvokesFunctionAndCleansUp(t *testing.T) {
 	waitFor(func(event BackendEvent) bool {
 		return event.Type == "functionsChanged" && strings.Contains(string(event.Result), "snapshot.refresh")
 	})
+	candidates := []PluginFunctionProviderCandidate{{SessionID: started.SessionID, Version: "1.0.0"}}
+	for _, scope := range []struct{ root, version, want string }{{root, "1.0.0", started.SessionID}, {t.TempDir(), "1.0.0", ""}, {root, "9.0.0", ""}} {
+		selected, selectErr := client.SelectPluginFunctionProvider(ctx, "dev.lithe.fixture.backend", scope.version, "snapshot.refresh", scope.root, candidates)
+		if selectErr != nil || selected != scope.want {
+			t.Fatalf("function provider for %q version %q: %q %v", scope.root, scope.version, selected, selectErr)
+		}
+	}
 	_, err = client.InvokePluginFunction(ctx, started.SessionID, "", "dev.example.other", "snapshot.refresh", nil)
 	denied := requireCode(t, err, CodePermissionDenied)
 	if denied.Details != "plugin.function.wrongPlugin" {

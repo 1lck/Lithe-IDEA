@@ -42,6 +42,8 @@ type PluginBackendStarted struct {
 // host must verify package paths and trust, resolve tools, and create the
 // requested writable directories before starting a process.
 type PluginBackendPlan struct {
+	// Owner identifies the validated package that produced this launch plan.
+	Owner  *PluginSettingsOwner `json:"owner,omitempty"`
 	Launch struct {
 		Kind             string   `json:"kind"`
 		Path             string   `json:"path"`

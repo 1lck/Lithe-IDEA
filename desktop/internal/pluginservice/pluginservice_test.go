@@ -422,3 +422,11 @@ func (k *fakeKernel) SelectInstalledPluginVersions(ctx context.Context, entries 
 func (k *fakeKernel) ReadInstalledPluginSettingsState(ctx context.Context, manifest json.RawMessage, id, version string) (core.PluginSettingsState, error) {
 	return core.NewClient().ReadInstalledPluginSettingsState(ctx, manifest, id, version)
 }
+
+func (k *fakeKernel) InvokePluginFunction(context.Context, string, string, string, string, json.RawMessage) (string, error) {
+	return "", errors.New("fixture kernel does not serve plugin functions")
+}
+
+func (k *fakeKernel) PlanPluginSettingsAction(ctx context.Context, request core.PluginSettingsActionRequest) (core.PluginSettingsActionPlan, error) {
+	return core.NewClient().PlanPluginSettingsAction(ctx, request)
+}

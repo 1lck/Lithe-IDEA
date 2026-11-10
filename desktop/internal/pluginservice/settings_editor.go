@@ -17,10 +17,11 @@ import (
 // identity and manifest bytes stay private; rendering cannot change its owner.
 // Reading settings does not admit, enable or start a plugin.
 type SettingsEditor struct {
-	Snapshot  pluginsettings.Snapshot
-	entry     pluginmanager.Entry
-	directory os.FileInfo
-	manifest  []byte
+	Snapshot          pluginsettings.Snapshot
+	entry             pluginmanager.Entry
+	directory         os.FileInfo
+	workspaceIdentity os.FileInfo
+	manifest          []byte
 }
 
 // SettingsCatalog returns validated metadata in Core's selected-version order,
@@ -84,11 +85,18 @@ func (s *Service) LoadSettingsEditor(ctx context.Context, id, workspace string) 
 	if _, err := s.kernel.ReadInstalledPluginSettingsState(ctx, manifest.Bytes(), entry.Installed.ID, entry.Installed.Version); err != nil {
 		return SettingsEditor{}, err
 	}
+	var workspaceIdentity os.FileInfo
+	if workspace != "" {
+		workspaceIdentity, err = settingsPackageDirectoryInfo(ctx, workspace)
+		if err != nil {
+			return SettingsEditor{}, err
+		}
+	}
 	snapshot, err := s.Settings.Load(ctx, manifest.Bytes(), workspace)
 	if err != nil {
 		return SettingsEditor{}, err
 	}
-	return SettingsEditor{Snapshot: snapshot, entry: entry, directory: info, manifest: manifest.Bytes()}, nil
+	return SettingsEditor{Snapshot: snapshot, entry: entry, directory: info, workspaceIdentity: workspaceIdentity, manifest: manifest.Bytes()}, nil
 }
 
 // SaveSettingsEditor rejects replacement, uninstall and upgrade before publishing
@@ -97,36 +105,76 @@ func (s *Service) SaveSettingsEditor(ctx context.Context, editor SettingsEditor,
 	if s == nil || s.Settings == nil {
 		return pluginsettings.SaveResult{}, ErrAssembly
 	}
-	owner := func() error {
-		if check != nil {
-			if err := check(); err != nil {
-				return err
-			}
-		}
-		entry, err := s.settingsEntry(ctx, editor.entry.Installed.ID)
-		if err != nil {
-			return errors.Join(configfile.ErrConflict, err)
-		}
-		if entry.Installed.Version != editor.entry.Installed.Version || entry.Installed.Path != editor.entry.Installed.Path {
-			return configfile.ErrConflict
-		}
-		info, err := settingsPackageDirectoryInfo(ctx, entry.Installed.Path)
-		if err != nil {
-			return errors.Join(configfile.ErrConflict, err)
-		}
-		if editor.directory == nil || !os.SameFile(editor.directory, info) {
-			return configfile.ErrConflict
-		}
-		manifest, err := configfile.Capture(ctx, entry.Installed.Path, pluginpkg.ManifestFile, MaxManifestBytes)
-		if err != nil {
-			return err
-		}
-		if !bytes.Equal(manifest.Bytes(), editor.manifest) {
-			return configfile.ErrConflict
-		}
-		return nil
-	}
+	owner := func() error { _, err := s.checkSettingsEditor(ctx, editor, check); return err }
+
 	return s.Settings.Save(ctx, editor.Snapshot, scope, edits, owner)
+}
+
+// checkSettingsEditor is shared by saves and action planning. It performs only
+// native registration, byte and directory identity checks; Core owns policy.
+func (s *Service) checkSettingsEditor(ctx context.Context, editor SettingsEditor, check func() error) (pluginmanager.Entry, error) {
+	if check != nil {
+		if err := check(); err != nil {
+			return pluginmanager.Entry{}, err
+		}
+	}
+	entry, err := s.settingsEntry(ctx, editor.entry.Installed.ID)
+	if err != nil {
+		return pluginmanager.Entry{}, errors.Join(configfile.ErrConflict, err)
+	}
+	if entry.Installed.Version != editor.entry.Installed.Version || entry.Installed.Path != editor.entry.Installed.Path {
+		return pluginmanager.Entry{}, configfile.ErrConflict
+	}
+	info, err := settingsPackageDirectoryInfo(ctx, entry.Installed.Path)
+	if err != nil {
+		return pluginmanager.Entry{}, errors.Join(configfile.ErrConflict, err)
+	}
+	if editor.directory == nil || !os.SameFile(editor.directory, info) {
+		return pluginmanager.Entry{}, configfile.ErrConflict
+	}
+	manifest, err := configfile.Capture(ctx, entry.Installed.Path, pluginpkg.ManifestFile, MaxManifestBytes)
+	if err != nil {
+		return pluginmanager.Entry{}, err
+	}
+	if !bytes.Equal(manifest.Bytes(), editor.manifest) {
+		return pluginmanager.Entry{}, configfile.ErrConflict
+	}
+	if editor.workspaceIdentity != nil {
+		current, err := settingsPackageDirectoryInfo(ctx, editor.Snapshot.Workspace())
+		if err != nil {
+			return pluginmanager.Entry{}, errors.Join(configfile.ErrConflict, err)
+		}
+		if !os.SameFile(editor.workspaceIdentity, current) {
+			return pluginmanager.Entry{}, configfile.ErrConflict
+		}
+	}
+	return entry, nil
+}
+
+// PlanSettingsEditorAction revalidates the captured installed package around a
+// pure Core plan. It neither saves drafts nor admits or starts a backend.
+func (s *Service) PlanSettingsEditorAction(ctx context.Context, editor SettingsEditor, actionID string, confirmed bool, check func() error) (core.PluginSettingsActionPlan, error) {
+	if s == nil || s.Settings == nil {
+		return core.PluginSettingsActionPlan{}, ErrAssembly
+	}
+	entry, err := s.checkSettingsEditor(ctx, editor, check)
+	if err != nil {
+		return core.PluginSettingsActionPlan{}, err
+	}
+	plan, err := s.kernel.PlanPluginSettingsAction(ctx, core.PluginSettingsActionRequest{
+		Manifest: editor.manifest, Owner: core.PluginSettingsOwner{PluginID: entry.Installed.ID, Version: entry.Installed.Version}, ActionID: actionID, Confirmed: confirmed, Enabled: entry.Enabled, WorkspaceAvailable: editor.Snapshot.Workspace() != "",
+	})
+	if err != nil {
+		return core.PluginSettingsActionPlan{}, err
+	}
+	current, err := s.checkSettingsEditor(ctx, editor, check)
+	if err != nil {
+		return core.PluginSettingsActionPlan{}, err
+	}
+	if current.Enabled != entry.Enabled {
+		return core.PluginSettingsActionPlan{}, configfile.ErrConflict
+	}
+	return plan, nil
 }
 
 // Capture identity from an open directory handle. On Windows os.Stat may defer
@@ -151,4 +199,11 @@ func settingsPackageDirectoryInfo(ctx context.Context, path string) (info os.Fil
 		return nil, err
 	}
 	return info, ctx.Err()
+}
+
+// SettingsActionResult carries only host-understood action state, not arbitrary
+// plugin result JSON. A completed function does not implicitly save settings.
+type SettingsActionResult struct {
+	Plan      core.PluginSettingsActionPlan
+	Completed bool
 }

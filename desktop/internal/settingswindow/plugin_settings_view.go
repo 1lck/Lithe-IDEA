@@ -8,6 +8,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/configfile"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
@@ -57,6 +58,9 @@ func (w *window) drawPluginSettings(f *ui.Frame, id string) {
 					message = i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.conflict")
 				}
 			}
+			if errors.Is(p.failed, pluginbackend.ErrNoSession) {
+				message = i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.actionProviderUnavailable")
+			}
 			if errors.Is(p.failed, configfile.ErrConflict) {
 				message = i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.conflict")
 			}
@@ -104,6 +108,7 @@ func (w *window) drawPluginSettings(f *ui.Frame, id string) {
 		} else {
 			f.Wrap(source).FontSize(11).Color(w.pal.muted)
 		}
+		w.drawPluginSettingActions(f)
 		if len(state.Rows) == 0 {
 			f.Text(i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.empty")).FontSize(12).Color(w.pal.muted)
 			return

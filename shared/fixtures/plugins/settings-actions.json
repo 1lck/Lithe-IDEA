@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "confirmation-before-invocation",
+      "input": {
+        "owner": {
+          "pluginID": "dev.lithe.fixture.settings-v2",
+          "version": "0.1.0"
+        },
+        "actionID": "rebuildPlt",
+        "confirmed": false,
+        "workspaceAvailable": true,
+        "enabled": true
+      },
+      "plan": {
+        "pluginID": "dev.lithe.fixture.settings-v2",
+        "actionID": "rebuildPlt",
+        "title": "Rebuild PLT",
+        "kind": "confirmationRequired",
+        "version": "0.1.0"
+      }
+    },
+    {
+      "name": "confirmed-action-has-empty-params",
+      "input": {
+        "owner": {
+          "pluginID": "dev.lithe.fixture.settings-v2",
+          "version": "0.1.0"
+        },
+        "actionID": "rebuildPlt",
+        "confirmed": true,
+        "workspaceAvailable": true,
+        "enabled": true
+      },
+      "plan": {
+        "pluginID": "dev.lithe.fixture.settings-v2",
+        "actionID": "rebuildPlt",
+        "title": "Rebuild PLT",
+        "kind": "invoke",
+        "function": "dialyzer.rebuild",
+        "params": {},
+        "version": "0.1.0"
+      }
+    },
+    {
+      "name": "project-required",
+      "input": {
+        "owner": {
+          "pluginID": "dev.lithe.fixture.settings-v2",
+          "version": "0.1.0"
+        },
+        "actionID": "rebuildPlt",
+        "confirmed": true,
+        "workspaceAvailable": false,
+        "enabled": true
+      },
+      "plan": {
+        "pluginID": "dev.lithe.fixture.settings-v2",
+        "actionID": "rebuildPlt",
+        "title": "Rebuild PLT",
+        "kind": "unavailable",
+        "reason": "projectRequired",
+        "version": "0.1.0"
+      }
+    },
+    {
+      "name": "unknown-action",
+      "input": {
+        "owner": {
+          "pluginID": "dev.lithe.fixture.settings-v2",
+          "version": "0.1.0"
+        },
+        "actionID": "missing",
+        "confirmed": false,
+        "workspaceAvailable": true,
+        "enabled": true
+      },
+      "error": "plugin.settings.actionUnavailable"
+    },
+    {
+      "name": "wrong-installed-owner",
+      "input": {
+        "owner": {
+          "pluginID": "dev.lithe.fixture.settings-v2",
+          "version": "9.0.0"
+        },
+        "actionID": "rebuildPlt",
+        "confirmed": false,
+        "workspaceAvailable": true,
+        "enabled": true
+      },
+      "error": "plugin.settings.ownerChanged"
+    },
+    {
+      "name": "action-without-confirmation",
+      "input": {
+        "owner": {
+          "pluginID": "dev.lithe.fixture.settings-v2",
+          "version": "0.1.0"
+        },
+        "actionID": "rebuildPlt",
+        "confirmed": false,
+        "workspaceAvailable": true,
+        "enabled": true
+      },
+      "confirmation": false,
+      "plan": {
+        "pluginID": "dev.lithe.fixture.settings-v2",
+        "actionID": "rebuildPlt",
+        "title": "Rebuild PLT",
+        "kind": "invoke",
+        "function": "dialyzer.rebuild",
+        "params": {},
+        "version": "0.1.0"
+      }
+    },
+    {
+      "name": "disabled-plugin-is-not-invoked",
+      "input": {
+        "owner": {
+          "pluginID": "dev.lithe.fixture.settings-v2",
+          "version": "0.1.0"
+        },
+        "actionID": "rebuildPlt",
+        "confirmed": true,
+        "workspaceAvailable": true,
+        "enabled": false
+      },
+      "plan": {
+        "kind": "unavailable",
+        "pluginID": "dev.lithe.fixture.settings-v2",
+        "actionID": "rebuildPlt",
+        "title": "Rebuild PLT",
+        "reason": "pluginDisabled",
+        "version": "0.1.0"
+      }
+    }
+  ]
+}
