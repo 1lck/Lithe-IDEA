@@ -197,7 +197,7 @@
 | `command-palette` | 命令面板与全局动作 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
 | `windows-file-menu-settings` | Windows 文件菜单在“关闭标签页”上方提供带齿轮图标的“设置”… | 平台专属 | 专属/实现 | 未开始 | Windows 文件菜单 |
 | `workbench-compact-menu-bar` | 紧凑菜单栏可在标题栏左侧原位展开完整水平菜单，并在点击外部或按 Es… | 平台专属 | 专属/实现 | 未开始 | Windows 紧凑菜单栏 |
-| `workbench-panes` | 分栏、面板与工具窗布局 | 必须迁移 | 实现/实现 | 部分 | editorgroups.go、dockdrag.go、splitpane/ |
+| `workbench-panes` | 分栏、面板与工具窗布局 | 必须迁移 | 实现/实现 | 部分 | editorgroups.go、dockdrag.go |
 | `workbench-settings-entry` | 从工作台 chrome 打开设置 | 必须迁移 | 实现/实现 | 部分 | chrome.go、settingswindow/ |
 | `workbench-tool-window-docking` | 工具窗口拖动、分组、排序与布局恢复 | 必须迁移 | 实现/部分 | 部分 | catalog.go 六区停靠、dockdrag.go、workbench-layout-v2.json |
 | `shared-action-button-style` | 普通文字动作按钮采用欢迎页完整几何与间距 | 必须迁移 | 实现/部分 | 部分 | sheet/、icons/（按钮几何未逐项核） |

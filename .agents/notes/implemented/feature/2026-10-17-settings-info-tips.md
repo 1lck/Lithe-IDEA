@@ -16,7 +16,7 @@ Issue #1316 的截图里，通用、Git 和 Agent 管理页在几乎每个控件
 
 ## 决策
 
-- Viva 常规设置已把外观、语言与工作台说明放在 ⓘ 中：悬停 500 ms 显示，点击或键盘激活固定，再次激活、点击其他位置或按 Escape 关闭。标题和说明用共享文案，弹层不在关闭页面后保留；其他设置页仍待迁移。
+- Viva 设置窗口（Page 写法）把说明放在 ⓘ 中，用 `ui.Popover` 与 `.Tooltip`：点击或键盘激活固定，再次激活、点击其他位置或按 Escape 关闭。标题和说明用共享文案，弹层不在关闭页面后保留。Viva 目前的悬停提示没有延迟（`components.HoverTooltipDelay` 为 0，且不能按控件设置），所以悬停后立即显示，不是 500 ms；上游提供延迟设置后恢复约 500 ms。
 
 - 纯解释性文案放进 `LitheInfoTip`。它已经有 500 ms 悬停延迟、点击固定、键盘 Space/Return 打开和 VoiceOver 读取 `accessibilityHint` 的能力，不在各页面重复实现。
 - 行内设置标签用 `LitheSettingsLabel(title, info:)`，把标题和 ⓘ 放在同一个 `HStack` 里；分组标题用 `LitheSettingsSection(title:accessory:)`，把说明图标放在分组线左侧。
