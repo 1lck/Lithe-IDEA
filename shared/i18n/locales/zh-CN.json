@@ -10964,7 +10964,21 @@
     "desktop.mcp.noTools": "服务器没有报告任何工具。",
     "desktop.mcp.toolLocked": "由 Lithe 之外的规则决定",
     "desktop.mcp.toolFailed": "无法修改工具开关：{reason}",
-    "desktop.mcp.sseUnsupported": "SSE 服务器暂不支持检测。"
+    "desktop.mcp.sseUnsupported": "SSE 服务器暂不支持检测。",
+    "desktop.inlineEdit.title": "用 AI 编辑所选代码",
+    "desktop.inlineEdit.reviewTitle": "审阅 AI 修改",
+    "desktop.inlineEdit.instruction": "希望如何修改？留空则优化这段代码。",
+    "desktop.inlineEdit.run": "生成修改",
+    "desktop.inlineEdit.running": "生成中…",
+    "desktop.inlineEdit.cancel": "取消",
+    "desktop.inlineEdit.accept": "接受",
+    "desktop.inlineEdit.reject": "拒绝",
+    "desktop.inlineEdit.noSelection": "请先选中一段代码。",
+    "desktop.inlineEdit.readOnly": "该文件是只读的。",
+    "desktop.inlineEdit.empty": "模型返回了空的替换内容，接受将删除所选代码。",
+    "desktop.inlineEdit.stale": "审阅期间文件已变化，未应用任何修改。",
+    "desktop.inlineEdit.failed": "AI 编辑失败：{reason}",
+    "desktop.inlineEdit.unchanged": "模型没有做任何修改。"
   },
   "overrides": {
     "macos": {

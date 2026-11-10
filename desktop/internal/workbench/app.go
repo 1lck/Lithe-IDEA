@@ -297,6 +297,8 @@ type App struct {
 	// agentKernel is the Agent panel's kernel, nil when the window was built
 	// without one.
 	agentKernel AgentKernel
+	// inline is the editor's AI inline edit dialog (inlineedit.go).
+	inline inlineEditState
 	// agentClosing tracks Core sessions being closed off the window thread, so
 	// shutdown waits for their process trees.
 	agentClosing sync.WaitGroup

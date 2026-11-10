@@ -5,7 +5,15 @@ import "strconv"
 // AIMessages are the words of the AI-assisted features: commit message generation, inline
 // edits, and the MCP and IDE API settings.
 type AIMessages struct {
-	Commit AICommitMessages
+	Commit     AICommitMessages
+	InlineEdit AIInlineEditMessages
+}
+
+// AIInlineEditMessages are the words of the editor's AI inline edit.
+type AIInlineEditMessages struct {
+	Title, ReviewTitle, Instruction, Run, Running, Cancel, Accept, Reject string
+	NoSelection, ReadOnly, Empty, Stale, Unchanged                        string
+	Failed                                                                func(reason string) string
 }
 
 // AICommitMessages are the words of the Commit panel's "generate message" action.
@@ -29,6 +37,24 @@ type AICommitMessages struct {
 
 func aiMessages(language Language) AIMessages {
 	return AIMessages{
+		InlineEdit: AIInlineEditMessages{
+			Title:       Shared(language, "desktop.inlineEdit.title"),
+			ReviewTitle: Shared(language, "desktop.inlineEdit.reviewTitle"),
+			Instruction: Shared(language, "desktop.inlineEdit.instruction"),
+			Run:         Shared(language, "desktop.inlineEdit.run"),
+			Running:     Shared(language, "desktop.inlineEdit.running"),
+			Cancel:      Shared(language, "desktop.inlineEdit.cancel"),
+			Accept:      Shared(language, "desktop.inlineEdit.accept"),
+			Reject:      Shared(language, "desktop.inlineEdit.reject"),
+			NoSelection: Shared(language, "desktop.inlineEdit.noSelection"),
+			ReadOnly:    Shared(language, "desktop.inlineEdit.readOnly"),
+			Empty:       Shared(language, "desktop.inlineEdit.empty"),
+			Stale:       Shared(language, "desktop.inlineEdit.stale"),
+			Unchanged:   Shared(language, "desktop.inlineEdit.unchanged"),
+			Failed: func(reason string) string {
+				return SharedFormat(language, "desktop.inlineEdit.failed", map[string]string{"reason": reason})
+			},
+		},
 		Commit: AICommitMessages{
 			Generate:         Shared(language, "desktop.aiCommit.generate"),
 			Generating:       Shared(language, "desktop.aiCommit.generating"),

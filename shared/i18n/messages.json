@@ -104743,6 +104743,107 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.inlineEdit.title",
+      "description": "Desktop inline edit: title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.inlineEdit.reviewTitle",
+      "description": "Desktop inline edit: reviewTitle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.inlineEdit.instruction",
+      "description": "Desktop inline edit: instruction",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.inlineEdit.run",
+      "description": "Desktop inline edit: run",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.inlineEdit.running",
+      "description": "Desktop inline edit: running",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.inlineEdit.cancel",
+      "description": "Desktop inline edit: cancel",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.inlineEdit.accept",
+      "description": "Desktop inline edit: accept",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.inlineEdit.reject",
+      "description": "Desktop inline edit: reject",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.inlineEdit.noSelection",
+      "description": "Desktop inline edit: noSelection",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.inlineEdit.readOnly",
+      "description": "Desktop inline edit: readOnly",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.inlineEdit.empty",
+      "description": "Desktop inline edit: empty",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.inlineEdit.stale",
+      "description": "Desktop inline edit: stale",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.inlineEdit.failed",
+      "description": "Desktop inline edit: failed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.inlineEdit.unchanged",
+      "description": "Desktop inline edit: unchanged",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

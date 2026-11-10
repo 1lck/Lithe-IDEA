@@ -10964,7 +10964,21 @@
     "desktop.mcp.noTools": "The server reported no tools.",
     "desktop.mcp.toolLocked": "Set by rules Lithe did not write",
     "desktop.mcp.toolFailed": "Could not change the tool: {reason}",
-    "desktop.mcp.sseUnsupported": "Detection is not supported for SSE servers."
+    "desktop.mcp.sseUnsupported": "Detection is not supported for SSE servers.",
+    "desktop.inlineEdit.title": "Edit selection with AI",
+    "desktop.inlineEdit.reviewTitle": "Review the AI edit",
+    "desktop.inlineEdit.instruction": "What should change? Leave empty to improve the code.",
+    "desktop.inlineEdit.run": "Generate edit",
+    "desktop.inlineEdit.running": "Generating…",
+    "desktop.inlineEdit.cancel": "Cancel",
+    "desktop.inlineEdit.accept": "Accept",
+    "desktop.inlineEdit.reject": "Reject",
+    "desktop.inlineEdit.noSelection": "Select some code first.",
+    "desktop.inlineEdit.readOnly": "This file is read-only.",
+    "desktop.inlineEdit.empty": "The model returned an empty replacement. Accepting deletes the selection.",
+    "desktop.inlineEdit.stale": "The file changed while the edit was reviewed. Nothing was applied.",
+    "desktop.inlineEdit.failed": "AI edit failed: {reason}",
+    "desktop.inlineEdit.unchanged": "The model changed nothing."
   },
   "overrides": {
     "windows": {

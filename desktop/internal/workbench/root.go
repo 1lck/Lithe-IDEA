@@ -168,6 +168,11 @@ func (a *App) windowShortcuts(c ui.C) {
 			a.searchView.focus = true
 		})
 	}
+	if ui.Shortcut(c, ui.Primary, "k") {
+		if view := a.focusedDocument(c.Canvas().Focused()); view != nil {
+			c.After(func() { a.requestInlineEdit(p, view) })
+		}
+	}
 	key, modifiers := "g", ui.Ctrl
 	if runtime.GOOS == "darwin" {
 		key, modifiers = "l", ui.Primary
@@ -194,6 +199,7 @@ func (a *App) overlays(c ui.C) {
 	if p := a.project; p != nil {
 		a.drawBranchDialog(c, p)
 		a.drawSyncDialog(c, p)
+		a.inlineEditView(c, p)
 	}
 	a.newProjectModal(c)
 }
