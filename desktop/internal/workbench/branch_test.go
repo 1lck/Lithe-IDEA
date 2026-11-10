@@ -41,12 +41,12 @@ func (h *harness) branchRow(name string) gfx.Rect {
 	return gfx.Rect{}
 }
 
-// typeInto empties field, clicks the control id and types value into it.
-func (h *harness) typeInto(id gfx.ID, clear func(), value string) {
+// typeInto empties field, clicks the control named name and types value into it.
+func (h *harness) typeInto(name string, clear func(), value string) {
 	h.t.Helper()
 	clear()
 	h.settle()
-	h.click(center(h.hit(id)))
+	h.clickNamed(name)
 	if err := h.driver.Type(value); err != nil {
 		h.t.Fatal(err)
 	}
@@ -66,22 +66,22 @@ func TestBranchPopupCreatesABranchWithACleanedName(t *testing.T) {
 		t.Fatal("the popup does not list main")
 	}
 
-	h.click(center(h.hit(branchNewID)))
+	h.clickNamed(h.app.text.Branch.NewBranch)
 	b := &h.app.branch
 	if b.open || b.dialog != branchDialogCreate {
 		t.Fatalf("after New Branch: popup open %v, dialog %v", b.open, b.dialog)
 	}
 	clear := func() { b.name.SetText("") }
-	h.typeInto(branchNameID, clear, "main")
+	h.typeInto(h.app.text.Branch.BranchName, clear, "main")
 	if want := h.app.text.Branch.NameExists("main"); !h.shows(want) {
 		t.Fatalf("the dialog does not say %q", want)
 	}
 
-	h.typeInto(branchNameID, clear, "my branch")
+	h.typeInto(h.app.text.Branch.BranchName, clear, "my branch")
 	if got := b.name.Text(); got != "my-branch" {
 		t.Fatalf("name field = %q, want the kernel's cleaned my-branch", got)
 	}
-	h.click(center(h.topHit(branchDialogConfirm)))
+	h.clickNamed(h.app.text.Branch.Create)
 	if got := currentBranch(t, dir); got != "my-branch" {
 		t.Fatalf("current branch = %q, want my-branch", got)
 	}
@@ -103,7 +103,7 @@ func TestBranchRowMenuChecksOutABranch(t *testing.T) {
 	if h.app.branch.menu == "" {
 		t.Fatal("clicking the row did not open its menu")
 	}
-	h.click(center(h.hit(branchMenuCheckout)))
+	h.clickNamed(h.app.text.Branch.Checkout)
 	if got := currentBranch(t, dir); got != "other" {
 		t.Fatalf("current branch = %q, want other", got)
 	}
@@ -130,7 +130,7 @@ func TestBranchCheckoutAsksAboutChangesItWouldOverwrite(t *testing.T) {
 	h := newHarness(t, &gitKernel{Client: core.NewClient()})
 	h.openBranches(dir)
 	h.click(center(h.branchRow("other")))
-	h.click(center(h.hit(branchMenuCheckout)))
+	h.clickNamed(h.app.text.Branch.Checkout)
 	b := &h.app.branch
 	if b.dialog != branchDialogConflict || len(b.blocking) != 1 || b.blocking[0] != "changed.txt" {
 		t.Fatalf("dialog %v, blocking %v; want the conflict dialog for changed.txt", b.dialog, b.blocking)
@@ -139,7 +139,7 @@ func TestBranchCheckoutAsksAboutChangesItWouldOverwrite(t *testing.T) {
 		t.Fatalf("the branch changed to %q before the user chose", got)
 	}
 
-	h.click(center(h.topHit(branchDialogAlt)))
+	h.clickNamed(h.app.text.Branch.ForceCheckout)
 	if got := currentBranch(t, dir); got != "other" {
 		t.Fatalf("current branch after the forced checkout = %q, want other", got)
 	}
@@ -159,14 +159,14 @@ func TestBranchDeleteAsksFirst(t *testing.T) {
 	h.openBranches(dir)
 
 	h.click(center(h.branchRow("stale")))
-	h.click(center(h.hit(branchMenuDelete)))
+	h.clickNamed(h.app.text.Branch.Delete)
 	if h.app.branch.dialog != branchDialogDelete {
 		t.Fatalf("dialog = %v, want the delete confirmation", h.app.branch.dialog)
 	}
 	if got := gitRun(t, dir, "branch", "--list", "stale"); got == "" {
 		t.Fatal("the branch was deleted before the user confirmed")
 	}
-	h.click(center(h.topHit(branchDialogConfirm)))
+	h.clickNamed(h.app.text.Branch.DeleteButton)
 	if got := gitRun(t, dir, "branch", "--list", "stale"); got != "" {
 		t.Fatalf("branch list after deleting = %q, want none", got)
 	}

@@ -10,8 +10,6 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
-	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
 )
@@ -19,7 +17,8 @@ import (
 // This file keeps the state of the Commit tool window and the actions it starts: staging a
 // change, and a commit that the kernel plans (git.workspaceCommitPrepare), the user reviews
 // when the plan asks for it, and the window runs one step at a time
-// (git.workspaceCommitStep). What the tool window shows is declared in commit_view.go.
+// (git.workspaceCommitStep). What the tool window shows is declared in commit_view.go, and
+// commit_page.go hosts that page in the window.
 
 const (
 	// commitRunTimeout bounds a whole run: every commit and push of the plan.
@@ -34,10 +33,11 @@ const (
 // commitState is what a project's Commit tool window holds: the message being typed, the
 // review that is open, and the results of the last run.
 type commitState struct {
-	// editor holds the commit message, and layout its wrapped rows and scroll position.
-	editor *text.Editor
-	layout *components.TextareaLayout
-	amend  bool
+	// editor holds the commit message; message is the text area's handle on it, bound once
+	// so the page edits the editor the project reads.
+	editor       *text.Editor
+	messageField ui.Field
+	amend        bool
 	// busy is set while the kernel prepares, runs or stages; the actions wait for it.
 	busy bool
 	// review is the plan the user is asked to confirm, nil when no review is open.
@@ -55,7 +55,17 @@ type commitReview struct {
 }
 
 func newCommitState() commitState {
-	return commitState{editor: text.NewEditor(""), layout: new(components.TextareaLayout)}
+	c := commitState{}
+	c.resetMessage()
+	return c
+}
+
+// resetMessage empties the commit message with an editor of its own, so the history of the
+// message that was committed cannot be undone into the next one.
+func (c *commitState) resetMessage() {
+	c.editor = text.NewEditor("")
+	c.messageField = ui.Field{}
+	c.messageField.Bind(c.editor)
 }
 
 // message is the typed commit message without the text an input method is still composing
@@ -72,48 +82,6 @@ func (r *commitReview) answered() bool {
 		}
 	}
 	return true
-}
-
-// commitView is the window's state of the Commit tool window that is not the project's: the
-// splitter between the change list and the commit area, and what the frame declared for the
-// capture after it.
-type commitView struct {
-	split ui.SplitterState
-	// areaHeight is the chosen height of the commit area; the change list takes what is
-	// left, so the commit area keeps its height when the tool window is resized.
-	areaHeight float32
-	// bodyHeight is the height the list and the area shared in the last frame, and derived
-	// the splitter position that frame was declared with.
-	bodyHeight, derived float32
-	body                ui.Box
-	hasBody             bool
-	// input connects the message box to the platform's text service; its Editor is the open
-	// project's.
-	input app.TextInput
-}
-
-func newCommitView() commitView { return commitView{areaHeight: commitAreaHeight} }
-
-// beginFrame forgets the boxes of the last frame.
-func (v *commitView) beginFrame() { v.hasBody = false }
-
-// capture keeps the height the list and the area shared, and takes a drag of the splitter as
-// a new height of the commit area.
-func (v *commitView) capture() {
-	if !v.hasBody {
-		return
-	}
-	height := v.body.Rect().Height
-	if v.split.Dragging() && v.split.Pos != v.derived && v.bodyHeight > 0 {
-		v.adoptArea()
-	}
-	v.bodyHeight = height
-}
-
-// adoptArea takes the splitter's position as the height of the commit area.
-func (v *commitView) adoptArea() {
-	room := v.bodyHeight - shellSplitter
-	v.areaHeight = min(max(room-v.split.Pos, commitAreaMin), max(room-commitListMin, commitAreaMin))
 }
 
 // repositoryRoot is the top level of the project's repository: the paths of the status are
@@ -330,8 +298,7 @@ func (a *App) commitFinished(p *project, session core.WorkspaceCommitSession) {
 		a.gitOperationFailed("git_commit", incompleteRun(session))
 	}
 	if session.Succeeded {
-		c.editor = text.NewEditor("")
-		c.layout = new(components.TextareaLayout)
+		c.resetMessage()
 		c.amend = false
 		c.attempt = nil
 		return

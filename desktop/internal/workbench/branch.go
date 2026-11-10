@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -42,8 +41,6 @@ const (
 type branchSession struct {
 	// open says the popup is shown. A dialog closes the popup first.
 	open bool
-	// focusSearch asks the next frame to put the keyboard focus in the search field.
-	focusSearch bool
 	// gen counts the loads of the references; the answer of an older load is dropped.
 	gen int
 	// loading is set while the kernel reads; loaded once it answered.
@@ -55,6 +52,9 @@ type branchSession struct {
 	collapsed map[string]bool
 	// menu is the key of the row whose menu is open (branchRowKey), empty for none.
 	menu string
+	// button is the branch button of the title bar in the frame being laid out, which the
+	// popup of the overlay page hangs off; it is valid until the next frame starts.
+	button ui.Box
 
 	dialog branchDialog
 	// target is the reference the dialog is about: the branch created from, renamed,
@@ -87,7 +87,7 @@ func (a *App) openBranches() {
 	a.title.projectOpen = false
 	a.title.gearOpen = false
 	b := &a.branch
-	b.open, b.focusSearch, b.menu, b.dialog = true, true, "", branchDialogNone
+	b.open, b.menu, b.dialog = true, "", branchDialogNone
 	b.search.SetText("")
 	if b.collapsed == nil {
 		b.collapsed = map[string]bool{}
@@ -119,20 +119,6 @@ func (a *App) loadBranches(p *project) {
 			b.refs, b.sections, b.err = refs, sections, err
 		}
 	})
-}
-
-// branchMenuKey closes the row menu, then the popup, on Escape. A dialog closes itself.
-func (a *App) branchMenuKey(event gfx.KeyEvent) gfx.EventResult {
-	b := &a.branch
-	if !b.open || b.dialog != branchDialogNone || event.Release || event.Key != gfx.KeyEscape {
-		return gfx.EventResult{}
-	}
-	if b.menu != "" {
-		b.menu = ""
-	} else {
-		b.open = false
-	}
-	return gfx.EventResult{Handled: true, Repaint: true}
 }
 
 // currentReference is the checked-out local branch among the loaded references, or HEAD

@@ -124,9 +124,8 @@ func (a *App) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 			return result
 		}
 	}
-	if event.Target == commitMessageID && a.project != nil {
-		a.project.commit.layout.ScrollBy(event.DeltaY)
-		return gfx.EventResult{Handled: true, Repaint: true}
+	if result, ok := a.gitWheel(event); ok {
+		return result
 	}
 	if result, ok := a.term.stripWheel(event); ok {
 		return result
@@ -142,8 +141,7 @@ func (a *App) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 
 // textInput answers Config.TextInput: the platform asks which editor belongs to the focused
 // control. A terminal's grid takes typed text and input method composition itself; every
-// other control is a field the window declared, or the message box of the Commit tool
-// window, whose editor is the open project's.
+// other control is a field the window declared or one of a Git page.
 func (a *App) textInput(ctx app.TextInputContext) *app.TextInput {
 	if input := a.pageTextInput(ctx); input != nil {
 		return input
@@ -157,9 +155,8 @@ func (a *App) textInput(ctx app.TextInputContext) *app.TextInput {
 	if input := a.agentTextInput(ctx); input != nil {
 		return input
 	}
-	if ctx.ID == commitMessageID && a.project != nil {
-		a.commitView.input.Editor = a.project.commit.editor
-		return &a.commitView.input
+	if input := a.gitTextInput(ctx); input != nil {
+		return input
 	}
 	return a.fields(ctx)
 }

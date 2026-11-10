@@ -355,6 +355,8 @@ type App struct {
 	logView          logView
 	// branch is the title bar's branch popup and the dialogs it opens.
 	branch branchState
+	// gitOverlay is the page of the branch popup and the sync dialogs.
+	gitOverlay gitOverlay
 	// commitView is the Commit tool window's splitter and message input.
 	commitView     commitView
 	searchView     searchView
@@ -546,7 +548,7 @@ func (a *App) systemAppearanceChanged() {
 // Config is the window's configuration.
 func (a *App) Config() app.Config {
 	a.subscribeSettings()
-	a.fields = ui.Fields(&a.debugAttach.host, &a.debugAttach.port, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField, &a.branch.search, &a.branch.name, &a.branch.revision)
+	a.fields = ui.Fields(&a.debugAttach.host, &a.debugAttach.port, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField)
 	return app.Config{
 		Title:          a.text.App.Name,
 		Icon:           appicon.Window(),
@@ -579,6 +581,7 @@ func (a *App) closed() {
 	a.closeOverlay()
 	a.closeSearchPanel()
 	a.closeNewProject()
+	a.closeGitPages()
 	a.closeWelcomeBranchReads()
 	a.closeProject()
 	a.settingsWindow.Close()
@@ -647,7 +650,6 @@ func (a *App) paint(canvas *gfx.Canvas, size gfx.Size) {
 	a.chrome.beginFrame()
 	a.agentView.beginFrame()
 	a.logView.beginFrame()
-	a.commitView.beginFrame()
 	a.beginTerminalFrame()
 	a.sideways.beginFrame()
 	paintTheme := a.theme
@@ -680,13 +682,13 @@ func (a *App) paint(canvas *gfx.Canvas, size gfx.Size) {
 	}
 	a.layout.capture()
 	a.logView.capture()
-	a.commitView.capture()
 	a.paintGitLog(canvas)
 	// Like the commit rows, the terminal is painted into a box of the frame that was just
 	// laid out, under the menus and the dragged button.
 	a.paintTerminal(canvas)
 	a.captureTree(canvas)
 	a.captureLogFiles(canvas)
+	a.paintGitOverlay(canvas, bounds)
 	// The menus and the dragged buttons and tabs float above everything Draw painted.
 	a.paintChromeMenus(canvas, bounds)
 	a.paintDrag(canvas)
@@ -701,6 +703,9 @@ func (a *App) notify(message string) {
 
 func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
 	if result, ok := a.pagePointer(event); ok {
+		return result
+	}
+	if result, ok := a.gitOverlayPointer(event); ok {
 		return result
 	}
 	// A semantic popup or request belongs to the caret and symbol it was opened
@@ -723,6 +728,9 @@ func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
 	if result, handled := a.pluginSemanticsPointer(event); handled {
 		return result
 	}
+	if result, handled := a.gitPanePointer(event); handled {
+		return result
+	}
 	if result, handled := a.documentPointer(event); handled {
 		return result
 	}
@@ -737,6 +745,9 @@ func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
 
 func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
 	if result, ok := a.pageKey(event); ok {
+		return result
+	}
+	if result, ok := a.gitOverlayKey(event); ok {
 		return result
 	}
 	// A semantic request belongs to the caret it was placed at. Every key path
@@ -760,9 +771,6 @@ func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
 		if r := a.projectMenuKey(event); r.Handled {
 			return r
 		}
-		if r := a.branchMenuKey(event); r.Handled {
-			return r
-		}
 	}
 	// The terminal sees the release of a key as well: a program can ask for them.
 	if t := a.focusedTerminal(event.Target); t != nil {
@@ -784,7 +792,7 @@ func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
 	if r := a.treeKey(event); r.Handled {
 		return r
 	}
-	if r := a.commitKey(event); r.Handled {
+	if r, ok := a.gitPaneKey(event); ok {
 		return r
 	}
 	if r := a.logKey(event); r.Handled {
@@ -801,6 +809,12 @@ func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
 // here, not in onKey.
 func (a *App) onShortcut(event gfx.KeyEvent) gfx.EventResult {
 	if result, ok := a.pageShortcut(event); ok {
+		return result
+	}
+	if result, ok := a.gitOverlayShortcut(event); ok {
+		return result
+	}
+	if result, ok := a.gitPaneShortcut(event); ok {
 		return result
 	}
 	if !event.Release {
@@ -841,12 +855,6 @@ func (a *App) windowShortcut(event gfx.KeyEvent) gfx.EventResult {
 	if event.Modifiers == gfx.ModifierMeta|gfx.ModifierShift && strings.EqualFold(event.Text, "f") && a.project != nil {
 		a.reduceChrome(core.SetChromeOpen(itemFind, true))
 		a.searchView.focus = true
-		return gfx.EventResult{Handled: true, Repaint: true}
-	}
-	if event.Modifiers == gfx.ModifierMeta && event.Key == gfx.KeyEnter && event.Target == commitMessageID && a.project != nil {
-		if a.project.canCommit() {
-			a.startCommit(a.project, false, surfaceShortcut)
-		}
 		return gfx.EventResult{Handled: true, Repaint: true}
 	}
 	if event.Modifiers == gfx.ModifierMeta|gfx.ModifierShift && strings.EqualFold(event.Text, "l") {

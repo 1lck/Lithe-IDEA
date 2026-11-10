@@ -188,12 +188,12 @@ func (a *App) drawTitleBar(f *ui.Frame) {
 	// What a click asks for is done after the bar is declared. A button changes the
 	// arrangement, which this loop is still reading.
 	clicked, opening, branching, branched := -1, false, false, false
-	var project, branch ui.Box
+	var project ui.Box
 	f.Row().FillWidth().Height(titleBarHeight).Shrink(0).Background(a.colors.Chrome).
 		Items(ui.Center).Gap(chromeGap).PadSides(0, trailing+chromeEdge, 0, leading+chromeEdge).
 		MovesWindow().Children(func() {
 		project, opening = a.drawChromeProject(f)
-		branch, branched, branching = a.drawChromeBranch(f)
+		branched, branching = a.drawChromeBranch(f)
 		f.Spacer()
 		zoneBox := f.Row().Items(ui.Center).Gap(chromeGap).Children(func() {
 			for _, i := range a.chrome.items[zoneTitle] {
@@ -230,12 +230,9 @@ func (a *App) drawTitleBar(f *ui.Frame) {
 		// backdrop and panel are hit before anything in the bar is.
 		a.drawProjectMenu(f, project)
 	}
-	switch {
-	case a.branch.open && !branched:
+	if a.branch.open && !branched {
 		// The project stopped being a repository, so the popup has no branch to hang off.
 		a.closeBranches()
-	case a.branch.open:
-		a.drawBranchPopup(f, branch)
 	}
 	if clicked >= 0 {
 		a.activate(clicked)

@@ -605,7 +605,7 @@ func (a *App) drawLogCommits(f *ui.Frame, p *project) ui.Box {
 	return f.Column().FillHeight().MinWidth(logCommitsMin).Clip().Children(func() {
 		a.drawLogToolbar(f, p)
 		f.Divider()
-		a.drawSyncStatus(f, p)
+		// TEMP drawSyncStatus
 		a.drawLogList(f, p)
 	})
 }

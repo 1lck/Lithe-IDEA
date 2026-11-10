@@ -129,7 +129,7 @@ func (h *harness) topHit(id gfx.ID) gfx.Rect {
 // stageAll stages every change through the window and waits for the new status.
 func (h *harness) stageAll(p *project) {
 	h.t.Helper()
-	h.click(center(h.hit(commitChecks.At(0))))
+	h.clickNamed(h.app.text.Commit.ChangeList)
 	h.settle()
 	if p.git.stagedCount() != len(p.git.status.Changes) {
 		h.t.Fatalf("staged %d of %d changes", p.git.stagedCount(), len(p.git.status.Changes))
@@ -149,7 +149,7 @@ func TestCommitCheckboxStagesAndUnstagesAChange(t *testing.T) {
 		t.Fatalf("staged files = %q, want changed.txt", got)
 	}
 
-	h.click(center(h.hit(commitChecks.At(0))))
+	h.clickNamed(h.app.text.Commit.ChangeList)
 	h.settle()
 	if got := gitRun(t, dir, "diff", "--cached", "--name-only"); got != "" {
 		t.Fatalf("staged files after unstaging = %q, want none", got)
@@ -165,7 +165,7 @@ func TestCommitButtonCommitsTheStagedChanges(t *testing.T) {
 	if p.canCommit() {
 		t.Fatal("the commit buttons are enabled without a message")
 	}
-	h.click(center(h.hit(commitMessageID)))
+	h.clickNamed(h.app.text.Commit.MessageLabel)
 	if err := h.driver.Type("Explain the change"); err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestCommitButtonCommitsTheStagedChanges(t *testing.T) {
 	if !p.canCommit() {
 		t.Fatalf("the commit buttons are disabled with a message %q and staged changes", p.commit.message())
 	}
-	h.click(center(h.hit(commitButtonID)))
+	h.clickNamed(h.app.text.Commit.Commit)
 	h.settle()
 
 	if got := gitRun(t, dir, "log", "-1", "--format=%s"); got != "Explain the change" {
@@ -201,7 +201,7 @@ func TestCommitAndPushShowsTheReviewFirst(t *testing.T) {
 	p.commit.editor.Insert("Publish the change")
 	h.settle()
 
-	h.click(center(h.hit(commitPushID)))
+	h.clickNamed(h.app.text.Commit.CommitAndPush)
 	h.settle()
 	if p.commit.review == nil {
 		t.Fatal("commit and push ran without showing the review")
@@ -210,7 +210,7 @@ func TestCommitAndPushShowsTheReviewFirst(t *testing.T) {
 		t.Fatalf("last commit before the review was confirmed = %q, want initial", got)
 	}
 
-	h.click(center(h.topHit(commitReviewCancel)))
+	h.clickNamed(h.app.text.Commit.Cancel)
 	if p.commit.review != nil {
 		t.Fatal("cancel left the review open")
 	}
