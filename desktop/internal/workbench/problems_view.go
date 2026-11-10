@@ -15,22 +15,6 @@ const (
 	problemsRowHeight = 22
 )
 
-// drawProblemsPanel puts the Problems tool window in the room under the panel header.
-//
-// Transitional adapter: the window still paints through a Frame, so the component is hosted
-// by a Page that is registered with the page host. Delete this function and call
-// problemsPanel directly once the workbench root window is a Page.
-func (a *App) drawProblemsPanel(f *ui.Frame, p *project) {
-	if a.problemsHost.page == nil {
-		a.problemsHost = a.newGitHost("problems", func(c ui.C) {
-			if a.project != nil {
-				a.problemsPanel(c, a.project)
-			}
-		}, nil, panelPage{wheel: verticalWheel})
-	}
-	f.Slot().Fill().Draw(a.problemsHost.draw)
-}
-
 // problemsPanel declares the Problems tool window of an open project: the files that have
 // diagnostics, each as a header over its diagnostics, in the order Core gave them.
 func (a *App) problemsPanel(c ui.C, p *project) {

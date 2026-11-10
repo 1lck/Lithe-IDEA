@@ -27,6 +27,11 @@ const commitReviewHeight = 320
 // commitPageView declares the body of the Commit tool window.
 func (a *App) commitPageView(c ui.C) {
 	v := &a.commitView
+	if v.bodyDraw == nil {
+		v.bodyDraw = func(d *ui.DrawContext) { v.bodyRect = d.Rect }
+	}
+	// What the splitter was dragged to in the last paint is the commit area's height now.
+	v.capture()
 	v.hasBody = false
 	p := a.project
 	if p == nil {

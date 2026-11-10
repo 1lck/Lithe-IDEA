@@ -6,10 +6,8 @@ import (
 )
 
 // commitView is the window's state of the Commit tool window that is not the project's: the
-// Page that shows it, the splitter between the change list and the commit area, and what the
-// page declared for the capture after it is drawn.
+// splitter between the change list and the commit area, and what the last paint declared.
 type commitView struct {
-	host  gitHost
 	split ui.SplitterState
 	// areaHeight is the chosen height of the commit area; the change list takes what is
 	// left, so the commit area keeps its height when the tool window is resized.
@@ -25,27 +23,6 @@ type commitView struct {
 }
 
 func newCommitView() commitView { return commitView{areaHeight: commitAreaHeight} }
-
-// drawCommitPanel puts the Commit tool window's page in the room the panel leaves under its
-// header.
-func (a *App) drawCommitPanel(f *ui.Frame, p *project) {
-	v := &a.commitView
-	if v.host.page == nil {
-		v.host = a.newGitHost("commit", a.commitPageView, v.capture, panelPage{
-			// The splitter between the list and the commit area takes its arrow keys.
-			key: func(event gfx.KeyEvent) gfx.EventResult {
-				r := v.split.Key(event)
-				if r.Handled {
-					v.adoptArea()
-				}
-				return r
-			},
-			wheel: verticalWheel,
-		})
-		v.bodyDraw = func(d *ui.DrawContext) { v.bodyRect = d.Rect }
-	}
-	f.Slot().Fill().Draw(v.host.draw)
-}
 
 // capture keeps the height the list and the area shared, and takes a drag of the splitter as
 // a new height of the commit area.

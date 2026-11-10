@@ -47,13 +47,16 @@ type fileTree struct {
 	next   int
 	// rows are the nodes the last paint showed, top to bottom; view is the Tree that shows
 	// them, which declares only the ones in view and scrolls sideways when the widest row is
-	// wider than it, by view.RowWidth. host is the page the tree is drawn in.
+	// wider than it, by view.RowWidth.
 	rows []*treeNode
 	view ui.TreeState
-	host gitHost
-	// enter says Enter was pressed on a row since the last paint, and wake asks for a paint.
-	enter bool
-	wake  func()
+	// area is where the tree was laid out in the last paint, read by its draw hook.
+	area     gfx.Rect
+	areaDraw func(*ui.DrawContext)
+	// focusNode is the node whose row takes the keyboard once it is declared.
+	focusNode *treeNode
+	// wake asks for a paint.
+	wake func()
 	// measureDirty says a row was added, removed, opened or renamed since the width of the
 	// widest row was measured, and measureFont the font size it was measured with.
 	measureDirty bool

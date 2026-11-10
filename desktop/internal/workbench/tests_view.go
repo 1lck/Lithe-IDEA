@@ -12,14 +12,6 @@ import (
 // testRowHeight is the height of a suite header and of a case row.
 const testRowHeight = 24
 
-// drawTestsPanel puts the Tests tool window, a Page, into the tool window area.
-func (a *App) drawTestsPanel(f *ui.Frame, p *project) {
-	if p == nil {
-		return
-	}
-	a.embedPage(f, a.testsPage(p), func(c ui.C) { a.testsView(c, p) })
-}
-
 // testsView declares the Tests tool window: one workspace test run, its bounded
 // result tree and the failure location each decoded case carries.
 func (a *App) testsView(c ui.C, p *project) {

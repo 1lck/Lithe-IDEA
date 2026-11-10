@@ -29,30 +29,38 @@ const (
 // nearest the root and says the rest stayed closed.
 const treeExpandAllLimit = 512
 
-// drawProjectTreeActions declares the buttons of the Project tool window's header. They wait
-// for the root's listing, but refresh also asks again for a root that could not be listed.
-func (a *App) drawProjectTreeActions(f *ui.Frame, p *project) {
+// projectTreeActions declares the buttons of the Project tool window's header. They wait for
+// the root's listing, but refresh also asks again for a root that could not be listed.
+func (a *App) projectTreeActions(c ui.C, p *project) {
 	t := &p.tree
 	language := a.language()
 	ready := t.root != nil && t.root.listed && t.failed == ""
-	f.Row().Shrink(0).Items(ui.Center).Gap(2).Children(func() {
+	ui.Row(c).Shrink(0).Items(ui.Center).Gap(2).Children(func() {
 		_, located := activeTreePath(p)
-		if a.toolIconButton(f, treeActions.At(treeActionLocate), i18n.Shared(language, "native.revealActiveFileInProjectTree"), icons.Locate, false, !ready || !located, nil) {
-			a.performed("workspace.tree.revealActiveFile", surfaceButton)
-			a.revealActiveFile(p)
+		if _, hit := a.toolIconButton(c.Part("locate"), i18n.Shared(language, "native.revealActiveFileInProjectTree"), icons.Locate, false, !ready || !located); hit {
+			c.After(func() {
+				a.performed("workspace.tree.revealActiveFile", surfaceButton)
+				a.revealActiveFile(p)
+			})
 		}
 		refreshable := t.failed != "" || ready && !t.refreshing
-		if a.toolIconButton(f, treeActions.At(treeActionRefresh), i18n.Shared(language, "ui.refresh"), icons.RefreshCw, false, !refreshable, nil) {
-			a.performed("workspace.tree.refresh", surfaceButton)
-			a.refreshProjectTree(p)
+		if _, hit := a.toolIconButton(c.Part("refresh"), i18n.Shared(language, "ui.refresh"), icons.RefreshCw, false, !refreshable); hit {
+			c.After(func() {
+				a.performed("workspace.tree.refresh", surfaceButton)
+				a.refreshProjectTree(p)
+			})
 		}
-		if a.toolIconButton(f, treeActions.At(treeActionExpand), i18n.Shared(language, "outline.expandAll"), icons.ChevronsUpDown, false, !ready || t.expandingAll, nil) {
-			a.performed("workspace.tree.expandAll", surfaceButton)
-			a.expandProjectTree(p)
+		if _, hit := a.toolIconButton(c.Part("expand"), i18n.Shared(language, "outline.expandAll"), icons.ChevronsUpDown, false, !ready || t.expandingAll); hit {
+			c.After(func() {
+				a.performed("workspace.tree.expandAll", surfaceButton)
+				a.expandProjectTree(p)
+			})
 		}
-		if a.toolIconButton(f, treeActions.At(treeActionCollapse), i18n.Shared(language, "files.collapseAll"), icons.ChevronsDownUp, false, !ready, nil) {
-			a.performed("workspace.tree.collapseAll", surfaceButton)
-			a.collapseProjectTree(p)
+		if _, hit := a.toolIconButton(c.Part("collapse"), i18n.Shared(language, "files.collapseAll"), icons.ChevronsDownUp, false, !ready); hit {
+			c.After(func() {
+				a.performed("workspace.tree.collapseAll", surfaceButton)
+				a.collapseProjectTree(p)
+			})
 		}
 	})
 }

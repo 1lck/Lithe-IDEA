@@ -22,62 +22,6 @@ const treeOverscan = 2
 // treeChevron is the room Viva's Tree gives the chevron of a folder before its content.
 const treeChevron = 24
 
-// drawProjectTree puts the Project tool window's tree in the room under the panel header.
-//
-// Transitional adapter: the window still paints through a Frame, so the component is hosted
-// by a Page registered with the page host. Delete this function and call projectTree directly
-// once the workbench root window is a Page.
-func (a *App) drawProjectTree(f *ui.Frame, p *project) {
-	t := &p.tree
-	if t.host.page == nil {
-		t.host = a.newGitHost("project-tree", func(c ui.C) {
-			if a.project == p {
-				a.projectTree(c, p)
-			}
-		}, nil, panelPage{key: t.keyHook, wheel: t.wheelHook})
-		t.wake = a.invalidator.Invalidate
-		t.view.Node = t.describe
-		t.view.Key = t.key
-		t.view.Label = t.label
-		t.view.RowHeight = treelist.RowHeight
-		t.view.Indent = treelist.Indent
-	}
-	f.Slot().Fill().Draw(t.host.draw)
-}
-
-// keyHook notes an Enter pressed on a row, which the Tree reports as it does a click: Enter
-// opens or closes a folder, and a click only selects it. The key is left to the page.
-func (t *fileTree) keyHook(event gfx.KeyEvent) gfx.EventResult {
-	if event.Key == gfx.KeyEnter && !event.Release && event.Modifiers == 0 && t.host.page != nil && t.host.page.Owns(event.Target) {
-		t.enter = true
-	}
-	return gfx.EventResult{}
-}
-
-// wheelHook scrolls the rows sideways, by a sideways swipe or the wheel with Shift held, and
-// leaves the page the rest. Viva's Tree lays its rows out RowWidth wide but, unlike its List,
-// does not take the sideways wheel itself.
-func (t *fileTree) wheelHook(event *gfx.ScrollEvent) {
-	verticalWheel(event)
-	dx := event.DeltaX
-	if dx == 0 && event.Modifiers&gfx.ModifierShift != 0 {
-		dx = event.DeltaY
-		event.DeltaY = 0
-	}
-	if dx == 0 {
-		return
-	}
-	event.DeltaX = 0
-	if !event.Precise && dx > -treelist.RowHeight && dx < treelist.RowHeight {
-		dx = treelist.RowHeight
-		if event.DeltaX < 0 || event.DeltaX == 0 && event.DeltaY < 0 {
-			dx = -dx
-		}
-	}
-	t.view.ScrollToX(t.view.ScrollX() + dx)
-	t.wake()
-}
-
 // key, label and describe the rows of the tree to its Tree.
 func (t *fileTree) key(i int) int      { return t.rows[i].id }
 func (t *fileTree) label(i int) string { return t.rows[i].name }
@@ -92,6 +36,14 @@ func (t *fileTree) describe(i int) ui.TreeNode {
 // time the tree is shown.
 func (a *App) projectTree(c ui.C, p *project) {
 	t := &p.tree
+	if t.wake == nil {
+		t.wake = a.invalidator.Invalidate
+		t.view.Node = t.describe
+		t.view.Key = t.key
+		t.view.Label = t.label
+		t.view.RowHeight = treelist.RowHeight
+		t.view.Indent = treelist.Indent
+	}
 	if t.root == nil {
 		t.root = &treeNode{name: p.name, dir: true, expanded: true}
 		t.measureDirty = true
@@ -127,7 +79,8 @@ func (a *App) projectTree(c ui.C, p *project) {
 	t.view.RowWidth = a.measureTree(c.Canvas(), t)
 	// Names are never cut short: the rows are as wide as the widest one, and the tree
 	// scrolls sideways to show the rest of it.
-	ui.Tree(c, &t.view, len(t.rows), t.label, func(i int) { a.drawTreeContent(c, p, t.rows[i]) }).Grow(1).FillWidth().PadY(treelist.PadY)
+	ui.Tree(c, &t.view, len(t.rows), t.label, func(i int) { a.drawTreeContent(c, p, t.rows[i]) }).Grow(1).FillWidth().PadY(treelist.PadY).Draw(t.areaHook())
+	a.focusTreeRow(c.Canvas(), t)
 	if i, ok := t.view.Toggled(); ok && i < len(t.rows) {
 		n := t.rows[i]
 		c.After(func() {
@@ -136,13 +89,14 @@ func (a *App) projectTree(c ui.C, p *project) {
 		})
 	}
 	// A click selects a folder and opens a file; a folder opens or closes on Enter and on a
-	// double click, as the native tree does.
-	enter := t.enter
-	t.enter = false
-	info, _ := c.Canvas().ClickInfo()
-	doubled := info.Clicks >= 2
+	// double click, as the native tree does. Enter is a choice with no click behind it.
+	info, clicked := c.Canvas().ClickInfo()
+	doubled := clicked && info.Clicks >= 2
+	enter := !clicked
 	if i, ok := t.view.Chosen(); ok && i < len(t.rows) {
 		n := t.rows[i]
+		// The row a click chose takes the keyboard, so the arrow keys go on from it.
+		c.Canvas().RequestFocus(t.view.RowID(i))
 		c.After(func() {
 			t.selected = n
 			switch {
@@ -157,12 +111,17 @@ func (a *App) projectTree(c ui.C, p *project) {
 }
 
 // syncTreeSelection hands the model's selection to the Tree (it is the row Tab reaches) and
-// scrolls a row to show to the middle of the view when it is out of view.
-//
-// Viva's Tree does not report the row the arrow keys moved to, so the selection follows a
-// click, Enter or a chevron, and the arrows move the keyboard focus ring alone; this wants the
-// row identities (TreeState.RowID) of a newer Viva to follow the focus.
+// scrolls a row to show to the middle of the view when it is out of view. The selection
+// follows the keyboard: the row the arrow keys moved the focus to is the selected one.
 func (a *App) syncTreeSelection(canvas *gfx.Canvas, t *fileTree) {
+	if focused := canvas.Focused(); !focused.IsZero() {
+		for i, n := range t.rows {
+			if t.view.RowID(i) == focused {
+				t.selected = n
+				break
+			}
+		}
+	}
 	selected := -1
 	for i, n := range t.rows {
 		if n == t.selected {
@@ -174,6 +133,7 @@ func (a *App) syncTreeSelection(canvas *gfx.Canvas, t *fileTree) {
 				t.view.ScrollTo(i, ui.ListCenter)
 				canvas.RequestFrame()
 			}
+			t.focusNode = n
 			t.show = nil
 		}
 	}
@@ -217,4 +177,59 @@ func (a *App) drawTreeContent(c ui.C, p *project, n *treeNode) {
 	if n == p.tree.root {
 		name.Bold()
 	}
+}
+
+// focusTreeRow gives the keyboard to the row the locate button brought into view, once the row
+// is declared, so the arrow keys go on from the file the editor shows.
+func (a *App) focusTreeRow(canvas *gfx.Canvas, t *fileTree) {
+	n := t.focusNode
+	if n == nil {
+		return
+	}
+	for i, row := range t.rows {
+		if row != n {
+			continue
+		}
+		if first, last := t.view.Visible(); i >= first && i <= last {
+			canvas.RequestFrame()
+			canvas.RequestFocus(t.view.RowID(i))
+			t.focusNode = nil
+		}
+		return
+	}
+	t.focusNode = nil
+}
+
+// areaHook is the draw hook that notes where the tree was laid out, for the sideways wheel.
+func (t *fileTree) areaHook() func(*ui.DrawContext) {
+	if t.areaDraw == nil {
+		t.areaDraw = func(d *ui.DrawContext) { t.area = d.Rect }
+	}
+	return t.areaDraw
+}
+
+// wheel scrolls the rows sideways, by a sideways swipe or the wheel with Shift held over the
+// tree, and reports whether it did. Viva's Tree lays its rows out RowWidth wide but, unlike
+// its List, does not take the sideways wheel itself (vivaui/viva#203); the page leaves such
+// an event to the window's OnScroll, which comes here.
+func (t *fileTree) wheel(event gfx.ScrollEvent) gfx.EventResult {
+	if t.area.Width <= 0 || event.X < t.area.X || event.X >= t.area.Right() || event.Y < t.area.Y || event.Y >= t.area.Bottom() {
+		return gfx.EventResult{}
+	}
+	dx := event.DeltaX
+	if dx == 0 && event.Modifiers&gfx.ModifierShift != 0 {
+		dx = event.DeltaY
+	}
+	if dx == 0 {
+		return gfx.EventResult{}
+	}
+	if !event.Precise && dx > -treelist.RowHeight && dx < treelist.RowHeight {
+		dx = treelist.RowHeight
+		if event.DeltaX < 0 || event.DeltaX == 0 && event.DeltaY < 0 {
+			dx = -dx
+		}
+	}
+	t.view.ScrollToX(t.view.ScrollX() + dx)
+	t.wake()
+	return gfx.EventResult{Handled: true, Repaint: true}
 }

@@ -88,8 +88,6 @@ const (
 // fields, the splitters, the lists, and what the page declared for the capture after it is
 // drawn.
 type logView struct {
-	host gitHost
-
 	search, refSearch, userSearch, pathField ui.Field
 
 	refSplit, detailSplit, filesSplit ui.SplitterState
@@ -187,18 +185,6 @@ func (v *logView) reset() {
 	v.commits = ui.ListState{Label: v.commits.Label}
 	v.files = ui.ListState{}
 	v.refs.ListState = ui.ListState{}
-}
-
-// drawGitLog puts the log tab's page in the room the tool window leaves under its header.
-func (a *App) drawGitLog(f *ui.Frame, p *project) {
-	v := &a.logView
-	if v.host.page == nil {
-		v.host = a.newGitHost("git-log", a.logPageView, v.capture, panelPage{key: v.splitKey, wheel: verticalWheel})
-		v.bodyDraw = func(d *ui.DrawContext) { v.bodyRect = d.Rect }
-		v.refs.Node, v.refLabel = v.refNode, v.refRowLabel
-		v.commits.Label = a.logCommitLabel
-	}
-	f.Slot().Fill().Draw(v.host.draw)
 }
 
 // capture keeps the width the commit list and the details shared, and takes a drag of the

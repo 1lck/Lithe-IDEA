@@ -34,39 +34,6 @@ const (
 	conflictMaxRows = 3
 )
 
-// drawDocumentConflict places the conflict beside the affected editor, following the
-// original editor notification's icon, message and link actions.
-//
-// Transitional adapter: the editor group is still declared in a Frame, so the notice is a
-// component hosted by a Page in a Slot. Delete this function and call documentConflict
-// directly once the workbench root window is a Page.
-func (a *App) drawDocumentConflict(f *ui.Frame, d *document) {
-	b := &d.conflict
-	if b.host.page == nil {
-		b.host = a.newGitHost("document-conflict-"+strconv.Itoa(d.id), func(c ui.C) {
-			if a.project != nil && a.project.docs.find(d.id) == d {
-				a.documentConflict(c, d)
-			}
-		}, nil, panelPage{})
-	}
-	message := a.conflictMessage(d)
-	// The message wraps in the room beside the icon, so the notice is as tall as its lines.
-	room := b.width - 2*conflictPadX - conflictIcon - conflictGap
-	rows := 1
-	if room > 0 {
-		rows = min(max(int(math.Ceil(float64(f.Canvas().TextWidth(message, 13)/room))), 1), conflictMaxRows)
-	}
-	height := float32(conflictRules + 2*conflictPadY + (rows+1)*conflictLine + conflictGap)
-	f.Slot().FillWidth().Height(height).Shrink(0).Draw(func(dc *ui.DrawContext) {
-		if dc.Rect.Width != b.width {
-			b.width = dc.Rect.Width
-			dc.Canvas.RequestFrame()
-		}
-		a.pages.register(b.host.panel)
-		b.host.paint(dc.Canvas, dc.Rect)
-	})
-}
-
 // conflictMessage is what the notice says about d.
 func (a *App) conflictMessage(d *document) string {
 	if d.conflictMissing {

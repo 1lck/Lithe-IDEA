@@ -16,14 +16,6 @@ const (
 	debugBreakpointRows = 6
 )
 
-// drawDebugPanel puts the Debug tool window, a Page, into the tool window area.
-func (a *App) drawDebugPanel(f *ui.Frame, p *project) {
-	if p == nil {
-		return
-	}
-	a.embedPage(f, a.debugPage(p), func(c ui.C) { a.debugView(c, p) })
-}
-
 // debugView declares the Debug tool window: one adapter session, its breakpoints,
 // pause/continue controls and the paused call stack.
 func (a *App) debugView(c ui.C, p *project) {

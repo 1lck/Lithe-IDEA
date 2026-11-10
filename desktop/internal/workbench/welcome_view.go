@@ -14,28 +14,6 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// welcomePage makes the start screen's page on first use.
-func (a *App) welcomePage() *ui.Page {
-	w := &a.welcome
-	if w.page == nil {
-		w.page = ui.NewPage(ui.PageConfig{
-			View: a.welcomeView, Tree: &tree, Root: "welcome",
-			Theme: &a.theme, Invalidator: &a.invalidator,
-		})
-	}
-	return w.page
-}
-
-// drawWelcome puts the start screen in the region of the window Frame that is
-// left for it.
-func (a *App) drawWelcome(f *ui.Frame) {
-	page := a.welcomePage()
-	f.Slot().Fill().Draw(func(d *ui.DrawContext) {
-		a.pages.register(panelPage{page: page})
-		page.Draw(d.Canvas, d.Rect, a.welcomeView)
-	})
-}
-
 func (a *App) welcomeSeparator() gfx.Color {
 	if a.colors.Dark {
 		return gfx.RGB24(0x26282C)

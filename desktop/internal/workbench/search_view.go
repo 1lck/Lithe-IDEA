@@ -13,36 +13,6 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// searchPanelPage makes the Find in Files page on first use.
-func (a *App) searchPanelPage() *ui.Page {
-	v := &a.searchView
-	if v.page == nil {
-		v.page = ui.NewPage(ui.PageConfig{
-			View: a.searchPanel, Tree: &tree, Root: "project-search",
-			Theme: &a.theme, Invalidator: &a.invalidator,
-		})
-	}
-	return v.page
-}
-
-// drawProjectSearch puts the Find in Files page in the region of the tool window
-// the shell laid out for it.
-func (a *App) drawProjectSearch(f *ui.Frame, p *project) {
-	page := a.searchPanelPage()
-	f.Slot().FillWidth().Grow(1).Shrink(1).MinHeight(0).Draw(func(d *ui.DrawContext) {
-		a.pages.register(panelPage{page: page})
-		page.Draw(d.Canvas, d.Rect, a.searchPanel)
-	})
-}
-
-// closeSearchPanel ends the page with the window.
-func (a *App) closeSearchPanel() {
-	if a.searchView.page != nil {
-		a.searchView.page.Close()
-		a.searchView.page = nil
-	}
-}
-
 // searchPanel is the Find in Files tool window: the query and file mask fields,
 // the option and refresh buttons and the list of matches.
 func (a *App) searchPanel(c ui.C) {

@@ -31,3 +31,10 @@ func (a *App) gitEmpty(c ui.C, message string) {
 		ui.Paragraph(c, message, 3).TextCenter().Color(a.colors.Subtle)
 	})
 }
+
+// panelMessage declares a centered empty or progress message.
+func (a *App) panelMessage(c ui.C, message string, color gfx.Color) {
+	ui.Column(c).Fill().Center().PadX(shellContentPad).Children(func() {
+		ui.Paragraph(c, message, 3).TextCenter().Color(color)
+	})
+}

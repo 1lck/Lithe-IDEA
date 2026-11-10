@@ -253,9 +253,11 @@ type project struct {
 type App struct {
 	// debugAttach are the host and port fields of the Debug panel's attach form.
 	debugAttach debugAttachFields
-	// pages are the tool window pages drawn into the last paint, which input is
-	// routed to.
-	pages pageHost
+	// root is the window's page; dnd are its drag and drop gestures and focus the control
+	// that is to have the keyboard once it is on screen (see FocusBind).
+	root  *ui.Page
+	dnd   dragDrop
+	focus focusTarget
 	// debugHostedPort and debugInitializeWindow replace, in tests, asking the
 	// language server for a debug port and Core's initialize deadline. Production
 	// leaves both zero.
@@ -265,7 +267,6 @@ type App struct {
 	store                 *store.Store
 	now                   func() time.Time
 	invalidator           app.Invalidator
-	view                  ui.View
 	tasks                 taskQueue
 	// languages are the languages the editor knows, made when the first file is opened.
 	languages *syntax.Registry
@@ -376,9 +377,6 @@ type App struct {
 	// term is what the frame being painted declared for the terminals, and the gesture that
 	// drags a terminal's tab (see terminal.go and tabdrag.go).
 	term terminalUI
-	// sideways is the sideways scrollbars the last frame declared and the drag of a thumb
-	// (see sideways.go).
-	sideways sidewaysBars
 	// listShells finds the installed shells for the new-terminal menu and the Terminal
 	// settings page. It runs off the window thread; tests replace it.
 	listShells func() []localshell.Choice
@@ -386,9 +384,6 @@ type App struct {
 	// of scrolling sideways. The switch at the end of each group's strip of tabs turns it on
 	// and off for every file at once; it lasts until the client quits.
 	softWrap bool
-	// fields answers Config.TextInput for the window's text fields; the terminal's grid is
-	// told apart from them in textInput.
-	fields func(app.TextInputContext) *app.TextInput
 
 	// application is the running application the log window opens in; it is nil until
 	// Run has started it.
@@ -552,34 +547,6 @@ func (a *App) systemAppearanceChanged() {
 	})
 }
 
-// Config is the window's configuration.
-func (a *App) Config() app.Config {
-	a.subscribeSettings()
-	a.fields = ui.Fields(&a.debugAttach.host, &a.debugAttach.port)
-	return app.Config{
-		Title:          a.text.App.Name,
-		Icon:           appicon.Window(),
-		Width:          1280,
-		Height:         800,
-		MinWidth:       900,
-		MinHeight:      600,
-		WindowMode:     app.WindowCustomTitlebar,
-		TitlebarHeight: titleBarHeight,
-		WindowControls: func() app.WindowControlsStyle { return windowcontrols.Style(a.colors.Text, a.text) },
-		Tree:           &tree,
-		Paint:          a.paint,
-		OnPointer:      a.onPointer,
-		OnKey:          a.onKey,
-		OnShortcut:     a.onShortcut,
-		OnScroll:       a.onScroll,
-		TextInput:      a.textInput,
-		Invalidator:    &a.invalidator,
-		OnWake:         a.drain,
-		OnCloseRequest: func(allow func()) { a.requestCloseProject(allow) },
-		OnClosed:       a.closed,
-	}
-}
-
 // closed runs when the window has closed: the project closes, and so does the log window,
 // which would otherwise keep the application running without the window it belongs to.
 func (a *App) closed() {
@@ -647,201 +614,10 @@ func (a *App) language() i18n.Language {
 	return a.systemLanguage
 }
 
-func (a *App) paint(canvas *gfx.Canvas, size gfx.Size) {
-	a.theme, a.colors = look(a.settings.Theme)
-	a.shared.text.Store(a.text)
-	a.shared.dark.Store(a.colors.Dark)
-	bounds := gfx.Rect{Width: size.Width, Height: size.Height}
-	canvas.Fill(bounds, a.colors.Chrome)
-	a.status.frame(canvas, a.now())
-	a.pages.begin()
-	a.chrome.beginFrame()
-	a.beginTerminalFrame()
-	a.sideways.beginFrame()
-	paintTheme := a.theme
-	if a.clone.open || a.newProject.open {
-		// The original centered clone panel opens without a fade. The rest of
-		// the window is blocked by its modal scope while this theme is used.
-		paintTheme.Transition.Duration = 0
-	}
-	a.view.Draw(canvas, paintTheme, bounds, func(f *ui.Frame) {
-		// Popups go on a layer of their own so the commit rows painted after Draw stay
-		// under them.
-		f.PopupLayer(1)
-		if a.project != nil {
-			a.drawWorkbench(f)
-		} else {
-			a.drawWelcome(f)
-		}
-		a.drawNewProjectDialog(f)
-		if a.newProject.restoreFocus {
-			if !a.newProject.returnFocus.IsZero() {
-				f.Canvas().RequestFocus(a.newProject.returnFocus)
-			}
-			a.newProject.restoreFocus = false
-		}
-	})
-	a.paintOverlay(canvas, bounds, paintTheme)
-	a.chrome.capture()
-	a.layout.capture()
-	// Like the commit rows, the terminal is painted into a box of the frame that was just
-	// laid out, under the menus and the dragged button.
-	a.paintTerminal(canvas)
-	a.paintGitOverlay(canvas, bounds)
-	// The menus and the dragged buttons and tabs float above everything Draw painted.
-	a.paintChromeMenus(canvas, bounds)
-	a.paintDrag(canvas)
-	a.paintTabDrag(canvas)
-}
-
 // notify shows message in a toast.
 func (a *App) notify(message string) {
 	a.notice = message
 	a.overlay.toaster.Show(message, "", ui.ToastWarning)
-}
-
-func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
-	if result, ok := a.pagePointer(event); ok {
-		return result
-	}
-	// A semantic popup or request belongs to the caret and symbol it was opened
-	// at; any pointer work that moved either closes it before the frame paints.
-	defer a.pluginSemanticsCaretSync()
-	// A drag of a tool button or of a terminal's tab comes first, so it keeps its gestures
-	// over a terminal.
-	if result, handled := a.dragPointer(event); handled {
-		return result
-	}
-	if result, handled := a.tabDragPointer(event); handled {
-		return result
-	}
-	if result, handled := a.sidewaysPointer(event); handled {
-		return result
-	}
-	if result, handled := a.terminalPointer(event); handled {
-		return result
-	}
-	if result, handled := a.pluginSemanticsPointer(event); handled {
-		return result
-	}
-	if result, handled := a.documentPointer(event); handled {
-		return result
-	}
-	return gfx.EventResult{}
-}
-
-func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
-	if result, ok := a.pageKey(event); ok {
-		return result
-	}
-	// A semantic request belongs to the caret it was placed at. Every key path
-	// ends here, so one sync covers arrows, edits and commands.
-	defer a.pluginSemanticsCaretSync()
-	if result := a.pluginSemanticsKey(event); result.Handled {
-		return result
-	}
-	if result := a.pluginSemanticsShortcut(event); result.Handled {
-		return result
-	}
-	if !event.Release && event.Key == gfx.KeyEscape {
-		// Both are called: at most one gesture is under way, and neither may be left behind.
-		button, tab := a.cancelDrag(), a.cancelTabDrag()
-		if button || tab {
-			return gfx.EventResult{Handled: true, Repaint: true}
-		}
-		if a.term.closeStripMenus() {
-			return gfx.EventResult{Handled: true, Repaint: true}
-		}
-		if r := a.projectMenuKey(event); r.Handled {
-			return r
-		}
-	}
-	// The terminal sees the release of a key as well: a program can ask for them.
-	if t := a.focusedTerminal(event.Target); t != nil {
-		if result, handled := t.Key(event); handled {
-			return result
-		}
-	}
-	if v := a.focusedDocument(event.Target); v != nil {
-		if result, handled := a.pluginSemanticsTrigger(event); handled {
-			return result
-		}
-		if result, handled := v.Key(event); handled {
-			return result
-		}
-	}
-	if event.Release {
-		return gfx.EventResult{}
-	}
-	if r := a.editorSplitKey(event); r.Handled {
-		return r
-	}
-	return a.layout.key(event)
-}
-
-// onShortcut handles the window's command shortcuts, and gives the ones that are not its own
-// to the terminal that has the keyboard: Control-C and the other chords of the shell arrive
-// here, not in onKey.
-func (a *App) onShortcut(event gfx.KeyEvent) gfx.EventResult {
-	if result, ok := a.pageShortcut(event); ok {
-		return result
-	}
-	if !event.Release {
-		if result := a.pluginSemanticsShortcut(event); result.Handled {
-			return result
-		}
-		if result := a.windowShortcut(event); result.Handled {
-			return result
-		}
-	}
-	if t := a.focusedTerminal(event.Target); t != nil {
-		if result, handled := t.Shortcut(event); handled {
-			return result
-		}
-	}
-	if v := a.focusedDocument(event.Target); v != nil {
-		if result, handled := v.Shortcut(event); handled {
-			return result
-		}
-	}
-	return gfx.EventResult{}
-}
-
-// windowShortcut handles the window's own command shortcuts: ⌘, opens the settings, ⌘O asks
-// for a project folder, ⇧⌘L shows the log window and ⌘↩ in the commit message commits.
-func (a *App) windowShortcut(event gfx.KeyEvent) gfx.EventResult {
-	if isNavigationShortcut(runtime.GOOS, event) && a.project != nil && a.focusedTerminal(event.Target) == nil &&
-		(runtime.GOOS == "darwin" || a.focusedDocument(event.Target) != nil) {
-		if a.openNavigation(a.project) {
-			return gfx.EventResult{Handled: true, Repaint: true}
-		}
-	}
-	if event.Modifiers == gfx.ModifierMeta|gfx.ModifierShift && strings.EqualFold(event.Text, "o") && a.project != nil {
-		a.performed("workspace.searchEverywhere.open", surfaceShortcut)
-		a.openEverywhere(a.project)
-		return gfx.EventResult{Handled: true, Repaint: true}
-	}
-	if event.Modifiers == gfx.ModifierMeta|gfx.ModifierShift && strings.EqualFold(event.Text, "f") && a.project != nil {
-		a.reduceChrome(core.SetChromeOpen(itemFind, true))
-		a.searchView.focus = true
-		return gfx.EventResult{Handled: true, Repaint: true}
-	}
-	if event.Modifiers == gfx.ModifierMeta|gfx.ModifierShift && strings.EqualFold(event.Text, "l") {
-		a.openLogs()
-		return gfx.EventResult{Handled: true, Repaint: true}
-	}
-	if event.Modifiers != gfx.ModifierMeta {
-		return gfx.EventResult{}
-	}
-	switch event.Text {
-	case ",":
-		a.openSettings(surfaceShortcut)
-	case "o":
-		a.chooseProject(surfaceShortcut)
-	default:
-		return gfx.EventResult{}
-	}
-	return gfx.EventResult{Handled: true, Repaint: true}
 }
 
 // setLanguage switches the window to a stored i18n code; empty follows the system.
@@ -1065,8 +841,6 @@ func (a *App) requestCloseProject(after func()) {
 		// Build providers and prepared applications belong to the workspace and
 		// are stopped before the project state is dropped.
 		a.stopBuild(p)
-		p.panels.close()
-		p.tree.host.close()
 		a.closeAgent(p)
 		// A language server is bound to the workspace it was started for, so it goes
 		// with the project rather than outliving it.

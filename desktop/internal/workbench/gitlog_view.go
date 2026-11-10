@@ -20,6 +20,13 @@ import (
 // logPageView declares the body of the log tab.
 func (a *App) logPageView(c ui.C) {
 	v := &a.logView
+	if v.bodyDraw == nil {
+		v.bodyDraw = func(d *ui.DrawContext) { v.bodyRect = d.Rect }
+		v.refs.Node, v.refLabel = v.refNode, v.refRowLabel
+		v.commits.Label = a.logCommitLabel
+	}
+	// What the splitter was dragged to in the last paint is the details' width now.
+	v.capture()
 	v.hasBody, v.details = false, false
 	p := a.project
 	if p == nil {

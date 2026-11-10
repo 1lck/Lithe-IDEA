@@ -18,14 +18,6 @@ const (
 	buildOutputHeight = 110
 )
 
-// drawBuildPanel puts the Run tool window, a Page, into the tool window area.
-func (a *App) drawBuildPanel(f *ui.Frame, p *project) {
-	if p == nil {
-		return
-	}
-	a.embedPage(f, a.buildPage(p), func(c ui.C) { a.runView(c, p) })
-}
-
 // runView declares the provider-backed Run tool window: detected build systems,
 // their projects, targets and tasks, bounded task output, and the runs plugins
 // started.

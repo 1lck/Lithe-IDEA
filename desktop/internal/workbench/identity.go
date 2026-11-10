@@ -157,19 +157,3 @@ func identityFont(initials string, side float32) (size float32, mono bool) {
 	return max(size, 1), false
 }
 
-// drawProjectAvatar declares the badge of a project: a rounded square of the given side
-// with the initials in white on the project's gradient. It returns the badge, so the caller
-// can fade it. It is a function, not a method, because it needs nothing but the identity.
-func drawProjectAvatar(f *ui.Frame, identity projectIdentity, side float32) ui.Box {
-	size, mono := identityFont(identity.initials, side)
-	badge := f.Row().Size(side, side).Shrink(0).Center().
-		Radius(side*identityRadius).
-		Gradient(ui.ToBottomRight, identity.start, identity.end)
-	return badge.Children(func() {
-		// The line is as tall as the badge, so the letters sit in its middle on whole pixels.
-		text := f.Text(identity.initials).FontSize(size).Bold().Color(identityInk).LineHeight(side)
-		if mono {
-			text.Mono()
-		}
-	})
-}
