@@ -370,6 +370,9 @@ func (a *App) splitterKey(event gfx.KeyEvent) gfx.EventResult {
 	if r := a.commitView.splitKey(event); r.Handled {
 		return r
 	}
+	if r := a.worktreeView.commit.splitKey(event); r.Handled {
+		return r
+	}
 	if r := a.logView.splitKey(event); r.Handled {
 		return r
 	}

@@ -449,3 +449,87 @@ func TestWorktreeHistoryDrawsTheGraphOfItsCheckout(t *testing.T) {
 		t.Fatalf("the History tab does not draw the graph rows (graphed %v)", h.app.worktreeView.graphed)
 	}
 }
+
+// A linked checkout commits what is staged in it from its Changes tab, with a message of its
+// own; the project's checkout and its Commit draft are left as they were.
+func TestWorktreeChangesCommitInTheirCheckout(t *testing.T) {
+	dir, linked := newWorktreeRepository(t)
+	if err := os.WriteFile(filepath.Join(linked, "draft.txt"), []byte("draft\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, gitKernel{core.NewClient()})
+	w := h.openWorktrees(t, dir)
+	p, commit := h.app.project, h.app.text.Commit
+	p.commit.editor.Insert("The project's draft")
+	h.selectWorktreeAt(t, linked)
+	h.clickNamed(h.app.text.Worktrees.Changes)
+	h.awaitWorktreeChanges("the linked checkout's change", linked, stagedAs("draft.txt", false))
+	h.clickNamed(commit.StageFile("draft.txt"))
+	h.awaitWorktreeChanges("the staged file", linked, stagedAs("draft.txt", true))
+
+	target := p.worktreeCommit(linked)
+	if target.state == &p.commit || p.canCommitWorktree(linked, target.state) {
+		t.Fatal("the linked checkout shares the project's draft or commits without a message")
+	}
+	target.state.editor.Insert("Linked work")
+	h.settle()
+	if !p.canCommitWorktree(linked, target.state) {
+		t.Fatalf("the commit is off with draft.txt staged and the message %q", target.state.message())
+	}
+	h.clickNamed(commit.Commit)
+	h.awaitWorktreeWrite("the commit", w, func() bool {
+		return !target.state.busy && gitRun(t, linked, "log", "-1", "--format=%s") == "Linked work"
+	})
+	h.awaitWorktreeChanges("the clean checkout", linked, func(c []core.GitChange) bool { return len(c) == 0 })
+	if got := gitRun(t, dir, "log", "-1", "--format=%s"); got != "initial" {
+		t.Fatalf("the project's checkout moved to %q", got)
+	}
+	if got := gitRun(t, linked, "show", "--name-only", "--format=", "HEAD"); got != "draft.txt" {
+		t.Fatalf("the commit took %q, want draft.txt", got)
+	}
+	if target.state.message() != "" || p.commit.message() != "The project's draft" {
+		t.Fatalf("messages after the commit: linked %q, project %q", target.state.message(), p.commit.message())
+	}
+}
+
+// The project's own checkout commits from the Worktrees tab as the Commit tool window does,
+// with its draft; a push from a linked checkout shows its review over the workbench.
+func TestWorktreeChangesShareTheProjectsCommit(t *testing.T) {
+	dir, linked := newWorktreeRepository(t)
+	if err := os.WriteFile(filepath.Join(linked, "draft.txt"), []byte("draft\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, gitKernel{core.NewClient()})
+	w := h.openWorktrees(t, dir)
+	p, commit := h.app.project, h.app.text.Commit
+	var primary string
+	for _, worktree := range w.list {
+		if worktree.IsCurrent {
+			primary = worktree.Path
+		}
+	}
+	if primary == "" || p.worktreeCommit(primary).state != &p.commit {
+		t.Fatalf("the project's checkout %q does not commit with the project's draft", primary)
+	}
+	if p.worktreeCommit(linked).state == &p.commit {
+		t.Fatal("the linked checkout commits with the project's draft")
+	}
+
+	h.selectWorktreeAt(t, linked)
+	h.clickNamed(h.app.text.Worktrees.Changes)
+	h.awaitWorktreeChanges("the linked checkout's change", linked, stagedAs("draft.txt", false))
+	h.clickNamed(commit.StageFile("draft.txt"))
+	h.awaitWorktreeChanges("the staged file", linked, stagedAs("draft.txt", true))
+	target := p.worktreeCommit(linked)
+	target.state.editor.Insert("Publish linked work")
+	h.settle()
+	h.clickNamed(commit.CommitAndPush)
+	h.await("the review", func() bool { return !target.state.busy && target.state.review != nil })
+	if got := gitRun(t, linked, "log", "-1", "--format=%s"); got != "initial" {
+		t.Fatalf("the commit ran before its review was confirmed: %q", got)
+	}
+	h.clickNamed(commit.Cancel)
+	if target.state.review != nil {
+		t.Fatal("cancel left the linked checkout's review open")
+	}
+}

@@ -28,12 +28,7 @@ const commitReviewHeight = 320
 // commitPageView declares the body of the Commit tool window.
 func (a *App) commitPageView(c ui.C) {
 	v := &a.commitView
-	if v.bodyDraw == nil {
-		v.bodyDraw = func(d *ui.DrawContext) { v.bodyRect = d.Rect }
-	}
-	// What the splitter was dragged to in the last paint is the commit area's height now.
-	v.capture()
-	v.hasBody = false
+	v.begin()
 	p := a.project
 	if p == nil {
 		return
@@ -45,20 +40,9 @@ func (a *App) commitPageView(c ui.C) {
 			return
 		}
 		a.drawChangeListBar(c, p)
-		ui.Column(c).Grow(1).Draw(v.bodyDraw).Children(func() {
-			if v.bodyHeight > 0 && !v.split.Dragging() {
-				v.derived = max(v.bodyHeight-shellSplitter-v.areaHeight, commitListMin)
-				v.split.Pos = v.derived
-			}
-			a.drawCommitChanges(c, p).Grow(1)
-			ui.Splitter(c, &v.split).Mins(commitListMin, commitAreaMin).Label(a.text.Panel.Resize)
-			a.drawCommitArea(c, p).Height(v.areaHeight).Shrink(0)
-		})
-		v.hasBody = true
+		a.drawCommitBody(c, v, func() ui.Box { return a.drawCommitChanges(c, p) },
+			func() ui.Box { return a.drawCommitArea(c, p) })
 	})
-	if p.commit.review != nil {
-		a.drawCommitReview(c, p)
-	}
 	a.drawGeneratedMessageConfirm(c, p)
 	a.drawChangeListDialog(c, p)
 }
@@ -263,41 +247,64 @@ func fileCount(changes []core.GitChange) int {
 // drawCommitArea declares the commit area: amend and the staged count, the message, the
 // results of the last run, and the commit buttons.
 func (a *App) drawCommitArea(c ui.C, p *project) ui.Box {
-	cs, t := &p.commit, a.text.Commit
+	return a.drawCommitAreaOf(c, p, commitArea{
+		target: p.projectCommit(),
+		staged: p.activeStagedCount(),
+		ready:  p.canCommit,
+		lists:  true,
+	})
+}
+
+// commitArea is what a commit area commits: the checkout of target, with staged changes in
+// it and ready saying the buttons may start a commit. lists says it is the project's own
+// checkout, which is held to the active ChangeList and has its message generated.
+type commitArea struct {
+	target commitTarget
+	staged int
+	ready  func() bool
+	lists  bool
+}
+
+// drawCommitAreaOf declares the commit area of area: amend, the staged count, the message,
+// how the last run ended, and the buttons that commit, and commit and push.
+func (a *App) drawCommitAreaOf(c ui.C, p *project, area commitArea) ui.Box {
+	cs, t := area.target.state, a.text.Commit
 	return ui.Column(c).FillWidth().Clip().Pad(8).Gap(6).Children(func() {
 		ui.Row(c).FillWidth().Shrink(0).Items(ui.Center).Gap(6).Children(func() {
 			ui.Checkbox(c, &cs.amend, t.Amend).Disabled(cs.busy)
 			ui.Spacer(c)
-			ui.Text(c, t.Staged(p.activeStagedCount())).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
+			ui.Text(c, t.Staged(area.staged)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
 		})
-		if p.otherStaged() {
+		if area.lists && p.otherStaged() {
 			ui.Paragraph(c, i18n.Shared(a.language(), "native.otherChangeListsHaveStagedFilesUnstageThemBeforeCommittingTheCurrentChangeList"), 2).
 				FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Warning)
 		}
 		message := ui.TextArea(c, &cs.messageField, t.MessageLabel, t.MessagePlaceholder).FillWidth().Grow(1).Disabled(cs.busy)
 		if message.Shortcut(ui.Primary, "enter") {
 			c.After(func() {
-				if p.canCommit() {
-					a.startCommit(p, false, surfaceShortcut)
+				if area.ready() {
+					a.startCommitIn(p, area.target, false, surfaceShortcut)
 				}
 			})
 		}
 		if cs.attempt != nil {
-			a.drawCommitResults(c, p)
+			a.drawCommitResults(c, p, area.target)
 		}
 		ui.Row(c).FillWidth().Shrink(0).Items(ui.Center).Gap(6).Children(func() {
 			label := t.Commit
 			if cs.busy {
 				label = t.Committing
 			}
-			ready := p.canCommit()
+			ready := area.ready()
 			if ui.Button(c, label).Disabled(!ready).Clicked() {
-				c.After(func() { a.startCommit(p, false, surfaceButton) })
+				c.After(func() { a.startCommitIn(p, area.target, false, surfaceButton) })
 			}
 			if ui.Button(c, t.CommitAndPush).Outline().Disabled(!ready).Clicked() {
-				c.After(func() { a.startCommit(p, true, surfaceButton) })
+				c.After(func() { a.startCommitIn(p, area.target, true, surfaceButton) })
 			}
-			a.drawGenerateCommitButton(c, p)
+			if area.lists {
+				a.drawGenerateCommitButton(c, p)
+			}
 			ui.Spacer(c)
 			if a.gitIconButton(c, i18n.Shared(a.language(), "native.openAICommitSettings"), icons.Settings, false, false) {
 				c.After(func() { a.openSettingsPage(surfaceButton, settingsAI) })
@@ -306,10 +313,10 @@ func (a *App) drawCommitArea(c ui.C, p *project) ui.Box {
 	})
 }
 
-// drawCommitResults declares how each repository of the last run ended, and the buttons
-// that forget the results or continue the run.
-func (a *App) drawCommitResults(c ui.C, p *project) {
-	cs, t := &p.commit, a.text.Commit
+// drawCommitResults declares how each repository of the last run in the checkout of target
+// ended, and the buttons that forget the results or continue the run.
+func (a *App) drawCommitResults(c ui.C, p *project, target commitTarget) {
+	cs, t := target.state, a.text.Commit
 	session := cs.attempt
 	ui.Column(c).FillWidth().Shrink(0).Gap(2).Children(func() {
 		for _, id := range session.OrderedIDs {
@@ -320,7 +327,7 @@ func (a *App) drawCommitResults(c ui.C, p *project) {
 			}
 			ui.Row(c.Key(id)).FillWidth().Items(ui.Center).Gap(6).Children(func() {
 				ui.Icon(c, icons.CircleAlert).Size(14, 14).Color(tint)
-				ui.Text(c, t.Result(p.commitRepositoryName(id), a.commitStatusLabel(result.Status))).Color(tint).Ellipsis().Grow(1)
+				ui.Text(c, t.Result(target.repositoryName(id), a.commitStatusLabel(result.Status))).Color(tint).Ellipsis().Grow(1)
 			})
 			if result.Detail != "" {
 				ui.Paragraph(c.Key(id+"/detail"), result.Detail, 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
@@ -328,10 +335,10 @@ func (a *App) drawCommitResults(c ui.C, p *project) {
 		}
 		ui.Row(c).FillWidth().Items(ui.Center).Gap(6).Children(func() {
 			if ui.Button(c, t.Dismiss).Ghost().Clicked() {
-				c.After(func() { a.dismissResults(p) })
+				c.After(func() { a.dismissResults(cs) })
 			}
 			if cs.retryable() && ui.Button(c, t.Retry).Outline().Disabled(cs.busy).Clicked() {
-				c.After(func() { a.retryCommit(p) })
+				c.After(func() { a.retryCommit(p, target) })
 			}
 		})
 	})
@@ -368,10 +375,31 @@ func (a *App) commitStatusLabel(status core.WorkspaceCommitStatus) string {
 	return string(status)
 }
 
-// drawCommitReview declares the review of a plan: the message, then each repository in the
-// order the plan runs them with where it commits, what it pushes and the files it takes.
-func (a *App) drawCommitReview(c ui.C, p *project) {
-	cs, t := &p.commit, a.text.Commit
+// drawCommitReviews declares the review that is open, of the project's repository or of a
+// linked worktree, over the workbench wherever the commit was started.
+func (a *App) drawCommitReviews(c ui.C, p *project) {
+	if p.commit.review != nil {
+		a.drawCommitReview(c.Key("commit-review"), p, p.projectCommit())
+		return
+	}
+	// One review is shown at a time, the worktrees' in the order of their paths; the next
+	// opens when it closes.
+	first := ""
+	for path, cs := range p.worktrees.commits {
+		if cs.review != nil && (first == "" || path < first) {
+			first = path
+		}
+	}
+	if first != "" {
+		a.drawCommitReview(c.Key("commit-review/"+first), p, p.worktreeCommit(first))
+	}
+}
+
+// drawCommitReview declares the review of a plan in the checkout of target: the message, then
+// each repository in the order the plan runs them with where it commits, what it pushes and
+// the files it takes.
+func (a *App) drawCommitReview(c ui.C, p *project, target commitTarget) {
+	cs, t := target.state, a.text.Commit
 	r := cs.review
 	session := r.prep.Session
 	title := t.ReviewTitle
@@ -400,32 +428,32 @@ func (a *App) drawCommitReview(c ui.C, p *project) {
 						if asked {
 							question = &r.prep.PushTargetQuestions[index]
 						}
-						a.drawCommitReviewStep(c, p, n, id, question)
+						a.drawCommitReviewStep(c, target, n, id, question)
 					}
 				})
 			})
 		})
 	}, func() {
 		if ui.Button(c, t.Cancel).Outline().Clicked() {
-			c.After(func() { a.cancelReview(p) })
+			c.After(func() { a.cancelReview(cs) })
 		}
 		confirm := t.Continue
 		if session.Push {
 			confirm = t.CommitAndPush
 		}
 		if ui.Button(c, confirm).Disabled(cs.busy || !r.answered()).Clicked() {
-			c.After(func() { a.confirmReview(p) })
+			c.After(func() { a.confirmReview(p, target) })
 		}
 	})
 	if closed {
-		c.After(func() { a.cancelReview(p) })
+		c.After(func() { a.cancelReview(cs) })
 	}
 }
 
-// drawCommitReviewStep declares one repository of a review. question is the push of it the
-// user is asked about, nil when there is none.
-func (a *App) drawCommitReviewStep(c ui.C, p *project, n int, id string, question *core.PushTargetQuestion) {
-	r, t := p.commit.review, a.text.Commit
+// drawCommitReviewStep declares one repository of a review in the checkout of target.
+// question is the push of it the user is asked about, nil when there is none.
+func (a *App) drawCommitReviewStep(c ui.C, target commitTarget, n int, id string, question *core.PushTargetQuestion) {
+	r, t := target.state.review, a.text.Commit
 	session := r.prep.Session
 	state := session.States[id]
 	action := t.StepCommit
@@ -444,7 +472,7 @@ func (a *App) drawCommitReviewStep(c ui.C, p *project, n int, id string, questio
 		head = state.Head[:min(len(state.Head), 10)]
 	}
 	ui.Column(c.Key(id)).FillWidth().Gap(4).Children(func() {
-		ui.Text(c, t.Step(n+1, action, p.commitRepositoryName(id))).Weight(gfx.WeightMedium).Ellipsis()
+		ui.Text(c, t.Step(n+1, action, target.repositoryName(id))).Weight(gfx.WeightMedium).Ellipsis()
 		ui.Text(c, t.Where(branch, head)).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
 		if question != nil {
 			a.drawCommitTarget(c, r, *question)

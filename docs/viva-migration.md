@@ -308,7 +308,7 @@
 | `git-submodule-commit-plan` | 子模块先提交与推送、自动更新父引用、计划变化再次确认 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
 | `git-workspace-commit-retry` | 失败后只重试未完成的提交或推送步骤 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
 | `git-workspace-staged-commit` | 按文件所属仓库批量提交及推送，保留每仓库结果 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
-| `git-worktrees` | Worktree 管理 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
+| `git-worktrees` | Worktree 管理 | 必须迁移 | 实现/实现 | 部分 | gitworktree.go、gitworktree_view.go、core/gitworktree.go；在新窗口打开、悬停信息、设置页未做 |
 | `vcs-subversion-and-plugin-providers` | 统一 VCS 模型与插件 VCS Provider | 插件提供 | 部分/缺 | 未开始 | C06 扩展点：vcsProviders；无 desktop/ 证据 |
 
 ### 界面（3）

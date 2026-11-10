@@ -39,6 +39,7 @@ func (a *App) worktreePageView(c ui.C) {
 	if v.split.Pos == 0 {
 		v.split.Pos = worktreeListWidth
 	}
+	v.commit.begin()
 	ui.Column(c).Fill().Background(a.colors.Editor).Children(func() {
 		if !a.drawCommitStatus(c, p) {
 			return
@@ -372,7 +373,7 @@ func (a *App) worktreeField(c ui.C, label, value string) {
 }
 
 // drawWorktreeChanges declares the Changes tab: the local changes of the worktree, read when
-// the tab is first shown.
+// the tab is first shown, over the commit area that commits what is staged in it.
 func (a *App) drawWorktreeChanges(c ui.C, p *project, w core.GitWorktree) {
 	t := &a.text.Worktrees
 	entry := p.worktrees.changes[w.Path]
@@ -406,20 +407,39 @@ func (a *App) drawWorktreeChanges(c ui.C, p *project, w core.GitWorktree) {
 	switch {
 	case entry == nil:
 		a.drawWorktreeEmpty(c, t.MissingTitle, t.MissingHint)
+		return
 	case entry.err != nil:
 		a.drawWorktreeEmpty(c, t.ChangesFailed, entry.err.Error())
-	case entry.loading && len(entry.changes) == 0:
-		a.gitEmpty(c, t.ChangesLoading)
-	case len(entry.changes) == 0:
-		ui.Column(c).Fill().Center().Gap(8).Children(func() {
-			ui.Icon(c, icons.Check).Size(20, 20).Color(a.colors.Success)
-			ui.Text(c, t.Clean).Color(a.colors.Subtle)
-		})
-	default:
-		a.drawChangeRows(c, t.LocalChanges, t.ChangedFiles(fileCount(entry.changes)), entry.changes, busy,
-			func() { a.stageAllWorktree(p, w.Path) },
-			func(change core.GitChange) { a.drawWorktreeChange(c, p, w.Path, busy, change) })
+		return
 	}
+	list := func() ui.Box {
+		return ui.Column(c).FillWidth().Clip().Children(func() {
+			switch {
+			case entry.loading && len(entry.changes) == 0:
+				a.gitEmpty(c, t.ChangesLoading)
+			case len(entry.changes) == 0:
+				ui.Column(c).Fill().Center().Gap(8).Children(func() {
+					ui.Icon(c, icons.Check).Size(20, 20).Color(a.colors.Success)
+					ui.Text(c, t.Clean).Color(a.colors.Subtle)
+				})
+			default:
+				a.drawChangeRows(c, t.LocalChanges, t.ChangedFiles(fileCount(entry.changes)), entry.changes, busy,
+					func() { a.stageAllWorktree(p, w.Path) },
+					func(change core.GitChange) { a.drawWorktreeChange(c, p, w.Path, busy, change) })
+			}
+		})
+	}
+	a.drawCommitBody(c, &a.worktreeView.commit, list, func() ui.Box {
+		if p.projectCheckout(w.Path) {
+			return a.drawCommitArea(c, p)
+		}
+		target := p.worktreeCommit(w.Path)
+		return a.drawCommitAreaOf(c, p, commitArea{
+			target: target,
+			staged: countStaged(entry.changes),
+			ready:  func() bool { return p.canCommitWorktree(w.Path, target.state) },
+		})
+	})
 }
 
 // drawWorktreeChange declares the row of one local change of the worktree at root, with the

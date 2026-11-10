@@ -159,8 +159,12 @@ type worktreeState struct {
 	countsKnown bool
 	selected    string
 	changes     map[string]*worktreeChanges
-	history     worktreeHistory
-	dialog      worktreeDialog
+	// commits are the commits of the linked worktrees by path, each with its own message,
+	// kept while the project is open; the project's own checkout commits with the Commit
+	// tool window (see worktreeCommit).
+	commits map[string]*commitState
+	history worktreeHistory
+	dialog  worktreeDialog
 	// target is the worktree a removal dialog asks about; refusal is what Git said when it
 	// refused to remove it without force.
 	target  core.GitWorktree
@@ -210,6 +214,8 @@ type worktreeView struct {
 	// hashWidth is the width of the short hash column in the fonts of hashFonts.
 	hashWidth float32
 	hashFonts uint32
+	// commit is the splitter between the Changes tab's list and its commit area.
+	commit commitView
 }
 
 // reset empties the fields and the lists for a project that was just opened.
@@ -428,6 +434,11 @@ func (a *App) loadWorktrees(p *project) {
 				return
 			}
 			w.list = list
+			for path, cs := range w.commits {
+				if _, ok := w.find(path); !ok && !cs.busy && cs.review == nil {
+					delete(w.commits, path) // a removed worktree's message goes with it
+				}
+			}
 			if _, ok := w.find(w.selected); !ok {
 				w.selected = ""
 				for _, worktree := range list {
@@ -571,10 +582,65 @@ func (a *App) writeWorktreeStaging(p *project, path string, entry *worktreeChang
 	})
 }
 
+// projectCheckout says the worktree at path is the checkout the project is open in, as Core
+// marked it in the list, which names checkouts by their canonical paths.
+func (p *project) projectCheckout(path string) bool {
+	w, ok := p.worktrees.find(path)
+	return ok && w.IsCurrent
+}
+
+// worktreeCommit is the commit of the worktree at path. The project's own checkout commits
+// as the Commit tool window does, with its message and held to its active ChangeList; a
+// linked worktree has a message of its own and commits all it has staged. A run in one reads
+// the list of worktrees again, since its HEAD moved.
+func (p *project) worktreeCommit(path string) commitTarget {
+	if p.projectCheckout(path) {
+		return p.projectCommit()
+	}
+	w := &p.worktrees
+	cs := w.commits[path]
+	if cs == nil {
+		if w.commits == nil {
+			w.commits = map[string]*commitState{}
+		}
+		state := newCommitState()
+		cs = &state
+		w.commits[path] = cs
+	}
+	return commitTarget{
+		state: cs,
+		root:  path,
+		written: func(a *App) {
+			a.loadWorktrees(p)
+			if p.log.started {
+				a.loadLog(p)
+			}
+		},
+	}
+}
+
+// canCommitWorktree reports that the commit buttons of the linked worktree at path may start
+// a commit: its changes were read, something is staged, there is a message, and no other
+// commit work or staging write is under way.
+func (p *project) canCommitWorktree(path string, cs *commitState) bool {
+	entry := p.worktrees.changes[path]
+	return entry != nil && !entry.busy && !entry.loading && entry.err == nil &&
+		cs.idle() && countStaged(entry.changes) > 0 && cs.message() != ""
+}
+
 // checkoutWritten reads again what a write in the checkout at root changed: the project's
 // status, and the changes of the worktree at root when its Changes tab read them.
 func (a *App) checkoutWritten(p *project, root string) {
 	a.loadGit(p)
+	if root == p.git.repositoryRoot(p.root) {
+		// The list names the project's checkout by its canonical path, which a symbolic link
+		// in the project's path makes another.
+		for _, w := range p.worktrees.list {
+			if w.IsCurrent {
+				root = w.Path
+			}
+		}
+	}
 	if p.worktrees.changes[root] != nil {
 		a.loadWorktreeChanges(p, root)
 	}

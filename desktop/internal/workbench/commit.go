@@ -103,32 +103,64 @@ func (g gitState) repositoryRoot(projectRoot string) string {
 // project is the workspace, and its repository the only one.
 const commitRepositoryID = "."
 
-// commitRepositoryName is how the review and the results name a repository of the plan.
-func (p *project) commitRepositoryName(id string) string {
+// commitTarget is a checkout the commit flow commits in, with its own message, review and
+// results: the project's repository, which the Commit tool window commits, or a linked
+// worktree, which the Changes tab of the Worktrees tab commits.
+type commitTarget struct {
+	state *commitState
+	// root is the top level of the repository the commit runs in.
+	root string
+	// scope is the ChangeList scope the commit is held to; a linked worktree has none.
+	scope *core.ChangeListScope
+	// written reads again what a run changed.
+	written func(*App)
+}
+
+// projectCommit is the commit of the project's repository, held to the active ChangeList.
+func (p *project) projectCommit() commitTarget {
+	return commitTarget{
+		state: &p.commit,
+		root:  p.git.repositoryRoot(p.root),
+		scope: p.commitScope(),
+		written: func(a *App) {
+			a.checkoutWritten(p, p.git.repositoryRoot(p.root))
+			if p.log.started {
+				a.loadLog(p)
+			}
+		},
+	}
+}
+
+// repositoryName is how the review and the results name a repository of the plan.
+func (t commitTarget) repositoryName(id string) string {
 	if id == commitRepositoryID {
-		return filepath.Base(p.git.repositoryRoot(p.root))
+		return filepath.Base(t.root)
 	}
 	return id
 }
 
-// commitRequest is the request that plans a commit of the staged changes of the active
-// ChangeList with the message typed, pushed afterwards when push is set. A retry leaves the
-// scope out: Core keeps the scope of the run it continues.
-func (p *project) commitRequest(push bool) core.WorkspaceCommitRequest {
+// request is the request that plans a commit of the staged changes of the target with the
+// message typed, pushed afterwards when push is set. A retry leaves the scope out: Core keeps
+// the scope of the run it continues.
+func (t commitTarget) request(push bool) core.WorkspaceCommitRequest {
+	c := t.state
 	return core.WorkspaceCommitRequest{
-		Repositories:            []core.WorkspaceCommitRepository{{ID: commitRepositoryID, Root: p.git.repositoryRoot(p.root)}},
-		Message:                 p.commit.message(),
-		Amend:                   p.commit.amend,
+		Repositories:            []core.WorkspaceCommitRepository{{ID: commitRepositoryID, Root: t.root}},
+		Message:                 c.message(),
+		Amend:                   c.amend,
 		Push:                    push,
-		IncludeParentReferences: p.commit.parents,
-		PathScope:               p.commitScope(),
+		IncludeParentReferences: c.parents,
+		PathScope:               t.scope,
 	}
 }
 
 // stagedCount is the number of changes that have something in the index.
-func (g gitState) stagedCount() int {
+func (g gitState) stagedCount() int { return countStaged(g.status.Changes) }
+
+// countStaged is the number of changes that have something in the index.
+func countStaged(changes []core.GitChange) int {
 	n := 0
-	for _, change := range g.status.Changes {
+	for _, change := range changes {
 		if change.Staged {
 			n++
 		}
@@ -141,19 +173,28 @@ func (g gitState) stagedCount() int {
 // under way or waiting for the user.
 func (p *project) canCommit() bool {
 	c := &p.commit
-	return p.git.isRepository() && p.listsReady() && !c.busy && c.review == nil && !c.retryable() &&
+	return p.git.isRepository() && p.listsReady() && c.idle() &&
 		p.activeStagedCount() > 0 && !p.otherStaged() && c.message() != ""
 }
+
+// idle reports that no commit work is under way or waiting for the user: nothing runs, no
+// review is open and the last run does not wait for a retry.
+func (c *commitState) idle() bool { return !c.busy && c.review == nil && !c.retryable() }
 
 // retryable reports that the last run stopped part of the way and can be continued.
 func (c *commitState) retryable() bool {
 	return c.attempt != nil && !c.attempt.Succeeded && c.attempt.CanRetry
 }
 
-// startCommit plans a commit of the staged changes and runs it, through the review when the
-// plan or a push asks for one. surface is where the user asked.
+// startCommit plans a commit of the project's staged changes and runs it, through the review
+// when the plan or a push asks for one. surface is where the user asked.
 func (a *App) startCommit(p *project, push bool, surface string) {
-	c := &p.commit
+	a.startCommitIn(p, p.projectCommit(), push, surface)
+}
+
+// startCommitIn is startCommit in the checkout of t.
+func (a *App) startCommitIn(p *project, t commitTarget, push bool, surface string) {
+	c := t.state
 	if c.busy || c.review != nil {
 		return
 	}
@@ -162,33 +203,33 @@ func (a *App) startCommit(p *project, push bool, surface string) {
 		action = "git.commitAndPush"
 	}
 	a.performed(action, surface)
-	request := p.commitRequest(push)
+	request := t.request(push)
 	if request.Message == "" {
 		a.notify(a.text.Commit.EnterMessage)
 		return
 	}
 	// The macOS client always shows the plan of a push before anything runs.
-	a.prepareCommit(p, request, push)
+	a.prepareCommit(p, t, request, push)
 }
 
-// retryCommit plans the rest of the last run and shows it for review.
-func (a *App) retryCommit(p *project) {
-	c := &p.commit
+// retryCommit plans the rest of the last run in the checkout of t and shows it for review.
+func (a *App) retryCommit(p *project, t commitTarget) {
+	c := t.state
 	if c.busy || !c.retryable() {
 		return
 	}
 	a.performed("git.commitRetry", surfaceButton)
 	previous := *c.attempt
-	request := p.commitRequest(previous.Push)
+	request := t.request(previous.Push)
 	request.Message, request.Amend = previous.Message, previous.Amend
 	request.Previous, request.PathScope = &previous, nil
-	a.prepareCommit(p, request, true)
+	a.prepareCommit(p, t, request, true)
 }
 
 // prepareCommit asks the kernel for the plan of request. A plan that needs a confirmation,
 // or a destination for a push, opens the review, and so does review; any other plan runs.
-func (a *App) prepareCommit(p *project, request core.WorkspaceCommitRequest, review bool) {
-	c := &p.commit
+func (a *App) prepareCommit(p *project, t commitTarget, request core.WorkspaceCommitRequest, review bool) {
+	c := t.state
 	c.busy = true
 	kernel := a.kernel
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
@@ -203,7 +244,7 @@ func (a *App) prepareCommit(p *project, request core.WorkspaceCommitRequest, rev
 				c.review = &commitReview{prep: prep, choices: map[string]core.PushTargetChoice{}}
 				return
 			}
-			a.runCommit(p, prep.Session)
+			a.runCommit(p, t, prep.Session)
 		}
 	})
 }
@@ -211,8 +252,8 @@ func (a *App) prepareCommit(p *project, request core.WorkspaceCommitRequest, rev
 // confirmReview runs the plan the user confirmed. The plan is prepared again against the
 // reviewed one, with the destinations picked: when the repositories moved in between, the
 // new plan is shown instead of run.
-func (a *App) confirmReview(p *project) {
-	c := &p.commit
+func (a *App) confirmReview(p *project, t commitTarget) {
+	c := t.state
 	r := c.review
 	if r == nil || c.busy {
 		return
@@ -222,7 +263,7 @@ func (a *App) confirmReview(p *project) {
 		return
 	}
 	session := r.prep.Session
-	request := p.commitRequest(session.Push)
+	request := t.request(session.Push)
 	request.Message, request.Amend = session.Message, session.Amend
 	request.Reviewed = &session
 	if session.IsRetry && c.attempt != nil {
@@ -252,20 +293,20 @@ func (a *App) confirmReview(p *project) {
 				c.review = &commitReview{prep: prep, choices: r.choices}
 				a.notify(a.text.Commit.ChooseTarget)
 			default:
-				a.runCommit(p, prep.Session)
+				a.runCommit(p, t, prep.Session)
 			}
 		}
 	})
 }
 
-// cancelReview closes the review without running anything.
-func (a *App) cancelReview(p *project) { p.commit.review = nil }
+// cancelReview closes the review of c without running anything.
+func (a *App) cancelReview(c *commitState) { c.review = nil }
 
-// runCommit steps session until it finishes, then reads the status again and reports how the
-// run ended. The steps run one after another in one background task: each is a commit or a
-// push the kernel guards against the state the user reviewed.
-func (a *App) runCommit(p *project, session core.WorkspaceCommitSession) {
-	c := &p.commit
+// runCommit steps session until it finishes, then reads the checkout again and reports how
+// the run ended. The steps run one after another in one background task: each is a commit or
+// a push the kernel guards against the state the user reviewed.
+func (a *App) runCommit(p *project, t commitTarget, session core.WorkspaceCommitSession) {
+	c := t.state
 	c.busy, c.review, c.attempt = true, nil, nil
 	kernel := a.kernel
 	a.background(p, commitRunTimeout, func(ctx context.Context) func(*App) {
@@ -280,23 +321,19 @@ func (a *App) runCommit(p *project, session core.WorkspaceCommitSession) {
 		}
 		return func(a *App) {
 			c.busy = false
-			a.loadGit(p)
-			if p.log.started {
-				a.loadLog(p)
-			}
+			t.written(a)
 			if err != nil {
 				a.commitFailed(err)
 				return
 			}
-			a.commitFinished(p, session)
+			a.commitFinished(c, session)
 		}
 	})
 }
 
 // commitFinished reports the end of a run. A run that succeeded clears the message; one that
 // did not keeps its results, and a retry while it can continue.
-func (a *App) commitFinished(p *project, session core.WorkspaceCommitSession) {
-	c := &p.commit
+func (a *App) commitFinished(c *commitState, session core.WorkspaceCommitSession) {
 	switch {
 	case session.Succeeded && session.Push:
 		a.notify(a.text.Commit.Pushed)
@@ -332,8 +369,8 @@ func incompleteRun(session core.WorkspaceCommitSession) error {
 	return errors.New("workspace commit did not succeed")
 }
 
-// dismissResults forgets the results of the last run.
-func (a *App) dismissResults(p *project) { p.commit.attempt = nil }
+// dismissResults forgets the results of the last run of c.
+func (a *App) dismissResults(c *commitState) { c.attempt = nil }
 
 // commitFailed reports a commit the kernel refused or could not run.
 func (a *App) commitFailed(err error) {
