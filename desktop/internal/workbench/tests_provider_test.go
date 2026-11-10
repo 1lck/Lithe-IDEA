@@ -232,6 +232,10 @@ func providerTestsHarness(t *testing.T, supplied ...pluginservice.Kernel) *harne
 		PluginRoot:   pluginRoot,
 		Store:        preferences,
 		Languages:    []string{"zh-Hans"},
+		// The fixture is a copy of this large instrumented test binary: under
+		// load its start can exceed Core's 10s default, which would read as a
+		// provider failure. The bound stays finite, never an unbounded wait.
+		PluginInitializeTimeout: 60 * time.Second,
 	})
 }
 

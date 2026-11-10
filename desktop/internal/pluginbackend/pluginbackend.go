@@ -151,7 +151,17 @@ type Runner struct {
 	// tools resolves a plan's {kind: "tool"} launch to an executable. Nil refuses
 	// such a launch rather than guessing a program.
 	tools ToolResolver
+	// initializeTimeout is the startup-handshake deadline applied to a request
+	// that does not carry its own. Zero keeps Core's default.
+	initializeTimeout time.Duration
 }
+
+// SetInitializeTimeout sets the startup-handshake deadline of every backend
+// whose request does not name one. A host test whose fixture is a large
+// instrumented binary raises it so scheduler load cannot masquerade as a
+// provider failure. It must be called before the first Start; zero keeps
+// Core's default.
+func (r *Runner) SetInitializeTimeout(timeout time.Duration) { r.initializeTimeout = timeout }
 
 // ToolResolver resolves the tool definition a plugin launch names to the
 // executable the host runs, using the host's toolchain discovery.
@@ -280,6 +290,9 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 		WorkspaceConfiguration: plan.WorkspaceConfiguration,
 
 		InitializeTimeoutMilliseconds: request.InitializeTimeoutMilliseconds,
+	}
+	if start.InitializeTimeoutMilliseconds == 0 && r.initializeTimeout > 0 {
+		start.InitializeTimeoutMilliseconds = int(r.initializeTimeout / time.Millisecond)
 	}
 	var started core.PluginBackendStarted
 	if request.LanguageID != "" {

@@ -171,6 +171,11 @@ type Options struct {
 	// provider discovery and the Core ACP connection. nil leaves the panel
 	// unavailable instead of refusing to start.
 	AgentKernel AgentKernel
+	// PluginInitializeTimeout bounds every plugin backend's startup handshake.
+	// Zero keeps Core's default. Host tests whose fixture is a copy of the large
+	// instrumented test binary raise it so scheduler load cannot masquerade as
+	// a provider failure.
+	PluginInitializeTimeout time.Duration
 }
 
 // LogSink is the client's log as the window uses it: the log window reads it and the
@@ -486,6 +491,7 @@ func (a *App) openPlugins(options Options) {
 		return
 	}
 	a.plugins = service
+	service.Backend.SetInitializeTimeout(options.PluginInitializeTimeout)
 	if err := service.AttachWorkbench(pluginWorkbench{app: a}); err != nil {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_host_services", err))
 	}
