@@ -56,6 +56,12 @@ type Kernel interface {
 	GitReferences(ctx context.Context, root string) (core.GitReferences, error)
 	GitHistoryPage(ctx context.Context, root, reference, cursor string, limit int) (core.GitHistoryPage, error)
 	DetectBuildSystems(ctx context.Context, workspaceRoot string, manifests []json.RawMessage) (core.BuildDetection, error)
+	IDEHostOpen(ctx context.Context, request core.IDEHostOpenRequest) (core.IDEHostOpenResult, error)
+	IDEHostPoll(ctx context.Context, hostID string) (core.IDEHostPollResult, error)
+	IDEHostClaim(ctx context.Context, hostID, requestID string) (core.IDEHostClaimResult, error)
+	IDEHostRespond(ctx context.Context, hostID, requestID string, result any) (core.IDEHostRespondResult, error)
+	IDEHostClose(ctx context.Context, hostID string) (core.IDEHostCloseResult, error)
+	IDEHostValidate(ctx context.Context, name string, arguments any, permissions core.IDEPermissions, toolExposure []core.IDEToolExposure) (core.IDEHostValidateResult, error)
 	PlanBuildInvocation(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildInvocationRequest) (core.BuildInvocation, error)
 	CheckBuildToolVersion(ctx context.Context, manifest json.RawMessage, buildSystemID, runtime, output string) (core.BuildToolVersion, error)
 	PlanBuildModel(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildPlanRequest) (core.BuildPlan, error)
@@ -263,6 +269,8 @@ type project struct {
 	blame gitBlameSubjects
 	// observe is the watch of the repository's Git metadata (see git_observation.go).
 	observe gitObservation
+	// ideAPI is the project's IDE API connection for plugins and MCP clients (ide_api.go).
+	ideAPI ideAPIState
 }
 
 // App is the state of the window.
@@ -869,6 +877,7 @@ func (a *App) finishCloseProject(p *project, after func()) {
 			a.closeNavigation()
 		}
 		a.cancelPrompts()
+		a.ideAPIDisable(p)
 		p.cancel()
 		a.closeTree(p)
 		a.closeGitObservation(p)
