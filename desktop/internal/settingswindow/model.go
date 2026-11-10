@@ -118,7 +118,10 @@ func titleOf(messages *i18n.SettingsMessages, id pageID) string {
 
 // row is one line of the sidebar as it is shown.
 type row struct {
-	page pageID
+	dynamic string
+	title   string
+	hit     int
+	page    pageID
 	// level is 0 on the top level and 1 for a page inside a group.
 	level uint8
 	// group says the row is a group, which has a chevron and expands instead of
@@ -407,4 +410,11 @@ func decideKey(key keyKind, ctx keyContext) keyAction {
 		return actionCancel
 	}
 	return actionNone
+}
+
+func (r row) hitIndex() int {
+	if r.dynamic != "" {
+		return r.hit
+	}
+	return int(r.page)
 }

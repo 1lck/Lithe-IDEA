@@ -1,0 +1,1677 @@
+{
+  "cases": [
+    {
+      "name": "enabled_pages",
+      "command": "plugins.settings.catalog",
+      "input": {
+        "plugins": [
+          {
+            "manifest": {
+              "schemaVersion": 2,
+              "id": "dev.lithe.fixture.settings-v2",
+              "displayName": "Settings v2 Fixture",
+              "version": "0.1.0",
+              "pluginAPIVersion": 3,
+              "requires": {
+                "buildProviders": 1,
+                "buildSystems": 1,
+                "languageServers": 2,
+                "languages": 1,
+                "serverProcess": 1,
+                "settings": 2
+              },
+              "vendor": {
+                "id": "org.example",
+                "displayName": "Example",
+                "signatureRequirement": "publisherPackage"
+              },
+              "permissions": [
+                "languageServer.launch",
+                "process.build"
+              ],
+              "activationEvents": [
+                "onBuildSystem:mix",
+                "onLanguage:elixir"
+              ],
+              "languages": [
+                {
+                  "id": "elixir",
+                  "displayName": "Elixir",
+                  "fileExtensions": [
+                    "ex",
+                    "exs"
+                  ],
+                  "projectFileNames": [
+                    "mix.exs"
+                  ]
+                }
+              ],
+              "languageServers": [
+                {
+                  "languageID": "elixir",
+                  "launch": {
+                    "kind": "systemCommand",
+                    "commands": [
+                      "elixir-ls"
+                    ]
+                  },
+                  "arguments": [
+                    "--stdio",
+                    "--env=${setting:mixEnv}"
+                  ],
+                  "workspaceConfiguration": {
+                    "elixirLS": {
+                      "dialyzerEnabled": "${setting:dialyzer}"
+                    }
+                  }
+                }
+              ],
+              "buildSystems": [
+                {
+                  "id": "mix",
+                  "displayName": "Mix",
+                  "detection": {
+                    "markers": [
+                      "mix.exs"
+                    ],
+                    "nesting": "outermost"
+                  },
+                  "invocation": {
+                    "executables": [
+                      {
+                        "kind": "command",
+                        "command": "mix"
+                      }
+                    ]
+                  },
+                  "provider": {
+                    "languageServer": "elixir",
+                    "executesProjectCode": true,
+                    "mayUseNetwork": false
+                  },
+                  "model": {
+                    "source": "provider"
+                  },
+                  "tasks": [
+                    {
+                      "id": "compile",
+                      "displayName": "Compile",
+                      "group": "build",
+                      "scopes": [
+                        "workspace"
+                      ],
+                      "arguments": [
+                        "compile"
+                      ]
+                    },
+                    {
+                      "id": "deps-get",
+                      "displayName": "Fetch Dependencies",
+                      "group": "other",
+                      "scopes": [
+                        "workspace"
+                      ],
+                      "arguments": [
+                        "deps.get"
+                      ]
+                    }
+                  ],
+                  "dependencies": {
+                    "source": "provider",
+                    "scopes": [
+                      "workspace"
+                    ]
+                  },
+                  "sync": {
+                    "watch": [
+                      "mix.exs",
+                      "mix.lock"
+                    ]
+                  },
+                  "layout": {
+                    "excluded": [
+                      "_build",
+                      "deps"
+                    ]
+                  }
+                }
+              ],
+              "settings": [
+                {
+                  "id": "dialyzer",
+                  "type": "boolean",
+                  "title": "Dialyzer",
+                  "default": true,
+                  "scope": "project",
+                  "effect": "immediate",
+                  "page": {
+                    "languageID": "elixir"
+                  }
+                },
+                {
+                  "id": "mixEnv",
+                  "type": "text",
+                  "title": "MIX_ENV",
+                  "default": "dev",
+                  "pattern": "[a-z]+",
+                  "scope": "project",
+                  "effect": "restart",
+                  "page": {
+                    "languageID": "elixir"
+                  },
+                  "section": "Server"
+                },
+                {
+                  "id": "checks",
+                  "type": "multiSelect",
+                  "title": "Checks",
+                  "default": [
+                    "format"
+                  ],
+                  "options": [
+                    {
+                      "value": "format",
+                      "title": "Format"
+                    },
+                    {
+                      "value": "credo",
+                      "title": "Credo"
+                    }
+                  ],
+                  "effect": "nextRun",
+                  "page": {
+                    "buildSystemID": "mix"
+                  }
+                }
+              ],
+              "settingActions": [
+                {
+                  "id": "rebuildPlt",
+                  "title": "Rebuild PLT",
+                  "function": "dialyzer.rebuild",
+                  "page": {
+                    "languageID": "elixir"
+                  },
+                  "confirm": true
+                }
+              ]
+            },
+            "owner": {
+              "pluginID": "dev.lithe.fixture.settings-v2",
+              "version": "0.1.0"
+            },
+            "enabled": true
+          }
+        ]
+      },
+      "status": "ok",
+      "pages": 2
+    },
+    {
+      "name": "disabled_contributes_nothing",
+      "command": "plugins.settings.catalog",
+      "input": {
+        "plugins": [
+          {
+            "manifest": {
+              "schemaVersion": 2,
+              "id": "dev.lithe.fixture.settings-v2",
+              "displayName": "Settings v2 Fixture",
+              "version": "0.1.0",
+              "pluginAPIVersion": 3,
+              "requires": {
+                "buildProviders": 1,
+                "buildSystems": 1,
+                "languageServers": 2,
+                "languages": 1,
+                "serverProcess": 1,
+                "settings": 2
+              },
+              "vendor": {
+                "id": "org.example",
+                "displayName": "Example",
+                "signatureRequirement": "publisherPackage"
+              },
+              "permissions": [
+                "languageServer.launch",
+                "process.build"
+              ],
+              "activationEvents": [
+                "onBuildSystem:mix",
+                "onLanguage:elixir"
+              ],
+              "languages": [
+                {
+                  "id": "elixir",
+                  "displayName": "Elixir",
+                  "fileExtensions": [
+                    "ex",
+                    "exs"
+                  ],
+                  "projectFileNames": [
+                    "mix.exs"
+                  ]
+                }
+              ],
+              "languageServers": [
+                {
+                  "languageID": "elixir",
+                  "launch": {
+                    "kind": "systemCommand",
+                    "commands": [
+                      "elixir-ls"
+                    ]
+                  },
+                  "arguments": [
+                    "--stdio",
+                    "--env=${setting:mixEnv}"
+                  ],
+                  "workspaceConfiguration": {
+                    "elixirLS": {
+                      "dialyzerEnabled": "${setting:dialyzer}"
+                    }
+                  }
+                }
+              ],
+              "buildSystems": [
+                {
+                  "id": "mix",
+                  "displayName": "Mix",
+                  "detection": {
+                    "markers": [
+                      "mix.exs"
+                    ],
+                    "nesting": "outermost"
+                  },
+                  "invocation": {
+                    "executables": [
+                      {
+                        "kind": "command",
+                        "command": "mix"
+                      }
+                    ]
+                  },
+                  "provider": {
+                    "languageServer": "elixir",
+                    "executesProjectCode": true,
+                    "mayUseNetwork": false
+                  },
+                  "model": {
+                    "source": "provider"
+                  },
+                  "tasks": [
+                    {
+                      "id": "compile",
+                      "displayName": "Compile",
+                      "group": "build",
+                      "scopes": [
+                        "workspace"
+                      ],
+                      "arguments": [
+                        "compile"
+                      ]
+                    },
+                    {
+                      "id": "deps-get",
+                      "displayName": "Fetch Dependencies",
+                      "group": "other",
+                      "scopes": [
+                        "workspace"
+                      ],
+                      "arguments": [
+                        "deps.get"
+                      ]
+                    }
+                  ],
+                  "dependencies": {
+                    "source": "provider",
+                    "scopes": [
+                      "workspace"
+                    ]
+                  },
+                  "sync": {
+                    "watch": [
+                      "mix.exs",
+                      "mix.lock"
+                    ]
+                  },
+                  "layout": {
+                    "excluded": [
+                      "_build",
+                      "deps"
+                    ]
+                  }
+                }
+              ],
+              "settings": [
+                {
+                  "id": "dialyzer",
+                  "type": "boolean",
+                  "title": "Dialyzer",
+                  "default": true,
+                  "scope": "project",
+                  "effect": "immediate",
+                  "page": {
+                    "languageID": "elixir"
+                  }
+                },
+                {
+                  "id": "mixEnv",
+                  "type": "text",
+                  "title": "MIX_ENV",
+                  "default": "dev",
+                  "pattern": "[a-z]+",
+                  "scope": "project",
+                  "effect": "restart",
+                  "page": {
+                    "languageID": "elixir"
+                  },
+                  "section": "Server"
+                },
+                {
+                  "id": "checks",
+                  "type": "multiSelect",
+                  "title": "Checks",
+                  "default": [
+                    "format"
+                  ],
+                  "options": [
+                    {
+                      "value": "format",
+                      "title": "Format"
+                    },
+                    {
+                      "value": "credo",
+                      "title": "Credo"
+                    }
+                  ],
+                  "effect": "nextRun",
+                  "page": {
+                    "buildSystemID": "mix"
+                  }
+                }
+              ],
+              "settingActions": [
+                {
+                  "id": "rebuildPlt",
+                  "title": "Rebuild PLT",
+                  "function": "dialyzer.rebuild",
+                  "page": {
+                    "languageID": "elixir"
+                  },
+                  "confirm": true
+                }
+              ]
+            },
+            "owner": {
+              "pluginID": "dev.lithe.fixture.settings-v2",
+              "version": "0.1.0"
+            },
+            "enabled": false
+          }
+        ]
+      },
+      "status": "ok",
+      "pages": 0,
+      "pageOwners": {}
+    },
+    {
+      "name": "duplicate_owner_rejected",
+      "command": "plugins.settings.catalog",
+      "input": {
+        "plugins": [
+          {
+            "manifest": {
+              "schemaVersion": 2,
+              "id": "dev.lithe.fixture.settings-v2",
+              "displayName": "Settings v2 Fixture",
+              "version": "0.1.0",
+              "pluginAPIVersion": 3,
+              "requires": {
+                "buildProviders": 1,
+                "buildSystems": 1,
+                "languageServers": 2,
+                "languages": 1,
+                "serverProcess": 1,
+                "settings": 2
+              },
+              "vendor": {
+                "id": "org.example",
+                "displayName": "Example",
+                "signatureRequirement": "publisherPackage"
+              },
+              "permissions": [
+                "languageServer.launch",
+                "process.build"
+              ],
+              "activationEvents": [
+                "onBuildSystem:mix",
+                "onLanguage:elixir"
+              ],
+              "languages": [
+                {
+                  "id": "elixir",
+                  "displayName": "Elixir",
+                  "fileExtensions": [
+                    "ex",
+                    "exs"
+                  ],
+                  "projectFileNames": [
+                    "mix.exs"
+                  ]
+                }
+              ],
+              "languageServers": [
+                {
+                  "languageID": "elixir",
+                  "launch": {
+                    "kind": "systemCommand",
+                    "commands": [
+                      "elixir-ls"
+                    ]
+                  },
+                  "arguments": [
+                    "--stdio",
+                    "--env=${setting:mixEnv}"
+                  ],
+                  "workspaceConfiguration": {
+                    "elixirLS": {
+                      "dialyzerEnabled": "${setting:dialyzer}"
+                    }
+                  }
+                }
+              ],
+              "buildSystems": [
+                {
+                  "id": "mix",
+                  "displayName": "Mix",
+                  "detection": {
+                    "markers": [
+                      "mix.exs"
+                    ],
+                    "nesting": "outermost"
+                  },
+                  "invocation": {
+                    "executables": [
+                      {
+                        "kind": "command",
+                        "command": "mix"
+                      }
+                    ]
+                  },
+                  "provider": {
+                    "languageServer": "elixir",
+                    "executesProjectCode": true,
+                    "mayUseNetwork": false
+                  },
+                  "model": {
+                    "source": "provider"
+                  },
+                  "tasks": [
+                    {
+                      "id": "compile",
+                      "displayName": "Compile",
+                      "group": "build",
+                      "scopes": [
+                        "workspace"
+                      ],
+                      "arguments": [
+                        "compile"
+                      ]
+                    },
+                    {
+                      "id": "deps-get",
+                      "displayName": "Fetch Dependencies",
+                      "group": "other",
+                      "scopes": [
+                        "workspace"
+                      ],
+                      "arguments": [
+                        "deps.get"
+                      ]
+                    }
+                  ],
+                  "dependencies": {
+                    "source": "provider",
+                    "scopes": [
+                      "workspace"
+                    ]
+                  },
+                  "sync": {
+                    "watch": [
+                      "mix.exs",
+                      "mix.lock"
+                    ]
+                  },
+                  "layout": {
+                    "excluded": [
+                      "_build",
+                      "deps"
+                    ]
+                  }
+                }
+              ],
+              "settings": [
+                {
+                  "id": "dialyzer",
+                  "type": "boolean",
+                  "title": "Dialyzer",
+                  "default": true,
+                  "scope": "project",
+                  "effect": "immediate",
+                  "page": {
+                    "languageID": "elixir"
+                  }
+                },
+                {
+                  "id": "mixEnv",
+                  "type": "text",
+                  "title": "MIX_ENV",
+                  "default": "dev",
+                  "pattern": "[a-z]+",
+                  "scope": "project",
+                  "effect": "restart",
+                  "page": {
+                    "languageID": "elixir"
+                  },
+                  "section": "Server"
+                },
+                {
+                  "id": "checks",
+                  "type": "multiSelect",
+                  "title": "Checks",
+                  "default": [
+                    "format"
+                  ],
+                  "options": [
+                    {
+                      "value": "format",
+                      "title": "Format"
+                    },
+                    {
+                      "value": "credo",
+                      "title": "Credo"
+                    }
+                  ],
+                  "effect": "nextRun",
+                  "page": {
+                    "buildSystemID": "mix"
+                  }
+                }
+              ],
+              "settingActions": [
+                {
+                  "id": "rebuildPlt",
+                  "title": "Rebuild PLT",
+                  "function": "dialyzer.rebuild",
+                  "page": {
+                    "languageID": "elixir"
+                  },
+                  "confirm": true
+                }
+              ]
+            },
+            "owner": {
+              "pluginID": "dev.lithe.fixture.settings-v2",
+              "version": "0.1.0"
+            },
+            "enabled": true
+          },
+          {
+            "manifest": {
+              "schemaVersion": 2,
+              "id": "dev.lithe.fixture.settings-v2",
+              "displayName": "Settings v2 Fixture",
+              "version": "0.1.0",
+              "pluginAPIVersion": 3,
+              "requires": {
+                "buildProviders": 1,
+                "buildSystems": 1,
+                "languageServers": 2,
+                "languages": 1,
+                "serverProcess": 1,
+                "settings": 2
+              },
+              "vendor": {
+                "id": "org.example",
+                "displayName": "Example",
+                "signatureRequirement": "publisherPackage"
+              },
+              "permissions": [
+                "languageServer.launch",
+                "process.build"
+              ],
+              "activationEvents": [
+                "onBuildSystem:mix",
+                "onLanguage:elixir"
+              ],
+              "languages": [
+                {
+                  "id": "elixir",
+                  "displayName": "Elixir",
+                  "fileExtensions": [
+                    "ex",
+                    "exs"
+                  ],
+                  "projectFileNames": [
+                    "mix.exs"
+                  ]
+                }
+              ],
+              "languageServers": [
+                {
+                  "languageID": "elixir",
+                  "launch": {
+                    "kind": "systemCommand",
+                    "commands": [
+                      "elixir-ls"
+                    ]
+                  },
+                  "arguments": [
+                    "--stdio",
+                    "--env=${setting:mixEnv}"
+                  ],
+                  "workspaceConfiguration": {
+                    "elixirLS": {
+                      "dialyzerEnabled": "${setting:dialyzer}"
+                    }
+                  }
+                }
+              ],
+              "buildSystems": [
+                {
+                  "id": "mix",
+                  "displayName": "Mix",
+                  "detection": {
+                    "markers": [
+                      "mix.exs"
+                    ],
+                    "nesting": "outermost"
+                  },
+                  "invocation": {
+                    "executables": [
+                      {
+                        "kind": "command",
+                        "command": "mix"
+                      }
+                    ]
+                  },
+                  "provider": {
+                    "languageServer": "elixir",
+                    "executesProjectCode": true,
+                    "mayUseNetwork": false
+                  },
+                  "model": {
+                    "source": "provider"
+                  },
+                  "tasks": [
+                    {
+                      "id": "compile",
+                      "displayName": "Compile",
+                      "group": "build",
+                      "scopes": [
+                        "workspace"
+                      ],
+                      "arguments": [
+                        "compile"
+                      ]
+                    },
+                    {
+                      "id": "deps-get",
+                      "displayName": "Fetch Dependencies",
+                      "group": "other",
+                      "scopes": [
+                        "workspace"
+                      ],
+                      "arguments": [
+                        "deps.get"
+                      ]
+                    }
+                  ],
+                  "dependencies": {
+                    "source": "provider",
+                    "scopes": [
+                      "workspace"
+                    ]
+                  },
+                  "sync": {
+                    "watch": [
+                      "mix.exs",
+                      "mix.lock"
+                    ]
+                  },
+                  "layout": {
+                    "excluded": [
+                      "_build",
+                      "deps"
+                    ]
+                  }
+                }
+              ],
+              "settings": [
+                {
+                  "id": "dialyzer",
+                  "type": "boolean",
+                  "title": "Dialyzer",
+                  "default": true,
+                  "scope": "project",
+                  "effect": "immediate",
+                  "page": {
+                    "languageID": "elixir"
+                  }
+                },
+                {
+                  "id": "mixEnv",
+                  "type": "text",
+                  "title": "MIX_ENV",
+                  "default": "dev",
+                  "pattern": "[a-z]+",
+                  "scope": "project",
+                  "effect": "restart",
+                  "page": {
+                    "languageID": "elixir"
+                  },
+                  "section": "Server"
+                },
+                {
+                  "id": "checks",
+                  "type": "multiSelect",
+                  "title": "Checks",
+                  "default": [
+                    "format"
+                  ],
+                  "options": [
+                    {
+                      "value": "format",
+                      "title": "Format"
+                    },
+                    {
+                      "value": "credo",
+                      "title": "Credo"
+                    }
+                  ],
+                  "effect": "nextRun",
+                  "page": {
+                    "buildSystemID": "mix"
+                  }
+                }
+              ],
+              "settingActions": [
+                {
+                  "id": "rebuildPlt",
+                  "title": "Rebuild PLT",
+                  "function": "dialyzer.rebuild",
+                  "page": {
+                    "languageID": "elixir"
+                  },
+                  "confirm": true
+                }
+              ]
+            },
+            "owner": {
+              "pluginID": "dev.lithe.fixture.settings-v2",
+              "version": "0.1.0"
+            },
+            "enabled": true
+          }
+        ]
+      },
+      "status": "rejected"
+    },
+    {
+      "name": "delivery_global_3",
+      "command": "plugins.settings.delivery",
+      "input": {
+        "scope": "global",
+        "samePreferences": true,
+        "sameWorkspace": false,
+        "sameVersion": true,
+        "enabled": true,
+        "effects": [
+          "restart",
+          "immediate",
+          "restart"
+        ]
+      },
+      "status": "ok",
+      "delivery": {
+        "refresh": true,
+        "effects": [
+          "immediate",
+          "restart"
+        ]
+      }
+    },
+    {
+      "name": "delivery_project_4",
+      "command": "plugins.settings.delivery",
+      "input": {
+        "scope": "project",
+        "samePreferences": true,
+        "sameWorkspace": false,
+        "sameVersion": true,
+        "enabled": true,
+        "effects": [
+          "restart",
+          "immediate",
+          "restart"
+        ]
+      },
+      "status": "ok",
+      "delivery": {
+        "refresh": false,
+        "effects": []
+      }
+    },
+    {
+      "name": "delivery_project_5",
+      "command": "plugins.settings.delivery",
+      "input": {
+        "scope": "project",
+        "samePreferences": true,
+        "sameWorkspace": true,
+        "sameVersion": true,
+        "enabled": true,
+        "effects": [
+          "restart",
+          "immediate",
+          "restart"
+        ]
+      },
+      "status": "ok",
+      "delivery": {
+        "refresh": true,
+        "effects": [
+          "immediate",
+          "restart"
+        ]
+      }
+    },
+    {
+      "name": "delivery_global_6",
+      "command": "plugins.settings.delivery",
+      "input": {
+        "scope": "global",
+        "samePreferences": false,
+        "sameWorkspace": true,
+        "sameVersion": true,
+        "enabled": true,
+        "effects": [
+          "restart",
+          "immediate",
+          "restart"
+        ]
+      },
+      "status": "ok",
+      "delivery": {
+        "refresh": false,
+        "effects": []
+      }
+    },
+    {
+      "name": "delivery_global_7",
+      "command": "plugins.settings.delivery",
+      "input": {
+        "scope": "global",
+        "samePreferences": true,
+        "sameWorkspace": true,
+        "sameVersion": false,
+        "enabled": true,
+        "effects": [
+          "restart",
+          "immediate",
+          "restart"
+        ]
+      },
+      "status": "ok",
+      "delivery": {
+        "refresh": false,
+        "effects": []
+      }
+    },
+    {
+      "name": "delivery_global_8",
+      "command": "plugins.settings.delivery",
+      "input": {
+        "scope": "global",
+        "samePreferences": true,
+        "sameWorkspace": true,
+        "sameVersion": true,
+        "enabled": false,
+        "effects": [
+          "restart",
+          "immediate",
+          "restart"
+        ]
+      },
+      "status": "ok",
+      "delivery": {
+        "refresh": true,
+        "effects": []
+      }
+    },
+    {
+      "name": "search_retains_parent",
+      "command": "plugins.settings.navigation",
+      "input": {
+        "query": "ELIXIR",
+        "items": [
+          {
+            "id": "languages",
+            "title": "Languages",
+            "parent": null,
+            "group": false,
+            "expanded": false
+          },
+          {
+            "id": "language:elixir",
+            "title": "Elixir",
+            "parent": "languages",
+            "group": false,
+            "expanded": false
+          }
+        ]
+      },
+      "status": "ok",
+      "rowIDs": [
+        "languages",
+        "language:elixir"
+      ]
+    },
+    {
+      "name": "wrong_installed_owner",
+      "command": "plugins.settings.catalog",
+      "input": {
+        "plugins": [
+          {
+            "manifest": {
+              "schemaVersion": 2,
+              "id": "dev.lithe.fixture.settings-v2",
+              "displayName": "Settings v2 Fixture",
+              "version": "0.1.0",
+              "pluginAPIVersion": 3,
+              "requires": {
+                "buildProviders": 1,
+                "buildSystems": 1,
+                "languageServers": 2,
+                "languages": 1,
+                "serverProcess": 1,
+                "settings": 2
+              },
+              "vendor": {
+                "id": "org.example",
+                "displayName": "Example",
+                "signatureRequirement": "publisherPackage"
+              },
+              "permissions": [
+                "languageServer.launch",
+                "process.build"
+              ],
+              "activationEvents": [
+                "onBuildSystem:mix",
+                "onLanguage:elixir"
+              ],
+              "languages": [
+                {
+                  "id": "elixir",
+                  "displayName": "Elixir",
+                  "fileExtensions": [
+                    "ex",
+                    "exs"
+                  ],
+                  "projectFileNames": [
+                    "mix.exs"
+                  ]
+                }
+              ],
+              "languageServers": [
+                {
+                  "languageID": "elixir",
+                  "launch": {
+                    "kind": "systemCommand",
+                    "commands": [
+                      "elixir-ls"
+                    ]
+                  },
+                  "arguments": [
+                    "--stdio",
+                    "--env=${setting:mixEnv}"
+                  ],
+                  "workspaceConfiguration": {
+                    "elixirLS": {
+                      "dialyzerEnabled": "${setting:dialyzer}"
+                    }
+                  }
+                }
+              ],
+              "buildSystems": [
+                {
+                  "id": "mix",
+                  "displayName": "Mix",
+                  "detection": {
+                    "markers": [
+                      "mix.exs"
+                    ],
+                    "nesting": "outermost"
+                  },
+                  "invocation": {
+                    "executables": [
+                      {
+                        "kind": "command",
+                        "command": "mix"
+                      }
+                    ]
+                  },
+                  "provider": {
+                    "languageServer": "elixir",
+                    "executesProjectCode": true,
+                    "mayUseNetwork": false
+                  },
+                  "model": {
+                    "source": "provider"
+                  },
+                  "tasks": [
+                    {
+                      "id": "compile",
+                      "displayName": "Compile",
+                      "group": "build",
+                      "scopes": [
+                        "workspace"
+                      ],
+                      "arguments": [
+                        "compile"
+                      ]
+                    },
+                    {
+                      "id": "deps-get",
+                      "displayName": "Fetch Dependencies",
+                      "group": "other",
+                      "scopes": [
+                        "workspace"
+                      ],
+                      "arguments": [
+                        "deps.get"
+                      ]
+                    }
+                  ],
+                  "dependencies": {
+                    "source": "provider",
+                    "scopes": [
+                      "workspace"
+                    ]
+                  },
+                  "sync": {
+                    "watch": [
+                      "mix.exs",
+                      "mix.lock"
+                    ]
+                  },
+                  "layout": {
+                    "excluded": [
+                      "_build",
+                      "deps"
+                    ]
+                  }
+                }
+              ],
+              "settings": [
+                {
+                  "id": "dialyzer",
+                  "type": "boolean",
+                  "title": "Dialyzer",
+                  "default": true,
+                  "scope": "project",
+                  "effect": "immediate",
+                  "page": {
+                    "languageID": "elixir"
+                  }
+                },
+                {
+                  "id": "mixEnv",
+                  "type": "text",
+                  "title": "MIX_ENV",
+                  "default": "dev",
+                  "pattern": "[a-z]+",
+                  "scope": "project",
+                  "effect": "restart",
+                  "page": {
+                    "languageID": "elixir"
+                  },
+                  "section": "Server"
+                },
+                {
+                  "id": "checks",
+                  "type": "multiSelect",
+                  "title": "Checks",
+                  "default": [
+                    "format"
+                  ],
+                  "options": [
+                    {
+                      "value": "format",
+                      "title": "Format"
+                    },
+                    {
+                      "value": "credo",
+                      "title": "Credo"
+                    }
+                  ],
+                  "effect": "nextRun",
+                  "page": {
+                    "buildSystemID": "mix"
+                  }
+                }
+              ],
+              "settingActions": [
+                {
+                  "id": "rebuildPlt",
+                  "title": "Rebuild PLT",
+                  "function": "dialyzer.rebuild",
+                  "page": {
+                    "languageID": "elixir"
+                  },
+                  "confirm": true
+                }
+              ]
+            },
+            "owner": {
+              "pluginID": "dev.lithe.fixture.settings-v2",
+              "version": "9.0.0"
+            },
+            "enabled": true
+          }
+        ]
+      },
+      "status": "rejected"
+    },
+    {
+      "name": "multiple_contributors_one_page",
+      "command": "plugins.settings.catalog",
+      "input": {
+        "plugins": [
+          {
+            "manifest": {
+              "schemaVersion": 2,
+              "id": "dev.lithe.fixture.other-settings",
+              "displayName": "Settings v2 Fixture",
+              "version": "0.1.0",
+              "pluginAPIVersion": 3,
+              "requires": {
+                "buildProviders": 1,
+                "buildSystems": 1,
+                "languageServers": 2,
+                "languages": 1,
+                "serverProcess": 1,
+                "settings": 2
+              },
+              "vendor": {
+                "id": "org.example",
+                "displayName": "Example",
+                "signatureRequirement": "publisherPackage"
+              },
+              "permissions": [
+                "languageServer.launch",
+                "process.build"
+              ],
+              "activationEvents": [
+                "onBuildSystem:mix",
+                "onLanguage:elixir"
+              ],
+              "languages": [
+                {
+                  "id": "elixir",
+                  "displayName": "Elixir",
+                  "fileExtensions": [
+                    "ex",
+                    "exs"
+                  ],
+                  "projectFileNames": [
+                    "mix.exs"
+                  ]
+                }
+              ],
+              "languageServers": [
+                {
+                  "languageID": "elixir",
+                  "launch": {
+                    "kind": "systemCommand",
+                    "commands": [
+                      "elixir-ls"
+                    ]
+                  },
+                  "arguments": [
+                    "--stdio",
+                    "--env=${setting:mixEnv}"
+                  ],
+                  "workspaceConfiguration": {
+                    "elixirLS": {
+                      "dialyzerEnabled": "${setting:dialyzer}"
+                    }
+                  }
+                }
+              ],
+              "buildSystems": [
+                {
+                  "id": "mix",
+                  "displayName": "Mix",
+                  "detection": {
+                    "markers": [
+                      "mix.exs"
+                    ],
+                    "nesting": "outermost"
+                  },
+                  "invocation": {
+                    "executables": [
+                      {
+                        "kind": "command",
+                        "command": "mix"
+                      }
+                    ]
+                  },
+                  "provider": {
+                    "languageServer": "elixir",
+                    "executesProjectCode": true,
+                    "mayUseNetwork": false
+                  },
+                  "model": {
+                    "source": "provider"
+                  },
+                  "tasks": [
+                    {
+                      "id": "compile",
+                      "displayName": "Compile",
+                      "group": "build",
+                      "scopes": [
+                        "workspace"
+                      ],
+                      "arguments": [
+                        "compile"
+                      ]
+                    },
+                    {
+                      "id": "deps-get",
+                      "displayName": "Fetch Dependencies",
+                      "group": "other",
+                      "scopes": [
+                        "workspace"
+                      ],
+                      "arguments": [
+                        "deps.get"
+                      ]
+                    }
+                  ],
+                  "dependencies": {
+                    "source": "provider",
+                    "scopes": [
+                      "workspace"
+                    ]
+                  },
+                  "sync": {
+                    "watch": [
+                      "mix.exs",
+                      "mix.lock"
+                    ]
+                  },
+                  "layout": {
+                    "excluded": [
+                      "_build",
+                      "deps"
+                    ]
+                  }
+                }
+              ],
+              "settings": [
+                {
+                  "id": "dialyzer",
+                  "type": "boolean",
+                  "title": "Dialyzer",
+                  "default": true,
+                  "scope": "project",
+                  "effect": "immediate",
+                  "page": {
+                    "languageID": "elixir"
+                  }
+                },
+                {
+                  "id": "mixEnv",
+                  "type": "text",
+                  "title": "MIX_ENV",
+                  "default": "dev",
+                  "pattern": "[a-z]+",
+                  "scope": "project",
+                  "effect": "restart",
+                  "page": {
+                    "languageID": "elixir"
+                  },
+                  "section": "Server"
+                },
+                {
+                  "id": "checks",
+                  "type": "multiSelect",
+                  "title": "Checks",
+                  "default": [
+                    "format"
+                  ],
+                  "options": [
+                    {
+                      "value": "format",
+                      "title": "Format"
+                    },
+                    {
+                      "value": "credo",
+                      "title": "Credo"
+                    }
+                  ],
+                  "effect": "nextRun",
+                  "page": {
+                    "buildSystemID": "mix"
+                  }
+                }
+              ],
+              "settingActions": [
+                {
+                  "id": "rebuildPlt",
+                  "title": "Rebuild PLT",
+                  "function": "dialyzer.rebuild",
+                  "page": {
+                    "languageID": "elixir"
+                  },
+                  "confirm": true
+                }
+              ]
+            },
+            "owner": {
+              "pluginID": "dev.lithe.fixture.other-settings",
+              "version": "0.1.0"
+            },
+            "enabled": true
+          },
+          {
+            "manifest": {
+              "schemaVersion": 2,
+              "id": "dev.lithe.fixture.settings-v2",
+              "displayName": "Settings v2 Fixture",
+              "version": "0.1.0",
+              "pluginAPIVersion": 3,
+              "requires": {
+                "buildProviders": 1,
+                "buildSystems": 1,
+                "languageServers": 2,
+                "languages": 1,
+                "serverProcess": 1,
+                "settings": 2
+              },
+              "vendor": {
+                "id": "org.example",
+                "displayName": "Example",
+                "signatureRequirement": "publisherPackage"
+              },
+              "permissions": [
+                "languageServer.launch",
+                "process.build"
+              ],
+              "activationEvents": [
+                "onBuildSystem:mix",
+                "onLanguage:elixir"
+              ],
+              "languages": [
+                {
+                  "id": "elixir",
+                  "displayName": "Elixir",
+                  "fileExtensions": [
+                    "ex",
+                    "exs"
+                  ],
+                  "projectFileNames": [
+                    "mix.exs"
+                  ]
+                }
+              ],
+              "languageServers": [
+                {
+                  "languageID": "elixir",
+                  "launch": {
+                    "kind": "systemCommand",
+                    "commands": [
+                      "elixir-ls"
+                    ]
+                  },
+                  "arguments": [
+                    "--stdio",
+                    "--env=${setting:mixEnv}"
+                  ],
+                  "workspaceConfiguration": {
+                    "elixirLS": {
+                      "dialyzerEnabled": "${setting:dialyzer}"
+                    }
+                  }
+                }
+              ],
+              "buildSystems": [
+                {
+                  "id": "mix",
+                  "displayName": "Mix",
+                  "detection": {
+                    "markers": [
+                      "mix.exs"
+                    ],
+                    "nesting": "outermost"
+                  },
+                  "invocation": {
+                    "executables": [
+                      {
+                        "kind": "command",
+                        "command": "mix"
+                      }
+                    ]
+                  },
+                  "provider": {
+                    "languageServer": "elixir",
+                    "executesProjectCode": true,
+                    "mayUseNetwork": false
+                  },
+                  "model": {
+                    "source": "provider"
+                  },
+                  "tasks": [
+                    {
+                      "id": "compile",
+                      "displayName": "Compile",
+                      "group": "build",
+                      "scopes": [
+                        "workspace"
+                      ],
+                      "arguments": [
+                        "compile"
+                      ]
+                    },
+                    {
+                      "id": "deps-get",
+                      "displayName": "Fetch Dependencies",
+                      "group": "other",
+                      "scopes": [
+                        "workspace"
+                      ],
+                      "arguments": [
+                        "deps.get"
+                      ]
+                    }
+                  ],
+                  "dependencies": {
+                    "source": "provider",
+                    "scopes": [
+                      "workspace"
+                    ]
+                  },
+                  "sync": {
+                    "watch": [
+                      "mix.exs",
+                      "mix.lock"
+                    ]
+                  },
+                  "layout": {
+                    "excluded": [
+                      "_build",
+                      "deps"
+                    ]
+                  }
+                }
+              ],
+              "settings": [
+                {
+                  "id": "dialyzer",
+                  "type": "boolean",
+                  "title": "Dialyzer",
+                  "default": true,
+                  "scope": "project",
+                  "effect": "immediate",
+                  "page": {
+                    "languageID": "elixir"
+                  }
+                },
+                {
+                  "id": "mixEnv",
+                  "type": "text",
+                  "title": "MIX_ENV",
+                  "default": "dev",
+                  "pattern": "[a-z]+",
+                  "scope": "project",
+                  "effect": "restart",
+                  "page": {
+                    "languageID": "elixir"
+                  },
+                  "section": "Server"
+                },
+                {
+                  "id": "checks",
+                  "type": "multiSelect",
+                  "title": "Checks",
+                  "default": [
+                    "format"
+                  ],
+                  "options": [
+                    {
+                      "value": "format",
+                      "title": "Format"
+                    },
+                    {
+                      "value": "credo",
+                      "title": "Credo"
+                    }
+                  ],
+                  "effect": "nextRun",
+                  "page": {
+                    "buildSystemID": "mix"
+                  }
+                }
+              ],
+              "settingActions": [
+                {
+                  "id": "rebuildPlt",
+                  "title": "Rebuild PLT",
+                  "function": "dialyzer.rebuild",
+                  "page": {
+                    "languageID": "elixir"
+                  },
+                  "confirm": true
+                }
+              ]
+            },
+            "owner": {
+              "pluginID": "dev.lithe.fixture.settings-v2",
+              "version": "0.1.0"
+            },
+            "enabled": true
+          }
+        ]
+      },
+      "status": "ok",
+      "pages": 2,
+      "pageOwners": {
+        "language:elixir": [
+          "dev.lithe.fixture.other-settings",
+          "dev.lithe.fixture.settings-v2"
+        ]
+      }
+    },
+    {
+      "name": "action_only_surface",
+      "command": "plugins.settings.catalog",
+      "input": {
+        "plugins": [
+          {
+            "manifest": {
+              "schemaVersion": 2,
+              "id": "dev.lithe.fixture.settings-v2",
+              "displayName": "Settings v2 Fixture",
+              "version": "0.1.0",
+              "pluginAPIVersion": 3,
+              "requires": {
+                "languages": 1,
+                "settings": 2,
+                "languageServers": 1,
+                "serverProcess": 1
+              },
+              "vendor": {
+                "id": "org.example",
+                "displayName": "Example",
+                "signatureRequirement": "publisherPackage"
+              },
+              "permissions": [
+                "languageServer.launch",
+                "process.build"
+              ],
+              "activationEvents": [
+                "onLanguage:elixir"
+              ],
+              "languages": [
+                {
+                  "id": "elixir",
+                  "displayName": "Elixir",
+                  "fileExtensions": [
+                    "ex",
+                    "exs"
+                  ],
+                  "projectFileNames": [
+                    "mix.exs"
+                  ]
+                }
+              ],
+              "settingActions": [
+                {
+                  "id": "refresh",
+                  "title": "Refresh",
+                  "function": "fixture.refresh",
+                  "page": {
+                    "languageID": "elixir"
+                  }
+                }
+              ],
+              "languageServers": [
+                {
+                  "languageID": "elixir",
+                  "launch": {
+                    "kind": "systemCommand",
+                    "commands": [
+                      "fixture-ls"
+                    ]
+                  },
+                  "arguments": [
+                    "--stdio"
+                  ]
+                }
+              ]
+            },
+            "owner": {
+              "pluginID": "dev.lithe.fixture.settings-v2",
+              "version": "0.1.0"
+            },
+            "enabled": true
+          }
+        ]
+      },
+      "status": "ok",
+      "pages": 1
+    }
+  ]
+}

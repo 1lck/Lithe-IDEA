@@ -254,7 +254,8 @@ type App struct {
 	// notice is the message of the banner, empty when there is none.
 	notice string
 	// settingsWindow opens the settings window and keeps at most one open.
-	settingsWindow *settingswindow.Controller
+	settingsWindow       *settingswindow.Controller
+	settingsSubscription *settingsSubscription
 	// plugins is the plugin stack, nil when the window was built without a plugin
 	// kernel or without a writable plugin root.
 	plugins *pluginservice.Service
@@ -477,6 +478,7 @@ func (a *App) Run() error {
 		}
 		return nil
 	})
+	a.unsubscribeSettings()
 	a.closeProject()
 	a.wait()
 	if a.logs != nil {
@@ -502,6 +504,7 @@ func (a *App) systemAppearanceChanged() {
 
 // Config is the window's configuration.
 func (a *App) Config() app.Config {
+	a.subscribeSettings()
 	a.fields = ui.Fields(&a.welcome.search, &a.clone.source, &a.clone.parent, &a.clone.name, &a.newProject.name, &a.newProject.parent, &a.newProject.search, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField, &a.searchView.query, &a.searchView.mask, &a.everywhereView.query,
 		&a.branch.search, &a.branch.name, &a.branch.revision, &a.navigation.input)
 	return app.Config{
@@ -531,6 +534,7 @@ func (a *App) Config() app.Config {
 // closed runs when the window has closed: the project closes, and so does the log window,
 // which would otherwise keep the application running without the window it belongs to.
 func (a *App) closed() {
+	a.unsubscribeSettings()
 	a.closeClone()
 	a.closeNewProject()
 	a.closeWelcomeBranchReads()

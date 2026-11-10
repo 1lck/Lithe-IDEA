@@ -35,6 +35,7 @@ func (a *App) drain() {
 	for _, apply := range pending {
 		apply(a)
 	}
+	a.drainSettings()
 	a.pumpTerminal()
 }
 

@@ -137,8 +137,18 @@ type window struct {
 	requestedPage         atomic.Uint32
 	pluginRegistryChanged atomic.Bool
 	// toolchains is the Build settings page's draft and loaded snapshot.
-	toolchains     toolchainState
-	pluginSettings pluginSettingsForm
+	toolchains        toolchainState
+	pluginSettings    *pluginSettingsForm
+	pluginForms       map[string]*pluginSettingsForm
+	formLimitReported bool
+	dynamic           settingsSurfaces
+	dynamicPage       string
+	contributor       ui.SelectState
+	contribution      int
+	contributorID     string
+	contributionFor   uint64
+	settingsChanged   atomic.Bool
+	settingsNotices   chan string
 	// terminal is the Terminal page's list of installed shells.
 	terminal    terminalShellState
 	search      ui.Field
@@ -211,8 +221,12 @@ func newWindow(c *Controller, current Values) *window {
 	w.market.search.rank = c.opts.MarketplaceRank
 	w.market.search.wake = w.inv.Invalidate
 	w.market.search.report = c.opts.MarketplaceError
-	w.pluginSettings = newPluginSettingsForm(c.opts.PluginSettings, w.inv.Invalidate)
-	w.pluginSettings.report = c.opts.MarketplaceError
+	form := newPluginSettingsForm(c.opts.PluginSettings, w.inv.Invalidate)
+	w.pluginSettings = &form
+	w.pluginForms = make(map[string]*pluginSettingsForm)
+	w.settingsNotices = make(chan string, 64)
+	w.dynamic = newSettingsSurfaces(c.opts, w.inv.Invalidate)
+	w.pluginSettings.report = func(err error) { reportSettingsError(c.opts, err) }
 	w.toolchains = newToolchainState(c.opts.Toolchains, w.inv.Invalidate)
 	w.terminal = newTerminalShellState(c.opts.TerminalShells, w.inv.Invalidate, w.sess.finished.Load)
 	return w
@@ -254,13 +268,29 @@ func (w *window) requestPage(page pageID) {
 // wake runs on the window thread right before each repaint an Invalidate requested. It
 // takes a page request first, then lets the marketplace take what its workers finished.
 func (w *window) wake() {
-	if w.pluginRegistryChanged.Swap(false) && w.market.source == 2 {
-		w.market.close()
-		w.market.start()
+	if w.pluginRegistryChanged.Swap(false) {
+		w.dynamic.invalidate()
+		w.rowsValid = false
+		w.settingsChanged.Store(true)
+		if w.market.source == 2 {
+			w.market.close()
+			w.market.start()
+		}
+	}
+	if w.settingsChanged.Swap(false) {
+		for _, form := range w.pluginForms {
+			form.sourceChanged()
+		}
+	}
+	for count := len(w.settingsNotices); count > 0; count-- {
+		id := <-w.settingsNotices
+		if form := w.pluginForms[id]; form != nil {
+			form.sourceChanged()
+		}
 	}
 	if requested := w.requestedPage.Swap(0); requested != 0 {
 		w.search.SetText("")
-		w.sess.show(pageID(requested - 1))
+		w.selectSettingsPage(pageID(requested-1), "")
 	}
 	w.marketWake()
 }
@@ -295,6 +325,10 @@ func (w *window) native() *app.Window {
 func (w *window) closed() {
 	w.toolchains.close()
 	w.pluginSettings.close()
+	for _, form := range w.pluginForms {
+		form.close()
+	}
+	w.dynamic.close()
 	w.marketSplit.Cancel()
 	w.market.close()
 	w.sess.finished.Store(true)
@@ -339,6 +373,14 @@ func (w *window) closeNative() {
 func (w *window) paint(canvas *gfx.Canvas, size gfx.Size) {
 	w.toolchains.drain()
 	w.pluginSettings.drain()
+	for _, form := range w.pluginForms {
+		if form != w.pluginSettings {
+			form.drain()
+		}
+	}
+	if w.dynamic.drain() {
+		w.rowsValid = false
+	}
 	w.terminal.drain()
 	w.marketExtent = max(0, size.Width-sidebarWidth-1)
 	if w.sess.page != pagePlugins || w.market.status != marketReady {
@@ -357,7 +399,7 @@ func (w *window) paint(canvas *gfx.Canvas, size gfx.Size) {
 		// The language list lives on the general page. One left open there would go on
 		// taking Enter and Escape from the window with nothing on the screen to show why.
 		w.language.Open = false
-		if w.sess.page != pageEditor && w.sess.page != pageTerminal {
+		if w.sess.page != pageEditor && w.sess.page != pageTerminal && w.sess.page != pagePlugins && w.dynamicPage == "" {
 			w.pinnedInfo = gfx.ID{}
 		}
 	}
@@ -435,7 +477,12 @@ func (w *window) refreshRows() {
 	if w.rowsValid && key == w.rowsFor {
 		return
 	}
-	w.rows = appendVisible(w.rows[:0], &w.text.Settings, &key.open, w.query)
+	if w.ctrl.opts.SettingsNavigation != nil {
+		w.dynamic.request(key)
+		w.rows = w.dynamic.rows
+	} else {
+		w.rows = appendVisible(w.rows[:0], &w.text.Settings, &key.open, w.query)
+	}
 	w.rowsFor, w.rowsValid = key, true
 }
 
@@ -477,13 +524,34 @@ func (w *window) drawSidebar(f *ui.Frame) {
 				f.FieldBase(&w.search, searchID, settings.Search, settings.Search).Grow(1).MinWidth(0).Height(searchHeight - 2).FontSize(13).Color(p.text)
 			})
 		})
+		if w.dynamic.failed != nil {
+			f.Wrap(i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.failed")).FontSize(12).Color(p.danger)
+			if f.Button(settingsCatalogReload, i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.reload")).Outline().Clicked() {
+				w.dynamic.invalidate()
+				w.rowsValid = false
+			}
+		}
 		// The list's container is declared with the rectangle the list had in the last frame,
 		// ahead of the rows, so assistive technology finds the rows inside it. The first frame
 		// has no rectangle yet and declares nothing.
 		f.Canvas().Container(w.listRect, gfx.RoleListBox, settings.Categories)
 		w.listBox = f.ScrollArea(sidebarListID).Grow(1).Shrink(1).MinHeight(0).PadSides(2, 0, 8, 0).Children(func() {
-			for _, r := range w.rows {
+			scroll := w.view.ScrollState(sidebarListID)
+			viewport := scroll.Viewport
+			if viewport <= 0 {
+				viewport = 600
+			}
+			first := max(0, int((scroll.Offset-60)/rowHeight))
+			last := min(len(w.rows), int((scroll.Offset+viewport+60)/rowHeight)+1)
+			first = min(first, last)
+			if first > 0 {
+				f.Row().Height(float32(first) * rowHeight).Shrink(0)
+			}
+			for _, r := range w.rows[first:last] {
 				w.drawRow(f, r)
+			}
+			if last < len(w.rows) {
+				f.Row().Height(float32(len(w.rows)-last) * rowHeight).Shrink(0)
 			}
 			if len(w.rows) == 0 {
 				f.Row().FillWidth().Shrink(0).PadX(rowInset + 8).PadY(8).Children(func() {
@@ -500,13 +568,16 @@ func (w *window) drawSidebar(f *ui.Frame) {
 func (w *window) drawRow(f *ui.Frame, r row) {
 	p := &w.pal
 	title := titleOf(&w.text.Settings, r.page)
-	selected := !r.group && r.page == w.sess.page
+	if r.title != "" {
+		title = r.title
+	}
+	selected := !r.group && r.page == w.sess.page && r.dynamic == w.dynamicPage
 	options := gfx.HitOptions{Role: gfx.RoleOption, Selected: selected, Level: r.level + 1}
 	if r.group {
 		// The toolkit has no tree role, so a group is a button that expands.
 		options = gfx.HitOptions{Role: gfx.RoleButton, Expandable: true, Expanded: r.expanded, Level: r.level + 1}
 	}
-	outer := f.Row().FillWidth().Height(rowHeight).Shrink(0).HitWith(rowScope.At(int(r.page)), title, options)
+	outer := f.Row().FillWidth().Height(rowHeight).Shrink(0).HitWith(rowScope.At(r.hitIndex()), title, options)
 	outer.Children(func() {
 		// The look of the pointer and of the keyboard focus belongs to the highlight, which
 		// follows the hit's state.
@@ -530,7 +601,7 @@ func (w *window) drawRow(f *ui.Frame, r row) {
 		if r.group {
 			toggleGroup(&w.sess.open, r.page, w.query != "")
 		} else {
-			w.sess.page = r.page
+			w.selectSettingsPage(r.page, r.dynamic)
 		}
 	}
 }
@@ -557,10 +628,6 @@ func (w *window) drawRowLead(f *ui.Frame, r row) {
 
 // drawContent is the page beside the sidebar: the breadcrumb above the page itself.
 func (w *window) drawContent(f *ui.Frame) {
-	if w.sess.page != pagePlugins && w.pluginSettings.id != "" {
-		w.pluginSettings.close()
-		w.pluginSettings.id, w.pluginSettings.loaded = "", false
-	}
 	if w.sess.page != pagePlugins && w.market.status == marketLoading {
 		w.market.close()
 	}
@@ -570,6 +637,10 @@ func (w *window) drawContent(f *ui.Frame) {
 			return
 		}
 		w.drawBreadcrumb(f)
+		if w.dynamicPage != "" {
+			w.drawDynamicSettings(f)
+			return
+		}
 		switch {
 		case w.sess.page == pageGeneral:
 			w.drawGeneral(f)
@@ -590,6 +661,9 @@ func (w *window) drawContent(f *ui.Frame) {
 func (w *window) drawBreadcrumb(f *ui.Frame) {
 	p := &w.pal
 	w.crumbs = appendBreadcrumb(w.crumbs[:0], &w.text.Settings, w.sess.page)
+	if page := w.dynamic.selected(w.dynamicPage); page != nil {
+		w.crumbs = append(w.crumbs, page.Title)
+	}
 	f.Row().FillWidth().Height(46).Shrink(0).PadX(contentPad).Gap(6).Items(ui.Center).Background(p.card).Children(func() {
 		for i, crumb := range w.crumbs {
 			if i > 0 {
@@ -851,7 +925,10 @@ func (w *window) ownsEnter(target gfx.ID) bool {
 		return false
 	}
 	if index, ok := target.In(rowScope); ok {
-		return index != int(w.sess.page)
+		if index >= int(pageCount) {
+			return true
+		}
+		return index != int(w.sess.page) || w.dynamicPage != ""
 	}
 	return true
 }
@@ -890,6 +967,9 @@ func (w *window) onKey(event gfx.KeyEvent) gfx.EventResult {
 			return result
 		}
 	}
+	if result := w.contributor.Key(event); result.Handled {
+		return result
+	}
 	// The type-ahead of the language list goes first, as the toolkit asks.
 	if result := w.marketSource.Key(event); result.Handled {
 		return result
@@ -910,7 +990,7 @@ func (w *window) onKey(event gfx.KeyEvent) gfx.EventResult {
 		key = keyEscape
 	}
 	switch decideKey(key, keyContext{
-		selectOpen: w.language.Open || w.marketSource.Open,
+		selectOpen: w.language.Open || w.marketSource.Open || w.contributor.Open,
 		searching:  event.Target == searchID,
 		queryEmpty: w.search.Text() == "",
 		ownsEnter:  w.ownsEnter(event.Target),
@@ -976,6 +1056,9 @@ func (w *window) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 		}
 	}
 	if result := w.marketSource.Wheel(event); result.Handled {
+		return result
+	}
+	if result := w.contributor.Wheel(event); result.Handled {
 		return result
 	}
 	if result := w.language.Wheel(event); result.Handled {

@@ -103133,6 +103133,41 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.pluginSettings.draftLimit",
+      "description": "Dynamic plugin settings: draftLimit",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.sourceChanged",
+      "description": "Dynamic plugin settings: sourceChanged",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.pageUnavailable",
+      "description": "Dynamic plugin settings: pageUnavailable",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.contributor",
+      "description": "Dynamic plugin settings: contributor",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.discardReload",
+      "description": "Dynamic plugin settings: discardReload",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

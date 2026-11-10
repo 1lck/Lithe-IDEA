@@ -43,6 +43,11 @@ type Snapshot struct {
 
 func (s Snapshot) Workspace() string { return s.workspace }
 
+// PreferenceDirectory is the private native storage owner, not view metadata.
+func (s Snapshot) PreferenceDirectory() string { return s.globalRoot }
+
+func (s *Store) PreferenceDirectory() string { return s.globalRoot }
+
 func (s Snapshot) GlobalPath() string { return s.global.Path() }
 func (s Snapshot) ProjectPath() string {
 	if s.workspace == "" {

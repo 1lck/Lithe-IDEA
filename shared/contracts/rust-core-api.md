@@ -7253,3 +7253,33 @@ There is no cross-workspace fallback. An absent match is explicit null; normal
 startup/admission and later function invocation checks remain required.
 The pure selection vector is `shared/fixtures/plugins/settings-function-provider.json`.
 This is an internal desktop command, not a new public plugin host method.
+
+### Dynamic plugin settings surfaces
+
+Internal desktop commands reuse the validated settings v2 manifest. They do not
+add plugin RPCs or admit capabilities. `plugins.settings.catalog` accepts up to
+64 `{manifest, owner: {pluginID, version}, enabled}` records. It validates all
+identities, rejects duplicates and returns deterministic `pages` (up to 512),
+with stable `key`, `kind` (`language` or `buildSystem`), opaque `id`, display
+`title`, and plugin-ID ordered `contributors` (`pluginID`, `version`, `title`,
+`sections`). Sections reference indices in the complete settingsState rows and
+actions. Only enabled contributors create pages; action-only pages are valid.
+Names come from enabled language/build declarations, with opaque ID fallback.
+`settingsState.pages` supplies the same per-plugin placement projections.
+
+`plugins.settings.navigation` accepts at most 576 two-level `items` (512 contributed pages plus 64 host entries) with stable
+`id`, `title`, nullable `parent`, `group`, `expanded`, optional `keywords`, plus
+`query` (at most 1024 bytes). It returns `rows` containing id/title/group/expanded/level.
+Search retains ancestors and expands matching groups; ordering follows input.
+Duplicate IDs, invalid parents and excessive input are rejected.
+
+`plugins.settings.delivery` accepts `scope` (global/project), native equality
+facts `samePreferences`, `sameWorkspace`, `sameVersion`, current `enabled`, and
+at most four declared `effects`. It returns `delivery: {refresh, effects}`.
+Global changes reach matching preference stores and versions; project changes
+additionally require native workspace identity equality. Disabled plugins may
+refresh displayed sources but receive no runtime effects. Effects are sorted
+and deduplicated. No setting values cross windows: receivers read their own
+project layers. Native owners must recheck window/project lifetime on delivery.
+Invalid surface input returns `plugin.settings.invalidSurface`; owner mismatch
+returns `plugin.settings.ownerChanged`. Shared vectors: `shared/fixtures/plugins/settings-surfaces.json`.

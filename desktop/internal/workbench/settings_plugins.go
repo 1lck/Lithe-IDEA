@@ -65,7 +65,7 @@ func (s pluginSettingsSources) Save(ctx context.Context, editor pluginservice.Se
 	// effects still belong to the committed source, independent of page lifetime.
 	if result.Committed {
 		effects := append([]string(nil), result.Effects...)
-		s.app.post(func(a *App) { a.applyPluginSettingsEffects(editor, scope, effects) })
+		err = errors.Join(err, s.app.publishSettings(editor, scope, effects))
 	}
 	return result, err
 }

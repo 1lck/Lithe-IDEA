@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/configfile"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
@@ -42,11 +43,15 @@ type pluginSettingsResult struct {
 type pluginSettingLayout struct {
 	title  string
 	row    int
+	action bool
 	offset float32
 	height float32
 }
 
 type pluginSettingsForm struct {
+	pageKey            string
+	stale              bool
+	staleReported      bool
 	acting             bool
 	actionComplete     bool
 	actionCanceled     bool
@@ -78,6 +83,8 @@ func newPluginSettingsForm(loader PluginSettingsLoader, wake func()) pluginSetti
 }
 
 func (p *pluginSettingsForm) load(id string) {
+	p.stale = false
+	p.staleReported = false
 	p.actionConfirmation = nil
 	p.actionComplete = false
 	p.actionCanceled = false
@@ -141,6 +148,9 @@ func (p *pluginSettingsForm) drain() {
 			if result.err == nil && plan.Kind == "unavailable" {
 				p.actionUnavailable = plan.Reason
 			}
+			if p.stale {
+				p.sourceChanged()
+			}
 			return
 		}
 		p.failed, p.saved = result.err, false
@@ -150,6 +160,9 @@ func (p *pluginSettingsForm) drain() {
 				p.applyScope(0)
 				p.applyScope(1)
 				p.saved = result.err == nil
+				if p.stale {
+					p.sourceChanged()
+				}
 			}
 			// A committed publication without readback invalidates the baseline. Keep
 			// drafts visible, but force Reload before another attempt can publish.
@@ -165,6 +178,9 @@ func (p *pluginSettingsForm) drain() {
 		p.applyScope(0)
 		p.applyScope(1)
 		p.layoutRows()
+		if p.stale {
+			p.sourceChanged()
+		}
 	default:
 	}
 }
@@ -172,7 +188,17 @@ func (p *pluginSettingsForm) drain() {
 func (p *pluginSettingsForm) layoutRows() {
 	p.layout, p.height = nil, 0
 	state := &p.editor.Snapshot.State
-	for _, section := range state.Sections {
+	sections := state.Sections
+	if p.pageKey != "" {
+		sections = nil
+		for _, page := range state.Pages {
+			if page.Key == p.pageKey {
+				sections = page.Sections
+				break
+			}
+		}
+	}
+	for _, section := range sections {
 		if section.Title != "" {
 			p.layout = append(p.layout, pluginSettingLayout{title: section.Title, row: -1, offset: p.height, height: 28})
 			p.height += 28
@@ -188,6 +214,10 @@ func (p *pluginSettingsForm) layoutRows() {
 			}
 			p.layout = append(p.layout, pluginSettingLayout{row: index, offset: p.height, height: height})
 			p.height += height
+		}
+		for _, index := range section.Actions {
+			p.layout = append(p.layout, pluginSettingLayout{row: index, action: true, offset: p.height, height: 44})
+			p.height += 44
 		}
 	}
 }
@@ -282,7 +312,7 @@ func (p *pluginSettingsForm) edits() ([]core.PluginSettingEdit, error) {
 }
 
 func (p *pluginSettingsForm) save() {
-	if p.running || !p.loaded || p.loader == nil {
+	if p.running || p.stale || !p.loaded || p.loader == nil {
 		return
 	}
 	edits, err := p.edits()
@@ -350,4 +380,34 @@ func (p *pluginSettingsForm) act(id string, confirmed bool) {
 			wake()
 		}
 	}()
+}
+
+func (p *pluginSettingsForm) sourceChanged() {
+	if p.id == "" {
+		return
+	}
+	p.stale = true
+	if !p.running && p.hasDraft() && !p.staleReported {
+		p.staleReported = true
+		if p.report != nil {
+			p.report(configfile.ErrConflict)
+		}
+	}
+	// An in-flight save must finish against its captured source. Its own
+	// readback is authoritative; no event can clear another form's draft.
+	if !p.running && !p.hasDraft() {
+		p.load(p.id)
+	}
+}
+
+// Leaving a surface dismisses transient popups, while retaining native input
+// owners and drafts for the next visit to this plugin.
+func (p *pluginSettingsForm) blur() {
+	p.actionConfirmation = nil
+	p.scopeSelect.Open = false
+	for scope := range p.controls {
+		for index := range p.controls[scope] {
+			p.controls[scope][index].selectState.Open = false
+		}
+	}
 }

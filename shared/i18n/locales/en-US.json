@@ -10750,7 +10750,12 @@
     "desktop.pluginSettings.actionProviderUnavailable": "The plugin has no running provider for this action in this project. Start its language or build provider, then try again.",
     "desktop.pluginSettings.actionDisabled": "Enable this plugin before running its actions.",
     "desktop.pluginSettings.actionConfirm": "Run “{action}” in this project? Unsaved settings remain drafts.",
-    "desktop.pluginSettings.actionContinue": "Run action"
+    "desktop.pluginSettings.actionContinue": "Run action",
+    "desktop.pluginSettings.draftLimit": "Save or discard an existing plugin draft before opening another settings form.",
+    "desktop.pluginSettings.sourceChanged": "Settings changed in another window. Your draft is kept; reload before saving.",
+    "desktop.pluginSettings.pageUnavailable": "No enabled plugin currently contributes to this page.",
+    "desktop.pluginSettings.contributor": "Plugin",
+    "desktop.pluginSettings.discardReload": "Discard draft and reload"
   },
   "overrides": {
     "windows": {

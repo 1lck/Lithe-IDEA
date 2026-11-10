@@ -207,3 +207,101 @@ type SettingsActionResult struct {
 	Plan      core.PluginSettingsActionPlan
 	Completed bool
 }
+
+// SettingsOwner returns the private registration identity captured on load.
+// Mutable presentation metadata cannot authorize runtime delivery.
+func (e SettingsEditor) SettingsOwner() core.PluginSettingsOwner {
+	return core.PluginSettingsOwner{PluginID: e.entry.Installed.ID, Version: e.entry.Installed.Version}
+}
+
+// SettingsPages captures a bounded catalog off the window thread. Core owns
+// enabled filtering, placement, grouping, ordering and display-name resolution.
+func (s *Service) SettingsPages(ctx context.Context) ([]core.SettingsPage, error) {
+	kernel, ok := s.kernel.(interface {
+		SettingsPages(context.Context, []core.SettingsContribution) ([]core.SettingsPage, error)
+	})
+	if !ok {
+		return nil, ErrAssembly
+	}
+	entries, err := s.CurrentInstalled(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(entries) > 64 {
+		return nil, errors.New("settings catalog exceeds package read budget")
+	}
+	contributions := make([]core.SettingsContribution, 0, len(entries))
+	var failures []error
+	for _, entry := range entries {
+		manifest, err := configfile.Capture(ctx, entry.Installed.Path, pluginpkg.ManifestFile, MaxManifestBytes)
+		if err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		if _, err := s.kernel.ReadInstalledPluginSettingsState(ctx, manifest.Bytes(), entry.Installed.ID, entry.Installed.Version); err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		contributions = append(contributions, core.SettingsContribution{Manifest: manifest.Bytes(), Owner: core.PluginSettingsOwner{PluginID: entry.Installed.ID, Version: entry.Installed.Version}, Enabled: entry.Enabled})
+	}
+	pages, err := kernel.SettingsPages(ctx, contributions)
+	return pages, errors.Join(append(failures, err)...)
+}
+
+// PlanSettingsDelivery captures native identities off the UI thread and delegates
+// scope/effect policy to Core. It reads no saved values from the source window.
+func (s *Service) PlanSettingsDelivery(ctx context.Context, editor SettingsEditor, scope string, effects []string, workspace string) (core.SettingsDelivery, error) {
+	kernel, ok := s.kernel.(interface {
+		SettingsDelivery(context.Context, core.SettingsDeliveryRequest) (core.SettingsDelivery, error)
+	})
+	if !ok || s.Settings == nil {
+		return core.SettingsDelivery{}, ErrAssembly
+	}
+	sameDirectory := func(left, right string) (bool, error) {
+		if left == "" || right == "" {
+			return false, nil
+		}
+		a, err := settingsPackageDirectoryInfo(ctx, left)
+		if err != nil {
+			return false, err
+		}
+		b, err := settingsPackageDirectoryInfo(ctx, right)
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return os.SameFile(a, b), nil
+	}
+	samePreferences, err := sameDirectory(editor.Snapshot.PreferenceDirectory(), s.Settings.PreferenceDirectory())
+	if err != nil {
+		return core.SettingsDelivery{}, err
+	}
+	// A different store needs no plugin discovery and must not observe its errors.
+	if !samePreferences {
+		return core.SettingsDelivery{}, nil
+	}
+	sameWorkspace := false
+	if scope == "project" && workspace != "" && editor.workspaceIdentity != nil {
+		info, err := settingsPackageDirectoryInfo(ctx, workspace)
+		if err != nil {
+			return core.SettingsDelivery{}, err
+		}
+		sameWorkspace = os.SameFile(editor.workspaceIdentity, info)
+	}
+	entries, err := s.CurrentInstalled(ctx)
+	if err != nil {
+		return core.SettingsDelivery{}, err
+	}
+	owner := editor.SettingsOwner()
+	request := core.SettingsDeliveryRequest{Scope: scope, SamePreferences: samePreferences, SameWorkspace: sameWorkspace, Effects: effects}
+	for _, entry := range entries {
+		if entry.Installed.ID == owner.PluginID {
+			request.SameVersion = entry.Installed.Version == owner.Version
+			request.Enabled = entry.Enabled
+			break
+		}
+	}
+	return kernel.SettingsDelivery(ctx, request)
+}

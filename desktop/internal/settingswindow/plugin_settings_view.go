@@ -26,7 +26,15 @@ var (
 )
 
 func (w *window) drawPluginSettings(f *ui.Frame, id string) {
-	p := &w.pluginSettings
+	if !w.selectPluginForm(id) {
+		f.Wrap(i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.draftLimit")).Color(w.pal.danger)
+		return
+	}
+	p := w.pluginSettings
+	if p.pageKey != w.dynamicPage {
+		p.pageKey = w.dynamicPage
+		p.layoutRows()
+	}
 	if p.loader == nil {
 		return
 	}
@@ -38,13 +46,20 @@ func (w *window) drawPluginSettings(f *ui.Frame, id string) {
 		f.Row().FillWidth().Gap(8).Items(ui.Center).Children(func() {
 			f.Text(i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.title")).FontSize(14).Weight(gfx.WeightSemibold).Color(w.pal.text)
 			f.Spacer()
-			if f.Button(pluginSettingsReload, i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.reload")).Outline().Disabled(p.running).Clicked() {
+			reloadLabel := i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.reload")
+			if p.hasDraft() {
+				reloadLabel = i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.discardReload")
+			}
+			if f.Button(pluginSettingsReload, reloadLabel).Outline().Disabled(p.running).Clicked() {
 				p.load(id)
 			}
-			if f.Button(pluginSettingsSave, i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.save")).Disabled(p.running || !p.loaded || !p.hasDraft()).Clicked() {
+			if f.Button(pluginSettingsSave, i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.save")).Disabled(p.running || p.stale || !p.loaded || !p.hasDraft()).Clicked() {
 				p.save()
 			}
 		})
+		if p.stale {
+			f.Wrap(i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.sourceChanged")).Color(w.pal.danger)
+		}
 		if p.failed != nil {
 			message := i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.failed")
 			var rejection *core.MarketplaceRejection
@@ -88,7 +103,6 @@ func (w *window) drawPluginSettings(f *ui.Frame, id string) {
 		if p.editor.Snapshot.State.PluginID != id || (!p.loaded && len(p.controls[p.scope]) == 0) {
 			return
 		}
-		state := &p.editor.Snapshot.State
 		f.Row().FillWidth().Gap(8).Items(ui.Center).Children(func() {
 			labels := []string{i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.global"), i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.project")}
 			pick := f.Select(pluginSettingsScope, &p.scopeSelect, labels, p.scope).Width(180).Label(i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.scope")).Disabled(p.running || p.hasDraft())
@@ -109,7 +123,7 @@ func (w *window) drawPluginSettings(f *ui.Frame, id string) {
 			f.Wrap(source).FontSize(11).Color(w.pal.muted)
 		}
 		w.drawPluginSettingActions(f)
-		if len(state.Rows) == 0 {
+		if len(p.layout) == 0 {
 			f.Text(i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.empty")).FontSize(12).Color(w.pal.muted)
 			return
 		}
@@ -128,7 +142,9 @@ func (w *window) drawPluginSettings(f *ui.Frame, id string) {
 				f.Row().Height(p.layout[first].offset).Shrink(0)
 			}
 			for _, item := range p.layout[first:last] {
-				if item.row < 0 {
+				if item.action {
+					w.pluginSettingActionRow(f, item.row, item.height)
+				} else if item.row < 0 {
 					f.Row().FillWidth().Height(item.height).Shrink(0).Items(ui.Center).Children(func() { f.Text(item.title).FontSize(13).Weight(gfx.WeightSemibold).Color(w.pal.text) })
 				} else {
 					w.pluginSettingRow(f, item.row, item.height, source != "")
@@ -148,7 +164,7 @@ func (w *window) drawPluginSettings(f *ui.Frame, id string) {
 }
 
 func (w *window) pluginSettingRow(f *ui.Frame, index int, height float32, hasSource bool) {
-	p := &w.pluginSettings
+	p := w.pluginSettings
 	row := &p.editor.Snapshot.State.Rows[index]
 	declaration := &row.Declaration
 	editor := p.editor.Snapshot.State.Editors.Global[index]
@@ -163,15 +179,15 @@ func (w *window) pluginSettingRow(f *ui.Frame, index int, height float32, hasSou
 	f.Column().FillWidth().Height(height).Shrink(0).Gap(5).PadY(8).Children(func() {
 		f.Row().FillWidth().Height(22).Items(ui.Center).Gap(8).Children(func() {
 			f.Text(declaration.Title).FontSize(12).Weight(gfx.WeightSemibold).Color(w.pal.text).Ellipsis()
+			if declaration.Description != "" {
+				w.infoButton(f, 1000+index, declaration.Description)
+			}
 			f.Spacer()
 			if f.Button(pluginSettingRows.At(base+1), i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.reset")).Outline().Disabled(disabled).Clicked() {
 				control.apply(editor.ResetInput)
 				control.reset = true
 			}
 		})
-		if declaration.Description != "" {
-			f.Text(declaration.Description).FontSize(11).Color(w.pal.muted).Ellipsis()
-		}
 		switch declaration.Kind {
 		case "boolean":
 			if f.Switch(pluginSettingRows.At(base), control.input.On).Label(declaration.Title).Disabled(disabled).Clicked() {
@@ -232,7 +248,7 @@ func (w *window) pluginSettingRow(f *ui.Frame, index int, height float32, hasSou
 }
 
 func (w *window) pickPluginSettingPath(index int) {
-	p := &w.pluginSettings
+	p := w.pluginSettings
 	declaration := p.editor.Snapshot.State.Rows[index].Declaration
 	var path string
 	var err error
@@ -267,7 +283,7 @@ func (w *window) pluginSettingsTextInput(context app.TextInputContext) *app.Text
 	if input := ui.Fields(&w.search, &w.marketQuery)(context); input != nil {
 		return input
 	}
-	p := &w.pluginSettings
+	p := w.pluginSettings
 	if p.running || !p.loaded || (p.scope == 1 && p.editor.Snapshot.Workspace() == "") {
 		return nil
 	}

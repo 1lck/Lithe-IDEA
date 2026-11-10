@@ -117,6 +117,7 @@ type PluginSettingsEditors struct {
 
 // PluginSettingsState is a read-only projection, not permission to start a plugin.
 type PluginSettingsState struct {
+	Pages           []SettingsPage             `json:"pages"`
 	PluginID        string                     `json:"pluginID"`
 	Metadata        PluginSettingsMetadata     `json:"metadata"`
 	Sections        []PluginSettingsSection    `json:"sections"`
@@ -185,7 +186,11 @@ func (c *Client) readPluginSettingsState(ctx context.Context, manifest json.RawM
 	if state.Metadata.DisplayName == "" || state.Metadata.Version == "" || len(state.Editors.Global) != len(state.Rows) || len(state.Editors.Project) != len(state.Rows) {
 		return PluginSettingsState{}, newParseError(command, "invalid editor projection", "")
 	}
-	for _, section := range state.Sections {
+	sections := append([]PluginSettingsSection(nil), state.Sections...)
+	for _, page := range state.Pages {
+		sections = append(sections, page.Sections...)
+	}
+	for _, section := range sections {
 		for _, row := range section.Rows {
 			if row < 0 || row >= len(state.Rows) {
 				return PluginSettingsState{}, newParseError(command, "invalid editor row reference", "")

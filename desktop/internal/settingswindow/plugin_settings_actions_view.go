@@ -13,7 +13,7 @@ var (
 )
 
 func (w *window) drawPluginSettingActions(f *ui.Frame) {
-	p := &w.pluginSettings
+	p := w.pluginSettings
 	if _, ok := p.loader.(PluginSettingsActionLoader); !ok {
 		return
 	}
@@ -50,12 +50,20 @@ func (w *window) drawPluginSettingActions(f *ui.Frame) {
 			}
 		})
 	}
-	for index, action := range p.editor.Snapshot.State.Actions {
+}
+
+func (w *window) pluginSettingActionRow(f *ui.Frame, index int, height float32) {
+	p := w.pluginSettings
+	if _, ok := p.loader.(PluginSettingsActionLoader); !ok {
+		return
+	}
+	action := p.editor.Snapshot.State.Actions[index]
+	f.Row().FillWidth().Height(height).Shrink(0).Gap(8).Items(ui.Center).Children(func() {
 		if f.Button(pluginSettingActions.At(index), action.Title).Outline().Disabled(p.running || !p.loaded).Clicked() {
 			p.act(action.ID, false)
 		}
 		if action.Description != "" {
-			f.Wrap(action.Description).FontSize(11).Color(w.pal.muted)
+			w.infoButton(f, 2000+index, action.Description)
 		}
-	}
+	})
 }

@@ -5,33 +5,30 @@ import (
 	"errors"
 	"time"
 
-	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
 
 // applyPluginSettingsEffects runs on the workbench window after publication.
 // Effects come from Core; this adapter only dispatches native session/model I/O.
 // It never starts a process merely because a preference was saved.
-func (a *App) applyPluginSettingsEffects(editor pluginservice.SettingsEditor, scope string, effects []string) {
+func (a *App) applyPluginSettingsEffects(owner core.PluginSettingsOwner, effects []string) {
 	p := a.project
 	if p == nil || a.plugins == nil {
 		return
 	}
-	if scope == "project" && editor.Snapshot.Workspace() != p.root {
-		return
-	}
-	id := editor.Snapshot.State.PluginID
+	id := owner.PluginID
 	for _, effect := range effects {
 		switch effect {
 		case "restart":
 			a.pluginServerMu.Lock()
 			server := a.pluginServers[id]
-			running := server != nil && server.project == p && server.session != nil && server.session.Version == editor.Snapshot.State.Metadata.Version
+			running := server != nil && server.project == p && server.session != nil && server.session.Version == owner.Version
 			a.pluginServerMu.Unlock()
 			if running {
 				a.pluginSettingsRestart.Store(id, true)
 			}
 		case "immediate":
-			a.applyLivePluginSettings(p, id, editor.Snapshot.State.Metadata.Version)
+			a.applyLivePluginSettings(p, id, owner.Version)
 		case "reload":
 			a.reloadPluginBuildModels(p, id)
 		}

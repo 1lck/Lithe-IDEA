@@ -20,7 +20,21 @@ import (
 // the workbench, both of which only queue the work for the workbench's window thread.
 func (a *App) newSettingsWindow() *settingswindow.Controller {
 	service := marketplace.New(a.kernel, nil)
+	var navigation func(context.Context, []core.SettingsNavigationItem, string) ([]core.SettingsNavigationRow, error)
+	if kernel, ok := a.kernel.(interface {
+		SettingsNavigation(context.Context, []core.SettingsNavigationItem, string) ([]core.SettingsNavigationRow, error)
+	}); ok {
+		navigation = kernel.SettingsNavigation
+	}
 	return settingswindow.NewController(settingswindow.Options{
+		SettingsError:      func(err error) { (settingsToolchains{app: a}).recordFailure("plugin_settings_surface", err) },
+		SettingsNavigation: navigation,
+		SettingsPages: func(ctx context.Context) ([]core.SettingsPage, error) {
+			if a.plugins == nil {
+				return nil, nil
+			}
+			return a.plugins.SettingsPages(ctx)
+		},
 		MarketplaceRank: a.kernel.RankNames,
 		PluginRuntime:   a.pluginSettingsRuntime,
 		RestartPlugin: func(id, version, scope, workspace string) {

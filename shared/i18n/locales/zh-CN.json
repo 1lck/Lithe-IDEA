@@ -10750,7 +10750,12 @@
     "desktop.pluginSettings.actionProviderUnavailable": "此项目中没有可执行该操作的插件提供方会话。请启动其语言或构建提供方后重试。",
     "desktop.pluginSettings.actionDisabled": "请先启用插件，再执行其操作。",
     "desktop.pluginSettings.actionConfirm": "在此项目中执行“{action}”？未保存的设置仍保留为草稿。",
-    "desktop.pluginSettings.actionContinue": "执行操作"
+    "desktop.pluginSettings.actionContinue": "执行操作",
+    "desktop.pluginSettings.draftLimit": "请先保存或放弃已有插件草稿，再打开其他设置表单。",
+    "desktop.pluginSettings.sourceChanged": "设置已在其他窗口更改。草稿已保留；请重新加载后再保存。",
+    "desktop.pluginSettings.pageUnavailable": "当前没有已启用的插件向此页提供设置。",
+    "desktop.pluginSettings.contributor": "插件",
+    "desktop.pluginSettings.discardReload": "放弃草稿并重新加载"
   },
   "overrides": {
     "macos": {

@@ -87,6 +87,9 @@ type PluginSettingsActionLoader interface {
 
 // Options configure the settings window.
 type Options struct {
+	SettingsError      func(error)
+	SettingsPages      func(context.Context) ([]core.SettingsPage, error)
+	SettingsNavigation func(context.Context, []core.SettingsNavigationItem, string) ([]core.SettingsNavigationRow, error)
 	// Marketplace fetches the enabled source only while the plugin page is open.
 	Marketplace func(context.Context) (marketplace.Snapshot, error)
 	// MarketplaceOfficial fetches the separately validated official source.
@@ -272,6 +275,21 @@ func (c *Controller) PluginRegistryChanged() {
 	defer c.mu.Unlock()
 	if c.current != nil {
 		c.current.pluginRegistryChanged.Store(true)
+		c.current.inv.Invalidate()
+	}
+}
+
+// PluginSettingsChanged refreshes only clean forms; dirty drafts retain their
+// captured baseline and display a conflict until explicitly reloaded.
+func (c *Controller) PluginSettingsChanged(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.current != nil {
+		select {
+		case c.current.settingsNotices <- id:
+		default:
+			c.current.settingsChanged.Store(true)
+		}
 		c.current.inv.Invalidate()
 	}
 }
