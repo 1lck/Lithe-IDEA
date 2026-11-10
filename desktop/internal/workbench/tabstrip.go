@@ -254,7 +254,7 @@ func (a *App) tabBar(c ui.C, place *groupPlace, layout tabLayout, buttons func()
 	a.stripReveal(s, current, tabs)
 	hiddenNow := a.stripHidden(s, tabs)
 
-	ui.Row(c).Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(chromeGap).Grow(1).Children(func() {
+	ui.Row(c).Height(panelHeaderHeight).Shrink(1).MinWidth(0).Items(ui.Center).Gap(chromeGap).Grow(1).Children(func() {
 		view := ui.List(c, &s.list, 1, func(row ui.ListRow) {
 			row.Element.FillWidth().Height(panelHeaderHeight).Items(ui.Center).Gap(chromeGap).Children(func() {
 				for i, t := range tabs {

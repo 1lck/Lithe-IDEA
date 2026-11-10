@@ -1,6 +1,8 @@
 package workbench
 
 import (
+	"strconv"
+
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -129,10 +131,12 @@ func (a *App) softWrapSwitch(c ui.C) {
 // view paints into it and takes keys, pointer, wheel and typing through the document's
 // handlers (see documentInput).
 func (a *App) documentView(c ui.C, group string, d *document) {
-	k := c.KeyInt(d.id)
-	d.hit = ui.ID(k)
+	// A part names the next element only, so it is given again for the control: its identity is
+	// the one the view paints its hits under.
+	name := "doc" + strconv.Itoa(d.id)
+	d.hit = ui.ID(c.Part(name))
 	d.group = group
-	box := ui.Control(k, d.name, &d.input).Fill().Draw(d.draw)
+	box := ui.Control(c.Part(name), d.name, &d.input).Fill().Draw(d.draw)
 	ui.FocusBind(box, &a.focus, focusTarget{doc: d.id})
 }
 
@@ -203,9 +207,9 @@ func (a *App) documentPointer(p *project, d *document, event gfx.PointerEvent) g
 // it. The terminal paints into it and takes keys, pointer, wheel and typing through its
 // handlers (see terminalInput).
 func (a *App) terminalView(c ui.C, t *terminal) {
-	k := c.KeyInt(t.id)
-	t.hit = ui.ID(k)
-	box := ui.Control(k, a.text.Terminal.Label, &t.input).Fill().Draw(t.draw)
+	name := "term" + strconv.Itoa(t.id)
+	t.hit = ui.ID(c.Part(name))
+	box := ui.Control(c.Part(name), a.text.Terminal.Label, &t.input).Fill().Draw(t.draw)
 	ui.FocusBind(box, &a.focus, focusTarget{term: t.id})
 }
 
@@ -315,9 +319,21 @@ func (a *App) onShortcut(event gfx.KeyEvent) gfx.EventResult {
 	return gfx.EventResult{}
 }
 
-// onKey is the window's base handler of keys: the arrow keys of a splitter that has the
-// keyboard, which a Page does not route to the splitter.
+// onKey is the window's base handler of keys: what a Page leaves to it. That is the arrow keys
+// of a splitter that has the keyboard, which a Page does not route to the splitter, and the
+// keys of the dialogs that move a selection of their own while a field has the keyboard.
 func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
+	// A language popup closes on Escape and takes the arrows whatever has the keyboard, and a
+	// Search Everywhere that is open takes its arrows and Enter from its query field.
+	defer a.pluginSemanticsCaretSync()
+	if result := a.pluginSemanticsKey(event); result.Handled {
+		return result
+	}
+	if a.project != nil && a.everywhereView.open {
+		if result := a.everywhereKey(a.project, event); result.Handled {
+			return result
+		}
+	}
 	if event.Release {
 		return gfx.EventResult{}
 	}
@@ -368,6 +384,26 @@ func (n *splitNode) key(event gfx.KeyEvent) gfx.EventResult {
 func (a *App) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 	if p := a.project; p != nil {
 		return p.tree.wheel(event)
+	}
+	return gfx.EventResult{}
+}
+
+// verticalWheel adjusts a wheel turn for the lists and the trees of the page: Viva's List
+// scrolls sideways by any horizontal part of a swipe, so one that is mostly vertical loses
+// its horizontal part, as the lists of the tool windows always did. The editor and the
+// terminals are given the wheel as it came.
+func verticalWheel(event *gfx.ScrollEvent) {
+	if event.Modifiers&gfx.ModifierShift == 0 && max(event.DeltaX, -event.DeltaX) < max(event.DeltaY, -event.DeltaY) {
+		event.DeltaX = 0
+	}
+}
+
+// onPointer is the window's base handler of the pointer: a pointer that leaves the window
+// closes the hover popup of the editor, which no control sees leave.
+func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
+	if event.Kind == gfx.PointerExit {
+		a.closeSemanticHover()
+		a.cancelSemanticKind(pluginSemanticHover)
 	}
 	return gfx.EventResult{}
 }

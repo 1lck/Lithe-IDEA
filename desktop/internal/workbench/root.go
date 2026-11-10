@@ -45,6 +45,7 @@ func (a *App) Config() app.Config {
 		OnKey:      a.onKey,
 		OnShortcut: a.onShortcut,
 		OnScroll:   a.onScroll,
+		OnPointer:  a.onPointer,
 	}
 	background := a.colors.Chrome
 	a.root = ui.NewPage(ui.PageConfig{
@@ -52,6 +53,13 @@ func (a *App) Config() app.Config {
 		Theme: &a.theme, Background: &background, Invalidator: &a.invalidator,
 	})
 	config := a.root.Config(base)
+	wheel := config.OnScroll
+	config.OnScroll = func(event gfx.ScrollEvent) gfx.EventResult {
+		if a.focusedDocument(event.Target) == nil && a.focusedTerminal(event.Target) == nil {
+			verticalWheel(&event)
+		}
+		return wheel(event)
+	}
 	paint := config.Paint
 	config.Paint = func(canvas *gfx.Canvas, size gfx.Size) {
 		a.beginPaint(canvas)
@@ -83,15 +91,24 @@ func (a *App) beginPaint(canvas *gfx.Canvas) {
 // endPaint settles what the paint declared.
 func (a *App) endPaint() { a.endTerminalFrame() }
 
-// page declares the window.
+// page declares the window: one stack, so what is declared after the workbench lies over it
+// and an overlay that hangs off a point of the window is placed against the whole window.
 func (a *App) page(c ui.C) {
-	if a.project == nil {
-		a.welcomePanel(c)
+	ui.Stack(c).Fill().Children(func() {
+		if a.project == nil {
+			a.welcomePanel(c)
+		} else {
+			a.workbench(c)
+		}
 		a.windowShortcuts(c)
 		a.overlays(c)
 		ui.Toasts(c, &a.overlay.toaster)
-		return
-	}
+	})
+}
+
+// workbench declares the window of an open project: the title bar over the stripes and the
+// main column, over the status bar.
+func (a *App) workbench(c ui.C) {
 	// A copy: a click on a stripe button changes a.chrome while this paint is still being
 	// declared, and the panels must be declared for the same tool windows the sizes were
 	// worked out for.
@@ -119,9 +136,6 @@ func (a *App) page(c ui.C) {
 	if hidden != slotCount {
 		c.After(func() { a.hidePanel(hidden) })
 	}
-	a.windowShortcuts(c)
-	a.overlays(c)
-	ui.Toasts(c, &a.overlay.toaster)
 }
 
 // windowShortcuts declares the window's own chords: Command-comma opens the settings,
