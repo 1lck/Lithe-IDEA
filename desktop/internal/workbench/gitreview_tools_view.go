@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/ui"
 )
@@ -19,22 +20,22 @@ var pushTagIndexes = []int{0, 1, 2}
 // menu that opens the Push dialog and the stash, worktree and repository tools.
 func (a *App) drawGitReviewMenu(c ui.C, p *project) {
 	r := &a.reviewMenu
-	button, clicked := a.gitToolButton(c, a.reviewText("desktop.gitReview.menuLabel"), icons.Ellipsis, r.open, !p.git.isRepository())
+	button, clicked := a.gitToolButton(c, i18n.Shared(a.language(), "desktop.gitReview.menuLabel"), icons.Ellipsis, r.open, !p.git.isRepository())
 	if clicked {
 		r.open = !r.open
 	}
 	ui.Menu(c, button, &r.open, func(menu *ui.MenuItems) {
 		menu.WidthRange(240, 320)
-		if menu.Item(a.reviewText("git.contextMenu.push")).Clicked() {
+		if menu.Item(i18n.Shared(a.language(), "git.contextMenu.push")).Clicked() {
 			c.After(func() { a.openPush(p) })
 		}
-		if menu.Item(a.reviewText("git.saved.stashes")).Clicked() {
+		if menu.Item(i18n.Shared(a.language(), "git.saved.stashes")).Clicked() {
 			c.After(func() { a.openTools(p, toolsStashes) })
 		}
-		if menu.Item(a.reviewText("git.worktrees")).Clicked() {
+		if menu.Item(i18n.Shared(a.language(), "git.worktrees")).Clicked() {
 			c.After(func() { a.openTools(p, toolsWorktrees) })
 		}
-		if menu.Item(a.reviewText("git.repositories")).Clicked() {
+		if menu.Item(i18n.Shared(a.language(), "git.repositories")).Clicked() {
 			c.After(func() { a.openTools(p, toolsRepositories) })
 		}
 	})
@@ -48,13 +49,13 @@ type reviewMenuState struct{ open bool }
 // progress while the push runs.
 func (a *App) drawPushDialog(c ui.C, p *project) {
 	s := &p.review.push
-	title := a.reviewFormat("git.pushDialog.title", map[string]string{"repository": p.name})
+	title := i18n.SharedFormat(a.language(), "git.pushDialog.title", map[string]string{"repository": p.name})
 	open := true
-	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: 640, Height: 480, Description: a.reviewText("git.pushDialog.description")}, func() {
+	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: 640, Height: 480, Description: i18n.Shared(a.language(), "git.pushDialog.description")}, func() {
 		ui.Column(c).Fill().Gap(8).Children(func() {
 			switch {
 			case s.loading && !s.hasPrev:
-				a.gitEmpty(c, a.reviewText("git.pushDialog.loading"))
+				a.gitEmpty(c, i18n.Shared(a.language(), "git.pushDialog.loading"))
 				return
 			case s.err != "":
 				ui.Paragraph(c, s.err, 4).Color(a.theme.Danger)
@@ -67,7 +68,7 @@ func (a *App) drawPushDialog(c ui.C, p *project) {
 				ui.Text(c, "→").Muted().Shrink(0)
 				ui.Text(c, destination).Ellipsis().Shrink(1)
 				if pv.CreatesRemoteBranch {
-					ui.Text(c, a.reviewText("git.pushDialog.createsRemoteBranch")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Accent).Shrink(0)
+					ui.Text(c, i18n.Shared(a.language(), "git.pushDialog.createsRemoteBranch")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Accent).Shrink(0)
 				}
 			})
 			if pv.TargetKind == "divergent" {
@@ -75,21 +76,21 @@ func (a *App) drawPushDialog(c ui.C, p *project) {
 				if pv.Upstream != nil {
 					upstream = *pv.Upstream
 				}
-				ui.Paragraph(c, a.reviewFormat("git.pushDialog.divergentWarning", map[string]string{"branch": pv.LocalBranch, "upstream": upstream}), 3).
+				ui.Paragraph(c, i18n.SharedFormat(a.language(), "git.pushDialog.divergentWarning", map[string]string{"branch": pv.LocalBranch, "upstream": upstream}), 3).
 					FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Warning)
 				ui.Row(c).FillWidth().Shrink(0).Gap(8).Children(func() {
 					publish := s.target == core.PushTargetPublish
-					if ui.Checkbox(c, &publish, a.reviewFormat("git.pushDialog.publishSameName", map[string]string{"remote": pv.Remote, "branch": pv.LocalBranch})).Disabled(s.busy).Clicked() {
+					if ui.Checkbox(c, &publish, i18n.SharedFormat(a.language(), "git.pushDialog.publishSameName", map[string]string{"remote": pv.Remote, "branch": pv.LocalBranch})).Disabled(s.busy).Clicked() {
 						c.After(func() { s.target = core.PushTargetPublish; a.loadPush(p) })
 					}
 					toUpstream := s.target == core.PushTargetUpstream
-					if ui.Checkbox(c, &toUpstream, a.reviewFormat("git.pushDialog.pushToUpstream", map[string]string{"branch": upstream})).Disabled(s.busy).Clicked() {
+					if ui.Checkbox(c, &toUpstream, i18n.SharedFormat(a.language(), "git.pushDialog.pushToUpstream", map[string]string{"branch": upstream})).Disabled(s.busy).Clicked() {
 						c.After(func() { s.target = core.PushTargetUpstream; a.loadPush(p) })
 					}
 				})
 			}
 			if len(pv.Commits) == 0 && !pv.CreatesRemoteBranch {
-				ui.Text(c, a.reviewText("git.pushDialog.noCommits")).Muted()
+				ui.Text(c, i18n.Shared(a.language(), "git.pushDialog.noCommits")).Muted()
 			}
 			size := a.theme.Metrics.FontSizeS
 			ui.Scroll(c).Grow(1).FillWidth().Children(func() {
@@ -101,26 +102,26 @@ func (a *App) drawPushDialog(c ui.C, p *project) {
 					})
 				}
 				if pv.HasMore {
-					ui.Text(c, a.reviewText("git.pushDialog.moreCommits")).FontSize(size).Muted()
+					ui.Text(c, i18n.Shared(a.language(), "git.pushDialog.moreCommits")).FontSize(size).Muted()
 				}
 			})
 			ui.Row(c).FillWidth().Shrink(0).Items(ui.Center).Gap(8).Children(func() {
-				ui.Text(c, a.reviewText("git.pushDialog.pushTags")).Shrink(0)
-				names := []string{a.text.Sync.TagsNone, a.reviewText("git.pushDialog.tagsReachable"), a.reviewText("git.pushDialog.tagsAll")}
+				ui.Text(c, i18n.Shared(a.language(), "git.pushDialog.pushTags")).Shrink(0)
+				names := []string{a.text.Sync.TagsNone, i18n.Shared(a.language(), "git.pushDialog.tagsReachable"), i18n.Shared(a.language(), "git.pushDialog.tagsAll")}
 				before := s.tags
-				ui.Select(c, &s.tags, pushTagIndexes, func(i int) string { return names[i] }).Label(a.reviewText("git.pushDialog.pushTags")).Disabled(s.busy)
+				ui.Select(c, &s.tags, pushTagIndexes, func(i int) string { return names[i] }).Label(i18n.Shared(a.language(), "git.pushDialog.pushTags")).Disabled(s.busy)
 				if s.tags != before {
 					c.After(func() { a.loadPush(p) })
 				}
 				ui.Spacer(c)
-				ui.Checkbox(c, &s.force, a.reviewText("git.pushDialog.forcePush")).Disabled(s.busy)
+				ui.Checkbox(c, &s.force, i18n.Shared(a.language(), "git.pushDialog.forcePush")).Disabled(s.busy)
 			})
 			if s.force {
-				ui.Paragraph(c, a.reviewText("git.pushDialog.forcePushHint"), 3).FontSize(size).Color(a.colors.Warning)
+				ui.Paragraph(c, i18n.Shared(a.language(), "git.pushDialog.forcePushHint"), 3).FontSize(size).Color(a.colors.Warning)
 			}
 			if s.busy {
 				ui.Row(c).FillWidth().Shrink(0).Items(ui.Center).Gap(8).Children(func() {
-					ui.Text(c, a.reviewText("git.pushing")).Shrink(0)
+					ui.Text(c, i18n.Shared(a.language(), "git.pushing")).Shrink(0)
 					if words := a.syncProgressWords(&p.log.sync); words != "" {
 						ui.Text(c, words).FontSize(size).Color(a.colors.Subtle).Ellipsis().Shrink(1)
 					}
@@ -137,12 +138,12 @@ func (a *App) drawPushDialog(c ui.C, p *project) {
 			}
 			return
 		}
-		if ui.Button(c, a.reviewText("desktop.gitReview.cancel")).Outline().Clicked() {
+		if ui.Button(c, i18n.Shared(a.language(), "desktop.gitReview.cancel")).Outline().Clicked() {
 			open = false
 		}
-		label := a.reviewText("git.push")
+		label := i18n.Shared(a.language(), "git.push")
 		if s.force {
-			label = a.reviewText("git.pushDialog.forcePush")
+			label = i18n.Shared(a.language(), "git.pushDialog.forcePush")
 		}
 		btn := ui.Button(c, label).Disabled(!s.canPush())
 		if s.force {
@@ -164,16 +165,16 @@ var toolsTabs = []toolsTab{toolsStashes, toolsWorktrees, toolsRepositories}
 func (a *App) drawToolsDialog(c ui.C, p *project) {
 	t := &p.review.tools
 	open := true
-	closed := ui.ModalWith(c, &open, a.reviewText("desktop.gitReview.manageTitle"), ui.ModalSpec{Width: 720, Height: 520}, func() {
+	closed := ui.ModalWith(c, &open, i18n.Shared(a.language(), "desktop.gitReview.manageTitle"), ui.ModalSpec{Width: 720, Height: 520}, func() {
 		ui.Column(c).Fill().Gap(8).Children(func() {
 			ui.Tabs(c, &t.tab, toolsTabs, func(tab toolsTab) string {
 				switch tab {
 				case toolsWorktrees:
-					return a.reviewText("git.worktrees")
+					return i18n.Shared(a.language(), "git.worktrees")
 				case toolsRepositories:
-					return a.reviewText("git.repositories")
+					return i18n.Shared(a.language(), "git.repositories")
 				}
-				return a.reviewText("git.saved.stashes")
+				return i18n.Shared(a.language(), "git.saved.stashes")
 			})
 			for _, problem := range []string{t.err, t.writeErr} {
 				if problem != "" {
@@ -190,10 +191,10 @@ func (a *App) drawToolsDialog(c ui.C, p *project) {
 			}
 		})
 	}, func() {
-		if ui.Button(c, a.reviewText("desktop.gitReview.refresh")).Outline().Disabled(t.busy || t.loading).Clicked() {
+		if ui.Button(c, i18n.Shared(a.language(), "desktop.gitReview.refresh")).Outline().Disabled(t.busy || t.loading).Clicked() {
 			c.After(func() { a.loadTools(p) })
 		}
-		if ui.Button(c, a.reviewText("desktop.gitReview.close")).Outline().Clicked() {
+		if ui.Button(c, i18n.Shared(a.language(), "desktop.gitReview.close")).Outline().Clicked() {
 			open = false
 		}
 	})
@@ -208,15 +209,15 @@ func (a *App) drawStashesTab(c ui.C, p *project) {
 	t := &p.review.tools
 	size := a.theme.Metrics.FontSizeS
 	ui.Row(c).FillWidth().Shrink(0).Items(ui.Center).Gap(8).Children(func() {
-		submitted := ui.TextField(c, &t.stashMessage, a.reviewText("git.stashMessage"), a.reviewText("git.stashMessage")).Grow(1).Submitted()
-		ui.Checkbox(c, &t.untracked, a.reviewText("git.saved.untracked")).Disabled(t.busy)
-		stash := ui.Button(c, a.reviewText("desktop.gitReview.stashPush")).Disabled(t.busy).Clicked() || submitted
+		submitted := ui.TextField(c, &t.stashMessage, i18n.Shared(a.language(), "git.stashMessage"), i18n.Shared(a.language(), "git.stashMessage")).Grow(1).Submitted()
+		ui.Checkbox(c, &t.untracked, i18n.Shared(a.language(), "git.saved.untracked")).Disabled(t.busy)
+		stash := ui.Button(c, i18n.Shared(a.language(), "desktop.gitReview.stashPush")).Disabled(t.busy).Clicked() || submitted
 		if stash && !t.busy {
 			c.After(func() { a.stashChanges(p) })
 		}
 	})
 	if len(t.stashes) == 0 {
-		a.gitEmpty(c, a.reviewText("git.noStashes"))
+		a.gitEmpty(c, i18n.Shared(a.language(), "git.noStashes"))
 		return
 	}
 	ui.List(c, &t.stashList, len(t.stashes), func(row ui.ListRow) {
@@ -227,21 +228,21 @@ func (a *App) drawStashesTab(c ui.C, p *project) {
 				ui.Text(row.C, stash.Date).FontSize(size).Color(a.colors.Subtle).Ellipsis()
 			})
 			if t.dropping == stash.OID {
-				if ui.Button(row.C, a.reviewText("git.dropStash")).Destructive().Disabled(t.busy).Clicked() {
+				if ui.Button(row.C, i18n.Shared(a.language(), "git.dropStash")).Destructive().Disabled(t.busy).Clicked() {
 					c.After(func() { a.stashAction(p, stash, "drop") })
 				}
-				if ui.Button(row.C, a.reviewText("desktop.gitReview.cancel")).Outline().Clicked() {
+				if ui.Button(row.C, i18n.Shared(a.language(), "desktop.gitReview.cancel")).Outline().Clicked() {
 					c.After(func() { t.dropping = "" })
 				}
 				return
 			}
-			if ui.Button(row.C, a.reviewText("git.applyStash")).Ghost().Disabled(t.busy).Clicked() {
+			if ui.Button(row.C, i18n.Shared(a.language(), "git.applyStash")).Ghost().Disabled(t.busy).Clicked() {
 				c.After(func() { a.stashAction(p, stash, "apply") })
 			}
-			if ui.Button(row.C, a.reviewText("git.popStash")).Ghost().Disabled(t.busy).Clicked() {
+			if ui.Button(row.C, i18n.Shared(a.language(), "git.popStash")).Ghost().Disabled(t.busy).Clicked() {
 				c.After(func() { a.stashAction(p, stash, "pop") })
 			}
-			if ui.Button(row.C, a.reviewText("git.dropStash")).Ghost().Disabled(t.busy).Clicked() {
+			if ui.Button(row.C, i18n.Shared(a.language(), "git.dropStash")).Ghost().Disabled(t.busy).Clicked() {
 				c.After(func() { t.dropping = stash.OID })
 			}
 		})
@@ -252,9 +253,9 @@ func (a *App) drawStashesTab(c ui.C, p *project) {
 func (a *App) worktreeBranch(tree core.GitWorktree) string {
 	switch {
 	case tree.IsBare:
-		return a.reviewText("git.worktreeDialog.bare")
+		return i18n.Shared(a.language(), "git.worktreeDialog.bare")
 	case tree.Branch == nil:
-		return a.reviewText("desktop.gitReview.detached")
+		return i18n.Shared(a.language(), "desktop.gitReview.detached")
 	}
 	name := *tree.Branch
 	const prefix = "refs/heads/"
@@ -270,20 +271,20 @@ func (a *App) drawWorktreesTab(c ui.C, p *project) {
 	t := &p.review.tools
 	size := a.theme.Metrics.FontSizeS
 	ui.Row(c).FillWidth().Shrink(0).Items(ui.Center).Gap(8).Children(func() {
-		ui.TextField(c, &t.branchName, a.reviewText("git.worktreeDialog.branchName"), a.reviewText("git.worktreeDialog.branchName")).Width(200).Shrink(0)
-		ui.TextField(c, &t.destination, a.reviewText("git.worktreeDialog.destination"), a.reviewText("git.worktreeDialog.destination")).Grow(1)
+		ui.TextField(c, &t.branchName, i18n.Shared(a.language(), "git.worktreeDialog.branchName"), i18n.Shared(a.language(), "git.worktreeDialog.branchName")).Width(200).Shrink(0)
+		ui.TextField(c, &t.destination, i18n.Shared(a.language(), "git.worktreeDialog.destination"), i18n.Shared(a.language(), "git.worktreeDialog.destination")).Grow(1)
 		ready := !t.busy && t.branchName.Text() != "" && t.destination.Text() != ""
-		if ui.Button(c, a.reviewText("git.newWorktree")).Disabled(!ready).Clicked() {
+		if ui.Button(c, i18n.Shared(a.language(), "git.newWorktree")).Disabled(!ready).Clicked() {
 			c.After(func() { a.createWorktree(p) })
 		}
 	})
 	if hasPrunable(t.worktrees) {
-		if ui.Button(c, a.reviewText("desktop.gitReview.prune")).Outline().Disabled(t.busy).Clicked() {
+		if ui.Button(c, i18n.Shared(a.language(), "desktop.gitReview.prune")).Outline().Disabled(t.busy).Clicked() {
 			c.After(func() { a.worktreeAction(p, core.GitWorktree{}, "prune") })
 		}
 	}
 	if len(t.worktrees) == 0 {
-		a.gitEmpty(c, a.reviewText("git.noWorktreesFound"))
+		a.gitEmpty(c, i18n.Shared(a.language(), "git.noWorktreesFound"))
 		return
 	}
 	ui.List(c, &t.treeList, len(t.worktrees), func(row ui.ListRow) {
@@ -292,13 +293,13 @@ func (a *App) drawWorktreesTab(c ui.C, p *project) {
 			ui.Column(row.C).Grow(1).Shrink(1).Children(func() {
 				name := a.worktreeBranch(tree)
 				if tree.IsPrimary {
-					name += " · " + a.reviewText("git.worktreeDialog.primary")
+					name += " · " + i18n.Shared(a.language(), "git.worktreeDialog.primary")
 				}
 				if tree.IsLocked {
-					name += " · " + a.reviewText("git.worktreeDialog.locked")
+					name += " · " + i18n.Shared(a.language(), "git.worktreeDialog.locked")
 				}
 				if tree.IsPrunable {
-					name += " · " + a.reviewText("git.worktreeDialog.missing")
+					name += " · " + i18n.Shared(a.language(), "git.worktreeDialog.missing")
 				}
 				ui.Text(row.C, name).Ellipsis()
 				ui.Text(row.C, filepath.FromSlash(tree.Path)).FontSize(size).Color(a.colors.Subtle).Ellipsis()
@@ -307,27 +308,27 @@ func (a *App) drawWorktreesTab(c ui.C, p *project) {
 				return
 			}
 			if t.removing == tree.Path {
-				if ui.Button(row.C, a.reviewText("git.worktreeDialog.remove")).Destructive().Disabled(t.busy).Clicked() {
+				if ui.Button(row.C, i18n.Shared(a.language(), "git.worktreeDialog.remove")).Destructive().Disabled(t.busy).Clicked() {
 					c.After(func() { a.worktreeAction(p, tree, "remove") })
 				}
-				if ui.Button(row.C, a.reviewText("desktop.gitReview.cancel")).Outline().Clicked() {
+				if ui.Button(row.C, i18n.Shared(a.language(), "desktop.gitReview.cancel")).Outline().Clicked() {
 					c.After(func() { t.removing = "" })
 				}
 				return
 			}
-			lock, action := a.reviewText("desktop.gitReview.lock"), "lock"
+			lock, action := i18n.Shared(a.language(), "desktop.gitReview.lock"), "lock"
 			if tree.IsLocked {
-				lock, action = a.reviewText("desktop.gitReview.unlock"), "unlock"
+				lock, action = i18n.Shared(a.language(), "desktop.gitReview.unlock"), "unlock"
 			}
 			if ui.Button(row.C, lock).Ghost().Disabled(t.busy).Clicked() {
 				c.After(func() { a.worktreeAction(p, tree, action) })
 			}
-			if ui.Button(row.C, a.reviewText("git.worktreeDialog.remove")).Ghost().Disabled(t.busy || tree.IsLocked).Clicked() {
+			if ui.Button(row.C, i18n.Shared(a.language(), "git.worktreeDialog.remove")).Ghost().Disabled(t.busy || tree.IsLocked).Clicked() {
 				c.After(func() { t.removing = tree.Path })
 			}
 		})
 		if t.removing == tree.Path {
-			ui.Paragraph(row.C, a.reviewFormat("git.worktreeDialog.removeConfirm", map[string]string{"path": tree.Path}), 2).FontSize(size).Color(a.colors.Warning)
+			ui.Paragraph(row.C, i18n.SharedFormat(a.language(), "git.worktreeDialog.removeConfirm", map[string]string{"path": tree.Path}), 2).FontSize(size).Color(a.colors.Warning)
 		}
 	}).Grow(1).FillWidth()
 }
@@ -337,7 +338,7 @@ func (a *App) drawWorktreesTab(c ui.C, p *project) {
 func (a *App) drawRepositoriesTab(c ui.C, p *project) {
 	t := &p.review.tools
 	if len(t.repositories) == 0 {
-		a.gitEmpty(c, a.reviewText("git.noRepositoriesFound"))
+		a.gitEmpty(c, i18n.Shared(a.language(), "git.noRepositoriesFound"))
 		return
 	}
 	ui.List(c, &t.repoList, len(t.repositories), func(row ui.ListRow) {

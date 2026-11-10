@@ -4,22 +4,30 @@
   "group": "Git",
   "capability": "大型未跟踪目录汇总与按需展开",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
+      "desktop/internal/core/git_untracked.go",
+      "desktop/internal/workbench/gitreview.go",
+      "desktop/internal/workbench/gitreview_diff_view.go",
+      "desktop/internal/workbench/gitreview_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
+      "desktop/internal/core/git_untracked.go",
+      "desktop/internal/workbench/gitreview.go",
+      "desktop/internal/workbench/gitreview_diff_view.go",
+      "desktop/internal/workbench/gitreview_test.go"
     ]
   },
   "owner": "Git",
   "verification": "在仓库中放入未被忽略、超过 100 个文件的构建目录（如 rust/lithe-core/target/），以及包含多个 linked worktree 的 .worktrees/。打开 Commit 面板：构建目录只显示一行目录节点和「N 个文件」，状态栏与 ChangeList 计数按文件统计；.worktrees/ 不被汇总，已发现的 worktree 不出现在父仓库列表。展开目录只加载下一层，子目录继续显示为带数量的节点；构建写入触发刷新后展开状态保持，目录被删除或暂存后展开状态清除。勾选目录节点暂存全部文件，丢弃目录节点删除其中未跟踪文件，搁置后能完整恢复目录内容；项目树中该目录下的文件仍显示未跟踪颜色，编辑器行标记正常。多仓库和单仓库模式下滚动与帧率不随变更数量下降。 Windows 另检查目录视图与平铺视图：折叠的汇总显示为带「N 个文件」的目录行，展开后由同名文件夹代表该汇总，折叠该文件夹即收起汇总，已记住的文件夹折叠不能挡住展开内容；单击汇总行不打开 Diff，「显示 Diff」与查看全部变更跳过汇总本身；删除汇总只删一次目录；页脚计数、项目树颜色、编辑器装订线与行历史对汇总目录下的文件按未跟踪处理；把汇总移到 ChangeList 后暂存并提交，提交范围包含其文件。 Core真实仓库回归核对status argv/output不含201个无关文件、200个长路径分批且未选文件保留、方括号字面文件名不影响邻居、以??开头的重命名源不误解析为未跟踪；macOS测试核对同级展开保留、旧目录列出不能覆盖新局部状态，实机大型仓库滚动与延迟仍需验收。",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva：Commit 面板的变更行右键/双击接入 Core 封装，对话框已实现；见 desktop/internal/workbench/gitreview*.go。未覆盖项见 PR 描述。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

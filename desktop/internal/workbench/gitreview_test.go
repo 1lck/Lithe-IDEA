@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 )
 
 // changeOf is the status entry of path in the project's Git status.
@@ -41,7 +42,7 @@ func TestDiffDialogStagesAndRollsBackABlock(t *testing.T) {
 	if blocks != 1 || len(d.items) != len(d.file.Lines)+1 {
 		t.Fatalf("diff has %d block headers over %d rows for %d lines", blocks, len(d.items), len(d.file.Lines))
 	}
-	for _, label := range []string{"changed.txt", h.app.reviewText("git.diff.unified")} {
+	for _, label := range []string{"changed.txt", i18n.Shared(h.app.language(), "git.diff.unified")} {
 		if !h.shows(label) {
 			t.Errorf("the diff dialog does not show %q", label)
 		}
@@ -118,7 +119,7 @@ func TestRollbackDialogRestoresTheChange(t *testing.T) {
 	h.app.openRollback(p, []core.GitChange{changeOf(t, p, "changed.txt")})
 	h.app.post(func(*App) {})
 	h.settle()
-	if !h.shows(h.app.reviewText("git.rollback.title")) {
+	if !h.shows(i18n.Shared(h.app.language(), "git.rollback.title")) {
 		t.Fatal("the rollback confirmation is not shown")
 	}
 	h.app.runRollback(p)

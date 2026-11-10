@@ -4,22 +4,32 @@
   "group": "Git",
   "capability": "Rebase 与 Stash",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
+      "desktop/internal/core/git_rebase.go",
+      "desktop/internal/core/git_worktrees.go",
+      "desktop/internal/workbench/gitreview_tools.go",
+      "desktop/internal/workbench/gitreview_tools_view.go",
+      "desktop/internal/workbench/gitreview_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
+      "desktop/internal/core/git_rebase.go",
+      "desktop/internal/core/git_worktrees.go",
+      "desktop/internal/workbench/gitreview_tools.go",
+      "desktop/internal/workbench/gitreview_tools_view.go",
+      "desktop/internal/workbench/gitreview_test.go"
     ]
   },
   "owner": "Git",
   "verification": "macOS stash 按不可变提交读取 Core 的逐文件补丁和结构化行；真实 Git 测试覆盖二进制、未跟踪、重命名、中文及前缀配置，Swift 桥接通过真实仓库验证。Shelf 与 Windows 差异改用 Core 逐文件身份、展示行和原始 hunk；真实 Git、Swift 与 Windows 适配回归覆盖，Windows 原生界面验收 pending。 执行 Rebase 和 Stash 保存/恢复，确认冲突处理。macOS Stash 页使用上下可调整分栏；中间图标打开创建 Stash/Shelf 弹窗，名称和 Untracked 原语义不变。选择保存记录后查看含未跟踪文件的文件树，复用 Git Log 只读 Diff；Shelf 暂存/工作区补丁分版本查看。验证 Apply/Pop/Restore 与右键删除、切换记录和仓库时旧加载不覆盖新选择。组件和 Core 检查后仍需真实界面深浅主题验收；Windows 未同步此布局。 分支标签按上游分支类型着色，hover 原位展开完整名称/日期/分支且不改变行布局；展开区域仍可右键操作。Stash 分隔条悬停/拖动不变亮；从保存记录 Diff 返回 Git Log 文件时必须显示历史内容，Git 自定义颜色/无前缀设置不得影响保存记录文件路径。连续切换文件时左右 Diff 滚动条标记须同步替换，切到无差异内容须清空旧标记。 共享原生 rebase 执行后的状态读取沿用正常请求剩余期限和取消能力；仅在读取前已取消或超时才启用独立两秒清理期限。运行取消模块确定性回归和真实仓库历史改写用例，核对 edit/conflict、continue/skip/abort、过期 amendment、清理超时与异常后的状态恢复；两端真实原生界面验收仍为 pending。 Windows 默认及舒适密度下检查 Shelf/Stash 树正文随界面字号变化，深浅主题下点击循环箭头可刷新保存记录。 补充真实 Git 回归：暂存删除后保留与 HEAD 相同或不同内容的原路径，以及暂存重命名后重建源路径，搁置后工作区干净，恢复后索引与磁盘内容均保持原样。 两端 Shelf 使用共享捕获、顺序和已审查反向补丁；真实 Git 回归覆盖保存后与两层间的新编辑、索引字节不变、部分恢复及重复重试，macOS/Windows 平台测试检查持久化顺序和会话守卫；两端原生界面验收仍为 pending。 交互式 rebase 计划的校验、squash/fixup 消息推导与输出提交数由 Core `git.rebasePlanPreview` 决定，两端预览与实际启动结果一致（默认 squash 消息统一裁掉前一条末尾换行）；Core 返回前开始按钮保持不可用。",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva：Commit 面板的变更行右键/双击接入 Core 封装，对话框已实现；见 desktop/internal/workbench/gitreview*.go。未覆盖项见 PR 描述。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

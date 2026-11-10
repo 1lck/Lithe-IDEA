@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -73,7 +74,7 @@ func (a *App) loadPush(p *project) {
 			}
 			s.loading = false
 			if err != nil {
-				s.err, s.hasPrev = a.reviewText("git.pushDialog.previewFailed")+" "+reviewReason(err), false
+				s.err, s.hasPrev = i18n.Shared(a.language(), "git.pushDialog.previewFailed")+" "+reviewReason(err), false
 				a.gitOperationFailed("git_push_preview", err)
 				return
 			}
@@ -103,8 +104,8 @@ func (a *App) submitPush(p *project) {
 	preview, tags, target, force := s.preview, pushTagChoices[s.tags], s.target, s.force
 	a.performed("git.push", surfaceButton)
 	s.busy = true
-	a.runSync(p, "git_push", a.reviewText("git.pushing"), func(reason string) string {
-		return a.reviewFormat("desktop.gitReview.operationFailed", map[string]string{"reason": reason})
+	a.runSync(p, "git_push", i18n.Shared(a.language(), "git.pushing"), func(reason string) string {
+		return i18n.SharedFormat(a.language(), "desktop.gitReview.operationFailed", map[string]string{"reason": reason})
 	}, func(ctx context.Context, kernel Kernel, root string) (func(*App), error) {
 		pusher, ok := kernel.(gitReviewKernel)
 		if !ok {
@@ -113,7 +114,7 @@ func (a *App) submitPush(p *project) {
 		if err := pusher.GitPush(ctx, root, preview, tags, target, force); err != nil {
 			return nil, err
 		}
-		return func(a *App) { a.notify(a.reviewText("git.changesPushed")) }, nil
+		return func(a *App) { a.notify(i18n.Shared(a.language(), "git.changesPushed")) }, nil
 	})
 	// The dialog follows the outcome: it closes on success, and after a rejected or stale push
 	// it reviews the repository as it is now.

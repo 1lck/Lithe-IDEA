@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -82,12 +83,12 @@ func (a *App) diffRowColors(kind string) (left, right gfx.Color) {
 // a header over each block that stages or unstages it and, for an unstaged one, rolls it back.
 func (a *App) drawDiffDialog(c ui.C, p *project) {
 	d := &p.review.diff
-	title := a.reviewText("git.diff.title") + " — " + d.change.Path
+	title := i18n.Shared(a.language(), "git.diff.title") + " — " + d.change.Path
 	switch {
 	case d.staged:
-		title += " (" + a.reviewText("git.diff.stagedChanges") + ")"
+		title += " (" + i18n.Shared(a.language(), "git.diff.stagedChanges") + ")"
 	case d.plan != nil:
-		title += " (" + a.reviewText("git.diff.unstagedChanges") + ")"
+		title += " (" + i18n.Shared(a.language(), "git.diff.unstagedChanges") + ")"
 	}
 	open := true
 	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: reviewDialogWidth, Height: reviewDialogHeight}, func() {
@@ -96,10 +97,10 @@ func (a *App) drawDiffDialog(c ui.C, p *project) {
 				mode := []bool{false, true}
 				ui.Tabs(c, &d.split, mode, func(split bool) string {
 					if split {
-						return a.reviewText("git.diff.split")
+						return i18n.Shared(a.language(), "git.diff.split")
 					}
-					return a.reviewText("git.diff.unified")
-				}).Label(a.reviewText("desktop.gitReview.diffTab"))
+					return i18n.Shared(a.language(), "git.diff.unified")
+				}).Label(i18n.Shared(a.language(), "desktop.gitReview.diffTab"))
 				ui.Spacer(c)
 				if d.note != "" {
 					ui.Text(c, d.note).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Warning).Ellipsis().Shrink(1)
@@ -110,14 +111,14 @@ func (a *App) drawDiffDialog(c ui.C, p *project) {
 			}
 			switch {
 			case d.loading && d.file == nil:
-				a.gitEmpty(c, a.reviewText("git.loadingDiff"))
+				a.gitEmpty(c, i18n.Shared(a.language(), "git.loadingDiff"))
 			case d.err != "":
 				ui.Paragraph(c, d.err, 4).Color(a.theme.Danger)
 			case d.file == nil || d.file.IsBinary:
 				name := d.change.Path
-				text := a.reviewText("git.diff.noDifferences")
+				text := i18n.Shared(a.language(), "git.diff.noDifferences")
 				if d.file != nil {
-					text = a.reviewFormat("git.binaryDiffDescription", map[string]string{"name": name})
+					text = i18n.SharedFormat(a.language(), "git.binaryDiffDescription", map[string]string{"name": name})
 				}
 				a.gitEmpty(c, text)
 			default:
@@ -125,7 +126,7 @@ func (a *App) drawDiffDialog(c ui.C, p *project) {
 			}
 		})
 	}, func() {
-		if ui.Button(c, a.reviewText("desktop.gitReview.close")).Outline().Clicked() {
+		if ui.Button(c, i18n.Shared(a.language(), "desktop.gitReview.close")).Outline().Clicked() {
 			open = false
 		}
 	})
@@ -181,10 +182,10 @@ func (a *App) drawDiffItem(c ui.C, p *project, row ui.ListRow) {
 // and, for a block Core allows to roll back, the rollback with its confirmation.
 func (a *App) drawDiffBlock(c ui.C, p *project, item diffItem) {
 	d, block := &p.review.diff, item.block
-	number := a.reviewFormat("desktop.gitReview.blockN", map[string]string{"n": strconv.Itoa(item.number)})
-	label := a.reviewText("git.diff.includeBlock")
+	number := i18n.SharedFormat(a.language(), "desktop.gitReview.blockN", map[string]string{"n": strconv.Itoa(item.number)})
+	label := i18n.Shared(a.language(), "git.diff.includeBlock")
 	if block.Checked {
-		label = a.reviewText("git.diff.excludeBlock")
+		label = i18n.Shared(a.language(), "git.diff.excludeBlock")
 	}
 	checked := block.Checked
 	if ui.Checkbox(c, &checked, label).Label(label).Disabled(d.busy || !block.CanToggle).Clicked() {
@@ -197,17 +198,17 @@ func (a *App) drawDiffBlock(c ui.C, p *project, item diffItem) {
 		return
 	}
 	if d.confirm == block.ID {
-		ui.Text(c, a.reviewFormat("git.diff.rollbackHunkConfirm", map[string]string{"path": d.change.Path})).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Warning).Ellipsis().Shrink(1)
-		if ui.Button(c, a.reviewText("git.rollback.confirm")).Destructive().Disabled(d.busy).Clicked() {
+		ui.Text(c, i18n.SharedFormat(a.language(), "git.diff.rollbackHunkConfirm", map[string]string{"path": d.change.Path})).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Warning).Ellipsis().Shrink(1)
+		if ui.Button(c, i18n.Shared(a.language(), "git.rollback.confirm")).Destructive().Disabled(d.busy).Clicked() {
 			id := block.ID
 			c.After(func() { a.writeDiffBlock(p, id, core.DiffBlockRollback) })
 		}
-		if ui.Button(c, a.reviewText("desktop.gitReview.cancel")).Outline().Clicked() {
+		if ui.Button(c, i18n.Shared(a.language(), "desktop.gitReview.cancel")).Outline().Clicked() {
 			c.After(func() { d.confirm = "" })
 		}
 		return
 	}
-	if ui.Button(c, a.reviewText("git.diff.rollbackHunk")).Ghost().Disabled(d.busy).Clicked() {
+	if ui.Button(c, i18n.Shared(a.language(), "git.diff.rollbackHunk")).Ghost().Disabled(d.busy).Clicked() {
 		id := block.ID
 		c.After(func() { d.confirm = id })
 	}
@@ -220,11 +221,11 @@ func (a *App) drawDiffBlock(c ui.C, p *project, item diffItem) {
 func (a *App) drawBlameDialog(c ui.C, p *project) {
 	b := &p.review.blame
 	open := true
-	title := a.reviewFormat("desktop.gitReview.blameTitle", map[string]string{"file": b.path})
+	title := i18n.SharedFormat(a.language(), "desktop.gitReview.blameTitle", map[string]string{"file": b.path})
 	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: reviewDialogWidth, Height: reviewDialogHeight}, func() {
 		switch {
 		case b.loading:
-			a.gitEmpty(c, a.reviewText("git.loadingDiff"))
+			a.gitEmpty(c, i18n.Shared(a.language(), "git.loadingDiff"))
 		case b.err != "":
 			ui.Paragraph(c, b.err, 4).Color(a.theme.Danger)
 		default:
@@ -237,7 +238,7 @@ func (a *App) drawBlameDialog(c ui.C, p *project) {
 				}
 				hash, who, when := line.Hash, line.AuthorName, blameDate(line)
 				if line.Uncommitted() {
-					hash, who, when = "", a.reviewText("git.blame.uncommitted"), ""
+					hash, who, when = "", i18n.Shared(a.language(), "git.blame.uncommitted"), ""
 				} else if len(hash) > 7 {
 					hash = hash[:7]
 				}
@@ -251,7 +252,7 @@ func (a *App) drawBlameDialog(c ui.C, p *project) {
 			}).Grow(1).FillWidth().Background(a.colors.Editor)
 		}
 	}, func() {
-		if ui.Button(c, a.reviewText("desktop.gitReview.close")).Outline().Clicked() {
+		if ui.Button(c, i18n.Shared(a.language(), "desktop.gitReview.close")).Outline().Clicked() {
 			open = false
 		}
 	})
@@ -271,11 +272,11 @@ func (a *App) drawUntrackedDialog(c ui.C, p *project) {
 	}
 	directory := u.trail[len(u.trail)-1]
 	open := true
-	title := a.reviewFormat("desktop.gitReview.untrackedTitle", map[string]string{"path": directory})
+	title := i18n.SharedFormat(a.language(), "desktop.gitReview.untrackedTitle", map[string]string{"path": directory})
 	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: 620, Height: 440}, func() {
 		switch {
 		case u.loading:
-			a.gitEmpty(c, a.reviewText("git.loadingDiff"))
+			a.gitEmpty(c, i18n.Shared(a.language(), "git.loadingDiff"))
 		case u.err != "":
 			ui.Paragraph(c, u.err, 4).Color(a.theme.Danger)
 		default:
@@ -304,7 +305,7 @@ func (a *App) drawUntrackedDialog(c ui.C, p *project) {
 		if len(u.trail) > 1 && ui.Button(c, "..").Outline().Clicked() {
 			c.After(func() { a.leaveUntracked(p) })
 		}
-		if ui.Button(c, a.reviewText("desktop.gitReview.close")).Outline().Clicked() {
+		if ui.Button(c, i18n.Shared(a.language(), "desktop.gitReview.close")).Outline().Clicked() {
 			open = false
 		}
 	})
@@ -321,20 +322,20 @@ func (a *App) drawRollbackDialog(c ui.C, p *project) {
 	r := &p.review.rollback
 	open := true
 	count := strconv.Itoa(len(r.changes))
-	closed := ui.ModalWith(c, &open, a.reviewText("git.rollback.title"), ui.ModalSpec{Width: 520,
-		Description: a.reviewFormat("git.rollbackPathsConfirm", map[string]string{"count": count})}, func() {
+	closed := ui.ModalWith(c, &open, i18n.Shared(a.language(), "git.rollback.title"), ui.ModalSpec{Width: 520,
+		Description: i18n.SharedFormat(a.language(), "git.rollbackPathsConfirm", map[string]string{"count": count})}, func() {
 		ui.Column(c).FillWidth().Gap(8).Children(func() {
-			ui.Paragraph(c, a.reviewText("git.rollback.warning"), 4).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+			ui.Paragraph(c, i18n.Shared(a.language(), "git.rollback.warning"), 4).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 			for _, change := range r.changes {
 				ui.Text(c.Key(change.Path), change.Path).Ellipsis()
 			}
-			ui.Checkbox(c, &r.deleteAdded, a.reviewText("git.rollback.deleteAdded")).Disabled(r.busy)
+			ui.Checkbox(c, &r.deleteAdded, i18n.Shared(a.language(), "git.rollback.deleteAdded")).Disabled(r.busy)
 		})
 	}, func() {
-		if ui.Button(c, a.reviewText("desktop.gitReview.cancel")).Outline().Clicked() {
+		if ui.Button(c, i18n.Shared(a.language(), "desktop.gitReview.cancel")).Outline().Clicked() {
 			open = false
 		}
-		if ui.Button(c, a.reviewText("git.rollback.confirm")).Destructive().Disabled(r.busy).Clicked() {
+		if ui.Button(c, i18n.Shared(a.language(), "git.rollback.confirm")).Destructive().Disabled(r.busy).Clicked() {
 			c.After(func() { a.runRollback(p) })
 		}
 	})

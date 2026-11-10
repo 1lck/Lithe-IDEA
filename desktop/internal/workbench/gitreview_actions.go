@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -27,18 +28,18 @@ func (a *App) changeMenuItems(c ui.C, p *project, change core.GitChange) func(*u
 		}
 		folder := strings.HasSuffix(change.Path, "/")
 		if folder {
-			if menu.Item(a.reviewText("desktop.gitReview.untrackedMenu")).Clicked() {
+			if menu.Item(i18n.Shared(a.language(), "desktop.gitReview.untrackedMenu")).Clicked() {
 				c.After(func() { a.openUntracked(p, change.Path) })
 			}
-		} else if menu.Item(a.reviewText("git.showDiff")).Clicked() {
+		} else if menu.Item(i18n.Shared(a.language(), "git.showDiff")).Clicked() {
 			c.After(func() { a.openDiff(p, change) })
 		}
 		tracked := !change.Untracked && change.Status != "??" && !strings.HasSuffix(change.Status, "A") && !strings.HasPrefix(change.Status, "A")
-		if !folder && tracked && menu.Item(a.reviewText("git.blame.annotate")).Clicked() {
+		if !folder && tracked && menu.Item(i18n.Shared(a.language(), "git.blame.annotate")).Clicked() {
 			c.After(func() { a.openBlame(p, change.Path) })
 		}
 		menu.Separator()
-		if menu.Item(a.reviewText("git.rollback")).Destructive().Clicked() {
+		if menu.Item(i18n.Shared(a.language(), "git.rollback")).Destructive().Clicked() {
 			c.After(func() { a.openRollback(p, []core.GitChange{change}) })
 		}
 	}

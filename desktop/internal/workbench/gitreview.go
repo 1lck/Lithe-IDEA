@@ -75,14 +75,6 @@ type gitReview struct {
 	rollback  rollbackState
 }
 
-// reviewText is the word of a shared key in the window's language.
-func (a *App) reviewText(key string) string { return i18n.Shared(a.language(), key) }
-
-// reviewFormat is the word of a shared key with its arguments in the window's language.
-func (a *App) reviewFormat(key string, args map[string]string) string {
-	return i18n.SharedFormat(a.language(), key, args)
-}
-
 // reviewReason is the line of err to show: Git's own first line when Core gave one.
 func reviewReason(err error) string {
 	var e *core.Error
@@ -94,7 +86,7 @@ func reviewReason(err error) string {
 
 // reviewFailed words a failed review operation for the user and logs it.
 func (a *App) reviewFailed(operation string, err error) {
-	a.notify(a.reviewFormat("desktop.gitReview.operationFailed", map[string]string{"reason": reviewReason(err)}))
+	a.notify(i18n.SharedFormat(a.language(), "desktop.gitReview.operationFailed", map[string]string{"reason": reviewReason(err)}))
 	a.gitOperationFailed(operation, err)
 }
 
@@ -201,7 +193,7 @@ func (a *App) loadDiff(p *project) {
 			}
 			d.loading = false
 			if err != nil {
-				d.err = a.reviewFormat("git.diff.getFileDiffFailed", map[string]string{"file": change.Path, "error": reviewReason(err)})
+				d.err = i18n.SharedFormat(a.language(), "git.diff.getFileDiffFailed", map[string]string{"file": change.Path, "error": reviewReason(err)})
 				a.gitOperationFailed("git_diff", err)
 				return
 			}
@@ -328,11 +320,11 @@ func (a *App) diffBlockRefused(p *project, err error) {
 	d := &p.review.diff
 	switch text := err.Error() + " " + reviewReason(err); {
 	case strings.Contains(text, "GIT_DIFF_BLOCK_STALE"), strings.Contains(text, "GIT_DIFF_BLOCK_UNAVAILABLE"):
-		d.note = a.reviewText("git.diff.hunkStale")
+		d.note = i18n.Shared(a.language(), "git.diff.hunkStale")
 	case strings.Contains(text, "GIT_HUNK_ROLLBACK_UNSAFE"):
-		d.note = a.reviewText("git.diff.rollbackUnsafe")
+		d.note = i18n.Shared(a.language(), "git.diff.rollbackUnsafe")
 	default:
-		d.note = a.reviewText("git.diff.stageFailed")
+		d.note = i18n.Shared(a.language(), "git.diff.stageFailed")
 	}
 	a.gitOperationFailed("git_diff_block", err)
 }
@@ -376,7 +368,7 @@ func (a *App) openBlame(p *project, relative string) {
 			}
 			b.loading = false
 			if err != nil {
-				b.err = a.reviewFormat("desktop.gitReview.blameFailed", map[string]string{"reason": reviewReason(err)})
+				b.err = i18n.SharedFormat(a.language(), "desktop.gitReview.blameFailed", map[string]string{"reason": reviewReason(err)})
 				a.gitOperationFailed("git_blame", err)
 				return
 			}
