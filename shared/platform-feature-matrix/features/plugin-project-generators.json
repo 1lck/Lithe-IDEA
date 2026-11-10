@@ -8,8 +8,14 @@
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/workbench/new_project.go",
-      "desktop/internal/core/project.go",
-      "desktop/internal/workbench/new_project_test.go"
+      "desktop/internal/workbench/new_project_view.go",
+      "desktop/internal/workbench/new_project_form.go",
+      "desktop/internal/workbench/new_project_test.go",
+      "desktop/internal/projectgen/run.go",
+      "desktop/internal/projectgen/run_test.go",
+      "desktop/internal/core/project_generators.go",
+      "desktop/internal/core/project_generators_test.go",
+      "desktop/internal/pluginservice/generators.go"
     ]
   },
   "windows": {
@@ -17,13 +23,19 @@
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/workbench/new_project.go",
-      "desktop/internal/core/project.go",
-      "desktop/internal/workbench/new_project_test.go"
+      "desktop/internal/workbench/new_project_view.go",
+      "desktop/internal/workbench/new_project_form.go",
+      "desktop/internal/workbench/new_project_test.go",
+      "desktop/internal/projectgen/run.go",
+      "desktop/internal/projectgen/run_test.go",
+      "desktop/internal/core/project_generators.go",
+      "desktop/internal/core/project_generators_test.go",
+      "desktop/internal/pluginservice/generators.go"
     ]
   },
   "owner": "Plugin Platform",
   "verification": "macOS：从欢迎页和项目切换器点“新建项目”，确认左栏有“新建项目”（Java、空项目）和“生成器”（Maven Archetype、Spring Boot）两组且可搜索。Java 选 Maven、默认 JDK 创建，确认生成 pom.xml（maven.compiler.release 等于所选 JDK 主版本）、.gitignore 和 src/main/java/org/example/Main.java，项目打开后 Main.java 已打开、Build 工具窗口识别 Maven 项目。勾选“创建 Git 仓库”时项目根目录有 .git。Spring Boot 选几个依赖创建，确认从 start.spring.io 下载并解压、mvnw 可执行；把服务器 URL 改成不可达地址时报错且目标目录下没有残留的 .*.lithe-creating-* 临时目录。Maven Archetype 在已安装 mvn 时生成 quickstart 项目，未安装时提示找不到 mvn。停用 Java Support 后，三个条目变灰、创建按钮不可用，只出现一条“启用 Java Support”，点击后条目恢复可用；未安装 Maven 插件时出现“在插件市场中查找”并跳到市场搜索 maven。目标目录已存在时拒绝创建且不改动原目录。工具字段：用 shared/contracts/plugins/v1/fixtures/project-generators/project-generator-tool-field.plugin.json 和一个定义了同名工具的插件做本地开发安装，新建项目里该生成器的工具下拉列出本机已发现的安装（含版本），选低于最低版本的安装时创建按钮不可用并提示，选满足版本的安装创建后新项目的 .lithe/run/local.json 里有该工具的 pin，设置里的工具链页面显示同一个固定值；没有任何插件定义该工具时出现“在插件市场中查找”，插件已安装未启用时出现“启用”。在新建项目窗口保持打开时安装或卸载只含生成器的插件，条目立即出现或消失且无需重启。Windows：宿主不声明 projectGenerators，需要它的插件在市场中隐藏。",
-  "notes": "Viva 已接入宿主空项目：欢迎页与项目菜单打开表单，Core 校验名称并可初始化 Git；侧栏搜索通过 Core 匹配，插件入口打开插件市场，面板按原版尺寸与布局调整；同名目录拒绝覆盖，Git 初始化失败时保留已建目录并允许打开。macOS 和 Windows 无头测试覆盖真实 Core、Git 初始化、错误和关闭取消；侧栏搜索与面板交互已通过两端无头验证，两端原生窗口仍待验证。插件生成器目录、表单、执行、工具发现和安装后的热更新尚未接入；当前窗口尚未达到原版视觉对齐。legacy 是迁移前基线。",
+  "notes": "Viva 新建项目窗口用 Page 写法重做并接通 projectGenerators 1 与 2（宿主已声明）：左栏分“新建项目”和“生成器”两组并经 Core 搜索，列出空项目和已启用插件的生成器；右栏按声明画文本、选择、复选、多选、JDK/工具安装下拉和“高级设置”，默认值、显示条件、错误码和生成计划全部来自 Core（project.generatorCatalog/generatorForm/generationPlan）。创建时先在目标目录旁的 .<名称>.lithe-creating-* 临时目录依次执行文件、命令、归档步骤：文件用同目录临时文件原子写入并拒绝越出目录和符号链接；命令用 buildprocess 执行，输出逐行显示、可取消、有超时（默认 600 秒）；归档下载只允许 HTTPS（回环地址可用 HTTP）并限制 512 MiB，再交给 Core 解压。全部成功才整体移动到位，失败或取消删除临时目录不留残留；移动之后的失败（Git 初始化、工具 pin）保留已建目录并提供“打开已创建的项目”。工具与 runtime 字段通过共享工具链在空临时目录里发现安装，所选安装写入新项目的 .lithe/toolchains/local.json，generator 声明的 openFiles 在项目打开后打开。空项目行为不变。尚未完成：生成器自带图标未画；缺少所需插件时“在插件市场中查找”只打开插件设置而不预填搜索词；命令步骤只按 PATH 解析可执行文件；插件热更新只在已安装列表变化时重读条目；两端原生窗口、真实 Spring Boot/Maven Archetype 下载和 Windows 都未验证。legacy 是迁移前基线。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

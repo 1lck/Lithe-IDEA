@@ -494,31 +494,32 @@ func (n *newProjectState) form() *generatorForm {
 	return form
 }
 
-// generatorFailureKey maps why a run stopped to the localized message.
-func generatorFailureKey(failure *projectgen.Failure) string {
+// generatorFailureMessage maps why a run stopped to the localized message.
+func (a *App) generatorFailureMessage(failure *projectgen.Failure) string {
+	language := a.language()
 	switch failure.Reason {
 	case projectgen.ReasonInvalidLocation:
-		return "desktop.newProject.invalidLocation"
+		return i18n.Shared(language, "desktop.newProject.invalidLocation")
 	case projectgen.ReasonExists:
-		return "desktop.newProject.exists"
+		return i18n.Shared(language, "desktop.newProject.exists")
 	case projectgen.ReasonCommandMissing:
-		return "desktop.newProject.commandMissing"
+		return i18n.SharedFormat(language, "desktop.newProject.commandMissing", map[string]string{"command": missingCommand(failure.Err)})
 	case projectgen.ReasonCommandFailed:
-		return "desktop.newProject.commandFailed"
+		return i18n.Shared(language, "desktop.newProject.commandFailed")
 	case projectgen.ReasonTimedOut:
-		return "desktop.newProject.timedOut"
+		return i18n.Shared(language, "desktop.newProject.timedOut")
 	case projectgen.ReasonDownloadFailed:
-		return "desktop.newProject.downloadFailed"
+		return i18n.Shared(language, "desktop.newProject.downloadFailed")
 	case projectgen.ReasonArchiveInvalid:
-		return "desktop.newProject.archiveInvalid"
+		return i18n.Shared(language, "desktop.newProject.archiveInvalid")
 	case projectgen.ReasonPinFailed:
-		return "desktop.newProject.pinFailed"
+		return i18n.Shared(language, "desktop.newProject.pinFailed")
 	case projectgen.ReasonGitFailed:
-		return "desktop.newProject.gitFailed"
+		return i18n.Shared(language, "desktop.newProject.gitFailed")
 	case projectgen.ReasonCancelled:
-		return "desktop.newProject.createdInterrupted"
+		return i18n.Shared(language, "desktop.newProject.createdInterrupted")
 	}
-	return "desktop.newProject.failed"
+	return i18n.Shared(language, "desktop.newProject.failed")
 }
 
 // resolveProjectCommand resolves a generator's bare command name like a build
@@ -715,10 +716,7 @@ func (a *App) finishGenerator(generation uint64, result projectgen.Result) {
 		if result.Path != "" {
 			n.created = result.Path
 		}
-		n.err = i18n.Shared(a.language(), generatorFailureKey(result.Failure))
-		if result.Failure.Reason == projectgen.ReasonCommandMissing {
-			n.err = i18n.SharedFormat(a.language(), "desktop.newProject.commandMissing", map[string]string{"command": missingCommand(result.Failure.Err)})
-		}
+		n.err = a.generatorFailureMessage(result.Failure)
 		return
 	}
 	a.closeNewProject()

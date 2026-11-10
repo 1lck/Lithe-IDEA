@@ -275,7 +275,7 @@ func (a *App) newProjectFields(c ui.C, language i18n.Language, choice *projectCh
 	})
 	if n.checked && n.check.key == n.parent+"\x00"+n.name && n.check.problem != "" && !locked {
 		ui.Row(c).FillWidth().PadSides(0, 0, 0, 132).Children(func() {
-			ui.Paragraph(c, i18n.Shared(language, "desktop.newProject."+n.check.problem), 3).Color(a.theme.Danger)
+			ui.Paragraph(c, a.checkProblemMessage(language, n.check.problem), 3).Color(a.theme.Danger)
 		})
 	}
 	if choice != nil && choice.entry != nil {
@@ -345,7 +345,10 @@ func (a *App) generatorField(c ui.C, language i18n.Language, form *generatorForm
 	decl := field.decl
 	ui.Column(c.Part("field")).FillWidth().Gap(4).Children(func() {
 		ui.Row(c).FillWidth().Items(ui.Center).Gap(12).Children(func() {
-			if decl.Type != fieldBoolean {
+			if decl.Type == fieldBoolean {
+				// A checkbox carries its own label; keep it in the controls' column.
+				ui.Row(c).Width(120).Shrink(0)
+			} else {
 				label := ui.Text(c, decl.Title).Width(120).Shrink(0)
 				if decl.Description != "" {
 					label.Tooltip(decl.Description)
@@ -375,7 +378,7 @@ func (a *App) generatorField(c ui.C, language i18n.Language, form *generatorForm
 		})
 		if problem := field.state.Problem; problem != "" && field.state.Visible {
 			ui.Row(c).FillWidth().PadSides(0, 0, 0, 132).Children(func() {
-				ui.Paragraph(c, i18n.Shared(language, "desktop.newProject.problem."+problem), 3).Color(a.theme.Danger).FontSize(12)
+				ui.Paragraph(c, fieldProblemMessage(language, problem), 3).Color(a.theme.Danger).FontSize(12)
 			})
 		}
 	})
@@ -551,4 +554,35 @@ func (a *App) drawNewProjectDialog(f *ui.Frame) {
 	if dismissed {
 		a.cancelNewProject()
 	}
+}
+
+// checkProblemMessage is the sentence for a name or location problem.
+func (a *App) checkProblemMessage(language i18n.Language, problem string) string {
+	switch problem {
+	case "invalidName":
+		return i18n.Shared(language, "desktop.newProject.invalidName")
+	case "exists":
+		return i18n.Shared(language, "desktop.newProject.exists")
+	}
+	return i18n.Shared(language, "desktop.newProject.invalidLocation")
+}
+
+// fieldProblemMessage is the sentence for a problem code Core reported for a
+// field; hosts localize by code.
+func fieldProblemMessage(language i18n.Language, problem string) string {
+	switch problem {
+	case "required":
+		return i18n.Shared(language, "desktop.newProject.problem.required")
+	case "tooLong":
+		return i18n.Shared(language, "desktop.newProject.problem.tooLong")
+	case "invalidFormat":
+		return i18n.Shared(language, "desktop.newProject.problem.invalidFormat")
+	case "runtimeTooOld":
+		return i18n.Shared(language, "desktop.newProject.problem.runtimeTooOld")
+	case "toolTooOld":
+		return i18n.Shared(language, "desktop.newProject.problem.toolTooOld")
+	case "versionTooHigh":
+		return i18n.Shared(language, "desktop.newProject.problem.versionTooHigh")
+	}
+	return i18n.Shared(language, "desktop.newProject.problem.unsupportedValue")
 }
