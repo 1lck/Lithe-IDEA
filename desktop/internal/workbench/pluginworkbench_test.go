@@ -37,6 +37,9 @@ func callOnWindow[T any](h *harness, what string, call func(ctx context.Context)
 	go func() {
 		value, err := call(ctx)
 		done <- outcome{value, err}
+		// A call that finishes without touching the window would otherwise leave
+		// the pump waiting for a wake that never comes.
+		h.app.post(func(*App) {})
 	}()
 	var result outcome
 	finished := false

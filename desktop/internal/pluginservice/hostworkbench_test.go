@@ -152,7 +152,7 @@ func TestWorkbenchMethodsAreOnlyGrantedWithAWindow(t *testing.T) {
 	}
 	service, _, _, _ := openWorkbenchService(t)
 	granted = pluginhostGrant(service, methodEditorApplyEdits, methodTerminalCreate, methodRegisterContentProvider, methodBrowserOpenExternal, "lithe/host/run/start", "lithe/host/preview/openHTML", methodEditorGetActive)
-	want := []string{methodEditorApplyEdits, methodTerminalCreate, methodRegisterContentProvider, methodBrowserOpenExternal, methodEditorGetActive}
+	want := []string{methodEditorApplyEdits, methodTerminalCreate, methodRegisterContentProvider, methodBrowserOpenExternal, "lithe/host/run/start", methodEditorGetActive}
 	if strings.Join(granted, ",") != strings.Join(want, ",") {
 		t.Fatalf("granted = %v, want %v", granted, want)
 	}
