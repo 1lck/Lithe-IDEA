@@ -10862,6 +10862,7 @@
     "desktop.debug.attachPort": "Port",
     "desktop.debug.attachInvalid": "Enter a host name and a port from 1 to 65535.",
     "desktop.debug.remotePrompt": "Attach to {endpoint}? It is not a local address, and plain TCP is neither authenticated nor encrypted.",
+    "desktop.debug.remoteTitle": "Attach to a remote target",
     "desktop.debug.remoteAttach": "Attach",
     "desktop.debug.remoteCancel": "Cancel",
     "desktop.debug.waitingServer": "Starting the language server…",

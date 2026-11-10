@@ -22,7 +22,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
-	"github.com/vivaui/viva/ui"
 )
 
 const (
@@ -53,7 +52,6 @@ type debugState struct {
 	loading         bool
 	adapters        []debugAdapter
 	selectedAdapter int
-	adapterSelect   ui.SelectState
 	failure         string
 	status          string
 	// output is the adapter's bounded stderr and console text.

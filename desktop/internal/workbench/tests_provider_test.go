@@ -276,7 +276,7 @@ func TestTestsPanelProviderRunPublishesDecodedResults(t *testing.T) {
 	if row < 0 {
 		t.Fatal("the provider's failing case has no row")
 	}
-	h.click(center(h.hit(testsRows.At(row))))
+	h.clickNamed(p.tests.results.Tests[p.tests.rows[row].index].Case)
 	opened := filepath.Join(root, "tests", "provider_test.go")
 	if p.docs.byPath(opened) == nil {
 		t.Fatalf("the provider failure did not open %s", opened)
@@ -297,7 +297,7 @@ func TestTestsPanelProviderStopCancels(t *testing.T) {
 	awaitStateWithin(t, h, 20*time.Second, "the provider test to start", func() bool {
 		return p.tests.running && p.tests.operation != nil
 	})
-	stop := center(h.hit(testsStopID))
+	stop := center(h.pageHit(h.app.text.Tests.Stop).Bounds)
 	if err := h.driver.Click(stop.X, stop.Y); err != nil {
 		t.Fatal(err)
 	}

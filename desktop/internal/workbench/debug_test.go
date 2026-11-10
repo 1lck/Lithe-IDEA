@@ -122,12 +122,12 @@ func TestDebugPanelBreakpointPauseContinueFrames(t *testing.T) {
 	h.app.openFileAtPosition(p, source, 2, 0)
 	h.settle()
 
-	h.click(center(h.hit(debugToggleBreakpointID)))
+	h.clickNamed(h.app.text.Debug.ToggleBreakpoint)
 	if lines := p.debug.breakpoints[source]; len(lines) != 1 || lines[0] != 3 {
 		t.Fatalf("breakpoints = %+v, want line 3 of %s", p.debug.breakpoints, source)
 	}
 
-	h.click(center(h.hit(debugStartID)))
+	h.clickNamed(h.app.text.Debug.Start)
 	awaitStateWithin(t, h, 30*time.Second, "the paused debuggee and its stack", func() bool {
 		if p.debug.failure != "" {
 			t.Fatalf("debug start failed: %s", p.debug.failure)
@@ -142,11 +142,11 @@ func TestDebugPanelBreakpointPauseContinueFrames(t *testing.T) {
 		t.Fatalf("frames = %+v, want the adapter's one-based lines", frames)
 	}
 
-	h.click(center(h.hit(debugContinueID)))
+	h.clickNamed(h.app.text.Debug.Continue)
 	awaitStateWithin(t, h, 20*time.Second, "the continued session", func() bool {
 		return p.debug.state == "running" && len(p.debug.frames) == 0
 	})
-	h.click(center(h.hit(debugPauseID)))
+	h.clickNamed(h.app.text.Debug.Pause)
 	awaitStateWithin(t, h, 20*time.Second, "the paused session", func() bool {
 		if p.debug.failure != "" {
 			t.Fatalf("debug start failed: %s", p.debug.failure)
@@ -154,7 +154,7 @@ func TestDebugPanelBreakpointPauseContinueFrames(t *testing.T) {
 		return p.debug.state == "paused" && len(p.debug.frames) == 2
 	})
 
-	h.click(center(h.hit(debugStopID)))
+	h.clickNamed(h.app.text.Debug.Stop)
 	awaitStateWithin(t, h, 20*time.Second, "the stopped session", func() bool {
 		return p.debug.session == nil && p.debug.state == "idle"
 	})
@@ -167,7 +167,7 @@ func TestDebugPanelCloseProjectStopsSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := openDebugPanel(t, h, root)
-	h.click(center(h.hit(debugStartID)))
+	h.clickNamed(h.app.text.Debug.Start)
 	awaitStateWithin(t, h, 30*time.Second, "the paused session", func() bool {
 		if p.debug.failure != "" {
 			t.Fatalf("debug start failed: %s", p.debug.failure)

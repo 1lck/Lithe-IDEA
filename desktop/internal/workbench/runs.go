@@ -8,6 +8,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/vivaui/viva/ui"
 )
 
 const (
@@ -38,6 +39,8 @@ type runEntry struct {
 	running     bool
 	// summary is how the run ended, shown under the console.
 	summary string
+	// list is the console's scroll state.
+	list ui.ListState
 }
 
 // wirePluginRuns connects the plugin service's run host to the window: where a

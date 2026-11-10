@@ -211,9 +211,9 @@ func TestDebugTCPLanguageServerAdapterBreakpointPauseContinueStop(t *testing.T) 
 	}
 	h.app.openFileAtPosition(p, source, 2, 0)
 	h.settle()
-	h.click(center(h.hit(debugToggleBreakpointID)))
+	h.clickNamed(h.app.text.Debug.ToggleBreakpoint)
 
-	h.click(center(h.hit(debugStartID)))
+	h.clickNamed(h.app.text.Debug.Start)
 	awaitStateWithin(t, h, 30*time.Second, "the paused hosted session", func() bool {
 		if p.debug.failure != "" {
 			t.Fatalf("debug start failed: %s", p.debug.failure)
@@ -226,16 +226,16 @@ func TestDebugTCPLanguageServerAdapterBreakpointPauseContinueStop(t *testing.T) 
 		t.Fatalf("session request dropped the declaration: features=%s defaults=%s", request.Features, request.Defaults)
 	}
 
-	h.click(center(h.hit(debugContinueID)))
+	h.clickNamed(h.app.text.Debug.Continue)
 	awaitStateWithin(t, h, 20*time.Second, "the continued session", func() bool {
 		return p.debug.state == "running" && len(p.debug.frames) == 0
 	})
-	h.click(center(h.hit(debugPauseID)))
+	h.clickNamed(h.app.text.Debug.Pause)
 	awaitStateWithin(t, h, 20*time.Second, "the paused session", func() bool {
 		return p.debug.state == "paused" && len(p.debug.frames) == 2
 	})
 
-	h.click(center(h.hit(debugStopID)))
+	h.clickNamed(h.app.text.Debug.Stop)
 	awaitStateWithin(t, h, 20*time.Second, "the stopped session", func() bool {
 		return p.debug.session == nil && p.debug.state == "idle"
 	})
@@ -267,7 +267,7 @@ func TestDebugTCPCloseProjectDropsTheConnection(t *testing.T) {
 	server := serveHostedAdapter(t, root, false)
 	h.app.debugHostedPort = func(context.Context, *project, debugAdapter) (int, error) { return server.port(), nil }
 	p := openHostedPanel(t, h, root)
-	h.click(center(h.hit(debugStartID)))
+	h.clickNamed(h.app.text.Debug.Start)
 	awaitStateWithin(t, h, 30*time.Second, "the paused session", func() bool { return p.debug.state == "paused" })
 	h.app.closeProject()
 	awaitStateWithin(t, h, 20*time.Second, "the project to close", func() bool { return h.app.project == nil })
@@ -285,7 +285,7 @@ func TestDebugTCPPeerClosingEndsTheSession(t *testing.T) {
 	server := serveHostedAdapter(t, root, false)
 	h.app.debugHostedPort = func(context.Context, *project, debugAdapter) (int, error) { return server.port(), nil }
 	p := openHostedPanel(t, h, root)
-	h.click(center(h.hit(debugStartID)))
+	h.clickNamed(h.app.text.Debug.Start)
 	awaitStateWithin(t, h, 30*time.Second, "the paused session", func() bool { return p.debug.state == "paused" })
 	server.dropConnections()
 	awaitStateWithin(t, h, 20*time.Second, "the session to end", func() bool { return p.debug.session == nil })
@@ -307,7 +307,7 @@ func TestDebugTCPUnreachableEndpointFailsWithAMessage(t *testing.T) {
 	_ = listener.Close()
 	h.app.debugHostedPort = func(context.Context, *project, debugAdapter) (int, error) { return closedPort, nil }
 	p := openHostedPanel(t, h, root)
-	h.click(center(h.hit(debugStartID)))
+	h.clickNamed(h.app.text.Debug.Start)
 	awaitStateWithin(t, h, 20*time.Second, "the failure", func() bool { return p.debug.failure != "" })
 	if !strings.Contains(p.debug.failure, "127.0.0.1") || p.debug.session != nil {
 		t.Fatalf("failure = %q, session = %v", p.debug.failure, p.debug.session)
@@ -321,7 +321,7 @@ func TestDebugTCPEndpointFailureIsShownAndStartsNothing(t *testing.T) {
 		return 0, errors.New("the server has no debug command")
 	}
 	p := openHostedPanel(t, h, root)
-	h.click(center(h.hit(debugStartID)))
+	h.clickNamed(h.app.text.Debug.Start)
 	awaitStateWithin(t, h, 20*time.Second, "the failure", func() bool { return p.debug.failure != "" })
 	if !strings.Contains(p.debug.failure, "no debug command") || p.debug.session != nil {
 		t.Fatalf("failure = %q, session = %v", p.debug.failure, p.debug.session)
@@ -335,7 +335,7 @@ func TestDebugTCPAdapterThatNeverInitializesTimesOut(t *testing.T) {
 	h.app.debugHostedPort = func(context.Context, *project, debugAdapter) (int, error) { return server.port(), nil }
 	h.app.debugInitializeWindow = 300 * time.Millisecond
 	p := openHostedPanel(t, h, root)
-	h.click(center(h.hit(debugStartID)))
+	h.clickNamed(h.app.text.Debug.Start)
 	awaitStateWithin(t, h, 20*time.Second, "the timeout", func() bool { return p.debug.failure != "" })
 	if p.debug.failure != h.app.text.Debug.TimedOut || p.debug.session != nil {
 		t.Fatalf("failure = %q, want the timeout message", p.debug.failure)
@@ -424,7 +424,7 @@ func TestDebugRemoteAttachAsksBeforeConnectingAndLoopbackDoesNot(t *testing.T) {
 	if !h.shows("debug.example.test:5005") {
 		t.Fatal("the panel does not name the remote endpoint it asks about")
 	}
-	h.click(center(h.hit(debugRemoteAttachID)))
+	h.clickNamed(h.app.text.Debug.RemoteAttach)
 	awaitStateWithin(t, h, 30*time.Second, "the confirmed attach", func() bool { return len(gate.configurations) == 1 })
 	configuration := <-gate.configurations
 	if configuration.Request != "attach" || configuration.Arguments["hostName"] != "debug.example.test" || configuration.Arguments["port"] != float64(5005) && configuration.Arguments["port"] != uint64(5005) && configuration.Arguments["port"] != int64(5005) {
@@ -437,7 +437,7 @@ func TestDebugRemoteAttachAsksBeforeConnectingAndLoopbackDoesNot(t *testing.T) {
 	h.app.debugAttach.host.SetText("debug.example.test")
 	h.app.startDebug(p)
 	awaitStateWithin(t, h, 20*time.Second, "the second confirmation", func() bool { return p.debug.remote != nil })
-	h.click(center(h.hit(debugRemoteCancelID)))
+	h.clickNamed(h.app.text.Debug.RemoteCancel)
 	if p.debug.remote != nil || p.debug.session != nil {
 		t.Fatal("cancelling the prompt did not drop the attach")
 	}

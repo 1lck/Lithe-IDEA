@@ -241,6 +241,8 @@ type project struct {
 	tests testState
 	// debug is the Debug tool window's adapter session, breakpoints and stack.
 	debug debugState
+	// panels are the pages of the Run, Tests and Debug tool windows.
+	panels runPanels
 	// agent is the project's Agent panel and connection.
 	agent agentState
 }
@@ -249,6 +251,9 @@ type project struct {
 type App struct {
 	// debugAttach are the host and port fields of the Debug panel's attach form.
 	debugAttach debugAttachFields
+	// pages are the tool window pages drawn into the last paint, which input is
+	// routed to.
+	pages pageHost
 	// debugHostedPort and debugInitializeWindow replace, in tests, asking the
 	// language server for a debug port and Core's initialize deadline. Production
 	// leaves both zero.
@@ -647,6 +652,7 @@ func (a *App) paint(canvas *gfx.Canvas, size gfx.Size) {
 	bounds := gfx.Rect{Width: size.Width, Height: size.Height}
 	canvas.Fill(bounds, a.colors.Chrome)
 	a.status.frame(canvas, a.now())
+	a.pages.begin()
 	a.chrome.beginFrame()
 	a.agentView.beginFrame()
 	a.beginTerminalFrame()
@@ -704,6 +710,9 @@ func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
 	if result, ok := a.gitOverlayPointer(event); ok {
 		return result
 	}
+	if result, ok := a.hostedPointer(event); ok {
+		return result
+	}
 	// A semantic popup or request belongs to the caret and symbol it was opened
 	// at; any pointer work that moved either closes it before the frame paints.
 	defer a.pluginSemanticsCaretSync()
@@ -741,6 +750,9 @@ func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
 		return result
 	}
 	if result, ok := a.gitOverlayKey(event); ok {
+		return result
+	}
+	if result, ok := a.hostedKey(event); ok {
 		return result
 	}
 	// A semantic request belongs to the caret it was placed at. Every key path
@@ -805,6 +817,9 @@ func (a *App) onShortcut(event gfx.KeyEvent) gfx.EventResult {
 		return result
 	}
 	if result, ok := a.gitPaneShortcut(event); ok {
+		return result
+	}
+	if result, ok := a.hostedShortcut(event); ok {
 		return result
 	}
 	if !event.Release {
@@ -1086,6 +1101,7 @@ func (a *App) requestCloseProject(after func()) {
 		// Build providers and prepared applications belong to the workspace and
 		// are stopped before the project state is dropped.
 		a.stopBuild(p)
+		p.panels.close()
 		a.closeAgent(p)
 		// A language server is bound to the workspace it was started for, so it goes
 		// with the project rather than outliving it.

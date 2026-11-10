@@ -10862,6 +10862,7 @@
     "desktop.debug.attachPort": "端口",
     "desktop.debug.attachInvalid": "请输入主机名和 1 到 65535 之间的端口。",
     "desktop.debug.remotePrompt": "要附加到 {endpoint} 吗？它不是本机地址，而且明文 TCP 既不验证对端也不加密。",
+    "desktop.debug.remoteTitle": "附加到远程目标",
     "desktop.debug.remoteAttach": "附加",
     "desktop.debug.remoteCancel": "取消",
     "desktop.debug.waitingServer": "正在启动语言服务器…",

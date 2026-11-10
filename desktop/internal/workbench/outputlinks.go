@@ -5,12 +5,9 @@ import (
 	"encoding/json"
 	"os"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/vivaui/viva/gfx"
-	"github.com/vivaui/viva/ui"
 )
 
 const (
@@ -24,12 +21,6 @@ const (
 
 	outputScopeRun  = "run"
 	outputScopeTest = "test"
-)
-
-var (
-	buildOutputLinks = tree.Sub(shellPage, tree.Name("build-output-link"))
-	testOutputLinks  = tree.Sub(shellPage, tree.Name("test-output-link"))
-	runOutputLinks   = tree.Sub(shellPage, tree.Name("run-output-link"))
 )
 
 // outputLinkState is one project's output link matchers and what Core answered
@@ -173,45 +164,6 @@ func (a *App) flushOutputLinks(p *project) {
 			}
 		}
 	})
-}
-
-// drawLinkedOutput declares console lines with their links. A line with no link
-// is plain text; one with links is split into text and clickable ranges at the
-// UTF-16 offsets Core reported.
-func (a *App) drawLinkedOutput(f *ui.Frame, p *project, scope string, hits gfx.Scope, lines []string) {
-	counter := 0
-	for _, raw := range lines {
-		line := strings.TrimRight(raw, "\r\n")
-		links := a.outputLinksFor(p, scope, line)
-		if len(links) == 0 {
-			f.Text(line).FontSize(a.theme.Metrics.FontSizeS).Mono().Color(a.colors.Text)
-			continue
-		}
-		sort.SliceStable(links, func(i, j int) bool { return links[i].Start < links[j].Start })
-		f.Row().Children(func() {
-			position := 0
-			for _, link := range links {
-				before, linked, ok := splitUTF16(line, position, link.Start, link.Length)
-				if !ok {
-					continue
-				}
-				if before != "" {
-					f.Text(before).FontSize(a.theme.Metrics.FontSizeS).Mono().Color(a.colors.Text).Shrink(0)
-				}
-				box := f.Text(linked).FontSize(a.theme.Metrics.FontSizeS).Mono().Color(a.colors.Accent).Shrink(0).
-					HitWith(hits.At(counter), linked, gfx.HitOptions{Role: gfx.RoleLink, Cursor: gfx.PointerCursorHand})
-				counter++
-				if box.Clicked() {
-					a.openOutputLink(p, link)
-				}
-				position = link.Start + link.Length
-			}
-			if rest := utf16Tail(line, position); rest != "" {
-				f.Text(rest).FontSize(a.theme.Metrics.FontSizeS).Mono().Color(a.colors.Text).Shrink(0)
-			}
-		})
-	}
-	a.flushOutputLinks(p)
 }
 
 // splitUTF16 cuts line at UTF-16 code unit offsets: the text from from up to the

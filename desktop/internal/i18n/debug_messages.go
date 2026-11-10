@@ -26,6 +26,7 @@ type DebugMessages struct {
 	AttachPort         string
 	AttachInvalid      string
 	RemoteAttach       string
+	RemoteTitle        string
 	RemoteCancel       string
 	WaitingServer      string
 	NoEndpoint         string
@@ -62,6 +63,7 @@ func debugMessages(language Language) DebugMessages {
 		AttachHost:         Shared(language, "desktop.debug.attachHost"),
 		AttachPort:         Shared(language, "desktop.debug.attachPort"),
 		AttachInvalid:      Shared(language, "desktop.debug.attachInvalid"),
+		RemoteTitle:        Shared(language, "desktop.debug.remoteTitle"),
 		RemoteAttach:       Shared(language, "desktop.debug.remoteAttach"),
 		RemoteCancel:       Shared(language, "desktop.debug.remoteCancel"),
 		WaitingServer:      Shared(language, "desktop.debug.waitingServer"),

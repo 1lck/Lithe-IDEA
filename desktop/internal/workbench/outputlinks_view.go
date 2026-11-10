@@ -1,0 +1,53 @@
+package workbench
+
+import (
+	"sort"
+	"strings"
+
+	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/ui"
+)
+
+// outputList declares console lines as a list that holds only the rows on screen.
+// A line with no link is plain text; one with links is split into text and
+// clickable ranges at the UTF-16 offsets Core reported.
+func (a *App) outputList(c ui.C, p *project, state *ui.ListState, scope, label string, lines []string) ui.Box {
+	list := ui.List(c, state, len(lines), func(row ui.ListRow) {
+		a.outputLine(row, p, scope, lines[row.Index])
+	}).Label(label).FillWidth()
+	a.flushOutputLinks(p)
+	return list
+}
+
+// outputLine declares one console line in its row.
+func (a *App) outputLine(row ui.ListRow, p *project, scope, raw string) {
+	c := row.C
+	line := strings.TrimRight(raw, "\r\n")
+	size := a.theme.Metrics.FontSizeS
+	row.Element.PadX(8)
+	links := a.outputLinksFor(p, scope, line)
+	if len(links) == 0 {
+		ui.Text(c, line).FontSize(size).Mono().Color(a.colors.Text)
+		return
+	}
+	sort.SliceStable(links, func(i, j int) bool { return links[i].Start < links[j].Start })
+	position := 0
+	for _, link := range links {
+		before, linked, ok := splitUTF16(line, position, link.Start, link.Length)
+		if !ok {
+			continue
+		}
+		if before != "" {
+			ui.Text(c, before).FontSize(size).Mono().Color(a.colors.Text).Shrink(0)
+		}
+		box := ui.Text(c, linked).FontSize(size).Mono().Color(a.colors.Accent).Shrink(0).
+			HitWith(ui.ID(c), linked, gfx.HitOptions{Role: gfx.RoleLink, Cursor: gfx.PointerCursorHand})
+		if box.Clicked() {
+			a.openOutputLink(p, link)
+		}
+		position = link.Start + link.Length
+	}
+	if rest := utf16Tail(line, position); rest != "" {
+		ui.Text(c, rest).FontSize(size).Mono().Color(a.colors.Text).Shrink(0)
+	}
+}

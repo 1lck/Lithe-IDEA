@@ -81,8 +81,7 @@ func TestRunOutputLinkOpensTheFileAtItsLineAndColumn(t *testing.T) {
 	if len(p.links.sources) != 1 {
 		t.Fatalf("sources = %+v, want the one plugin matcher", p.links.sources)
 	}
-	link := h.hit(runOutputLinks.At(0))
-	h.click(center(link))
+	h.clickNamed("at src/main.txt:3:2")
 	awaitStateWithin(t, h, 20*time.Second, "the linked file to open", func() bool {
 		d := p.docs.byPath(target)
 		if d == nil {
@@ -103,7 +102,7 @@ func TestOutputLinkToAMissingFileOnlyNotifies(t *testing.T) {
 	for range 6 {
 		h.settle()
 	}
-	h.click(center(h.hit(runOutputLinks.At(0))))
+	h.clickNamed("at missing.txt:1:1")
 	for range 4 {
 		h.settle()
 	}

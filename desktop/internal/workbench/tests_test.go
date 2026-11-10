@@ -139,7 +139,7 @@ func openTestsPanel(t *testing.T, h *harness, root string) *project {
 // for every task, because the blocking fixture stays running by design.
 func clickRun(t *testing.T, h *harness) {
 	t.Helper()
-	at := center(h.hit(testsRunID))
+	at := center(h.pageHit(h.app.text.Tests.Run).Bounds)
 	if err := h.driver.Click(at.X, at.Y); err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestTestsPanelRunsFixtureAndOpensFailureLocation(t *testing.T) {
 	if row < 0 {
 		t.Fatal("the failing case has no row")
 	}
-	h.click(center(h.hit(testsRows.At(row))))
+	h.clickNamed(p.tests.results.Tests[p.tests.rows[row].index].Case)
 	opened := filepath.Join(root, "tests", "fixture_test.go")
 	if p.docs.byPath(opened) == nil {
 		t.Fatalf("the failing case did not open %s", opened)
@@ -222,7 +222,7 @@ func TestTestsPanelStopCancelsAndPublishesNoOutcome(t *testing.T) {
 	awaitStateWithin(t, h, 20*time.Second, "the fixture run to start", func() bool {
 		return p.tests.running && p.tests.operation != nil
 	})
-	stop := center(h.hit(testsStopID))
+	stop := center(h.pageHit(h.app.text.Tests.Stop).Bounds)
 	if err := h.driver.Click(stop.X, stop.Y); err != nil {
 		t.Fatal(err)
 	}

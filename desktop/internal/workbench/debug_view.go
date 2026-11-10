@@ -10,90 +10,90 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-var (
-	debugAdapterScope       = tree.Sub(shellPage, tree.Name("debug-adapter-select"))
-	debugStartID            = tree.ID(shellPage, "debug-start")
-	debugStopID             = tree.ID(shellPage, "debug-stop")
-	debugContinueID         = tree.ID(shellPage, "debug-continue")
-	debugPauseID            = tree.ID(shellPage, "debug-pause")
-	debugAttachHostID       = tree.ID(shellPage, "debug-attach-host")
-	debugAttachPortID       = tree.ID(shellPage, "debug-attach-port")
-	debugRemoteAttachID     = tree.ID(shellPage, "debug-remote-attach")
-	debugRemoteCancelID     = tree.ID(shellPage, "debug-remote-cancel")
-	debugToggleBreakpointID = tree.ID(shellPage, "debug-toggle-breakpoint")
-	debugBreakpointsID      = tree.Sub(shellPage, tree.Name("debug-breakpoints"))
-	debugFramesListID       = tree.ID(shellPage, "debug-frames-list")
-	debugFrameRowsID        = tree.Sub(shellPage, tree.Name("debug-frame-rows"))
-)
-
 const (
 	debugRowHeight = 24
+	// debugBreakpointRows is how many breakpoint rows show before the list scrolls.
+	debugBreakpointRows = 6
 )
 
-// drawDebugPanel declares the Debug tool window: one stdio adapter session,
-// its breakpoints, pause/continue controls and the paused call stack.
+// drawDebugPanel puts the Debug tool window, a Page, into the tool window area.
 func (a *App) drawDebugPanel(f *ui.Frame, p *project) {
 	if p == nil {
 		return
 	}
+	a.embedPage(f, a.debugPage(p), func(c ui.C) { a.debugView(c, p) })
+}
+
+// debugView declares the Debug tool window: one adapter session, its breakpoints,
+// pause/continue controls and the paused call stack.
+func (a *App) debugView(c ui.C, p *project) {
 	t, d := a.text.Debug, &p.debug
 	if !d.loaded && !d.loading {
 		a.loadDebugAdapters(p)
 	}
-	f.Column().Fill().Background(a.colors.Editor).Children(func() {
-		if len(d.adapters) > 0 {
-			labels := make([]string, len(d.adapters))
-			for index, adapter := range d.adapters {
-				labels[index] = adapter.Declaration.DisplayName
-			}
-			f.Row().Height(panelHeaderHeight).Shrink(0).PadX(8).Items(ui.Center).Children(func() {
-				pick := f.Select(debugAdapterScope, &d.adapterSelect, labels, d.selectedAdapter).
-					Label(i18n.Shared(a.language(), "desktop.debug.adapter")).Disabled(d.session != nil).Grow(1)
-				if index, ok := pick.Picked(); ok && index >= 0 && index < len(d.adapters) {
-					d.selectedAdapter = index
-				}
-			})
-		}
+	ui.Column(c).Fill().Background(a.colors.Editor).Children(func() {
+		a.debugAdapterRow(c, p)
 		if len(d.adapters) > 0 && d.session == nil && debugAttachOnly(d.adapters[d.selectedAdapter]) {
-			a.drawDebugAttachForm(f)
+			a.debugAttachForm(c)
 		}
-		if d.remote != nil {
-			a.drawDebugRemotePrompt(f, p)
-		}
-		f.Row().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
-			if f.Button(debugStartID, t.Start).Disabled(d.session != nil || len(d.adapters) == 0).Clicked() {
+		a.debugRemotePrompt(c, p)
+		ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
+			if ui.Button(c, t.Start).Disabled(d.session != nil || len(d.adapters) == 0).Clicked() {
 				a.startDebug(p)
 			}
 			if d.session != nil {
-				if f.Button(debugStopID, t.Stop).Outline().Clicked() {
+				if ui.Button(c, t.Stop).Outline().Clicked() {
 					a.stopDebug(p)
 				}
 			}
-			if f.Button(debugContinueID, t.Continue).Outline().Disabled(d.session == nil || d.state != "paused").Clicked() {
+			if ui.Button(c, t.Continue).Outline().Disabled(d.session == nil || d.state != "paused").Clicked() {
 				a.continueDebug(p)
 			}
-			if f.Button(debugPauseID, t.Pause).Outline().Disabled(d.session == nil || d.state != "running").Clicked() {
+			if ui.Button(c, t.Pause).Outline().Disabled(d.session == nil || d.state != "running").Clicked() {
 				a.pauseDebug(p)
 			}
-			f.Spacer()
+			ui.Spacer(c)
 			if d.status != "" {
-				f.Text(d.status).Shrink(1).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
+				ui.Text(c, d.status).Shrink(1).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
 			}
 		})
-		f.Divider()
+		ui.Divider(c)
 		if d.failure != "" {
-			f.Column().Shrink(0).PadX(shellContentPad).PadY(6).Children(func() {
-				f.Paragraph(d.failure, 3).Color(a.theme.Danger)
+			ui.Column(c).FillWidth().Shrink(0).PadX(shellContentPad).PadY(6).Children(func() {
+				ui.Paragraph(c, d.failure, 3).Color(a.theme.Danger)
 			})
 		}
 		if len(d.adapters) == 0 && !d.loading {
-			a.testMessage(f, t.NoAdapters, a.colors.Subtle)
-			a.drawDebugOutput(f, p)
+			a.panelMessage(c, t.NoAdapters, a.colors.Subtle)
+			a.debugOutput(c, p)
 			return
 		}
-		a.drawDebugBreakpoints(f, p)
-		f.Divider()
-		a.drawDebugFrames(f, p)
+		a.debugBreakpoints(c, p)
+		ui.Divider(c)
+		a.debugFrames(c, p)
+	})
+}
+
+// debugAdapterRow declares the adapter picker. While a session runs the adapter
+// is fixed, so the picker gives way to its name.
+func (a *App) debugAdapterRow(c ui.C, p *project) {
+	d := &p.debug
+	if len(d.adapters) == 0 {
+		return
+	}
+	indexes := make([]int, len(d.adapters))
+	for index := range indexes {
+		indexes[index] = index
+	}
+	label := i18n.Shared(a.language(), "desktop.debug.adapter")
+	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).PadX(8).Items(ui.Center).Children(func() {
+		if d.session != nil {
+			ui.Text(c, d.adapters[d.selectedAdapter].Declaration.DisplayName).Color(a.colors.Text).Ellipsis().Grow(1).Label(label)
+			return
+		}
+		ui.Select(c, &d.selectedAdapter, indexes, func(index int) string {
+			return d.adapters[index].Declaration.DisplayName
+		}).Label(label).Grow(1)
 	})
 }
 
@@ -103,76 +103,94 @@ func debugAttachOnly(adapter debugAdapter) bool {
 	return !adapter.Declaration.Serves("launch") && adapter.Declaration.AcceptsConnection
 }
 
-// drawDebugAttachForm declares the host and port of the debuggee to attach to.
-// An empty host means this machine.
-func (a *App) drawDebugAttachForm(f *ui.Frame) {
+// debugAttachForm declares the host and port of the debuggee to attach to. An
+// empty host means this machine.
+func (a *App) debugAttachForm(c ui.C) {
 	t := a.text.Debug
-	f.Row().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
-		f.Field(&a.debugAttach.host, debugAttachHostID, t.AttachHost, t.AttachHost).Grow(2)
-		f.Field(&a.debugAttach.port, debugAttachPortID, t.AttachPort, t.AttachPort).Grow(1)
+	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
+		ui.TextField(c, &a.debugAttach.host, t.AttachHost, t.AttachHost).Grow(2)
+		ui.TextField(c, &a.debugAttach.port, t.AttachPort, t.AttachPort).Grow(1)
 	})
 }
 
-// drawDebugRemotePrompt asks before attaching to an endpoint Core could not prove
-// local. The answer is for this start only.
-func (a *App) drawDebugRemotePrompt(f *ui.Frame, p *project) {
-	t := a.text.Debug
-	f.Column().Shrink(0).PadX(shellContentPad).PadY(6).Gap(6).Children(func() {
-		f.Paragraph(t.RemotePrompt(p.debug.remote.endpoint), 4).Color(a.colors.Warning)
-		f.Row().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).Children(func() {
-			if f.Button(debugRemoteAttachID, t.RemoteAttach).Clicked() {
-				a.confirmRemoteDebug(p)
-			}
-			if f.Button(debugRemoteCancelID, t.RemoteCancel).Outline().Clicked() {
-				p.debug.remote = nil
-			}
-		})
-	})
-}
-
-// drawDebugBreakpoints declares the toggle action and the stored breakpoint
-// lines. A line row removes that breakpoint when clicked.
-func (a *App) drawDebugBreakpoints(f *ui.Frame, p *project) {
+// debugRemotePrompt asks before attaching to an endpoint Core could not prove
+// local. The answer is for this start only; closing the dialog is a refusal.
+func (a *App) debugRemotePrompt(c ui.C, p *project) {
 	t, d := a.text.Debug, &p.debug
-	f.Row().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
-		f.Text(t.Breakpoints).Color(a.colors.Text).Weight(gfx.WeightMedium).Shrink(0)
-		f.Spacer()
-		if f.Button(debugToggleBreakpointID, t.ToggleBreakpoint).Outline().Clicked() {
-			a.toggleBreakpoint(p)
+	open := &p.panels.remoteOpen
+	*open = d.remote != nil
+	if !*open {
+		return
+	}
+	endpoint := d.remote.endpoint
+	closed := ui.Modal(c, open, t.RemoteTitle, func() {
+		ui.Paragraph(c, t.RemotePrompt(endpoint), 4).Color(a.colors.Warning)
+	}, func() {
+		if ui.Button(c, t.RemoteCancel).Outline().Clicked() {
+			*open = false
+		}
+		if ui.Button(c, t.RemoteAttach).Clicked() {
+			c.After(func() { a.confirmRemoteDebug(p) })
 		}
 	})
+	if closed || !*open {
+		d.remote = nil
+	}
+}
+
+// debugBreakpointRow is one stored breakpoint line.
+type debugBreakpointRow struct {
+	path string
+	line int64
+}
+
+// debugBreakpointList lists the stored breakpoints by file and line.
+func debugBreakpointList(d *debugState) []debugBreakpointRow {
 	paths := make([]string, 0, len(d.breakpoints))
 	for path := range d.breakpoints {
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)
-	if len(paths) == 0 {
-		f.Row().Height(debugRowHeight).Shrink(0).PadX(10).Items(ui.Center).Children(func() {
-			f.Text(t.NoBreakpoints).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
+	var rows []debugBreakpointRow
+	for _, path := range paths {
+		for _, line := range d.breakpoints[path] {
+			rows = append(rows, debugBreakpointRow{path: path, line: line})
+		}
+	}
+	return rows
+}
+
+// debugBreakpoints declares the toggle action and the stored breakpoint lines.
+// A line row removes that breakpoint when clicked.
+func (a *App) debugBreakpoints(c ui.C, p *project) {
+	t, d := a.text.Debug, &p.debug
+	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
+		ui.Text(c, t.Breakpoints).Color(a.colors.Text).Weight(gfx.WeightMedium).Shrink(0)
+		ui.Spacer(c)
+		if ui.Button(c, t.ToggleBreakpoint).Outline().Clicked() {
+			a.toggleBreakpoint(p)
+		}
+	})
+	rows := debugBreakpointList(d)
+	if len(rows) == 0 {
+		ui.Row(c).FillWidth().Height(debugRowHeight).Shrink(0).PadX(10).Items(ui.Center).Children(func() {
+			ui.Text(c, t.NoBreakpoints).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
 		})
 		return
 	}
-	row := 0
-	for _, path := range paths {
-		for _, line := range d.breakpoints[path] {
-			currentPath, currentLine := path, line
-			box := f.Row().Height(debugRowHeight).Shrink(0).PadX(10).Items(ui.Center).Gap(6).
-				HitWith(debugBreakpointsID.At(row), debugFileName(path)+":"+strconv.FormatInt(line, 10), gfx.HitOptions{
-					Role:   gfx.RoleButton,
-					Cursor: gfx.PointerCursorHand,
-					Hint:   t.RemoveBreakpoint,
-				}).Hover(ui.Look{}.Background(a.colors.Hover))
-			box.Children(func() {
-				f.Icon(icons.CircleX).Size(12, 12).Shrink(0).Color(a.theme.Danger)
-				f.Text(debugFileName(path)).Shrink(1).FontSize(12.5).Color(a.colors.Text).Ellipsis()
-				f.Text(":" + strconv.FormatInt(line, 10)).Shrink(0).FontSize(11.5).Color(a.colors.Subtle)
-			})
-			if box.Clicked() {
-				a.removeBreakpoint(p, currentPath, currentLine)
-			}
-			row++
+	list := &p.panels.breakpoints
+	list.Label = func(i int) string { return debugFileName(rows[i].path) + ":" + strconv.FormatInt(rows[i].line, 10) }
+	ui.List(c, list, len(rows), func(row ui.ListRow) {
+		spec := rows[row.Index]
+		row.Element.Height(debugRowHeight).PadX(10).Items(ui.Center).Gap(6).Tooltip(t.RemoveBreakpoint).
+			Hover(ui.Look{}.Background(a.colors.Hover))
+		ui.Icon(row.C, icons.CircleX).Size(12, 12).Shrink(0).Color(a.theme.Danger)
+		ui.Text(row.C, debugFileName(spec.path)).Shrink(1).FontSize(12.5).Color(a.colors.Text).Ellipsis()
+		ui.Text(row.C, ":"+strconv.FormatInt(spec.line, 10)).Shrink(0).FontSize(11.5).Color(a.colors.Subtle)
+		if row.Element.Clicked() {
+			row.C.After(func() { a.removeBreakpoint(p, spec.path, spec.line) })
 		}
-	}
+	}).Label(t.Breakpoints).FillWidth().Height(float32(min(len(rows), debugBreakpointRows)) * debugRowHeight).Shrink(0)
 }
 
 // removeBreakpoint drops one stored line and tells the active adapter.
@@ -193,51 +211,44 @@ func (a *App) removeBreakpoint(p *project, path string, line int64) {
 	}
 }
 
-// drawDebugFrames declares the paused call stack. A frame with a source path
-// opens that location.
-func (a *App) drawDebugFrames(f *ui.Frame, p *project) {
+// debugFrames declares the paused call stack. A frame with a source path opens
+// that location.
+func (a *App) debugFrames(c ui.C, p *project) {
 	t, d := a.text.Debug, &p.debug
-	f.Row().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).PadX(8).Children(func() {
-		f.Text(t.Frames).Color(a.colors.Text).Weight(gfx.WeightMedium).Ellipsis()
+	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).PadX(8).Children(func() {
+		ui.Text(c, t.Frames).Color(a.colors.Text).Weight(gfx.WeightMedium).Ellipsis()
 	})
 	if len(d.frames) == 0 {
-		f.Row().FillWidth().Shrink(0).Height(debugRowHeight).PadX(10).Items(ui.Center).Children(func() {
-			f.Text(t.NoFrames).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
+		ui.Row(c).FillWidth().Shrink(0).Height(debugRowHeight).PadX(10).Items(ui.Center).Children(func() {
+			ui.Text(c, t.NoFrames).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
 		})
 		return
 	}
-	f.ScrollArea(debugFramesListID).FillWidth().Grow(1).Children(func() {
-		for index, frame := range d.frames {
-			box := f.Row().FillWidth().Height(debugRowHeight).Shrink(0).PadX(10).Items(ui.Center).Gap(6).
-				Hover(ui.Look{}.Background(a.colors.Hover))
-			if frame.SourcePath != "" {
-				box = box.HitWith(debugFrameRowsID.At(index), frame.Name, gfx.HitOptions{
-					Role:   gfx.RoleButton,
-					Cursor: gfx.PointerCursorHand,
-					Hint:   t.OpenFrame,
-				})
-			}
-			box.Children(func() {
-				f.Text(frame.Name).Grow(1).Shrink(1).FontSize(12.5).Color(a.colors.Text).Ellipsis()
-				if frame.SourcePath != "" {
-					position := debugFileName(frame.SourcePath) + ":" + strconv.FormatInt(frame.Line, 10)
-					f.Text(position).Shrink(0).FontSize(11.5).Color(a.colors.Subtle)
-				}
-			})
-			if frame.SourcePath != "" && box.Clicked() {
-				line := int(frame.Line)
-				if line > 0 {
-					line--
-				}
-				a.openFileAtPosition(p, frame.SourcePath, line, 0)
-			}
+	list := &p.panels.frames
+	list.Label = func(i int) string { return d.frames[i].Name }
+	ui.List(c, list, len(d.frames), func(row ui.ListRow) {
+		frame := d.frames[row.Index]
+		element := row.Element.Height(debugRowHeight).PadX(10).Items(ui.Center).Gap(6).Hover(ui.Look{}.Background(a.colors.Hover))
+		ui.Text(row.C, frame.Name).Grow(1).Shrink(1).FontSize(12.5).Color(a.colors.Text).Ellipsis()
+		if frame.SourcePath == "" {
+			return
 		}
-	})
+		element.Tooltip(t.OpenFrame)
+		position := debugFileName(frame.SourcePath) + ":" + strconv.FormatInt(frame.Line, 10)
+		ui.Text(row.C, position).Shrink(0).FontSize(11.5).Color(a.colors.Subtle)
+		if element.Clicked() {
+			line := int(frame.Line)
+			if line > 0 {
+				line--
+			}
+			row.C.After(func() { a.openFileAtPosition(p, frame.SourcePath, line, 0) })
+		}
+	}).Label(t.Frames).FillWidth().Grow(1)
 }
 
-// drawDebugOutput shows the adapter's bounded diagnostics when something failed
-// or no adapter was found.
-func (a *App) drawDebugOutput(f *ui.Frame, p *project) {
+// debugOutput shows the adapter's bounded diagnostics when something failed or no
+// adapter was found.
+func (a *App) debugOutput(c ui.C, p *project) {
 	if len(p.debug.output) == 0 {
 		return
 	}
@@ -245,9 +256,9 @@ func (a *App) drawDebugOutput(f *ui.Frame, p *project) {
 	if len(lines) > 8 {
 		lines = lines[len(lines)-8:]
 	}
-	f.Divider()
-	f.Column().Height(120).Shrink(0).Clip().Pad(8).Children(func() {
-		f.Paragraph(joinLines(lines), 6).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+	ui.Divider(c)
+	ui.Column(c).FillWidth().Height(120).Shrink(0).Clip().Pad(8).Children(func() {
+		ui.Paragraph(c, joinLines(lines), 6).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 	})
 }
 

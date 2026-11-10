@@ -112,6 +112,9 @@ func (a *App) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 	if result, ok := a.pageWheel(event); ok {
 		return result
 	}
+	if result, ok := a.hostedWheel(event); ok {
+		return result
+	}
 	if t := a.focusedTerminal(event.Target); t != nil {
 		if result, ok := t.Scroll(event); ok {
 			return result
@@ -140,6 +143,9 @@ func (a *App) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 // other control is a field the window declared or one of a Git page.
 func (a *App) textInput(ctx app.TextInputContext) *app.TextInput {
 	if input := a.pageTextInput(ctx); input != nil {
+		return input
+	}
+	if input := a.hostedTextInput(ctx); input != nil {
 		return input
 	}
 	if t := a.focusedTerminal(ctx.ID); t != nil {

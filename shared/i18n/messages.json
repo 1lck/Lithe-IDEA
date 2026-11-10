@@ -103988,6 +103988,13 @@
       }
     },
     {
+      "id": "desktop.debug.remoteTitle",
+      "description": "Title of the dialog that asks before attaching to a remote debuggee",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.debug.remoteAttach",
       "description": "Button that confirms attaching to a remote debuggee",
       "platforms": [
