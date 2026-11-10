@@ -20,6 +20,7 @@ func settingsMessages(language Language) SettingsMessages {
 		Languages:          Shared(language, "settings.groups.languages"),
 		Tools:              Shared(language, "settings.groups.tools"),
 		AI:                 Shared(language, "native.ai"),
+		MCP:                Shared(language, "desktop.mcp.title"),
 		PageLater:          Shared(language, "desktop.settings.pageLater"),
 		Appearance:         Shared(language, "settings.mac.appearance"),
 		AppearanceHelp:     Shared(language, "desktop.settings.appearanceHelp"),

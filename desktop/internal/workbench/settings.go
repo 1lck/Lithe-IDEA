@@ -141,6 +141,7 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		},
 		Toolchains:     settingsToolchains{app: a},
 		PluginSettings: pluginSettingsSources{app: a},
+		MCP:            a.mcpSettingsLoader(),
 	})
 }
 

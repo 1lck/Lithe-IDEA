@@ -202,6 +202,8 @@ func (w *window) content(c ui.C) {
 			w.toolchainsPage(c)
 		case w.sess.page == pageTerminal && w.ctrl.opts.TerminalShells != nil:
 			w.terminalPage(c)
+		case w.sess.page == pageMCP && w.ctrl.opts.MCP != nil:
+			w.mcpPage(c)
 		default:
 			w.unavailablePage(c)
 		}

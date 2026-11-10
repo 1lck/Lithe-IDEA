@@ -106,6 +106,8 @@ type window struct {
 	settingsNotices chan string
 	// terminal is the Terminal page's list of installed shells.
 	terminal terminalShellState
+	// mcp is the MCP Configuration page's state.
+	mcp *mcpState
 
 	// focusSearch asks the next paint to focus the search field (the platform's Find).
 	focusSearch bool
@@ -185,6 +187,7 @@ func newWindow(c *Controller, current Values) *window {
 	w.pluginSettings.report = func(err error) { reportSettingsError(c.opts, err) }
 	w.toolchains = newToolchainState(c.opts.Toolchains)
 	w.terminal = newTerminalShellState(c.opts.TerminalShells)
+	w.mcp = newMCPState(c.opts.MCP)
 	w.nav.Node, w.nav.Key, w.nav.RowHeight, w.nav.Indent = w.navNode, w.navKey, rowHeight, childIndent
 	return w
 }
@@ -339,6 +342,7 @@ func (w *window) prepare(size gfx.Size) {
 func (w *window) collect() {
 	w.toolchains.take()
 	w.terminal.take()
+	w.mcp.take()
 	if w.dynamic.take() {
 		w.rowsValid = false
 	}
@@ -374,6 +378,7 @@ func (w *window) reportMarket(previous marketStatus) {
 func (w *window) declareWork(c ui.C) {
 	w.toolchains.declare(c)
 	w.terminal.declare(c)
+	w.mcp.declare(c)
 	w.dynamic.declare(c)
 	w.market.declare(c)
 	w.market.search.declare(c)

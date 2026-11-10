@@ -104197,6 +104197,552 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.mcp.title",
+      "description": "Desktop MCP settings: title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.intro",
+      "description": "Desktop MCP settings: intro",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.help",
+      "description": "Desktop MCP settings: help",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.servers",
+      "description": "Desktop MCP settings: servers",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.empty",
+      "description": "Desktop MCP settings: empty",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.loading",
+      "description": "Desktop MCP settings: loading",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.add",
+      "description": "Desktop MCP settings: add",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.edit",
+      "description": "Desktop MCP settings: edit",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.delete",
+      "description": "Desktop MCP settings: delete",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.reload",
+      "description": "Desktop MCP settings: reload",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.working",
+      "description": "Desktop MCP settings: working",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.loadFailed",
+      "description": "Desktop MCP settings: loadFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.mcp.fileUnreadable",
+      "description": "Desktop MCP settings: fileUnreadable",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "file": "string"
+      }
+    },
+    {
+      "id": "desktop.mcp.parseFailed",
+      "description": "Desktop MCP settings: parseFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "file": "string"
+      }
+    },
+    {
+      "id": "desktop.mcp.writeFailed",
+      "description": "Desktop MCP settings: writeFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.mcp.saved",
+      "description": "Desktop MCP settings: saved",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.conflictNote",
+      "description": "Desktop MCP settings: conflictNote",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.projectOnly",
+      "description": "Desktop MCP settings: projectOnly",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.owned",
+      "description": "Desktop MCP settings: owned",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.external",
+      "description": "Desktop MCP settings: external",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.codex",
+      "description": "Desktop MCP settings: codex",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.claude",
+      "description": "Desktop MCP settings: claude",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.agents",
+      "description": "Desktop MCP settings: agents",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.name",
+      "description": "Desktop MCP settings: name",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.transport",
+      "description": "Desktop MCP settings: transport",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.stdio",
+      "description": "Desktop MCP settings: stdio",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.http",
+      "description": "Desktop MCP settings: http",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.sse",
+      "description": "Desktop MCP settings: sse",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.command",
+      "description": "Desktop MCP settings: command",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.commandHelp",
+      "description": "Desktop MCP settings: commandHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.url",
+      "description": "Desktop MCP settings: url",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.env",
+      "description": "Desktop MCP settings: env",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.headers",
+      "description": "Desktop MCP settings: headers",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.secretsHint",
+      "description": "Desktop MCP settings: secretsHint",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.save",
+      "description": "Desktop MCP settings: save",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.cancel",
+      "description": "Desktop MCP settings: cancel",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.addTitle",
+      "description": "Desktop MCP settings: addTitle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.editTitle",
+      "description": "Desktop MCP settings: editTitle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.deleteTitle",
+      "description": "Desktop MCP settings: deleteTitle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.deleteBody",
+      "description": "Desktop MCP settings: deleteBody",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.issue.nameRequired",
+      "description": "Desktop MCP settings: issue.nameRequired",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.issue.nameInvalid",
+      "description": "Desktop MCP settings: issue.nameInvalid",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.issue.agentsRequired",
+      "description": "Desktop MCP settings: issue.agentsRequired",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.issue.duplicateKeys",
+      "description": "Desktop MCP settings: issue.duplicateKeys",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.issue.commandRequired",
+      "description": "Desktop MCP settings: issue.commandRequired",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.issue.commandMalformed",
+      "description": "Desktop MCP settings: issue.commandMalformed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.issue.urlInvalid",
+      "description": "Desktop MCP settings: issue.urlInvalid",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.issue.bearerTokenRequired",
+      "description": "Desktop MCP settings: issue.bearerTokenRequired",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.issue.allowedDirectoriesRequired",
+      "description": "Desktop MCP settings: issue.allowedDirectoriesRequired",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.issue.other",
+      "description": "Desktop MCP settings: issue.other",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.rejected.notOwned",
+      "description": "Desktop MCP settings: rejected.notOwned",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.rejected.externallyModified",
+      "description": "Desktop MCP settings: rejected.externallyModified",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.rejected.agentHasNoGlobalConfiguration",
+      "description": "Desktop MCP settings: rejected.agentHasNoGlobalConfiguration",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.rejected.other",
+      "description": "Desktop MCP settings: rejected.other",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.registry",
+      "description": "Desktop MCP settings: registry",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.featured",
+      "description": "Desktop MCP settings: featured",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.searchPlaceholder",
+      "description": "Desktop MCP settings: searchPlaceholder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.search",
+      "description": "Desktop MCP settings: search",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.searching",
+      "description": "Desktop MCP settings: searching",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.searchFailed",
+      "description": "Desktop MCP settings: searchFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.mcp.noResults",
+      "description": "Desktop MCP settings: noResults",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.more",
+      "description": "Desktop MCP settings: more",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.addFromRegistry",
+      "description": "Desktop MCP settings: addFromRegistry",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.docsOnly",
+      "description": "Desktop MCP settings: docsOnly",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.detect",
+      "description": "Desktop MCP settings: detect",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.detecting",
+      "description": "Desktop MCP settings: detecting",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.detectConfirmTitle",
+      "description": "Desktop MCP settings: detectConfirmTitle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.detectConfirmBody",
+      "description": "Desktop MCP settings: detectConfirmBody",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.detectContinue",
+      "description": "Desktop MCP settings: detectContinue",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.detectFailed",
+      "description": "Desktop MCP settings: detectFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.mcp.tools",
+      "description": "Desktop MCP settings: tools",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.noTools",
+      "description": "Desktop MCP settings: noTools",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.toolLocked",
+      "description": "Desktop MCP settings: toolLocked",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.mcp.toolFailed",
+      "description": "Desktop MCP settings: toolFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.mcp.sseUnsupported",
+      "description": "Desktop MCP settings: sseUnsupported",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

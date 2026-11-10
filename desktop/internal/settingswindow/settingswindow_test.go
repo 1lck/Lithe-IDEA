@@ -49,9 +49,9 @@ func TestParentsTableKeepsGroupsBesideTheirPages(t *testing.T) {
 	}
 }
 
-func TestOnlyAppearanceAndToolsAreGroups(t *testing.T) {
+func TestOnlyAppearanceToolsAndAIAreGroups(t *testing.T) {
 	for id := pageID(0); id < pageCount; id++ {
-		if got, want := isGroup(id), id == pageAppearance || id == pageTools; got != want {
+		if got, want := isGroup(id), id == pageAppearance || id == pageTools || id == pageAI; got != want {
 			t.Errorf("isGroup(%d) = %v, want %v", id, got, want)
 		}
 	}
@@ -119,7 +119,7 @@ func TestDefaultSidebarListsTheTopLevelWithAppearanceExpanded(t *testing.T) {
 		{page: pageBuild},
 		{page: pageLanguages},
 		{page: pageTools, group: true},
-		{page: pageAI},
+		{page: pageAI, group: true},
 	}
 	if !slices.Equal(rows, want) {
 		t.Fatalf("rows = %v, want %v", rows, want)
@@ -136,7 +136,7 @@ func TestCollapsedGroupHidesItsPages(t *testing.T) {
 		if r.level != 0 || r.expanded {
 			t.Fatalf("row %+v should be on the top level and not expanded", r)
 		}
-		if want := r.page == pageAppearance || r.page == pageTools; r.group != want {
+		if want := r.page == pageAppearance || r.page == pageTools || r.page == pageAI; r.group != want {
 			t.Fatalf("row %+v: group = %v, want %v", r, r.group, want)
 		}
 	}
@@ -217,9 +217,9 @@ func TestSearchOnAGroupTitleKeepsAllItsPages(t *testing.T) {
 
 func TestSearchOnATopLevelPageListsOnlyIt(t *testing.T) {
 	open := initialOpen()
-	// The query is folded, so "  AI " finds "AI" and the group, which has no match, is dropped.
+	// The query is folded, so "  AI " finds the group "AI", which keeps all its pages.
 	rows := appendVisible(nil, english(), &open, foldQuery("  AI "))
-	if want := []row{{page: pageAI}}; !slices.Equal(rows, want) {
+	if want := []row{{page: pageAI, group: true, expanded: true}, {page: pageMCP, level: 1}}; !slices.Equal(rows, want) {
 		t.Fatalf("rows = %v, want %v", rows, want)
 	}
 }
@@ -286,6 +286,7 @@ func TestBreadcrumb(t *testing.T) {
 		{pageAppearance, []string{"Appearance & Behavior"}},
 		{pagePlugins, []string{"Plugins"}},
 		{pageAI, []string{"AI"}},
+		{pageMCP, []string{"AI", "MCP Configuration"}},
 		{pageTools, []string{"Tools"}},
 		{pageTerminal, []string{"Tools", "Terminal"}},
 	}

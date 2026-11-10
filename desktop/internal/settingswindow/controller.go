@@ -153,8 +153,10 @@ type Options struct {
 	// Toolchains is the Build settings page's loader. Nil leaves the page unavailable.
 	Toolchains     ToolchainLoader
 	PluginSettings PluginSettingsLoader
-	PluginRuntime  func(string) PluginRuntimeState
-	RestartPlugin  func(id, version, scope, workspace string)
+	// MCP is the MCP Configuration page's loader. Nil leaves the page unavailable.
+	MCP           MCPLoader
+	PluginRuntime func(string) PluginRuntimeState
+	RestartPlugin func(id, version, scope, workspace string)
 }
 
 // Controller opens the settings window and keeps at most one open: opening it again brings

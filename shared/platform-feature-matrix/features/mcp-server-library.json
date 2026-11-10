@@ -4,21 +4,37 @@
   "group": "IDE MCP",
   "capability": "在设置页统一发现、合并、编辑并删除 Codex 与 Claude Code 已注册的 MCP 服务器，按 Agent 独立启用；项目授权开启时自动写入 Lithe MCP，关闭时按账本清理；支持资源库搜索、原生弹窗编辑和标准 mcpServers JSON 预览导入；紧凑图标配置弹窗及精确命令行参数投影，主动 stdio/Streamable HTTP 工具检测，按 Codex/Claude 原生规则独立管理工具开关并保留外部禁用项；关闭及删除后的 Codex 原生工具名单按路径/名称保留，再添加时恢复",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/core/mcp.go",
+      "desktop/internal/core/mcp_test.go",
+      "desktop/internal/mcpconfig/mcpconfig.go",
+      "desktop/internal/mcpconfig/mcpconfig_test.go",
+      "desktop/internal/settingswindow/mcp_model.go",
+      "desktop/internal/settingswindow/mcp_view.go",
+      "desktop/internal/settingswindow/mcp_view_test.go",
+      "shared/fixtures/mcp/library-v1.json",
+      "shared/fixtures/mcp/tools-v1.json"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/core/mcp.go",
+      "desktop/internal/core/mcp_test.go",
+      "desktop/internal/mcpconfig/mcpconfig.go",
+      "desktop/internal/mcpconfig/mcpconfig_test.go",
+      "desktop/internal/settingswindow/mcp_model.go",
+      "desktop/internal/settingswindow/mcp_view.go",
+      "desktop/internal/settingswindow/mcp_view_test.go",
+      "shared/fixtures/mcp/library-v1.json",
+      "shared/fixtures/mcp/tools-v1.json"
     ]
   },
   "owner": "Agent",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "2026-11-10：Viva 设置 › AI › MCP 配置页读取 Codex（$CODEX_HOME/config.toml）与 Claude（.claude.json）的真实全局配置，由 Core 的 mcp.librarySnapshot 合并，显示不含凭据的摘要；添加/编辑/删除经 mcp.validateDraft + mcp.batchPlan 规划，Go 只做路径、有界读取、备份（应用数据目录）、原子替换、失败回滚并保留外部修改、以及所有权账本；编辑外部条目以用户所见 sourceHash 为前置条件，打开页面不写文件，env/header 值遮蔽且未改动时原值保留；检测工具（stdio 需确认，SSE 明确不支持）后按 Agent 读取并经 mcp.toolPolicy 写回工具开关，只改 Lithe 自有规则。未接入：项目级条目（项目授权自动注册 Lithe MCP、.codex/config.toml 与 .git/info/exclude）、Codex 工具名单跨删除保留、符号链接回滚细节与 JSON 预览导入；真实工具端到端与原生窗口验收仍为 pending。",
   "verification": "运行 cargo test -p lithe-core mcp:: 与 ./scripts/macos/test/test-macos.sh --filter \"McpServerLibraryTests|McpBatchTransactionTests|McpServerSummaryTests|McpExcludePreservationTests|McpArgumentRoundTripTests|McpSymlinkConfigurationTests\"，注入两次写入之间的外部修改，确认先前文件恢复、账本不变、回滚时保留外部修改并提示路径；验证 args 与 URL 凭据不在摘要中，以及非 UTF-8 exclude 规则保留、读取失败保护和幂等；覆盖双窗口按顺序保存后旧草稿被拒绝（包括刷新列表、可见字段恰好等于新版本）、各 Agent 使用自己的完整来源哈希、未建模认证或超时变化阻止删除/重命名/项目清理、旧账本显式重新接管，以及双 Agent 合并、门禁冲突、接管所有权、保格式编辑、项目注册与外部修改保留。实机打开设置 → MCP：无项目时资源库仍列出 Codex/Claude 已有服务器；编辑 env 并保存后检查原文件注释与未知键未丢、备份生成；按 Agent 关闭外部条目被拒绝，接管后可移除。打开项目并启用 MCP，确认 ~/.claude.json 项目条目与 <项目>/.codex/config.toml 写入、.git/info/exclude 包含 .codex/config.toml；禁用后清理，外部改过的条目保留并提示。运行 ./scripts/macos/test/test-macos.sh --filter \"McpWriteProtectionTests|FileStorageReplacementTests|McpFeatureBatchFailureTests\" 验证备份后外部保存保留、条件删除、非普通文件目标拒绝、发布失败后批量恢复且不发布账本；回滚保留更新保存的路径、临时文件从创建起为 0600、不支持交换的卷 fail closed。 运行前后对比安装目录文件清单与哈希，确认运行时未写入发行目录。 覆盖仅改 env 时空参数、纯空白与嵌入换行的无损往返；两个 Agent 的相对/绝对符号链接读取、生成计划、备份、保存、故障回滚、外部目标修改保护及大小/UTF-8 校验。 在无项目和已打开项目两种状态下检查资源库搜索、添加/编辑弹窗、JSON 预览选择；取消不改配置。检查 900 点宽与深浅主题，项目授权区保留。 检测需显式触发，本地命令须确认；覆盖分页、工具数量/字节上限、实际 stdio/本地 HTTP、取消、虚拟超时和子进程清理。逐 Agent 关闭/开启自有规则并回读，外部 deny/allow-list 不放宽，过期快照不覆盖文件。全局页打开不启动服务器；验证工具列表与编辑器深浅色宽窄布局。SSE 配置保留但检测明确不支持，未验收的原生会话工具行为不能据配置测试宣称 verified。 McpArgumentRoundTripTests.disabledToolsSurviveServerRemovalAndReopening 对 Agent 开关、编辑器保存、删除重加三条真实隔离文件路径验证：工具仍禁用，外部 deny/allow-list 不放宽、另一 Agent 不变、新页面读回且仅 Lithe 自有规则可重新开启。Core 回归覆盖空 allow-list、非法类型、现存原生规则优先及恢复后完整哈希。CI test-stability-macos 产物包含 mcp-ui 的真实产品编辑器及工具面板深浅主题、宽窄截图。 验证禁用自有工具后重命名、重新读取并开启，外部 deny/allow-list 保持不可编辑，旧名重用不继承所有权；检测后及探测期间新增、移除 Agent 时刷新对应策略并释放旧快照，读取失败可见且不影响另一 Agent，服务器探测次数保持一次。 运行 cargo test -p lithe-core mcp::library_tests 覆盖共享 fixture 的合并、冲突、归属、校验码与批量计划结果，并运行 McpLibraryCoreFixtureTests 确认 macOS 桥接解码同一 fixture。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",

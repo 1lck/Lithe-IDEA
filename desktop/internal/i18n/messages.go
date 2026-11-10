@@ -526,6 +526,7 @@ type SettingsMessages struct {
 	Languages          string
 	Tools              string
 	AI                 string
+	MCP                string
 	// PageLater is the body of a page the new desktop client does not offer yet.
 	PageLater string
 

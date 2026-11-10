@@ -4,17 +4,27 @@
   "group": "IDE MCP",
   "capability": "同页上方管理服务器资源库，下方默认显示离线可用的内置精选；搜索时查询官方 MCP Registry、分页并与精选去重，失败保留可用匹配并提供显式直连重试；静态远程或简单固定版本 npm/PyPI 入口进入平铺编辑弹窗，选择 Agent 并确认后保存；十个常用精选随应用打包品牌图标和运行方式标签，GitHub 令牌及 Filesystem 允许目录须补全后保存；在线连续结果接近底部自动续页，不再逐页点击",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/mcpconfig/registry.go",
+      "desktop/internal/mcpconfig/mcpconfig_test.go",
+      "desktop/internal/core/mcp.go",
+      "desktop/internal/core/mcp_test.go",
+      "desktop/internal/settingswindow/mcp_view.go",
+      "shared/contracts/mcp-registry-page.json"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/mcpconfig/registry.go",
+      "desktop/internal/mcpconfig/mcpconfig_test.go",
+      "desktop/internal/core/mcp.go",
+      "desktop/internal/core/mcp_test.go",
+      "desktop/internal/settingswindow/mcp_view.go",
+      "shared/contracts/mcp-registry-page.json"
     ]
   },
   "owner": "Agent",
@@ -51,5 +61,5 @@
       ]
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "2026-11-10：MCP 配置页“发现”卡片先显示 Core 的 mcp.featuredRegistry 精选目录（无网络），显式搜索才由平台向官方 Registry 发起 HTTPS 请求（30 秒、不跟随重定向、1 MiB 上限、游标不透明、支持加载更多），响应交给 mcp.parseRegistry；可生成草稿的条目打开编辑器让用户确认后才写入，只有文档的条目标注仅文档；搜索失败不影响精选结果。未接入：品牌图标与精选条目的 setup（Bearer、允许目录）专用输入引导；原生窗口验收 pending。"
 }
