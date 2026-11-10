@@ -45,6 +45,7 @@ func openTestWindow(tb testing.TB, model *Model) (*window, *app.Driver) {
 	current.Store(i18n.For(i18n.English))
 	controller := NewController(WindowOptions{Text: current.Load})
 	w := newWindow(controller, model)
+	model.opts.Wake = w.inv.Invalidate
 	controller.current = w
 	driver, err := app.NewDriver(w.config(), nil)
 	if err != nil {
@@ -55,9 +56,7 @@ func openTestWindow(tb testing.TB, model *Model) (*window, *app.Driver) {
 }
 
 func BenchmarkTableScroll(b *testing.B) {
-	fixture := newExportFixture(b)
-	fillRecords(fixture.model, maxRecords)
-	_, driver := openTestWindow(b, fixture.model)
+	_, _, driver := bigFixture(b, maxRecords)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -72,10 +71,10 @@ func BenchmarkTableScroll(b *testing.B) {
 }
 
 func BenchmarkTableKeyDown(b *testing.B) {
-	fixture := newExportFixture(b)
-	fillRecords(fixture.model, maxRecords)
-	_, driver := openTestWindow(b, fixture.model)
-	if err := driver.Click(600, 300); err != nil {
+	fixture, _, driver := bigFixture(b, maxRecords)
+	rows := tableRowHits(driver)
+	x, y := centerOf(rows[1])
+	if err := driver.Click(x, y); err != nil {
 		b.Fatal(err)
 	}
 	b.ReportAllocs()
@@ -84,5 +83,9 @@ func BenchmarkTableKeyDown(b *testing.B) {
 		if err := driver.Key(gfx.KeyDown, 0); err != nil {
 			b.Fatal(err)
 		}
+	}
+	b.StopTimer()
+	if len(fixture.model.selection) != 1 {
+		b.Fatalf("%d records selected after the keys", len(fixture.model.selection))
 	}
 }

@@ -7,7 +7,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
-	"github.com/vivaui/viva/ui"
 )
 
 func TestOpenWindowRepaintsWhenLanguageAndAppearanceChange(t *testing.T) {
@@ -16,7 +15,7 @@ func TestOpenWindowRepaintsWhenLanguageAndAppearanceChange(t *testing.T) {
 	var dark atomic.Bool
 	current.Store(i18n.For(i18n.English))
 	controller := NewController(WindowOptions{Text: current.Load, Dark: dark.Load})
-	w := &window{ctrl: controller, model: fixture.model, filterRevision: -1, anchors: map[menuKind]ui.Box{}}
+	w := newWindow(controller, fixture.model)
 	controller.current = w
 	driver, err := app.NewDriver(w.config(), nil)
 	if err != nil {
@@ -47,7 +46,7 @@ func TestWindowControlsFollowTheTitleBar(t *testing.T) {
 	var dark atomic.Bool
 	current.Store(i18n.For(i18n.English))
 	controller := NewController(WindowOptions{Text: current.Load, Dark: dark.Load})
-	w := &window{ctrl: controller, model: fixture.model, filterRevision: -1, anchors: map[menuKind]ui.Box{}}
+	w := newWindow(controller, fixture.model)
 	controller.current = w
 	config := w.config()
 	if config.WindowControls == nil {
