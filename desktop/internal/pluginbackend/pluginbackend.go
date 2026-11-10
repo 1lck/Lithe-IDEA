@@ -117,6 +117,11 @@ type StartRequest struct {
 	// When set the runner does not plan again; the plan is still verified
 	// against the installed package exactly like a planned one.
 	Plan *core.PluginBackendPlan
+	// InitializeTimeoutMilliseconds bounds the provider's startup handshake.
+	// Zero keeps Core's default. A host test whose fixture is a large
+	// instrumented binary raises it so scheduler load cannot masquerade as a
+	// provider failure.
+	InitializeTimeoutMilliseconds int
 }
 
 // Session is one running plugin backend.
@@ -273,6 +278,8 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 		HostServices:           granted,
 		InitializationOptions:  plan.InitializationOptions,
 		WorkspaceConfiguration: plan.WorkspaceConfiguration,
+
+		InitializeTimeoutMilliseconds: request.InitializeTimeoutMilliseconds,
 	}
 	var started core.PluginBackendStarted
 	if request.LanguageID != "" {

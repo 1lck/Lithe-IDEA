@@ -213,6 +213,9 @@ func TestProviderModelTaskAndCancellation(t *testing.T) {
 		RootURI:          rootURI,
 		WorkingDirectory: workspace,
 		Environment:      map[string]string{buildProviderHelperEnv: "1"},
+		// The fixture is this whole (possibly race-instrumented) test binary.
+		// Under a loaded machine its startup can exceed Core's 10s default.
+		InitializeTimeoutMilliseconds: 60_000,
 	})
 	if err != nil {
 		t.Fatal(err)
