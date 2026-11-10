@@ -19,7 +19,8 @@ native_path() {
     fi
 }
 
-VIVA_VERSION="v0.5.2-0.20261109020342-0c11a3d0950d"
+# desktop/go.mod is the only place the Viva version is written; the tools come from the same module.
+VIVA_VERSION="$(go -C "$ROOT_DIR/desktop" list -m -f '{{.Version}}' github.com/vivaui/viva)"
 GOOS="$(go env GOOS)"
 GOHOSTOS="$(go env GOHOSTOS)"
 if [[ "$GOOS" != "$GOHOSTOS" ]]; then

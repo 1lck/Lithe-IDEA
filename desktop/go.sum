@@ -4,7 +4,7 @@ github.com/ebitengine/purego v0.11.1 h1:2zpWRSQNVKN4eKsKO9eM1ILDgWfYMY9GwqRmK6Xe
 github.com/ebitengine/purego v0.11.1/go.mod h1:DCHPP08djqhNSoTfImcnHYQRZmd0qhakvrozqaEYhGQ=
 github.com/pelletier/go-toml/v2 v2.4.3 h1:GTRvJQutkOSftxIFD5xw9aepkYNuPWmVJpffdDPYVpY=
 github.com/pelletier/go-toml/v2 v2.4.3/go.mod h1:2gIqNv+qfxSVS7cM2xJQKtLSTLUE9V8t9Stt+h56mCY=
-github.com/vivaui/viva v0.5.2-0.20261109020342-0c11a3d0950d h1:zMM5+SZuM8Y0/lih1rxEgS8KtgO6LiitN1eDd+X/M54=
-github.com/vivaui/viva v0.5.2-0.20261109020342-0c11a3d0950d/go.mod h1:iXOoCNuLlzKuz3cLna2y5bgXAFY8eLJSld6narLbpk4=
+github.com/vivaui/viva v0.5.2-0.20261110070358-339e1333c3b2 h1:yxtNuFQ/XqZsj5B1KfSGKp8BFd/Z1fzIWpGaQXPferA=
+github.com/vivaui/viva v0.5.2-0.20261110070358-339e1333c3b2/go.mod h1:iXOoCNuLlzKuz3cLna2y5bgXAFY8eLJSld6narLbpk4=
 golang.org/x/sys v0.49.0 h1:XbzkgYJHdqh/8m2Uu0W/dQv8nktxx4BFHp1M0gROTXA=
 golang.org/x/sys v0.49.0/go.mod h1:hNLxWAXmnKAxqDtdwIYC4bM9oQPEecfsnNMuSxOs3og=

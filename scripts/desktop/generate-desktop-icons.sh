@@ -14,7 +14,8 @@ set -euo pipefail
 
 ROOT_DIR="${0:A:h:h:h}"
 LUCIDE_VERSION="0.469.0"
-VIVA_VERSION="v0.5.2-0.20261109020342-0c11a3d0950d"
+# desktop/go.mod is the only place the Viva version is written; the tools come from the same module.
+VIVA_VERSION="$(go -C "$ROOT_DIR/desktop" list -m -f '{{.Version}}' github.com/vivaui/viva)"
 ICONS=(
     folder folder-open folder-tree file file-text file-code chevron-down chevron-right
     git-commit-horizontal git-branch list-tree search square-terminal circle-alert play bug

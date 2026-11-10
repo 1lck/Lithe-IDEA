@@ -21,7 +21,8 @@
 set -euo pipefail
 
 ROOT_DIR="${0:A:h:h:h}"
-VIVA_VERSION="v0.5.2-0.20261109020342-0c11a3d0950d"
+# desktop/go.mod is the only place the Viva version is written; the tools come from the same module.
+VIVA_VERSION="$(go -C "$ROOT_DIR/desktop" list -m -f '{{.Version}}' github.com/vivaui/viva)"
 ICON_DIR="$ROOT_DIR/desktop/internal/fileicons"
 OUT_FILE="$ICON_DIR/icons.go"
 TREE_OUT_FILE="$ICON_DIR/icons_tree.go"
