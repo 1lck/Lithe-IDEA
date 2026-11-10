@@ -35,7 +35,7 @@ func (a *App) debugView(c ui.C, p *project) {
 			}
 			if d.session != nil {
 				if ui.Button(c, t.Stop).Outline().Clicked() {
-					a.stopDebug(p)
+					a.stopDebugByUser(p)
 				}
 			}
 			if ui.Button(c, t.Continue).Outline().Disabled(d.session == nil || d.state != "paused").Clicked() {

@@ -102,6 +102,14 @@ type debugSession struct {
 	cancel         context.CancelFunc
 	// stopped is set when Stop or project close already took the session apart.
 	stopped atomic.Bool
+	// hosted is the lifecycle-driven stream of a tcpLanguageServer adapter; nil
+	// for a stdio adapter. It is also the session's transport.
+	hosted *debugTransport
+	// drainOnStop marks a user stop: a live hosted session sends its disconnect
+	// and lets Core's drain flush it instead of closing the stream at once.
+	drainOnStop atomic.Bool
+	failureMu   sync.Mutex
+	failure     error
 	// generation matches debugState.generation so an old pump publishes nothing.
 	generation uint64
 }
@@ -141,6 +149,20 @@ func (s *debugSession) writeFrames(frames []string) error {
 		}
 	}
 	return nil
+}
+
+// recordFailure keeps the reason Core failed the stream so the termination that
+// follows it can show that reason.
+func (s *debugSession) recordFailure(err error) {
+	s.failureMu.Lock()
+	defer s.failureMu.Unlock()
+	s.failure = err
+}
+
+func (s *debugSession) recordedFailure() error {
+	s.failureMu.Lock()
+	defer s.failureMu.Unlock()
+	return s.failure
 }
 
 func (s *debugSession) currentTransport() io.WriteCloser {
@@ -452,13 +474,26 @@ func (a *App) stopDebug(p *project) {
 	a.releaseDebugSession(p, session)
 }
 
+// stopDebugByUser is the Stop button: like stopDebug, but a live hosted session
+// first sends its DAP disconnect and lets Core's bounded drain flush it, so a
+// shared language server learns the session ended.
+func (a *App) stopDebugByUser(p *project) {
+	if p != nil && p.debug.session != nil {
+		p.debug.session.drainOnStop.Store(true)
+	}
+	a.stopDebug(p)
+}
+
 // releaseDebugSession closes transport immediately and destroys Core state only
 // after startup returned, so cancellation cannot race a late session creation.
 func (a *App) releaseDebugSession(_ *project, session *debugSession) {
 	session.cleanupOnce.Do(func() {
 		session.stopped.Store(true)
 		session.cancel()
-		session.closeTransport()
+		drain := session.drainOnStop.Load() && session.hosted != nil
+		if !drain {
+			session.closeTransport()
+		}
 		if process := session.process.Load(); process != nil {
 			process.Stop()
 		}
@@ -468,6 +503,14 @@ func (a *App) releaseDebugSession(_ *project, session *debugSession) {
 			ctx, cancel := context.WithTimeout(context.Background(), debugStopTimeout)
 			defer cancel()
 			var cleanupErr error
+			if session.hosted != nil {
+				if drain && session.created {
+					a.drainHostedSession(ctx, session)
+				}
+				// Stop is a no-op once the drain finished; it also covers a
+				// session that never got to send a disconnect.
+				_ = session.hosted.Close()
+			}
 			if session.created {
 				_, cleanupErr = a.kernel.DestroyDebugSession(ctx, session.id)
 			}
@@ -480,6 +523,9 @@ func (a *App) releaseDebugSession(_ *project, session *debugSession) {
 			if process != nil || session.observing.Load() {
 				<-session.exitObserved
 			}
+			if session.hosted != nil {
+				session.hosted.Release()
+			}
 			if session.stateDirectory != "" {
 				cleanupErr = errors.Join(cleanupErr, os.RemoveAll(session.stateDirectory))
 			}
@@ -489,6 +535,31 @@ func (a *App) releaseDebugSession(_ *project, session *debugSession) {
 			return nil
 		})
 	})
+}
+
+// drainHostedSession sends the DAP disconnect through the stream's write queue
+// and asks Core to flush it: local write completion for at most the drain
+// budget, never a remote acknowledgement.
+func (a *App) drainHostedSession(ctx context.Context, session *debugSession) {
+	update, err := a.kernel.DisconnectDebug(ctx, session.id)
+	if err == nil {
+		for _, frame := range update.OutboundFrames {
+			data, decodeErr := base64.StdEncoding.DecodeString(frame)
+			if decodeErr != nil {
+				break
+			}
+			if _, writeErr := session.hosted.Write(data); writeErr != nil {
+				break
+			}
+		}
+	}
+	if err := session.hosted.FinishSendingAndStop(); err != nil {
+		return
+	}
+	select {
+	case <-session.hosted.Done():
+	case <-ctx.Done():
+	}
 }
 
 func (a *App) stopDebugForProject(p *project) {

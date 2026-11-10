@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -268,7 +267,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 			return func(a *App) { a.finishDebugError(p, session, err) }
 		}
 		if hosted {
-			if err := a.openHostedTransport(ctx, p, session, adapter, policy.Limits, messages); err != nil {
+			if err := a.openHostedTransport(p, session, adapter, messages); err != nil {
 				return func(a *App) { a.finishDebugError(p, session, err) }
 			}
 		} else if err := a.startAdapterProcess(ctx, p, session, prepared, stdinReader); err != nil {
@@ -287,6 +286,11 @@ func (a *App) beginDebug(p *project, start debugStart) {
 		}
 		session.created = true
 		window := time.Duration(policy.InitializationMilliseconds) * time.Millisecond
+		if hosted {
+			// The session clock starts before discovery here, so it also covers
+			// the language-server start the discovery limit was raised for.
+			window += pluginServerStartTimeout
+		}
 		if override := a.debugInitializeWindow; override > 0 {
 			window = override
 		}
@@ -388,48 +392,82 @@ func (a *App) debugStreamEnded(p *project, session *debugSession, err error) {
 	})
 }
 
-// openHostedTransport reaches a tcpLanguageServer adapter: it makes sure the
-// plugin's language server for the workspace is running (as for editing), asks
-// it for the session's loopback port, connects, and starts reading frames.
-//
-// The deadlines are Core's transport policy: the endpoint command is bounded by
-// the discovery deadline, the socket by the connect deadline, and each write by
-// the write deadline. Cancelling the session ends every wait here.
-func (a *App) openHostedTransport(ctx context.Context, p *project, session *debugSession, adapter debugAdapter, limits core.DebugTransportLimits, messages i18n.DebugMessages) error {
+// openHostedTransport reaches a tcpLanguageServer adapter. Core's transport
+// lifecycle owns the rules (the discovery, connect and write deadlines as timers
+// it arms, the write queue and its budget, the bounded drain of a user stop);
+// this host keeps the socket and runs the effects Core returns. It only starts
+// the stream: frames written before the socket is ready are queued and flushed
+// by Core's rule, and every failure arrives as a reportFailure effect followed
+// by a termination.
+func (a *App) openHostedTransport(p *project, session *debugSession, adapter debugAdapter, messages i18n.DebugMessages) error {
 	a.post(func(a *App) {
 		if a.project == p && p.debug.session == session {
 			p.debug.status = a.text.Debug.WaitingServer
 		}
 	})
-	discover := func() (int, error) { return a.discoverHostedPort(ctx, p, adapter, limits, messages) }
-	if a.debugHostedPort != nil {
-		discover = func() (int, error) { return a.debugHostedPort(ctx, p, adapter) }
-	}
-	port, err := discover()
-	if err != nil {
-		return err
-	}
-	address := net.JoinHostPort(debugLoopback, strconv.Itoa(port))
-	dialer := net.Dialer{Timeout: time.Duration(limits.ConnectMilliseconds) * time.Millisecond}
-	connection, err := dialer.DialContext(ctx, "tcp", address)
-	if err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
+	discover := func(ctx context.Context) (string, int, error) {
+		var port int
+		var err error
+		if a.debugHostedPort != nil {
+			port, err = a.debugHostedPort(ctx, p, adapter)
+		} else {
+			port, err = a.discoverHostedPort(ctx, p, adapter, messages)
 		}
-		return fmt.Errorf("%s: %w", messages.ConnectFailed(address), err)
+		return debugLoopback, port, err
 	}
-	session.writeTimeout = time.Duration(limits.WriteMilliseconds) * time.Millisecond
-	if !session.setTransport(connection) {
+	hooks := debugTransportHooks{
+		Discover: discover,
+		Deliver:  func(data []byte) { a.receiveDebug(p, session, data) },
+		Failure: func(reason, message string) {
+			session.recordFailure(debugTransportFailureText(messages, reason, message))
+		},
+		Terminated: func(exitCode int) {
+			if session.stopped.Load() {
+				return
+			}
+			if exitCode == 0 {
+				a.debugStreamEnded(p, session, nil)
+				return
+			}
+			failure := session.recordedFailure()
+			if failure == nil {
+				failure = errors.New(messages.ConnectionClosed)
+			}
+			a.debugStreamEnded(p, session, failure)
+		},
+	}
+	transport := newDebugTransport(a.kernel, session.id+"-transport", hooks)
+	if !session.setTransport(transport) {
 		return context.Canceled
 	}
-	session.observing.Store(true)
-	go a.pumpDebugStream(p, session, connection)
-	return nil
+	session.hosted = transport
+	// Core's default discovery budget is a cold-start allowance; the language
+	// server's own start budget is the one this host already owns, so it raises
+	// only the discovery limit (an override the contract allows).
+	discovery := int(pluginServerStartTimeout / time.Millisecond)
+	return transport.Start(&core.DebugTransportLimitOverrides{DiscoveryMilliseconds: &discovery})
+}
+
+// debugTransportFailureText turns Core's failure reason into the words shown.
+// The first four reasons are the platform's text; for "host" the message is the
+// host's own upstream diagnostic and is shown unchanged.
+func debugTransportFailureText(messages i18n.DebugMessages, reason, message string) error {
+	switch reason {
+	case "startupTimedOut":
+		return errors.New(messages.TimedOut)
+	case "writeTimedOut":
+		return errors.New(messages.WriteTimedOut)
+	case "bufferLimit":
+		return errors.New(messages.BufferLimit)
+	case "invalidEndpoint":
+		return errors.New(messages.InvalidEndpoint)
+	}
+	return errors.New(message)
 }
 
 // discoverHostedPort asks the adapter's language server for the port of a new
 // debug session.
-func (a *App) discoverHostedPort(ctx context.Context, p *project, adapter debugAdapter, limits core.DebugTransportLimits, messages i18n.DebugMessages) (int, error) {
+func (a *App) discoverHostedPort(ctx context.Context, p *project, adapter debugAdapter, messages i18n.DebugMessages) (int, error) {
 	endpoint := adapter.Declaration.Endpoint
 	posted := make(chan struct{})
 	a.post(func(a *App) {
@@ -447,8 +485,9 @@ func (a *App) discoverHostedPort(ctx context.Context, p *project, adapter debugA
 	if err != nil {
 		return 0, err
 	}
-	discovery := time.Duration(limits.DiscoveryMilliseconds) * time.Millisecond
-	answer, err := a.plugins.ExecuteLanguageCommand(ctx, server.session, endpoint.Command, nil, discovery)
+	// Core's discovery timer bounds the whole wait; the command itself only
+	// needs a ceiling so a stuck server cannot outlive the stream.
+	answer, err := a.plugins.ExecuteLanguageCommand(ctx, server.session, endpoint.Command, nil, pluginServerStartTimeout)
 	if err != nil {
 		return 0, err
 	}
@@ -511,32 +550,4 @@ func parseDebugPort(raw json.RawMessage) (int, error) {
 		return 0, errors.New("the port is outside 1-65535")
 	}
 	return port, nil
-}
-
-// pumpDebugStream feeds the adapter's bytes to Core until the stream ends, then
-// reports how it ended unless Stop or shutdown already took the session apart.
-func (a *App) pumpDebugStream(p *project, session *debugSession, reader io.Reader) {
-	defer close(session.exitObserved)
-	buffer := make([]byte, debugReadChunk)
-	for {
-		count, err := reader.Read(buffer)
-		if count > 0 {
-			a.receiveDebug(p, session, append([]byte(nil), buffer[:count]...))
-		}
-		if err == nil {
-			continue
-		}
-		session.cancel()
-		if session.stopped.Load() {
-			return
-		}
-		if errors.Is(err, io.EOF) {
-			a.debugStreamEnded(p, session, nil)
-			return
-		}
-		a.post(func(a *App) {
-			a.finishDebugError(p, session, fmt.Errorf("%s: %w", a.text.Debug.ConnectionClosed, err))
-		})
-		return
-	}
 }

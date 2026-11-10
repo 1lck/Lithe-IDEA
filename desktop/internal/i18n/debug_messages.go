@@ -32,6 +32,9 @@ type DebugMessages struct {
 	NoEndpoint         string
 	TimedOut           string
 	ConnectionClosed   string
+	WriteTimedOut      string
+	BufferLimit        string
+	InvalidEndpoint    string
 	// RemotePrompt asks whether to attach to a debuggee that is not local.
 	RemotePrompt func(endpoint string) string
 	// ConnectFailed reports a failed connection to the debug adapter.
@@ -70,6 +73,9 @@ func debugMessages(language Language) DebugMessages {
 		NoEndpoint:         Shared(language, "desktop.debug.noEndpoint"),
 		TimedOut:           Shared(language, "desktop.debug.timedOut"),
 		ConnectionClosed:   Shared(language, "desktop.debug.connectionClosed"),
+		WriteTimedOut:      Shared(language, "desktop.debug.writeTimedOut"),
+		BufferLimit:        Shared(language, "desktop.debug.bufferLimit"),
+		InvalidEndpoint:    Shared(language, "desktop.debug.invalidEndpoint"),
 		RemotePrompt: func(endpoint string) string {
 			return SharedFormat(language, "desktop.debug.remotePrompt", map[string]string{"endpoint": endpoint})
 		},

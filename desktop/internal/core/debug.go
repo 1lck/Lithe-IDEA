@@ -100,6 +100,8 @@ type DebugScope struct {
 	Expensive          bool   `json:"expensive"`
 	NamedVariables     int64  `json:"namedVariables"`
 	IndexedVariables   int64  `json:"indexedVariables"`
+	// PresentationHint is DAP's arguments, locals or registers.
+	PresentationHint string `json:"presentationHint,omitempty"`
 }
 
 // DebugVariable is one debugger variable value.
@@ -107,7 +109,12 @@ type DebugVariable struct {
 	Name               string `json:"name"`
 	Value              string `json:"value"`
 	Type               string `json:"type,omitempty"`
+	EvaluateName       string `json:"evaluateName,omitempty"`
 	VariablesReference int64  `json:"variablesReference"`
+	// NamedVariables and IndexedVariables are the adapter-reported child counts,
+	// zero when unavailable; they size the variable paging plan.
+	NamedVariables   int64 `json:"namedVariables"`
+	IndexedVariables int64 `json:"indexedVariables"`
 }
 
 // DebugBreakpoint is an adapter-verified breakpoint location.

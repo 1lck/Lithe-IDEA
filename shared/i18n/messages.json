@@ -10896,6 +10896,13 @@
       ]
     },
     {
+      "id": "desktop.debug.bufferLimit",
+      "description": "Too much data was queued for a debug adapter that is not reading it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.debug.connectFailed",
       "description": "The TCP connection to the debug adapter failed. {endpoint} is host:port.",
       "platforms": [
@@ -10936,6 +10943,13 @@
     {
       "id": "desktop.debug.initialized",
       "description": "Debug adapter initialized",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.invalidEndpoint",
+      "description": "The debug adapter endpoint was outside the valid port range",
       "platforms": [
         "desktop"
       ]
@@ -11107,6 +11121,13 @@
     {
       "id": "desktop.debug.waitingServer",
       "description": "Debug status while the language server that hosts the debug adapter starts",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.writeTimedOut",
+      "description": "A write to the debug adapter stalled past its deadline",
       "platforms": [
         "desktop"
       ]
