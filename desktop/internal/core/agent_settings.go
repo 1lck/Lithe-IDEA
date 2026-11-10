@@ -286,14 +286,3 @@ func (c *Client) ImportAgentSkill(ctx context.Context, agentID, workspace, scope
 	err := c.Execute(ctx, "agent.skills", agentSkillRequest{Action: "import", AgentID: agentID, Workspace: workspace, Scope: scope, Source: source}, &result)
 	return result.Path, err
 }
-
-// RenderMarkdown renders Markdown to Core's sanitized HTML fragment.
-func (c *Client) RenderMarkdown(ctx context.Context, source string) (string, error) {
-	var result struct {
-		HTML string `json:"html"`
-	}
-	err := c.Execute(ctx, "markdown.render", struct {
-		Source string `json:"source"`
-	}{source}, &result)
-	return result.HTML, err
-}
