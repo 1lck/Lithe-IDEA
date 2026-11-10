@@ -74,7 +74,7 @@ func (c *Controller) Open(application *app.Application) error {
 	}
 	c.mu.Unlock()
 
-	w := &window{ctrl: c, filterRevision: -1, anchors: map[menuKind]ui.Box{}}
+	w := newWindow(c, nil)
 	opts := c.opts.Options
 	opts.Wake = w.inv.Invalidate
 	if opts.Clipboard == nil {
@@ -269,6 +269,11 @@ type window struct {
 	sidebar   sidebarState
 	histogram histogramState
 	details   detailsState
+}
+
+// newWindow returns a window of c over model, which Open sets once the options are complete.
+func newWindow(c *Controller, model *Model) *window {
+	return &window{ctrl: c, model: model, filterRevision: -1, anchors: map[menuKind]ui.Box{}}
 }
 
 // config is the native window's configuration.

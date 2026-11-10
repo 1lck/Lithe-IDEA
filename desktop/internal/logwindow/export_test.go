@@ -144,7 +144,7 @@ type exportFixture struct {
 
 const exportLogPath = "logs/sessions/2026-11-08/app.jsonl"
 
-func newExportFixture(t *testing.T) *exportFixture {
+func newExportFixture(t testing.TB) *exportFixture {
 	t.Helper()
 	logs := t.TempDir()
 	fx := &exportFixture{
@@ -183,7 +183,7 @@ func newExportFixture(t *testing.T) *exportFixture {
 
 // settle waits, within settleLimit, until the model's background tasks have returned and
 // their results are applied.
-func settle(t *testing.T, m *Model) {
+func settle(t testing.TB, m *Model) {
 	t.Helper()
 	done := make(chan struct{})
 	go func() {
