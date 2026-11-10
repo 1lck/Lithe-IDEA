@@ -691,7 +691,6 @@ func (a *App) paint(canvas *gfx.Canvas, size gfx.Size) {
 	// Like the commit rows, the terminal is painted into a box of the frame that was just
 	// laid out, under the menus and the dragged button.
 	a.paintTerminal(canvas)
-	a.captureTree(canvas)
 	a.paintGitOverlay(canvas, bounds)
 	// The menus and the dragged buttons and tabs float above everything Draw painted.
 	a.paintChromeMenus(canvas, bounds)
@@ -730,9 +729,6 @@ func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
 		return result
 	}
 	if result, handled := a.documentPointer(event); handled {
-		return result
-	}
-	if result, handled := a.treePointer(event); handled {
 		return result
 	}
 	return gfx.EventResult{}
@@ -780,9 +776,6 @@ func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
 	}
 	if event.Release {
 		return gfx.EventResult{}
-	}
-	if r := a.treeKey(event); r.Handled {
-		return r
 	}
 	if r := a.editorSplitKey(event); r.Handled {
 		return r
@@ -1077,6 +1070,7 @@ func (a *App) requestCloseProject(after func()) {
 		// are stopped before the project state is dropped.
 		a.stopBuild(p)
 		p.panels.close()
+		p.tree.host.close()
 		a.closeAgent(p)
 		// A language server is bound to the workspace it was started for, so it goes
 		// with the project rather than outliving it.

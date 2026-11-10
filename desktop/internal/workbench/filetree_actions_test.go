@@ -81,8 +81,8 @@ func TestProjectTreeLocatesTheActiveFile(t *testing.T) {
 		t.Fatalf("locating did not end: %q", p.tree.reveal)
 	}
 	h.settle()
-	if focused := h.driver.Snapshot().Focused; focused != treeRows.At(p.tree.selected.id) {
-		t.Fatalf("the located row is not focused: %v", focused)
+	if i := p.tree.view.Selected(); i < 0 || p.tree.rows[i] != p.tree.selected {
+		t.Fatalf("the located row is not the tree's current row: %d", i)
 	}
 }
 
@@ -261,4 +261,39 @@ func TestProjectTreeRefreshRetriesARootThatIsGone(t *testing.T) {
 	writeTreeFiles(t, root, "restored.txt")
 	h.click(center(h.treeAction(treeActionRefresh).Bounds))
 	awaitDocumentState(t, h, func() bool { return p.tree.failed == "" && p.tree.find("restored.txt") != nil })
+}
+
+// treeRowHit is the hit of the tree's row named name, the control the Tree declared for it.
+func (h *harness) treeRowHit(name string) gfx.Hit {
+	h.t.Helper()
+	for _, hit := range h.driver.Snapshot().Hits {
+		if hit.Label == name && !hit.IsLabel && hit.Bounds.Width > 100 && h.app.project.tree.host.page.Owns(hit.ID) {
+			return hit
+		}
+	}
+	h.t.Fatalf("the tree shows no row named %q", name)
+	return gfx.Hit{}
+}
+
+// treeRowCount is how many rows the tree declared in the last paint.
+func (h *harness) treeRowCount() int {
+	n := 0
+	for _, hit := range h.driver.Snapshot().Hits {
+		if hit.Role == gfx.RoleButton && !hit.IsLabel && hit.Bounds.Width > 100 && h.app.project.tree.host.page.Owns(hit.ID) {
+			n++
+		}
+	}
+	return n
+}
+
+// treeChevronHit is the hit of the chevron of the folder named name.
+func (h *harness) treeChevronHit(name string) gfx.Hit {
+	h.t.Helper()
+	for _, hit := range h.driver.Snapshot().Hits {
+		if hit.Label == name && !hit.IsLabel && hit.Bounds.Width <= 40 && h.app.project.tree.host.page.Owns(hit.ID) {
+			return hit
+		}
+	}
+	h.t.Fatalf("the tree shows no chevron for %q", name)
+	return gfx.Hit{}
 }

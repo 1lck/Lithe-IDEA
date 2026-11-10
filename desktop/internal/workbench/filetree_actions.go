@@ -144,14 +144,6 @@ func (a *App) stepTreeReveal(p *project) {
 		if rest == "" {
 			t.reveal, t.revealAsked = "", nil
 			t.selected, t.show = child, child
-			// The click on the locate button focuses the button once the frame it was
-			// clicked in is drawn, which would undo a request made in that frame, so the
-			// row asks for the focus in the next one.
-			a.post(func(a *App) {
-				if a.project == p && p.tree.selected == child {
-					p.tree.focus = treeRows.At(child.id)
-				}
-			})
 			return
 		}
 		if !child.dir {

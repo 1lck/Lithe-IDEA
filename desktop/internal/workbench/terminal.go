@@ -126,9 +126,6 @@ func (a *App) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 	if result, ok := a.term.stripWheel(event); ok {
 		return result
 	}
-	if result, ok := a.treeScroll(event); ok {
-		return result
-	}
 	return a.view.Wheel(event)
 }
 

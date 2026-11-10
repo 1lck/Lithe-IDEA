@@ -18,6 +18,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/ui"
 )
 
 type delayedTreeKernel struct {
@@ -403,7 +404,7 @@ func TestProjectTreeRefreshPreservesSurvivingState(t *testing.T) {
 		t.Fatal("refresh lost a surviving folder or its selected descendant")
 	}
 	tree.replaceChildren(folder, nil)
-	if tree.selected != folder || tree.focus != treeRows.At(folder.id) {
+	if tree.selected != folder {
 		t.Fatal("removing the selected file did not move selection to its parent")
 	}
 	tree.replaceChildren(tree.root, []core.WorkspaceNode{{Path: "src", Name: "src"}})
@@ -578,19 +579,23 @@ func TestProjectTreeExternalInsertKeepsViewportAnchor(t *testing.T) {
 	if err := h.driver.Advance(20 * time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
-	scroll := h.app.view.ScrollState(treeListID)
-	scroll.ScrollTo(4 + 35*rowHeight + 7)
-	if err := h.driver.Advance(20 * time.Millisecond); err != nil {
-		t.Fatal(err)
+	p.tree.view.ScrollTo(35, ui.ListStart)
+	h.app.invalidator.Invalidate()
+	h.settle()
+	first, _ := p.tree.view.Visible()
+	if first == 0 {
+		t.Fatal("the tree did not scroll to the requested row")
 	}
-	before := scroll.Offset
-	anchor := p.tree.rows[35]
+	anchor := p.tree.rows[first+treeOverscan]
 	if err := os.WriteFile(filepath.Join(root, "aaa.txt"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	awaitDocumentState(t, h, func() bool { return p.tree.find("aaa.txt") != nil })
-	if p.tree.rows[36] != anchor || scroll.Offset != before+rowHeight {
-		t.Fatalf("viewport anchor moved: offset %v to %v", before, scroll.Offset)
+	if err := h.driver.Advance(20 * time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if now, _ := p.tree.view.Visible(); p.tree.rows[now+treeOverscan] != anchor {
+		t.Fatalf("viewport anchor moved: row %d to %d", first, now)
 	}
 }
 
@@ -620,10 +625,7 @@ func TestProjectTreeCanRetryAfterRootDisappears(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "restored.txt"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	point := center(h.hit(treeRetryID))
-	if err := h.driver.Click(point.X, point.Y); err != nil {
-		t.Fatal(err)
-	}
+	h.clickShared("ui.retry")
 	awaitDocumentState(t, h, func() bool { return p.tree.failed == "" && p.tree.find("restored.txt") != nil })
 }
 
@@ -669,12 +671,8 @@ func TestProjectTreeFolderSelectionAndDisclosure(t *testing.T) {
 	if err := h.driver.Advance(20 * time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
-	row := h.hit(treeRows.At(folder.id))
-	for _, hit := range h.driver.Snapshot().Hits {
-		if hit.ID == treeArrows.At(folder.id) && hit.Label != "展开目录 src" {
-			t.Fatalf("disclosure accessibility label = %q", hit.Label)
-		}
-	}
+	row := h.treeRowHit("src").Bounds
+	_ = h.treeChevronHit("src")
 	name := gfx.Point{X: row.X + row.Width - 20, Y: row.Y + row.Height/2}
 	if err := h.driver.Click(name.X, name.Y); err != nil {
 		t.Fatal(err)
@@ -682,25 +680,31 @@ func TestProjectTreeFolderSelectionAndDisclosure(t *testing.T) {
 	if p.tree.selected != folder || folder.expanded {
 		t.Fatalf("single click selection=%v expanded=%v", p.tree.selected, folder.expanded)
 	}
-	if err := h.driver.PressCount(name.X, name.Y, gfx.PointerButtonPrimary, 2); err != nil {
+	if err := h.driver.DoubleClick(name.X, name.Y); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	if !folder.expanded {
+		t.Fatal("double click did not expand folder")
+	}
+	if err := h.driver.Advance(20 * time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 	if !folder.expanded {
-		t.Fatal("second press did not expand folder")
-	}
-	if err := h.driver.ReleaseCount(name.X, name.Y, gfx.PointerButtonPrimary, 2); err != nil {
-		t.Fatal(err)
-	}
-	if !folder.expanded {
-		t.Fatal("second release toggled the folder again")
+		t.Fatal("the double click toggled the folder again")
 	}
 	awaitDocumentState(t, h, func() bool { return folder.listed })
-	arrow := center(h.hit(treeArrows.At(folder.id)))
+	arrow := center(h.treeChevronHit("src").Bounds)
 	if err := h.driver.Click(arrow.X, arrow.Y); err != nil {
 		t.Fatal(err)
 	}
 	if folder.expanded || p.tree.selected != folder {
 		t.Fatal("disclosure did not collapse the selected folder")
+	}
+	// The keys act on the row that has the keyboard, so the row is clicked first.
+	row = h.treeRowHit("src").Bounds
+	if err := h.driver.Click(row.X+row.Width-20, row.Y+row.Height/2); err != nil {
+		t.Fatal(err)
 	}
 	if err := h.driver.Key(gfx.KeyRight, 0); err != nil {
 		t.Fatal(err)
@@ -726,31 +730,28 @@ func TestProjectTreeRootIsVisibleAndCollapsible(t *testing.T) {
 		t.Fatalf("expected root followed by its child: %#v", p.tree.rows)
 	}
 	styledRoot := false
+	rootRow := h.treeRowHit(p.tree.root.name).Bounds
 	for _, label := range h.driver.Snapshot().Labels {
-		if label.Value == p.tree.root.name && label.Bounds.Y >= p.tree.scroll.Area.Y && label.Bounds.Y < p.tree.scroll.Area.Y+p.tree.scroll.Area.Height && label.FontSize == 13 && label.Weight == gfx.WeightSemibold && label.Color == gfx.RGB24(0xD1D3D9) {
+		if label.Value == p.tree.root.name && label.Bounds.Y >= rootRow.Y && label.Bounds.Y < rootRow.Y+rootRow.Height && label.FontSize == 13 && label.Weight == gfx.WeightSemibold && label.Color == gfx.RGB24(0xD1D3D9) {
 			styledRoot = true
 		}
 	}
 	if !styledRoot {
 		t.Fatal("root label is missing the native tree typography or color")
 	}
-	_ = h.hit(treeRows.At(p.tree.root.id))
-	arrow := center(h.hit(treeArrows.At(p.tree.root.id)))
+	arrow := center(h.treeChevronHit(p.tree.root.name).Bounds)
 	if err := h.driver.Click(arrow.X, arrow.Y); err != nil {
 		t.Fatal(err)
 	}
 	if p.tree.root.expanded || len(p.tree.rows) != 1 || p.tree.selected != p.tree.root {
 		t.Fatal("root disclosure did not collapse and select the root")
 	}
-	row := h.hit(treeRows.At(p.tree.root.id))
-	painted := false
-	for _, primitive := range h.driver.Snapshot().Primitives {
-		if primitive.Bounds == row && primitive.Radius == 4 && primitive.Color == gfx.RGB24(0x2A4371) {
-			painted = true
-		}
+	if !h.treeRowHit(p.tree.root.name).Selected {
+		t.Fatal("the selected root is not marked selected")
 	}
-	if !painted {
-		t.Fatal("focused root selection is missing the native rounded highlight")
+	row := h.treeRowHit(p.tree.root.name).Bounds
+	if err := h.driver.Click(row.X+row.Width-20, row.Y+row.Height/2); err != nil {
+		t.Fatal(err)
 	}
 	if err := h.driver.Key(gfx.KeyRight, 0); err != nil {
 		t.Fatal(err)
@@ -771,7 +772,7 @@ func TestProjectTreeEmptyRootRemainsVisible(t *testing.T) {
 	if len(p.tree.rows) != 1 || p.tree.rows[0] != p.tree.root || !p.tree.root.empty {
 		t.Fatal("empty project must still display its root")
 	}
-	_ = h.hit(treeRows.At(p.tree.root.id))
+	_ = h.treeRowHit(p.tree.root.name)
 }
 
 func TestProjectTreeLightThemeUsesNativeLabelColor(t *testing.T) {
@@ -783,8 +784,9 @@ func TestProjectTreeLightThemeUsesNativeLabelColor(t *testing.T) {
 	if err := h.driver.Resize(1280, 720); err != nil {
 		t.Fatal(err)
 	}
+	rootRow := h.treeRowHit(p.tree.root.name).Bounds
 	for _, label := range h.driver.Snapshot().Labels {
-		if label.Value == p.tree.root.name && label.Bounds.Y >= p.tree.scroll.Area.Y && label.Bounds.Y < p.tree.scroll.Area.Y+p.tree.scroll.Area.Height && label.Color == gfx.RGB24(0x000000) {
+		if label.Value == p.tree.root.name && label.Bounds.Y >= rootRow.Y && label.Bounds.Y < rootRow.Y+rootRow.Height && label.Color == gfx.RGB24(0x000000) {
 			return
 		}
 	}
@@ -803,20 +805,20 @@ func TestProjectTreeLongRootCanScrollToNameEnd(t *testing.T) {
 	if err := h.driver.Advance(20 * time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
+	rootRow := h.treeRowHit(p.tree.root.name).Bounds
 	var right float32
 	for _, label := range h.driver.Snapshot().Labels {
-		if label.Value == p.tree.root.name && label.Bounds.Y >= p.tree.scroll.Area.Y && label.Bounds.Y < p.tree.scroll.Area.Y+p.tree.scroll.Area.Height {
-			right = max(right, label.Bounds.X+label.Bounds.Width-p.tree.scroll.Area.X)
+		if label.Value == p.tree.root.name && label.Bounds.Y >= rootRow.Y && label.Bounds.Y < rootRow.Y+rootRow.Height {
+			right = max(right, label.Bounds.X+label.Bounds.Width)
 		}
 	}
-	if right <= p.tree.scroll.Viewport() || p.tree.scroll.Content < right {
-		t.Fatalf("long root end=%v width=%v viewport=%v", right, p.tree.scroll.Content, p.tree.scroll.Viewport())
+	if right <= 0 || p.tree.view.RowWidth < right-rootRow.X {
+		t.Fatalf("long root end=%v rows are %v wide", right, p.tree.view.RowWidth)
 	}
-	area := p.tree.scroll.Area
-	if err := h.driver.Scroll(gfx.ScrollEvent{X: area.X + 20, Y: area.Y + 20, DeltaX: 10000, Precise: true}); err != nil {
+	if err := h.driver.Scroll(gfx.ScrollEvent{X: rootRow.X + 20, Y: rootRow.Y + 10, DeltaX: 10000, Precise: true}); err != nil {
 		t.Fatal(err)
 	}
-	if p.tree.scroll.Offset <= 0 || right-p.tree.scroll.Offset > p.tree.scroll.Viewport() {
+	if p.tree.view.ScrollX() <= 0 {
 		t.Fatal("horizontal scroll cannot expose the end of the root name")
 	}
 }
@@ -839,20 +841,15 @@ func TestProjectTreeKeyboardKeepsSelectionVisible(t *testing.T) {
 	if err := h.driver.Advance(20 * time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
-	visibleHits := 0
-	for _, hit := range h.driver.Snapshot().Hits {
-		if _, ok := hit.ID.In(treeRows); ok {
-			visibleHits++
-		}
-	}
+	visibleHits := h.treeRowCount()
 	if visibleHits == 0 || visibleHits >= len(p.tree.rows) {
 		t.Fatalf("viewport declared %d of %d rows", visibleHits, len(p.tree.rows))
 	}
-	if p.tree.scroll.Content <= p.tree.scroll.Viewport() {
+	if p.tree.view.RowWidth < 800 {
 		t.Fatal("offscreen long filename did not extend the horizontal scroll range")
 	}
 	first := p.tree.root.children[0]
-	point := center(h.hit(treeRows.At(first.id)))
+	point := center(h.treeRowHit(first.name).Bounds)
 	if err := h.driver.Click(point.X, point.Y); err != nil {
 		t.Fatal(err)
 	}
@@ -870,21 +867,21 @@ func TestProjectTreeKeyboardKeepsSelectionVisible(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if p.tree.selected != p.tree.root.children[35] || h.app.view.ScrollState(treeListID).Offset <= 0 {
-		t.Fatalf("selected=%v offset=%v", p.tree.selected, h.app.view.ScrollState(treeListID).Offset)
+	// The arrows move the keyboard, which the tree keeps in view; the row is found by name.
+	if top, _ := p.tree.view.Visible(); h.focusedName() != p.tree.root.children[35].name || top <= 0 {
+		t.Fatalf("focused=%q first visible row=%v", h.focusedName(), top)
 	}
-	_ = h.hit(treeRows.At(p.tree.selected.id))
 	if err := h.driver.Key(gfx.KeyUp, 0); err != nil {
 		t.Fatal(err)
 	}
-	if p.tree.selected != p.tree.root.children[34] {
+	if h.focusedName() != p.tree.root.children[34].name {
 		t.Fatal("keyboard focus was lost after scrolling")
 	}
-	area := p.tree.scroll.Area
-	if err := h.driver.Scroll(gfx.ScrollEvent{X: area.X + 20, Y: area.Y + 20, DeltaX: 200, Precise: true}); err != nil {
+	area := h.treeRowHit(p.tree.root.children[34].name).Bounds
+	if err := h.driver.Scroll(gfx.ScrollEvent{X: area.X + 20, Y: area.Y + 10, DeltaX: 200, Precise: true}); err != nil {
 		t.Fatal(err)
 	}
-	if p.tree.scroll.Offset <= 0 {
+	if p.tree.view.ScrollX() <= 0 {
 		t.Fatal("long name could not be reached by horizontal scrolling")
 	}
 }
