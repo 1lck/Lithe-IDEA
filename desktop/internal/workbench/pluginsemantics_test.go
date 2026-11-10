@@ -410,3 +410,72 @@ func TestAutoCompletionIgnoresPasteAndStaleCaret(t *testing.T) {
 		t.Fatal("a space must not trigger completion")
 	}
 }
+
+func TestFindReferencesListsEvenOneResultAndOpensChosen(t *testing.T) {
+	f := newSemanticFixture(t)
+	target := filepath.Join(f.p.root, "B.java")
+	if err := os.WriteFile(target, []byte("zero\none\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.d.view.GoToNavigation(0, 0, false)
+	if err := f.h.driver.Key(gfx.KeyF12, gfx.ModifierShift); err != nil {
+		t.Fatal(err)
+	}
+	f.waitForRequests(t, 1)
+	if got := f.kernel.request(0).Operation; got != pluginSemanticReferences {
+		t.Fatalf("operation = %q", got)
+	}
+	f.deliver(t, "op-1", pluginMethodReferences, locationsResult(t, locationAt(target, 1, 1)))
+	state := f.h.app.semantics.definition
+	if !state.open || !state.references || len(state.targets) != 1 {
+		t.Fatalf("references popup = %+v", state)
+	}
+	if err := f.h.driver.Key(gfx.KeyEnter, 0); err != nil {
+		t.Fatal(err)
+	}
+	awaitDocumentState(t, f.h, func() bool { return f.p.docs.byPath(target) != nil })
+}
+
+func TestReferencesListIsBoundedAndWindowed(t *testing.T) {
+	f := newSemanticFixture(t)
+	locations := make([]core.PluginSemanticLocation, 0, maxReferenceTargets+20)
+	for i := 0; i < maxReferenceTargets+20; i++ {
+		locations = append(locations, locationAt(filepath.Join(f.p.root, "B.java"), i, 0))
+	}
+	f.d.view.GoToNavigation(0, 0, false)
+	if err := f.h.driver.Key(gfx.KeyF12, gfx.ModifierShift); err != nil {
+		t.Fatal(err)
+	}
+	f.waitForRequests(t, 1)
+	f.deliver(t, "op-1", pluginMethodReferences, locationsResult(t, locations...))
+	if got := len(f.h.app.semantics.definition.targets); got != maxReferenceTargets {
+		t.Fatalf("targets = %d, want %d", got, maxReferenceTargets)
+	}
+	for i := 0; i < 30; i++ {
+		if err := f.h.driver.Key(gfx.KeyDown, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !f.h.shows("B.java:31:1") {
+		t.Fatalf("the selected row is outside the window: %v", f.h.driver.Snapshot().Labels)
+	}
+}
+
+func TestNonFileDefinitionTargetIsReportedNotCrashed(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.d.view.GoToNavigation(0, 0, false)
+	if err := f.h.driver.Key(gfx.KeyF12, 0); err != nil {
+		t.Fatal(err)
+	}
+	f.waitForRequests(t, 1)
+	readOnly := true
+	f.deliver(t, "op-1", pluginMethodDefinition, locationsResult(t, core.PluginSemanticLocation{
+		URI: "jdt://contents/java.base/java.lang/String.class", IsReadOnly: readOnly,
+	}))
+	if f.h.app.semantics.definition.open {
+		t.Fatal("a non-file target opened a list")
+	}
+	if !f.h.shows("目标不是本地文件，暂时无法打开。") {
+		t.Fatalf("no unavailable notice: %v", f.h.driver.Snapshot().Labels)
+	}
+}

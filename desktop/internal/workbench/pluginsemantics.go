@@ -33,11 +33,13 @@ const (
 	pluginSemanticDefinition = "definition"
 	pluginSemanticHover      = "hover"
 	pluginSemanticCompletion = "completion"
+	pluginSemanticReferences = "references"
 	// The LSP methods Core reports on a completed event. They are matched only
 	// against the host's own pending operation, never used to derive a rule.
 	pluginMethodDefinition = "textDocument/definition"
 	pluginMethodHover      = "textDocument/hover"
 	pluginMethodCompletion = "textDocument/completion"
+	pluginMethodReferences = "textDocument/references"
 
 	// semanticStartTimeout bounds one asynchronous request submission. The
 	// request only enters Core's queue, so this is a failure bound, not a wait.
@@ -53,6 +55,9 @@ const (
 	maxCompletionItems = 500
 	// maxDefinitionTargets bounds a multi-target list the same way.
 	maxDefinitionTargets = 50
+	// maxReferenceTargets bounds a find-references list. The popup lays out
+	// only visibleSemanticRows of them, so the bound limits memory, not views.
+	maxReferenceTargets = 500
 	// visibleSemanticRows is how many rows of a list are laid out, whatever the
 	// candidate count, so a large answer never declares one view per item.
 	visibleSemanticRows = 10
@@ -91,6 +96,8 @@ func (k semanticKind) method() string {
 		return pluginMethodDefinition
 	case pluginSemanticHover:
 		return pluginMethodHover
+	case pluginSemanticReferences:
+		return pluginMethodReferences
 	default:
 		return pluginMethodCompletion
 	}
@@ -132,8 +139,11 @@ type completionState struct {
 
 // definitionState is the multi-target definition popup.
 type definitionState struct {
-	open       bool
-	targets    []core.PluginSemanticLocation
+	open    bool
+	targets []core.PluginSemanticLocation
+	// references marks a find-references list, which is shown even for a
+	// single result instead of jumping.
+	references bool
 	selected   int
 	offset     int
 	documentID int
@@ -304,11 +314,19 @@ func (a *App) definitionKey(event gfx.KeyEvent) gfx.EventResult {
 // pluginSemanticsTrigger handles the unmodified keys that start a semantic
 // operation for the editor that owns the keyboard.
 func (a *App) pluginSemanticsTrigger(event gfx.KeyEvent) (gfx.EventResult, bool) {
-	if event.Release || event.Modifiers != 0 {
+	if event.Release || (event.Modifiers != 0 && event.Modifiers != gfx.ModifierShift) {
 		return gfx.EventResult{}, false
 	}
 	p, d := a.pluginSemanticHit(event.Target)
 	if d == nil || d.view.IsComposing() {
+		return gfx.EventResult{}, false
+	}
+	if event.Modifiers == gfx.ModifierShift {
+		if event.Key == gfx.KeyF12 {
+			line, column := d.view.CaretUTF16()
+			a.startPluginReferences(p, d, line, column)
+			return gfx.EventResult{Handled: true, Repaint: true}, true
+		}
 		return gfx.EventResult{}, false
 	}
 	switch event.Key {
@@ -441,6 +459,16 @@ func choiceOffset(selected, total, current int) int {
 // startPluginDefinition asks for the definition at a position. A request that
 // would race the document's pending changes waits for them first.
 func (a *App) startPluginDefinition(p *project, d *document, line, column int, requireCaret bool) {
+	a.startPluginLocations(pluginSemanticDefinition, p, d, line, column, requireCaret)
+}
+
+// startPluginReferences asks for every reference to the symbol at the caret.
+func (a *App) startPluginReferences(p *project, d *document, line, column int) {
+	a.startPluginLocations(pluginSemanticReferences, p, d, line, column, true)
+}
+
+// startPluginLocations asks for a location list (definition or references).
+func (a *App) startPluginLocations(kind semanticKind, p *project, d *document, line, column int, requireCaret bool) {
 	if a.plugins == nil || p == nil || d == nil || a.project != p {
 		return
 	}
@@ -451,7 +479,7 @@ func (a *App) startPluginDefinition(p *project, d *document, line, column int, r
 	a.closeSemanticCompletion()
 	a.closeSemanticDefinition()
 	if !a.semanticDocumentReady(d) {
-		a.deferSemantic(p, d, func(a *App) { a.startPluginDefinition(p, d, line, column, requireCaret) })
+		a.deferSemantic(p, d, func(a *App) { a.startPluginLocations(kind, p, d, line, column, requireCaret) })
 		a.startDocumentSync(p, d)
 		return
 	}
@@ -460,15 +488,15 @@ func (a *App) startPluginDefinition(p *project, d *document, line, column int, r
 		return
 	}
 	if !server.isReady() {
-		a.deferSemantic(p, d, func(a *App) { a.startPluginDefinition(p, d, line, column, requireCaret) })
+		a.deferSemantic(p, d, func(a *App) { a.startPluginLocations(kind, p, d, line, column, requireCaret) })
 		return
 	}
 	position := core.PluginDocumentPosition{Line: line, UTF16Column: column}
-	a.cancelSemanticKind(pluginSemanticDefinition)
-	pending := a.newSemanticPending(pluginSemanticDefinition, p, d, server, line, column, requireCaret, false)
+	a.cancelSemanticKind(kind)
+	pending := a.newSemanticPending(kind, p, d, server, line, column, requireCaret, false)
 	a.semantics.pending = append(a.semantics.pending, pending)
 	request := core.PluginSemanticRequest{
-		Operation: pluginSemanticDefinition,
+		Operation: string(kind),
 		URI:       d.sync.uri,
 		Position:  &position,
 	}
@@ -707,7 +735,7 @@ func (a *App) applyPluginSemanticEvent(server *pluginServer, event core.BackendE
 		return
 	}
 	switch pending.kind {
-	case pluginSemanticDefinition:
+	case pluginSemanticDefinition, pluginSemanticReferences:
 		a.applySemanticDefinition(pending, event)
 	case pluginSemanticHover:
 		a.applySemanticHover(pending, event)
@@ -743,17 +771,32 @@ func (a *App) applySemanticDefinition(pending *semanticPending, event core.Backe
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_semantics", err))
 		return
 	}
-	targets := a.usableDefinitionTargets(locations)
+	references := pending.kind == pluginSemanticReferences
+	limit := maxDefinitionTargets
+	if references {
+		limit = maxReferenceTargets
+	}
+	targets := a.usableDefinitionTargets(locations, limit)
 	if len(targets) == 0 {
-		a.notify(i18n.Shared(a.language(), "desktop.semantics.noDefinition"))
+		switch {
+		case len(locations) > 0:
+			// Every target is outside the file system (a class in a jar):
+			// say so instead of looking like an empty answer.
+			a.notify(i18n.Shared(a.language(), "desktop.semantics.targetUnavailable"))
+		case references:
+			a.notify(i18n.Shared(a.language(), "desktop.semantics.noReferences"))
+		default:
+			a.notify(i18n.Shared(a.language(), "desktop.semantics.noDefinition"))
+		}
 		return
 	}
-	if len(targets) == 1 {
+	if len(targets) == 1 && !references {
 		a.openDefinitionTarget(targets[0])
 		return
 	}
 	a.semantics.definition = definitionState{
 		open:       true,
+		references: references,
 		targets:    targets,
 		documentID: d.id,
 		revision:   pending.revision,
@@ -816,8 +859,8 @@ func (a *App) semanticPositionCurrent(pending *semanticPending, d *document) boo
 // usableDefinitionTargets drops targets this editor cannot open and collapses
 // exact duplicates. A non-file URI (a class inside a jar) has no FilePath and
 // stays out until the editor has a read-only preview.
-func (a *App) usableDefinitionTargets(locations []core.PluginSemanticLocation) []core.PluginSemanticLocation {
-	targets := make([]core.PluginSemanticLocation, 0, min(len(locations), maxDefinitionTargets))
+func (a *App) usableDefinitionTargets(locations []core.PluginSemanticLocation, limit int) []core.PluginSemanticLocation {
+	targets := make([]core.PluginSemanticLocation, 0, min(len(locations), limit))
 	seen := make(map[string]struct{}, len(locations))
 	for _, location := range locations {
 		if location.FilePath == "" || !filepath.IsAbs(location.FilePath) {
@@ -829,7 +872,7 @@ func (a *App) usableDefinitionTargets(locations []core.PluginSemanticLocation) [
 		}
 		seen[key] = struct{}{}
 		targets = append(targets, location)
-		if len(targets) >= maxDefinitionTargets {
+		if len(targets) >= limit {
 			break
 		}
 	}
@@ -1180,6 +1223,7 @@ func (a *App) closePluginSemantics() {
 	a.cancelSemanticKind(pluginSemanticDefinition)
 	a.cancelSemanticKind(pluginSemanticHover)
 	a.cancelSemanticKind(pluginSemanticCompletion)
+	a.cancelSemanticKind(pluginSemanticReferences)
 	if a.semantics.candidate.cancel != nil {
 		a.semantics.candidate.cancel()
 	}
@@ -1317,7 +1361,7 @@ func (a *App) drawDefinitionPopup(f *ui.Frame) {
 	f.Popup().At(x, y).Width(semanticDefinitionWidth).MaxHeight(float32(visibleSemanticRows)*semanticRowHeight+2*semanticPopupPad).
 		Pad(semanticPopupPad).Background(a.theme.Popover).Border(1, a.theme.Border).
 		Radius(a.theme.Metrics.RadiusPopup()).Shadow(gfx.ShadowMD).
-		HitWith(semanticHoverID, i18n.Shared(a.language(), "desktop.semantics.definitions"), gfx.HitOptions{Role: gfx.RoleMenu, SkipFocus: true}).
+		HitWith(semanticHoverID, i18n.Shared(a.language(), a.definitionPopupTitle(state.references)), gfx.HitOptions{Role: gfx.RoleMenu, SkipFocus: true}).
 		Children(func() {
 			f.Column().FillWidth().Gap(1).Children(func() {
 				for i := first; i < last; i++ {
@@ -1435,4 +1479,12 @@ func popupOrigin(x, y, width float32, bounds gfx.Rect) (float32, float32) {
 	x = min(max(x, bounds.X+4), max(bounds.X+bounds.Width-width-4, bounds.X+4))
 	y = min(max(y, bounds.Y+4), max(bounds.Y+bounds.Height-8, bounds.Y+4))
 	return x, y
+}
+
+// definitionPopupTitle is the shared message naming the open location list.
+func (a *App) definitionPopupTitle(references bool) string {
+	if references {
+		return "desktop.semantics.references"
+	}
+	return "desktop.semantics.definitions"
 }

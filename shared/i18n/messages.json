@@ -102441,6 +102441,27 @@
       ]
     },
     {
+      "id": "desktop.semantics.references",
+      "description": "Accessibility title of the find-references result list.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.noReferences",
+      "description": "Banner shown when a find-references request returns no openable target.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.targetUnavailable",
+      "description": "Banner shown when every language-server target is outside the file system, such as a class inside a jar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.tests.run",
       "description": "Run tests",
       "platforms": [
