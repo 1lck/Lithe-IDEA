@@ -19,6 +19,32 @@ type DebugTargetFacts struct {
 	Executable       string            `json:"executable,omitempty"`
 	Arguments        []string          `json:"arguments"`
 	Environment      map[string]string `json:"environment"`
+	// Host and Port locate the remote debuggee of a "connection" target, and
+	// PathMappings pair local source roots with the remote machine's.
+	Host         string             `json:"host,omitempty"`
+	Port         int                `json:"port,omitempty"`
+	PathMappings []DebugPathMapping `json:"pathMappings,omitempty"`
+}
+
+// DebugPathMapping is one local source root and where the remote machine has it.
+type DebugPathMapping struct {
+	Local  string `json:"local"`
+	Remote string `json:"remote"`
+}
+
+// DebugStartConnection is the debuggee endpoint Core bound into the start
+// arguments. Remote is false only for what Core can prove local from the text.
+type DebugStartConnection struct {
+	Host   string `json:"host"`
+	Port   int    `json:"port"`
+	Remote bool   `json:"remote"`
+}
+
+// DebugStart is a validated start: the DAP arguments and, for a connection
+// target, the endpoint the user has to confirm when it is remote.
+type DebugStart struct {
+	Arguments  map[string]any
+	Connection *DebugStartConnection
 }
 
 // DebugStartFacts describe the registration, runtime and debuggee of one start.
@@ -76,11 +102,22 @@ func (c *Client) PlanDebugExecutable(ctx context.Context, manifest json.RawMessa
 
 // DebugStartArguments validates facts and projects them through the adapter's bindings.
 func (c *Client) DebugStartArguments(ctx context.Context, manifest json.RawMessage, adapterID, request string, facts DebugStartFacts) (map[string]any, error) {
+	start, err := c.PlanDebugStart(ctx, manifest, adapterID, request, facts)
+	if err != nil {
+		return nil, err
+	}
+	return start.Arguments, nil
+}
+
+// PlanDebugStart is DebugStartArguments with the connection Core reports for a
+// remote attach, so the host can ask the user before it connects.
+func (c *Client) PlanDebugStart(ctx context.Context, manifest json.RawMessage, adapterID, request string, facts DebugStartFacts) (DebugStart, error) {
 	const command = "debug.adapters.startArguments"
 	var result struct {
-		Status    string                `json:"status"`
-		Error     *MarketplaceRejection `json:"error"`
-		Arguments map[string]any        `json:"arguments"`
+		Status     string                `json:"status"`
+		Error      *MarketplaceRejection `json:"error"`
+		Arguments  map[string]any        `json:"arguments"`
+		Connection *DebugStartConnection `json:"connection"`
 	}
 	if err := c.Execute(ctx, command, struct {
 		Manifest  json.RawMessage `json:"manifest"`
@@ -88,13 +125,13 @@ func (c *Client) DebugStartArguments(ctx context.Context, manifest json.RawMessa
 		Request   string          `json:"request"`
 		Facts     DebugStartFacts `json:"facts"`
 	}{manifest, adapterID, request, facts}, &result); err != nil {
-		return nil, err
+		return DebugStart{}, err
 	}
 	if result.Status == "rejected" && result.Error != nil {
-		return nil, result.Error
+		return DebugStart{}, result.Error
 	}
 	if result.Status != "ok" || result.Arguments == nil {
-		return nil, newParseError(command, "invalid debug start arguments", "")
+		return DebugStart{}, newParseError(command, "invalid debug start arguments", "")
 	}
-	return result.Arguments, nil
+	return DebugStart{Arguments: result.Arguments, Connection: result.Connection}, nil
 }

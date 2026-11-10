@@ -22,6 +22,19 @@ type DebugMessages struct {
 	OpenFrame          string
 	NoAdapters         string
 	NoDocument         string
+	AttachHost         string
+	AttachPort         string
+	AttachInvalid      string
+	RemoteAttach       string
+	RemoteCancel       string
+	WaitingServer      string
+	NoEndpoint         string
+	TimedOut           string
+	ConnectionClosed   string
+	// RemotePrompt asks whether to attach to a debuggee that is not local.
+	RemotePrompt func(endpoint string) string
+	// ConnectFailed reports a failed connection to the debug adapter.
+	ConnectFailed func(endpoint string) string
 }
 
 func debugMessages(language Language) DebugMessages {
@@ -46,5 +59,20 @@ func debugMessages(language Language) DebugMessages {
 		OpenFrame:          Shared(language, "desktop.debug.openFrame"),
 		NoAdapters:         Shared(language, "desktop.debug.noAdapters"),
 		NoDocument:         Shared(language, "desktop.debug.noDocument"),
+		AttachHost:         Shared(language, "desktop.debug.attachHost"),
+		AttachPort:         Shared(language, "desktop.debug.attachPort"),
+		AttachInvalid:      Shared(language, "desktop.debug.attachInvalid"),
+		RemoteAttach:       Shared(language, "desktop.debug.remoteAttach"),
+		RemoteCancel:       Shared(language, "desktop.debug.remoteCancel"),
+		WaitingServer:      Shared(language, "desktop.debug.waitingServer"),
+		NoEndpoint:         Shared(language, "desktop.debug.noEndpoint"),
+		TimedOut:           Shared(language, "desktop.debug.timedOut"),
+		ConnectionClosed:   Shared(language, "desktop.debug.connectionClosed"),
+		RemotePrompt: func(endpoint string) string {
+			return SharedFormat(language, "desktop.debug.remotePrompt", map[string]string{"endpoint": endpoint})
+		},
+		ConnectFailed: func(endpoint string) string {
+			return SharedFormat(language, "desktop.debug.connectFailed", map[string]string{"endpoint": endpoint})
+		},
 	}
 }

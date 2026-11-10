@@ -81,6 +81,8 @@ type PluginBackendPlan struct {
 		HostServices []string `json:"hostServices"`
 		Version      int      `json:"version"`
 	} `json:"backend"`
+	// DebugAdapter is present when the plan was selected by debugAdapterID.
+	DebugAdapter *PluginDebugAdapterPlan `json:"debugAdapter"`
 	// BuildProvider is present when the plan was selected by buildSystemID.
 	// LanguageServer names a session this host already keeps for that language
 	// instead of a second process; the host must send build requests to it.
@@ -530,4 +532,25 @@ func (c *Client) DecodePluginContent(ctx context.Context, result json.RawMessage
 		return "", err
 	}
 	return decoded.Content, nil
+}
+
+// PluginDebugAdapterPlan is the launch plan's descriptor of a debug adapter: how
+// to reach it and what to show. Features and Defaults are `debugAdapters` 3
+// declarations the host hands to the debug engine with the session.
+type PluginDebugAdapterPlan struct {
+	ID                   string          `json:"id"`
+	ProviderID           string          `json:"providerID"`
+	DisplayName          string          `json:"displayName"`
+	AdapterID            string          `json:"adapterID"`
+	Requests             []string        `json:"requests"`
+	ConfigurationTypes   []string        `json:"configurationTypes"`
+	Transport            string          `json:"transport"`
+	Endpoint             json.RawMessage `json:"endpoint"`
+	DisabledCapabilities []string        `json:"disabledCapabilities"`
+	Features             json.RawMessage `json:"features"`
+	Defaults             json.RawMessage `json:"defaults"`
+	RemoteAttach         *struct {
+		PathMappings    bool `json:"pathMappings"`
+		MaxPathMappings int  `json:"maxPathMappings"`
+	} `json:"remoteAttach"`
 }

@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 )
 
 // DebugUpdate is one deterministic debug session reduction: the state after
@@ -104,6 +105,12 @@ type DebugCreateSessionRequest struct {
 	RootPath                      string `json:"rootPath"`
 	SupportsRunInTerminalRequest  bool   `json:"supportsRunInTerminalRequest"`
 	SupportsStartDebuggingRequest bool   `json:"supportsStartDebuggingRequest"`
+	// DisabledCapabilities, Features and Defaults are the adapter's declaration
+	// (the launch plan's debugAdapter descriptor), passed through unchanged so the
+	// engine follows the declaration instead of recognizing the adapter by ID.
+	DisabledCapabilities []string        `json:"disabledCapabilities,omitempty"`
+	Features             json.RawMessage `json:"features,omitempty"`
+	Defaults             json.RawMessage `json:"defaults,omitempty"`
 }
 
 // DebugLaunchConfiguration is the language-neutral launch Core forwards.

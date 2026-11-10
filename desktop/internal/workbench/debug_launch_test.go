@@ -102,7 +102,7 @@ func TestDebugRuntimeArgumentsComeFromTheToolDefinition(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	plan, err := h.app.prepareDebugLaunch(ctx, adapter, filepath.Join(t.TempDir(), "state"), p.root, "", 1, "unavailable")
+	plan, err := h.app.prepareDebugLaunch(ctx, debugStart{adapter: adapter, request: "launch"}, filepath.Join(t.TempDir(), "state"), p.root, "", 1, "unavailable")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestDebugExecutableLookupSkipsNonFileCandidates(t *testing.T) {
 	copyTestBinary(t, executable)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	plan, err := h.app.prepareDebugLaunch(ctx, adapter, filepath.Join(t.TempDir(), "state"), p.root, "", 1, "unavailable")
+	plan, err := h.app.prepareDebugLaunch(ctx, debugStart{adapter: adapter, request: "launch"}, filepath.Join(t.TempDir(), "state"), p.root, "", 1, "unavailable")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestDebugReadsProgramFromActualPluginSettingSources(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			plan, err := h.app.prepareDebugLaunch(ctx, adapter, filepath.Join(t.TempDir(), "state"), p.root, "", 1, "unavailable")
+			plan, err := h.app.prepareDebugLaunch(ctx, debugStart{adapter: adapter, request: "launch"}, filepath.Join(t.TempDir(), "state"), p.root, "", 1, "unavailable")
 			if invalid {
 				if err == nil {
 					t.Fatalf("invalid configured program fell back: %+v", plan.Configuration)

@@ -109,6 +109,11 @@ type PluginSemanticRequest struct {
 	// FormattingOptions is optional for formatting and rangeFormatting; Core fills unset
 	// fields with its defaults.
 	FormattingOptions *FormattingOptions
+	// OperationID lets the caller register for the answer before the request is
+	// sent; Core generates one when empty.
+	OperationID string
+	// Command is the executeCommand operation's `{command, arguments}` payload.
+	Command json.RawMessage
 }
 
 // FormattingOptions is the LSP FormattingOptions Core accepts on formatting and
@@ -150,6 +155,8 @@ type pluginSemanticBody struct {
 	NewName           string                  `json:"newName,omitempty"`
 	Range             *PluginDocumentRange    `json:"range,omitempty"`
 	FormattingOptions *FormattingOptions      `json:"formattingOptions,omitempty"`
+	OperationID       string                  `json:"operationId,omitempty"`
+	Command           json.RawMessage         `json:"command,omitempty"`
 }
 
 // RequestPluginSemantics submits a semantic request and returns Core's opaque
@@ -159,6 +166,7 @@ func (c *Client) RequestPluginSemantics(ctx context.Context, request PluginSeman
 		SessionID: request.SessionID, Operation: request.Operation, URI: request.URI,
 		Position: request.Position, CompletionContext: request.CompletionContext, NewName: request.NewName,
 		Range: request.Range, FormattingOptions: request.FormattingOptions,
+		OperationID: request.OperationID, Command: request.Command,
 	}
 	var response struct {
 		OperationID string `json:"operationId"`

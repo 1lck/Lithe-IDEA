@@ -27,18 +27,26 @@ func TestDebugAdapterRunner(t *testing.T) {
 	if err != nil {
 		os.Exit(2)
 	}
+	os.Exit(serveFixtureAdapter(os.Stdin, os.Stdout, workspace))
+}
+
+// serveFixtureAdapter speaks the fixture DAP over any byte stream, so the same
+// adapter answers over a process's stdio and over a TCP connection. It returns
+// the exit code the stdio runner reports, and 0 when the peer disconnects.
+func serveFixtureAdapter(input io.Reader, output io.Writer, workspace string) int {
 	source := filepath.Join(workspace, "tests", "debug_source.go")
-	reader := bufio.NewReader(os.Stdin)
+	reader := bufio.NewReader(input)
 	seq := 1
 	write := func(value map[string]any) {
 		value["seq"] = seq
 		seq++
 		body, err := json.Marshal(value)
 		if err != nil {
-			os.Exit(2)
+			panic(err)
 		}
-		if _, err := fmt.Fprintf(os.Stdout, "Content-Length: %d\r\n\r\n%s", len(body), body); err != nil {
-			os.Exit(3)
+		if _, err := fmt.Fprintf(output, "Content-Length: %d\r\n\r\n%s", len(body), body); err != nil {
+			// The peer is gone; the read below ends the loop.
+			return
 		}
 	}
 	event := func(name string, body any) {
@@ -49,7 +57,7 @@ func TestDebugAdapterRunner(t *testing.T) {
 		for {
 			line, err := reader.ReadString('\n')
 			if err != nil {
-				os.Exit(0)
+				return 0
 			}
 			line = strings.TrimSpace(line)
 			if line == "" {
@@ -58,16 +66,16 @@ func TestDebugAdapterRunner(t *testing.T) {
 			if key, value, ok := strings.Cut(line, ":"); ok && strings.EqualFold(key, "Content-Length") {
 				length, err = strconv.Atoi(strings.TrimSpace(value))
 				if err != nil {
-					os.Exit(4)
+					return 4
 				}
 			}
 		}
 		if length < 0 || length > 1<<20 {
-			os.Exit(5)
+			return 5
 		}
 		body := make([]byte, length)
 		if _, err := io.ReadFull(reader, body); err != nil {
-			os.Exit(6)
+			return 6
 		}
 		var request struct {
 			Seq     int             `json:"seq"`
@@ -76,7 +84,7 @@ func TestDebugAdapterRunner(t *testing.T) {
 			Body    json.RawMessage `json:"arguments"`
 		}
 		if err := json.Unmarshal(body, &request); err != nil {
-			os.Exit(7)
+			return 7
 		}
 		if request.Type != "request" {
 			continue
@@ -94,7 +102,7 @@ func TestDebugAdapterRunner(t *testing.T) {
 				event("stopped", map[string]any{"reason": "breakpoint", "threadId": 7})
 			}
 			if request.Command == "disconnect" {
-				os.Exit(0)
+				return 0
 			}
 		case "setBreakpoints":
 			respond(map[string]any{"breakpoints": []any{map[string]any{"verified": true, "line": 3}}})

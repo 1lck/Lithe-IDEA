@@ -30,8 +30,39 @@ type DebugAdapterDeclaration struct {
 	DisplayName string
 	AdapterID   string
 	Transport   string
-	// LaunchKind is used only to show transports this client can start.
+	// LaunchKind is used only to show transports this client can start. It is
+	// empty for a tcpLanguageServer adapter, which has no process of its own.
 	LaunchKind string
+	// Requests are the DAP requests the adapter serves: "launch" and/or "attach".
+	Requests []string
+	// ConfigurationTypes are the imported launch.json types the adapter answers to.
+	ConfigurationTypes []string
+	// Endpoint names the language server and command a tcpLanguageServer adapter
+	// asks for its loopback port.
+	Endpoint DebugAdapterEndpoint
+	// AcceptsConnection is true when the attach configuration binds a remote
+	// host and port, so the host may offer the host-and-port form.
+	AcceptsConnection bool
+}
+
+// DebugAdapterEndpoint is the `launch.endpoint` of a tcpLanguageServer adapter.
+type DebugAdapterEndpoint struct {
+	LanguageID string
+	Command    string
+}
+
+// Serves reports whether the adapter serves a DAP request. An adapter that names
+// no request serves launch, as the contract defaults.
+func (d DebugAdapterDeclaration) Serves(request string) bool {
+	if len(d.Requests) == 0 {
+		return request == "launch"
+	}
+	for _, served := range d.Requests {
+		if served == request {
+			return true
+		}
+	}
+	return false
 }
 
 // DebugPlugins reads the newest enabled version of every plugin that declares
@@ -70,13 +101,25 @@ func (s *Service) DebugPlugins(ctx context.Context, entries []pluginmanager.Entr
 
 type rawDebugManifest struct {
 	DebugAdapters []struct {
-		ID          string   `json:"id"`
-		DisplayName string   `json:"displayName"`
-		AdapterID   string   `json:"adapterID"`
-		Requests    []string `json:"requests"`
-		Launch      struct {
+		ID                 string   `json:"id"`
+		DisplayName        string   `json:"displayName"`
+		AdapterID          string   `json:"adapterID"`
+		Requests           []string `json:"requests"`
+		ConfigurationTypes []string `json:"configurationTypes"`
+		Configurations     struct {
+			Attach *struct {
+				TargetBindings struct {
+					Connection json.RawMessage `json:"connection"`
+				} `json:"targetBindings"`
+			} `json:"attach"`
+		} `json:"configurations"`
+		Launch struct {
 			Transport string `json:"transport"`
-			Process   *struct {
+			Endpoint  *struct {
+				LanguageID string `json:"languageID"`
+				Command    string `json:"command"`
+			} `json:"endpoint"`
+			Process *struct {
 				Launch struct {
 					Kind string `json:"kind"`
 				} `json:"launch"`
@@ -92,15 +135,24 @@ func parseDebugAdapters(manifest json.RawMessage) ([]DebugAdapterDeclaration, er
 	}
 	adapters := make([]DebugAdapterDeclaration, 0, len(decoded.DebugAdapters))
 	for _, raw := range decoded.DebugAdapters {
-		if raw.ID == "" || raw.Launch.Process == nil {
+		hosted := raw.Launch.Process == nil && raw.Launch.Transport == "tcpLanguageServer" && raw.Launch.Endpoint != nil
+		if raw.ID == "" || (raw.Launch.Process == nil && !hosted) {
 			continue
 		}
 		declaration := DebugAdapterDeclaration{
-			ID:          raw.ID,
-			DisplayName: raw.DisplayName,
-			AdapterID:   raw.AdapterID,
-			Transport:   raw.Launch.Transport,
-			LaunchKind:  raw.Launch.Process.Launch.Kind,
+			ID:                 raw.ID,
+			DisplayName:        raw.DisplayName,
+			AdapterID:          raw.AdapterID,
+			Transport:          raw.Launch.Transport,
+			Requests:           raw.Requests,
+			ConfigurationTypes: raw.ConfigurationTypes,
+			AcceptsConnection:  raw.Configurations.Attach != nil && len(raw.Configurations.Attach.TargetBindings.Connection) > 0,
+		}
+		if raw.Launch.Process != nil {
+			declaration.LaunchKind = raw.Launch.Process.Launch.Kind
+		}
+		if hosted {
+			declaration.Endpoint = DebugAdapterEndpoint{LanguageID: raw.Launch.Endpoint.LanguageID, Command: raw.Launch.Endpoint.Command}
 		}
 		if declaration.AdapterID == "" {
 			declaration.AdapterID = declaration.ID

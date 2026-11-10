@@ -16,6 +16,10 @@ var (
 	debugStopID             = tree.ID(shellPage, "debug-stop")
 	debugContinueID         = tree.ID(shellPage, "debug-continue")
 	debugPauseID            = tree.ID(shellPage, "debug-pause")
+	debugAttachHostID       = tree.ID(shellPage, "debug-attach-host")
+	debugAttachPortID       = tree.ID(shellPage, "debug-attach-port")
+	debugRemoteAttachID     = tree.ID(shellPage, "debug-remote-attach")
+	debugRemoteCancelID     = tree.ID(shellPage, "debug-remote-cancel")
 	debugToggleBreakpointID = tree.ID(shellPage, "debug-toggle-breakpoint")
 	debugBreakpointsID      = tree.Sub(shellPage, tree.Name("debug-breakpoints"))
 	debugFramesListID       = tree.ID(shellPage, "debug-frames-list")
@@ -49,6 +53,12 @@ func (a *App) drawDebugPanel(f *ui.Frame, p *project) {
 					d.selectedAdapter = index
 				}
 			})
+		}
+		if len(d.adapters) > 0 && d.session == nil && debugAttachOnly(d.adapters[d.selectedAdapter]) {
+			a.drawDebugAttachForm(f)
+		}
+		if d.remote != nil {
+			a.drawDebugRemotePrompt(f, p)
 		}
 		f.Row().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
 			if f.Button(debugStartID, t.Start).Disabled(d.session != nil || len(d.adapters) == 0).Clicked() {
@@ -84,6 +94,39 @@ func (a *App) drawDebugPanel(f *ui.Frame, p *project) {
 		a.drawDebugBreakpoints(f, p)
 		f.Divider()
 		a.drawDebugFrames(f, p)
+	})
+}
+
+// debugAttachOnly is true for an adapter that has no launch: the target is a
+// running debuggee whose host and port the user names.
+func debugAttachOnly(adapter debugAdapter) bool {
+	return !adapter.Declaration.Serves("launch") && adapter.Declaration.AcceptsConnection
+}
+
+// drawDebugAttachForm declares the host and port of the debuggee to attach to.
+// An empty host means this machine.
+func (a *App) drawDebugAttachForm(f *ui.Frame) {
+	t := a.text.Debug
+	f.Row().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
+		f.Field(&a.debugAttach.host, debugAttachHostID, t.AttachHost, t.AttachHost).Grow(2)
+		f.Field(&a.debugAttach.port, debugAttachPortID, t.AttachPort, t.AttachPort).Grow(1)
+	})
+}
+
+// drawDebugRemotePrompt asks before attaching to an endpoint Core could not prove
+// local. The answer is for this start only.
+func (a *App) drawDebugRemotePrompt(f *ui.Frame, p *project) {
+	t := a.text.Debug
+	f.Column().Shrink(0).PadX(shellContentPad).PadY(6).Gap(6).Children(func() {
+		f.Paragraph(t.RemotePrompt(p.debug.remote.endpoint), 4).Color(a.colors.Warning)
+		f.Row().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).Children(func() {
+			if f.Button(debugRemoteAttachID, t.RemoteAttach).Clicked() {
+				a.confirmRemoteDebug(p)
+			}
+			if f.Button(debugRemoteCancelID, t.RemoteCancel).Outline().Clicked() {
+				p.debug.remote = nil
+			}
+		})
 	})
 }
 

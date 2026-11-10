@@ -190,7 +190,7 @@ func TestDebugPanelWithoutAdaptersSaysSo(t *testing.T) {
 	h.app.reduceChrome(core.ToggleChrome(itemDebug))
 	h.settle()
 	h.settle()
-	if !h.shows("已安装的插件没有声明 stdio 调试适配器。") {
+	if !h.shows("已安装的插件没有声明此客户端能启动的调试适配器。") {
 		t.Fatal("the Debug panel did not explain that no adapter is installed")
 	}
 }
@@ -302,7 +302,8 @@ func TestDebugBlockedWriteEndsOnCancellation(t *testing.T) {
 	defer writer.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	session := &debugSession{stdin: writer, ctx: ctx}
+	session := &debugSession{ctx: ctx}
+	session.setTransport(writer)
 	started := make(chan struct{})
 	finished := make(chan error, 1)
 	go func() {

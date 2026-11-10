@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,7 +21,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprocess"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/vivaui/viva/ui"
 )
@@ -35,7 +37,8 @@ const (
 	debugStopTimeout = 10 * time.Second
 )
 
-// debugAdapter is one installed plugin's stdio debug adapter declaration.
+// debugAdapter is one installed plugin's debug adapter declaration, reached over
+// stdio or through its plugin's language server (tcpLanguageServer).
 type debugAdapter struct {
 	PluginID    string
 	Directory   string
@@ -63,6 +66,11 @@ type debugState struct {
 	pausedThread *int64
 	session      *debugSession
 	generation   uint64
+	// remote is the non-local attach the user has not yet confirmed.
+	remote *debugRemotePrompt
+	// pendingRemote is the start in flight, kept so a remote endpoint can be
+	// confirmed and the same start repeated.
+	pendingRemote *debugStart
 }
 
 func (s *debugState) reset() { *s = debugState{} }
@@ -71,11 +79,20 @@ func (s *debugState) reset() { *s = debugState{} }
 var debugSessionSequence atomic.Uint64
 
 type debugSession struct {
-	id             string
-	adapterID      string
-	project        *project
-	process        atomic.Pointer[buildprocess.Process]
-	stdin          *os.File
+	id        string
+	adapterID string
+	project   *project
+	process   atomic.Pointer[buildprocess.Process]
+	// transport is the write side of the adapter's byte stream: the adapter
+	// process's stdin, or the TCP connection of a tcpLanguageServer adapter.
+	// Closing it interrupts a blocked write, so Stop and shutdown use that.
+	transportMu sync.Mutex
+	transport   io.WriteCloser
+	// writeTimeout bounds one write against a stalled adapter.
+	writeTimeout time.Duration
+	// observing is set when a goroutine watches the stream or process end and
+	// will close exitObserved.
+	observing      atomic.Bool
 	stateDirectory string
 	ctx            context.Context
 	startupDone    chan struct{}
@@ -94,14 +111,22 @@ type debugSession struct {
 // writeFrames writes Core's framed bytes to the adapter. The mutex keeps two
 // writers from interleaving a frame.
 func (s *debugSession) writeFrames(frames []string) error {
-	if s == nil || s.stdin == nil {
+	if s == nil {
 		return nil
 	}
-	// Closing the native pipe interrupts both a blocked write and a writer
-	// waiting behind it. A native file also avoids exec.Cmd's stdin-copy goroutine.
-	ctx, cancel := context.WithTimeout(s.ctx, debugOperationTimeout)
+	transport := s.currentTransport()
+	if transport == nil {
+		return nil
+	}
+	// Closing the stream interrupts both a blocked write and a writer waiting
+	// behind it. A native file also avoids exec.Cmd's stdin-copy goroutine.
+	timeout := s.writeTimeout
+	if timeout <= 0 {
+		timeout = debugOperationTimeout
+	}
+	ctx, cancel := context.WithTimeout(s.ctx, timeout)
 	defer cancel()
-	stop := context.AfterFunc(ctx, func() { _ = s.stdin.Close() })
+	stop := context.AfterFunc(ctx, func() { _ = transport.Close() })
 	defer stop()
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -113,11 +138,40 @@ func (s *debugSession) writeFrames(frames []string) error {
 		if err != nil {
 			return fmt.Errorf("debug frame: %w", err)
 		}
-		if _, err := s.stdin.Write(data); err != nil {
+		if _, err := transport.Write(data); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (s *debugSession) currentTransport() io.WriteCloser {
+	s.transportMu.Lock()
+	defer s.transportMu.Unlock()
+	return s.transport
+}
+
+// setTransport installs the write side of the adapter stream. A session that was
+// already taken apart refuses it and the stream is closed at once, so a start
+// that lost a race with Stop leaves no connection behind.
+func (s *debugSession) setTransport(transport io.WriteCloser) bool {
+	s.transportMu.Lock()
+	defer s.transportMu.Unlock()
+	if s.stopped.Load() {
+		_ = transport.Close()
+		return false
+	}
+	s.transport = transport
+	return true
+}
+
+func (s *debugSession) closeTransport() {
+	s.transportMu.Lock()
+	transport := s.transport
+	s.transportMu.Unlock()
+	if transport != nil {
+		_ = transport.Close()
+	}
 }
 
 // appendDebugOutput keeps the adapter's diagnostics bounded and whole-line.
@@ -154,10 +208,7 @@ func (a *App) loadDebugAdapters(p *project) {
 		var adapters []debugAdapter
 		for _, plugin := range plugins {
 			for _, declaration := range plugin.Adapters {
-				if declaration.Transport != "stdio" {
-					continue
-				}
-				if declaration.LaunchKind != pluginhost.LaunchPackaged && declaration.LaunchKind != pluginhost.LaunchSystemCommand && declaration.LaunchKind != pluginhost.LaunchRuntime {
+				if !debugTransportServed(declaration) {
 					continue
 				}
 				adapters = append(adapters, debugAdapter{
@@ -183,159 +234,6 @@ func (a *App) finishDebugAdapters(p *project, adapters []debugAdapter, err error
 	if err != nil && len(adapters) == 0 {
 		p.debug.failure = err.Error()
 	}
-}
-
-// startDebug starts the first declared stdio adapter and a Core session. The
-// Core session owns DAP state; the host owns the process and its bytes.
-func (a *App) startDebug(p *project) {
-	if p == nil || p.debug.session != nil || len(p.debug.adapters) == 0 {
-		return
-	}
-	adapter := p.debug.adapters[p.debug.selectedAdapter]
-	targetPath := ""
-	if doc := p.selectedDocument(p.docs.group); doc != nil {
-		targetPath = doc.path
-	}
-	pluginRoot := a.plugins.Root
-	targetUnavailable := i18n.Shared(a.language(), "desktop.debug.targetUnavailable")
-	p.debug.generation++
-	generation := p.debug.generation
-	p.debug.failure = ""
-	p.debug.state = "initializing"
-	p.debug.status = a.text.Debug.Starting
-	p.debug.frames = nil
-	p.debug.pausedThread = nil
-	p.debug.output = nil
-	breakpoints := make(map[string][]int64, len(p.debug.breakpoints))
-	for path, lines := range p.debug.breakpoints {
-		breakpoints[path] = append([]int64(nil), lines...)
-	}
-	ctx, cancel := context.WithCancel(p.ctx)
-	session := &debugSession{
-		id:           fmt.Sprintf("desktop-debug-%d", debugSessionSequence.Add(1)),
-		adapterID:    adapter.Declaration.AdapterID,
-		project:      p,
-		cancel:       cancel,
-		ctx:          ctx,
-		startupDone:  make(chan struct{}),
-		exitObserved: make(chan struct{}),
-		generation:   generation,
-	}
-	stateRoot := filepath.Join(pluginRoot, ".state", adapter.PluginID, adapter.Version)
-	stdinReader, stdinWriter, err := os.Pipe()
-	if err != nil {
-		cancel()
-		p.debug.state = "failed"
-		p.debug.failure = err.Error()
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("debug", err))
-		return
-	}
-	session.stdin = stdinWriter
-	p.debug.session = session
-	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "debug.start", "surface": "debug"})
-
-	a.background(p, 0, func(_ context.Context) func(*App) {
-		session.operationMu.Lock()
-		defer session.operationMu.Unlock()
-		defer close(session.startupDone)
-		ctx := session.ctx
-		defer stdinReader.Close()
-		// log-exempt: 用户取消：停止或关闭项目已接管会话清理。
-		if err := ctx.Err(); err != nil {
-			return nil
-		}
-		if err := os.MkdirAll(stateRoot, 0o700); err != nil {
-			return func(a *App) { a.finishDebugError(p, session, err) }
-		}
-		stateDirectory, err := os.MkdirTemp(stateRoot, "desktop-debug-")
-		if err != nil {
-			return func(a *App) { a.finishDebugError(p, session, err) }
-		}
-		// Assigned only by startup; cleanup reads it after startupDone closes.
-		session.stateDirectory = stateDirectory
-		preparationContext, cancelPreparation := context.WithTimeout(ctx, debugOperationTimeout)
-		prepared, err := a.prepareDebugLaunch(preparationContext, adapter, session.stateDirectory, p.root, targetPath, generation, targetUnavailable)
-		cancelPreparation()
-		if err != nil {
-			return func(a *App) { a.finishDebugError(p, session, err) }
-		}
-		process, err := buildprocess.Start(ctx, buildprocess.Spec{
-			Executable:       prepared.Executable,
-			Arguments:        prepared.Arguments,
-			Environment:      prepared.Environment,
-			WorkingDirectory: p.root,
-			Stdin:            stdinReader,
-		}, func(stream buildprocess.Stream, text string) {
-			if stream == buildprocess.Stderr {
-				a.post(func(a *App) { a.appendDebugOutput(p, session, text) })
-				return
-			}
-			a.receiveDebug(p, session, []byte(text))
-		})
-		_ = stdinReader.Close()
-		if err != nil {
-			return func(a *App) { a.finishDebugError(p, session, err) }
-		}
-		session.process.Store(process)
-		// Observe native exit even when the adapter cannot send a DAP terminated event.
-		go func() {
-			defer close(session.exitObserved)
-			err := process.Wait()
-			session.cancel()
-			_ = session.stdin.Close()
-			a.post(func(a *App) {
-				if a.project != p || p.debug.session != session {
-					return
-				}
-				if err != nil {
-					a.finishDebugError(p, session, err)
-					return
-				}
-				p.debug.session = nil
-				p.debug.frames = nil
-				p.debug.pausedThread = nil
-				p.debug.state = "terminated"
-				p.debug.status = a.text.Debug.Terminated
-				a.releaseDebugSession(p, session)
-			})
-		}()
-		update, err := a.kernel.CreateDebugSession(ctx, core.DebugCreateSessionRequest{
-			SessionID: session.id,
-			AdapterID: session.adapterID,
-			RootPath:  p.root,
-		})
-		if err != nil {
-			return func(a *App) { a.finishDebugError(p, session, err) }
-		}
-		session.created = true
-		if err := session.writeFrames(update.OutboundFrames); err != nil {
-			return func(a *App) { a.finishDebugError(p, session, err) }
-		}
-		a.postDebugUpdate(p, session, update)
-		for path, lines := range breakpoints {
-			points := make([]core.DebugSourceBreakpoint, 0, len(lines))
-			for _, line := range lines {
-				points = append(points, core.DebugSourceBreakpoint{Line: line, Enabled: true})
-			}
-			update, err := a.kernel.SetDebugBreakpoints(ctx, session.id, path, points)
-			if err != nil {
-				return func(a *App) { a.finishDebugError(p, session, err) }
-			}
-			if err := session.writeFrames(update.OutboundFrames); err != nil {
-				return func(a *App) { a.finishDebugError(p, session, err) }
-			}
-			a.postDebugUpdate(p, session, update)
-		}
-		update, err = a.kernel.LaunchDebug(ctx, session.id, fmt.Sprintf("%s-launch", session.id), prepared.Configuration)
-		if err != nil {
-			return func(a *App) { a.finishDebugError(p, session, err) }
-		}
-		if err := session.writeFrames(update.OutboundFrames); err != nil {
-			return func(a *App) { a.finishDebugError(p, session, err) }
-		}
-		a.postDebugUpdate(p, session, update)
-		return nil
-	})
 }
 
 // receiveDebug feeds one stdout chunk to Core and publishes what it answered.
@@ -562,7 +460,7 @@ func (a *App) releaseDebugSession(_ *project, session *debugSession) {
 	session.cleanupOnce.Do(func() {
 		session.stopped.Store(true)
 		session.cancel()
-		_ = session.stdin.Close()
+		session.closeTransport()
 		if process := session.process.Load(); process != nil {
 			process.Stop()
 		}
@@ -575,8 +473,13 @@ func (a *App) releaseDebugSession(_ *project, session *debugSession) {
 			if session.created {
 				_, cleanupErr = a.kernel.DestroyDebugSession(ctx, session.id)
 			}
-			if process := session.process.Load(); process != nil {
+			process := session.process.Load()
+			if process != nil {
 				_ = process.Wait()
+			}
+			// The goroutine that watches the process or the TCP stream closes
+			// exitObserved once it is done with the session.
+			if process != nil || session.observing.Load() {
 				<-session.exitObserved
 			}
 			if session.stateDirectory != "" {
@@ -607,6 +510,22 @@ func (a *App) finishDebugError(p *project, session *debugSession, err error) {
 		return
 	}
 	if a.project != p || p.debug.session != session || p.debug.generation != session.generation {
+		return
+	}
+	var remote *debugRemoteError
+	if errors.As(err, &remote) {
+		// Not a failure: Core classified the endpoint as non-local, so the panel
+		// asks before connecting. Nothing was started yet.
+		endpoint := net.JoinHostPort(remote.host, strconv.Itoa(remote.port))
+		start := p.debug.pendingRemote
+		if start != nil {
+			p.debug.remote = &debugRemotePrompt{start: *start, endpoint: endpoint}
+		}
+		p.debug.pendingRemote = nil
+		p.debug.status = ""
+		if p.debug.session == session {
+			a.stopDebug(p)
+		}
 		return
 	}
 	p.debug.failure = err.Error()
