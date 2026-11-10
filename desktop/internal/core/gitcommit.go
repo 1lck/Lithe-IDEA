@@ -32,6 +32,13 @@ type gitWriteRequest struct {
 	FetchOptions *GitFetchOptions `json:"fetchOptions,omitempty"`
 	// Mode is how a pull combines diverged histories: ffOnly, merge or rebase.
 	Mode string `json:"mode,omitempty"`
+	// WorktreeMode is how createWorktree takes its branch: newBranch, existingBranch or detached.
+	WorktreeMode string `json:"worktreeMode,omitempty"`
+	// Message labels a stash, and Reference names the stash a stash operation acts on.
+	Message   string `json:"message,omitempty"`
+	Reference string `json:"reference,omitempty"`
+	// IncludeUntracked stashes untracked files too.
+	IncludeUntracked bool `json:"includeUntracked,omitempty"`
 }
 
 // GitClone clones source into destination using Core's Git process and validation.
