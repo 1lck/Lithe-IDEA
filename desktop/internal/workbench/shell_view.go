@@ -104,6 +104,9 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 			if tool.id == itemProject && p != nil {
 				a.projectTreeActions(c, p)
 			}
+			if tabbed && p != nil {
+				a.drawGitActions(c, p)
+			}
 			hide := ui.Button(c, a.text.Panel.Hide).Icon(icons.Minus).IconOnly().Ghost().Size(shellHideSize, shellHideSize).Shrink(0)
 			if hide.Clicked() {
 				*hidden = s

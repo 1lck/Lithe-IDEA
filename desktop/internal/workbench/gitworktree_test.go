@@ -87,6 +87,10 @@ func TestGitToolsMenuShowsTheWorktreesTab(t *testing.T) {
 		t.Fatal("the menu opened the tools dialog")
 	}
 	h.await("the worktrees", func() bool { return p.worktrees.started && p.worktrees.loaded })
+	// The Git actions menu is in the tool window's header, so it stays on every tab.
+	if _, ok := h.findPageHit(h.app.text.Git.Actions); !ok {
+		t.Fatal("the Worktrees tab hides the Git actions menu of the header")
+	}
 }
 
 func TestWorktreesListThePrimaryAndTheLinkedCheckouts(t *testing.T) {

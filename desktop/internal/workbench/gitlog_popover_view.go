@@ -59,7 +59,8 @@ func (a *App) drawLogPopover(c ui.C, p *project, which logPopover, anchor ui.Box
 	}
 }
 
-// drawLogMenu declares the menu of the log tab's actions under its button, while it is open.
+// drawLogMenu declares the menu of the Git actions under its button in the Git tool window's
+// header, while it is open.
 func (a *App) drawLogMenu(c ui.C, p *project, button ui.Box) {
 	l, g := &p.log, a.text.Git
 	if l.popover != logPopoverMenu {

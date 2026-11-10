@@ -319,18 +319,25 @@ func (a *App) drawLogCommits(c ui.C, p *project) ui.Box {
 	})
 }
 
+// drawGitActions declares the button of the Git actions menu in the Git tool window's header,
+// beside the hide button, with the menu under it. It shows on every tab: fetching, updating
+// the branch and refreshing the log act on the repository, not on the tab. The button keeps
+// its width while the tabs give theirs up, so a narrow pane cuts the tab labels, not it.
+func (a *App) drawGitActions(c ui.C, p *project) {
+	l := &p.log
+	menu, clicked := a.gitToolButton(c, a.text.Git.Actions, icons.EllipsisVertical, l.popover == logPopoverMenu, false)
+	menu.Shrink(0)
+	if clicked {
+		c.After(func() { a.toggleLogPopover(p, logPopoverMenu) })
+	}
+	a.drawLogMenu(c, p, menu)
+}
+
 // drawLogToolbar declares the filter bar: the text filter, the filter chips and the
-// view buttons.
+// view buttons. The menu of the Git actions is in the tool window's header (drawGitActions).
 func (a *App) drawLogToolbar(c ui.C, p *project) {
 	l, v, g := &p.log, &a.logView, a.text.Git
 	ui.Row(c).Height(logToolbarHeight).Shrink(0).Items(ui.Center).Gap(4).PadX(6).Children(func() {
-		// The menu of the log's actions leads the bar, where a narrow pane cannot cut it off.
-		// It used to be a button of the tool window's header, which the shell draws.
-		menu, clicked := a.gitToolButton(c, g.Actions, icons.EllipsisVertical, l.popover == logPopoverMenu, false)
-		if clicked {
-			c.After(func() { a.toggleLogPopover(p, logPopoverMenu) })
-		}
-		a.drawLogMenu(c, p, menu)
 		ui.TextFieldID(c, logSearchID, &v.search, g.TextOrHash, g.TextOrHash).MinWidth(150).Grow(1).MaxWidth(320)
 		dates := [logDateCount]string{g.AnyTime, g.Today, g.Yesterday, g.Last7Days, g.Last30Days}
 		chips := [logChipCount]struct {
