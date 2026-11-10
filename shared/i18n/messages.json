@@ -12923,6 +12923,37 @@
       }
     },
     {
+      "id": "desktop.lsp.logTitle",
+      "description": "Title of the window that shows the log of each language server",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.lsp.noLog",
+      "description": "Text of the language server log window when the server reported nothing",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.lsp.noServers",
+      "description": "Text of the language server log window when no server is running",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.lsp.state",
+      "description": "Line of the language server log window that names the server's state",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "state": "string"
+      }
+    },
+    {
       "id": "desktop.marketplace.cancel",
       "description": "Button that closes the review without installing.",
       "platforms": [
@@ -15272,6 +15303,34 @@
     {
       "id": "desktop.status.lSPNotStarted",
       "description": "Desktop status: LSPNotStarted",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.status.lspFailed",
+      "description": "Status bar text when the language server of the file failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.status.lspReady",
+      "description": "Status bar text when the language server of the file is ready",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.status.lspStarting",
+      "description": "Status bar text while the language server of the file starts",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.status.lspStopped",
+      "description": "Status bar text when the language server of the file stopped",
       "platforms": [
         "desktop"
       ]

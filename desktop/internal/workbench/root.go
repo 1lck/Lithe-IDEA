@@ -195,6 +195,7 @@ func (a *App) overlays(c ui.C) {
 		a.everywherePopup(c)
 		a.navigationPopup(c)
 		a.semanticPopups(c)
+		a.lspLogPopup(c)
 	}
 	a.pluginReviewView(c)
 	a.pluginPromptView(c)

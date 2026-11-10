@@ -41,6 +41,10 @@ type pluginServer struct {
 	// features are the features the server offers, from Core's featuresChanged event
 	// (documentSymbols, semanticTokens and so on). Only the window thread reads or writes it.
 	features map[string]bool
+	// state is the last state Core reported (starting, ready, failed, stopped) and logs the
+	// newest log lines of the session; only the window thread reads or writes them.
+	state string
+	logs  []string
 	// buildMu guards both the attached clients and readiness. A ready event and
 	// an attach race through the same lock, so a client either receives the
 	// event or is marked ready from the recorded state, never both and never
@@ -232,6 +236,9 @@ func (a *App) servePluginServer(server *pluginServer, ctx context.Context) {
 		defer server.endBuild()
 		observe := func(event core.BackendEvent) {
 			server.forwardBuild(event)
+			if event.Type == "stateChanged" || event.Type == "log" {
+				a.post(func(a *App) { a.recordServerEvent(server, event) })
+			}
 			switch event.Type {
 			case "stateChanged":
 				if event.State == "ready" {

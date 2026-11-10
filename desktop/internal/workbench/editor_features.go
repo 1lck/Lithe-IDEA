@@ -10,5 +10,6 @@ type editorFeatures struct {
 	outline  outlineState
 	refs     referencesState
 	encoding encodingState
+	lsp      lspLogState
 	tokens   semanticTokensState
 }
