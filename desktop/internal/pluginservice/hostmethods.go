@@ -179,14 +179,6 @@ func (s *Service) handleGetFolders(ctx context.Context, params json.RawMessage) 
 	return marshalResult(map[string]any{"folders": s.contextJSON(caller.PluginID, workspace).Folders})
 }
 
-// handleDisposeSubscription answers for every ID: no service of this client
-// creates a subscription yet, and disposing an unknown or already disposed ID is
-// a null result by contract. Services that create subscriptions (workspace
-// watching, terminals) must register their own disposer ahead of this answer.
-func (s *Service) handleDisposeSubscription(context.Context, json.RawMessage) (json.RawMessage, *pluginhost.Failure) {
-	return nil, nil
-}
-
 func marshalResult(value any) (json.RawMessage, *pluginhost.Failure) {
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -293,4 +285,24 @@ func decodeStrict(params json.RawMessage, into any) error {
 	decoder := json.NewDecoder(bytes.NewReader(params))
 	decoder.DisallowUnknownFields()
 	return decoder.Decode(into)
+}
+
+// decodeStrictEmbedded is decodeStrict for a request type that embeds a struct:
+// encoding/json flattens the embedded fields, but DisallowUnknownFields cannot
+// see through a name list, so the allowed members are checked here.
+func decodeStrictEmbedded(params json.RawMessage, into any, allowed ...string) error {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(params, &members); err != nil {
+		return err
+	}
+	known := make(map[string]struct{}, len(allowed))
+	for _, name := range allowed {
+		known[name] = struct{}{}
+	}
+	for name := range members {
+		if _, ok := known[name]; !ok {
+			return fmt.Errorf("unknown field %q", name)
+		}
+	}
+	return json.Unmarshal(params, into)
 }

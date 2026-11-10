@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -233,10 +234,13 @@ func TestLanguageStateAndNotificationsReachTheBackend(t *testing.T) {
 
 type notifyKernel struct {
 	fakeKernel
+	mu   sync.Mutex
 	sent []string
 }
 
 func (k *notifyKernel) SendPluginHostNotification(_ context.Context, session, method string, params json.RawMessage) (bool, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
 	k.sent = append(k.sent, session+" "+method+" "+string(params))
 	return true, nil
 }
@@ -348,4 +352,9 @@ func (m *memoryCredentials) Set(service, account, secret string) error {
 func (m *memoryCredentials) Delete(service, account string) error {
 	delete(m.items, service+"|"+account)
 	return nil
+}
+
+// pluginhostGrant is what a launch plan asking for these methods is granted.
+func pluginhostGrant(service *Service, methods ...string) []string {
+	return pluginhost.GrantServices(methods, service.HostServices)
 }

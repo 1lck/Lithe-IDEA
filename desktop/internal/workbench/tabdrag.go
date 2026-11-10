@@ -127,7 +127,7 @@ func (a *App) paintTabDrag(canvas *gfx.Canvas) {
 
 	// The copy is the tab's icon and title in a box of the width of the words, kept inside
 	// the window and no wider than a tab is.
-	title := a.text.Terminal.Tab(t.number)
+	title := a.terminalTitle(t)
 	style := gfx.TextStyle{Size: a.theme.Metrics.FontSizeM, Weight: gfx.WeightRegular, Color: a.colors.Text}
 	width := min(chromeEdge+terminalChipIcon+terminalChipGap+canvas.TextWidthStyle(title, style)+chromeEdge, terminalChipMaxWidth)
 	ghost := gfx.Rect{X: d.x + dragGhostOffset, Y: d.y + dragGhostOffset, Width: width, Height: rowHeight}

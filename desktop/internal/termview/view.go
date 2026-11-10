@@ -14,7 +14,9 @@
 package termview
 
 import (
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/term"
@@ -120,6 +122,19 @@ type Config struct {
 	Notify func()
 	// Failed records a failure in the client's log. It may be nil.
 	Failed func(Failure)
+	// Args are the program's arguments. Nil runs the program the way the shell
+	// menu does (see localshell.ArgsFor); an empty slice runs it with none.
+	Args []string
+	// Env adds variables to the program's environment and Unset removes inherited
+	// ones.
+	Env, Unset []string
+	// Prefill is plain text written into the screen before the program starts, for
+	// a reopened terminal. It never reaches the program's input.
+	Prefill string
+	// Exited is called once when the program ends or cannot start, with its exit
+	// status when it has one. A view with Exited set does not restart on Enter: the
+	// owner decides what happens next.
+	Exited func(status *int)
 	// Clipboard reads the system clipboard for a paste. Nil uses app.ClipboardText.
 	Clipboard func() (string, error)
 	// start opens a shell; nil uses localshell.Start. Tests replace it.
@@ -183,6 +198,8 @@ type View struct {
 	ended bool
 	// closed is true after Close: the view starts no shell again.
 	closed bool
+	// exitSent is true once Exited was called.
+	exitSent bool
 
 	// cellW and cellH are the cell at the terminal's font, measured on the window's canvas
 	// at each paint; zero before the first.
@@ -234,11 +251,32 @@ func New(cfg Config) *View {
 	if cfg.Clipboard == nil {
 		cfg.Clipboard = app.ClipboardText
 	}
-	return &View{
+	v := &View{
 		cfg:    cfg,
 		screen: term.New(80, 24, scrollbackLines),
 		layout: geometry{cols: 80, rows: 24},
 	}
+	if cfg.Prefill != "" {
+		v.screen.Write([]byte(strings.ReplaceAll(strings.ReplaceAll(cfg.Prefill, "\r\n", "\n"), "\n", "\r\n") + "\r\n"))
+	}
+	return v
+}
+
+// RetainedText is the plain text of the screen and its history, cut to the last
+// budget bytes without splitting a character. It reads no input and keeps no
+// escape sequence, so it is a rendering snapshot, not a replayable record.
+func (v *View) RetainedText(budget int) string {
+	if budget <= 0 {
+		return ""
+	}
+	text := v.screen.AppendRetainedText(nil)
+	if len(text) > budget {
+		text = text[len(text)-budget:]
+		for len(text) > 0 && !utf8.RuneStart(text[0]) {
+			text = text[1:]
+		}
+	}
+	return string(text)
 }
 
 // Owns reports whether a hit belongs to the view: its grid or its scrollbar.

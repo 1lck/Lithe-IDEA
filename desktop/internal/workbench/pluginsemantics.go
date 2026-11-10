@@ -912,11 +912,23 @@ func (a *App) semanticPositionCurrent(pending *semanticPending, d *document) boo
 
 // usableDefinitionTargets drops targets this editor cannot open and collapses
 // exact duplicates. A non-file URI (a class inside a jar) has no FilePath and
-// stays out until the editor has a read-only preview.
+// is kept when a plugin registered a content provider for its scheme.
 func (a *App) usableDefinitionTargets(locations []core.PluginSemanticLocation, limit int) []core.PluginSemanticLocation {
 	targets := make([]core.PluginSemanticLocation, 0, min(len(locations), limit))
 	seen := make(map[string]struct{}, len(locations))
 	for _, location := range locations {
+		if location.FilePath == "" && a.servedByContentProvider(location.URI) {
+			// A class inside a jar: a plugin provides its text, shown read-only.
+			key := location.URI + "\x00" + strconv.FormatInt(int64(location.Range.Start.Line), 10) + "\x00" + strconv.FormatInt(int64(location.Range.Start.UTF16Column), 10)
+			if _, duplicate := seen[key]; !duplicate {
+				seen[key] = struct{}{}
+				targets = append(targets, location)
+			}
+			if len(targets) >= limit {
+				break
+			}
+			continue
+		}
 		if location.FilePath == "" || !filepath.IsAbs(location.FilePath) {
 			continue
 		}
@@ -939,6 +951,10 @@ func (a *App) openDefinitionTarget(target core.PluginSemanticLocation) {
 		return
 	}
 	a.closePluginSemantics()
+	if target.FilePath == "" {
+		a.openContentTarget(p, target.URI, int(target.Range.Start.Line), int(target.Range.Start.UTF16Column))
+		return
+	}
 	a.openFileAtPosition(p, target.FilePath, int(target.Range.Start.Line), int(target.Range.Start.UTF16Column))
 }
 

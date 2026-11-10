@@ -73,6 +73,18 @@ type Service struct {
 	Host *BackendHost
 	// Contexts holds the workspace contexts plugin backends see.
 	Contexts *WorkspaceContexts
+	// workbench is the window the document, editor, window and terminal services drive.
+	workbench Workbench
+	messages  *messageLimiter
+	// terminalHost and terminals serve the plugin terminal methods; both are nil
+	// when the window cannot start terminals.
+	terminalHost TerminalHost
+	terminals    *terminalRegistry
+	// virtualHost and providers serve content providers; nil without a window.
+	virtualHost VirtualDocumentHost
+	providers   *contentProviders
+	// resources are the subscriptions, providers and terminals backends hold.
+	resources *hostResources
 	// kernel reads what only Core can validate, such as a plugin's grammar.
 	kernel Kernel
 	// lsMu guards the running plugin-owned language servers backends reach.
@@ -109,10 +121,13 @@ func Open(kernel Kernel, preferences *store.Store, root string) (*Service, error
 		HostServices: hostServices,
 		Credentials:  credentials.Default(),
 		kernel:       kernel,
+		resources:    newHostResources(),
+		messages:     newMessageLimiter(),
 	}
 	service.Host = newBackendHost(service)
 	service.Contexts = newWorkspaceContexts(filepath.Join(root, pluginStateDirectory))
 	service.Contexts.SetObserver(service.contextsChanged)
+	service.Contexts.SetClosedObserver(service.resources.releaseContext)
 	if err := service.registerHostServices(); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrAssembly, err)
 	}

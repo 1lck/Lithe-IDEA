@@ -268,6 +268,8 @@ type App struct {
 	// plugins is the plugin stack, nil when the window was built without a plugin
 	// kernel or without a writable plugin root.
 	plugins *pluginservice.Service
+	// prompts are the questions plugins ask the user, one sheet at a time.
+	prompts pluginPrompts
 	// pluginInstall is the install the user started.
 	pluginInstall pluginInstallState
 	// pluginState is what the settings window reads from its own thread about
@@ -470,6 +472,9 @@ func (a *App) openPlugins(options Options) {
 		return
 	}
 	a.plugins = service
+	if err := service.AttachWorkbench(pluginWorkbench{app: a}); err != nil {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_host_services", err))
+	}
 }
 
 // Run shows the window and returns when it is closed.
@@ -646,6 +651,7 @@ func (a *App) paint(canvas *gfx.Canvas, size gfx.Size) {
 		a.drawCloneDialog(f)
 		a.drawNewProjectDialog(f)
 		a.drawPluginReview(f)
+		a.drawPluginPrompt(f)
 		if a.newProject.restoreFocus {
 			f.Canvas().RequestFocus(a.newProject.returnFocus)
 			a.newProject.restoreFocus = false
@@ -1121,6 +1127,7 @@ func (a *App) requestCloseProject(after func()) {
 		if a.navigation.open && a.navigation.project == p {
 			a.closeNavigation()
 		}
+		a.cancelPrompts()
 		p.cancel()
 		a.closeTree(p)
 		a.releaseProjectSearch(p)

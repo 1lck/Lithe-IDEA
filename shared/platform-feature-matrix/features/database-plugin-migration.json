@@ -41,5 +41,5 @@
       "verificationStatus": "not-applicable"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。 凭据部分：Viva 的 credentials/get|set|delete 已接 Keychain（macOS）、Credential Manager（Windows）、Secret Service（Linux）；新 service 为 app.lithe.viva.plugin-credentials.<插件ID>，读不到时按旧 service app.lithe.desktop.plugin-credentials.<插件ID>（及 .dev）只读兼容并复制到新位置，旧项保留给并行安装的旧客户端；插件在 credentials/delete 时同时删除旧项。旧 UserDefaults 连接键的导入仍由数据库插件负责。"
 }

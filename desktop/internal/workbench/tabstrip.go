@@ -327,7 +327,7 @@ func (a *App) tabRows(f *ui.Frame, tabs []shownTab, avail float32) []int {
 			u.tabWidths = append(u.tabWidths, width)
 			continue
 		}
-		width := tabChrome + canvas.TextWidth(a.text.Terminal.Tab(s.term.number), size)
+		width := tabChrome + canvas.TextWidth(a.terminalTitle(s.term), size)
 		u.tabWidths = append(u.tabWidths, min(max(width, terminalChipMinWidth), terminalChipMaxWidth))
 	}
 	u.tabStarts = wrapTabs(u.tabStarts[:0], u.tabWidths, avail, chromeGap)
@@ -410,7 +410,7 @@ func (a *App) drawHiddenTab(f *ui.Frame, t shownTab, selected bool) hiddenClick 
 	if t.doc != nil {
 		name, icon = t.doc.name, fileicons.ForFile(t.doc.name, a.colors.Dark)
 	} else {
-		name = a.text.Terminal.Tab(t.term.number)
+		name = a.terminalTitle(t.term)
 	}
 	row := a.chromeHover(f.Row().FillWidth().Height(chromeMenuRow).Shrink(0).Items(ui.Center).Gap(chromeMenuGap).
 		PadSides(0, 4, 0, chromeEdge).Radius(a.theme.Metrics.RadiusItem()).

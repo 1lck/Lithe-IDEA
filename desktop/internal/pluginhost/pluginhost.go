@@ -71,11 +71,19 @@ type Capabilities map[string][]int
 // for a plugin that declares onWorkspaceOpen, when its language server needs a
 // launch answer, or when another plugin calls it. It is answered the host
 // services workspace/getFolders, listContexts and getContext (with
-// didChangeContexts), subscriptions/dispose, the languageServer methods, and the
-// cross-plugin functions relay (pluginFunctions 1). Run, debug, terminal, editor,
-// documents, window and credentials services are not registered yet, so
-// getCapabilities never lists them and a plugin that needs one is refused when it
-// asks for the permission's methods.
+// didChangeContexts), subscriptions/dispose, the languageServer methods, the
+// cross-plugin functions relay (pluginFunctions 1), credentials/get|set|delete
+// (the platform secret store), documents/list and getSnapshot,
+// editor/getActive, getSelections, open, reveal, insertText, replaceSelections
+// and applyEdits, window/showInformation|showWarning|showError,
+// browser/openExternal (http and https only), terminal/create|show|close|reopen|
+// dispose|onExit, and documents/registerContentProvider. The window-bound ones
+// are registered only when the window attaches (Service.AttachWorkbench), so a
+// session without a window is never granted a method nobody can answer.
+// getCapabilities lists only what is registered. Run, debug, workspace file and
+// search services, editor/registerActions and registerProviders and
+// preview/openHTML are not registered, so a plugin that needs one is refused when
+// it asks for the permission's methods.
 //
 // Three things the contract can ask for are still missing:
 //

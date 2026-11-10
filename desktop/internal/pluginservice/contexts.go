@@ -45,6 +45,8 @@ type WorkspaceContexts struct {
 	// stateRoot holds the plugin storage; per-workspace state lives below it.
 	stateRoot string
 	onChange  func()
+	// onClosed hears the ID of every context that ends, so what was made for it can go too.
+	onClosed func(contextID string)
 }
 
 // newWorkspaceContexts loads or creates the host secret that keys root IDs. The
@@ -73,6 +75,14 @@ func newWorkspaceContexts(stateRoot string) *WorkspaceContexts {
 func (c *WorkspaceContexts) SetObserver(onChange func()) {
 	c.mu.Lock()
 	c.onChange = onChange
+	c.mu.Unlock()
+}
+
+// SetClosedObserver installs the function called with the ID of each context that
+// closes. It runs without the lock held.
+func (c *WorkspaceContexts) SetClosedObserver(onClosed func(contextID string)) {
+	c.mu.Lock()
+	c.onClosed = onClosed
 	c.mu.Unlock()
 }
 
@@ -108,14 +118,19 @@ func (c *WorkspaceContexts) Open(path string) WorkspaceContext {
 func (c *WorkspaceContexts) Close(path string) {
 	path = filepath.Clean(path)
 	c.mu.Lock()
-	if _, ok := c.byPath[path]; !ok {
+	closing, ok := c.byPath[path]
+	if !ok {
 		c.mu.Unlock()
 		return
 	}
 	delete(c.byPath, path)
 	c.revision++
-	observer := c.onChange
+	observer, closed := c.onChange, c.onClosed
+	id := closing.ContextID
 	c.mu.Unlock()
+	if closed != nil {
+		closed(id)
+	}
 	if observer != nil {
 		observer()
 	}
@@ -128,10 +143,19 @@ func (c *WorkspaceContexts) CloseAll() {
 		c.mu.Unlock()
 		return
 	}
+	ids := make([]string, 0, len(c.byPath))
+	for _, closing := range c.byPath {
+		ids = append(ids, closing.ContextID)
+	}
 	c.byPath = make(map[string]*WorkspaceContext)
 	c.revision++
-	observer := c.onChange
+	observer, closed := c.onChange, c.onClosed
 	c.mu.Unlock()
+	if closed != nil {
+		for _, id := range ids {
+			closed(id)
+		}
+	}
 	if observer != nil {
 		observer()
 	}

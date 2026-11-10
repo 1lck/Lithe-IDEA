@@ -130,6 +130,8 @@ type View struct {
 	// revision counts the changes to the text since the file was read, undo and redo
 	// included.
 	revision int
+	// readOnly makes every change a no-op; see SetReadOnly.
+	readOnly bool
 	// anchor and caret are the ends of the selection; they are equal when nothing is
 	// selected. goal is the column, in cells, that up and down keep to; -1 is the caret's.
 	anchor, caret                                      int
@@ -667,7 +669,7 @@ func rangeCells(text rope.Rope, start, end, cells int) int {
 // what was there for undo. Typing and deleting on from where the last such edit stopped go
 // into its undo step.
 func (v *View) edit(start, end int, text string, kind editKind) {
-	if start == end && len(text) == 0 {
+	if v.readOnly || start == end && len(text) == 0 {
 		return
 	}
 	// Typing merges when it goes on where the last typing ended; deleting merges when it goes

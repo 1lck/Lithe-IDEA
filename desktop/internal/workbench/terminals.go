@@ -71,6 +71,10 @@ type terminal struct {
 	// new-terminal menu or the Terminal setting, or empty for the user's login shell.
 	shell string
 	view  *termview.View
+	// title replaces "Local (n)" on the tab; a plugin terminal sets it.
+	title string
+	// plugin is set when a plugin backend owns the terminal.
+	plugin *pluginTerminal
 }
 
 // terminalSet is the terminals of a project and where each one is placed. The zero value is
@@ -295,6 +299,7 @@ func (a *App) closeTerminals(p *project) {
 	}
 	for _, t := range p.terms.list {
 		t.view.Close()
+		a.finishPluginTerminal(t, "closed", nil)
 	}
 	p.terms = terminalSet{}
 	a.term = terminalUI{}
@@ -373,7 +378,7 @@ func (a *App) drawTerminal(f *ui.Frame) {
 // paintTerminal to do. pos is the tab's place among size tabs, for assistive technology.
 func (a *App) drawTerminalTab(f *ui.Frame, t *terminal, selected bool, pos, size int) tabDecl {
 	u := &a.term
-	title := a.text.Terminal.Tab(t.number)
+	title := a.terminalTitle(t)
 	chip := f.Row().Height(rowHeight).Items(ui.Center).Gap(terminalChipGap).PadSides(0, 2, 0, 8).
 		MinWidth(terminalChipMinWidth).MaxWidth(terminalChipMaxWidth).Shrink(1).
 		Radius(a.theme.Metrics.RadiusItem()).
@@ -583,7 +588,30 @@ func (a *App) reduceTerminals(p *project, state core.EditorWorkbench, action cor
 // The tool window's group is made if the state has none, so a project is never without
 // the group the tool window's tabs are listed in.
 func (a *App) newTerminal(p *project, shell string) *terminal {
-	if shell == "" {
+	return a.newTerminalWith(p, terminalOptions{shell: shell, activate: true})
+}
+
+// terminalOptions say what a terminal runs and whether opening it takes the tab group's
+// selection. A user's terminal leaves everything but shell unset.
+type terminalOptions struct {
+	shell string
+	// args is the program's argument list: nil runs the shell menu's way, an empty
+	// slice runs it with none.
+	args       []string
+	env, unset []string
+	dir        string
+	title      string
+	prefill    string
+	// activate selects the new tab; a background plugin terminal leaves the
+	// selection where it was.
+	activate bool
+	plugin   *pluginTerminal
+}
+
+// newTerminalWith is newTerminal with the options of a plugin terminal.
+func (a *App) newTerminalWith(p *project, options terminalOptions) *terminal {
+	shell := options.shell
+	if shell == "" && options.plugin == nil {
 		shell = a.settings.TerminalShell
 	}
 	set := &p.terms
@@ -592,25 +620,37 @@ func (a *App) newTerminal(p *project, shell string) *terminal {
 		state.Groups = append(slices.Clone(state.Groups), core.EditorGroup{ID: toolGroup})
 	}
 	id := set.next + 1
-	if !a.reduceTerminals(p, state, core.OpenEditor(toolGroup, terminalMember(id), true)) {
+	if !a.reduceTerminals(p, state, core.OpenEditor(toolGroup, terminalMember(id), options.activate)) {
 		return nil
 	}
 	set.next = id
-	t := &terminal{
-		id:     id,
-		number: set.freeNumber(),
-		shell:  shell,
-		view: termview.New(termview.Config{
-			Dir:      p.root,
-			Shell:    shell,
-			HitID:    termGrids.At(id),
-			BarID:    termBars.At(id),
-			Messages: a.terminalMessages(),
-			Notify:   a.invalidator.Invalidate,
-			Failed:   a.terminalFailed,
-		}),
+	dir := options.dir
+	if dir == "" {
+		dir = p.root
 	}
+	config := termview.Config{
+		Dir:      dir,
+		Shell:    shell,
+		Args:     options.args,
+		Env:      options.env,
+		Unset:    options.unset,
+		Prefill:  options.prefill,
+		HitID:    termGrids.At(id),
+		BarID:    termBars.At(id),
+		Messages: a.terminalMessages(),
+		Notify:   a.invalidator.Invalidate,
+		Failed:   a.terminalFailed,
+	}
+	t := &terminal{id: id, number: set.freeNumber(), shell: shell, title: options.title, plugin: options.plugin}
+	if options.plugin != nil {
+		config.Exited = func(status *int) { a.pluginTerminalExited(p, t, status) }
+	}
+	t.view = termview.New(config)
 	set.list = append(set.list, t)
+	if options.plugin != nil {
+		// A plugin asked for this program; it runs even while the tab is not on show.
+		t.view.Start()
+	}
 	return t
 }
 
@@ -634,6 +674,7 @@ func (a *App) closeTerminal(p *project, id int) {
 		return
 	}
 	t.view.Close()
+	a.finishPluginTerminal(t, "closed", nil)
 	set.list = slices.DeleteFunc(set.list, func(x *terminal) bool { return x.id == id })
 	if next := set.selected(group); next != nil {
 		a.focusTerminal(next.id)
@@ -767,4 +808,12 @@ func (a *App) placeInEmptyEditor(p *project, id int) bool {
 	}
 	set.layout = newLeaf(added)
 	return true
+}
+
+// terminalTitle is the name on a terminal's tab: the plugin's title, or "Local (n)".
+func (a *App) terminalTitle(t *terminal) string {
+	if t.title != "" {
+		return t.title
+	}
+	return a.text.Terminal.Tab(t.number)
 }

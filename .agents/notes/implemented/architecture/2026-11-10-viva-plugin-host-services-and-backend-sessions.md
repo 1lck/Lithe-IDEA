@@ -34,7 +34,7 @@ Viva 客户端现在由 `pluginservice.BackendHost` 为每个插件保持至多�
 
 - `{kind: "tool"}` 启动答复（`serverProcess` 4 的工具引用）暂未接入工具链解析，会被明确拒绝；Java Support 默认答复打包的运行时，不受影响。
 - `Declared()` 仍缺 Java Support 要求的 `debugAdapters` 3、`outputLinkMatchers` 1、`projectGenerators` 1、`settings` 2，属其他车道。
-- 远程工作区、语言服务器状态保留清理（`stateRetention`）、`subscriptions` 创建方、run/debug/terminal/editor/documents/credentials 处理器尚未实现。
+- 远程工作区、语言服务器状态保留清理（`stateRetention`）、run/debug 处理器尚未实现；其余宿主服务见“第二批宿主服务”。
 
 ## 验证
 
@@ -43,9 +43,30 @@ Viva 客户端现在由 `pluginservice.BackendHost` 为每个插件保持至多�
 
 - 设置 `LITHE_JAVA_PLUGIN_PACKAGE` 指向用插件仓库的 build-package 脚本（arm64）构建出的包目录时，`TestJavaSupportStartsJDTLSAndPublishesDiagnostics` 在 macOS 上安装包副本、启动后端、解析启动、启动 JDT LS 并收到含类型错误文件的诊断（约 15 秒，需要先下载 JDT LS 与 JDK）。
 
+## 第二批宿主服务：凭据、文档与编辑器、窗口消息、浏览器、终端、内容提供者
+
+决策与做法（Core 仍然只负责规则与校验，Go 只做 I/O 与窗口交互）：
+
+- **窗口相关方法只在窗口接入时注册**。`Service.AttachWorkbench(Workbench)` 注册 documents、editor、window、browser 方法；窗口同时实现 `TerminalHost`、`VirtualDocumentHost` 时才注册 terminal 与内容提供者。没有窗口的会话（测试、无头）不会被授予没人能回答的方法，`getCapabilities` 因此保持真实。`Workbench` 的每个方法由 `pluginWorkbench` 通过 `onWindow` 交给窗口线程执行，调用方 context 结束即返回；已开始的编辑不回滚，与契约一致。
+- **凭据**（`internal/credentials`）：service 为 `app.lithe.viva.plugin-credentials.<插件ID>`，账户是插件的 key，所以按插件隔离；契约里 `credentials/*` 不带 context，凭据不按工作区分，需要按项目区分的插件把项目放进 key。macOS 用 Security framework（cgo，`SecItemAdd/Update/CopyMatching/Delete`，`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`），不用 `security` 命令行，避免密钥出现在 argv；Windows 与 Linux 用 `github.com/zalando/go-keyring`（MIT，Windows 走 Credential Manager，Linux 走 Secret Service/D-Bus，依赖 godbus BSD-2、wincred MIT）。不写日志、不落文件；错误只带状态码。Windows 凭据单项上限 2560 字节，超出返回 `limitExceeded`，和契约的 16 KiB 上限有差距。
+- **旧凭据迁移**：新位置没有、旧 macOS 位置（`app.lithe.desktop.plugin-credentials.<插件ID>`，再试 `.dev`）有时，用不弹窗的只读查询（`kSecUseAuthenticationUIFail`）读旧值、复制到新位置并返回；读取失败一律当作没有，绝不弹钥匙串密码框。迁移成功后**保留旧项**：Viva 与旧客户端并行安装，删掉会让旧客户端丢失数据库密码。为避免已删除的值经迁移复活，`credentials/delete` 同时删除新旧两处。旧 Windows 客户端没有存过插件凭据（它的 backend 从未对外宣告），所以没有 Windows 旧位置。旧的 Keychain 项如果由不同签名的应用创建，读取可能被访问控制拒绝，此时同样视为没有。
+- **编辑**：`editorview.View.ApplyEdits` 把一批互不重叠的编辑合成一次 rope 差异，只产生一步撤销和一次语言服务器同步事件；位置按 UTF-16 解析，越界、落在代理对中间、重叠都拒绝（`OffsetOf`，与 LSP 风格的 `ByteOffset` 钳制不同，过期范围不能被悄悄挪动）。版本号是 view 的修订号，`getSnapshot`、`getSelections` 和所有编辑使用同一个；只读、输入法组字、版本不符分别返回 `readOnly`、`busy`、`versionConflict`（带 `currentVersion`）。编辑器只有单选区，`getSelections` 返回一个选区；`editor/open|reveal` 只把范围起点放成光标。资源路径要求相对、`/` 分隔、无 `.`/`..`，并对最长已存在前缀解析符号链接后确认仍在根内。
+- **窗口消息**：用现有 `sheet` 模态面板按到达顺序一次显示一个，限频 10 秒 5 条、每插件 3 条等待，其余返回 `rateLimited`（带 `retryAfterMilliseconds`）与 `busy`。面板用 Frame 引擎绘制，与旁边的插件审查面板一致，因为窗口主体还没迁到 Viva Page；迁移时与审查面板一起换。
+- **浏览器**：`browser/openExternal` 只接受 http/https URL（无内嵌凭据），经 Viva 的 `app.OpenURL` 打开；`resource` 形式返回 `unsupportedOption`。**`preview/openHTML` 不注册**：Viva 有系统 Web 视图（`docs/web-views.md`），但编辑器区还没有能承载网页的标签与“编辑器加预览”布局，在无头环境里也无法验证原生视图。
+- **终端**：用户同意（精确程序、argv、目录）后在 Terminal 工具窗口启动，与用户终端共用标签条、拖拽和分组。`termview.Config` 增加 `Args/Env/Unset/Prefill/Exited`，带 `Exited` 的视图不再靠 Enter 重启，由插件通过 `reopen` 决定；`localshell.Config.Unset` 支持移除变量（Unix 与 Windows 后端）；插件终端创建时立即启动，不等第一次绘制，因为 `show:false` 的终端不会被绘制。`close`、自然退出和关闭项目走同一条收尾路径，先取纯文本快照（`AppendRetainedText`，按预算在字符边界截断）再释放视图；自然退出后标签自动移除，退出事件只发一次。每个插件最多 8 个句柄，按会话和上下文归属，上下文关闭、会话结束、插件停用时关闭并忘记。`LITHE_` 前缀的环境变量不允许覆盖。
+- **内容提供者**：绑定记录在 `contentProviders`（上下文加 scheme），不回调后端；`documents/registerContentProvider` 要求函数已在该会话注册，保留 scheme 与重复注册按契约拒绝。导航结果的 `FilePath` 为空且 URI 的 scheme 有提供者时，定义列表保留该目标，选中后向插件请求内容（30 秒），经 Core 的 `plugins.contentProviders.decode` 校验后以只读标签打开。虚拟文档的 `path` 就是 URI，不监视文件、不保存、不与语言服务器同步，关闭后宿主不留副本。
+- **订阅与资源释放**：`hostResources` 统一登记订阅、内容提供者、终端句柄，归属 `(插件, 会话, 上下文)`；`subscriptions/dispose` 只释放调用方自己的 ID；会话结束与上下文关闭自动释放。
+- **命令**：`commands/didRun` 的发送端 `Service.NotifyCommandRun` 已实现（运行中的后端直接收；已停止的只有清单声明 `onCommand:<id>` 才被启动），但 Viva 目前没有命令面板、编辑器右键菜单或插件命令贡献入口，没有调用方。
+
+未接通（会被 Core 以 `plugin.host.unavailable` 拒绝）：`editor/registerActions`、`editor/registerProviders`（没有编辑器行首图标、命令入口与右键菜单，注册了用户也触发不了，所以不声明）、`preview/openHTML`、`workspace/readDirectory|stat|readFile|watch|findFiles|findText`、`run/*`、`debug/*`（后两者属其他车道）。凭据在插件卸载时的清理也未做：除 macOS 外平台存储不能按 service 枚举，需要后续由插件管理器记录已用的 key。
+
 ## 适用范围
 
 - `desktop/internal/pluginservice/`（backendhost、contexts、hostmethods、backendlaunch、languagesession、activation）
 - `desktop/internal/pluginbackend/pluginbackend.go`
 - `desktop/internal/pluginhost/`
 - `desktop/internal/workbench/pluginbackends.go`
+- `desktop/internal/credentials/`
+- `desktop/internal/pluginservice/`（hostdocuments、hostsurface、hostterminal、hostcontent、hostcommands、hostresources、hostcredentials）
+- `desktop/internal/workbench/`（pluginworkbench、pluginprompt、pluginterminals、plugincontent）
+- `desktop/internal/editorview/hostedit.go`、`desktop/internal/termview/`、`desktop/internal/localshell/`

@@ -27,7 +27,7 @@
   },
   "owner": "Extensions",
   "verification": "共享 Core：cargo test --manifest-path rust/Cargo.toml -p lithe-core，核对 function-protocol.json 的 hostRequests/hostFailures/hostNotifications、v2 清单拒绝 onStartupFinished 与 *、旧宿主拒绝 backend 2、v3 会话第 17 个挂起请求返回 plugin.host.limitExceeded（-32014）、$/cancelRequest 立即返回 -32800 并发布 hostRequestCancelled、details 只以不超过 4 KiB 的对象送到 v3 后端、v2 会话的 lsp.hostNotify 返回 delivered:false。macOS 宿主：scripts/macos/test/test-macos.sh --filter \"PluginHostServiceDispatchTests|MacPluginBackendSessionsTests\"。macOS 原生验收：debug 应用安装一个 backend 2、声明 onWorkspaceOpen 与 workspace.metadata 的示例插件，打开本地工作区后确认后端自动启动、listContexts/getFolders 返回该窗口的根；同一窗口换工作区后收到 didChangeContexts，旧 contextID 得到 plugin.host.contextExpired；执行插件命令后后端收到 commands/didRun；打开远程工作区时 folders 不含 path；关闭窗口、停用插件后用 pgrep 确认后端不残留。",
-  "notes": "Viva 已按需激活插件后端（onWorkspaceOpen、语言服务器启动、跨插件调用），每个插件一个会话，项目关闭或插件停用时有界停止；已回答 workspace/getContext|listContexts|getFolders 与 didChangeContexts，rootID 按插件加密隔离，状态目录在插件存储下。getCapabilities 由 Core 回答且只列已注册处理器。其余宿主服务（run、debug、terminal、editor、documents、credentials）尚未注册。",
+  "notes": "Viva 已按需激活插件后端（onWorkspaceOpen、语言服务器启动、跨插件调用），每个插件一个会话，项目关闭或插件停用时有界停止；已回答 workspace/getContext|listContexts|getFolders 与 didChangeContexts，rootID 按插件加密隔离，状态目录在插件存储下。getCapabilities 由 Core 回答且只列已注册处理器。credentials、documents、editor、window、browser、terminal 与内容提供者已注册（见各自行）；run、debug 属其他车道。subscriptions/dispose 由统一资源表处理：会话结束、上下文关闭时释放订阅、内容提供者与终端句柄。commands/didRun 的发送方 Service.NotifyCommandRun 已实现，但 Viva 还没有命令入口（命令面板、右键菜单、插件命令贡献），尚无调用方。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

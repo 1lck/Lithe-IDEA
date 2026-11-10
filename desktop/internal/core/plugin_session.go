@@ -516,3 +516,18 @@ func (c *Client) ConfigureFunctionRelay(ctx context.Context, plugins []RelayPlug
 		Contexts []RelayContext `json:"contexts"`
 	}{plugins, contexts}, nil)
 }
+
+// DecodePluginContent asks Core to check a content provider's answer: a string, or
+// an object with only `content`, of at most 1 MiB. It returns the document text.
+func (c *Client) DecodePluginContent(ctx context.Context, result json.RawMessage) (string, error) {
+	const command = "plugins.contentProviders.decode"
+	var decoded struct {
+		Content string `json:"content"`
+	}
+	if err := c.Execute(ctx, command, struct {
+		Result json.RawMessage `json:"result"`
+	}{result}, &decoded); err != nil {
+		return "", err
+	}
+	return decoded.Content, nil
+}

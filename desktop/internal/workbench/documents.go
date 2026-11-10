@@ -88,6 +88,11 @@ type document struct {
 	resolvingConflict  bool
 	// recreateMissing records the user's explicit choice to save a deleted file.
 	recreateMissing bool
+	// virtual marks a read-only document a plugin provides for a URI that names no
+	// file (a class inside a jar). path then holds the URI: the document is never
+	// watched, saved or synchronized with a language server, and the host keeps no
+	// copy once it closes.
+	virtual bool
 }
 
 func (d *document) dirty() bool { return d.view.Dirty() || d.recreateMissing }
@@ -107,6 +112,8 @@ type documentSet struct {
 	next int
 	// opening are the paths being read, so a second click while one is read opens nothing.
 	opening map[string]bool
+	// openWaiters are the callers that wait for a file being read to become a tab, or to fail.
+	openWaiters map[string][]func(*document, error)
 	// locations hold the latest requested position while a document opens.
 	locations map[string]documentLocation
 	// group is the editor group a document was last shown or focused in, where the next file
@@ -206,6 +213,7 @@ func (a *App) openFile(p *project, path string) {
 			delete(p.docs.opening, path)
 			location := p.docs.locations[path]
 			delete(p.docs.locations, path)
+			defer a.openFinished(p, path, err)
 			if err != nil {
 				a.emit(documentFailedLevel, documentEventOpenFailed, documentOpenFields(err))
 				a.notify(a.text.Editor.OpenFailed(name, a.documentReason(err)))
@@ -367,6 +375,12 @@ func (a *App) documentReason(err error) string {
 
 // placeDocument opens a read file as a new tab, shown and given the keyboard.
 func (a *App) placeDocument(p *project, path, name string, content editorview.Content, grammar *syntax.Syntax, languageID string) {
+	a.placeDocumentAs(p, path, name, content, grammar, languageID, false)
+}
+
+// placeDocumentAs is placeDocument for a file or, with virtual, for the text a plugin
+// provided under a URI.
+func (a *App) placeDocumentAs(p *project, path, name string, content editorview.Content, grammar *syntax.Syntax, languageID string, virtual bool) {
 	if d := p.docs.byPath(path); d != nil {
 		a.selectDocument(p, d.id)
 		return
@@ -388,7 +402,7 @@ func (a *App) placeDocument(p *project, path, name string, content editorview.Co
 		set.nextGroup++
 		set.layout = newLeaf(added)
 	}
-	d := &document{id: id, path: path, name: name, languageID: languageID}
+	d := &document{id: id, path: path, name: name, languageID: languageID, virtual: virtual}
 	d.view = editorview.New(editorview.Config{
 		HitID:           docViews.At(id),
 		Label:           name,
@@ -402,11 +416,16 @@ func (a *App) placeDocument(p *project, path, name string, content editorview.Co
 		VerticalBarID:   docScrollY.At(id),
 		HorizontalBarID: docScrollX.At(id),
 	})
+	d.view.SetReadOnly(virtual)
 	p.docs.list = append(p.docs.list, d)
-	a.watchDocument(p, d)
 	p.docs.group = group
+	if !virtual {
+		a.watchDocument(p, d)
+	}
 	a.focusDocument(id)
-	a.startDocumentSync(p, d)
+	if !virtual {
+		a.startDocumentSync(p, d)
+	}
 }
 
 // documentGroup is the editor group a file opens in: the one a document was last shown in,
@@ -453,7 +472,7 @@ func (a *App) focusDocument(id int) {
 // and close waiters resume only after the latest editor contents are persisted.
 func (a *App) saveDocument(p *project, id int) {
 	d := p.docs.find(id)
-	if d == nil {
+	if d == nil || d.virtual {
 		return
 	}
 	if d.view.IsComposing() {

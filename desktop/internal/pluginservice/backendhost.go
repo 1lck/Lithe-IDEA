@@ -392,6 +392,13 @@ func (b *BackendSession) signal() {
 	b.changed = make(chan struct{})
 }
 
+// hasFunction reports whether the backend registered a function.
+func (b *BackendSession) hasFunction(id string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.functions[id]
+}
+
 func (b *BackendSession) isEnded() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -428,6 +435,8 @@ func (b *BackendSession) serve(ctx context.Context) {
 	b.signal()
 	b.mu.Unlock()
 	_ = err
+	// Everything the session created in the host goes with it.
+	b.host.service.resources.releaseSession(b.Session.ID)
 	// A backend that exited on its own leaves the Core session to dispose.
 	b.host.mu.Lock()
 	if b.host.sessions[b.PluginID] == b {

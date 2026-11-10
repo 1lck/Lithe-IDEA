@@ -92,6 +92,17 @@ func startBackend(config Config) (backend, error) {
 		}
 	}
 	environment := append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor")
+	for _, name := range config.Unset {
+		// Windows environment names are case-insensitive.
+		filtered := environment[:0]
+		for _, inherited := range environment {
+			key, _, _ := strings.Cut(inherited, "=")
+			if !strings.EqualFold(key, name) {
+				filtered = append(filtered, inherited)
+			}
+		}
+		environment = filtered
+	}
 	for _, entry := range config.Env {
 		key, _, _ := strings.Cut(entry, "=")
 		// Windows environment names are case-insensitive. An overridden PROMPT

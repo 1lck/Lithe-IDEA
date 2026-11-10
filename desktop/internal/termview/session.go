@@ -21,16 +21,21 @@ func (v *View) start() {
 	// the layout, and a pty larger than the screen would wrap lines the screen cannot
 	// hold.
 	cols, rows := v.screen.Size()
+	args := v.cfg.Args
+	if args == nil {
+		args = localshell.ArgsFor(v.cfg.Shell)
+	}
 	opened, err := v.cfg.start(localshell.Config{
 		Cols: cols, Rows: rows,
-		Shell: v.cfg.Shell, Args: localshell.ArgsFor(v.cfg.Shell),
-		Dir: v.cfg.Dir, Notify: v.cfg.Notify,
+		Shell: v.cfg.Shell, Args: args,
+		Dir: v.cfg.Dir, Env: v.cfg.Env, Unset: v.cfg.Unset, Notify: v.cfg.Notify,
 	})
 	if err != nil {
 		v.ended = true
 		v.say(sgrFail, v.cfg.Messages.StartFailed(err.Error()))
 		v.say(sgrMuted, v.cfg.Messages.RestartHint)
 		v.failed(Failure{Event: eventStartFailed, Warn: true, Err: err})
+		v.exited(nil)
 		return
 	}
 	v.shell = opened
@@ -50,6 +55,11 @@ func (v *View) start() {
 		}
 	})
 }
+
+// Start runs the program now, at the default grid size, instead of at the first paint. A
+// terminal that is created behind another tab is never painted until it is shown, and its
+// program must not wait for that. The first paint resizes the pty to the real grid.
+func (v *View) Start() { v.ensureStarted() }
 
 // ensureStarted starts the shell on the first paint, once the grid's size is known. A
 // shell that ended or failed waits for Enter, and a closed view never starts one again.
@@ -138,7 +148,26 @@ func (v *View) shellEnded() {
 		line = v.cfg.Messages.SessionEndedStatus(exit.ExitStatus())
 	}
 	v.say(sgrMuted, line)
-	v.say(sgrMuted, v.cfg.Messages.RestartHint)
+	if v.cfg.Exited == nil {
+		v.say(sgrMuted, v.cfg.Messages.RestartHint)
+	}
+	var status *int
+	if errors.As(err, &exit) {
+		code := exit.ExitStatus()
+		status = &code
+	} else if err == nil {
+		zero := 0
+		status = &zero
+	}
+	v.exited(status)
+}
+
+// exited tells the owner the program is gone, once.
+func (v *View) exited(status *int) {
+	if v.cfg.Exited != nil && !v.exitSent {
+		v.exitSent = true
+		v.cfg.Exited(status)
+	}
 }
 
 // say writes one line of the terminal's own output into the grid, in the given color.
@@ -191,7 +220,7 @@ func (v *View) fit(layout geometry) {
 // whether it did. What the old session printed stays in the history above the new one, so
 // the user can still read why it ended.
 func (v *View) restart() bool {
-	if !v.ended || v.closed {
+	if !v.ended || v.closed || v.cfg.Exited != nil {
 		return false
 	}
 	// A blank line sets the new shell's prompt apart from the notes the old session ended

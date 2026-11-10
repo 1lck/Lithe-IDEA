@@ -103725,6 +103725,76 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.pluginHost.messageFrom",
+      "description": "Title of a message sheet a plugin shows: names the plugin.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "plugin": "string"
+      }
+    },
+    {
+      "id": "desktop.pluginHost.messageOK",
+      "description": "Default button of a plugin message that offers no action.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginHost.messageDismiss",
+      "description": "Accessibility label of the backdrop that dismisses a plugin message.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginHost.terminalConsentTitle",
+      "description": "Title of the sheet that asks whether a plugin may run a program in a terminal.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "plugin": "string"
+      }
+    },
+    {
+      "id": "desktop.pluginHost.terminalConsentDetails",
+      "description": "Exact program, arguments and directory a plugin terminal would run.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "program": "string",
+        "arguments": "string",
+        "directory": "string"
+      }
+    },
+    {
+      "id": "desktop.pluginHost.terminalAllow",
+      "description": "Button that lets a plugin terminal run.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginHost.terminalDeny",
+      "description": "Button that refuses a plugin terminal.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginHost.contentFailed",
+      "description": "Banner shown when a plugin could not provide the text of a document that has no file.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "uri": "string"
+      }
     }
   ]
 }

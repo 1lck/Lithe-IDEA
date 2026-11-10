@@ -61,6 +61,9 @@ type Config struct {
 	WSLScript string
 	// Env is added to the environment the shell inherits.
 	Env []string
+	// Unset names variables removed from the inherited environment, before Env is
+	// added. A plugin terminal uses it for the overrides that remove a variable.
+	Unset []string
 	// Notify is called after output arrives and when the shell ends, from any
 	// goroutine; it must not block.
 	Notify func()

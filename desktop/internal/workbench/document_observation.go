@@ -66,6 +66,9 @@ func (w *documentWatch) close() {
 }
 
 func (a *App) watchDocument(p *project, d *document) {
+	if d.virtual {
+		return
+	}
 	dir := filepath.Dir(d.path)
 	if p.docs.watches == nil {
 		p.docs.watches = make(map[string]*documentWatch)
@@ -98,6 +101,9 @@ func (a *App) startDocumentWatch(p *project, dir string) {
 }
 
 func (a *App) unwatchDocument(p *project, removed *document) {
+	if removed.virtual {
+		return
+	}
 	dir := filepath.Dir(removed.path)
 	for _, d := range p.docs.list {
 		if filepath.Dir(d.path) == dir {

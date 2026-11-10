@@ -6,6 +6,8 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"slices"
+	"strings"
 	"syscall"
 
 	"github.com/creack/pty"
@@ -36,7 +38,7 @@ func startBackend(config Config) (backend, error) {
 			cmd.Dir = home
 		}
 	}
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor")
+	cmd.Env = append(withoutVariables(os.Environ(), config.Unset), "TERM=xterm-256color", "COLORTERM=truecolor")
 	cmd.Env = append(cmd.Env, config.Env...)
 	cmd.Env = withUTF8Locale(cmd.Env)
 	size := &pty.Winsize{Cols: uint16(max(config.Cols, 1)), Rows: uint16(max(config.Rows, 1))}
@@ -72,4 +74,19 @@ func startBackend(config Config) (backend, error) {
 		hangup: func() { _ = cmd.Process.Signal(syscall.SIGHUP) },
 		kill:   func() { _ = cmd.Process.Kill() },
 	}, nil
+}
+
+// withoutVariables is environment without the named variables.
+func withoutVariables(environment, names []string) []string {
+	if len(names) == 0 {
+		return environment
+	}
+	kept := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		name, _, _ := strings.Cut(entry, "=")
+		if !slices.Contains(names, name) {
+			kept = append(kept, entry)
+		}
+	}
+	return kept
 }
