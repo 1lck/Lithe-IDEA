@@ -78,3 +78,37 @@ func TestLineOperationsThroughCore(t *testing.T) {
 		t.Fatalf("no-op = %q", got)
 	}
 }
+
+func TestEditorContextMenuRunsLineOperation(t *testing.T) {
+	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
+	root := t.TempDir()
+	path := filepath.Join(root, "main.go")
+	if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.open(root)
+	p := h.app.project
+	h.app.openFile(p, path)
+	h.settle()
+	doc := p.docs.byPath(path)
+	awaitDocumentState(t, h, func() bool { return doc.view.Owns(h.driver.Snapshot().Focused) })
+	var at gfx.Point
+	for _, hit := range h.driver.Snapshot().Hits {
+		if hit.ID == doc.hit {
+			at = center(hit.Bounds)
+		}
+	}
+	if err := h.driver.ClickButton(at.X, at.Y, gfx.PointerButtonSecondary); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	if !h.shows("Go to Definition") || !h.shows("Delete Line") {
+		t.Fatalf("the context menu did not open: %v", h.driver.Snapshot().Labels)
+	}
+	doc.view.SetSelection(5, 5)
+	h.clickNamed("Delete Line")
+	h.settle()
+	if got := doc.view.TextSnapshot().String(); got != "one\nthree\n" {
+		t.Fatalf("text = %q", got)
+	}
+}

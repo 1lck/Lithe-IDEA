@@ -11828,6 +11828,90 @@
       ]
     },
     {
+      "id": "desktop.editorMenu.back",
+      "description": "Editor context menu: back to the previous caret place",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorMenu.deleteLine",
+      "description": "Editor context menu: delete the lines",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorMenu.duplicateLine",
+      "description": "Editor context menu: copy the lines below themselves",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorMenu.findUsages",
+      "description": "Editor context menu: find references of the symbol",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorMenu.forward",
+      "description": "Editor context menu: forward to the next caret place",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorMenu.goToDefinition",
+      "description": "Editor context menu: go to definition",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorMenu.goToLine",
+      "description": "Editor context menu: go to a line and column",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorMenu.moveLineDown",
+      "description": "Editor context menu: move the lines down",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorMenu.moveLineUp",
+      "description": "Editor context menu: move the lines up",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorMenu.reformat",
+      "description": "Editor context menu: format the selection or file",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorMenu.rename",
+      "description": "Editor context menu: rename the symbol",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorMenu.toggleComment",
+      "description": "Editor context menu: comment or uncomment the lines",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.encoding.reopen",
       "description": "Menu entry that opens a submenu of encodings to read the file again with",
       "platforms": [

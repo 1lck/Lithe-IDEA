@@ -376,7 +376,14 @@ func (v *View) Pointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 	switch event.Kind {
 	case gfx.PointerDown:
 		if event.Button != gfx.PointerButtonPrimary {
-			return gfx.EventResult{Handled: true, Focus: v.cfg.HitID}, true
+			// A press that opens a context menu puts the caret where it is, unless it is in
+			// the selection, so the menu's actions are about the text pointed at.
+			if start, end := v.Selection(); offset < start || offset > end {
+				v.anchor, v.caret = offset, offset
+				v.moved()
+			}
+			// It stays unhandled, so the page can open the context menu on it.
+			return gfx.EventResult{Repaint: true, Focus: v.cfg.HitID}, true
 		}
 		v.dragging = true
 		v.dragUnit = min(max(event.ClickCount, 1), 3)
