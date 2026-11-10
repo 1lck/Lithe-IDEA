@@ -3,29 +3,19 @@ package workbench
 import (
 	"strconv"
 
-	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
-	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
-// This file declares the dialogs of the Diff review: the Diff dialog with its block toggles,
-// the annotation (blame) dialog, the listing of an untracked directory and the rollback
-// confirmation. State and actions are in gitreview.go.
-
-const (
-	// reviewNumberWidth is the width of a line-number column of the diff.
-	reviewNumberWidth = 44
-	reviewBlockHeight = 28
-)
+// This file declares the dialogs of the Git review: the annotation (blame) dialog, the listing
+// of an untracked directory and the rollback confirmation, with the helpers the Diff tab shares
+// for its line numbers. State and actions are in gitreview.go; the Diff tab is declared in
+// difftab_view.go.
 
 // reviewOverlays declares the review dialogs of the project that are open. They paint over
 // the workbench like the other Git dialogs.
 func (a *App) reviewOverlays(c ui.C, p *project) {
 	r := &p.review
-	if r.diff.open {
-		a.drawDiffDialog(c, p)
-	}
 	if r.blame.open {
 		a.drawBlameDialog(c, p)
 	}
@@ -57,171 +47,6 @@ func lineNumber(n *int) string {
 		return ""
 	}
 	return strconv.Itoa(*n)
-}
-
-// diffLineColor is the color of a unified line by its type.
-func (a *App) diffLineColor(lineType string) gfx.Color {
-	switch lineType {
-	case "added":
-		return a.colors.Success
-	case "removed":
-		return a.colors.Deleted
-	case "header":
-		return a.colors.Accent
-	}
-	return a.colors.Text
-}
-
-// diffRowColors are the colors of the left and right text of an aligned row.
-func (a *App) diffRowColors(kind string) (left, right gfx.Color) {
-	switch kind {
-	case "addition":
-		return a.colors.Text, a.colors.Success
-	case "removal":
-		return a.colors.Deleted, a.colors.Text
-	case "changed":
-		return a.colors.Deleted, a.colors.Success
-	case "information":
-		return a.colors.Accent, a.colors.Accent
-	}
-	return a.colors.Text, a.colors.Text
-}
-
-// drawDiffDialog declares the Diff dialog: the unified or side-by-side view of one file, with
-// a header over each block that stages or unstages it and, for an unstaged one, rolls it back.
-func (a *App) drawDiffDialog(c ui.C, p *project) {
-	d := &p.review.diff
-	title := i18n.Shared(a.language(), "git.diff.title") + " — " + d.change.Path
-	switch {
-	case d.commit != "":
-		title += " (" + shortHash(d.commit) + ")"
-	case d.staged:
-		title += " (" + i18n.Shared(a.language(), "git.diff.stagedChanges") + ")"
-	case d.plan != nil:
-		title += " (" + i18n.Shared(a.language(), "git.diff.unstagedChanges") + ")"
-	}
-	open := true
-	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: reviewDialogWidth, Height: reviewDialogHeight}, func() {
-		ui.Column(c).Fill().Gap(6).Children(func() {
-			ui.Row(c).FillWidth().Shrink(0).Items(ui.Center).Gap(8).Children(func() {
-				mode := []bool{false, true}
-				ui.Tabs(c, &d.split, mode, func(split bool) string {
-					if split {
-						return i18n.Shared(a.language(), "git.diff.split")
-					}
-					return i18n.Shared(a.language(), "git.diff.unified")
-				}).Label(i18n.Shared(a.language(), "desktop.gitReview.diffTab"))
-				ui.Spacer(c)
-				if d.note != "" {
-					ui.Text(c, d.note).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Warning).Ellipsis().Shrink(1)
-				}
-			})
-			if d.split != d.splitShown() {
-				c.After(func() { d.rebuild() })
-			}
-			switch {
-			case d.loading && d.file == nil:
-				a.gitEmpty(c, i18n.Shared(a.language(), "git.loadingDiff"))
-			case d.err != "":
-				ui.Paragraph(c, d.err, 4).Color(a.theme.Danger)
-			case d.file == nil || d.file.IsBinary:
-				name := d.change.Path
-				text := i18n.Shared(a.language(), "git.diff.noDifferences")
-				if d.file != nil {
-					text = i18n.SharedFormat(a.language(), "git.binaryDiffDescription", map[string]string{"name": name})
-				}
-				a.gitEmpty(c, text)
-			default:
-				ui.List(c, &d.list, len(d.items), func(row ui.ListRow) { a.drawDiffItem(c, p, row) }).Grow(1).FillWidth().Background(a.colors.Editor)
-			}
-		})
-	}, func() {
-		if ui.Button(c, i18n.Shared(a.language(), "desktop.gitReview.close")).Outline().Clicked() {
-			open = false
-		}
-	})
-	if closed || !open {
-		c.After(func() { a.closeDiff(p) })
-	}
-}
-
-// splitShown is the mode the rows were built for: they stand for the split view when any row
-// of the aligned kind has been laid out.
-func (d *diffState) splitShown() bool {
-	if len(d.items) == 0 {
-		return d.split
-	}
-	return d.items[0].row >= 0
-}
-
-// drawDiffItem declares one row of the diff list.
-func (a *App) drawDiffItem(c ui.C, p *project, row ui.ListRow) {
-	d := &p.review.diff
-	if row.Index >= len(d.items) {
-		return
-	}
-	item := d.items[row.Index]
-	box := row.Element.FillWidth().Height(reviewRowHeight).Items(ui.Center).Gap(6).PadX(8)
-	if item.block != nil {
-		box.Height(reviewBlockHeight).Background(a.colors.Hover).Children(func() { a.drawDiffBlock(row.C, p, item) })
-		return
-	}
-	size := a.theme.Metrics.FontSizeS
-	if item.row >= 0 && item.row < len(d.file.Rows) {
-		r := d.file.Rows[item.row]
-		left, right := a.diffRowColors(r.Kind)
-		box.Children(func() {
-			ui.Text(row.C, lineNumber(r.OldLine)).Mono().FontSize(size).Color(a.colors.Subtle).Width(reviewNumberWidth).Shrink(0).TextEnd()
-			ui.Text(row.C, r.Left).Mono().FontSize(size).Color(left).Ellipsis().Grow(1).Basis(0)
-			ui.Text(row.C, lineNumber(r.NewLine)).Mono().FontSize(size).Color(a.colors.Subtle).Width(reviewNumberWidth).Shrink(0).TextEnd()
-			ui.Text(row.C, r.Text()).Mono().FontSize(size).Color(right).Ellipsis().Grow(1).Basis(0)
-		})
-		return
-	}
-	if item.line >= 0 && item.line < len(d.file.Lines) {
-		l := d.file.Lines[item.line]
-		box.Children(func() {
-			ui.Text(row.C, lineNumber(l.OldLine)).Mono().FontSize(size).Color(a.colors.Subtle).Width(reviewNumberWidth).Shrink(0).TextEnd()
-			ui.Text(row.C, lineNumber(l.NewLine)).Mono().FontSize(size).Color(a.colors.Subtle).Width(reviewNumberWidth).Shrink(0).TextEnd()
-			ui.Text(row.C, l.Content).Mono().FontSize(size).Color(a.diffLineColor(l.LineType)).Ellipsis().Grow(1)
-		})
-	}
-}
-
-// drawDiffBlock declares the header over one block: a checkbox that stages or unstages it
-// and, for a block Core allows to roll back, the rollback with its confirmation.
-func (a *App) drawDiffBlock(c ui.C, p *project, item diffItem) {
-	d, block := &p.review.diff, item.block
-	number := i18n.SharedFormat(a.language(), "desktop.gitReview.blockN", map[string]string{"n": strconv.Itoa(item.number)})
-	label := i18n.Shared(a.language(), "git.diff.includeBlock")
-	if block.Checked {
-		label = i18n.Shared(a.language(), "git.diff.excludeBlock")
-	}
-	checked := block.Checked
-	if ui.Checkbox(c, &checked, label).Label(label).Disabled(d.busy || !block.CanToggle).Clicked() {
-		b := *block
-		c.After(func() { a.toggleDiffBlock(p, b) })
-	}
-	ui.Text(c, number).Weight(gfx.WeightMedium).Shrink(0)
-	ui.Text(c, label).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Grow(1)
-	if !block.CanRollback {
-		return
-	}
-	if d.confirm == block.ID {
-		ui.Text(c, i18n.SharedFormat(a.language(), "git.diff.rollbackHunkConfirm", map[string]string{"path": d.change.Path})).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Warning).Ellipsis().Shrink(1)
-		if ui.Button(c, i18n.Shared(a.language(), "git.rollback.confirm")).Destructive().Disabled(d.busy).Clicked() {
-			id := block.ID
-			c.After(func() { a.writeDiffBlock(p, id, core.DiffBlockRollback) })
-		}
-		if ui.Button(c, i18n.Shared(a.language(), "desktop.gitReview.cancel")).Outline().Clicked() {
-			c.After(func() { d.confirm = "" })
-		}
-		return
-	}
-	if ui.Button(c, i18n.Shared(a.language(), "git.diff.rollbackHunk")).Ghost().Disabled(d.busy).Clicked() {
-		id := block.ID
-		c.After(func() { d.confirm = id })
-	}
 }
 
 // --- Blame ---

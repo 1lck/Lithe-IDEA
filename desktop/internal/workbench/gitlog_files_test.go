@@ -246,10 +246,19 @@ func TestLogChangedFileCompareAndHistory(t *testing.T) {
 	file, _ := h.logFileHit("top.txt")
 	h.click(center(file.Bounds))
 	h.clickNamed(g.CompareChanges)
-	h.await("the commit's diff", func() bool { return !p.review.diff.loading })
-	d := &p.review.diff
-	if !d.open || d.commit != head || d.change.Path != "top.txt" || d.err != "" || d.file == nil {
+	if len(p.diffs.list) != 1 {
+		t.Fatalf("compare opened %d Diff tabs, want 1", len(p.diffs.list))
+	}
+	d := p.diffs.list[0]
+	h.await("the commit's diff", func() bool { return !d.loading })
+	if d.commit != head || d.change.Path != "top.txt" || d.err != "" || d.file == nil || !d.readOnly() {
 		t.Fatalf("compare opened %+v", d)
+	}
+	if g := p.terms.bench.GroupOf(diffMember(d.id)); g == nil || g.Selected != diffMember(d.id) {
+		t.Fatalf("the commit's diff is not the selected tab of an editor group: %+v", g)
+	}
+	if len(d.files) != 3 {
+		t.Fatalf("the commit's diff steps through %d files, want the commit's 3", len(d.files))
 	}
 	if d.plan != nil {
 		t.Fatal("a commit's change offers blocks to stage")
@@ -261,7 +270,7 @@ func TestLogChangedFileCompareAndHistory(t *testing.T) {
 	if !added {
 		t.Fatalf("the diff does not add the file's line: %+v", d.file.Lines)
 	}
-	h.app.closeDiff(p)
+	h.app.closeDiffTab(p, d.id)
 	h.settle()
 
 	h.clickNamed(g.FileHistory)

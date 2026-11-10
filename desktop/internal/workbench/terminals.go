@@ -183,11 +183,11 @@ type tabID struct {
 	member string
 }
 
-// focusTarget names what is to have the keyboard once it is on screen: a terminal or an open
-// file, at most one of them; the zero value is nothing. It is the field a page's FocusBind
-// ties the terminals' and the editors' controls to.
+// focusTarget names what is to have the keyboard once it is on screen: a terminal, an open
+// file or a Diff tab, at most one of them; the zero value is nothing. It is the field a page's
+// FocusBind ties the terminals', the editors' and the diffs' controls to.
 type focusTarget struct {
-	term, doc int
+	term, doc, diff int
 }
 
 // terminalUI is what the window keeps for the terminals besides the project's own state: what
@@ -416,9 +416,7 @@ func (a *App) closeTerminal(p *project, id int) {
 	t.view.Close()
 	a.finishPluginTerminal(t, "closed", nil)
 	set.list = slices.DeleteFunc(set.list, func(x *terminal) bool { return x.id == id })
-	if next := set.selected(group); next != nil {
-		a.focusTerminal(next.id)
-	}
+	a.focusSelected(p, group)
 	if len(set.list) == 0 {
 		a.reduceChrome(core.SetChromeOpen(itemTerminal, false))
 	}
@@ -439,9 +437,9 @@ func (a *App) selectTerminal(p *project, id int) {
 }
 
 // dropTab does what dropping the tab of group member on target asks for, and shows the
-// terminal or the file with the keyboard if it was done: a tab dropped on a strip or on the
-// middle of a group joins it, one dropped near the edge of a group splits it, and one dropped
-// on an empty editor opens the first group. A target that is no place does nothing.
+// terminal, the file or the diff with the keyboard if it was done: a tab dropped on a strip or
+// on the middle of a group joins it, one dropped near the edge of a group splits it, and one
+// dropped on an empty editor opens the first group. A target that is no place does nothing.
 func (a *App) dropTab(member string, target dropTarget) {
 	p := a.project
 	if p == nil {
@@ -463,6 +461,8 @@ func (a *App) dropTab(member string, target dropTarget) {
 		a.focusTerminal(id)
 	} else if id, ok := memberDocument(member); ok {
 		a.selectDocument(p, id)
+	} else if id, ok := memberDiff(member); ok {
+		a.selectDiff(p, id)
 	}
 }
 

@@ -23410,7 +23410,8 @@
       "id": "git.diff.differences",
       "description": "Windows UI: git.diff.differences",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "count": "string"
@@ -23427,7 +23428,8 @@
       "id": "git.diff.emptyRevision",
       "description": "Windows UI: git.diff.emptyRevision",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -23568,7 +23570,8 @@
       "id": "git.diff.indexVersion",
       "description": "Windows UI: git.diff.indexVersion",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -23600,14 +23603,16 @@
       "id": "git.diff.nextDifference",
       "description": "Windows UI: git.diff.nextDifference",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.diff.nextFile",
       "description": "Windows UI: git.diff.nextFile",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -23678,7 +23683,8 @@
       "id": "git.diff.oneDifference",
       "description": "Windows UI: git.diff.oneDifference",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -23696,14 +23702,16 @@
       "id": "git.diff.previousDifference",
       "description": "Windows UI: git.diff.previousDifference",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.diff.previousFile",
       "description": "Windows UI: git.diff.previousFile",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -26896,7 +26904,8 @@
       "id": "git.openFile",
       "description": "Windows UI: git.openFile",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -28733,7 +28742,8 @@
       "id": "git.saved.worktree",
       "description": "Windows UI: git.saved.worktree",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -46415,7 +46425,8 @@
       "id": "native.collapseUnchangedFragments",
       "description": "Native UI: Collapse unchanged fragments",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Collapse unchanged fragments",
@@ -62946,7 +62957,8 @@
       "id": "native.lldUnchangedLines",
       "description": "Native UI: %lld unchanged lines",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "%lld unchanged lines",

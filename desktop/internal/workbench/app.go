@@ -279,7 +279,7 @@ type project struct {
 	panels runPanels
 	// agent is the project's Agent panel and connection.
 	agent agentState
-	// review holds the Git review dialogs: Diff, Push, stashes, worktrees and annotations.
+	// review holds the Git review dialogs: Push, stashes, worktrees and annotations.
 	review gitReview
 	// blame is the commit subjects the inline blame annotations show, kept per project.
 	blame gitBlameSubjects
@@ -287,6 +287,8 @@ type project struct {
 	observe gitObservation
 	// ideAPI is the project's IDE API connection for plugins and MCP clients (ide_api.go).
 	ideAPI ideAPIState
+	// diffs are the Diff tabs of the editor area.
+	diffs diffSet
 }
 
 // App is the state of the window.

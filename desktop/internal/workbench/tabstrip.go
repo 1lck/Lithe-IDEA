@@ -75,16 +75,21 @@ type tabStrip struct {
 	hiddenScratch []string
 }
 
-// shownTab is one tab of a group's strip: a terminal's or an open file's.
+// shownTab is one tab of a group's strip: a terminal's, an open file's or a Diff tab, one of
+// them set.
 type shownTab struct {
 	term *terminal
 	doc  *document
+	diff *diffTab
 }
 
-// member is the name the group lists the tab's terminal or file under.
+// member is the name the group lists the tab's terminal, file or diff under.
 func (s shownTab) member() string {
-	if s.doc != nil {
+	switch {
+	case s.doc != nil:
 		return documentMember(s.doc.id)
+	case s.diff != nil:
+		return diffMember(s.diff.id)
 	}
 	return terminalMember(s.term.id)
 }
@@ -159,7 +164,7 @@ func (u *terminalUI) stripOf(group string) *tabStrip {
 }
 
 // groupTabs lists the tabs group shows, in its order, and the member that is selected: each
-// member whose terminal or file is still open.
+// member whose terminal, file or diff is still open.
 func (a *App) groupTabs(group string) ([]shownTab, string) {
 	p := a.project
 	g := p.terms.bench.Group(group)
@@ -176,6 +181,10 @@ func (a *App) groupTabs(group string) ([]shownTab, string) {
 			if d := p.docs.find(id); d != nil {
 				shown = append(shown, shownTab{doc: d})
 			}
+		} else if id, ok := memberDiff(member); ok {
+			if t := p.diffs.find(id); t != nil {
+				shown = append(shown, shownTab{diff: t})
+			}
 		}
 	}
 	return shown, g.Selected
@@ -191,6 +200,9 @@ func (a *App) tabWidth(canvas *gfx.Canvas, s shownTab) float32 {
 			width += terminalChipGap + documentDirty
 		}
 		return width
+	}
+	if s.diff != nil {
+		return tabChrome + canvas.TextWidth(s.diff.name(), size)
 	}
 	width := tabChrome + canvas.TextWidth(a.terminalTitle(s.term), size)
 	return min(max(width, terminalChipMinWidth), terminalChipMaxWidth)
@@ -374,16 +386,11 @@ func (a *App) stripTab(c ui.C, place *groupPlace, t shownTab, current string, i,
 	chip := ui.Row(k).Width(width).Height(rowHeight).Shrink(0).Items(ui.Center).Gap(terminalChipGap).PadSides(0, 2, 0, 8).
 		Radius(a.theme.Metrics.RadiusItem())
 	id := ui.ID(k)
-	label, icon := "", icons.SquareTerminal
 	options := gfx.HitOptions{
 		Role: gfx.RoleTab, Cursor: gfx.PointerCursorHand, Selected: selected,
 		PosInSet: int32(i + 1), SetSize: int32(size), Hint: a.text.Tools.DragHint,
 	}
-	if t.doc != nil {
-		label, icon = t.doc.name, fileicons.ForFile(t.doc.name, a.colors.Dark)
-	} else {
-		label = a.terminalTitle(t.term)
-	}
+	label, icon := a.tabLabel(t), a.tabIcon(t)
 	chip = chip.HitWith(id, label, options).Pressed(ui.Look{}.Background(a.colors.Active))
 	if selected {
 		chip = chip.Background(a.colors.Active)
@@ -401,7 +408,7 @@ func (a *App) stripTab(c ui.C, place *groupPlace, t shownTab, current string, i,
 	place.chips = append(place.chips, tabSlotDecl{member: member})
 	chip = chip.Draw(place.chipHook(len(place.chips) - 1))
 	closeLabel := a.text.Terminal.CloseTab
-	if t.doc != nil {
+	if t.term == nil {
 		closeLabel = a.text.Editor.CloseTab
 	}
 	var closeButton ui.Box
@@ -434,22 +441,28 @@ func (a *App) stripTab(c ui.C, place *groupPlace, t shownTab, current string, i,
 	}
 }
 
-// selectTab shows the tab's terminal or file in its group and gives it the keyboard.
+// selectTab shows the tab's terminal, file or diff in its group and gives it the keyboard.
 func (a *App) selectTab(t shownTab) {
-	if t.doc != nil {
+	switch {
+	case t.doc != nil:
 		a.selectDocument(a.project, t.doc.id)
-		return
+	case t.diff != nil:
+		a.selectDiff(a.project, t.diff.id)
+	default:
+		a.selectTerminal(a.project, t.term.id)
 	}
-	a.selectTerminal(a.project, t.term.id)
 }
 
-// closeTab closes the tab's terminal or file.
+// closeTab closes the tab's terminal, file or diff.
 func (a *App) closeTab(t shownTab) {
-	if t.doc != nil {
+	switch {
+	case t.doc != nil:
 		a.closeDocument(a.project, t.doc.id)
-		return
+	case t.diff != nil:
+		a.closeDiffTab(a.project, t.diff.id)
+	default:
+		a.closeTerminal(a.project, t.term.id)
 	}
-	a.closeTerminal(a.project, t.term.id)
 }
 
 // hiddenTabsButton declares the button that lists the tabs the strip does not show in full,
@@ -488,15 +501,21 @@ func (a *App) hiddenTabsButton(c ui.C, place *groupPlace, s *tabStrip, tabs []sh
 
 // tabLabel and tabIcon are the name and the icon of a tab.
 func (a *App) tabLabel(t shownTab) string {
-	if t.doc != nil {
+	switch {
+	case t.doc != nil:
 		return t.doc.name
+	case t.diff != nil:
+		return t.diff.name()
 	}
 	return a.terminalTitle(t.term)
 }
 
 func (a *App) tabIcon(t shownTab) gfx.Icon {
-	if t.doc != nil {
+	switch {
+	case t.doc != nil:
 		return fileicons.ForFile(t.doc.name, a.colors.Dark)
+	case t.diff != nil:
+		return icons.GitCompare
 	}
 	return icons.SquareTerminal
 }

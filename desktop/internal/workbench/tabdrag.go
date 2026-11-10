@@ -106,8 +106,8 @@ func (a *App) paintTabDrag(canvas *gfx.Canvas) {
 	}, style)
 }
 
-// tabLook is the title and the icon of the tab of group member, a terminal's or a file's, and
-// false for a member that is no longer open.
+// tabLook is the title and the icon of the tab of group member, a terminal's, a file's or a
+// diff's, and false for a member that is no longer open.
 func (a *App) tabLook(member string) (string, gfx.Icon, bool) {
 	p := a.project
 	if p == nil {
@@ -122,6 +122,11 @@ func (a *App) tabLook(member string) (string, gfx.Icon, bool) {
 	if id, ok := memberDocument(member); ok {
 		if doc := p.docs.find(id); doc != nil {
 			return doc.name, fileicons.ForFile(doc.name, a.colors.Dark), true
+		}
+	}
+	if id, ok := memberDiff(member); ok {
+		if t := p.diffs.find(id); t != nil {
+			return t.name(), icons.GitCompare, true
 		}
 	}
 	return "", gfx.Icon{}, false
