@@ -1,28 +1,13 @@
 package settingswindow
 
 import (
+	"context"
 	"runtime"
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/vivaui/viva/ui"
-)
-
-// terminalShellScope holds the options of the default shell choice, one item each:
-// the automatic option, the row that names a stored shell no installed shell matches, and
-// the installed shells from terminalFirstShellItem on, in the order the loader listed them.
-// An option keeps its item whichever of the others are shown, so the focus stays on it.
-var terminalShellScope = tree.Sub(root, tree.Name("terminal-shell"))
-
-const (
-	terminalAutomaticItem = 0
-	terminalMissingItem   = 1
-	// terminalFirstShellItem is the item of the first installed shell.
-	terminalFirstShellItem = 2
-	// terminalInfoIndex is the item of infoScope that belongs to the Terminal page's card:
-	// the general page uses 0 to 3 and the editor page 4.
-	terminalInfoIndex = 5
 )
 
 // terminalShellResult is what one load of the installed shells found.
@@ -34,21 +19,17 @@ type terminalShellResult struct {
 }
 
 // terminalShellState is the Terminal page's list of installed shells. Only the window
-// thread reads or writes the fields. The one worker owns the loader and the result channel
-// and hands the result over through that channel; the window thread takes it in drain.
+// thread reads or writes the fields. The load is a page Effect: it starts the first time
+// the page is drawn, the window takes its result with take at the start of a paint, and
+// closing the window cancels it.
 type terminalShellState struct {
-	load func() ([]localshell.Choice, string)
-	// wake repaints the window once the worker has finished and finished says the window
-	// is gone, in which case the worker neither repaints it nor is waited for.
-	wake     func()
-	finished func() bool
-	// results has room for the one result a window ever gets, so the worker never waits
-	// for a reader.
-	results chan terminalShellResult
+	load   func() ([]localshell.Choice, string)
+	effect *ui.EffectState[terminalShellResult, int]
+	// key is zero until the Terminal page asks for the load.
+	key int
 
-	started bool
-	loaded  bool
-	shells  []localshell.Choice
+	loaded bool
+	shells []localshell.Choice
 	// automatic is the program automatic runs, as the loader named it.
 	automatic string
 
@@ -58,36 +39,42 @@ type terminalShellState struct {
 	labelsFor *i18n.SettingsMessages
 }
 
-func newTerminalShellState(load func() ([]localshell.Choice, string), wake func(), finished func() bool) terminalShellState {
-	return terminalShellState{load: load, wake: wake, finished: finished, results: make(chan terminalShellResult, 1)}
+func newTerminalShellState(load func() ([]localshell.Choice, string)) terminalShellState {
+	s := terminalShellState{load: load}
+	if load != nil {
+		s.effect = ui.NewEffect[terminalShellResult, int](func(context.Context) (terminalShellResult, error) {
+			shells, automatic := load()
+			return terminalShellResult{shells: shells, automatic: automatic}, nil
+		})
+	}
+	return s
 }
 
-// begin starts the one load a window makes, off the window thread, the first time the page
-// is drawn. It does nothing again afterwards, with no loader, or once the window is gone.
-// The load reads the machine and writes nothing.
+// begin asks for the one load a window makes the first time the page is drawn. It does
+// nothing again afterwards or with no loader. The load reads the machine and writes nothing.
 func (s *terminalShellState) begin() {
-	if s.load == nil || s.started || (s.finished != nil && s.finished()) {
+	if s.load == nil || s.key != 0 {
 		return
 	}
-	s.started = true
-	load, wake, finished, results := s.load, s.wake, s.finished, s.results
-	go func() {
-		shells, automatic := load()
-		results <- terminalShellResult{shells: shells, automatic: automatic}
-		if wake != nil && (finished == nil || !finished()) {
-			wake()
-		}
-	}()
+	s.key = 1
 }
 
-// drain takes the finished load on the window thread. It is called at the start of each
-// paint.
-func (s *terminalShellState) drain() {
-	select {
-	case result := <-s.results:
+// take applies the finished load on the window thread at the start of a paint.
+func (s *terminalShellState) take() {
+	if s.effect == nil {
+		return
+	}
+	if result, _, ok := s.effect.Take(); ok {
 		s.shells, s.automatic, s.loaded = result.shells, result.automatic, true
 		s.labels, s.labelsFor = nil, nil
-	default:
+	}
+}
+
+// declare keeps the load alive until the page ends. It is declared from every paint, so
+// leaving the page does not cancel a load that is out.
+func (s *terminalShellState) declare(c ui.C) {
+	if s.effect != nil && s.key != 0 {
+		ui.Effect(c, s.effect, s.key)
 	}
 }
 
@@ -129,46 +116,47 @@ func sameShell(a, b string) bool {
 	return a == b
 }
 
-// drawTerminal is the Terminal page. Its card chooses the shell a new terminal runs:
+// terminalPage is the Terminal page. Its card chooses the shell a new terminal runs:
 // automatic, which is the system's default shell and says which that is, or one of the
 // installed shells. A stored shell that is no longer installed stays chosen and is named as
 // not found, instead of being swapped for one that exists, so the stored value is changed
 // only by the user. Opening the page writes nothing.
-func (w *window) drawTerminal(f *ui.Frame) {
+func (w *window) terminalPage(c ui.C) {
 	settings := &w.text.Settings
 	state := &w.terminal
 	state.begin()
 	stored := w.sess.values.TerminalShell
-	scroll := pageScrollScope.At(int(pageTerminal))
-	f.ScrollArea(scroll).Grow(1).Shrink(1).MinHeight(0).PadSides(18, contentPad, contentPad, contentPad).Gap(cardGap).Children(func() {
-		w.card(f, terminalInfoIndex, settings.TerminalShell, settings.TerminalShellHelp, func() {
-			f.Column().FillWidth().Gap(2).Children(func() {
+	w.shellPick = stored
+	w.pageScroll(c, pageTerminal, func() {
+		w.card(c, settings.TerminalShell, settings.TerminalShellHelp, func() {
+			ui.Column(c).FillWidth().Gap(2).Children(func() {
 				loading := !state.loaded
-				if w.radio(f, terminalShellScope.At(terminalAutomaticItem), settings.TerminalShellAuto(state.effective(settings)), stored == "", loading) {
-					w.setTerminalShell("", false)
-				}
+				w.radio(c.Part("automatic"), &w.shellPick, "", settings.TerminalShellAuto(state.effective(settings)), loading)
 				if loading {
 					// Whether a stored shell is installed is not known yet. It stays chosen,
 					// named by its path, and cannot be clicked until the list is here.
 					if stored != "" {
-						w.radio(f, terminalShellScope.At(terminalMissingItem), stored, true, true)
+						w.radio(c.Part("missing"), &w.shellPick, stored, stored, true)
 					}
 					return
 				}
 				labels := state.shellLabels(settings)
 				known := stored == ""
 				for index, choice := range state.shells {
-					chosen := stored != "" && sameShell(choice.Path, stored)
-					known = known || chosen
-					if w.radio(f, terminalShellScope.At(terminalFirstShellItem+index), labels[index], chosen, false) {
-						w.setTerminalShell(choice.Path, false)
+					known = known || (stored != "" && sameShell(choice.Path, stored))
+					if stored != "" && sameShell(choice.Path, stored) {
+						w.shellPick = choice.Path
 					}
+					w.radio(c.Key(choice.Path), &w.shellPick, choice.Path, labels[index], false)
 				}
 				if !known {
 					// Already chosen, so a click on it changes nothing.
-					w.radio(f, terminalShellScope.At(terminalMissingItem), settings.TerminalShellMissing(stored), true, false)
+					w.radio(c.Part("missing"), &w.shellPick, stored, settings.TerminalShellMissing(stored), false)
 				}
 			})
 		})
 	})
+	if w.shellPick != stored {
+		w.setTerminalShell(w.shellPick, false)
+	}
 }

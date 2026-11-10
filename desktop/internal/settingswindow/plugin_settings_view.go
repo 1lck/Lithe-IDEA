@@ -2,32 +2,34 @@ package settingswindow
 
 import (
 	"errors"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"sort"
 	"strconv"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/configfile"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
-var (
-	pluginSettingRows     = tree.Sub(root, tree.Name("plugin-settings-rows"))
-	pluginSettingOptions  = tree.Sub(root, tree.Name("plugin-settings-options"))
-	pluginSettingsScope   = tree.Sub(root, tree.Name("plugin-settings-scope"))
-	pluginSettingsSave    = tree.ID(root, "plugin-settings-save")
-	pluginSettingsReload  = tree.ID(root, "plugin-settings-reload")
-	pluginSettingsScroll  = tree.ID(root, "plugin-settings-scroll")
-	pluginSettingsRestart = tree.ID(root, "plugin-settings-restart")
-)
+// scopeChoices are the two scopes a plugin's settings are edited in: global, then project.
+var scopeChoices = []int{0, 1}
 
-func (w *window) drawPluginSettings(f *ui.Frame, id string) {
+// scopeLabel is the words of scope.
+func (w *window) scopeLabel(scope int) string {
+	if scope == 1 {
+		return i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.project")
+	}
+	return i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.global")
+}
+
+// pluginSettingsPanel is the form of the plugin id: the toolbar that reloads or saves it,
+// what the last request said, the scope and then Core's rows in Core's order. The drafts
+// live in the form, so the panel can come and go without losing them.
+func (w *window) pluginSettingsPanel(c ui.C, id string) {
 	if !w.selectPluginForm(id) {
-		f.Wrap(i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.draftLimit")).Color(w.pal.danger)
+		ui.Wrap(c, i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.draftLimit")).Color(w.pal.danger)
 		return
 	}
 	p := w.pluginSettings
@@ -41,54 +43,55 @@ func (w *window) drawPluginSettings(f *ui.Frame, id string) {
 	if p.id != id {
 		p.load(id)
 	}
-	f.Column().FillWidth().Gap(10).Children(func() {
-		f.Row().FillWidth().Height(1).Background(w.pal.line)
-		f.Row().FillWidth().Gap(8).Items(ui.Center).Children(func() {
-			f.Text(i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.title")).FontSize(14).Weight(gfx.WeightSemibold).Color(w.pal.text)
-			f.Spacer()
-			reloadLabel := i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.reload")
+	language := w.marketLanguage()
+	ui.Column(c).FillWidth().Gap(10).Children(func() {
+		ui.Row(c).FillWidth().Height(1).Background(w.pal.line)
+		ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
+			ui.Text(c, i18n.Shared(language, "desktop.pluginSettings.title")).FontSize(14).Weight(gfx.WeightSemibold).Color(w.pal.text)
+			ui.Spacer(c)
+			reloadLabel := i18n.Shared(language, "desktop.pluginSettings.reload")
 			if p.hasDraft() {
-				reloadLabel = i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.discardReload")
+				reloadLabel = i18n.Shared(language, "desktop.pluginSettings.discardReload")
 			}
-			if f.Button(pluginSettingsReload, reloadLabel).Outline().Disabled(p.running).Clicked() {
+			if ui.Button(c, reloadLabel).Outline().Disabled(p.running).Clicked() {
 				p.load(id)
 			}
-			if f.Button(pluginSettingsSave, i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.save")).Disabled(p.running || p.stale || !p.loaded || !p.hasDraft()).Clicked() {
+			if ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.save")).Disabled(p.running || p.stale || !p.loaded || !p.hasDraft()).Clicked() {
 				p.save()
 			}
 		})
 		if p.stale {
-			f.Wrap(i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.sourceChanged")).Color(w.pal.danger)
+			ui.Wrap(c, i18n.Shared(language, "desktop.pluginSettings.sourceChanged")).Color(w.pal.danger)
 		}
 		if p.failed != nil {
-			message := i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.failed")
+			message := i18n.Shared(language, "desktop.pluginSettings.failed")
 			var rejection *core.MarketplaceRejection
 			if errors.As(p.failed, &rejection) {
 				switch rejection.Code {
 				case "plugin.settings.invalidEdit":
-					message = i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.invalidEdit")
+					message = i18n.Shared(language, "desktop.pluginSettings.invalidEdit")
 				case "plugin.settings.invalidDocument":
-					message = i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.invalidDocument")
+					message = i18n.Shared(language, "desktop.pluginSettings.invalidDocument")
 				case "plugin.settings.ownerChanged":
-					message = i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.conflict")
+					message = i18n.Shared(language, "desktop.pluginSettings.conflict")
 				}
 			}
 			if errors.Is(p.failed, pluginbackend.ErrNoSession) {
-				message = i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.actionProviderUnavailable")
+				message = i18n.Shared(language, "desktop.pluginSettings.actionProviderUnavailable")
 			}
 			if errors.Is(p.failed, configfile.ErrConflict) {
-				message = i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.conflict")
+				message = i18n.Shared(language, "desktop.pluginSettings.conflict")
 			}
-			f.Wrap(message).FontSize(12).Color(w.pal.danger)
+			ui.Wrap(c, message).FontSize(12).Color(w.pal.danger)
 		}
 		if p.running {
-			f.Text(i18n.Shared(w.marketLanguage(), "native.loading")).FontSize(12).Color(w.pal.muted)
+			ui.Text(c, i18n.Shared(language, "native.loading")).FontSize(12).Color(w.pal.muted)
 		}
 		if w.ctrl.opts.PluginRuntime != nil {
 			runtime := w.ctrl.opts.PluginRuntime(id)
 			if runtime.RestartRequired || runtime.Restarting {
-				f.Wrap(i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.restartRequired")).FontSize(12).Color(w.pal.muted)
-				if w.ctrl.opts.RestartPlugin != nil && f.Button(pluginSettingsRestart, i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.restart")).Disabled(!runtime.Running || runtime.Restarting || p.running || !p.loaded || runtime.Version != p.editor.Snapshot.State.Metadata.Version).Clicked() {
+				ui.Wrap(c, i18n.Shared(language, "desktop.pluginSettings.restartRequired")).FontSize(12).Color(w.pal.muted)
+				if w.ctrl.opts.RestartPlugin != nil && ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.restart")).Disabled(!runtime.Running || runtime.Restarting || p.running || !p.loaded || runtime.Version != p.editor.Snapshot.State.Metadata.Version).Clicked() {
 					scope := "global"
 					if p.scope == 1 {
 						scope = "project"
@@ -98,73 +101,68 @@ func (w *window) drawPluginSettings(f *ui.Frame, id string) {
 			}
 		}
 		if p.saved {
-			f.Text(i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.saved")).FontSize(12).Color(w.pal.muted)
+			ui.Text(c, i18n.Shared(language, "desktop.pluginSettings.saved")).FontSize(12).Color(w.pal.muted)
 		}
 		if p.editor.Snapshot.State.PluginID != id || (!p.loaded && len(p.controls[p.scope]) == 0) {
 			return
 		}
-		f.Row().FillWidth().Gap(8).Items(ui.Center).Children(func() {
-			labels := []string{i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.global"), i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.project")}
-			pick := f.Select(pluginSettingsScope, &p.scopeSelect, labels, p.scope).Width(180).Label(i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.scope")).Disabled(p.running || p.hasDraft())
-			if scope, ok := pick.Picked(); ok {
-				p.scope = scope
+		ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
+			if p.running || p.hasDraft() {
+				// A scope change would drop the draft of the other scope's rows, so the list is
+				// replaced by the words of the scope in force.
+				ui.Text(c, w.scopeLabel(p.scope)).FontSize(12).Color(w.pal.muted).Width(180)
+			} else if ui.Select(c, &p.scope, scopeChoices, w.scopeLabel).Width(180).Label(i18n.Shared(language, "desktop.pluginSettings.scope")).Changed() {
 				p.saved = false
 				p.failed = nil
 			}
-			f.Text(i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.scopeHelp")).FontSize(11).Color(w.pal.muted).Grow(1).Shrink(1).MinWidth(0).Ellipsis()
+			ui.Text(c, i18n.Shared(language, "desktop.pluginSettings.scopeHelp")).FontSize(11).Color(w.pal.muted).Grow(1).Shrink(1).MinWidth(0).Ellipsis()
 		})
 		source := p.editor.Snapshot.GlobalPath()
 		if p.scope == 1 {
 			source = p.editor.Snapshot.ProjectPath()
 		}
 		if source == "" {
-			f.Wrap(i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.openProject")).FontSize(12).Color(w.pal.muted)
+			ui.Wrap(c, i18n.Shared(language, "desktop.pluginSettings.openProject")).FontSize(12).Color(w.pal.muted)
 		} else {
-			f.Wrap(source).FontSize(11).Color(w.pal.muted)
+			ui.Wrap(c, source).FontSize(11).Color(w.pal.muted)
 		}
-		w.drawPluginSettingActions(f)
+		w.pluginSettingActions(c)
 		if len(p.layout) == 0 {
-			f.Text(i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.empty")).FontSize(12).Color(w.pal.muted)
+			ui.Text(c, i18n.Shared(language, "desktop.pluginSettings.empty")).FontSize(12).Color(w.pal.muted)
 			return
 		}
-		// Geometry stays native. Walk Core's section references without sorting or
-		// regrouping them, creating controls only in the nested form's viewport.
-		scroll := w.view.ScrollState(pluginSettingsScroll)
-		viewport := scroll.Viewport
-		if viewport <= 0 {
-			viewport = 360
-		}
-		top, bottom := max(float32(0), scroll.Offset-120), scroll.Offset+viewport+120
-		f.ScrollArea(pluginSettingsScroll).FillWidth().Height(360).Shrink(0).Children(func() {
-			first := sort.Search(len(p.layout), func(i int) bool { return p.layout[i].offset+p.layout[i].height >= top })
-			last := sort.Search(len(p.layout), func(i int) bool { return p.layout[i].offset > bottom })
-			if first < len(p.layout) && p.layout[first].offset > 0 {
-				f.Row().Height(p.layout[first].offset).Shrink(0)
-			}
-			for _, item := range p.layout[first:last] {
-				if item.action {
-					w.pluginSettingActionRow(f, item.row, item.height)
-				} else if item.row < 0 {
-					f.Row().FillWidth().Height(item.height).Shrink(0).Items(ui.Center).Children(func() { f.Text(item.title).FontSize(13).Weight(gfx.WeightSemibold).Color(w.pal.text) })
-				} else {
-					w.pluginSettingRow(f, item.row, item.height, source != "")
-				}
-			}
-			end := float32(0)
-			if last > 0 {
-				item := p.layout[last-1]
-				end = item.offset + item.height
-			}
-			if p.height > end {
-				f.Row().Height(p.height - end).Shrink(0)
-			}
-
-		})
+		// Core's section references are walked in Core's order, without sorting or
+		// regrouping them; the list declares only the rows in its viewport.
+		ui.List(c, &p.rows, len(p.layout), func(row ui.ListRow) {
+			w.pluginSettingsListRow(row, p, source != "")
+		}).FillWidth().Height(360).Shrink(0).Label(i18n.Shared(language, "desktop.pluginSettings.title"))
 	})
 }
 
-func (w *window) pluginSettingRow(f *ui.Frame, index int, height float32, hasSource bool) {
+// pluginSettingsListRow declares one row of the form's list: a section title, a setting
+// or an action.
+func (w *window) pluginSettingsListRow(row ui.ListRow, p *pluginSettingsForm, hasSource bool) {
+	c := row.C
+	item := p.layout[row.Index]
+	row.Element.FillWidth().Children(func() {
+		switch {
+		case item.action:
+			w.pluginSettingActionRow(c, item.row)
+		case item.row < 0:
+			ui.Row(c).FillWidth().Height(28).Items(ui.Center).Children(func() {
+				ui.Text(c, item.title).FontSize(13).Weight(gfx.WeightSemibold).Color(w.pal.text)
+			})
+		default:
+			w.pluginSettingRow(c, item.row, hasSource)
+		}
+	})
+}
+
+// pluginSettingRow declares one setting: its title, the control for its kind and what is
+// known about its value. Whatever the user does with the control changes the draft only.
+func (w *window) pluginSettingRow(c ui.C, index int, hasSource bool) {
 	p := w.pluginSettings
+	language := w.marketLanguage()
 	row := &p.editor.Snapshot.State.Rows[index]
 	declaration := &row.Declaration
 	editor := p.editor.Snapshot.State.Editors.Global[index]
@@ -173,76 +171,70 @@ func (w *window) pluginSettingRow(f *ui.Frame, index int, height float32, hasSou
 	}
 	control := &p.controls[p.scope][index]
 	disabled := p.running || !p.loaded || !editor.Editable || !hasSource
-	// A stable stride reserves identities for the control, reset, browse and
-	// option checkboxes; manifests bound option counts to at most 32.
-	base := index * 64
-	f.Column().FillWidth().Height(height).Shrink(0).Gap(5).PadY(8).Children(func() {
-		f.Row().FillWidth().Height(22).Items(ui.Center).Gap(8).Children(func() {
-			f.Text(declaration.Title).FontSize(12).Weight(gfx.WeightSemibold).Color(w.pal.text).Ellipsis()
+	ui.Column(c).FillWidth().Shrink(0).Gap(5).PadY(8).Children(func() {
+		ui.Row(c).FillWidth().Height(22).Items(ui.Center).Gap(8).Children(func() {
+			ui.Text(c, declaration.Title).FontSize(12).Weight(gfx.WeightSemibold).Color(w.pal.text).Ellipsis()
 			if declaration.Description != "" {
-				w.infoButton(f, 1000+index, declaration.Description)
+				w.infoButton(c, declaration.Description)
 			}
-			f.Spacer()
-			if f.Button(pluginSettingRows.At(base+1), i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.reset")).Outline().Disabled(disabled).Clicked() {
+			ui.Spacer(c)
+			if ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.reset")).Outline().Disabled(disabled).Clicked() {
 				control.apply(editor.ResetInput)
 				control.reset = true
 			}
 		})
 		switch declaration.Kind {
 		case "boolean":
-			if f.Switch(pluginSettingRows.At(base), control.input.On).Label(declaration.Title).Disabled(disabled).Clicked() {
-				control.input.On = !control.input.On
+			if ui.Switch(c, &control.input.On, declaration.Title).Disabled(disabled).Changed() {
 				control.reset = false
 			}
 		case "enum":
-			labels := make([]string, len(declaration.Options))
-			for i, option := range declaration.Options {
-				labels[i] = option.Title
-			}
-			pick := f.Select(tree.Sub(pluginSettingOptions, gfx.Index(index)), &control.selectState, labels, control.input.Selected).Width(230).Label(declaration.Title).Disabled(disabled)
-			if selected, ok := pick.Picked(); ok {
-				control.input.Selected = selected
+			labels := declaration.Options
+			label := func(option int) string { return labels[option].Title }
+			if disabled {
+				ui.Text(c, label(control.input.Selected)).FontSize(12).Color(w.pal.muted).Width(230)
+			} else if ui.Select(c, &control.input.Selected, control.options, label).Width(230).Label(declaration.Title).Changed() {
 				control.reset = false
 			}
 		case "multiSelect":
 			for i, option := range declaration.Options {
-				f.Row().Height(26).FillWidth().Items(ui.Center).Gap(8).Children(func() {
-					if f.Checkbox(pluginSettingRows.At(base+3+i), control.input.Checks[i]).Label(option.Title).Disabled(disabled).Clicked() {
-						control.input.Checks[i] = !control.input.Checks[i]
+				ui.Row(c.Key(option.Value)).Height(26).FillWidth().Items(ui.Center).Gap(8).Children(func() {
+					if ui.Checkbox(c, &control.input.Checks[i], option.Title).Disabled(disabled).Changed() {
 						control.reset = false
 					}
-					f.Text(option.Title).FontSize(12).Color(w.pal.text)
 				})
 			}
 		default:
-			f.Row().FillWidth().Height(30).Gap(8).Children(func() {
+			ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
 				if disabled {
-					// Box.Disabled does not apply to Field in pinned Viva.
-					// Its upstream InputSnapshot carries the actual native
-					// read-only/disabled semantics, including accessibility.
-					f.Input(components.InputSnapshot{ID: pluginSettingRows.At(base), Label: declaration.Title, Value: control.field.Text(), Placeholder: declaration.Placeholder, ReadOnly: true, Disabled: true}).Grow(1).MinWidth(0).Height(30)
+					// Box.Disabled does not apply to a TextField in pinned Viva, so a
+					// field that cannot be edited is shown as the text it holds.
+					ui.Row(c).Grow(1).MinWidth(0).Height(30).PadX(10).Border(1, w.pal.line).Radius(6).Items(ui.Center).Children(func() {
+						ui.Text(c, control.text).FontSize(13).Color(w.pal.muted).Ellipsis().Label(declaration.Title)
+					})
 				} else {
-					f.Field(&control.field, pluginSettingRows.At(base), declaration.Title, declaration.Placeholder).Grow(1).MinWidth(0).Height(30)
+					ui.TextField(c, &control.text, declaration.Title, declaration.Placeholder).Grow(1).MinWidth(0).Height(30)
 				}
 				if declaration.Kind == "file" || declaration.Kind == "directory" {
-					if f.Button(pluginSettingRows.At(base+2), i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.browse")).Outline().Disabled(disabled).Clicked() {
-						w.pickPluginSettingPath(index)
+					if ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.browse")).Outline().Disabled(disabled).Clicked() {
+						// The native picker blocks, so it runs after the paint.
+						c.After(func() { w.pickPluginSettingPath(index) })
 					}
 				}
 			})
-			if control.field.Text() != control.input.Text {
+			if control.text != control.input.Text {
 				control.reset = false
 			}
 		}
 		if declaration.Kind == "integer" && declaration.Minimum != nil && declaration.Maximum != nil {
-			f.Text(i18n.SharedFormat(w.marketLanguage(), "desktop.pluginSettings.range", map[string]string{"minimum": strconv.FormatInt(*declaration.Minimum, 10), "maximum": strconv.FormatInt(*declaration.Maximum, 10), "unit": declaration.Unit})).FontSize(11).Color(w.pal.muted).Ellipsis()
+			ui.Text(c, i18n.SharedFormat(language, "desktop.pluginSettings.range", map[string]string{"minimum": strconv.FormatInt(*declaration.Minimum, 10), "maximum": strconv.FormatInt(*declaration.Maximum, 10), "unit": declaration.Unit})).FontSize(11).Color(w.pal.muted).Ellipsis()
 		}
 		if editor.InvalidStored {
-			f.Text(i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.invalidStored")).FontSize(11).Color(w.pal.danger)
+			ui.Text(c, i18n.Shared(language, "desktop.pluginSettings.invalidStored")).FontSize(11).Color(w.pal.danger)
 		} else if !editor.Editable {
-			f.Text(i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.globalOnly")).FontSize(11).Color(w.pal.muted)
+			ui.Text(c, i18n.Shared(language, "desktop.pluginSettings.globalOnly")).FontSize(11).Color(w.pal.muted)
 		} else if !editor.Overridden {
-			f.Text(i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.inherited")).FontSize(11).Color(w.pal.muted)
+			ui.Text(c, i18n.Shared(language, "desktop.pluginSettings.inherited")).FontSize(11).Color(w.pal.muted)
 		}
 	})
 }
@@ -274,30 +266,7 @@ func (w *window) pickPluginSettingPath(index int) {
 	}
 	if path != "" {
 		control := &p.controls[p.scope][index]
-		control.field.SetText(path)
+		control.text = path
 		control.reset = false
 	}
-}
-
-func (w *window) pluginSettingsTextInput(context app.TextInputContext) *app.TextInput {
-	if input := ui.Fields(&w.search, &w.marketQuery)(context); input != nil {
-		return input
-	}
-	p := w.pluginSettings
-	if p.running || !p.loaded || (p.scope == 1 && p.editor.Snapshot.Workspace() == "") {
-		return nil
-	}
-	editors := p.editor.Snapshot.State.Editors.Global
-	if p.scope == 1 {
-		editors = p.editor.Snapshot.State.Editors.Project
-	}
-	for i := range p.controls[p.scope] {
-		if !editors[i].Editable {
-			continue
-		}
-		if input := ui.Fields(&p.controls[p.scope][i].field)(context); input != nil {
-			return input
-		}
-	}
-	return nil
 }

@@ -8,50 +8,62 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/vivaui/viva/ui"
 )
 
 const marketQueryMaxBytes = 4096
 
 var errMarketRankIndices = errors.New("marketplace search returned invalid indices")
 
-type marketSearchResult struct {
-	generation uint64
-	indices    []int
-	err        error
-	reported   bool
+// marketSearchKey names one request of the search: the text asked for and the catalog it
+// ranks, so a new catalog asks again for the same text.
+type marketSearchKey struct {
+	query   string
+	catalog uint64
 }
 
-// marketplaceSearch holds presentation state only. Matching and ranking belong
-// to Core; one cancellable request runs at a time and newer input replaces it.
+// marketSearchJob is what one run ranks: written on the window thread when the key
+// changes and taken once by the run.
+type marketSearchJob struct {
+	query      string
+	candidates []core.RankCandidate
+}
+
+// marketplaceSearch holds presentation state only. Matching and ranking belong to Core;
+// the request is a page Effect keyed by the query and the catalog, so newer input cancels
+// the run before it and an older answer never reaches the list.
 type marketplaceSearch struct {
-	rank                                              func(context.Context, string, []core.RankCandidate) ([]int, error)
-	wake                                              func()
-	report                                            func(error)
-	candidates                                        []core.RankCandidate
-	all, matches                                      []int
-	query                                             string
-	empty                                             bool
-	known, pending, running, loading, tooLong, failed bool
-	generation                                        uint64
-	cancel                                            context.CancelFunc
-	results                                           chan marketSearchResult
-	workers                                           sync.WaitGroup
+	rank                            func(context.Context, string, []core.RankCandidate) ([]int, error)
+	report                          func(error)
+	candidates                      []core.RankCandidate
+	all, matches                    []int
+	query                           string
+	empty                           bool
+	known, loading, tooLong, failed bool
+	catalog                         uint64
+	effect                          *ui.EffectState[[]int, marketSearchKey]
+	jobMu                           sync.Mutex
+	job                             marketSearchJob
+	want                            marketSearchKey
+	requested                       bool
 	// Negative means no debounce in deterministic tests.
 	delay time.Duration
 }
 
+// bind makes the effect once the search has its final address.
+func (s *marketplaceSearch) bind() {
+	s.effect = ui.NewEffect[[]int, marketSearchKey](s.run)
+}
+
 func (s *marketplaceSearch) invalidate() {
-	s.generation++
-	if s.cancel != nil {
-		s.cancel()
-		s.cancel = nil
-	}
-	s.known, s.pending, s.loading, s.tooLong, s.failed = false, false, false, false, false
+	s.requested = false
+	s.known, s.loading, s.tooLong, s.failed = false, false, false, false
 	s.matches = nil
 }
 
 func (s *marketplaceSearch) setCatalog(plugins []core.MarketplacePlugin) {
 	s.invalidate()
+	s.catalog++
 	s.candidates = make([]core.RankCandidate, len(plugins))
 	s.all = make([]int, len(plugins))
 	for i, plugin := range plugins {
@@ -64,12 +76,8 @@ func (s *marketplaceSearch) update(query string) {
 	if s.rank == nil || s.known && s.query == query {
 		return
 	}
-	s.generation++
-	if s.cancel != nil {
-		s.cancel()
-		s.cancel = nil
-	}
-	s.query, s.known, s.pending, s.loading, s.tooLong, s.failed = query, true, false, false, false, false
+	s.requested = false
+	s.query, s.known, s.loading, s.tooLong, s.failed = query, true, false, false, false
 	s.matches = nil
 	s.empty = strings.TrimSpace(query) == ""
 	if s.empty {
@@ -79,110 +87,91 @@ func (s *marketplaceSearch) update(query string) {
 		s.tooLong = true
 		return
 	}
-	s.pending, s.loading = true, true
-	s.launch()
+	s.loading = true
+	s.want = marketSearchKey{query: query, catalog: s.catalog}
+	s.requested = true
+	s.jobMu.Lock()
+	s.job = marketSearchJob{query: query, candidates: s.candidates}
+	s.jobMu.Unlock()
 }
 
-func (s *marketplaceSearch) launch() {
-	if !s.pending || s.running {
-		return
-	}
-	if s.results == nil {
-		s.results = make(chan marketSearchResult, 1)
-	}
-	s.pending, s.running = false, true
-	query, candidates, generation := s.query, s.candidates, s.generation
-	ctx, cancel := context.WithCancel(context.Background())
-	s.cancel = cancel
-	rank, results, wake, report := s.rank, s.results, s.wake, s.report
+// run is the ranking: after the debounce it asks Core for the plugins that match.
+func (s *marketplaceSearch) run(ctx context.Context) ([]int, error) {
+	s.jobMu.Lock()
+	job := s.job
+	s.jobMu.Unlock()
 	delay := s.delay
 	if delay == 0 {
 		delay = 180 * time.Millisecond
 	}
-	s.workers.Add(1)
-	go func() {
-		defer s.workers.Done()
-		defer cancel()
-		if delay > 0 {
-			timer := time.NewTimer(delay)
-			defer timer.Stop()
-			select {
-			case <-timer.C:
-			case <-ctx.Done():
-				// log-exempt: 用户取消：新输入或关闭页面结束防抖。
-				results <- marketSearchResult{generation: generation, err: ctx.Err()}
-				if wake != nil {
-					wake()
-				}
-				return
-			}
+	if delay > 0 {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			// log-exempt: 用户取消：新输入或关闭页面结束防抖。
+			return nil, ctx.Err()
 		}
-		operation, done := context.WithTimeout(ctx, 10*time.Second)
-		defer done()
-		indices, err := rank(operation, query, candidates)
-		if err == nil {
-			seen := make(map[int]bool, len(indices))
-			for _, index := range indices {
-				if index < 0 || index >= len(candidates) || seen[index] {
-					err = errMarketRankIndices
-					break
-				}
-				seen[index] = true
-			}
-		}
-		reported := ctx.Err() != nil && err != nil && !errors.Is(err, context.Canceled) && report != nil
-		if reported {
-			report(err)
-		}
-		results <- marketSearchResult{generation: generation, indices: indices, err: err, reported: reported}
-		if wake != nil {
-			wake()
-		}
-	}()
-}
-
-func (s *marketplaceSearch) drain(m *marketplaceState, currentInput string) {
-	if s.results == nil {
-		return
 	}
-	select {
-	case result := <-s.results:
-		s.running, s.cancel = false, nil
-		if result.generation != s.generation || s.query != currentInput {
-			if result.err != nil && !result.reported && !errors.Is(result.err, context.Canceled) && s.report != nil {
-				s.report(result.err)
-			}
-			// log-exempt: 用户取消：旧查询已被新输入或关闭页面替代。
-			if s.query != currentInput && m.status == marketReady {
-				s.update(currentInput)
-			} else {
-				s.launch()
-			}
-			return
-		}
-		s.loading = false
-		if result.err != nil {
-			s.failed = true
-			if !result.reported && !errors.Is(result.err, context.Canceled) && s.report != nil {
-				s.report(result.err)
-			}
-			return
-		}
-		s.matches = result.indices
-		found := false
-		for _, index := range s.matches {
-			if m.snapshot.Index.Plugins[index].ID == m.selected {
-				found = true
+	operation, done := context.WithTimeout(ctx, 10*time.Second)
+	defer done()
+	indices, err := s.rank(operation, job.query, job.candidates)
+	if err == nil {
+		seen := make(map[int]bool, len(indices))
+		for _, index := range indices {
+			if index < 0 || index >= len(job.candidates) || seen[index] {
+				err = errMarketRankIndices
 				break
 			}
+			seen[index] = true
 		}
-		if !found {
-			m.selected = ""
-			if len(s.matches) > 0 {
-				m.selected = m.snapshot.Index.Plugins[s.matches[0]].ID
-			}
+	}
+	// An answer that arrives after the request was replaced is dropped with the run, so
+	// its failure is reported here.
+	if ctx.Err() != nil && err != nil && !errors.Is(err, context.Canceled) && s.report != nil {
+		s.report(err)
+	}
+	return indices, err
+}
+
+// take applies the finished ranking on the window thread at the start of a paint.
+func (s *marketplaceSearch) take(m *marketplaceState) {
+	if s.effect == nil || !s.requested {
+		return
+	}
+	indices, err, ok := s.effect.Take()
+	if !ok {
+		return
+	}
+	s.loading = false
+	if err != nil {
+		s.failed = true
+		if !errors.Is(err, context.Canceled) && s.report != nil {
+			s.report(err)
 		}
-	default:
+		return
+	}
+	s.matches = indices
+	found := false
+	for _, index := range s.matches {
+		if m.snapshot.Index.Plugins[index].ID == m.selected {
+			found = true
+			break
+		}
+	}
+	if !found {
+		m.selected = ""
+		if len(s.matches) > 0 {
+			m.selected = m.snapshot.Index.Plugins[s.matches[0]].ID
+		}
+	}
+}
+
+// declare keeps the wanted ranking alive in the paint.
+func (s *marketplaceSearch) declare(c ui.C) {
+	if s.effect != nil && s.requested {
+		ui.Effect(c, s.effect, s.want)
 	}
 }
 
