@@ -4,21 +4,25 @@
   "group": "代码结构",
   "capability": "引用结果面板与引用跳转",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/pluginsemantics.go",
+      "desktop/internal/workbench/pluginsemantics_test.go",
+      "desktop/internal/workbench/pluginsemantics_e2e_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/pluginsemantics.go",
+      "desktop/internal/workbench/pluginsemantics_test.go",
+      "desktop/internal/workbench/pluginsemantics_e2e_test.go"
     ]
   },
   "owner": "Language Tooling",
-  "verification": "从符号发起引用查询，验证结果分组、文件定位、关闭和重新查询。",
+  "verification": "Viva（2026-11-10）：Shift+F12 查找引用，以光标处弹出的可键盘导航列表（虚拟化窗口，上限 500）呈现，点击或回车打开所在文件位置；按文件分组与专用面板尚未接入。 从符号发起引用查询，验证结果分组、文件定位、关闭和重新查询。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -36,5 +40,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva 以弹出列表呈现引用，尚无分组面板；无头 clangd 测试不是原生窗口验收，平台验证保持 pending。"
 }
