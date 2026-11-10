@@ -10,6 +10,7 @@ func toolMessages(language Language) ToolMessages {
 		Git:           Shared(language, "settings.tabs.git"),
 		Terminal:      Shared(language, "workbench.terminal"),
 		Problems:      Shared(language, "native.problems"),
+		References:    Shared(language, "desktop.semantics.references"),
 		Run:           Shared(language, "workbench.run"),
 		Build:         Shared(language, "workbench.build"),
 		Tests:         Shared(language, "native.tests"),

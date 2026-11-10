@@ -121,6 +121,7 @@ type ToolMessages struct {
 	Git           string
 	Terminal      string
 	Problems      string
+	References    string
 	Run           string
 	Build         string
 	Tests         string

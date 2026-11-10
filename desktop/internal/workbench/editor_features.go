@@ -8,5 +8,6 @@ type editorFeatures struct {
 	// requests counts the editor's own language requests, which name them (editor_requests.go).
 	requests uint64
 	outline  outlineState
+	refs     referencesState
 	tokens   semanticTokensState
 }

@@ -448,10 +448,10 @@ func TestFeaturesChangedReplacesTriggerCharacters(t *testing.T) {
 	}
 }
 
-func TestFindReferencesListsEvenOneResultAndOpensChosen(t *testing.T) {
+func TestFindReferencesFillsTheReferencesPaneAndOpensChosen(t *testing.T) {
 	f := newSemanticFixture(t)
 	target := filepath.Join(f.p.root, "B.java")
-	if err := os.WriteFile(target, []byte("zero\none\n"), 0o600); err != nil {
+	if err := os.WriteFile(target, []byte("zero\n    one();\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	f.d.view.GoToNavigation(0, 0, false)
@@ -463,21 +463,33 @@ func TestFindReferencesListsEvenOneResultAndOpensChosen(t *testing.T) {
 		t.Fatalf("operation = %q", got)
 	}
 	f.deliver(t, "op-1", pluginMethodReferences, locationsResult(t, locationAt(target, 1, 1)))
-	state := f.h.app.semantics.definition
-	if !state.open || !state.references || len(state.targets) != 1 {
-		t.Fatalf("references popup = %+v", state)
+	if f.h.app.semantics.definition.open {
+		t.Fatal("references opened the popup")
 	}
-	if err := f.h.driver.Key(gfx.KeyEnter, 0); err != nil {
-		t.Fatal(err)
+	if !f.h.app.chrome.isOpen(catalogIndex[itemReferences]) {
+		t.Fatal("the References tool window did not open")
 	}
+	f.h.settle()
+	if !f.h.shows("B.java") || !f.h.shows("one();") {
+		t.Fatalf("pane rows missing: %v", f.h.driver.Snapshot().Labels)
+	}
+	s := &f.h.app.editor.refs
+	if len(s.groups) != 1 || len(s.groups[0].indices) != 1 {
+		t.Fatalf("groups = %+v", s.groups)
+	}
+	f.h.app.openReference(f.p, s.targets[0])
 	awaitDocumentState(t, f.h, func() bool { return f.p.docs.byPath(target) != nil })
 }
 
-func TestReferencesListIsBoundedAndWindowed(t *testing.T) {
+func TestReferencesPaneGroupsByFileAndIsBounded(t *testing.T) {
 	f := newSemanticFixture(t)
 	locations := make([]core.PluginSemanticLocation, 0, maxReferenceTargets+20)
 	for i := 0; i < maxReferenceTargets+20; i++ {
-		locations = append(locations, locationAt(filepath.Join(f.p.root, "B.java"), i, 0))
+		file := "B.java"
+		if i%2 == 1 {
+			file = "C.java"
+		}
+		locations = append(locations, locationAt(filepath.Join(f.p.root, file), i, 0))
 	}
 	f.d.view.GoToNavigation(0, 0, false)
 	if err := f.h.driver.Key(gfx.KeyF12, gfx.ModifierShift); err != nil {
@@ -485,16 +497,18 @@ func TestReferencesListIsBoundedAndWindowed(t *testing.T) {
 	}
 	f.waitForRequests(t, 1)
 	f.deliver(t, "op-1", pluginMethodReferences, locationsResult(t, locations...))
-	if got := len(f.h.app.semantics.definition.targets); got != maxReferenceTargets {
+	s := &f.h.app.editor.refs
+	if got := len(s.targets); got != maxReferenceTargets {
 		t.Fatalf("targets = %d, want %d", got, maxReferenceTargets)
 	}
-	for i := 0; i < 30; i++ {
-		if err := f.h.driver.Key(gfx.KeyDown, 0); err != nil {
-			t.Fatal(err)
-		}
+	if len(s.groups) != 2 || s.rows != maxReferenceTargets+2 {
+		t.Fatalf("groups = %d rows = %d", len(s.groups), s.rows)
 	}
-	if !f.h.shows("B.java:31:1") {
-		t.Fatalf("the selected row is outside the window: %v", f.h.driver.Snapshot().Labels)
+	if group, index, header := s.rowAt(s.starts[1]); group != 1 || !header || index != -1 {
+		t.Fatalf("second header = %d %d %v", group, index, header)
+	}
+	if group, index, header := s.rowAt(s.starts[1] + 3); group != 1 || index != 2 || header {
+		t.Fatalf("row in second group = %d %d %v", group, index, header)
 	}
 }
 

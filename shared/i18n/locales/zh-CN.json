@@ -1802,6 +1802,7 @@
     "desktop.project.readFailed": "读取失败：{reason}",
     "desktop.project.rootUnavailable": "项目目录不可用。",
     "desktop.project.watchUnavailable": "项目文件可能无法自动更新。",
+    "desktop.references.empty": "使用“查找引用”（Shift+F12）后，结果显示在这里。",
     "desktop.run.build": "构建",
     "desktop.run.ended": "进程已结束。",
     "desktop.run.exited": "进程已结束，退出码 {code}。",

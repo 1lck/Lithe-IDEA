@@ -171,9 +171,9 @@ func TestClangdFindReferencesListsUses(t *testing.T) {
 		t.Fatal(err)
 	}
 	awaitStateWithin(t, h, 30*time.Second, "clangd references", func() bool {
-		return h.app.semantics.definition.open
+		return len(h.app.editor.refs.targets) > 0
 	})
-	if got := len(h.app.semantics.definition.targets); got < 3 {
+	if got := len(h.app.editor.refs.targets); got < 3 {
 		t.Fatalf("references = %d, want declaration and two uses", got)
 	}
 	h.app.closeProject()

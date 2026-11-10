@@ -14337,6 +14337,13 @@
       ]
     },
     {
+      "id": "desktop.references.empty",
+      "description": "References tool window text before any find-usages answer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.run.build",
       "description": "Name of the build output in the run output switcher",
       "platforms": [

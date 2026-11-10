@@ -1802,6 +1802,7 @@
     "desktop.project.readFailed": "Could not read: {reason}",
     "desktop.project.rootUnavailable": "The project directory is unavailable.",
     "desktop.project.watchUnavailable": "Project files may not update automatically.",
+    "desktop.references.empty": "Run Find Usages (Shift+F12) to list references here.",
     "desktop.run.build": "Build",
     "desktop.run.ended": "Process finished.",
     "desktop.run.exited": "Process finished with exit code {code}.",

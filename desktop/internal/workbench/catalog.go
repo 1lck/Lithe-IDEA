@@ -153,6 +153,7 @@ const (
 	itemGit           = "git"
 	itemTerminal      = "terminal"
 	itemProblems      = "problems"
+	itemReferences    = "references"
 	itemRun           = "run"
 	itemTests         = "tests"
 	itemSecurity      = "security"
@@ -203,6 +204,7 @@ var catalog = []item{
 	{id: itemGit, zone: zoneBottomLeft, icon: &icons.GitBranch, label: func(m *i18n.Messages) string { return m.Tools.Git }, panel: true, open: true},
 	{id: itemTerminal, zone: zoneBottomLeft, icon: &icons.SquareTerminal, label: func(m *i18n.Messages) string { return m.Tools.Terminal }, panel: true},
 	{id: itemProblems, zone: zoneBottomLeft, icon: &icons.CircleAlert, label: func(m *i18n.Messages) string { return m.Tools.Problems }, panel: true},
+	{id: itemReferences, zone: zoneBottomLeft, icon: &icons.Locate, label: func(m *i18n.Messages) string { return m.Tools.References }, panel: true},
 	{id: itemRun, zone: zoneBottomLeft, icon: &icons.Play, label: func(m *i18n.Messages) string { return m.Tools.Build }, panel: true},
 	{id: itemTests, zone: zoneBottomLeft, icon: &icons.CircleCheck, label: func(m *i18n.Messages) string { return m.Tools.Tests }, panel: true},
 	{id: itemSecurity, zone: zoneBottomLeft, icon: &icons.ShieldCheck, label: func(m *i18n.Messages) string { return m.Tools.Security }, panel: true},

@@ -828,6 +828,12 @@ func (a *App) applySemanticDefinition(pending *semanticPending, event core.Backe
 		a.openDefinitionTarget(targets[0])
 		return
 	}
+	if references {
+		// Find Usages fills the References tool window, which keeps the answer while the
+		// user works through it, instead of a popup that closes on the first click.
+		a.showReferences(p, targets, "")
+		return
+	}
 	a.semantics.definition = definitionState{
 		open:       true,
 		references: references,
