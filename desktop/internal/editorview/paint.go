@@ -81,6 +81,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	bottom := area.Y + area.Height
 	v.numbers = v.numbers[:0]
 	canvas.Clip(textArea)
+	annotation := 0
 	top := area.Y + float32(firstRow-firstSub)*v.lineH - v.scroll
 	for line := firstLine; line <= lastLine; line++ {
 		l := v.ref(line)
@@ -125,6 +126,9 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 			p := v.part(l, row, end, from, to)
 			v.paintRow(canvas, p.text, p.base, p.row, from, to, shift, y)
 			v.paintMarkers(canvas, line, from, to, shift, y)
+			if k == len(wraps)-1 {
+				v.paintAnnotation(canvas, l, row, y, look, &annotation)
+			}
 		}
 		top += float32(len(wraps)) * v.lineH
 	}
@@ -140,6 +144,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	// as the text is, so their digits stay in columns: a label aligned by its width would be
 	// measured at the font's own advance, not the grid's, and drift off it.
 	canvas.Clip(gfx.Rect{X: area.X, Y: area.Y, Width: gutter, Height: area.Height})
+	v.paintGutterDecorations(canvas, area, look, firstLine, lastLine)
 	style := gfx.TextStyle{Size: fontSize, Color: look.Subtle, Mono: true}
 	right := area.X + gutter - gutterPad
 	for _, number := range v.numbers {

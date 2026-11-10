@@ -165,6 +165,21 @@ var paintCases = []paintCase{
 		}
 		v.SetMarkers(markers)
 	}},
+	{name: "gutter", kind: editorperf.Go, highlight: true, arrange: func(v *View) {
+		// What the Git integration sets: a change bar over every few lines of the viewport and
+		// an annotation on each line, as a file full of blame has. The decorations and the
+		// annotations of the lines far from the viewport are there too, to show they cost nothing.
+		mid := v.text.LineOf(v.caret)
+		var decorations []GutterDecoration
+		var annotations []LineAnnotation
+		for line := max(mid-2000, 0); line <= min(mid+2000, v.text.LineCount()-1); line += 3 {
+			kind := GutterKind(1 + line/3%3)
+			decorations = append(decorations, GutterDecoration{Kind: kind, StartLine: line, EndLine: line + 1})
+			annotations = append(annotations, LineAnnotation{Line: line, Text: "Ada, 3 days ago \u00b7 fix the paint"})
+		}
+		v.SetGutterDecorations(decorations)
+		v.SetLineAnnotations(annotations)
+	}},
 }
 
 // BenchmarkEditorViewPaint is one frame of a view that nothing has changed since its last, as the

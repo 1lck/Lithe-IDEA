@@ -97,6 +97,9 @@ type Look struct {
 	// Button is the ground of the button that hides and shows the minimap, ButtonHover its
 	// ground under the pointer and ButtonBorder its edge.
 	Button, ButtonHover, ButtonBorder gfx.Color
+	// GutterAdded, GutterModified and GutterDeleted color the gutter decorations (see
+	// gutter.go); a color left transparent takes a default.
+	GutterAdded, GutterModified, GutterDeleted gfx.Color
 }
 
 // snapshot is the text and the selection before or after an edit, as undo restores them.
@@ -226,7 +229,9 @@ type View struct {
 	partsRevision int
 	// numbers is the line numbers a paint puts in the gutter once the text is drawn, and
 	// numberText their text.
-	numbers    []gutterNumber
+	numbers []gutterNumber
+	// gutter is what the host decorates the gutter and the line ends with.
+	gutter     gutterState
 	numberText lineNumbers
 }
 

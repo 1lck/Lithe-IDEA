@@ -360,6 +360,9 @@ func (v *View) Pointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 	if result, ok := v.chromePointer(event); ok {
 		return result, true
 	}
+	if event.Kind == gfx.PointerDown && event.Target == v.cfg.HitID && v.painted && v.gutterPointer(event) {
+		return gfx.EventResult{Handled: true, Repaint: true, Focus: v.cfg.HitID}, true
+	}
 	switch {
 	case event.Kind == gfx.PointerDown && event.Target == v.cfg.HitID:
 	case v.dragging && (event.Kind == gfx.PointerMove || event.Kind == gfx.PointerUp):
