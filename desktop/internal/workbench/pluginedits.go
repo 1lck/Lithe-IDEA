@@ -29,7 +29,8 @@ const (
 )
 
 // pluginEditShortcut handles the reformat chord (Option+Command+L on macOS,
-// Control+Alt+L elsewhere) for the editor that owns the keyboard.
+// Control+Alt+L elsewhere) for the editor that owns the keyboard. It formats the
+// selection when there is one and the whole document otherwise.
 func (a *App) pluginEditShortcut(event gfx.KeyEvent) gfx.EventResult {
 	if event.Release || !strings.EqualFold(event.Text, "l") {
 		return gfx.EventResult{}
@@ -45,7 +46,7 @@ func (a *App) pluginEditShortcut(event gfx.KeyEvent) gfx.EventResult {
 	if d == nil || d.view.IsComposing() {
 		return gfx.EventResult{}
 	}
-	a.startPluginFormatting(p, d)
+	a.startPluginFormattingAtSelection(p, d)
 	return gfx.EventResult{Handled: true, Repaint: true}
 }
 
@@ -53,13 +54,19 @@ func (a *App) pluginEditShortcut(event gfx.KeyEvent) gfx.EventResult {
 // race the document's pending changes waits for them, like every semantic
 // request. These are explicit commands, so a missing server is reported.
 func (a *App) startPluginEdit(kind semanticKind, p *project, d *document, position *core.PluginDocumentPosition, newName string) {
+	a.startPluginEditRequest(kind, p, d, core.PluginSemanticRequest{Position: position, NewName: newName})
+}
+
+// startPluginEditRequest is startPluginEdit with the request body prepared by the caller
+// except for the operation and URI, which are filled in here.
+func (a *App) startPluginEditRequest(kind semanticKind, p *project, d *document, body core.PluginSemanticRequest) {
 	if a.plugins == nil || p == nil || d == nil || a.project != p || d.view.IsComposing() {
 		return
 	}
 	a.closeSemanticHover()
 	a.closeSemanticCompletion()
 	a.closeSemanticDefinition()
-	retry := func(a *App) { a.startPluginEdit(kind, p, d, position, newName) }
+	retry := func(a *App) { a.startPluginEditRequest(kind, p, d, body) }
 	if !a.semanticDocumentReady(d) {
 		a.deferSemantic(p, d, retry)
 		a.startDocumentSync(p, d)
@@ -76,30 +83,59 @@ func (a *App) startPluginEdit(kind semanticKind, p *project, d *document, positi
 		return
 	}
 	line, column := 0, 0
-	if position != nil {
-		line, column = position.Line, position.UTF16Column
+	if body.Position != nil {
+		line, column = body.Position.Line, body.Position.UTF16Column
 	}
 	a.cancelSemanticKind(kind)
+	// Document and selection formatting rewrite the same text, so a newer one replaces either.
+	switch kind {
+	case pluginSemanticFormatting:
+		a.cancelSemanticKind(pluginSemanticRangeFormatting)
+	case pluginSemanticRangeFormatting:
+		a.cancelSemanticKind(pluginSemanticFormatting)
+	}
 	pending := a.newSemanticPending(kind, p, d, server, line, column, false, false)
 	a.semantics.pending = append(a.semantics.pending, pending)
-	a.submitSemantic(pending, core.PluginSemanticRequest{
-		Operation: string(kind),
-		URI:       d.sync.uri,
-		Position:  position,
-		NewName:   newName,
-	})
+	body.Operation, body.URI = string(kind), d.sync.uri
+	a.submitSemantic(pending, body)
+}
+
+// formattingOptions is the indentation the editor currently uses, which the server
+// formats to. The editor has no indentation setting of its own yet, so this is the
+// indent unit detected from the document: a tab, or four spaces when spaces lead or
+// nothing is indented (tabSize 4, insertSpaces true).
+func formattingOptions(d *document) *core.FormattingOptions {
+	size, spaces := d.view.IndentSettings()
+	return &core.FormattingOptions{TabSize: size, InsertSpaces: spaces}
 }
 
 // startPluginFormatting asks the server to format the whole document.
 func (a *App) startPluginFormatting(p *project, d *document) {
-	a.startPluginEdit(pluginSemanticFormatting, p, d, nil, "")
+	a.startPluginEditRequest(pluginSemanticFormatting, p, d, core.PluginSemanticRequest{FormattingOptions: formattingOptions(d)})
+}
+
+// startPluginFormattingAtSelection formats the selected range, or the whole document
+// when nothing is selected.
+func (a *App) startPluginFormattingAtSelection(p *project, d *document) {
+	startLine, startColumn, endLine, endColumn, ok := d.view.SelectionUTF16()
+	if !ok {
+		a.startPluginFormatting(p, d)
+		return
+	}
+	a.startPluginEditRequest(pluginSemanticRangeFormatting, p, d, core.PluginSemanticRequest{
+		Range: &core.PluginDocumentRange{
+			Start: core.PluginDocumentPosition{Line: startLine, UTF16Column: startColumn},
+			End:   core.PluginDocumentPosition{Line: endLine, UTF16Column: endColumn},
+		},
+		FormattingOptions: formattingOptions(d),
+	})
 }
 
 // semanticOperationFailed tells the user a document-changing request failed;
 // the stable error code is already in the log.
 func (a *App) semanticOperationFailed(kind semanticKind) {
 	switch kind {
-	case pluginSemanticFormatting, pluginSemanticRename:
+	case pluginSemanticFormatting, pluginSemanticRangeFormatting, pluginSemanticRename:
 		a.notify(i18n.Shared(a.language(), "desktop.semantics.operationFailed"))
 		if kind == pluginSemanticRename {
 			a.renameAborted()

@@ -33,20 +33,22 @@ const (
 	// features and, with completion, its completionOptions.
 	pluginFeaturesChanged = "featuresChanged"
 	// The semantic operations the editor asks for.
-	pluginSemanticDefinition = "definition"
-	pluginSemanticHover      = "hover"
-	pluginSemanticCompletion = "completion"
-	pluginSemanticReferences = "references"
-	pluginSemanticFormatting = "formatting"
-	pluginSemanticRename     = "rename"
+	pluginSemanticDefinition      = "definition"
+	pluginSemanticHover           = "hover"
+	pluginSemanticCompletion      = "completion"
+	pluginSemanticReferences      = "references"
+	pluginSemanticFormatting      = "formatting"
+	pluginSemanticRangeFormatting = "rangeFormatting"
+	pluginSemanticRename          = "rename"
 	// The LSP methods Core reports on a completed event. They are matched only
 	// against the host's own pending operation, never used to derive a rule.
-	pluginMethodDefinition = "textDocument/definition"
-	pluginMethodHover      = "textDocument/hover"
-	pluginMethodCompletion = "textDocument/completion"
-	pluginMethodReferences = "textDocument/references"
-	pluginMethodFormatting = "textDocument/formatting"
-	pluginMethodRename     = "textDocument/rename"
+	pluginMethodDefinition      = "textDocument/definition"
+	pluginMethodHover           = "textDocument/hover"
+	pluginMethodCompletion      = "textDocument/completion"
+	pluginMethodReferences      = "textDocument/references"
+	pluginMethodFormatting      = "textDocument/formatting"
+	pluginMethodRangeFormatting = "textDocument/rangeFormatting"
+	pluginMethodRename          = "textDocument/rename"
 
 	// semanticStartTimeout bounds one asynchronous request submission. The
 	// request only enters Core's queue, so this is a failure bound, not a wait.
@@ -107,6 +109,8 @@ func (k semanticKind) method() string {
 		return pluginMethodReferences
 	case pluginSemanticFormatting:
 		return pluginMethodFormatting
+	case pluginSemanticRangeFormatting:
+		return pluginMethodRangeFormatting
 	case pluginSemanticRename:
 		return pluginMethodRename
 	default:
@@ -787,7 +791,7 @@ func (a *App) applyPluginSemanticEvent(server *pluginServer, event core.BackendE
 		a.applySemanticHover(pending, event)
 	case pluginSemanticCompletion:
 		a.applySemanticCompletion(pending, event)
-	case pluginSemanticFormatting:
+	case pluginSemanticFormatting, pluginSemanticRangeFormatting:
 		a.applySemanticFormatting(pending, event)
 	case pluginSemanticRename:
 		a.applySemanticRename(pending, event)
@@ -1277,6 +1281,7 @@ func (a *App) closePluginSemantics() {
 	a.cancelSemanticKind(pluginSemanticCompletion)
 	a.cancelSemanticKind(pluginSemanticReferences)
 	a.cancelSemanticKind(pluginSemanticFormatting)
+	a.cancelSemanticKind(pluginSemanticRangeFormatting)
 	if a.semantics.candidate.cancel != nil {
 		a.semantics.candidate.cancel()
 	}

@@ -562,6 +562,61 @@ func TestFormatDocumentAppliesLocalEditsOnUndoStack(t *testing.T) {
 	}
 }
 
+func TestFormatDocumentSendsEditorIndentation(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.h.app.pluginEditShortcut(formatShortcut(f))
+	f.waitForRequests(t, 1)
+	got := f.kernel.request(0)
+	if got.FormattingOptions == nil || got.FormattingOptions.TabSize != 4 || !got.FormattingOptions.InsertSpaces || got.Range != nil {
+		t.Fatalf("format request = %+v options %+v", got, got.FormattingOptions)
+	}
+}
+
+func TestFormatSelectionSendsRangeAndAppliesOnUndoStack(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.d.view.GoToNavigation(0, 0, false)
+	f.d.view.SelectAll()
+	f.h.app.pluginEditShortcut(formatShortcut(f))
+	f.waitForRequests(t, 1)
+	got := f.kernel.request(0)
+	want := core.PluginDocumentRange{Start: core.PluginDocumentPosition{Line: 0, UTF16Column: 0}, End: core.PluginDocumentPosition{Line: 1, UTF16Column: 0}}
+	if got.Operation != pluginSemanticRangeFormatting || got.Range == nil || *got.Range != want || got.FormattingOptions == nil {
+		t.Fatalf("range format request = %+v", got)
+	}
+	f.deliver(t, "op-1", pluginMethodRangeFormatting, formatEditsResult(t, core.PluginTextEdit{
+		Range:   core.PluginDocumentRange{Start: core.PluginDocumentPosition{Line: 0, UTF16Column: 0}, End: core.PluginDocumentPosition{Line: 0, UTF16Column: 3}},
+		NewText: "ONE",
+	}))
+	f.h.settle()
+	if data, _ := f.d.view.Text(); string(data) != "ONE\n" {
+		t.Fatalf("text = %q", data)
+	}
+	if !f.d.view.Undo() {
+		t.Fatal("range formatting is not on the undo stack")
+	}
+	if data, _ := f.d.view.Text(); string(data) != "one\n" {
+		t.Fatalf("undo text = %q", data)
+	}
+}
+
+func TestFormatSelectionDropsAnswerForChangedDocument(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.d.view.SelectAll()
+	f.h.app.pluginEditShortcut(formatShortcut(f))
+	f.waitForRequests(t, 1)
+	if err := f.h.driver.Type("x"); err != nil {
+		t.Fatal(err)
+	}
+	f.deliver(t, "op-1", pluginMethodRangeFormatting, formatEditsResult(t, core.PluginTextEdit{
+		Range:   core.PluginDocumentRange{Start: core.PluginDocumentPosition{Line: 0, UTF16Column: 0}, End: core.PluginDocumentPosition{Line: 0, UTF16Column: 1}},
+		NewText: "Z",
+	}))
+	f.h.settle()
+	if data, _ := f.d.view.Text(); string(data) == "Zne\n" || string(data) == "Z\n" {
+		t.Fatalf("stale range formatting changed the text: %q", data)
+	}
+}
+
 func TestFormatDocumentDropsAnswerForChangedDocument(t *testing.T) {
 	f := newSemanticFixture(t)
 	f.d.view.GoToNavigation(0, 3, false)

@@ -59,6 +59,33 @@ func (v *View) ByteOffset(line, utf16Column int) (int, bool) {
 	return offset, true
 }
 
+// SelectionUTF16 is the selection as zero-based start and end positions with UTF-16
+// columns. The second result is false when nothing is selected.
+func (v *View) SelectionUTF16() (startLine, startColumn, endLine, endColumn int, ok bool) {
+	start, end := v.Selection()
+	if start == end {
+		return 0, 0, 0, 0, false
+	}
+	startLine = v.text.LineOf(start)
+	endLine = v.text.LineOf(end)
+	startColumn = v.utf16Units(v.text.LineStart(startLine), start)
+	endColumn = v.utf16Units(v.text.LineStart(endLine), end)
+	return startLine, startColumn, endLine, endColumn, true
+}
+
+// IndentSettings is the indentation the editor inserts for Tab: the indent unit detected
+// from the document (a tab, or four spaces when spaces lead or nothing indents). A
+// tab-indented document reports the editor's tab stop width as the tab size.
+func (v *View) IndentSettings() (size int, insertSpaces bool) {
+	switch v.indentUnit {
+	case "\t":
+		return tabSize, false
+	case "":
+		return tabSize, true
+	}
+	return len(v.indentUnit), true
+}
+
 // TextSnapshot returns immutable text without copying the document on the UI thread.
 func (v *View) TextSnapshot() rope.Rope { return v.text }
 

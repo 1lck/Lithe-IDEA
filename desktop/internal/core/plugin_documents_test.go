@@ -129,3 +129,24 @@ func TestPluginDocumentIdentityUsesCoreFixture(t *testing.T) {
 		})
 	}
 }
+
+func TestPluginSemanticBodyCarriesRangeFormatting(t *testing.T) {
+	body := pluginSemanticBody{
+		SessionID: "s", Operation: "rangeFormatting", URI: "file:///a.c",
+		Range: &PluginDocumentRange{
+			Start: PluginDocumentPosition{Line: 1, UTF16Column: 0},
+			End:   PluginDocumentPosition{Line: 2, UTF16Column: 3},
+		},
+		FormattingOptions: &FormattingOptions{TabSize: 2, InsertSpaces: false},
+	}
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"sessionId":"s","operation":"rangeFormatting","uri":"file:///a.c",` +
+		`"range":{"start":{"line":1,"utf16Column":0},"end":{"line":2,"utf16Column":3}},` +
+		`"formattingOptions":{"tabSize":2,"insertSpaces":false}}`
+	if string(encoded) != want {
+		t.Fatalf("body = %s", encoded)
+	}
+}

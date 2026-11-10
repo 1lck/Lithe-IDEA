@@ -104,6 +104,21 @@ type PluginSemanticRequest struct {
 	CompletionContext json.RawMessage
 	// NewName is the rename operation's replacement identifier.
 	NewName string
+	// Range is the range rangeFormatting formats; Core requires it for that operation.
+	Range *PluginDocumentRange
+	// FormattingOptions is optional for formatting and rangeFormatting; Core fills unset
+	// fields with its defaults.
+	FormattingOptions *FormattingOptions
+}
+
+// FormattingOptions is the LSP FormattingOptions Core accepts on formatting and
+// rangeFormatting. TabSize must be 1-1024; a nil boolean keeps Core's default.
+type FormattingOptions struct {
+	TabSize                int   `json:"tabSize"`
+	InsertSpaces           bool  `json:"insertSpaces"`
+	TrimTrailingWhitespace *bool `json:"trimTrailingWhitespace,omitempty"`
+	InsertFinalNewline     *bool `json:"insertFinalNewline,omitempty"`
+	TrimFinalNewlines      *bool `json:"trimFinalNewlines,omitempty"`
 }
 
 // PluginDocumentURI asks Core to convert a native absolute path into the
@@ -125,17 +140,26 @@ func (c *Client) PluginDocumentURI(ctx context.Context, path, platform string) (
 	return response.URI, nil
 }
 
+// pluginSemanticBody is the lsp.request payload.
+type pluginSemanticBody struct {
+	SessionID         string                  `json:"sessionId"`
+	Operation         string                  `json:"operation"`
+	URI               string                  `json:"uri,omitempty"`
+	Position          *PluginDocumentPosition `json:"position,omitempty"`
+	CompletionContext json.RawMessage         `json:"completionContext,omitempty"`
+	NewName           string                  `json:"newName,omitempty"`
+	Range             *PluginDocumentRange    `json:"range,omitempty"`
+	FormattingOptions *FormattingOptions      `json:"formattingOptions,omitempty"`
+}
+
 // RequestPluginSemantics submits a semantic request and returns Core's opaque
 // operation ID. Completion and results arrive in the session's ordered events.
 func (c *Client) RequestPluginSemantics(ctx context.Context, request PluginSemanticRequest) (string, error) {
-	body := struct {
-		SessionID         string                  `json:"sessionId"`
-		Operation         string                  `json:"operation"`
-		URI               string                  `json:"uri,omitempty"`
-		Position          *PluginDocumentPosition `json:"position,omitempty"`
-		CompletionContext json.RawMessage         `json:"completionContext,omitempty"`
-		NewName           string                  `json:"newName,omitempty"`
-	}{request.SessionID, request.Operation, request.URI, request.Position, request.CompletionContext, request.NewName}
+	body := pluginSemanticBody{
+		SessionID: request.SessionID, Operation: request.Operation, URI: request.URI,
+		Position: request.Position, CompletionContext: request.CompletionContext, NewName: request.NewName,
+		Range: request.Range, FormattingOptions: request.FormattingOptions,
+	}
 	var response struct {
 		OperationID string `json:"operationId"`
 	}
