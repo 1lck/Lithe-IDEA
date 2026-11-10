@@ -57,8 +57,12 @@ func TestValidateRefusesBrokenValidator(t *testing.T) {
 
 func TestDeclaredServesLanguagesAndBaseLanguageServers(t *testing.T) {
 	declared := Declared()
-	if len(declared) != 9 {
+	if len(declared) != 10 {
 		t.Fatalf("declared = %v", declared)
+	}
+	// The New Project window serves generators and, with version 2, tool fields.
+	if versions := declared["projectGenerators"]; len(versions) != 2 || versions[0] != 1 || versions[1] != 2 {
+		t.Fatalf("projectGenerators = %v", versions)
 	}
 	// Tool definitions are resolved through the shared Core resolver for settings
 	// and for Build/Run selection. Provider queries are not wired, so

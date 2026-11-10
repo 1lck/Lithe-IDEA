@@ -40,7 +40,7 @@ func TestJavaSupportManifestOnlyLacksOtherLanesCapabilities(t *testing.T) {
 		_, err := core.NewClient().ValidatePluginManifest(ctx, manifest, capabilities.Clone())
 		if err == nil {
 			sort.Strings(missing)
-			want := []string{"debugAdapters 3", "outputLinkMatchers 1", "projectGenerators 1", "settings 2"}
+			want := []string{"debugAdapters 3", "outputLinkMatchers 1", "settings 2"}
 			if !reflect.DeepEqual(missing, want) {
 				t.Fatalf("missing capabilities = %v, want %v", missing, want)
 			}

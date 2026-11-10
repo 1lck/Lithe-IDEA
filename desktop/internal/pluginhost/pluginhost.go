@@ -118,6 +118,11 @@ func Declared() Capabilities {
 		// rather than admitting a backend whose answers this client cannot read.
 		"executableResolution": {2},
 		"toolDefinitions":      {1},
+		// The New Project window lists plugin generators, evaluates their forms
+		// through Core, discovers tool and runtime installations with the shared
+		// toolchain, and runs the plan (files, commands, archives) in a staging
+		// directory. Version 2 adds tool fields.
+		"projectGenerators": {1, 2},
 	}
 }
 

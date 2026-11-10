@@ -101562,6 +101562,184 @@
       ]
     },
     {
+      "id": "desktop.newProject.generators",
+      "description": "Desktop new project: generators",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.advanced",
+      "description": "Desktop new project: advanced",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.none",
+      "description": "Desktop new project: none",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.output",
+      "description": "Desktop new project: output",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.tooOld",
+      "description": "Desktop new project: tooOld",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.noInstallation",
+      "description": "Desktop new project: noInstallation",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.toolsFailed",
+      "description": "Desktop new project: toolsFailed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.requiresPlugin",
+      "description": "Desktop new project: requiresPlugin",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.newProject.findPlugin",
+      "description": "Desktop new project: findPlugin",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.usesNetwork",
+      "description": "Desktop new project: usesNetwork",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.stepProgress",
+      "description": "Desktop new project: stepProgress",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "step": "string",
+        "total": "string"
+      }
+    },
+    {
+      "id": "desktop.newProject.commandMissing",
+      "description": "Desktop new project: commandMissing",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "command": "string"
+      }
+    },
+    {
+      "id": "desktop.newProject.commandFailed",
+      "description": "Desktop new project: commandFailed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.timedOut",
+      "description": "Desktop new project: timedOut",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.downloadFailed",
+      "description": "Desktop new project: downloadFailed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.archiveInvalid",
+      "description": "Desktop new project: archiveInvalid",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.pinFailed",
+      "description": "Desktop new project: pinFailed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.problem.required",
+      "description": "Desktop new project: problem.required",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.problem.tooLong",
+      "description": "Desktop new project: problem.tooLong",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.problem.invalidFormat",
+      "description": "Desktop new project: problem.invalidFormat",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.problem.unsupportedValue",
+      "description": "Desktop new project: problem.unsupportedValue",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.problem.runtimeTooOld",
+      "description": "Desktop new project: problem.runtimeTooOld",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.problem.toolTooOld",
+      "description": "Desktop new project: problem.toolTooOld",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.newProject.problem.versionTooHigh",
+      "description": "Desktop new project: problem.versionTooHigh",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.build.pluginsUnavailable",
       "description": "Build plugins are unavailable in this window.",
       "platforms": [

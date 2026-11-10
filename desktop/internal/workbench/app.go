@@ -37,6 +37,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugindiag"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/projectgen"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/windowcontrols"
@@ -101,6 +102,10 @@ type Kernel interface {
 	GitStage(ctx context.Context, root string, paths []string) error
 	GitClone(ctx context.Context, root, source, destination string) error
 	CheckProjectName(context.Context, string) (core.ProjectNameProblem, error)
+	ProjectGeneratorCatalogOf(context.Context, []core.ProjectGeneratorPlugin) (core.ProjectGeneratorCatalog, error)
+	ProjectGeneratorFormOf(context.Context, json.RawMessage, string, core.ProjectGeneratorFormInput) (core.ProjectGeneratorForm, error)
+	ProjectGenerationPlanOf(context.Context, json.RawMessage, string, string, core.ProjectGeneratorFormInput) (core.ProjectGenerationPlan, error)
+	ExtractProjectArchive(context.Context, string, string) (int, error)
 	InitializeGit(context.Context, string) error
 	GitUnstage(ctx context.Context, root string, paths []string) error
 	GitStageAll(ctx context.Context, root string) error
@@ -304,7 +309,15 @@ type App struct {
 	welcome    welcomeState
 	clone      cloneState
 	newProject newProjectState
-	recent     []core.RecentProject
+	// generatorPlugins, projectToolLists and projectCommand replace the plugin
+	// service, the toolchain discovery and the PATH lookup the New Project window
+	// uses; tests set them.
+	generatorPlugins func(context.Context) ([]pluginservice.GeneratorPlugin, error)
+	projectToolLists func(context.Context, []string) (map[string]toolList, error)
+	projectCommand   func(context.Context, string) (projectgen.Command, error)
+	// pendingOpen is what a generator asked to open once its project is open.
+	pendingOpen pendingOpenFiles
+	recent      []core.RecentProject
 	// missing marks recent projects whose folder was gone when the list last changed.
 	missing map[string]bool
 
@@ -509,7 +522,7 @@ func (a *App) systemAppearanceChanged() {
 // Config is the window's configuration.
 func (a *App) Config() app.Config {
 	a.subscribeSettings()
-	a.fields = ui.Fields(&a.welcome.search, &a.clone.source, &a.clone.parent, &a.clone.name, &a.newProject.name, &a.newProject.parent, &a.newProject.search, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField, &a.searchView.query, &a.searchView.mask, &a.everywhereView.query,
+	a.fields = ui.Fields(&a.welcome.search, &a.clone.source, &a.clone.parent, &a.clone.name, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField, &a.searchView.query, &a.searchView.mask, &a.everywhereView.query,
 		&a.branch.search, &a.branch.name, &a.branch.revision, &a.navigation.input)
 	return app.Config{
 		Title:          a.text.App.Name,
@@ -692,6 +705,9 @@ func (a *App) drawNotice(f *ui.Frame) {
 }
 
 func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
+	if result, ok := a.newProjectPointer(event); ok {
+		return result
+	}
 	// A semantic popup or request belongs to the caret and symbol it was opened
 	// at; any pointer work that moved either closes it before the frame paints.
 	defer a.pluginSemanticsCaretSync()
@@ -725,6 +741,9 @@ func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
 }
 
 func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
+	if result, ok := a.newProjectKey(event); ok {
+		return result
+	}
 	// A semantic request belongs to the caret it was placed at. Every key path
 	// ends here, so one sync covers arrows, edits and commands.
 	defer a.pluginSemanticsCaretSync()
@@ -814,11 +833,8 @@ func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
 // to the terminal that has the keyboard: Control-C and the other chords of the shell arrive
 // here, not in onKey.
 func (a *App) onShortcut(event gfx.KeyEvent) gfx.EventResult {
-	if a.newProject.open {
-		if event.Target == newProjectName || event.Target == newProjectParent || event.Target == newProjectSearch {
-			return gfx.EventResult{}
-		}
-		return gfx.EventResult{Handled: true}
+	if result, ok := a.newProjectShortcut(event); ok {
+		return result
 	}
 	if a.clone.open {
 		if event.Target == cloneSource || event.Target == cloneParent || event.Target == cloneName {
@@ -1076,6 +1092,7 @@ func (a *App) openProject(path string) {
 		a.loadGit(p)
 		a.loadLog(p)
 		a.activatePluginWorkspace(root)
+		a.openPendingFiles(p)
 	})
 }
 

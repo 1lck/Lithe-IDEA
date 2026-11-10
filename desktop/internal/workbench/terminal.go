@@ -110,6 +110,9 @@ func (a *App) terminalPointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 // areas do not, and any wheel over an editor group's strip of tabs that does not fit scrolls
 // the strip; anything else scrolls the view under the pointer.
 func (a *App) onScroll(event gfx.ScrollEvent) gfx.EventResult {
+	if result, ok := a.newProjectWheel(event); ok {
+		return result
+	}
 	if t := a.focusedTerminal(event.Target); t != nil {
 		if result, ok := t.Scroll(event); ok {
 			return result
@@ -142,6 +145,9 @@ func (a *App) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 // other control is a field the window declared, or the message box of the Commit tool
 // window, whose editor is the open project's.
 func (a *App) textInput(ctx app.TextInputContext) *app.TextInput {
+	if input := a.newProjectTextInput(ctx); input != nil {
+		return input
+	}
 	if t := a.focusedTerminal(ctx.ID); t != nil {
 		return t.TextInput(ctx)
 	}

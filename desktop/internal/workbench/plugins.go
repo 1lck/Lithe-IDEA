@@ -80,6 +80,10 @@ func (a *App) refreshPluginState() {
 			}
 			previous := a.pluginState.Load()
 			changed := previous == nil || !maps.Equal(*previous, states)
+			if changed {
+				// An open New Project window lists the generators again.
+				a.newProject.revision++
+			}
 			a.pluginState.Store(&states)
 			if changed && a.settingsWindow != nil {
 				a.settingsWindow.PluginRegistryChanged()
