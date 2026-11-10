@@ -1358,8 +1358,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `workspace.replacePreview` | Return deterministic replacement lines and complete replacement text |
 | `workspace.replaceText` | Plan replacement against a host-captured text snapshot without writing |
 | `workspace.searchTextBatch` | Search provider-captured text snapshots using workspace matching rules |
-| `file.read` | Read a UTF-8 file using a workspace-relative path |
-| `file.write` | Write a UTF-8 file using a workspace-relative path |
+| `file.read` | Read a text file using a workspace-relative path; optional `encoding`, see [File encodings](#file-encodings) |
+| `file.write` | Write a text file using a workspace-relative path; optional `encoding` and `bom` |
 | `document.lifecycle` | Reduce a shared document save, external-change, or conflict event without reading text or disk |
 | `document.planSaveBatch` | Select the open documents a Save All or save-before-launch batch writes |
 | `document.reduceSaveBatch` | Reduce save batch member outcomes and live documents into one batch status |
@@ -4049,7 +4049,7 @@ explicit `plugin.function.*` error.
 the operation-specific URI, position, range, diagnostics, item, action, or
 command fields, and returns `{ operationId }`. Supported operations include
 completion and resolve, hover, definition/declaration/type-definition, references,
-implementation, rename, formatting, range formatting, code actions and resolve, execute command,
+implementation, rename, formatting, range formatting, document symbols, code actions and resolve, execute command,
 inlay hints, full-document semantic tokens, folding ranges, code lens, provider
 virtual documents, `javaEntrypoints`, `javaTestItems`, and `javaMainMethods`.
 For code actions, `diagnostics` contains the original `LspClientDiagnostic`
@@ -5994,6 +5994,31 @@ The `featuresChanged` event carries `completionOptions:
 change them. Hosts use it, not a hard-coded list, to send
 `completionContext.triggerKind = 2`.
 
+Operation `documentSymbols` (`textDocument/documentSymbol`) needs only the
+document `uri` and is offered, as the `documentSymbols` feature, when the server
+declares `documentSymbolProvider` (statically or by dynamic registration). Core
+advertises `hierarchicalDocumentSymbolSupport`. The result is
+`{ symbols: DocumentSymbolNode[] }`, always a tree of one shape whichever form
+the server answered with:
+
+```json
+{ "name": "Foo", "detail": null, "kind": 5, "tags": [], "deprecated": false,
+  "range": { "start": { "line": 0, "utf16Column": 0 }, "end": { "line": 9, "utf16Column": 1 } },
+  "selectionRange": { "start": { "line": 0, "utf16Column": 6 }, "end": { "line": 0, "utf16Column": 9 } },
+  "containerName": null, "children": [] }
+```
+
+`kind` is the LSP `SymbolKind` integer. Positions use the same zero-based
+`line` / `utf16Column` coordinates as every other Core result. Conversion rules:
+a hierarchical `DocumentSymbol[]` keeps its tree (`children` normalized
+recursively; a missing `selectionRange` falls back to `range`); a flat
+`SymbolInformation[]` (recognized per item by `location`) becomes childless
+symbols whose `range` and `selectionRange` are both `location.range` and whose
+`containerName` is kept as a hint, since Core does not infer a hierarchy from
+names. `deprecated` is true for the legacy `deprecated` flag or tag `1`. Items
+lacking `name`, `kind` or a range are dropped; a `null` or non-array result
+returns `symbols: []`. Fixture: `shared/fixtures/lsp/document-symbols-v1.json`.
+
 Completion requests accept optional `completionContext` with LSP `triggerKind`
 (`1` invoked, `2` trigger character, `3` incomplete-list refresh) and
 `triggerCharacter` (required and one character for kind `2`). Missing context
@@ -6188,6 +6213,48 @@ and real staging checkboxes. The native products must not duplicate planning or 
 See `shared/fixtures/git/workspace-commit-v1.json` for primitive payloads and
 `shared/fixtures/git/workspace-commit-workflow-v1.json` for the complete planning
 and continuation fixture consumed by Rust, Swift, TypeScript and Tauri adapter tests.
+
+### File encodings
+
+`file.read` and `file.write` accept optional encoding fields; payloads without
+them behave as before (plain UTF-8), with the differences noted below. The
+encoding rules are shared by macOS and Windows and mirror the native clients'
+former implementations; codec tables come from `encoding_rs`.
+
+Encoding ids (case-insensitive; aliases in parentheses): `utf-8` (`utf8`),
+`utf-8-bom`, `utf-16le-bom`, `utf-16be-bom`, `utf-16le`, `utf-16be`, `gbk`
+(`cp936`), `gb18030`, `big5` (`cp950`), `shift-jis` (`shift_jis`), `euc-jp`,
+`euc-kr` (`cp949`), `windows-1250`, `windows-1251`, `windows-1252`
+(`cp1252`, `iso-8859-1`, `latin1`; ISO-8859-1 resolves to Windows-1252 as in the
+WHATWG standard) and `koi8-r`. An unknown id returns `invalid_request` listing
+the supported ids. Responses always use the stable id.
+
+`file.read` takes optional `encoding`. Without it Core detects: UTF-8 BOM,
+UTF-16 LE BOM (unless the bytes start with the UTF-32 LE mark `FF FE 00 00`),
+UTF-16 BE BOM, valid UTF-8, then GB18030, reported as `gbk` when the text
+re-encodes to the identical bytes. Detection is strict: bytes valid in none of
+these (or malformed UTF-16, such as a lone surrogate or odd length) return
+`parse_failed`. With an explicit `encoding`, Core decodes through that codec and
+replaces invalid sequences with U+FFFD (`lossy: true`), so a wrong choice is
+visible; this is the "reopen with encoding" path. The result is
+`{ path, text, encoding, hasBom, lossy, identity }`: `hasBom` says a leading BOM
+was present and removed from `text` (plain `utf-8` also strips a UTF-8 BOM);
+`identity` is the SHA-256 hex of the exact bytes read, for external-change
+checks. The existing size limit and plain-text check still apply to the decoded
+text. Compatibility: a UTF-8 BOM file previously returned `text` beginning with
+U+FEFF and files in other encodings failed with `parse_failed`; they now decode
+and report their encoding.
+
+`file.write` takes optional `encoding` (default `utf-8`) and `bom`. The `-bom`
+ids write their BOM; `bom: true|false` overrides that for the Unicode encodings
+(`utf-8`, `utf-16le`, `utf-16be` and the `-bom` ids); `bom: true` with a legacy
+encoding is `invalid_request`. Text is encoded before the file system is
+touched. A character the encoding cannot represent fails with error code
+`encoding_unmappable`, whose `details` read `encoding=<id>; scalarOffset=<n>;
+codePoint=U+XXXX` for the first offending scalar; nothing is written and no
+replacement character is substituted. The result is `{ path, bytesWritten,
+encoding, hasBom, identity }`, where `bytesWritten` is the encoded length
+including any BOM. Fixture: `shared/fixtures/editor/file-encoding-v1.json`.
 
 ### Decoded document text classification
 
