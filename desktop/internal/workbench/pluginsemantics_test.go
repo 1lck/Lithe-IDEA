@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginlsp"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
@@ -360,5 +361,52 @@ func TestCompletionSnippetIsConvertedByCore(t *testing.T) {
 	data, _ := f.d.view.Text()
 	if string(data) != "call(arg)\n" {
 		t.Fatalf("text = %q, want Core's plain snippet", string(data))
+	}
+}
+
+func TestTypingIdentifierStartsDebouncedCompletion(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.h.app.semantics.autoDelay = -1
+	f.d.view.GoToNavigation(0, 3, false)
+	if err := f.h.driver.Type("x"); err != nil {
+		t.Fatal(err)
+	}
+	f.waitForRequests(t, 1)
+	request := f.kernel.request(0)
+	if request.Operation != pluginSemanticCompletion || string(request.CompletionContext) != `{"triggerKind":1}` {
+		t.Fatalf("auto completion request = %+v", request)
+	}
+	f.deliver(t, "op-1", pluginMethodCompletion, completionResult(t, core.PluginSemanticCompletionItem{Label: "onex"}))
+	if !f.h.app.semantics.completion.open {
+		t.Fatal("the automatic completion list did not open")
+	}
+}
+
+func TestTypingMemberAccessSendsTriggerCharacter(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.h.app.semantics.autoDelay = -1
+	f.d.view.GoToNavigation(0, 3, false)
+	if err := f.h.driver.Type("."); err != nil {
+		t.Fatal(err)
+	}
+	f.waitForRequests(t, 1)
+	if got := string(f.kernel.request(0).CompletionContext); got != `{"triggerKind":2,"triggerCharacter":"."}` {
+		t.Fatalf("trigger context = %s", got)
+	}
+}
+
+func TestAutoCompletionIgnoresPasteAndStaleCaret(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.h.app.semantics.autoDelay = -1
+	f.d.view.GoToNavigation(0, 3, false)
+	if err := f.h.driver.Type("abc"); err != nil {
+		t.Fatal(err)
+	}
+	f.h.settle()
+	if got := f.kernel.requestCount(); got != 0 {
+		t.Fatalf("multi-character input requested completion %d times", got)
+	}
+	if _, ok := autoCompletionContext(editorview.Edit{Text: " "}); ok {
+		t.Fatal("a space must not trigger completion")
 	}
 }

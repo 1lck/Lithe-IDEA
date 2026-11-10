@@ -82,6 +82,7 @@ func (a *App) documentEdited(p *project, d *document, edit editorview.Edit) {
 	// A definition or completion answer describes the text the trigger saw.
 	// Keeping it after an edit would apply or jump from stale positions.
 	a.pluginSemanticsEdited(d)
+	a.scheduleAutoCompletion(p, d, edit)
 	s := &d.sync
 	if s.full || len(s.pending) >= maxPendingDocumentChanges {
 		s.full, s.pending = true, nil

@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strconv"
 	"time"
+	"unicode"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
@@ -70,6 +71,9 @@ const (
 	// semanticHoverDelay is how long the pointer rests on a symbol before the
 	// hover request starts. Negative lets tests exercise it without a clock wait.
 	semanticHoverDelay = 500 * time.Millisecond
+	// semanticAutoCompletionDelay is the typing pause before automatic
+	// completion asks. Negative lets tests skip the clock wait.
+	semanticAutoCompletionDelay = 120 * time.Millisecond
 )
 
 var (
@@ -169,6 +173,12 @@ type pluginSemantics struct {
 	hover      hoverState
 	candidate  hoverCandidate
 	hoverDelay time.Duration
+	// autoDelay and autoCancel debounce automatic completion while typing.
+	autoDelay  time.Duration
+	autoCancel context.CancelFunc
+	// autoGeneration names the newest debounce; an older wait that already
+	// fired is ignored.
+	autoGeneration uint64
 }
 
 // pluginSemanticHit is the open document whose text is id.
@@ -507,17 +517,30 @@ func (a *App) startPluginHover(p *project, d *document, line, column int, anchor
 
 // startPluginCompletion asks for an explicit completion list.
 func (a *App) startPluginCompletion(p *project, d *document, line, column int) {
+	a.requestPluginCompletion(p, d, line, column, completionTriggerContext(), false)
+}
+
+// requestPluginCompletion asks for a completion list with the given LSP trigger
+// context. An automatic request (typing) is dropped instead of deferred when
+// the caret has moved on, so a slow synchronization never opens a stale list.
+func (a *App) requestPluginCompletion(p *project, d *document, line, column int, triggerContext json.RawMessage, automatic bool) {
 	if a.plugins == nil || p == nil || d == nil || a.project != p {
 		return
 	}
 	if d.view.IsComposing() {
 		return
 	}
+	if automatic {
+		if caretLine, caretColumn := d.view.CaretUTF16(); caretLine != line || caretColumn != column {
+			return
+		}
+	}
 	a.closeSemanticHover()
 	a.closeSemanticDefinition()
 	a.closeSemanticCompletion()
+	retry := func(a *App) { a.requestPluginCompletion(p, d, line, column, triggerContext, automatic) }
 	if !a.semanticDocumentReady(d) {
-		a.deferSemantic(p, d, func(a *App) { a.startPluginCompletion(p, d, line, column) })
+		a.deferSemantic(p, d, retry)
 		a.startDocumentSync(p, d)
 		return
 	}
@@ -526,7 +549,7 @@ func (a *App) startPluginCompletion(p *project, d *document, line, column int) {
 		return
 	}
 	if !server.isReady() {
-		a.deferSemantic(p, d, func(a *App) { a.startPluginCompletion(p, d, line, column) })
+		a.deferSemantic(p, d, retry)
 		return
 	}
 	position := core.PluginDocumentPosition{Line: line, UTF16Column: column}
@@ -537,9 +560,77 @@ func (a *App) startPluginCompletion(p *project, d *document, line, column int) {
 		Operation:         pluginSemanticCompletion,
 		URI:               d.sync.uri,
 		Position:          &position,
-		CompletionContext: completionTriggerContext(),
+		CompletionContext: triggerContext,
 	}
 	a.submitSemantic(pending, request)
+}
+
+// autoCompletionContext decides whether one edit is typing that should open
+// completion: a single inserted identifier character asks for the invoked list,
+// and a member-access punctuation character asks as a trigger character.
+// Core exposes no server trigger-character list yet, so the punctuation set is
+// the common member-access one rather than the server's declared set.
+func autoCompletionContext(edit editorview.Edit) (json.RawMessage, bool) {
+	if edit.StartLine != edit.EndLine || edit.StartColumn != edit.EndColumn {
+		return nil, false
+	}
+	runes := []rune(edit.Text)
+	if len(runes) != 1 {
+		return nil, false
+	}
+	r := runes[0]
+	switch {
+	case r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r):
+		return completionTriggerContext(), true
+	case r == '.' || r == ':' || r == '>':
+		return json.RawMessage(`{"triggerKind":2,"triggerCharacter":"` + string(r) + `"}`), true
+	}
+	return nil, false
+}
+
+// scheduleAutoCompletion starts the debounce for one typed character. Each new
+// edit cancels the previous wait, and the request is placed only if the caret
+// is still where typing left it.
+func (a *App) scheduleAutoCompletion(p *project, d *document, edit editorview.Edit) {
+	if a.semantics.autoCancel != nil {
+		a.semantics.autoCancel()
+		a.semantics.autoCancel = nil
+	}
+	trigger, ok := autoCompletionContext(edit)
+	if !ok || a.plugins == nil || a.project != p || d.view.IsComposing() {
+		return
+	}
+	if _, ok := a.semanticServer(d); !ok {
+		return
+	}
+	line, column := d.view.CaretUTF16()
+	delay := a.semantics.autoDelay
+	if delay == 0 {
+		delay = semanticAutoCompletionDelay
+	}
+	ctx, cancel := context.WithCancel(p.ctx)
+	a.semantics.autoCancel = cancel
+	a.semantics.autoGeneration++
+	generation := a.semantics.autoGeneration
+	a.background(p, 0, func(context.Context) func(*App) {
+		defer cancel()
+		if delay > 0 {
+			timer := time.NewTimer(delay)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				// log-exempt: 用户取消：继续输入、切换文档或关闭项目会取消防抖等待。
+				return nil
+			}
+		}
+		return func(a *App) {
+			if a.semantics.autoGeneration != generation {
+				return
+			}
+			a.requestPluginCompletion(p, d, line, column, trigger, true)
+		}
+	})
 }
 
 // completionTriggerContext asks the server for an explicit invocation. Core
@@ -1079,6 +1170,7 @@ func (a *App) pluginSemanticsReset() {
 	a.semantics.project = nil
 	a.semantics.documentID = 0
 	a.semantics.hoverDelay = 0
+	a.semantics.autoDelay = 0
 }
 
 func (a *App) closePluginSemantics() {
@@ -1092,6 +1184,11 @@ func (a *App) closePluginSemantics() {
 		a.semantics.candidate.cancel()
 	}
 	a.semantics.candidate = hoverCandidate{}
+	if a.semantics.autoCancel != nil {
+		a.semantics.autoCancel()
+		a.semantics.autoCancel = nil
+	}
+	a.semantics.autoGeneration++
 }
 
 func (a *App) closeSemanticCompletion() {
