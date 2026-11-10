@@ -36,6 +36,7 @@ func (t *fileTree) describe(i int) ui.TreeNode {
 // time the tree is shown.
 func (a *App) projectTree(c ui.C, p *project) {
 	t := &p.tree
+	a.treePromptDialog(c, p)
 	if t.wake == nil {
 		t.wake = a.invalidator.Invalidate
 		t.view.Node = t.describe
@@ -177,7 +178,7 @@ func (a *App) drawTreeContent(c ui.C, p *project, n *treeNode) {
 	if n == p.tree.root {
 		name.Bold()
 	}
-	a.agentTreeMenu(c, p, n, name)
+	a.projectTreeMenu(c, p, n, name)
 }
 
 // focusTreeRow gives the keyboard to the row the locate button brought into view, once the row

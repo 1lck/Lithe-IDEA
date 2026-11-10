@@ -236,6 +236,9 @@ func (a *App) finishGitObservation(p *project, events []core.GitMetadataEvent, e
 	}
 	if scope.history {
 		o.revision++
+		// The blame of a saved file follows HEAD: a commit, checkout or ref move changes it,
+		// while an index write does not.
+		a.refreshInlineBlames(p)
 	}
 	if scope.status {
 		a.loadGit(p)

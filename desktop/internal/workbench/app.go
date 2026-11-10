@@ -199,6 +199,10 @@ type settings struct {
 	MarketplaceWidth float32     `json:"marketplaceWidth,omitempty"`
 	// HideMinimap hides the minimap of every editor; the editors show it by default.
 	HideMinimap bool `json:"hideMinimap,omitempty"`
+	// HideGitGutter hides the Git change markers of the editor gutter; they show by default.
+	HideGitGutter bool `json:"hideGitGutter,omitempty"`
+	// InlineGitBlame shows the blame of the caret line after its text; off by default.
+	InlineGitBlame bool `json:"inlineGitBlame,omitempty"`
 	// EditorTabRows and EditorTabOverflow say how an editor group lays out tabs that do not
 	// fit in one row, as settingswindow.Values does; see App.tabLayout.
 	EditorTabRows     string `json:"editorTabRows,omitempty"`
@@ -255,6 +259,8 @@ type project struct {
 	agent agentState
 	// review holds the Git review dialogs: Diff, Push, stashes, worktrees and annotations.
 	review gitReview
+	// blame is the commit subjects the inline blame annotations show, kept per project.
+	blame gitBlameSubjects
 	// observe is the watch of the repository's Git metadata (see git_observation.go).
 	observe gitObservation
 }

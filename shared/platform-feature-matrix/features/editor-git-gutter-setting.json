@@ -4,17 +4,27 @@
   "group": "Git 变更",
   "capability": "设置中开关编辑器 Git 变更标记",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
+      "desktop/internal/workbench/git_gutter.go",
+      "desktop/internal/editorview/gutter.go",
+      "desktop/internal/workbench/editor_view.go",
+      "desktop/internal/settingswindow/version_control_view.go",
+      "desktop/internal/settingswindow/controller.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
+      "desktop/internal/workbench/git_gutter.go",
+      "desktop/internal/editorview/gutter.go",
+      "desktop/internal/workbench/editor_view.go",
+      "desktop/internal/settingswindow/version_control_view.go",
+      "desktop/internal/settingswindow/controller.go"
     ]
   },
   "owner": "Editor / Git",
@@ -38,5 +48,5 @@
       ]
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：设置 › 版本控制提供“显示 Git 变更标记”开关，默认开；切换立即应用到所有打开文件，选择写入窗口设置并在重启后保留。"
 }

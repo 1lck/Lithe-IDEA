@@ -4,17 +4,27 @@
   "group": "Git 变更",
   "capability": "编辑器 Git 行变更标记、点击预览与变更导航",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
+      "desktop/internal/workbench/git_gutter.go",
+      "desktop/internal/editorview/gutter.go",
+      "desktop/internal/workbench/editor_view.go",
+      "desktop/internal/workbench/gitreview.go",
+      "desktop/internal/workbench/git_gutter_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
+      "desktop/internal/workbench/git_gutter.go",
+      "desktop/internal/editorview/gutter.go",
+      "desktop/internal/workbench/editor_view.go",
+      "desktop/internal/workbench/gitreview.go",
+      "desktop/internal/workbench/git_gutter_test.go"
     ]
   },
   "owner": "Editor / Git",
@@ -39,5 +49,5 @@
       ]
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：行号区按 Core 的 git.diff 分组绘制新增/修改/删除标记，点击打开气泡显示被替换的原文并提供暂存与在 Diff 中回退；尚未做标记间的上/下一处跳转。markers 在打开、保存和 Git 状态刷新后实时重读，背景读取失败保留旧标记。"
 }

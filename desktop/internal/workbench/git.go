@@ -30,7 +30,12 @@ func (a *App) loadGit(p *project) {
 			p.git = gitState{loaded: true, status: status, err: err}
 			if err != nil {
 				a.notify(a.text.Git.Failed(err.Error()))
+				return
 			}
+			// The markers and the inline blame describe the file against the index and
+			// HEAD, so a new status can change both.
+			a.refreshGitGutters(p)
+			a.refreshInlineBlames(p)
 		}
 	})
 }

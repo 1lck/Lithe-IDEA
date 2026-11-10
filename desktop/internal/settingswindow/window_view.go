@@ -210,6 +210,8 @@ func (w *window) content(c ui.C) {
 			w.skillsPage(c)
 		case w.sess.page == pageAIHooks:
 			w.hooksPage(c)
+		case w.sess.page == pageVersionControl:
+			w.versionControlPage(c)
 		case w.sess.page == pageMCP && w.ctrl.opts.MCP != nil:
 			w.mcpPage(c)
 		default:

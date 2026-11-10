@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/vivaui/viva/gfx"
-	"github.com/vivaui/viva/ui"
 )
 
 // File references are user-selected context for the next message. Core's prompt
@@ -81,22 +80,6 @@ func (a *App) removeAgentFile(p *project, index int) {
 		return
 	}
 	p.agent.files = append(p.agent.files[:index:index], p.agent.files[index+1:]...)
-}
-
-// agentTreeMenu gives a tree row the "Add to Agent conversation" item. The file becomes a
-// reference in the next message's draft; nothing is sent or read.
-func (a *App) agentTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
-	if n == p.tree.root || !a.agentKernelReady() {
-		return
-	}
-	path := filepath.Join(p.root, filepath.FromSlash(n.path))
-	label := a.text.Agent.Activity.AddToAgent
-	target.Hit(ui.ID(c.Key("agentctx/"+n.path)), n.name)
-	ui.ContextMenu(c, target, func(menu *ui.MenuItems) {
-		if menu.Item(label).Clicked() {
-			c.After(func() { a.addAgentFiles(p, []string{path}) })
-		}
-	})
 }
 
 // agentFileDrop attaches files dropped on the composer. The drop must land inside the

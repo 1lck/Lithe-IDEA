@@ -9,7 +9,11 @@
     "evidence": [
       ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
       "desktop/internal/core/git_untracked.go",
-      "desktop/internal/workbench/gitreview_actions.go"
+      "desktop/internal/workbench/gitreview_actions.go",
+      "desktop/internal/workbench/filetree_menu.go",
+      "desktop/internal/workbench/filetree_view.go",
+      "desktop/internal/workbench/git_gutter.go",
+      "desktop/internal/workbench/commit.go"
     ]
   },
   "windows": {
@@ -18,7 +22,11 @@
     "evidence": [
       ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
       "desktop/internal/core/git_untracked.go",
-      "desktop/internal/workbench/gitreview_actions.go"
+      "desktop/internal/workbench/gitreview_actions.go",
+      "desktop/internal/workbench/filetree_menu.go",
+      "desktop/internal/workbench/filetree_view.go",
+      "desktop/internal/workbench/git_gutter.go",
+      "desktop/internal/workbench/commit.go"
     ]
   },
   "owner": "Git",
@@ -42,5 +50,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：Commit 面板的变更行右键/双击接入 Core 封装，对话框已实现；见 desktop/internal/workbench/gitreview*.go。未覆盖项见 PR 描述。"
+  "notes": "Viva：项目树行右键菜单提供 Show Git Diff、Stage/Unstage（按 Core 的最后一次状态），以及新建文件/目录、重命名、删除、复制路径、在文件管理器中显示与刷新。目录右键的“打开所属仓库变更面板”和“Stage and Open Commit…”尚未实现；Agent 附件项并入同一菜单。"
 }

@@ -3,6 +3,7 @@ package workbench
 import (
 	"strconv"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -140,6 +141,7 @@ func (a *App) documentView(c ui.C, group string, d *document) {
 	ui.FocusBind(box, &a.focus, focusTarget{doc: d.id})
 	if p := a.project; p != nil && !d.virtual {
 		ui.ContextMenu(c.Key("menu"+name), box, a.editorMenuItems(c, p, d))
+		a.gitGutterPeek(c, p, d, box)
 	}
 }
 
@@ -167,6 +169,12 @@ func (a *App) documentInput(p *project, d *document) {
 		v.SetWrap(a.softWrap)
 		v.SetMinimap(!a.settings.HideMinimap)
 		v.SetMessages(a.editorMessages())
+		v.SetGutterClick(!d.virtual && a.gitGutterEnabled(), func(click editorview.GutterClick) {
+			a.gitGutterClicked(d, click)
+		})
+		// The blame of the caret line is set before the view paints, so the annotation shown
+		// belongs to the line the frame draws.
+		a.applyInlineBlame(p, d)
 		v.Paint(dc.Canvas, dc.Rect, a.editorLook())
 		if dc.State.Focused {
 			p.docs.group = d.group

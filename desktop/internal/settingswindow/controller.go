@@ -58,6 +58,10 @@ type Values struct {
 	// automatic, the system's default shell. A path no installed shell has is kept as stored
 	// and shown as not found, not replaced by one that exists.
 	TerminalShell string
+	// HideGitGutter hides the Git change markers of the editor gutter, which show by default.
+	// InlineGitBlame shows the blame of the caret line after its text, and is off by default.
+	HideGitGutter  bool
+	InlineGitBlame bool
 }
 
 // The stored values of Values.EditorTabRows and Values.EditorTabOverflow besides the empty
@@ -146,6 +150,10 @@ type Options struct {
 	// SetTerminalShell hands a change of Values.TerminalShell to the settings owner,
 	// like SetTabRows.
 	SetTerminalShell func(string)
+	// SetHideGitGutter and SetInlineGitBlame hand a change of Values.HideGitGutter and
+	// Values.InlineGitBlame to the settings owner, like SetTabRows.
+	SetHideGitGutter  func(bool)
+	SetInlineGitBlame func(bool)
 	// ResetLayout puts the workbench's buttons back where the catalog puts them. It runs
 	// at once, on the settings window's thread, when the user presses the button, because
 	// pressing it is its own confirmation.

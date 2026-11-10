@@ -128,6 +128,12 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SetTabOverflow: func(value string) {
 			a.post(func(a *App) { a.setTabOverflow(value) })
 		},
+		SetHideGitGutter: func(value bool) {
+			a.post(func(a *App) { a.setHideGitGutter(value) })
+		},
+		SetInlineGitBlame: func(value bool) {
+			a.post(func(a *App) { a.setInlineGitBlame(value) })
+		},
 		// The Terminal page lists the shells the new-terminal menu offers, found the same
 		// way, and names the login shell a terminal runs while the setting is automatic.
 		TerminalShells: func() ([]localshell.Choice, string) {
@@ -220,6 +226,7 @@ func (a *App) openSettingsPage(surface string, page settingsPage) {
 			Language: a.settings.Language, Theme: string(a.settings.Theme), MarketplaceWidth: a.settings.MarketplaceWidth,
 			EditorTabRows: a.settings.EditorTabRows, EditorTabOverflow: a.settings.EditorTabOverflow,
 			TerminalShell: a.settings.TerminalShell,
+			HideGitGutter: a.settings.HideGitGutter, InlineGitBlame: a.settings.InlineGitBlame,
 		}
 		var err error
 		switch page {

@@ -88,6 +88,9 @@ type fileTree struct {
 	expandingAll bool
 	expandSeen   map[int]bool
 	refreshing   bool
+	// prompt is the open New File, New Directory, Rename or Delete dialog of a row
+	// (see filetree_menu.go).
+	prompt treePrompt
 }
 
 // node makes a node of the tree from what the kernel listed.

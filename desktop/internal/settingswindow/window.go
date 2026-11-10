@@ -483,3 +483,25 @@ func (w *window) setTerminalShell(value string, force bool) {
 		w.ctrl.opts.SetTerminalShell(value)
 	}
 }
+
+// setHideGitGutter and setInlineGitBlame store a change of a Version Control switch and hand it
+// to the settings owner at once, as setTabRows does.
+func (w *window) setHideGitGutter(value bool, force bool) {
+	if w.sess.finished.Load() || (!force && w.sess.values.HideGitGutter == value) {
+		return
+	}
+	w.sess.values.HideGitGutter = value
+	if w.ctrl.opts.SetHideGitGutter != nil {
+		w.ctrl.opts.SetHideGitGutter(value)
+	}
+}
+
+func (w *window) setInlineGitBlame(value bool, force bool) {
+	if w.sess.finished.Load() || (!force && w.sess.values.InlineGitBlame == value) {
+		return
+	}
+	w.sess.values.InlineGitBlame = value
+	if w.ctrl.opts.SetInlineGitBlame != nil {
+		w.ctrl.opts.SetInlineGitBlame(value)
+	}
+}

@@ -78,6 +78,10 @@ type document struct {
 	draw  func(*ui.DrawContext)
 	hit   gfx.ID
 	group string
+	// gutter and blame are the Git markers and the inline blame of the file (git_gutter.go and
+	// git_blame_inline.go).
+	gutter gitGutterState
+	blame  inlineBlame
 	// virtual marks a read-only document a plugin provides for a URI that names no
 	// file (a class inside a jar). path then holds the URI: the document is never
 	// watched, saved or synchronized with a language server, and the host keeps no
@@ -423,6 +427,8 @@ func (a *App) placeDocumentAs(p *project, path, name string, content editorview.
 	d.view.SetReadOnly(virtual)
 	a.documentInput(p, d)
 	p.docs.list = append(p.docs.list, d)
+	a.refreshGitGutter(p, d)
+	a.refreshInlineBlame(p, d)
 	p.docs.group = group
 	if !virtual {
 		a.watchDocument(p, d)
@@ -543,6 +549,8 @@ func (a *App) saveDocument(p *project, id int) {
 			d.savedRevision = revision
 			a.clearDocumentConflict(d)
 			a.syncDocumentSaved(p, d, data)
+			a.refreshGitGutter(p, d)
+			a.refreshInlineBlame(p, d)
 			if d.view.IsComposing() && len(d.closeWaiters) > 0 {
 				a.saveFailed(id, d.view.Revision(), name, errComposing)
 				waiters := d.closeWaiters
@@ -645,26 +653,32 @@ func (a *App) closeDocument(p *project, id int) {
 		if !ok || a.project != p || p.docs.find(id) != d {
 			return
 		}
-		member := documentMember(id)
-		g := p.terms.bench.GroupOf(member)
-		if g == nil {
-			return
-		}
-		group := g.ID
-		if !a.reduceTerminals(p, p.terms.bench, core.CloseEditor(group, member, emptyPolicy(group), core.SelectAdjacent)) {
-			return
-		}
-		a.semanticTokensDropped(d)
-		d.view.Close()
-		p.docs.list = slices.DeleteFunc(p.docs.list, func(x *document) bool { return x.id == id })
-		a.unwatchDocument(p, d)
-		a.closeDocumentInSession(p, d)
-		if next := p.selectedDocument(group); next != nil {
-			a.focusDocument(next.id)
-		} else if term := p.terms.selected(group); term != nil {
-			a.focusTerminal(term.id)
-		}
+		a.removeDocument(p, d)
 	})
+}
+
+// removeDocument takes a tab away without asking about its text. The caller has saved it or
+// decided that it is going away: deleting its file, for one.
+func (a *App) removeDocument(p *project, d *document) {
+	member := documentMember(d.id)
+	g := p.terms.bench.GroupOf(member)
+	if g == nil {
+		return
+	}
+	group := g.ID
+	if !a.reduceTerminals(p, p.terms.bench, core.CloseEditor(group, member, emptyPolicy(group), core.SelectAdjacent)) {
+		return
+	}
+	a.semanticTokensDropped(d)
+	d.view.Close()
+	p.docs.list = slices.DeleteFunc(p.docs.list, func(x *document) bool { return x.id == d.id })
+	a.unwatchDocument(p, d)
+	a.closeDocumentInSession(p, d)
+	if next := p.selectedDocument(group); next != nil {
+		a.focusDocument(next.id)
+	} else if term := p.terms.selected(group); term != nil {
+		a.focusTerminal(term.id)
+	}
 }
 
 // saveProjectDocuments drains writes and verifies each current document before closing.
@@ -770,6 +784,11 @@ func (a *App) editorLook() editorview.Look {
 		Button:       a.colors.Panel,
 		ButtonHover:  a.colors.Hover,
 		ButtonBorder: a.theme.Border,
+		// Git change markers use the palette's own success blue and red, as the status
+		// bar and the Change list name the same changes with them.
+		GutterAdded:    a.colors.Success,
+		GutterModified: a.colors.Accent,
+		GutterDeleted:  a.colors.Deleted,
 	}
 }
 
