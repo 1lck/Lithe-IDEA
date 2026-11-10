@@ -40,6 +40,12 @@ type DebugEvent struct {
 	Message     string                `json:"message,omitempty"`
 	Result      *DebugOperationResult `json:"result,omitempty"`
 	Breakpoint  *DebugBreakpoint      `json:"breakpoint,omitempty"`
+	// Capabilities is set on the `capabilities` event: what the adapter negotiated.
+	Capabilities *DebugCapabilities `json:"capabilities,omitempty"`
+	// StartDebugging is set on the `startDebuggingRequested` event.
+	RequestID      string               `json:"requestId,omitempty"`
+	StartDebugging *DebugStartDebugging `json:"request,omitempty"`
+	ChildSessionID string               `json:"childSessionId,omitempty"`
 }
 
 // DebugOperationResult is the typed terminal data of one inspect or execute
@@ -51,6 +57,21 @@ type DebugOperationResult struct {
 	StackFrames []DebugStackFrame `json:"stackFrames,omitempty"`
 	Scopes      []DebugScope      `json:"scopes,omitempty"`
 	Variables   []DebugVariable   `json:"variables,omitempty"`
+	// Variable is the replacement of a setVariable or the value of an evaluate.
+	Variable *DebugVariable `json:"variable,omitempty"`
+	// Instructions is the result of a disassemble inspection.
+	Instructions []DebugInstruction `json:"instructions,omitempty"`
+}
+
+// DebugInstruction is one disassembled machine instruction. Address stays the
+// adapter's text so a 64-bit address is never rounded.
+type DebugInstruction struct {
+	Address          string `json:"address"`
+	InstructionBytes string `json:"instructionBytes,omitempty"`
+	Instruction      string `json:"instruction"`
+	Symbol           string `json:"symbol,omitempty"`
+	SourcePath       string `json:"sourcePath,omitempty"`
+	Line             *int64 `json:"line,omitempty"`
 }
 
 // DebugThread is one debuggee thread.
@@ -67,6 +88,9 @@ type DebugStackFrame struct {
 	Line       int64  `json:"line"`
 	Column     int64  `json:"column"`
 	IsFiltered bool   `json:"isFiltered"`
+	// InstructionPointerReference anchors the disassembly view on this frame.
+	InstructionPointerReference string `json:"instructionPointerReference,omitempty"`
+	SourceReference             *int64 `json:"sourceReference,omitempty"`
 }
 
 // DebugScope is one variable scope of the selected frame.
@@ -189,6 +213,17 @@ type DebugInspectRequest struct {
 	ThreadID           *int64 `json:"threadId,omitempty"`
 	FrameID            *int64 `json:"frameId,omitempty"`
 	VariablesReference *int64 `json:"variablesReference,omitempty"`
+	// VariableFilter is "named" or "indexed" for a paged variables request;
+	// Start and Count are its zero-based window.
+	VariableFilter string `json:"variableFilter,omitempty"`
+	Start          *int64 `json:"start,omitempty"`
+	Count          *int64 `json:"count,omitempty"`
+	// Disassemble inputs (MemoryReference is opaque address text).
+	MemoryReference   string `json:"memoryReference,omitempty"`
+	Offset            *int64 `json:"offset,omitempty"`
+	InstructionOffset *int64 `json:"instructionOffset,omitempty"`
+	InstructionCount  *int64 `json:"instructionCount,omitempty"`
+	ResolveSymbols    *bool  `json:"resolveSymbols,omitempty"`
 }
 
 // InspectDebug queues one typed debugger inspection.
