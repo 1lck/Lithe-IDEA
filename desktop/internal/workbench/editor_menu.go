@@ -13,53 +13,52 @@ import (
 // the actions run after the paint, when the menu has closed.
 func (a *App) editorMenuItems(c ui.C, p *project, d *document) func(*ui.MenuItems) {
 	language := a.language()
-	text := func(key string) string { return i18n.Shared(language, key) }
 	primary := primaryModifier()
 	return func(menu *ui.MenuItems) {
 		menu.WidthRange(240, 280)
 		readOnly := d.view.ReadOnly()
-		if menu.Item(text("desktop.editorMenu.goToDefinition")).Keys(0, "f12").Clicked() {
+		if menu.Item(i18n.Shared(language, "desktop.editorMenu.goToDefinition")).Keys(0, "f12").Clicked() {
 			c.After(func() {
 				line, column := d.view.CaretUTF16()
 				a.startPluginDefinition(p, d, line, column, true)
 			})
 		}
-		if menu.Item(text("desktop.editorMenu.findUsages")).Keys(gfx.ModifierShift, "f12").Clicked() {
+		if menu.Item(i18n.Shared(language, "desktop.editorMenu.findUsages")).Keys(gfx.ModifierShift, "f12").Clicked() {
 			c.After(func() {
 				line, column := d.view.CaretUTF16()
 				a.startPluginReferences(p, d, line, column)
 			})
 		}
-		if menu.Item(text("desktop.editorMenu.rename")).Keys(0, "f2").Disabled(readOnly).Clicked() {
+		if menu.Item(i18n.Shared(language, "desktop.editorMenu.rename")).Keys(0, "f2").Disabled(readOnly).Clicked() {
 			c.After(func() { a.openPluginRename(p, d) })
 		}
-		if menu.Item(text("desktop.editorMenu.reformat")).Disabled(readOnly).Clicked() {
+		if menu.Item(i18n.Shared(language, "desktop.editorMenu.reformat")).Disabled(readOnly).Clicked() {
 			c.After(func() { a.startPluginFormattingAtSelection(p, d) })
 		}
 		menu.Separator()
-		if menu.Item(text("desktop.editorMenu.toggleComment")).Keys(primary, "/").Disabled(readOnly).Clicked() {
+		if menu.Item(i18n.Shared(language, "desktop.editorMenu.toggleComment")).Keys(primary, "/").Disabled(readOnly).Clicked() {
 			c.After(func() { a.runLineOperation(p, d, core.ToggleLineComment) })
 		}
-		if menu.Item(text("desktop.editorMenu.duplicateLine")).Keys(gfx.ModifierAlt|gfx.ModifierShift, "down").Disabled(readOnly).Clicked() {
+		if menu.Item(i18n.Shared(language, "desktop.editorMenu.duplicateLine")).Keys(gfx.ModifierAlt|gfx.ModifierShift, "down").Disabled(readOnly).Clicked() {
 			c.After(func() { a.runLineOperation(p, d, core.DuplicateLine) })
 		}
-		if menu.Item(text("desktop.editorMenu.deleteLine")).Keys(primary|gfx.ModifierShift, "k").Disabled(readOnly).Clicked() {
+		if menu.Item(i18n.Shared(language, "desktop.editorMenu.deleteLine")).Keys(primary|gfx.ModifierShift, "k").Disabled(readOnly).Clicked() {
 			c.After(func() { a.runLineOperation(p, d, core.DeleteLine) })
 		}
-		if menu.Item(text("desktop.editorMenu.moveLineUp")).Keys(gfx.ModifierAlt, "up").Disabled(readOnly).Clicked() {
+		if menu.Item(i18n.Shared(language, "desktop.editorMenu.moveLineUp")).Keys(gfx.ModifierAlt, "up").Disabled(readOnly).Clicked() {
 			c.After(func() { a.runLineOperation(p, d, core.MoveLineUp) })
 		}
-		if menu.Item(text("desktop.editorMenu.moveLineDown")).Keys(gfx.ModifierAlt, "down").Disabled(readOnly).Clicked() {
+		if menu.Item(i18n.Shared(language, "desktop.editorMenu.moveLineDown")).Keys(gfx.ModifierAlt, "down").Disabled(readOnly).Clicked() {
 			c.After(func() { a.runLineOperation(p, d, core.MoveLineDown) })
 		}
 		menu.Separator()
-		if menu.Item(text("desktop.editorMenu.goToLine")).Clicked() {
+		if menu.Item(i18n.Shared(language, "desktop.editorMenu.goToLine")).Clicked() {
 			c.After(func() { a.openNavigation(p) })
 		}
-		if menu.Item(text("desktop.editorMenu.back")).Keys(gfx.ModifierControl|gfx.ModifierAlt, "left").Clicked() {
+		if menu.Item(i18n.Shared(language, "desktop.editorMenu.back")).Keys(gfx.ModifierControl|gfx.ModifierAlt, "left").Clicked() {
 			c.After(func() { a.stepNavigation(p, false) })
 		}
-		if menu.Item(text("desktop.editorMenu.forward")).Keys(gfx.ModifierControl|gfx.ModifierAlt, "right").Clicked() {
+		if menu.Item(i18n.Shared(language, "desktop.editorMenu.forward")).Keys(gfx.ModifierControl|gfx.ModifierAlt, "right").Clicked() {
 			c.After(func() { a.stepNavigation(p, true) })
 		}
 	}

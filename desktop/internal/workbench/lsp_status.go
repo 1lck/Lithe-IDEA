@@ -76,28 +76,28 @@ func (a *App) recordServerEvent(server *pluginServer, event core.BackendEvent) {
 // lspStatusText is the status bar's reading for the selected document's language server: its
 // state, or the problems it reported. "" means no server serves the document.
 func (a *App) lspStatusText() string {
+	if total := a.pluginProblemCount(); total > 0 {
+		return a.text.Status.Problems(total)
+	}
 	p := a.project
 	if p == nil {
 		return ""
-	}
-	if total := a.pluginProblemCount(); total > 0 {
-		return a.text.Status.Problems(total)
 	}
 	d := p.selectedDocument(p.docs.group)
 	server, _ := a.documentSyncServer(d)
 	if server == nil {
 		return ""
 	}
-	key := "desktop.status.lspStarting"
+	language := a.language()
 	switch {
 	case server.state == "failed" || server.state == "error":
-		key = "desktop.status.lspFailed"
+		return i18n.Shared(language, "desktop.status.lspFailed")
 	case server.state == "stopped":
-		key = "desktop.status.lspStopped"
+		return i18n.Shared(language, "desktop.status.lspStopped")
 	case server.isReady():
-		key = "desktop.status.lspReady"
+		return i18n.Shared(language, "desktop.status.lspReady")
 	}
-	return i18n.Shared(a.language(), key)
+	return i18n.Shared(language, "desktop.status.lspStarting")
 }
 
 // lspServers lists the language servers the window runs, by plugin.
