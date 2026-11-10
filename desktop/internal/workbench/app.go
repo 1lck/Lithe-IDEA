@@ -367,8 +367,10 @@ type App struct {
 	searchView     searchView
 	everywhereView everywhereView
 	// problems is the Problems tool window's cached Core answer.
-	problems   problemsView
-	navigation navigationView
+	problems problemsView
+	// problemsHost is the page that shows it.
+	problemsHost gitHost
+	navigation   navigationView
 	// delays are how long the log waits before it acts on a selection or a filter.
 	delays logDelays
 	// term is what the frame being painted declared for the terminals, and the gesture that

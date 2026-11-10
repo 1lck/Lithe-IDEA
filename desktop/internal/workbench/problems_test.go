@@ -76,10 +76,7 @@ func TestProblemsPanelUsesCoreOrderAndOpensPosition(t *testing.T) {
 	}
 
 	// Flat row 0 is the File2 header and row 1 is its diagnostic.
-	at := center(h.hit(problemsRows.At(1)))
-	if err := h.driver.Click(at.X, at.Y); err != nil {
-		t.Fatal(err)
-	}
+	h.clickNamed("type mismatch")
 	awaitDocumentState(t, h, func() bool { return h.app.project.docs.byPath(file2) != nil })
 	document := h.app.project.docs.byPath(file2)
 	if document == nil {
@@ -108,7 +105,7 @@ func TestProblemsPanelVirtualizesLongList(t *testing.T) {
 	}
 	declared := 0
 	for _, hit := range h.driver.Snapshot().Hits {
-		if _, ok := hit.ID.In(problemsRows); ok {
+		if hit.Label == "problem" && !hit.IsLabel {
 			declared++
 		}
 	}

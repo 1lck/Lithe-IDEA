@@ -55,6 +55,7 @@ func (a *App) closeGitPages() {
 	a.commitView.host.close()
 	a.logView.host.close()
 	a.gitOverlay.host.close()
+	a.problemsHost.close()
 }
 
 // gitOverlayOpen reports that the overlay page is on screen and has the window's input.
