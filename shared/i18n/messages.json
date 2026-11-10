@@ -11736,8 +11736,22 @@
       ]
     },
     {
+      "id": "desktop.editor.lineEditFailed",
+      "description": "Banner shown when Core cannot apply a line operation",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.editor.minimap",
       "description": "Desktop editor: the small picture of the file down the editor's right side",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editor.noLineComment",
+      "description": "Banner shown when the file type has no line comment token",
       "platforms": [
         "desktop"
       ]

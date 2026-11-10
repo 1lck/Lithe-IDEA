@@ -183,6 +183,9 @@ func (a *App) documentKey(p *project, d *document, event gfx.KeyEvent) gfx.Event
 	if result, handled := a.pluginSemanticsTrigger(event, p, d); handled {
 		return result
 	}
+	if result, handled := a.lineEditKey(p, d, event); handled {
+		return result
+	}
 	if result, handled := d.view.Key(event); handled {
 		return result
 	}
@@ -310,6 +313,9 @@ func (a *App) onShortcut(event gfx.KeyEvent) gfx.EventResult {
 		if result, handled := t.Shortcut(event); handled {
 			return result
 		}
+	}
+	if result := a.lineEditShortcut(event); result.Handled {
+		return result
 	}
 	if v := a.focusedDocument(event.Target); v != nil {
 		if result, handled := v.Shortcut(event); handled {
