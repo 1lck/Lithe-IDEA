@@ -377,13 +377,12 @@ func (a *App) stripTab(c ui.C, place *groupPlace, t shownTab, current string, i,
 	label, icon := "", icons.SquareTerminal
 	options := gfx.HitOptions{
 		Role: gfx.RoleTab, Cursor: gfx.PointerCursorHand, Selected: selected,
-		PosInSet: int32(i + 1), SetSize: int32(size),
+		PosInSet: int32(i + 1), SetSize: int32(size), Hint: a.text.Tools.DragHint,
 	}
 	if t.doc != nil {
 		label, icon = t.doc.name, fileicons.ForFile(t.doc.name, a.colors.Dark)
 	} else {
 		label = a.terminalTitle(t.term)
-		options.Hint = a.text.Tools.DragHint
 	}
 	chip = chip.HitWith(id, label, options).Pressed(ui.Look{}.Background(a.colors.Active))
 	if selected {
@@ -391,16 +390,16 @@ func (a *App) stripTab(c ui.C, place *groupPlace, t shownTab, current string, i,
 	} else {
 		chip = chip.Hover(ui.Look{}.Background(a.colors.Hover))
 	}
-	if t.term != nil {
-		u := &a.term
-		u.tabIDs = append(u.tabIDs, tabID{id: id, term: t.term.id})
-		if a.dnd.tab.Dragging() && a.dnd.tab.Source() == id {
-			chip = chip.Opacity(chromeDragDim)
-		}
-		chip = chip.DragSource(&a.dnd.tab)
-		place.chips = append(place.chips, tabSlotDecl{term: t.term.id})
-		chip = chip.Draw(place.chipHook(len(place.chips) - 1))
+	// Every tab, a terminal's or a file's, can be dragged: within the strip, to another group,
+	// beside a group into a split of its own, or into an editor without groups.
+	u := &a.term
+	u.tabIDs = append(u.tabIDs, tabID{id: id, member: member})
+	if a.dnd.tab.Dragging() && a.dnd.tab.Source() == id {
+		chip = chip.Opacity(chromeDragDim)
 	}
+	chip = chip.DragSource(&a.dnd.tab)
+	place.chips = append(place.chips, tabSlotDecl{member: member})
+	chip = chip.Draw(place.chipHook(len(place.chips) - 1))
 	closeLabel := a.text.Terminal.CloseTab
 	if t.doc != nil {
 		closeLabel = a.text.Editor.CloseTab

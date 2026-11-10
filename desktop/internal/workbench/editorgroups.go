@@ -130,26 +130,28 @@ func removeLeaf(root *splitNode, group string) *splitNode {
 	return root
 }
 
-// tabSlot is where the chip of one terminal's tab was laid out.
+// tabSlot is where the chip of one tab, a terminal's or a file's, was laid out. member is
+// the name the group lists the tab under.
 type tabSlot struct {
-	term int
-	rect gfx.Rect
+	member string
+	rect   gfx.Rect
 }
 
 // dropPlace is one tab group as the last frame laid it out: where its strip of tabs and its
 // body are, and where each tab is. It is what a drag is aimed against.
 type dropPlace struct {
 	group string
-	// tool says the place is the Terminal tool window, which a tab can join but not split.
+	// tool says the place is the Terminal tool window, which a terminal's tab can join but
+	// not split and a file's tab cannot join.
 	tool        bool
 	strip, body gfx.Rect
 	tabs        []tabSlot
 }
 
-// has says the dragged terminal is one of the tabs of the place.
-func (p dropPlace) has(dragged int) bool {
+// has says the dragged tab is one of the tabs of the place.
+func (p dropPlace) has(dragged string) bool {
 	for _, t := range p.tabs {
-		if t.term == dragged {
+		if t.member == dragged {
 			return true
 		}
 	}
@@ -158,19 +160,19 @@ func (p dropPlace) has(dragged int) bool {
 
 // others are the tabs of the place except the dragged one. The dragged tab is not counted,
 // so moving it by less than its own width does not make it jump.
-func (p dropPlace) others(dragged int) []tabSlot {
+func (p dropPlace) others(dragged string) []tabSlot {
 	others := make([]tabSlot, 0, len(p.tabs))
 	for _, t := range p.tabs {
-		if t.term != dragged {
+		if t.member != dragged {
 			others = append(others, t)
 		}
 	}
 	return others
 }
 
-// solo says the dragged terminal is the only tab of the place, so there is nothing to
-// reorder it against and dropping it anywhere in the place would change nothing.
-func (p dropPlace) solo(dragged int) bool { return len(p.tabs) == 1 && p.has(dragged) }
+// solo says the dragged tab is the only tab of the place, so there is nothing to reorder it
+// against and dropping it anywhere in the place would change nothing.
+func (p dropPlace) solo(dragged string) bool { return len(p.tabs) == 1 && p.has(dragged) }
 
 // dropKind is what dropping a tab would do.
 type dropKind uint8
@@ -202,20 +204,23 @@ type dropTarget struct {
 	hasLine bool
 }
 
-// dropAt finds where releasing the terminal dragged at (x, y) would put it.
+// dropAt finds where releasing the tab dragged at (x, y), the group member dragged, would
+// put it.
 //
 // In a group's strip the tab joins the group at the place among the tabs the pointer is
 // at. Over a group's body, near an edge, the tab splits the group on that side; anywhere
-// else in the body it joins the group at the end. The Terminal tool window never splits.
-// A place whose only tab is the dragged one accepts nothing, and neither does the middle of
-// the dragged tab's own group. Over an editor with no group the tab opens the first one.
-func dropAt(places []dropPlace, empty gfx.Rect, dragged int, x, y float32) dropTarget {
+// else in the body it joins the group at the end. The Terminal tool window never splits,
+// and takes only terminals. A place whose only tab is the dragged one accepts nothing, and
+// neither does the middle of the dragged tab's own group. Over an editor with no group the
+// tab opens the first one.
+func dropAt(places []dropPlace, empty gfx.Rect, dragged string, x, y float32) dropTarget {
+	_, terminal := memberTerminal(dragged)
 	for _, p := range places {
 		inStrip, inBody := pointInRect(p.strip, x, y), pointInRect(p.body, x, y)
 		if !inStrip && !inBody {
 			continue
 		}
-		if p.solo(dragged) {
+		if p.solo(dragged) || (p.tool && !terminal) {
 			return dropTarget{}
 		}
 		others := p.others(dragged)

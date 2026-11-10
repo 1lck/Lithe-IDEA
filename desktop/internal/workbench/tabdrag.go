@@ -1,17 +1,18 @@
 package workbench
 
 import (
+	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 )
 
-// tabDrag is the gesture that moves a terminal's tab: within its strip, to another group,
-// into a split beside a group, or back into the Terminal tool window. The zero value is no
-// gesture.
+// tabDrag is the gesture that moves a tab, a terminal's or a file's: within its strip, to
+// another group, into a split beside a group, or, for a terminal, back into the Terminal tool
+// window. The zero value is no gesture.
 type tabDrag struct {
-	// active says the tab of terminal term is being dragged.
+	// active says the tab of group member is being dragged.
 	active bool
-	term   int
+	member string
 	// x and y are where the pointer is now.
 	x, y float32
 	// viewport is the window's size at the last move, which keeps the ghost inside it.
@@ -21,16 +22,16 @@ type tabDrag struct {
 }
 
 // tabAccept is the tab target's accept callback: it follows the pointer of the drag of a
-// terminal's tab, works out where dropping it would put it and says whether that is a place.
+// tab, works out where dropping it would put it and says whether that is a place.
 func (a *App) tabAccept(source, _ gfx.ID) bool {
-	term, ok := a.term.tabOf(source)
+	member, ok := a.term.tabOf(source)
 	if !ok {
 		return false
 	}
 	d := &a.term.drag
 	point := a.dnd.tab.At()
-	d.active, d.term, d.x, d.y, d.viewport = true, term, point.X, point.Y, a.viewport()
-	d.target = a.tabDragLocate(term, point.X, point.Y, d.viewport)
+	d.active, d.member, d.x, d.y, d.viewport = true, member, point.X, point.Y, a.viewport()
+	d.target = a.tabDragLocate(member, point.X, point.Y, d.viewport)
 	return d.target.kind != dropNone
 }
 
@@ -39,18 +40,18 @@ func (a *App) tabDrop(_, _ gfx.ID) {
 	d := a.term.drag
 	a.term.drag = tabDrag{}
 	if d.active {
-		a.dropTerminal(d.term, d.target)
+		a.dropTab(d.member, d.target)
 	}
 }
 
-// tabDragLocate finds where dropping terminal term at (x, y) would put it, from where the
-// last frame laid the groups out. Outside the window there is no place. viewport is the
-// window's size.
-func (a *App) tabDragLocate(term int, x, y float32, viewport gfx.Size) dropTarget {
+// tabDragLocate finds where dropping the tab of group member at (x, y) would put it, from
+// where the last frame laid the groups out. Outside the window there is no place. viewport
+// is the window's size.
+func (a *App) tabDragLocate(member string, x, y float32, viewport gfx.Size) dropTarget {
 	if x < 0 || y < 0 || x >= viewport.Width || y >= viewport.Height {
 		return dropTarget{}
 	}
-	return dropAt(a.term.places(), a.term.emptyRect, term, x, y)
+	return dropAt(a.term.places(), a.term.emptyRect, member, x, y)
 }
 
 // paintTabDrag paints the gesture on top of the frame, in the manner of paintDrag: the area
@@ -63,8 +64,8 @@ func (a *App) paintTabDrag(canvas *gfx.Canvas) {
 	if !d.active || a.project == nil {
 		return
 	}
-	t := a.project.terms.find(d.term)
-	if t == nil {
+	title, icon, ok := a.tabLook(d.member)
+	if !ok {
 		return
 	}
 	canvas.PushLayer(dragLayer)
@@ -83,7 +84,6 @@ func (a *App) paintTabDrag(canvas *gfx.Canvas) {
 
 	// The copy is the tab's icon and title in a box of the width of the words, kept inside
 	// the window and no wider than a tab is.
-	title := a.terminalTitle(t)
 	style := gfx.TextStyle{Size: a.theme.Metrics.FontSizeM, Weight: gfx.WeightRegular, Color: a.colors.Text}
 	width := min(chromeEdge+terminalChipIcon+terminalChipGap+canvas.TextWidthStyle(title, style)+chromeEdge, terminalChipMaxWidth)
 	ghost := gfx.Rect{X: d.x + dragGhostOffset, Y: d.y + dragGhostOffset, Width: width, Height: rowHeight}
@@ -92,7 +92,7 @@ func (a *App) paintTabDrag(canvas *gfx.Canvas) {
 		ghost.Y = max(min(ghost.Y, d.viewport.Height-ghost.Height-dragGhostMargin), 0)
 	}
 	canvas.RoundedBorder(ghost, dragGhostRadius, 1, a.colors.Accent, a.colors.Editor)
-	canvas.DrawIcon(icons.SquareTerminal, gfx.Rect{
+	canvas.DrawIcon(icon, gfx.Rect{
 		X:      ghost.X + chromeEdge,
 		Y:      ghost.Y + (ghost.Height-terminalChipIcon)/2,
 		Width:  terminalChipIcon,
@@ -104,4 +104,25 @@ func (a *App) paintTabDrag(canvas *gfx.Canvas) {
 		Width:  ghost.Width - 2*chromeEdge - terminalChipIcon - terminalChipGap,
 		Height: ghost.Height,
 	}, style)
+}
+
+// tabLook is the title and the icon of the tab of group member, a terminal's or a file's, and
+// false for a member that is no longer open.
+func (a *App) tabLook(member string) (string, gfx.Icon, bool) {
+	p := a.project
+	if p == nil {
+		return "", gfx.Icon{}, false
+	}
+	if id, ok := memberTerminal(member); ok {
+		if t := p.terms.find(id); t != nil {
+			return a.terminalTitle(t), icons.SquareTerminal, true
+		}
+		return "", gfx.Icon{}, false
+	}
+	if id, ok := memberDocument(member); ok {
+		if doc := p.docs.find(id); doc != nil {
+			return doc.name, fileicons.ForFile(doc.name, a.colors.Dark), true
+		}
+	}
+	return "", gfx.Icon{}, false
 }

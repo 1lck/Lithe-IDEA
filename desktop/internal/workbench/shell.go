@@ -43,14 +43,12 @@ const (
 	// right column while both of its tool windows are open.
 	shellColumnLowerDefault = 240
 
-	// shellTabsHeaderHeight is the header of a tool window that carries tabs. A Viva Tabs
-	// strip is always 36 high, whatever the box it sits in, so the header grows to hold it
-	// instead of letting the strip hang out of a 32 high one.
-	shellTabsHeaderHeight = 36
-	shellHeaderGap        = 8
-	shellHideSize         = 24
-	shellIconSize         = 16
-	shellContentPad       = 16
+	// toolTabPad is the room on each side of the label of a tool window's header tab.
+	toolTabPad      = 8
+	shellHeaderGap  = 8
+	shellHideSize   = 24
+	shellIconSize   = 16
+	shellContentPad = 16
 	// shellHintWidth is the widest the empty editor's hints grow.
 	shellHintWidth = 320
 )
@@ -102,8 +100,6 @@ type layoutState struct {
 	bottomShare float32
 	// gitTab is the selected tab of the Git tool window, one of the gitTab constants.
 	gitTab int
-	// gitLabels keeps the tab labels alive for the frame; Viva holds the slice until End.
-	gitLabels [3]string
 
 	split [shellSplitCount]ui.SplitterState
 
