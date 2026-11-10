@@ -21,7 +21,7 @@ type palette struct {
 	hover gfx.Color
 	// highlight is the background of selected text in a field.
 	highlight gfx.Color
-	// selection is the selected page while the list has the keyboard focus and
+	// selection is the fill of a chosen entry while its list has the keyboard focus and
 	// selectionIdle while it has not.
 	selection, selectionIdle gfx.Color
 	// text is ordinary text, muted secondary text and subtle the hints and inactive icons.
@@ -68,16 +68,6 @@ func paletteFor(dark bool) palette {
 	return lightPalette()
 }
 
-// selectionColor is the fill of the selected page: the accent tint while the list of
-// pages has the keyboard focus and the neutral one otherwise, as the macOS client's
-// lists draw their selection.
-func (p palette) selectionColor(focused bool) gfx.Color {
-	if focused {
-		return p.selection
-	}
-	return p.selectionIdle
-}
-
 // windowTheme maps the palette onto the theme the Viva controls paint with, so a field, a
 // select, a segmented control or a button in the window takes the settings window's
 // colors in the compact density the other tool windows use.
@@ -94,6 +84,9 @@ func windowTheme(dark bool, p palette) gfx.Theme {
 	theme.Border, theme.Input, theme.Hover = p.line, p.border, p.hover
 	theme.Primary, theme.PrimaryForeground = p.accent, p.white
 	theme.Selection, theme.Ring, theme.Danger = p.highlight, p.accent, p.danger
+	// The chosen row of the sidebar's Tree and a quiet button under the pointer take the
+	// tint the macOS client selects with.
+	theme.Accent, theme.AccentForeground = p.selection, p.text
 	return theme
 }
 

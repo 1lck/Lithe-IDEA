@@ -79,10 +79,14 @@ type window struct {
 	page *ui.Page
 
 	market *marketplaceState
-	// marketSplit is the plugin list's width. marketDragging says the last paint saw the
-	// divider dragged, so the paint that sees it released persists the width once.
-	marketSplit    ui.SplitterState
-	marketDragging bool
+	// marketSplit is the plugin list's divider. marketPreferred is the width the user chose,
+	// which a narrow window clamps only for as long as it is narrow, marketApplied the width
+	// the last paint gave the divider (a different Pos means the user moved it since) and
+	// marketMoved that a move is waiting for its release to be saved.
+	marketSplit     ui.SplitterState
+	marketPreferred float32
+	marketApplied   float32
+	marketMoved     bool
 	// requestedPage is the page Controller.open asked an already open window to switch to,
 	// as the pageID plus one so that zero means no request. It is atomic because the
 	// controller sets it from the thread of whichever window asked; wake takes it on the
@@ -164,7 +168,9 @@ func newWindow(c *Controller, current Values) *window {
 	if width <= 0 {
 		width = marketListWidth
 	}
-	w.marketSplit = ui.SplitterState{Pos: min(max(width, marketMinWidth), marketMaxWidth)}
+	w.marketPreferred = min(max(width, marketMinWidth), marketMaxWidth)
+	w.marketSplit = ui.SplitterState{Pos: w.marketPreferred}
+	w.marketApplied = w.marketPreferred
 	w.market = newMarketplaceState(c.opts.Marketplace)
 	w.market.official = c.opts.MarketplaceOfficial
 	w.market.installed = c.opts.MarketplaceInstalled
@@ -336,13 +342,29 @@ func (w *window) collect() {
 	if w.dynamic.take() {
 		w.rowsValid = false
 	}
+	previous := w.market.status
 	w.market.take()
-	w.market.search.take(w.market)
+	w.reportMarket(previous)
+	w.market.search.take(w.market, w.marketQuery)
 	w.pluginSettings.take()
 	for _, form := range w.pluginForms {
 		if form != w.pluginSettings {
 			form.take()
 		}
+	}
+}
+
+// reportMarket tells the owner how the fetch that just ended went: that it failed, or how
+// many entries of the index were rejected.
+func (w *window) reportMarket(previous marketStatus) {
+	if previous != marketLoading {
+		return
+	}
+	switch {
+	case w.market.status == marketFailed && w.ctrl.opts.MarketplaceError != nil:
+		w.ctrl.opts.MarketplaceError(w.market.err)
+	case w.market.status == marketReady && len(w.market.snapshot.Index.Rejected) > 0 && w.ctrl.opts.MarketplaceRejected != nil:
+		w.ctrl.opts.MarketplaceRejected(len(w.market.snapshot.Index.Rejected))
 	}
 }
 

@@ -127,6 +127,13 @@ func (w *window) terminalPage(c ui.C) {
 	state.begin()
 	stored := w.sess.values.TerminalShell
 	w.shellPick = stored
+	// A stored path that names an installed shell in another spelling (Windows ignores
+	// case) shows that shell as chosen.
+	for _, choice := range state.shells {
+		if stored != "" && sameShell(choice.Path, stored) {
+			w.shellPick = choice.Path
+		}
+	}
 	w.pageScroll(c, pageTerminal, func() {
 		w.card(c, settings.TerminalShell, settings.TerminalShellHelp, func() {
 			ui.Column(c).FillWidth().Gap(2).Children(func() {
@@ -144,9 +151,6 @@ func (w *window) terminalPage(c ui.C) {
 				known := stored == ""
 				for index, choice := range state.shells {
 					known = known || (stored != "" && sameShell(choice.Path, stored))
-					if stored != "" && sameShell(choice.Path, stored) {
-						w.shellPick = choice.Path
-					}
 					w.radio(c.Key(choice.Path), &w.shellPick, choice.Path, labels[index], false)
 				}
 				if !known {
@@ -156,7 +160,7 @@ func (w *window) terminalPage(c ui.C) {
 			})
 		})
 	})
-	if w.shellPick != stored {
+	if w.shellPick != stored && !(stored != "" && sameShell(w.shellPick, stored)) {
 		w.setTerminalShell(w.shellPick, false)
 	}
 }

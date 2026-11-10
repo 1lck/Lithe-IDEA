@@ -179,6 +179,10 @@ func (w *window) navContent(c ui.C, i int) {
 
 // content is the page beside the sidebar: the breadcrumb above the page itself.
 func (w *window) content(c ui.C) {
+	if w.sess.page != pagePlugins && w.market.status == marketLoading {
+		// Leaving the page stops wanting the fetch, which cancels it.
+		w.market.close()
+	}
 	ui.Column(c).Grow(1).Shrink(1).FillHeight().MinWidth(0).Children(func() {
 		if w.sess.page == pagePlugins && w.ctrl.opts.Marketplace != nil {
 			w.marketplacePage(c)

@@ -1,6 +1,7 @@
 package settingswindow
 
 import (
+	"runtime"
 	"testing"
 	"time"
 
@@ -126,3 +127,6 @@ func (d *windowDriver) focusedLabel() string {
 	}
 	return ""
 }
+
+// isDarwin says the platform's command key is Meta.
+func isDarwin() bool { return runtime.GOOS == "darwin" }

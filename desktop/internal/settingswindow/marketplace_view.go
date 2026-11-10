@@ -21,6 +21,8 @@ const (
 	marketMinWidth  = 200
 	marketMaxWidth  = 520
 	marketMinDetail = 160
+	// marketSplitterWidth is the thickness of the divider between the list and the detail.
+	marketSplitterWidth = 8
 )
 
 // marketSourceChoices are the sources of the index: community, official, installed.
@@ -85,10 +87,9 @@ func (w *window) marketColumns(c ui.C) {
 	language := w.marketLanguage()
 	plugins := m.snapshot.Index.Plugins
 	visible := m.search.visible()
-	// The divider keeps the list inside its limits and in what the window leaves it.
-	w.marketSplit.Pos = min(max(w.marketSplit.Pos, marketMinWidth), min(marketMaxWidth, max(marketMinWidth, w.extent-marketMinDetail)))
+	w.syncMarketSplit()
 	ui.Row(c).FillWidth().Grow(1).Shrink(1).MinHeight(0).Children(func() {
-		ui.Column(c).Width(w.marketSplit.Pos).FillHeight().Shrink(0).Children(func() {
+		ui.Column(c).Width(w.marketApplied).FillHeight().Shrink(0).Children(func() {
 			if m.search.rank != nil {
 				ui.Row(c).FillWidth().Height(37).Shrink(0).PadX(12).Items(ui.End).Children(func() {
 					search := i18n.Shared(language, "desktop.marketplace.search")
@@ -134,17 +135,63 @@ func (w *window) marketColumns(c ui.C) {
 				w.marketList(c, plugins, visible)
 			}
 		})
-		ui.Splitter(c, &w.marketSplit).Mins(marketMinWidth, marketMinDetail).Label(i18n.Shared(language, "settings.resizePlugins"))
-		if w.marketDragging && !w.marketSplit.Dragging() && w.ctrl.opts.MarketplaceResized != nil {
-			w.ctrl.opts.MarketplaceResized(w.marketSplit.Pos)
+		split := ui.Splitter(c, &w.marketSplit).Mins(marketMinWidth, marketMinDetail).Label(i18n.Shared(language, "settings.resizePlugins"))
+		// The Page does not route a splitter's keys: the divider's own shortcuts move it
+		// while it has the focus, by a step or to either end.
+		for _, move := range marketSplitKeys {
+			if split.Shortcut(0, move.key) {
+				w.marketSplit.Pos = w.marketSplitMove(move.step, move.edge)
+			}
 		}
-		w.marketDragging = w.marketSplit.Dragging()
 		ui.Scroll(c.Part("detail")).Grow(1).Shrink(1).FillHeight().MinWidth(0).Children(func() {
 			ui.Column(c).FillWidth().Shrink(0).MinWidth(0).Pad(24).Gap(12).Children(func() {
 				w.marketDetail(c)
 			})
 		})
 	})
+}
+
+// syncMarketSplit settles the divider before the panes are declared. A position that is not
+// the one the last paint gave it was moved by the user (a drag or a key): it becomes the
+// preferred width, and is saved once the divider is let go. The width the list gets is the
+// preference inside the room the window has, so a narrow window does not forget what the
+// user chose.
+func (w *window) syncMarketSplit() {
+	if pos := w.marketSplit.Pos; pos != w.marketApplied {
+		w.marketPreferred = min(max(pos, marketMinWidth), marketMaxWidth)
+		w.marketMoved = true
+	}
+	if w.marketMoved && !w.marketSplit.Dragging() {
+		w.marketMoved = false
+		if w.ctrl.opts.MarketplaceResized != nil {
+			w.ctrl.opts.MarketplaceResized(w.marketPreferred)
+		}
+	}
+	hi := min(marketMaxWidth, w.extent-marketSplitterWidth-marketMinDetail)
+	w.marketApplied = min(max(w.marketPreferred, min(marketMinWidth, hi)), hi)
+	if !w.marketMoved || !w.marketSplit.Dragging() {
+		w.marketSplit.Pos = w.marketApplied
+	}
+}
+
+// marketSplitKeys are the keys that move the focused divider: a step in pixels, or an edge
+// (-1 the narrowest list, 1 the widest) for Home and End.
+var marketSplitKeys = [...]struct {
+	key  string
+	step float32
+	edge int
+}{{"left", -16, 0}, {"up", -16, 0}, {"right", 16, 0}, {"down", 16, 0}, {"home", 0, -1}, {"end", 0, 1}}
+
+// marketSplitMove is the divider's position after a key: step from where it is, or an edge.
+func (w *window) marketSplitMove(step float32, edge int) float32 {
+	hi := min(marketMaxWidth, w.extent-marketSplitterWidth-marketMinDetail)
+	switch edge {
+	case -1:
+		return min(marketMinWidth, hi)
+	case 1:
+		return hi
+	}
+	return min(max(w.marketApplied+step, min(marketMinWidth, hi)), hi)
 }
 
 // marketNotice is a sentence in the middle of the list's column.

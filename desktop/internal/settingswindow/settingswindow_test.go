@@ -578,7 +578,7 @@ func TestPalettes(t *testing.T) {
 		t.Error("the sidebar must read as a different surface from the content")
 	}
 	for _, p := range []palette{light, dark} {
-		if p.selectionColor(true) == p.selectionColor(false) {
+		if p.selection == p.selectionIdle {
 			t.Error("a list with the focus and one without must select in different colors")
 		}
 	}

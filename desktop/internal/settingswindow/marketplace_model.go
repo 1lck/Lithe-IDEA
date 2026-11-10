@@ -68,7 +68,7 @@ func newMarketplaceState(fetch func(context.Context) (marketplace.Snapshot, erro
 			return marketResult{snapshot: snapshot}, err
 		})
 	}
-	m.list.Key = m.listKey
+	m.list.Key, m.list.Label = m.listKey, m.listLabel
 	m.search.bind()
 	return m
 }
@@ -80,6 +80,15 @@ func (m *marketplaceState) listKey(i int) int {
 		return visible[i]
 	}
 	return i
+}
+
+// listLabel is the name of the plugin row i lists: what assistive technology reads and what
+// typing the first letters of a name finds.
+func (m *marketplaceState) listLabel(i int) string {
+	if visible := m.search.visible(); i >= 0 && i < len(visible) {
+		return m.snapshot.Index.Plugins[visible[i]].Name
+	}
+	return ""
 }
 
 func (m *marketplaceState) fetchOf(source int) func(context.Context) (marketplace.Snapshot, error) {

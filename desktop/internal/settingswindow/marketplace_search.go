@@ -135,13 +135,15 @@ func (s *marketplaceSearch) run(ctx context.Context) ([]int, error) {
 	return indices, err
 }
 
-// take applies the finished ranking on the window thread at the start of a paint.
-func (s *marketplaceSearch) take(m *marketplaceState) {
+// take applies the finished ranking on the window thread at the start of a paint. The
+// field may have changed after the run ended but before this paint: an answer for a query
+// that is no longer in it is dropped, and the paint asks again for the one that is.
+func (s *marketplaceSearch) take(m *marketplaceState, currentInput string) {
 	if s.effect == nil || !s.requested {
 		return
 	}
 	indices, err, ok := s.effect.Take()
-	if !ok {
+	if !ok || s.query != currentInput {
 		return
 	}
 	s.loading = false

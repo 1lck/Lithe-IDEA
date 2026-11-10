@@ -78,18 +78,22 @@ type pluginSettingsForm struct {
 	// loadEffect reads the editor and opEffect saves or runs an action. A new key cancels
 	// the run before it, and a result that arrives after that is dropped, so a replaced
 	// or closed form can never restore an old editor. Zero keys mean nothing was asked.
+	// A cancelled run may still be returning when the next one starts: the loader must
+	// honor its context.
 	loadEffect     *ui.EffectState[pluginservice.SettingsEditor, int]
 	opEffect       *ui.EffectState[pluginSettingsResult, int]
 	loadKey, opKey int
-	loadID         string
-	op             pluginSettingsOp
-	cancelMu       sync.Mutex
-	cancelOp       context.CancelFunc
-	running        bool
-	id             string
-	loaded         bool
-	failed         error
-	saved          bool
+	// mu guards what a run reads when it starts, loadID and op, and the cancel of the
+	// operation running: a run may start after the window thread asked for the next one.
+	mu       sync.Mutex
+	loadID   string
+	op       pluginSettingsOp
+	cancelOp context.CancelFunc
+	running  bool
+	id       string
+	loaded   bool
+	failed   error
+	saved    bool
 	// scope and both drafts are view state; switching scope does not lose edits.
 	scope    int
 	editor   pluginservice.SettingsEditor
@@ -104,7 +108,10 @@ func newPluginSettingsForm(loader PluginSettingsLoader) *pluginSettingsForm {
 		p.loadEffect = ui.NewEffect[pluginservice.SettingsEditor, int](func(ctx context.Context) (pluginservice.SettingsEditor, error) {
 			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
-			return loader.Load(ctx, p.loadID)
+			p.mu.Lock()
+			id := p.loadID
+			p.mu.Unlock()
+			return loader.Load(ctx, id)
 		})
 		p.opEffect = ui.NewEffect[pluginSettingsResult, int](p.runOp)
 	}
@@ -115,15 +122,15 @@ func newPluginSettingsForm(loader PluginSettingsLoader) *pluginSettingsForm {
 // runOp is the save or the action. The stop button cancels its context through
 // cancelOp.
 func (p *pluginSettingsForm) runOp(parent context.Context) (pluginSettingsResult, error) {
-	op := p.op
 	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
-	p.cancelMu.Lock()
+	p.mu.Lock()
+	op := p.op
 	p.cancelOp = cancel
-	p.cancelMu.Unlock()
+	p.mu.Unlock()
 	defer func() {
-		p.cancelMu.Lock()
+		p.mu.Lock()
 		p.cancelOp = nil
-		p.cancelMu.Unlock()
+		p.mu.Unlock()
 		cancel()
 	}()
 	if op.isAction {
@@ -140,9 +147,9 @@ func (p *pluginSettingsForm) runOp(parent context.Context) (pluginSettingsResult
 
 // stop cancels the running action, as the stop button does.
 func (p *pluginSettingsForm) stop() {
-	p.cancelMu.Lock()
+	p.mu.Lock()
 	cancel := p.cancelOp
-	p.cancelMu.Unlock()
+	p.mu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
@@ -160,7 +167,9 @@ func (p *pluginSettingsForm) load(id string) {
 	if p.loader == nil {
 		return
 	}
+	p.mu.Lock()
 	p.loadID = id
+	p.mu.Unlock()
 	p.id, p.loaded, p.failed, p.saved = id, false, nil, false
 	p.running = true
 	p.controls = [2][]pluginSettingControl{}
@@ -392,7 +401,9 @@ func (p *pluginSettingsForm) save() {
 	if p.scope == 1 {
 		scope = "project"
 	}
+	p.mu.Lock()
 	p.op = pluginSettingsOp{editor: p.editor, scope: scope, edits: edits}
+	p.mu.Unlock()
 	p.running, p.failed, p.saved = true, nil, false
 	p.opKey++
 }
@@ -403,7 +414,9 @@ func (p *pluginSettingsForm) act(id string, confirmed bool) {
 	if _, ok := p.loader.(PluginSettingsActionLoader); !ok || p.running || !p.loaded {
 		return
 	}
+	p.mu.Lock()
 	p.op = pluginSettingsOp{editor: p.editor, action: id, confirmed: confirmed, isAction: true}
+	p.mu.Unlock()
 	p.running, p.acting = true, true
 	p.failed = nil
 	p.saved = false
