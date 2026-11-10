@@ -131,6 +131,9 @@ func Declared() Capabilities {
 		// toolchain, and runs the plan (files, commands, archives) in a staging
 		// directory. Version 2 adds tool fields.
 		"projectGenerators": {1, 2},
+		// Settings v2: pages per language and build system, sections, every
+		// control type, the project layer, setting effects and page buttons.
+		"settings": {1, 2},
 	}
 }
 
