@@ -5,4 +5,8 @@ package workbench
 // new feature adds no field to the shared App.
 type editorFeatures struct {
 	nav navigationHistoryState
+	// requests counts the editor's own language requests, which name them (editor_requests.go).
+	requests uint64
+	outline  outlineState
+	tokens   semanticTokensState
 }

@@ -38,6 +38,9 @@ type pluginServer struct {
 	// Core's featuresChanged event. Only the window thread reads or writes them; nil
 	// means the server declared none.
 	completionTriggers []string
+	// features are the features the server offers, from Core's featuresChanged event
+	// (documentSymbols, semanticTokens and so on). Only the window thread reads or writes it.
+	features map[string]bool
 	// buildMu guards both the attached clients and readiness. A ready event and
 	// an attach race through the same lock, so a client either receives the
 	// event or is marked ready from the recorded state, never both and never

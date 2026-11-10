@@ -106,6 +106,10 @@ func (k semanticKind) method() string {
 		return pluginMethodRangeFormatting
 	case pluginSemanticRename:
 		return pluginMethodRename
+	case pluginSemanticDocumentSymbols:
+		return pluginMethodDocumentSymbols
+	case pluginSemanticTokens:
+		return pluginMethodSemanticTokens
 	default:
 		return pluginMethodCompletion
 	}
@@ -622,6 +626,10 @@ func (a *App) applyServerFeatures(server *pluginServer, event core.BackendEvent)
 	if server == nil || server.session == nil || !a.isCurrentPluginServer(server.session.PluginID, server) {
 		return
 	}
+	server.features = make(map[string]bool, len(event.Capabilities))
+	for _, feature := range event.Capabilities {
+		server.features[feature] = true
+	}
 	server.completionTriggers = nil
 	if event.CompletionOptions != nil {
 		server.completionTriggers = event.CompletionOptions.TriggerCharacters
@@ -748,7 +756,12 @@ func (a *App) applyPluginSemanticEvent(server *pluginServer, event core.BackendE
 	}
 	if len(event.Error) != 0 && string(event.Error) != "null" {
 		a.logSemanticError(pending.kind, event.Error)
-		a.semanticOperationFailed(pending.kind)
+		if !a.applyEditorEvent(pending, event, true) {
+			a.semanticOperationFailed(pending.kind)
+		}
+		return
+	}
+	if a.applyEditorEvent(pending, event, false) {
 		return
 	}
 	switch pending.kind {
@@ -1116,6 +1129,8 @@ func (a *App) deferSemantic(p *project, d *document, run func(*App)) {
 
 // resumeDeferredSemantics is called when a document synchronization finishes.
 func (a *App) resumeDeferredSemantics() {
+	// The outline waits for the synchronization too, and asks again on the next frame.
+	a.invalidator.Invalidate()
 	run := a.semantics.deferred
 	if run == nil {
 		return

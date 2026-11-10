@@ -13920,6 +13920,41 @@
       ]
     },
     {
+      "id": "desktop.outline.empty",
+      "description": "Structure tool window text when the file has no symbols",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.outline.loading",
+      "description": "Structure tool window text while the language server answers",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.outline.noFile",
+      "description": "Structure tool window text when no file is open",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.outline.sort",
+      "description": "Button that lists the structure by name instead of by position",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.outline.unavailable",
+      "description": "Structure tool window text when no language server offers symbols for the file",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.panel.hide",
       "description": "Desktop panel: Hide",
       "platforms": [
