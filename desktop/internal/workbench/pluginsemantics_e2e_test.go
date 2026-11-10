@@ -158,3 +158,54 @@ func documentNamed(p *project, name string) *document {
 	}
 	return nil
 }
+
+func TestClangdFindReferencesListsUses(t *testing.T) {
+	h := clangdHarness(t)
+	root := t.TempDir()
+	content := "int add(int left, int right) { return left + right; }\nint main(void) { return add(1, 2) + add(3, 4); }\n"
+	clangdSemanticsDocument(t, h, root, content, "add(1")
+	if err := h.driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.driver.Key(gfx.KeyF12, gfx.ModifierShift); err != nil {
+		t.Fatal(err)
+	}
+	awaitStateWithin(t, h, 30*time.Second, "clangd references", func() bool {
+		return h.app.semantics.definition.open
+	})
+	if got := len(h.app.semantics.definition.targets); got < 3 {
+		t.Fatalf("references = %d, want declaration and two uses", got)
+	}
+	h.app.closeProject()
+	awaitStateWithin(t, h, 20*time.Second, "the closed project", func() bool { return h.app.project == nil })
+	h.settle()
+}
+
+func TestClangdRenameEditsEveryOccurrence(t *testing.T) {
+	h := clangdHarness(t)
+	root := t.TempDir()
+	content := "int add(int left, int right) { return left + right; }\nint main(void) { return add(1, 2); }\n"
+	_, d, _, _ := clangdSemanticsDocument(t, h, root, content, "add(1")
+	if err := h.driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.driver.Key(gfx.KeyF2, 0); err != nil {
+		t.Fatal(err)
+	}
+	if h.app.semantics.rename.name.Text() != "add" {
+		t.Fatalf("prefill = %q", h.app.semantics.rename.name.Text())
+	}
+	h.app.semantics.rename.name.SetText("sum")
+	h.app.confirmPluginRename()
+	awaitStateWithin(t, h, 30*time.Second, "clangd rename", func() bool {
+		data, _ := d.view.Text()
+		return strings.Count(string(data), "sum") == 2
+	})
+	data, _ := d.view.Text()
+	if strings.Contains(string(data), "add") {
+		t.Fatalf("text after rename = %q", data)
+	}
+	h.app.closeProject()
+	awaitStateWithin(t, h, 20*time.Second, "the closed project", func() bool { return h.app.project == nil })
+	h.settle()
+}

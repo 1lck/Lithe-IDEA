@@ -3,6 +3,9 @@ package workbench
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"unicode"
 	"unicode/utf8"
@@ -178,23 +181,30 @@ func (a *App) applySemanticRename(pending *semanticPending, event core.BackendEv
 	a.applyWorkspaceChanges(p, changes)
 }
 
+// realPath resolves symbolic links, falling back to the path itself when it
+// cannot be resolved (a file that does not exist yet).
+func realPath(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return path
+}
+
 // errRenameRejected marks a plan Core refused; nothing was written.
 var errRenameRejected = errors.New("workspace edit rejected by Core")
 
 // applyWorkspaceChanges plans and commits a normalised workspace edit.
 func (a *App) applyWorkspaceChanges(p *project, changes map[string][]core.PluginTextEdit) {
 	open := make(map[string]renameOpenDocument, len(p.docs.list))
-	list := make([]core.PluginOpenDocument, 0, len(p.docs.list))
 	for _, d := range p.docs.list {
 		line, column := d.view.CaretUTF16()
 		caret, _ := d.view.ByteOffset(line, column)
 		open[d.path] = renameOpenDocument{id: d.id, revision: d.view.Revision(), text: d.view.TextSnapshot(), caret: caret}
-		list = append(list, core.PluginOpenDocument{Path: d.path})
 	}
 	write := a.documentWriter
 	root := p.root
 	a.background(p, semanticApplyTimeout, func(ctx context.Context) func(*App) {
-		files, updates, err := a.commitWorkspaceEdit(ctx, root, changes, list, open, write)
+		files, updates, err := a.commitWorkspaceEdit(ctx, root, changes, open, write)
 		return func(a *App) {
 			if a.project != p {
 				return
@@ -228,13 +238,36 @@ func (a *App) applyWorkspaceChanges(p *project, changes map[string][]core.Plugin
 // compute every target's new text first, then writes closed files in Core's
 // order. A failed write restores the files already written in reverse order and
 // returns the failure, leaving open documents untouched.
-func (a *App) commitWorkspaceEdit(ctx context.Context, root string, changes map[string][]core.PluginTextEdit, list []core.PluginOpenDocument, open map[string]renameOpenDocument, write func(string, []byte, []byte) error) (int, []renameDocumentUpdate, error) {
-	plan, err := a.kernel.PlanPluginWorkspaceEdit(ctx, root, changes, list)
+func (a *App) commitWorkspaceEdit(ctx context.Context, root string, changes map[string][]core.PluginTextEdit, openByPath map[string]renameOpenDocument, write func(string, []byte, []byte) error) (int, []renameDocumentUpdate, error) {
+	// A language server may name a file by its real path or by the path it was
+	// given, so the workspace root, the open documents and the targets are all
+	// compared by real path; otherwise a project opened through a symbolic link
+	// would reject every target.
+	root = realPath(root)
+	open := make(map[string]renameOpenDocument, len(openByPath))
+	list := make([]core.PluginOpenDocument, 0, len(openByPath))
+	for path, document := range openByPath {
+		real := realPath(path)
+		open[real] = document
+		list = append(list, core.PluginOpenDocument{Path: real})
+	}
+	resolved := make(map[string][]core.PluginTextEdit, len(changes))
+	for path, edits := range changes {
+		real := realPath(path)
+		// Two keys naming one file (the real path and the path the server was
+		// given) carry the same edit; an identical edit is applied once.
+		for _, edit := range edits {
+			if !slices.Contains(resolved[real], edit) {
+				resolved[real] = append(resolved[real], edit)
+			}
+		}
+	}
+	plan, err := a.kernel.PlanPluginWorkspaceEdit(ctx, root, resolved, list)
 	if err != nil {
 		return 0, nil, err
 	}
 	if plan.Rejection != nil {
-		return 0, nil, errRenameRejected
+		return 0, nil, fmt.Errorf("%w: %s", errRenameRejected, plan.Rejection.Code)
 	}
 	var writes []renameClosedWrite
 	var updates []renameDocumentUpdate

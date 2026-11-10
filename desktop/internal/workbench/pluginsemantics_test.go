@@ -558,7 +558,12 @@ func TestFormatDocumentWithoutEditsSaysNothingToFormat(t *testing.T) {
 
 func renameChangesResult(t *testing.T, changes map[string][]core.PluginTextEdit) json.RawMessage {
 	t.Helper()
-	value, err := json.Marshal(map[string]any{"changes": changes})
+	// A language server names files by their real path.
+	real := make(map[string][]core.PluginTextEdit, len(changes))
+	for path, edits := range changes {
+		real[realPath(path)] = edits
+	}
+	value, err := json.Marshal(map[string]any{"changes": real})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -633,8 +638,9 @@ func TestRenameRollsBackWrittenFilesWhenALaterWriteFails(t *testing.T) {
 		}
 	}
 	real := f.h.app.documentWriter
+	failing := realPath(second)
 	f.h.app.documentWriter = func(path string, data, expected []byte) error {
-		if path == second {
+		if path == failing {
 			return errors.New("disk full")
 		}
 		return real(path, data, expected)
