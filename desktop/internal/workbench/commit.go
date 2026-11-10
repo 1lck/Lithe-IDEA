@@ -45,6 +45,8 @@ type commitState struct {
 	// attempt is the session of the last run, kept while its results are shown; nil when
 	// there are none.
 	attempt *core.WorkspaceCommitSession
+	// ai is the AI message generation of the commit area (aicommit.go).
+	ai aiCommitState
 }
 
 // commitReview is an open review: the kernel's plan, and the destination the user picked for

@@ -4,22 +4,40 @@
   "group": "AI 提交信息",
   "capability": "Provider 配置与提交信息生成",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/aicommit.go",
+      "desktop/internal/workbench/aicommit_http.go",
+      "desktop/internal/workbench/aicommit_view.go",
+      "desktop/internal/workbench/aicommit_test.go",
+      "desktop/internal/core/ai_generation.go",
+      "desktop/internal/core/ai_generation_test.go",
+      "desktop/internal/i18n/ai_messages.go",
+      "shared/contracts/ai-commit.md",
+      "shared/fixtures/ai/commit-generation-v1.json",
+      "shared/fixtures/git/commit-message-context-v1.json"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/aicommit.go",
+      "desktop/internal/workbench/aicommit_http.go",
+      "desktop/internal/workbench/aicommit_view.go",
+      "desktop/internal/workbench/aicommit_test.go",
+      "desktop/internal/core/ai_generation.go",
+      "desktop/internal/core/ai_generation_test.go",
+      "desktop/internal/i18n/ai_messages.go",
+      "shared/contracts/ai-commit.md",
+      "shared/fixtures/ai/commit-generation-v1.json",
+      "shared/fixtures/git/commit-message-context-v1.json"
     ]
   },
   "owner": "Git / AI",
   "verification": "用相同 diff、规则和 Provider 配置比较请求计划、取消、错误和生成文本。 共享提交上下文的真实 Git 回归覆盖同路径重新暂存、未缓存工作区变化、截断外内容、多仓库同名文件、敏感重命名及目录展开；macOS 确认替换时再次核对并保留新输入，Windows 测试验证同一路径的内容变化和取消。两端原生完整界面验收仍为 pending。",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "2026-11-10：Viva Commit 面板新增“生成提交信息”按钮：Core 的 git.commitMessageContext（暂存区证据与状态令牌）、ai.planCommit、ai.decodeCommitMessage 经 desktop/internal/core 封装，Go 只从 Codex/Claude 本机配置选取首个带凭据的服务商、附加认证头并发起 HTTP（45 秒期限、不跟随重定向、响应 2 MiB 上限、错误不回显响应体），生成后再校验令牌；输入框已有文字时需确认替换并保留确认期间的新输入。生成永不暂存、提交或推送。未接入：设置页中的服务商选择与生成选项（语言、格式、长度、推理强度，当前用契约默认值）、手动服务商与密钥；真实供应商和原生界面验收仍为 pending。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

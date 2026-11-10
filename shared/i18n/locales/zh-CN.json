@@ -10876,7 +10876,20 @@
     "desktop.run.signalled": "进程被信号 {signal} 终止。",
     "desktop.run.ended": "进程已结束。",
     "desktop.run.linkMissing": "在工作区中找不到链接指向的文件。",
-    "desktop.run.linkUnresolved": "插件无法解析此链接。"
+    "desktop.run.linkUnresolved": "插件无法解析此链接。",
+    "desktop.aiCommit.generate": "生成提交信息",
+    "desktop.aiCommit.generating": "生成中…",
+    "desktop.aiCommit.cancel": "取消生成",
+    "desktop.aiCommit.noProvider": "在 Codex 或 Claude 配置中没有找到带凭据的 AI 服务商。",
+    "desktop.aiCommit.failed": "生成提交信息失败：{reason}",
+    "desktop.aiCommit.stale": "生成期间暂存的更改发生了变化，请重新生成。",
+    "desktop.aiCommit.replaceTitle": "替换提交说明？",
+    "desktop.aiCommit.replaceBody": "生成的提交说明将替换已输入的文字。",
+    "desktop.aiCommit.replace": "替换",
+    "desktop.aiCommit.keep": "保留我的",
+    "desktop.aiCommit.httpStatus": "AI 服务商返回 HTTP {status}。",
+    "desktop.aiCommit.responseTooLarge": "AI 服务商的响应超过 2 MiB。",
+    "desktop.aiCommit.timeout": "AI 服务商在 45 秒内没有响应。"
   },
   "overrides": {
     "macos": {

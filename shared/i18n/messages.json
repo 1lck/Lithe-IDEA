@@ -104100,6 +104100,103 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.aiCommit.generate",
+      "description": "Commit panel button that asks the AI provider for a message",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.aiCommit.generating",
+      "description": "Commit panel button label while a message is generated",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.aiCommit.cancel",
+      "description": "Commit panel button that stops a running generation",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.aiCommit.noProvider",
+      "description": "Shown when the commit generation has no usable provider",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.aiCommit.failed",
+      "description": "Commit generation failure notification",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.aiCommit.stale",
+      "description": "Generated message dropped because the Git state moved",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.aiCommit.replaceTitle",
+      "description": "Title of the replacement confirmation",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.aiCommit.replaceBody",
+      "description": "Body of the replacement confirmation",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.aiCommit.replace",
+      "description": "Replacement confirmation accept button",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.aiCommit.keep",
+      "description": "Replacement confirmation reject button",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.aiCommit.httpStatus",
+      "description": "Provider HTTP error without the response body",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "status": "integer"
+      }
+    },
+    {
+      "id": "desktop.aiCommit.responseTooLarge",
+      "description": "Provider response over the size cap",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.aiCommit.timeout",
+      "description": "Provider request deadline",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

@@ -36,14 +36,16 @@ var (
 // Claude configuration. APIKey is memory-only and must never be logged or
 // persisted.
 type agentProvider struct {
-	Source     string
-	Name       string
-	Endpoint   string
-	Model      string
-	Protocol   string
-	APIKey     string
-	Issue      string
-	MissingKey bool
+	Source   string
+	Name     string
+	Endpoint string
+	Model    string
+	Protocol string
+	// Authentication is bearer or apiKey, as Core parsed it.
+	Authentication string
+	APIKey         string
+	Issue          string
+	MissingKey     bool
 }
 
 // discoverAgentProviders reads the local Codex and Claude configuration through
@@ -95,11 +97,12 @@ func (a *App) discoverAgentProviders(ctx context.Context) (map[string][]agentPro
 			continue
 		}
 		provider := agentProvider{
-			Source:   source,
-			Name:     parsed.Provider.Name,
-			Endpoint: parsed.Provider.Endpoint,
-			Model:    parsed.Provider.Model,
-			Protocol: parsed.Provider.APIProtocol,
+			Source:         source,
+			Name:           parsed.Provider.Name,
+			Endpoint:       parsed.Provider.Endpoint,
+			Model:          parsed.Provider.Model,
+			Protocol:       parsed.Provider.APIProtocol,
+			Authentication: parsed.Provider.Authentication,
 		}
 		if provider.Name == "" {
 			provider.Name = parsed.Provider.Endpoint

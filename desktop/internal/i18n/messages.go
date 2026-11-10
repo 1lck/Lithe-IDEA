@@ -25,6 +25,7 @@ type Messages struct {
 	Tests    TestMessages
 	Debug    DebugMessages
 	Run      RunMessages
+	AI       AIMessages
 	Sync     SyncMessages
 }
 

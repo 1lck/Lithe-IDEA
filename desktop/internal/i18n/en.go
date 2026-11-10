@@ -479,5 +479,6 @@ var english = Messages{
 	Tests:  testMessages(English),
 	Debug:  debugMessages(English),
 	Run:    runMessages(English),
+	AI:     aiMessages(English),
 	Sync:   syncMessages(English),
 }

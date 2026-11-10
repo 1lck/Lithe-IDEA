@@ -57,6 +57,7 @@ func (a *App) commitPageView(c ui.C) {
 	if p.commit.review != nil {
 		a.drawCommitReview(c, p)
 	}
+	a.drawGeneratedMessageConfirm(c, p)
 }
 
 // drawCommitToolbar declares the buttons over the change list: read the status again, and
@@ -246,6 +247,7 @@ func (a *App) drawCommitArea(c ui.C, p *project) ui.Box {
 			if ui.Button(c, t.CommitAndPush).Outline().Disabled(!ready).Clicked() {
 				c.After(func() { a.startCommit(p, true, surfaceButton) })
 			}
+			a.drawGenerateCommitButton(c, p)
 		})
 	})
 }

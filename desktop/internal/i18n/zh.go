@@ -479,5 +479,6 @@ var chinese = Messages{
 	Tests:  testMessages(Chinese),
 	Debug:  debugMessages(Chinese),
 	Run:    runMessages(Chinese),
+	AI:     aiMessages(Chinese),
 	Sync:   syncMessages(Chinese),
 }
