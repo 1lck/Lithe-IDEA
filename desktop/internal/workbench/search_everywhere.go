@@ -12,14 +12,9 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// The dialog is named by the application so the query field can take the
-// keyboard when it opens and the host can tell when a key is typed in it.
-var (
-	everywhereScope     = tree.ID(shellPage, "everywhere-scope")
-	everywhereQueryID   = tree.ID(shellPage, "everywhere-query")
-	everywhereDismissID = tree.ID(shellPage, "everywhere-dismiss")
-	everywhereCloseID   = tree.ID(shellPage, "everywhere-close")
-)
+// everywhereQueryID names the query field so the panel can give it the keyboard
+// and the host can tell when a key is typed in it.
+var everywhereQueryID = tree.ID(shellPage, "everywhere-query")
 
 const (
 	everywherePageSize   = 50

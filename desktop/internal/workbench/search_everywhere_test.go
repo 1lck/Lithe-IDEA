@@ -420,3 +420,27 @@ func TestEverywhereRebuildsAfterInterruptedIndexUpdate(t *testing.T) {
 		t.Fatalf("invalidations after cancelled update = %d, want 1", got)
 	}
 }
+
+func TestEverywhereHangsFromTheTopAndClosesOnAPressOutside(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.open(t.TempDir())
+	if handled, err := h.driver.ShortcutChord(gfx.ModifierMeta|gfx.ModifierShift, 'o'); err != nil || !handled {
+		t.Fatalf("shortcut: handled=%v error=%v", handled, err)
+	}
+	if err := h.driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	query := h.hit(everywhereQueryID)
+	if query.Y < 84 || query.Y > 160 {
+		t.Fatalf("the query field is at y=%v, want the panel at the top of the window", query.Y)
+	}
+	for _, primitive := range h.driver.Snapshot().Primitives {
+		if primitive.Layer > 0 && primitive.Bounds.Width == float32(h.driver.Snapshot().Width) && primitive.Bounds.Height == float32(h.driver.Snapshot().Height) && primitive.Color.Alpha > 0 {
+			t.Fatal("the search panel dims the window")
+		}
+	}
+	h.click(gfx.Point{X: 4, Y: float32(h.driver.Snapshot().Height) - 4})
+	if h.app.everywhereView.open {
+		t.Fatal("a press outside did not close the search")
+	}
+}

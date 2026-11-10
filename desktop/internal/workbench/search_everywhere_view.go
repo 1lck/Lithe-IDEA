@@ -26,18 +26,24 @@ func (a *App) everywherePopup(c ui.C) {
 		v.focus = false
 	}
 	language := a.language()
-	// The dialog is as tall as its results need once there is a query.
-	var height float32
+	// The panel hangs from a point at the top of the window, as it always has:
+	// centered, 84 high, without a scrim. A press outside closes it and goes on
+	// to whatever is under the pointer.
+	bounds := c.Bounds()
+	width := min(float32(670), max(0, bounds.Width-32))
+	var height float32 = 84 - 2*8
 	if strings.TrimSpace(v.query.Text()) != "" {
-		height = min(684, max(84, c.Bounds().Height-100))
+		height = min(684, max(84, bounds.Height-100)) - 16
 	}
-	dialog := ui.Dialog(c, ui.DialogSpec{
-		Title: i18n.Shared(language, "desktop.everywhere.title"), Width: 670, Height: height,
-		Scope: everywhereScope, DismissID: everywhereDismissID, CloseID: everywhereCloseID, InitialFocusID: everywhereQueryID,
+	var anchor ui.Box
+	ui.Stack(c).Fill().Children(func() {
+		anchor = ui.Row(c).Absolute().Left((bounds.Width - width) / 2).Top(84).Width(width).Height(1)
 	})
-	dialog.Header(func() { a.everywhereScopes(c, p, language) })
-	dialog.Body(func() {
-		ui.Column(c).FillWidth().Grow(1).Gap(8).Children(func() {
+	closed := ui.PopoverWith(c, anchor, ui.PopoverSpec{
+		Width: width, Offset: 1, Align: ui.Start, KeepOpenOnAnchor: true,
+	}, &v.open, func() {
+		ui.Column(c).FillWidth().Height(height).Gap(8).Children(func() {
+			a.everywhereScopes(c, p, language)
 			field := ui.TextFieldID(c, everywhereQueryID, &v.query, i18n.Shared(language, "desktop.everywhere.title"), "").
 				Icon(icons.Search).Action(icons.X, i18n.Shared(language, "native.clearSearch"))
 			if field.ActionClicked() {
@@ -60,7 +66,7 @@ func (a *App) everywherePopup(c ui.C) {
 			}
 		})
 	})
-	if dialog.Dismissed() {
+	if closed {
 		a.closeEverywhere(p)
 	}
 }
