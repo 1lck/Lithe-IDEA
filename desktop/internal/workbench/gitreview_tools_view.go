@@ -10,14 +10,14 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// This file declares the Push dialog and the dialog of the stash, worktree and repository
-// tools, and the menu that opens them. State and actions are in gitreview_tools.go.
+// This file declares the Push dialog and the dialog of the stash and repository tools, and the
+// menu that opens them and the Git tool window's Worktrees tab. State and actions are in gitreview_tools.go.
 
 // pushTagIndexes number the choices of the Push dialog's tag select.
 var pushTagIndexes = []int{0, 1, 2}
 
 // drawGitReviewMenu declares the Git tools button of the Git tool window's stripe, with the
-// menu that opens the Push dialog and the stash, worktree and repository tools.
+// menu that opens the Push dialog, the stash and repository tools and the Worktrees tab.
 func (a *App) drawGitReviewMenu(c ui.C, p *project) {
 	r := &a.reviewMenu
 	button, clicked := a.gitToolButton(c, i18n.Shared(a.language(), "desktop.gitReview.menuLabel"), icons.Ellipsis, r.open, !p.git.isRepository())
@@ -33,7 +33,7 @@ func (a *App) drawGitReviewMenu(c ui.C, p *project) {
 			c.After(func() { a.openTools(p, toolsStashes) })
 		}
 		if menu.Item(i18n.Shared(a.language(), "git.worktrees")).Clicked() {
-			c.After(func() { a.openTools(p, toolsWorktrees) })
+			c.After(a.showWorktrees)
 		}
 		if menu.Item(i18n.Shared(a.language(), "git.repositories")).Clicked() {
 			c.After(func() { a.openTools(p, toolsRepositories) })
@@ -159,19 +159,16 @@ func (a *App) drawPushDialog(c ui.C, p *project) {
 }
 
 // toolsTabs lists the tabs of the tools dialog.
-var toolsTabs = []toolsTab{toolsStashes, toolsWorktrees, toolsRepositories}
+var toolsTabs = []toolsTab{toolsStashes, toolsRepositories}
 
-// drawToolsDialog declares the stash, worktree and repository tools in one tabbed dialog.
+// drawToolsDialog declares the stash and repository tools in one tabbed dialog.
 func (a *App) drawToolsDialog(c ui.C, p *project) {
 	t := &p.review.tools
 	open := true
 	closed := ui.ModalWith(c, &open, i18n.Shared(a.language(), "desktop.gitReview.manageTitle"), ui.ModalSpec{Width: 720, Height: 520}, func() {
 		ui.Column(c).Fill().Gap(8).Children(func() {
 			ui.Tabs(c, &t.tab, toolsTabs, func(tab toolsTab) string {
-				switch tab {
-				case toolsWorktrees:
-					return i18n.Shared(a.language(), "git.worktrees")
-				case toolsRepositories:
+				if tab == toolsRepositories {
 					return i18n.Shared(a.language(), "git.repositories")
 				}
 				return i18n.Shared(a.language(), "git.saved.stashes")
@@ -181,12 +178,9 @@ func (a *App) drawToolsDialog(c ui.C, p *project) {
 					ui.Paragraph(c, problem, 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
 				}
 			}
-			switch t.tab {
-			case toolsWorktrees:
-				a.drawWorktreesTab(c, p)
-			case toolsRepositories:
+			if t.tab == toolsRepositories {
 				a.drawRepositoriesTab(c, p)
-			default:
+			} else {
 				a.drawStashesTab(c, p)
 			}
 		})
@@ -246,90 +240,6 @@ func (a *App) drawStashesTab(c ui.C, p *project) {
 				c.After(func() { t.dropping = stash.OID })
 			}
 		})
-	}).Grow(1).FillWidth()
-}
-
-// worktreeBranch is the branch a worktree has checked out, without the refs/heads/ prefix.
-func (a *App) worktreeBranch(tree core.GitWorktree) string {
-	switch {
-	case tree.IsBare:
-		return i18n.Shared(a.language(), "git.worktreeDialog.bare")
-	case tree.Branch == "":
-		return i18n.Shared(a.language(), "desktop.gitReview.detached")
-	}
-	name := tree.Branch
-	const prefix = "refs/heads/"
-	if len(name) > len(prefix) && name[:len(prefix)] == prefix {
-		name = name[len(prefix):]
-	}
-	return name
-}
-
-// drawWorktreesTab declares the registered worktrees with lock, unlock and remove, and the
-// form that adds one on a new branch started at HEAD.
-func (a *App) drawWorktreesTab(c ui.C, p *project) {
-	t := &p.review.tools
-	size := a.theme.Metrics.FontSizeS
-	ui.Row(c).FillWidth().Shrink(0).Items(ui.Center).Gap(8).Children(func() {
-		ui.TextField(c, &t.branchName, i18n.Shared(a.language(), "git.worktreeDialog.branchName"), i18n.Shared(a.language(), "git.worktreeDialog.branchName")).Width(200).Shrink(0)
-		ui.TextField(c, &t.destination, i18n.Shared(a.language(), "git.worktreeDialog.destination"), i18n.Shared(a.language(), "git.worktreeDialog.destination")).Grow(1)
-		ready := !t.busy && t.branchName.Text() != "" && t.destination.Text() != ""
-		if ui.Button(c, i18n.Shared(a.language(), "git.newWorktree")).Disabled(!ready).Clicked() {
-			c.After(func() { a.createWorktree(p) })
-		}
-	})
-	if hasPrunable(t.worktrees) {
-		if ui.Button(c, i18n.Shared(a.language(), "desktop.gitReview.prune")).Outline().Disabled(t.busy).Clicked() {
-			c.After(func() { a.worktreeAction(p, core.GitWorktree{}, "prune") })
-		}
-	}
-	if len(t.worktrees) == 0 {
-		a.gitEmpty(c, i18n.Shared(a.language(), "git.noWorktreesFound"))
-		return
-	}
-	ui.List(c, &t.treeList, len(t.worktrees), func(row ui.ListRow) {
-		tree := t.worktrees[row.Index]
-		row.Element.FillWidth().Height(reviewRowHeight + 14).Items(ui.Center).Gap(8).PadX(8).Children(func() {
-			ui.Column(row.C).Grow(1).Shrink(1).Children(func() {
-				name := a.worktreeBranch(tree)
-				if tree.IsPrimary {
-					name += " · " + i18n.Shared(a.language(), "git.worktreeDialog.primary")
-				}
-				if tree.IsLocked {
-					name += " · " + i18n.Shared(a.language(), "git.worktreeDialog.locked")
-				}
-				if tree.IsPrunable {
-					name += " · " + i18n.Shared(a.language(), "git.worktreeDialog.missing")
-				}
-				ui.Text(row.C, name).Ellipsis()
-				ui.Text(row.C, filepath.FromSlash(tree.Path)).FontSize(size).Color(a.colors.Subtle).Ellipsis()
-			})
-			if tree.IsPrimary || tree.IsCurrent {
-				return
-			}
-			if t.removing == tree.Path {
-				if ui.Button(row.C, i18n.Shared(a.language(), "git.worktreeDialog.remove")).Destructive().Disabled(t.busy).Clicked() {
-					c.After(func() { a.worktreeAction(p, tree, "remove") })
-				}
-				if ui.Button(row.C, i18n.Shared(a.language(), "desktop.gitReview.cancel")).Outline().Clicked() {
-					c.After(func() { t.removing = "" })
-				}
-				return
-			}
-			lock, action := i18n.Shared(a.language(), "desktop.gitReview.lock"), "lock"
-			if tree.IsLocked {
-				lock, action = i18n.Shared(a.language(), "desktop.gitReview.unlock"), "unlock"
-			}
-			if ui.Button(row.C, lock).Ghost().Disabled(t.busy).Clicked() {
-				c.After(func() { a.worktreeAction(p, tree, action) })
-			}
-			if ui.Button(row.C, i18n.Shared(a.language(), "git.worktreeDialog.remove")).Ghost().Disabled(t.busy || tree.IsLocked).Clicked() {
-				c.After(func() { t.removing = tree.Path })
-			}
-		})
-		if t.removing == tree.Path {
-			ui.Paragraph(row.C, i18n.SharedFormat(a.language(), "git.worktreeDialog.removeConfirm", map[string]string{"path": tree.Path}), 2).FontSize(size).Color(a.colors.Warning)
-		}
 	}).Grow(1).FillWidth()
 }
 

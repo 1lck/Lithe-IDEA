@@ -43,7 +43,7 @@ func (h *harness) openLogFilesWith(t *testing.T, names ...string) (*project, str
 	if p == nil || !p.git.isRepository() {
 		t.Fatalf("the project is not a loaded repository: %+v", p)
 	}
-	h.app.layout.gitTab = 0
+	h.app.layout.gitTab = gitTabLog
 	h.settle()
 	if !p.log.started {
 		h.click(center(h.button(itemGit)))

@@ -681,6 +681,15 @@ func (a *App) copyWorktreePath(path string) {
 	}
 }
 
+// showWorktrees opens the Git tool window on its Worktrees tab, as the Git tools menu asks.
+func (a *App) showWorktrees() {
+	a.performed("git.worktrees.show", surfaceMenu)
+	a.layout.gitTab = gitTabWorktrees
+	if !a.chrome.isOpen(catalogIndex[itemGit]) {
+		a.reduceChrome(core.SetChromeOpen(itemGit, true))
+	}
+}
+
 // openWorktree opens the checkout at path as the window's project.
 func (a *App) openWorktree(path string) {
 	a.performed("git.worktree.open", surfaceButton)

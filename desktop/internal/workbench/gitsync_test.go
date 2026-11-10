@@ -25,7 +25,7 @@ func syncFixture(t *testing.T) (h *harness, p *project, dir, other string) {
 	h = newHarness(t, gitKernel{core.NewClient()})
 	h.app.delays = logDelays{}
 	h.open(dir)
-	h.app.layout.gitTab = 0
+	h.app.layout.gitTab = gitTabLog
 	h.settle()
 	if !h.app.project.log.started {
 		h.click(center(h.button(itemGit)))

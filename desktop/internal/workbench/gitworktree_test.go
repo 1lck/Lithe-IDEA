@@ -35,7 +35,7 @@ func (h *harness) openWorktrees(t *testing.T, dir string) *worktreeState {
 	if p == nil || !p.git.isRepository() {
 		t.Fatalf("the project is not a loaded repository: %+v", p)
 	}
-	h.app.layout.gitTab = 1
+	h.app.layout.gitTab = gitTabWorktrees
 	h.app.invalidator.Invalidate()
 	h.settle()
 	w := &p.worktrees
@@ -67,6 +67,26 @@ func (h *harness) selectWorktreeAt(t *testing.T, path string) {
 func (h *harness) awaitWorktreeWrite(what string, w *worktreeState, done func() bool) {
 	h.t.Helper()
 	h.await(what, func() bool { return !w.busy && !w.loading && w.countsKnown && done() })
+}
+
+// The Worktrees item of the Git tools menu shows the Worktrees tab instead of a dialog.
+func TestGitToolsMenuShowsTheWorktreesTab(t *testing.T) {
+	dir := newTestRepository(t)
+	h := newHarness(t, gitKernel{core.NewClient()})
+	p := h.openLog(t, dir)
+	lang := h.app.language()
+
+	h.clickNamed(i18n.Shared(lang, "desktop.gitReview.menuLabel"))
+	h.settle()
+	h.clickNamed(i18n.Shared(lang, "git.worktrees"))
+	h.settle()
+	if h.app.layout.gitTab != gitTabWorktrees || !h.app.chrome.isOpen(catalogIndex[itemGit]) {
+		t.Fatalf("tab %d, Git tool window open %v; want the Worktrees tab shown", h.app.layout.gitTab, h.app.chrome.isOpen(catalogIndex[itemGit]))
+	}
+	if p.review.tools.open {
+		t.Fatal("the menu opened the tools dialog")
+	}
+	h.await("the worktrees", func() bool { return p.worktrees.started && p.worktrees.loaded })
 }
 
 func TestWorktreesListThePrimaryAndTheLinkedCheckouts(t *testing.T) {

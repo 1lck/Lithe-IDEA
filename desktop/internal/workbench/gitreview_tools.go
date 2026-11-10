@@ -3,7 +3,6 @@ package workbench
 import (
 	"context"
 	"errors"
-	"slices"
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -11,8 +10,8 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// This file keeps the state and the actions of the Push dialog and of the stash, worktree and
-// repository tools. Core resolves the push destination and validates every write; the dialogs
+// This file keeps the state and the actions of the Push dialog and of the stash and repository
+// tools. Core resolves the push destination and validates every write; the dialogs
 // show its answers and send the reviewed ones back.
 
 // pushTagChoices are the tag policies of the Push dialog, in the order of its select.
@@ -129,18 +128,18 @@ func (a *App) submitPush(p *project) {
 	}
 }
 
-// --- Stashes, worktrees and repositories ---
+// --- Stashes and repositories ---
 
 // toolsTab names the tab of the tools dialog.
 type toolsTab int
 
 const (
 	toolsStashes toolsTab = iota
-	toolsWorktrees
 	toolsRepositories
 )
 
-// toolsState is the open stash, worktree and repository tools dialog.
+// toolsState is the open stash and repository tools dialog. The worktrees have the Git tool
+// window's Worktrees tab (gitworktree.go).
 type toolsState struct {
 	open    bool
 	tab     toolsTab
@@ -153,21 +152,15 @@ type toolsState struct {
 	writeErr string
 
 	stashes      []core.GitStash
-	worktrees    []core.GitWorktree
 	repositories []core.WorkspaceRepository
 
-	// stashMessage and untracked shape the next stash; the worktree fields shape the next new
-	// worktree, created on a new branch started at the checked-out one.
+	// stashMessage and untracked shape the next stash.
 	stashMessage ui.Field
 	untracked    bool
-	branchName   ui.Field
-	destination  ui.Field
-	// removing is the worktree path waiting for the user to confirm its removal.
-	removing string
 	// dropping is the stash identity waiting for the user to confirm dropping it.
 	dropping string
 
-	stashList, treeList, repoList ui.ListState
+	stashList, repoList ui.ListState
 }
 
 // openTools opens the tools dialog on a tab and reads its lists.
@@ -176,7 +169,7 @@ func (a *App) openTools(p *project, tab toolsTab) {
 		return
 	}
 	t := &p.review.tools
-	t.open, t.tab, t.err, t.writeErr, t.removing, t.dropping = true, tab, "", "", "", ""
+	t.open, t.tab, t.err, t.writeErr, t.dropping = true, tab, "", "", ""
 	a.performed("git.tools.open", surfaceMenu)
 	a.loadTools(p)
 }
@@ -188,7 +181,7 @@ func (a *App) closeTools(p *project) {
 	t.gen++
 }
 
-// loadTools reads the three lists of the dialog in one background step.
+// loadTools reads the two lists of the dialog in one background step.
 func (a *App) loadTools(p *project) {
 	kernel, ok := a.reviewKernel()
 	t := &p.review.tools
@@ -201,13 +194,10 @@ func (a *App) loadTools(p *project) {
 	a.background(p, reviewTimeout, func(ctx context.Context) func(*App) {
 		var (
 			stashes   []core.GitStash
-			trees     []core.GitWorktree
 			err, rErr error
 		)
 		if repository {
-			if stashes, err = kernel.GitStashes(ctx, root); err == nil {
-				trees, err = kernel.GitWorktrees(ctx, root)
-			}
+			stashes, err = kernel.GitStashes(ctx, root)
 		}
 		repos, rErr := kernel.DiscoverWorkspaceRepositories(ctx, folder)
 		return func(a *App) {
@@ -216,7 +206,7 @@ func (a *App) loadTools(p *project) {
 				return
 			}
 			t.loading = false
-			t.stashes, t.worktrees, t.repositories = stashes, trees, repos
+			t.stashes, t.repositories = stashes, repos
 			switch {
 			case err != nil:
 				t.err = reviewReason(err)
@@ -239,7 +229,7 @@ func (a *App) toolsWrite(p *project, operation string, write func(ctx context.Co
 	if !ok || t.busy {
 		return
 	}
-	t.busy, t.writeErr, t.removing, t.dropping = true, "", "", ""
+	t.busy, t.writeErr, t.dropping = true, "", ""
 	root := p.git.repositoryRoot(p.root)
 	a.performed("git."+operation, surfaceButton)
 	a.background(p, syncTimeout, func(ctx context.Context) func(*App) {
@@ -280,43 +270,4 @@ func (a *App) stashAction(p *project, stash core.GitStash, action string) {
 		}
 		return k.GitStashDrop(ctx, root, stash)
 	})
-}
-
-// createWorktree adds a worktree on a new branch started at the checked-out branch in the typed directory.
-func (a *App) createWorktree(p *project) {
-	t := &p.review.tools
-	name, destination := strings.TrimSpace(t.branchName.Text()), strings.TrimSpace(t.destination.Text())
-	branch := p.git.branch()
-	if name == "" || destination == "" || branch == "" || branch == "detached" {
-		return
-	}
-	// The new branch starts at the checked-out one, named by its complete reference identity.
-	from := core.GitReference{FullName: "refs/heads/" + branch, ShortName: branch, Kind: "local"}
-	a.toolsWrite(p, "git_worktree_create", func(ctx context.Context, k gitReviewKernel, root string) error {
-		return k.GitCreateWorktree(ctx, root, core.GitWorktreeCreation{
-			Mode: core.GitWorktreeNewBranch, Name: name, Reference: &from, Destination: destination,
-		})
-	})
-	t.branchName.SetText("")
-	t.destination.SetText("")
-}
-
-// worktreeAction removes, locks or unlocks one registered worktree, or prunes the missing ones.
-func (a *App) worktreeAction(p *project, tree core.GitWorktree, action string) {
-	a.toolsWrite(p, "git_worktree_"+action, func(ctx context.Context, k gitReviewKernel, root string) error {
-		switch action {
-		case "lock":
-			return k.GitLockWorktree(ctx, root, tree.Path)
-		case "unlock":
-			return k.GitUnlockWorktree(ctx, root, tree.Path)
-		case "prune":
-			return k.GitPruneWorktrees(ctx, root)
-		}
-		return k.GitRemoveWorktree(ctx, root, tree.Path, false)
-	})
-}
-
-// hasPrunable reports that a registered worktree's checkout is gone.
-func hasPrunable(trees []core.GitWorktree) bool {
-	return slices.ContainsFunc(trees, func(t core.GitWorktree) bool { return t.IsPrunable })
 }

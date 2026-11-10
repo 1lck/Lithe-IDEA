@@ -15,7 +15,7 @@ import (
 
 // This file keeps the state and the actions of the Git review features that the Commit tool
 // window and the Git menu open: the Diff dialog with block staging and rollback, the Push
-// dialog, the stash, worktree and repository tools, the blame annotations and the listing of a
+// dialog, the stash and repository tools, the blame annotations and the listing of a
 // summarized untracked directory. Core decides everything about Git (which blocks exist, which
 // destination a push goes to, what a rollback runs); this file sequences the calls and keeps
 // what the dialogs show. gitreview_diff_view.go and gitreview_tools_view.go declare the
@@ -48,12 +48,6 @@ type gitReviewKernel interface {
 	GitStashApply(ctx context.Context, root string, stash core.GitStash) error
 	GitStashPop(ctx context.Context, root string, stash core.GitStash) error
 	GitStashDrop(ctx context.Context, root string, stash core.GitStash) error
-	GitWorktrees(ctx context.Context, root string) ([]core.GitWorktree, error)
-	GitCreateWorktree(ctx context.Context, root string, creation core.GitWorktreeCreation) error
-	GitRemoveWorktree(ctx context.Context, root, path string, force bool) error
-	GitLockWorktree(ctx context.Context, root, path string) error
-	GitUnlockWorktree(ctx context.Context, root, path string) error
-	GitPruneWorktrees(ctx context.Context, root string) error
 	GitPushPreviewOf(ctx context.Context, root string, branch core.GitReference, tags core.GitPushTags, target core.PushTargetChoice) (core.GitPushPreview, error)
 	GitPush(ctx context.Context, root string, preview core.GitPushPreview, tags core.GitPushTags, target core.PushTargetChoice, force bool) error
 	DiscoverWorkspaceRepositories(ctx context.Context, root string) ([]core.WorkspaceRepository, error)

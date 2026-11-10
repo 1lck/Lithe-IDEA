@@ -13074,22 +13074,8 @@
       ]
     },
     {
-      "id": "desktop.gitReview.detached",
-      "description": "Label of a worktree whose HEAD is detached.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.gitReview.diffTab",
       "description": "Diff dialog view mode label.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.gitReview.lock",
-      "description": "Worktree action: lock.",
       "platforms": [
         "desktop"
       ]
@@ -13140,13 +13126,6 @@
       }
     },
     {
-      "id": "desktop.gitReview.prune",
-      "description": "Worktree action: remove registrations whose checkout is gone.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.gitReview.refresh",
       "description": "Refresh the dialog's list.",
       "platforms": [
@@ -13166,13 +13145,6 @@
     {
       "id": "desktop.gitReview.stashPush",
       "description": "Button that stashes the local changes.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.gitReview.unlock",
-      "description": "Worktree action: unlock.",
       "platforms": [
         "desktop"
       ]
@@ -26897,8 +26869,7 @@
       "id": "git.noWorktreesFound",
       "description": "Windows UI: git.noWorktreesFound",
       "platforms": [
-        "windows",
-        "desktop"
+        "windows"
       ]
     },
     {
@@ -29875,8 +29846,7 @@
       "id": "git.worktreeDialog.locked",
       "description": "Windows UI: git.worktreeDialog.locked",
       "platforms": [
-        "windows",
-        "desktop"
+        "windows"
       ]
     },
     {
@@ -29890,8 +29860,7 @@
       "id": "git.worktreeDialog.missing",
       "description": "Windows UI: git.worktreeDialog.missing",
       "platforms": [
-        "windows",
-        "desktop"
+        "windows"
       ]
     },
     {
@@ -29959,8 +29928,7 @@
       "id": "git.worktreeDialog.primary",
       "description": "Windows UI: git.worktreeDialog.primary",
       "platforms": [
-        "windows",
-        "desktop"
+        "windows"
       ]
     },
     {
@@ -29983,8 +29951,7 @@
       "id": "git.worktreeDialog.removeConfirm",
       "description": "Windows UI: git.worktreeDialog.removeConfirm",
       "platforms": [
-        "windows",
-        "desktop"
+        "windows"
       ],
       "parameters": {
         "path": "string"

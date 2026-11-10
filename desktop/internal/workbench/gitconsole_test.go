@@ -28,7 +28,7 @@ func (h *harness) openConsole(t *testing.T, dir string) {
 	if err := kernel.GitPruneWorktrees(p.ctx, p.root); err != nil {
 		t.Fatalf("GitPruneWorktrees() error: %v", err)
 	}
-	h.app.layout.gitTab = 2
+	h.app.layout.gitTab = gitTabConsole
 	h.app.invalidator.Invalidate()
 	h.settle()
 	if !h.app.consoleView.read {

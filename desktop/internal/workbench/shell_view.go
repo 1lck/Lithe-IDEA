@@ -125,9 +125,9 @@ func (a *App) toolBody(c ui.C, tool item, p *project) {
 		switch tool.id {
 		case itemGit:
 			switch a.layout.gitTab {
-			case 0:
+			case gitTabLog:
 				a.logPageView(c)
-			case 1:
+			case gitTabWorktrees:
 				a.worktreePageView(c)
 			default:
 				a.consolePageView(c)
@@ -187,8 +187,15 @@ func (a *App) gitTabs(c ui.C) {
 	ui.Tabs(c, &l.gitTab, gitTabValues[:], l.gitLabel).Line().Height(shellTabsHeaderHeight).Shrink(1)
 }
 
+// The tabs of the Git tool window, in their order on its header.
+const (
+	gitTabLog = iota
+	gitTabWorktrees
+	gitTabConsole
+)
+
 // gitTabValues are the values of the Git tool window's tabs.
-var gitTabValues = [3]int{0, 1, 2}
+var gitTabValues = [3]int{gitTabLog, gitTabWorktrees, gitTabConsole}
 
 func (l *layoutState) gitLabel(i int) string { return l.gitLabels[i] }
 

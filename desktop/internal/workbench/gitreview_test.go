@@ -191,7 +191,7 @@ func TestPushDialogWithoutRemoteReportsIt(t *testing.T) {
 	}
 }
 
-func TestToolsDialogStashesAndManagesWorktrees(t *testing.T) {
+func TestToolsDialogStashesAndListsRepositories(t *testing.T) {
 	dir := newTestRepository(t)
 	h := newHarness(t, &gitKernel{Client: core.NewClient()})
 	p := h.openCommit(dir)
@@ -199,8 +199,8 @@ func TestToolsDialogStashesAndManagesWorktrees(t *testing.T) {
 	h.app.openTools(p, toolsStashes)
 	h.settle()
 	tools := &p.review.tools
-	if tools.err != "" || len(tools.stashes) != 0 || len(tools.worktrees) != 1 || len(tools.repositories) == 0 {
-		t.Fatalf("tools = %+v, want no stash, the primary worktree and a repository", tools)
+	if tools.err != "" || len(tools.stashes) != 0 || len(tools.repositories) == 0 {
+		t.Fatalf("tools = %+v, want no stash and a repository", tools)
 	}
 
 	tools.stashMessage.SetText("parked")
@@ -218,31 +218,6 @@ func TestToolsDialogStashesAndManagesWorktrees(t *testing.T) {
 	h.settle()
 	if len(tools.stashes) != 0 || gitRun(t, dir, "status", "--porcelain") != "M changed.txt" {
 		t.Fatalf("after the pop: stashes %+v, status %q", tools.stashes, gitRun(t, dir, "status", "--porcelain"))
-	}
-
-	tools.branchName.SetText("topic")
-	tools.destination.SetText(filepath.Join(t.TempDir(), "topic-tree"))
-	h.app.createWorktree(p)
-	h.settle()
-	h.settle()
-	if len(tools.worktrees) != 2 {
-		t.Fatalf("worktrees after the create = %+v, want two (err %q, write %q)", tools.worktrees, tools.err, tools.writeErr)
-	}
-	linked := tools.worktrees[1]
-	h.app.worktreeAction(p, linked, "lock")
-	h.settle()
-	h.settle()
-	if !tools.worktrees[1].IsLocked {
-		t.Fatalf("worktree after the lock = %+v, want it locked", tools.worktrees[1])
-	}
-	h.app.worktreeAction(p, tools.worktrees[1], "unlock")
-	h.settle()
-	h.settle()
-	h.app.worktreeAction(p, tools.worktrees[1], "remove")
-	h.settle()
-	h.settle()
-	if len(tools.worktrees) != 1 {
-		t.Fatalf("worktrees after the remove = %+v, want only the primary (err %q)", tools.worktrees, tools.err)
 	}
 }
 

@@ -33,7 +33,7 @@ func TestLogCommitDetailsShowWholeAuthorLine(t *testing.T) {
 	v.detailWidth = logDetailsMin
 	v.filesSplit.Pos = logFilesMin
 	h.app.layout.bottom = 10000
-	h.app.layout.gitTab = 0
+	h.app.layout.gitTab = gitTabLog
 	h.settle()
 	if !p.log.started {
 		h.click(center(h.button(itemGit)))
@@ -123,7 +123,7 @@ func TestLogCommitDetailsWrapReferenceChips(t *testing.T) {
 	v.detailWidth = logDetailsMin
 	v.filesSplit.Pos = logFilesMin
 	h.app.layout.bottom = 10000
-	h.app.layout.gitTab = 0
+	h.app.layout.gitTab = gitTabLog
 	h.settle()
 	if !p.log.started {
 		h.click(center(h.button(itemGit)))
