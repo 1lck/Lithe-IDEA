@@ -131,6 +131,7 @@ type Kernel interface {
 	ResolvePluginDocumentIdentity(ctx context.Context, root, input, platform string) (*core.PluginDocumentIdentity, error)
 	ApplyPluginTextEdits(ctx context.Context, text string, edits []core.PluginTextEdit) (string, error)
 	PlainPluginSnippet(ctx context.Context, value string) (string, error)
+	PlanPluginWorkspaceEdit(ctx context.Context, workspaceRoot string, changes map[string][]core.PluginTextEdit, open []core.PluginOpenDocument) (core.PluginWorkspaceEditPlan, error)
 	QueryProblems(ctx context.Context, request core.ProblemsQuery) (core.ProblemsResult, error)
 	ResolveMarketplaceSource(context.Context, string) (core.MarketplaceSource, error)
 	ValidateMarketplaceIndex(context.Context, json.RawMessage, core.MarketplaceSourceKind, string, map[string][]int) (core.MarketplaceIndex, error)

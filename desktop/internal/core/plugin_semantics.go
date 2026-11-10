@@ -126,3 +126,73 @@ func (c *Client) PlainPluginSnippet(ctx context.Context, value string) (string, 
 	}
 	return response.Text, nil
 }
+
+// PluginSemanticTextEdits decodes a completed formatting event into Core's
+// normalised edits. A nil list is the server's empty answer, not an error.
+func PluginSemanticTextEdits(event BackendEvent) ([]PluginTextEdit, error) {
+	var payload struct {
+		Edits []PluginTextEdit `json:"edits"`
+	}
+	if err := decodePluginSemanticResult(event, &payload); err != nil {
+		return nil, err
+	}
+	return payload.Edits, nil
+}
+
+// PluginSemanticWorkspaceChanges decodes a completed rename event into Core's
+// normalised workspace edit: edits keyed by a native file path (or the original
+// URI for a target that is not a file). Core projects both `changes` and
+// `documentChanges`; file operations are not part of the normalised shape.
+func PluginSemanticWorkspaceChanges(event BackendEvent) (map[string][]PluginTextEdit, error) {
+	var payload struct {
+		Changes map[string][]PluginTextEdit `json:"changes"`
+	}
+	if err := decodePluginSemanticResult(event, &payload); err != nil {
+		return nil, err
+	}
+	return payload.Changes, nil
+}
+
+// PluginOpenDocument names one open editor document for workspace edit planning.
+type PluginOpenDocument struct {
+	Path       string `json:"path"`
+	IsReadOnly bool   `json:"isReadOnly"`
+}
+
+// PluginWorkspaceEditRejection is Core's reason a workspace edit may not be
+// applied: outsideWorkspace or readOnlyDocument.
+type PluginWorkspaceEditRejection struct {
+	Code string `json:"code"`
+	Path string `json:"path"`
+}
+
+// PluginWorkspaceEditTarget is one file in Core's commit order. Effect is
+// writeFile for a closed file and updateDocument for an open editor document.
+type PluginWorkspaceEditTarget struct {
+	Path         string           `json:"path"`
+	RelativePath string           `json:"relativePath"`
+	Effect       string           `json:"effect"`
+	Edits        []PluginTextEdit `json:"edits"`
+}
+
+// PluginWorkspaceEditPlan is Core's validated commit plan.
+type PluginWorkspaceEditPlan struct {
+	Rejection *PluginWorkspaceEditRejection `json:"rejection"`
+	Targets   []PluginWorkspaceEditTarget   `json:"targets"`
+}
+
+// PlanPluginWorkspaceEdit validates every target of a workspace edit against the
+// workspace and open documents, and orders the commit, through Core.
+func (c *Client) PlanPluginWorkspaceEdit(ctx context.Context, workspaceRoot string, changes map[string][]PluginTextEdit, open []PluginOpenDocument) (PluginWorkspaceEditPlan, error) {
+	var plan PluginWorkspaceEditPlan
+	if open == nil {
+		open = []PluginOpenDocument{}
+	}
+	err := c.Execute(ctx, "lsp.planWorkspaceEdit", struct {
+		Platform      string                      `json:"platform"`
+		WorkspaceRoot string                      `json:"workspaceRoot"`
+		Changes       map[string][]PluginTextEdit `json:"changes"`
+		OpenDocuments []PluginOpenDocument        `json:"openDocuments"`
+	}{"auto", workspaceRoot, changes, open}, &plan)
+	return plan, err
+}

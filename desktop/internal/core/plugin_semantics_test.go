@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 )
@@ -53,5 +54,33 @@ func TestPluginTextEditRequestMatchesLSPShape(t *testing.T) {
 	want := `{"range":{"start":{"line":0,"utf16Column":1},"end":{"line":0,"utf16Column":3}},"newText":"x"}`
 	if string(encoded) != want {
 		t.Fatalf("edit = %s", encoded)
+	}
+}
+
+func TestPlanPluginWorkspaceEditOrdersClosedFilesBeforeOpenDocuments(t *testing.T) {
+	root := t.TempDir()
+	edit := func(text string) []PluginTextEdit {
+		return []PluginTextEdit{{NewText: text}}
+	}
+	changes := map[string][]PluginTextEdit{
+		root + "/b.txt": edit("b"),
+		root + "/a.txt": edit("a"),
+	}
+	plan, err := NewClient().PlanPluginWorkspaceEdit(context.Background(), root, changes, []PluginOpenDocument{{Path: root + "/a.txt"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Rejection != nil || len(plan.Targets) != 2 {
+		t.Fatalf("plan = %+v", plan)
+	}
+	if plan.Targets[0].Effect != "writeFile" || plan.Targets[1].Effect != "updateDocument" {
+		t.Fatalf("commit order = %+v", plan.Targets)
+	}
+	outside, err := NewClient().PlanPluginWorkspaceEdit(context.Background(), root, map[string][]PluginTextEdit{"jdt://x": edit("z")}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outside.Rejection == nil || outside.Rejection.Code != "outsideWorkspace" {
+		t.Fatalf("outside = %+v", outside)
 	}
 }

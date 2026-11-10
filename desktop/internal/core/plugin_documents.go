@@ -102,6 +102,8 @@ type PluginSemanticRequest struct {
 	URI               string
 	Position          *PluginDocumentPosition
 	CompletionContext json.RawMessage
+	// NewName is the rename operation's replacement identifier.
+	NewName string
 }
 
 // PluginDocumentURI asks Core to convert a native absolute path into the
@@ -132,7 +134,8 @@ func (c *Client) RequestPluginSemantics(ctx context.Context, request PluginSeman
 		URI               string                  `json:"uri,omitempty"`
 		Position          *PluginDocumentPosition `json:"position,omitempty"`
 		CompletionContext json.RawMessage         `json:"completionContext,omitempty"`
-	}{request.SessionID, request.Operation, request.URI, request.Position, request.CompletionContext}
+		NewName           string                  `json:"newName,omitempty"`
+	}{request.SessionID, request.Operation, request.URI, request.Position, request.CompletionContext, request.NewName}
 	var response struct {
 		OperationID string `json:"operationId"`
 	}

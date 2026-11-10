@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 
@@ -477,5 +478,79 @@ func TestNonFileDefinitionTargetIsReportedNotCrashed(t *testing.T) {
 	}
 	if !f.h.shows("目标不是本地文件，暂时无法打开。") {
 		t.Fatalf("no unavailable notice: %v", f.h.driver.Snapshot().Labels)
+	}
+}
+
+func formatEditsResult(t *testing.T, edits ...core.PluginTextEdit) json.RawMessage {
+	t.Helper()
+	value, err := json.Marshal(map[string]any{"edits": edits})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+func formatShortcut(f *semanticFixture) gfx.KeyEvent {
+	mods := gfx.ModifierControl | gfx.ModifierAlt
+	if runtime.GOOS == "darwin" {
+		mods = gfx.ModifierMeta | gfx.ModifierAlt
+	}
+	return gfx.KeyEvent{Text: "l", Modifiers: mods, Target: docViews.At(f.d.id)}
+}
+
+func TestFormatDocumentAppliesLocalEditsOnUndoStack(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.d.view.GoToNavigation(0, 3, false)
+	if !f.h.app.pluginEditShortcut(formatShortcut(f)).Handled {
+		t.Fatal("the format shortcut was not handled")
+	}
+	f.waitForRequests(t, 1)
+	if got := f.kernel.request(0); got.Operation != pluginSemanticFormatting || got.Position != nil {
+		t.Fatalf("format request = %+v", got)
+	}
+	f.deliver(t, "op-1", pluginMethodFormatting, formatEditsResult(t, core.PluginTextEdit{
+		Range:   core.PluginDocumentRange{Start: core.PluginDocumentPosition{Line: 0, UTF16Column: 0}, End: core.PluginDocumentPosition{Line: 0, UTF16Column: 3}},
+		NewText: "ONE",
+	}))
+	f.h.settle()
+	data, _ := f.d.view.Text()
+	if string(data) != "ONE\n" {
+		t.Fatalf("text = %q", data)
+	}
+	if !f.d.view.Undo() {
+		t.Fatal("formatting is not on the undo stack")
+	}
+	data, _ = f.d.view.Text()
+	if string(data) != "one\n" {
+		t.Fatalf("undo text = %q", data)
+	}
+}
+
+func TestFormatDocumentDropsAnswerForChangedDocument(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.d.view.GoToNavigation(0, 3, false)
+	f.h.app.pluginEditShortcut(formatShortcut(f))
+	f.waitForRequests(t, 1)
+	if err := f.h.driver.Type("x"); err != nil {
+		t.Fatal(err)
+	}
+	f.deliver(t, "op-1", pluginMethodFormatting, formatEditsResult(t, core.PluginTextEdit{
+		Range:   core.PluginDocumentRange{Start: core.PluginDocumentPosition{Line: 0, UTF16Column: 0}, End: core.PluginDocumentPosition{Line: 0, UTF16Column: 1}},
+		NewText: "Z",
+	}))
+	f.h.settle()
+	data, _ := f.d.view.Text()
+	if string(data) != "onex\n" {
+		t.Fatalf("stale formatting changed the text: %q", data)
+	}
+}
+
+func TestFormatDocumentWithoutEditsSaysNothingToFormat(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.h.app.pluginEditShortcut(formatShortcut(f))
+	f.waitForRequests(t, 1)
+	f.deliver(t, "op-1", pluginMethodFormatting, formatEditsResult(t))
+	if !f.h.shows("没有需要格式化的内容。") {
+		t.Fatalf("no notice: %v", len(f.h.driver.Snapshot().Labels))
 	}
 }

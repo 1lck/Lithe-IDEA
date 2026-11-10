@@ -102441,6 +102441,34 @@
       ]
     },
     {
+      "id": "desktop.semantics.noServer",
+      "description": "Banner shown when a language command has no running language server for the file.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.operationFailed",
+      "description": "Banner shown when the language server fails a formatting or rename request.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.formatNothing",
+      "description": "Banner shown when formatting changes nothing.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.formatFailed",
+      "description": "Banner shown when Core cannot apply the formatting edits.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.semantics.references",
       "description": "Accessibility title of the find-references result list.",
       "platforms": [

@@ -34,12 +34,16 @@ const (
 	pluginSemanticHover      = "hover"
 	pluginSemanticCompletion = "completion"
 	pluginSemanticReferences = "references"
+	pluginSemanticFormatting = "formatting"
+	pluginSemanticRename     = "rename"
 	// The LSP methods Core reports on a completed event. They are matched only
 	// against the host's own pending operation, never used to derive a rule.
 	pluginMethodDefinition = "textDocument/definition"
 	pluginMethodHover      = "textDocument/hover"
 	pluginMethodCompletion = "textDocument/completion"
 	pluginMethodReferences = "textDocument/references"
+	pluginMethodFormatting = "textDocument/formatting"
+	pluginMethodRename     = "textDocument/rename"
 
 	// semanticStartTimeout bounds one asynchronous request submission. The
 	// request only enters Core's queue, so this is a failure bound, not a wait.
@@ -98,6 +102,10 @@ func (k semanticKind) method() string {
 		return pluginMethodHover
 	case pluginSemanticReferences:
 		return pluginMethodReferences
+	case pluginSemanticFormatting:
+		return pluginMethodFormatting
+	case pluginSemanticRename:
+		return pluginMethodRename
 	default:
 		return pluginMethodCompletion
 	}
@@ -322,9 +330,13 @@ func (a *App) pluginSemanticsTrigger(event gfx.KeyEvent) (gfx.EventResult, bool)
 		return gfx.EventResult{}, false
 	}
 	if event.Modifiers == gfx.ModifierShift {
-		if event.Key == gfx.KeyF12 {
+		switch event.Key {
+		case gfx.KeyF12:
 			line, column := d.view.CaretUTF16()
 			a.startPluginReferences(p, d, line, column)
+			return gfx.EventResult{Handled: true, Repaint: true}, true
+		case gfx.KeyF6:
+			a.openPluginRename(p, d)
 			return gfx.EventResult{Handled: true, Repaint: true}, true
 		}
 		return gfx.EventResult{}, false
@@ -333,6 +345,9 @@ func (a *App) pluginSemanticsTrigger(event gfx.KeyEvent) (gfx.EventResult, bool)
 	case gfx.KeyF12:
 		line, column := d.view.CaretUTF16()
 		a.startPluginDefinition(p, d, line, column, true)
+		return gfx.EventResult{Handled: true, Repaint: true}, true
+	case gfx.KeyF2:
+		a.openPluginRename(p, d)
 		return gfx.EventResult{Handled: true, Repaint: true}, true
 	case gfx.KeyF1:
 		line, column := d.view.CaretUTF16()
@@ -347,6 +362,9 @@ func (a *App) pluginSemanticsTrigger(event gfx.KeyEvent) (gfx.EventResult, bool)
 // trigger. A platform may deliver it as a shortcut text without the key code,
 // so the space text is accepted as well as KeySpace.
 func (a *App) pluginSemanticsShortcut(event gfx.KeyEvent) gfx.EventResult {
+	if result := a.pluginEditShortcut(event); result.Handled {
+		return result
+	}
 	if event.Release || (event.Key != gfx.KeySpace && event.Text != " ") {
 		return gfx.EventResult{}
 	}
@@ -732,6 +750,7 @@ func (a *App) applyPluginSemanticEvent(server *pluginServer, event core.BackendE
 	}
 	if len(event.Error) != 0 && string(event.Error) != "null" {
 		a.logSemanticError(pending.kind, event.Error)
+		a.semanticOperationFailed(pending.kind)
 		return
 	}
 	switch pending.kind {
@@ -741,6 +760,10 @@ func (a *App) applyPluginSemanticEvent(server *pluginServer, event core.BackendE
 		a.applySemanticHover(pending, event)
 	case pluginSemanticCompletion:
 		a.applySemanticCompletion(pending, event)
+	case pluginSemanticFormatting:
+		a.applySemanticFormatting(pending, event)
+	case pluginSemanticRename:
+		a.applySemanticRename(pending, event)
 	}
 }
 
@@ -1224,6 +1247,7 @@ func (a *App) closePluginSemantics() {
 	a.cancelSemanticKind(pluginSemanticHover)
 	a.cancelSemanticKind(pluginSemanticCompletion)
 	a.cancelSemanticKind(pluginSemanticReferences)
+	a.cancelSemanticKind(pluginSemanticFormatting)
 	if a.semantics.candidate.cancel != nil {
 		a.semantics.candidate.cancel()
 	}
