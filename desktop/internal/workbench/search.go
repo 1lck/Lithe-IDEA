@@ -38,9 +38,8 @@ type searchQuery struct {
 type searchView struct {
 	query, mask                                      ui.Field
 	optionsOpen, matchCase, wholeWords, regex, focus bool
-	// list is the result list's selection and scroll; page is the panel.
+	// list is the result list's selection and scroll.
 	list ui.ListState
-	page *ui.Page
 	// delay is overridden in deterministic tests; negative means the normal delay.
 	delay time.Duration
 }

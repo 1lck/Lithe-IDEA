@@ -18,14 +18,6 @@ type branchRead struct {
 // screen reads again, and a read still running is cancelled.
 func (a *App) refreshWelcomeBranches() { a.welcome.branchRevision++ }
 
-// closeWelcomeBranchReads ends the read with the start screen's page.
-func (a *App) closeWelcomeBranchReads() {
-	if a.welcome.page != nil {
-		a.welcome.page.Close()
-		a.welcome.page = nil
-	}
-}
-
 // collectWelcomeBranches declares the branch read of the recent projects and
 // applies what it finished. It runs at the start of every paint of the start
 // screen and never performs filesystem IO on the window thread.

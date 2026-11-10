@@ -25,8 +25,6 @@ type welcomeState struct {
 	moreOpen, menuOpen bool
 	// list is the recent project list's selection and scroll.
 	list ui.ListState
-	// page is the screen, made when it is first shown.
-	page *ui.Page
 
 	// query is the search text folded for matching and queryText the text it was folded
 	// from, so the fold runs when the text changes and not on every frame.

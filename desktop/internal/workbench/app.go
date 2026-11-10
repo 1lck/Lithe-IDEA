@@ -544,7 +544,6 @@ func (a *App) closed() {
 	a.unsubscribeSettings()
 	a.closeClone()
 	a.closeNewProject()
-	a.closeWelcomeBranchReads()
 	a.closeProject()
 	a.settingsWindow.Close()
 	if a.logs != nil {
@@ -837,6 +836,7 @@ func (a *App) requestCloseProject(after func()) {
 		a.problems.reset()
 		a.toolchainRoot.Store(nil)
 		a.project = nil
+		a.focus = focusTarget{}
 		a.dnd.tool.Cancel()
 		a.dnd.tab.Cancel()
 		a.drag, a.term.drag = dragState{}, tabDrag{}
