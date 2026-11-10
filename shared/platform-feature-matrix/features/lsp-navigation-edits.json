@@ -10,7 +10,7 @@
       "desktop/internal/workbench/pluginsemantics.go",
       "desktop/internal/workbench/pluginedits.go",
       "desktop/internal/workbench/pluginrename.go",
-      "desktop/internal/workbench/pluginrename_view.go",
+      "desktop/internal/workbench/pluginsemantics_view.go",
       "desktop/internal/workbench/pluginsemantics_test.go",
       "desktop/internal/workbench/pluginsemantics_e2e_test.go",
       "desktop/internal/core/plugin_semantics.go"
@@ -23,7 +23,7 @@
       "desktop/internal/workbench/pluginsemantics.go",
       "desktop/internal/workbench/pluginedits.go",
       "desktop/internal/workbench/pluginrename.go",
-      "desktop/internal/workbench/pluginrename_view.go",
+      "desktop/internal/workbench/pluginsemantics_view.go",
       "desktop/internal/workbench/pluginsemantics_test.go",
       "desktop/internal/workbench/pluginsemantics_e2e_test.go",
       "desktop/internal/core/plugin_semantics.go"
