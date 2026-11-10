@@ -2,7 +2,7 @@ package core
 
 import (
 	"context"
-	"strings"
+	"errors"
 )
 
 // GitFetchSubmodules is the per-fetch policy for submodules; GitFetchInherit keeps the
@@ -98,18 +98,9 @@ func (c *Client) GitUpdateBranch(ctx context.Context, root string, branch GitRef
 	return c.gitWrite(ctx, gitWriteRequest{Root: root, Operation: "updateBranch", GitReference: branch.request()})
 }
 
-// IsAuthenticationFailure reports whether err is Git refusing to sign in to a remote,
-// from the markers Git prints whatever its locale. Core has no dedicated code for it.
+// IsAuthenticationFailure reports whether err is Git refusing to sign in to a remote, which
+// Core reports with the git_authentication_failed code.
 func IsAuthenticationFailure(err error) bool {
-	e, ok := err.(*Error)
-	if !ok {
-		return false
-	}
-	text := e.Message + "\n" + e.Details
-	for _, marker := range []string{"Authentication failed", "could not read Username", "could not read Password", "Permission denied (publickey"} {
-		if strings.Contains(text, marker) {
-			return true
-		}
-	}
-	return false
+	var e *Error
+	return errors.As(err, &e) && e.Code == CodeGitAuthenticationFailed
 }

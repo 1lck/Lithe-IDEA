@@ -30,6 +30,9 @@ const (
 	CodeGitBranchExists ErrorCode = "git_branch_exists"
 	// CodeGitCheckoutChanged means a reviewed checkout no longer matches the repository.
 	CodeGitCheckoutChanged ErrorCode = "git_checkout_changed"
+	// CodeGitAuthenticationFailed means a git.write operation failed because the remote
+	// refused or lacked credentials.
+	CodeGitAuthenticationFailed ErrorCode = "git_authentication_failed"
 	// CodeParseFailed means input or tool output could not be decoded into the stable
 	// contract. This package also uses it for a response it cannot decode.
 	CodeParseFailed ErrorCode = "parse_failed"

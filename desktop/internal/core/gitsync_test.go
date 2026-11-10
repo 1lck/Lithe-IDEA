@@ -103,8 +103,12 @@ func TestGitUpdateOtherBranch(t *testing.T) {
 }
 
 func TestIsAuthenticationFailure(t *testing.T) {
-	err := &Error{Code: CodeProcessFailed, Message: "fatal: x", Details: "remote: ...\nfatal: Authentication failed for 'https://h/'"}
-	if !IsAuthenticationFailure(err) || IsAuthenticationFailure(&Error{Message: "other"}) || IsAuthenticationFailure(nil) {
-		t.Fatal("authentication markers not recognised")
+	if !IsAuthenticationFailure(&Error{Code: CodeGitAuthenticationFailed}) {
+		t.Fatal("git_authentication_failed code not recognised")
+	}
+	// Stderr text alone must not be matched: only Core's code counts.
+	text := &Error{Code: CodeProcessFailed, Message: "fatal: Authentication failed for 'https://h/'"}
+	if IsAuthenticationFailure(text) || IsAuthenticationFailure(&Error{Message: "other"}) || IsAuthenticationFailure(nil) {
+		t.Fatal("non-authentication error recognised as authentication failure")
 	}
 }
