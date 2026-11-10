@@ -319,9 +319,45 @@ func (a *App) stopPluginServer(pluginID string) {
 	a.releasePluginDocuments(pluginID)
 }
 
+// activatePluginWorkspace opens the workspace's context for plugin backends and
+// starts the ones that asked for onWorkspaceOpen. It runs after the window shows
+// the project, off the window thread, so it never delays opening the workspace.
+func (a *App) activatePluginWorkspace(root string) {
+	if a.plugins == nil {
+		return
+	}
+	a.background(nil, pluginServerStartTimeout, func(ctx context.Context) func(*App) {
+		entries, err := a.plugins.Manager.Installed()
+		if err == nil {
+			err = a.plugins.ActivateWorkspace(ctx, entries, root)
+		}
+		return func(a *App) {
+			if err != nil {
+				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_backend_start", err))
+			}
+		}
+	})
+}
+
+// closePluginBackends ends the workspace contexts and stops every plugin backend,
+// bounded and off the window thread.
+func (a *App) closePluginBackends() {
+	if a.plugins == nil {
+		return
+	}
+	// The sessions leave the host now, so a backend started for the next project
+	// is never the one this stop ends.
+	stop := a.plugins.DetachWorkspaces()
+	a.background(nil, pluginServerStopTimeout, func(context.Context) func(*App) {
+		stop()
+		return nil
+	})
+}
+
 // stopAllPluginServers stops every language server the window started. It runs when
 // the project closes and when the client quits.
 func (a *App) stopAllPluginServers() {
+	a.closePluginBackends()
 	a.pluginServerMu.Lock()
 	for id := range a.pluginServerRestarting {
 		delete(a.pluginServerSuppressed, id)

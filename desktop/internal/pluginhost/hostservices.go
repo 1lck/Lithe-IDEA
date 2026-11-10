@@ -49,6 +49,30 @@ type Failure struct {
 	Details json.RawMessage
 }
 
+// Caller identifies the plugin session a host request came from. Core checks the
+// grant before it forwards a request, but only the host knows which plugin the
+// session belongs to, so a handler that must scope its answer to the caller
+// (state directories, ownership of a language server) reads it here.
+type Caller struct {
+	// PluginID is the plugin that owns the backend session.
+	PluginID string
+	// SessionID is Core's session identifier.
+	SessionID string
+}
+
+type callerKey struct{}
+
+// WithCaller returns a context that carries the request's caller.
+func WithCaller(ctx context.Context, caller Caller) context.Context {
+	return context.WithValue(ctx, callerKey{}, caller)
+}
+
+// CallerFrom returns the caller of the request being answered.
+func CallerFrom(ctx context.Context) (Caller, bool) {
+	caller, ok := ctx.Value(callerKey{}).(Caller)
+	return caller, ok && caller.PluginID != ""
+}
+
 // Handler answers one host request. It returns either a result or a failure,
 // never both.
 type Handler func(ctx context.Context, params json.RawMessage) (json.RawMessage, *Failure)
@@ -69,11 +93,28 @@ type serviceHandler struct {
 type Services struct {
 	mu       sync.RWMutex
 	handlers map[string]serviceHandler
+	// serviceGrants are service-level grant names a launch plan lists next to
+	// method names, such as "workspace" or "functions".
+	serviceGrants map[string]struct{}
 }
 
 // NewServices returns an empty registry.
 func NewServices() *Services {
-	return &Services{handlers: make(map[string]serviceHandler)}
+	return &Services{handlers: make(map[string]serviceHandler), serviceGrants: make(map[string]struct{})}
+}
+
+// GrantService makes a service-level grant name available, for a service whose
+// requests this host answers through registered handlers or Core itself (the
+// cross-plugin "functions" relay). A grant name is not a method name, so it is
+// kept apart from the handlers: Respond never dispatches on it.
+func (s *Services) GrantService(name string) error {
+	if name == "" || len(name) > 64 {
+		return fmt.Errorf("%w: %q is not a service grant", ErrServiceRegistration, name)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.serviceGrants[name] = struct{}{}
+	return nil
 }
 
 // Register adds one machine handler under its full method name.
@@ -120,9 +161,12 @@ func (s *Services) Grant() []string {
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	methods := make([]string, 0, len(s.handlers))
+	methods := make([]string, 0, len(s.handlers)+len(s.serviceGrants))
 	for method := range s.handlers {
 		methods = append(methods, method)
+	}
+	for name := range s.serviceGrants {
+		methods = append(methods, name)
 	}
 	sort.Strings(methods)
 	return methods

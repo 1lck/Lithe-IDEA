@@ -430,3 +430,27 @@ func (k *fakeKernel) InvokePluginFunction(context.Context, string, string, strin
 func (k *fakeKernel) PlanPluginSettingsAction(ctx context.Context, request core.PluginSettingsActionRequest) (core.PluginSettingsActionPlan, error) {
 	return core.NewClient().PlanPluginSettingsAction(ctx, request)
 }
+
+func (k *fakeKernel) InvokePluginFunctionInContext(context.Context, string, string, string, string, json.RawMessage, json.RawMessage, int) (string, error) {
+	return "", errors.New("fixture kernel does not serve plugin functions")
+}
+
+func (k *fakeKernel) SendPluginHostNotification(context.Context, string, string, json.RawMessage) (bool, error) {
+	return false, nil
+}
+
+func (k *fakeKernel) PluginServerRequest(context.Context, string, string, string, string, string, json.RawMessage, int) (string, error) {
+	return "", errors.New("fixture kernel does not forward language-server requests")
+}
+
+func (k *fakeKernel) PluginServerNotify(context.Context, string, string, string, string, json.RawMessage) (bool, error) {
+	return false, nil
+}
+
+func (k *fakeKernel) ConfigureFunctionRelay(context.Context, []core.RelayPlugin, []core.RelayContext) error {
+	return nil
+}
+
+func (k *fakeKernel) DecodePluginLanguageServerLaunch(context.Context, json.RawMessage, string, core.PluginBackendDirectories, json.RawMessage) (core.PluginBackendPlan, error) {
+	return core.PluginBackendPlan{}, errors.New("fixture kernel does not decode launches")
+}

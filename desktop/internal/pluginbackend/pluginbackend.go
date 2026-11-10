@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"sync"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
@@ -67,6 +69,10 @@ type Kernel interface {
 	RequestPluginSemantics(ctx context.Context, request core.PluginSemanticRequest) (string, error)
 	RequestPluginBuild(ctx context.Context, request core.PluginBuildProviderRequest) (string, error)
 	InvokePluginFunction(ctx context.Context, session, operation, plugin, function string, params json.RawMessage) (string, error)
+	InvokePluginFunctionInContext(ctx context.Context, session, operation, plugin, function string, params, workspaceContext json.RawMessage, timeoutMilliseconds int) (string, error)
+	SendPluginHostNotification(ctx context.Context, session, method string, params json.RawMessage) (bool, error)
+	PluginServerRequest(ctx context.Context, session, operation, plugin, server, method string, params json.RawMessage, timeoutMilliseconds int) (string, error)
+	PluginServerNotify(ctx context.Context, session, plugin, server, method string, params json.RawMessage) (bool, error)
 	CancelPluginOperation(ctx context.Context, session, operation string) error
 }
 
@@ -106,6 +112,11 @@ type StartRequest struct {
 	// RootURI and WorkingDirectory are the workspace the backend serves.
 	RootURI          any
 	WorkingDirectory string
+	// Plan is an already decoded launch plan, such as the one Core returns for
+	// the answer of a backend-resolved language-server launch (serverProcess 3).
+	// When set the runner does not plan again; the plan is still verified
+	// against the installed package exactly like a planned one.
+	Plan *core.PluginBackendPlan
 }
 
 // Session is one running plugin backend.
@@ -119,6 +130,10 @@ type Session struct {
 	Version string
 	// ProcessID is the operating system process, when Core reports one.
 	ProcessID int
+	// Granted is the host-service grant list the session started with: the
+	// plan's list narrowed to what this host answers. A host notification is
+	// only sent for a service in it.
+	Granted []string
 }
 
 // Runner plans, starts, serves and stops plugin backends.
@@ -128,7 +143,18 @@ type Runner struct {
 	// lookup resolves a bare command name for a system-command launch. It is
 	// exec.LookPath in production and a test replaces it to describe a machine.
 	lookup func(name string) (string, error)
+	// tools resolves a plan's {kind: "tool"} launch to an executable. Nil refuses
+	// such a launch rather than guessing a program.
+	tools ToolResolver
 }
+
+// ToolResolver resolves the tool definition a plugin launch names to the
+// executable the host runs, using the host's toolchain discovery.
+type ToolResolver func(ctx context.Context, pluginID, tool string) (string, error)
+
+// SetToolResolver installs the resolver for tool launches. It must be called
+// before the first Start.
+func (r *Runner) SetToolResolver(resolver ToolResolver) { r.tools = resolver }
 
 // New returns a runner that answers host requests with services.
 func New(kernel Kernel, services *pluginhost.Services) *Runner {
@@ -162,7 +188,9 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 	}
 	var plan core.PluginBackendPlan
 	var err error
-	if request.BuildSystemID != "" {
+	if request.Plan != nil {
+		plan = *request.Plan
+	} else if request.BuildSystemID != "" {
 		plan, err = r.kernel.PlanPluginBuildProvider(ctx, request.Manifest, request.BuildSystemID, directories)
 	} else if request.LanguageID != "" {
 		plan, err = r.kernel.PlanPluginLanguageServer(ctx, request.Manifest, request.LanguageID, directories)
@@ -216,6 +244,15 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 			return Session{}, err
 		}
 	}
+	if executable == "" && plan.Launch.Kind == pluginhost.LaunchTool {
+		if r.tools == nil {
+			return Session{}, fmt.Errorf("%w: this host cannot resolve tool launches", ErrRequest)
+		}
+		executable, err = r.tools(ctx, request.PluginID, plan.Launch.Tool)
+		if err != nil {
+			return Session{}, err
+		}
+	}
 	if executable == "" {
 		return Session{}, fmt.Errorf("%w: the plan names no program", ErrRequest)
 	}
@@ -229,7 +266,8 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 		Role:                   role,
 		ExecutablePath:         executable,
 		Arguments:              Arguments(plan, resolved.Entry),
-		Environment:            request.Environment,
+		Environment:            mergeEnvironment(plan.Environment, request.Environment),
+		SessionPolicy:          plan.SessionPolicy,
 		RootURI:                request.RootURI,
 		WorkingDirectory:       request.WorkingDirectory,
 		HostServices:           granted,
@@ -249,6 +287,7 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 		ID:         started.SessionID,
 		PluginID:   request.PluginID,
 		ProviderID: request.ProviderID,
+		Granted:    granted,
 	}
 	if plan.Owner != nil {
 		session.Version = plan.Owner.Version
@@ -257,6 +296,21 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 		session.ProcessID = *started.ProcessID
 	}
 	return session, nil
+}
+
+// mergeEnvironment layers the host's variables over a launch answer's.
+func mergeEnvironment(plan, host map[string]string) map[string]string {
+	if len(plan) == 0 {
+		return host
+	}
+	merged := make(map[string]string, len(plan)+len(host))
+	for name, value := range plan {
+		merged[name] = value
+	}
+	for name, value := range host {
+		merged[name] = value
+	}
+	return merged
 }
 
 // Stop shuts a session down and disposes it. Stopping is attempted even when the
@@ -313,8 +367,18 @@ func (r *Runner) Serve(ctx context.Context, session Session, observe EventObserv
 	if session.ID == "" {
 		return ErrNoSession
 	}
+	// A host request can wait much longer than the event loop may be blocked: a
+	// language-server request waits for the server, and the backend's own call
+	// completions arrive through this same loop. Each request is therefore
+	// answered on its own goroutine, bounded by Core's per-session limit of
+	// pending requests, and cancelled when the backend cancels it.
+	answers := newAnswerGroup(ctx)
+	defer answers.wait()
 	for {
 		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := answers.failure(); err != nil {
 			return err
 		}
 		events, err := r.kernel.WaitBackendEvents(ctx, session.ID, eventWaitMilliseconds)
@@ -329,9 +393,15 @@ func (r *Runner) Serve(ctx context.Context, session Session, observe EventObserv
 			case EventExit:
 				return nil
 			case EventHostRequest:
-				if err := r.answer(ctx, session, event); err != nil {
-					return err
+				id := hostRequestID(event)
+				if id == "" {
+					return errors.New("pluginbackend: a host request carries no identifier")
 				}
+				answers.start(id, func(answerCtx context.Context) error {
+					return r.answer(answerCtx, session, event)
+				})
+			case EventHostRequestCancelled:
+				answers.cancel(hostRequestID(event))
 			default:
 				if observe != nil {
 					observe(event)
@@ -339,6 +409,87 @@ func (r *Runner) Serve(ctx context.Context, session Session, observe EventObserv
 			}
 		}
 	}
+}
+
+// EventHostRequestCancelled reports a host request the backend cancelled; the host
+// stops the work, and Core has already answered the backend.
+const EventHostRequestCancelled = "hostRequestCancelled"
+
+// hostRequestID reads the identifier a hostRequest or hostRequestCancelled event
+// carries.
+func hostRequestID(event core.BackendEvent) string {
+	var payload struct {
+		HostRequestID string `json:"hostRequestID"`
+	}
+	_ = json.Unmarshal(event.Result, &payload)
+	return payload.HostRequestID
+}
+
+// answerGroup runs the answers of one Serve call.
+type answerGroup struct {
+	ctx     context.Context
+	cancels sync.Map
+	group   sync.WaitGroup
+	mu      sync.Mutex
+	err     error
+}
+
+func newAnswerGroup(ctx context.Context) *answerGroup { return &answerGroup{ctx: ctx} }
+
+func (g *answerGroup) start(id string, run func(context.Context) error) {
+	ctx, cancel := context.WithCancel(g.ctx)
+	if id != "" {
+		g.cancels.Store(id, cancel)
+	}
+	g.group.Add(1)
+	go func() {
+		defer g.group.Done()
+		defer cancel()
+		if id != "" {
+			defer g.cancels.Delete(id)
+		}
+		if err := run(ctx); err != nil && g.ctx.Err() == nil {
+			g.mu.Lock()
+			if g.err == nil {
+				g.err = err
+			}
+			g.mu.Unlock()
+		}
+	}()
+}
+
+func (g *answerGroup) cancel(id string) {
+	if cancel, ok := g.cancels.Load(id); ok {
+		cancel.(context.CancelFunc)()
+	}
+}
+
+func (g *answerGroup) failure() error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.err
+}
+
+// answerGrace is how long Serve lets answers in flight finish after the session
+// ended before it cancels them.
+const answerGrace = 500 * time.Millisecond
+
+// wait gives the answers still running a short grace, cancels what is left and
+// waits for it, so Serve never returns while a goroutine of it can still call
+// Core.
+func (g *answerGroup) wait() {
+	finished := make(chan struct{})
+	go func() { g.group.Wait(); close(finished) }()
+	select {
+	case <-finished:
+		return
+	case <-time.After(answerGrace):
+	}
+	g.cancels.Range(func(_, cancel any) bool {
+		cancel.(context.CancelFunc)()
+		return true
+	})
+	g.group.Wait()
 }
 
 // answer relays one forwarded host request through the registered handlers.
@@ -360,7 +511,7 @@ func (r *Runner) answer(ctx context.Context, session Session, event core.Backend
 	if method == "" {
 		method = payload.Service
 	}
-	result, failure := r.services.Respond(ctx, method, payload.Params)
+	result, failure := r.services.Respond(pluginhost.WithCaller(ctx, pluginhost.Caller{PluginID: session.PluginID, SessionID: session.ID}), method, payload.Params)
 	var hostFailure *core.PluginHostFailure
 	if failure != nil {
 		hostFailure = &core.PluginHostFailure{

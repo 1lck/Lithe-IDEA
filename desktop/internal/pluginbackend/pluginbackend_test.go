@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"sync"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -21,6 +23,7 @@ type fakeKernel struct {
 	startErr         error
 	started_         core.PluginBackendStart
 	events           [][]core.BackendEvent
+	answeredMu       sync.Mutex
 	answered         []answeredRequest
 	stopErr          error
 	destroyErr       error
@@ -89,6 +92,8 @@ func (k *fakeKernel) DestroyPluginBackend(context.Context, string) error {
 }
 
 func (k *fakeKernel) RespondPluginHostRequest(_ context.Context, session, requestID string, result json.RawMessage, failure *core.PluginHostFailure) error {
+	k.answeredMu.Lock()
+	defer k.answeredMu.Unlock()
 	k.answered = append(k.answered, answeredRequest{session: session, requestID: requestID, result: result, failure: failure})
 	return nil
 }
@@ -295,6 +300,8 @@ func TestServeAnswersHostRequestsAndStopsAtExit(t *testing.T) {
 	if len(kernel.answered) != 2 {
 		t.Fatalf("answered = %+v", kernel.answered)
 	}
+	// Requests are answered concurrently, so order them by identifier.
+	sort.Slice(kernel.answered, func(i, j int) bool { return kernel.answered[i].requestID < kernel.answered[j].requestID })
 	first := kernel.answered[0]
 	if first.requestID != "req-1" || first.session != "session-1" {
 		t.Fatalf("first = %+v", first)
@@ -571,4 +578,20 @@ func TestFunctionRequestRejectsUnownedSessionAndPreservesCoreFailure(t *testing.
 	if !errors.Is(err, kernel.semanticErr) {
 		t.Fatalf("Core failure lost: %v", err)
 	}
+}
+
+func (k *fakeKernel) InvokePluginFunctionInContext(context.Context, string, string, string, string, json.RawMessage, json.RawMessage, int) (string, error) {
+	return "", errors.New("fixture kernel does not serve plugin functions")
+}
+
+func (k *fakeKernel) SendPluginHostNotification(context.Context, string, string, json.RawMessage) (bool, error) {
+	return false, nil
+}
+
+func (k *fakeKernel) PluginServerRequest(context.Context, string, string, string, string, string, json.RawMessage, int) (string, error) {
+	return "", errors.New("fixture kernel does not forward language-server requests")
+}
+
+func (k *fakeKernel) PluginServerNotify(context.Context, string, string, string, string, json.RawMessage) (bool, error) {
+	return false, nil
 }

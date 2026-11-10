@@ -14,6 +14,9 @@ const (
 	// LaunchSystemCommand starts a bare command the host resolves itself, such as
 	// `gopls` or `pylsp`.
 	LaunchSystemCommand = "systemCommand"
+	// LaunchTool starts the executable the host resolved for one of the plugin's
+	// tool definitions. A backend-resolved language-server launch answers with it.
+	LaunchTool = "tool"
 )
 
 // Launch is the part of a Core launch plan this package verifies: which program
@@ -106,6 +109,16 @@ func VerifyLaunch(packageDirectory string, launch Launch) (Resolved, error) {
 		// A system-command launch names no package program: the host resolves a bare
 		// command itself, so there is nothing here to verify beyond the package files
 		// the launch still needs.
+		required, err := ResolvePackagePaths(packageDirectory, launch.Required)
+		if err != nil {
+			return Resolved{}, err
+		}
+		return Resolved{Required: required}, nil
+	case LaunchTool:
+		// The tool is resolved by the host's toolchain registry, not from the package.
+		if launch.Tool == "" {
+			return Resolved{}, fmt.Errorf("%w: a tool launch names no tool", ErrPackagePath)
+		}
 		required, err := ResolvePackagePaths(packageDirectory, launch.Required)
 		if err != nil {
 			return Resolved{}, err

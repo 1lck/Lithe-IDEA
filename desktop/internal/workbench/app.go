@@ -1075,6 +1075,7 @@ func (a *App) openProject(path string) {
 		a.logView.reset()
 		a.loadGit(p)
 		a.loadLog(p)
+		a.activatePluginWorkspace(root)
 	})
 }
 

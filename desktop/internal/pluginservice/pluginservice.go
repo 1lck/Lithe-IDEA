@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sync"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
@@ -47,6 +48,8 @@ type Kernel interface {
 	SyncPluginDocument(ctx context.Context, request core.PluginDocumentSyncRequest) (core.PluginDocumentSync, error)
 	SavePluginDocument(ctx context.Context, session, uri, text string) (sent bool, err error)
 	ClosePluginDocument(ctx context.Context, session, uri string) error
+	ConfigureFunctionRelay(ctx context.Context, plugins []core.RelayPlugin, contexts []core.RelayContext) error
+	DecodePluginLanguageServerLaunch(ctx context.Context, manifest json.RawMessage, languageID string, directories core.PluginBackendDirectories, answer json.RawMessage) (core.PluginBackendPlan, error)
 }
 
 // Service is the assembled plugin stack.
@@ -63,8 +66,16 @@ type Service struct {
 	Settings *pluginsettings.Store
 	// HostServices is the registry a backend's grants are narrowed against.
 	HostServices *pluginhost.Services
+	// Host starts plugin backends on demand and calls their functions.
+	Host *BackendHost
+	// Contexts holds the workspace contexts plugin backends see.
+	Contexts *WorkspaceContexts
 	// kernel reads what only Core can validate, such as a plugin's grammar.
 	kernel Kernel
+	// lsMu guards the running plugin-owned language servers backends reach.
+	lsMu          sync.Mutex
+	lsSessions    map[languageKey]*LanguageSession
+	lsGenerations map[languageKey]uint64
 }
 
 // Open assembles the stack over one plugin root and one set of preferences.
@@ -86,7 +97,7 @@ func Open(kernel Kernel, preferences *store.Store, root string) (*Service, error
 	if err := pluginpkg.Sweep(root); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrAssembly, err)
 	}
-	return &Service{
+	service := &Service{
 		Root:         root,
 		Manager:      pluginmanager.New(root, approvals, state),
 		Installer:    plugininstall.New(kernel, NewReviewer(kernel), approvals, pluginhost.Declared()),
@@ -94,7 +105,14 @@ func Open(kernel Kernel, preferences *store.Store, root string) (*Service, error
 		Settings:     pluginsettings.New(kernel, preferences.Dir()),
 		HostServices: hostServices,
 		kernel:       kernel,
-	}, nil
+	}
+	service.Host = newBackendHost(service)
+	service.Contexts = newWorkspaceContexts(filepath.Join(root, pluginStateDirectory))
+	service.Contexts.SetObserver(service.contextsChanged)
+	if err := service.registerHostServices(); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrAssembly, err)
+	}
+	return service, nil
 }
 
 // Capabilities reports the contract capabilities the installer validates against.

@@ -39,6 +39,17 @@ type LanguageSession struct {
 	Session pluginbackend.Session
 	// Documents keeps the session's open documents in step with the editor.
 	Documents *pluginlsp.Tracker
+	// ContextID and ContextGeneration name the workspace context the server was
+	// started for. A plugin backend reaches the server through them.
+	ContextID         string
+	ContextGeneration uint64
+	// Generation is raised each time the server starts for the context, so a
+	// backend can tell which process a state or a notification belongs to.
+	Generation uint64
+	// temporary is the scratch directory of one backend-resolved start; it is
+	// removed when the process ends.
+	temporary string
+	languageSessionState
 }
 
 // StartLanguageServer starts the language server of the plugin that serves
@@ -55,6 +66,12 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 	if readErr != nil {
 		return nil, errors.Join(err, readErr)
 	}
+	var workspaceContext WorkspaceContext
+	if request.WorkingDirectory != "" && s.Contexts != nil {
+		// The server serves this workspace, so a backend that asks for it by
+		// context finds it: the context exists for as long as the project is open.
+		workspaceContext = s.Contexts.Open(request.WorkingDirectory)
+	}
 	settings, settingsErr := s.Settings.Load(ctx, manifest, request.WorkingDirectory)
 	if settingsErr != nil {
 		return nil, errors.Join(err, settingsErr)
@@ -66,7 +83,7 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 	if stateErr := os.MkdirAll(stateDirectory, 0o700); stateErr != nil {
 		return nil, errors.Join(err, stateErr)
 	}
-	started, startErr := s.Backend.Start(ctx, pluginbackend.StartRequest{
+	start := pluginbackend.StartRequest{
 		Manifest:         manifest,
 		PackageDirectory: entry.Installed.Path,
 		PluginID:         entry.Installed.ID,
@@ -78,20 +95,38 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 		ProjectSettings:  settings.State.ProjectSettings,
 		RootURI:          request.RootURI,
 		WorkingDirectory: request.WorkingDirectory,
-	})
+	}
+	temporary := ""
+	if declaresBackendLaunch(manifest, languageID) {
+		resolved, resolveErr := s.resolveBackendLaunch(ctx, entry.Installed.ID, entry.Installed.Version, manifest, languageID, workspaceContext, start)
+		if resolveErr != nil {
+			return nil, errors.Join(err, resolveErr)
+		}
+		start.Plan = resolved.plan
+		start.LogDirectory = resolved.directories.log
+		start.WorkspaceStateDirectory = resolved.directories.workspaceState
+		temporary = resolved.directories.temporary
+	}
+	started, startErr := s.Backend.Start(ctx, start)
 	if startErr != nil {
+		removeTemporary(temporary)
 		return nil, errors.Join(err, startErr)
 	}
-	return &LanguageSession{
-		PluginID:   entry.Installed.ID,
-		Version:    entry.Installed.Version,
-		LanguageID: languageID,
-		Warnings:   err,
-		manifest:   append(json.RawMessage(nil), manifest...),
-		workspace:  request.WorkingDirectory,
-		Session:    started,
-		Documents:  pluginlsp.New(s.kernel, started.ID),
-	}, nil
+	session := &LanguageSession{
+		PluginID:          entry.Installed.ID,
+		Version:           entry.Installed.Version,
+		LanguageID:        languageID,
+		Warnings:          err,
+		manifest:          append(json.RawMessage(nil), manifest...),
+		workspace:         request.WorkingDirectory,
+		Session:           started,
+		Documents:         pluginlsp.New(s.kernel, started.ID),
+		ContextID:         workspaceContext.ContextID,
+		ContextGeneration: workspaceContext.Generation,
+		temporary:         temporary,
+	}
+	s.registerLanguageSession(session)
+	return session, nil
 }
 
 // ServeLanguageSession answers the session's host requests until it ends or ctx is
@@ -100,7 +135,16 @@ func (s *Service) ServeLanguageSession(ctx context.Context, session *LanguageSes
 	if session == nil {
 		return nil
 	}
-	return s.Backend.Serve(ctx, session.Session, observe)
+	// The service sees the events plugin backends depend on (completions of the
+	// requests they forward, lifecycle changes, forwarded notifications) before
+	// the window's observer, which keeps owning diagnostics and semantic answers.
+	defer session.end()
+	return s.Backend.Serve(ctx, session.Session, func(event core.BackendEvent) {
+		s.observeLanguage(session, event)
+		if observe != nil {
+			observe(event)
+		}
+	})
 }
 
 // RequestLanguageSession submits one semantic request to the session and returns
@@ -117,6 +161,10 @@ func (s *Service) StopLanguageServer(ctx context.Context, session *LanguageSessi
 	if session == nil {
 		return nil
 	}
+	s.unregisterLanguageSession(session)
+	session.end()
+	s.observeLanguage(session, core.BackendEvent{Type: "stateChanged", State: "stopped"})
+	removeTemporary(session.temporary)
 	return s.Backend.Stop(ctx, session.Session)
 }
 
@@ -128,7 +176,31 @@ const pluginStateDirectory = ".state"
 type languageServerDeclaration struct {
 	LanguageServers []struct {
 		LanguageID string `json:"languageID"`
+		Launch     struct {
+			Kind string `json:"kind"`
+		} `json:"launch"`
 	} `json:"languageServers"`
+}
+
+// declaresBackendLaunch reports whether the plugin's backend resolves the launch
+// of the language server for languageID (serverProcess 3).
+func declaresBackendLaunch(manifest json.RawMessage, languageID string) bool {
+	var declaration languageServerDeclaration
+	if json.Unmarshal(manifest, &declaration) != nil {
+		return false
+	}
+	for _, server := range declaration.LanguageServers {
+		if server.LanguageID == languageID {
+			return server.Launch.Kind == "backend"
+		}
+	}
+	return false
+}
+
+func removeTemporary(directory string) {
+	if directory != "" {
+		_ = os.RemoveAll(directory)
+	}
 }
 
 // LanguageServerProvider reports the enabled plugin that serves languageID.

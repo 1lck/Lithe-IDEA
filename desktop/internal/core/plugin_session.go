@@ -9,20 +9,23 @@ import (
 // PluginBackendStart is the host-resolved process and workspace. The host must
 // only supply programs and grants from an approved, verified plugin package.
 type PluginBackendStart struct {
-	ProviderID                    string            `json:"providerId"`
-	PluginID                      string            `json:"pluginId"`
-	Role                          string            `json:"role,omitempty"`
-	ExecutablePath                string            `json:"executablePath"`
-	Arguments                     []string          `json:"arguments,omitempty"`
-	Environment                   map[string]string `json:"environment,omitempty"`
-	RootURI                       any               `json:"rootUri"`
-	WorkingDirectory              string            `json:"workingDirectory"`
-	HostServices                  []string          `json:"hostServices,omitempty"`
-	InitializationOptions         json.RawMessage   `json:"initializationOptions,omitempty"`
-	WorkspaceConfiguration        json.RawMessage   `json:"workspaceConfiguration,omitempty"`
-	InitializeTimeoutMilliseconds int               `json:"initializeTimeoutMilliseconds,omitempty"`
-	RequestTimeoutMilliseconds    int               `json:"requestTimeoutMilliseconds,omitempty"`
-	ShutdownTimeoutMilliseconds   int               `json:"shutdownTimeoutMilliseconds,omitempty"`
+	ProviderID             string            `json:"providerId"`
+	PluginID               string            `json:"pluginId"`
+	Role                   string            `json:"role,omitempty"`
+	ExecutablePath         string            `json:"executablePath"`
+	Arguments              []string          `json:"arguments,omitempty"`
+	Environment            map[string]string `json:"environment,omitempty"`
+	RootURI                any               `json:"rootUri"`
+	WorkingDirectory       string            `json:"workingDirectory"`
+	HostServices           []string          `json:"hostServices,omitempty"`
+	InitializationOptions  json.RawMessage   `json:"initializationOptions,omitempty"`
+	WorkspaceConfiguration json.RawMessage   `json:"workspaceConfiguration,omitempty"`
+	// SessionPolicy is the launch plan's sessionPolicy, sent unchanged so Core's
+	// engine enforces what a plugin backend may ask of its own language server.
+	SessionPolicy                 json.RawMessage `json:"sessionPolicy,omitempty"`
+	InitializeTimeoutMilliseconds int             `json:"initializeTimeoutMilliseconds,omitempty"`
+	RequestTimeoutMilliseconds    int             `json:"requestTimeoutMilliseconds,omitempty"`
+	ShutdownTimeoutMilliseconds   int             `json:"shutdownTimeoutMilliseconds,omitempty"`
 }
 
 // NativeDocumentPath asks Core to convert a native absolute path to a URI.
@@ -54,15 +57,26 @@ type PluginBackendPlan struct {
 		MinimumVersion   string   `json:"minimumVersion"`
 		RuntimeArguments []string `json:"runtimeArguments"`
 		VersionArguments []string `json:"versionArguments"`
+		// Function and TimeoutMilliseconds describe a backend-resolved launch
+		// (kind "backend"): the first step calls this plugin function.
+		Function            string `json:"function"`
+		TimeoutMilliseconds int    `json:"timeoutMilliseconds"`
 	} `json:"launch"`
-	Arguments              []string        `json:"arguments"`
-	ValidationArguments    []string        `json:"validationArguments"`
-	RequiredDirectories    []string        `json:"requiredDirectories"`
-	RequiredPackagePaths   []string        `json:"requiredPackagePaths"`
-	RuntimeRequirements    json.RawMessage `json:"runtimeRequirements"`
-	InitializationOptions  json.RawMessage `json:"initializationOptions"`
-	WorkspaceConfiguration json.RawMessage `json:"workspaceConfiguration"`
-	Settings               json.RawMessage `json:"settings"`
+	// ResolveParams is the params of a backend-resolved launch function.
+	ResolveParams json.RawMessage `json:"resolveParams"`
+	// SessionPolicy is the language-server session policy of a languageServers 3 server.
+	SessionPolicy json.RawMessage `json:"sessionPolicy"`
+	// Environment and WritablePaths come from a decoded backend launch answer.
+	Environment            map[string]string `json:"environment"`
+	WritablePaths          []string          `json:"writablePaths"`
+	Arguments              []string          `json:"arguments"`
+	ValidationArguments    []string          `json:"validationArguments"`
+	RequiredDirectories    []string          `json:"requiredDirectories"`
+	RequiredPackagePaths   []string          `json:"requiredPackagePaths"`
+	RuntimeRequirements    json.RawMessage   `json:"runtimeRequirements"`
+	InitializationOptions  json.RawMessage   `json:"initializationOptions"`
+	WorkspaceConfiguration json.RawMessage   `json:"workspaceConfiguration"`
+	Settings               json.RawMessage   `json:"settings"`
 	Backend                struct {
 		HostServices []string `json:"hostServices"`
 		Version      int      `json:"version"`
@@ -200,6 +214,32 @@ func (c *Client) PlanPluginLanguageServer(ctx context.Context, manifest json.Raw
 		LanguageID string                   `json:"languageID"`
 		Request    PluginBackendDirectories `json:"request"`
 	}{manifest, languageID, directories})
+}
+
+// DecodePluginLanguageServerLaunch checks the answer of a backend-resolved launch
+// function (serverProcess 3) and returns the plan the host starts.
+func (c *Client) DecodePluginLanguageServerLaunch(ctx context.Context, manifest json.RawMessage, languageID string, directories PluginBackendDirectories, answer json.RawMessage) (PluginBackendPlan, error) {
+	const command = "plugins.languageServers.decodeLaunch"
+	var result struct {
+		Status string                `json:"status"`
+		Error  *MarketplaceRejection `json:"error"`
+		Plan   *PluginBackendPlan    `json:"plan"`
+	}
+	if err := c.Execute(ctx, command, struct {
+		Manifest   json.RawMessage          `json:"manifest"`
+		LanguageID string                   `json:"languageID"`
+		Request    PluginBackendDirectories `json:"request"`
+		Result     json.RawMessage          `json:"result"`
+	}{manifest, languageID, directories, answer}, &result); err != nil {
+		return PluginBackendPlan{}, err
+	}
+	if result.Status == "rejected" && result.Error != nil {
+		return PluginBackendPlan{}, result.Error
+	}
+	if result.Status != "ok" || result.Plan == nil {
+		return PluginBackendPlan{}, newParseError(command, "launch decoding returned an invalid outcome", "")
+	}
+	return *result.Plan, nil
 }
 
 // PlanPluginBuildProvider asks Core to expand one build system's provider
@@ -361,4 +401,109 @@ func (c *Client) DestroyPluginBackend(ctx context.Context, session string) error
 	return c.Execute(ctx, "lsp.destroyServer", struct {
 		SessionID string `json:"sessionId"`
 	}{session}, nil)
+}
+
+// InvokePluginFunctionInContext is InvokePluginFunction for a protocol version 3
+// backend: context is the workspace context reference the call runs in and
+// timeoutMilliseconds bounds it when positive.
+func (c *Client) InvokePluginFunctionInContext(ctx context.Context, session, operation, plugin, function string, params, workspaceContext json.RawMessage, timeoutMilliseconds int) (string, error) {
+	var response struct {
+		OperationID string `json:"operationId"`
+	}
+	body := struct {
+		SessionID   string                  `json:"sessionId"`
+		OperationID string                  `json:"operationId,omitempty"`
+		Function    pluginFunctionReference `json:"function"`
+		Params      json.RawMessage         `json:"params,omitempty"`
+		Timeout     int                     `json:"timeoutMilliseconds,omitempty"`
+		Context     json.RawMessage         `json:"context,omitempty"`
+	}{session, operation, pluginFunctionReference{plugin, function}, params, timeoutMilliseconds, workspaceContext}
+	err := c.Execute(ctx, "lsp.functionRequest", body, &response)
+	return response.OperationID, err
+}
+
+// SendPluginHostNotification delivers one host notification to a plugin backend.
+// delivered is false when the backend negotiated a version without it.
+func (c *Client) SendPluginHostNotification(ctx context.Context, session, method string, params json.RawMessage) (bool, error) {
+	var response struct {
+		Delivered bool `json:"delivered"`
+	}
+	err := c.Execute(ctx, "lsp.hostNotify", struct {
+		SessionID string          `json:"sessionId"`
+		Method    string          `json:"method"`
+		Params    json.RawMessage `json:"params"`
+	}{session, method, params}, &response)
+	return response.Delivered, err
+}
+
+// PluginServerRequest forwards one request of a plugin backend to the plugin's
+// own language server. The answer arrives as a requestCompleted event of the
+// language-server session.
+func (c *Client) PluginServerRequest(ctx context.Context, session, operation, plugin, server, method string, params json.RawMessage, timeoutMilliseconds int) (string, error) {
+	var response struct {
+		OperationID string `json:"operationId"`
+	}
+	err := c.Execute(ctx, "lsp.pluginServerRequest", struct {
+		SessionID   string          `json:"sessionId"`
+		OperationID string          `json:"operationId,omitempty"`
+		PluginID    string          `json:"pluginId"`
+		ServerID    string          `json:"serverID"`
+		Method      string          `json:"method"`
+		Params      json.RawMessage `json:"params,omitempty"`
+		Timeout     int             `json:"timeoutMilliseconds,omitempty"`
+	}{session, operation, plugin, server, method, params, timeoutMilliseconds}, &response)
+	return response.OperationID, err
+}
+
+// PluginServerNotify forwards one notification of a plugin backend to the
+// plugin's own language server.
+func (c *Client) PluginServerNotify(ctx context.Context, session, plugin, server, method string, params json.RawMessage) (bool, error) {
+	var response struct {
+		Delivered bool `json:"delivered"`
+	}
+	err := c.Execute(ctx, "lsp.pluginServerNotify", struct {
+		SessionID string          `json:"sessionId"`
+		PluginID  string          `json:"pluginId"`
+		ServerID  string          `json:"serverID"`
+		Method    string          `json:"method"`
+		Params    json.RawMessage `json:"params,omitempty"`
+	}{session, plugin, server, method, params}, &response)
+	return response.Delivered, err
+}
+
+// RelayContext is one live workspace context the function relay checks calls against.
+type RelayContext struct {
+	ContextID  string `json:"contextID"`
+	Generation uint64 `json:"generation"`
+	Authority  string `json:"authority"`
+}
+
+// RelayPlugin is one enabled plugin's pluginFunctions declaration.
+type RelayPlugin struct {
+	PluginID string            `json:"pluginID"`
+	Exports  []json.RawMessage `json:"exports"`
+	Calls    []json.RawMessage `json:"calls"`
+}
+
+// ConfigureFunctionRelay replaces Core's view of the enabled plugins and live
+// workspace contexts that cross-plugin calls are checked against.
+func (c *Client) ConfigureFunctionRelay(ctx context.Context, plugins []RelayPlugin, contexts []RelayContext) error {
+	if plugins == nil {
+		plugins = []RelayPlugin{}
+	}
+	if contexts == nil {
+		contexts = []RelayContext{}
+	}
+	for i := range plugins {
+		if plugins[i].Exports == nil {
+			plugins[i].Exports = []json.RawMessage{}
+		}
+		if plugins[i].Calls == nil {
+			plugins[i].Calls = []json.RawMessage{}
+		}
+	}
+	return c.Execute(ctx, "lsp.configureFunctionRelay", struct {
+		Plugins  []RelayPlugin  `json:"plugins"`
+		Contexts []RelayContext `json:"contexts"`
+	}{plugins, contexts}, nil)
 }
