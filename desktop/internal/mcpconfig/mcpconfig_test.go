@@ -3,6 +3,10 @@ package mcpconfig
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -237,5 +241,38 @@ func TestToolPolicyOnlyEditsOwnRules(t *testing.T) {
 	policy, err = service.SetTool(testContext(t), "claude", "docs", []string{"read", "write"}, "read", true)
 	if err != nil || strings.Contains(read(t, env.ClaudeSettingsPath()), "mcp__docs__read") || !strings.Contains(read(t, env.ClaudeSettingsPath()), "mcp__docs__write") {
 		t.Fatalf("re-enable = %v %q", err, read(t, env.ClaudeSettingsPath()))
+	}
+}
+
+func TestFetchRegistryIsBoundedAndPassesTheCursorOpaque(t *testing.T) {
+	var gotQuery string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		switch r.URL.Query().Get("search") {
+		case "big":
+			_, _ = io.WriteString(w, strings.Repeat("x", registryBodyLimit+1))
+		case "redirect":
+			http.Redirect(w, r, "/elsewhere", http.StatusFound)
+		default:
+			_, _ = io.WriteString(w, `{"servers":[]}`)
+		}
+	}))
+	defer server.Close()
+	body, err := FetchRegistry(testContext(t), server.URL, "a b", "opaque/+ cursor?")
+	if err != nil || body != `{"servers":[]}` {
+		t.Fatalf("body = %q %v", body, err)
+	}
+	values, _ := url.ParseQuery(gotQuery)
+	if values.Get("cursor") != "opaque/+ cursor?" || values.Get("search") != "a b" || values.Get("limit") != "30" {
+		t.Fatalf("query = %q", gotQuery)
+	}
+	if _, err := FetchRegistry(testContext(t), server.URL, "big", ""); !errors.Is(err, ErrRegistryTooLarge) {
+		t.Fatalf("big = %v", err)
+	}
+	if _, err := FetchRegistry(testContext(t), server.URL, "redirect", ""); err == nil {
+		t.Fatal("a redirect was followed")
+	}
+	if _, err := FetchRegistry(testContext(t), "http://example.invalid/servers", "", ""); err == nil {
+		t.Fatal("plain HTTP to a remote host was accepted")
 	}
 }
