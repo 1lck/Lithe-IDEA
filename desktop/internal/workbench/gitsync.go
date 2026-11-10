@@ -68,6 +68,10 @@ type syncState struct {
 	hasProgress bool
 	relay       *syncProgressRelay
 
+	// done, when set, is called once on the window thread with the outcome of the operation
+	// that is running, for a dialog that follows it (the Push dialog).
+	done func(a *App, err error)
+
 	// preflight and branch are what the diverged dialog is about.
 	preflight core.GitPullPreflight
 	branch    string
@@ -149,6 +153,10 @@ func (a *App) runSync(p *project, operation, label string, failed func(reason st
 			}
 			if p.log.started {
 				a.loadLog(p)
+			}
+			if hook := s.done; hook != nil {
+				s.done = nil
+				hook(a, err)
 			}
 			switch {
 			case err == nil:

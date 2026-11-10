@@ -242,6 +242,8 @@ type project struct {
 	panels runPanels
 	// agent is the project's Agent panel and connection.
 	agent agentState
+	// review holds the Git review dialogs: Diff, Push, stashes, worktrees and annotations.
+	review gitReview
 }
 
 // App is the state of the window.
@@ -359,7 +361,9 @@ type App struct {
 	// branch is the title bar's branch popup and the dialogs it opens.
 	branch branchState
 	// commitView is the Commit tool window's splitter and message input.
-	commitView     commitView
+	commitView commitView
+	// reviewMenu is the state of the Git tools menu in the Git tool window.
+	reviewMenu     reviewMenuState
 	searchView     searchView
 	everywhereView everywhereView
 	// problems is the Problems tool window's cached Core answer.

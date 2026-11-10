@@ -124,6 +124,7 @@ func (a *App) drawLogStripe(c ui.C, p *project) {
 		if a.gitIconButton(c, g.BranchSettings, icons.Settings, false, false) {
 			c.After(unavailable)
 		}
+		a.drawGitReviewMenu(c, p)
 		if a.gitIconButton(c, g.ExpandAll, icons.ChevronsUpDown, false, false) {
 			c.After(func() { clear(l.collapsed) })
 		}

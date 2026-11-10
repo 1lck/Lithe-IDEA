@@ -146,8 +146,12 @@ func (a *App) drawCommitChange(c ui.C, p *project, change core.GitChange) {
 	if change.OriginalPath != "" && change.OriginalPath != change.Path {
 		name = path.Base(change.OriginalPath) + " → " + name
 	}
-	ui.Row(c.Key(change.Path)).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).
-		PadSides(0, 8, 0, float32(8+logIndent)).Hover(ui.Look{}.Background(a.colors.Hover)).Children(func() {
+	rowC := c.Key(change.Path)
+	row := ui.Row(rowC).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).
+		PadSides(0, 8, 0, float32(8+logIndent)).Hover(ui.Look{}.Background(a.colors.Hover)).
+		HitWith(ui.ID(rowC), change.Path, gfx.HitOptions{Cursor: gfx.PointerCursorHand})
+	ui.ContextMenu(rowC, row, a.changeMenuItems(rowC, p, change))
+	row.Children(func() {
 		staged := change.Staged
 		if ui.Checkbox(c, &staged, "").Label(label).Disabled(cs.busy || !change.CanToggleStaging).Clicked() {
 			c.After(func() { a.stageChange(p, change) })
@@ -161,6 +165,9 @@ func (a *App) drawCommitChange(c ui.C, p *project, change core.GitChange) {
 		ui.Text(c, strings.TrimSuffix(dir, "/")).Muted().Ellipsis().Grow(1)
 		ui.Text(c, state).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
 	})
+	if row.DoubleClicked() {
+		c.After(func() { a.openChange(p, change) })
+	}
 }
 
 // changeColor is the color of a change's name, by the side of the change the row shows: the

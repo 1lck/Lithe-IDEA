@@ -200,6 +200,7 @@ func (a *App) overlays(c ui.C) {
 		a.drawBranchDialog(c, p)
 		a.drawSyncDialog(c, p)
 		a.inlineEditView(c, p)
+		a.reviewOverlays(c, p)
 	}
 	a.newProjectModal(c)
 }
