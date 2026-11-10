@@ -1,6 +1,9 @@
 package workbench
 
-import "github.com/vivaui/viva/ui"
+import (
+	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/ui"
+)
 
 // commitView is the window's state of the Commit tool window that is not the project's: the
 // Page that shows it, the splitter between the change list and the commit area, and what the
@@ -28,7 +31,17 @@ func newCommitView() commitView { return commitView{areaHeight: commitAreaHeight
 func (a *App) drawCommitPanel(f *ui.Frame, p *project) {
 	v := &a.commitView
 	if v.host.page == nil {
-		v.host = a.newGitHost("commit", a.commitPageView, v.capture)
+		v.host = a.newGitHost("commit", a.commitPageView, v.capture, panelPage{
+			// The splitter between the list and the commit area takes its arrow keys.
+			key: func(event gfx.KeyEvent) gfx.EventResult {
+				r := v.split.Key(event)
+				if r.Handled {
+					v.adoptArea()
+				}
+				return r
+			},
+			wheel: verticalWheel,
+		})
 		v.bodyDraw = func(d *ui.DrawContext) { v.bodyRect = d.Rect }
 	}
 	f.Slot().Fill().Draw(v.host.draw)

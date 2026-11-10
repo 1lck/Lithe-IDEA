@@ -112,9 +112,6 @@ func (a *App) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 	if result, ok := a.pageWheel(event); ok {
 		return result
 	}
-	if result, ok := a.hostedWheel(event); ok {
-		return result
-	}
 	if t := a.focusedTerminal(event.Target); t != nil {
 		if result, ok := t.Scroll(event); ok {
 			return result
@@ -125,9 +122,6 @@ func (a *App) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 		if result, ok := v.Scroll(event); ok {
 			return result
 		}
-	}
-	if result, ok := a.gitWheel(event); ok {
-		return result
 	}
 	if result, ok := a.term.stripWheel(event); ok {
 		return result
@@ -145,9 +139,6 @@ func (a *App) textInput(ctx app.TextInputContext) *app.TextInput {
 	if input := a.pageTextInput(ctx); input != nil {
 		return input
 	}
-	if input := a.hostedTextInput(ctx); input != nil {
-		return input
-	}
 	if t := a.focusedTerminal(ctx.ID); t != nil {
 		return t.TextInput(ctx)
 	}
@@ -155,9 +146,6 @@ func (a *App) textInput(ctx app.TextInputContext) *app.TextInput {
 		return v.TextInput(ctx)
 	}
 	if input := a.agentTextInput(ctx); input != nil {
-		return input
-	}
-	if input := a.gitTextInput(ctx); input != nil {
 		return input
 	}
 	return a.fields(ctx)

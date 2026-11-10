@@ -193,7 +193,7 @@ func (v *logView) reset() {
 func (a *App) drawGitLog(f *ui.Frame, p *project) {
 	v := &a.logView
 	if v.host.page == nil {
-		v.host = a.newGitHost("git-log", a.logPageView, v.capture)
+		v.host = a.newGitHost("git-log", a.logPageView, v.capture, panelPage{key: v.splitKey, wheel: verticalWheel})
 		v.bodyDraw = func(d *ui.DrawContext) { v.bodyRect = d.Rect }
 		v.refs.Node, v.refLabel = v.refNode, v.refRowLabel
 		v.commits.Label = a.logCommitLabel

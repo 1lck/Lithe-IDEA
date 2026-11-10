@@ -25,7 +25,7 @@ func (a *App) paintGitOverlay(canvas *gfx.Canvas, bounds gfx.Rect) {
 	}
 	o := &a.gitOverlay
 	if o.host.page == nil {
-		o.host = a.newGitHost("git-overlay", a.gitOverlayView, nil)
+		o.host = a.newGitHost("git-overlay", a.gitOverlayView, nil, panelPage{})
 	}
 	o.host.paint(canvas, bounds)
 }

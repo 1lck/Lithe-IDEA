@@ -30,7 +30,10 @@ func (a *App) welcomePage() *ui.Page {
 // left for it.
 func (a *App) drawWelcome(f *ui.Frame) {
 	page := a.welcomePage()
-	f.Slot().Fill().Draw(func(d *ui.DrawContext) { page.Draw(d.Canvas, d.Rect, a.welcomeView) })
+	f.Slot().Fill().Draw(func(d *ui.DrawContext) {
+		a.pages.register(panelPage{page: page})
+		page.Draw(d.Canvas, d.Rect, a.welcomeView)
+	})
 }
 
 func (a *App) welcomeSeparator() gfx.Color {

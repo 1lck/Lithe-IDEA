@@ -30,6 +30,7 @@ func (a *App) searchPanelPage() *ui.Page {
 func (a *App) drawProjectSearch(f *ui.Frame, p *project) {
 	page := a.searchPanelPage()
 	f.Slot().FillWidth().Grow(1).Shrink(1).MinHeight(0).Draw(func(d *ui.DrawContext) {
+		a.pages.register(panelPage{page: page})
 		page.Draw(d.Canvas, d.Rect, a.searchPanel)
 	})
 }

@@ -707,12 +707,6 @@ func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
 	if result, ok := a.pagePointer(event); ok {
 		return result
 	}
-	if result, ok := a.gitOverlayPointer(event); ok {
-		return result
-	}
-	if result, ok := a.hostedPointer(event); ok {
-		return result
-	}
 	// A semantic popup or request belongs to the caret and symbol it was opened
 	// at; any pointer work that moved either closes it before the frame paints.
 	defer a.pluginSemanticsCaretSync()
@@ -733,9 +727,6 @@ func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
 	if result, handled := a.pluginSemanticsPointer(event); handled {
 		return result
 	}
-	if result, handled := a.gitPanePointer(event); handled {
-		return result
-	}
 	if result, handled := a.documentPointer(event); handled {
 		return result
 	}
@@ -747,12 +738,6 @@ func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
 
 func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
 	if result, ok := a.pageKey(event); ok {
-		return result
-	}
-	if result, ok := a.gitOverlayKey(event); ok {
-		return result
-	}
-	if result, ok := a.hostedKey(event); ok {
 		return result
 	}
 	// A semantic request belongs to the caret it was placed at. Every key path
@@ -797,9 +782,6 @@ func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
 	if r := a.treeKey(event); r.Handled {
 		return r
 	}
-	if r, ok := a.gitPaneKey(event); ok {
-		return r
-	}
 	if r := a.editorSplitKey(event); r.Handled {
 		return r
 	}
@@ -811,15 +793,6 @@ func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
 // here, not in onKey.
 func (a *App) onShortcut(event gfx.KeyEvent) gfx.EventResult {
 	if result, ok := a.pageShortcut(event); ok {
-		return result
-	}
-	if result, ok := a.gitOverlayShortcut(event); ok {
-		return result
-	}
-	if result, ok := a.gitPaneShortcut(event); ok {
-		return result
-	}
-	if result, ok := a.hostedShortcut(event); ok {
 		return result
 	}
 	if !event.Release {
