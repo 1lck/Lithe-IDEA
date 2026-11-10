@@ -4,17 +4,25 @@
   "group": "代码结构",
   "capability": "当前文件 Outline 与符号树",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/core/plugin_symbols.go",
+      "desktop/internal/core/plugin_symbols_test.go",
+      "desktop/internal/workbench/outline.go",
+      "desktop/internal/workbench/outline_view.go",
+      "desktop/internal/workbench/outline_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/core/plugin_symbols.go",
+      "desktop/internal/core/plugin_symbols_test.go",
+      "desktop/internal/workbench/outline.go",
+      "desktop/internal/workbench/outline_view.go",
+      "desktop/internal/workbench/outline_test.go"
     ]
   },
   "owner": "Language Tooling",
@@ -37,5 +45,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：Structure 工具窗口显示当前文件的 Core documentSymbols 符号树（层级形式与平铺形式统一为树），跟随光标选中最内层符号，点击或回车跳到符号名，可折叠与按名称排序；仅在窗口打开且文档与服务器同步后按文本变化节流请求。服务器未声明 documentSymbols 时说明无法提供。"
 }

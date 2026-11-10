@@ -5,18 +5,22 @@
   "id": "editor-file-encoding-save",
   "capability": "按指定编码保存文本文件",
   "macos": {
-    "implementationStatus": "missing",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/workbench/documents.go",
+      "desktop/internal/core/file_encoding.go",
+      "desktop/internal/core/file_encoding_test.go",
+      "desktop/internal/workbench/encoding.go",
       "desktop/internal/workbench/documents_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/workbench/documents.go",
+      "desktop/internal/core/file_encoding.go",
+      "desktop/internal/core/file_encoding_test.go",
+      "desktop/internal/workbench/encoding.go",
       "desktop/internal/workbench/documents_test.go"
     ]
   },
@@ -43,5 +47,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 尚无按指定编码保存或转换；不合法的 UTF-8 会被拒绝打开，但有效 UTF-8 字节无法证明原文件编码。legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：保存按文档编码经 Core file.write 的编码转换（客户端保留 documentio 的原子写入、冲突检测与符号链接保护，Core 只做转换），状态栏菜单“按编码保存”可转换并保存；含目标编码无法表示的字符时 Core 返回 encoding_unmappable，不写入任何内容并恢复原编码、提示编码名。"
 }

@@ -4,7 +4,7 @@
   "group": "语言服务",
   "capability": "语言服务器启动与工作区准备",
   "macos": {
-    "implementationStatus": "missing",
+    "implementationStatus": "partial",
     "verificationStatus": "not-applicable",
     "evidence": [
       "desktop/internal/workbench/catalog.go",
@@ -14,7 +14,7 @@
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
+    "implementationStatus": "partial",
     "verificationStatus": "not-applicable",
     "evidence": [
       "desktop/internal/workbench/catalog.go",

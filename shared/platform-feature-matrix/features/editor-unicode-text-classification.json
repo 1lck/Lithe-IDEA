@@ -5,17 +5,23 @@
   "capability": "中文 properties 与未知扩展名文本的一致打开和恢复",
   "owner": "Editor",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/core/documents.go",
+      "desktop/internal/workbench/documents.go",
+      "desktop/internal/workbench/documents_test.go",
+      "shared/fixtures/editor/text-content-v1.json"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/core/documents.go",
+      "desktop/internal/workbench/documents.go",
+      "desktop/internal/workbench/documents_test.go",
+      "shared/fixtures/editor/text-content-v1.json"
     ]
   },
   "verification": "双端打开高中文比例的 .properties 和未知扩展名 UTF-8 文件，编辑保存后恢复会话并验证内容及编码；验证 properties 高亮、emoji 跨边界、NUL 和控制字符拒绝、读取错误独立报告，并执行 text-content-v1.json 共享规则样例。",
@@ -40,5 +46,5 @@
       ]
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva 打开、外部变化检查、重命名读取等读取路径都用 Core 整文件分类（ClassifyDocumentText）拒绝 NUL 与控制字符；非 UTF-8 字节交给 Core 编码检测而不再一律拒绝，检测失败时仍以原因报告。整机恢复会话与 properties 高亮验收待完成。"
 }

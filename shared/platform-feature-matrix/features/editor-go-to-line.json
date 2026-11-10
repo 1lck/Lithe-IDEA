@@ -4,29 +4,31 @@
   "group": "导航",
   "capability": "跳转到行或行列并选择目标",
   "macos": {
-    "implementationStatus": "partial",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/core/navigation.go",
       "desktop/internal/editorview/view.go",
       "desktop/internal/workbench/navigation.go",
       "desktop/internal/workbench/navigation_test.go",
+      "desktop/internal/workbench/editor_menu.go",
       "shared/fixtures/editor/navigation-input-v1.json"
     ]
   },
   "windows": {
-    "implementationStatus": "partial",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/core/navigation.go",
       "desktop/internal/editorview/view.go",
       "desktop/internal/workbench/navigation.go",
       "desktop/internal/workbench/navigation_test.go",
+      "desktop/internal/workbench/editor_menu.go",
       "shared/fixtures/editor/navigation-input-v1.json"
     ]
   },
   "owner": "Editor",
-  "notes": "Viva 已接入 Core 行列解析、状态栏和快捷键、整行选择及 UTF-16 列定位；原生菜单入口、原生窗口一致性及 Windows 产品级验收仍待完成。",
+  "notes": "Viva 已接入 Core 行列解析、状态栏点击、快捷键与编辑器右键菜单入口、整行选择及 UTF-16 列定位；跳转同时记入后退/前进历史。macOS 原生菜单栏入口在 Viva 客户端不适用；原生窗口一致性与 Windows 产品级验收仍待完成。",
   "verification": "共享 fixture 覆盖有效和无效输入；Viva 无头交互覆盖整行、UTF-16、取消、切换文档和过期校验，待两端完整应用及原生界面验收。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",

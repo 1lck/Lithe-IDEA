@@ -67,5 +67,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 已接入定义跳转、引用、重命名与格式化文档；格式化选区、右键菜单、语义标记和非文件目标的只读预览尚未接入。无头 clangd 测试不是原生窗口验收，平台验证保持 pending。"
+  "notes": "Viva 已接入定义跳转、引用（References 工具窗口）、重命名、格式化文档与选区，以及编辑器右键菜单入口；语义标记见 editor-semantic-highlighting。非文件目标的只读预览已由内容提供方接入的部分以外尚未覆盖。无头 clangd 测试不是原生窗口验收，平台验证保持 pending。"
 }

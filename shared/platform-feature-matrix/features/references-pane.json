@@ -4,25 +4,29 @@
   "group": "代码结构",
   "capability": "引用结果面板与引用跳转",
   "macos": {
-    "implementationStatus": "partial",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
+      "desktop/internal/workbench/references.go",
+      "desktop/internal/workbench/references_view.go",
       "desktop/internal/workbench/pluginsemantics.go",
       "desktop/internal/workbench/pluginsemantics_test.go",
       "desktop/internal/workbench/pluginsemantics_e2e_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "partial",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
+      "desktop/internal/workbench/references.go",
+      "desktop/internal/workbench/references_view.go",
       "desktop/internal/workbench/pluginsemantics.go",
       "desktop/internal/workbench/pluginsemantics_test.go",
       "desktop/internal/workbench/pluginsemantics_e2e_test.go"
     ]
   },
   "owner": "Language Tooling",
-  "verification": "Viva（2026-11-10）：Shift+F12 查找引用，以光标处弹出的可键盘导航列表（虚拟化窗口，上限 500）呈现，点击或回车打开所在文件位置；按文件分组与专用面板尚未接入。 从符号发起引用查询，验证结果分组、文件定位、关闭和重新查询。",
+  "verification": "Viva（2026-11-10）：Shift+F12 查找引用，以光标处弹出的可键盘导航列表（虚拟化窗口，上限 500）呈现，点击或回车打开所在文件位置；按文件分组与专用面板尚未接入。 从符号发起引用查询，验证结果分组、文件定位、关闭和重新查询。 Viva（2026-11-10）：用 Java 或 C 文件发起引用查询，核对分组、行预览、文件定位、关闭与重新查询。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -40,5 +44,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 以弹出列表呈现引用，尚无分组面板；无头 clangd 测试不是原生窗口验收，平台验证保持 pending。"
+  "notes": "Viva：Shift+F12 或右键“查找引用”把结果放入 References 工具窗口（底部区），按文件分组、显示行预览（已打开文件读编辑器，未打开文件在后台有界读取），点击或回车打开所在位置，上限 500 条；无头 clangd 测试不是原生窗口验收，平台验证保持 pending。"
 }

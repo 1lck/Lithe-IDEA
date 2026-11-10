@@ -4,22 +4,22 @@
   "group": "语言服务",
   "capability": "LSP 状态栏控制与按服务器查看日志",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
+      "desktop/internal/workbench/lsp_status.go",
+      "desktop/internal/workbench/lsp_status_test.go",
       "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/workbench/app.go",
       "desktop/internal/workbench/chrome.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
+      "desktop/internal/workbench/lsp_status.go",
+      "desktop/internal/workbench/lsp_status_test.go",
       "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/workbench/app.go",
       "desktop/internal/workbench/chrome.go"
     ]
   },
@@ -78,5 +78,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 当前的运行、调试和问题面板为占位，语言服务状态为静态未启动；桌面客户端尚未接入对应的 LSP、DAP 或构建 Provider 工作流。Core 接口及编辑器内部语义高亮数据结构不能代替端到端接入。"
+  "notes": "Viva：状态栏显示选中文件的语言服务器状态（启动中、就绪、出错、已停止）或问题数；点击打开“语言服务器日志”窗口，按服务器选择并显示 Core 日志事件的有界尾部（500 行）。状态栏中的停止、重启等控制，以及按级别筛选和统一日志窗口的通道定位尚未接入。"
 }

@@ -4,21 +4,27 @@
   "group": "文本编辑",
   "capability": "键盘移动后优先撤销光标，并支持独立光标撤销与重做",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/core/navigation_history.go",
+      "desktop/internal/core/navigation_history_test.go",
+      "desktop/internal/workbench/navigation_history.go",
+      "desktop/internal/workbench/navigation_history_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/core/navigation_history.go",
+      "desktop/internal/core/navigation_history_test.go",
+      "desktop/internal/workbench/navigation_history.go",
+      "desktop/internal/workbench/navigation_history_test.go"
     ]
   },
   "owner": "Editor",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva 已实现跳转后退/前进（Ctrl+Alt+左/右，右键菜单）：定义、引用、Structure、Go to Line 等跳转时经 Core editor.navigationHistory.reduce 记录，目标文件不存在时保留历史。本行的“键盘移动后优先撤销光标”（Monaco cursorUndo/cursorRedo、Ctrl+U）尚未实现，需要编辑器视图记录光标移动历史。",
   "verification": "Windows 输入代码后误按向下箭头，第一次 Ctrl+Z 应回到之前的行列且内容和脏状态不变，第二次才撤销输入，再重做应恢复文本；通过 Ctrl+Z 或独立 Ctrl+U 恢复光标后，直接 Ctrl+Shift+Z 或 Ctrl+Y 应恢复移动，空光标历史不抢占文本重做。连续多次方向键后仅优先回退最近一次。核对 Ctrl+U/Ctrl+Shift+U、选区、多光标、滚动恢复、只读文件、空历史及继续编辑后清空光标历史；切换文件或分屏后不得恢复其他视图的选区。在命令面板搜索光标撤销/重做并执行，修改快捷键后确认生效，普通输入框、查找和终端保持原输入行为。macOS 原生按键与宿主命令入口需分别验收。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
