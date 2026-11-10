@@ -4,22 +4,30 @@
   "group": "插件与主题",
   "capability": "插件自有语言服务器会话与后端决定启动方式：声明 languageServers 3 的插件，其后端经 lithe/host/languageServer/request|notify|setStatus 向自己的服务器发请求、通知并上报准备状态（preparing/ready/degraded/failed，随进程结束），收到 didChangeState 与 didReceiveNotification；会话策略（请求白名单、门控、串行命令、超时与排队上限、远程不支持）由 Rust Core 执行；serverProcess 3 的 launch.kind:backend 由后端函数在每次启动时给出可执行文件（包内文件或声明的工具）、参数、环境与初始化选项，Core 校验后宿主才启动；documents.contentProvider 让插件为自定义 scheme 提供只读文档（如 jar 内源码）；宿主按 state.retention 在后台回收每个工作区的服务器状态目录；状态栏显示插件自己上报的准备状态",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginservice/backendlaunch.go",
+      "desktop/internal/pluginservice/languagesession.go",
+      "desktop/internal/pluginservice/hostmethods.go",
+      "desktop/internal/pluginservice/hostmethods_test.go",
+      ".agents/notes/implemented/architecture/2026-11-10-viva-plugin-host-services-and-backend-sessions.md"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginservice/backendlaunch.go",
+      "desktop/internal/pluginservice/languagesession.go",
+      "desktop/internal/pluginservice/hostmethods.go",
+      "desktop/internal/pluginservice/hostmethods_test.go",
+      ".agents/notes/implemented/architecture/2026-11-10-viva-plugin-host-services-and-backend-sessions.md"
     ]
   },
   "owner": "Extensions",
   "verification": "共享 Core：cargo test --manifest-path rust/Cargo.toml -p lithe-core，过滤 plugin_server、plugin_function、language_server_sessions、content_providers、declarative，核对 language-server-launch-resolution.json 的启动问题与答案、decodeLaunch 的七类拒绝码、会话策略（白名单、门控、串行、超时、128 个排队后 busy、远程 not_supported）。macOS 宿主：scripts/macos/test/test-macos.sh --filter \"PluginLanguageServerHostServiceTests|PluginBackendLaunchTests|PluginContentProviderTests|MacPluginLanguageServerWorkspaceStateTests\"，以及 LitheLanguageIntelligenceModuleTests 中的 PluginLanguageServerRelayTests。scripts/macos/verify/verify-runtime-bundle-immutability.sh 确认启动后 bundle 内文件清单不变。macOS 原生验收：debug 应用安装一个声明 languageServers 3、serverProcess 3 与 documents.contentProvider 的示例插件（语言服务器用 Metals 或 rust-analyzer 的桩），打开本地工作区后确认后端被调用并返回可执行文件、服务器启动且进程在应用目录之外；后端调用 languageServer/request 得到服务器答案，setStatus 的文字显示在状态栏并随服务器停止消失；关闭窗口后用 pgrep 确认服务器与后端不残留；把一个工作区状态目录的时间改到 40 天前并重新启动，确认它被回收而正在打开的工作区的目录保留；打开远程工作区确认该服务器被拒绝启动。",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva 接受 backend 解析的启动（serverProcess 3）：先调后端 launch 函数再由 Core 解码启动，状态目录与临时目录不写 app bundle 或安装目录；languageServer/request|notify|setStatus 转发到插件自己的服务器，didReceiveNotification 与 didChangeState 回送后端。{kind: tool} 启动答复尚未接通工具链解析，会被明确拒绝；远程工作区、状态保留清理尚未实现。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
