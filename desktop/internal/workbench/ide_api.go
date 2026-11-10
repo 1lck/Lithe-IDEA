@@ -29,9 +29,12 @@ const ideAPIStopTimeout = 5 * time.Second
 // ideAPIConnection is one enabled project connection. It exists only while the
 // user has enabled it and the project is open.
 type ideAPIConnection struct {
-	hostID        string
-	workspaceKey  string
-	permissions   core.IDEPermissions
+	hostID       string
+	workspaceKey string
+	permissions  core.IDEPermissions
+	// exposure is the tool selection the connection was opened with; validation and the
+	// helper's catalog use the same list.
+	exposure      []core.IDEToolExposure
 	configuration json.RawMessage
 	cancel        context.CancelFunc
 	done          chan struct{}
@@ -42,6 +45,10 @@ type ideAPIConnection struct {
 type ideAPIState struct {
 	mu   sync.Mutex
 	conn *ideAPIConnection
+	// operations are the Build executions started through this connection. They are
+	// window-thread state: a tool call posts its work and reads the answer back.
+	operations    []*ideAPIOperation
+	nextOperation int
 }
 
 // ideAPIDirectory is the private directory the Core keeps connection descriptors and
@@ -79,11 +86,13 @@ func (a *App) ideAPIEnable(p *project, permissions core.IDEPermissions, helperPa
 	}
 	ctx, cancel := context.WithTimeout(p.ctx, ideAPICallTimeout)
 	defer cancel()
+	exposure := ideAPIToolExposure()
 	opened, err := a.kernel.IDEHostOpen(ctx, core.IDEHostOpenRequest{
 		Directory:    a.ideAPIDirectory(),
 		WorkspaceKey: p.root,
 		HelperPath:   helperPath,
 		Permissions:  permissions,
+		ToolExposure: exposure,
 		OwnerID:      owner,
 	})
 	if err != nil {
@@ -94,6 +103,7 @@ func (a *App) ideAPIEnable(p *project, permissions core.IDEPermissions, helperPa
 		hostID:        opened.HostID,
 		workspaceKey:  p.root,
 		permissions:   permissions,
+		exposure:      exposure,
 		configuration: opened.Configuration,
 		cancel:        loopCancel,
 		done:          make(chan struct{}),
@@ -177,7 +187,7 @@ func (a *App) ideAPIHandle(ctx context.Context, conn *ideAPIConnection, requestI
 		arguments = request.Arguments
 	}
 	callCtx, cancel = context.WithTimeout(ctx, ideAPICallTimeout)
-	validation, err := a.kernel.IDEHostValidate(callCtx, request.Name, arguments, conn.permissions, nil)
+	validation, err := a.kernel.IDEHostValidate(callCtx, request.Name, arguments, conn.permissions, conn.exposure)
 	cancel()
 	var result any
 	switch {
@@ -188,23 +198,13 @@ func (a *App) ideAPIHandle(ctx context.Context, conn *ideAPIConnection, requestI
 	case !validation.OK:
 		result = ideAPIFailure("INVALID_ARGUMENTS", "The call was rejected")
 	default:
-		result = a.ideAPIDispatch(conn, request.Name)
+		dispatchCtx, stop := context.WithTimeout(ctx, ideAPICallTimeout)
+		result = a.ideAPIDispatch(dispatchCtx, conn, request.Name, request.Arguments)
+		stop()
 	}
 	callCtx, cancel = context.WithTimeout(ctx, ideAPICallTimeout)
 	_, _ = a.kernel.IDEHostRespond(callCtx, conn.hostID, requestID, result)
 	cancel()
-}
-
-// ideAPIDispatch runs one admitted tool. Only lithe_project_inspect is wired so far;
-// the other workflows are reported as not available instead of being approximated.
-func (a *App) ideAPIDispatch(conn *ideAPIConnection, name string) any {
-	if name == "lithe_project_inspect" {
-		return map[string]any{
-			"workspaceKey": conn.workspaceKey,
-			"permissions":  conn.permissions,
-		}
-	}
-	return ideAPIFailure("NOT_AVAILABLE", "This tool is not available in this client yet")
 }
 
 // ideAPIFailure is the failure shape of a tool result: error with a code and message.

@@ -70,11 +70,11 @@ func TestIDEAPIEnableRequiresHelper(t *testing.T) {
 
 func TestIDEAPIDispatchReportsUnwiredTools(t *testing.T) {
 	conn := &ideAPIConnection{workspaceKey: "/project", permissions: core.IDEPermissions{Execute: true}}
-	inspect, ok := (&App{}).ideAPIDispatch(conn, "lithe_project_inspect").(map[string]any)
+	inspect, ok := (&App{}).ideAPIDispatch(context.Background(), conn, "lithe_project_inspect", nil).(map[string]any)
 	if !ok || inspect["workspaceKey"] != "/project" {
 		t.Fatalf("inspect = %#v", inspect)
 	}
-	failure, ok := (&App{}).ideAPIDispatch(conn, "lithe_run_start").(map[string]any)
+	failure, ok := (&App{}).ideAPIDispatch(context.Background(), conn, "lithe_run_start", nil).(map[string]any)
 	if !ok || failure["error"] == nil {
 		t.Fatalf("unwired tool = %#v", failure)
 	}

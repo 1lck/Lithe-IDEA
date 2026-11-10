@@ -4,17 +4,25 @@
   "group": "IDE MCP",
   "capability": "插件与 MCP 按已接通工作流发现工具；macOS 使用通用 Build 查询、配置和执行；Windows 接通 Build 查询、重载、执行与原生有界输出/停止，保留仍有消费者的 Maven 入口，通用配置写入与产品准入未完成",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
+      "desktop/internal/workbench/ide_api_dispatch.go",
+      "desktop/internal/workbench/ide_api.go",
+      "desktop/internal/workbench/build.go",
+      "desktop/internal/workbench/ide_api_dispatch_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
+      "desktop/internal/workbench/ide_api_dispatch.go",
+      "desktop/internal/workbench/ide_api.go",
+      "desktop/internal/workbench/build.go",
+      "desktop/internal/workbench/ide_api_dispatch_test.go"
     ]
   },
   "owner": "Agent",
@@ -48,5 +56,5 @@
       ]
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：连接只声明并发布已实现的工具（project_inspect、build_inspect/reload/execute、operations_list/output/stop）；build 查询返回插件实例、模型项目/目标/任务与当前选择，reload 重新解码模型，execute 先选中实例再走 Build 窗口原有 runBuildTask（支持声明任务与已加载的模型任务、userArguments）。尚未接入 build_configure（选项写入插件 settings2）与 Maven 专属入口，因此这些工具不在 toolExposure 中。"
 }

@@ -44,6 +44,10 @@ type buildState struct {
 	output []string
 	// outputBytes is the current size of output, so trimming stays cheap.
 	outputBytes int
+	// outputStart is the sequence number of output[0] and outputSequence counts the
+	// lines ever appended. An IDE operation reads from the sequence it started at, so a
+	// trimmed console reports a reset instead of silently skipping lines.
+	outputStart, outputSequence int
 
 	instances []buildInstance
 	selected  int
@@ -415,6 +419,18 @@ func (a *App) loadBuildModel(p *project, index int) {
 	})
 }
 
+// reloadBuildModel asks a detected build plugin to load or reload its project model. It
+// clears the decoded model first so finishBuildModel replaces it instead of keeping the
+// old one; a read that is still in flight is not started twice.
+func (a *App) reloadBuildModel(p *project, index int) {
+	if p == nil || index < 0 || index >= len(p.build.instances) {
+		return
+	}
+	instance := &p.build.instances[index]
+	instance.modelLoaded, instance.modelError = false, ""
+	a.loadBuildModel(p, index)
+}
+
 // commandModel runs a command-sourced model plan and decodes its output. The
 // output file, when the plan uses one, is host-allocated under the plugin's
 // writable state and removed after decoding.
@@ -548,36 +564,45 @@ func (p *project) selectedBuildInstance() *buildInstance {
 
 // runSelectedBuildTask runs the selected declared or model task.
 func (a *App) runSelectedBuildTask(p *project) {
+	_ = a.runBuildTask(p, p.build.projectID, p.build.targetID, p.build.taskID, nil)
+}
+
+// runBuildTask runs one declared or model task of the selected instance. The Build window
+// passes its stored selection and no user arguments; the IDE API passes the identities a
+// client chose. Validation refusals are returned so a tool call can report them, and the
+// Build window keeps its notification and ignores the error.
+func (a *App) runBuildTask(p *project, projectID, targetID, taskID string, userArguments []string) error {
 	instance := p.selectedBuildInstance()
-	if instance == nil || p.build.taskID == "" {
+	if instance == nil || taskID == "" {
 		a.notify(a.text.Build.ChooseTask)
-		return
+		return errors.New("choose a build task")
 	}
 	if p.build.operation != nil {
-		return
+		return errors.New("the Build window is already running an operation")
 	}
-	task, modelTask := buildTaskByID(instance, p.build.taskID)
+	task, modelTask := buildTaskByID(instance, taskID)
 	if task == nil && modelTask == nil {
-		return
+		return errors.New("unknown build task")
 	}
 	request := core.BuildPlanRequest{
 		Root:          instance.Root,
 		Options:       instance.Options,
 		WorkspaceRoot: p.root,
+		UserArguments: append([]string(nil), userArguments...),
 	}
-	if p.build.projectID != "" {
-		project, ok := buildProjectByID(instance.Model, p.build.projectID)
+	if projectID != "" {
+		project, ok := buildProjectByID(instance.Model, projectID)
 		if !ok {
 			a.notify(a.text.Build.ProjectMissing)
-			return
+			return errors.New("unknown build project")
 		}
 		request.Project = &core.BuildSelection{Name: project.Name, Path: project.Path, Properties: project.Properties}
 	}
-	if p.build.targetID != "" {
-		target, ok := buildTargetByID(instance.Model, p.build.targetID)
+	if targetID != "" {
+		target, ok := buildTargetByID(instance.Model, targetID)
 		if !ok {
 			a.notify(a.text.Build.TargetMissing)
-			return
+			return errors.New("unknown build target")
 		}
 		request.Target = &core.BuildSelection{Name: target.Name, Path: target.Path, Tags: target.Tags, Properties: target.Properties}
 	}
@@ -588,9 +613,9 @@ func (a *App) runSelectedBuildTask(p *project) {
 		}
 	} else {
 		request.Task = task.ID
-		if task.RequiresUserArguments {
+		if task.RequiresUserArguments && len(userArguments) == 0 {
 			a.notify(a.text.Build.ArgumentsRequired)
-			return
+			return errors.New("this task requires user arguments")
 		}
 	}
 	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "build.runTask", "surface": "build"})
@@ -618,6 +643,7 @@ func (a *App) runSelectedBuildTask(p *project) {
 		a.runProviderOperation(ctx, p, client, plan, buildOperationLabel(captured.System, request.Task, true))
 		return nil
 	})
+	return nil
 }
 
 // runCommandTask expands a command plan through Core, resolves the build tool
@@ -947,11 +973,20 @@ func (a *App) finishBuildTask(p *project, result json.RawMessage) {
 	var execution struct {
 		ExitCode int `json:"exitCode"`
 	}
-	if json.Unmarshal(result, &execution) == nil && execution.ExitCode != 0 {
+	exitCode := 0
+	decoded := json.Unmarshal(result, &execution) == nil
+	if decoded {
+		exitCode = execution.ExitCode
+	}
+	state := "succeeded"
+	if decoded && execution.ExitCode != 0 {
+		state = "failed"
 		p.build.status = a.text.Build.Exited(execution.ExitCode)
+		p.settleIDEOperations(state, &exitCode)
 		return
 	}
 	p.build.status = a.text.Build.Succeeded
+	p.settleIDEOperations(state, &exitCode)
 }
 
 func (a *App) finishBuildRun(p *project, err error) {
@@ -962,13 +997,17 @@ func (a *App) finishBuildRun(p *project, err error) {
 	p.build.operation = nil
 	if cancelled {
 		p.build.status = a.text.Build.Cancelled
+		p.settleIDEOperations("cancelled", nil)
 		return
 	}
 	if err != nil {
 		p.build.status = a.text.Build.ProcessFailed(err.Error())
+		p.settleIDEOperations("failed", nil)
 		return
 	}
+	exitCode := 0
 	p.build.status = a.text.Build.Succeeded
+	p.settleIDEOperations("succeeded", &exitCode)
 }
 
 func (a *App) finishBuildError(p *project, err error) {
@@ -979,9 +1018,11 @@ func (a *App) finishBuildError(p *project, err error) {
 	p.build.operation = nil
 	if cancelled || errors.Is(err, context.Canceled) {
 		p.build.status = a.text.Build.Cancelled
+		p.settleIDEOperations("cancelled", nil)
 		return
 	}
 	p.build.status = err.Error()
+	p.settleIDEOperations("failed", nil)
 	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("build", err))
 }
 
@@ -995,6 +1036,7 @@ func (a *App) stopBuildOperation(p *project) {
 	operation := p.build.operation
 	operation.stop()
 	p.build.status = a.text.Build.Cancelled
+	p.settleIDEOperations("cancelled", nil)
 	if operation.provider != nil && operation.request != nil {
 		client, request := operation.provider, operation.request
 		a.background(p, buildStopTimeout, func(ctx context.Context) func(*App) {
@@ -1059,6 +1101,7 @@ func (a *App) appendBuildOutput(p *project, text string) {
 		}
 		p.build.output = append(p.build.output, line)
 		p.build.outputBytes += len(line)
+		p.build.outputSequence++
 	}
 	for len(p.build.output) > buildOutputMaxLines || p.build.outputBytes > buildOutputBytes {
 		if len(p.build.output) == 0 {
@@ -1066,6 +1109,7 @@ func (a *App) appendBuildOutput(p *project, text string) {
 		}
 		p.build.outputBytes -= len(p.build.output[0])
 		p.build.output = p.build.output[1:]
+		p.build.outputStart++
 	}
 }
 
