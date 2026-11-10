@@ -12,8 +12,8 @@ import (
 
 // drawChromeBranch declares the checked-out branch as the button that opens the branch
 // popup, and shows nothing when the project is not a repository. It returns the button,
-// whether it is shown, and whether it was clicked. The button is kept in a.branch.button,
-// which the popup of the overlay page is placed under once the frame is laid out.
+// whether it is shown, and whether it was clicked. Its place is reported to a.branch.anchor,
+// which the popup of the overlay page hangs off.
 func (a *App) drawChromeBranch(f *ui.Frame) (shown, clicked bool) {
 	name := a.project.git.branch()
 	if name == "" {
@@ -40,7 +40,10 @@ func (a *App) drawChromeBranch(f *ui.Frame) (shown, clicked bool) {
 		f.Text(name).Color(a.colors.Subtle).LineHeight(chromeLineHeight).Ellipsis().MaxWidth(chromeBranchMax)
 		f.Icon(icons.ChevronDown).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
 	})
-	a.branch.button = button
+	if a.branch.anchorDraw == nil {
+		a.branch.anchorDraw = func(d *ui.DrawContext) { a.branch.anchor = d.Rect }
+	}
+	button.Draw(a.branch.anchorDraw)
 	return true, button.Clicked()
 }
 
@@ -53,4 +56,18 @@ func (a *App) drawBranchMenuItem(f *ui.Frame, id gfx.ID, label string) bool {
 		f.Text(label).Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis()
 	})
 	return row.Clicked()
+}
+
+// logIconButton declares an icon button of a tool window with the Frame and reports a click on
+// it. The Build panel and the welcome page, which are not Pages yet, use it.
+func (a *App) logIconButton(f *ui.Frame, id gfx.ID, label string, icon gfx.Icon, on, disabled bool) bool {
+	return a.toolIconButton(f, id, label, icon, on, disabled, nil)
+}
+
+// logEmpty declares the message that stands for an empty pane, with the Frame. The Build panel
+// uses it.
+func (a *App) logEmpty(f *ui.Frame, message string) {
+	f.Column().Fill().Center().PadX(shellContentPad).Children(func() {
+		f.Paragraph(message, 3).TextCenter().Color(a.colors.Subtle)
+	})
 }

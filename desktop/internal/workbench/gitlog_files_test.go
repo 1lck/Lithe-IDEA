@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 )
@@ -61,30 +62,37 @@ func (h *harness) openLogFilesWith(t *testing.T, names ...string) (*project, str
 // is short in the test window, so a row it drew can be scrolled out of the hits.
 func (h *harness) logFileShown(label string) bool {
 	for _, row := range h.app.logView.fileRows {
-		if row.Label == label {
+		if row.label == label {
 			return true
 		}
 	}
 	return false
 }
 
-// logFileHit is the hit of the changed file or folder row labelled label, and false when the
-// frame did not declare it in view.
-func (h *harness) logFileHit(label string) (gfx.Hit, bool) {
-	for _, hit := range h.driver.Snapshot().Hits {
-		if _, ok := hit.ID.In(logFileRows); ok && hit.Label == label {
+// logFileArrow is the hit of the arrow of the folder row labelled label.
+func (h *harness) logFileArrow(label string) (gfx.Hit, bool) {
+	for _, name := range []string{"native.collapseDirectory", "native.expandDirectory"} {
+		if hit, ok := h.findPageHit(i18n.Shared(h.app.language(), name) + " " + label); ok {
 			return hit, true
 		}
 	}
 	return gfx.Hit{}, false
 }
 
+// logFileHit is the hit of the changed file or folder row labelled label, and false when the
+// frame did not declare it in view.
+func (h *harness) logFileHit(label string) (gfx.Hit, bool) {
+	return h.findPageHit(label)
+}
+
 func TestLogChangedFilesFoldersCollapse(t *testing.T) {
 	h := newHarness(t, gitKernel{core.NewClient()})
 	p, _, initial := h.openLogFiles(t)
-	folder, ok := h.logFileHit("src")
-	if !ok || !folder.Expandable || !folder.Expanded {
-		t.Fatalf("src folder row %+v declared %v", folder, ok)
+	if _, ok := h.logFileHit("src"); !ok {
+		t.Fatal("no row for the src folder")
+	}
+	if arrow, ok := h.logFileArrow("src"); !ok || !arrow.Expandable || !arrow.Expanded {
+		t.Fatalf("src folder arrow %+v declared %v", arrow, ok)
 	}
 	for _, name := range []string{"src/a.txt", "src/b.txt", "top.txt"} {
 		if !h.logFileShown(name) {
@@ -97,7 +105,8 @@ func TestLogChangedFilesFoldersCollapse(t *testing.T) {
 		t.Fatalf("selected file %q", h.app.logView.file)
 	}
 
-	h.click(center(h.hit(logFileArrows.At(1))))
+	arrow, _ := h.logFileArrow("src")
+	h.click(center(arrow.Bounds))
 	if !p.log.closedFolders["src"] {
 		t.Fatalf("src is not closed: %v", p.log.closedFolders)
 	}
@@ -112,23 +121,29 @@ func TestLogChangedFilesFoldersCollapse(t *testing.T) {
 	}
 
 	// The keyboard opens the folder again and steps into it.
-	if r := h.app.logKey(gfx.KeyEvent{Key: gfx.KeyRight, Target: logFileRows.At(1)}); !r.Handled {
-		t.Fatal("Right on a closed folder was not handled")
+	folder, ok := h.logFileHit("src")
+	if !ok {
+		t.Fatal("the closed src folder has no row")
 	}
-	h.settle()
+	h.click(center(folder.Bounds))
+	right := func() {
+		if err := h.driver.Key(gfx.KeyRight, 0); err != nil {
+			t.Fatal(err)
+		}
+		h.settle()
+	}
+	right()
 	if p.log.closedFolders["src"] {
 		t.Fatal("Right did not open the folder")
 	}
-	if r := h.app.logKey(gfx.KeyEvent{Key: gfx.KeyRight, Target: logFileRows.At(1)}); !r.Handled {
-		t.Fatal("Right on an open folder was not handled")
-	}
-	h.settle()
+	right()
 	if path := h.app.logView.file; path != "src/a.txt" && path != "src/b.txt" {
 		t.Fatalf("Right on an open folder selected %q", path)
 	}
 
 	// Another commit starts with every folder open.
-	h.click(center(h.hit(logFileArrows.At(1))))
+	arrow, _ = h.logFileArrow("src")
+	h.click(center(arrow.Bounds))
 	h.app.selectCommit(p, initial)
 	h.settle()
 	h.settle()
@@ -156,11 +171,12 @@ func TestGroupLogFilesSortsFoldersAndKeepsGitOrder(t *testing.T) {
 	}
 }
 
-// logFileLabel is the label the last frame drew for a changed file or folder named name.
+// logFileLabel is the label the last frame drew for a changed file or folder named name, over
+// the splitter that ends the changed files. A name scrolled sideways starts left of the pane.
 func (h *harness) logFileLabel(name string) (app.Label, bool) {
-	area := h.app.logView.fileScroll.Area
+	bottom := h.logFilesSplit().Y
 	for _, label := range h.driver.Snapshot().Labels {
-		if label.Value == name && label.Bounds.Y >= area.Y && label.Bounds.Y < area.Bottom() {
+		if label.Value == name && label.Bounds.Y < bottom {
 			return label, true
 		}
 	}
@@ -173,43 +189,49 @@ func TestLogChangedFilesScrollSideways(t *testing.T) {
 	p, _, initial := h.openLogFilesWith(t, long, "top.txt")
 	h.settle()
 	v := &h.app.logView
-	if !v.fileScroll.Overflows() {
-		t.Fatalf("a name %v wide fits a list %v wide", v.fileScroll.Content, v.fileScroll.Viewport())
+	left := h.logDetailsSplit().Right()
+	right := left + v.detailWidth
+	if v.files.RowWidth <= v.detailWidth {
+		t.Fatalf("a name %v wide fits a list %v wide", v.files.RowWidth, v.detailWidth)
 	}
-	area := v.fileScroll.Area
 	label, ok := h.logFileLabel(path.Base(long))
-	if !ok || label.Bounds.Right() <= area.Right() {
-		t.Fatalf("the long name is cut short: label %+v drawn %v, list %+v", label, ok, area)
+	if !ok || label.Bounds.Right() <= right {
+		t.Fatalf("the long name is cut short: label %+v drawn %v, list ends at %v", label, ok, right)
 	}
-	if label.Bounds.Right()-area.X > v.fileScroll.Content {
-		t.Fatalf("the name ends at %v, past the measured width %v", label.Bounds.Right()-area.X, v.fileScroll.Content)
+	if label.Bounds.Right()-left > v.files.RowWidth {
+		t.Fatalf("the name ends at %v, past the measured width %v", label.Bounds.Right()-left, v.files.RowWidth)
 	}
 
-	if err := h.driver.Scroll(gfx.ScrollEvent{X: area.X + 20, Y: area.Y + 10, DeltaX: 10000, Precise: true}); err != nil {
+	row, ok := h.logFileHit(long)
+	if !ok {
+		t.Fatal("the long name's row is not shown")
+	}
+	at := center(row.Bounds)
+	if err := h.driver.Scroll(gfx.ScrollEvent{X: at.X, Y: at.Y, DeltaX: 10000, Precise: true}); err != nil {
 		t.Fatal(err)
 	}
 	h.settle()
-	if v.fileScroll.Offset <= 0 || v.fileScroll.Offset != v.fileScroll.Max() {
-		t.Fatalf("offset %v after scrolling to the end, max %v", v.fileScroll.Offset, v.fileScroll.Max())
+	if v.files.ScrollX() <= 0 {
+		t.Fatalf("offset %v after scrolling to the end", v.files.ScrollX())
 	}
-	if label, ok = h.logFileLabel(path.Base(long)); !ok || label.Bounds.Right() > area.Right() {
-		t.Fatalf("scrolled to the end, the name ends at %v past the list's %v", label.Bounds.Right(), area.Right())
+	if label, ok = h.logFileLabel(path.Base(long)); !ok || label.Bounds.Right() > right+1 {
+		t.Fatalf("scrolled to the end, the name ends at %v past the list's %v", label.Bounds.Right(), right)
 	}
 
 	// An up and down swipe is the list's vertical scroll, not a sideways one.
-	before := v.fileScroll.Offset
-	if err := h.driver.Scroll(gfx.ScrollEvent{X: area.X + 20, Y: area.Y + 10, DeltaX: -2, DeltaY: 30, Precise: true}); err != nil {
+	before := v.files.ScrollX()
+	if err := h.driver.Scroll(gfx.ScrollEvent{X: at.X, Y: at.Y, DeltaX: -2, DeltaY: 30, Precise: true}); err != nil {
 		t.Fatal(err)
 	}
-	if v.fileScroll.Offset != before {
-		t.Fatalf("an up and down swipe moved the list sideways to %v", v.fileScroll.Offset)
+	if v.files.ScrollX() != before {
+		t.Fatalf("an up and down swipe moved the list sideways to %v", v.files.ScrollX())
 	}
 
 	// Another commit starts at the left.
 	h.app.selectCommit(p, initial)
 	h.settle()
 	h.settle()
-	if v.fileScroll.Offset != 0 {
-		t.Fatalf("another commit kept the offset %v", v.fileScroll.Offset)
+	if v.files.ScrollX() != 0 {
+		t.Fatalf("another commit kept the offset %v", v.files.ScrollX())
 	}
 }

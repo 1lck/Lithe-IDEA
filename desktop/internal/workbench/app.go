@@ -548,7 +548,7 @@ func (a *App) systemAppearanceChanged() {
 // Config is the window's configuration.
 func (a *App) Config() app.Config {
 	a.subscribeSettings()
-	a.fields = ui.Fields(&a.debugAttach.host, &a.debugAttach.port, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField)
+	a.fields = ui.Fields(&a.debugAttach.host, &a.debugAttach.port)
 	return app.Config{
 		Title:          a.text.App.Name,
 		Icon:           appicon.Window(),
@@ -649,7 +649,6 @@ func (a *App) paint(canvas *gfx.Canvas, size gfx.Size) {
 	a.status.frame(canvas, a.now())
 	a.chrome.beginFrame()
 	a.agentView.beginFrame()
-	a.logView.beginFrame()
 	a.beginTerminalFrame()
 	a.sideways.beginFrame()
 	paintTheme := a.theme
@@ -681,13 +680,10 @@ func (a *App) paint(canvas *gfx.Canvas, size gfx.Size) {
 		a.agentView.capture(&a.project.agent)
 	}
 	a.layout.capture()
-	a.logView.capture()
-	a.paintGitLog(canvas)
 	// Like the commit rows, the terminal is painted into a box of the frame that was just
 	// laid out, under the menus and the dragged button.
 	a.paintTerminal(canvas)
 	a.captureTree(canvas)
-	a.captureLogFiles(canvas)
 	a.paintGitOverlay(canvas, bounds)
 	// The menus and the dragged buttons and tabs float above everything Draw painted.
 	a.paintChromeMenus(canvas, bounds)
@@ -735,9 +731,6 @@ func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
 		return result
 	}
 	if result, handled := a.treePointer(event); handled {
-		return result
-	}
-	if result, handled := a.logFilesPointer(event); handled {
 		return result
 	}
 	return gfx.EventResult{}
@@ -793,9 +786,6 @@ func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
 		return r
 	}
 	if r, ok := a.gitPaneKey(event); ok {
-		return r
-	}
-	if r := a.logKey(event); r.Handled {
 		return r
 	}
 	if r := a.editorSplitKey(event); r.Handled {

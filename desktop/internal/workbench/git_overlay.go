@@ -27,7 +27,7 @@ func (a *App) paintGitOverlay(canvas *gfx.Canvas, bounds gfx.Rect) {
 	if o.host.page == nil {
 		o.host = a.newGitHost("git-overlay", a.gitOverlayView, nil)
 	}
-	o.host.page.Draw(canvas, bounds, o.host.view)
+	o.host.paint(canvas, bounds)
 }
 
 // gitOverlayView declares the open parts of the overlay: the popup, or the dialog of the

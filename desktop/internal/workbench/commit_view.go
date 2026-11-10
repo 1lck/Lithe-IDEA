@@ -38,7 +38,7 @@ func (a *App) commitPageView(c ui.C) {
 		if !a.drawCommitStatus(c, p) {
 			return
 		}
-		v.body = ui.Column(c).Grow(1).Children(func() {
+		ui.Column(c).Grow(1).Draw(v.bodyDraw).Children(func() {
 			if v.bodyHeight > 0 && !v.split.Dragging() {
 				v.derived = max(v.bodyHeight-shellSplitter-v.areaHeight, commitListMin)
 				v.split.Pos = v.derived

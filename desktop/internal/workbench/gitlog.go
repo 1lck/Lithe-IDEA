@@ -143,8 +143,6 @@ type gitLogState struct {
 	// refSelected is the full name of the reference selected in the pane.
 	refSelected string
 	popover     logPopover
-	// listFocus says the commit list takes the arrow keys.
-	listFocus bool
 	// reveal asks the next frame to scroll the selected commit into view.
 	reveal bool
 
@@ -626,22 +624,6 @@ func groupLogFiles(files []core.GitCommitFile) []logFolder {
 	}
 	slices.SortFunc(folders, func(a, b logFolder) int { return strings.Compare(a.dir, b.dir) })
 	return folders
-}
-
-// moveLogSelection moves the selection by delta rows of the graph.
-func (a *App) moveLogSelection(p *project, delta int) bool {
-	rows := p.log.graph.Rows
-	if len(rows) == 0 {
-		return false
-	}
-	at := slices.IndexFunc(rows, func(r core.GraphRow) bool { return r.CommitHash == p.log.selected })
-	next := 0
-	if at >= 0 {
-		next = min(max(at+delta, 0), len(rows)-1)
-	}
-	a.selectCommit(p, rows[next].CommitHash)
-	p.log.reveal = true
-	return true
 }
 
 // locateReference selects the newest loaded commit that the reference with short name

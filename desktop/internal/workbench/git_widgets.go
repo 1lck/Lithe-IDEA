@@ -11,11 +11,18 @@ import (
 // on shows it pressed, for the buttons that toggle a view; a disabled one is dimmed and takes
 // no click. label is its name for assistive technology and its hover hint.
 func (a *App) gitIconButton(c ui.C, label string, icon gfx.Icon, on, disabled bool) bool {
+	_, clicked := a.gitToolButton(c, label, icon, on, disabled)
+	return clicked
+}
+
+// gitToolButton is gitIconButton that also returns the button, for a popover or a menu that
+// hangs off it.
+func (a *App) gitToolButton(c ui.C, label string, icon gfx.Icon, on, disabled bool) (ui.Box, bool) {
 	button := ui.Button(c, label).Icon(icon).IconOnly().Ghost().Size(shellHideSize, shellHideSize).Disabled(disabled)
 	if on {
 		button = button.Background(a.colors.Active)
 	}
-	return !disabled && button.Clicked()
+	return button, !disabled && button.Clicked()
 }
 
 // gitEmpty declares the message that stands for an empty pane.

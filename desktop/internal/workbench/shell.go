@@ -463,7 +463,7 @@ func (a *App) drawShellSplitter(f *ui.Frame, which shellSplit) ui.Box {
 func (a *App) drawShellPanel(f *ui.Frame, s slot, index int, hidden *slot) ui.Box {
 	tool := catalog[index]
 	tabbed := tool.id == itemGit
-	// The log tab of the Git tool window has its own body and adds buttons to the header.
+	// The log tab of the Git tool window has a page of its own for a body.
 	log := tabbed && a.layout.gitTab == 0 && a.project != nil
 	// The Terminal tool window of an open project shows its terminals' tabs in its header.
 	terminals := tool.id == itemTerminal && a.project != nil
@@ -492,17 +492,11 @@ func (a *App) drawShellPanel(f *ui.Frame, s slot, index int, hidden *slot) ui.Bo
 			if tabbed {
 				a.drawShellGitTabs(f)
 			}
-			if log {
-				a.drawLogHeaderLeading(f, a.project)
-			}
 			if terminals {
 				// The tabs of the open project's terminals take the room a spacer would.
 				a.drawTerminalTabs(f)
 			} else {
 				f.Spacer()
-			}
-			if log {
-				a.drawLogHeaderTrailing(f, a.project)
 			}
 			if tree {
 				a.drawProjectTreeActions(f, a.project)

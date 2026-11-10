@@ -52,9 +52,10 @@ type branchSession struct {
 	collapsed map[string]bool
 	// menu is the key of the row whose menu is open (branchRowKey), empty for none.
 	menu string
-	// button is the branch button of the title bar in the frame being laid out, which the
-	// popup of the overlay page hangs off; it is valid until the next frame starts.
-	button ui.Box
+	// anchor is where the title bar laid the branch button out, which the popup of the overlay
+	// page hangs off; anchorDraw is the draw callback of the button that reports it.
+	anchor     ui.Rect
+	anchorDraw func(*ui.DrawContext)
 
 	dialog branchDialog
 	// target is the reference the dialog is about: the branch created from, renamed,

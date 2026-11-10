@@ -14,8 +14,11 @@ type commitView struct {
 	// bodyHeight is the height the list and the area shared in the last paint, and derived
 	// the splitter position that paint was declared with.
 	bodyHeight, derived float32
-	body                ui.Box
-	hasBody             bool
+	// bodyRect is where the list and the area were laid out in the last paint, read from the
+	// draw callback bodyDraw gave the box.
+	bodyRect ui.Rect
+	bodyDraw func(*ui.DrawContext)
+	hasBody  bool
 }
 
 func newCommitView() commitView { return commitView{areaHeight: commitAreaHeight} }
@@ -26,6 +29,7 @@ func (a *App) drawCommitPanel(f *ui.Frame, p *project) {
 	v := &a.commitView
 	if v.host.page == nil {
 		v.host = a.newGitHost("commit", a.commitPageView, v.capture)
+		v.bodyDraw = func(d *ui.DrawContext) { v.bodyRect = d.Rect }
 	}
 	f.Slot().Fill().Draw(v.host.draw)
 }
@@ -36,7 +40,7 @@ func (v *commitView) capture() {
 	if !v.hasBody {
 		return
 	}
-	height := v.body.Rect().Height
+	height := v.bodyRect.Height
 	if v.split.Dragging() && v.split.Pos != v.derived && v.bodyHeight > 0 {
 		v.adoptArea()
 	}

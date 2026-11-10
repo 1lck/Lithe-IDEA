@@ -7,6 +7,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/gfx"
 )
 
 // TestLogCommitDetailsShowWholeAuthorLine checks that the author line of the commit details
@@ -61,7 +62,7 @@ func TestLogCommitDetailsShowWholeAuthorLine(t *testing.T) {
 	// are drawn whole. The details pane starts after its splitter, is detailWidth wide and
 	// as tall as the splitter; the commit details lie below the splitter of the changed
 	// files, which this commit, changing none, leaves empty.
-	split, files := h.hit(logSplitDetails), h.hit(logSplitFiles)
+	split, files := h.logDetailsSplit(), h.logFilesSplit()
 	left, top, bottom := split.Right(), files.Bottom(), split.Bottom()
 	contentLeft, contentRight := left+logDetailPad, left+v.detailWidth-logDetailPad
 	const slack = 0.5
@@ -158,8 +159,8 @@ func TestLogCommitDetailsWrapReferenceChips(t *testing.T) {
 
 	// The details pane starts after its splitter and is detailWidth wide; the chips lie
 	// below the changed files, inside the pane's padding.
-	split := h.hit(logSplitDetails)
-	left, top := split.Right(), v.fileScroll.Area.Bottom()
+	split, files := h.logDetailsSplit(), h.logFilesSplit()
+	left, top := split.Right(), files.Bottom()
 	contentLeft, contentRight := left+logDetailPad, left+v.detailWidth-logDetailPad
 	var drawn []app.Label
 	for _, label := range h.driver.Snapshot().Labels {
@@ -199,4 +200,45 @@ func TestLogCommitDetailsWrapReferenceChips(t *testing.T) {
 	if len(lines) < 2 {
 		t.Fatalf("the chips are drawn in %d lines, want at least two", len(lines))
 	}
+}
+
+// logSplitHit is the bounds of the splitter of the log tab nearest to x or y, a vertical bar
+// (as wide as a splitter is thick) when vertical is set and a horizontal one otherwise. The
+// page names its splitters by place, so a test finds them by where the layout puts them.
+func (h *harness) logSplitHit(vertical bool, near float32) gfx.Rect {
+	h.t.Helper()
+	var found gfx.Rect
+	best := float32(-1)
+	for _, hit := range h.driver.Snapshot().Hits {
+		if hit.Role != gfx.RoleSlider || hit.Label != h.app.text.Panel.Resize {
+			continue
+		}
+		b := hit.Bounds
+		if vertical != (b.Width == shellSplitter && b.Height > shellSplitter) {
+			continue
+		}
+		d := b.X - near
+		if d < 0 {
+			d = -d
+		}
+		if best < 0 || d < best {
+			best, found = d, b
+		}
+	}
+	if best < 0 {
+		h.t.Fatalf("no splitter of the log tab near %v", near)
+	}
+	return found
+}
+
+// logDetailsSplit is the splitter between the commit list and the details.
+func (h *harness) logDetailsSplit() gfx.Rect {
+	v := &h.app.logView
+	return h.logSplitHit(true, v.bodyRect.Right()-v.detailWidth-shellSplitter)
+}
+
+// logFilesSplit is the splitter between the changed files and the commit details.
+func (h *harness) logFilesSplit() gfx.Rect {
+	v := &h.app.logView
+	return h.logSplitHit(false, v.bodyRect.Right()-v.detailWidth)
 }

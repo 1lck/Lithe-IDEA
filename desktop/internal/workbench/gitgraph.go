@@ -13,8 +13,8 @@ import (
 
 // This file paints the rows of the commit list: the graph, the subject, the author, the
 // date and the reference labels. The rows themselves (their hit, selection, hover and
-// current branch backgrounds) are ui boxes declared by gitlog_view.go; what is drawn
-// in them is painted here after Draw, into the rectangles the boxes were laid out at,
+// current branch backgrounds) are list rows declared by gitlog_view.go; what is drawn in them
+// is painted here by the row's draw callback, into the rectangle the row was laid out at,
 // because the graph is vector geometry no ui box can show.
 //
 // The measurements are those of the macOS log, which scales the 22 point grid of the
@@ -374,15 +374,15 @@ func tagIcon(b *gfx.PathBuilder, size float32) gfx.Path {
 	return b.Path(size, size)
 }
 
-// paintGitLog paints the rows of the commit list the frame declared.
-func (a *App) paintGitLog(canvas *gfx.Canvas) {
+// paintLogRow paints row index of the commit list into rect, the rectangle its element was
+// laid out at: the graph, the subject, the author, the date and the reference labels.
+func (a *App) paintLogRow(canvas *gfx.Canvas, rect gfx.Rect, index int) {
 	v := &a.logView
-	if len(v.rows) == 0 || a.project == nil {
+	if a.project == nil || rect.Width <= 0 || rect.Height <= 0 {
 		return
 	}
 	l := &a.project.log
-	clip := v.list.Rect()
-	if clip.Width <= 0 || clip.Height <= 0 {
+	if index >= len(l.graph.Rows) {
 		return
 	}
 	dark := a.colors.Dark
@@ -398,58 +398,55 @@ func (a *App) paintGitLog(canvas *gfx.Canvas) {
 		return c
 	}
 	m := newGraphMetrics(canvas.PixelScale())
-	dateWidth := canvas.TextWidth(logDateSample, logMetaSize)
+	if fonts := canvas.FontGeneration(); v.dateWidth == 0 || v.dateFonts != fonts {
+		v.dateWidth, v.dateFonts = canvas.TextWidth(logDateSample, logMetaSize), fonts
+	}
+	dateWidth := v.dateWidth
 	upstream := v.upstreams(l)
-	canvas.Clip(clip)
+	canvas.Clip(rect)
 	defer canvas.Unclip()
-	for _, pr := range v.rows {
-		rect := pr.box.Rect()
-		if pr.index >= len(l.graph.Rows) || rect.Y+rect.Height < clip.Y || rect.Y > clip.Y+clip.Height {
-			continue
-		}
-		row := l.graph.Rows[pr.index]
-		commit, _ := l.commit(row.CommitHash)
-		selected := row.CommitHash == l.selected
-		a.paintGraphRow(canvas, m, rect, row, color)
+	row := l.graph.Rows[index]
+	commit, _ := l.commit(row.CommitHash)
+	selected := row.CommitHash == l.selected
+	a.paintGraphRow(canvas, m, rect, row, color)
 
-		foreground := a.colors.Text
-		if len(commit.ParentHashes) > 1 && !selected {
-			foreground = mergeForeground(dark)
+	foreground := a.colors.Text
+	if len(commit.ParentHashes) > 1 && !selected {
+		foreground = mergeForeground(dark)
+	}
+	start := titleOffset(row)
+	labelsWidth := float32(0)
+	var group referenceGroup
+	var labelRect gfx.Rect
+	labelText := ""
+	if l.decorations && len(row.Labels) > 0 {
+		group = groupReferences(row.Labels, l.current, upstream)
+		end := max(start, rect.Width-dateWidth-logMetaGap)
+		column := end - start
+		subject := canvas.TextWidth(commit.Subject, logFontSize)
+		available := max(0, min(column-subject, column/3))
+		icon := group.iconWidth(logRefSize + 3)
+		labelText = shortenTitle(canvas, group.title, available-icon-9, logRefSize)
+		textW := float32(0)
+		if labelText != "" {
+			textW = float32(math.Ceil(float64(canvas.TextWidth(labelText, logRefSize)))) + 1
 		}
-		start := titleOffset(row)
-		labelsWidth := float32(0)
-		var group referenceGroup
-		var labelRect gfx.Rect
-		labelText := ""
-		if l.decorations && len(row.Labels) > 0 {
-			group = groupReferences(row.Labels, l.current, upstream)
-			end := max(start, rect.Width-dateWidth-logMetaGap)
-			column := end - start
-			subject := canvas.TextWidth(commit.Subject, logFontSize)
-			available := max(0, min(column-subject, column/3))
-			icon := group.iconWidth(logRefSize + 3)
-			labelText = shortenTitle(canvas, group.title, available-icon-9, logRefSize)
-			textW := float32(0)
-			if labelText != "" {
-				textW = float32(math.Ceil(float64(canvas.TextWidth(labelText, logRefSize)))) + 1
-			}
-			width := min(column, icon+textW+8)
-			labelsWidth = width
-			labelRect = gfx.Rect{X: rect.X + end - width, Y: rect.Y, Width: width, Height: rect.Height}
+		width := min(column, icon+textW+8)
+		labelsWidth = width
+		labelRect = gfx.Rect{X: rect.X + end - width, Y: rect.Y, Width: width, Height: rect.Height}
+	}
+	a.paintText(canvas, commit.Subject, gfx.Rect{X: rect.X + start, Y: rect.Y, Width: max(0, rect.Width-start-dateWidth-logMetaGap-labelsWidth), Height: rect.Height}, logFontSize, foreground, gfx.AlignStart)
+	a.paintText(canvas, commit.AuthorName, gfx.Rect{X: rect.X + max(0, rect.Width-dateWidth-112), Y: rect.Y, Width: logAuthorWidth, Height: rect.Height}, logMetaSize, foreground, gfx.AlignStart)
+	a.paintText(canvas, v.date(commit), gfx.Rect{X: rect.X + max(0, rect.Width-dateWidth-logDatePad), Y: rect.Y, Width: dateWidth, Height: rect.Height}, logMetaSize, foreground, gfx.AlignEnd)
+	if labelRect.Width > 0 {
+		background := a.colors.Editor
+		switch {
+		case selected:
+			background = a.colors.Selection
+		case l.currentRows[row.CommitHash]:
+			background = currentBranchBackground(dark)
 		}
-		a.paintText(canvas, commit.Subject, gfx.Rect{X: rect.X + start, Y: rect.Y, Width: max(0, rect.Width-start-dateWidth-logMetaGap-labelsWidth), Height: rect.Height}, logFontSize, foreground, gfx.AlignStart)
-		a.paintText(canvas, commit.AuthorName, gfx.Rect{X: rect.X + max(0, rect.Width-dateWidth-112), Y: rect.Y, Width: logAuthorWidth, Height: rect.Height}, logMetaSize, foreground, gfx.AlignStart)
-		a.paintText(canvas, v.date(commit), gfx.Rect{X: rect.X + max(0, rect.Width-dateWidth-logDatePad), Y: rect.Y, Width: dateWidth, Height: rect.Height}, logMetaSize, foreground, gfx.AlignEnd)
-		if labelRect.Width > 0 {
-			background := a.colors.Editor
-			switch {
-			case selected:
-				background = a.colors.Selection
-			case l.currentRows[row.CommitHash]:
-				background = currentBranchBackground(dark)
-			}
-			a.paintLabels(canvas, labelRect, group, labelText, background)
-		}
+		a.paintLabels(canvas, labelRect, group, labelText, background)
 	}
 }
 

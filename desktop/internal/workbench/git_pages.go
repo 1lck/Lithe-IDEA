@@ -16,21 +16,24 @@ import (
 // made once because a closure made in each paint allocates.
 type gitHost struct {
 	page *ui.Page
-	view func(ui.C)
-	draw func(*ui.DrawContext)
+	// draw puts the page in a Slot; paint draws it over a rectangle of the canvas, for a page
+	// that covers the window.
+	draw  func(*ui.DrawContext)
+	paint func(*gfx.Canvas, ui.Rect)
 }
 
 // newGitHost makes the Page root names, painted with view; after, when not nil, runs once
 // the page has been drawn, for what the window reads from the boxes of the paint.
 func (a *App) newGitHost(root string, view func(ui.C), after func()) gitHost {
-	h := gitHost{view: view}
+	var h gitHost
 	h.page = ui.NewPage(ui.PageConfig{View: view, Tree: &tree, Root: root, Theme: &a.theme, Invalidator: &a.invalidator})
-	h.draw = func(d *ui.DrawContext) {
-		h.page.Draw(d.Canvas, d.Rect, view)
+	h.paint = func(canvas *gfx.Canvas, rect ui.Rect) {
+		h.page.Draw(canvas, rect, view)
 		if after != nil {
 			after()
 		}
 	}
+	h.draw = func(d *ui.DrawContext) { h.paint(d.Canvas, d.Rect) }
 	return h
 }
 
@@ -44,13 +47,14 @@ func (h *gitHost) close() {
 
 // gitPanes are the pane pages that are drawn: the Commit tool window and the log tab. A pane
 // is the window's business until a press, a key or the wheel is aimed at one of its controls.
-func (a *App) gitPanes() [1]*ui.Page {
-	return [1]*ui.Page{a.commitView.host.page}
+func (a *App) gitPanes() [2]*ui.Page {
+	return [2]*ui.Page{a.commitView.host.page, a.logView.host.page}
 }
 
 // closeGitPages ends every Git page with the window.
 func (a *App) closeGitPages() {
 	a.commitView.host.close()
+	a.logView.host.close()
 	a.gitOverlay.host.close()
 }
 
@@ -97,8 +101,12 @@ func (a *App) gitPaneKey(event gfx.KeyEvent) (gfx.EventResult, bool) {
 		a.commitView.adoptArea()
 		return r, true
 	}
+	if r := a.logView.splitKey(event); r.Handled {
+		return r, true
+	}
 	for _, page := range a.gitPanes() {
-		if page == nil || !page.Owns(event.Target) {
+		// A pane with a popover or a dialog open has the keyboard, whatever is focused.
+		if page == nil || !page.Overlay() && !page.Owns(event.Target) {
 			continue
 		}
 		if result, ok := page.Key(event); ok {
@@ -127,11 +135,15 @@ func (a *App) gitOverlayShortcut(event gfx.KeyEvent) (gfx.EventResult, bool) {
 // gitPaneShortcut gives the chords of a pane page's own controls to the page.
 func (a *App) gitPaneShortcut(event gfx.KeyEvent) (gfx.EventResult, bool) {
 	for _, page := range a.gitPanes() {
-		if page == nil || !page.Owns(event.Target) {
+		if page == nil || !page.Overlay() && !page.Owns(event.Target) {
 			continue
 		}
 		if result, ok := page.Key(event); ok && result.Handled {
 			return result, true
+		}
+		if page.Overlay() {
+			// What is behind an open popover or dialog gets no shortcut.
+			return gfx.EventResult{Handled: !page.Owns(event.Target)}, true
 		}
 	}
 	return gfx.EventResult{}, false
@@ -139,11 +151,17 @@ func (a *App) gitPaneShortcut(event gfx.KeyEvent) (gfx.EventResult, bool) {
 
 // gitWheel scrolls the page the wheel is over: the overlay while it is open, else a pane.
 func (a *App) gitWheel(event gfx.ScrollEvent) (gfx.EventResult, bool) {
+
 	if a.gitOverlayOpen() {
 		return a.gitOverlay.host.page.Wheel(event), true
 	}
 	for _, page := range a.gitPanes() {
-		if page != nil && page.Owns(event.Target) {
+		if page != nil && (page.Overlay() || page.Owns(event.Target)) {
+			// Viva's List scrolls sideways by any horizontal part of a swipe; one that is mostly
+			// up and down is the vertical scroll, as it was for the lists of the Git tool windows.
+			if event.Modifiers&gfx.ModifierShift == 0 && max(event.DeltaX, -event.DeltaX) < max(event.DeltaY, -event.DeltaY) {
+				event.DeltaX = 0
+			}
 			return page.Wheel(event), true
 		}
 	}

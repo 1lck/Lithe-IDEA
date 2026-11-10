@@ -49,14 +49,11 @@ type syncState struct {
 
 	// The fetch dialog: one remote instead of all, whether stale tracking branches stay,
 	// and the picked submodule and tag policies.
-	onlyRemote    bool
-	remote        ui.Field
-	keepStale     bool
-	submodules    int
-	tags          int
-	submoduleSel  ui.SelectState
-	tagSel        ui.SelectState
-	remoteProblem string
+	onlyRemote bool
+	remote     ui.Field
+	keepStale  bool
+	submodules int
+	tags       int
 
 	// The dialog shows what the repository's Git configuration selects, read when it opens.
 	// settingsGen identifies the read, so a stale answer cannot overwrite a later dialog.
