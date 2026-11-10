@@ -49,7 +49,11 @@ func (s settingsToolchains) Save(ctx context.Context, snapshot toolchain.Snapsho
 	}
 	// A project switch during an already confirmed save must not retarget its
 	// reread. The settings page continues to describe the captured source.
-	return s.loadAt(ctx, snapshot.Root)
+	updated, err = s.loadAt(ctx, snapshot.Root)
+	if err != nil {
+		return snapshot, errors.Join(toolchain.ErrPinCommitted, err)
+	}
+	return updated, nil
 }
 
 func (s settingsToolchains) recordFailure(operation string, err error) {

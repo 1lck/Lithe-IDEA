@@ -49,9 +49,9 @@ type settingsScopeKernel struct {
 	onEdit func()
 }
 
-func (k *settingsScopeKernel) EditToolchainPins(ctx context.Context, document json.RawMessage, directory string, edits []core.ToolchainPinEdit) (json.RawMessage, error) {
+func (k *settingsScopeKernel) EditToolchainPinSources(ctx context.Context, request core.ToolchainPinSourcesRequest) (core.ToolchainPinSourcesEdit, error) {
 	k.onEdit()
-	return k.Client.EditToolchainPins(ctx, document, directory, edits)
+	return k.Client.EditToolchainPinSources(ctx, request)
 }
 
 // Switching projects after confirmation cannot retarget either publication or
@@ -73,7 +73,7 @@ func TestToolchainSettingsSaveRereadsItsCapturedProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, err := (settingsToolchains{app: app}).Save(ctx, snapshot, []toolchain.Edit{{Tool: "dev.example:compiler"}})
+	updated, err := (settingsToolchains{app: app}).Save(ctx, snapshot, []toolchain.Edit{{Tool: "dev.example:compiler", Pin: &core.ToolchainPin{Home: "/fixture/tool", Version: "1.0", Provider: "host:system"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,5 +142,55 @@ func testToolchainSettingsWorkspaceReplacement(t *testing.T, duringEdit bool) {
 		if _, err := os.Stat(filepath.Join(root, ".lithe")); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("replaced workspace was written: %s: %v", root, err)
 		}
+	}
+}
+
+type pinReadbackFailureKernel struct {
+	*testKernel
+	failReadback bool
+}
+
+func (k *pinReadbackFailureKernel) EditToolchainPinSources(ctx context.Context, request core.ToolchainPinSourcesRequest) (core.ToolchainPinSourcesEdit, error) {
+	edit, err := k.Client.EditToolchainPinSources(ctx, request)
+	if err == nil {
+		k.failReadback = true
+	}
+	return edit, err
+}
+
+func (k *pinReadbackFailureKernel) DecodeToolchainPinDocument(ctx context.Context, document *string) (json.RawMessage, error) {
+	if k.failReadback {
+		return nil, errors.New("fixture source became unreadable after publication")
+	}
+	return k.Client.DecodeToolchainPinDocument(ctx, document)
+}
+
+func TestToolchainSettingsReadbackFailureReportsCommittedSource(t *testing.T) {
+	root := t.TempDir()
+	kernel := &pinReadbackFailureKernel{testKernel: &testKernel{Client: core.NewClient()}}
+	app := &App{kernel: kernel}
+	app.toolchainRoot.Store(&root)
+	plugins, err := pluginservice.Open(core.NewClient(), store.At(t.TempDir()), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.plugins = plugins
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	adapter := settingsToolchains{app: app}
+	snapshot, err := adapter.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = adapter.Save(ctx, snapshot, []toolchain.Edit{{Tool: "dev.example:compiler", Pin: &core.ToolchainPin{Home: "/fixture/tool", Version: "1.0", Provider: "host:system"}}})
+	if !errors.Is(err, toolchain.ErrPinCommitted) {
+		t.Fatalf("readback failure did not invalidate the baseline: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".lithe", "toolchains", "local.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte("dev.example:compiler")) {
+		t.Fatalf("test did not exercise a committed pin: %s", data)
 	}
 }

@@ -22,16 +22,14 @@ type Kernel interface {
 	ToolchainCandidatesOf(ctx context.Context, request core.ToolchainCandidatesRequest) (core.ToolchainCandidates, error)
 	ResolveToolchain(ctx context.Context, request core.ToolchainResolveRequest) (core.ToolchainResolution, error)
 	ResolveToolchainPins(ctx context.Context, document json.RawMessage, directory, tool string) (core.ToolchainPinResolution, error)
-	EditToolchainPins(ctx context.Context, document json.RawMessage, directory string, edits []core.ToolchainPinEdit) (json.RawMessage, error)
+	ToolchainPinStorage(ctx context.Context) (core.ToolchainPinStoragePlan, error)
+	DecodeToolchainPinDocument(ctx context.Context, document *string) (json.RawMessage, error)
+	EditToolchainPinSources(ctx context.Context, request core.ToolchainPinSourcesRequest) (core.ToolchainPinSourcesEdit, error)
 }
 
 // ErrPinConflict reports that the pin document changed after it was read. The
 // caller must keep its draft and show the conflict rather than overwrite it.
 var ErrPinConflict = errors.New("toolchain: the local toolchain document changed since it was read")
-
-// DefaultDocument is the empty local toolchain document. Reading a project that
-// has none must not create one.
-var DefaultDocument = []byte(`{"version":1,"toolchains":{}}`)
 
 // ProbeFunc runs one bounded version probe. A non-zero exit code is a probe
 // result, not a Go error.
@@ -89,6 +87,7 @@ type Snapshot struct {
 	Baseline []byte `json:"-"`
 	// rootIdentity belongs to the loaded native workspace, not its pathname.
 	rootIdentity os.FileInfo
+	source       pinSource
 }
 
 // Options configure one load. The zero value uses the host platform, the user's

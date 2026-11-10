@@ -72,7 +72,7 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 	for _, entry := range registry.Definitions {
 		definitions[entry.Definition.ID] = entry.Definition
 	}
-	document, baseline, err := readDocument(workspace.root)
+	captured, err := capturePinSource(ctx, kernel, workspace.root)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -81,7 +81,8 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 		rootIdentity: rootIdentity,
 		Directory:    directory,
 		Conflicts:    registry.Conflicts,
-		Baseline:     baseline,
+		Baseline:     captured.file.Bytes(),
+		source:       captured,
 	}
 	sequence := loadSequence.Add(1)
 	for index, planned := range plan.Tools {
@@ -92,11 +93,11 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 		if !ok {
 			continue
 		}
-		prepared, pin, source, err := prepareTool(ctx, kernel, workspace, registryRequest, document, planned, definition, directory, options, nil)
+		prepared, pin, source, err := prepareTool(ctx, kernel, workspace, registryRequest, captured.document, planned, definition, directory, options, nil)
 		if err != nil {
 			return Snapshot{}, err
 		}
-		resolution, err := resolveTool(ctx, kernel, workspace, registryRequest, prepared, document, directory,
+		resolution, err := resolveTool(ctx, kernel, workspace, registryRequest, prepared, captured.document, directory,
 			options.MinimumVersion, fmt.Sprintf("settings-%d-%d", sequence, index))
 		if err != nil {
 			return Snapshot{}, err
@@ -156,7 +157,7 @@ func Resolve(ctx context.Context, kernel Kernel, root, directory, tool, minimumV
 	for _, entry := range registry.Definitions {
 		definitions[entry.Definition.ID] = entry.Definition
 	}
-	document, _, err := readDocument(workspace.root)
+	captured, err := capturePinSource(ctx, kernel, workspace.root)
 	if err != nil {
 		return Selection{}, err
 	}
@@ -168,11 +169,11 @@ func Resolve(ctx context.Context, kernel Kernel, root, directory, tool, minimumV
 		if !ok {
 			continue
 		}
-		prepared, _, _, err := prepareTool(ctx, kernel, workspace, registryRequest, document, planned, definition, directory, options, fixed)
+		prepared, _, _, err := prepareTool(ctx, kernel, workspace, registryRequest, captured.document, planned, definition, directory, options, fixed)
 		if err != nil {
 			return Selection{}, err
 		}
-		resolution, err := resolveTool(ctx, kernel, workspace, registryRequest, prepared, document, directory, minimumVersion,
+		resolution, err := resolveTool(ctx, kernel, workspace, registryRequest, prepared, captured.document, directory, minimumVersion,
 			fmt.Sprintf("run-%d", loadSequence.Add(1)))
 		if err != nil {
 			return Selection{}, err

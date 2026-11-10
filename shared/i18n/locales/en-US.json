@@ -10741,7 +10741,9 @@
     "desktop.pluginSettings.restartFailed": "Could not finish restarting the language server. Close and reopen the project before trying again.",
     "desktop.pluginSettings.invalidEdit": "Some draft values do not match the plugin declarations. Correct them and save again.",
     "desktop.pluginSettings.invalidDocument": "The settings source is invalid. Correct its JSON before reloading; your draft is kept.",
-    "desktop.pluginSettings.range": "Range: {minimum}–{maximum} {unit}"
+    "desktop.pluginSettings.range": "Range: {minimum}–{maximum} {unit}",
+    "desktop.toolchains.reloadAfterSave": "The save step completed, but its source could not be reloaded or closed cleanly. Reload before saving again; your draft has been kept.",
+    "desktop.toolchains.sourceInvalid": "The toolchain or ignore configuration is invalid, too large, or cannot be accessed safely. Check the source files, then reload."
   },
   "overrides": {
     "windows": {

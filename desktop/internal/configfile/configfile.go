@@ -141,6 +141,44 @@ func (s Snapshot) check(ctx context.Context, root *os.Root) error {
 	return nil
 }
 
+// Verify rechecks a captured native root and exact bytes without creating state.
+func (s Snapshot) Verify(ctx context.Context) (err error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if s.root == "" || s.maximum <= 0 {
+		return ErrTarget
+	}
+	if s.rootInfo == nil {
+		info, statErr := os.Lstat(s.root)
+		if errors.Is(statErr, os.ErrNotExist) {
+			return nil
+		}
+		if statErr != nil {
+			return statErr
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return ErrConflict
+		}
+	}
+	root, err := os.OpenRoot(s.root)
+	if errors.Is(err, os.ErrNotExist) {
+		return ErrConflict
+	}
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	current, err := root.Stat(".")
+	if err != nil {
+		return err
+	}
+	if s.rootInfo != nil && !os.SameFile(s.rootInfo, current) {
+		return ErrConflict
+	}
+	return s.check(ctx, root)
+}
+
 // Replace publishes complete content. committed remains true if a subsequent
 // handle/temporary cleanup fails: callers must reread, not retry the old draft.
 // check is an optional additional native source/cancellation check at publication.

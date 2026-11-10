@@ -188,3 +188,43 @@ func TestCaptureAndPublicationStayWithinNativeRoot(t *testing.T) {
 		t.Fatalf("outside source changed: %v", err)
 	}
 }
+
+func TestVerifyChecksBytesAndRootWithoutCreatingState(t *testing.T) {
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "preferences")
+	absent, err := Capture(ctx, root, "nested/local.json", 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := absent.Verify(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("verification created state: %v", err)
+	}
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := Capture(ctx, root, "local.json", 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "local.json"), []byte("external"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := snapshot.Verify(ctx); !errors.Is(err, ErrConflict) {
+		t.Fatalf("changed bytes: %v", err)
+	}
+	if err := os.Rename(root, root+"-retired"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := snapshot.Verify(ctx); !errors.Is(err, ErrConflict) {
+		t.Fatalf("replaced native root: %v", err)
+	}
+	if err := (Snapshot{}).Verify(ctx); !errors.Is(err, ErrTarget) {
+		t.Fatalf("uncaptured source: %v", err)
+	}
+}

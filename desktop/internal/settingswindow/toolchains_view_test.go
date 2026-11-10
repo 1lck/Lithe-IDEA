@@ -152,3 +152,32 @@ func TestToolchainSaveConflictKeepsDraft(t *testing.T) {
 		t.Fatal("a conflict dropped the draft")
 	}
 }
+
+// A completed publication with failed readback must never reuse its old byte
+// baseline, even when the user's draft remains visible for recovery.
+func TestToolchainCommittedSaveRequiresReloadBeforeRetry(t *testing.T) {
+	state := newToolchainState(&fakeToolchainLoader{}, nil)
+	state.apply(fixtureSnapshot(), false)
+	state.choose("dev.example:compiler", "/fixture/compiler")
+	state.results <- toolchainResult{generation: state.generation, saved: true, err: toolchain.ErrPinCommitted}
+	state.drain()
+	if state.loaded {
+		t.Error("failed readback left an editable source baseline")
+	}
+	if !state.hasDraft() {
+		t.Error("failed readback discarded the draft")
+	}
+	state.beginSave()
+	if state.saving {
+		t.Error("retry reused a baseline from before the committed save")
+	}
+}
+
+func TestToolchainSourceFailuresUseSelectedLanguage(t *testing.T) {
+	for _, code := range []string{"plugin.toolchain.invalidDocument", "plugin.toolchain.invalidIgnore"} {
+		message := toolchainFailureMessage(i18n.Chinese, &core.MarketplaceRejection{Code: code, Message: "invalid fixture diagnostic"})
+		if !strings.Contains(message, "重新加载") || strings.Contains(message, "fixture") {
+			t.Fatalf("source failure was not localized: %q", message)
+		}
+	}
+}

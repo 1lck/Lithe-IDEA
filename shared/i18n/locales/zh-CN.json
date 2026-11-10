@@ -10741,7 +10741,9 @@
     "desktop.pluginSettings.restartFailed": "无法完成语言服务器重启，请关闭并重新打开项目后再试。",
     "desktop.pluginSettings.invalidEdit": "部分草稿值不符合插件声明，请更正后重新保存。",
     "desktop.pluginSettings.invalidDocument": "设置来源无效，请修正其中的 JSON 后重新加载，草稿已保留。",
-    "desktop.pluginSettings.range": "范围：{minimum}–{maximum} {unit}"
+    "desktop.pluginSettings.range": "范围：{minimum}–{maximum} {unit}",
+    "desktop.toolchains.reloadAfterSave": "保存步骤已完成，但未能重新读取或正常关闭配置来源。再次保存前请重新加载；草稿已保留。",
+    "desktop.toolchains.sourceInvalid": "工具链或忽略配置无效、过大或无法安全访问。请检查来源文件后重新加载。"
   },
   "overrides": {
     "macos": {

@@ -17,6 +17,7 @@ Windows 上真实 Go 测试程序的文件模式通常是 `0666`。原包路径�
 - 包路径仍逐段拒绝符号链接和非普通文件。Unix 使用执行位；Windows 使用系统的 [GetBinaryTypeW](https://learn.microsoft.com/windows/win32/api/winbase/nf-winbase-getbinarytypew) 识别 Win32/Win64 程序，不自己解析程序文件，也不运行它来探测。原生调用使用系统 DLL 和长路径形式。
 - Windows 启动夹具声明并复制真实的 `.exe` 文件，遵循 Go 进程启动器的原生命名规则。退出回归必须证明进程确实创建过；启动失败时直接报告真实错误，不能等超时或只看会话为空。
 - 原生配置发布先读取原文件的所有者、组、访问控制列表及继承保护状态，把这些权限应用到尚未发布的同目录临时文件。随后再次核对取消和字节基线，最后原子改名。任何权限准备失败都保留原文件，不忽略权限错误。
+- 工具链 pin 保存复用 `configfile` 的受保护原生发布器，不再保留另一份命名路径式权限复制。元数据从已经打开的来源句柄读取并复制到临时句柄；权限回归必须保存实际改变的 pin，空重置不再触发写入，不能借无变化操作宣称权限发布已验证。
 - “保留模式”的跨平台测试比较保存前后的原生模式。Windows 不要求返回 Unix 的 `0640`，但必须另外验证真实访问控制描述符不变。
 
 正确做法是把新内容和原权限准备好之后再替换目标。不要先覆盖原文件，再尝试修权限；那样权限设置失败时已经改变了用户文件。
@@ -48,7 +49,7 @@ scripts/desktop/desktop-go.sh test ./internal/pluginhost ./internal/toolchain ./
 - `desktop/internal/pluginhost/executable_windows.go`
 - `desktop/internal/pluginhost/executable_other.go`
 - `desktop/internal/pluginhost/pluginhost.go`
-- `desktop/internal/toolchain/publish_windows.go`
-- `desktop/internal/toolchain/publish_other.go`
+- `desktop/internal/configfile/metadata_windows.go`
+- `desktop/internal/configfile/configfile.go`
 - `desktop/internal/toolchain/pins_windows_test.go`
 - `desktop/internal/workbench/debug_test.go`

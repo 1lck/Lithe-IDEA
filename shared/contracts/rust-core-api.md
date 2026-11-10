@@ -1590,6 +1590,9 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `toolchains.failureReply` | Build the JSON-RPC error reply for a query that missed its deadline or found no backend, so the host passes it to `toolchains.decodeReply` like a provider's own error; cancellation has none |
 | `toolchains.resolvePins` | Validate a captured local document and find the nearest ancestor directory pin, retaining dormant and legacy entries without probing or writing |
 | `toolchains.editPins` | Apply one bounded batch of directory pin edits to a captured local document without writing native files |
+| `toolchains.pinStoragePlan` | Declare bounded workspace-native pin and ignore sources |
+| `toolchains.decodePinDocument` | Validate a complete native source or supply the absent-source default |
+| `toolchains.editPinSources` | Plan deterministic pin and Git ignore source edits without native I/O |
 | `toolchains.resolveConsumerPreferences` | Validate an inert consumer preference document and resolve one tool's explicit Run, consumer, directory or workspace choice while keeping workspace/consumer inheritance symbolic; no native files or launch authority |
 | `toolchains.editConsumerPreferences` | Edit or reset one exact consumer/directory tool preference; return the document and effective input without native writes |
 | `toolchains.resolve` | Resolve the fixed/project/global/automatic layers from one generation-bound snapshot, retaining unmet requirements, unavailable providers with their cause, conflicts and terminal fixed-value failures |
@@ -7158,6 +7161,38 @@ The command performs no I/O and grants no execution authority. The host owns
 explicit Save confirmation, byte-baseline conflict detection, cancellation,
 ignore-file preparation, atomic native replacement, and re-reading the source.
 See `shared/fixtures/toolchain-pin-edit.json` for the cross-client vector.
+
+### Native toolchain pin sources
+
+`toolchains.pinStoragePlan` accepts `{}` and returns
+`{status:"ok",storage:{documentRelativePath,ignoreRelativePath,maximumDocumentBytes,maximumIgnoreBytes}}`.
+Paths are workspace-relative: `.lithe/toolchains/local.json` (1 MiB) and
+`.lithe/.gitignore` (64 KiB). Hosts read bounded UTF-8 sources through their
+native storage adapter, without creating directories during reads.
+
+`toolchains.decodePinDocument` accepts `{document:string|null}` and returns
+`{status:"ok",document:<validated v1 document>}`. Null means absent and supplies
+the empty default. Existing empty, malformed, duplicate-key or invalid dormant
+entries reject with `plugin.toolchain.invalidDocument`.
+
+`toolchains.editPinSources` accepts
+`{document:string|null,ignoreDocument:string|null,directory,edits:[{tool,pin}]}`
+and returns `{status:"ok",edit:{document,documentChanged,ignoreDocument,ignoreChanged}}`.
+A semantic no-op preserves both exact sources, including absence. A changed
+pin document is serialized deterministically; the ignore matcher preserves
+an already effective ignore rule or appends `/toolchains/local.json` after any
+negation, preserving existing text and newline convention. Ignore parsing is
+bounded to 4096 lines when preparing a changed pin document; NUL and invalid patterns reject with
+`plugin.toolchain.invalidIgnore`. Input and output budgets reject with
+`plugin.toolchain.limitExceeded`; invalid request shapes use
+`plugin.toolchain.invalidParams`. The matcher never reads files or global rules.
+
+These commands perform no native I/O. Hosts bind captured bytes and native root
+identity, recheck both even for no-op saves, preserve metadata, and publish the
+ignore prerequisite before the pin document. A document already committed
+followed by cleanup/readback failure must invalidate the old draft baseline:
+reload before retrying. User-selected workspace storage never changes an
+installed app or plugin bundle. See `shared/fixtures/toolchain-pin-storage.json`.
 
 ### Debug launch response ordering
 

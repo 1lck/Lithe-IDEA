@@ -103067,6 +103067,20 @@
         "maximum": "string",
         "unit": "string"
       }
+    },
+    {
+      "id": "desktop.toolchains.reloadAfterSave",
+      "description": "Toolchain save completed but readback or cleanup failed; old draft baseline must not be reused",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.sourceInvalid",
+      "description": "Invalid or unsafe toolchain pin or ignore source; check and reload guidance",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

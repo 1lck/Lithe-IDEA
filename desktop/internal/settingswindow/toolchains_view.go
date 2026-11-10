@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/configfile"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
@@ -55,8 +56,16 @@ func newToolchainState(loader ToolchainLoader, wake func()) toolchainState {
 }
 
 func toolchainFailureMessage(language i18n.Language, err error) string {
+	if errors.Is(err, toolchain.ErrPinCommitted) {
+		return i18n.Shared(language, "desktop.toolchains.reloadAfterSave")
+	}
 	if errors.Is(err, toolchain.ErrPinConflict) {
 		return i18n.Shared(language, "desktop.toolchains.sourceChanged")
+	}
+	var rejection *core.MarketplaceRejection
+	if errors.Is(err, configfile.ErrTarget) || errors.Is(err, configfile.ErrEncoding) || errors.Is(err, configfile.ErrTooLarge) ||
+		(errors.As(err, &rejection) && (rejection.Code == "plugin.toolchain.invalidDocument" || rejection.Code == "plugin.toolchain.invalidIgnore")) {
+		return i18n.Shared(language, "desktop.toolchains.sourceInvalid")
 	}
 	return i18n.SharedFormat(language, "desktop.toolchains.loadFailed", map[string]string{"reason": err.Error()})
 }
@@ -86,7 +95,7 @@ func (t *toolchainState) beginLoad() {
 // beginSave writes the draft's changed pins. Every edit goes through the same
 // Core-validated document merge; a conflict keeps the draft.
 func (t *toolchainState) beginSave() {
-	if t.loader == nil || t.loading || t.saving || !t.hasDraft() {
+	if t.loader == nil || !t.loaded || t.loading || t.saving || !t.hasDraft() {
 		return
 	}
 	edits := t.edits()
@@ -131,6 +140,9 @@ func (t *toolchainState) drain() {
 			t.loading, t.saving = false, false
 			if result.err != nil {
 				t.failed = result.err
+				if errors.Is(result.err, toolchain.ErrPinCommitted) {
+					t.loaded = false
+				}
 				t.saved = false
 				continue
 			}
@@ -251,7 +263,7 @@ func (w *window) drawToolchains(f *ui.Frame) {
 						t.resetDrafts()
 					}
 					f.Spacer()
-					if f.Button(toolchainSaveID, i18n.Shared(language, "desktop.toolchains.save")).Disabled(!t.hasDraft() || t.saving || t.loading).Clicked() {
+					if f.Button(toolchainSaveID, i18n.Shared(language, "desktop.toolchains.save")).Disabled(!t.loaded || !t.hasDraft() || t.saving || t.loading).Clicked() {
 						t.beginSave()
 					}
 				})

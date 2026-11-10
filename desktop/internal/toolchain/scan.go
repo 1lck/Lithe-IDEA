@@ -31,6 +31,9 @@ type workspace struct {
 }
 
 func newWorkspace(root string, options Options) (*workspace, error) {
+	if options.Platform == "" {
+		options.Platform = PlatformName(runtime.GOOS)
+	}
 	if root == "" || !filepath.IsAbs(root) {
 		return nil, errors.New("toolchain: the workspace root must be absolute")
 	}

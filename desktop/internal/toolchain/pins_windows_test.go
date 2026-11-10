@@ -42,7 +42,7 @@ func TestSavePinPreservesWindowsSecurityDescriptor(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, _, err := SavePin(ctx, core.NewClient(), root, ".", "java", nil, baseline); err != nil {
+	if _, _, err := SavePin(ctx, core.NewClient(), root, ".", "dev.example:compiler", &core.ToolchainPin{Home: "C:/fixture/tool", Version: "1.0", Provider: "host:system"}, baseline); err != nil {
 		t.Fatal(err)
 	}
 	after, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)

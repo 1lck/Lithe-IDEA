@@ -254,7 +254,7 @@ func TestSavePinPreservesUnrelatedEntriesAndDetectsConflicts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !containsLine(string(ignore), LocalIgnorePath) {
+	if !containsLine(string(ignore), "/toolchains/local.json") {
 		t.Fatalf("ignore file = %q", ignore)
 	}
 	// A stale baseline must not overwrite the file another editor changed.
@@ -314,7 +314,7 @@ type blockingPinKernel struct {
 	block   atomic.Bool
 }
 
-func (k *blockingPinKernel) EditToolchainPins(ctx context.Context, document json.RawMessage, directory string, edits []core.ToolchainPinEdit) (json.RawMessage, error) {
+func (k *blockingPinKernel) EditToolchainPinSources(ctx context.Context, request core.ToolchainPinSourcesRequest) (core.ToolchainPinSourcesEdit, error) {
 	if k.block.CompareAndSwap(true, false) {
 		close(k.entered)
 		select {
@@ -326,9 +326,9 @@ func (k *blockingPinKernel) EditToolchainPins(ctx context.Context, document json
 		// Core's cancellation is cooperative: a validation that finished before
 		// observing cancellation returns its normal result, and the host must
 		// refuse to write after the caller cancelled.
-		return document, nil
+		return core.ToolchainPinSourcesEdit{}, nil
 	}
-	return k.Client.EditToolchainPins(ctx, document, directory, edits)
+	return k.Client.EditToolchainPinSources(ctx, request)
 }
 
 func readExactly(t *testing.T, name string) []byte {
@@ -490,13 +490,13 @@ type externalEditKernel struct {
 	content []byte
 }
 
-func (k externalEditKernel) EditToolchainPins(ctx context.Context, document json.RawMessage, directory string, edits []core.ToolchainPinEdit) (json.RawMessage, error) {
-	edited, err := k.Client.EditToolchainPins(ctx, document, directory, edits)
+func (k externalEditKernel) EditToolchainPinSources(ctx context.Context, request core.ToolchainPinSourcesRequest) (core.ToolchainPinSourcesEdit, error) {
+	edited, err := k.Client.EditToolchainPinSources(ctx, request)
 	if err != nil {
-		return nil, err
+		return core.ToolchainPinSourcesEdit{}, err
 	}
 	if err := os.WriteFile(k.path, k.content, 0o600); err != nil {
-		return nil, err
+		return core.ToolchainPinSourcesEdit{}, err
 	}
 	return edited, nil
 }
@@ -527,4 +527,8 @@ func TestSavePinsRejectsExternalEditDuringCoreEditing(t *testing.T) {
 type savedPinFixture struct {
 	Toolchains map[string]json.RawMessage              `json:"toolchains"`
 	Pins       map[string]map[string]core.ToolchainPin `json:"pins"`
+}
+
+func documentPath(root string) string {
+	return filepath.Join(root, ".lithe", "toolchains", "local.json")
 }

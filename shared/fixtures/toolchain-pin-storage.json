@@ -1,0 +1,450 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "storage-plan",
+      "command": "toolchains.pinStoragePlan",
+      "input": {},
+      "expected": {
+        "status": "ok",
+        "storage": {
+          "documentRelativePath": ".lithe/toolchains/local.json",
+          "ignoreRelativePath": ".lithe/.gitignore",
+          "maximumDocumentBytes": 1048576,
+          "maximumIgnoreBytes": 65536
+        }
+      }
+    },
+    {
+      "name": "storage-plan-refuses-unknown-input",
+      "command": "toolchains.pinStoragePlan",
+      "input": {
+        "unexpected": true
+      },
+      "error": "plugin.toolchain.invalidParams"
+    },
+    {
+      "name": "absent-source-default",
+      "command": "toolchains.decodePinDocument",
+      "input": {
+        "document": null
+      },
+      "expected": {
+        "status": "ok",
+        "document": {
+          "version": 1,
+          "toolchains": {}
+        }
+      }
+    },
+    {
+      "name": "empty-existing",
+      "command": "toolchains.decodePinDocument",
+      "input": {
+        "document": ""
+      },
+      "error": "plugin.toolchain.invalidDocument"
+    },
+    {
+      "name": "malformed",
+      "command": "toolchains.decodePinDocument",
+      "input": {
+        "document": "{"
+      },
+      "error": "plugin.toolchain.invalidDocument"
+    },
+    {
+      "name": "duplicate-root",
+      "command": "toolchains.decodePinDocument",
+      "input": {
+        "document": "{\"version\":1,\"toolchains\":{},\"version\":1}"
+      },
+      "error": "plugin.toolchain.invalidDocument"
+    },
+    {
+      "name": "duplicate-escaped-nested",
+      "command": "toolchains.decodePinDocument",
+      "input": {
+        "document": "{\"version\":1,\"toolchains\":{\"old\":{\"home\":\"/a\",\"h\\u006fme\":\"/b\"}}}"
+      },
+      "error": "plugin.toolchain.invalidDocument"
+    },
+    {
+      "name": "unknown-root-field",
+      "command": "toolchains.decodePinDocument",
+      "input": {
+        "document": "{\"version\":1,\"toolchains\":{},\"extra\":true}"
+      },
+      "error": "plugin.toolchain.invalidDocument"
+    },
+    {
+      "name": "non-string-source",
+      "command": "toolchains.decodePinDocument",
+      "input": {
+        "document": {}
+      },
+      "error": "plugin.toolchain.invalidParams"
+    },
+    {
+      "name": "missing-source-field",
+      "command": "toolchains.decodePinDocument",
+      "input": {},
+      "error": "plugin.toolchain.invalidParams"
+    },
+    {
+      "name": "complete-dormant-document",
+      "command": "toolchains.decodePinDocument",
+      "input": {
+        "document": "{\"pins\":{\"nested\":{\"dev.example:compiler\":{\"home\":\"/fixture/tool\",\"provider\":\"host:system\",\"version\":\"1.0\"}}},\"toolchains\":{\"legacy\":{\"home\":\"/fixture/legacy\"}},\"version\":1}"
+      },
+      "expected": {
+        "status": "ok",
+        "document": {
+          "version": 1,
+          "toolchains": {
+            "legacy": {
+              "home": "/fixture/legacy"
+            }
+          },
+          "pins": {
+            "nested": {
+              "dev.example:compiler": {
+                "home": "/fixture/tool",
+                "version": "1.0",
+                "provider": "host:system"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "absent-reset-writes-nothing",
+      "command": "toolchains.editPinSources",
+      "input": {
+        "document": null,
+        "ignoreDocument": null,
+        "directory": ".",
+        "edits": [
+          {
+            "tool": "dev.example:compiler",
+            "pin": null
+          }
+        ]
+      },
+      "expected": {
+        "status": "ok",
+        "edit": {
+          "document": null,
+          "documentChanged": false,
+          "ignoreDocument": null,
+          "ignoreChanged": false
+        }
+      }
+    },
+    {
+      "name": "existing-unchanged-preserves-bytes",
+      "command": "toolchains.editPinSources",
+      "input": {
+        "document": "{ \"version\": 1, \"toolchains\": {} }\n",
+        "ignoreDocument": "# user notes\n",
+        "directory": ".",
+        "edits": [
+          {
+            "tool": "dev.example:compiler",
+            "pin": null
+          }
+        ]
+      },
+      "expected": {
+        "status": "ok",
+        "edit": {
+          "document": "{ \"version\": 1, \"toolchains\": {} }\n",
+          "documentChanged": false,
+          "ignoreDocument": "# user notes\n",
+          "ignoreChanged": false
+        }
+      }
+    },
+    {
+      "name": "new-pin-and-ignore",
+      "command": "toolchains.editPinSources",
+      "input": {
+        "document": null,
+        "ignoreDocument": null,
+        "directory": ".",
+        "edits": [
+          {
+            "tool": "dev.example:compiler",
+            "pin": {
+              "home": "/fixture/tool",
+              "version": "1.0",
+              "provider": "host:system"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "status": "ok",
+        "edit": {
+          "document": "{\"pins\":{\".\":{\"dev.example:compiler\":{\"home\":\"/fixture/tool\",\"provider\":\"host:system\",\"version\":\"1.0\"}}},\"toolchains\":{},\"version\":1}",
+          "documentChanged": true,
+          "ignoreDocument": "/toolchains/local.json\n",
+          "ignoreChanged": true
+        }
+      }
+    },
+    {
+      "name": "comments-preserved",
+      "command": "toolchains.editPinSources",
+      "input": {
+        "document": "{\"toolchains\":{},\"version\":1}",
+        "ignoreDocument": "# user notes\n",
+        "directory": ".",
+        "edits": [
+          {
+            "tool": "dev.example:compiler",
+            "pin": {
+              "home": "/fixture/tool",
+              "version": "1.0",
+              "provider": "host:system"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "status": "ok",
+        "edit": {
+          "document": "{\"pins\":{\".\":{\"dev.example:compiler\":{\"home\":\"/fixture/tool\",\"provider\":\"host:system\",\"version\":\"1.0\"}}},\"toolchains\":{},\"version\":1}",
+          "documentChanged": true,
+          "ignoreDocument": "# user notes\n/toolchains/local.json\n",
+          "ignoreChanged": true
+        }
+      }
+    },
+    {
+      "name": "later-negation-needs-effective-rule",
+      "command": "toolchains.editPinSources",
+      "input": {
+        "document": "{\"toolchains\":{},\"version\":1}",
+        "ignoreDocument": "/toolchains/local.json\n!/toolchains/local.json\n",
+        "directory": ".",
+        "edits": [
+          {
+            "tool": "dev.example:compiler",
+            "pin": {
+              "home": "/fixture/tool",
+              "version": "1.0",
+              "provider": "host:system"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "status": "ok",
+        "edit": {
+          "document": "{\"pins\":{\".\":{\"dev.example:compiler\":{\"home\":\"/fixture/tool\",\"provider\":\"host:system\",\"version\":\"1.0\"}}},\"toolchains\":{},\"version\":1}",
+          "documentChanged": true,
+          "ignoreDocument": "/toolchains/local.json\n!/toolchains/local.json\n/toolchains/local.json\n",
+          "ignoreChanged": true
+        }
+      }
+    },
+    {
+      "name": "wildcard-already-ignores",
+      "command": "toolchains.editPinSources",
+      "input": {
+        "document": "{\"toolchains\":{},\"version\":1}",
+        "ignoreDocument": "**/local.json\n",
+        "directory": ".",
+        "edits": [
+          {
+            "tool": "dev.example:compiler",
+            "pin": {
+              "home": "/fixture/tool",
+              "version": "1.0",
+              "provider": "host:system"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "status": "ok",
+        "edit": {
+          "document": "{\"pins\":{\".\":{\"dev.example:compiler\":{\"home\":\"/fixture/tool\",\"provider\":\"host:system\",\"version\":\"1.0\"}}},\"toolchains\":{},\"version\":1}",
+          "documentChanged": true,
+          "ignoreDocument": "**/local.json\n",
+          "ignoreChanged": false
+        }
+      }
+    },
+    {
+      "name": "crlf-preserved",
+      "command": "toolchains.editPinSources",
+      "input": {
+        "document": "{\"toolchains\":{},\"version\":1}",
+        "ignoreDocument": "# user notes\r\n",
+        "directory": ".",
+        "edits": [
+          {
+            "tool": "dev.example:compiler",
+            "pin": {
+              "home": "/fixture/tool",
+              "version": "1.0",
+              "provider": "host:system"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "status": "ok",
+        "edit": {
+          "document": "{\"pins\":{\".\":{\"dev.example:compiler\":{\"home\":\"/fixture/tool\",\"provider\":\"host:system\",\"version\":\"1.0\"}}},\"toolchains\":{},\"version\":1}",
+          "documentChanged": true,
+          "ignoreDocument": "# user notes\r\n/toolchains/local.json\r\n",
+          "ignoreChanged": true
+        }
+      }
+    },
+    {
+      "name": "missing-final-newline",
+      "command": "toolchains.editPinSources",
+      "input": {
+        "document": "{\"toolchains\":{},\"version\":1}",
+        "ignoreDocument": "# user notes",
+        "directory": ".",
+        "edits": [
+          {
+            "tool": "dev.example:compiler",
+            "pin": {
+              "home": "/fixture/tool",
+              "version": "1.0",
+              "provider": "host:system"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "status": "ok",
+        "edit": {
+          "document": "{\"pins\":{\".\":{\"dev.example:compiler\":{\"home\":\"/fixture/tool\",\"provider\":\"host:system\",\"version\":\"1.0\"}}},\"toolchains\":{},\"version\":1}",
+          "documentChanged": true,
+          "ignoreDocument": "# user notes\n/toolchains/local.json\n",
+          "ignoreChanged": true
+        }
+      }
+    },
+    {
+      "name": "bom-rule-is-not-a-new-pattern",
+      "command": "toolchains.editPinSources",
+      "input": {
+        "document": "{\"toolchains\":{},\"version\":1}",
+        "ignoreDocument": "﻿/toolchains/local.json\n",
+        "directory": ".",
+        "edits": [
+          {
+            "tool": "dev.example:compiler",
+            "pin": {
+              "home": "/fixture/tool",
+              "version": "1.0",
+              "provider": "host:system"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "status": "ok",
+        "edit": {
+          "document": "{\"pins\":{\".\":{\"dev.example:compiler\":{\"home\":\"/fixture/tool\",\"provider\":\"host:system\",\"version\":\"1.0\"}}},\"toolchains\":{},\"version\":1}",
+          "documentChanged": true,
+          "ignoreDocument": "﻿/toolchains/local.json\n",
+          "ignoreChanged": false
+        }
+      }
+    },
+    {
+      "name": "nul-ignore",
+      "command": "toolchains.editPinSources",
+      "input": {
+        "document": null,
+        "ignoreDocument": "a\u0000b\n",
+        "directory": ".",
+        "edits": [
+          {
+            "tool": "dev.example:compiler",
+            "pin": {
+              "home": "/fixture/tool",
+              "version": "1.0",
+              "provider": "host:system"
+            }
+          }
+        ]
+      },
+      "error": "plugin.toolchain.invalidIgnore"
+    },
+    {
+      "name": "invalid-ignore-glob",
+      "command": "toolchains.editPinSources",
+      "input": {
+        "document": null,
+        "ignoreDocument": "[z-a]\n",
+        "directory": ".",
+        "edits": [
+          {
+            "tool": "dev.example:compiler",
+            "pin": {
+              "home": "/fixture/tool",
+              "version": "1.0",
+              "provider": "host:system"
+            }
+          }
+        ]
+      },
+      "error": "plugin.toolchain.invalidIgnore"
+    },
+    {
+      "name": "invalid-edit-batch",
+      "command": "toolchains.editPinSources",
+      "input": {
+        "document": null,
+        "ignoreDocument": null,
+        "directory": ".",
+        "edits": [
+          {
+            "tool": "not a tool",
+            "pin": {
+              "home": "/fixture/tool",
+              "version": "1.0",
+              "provider": "host:system"
+            }
+          }
+        ]
+      },
+      "error": "plugin.toolchain.invalidParams"
+    },
+    {
+      "name": "reset-keeps-other-pins",
+      "command": "toolchains.editPinSources",
+      "input": {
+        "document": "{\"pins\":{\".\":{\"dev.example:compiler\":{\"home\":\"/fixture/tool\",\"provider\":\"host:system\",\"version\":\"1.0\"}},\"nested\":{\"dev.example:compiler\":{\"home\":\"/fixture/tool\",\"provider\":\"host:system\",\"version\":\"1.0\"}}},\"toolchains\":{\"legacy\":{\"home\":\"/fixture/legacy\"}},\"version\":1}",
+        "ignoreDocument": "/toolchains/local.json\n",
+        "directory": ".",
+        "edits": [
+          {
+            "tool": "dev.example:compiler",
+            "pin": null
+          }
+        ]
+      },
+      "expected": {
+        "status": "ok",
+        "edit": {
+          "document": "{\"pins\":{\"nested\":{\"dev.example:compiler\":{\"home\":\"/fixture/tool\",\"provider\":\"host:system\",\"version\":\"1.0\"}}},\"toolchains\":{\"legacy\":{\"home\":\"/fixture/legacy\"}},\"version\":1}",
+          "documentChanged": true,
+          "ignoreDocument": "/toolchains/local.json\n",
+          "ignoreChanged": false
+        }
+      }
+    }
+  ]
+}
