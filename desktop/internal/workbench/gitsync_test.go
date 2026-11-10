@@ -198,3 +198,60 @@ func TestSyncProgressKeepsOnlyTheLatestPhaseOfTheRunningOperation(t *testing.T) 
 		t.Fatal("a late phase leaked into the idle state")
 	}
 }
+
+func TestLogUpdateSelectedBranchFastForwardsWithoutCheckingItOut(t *testing.T) {
+	h, p, dir, other := syncFixture(t)
+	gitRun(t, dir, "branch", "--track", "side", "origin/main")
+	publishCommit(t, other, "side.txt")
+	h.app.loadLog(p)
+	h.settle()
+	h.settle()
+	side, ok := p.log.findReference("refs/heads/side")
+	if !ok || side.UpstreamShortName != "origin/main" {
+		t.Fatalf("side = %+v (%v), want a branch tracking origin/main", side, ok)
+	}
+	p.log.refSelected = side.FullName
+	h.settle()
+	h.clickNamed(h.app.text.Git.UpdateBranch)
+	h.settle()
+	h.settle()
+	if want := h.app.text.Sync.Updated("side"); h.app.notice != want {
+		t.Fatalf("notice = %q, want %q", h.app.notice, want)
+	}
+	if got := gitRun(t, dir, "rev-parse", "side"); got != gitRun(t, dir, "rev-parse", "origin/main") {
+		t.Fatal("side was not fast-forwarded to its upstream")
+	}
+	if got := gitRun(t, dir, "branch", "--show-current"); got != "main" {
+		t.Fatalf("the update checked out %q", got)
+	}
+}
+
+func TestLogNewAndDeleteBranchFromTheBranchesPane(t *testing.T) {
+	h, p, dir, _ := syncFixture(t)
+	h.clickNamed(h.app.text.Git.NewBranch)
+	h.settle()
+	b := &h.app.branch
+	if b.dialog != branchDialogCreate || b.target.ShortName != "main" {
+		t.Fatalf("dialog %v from %+v, want the create dialog from main", b.dialog, b.target)
+	}
+	b.name.SetText("topic")
+	b.checkout = false
+	h.settle()
+	h.app.submitCreate(p)
+	h.settle()
+	h.settle()
+	if got := gitRun(t, dir, "branch", "--list", "topic"); !strings.Contains(got, "topic") {
+		t.Fatalf("no topic branch: %q", got)
+	}
+	topic, ok := p.log.findReference("refs/heads/topic")
+	if !ok {
+		t.Fatal("the log did not list the new branch")
+	}
+	p.log.refSelected = topic.FullName
+	h.settle()
+	h.clickNamed(h.app.text.Git.DeleteBranch)
+	h.settle()
+	if b.dialog != branchDialogDelete || b.target.FullName != topic.FullName {
+		t.Fatalf("dialog %v for %+v, want the delete confirmation of topic", b.dialog, b.target)
+	}
+}

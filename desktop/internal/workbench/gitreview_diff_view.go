@@ -43,6 +43,14 @@ func (a *App) reviewOverlays(c ui.C, p *project) {
 	}
 }
 
+// shortHash is the first seven characters of hash, the way Git abbreviates a commit.
+func shortHash(hash string) string {
+	if len(hash) > 7 {
+		return hash[:7]
+	}
+	return hash
+}
+
 // lineNumber is a line number as the diff's gutter shows it, empty for none.
 func lineNumber(n *int) string {
 	if n == nil {
@@ -85,6 +93,8 @@ func (a *App) drawDiffDialog(c ui.C, p *project) {
 	d := &p.review.diff
 	title := i18n.Shared(a.language(), "git.diff.title") + " — " + d.change.Path
 	switch {
+	case d.commit != "":
+		title += " (" + shortHash(d.commit) + ")"
 	case d.staged:
 		title += " (" + i18n.Shared(a.language(), "git.diff.stagedChanges") + ")"
 	case d.plan != nil:
@@ -239,8 +249,8 @@ func (a *App) drawBlameDialog(c ui.C, p *project) {
 				hash, who, when := line.Hash, line.AuthorName, blameDate(line)
 				if line.Uncommitted() {
 					hash, who, when = "", i18n.Shared(a.language(), "git.blame.uncommitted"), ""
-				} else if len(hash) > 7 {
-					hash = hash[:7]
+				} else {
+					hash = shortHash(hash)
 				}
 				row.Element.FillWidth().Height(reviewRowHeight).Items(ui.Center).Gap(8).PadX(8).Children(func() {
 					ui.Text(row.C, hash).Mono().FontSize(size).Color(a.colors.Accent).Width(64).Shrink(0)

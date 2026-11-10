@@ -90,19 +90,33 @@ func (a *App) drawLogStripe(c ui.C, p *project) {
 		compare = g.CompareWithCurrent
 	}
 	unavailable := func() { a.notify(a.text.Welcome.Unavailable) }
+	// The branch selected, or the checked out one without a selection, is what the
+	// buttons act on.
+	target := selected
+	if !hasSelected || selected.Kind != "local" {
+		target = l.currentReference()
+	}
+	updatable := target.Kind == "local" && (target.IsCurrent || target.UpstreamShortName != "")
 	ui.Column(c).Width(logStripeWidth).Shrink(0).FillHeight().Items(ui.Center).PadY(6).Gap(4).Background(a.colors.Panel).Children(func() {
 		if a.gitIconButton(c, g.HideBranches, icons.ChevronLeft, false, false) {
 			c.After(func() { l.branchesHidden = true })
 		}
 		ui.Divider(c).Width(20)
-		if a.gitIconButton(c, g.NewBranch, icons.Plus, false, false) {
-			c.After(unavailable)
+		if a.gitIconButton(c, g.NewBranch, icons.Plus, false, l.sync.busy) {
+			from := l.currentReference()
+			if hasSelected {
+				from = selected
+			}
+			c.After(func() {
+				a.branch.refs = l.refs
+				a.beginCreate(p, from)
+			})
 		}
-		if a.gitIconButton(c, g.UpdateBranch, icons.ArrowDownLeft, false, l.current == "") {
-			c.After(unavailable)
+		if a.gitIconButton(c, g.UpdateBranch, icons.ArrowDownLeft, false, !updatable || l.sync.busy) {
+			c.After(func() { a.updateBranch(p, target) })
 		}
 		if a.gitIconButton(c, g.DeleteBranch, icons.Trash2, false, !deletable) {
-			c.After(unavailable)
+			c.After(func() { a.beginDelete(selected) })
 		}
 		if a.gitIconButton(c, compare, icons.ArrowLeftRight, false, !hasSelected) {
 			c.After(unavailable)
@@ -110,8 +124,8 @@ func (a *App) drawLogStripe(c ui.C, p *project) {
 		if a.gitIconButton(c, g.FindBranch, icons.Search, false, false) {
 			a.logView.focus = logRefSearchID
 		}
-		if a.gitIconButton(c, g.Fetch, icons.CloudDownload, false, false) {
-			c.After(unavailable)
+		if a.gitIconButton(c, g.Fetch, icons.CloudDownload, false, l.sync.busy) {
+			c.After(func() { a.fetchAll(p) })
 		}
 		if a.gitIconButton(c, g.LocateBranch, icons.Locate, false, !hasSelected && l.current == "") {
 			short := l.current

@@ -310,6 +310,39 @@ func (a *App) updateCurrentBranch(p *project) {
 		})
 }
 
+// branchUpdateKernel fast-forwards a local branch that is not checked out.
+type branchUpdateKernel interface {
+	GitUpdateBranch(ctx context.Context, root string, branch core.GitReference) error
+}
+
+// updateBranch brings the local branch r up to its upstream: the checked out one the way
+// updateCurrentBranch does, any other by fetching and fast-forwarding it without touching
+// HEAD.
+func (a *App) updateBranch(p *project, r core.GitReference) {
+	if r.Kind != "local" || r.IsCurrent {
+		a.updateCurrentBranch(p)
+		return
+	}
+	updater, ok := a.kernel.(branchUpdateKernel)
+	if !ok {
+		return
+	}
+	branch := r.ShortName
+	if r.UpstreamShortName == "" {
+		a.notify(a.text.Sync.NoUpstream(branch))
+		return
+	}
+	a.performed("git.updateBranch", surfaceButton)
+	t := a.text.Sync
+	a.runSync(p, "git_update_branch", t.Updating(branch), t.UpdateFailed,
+		func(ctx context.Context, kernel Kernel, root string) (func(*App), error) {
+			if err := kernel.GitFetch(ctx, root, nil); err != nil {
+				return nil, err
+			}
+			return func(a *App) { a.notify(a.text.Sync.Updated(branch)) }, updater.GitUpdateBranch(ctx, root, r)
+		})
+}
+
 // resolveDiverged combines the diverged branch with its upstream the way the user chose.
 func (a *App) resolveDiverged(p *project, strategy core.GitPullStrategy) {
 	s := &p.log.sync

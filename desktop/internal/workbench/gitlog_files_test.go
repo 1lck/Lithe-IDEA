@@ -235,3 +235,38 @@ func TestLogChangedFilesScrollSideways(t *testing.T) {
 		t.Fatalf("another commit kept the offset %v", v.files.ScrollX())
 	}
 }
+
+func TestLogChangedFileCompareAndHistory(t *testing.T) {
+	h := newHarness(t, gitKernel{core.NewClient()})
+	p, head, _ := h.openLogFiles(t)
+	g := h.app.text.Git
+	if hit, ok := h.findPageHit(g.CompareChanges); ok && !hit.Disabled {
+		t.Fatal("Compare is on with no file selected")
+	}
+	file, _ := h.logFileHit("top.txt")
+	h.click(center(file.Bounds))
+	h.clickNamed(g.CompareChanges)
+	h.await("the commit's diff", func() bool { return !p.review.diff.loading })
+	d := &p.review.diff
+	if !d.open || d.commit != head || d.change.Path != "top.txt" || d.err != "" || d.file == nil {
+		t.Fatalf("compare opened %+v", d)
+	}
+	if d.plan != nil {
+		t.Fatal("a commit's change offers blocks to stage")
+	}
+	added := false
+	for _, line := range d.file.Lines {
+		added = added || (line.LineType == "added" && strings.Contains(line.Content, "top.txt"))
+	}
+	if !added {
+		t.Fatalf("the diff does not add the file's line: %+v", d.file.Lines)
+	}
+	h.app.closeDiff(p)
+	h.settle()
+
+	h.clickNamed(g.FileHistory)
+	h.settle()
+	if p.log.path != "top.txt" || h.app.logView.pathField.Text() != "top.txt" {
+		t.Fatalf("history filtered by %q, field %q", p.log.path, h.app.logView.pathField.Text())
+	}
+}

@@ -99,6 +99,9 @@ type diffState struct {
 	change core.GitChange
 	// staged says the dialog shows the index against HEAD, for a change that is only staged.
 	staged bool
+	// commit is the commit whose change of the file the dialog shows against its first
+	// parent, "" for a change of the working tree. A commit's change is read only.
+	commit string
 	// split shows the two sides next to each other instead of the unified lines.
 	split bool
 	file  *core.GitDiffFile
@@ -143,6 +146,19 @@ func (a *App) openDiffIn(p *project, root string, change core.GitChange) {
 	a.loadDiff(p)
 }
 
+// openCommitDiff opens the Diff dialog on what commit changed in file, against the commit's
+// first parent, in the repository at root.
+func (a *App) openCommitDiff(p *project, root, commit string, file core.GitCommitFile) {
+	if _, ok := a.reviewKernel(); !ok || commit == "" || file.Path == "" {
+		return
+	}
+	d := &p.review.diff
+	*d = diffState{open: true, loading: true, gen: d.gen + 1, root: root, commit: commit,
+		change: core.GitChange{Path: file.Path, Status: file.Status}, split: d.split, list: d.list}
+	a.performed("git.diff.openCommit", surfaceButton)
+	a.loadDiff(p)
+}
+
 // closeDiff closes the dialog and forgets what it showed.
 func (a *App) closeDiff(p *project) {
 	d := &p.review.diff
@@ -164,14 +180,14 @@ func (a *App) loadDiff(p *project) {
 		return
 	}
 	d.loading = true
-	gen, change, target := d.gen, d.change, d.target(d.root)
+	gen, change, target, commit := d.gen, d.change, d.target(d.root), d.commit
 	a.background(p, reviewTimeout, func(ctx context.Context) func(*App) {
 		var (
 			file *core.GitDiffFile
 			plan *core.DiffBlockPlan
 			err  error
 		)
-		if !change.Untracked && change.Status != "??" {
+		if commit == "" && !change.Untracked && change.Status != "??" {
 			var got core.DiffBlockPlan
 			if got, err = kernel.PlanDiffBlocks(ctx, target); err == nil {
 				plan = &got
@@ -183,7 +199,11 @@ func (a *App) loadDiff(p *project) {
 		if err == nil && file == nil {
 			plan = nil
 			var files []core.GitDiffFile
-			files, err = kernel.GitDiff(ctx, core.GitDiffRequest{Root: target.Root, Path: change.Path, Staged: target.Staged, Untracked: change.Untracked || change.Status == "??"})
+			request := core.GitDiffRequest{Root: target.Root, Path: change.Path, Commit: commit}
+			if commit == "" {
+				request.Staged, request.Untracked = target.Staged, change.Untracked || change.Status == "??"
+			}
+			files, err = kernel.GitDiff(ctx, request)
 			if err == nil && len(files) > 0 {
 				file = &files[0]
 			}

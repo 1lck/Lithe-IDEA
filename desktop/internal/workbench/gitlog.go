@@ -172,6 +172,17 @@ func (l *gitLogState) filtered() bool {
 	return l.text != "" || l.user != "" || l.path != "" || l.date != logAnyTime
 }
 
+// currentReference is the checked out local branch, or HEAD when it is detached or the
+// references are not loaded.
+func (l *gitLogState) currentReference() core.GitReference {
+	for _, r := range l.refs.References {
+		if r.Kind == "local" && r.IsCurrent {
+			return r
+		}
+	}
+	return headReference
+}
+
 // reference returns the reference of the pane with full name, if there is one.
 func (l *gitLogState) findReference(full string) (core.GitReference, bool) {
 	for _, s := range l.sections {
