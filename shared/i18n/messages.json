@@ -12135,6 +12135,234 @@
       ]
     },
     {
+      "id": "desktop.files.cancel",
+      "description": "Cancel button of a file-operation dialog.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.copyFailed",
+      "description": "Shown when a path could not be copied. {reason} is the system's reason.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.files.copyPath",
+      "description": "Copy the absolute path of the row.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.copyRelativePath",
+      "description": "Copy the path of the row relative to the project.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.create",
+      "description": "Create button of the New File and New Directory dialogs.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.createFailed",
+      "description": "Shown when a file or folder could not be created. {reason} is the system's reason.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.files.delete",
+      "description": "Delete menu item; asks for confirmation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.deleteAction",
+      "description": "Delete button of the Delete confirmation dialog.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.deleteFailed",
+      "description": "Shown when an item could not be deleted. {reason} is the system's reason.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.files.deleteMessage",
+      "description": "Confirmation of deleting a file or folder. {name} is the item's name.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.files.deleteTitle",
+      "description": "Title of the Delete confirmation dialog.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.invalidName",
+      "description": "Shown when a file or folder name is empty or contains a slash.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.name",
+      "description": "Label and placeholder of the name field of a file-operation dialog.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.nameExists",
+      "description": "Shown when an item with the typed name already exists.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.newDirectory",
+      "description": "New Directory menu item; opens a name dialog.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.newDirectoryTitle",
+      "description": "Title of the New Directory dialog.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.newFile",
+      "description": "New File menu item; opens a name dialog.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.newFileTitle",
+      "description": "Title of the New File dialog.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.open",
+      "description": "Open a file from the Project tree in the editor.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.refresh",
+      "description": "Read the project tree from disk again.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.rename",
+      "description": "Rename menu item; opens a name dialog.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.renameAction",
+      "description": "Rename button of the Rename dialog.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.renameFailed",
+      "description": "Shown when an item could not be renamed. {reason} is the system's reason.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.files.renameTitle",
+      "description": "Title of the Rename dialog.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.revealFailed",
+      "description": "Shown when the system could not show the item. {reason} is the system's reason.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.files.revealInExplorer",
+      "description": "Show the row in the Windows File Explorer.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.revealInFinder",
+      "description": "Show the row in the macOS Finder.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.showDiff",
+      "description": "Open the Diff of the file's Git change.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.stage",
+      "description": "Stage the file's whole change.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.unstage",
+      "description": "Unstage the file's staged change.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.git.actions",
       "description": "Desktop Git: Actions",
       "platforms": [
@@ -12158,6 +12386,25 @@
     {
       "id": "desktop.git.apply",
       "description": "Desktop Git: Apply",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.blame.annotation",
+      "description": "Inline blame text: author, relative time and commit subject. {author}, {time} and {subject} are filled in.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "author": "string",
+        "time": "string",
+        "subject": "string"
+      }
+    },
+    {
+      "id": "desktop.git.blame.uncommitted",
+      "description": "Inline blame of a line Git has not committed yet.",
       "platforms": [
         "desktop"
       ]
@@ -12338,6 +12585,41 @@
       ]
     },
     {
+      "id": "desktop.git.gutter.before",
+      "description": "Heading of the earlier text shown for a changed line.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.gutter.noEarlier",
+      "description": "Shown when a change added lines and there is no earlier text.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.gutter.revert",
+      "description": "Revert this change in the Diff dialog, where it is confirmed.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.gutter.saveFirst",
+      "description": "Shown when a file has unsaved edits, so its change cannot be staged yet.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.gutter.stage",
+      "description": "Stage this change.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.git.hideBranches",
       "description": "Desktop Git: HideBranches",
       "platforms": [
@@ -12477,6 +12759,34 @@
       ]
     },
     {
+      "id": "desktop.git.settings.blame",
+      "description": "Settings switch: show inline Git blame on the caret line.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.blameHelp",
+      "description": "Help of the inline Git blame switch.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.gutter",
+      "description": "Settings switch: show Git change markers in the editor gutter.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.gutterHelp",
+      "description": "Help of the Git change markers switch.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.git.showAll",
       "description": "Desktop Git: ShowAll",
       "platforms": [
@@ -12510,6 +12820,63 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.git.time.daysAgo",
+      "description": "Relative time in days. {count} is the number.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.git.time.hoursAgo",
+      "description": "Relative time in hours. {count} is the number.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.git.time.justNow",
+      "description": "Relative time of a commit made under a minute ago.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.time.minutesAgo",
+      "description": "Relative time in minutes. {count} is the number.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.git.time.monthsAgo",
+      "description": "Relative time in months. {count} is the number.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.git.time.yearsAgo",
+      "description": "Relative time in years. {count} is the number.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
     },
     {
       "id": "desktop.git.today",
@@ -12703,6 +13070,121 @@
       "parameters": {
         "path": "string"
       }
+    },
+    {
+      "id": "desktop.ideApi.allowConfigure",
+      "description": "Desktop IDE API settings: configure permission switch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.ideApi.allowConfigureHelp",
+      "description": "Desktop IDE API settings: configure permission help",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.ideApi.allowExecute",
+      "description": "Desktop IDE API settings: execute permission switch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.ideApi.allowExecuteHelp",
+      "description": "Desktop IDE API settings: execute permission help",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.ideApi.copyConfiguration",
+      "description": "Desktop IDE API settings: copy configuration button",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.ideApi.disable",
+      "description": "Desktop IDE API settings: disable button",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.ideApi.enable",
+      "description": "Desktop IDE API settings: enable button",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.ideApi.failed",
+      "description": "Desktop IDE API settings: failure message with reason",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.ideApi.grantsFixed",
+      "description": "Desktop IDE API settings: grants fixed note",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.ideApi.helperMissing",
+      "description": "Desktop IDE API settings: helper not packaged",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.ideApi.intro",
+      "description": "Desktop IDE API settings: intro",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.ideApi.noProject",
+      "description": "Desktop IDE API settings: no project open",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.ideApi.project",
+      "description": "Desktop IDE API settings: project label",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.ideApi.statusDisabled",
+      "description": "Desktop IDE API settings: disconnected status",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.ideApi.statusEnabled",
+      "description": "Desktop IDE API settings: connected status",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.ideApi.title",
+      "description": "Desktop IDE API settings: page title",
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.inlineEdit.accept",
@@ -106462,373 +106944,6 @@
       "macos": {
         "key": "Other…",
         "arguments": []
-      }
-    },
-    {
-      "id": "desktop.git.gutter.stage",
-      "description": "Stage this change.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.git.gutter.revert",
-      "description": "Revert this change in the Diff dialog, where it is confirmed.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.git.gutter.before",
-      "description": "Heading of the earlier text shown for a changed line.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.git.gutter.noEarlier",
-      "description": "Shown when a change added lines and there is no earlier text.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.git.gutter.saveFirst",
-      "description": "Shown when a file has unsaved edits, so its change cannot be staged yet.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.git.settings.gutter",
-      "description": "Settings switch: show Git change markers in the editor gutter.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.git.settings.gutterHelp",
-      "description": "Help of the Git change markers switch.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.git.settings.blame",
-      "description": "Settings switch: show inline Git blame on the caret line.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.git.settings.blameHelp",
-      "description": "Help of the inline Git blame switch.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.git.blame.annotation",
-      "description": "Inline blame text: author, relative time and commit subject. {author}, {time} and {subject} are filled in.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "author": "string",
-        "time": "string",
-        "subject": "string"
-      }
-    },
-    {
-      "id": "desktop.git.blame.uncommitted",
-      "description": "Inline blame of a line Git has not committed yet.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.git.time.justNow",
-      "description": "Relative time of a commit made under a minute ago.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.git.time.minutesAgo",
-      "description": "Relative time in minutes. {count} is the number.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "desktop.git.time.hoursAgo",
-      "description": "Relative time in hours. {count} is the number.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "desktop.git.time.daysAgo",
-      "description": "Relative time in days. {count} is the number.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "desktop.git.time.monthsAgo",
-      "description": "Relative time in months. {count} is the number.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "desktop.git.time.yearsAgo",
-      "description": "Relative time in years. {count} is the number.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "desktop.files.open",
-      "description": "Open a file from the Project tree in the editor.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.showDiff",
-      "description": "Open the Diff of the file's Git change.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.stage",
-      "description": "Stage the file's whole change.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.unstage",
-      "description": "Unstage the file's staged change.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.newFile",
-      "description": "New File menu item; opens a name dialog.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.newDirectory",
-      "description": "New Directory menu item; opens a name dialog.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.rename",
-      "description": "Rename menu item; opens a name dialog.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.delete",
-      "description": "Delete menu item; asks for confirmation.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.copyPath",
-      "description": "Copy the absolute path of the row.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.copyRelativePath",
-      "description": "Copy the path of the row relative to the project.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.revealInFinder",
-      "description": "Show the row in the macOS Finder.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.revealInExplorer",
-      "description": "Show the row in the Windows File Explorer.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.refresh",
-      "description": "Read the project tree from disk again.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.newFileTitle",
-      "description": "Title of the New File dialog.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.newDirectoryTitle",
-      "description": "Title of the New Directory dialog.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.renameTitle",
-      "description": "Title of the Rename dialog.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.deleteTitle",
-      "description": "Title of the Delete confirmation dialog.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.name",
-      "description": "Label and placeholder of the name field of a file-operation dialog.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.create",
-      "description": "Create button of the New File and New Directory dialogs.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.renameAction",
-      "description": "Rename button of the Rename dialog.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.deleteAction",
-      "description": "Delete button of the Delete confirmation dialog.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.cancel",
-      "description": "Cancel button of a file-operation dialog.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.invalidName",
-      "description": "Shown when a file or folder name is empty or contains a slash.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.nameExists",
-      "description": "Shown when an item with the typed name already exists.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.deleteMessage",
-      "description": "Confirmation of deleting a file or folder. {name} is the item's name.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "name": "string"
-      }
-    },
-    {
-      "id": "desktop.files.createFailed",
-      "description": "Shown when a file or folder could not be created. {reason} is the system's reason.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "reason": "string"
-      }
-    },
-    {
-      "id": "desktop.files.renameFailed",
-      "description": "Shown when an item could not be renamed. {reason} is the system's reason.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "reason": "string"
-      }
-    },
-    {
-      "id": "desktop.files.deleteFailed",
-      "description": "Shown when an item could not be deleted. {reason} is the system's reason.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "reason": "string"
-      }
-    },
-    {
-      "id": "desktop.files.copyFailed",
-      "description": "Shown when a path could not be copied. {reason} is the system's reason.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "reason": "string"
-      }
-    },
-    {
-      "id": "desktop.files.revealFailed",
-      "description": "Shown when the system could not show the item. {reason} is the system's reason.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "reason": "string"
       }
     }
   ]

@@ -25,6 +25,7 @@ func settingsMessages(language Language) SettingsMessages {
 		AISkills:           Shared(language, "desktop.settings.agent.page.skills"),
 		AIHooks:            Shared(language, "desktop.settings.agent.page.hooks"),
 		MCP:                Shared(language, "desktop.mcp.title"),
+		IDEAPI:             Shared(language, "desktop.ideApi.title"),
 		PageLater:          Shared(language, "desktop.settings.pageLater"),
 		Appearance:         Shared(language, "settings.mac.appearance"),
 		AppearanceHelp:     Shared(language, "desktop.settings.appearanceHelp"),

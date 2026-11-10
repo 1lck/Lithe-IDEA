@@ -482,5 +482,6 @@ var english = Messages{
 	Run:    runMessages(English),
 	AI:     aiMessages(English),
 	MCP:    mcpMessages(English),
+	IDEAPI: ideAPIMessages(English),
 	Sync:   syncMessages(English),
 }

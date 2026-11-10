@@ -27,6 +27,7 @@ type Messages struct {
 	Run      RunMessages
 	AI       AIMessages
 	MCP      MCPMessages
+	IDEAPI   IDEAPIMessages
 	Sync     SyncMessages
 }
 
@@ -533,6 +534,7 @@ type SettingsMessages struct {
 	Tools              string
 	AI                 string
 	MCP                string
+	IDEAPI             string
 	// PageLater is the body of a page the new desktop client does not offer yet.
 	PageLater string
 
