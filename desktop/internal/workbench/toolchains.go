@@ -6,6 +6,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
@@ -85,7 +87,7 @@ func applyToolchainSelection(environment map[string]string, selection core.Toolc
 		if current != "" {
 			parts = append(parts, current)
 		}
-		merged["PATH"] = joinPathEntries(parts)
+		merged["PATH"] = launchSearchPath(parts)
 	}
 	return merged
 }
@@ -94,6 +96,21 @@ func applyToolchainSelection(environment map[string]string, selection core.Toolc
 // only need its environment can reuse the same merge helper.
 func (e buildExecution) selection() core.ToolchainSelection {
 	return core.ToolchainSelection{Environment: e.Environment, PathPrepend: e.PathPrepend}
+}
+
+// launchSearchPath joins the PATH of a launch: the toolchain's directories first,
+// then the inherited ones. Core owns the rule for empty entries and duplicates
+// (ASCII case-folded on Windows); only the order is this host's choice, so the
+// whole list is passed as the existing entries. If Core cannot answer, the plain
+// join keeps the launch working.
+func launchSearchPath(entries []string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	resolved, err := core.NewClient().ResolveSearchPath(ctx, entries, nil, runtime.GOOS == "windows")
+	if err != nil {
+		return joinPathEntries(entries)
+	}
+	return joinPathEntries(resolved)
 }
 
 func joinPathEntries(entries []string) string {

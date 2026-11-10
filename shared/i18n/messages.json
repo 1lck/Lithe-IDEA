@@ -11516,6 +11516,47 @@
       ]
     },
     {
+      "id": "desktop.exit.body",
+      "description": "Body of the exit confirmation. {processes} is a line-separated list of the running programs",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "processes": "string"
+      }
+    },
+    {
+      "id": "desktop.exit.cancel",
+      "description": "Button that cancels closing",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.exit.debugSession",
+      "description": "Name of the running debug session in the exit confirmation. {adapter} is the debug adapter's name",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "adapter": "string"
+      }
+    },
+    {
+      "id": "desktop.exit.stopAndClose",
+      "description": "Button that stops the running programs and closes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.exit.title",
+      "description": "Title of the confirmation shown when closing while programs started by Lithe are still running",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.git.actions",
       "description": "Desktop Git: Actions",
       "platforms": [

@@ -25,6 +25,9 @@ type pluginPrompt struct {
 	// answer receives the chosen index, or nil for a dismissal. It is buffered, so
 	// answering never blocks the window.
 	answer chan *int
+	// onAnswer, when set, is called on the window thread instead of sending to
+	// answer: a question the window itself asks has nobody waiting on a channel.
+	onAnswer func(choice *int)
 }
 
 // pluginPrompts is the queue of questions.
@@ -68,6 +71,10 @@ func (a *App) answerPrompt(choice *int) {
 	}
 	prompt := a.prompts.queue[0]
 	a.prompts.queue = a.prompts.queue[1:]
+	if prompt.onAnswer != nil {
+		prompt.onAnswer(choice)
+		return
+	}
 	prompt.answer <- choice
 }
 

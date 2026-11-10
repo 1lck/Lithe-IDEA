@@ -72,6 +72,7 @@ type Kernel interface {
 	DebugTransportPolicy(context.Context) (core.DebugTransportPolicy, error)
 	debugTransportKernel
 	debugStateKernel
+	processExitKernel
 	MatchOutputLinks(context.Context, core.OutputLinkRequest) ([]core.OutputLink, error)
 	CreateDebugSession(ctx context.Context, request core.DebugCreateSessionRequest) (core.DebugUpdate, error)
 	LaunchDebug(ctx context.Context, sessionID, operationID string, configuration core.DebugLaunchConfiguration) (core.DebugUpdate, error)
@@ -824,6 +825,22 @@ func (a *App) requestCloseProject(after func()) {
 		if !ok || a.project != p {
 			return
 		}
+		lifecycle := exitContextCloseWorkspace
+		if after != nil {
+			lifecycle = exitContextQuit
+		}
+		a.confirmProcessExit(p, lifecycle, func() { a.finishCloseProject(p, after) })
+	})
+}
+
+// finishCloseProject takes the project apart once saving and the exit
+// confirmation allowed it. Closing ends every run and the debug session the
+// project started: they belong to the window, so nothing is left running.
+func (a *App) finishCloseProject(p *project, after func()) {
+	if a.project != p {
+		return
+	}
+	{
 		a.closeEverywhere(p)
 		if a.navigation.open && a.navigation.project == p {
 			a.closeNavigation()
@@ -859,7 +876,7 @@ func (a *App) requestCloseProject(after func()) {
 		if after != nil {
 			after()
 		}
-	})
+	}
 }
 
 // statusState is what the status bar measures about the window itself.
