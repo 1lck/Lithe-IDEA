@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/vivaui/viva/gfx"
-	"github.com/vivaui/viva/ui"
 )
 
 // One Agent-declared session configuration option. The adapter owns the list,
@@ -17,8 +15,11 @@ type agentConfigOption struct {
 	Category string
 	Current  string
 	Choices  []agentConfigChoice
-	// scope names this option's drop-down in the window's identity tree.
-	scope gfx.Scope
+	// choiceIndexes lists the choices by index and pick is the one the drop-down shows,
+	// set from Current at each paint: the drop-down edits pick and a change is the
+	// user's choice.
+	choiceIndexes []int
+	pick          int
 }
 
 type agentConfigChoice struct {
@@ -34,12 +35,10 @@ type agentSessionConfig struct {
 
 	pendingToken string
 	err          string
-
-	selects map[string]*ui.SelectState
 }
 
 func newAgentSessionConfig() agentSessionConfig {
-	return agentSessionConfig{selects: map[string]*ui.SelectState{}}
+	return agentSessionConfig{}
 }
 
 func (c *agentSessionConfig) reset() { *c = newAgentSessionConfig() }
@@ -82,7 +81,6 @@ func (a *App) applyAgentConfigOptions(p *project, raw json.RawMessage) {
 	c.err = ""
 	if len(raw) == 0 || string(raw) == "null" {
 		c.options = nil
-		c.selects = map[string]*ui.SelectState{}
 		return
 	}
 	var wire []agentConfigOptionWire
@@ -91,7 +89,6 @@ func (a *App) applyAgentConfigOptions(p *project, raw json.RawMessage) {
 		return
 	}
 	options := make([]agentConfigOption, 0, len(wire))
-	selects := make(map[string]*ui.SelectState, len(wire))
 	for _, entry := range wire {
 		if entry.ID == "" || entry.Type != "select" {
 			continue
@@ -103,20 +100,17 @@ func (a *App) applyAgentConfigOptions(p *project, raw json.RawMessage) {
 			Category: entry.Category,
 			Current:  current,
 			Choices:  decodeAgentConfigChoices(entry.Options),
-			scope:    tree.Sub(agentConfigBar, tree.Name("option-"+entry.ID)),
 		}
 		if option.Name == "" {
 			option.Name = entry.ID
 		}
-		options = append(options, option)
-		state := c.selects[entry.ID]
-		if state == nil {
-			state = new(ui.SelectState)
+		option.choiceIndexes = make([]int, len(option.Choices))
+		for i := range option.choiceIndexes {
+			option.choiceIndexes[i] = i
 		}
-		selects[entry.ID] = state
+		options = append(options, option)
 	}
 	c.options = options
-	c.selects = selects
 }
 
 // decodeAgentConfigChoices flattens ACP's ungrouped or grouped value list while

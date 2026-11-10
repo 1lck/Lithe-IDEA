@@ -12,8 +12,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/text"
+	"github.com/vivaui/viva/ui"
 )
 
 // AgentSession is one Core-owned ACP connection as the workbench uses it. The
@@ -84,10 +84,6 @@ type agentMessage struct {
 	Role      agentRole
 	Text      string
 	Streaming bool
-	// height is the measured height of the last painted row, zero when the
-	// message has not been painted yet. It drives the transcript's virtual
-	// window; see agentVisibleRange.
-	height float32
 }
 
 type agentRole uint8
@@ -173,8 +169,19 @@ type agentState struct {
 	config  agentSessionConfig
 	auth    agentAuthState
 
+	// editor is the composer's text, input the Field that shows it in the panel. The
+	// panel keeps the editor so Core-facing code reads the committed draft without the
+	// page; resetComposer gives both a fresh history after a send.
 	editor *text.Editor
-	layout *components.TextareaLayout
+	input  ui.Field
+
+	// transcript and historyList are the lists of the conversation and of the
+	// history panel. follow keeps the transcript at its end while a reply streams in,
+	// until the user scrolls away; seen is the transcript's size at the last paint.
+	transcript  ui.ListState
+	historyList ui.ListState
+	follow      bool
+	seen        int
 }
 
 type agentInstallProgressRelay struct {
@@ -185,15 +192,24 @@ type agentInstallProgressRelay struct {
 }
 
 func newAgentState() agentState {
-	return agentState{
+	state := agentState{
 		providers:    map[string][]agentProvider{},
 		providerErr:  map[string]string{},
-		editor:       text.NewEditor(""),
-		layout:       new(components.TextareaLayout),
+		follow:       true,
 		installRelay: new(agentInstallProgressRelay),
 		history:      newAgentHistoryState(),
 		config:       newAgentSessionConfig(),
 	}
+	state.resetComposer()
+	return state
+}
+
+// resetComposer empties the composer with an editor of its own, so the draft that
+// was sent cannot be undone into the next one.
+func (s *agentState) resetComposer() {
+	s.editor = text.NewEditor("")
+	s.input = ui.Field{}
+	s.input.Bind(s.editor)
 }
 
 func (a *App) agentKernelReady() bool { return a.agentKernel != nil }
@@ -587,6 +603,10 @@ func (a *App) closeAgent(p *project) {
 		}
 		p.agent.providers[source] = list
 	}
+	if p.agentPage != nil {
+		p.agentPage.Close()
+		p.agentPage = nil
+	}
 	p.agent = newAgentState()
 }
 
@@ -756,7 +776,6 @@ func appendAgentAssistantText(messages *[]agentMessage, bytes *int, value string
 		if room > 0 {
 			text = agentDisplayPrefix(text, room)
 			last.Text += text
-			last.height = 0
 			*bytes += len(text)
 		}
 		return
@@ -886,8 +905,7 @@ func (a *App) sendAgentPrompt(p *project) {
 	}
 	p.agent.messages = append(p.agent.messages, agentMessage{Role: agentRoleUser, Text: value})
 	p.agent.bytes += len(value)
-	p.agent.editor = text.NewEditor("")
-	p.agent.layout = new(components.TextareaLayout)
+	p.agent.resetComposer()
 	p.agent.phase = agentPhaseBusy
 	p.agent.err = ""
 	p.agent.permission = nil

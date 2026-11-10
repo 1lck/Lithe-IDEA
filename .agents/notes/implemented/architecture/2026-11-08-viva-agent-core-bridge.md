@@ -50,7 +50,7 @@ Viva 还没有自己的 AI provider 设置存储。用户已有的 provider 只�
 ## 验证
 
 - `scripts/desktop/desktop-go.sh test -race ./internal/core -run 'TestAIConfiguration|TestAgent' -count=3 -timeout=120s`：Core 配置来源/解析、凭据定位器不泄露密钥、ACP 连接、会话、流式事件、并发关闭、独立连接、队列溢出、取消等待和子进程退出。
-- `scripts/desktop/desktop-go.sh test -race ./internal/workbench -run 'TestAgent' -count=1 -timeout=240s`：provider 发现与选择、显式适配器安装及进度/取消/重试/状态重读、启动 JSON、发送、增量回复、权限不自动答复、取消等待 `turnFinished`、请求失败/断连显示、transcript 上限与虚拟窗口、凭据不进入日志/UI、项目关闭/替换清理，以及历史列出→恢复→继续、迟到 token/项目切换拒绝、配置确认/失败、认证状态。
+- `scripts/desktop/desktop-go.sh test -race ./internal/workbench -run 'TestAgent' -count=1 -timeout=240s`：provider 发现与选择、显式适配器安装及进度/取消/重试/状态重读、启动 JSON、发送、增量回复、权限不自动答复、取消等待 `turnFinished`、请求失败/断连显示、transcript 上限与 List 虚拟窗口、凭据不进入日志/UI、项目关闭/替换清理，以及历史列出→恢复→继续、迟到 token/项目切换拒绝、配置确认/失败、认证状态。
 - `scripts/desktop/desktop-go.sh test -race ./internal/workbench -count=1 -timeout=300s`：工作台回归。
 - `node scripts/i18n/generate-i18n.mjs --check`、`node scripts/i18n/verify-app-language-localization.mjs`、`node --test --test-timeout=60000 scripts/i18n/test-i18n.mjs`：面板文案走共享 i18n。
 - 真实端到端仍需在 macOS 和 Windows 原生窗口用已安装的 Codex/Claude 和真实 provider 执行发送、权限、停止和退出清理；未执行前功能矩阵保持 `pending`。

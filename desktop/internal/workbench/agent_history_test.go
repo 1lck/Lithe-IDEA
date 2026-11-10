@@ -35,7 +35,7 @@ func agentTestConfigOptions(current string) []map[string]any {
 // session carrying the Agent's own session settings.
 func (h *harness) connectAgentWithHistory(session *fakeAgentSession, canList, canLoad bool) {
 	h.t.Helper()
-	h.agentClick(agentStart)
+	h.agentClick(h.app.text.Agent.Start)
 	session.push(map[string]any{
 		"kind": "ready", "canListSessions": canList, "canLoadSessions": canLoad,
 	})
@@ -94,7 +94,7 @@ func TestAgentHistoryListsRestoresAndContinues(t *testing.T) {
 	if !h.shows(h.app.text.Agent.History) {
 		t.Fatal("the conversation header has no history entry")
 	}
-	h.agentClick(agentHistoryToggle)
+	h.agentClick(h.app.text.Agent.History)
 	h.await("listSessions command", func() bool {
 		_, ok := agentSessionCommand(session, "listSessions")
 		return ok
@@ -119,7 +119,7 @@ func TestAgentHistoryListsRestoresAndContinues(t *testing.T) {
 	h.settle()
 
 	// Selecting a row asks Core to replay it; a late load token must be ignored.
-	h.agentClick(agentHistoryRow.At(0))
+	h.agentClickPrefix("Earlier topic")
 	h.await("loadSession command", func() bool {
 		_, ok := agentSessionCommand(session, "loadSession")
 		return ok
@@ -203,7 +203,7 @@ func TestAgentHistoryUnsupportedIsLocalized(t *testing.T) {
 	h.openAssistant()
 	h.connectAgentWithHistory(session, false, false)
 
-	h.agentClick(agentHistoryToggle)
+	h.agentClick(h.app.text.Agent.History)
 	h.settle()
 	if !h.shows(h.app.text.Agent.HistoryUnsupported) {
 		t.Fatal("a non-listing Agent did not explain the missing history capability")
@@ -233,10 +233,10 @@ func TestAgentSessionConfigFollowsCoreConfirmedCatalog(t *testing.T) {
 		t.Fatalf("config options = %d, want the three select options", len(p.agent.config.options))
 	}
 
-	modelScope := p.agent.config.options[0].scope
-	h.agentClick(modelScope.At(2)) // trigger, after the two choices
+	model := h.app.text.Agent.ConfigModel
+	h.agentClick(model) // the drop-down's trigger
 	h.settle()
-	h.agentClick(modelScope.At(1)) // Model B
+	h.agentClick("Model B")
 	h.await("setConfigOption command", func() bool {
 		return agentSessionHasCommand(session, "setConfigOption", func(command map[string]any) bool {
 			return command["configId"] == "model" && command["value"] == "model-b" && command["sessionId"] == "session-1"
@@ -256,9 +256,9 @@ func TestAgentSessionConfigFollowsCoreConfirmedCatalog(t *testing.T) {
 	})
 
 	// A failure keeps the confirmed value and is presented locally.
-	h.agentClick(modelScope.At(2))
+	h.agentClick(model)
 	h.settle()
-	h.agentClick(modelScope.At(0))
+	h.agentClick("Model A")
 	h.await("second setConfigOption", func() bool {
 		commands := session.commands()
 		count := 0
@@ -325,7 +325,7 @@ func TestAgentHistoryStateIsProjectScopedAndLateEventsIgnored(t *testing.T) {
 	h.open(t.TempDir())
 	h.openAssistant()
 	h.connectAgentWithHistory(session, true, true)
-	h.agentClick(agentHistoryToggle)
+	h.agentClick(h.app.text.Agent.History)
 	h.await("listSessions command", func() bool {
 		_, ok := agentSessionCommand(session, "listSessions")
 		return ok
@@ -384,7 +384,7 @@ func TestAgentHistoryLoadFailureKeepsCurrentConversation(t *testing.T) {
 	aBytes := h.app.project.agent.bytes
 
 	// Start restoring B and let part of its replay arrive.
-	h.agentClick(agentHistoryToggle)
+	h.agentClick(h.app.text.Agent.History)
 	h.await("history list", func() bool { return agentSessionHasCommand(session, "listSessions", nil) })
 	listCommand, _ := agentSessionLastCommand(session, "listSessions")
 	listToken, _ := listCommand["token"].(string)
@@ -394,7 +394,7 @@ func TestAgentHistoryLoadFailureKeepsCurrentConversation(t *testing.T) {
 	})
 	h.await("B row", func() bool { return h.shows("Conversation B") })
 	h.settle()
-	h.agentClick(agentHistoryRow.At(0))
+	h.agentClickPrefix("Conversation B")
 	h.await("B load", func() bool {
 		return agentSessionHasCommand(session, "loadSession", func(command map[string]any) bool {
 			return command["sessionId"] == "session-2"
@@ -452,7 +452,7 @@ func TestAgentNewConversationFailureKeepsCurrentSettings(t *testing.T) {
 	h.connectAgentWithHistory(session, true, true)
 
 	before := len(session.commands())
-	h.agentClick(agentNewChat)
+	h.agentClick(h.app.text.Agent.NewChat)
 	h.await("second newSession", func() bool {
 		count := 0
 		for _, command := range session.commands() {

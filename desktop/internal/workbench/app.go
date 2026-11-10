@@ -243,8 +243,10 @@ type project struct {
 	debug debugState
 	// panels are the pages of the Run, Tests and Debug tool windows.
 	panels runPanels
-	// agent is the project's Agent panel and connection.
-	agent agentState
+	// agent is the project's Agent panel and connection; agentPage is the Page that
+	// hosts the panel while the window is a Frame (see agent_page.go).
+	agent     agentState
+	agentPage *ui.Page
 }
 
 // App is the state of the window.
@@ -299,8 +301,6 @@ type App struct {
 	// agentKernel is the Agent panel's kernel, nil when the window was built
 	// without one.
 	agentKernel AgentKernel
-	// agentView is the window's Agent composer state; the project holds the rest.
-	agentView agentView
 	// agentClosing tracks Core sessions being closed off the window thread, so
 	// shutdown waits for their process trees.
 	agentClosing sync.WaitGroup
@@ -656,7 +656,6 @@ func (a *App) paint(canvas *gfx.Canvas, size gfx.Size) {
 	a.status.frame(canvas, a.now())
 	a.pages.begin()
 	a.chrome.beginFrame()
-	a.agentView.beginFrame()
 	a.beginTerminalFrame()
 	a.sideways.beginFrame()
 	paintTheme := a.theme
@@ -684,9 +683,6 @@ func (a *App) paint(canvas *gfx.Canvas, size gfx.Size) {
 	})
 	a.paintOverlay(canvas, bounds, paintTheme)
 	a.chrome.capture()
-	if a.project != nil {
-		a.agentView.capture(&a.project.agent)
-	}
 	a.layout.capture()
 	// Like the commit rows, the terminal is painted into a box of the frame that was just
 	// laid out, under the menus and the dragged button.

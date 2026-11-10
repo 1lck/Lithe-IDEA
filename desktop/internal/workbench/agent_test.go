@@ -16,6 +16,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/ui"
 )
 
 // fakeAgentSession is a scripted ACP connection. It records the commands the
@@ -136,25 +137,35 @@ func (h *harness) openAssistant() {
 	h.settle()
 }
 
-func (h *harness) agentHit(id gfx.ID) (gfx.Rect, bool) {
-	for _, hit := range h.driver.Snapshot().Hits {
-		if hit.ID == id {
-			return hit.Bounds, true
-		}
-	}
-	return gfx.Rect{}, false
+// agentHit finds a control of the Agent panel by its accessible name.
+func (h *harness) agentHit(name string) (gfx.Rect, bool) {
+	hit, ok := h.findPageHit(name)
+	return hit.Bounds, ok
 }
 
-func (h *harness) agentClick(id gfx.ID) {
+func (h *harness) agentClick(name string) {
 	h.t.Helper()
-	rect, ok := h.agentHit(id)
-	if !ok {
-		h.t.Fatalf("hit %v is not shown", id)
-	}
-	point := center(rect)
+	// Not clickNamed: that settles, which waits for the background work the click may start.
+	point := center(h.pageHit(name).Bounds)
 	if err := h.driver.Click(point.X, point.Y); err != nil {
-		h.t.Fatalf("click %v: %v", id, err)
+		h.t.Fatalf("click %q: %v", name, err)
 	}
+}
+
+// agentClickPrefix clicks the front-most control whose name starts with prefix.
+func (h *harness) agentClickPrefix(prefix string) {
+	h.t.Helper()
+	hits := h.driver.Snapshot().Hits
+	for i := len(hits) - 1; i >= 0; i-- {
+		if hit := hits[i]; strings.HasPrefix(hit.Label, prefix) && !hit.IsLabel && !hit.ID.IsZero() {
+			point := center(hit.Bounds)
+			if err := h.driver.Click(point.X, point.Y); err != nil {
+				h.t.Fatalf("click %q: %v", hit.Label, err)
+			}
+			return
+		}
+	}
+	h.t.Fatalf("no control named %q...", prefix)
 }
 
 // await pumps frames until condition is true, or fails at the deadline. It
@@ -208,7 +219,7 @@ func fixtureAgentConfiguration() *core.AIConfiguration {
 // connectAgent drives the setup panel through a scripted connection.
 func (h *harness) connectAgent(session *fakeAgentSession) {
 	h.t.Helper()
-	h.agentClick(agentStart)
+	h.agentClick(h.app.text.Agent.Start)
 	session.push(map[string]any{"kind": "ready"})
 	h.await("newSession command", func() bool {
 		for _, command := range session.commands() {
@@ -227,7 +238,7 @@ func (h *harness) connectAgent(session *fakeAgentSession) {
 
 func (h *harness) typePrompt(value string) {
 	h.t.Helper()
-	input, ok := h.agentHit(agentInput)
+	input, ok := h.agentHit(h.app.text.Agent.MessageLabel)
 	if !ok {
 		h.t.Fatal("the composer is not shown")
 	}
@@ -237,7 +248,7 @@ func (h *harness) typePrompt(value string) {
 	if err := h.driver.Type(value); err != nil {
 		h.t.Fatal(err)
 	}
-	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyEnter, ui.Primary); err != nil {
 		h.t.Fatal(err)
 	}
 }
@@ -256,7 +267,7 @@ func TestAgentPanelDiscoversProviderStartsSessionAndStreams(t *testing.T) {
 	if !h.shows("Fixture provider") || !h.shows("https://example.test/v1") {
 		t.Fatal("the panel did not show the discovered provider")
 	}
-	h.agentClick(agentStart)
+	h.agentClick(h.app.text.Agent.Start)
 	select {
 	case launch := <-kernel.opened:
 		var decoded map[string]any
@@ -289,7 +300,7 @@ func TestAgentPanelDiscoversProviderStartsSessionAndStreams(t *testing.T) {
 		return p != nil && p.agent.sessionID == "session-1" && p.agent.phase == agentPhaseReady
 	})
 
-	input, ok := h.agentHit(agentInput)
+	input, ok := h.agentHit(h.app.text.Agent.MessageLabel)
 	if !ok {
 		t.Fatal("the composer is not shown")
 	}
@@ -299,7 +310,7 @@ func TestAgentPanelDiscoversProviderStartsSessionAndStreams(t *testing.T) {
 	if err := h.driver.Type("hello"); err != nil {
 		t.Fatal(err)
 	}
-	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
+	if err := h.driver.Key(gfx.KeyEnter, ui.Primary); err != nil {
 		t.Fatal(err)
 	}
 	h.await("prompt command", func() bool {
@@ -329,7 +340,7 @@ func TestAgentPanelDiscoversProviderStartsSessionAndStreams(t *testing.T) {
 			t.Fatal("the panel answered a permission request without the user")
 		}
 	}
-	h.agentClick(agentPermissionScope.At(0))
+	h.agentClick("Allow Once")
 	h.await("permission command", func() bool {
 		for _, command := range session.commands() {
 			if command["kind"] == "permission" {
@@ -386,7 +397,7 @@ func TestAgentStartFailureIsShown(t *testing.T) {
 	h := newAgentHarness(t, kernel)
 	h.open(t.TempDir())
 	h.openAssistant()
-	h.agentClick(agentStart)
+	h.agentClick(h.app.text.Agent.Start)
 	h.await("start failure", func() bool {
 		p := h.app.project
 		return p != nil && p.agent.err == h.app.text.Agent.ErrorConnection
@@ -414,7 +425,7 @@ func TestAgentCancelWaitsForTurnFinished(t *testing.T) {
 		}
 		return false
 	})
-	h.agentClick(agentStop)
+	h.agentClick(h.app.text.Agent.Stop)
 	h.await("cancel command", func() bool {
 		for _, command := range session.commands() {
 			if command["kind"] == "cancel" {
@@ -611,29 +622,6 @@ func TestAgentSessionClosesWhenProjectIsReplaced(t *testing.T) {
 	}
 }
 
-func TestAgentTranscriptVirtualWindowIsBounded(t *testing.T) {
-	messages := make([]agentMessage, 100)
-	for i := range messages {
-		messages[i] = agentMessage{Role: agentRoleAssistant, Text: "message", height: 40}
-	}
-	first, last, before, after := agentVisibleRange(messages, 1000, 200)
-	if first <= 0 || last >= len(messages) {
-		t.Fatalf("window = [%d,%d), want a middle window", first, last)
-	}
-	if last-first > 8 {
-		t.Fatalf("window painted %d rows for a 200px viewport", last-first)
-	}
-	if before <= 0 || after <= 0 {
-		t.Fatalf("spacers = %v before, %v after", before, after)
-	}
-	if before+after >= float32(len(messages))*40 {
-		t.Fatalf("spacers %v cover the whole transcript", before+after)
-	}
-	if height := agentMessageHeight(agentMessage{Text: "new"}); height <= 0 || height > 4000 {
-		t.Fatalf("estimated height = %v", height)
-	}
-}
-
 func TestAgentTranscriptPaintsOnlyTheVisibleWindow(t *testing.T) {
 	t.Setenv("FIXTURE_AGENT_KEY", "fixture-secret")
 	session := newFakeAgentSession()
@@ -646,19 +634,34 @@ func TestAgentTranscriptPaintsOnlyTheVisibleWindow(t *testing.T) {
 	p := h.app.project
 	for i := 0; i < 100; i++ {
 		p.agent.messages = append(p.agent.messages, agentMessage{
-			Role: agentRoleAssistant, Text: fmt.Sprintf("message %d", i), height: 40,
+			Role: agentRoleAssistant, Text: fmt.Sprintf("message %d", i),
 		})
 	}
 	h.app.invalidator.Invalidate()
 	h.settle()
-	h.app.view.ScrollState(agentTranscript).ScrollTo(1000)
-	h.app.invalidator.Invalidate()
-	h.settle()
-	if h.shows("message 0") || h.shows("message 99") {
+	// A list measures the rows it shows and places the ones it follows or scrolls to in
+	// the paints after, so each request settles over a few frames.
+	frames := func() {
+		for i := 0; i < 3; i++ {
+			h.app.invalidator.Invalidate()
+			h.settle()
+		}
+	}
+	frames()
+	if !h.shows("message 99") {
+		t.Fatal("a transcript that follows its end did not show the last message")
+	}
+	if h.shows("message 0") || h.shows("message 50") {
 		t.Fatal("the transcript painted rows outside the virtual window")
 	}
-	if !h.shows("message 25") && !h.shows("message 26") {
-		t.Fatal("the transcript did not paint the visible rows")
+	painted := 0
+	for _, label := range h.driver.Snapshot().Labels {
+		if strings.HasPrefix(label.Value, "message ") {
+			painted++
+		}
+	}
+	if painted == 0 || painted > 20 {
+		t.Fatalf("the transcript painted %d rows of 100, want only the window", painted)
 	}
 }
 
@@ -684,7 +687,7 @@ func TestAgentPermissionIsNotAnsweredOnCancel(t *testing.T) {
 		"options":  []any{map[string]any{"optionId": "allow_once", "name": "Allow Once", "kind": "allow_once"}},
 	}})
 	h.await("permission card", func() bool { return h.shows("Run tests") })
-	h.agentClick(agentStop)
+	h.agentClick(h.app.text.Agent.Stop)
 	h.await("cancel command", func() bool {
 		for _, command := range session.commands() {
 			if command["kind"] == "cancel" {
@@ -762,7 +765,7 @@ func TestAgentCredentialsStayInMemoryAndOutOfLogs(t *testing.T) {
 		"options":  []any{map[string]any{"optionId": "allow_once", "name": "Allow Once", "kind": "allow_once"}},
 	}})
 	h.await("permission card", func() bool { return h.shows("Run tests") })
-	h.agentClick(agentStop)
+	h.agentClick(h.app.text.Agent.Stop)
 	h.await("cancel command", func() bool {
 		for _, command := range session.commands() {
 			if command["kind"] == "cancel" {
@@ -821,7 +824,7 @@ func TestAgentInstallRequiresExplicitClickAndReloadsStatus(t *testing.T) {
 	if !h.shows(h.app.text.Agent.Install) {
 		t.Fatal("the panel did not offer an install for the missing adapter")
 	}
-	h.agentClick(agentInstall.At(0))
+	h.agentClick(h.app.text.Agent.Install)
 	select {
 	case <-started:
 	case <-time.After(5 * time.Second):
@@ -858,14 +861,14 @@ func TestAgentInstallCanBeCancelled(t *testing.T) {
 	h := newAgentHarness(t, kernel)
 	h.open(t.TempDir())
 	h.openAssistant()
-	h.agentClick(agentInstall.At(0))
+	h.agentClick(h.app.text.Agent.Install)
 	select {
 	case <-started:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the install did not start")
 	}
 	h.await("install progress", func() bool { return h.shows(h.app.text.Agent.InstallDownloading) })
-	h.agentClick(agentInstallCancel)
+	h.agentClick(h.app.text.Agent.InstallCancel)
 	h.await("cancelled install", func() bool {
 		p := h.app.project
 		return p != nil && p.agent.installing == "" && p.agent.installErr == h.app.text.Agent.InstallCancelled
@@ -890,17 +893,17 @@ func TestAgentInstallFailureCanBeRetried(t *testing.T) {
 	h := newAgentHarness(t, kernel)
 	h.open(t.TempDir())
 	h.openAssistant()
-	h.agentClick(agentInstall.At(0))
+	h.agentClick(h.app.text.Agent.Install)
 	h.await("install failure", func() bool {
 		p := h.app.project
 		return p != nil && p.agent.installing == "" &&
 			p.agent.installErr == h.app.text.Agent.InstallFailed(h.app.text.Agent.InstallFailedDetail) &&
 			h.shows(h.app.text.Agent.InstallFailed(h.app.text.Agent.InstallFailedDetail))
 	})
-	if _, ok := h.agentHit(agentInstallRetry); !ok {
+	if _, ok := h.agentHit(h.app.text.Agent.InstallRetry); !ok {
 		t.Fatal("the failed install has no retry control")
 	}
-	h.agentClick(agentInstallRetry)
+	h.agentClick(h.app.text.Agent.InstallRetry)
 	h.await("retried install", func() bool {
 		p := h.app.project
 		return p != nil && p.agent.installing == "" && len(p.agent.agents) == 1 && p.agent.agents[0].InstalledVersion != nil
@@ -959,7 +962,7 @@ func TestAgentProjectCloseCancelsInstall(t *testing.T) {
 	h := newAgentHarness(t, kernel)
 	h.open(t.TempDir())
 	h.openAssistant()
-	h.agentClick(agentInstall.At(0))
+	h.agentClick(h.app.text.Agent.Install)
 	select {
 	case <-started:
 	case <-time.After(5 * time.Second):

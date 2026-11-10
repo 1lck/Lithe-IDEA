@@ -142,8 +142,5 @@ func (a *App) textInput(ctx app.TextInputContext) *app.TextInput {
 	if v := a.focusedDocument(ctx.ID); v != nil {
 		return v.TextInput(ctx)
 	}
-	if input := a.agentTextInput(ctx); input != nil {
-		return input
-	}
 	return a.fields(ctx)
 }
