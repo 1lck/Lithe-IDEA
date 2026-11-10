@@ -27,9 +27,9 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
-# Lithe-core-rust main after Lithe-IDEA/Lithe-core-rust#3 merged (desktop settings, toolchain pin
-# editing and ordered DAP launch state used by the Viva client).
-PINNED_CORE_REVISION="482499cabd128f5c9dfec744c63c7bda1bb9e678"
+# Lithe-core-rust main after Lithe-IDEA/Lithe-core-rust#4 merged (git_authentication_failed code,
+# featuresChanged completionOptions, rangeFormatting and formattingOptions used by the Viva client).
+PINNED_CORE_REVISION="9eccfd661f95a6e0265840a2e3b8183717a5f37d"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

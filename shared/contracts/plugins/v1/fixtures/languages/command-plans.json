@@ -207,6 +207,7 @@
       "expected": {
         "status": "ok",
         "plan": {
+          "owner": { "pluginID": "dev.lithe.fixture.node-runtime", "version": "1.0.0" },
           "launch": {
             "kind": "runtime",
             "tool": "node",
@@ -276,6 +277,7 @@
       "expected": {
         "status": "ok",
         "plan": {
+          "owner": { "pluginID": "dev.lithe.fixture.node-runtime", "version": "1.0.0" },
           "launch": {
             "kind": "runtime",
             "tool": "node",
@@ -346,6 +348,7 @@
       "expected": {
         "status": "ok",
         "plan": {
+          "owner": { "pluginID": "dev.lithe.fixture.node-runtime", "version": "1.0.0" },
           "launch": {
             "kind": "runtime",
             "tool": "node",
@@ -413,6 +416,7 @@
       "expected": {
         "status": "ok",
         "plan": {
+          "owner": { "pluginID": "dev.lithe.fixture.node-runtime", "version": "1.0.0" },
           "launch": {
             "kind": "runtime",
             "tool": "node",
@@ -477,6 +481,7 @@
       "expected": {
         "status": "ok",
         "plan": {
+          "owner": { "pluginID": "dev.lithe.fixture.language-packaged-server", "version": "0.1.0" },
           "launch": {
             "kind": "packaged",
             "path": "language-server/bin/intelephense"
@@ -511,6 +516,7 @@
       "expected": {
         "status": "ok",
         "plan": {
+          "owner": { "pluginID": "dev.lithe.fixture.language-system-command", "version": "0.1.0" },
           "launch": {
             "kind": "systemCommand",
             "commands": [
@@ -545,6 +551,7 @@
       "expected": {
         "status": "ok",
         "plan": {
+          "owner": { "pluginID": "dev.lithe.fixture.build-provider-language-server", "version": "0.1.0" },
           "launch": {
             "kind": "systemCommand",
             "commands": [
@@ -581,6 +588,7 @@
       "expected": {
         "status": "ok",
         "plan": {
+          "owner": { "pluginID": "dev.lithe.fixture.build-provider-language-server", "version": "0.1.0" },
           "launch": {
             "kind": "systemCommand",
             "commands": [
@@ -647,6 +655,7 @@
       "expected": {
         "status": "ok",
         "plan": {
+          "owner": { "pluginID": "dev.lithe.fixture.node-runtime", "version": "1.0.0" },
           "launch": {
             "kind": "runtime",
             "tool": "node",

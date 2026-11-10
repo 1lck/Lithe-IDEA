@@ -1971,6 +1971,18 @@ Fetch's existing explicit flags remain in the argument vector for compatibility.
 `LC_ALL=C`, pager suppression and no terminal prompting are child-local policy.
 Transfer progress is requested explicitly. No config file is implicitly modified.
 
+Because every Git child runs with `LC_ALL=C` and no terminal prompting, its
+authentication diagnostics are fixed English text whatever the system language.
+A failed `git.write` response (non-zero `exitCode`, or an `operationError` with
+code `process_failed`) whose Git stderr shows the remote refused or lacked
+credentials (`Authentication failed`, `could not read Username/Password`,
+`Permission denied (publickey…)`, HTTP 401/403, GitHub `Permission to … denied
+to …`) reports `operationError.code = "git_authentication_failed"`. When Core
+adds that error to a response that had none, `message` is the first stderr line
+and `details` the combined output; an existing message and details are kept.
+Other failures keep their codes, so hosts must not match stderr themselves.
+Samples: `shared/fixtures/git/authentication-failure-v1.json`.
+
 `git.remoteUrl` accepts `{ root, remote }` and returns `{ url: string | null }`.
 It uses the internal configuration-read path: a missing key is successful and
 produces no command row. Invalid requests and real access/executable failures
@@ -4037,7 +4049,7 @@ explicit `plugin.function.*` error.
 the operation-specific URI, position, range, diagnostics, item, action, or
 command fields, and returns `{ operationId }`. Supported operations include
 completion and resolve, hover, definition/declaration/type-definition, references,
-implementation, rename, formatting, code actions and resolve, execute command,
+implementation, rename, formatting, range formatting, code actions and resolve, execute command,
 inlay hints, full-document semantic tokens, folding ranges, code lens, provider
 virtual documents, `javaEntrypoints`, `javaTestItems`, and `javaMainMethods`.
 For code actions, `diagnostics` contains the original `LspClientDiagnostic`
@@ -5961,6 +5973,26 @@ index remains unchanged. The default false retains tracked-only unstaged export;
 Missing or stale HEAD rejects the amendment before writing; plain Continue,
 Skip and Abort do not require this field. Both products must send the HEAD
 reviewed by the amendment editor. See [Rebase sessions](git-rebase-session.md).
+
+Operation `rangeFormatting` (`textDocument/rangeFormatting`) formats the
+required `range` and is offered when the server declares
+`documentRangeFormattingProvider`, as the `rangeFormatting` feature. Its result,
+like `formatting`, is `{ edits }`. Both formatting operations accept optional
+`formattingOptions`, an object of LSP `FormattingOptions`: `tabSize` (integer
+1-1024), `insertSpaces`, `trimTrailingWhitespace`, `insertFinalNewline`,
+`trimFinalNewlines` (booleans), and other keys whose values are boolean,
+integer or string. Supplied values are merged over the defaults `tabSize: 4`,
+`insertSpaces: true`, `trimTrailingWhitespace: true`, `insertFinalNewline: true`,
+`trimFinalNewlines: true`, so omitting the field keeps the previous behaviour.
+Invalid values fail with `invalid_request`.
+
+The `featuresChanged` event carries `completionOptions:
+{ triggerCharacters: string[], allCommitCharacters: string[] }` whenever the
+`completion` feature is offered: the de-duplicated union of the server's
+`completionProvider` and its dynamic `textDocument/completion` registrations
+(empty arrays when none are declared). The event is re-sent when registrations
+change them. Hosts use it, not a hard-coded list, to send
+`completionContext.triggerKind = 2`.
 
 Completion requests accept optional `completionContext` with LSP `triggerKind`
 (`1` invoked, `2` trigger character, `3` incomplete-list refresh) and

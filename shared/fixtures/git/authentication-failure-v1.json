@@ -1,0 +1,15 @@
+{
+  "errorCode": "git_authentication_failed",
+  "failures": [
+    {"name": "http-bad-credentials", "stderr": "remote: Invalid username or password.\nfatal: Authentication failed for 'https://example.com/a.git/'\n"},
+    {"name": "http-no-credential", "stderr": "fatal: could not read Username for 'https://example.com': terminal prompts disabled\n"},
+    {"name": "http-forbidden", "stderr": "remote: Permission to a/b.git denied to someone.\nfatal: unable to access 'https://github.com/a/b.git/': The requested URL returned error: 403\n"},
+    {"name": "ssh-publickey", "stderr": "git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n"}
+  ],
+  "unrelated": [
+    {"name": "dns", "stderr": "fatal: unable to access 'https://example.com/': Could not resolve host: example.com\n"},
+    {"name": "not-found", "stderr": "fatal: repository 'https://example.com/a.git/' not found\n"},
+    {"name": "ssh-timeout", "stderr": "ssh: connect to host example.com port 22: Connection timed out\nfatal: Could not read from remote repository.\n"},
+    {"name": "non-fast-forward", "stderr": "! [rejected] main -> main (non-fast-forward)\n"}
+  ]
+}

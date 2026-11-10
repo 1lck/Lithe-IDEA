@@ -463,6 +463,7 @@ process does not use `${workspaceStateDir}`; otherwise the request is
 
 | Field | Meaning |
 | --- | --- |
+| `owner` | `{pluginID, version}` of the installed package Core validated for this plan. The host starts the server for that exact installation and uses this identity, not one it read elsewhere, when it later relays requests or reports the session. |
 | `launch` | `{kind: "packaged", path}`, `{kind: "systemCommand", commands}`, or `{kind: "runtime", tool, entry, packagedRuntime?, minimumVersion?, versionArguments?}`: what the host resolves to an executable. `packagedRuntime` is the expanded package-relative path of a shipped runtime. `minimumVersion` and `versionArguments` appear together when a discovered runtime must meet a minimum version. A `runtime` launch whose `tool` names a tool definition, by `serverProcess` 4 or implicitly, returns the `{kind: "tool", …}` shape of [Tool references](#tool-references-serverprocess-4) instead. A [backend-resolved launch](#backend-resolved-launch-serverprocess-3) returns `{kind: "backend", function, timeoutMilliseconds}` here, and `{kind: "tool", tool}` appears in the plan `plugins.languageServers.decodeLaunch` returns. |
 | `arguments` | Complete argument list after the executable, including the entry of a `node` runtime launch. A tool-shaped launch returns only the plugin's own arguments. |
 | `validationArguments` | Expanded probe arguments. |
@@ -1109,7 +1110,7 @@ every product shows the same catalog and the same install review.
   `Plugins/marketplace/index.json` in the Lithe repository. A copy is bundled
   read-only with the application so the catalog works offline; refreshing
   fetches the same file from
-  `https://raw.githubusercontent.com/1lck/Lithe-IDEA/HEAD/Plugins/marketplace/index.json`.
+  `https://raw.githubusercontent.com/Lithe-IDEA/Lithe-IDEA/HEAD/Plugins/marketplace/index.json`.
 - Hosts also preset one **community** source, Lithe Store
   (`https://github.com/Lithe-IDEA/Lithe-store`, index
   `https://raw.githubusercontent.com/Lithe-IDEA/Lithe-store/HEAD/lithe-plugin-index.json`).

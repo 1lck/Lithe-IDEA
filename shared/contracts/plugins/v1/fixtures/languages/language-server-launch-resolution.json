@@ -18,6 +18,7 @@
       "expected": {
         "status": "ok",
         "plan": {
+          "owner": { "pluginID": "dev.lithe.fixture.language-server-backend-launch", "version": "0.1.0" },
           "launch": {
             "kind": "backend",
             "function": "metals.resolveLaunch",
