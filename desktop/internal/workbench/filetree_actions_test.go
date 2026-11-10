@@ -44,7 +44,7 @@ func (h *harness) openTree(t *testing.T, root string) *project {
 func (h *harness) treeAction(action int) gfx.Hit {
 	h.t.Helper()
 	for _, hit := range h.driver.Snapshot().Hits {
-		if hit.ID == treeActions.At(action) {
+		if hit.Label == treeActionLabel(h, action) && !hit.IsLabel {
 			return hit
 		}
 	}
@@ -267,7 +267,7 @@ func TestProjectTreeRefreshRetriesARootThatIsGone(t *testing.T) {
 func (h *harness) treeRowHit(name string) gfx.Hit {
 	h.t.Helper()
 	for _, hit := range h.driver.Snapshot().Hits {
-		if hit.Label == name && !hit.IsLabel && hit.Bounds.Width > 100 && h.app.project.tree.host.page.Owns(hit.ID) {
+		if hit.Label == name && !hit.IsLabel && hit.Bounds.Width > 100 && h.treeRowOwned(hit.ID) {
 			return hit
 		}
 	}
@@ -279,7 +279,7 @@ func (h *harness) treeRowHit(name string) gfx.Hit {
 func (h *harness) treeRowCount() int {
 	n := 0
 	for _, hit := range h.driver.Snapshot().Hits {
-		if hit.Role == gfx.RoleButton && !hit.IsLabel && hit.Bounds.Width > 100 && h.app.project.tree.host.page.Owns(hit.ID) {
+		if hit.Role == gfx.RoleButton && !hit.IsLabel && hit.Bounds.Width > 100 && h.treeRowOwned(hit.ID) {
 			n++
 		}
 	}
@@ -290,10 +290,35 @@ func (h *harness) treeRowCount() int {
 func (h *harness) treeChevronHit(name string) gfx.Hit {
 	h.t.Helper()
 	for _, hit := range h.driver.Snapshot().Hits {
-		if hit.Label == name && !hit.IsLabel && hit.Bounds.Width <= 40 && h.app.project.tree.host.page.Owns(hit.ID) {
+		if hit.Label == name && !hit.IsLabel && hit.Bounds.Width <= 40 && h.treeRowOwned(hit.ID) {
 			return hit
 		}
 	}
 	h.t.Fatalf("the tree shows no chevron for %q", name)
 	return gfx.Hit{}
+}
+
+// treeActionLabel is the name of the header button action of the Project tool window.
+func treeActionLabel(h *harness, action int) string {
+	language := h.app.language()
+	switch action {
+	case treeActionLocate:
+		return i18n.Shared(language, "native.revealActiveFileInProjectTree")
+	case treeActionRefresh:
+		return i18n.Shared(language, "ui.refresh")
+	case treeActionExpand:
+		return i18n.Shared(language, "outline.expandAll")
+	}
+	return i18n.Shared(language, "files.collapseAll")
+}
+
+// treeRowOwned says id is the identity of one of the tree's rows or chevrons.
+func (h *harness) treeRowOwned(id gfx.ID) bool {
+	t := &h.app.project.tree
+	for i := range t.rows {
+		if t.view.RowID(i) == id || t.view.DisclosureID(i) == id {
+			return true
+		}
+	}
+	return false
 }

@@ -18,7 +18,7 @@ func (h *harness) openBranches(dir string) *project {
 	if p == nil || !p.git.isRepository() {
 		h.t.Fatalf("the project is not a loaded repository: %+v", p)
 	}
-	h.click(center(h.hit(chromeBranchButton)))
+	h.click(center(h.hitLabeled(h.app.text.Title.BranchMenu)))
 	if !h.app.branch.open || !h.app.branch.loaded {
 		h.t.Fatalf("branch popup open %v, loaded %v", h.app.branch.open, h.app.branch.loaded)
 	}

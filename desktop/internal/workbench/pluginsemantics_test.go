@@ -531,7 +531,7 @@ func formatShortcut(f *semanticFixture) gfx.KeyEvent {
 	if runtime.GOOS == "darwin" {
 		mods = gfx.ModifierMeta | gfx.ModifierAlt
 	}
-	return gfx.KeyEvent{Text: "l", Modifiers: mods, Target: docViews.At(f.d.id)}
+	return gfx.KeyEvent{Text: "l", Modifiers: mods, Target: f.d.hit}
 }
 
 func TestFormatDocumentAppliesLocalEditsOnUndoStack(t *testing.T) {

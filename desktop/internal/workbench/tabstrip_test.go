@@ -80,39 +80,59 @@ func inside(r, view gfx.Rect) bool {
 	return r.X >= view.X-tabHideSlack && r.Right() <= view.Right()+tabHideSlack
 }
 
-// A strip whose tabs do not fit scrolls sideways: the selected tab is scrolled into view, a
-// thin bar along the top shows where the row is, the wheel scrolls it, and the button at its
-// end lists the tabs it does not show. Picking one there selects it and scrolls it into
-// view; its close button closes it and keeps the list open; Escape and a click elsewhere
-// close the list.
+// tabHit is the hit of the tab named name, which is where its chip was laid out.
+func (h *harness) tabHit(name string) gfx.Rect {
+	h.t.Helper()
+	for _, hit := range h.driver.Snapshot().Hits {
+		if hit.Role == gfx.RoleTab && hit.Label == name && !hit.IsLabel {
+			return hit.Bounds
+		}
+	}
+	h.t.Fatalf("no tab named %q is shown", name)
+	return gfx.Rect{}
+}
+
+// stripView is the part of group's strip that shows the tabs, as the last paint laid it out.
+func (h *harness) stripView(group string) gfx.Rect {
+	h.t.Helper()
+	s := h.app.term.strips[group]
+	for _, g := range h.app.term.groups {
+		if g.id == group {
+			return gfx.Rect{X: g.strip.X + chromeGap, Y: g.strip.Y, Width: s.width, Height: panelHeaderHeight}
+		}
+	}
+	h.t.Fatalf("group %s was not declared", group)
+	return gfx.Rect{}
+}
+
+// A strip whose tabs do not fit scrolls sideways: the selected tab is scrolled into view, the
+// wheel scrolls it, and the button at its end lists the tabs it does not show. Picking one
+// there selects it and scrolls it into view; Escape and a click elsewhere close the list.
 func TestEditorTabsScrollAndListTheHiddenOnes(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	docs, group := h.openTabs(t, 12)
 	s := h.app.term.strips[group]
-	if s == nil || !s.scroll.Overflows() {
+	if s == nil || len(s.hidden) == 0 {
 		t.Fatalf("twelve long tabs fit their strip: %+v", s)
 	}
-	view := s.scroll.Area
+	view := h.stripView(group)
 	first, last := docs[0], docs[len(docs)-1]
-	if tab := h.hit(docTabs.At(last.id)); !inside(tab, view) {
+	if tab := h.tabHit(last.name); !inside(tab, view) {
 		t.Fatalf("the selected tab %+v is not scrolled into the strip %+v", tab, view)
 	}
 	if !slices.Contains(s.hidden, documentMember(first.id)) || slices.Contains(s.hidden, documentMember(last.id)) {
 		t.Fatalf("hidden = %v, want the first tab and not the selected last one", s.hidden)
 	}
-	if _, length, ok := s.scroll.Thumb(); !ok || length >= view.Width {
-		t.Fatalf("the strip shows no scrollbar: length %v of %v", length, view.Width)
-	}
 
-	// A plain turn of the wheel over the strip scrolls it sideways, back to the start.
-	if err := h.driver.Scroll(gfx.ScrollEvent{X: view.X + 20, Y: view.Y + view.Height/2, DeltaY: -100000, Precise: true}); err != nil {
+	// A sideways turn of the wheel over the strip scrolls it, back to the start.
+	if err := h.driver.Scroll(gfx.ScrollEvent{X: view.X + 20, Y: view.Y + view.Height/2, DeltaX: -100000, Precise: true}); err != nil {
 		t.Fatal(err)
 	}
 	h.frames()
-	if s.scroll.Offset != 0 {
-		t.Fatalf("the wheel left the strip at %v, want 0", s.scroll.Offset)
+	if s.list.ScrollX() != 0 {
+		t.Fatalf("the wheel left the strip at %v, want 0", s.list.ScrollX())
 	}
-	if tab := h.hit(docTabs.At(first.id)); !inside(tab, view) {
+	if tab := h.tabHit(first.name); !inside(tab, view) {
 		t.Fatalf("scrolled to the start, the first tab %+v is not in the strip %+v", tab, view)
 	}
 	if !slices.Contains(s.hidden, documentMember(last.id)) {
@@ -123,7 +143,7 @@ func TestEditorTabsScrollAndListTheHiddenOnes(t *testing.T) {
 	}
 
 	// The list of hidden tabs selects the one picked and scrolls it into view.
-	more := h.hit(tabMore.At(0))
+	more := h.hitLabeled(h.app.text.Editor.HiddenTabs)
 	if more.X < view.Right()-tabHideSlack {
 		t.Fatalf("the button %+v is not after the tabs, which end at %v", more, view.Right())
 	}
@@ -132,34 +152,22 @@ func TestEditorTabsScrollAndListTheHiddenOnes(t *testing.T) {
 		t.Fatal("the button did not open the list of hidden tabs")
 	}
 	picked := docs[len(docs)-2]
-	h.press(h.topHit(tabHidden.At(shownTab{doc: picked}.key())))
+	h.press(h.menuItemHit(picked.name))
 	if s.menu {
 		t.Fatal("picking a tab left the list open")
 	}
 	if h.selectedMember(group) != documentMember(picked.id) {
 		t.Fatalf("picking %s selected %s", documentMember(picked.id), h.selectedMember(group))
 	}
-	if tab := h.hit(docTabs.At(picked.id)); !inside(tab, view) {
+	if tab := h.tabHit(picked.name); !inside(tab, view) {
 		t.Fatalf("the picked tab %+v is not scrolled into the strip %+v", tab, view)
 	}
 
-	// Its close button closes a hidden tab and leaves the list open on the rest.
-	h.press(h.hit(tabMore.At(0)))
-	if !slices.Contains(s.hidden, documentMember(first.id)) {
-		t.Fatalf("hidden = %v lacks the first tab", s.hidden)
-	}
-	h.press(h.topHit(tabHiddenClose.At(shownTab{doc: first}.key())))
-	if h.app.project.docs.find(first.id) != nil {
-		t.Fatal("the close button of a hidden tab did not close its file")
-	}
-	if !s.menu || slices.Contains(s.hidden, documentMember(first.id)) {
-		t.Fatalf("after closing a hidden tab the list is open %v with %v", s.menu, s.hidden)
-	}
-	if h.selectedMember(group) != documentMember(picked.id) {
-		t.Fatal("closing a hidden tab changed the selection")
-	}
-
 	// Escape closes the list, and so does a click anywhere else, which does nothing more.
+	h.press(h.hitLabeled(h.app.text.Editor.HiddenTabs))
+	if !s.menu {
+		t.Fatal("the button did not open the list again")
+	}
 	if err := h.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -167,11 +175,11 @@ func TestEditorTabsScrollAndListTheHiddenOnes(t *testing.T) {
 	if s.menu {
 		t.Fatal("Escape left the list of hidden tabs open")
 	}
-	h.press(h.hit(tabMore.At(0)))
+	h.press(h.hitLabeled(h.app.text.Editor.HiddenTabs))
 	if !s.menu {
-		t.Fatal("the button did not open the list again")
+		t.Fatal("the button did not open the list a third time")
 	}
-	body := h.app.term.groups[0].body.Rect()
+	body := h.app.term.groups[0].body
 	h.press(gfx.Rect{X: body.X + body.Width/2, Y: body.Y + body.Height/2, Width: 1, Height: 1})
 	if s.menu {
 		t.Fatal("a click outside left the list of hidden tabs open")
@@ -181,44 +189,16 @@ func TestEditorTabsScrollAndListTheHiddenOnes(t *testing.T) {
 	}
 }
 
-// The thin bar along the top of a strip that scrolls can be dragged: dragging its thumb to
-// the start scrolls the tabs to the start, and a press on the bar beside the thumb moves the
-// thumb there at once. Neither presses the tab under the bar.
-func TestEditorTabStripThumbDrags(t *testing.T) {
-	h := newHarness(t, &testKernel{Client: core.NewClient()})
-	docs, group := h.openTabs(t, 12)
-	s := h.app.term.strips[group]
-	if s == nil || s.scroll.Offset == 0 || s.scroll.Offset != s.scroll.Max() {
-		t.Fatalf("the strip is not scrolled to its selected last tab: %+v", s)
+// menuItemHit is the hit of the item named name of the menu that is open.
+func (h *harness) menuItemHit(name string) gfx.Rect {
+	h.t.Helper()
+	for _, hit := range h.driver.Snapshot().Hits {
+		if hit.Role == gfx.RoleMenuItem && hit.Label == name && !hit.IsLabel {
+			return hit.Bounds
+		}
 	}
-	view := s.scroll.Area
-	bar := h.hit(tabScrollbar.At(0))
-	if bar.X != view.X || bar.Width != view.Width || bar.Y != view.Y || bar.Height != sidewaysTabGrip {
-		t.Fatalf("the bar %+v does not run along the top of the strip %+v", bar, view)
-	}
-	selected := h.selectedMember(group)
-
-	left, length, _ := s.scroll.Thumb()
-	y := bar.Y + bar.Height/2
-	h.drag(gfx.Point{X: view.X + left + length/2, Y: y}, gfx.Point{X: view.X, Y: y})
-	h.frames()
-	if s.scroll.Offset != 0 {
-		t.Fatalf("dragging the thumb to the start left the strip at %v", s.scroll.Offset)
-	}
-	if tab := h.hit(docTabs.At(docs[0].id)); !inside(tab, view) {
-		t.Fatalf("dragged to the start, the first tab %+v is not in the strip %+v", tab, view)
-	}
-	if h.app.sideways.drag.scroll != nil {
-		t.Fatal("the release did not end the drag")
-	}
-
-	h.press(gfx.Rect{X: view.Right() - 2, Y: bar.Y, Width: 1, Height: bar.Height})
-	if s.scroll.Offset != s.scroll.Max() {
-		t.Fatalf("a press at the end of the bar left the strip at %v of %v", s.scroll.Offset, s.scroll.Max())
-	}
-	if h.selectedMember(group) != selected {
-		t.Fatal("a press on the bar selected the tab under it")
-	}
+	h.t.Fatalf("the open menu has no item named %q", name)
+	return gfx.Rect{}
 }
 
 // The editor's tab setting squeezes the tabs of one row, or wraps them onto as many rows as
@@ -228,7 +208,7 @@ func TestEditorTabsSqueezeOrWrapByTheSetting(t *testing.T) {
 	docs, group := h.openTabs(t, 12)
 	s := h.app.term.strips[group]
 	last := docs[len(docs)-1]
-	wide := h.hit(docTabs.At(last.id)).Width
+	wide := h.tabHit(last.name).Width
 	set := func(apply func(*App)) {
 		t.Helper()
 		h.app.post(apply)
@@ -240,16 +220,16 @@ func TestEditorTabsSqueezeOrWrapByTheSetting(t *testing.T) {
 	if h.app.settings.EditorTabOverflow != settingswindow.TabOverflowSqueeze {
 		t.Fatalf("the setting stored %q", h.app.settings.EditorTabOverflow)
 	}
-	squeezed := h.hit(docTabs.At(last.id))
+	squeezed := h.tabHit(last.name)
 	if squeezed.Width >= wide || squeezed.Width < terminalChipMinWidth-tabHideSlack {
 		t.Fatalf("a squeezed tab is %v wide, want less than %v and at least %v", squeezed.Width, wide, terminalChipMinWidth)
 	}
-	if !inside(squeezed, s.scroll.Area) {
-		t.Fatalf("the selected squeezed tab %+v is not in the strip %+v", squeezed, s.scroll.Area)
+	if !inside(squeezed, h.stripView(group)) {
+		t.Fatalf("the selected squeezed tab %+v is not in the strip %+v", squeezed, h.stripView(group))
 	}
 
 	set(func(a *App) { a.setTabRows(settingswindow.TabRowsMultiple) })
-	strip := h.app.term.groups[0].strip.Rect()
+	strip := h.app.term.groups[0].strip
 	rows := int(strip.Height / panelHeaderHeight)
 	if rows < 2 || strip.Height != float32(rows*panelHeaderHeight) {
 		t.Fatalf("a wrapped strip is %v high, want two or more rows of %v", strip.Height, panelHeaderHeight)
@@ -258,13 +238,13 @@ func TestEditorTabsSqueezeOrWrapByTheSetting(t *testing.T) {
 		t.Fatalf("a wrapped strip hides %v", s.hidden)
 	}
 	for _, hit := range h.driver.Snapshot().Hits {
-		if hit.ID == tabMore.At(0) {
+		if hit.Label == h.app.text.Editor.HiddenTabs && !hit.IsLabel {
 			t.Fatal("a wrapped strip shows the button that lists hidden tabs")
 		}
 	}
 	top := float32(-1)
 	for i, d := range docs {
-		tab := h.hit(docTabs.At(d.id))
+		tab := h.tabHit(d.name)
 		if tab.X < strip.X || tab.Right() > strip.Right()+tabHideSlack || tab.Y < strip.Y || tab.Bottom() > strip.Bottom() {
 			t.Fatalf("tab %d at %+v is outside the strip %+v", i, tab, strip)
 		}
@@ -276,7 +256,7 @@ func TestEditorTabsSqueezeOrWrapByTheSetting(t *testing.T) {
 	if top <= strip.Y+panelHeaderHeight/2 {
 		t.Fatal("every tab is on the first row")
 	}
-	wrap := h.hit(docWrap.At(last.id))
+	wrap := h.hitLabeled(h.app.text.Editor.SoftWrap)
 	if wrap.Y >= strip.Y+panelHeaderHeight {
 		t.Fatalf("the soft wrap switch %+v is not on the first row of %+v", wrap, strip)
 	}
@@ -286,11 +266,11 @@ func TestEditorTabsSqueezeOrWrapByTheSetting(t *testing.T) {
 	if h.app.settings.EditorTabRows != "" || h.app.settings.EditorTabOverflow != "" {
 		t.Fatalf("the defaults stored %q %q", h.app.settings.EditorTabRows, h.app.settings.EditorTabOverflow)
 	}
-	if strip := h.app.term.groups[0].strip.Rect(); strip.Height != panelHeaderHeight {
+	if strip := h.app.term.groups[0].strip; strip.Height != panelHeaderHeight {
 		t.Fatalf("one row again, the strip is %v high", strip.Height)
 	}
-	if tab := h.hit(docTabs.At(last.id)); tab.Width != wide || !inside(tab, s.scroll.Area) {
-		t.Fatalf("one scrolling row again, the selected tab is %+v, want %v wide in %+v", tab, wide, s.scroll.Area)
+	if tab := h.tabHit(last.name); tab.Width != wide || !inside(tab, h.stripView(group)) {
+		t.Fatalf("one scrolling row again, the selected tab is %+v, want %v wide in %+v", tab, wide, h.stripView(group))
 	}
 }
 

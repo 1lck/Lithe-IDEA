@@ -175,7 +175,7 @@ func TestClangdDocumentSyncEndToEnd(t *testing.T) {
 	if !d.view.GoToNavigation(0, 17, false) {
 		t.Fatal("could not place the caret before return")
 	}
-	input := d.view.TextInput(app.TextInputContext{ID: docViews.At(d.id)})
+	input := d.view.TextInput(app.TextInputContext{ID: d.hit})
 	if _, err := input.OnEvent(app.TextEvent{Kind: app.TextInsert, Text: "missing "}); err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +245,7 @@ func TestClangdProjectSwitchStopsSession(t *testing.T) {
 	if !d.view.GoToNavigation(0, 17, false) {
 		t.Fatal("could not place the caret before return")
 	}
-	input := d.view.TextInput(app.TextInputContext{ID: docViews.At(d.id)})
+	input := d.view.TextInput(app.TextInputContext{ID: d.hit})
 	if _, err := input.OnEvent(app.TextEvent{Kind: app.TextInsert, Text: "missing "}); err != nil {
 		t.Fatal(err)
 	}

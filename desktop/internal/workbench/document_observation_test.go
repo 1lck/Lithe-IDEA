@@ -102,7 +102,7 @@ func TestExternalDocumentChangesReloadCleanAndPreserveDirtyText(t *testing.T) {
 	if doc.view.Dirty() {
 		t.Fatal("external reload was marked dirty")
 	}
-	input := doc.view.TextInput(app.TextInputContext{ID: docViews.At(doc.id)})
+	input := doc.view.TextInput(app.TextInputContext{ID: doc.hit})
 	if _, err := input.OnEvent(app.TextEvent{Kind: app.TextInsert, Text: "local"}); err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestDocumentCheckRejectsStaleSavedBaseline(t *testing.T) {
 	p := h.app.project
 	doc := p.docs.byPath(path)
 	baseline := doc.view.SavedSnapshot()
-	input := doc.view.TextInput(app.TextInputContext{ID: docViews.At(doc.id)})
+	input := doc.view.TextInput(app.TextInputContext{ID: doc.hit})
 	if _, err := input.OnEvent(app.TextEvent{Kind: app.TextInsert, Text: "saved"}); err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestDocumentChecksAreBoundedAndDrainPending(t *testing.T) {
 	h.open(t.TempDir())
 	p := h.app.project
 	for id := 1; id <= 6; id++ {
-		v := editorview.New(editorview.Config{HitID: docViews.At(id), Content: editorview.Prepare([]byte("same"))})
+		v := editorview.New(editorview.Config{Content: editorview.Prepare([]byte("same"))})
 		p.docs.list = append(p.docs.list, &document{id: id, path: filepath.Join(p.root, fmt.Sprintf("%d.txt", id)), view: v, checkPending: true})
 	}
 	started := make(chan struct{}, 6)
@@ -377,7 +377,7 @@ func TestCloseSavesEditsMadeDuringFinalDiskCheck(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("final disk check did not start")
 	}
-	input := doc.view.TextInput(app.TextInputContext{ID: docViews.At(doc.id)})
+	input := doc.view.TextInput(app.TextInputContext{ID: doc.hit})
 	if _, err := input.OnEvent(app.TextEvent{Kind: app.TextInsert, Text: "latest"}); err != nil {
 		t.Fatal(err)
 	}
@@ -482,7 +482,7 @@ func TestProjectCloseSavesEditsMadeDuringFinalDiskCheck(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("final project check did not start")
 	}
-	input := doc.view.TextInput(app.TextInputContext{ID: docViews.At(doc.id)})
+	input := doc.view.TextInput(app.TextInputContext{ID: doc.hit})
 	if _, err := input.OnEvent(app.TextEvent{Kind: app.TextInsert, Text: "latest"}); err != nil {
 		t.Fatal(err)
 	}
@@ -508,7 +508,7 @@ func TestKeepEditorAcknowledgesOnlyObservedDiskVersion(t *testing.T) {
 	awaitDocumentState(t, h, func() bool { return h.app.project.docs.byPath(path) != nil })
 	p := h.app.project
 	d := p.docs.byPath(path)
-	input := d.view.TextInput(app.TextInputContext{ID: docViews.At(d.id)})
+	input := d.view.TextInput(app.TextInputContext{ID: d.hit})
 	if _, err := input.OnEvent(app.TextEvent{Kind: app.TextInsert, Text: "local"}); err != nil {
 		t.Fatal(err)
 	}
@@ -556,7 +556,7 @@ func TestLoadDiskDoesNotReplaceInputDuringReadAndCanUndo(t *testing.T) {
 	awaitDocumentState(t, h, func() bool { return h.app.project.docs.byPath(path) != nil })
 	p := h.app.project
 	d := p.docs.byPath(path)
-	input := d.view.TextInput(app.TextInputContext{ID: docViews.At(d.id)})
+	input := d.view.TextInput(app.TextInputContext{ID: d.hit})
 	if _, err := input.OnEvent(app.TextEvent{Kind: app.TextInsert, Text: "local"}); err != nil {
 		t.Fatal(err)
 	}

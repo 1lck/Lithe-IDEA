@@ -261,7 +261,7 @@ func (a *App) tabBar(c ui.C, place *groupPlace, layout tabLayout, buttons func()
 					a.stripTab(row.C, place, t, current, i, len(tabs), s.widths[i])
 				}
 			})
-		}).Label(a.text.Editor.HiddenTabs).Height(panelHeaderHeight).Shrink(1).MinWidth(0)
+		}).Height(panelHeaderHeight).Shrink(1).MinWidth(0)
 		if !place.tool {
 			view.Grow(1)
 		} else {

@@ -6,6 +6,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/ui"
 )
 
 // leaves lists the groups a split tree shows, in layout order: left to right and top to
@@ -48,7 +49,7 @@ func TestSplitLeafPutsTheNewGroupOnTheNamedSide(t *testing.T) {
 	}
 	for _, c := range cases {
 		got := splitLeaf(newLeaf("a"), "a", "b", c.edge, 7)
-		if got.leaf() || got.id != 7 || got.row != c.row || got.ratio != 0.5 {
+		if got.leaf() || got.id != 7 || got.row != c.row || got.state.Ratio != 0.5 {
 			t.Errorf("edge %d: container = %+v, want id 7, row %v, ratio 0.5", c.edge, got, c.row)
 		}
 		if order := leaves(got); !slices.Equal(order, c.want) {
@@ -130,47 +131,6 @@ func TestSplitTreeContains(t *testing.T) {
 	}
 	if root.leaf() {
 		t.Errorf("a container is not a leaf")
-	}
-}
-
-func TestSettleHoldsThePositionInsideTheLimits(t *testing.T) {
-	row := gfx.Rect{Width: 1000, Height: 400}
-	column := gfx.Rect{Width: 400, Height: 400}
-	cases := []struct {
-		name      string
-		row       bool
-		container gfx.Rect
-		first     gfx.Rect
-		want      float32
-	}{
-		{"row, size inside the limits", true, row, gfx.Rect{Width: 497, Height: 400}, 497},
-		{"row, first too small", true, row, gfx.Rect{Width: 100, Height: 400}, editorGroupMinWidth},
-		// The second child keeps its least width and the splitter's 8 pixels: 1000-8-160.
-		{"row, first too large", true, row, gfx.Rect{Width: 950, Height: 400}, 832},
-		// Neither child can have its least width: the first keeps its own.
-		{"row, container too small", true, gfx.Rect{Width: 200, Height: 400}, gfx.Rect{Width: 100, Height: 400}, editorGroupMinWidth},
-		{"column, size inside the limits", false, column, gfx.Rect{Width: 400, Height: 150}, 150},
-		{"column, first too small", false, column, gfx.Rect{Width: 400, Height: 50}, editorGroupMinHeight},
-		// 400-8-96.
-		{"column, first too large", false, column, gfx.Rect{Width: 400, Height: 380}, 296},
-	}
-	for _, c := range cases {
-		n := &splitNode{id: 1, row: c.row, ratio: 0.5}
-		n.settle(c.container, c.first)
-		if n.state.Pos != c.want {
-			t.Errorf("%s: Pos = %v, want %v", c.name, n.state.Pos, c.want)
-		}
-		if n.ratio != 0.5 {
-			t.Errorf("%s: ratio = %v, want it left alone while no drag is under way", c.name, n.ratio)
-		}
-	}
-
-	// A container with no room is not laid out yet; nothing is learned from it.
-	n := &splitNode{id: 1, row: true, ratio: 0.5}
-	n.state.Pos = 123
-	n.settle(gfx.Rect{}, gfx.Rect{})
-	if n.state.Pos != 123 {
-		t.Errorf("Pos = %v after an empty container, want 123", n.state.Pos)
 	}
 }
 
@@ -575,164 +535,9 @@ func TestTerminalSetLookups(t *testing.T) {
 	}
 }
 
-func TestGroupDeclPlaceReadsOnlyWhatTheFrameDeclared(t *testing.T) {
-	// A group whose boxes were not declared has no zero Box read: its place is empty.
-	g := groupDecl{id: "editor:1"}
-	p := g.place()
-	if p.group != "editor:1" || p.tool || p.strip != (gfx.Rect{}) || p.body != (gfx.Rect{}) || len(p.tabs) != 0 {
-		t.Errorf("place of an undeclared group = %+v, want only its name", p)
-	}
-	if got := (&groupDecl{id: toolGroup, tool: true}).place(); !got.tool {
-		t.Errorf("place of the tool window = %+v, want tool", got)
-	}
-}
-
-func TestTerminalUIVisitsTheToolWindowFirst(t *testing.T) {
-	u := terminalUI{
-		tool:   groupDecl{id: toolGroup, tool: true},
-		groups: []groupDecl{{id: "editor:1"}, {id: "editor:2"}},
-	}
-	visit := func() []string {
-		var ids []string
-		u.each(func(g *groupDecl) { ids = append(ids, g.id) })
-		return ids
-	}
-	if got := visit(); !slices.Equal(got, []string{"editor:1", "editor:2"}) {
-		t.Errorf("each without the tool window = %v", got)
-	}
-	u.toolDrawn = true
-	if got := visit(); !slices.Equal(got, []string{toolGroup, "editor:1", "editor:2"}) {
-		t.Errorf("each with the tool window = %v", got)
-	}
-}
-
-func TestBeginTerminalFrameKeepsTheGesture(t *testing.T) {
-	a := &App{}
-	u := &a.term
-	u.toolDrawn, u.emptyDrawn = true, true
-	u.groups = append(u.groups, groupDecl{id: "editor:1"}, groupDecl{id: "editor:2"})
-	u.splits = append(u.splits, splitDraw{})
-	u.actions = append(u.actions, tabAction{kind: actionNew})
-	u.drag = tabDrag{pressed: true, active: true, term: 2}
-
-	a.beginTerminalFrame()
-
-	if u.toolDrawn || u.emptyDrawn || len(u.groups) != 0 || len(u.splits) != 0 || len(u.actions) != 0 {
-		t.Errorf("a new frame kept what the last one declared: %+v", u)
-	}
-	if u.tool.id != toolGroup || !u.tool.tool || u.tool.stripSet || u.tool.bodySet {
-		t.Errorf("tool group = %+v, want the tool window with nothing declared", u.tool)
-	}
-	if !u.drag.active || u.drag.term != 2 {
-		t.Errorf("the drag was lost between frames: %+v", u.drag)
-	}
-}
-
-func TestTabDragStartsOnlyOnATerminalTab(t *testing.T) {
-	a := &App{project: &project{}}
-	a.project.terms.list = []*terminal{{id: 1, number: 1}, {id: 2, number: 2}}
-	down := func(button gfx.PointerButton, target gfx.ID) gfx.PointerEvent {
-		return gfx.PointerEvent{Kind: gfx.PointerDown, Button: button, X: 10, Y: 10, Target: target}
-	}
-
-	// A press on a terminal's tab is followed, and the tab still gets it.
-	if result, handled := a.tabDragPointer(down(gfx.PointerButtonPrimary, termTabs.At(2))); handled || result.Handled {
-		t.Errorf("a press was taken: the tab would not get its click")
-	}
-	if d := a.term.drag; !d.pressed || d.active || d.term != 2 {
-		t.Errorf("drag after a press on tab 2 = %+v, want pressed on 2", d)
-	}
-
-	// A press anywhere else, with another button, or on a terminal that is gone, is not.
-	for name, event := range map[string]gfx.PointerEvent{
-		"secondary button": down(gfx.PointerButtonSecondary, termTabs.At(1)),
-		"other control":    down(gfx.PointerButtonPrimary, termClose.At(1)),
-		"no target":        down(gfx.PointerButtonPrimary, gfx.ID{}),
-		"unknown terminal": down(gfx.PointerButtonPrimary, termTabs.At(9)),
-	} {
-		a.tabDragPointer(event)
-		if a.term.drag != (tabDrag{}) {
-			t.Errorf("%s: drag = %+v, want none", name, a.term.drag)
-		}
-	}
-}
-
-func TestTabDragWaitsForTheThresholdThenTakesTheGesture(t *testing.T) {
-	a := &App{project: &project{}}
-	a.project.terms.list = []*terminal{{id: 1, number: 1}}
-	a.term.places = dragFixture()
-	viewport := gfx.Size{Width: 1000, Height: 840}
-
-	a.tabDragPointer(gfx.PointerEvent{Kind: gfx.PointerDown, Button: gfx.PointerButtonPrimary, X: 10, Y: 10, Target: termTabs.At(1)})
-
-	// A move of a pixel or two is still the click's.
-	if _, handled := a.tabDragPointer(gfx.PointerEvent{Kind: gfx.PointerMove, X: 12, Y: 11, Viewport: viewport}); handled {
-		t.Errorf("a move below the threshold was taken")
-	}
-	if a.term.drag.active {
-		t.Errorf("drag is active below the threshold")
-	}
-
-	// A longer one makes it a drag, which is aimed at the place under the pointer.
-	result, handled := a.tabDragPointer(gfx.PointerEvent{Kind: gfx.PointerMove, X: 900, Y: 10, Viewport: viewport})
-	if !handled || !result.Handled || !result.Repaint {
-		t.Fatalf("a move past the threshold = %+v, %v, want taken with a repaint", result, handled)
-	}
-	d := a.term.drag
-	if !d.active || d.x != 900 || d.y != 10 || d.viewport != viewport {
-		t.Errorf("drag after the move = %+v", d)
-	}
-	if d.target.kind != dropJoin || d.target.group != "editor:1" {
-		t.Errorf("target = %+v, want a join of editor:1", d.target)
-	}
-
-	// Cancelling reports that a drag was under way, once.
-	if !a.cancelTabDrag() {
-		t.Errorf("cancelTabDrag = false during a drag")
-	}
-	if a.term.drag != (tabDrag{}) || a.cancelTabDrag() {
-		t.Errorf("cancelTabDrag did not clear the gesture: %+v", a.term.drag)
-	}
-}
-
-func TestTabDragReleaseAndExit(t *testing.T) {
-	a := &App{project: &project{}}
-	a.project.terms.list = []*terminal{{id: 1, number: 1}}
-	press := gfx.PointerEvent{Kind: gfx.PointerDown, Button: gfx.PointerButtonPrimary, X: 10, Y: 10, Target: termTabs.At(1)}
-	far := gfx.PointerEvent{Kind: gfx.PointerMove, X: 200, Y: 200}
-
-	// A release without a drag is a click: it is left to the tab.
-	a.tabDragPointer(press)
-	if _, handled := a.tabDragPointer(gfx.PointerEvent{Kind: gfx.PointerUp, X: 10, Y: 10}); handled {
-		t.Errorf("the release of a click was taken")
-	}
-	if a.term.drag != (tabDrag{}) {
-		t.Errorf("drag after a click = %+v, want none", a.term.drag)
-	}
-
-	// The release of a drag is taken, and ends it. The viewport is empty, so there is no
-	// place to drop and nothing moves.
-	a.tabDragPointer(press)
-	a.tabDragPointer(far)
-	result, handled := a.tabDragPointer(gfx.PointerEvent{Kind: gfx.PointerUp, X: 200, Y: 200})
-	if !handled || !result.Handled || !result.Repaint || a.term.drag != (tabDrag{}) {
-		t.Errorf("release of a drag = %+v, %v, drag %+v, want taken and cleared", result, handled, a.term.drag)
-	}
-
-	// A pointer that left the window ends a drag, and a hover that leaves does nothing.
-	a.tabDragPointer(press)
-	a.tabDragPointer(far)
-	if result, handled = a.tabDragPointer(gfx.PointerEvent{Kind: gfx.PointerExit}); !handled || !result.Repaint || a.term.drag != (tabDrag{}) {
-		t.Errorf("exit during a drag = %+v, %v, drag %+v", result, handled, a.term.drag)
-	}
-	if _, handled = a.tabDragPointer(gfx.PointerEvent{Kind: gfx.PointerExit}); handled {
-		t.Errorf("exit without a drag was taken")
-	}
-}
-
 func TestTabDragLocateStaysInsideTheWindow(t *testing.T) {
 	a := &App{}
-	a.term.places = dragFixture()
+	a.term.tool, a.term.groups = groupsOf(dragFixture())
 	viewport := gfx.Size{Width: 1000, Height: 840}
 
 	if got := a.tabDragLocate(1, 900, 10, viewport); got.kind != dropJoin || got.group != "editor:1" {
@@ -742,5 +547,112 @@ func TestTabDragLocateStaysInsideTheWindow(t *testing.T) {
 		if got := a.tabDragLocate(1, at[0], at[1], viewport); got.kind != dropNone {
 			t.Errorf("outside the window at %v = %+v, want no place", at, got)
 		}
+	}
+}
+
+// groupsOf makes the groups of the page's last paint that lay out as places: the tool window
+// and the groups of the editor.
+func groupsOf(places []dropPlace) (*groupPlace, []*groupPlace) {
+	var tool *groupPlace
+	var groups []*groupPlace
+	for _, p := range places {
+		g := newGroupPlace(p.group, p.tool)
+		g.strip, g.body = p.strip, p.body
+		for _, t := range p.tabs {
+			g.chips = append(g.chips, tabSlotDecl{term: t.term, rect: t.rect})
+		}
+		if p.tool {
+			tool = g
+		} else {
+			groups = append(groups, g)
+		}
+	}
+	return tool, groups
+}
+
+func TestGroupPlaceReportsWhatTheLastPaintLaidOut(t *testing.T) {
+	g := newGroupPlace("editor:1", false)
+	if p := g.place(); p.group != "editor:1" || p.tool || p.strip != (gfx.Rect{}) || p.body != (gfx.Rect{}) || len(p.tabs) != 0 {
+		t.Errorf("place of a group nothing was laid out for = %+v, want only its name", p)
+	}
+	g.stripHook(&ui.DrawContext{Rect: gfx.Rect{X: 1, Y: 2, Width: 3, Height: 4}})
+	g.chips = append(g.chips, tabSlotDecl{term: 5})
+	g.chipHook(0)(&ui.DrawContext{Rect: gfx.Rect{X: 9, Width: 10, Height: 11}})
+	p := g.place()
+	if p.strip.Width != 3 || len(p.tabs) != 1 || p.tabs[0].term != 5 || p.tabs[0].rect.X != 9 {
+		t.Errorf("place = %+v, want the strip and the tab the hooks were given", p)
+	}
+	if got := newGroupPlace(toolGroup, true).place(); !got.tool {
+		t.Errorf("place of the tool window = %+v, want tool", got)
+	}
+}
+
+func TestTerminalUIPlacesTheToolWindowFirst(t *testing.T) {
+	u := terminalUI{
+		tool:   newGroupPlace(toolGroup, true),
+		groups: []*groupPlace{newGroupPlace("editor:1", false), newGroupPlace("editor:2", false)},
+	}
+	ids := func() []string {
+		var ids []string
+		for _, p := range u.places() {
+			ids = append(ids, p.group)
+		}
+		return ids
+	}
+	if got := ids(); !slices.Equal(got, []string{toolGroup, "editor:1", "editor:2"}) {
+		t.Errorf("places with the tool window = %v", got)
+	}
+	u.tool = nil
+	if got := ids(); !slices.Equal(got, []string{"editor:1", "editor:2"}) {
+		t.Errorf("places without the tool window = %v", got)
+	}
+}
+
+func TestBeginTerminalFrameKeepsTheGesture(t *testing.T) {
+	a := &App{}
+	u := &a.term
+	u.tool, u.toolDrawn, u.emptyDrawn = newGroupPlace(toolGroup, true), true, true
+	u.groups = append(u.groups, newGroupPlace("editor:1", false), newGroupPlace("editor:2", false))
+	u.tabIDs = append(u.tabIDs, tabID{term: 1})
+	u.drag = tabDrag{active: true, term: 2}
+
+	a.beginTerminalFrame()
+
+	if u.tool != nil || u.toolDrawn || u.emptyDrawn || len(u.groups) != 0 || len(u.tabIDs) != 0 {
+		t.Errorf("a new frame kept what the last one declared: %+v", u)
+	}
+	if !u.drag.active || u.drag.term != 2 {
+		t.Errorf("the drag was lost between frames: %+v", u.drag)
+	}
+}
+
+func TestTabAcceptFollowsOnlyATerminalsTab(t *testing.T) {
+	a := &App{}
+	a.term.tool, a.term.groups = groupsOf(dragFixture())
+	if a.tabAccept(gfx.ID{}, gfx.ID{}) {
+		t.Errorf("a source that is no terminal's tab was followed")
+	}
+	if a.term.drag.active {
+		t.Errorf("drag after a foreign source = %+v, want none", a.term.drag)
+	}
+}
+
+func TestTabDropDoesNothingWithoutADragAndClearsOne(t *testing.T) {
+	a := &App{project: &project{}}
+	a.tabDrop(gfx.ID{}, gfx.ID{})
+	a.term.drag = tabDrag{active: true, term: 1, target: dropTarget{kind: dropNone}}
+	a.tabDrop(gfx.ID{}, gfx.ID{})
+	if a.term.drag != (tabDrag{}) {
+		t.Errorf("drag after a drop = %+v, want none", a.term.drag)
+	}
+}
+
+func TestEndDragsForgetsAGestureVivaLetGoOf(t *testing.T) {
+	a := &App{}
+	a.drag = dragState{active: true, item: 3}
+	a.term.drag = tabDrag{active: true, term: 2}
+	a.endDrags()
+	if a.drag != (dragState{}) || a.term.drag != (tabDrag{}) {
+		t.Errorf("gestures after endDrags = %+v, %+v, want none", a.drag, a.term.drag)
 	}
 }

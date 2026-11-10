@@ -88,5 +88,5 @@ func TestNoticeIsShownAsAToast(t *testing.T) {
 
 // overlayOpen reports whether a dialog of the overlay page holds the window.
 func (h *harness) overlayOpen() bool {
-	return h.app.overlay.page != nil && h.app.overlay.page.Overlay()
+	return h.app.pluginInstall.open || len(h.app.prompts.queue) > 0 || h.app.clone.open
 }

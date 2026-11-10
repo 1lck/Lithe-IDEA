@@ -345,7 +345,7 @@ func TestStripeZonesKeepTheSplitGroupAboveTheBottomGroup(t *testing.T) {
 			}
 		})
 	}
-	h.app.cancelDrag()
+	h.app.dnd.tool.Cancel()
 }
 
 func TestSnappedStripeDragReordersAndLocksTheGhostToItsColumn(t *testing.T) {
@@ -486,7 +486,7 @@ func TestDetachedStripeDragWithoutATargetDoesNotCommit(t *testing.T) {
 	from := center(h.button(itemAssistant))
 	stripes := dragStripeRects(gfx.Rect{Width: 1280, Height: 800})
 	detached := gfx.Point{X: stripes[stripeRight].X - dragDetachDistance - 1, Y: from.Y}
-	main := h.app.layout.main.Rect()
+	main := h.app.layout.mainRect
 	noTarget := gfx.Point{X: main.X + main.Width/2, Y: main.Y + main.Height/4}
 	if err := h.driver.Press(from.X, from.Y, gfx.PointerButtonPrimary); err != nil {
 		t.Fatal(err)
@@ -548,7 +548,7 @@ func TestDetachedDropPreviewUsesTheLocalizedDockTitle(t *testing.T) {
 			if !found {
 				t.Fatalf("detached preview does not show the exact %s title %q", language.Code(), wantTitle)
 			}
-			h.app.cancelDrag()
+			h.app.dnd.tool.Cancel()
 		})
 	}
 }
@@ -771,7 +771,7 @@ func TestSettingsButtonOpensItsMenu(t *testing.T) {
 	}
 
 	// The window was made without a log, so asking for the log window says so.
-	logs := center(h.hit(gearMenuLogs))
+	logs := center(h.hitLabeled(h.app.text.Title.LogsAndDiagnostics))
 	if err := h.driver.Click(logs.X, logs.Y); err != nil {
 		t.Fatal(err)
 	}
@@ -788,7 +788,7 @@ func TestSettingsButtonOpensItsMenu(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.settle()
-	settings := center(h.hit(gearMenuSettings))
+	settings := center(h.hitLabeled(h.app.text.Title.Preferences))
 	if err := h.driver.Click(settings.X, settings.Y); err != nil {
 		t.Fatal(err)
 	}
@@ -876,4 +876,16 @@ func TestSystemAppearanceChangesSharedStateWhenFollowingSystem(t *testing.T) {
 	if h.app.shared.dark.Load() {
 		t.Fatal("system appearance overrode the explicit light setting")
 	}
+}
+
+// hitLabeled is where the control named label was laid out in the last frame.
+func (h *harness) hitLabeled(label string) gfx.Rect {
+	h.t.Helper()
+	for _, hit := range h.driver.Snapshot().Hits {
+		if hit.Label == label && !hit.IsLabel {
+			return hit.Bounds
+		}
+	}
+	h.t.Fatalf("no control named %q is shown", label)
+	return gfx.Rect{}
 }

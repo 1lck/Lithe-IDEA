@@ -127,7 +127,7 @@ func exercisePackagedWorkbench(t *testing.T) {
 	h.app.openFile(p, path)
 	awaitDocumentState(t, h, func() bool { return p.docs.byPath(path) != nil })
 	doc := p.docs.byPath(path)
-	input := doc.view.TextInput(app.TextInputContext{ID: docViews.At(doc.id)})
+	input := doc.view.TextInput(app.TextInputContext{ID: doc.hit})
 	if _, err := input.OnEvent(app.TextEvent{Kind: app.TextInsert, Text: "updated "}); err != nil {
 		t.Fatal(err)
 	}

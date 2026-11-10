@@ -94,11 +94,10 @@ func TestSoftWrapSwitchWrapsTheOpenFile(t *testing.T) {
 	if d == nil {
 		t.Fatal("the file did not open")
 	}
-	id := docWrap.At(d.id)
 	switchHit := func() gfx.Hit {
 		t.Helper()
 		for _, hit := range h.driver.Snapshot().Hits {
-			if hit.ID == id {
+			if hit.Role == gfx.RoleSwitch && hit.Label == h.app.text.Editor.SoftWrap {
 				return hit
 			}
 		}
@@ -109,7 +108,7 @@ func TestSoftWrapSwitchWrapsTheOpenFile(t *testing.T) {
 	if hit.Label != h.app.text.Editor.SoftWrap || hit.Role != gfx.RoleSwitch || hit.Checked {
 		t.Fatalf("switch = %q role %v checked %v, want %q, an unchecked switch", hit.Label, hit.Role, hit.Checked, h.app.text.Editor.SoftWrap)
 	}
-	if tab := h.hit(docTabs.At(d.id)); hit.Bounds.X < tab.X+tab.Width {
+	if tab := h.tabHit(d.name); hit.Bounds.X < tab.X+tab.Width {
 		t.Fatalf("the switch at x %v is not right of the file's tab, which ends at %v", hit.Bounds.X, tab.X+tab.Width)
 	}
 
@@ -165,7 +164,7 @@ func TestProjectSwitchKeepsDirtyDocumentWhenSaveFails(t *testing.T) {
 	if doc == nil {
 		t.Fatal("document was not opened")
 	}
-	input := doc.view.TextInput(app.TextInputContext{ID: docViews.At(doc.id)})
+	input := doc.view.TextInput(app.TextInputContext{ID: doc.hit})
 	if _, err := input.OnEvent(app.TextEvent{Kind: app.TextInsert, Text: "changed"}); err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +197,7 @@ func TestCloseDocumentSerializesInFlightSave(t *testing.T) {
 	if d == nil {
 		t.Fatal("missing document")
 	}
-	input := d.view.TextInput(app.TextInputContext{ID: docViews.At(d.id)})
+	input := d.view.TextInput(app.TextInputContext{ID: d.hit})
 	typeText := func(s string) {
 		t.Helper()
 		if _, err := input.OnEvent(app.TextEvent{Kind: app.TextInsert, Text: s}); err != nil {
@@ -255,7 +254,7 @@ func TestWindowCloseWaitsForSuccessfulSave(t *testing.T) {
 	h.app.openFile(h.app.project, path)
 	h.settle()
 	d := h.app.project.docs.byPath(path)
-	input := d.view.TextInput(app.TextInputContext{ID: docViews.At(d.id)})
+	input := d.view.TextInput(app.TextInputContext{ID: d.hit})
 	if _, err := input.OnEvent(app.TextEvent{Kind: app.TextInsert, Text: "change"}); err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +285,7 @@ func TestSaveDoesNotOverwriteExternalChanges(t *testing.T) {
 	if d == nil {
 		t.Fatal("document was not opened")
 	}
-	input := d.view.TextInput(app.TextInputContext{ID: docViews.At(d.id)})
+	input := d.view.TextInput(app.TextInputContext{ID: d.hit})
 	if _, err := input.OnEvent(app.TextEvent{Kind: app.TextInsert, Text: "local"}); err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +325,7 @@ func TestCloseKeepsDocumentWhileInputMethodIsComposing(t *testing.T) {
 	h.settle()
 	p := h.app.project
 	d := p.docs.byPath(path)
-	input := d.view.TextInput(app.TextInputContext{ID: docViews.At(d.id)})
+	input := d.view.TextInput(app.TextInputContext{ID: d.hit})
 	if _, err := input.OnEvent(app.TextEvent{Kind: app.TextSetMarked, Text: "composition"}); err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +357,7 @@ func TestMinimapButtonHidesAndShowsTheMinimap(t *testing.T) {
 	if d == nil {
 		t.Fatal("the file did not open")
 	}
-	toggle := docMinimapToggle.At(d.id)
+	toggle := d.input.Parts().At(1)
 	shown := func(id gfx.ID) (gfx.Hit, bool) {
 		for _, hit := range h.driver.Snapshot().Hits {
 			if hit.ID == id {
@@ -385,8 +384,8 @@ func TestMinimapButtonHidesAndShowsTheMinimap(t *testing.T) {
 		h.settle()
 	}
 
-	minimap := h.hit(docMinimap.At(d.id))
-	text := h.hit(docViews.At(d.id))
+	minimap := h.hit(d.input.Parts().At(0))
+	text := h.hit(d.hit)
 	if _, ok := shown(toggle); ok {
 		t.Fatal("the minimap's button shows before the pointer is over the minimap")
 	}
@@ -415,7 +414,7 @@ func TestMinimapButtonHidesAndShowsTheMinimap(t *testing.T) {
 	if !h.app.settings.HideMinimap {
 		t.Fatal("the click did not hide the minimap")
 	}
-	if _, ok := shown(docMinimap.At(d.id)); ok {
+	if _, ok := shown(d.input.Parts().At(0)); ok {
 		t.Fatal("the minimap still shows after it was hidden")
 	}
 	var saved settings
@@ -438,7 +437,7 @@ func TestMinimapButtonHidesAndShowsTheMinimap(t *testing.T) {
 	if h.app.settings.HideMinimap {
 		t.Fatal("the button did not bring the minimap back")
 	}
-	if _, ok := shown(docMinimap.At(d.id)); !ok {
+	if _, ok := shown(d.input.Parts().At(0)); !ok {
 		t.Fatal("the minimap is not shown again")
 	}
 }
