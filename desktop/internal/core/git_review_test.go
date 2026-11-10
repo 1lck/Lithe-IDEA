@@ -64,11 +64,14 @@ func TestGitDiffBlocksAndWorktrees(t *testing.T) {
 	}
 
 	wt := filepath.Join(t.TempDir(), "wt")
-	if err := client.GitCreateWorktree(ctx, repo, wt, GitWorktreeNewBranch, "feat", localBranch("main")); err != nil {
+	main := localBranch("main")
+	if err := client.GitCreateWorktree(ctx, repo, GitWorktreeCreation{
+		Mode: GitWorktreeNewBranch, Name: "feat", Reference: &main, Destination: wt,
+	}); err != nil {
 		t.Fatalf("GitCreateWorktree() error: %v", err)
 	}
 	trees, err := client.GitWorktrees(ctx, repo)
-	if err != nil || len(trees) != 2 || !trees[0].IsPrimary || trees[1].Branch == nil || *trees[1].Branch != "refs/heads/feat" {
+	if err != nil || len(trees) != 2 || !trees[0].IsPrimary || trees[1].Branch != "refs/heads/feat" {
 		t.Fatalf("GitWorktrees() = %+v, %v; want the primary and feat", trees, err)
 	}
 	if err := client.GitLockWorktree(ctx, repo, trees[1].Path); err != nil {

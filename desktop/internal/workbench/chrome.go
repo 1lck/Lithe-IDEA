@@ -3,6 +3,8 @@ package workbench
 import (
 	"context"
 	"fmt"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
 
 // gearMenuWidth is the width of the settings button's menu, which holds five short items
@@ -158,6 +160,8 @@ func (a *App) loadMenuBranch(path string) {
 	// closed or replaced is dropped with the state it would have been written to.
 	a.background(a.project, kernelCallTimeout, func(ctx context.Context) func(*App) {
 		branch := ""
+		// The read is of another project, so the Git console of the open one does not keep it.
+		ctx = core.WithGitConsole(ctx, nil, "")
 		// Outside a repository there is no branch, as on the project the title bar shows.
 		if status, err := kernel.GitStatus(ctx, path); err == nil && status.RepositoryRoot != "" {
 			branch = status.Branch

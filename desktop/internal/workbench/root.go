@@ -202,6 +202,7 @@ func (a *App) overlays(c ui.C) {
 	if p := a.project; p != nil {
 		a.drawBranchDialog(c, p)
 		a.drawSyncDialog(c, p)
+		a.drawWorktreeDialog(c, p)
 		a.inlineEditView(c, p)
 		a.reviewOverlays(c, p)
 	}

@@ -7,8 +7,11 @@
     "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
-      "desktop/internal/core/git_worktrees.go",
+      "desktop/internal/workbench/gitworktree.go",
+      "desktop/internal/workbench/gitworktree_view.go",
+      "desktop/internal/workbench/gitworktree_test.go",
+      "desktop/internal/core/gitworktree.go",
+      "desktop/internal/core/gitworktree_test.go",
       "desktop/internal/workbench/gitreview_tools.go",
       "desktop/internal/workbench/gitreview_tools_view.go",
       "desktop/internal/workbench/gitreview_test.go"
@@ -18,15 +21,18 @@
     "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
-      "desktop/internal/core/git_worktrees.go",
+      "desktop/internal/workbench/gitworktree.go",
+      "desktop/internal/workbench/gitworktree_view.go",
+      "desktop/internal/workbench/gitworktree_test.go",
+      "desktop/internal/core/gitworktree.go",
+      "desktop/internal/core/gitworktree_test.go",
       "desktop/internal/workbench/gitreview_tools.go",
       "desktop/internal/workbench/gitreview_tools_view.go",
       "desktop/internal/workbench/gitreview_test.go"
     ]
   },
   "owner": "Git",
-  "verification": "列出、创建、切换和删除 Worktree，确认路径、分支和安全检查。 macOS 深浅主题核对搜索及清除、列表焦点/失焦和窗口失活选中态、上下键选择（首尾边界不重复触发选择回调）、相同宽度下筛选/刷新导致的列表行数增减与底部可达性、详情标签、窄宽度、提交历史滚动与新建弹窗；检查右键菜单的保护/忙碌状态保持不变。 检查#1503工作树动作自然宽度、6pt间距、宽窄换行、主工作区禁用色；聚焦父区域及鼠标悬停时边框按钮无文字下划线，Tab仍可定位操作。 检查列表选中背景内左右12pt对称留白、路径随整行可用宽度自适应、宽栏完整显示与窄栏收缩，悬停截断路径显示完整内容，移到名称/分支或空白后关闭展开。 GitWorktreeAppearanceTests 原生深浅色视口检查溢出/短内容、接近底部、同页去重、同宽追加高度与偏移、缩放、失败/耗尽停止和查询重置；GitModuleTests 检查 50 条续页、cursor 关闭、5000 条上限、选择切换与取消、失败显式重试、状态扫描不覆盖追加历史。实机需在大型历史工作树持续滚动并切换工作树/搜索，确认无需点击且位置稳定。 GitWorktreeAppearanceTests 用真实原生事件验证复选框不打开Diff、Command/Shift选区、空格与Return、右键批量目标、禁用状态、共享动作挂载与选中工作树Diff回调，并检查深浅主题及320/600/850pt布局。GitModuleTests 验证暂存/取消暂存/回滚根目录隔离、部分暂存、Diff刷新关闭、历史cursor保留、旧目标拒绝、首错停止、扫描失败保留、在途去重、选择切换及取消/重置迟到错误隔离。实机仍需验证确认弹窗取消/确认及真实文件结果；Windows无更改详情，不宣称对应功能运行验收。 GitModuleTests 与 GitWorktreeAppearanceTests 额外覆盖：暂存请求在 Git 返回前即显示目标状态、失败回落真实状态、点击被拒绝期间仍显示请求状态、状态扫描完成即空闲而不等项目刷新、工具栏按钮启用条件、历史视口在空闲/加载/失败及120/300/600pt高度下撑满，失败保留显式重试；新增模块回归覆盖主工作区状态同步、HEAD未变时工作树刷新补读状态、未变快照版本保持、失败保留旧行及历史cursor不重置。实机仍需在大型仓库测量点击复选框到状态更新的真实延迟。 新增更改页深浅色分组展开/勾选分离及分组行键盘偏移、左右/上下切换保留选择和草稿、同轴缩放保留原生文档、尺寸边界及每根独立草稿回归；模块测试检查唯一根提交范围、ChangeList隔离/主根同步、存储故障同步与重置失效。真实Git集成用例通过共享Core提交linked工作树，断言主仓库HEAD和暂存文件不变；新增真实Git参数用例分别覆盖主checkout和工作区外linked中的独立嵌套仓库，首次检查、显式/自动/独立模型刷新、全部暂存及提交不产生mode-160000条目或.gitmodules，嵌套HEAD和索引保持不变。受控有界gate在提交计划读取后暂停准备返回，验证父Diff直接文件和区块暂存/取消暂存无service写调用，释放后提交成功且写入口恢复。实机仍需验收完整工作台分栏拖动、ChangeList管理、提交确认和推送流程；verificationStatus保持pending。 新增 macOS 回滚回归：检查提交多选框默认纳入、行选择和窗口勾选分离、取消及空集合无写入、批量和部分暂存恢复、未选文件保持、新增及意向新增文件保留/删除、复制来源不变、重命名/删除及保留磁盘副本、linked Worktree 隔离；中英文深浅主题检查确认文件树及关闭/确认按钮，忙时互斥、首错停止及取消/重置有界回归。仍需完整工作台人工验收，verificationStatus 保持 pending。 在非当前 linked worktree 多选文件，分别核对提交准备、回滚、删除取消和新标签差异都使用该 checkout，主工作区索引不变；GitWorktreeAppearanceTests 检查实际工具栏及范围多选，完整新增菜单整机验收保持 pending。 用有界gate阻塞工作区解冻，确认Worktree本地状态、暂存勾选与忙状态先完成；分别从父更改页和固定checkout模型写入，确认只读目标根、同级无额外扫描、目录展开与80条历史及cursor保持。真实linked仓库回滚与删除流程仍结合GitStatusObservationTests核对主仓库索引不变，完整产品端到端验收保持pending。 GitModuleTests新增阻塞后台全量读取时回滚可用并拒绝旧行回填的共享模型回归；固定checkout完整产品人工流程仍保持pending。",
+  "verification": "列出、创建、切换和删除 Worktree，确认路径、分支和安全检查。 macOS 深浅主题核对搜索及清除、列表焦点/失焦和窗口失活选中态、上下键选择（首尾边界不重复触发选择回调）、相同宽度下筛选/刷新导致的列表行数增减与底部可达性、详情标签、窄宽度、提交历史滚动与新建弹窗；检查右键菜单的保护/忙碌状态保持不变。 检查#1503工作树动作自然宽度、6pt间距、宽窄换行、主工作区禁用色；聚焦父区域及鼠标悬停时边框按钮无文字下划线，Tab仍可定位操作。 检查列表选中背景内左右12pt对称留白、路径随整行可用宽度自适应、宽栏完整显示与窄栏收缩，悬停截断路径显示完整内容，移到名称/分支或空白后关闭展开。 GitWorktreeAppearanceTests 原生深浅色视口检查溢出/短内容、接近底部、同页去重、同宽追加高度与偏移、缩放、失败/耗尽停止和查询重置；GitModuleTests 检查 50 条续页、cursor 关闭、5000 条上限、选择切换与取消、失败显式重试、状态扫描不覆盖追加历史。实机需在大型历史工作树持续滚动并切换工作树/搜索，确认无需点击且位置稳定。 GitWorktreeAppearanceTests 用真实原生事件验证复选框不打开Diff、Command/Shift选区、空格与Return、右键批量目标、禁用状态、共享动作挂载与选中工作树Diff回调，并检查深浅主题及320/600/850pt布局。GitModuleTests 验证暂存/取消暂存/回滚根目录隔离、部分暂存、Diff刷新关闭、历史cursor保留、旧目标拒绝、首错停止、扫描失败保留、在途去重、选择切换及取消/重置迟到错误隔离。实机仍需验证确认弹窗取消/确认及真实文件结果；Windows无更改详情，不宣称对应功能运行验收。 GitModuleTests 与 GitWorktreeAppearanceTests 额外覆盖：暂存请求在 Git 返回前即显示目标状态、失败回落真实状态、点击被拒绝期间仍显示请求状态、状态扫描完成即空闲而不等项目刷新、工具栏按钮启用条件、历史视口在空闲/加载/失败及120/300/600pt高度下撑满，失败保留显式重试；新增模块回归覆盖主工作区状态同步、HEAD未变时工作树刷新补读状态、未变快照版本保持、失败保留旧行及历史cursor不重置。实机仍需在大型仓库测量点击复选框到状态更新的真实延迟。 新增更改页深浅色分组展开/勾选分离及分组行键盘偏移、左右/上下切换保留选择和草稿、同轴缩放保留原生文档、尺寸边界及每根独立草稿回归；模块测试检查唯一根提交范围、ChangeList隔离/主根同步、存储故障同步与重置失效。真实Git集成用例通过共享Core提交linked工作树，断言主仓库HEAD和暂存文件不变；新增真实Git参数用例分别覆盖主checkout和工作区外linked中的独立嵌套仓库，首次检查、显式/自动/独立模型刷新、全部暂存及提交不产生mode-160000条目或.gitmodules，嵌套HEAD和索引保持不变。受控有界gate在提交计划读取后暂停准备返回，验证父Diff直接文件和区块暂存/取消暂存无service写调用，释放后提交成功且写入口恢复。实机仍需验收完整工作台分栏拖动、ChangeList管理、提交确认和推送流程；verificationStatus保持pending。 新增 macOS 回滚回归：检查提交多选框默认纳入、行选择和窗口勾选分离、取消及空集合无写入、批量和部分暂存恢复、未选文件保持、新增及意向新增文件保留/删除、复制来源不变、重命名/删除及保留磁盘副本、linked Worktree 隔离；中英文深浅主题检查确认文件树及关闭/确认按钮，忙时互斥、首错停止及取消/重置有界回归。仍需完整工作台人工验收，verificationStatus 保持 pending。 在非当前 linked worktree 多选文件，分别核对提交准备、回滚、删除取消和新标签差异都使用该 checkout，主工作区索引不变；GitWorktreeAppearanceTests 检查实际工具栏及范围多选，完整新增菜单整机验收保持 pending。 用有界gate阻塞工作区解冻，确认Worktree本地状态、暂存勾选与忙状态先完成；分别从父更改页和固定checkout模型写入，确认只读目标根、同级无额外扫描、目录展开与80条历史及cursor保持。真实linked仓库回滚与删除流程仍结合GitStatusObservationTests核对主仓库索引不变，完整产品端到端验收保持pending。 GitModuleTests新增阻塞后台全量读取时回滚可用并拒绝旧行回填的共享模型回归；固定checkout完整产品人工流程仍保持pending。 Viva：在 Git 工具窗口的“工作树”页核对列表搜索、当前/有修改/已锁定/路径丢失状态、过期登记的清理与修复、概览/更改/提交历史详情（历史滚动续页）、三种模式新建（新分支、已有分支、分离 HEAD）及建议路径、删除与有修改时的强制删除确认、锁定/解锁、在 Finder 中显示、复制路径与打开；desktop/internal/workbench/gitworktree_test.go 用真实 Git 覆盖列表、删除、强制删除、锁定/解锁和新建。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -61,5 +67,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：Commit 面板的变更行右键/双击接入 Core 封装，对话框已实现；见 desktop/internal/workbench/gitreview*.go。未覆盖项见 PR 描述。"
+  "notes": "Viva 的 Git 工具窗口已有“工作树”页：列表与搜索、过期登记清理与修复、概览/更改/提交历史详情（历史滚动续页）、三种模式新建（新分支、已有分支、分离 HEAD）及建议路径、删除与强制删除、锁定/解锁、显示位置、复制路径和打开；Core 按拒绝原因返回不同错误码（主工作区、当前工作区、已锁定、有修改、未登记）。Commit 面板的 Git 工具菜单另有一个简化的工作树对话框（gitreview_tools*.go：列出、在新分支上新建、锁定/解锁、删除、清理）。尚未迁移：在新窗口打开、悬停快速信息和工作树设置页。操作可用性、状态优先级和建议路径仍在 Go 中判定，下沉 Core 跟踪 #1817。legacy 是迁移前基线，不代表当前实现。"
 }

@@ -105,6 +105,8 @@ func (c *Client) execute(ctx context.Context, command string, payload, result an
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	// A Git request of a context with a console is observed so its commands are recorded.
+	observer = gitConsoleObserver(ctx, command, request, observer)
 	if observer == nil {
 		return nil, decodeResponse(ctx, command, call(ctx, operationID, request), result)
 	}

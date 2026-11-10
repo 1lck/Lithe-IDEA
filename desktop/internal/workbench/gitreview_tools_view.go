@@ -254,10 +254,10 @@ func (a *App) worktreeBranch(tree core.GitWorktree) string {
 	switch {
 	case tree.IsBare:
 		return i18n.Shared(a.language(), "git.worktreeDialog.bare")
-	case tree.Branch == nil:
+	case tree.Branch == "":
 		return i18n.Shared(a.language(), "desktop.gitReview.detached")
 	}
-	name := *tree.Branch
+	name := tree.Branch
 	const prefix = "refs/heads/"
 	if len(name) > len(prefix) && name[:len(prefix)] == prefix {
 		name = name[len(prefix):]

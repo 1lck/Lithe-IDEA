@@ -293,7 +293,9 @@ func (a *App) createWorktree(p *project) {
 	// The new branch starts at the checked-out one, named by its complete reference identity.
 	from := core.GitReference{FullName: "refs/heads/" + branch, ShortName: branch, Kind: "local"}
 	a.toolsWrite(p, "git_worktree_create", func(ctx context.Context, k gitReviewKernel, root string) error {
-		return k.GitCreateWorktree(ctx, root, destination, core.GitWorktreeNewBranch, name, from)
+		return k.GitCreateWorktree(ctx, root, core.GitWorktreeCreation{
+			Mode: core.GitWorktreeNewBranch, Name: name, Reference: &from, Destination: destination,
+		})
 	})
 	t.branchName.SetText("")
 	t.destination.SetText("")

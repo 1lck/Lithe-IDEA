@@ -396,6 +396,31 @@ var CloudDownload = gfx.Icon{
 	},
 }
 
+// copy is a compiled vector icon.
+var Copy = gfx.Icon{
+	ViewBox: 24.0,
+	Stroke:  2.0,
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Commands: []gfx.PathCommand{
+		gfx.MoveTo(20.0, 8.0),
+		gfx.CubicTo(21.1046, 8.0, 22.0, 8.89543, 22.0, 10.0),
+		gfx.LineTo(22.0, 20.0),
+		gfx.CubicTo(22.0, 21.1046, 21.1046, 22.0, 20.0, 22.0),
+		gfx.LineTo(10.0, 22.0),
+		gfx.CubicTo(8.89543, 22.0, 8.0, 21.1046, 8.0, 20.0),
+		gfx.LineTo(8.0, 10.0),
+		gfx.CubicTo(8.0, 8.89543, 8.89543, 8.0, 10.0, 8.0),
+		gfx.ClosePath(),
+		gfx.MoveTo(4.0, 16.0),
+		gfx.CubicTo(2.9, 16.0, 2.0, 15.1, 2.0, 14.0),
+		gfx.LineTo(2.0, 4.0),
+		gfx.CubicTo(2.0, 2.9, 2.9, 2.0, 4.0, 2.0),
+		gfx.LineTo(14.0, 2.0),
+		gfx.CubicTo(15.1, 2.0, 16.0, 2.9, 16.0, 4.0),
+	},
+}
+
 // cpu is a compiled vector icon.
 var Cpu = gfx.Icon{
 	ViewBox: 24.0,
@@ -514,6 +539,28 @@ var EllipsisVertical = gfx.Icon{
 		gfx.CubicTo(11.0, 18.4477, 11.4477, 18.0, 12.0, 18.0),
 		gfx.CubicTo(12.5523, 18.0, 13.0, 18.4477, 13.0, 19.0),
 		gfx.ClosePath(),
+	},
+}
+
+// eraser is a compiled vector icon.
+var Eraser = gfx.Icon{
+	ViewBox: 24.0,
+	Stroke:  2.0,
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Commands: []gfx.PathCommand{
+		gfx.MoveTo(7.0, 21.0),
+		gfx.LineTo(2.7, 16.7),
+		gfx.CubicTo(1.7, 15.7, 1.7, 14.2, 2.7, 13.3),
+		gfx.LineTo(12.3, 3.7),
+		gfx.CubicTo(13.3, 2.7, 14.8, 2.7, 15.7, 3.7),
+		gfx.LineTo(21.3, 9.3),
+		gfx.CubicTo(22.3, 10.3, 22.3, 11.8, 21.3, 12.7),
+		gfx.LineTo(13.0, 21.0),
+		gfx.MoveTo(22.0, 21.0),
+		gfx.LineTo(7.0, 21.0),
+		gfx.MoveTo(5.0, 11.0),
+		gfx.LineTo(14.0, 20.0),
 	},
 }
 
@@ -1339,6 +1386,25 @@ var Sparkles = gfx.Icon{
 	},
 }
 
+// square is a compiled vector icon.
+var Square = gfx.Icon{
+	ViewBox: 24.0,
+	Stroke:  2.0,
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Commands: []gfx.PathCommand{
+		gfx.MoveTo(19.0, 3.0),
+		gfx.CubicTo(20.1046, 3.0, 21.0, 3.89543, 21.0, 5.0),
+		gfx.LineTo(21.0, 19.0),
+		gfx.CubicTo(21.0, 20.1046, 20.1046, 21.0, 19.0, 21.0),
+		gfx.LineTo(5.0, 21.0),
+		gfx.CubicTo(3.89543, 21.0, 3.0, 20.1046, 3.0, 19.0),
+		gfx.LineTo(3.0, 5.0),
+		gfx.CubicTo(3.0, 3.89543, 3.89543, 3.0, 5.0, 3.0),
+		gfx.ClosePath(),
+	},
+}
+
 // square-terminal is a compiled vector icon.
 var SquareTerminal = gfx.Icon{
 	ViewBox: 24.0,
@@ -1437,6 +1503,31 @@ var WrapText = gfx.Icon{
 		gfx.LineTo(16.0, 20.0),
 		gfx.MoveTo(3.0, 18.0),
 		gfx.LineTo(10.0, 18.0),
+	},
+}
+
+// wrench is a compiled vector icon.
+var Wrench = gfx.Icon{
+	ViewBox: 24.0,
+	Stroke:  2.0,
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Commands: []gfx.PathCommand{
+		gfx.MoveTo(14.7, 6.3),
+		gfx.CubicTo(14.3189, 6.68884, 14.3189, 7.31116, 14.7, 7.7),
+		gfx.LineTo(16.3, 9.3),
+		gfx.CubicTo(16.6888, 9.68114, 17.3112, 9.68114, 17.7, 9.3),
+		gfx.LineTo(21.47, 5.53),
+		gfx.CubicTo(22.4996, 7.80526, 22.0122, 10.4804, 20.2463, 12.2463),
+		gfx.CubicTo(18.4804, 14.0122, 15.8053, 14.4996, 13.53, 13.47),
+		gfx.LineTo(6.62, 20.38),
+		gfx.CubicTo(5.79157, 21.2084, 4.44843, 21.2084, 3.62, 20.38),
+		gfx.CubicTo(2.79157, 19.5516, 2.79157, 18.2084, 3.62, 17.38),
+		gfx.LineTo(10.53, 10.47),
+		gfx.CubicTo(9.5004, 8.19474, 9.98781, 5.51964, 11.7537, 3.75372),
+		gfx.CubicTo(13.5196, 1.98781, 16.1947, 1.5004, 18.47, 2.53),
+		gfx.LineTo(14.71, 6.29),
+		gfx.ClosePath(),
 	},
 }
 

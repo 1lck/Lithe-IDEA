@@ -33,6 +33,20 @@ const (
 	// CodeGitAuthenticationFailed means a git.write operation failed because the remote
 	// refused or lacked credentials.
 	CodeGitAuthenticationFailed ErrorCode = "git_authentication_failed"
+	// CodeGitWorktreeNotRegistered means a worktree removal, lock or unlock named a path that
+	// is not a registered worktree of the repository: the caller's list is out of date.
+	CodeGitWorktreeNotRegistered ErrorCode = "git_worktree_not_registered"
+	// CodeGitWorktreePrimary means a worktree removal, lock or unlock named the repository's
+	// primary worktree, which Git can neither remove, lock nor unlock.
+	CodeGitWorktreePrimary ErrorCode = "git_worktree_primary"
+	// CodeGitWorktreeCurrent means a removal named the worktree the request was made from.
+	CodeGitWorktreeCurrent ErrorCode = "git_worktree_current"
+	// CodeGitWorktreeLocked means a removal named a locked worktree; unlocking it first
+	// allows the removal.
+	CodeGitWorktreeLocked ErrorCode = "git_worktree_locked"
+	// CodeGitWorktreeHasChanges means Git refused a removal without force because the
+	// checkout has modified or untracked files, which a forced removal deletes.
+	CodeGitWorktreeHasChanges ErrorCode = "git_worktree_has_changes"
 	// CodeParseFailed means input or tool output could not be decoded into the stable
 	// contract. This package also uses it for a response it cannot decode.
 	CodeParseFailed ErrorCode = "parse_failed"
