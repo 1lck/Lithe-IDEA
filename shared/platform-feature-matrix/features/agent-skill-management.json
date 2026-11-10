@@ -11,7 +11,10 @@
       "desktop/internal/settingswindow/agent_settings_view.go",
       "desktop/internal/settingswindow/agent_settings_test.go",
       "desktop/internal/core/agent_settings.go",
-      "shared/fixtures/agent/skills-management-v1.json"
+      "shared/fixtures/agent/skills-management-v1.json",
+      "desktop/internal/settingswindow/skill_files.go",
+      "desktop/internal/settingswindow/skill_view.go",
+      "desktop/internal/settingswindow/skill_files_test.go"
     ]
   },
   "windows": {
@@ -22,7 +25,10 @@
       "desktop/internal/settingswindow/agent_settings_view.go",
       "desktop/internal/settingswindow/agent_settings_test.go",
       "desktop/internal/core/agent_settings.go",
-      "shared/fixtures/agent/skills-management-v1.json"
+      "shared/fixtures/agent/skills-management-v1.json",
+      "desktop/internal/settingswindow/skill_files.go",
+      "desktop/internal/settingswindow/skill_view.go",
+      "desktop/internal/settingswindow/skill_files_test.go"
     ]
   },
   "owner": "Agent",
@@ -59,5 +65,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "设置 AI › 技能页列出原生技能并切换启用（显示 Core 回读结果）、创建、按路径导入；未做查看 SKILL.md、按范围分组与搜索，没有文件选择器。"
+  "notes": "Viva：技能页按全局/项目分组，支持本地搜索、查看 SKILL.md（Core ReadAgentSkill）、系统文件/目录选择器导入、启用开关回显 Core 结果、创建与刷新。尚未做 Agent 来源筛选、原生目录直接新建与定位动作的完整错误提示；排序沿用 Core 返回顺序。"
 }

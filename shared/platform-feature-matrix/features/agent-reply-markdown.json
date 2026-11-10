@@ -9,7 +9,9 @@
     "evidence": [
       "desktop/internal/workbench/agent_markdown.go",
       "desktop/internal/workbench/agent_view.go",
-      "desktop/internal/core/agent_settings.go"
+      "desktop/internal/core/agent_settings.go",
+      "desktop/internal/workbench/markdown_preview.go",
+      ".agents/notes/implemented/feature/2026-11-10-viva-agent-reply-markdown-and-ai-settings-group.md"
     ]
   },
   "windows": {
@@ -18,12 +20,14 @@
     "evidence": [
       "desktop/internal/workbench/agent_markdown.go",
       "desktop/internal/workbench/agent_view.go",
-      "desktop/internal/core/agent_settings.go"
+      "desktop/internal/core/agent_settings.go",
+      "desktop/internal/workbench/markdown_preview.go",
+      ".agents/notes/implemented/feature/2026-11-10-viva-agent-reply-markdown-and-ai-settings-group.md"
     ]
   },
   "owner": "Agent",
   "verification": "macOS：让 Agent 回复包含 `**状态：**仍开放`、代码内 `**`、多列表格以及 `[App.swift](macos/Sources/App.swift:42)`、`[README](README.md#L3)`、GitHub issue 与普通网页链接。确认加粗正确且代码、转义星号和实体生成的星号保持原文，两个独立路径链接标签中的字面 ** 不能跨链接配对或被删除；悬停表格出现复制按钮，粘贴到文本编辑器得到 Markdown 表格，重新渲染后字面星号、反斜杠、链接语法、HTML 实体、单元格内换行与边缘空白仍保留原字符，粘贴到 Numbers/表格得到单元格；文件链接显示文档/代码图标并在编辑器中打开到对应行，文件名包含字面 %20、%2F、# 时仍打开原文件，GitHub 链接显示 GitHub 图标并用浏览器打开。检查深浅主题。Windows Agent 对话已复用共享 Markdown 渲染器：表格悬停提供 MD/HTML 两个复制按钮，文件路径（含 :行号、:行:列 与 #L行号）、GitHub 与普通网页链接按类型显示图标，文件链接在编辑器中打开并定位到行，其余交给系统打开；回复与思考块都使用同一渲染器。真机复制与跳转验收待执行。",
-  "notes": "回复用 Viva 自带 Markdown 视图排版（标题、列表、引用、代码块、表格、链接）。Core markdown.render 只返回 HTML 而 Viva 无 HTML 渲染，所以与两端旧客户端用的不是同一解析器；无语法着色、无可访问性节点、不可选中。",
+  "notes": "Viva：回复由 Viva 自带 Markdown 视图解析与绘制（标题、列表、引用、围栏代码、表格、http/https/mailto 链接），解析与高度按消息缓存，流式回复只在文本变长时重解析。Core markdown.render 仍只返回 HTML，Viva 无 HTML 渲染器，因此不支持 HTML、图片、数学公式、Mermaid 与脚注；Viva 视图暂无无障碍节点、文本不可选中，等上游 #200–#204。工具窗口的 Markdown 预览复用同一视图。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

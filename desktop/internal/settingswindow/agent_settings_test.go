@@ -260,3 +260,7 @@ func (f *fakeAgentBackend) SetAgentSharedInstructionsEnabled(_ context.Context, 
 	f.sharedTurns = append(f.sharedTurns, enabled)
 	return f.shared, nil
 }
+
+func (f *fakeAgentBackend) ReadAgentSkill(context.Context, string, string) (string, error) {
+	return "---\nname: demo\n---\nBody", nil
+}

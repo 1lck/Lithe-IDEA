@@ -187,35 +187,47 @@ func (w *window) skillsPage(c ui.C) {
 				for _, issue := range st.listing.Issues {
 					ui.Wrap(c.Key("issue/"+issue), issue).FontSize(12).Color(w.pal.muted)
 				}
+				query := st.query
+				ui.TextField(c.Key("search"), &query, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.skills.search"), "").FillWidth()
+				if query != st.query {
+					s.mu.Lock()
+					s.skills.query = query
+					s.mu.Unlock()
+				}
+				folded := foldQuery(query)
 				if st.loaded && len(st.listing.Skills) == 0 {
 					ui.Text(c, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.skills.empty")).FontSize(12).Color(w.pal.muted)
 				}
-				for i, skill := range st.listing.Skills {
-					skill := skill
-					ui.Row(c.Key("skill/" + skill.Path)).FillWidth().Items(ui.Center).Gap(8).Children(func() {
-						ui.Column(c).Grow(1).Gap(1).Children(func() {
-							ui.Text(c, skill.Name+" · "+w.skillScopeLabel(skill.Scope)).FontSize(13).Color(w.pal.text).Ellipsis()
-							if skill.Description != "" {
-								ui.Text(c, skill.Description).FontSize(12).Color(w.pal.muted).Ellipsis()
-							}
-						})
-						// Unknown enablement is shown as unavailable rather than guessed, and a
-						// plugin's skills are managed by the plugin.
-						known := skill.Enabled != nil && skill.PluginID == nil
-						on := known && *skill.Enabled
-						value := on
-						ui.Switch(c.KeyInt(i), &value, i18n.SharedFormat(w.marketLanguage(), "desktop.settings.agent.skills.enable", map[string]string{"name": skill.Name})).Disabled(!known || st.busy)
-						if value != on {
-							enabled := value
-							c.After(func() { s.setSkillEnabled(skill, enabled) })
+				shown := 0
+				for _, project := range []bool{false, true} {
+					group := i18n.Shared(w.marketLanguage(), "desktop.settings.agent.skills.group.global")
+					if project {
+						group = i18n.Shared(w.marketLanguage(), "desktop.settings.agent.skills.group.project")
+					}
+					header := false
+					for i, skill := range st.listing.Skills {
+						if isProjectScope(skill.Scope) != project || !skillMatches(skill.Name, skill.Description, w.skillScopeLabel(skill.Scope), skill.Path, folded) {
+							continue
 						}
-					})
+						if !header {
+							header = true
+							ui.Text(c.Key("group/"+group), group).FontSize(12).Color(w.pal.muted)
+						}
+						shown++
+						w.skillRow(c, i, skill, st.busy)
+					}
+				}
+				if st.loaded && len(st.listing.Skills) > 0 && shown == 0 {
+					ui.Text(c, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.skills.noMatch")).FontSize(12).Color(w.pal.muted)
 				}
 				if ui.Button(c.Key("refresh"), i18n.Shared(w.marketLanguage(), "desktop.settings.agent.skills.refresh")).Outline().Disabled(st.loading || st.busy).Clicked() {
 					c.After(func() { s.beginSkills(true) })
 				}
 			})
 		})
+		if st.viewPath != "" {
+			w.skillViewer(c, st)
+		}
 		w.card(c, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.skills.create"), "", func() {
 			ui.Column(c).FillWidth().Gap(8).Children(func() {
 				scope := st.createScope
@@ -252,6 +264,14 @@ func (w *window) skillsPage(c ui.C) {
 						Disabled(st.busy || projectOnly || strings.TrimSpace(name) == "").Clicked() {
 						c.After(s.createSkill)
 					}
+					if ui.Button(c.Key("pickFile"), i18n.Shared(w.marketLanguage(), "desktop.settings.agent.skills.pickFile")).Outline().Disabled(st.busy).Clicked() {
+						title := i18n.Shared(w.marketLanguage(), "desktop.settings.agent.skills.pickerTitle")
+						c.After(func() { s.pickImportSource(title, false) })
+					}
+					if ui.Button(c.Key("pickDirectory"), i18n.Shared(w.marketLanguage(), "desktop.settings.agent.skills.pickDirectory")).Outline().Disabled(st.busy).Clicked() {
+						title := i18n.Shared(w.marketLanguage(), "desktop.settings.agent.skills.pickerTitle")
+						c.After(func() { s.pickImportSource(title, true) })
+					}
 					if ui.Button(c.Key("importGo"), i18n.Shared(w.marketLanguage(), "desktop.settings.agent.skills.import")).Outline().
 						Disabled(st.busy || projectOnly || strings.TrimSpace(path) == "").Clicked() {
 						c.After(s.importSkill)
@@ -276,6 +296,20 @@ func (w *window) hookEventLabel(event string) string {
 		return i18n.Shared(w.marketLanguage(), "desktop.settings.agent.hooks.event.sessionStart")
 	}
 	return event
+}
+
+// hookMatches reports whether a Hook contains the folded search text in the fields the row
+// shows; an empty query matches every Hook.
+func hookMatches(hook core.AgentHook, eventLabel, query string) bool {
+	if query == "" {
+		return true
+	}
+	for _, field := range []string{hook.Name, hook.Description, hook.Command, eventLabel} {
+		if strings.Contains(foldQuery(field), query) {
+			return true
+		}
+	}
+	return false
 }
 
 func (w *window) hookMatcherLabel(matcher string) string {
@@ -356,9 +390,23 @@ func (w *window) hooksPage(c ui.C) {
 					}
 				}
 				needsSync := false
+				language := w.marketLanguage()
+				query := st.query
+				ui.TextField(c.Key("hookSearch"), &query, i18n.Shared(language, "desktop.settings.agent.hooks.search"), "").FillWidth()
+				if query != st.query {
+					s.mu.Lock()
+					s.hooks.query = query
+					s.mu.Unlock()
+				}
+				folded := foldQuery(query)
+				shown := 0
 				for _, hook := range st.library.Hooks {
 					hook := hook
 					needsSync = needsSync || hook.NeedsSync || hook.PendingRemoval
+					if !hookMatches(hook, w.hookEventLabel(hook.Event), folded) {
+						continue
+					}
+					shown++
 					ui.Row(c.Key("hook/" + hook.ID)).FillWidth().Items(ui.Center).Gap(8).Children(func() {
 						ui.Column(c).Grow(1).Gap(1).Children(func() {
 							ui.Text(c, hook.Name+" · "+w.hookEventLabel(hook.Event)).FontSize(13).Color(w.pal.text).Ellipsis()
@@ -374,9 +422,40 @@ func (w *window) hooksPage(c ui.C) {
 							c.After(func() { s.editHook(hook) })
 						}
 						if ui.Button(c.Key("remove"), i18n.Shared(w.marketLanguage(), "desktop.settings.agent.hooks.remove")).Outline().Disabled(st.saving).Clicked() {
-							id := hook.ID
-							c.After(func() { s.removeHook(id) })
+							id, name := hook.ID, hook.Name
+							c.After(func() {
+								s.mu.Lock()
+								s.hooks.confirmRemove, s.hooks.confirmName = id, name
+								s.mu.Unlock()
+							})
 						}
+					})
+				}
+				if st.loaded && len(st.library.Hooks) > 0 && shown == 0 {
+					ui.Text(c, i18n.Shared(language, "desktop.settings.agent.hooks.noMatch")).FontSize(12).Color(w.pal.muted)
+				}
+				if st.confirmRemove != "" {
+					name := st.confirmName
+					ui.Column(c.Key("confirmRemove")).FillWidth().Gap(4).Pad(6).Background(w.pal.hover).Children(func() {
+						ui.Paragraph(c, i18n.SharedFormat(language, "desktop.settings.agent.hooks.removeConfirm", map[string]string{"name": name}), 3).Color(w.pal.text)
+						ui.Row(c).Gap(8).Children(func() {
+							if ui.Button(c.Key("removeYes"), i18n.Shared(language, "desktop.settings.agent.hooks.remove")).Destructive().Disabled(st.saving).Clicked() {
+								c.After(func() {
+									id := st.confirmRemove
+									s.mu.Lock()
+									s.hooks.confirmRemove, s.hooks.confirmName = "", ""
+									s.mu.Unlock()
+									s.removeHook(id)
+								})
+							}
+							if ui.Button(c.Key("removeNo"), i18n.Shared(language, "desktop.settings.agent.cancel")).Outline().Clicked() {
+								c.After(func() {
+									s.mu.Lock()
+									s.hooks.confirmRemove, s.hooks.confirmName = "", ""
+									s.mu.Unlock()
+								})
+							}
+						})
 					})
 				}
 				ui.Row(c).Gap(8).Children(func() {

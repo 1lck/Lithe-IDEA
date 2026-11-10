@@ -395,12 +395,59 @@ func (a *App) agentArchivedSection(c ui.C, p *project) {
 		switch {
 		case s.loading && len(s.sessions) == 0:
 			ui.Text(c.Key("loading"), a.text.Agent.HistoryLoading).FontSize(small).Color(a.colors.Subtle)
+			return
 		case s.failed:
 			ui.Text(c.Key("failed"), t.ArchivedListFailed).FontSize(small).Color(a.theme.Danger)
+			return
 		case len(s.sessions) == 0:
 			ui.Text(c.Key("empty"), t.ArchivedEmpty).FontSize(small).Color(a.colors.Subtle)
+			return
 		}
-		for i, session := range s.sessions {
+		// The search and provider filter are local and read-only: they never list the
+		// Agent's history again or change its state.
+		query := s.query
+		ui.TextField(c.Key("search"), &query, t.ArchivedSearch, "").FillWidth()
+		if query != s.query {
+			c.After(func() { s.query = query })
+		}
+		options := agentArchiveProviders(s.sessions)
+		selected := 0
+		for i, option := range options {
+			if option == s.provider {
+				selected = i
+			}
+		}
+		indices := make([]int, len(options))
+		for i := range options {
+			indices[i] = i
+		}
+		if ui.Select(c.Key("provider"), &selected, indices, func(i int) string {
+			switch options[i] {
+			case "":
+				return t.ArchivedAllProviders
+			case "?":
+				return t.ArchivedUnknownProvider
+			}
+			return options[i]
+		}).Label(t.ArchivedProviderLabel).Height(26); selected != indexOfString(options, s.provider) {
+			option := options[selected]
+			c.After(func() { s.provider = option })
+		}
+		showRemoved := s.showHidden
+		removed := 0
+		for _, hidden := range s.hidden {
+			if hidden {
+				removed++
+			}
+		}
+		if ui.Checkbox(c.Key("showRemoved"), &showRemoved, t.ArchivedShowRemoved(fmt.Sprint(removed))).Changed() {
+			c.After(func() { s.showHidden = showRemoved })
+		}
+		rows := agentArchiveRows(s)
+		if len(rows) == 0 {
+			ui.Text(c.Key("noMatch"), t.ArchivedNoMatch).FontSize(small).Color(a.colors.Subtle)
+		}
+		for i, session := range rows {
 			title := session.Title
 			if title == "" {
 				title = a.text.Agent.Untitled
@@ -408,11 +455,26 @@ func (a *App) agentArchivedSection(c ui.C, p *project) {
 			if updated := formatAgentHistoryTime(session.UpdatedAt); updated != "" {
 				title += " · " + updated
 			}
+			if provider := session.ModelProvider; provider != "" {
+				title += " · " + provider
+			}
+			hidden := s.hidden[session.SessionID]
 			ui.Row(c.Key("row/" + session.SessionID)).FillWidth().Items(ui.Center).Gap(8).Children(func() {
 				ui.Text(c, title).Ellipsis().Grow(1).Color(a.colors.Subtle)
+				if hidden {
+					if ui.Button(c.KeyInt(i), t.ArchivedRestoreList).Outline().Clicked() {
+						id := session.SessionID
+						c.After(func() { a.setAgentArchiveHidden(p, id, false) })
+					}
+					return
+				}
 				if ui.Button(c.KeyInt(i), t.ArchivedRestore).Outline().Disabled(s.unarchiveToken != "").Clicked() {
 					id := session.SessionID
 					c.After(func() { a.askAgentUnarchive(p, id) })
+				}
+				if a.agentToggle(c.KeyInt(i).Key("remove"), t.ArchivedRemove) {
+					id := session.SessionID
+					c.After(func() { a.setAgentArchiveHidden(p, id, true) })
 				}
 			})
 		}
@@ -442,4 +504,14 @@ func (a *App) agentArchivedSection(c ui.C, p *project) {
 			})
 		}
 	})
+}
+
+// indexOfString is the position of value in values, or 0 when absent.
+func indexOfString(values []string, value string) int {
+	for i, candidate := range values {
+		if candidate == value {
+			return i
+		}
+	}
+	return 0
 }

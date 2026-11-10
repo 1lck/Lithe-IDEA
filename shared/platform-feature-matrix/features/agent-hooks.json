@@ -12,7 +12,8 @@
       "desktop/internal/settingswindow/agent_settings_test.go",
       "desktop/internal/core/agent_settings.go",
       "shared/fixtures/agent/hooks-management-v1.json",
-      "shared/fixtures/agent/hook-draft-validation-v1.json"
+      "shared/fixtures/agent/hook-draft-validation-v1.json",
+      "desktop/internal/core/agent_hooks_test.go"
     ]
   },
   "windows": {
@@ -24,12 +25,13 @@
       "desktop/internal/settingswindow/agent_settings_test.go",
       "desktop/internal/core/agent_settings.go",
       "shared/fixtures/agent/hooks-management-v1.json",
-      "shared/fixtures/agent/hook-draft-validation-v1.json"
+      "shared/fixtures/agent/hook-draft-validation-v1.json",
+      "desktop/internal/core/agent_hooks_test.go"
     ]
   },
   "owner": "Agent",
   "verification": "在 macOS 与真实 Windows 中打开 AI > Hooks，创建、编辑、搜索、启停和删除命令；确认五种事件和 Shell/文件编辑筛选映射正确，超时空值沿用原生默认。使用隔离用户目录运行真实 Codex/Claude Agent，批准原生信任后触发会话开始、提示词、工具前后和回合结束，并验证 JSON stdin 与工作目录。保留已有设置及用户 Hook；删除后其他组的位置不变，Codex trust 配置不变；外部修改、只读、非法 JSON、符号链接、原生单项失败、中断和取消显示可重试状态。运行 Host Hook、Core 契约、Swift 功能/外观/设置导航测试与 Windows frontend 验证，检查中英文深浅色窄宽页面及编辑面板。比较操作前后发行 bundle 文件清单与哈希不变。 按参考页检查编辑器两列标签对齐、多行描述与命令、创建/编辑标题和固定底部动作；验证 Agent 品牌选择按钮、全部恢复和全不选时禁用保存。 搜索不匹配时应显示中英文「没有匹配的 Hook」，清空后恢复列表；区分无搜索词的空资源库，搜索不发起配置写入。 编辑器的字段校验来自 Core `agent.hooks.validateDraft`：逐项输入非法名称、重名（忽略大小写）、超长描述、非工具事件配工具筛选、空命令/NUL、超时 0/86401/非整数、清空或重复 Agent，确认两端显示相同的中英文字段提示并禁用保存，合法后可保存且超时按 Core 解析值写入。",
-  "notes": "设置 AI › Hooks 页管理 Hook 库：新建/编辑（保存前用 Core validateDraft 校验）、移除、重试同步，显示需同步与待移除；未做搜索与删除确认。",
+  "notes": "Viva：Hooks 页新建/编辑（保存前 Core validateDraft 校验）、搜索（名称/说明/命令/事件标签）、删除前页面内确认、重试同步，显示需同步与待移除；未做 Agent 来源筛选与批量操作。新增 hooks-management 与 hook-draft-validation 共享 fixture 的 Go 请求/响应形状重放测试。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

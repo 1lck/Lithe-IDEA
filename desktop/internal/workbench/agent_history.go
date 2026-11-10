@@ -28,6 +28,9 @@ type agentSessionSummary struct {
 	SessionID string `json:"sessionId"`
 	Title     string `json:"title"`
 	UpdatedAt string `json:"updatedAt"`
+	// ModelProvider is the opaque provider identity upstream reported, empty when unknown.
+	// The archive filter uses it; nothing infers it from the current route or model name.
+	ModelProvider string `json:"modelProvider,omitempty"`
 }
 
 // agentHistoryState is one project connection's history view. The connection and

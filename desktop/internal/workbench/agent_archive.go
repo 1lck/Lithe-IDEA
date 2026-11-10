@@ -1,8 +1,18 @@
 package workbench
 
+import (
+	"sort"
+	"strings"
+)
+
 // Archived conversations are Agent-owned: Core lists them read-only with
 // listArchivedSessions and restores one with unarchiveSession after the user
 // confirms, because that changes the Agent's own state. Browsing never does.
+
+// agentArchiveHiddenFile keeps the archived conversations the user removed from
+// this client's list, per project. Hiding is local presentation only: the Agent's
+// own records are untouched, and Restore to List just forgets the id here.
+const agentArchiveHiddenFile = "agent-archive-hidden.json"
 
 // agentArchiveState is the archived group of one connection's history.
 type agentArchiveState struct {
@@ -19,6 +29,126 @@ type agentArchiveState struct {
 	confirming      string
 	unarchiveToken  string
 	unarchiveFailed bool
+	// query and provider filter the listed rows locally. provider is "" for every
+	// provider, "?" for rows without one, and an exact upstream identity otherwise.
+	query      string
+	provider   string
+	showHidden bool
+	// hidden are the ids the user removed from this client's list, loaded from the
+	// store when the group first opens.
+	hidden map[string]bool
+}
+
+// agentArchiveProviders returns the provider filter options of the listed conversations in
+// a deterministic order: every provider, then the sorted identities, then unknown.
+func agentArchiveProviders(sessions []agentSessionSummary) []string {
+	seen := map[string]bool{}
+	var known []string
+	unknown := false
+	for _, session := range sessions {
+		if session.ModelProvider == "" {
+			unknown = true
+			continue
+		}
+		if !seen[session.ModelProvider] {
+			seen[session.ModelProvider] = true
+			known = append(known, session.ModelProvider)
+		}
+	}
+	sort.Strings(known)
+	options := append([]string{""}, known...)
+	if unknown {
+		options = append(options, "?")
+	}
+	return options
+}
+
+// foldAgentQuery normalizes the search text and the fields the archive search matches.
+func foldAgentQuery(text string) string { return strings.ToLower(strings.TrimSpace(text)) }
+
+// agentArchiveRows are the listed conversations the group shows: removed ones only while
+// Show Removed is on, and otherwise the ones that match the search and provider filter.
+func agentArchiveRows(s *agentArchiveState) []agentSessionSummary {
+	query := foldAgentQuery(s.query)
+	rows := make([]agentSessionSummary, 0, len(s.sessions))
+	for _, session := range s.sessions {
+		if s.hidden[session.SessionID] != s.showHidden {
+			continue
+		}
+		switch s.provider {
+		case "":
+		case "?":
+			if session.ModelProvider != "" {
+				continue
+			}
+		default:
+			if session.ModelProvider != s.provider {
+				continue
+			}
+		}
+		if query != "" {
+			title := foldAgentQuery(session.Title)
+			provider := foldAgentQuery(session.ModelProvider)
+			if !strings.Contains(title, query) && !strings.Contains(foldAgentQuery(session.SessionID), query) &&
+				!strings.Contains(provider, query) {
+				continue
+			}
+		}
+		rows = append(rows, session)
+	}
+	return rows
+}
+
+// loadAgentArchiveHidden reads the removed ids of the open project once.
+func (a *App) loadAgentArchiveHidden(p *project) {
+	s := &p.agent.history.archive
+	if s.hidden != nil {
+		return
+	}
+	s.hidden = map[string]bool{}
+	all := map[string][]string{}
+	if _, err := a.store.Load(agentArchiveHiddenFile, &all); err != nil {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("agent_archive_hidden", err))
+		return
+	}
+	for _, id := range all[p.root] {
+		s.hidden[id] = true
+	}
+}
+
+// setAgentArchiveHidden removes one archived conversation from the local list or puts it
+// back. The Agent's records and its archived state are never changed.
+func (a *App) setAgentArchiveHidden(p *project, sessionID string, hidden bool) {
+	s := &p.agent.history.archive
+	a.loadAgentArchiveHidden(p)
+	if hidden {
+		s.hidden[sessionID] = true
+	} else {
+		delete(s.hidden, sessionID)
+	}
+	all := map[string][]string{}
+	if _, err := a.store.Load(agentArchiveHiddenFile, &all); err != nil {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("agent_archive_hidden", err))
+		return
+	}
+	if len(s.hidden) == 0 {
+		delete(all, p.root)
+	} else {
+		ids := make([]string, 0, len(s.hidden))
+		for id := range s.hidden {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		all[p.root] = ids
+	}
+	if err := a.store.Save(agentArchiveHiddenFile, all); err != nil {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("agent_archive_hidden", err))
+	}
+	if hidden {
+		a.performed("agent.archive.hide", surfaceButton)
+	} else {
+		a.performed("agent.archive.restore", surfaceButton)
+	}
 }
 
 // toggleAgentArchived opens or closes the archived group, listing it on first open.
@@ -28,8 +158,11 @@ func (a *App) toggleAgentArchived(p *project) {
 	}
 	s := &p.agent.history.archive
 	s.open = !s.open
-	if s.open && !s.loaded {
-		a.listAgentArchived(p)
+	if s.open {
+		a.loadAgentArchiveHidden(p)
+		if !s.loaded {
+			a.listAgentArchived(p)
+		}
 	}
 }
 
@@ -97,9 +230,15 @@ func (a *App) applyAgentSessionUnarchived(p *project, token string) {
 	if token == "" || token != s.unarchiveToken {
 		return
 	}
+	sessionID := s.confirming
 	s.unarchiveToken = ""
 	s.confirming = ""
 	s.loaded = false
+	// The conversation is no longer archived, so it cannot stay removed from the archive
+	// list; forgetting the id keeps the next listing consistent.
+	if sessionID != "" {
+		a.setAgentArchiveHidden(p, sessionID, false)
+	}
 	a.listAgentArchived(p)
 	a.refreshAgentHistory(p, false)
 }

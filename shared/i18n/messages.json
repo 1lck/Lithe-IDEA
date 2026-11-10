@@ -15797,6 +15797,13 @@
       ]
     },
     {
+      "id": "desktop.settings.agent.skills.close",
+      "description": "AI settings page: close the SKILL.md viewer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.agent.skills.create",
       "description": "AI settings page: create skill",
       "platforms": [
@@ -15852,6 +15859,20 @@
       }
     },
     {
+      "id": "desktop.settings.agent.skills.group.global",
+      "description": "AI settings page: skills group for global scope",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.skills.group.project",
+      "description": "AI settings page: skills group for project scope",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.agent.skills.help",
       "description": "AI settings page: skills help",
       "platforms": [
@@ -15873,6 +15894,13 @@
       ]
     },
     {
+      "id": "desktop.settings.agent.skills.noMatch",
+      "description": "AI settings page: no skill matches the search",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.agent.skills.noProject",
       "description": "AI settings page: project scope needs a project",
       "platforms": [
@@ -15880,8 +15908,36 @@
       ]
     },
     {
+      "id": "desktop.settings.agent.skills.pickDirectory",
+      "description": "AI settings page: choose a skill folder with the system folder picker",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.skills.pickFile",
+      "description": "AI settings page: choose a SKILL.md with the system file picker",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.skills.pickerTitle",
+      "description": "AI settings page: title of the skill file or folder picker",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.agent.skills.refresh",
       "description": "AI settings page: refresh skills",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.skills.reveal",
+      "description": "AI settings page: reveal a skill file in Finder",
       "platforms": [
         "desktop"
       ]
@@ -15915,8 +15971,36 @@
       ]
     },
     {
+      "id": "desktop.settings.agent.skills.search",
+      "description": "AI settings page: skills search field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.agent.skills.title",
       "description": "AI settings page: skills card",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.skills.view",
+      "description": "AI settings page: view a skill's SKILL.md",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.skills.viewHelp",
+      "description": "AI settings page: SKILL.md viewer note that it is read only",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.skills.viewTitle",
+      "description": "AI settings page: heading of the SKILL.md viewer, the file name",
       "platforms": [
         "desktop"
       ]
@@ -107148,6 +107232,89 @@
       "macos": {
         "key": "Other…",
         "arguments": []
+      }
+    },
+    {
+      "id": "desktop.agent.archived.search",
+      "description": "Search text field of the archived conversations group.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.archived.noMatch",
+      "description": "Shown when no archived conversation matches the search and filter.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.archived.allProviders",
+      "description": "Provider filter option that shows every provider.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.archived.unknownProvider",
+      "description": "Provider filter option for conversations without provider metadata.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.archived.providerLabel",
+      "description": "Label of the archived conversations' provider filter.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.archived.remove",
+      "description": "Remove an archived conversation from this client's list; the Agent's record is kept.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.archived.restoreList",
+      "description": "Put a locally removed archived conversation back into the list.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.archived.showRemoved",
+      "description": "Checkbox that lists the archived conversations removed from this client's list. {count} is how many there are.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.agent.hooks.search",
+      "description": "Search text field of the Hook list.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.hooks.noMatch",
+      "description": "Shown when no Hook matches the search.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.hooks.removeConfirm",
+      "description": "Confirmation before removing one Hook. {name} is the Hook's name.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
       }
     }
   ]

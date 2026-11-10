@@ -30,6 +30,7 @@ type AgentSettingsBackend interface {
 	SyncAgentHooks(ctx context.Context, dataDirectory, expectedRevision string, files []core.AgentFileGuard) (core.AgentHookLibrary, error)
 	ValidateAgentHookDraft(ctx context.Context, draft core.AgentHookDraft, existing []core.AgentHookRef) (core.AgentHookValidation, error)
 	ListAgentSkills(ctx context.Context, agentID, workspace string) (core.AgentSkillListing, error)
+	ReadAgentSkill(ctx context.Context, agentID, source string) (string, error)
 	SetAgentSkillEnabled(ctx context.Context, agentID, workspace, source, scope string, enabled bool) (core.AgentSkillListing, error)
 	CreateAgentSkill(ctx context.Context, agentID, workspace, scope, name, description, instructions string) (string, error)
 	ImportAgentSkill(ctx context.Context, agentID, workspace, scope, source string) (string, error)
@@ -94,15 +95,20 @@ type instructionsState struct {
 
 type skillsState struct {
 	loaded, loading bool
-	listing         core.AgentSkillListing
-	agentFor        string
-	err             error
-	notice          string
-	createScope     int
-	name, desc      string
-	body            string
-	importPath      string
-	busy            bool
+	// query is the search text of the list, folded by the view.
+	query string
+	// viewPath is the SKILL.md shown in the viewer, "" when none; viewContent is its text.
+	viewPath, viewContent string
+	viewing               bool
+	listing               core.AgentSkillListing
+	agentFor              string
+	err                   error
+	notice                string
+	createScope           int
+	name, desc            string
+	body                  string
+	importPath            string
+	busy                  bool
 }
 
 type hooksState struct {
@@ -112,6 +118,11 @@ type hooksState struct {
 	issues                  []core.AgentHookIssue
 	editing                 bool
 	form                    hookForm
+	// query is the search text of the list, folded by the view.
+	query string
+	// confirmRemove is the Hook the Remove button asks to confirm, and the name the
+	// confirmation shows; removal happens only after the user confirms.
+	confirmRemove, confirmName string
 }
 
 // hookForm is the editor draft of one Hook.
@@ -417,6 +428,7 @@ func (s *agentSettings) beginHooks(force bool) {
 		return
 	}
 	st.loading, st.err = true, nil
+	st.confirmRemove, st.confirmName = "", ""
 	dir := s.dir()
 	s.mu.Unlock()
 	s.run(func(ctx context.Context) {
@@ -570,4 +582,38 @@ func (s *agentSettings) syncHooks() {
 	s.hookMutation(func(ctx context.Context, dir string, lib core.AgentHookLibrary) (core.AgentHookLibrary, error) {
 		return s.backend.SyncAgentHooks(ctx, dir, lib.Revision, hookGuards(lib))
 	})
+}
+
+// readSkill loads the SKILL.md of one skill into the viewer. It runs only when the user asks.
+func (s *agentSettings) readSkill(skill core.AgentSkill) {
+	s.mu.Lock()
+	st := &s.skills
+	if !s.available() || st.viewing {
+		s.mu.Unlock()
+		return
+	}
+	st.viewing, st.err = true, nil
+	id, path := s.agentID(), skill.Path
+	s.mu.Unlock()
+	s.run(func(ctx context.Context) {
+		content, err := s.backend.ReadAgentSkill(ctx, id, path)
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		st.viewing = false
+		if s.agentID() != id {
+			return
+		}
+		if err != nil {
+			st.err = err
+			return
+		}
+		st.viewPath, st.viewContent = path, content
+	})
+}
+
+// closeSkill hides the viewer.
+func (s *agentSettings) closeSkill() {
+	s.mu.Lock()
+	s.skills.viewPath, s.skills.viewContent = "", ""
+	s.mu.Unlock()
 }

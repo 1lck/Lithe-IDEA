@@ -34,6 +34,10 @@ type AgentActivityMessages struct {
 	ArchivedTitle                                                                                          func(count string) string
 	ArchivedRestore, ArchivedCancel, ArchivedFailed, ArchivedListFailed, ArchivedEmpty, ArchivedIncomplete string
 	ArchivedConfirm                                                                                        func(title string) string
+	// The archive's local search, provider filter and local removal.
+	ArchivedSearch, ArchivedNoMatch, ArchivedAllProviders, ArchivedUnknownProvider, ArchivedProviderLabel string
+	ArchivedRemove, ArchivedRestoreList                                                                   string
+	ArchivedShowRemoved                                                                                   func(count string) string
 }
 
 func agentActivityMessages(language Language) AgentActivityMessages {
@@ -140,6 +144,16 @@ func agentActivityMessages(language Language) AgentActivityMessages {
 		ArchivedIncomplete: Shared(language, "desktop.agent.archived.incomplete"),
 		ArchivedConfirm: func(title string) string {
 			return SharedFormat(language, "desktop.agent.archived.confirm", map[string]string{"title": title})
+		},
+		ArchivedSearch:          Shared(language, "desktop.agent.archived.search"),
+		ArchivedNoMatch:         Shared(language, "desktop.agent.archived.noMatch"),
+		ArchivedAllProviders:    Shared(language, "desktop.agent.archived.allProviders"),
+		ArchivedUnknownProvider: Shared(language, "desktop.agent.archived.unknownProvider"),
+		ArchivedProviderLabel:   Shared(language, "desktop.agent.archived.providerLabel"),
+		ArchivedRemove:          Shared(language, "desktop.agent.archived.remove"),
+		ArchivedRestoreList:     Shared(language, "desktop.agent.archived.restoreList"),
+		ArchivedShowRemoved: func(count string) string {
+			return SharedFormat(language, "desktop.agent.archived.showRemoved", map[string]string{"count": count})
 		},
 		AddToAgent:    Shared(language, "desktop.agent.files.addToAgent"),
 		SkillsLoading: Shared(language, "desktop.agent.slash.skills"),
