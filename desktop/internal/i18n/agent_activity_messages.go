@@ -28,6 +28,7 @@ type AgentActivityMessages struct {
 	SteerSend, SteerPending, SteerReceived, SteerQueued, SteerFailed string
 	AttachCurrent                                                    string
 	RemoveFile, AttachedFile                                         func(name string) string
+	AddToAgent                                                       string
 	SkillsLoading, NoCommand                                         string
 
 	ArchivedTitle                                                                                          func(count string) string
@@ -140,6 +141,7 @@ func agentActivityMessages(language Language) AgentActivityMessages {
 		ArchivedConfirm: func(title string) string {
 			return SharedFormat(language, "desktop.agent.archived.confirm", map[string]string{"title": title})
 		},
+		AddToAgent:    Shared(language, "desktop.agent.files.addToAgent"),
 		SkillsLoading: Shared(language, "desktop.agent.slash.skills"),
 		NoCommand:     Shared(language, "desktop.agent.slash.none"),
 		CommandHint: func(name, hint string) string {

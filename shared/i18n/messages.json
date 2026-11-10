@@ -9804,6 +9804,13 @@
       ]
     },
     {
+      "id": "desktop.agent.files.addToAgent",
+      "description": "Agent: file tree context menu: add to Agent conversation",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.agent.files.attachCurrent",
       "description": "Agent panel: attach the active editor file",
       "platforms": [

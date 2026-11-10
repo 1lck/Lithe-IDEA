@@ -3,6 +3,8 @@ package workbench
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/vivaui/viva/gfx"
 )
 
 // activityHarness connects a scripted Agent that supports steering and returns
@@ -275,4 +277,38 @@ func TestAgentArchivedHistoryBrowsesReadOnlyAndRestoresAfterConfirmation(t *test
 	}
 	session.push(map[string]any{"kind": "sessionUnarchived", "token": restore["token"], "sessionId": "old-1"})
 	h.await("archived list refreshed", func() bool { return s.unarchiveToken == "" && s.confirming == "" })
+}
+
+func TestAgentFileDropOnComposerAttachesReferences(t *testing.T) {
+	h, session := activityHarness(t)
+	p := h.app.project
+	for i := 0; i < 3; i++ {
+		h.app.invalidator.Invalidate()
+		h.settle()
+	}
+	r := p.agent.composerRect
+	if r.Width <= 0 {
+		t.Fatal("the composer's rectangle was not recorded")
+	}
+	// A drop elsewhere is not the composer's.
+	outside := h.app.agentFileDrop(gfx.FileDropEvent{Phase: gfx.FileDropDrop, X: 1, Y: 1, Paths: []string{"/tmp/x.txt"}})
+	if outside.Handled || len(p.agent.files) != 0 {
+		t.Fatal("a drop outside the composer attached a file")
+	}
+	inside := h.app.agentFileDrop(gfx.FileDropEvent{Phase: gfx.FileDropDrop, X: r.X + 5, Y: r.Y + 5, Paths: []string{"/tmp/x.txt", "/tmp/x.txt", "/tmp/y z.md"}})
+	if !inside.Handled || len(p.agent.files) != 2 {
+		t.Fatalf("files = %#v", p.agent.files)
+	}
+	p.agent.editor.Insert("explain")
+	h.app.sendAgentPrompt(p)
+	var prompt map[string]any
+	for _, c := range session.commands() {
+		if c["kind"] == "prompt" {
+			prompt = c
+		}
+	}
+	files, _ := prompt["files"].([]any)
+	if len(files) != 2 || len(p.agent.files) != 0 {
+		t.Fatalf("prompt files = %v, draft files = %v", prompt["files"], p.agent.files)
+	}
 }

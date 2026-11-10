@@ -46,6 +46,8 @@ func (a *App) Config() app.Config {
 		OnShortcut: a.onShortcut,
 		OnScroll:   a.onScroll,
 		OnPointer:  a.onPointer,
+		// Files dropped on the Agent composer become references in its draft.
+		OnFileDrop: a.agentFileDrop,
 	}
 	background := a.colors.Chrome
 	a.root = ui.NewPage(ui.PageConfig{

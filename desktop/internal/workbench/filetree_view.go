@@ -177,6 +177,7 @@ func (a *App) drawTreeContent(c ui.C, p *project, n *treeNode) {
 	if n == p.tree.root {
 		name.Bold()
 	}
+	a.agentTreeMenu(c, p, n, name)
 }
 
 // focusTreeRow gives the keyboard to the row the locate button brought into view, once the row

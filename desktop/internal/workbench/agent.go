@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
 )
@@ -187,6 +188,8 @@ type agentState struct {
 	steer    agentSteerState
 	files    []agentFileRef
 	slash    agentSlashState
+	// composerRect is where the composer was laid out, for dropped files.
+	composerRect gfx.Rect
 
 	// editor is the composer's text, input the Field that shows it in the panel. The
 	// panel keeps the editor so Core-facing code reads the committed draft without the

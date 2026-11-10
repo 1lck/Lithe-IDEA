@@ -1198,6 +1198,7 @@
     "desktop.agent.error.session": "无法创建 Agent 会话。",
     "desktop.agent.error.status": "无法读取已安装的 Agent：{message}",
     "desktop.agent.error.unsupportedAuth": "该服务商使用的认证方式无法由 Lithe 复现。",
+    "desktop.agent.files.addToAgent": "加入 Agent 会话",
     "desktop.agent.files.attachCurrent": "附加当前文件",
     "desktop.agent.files.attached": "文件：{name}",
     "desktop.agent.files.remove": "移除 {name}",

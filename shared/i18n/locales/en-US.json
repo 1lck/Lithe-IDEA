@@ -1198,6 +1198,7 @@
     "desktop.agent.error.session": "The Agent session could not be created.",
     "desktop.agent.error.status": "Could not read the installed Agents: {message}",
     "desktop.agent.error.unsupportedAuth": "This provider uses an authentication method Lithe cannot reproduce.",
+    "desktop.agent.files.addToAgent": "Add to Agent conversation",
     "desktop.agent.files.attachCurrent": "Attach current file",
     "desktop.agent.files.attached": "File: {name}",
     "desktop.agent.files.remove": "Remove {name}",

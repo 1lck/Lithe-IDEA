@@ -259,7 +259,7 @@ func (a *App) agentConversation(c ui.C, p *project) {
 			a.agentPermission(c, p)
 		}
 		a.agentActivityStrip(c, p)
-		ui.Column(c).FillWidth().Shrink(0).Gap(6).Pad(8).Children(func() {
+		ui.Column(c).FillWidth().Shrink(0).Gap(6).Pad(8).Draw(func(d *ui.DrawContext) { p.agent.composerRect = d.Rect }).Children(func() {
 			a.agentSlashMenu(c, p)
 			a.agentFileChips(c, p)
 			a.agentComposer(c, p)
