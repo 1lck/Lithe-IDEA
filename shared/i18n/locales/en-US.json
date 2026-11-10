@@ -11181,7 +11181,14 @@
     "workspace.nativeMenuDescription": "{arg1} — {arg2}",
     "workspace.openWith": "Open With",
     "workspace.openWithAppStore": "App Store…",
-    "workspace.openWithOther": "Other…"
+    "workspace.openWithOther": "Other…",
+    "desktop.git.worktrees.lockedBecause": "Locked: {reason}",
+    "desktop.git.worktrees.destinationAbsolute": "Enter an absolute path.",
+    "desktop.git.worktrees.removed": "Removed worktree '{name}'",
+    "desktop.git.worktrees.failed": "Worktree operation failed: {reason}",
+    "desktop.git.console.exitCode": "Exit code {code}",
+    "desktop.git.console.expandConfiguration": "Show {count} temporary settings",
+    "desktop.git.console.collapse": "Collapse"
   },
   "overrides": {
     "windows": {

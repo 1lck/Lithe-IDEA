@@ -44,6 +44,8 @@ type gitWriteRequest struct {
 	PushTags     string          `json:"pushTags,omitempty"`
 	PushTarget   string          `json:"pushTarget,omitempty"`
 	ExpectedPush json.RawMessage `json:"expectedPush,omitempty"`
+	// NoCheckout registers a created worktree without filling its directory.
+	NoCheckout bool `json:"noCheckout,omitempty"`
 }
 
 // GitClone clones source into destination using Core's Git process and validation.

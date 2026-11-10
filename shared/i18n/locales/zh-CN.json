@@ -11181,7 +11181,14 @@
     "workspace.nativeMenuDescription": "{arg1} — {arg2}",
     "workspace.openWith": "打开方式",
     "workspace.openWithAppStore": "App Store…",
-    "workspace.openWithOther": "其他…"
+    "workspace.openWithOther": "其他…",
+    "desktop.git.worktrees.lockedBecause": "已锁定：{reason}",
+    "desktop.git.worktrees.destinationAbsolute": "请输入绝对路径。",
+    "desktop.git.worktrees.removed": "已删除工作树“{name}”",
+    "desktop.git.worktrees.failed": "工作树操作失败：{reason}",
+    "desktop.git.console.exitCode": "退出码 {code}",
+    "desktop.git.console.expandConfiguration": "显示 {count} 项临时配置",
+    "desktop.git.console.collapse": "收起"
   },
   "overrides": {
     "macos": {

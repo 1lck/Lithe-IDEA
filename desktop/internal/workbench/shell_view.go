@@ -124,11 +124,14 @@ func (a *App) toolBody(c ui.C, tool item, p *project) {
 	body.Clip().Children(func() {
 		switch tool.id {
 		case itemGit:
-			if a.layout.gitTab == 0 {
+			switch a.layout.gitTab {
+			case 0:
 				a.logPageView(c)
-				return
+			case 1:
+				a.worktreePageView(c)
+			default:
+				a.consolePageView(c)
 			}
-			a.toolPlaceholder(c)
 		case itemTerminal:
 			a.terminalToolBody(c, p)
 		case itemCommit:

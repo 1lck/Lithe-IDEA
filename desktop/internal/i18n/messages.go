@@ -3,31 +3,33 @@ package i18n
 // Messages is everything the client shows, grouped by the screen or surface that shows it.
 // Every field must be filled in every catalog; the tests check it.
 type Messages struct {
-	App      AppMessages
-	Welcome  WelcomeMessages
-	Title    TitleMessages
-	Window   WindowMessages
-	Tools    ToolMessages
-	Dock     DockMessages
-	Panel    PanelMessages
-	Editor   EditorMessages
-	Project  ProjectMessages
-	Git      GitMessages
-	Commit   CommitMessages
-	Branch   BranchMessages
-	Terminal TerminalMessages
-	Agent    AgentMessages
-	Status   StatusMessages
-	Settings SettingsMessages
-	Logs     LogMessages
-	Errors   ErrorMessages
-	Build    BuildMessages
-	Tests    TestMessages
-	Debug    DebugMessages
-	Run      RunMessages
-	AI       AIMessages
-	MCP      MCPMessages
-	Sync     SyncMessages
+	App       AppMessages
+	Welcome   WelcomeMessages
+	Title     TitleMessages
+	Window    WindowMessages
+	Tools     ToolMessages
+	Dock      DockMessages
+	Panel     PanelMessages
+	Editor    EditorMessages
+	Project   ProjectMessages
+	Git       GitMessages
+	Commit    CommitMessages
+	Branch    BranchMessages
+	Terminal  TerminalMessages
+	Agent     AgentMessages
+	Status    StatusMessages
+	Settings  SettingsMessages
+	Logs      LogMessages
+	Errors    ErrorMessages
+	Build     BuildMessages
+	Tests     TestMessages
+	Debug     DebugMessages
+	Run       RunMessages
+	AI        AIMessages
+	MCP       MCPMessages
+	Sync      SyncMessages
+	Worktrees WorktreeMessages
+	Console   ConsoleMessages
 }
 
 // AppMessages names the application.

@@ -21767,7 +21767,8 @@
       "id": "git.console.cancel",
       "description": "Windows UI: git.console.cancel",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -21781,7 +21782,8 @@
       "id": "git.console.closeSearch",
       "description": "Windows UI: git.console.closeSearch",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -21802,21 +21804,24 @@
       "id": "git.console.copyCommand",
       "description": "Windows UI: git.console.copyCommand",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.console.copyOutput",
       "description": "Windows UI: git.console.copyOutput",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.console.copyPath",
       "description": "Windows UI: git.console.copyPath",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -21830,7 +21835,8 @@
       "id": "git.console.empty",
       "description": "Windows UI: git.console.empty",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -21844,7 +21850,8 @@
       "id": "git.console.find",
       "description": "Windows UI: git.console.find",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -21881,7 +21888,8 @@
       "id": "git.console.fold.lines",
       "description": "Windows UI: git.console.fold.lines",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "count": "string"
@@ -21911,7 +21919,8 @@
       "id": "git.console.historyTruncated",
       "description": "Windows UI: git.console.historyTruncated",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -21925,7 +21934,8 @@
       "id": "git.console.matches",
       "description": "Windows UI: git.console.matches",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "count": "string"
@@ -21935,28 +21945,32 @@
       "id": "git.console.nextMatch",
       "description": "Windows UI: git.console.nextMatch",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.console.notice.completedWithoutOutput",
       "description": "Windows UI: git.console.notice.completedWithoutOutput",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.console.notice.fetchUnchanged",
       "description": "Windows UI: git.console.notice.fetchUnchanged",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.console.notice.waitingForOutput",
       "description": "Windows UI: git.console.notice.waitingForOutput",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -21977,14 +21991,16 @@
       "id": "git.console.presentationUnavailable",
       "description": "Windows UI: git.console.presentationUnavailable",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.console.previousMatch",
       "description": "Windows UI: git.console.previousMatch",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -22010,21 +22026,24 @@
       "id": "git.console.running",
       "description": "Windows UI: git.console.running",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.console.scrollToEnd",
       "description": "Windows UI: git.console.scrollToEnd",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.console.searchLimit",
       "description": "Windows UI: git.console.searchLimit",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "count": "string"
@@ -22042,21 +22061,24 @@
       "id": "git.console.truncated",
       "description": "Windows UI: git.console.truncated",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.console.unconfirmed",
       "description": "Windows UI: git.console.unconfirmed",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.console.wrap",
       "description": "Windows UI: git.console.wrap",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -28849,7 +28871,8 @@
       "id": "git.worktreeCount",
       "description": "Windows UI: git.worktreeCount",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "count": "string"
@@ -28859,7 +28882,8 @@
       "id": "git.worktreeDialog.after.currentWindow",
       "description": "Windows UI: git.worktreeDialog.after.current-window",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "windows": {
         "key": "git.worktreeDialog.after.current-window"
@@ -28879,14 +28903,16 @@
       "id": "git.worktreeDialog.after.stay",
       "description": "Windows UI: git.worktreeDialog.after.stay",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.worktreeDialog.afterCreate",
       "description": "Windows UI: git.worktreeDialog.afterCreate",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -28987,7 +29013,8 @@
       "id": "git.worktreeDialog.noCheckout",
       "description": "Windows UI: git.worktreeDialog.noCheckout",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -29050,14 +29077,16 @@
       "id": "git.worktreeDialog.revision",
       "description": "Windows UI: git.worktreeDialog.revision",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.worktreeDialog.revisionHint",
       "description": "Windows UI: git.worktreeDialog.revisionHint",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -29072,7 +29101,8 @@
       "id": "git.worktreesCount",
       "description": "Windows UI: git.worktreesCount",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "count": "string"
@@ -38185,7 +38215,8 @@
       "id": "native.aMissingCheckoutCanMakeTheWorktreeListInaccurate",
       "description": "Native UI: A missing checkout can make the worktree list inaccurate.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "A missing checkout can make the worktree list inaccurate.",
@@ -38524,7 +38555,8 @@
       "id": "native.actions",
       "description": "Native UI: Actions",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Actions",
@@ -41461,7 +41493,8 @@
       "id": "native.available",
       "description": "Native UI: Available",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Available",
@@ -41738,7 +41771,8 @@
       "id": "native.basicInformation",
       "description": "Native UI: Basic Information",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Basic Information",
@@ -41837,7 +41871,8 @@
       "id": "native.branch",
       "description": "Native UI: Branch",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Branch",
@@ -41859,7 +41894,8 @@
       "id": "native.branch.variant3",
       "description": "Native UI: Branch: %@",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Branch: %@",
@@ -42807,7 +42843,8 @@
       "id": "native.changes",
       "description": "Native UI: Changes",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Changes",
@@ -43325,7 +43362,8 @@
       "id": "native.checkoutPathMissing",
       "description": "Native UI: Checkout Path Missing",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Checkout Path Missing",
@@ -44419,7 +44457,8 @@
       "id": "native.clearGitConsole",
       "description": "Native UI: Clear Git console",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Clear Git console",
@@ -45779,7 +45818,8 @@
       "id": "native.commitHistory",
       "description": "Native UI: Commit History",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Commit History",
@@ -47312,7 +47352,8 @@
       "id": "native.copyCompleteConsole",
       "description": "Native UI: Copy complete console",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Copy complete console",
@@ -47433,7 +47474,8 @@
       "id": "native.copyPath",
       "description": "Native UI: Copy Path",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Copy Path",
@@ -47772,7 +47814,8 @@
       "id": "native.couldNotInspectThisWorktree",
       "description": "Native UI: Could not inspect this worktree",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Could not inspect this worktree",
@@ -48336,7 +48379,8 @@
       "id": "native.createACheckoutToGetStarted",
       "description": "Native UI: Create a checkout to get started.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Create a checkout to get started.",
@@ -48604,7 +48648,8 @@
       "id": "native.createdWorktreeFor",
       "description": "Native UI: Created worktree for %@",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Created worktree for %@",
@@ -48743,7 +48788,8 @@
       "id": "native.current",
       "description": "Native UI: Current",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Current",
@@ -54995,7 +55041,8 @@
       "id": "native.forceRemove",
       "description": "Native UI: Force Remove",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Force Remove",
@@ -55006,7 +55053,8 @@
       "id": "native.forceRemoveWorktree",
       "description": "Native UI: Force remove worktree?",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Force remove worktree?",
@@ -56303,7 +56351,8 @@
       "id": "native.head",
       "description": "Native UI: HEAD",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "HEAD",
@@ -59235,7 +59284,8 @@
       "id": "native.itsDetailsAndActionsWillAppearHere",
       "description": "Native UI: Its details and actions will appear here.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Its details and actions will appear here.",
@@ -60659,7 +60709,8 @@
       "id": "native.linkedWorktree",
       "description": "Native UI: Linked worktree",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Linked worktree",
@@ -61236,7 +61287,8 @@
       "id": "native.lldChangedFiles",
       "description": "Native UI: %lld changed files",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "%lld changed files",
@@ -62034,7 +62086,8 @@
       "id": "native.lldWorktreeRecordsNeedAttention",
       "description": "Native UI: %lld worktree records need attention",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "%lld worktree records need attention",
@@ -62576,7 +62629,8 @@
       "id": "native.loadingWorktrees",
       "description": "Native UI: Loading worktrees",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Loading worktrees",
@@ -62610,7 +62664,8 @@
       "id": "native.localChanges.variant2",
       "description": "Native UI: Local changes",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Local changes",
@@ -62862,7 +62917,8 @@
       "id": "native.lockWorktree",
       "description": "Native UI: Lock Worktree",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Lock Worktree",
@@ -62873,7 +62929,8 @@
       "id": "native.locked",
       "description": "Native UI: Locked",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Locked",
@@ -64511,7 +64568,8 @@
       "id": "native.modified",
       "description": "Native UI: Modified",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Modified",
@@ -65984,7 +66042,8 @@
       "id": "native.noAvailableLocalBranchBranchesAlreadyCheckedOutInAnotherWorktreeCannotBeReused",
       "description": "Native UI: No available local branch. Branches already checked out in another worktree cannot be reused.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "No available local branch. Branches already checked out in another worktree cannot be reused.",
@@ -66050,7 +66109,8 @@
       "id": "native.noChanges",
       "description": "Native UI: No changes",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "No changes",
@@ -66138,7 +66198,8 @@
       "id": "native.noCommitsWereFoundForThisBranch",
       "description": "Native UI: No commits were found for this branch.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "No commits were found for this branch.",
@@ -66794,7 +66855,8 @@
       "id": "native.noMatchingCommitsInTheLoadedHistory",
       "description": "Native UI: No matching commits in the loaded history.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "No matching commits in the loaded history.",
@@ -67726,7 +67788,8 @@
       "id": "native.noWorktrees",
       "description": "Native UI: No worktrees",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "No worktrees",
@@ -69080,7 +69143,8 @@
       "id": "native.openInCurrentWindow",
       "description": "Native UI: Open in Current Window",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Open in Current Window",
@@ -69762,7 +69826,8 @@
       "id": "native.overview",
       "description": "Native UI: Overview",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Overview",
@@ -70026,7 +70091,8 @@
       "id": "native.path",
       "description": "Native UI: Path",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Path",
@@ -70037,7 +70103,8 @@
       "id": "native.pathMissing",
       "description": "Native UI: Path Missing",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Path Missing",
@@ -71282,7 +71349,8 @@
       "id": "native.primaryWorktree",
       "description": "Native UI: Primary worktree",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Primary worktree",
@@ -71880,7 +71948,8 @@
       "id": "native.protection",
       "description": "Native UI: Protection",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Protection",
@@ -72045,7 +72114,8 @@
       "id": "native.pruneStaleRecords",
       "description": "Native UI: Prune Stale Records",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Prune Stale Records",
@@ -72089,7 +72159,8 @@
       "id": "native.pruneStaleWorktreeRecords",
       "description": "Native UI: Prune stale worktree records?",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Prune stale worktree records?",
@@ -72100,7 +72171,8 @@
       "id": "native.pruneTheStaleRecordInstead",
       "description": "Native UI: Prune the stale record instead.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Prune the stale record instead.",
@@ -72111,7 +72183,8 @@
       "id": "native.prunedStaleWorktreeRecords",
       "description": "Native UI: Pruned stale worktree records",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Pruned stale worktree records",
@@ -72829,7 +72902,8 @@
       "id": "native.readingRegisteredCheckouts",
       "description": "Native UI: Reading registered checkouts.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Reading registered checkouts.",
@@ -73286,7 +73360,8 @@
       "id": "native.refreshHistory",
       "description": "Native UI: Refresh history",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Refresh history",
@@ -73385,7 +73460,8 @@
       "id": "native.refreshWorktrees",
       "description": "Native UI: Refresh worktrees",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Refresh worktrees",
@@ -73477,7 +73553,8 @@
       "id": "native.registersTheWorktreeAndPreparesItsHEADWhileLeavingItsFilesUncheckedOut",
       "description": "Native UI: Registers the worktree and prepares its HEAD while leaving its files unchecked out.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Registers the worktree and prepares its HEAD while leaving its files unchecked out.",
@@ -73488,7 +73565,8 @@
       "id": "native.registration",
       "description": "Native UI: Registration",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Registration",
@@ -74105,7 +74183,8 @@
       "id": "native.removeAndItsCheckoutDirectoryTheBranchIsKeptIfGitRefusesBecauseFilesHaveChanged2b6784d33",
       "description": "Native UI: Remove '%@' and its checkout directory? The branch is kept. If Git refuses because files have changed, review the force-removal warning.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Remove '%@' and its checkout directory? The branch is kept. If Git refuses because files have changed, review the force-removal warning.",
@@ -74289,7 +74368,8 @@
       "id": "native.removeWorktree",
       "description": "Native UI: Remove Worktree…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Remove Worktree…",
@@ -74300,7 +74380,8 @@
       "id": "native.removeWorktree.variant2",
       "description": "Native UI: Remove worktree?",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Remove worktree?",
@@ -74519,7 +74600,8 @@
       "id": "native.repairOrPruneTheMissingCheckoutBeforeChangingItsLock",
       "description": "Native UI: Repair or prune the missing checkout before changing its lock.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Repair or prune the missing checkout before changing its lock.",
@@ -74530,7 +74612,8 @@
       "id": "native.repairWorktreeRecords",
       "description": "Native UI: Repair Worktree Records",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Repair Worktree Records",
@@ -74541,7 +74624,8 @@
       "id": "native.repairedWorktreeRecords",
       "description": "Native UI: Repaired worktree records",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Repaired worktree records",
@@ -76050,7 +76134,8 @@
       "id": "native.reviewForceRemove",
       "description": "Native UI: Review Force Remove…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Review Force Remove…",
@@ -76127,7 +76212,8 @@
       "id": "native.role",
       "description": "Native UI: Role",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Role",
@@ -77507,7 +77593,8 @@
       "id": "native.searchCommits",
       "description": "Native UI: Search commits",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Search commits",
@@ -77833,7 +77920,8 @@
       "id": "native.searchWorktreeOrPath",
       "description": "Native UI: Search worktree or path",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Search worktree or path",
@@ -78125,7 +78213,8 @@
       "id": "native.selectAWorktree",
       "description": "Native UI: Select a worktree",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Select a worktree",
@@ -80805,7 +80894,8 @@
       "id": "native.staleRecord",
       "description": "Native UI: Stale record",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Stale record",
@@ -81288,7 +81378,8 @@
       "id": "native.status",
       "description": "Native UI: Status",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Status",
@@ -83176,7 +83267,8 @@
       "id": "native.theCheckoutDirectoryNoLongerExistsRepairMovedWorktreeMetadataOrPruneTheStaleGitRecord",
       "description": "Native UI: The checkout directory no longer exists. Repair moved worktree metadata or prune the stale Git record.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "The checkout directory no longer exists. Repair moved worktree metadata or prune the stale Git record.",
@@ -83372,7 +83464,8 @@
       "id": "native.theCurrentWorktreeCannotBeRemovedHere",
       "description": "Native UI: The current worktree cannot be removed here.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "The current worktree cannot be removed here.",
@@ -85241,7 +85334,8 @@
       "id": "native.thePrimaryWorktreeCannotBeLocked",
       "description": "Native UI: The primary worktree cannot be locked.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "The primary worktree cannot be locked.",
@@ -85252,7 +85346,8 @@
       "id": "native.thePrimaryWorktreeCannotBeRemoved",
       "description": "Native UI: The primary worktree cannot be removed.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "The primary worktree cannot be removed.",
@@ -86394,7 +86489,8 @@
       "id": "native.theWorktreeWillPointDirectlyToACommitCreateABranchThereBeforeKeepingNewCommits",
       "description": "Native UI: The worktree will point directly to a commit. Create a branch there before keeping new commits.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "The worktree will point directly to a commit. Create a branch there before keeping new commits.",
@@ -87035,7 +87131,8 @@
       "id": "native.thisPermanentlyDeletesUncommittedAndUntrackedFilesInTheBranchItselfIsKept",
       "description": "Native UI: This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept.",
@@ -87227,7 +87324,8 @@
       "id": "native.thisRemovesGitRegistrationsWhoseCheckoutDirectoriesNoLongerExistItDoesNotDeleteBranches",
       "description": "Native UI: This removes Git registrations whose checkout directories no longer exist. It does not delete branches.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "This removes Git registrations whose checkout directories no longer exist. It does not delete branches.",
@@ -87558,7 +87656,8 @@
       "id": "native.thisWorktreeHasNoUncommittedChanges",
       "description": "Native UI: This worktree has no uncommitted changes.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "This worktree has no uncommitted changes.",
@@ -89508,7 +89607,8 @@
       "id": "native.tryABranchNameOrCheckoutPath",
       "description": "Native UI: Try a branch name or checkout path.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Try a branch name or checkout path.",
@@ -90132,7 +90232,8 @@
       "id": "native.unlockTheWorktreeBeforeRemovingIt",
       "description": "Native UI: Unlock the worktree before removing it.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Unlock the worktree before removing it.",
@@ -90143,7 +90244,8 @@
       "id": "native.unlockWorktree",
       "description": "Native UI: Unlock Worktree",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Unlock Worktree",
@@ -90154,7 +90256,8 @@
       "id": "native.unlocked",
       "description": "Native UI: Unlocked",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Unlocked",
@@ -91631,7 +91734,8 @@
       "id": "native.valid",
       "description": "Native UI: Valid",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Valid",
@@ -92998,7 +93102,8 @@
       "id": "native.worktree",
       "description": "Native UI: Worktree",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Worktree",
@@ -93086,7 +93191,8 @@
       "id": "native.worktreesAreUnavailable",
       "description": "Native UI: Worktrees are unavailable",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Worktrees are unavailable",
@@ -106463,6 +106569,70 @@
         "key": "Other…",
         "arguments": []
       }
+    },
+    {
+      "id": "desktop.git.worktrees.lockedBecause",
+      "description": "Desktop Git worktrees: the protection of a worktree locked with a reason.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.git.worktrees.destinationAbsolute",
+      "description": "Desktop Git worktrees: the New Worktree destination is not an absolute path.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.worktrees.removed",
+      "description": "Desktop Git worktrees: a worktree was removed.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.git.worktrees.failed",
+      "description": "Desktop Git worktrees: a worktree operation failed, with Git's reason.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.git.console.exitCode",
+      "description": "Desktop Git console: the exit code of a command that did not exit as expected.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "code": "integer"
+      }
+    },
+    {
+      "id": "desktop.git.console.expandConfiguration",
+      "description": "Desktop Git console: opens a fold of the temporary Git configuration of a command.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.git.console.collapse",
+      "description": "Desktop Git console: closes an opened fold.",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

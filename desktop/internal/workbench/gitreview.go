@@ -49,7 +49,7 @@ type gitReviewKernel interface {
 	GitStashPop(ctx context.Context, root string, stash core.GitStash) error
 	GitStashDrop(ctx context.Context, root string, stash core.GitStash) error
 	GitWorktrees(ctx context.Context, root string) ([]core.GitWorktree, error)
-	GitCreateWorktree(ctx context.Context, root, destination string, mode core.GitWorktreeMode, name string, from core.GitReference) error
+	GitCreateWorktree(ctx context.Context, root string, creation core.GitWorktreeCreation) error
 	GitRemoveWorktree(ctx context.Context, root, path string, force bool) error
 	GitLockWorktree(ctx context.Context, root, path string) error
 	GitUnlockWorktree(ctx context.Context, root, path string) error

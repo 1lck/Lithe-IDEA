@@ -123,6 +123,14 @@ type Kernel interface {
 	GitPull(ctx context.Context, root string, strategy core.GitPullStrategy) error
 	GitDeleteBranch(ctx context.Context, root string, branch core.GitReference) (core.GitBranchDeletion, error)
 	GitBranchNamePreview(ctx context.Context, request core.BranchNameRequest) (core.BranchNamePreview, error)
+	GitWorktrees(ctx context.Context, root string) ([]core.GitWorktree, error)
+	GitCreateWorktree(ctx context.Context, root string, creation core.GitWorktreeCreation) error
+	GitRemoveWorktree(ctx context.Context, root, path string, force bool) error
+	GitLockWorktree(ctx context.Context, root, path string) error
+	GitUnlockWorktree(ctx context.Context, root, path string) error
+	GitPruneWorktrees(ctx context.Context, root string) error
+	GitRepairWorktrees(ctx context.Context, root string) error
+	GitConsolePresentation(ctx context.Context, records []core.GitConsoleRecord, search string) (core.GitConsolePresentation, error)
 	ListDirectories(ctx context.Context, root string, paths []string) ([]core.DirectoryListing, error)
 	PlanDocumentSaveBatch(ctx context.Context, documents []core.SaveBatchDocument) (core.SaveBatchPlan, error)
 	ReduceDocumentSaveBatch(ctx context.Context, members []string, results []core.SaveBatchResult, documents []core.SaveBatchDocument) (core.SaveBatchDecision, error)
@@ -230,6 +238,9 @@ type project struct {
 	git    gitState
 	log    gitLogState
 	commit commitState
+	// worktrees is the Git tool window's Worktrees tab: the repository's worktrees and the
+	// details of the selected one.
+	worktrees worktreeState
 	// terms are the project's terminals and where each one is placed: in the Terminal tool
 	// window or in a group of the editor area. A terminal's shell starts when it is first
 	// painted, and every shell ends when the project closes.
@@ -377,7 +388,13 @@ type App struct {
 	// commitView is the Commit tool window's splitter and message input.
 	commitView commitView
 	// reviewMenu is the state of the Git tools menu in the Git tool window.
-	reviewMenu     reviewMenuState
+	reviewMenu reviewMenuState
+	// worktreeView is the page of the Git tool window's Worktrees tab.
+	worktreeView worktreeView
+	// gitConsole keeps the Git commands every project of the window ran, for the Git tool
+	// window's Console tab; consoleView is that tab's page.
+	gitConsole     *core.GitConsole
+	consoleView    consoleView
 	searchView     searchView
 	everywhereView everywhereView
 	// problems is the Problems tool window's cached Core answer.
@@ -440,6 +457,7 @@ func New(options Options) *App {
 		agentKernel:     options.AgentKernel,
 		listShells:      localshell.InstalledShells,
 	}
+	a.gitConsole = core.NewGitConsole(a.gitConsoleChanged)
 	if _, err := a.store.Load(settingsFile, &a.settings); err != nil {
 		a.settings = settings{}
 	}
@@ -802,7 +820,8 @@ func (a *App) openProject(path string) {
 	}
 	a.requestCloseProject(func() {
 		a.reduceRecent(a.recent, core.RecordRecent(root, a.now()), true)
-		ctx, cancel := context.WithCancel(context.Background())
+		// Every Git command the project runs is kept in the Git console.
+		ctx, cancel := context.WithCancel(core.WithGitConsole(context.Background(), a.gitConsole, root))
 		p := &project{root: root, name: filepath.Base(root), ctx: ctx, cancel: cancel, commit: newCommitState(), agent: newAgentState()}
 		a.searchView.reset()
 		a.openTerminals(p)
@@ -811,6 +830,7 @@ func (a *App) openProject(path string) {
 		a.toolchainRoot.Store(&rootCopy)
 		a.notice = ""
 		a.logView.reset()
+		a.worktreeView.reset()
 		a.loadGit(p)
 		a.loadLog(p)
 		a.activatePluginWorkspace(root)

@@ -296,8 +296,11 @@ func (a *App) syncBranchName(p *project) {
 }
 
 // branchNameError words the preview's error, empty when the name can be used.
-func (a *App) branchNameError() string {
-	e := a.branch.preview.Error
+func (a *App) branchNameError() string { return a.branchNameErrorText(a.branch.preview.Error) }
+
+// branchNameErrorText words why a branch name cannot be used, empty for no error. Every
+// dialog that names a new branch words Core's verdict with it.
+func (a *App) branchNameErrorText(e *core.BranchNameError) string {
 	if e == nil {
 		return ""
 	}
