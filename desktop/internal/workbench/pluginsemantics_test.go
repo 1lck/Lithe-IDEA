@@ -3,6 +3,7 @@ package workbench
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -552,5 +553,143 @@ func TestFormatDocumentWithoutEditsSaysNothingToFormat(t *testing.T) {
 	f.deliver(t, "op-1", pluginMethodFormatting, formatEditsResult(t))
 	if !f.h.shows("没有需要格式化的内容。") {
 		t.Fatalf("no notice: %v", len(f.h.driver.Snapshot().Labels))
+	}
+}
+
+func renameChangesResult(t *testing.T, changes map[string][]core.PluginTextEdit) json.RawMessage {
+	t.Helper()
+	value, err := json.Marshal(map[string]any{"changes": changes})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+func wordEdit(line, from, to int, text string) []core.PluginTextEdit {
+	return []core.PluginTextEdit{{
+		Range:   core.PluginDocumentRange{Start: core.PluginDocumentPosition{Line: line, UTF16Column: from}, End: core.PluginDocumentPosition{Line: line, UTF16Column: to}},
+		NewText: text,
+	}}
+}
+
+// startRename opens the dialog on the open document, types the name and
+// confirms, then waits for Core's request.
+func startRename(t *testing.T, f *semanticFixture, name string) {
+	t.Helper()
+	f.d.view.GoToNavigation(0, 1, false)
+	if err := f.h.driver.Key(gfx.KeyF2, 0); err != nil {
+		t.Fatal(err)
+	}
+	state := &f.h.app.semantics.rename
+	if !state.open || state.name.Text() != "one" {
+		t.Fatalf("rename dialog = open %v name %q", state.open, state.name.Text())
+	}
+	state.name.SetText(name)
+	f.h.app.confirmPluginRename()
+	f.waitForRequests(t, 1)
+	request := f.kernel.request(0)
+	if request.Operation != pluginSemanticRename || request.NewName != name || request.Position == nil {
+		t.Fatalf("rename request = %+v", request)
+	}
+}
+
+func TestRenameUpdatesOpenDocumentAndClosedFile(t *testing.T) {
+	f := newSemanticFixture(t)
+	closed := filepath.Join(f.p.root, "B.java")
+	if err := os.WriteFile(closed, []byte("one two\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	startRename(t, f, "uno")
+	f.deliver(t, "op-1", pluginMethodRename, renameChangesResult(t, map[string][]core.PluginTextEdit{
+		f.d.path: wordEdit(0, 0, 3, "uno"),
+		closed:   wordEdit(0, 0, 3, "uno"),
+	}))
+	awaitDocumentState(t, f.h, func() bool {
+		data, _ := f.d.view.Text()
+		return string(data) == "uno\n"
+	})
+	written, err := os.ReadFile(closed)
+	if err != nil || string(written) != "uno two\n" {
+		t.Fatalf("closed file = %q, %v", written, err)
+	}
+	if f.h.app.semantics.rename.open {
+		t.Fatal("the rename dialog stayed open")
+	}
+	if !f.d.view.Undo() {
+		t.Fatal("the open document edit is not undoable")
+	}
+	data, _ := f.d.view.Text()
+	if string(data) != "one\n" {
+		t.Fatalf("undo text = %q", data)
+	}
+}
+
+func TestRenameRollsBackWrittenFilesWhenALaterWriteFails(t *testing.T) {
+	f := newSemanticFixture(t)
+	first, second := filepath.Join(f.p.root, "B.java"), filepath.Join(f.p.root, "C.java")
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, []byte("one\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	real := f.h.app.documentWriter
+	f.h.app.documentWriter = func(path string, data, expected []byte) error {
+		if path == second {
+			return errors.New("disk full")
+		}
+		return real(path, data, expected)
+	}
+	startRename(t, f, "uno")
+	f.deliver(t, "op-1", pluginMethodRename, renameChangesResult(t, map[string][]core.PluginTextEdit{
+		first:  wordEdit(0, 0, 3, "uno"),
+		second: wordEdit(0, 0, 3, "uno"),
+	}))
+	awaitDocumentState(t, f.h, func() bool { return f.h.shows("无法完成重命名，已写入的文件已恢复。") })
+	for _, path := range []string{first, second} {
+		data, err := os.ReadFile(path)
+		if err != nil || string(data) != "one\n" {
+			t.Fatalf("%s = %q, %v (want restored)", path, data, err)
+		}
+	}
+	data, _ := f.d.view.Text()
+	if string(data) != "one\n" {
+		t.Fatalf("open document changed despite the failed commit: %q", data)
+	}
+}
+
+func TestRenameOutsideWorkspaceIsRejectedBeforeAnyWrite(t *testing.T) {
+	f := newSemanticFixture(t)
+	outside := filepath.Join(t.TempDir(), "X.java")
+	if err := os.WriteFile(outside, []byte("one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	startRename(t, f, "uno")
+	f.deliver(t, "op-1", pluginMethodRename, renameChangesResult(t, map[string][]core.PluginTextEdit{
+		f.d.path: wordEdit(0, 0, 3, "uno"),
+		outside:  wordEdit(0, 0, 3, "uno"),
+	}))
+	awaitDocumentState(t, f.h, func() bool {
+		return f.h.shows("重命名涉及项目之外的文件或只读文档，未做任何更改。")
+	})
+	data, _ := f.d.view.Text()
+	disk, _ := os.ReadFile(outside)
+	if string(data) != "one\n" || string(disk) != "one\n" {
+		t.Fatalf("rename wrote despite rejection: %q %q", data, disk)
+	}
+}
+
+func TestRenameCancelClosesDialogWithoutRequest(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.d.view.GoToNavigation(0, 1, false)
+	if err := f.h.driver.Key(gfx.KeyF6, gfx.ModifierShift); err != nil {
+		t.Fatal(err)
+	}
+	if !f.h.app.semantics.rename.open {
+		t.Fatal("Shift+F6 did not open rename")
+	}
+	f.h.app.cancelPluginRename()
+	f.h.settle()
+	if f.h.app.semantics.rename.open || f.kernel.requestCount() != 0 {
+		t.Fatal("cancel left state or sent a request")
 	}
 }

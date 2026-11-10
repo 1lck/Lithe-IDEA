@@ -102441,6 +102441,79 @@
       ]
     },
     {
+      "id": "desktop.semantics.renameTitle",
+      "description": "Rename dialog title.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.renameDescription",
+      "description": "Rename dialog description.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.renameName",
+      "description": "Rename dialog name field label and placeholder.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.renameButton",
+      "description": "Rename dialog confirm button.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.renameCancel",
+      "description": "Rename dialog cancel button.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.renameNothing",
+      "description": "Banner shown when rename returns no changes.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.renameApplied",
+      "description": "Banner shown after a rename was applied.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.semantics.renameRejected",
+      "description": "Banner shown when a rename targets files outside the project or read-only documents.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.renameFailed",
+      "description": "Banner shown when a rename failed and written files were restored.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.renamePartial",
+      "description": "Banner shown when open documents changed during a rename.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.semantics.noServer",
       "description": "Banner shown when a language command has no running language server for the file.",
       "platforms": [

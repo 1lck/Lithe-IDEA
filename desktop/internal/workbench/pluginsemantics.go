@@ -189,6 +189,7 @@ type pluginSemantics struct {
 	completion completionState
 	definition definitionState
 	hover      hoverState
+	rename     renameState
 	candidate  hoverCandidate
 	hoverDelay time.Duration
 	// autoDelay and autoCancel debounce automatic completion while typing.
@@ -1232,6 +1233,8 @@ func (a *App) pluginSemanticsDocumentClosed(d *document) {
 // operation, for a project switch or a stopped server.
 func (a *App) pluginSemanticsReset() {
 	a.closePluginSemantics()
+	a.cancelSemanticKind(pluginSemanticRename)
+	a.semantics.rename = renameState{}
 	a.semantics.deferred = nil
 	a.semantics.project = nil
 	a.semantics.documentID = 0
@@ -1351,6 +1354,10 @@ func truncateHover(contents string) string {
 func (a *App) drawPluginSemantics(f *ui.Frame) {
 	state := &a.semantics
 	if a.project == nil || state.project != a.project {
+		return
+	}
+	if state.rename.open {
+		a.drawRenameDialog(f)
 		return
 	}
 	if state.definition.open {
