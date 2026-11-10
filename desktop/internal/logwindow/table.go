@@ -28,11 +28,6 @@ const (
 	// tableMinCell is the narrowest a cell gets when the table is narrower than its
 	// columns: the smallest column plus its spacing.
 	tableMinCell = minColumnWidth + tableCellSpacing
-	// tableOverscan is how many rows are declared above and below the visible ones.
-	tableOverscan = 2
-	// tableFallbackViewport is the height assumed for the scrolling area before it has been
-	// laid out once.
-	tableFallbackViewport = 1200
 	// tableHandleWidth is the width of the strip at a header cell's trailing edge that
 	// resizes the column.
 	tableHandleWidth = 8

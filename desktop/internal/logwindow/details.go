@@ -34,13 +34,11 @@ const (
 	// detailsMinCols is the fewest columns the JSON is wrapped to, however narrow the window.
 	detailsMinCols = 16
 
-	// The call chain's rows: their height, the font, the padding of the list, and how many
-	// rows are declared beyond the visible ones so that a fast scroll never shows a gap.
+	// The call chain's rows: their height, the font and the padding of the list.
 	detailsTraceRowHeight = 22
 	detailsTraceFontSize  = 11.5
 	detailsTracePadX      = 10
 	detailsTracePadY      = 6
-	detailsOverscan       = 3
 )
 
 // The tabs of the details pane.

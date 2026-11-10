@@ -25,8 +25,7 @@ const (
 	// points of room the macOS client leaves around its chrome.
 	toolbarSearchField = 30
 	toolbarSearchGap   = 7
-	toolbarSearchIcon  = 16
-	// toolbarSearchPad is the room before the magnifier and after the ⌘F badge: the macOS
+	// toolbarSearchPad is the room before the field and after the ⌘F badge: the macOS
 	// client's 3 points around its chrome plus the 10 points inside it.
 	toolbarSearchPad = 13
 	// toolbarButtonPad is the room at each side of a button's label, and toolbarButtonGap the

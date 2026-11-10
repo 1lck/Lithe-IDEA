@@ -15,18 +15,13 @@ import (
 var exportRangeChoice = []exportRange{exportCurrent, exportRecent, exportDay}
 
 const (
-	// exportSheetWidth is the sheet's width, its padding exportPadX and exportPadY.
+	// exportSheetWidth is the sheet's width.
 	exportSheetWidth = 560
-	exportPadX       = 18
-	exportPadY       = 16
 	// exportGap is the space between the sheet's rows.
 	exportGap = 8
-	// exportFont is the size of the sheet's text, exportTitleFont its title's, exportSubtitleFont
-	// the subtitle's and exportSectionFont a section's heading's.
-	exportFont         = 13
-	exportTitleFont    = 15
-	exportSubtitleFont = 12
-	exportSectionFont  = 11
+	// exportFont is the size of the sheet's text and exportSectionFont a section's heading's.
+	exportFont        = 13
+	exportSectionFont = 11
 	// exportContentsFont is the size of the list of files, exportContentsHeight the list's
 	// height.
 	exportContentsFont   = 11.5
@@ -35,8 +30,6 @@ const (
 	// checkbox starts: past the control and the space after it.
 	exportRadioIndent = 22
 	exportCheckIndent = 20
-	// exportButtonHeight is the height of the buttons in the sheet's rows.
-	exportButtonHeight = 22
 )
 
 // exportLine is the height of a line of text at size: the system font's own line height, as
