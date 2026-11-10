@@ -2,10 +2,8 @@ package workbench
 
 import (
 	"path/filepath"
-	"strconv"
 	"strings"
 
-	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
@@ -103,7 +101,7 @@ func (a *App) everywhereResults(c ui.C, p *project, language i18n.Language) {
 	if s.scope == 5 {
 		rowHeight = everywhereTextHeight
 	}
-	v.list.Label = func(i int) string { return everywhereLabel(s.matches[i]) }
+	v.list.Label = func(i int) string { return searchMatchLabel(s.matches[i]) }
 	if s.selected != v.list.Selected() {
 		v.list.Select(s.selected)
 		v.list.ScrollIntoView(s.selected)
@@ -111,7 +109,7 @@ func (a *App) everywhereResults(c ui.C, p *project, language i18n.Language) {
 	opened := -1
 	ui.List(c, &v.list, len(s.matches), func(row ui.ListRow) {
 		result := s.matches[row.Index]
-		label := everywhereLabel(result)
+		label := searchMatchLabel(result)
 		row.Element.FillWidth().Height(rowHeight).Items(ui.Center).PadX(10).Gap(8).Children(func() {
 			name := filepath.Base(filepath.FromSlash(result.Path))
 			ui.Icon(row.C, fileicons.ForFile(name, a.colors.Dark)).Size(16, 16).Color(a.colors.Subtle)
@@ -187,13 +185,4 @@ func (a *App) everywhereKey(p *project, event gfx.KeyEvent) gfx.EventResult {
 		return gfx.EventResult{}
 	}
 	return gfx.EventResult{Handled: true, Repaint: true}
-}
-
-// everywhereLabel names a match by its path and line.
-func everywhereLabel(match core.WorkspaceSearchMatch) string {
-	label := match.Path
-	if match.Line != nil {
-		label += ":" + strconv.Itoa(*match.Line)
-	}
-	return label
 }

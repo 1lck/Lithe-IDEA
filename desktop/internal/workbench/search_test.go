@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -38,10 +39,7 @@ func TestProjectSearchOpensMatchingLine(t *testing.T) {
 	if p.search.matches[0].Line == nil || *p.search.matches[0].Line != 2 {
 		t.Fatalf("results = %+v", p.search.matches)
 	}
-	at := center(h.hit(searchRows.At(0)))
-	if err := h.driver.Click(at.X, at.Y); err != nil {
-		t.Fatal(err)
-	}
+	h.clickNamed(searchMatchLabel(p.search.matches[0]))
 	awaitDocumentState(t, h, func() bool { return p.docs.byPath(path) != nil })
 	if line, _ := p.docs.byPath(path).view.Caret(); line != 1 {
 		t.Fatalf("opened line = %d, want 1 (zero-based)", line)
@@ -127,14 +125,8 @@ func TestProjectSearchOptionsAndMaskUseCore(t *testing.T) {
 	}
 	p := h.app.project
 	awaitDocumentState(t, h, func() bool { return !p.search.loading && len(p.search.matches) == 3 })
-	at = center(h.hit(searchOptionsID))
-	if err := h.driver.Click(at.X, at.Y); err != nil {
-		t.Fatal(err)
-	}
-	at = center(h.hit(searchOptionIDs.At(0)))
-	if err := h.driver.Click(at.X, at.Y); err != nil {
-		t.Fatal(err)
-	}
+	h.clickShared("native.searchOptions")
+	h.clickShared("native.matchCase")
 	if err := h.driver.Advance(time.Second / 30); err != nil {
 		t.Fatal(err)
 	}
@@ -156,25 +148,16 @@ func TestProjectSearchOptionsAndMaskUseCore(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "one.go"), []byte("updated needle\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	at = center(h.hit(searchRefreshID))
-	if err := h.driver.Click(at.X, at.Y); err != nil {
-		t.Fatal(err)
-	}
+	h.clickShared("ui.refresh")
 	awaitDocumentState(t, h, func() bool {
 		return !p.search.loading && len(p.search.matches) == 1 && p.search.matches[0].Line != nil && *p.search.matches[0].Line == 1
 	})
-	at = center(h.hit(searchClearMaskID))
-	if err := h.driver.Click(at.X, at.Y); err != nil {
-		t.Fatal(err)
-	}
+	h.clickClear(1)
 	if err := h.driver.Advance(time.Second / 30); err != nil {
 		t.Fatal(err)
 	}
 	awaitDocumentState(t, h, func() bool { return !p.search.loading && p.search.want.mask == "" })
-	at = center(h.hit(searchClearID))
-	if err := h.driver.Click(at.X, at.Y); err != nil {
-		t.Fatal(err)
-	}
+	h.clickClear(0)
 	if err := h.driver.Advance(time.Second / 30); err != nil {
 		t.Fatal(err)
 	}
@@ -463,7 +446,7 @@ func TestProjectSearchVirtualizesAndDisclosesResultLimit(t *testing.T) {
 	countRows := func() int {
 		n := 0
 		for _, hit := range h.driver.Snapshot().Hits {
-			if _, ok := hit.ID.In(searchRows); ok {
+			if strings.HasPrefix(hit.Label, "file-") && !hit.IsLabel {
 				n++
 			}
 		}
@@ -472,7 +455,7 @@ func TestProjectSearchVirtualizesAndDisclosesResultLimit(t *testing.T) {
 	if got := countRows(); got < 1 || got > 20 {
 		t.Fatalf("visible rows = %d", got)
 	}
-	at := center(h.hit(searchRows.At(0)))
+	at := center(h.pageHit("file-000.txt").Bounds)
 	if err := h.driver.Scroll(gfx.ScrollEvent{X: at.X, Y: at.Y, DeltaY: 20000, Precise: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -502,4 +485,21 @@ func TestProjectSearchRejectsPathsOutsideWorkspace(t *testing.T) {
 	if len(p.docs.list) != 0 || len(p.docs.opening) != 0 {
 		t.Fatal("invalid result opened outside the workspace")
 	}
+}
+
+// clickClear presses the nth clear button of the Find in Files fields, from the top.
+func (h *harness) clickClear(n int) {
+	h.t.Helper()
+	name := i18n.Shared(h.app.language(), "native.clearSearch")
+	var found []gfx.Hit
+	for _, hit := range h.driver.Snapshot().Hits {
+		if hit.Label == name && !hit.IsLabel && !hit.ID.IsZero() {
+			found = append(found, hit)
+		}
+	}
+	sort.Slice(found, func(i, j int) bool { return found[i].Bounds.Y < found[j].Bounds.Y })
+	if n >= len(found) {
+		h.t.Fatalf("clear button %d not shown, have %d", n, len(found))
+	}
+	h.click(center(found[n].Bounds))
 }

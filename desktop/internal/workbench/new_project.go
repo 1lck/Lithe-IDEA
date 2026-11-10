@@ -149,7 +149,9 @@ func (a *App) openNewProject(surface string) {
 	n.generation++
 	n.open, n.busy, n.git, n.cancelling = true, false, false, false
 	n.err, n.created, n.restoreFocus = "", "", false
-	n.returnFocus = welcomeNew
+	// The start screen is a page whose buttons the sheet cannot name, so nothing
+	// takes the focus back there; the workbench's project button can be named.
+	n.returnFocus = gfx.ID{}
 	if a.project != nil {
 		n.returnFocus = chromeProjectButton
 	}

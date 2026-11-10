@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/projectgen"
 	"github.com/vivaui/viva/gfx"
@@ -49,7 +50,7 @@ func (h *harness) clickNamed(name string) {
 // catalog the plugins declared has been listed.
 func (h *harness) openNewProjectSheet() {
 	h.t.Helper()
-	h.click(center(h.hit(welcomeNew)))
+	h.clickNamed(h.app.text.Welcome.NewProject)
 	h.await("the generator catalog", func() bool { return h.app.newProject.catalogLoaded })
 }
 
@@ -97,7 +98,7 @@ func newGeneratorHarness(t *testing.T, kernel Kernel, plugins ...pluginservice.G
 func TestWelcomeCreatesEmptyProjectWithGitThroughCore(t *testing.T) {
 	parent := t.TempDir()
 	h := newHarnessWithLanguages(t, &gitKernel{Client: core.NewClient()}, []string{"en-US"})
-	h.click(center(h.hit(welcomeNew)))
+	h.clickNamed(h.app.text.Welcome.NewProject)
 	if !h.app.newProject.open || !h.shows("Empty Project") {
 		t.Fatal("the welcome action did not open New Project")
 	}
@@ -126,7 +127,7 @@ func TestWelcomeCreatesEmptyProjectWithGitThroughCore(t *testing.T) {
 func TestNewProjectNameAcceptsTypingAndShowsPreview(t *testing.T) {
 	parent := t.TempDir()
 	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
-	h.click(center(h.hit(welcomeNew)))
+	h.clickNamed(h.app.text.Welcome.NewProject)
 	h.app.newProject.parent = parent
 	h.app.invalidator.Invalidate()
 	h.settle()
@@ -149,7 +150,7 @@ func TestNewProjectExplainsInvalidNameAndExistingFolderBeforeCreating(t *testing
 		t.Fatal(err)
 	}
 	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
-	h.click(center(h.hit(welcomeNew)))
+	h.clickNamed(h.app.text.Welcome.NewProject)
 	n := &h.app.newProject
 	n.parent, n.name = parent, "taken"
 	h.app.invalidator.Invalidate()
@@ -237,7 +238,7 @@ func (k *failingNewProjectGitKernel) InitializeGit(context.Context, string) erro
 func TestNewProjectGitFailureKeepsDirectoryAndOffersToOpen(t *testing.T) {
 	parent := t.TempDir()
 	h := newHarnessWithLanguages(t, &failingNewProjectGitKernel{&testKernel{Client: core.NewClient()}}, []string{"en-US"})
-	h.click(center(h.hit(welcomeNew)))
+	h.clickNamed(h.app.text.Welcome.NewProject)
 	h.app.newProject.parent = parent
 	h.app.newProject.name = "created"
 	h.app.newProject.git = true
@@ -256,9 +257,11 @@ func TestNewProjectGitFailureKeepsDirectoryAndOffersToOpen(t *testing.T) {
 	}
 }
 
-func TestNewProjectEscapeRestoresWelcomeFocus(t *testing.T) {
+// The sheet is a Frame popup and the start screen a page, so the sheet cannot
+// name the button to give the keyboard back to: closing only has to close.
+func TestNewProjectEscapeClosesTheSheetOnTheWelcomeScreen(t *testing.T) {
 	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
-	h.click(center(h.hit(welcomeNew)))
+	h.clickNamed(h.app.text.Welcome.NewProject)
 	if h.driver.Snapshot().Focused != h.pageHit("Search").ID {
 		t.Fatal("search did not receive focus")
 	}
@@ -266,8 +269,8 @@ func TestNewProjectEscapeRestoresWelcomeFocus(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.settle()
-	if h.app.newProject.open || h.driver.Snapshot().Focused != welcomeNew {
-		t.Fatal("Escape did not close the dialog and restore focus")
+	if h.app.newProject.open {
+		t.Fatal("Escape did not close the dialog")
 	}
 }
 
@@ -319,7 +322,7 @@ func TestNewProjectSearchDropsStaleResults(t *testing.T) {
 			close(k.release)
 		}
 	})
-	h.click(center(h.hit(welcomeNew)))
+	h.clickNamed(h.app.text.Welcome.NewProject)
 	h.app.newProject.search = "unmatch-xyz"
 	h.app.invalidator.Invalidate()
 	if err := h.driver.Pump(); err != nil {
@@ -347,7 +350,7 @@ func TestNewProjectSearchDropsStaleResults(t *testing.T) {
 
 func TestNewProjectSheetBackdropDismissesWithoutOpeningUnderlyingProject(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
-	h.click(center(h.hit(welcomeNew)))
+	h.clickNamed(h.app.text.Welcome.NewProject)
 	if err := h.driver.Click(2, 2); err != nil {
 		t.Fatal(err)
 	}
@@ -359,7 +362,7 @@ func TestNewProjectSheetBackdropDismissesWithoutOpeningUnderlyingProject(t *test
 
 func TestNewProjectSheetKeepsFocusAndBlocksSurfaceClicks(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
-	h.click(center(h.hit(welcomeNew)))
+	h.clickNamed(h.app.text.Welcome.NewProject)
 	if err := h.driver.Click(600, 400); err != nil {
 		t.Fatal(err)
 	}
@@ -370,9 +373,9 @@ func TestNewProjectSheetKeepsFocusAndBlocksSurfaceClicks(t *testing.T) {
 		if err := h.driver.Key(gfx.KeyTab, 0); err != nil {
 			t.Fatal(err)
 		}
-		focus := h.driver.Snapshot().Focused
-		if focus == welcomeNew || focus == welcomeOpen || focus == welcomeMore {
-			t.Fatalf("keyboard focus escaped the sheet to %v", focus)
+		focus := h.focusedName()
+		if focus == h.app.text.Welcome.NewProject || focus == h.app.text.Welcome.Open || focus == i18n.Shared(h.app.language(), "desktop.clone.more") {
+			t.Fatalf("keyboard focus escaped the sheet to %q", focus)
 		}
 	}
 }
@@ -474,7 +477,7 @@ func TestNewProjectCancelAfterMkdirOffersCreatedFolder(t *testing.T) {
 
 func TestNewProjectFolderPickerAndGitLabel(t *testing.T) {
 	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
-	h.click(center(h.hit(welcomeNew)))
+	h.clickNamed(h.app.text.Welcome.NewProject)
 	parent := t.TempDir()
 	if err := h.driver.QueueOpenDirectory(parent, nil); err != nil {
 		t.Fatal(err)
@@ -494,7 +497,7 @@ func TestNewProjectMarketplaceEntryInvokesPluginSettings(t *testing.T) {
 	log := &treeRecordingLog{}
 	h.app.logSink = log
 	t.Cleanup(func() { h.app.logSink = nil })
-	h.click(center(h.hit(welcomeNew)))
+	h.clickNamed(h.app.text.Welcome.NewProject)
 	h.clickNamed("Get more languages and frameworks from plugins…")
 	log.mu.Lock()
 	defer log.mu.Unlock()

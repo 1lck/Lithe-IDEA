@@ -61,12 +61,8 @@ func (a *App) cancelClone() {
 		}
 		return
 	}
-	a.dismissClone()
+	a.closeClone()
 }
-
-// dismissClone closes the dialog; the page gives the keyboard back to where it
-// was when the dialog opened.
-func (a *App) dismissClone() { a.closeClone() }
 
 func (a *App) chooseCloneParent() {
 	c := &a.clone
@@ -143,7 +139,7 @@ func (a *App) submitClone() {
 					a.gitOperationFailed("git_clone", errors.New("clone operation failed during cancellation"))
 				}
 				// log-exempt: 用户取消：克隆已结束，任何部分目录留给用户处理。
-				a.dismissClone()
+				a.closeClone()
 				return
 			}
 			if err != nil {

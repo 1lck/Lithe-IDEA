@@ -546,8 +546,7 @@ func (a *App) systemAppearanceChanged() {
 // Config is the window's configuration.
 func (a *App) Config() app.Config {
 	a.subscribeSettings()
-	a.fields = ui.Fields(&a.welcome.search, &a.debugAttach.host, &a.debugAttach.port, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField, &a.searchView.query, &a.searchView.mask, &a.everywhereView.query,
-		&a.branch.search, &a.branch.name, &a.branch.revision)
+	a.fields = ui.Fields(&a.debugAttach.host, &a.debugAttach.port, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField, &a.branch.search, &a.branch.name, &a.branch.revision)
 	return app.Config{
 		Title:          a.text.App.Name,
 		Icon:           appicon.Window(),
@@ -578,6 +577,7 @@ func (a *App) closed() {
 	a.unsubscribeSettings()
 	a.closeClone()
 	a.closeOverlay()
+	a.closeSearchPanel()
 	a.closeNewProject()
 	a.closeWelcomeBranchReads()
 	a.closeProject()
@@ -667,7 +667,9 @@ func (a *App) paint(canvas *gfx.Canvas, size gfx.Size) {
 		}
 		a.drawNewProjectDialog(f)
 		if a.newProject.restoreFocus {
-			f.Canvas().RequestFocus(a.newProject.returnFocus)
+			if !a.newProject.returnFocus.IsZero() {
+				f.Canvas().RequestFocus(a.newProject.returnFocus)
+			}
 			a.newProject.restoreFocus = false
 		}
 	})
@@ -740,9 +742,6 @@ func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
 	// A semantic request belongs to the caret it was placed at. Every key path
 	// ends here, so one sync covers arrows, edits and commands.
 	defer a.pluginSemanticsCaretSync()
-	if result := a.welcomeMenuKey(event); result.Handled {
-		return result
-	}
 	if result := a.pluginSemanticsKey(event); result.Handled {
 		return result
 	}
@@ -750,18 +749,6 @@ func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
 		return result
 	}
 	if !event.Release && event.Key == gfx.KeyEscape {
-		if a.project == nil && a.welcome.moreOpen {
-			a.welcome.moreOpen = false
-			a.welcome.moreFocus = false
-			a.welcome.moreRestore = true
-			return gfx.EventResult{Handled: true, Repaint: true}
-		}
-		if a.project == nil && a.welcome.menuPath != "" {
-			a.welcome.restoreMenuFocus = a.welcome.menuPath
-			a.welcome.menuPath = ""
-			a.welcome.menuFocus = gfx.ID{}
-			return gfx.EventResult{Handled: true, Repaint: true}
-		}
 		// Both are called: at most one gesture is under way, and neither may be left behind.
 		button, tab := a.cancelDrag(), a.cancelTabDrag()
 		if button || tab {
@@ -795,9 +782,6 @@ func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
 		return gfx.EventResult{}
 	}
 	if r := a.treeKey(event); r.Handled {
-		return r
-	}
-	if r := a.searchKey(event); r.Handled {
 		return r
 	}
 	if r := a.commitKey(event); r.Handled {

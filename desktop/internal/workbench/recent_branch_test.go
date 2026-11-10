@@ -87,10 +87,8 @@ func TestWelcomeBranchRowsGrowAndDoNotOverlap(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.settle()
-	if !h.shows("feature/welcome") {
-		t.Fatal("the recent project's Core-parsed branch was not displayed")
-	}
-	first, second := h.hit(welcomeRows.At(0)), h.hit(welcomeRows.At(1))
+	awaitDocumentState(t, h, func() bool { return h.shows("feature/welcome") })
+	first, second := h.welcomeRowHit(h.app.recent[0].Path).Bounds, h.welcomeRowHit(h.app.recent[1].Path).Bounds
 	if first.Height <= welcomeRowHeight || first.Y+first.Height > second.Y {
 		t.Fatalf("branch row overlaps the next row: first %v, second %v", first, second)
 	}

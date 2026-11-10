@@ -23,9 +23,29 @@ func (a *App) modalPages() []*ui.Page {
 	return pages
 }
 
+// panelPages are the pages that fill a region of the window and take only the
+// input aimed at what they declared.
+func (a *App) panelPages() []*ui.Page {
+	if a.project == nil {
+		if a.welcome.page != nil {
+			return []*ui.Page{a.welcome.page}
+		}
+		return nil
+	}
+	if a.searchView.page != nil {
+		return []*ui.Page{a.searchView.page}
+	}
+	return nil
+}
+
 // pagePointer gives a pointer event to the page that owns it.
 func (a *App) pagePointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 	for _, page := range a.modalPages() {
+		if result, ok := page.Pointer(event); ok {
+			return result, true
+		}
+	}
+	for _, page := range a.panelPages() {
 		if result, ok := page.Pointer(event); ok {
 			return result, true
 		}
@@ -41,6 +61,11 @@ func (a *App) pageKey(event gfx.KeyEvent) (gfx.EventResult, bool) {
 		}
 	}
 	for _, page := range a.modalPages() {
+		if result, ok := page.Key(event); ok {
+			return result, true
+		}
+	}
+	for _, page := range a.panelPages() {
 		if result, ok := page.Key(event); ok {
 			return result, true
 		}
@@ -62,6 +87,11 @@ func (a *App) pageShortcut(event gfx.KeyEvent) (gfx.EventResult, bool) {
 			return gfx.EventResult{Handled: true}, true
 		}
 	}
+	for _, page := range a.panelPages() {
+		if result, ok := page.Key(event); ok && result.Handled {
+			return result, true
+		}
+	}
 	return gfx.EventResult{}, false
 }
 
@@ -72,12 +102,17 @@ func (a *App) pageWheel(event gfx.ScrollEvent) (gfx.EventResult, bool) {
 			return page.Wheel(event), true
 		}
 	}
+	for _, page := range a.panelPages() {
+		if page.Owns(event.Target) {
+			return page.Wheel(event), true
+		}
+	}
 	return gfx.EventResult{}, false
 }
 
 // pageTextInput answers the platform's text input query for a page's fields.
 func (a *App) pageTextInput(ctx app.TextInputContext) *app.TextInput {
-	for _, page := range a.modalPages() {
+	for _, page := range append(a.modalPages(), a.panelPages()...) {
 		if input := page.TextInput(ctx); input != nil {
 			return input
 		}

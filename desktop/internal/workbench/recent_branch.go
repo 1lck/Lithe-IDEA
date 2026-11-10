@@ -2,42 +2,52 @@ package workbench
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/gitmetadata"
+	"github.com/vivaui/viva/ui"
 )
 
-// refreshWelcomeBranches invalidates the last read. One worker owns all paths;
-// a newer request cancels it and starts after it finishes, bounding concurrency.
-func (a *App) refreshWelcomeBranches() {
-	w := &a.welcome
-	if w.branchClosed {
-		return
-	}
-	w.branchGeneration++
-	w.branchPending = true
-	if w.branchCancel != nil {
-		w.branchCancel()
-	}
+// branchRead is what one read of the recent projects' branches found.
+type branchRead struct {
+	branches map[string]string
+	failures []error
 }
 
+// refreshWelcomeBranches invalidates the last read: the next paint of the start
+// screen reads again, and a read still running is cancelled.
+func (a *App) refreshWelcomeBranches() { a.welcome.branchRevision++ }
+
+// closeWelcomeBranchReads ends the read with the start screen's page.
 func (a *App) closeWelcomeBranchReads() {
-	w := &a.welcome
-	w.branchClosed = true
-	w.branchPending = false
-	w.branchGeneration++
-	if w.branchCancel != nil {
-		w.branchCancel()
+	if a.welcome.page != nil {
+		a.welcome.page.Close()
+		a.welcome.page = nil
 	}
 }
 
-// startWelcomeBranchReads is called while painting, after the window owns its
-// invalidator. It copies only paths and never performs filesystem IO on the UI thread.
-func (a *App) startWelcomeBranchReads() {
+// collectWelcomeBranches declares the branch read of the recent projects and
+// applies what it finished. It runs at the start of every paint of the start
+// screen and never performs filesystem IO on the window thread.
+func (a *App) collectWelcomeBranches(c ui.C) {
 	w := &a.welcome
-	if w.branchClosed || w.branchRunning || !w.branchPending {
-		return
+	if w.branchesFx == nil {
+		w.branchesFx = newKeyedEffect(func(ctx context.Context, paths []string) (branchRead, error) {
+			read := branchRead{branches: make(map[string]string, len(paths))}
+			for _, path := range paths {
+				branch, err := gitmetadata.ReadBranch(ctx, a.kernel, path)
+				if ctx.Err() != nil {
+					return branchRead{}, ctx.Err()
+				}
+				if err != nil {
+					read.failures = append(read.failures, err)
+				} else if branch != "" {
+					read.branches[path] = branch
+				}
+			}
+			return read, nil
+		})
 	}
-	w.branchPending = false
 	paths := make([]string, 0, len(a.recent))
 	for _, entry := range a.recent {
 		if !a.missing[entry.Path] {
@@ -46,36 +56,13 @@ func (a *App) startWelcomeBranchReads() {
 	}
 	if len(paths) == 0 {
 		w.branches = nil
-		return
+	} else {
+		w.branchesFx.declare(c, strconv.Itoa(w.branchRevision), paths)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	w.branchCancel, w.branchRunning = cancel, true
-	generation, kernel := w.branchGeneration, a.kernel
-	a.background(nil, 0, func(context.Context) func(*App) {
-		branches := make(map[string]string, len(paths))
-		var failures []error
-		for _, path := range paths {
-			branch, err := gitmetadata.ReadBranch(ctx, kernel, path)
-			if ctx.Err() != nil {
-				break
-			}
-			if err != nil {
-				failures = append(failures, err)
-			} else if branch != "" {
-				branches[path] = branch
-			}
+	if read, err, ok := w.branchesFx.take(); ok && err == nil {
+		w.branches = read.branches
+		for _, failure := range read.failures {
+			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_recent_branch", documentLogError(failure)))
 		}
-		return func(a *App) {
-			cancel()
-			w := &a.welcome
-			w.branchCancel, w.branchRunning = nil, false
-			if w.branchClosed || w.branchGeneration != generation {
-				return
-			}
-			w.branches = branches
-			for _, err := range failures {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_recent_branch", documentLogError(err)))
-			}
-		}
-	})
+	}
 }

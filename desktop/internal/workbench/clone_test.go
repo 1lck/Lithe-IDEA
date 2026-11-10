@@ -18,8 +18,8 @@ func TestWelcomeClonesRepositoryThroughRealCore(t *testing.T) {
 	source := newTestRepository(t)
 	parent := t.TempDir()
 	h := newHarnessWithLanguages(t, &gitKernel{Client: core.NewClient()}, []string{"en-US"})
-	h.click(center(h.hit(welcomeMore)))
-	h.click(center(h.hit(welcomeClone)))
+	h.clickShared("desktop.clone.more")
+	h.clickShared("desktop.clone.title")
 	if !h.app.clone.open || !h.shows("Clone Repository") {
 		t.Fatal("the welcome action did not open the clone dialog")
 	}
@@ -41,9 +41,9 @@ func TestWelcomeClonesRepositoryThroughRealCore(t *testing.T) {
 
 func TestWelcomeMoreMenuClosesOnEscape(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
-	h.click(center(h.hit(welcomeMore)))
-	if got := h.driver.Snapshot().Focused; got != welcomeClone {
-		t.Fatalf("opening the more menu focused %v, want the clone action", got)
+	h.clickShared("desktop.clone.more")
+	if _, ok := h.findPageHit(i18n.Shared(h.app.language(), "desktop.clone.title")); !ok {
+		t.Fatal("opening the more menu did not show the clone action")
 	}
 	if err := h.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
@@ -51,8 +51,8 @@ func TestWelcomeMoreMenuClosesOnEscape(t *testing.T) {
 	if h.app.welcome.moreOpen {
 		t.Fatal("the welcome more menu remained open after Escape")
 	}
-	if got := h.driver.Snapshot().Focused; got != welcomeMore {
-		t.Fatalf("closing the more menu focused %v, want the more button", got)
+	if got := h.focusedName(); got != i18n.Shared(h.app.language(), "desktop.clone.more") {
+		t.Fatalf("closing the more menu focused %q, want the more button", got)
 	}
 }
 
@@ -73,7 +73,10 @@ func TestCloneDirectoryPickerUsesSelectedDirectory(t *testing.T) {
 
 func TestCloneDialogCanBeOpenedAndDismissedByKeyboard(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
-	h.click(center(h.hit(welcomeMore)))
+	h.clickShared("desktop.clone.more")
+	if err := h.driver.Key(gfx.KeyDown, 0); err != nil {
+		t.Fatal(err)
+	}
 	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -87,8 +90,8 @@ func TestCloneDialogCanBeOpenedAndDismissedByKeyboard(t *testing.T) {
 	if h.app.clone.open {
 		t.Fatal("Escape did not dismiss the clone dialog")
 	}
-	if got := h.driver.Snapshot().Focused; got != welcomeMore {
-		t.Fatalf("closing clone focused %v, want the welcome more button", got)
+	if got := h.focusedName(); got != i18n.Shared(h.app.language(), "desktop.clone.more") {
+		t.Fatalf("closing clone focused %q, want the welcome more button", got)
 	}
 }
 

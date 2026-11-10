@@ -506,9 +506,6 @@ func (a *App) drawShellPanel(f *ui.Frame, s slot, index int, hidden *slot) ui.Bo
 			if log {
 				a.drawLogHeaderTrailing(f, a.project)
 			}
-			if search {
-				a.drawSearchRefresh(f, a.project)
-			}
 			if tree {
 				a.drawProjectTreeActions(f, a.project)
 			}

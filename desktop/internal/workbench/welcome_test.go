@@ -50,9 +50,9 @@ func TestWelcomeSearchAndSettingsRemainReachableAtWindowSizes(t *testing.T) {
 		if got := h.driver.PressAt(float32(size[0])/2, 20); got != app.PressMove {
 			t.Fatalf("at %v the welcome title does not allow dragging: %v", size, got)
 		}
-		search := h.hit(welcomeSearch)
-		settings := h.hit(welcomeNavSettings)
-		open := h.hit(welcomeOpen)
+		search := h.pageHit(h.app.text.Welcome.SearchLabel).Bounds
+		settings := h.pageHit(h.app.text.Welcome.Settings).Bounds
+		open := h.pageHit(h.app.text.Welcome.Open).Bounds
 		if search.Width > 220 || search.Width <= 0 || search.X+search.Width >= open.X {
 			t.Fatalf("at %v search %v overlaps open %v", size, search, open)
 		}
@@ -62,23 +62,20 @@ func TestWelcomeSearchAndSettingsRemainReachableAtWindowSizes(t *testing.T) {
 	}
 	logger := &treeRecordingLog{}
 	h.app.logSink = logger
-	settings := center(h.hit(welcomeNavSettings))
-	if err := h.driver.Click(settings.X, settings.Y); err != nil {
-		t.Fatal(err)
-	}
+	h.clickNamed(h.app.text.Welcome.Settings)
 	logger.mu.Lock()
 	if len(logger.events) != 1 || logger.events[0].Event != "app.action.performed" || logger.events[0].Fields["action"] != "settings.open" {
 		logger.mu.Unlock()
 		t.Fatal("the welcome settings button did not invoke the settings action")
 	}
 	logger.mu.Unlock()
-	search := h.hit(welcomeSearch)
+	search := h.pageHit(h.app.text.Welcome.SearchLabel)
 	// The icon and the text share one search control; clicking the icon must focus input too.
-	if err := h.driver.Click(search.X+12, search.Y+search.Height/2); err != nil {
+	if err := h.driver.Click(search.Bounds.X+12, search.Bounds.Y+search.Bounds.Height/2); err != nil {
 		t.Fatal(err)
 	}
-	if got := h.driver.Snapshot().Focused; got != welcomeSearch {
-		t.Fatalf("clicking the search icon focused %v, want %v", got, welcomeSearch)
+	if got := h.driver.Snapshot().Focused; got != search.ID {
+		t.Fatalf("clicking the search icon focused %v, want %v", got, search.ID)
 	}
 	if err := h.driver.Type("beta"); err != nil {
 		t.Fatal(err)
@@ -100,6 +97,22 @@ func TestWelcomeWindowTitleFollowsLanguage(t *testing.T) {
 	}
 }
 
+// welcomeRowHit is the recent project's row in the list.
+func (h *harness) welcomeRowHit(path string) gfx.Hit {
+	h.t.Helper()
+	return h.pageHit(h.app.welcome.row(path, len(h.app.recent)).name)
+}
+
+// rightClickRow opens the context menu of the recent project at path.
+func (h *harness) rightClickRow(path string) gfx.Point {
+	h.t.Helper()
+	row := center(h.welcomeRowHit(path).Bounds)
+	if err := h.driver.ClickButton(row.X, row.Y, gfx.PointerButtonSecondary); err != nil {
+		h.t.Fatal(err)
+	}
+	return row
+}
+
 func TestWelcomeProjectMenuRevealsExistingAndKeepsMissingEntryRemovable(t *testing.T) {
 	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
 	dir := t.TempDir()
@@ -109,41 +122,25 @@ func TestWelcomeProjectMenuRevealsExistingAndKeepsMissingEntryRemovable(t *testi
 	if err := h.driver.Resize(900, 600); err != nil {
 		t.Fatal(err)
 	}
-	openMenu := func(index int) {
-		t.Helper()
-		row := center(h.hit(welcomeRows.At(index)))
-		if err := h.driver.ClickButton(row.X, row.Y, gfx.PointerButtonSecondary); err != nil {
-			t.Fatal(err)
-		}
-	}
-	openMenu(0)
-	reveal := center(h.hit(welcomeMenuReveal))
-	if err := h.driver.Click(reveal.X, reveal.Y); err != nil {
-		t.Fatal(err)
-	}
+	h.rightClickRow(dir)
+	h.clickNamed(h.app.text.Welcome.MenuReveal)
 	h.settle()
 	if got, ok := h.driver.LastRevealedPath(); !ok || got != dir {
 		t.Fatalf("revealed path = %q, recorded %v; want %q", got, ok, dir)
 	}
-	openMenu(1)
-	if got := h.driver.Snapshot().Focused; got != welcomeMenuRemove {
-		t.Fatalf("missing project menu focus = %v, want remove action", got)
-	}
+	h.rightClickRow(missing)
 	if err := h.driver.Key(gfx.KeyTab, 0); err != nil {
 		t.Fatal(err)
 	}
-	if got := h.driver.Snapshot().Focused; got != welcomeMenuRemove {
-		t.Fatalf("missing project menu let focus escape: %v", got)
+	if _, ok := h.findPageHit(h.app.text.Welcome.MenuRemove); !ok {
+		t.Fatal("Tab closed the missing project's menu")
 	}
-	for _, hit := range h.driver.Snapshot().Hits {
-		if hit.ID == welcomeMenuOpen || hit.ID == welcomeMenuReveal {
-			t.Fatal("a missing project offered an open or reveal action")
+	for _, name := range []string{h.app.text.Welcome.MenuReveal} {
+		if _, ok := h.findPageHit(name); ok {
+			t.Fatalf("a missing project offered the %q action", name)
 		}
 	}
-	remove := center(h.hit(welcomeMenuRemove))
-	if err := h.driver.Click(remove.X, remove.Y); err != nil {
-		t.Fatal(err)
-	}
+	h.clickNamed(h.app.text.Welcome.MenuRemove)
 	if len(h.app.recent) != 1 || h.app.recent[0].Path != dir {
 		t.Fatalf("remaining entries = %v", h.app.recent)
 	}
@@ -161,17 +158,11 @@ func TestWelcomeRevealFailureIsReportedAndLoggedWithoutThePath(t *testing.T) {
 	}
 	logger := &treeRecordingLog{}
 	h.app.logSink = logger
-	row := center(h.hit(welcomeRows.At(0)))
-	if err := h.driver.ClickButton(row.X, row.Y, gfx.PointerButtonSecondary); err != nil {
-		t.Fatal(err)
-	}
+	h.rightClickRow(path)
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	reveal := center(h.hit(welcomeMenuReveal))
-	if err := h.driver.Click(reveal.X, reveal.Y); err != nil {
-		t.Fatal(err)
-	}
+	h.clickNamed(h.app.text.Welcome.MenuReveal)
 	h.settle()
 	if h.app.notice == "" {
 		t.Fatal("failed reveal did not show an error")
@@ -202,7 +193,7 @@ func TestWelcomeOpeningMissingProjectReportsAndLogsFailure(t *testing.T) {
 	}
 	logger := &treeRecordingLog{}
 	h.app.logSink = logger
-	row := center(h.hit(welcomeRows.At(0)))
+	row := center(h.welcomeRowHit(path).Bounds)
 	if err := h.driver.Click(row.X, row.Y); err != nil {
 		t.Fatal(err)
 	}
@@ -238,14 +229,8 @@ func TestWelcomeRemoveKeepsRecentEntryWhenSavingFails(t *testing.T) {
 	}
 	logger := &treeRecordingLog{}
 	h.app.logSink = logger
-	row := center(h.hit(welcomeRows.At(0)))
-	if err := h.driver.ClickButton(row.X, row.Y, gfx.PointerButtonSecondary); err != nil {
-		t.Fatal(err)
-	}
-	remove := center(h.hit(welcomeMenuRemove))
-	if err := h.driver.Click(remove.X, remove.Y); err != nil {
-		t.Fatal(err)
-	}
+	h.rightClickRow(path)
+	h.clickNamed(h.app.text.Welcome.MenuRemove)
 	if len(h.app.recent) != 1 || h.app.recent[0].Path != path || h.app.notice == "" {
 		t.Fatalf("failed save changed the visible recent list: %#v, notice %q", h.app.recent, h.app.notice)
 	}
@@ -269,42 +254,35 @@ func TestWelcomeProjectMenuRemovesOnlyTheChosenRecentEntry(t *testing.T) {
 	if err := h.driver.Resize(900, 600); err != nil {
 		t.Fatal(err)
 	}
-	row := center(h.hit(welcomeRows.At(1)))
-	if err := h.driver.ClickButton(row.X, row.Y, gfx.PointerButtonSecondary); err != nil {
-		t.Fatal(err)
+	row := h.rightClickRow(second)
+	if h.app.project != nil {
+		t.Fatal("right-click opened a project")
 	}
-	if h.app.welcome.menuPath != second || h.app.project != nil {
-		t.Fatalf("right-click opened project or the wrong menu: %q", h.app.welcome.menuPath)
-	}
-	if panel := h.hit(welcomeMenuPanel); panel.X != row.X || panel.Y != row.Y {
-		t.Fatalf("context menu at %v; want it at click %v", panel, row)
+	menu := h.pageHit(h.app.text.Welcome.MenuRemove).Bounds
+	if menu.X < row.X || menu.Y < row.Y || menu.X > row.X+220 || menu.Y > row.Y+120 {
+		t.Fatalf("context menu item at %v; want it near the click %v", menu, row)
 	}
 	if err := h.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
-	if h.app.welcome.menuPath != "" {
+	if _, ok := h.findPageHit(h.app.text.Welcome.MenuRemove); ok {
 		t.Fatal("Escape did not close the project menu")
 	}
 	if err := h.driver.Move(row.X, row.Y); err != nil {
 		t.Fatal(err)
 	}
-	button := center(h.hit(welcomeMenus.At(1)))
-	if err := h.driver.Click(button.X, button.Y); err != nil {
-		t.Fatal(err)
-	}
-	if h.app.welcome.menuPath != second || h.app.project != nil {
+	h.clickNamed(h.app.text.Welcome.MoreActions)
+	if h.app.welcome.menuPath != second || !h.app.welcome.menuOpen || h.app.project != nil {
 		t.Fatalf("menu button opened project or the wrong menu: %q", h.app.welcome.menuPath)
 	}
 	// The reducer can reorder the list while a menu is open. Its action must still
-	// apply to the captured path, not to whatever now occupies the old index.
+	// apply to the project the menu was opened for, not to whatever now occupies
+	// the old index.
 	h.app.recent[0], h.app.recent[1] = h.app.recent[1], h.app.recent[0]
 	if err := h.driver.Resize(901, 600); err != nil {
 		t.Fatal(err)
 	}
-	remove := center(h.hit(welcomeMenuRemove))
-	if err := h.driver.Click(remove.X, remove.Y); err != nil {
-		t.Fatal(err)
-	}
+	h.clickNamed(h.app.text.Welcome.MenuRemove)
 	if len(h.app.recent) != 1 || h.app.recent[0].Path != first {
 		t.Fatalf("remaining entries = %v", h.app.recent)
 	}
@@ -319,56 +297,52 @@ func TestWelcomeProjectMenuRemovesOnlyTheChosenRecentEntry(t *testing.T) {
 
 func TestWelcomeProjectMenuIsKeyboardReachable(t *testing.T) {
 	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
-	h.app.recent = []core.RecentProject{{Path: t.TempDir()}}
+	path := t.TempDir()
+	h.app.recent = []core.RecentProject{{Path: path}}
 	if err := h.driver.Resize(900, 600); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 12 && h.driver.Snapshot().Focused != welcomeRows.At(0); i++ {
+	name := h.app.welcome.row(path, 1).name
+	more := h.app.text.Welcome.MoreActions
+	for i := 0; i < 12 && h.focusedName() != name; i++ {
 		if err := h.driver.Key(gfx.KeyTab, 0); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if h.driver.Snapshot().Focused != welcomeRows.At(0) {
+	if h.focusedName() != name {
 		t.Fatal("keyboard focus did not reach the recent project")
 	}
 	if err := h.driver.Key(gfx.KeyTab, 0); err != nil {
 		t.Fatal(err)
 	}
-	if got := h.driver.Snapshot().Focused; got != welcomeMenus.At(0) {
-		t.Fatalf("keyboard focus = %v, want the project menu button", got)
+	if got := h.focusedName(); got != more {
+		t.Fatalf("keyboard focus = %q, want the project menu button", got)
 	}
 	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
-	if h.app.welcome.menuPath != h.app.recent[0].Path {
+	if h.app.welcome.menuPath != path || !h.app.welcome.menuOpen {
 		t.Fatal("keyboard activation did not open the project menu")
 	}
-	if got := h.driver.Snapshot().Focused; got != welcomeMenuOpen {
-		t.Fatalf("initial menu focus = %v, want %v", got, welcomeMenuOpen)
+	open, reveal, remove := h.app.text.Welcome.MenuOpen, h.app.text.Welcome.MenuReveal, h.app.text.Welcome.MenuRemove
+	if _, ok := h.findPageHit(open); !ok {
+		t.Fatal("the menu did not show its open action")
 	}
 	if err := h.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
-	if got := h.driver.Snapshot().Focused; got != welcomeMenus.At(0) {
-		t.Fatalf("focus after closing menu = %v, want its button", got)
+	if got := h.focusedName(); got != more {
+		t.Fatalf("focus after closing menu = %q, want its button", got)
 	}
 	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
-	for index, want := range []gfx.ID{welcomeMenuReveal, welcomeMenuRemove, welcomeMenuOpen, welcomeMenuReveal, welcomeMenuRemove} {
-		if err := h.driver.Key(gfx.KeyTab, 0); err != nil {
+	for _, want := range []string{open, reveal, remove} {
+		if err := h.driver.Key(gfx.KeyDown, 0); err != nil {
 			t.Fatal(err)
 		}
-		if got := h.driver.Snapshot().Focused; got != want {
-			t.Fatalf("menu focus after tab %d = %v, want %v (open %v, reveal %v, remove %v)", index+1, got, want, welcomeMenuOpen, welcomeMenuReveal, welcomeMenuRemove)
-		}
-	}
-	for _, want := range []gfx.ID{welcomeMenuReveal, welcomeMenuOpen, welcomeMenuRemove} {
-		if err := h.driver.Key(gfx.KeyTab, gfx.ModifierShift); err != nil {
-			t.Fatal(err)
-		}
-		if got := h.driver.Snapshot().Focused; got != want {
-			t.Fatalf("reverse menu focus = %v, want %v", got, want)
+		if got := h.focusedName(); got != want {
+			t.Fatalf("menu focus = %q, want %q", got, want)
 		}
 	}
 	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {

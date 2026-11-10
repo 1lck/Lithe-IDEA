@@ -8,8 +8,6 @@ import "github.com/vivaui/viva/gfx"
 var (
 	tree = gfx.Tree{}
 
-	// welcomePage is the start screen, shown while no project is open.
-	welcomePage = tree.Feature("welcome")
 	// shellPage is the workbench of an open project.
 	shellPage = tree.Feature("workbench")
 
@@ -19,7 +17,4 @@ var (
 	// panelHide identifies the hide button of the tool window in each panel slot:
 	// panelHide.At(int(slot)).
 	panelHide = tree.Sub(shellPage, tree.Name("panel-hide"))
-
-	// noticeDismiss closes the notice banner on either screen.
-	noticeDismiss = tree.ID(welcomePage, "notice-dismiss")
 )
