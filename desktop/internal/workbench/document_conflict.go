@@ -3,7 +3,9 @@ package workbench
 import (
 	"context"
 	"errors"
+	"math"
 	"os"
+	"strconv"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
@@ -13,55 +15,96 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-var (
-	docKeep = tree.Sub(shellPage, tree.Name("document-keep-editor"))
-	docLoad = tree.Sub(shellPage, tree.Name("document-load-disk"))
+// conflictBanner is a document's conflict notice: the page that shows it and the width it was
+// last laid out at, from which the room the message needs is worked out.
+type conflictBanner struct {
+	host  gitHost
+	width float32
+}
+
+// The sizes of the notice: the rules above and below, the padding, the gap between the message
+// and its actions, and the height of a line of text.
+const (
+	conflictRules   = 2
+	conflictPadY    = 10
+	conflictGap     = 8
+	conflictLine    = 18
+	conflictPadX    = 12
+	conflictIcon    = 16
+	conflictMaxRows = 3
 )
 
 // drawDocumentConflict places the conflict beside the affected editor, following the
 // original editor notification's icon, message and link actions.
+//
+// Transitional adapter: the editor group is still declared in a Frame, so the notice is a
+// component hosted by a Page in a Slot. Delete this function and call documentConflict
+// directly once the workbench root window is a Page.
 func (a *App) drawDocumentConflict(f *ui.Frame, d *document) {
-	message := i18n.Shared(a.language(), "native.thisFileChangedOutsideLitheWhileYouHadUnsavedEdits")
+	b := &d.conflict
+	if b.host.page == nil {
+		b.host = a.newGitHost("document-conflict-"+strconv.Itoa(d.id), func(c ui.C) {
+			if a.project != nil && a.project.docs.find(d.id) == d {
+				a.documentConflict(c, d)
+			}
+		}, nil, panelPage{})
+	}
+	message := a.conflictMessage(d)
+	// The message wraps in the room beside the icon, so the notice is as tall as its lines.
+	room := b.width - 2*conflictPadX - conflictIcon - conflictGap
+	rows := 1
+	if room > 0 {
+		rows = min(max(int(math.Ceil(float64(f.Canvas().TextWidth(message, 13)/room))), 1), conflictMaxRows)
+	}
+	height := float32(conflictRules + 2*conflictPadY + (rows+1)*conflictLine + conflictGap)
+	f.Slot().FillWidth().Height(height).Shrink(0).Draw(func(dc *ui.DrawContext) {
+		if dc.Rect.Width != b.width {
+			b.width = dc.Rect.Width
+			dc.Canvas.RequestFrame()
+		}
+		a.pages.register(b.host.panel)
+		b.host.paint(dc.Canvas, dc.Rect)
+	})
+}
+
+// conflictMessage is what the notice says about d.
+func (a *App) conflictMessage(d *document) string {
 	if d.conflictMissing {
-		message = i18n.Shared(a.language(), "native.thisFileWasDeletedOutsideLitheYourEditorContentIsPreserved")
+		return i18n.Shared(a.language(), "native.thisFileWasDeletedOutsideLitheYourEditorContentIsPreserved")
 	}
+	return i18n.Shared(a.language(), "native.thisFileChangedOutsideLitheWhileYouHadUnsavedEdits")
+}
+
+// documentConflict declares the notice for d: a warning icon, the message and the two ways
+// out, keeping the editor's text or loading the disk's.
+func (a *App) documentConflict(c ui.C, d *document) {
 	busy := d.saving || d.checking || d.checkPending || d.resolvingConflict || d.view.IsComposing()
-	background, border, foreground, link, disabled := gfx.RGB24(0xFFF6E9), gfx.RGB24(0xF4CD9A), gfx.RGB24(0x000000), gfx.RGB24(0x2F5EB9), gfx.RGB24(0x9FA2A8)
+	background, border, foreground := gfx.RGB24(0xFFF6E9), gfx.RGB24(0xF4CD9A), gfx.RGB24(0x000000)
 	if a.colors.Dark {
-		background, border, foreground, link, disabled = gfx.RGB24(0x44321D), gfx.RGB24(0x694820), gfx.RGB24(0xD1D3D9), gfx.RGB24(0x71A1FE), gfx.RGB24(0x4C4F56)
+		background, border, foreground = gfx.RGB24(0x44321D), gfx.RGB24(0x694820), gfx.RGB24(0xD1D3D9)
 	}
-	f.Column().FillWidth().Shrink(0).Background(background).Children(func() {
-		f.Row().FillWidth().Height(1).Background(border)
-		f.Row().FillWidth().Gap(8).PadX(12).PadY(10).Items(ui.Start).Children(func() {
-			f.Icon(icons.BannerWarning).Size(16, 16).Color(gfx.RGB24(0xFFFFFF))
-			f.Column().Grow(1).Gap(8).Children(func() {
-				f.Paragraph(message, 3).FontSize(13).Color(foreground)
-				f.Row().Gap(16).Children(func() {
-					keepLabel := i18n.Shared(a.language(), "native.keepEditor")
-					if d.conflictMissing {
-						keepLabel = i18n.Shared(a.language(), "native.allowRecreatingFile")
+	keepLabel := i18n.Shared(a.language(), "native.keepEditor")
+	if d.conflictMissing {
+		keepLabel = i18n.Shared(a.language(), "native.allowRecreatingFile")
+	}
+	ui.Column(c).Fill().Background(background).Children(func() {
+		ui.Row(c.Part("top")).FillWidth().Height(1).Shrink(0).Background(border)
+		ui.Row(c).FillWidth().Gap(conflictGap).PadX(conflictPadX).PadY(conflictPadY).Items(ui.Start).Children(func() {
+			ui.Icon(c, icons.BannerWarning).Size(conflictIcon, conflictIcon).Shrink(0).Color(gfx.RGB24(0xFFFFFF))
+			ui.Column(c.Part("body")).Grow(1).Shrink(1).Gap(conflictGap).Children(func() {
+				ui.Paragraph(c, a.conflictMessage(d), conflictMaxRows).FontSize(13).Color(foreground)
+				ui.Row(c.Part("actions")).Gap(16).Children(func() {
+					if ui.Button(c.Key("keep"), keepLabel).Link().Disabled(busy).Clicked() {
+						c.After(func() { a.keepDocumentEditor(a.project, d) })
 					}
-					if a.drawConflictLink(f, docKeep.At(d.id), keepLabel, busy, link, disabled) {
-						a.keepDocumentEditor(a.project, d)
-					}
-					if a.drawConflictLink(f, docLoad.At(d.id), i18n.Shared(a.language(), "native.loadDiskVersion"), busy || d.conflictMissing, link, disabled) {
-						a.loadDocumentDisk(a.project, d)
+					if ui.Button(c.Key("load"), i18n.Shared(a.language(), "native.loadDiskVersion")).Link().Disabled(busy || d.conflictMissing).Clicked() {
+						c.After(func() { a.loadDocumentDisk(a.project, d) })
 					}
 				})
 			})
 		})
-		f.Row().FillWidth().Height(1).Background(border)
+		ui.Row(c.Part("bottom")).FillWidth().Height(1).Shrink(0).Background(border)
 	})
-}
-
-func (a *App) drawConflictLink(f *ui.Frame, id gfx.ID, label string, disabled bool, link, muted gfx.Color) bool {
-	color := link
-	if disabled {
-		color = muted
-	}
-	button := f.Row().HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Disabled: disabled})
-	button.Children(func() { f.Text(label).FontSize(13).Color(color) })
-	return !disabled && button.Clicked()
 }
 
 func (a *App) conflictDecision(p *project, d *document, event core.DocumentEventType) (core.DocumentDecision, error) {

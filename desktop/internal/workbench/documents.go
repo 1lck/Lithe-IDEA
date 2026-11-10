@@ -71,6 +71,8 @@ type document struct {
 	path, name string
 	languageID string
 	view       *editorview.View
+	// conflict is the notice shown while the file changed on disk under unsaved edits.
+	conflict conflictBanner
 	// sync is the document's state in its language-server session.
 	sync               documentSync
 	saving             bool
@@ -631,6 +633,7 @@ func (a *App) closeDocument(p *project, id int) {
 			return
 		}
 		d.view.Close()
+		d.conflict.host.close()
 		p.docs.list = slices.DeleteFunc(p.docs.list, func(x *document) bool { return x.id == id })
 		a.unwatchDocument(p, d)
 		a.closeDocumentInSession(p, d)
@@ -720,6 +723,7 @@ func (a *App) closeDocuments(p *project) {
 	}
 	for _, d := range p.docs.list {
 		d.view.Close()
+		d.conflict.host.close()
 	}
 	p.docs = documentSet{}
 }

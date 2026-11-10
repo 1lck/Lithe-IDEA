@@ -528,9 +528,7 @@ func TestKeepEditorAcknowledgesOnlyObservedDiskVersion(t *testing.T) {
 	if !h.shows(i18n.Shared(h.app.language(), "native.keepEditor")) {
 		t.Fatal("conflict action not shown in editor")
 	}
-	if err := h.driver.Click(center(h.hit(docKeep.At(d.id))).X, center(h.hit(docKeep.At(d.id))).Y); err != nil {
-		t.Fatal(err)
-	}
+	h.clickShared("native.keepEditor")
 	if d.conflicted || string(d.view.SavedBytes()) != "external" || !d.view.Dirty() {
 		t.Fatal("keep did not acknowledge the observed version while retaining local edits")
 	}
@@ -635,10 +633,7 @@ func TestAcknowledgedDeletionCanRecreateOnClose(t *testing.T) {
 	if !h.shows(i18n.Shared(h.app.language(), "native.allowRecreatingFile")) {
 		t.Fatal("recreate action not shown in editor")
 	}
-	at := center(h.hit(docKeep.At(d.id)))
-	if err := h.driver.Click(at.X, at.Y); err != nil {
-		t.Fatal(err)
-	}
+	h.clickShared("native.allowRecreatingFile")
 	if d.conflicted || !d.recreateMissing || !d.dirty() {
 		t.Fatal("acknowledged missing file was not marked for recreation")
 	}
