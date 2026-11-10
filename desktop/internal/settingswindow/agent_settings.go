@@ -50,17 +50,21 @@ const agentSettingsTimeout = 30 * time.Second
 // agentSettings is the state of the four AI pages. Background work writes under mu and
 // then wakes the window; a paint reads under mu, so the window thread never waits on Core.
 type agentSettings struct {
-	backend       AgentSettingsBackend
-	dataDirectory func() string
-	workspace     func() string
-	limits        func(agentID string) AgentContextLimit
-	setLimits     func(agentID string, limit AgentContextLimit)
-	wake          func()
+	backend         AgentSettingsBackend
+	dataDirectory   func() string
+	workspace       func() string
+	limits          func(agentID string) AgentContextLimit
+	aiGeneration    func() AIGenerationSettings
+	setAIGeneration func(AIGenerationSettings)
+	aiProviders     func(context.Context) []AIProviderStatus
+	setLimits       func(agentID string, limit AgentContextLimit)
+	wake            func()
 
 	mu sync.Mutex
 	// agent is the selected adapter (index into agentSettingsAgents).
 	agent int
 
+	providerRead generationState
 	instructions instructionsState
 	skills       skillsState
 	hooks        hooksState
@@ -122,6 +126,7 @@ func newAgentSettings(o Options, wake func()) *agentSettings {
 	return &agentSettings{
 		backend: o.AgentSettings, dataDirectory: o.AgentDataDirectory, workspace: o.AgentWorkspace,
 		limits: o.AgentContextLimits, setLimits: o.SetAgentContextLimits, wake: wake,
+		aiGeneration: o.AIGeneration, setAIGeneration: o.SetAIGeneration, aiProviders: o.AIProviders,
 	}
 }
 

@@ -45,13 +45,17 @@ type aiCommitState struct {
 // aiCommitDefaults are the options of a generation. The Viva settings do not offer them yet, so
 // they are the shared defaults of the contract.
 func (a *App) aiCommitOptions() core.AICommitOptions {
+	generation := a.aiGenerationSettings()
 	language := "english"
 	if a.language() == i18n.Chinese {
 		language = "simplifiedChinese"
 	}
+	if generation.Language != "" {
+		language = generation.Language
+	}
 	return core.AICommitOptions{
 		Language: language, Format: "conventional", SubjectMaximumLength: 72,
-		MaximumDiffCharacters: 32000, ReasoningEffort: "default",
+		MaximumDiffCharacters: 32000, ReasoningEffort: "default", IncludeBody: generation.IncludeBody,
 	}
 }
 
@@ -98,7 +102,12 @@ func stagedChangeKind(status string) string {
 // pickAIProvider is the first provider of the Codex then the Claude configuration that can
 // be used: it has no issue and holds a credential.
 func pickAIProvider(providers map[string][]agentProvider) (agentProvider, bool) {
-	for _, source := range agentProviderSources() {
+	return pickAIProviderFrom(providers, agentProviderSources())
+}
+
+// pickAIProviderFrom is pickAIProvider over the given sources in their order.
+func pickAIProviderFrom(providers map[string][]agentProvider, sources []string) (agentProvider, bool) {
+	for _, source := range sources {
 		for _, provider := range providers[source] {
 			if provider.Issue == "" && !provider.MissingKey && provider.APIKey != "" && provider.Endpoint != "" {
 				return provider, true
@@ -123,9 +132,10 @@ func (a *App) generateCommitMessage(p *project) {
 	c.ai.running, c.ai.cancel = true, cancel
 	repositories := p.stagedCommitRepositories()
 	options := a.aiCommitOptions()
+	sources := a.aiGenerationSources()
 	a.background(p, 0, func(context.Context) func(*App) {
 		defer cancel()
-		message, token, err := a.runCommitGeneration(ctx, kernel, repositories, options)
+		message, token, err := a.runCommitGeneration(ctx, kernel, repositories, options, sources)
 		return func(a *App) {
 			c.ai.running, c.ai.cancel = false, nil
 			a.finishCommitGeneration(p, message, token, repositories, err)
@@ -135,9 +145,9 @@ func (a *App) generateCommitMessage(p *project) {
 
 // runCommitGeneration captures the evidence, plans and sends the request and decodes the
 // answer. It runs off the window thread.
-func (a *App) runCommitGeneration(ctx context.Context, kernel aiCommitKernel, repositories []core.CommitContextRepository, options core.AICommitOptions) (string, string, error) {
+func (a *App) runCommitGeneration(ctx context.Context, kernel aiCommitKernel, repositories []core.CommitContextRepository, options core.AICommitOptions, sources []string) (string, string, error) {
 	providers, _ := a.discoverAgentProviders(ctx)
-	provider, ok := pickAIProvider(providers)
+	provider, ok := pickAIProviderFrom(providers, sources)
 	if !ok {
 		return "", "", errAINoProvider
 	}

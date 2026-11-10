@@ -15282,6 +15282,106 @@
       ]
     },
     {
+      "id": "desktop.settings.agent.generation.help",
+      "description": "AI settings page: generation options help",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.generation.includeBody",
+      "description": "AI settings page: generate commit body switch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.generation.language",
+      "description": "AI settings page: generation output language",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.generation.languageChinese",
+      "description": "AI settings page: generation language Simplified Chinese",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.generation.languageEnglish",
+      "description": "AI settings page: generation language English",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.generation.languageInterface",
+      "description": "AI settings page: generation language follows interface",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.generation.provider",
+      "description": "AI settings page: generation provider choice",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.generation.providerAuto",
+      "description": "AI settings page: generation provider automatic",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.generation.providerClaude",
+      "description": "AI settings page: generation provider Claude only",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.generation.providerCodex",
+      "description": "AI settings page: generation provider Codex only",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.agent.generation.sourceReady",
+      "description": "AI settings page: generation provider source read back",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "source": "string",
+        "name": "string",
+        "model": "string",
+        "path": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.agent.generation.sourceUnavailable",
+      "description": "AI settings page: generation provider source unavailable",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "source": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.agent.generation.title",
+      "description": "AI settings page: generation options card",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.agent.hooks.agents",
       "description": "AI settings: hook agents label",
       "platforms": [

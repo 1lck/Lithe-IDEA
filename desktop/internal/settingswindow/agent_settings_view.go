@@ -63,6 +63,7 @@ func (w *window) agentsPage(c ui.C) {
 		s.mu.Lock()
 		d := s.limitDraft
 		s.mu.Unlock()
+		w.generationCard(c)
 		w.card(c, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.limits.title"), i18n.Shared(w.marketLanguage(), "desktop.settings.agent.limits.help"), func() {
 			ui.Column(c).FillWidth().Gap(8).Children(func() {
 				window, compact := d.window, d.compact

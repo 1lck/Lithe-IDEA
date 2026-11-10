@@ -170,6 +170,13 @@ type Options struct {
 	AgentWorkspace        func() string
 	AgentContextLimits    func(agentID string) AgentContextLimit
 	SetAgentContextLimits func(agentID string, limit AgentContextLimit)
+	// AIGeneration reads the commit and inline-edit generation choices and SetAIGeneration
+	// saves them; they are Lithe's own preferences (agent_generation.go).
+	AIGeneration    func() AIGenerationSettings
+	SetAIGeneration func(AIGenerationSettings)
+	// AIProviders reads the Codex and Claude providers generation would use, off the window
+	// thread; nil leaves the source lines out.
+	AIProviders func(context.Context) []AIProviderStatus
 	// MCP is the MCP Configuration page's loader. Nil leaves the page unavailable.
 	MCP MCPLoader
 	// IDEAPI is the IDE Connection page's loader. Nil leaves the page unavailable.

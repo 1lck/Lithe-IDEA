@@ -165,8 +165,13 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 				a.setAgentContextLimits(id, agentContextLimit{WindowTokens: l.WindowTokens, AutoCompactTokens: l.AutoCompactTokens})
 			})
 		},
-		MCP:    a.mcpSettingsLoader(),
-		IDEAPI: a.ideAPISettingsLoader(),
+		AIGeneration: a.aiGenerationSettings,
+		SetAIGeneration: func(value settingswindow.AIGenerationSettings) {
+			a.post(func(a *App) { a.setAIGenerationSettings(value) })
+		},
+		AIProviders: a.aiProviderStatuses,
+		MCP:         a.mcpSettingsLoader(),
+		IDEAPI:      a.ideAPISettingsLoader(),
 	})
 }
 

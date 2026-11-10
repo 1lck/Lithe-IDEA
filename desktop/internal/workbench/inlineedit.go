@@ -112,9 +112,10 @@ func (a *App) runInlineEdit(p *project) {
 	}
 	ctx, cancel := context.WithCancel(p.ctx)
 	s.running, s.cancel, s.failure, s.hasResult = true, cancel, "", false
+	sources := a.aiGenerationSources()
 	a.background(p, 0, func(context.Context) func(*App) {
 		defer cancel()
-		edited, err := a.fetchInlineEdit(ctx, kernel, edit)
+		edited, err := a.fetchInlineEdit(ctx, kernel, edit, sources)
 		return func(a *App) {
 			s := &a.inline
 			s.running, s.cancel = false, nil
@@ -132,9 +133,9 @@ func (a *App) runInlineEdit(p *project) {
 }
 
 // fetchInlineEdit plans, sends and decodes one request off the window thread.
-func (a *App) fetchInlineEdit(ctx context.Context, kernel aiInlineKernel, edit core.AIInlineEdit) (string, error) {
+func (a *App) fetchInlineEdit(ctx context.Context, kernel aiInlineKernel, edit core.AIInlineEdit, sources []string) (string, error) {
 	providers, _ := a.discoverAgentProviders(ctx)
-	provider, ok := pickAIProvider(providers)
+	provider, ok := pickAIProviderFrom(providers, sources)
 	if !ok {
 		return "", errAINoProvider
 	}
