@@ -85,7 +85,9 @@ type agentMessage struct {
 	Text      string
 	Streaming bool
 	// Tool is the tool row of a tool message; Expanded opens a reasoning row.
-	Tool     *agentToolCall
+	Tool *agentToolCall
+	// md is the laid-out Markdown of an assistant reply (agent_markdown.go).
+	md       *agentMarkdown
 	Expanded bool
 	// Files are the references the user attached; Delivery is the state of
 	// supplementary input sent while the turn ran (see agent_steer.go).

@@ -152,6 +152,16 @@ func (h *harness) shows(value string) bool {
 			return true
 		}
 	}
+	// An assistant reply is painted by Viva's Markdown view, which records no labels. Its
+	// message gets a view only when its row is declared, so this keeps the virtual window
+	// meaningful: a row that was never declared has none.
+	if p := h.app.project; p != nil {
+		for _, m := range p.agent.messages {
+			if m.md != nil && m.md.parsed > 0 && strings.Contains(m.Text, value) {
+				return true
+			}
+		}
+	}
 	return false
 }
 

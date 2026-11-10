@@ -314,7 +314,11 @@ func (a *App) agentTranscript(c ui.C, p *project) {
 		}
 		ui.Column(row.C).FillWidth().Gap(2).PadY(4).Children(func() {
 			ui.Text(row.C, role).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
-			ui.Wrap(row.C, message.Text).Color(a.colors.Text)
+			if message.Role == agentRoleAssistant {
+				a.agentReplyMarkdown(row.C, &messages[row.Index])
+			} else {
+				ui.Wrap(row.C, message.Text).Color(a.colors.Text)
+			}
 			for i, file := range message.Files {
 				ui.Text(row.C.KeyInt(i), a.text.Agent.Activity.AttachedFile(file.Name)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
 			}

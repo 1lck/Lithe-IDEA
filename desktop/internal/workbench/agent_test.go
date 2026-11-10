@@ -648,15 +648,23 @@ func TestAgentTranscriptPaintsOnlyTheVisibleWindow(t *testing.T) {
 		}
 	}
 	frames()
-	if !h.shows("message 99") {
+	// A reply is painted by Viva's Markdown view, which records no labels. A message gets
+	// its view when its row is declared, so forget them all and see which a few more frames
+	// declare: only the window the list follows to.
+	for i := range p.agent.messages {
+		p.agent.messages[i].md = nil
+	}
+	frames()
+	declared := func(i int) bool { return p.agent.messages[i].md != nil }
+	if !declared(99) {
 		t.Fatal("a transcript that follows its end did not show the last message")
 	}
-	if h.shows("message 0") || h.shows("message 50") {
+	if declared(0) || declared(50) {
 		t.Fatal("the transcript painted rows outside the virtual window")
 	}
 	painted := 0
-	for _, label := range h.driver.Snapshot().Labels {
-		if strings.HasPrefix(label.Value, "message ") {
+	for i := range p.agent.messages {
+		if declared(i) {
 			painted++
 		}
 	}
