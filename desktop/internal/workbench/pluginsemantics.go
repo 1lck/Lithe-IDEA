@@ -29,6 +29,9 @@ const (
 	// pluginSemanticCompleted is the Core runtime event carrying a finished
 	// semantic operation.
 	pluginSemanticCompleted = "requestCompleted"
+	// pluginFeaturesChanged is the Core runtime event carrying the session's offered
+	// features and, with completion, its completionOptions.
+	pluginFeaturesChanged = "featuresChanged"
 	// The semantic operations the editor asks for.
 	pluginSemanticDefinition = "definition"
 	pluginSemanticHover      = "hover"
@@ -613,11 +616,11 @@ func (a *App) requestPluginCompletion(p *project, d *document, line, column int,
 }
 
 // autoCompletionContext decides whether one edit is typing that should open
-// completion: a single inserted identifier character asks for the invoked list,
-// and a member-access punctuation character asks as a trigger character.
-// Core exposes no server trigger-character list yet, so the punctuation set is
-// the common member-access one rather than the server's declared set.
-func autoCompletionContext(edit editorview.Edit) (json.RawMessage, bool) {
+// completion. A character the server declared as a trigger asks as a trigger
+// character; otherwise a single inserted identifier character asks for the
+// invoked list. A server that declared no trigger characters is therefore asked
+// only while an identifier is typed.
+func autoCompletionContext(edit editorview.Edit, triggers []string) (json.RawMessage, bool) {
 	if edit.StartLine != edit.EndLine || edit.StartColumn != edit.EndColumn {
 		return nil, false
 	}
@@ -626,13 +629,32 @@ func autoCompletionContext(edit editorview.Edit) (json.RawMessage, bool) {
 		return nil, false
 	}
 	r := runes[0]
-	switch {
-	case r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r):
+	for _, trigger := range triggers {
+		if trigger == edit.Text {
+			quoted, err := json.Marshal(trigger)
+			if err != nil {
+				return nil, false
+			}
+			return json.RawMessage(`{"triggerKind":2,"triggerCharacter":` + string(quoted) + `}`), true
+		}
+	}
+	if r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) {
 		return completionTriggerContext(), true
-	case r == '.' || r == ':' || r == '>':
-		return json.RawMessage(`{"triggerKind":2,"triggerCharacter":"` + string(r) + `"}`), true
 	}
 	return nil, false
+}
+
+// applyServerFeatures records the completion trigger characters one session
+// declared. Core re-sends the event when dynamic registrations change them, and
+// leaves completionOptions out when completion is no longer offered.
+func (a *App) applyServerFeatures(server *pluginServer, event core.BackendEvent) {
+	if server == nil || server.session == nil || !a.isCurrentPluginServer(server.session.PluginID, server) {
+		return
+	}
+	server.completionTriggers = nil
+	if event.CompletionOptions != nil {
+		server.completionTriggers = event.CompletionOptions.TriggerCharacters
+	}
 }
 
 // scheduleAutoCompletion starts the debounce for one typed character. Each new
@@ -643,11 +665,15 @@ func (a *App) scheduleAutoCompletion(p *project, d *document, edit editorview.Ed
 		a.semantics.autoCancel()
 		a.semantics.autoCancel = nil
 	}
-	trigger, ok := autoCompletionContext(edit)
-	if !ok || a.plugins == nil || a.project != p || d.view.IsComposing() {
+	if a.plugins == nil || a.project != p || d.view.IsComposing() {
 		return
 	}
-	if _, ok := a.semanticServer(d); !ok {
+	server, ok := a.semanticServer(d)
+	if !ok {
+		return
+	}
+	trigger, ok := autoCompletionContext(edit, server.completionTriggers)
+	if !ok {
 		return
 	}
 	line, column := d.view.CaretUTF16()

@@ -34,6 +34,10 @@ type pluginServer struct {
 	cancel context.CancelFunc
 	// done closes when the serve loop returns.
 	done chan struct{}
+	// completionTriggers are the characters the server declared to open completion, from
+	// Core's featuresChanged event. Only the window thread reads or writes them; nil
+	// means the server declared none.
+	completionTriggers []string
 	// buildMu guards both the attached clients and readiness. A ready event and
 	// an attach race through the same lock, so a client either receives the
 	// event or is marked ready from the recorded state, never both and never
@@ -234,6 +238,8 @@ func (a *App) servePluginServer(server *pluginServer, ctx context.Context) {
 						}
 					})
 				}
+			case pluginFeaturesChanged:
+				a.post(func(a *App) { a.applyServerFeatures(server, event) })
 			case pluginSemanticCompleted:
 				// The answer is handed to the window thread with the session it
 				// belongs to, so a retired server cannot reopen a popup.

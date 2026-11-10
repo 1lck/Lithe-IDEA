@@ -277,6 +277,13 @@ func (c *Client) planPluginLaunch(ctx context.Context, body any) (PluginBackendP
 
 // BackendEvent preserves Core's ordered, typed facts without interpreting
 // plugin-owned result JSON in the platform layer.
+// CompletionOptions is the completion trigger and commit characters a language server
+// session declares, as Core reports them on a featuresChanged event.
+type CompletionOptions struct {
+	TriggerCharacters   []string `json:"triggerCharacters"`
+	AllCommitCharacters []string `json:"allCommitCharacters"`
+}
+
 type BackendEvent struct {
 	Type         string          `json:"type"`
 	Channel      string          `json:"channel"`
@@ -300,7 +307,9 @@ type BackendEvent struct {
 	Detail       string          `json:"detail"`
 	LegacyLevel  string          `json:"level"`
 	Capabilities []string        `json:"capabilities"`
-	ServerInfo   json.RawMessage `json:"serverInfo"`
+	// CompletionOptions is set on featuresChanged while completion is offered.
+	CompletionOptions *CompletionOptions `json:"completionOptions"`
+	ServerInfo        json.RawMessage    `json:"serverInfo"`
 }
 
 type pluginFunctionReference struct {

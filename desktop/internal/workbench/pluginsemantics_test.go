@@ -386,6 +386,10 @@ func TestTypingIdentifierStartsDebouncedCompletion(t *testing.T) {
 
 func TestTypingMemberAccessSendsTriggerCharacter(t *testing.T) {
 	f := newSemanticFixture(t)
+	f.h.app.applyServerFeatures(f.server, core.BackendEvent{
+		Type:              pluginFeaturesChanged,
+		CompletionOptions: &core.CompletionOptions{TriggerCharacters: []string{".", ":"}},
+	})
 	f.h.app.semantics.autoDelay = -1
 	f.d.view.GoToNavigation(0, 3, false)
 	if err := f.h.driver.Type("."); err != nil {
@@ -408,8 +412,39 @@ func TestAutoCompletionIgnoresPasteAndStaleCaret(t *testing.T) {
 	if got := f.kernel.requestCount(); got != 0 {
 		t.Fatalf("multi-character input requested completion %d times", got)
 	}
-	if _, ok := autoCompletionContext(editorview.Edit{Text: " "}); ok {
+	if _, ok := autoCompletionContext(editorview.Edit{Text: " "}, nil); ok {
 		t.Fatal("a space must not trigger completion")
+	}
+}
+
+func TestAutoCompletionUsesDeclaredTriggerCharacters(t *testing.T) {
+	// Without declared triggers, punctuation never opens completion.
+	if _, ok := autoCompletionContext(editorview.Edit{Text: "."}, nil); ok {
+		t.Fatal("an undeclared trigger character opened completion")
+	}
+	if got, ok := autoCompletionContext(editorview.Edit{Text: "a"}, nil); !ok || string(got) != `{"triggerKind":1}` {
+		t.Fatalf("identifier context = %s, %v", got, ok)
+	}
+	if got, ok := autoCompletionContext(editorview.Edit{Text: "@"}, []string{"@"}); !ok || string(got) != `{"triggerKind":2,"triggerCharacter":"@"}` {
+		t.Fatalf("declared trigger context = %s, %v", got, ok)
+	}
+	if _, ok := autoCompletionContext(editorview.Edit{Text: ">"}, []string{"."}); ok {
+		t.Fatal("a character the server did not declare opened completion")
+	}
+}
+
+func TestFeaturesChangedReplacesTriggerCharacters(t *testing.T) {
+	f := newSemanticFixture(t)
+	apply := func(options *core.CompletionOptions) {
+		f.h.app.applyServerFeatures(f.server, core.BackendEvent{Type: pluginFeaturesChanged, CompletionOptions: options})
+	}
+	apply(&core.CompletionOptions{TriggerCharacters: []string{"."}})
+	if got := f.server.completionTriggers; len(got) != 1 || got[0] != "." {
+		t.Fatalf("triggers = %v", got)
+	}
+	apply(nil)
+	if f.server.completionTriggers != nil {
+		t.Fatalf("triggers after completion withdrawn = %v", f.server.completionTriggers)
 	}
 }
 
