@@ -91,6 +91,9 @@ func (a *App) keepDocumentEditor(p *project, d *document) {
 		d.recreateMissing = true
 	} else {
 		d.view.MarkSaved(d.conflictContent.Snapshot())
+		if d.needsCodec() {
+			d.diskBytes = d.conflictBytes
+		}
 		d.recreateMissing = false
 	}
 	a.clearDocumentConflict(d)
@@ -110,11 +113,24 @@ func (a *App) loadDocumentDisk(p *project, d *document) {
 	d.resolvingConflict = true
 	revision, generation := d.view.Revision(), d.conflictGeneration
 	read := a.documentReader
-	a.background(p, 0, func(context.Context) func(*App) {
-		data, err := read(d.path)
+	kernel, _ := a.kernel.(editorKernel)
+	encoding, hasBOM, coded := d.encoding, d.hasBOM, d.needsCodec()
+	var observed []byte
+	a.background(p, 0, func(ctx context.Context) func(*App) {
+		var data []byte
+		var err error
+		if coded {
+			data, err = readRawDocument(d.path)
+		} else {
+			data, err = read(d.path)
+		}
+		observed = data
 		var content editorview.Content
 		if err == nil {
-			content = editorview.Prepare(data)
+			var text []byte
+			if text, err = decodeExternal(ctx, kernel, data, encoding, hasBOM, coded); err == nil {
+				content = editorview.Prepare(text)
+			}
 		}
 		return func(a *App) {
 			d.resolvingConflict = false
@@ -131,6 +147,9 @@ func (a *App) loadDocumentDisk(p *project, d *document) {
 				return
 			}
 			if d.view.ResolveWithDisk(content) {
+				if d.needsCodec() {
+					d.diskBytes = observed
+				}
 				d.recreateMissing = false
 				d.savedRevision = d.view.Revision()
 				a.clearDocumentConflict(d)

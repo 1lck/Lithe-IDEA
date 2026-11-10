@@ -151,7 +151,7 @@ func TestDeletedCleanDocumentIsNotDiscardedOnClose(t *testing.T) {
 	if h.app.project != p {
 		t.Fatal("closing the project discarded a deleted document")
 	}
-	h.app.applyDocumentCheck(p, doc, doc.view.SavedSnapshot(), editorview.Prepare([]byte("replacement")), true, true, nil)
+	h.app.applyDocumentCheck(p, doc, doc.view.SavedSnapshot(), editorview.Prepare([]byte("replacement")), true, true, nil, nil)
 	if text, _ := doc.view.Text(); string(text) != "recoverable" || !doc.conflicted {
 		t.Fatalf("a replacement silently resolved a deletion conflict: %q", text)
 	}
@@ -194,7 +194,7 @@ func TestDocumentCheckRejectsStaleSavedBaseline(t *testing.T) {
 	}
 	_, saved := doc.view.Text()
 	doc.view.MarkSaved(saved)
-	h.app.applyDocumentCheck(p, doc, baseline, editorview.Prepare([]byte("stale")), true, true, nil)
+	h.app.applyDocumentCheck(p, doc, baseline, editorview.Prepare([]byte("stale")), true, true, nil, nil)
 	current, _ := doc.view.Text()
 	if !doc.checkPending || !strings.Contains(string(current), "saved") {
 		t.Fatalf("stale result was applied: %q", current)

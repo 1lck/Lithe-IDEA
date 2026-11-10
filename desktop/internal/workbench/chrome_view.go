@@ -275,6 +275,9 @@ func (a *App) chromeStatusItem(c ui.C, i int) bool {
 			a.chromeStatusLabel(k, text)
 		}
 	})
+	if catalog[i].id == itemEncoding {
+		a.encodingMenu(c, box)
+	}
 	return box.Clicked()
 }
 

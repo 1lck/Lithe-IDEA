@@ -169,13 +169,14 @@ const (
 	itemTitleSearch   = "title.search"
 	itemTitleSettings = "title.settings"
 
-	itemCaret   = "status.caret"
-	itemLock    = "status.lock"
-	itemLSP     = "status.lsp"
-	itemMemory  = "status.memory"
-	itemFPS     = "status.fps"
-	itemChanges = "status.changes"
-	itemHealth  = "status.health"
+	itemCaret    = "status.caret"
+	itemLock     = "status.lock"
+	itemLSP      = "status.lsp"
+	itemEncoding = "status.encoding"
+	itemMemory   = "status.memory"
+	itemFPS      = "status.fps"
+	itemChanges  = "status.changes"
+	itemHealth   = "status.health"
 )
 
 // item is one button the workbench can show in its rearrangeable chrome.
@@ -224,6 +225,7 @@ var catalog = []item{
 
 	{id: itemCaret, zone: zoneStatus, label: func(m *i18n.Messages) string { return m.Status.Caret }},
 	{id: itemLock, zone: zoneStatus, icon: &icons.LockOpen, label: func(m *i18n.Messages) string { return m.Status.Writable }},
+	{id: itemEncoding, zone: zoneStatus, label: func(m *i18n.Messages) string { return m.Status.Encoding }},
 	{id: itemLSP, zone: zoneStatus, label: func(m *i18n.Messages) string { return m.Status.LSPNotStarted }},
 	{id: itemMemory, zone: zoneStatus, label: func(m *i18n.Messages) string { return m.Status.Memory }},
 	{id: itemFPS, zone: zoneStatus, label: func(m *i18n.Messages) string { return m.Status.FPS }},

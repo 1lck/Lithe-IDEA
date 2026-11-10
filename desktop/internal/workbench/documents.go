@@ -83,9 +83,22 @@ type document struct {
 	// watched, saved or synchronized with a language server, and the host keeps no
 	// copy once it closes.
 	virtual bool
+	// encoding is the id of the text encoding the file is read and written in; "" is plain
+	// UTF-8. hasBOM says a byte order mark leads the file. diskBytes are the bytes the file
+	// held when it was last read or written, kept only for a document whose bytes differ from
+	// its text (see encoding.go); encodingChanged says the user chose another encoding to save
+	// in, which makes an unedited document worth saving.
+	encoding        string
+	hasBOM          bool
+	diskBytes       []byte
+	encodingChanged bool
+	// previousEncoding is what encodingChanged replaced, until the save succeeds.
+	previousEncoding *encodingChoice
+	// conflictBytes are the bytes of the disk version a conflict notice shows.
+	conflictBytes []byte
 }
 
-func (d *document) dirty() bool { return d.view.Dirty() || d.recreateMissing }
+func (d *document) dirty() bool { return d.view.Dirty() || d.recreateMissing || d.encodingChanged }
 
 // documentLocation is where a document should place its caret once it has
 // opened. line is one-based, as the editor and search results use; column is
@@ -185,8 +198,10 @@ func (a *App) openFile(p *project, path string) {
 	p.docs.opening[path] = true
 	registry := a.syntaxRegistry()
 	name := filepath.Base(path)
-	a.background(p, 0, func(context.Context) func(*App) {
-		data, err := readDocument(path)
+	kernel, _ := a.kernel.(editorKernel)
+	a.background(p, 0, func(ctx context.Context) func(*App) {
+		read, err := readDocumentEncoded(ctx, kernel, path)
+		data := read.text
 		var content editorview.Content
 		var grammar *syntax.Syntax
 		languageID := ""
@@ -210,6 +225,9 @@ func (a *App) openFile(p *project, path string) {
 				return
 			}
 			a.placeDocument(p, path, name, content, grammar, languageID)
+			if d := p.docs.byPath(path); d != nil {
+				d.encoding, d.hasBOM, d.diskBytes = read.encoding, read.hasBOM, read.disk
+			}
 			// A plugin that serves this language starts its server the first time a
 			// file of it is opened, not when the project opens: a workspace of Go
 			// files must not pay for a Java server.
@@ -471,24 +489,38 @@ func (a *App) saveDocument(p *project, id int) {
 		return
 	}
 	data, text := d.view.Text()
-	expected := d.view.SavedBytes()
+	expected := d.expectedDiskBytes()
 	path, name, revision := d.path, d.name, d.view.Revision()
 	write := a.documentWriter
 	create := a.documentCreator
 	missing := d.recreateMissing
 	d.saving = true
-	a.background(p, 0, func(context.Context) func(*App) {
+	a.background(p, 0, func(ctx context.Context) func(*App) {
 		var err error
-		if missing {
-			err = create(path, data)
-		} else {
-			err = write(path, data, expected)
+		bytesOut := data
+		if bytesOut, err = a.encodeForSave(ctx, d, data); err == nil {
+			if missing {
+				err = create(path, bytesOut)
+			} else {
+				err = write(path, bytesOut, expected)
+			}
 		}
 		return func(a *App) {
 			d.saving = false
 			defer a.scheduleDocumentChecks(p)
 			if err != nil {
 				d.saveAgain = false
+				if _, unmappable := core.IsEncodingUnmappable(err); unmappable && d.encodingChanged {
+					// The reason names the encoding that failed, so it is shown first.
+					a.saveFailed(id, revision, name, err)
+					d.revertEncodingChoice()
+					waiters := d.closeWaiters
+					d.closeWaiters = nil
+					for _, done := range waiters {
+						done(false)
+					}
+					return
+				}
 				if errors.Is(err, documentio.ErrConflict) {
 					d.checkPending = true
 				}
@@ -501,6 +533,12 @@ func (a *App) saveDocument(p *project, id int) {
 				return
 			}
 			d.view.MarkSaved(text)
+			d.encodingChanged, d.previousEncoding = false, nil
+			if d.needsCodec() {
+				d.diskBytes = bytesOut
+			} else {
+				d.diskBytes = nil
+			}
 			d.recreateMissing = false
 			d.savedRevision = revision
 			a.clearDocumentConflict(d)
@@ -567,6 +605,8 @@ func (a *App) saveFailed(id, revision int, name string, err error) {
 	a.emit(documentFailedLevel, documentEventSaveFailed, documentSaveFields(id, revision, err))
 	reason := a.documentReason(err)
 	switch {
+	case func() bool { _, ok := core.IsEncodingUnmappable(err); return ok }():
+		reason = i18n.SharedFormat(a.language(), "desktop.encoding.unmappable", map[string]string{"encoding": a.saveEncodingName(id)})
 	case errors.Is(err, errComposing):
 		reason = i18n.Shared(a.language(), "editor.completeInputBeforeSaving")
 	case errors.Is(err, documentio.ErrTooLarge):

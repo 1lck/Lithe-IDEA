@@ -491,6 +491,8 @@ type StatusMessages struct {
 	Writable      string
 	ReadOnly      string
 	LSPNotStarted string
+	// Encoding names the status bar item that shows the file's text encoding.
+	Encoding string
 	// Problems is how many problems the language servers reported, for example
 	// "3 problems". One problem has its own wording.
 	Problems func(count int) string

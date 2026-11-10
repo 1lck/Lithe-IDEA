@@ -188,13 +188,27 @@ func (a *App) scheduleDocumentChecks(p *project) {
 		baseline := d.view.SavedSnapshot()
 		missing := d.recreateMissing
 		read := a.documentReader
-		a.background(p, 0, func(context.Context) func(*App) {
+		kernel, _ := a.kernel.(editorKernel)
+		encoding, hasBOM, disk := d.encoding, d.hasBOM, d.diskBytes
+		a.background(p, 0, func(ctx context.Context) func(*App) {
 			data, err := read(d.path)
-			changed := err == nil && (missing || !bytes.Equal(data, baseline.Bytes()))
+			expected := baseline.Bytes()
+			if disk != nil {
+				// The file is not plain UTF-8: it is compared as bytes and decoded as it was
+				// opened. Its bytes may even be invalid UTF-8, which the reader refuses.
+				data, err = readRawDocument(d.path)
+				expected = disk
+			}
+			changed := err == nil && (missing || !bytes.Equal(data, expected))
 			var content editorview.Content
 			prepared := changed
 			if prepared {
-				content = editorview.Prepare(data)
+				text, decodeErr := decodeExternal(ctx, kernel, data, encoding, hasBOM, disk != nil)
+				if decodeErr != nil {
+					err, changed, prepared = decodeErr, false, false
+				} else {
+					content = editorview.Prepare(text)
+				}
 			}
 			return func(a *App) {
 				p.docs.checking--
@@ -203,7 +217,7 @@ func (a *App) scheduleDocumentChecks(p *project) {
 					if d.recreateMissing != missing {
 						d.checkPending = true
 					} else {
-						a.applyDocumentCheck(p, d, baseline, content, changed, prepared, err)
+						a.applyDocumentCheck(p, d, baseline, content, changed, prepared, err, data)
 					}
 					if !d.checkPending && len(d.checkWaiters) > 0 {
 						waiters := d.checkWaiters
@@ -229,10 +243,11 @@ func (a *App) clearDocumentConflict(d *document) {
 	d.conflicted = false
 	d.conflictMissing = false
 	d.conflictContent = editorview.Content{}
+	d.conflictBytes = nil
 	d.conflictGeneration++
 }
 
-func (a *App) applyDocumentCheck(p *project, d *document, baseline rope.Rope, content editorview.Content, changed, prepared bool, err error) {
+func (a *App) applyDocumentCheck(p *project, d *document, baseline rope.Rope, content editorview.Content, changed, prepared bool, err error, observed []byte) {
 	if d.saving || !d.view.HasSavedSnapshot(baseline) {
 		d.checkPending = true
 		return
@@ -279,6 +294,9 @@ func (a *App) applyDocumentCheck(p *project, d *document, baseline rope.Rope, co
 			return
 		}
 		if d.view.Reload(content) {
+			if d.needsCodec() {
+				d.diskBytes = observed
+			}
 			d.savedRevision = d.view.Revision()
 			a.clearDocumentConflict(d)
 		} else {
@@ -290,6 +308,7 @@ func (a *App) applyDocumentCheck(p *project, d *document, baseline rope.Rope, co
 	case core.DocumentShowConflict:
 		d.conflictMissing = errors.Is(err, os.ErrNotExist)
 		d.conflictContent = content
+		d.conflictBytes = observed
 		d.conflictGeneration++
 		if !d.conflicted {
 			d.conflicted = true

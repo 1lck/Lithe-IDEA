@@ -9,5 +9,6 @@ type editorFeatures struct {
 	requests uint64
 	outline  outlineState
 	refs     referencesState
+	encoding encodingState
 	tokens   semanticTokensState
 }

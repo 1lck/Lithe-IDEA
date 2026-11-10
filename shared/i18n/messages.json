@@ -11828,6 +11828,51 @@
       ]
     },
     {
+      "id": "desktop.encoding.reopen",
+      "description": "Menu entry that opens a submenu of encodings to read the file again with",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.encoding.reopenDirty",
+      "description": "Banner shown when reopening with an encoding is refused because the file has unsaved edits",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.encoding.reopenFailed",
+      "description": "Banner shown when the file could not be read again with the chosen encoding",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.encoding.reopenLossy",
+      "description": "Banner shown when the chosen encoding could not decode some bytes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.encoding.saveAs",
+      "description": "Menu entry that opens a submenu of encodings to save the file in",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.encoding.unmappable",
+      "description": "Reason a save failed because the text has a character the encoding cannot hold",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "encoding": "string"
+      }
+    },
+    {
       "id": "desktop.errors.core",
       "description": "Desktop application error: Core",
       "platforms": [
@@ -15189,6 +15234,13 @@
     {
       "id": "desktop.status.caret",
       "description": "Desktop status: Caret",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.status.encoding",
+      "description": "Name of the status bar item that shows the file's text encoding",
       "platforms": [
         "desktop"
       ]

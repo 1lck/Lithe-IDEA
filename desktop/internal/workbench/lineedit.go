@@ -24,6 +24,8 @@ import (
 type editorKernel interface {
 	LineEdit(context.Context, core.LineEditRequest) (core.LineEditOutcome, error)
 	LineCommentToken(context.Context, string) (*string, error)
+	DecodeFileBytes(context.Context, []byte, string) (core.DecodedFile, error)
+	EncodeFileText(context.Context, string, string, *bool) (core.EncodedText, error)
 	ReduceNavigationHistory(context.Context, core.NavigationHistory, core.NavigationHistoryEvent) (core.NavigationHistory, *core.NavigationLocation, error)
 }
 

@@ -11,13 +11,14 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/documentio"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 )
 
-// Until encoding conversion is available, an editor must not accept bytes it
-// cannot represent as UTF-8 and let an edit split an encoded character.
-func TestOpenRejectsUnsupportedEncodingWithoutChangingTheFile(t *testing.T) {
+// A file in a legacy encoding opens through Core's detection, and saving writes it back in the
+// same encoding, so the bytes of an unedited character never change.
+func TestOpenDetectsLegacyEncodingAndSavesInIt(t *testing.T) {
 	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
 	root := t.TempDir()
 	path := filepath.Join(root, "legacy.txt")
@@ -28,15 +29,101 @@ func TestOpenRejectsUnsupportedEncodingWithoutChangingTheFile(t *testing.T) {
 	h.open(root)
 	h.app.openFile(h.app.project, path)
 	h.settle()
-	if doc := h.app.project.docs.byPath(path); doc != nil {
-		t.Fatal("unsupported encoding was opened for editing")
+	doc := h.app.project.docs.byPath(path)
+	if doc == nil {
+		t.Fatalf("a GBK file was not opened: %q", h.app.notice)
 	}
-	if !strings.Contains(h.app.notice, "not valid UTF-8") {
-		t.Fatalf("unsupported encoding did not explain why the file cannot be edited: %q", h.app.notice)
+	if got := doc.view.TextSnapshot().String(); got != "中文" || doc.encodingID() != "gbk" {
+		t.Fatalf("text = %q encoding = %s", got, doc.encodingID())
 	}
+	doc.view.SetSelection(doc.view.TextSnapshot().Len(), doc.view.TextSnapshot().Len())
+	h.app.insertForTest(doc, "!")
+	h.app.saveDocument(h.app.project, doc.id)
+	h.settle()
 	data, err := os.ReadFile(path)
-	if err != nil || !bytes.Equal(data, original) {
-		t.Fatalf("file changed after rejected open: %x, error %v", data, err)
+	if err != nil || !bytes.Equal(data, append(original, '!')) {
+		t.Fatalf("saved bytes = %x, error %v", data, err)
+	}
+}
+
+func TestReopenAndSaveWithEncoding(t *testing.T) {
+	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
+	root := t.TempDir()
+	path := filepath.Join(root, "text.txt")
+	if err := os.WriteFile(path, []byte{0xd6, 0xd0, 0xce, 0xc4}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.open(root)
+	p := h.app.project
+	h.app.openFile(p, path)
+	h.settle()
+	doc := p.docs.byPath(path)
+	// Reopened as Windows-1252 the same bytes are four Latin letters, not two characters.
+	h.app.reopenWithEncoding(p, doc, "windows-1252")
+	h.settle()
+	if got := doc.view.TextSnapshot().String(); got != "ÖÐÎÄ" || doc.encodingID() != "windows-1252" {
+		t.Fatalf("reopened text = %q encoding = %s", got, doc.encodingID())
+	}
+	// Saving in UTF-8 rewrites the same text as UTF-8 and the document is clean afterwards.
+	h.app.saveWithEncoding(p, doc, "utf-8")
+	h.settle()
+	data, _ := os.ReadFile(path)
+	if string(data) != "ÖÐÎÄ" || doc.dirty() || doc.needsCodec() {
+		t.Fatalf("after save: %q dirty=%v codec=%v", data, doc.dirty(), doc.needsCodec())
+	}
+	// A character GBK cannot hold fails the save, writes nothing and brings the encoding back.
+	h.app.insertForTest(doc, "😀")
+	h.app.saveWithEncoding(p, doc, "gbk")
+	h.settle()
+	data, _ = os.ReadFile(path)
+	if string(data) != "ÖÐÎÄ" || doc.encodingID() != "utf-8" || doc.encodingChanged {
+		t.Fatalf("after refused save: %q encoding=%s changed=%v", data, doc.encodingID(), doc.encodingChanged)
+	}
+	if !strings.Contains(h.app.notice, "GBK") {
+		t.Fatalf("notice = %q", h.app.notice)
+	}
+}
+
+func TestReopenWithEncodingRefusesUnsavedEdits(t *testing.T) {
+	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
+	root := t.TempDir()
+	path := filepath.Join(root, "text.txt")
+	if err := os.WriteFile(path, []byte("abc"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.open(root)
+	p := h.app.project
+	h.app.openFile(p, path)
+	h.settle()
+	doc := p.docs.byPath(path)
+	h.app.insertForTest(doc, "x")
+	h.app.reopenWithEncoding(p, doc, "gbk")
+	h.settle()
+	if got := doc.view.TextSnapshot().String(); got != "abcx" || !strings.Contains(h.app.notice, "Save or discard") {
+		t.Fatalf("text = %q notice = %q", got, h.app.notice)
+	}
+}
+
+func TestUtf8BOMIsStrippedAndKept(t *testing.T) {
+	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
+	root := t.TempDir()
+	path := filepath.Join(root, "bom.txt")
+	if err := os.WriteFile(path, []byte("\xef\xbb\xbfhi"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.open(root)
+	p := h.app.project
+	h.app.openFile(p, path)
+	h.settle()
+	doc := p.docs.byPath(path)
+	if got := doc.view.TextSnapshot().String(); got != "hi" || doc.encodingID() != "utf-8-bom" {
+		t.Fatalf("text = %q encoding = %s", got, doc.encodingID())
+	}
+	h.app.insertForTest(doc, "!")
+	h.app.saveDocument(p, doc.id)
+	h.settle()
+	if data, _ := os.ReadFile(path); string(data) != "\xef\xbb\xbfhi!" {
+		t.Fatalf("saved = %q", data)
 	}
 }
 
@@ -445,3 +532,11 @@ func TestMinimapButtonHidesAndShowsTheMinimap(t *testing.T) {
 // barTrackForTest is the width of the editor's vertical scrollbar track, at the text's right
 // edge.
 const barTrackForTest = 10
+
+// insertForTest appends text to the document as one edit, as the editor would take typing.
+func (a *App) insertForTest(d *document, text string) {
+	end := d.view.TextSnapshot().Len()
+	if err := d.view.ApplyEdits([]editorview.TextEdit{{Range: editorview.Range{Start: end, End: end}, Text: text}}); err != nil {
+		panic(err)
+	}
+}

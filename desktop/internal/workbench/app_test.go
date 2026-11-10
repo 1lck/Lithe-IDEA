@@ -219,7 +219,7 @@ func TestWorkbenchDefaultLayout(t *testing.T) {
 		zoneRightBottom: nil,
 		zoneBottomRight: {itemUpdates, itemBackground},
 		zoneTitle:       {itemRunConfig, itemTitleRun, itemTitleDebug, itemTitleSearch, itemTitleSettings},
-		zoneStatus:      {itemCaret, itemLock, itemLSP, itemMemory, itemFPS, itemChanges, itemHealth},
+		zoneStatus:      {itemCaret, itemLock, itemEncoding, itemLSP, itemMemory, itemFPS, itemChanges, itemHealth},
 	}
 	for z, ids := range want {
 		if got := h.zoneItems(z); strings.Join(got, ",") != strings.Join(ids, ",") {
