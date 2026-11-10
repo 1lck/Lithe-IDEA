@@ -14,7 +14,7 @@
 | 平台专属 | 只在一端存在且依赖系统特性（WSL、Windows 窗口标题/任务栏、macOS 输入法/登录 shell 环境等），在对应平台保留 |
 | 插件提供 | 能力归属插件（Java/Maven/Gradle/Go/PHP/Docker/数据库/SVN 等工具知识），宿主只提供扩展点；说明列写依赖的扩展点 |
 | 不纳入 | 两端基线都是 missing |
-| 建议放弃 | 旧客户端有、但不值得迁移（被新设计取代的过渡实现、Monaco 或旧控件专属实现）；逐条理由见下文“建议放弃” |
+| 放弃 | 旧客户端有、但不值得迁移（被新设计取代的过渡实现、Monaco 或旧控件专属实现）；逐条理由见下文“放弃” |
 
 ## 汇总
 
@@ -23,7 +23,7 @@
 | 必须迁移 | 190 |
 | 插件提供 | 34 |
 | 平台专属 | 11 |
-| 建议放弃 | 17 |
+| 放弃 | 17 |
 | 不纳入 | 2 |
 | 合计 | 254 |
 
@@ -45,9 +45,9 @@
 
 | id | 能力 | 分类 | 基线 mac/win | Viva 现状 | 缺口 / 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `ai-chat-history` | 对话历史、置顶与归档 | 建议放弃 | 缺/实现 | — | 见“建议放弃”表 |
-| `ai-chat-providers` | 多 Provider 与工作区范围 | 建议放弃 | 缺/实现 | — | 见“建议放弃”表 |
-| `ai-chat-session` | 对话会话与流式响应 | 建议放弃 | 缺/实现 | — | 见“建议放弃”表 |
+| `ai-chat-history` | 对话历史、置顶与归档 | 放弃 | 缺/实现 | — | 见“放弃”表 |
+| `ai-chat-providers` | 多 Provider 与工作区范围 | 放弃 | 缺/实现 | — | 见“放弃”表 |
+| `ai-chat-session` | 对话会话与流式响应 | 放弃 | 缺/实现 | — | 见“放弃”表 |
 | `ai-commit-generation` | Provider 配置与提交信息生成 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
 | `agent-acp-conversation` | 可选 ACP Agent 对话 | 必须迁移 | 实现/实现 | 未开始 | — |
 | `agent-approval-mode-presentation` | Agent 权限模式呈现 | 必须迁移 | 实现/实现 | 部分 | — |
@@ -207,12 +207,12 @@
 | `workbench-activity-tooltips` | 活动栏图标的稳定悬停说明 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
 | `history-restore` | 恢复、删除与持久化 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
 | `history-snapshots` | 快照列表与 Diff | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
-| `macos-shared-scrollbar-style` | macOS 共享滚动条样式 | 建议放弃 | 实现/专属 | — | 见“建议放弃”表 |
-| `macos-shared-selection-focus` | macOS 普通选中行主题与区域和窗口焦点 | 建议放弃 | 实现/专属 | — | 见“建议放弃”表 |
+| `macos-shared-scrollbar-style` | macOS 共享滚动条样式 | 放弃 | 实现/专属 | — | 见“放弃”表 |
+| `macos-shared-selection-focus` | macOS 普通选中行主题与区域和窗口焦点 | 放弃 | 实现/专属 | — | 见“放弃”表 |
 | `window-controls` | 标题栏控制窗口最小化、最大化/还原与关闭 | 必须迁移 | 实现/实现 | 部分 | — |
 | `window-title-active-file` | Windows 原生窗口标题显示「项目名 – 当前编辑文件」，编辑区… | 平台专属 | 专属/实现 | 未开始 | Windows 原生窗口标题 |
 | `windows-startup-feedback` | Windows 启动和新窗口在页面渲染前就用当前主题背景色，不再闪白屏 | 平台专属 | 专属/实现 | 未开始 | Windows 启动防闪白 |
-| `terminal-canvas-compositing` | macOS 终端 Metal 画布按预乘语义清屏 | 建议放弃 | 实现/专属 | — | 见“建议放弃”表 |
+| `terminal-canvas-compositing` | macOS 终端 Metal 画布按预乘语义清屏 | 放弃 | 实现/专属 | — | 见“放弃”表 |
 | `terminal-copy-shortcut` | Windows 终端在有选中内容时用 Ctrl+C 复制，无选中时仍… | 平台专属 | 专属/实现 | 未开始 | Windows 终端 Ctrl+C 语义 |
 | `terminal-extended-keyboard` | 终端向 TUI 程序传递带修饰键的按键（如 Shift+Enter … | 必须迁移 | 实现/实现 | 部分 | term/keyboard.go、win32input*.go |
 | `terminal-interaction` | 复制粘贴、搜索、调整大小、终端 Control 输入与切换快捷键及 … | 必须迁移 | 实现/实现 | 部分 | term/、termview/（选择、搜索、键盘、鼠标） |
@@ -222,7 +222,7 @@
 | `terminal-shell` | Shell 发现与终端配置(默认 Shell、回滚行数) | 必须迁移 | 实现/实现 | 部分 | terminal_shells.go、localshell/ |
 | `project-file-type-icons` | 项目树、标签页和搜索结果为常见项目文件显示专用图标 | 必须迁移 | 实现/实现 | 部分 | fileicons/ |
 | `project-sidebar-header-icons` | 项目侧边栏标题与项目树行块左缘对齐，只显示右侧 IDEA Commu… | 必须迁移 | 实现/专属 | 部分 | — |
-| `project-sidebar-tree-disclosure-icons` | 项目树展开与折叠箭头使用 IDEA Community 明暗 SVG… | 建议放弃 | 实现/专属 | — | 见“建议放弃”表 |
+| `project-sidebar-tree-disclosure-icons` | 项目树展开与折叠箭头使用 IDEA Community 明暗 SVG… | 放弃 | 实现/专属 | — | 见“放弃”表 |
 
 ### 扩展（21）
 
@@ -282,7 +282,7 @@
 | `database-connections` | 连接配置与 Provider（由社区插件提供） | 插件提供 | 实现/缺 | 未开始 | C05,C11 扩展点：ui.toolWindows、credentials、pluginFunctions；无 desktop/ 证据 |
 | `database-crud-export` | 表数据编辑、CRUD 与导出（由社区插件提供） | 插件提供 | 实现/缺 | 未开始 | C05,C11 扩展点：ui.toolWindows、文件导出；无 desktop/ 证据 |
 | `database-multi-schema-tree` | 连接下多数据库独立展开与显示范围选择（由社区插件提供） | 插件提供 | 实现/缺 | 未开始 | C05,C11 扩展点：ui.toolWindows；无 desktop/ 证据 |
-| `database-plugin-migration` | 内置数据库模块的连接迁入插件与安装提示 | 建议放弃 | 实现/专属 | — | 见“建议放弃”表 |
+| `database-plugin-migration` | 内置数据库模块的连接迁入插件与安装提示 | 放弃 | 实现/专属 | — | 见“放弃”表 |
 | `database-query-history` | SQL 查询、历史与分页（由社区插件提供） | 插件提供 | 实现/缺 | 未开始 | C05,C11 扩展点：ui.toolWindows、pluginState；无 desktop/ 证据 |
 | `database-schema` | Schema、表与列浏览及结构编辑（由社区插件提供） | 插件提供 | 实现/缺 | 未开始 | C05,C11 扩展点：ui.toolWindows；无 desktop/ 证据 |
 
@@ -291,7 +291,7 @@
 | id | 能力 | 分类 | 基线 mac/win | Viva 现状 | 缺口 / 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `git-branches-remotes` | 分支、标签与远程 | 必须迁移 | 实现/实现 | 部分 | branch.go、branch_view.go、core/gitbranch.go；Fetch/Update 为占位(C08) |
-| `git-commit-sidebar-toolbar-icons` | macOS Commit/Shelf 标签采用共享选中与悬停样式、1… | 建议放弃 | 实现/专属 | — | 见“建议放弃”表 |
+| `git-commit-sidebar-toolbar-icons` | macOS Commit/Shelf 标签采用共享选中与悬停样式、1… | 放弃 | 实现/专属 | — | 见“放弃”表 |
 | `git-diff-review` | Diff 与变更审查（含未暂存修改块的暂存/取消暂存/回退操作；块级… | 必须迁移 | 实现/实现 | 部分 | 提交详情可打开文件差异；暂存块/取消暂存块操作未找到 |
 | `git-explorer-context-actions` | 项目文件树右键 Git 操作 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
 | `git-history` | 提交历史与图谱 | 必须迁移 | 实现/实现 | 部分 | C08 |
@@ -303,7 +303,7 @@
 | `git-multi-repository-references` | 多仓库引用面板 | 必须迁移 | 实现/实现 | 未开始 | — |
 | `git-rebase-stash` | Rebase 与 Stash | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
 | `git-repository-discovery` | 仓库自动发现排除隐藏目录与构建缓存 | 必须迁移 | 实现/实现 | 部分 | core/repository_colors.go、gitmetadata/ |
-| `git-status-colors-idea-alignment` | Windows 默认主题 Git 状态配色与 IDEA 对齐（修改/… | 建议放弃 | 专属/实现 | — | 见“建议放弃”表 |
+| `git-status-colors-idea-alignment` | Windows 默认主题 Git 状态配色与 IDEA 对齐（修改/… | 放弃 | 专属/实现 | — | 见“放弃”表 |
 | `git-status-commit` | 状态、暂存与提交 | 必须迁移 | 实现/实现 | 部分 | commit.go、commit_view.go、core/gitcommit.go |
 | `git-submodule-commit-plan` | 子模块先提交与推送、自动更新父引用、计划变化再次确认 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
 | `git-workspace-commit-retry` | 失败后只重试未完成的提交或推送步骤 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
@@ -315,8 +315,8 @@
 
 | id | 能力 | 分类 | 基线 mac/win | Viva 现状 | 缺口 / 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `macos-shared-hover-tooltip-style` | macOS 侧边栏与工具栏悬浮提示共用 IDEA Islands 的… | 建议放弃 | 实现/专属 | — | 见“建议放弃”表 |
-| `macos-shared-product-dropdowns` | macOS 全部产品操作菜单、选值下拉框与自定义弹窗使用 Git L… | 建议放弃 | 实现/专属 | — | 见“建议放弃”表 |
+| `macos-shared-hover-tooltip-style` | macOS 侧边栏与工具栏悬浮提示共用 IDEA Islands 的… | 放弃 | 实现/专属 | — | 见“放弃”表 |
+| `macos-shared-product-dropdowns` | macOS 全部产品操作菜单、选值下拉框与自定义弹窗使用 Git L… | 放弃 | 实现/专属 | — | 见“放弃”表 |
 | `macos-bundled-default-ui-font` | macOS 界面默认使用随安装包分发的 Inter，编辑器、终端和显… | 必须迁移 | 实现/专属 | 未开始 | 无 desktop/ 证据 |
 
 ### 社区（2）
@@ -343,7 +343,7 @@
 | `editor-go-to-line` | 跳转到行或行列并选择目标 | 必须迁移 | 实现/实现 | 部分 | — |
 | `editor-font-family` | 代码编辑器可选择已安装的等宽编程字体族，未安装时回退到随包分发的默认… | 必须迁移 | 实现/实现 | 未开始 | — |
 | `editor-global-appearance` | 所有项目的源码编辑器共享字体、字号、行间距、高亮配色和常用显示偏好，… | 必须迁移 | 实现/部分 | 未开始 | 无 desktop/ 证据 |
-| `editor-ide-settings-import` | macOS 导入 IDE 外观、编辑器偏好、受支持的自定义快捷键及全… | 建议放弃 | 实现/专属 | — | 见“建议放弃”表 |
+| `editor-ide-settings-import` | macOS 导入 IDE 外观、编辑器偏好、受支持的自定义快捷键及全… | 放弃 | 实现/专属 | — | 见“放弃”表 |
 | `editor-cursor-history` | 键盘移动后优先撤销光标，并支持独立光标撤销与重做 | 必须迁移 | 部分/实现 | 未开始 | 无 desktop/ 证据 |
 | `editor-file-encoding-reopen` | 按指定编码重新打开文本文件 | 必须迁移 | 实现/实现 | 未开始 | — |
 | `editor-file-encoding-save` | 按指定编码保存文本文件 | 必须迁移 | 实现/实现 | 未开始 | — |
@@ -354,10 +354,10 @@
 | `editor-semantic-highlighting` | LSP 语义高亮 | 必须迁移 | 实现/实现 | 未开始 | C03 无 desktop/ 证据 |
 | `editor-tab-limit` | 标签数量上限与自动关闭策略 | 必须迁移 | 缺/实现 | 未开始 | 无 desktop/ 证据 |
 | `editor-text-tabs` | 文本编辑与标签生命周期 | 必须迁移 | 实现/实现 | 部分 | editorview/、tabstrip.go |
-| `editor-unicode-confusable-highlight` | 编辑器不把中文全角标点标记为易混淆字符 | 建议放弃 | 实现/实现 | — | 见“建议放弃”表 |
+| `editor-unicode-confusable-highlight` | 编辑器不把中文全角标点标记为易混淆字符 | 放弃 | 实现/实现 | — | 见“放弃”表 |
 | `editor-unicode-text-classification` | 中文 properties 与未知扩展名文本的一致打开和恢复 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
-| `editor-scrollbar-style` | 编辑器滚动条与文件树一致的细圆头样式 | 建议放弃 | 专属/实现 | — | 见“建议放弃”表 |
-| `editor-wallpaper-overview-ruler` | macOS 工作台壁纸模式下，编辑器概览标尺与代码缩略图随编辑器背景… | 建议放弃 | 实现/专属 | — | 见“建议放弃”表 |
+| `editor-scrollbar-style` | 编辑器滚动条与文件树一致的细圆头样式 | 放弃 | 专属/实现 | — | 见“放弃”表 |
+| `editor-wallpaper-overview-ruler` | macOS 工作台壁纸模式下，编辑器概览标尺与代码缩略图随编辑器背景… | 放弃 | 实现/专属 | — | 见“放弃”表 |
 | `editor-line-operations` | 行注释、复制、删除与上下移动 | 必须迁移 | 本分支新增 | 未开始 | — |
 | `vim-mode` | Vim 模式与命令状态 | 必须迁移 | 缺/实现 | 未开始 | 无 desktop/ 证据 |
 | `lsp-status-logs` | LSP 状态栏控制与按服务器查看日志 | 必须迁移 | 实现/缺 | 未开始 | — |
@@ -379,7 +379,7 @@
 | `java-support-plugin` | Java 语言支持由独立插件 io.github.lithe-ide… | 插件提供 | 插件/缺 | 未开始 | C02,C09,C10,C11 扩展点：languageServers(tcp)、backend、generators、debugAdapters |
 | `php-optional-plugin` | PHP 插件按需安装与生命周期（macOS 为 Lithe Stor… | 插件提供 | 实现/实现 | 未开始 | 扩展点：插件生命周期、languageServers；无 desktop/ 证据 |
 | `php-run-test` | PHP 插件运行与 PHPUnit 测试 | 插件提供 | 实现/部分 | 未开始 | C06 扩展点：executionProviders；无 desktop/ 证据 |
-| `lsp-control-center-performance` | 大型工作区的 LSP 设置页后台识别、快照缓存与可及时取消的页面等待 | 建议放弃 | 实现/专属 | — | 见“建议放弃”表 |
+| `lsp-control-center-performance` | 大型工作区的 LSP 设置页后台识别、快照缓存与可及时取消的页面等待 | 放弃 | 实现/专属 | — | 见“放弃”表 |
 
 ### 语言智能（1）
 
@@ -425,7 +425,7 @@
 | --- | --- | --- | --- | --- | --- |
 | `windows-java-new-menu` | Windows New菜单与Java类型/包创建 | 插件提供 | 专属/实现 | 未开始 | C04 扩展点：projectGenerators；无 desktop/ 证据 |
 
-## 建议放弃（17 项，待最终确认）
+## 放弃（17 项，2026-11-10 用户确认）
 
 | id | 能力 | 基线 mac/win | 理由 |
 | --- | --- | --- | --- |
@@ -467,8 +467,8 @@
 | 单实例与项目窗口注册 | Windows `tauri_plugin_single_instance`、`project_window_registry.rs`；macOS `MacProcessLifecycle.swift` | 必须迁移 | 未找到；`workspace-open-switch` 当前只保留一个项目 |
 | 崩溃报告收集 | macOS `MacCrashReportCollector.swift` | 平台专属（macOS） | 未找到（`signal_guard_darwin.go` 仅为信号保护） |
 | Git Shelf（搁置） | macOS `ShelveService.swift`；Windows `shelf_storage.rs` | 必须迁移 | 未找到 |
-| HTML 预览打印/缩放 | macOS `HTMLPreviewPrint.swift`、`HTMLPreviewZoom.swift` | 建议放弃（依赖 WebKit，Viva 无嵌入网页；与 `embedded-viewers` 一并决定） | 未找到 |
-| 开发版配置迁入（Dev 取 Stable 配置） | macOS `MacDevelopmentProfileMigration.swift`；Windows `profile_migration.rs` | 建议放弃（内部并行试用用，见下文数据清单的正式升级方案） | 未找到 |
+| HTML 预览打印/缩放 | macOS `HTMLPreviewPrint.swift`、`HTMLPreviewZoom.swift` | 放弃（依赖 WebKit，Viva 无嵌入网页；2026-11-10 确认） | 未找到 |
+| 开发版配置迁入（Dev 取 Stable 配置） | macOS `MacDevelopmentProfileMigration.swift`；Windows `profile_migration.rs` | 放弃（内部并行试用用，见下文数据清单的正式升级方案） | 未找到 |
 
 ## 旧客户端数据来源清单
 
