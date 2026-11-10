@@ -1,12 +1,14 @@
 package core
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Exercise the real desktop wrapper against a tiny Cargo output fixture. This
@@ -52,7 +54,12 @@ func TestDesktopGoFindsWindowsCargoImportLibraries(t *testing.T) {
 	write(filepath.Join(build, "winapi-hash/output"), "cargo::rustc-link-search=native="+filepath.ToSlash(winapi)+"\n", 0o600)
 	run := func() (string, error) {
 		t.Helper()
-		cmd := exec.CommandContext(testContext(t), bash, filepath.Join(fixture, "scripts/desktop/desktop-go.sh"), "test")
+		// Each wrapper run starts dozens of short processes (hashing, sed, cut). Under a loaded
+		// suite that takes far longer than the 30s of an in-process test, and a deadline that
+		// kills it reports a hang that is only slowness. The bound is for a stuck script.
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, bash, filepath.Join(fixture, "scripts/desktop/desktop-go.sh"), "test")
 		for _, entry := range os.Environ() {
 			upper := strings.ToUpper(entry)
 			if !strings.HasPrefix(upper, "PATH=") && !strings.HasPrefix(upper, "GOARCH=") && !strings.HasPrefix(upper, "LITHE_CORE_TARGET=") && !strings.HasPrefix(upper, "CGO_CFLAGS=") && !strings.HasPrefix(upper, "CGO_LDFLAGS=") {

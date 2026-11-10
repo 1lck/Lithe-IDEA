@@ -41,17 +41,21 @@ func callOnWindow[T any](h *harness, what string, call func(ctx context.Context)
 		// the pump waiting for a wake that never comes.
 		h.app.post(func(*App) {})
 	}()
-	var result outcome
-	finished := false
-	h.await(what, func() bool {
+	// The call finishes on its own goroutines after the pump that applied it, so the wait
+	// listens to the result as well as to window wakes. Waiting for a wake alone loses the
+	// result whenever those goroutines are scheduled after the last pump.
+	for {
 		select {
-		case result = <-done:
-			finished = true
-		default:
+		case result := <-done:
+			return result.value, result.err
+		case <-h.driver.Wakes():
+			if err := h.driver.Pump(); err != nil {
+				h.t.Fatalf("pump while waiting for %s: %v", what, err)
+			}
+		case <-ctx.Done():
+			h.t.Fatalf("timed out waiting for %s", what)
 		}
-		return finished
-	})
-	return result.value, result.err
+	}
 }
 
 func openNote(t *testing.T, h *harness, text string) (string, *document) {

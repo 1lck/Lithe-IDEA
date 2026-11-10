@@ -100,19 +100,37 @@ func TestMarketplaceReportsDiscardedSourceFailure(t *testing.T) {
 // Rapid switching keeps one fetch per source in flight: a request replaced before it ended
 // is cancelled by its effect, and the source chosen last is the one that ends up shown.
 func TestMarketplaceRapidSwitchingKeepsOneFetchPerSource(t *testing.T) {
-	var running, peak [2]atomic.Int32
+	// A cancelled fetch returns on its own goroutine's schedule, so how many goroutines are
+	// still inside the transport says nothing about the effect. What the effect owns is that
+	// at most one fetch per source is not yet cancelled when another one starts.
+	var mu sync.Mutex
+	var live [2]map[int]context.Context
+	var serial int
+	var peak [2]int
 	var total atomic.Int32
 	fetch := func(source int, id string) func(context.Context) (marketplace.Snapshot, error) {
 		return func(ctx context.Context) (marketplace.Snapshot, error) {
 			total.Add(1)
-			now := running[source].Add(1)
-			defer running[source].Add(-1)
-			for {
-				seen := peak[source].Load()
-				if now <= seen || peak[source].CompareAndSwap(seen, now) {
-					break
+			mu.Lock()
+			if live[source] == nil {
+				live[source] = map[int]context.Context{}
+			}
+			serial++
+			me := serial
+			live[source][me] = ctx
+			defer func() {
+				mu.Lock()
+				delete(live[source], me)
+				mu.Unlock()
+			}()
+			uncancelled := 0
+			for _, other := range live[source] {
+				if other.Err() == nil {
+					uncancelled++
 				}
 			}
+			peak[source] = max(peak[source], uncancelled)
+			mu.Unlock()
 			select {
 			case <-ctx.Done():
 				return marketplace.Snapshot{}, ctx.Err()
@@ -130,8 +148,11 @@ func TestMarketplaceRapidSwitchingKeepsOneFetchPerSource(t *testing.T) {
 		d.pump()
 	}
 	d.until("the last source", func() bool { return w.market.status == marketReady && w.market.selected == "official" })
-	if peak[0].Load() > 1 || peak[1].Load() > 1 {
-		t.Fatalf("fetches in flight at once: community %d, official %d", peak[0].Load(), peak[1].Load())
+	mu.Lock()
+	community, official := peak[0], peak[1]
+	mu.Unlock()
+	if community > 1 || official > 1 {
+		t.Fatalf("uncancelled fetches at once: community %d, official %d", community, official)
 	}
 	if w.market.source != 1 {
 		t.Fatalf("final source = %d", w.market.source)
