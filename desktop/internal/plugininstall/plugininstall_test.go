@@ -298,7 +298,7 @@ func TestPrepareUsesTheNormalisedManifest(t *testing.T) {
 
 func TestPreparePassesCapabilitiesToTheValidator(t *testing.T) {
 	validator := &fakeValidator{}
-	capabilities := pluginhost.Declared().With("backend", 1)
+	capabilities := pluginhost.Declared().With("fixture", 1)
 	approvals := plugintrust.New(store.At(t.TempDir()))
 	service := New(validator, sampleReviewer(), approvals, capabilities)
 	plan, err := service.Prepare(context.Background(), Request{
@@ -309,7 +309,7 @@ func TestPreparePassesCapabilitiesToTheValidator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
-	if versions := validator.capabilities["backend"]; len(versions) != 1 || versions[0] != 1 {
+	if versions := validator.capabilities["fixture"]; len(versions) != 1 || versions[0] != 1 {
 		t.Fatalf("capabilities = %v", validator.capabilities)
 	}
 	service.Discard(plan)

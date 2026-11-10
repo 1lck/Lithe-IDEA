@@ -26,7 +26,7 @@ func (v *fakeValidator) ValidatePluginManifest(_ context.Context, _ json.RawMess
 
 func TestValidatePassesCapabilitiesToCore(t *testing.T) {
 	validator := &fakeValidator{manifest: json.RawMessage(`{"id":"example"}`)}
-	capabilities := Declared().With("backend", 1)
+	capabilities := Declared()
 	normalised, err := Validate(context.Background(), validator, json.RawMessage(`{"id":"example"}`), capabilities)
 	if err != nil {
 		t.Fatalf("validate: %v", err)
@@ -37,7 +37,7 @@ func TestValidatePassesCapabilitiesToCore(t *testing.T) {
 	if !validator.called {
 		t.Fatal("the validator was never called")
 	}
-	if versions := validator.capabilities["backend"]; len(versions) != 1 || versions[0] != 1 {
+	if versions := validator.capabilities["backend"]; len(versions) != 2 || versions[0] != 1 || versions[1] != 2 {
 		t.Fatalf("capabilities = %v", validator.capabilities)
 	}
 }
@@ -57,7 +57,7 @@ func TestValidateRefusesBrokenValidator(t *testing.T) {
 
 func TestDeclaredServesLanguagesAndBaseLanguageServers(t *testing.T) {
 	declared := Declared()
-	if len(declared) != 7 {
+	if len(declared) != 9 {
 		t.Fatalf("declared = %v", declared)
 	}
 	// Tool definitions are resolved through the shared Core resolver for settings
@@ -75,14 +75,19 @@ func TestDeclaredServesLanguagesAndBaseLanguageServers(t *testing.T) {
 	if versions := declared["languages"]; len(versions) != 2 || versions[0] != 1 || versions[1] != 3 {
 		t.Fatalf("languages = %v", versions)
 	}
-	// A language server is served at its base version: the host resolves the launch,
-	// runs the process and syncs documents, but does not yet forward the requests a
-	// version 3 plugin backend would drive it with.
-	if versions := declared["languageServers"]; len(versions) != 1 || versions[0] != 1 {
+	// Plugin-owned sessions (languageServers 3) forward the backend's requests,
+	// and a backend-resolved launch (serverProcess 3) is answered by the backend.
+	if versions := declared["languageServers"]; len(versions) != 2 || versions[0] != 1 || versions[1] != 3 {
 		t.Fatalf("languageServers = %v", versions)
 	}
-	if versions := declared["serverProcess"]; len(versions) != 1 || versions[0] != 1 {
+	if versions := declared["serverProcess"]; len(versions) != 3 || versions[1] != 3 || versions[2] != 4 {
 		t.Fatalf("serverProcess = %v", versions)
+	}
+	if versions := declared["backend"]; len(versions) != 2 || versions[1] != 2 {
+		t.Fatalf("backend = %v", versions)
+	}
+	if versions := declared["pluginFunctions"]; len(versions) != 1 || versions[0] != 1 {
+		t.Fatalf("pluginFunctions = %v", versions)
 	}
 	// A plugin that declares a provider cannot be installed until both the
 	// build system and provider capability are advertised. The provider version
@@ -97,17 +102,17 @@ func TestDeclaredServesLanguagesAndBaseLanguageServers(t *testing.T) {
 }
 
 func TestCapabilitiesAreIndependent(t *testing.T) {
-	base := Declared().With("backend", 1)
-	extended := base.With("backend", 2)
-	if len(base["backend"]) != 1 || base["backend"][0] != 1 {
+	base := Declared().With("fixture", 1)
+	extended := base.With("fixture", 2)
+	if len(base["fixture"]) != 1 || base["fixture"][0] != 1 {
 		t.Fatalf("the original was mutated: %v", base)
 	}
-	if len(extended["backend"]) != 2 || extended["backend"][1] != 2 {
+	if len(extended["fixture"]) != 2 || extended["fixture"][1] != 2 {
 		t.Fatalf("extended = %v", extended)
 	}
 	cloned := base.Clone()
-	cloned["backend"][0] = 99
-	if base["backend"][0] != 1 {
+	cloned["fixture"][0] = 99
+	if base["fixture"][0] != 1 {
 		t.Fatalf("the clone shares storage: %v", base)
 	}
 }

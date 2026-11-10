@@ -58,22 +58,36 @@ type Capabilities map[string][]int
 // wired: the grammar is decoded by Core and registered with the editor, and the
 // delimiters reach the language's comment and bracket rules.
 //
-// A language server is served at its base version. This client resolves the
-// launch Core plans (a packaged program, a packaged runtime, or a bare command the
-// host finds on PATH), starts the process, keeps the session's documents in step
-// with the editor, and draws the diagnostics it publishes.
+// A language server is served at versions 1 and 3. This client resolves the
+// launch Core plans (a packaged program, a packaged runtime, a bare command the
+// host finds on PATH, or, for serverProcess 3, the command line the plugin backend
+// answers), starts the process, keeps the session's documents in step with the
+// editor, and draws the diagnostics it publishes. languageServers 3 plugin-owned
+// sessions are wired: the backend's languageServer/request and notify reach the
+// server under Core's session policy, and didReceiveNotification and
+// didChangeState reach the backend.
 //
-// Three things the contract can ask for are still missing, and they are why the
-// versions above are the base ones:
+// A plugin backend (backend 1 and 2) is started on demand: when a workspace opens
+// for a plugin that declares onWorkspaceOpen, when its language server needs a
+// launch answer, or when another plugin calls it. It is answered the host
+// services workspace/getFolders, listContexts and getContext (with
+// didChangeContexts), subscriptions/dispose, the languageServer methods, and the
+// cross-plugin functions relay (pluginFunctions 1). Run, debug, terminal, editor,
+// documents, window and credentials services are not registered yet, so
+// getCapabilities never lists them and a plugin that needs one is refused when it
+// asks for the permission's methods.
 //
-//   - languageServers 3 adds requestMethods, commands, serializedCommands,
-//     forwardNotifications, state and remote, which let a plugin backend drive its
-//     own server; nothing forwards those requests yet.
+// Three things the contract can ask for are still missing:
+//
+//   - a language server launch answer of {kind: "tool"} (serverProcess 4) is
+//     refused at start, because the tool is not resolved through the toolchain
+//     registry yet; the plugin's packaged answer works. requiresTools is accepted.
 //   - only diagnostics are presented. Completion, hover, navigation, rename and
 //     formatting have no editor surface, so a server runs and reports problems but
 //     cannot yet answer a question about the code.
-//   - tool discovery reads PATH only. A plan that depends on a project toolchain or
-//     a user override is refused rather than started with whatever PATH holds.
+//   - tool discovery for system commands reads PATH only. A plan that depends on a
+//     project toolchain or a user override is refused rather than started with
+//     whatever PATH holds.
 //
 // Build systems are served through both provider processes and command plans.
 // The Build window detects instances, loads their model, resolves the ordered
@@ -87,8 +101,10 @@ type Capabilities map[string][]int
 func Declared() Capabilities {
 	return Capabilities{
 		"languages":       {1, 3},
-		"languageServers": {1},
-		"serverProcess":   {1},
+		"languageServers": {1, 3},
+		"serverProcess":   {1, 3, 4},
+		"backend":         {1, 2},
+		"pluginFunctions": {1},
 		// The Build tool window detects the declared build systems, loads
 		// provider models and runs command or provider tasks. Version 2 is
 		// provider task execution. Run preparation (4), tests, debug and
