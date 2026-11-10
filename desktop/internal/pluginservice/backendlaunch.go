@@ -70,10 +70,9 @@ func (s *Service) resolveBackendLaunch(ctx context.Context, pluginID, version st
 	if plan.Launch.Kind != "backend" || plan.Launch.Function == "" {
 		return fail(fmt.Errorf("%w: the plan is not a backend-resolved launch", pluginbackend.ErrRequest))
 	}
-	params, err := json.Marshal(map[string]json.RawMessage{"resolveParams": plan.ResolveParams})
-	if err != nil {
-		return fail(err)
-	}
+	// The function's params are the plan's resolveParams themselves, as the
+	// contract says: serverID, platform, the four directories and the settings.
+	params := plan.ResolveParams
 	reference, err := json.Marshal(workspace.ContextRef)
 	if err != nil {
 		return fail(err)
