@@ -6,6 +6,10 @@
 
 `pluginhost.Declared()` 现在声明 `settings` 2、`debugAdapters` 1–3 和 `outputLinkMatchers` 1；Java Support 清单经 Core 校验只剩 `projectGenerators` 1（另一条车道）。Core 仍然算规则（输出链接匹配、run 启动参数校验、调试端点与启动参数、传输截止时间），Go 只做进程、套接字、I/O 和绘制。
 
+## 问题
+
+Java Support 的插件清单要求宿主提供 `settings` 2、`outputLinkMatchers` 1、`debugAdapters` 3 等能力；Viva 宿主此前没有声明这些能力，Core 校验清单时会拒绝安装或启用 Java Support。要声明它们，宿主必须真的实现对应行为：输出链接、`run/start` 等运行宿主服务、经语言服务器取端口的 TCP 调试和远程 attach，同时不能把 Core 已有的规则在 Go 里重写一遍。
+
 ## 决策
 
 - **settings 2**：动态页、作用域（global/project）、生效路由（restart/immediate/reload，nextRun 在每次运行前重读设置所以无需动作）、页面按钮此前已实现，这次核对后声明。
@@ -21,11 +25,17 @@
 - 逐帧驱动 `debug.transport.handle` 归约器：规则更集中，但每帧多次 Core 往返，且写路径目前是同步的；现在只取 `debug.transport.policy` 的数值，在 Go 里执行截止时间。后续要统一各平台的写队列再改。
 - 让 `run/start` 的运行进入新的 Run 工具窗口：需要新增目录项、图标与布局；先复用 Build 面板的输出区。
 
+## 后果
+
+- Java Support 不再因宿主能力缺失被拒绝；新增的宿主能力其他插件也能使用，不需要按插件 ID 特判。
+- 输出链接、run 启动参数、调试端点与传输期限的规则只在 Core 一处，Go 端改动不会让各平台行为分叉。
+- 运行输出暂时复用 Build 面板；`debug/start` 和 launch 目标没接，插件调用会收到 `plugin.host.unavailable`，需要时再补。
+
 ## 已知缺口
 
 - `debug/start` 宿主方法、`debug.target: launch`、launch.json 导入、`tcpPort` / `tcpAnnounced`（插件进程托管）、远程 attach 的路径映射输入。
 - Build 输出区只在检测到构建系统后显示；运行视图不受影响。
-- 工作台还没迁移，运行视图和 Debug 表单仍是 `ui.Frame` 写法，迁移到 Page 时一并改。
+- 运行视图和 Debug 表单已在 Page 迁移中改为 Viva Page（`workbench/runpanels.go`、`pagehost.go`）。
 
 ## 验证
 
