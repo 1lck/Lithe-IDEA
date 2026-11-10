@@ -163,6 +163,11 @@ func TestGitStashDiffReadsTheSavedFiles(t *testing.T) {
 	if err != nil || len(stashes) != 1 {
 		t.Fatalf("GitStashes() = %+v, %v; want one stash", stashes, err)
 	}
+	// The reference is the stash's position, which the Stash tab shows and labels the sides of
+	// its Diff with, not the date Git writes for it when asked for dates.
+	if got := stashes[0].Reference; got != "stash@{0}" {
+		t.Fatalf("GitStashes() reference = %q, want stash@{0}", got)
+	}
 	parked := stashes[0]
 	writeFile(t, filepath.Join(repo, "base.txt"), "other\n")
 	runGit(t, repo, "stash")
