@@ -68,6 +68,16 @@ Equinox（JDT LS 使用的 OSGi 框架，负责加载插件）会往 `-configura
 
 正确做法：平台交出只读的安装包路径和平台缓存目录，Core 生成可写副本后再拼
 `-configuration`。
+5. **打包的 IDE 辅助程序作为构建输入嵌入客户端二进制，运行时安装到应用数据目录。**
+   Viva 客户端的 IDE API 需要 `lithe-mcp` 可执行文件。它由
+   `scripts/desktop/build-desktop-core.sh` 从固定 Core 检出按 `features=mcp` 构建到暂存目录，
+   `package-desktop.sh` 再把它作为 `desktop/internal/idehelp/lithe-mcp.bin` 以
+   `lithe_bundled_helper` 构建标签嵌入 Go 二进制，打包结束或失败时删除该生成文件。
+   客户端第一次使用连接时把嵌入字节原子写到
+   `<应用数据>/Lithe Desktop/ide-host/bin/`（macOS 为 Application Support，Windows 为应用数据目录），
+   已有文件哈希一致时直接复用。安装包本身不新增可执行文件，运行时也不需要定位自己的可执行文件；
+   开发运行由 `desktop-go.sh` 用 `LITHE_IDE_HELPER` 指向暂存目录里的辅助程序。
+
 
 不要这样做：在 Swift 或 Tauri 里各自复制一份配置目录，或者把缓存目录放进安装包
 里的某个子目录。前者让两个平台分叉，本来就只有 macOS 修了；后者 Core 会直接拒绝。
@@ -112,6 +122,8 @@ Equinox（JDT LS 使用的 OSGi 框架，负责加载插件）会往 `-configura
   并且 `org.eclipse.osgi` 出现在缓存配置区。临时恢复旧行为时，这个断言会因为安装包
   配置目录里多出 `org.eclipse.osgi` 等目录而失败。
 - ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）
+- `cd desktop && ../scripts/desktop/desktop-go.sh test -race ./internal/idehelp/`：辅助程序首次安装、同字节复用、旧版本原子替换、未嵌入时报告缺失。
+- 打包后检查 `.app` 内没有 `lithe-mcp` 文件，且 `desktop/internal/idehelp/lithe-mcp.bin` 已清理。
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 

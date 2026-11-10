@@ -80,6 +80,14 @@ else
     unset MACOSX_DEPLOYMENT_TARGET
 fi
 STAGE_DIR="$("$ROOT_DIR/scripts/desktop/build-desktop-core.sh" "$PROFILE_FLAG")"
+# Packaging reads the staged helper to embed it; development runs use it directly so the IDE
+# Connection page is testable without a packaged build.
+export LITHE_CORE_STAGE_DIR="$STAGE_DIR"
+if [[ -x "$STAGE_DIR/bin/lithe-mcp" ]]; then
+    export LITHE_IDE_HELPER="$STAGE_DIR/bin/lithe-mcp"
+elif [[ -x "$STAGE_DIR/bin/lithe-mcp.exe" ]]; then
+    export LITHE_IDE_HELPER="$STAGE_DIR/bin/lithe-mcp.exe"
+fi
 
 export CGO_ENABLED=1
 CGO_INCLUDE_DIR="$(native_path "$STAGE_DIR/include")"

@@ -6,6 +6,7 @@
 #
 #   include/lithe_core.h     the C ABI header of that core revision
 #   lib/liblithe_core.a      the static library that cgo links
+#   bin/lithe-mcp[.exe]      the IDE API stdio helper the desktop client embeds when packaged
 #   native-static-libs.txt   the system libraries and frameworks rustc says the archive needs
 #   identity.txt             core revision, dirty flag, rustc, target and profile of the build
 #
@@ -124,6 +125,23 @@ fi
 
 install -m 0644 "$LIBRARY_DIR/liblithe_core.a" "$STAGE_DIR/lib/liblithe_core.a"
 install -m 0644 "$CORE_DIR/rust/lithe-core/include/lithe_core.h" "$STAGE_DIR/include/lithe_core.h"
+
+# The IDE API helper is the lithe-ide-host crate's lithe-mcp binary from the same pinned
+# checkout. It is staged here so packaging can embed it; nothing at runtime reads this
+# directory, and the installed client runs only the copy it installs under application data.
+HELPER_EXE=""
+if [[ "$RUST_TARGET" == *windows* ]]; then
+    HELPER_EXE=".exe"
+fi
+mkdir -p "$STAGE_DIR/bin"
+cargo build --manifest-path "$MANIFEST_NATIVE" -p lithe-ide-host --bin lithe-mcp --features mcp \
+    "${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"}" >&2
+HELPER="$LIBRARY_DIR/lithe-mcp$HELPER_EXE"
+if [[ ! -f "$HELPER" ]]; then
+    printf '%s\n' "cargo did not build the lithe-mcp helper at $HELPER." >&2
+    exit 1
+fi
+install -m 0755 "$HELPER" "$STAGE_DIR/bin/lithe-mcp$HELPER_EXE"
 {
     printf 'core-revision=%s\n' "$CORE_REVISION"
     printf 'core-worktree=%s\n' "$CORE_DIRTY"

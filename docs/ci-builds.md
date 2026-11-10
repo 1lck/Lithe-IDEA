@@ -396,6 +396,8 @@ Viva 的 Core 源码检出、Cargo 目标目录和暂存静态库位于当前工
 JDTLS 和旧工作流的描述记录迁移前流程，不能当作 Viva 的当前构建或复用能力。
 当前资源复用脚本的自包含回归覆盖路径、身份校验与禁止复制的状态；测试通过不证明本分支已删除的 PlantUML、远程服务、Swift/Tauri 客户端或旧 Windows 工作流仍可构建。preview 的 JDK 缓存历史问题见 [#1797](https://github.com/1lck/Lithe-IDEA/issues/1797)；这些旧产品流程必须单独迁移和验证，不能用资源脚本自测替代。
 
+Viva 的 IDE API 辅助程序 `lithe-mcp` 由 `scripts/desktop/build-desktop-core.sh` 在同一固定 Core 检出上以 `features=mcp` 编到暂存目录的 `bin/`。`package-desktop.sh` 在 `viva package` 前把它复制成 `desktop/internal/idehelp/lithe-mcp.bin`，以 `lithe_bundled_helper` 构建标签嵌入客户端二进制，打包结束或失败时删除该生成文件；文件被 Git 忽略并在资源清单 `desktop-embedded-ide-helper` 中拒绝跨工作树复用。运行期客户端把嵌入的字节原子安装到应用数据目录的 `ide-host/bin/` 再启动，安装包本身不增加可执行文件、不被写入，也不改变签名或 Sparkle 增量更新基线；开发运行由 `desktop-go.sh` 用暂存目录里的辅助程序通过 `LITHE_IDE_HELPER` 提供，不读取安装目录。
+
 Viva 的 `desktop-go.sh` 把暂存 Core 静态库、头文件、原生链接参数和实际选中的 Windows import archive 的 SHA-256 纳入 cgo 编译参数。只改 Rust 或 Core pin 也会使 Go 构建缓存失效；相同字节仍复用 Go 缓存，不清空用户缓存。这个摘要只是本地构建身份，不是跨工作树资源密封清单。`scripts/desktop/desktop-core-cache.test.mjs` 在系统临时目录创建独占的 `lithe core-cache-*` 夹具，只替换 C 静态库来验证真实 Go 编译结果；子进程有本地时限，结束后删除夹具。该目录和 Core 构建状态一起排除复用，不进入安装包；三个原生 CI 车道都运行此回归。
 
 Viva 插件偏好的真实来源是平台偏好目录中的 `plugin-settings.json` 与工作区 `.lithe/plugin-settings.json`。它们是用户可变状态，没有可复用身份；`viva-plugin-preference-sources` 在所有复制阶段拒绝复用。原生保存只在来源同目录创建独占 `.lithe-config-*.tmp`，保留权限及原生元数据后原子发布，成功、失败、取消均清理本次临时文件。打开或读取不创建偏好文件；来源和暂存文件都不进入安装目录，不影响签名和 Sparkle delta。

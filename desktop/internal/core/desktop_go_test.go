@@ -154,7 +154,7 @@ func TestBuildDesktopCoreChecksOutFreshPinnedRevision(t *testing.T) {
 	script := filepath.Join(fixture, "scripts/desktop/build-desktop-core.sh")
 	write(script, strings.Replace(string(build), pinPrefix+pin+`"`, pinPrefix+revision+`"`, 1), 0o700)
 	write(filepath.Join(fixture, "bin/rustc"), "#!/usr/bin/env bash\nif [[ \"$1\" == -vV ]]; then echo 'host: x86_64-unknown-linux-gnu'; else echo 'rustc fixture'; fi\n", 0o700)
-	write(filepath.Join(fixture, "bin/cargo"), "#!/usr/bin/env bash\nif [[ \"$1\" == clean ]]; then exit 0; fi\nmkdir -p \"$CARGO_TARGET_DIR/debug\"\nprintf fixture > \"$CARGO_TARGET_DIR/debug/liblithe_core.a\"\nfor arg in \"$@\"; do case \"$arg\" in native-static-libs=*) printf '%s\\n' '-lm' > \"${arg#native-static-libs=}\";; esac; done\n", 0o700)
+	write(filepath.Join(fixture, "bin/cargo"), "#!/usr/bin/env bash\nif [[ \"$1\" == clean ]]; then exit 0; fi\nmkdir -p \"$CARGO_TARGET_DIR/debug\"\nprintf fixture > \"$CARGO_TARGET_DIR/debug/liblithe_core.a\"\nprintf helper > \"$CARGO_TARGET_DIR/debug/lithe-mcp\"\nfor arg in \"$@\"; do case \"$arg\" in native-static-libs=*) printf '%s\\n' '-lm' > \"${arg#native-static-libs=}\";; esac; done\n", 0o700)
 	runBuild := func() ([]byte, error) {
 		t.Helper()
 		cmd := exec.CommandContext(testContext(t), bash, script)

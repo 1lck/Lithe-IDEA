@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/idehelp"
 )
 
 // ideAPIPollInterval bounds the wait between two polls of the broker. The Core
@@ -211,15 +212,15 @@ func ideAPIFailure(code, message string) map[string]any {
 	return map[string]any{"error": map[string]string{"code": code, "message": message}}
 }
 
-// ideAPIHelperPath finds the packaged lithe-mcp helper beside the running executable.
-// Development builds pass their Core artifact directory once the workbench knows it.
-func ideAPIHelperPath() (string, error) {
-	executable, err := os.Executable()
-	if err != nil {
-		return "", err
+// ideAPIHelperPath returns the lithe-mcp helper the connection runs. A packaged build embeds
+// it and installs the copy under the client's application data, so the installed bundle is
+// never read for it. Development runs may name a staged helper with LITHE_IDE_HELPER, which
+// scripts/desktop/desktop-go.sh sets to the Core artifact when it exists.
+func (a *App) ideAPIHelperPath() (string, error) {
+	if override := os.Getenv("LITHE_IDE_HELPER"); override != "" {
+		if info, err := os.Stat(override); err == nil && info.Mode().IsRegular() {
+			return filepath.Abs(override)
+		}
 	}
-	if resolved, err := filepath.EvalSymlinks(executable); err == nil {
-		executable = resolved
-	}
-	return core.ResolveIDEHelperPath(filepath.Dir(executable), "")
+	return idehelp.Install(a.ideAPIDirectory(), core.IDEHelperName())
 }

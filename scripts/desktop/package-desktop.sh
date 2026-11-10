@@ -153,8 +153,28 @@ case "$GOOS" in
     *) printf '%s\n' "Unsupported package host OS: $GOOS." >&2; exit 2 ;;
 esac
 
+# The IDE API helper is embedded into the packaged Go binary under the lithe_bundled_helper
+# build tag; the generated file is build input of this run only and never tracked. The client
+# installs that copy under its application-data directory at first use, so the app bundle gets
+# no extra executable and the client never reads its own installation for it.
+HELPER_STAGE="$("$ROOT_DIR/scripts/desktop/build-desktop-core.sh" --release)"
+HELPER_NAME="lithe-mcp"
+if [[ "$GOOS" == "windows" ]]; then
+    HELPER_NAME="lithe-mcp.exe"
+fi
+HELPER_SOURCE="$HELPER_STAGE/bin/$HELPER_NAME"
+if [[ ! -f "$HELPER_SOURCE" ]]; then
+    printf '%s\n' "The staged lithe-mcp helper is missing at $HELPER_SOURCE." >&2
+    exit 1
+fi
+EMBED_FILE="$ROOT_DIR/desktop/internal/idehelp/lithe-mcp.bin"
+mkdir -p "$(dirname "$EMBED_FILE")"
+cp -- "$HELPER_SOURCE" "$EMBED_FILE"
+trap 'rm -f -- "$EMBED_FILE"' EXIT
+
 GOARCH="$ARCH" LITHE_DESKTOP_CORE_PROFILE=release \
     "$ROOT_DIR/scripts/desktop/desktop-go.sh" --exec "$VIVA_BIN" package \
     --target "$GOOS" --arch "$ARCH" --format "$FORMATS" -o "$VIVA_OUT" \
+    -tags lithe_bundled_helper \
     "${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"}"
 printf '%s\n' "$OUT_DIR"

@@ -81,7 +81,7 @@ func (s ideAPISettings) State() settingswindow.IDEAPIState {
 		return settingswindow.IDEAPIState{Error: lastError}
 	}
 	state := settingswindow.IDEAPIState{HasProject: true, Configure: grants.Configure, Execute: grants.Execute, Error: lastError}
-	if _, err := ideAPIHelperPath(); err != nil {
+	if _, err := s.a.ideAPIHelperPath(); err != nil {
 		state.HelperMissing = true
 	}
 	p.ideAPI.mu.Lock()
@@ -106,7 +106,7 @@ func (s ideAPISettings) Enable(configure, execute bool) {
 		s.setError(errors.New("no open project"))
 		return
 	}
-	helper, err := ideAPIHelperPath()
+	helper, err := s.a.ideAPIHelperPath()
 	if err != nil {
 		s.setError(err)
 		return
