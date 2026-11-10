@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/creack/pty v1.1.24
-	github.com/vivaui/viva v0.5.2-0.20261110070358-339e1333c3b2
+	github.com/vivaui/viva v0.5.2-0.20261110112637-189ed59da047
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/sys v0.49.0
 )
