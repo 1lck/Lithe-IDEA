@@ -386,22 +386,8 @@ func (a *App) paintLogRow(canvas *gfx.Canvas, rect gfx.Rect, index int) {
 		return
 	}
 	dark := a.colors.Dark
-	if v.colorsDark != dark || v.colors == nil {
-		v.colors, v.colorsDark = map[int32]gfx.Color{}, dark
-	}
-	color := func(id int32) gfx.Color {
-		c, ok := v.colors[id]
-		if !ok {
-			c = graphColor(id, dark, a.colors.Text)
-			v.colors[id] = c
-		}
-		return c
-	}
+	color, dateWidth := a.graphColors(), v.dateColumn(canvas)
 	m := newGraphMetrics(canvas.PixelScale())
-	if fonts := canvas.FontGeneration(); v.dateWidth == 0 || v.dateFonts != fonts {
-		v.dateWidth, v.dateFonts = canvas.TextWidth(logDateSample, logMetaSize), fonts
-	}
-	dateWidth := v.dateWidth
 	upstream := v.upstreams(l)
 	canvas.Clip(rect)
 	defer canvas.Unclip()
@@ -448,6 +434,31 @@ func (a *App) paintLogRow(canvas *gfx.Canvas, rect gfx.Rect, index int) {
 		}
 		a.paintLabels(canvas, labelRect, group, labelText, background)
 	}
+}
+
+// graphColors is the color of each color id of the graph in the current theme, cached.
+func (a *App) graphColors() func(int32) gfx.Color {
+	v, dark := &a.logView, a.colors.Dark
+	if v.colorsDark != dark || v.colors == nil {
+		v.colors, v.colorsDark = map[int32]gfx.Color{}, dark
+	}
+	return func(id int32) gfx.Color {
+		c, ok := v.colors[id]
+		if !ok {
+			c = graphColor(id, dark, a.colors.Text)
+			v.colors[id] = c
+		}
+		return c
+	}
+}
+
+// dateColumn is the width of the date column in the canvas's fonts, measured again when they
+// change.
+func (v *logView) dateColumn(canvas *gfx.Canvas) float32 {
+	if fonts := canvas.FontGeneration(); v.dateWidth == 0 || v.dateFonts != fonts {
+		v.dateWidth, v.dateFonts = canvas.TextWidth(logDateSample, logMetaSize), fonts
+	}
+	return v.dateWidth
 }
 
 // paintGraphRow strokes the edges of one row and fills its node.

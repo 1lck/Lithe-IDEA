@@ -69,10 +69,10 @@ func (a *App) drawCommitToolbar(c ui.C, p *project) {
 			c.After(func() { a.refreshChanges(p) })
 		}
 		label, icon := t.StageAll, icons.Plus
-		if p.git.allStaged() {
+		if allStaged(p.git.status.Changes) {
 			label, icon = t.UnstageAll, icons.Minus
 		}
-		if a.gitIconButton(c, label, icon, false, cs.busy || !p.git.hasToggleable()) {
+		if a.gitIconButton(c, label, icon, false, cs.busy || !hasToggleable(p.git.status.Changes)) {
 			c.After(func() { a.stageAll(p, surfaceButton) })
 		}
 	})
@@ -113,26 +113,48 @@ func (a *App) drawCommitChanges(c ui.C, p *project) ui.Box {
 			})
 			return
 		}
-		ui.Scroll(c).Grow(1).PadY(4).Children(func() {
-			ui.Row(c).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
-				all := p.git.allStaged()
-				if ui.Checkbox(c, &all, "").Label(t.ChangeList).Disabled(cs.busy || !p.git.hasToggleable()).Clicked() {
-					c.After(func() { a.stageAll(p, surfaceButton) })
-				}
-				ui.Text(c, t.ChangeList).Weight(gfx.WeightMedium).Ellipsis().Shrink(1)
-				ui.Text(c, t.Files(p.git.fileCount())).Muted().Shrink(0)
-			})
-			for _, change := range changes {
-				a.drawCommitChange(c, p, change)
-			}
-		})
+		a.drawChangeRows(c, t.ChangeList, t.Files(fileCount(changes)), changes, cs.busy,
+			func() { a.stageAll(p, surfaceButton) },
+			func(change core.GitChange) { a.drawCommitChange(c, p, change) })
 	})
 }
 
-// drawCommitChange declares the row of one change: its checkbox, its icon, its name and
-// folder, and whether it is staged.
+// drawCommitChange declares the row of one change of the project's repository.
 func (a *App) drawCommitChange(c ui.C, p *project, change core.GitChange) {
-	cs, t := &p.commit, a.text.Commit
+	toggled, opened := a.drawChangeRow(c, change, p.commit.busy, func(rowC ui.C) func(*ui.MenuItems) {
+		return a.changeMenuItems(rowC, p, change)
+	})
+	if toggled {
+		c.After(func() { a.stageChange(p, change) })
+	}
+	if opened {
+		c.After(func() { a.openChange(p, change) })
+	}
+}
+
+// drawChangeRows declares the rows of a change list in a scroll: the checkbox that stages or
+// unstages them all, with the list's title and size, over a row per change.
+func (a *App) drawChangeRows(c ui.C, title, size string, changes []core.GitChange, busy bool, toggleAll func(), row func(core.GitChange)) {
+	ui.Scroll(c).Grow(1).FillWidth().PadY(4).Children(func() {
+		ui.Row(c).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
+			all := allStaged(changes)
+			if ui.Checkbox(c, &all, "").Label(title).Disabled(busy || !hasToggleable(changes)).Clicked() {
+				c.After(toggleAll)
+			}
+			ui.Text(c, title).Weight(gfx.WeightMedium).Ellipsis().Shrink(1)
+			ui.Text(c, size).Muted().Shrink(0)
+		})
+		for _, change := range changes {
+			row(change)
+		}
+	})
+}
+
+// drawChangeRow declares the row of one change: its checkbox, its icon, its name and folder,
+// and whether it is staged, with the context menu menu builds. It reports a click on the
+// checkbox and a double click on the row.
+func (a *App) drawChangeRow(c ui.C, change core.GitChange, busy bool, menu func(ui.C) func(*ui.MenuItems)) (toggled, opened bool) {
+	t := a.text.Commit
 	state, label := t.UnstagedState, t.StageFile(change.Path)
 	switch {
 	case change.Staged && change.Worktree:
@@ -150,12 +172,10 @@ func (a *App) drawCommitChange(c ui.C, p *project, change core.GitChange) {
 	row := ui.Row(rowC).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).
 		PadSides(0, 8, 0, float32(8+logIndent)).Hover(ui.Look{}.Background(a.colors.Hover)).
 		HitWith(ui.ID(rowC), change.Path, gfx.HitOptions{Cursor: gfx.PointerCursorHand})
-	ui.ContextMenu(rowC, row, a.changeMenuItems(rowC, p, change))
+	ui.ContextMenu(rowC, row, menu(rowC))
 	row.Children(func() {
 		staged := change.Staged
-		if ui.Checkbox(c, &staged, "").Label(label).Disabled(cs.busy || !change.CanToggleStaging).Clicked() {
-			c.After(func() { a.stageChange(p, change) })
-		}
+		toggled = ui.Checkbox(c, &staged, "").Label(label).Disabled(busy || !change.CanToggleStaging).Clicked()
 		icon := fileicons.ForFile(path.Base(change.Path), a.colors.Dark)
 		if folder {
 			icon = fileicons.ForDirectory(path.Base(strings.TrimSuffix(change.Path, "/")), a.colors.Dark)
@@ -165,9 +185,7 @@ func (a *App) drawCommitChange(c ui.C, p *project, change core.GitChange) {
 		ui.Text(c, strings.TrimSuffix(dir, "/")).Muted().Ellipsis().Grow(1)
 		ui.Text(c, state).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
 	})
-	if row.DoubleClicked() {
-		c.After(func() { a.openChange(p, change) })
-	}
+	return toggled, row.DoubleClicked()
 }
 
 // changeColor is the color of a change's name, by the side of the change the row shows: the
@@ -197,9 +215,9 @@ func (a *App) changeColor(change core.GitChange) gfx.Color {
 	return a.colors.Text
 }
 
-// hasToggleable reports that some change can be staged or unstaged.
-func (g gitState) hasToggleable() bool {
-	for _, change := range g.status.Changes {
+// hasToggleable reports that some of the changes can be staged or unstaged.
+func hasToggleable(changes []core.GitChange) bool {
+	for _, change := range changes {
 		if change.CanToggleStaging {
 			return true
 		}
@@ -209,9 +227,9 @@ func (g gitState) hasToggleable() bool {
 
 // fileCount is the number of files the changes stand for: an untracked folder shown as
 // one change counts each file in it.
-func (g gitState) fileCount() int {
+func fileCount(changes []core.GitChange) int {
 	n := 0
-	for _, change := range g.status.Changes {
+	for _, change := range changes {
 		if change.UntrackedFileCount > 0 {
 			n += change.UntrackedFileCount
 			continue

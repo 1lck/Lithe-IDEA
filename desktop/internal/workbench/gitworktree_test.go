@@ -9,6 +9,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/vivaui/viva/gfx"
 )
 
 // newWorktreeRepository is newTestRepository with a linked worktree on the branch feature,
@@ -285,5 +286,166 @@ func TestWorktreeStatusPutsTheMostPressingFirst(t *testing.T) {
 	}
 	if !slices.Equal(got, steps) {
 		t.Fatalf("statuses = %v, want %v", got, steps)
+	}
+}
+
+// awaitWorktreeChanges waits until the changes of the worktree at path were read with no write
+// in flight and done accepts them, and returns them.
+func (h *harness) awaitWorktreeChanges(what, path string, done func([]core.GitChange) bool) []core.GitChange {
+	h.t.Helper()
+	var changes []core.GitChange
+	h.await(what, func() bool {
+		entry := h.app.project.worktrees.changes[path]
+		if entry == nil || entry.loading || entry.busy || entry.err != nil {
+			return false
+		}
+		changes = entry.changes
+		return done(changes)
+	})
+	return changes
+}
+
+// stagedAs reports that the changes are the one at name, staged or not as staged says.
+func stagedAs(name string, staged bool) func([]core.GitChange) bool {
+	return func(changes []core.GitChange) bool {
+		return len(changes) == 1 && changes[0].Path == name && changes[0].Staged == staged
+	}
+}
+
+// changeAt is the change at name among changes.
+func changeAt(t *testing.T, changes []core.GitChange, name string) core.GitChange {
+	t.Helper()
+	for _, change := range changes {
+		if change.Path == name {
+			return change
+		}
+	}
+	t.Fatalf("no change at %s in %+v", name, changes)
+	return core.GitChange{}
+}
+
+// The Changes tab stages and unstages in the checkout it shows, not in the open project's.
+func TestWorktreeChangesStageAndUnstageInTheirCheckout(t *testing.T) {
+	dir, linked := newWorktreeRepository(t)
+	if err := os.WriteFile(filepath.Join(linked, "draft.txt"), []byte("draft\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, gitKernel{core.NewClient()})
+	h.openWorktrees(t, dir)
+	commit := h.app.text.Commit
+	h.selectWorktreeAt(t, linked)
+	h.clickNamed(h.app.text.Worktrees.Changes)
+	h.awaitWorktreeChanges("the linked checkout's change", linked, stagedAs("draft.txt", false))
+
+	h.clickNamed(commit.StageFile("draft.txt"))
+	h.awaitWorktreeChanges("the staged file", linked, stagedAs("draft.txt", true))
+	if got := gitRun(t, linked, "diff", "--cached", "--name-only"); got != "draft.txt" {
+		t.Fatalf("the linked checkout's index has %q, want draft.txt", got)
+	}
+	if got := gitRun(t, dir, "diff", "--cached", "--name-only"); got != "" {
+		t.Fatalf("the primary checkout's index has %q, want nothing", got)
+	}
+	h.clickNamed(commit.UnstageFile("draft.txt"))
+	h.awaitWorktreeChanges("the unstaged file", linked, stagedAs("draft.txt", false))
+
+	// The list's checkbox stages everything; the toolbar unstages it again.
+	h.clickNamed(h.app.text.Worktrees.LocalChanges)
+	h.awaitWorktreeChanges("everything staged", linked, stagedAs("draft.txt", true))
+	h.clickNamed(commit.UnstageAll)
+	h.awaitWorktreeChanges("everything unstaged", linked, stagedAs("draft.txt", false))
+	if got := gitRun(t, linked, "diff", "--cached", "--name-only"); got != "" {
+		t.Fatalf("the linked checkout's index has %q after unstaging all, want nothing", got)
+	}
+}
+
+// The diff and the rollback of a change of another worktree read and write that checkout.
+func TestWorktreeChangesShowTheDiffAndRollBackInTheirCheckout(t *testing.T) {
+	dir, linked := newWorktreeRepository(t)
+	for name, value := range map[string]string{"changed.txt": "linked\n", "draft.txt": "draft\n"} {
+		if err := os.WriteFile(filepath.Join(linked, name), []byte(value), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := newHarness(t, gitKernel{core.NewClient()})
+	h.openWorktrees(t, dir)
+	p, lang := h.app.project, h.app.language()
+	h.selectWorktreeAt(t, linked)
+	h.clickNamed(h.app.text.Worktrees.Changes)
+	changes := h.awaitWorktreeChanges("the linked checkout's changes", linked, func(c []core.GitChange) bool { return len(c) == 2 })
+
+	// draft.txt exists only in the linked checkout, so its diff can only be read there.
+	h.app.openDiffIn(p, linked, changeAt(t, changes, "draft.txt"))
+	d := &p.review.diff
+	h.await("the diff", func() bool { return !d.loading })
+	if d.err != "" || d.root != linked || d.file == nil {
+		t.Fatalf("diff in %q: err %q, file %v; want draft.txt read from %q", d.root, d.err, d.file != nil, linked)
+	}
+	h.app.closeDiff(p)
+
+	h.rightClickNamed("changed.txt")
+	h.clickNamed(i18n.Shared(lang, "git.rollback"))
+	h.settle()
+	if !p.review.rollback.open || p.review.rollback.root != linked {
+		t.Fatalf("rollback %+v, want the confirmation for %q", p.review.rollback, linked)
+	}
+	h.clickNamed(i18n.Shared(lang, "git.rollback.confirm"))
+	h.awaitWorktreeChanges("the rollback", linked, func(c []core.GitChange) bool {
+		return len(c) == 1 && c[0].Path == "draft.txt"
+	})
+	for root, want := range map[string]string{linked: "first\n", dir: "second\n"} {
+		if got, err := os.ReadFile(filepath.Join(root, "changed.txt")); err != nil || string(got) != want {
+			t.Fatalf("changed.txt in %s = %q, %v; want %q", root, got, err, want)
+		}
+	}
+}
+
+// rightClickNamed opens the context menu of the element named name.
+func (h *harness) rightClickNamed(name string) {
+	h.t.Helper()
+	point := center(h.pageHit(name).Bounds)
+	if err := h.driver.ClickButton(point.X, point.Y, gfx.PointerButtonSecondary); err != nil {
+		h.t.Fatal(err)
+	}
+	h.settle()
+}
+
+// The History tab of a linked checkout lays its commits out on the lanes of the Git graph,
+// with the merge on its own row and the merged branch on a lane beside the first parent's.
+func TestWorktreeHistoryDrawsTheGraphOfItsCheckout(t *testing.T) {
+	dir, linked := newWorktreeRepository(t)
+	gitRun(t, linked, "switch", "-c", "side")
+	if err := os.WriteFile(filepath.Join(linked, "side.txt"), []byte("side\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, linked, "add", "side.txt")
+	gitRun(t, linked, "commit", "-m", "side work")
+	gitRun(t, linked, "switch", "feature")
+	gitRun(t, linked, "commit", "--allow-empty", "-m", "feature work")
+	gitRun(t, linked, "merge", "--no-ff", "-m", "merge side", "side")
+	h := newHarness(t, gitKernel{core.NewClient()})
+	h.openWorktrees(t, dir)
+	h.selectWorktreeAt(t, linked)
+	h.clickNamed(h.app.text.Worktrees.History)
+	history := &h.app.project.worktrees.history
+	h.await("the linked checkout's history and graph", func() bool {
+		return history.loaded && !history.loading && len(history.graph.Rows) == len(history.commits)
+	})
+	rows := history.graph.Rows
+	if len(rows) != 4 || history.commits[0].Subject != "merge side" {
+		t.Fatalf("the history has %d graph rows for %d commits starting with %q, want 4 starting with the merge",
+			len(rows), len(history.commits), history.commits[0].Subject)
+	}
+	lanes := map[int]bool{}
+	for i, row := range rows {
+		if row.CommitHash != history.commits[i].Hash {
+			t.Fatalf("graph row %d is commit %s, want %s", i, row.CommitHash, history.commits[i].Hash)
+		}
+		lanes[row.Lane] = true
+	}
+	if len(lanes) < 2 {
+		t.Fatalf("the graph keeps every commit on lanes %v, want the merged branch on its own lane", lanes)
+	}
+	if !h.app.worktreeView.graphed || !h.shows("merge side") {
+		t.Fatalf("the History tab does not draw the graph rows (graphed %v)", h.app.worktreeView.graphed)
 	}
 }

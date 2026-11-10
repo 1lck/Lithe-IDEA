@@ -1,11 +1,12 @@
 package workbench
 
 import (
-	"path"
+	"math"
 	"path/filepath"
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -16,6 +17,12 @@ import (
 // overlay.
 
 const (
+	// worktreeHistoryInset is where a History row's subject starts when no graph is drawn
+	// before it, and worktreeHistoryGap the room between its date and its short hash.
+	worktreeHistoryInset = 10
+	worktreeHistoryGap   = 12
+	// worktreeHashSample is as wide as the short hashes Git prints in large repositories.
+	worktreeHashSample = "0000000000"
 	// worktreeLabelWidth is the width of the labels of an overview card's fields.
 	worktreeLabelWidth = 110
 	// worktreeCardRadius is the corner radius of an overview card.
@@ -373,9 +380,22 @@ func (a *App) drawWorktreeChanges(c ui.C, p *project, w core.GitWorktree) {
 		a.loadWorktreeChanges(p, w.Path)
 		entry = p.worktrees.changes[w.Path]
 	}
-	ui.Row(c).Height(logToolbarHeight).Shrink(0).Items(ui.Center).PadX(6).Children(func() {
+	// busy holds the checkboxes while a write runs or the changes are read again, so a click
+	// never acts on a row that went stale.
+	busy := entry == nil || entry.busy || entry.loading
+	ui.Row(c).Height(logToolbarHeight).Shrink(0).Items(ui.Center).Gap(4).PadX(6).Children(func() {
 		ui.Spacer(c)
-		if a.gitIconButton(c, t.RefreshChanges, icons.RefreshCw, false, entry == nil || entry.loading) {
+		if entry != nil && len(entry.changes) > 0 {
+			commit := a.text.Commit
+			label, icon := commit.StageAll, icons.Plus
+			if allStaged(entry.changes) {
+				label, icon = commit.UnstageAll, icons.Minus
+			}
+			if a.gitIconButton(c, label, icon, false, busy || !hasToggleable(entry.changes)) {
+				c.After(func() { a.stageAllWorktree(p, w.Path) })
+			}
+		}
+		if a.gitIconButton(c, t.RefreshChanges, icons.RefreshCw, false, busy) {
 			c.After(func() {
 				a.performed("git.worktree.refreshChanges", surfaceButton)
 				a.loadWorktreeChanges(p, w.Path)
@@ -386,37 +406,59 @@ func (a *App) drawWorktreeChanges(c ui.C, p *project, w core.GitWorktree) {
 	switch {
 	case entry == nil:
 		a.drawWorktreeEmpty(c, t.MissingTitle, t.MissingHint)
-	case entry.loading:
-		a.gitEmpty(c, t.ChangesLoading)
 	case entry.err != nil:
 		a.drawWorktreeEmpty(c, t.ChangesFailed, entry.err.Error())
+	case entry.loading && len(entry.changes) == 0:
+		a.gitEmpty(c, t.ChangesLoading)
 	case len(entry.changes) == 0:
 		ui.Column(c).Fill().Center().Gap(8).Children(func() {
 			ui.Icon(c, icons.Check).Size(20, 20).Color(a.colors.Success)
 			ui.Text(c, t.Clean).Color(a.colors.Subtle)
 		})
 	default:
-		ui.Scroll(c).Grow(1).FillWidth().PadY(4).Children(func() {
-			for _, change := range entry.changes {
-				a.drawWorktreeChange(c, change)
-			}
-		})
+		a.drawChangeRows(c, t.LocalChanges, t.ChangedFiles(fileCount(entry.changes)), entry.changes, busy,
+			func() { a.stageAllWorktree(p, w.Path) },
+			func(change core.GitChange) { a.drawWorktreeChange(c, p, w.Path, busy, change) })
 	}
 }
 
-// drawWorktreeChange declares the row of one local change of a worktree: its name, its folder
-// and its status.
-func (a *App) drawWorktreeChange(c ui.C, change core.GitChange) {
-	dir, name := path.Split(strings.TrimSuffix(change.Path, "/"))
-	if change.OriginalPath != "" && change.OriginalPath != change.Path {
-		name = path.Base(change.OriginalPath) + " → " + name
-	}
-	ui.Row(c.Key(change.Path)).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).PadX(10).
-		Hover(ui.Look{}.Background(a.colors.Hover)).Children(func() {
-		ui.Text(c, name).Color(a.changeColor(change)).Ellipsis().Shrink(0).MaxWidth(320)
-		ui.Text(c, strings.TrimSuffix(dir, "/")).Muted().Ellipsis().Grow(1)
-		ui.Text(c, strings.TrimSpace(change.Status)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
+// drawWorktreeChange declares the row of one local change of the worktree at root, with the
+// commit panel's checkbox; a double click shows its diff.
+func (a *App) drawWorktreeChange(c ui.C, p *project, root string, busy bool, change core.GitChange) {
+	toggled, opened := a.drawChangeRow(c, change, busy, func(rowC ui.C) func(*ui.MenuItems) {
+		return a.worktreeChangeMenuItems(rowC, p, root, change)
 	})
+	if toggled {
+		c.After(func() { a.stageWorktreeChange(p, root, change) })
+	}
+	if opened && !strings.HasSuffix(change.Path, "/") {
+		c.After(func() { a.openDiffIn(p, root, change) })
+	}
+}
+
+// worktreeChangeMenuItems is the context menu of a change of the worktree at root: its diff,
+// copying its path, and its rollback.
+func (a *App) worktreeChangeMenuItems(c ui.C, p *project, root string, change core.GitChange) func(*ui.MenuItems) {
+	return func(menu *ui.MenuItems) {
+		menu.WidthRange(220, 320)
+		_, review := a.reviewKernel()
+		folder := strings.HasSuffix(change.Path, "/")
+		if review && !folder && menu.Item(i18n.Shared(a.language(), "git.showDiff")).Clicked() {
+			c.After(func() { a.openDiffIn(p, root, change) })
+		}
+		if menu.Item(a.text.Worktrees.CopyPath).Clicked() {
+			c.After(func() {
+				a.copyWorktreePath(filepath.Join(root, filepath.FromSlash(strings.TrimSuffix(change.Path, "/"))))
+			})
+		}
+		if !review {
+			return
+		}
+		menu.Separator()
+		if menu.Item(i18n.Shared(a.language(), "git.rollback")).Destructive().Clicked() {
+			c.After(func() { a.openRollbackIn(p, root, []core.GitChange{change}) })
+		}
+	}
 }
 
 // drawWorktreeHistory declares the History tab: the commits reachable from the worktree's
@@ -467,6 +509,7 @@ func (a *App) drawWorktreeHistory(c ui.C, p *project, w core.GitWorktree) {
 			return
 		}
 	}
+	v.shown, v.graphed = commits, query == "" && len(h.graph.Rows) == len(commits)
 	total := len(commits)
 	more := h.cursor != "" || h.loadingMore
 	if more {
@@ -478,14 +521,19 @@ func (a *App) drawWorktreeHistory(c ui.C, p *project, w core.GitWorktree) {
 	}
 }
 
-// drawWorktreeCommit declares one commit of the History tab, or the row under the commits
-// that reads the next page.
+// drawWorktreeCommit declares one commit of the History tab, whose graph and texts the draw
+// callback paints as the Log tab paints its rows, or the row under the commits that reads the
+// next page.
 func (a *App) drawWorktreeCommit(p *project, commits []core.GitCommit, row ui.ListRow) {
 	c := row.C
-	item := row.Element.Height(logRowHeight).FillWidth().PadX(10).Gap(8).Items(ui.Center)
-	if row.Index >= len(commits) {
+	if row.Index < len(commits) {
+		row.Element.Height(logRowHeight).FillWidth().Label(commits[row.Index].Subject).
+			Hover(ui.Look{}.Background(a.colors.Hover)).Draw(a.worktreeView.commitPainter(a, row.Index))
+		return
+	}
+	{
 		h, t := &p.worktrees.history, &a.text.Worktrees
-		item.Children(func() {
+		row.Element.Height(logRowHeight).FillWidth().PadX(10).Gap(8).Items(ui.Center).Children(func() {
 			ui.Spacer(c)
 			switch {
 			case h.failed:
@@ -501,15 +549,72 @@ func (a *App) drawWorktreeCommit(p *project, commits []core.GitCommit, row ui.Li
 			}
 			ui.Spacer(c)
 		})
+	}
+}
+
+// commitPainter is the draw callback of the History tab's row index, from a slot reused by
+// every row that falls on it.
+func (v *worktreeView) commitPainter(a *App, index int) func(*ui.DrawContext) {
+	slot := index % logRowSlots
+	v.slotRow[slot] = index
+	if v.painters[slot] == nil {
+		v.painters[slot] = func(d *ui.DrawContext) { a.paintWorktreeCommit(d.Canvas, d.Rect, v.slotRow[slot]) }
+	}
+	return v.painters[slot]
+}
+
+// paintWorktreeCommit paints row index of the History tab into rect: the lanes of the graph
+// and the references when the list is the whole history, then the subject, the author, the
+// date and the short hash.
+func (a *App) paintWorktreeCommit(canvas *gfx.Canvas, rect gfx.Rect, index int) {
+	v := &a.worktreeView
+	if a.project == nil || index >= len(v.shown) || rect.Width <= 0 || rect.Height <= 0 {
 		return
 	}
-	commit := commits[row.Index]
-	item.Hover(ui.Look{}.Background(a.colors.Hover)).Children(func() {
-		ui.Text(c, commit.Subject).Ellipsis().Grow(1).Shrink(1).MinWidth(0)
-		ui.Text(c, commit.AuthorName).Muted().Ellipsis().Shrink(0).MaxWidth(140)
-		ui.Text(c, commit.Date).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
-		ui.Text(c, commit.ShortHash).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
-	})
+	h := &a.project.worktrees.history
+	commit := v.shown[index]
+	canvas.Clip(rect)
+	defer canvas.Unclip()
+	start := float32(worktreeHistoryInset)
+	var labels []core.GraphLabel
+	if v.graphed && index < len(h.graph.Rows) && h.graph.Rows[index].CommitHash == commit.Hash {
+		row := h.graph.Rows[index]
+		a.paintGraphRow(canvas, newGraphMetrics(canvas.PixelScale()), rect, row, a.graphColors())
+		start, labels = titleOffset(row), row.Labels
+	}
+	foreground := a.colors.Text
+	if len(commit.ParentHashes) > 1 {
+		foreground = mergeForeground(a.colors.Dark)
+	}
+	// The columns from the right: the short hash, the date and the author, as wide as the
+	// Log tab's.
+	if fonts := canvas.FontGeneration(); v.hashWidth == 0 || v.hashFonts != fonts {
+		v.hashWidth, v.hashFonts = canvas.TextWidth(worktreeHashSample, logMetaSize), fonts
+	}
+	dateWidth := a.logView.dateColumn(canvas)
+	hashX := rect.Width - logDatePad - v.hashWidth
+	dateX := hashX - worktreeHistoryGap - dateWidth
+	authorX := max(start, dateX-logAuthorWidth-logDatePad)
+	end := max(start, authorX-logDatePad)
+	if len(labels) > 0 {
+		group := groupReferences(labels, h.current, nil)
+		column := end - start
+		subject := canvas.TextWidth(commit.Subject, logFontSize)
+		available := max(0, min(column-subject, column/3))
+		icon := group.iconWidth(logRefSize + 3)
+		text := shortenTitle(canvas, group.title, available-icon-9, logRefSize)
+		textWidth := float32(0)
+		if text != "" {
+			textWidth = float32(math.Ceil(float64(canvas.TextWidth(text, logRefSize)))) + 1
+		}
+		width := min(column, icon+textWidth+8)
+		end -= width
+		a.paintLabels(canvas, gfx.Rect{X: rect.X + end, Y: rect.Y, Width: width, Height: rect.Height}, group, text, a.colors.Editor)
+	}
+	a.paintText(canvas, commit.Subject, gfx.Rect{X: rect.X + start, Y: rect.Y, Width: max(0, end-start), Height: rect.Height}, logFontSize, foreground, gfx.AlignStart)
+	a.paintText(canvas, commit.AuthorName, gfx.Rect{X: rect.X + authorX, Y: rect.Y, Width: max(0, dateX-authorX-logDatePad), Height: rect.Height}, logMetaSize, a.colors.Subtle, gfx.AlignStart)
+	a.paintText(canvas, a.logView.date(commit), gfx.Rect{X: rect.X + dateX, Y: rect.Y, Width: dateWidth, Height: rect.Height}, logMetaSize, a.colors.Subtle, gfx.AlignEnd)
+	a.paintText(canvas, commit.ShortHash, gfx.Rect{X: rect.X + hashX, Y: rect.Y, Width: v.hashWidth, Height: rect.Height}, logMetaSize, a.colors.Subtle, gfx.AlignEnd)
 }
 
 // drawWorktreeDialog declares the open dialog of p's Worktrees tab.

@@ -360,20 +360,26 @@ func (a *App) stageChange(p *project, change core.GitChange) {
 	if p.commit.busy || !change.CanToggleStaging {
 		return
 	}
-	if change.Staged && !change.Worktree {
+	stage := stagesChange(change)
+	if stage {
+		a.performed("git.stage", surfaceButton)
+	} else {
 		a.performed("git.unstage", surfaceButton)
-		a.writeStaging(p, false, change.StagingPaths())
-		return
 	}
-	a.performed("git.stage", surfaceButton)
-	a.writeStaging(p, true, change.StagingPaths())
+	a.writeStaging(p, stage, change.StagingPaths())
 }
 
-// allStaged reports that every change that can be staged is staged in full, and that there
-// is one.
-func (g gitState) allStaged() bool {
+// stagesChange reports that a click on the checkbox of change stages it: a change that is
+// staged and has nothing left in the worktree is unstaged instead.
+func stagesChange(change core.GitChange) bool {
+	return !change.Staged || change.Worktree
+}
+
+// allStaged reports that every one of the changes that can be staged is staged in full, and
+// that there is one.
+func allStaged(changes []core.GitChange) bool {
 	found := false
-	for _, change := range g.status.Changes {
+	for _, change := range changes {
 		if !change.CanToggleStaging {
 			continue
 		}
@@ -391,7 +397,7 @@ func (a *App) stageAll(p *project, surface string) {
 	if p.commit.busy {
 		return
 	}
-	if p.git.allStaged() {
+	if allStaged(p.git.status.Changes) {
 		a.unstageAll(p, surface)
 		return
 	}
@@ -409,17 +415,23 @@ func (a *App) unstageAll(p *project, surface string) {
 	if p.commit.busy {
 		return
 	}
-	var paths []string
-	for _, change := range p.git.status.Changes {
-		if change.Staged && change.CanToggleStaging {
-			paths = append(paths, change.StagingPaths()...)
-		}
-	}
+	paths := stagedPaths(p.git.status.Changes)
 	if len(paths) == 0 {
 		return
 	}
 	a.performed("git.unstageAll", surface)
 	a.writeStaging(p, false, paths)
+}
+
+// stagedPaths are the paths that unstage every staged one of the changes.
+func stagedPaths(changes []core.GitChange) []string {
+	var paths []string
+	for _, change := range changes {
+		if change.Staged && change.CanToggleStaging {
+			paths = append(paths, change.StagingPaths()...)
+		}
+	}
+	return paths
 }
 
 // writeStaging stages or unstages paths and reads the status again.
@@ -441,9 +453,13 @@ func (a *App) writeStaging(p *project, stage bool, paths []string) {
 func (a *App) stagingDone(p *project, stage bool, err error) {
 	p.commit.busy = false
 	a.loadGit(p)
-	if err == nil {
-		return
+	if err != nil {
+		a.stagingFailed(stage, err)
 	}
+}
+
+// stagingFailed tells the user that staging or unstaging failed and logs it.
+func (a *App) stagingFailed(stage bool, err error) {
 	if stage {
 		a.notify(a.text.Commit.StageFailed(err.Error()))
 		a.gitOperationFailed("git_stage", err)

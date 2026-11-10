@@ -90,8 +90,11 @@ const (
 var worktreeAfterChoices = []worktreeAfterCreate{worktreeStay, worktreeOpenAfter}
 
 // worktreeChanges is the local changes of one worktree, read when its Changes tab is shown.
+// A reading again keeps the changes read before on show until it answers; busy is set while
+// a staging write runs.
 type worktreeChanges struct {
 	loading bool
+	busy    bool
 	err     error
 	changes []core.GitChange
 }
@@ -105,6 +108,12 @@ type worktreeHistory struct {
 	loadingMore, failed bool
 	err                 error
 	commits             []core.GitCommit
+	// graph is the lanes of commits as the Log tab lays them out; remotes and current are the
+	// repository's remote branch names and the worktree's branch, read with the first page,
+	// which tell its labels apart.
+	graph   core.Graph
+	remotes []string
+	current string
 	// cursor continues the walk; it is open in Core until the walk reaches its end or the
 	// history is given up, which closes it.
 	cursor string
@@ -190,6 +199,17 @@ type worktreeView struct {
 	list         ui.ListState
 	commits      ui.ListState
 	tab          worktreeTab
+	// shown is the commits the History tab lists, the search applied, and graphed says they
+	// are the history's commits in its order, which the lanes of the graph belong to.
+	shown   []core.GitCommit
+	graphed bool
+	// slotRow is the row each draw slot of the History tab paints and painters the slots'
+	// callbacks, made once per slot so painting allocates nothing.
+	slotRow  [logRowSlots]int
+	painters [logRowSlots]func(*ui.DrawContext)
+	// hashWidth is the width of the short hash column in the fonts of hashFonts.
+	hashWidth float32
+	hashFonts uint32
 }
 
 // reset empties the fields and the lists for a project that was just opened.
@@ -199,6 +219,7 @@ func (v *worktreeView) reset() {
 	v.list = ui.ListState{}
 	v.commits = ui.ListState{}
 	v.tab = worktreeTabOverview
+	v.shown, v.graphed = nil, false
 }
 
 // worktreeName is how a prompt or a notice names a worktree: its branch, or the folder of its
@@ -469,6 +490,9 @@ func (a *App) loadWorktreeChanges(p *project, path string) {
 		w.changes = map[string]*worktreeChanges{}
 	}
 	entry := &worktreeChanges{loading: true}
+	if old := w.changes[path]; old != nil && old.err == nil {
+		entry.changes = old.changes
+	}
 	w.changes[path] = entry
 	kernel := a.kernel
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
@@ -486,6 +510,74 @@ func (a *App) loadWorktreeChanges(p *project, path string) {
 			}
 		}
 	})
+}
+
+// stageWorktreeChange stages or unstages one change of the worktree at path, as a click on
+// its checkbox asks; it follows the change list of the commit panel.
+func (a *App) stageWorktreeChange(p *project, path string, change core.GitChange) {
+	entry := p.worktrees.changes[path]
+	if entry == nil || entry.busy || entry.loading || !change.CanToggleStaging {
+		return
+	}
+	stage, paths := stagesChange(change), change.StagingPaths()
+	if stage {
+		a.performed("git.worktree.stage", surfaceButton)
+	} else {
+		a.performed("git.worktree.unstage", surfaceButton)
+	}
+	a.writeWorktreeStaging(p, path, entry, stage, func(ctx context.Context, kernel Kernel) error {
+		if stage {
+			return kernel.GitStage(ctx, path, paths)
+		}
+		return kernel.GitUnstage(ctx, path, paths)
+	})
+}
+
+// stageAllWorktree stages every change of the worktree at path, or unstages every staged one
+// when everything is staged already.
+func (a *App) stageAllWorktree(p *project, path string) {
+	entry := p.worktrees.changes[path]
+	if entry == nil || entry.busy || entry.loading || !hasToggleable(entry.changes) {
+		return
+	}
+	if allStaged(entry.changes) {
+		paths := stagedPaths(entry.changes)
+		a.performed("git.worktree.unstageAll", surfaceButton)
+		a.writeWorktreeStaging(p, path, entry, false, func(ctx context.Context, kernel Kernel) error {
+			return kernel.GitUnstage(ctx, path, paths)
+		})
+		return
+	}
+	a.performed("git.worktree.stageAll", surfaceButton)
+	a.writeWorktreeStaging(p, path, entry, true, func(ctx context.Context, kernel Kernel) error {
+		return kernel.GitStageAll(ctx, path)
+	})
+}
+
+// writeWorktreeStaging runs a staging write in the worktree at path and reads what it changed
+// again, telling the user when it failed.
+func (a *App) writeWorktreeStaging(p *project, path string, entry *worktreeChanges, stage bool, write func(context.Context, Kernel) error) {
+	entry.busy = true
+	kernel := a.kernel
+	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
+		err := write(ctx, kernel)
+		return func(a *App) {
+			entry.busy = false
+			a.checkoutWritten(p, path)
+			if err != nil {
+				a.stagingFailed(stage, err)
+			}
+		}
+	})
+}
+
+// checkoutWritten reads again what a write in the checkout at root changed: the project's
+// status, and the changes of the worktree at root when its Changes tab read them.
+func (a *App) checkoutWritten(p *project, root string) {
+	a.loadGit(p)
+	if p.worktrees.changes[root] != nil {
+		a.loadWorktreeChanges(p, root)
+	}
 }
 
 // loadWorktreeHistory reads the first page of the history of the worktree at path.
@@ -513,8 +605,25 @@ func (a *App) loadMoreWorktreeHistory(p *project) {
 func (a *App) readWorktreeHistory(p *project, cursor string) {
 	h := &p.worktrees.history
 	gen, path, kernel := h.gen, h.path, a.kernel
+	// known is cut to its length so the background append copies it instead of writing into
+	// the array the window thread keeps appending to.
+	known, remotes, current, expanded := h.commits[:len(h.commits):len(h.commits)], h.remotes, h.current, p.log.expanded
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
+		if cursor == "" {
+			if _, sections, branch, err := readReferences(ctx, kernel, path); err == nil {
+				remotes, current = remoteNames(sections), branch
+			}
+		}
 		page, err := kernel.GitHistoryPage(ctx, path, "HEAD", cursor, worktreeHistoryPage)
+		var graph core.Graph
+		var graphErr error
+		if err == nil {
+			commits := graphCommits(append(known, page.Commits...))
+			graph, graphErr = kernel.GitGraph(ctx, core.GraphRequest{
+				Commits: commits, RemoteNames: remotes, RepositoryCommits: commits,
+				Expanded: expanded, CurrentBranch: current,
+			})
+		}
 		return func(a *App) {
 			h := &p.worktrees.history
 			if h.gen != gen {
@@ -537,6 +646,11 @@ func (a *App) readWorktreeHistory(p *project, cursor string) {
 			h.loaded = true
 			h.commits = append(h.commits, page.Commits...)
 			h.cursor = page.NextCursor
+			h.remotes, h.current, h.graph = remotes, current, graph
+			if graphErr != nil {
+				// The commits still show, without their lanes.
+				a.gitOperationFailed("git_worktree_graph", graphErr)
+			}
 		}
 	})
 }

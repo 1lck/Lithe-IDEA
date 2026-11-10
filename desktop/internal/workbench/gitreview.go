@@ -92,8 +92,10 @@ type diffState struct {
 	open    bool
 	loading bool
 	// gen counts the loads; the answer of an older one is dropped.
-	gen    int
-	err    string
+	gen int
+	err string
+	// root is the checkout change is in: the project's repository or another of its worktrees.
+	root   string
 	change core.GitChange
 	// staged says the dialog shows the index against HEAD, for a change that is only staged.
 	staged bool
@@ -123,13 +125,19 @@ type diffItem struct {
 	line, row int
 }
 
-// openDiff opens the Diff dialog on change and reads it in the background.
+// openDiff opens the Diff dialog on a change of the project's repository and reads it in the
+// background.
 func (a *App) openDiff(p *project, change core.GitChange) {
+	a.openDiffIn(p, p.git.repositoryRoot(p.root), change)
+}
+
+// openDiffIn opens the Diff dialog on a change of the checkout at root.
+func (a *App) openDiffIn(p *project, root string, change core.GitChange) {
 	if _, ok := a.reviewKernel(); !ok || strings.HasSuffix(change.Path, "/") {
 		return
 	}
 	d := &p.review.diff
-	*d = diffState{open: true, loading: true, gen: d.gen + 1, change: change, split: d.split, list: d.list}
+	*d = diffState{open: true, loading: true, gen: d.gen + 1, root: root, change: change, split: d.split, list: d.list}
 	d.staged = change.Staged && !change.Worktree
 	a.performed("git.diff.open", surfaceMenu)
 	a.loadDiff(p)
@@ -156,7 +164,7 @@ func (a *App) loadDiff(p *project) {
 		return
 	}
 	d.loading = true
-	gen, change, target := d.gen, d.change, d.target(p.git.repositoryRoot(p.root))
+	gen, change, target := d.gen, d.change, d.target(d.root)
 	a.background(p, reviewTimeout, func(ctx context.Context) func(*App) {
 		var (
 			file *core.GitDiffFile
@@ -290,13 +298,13 @@ func (a *App) writeDiffBlock(p *project, id string, action core.DiffBlockAction)
 		return
 	}
 	d.busy, d.confirm, d.note = true, "", ""
-	gen, plan, target := d.gen, *d.plan, d.target(p.git.repositoryRoot(p.root))
+	gen, plan, target, root := d.gen, *d.plan, d.target(d.root), d.root
 	a.performed("git.diff.block."+string(action), surfaceButton)
 	a.background(p, reviewTimeout, func(ctx context.Context) func(*App) {
 		err := kernel.ApplyDiffBlock(ctx, plan, target, id, action)
 		return func(a *App) {
 			d := &p.review.diff
-			a.loadGit(p)
+			a.checkoutWritten(p, root)
 			if !d.open || d.gen != gen {
 				return
 			}
@@ -481,18 +489,27 @@ func (a *App) stageUntracked(p *project, change core.GitChange) {
 
 // rollbackState is the open rollback confirmation of one or more changes.
 type rollbackState struct {
-	open        bool
-	busy        bool
+	open bool
+	busy bool
+	// root is the checkout the changes are in: the project's repository or another of its
+	// worktrees.
+	root        string
 	changes     []core.GitChange
 	deleteAdded bool
 }
 
-// openRollback asks for confirmation before changes are rolled back.
+// openRollback asks for confirmation before changes of the project's repository are rolled
+// back.
 func (a *App) openRollback(p *project, changes []core.GitChange) {
+	a.openRollbackIn(p, p.git.repositoryRoot(p.root), changes)
+}
+
+// openRollbackIn asks for confirmation before changes of the checkout at root are rolled back.
+func (a *App) openRollbackIn(p *project, root string, changes []core.GitChange) {
 	if _, ok := a.reviewKernel(); !ok || len(changes) == 0 {
 		return
 	}
-	p.review.rollback = rollbackState{open: true, changes: changes}
+	p.review.rollback = rollbackState{open: true, root: root, changes: changes}
 }
 
 // runRollback has Core plan the rollback of the confirmed changes, runs its steps in order,
@@ -504,7 +521,7 @@ func (a *App) runRollback(p *project) {
 		return
 	}
 	r.busy = true
-	changes, deleteAdded, root := r.changes, r.deleteAdded, p.git.repositoryRoot(p.root)
+	changes, deleteAdded, root := r.changes, r.deleteAdded, r.root
 	a.performed("git.rollback", surfaceButton)
 	a.background(p, reviewTimeout, func(ctx context.Context) func(*App) {
 		steps, err := kernel.GitRollbackPrepare(ctx, root, changes, deleteAdded)
@@ -513,7 +530,7 @@ func (a *App) runRollback(p *project) {
 		}
 		return func(a *App) {
 			p.review.rollback = rollbackState{}
-			a.loadGit(p)
+			a.checkoutWritten(p, root)
 			if p.review.diff.open {
 				a.loadDiff(p)
 			}
