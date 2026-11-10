@@ -219,6 +219,9 @@ const (
 	settingsHome settingsPage = iota
 	settingsPlugins
 	settingsTerminal
+	// settingsAI is the AI page, where the providers a commit message is generated with are
+	// configured.
+	settingsAI
 )
 
 func (a *App) openSettingsPage(surface string, page settingsPage) {
@@ -248,6 +251,8 @@ func (a *App) openSettingsPage(surface string, page settingsPage) {
 			err = a.settingsWindow.OpenPlugins(a.application, current)
 		case settingsTerminal:
 			err = a.settingsWindow.OpenTerminal(a.application, current)
+		case settingsAI:
+			err = a.settingsWindow.OpenAI(a.application, current)
 		default:
 			err = a.settingsWindow.Open(a.application, current)
 		}

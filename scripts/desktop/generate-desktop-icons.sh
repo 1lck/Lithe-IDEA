@@ -24,7 +24,7 @@ ICONS=(
     chevron-left chevron-up chevrons-up-down chevrons-down-up arrow-down-left arrow-left-right
     trash-2 cloud-download locate tag cloud ellipsis-vertical panel-right eye eye-off clock
     arrow-up-down arrow-down-to-line circle-x loader-circle wrap-text info copy square wrench
-    eraser
+    eraser undo-2 pencil
 )
 
 RAW_URL="https://raw.githubusercontent.com/lucide-icons/lucide/$LUCIDE_VERSION"

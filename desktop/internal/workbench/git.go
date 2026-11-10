@@ -27,7 +27,7 @@ func (a *App) loadGit(p *project) {
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		status, err := kernel.GitStatus(ctx, root)
 		return func(a *App) {
-			p.git = gitState{loaded: true, status: status, err: err}
+			a.setGit(p, gitState{loaded: true, status: status, err: err})
 			if err != nil {
 				a.notify(a.text.Git.Failed(err.Error()))
 				return

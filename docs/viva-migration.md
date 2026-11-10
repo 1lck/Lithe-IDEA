@@ -297,7 +297,7 @@
 | `git-history` | 提交历史与图谱 | 必须迁移 | 实现/实现 | 部分 | C08 |
 | `git-large-untracked-directories` | 大型未跟踪目录汇总与按需展开 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
 | `git-line-history` | 行级修改历史 | 必须迁移 | 缺/实现 | 未开始 | 无 desktop/ 证据 |
-| `git-local-changelists` | 本地 ChangeList | 必须迁移 | 实现/实现 | 未开始 | — |
+| `git-local-changelists` | 本地 ChangeList | 必须迁移 | 实现/实现 | 部分 | changelists.go、changelists_view.go、core/changelists.go；多选/目录批量移动未做 |
 | `git-metadata-observation` | Git 元数据变化观察与刷新 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
 | `git-multi-repository-change-groups` | 多仓库变更折叠分组 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
 | `git-multi-repository-references` | 多仓库引用面板 | 必须迁移 | 实现/实现 | 未开始 | — |

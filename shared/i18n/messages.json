@@ -22202,7 +22202,8 @@
       "id": "git.changelists.activeSuffix",
       "description": "Windows UI: git.changelists.activeSuffix",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -22232,7 +22233,8 @@
       "description": "A ChangeList name must be nonempty, unique, and at most 100 characters.",
       "platforms": [
         "windows",
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Use a unique, nonempty name of at most 100 characters.",
@@ -22295,7 +22297,8 @@
       "id": "git.changelists.unavailable",
       "description": "Windows UI: git.changelists.unavailable",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -27236,7 +27239,8 @@
       "id": "git.previewFirstChange",
       "description": "Windows UI: git.previewFirstChange",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -29689,7 +29693,8 @@
       "id": "git.workspaceCommit.parents",
       "description": "Windows UI: git.workspaceCommit.parents",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -50559,7 +50564,8 @@
       "id": "native.deleteChangeList",
       "description": "Native UI: Delete ChangeList",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Delete ChangeList",
@@ -50570,7 +50576,8 @@
       "id": "native.deleteChangeList.variant2",
       "description": "Native UI: Delete ChangeList?",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Delete ChangeList?",
@@ -55435,7 +55442,8 @@
       "id": "native.filesReturnToTheDefaultChangeListAndMayBeIncludedByStageAllTheirGitStagingStateIsUnchanged",
       "description": "Native UI: Files return to the default ChangeList and may be included by Stage All. Their Git staging state is unchanged.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Files return to the default ChangeList and may be included by Stage All. Their Git staging state is unchanged.",
@@ -65790,7 +65798,8 @@
       "id": "native.moveToChangeList",
       "description": "Native UI: Move to ChangeList",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Move to ChangeList",
@@ -66008,7 +66017,8 @@
       "id": "native.name",
       "description": "Native UI: Name",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Name",
@@ -66447,7 +66457,8 @@
       "id": "native.newChangeList",
       "description": "Native UI: New ChangeList",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "New ChangeList",
@@ -69598,7 +69609,8 @@
       "id": "native.openAICommitSettings",
       "description": "Native UI: Open AI & Commit settings",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Open AI & Commit settings",
@@ -70511,7 +70523,8 @@
       "id": "native.otherChangeListsHaveStagedFilesUnstageThemBeforeCommittingTheCurrentChangeList",
       "description": "Native UI: Other ChangeLists have staged files. Unstage them before committing the current ChangeList.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Other ChangeLists have staged files. Unstage them before committing the current ChangeList.",
@@ -75385,7 +75398,8 @@
       "id": "native.renameChangeList",
       "description": "Native UI: Rename ChangeList",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Rename ChangeList",
@@ -81591,7 +81605,8 @@
       "id": "native.stageAllAndCommitUseTheCurrentChangeList",
       "description": "Native UI: Stage All and Commit use the current ChangeList.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Stage All and Commit use the current ChangeList.",

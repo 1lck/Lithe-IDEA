@@ -63,14 +63,15 @@ func (a *App) aiCommitOptions() core.AICommitOptions {
 func (a *App) canGenerateCommit(p *project) bool {
 	_, ok := a.kernel.(aiCommitKernel)
 	c := &p.commit
-	return ok && a.agentKernelReady() && p.git.isRepository() && !c.busy && !c.ai.running && c.review == nil && p.git.stagedCount() > 0
+	return ok && a.agentKernelReady() && p.git.isRepository() && !c.busy && !c.ai.running && c.review == nil &&
+		p.listsReady() && p.activeStagedCount() > 0 && !p.otherStaged()
 }
 
 // stagedCommitRepositories are the repositories and staged files the generation reads,
-// matching what a commit takes.
+// matching what a commit takes: the staged changes of the active ChangeList.
 func (p *project) stagedCommitRepositories() []core.CommitContextRepository {
 	var files []core.CommitContextFile
-	for _, change := range p.git.status.Changes {
+	for _, change := range p.activeChanges() {
 		if !change.Staged {
 			continue
 		}

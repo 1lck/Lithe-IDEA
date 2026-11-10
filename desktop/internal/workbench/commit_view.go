@@ -6,6 +6,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -43,6 +44,7 @@ func (a *App) commitPageView(c ui.C) {
 		if !a.drawCommitStatus(c, p) {
 			return
 		}
+		a.drawChangeListBar(c, p)
 		ui.Column(c).Grow(1).Draw(v.bodyDraw).Children(func() {
 			if v.bodyHeight > 0 && !v.split.Dragging() {
 				v.derived = max(v.bodyHeight-shellSplitter-v.areaHeight, commitListMin)
@@ -58,22 +60,37 @@ func (a *App) commitPageView(c ui.C) {
 		a.drawCommitReview(c, p)
 	}
 	a.drawGeneratedMessageConfirm(c, p)
+	a.drawChangeListDialog(c, p)
 }
 
-// drawCommitToolbar declares the buttons over the change list: read the status again, and
-// stage or unstage everything.
+// drawCommitToolbar declares the buttons over the change list, as on macOS: read the status
+// again, roll back the active ChangeList's changes, stage or unstage all of them, preview the
+// first one, and the branch that is checked out.
 func (a *App) drawCommitToolbar(c ui.C, p *project) {
-	cs, t := &p.commit, a.text.Commit
-	ui.Row(c).Height(logToolbarHeight).Shrink(0).Items(ui.Center).Gap(4).PadX(6).Children(func() {
+	cs, t, lang := &p.commit, a.text.Commit, a.language()
+	changes := p.activeChanges()
+	_, review := a.reviewKernel()
+	ui.Row(c).Height(logToolbarHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(4).PadX(6).Children(func() {
 		if a.gitIconButton(c, t.Refresh, icons.RefreshCw, false, false) {
 			c.After(func() { a.refreshChanges(p) })
 		}
+		if a.gitIconButton(c, i18n.Shared(lang, "git.rollback.title"), icons.Undo2, false, cs.busy || !review || len(changes) == 0) {
+			c.After(func() { a.openRollback(p, changes) })
+		}
 		label, icon := t.StageAll, icons.Plus
-		if allStaged(p.git.status.Changes) {
+		if allStaged(changes) {
 			label, icon = t.UnstageAll, icons.Minus
 		}
-		if a.gitIconButton(c, label, icon, false, cs.busy || !hasToggleable(p.git.status.Changes)) {
+		if a.gitIconButton(c, label, icon, false, cs.busy || !p.listsReady() || !hasToggleable(changes)) {
 			c.After(func() { a.stageAll(p, surfaceButton) })
+		}
+		if a.gitIconButton(c, i18n.Shared(lang, "git.previewFirstChange"), icons.Eye, false, !review || len(changes) == 0) {
+			first := changes[0]
+			c.After(func() { a.openChange(p, first) })
+		}
+		ui.Spacer(c)
+		if branch := p.git.branch(); branch != "" {
+			ui.Text(c, branch).Muted().Ellipsis().Shrink(1)
 		}
 	})
 }
@@ -106,6 +123,10 @@ func (a *App) drawCommitChanges(c ui.C, p *project) ui.Box {
 	cs, t := &p.commit, a.text.Commit
 	changes := p.git.status.Changes
 	return ui.Column(c).FillWidth().Clip().Children(func() {
+		if p.lists.inUse() {
+			a.drawChangeListSections(c, p)
+			return
+		}
 		if len(changes) == 0 {
 			ui.Column(c).Fill().Center().Gap(8).Children(func() {
 				ui.Icon(c, icons.Check).Size(20, 20).Color(a.colors.Success)
@@ -247,8 +268,12 @@ func (a *App) drawCommitArea(c ui.C, p *project) ui.Box {
 		ui.Row(c).FillWidth().Shrink(0).Items(ui.Center).Gap(6).Children(func() {
 			ui.Checkbox(c, &cs.amend, t.Amend).Disabled(cs.busy)
 			ui.Spacer(c)
-			ui.Text(c, t.Staged(p.git.stagedCount())).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
+			ui.Text(c, t.Staged(p.activeStagedCount())).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
 		})
+		if p.otherStaged() {
+			ui.Paragraph(c, i18n.Shared(a.language(), "native.otherChangeListsHaveStagedFilesUnstageThemBeforeCommittingTheCurrentChangeList"), 2).
+				FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Warning)
+		}
 		message := ui.TextArea(c, &cs.messageField, t.MessageLabel, t.MessagePlaceholder).FillWidth().Grow(1).Disabled(cs.busy)
 		if message.Shortcut(ui.Primary, "enter") {
 			c.After(func() {
@@ -273,6 +298,10 @@ func (a *App) drawCommitArea(c ui.C, p *project) ui.Box {
 				c.After(func() { a.startCommit(p, true, surfaceButton) })
 			}
 			a.drawGenerateCommitButton(c, p)
+			ui.Spacer(c)
+			if a.gitIconButton(c, i18n.Shared(a.language(), "native.openAICommitSettings"), icons.Settings, false, false) {
+				c.After(func() { a.openSettingsPage(surfaceButton, settingsAI) })
+			}
 		})
 	})
 }

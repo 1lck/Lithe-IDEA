@@ -38,6 +38,9 @@ type commitState struct {
 	editor       *text.Editor
 	messageField ui.Field
 	amend        bool
+	// parents also records, in a parent repository, the new commits of the submodules
+	// committed with it; it starts on, as on macOS.
+	parents bool
 	// busy is set while the kernel prepares, runs or stages; the actions wait for it.
 	busy bool
 	// review is the plan the user is asked to confirm, nil when no review is open.
@@ -57,7 +60,7 @@ type commitReview struct {
 }
 
 func newCommitState() commitState {
-	c := commitState{}
+	c := commitState{parents: true}
 	c.resetMessage()
 	return c
 }
@@ -108,15 +111,17 @@ func (p *project) commitRepositoryName(id string) string {
 	return id
 }
 
-// commitRequest is the request that plans a commit of the staged changes with the message
-// typed, pushed afterwards when push is set.
+// commitRequest is the request that plans a commit of the staged changes of the active
+// ChangeList with the message typed, pushed afterwards when push is set. A retry leaves the
+// scope out: Core keeps the scope of the run it continues.
 func (p *project) commitRequest(push bool) core.WorkspaceCommitRequest {
 	return core.WorkspaceCommitRequest{
 		Repositories:            []core.WorkspaceCommitRepository{{ID: commitRepositoryID, Root: p.git.repositoryRoot(p.root)}},
 		Message:                 p.commit.message(),
 		Amend:                   p.commit.amend,
 		Push:                    push,
-		IncludeParentReferences: true,
+		IncludeParentReferences: p.commit.parents,
+		PathScope:               p.commitScope(),
 	}
 }
 
@@ -131,11 +136,13 @@ func (g gitState) stagedCount() int {
 	return n
 }
 
-// canCommit reports that the commit buttons may start a commit: there is something staged,
-// a message, and no other commit work under way or waiting for the user.
+// canCommit reports that the commit buttons may start a commit: the active ChangeList has
+// something staged and no other list does, there is a message, and no other commit work is
+// under way or waiting for the user.
 func (p *project) canCommit() bool {
 	c := &p.commit
-	return p.git.isRepository() && !c.busy && c.review == nil && !c.retryable() && p.git.stagedCount() > 0 && c.message() != ""
+	return p.git.isRepository() && p.listsReady() && !c.busy && c.review == nil && !c.retryable() &&
+		p.activeStagedCount() > 0 && !p.otherStaged() && c.message() != ""
 }
 
 // retryable reports that the last run stopped part of the way and can be continued.
@@ -174,7 +181,7 @@ func (a *App) retryCommit(p *project) {
 	previous := *c.attempt
 	request := p.commitRequest(previous.Push)
 	request.Message, request.Amend = previous.Message, previous.Amend
-	request.Previous = &previous
+	request.Previous, request.PathScope = &previous, nil
 	a.prepareCommit(p, request, true)
 }
 
@@ -220,7 +227,7 @@ func (a *App) confirmReview(p *project) {
 	request.Reviewed = &session
 	if session.IsRetry && c.attempt != nil {
 		previous := *c.attempt
-		request.Previous = &previous
+		request.Previous, request.PathScope = &previous, nil
 	}
 	if len(r.prep.PushTargetQuestions) > 0 {
 		request.PushTargets = map[string]core.WorkspaceCommitPushTarget{}
@@ -391,10 +398,15 @@ func allStaged(changes []core.GitChange) bool {
 	return found
 }
 
-// stageAll stages every change, or unstages every staged one when everything is staged
-// already, as the checkbox of the change list does.
+// stageAll stages every change of the active ChangeList, or unstages every staged one when
+// everything is staged already, as the checkbox of the change list does. While only the
+// default list exists that is every change of the repository.
 func (a *App) stageAll(p *project, surface string) {
-	if p.commit.busy {
+	if p.commit.busy || !p.listsReady() {
+		return
+	}
+	if p.lists.inUse() {
+		a.stageChanges(p, p.activeChanges(), surface)
 		return
 	}
 	if allStaged(p.git.status.Changes) {
@@ -408,6 +420,32 @@ func (a *App) stageAll(p *project, surface string) {
 		err := kernel.GitStageAll(ctx, root)
 		return func(a *App) { a.stagingDone(p, true, err) }
 	})
+}
+
+// stageChanges stages every one of changes, or unstages them all when they are all staged,
+// as the checkbox of a ChangeList section does.
+func (a *App) stageChanges(p *project, changes []core.GitChange, surface string) {
+	if p.commit.busy || !p.listsReady() {
+		return
+	}
+	if allStaged(changes) {
+		if paths := stagedPaths(changes); len(paths) > 0 {
+			a.performed("git.unstageAll", surface)
+			a.writeStaging(p, false, paths)
+		}
+		return
+	}
+	var paths []string
+	for _, change := range changes {
+		if change.CanToggleStaging && stagesChange(change) {
+			paths = append(paths, change.StagingPaths()...)
+		}
+	}
+	if len(paths) == 0 {
+		return
+	}
+	a.performed("git.stageAll", surface)
+	a.writeStaging(p, true, paths)
 }
 
 // unstageAll unstages every staged change.

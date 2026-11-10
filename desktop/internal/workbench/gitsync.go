@@ -149,7 +149,7 @@ func (a *App) runSync(p *project, operation, label string, failed func(reason st
 			s.busy, s.cancel, s.relay, s.hasProgress = false, nil, nil, false
 			cancel()
 			if statusErr == nil {
-				p.git = gitState{loaded: true, status: status}
+				a.setGit(p, gitState{loaded: true, status: status})
 			}
 			if p.log.started {
 				a.loadLog(p)

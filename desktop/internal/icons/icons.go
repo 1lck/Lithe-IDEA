@@ -1093,6 +1093,29 @@ var PanelRight = gfx.Icon{
 	},
 }
 
+// pencil is a compiled vector icon.
+var Pencil = gfx.Icon{
+	ViewBox: 24.0,
+	Stroke:  2.0,
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Commands: []gfx.PathCommand{
+		gfx.MoveTo(21.174, 6.812),
+		gfx.CubicTo(22.275, 5.7113, 22.2752, 3.92648, 21.1745, 2.8255),
+		gfx.CubicTo(20.0738, 1.72452, 18.289, 1.7243, 17.188, 2.825),
+		gfx.LineTo(3.842, 16.174),
+		gfx.CubicTo(3.60982, 16.4055, 3.43811, 16.6905, 3.342, 17.004),
+		gfx.LineTo(2.021, 21.356),
+		gfx.CubicTo(1.96835, 21.5322, 2.01666, 21.7231, 2.1468, 21.853),
+		gfx.CubicTo(2.27693, 21.9829, 2.46789, 22.0309, 2.644, 21.978),
+		gfx.LineTo(6.997, 20.658),
+		gfx.CubicTo(7.31017, 20.5628, 7.59517, 20.3921, 7.827, 20.161),
+		gfx.ClosePath(),
+		gfx.MoveTo(15.0, 5.0),
+		gfx.LineTo(19.0, 9.0),
+	},
+}
+
 // pin is a compiled vector icon.
 var Pin = gfx.Icon{
 	ViewBox: 24.0,
@@ -1481,6 +1504,24 @@ var Trash2 = gfx.Icon{
 		gfx.LineTo(10.0, 17.0),
 		gfx.MoveTo(14.0, 11.0),
 		gfx.LineTo(14.0, 17.0),
+	},
+}
+
+// undo-2 is a compiled vector icon.
+var Undo2 = gfx.Icon{
+	ViewBox: 24.0,
+	Stroke:  2.0,
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Commands: []gfx.PathCommand{
+		gfx.MoveTo(9.0, 14.0),
+		gfx.LineTo(4.0, 9.0),
+		gfx.LineTo(9.0, 4.0),
+		gfx.MoveTo(4.0, 9.0),
+		gfx.LineTo(14.5, 9.0),
+		gfx.CubicTo(17.5376, 9.0, 20.0, 11.4624, 20.0, 14.5),
+		gfx.CubicTo(20.0, 17.5376, 17.5376, 20.0, 14.5, 20.0),
+		gfx.LineTo(11.0, 20.0),
 	},
 }
 

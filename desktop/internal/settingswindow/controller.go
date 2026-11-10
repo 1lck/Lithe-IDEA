@@ -243,6 +243,11 @@ func (c *Controller) OpenTerminal(application *app.Application, current Values) 
 	return c.open(application, current, pageTerminal)
 }
 
+// OpenAI shows the window on the AI page, where the commit area's settings button leads.
+func (c *Controller) OpenAI(application *app.Application, current Values) error {
+	return c.open(application, current, pageAI)
+}
+
 // open shows the window on page, or, with noPage, on the page it already has or starts on.
 func (c *Controller) open(application *app.Application, current Values, page pageID) error {
 	c.mu.Lock()

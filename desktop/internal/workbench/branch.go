@@ -151,7 +151,7 @@ func (a *App) runBranchWrite(p *project, operation string, failed func(reason st
 				a.gitOperationFailed(operation, err)
 				return
 			}
-			p.git = gitState{loaded: true, status: status}
+			a.setGit(p, gitState{loaded: true, status: status})
 			if p.log.started {
 				a.loadLog(p)
 			}

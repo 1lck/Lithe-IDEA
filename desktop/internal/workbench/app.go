@@ -251,6 +251,8 @@ type project struct {
 	git    gitState
 	log    gitLogState
 	commit commitState
+	// lists are the repository's local ChangeLists and the list each change belongs to.
+	lists changeListState
 	// worktrees is the Git tool window's Worktrees tab: the repository's worktrees and the
 	// details of the selected one.
 	worktrees worktreeState
