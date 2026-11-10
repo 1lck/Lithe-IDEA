@@ -3,8 +3,6 @@ package workbench
 import (
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
-
-	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 )
 
 // Sizes of the editor's tab groups and of the places a dragged tab can land in.
@@ -22,10 +20,6 @@ const (
 	// tabMarkInset keeps the insertion line off the top and the bottom of its strip.
 	tabMarkInset = 4
 )
-
-// editorSplits identifies the splitters between the editor's groups:
-// editorSplits.At(n) is the splitter of the container node with id n.
-var editorSplits = tree.Sub(shellPage, tree.Name("editor-splits"))
 
 // edge is a side of a group, which is where a dropped tab splits it.
 type edge uint8
@@ -60,18 +54,12 @@ type splitNode struct {
 	// row says a container puts its children side by side; otherwise the first is over the
 	// second.
 	row bool
-	// ratio is the share of the container's extent the first child takes, from 0 to 1. It
-	// is kept as a share rather than a size so that a resized window resizes both children
-	// in proportion; only a drag of the splitter changes it.
-	ratio float32
 	// first and second are the children of a container.
 	first, second *splitNode
-	// state is the splitter between the children. Its Pos is the size of the first child,
-	// which is what a drag measures from (see settle).
+	// state is the splitter between the children. Its Ratio is the share of the container's
+	// extent the first child takes, kept so that a resized window resizes both children in
+	// proportion; only a drag of the splitter changes it.
 	state ui.SplitterState
-	// extent is the container's extent along its axis in the last frame, which turns a
-	// position the keyboard gave the splitter into a ratio before the next frame.
-	extent float32
 }
 
 // newLeaf is a tree that shows one group.
@@ -105,7 +93,7 @@ func splitLeaf(root *splitNode, target, added string, e edge, id int) *splitNode
 			return root
 		}
 		fresh := newLeaf(added)
-		parent := &splitNode{id: id, row: e.sideBySide(), ratio: 0.5}
+		parent := &splitNode{id: id, row: e.sideBySide(), state: ui.SplitterState{Ratio: 0.5}}
 		if e.leading() {
 			parent.first, parent.second = fresh, root
 		} else {
@@ -140,30 +128,6 @@ func removeLeaf(root *splitNode, group string) *splitNode {
 		return root.first
 	}
 	return root
-}
-
-// settle reconciles a container with the frame that was just laid out. container and first
-// are the rectangles of the container and of its first child.
-//
-// While the splitter is dragged, Viva has moved its Pos and the share follows it. Otherwise
-// the share decides the sizes, and Pos is set to the size the first child really got, held
-// inside the limits Viva measures (the same bounds as its splitLimits). Pos is then always
-// where the next press will start from, and Viva never finds it out of range, which would
-// make it ask for another frame.
-func (n *splitNode) settle(container, first gfx.Rect) {
-	extent, size, least := container.Height, first.Height, float32(editorGroupMinHeight)
-	if n.row {
-		extent, size, least = container.Width, first.Width, editorGroupMinWidth
-	}
-	if extent <= 0 {
-		return
-	}
-	n.extent = extent
-	if n.state.Dragging() {
-		n.ratio = shellClamp(n.state.Pos/extent, 0, 1)
-		return
-	}
-	n.state.Pos = shellClamp(size, least, max(extent-shellSplitter-least, least))
 }
 
 // tabSlot is where the chip of one terminal's tab was laid out.
@@ -388,148 +352,3 @@ func pointInRect(r gfx.Rect, x, y float32) bool {
 	return r.Width > 0 && r.Height > 0 && x >= r.X && x < r.Right() && y >= r.Y && y < r.Bottom()
 }
 
-// drawEditorGroups declares the editor area as its tree of groups and reports whether
-// there is one. With no tree the editor is empty, and drawShellEditor declares what an
-// empty editor shows instead.
-func (a *App) drawEditorGroups(f *ui.Frame) bool {
-	p := a.project
-	if p == nil || p.terms.layout == nil {
-		return false
-	}
-	a.drawEditorNode(f, p.terms.layout).Fill()
-	return true
-}
-
-// drawEditorNode declares a node of the editor's tree: a group for a leaf, or for a
-// container its two children with a splitter between them. The splitter is declared right
-// after the first child and before the second, as Viva wants.
-//
-// The first child is sized as a share of the container and may give way, down to the least
-// size of a group, when the share leaves too little for the second; the second child fills
-// what is left. So a window resized in either direction keeps the proportion, and a share
-// that was chosen in a larger window never pushes the second child out of a smaller one.
-// The splitter's own limits are the same minimums. What the layout gave the first child is
-// handed to settle once the frame is laid out.
-func (a *App) drawEditorNode(f *ui.Frame, n *splitNode) ui.Box {
-	if n.leaf() {
-		return a.drawEditorGroup(f, n.group)
-	}
-	least := float32(editorGroupMinHeight)
-	declare := f.Column
-	if n.row {
-		least = editorGroupMinWidth
-		declare = f.Row
-	}
-	var first, second ui.Box
-	container := declare().Clip().Children(func() {
-		first = a.drawEditorNode(f, n.first)
-		f.Splitter(editorSplits.At(n.id), &n.state).Mins(least, least).Label(a.text.Panel.Resize)
-		second = a.drawEditorNode(f, n.second)
-	})
-	share := shellClamp(n.ratio, 0, 1) * 100
-	if n.row {
-		first.WidthPercent(share).FillHeight().MinWidth(least).Shrink(1)
-		second.Fill().MinWidth(least)
-	} else {
-		first.HeightPercent(share).FillWidth().MinHeight(least).Shrink(1)
-		second.Fill().MinHeight(least)
-	}
-	u := &a.term
-	u.splits = append(u.splits, splitDraw{node: n, container: container, first: first})
-	return container
-}
-
-// drawEditorGroup declares one group of the editor: a strip of its terminals' tabs over a
-// body that the selected terminal is painted into after the frame is laid out (see
-// paintTerminal). The group is recorded for the drag, which aims at the strip and the body.
-// A group that shows an open file ends its strip with the soft wrap switch.
-func (a *App) drawEditorGroup(f *ui.Frame, id string) ui.Box {
-	u := &a.term
-	decl := groupDecl{id: id}
-	decl.selected = a.project.terms.selected(id)
-	decl.doc = a.project.selectedDocument(id)
-	decl.state = u.stripOf(id)
-	decl.state.seen = true
-	index := len(u.groups)
-	group := f.Column().Background(a.colors.Editor).Clip()
-	group.Children(func() {
-		// The strip is one row high, or as high as the rows its tabs wrap onto when the
-		// setting asks for several.
-		tabs, current := a.groupTabs(id)
-		decl.current = current
-		layout := a.tabLayout()
-		var rows []int
-		height := float32(panelHeaderHeight)
-		if layout == tabsRows {
-			rows = a.tabRows(f, tabs, decl.state.scroll.Viewport())
-			height *= float32(len(rows))
-		}
-		decl.strip = f.Row().FillWidth().Height(height).Shrink(0).Items(ui.Start).
-			Gap(chromeGap).PadX(chromeGap).Background(a.colors.Panel).Clip()
-		decl.stripSet = true
-		decl.strip.Children(func() {
-			// The tabs fill the strip and give up their room before the buttons do, so they
-			// stay at the end of the strip's first row however many files are open.
-			a.drawGroupStrip(f, &decl, editorStripControls(index), tabs, layout, rows, func() {
-				if decl.doc != nil {
-					a.drawSoftWrapSwitch(f, decl.doc.id)
-				}
-			})
-		})
-		if decl.doc != nil && decl.doc.conflicted {
-			a.drawDocumentConflict(f, decl.doc)
-		}
-		decl.body = f.Row().Fill()
-		decl.bodySet = true
-	})
-	u.groups = append(u.groups, decl)
-	return group
-}
-
-// drawSoftWrapSwitch declares the switch that turns soft wrapping of the open files on and
-// off, at the end of the strip of the group that shows document doc. It looks pressed while
-// wrapping is on. The click takes effect in this frame's paint, which sets every view it
-// paints to the new state.
-func (a *App) drawSoftWrapSwitch(f *ui.Frame, doc int) {
-	on := a.softWrap
-	button := f.Row().Size(shellHideSize, shellHideSize).Shrink(0).Center().Radius(a.theme.Metrics.RadiusItem()).
-		HitWith(docWrap.At(doc), a.text.Editor.SoftWrap, gfx.HitOptions{Role: gfx.RoleSwitch, Checked: on, Cursor: gfx.PointerCursorHand}).
-		Pressed(ui.Look{}.Background(a.colors.Active))
-	icon := a.colors.Subtle
-	if on {
-		button = button.Background(a.colors.Active)
-		icon = a.colors.Text
-	} else {
-		button = button.Hover(ui.Look{}.Background(a.colors.Hover))
-	}
-	button.Children(func() {
-		f.Icon(icons.WrapText).Size(shellIconSize, shellIconSize).Color(icon).
-			StateFrom(button).Hover(ui.Look{}.Color(a.colors.Text))
-	})
-	if button.Clicked() {
-		a.softWrap = !on
-	}
-}
-
-// declareEmptyEditor records the box of the editor while it has no group, which is the area
-// a tab can be dropped into to open the first one.
-func (a *App) declareEmptyEditor(editor ui.Box) {
-	a.term.empty, a.term.emptyDrawn = editor, true
-}
-
-// editorSplitKey gives a key press to the splitters of the editor's split tree the last
-// frame declared; only the one that has the keyboard focus acts on it. The position the
-// key gave it becomes the split's ratio at once, since the next frame lays the children
-// out by the ratio.
-func (a *App) editorSplitKey(event gfx.KeyEvent) gfx.EventResult {
-	for _, s := range a.term.splits {
-		n := s.node
-		if result := n.state.Key(event); result.Handled {
-			if n.extent > 0 {
-				n.ratio = shellClamp(n.state.Pos/n.extent, 0, 1)
-			}
-			return result
-		}
-	}
-	return gfx.EventResult{}
-}

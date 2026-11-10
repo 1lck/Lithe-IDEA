@@ -207,7 +207,7 @@ func (a *App) pluginSemanticHit(id gfx.ID) (*project, *document) {
 		return nil, nil
 	}
 	for _, d := range p.docs.list {
-		if docViews.At(d.id) == id {
+		if d.hit == id {
 			return p, d
 		}
 	}
@@ -322,11 +322,10 @@ func (a *App) definitionKey(event gfx.KeyEvent) gfx.EventResult {
 
 // pluginSemanticsTrigger handles the unmodified keys that start a semantic
 // operation for the editor that owns the keyboard.
-func (a *App) pluginSemanticsTrigger(event gfx.KeyEvent) (gfx.EventResult, bool) {
+func (a *App) pluginSemanticsTrigger(event gfx.KeyEvent, p *project, d *document) (gfx.EventResult, bool) {
 	if event.Release || (event.Modifiers != 0 && event.Modifiers != gfx.ModifierShift) {
 		return gfx.EventResult{}, false
 	}
-	p, d := a.pluginSemanticHit(event.Target)
 	if d == nil || d.view.IsComposing() {
 		return gfx.EventResult{}, false
 	}
@@ -383,14 +382,9 @@ func (a *App) pluginSemanticsShortcut(event gfx.KeyEvent) gfx.EventResult {
 
 // pluginSemanticsPointer handles modifier-click definition and pointer hover.
 // It runs before the editor's own pointer handling.
-func (a *App) pluginSemanticsPointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
-	p, d := a.pluginSemanticHit(event.Target)
+func (a *App) pluginSemanticsPointer(event gfx.PointerEvent, p *project, d *document) (gfx.EventResult, bool) {
 	switch event.Kind {
 	case gfx.PointerDown:
-		if a.semanticPopupHit(event.Target) {
-			// A row click is handled by the row's Clicked state during paint.
-			return gfx.EventResult{}, true
-		}
 		if a.semantics.completion.open || a.semantics.definition.open || a.semantics.hover.open {
 			a.closePluginSemantics()
 		}
@@ -415,10 +409,8 @@ func (a *App) pluginSemanticsPointer(event gfx.PointerEvent) (gfx.EventResult, b
 			return gfx.EventResult{}, false
 		}
 		if d == nil {
-			if !a.semanticPopupHit(event.Target) {
-				a.closeSemanticHover()
-				a.cancelSemanticKind(pluginSemanticHover)
-			}
+			a.closeSemanticHover()
+			a.cancelSemanticKind(pluginSemanticHover)
 			return gfx.EventResult{}, false
 		}
 		line, column, ok := d.view.PositionAt(event.X, event.Y)
@@ -432,12 +424,6 @@ func (a *App) pluginSemanticsPointer(event gfx.PointerEvent) (gfx.EventResult, b
 		a.cancelSemanticKind(pluginSemanticHover)
 	}
 	return gfx.EventResult{}, false
-}
-
-// semanticPopupHit reports whether id belongs to a semantic popup, which the
-// overlay page paints.
-func (a *App) semanticPopupHit(id gfx.ID) bool {
-	return !id.IsZero() && a.overlay.page != nil && a.overlay.page.Owns(id)
 }
 
 // scrollCompletionWindow keeps the selected row inside the virtualised window.
@@ -1226,13 +1212,7 @@ func (a *App) pluginSemanticsCaretSync() {
 }
 
 // pluginSemanticsScrolled closes popups whose screen position the scroll moved.
-func (a *App) pluginSemanticsScrolled(target gfx.ID) {
-	if target.IsZero() {
-		return
-	}
-	if a.focusedDocument(target) == nil {
-		return
-	}
+func (a *App) pluginSemanticsScrolled(_ *document) {
 	a.closeSemanticHover()
 	a.cancelSemanticKind(pluginSemanticHover)
 	a.closeSemanticCompletion()

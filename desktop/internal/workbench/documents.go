@@ -37,22 +37,6 @@ const (
 	documentSaveStage       = "write"
 )
 
-// The identities of the open files' controls. Each is a scope whose At(n) is the control of
-// the document with id n: docTabs its tab, docClose its tab's close button, docViews its
-// text, which holds the keyboard focus, and docWrap the soft wrap switch at the end of the
-// strip of the group that shows it. docMinimap is its minimap, docMinimapToggle the button
-// that hides and shows the minimap, and docScrollY and docScrollX its scrollbars.
-var (
-	docTabs          = tree.Sub(shellPage, tree.Name("document-tabs"))
-	docClose         = tree.Sub(shellPage, tree.Name("document-close"))
-	docViews         = tree.Sub(shellPage, tree.Name("document-views"))
-	docWrap          = tree.Sub(shellPage, tree.Name("document-soft-wrap"))
-	docMinimap       = tree.Sub(shellPage, tree.Name("document-minimap"))
-	docMinimapToggle = tree.Sub(shellPage, tree.Name("document-minimap-toggle"))
-	docScrollY       = tree.Sub(shellPage, tree.Name("document-scroll-vertical"))
-	docScrollX       = tree.Sub(shellPage, tree.Name("document-scroll-horizontal"))
-)
-
 // These errors explain why a file cannot be opened, besides the system's errors.
 var (
 	errNotText             = errors.New("not a text file")
@@ -90,6 +74,12 @@ type document struct {
 	resolvingConflict  bool
 	// recreateMissing records the user's explicit choice to save a deleted file.
 	recreateMissing bool
+	// input and draw are the Control's handlers and painter, made once with the document;
+	// hit is the identity and group the editor group the last paint declared it in.
+	input ui.Handlers
+	draw  func(*ui.DrawContext)
+	hit   gfx.ID
+	group string
 	// virtual marks a read-only document a plugin provides for a URI that names no
 	// file (a class inside a jar). path then holds the URI: the document is never
 	// watched, saved or synchronized with a language server, and the host keeps no
@@ -406,19 +396,15 @@ func (a *App) placeDocumentAs(p *project, path, name string, content editorview.
 	}
 	d := &document{id: id, path: path, name: name, languageID: languageID, virtual: virtual}
 	d.view = editorview.New(editorview.Config{
-		HitID:           docViews.At(id),
 		Label:           name,
 		Content:         content,
 		Syntax:          grammar,
 		Notify:          a.invalidator.Invalidate,
 		Save:            func() { a.saveDocument(p, id) },
 		OnEdit:          func(edit editorview.Edit) { a.documentEdited(p, d, edit) },
-		MinimapID:       docMinimap.At(id),
-		MinimapToggleID: docMinimapToggle.At(id),
-		VerticalBarID:   docScrollY.At(id),
-		HorizontalBarID: docScrollX.At(id),
 	})
 	d.view.SetReadOnly(virtual)
+	a.documentInput(p, d)
 	p.docs.list = append(p.docs.list, d)
 	p.docs.group = group
 	if !virtual {
@@ -465,10 +451,7 @@ func (a *App) selectDocument(p *project, id int) {
 }
 
 // focusDocument asks for the keyboard to go to document id as soon as it is painted.
-func (a *App) focusDocument(id int) {
-	a.term.docFocus, a.term.focusAge = id, 0
-	a.term.focus = 0
-}
+func (a *App) focusDocument(id int) { a.focus = focusTarget{doc: id} }
 
 // saveDocument serializes writes for a document. A repeated request is coalesced,
 // and close waiters resume only after the latest editor contents are persisted.
@@ -787,79 +770,3 @@ func (a *App) focusedDocument(id gfx.ID) *editorview.View {
 	return nil
 }
 
-// documentPointer gives a pointer event to the open documents: the press on a text and the
-// moves and the release of the selection it starts, wherever they go.
-func (a *App) documentPointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
-	p := a.project
-	if p == nil {
-		return gfx.EventResult{}, false
-	}
-	for _, d := range p.docs.list {
-		if result, handled := d.view.Pointer(event); handled {
-			return result, true
-		}
-	}
-	return gfx.EventResult{}, false
-}
-
-// drawDocumentTab declares one open file's tab: its icon, its full name, a dot while it has
-// unsaved changes, and a close button, and returns it. A click on the tab or its close button
-// is recorded for paintTerminal to do. pos is the tab's place among size tabs, for assistive
-// technology. squeeze lets the tab give up width, down to the least width of a tab, with its
-// name cut short; otherwise the tab is as wide as its full name.
-func (a *App) drawDocumentTab(f *ui.Frame, d *document, selected bool, pos, size int, squeeze bool) ui.Box {
-	u := &a.term
-	chip := f.Row().Height(rowHeight).Items(ui.Center).Gap(terminalChipGap).PadSides(0, 2, 0, 8).
-		Radius(a.theme.Metrics.RadiusItem()).
-		HitWith(docTabs.At(d.id), d.name, gfx.HitOptions{
-			Role:     gfx.RoleTab,
-			Cursor:   gfx.PointerCursorHand,
-			Selected: selected,
-			PosInSet: int32(pos + 1),
-			SetSize:  int32(size),
-		}).
-		Pressed(ui.Look{}.Background(a.colors.Active))
-	if squeeze {
-		chip = chip.Shrink(1).MinWidth(terminalChipMinWidth)
-	} else {
-		chip = chip.Shrink(0)
-	}
-	if selected {
-		chip = chip.Background(a.colors.Active)
-	} else {
-		chip = chip.Hover(ui.Look{}.Background(a.colors.Hover))
-	}
-	var closeButton ui.Box
-	chip.Children(func() {
-		f.Icon(fileicons.ForFile(d.name, a.colors.Dark)).Size(terminalChipIcon, terminalChipIcon).Shrink(0).Color(a.colors.Subtle)
-		label := f.Text(d.name)
-		if squeeze {
-			label.Ellipsis()
-		} else {
-			label.Shrink(0)
-		}
-		if selected {
-			label.Color(a.colors.Text)
-		} else {
-			label.Color(a.colors.Subtle).StateFrom(chip).Hover(ui.Look{}.Color(a.colors.Text))
-		}
-		if d.dirty() {
-			f.Row().Size(documentDirty, documentDirty).Shrink(0).Radius(documentDirty / 2).Background(a.colors.Accent)
-		}
-		closeButton = f.Row().Size(terminalCloseSize, terminalCloseSize).Shrink(0).Center().
-			Radius(a.theme.Metrics.RadiusItem()).
-			HitWith(docClose.At(d.id), a.text.Editor.CloseTab, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}).
-			Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
-		closeButton.Children(func() {
-			f.Icon(icons.X).Size(terminalCloseIcon, terminalCloseIcon).Color(a.colors.Subtle).
-				StateFrom(closeButton).Hover(ui.Look{}.Color(a.colors.Text))
-		})
-	})
-	switch {
-	case closeButton.Clicked():
-		u.actions = append(u.actions, tabAction{kind: actionCloseDocument, term: d.id})
-	case chip.Clicked():
-		u.actions = append(u.actions, tabAction{kind: actionSelectDocument, term: d.id})
-	}
-	return chip
-}

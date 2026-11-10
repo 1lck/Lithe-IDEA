@@ -254,6 +254,18 @@ func New(cfg Config) *View {
 	return v
 }
 
+// Bind gives the view the identities a page's Control declared for it: hit is the Control's own,
+// which takes the keyboard focus, and parts is its Handlers.Parts scope, whose parts are the
+// minimap (0), the button beside it (1) and the vertical (2) and horizontal (3) scrollbars. The
+// host calls it from the Control's draw callback, before Paint, so the view's own hits are the
+// Control's parts and the page routes their events to the Control's handlers.
+func (v *View) Bind(hit gfx.ID, parts gfx.Scope) {
+	c := &v.cfg
+	c.HitID = hit
+	c.MinimapID, c.MinimapToggleID = parts.At(0), parts.At(1)
+	c.VerticalBarID, c.HorizontalBarID = parts.At(2), parts.At(3)
+}
+
 // Owns reports whether id is one of the view's hits: the text, the minimap, its button or a
 // scrollbar.
 func (v *View) Owns(id gfx.ID) bool {

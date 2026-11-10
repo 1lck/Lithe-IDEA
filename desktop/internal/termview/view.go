@@ -279,6 +279,13 @@ func (v *View) RetainedText(budget int) string {
 	return string(text)
 }
 
+// Bind gives the view the identities a page's Control declared for it: hit is the Control's own,
+// which takes the keyboard focus, and parts is its Handlers.Parts scope, whose part 0 is the
+// scrollbar. The host calls it from the Control's draw callback, before Paint.
+func (v *View) Bind(hit gfx.ID, parts gfx.Scope) {
+	v.cfg.HitID, v.cfg.BarID = hit, parts.At(0)
+}
+
 // Owns reports whether a hit belongs to the view: its grid or its scrollbar.
 func (v *View) Owns(id gfx.ID) bool {
 	return !id.IsZero() && (id == v.cfg.HitID || id == v.cfg.BarID)
