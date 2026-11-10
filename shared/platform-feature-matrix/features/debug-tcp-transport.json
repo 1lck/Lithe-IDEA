@@ -7,27 +7,31 @@
     "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
+      "desktop/internal/workbench/debug_transport.go",
+      "desktop/internal/workbench/debug_transport_test.go",
       "desktop/internal/workbench/debug_start.go",
       "desktop/internal/workbench/debug_tcp_test.go",
-      "desktop/internal/core/debug_launch.go",
-      "desktop/internal/pluginservice/languagecommand.go",
-      ".agents/notes/implemented/architecture/2026-11-10-viva-java-admission-run-debug-output-links.md"
+      "desktop/internal/core/debug_transport.go",
+      "desktop/internal/core/debug_state_test.go",
+      "shared/fixtures/debug/transport-lifecycle-v1.json"
     ]
   },
   "windows": {
     "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
+      "desktop/internal/workbench/debug_transport.go",
+      "desktop/internal/workbench/debug_transport_test.go",
       "desktop/internal/workbench/debug_start.go",
       "desktop/internal/workbench/debug_tcp_test.go",
-      "desktop/internal/core/debug_launch.go",
-      "desktop/internal/pluginservice/languagecommand.go",
-      ".agents/notes/implemented/architecture/2026-11-10-viva-java-admission-run-debug-output-links.md"
+      "desktop/internal/core/debug_transport.go",
+      "desktop/internal/core/debug_state_test.go",
+      "shared/fixtures/debug/transport-lifecycle-v1.json"
     ]
   },
   "owner": "Debug",
   "verification": "macOS：在有已安装调试提供方的源码文件上，从 Debug 更多操作打开连接调试适配器，填写已运行的 DAP 服务地址、launch/attach 与适配器参数。分别验证回环、IPv4/IPv6/DNS 外部地址、非回环默认取消的逐次确认、错误 JSON 与非法端点。确认 IDE 到 DAP 的地址不覆盖适配器到 debuggee 的地址，既有 stdio 与 tcpLanguageServer 回环限制不变。验证端点发现与建连两段独立超时（冷启动发现不缩短也不拉长建连）、被拒绝/不可达端口立即以系统原因结束、连接拒绝或 initialize 超时/未获批准/已有活动会话时对话框保持打开并保留已填内容，初始化完成后才关闭；取消等待只停止本次连接，不能误停后来选中的会话、当前文件无调试提供方时菜单项不可用、单个在途写入、字节/消息预算、写入超时、EOF、解析/建连/已连接时取消和旧回调隔离（含 Core 桥接失败清理后重新登记的连接）；停止时断开帧最多排空 1 秒且 attach 的 terminateDebuggee 为 false，超时仍回收；停止后外部服务、共享 LSP、attach 目标与用户隧道仍存活。真实回环测试覆盖 Core initialize/attach 帧；真实 JVM/debugpy/GDB 和界面全链路仍待验收。Windows 未接入此 TCP 宿主。",
-  "notes": "Viva 支持 tcpLanguageServer 适配器：先启动插件的语言服务器，用 workspace/executeCommand 取回环端口，连接后与 stdio 共用同一套 Core 会话；截止时间取自 Core 的 debug.transport.policy（发现、连接、写入、initialize），Stop、关闭项目取消每一步并关闭连接。tcpPort 与 tcpAnnounced 由插件进程托管，暂未支持；Go 只执行 Core 给出的截止时间，尚未驱动 debug.transport.handle 的生命周期归约器。",
+  "notes": "语言服务器托管适配器的环回 TCP 连接改为按 Core 的 debug.transport.handle 生命周期驱动：帧先入队、同时只有一个写在途，发现/连接/写入期限与排空期限都是 Core 下发的定时器，用户停止时先发 DAP disconnect 再有界排空。直接连接用户指定的远程适配器端点（adapterEndpoint）仍未接入。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

@@ -151,7 +151,11 @@ func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, stateDir
 		}
 	}
 	target := core.DebugTargetFacts{Kind: "file", Path: targetPath, WorkingDirectory: root, Arguments: []string{}, Environment: map[string]string{}}
-	if start.request == "attach" && start.target != nil {
+	// A backend's configuration names everything the debuggee needs: there is no
+	// file to look up and no endpoint to ask the user about.
+	if start.configuration != nil {
+		// target stays the empty file fact.
+	} else if start.request == "attach" && start.target != nil {
 		// A remote debuggee: Core binds host, port and mappings through the
 		// adapter's declared connection, so the host passes the facts unchanged.
 		target = *start.target
@@ -199,6 +203,17 @@ func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, stateDir
 	}
 	// Core says which endpoints it can prove local; every other one waits for the
 	// user, and the answer is not remembered.
+	if start.configuration != nil {
+		// The plugin's configuration wins over the adapter's declared arguments.
+		merged := make(map[string]any, len(planned.Arguments)+len(start.configuration))
+		for key, value := range planned.Arguments {
+			merged[key] = value
+		}
+		for key, value := range start.configuration {
+			merged[key] = value
+		}
+		planned.Arguments = merged
+	}
 	if planned.Connection != nil && planned.Connection.Remote && !start.confirmed {
 		return preparedDebugLaunch{}, &debugRemoteError{host: planned.Connection.Host, port: planned.Connection.Port}
 	}

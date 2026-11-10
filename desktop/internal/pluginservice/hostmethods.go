@@ -73,6 +73,9 @@ func (s *Service) registerHostServices() error {
 	if err := s.HostServices.Register(methodRunStop, s.Runs.handleStop); err != nil {
 		return err
 	}
+	if err := s.HostServices.Register(methodDebugStart, s.Runs.handleDebugStart); err != nil {
+		return err
+	}
 	for _, grant := range []string{grantWorkspace, grantFunctions} {
 		if err := s.HostServices.GrantService(grant); err != nil {
 			return err

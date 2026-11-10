@@ -98,6 +98,12 @@ type Runs struct {
 	Tools RunToolResolver
 	// Debug attaches the adapter of a run started with a debug target.
 	Debug RunDebugAttacher
+	// StartDebugSession and StopDebugSession serve lithe/host/debug/start and the
+	// sessionID form of run/stop. Without a starter the method is unavailable.
+	StartDebugSession DebugSessionStarter
+	StopDebugSession  DebugSessionStopper
+	// debugSessions maps a session a backend started to the plugin that owns it.
+	debugSessions map[string]string
 
 	mu       sync.Mutex
 	observer func(RunEvent)
@@ -122,7 +128,7 @@ type hostRun struct {
 }
 
 func newRuns(service *Service) *Runs {
-	return &Runs{service: service, runs: make(map[string]*hostRun)}
+	return &Runs{service: service, runs: make(map[string]*hostRun), debugSessions: make(map[string]string)}
 }
 
 // SetObserver installs the function that receives run events. It replaces any
@@ -520,6 +526,8 @@ func (r *Runs) handleStop(ctx context.Context, params json.RawMessage) (json.Raw
 	r.mu.Unlock()
 	if target != nil {
 		r.stopRun(target)
+	} else if request.SessionID != "" {
+		r.stopDebugSession(caller.PluginID, request.SessionID)
 	}
 	return nil, nil
 }

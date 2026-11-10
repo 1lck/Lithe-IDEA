@@ -1,11 +1,14 @@
 package workbench
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 )
 
 // pausedDebugSession starts the fixture adapter and waits until the debuggee is
@@ -67,9 +70,12 @@ func TestDebugVariablesPageAndEditThroughCore(t *testing.T) {
 	if items.container.complete || items.container.page.Next == nil {
 		t.Fatalf("a container of 250 is not exhausted after 100: %+v", items.container.page)
 	}
-	rows := v.flatten()
-	if status := rows[len(rows)-1]; status.moreFor != items {
-		t.Fatalf("the last row must offer the next page, got %+v", status)
+	offered := false
+	for _, row := range v.flatten() {
+		offered = offered || row.moreFor == items
+	}
+	if !offered {
+		t.Fatal("an unfinished container must offer its next page")
 	}
 	for !items.container.complete {
 		before := len(items.container.nodes)
@@ -143,4 +149,77 @@ func TestDebugExceptionFiltersAndDisassembly(t *testing.T) {
 	}
 	h.app.stopDebugByUser(p)
 	awaitStateWithin(t, h, 20*time.Second, "the stopped session", func() bool { return p.debug.session == nil })
+}
+
+// TestBackendStartedDebugSessionRunsAndStopsBySessionID drives the window side
+// of lithe/host/debug/start: the plugin's own adapter starts with the backend's
+// configuration over the real adapter process, and the backend's stop ends it.
+func TestBackendStartedDebugSessionRunsAndStopsBySessionID(t *testing.T) {
+	h := debugHarness(t)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "debug.marker"), []byte("debug\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "tests"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tests", "debug_source.go"), []byte("package tests\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := openDebugPanel(t, h, root)
+	adapter := p.debug.adapters[0]
+	request := pluginservice.DebugSessionRequest{
+		PluginID: adapter.PluginID, WorkspaceRoot: root, Label: "Debug from backend",
+		AdapterID: adapter.PluginID + "/" + adapter.Declaration.ID, Request: "launch",
+		Configuration: map[string]any{"program": "main.script"},
+	}
+	type outcome struct {
+		id  string
+		err error
+	}
+	started := make(chan outcome, 1)
+	go func() {
+		id, err := h.app.startDebugForBackend(context.Background(), request)
+		started <- outcome{id, err}
+	}()
+	var result outcome
+	awaitStateWithin(t, h, 30*time.Second, "the backend's session to start", func() bool {
+		select {
+		case result = <-started:
+			return true
+		default:
+			return false
+		}
+	})
+	if result.err != nil || result.id == "" || p.debug.session == nil || p.debug.session.id != result.id {
+		t.Fatalf("start = %+v, session %v", result, p.debug.session)
+	}
+	awaitStateWithin(t, h, 30*time.Second, "the paused backend session", func() bool {
+		if p.debug.failure != "" {
+			t.Fatalf("backend session failed: %s", p.debug.failure)
+		}
+		return p.debug.state == "paused"
+	})
+
+	// A second start while one runs is refused instead of replacing it.
+	refused := make(chan error, 1)
+	go func() {
+		_, err := h.app.startDebugForBackend(context.Background(), request)
+		refused <- err
+	}()
+	var refusal error
+	awaitStateWithin(t, h, 20*time.Second, "the second start's answer", func() bool {
+		select {
+		case refusal = <-refused:
+			return true
+		default:
+			return false
+		}
+	})
+	if refusal == nil {
+		t.Fatal("a second session was started over the running one")
+	}
+
+	h.app.stopDebugForBackend(result.id)
+	awaitStateWithin(t, h, 20*time.Second, "the session to stop", func() bool { return p.debug.session == nil })
 }

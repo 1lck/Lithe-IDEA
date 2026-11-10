@@ -33,6 +33,10 @@ func (k *runKernel) DecodeRunStart(ctx context.Context, manifest json.RawMessage
 	return k.client.DecodeRunStart(ctx, manifest, root, temporary, params)
 }
 
+func (k *runKernel) DecodeDebugBackendConfiguration(ctx context.Context, manifest json.RawMessage, params json.RawMessage) (core.DebugBackendStart, error) {
+	return k.client.DecodeDebugBackendConfiguration(ctx, manifest, params)
+}
+
 func (k *runKernel) DecodeOutputLinkResolution(ctx context.Context, reply json.RawMessage) (*core.OutputLocation, error) {
 	return k.client.DecodeOutputLinkResolution(ctx, reply)
 }

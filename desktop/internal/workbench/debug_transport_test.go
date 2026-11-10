@@ -164,6 +164,16 @@ func TestDebugTransportUserStopDrainsQueuedFramesThenClosesSilently(t *testing.T
 		t.Fatal(err)
 	}
 	defer connection.Close()
+	// The first frame proves the stream is ready: a stop before that closes at
+	// once by Core's rule, so there is nothing to drain.
+	if _, err := transport.Write([]byte("hello;")); err != nil {
+		t.Fatal(err)
+	}
+	ready := make([]byte, len("hello;"))
+	_ = connection.SetReadDeadline(time.Now().Add(10 * time.Second))
+	if _, err := io.ReadFull(connection, ready); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := transport.Write([]byte("disconnect")); err != nil {
 		t.Fatal(err)
 	}

@@ -51,6 +51,7 @@ type Kernel interface {
 	ClosePluginDocument(ctx context.Context, session, uri string) error
 	ConfigureFunctionRelay(ctx context.Context, plugins []core.RelayPlugin, contexts []core.RelayContext) error
 	DecodeRunStart(ctx context.Context, manifest json.RawMessage, workspaceRoot, temporaryDirectory string, params json.RawMessage) (core.RunStart, error)
+	DecodeDebugBackendConfiguration(ctx context.Context, manifest json.RawMessage, params json.RawMessage) (core.DebugBackendStart, error)
 	DecodeOutputLinkResolution(ctx context.Context, reply json.RawMessage) (*core.OutputLocation, error)
 	DecodePluginLanguageServerLaunch(ctx context.Context, manifest json.RawMessage, languageID string, directories core.PluginBackendDirectories, answer json.RawMessage) (core.PluginBackendPlan, error)
 }

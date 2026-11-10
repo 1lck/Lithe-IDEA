@@ -4,23 +4,27 @@
   "group": "调试器",
   "capability": "汇编级调试：无源码栈帧、反汇编视图、指令步进、指令断点、寄存器与只读内存，均由适配器能力决定是否可用",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/workbench/app.go",
-      "desktop/internal/workbench/chrome.go"
+      "desktop/internal/workbench/debug_disassembly.go",
+      "desktop/internal/workbench/debug_sections_view.go",
+      "desktop/internal/workbench/debug_state_test.go",
+      "desktop/internal/core/debug_state.go",
+      "desktop/internal/core/debug_state_test.go",
+      "shared/fixtures/debug/disassembly-paging-v1.json"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/workbench/app.go",
-      "desktop/internal/workbench/chrome.go"
+      "desktop/internal/workbench/debug_disassembly.go",
+      "desktop/internal/workbench/debug_sections_view.go",
+      "desktop/internal/workbench/debug_state_test.go",
+      "desktop/internal/core/debug_state.go",
+      "desktop/internal/core/debug_state_test.go",
+      "shared/fixtures/debug/disassembly-paging-v1.json"
     ]
   },
   "owner": "Debug",
@@ -70,5 +74,5 @@
       "verificationStatus": "not-applicable"
     }
   },
-  "notes": "Viva 当前的运行、调试和问题面板为占位，语言服务状态为静态未启动；桌面客户端尚未接入对应的 LSP、DAP 或构建 Provider 工作流。Core 接口及编辑器内部语义高亮数据结构不能代替端到端接入。"
+  "notes": "Viva 的反汇编区以栈帧的指令指针为中心列出指令，窗口规划、被拒请求的恢复、边界探测、去重和占位去除全部由 Core 的 planDisassemblyWindow/reduceDisassemblyPage 决定，可向上/向下加载。尚未接入指令级单步、指令断点、符号跳转与内存读取。"
 }

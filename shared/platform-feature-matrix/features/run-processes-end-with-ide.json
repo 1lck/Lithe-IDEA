@@ -4,22 +4,28 @@
   "group": "运行",
   "capability": "退出 IDE 时结束它启动的全部运行、终端、服务、测试、语言服务器和插件子进程，不留下孤儿进程；IDE 崩溃或被强制结束时由监护进程兜底",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/app.go",
+      "desktop/internal/workbench/runs.go",
+      "desktop/internal/workbench/process_exit.go",
+      "desktop/internal/workbench/process_exit_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/app.go",
+      "desktop/internal/workbench/runs.go",
+      "desktop/internal/workbench/process_exit.go",
+      "desktop/internal/workbench/process_exit_test.go"
     ]
   },
   "owner": "Run",
   "verification": "运行一个长驻服务（如 Spring Boot）、一个 setsid 脱离的后台进程和一个忽略终止信号的程序，分别通过菜单退出、更新重启和对主进程 kill -9 关闭 IDE，确认除用户选择保留的项目外，带本实例 LITHE_PROCESS_SCOPE 的进程全部退出、端口已释放；主进程和监护进程同时被结束后再次启动，确认残留进程出现在启动清扫确认中。 Windows Run 原生测试按父 PID 和 ping.exe 名称唯一识别夹具后代，覆盖快照乱序、大小写、缺失和歧义；停止前持有该后代进程句柄，以两秒退出信号确认根进程和后代结束，以零等待确认另一窗口仍在运行；cmd 禁用 AutoRun，首字节就绪等待有界，夹具在断言失败时也清理所属进程树。",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "关闭项目或窗口时结束该项目的 Run 会话、调试会话、测试和终端（先确认，见 process-termination-policy）。IDE 异常退出后的遗留进程清扫与启动时确认（startupSweep/crashRecovery）未做。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

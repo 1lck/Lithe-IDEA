@@ -75,6 +75,42 @@ func (c *Client) DecodeRunStart(ctx context.Context, manifest json.RawMessage, w
 	return result.Start, nil
 }
 
+// DebugBackendStart is the normalized `lithe/host/debug/start` request Core
+// decoded: the plugin's own adapter by its qualified ID, which DAP request to
+// send and the plugin's configuration, to be applied over the adapter's
+// declared defaults.
+type DebugBackendStart struct {
+	AdapterID     string         `json:"adapterID"`
+	Request       string         `json:"request"`
+	Label         string         `json:"label"`
+	Configuration map[string]any `json:"configuration"`
+}
+
+// DecodeDebugBackendConfiguration validates the params of a backend's
+// `lithe/host/debug/start` against its manifest. A start Core refuses comes back
+// as a *MarketplaceRejection carrying the plugin.debug.* code and field.
+func (c *Client) DecodeDebugBackendConfiguration(ctx context.Context, manifest json.RawMessage, params json.RawMessage) (DebugBackendStart, error) {
+	const command = "debug.decodeBackendConfiguration"
+	var result struct {
+		Status string                `json:"status"`
+		Error  *MarketplaceRejection `json:"error"`
+		Start  DebugBackendStart     `json:"start"`
+	}
+	if err := c.Execute(ctx, command, struct {
+		Manifest json.RawMessage `json:"manifest"`
+		Params   json.RawMessage `json:"params"`
+	}{manifest, params}, &result); err != nil {
+		return DebugBackendStart{}, err
+	}
+	if result.Status == "rejected" && result.Error != nil {
+		return DebugBackendStart{}, result.Error
+	}
+	if result.Status != "ok" {
+		return DebugBackendStart{}, newParseError(command, "invalid debug start outcome", "")
+	}
+	return result.Start, nil
+}
+
 // DebugTransportLimits are Core's deadlines and budgets for one IDE-to-adapter
 // byte stream, in milliseconds, bytes and frame counts.
 type DebugTransportLimits struct {

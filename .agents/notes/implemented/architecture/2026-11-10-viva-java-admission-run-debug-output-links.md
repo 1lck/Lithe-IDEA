@@ -22,18 +22,18 @@ Java Support 的插件清单要求宿主提供 `settings` 2、`outputLinkMatcher
 
 ## 考虑过的备选方案
 
-- 逐帧驱动 `debug.transport.handle` 归约器：规则更集中，但每帧多次 Core 往返，且写路径目前是同步的；现在只取 `debug.transport.policy` 的数值，在 Go 里执行截止时间。后续要统一各平台的写队列再改。
+- 只取 `debug.transport.policy` 的数值、在 Go 里自己执行截止时间：已被否决并替换。现在语言服务器托管适配器的 TCP 流由 `debug.transport.handle` 的生命周期驱动（`workbench/debug_transport.go`）：帧先入队、同时只有一个写在途，发现/连接/写入/排空期限都是 Core 下发的定时器，每个事件带宿主捕获的 generation，过期回调被 Core 忽略；用户停止走 `finishSendingAndStop` 有界排空。代价是每次写多一次 Core 往返，换来各平台共用一套写队列和失败规则。
 - 让 `run/start` 的运行进入新的 Run 工具窗口：需要新增目录项、图标与布局；先复用 Build 面板的输出区。
 
 ## 后果
 
 - Java Support 不再因宿主能力缺失被拒绝；新增的宿主能力其他插件也能使用，不需要按插件 ID 特判。
 - 输出链接、run 启动参数、调试端点与传输期限的规则只在 Core 一处，Go 端改动不会让各平台行为分叉。
-- 运行输出暂时复用 Build 面板；`debug/start` 和 launch 目标没接，插件调用会收到 `plugin.host.unavailable`，需要时再补。
+- 运行输出暂时复用 Build 面板；`debug/start` 已接（`pluginservice/debug_start.go`，宿主由窗口启动该插件自己的适配器，配置覆盖适配器声明的默认参数），launch 目标没接，插件调用会收到 `plugin.host.unavailable`。
 
 ## 已知缺口
 
-- `debug/start` 宿主方法、`debug.target: launch`、launch.json 导入、`tcpPort` / `tcpAnnounced`（插件进程托管）、远程 attach 的路径映射输入。
+- `debug.target: launch`、launch.json 导入、`tcpPort` / `tcpAnnounced`（插件进程托管）、远程 attach 的路径映射输入。
 - Build 输出区只在检测到构建系统后显示；运行视图不受影响。
 - 运行视图和 Debug 表单已在 Page 迁移中改为 Viva Page（`workbench/runpanels.go`；工作台根窗口改为一个 Page 后它们是根 Page 调用的组件，见 `2026-11-10-workbench-root-page-and-viva-upgrade.md`）。
 

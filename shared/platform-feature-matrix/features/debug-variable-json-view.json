@@ -4,28 +4,26 @@
   "group": "调试器",
   "capability": "调试变量默认JSON与树形切换",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/workbench/app.go",
-      "desktop/internal/workbench/chrome.go"
+      "desktop/internal/workbench/debug_json.go",
+      "desktop/internal/workbench/debug_json_test.go",
+      "desktop/internal/workbench/debug_sections_view.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/workbench/app.go",
-      "desktop/internal/workbench/chrome.go"
+      "desktop/internal/workbench/debug_json.go",
+      "desktop/internal/workbench/debug_json_test.go",
+      "desktop/internal/workbench/debug_sections_view.go"
     ]
   },
   "owner": "Debug",
   "verification": "暂停真实目标，确认默认JSON可选择和复制，Variables标题右端按钮切树并切回JSON，树展开状态保持；切换线程/帧/作用域、恢复运行或离开JSON时取消并拒绝迟到结果。验证多层对象、连续索引数组、重复引用、循环、长整数、字段失败、根分页及深度/节点/输出限制标记；深浅主题高亮、固定标题和Watches原操作。 验证JSON对象/数组箭头折叠、父子状态保持、更新后清空旧折叠、折叠后仍可复制完整快照及紧凑线程选择器。 实际拖动Watches分隔条、缩放窗口、Add/Edit Watch居中与取消保存；比较Console空/非空及主题和壁纸背景。 验证JSON展开/收起行hover显隐、跨行移动、隐藏时点击不折叠、键盘聚焦、拖动期间隐藏及布局不跳动。 深浅主题验证方法/行号颜色、同名去重、关闭源码名称恢复、内部类与不同类名保留。",
-  "notes": "Viva 当前的运行、调试和问题面板为占位，语言服务状态为静态未启动；桌面客户端尚未接入对应的 LSP、DAP 或构建 Provider 工作流。Core 接口及编辑器内部语义高亮数据结构不能代替端到端接入。",
+  "notes": "Variables 区可在树与 JSON 文本之间切换：JSON 只镜像已加载的变量（`[n]` 子项为数组，数字、布尔、null 与带引号字符串保持原文，其余文本为字符串），未展开容器显示适配器的摘要值，不额外请求适配器。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

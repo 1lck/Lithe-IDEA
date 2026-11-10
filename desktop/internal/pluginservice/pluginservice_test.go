@@ -459,6 +459,10 @@ func (k *fakeKernel) DecodeRunStart(context.Context, json.RawMessage, string, st
 	return core.RunStart{}, errors.New("fixture kernel does not decode run starts")
 }
 
+func (k *fakeKernel) DecodeDebugBackendConfiguration(context.Context, json.RawMessage, json.RawMessage) (core.DebugBackendStart, error) {
+	return core.DebugBackendStart{}, errors.New("fixture kernel does not decode debug starts")
+}
+
 func (k *fakeKernel) DecodeOutputLinkResolution(context.Context, json.RawMessage) (*core.OutputLocation, error) {
 	return nil, errors.New("fixture kernel does not decode output links")
 }

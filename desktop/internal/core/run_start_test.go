@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -88,5 +89,58 @@ func TestDebugTransportPolicyOutlastsTheConnect(t *testing.T) {
 	}
 	if policy.InitializationMilliseconds <= policy.Limits.ConnectMilliseconds {
 		t.Fatalf("initialization %d must outlast connect %d", policy.InitializationMilliseconds, policy.Limits.ConnectMilliseconds)
+	}
+}
+
+// TestDecodeDebugBackendConfigurationFollowsTheContractFixture replays every
+// debug/start case of the shared fixture.
+func TestDecodeDebugBackendConfigurationFollowsTheContractFixture(t *testing.T) {
+	var fixture struct {
+		Manifest string `json:"manifest"`
+		Cases    []struct {
+			Name   string          `json:"name"`
+			Params json.RawMessage `json:"params"`
+			Start  json.RawMessage `json:"start"`
+			Error  *struct {
+				Code  string `json:"code"`
+				Field string `json:"field"`
+			} `json:"error"`
+		} `json:"cases"`
+	}
+	path := filepath.Join("..", "..", "..", "shared", "contracts", "plugins", "v1", "fixtures", "debug-adapters")
+	raw, err := os.ReadFile(filepath.Join(path, "debug-start.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := os.ReadFile(filepath.Join(path, fixture.Manifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	for _, test := range fixture.Cases {
+		t.Run(test.Name, func(t *testing.T) {
+			start, err := NewClient().DecodeDebugBackendConfiguration(ctx, manifest, test.Params)
+			if test.Error != nil {
+				var rejection *MarketplaceRejection
+				if !errors.As(err, &rejection) || rejection.Code != test.Error.Code || rejection.Field != test.Error.Field {
+					t.Fatalf("err = %v, want %s at %s", err, test.Error.Code, test.Error.Field)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			gotJSON, _ := json.Marshal(start)
+			var got, want map[string]any
+			_ = json.Unmarshal(gotJSON, &got)
+			_ = json.Unmarshal(test.Start, &want)
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("start = %s, want %s", gotJSON, test.Start)
+			}
+		})
 	}
 }

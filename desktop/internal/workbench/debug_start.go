@@ -40,6 +40,10 @@ type debugStart struct {
 	target *core.DebugTargetFacts
 	// confirmed records that the user accepted a non-local endpoint.
 	confirmed bool
+	// configuration is the plugin backend's DAP launch or attach arguments, set
+	// when a backend started the session through debug/start. They apply on top
+	// of the adapter's declared arguments and no file or connection is planned.
+	configuration map[string]any
 }
 
 // debugRemotePrompt is an attach to a non-local endpoint waiting for the user.
@@ -176,6 +180,61 @@ func (a *App) attachDebugForRun(ctx context.Context, request pluginservice.RunDe
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}
+}
+
+// startDebugForBackend starts the plugin's own adapter for a backend's
+// debug/start. It runs on a background goroutine, asks the window thread to
+// create the session and returns its ID. The workspace must be the open project
+// and no other session may run: one project has one Debug session.
+func (a *App) startDebugForBackend(ctx context.Context, request pluginservice.DebugSessionRequest) (string, error) {
+	type outcome struct {
+		id  string
+		err error
+	}
+	result := make(chan outcome, 1)
+	a.post(func(a *App) {
+		p := a.project
+		switch {
+		case p == nil || filepath.Clean(p.root) != filepath.Clean(request.WorkspaceRoot):
+			result <- outcome{err: errors.New("the workspace is not open")}
+			return
+		case !p.debug.loaded:
+			result <- outcome{err: errors.New("the debug adapters are still loading")}
+			return
+		case p.debug.session != nil:
+			result <- outcome{err: errors.New("a debug session is already running")}
+			return
+		}
+		for _, adapter := range p.debug.adapters {
+			if adapter.PluginID+"/"+adapter.Declaration.ID != request.AdapterID {
+				continue
+			}
+			a.beginDebug(p, debugStart{adapter: adapter, request: request.Request, confirmed: true, configuration: request.Configuration})
+			if p.debug.session == nil {
+				result <- outcome{err: errors.New("the debug session could not start")}
+				return
+			}
+			result <- outcome{id: p.debug.session.id}
+			return
+		}
+		result <- outcome{err: fmt.Errorf("this client cannot start the debug adapter %q", request.AdapterID)}
+	})
+	select {
+	case r := <-result:
+		return r.id, r.err
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+// stopDebugForBackend ends the session a backend started, when it is still the
+// window's current one.
+func (a *App) stopDebugForBackend(sessionID string) {
+	a.post(func(a *App) {
+		if p := a.project; p != nil && p.debug.session != nil && p.debug.session.id == sessionID {
+			a.stopDebugByUser(p)
+		}
+	})
 }
 
 // beginDebug creates the session and starts its transport in the background.
