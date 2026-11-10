@@ -24,6 +24,7 @@ import (
 type editorKernel interface {
 	LineEdit(context.Context, core.LineEditRequest) (core.LineEditOutcome, error)
 	LineCommentToken(context.Context, string) (*string, error)
+	ReduceNavigationHistory(context.Context, core.NavigationHistory, core.NavigationHistoryEvent) (core.NavigationHistory, *core.NavigationLocation, error)
 }
 
 // lineOperationFor maps a chord to its line operation. Alt-Up and Alt-Down move, adding Shift
@@ -61,8 +62,14 @@ func lineOperationFor(event gfx.KeyEvent, primary gfx.Modifiers) (core.LineEditO
 
 // lineEditKey handles a line-operation key of the focused document, or reports it unhandled.
 func (a *App) lineEditKey(p *project, d *document, event gfx.KeyEvent) (gfx.EventResult, bool) {
+	if event.Target != d.hit {
+		return gfx.EventResult{}, false
+	}
+	if result := a.navigationHistoryShortcut(event); result.Handled {
+		return result, true
+	}
 	op, ok := lineOperationFor(event, primaryModifier())
-	if !ok || event.Target != d.hit {
+	if !ok {
 		return gfx.EventResult{}, false
 	}
 	a.runLineOperation(p, d, op)

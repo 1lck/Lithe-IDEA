@@ -1698,6 +1698,7 @@
     "desktop.mcp.url": "地址",
     "desktop.mcp.working": "正在保存…",
     "desktop.mcp.writeFailed": "保存失败：{reason}",
+    "desktop.navigation.historyUnavailable": "该位置已不存在。",
     "desktop.navigation.label": "[行] [:列]:",
     "desktop.navigation.title": "跳转到行:列",
     "desktop.newProject.advanced": "高级设置",

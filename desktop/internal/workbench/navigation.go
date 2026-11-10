@@ -137,6 +137,7 @@ func (a *App) confirmNavigation(p *project) {
 		a.closeNavigation()
 		return
 	}
+	a.recordNavigationJump(p, doc.path, v.target.Line, v.target.Column)
 	if doc.view.GoToNavigation(v.target.Line, v.target.Column, v.target.SelectsWholeLine) {
 		a.closeNavigation()
 	}

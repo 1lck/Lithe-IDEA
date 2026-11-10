@@ -13571,6 +13571,13 @@
       }
     },
     {
+      "id": "desktop.navigation.historyUnavailable",
+      "description": "Banner shown when the location a back/forward step leads to no longer exists",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.navigation.label",
       "description": "Input label for the go to line and column dialog.",
       "platforms": [

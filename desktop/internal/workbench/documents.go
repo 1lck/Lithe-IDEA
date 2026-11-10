@@ -253,6 +253,7 @@ func (a *App) openFileAtPosition(p *project, path string, line, column int) {
 	if path == "" {
 		return
 	}
+	a.recordNavigationJump(p, path, line, column)
 	if d := p.docs.byPath(path); d != nil {
 		a.selectDocument(p, d.id)
 		d.view.GoToNavigation(line, column, false)

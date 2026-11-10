@@ -1698,6 +1698,7 @@
     "desktop.mcp.url": "URL",
     "desktop.mcp.working": "Saving…",
     "desktop.mcp.writeFailed": "Saving failed: {reason}",
+    "desktop.navigation.historyUnavailable": "That location no longer exists.",
     "desktop.navigation.label": "[Line] [:column]:",
     "desktop.navigation.title": "Go to Line:Column",
     "desktop.newProject.advanced": "Advanced Settings",

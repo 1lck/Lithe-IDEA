@@ -336,6 +336,9 @@ type App struct {
 	pluginDiagnostics map[string]*plugindiag.Set
 	// semantics is the editor's pending and presented language answers.
 	semantics pluginSemantics
+	// editor holds the state of the editor features that are not part of the language
+	// semantics: back/forward history, the outline, references and so on (editor_features.go).
+	editor editorFeatures
 
 	welcome    welcomeState
 	clone      cloneState
