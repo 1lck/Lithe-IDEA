@@ -293,6 +293,12 @@ Viva 在 macOS、Windows 和 Linux 使用 `desktop/internal/i18n/` 的接口及�
 
 - 使用 `gofmt` 和 `desktop/go.mod` 固定的依赖；测试和构建通过 `scripts/desktop/desktop-go.sh` 接入固定版本的 Core。优先复用已有 Core 编译缓存，不为了普通界面迭代反复触发全量 Rust 构建。
 - 可交互界面使用 Viva 无头驱动验证，视觉改动与旧 macOS 客户端截图对照；无头截图不能代替目标平台的原生窗口验收。后台任务、文件监听和测试进程必须有界退出并清理。
+- 界面用 Viva 的 Page 写法（`func (m *model) page(c ui.C)`、`ui.NewPage`），不再新写基于 `*ui.Frame` 的界面；上游会把 Frame 收为底层引擎，应用层不再直接使用。写法以上游 `docs/skills/building-with-viva/SKILL.md` 为准：
+  - 列表、树、菜单、弹窗、提示、表单优先用 `ui.List`、`ui.Tree`、`ui.Menu`/`ui.ContextMenu`、`ui.Modal`/`ui.Drawer`、`ui.Toasts` 和 `ui.TextField` 等，不再自造同类组件。
+  - 属于页面的后台工作用 `ui.Effect`，不再手写“锁 + `Invalidate` + `OnWake`”。
+  - 编辑器、终端等自绘控件用 `ui.Control` 加 `ui.Handlers` 接收输入，不走窗口级分发。
+  - 迁移期间，尚未迁移的 Frame 窗口可以把一个区域交给 Page 绘制（`f.Slot().Draw(...)` 中调用 `page.Draw`），按窗口、按面板逐步迁移；新增面板直接写成 Page。
+  - 逻辑（Core 调用、取消、过期结果隔离、状态转换）与绘制分文件，绘制层只读状态、声明元素和处理本次交互。
 
 ### Rust
 
