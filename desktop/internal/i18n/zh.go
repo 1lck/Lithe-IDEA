@@ -118,6 +118,13 @@ var chinese = Messages{
 		Commit:             Shared(Chinese, "git.commit"),
 		CommitAndPush:      Shared(Chinese, "desktop.commit.commitAndPush"),
 		Committing:         Shared(Chinese, "desktop.commit.committing"),
+		Options:            Shared(Chinese, "desktop.commit.options"),
+		SignOff:            Shared(Chinese, "desktop.commit.signOff"),
+		SignOffHelp:        Shared(Chinese, "desktop.commit.signOffHelp"),
+		Author:             Shared(Chinese, "desktop.commit.author"),
+		AuthorPlaceholder:  Shared(Chinese, "desktop.commit.authorPlaceholder"),
+		AuthorHelp:         Shared(Chinese, "desktop.commit.authorHelp"),
+		AuthorInvalid:      Shared(Chinese, "desktop.commit.authorInvalid"),
 		Result: func(repository, status string) string {
 			return SharedFormat(Chinese, "desktop.commit.result", map[string]string{"repository": repository, "status": status})
 		},
@@ -130,7 +137,11 @@ var chinese = Messages{
 		MessageLine: func(message string) string {
 			return SharedFormat(Chinese, "desktop.commit.messageLine", map[string]string{"message": message})
 		},
-		AmendNote:    Shared(Chinese, "desktop.commit.amendNote"),
+		AmendNote: Shared(Chinese, "desktop.commit.amendNote"),
+		AuthorLine: func(author string) string {
+			return SharedFormat(Chinese, "desktop.commit.authorLine", map[string]string{"author": author})
+		},
+		SignOffNote:  Shared(Chinese, "desktop.commit.signOffNote"),
 		Step:         func(n int, action, repository string) string { return commitStep(Chinese, n, action, repository) },
 		StepCommit:   Shared(Chinese, "git.commit"),
 		StepPush:     Shared(Chinese, "desktop.commit.stepPush"),

@@ -268,6 +268,7 @@ func (a *App) stashWrite(p *project, operation string, write func(ctx context.Co
 	s.busy, s.writeErr, s.dropping = true, "", nil
 	root := p.git.repositoryRoot(p.root)
 	a.performed("git."+operation, surfaceButton)
+	a.showGitConsole(itemCommit)
 	a.background(p, syncTimeout, func(ctx context.Context) func(*App) {
 		err := write(ctx, kernel, root)
 		return func(a *App) {

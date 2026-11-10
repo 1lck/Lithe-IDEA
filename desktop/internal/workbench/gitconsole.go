@@ -665,6 +665,30 @@ func (a *App) consoleScrollToEnd() {
 	a.consoleView.detach = false
 }
 
+// showGitConsole shows the Console tab of the Git tool window, scrolled to its end, when the
+// user starts a Git write outside that tool window: in the Commit tool window, a Diff tab or
+// the title bar's branch popup. The commands the write runs and what they write are then in
+// view. A write started on a page of the Git tool window, the Log or the Worktrees, leaves
+// that page in view, since the user works in it and the Console is one tab away. from is
+// the catalog item of the tool window the write was started in, empty for the title bar:
+// when that window shares the Git tool window's zone and is open there, the Git tool window
+// does not take its place, and only its tab changes.
+func (a *App) showGitConsole(from string) {
+	a.layout.gitTab = gitTabConsole
+	a.consoleView.list.ScrollToEnd()
+	a.consoleView.detach = false
+	git := catalogIndex[itemGit]
+	if a.chrome.isOpen(git) {
+		return
+	}
+	if source, known := catalogIndex[from]; known {
+		if s, ok := a.chrome.zoneOf(git).slot(); ok && a.chrome.open[s] == source {
+			return
+		}
+	}
+	a.reduceChrome(core.SetChromeOpen(itemGit, true))
+}
+
 // stopConsole asks Core to cancel the commands that are running.
 func (a *App) stopConsole() {
 	a.performed("git.console.stop", surfaceButton)

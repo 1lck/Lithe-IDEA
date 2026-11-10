@@ -32,8 +32,8 @@
 | 现状 | 数量 |
 | --- | --- |
 | 完成 | 1 |
-| 部分 | 58 |
-| 未开始 | 131 |
+| 部分 | 62 |
+| 未开始 | 127 |
 
 “完成”只有 `agent-minimal-conversation`（最小会话切片，非完整 Agent）。“部分”含 JSON 为 partial 的行与按代码改判的行；其中没有任何一行已完成原生窗口验收。
 
@@ -290,9 +290,9 @@
 
 | id | 能力 | 分类 | 基线 mac/win | Viva 现状 | 缺口 / 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `git-branches-remotes` | 分支、标签与远程 | 必须迁移 | 实现/实现 | 部分 | branch.go、branch_view.go、core/gitbranch.go；Fetch/Update 为占位(C08) |
+| `git-branches-remotes` | 分支、标签与远程 | 必须迁移 | 实现/实现 | 部分 | branch.go、branch_view.go、gitsync.go、core/gitbranch.go；标题栏分支弹窗可签出（含智能/强制签出）、新建、重命名、删除分支，按修订签出，列出标签；获取（含选项与进度）、更新当前或指定分支已接入，分叉时可选合并或变基；把分支合并/变基到当前分支、新建/删除标签、远程管理未找到 |
 | `git-commit-sidebar-toolbar-icons` | macOS Commit/Shelf 标签采用共享选中与悬停样式、1… | 放弃 | 实现/专属 | — | 见“放弃”表 |
-| `git-diff-review` | Diff 与变更审查（含未暂存修改块的暂存/取消暂存/回退操作；块级… | 必须迁移 | 实现/实现 | 部分 | 提交详情可打开文件差异；暂存块/取消暂存块操作未找到 |
+| `git-diff-review` | Diff 与变更审查（含未暂存修改块的暂存/取消暂存/回退操作；块级… | 必须迁移 | 实现/实现 | 部分 | difftab.go、difftab_view.go：Diff 为编辑区标签页，支持并排/统一、差异跳转、折叠未更改与文件切换；块级包含/排除（暂存/取消暂存）与回退修改块已接入；编辑器 gutter 可暂存修改块（git_gutter.go）；其余项未与旧版逐项核对 |
 | `git-explorer-context-actions` | 项目文件树右键 Git 操作 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
 | `git-history` | 提交历史与图谱 | 必须迁移 | 实现/实现 | 部分 | C08 |
 | `git-large-untracked-directories` | 大型未跟踪目录汇总与按需展开 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
@@ -301,12 +301,12 @@
 | `git-metadata-observation` | Git 元数据变化观察与刷新 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
 | `git-multi-repository-change-groups` | 多仓库变更折叠分组 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
 | `git-multi-repository-references` | 多仓库引用面板 | 必须迁移 | 实现/实现 | 未开始 | — |
-| `git-rebase-stash` | Rebase 与 Stash | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
+| `git-rebase-stash` | Rebase 与 Stash | 必须迁移 | 实现/实现 | 部分 | stash.go、stash_view.go：Commit 工具窗口暂存页可查看、应用、弹出、删除与新建 stash；拉取分叉时可选变基（gitsync.go）；独立 Rebase（含交互式）未找到 |
 | `git-repository-discovery` | 仓库自动发现排除隐藏目录与构建缓存 | 必须迁移 | 实现/实现 | 部分 | core/repository_colors.go、gitmetadata/ |
 | `git-status-colors-idea-alignment` | Windows 默认主题 Git 状态配色与 IDEA 对齐（修改/… | 放弃 | 专属/实现 | — | 见“放弃”表 |
-| `git-status-commit` | 状态、暂存与提交 | 必须迁移 | 实现/实现 | 部分 | commit.go、commit_view.go、core/gitcommit.go |
+| `git-status-commit` | 状态、暂存与提交 | 必须迁移 | 实现/实现 | 部分 | commit.go、commit_view.go、core/gitcommit.go；“提交选项”可加 Sign-off、指定作者（必须是 `Name <email>`，否则 Core 以 `git_commit_author_invalid` 拒绝，作者在提交成功后清空）；Git 控制台（gitconsole.go、core/gitconsole.go）除自动刷新、监听这类后台命令外记录全部 Git 命令，含读取状态的内部查询，查询的答案型非零退出显示为预期；Commit 工具窗口、Diff 标签和分支弹窗发起的写操作会切到控制台页，Log 与工作树页的不切换 |
 | `git-submodule-commit-plan` | 子模块先提交与推送、自动更新父引用、计划变化再次确认 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
-| `git-workspace-commit-retry` | 失败后只重试未完成的提交或推送步骤 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
+| `git-workspace-commit-retry` | 失败后只重试未完成的提交或推送步骤 | 必须迁移 | 实现/实现 | 部分 | commit.go `retryCommit`：本项目仓库的提交失败后可重试剩余步骤，先显示复核；多仓库批量提交未接（见 `git-workspace-staged-commit`） |
 | `git-workspace-staged-commit` | 按文件所属仓库批量提交及推送，保留每仓库结果 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
 | `git-worktrees` | Worktree 管理 | 必须迁移 | 实现/实现 | 部分 | gitworktree.go、gitworktree_view.go、core/gitworktree.go；在新窗口打开、悬停信息、设置页未做 |
 | `vcs-subversion-and-plugin-providers` | 统一 VCS 模型与插件 VCS Provider | 插件提供 | 部分/缺 | 未开始 | C06 扩展点：vcsProviders；无 desktop/ 证据 |
@@ -468,9 +468,16 @@
 | 崩溃报告收集 | macOS `MacCrashReportCollector.swift` | 平台专属（macOS） | 未找到（`signal_guard_darwin.go` 仅为信号保护） |
 | Git Shelf（搁置） | macOS `ShelveService.swift`；Windows `shelf_storage.rs` | 必须迁移 | 未找到 |
 | HTML 预览打印/缩放 | macOS `HTMLPreviewPrint.swift`、`HTMLPreviewZoom.swift` | 放弃（依赖 WebKit，Viva 无嵌入网页；2026-11-10 确认） | 未找到 |
-| 开发版配置迁入（Dev 取 Stable 配置） | macOS `MacDevelopmentProfileMigration.swift`；Windows `profile_migration.rs` | 放弃（内部并行试用用，见下文数据清单的正式升级方案） | 未找到 |
+| 开发版配置迁入（Dev 取 Stable 配置） | macOS `MacDevelopmentProfileMigration.swift`；Windows `profile_migration.rs` | 放弃（内部并行试用用；新客户端与旧 Lithe 的关系见下文数据清单开头） | 未找到 |
 
 ## 旧客户端数据来源清单
+
+新客户端与旧 Lithe 的关系（2026-11-10 确定）：
+
+- 新客户端（`app.lithe.viva`，产品名 Lithe Desktop）是新产品，与旧 Lithe 并行安装，不做原地升级，也不衔接旧 Sparkle 更新链。
+- 旧 Lithe 停止更新，直到迁移完成；在此之前旧客户端仍会被使用，它的数据必须保持可用。
+- 新客户端不自动读取、改写或删除旧客户端的任何数据。下表“迁移建议”列描述的都是**用户主动触发的可选导入**：只读旧来源，写入新位置并读回成功才算完成，不修改旧数据。这类导入不是首个预发布的前置条件。
+- 已实现的导入：插件凭据（macOS，设置齿轮菜单“从旧版 Lithe 导入插件凭据”）。其余各项尚未实现。
 
 口径：旧 macOS 的 bundle id 为 `app.lithe.desktop`（Dev 渠道 `app.lithe.desktop.dev`，Dev 的 Application Support/Logs 根多一层 `app.lithe.desktop.dev/`，见 `MacAppIdentity.swift`）；旧 Windows Tauri 标识为 `app.lithe.windows`（Dev `app.lithe.windows.dev`）。Tauri 目录按其默认规则推出：`app_data_dir` 与 `app_config_dir` 为 `%APPDATA%\<标识>`，`app_local_data_dir` 为 `%LOCALAPPDATA%\<标识>`，`app_log_dir` 为 `%LOCALAPPDATA%\<标识>\logs`；这些路径由代码调用加规则推出，未在 Windows 机器上实测。
 
@@ -478,7 +485,7 @@
 
 | 数据类别 | macOS 旧位置 | Windows 旧位置 | 写入的旧代码 | 新客户端当前位置 | 迁移建议 |
 | --- | --- | --- | --- | --- | --- |
-| 应用偏好 | UserDefaults 域 `app.lithe.desktop`（`~/Library/Preferences/app.lithe.desktop.plist`）；Sparkle 另用域 `app.lithe.desktop.sparkle.<channel>` | Tauri store `settings.json`（`%APPDATA%\app.lithe.windows\settings.json`），另有 WebView localStorage（zustand 持久化） | macOS `MacUserDefaultsStore.swift`、`Models/Settings/AppSettings.swift`；Windows `features/settings/lib/settings-persistence.ts` | `Lithe Desktop/settings.json`（`workbench/app.go` `settingsFile`） | 读取旧来源、按共享版本化模型转换，保留未知字段；写入并读回成功前不删源；不可映射项留可见说明 |
+| 应用偏好 | UserDefaults 域 `app.lithe.desktop`（`~/Library/Preferences/app.lithe.desktop.plist`）；Sparkle 另用域 `app.lithe.desktop.sparkle.<channel>` | Tauri store `settings.json`（`%APPDATA%\app.lithe.windows\settings.json`），另有 WebView localStorage（zustand 持久化） | macOS `MacUserDefaultsStore.swift`、`Models/Settings/AppSettings.swift`；Windows `features/settings/lib/settings-persistence.ts` | `Lithe Desktop/settings.json`（`workbench/app.go` `settingsFile`） | 读取旧来源、按共享版本化模型转换，保留未知字段；不删除或改写旧来源；不可映射项留可见说明 |
 | 最近项目 | UserDefaults 键 `lithe.recent-projects` | WebView localStorage 键 `lithe-code-recent-folders`、`lithe-recent-files` | macOS `Services/Workspace/RecentProjectsStore.swift`；Windows `features/file-system/stores/recent-folders.store.ts`、`recent-files.store.ts` | `Lithe Desktop/recent-projects.json`（`workbench/app.go`，排序由 Core 决定） | 导入路径与 openedAt，经 Core 规范化；已不存在的目录按现有 missing 标记处理 |
 | 窗口/布局 | UserDefaults 键前缀 `lithe.workbench-layout.<工作区路径>`；会话（已开标签）键前缀 `lithe.workspace-session.<工作区路径>` | 布局与标签状态的持久化位置未找到（WebView localStorage 内的 zustand 存储，键名未逐一核对） | macOS `Services/Workbench/WorkbenchLayoutStore.swift`、`Services/Workspace/WorkspaceSessionStore.swift` | 布局 `Lithe Desktop/workbench-layout-v2.json`（`workbench/catalog.go`）；工作区会话：未找到 | 旧布局语义与 v2 不同（旧为面板排布，v2 为六区停靠），只映射可对应项；会话恢复需新增存储 |
 | 快捷键 | 存储键未找到（代码在 `Models/Keymap/`）；macOS 导入 IDE 快捷键走 keymap-import 插件 | WebView localStorage 键 `keymaps-storage`（`features/keymaps/stores/keymaps.store.ts`） | 同左 | 未找到（设置页快捷键为占位，C07） | 先定义新存储，再导入显式覆盖项；与插件快捷键导入共用冲突预览 |
@@ -488,9 +495,9 @@
 | 插件设置 | 全局值 UserDefaults（`MacPluginSettingsStore.swift`，键未逐项核对）；项目覆盖 `<工作区>/.lithe/plugin-settings.json` | 全局 `%LOCALAPPDATA%\app.lithe.windows\plugin-settings\<pluginID>.json`；项目覆盖同样 `.lithe/plugin-settings.json` | Windows `plugin_host/settings.rs` | 项目 `.lithe/plugin-settings.json`（`pluginsettings/store.go`，两端一致可直接沿用）；全局：经 `pluginsettings` 偏好存储，具体文件名未核对 | 项目层不迁；全局层读旧值、按 Core 校验后写入，校验不过的保留旧文件 |
 | 插件私有状态 | `Application Support/Lithe/PluginState`，Web 状态 `MacPluginWebStateStore.swift` | `%LOCALAPPDATA%\app.lithe.windows\plugin-state\<pluginID>`（`plugin_host/store.rs`） | 同上 | 未找到 | 属于插件，建议按插件 ID 原样复制目录，缺失则让插件重建 |
 | 插件市场来源 | `Application Support/Lithe/PluginMarketplace/sources.json` | 未找到 | `MacPluginMarketplaceService.swift` | 未找到（`marketplace/` 读取固定官方与社区索引） | 自定义源导入后再提示用户确认，不静默加入 |
-| 凭据：GitHub / 代理 / 数据库 / 远程 / 插件 | Keychain service：`app.lithe.desktop.github`（键 `oauth-token`）、`app.lithe.desktop.proxy`（键 `proxy.password`）、`app.lithe.desktop.database`、`app.lithe.desktop.remote`、`app.lithe.desktop.plugin-credentials`（按 pluginID 追加） | Windows 凭据管理器（keyring crate）：service 为应用标识 `app.lithe.windows`，用户名为调用方键（如 `ai-provider-token/<id>`） | macOS `MacServiceContainer.swift`、`MacKeychainSecureStore.swift`、`MacPluginCredentialStore.swift`；Windows `secure_storage.rs` | 未找到 Viva 钥匙串/凭据适配器 | 新应用身份不同（`app.lithe.viva`）会读不到旧钥匙串项：需沿用旧 service 名读取，或用户确认后迁移；不得导出明文 JSON |
+| 凭据：GitHub / 代理 / 数据库 / 远程 / 插件 | Keychain service：`app.lithe.desktop.github`（键 `oauth-token`）、`app.lithe.desktop.proxy`（键 `proxy.password`）、`app.lithe.desktop.database`、`app.lithe.desktop.remote`、`app.lithe.desktop.plugin-credentials`（按 pluginID 追加） | Windows 凭据管理器（keyring crate）：service 为应用标识 `app.lithe.windows`，用户名为调用方键（如 `ai-provider-token/<id>`） | macOS `MacServiceContainer.swift`、`MacKeychainSecureStore.swift`、`MacPluginCredentialStore.swift`；Windows `secure_storage.rs` | 插件凭据：`desktop/internal/credentials`，service `app.lithe.viva.plugin-credentials.<插件ID>`（macOS 钥匙串，Windows 凭据管理器，Linux Secret Service）；GitHub、代理、数据库、远程凭据：未找到 | 插件凭据已实现导入：用户在设置齿轮菜单确认后，列出旧 `app.lithe.desktop.plugin-credentials.<插件ID>`（及 `.dev`）下的项，逐项读取（系统可能请求允许访问），只填补新位置没有的值，旧项不改不删；平时 `get`/`delete` 不碰旧项。旧 Windows 没有插件凭据。其余凭据随对应功能实现同样的可选导入；不得导出明文 JSON |
 | 凭据：AI/Agent | Keychain 键 `lithe.<来源>.imported.apiKey`；回退文件 `Application Support/Lithe/ai-secrets.json`（`MacLocalSecretStore.swift`）；Agent 数据目录 `Application Support/Lithe`（`AgentAccounts/<agent>/` 订阅账号，`agents/<id>` 适配器安装） | Tauri store `settings.json` 的 `agentPanel`；凭据在凭据管理器；Rust agent-host 数据目录 | macOS `AppModel+AgentAccounts.swift`、`AppModel+AgentConversation.swift`；Windows `agent_provider_settings.rs`、`ai-token-service.ts` | Core `agent.*` 接口接收调用方传入的 dataDirectory，Viva 传入的默认目录未找到；Agent 会话历史由 Codex/Claude CLI 自己保存，Viva 通过 `listSessions` 读取 | 订阅账号目录是官方 CLI 的独立配置目录，建议原路径只读复用；密钥按上一行处理 |
-| 数据库连接（旧内置模块） | UserDefaults `database.profiles.v1`、`database.connection-folders.v1`、`database.sql-history.v1`；迁移标记 `lithe.databasePluginMigration.v1` | 未找到 | `MacDatabasePluginMigration.swift` | 不适用（数据库由 Lithe Store 社区插件提供） | 由数据库插件负责导入；宿主只保证旧键与旧钥匙串可读 |
+| 数据库连接（旧内置模块） | UserDefaults `database.profiles.v1`、`database.connection-folders.v1`、`database.sql-history.v1`；迁移标记 `lithe.databasePluginMigration.v1` | 未找到 | `MacDatabasePluginMigration.swift` | 不适用（数据库由 Lithe Store 社区插件提供） | 由数据库插件负责导入；宿主不自动读取旧键与旧钥匙串，旧值只经用户触发的导入取得（插件凭据导入见“凭据：GitHub / 代理 / 数据库 / 远程 / 插件”行） |
 | 远程工作区 | `Application Support/Lithe/RemoteWorkspaces/<连接>/<路径哈希>/`；连接 `connections.json` | 未找到 | `MacRemoteWorkspaceRoots.swift` | 未找到 | 随远程功能迁移时再定 |
 | 未保存文档恢复 | 专用恢复存储未找到 | 未找到（`buffer.store.ts` 仅内存/localStorage 处理，未定位具体键） | — | 未找到 | 在新客户端设计恢复记录；不能丢旧未保存正文，但旧侧没有可迁移文件 |
 | 本地历史 | `Application Support/Lithe/LocalHistory`（`MacLocalHistoryAdapters.swift`，Rust Core 存取） | 未找到（`shelf_storage.rs` 的 `app_data_dir/git-shelves/<身份>` 是 Git Shelf，不是本地历史） | `RustLocalHistoryOperations.swift` | 未找到 | 保留旧目录只读，Viva 实现本地历史后按工作区相对身份导入 |
@@ -503,9 +510,9 @@
 
 | 项目 | 旧 macOS | 旧 Windows | 新客户端（desktop/） | 是否一致 |
 | --- | --- | --- | --- | --- |
-| 应用标识 | bundle id `app.lithe.desktop`（Dev `app.lithe.desktop.dev`），`macos/Resources/Info.plist`；Dev 由 `scripts/macos/package/configure-sparkle-app.sh` 在签名前改写 | Tauri `identifier` `app.lithe.windows`（Dev `app.lithe.windows.dev`），`windows/tauri/src-tauri/tauri.conf.json`、`tauri.autobuild.conf.json` | `desktop/viva.toml` `[app] id = "app.lithe.viva"` | 否。有意区分以便并行安装；但升级后钥匙串 service、UserDefaults 域、Tauri 数据目录都按旧标识命名，正式升级方案未定 |
+| 应用标识 | bundle id `app.lithe.desktop`（Dev `app.lithe.desktop.dev`），`macos/Resources/Info.plist`；Dev 由 `scripts/macos/package/configure-sparkle-app.sh` 在签名前改写 | Tauri `identifier` `app.lithe.windows`（Dev `app.lithe.windows.dev`），`windows/tauri/src-tauri/tauri.conf.json`、`tauri.autobuild.conf.json` | `desktop/viva.toml` `[app] id = "app.lithe.viva"` | 否。有意区分：新客户端是新产品，与旧 Lithe 并行安装，不做原地升级。旧钥匙串 service、UserDefaults 域、Tauri 数据目录仍按旧标识命名，只经用户触发的可选导入只读访问（见“旧客户端数据来源清单”开头） |
 | 应用名 / 版本 | `CFBundleName` Lithe，版本 0.1.0（Info.plist），发布时覆盖 | `productName` Lithe，0.3.0 | `name = "Lithe Desktop"`，`version = "0.7.0"` | 否（产品名不同，版本线独立） |
-| macOS 更新 | Sparkle：`SUFeedURL` 与 `SUPublicEDKey` 在构建时由 `configure-sparkle-app.sh` 写入。Stable 源 `https://github.com/<仓库>/releases/latest/download/appcast-<arch>.xml`；AutoBuild 源 `https://github.com/<仓库>/releases/download/AutoBuild/appcast-preview-<arch>.xml`；公钥来自仓库变量 `SPARKLE_PUBLIC_KEY`（值未在仓库内，未找到）；`SURequireSignedFeed`、`SUVerifyUpdateBeforeExtraction` 为 true；说明见 `docs/architecture/macos-updates.md` | — | `viva.toml` 与 `scripts/desktop/package-desktop.sh` 中未找到 Sparkle、appcast、feed、公钥任何配置 | 否。新客户端目前没有更新通道（`updates-check-download` 为未开始）；旧 Sparkle 增量更新不能直接衔接新标识 |
+| macOS 更新 | Sparkle：`SUFeedURL` 与 `SUPublicEDKey` 在构建时由 `configure-sparkle-app.sh` 写入。Stable 源 `https://github.com/<仓库>/releases/latest/download/appcast-<arch>.xml`；AutoBuild 源 `https://github.com/<仓库>/releases/download/AutoBuild/appcast-preview-<arch>.xml`；公钥来自仓库变量 `SPARKLE_PUBLIC_KEY`（值未在仓库内，未找到）；`SURequireSignedFeed`、`SUVerifyUpdateBeforeExtraction` 为 true；说明见 `docs/architecture/macos-updates.md` | — | `viva.toml` 与 `scripts/desktop/package-desktop.sh` 中未找到 Sparkle、appcast、feed、公钥任何配置 | 否。新客户端自建更新通道（新的 appcast 与签名公钥），不衔接旧 Sparkle 增量链；尚未实现（`updates-check-download` 为未开始） |
 | Windows 安装与更新 | — | Tauri 打包 `nsis`、`msi`（`tauri.conf.json` `bundle.targets`）；Tauri updater 插件，`tauri.conf.json` 中 `pubkey` 为空串、`endpoints` 为空；稳定版发布工作流 `release-windows.yml` 用 secret `TAURI_SIGNING_PRIVATE_KEY` 与变量 `TAURI_UPDATER_PUBLIC_KEY` 签名，产出 `Lithe-<版本>-windows-x64-updater.exe` | `viva.toml [windows]`：`scope = "user"`、`publisher = "Lithe contributors"`；`package-desktop.sh` Windows 默认格式 `nsis,zip`；更新机制未找到 | 部分。同为 NSIS；没有 MSI、更新器与签名公钥配置 |
 | 发布工作流 | `release-macos.yml`、`release-preview-macos.yml` | `release-windows.yml`、`release-preview-windows.yml` | `.github/workflows/desktop-release.yml`，标签 `desktop-v*.*.*`，作为 prerelease 发布，避免旧客户端的更新器读到 | 独立 |
 | 运行时只读边界 | 发行 bundle 运行期不可写（AGENTS.md） | 安装目录只读 | `package-desktop.sh` 注释声明运行时写入不落在 app 或安装目录；`runtime-package-integrity` 仅 macOS 夹具验证 | 一致于规则；Windows/最终包验证未完成 |

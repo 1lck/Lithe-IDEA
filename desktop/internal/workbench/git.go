@@ -25,7 +25,8 @@ type gitState struct {
 func (a *App) loadGit(p *project) {
 	kernel, root := a.kernel, p.root
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		status, err := kernel.GitStatus(ctx, root)
+		// The status is read again on every repository change, too often for the console.
+		status, err := kernel.GitStatus(core.AutomaticRefresh(ctx), root)
 		return func(a *App) {
 			a.setGit(p, gitState{loaded: true, status: status, err: err})
 			if err != nil {

@@ -118,6 +118,13 @@ var english = Messages{
 		Commit:             Shared(English, "git.commit"),
 		CommitAndPush:      Shared(English, "desktop.commit.commitAndPush"),
 		Committing:         Shared(English, "desktop.commit.committing"),
+		Options:            Shared(English, "desktop.commit.options"),
+		SignOff:            Shared(English, "desktop.commit.signOff"),
+		SignOffHelp:        Shared(English, "desktop.commit.signOffHelp"),
+		Author:             Shared(English, "desktop.commit.author"),
+		AuthorPlaceholder:  Shared(English, "desktop.commit.authorPlaceholder"),
+		AuthorHelp:         Shared(English, "desktop.commit.authorHelp"),
+		AuthorInvalid:      Shared(English, "desktop.commit.authorInvalid"),
 		Result: func(repository, status string) string {
 			return SharedFormat(English, "desktop.commit.result", map[string]string{"repository": repository, "status": status})
 		},
@@ -130,7 +137,11 @@ var english = Messages{
 		MessageLine: func(message string) string {
 			return SharedFormat(English, "desktop.commit.messageLine", map[string]string{"message": message})
 		},
-		AmendNote:    Shared(English, "desktop.commit.amendNote"),
+		AmendNote: Shared(English, "desktop.commit.amendNote"),
+		AuthorLine: func(author string) string {
+			return SharedFormat(English, "desktop.commit.authorLine", map[string]string{"author": author})
+		},
+		SignOffNote:  Shared(English, "desktop.commit.signOffNote"),
 		Step:         func(n int, action, repository string) string { return commitStep(English, n, action, repository) },
 		StepCommit:   Shared(English, "git.commit"),
 		StepPush:     Shared(English, "desktop.commit.stepPush"),

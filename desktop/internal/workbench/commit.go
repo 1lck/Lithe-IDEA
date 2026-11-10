@@ -38,6 +38,13 @@ type commitState struct {
 	editor       *text.Editor
 	messageField ui.Field
 	amend        bool
+	// author is the "Name <email>" the next commit records as its author, empty for the
+	// configured identity; it clears when a commit succeeds, as amend does.
+	author ui.Field
+	// signOff adds a Signed-off-by trailer to the commits; it stays on until turned off.
+	signOff bool
+	// optionsOpen is whether the commit options popover is open.
+	optionsOpen bool
 	// parents also records, in a parent repository, the new commits of the submodules
 	// committed with it; it starts on, as on macOS.
 	parents bool
@@ -114,14 +121,18 @@ type commitTarget struct {
 	scope *core.ChangeListScope
 	// written reads again what a run changed.
 	written func(*App)
+	// console says a run shows the Console tab of the Git tool window: the commit is the
+	// Commit tool window's, outside the Git tool window.
+	console bool
 }
 
 // projectCommit is the commit of the project's repository, held to the active ChangeList.
 func (p *project) projectCommit() commitTarget {
 	return commitTarget{
-		state: &p.commit,
-		root:  p.git.repositoryRoot(p.root),
-		scope: p.commitScope(),
+		state:   &p.commit,
+		root:    p.git.repositoryRoot(p.root),
+		scope:   p.commitScope(),
+		console: true,
 		written: func(a *App) {
 			a.checkoutWritten(p, p.git.repositoryRoot(p.root))
 			if p.log.started {
@@ -148,11 +159,16 @@ func (t commitTarget) request(push bool) core.WorkspaceCommitRequest {
 		Repositories:            []core.WorkspaceCommitRepository{{ID: commitRepositoryID, Root: t.root}},
 		Message:                 c.message(),
 		Amend:                   c.amend,
+		Author:                  c.authorText(),
+		SignOff:                 c.signOff,
 		Push:                    push,
 		IncludeParentReferences: c.parents,
 		PathScope:               t.scope,
 	}
 }
+
+// authorText is the author typed in the commit options, without the spaces around it.
+func (c *commitState) authorText() string { return strings.TrimSpace(c.author.Text()) }
 
 // stagedCount is the number of changes that have something in the index.
 func (g gitState) stagedCount() int { return countStaged(g.status.Changes) }
@@ -222,6 +238,7 @@ func (a *App) retryCommit(p *project, t commitTarget) {
 	previous := *c.attempt
 	request := t.request(previous.Push)
 	request.Message, request.Amend = previous.Message, previous.Amend
+	request.Author, request.SignOff = previous.Author, previous.SignOff
 	request.Previous, request.PathScope = &previous, nil
 	a.prepareCommit(p, t, request, true)
 }
@@ -265,6 +282,7 @@ func (a *App) confirmReview(p *project, t commitTarget) {
 	session := r.prep.Session
 	request := t.request(session.Push)
 	request.Message, request.Amend = session.Message, session.Amend
+	request.Author, request.SignOff = session.Author, session.SignOff
 	request.Reviewed = &session
 	if session.IsRetry && c.attempt != nil {
 		previous := *c.attempt
@@ -308,6 +326,9 @@ func (a *App) cancelReview(c *commitState) { c.review = nil }
 func (a *App) runCommit(p *project, t commitTarget, session core.WorkspaceCommitSession) {
 	c := t.state
 	c.busy, c.review, c.attempt = true, nil, nil
+	if t.console {
+		a.showGitConsole(itemCommit)
+	}
 	kernel := a.kernel
 	a.background(p, commitRunTimeout, func(ctx context.Context) func(*App) {
 		var err error
@@ -331,8 +352,8 @@ func (a *App) runCommit(p *project, t commitTarget, session core.WorkspaceCommit
 	})
 }
 
-// commitFinished reports the end of a run. A run that succeeded clears the message; one that
-// did not keeps its results, and a retry while it can continue.
+// commitFinished reports the end of a run. A run that succeeded clears the message, amend and
+// the author; one that did not keeps its results, and a retry while it can continue.
 func (a *App) commitFinished(c *commitState, session core.WorkspaceCommitSession) {
 	switch {
 	case session.Succeeded && session.Push:
@@ -346,6 +367,7 @@ func (a *App) commitFinished(c *commitState, session core.WorkspaceCommitSession
 	if session.Succeeded {
 		c.resetMessage()
 		c.amend = false
+		c.author.SetText("")
 		c.attempt = nil
 		return
 	}
@@ -374,7 +396,12 @@ func (a *App) dismissResults(c *commitState) { c.attempt = nil }
 
 // commitFailed reports a commit the kernel refused or could not run.
 func (a *App) commitFailed(err error) {
-	a.notify(a.text.Commit.Failed(err.Error()))
+	var e *core.Error
+	if errors.As(err, &e) && e.Code == core.CodeGitCommitAuthorInvalid {
+		a.notify(a.text.Commit.AuthorInvalid)
+	} else {
+		a.notify(a.text.Commit.Failed(err.Error()))
+	}
 	a.gitOperationFailed("git_commit", err)
 }
 

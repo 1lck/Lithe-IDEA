@@ -49,7 +49,13 @@ Viva 客户端现在由 `pluginservice.BackendHost` 为每个插件保持至多�
 
 - **窗口相关方法只在窗口接入时注册**。`Service.AttachWorkbench(Workbench)` 注册 documents、editor、window、browser 方法；窗口同时实现 `TerminalHost`、`VirtualDocumentHost` 时才注册 terminal 与内容提供者。没有窗口的会话（测试、无头）不会被授予没人能回答的方法，`getCapabilities` 因此保持真实。`Workbench` 的每个方法由 `pluginWorkbench` 通过 `onWindow` 交给窗口线程执行，调用方 context 结束即返回；已开始的编辑不回滚，与契约一致。
 - **凭据**（`internal/credentials`）：service 为 `app.lithe.viva.plugin-credentials.<插件ID>`，账户是插件的 key，所以按插件隔离；契约里 `credentials/*` 不带 context，凭据不按工作区分，需要按项目区分的插件把项目放进 key。macOS 用 Security framework（cgo，`SecItemAdd/Update/CopyMatching/Delete`，`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`），不用 `security` 命令行，避免密钥出现在 argv；Windows 与 Linux 用 `github.com/zalando/go-keyring`（MIT，Windows 走 Credential Manager，Linux 走 Secret Service/D-Bus，依赖 godbus BSD-2、wincred MIT）。不写日志、不落文件；错误只带状态码。Windows 凭据单项上限 2560 字节，超出返回 `limitExceeded`，和契约的 16 KiB 上限有差距。
-- **旧凭据迁移**：新位置没有、旧 macOS 位置（`app.lithe.desktop.plugin-credentials.<插件ID>`，再试 `.dev`）有时，用不弹窗的只读查询（`kSecUseAuthenticationUIFail`）读旧值、复制到新位置并返回；读取失败一律当作没有，绝不弹钥匙串密码框。迁移成功后**保留旧项**：Viva 与旧客户端并行安装，删掉会让旧客户端丢失数据库密码。为避免已删除的值经迁移复活，`credentials/delete` 同时删除新旧两处。旧 Windows 客户端没有存过插件凭据（它的 backend 从未对外宣告），所以没有 Windows 旧位置。旧的 Keychain 项如果由不同签名的应用创建，读取可能被访问控制拒绝，此时同样视为没有。
+- **旧凭据只在用户要求时导入**：Viva 是与旧 Lithe 并行安装的新产品，旧 Lithe 会一直使用到迁移完成，所以 Viva 平时**完全不碰**旧客户端的钥匙串项。`credentials/get` 只读 Viva 自己的位置，`credentials/delete` 只删 Viva 自己的项。
+  - 入口：用户在设置齿轮菜单里选“从旧版 Lithe 导入插件凭据”，并在说明对话框里确认后，`Store.ImportLegacy` 才执行一次导入。
+  - 列出：先用只取属性的查询（`kSecReturnAttributes` 加 `kSecUseAuthenticationUIFail`，不读密钥、不弹窗），列出旧 macOS 位置 `app.lithe.desktop.plugin-credentials.<插件ID>` 和 `.dev` 下的项。同一插件、同一 key 以稳定版为准。只有列出失败才算导入失败。
+  - 读取：逐项读取，这一步允许系统弹出“允许访问”提示。用户拒绝或读取出错的项计为失败，不中断其余项。
+  - 写入：Viva 已有值的项保留、不覆盖；等待提示期间插件新写入的值同样保留。旧项一律不改不删，否则旧客户端会丢失数据库密码等凭据。
+  - 结果只报告导入、保留、失败的数量，日志只带状态码。旧 Windows 客户端没有存过插件凭据（它的 backend 从未对外宣告），所以 Windows 和 Linux 不显示这个菜单项。
+  - 不要这样做：在 `get` 找不到时自动读旧位置。早先的版本这样做过，有两个问题：一是静默复制，用户不知道 Viva 拿到了旧密钥；二是为了防止已删除的值经迁移复活，`delete` 只好连旧项一起删，结果删掉了旧客户端仍在用的凭据。
 - **编辑**：`editorview.View.ApplyEdits` 把一批互不重叠的编辑合成一次 rope 差异，只产生一步撤销和一次语言服务器同步事件；位置按 UTF-16 解析，越界、落在代理对中间、重叠都拒绝（`OffsetOf`，与 LSP 风格的 `ByteOffset` 钳制不同，过期范围不能被悄悄挪动）。版本号是 view 的修订号，`getSnapshot`、`getSelections` 和所有编辑使用同一个；只读、输入法组字、版本不符分别返回 `readOnly`、`busy`、`versionConflict`（带 `currentVersion`）。编辑器只有单选区，`getSelections` 返回一个选区；`editor/open|reveal` 只把范围起点放成光标。资源路径要求相对、`/` 分隔、无 `.`/`..`，并对最长已存在前缀解析符号链接后确认仍在根内。
 - **窗口消息**：用现有 `sheet` 模态面板按到达顺序一次显示一个，限频 10 秒 5 条、每插件 3 条等待，其余返回 `rateLimited`（带 `retryAfterMilliseconds`）与 `busy`。面板用 Frame 引擎绘制，与旁边的插件审查面板一致，因为窗口主体还没迁到 Viva Page；迁移时与审查面板一起换。
 - **浏览器**：`browser/openExternal` 只接受 http/https URL（无内嵌凭据），经 Viva 的 `app.OpenURL` 打开；`resource` 形式返回 `unsupportedOption`。**`preview/openHTML` 不注册**：Viva 有系统 Web 视图（`docs/web-views.md`），但编辑器区还没有能承载网页的标签与“编辑器加预览”布局，在无头环境里也无法验证原生视图。

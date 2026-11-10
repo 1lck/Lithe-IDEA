@@ -70,7 +70,9 @@ func (a *App) refreshInlineBlame(p *project, d *document) {
 	d.blame.gen++
 	gen := d.blame.gen
 	a.background(p, reviewTimeout, func(ctx context.Context) func(*App) {
-		lines, err := kernel.GitBlame(ctx, root, rel)
+		// The inline blame follows every opened file and history change, too often for the
+		// console; the blame the user asks for is recorded.
+		lines, err := kernel.GitBlame(core.AutomaticRefresh(ctx), root, rel)
 		return func(a *App) {
 			if d.blame.gen != gen || p.docs.find(d.id) != d || !a.settings.InlineGitBlame {
 				return

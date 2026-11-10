@@ -580,8 +580,10 @@ func (c *GitConsole) finishRequest(root string, event *gitConsoleEvent) bool {
 			changed = true
 		}
 	}
+	// A failure no command reported, such as a refusal after the queries that read the
+	// state, is its own record; any other belongs to the last command.
 	if event.Error != nil {
-		if last := request.last; last != nil && !last.dropped {
+		if last := request.last; !event.FailureRecord && last != nil && !last.dropped {
 			last.record.Error = event.Error.text()
 			c.touch(last)
 			changed = true
@@ -626,6 +628,32 @@ func WithGitConsole(ctx context.Context, console *GitConsole, root string) conte
 		return context.WithValue(ctx, gitConsoleKey{}, (*gitConsoleSink)(nil))
 	}
 	return context.WithValue(ctx, gitConsoleKey{}, &gitConsoleSink{console: console, root: root})
+}
+
+type gitRefreshKey struct{}
+
+// AutomaticRefresh returns a context whose Git requests are automatic refreshes, which run
+// on every file or repository change: their internal queries stay out of the console, which
+// records every other Git command a request runs. The commands the user started still
+// appear.
+func AutomaticRefresh(ctx context.Context) context.Context {
+	return context.WithValue(ctx, gitRefreshKey{}, true)
+}
+
+// gitExecutionOf is the Git policy of a request: a Git request of a context with a console
+// asks Core to report its internal queries, unless the context is an automatic refresh.
+// Other requests keep Core's defaults.
+func gitExecutionOf(ctx context.Context, command string) *gitExecution {
+	if !strings.HasPrefix(command, "git.") || gitConsoleUnrecorded[command] {
+		return nil
+	}
+	if sink, _ := ctx.Value(gitConsoleKey{}).(*gitConsoleSink); sink == nil {
+		return nil
+	}
+	if refresh, _ := ctx.Value(gitRefreshKey{}).(bool); refresh {
+		return &gitExecution{Source: "background"}
+	}
+	return &gitExecution{ReportQueries: true}
 }
 
 // gitConsoleUnrecorded are the git commands that never run Git: they parse, plan or present

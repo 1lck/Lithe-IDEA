@@ -30,6 +30,19 @@ type requestEnvelope struct {
 	OperationID string `json:"operationId"`
 	Command     string `json:"command"`
 	Payload     any    `json:"payload"`
+	// GitExecution is the request's Git policy, nil for Core's defaults.
+	GitExecution *gitExecution `json:"gitExecution,omitempty"`
+}
+
+// gitExecution is the part of a request's Git policy the client sets (GitExecutionOptions in
+// the Rust protocol); fields left empty keep Core's defaults.
+type gitExecution struct {
+	// ReportQueries asks Core to report the request's internal read-only queries to the
+	// console, as it reports the commands the user started.
+	ReportQueries bool `json:"reportQueries,omitempty"`
+	// Source is the request's provenance: "background" for an automatic refresh, whose
+	// queries Core keeps silent; empty for unknown.
+	Source string `json:"source,omitempty"`
 }
 
 // responseEnvelope is the response the kernel encodes (CoreResponse in the Rust protocol).
@@ -88,9 +101,10 @@ func (c *Client) execute(ctx context.Context, command string, payload, result an
 	}
 	operationID := fmt.Sprintf("desktop-%d", nextCoreOperation.Add(1))
 	request, err := json.Marshal(requestEnvelope{
-		OperationID: operationID,
-		Command:     command,
-		Payload:     payload,
+		OperationID:  operationID,
+		Command:      command,
+		Payload:      payload,
+		GitExecution: gitExecutionOf(ctx, command),
 	})
 	if err != nil {
 		return nil, &Error{

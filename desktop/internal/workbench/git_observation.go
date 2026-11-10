@@ -56,7 +56,7 @@ func (a *App) startGitObservation(p *project) {
 	p.observe.gen++
 	gen, root := p.observe.gen, p.root
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		watch, found, err := kernel.GitWatchContextOf(ctx, root)
+		watch, found, err := kernel.GitWatchContextOf(core.AutomaticRefresh(ctx), root)
 		var dirs []string
 		if found && err == nil {
 			dirs = []string{watch.GitDirectory}

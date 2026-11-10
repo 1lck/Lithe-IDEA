@@ -18,8 +18,8 @@ static CFMutableDictionaryRef lithe_query(const char *service, const char *accou
 	CFDictionarySetValue(query, kSecAttrService, s);
 	CFDictionarySetValue(query, kSecAttrAccount, a);
 	if (noUI) {
-		// Reading an item another app wrote can show a password prompt. A
-		// migration is not a user action, so it must fail closed instead.
+		// Reading an item another app wrote can show a password prompt; a call
+		// with no user action in front of it must fail closed instead.
 		CFDictionarySetValue(query, kSecUseAuthenticationUI, kSecUseAuthenticationUIFail);
 	}
 	CFRelease(s);
@@ -71,6 +71,75 @@ static int lithe_kc_delete(const char *service, const char *account, int noUI) {
 	CFRelease(query);
 	return (int)status;
 }
+// lithe_copy_string copies a Keychain attribute that is a string into a malloc'ed C
+// string, or returns NULL.
+static char *lithe_copy_string(CFTypeRef value) {
+	if (value == NULL || CFGetTypeID(value) != CFStringGetTypeID()) {
+		return NULL;
+	}
+	CFIndex size = CFStringGetMaximumSizeForEncoding(CFStringGetLength((CFStringRef)value), kCFStringEncodingUTF8) + 1;
+	char *out = malloc(size);
+	if (!CFStringGetCString((CFStringRef)value, out, size, kCFStringEncodingUTF8)) {
+		free(out);
+		return NULL;
+	}
+	return out;
+}
+
+// lithe_kc_list lists the service and account of every generic password whose service
+// starts with prefix. It asks for attributes only, which reads no secret, and never
+// shows a prompt.
+static int lithe_kc_list(const char *prefix, char ***services, char ***accounts, int *count) {
+	*services = NULL;
+	*accounts = NULL;
+	*count = 0;
+	CFMutableDictionaryRef query = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	CFDictionarySetValue(query, kSecClass, kSecClassGenericPassword);
+	CFDictionarySetValue(query, kSecReturnAttributes, kCFBooleanTrue);
+	CFDictionarySetValue(query, kSecMatchLimit, kSecMatchLimitAll);
+	CFDictionarySetValue(query, kSecUseAuthenticationUI, kSecUseAuthenticationUIFail);
+	CFTypeRef result = NULL;
+	OSStatus status = SecItemCopyMatching(query, &result);
+	CFRelease(query);
+	if (status != errSecSuccess || result == NULL) {
+		return (int)status;
+	}
+	if (CFGetTypeID(result) != CFArrayGetTypeID()) {
+		CFRelease(result);
+		return 0;
+	}
+	CFIndex n = CFArrayGetCount((CFArrayRef)result);
+	*services = calloc(n > 0 ? n : 1, sizeof(char *));
+	*accounts = calloc(n > 0 ? n : 1, sizeof(char *));
+	size_t prefixLength = strlen(prefix);
+	for (CFIndex i = 0; i < n; i++) {
+		CFTypeRef item = CFArrayGetValueAtIndex((CFArrayRef)result, i);
+		if (item == NULL || CFGetTypeID(item) != CFDictionaryGetTypeID()) {
+			continue;
+		}
+		char *service = lithe_copy_string(CFDictionaryGetValue((CFDictionaryRef)item, kSecAttrService));
+		char *account = lithe_copy_string(CFDictionaryGetValue((CFDictionaryRef)item, kSecAttrAccount));
+		if (service == NULL || account == NULL || strncmp(service, prefix, prefixLength) != 0) {
+			free(service);
+			free(account);
+			continue;
+		}
+		(*services)[*count] = service;
+		(*accounts)[*count] = account;
+		(*count)++;
+	}
+	CFRelease(result);
+	return 0;
+}
+
+static void lithe_free_list(char **services, char **accounts, int count) {
+	for (int i = 0; i < count; i++) {
+		free(services[i]);
+		free(accounts[i]);
+	}
+	free(services);
+	free(accounts);
+}
 */
 import "C"
 
@@ -87,10 +156,10 @@ const (
 // Older macOS clients stored plugin credentials under
 // "<bundle id>.plugin-credentials.<plugin ID>" with the plugin's own key as the
 // account (MacPluginCredentialStore). The stable and the development bundle ids
-// are both read, in that order.
+// are both listed, in that order, so the stable client's value wins.
 var legacyPrefixes = []string{
-	"app.lithe.desktop.plugin-credentials",
-	"app.lithe.desktop.dev.plugin-credentials",
+	"app.lithe.desktop.plugin-credentials.",
+	"app.lithe.desktop.dev.plugin-credentials.",
 }
 
 type keychainBackend struct{ noUI bool }
@@ -161,23 +230,38 @@ func keychainError(status int) error {
 	return fmt.Errorf("keychain error %d", status)
 }
 
-// keychainLegacy reads the older clients' items without ever prompting.
+// keychainLegacy is the older macOS clients' items. It only lists and reads them: an
+// item another app wrote can only be read once the user allows it, which is why the Viva
+// client reads them only when the user asks to import them.
 type keychainLegacy struct{}
 
-func (keychainLegacy) Read(pluginID, key string) (string, bool) {
-	backend := keychainBackend{noUI: true}
+func (keychainLegacy) Items() ([]LegacyItem, error) {
+	var items []LegacyItem
 	for _, prefix := range legacyPrefixes {
-		if secret, err := backend.Get(prefix+"."+pluginID, key); err == nil {
-			return secret, true
+		cp := C.CString(prefix)
+		var services, accounts **C.char
+		var count C.int
+		status := int(C.lithe_kc_list(cp, &services, &accounts, &count))
+		C.free(unsafe.Pointer(cp))
+		switch status {
+		case statusSuccess:
+		case statusItemNotFound:
+			continue
+		default:
+			return nil, keychainError(status)
 		}
+		n := int(count)
+		serviceList := unsafe.Slice(services, n)
+		accountList := unsafe.Slice(accounts, n)
+		for i := range n {
+			service := C.GoString(serviceList[i])
+			items = append(items, LegacyItem{Service: service, PluginID: service[len(prefix):], Key: C.GoString(accountList[i])})
+		}
+		C.lithe_free_list(services, accounts, count)
 	}
-	return "", false
+	return items, nil
 }
 
-func (keychainLegacy) Delete(pluginID, key string) {
-	backend := keychainBackend{noUI: true}
-	for _, prefix := range legacyPrefixes {
-		// Best effort: a refusal leaves the old item for the old client.
-		_ = backend.Delete(prefix+"."+pluginID, key)
-	}
+func (keychainLegacy) Read(item LegacyItem) (string, error) {
+	return keychainBackend{}.Get(item.Service, item.Key)
 }

@@ -265,13 +265,14 @@ type commitArea struct {
 	lists  bool
 }
 
-// drawCommitAreaOf declares the commit area of area: amend, the staged count, the message,
-// how the last run ended, and the buttons that commit, and commit and push.
+// drawCommitAreaOf declares the commit area of area: amend, the commit options, the staged
+// count, the message, how the last run ended, and the buttons that commit, and commit and push.
 func (a *App) drawCommitAreaOf(c ui.C, p *project, area commitArea) ui.Box {
 	cs, t := area.target.state, a.text.Commit
 	return ui.Column(c).FillWidth().Clip().Pad(8).Gap(6).Children(func() {
 		ui.Row(c).FillWidth().Shrink(0).Items(ui.Center).Gap(6).Children(func() {
 			ui.Checkbox(c, &cs.amend, t.Amend).Disabled(cs.busy)
+			a.drawCommitOptions(c, cs)
 			ui.Spacer(c)
 			ui.Text(c, t.Staged(area.staged)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
 		})
@@ -311,6 +312,39 @@ func (a *App) drawCommitAreaOf(c ui.C, p *project, area commitArea) ui.Box {
 			}
 		})
 	})
+}
+
+// drawCommitOptions declares the button that opens the sign-off and the author of the next
+// commit. It is highlighted while either is set, so a commit under another name is never a
+// surprise.
+func (a *App) drawCommitOptions(c ui.C, cs *commitState) {
+	t := a.text.Commit
+	button, clicked := a.gitToolButton(c, t.Options, icons.Ellipsis, cs.signOff || cs.authorText() != "", cs.busy)
+	if clicked {
+		cs.optionsOpen = !cs.optionsOpen
+	}
+	ui.PopoverWith(c, button, ui.PopoverSpec{Align: ui.Start, Width: 280}, &cs.optionsOpen, func() {
+		ui.Column(c).FillWidth().Gap(8).Children(func() {
+			ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
+				before := cs.signOff
+				ui.Checkbox(c, &cs.signOff, t.SignOff).Disabled(cs.busy)
+				if cs.signOff != before {
+					a.performed("git.commit.signOff", surfaceButton)
+				}
+				a.commitOptionHelp(c, t.SignOffHelp)
+			})
+			ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
+				ui.Text(c, t.Author).Shrink(0)
+				a.commitOptionHelp(c, t.AuthorHelp)
+			})
+			ui.TextField(c, &cs.author, t.Author, t.AuthorPlaceholder).FillWidth().Disabled(cs.busy)
+		})
+	})
+}
+
+// commitOptionHelp declares the ⓘ that explains a commit option.
+func (a *App) commitOptionHelp(c ui.C, help string) {
+	ui.Button(c, i18n.Shared(a.language(), "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().Size(18, 18).Tooltip(help)
 }
 
 // drawCommitResults declares how each repository of the last run in the checkout of target
@@ -419,6 +453,12 @@ func (a *App) drawCommitReview(c ui.C, p *project, target commitTarget) {
 			ui.Paragraph(c, t.MessageLine(firstLine(session.Message)), 2)
 			if session.Amend {
 				ui.Text(c, t.AmendNote).Color(a.colors.Warning)
+			}
+			if session.Author != "" {
+				ui.Paragraph(c, t.AuthorLine(session.Author), 2)
+			}
+			if session.SignOff {
+				ui.Text(c, t.SignOffNote)
 			}
 			ui.Scroll(c).FillWidth().MaxHeight(commitReviewHeight).Children(func() {
 				ui.Column(c).FillWidth().Gap(10).Children(func() {

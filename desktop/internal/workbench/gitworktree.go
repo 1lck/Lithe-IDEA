@@ -470,7 +470,7 @@ func (a *App) countWorktreeChanges(p *project, gen int) {
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		counts := make(map[string]int, len(paths))
 		for _, path := range paths {
-			if status, err := kernel.GitStatus(ctx, path); err == nil {
+			if status, err := kernel.GitStatus(core.AutomaticRefresh(ctx), path); err == nil {
 				counts[path] = len(status.Changes)
 			}
 		}

@@ -11107,6 +11107,44 @@
       ]
     },
     {
+      "id": "desktop.commit.author",
+      "description": "Desktop commit: label of the author field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.authorHelp",
+      "description": "Desktop commit: what the author field does",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.authorInvalid",
+      "description": "Desktop commit: notice when the author is not Name <email>",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.authorLine",
+      "description": "Desktop commit review: the author the commits record",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "author": "string"
+      }
+    },
+    {
+      "id": "desktop.commit.authorPlaceholder",
+      "description": "Desktop commit: placeholder of the author field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.commit.chooseTarget",
       "description": "Desktop commit: ChooseTarget",
       "platforms": [
@@ -11178,6 +11216,13 @@
     {
       "id": "desktop.commit.noCommits",
       "description": "Desktop commit: NoCommits",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.options",
+      "description": "Desktop commit: the button that opens the commit options (sign-off, author)",
       "platforms": [
         "desktop"
       ]
@@ -11255,6 +11300,27 @@
     {
       "id": "desktop.commit.reviewTitle",
       "description": "Desktop commit: ReviewTitle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.signOff",
+      "description": "Desktop commit: checkbox that adds a Signed-off-by trailer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.signOffHelp",
+      "description": "Desktop commit: what the sign-off option does",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.signOffNote",
+      "description": "Desktop commit review: the commits get a Signed-off-by trailer",
       "platforms": [
         "desktop"
       ]
@@ -11353,6 +11419,70 @@
         "branch": "string",
         "head": "string"
       }
+    },
+    {
+      "id": "desktop.credentials.importLegacy",
+      "description": "Settings menu item that imports the plugin credentials the earlier Lithe app saved.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.credentials.importLegacyBusy",
+      "description": "Settings menu item while the earlier Lithe app's plugin credentials are being imported.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.credentials.importLegacyConfirm",
+      "description": "Button that starts importing the earlier Lithe app's plugin credentials.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.credentials.importLegacyDescription",
+      "description": "Body of the dialog that confirms importing the earlier Lithe app's plugin credentials.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.credentials.importLegacyDone",
+      "description": "Notice after importing the earlier Lithe app's plugin credentials. {imported} were copied, {kept} were already saved here and kept, {failed} could not be read.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "imported": "string",
+        "kept": "string",
+        "failed": "string"
+      }
+    },
+    {
+      "id": "desktop.credentials.importLegacyFailed",
+      "description": "Notice when the earlier Lithe app's plugin credentials could not be listed. {error} is the diagnostic.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "error": "string"
+      }
+    },
+    {
+      "id": "desktop.credentials.importLegacyNone",
+      "description": "Notice after an import found no plugin credentials saved by the earlier Lithe app.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.credentials.importLegacyTitle",
+      "description": "Title of the dialog that confirms importing the earlier Lithe app's plugin credentials.",
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.debug.adapter",

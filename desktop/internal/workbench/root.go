@@ -186,9 +186,9 @@ func (a *App) windowShortcuts(c ui.C) {
 }
 
 // overlays declares everything the window shows over the workbench: the dialogs, the search
-// and navigation popups, the language popups, the plugin review and prompts, the Git dialogs
-// and the New Project dialog. Each dialog's state stays with its own file; the toasts are
-// declared last, over all of them.
+// and navigation popups, the language popups, the plugin review and prompts, the import of an
+// earlier client's plugin secrets, the Git dialogs and the New Project dialog. Each dialog's
+// state stays with its own file; the toasts are declared last, over all of them.
 func (a *App) overlays(c ui.C) {
 	a.cloneView(c)
 	if a.project != nil {
@@ -199,6 +199,7 @@ func (a *App) overlays(c ui.C) {
 	}
 	a.pluginReviewView(c)
 	a.pluginPromptView(c)
+	a.credentialImportView(c)
 	if p := a.project; p != nil {
 		a.drawBranchDialog(c, p)
 		a.drawSyncDialog(c, p)

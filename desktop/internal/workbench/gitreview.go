@@ -250,12 +250,18 @@ type rollbackState struct {
 	root        string
 	changes     []core.GitChange
 	deleteAdded bool
+	// console says the rollback shows the Console tab of the Git tool window: it was asked
+	// for outside the Git tool window, in the Commit tool window or a Diff tab.
+	console bool
 }
 
 // openRollback asks for confirmation before changes of the project's repository are rolled
-// back.
+// back, as the Commit tool window and the Diff tabs ask.
 func (a *App) openRollback(p *project, changes []core.GitChange) {
 	a.openRollbackIn(p, p.git.repositoryRoot(p.root), changes)
+	if p.review.rollback.open {
+		p.review.rollback.console = true
+	}
 }
 
 // openRollbackIn asks for confirmation before changes of the checkout at root are rolled back.
@@ -277,6 +283,9 @@ func (a *App) runRollback(p *project) {
 	r.busy = true
 	changes, deleteAdded, root := r.changes, r.deleteAdded, r.root
 	a.performed("git.rollback", surfaceButton)
+	if r.console {
+		a.showGitConsole(itemCommit)
+	}
 	a.background(p, reviewTimeout, func(ctx context.Context) func(*App) {
 		steps, err := kernel.GitRollbackPrepare(ctx, root, changes, deleteAdded)
 		for i := 0; err == nil && i < len(steps); i++ {

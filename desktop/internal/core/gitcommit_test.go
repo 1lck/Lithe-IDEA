@@ -135,3 +135,48 @@ func TestStageUnstageAndWorkspaceCommit(t *testing.T) {
 		t.Fatalf("HEAD subject = %q", subject)
 	}
 }
+
+func TestWorkspaceCommitTakesAnAuthorAndASignOff(t *testing.T) {
+	requireGit(t)
+	t.Setenv("GIT_AUTHOR_NAME", "Lithe Test")
+	t.Setenv("GIT_AUTHOR_EMAIL", "test@example.invalid")
+	t.Setenv("GIT_COMMITTER_NAME", "Lithe Test")
+	t.Setenv("GIT_COMMITTER_EMAIL", "test@example.invalid")
+	client := NewClient()
+	ctx := testContext(t)
+	repo := newRepository(t)
+	writeFile(t, filepath.Join(repo, "a.txt"), "a")
+	runGit(t, repo, "add", "a.txt")
+	repositories := []WorkspaceCommitRepository{{ID: ".", Root: repo}}
+
+	_, err := client.WorkspaceCommitPrepare(ctx, WorkspaceCommitRequest{Repositories: repositories, Message: "add a", Author: "Pair Author"})
+	requireCode(t, err, CodeGitCommitAuthorInvalid)
+
+	preparation, err := client.WorkspaceCommitPrepare(ctx, WorkspaceCommitRequest{
+		Repositories: repositories, Message: "add a", Author: "Pair Author <pair@example.invalid>", SignOff: true,
+	})
+	if err != nil {
+		t.Fatalf("WorkspaceCommitPrepare() error: %v", err)
+	}
+	session := preparation.Session
+	if session.Author != "Pair Author <pair@example.invalid>" || !session.SignOff {
+		t.Fatalf("plan = author %q, sign-off %v; want both kept", session.Author, session.SignOff)
+	}
+	for steps := 0; !session.Finished; steps++ {
+		if steps == 4 {
+			t.Fatalf("the session did not finish: %+v", session)
+		}
+		if session, err = client.WorkspaceCommitStep(ctx, session); err != nil {
+			t.Fatalf("WorkspaceCommitStep() error: %v", err)
+		}
+	}
+	if !session.Succeeded {
+		t.Fatalf("session = %+v, want the repository committed", session)
+	}
+	if author := runGit(t, repo, "log", "-1", "--format=%an <%ae>"); author != "Pair Author <pair@example.invalid>" {
+		t.Fatalf("author = %q", author)
+	}
+	if trailer := runGit(t, repo, "log", "-1", "--format=%(trailers:key=Signed-off-by,valueonly)"); trailer != "Lithe Test <test@example.invalid>" {
+		t.Fatalf("Signed-off-by = %q, want the committer", trailer)
+	}
+}

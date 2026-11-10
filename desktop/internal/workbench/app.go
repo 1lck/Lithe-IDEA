@@ -338,6 +338,9 @@ type App struct {
 	prompts pluginPrompts
 	// pluginInstall is the install the user started.
 	pluginInstall pluginInstallState
+	// credentialImport is the import of an earlier client's plugin secrets the user asked
+	// for from the settings menu (credentials_import.go).
+	credentialImport credentialImportState
 	// pluginState is what the settings window reads from its own thread about
 	// installed plugins; it is replaced whole, never mutated in place.
 	pluginState atomic.Pointer[map[string]settingswindow.PluginState]

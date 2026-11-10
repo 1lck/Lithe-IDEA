@@ -48,16 +48,30 @@ type Backend interface {
 	Delete(service, account string) error
 }
 
-// Legacy reads the secrets an older client stored for a plugin. It is read-only
-// on purpose: the old and new clients can be installed side by side, so the new
-// one must not remove what the old one still uses.
+// Legacy is the secret store an older client kept plugin secrets in. The Viva client is
+// a separate product that can be installed beside the older one, so it never reads that
+// store on its own and never changes it: the user imports from it once, on request, and
+// the older client keeps every item it had.
 type Legacy interface {
-	// Read returns the old value. A missing item and an unreadable one both
-	// report ok=false: reading must never raise a password prompt.
-	Read(pluginID, key string) (secret string, ok bool)
-	// Delete removes the old item and is called only after the user asked the
-	// plugin to delete the credential.
-	Delete(pluginID, key string)
+	// Items lists the items the older client stored, in the order they are imported. It
+	// reads no secret and never raises a prompt.
+	Items() ([]LegacyItem, error)
+	// Read returns the secret of one item. The platform may ask the user to allow it,
+	// since one app is reading what another wrote, and a refusal is an error.
+	Read(item LegacyItem) (string, error)
+}
+
+// LegacyItem is one secret an older client stored: its secret-store service, and the
+// plugin and key it belongs to.
+type LegacyItem struct {
+	Service, PluginID, Key string
+}
+
+// ImportResult counts what an import did: Imported secrets were copied to the Viva
+// client's store, Kept ones were left because the Viva client already had a value for
+// the plugin and key, and Failed ones could not be read or stored.
+type ImportResult struct {
+	Imported, Kept, Failed int
 }
 
 // Store is the credential service of one client.
@@ -120,36 +134,22 @@ func run[T any](ctx context.Context, call func() (T, error)) (T, error) {
 	}
 }
 
-// Get returns a plugin's secret. When the new location has none and an older
-// client stored one, the old value is copied to the new location and returned;
-// the old item is left in place.
+// Get returns a plugin's secret. It reads only the Viva client's store: what an older
+// client stored arrives only through ImportLegacy.
 func (s *Store) Get(ctx context.Context, pluginID, key string) (string, bool, error) {
 	if err := validate(pluginID, key); err != nil {
 		return "", false, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	service := Service(pluginID)
-	secret, err := run(ctx, func() (string, error) { return s.backend.Get(service, key) })
-	if err == nil {
+	secret, err := run(ctx, func() (string, error) { return s.backend.Get(Service(pluginID), key) })
+	switch {
+	case err == nil:
 		return secret, true, nil
-	}
-	if !errors.Is(err, ErrNotFound) {
-		return "", false, err
-	}
-	if s.legacy == nil {
+	case errors.Is(err, ErrNotFound):
 		return "", false, nil
 	}
-	old, ok := s.legacy.Read(pluginID, key)
-	if !ok {
-		return "", false, nil
-	}
-	// The value is usable even when the new store cannot take it right now, so a
-	// failed copy is not a failed read; the next read tries again.
-	if _, err := run(ctx, func() (struct{}, error) { return struct{}{}, s.backend.Set(service, key, old) }); err != nil && ctx.Err() != nil {
-		return "", false, ctx.Err()
-	}
-	return old, true, nil
+	return "", false, err
 }
 
 // Set stores a plugin's secret.
@@ -166,9 +166,8 @@ func (s *Store) Set(ctx context.Context, pluginID, key, secret string) error {
 	return err
 }
 
-// Delete removes a plugin's secret from the new location and from the older
-// client's one, so a deleted value cannot come back through migration. Deleting
-// what is not there succeeds.
+// Delete removes a plugin's secret from the Viva client's store; an older client's item
+// stays for that client. Deleting what is not there succeeds.
 func (s *Store) Delete(ctx context.Context, pluginID, key string) error {
 	if err := validate(pluginID, key); err != nil {
 		return err
@@ -179,8 +178,82 @@ func (s *Store) Delete(ctx context.Context, pluginID, key string) error {
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return err
 	}
-	if s.legacy != nil {
-		s.legacy.Delete(pluginID, key)
-	}
 	return nil
+}
+
+// CanImport says the platform has an older client whose plugin secrets ImportLegacy can
+// copy.
+func (s *Store) CanImport() bool { return s.legacy != nil }
+
+// ImportLegacy copies the plugin secrets an older client stored into the Viva client's
+// store, as the user asked once. A value the Viva client already has for the plugin and
+// key wins and is kept, and the older client's items are never changed. An item that
+// cannot be read, because the user refused the platform's prompt or it is malformed, is
+// counted and the import goes on; only failing to list the items fails the import.
+func (s *Store) ImportLegacy(ctx context.Context) (ImportResult, error) {
+	var result ImportResult
+	if s.legacy == nil {
+		return result, nil
+	}
+	items, err := run(ctx, s.legacy.Items)
+	if err != nil {
+		return result, err
+	}
+	seen := map[[2]string]bool{}
+	for _, item := range items {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
+		id := [2]string{item.PluginID, item.Key}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		if err := validate(item.PluginID, item.Key); err != nil {
+			result.Failed++
+			continue
+		}
+		switch imported, err := s.importItem(ctx, item); {
+		case err != nil:
+			if ctx.Err() != nil {
+				return result, ctx.Err()
+			}
+			result.Failed++
+		case imported:
+			result.Imported++
+		default:
+			result.Kept++
+		}
+	}
+	return result, nil
+}
+
+// importItem copies one older item unless the Viva client has a value for it, and says
+// whether it did. The older secret is read without the lock, since the platform may wait
+// for the user to answer its prompt, and the Viva client's store is checked again under
+// the lock before the copy, so a value a plugin stored meanwhile is not overwritten.
+func (s *Store) importItem(ctx context.Context, item LegacyItem) (bool, error) {
+	if _, ok, err := s.Get(ctx, item.PluginID, item.Key); err != nil || ok {
+		return false, err
+	}
+	secret, err := run(ctx, func() (string, error) { return s.legacy.Read(item) })
+	if err != nil {
+		return false, err
+	}
+	if len(secret) > MaxSecretBytes {
+		return false, fmt.Errorf("%w: secret", ErrInvalid)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	service := Service(item.PluginID)
+	switch _, err := run(ctx, func() (string, error) { return s.backend.Get(service, item.Key) }); {
+	case err == nil:
+		return false, nil
+	case !errors.Is(err, ErrNotFound):
+		return false, err
+	}
+	if _, err := run(ctx, func() (struct{}, error) { return struct{}{}, s.backend.Set(service, item.Key, secret) }); err != nil {
+		return false, err
+	}
+	return true, nil
 }

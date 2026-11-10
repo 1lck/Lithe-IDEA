@@ -182,7 +182,8 @@ func (a *App) refreshGitGutter(p *project, d *document) {
 	d.gutter.gen++
 	gen := d.gutter.gen
 	a.background(p, reviewTimeout, func(ctx context.Context) func(*App) {
-		files, err := kernel.GitDiff(ctx, request)
+		// The markers follow every edit and status, too often for the console.
+		files, err := kernel.GitDiff(core.AutomaticRefresh(ctx), request)
 		var hunks []gitHunk
 		if err == nil && len(files) > 0 {
 			hunks = hunksOf(files[0])
