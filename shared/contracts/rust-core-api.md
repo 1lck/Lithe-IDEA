@@ -2197,8 +2197,23 @@ and uses `--detach`. Independent `noCheckout: true` adds `--no-checkout` in
 every mode; its default is false, and legacy `checkout` does not control
 worktree file population. Examples are in
 `shared/fixtures/git/worktree-creation-v1.json`. Worktree mutations re-read Git's
-registered list and reject arbitrary paths. Removal rejects the current,
-primary, or locked worktree; dirty worktrees require an explicit `force` value.
+registered list before invoking Git, and each refusal has its own
+`operationError.code`, so hosts explain it without matching messages:
+
+| Code | Operations | Meaning |
+| --- | --- | --- |
+| `git_worktree_not_registered` | `removeWorktree`, `lockWorktree`, `unlockWorktree` | `destination` is not a registered worktree; the host's list is stale and should be re-read |
+| `git_worktree_primary` | `removeWorktree`, `lockWorktree`, `unlockWorktree` | `destination` is the primary worktree, which Git can neither remove, lock nor unlock; checked before the next two |
+| `git_worktree_current` | `removeWorktree` | `destination` is the worktree the request was made from; another worktree of the repository can remove it |
+| `git_worktree_locked` | `removeWorktree` | the worktree is locked; unlocking it first allows the removal |
+| `git_worktree_has_changes` | `removeWorktree` without `force` | Git refused because the checkout has modified or untracked files; `force: true` removes them with the checkout |
+
+`git_worktree_has_changes` is recognised from Git's fixed C-locale refusal
+(`contains modified or untracked files`) on a failed, unforced removal; its
+`message` is the first stderr line and `details` the combined output. Other Git
+refusals, such as a worktree containing submodules, keep the plain process
+failure. A malformed `destination` (empty, starting with `-`, or containing
+control characters) stays `invalid_request`.
 `repairWorktrees` refreshes administrative links after a repository or worktree
 has moved. `pruneWorktrees` removes registrations whose checkout is already missing and
 does not recursively delete an arbitrary directory.

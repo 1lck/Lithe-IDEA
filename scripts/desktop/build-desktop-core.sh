@@ -27,9 +27,10 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
-# Lithe-core-rust main after Lithe-IDEA/Lithe-core-rust#4 merged (git_authentication_failed code,
-# featuresChanged completionOptions, rangeFormatting and formattingOptions used by the Viva client).
-PINNED_CORE_REVISION="06aeff399d354b317a1206674bcd52ae5c4cde4d"
+# Lithe-core-rust main after Lithe-IDEA/Lithe-core-rust#6 merged: the git_worktree_* refusal
+# codes of the worktree writes, on top of #4 (git_authentication_failed code, featuresChanged
+# completionOptions, rangeFormatting and formattingOptions used by the Viva client).
+PINNED_CORE_REVISION="cb477453cbeee47a59cc9939a96663b3efbf458a"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
