@@ -255,6 +255,8 @@ type project struct {
 	agent agentState
 	// review holds the Git review dialogs: Diff, Push, stashes, worktrees and annotations.
 	review gitReview
+	// observe is the watch of the repository's Git metadata (see git_observation.go).
+	observe gitObservation
 }
 
 // App is the state of the window.
@@ -812,6 +814,7 @@ func (a *App) openProject(path string) {
 		a.notice = ""
 		a.logView.reset()
 		a.loadGit(p)
+		a.startGitObservation(p)
 		a.loadLog(p)
 		a.activatePluginWorkspace(root)
 		a.openPendingFiles(p)
@@ -862,6 +865,7 @@ func (a *App) finishCloseProject(p *project, after func()) {
 		a.cancelPrompts()
 		p.cancel()
 		a.closeTree(p)
+		a.closeGitObservation(p)
 		a.releaseProjectSearch(p)
 		a.closeDocuments(p)
 		a.closeTerminals(p)

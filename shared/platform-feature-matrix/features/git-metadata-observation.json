@@ -4,21 +4,25 @@
   "group": "Git",
   "capability": "Git 元数据变化观察与刷新",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/git_observation.go",
+      "desktop/internal/workbench/git_observation_test.go",
+      "desktop/internal/core/git_metadata.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/git_observation.go",
+      "desktop/internal/workbench/git_observation_test.go",
+      "desktop/internal/core/git_metadata.go"
     ]
   },
   "owner": "Git",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva 新增 Git 元数据监听（desktop/internal/workbench/git_observation.go）：解析仓库的 git 目录、公共目录和 refs/heads，经 app.WatchDirectory 监听；路径交给 Core 的 git.classifyMetadataChanges 分类，仅 index 写入只刷新状态，不推进历史版本；Core 报告 context 变化时重新解析仓库；监听丢失或事件过多时整体重扫。关闭项目时释放监听。尚未覆盖：远程工作区、监听丢失的平台级恢复和多仓库监听的端到端验收，验证状态保持 pending。",
   "verification": "两端在普通及 linked worktree 中外部暂存、checkout、移动共享引用、修改 ignore 规则与其他 worktree 的状态，确认刷新范围正确且对象库高频写入不触发无关刷新；macOS 另验证远程工作区、混合事件与监听丢失恢复。共享 fixture 和宿主自动化覆盖分类，真实产品和远程端到端验收 pending。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
