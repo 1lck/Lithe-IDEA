@@ -50,11 +50,13 @@ const (
 
 // tabStrip is what the window remembers about one editor group's strip between paints.
 type tabStrip struct {
-	// list is the strip's one row, whose sideways scroll is the strip's.
-	list ui.ListState
-	// width is the width of the strip in the last paint, read by its draw hook.
-	width float32
-	hook  func(*ui.DrawContext)
+	// offset is how far the row of tabs is scrolled left, and content the width of the row. view
+	// is where the part of the strip that shows the tabs was laid out in the last paint, read by
+	// its draw hook, and width its width.
+	offset, content float32
+	view            gfx.Rect
+	width           float32
+	hook            func(*ui.DrawContext)
 	// revealed is the member that was last scrolled into view, so the strip scrolls to the
 	// selected tab once when the selection changes and leaves the user's own scrolling alone
 	// after that.
@@ -126,7 +128,7 @@ func (a *App) setTabOverflow(value string) {
 // its tabs out in the new way from the left with the selected tab in view.
 func (a *App) tabSettingChanged() {
 	for _, s := range a.term.strips {
-		s.list.ScrollToX(0)
+		s.offset = 0
 		s.revealed, s.menu = "", false
 	}
 	if a.settingsWindow != nil {
@@ -143,7 +145,14 @@ func (u *terminalUI) stripOf(group string) *tabStrip {
 	s := u.strips[group]
 	if s == nil {
 		s = &tabStrip{}
-		s.hook = func(d *ui.DrawContext) { s.width = d.Rect.Width }
+		s.hook = func(d *ui.DrawContext) {
+			if d.Rect.Width != s.width {
+				// What the strip hides and where it scrolls to are worked out from its width, so
+				// the paint that follows a change of it declares them afresh.
+				d.Canvas.RequestFrame()
+			}
+			s.view, s.width = d.Rect, d.Rect.Width
+		}
 		u.strips[group] = s
 	}
 	return s
@@ -246,29 +255,30 @@ func (a *App) tabBar(c ui.C, place *groupPlace, layout tabLayout, buttons func()
 		// The buttons at the end of the strip keep their room; the tabs share the rest.
 		squeezeTabs(s.widths, s.width, chromeGap)
 	}
-	content := float32(0)
+	s.content = 0
 	for _, w := range s.widths {
-		content += w + chromeGap
+		s.content += w + chromeGap
 	}
-	s.list.RowWidth = content
+	s.scrollBy(0)
 	a.stripReveal(s, current, tabs)
 	hiddenNow := a.stripHidden(s, tabs)
 
 	ui.Row(c).Height(panelHeaderHeight).Shrink(1).MinWidth(0).Items(ui.Center).Gap(chromeGap).Grow(1).Children(func() {
-		view := ui.List(c, &s.list, 1, func(row ui.ListRow) {
-			row.Element.FillWidth().Height(panelHeaderHeight).Items(ui.Center).Gap(chromeGap).Children(func() {
-				for i, t := range tabs {
-					a.stripTab(row.C, place, t, current, i, len(tabs), s.widths[i])
-				}
-			})
-		}).Height(panelHeaderHeight).Shrink(1).MinWidth(0)
+		view := ui.Row(c).FillHeight().Items(ui.Center).Shrink(1).MinWidth(0).Clip()
 		if !place.tool {
 			view.Grow(1)
 		} else {
 			// The tool window's tabs keep their width and give way before the buttons do.
-			view.Width(max(content, 1))
+			view.Width(max(s.content-chromeGap, 1))
 		}
-		view.Draw(s.hook)
+		view.Draw(s.hook).Children(func() {
+			// The row of tabs is moved left by the offset and clipped to the view.
+			ui.Row(c).FillHeight().Items(ui.Center).Gap(chromeGap).Shrink(0).MarginSides(0, 0, 0, -s.offset).Children(func() {
+				for i, t := range tabs {
+					a.stripTab(c, place, t, current, i, len(tabs), s.widths[i])
+				}
+			})
+		})
 		if hiddenNow {
 			a.hiddenTabsButton(c, place, s, tabs, current)
 		}
@@ -277,6 +287,14 @@ func (a *App) tabBar(c ui.C, place *groupPlace, layout tabLayout, buttons func()
 	if !hiddenNow {
 		s.menu = false
 	}
+}
+
+// scrollBy scrolls the row of tabs by dx, kept within what the row leaves to scroll, and
+// reports whether it moved.
+func (s *tabStrip) scrollBy(dx float32) bool {
+	before := s.offset
+	s.offset = min(max(s.offset+dx, 0), max(s.content-chromeGap-s.width, 0))
+	return s.offset != before
 }
 
 // stripReveal scrolls the selected tab into view once, when the selection changed.
@@ -288,14 +306,13 @@ func (a *App) stripReveal(s *tabStrip, current string, tabs []shownTab) {
 	for i, t := range tabs {
 		w := s.widths[i]
 		if t.member() == current {
-			left, right := x, x+w
-			at := s.list.ScrollX()
-			switch {
-			case left < at:
-				s.list.ScrollToX(left)
-			case right > at+s.width:
-				s.list.ScrollToX(right - s.width)
+			switch left, right := x, x+w; {
+			case left < s.offset:
+				s.offset = left
+			case right > s.offset+s.width:
+				s.offset = right - s.width
 			}
+			s.scrollBy(0)
 			break
 		}
 		x += w + chromeGap
@@ -309,10 +326,10 @@ func (a *App) stripReveal(s *tabStrip, current string, tabs []shownTab) {
 func (a *App) stripHidden(s *tabStrip, tabs []shownTab) bool {
 	s.hiddenScratch = s.hiddenScratch[:0]
 	if s.width > 0 {
-		at, x := s.list.ScrollX(), float32(0)
+		at, x, view := s.offset, float32(0), s.width
 		for i, t := range tabs {
 			w := s.widths[i]
-			if x < at-tabHideSlack || x+w > at+s.width+tabHideSlack {
+			if x < at-tabHideSlack || x+w > at+view+tabHideSlack {
 				s.hiddenScratch = append(s.hiddenScratch, t.member())
 			}
 			x += w + chromeGap
@@ -532,4 +549,29 @@ func (a *App) endStripFrame() {
 		}
 		s.seen = false
 	}
+}
+
+// tabWheelStep is the least distance a wheel that turns in steps scrolls a strip.
+const tabWheelStep = 64
+
+// stripWheel scrolls the strip the wheel event is over. A strip whose tabs fit does not take
+// the event.
+func (u *terminalUI) stripWheel(event gfx.ScrollEvent) gfx.EventResult {
+	for _, s := range u.strips {
+		r := s.view
+		if r.Width <= 0 || event.X < r.X || event.X >= r.Right() || event.Y < r.Y || event.Y >= r.Bottom() {
+			continue
+		}
+		dx := event.DeltaX
+		if dx == 0 {
+			dx = event.DeltaY
+		}
+		if !event.Precise && dx != 0 && dx > -tabWheelStep && dx < tabWheelStep {
+			dx = tabWheelStep * dx / max(dx, -dx)
+		}
+		if s.scrollBy(dx) {
+			return gfx.EventResult{Handled: true, Repaint: true}
+		}
+	}
+	return gfx.EventResult{}
 }

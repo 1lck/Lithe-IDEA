@@ -1,6 +1,8 @@
 package workbench
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -654,5 +656,56 @@ func TestEndDragsForgetsAGestureVivaLetGoOf(t *testing.T) {
 	a.endDrags()
 	if a.drag != (dragState{}) || a.term.drag != (tabDrag{}) {
 		t.Errorf("gestures after endDrags = %+v, %+v, want none", a.drag, a.term.drag)
+	}
+}
+
+// A terminal's tab dragged from the Terminal tool window onto the editor joins its group, and
+// dragged to the edge of a group splits it, all through the page's drag and drop.
+func TestTerminalTabDragJoinsAndSplitsEditorGroupsThroughThePage(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	root := t.TempDir()
+	path := filepath.Join(root, "main.txt")
+	if err := os.WriteFile(path, []byte("text\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.open(root)
+	if !h.app.chrome.isOpen(catalogIndex[itemTerminal]) {
+		h.app.reduceChrome(core.SetChromeOpen(itemTerminal, true))
+		h.settle()
+	}
+	h.app.openFile(h.app.project, path)
+	h.app.newTerminal(h.app.project, "")
+	h.settle()
+	h.frames()
+	set := &h.app.project.terms
+	if len(set.list) != 2 || set.layout == nil {
+		t.Fatalf("terminals %d, layout %v, want two terminals and an editor group", len(set.list), set.layout)
+	}
+	strip, group := h.app.term.groups[0].strip, h.app.term.groups[0].id
+
+	// Dropped on the editor's strip, the tabs join the group.
+	for _, term := range set.list {
+		tab := h.tabHit(h.app.terminalTitle(term))
+		h.drag(center(tab), gfx.Point{X: strip.X + strip.Width - 4, Y: strip.Y + strip.Height/2})
+		h.settle()
+		h.frames()
+		if g := set.bench.GroupOf(terminalMember(term.id)); g == nil || g.ID != group {
+			t.Fatalf("terminal %d is in %+v, want group %s", term.id, g, group)
+		}
+	}
+	if h.app.dnd.tab.Dragging() || h.app.term.drag.active {
+		t.Fatal("the release did not end the drag")
+	}
+
+	// Dragged to the right edge of the group's body, a tab splits the group.
+	tab := h.tabHit(h.app.terminalTitle(set.list[1]))
+	body := h.app.term.groups[0].body
+	h.drag(center(tab), gfx.Point{X: body.Right() - 10, Y: body.Y + body.Height/2})
+	h.settle()
+	if set.layout.leaf() || !set.layout.row {
+		t.Fatalf("the layout is %+v, want the group split side by side", set.layout)
+	}
+	if got := len(h.app.term.groups); got != 2 {
+		t.Fatalf("%d editor groups painted, want 2", got)
 	}
 }

@@ -379,10 +379,14 @@ func (n *splitNode) key(event gfx.KeyEvent) gfx.EventResult {
 	return n.second.key(event)
 }
 
-// onScroll is the window's base handler of the wheel: a sideways swipe over the project tree,
-// which Viva's Tree does not take itself.
+// onScroll is the window's base handler of the wheel: any turn over a strip of tabs that does
+// not fit scrolls the strip, and a sideways swipe over the project tree scrolls the tree, which
+// Viva's Tree does not do itself.
 func (a *App) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 	if p := a.project; p != nil {
+		if result := a.term.stripWheel(event); result.Handled {
+			return result
+		}
 		return p.tree.wheel(event)
 	}
 	return gfx.EventResult{}

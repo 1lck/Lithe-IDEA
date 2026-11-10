@@ -889,3 +889,6 @@ func (h *harness) hitLabeled(label string) gfx.Rect {
 	h.t.Fatalf("no control named %q is shown", label)
 	return gfx.Rect{}
 }
+
+// dragThreshold is how far a press moves before Viva takes it for a drag.
+const dragThreshold = 4

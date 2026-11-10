@@ -125,12 +125,12 @@ func TestEditorTabsScrollAndListTheHiddenOnes(t *testing.T) {
 	}
 
 	// A sideways turn of the wheel over the strip scrolls it, back to the start.
-	if err := h.driver.Scroll(gfx.ScrollEvent{X: view.X + 20, Y: view.Y + view.Height/2, DeltaX: -100000, Precise: true}); err != nil {
+	if err := h.driver.Scroll(gfx.ScrollEvent{X: view.X + 20, Y: view.Y + view.Height/2, DeltaY: -100000, Precise: true}); err != nil {
 		t.Fatal(err)
 	}
 	h.frames()
-	if s.list.ScrollX() != 0 {
-		t.Fatalf("the wheel left the strip at %v, want 0", s.list.ScrollX())
+	if s.offset != 0 {
+		t.Fatalf("the wheel left the strip at %v, want 0", s.offset)
 	}
 	if tab := h.tabHit(first.name); !inside(tab, view) {
 		t.Fatalf("scrolled to the start, the first tab %+v is not in the strip %+v", tab, view)
