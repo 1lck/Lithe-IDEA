@@ -44,6 +44,8 @@ const (
 	// tabHideSlack is how far a tab may poke out of the strip and still count as shown, for
 	// the rounding of the layout.
 	tabHideSlack = 0.5
+	// tabMenuWidth is the width of the lists of hidden tabs and of the new-terminal menu.
+	tabMenuWidth = 300
 )
 
 // tabStrip is what the window remembers about one editor group's strip between paints.
@@ -142,7 +144,6 @@ func (u *terminalUI) stripOf(group string) *tabStrip {
 	if s == nil {
 		s = &tabStrip{}
 		s.hook = func(d *ui.DrawContext) { s.width = d.Rect.Width }
-		s.list.RowHeight = panelHeaderHeight
 		u.strips[group] = s
 	}
 	return s

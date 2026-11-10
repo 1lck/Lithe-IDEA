@@ -50,7 +50,7 @@ func (a *App) tabDragLocate(term int, x, y float32, viewport gfx.Size) dropTarge
 	if x < 0 || y < 0 || x >= viewport.Width || y >= viewport.Height {
 		return dropTarget{}
 	}
-	return dropAt(a.term.places, a.term.emptyRect, term, x, y)
+	return dropAt(a.term.places(), a.term.emptyRect, term, x, y)
 }
 
 // paintTabDrag paints the gesture on top of the frame, in the manner of paintDrag: the area

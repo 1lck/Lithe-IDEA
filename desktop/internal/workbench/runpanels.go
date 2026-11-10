@@ -6,7 +6,7 @@ import "github.com/vivaui/viva/ui"
 // model they show (build, tests, debug) stays in the project, so this holds only what the
 // user is doing to them: which list is scrolled where and which popup is open.
 type runPanels struct {
-		// instance is the build system tab the Run tool window shows, kept in step with
+	// instance is the build system tab the Run tool window shows, kept in step with
 	// the project's selected instance.
 	instance int
 	// choices is the list of projects, targets and tasks of the selected build
@@ -20,4 +20,3 @@ type runPanels struct {
 	// remoteOpen shows the confirmation of an attach to a non-local endpoint.
 	remoteOpen bool
 }
-

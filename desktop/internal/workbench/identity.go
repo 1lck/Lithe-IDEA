@@ -4,7 +4,6 @@ import (
 	"unicode"
 
 	"github.com/vivaui/viva/gfx"
-	"github.com/vivaui/viva/ui"
 )
 
 // A project is recognized at a glance by a small square badge: the first letters of its
@@ -156,4 +155,3 @@ func identityFont(initials string, side float32) (size float32, mono bool) {
 	}
 	return max(size, 1), false
 }
-

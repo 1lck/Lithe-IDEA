@@ -8,11 +8,9 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
-
-// treeActions.At(n) is the header button treeAction n.
-var treeActions = tree.Sub(shellPage, tree.Name("project-tree-actions"))
 
 // treeNode is a file or a folder of the project tree. A folder's children are listed by the
 // kernel the first time it is expanded.

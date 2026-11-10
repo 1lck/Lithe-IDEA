@@ -3,9 +3,7 @@ package workbench
 import (
 	"context"
 	"errors"
-	"math"
 	"os"
-	"strconv"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
@@ -15,12 +13,9 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// conflictBanner is a document's conflict notice: the page that shows it and the width it was
-// last laid out at, from which the room the message needs is worked out.
-type conflictBanner struct {
-	host  gitHost
-	width float32
-}
+// conflictBanner is a document's conflict notice. Its state is the document's own flags; the
+// notice is declared where the group shows the file (see documentConflict).
+type conflictBanner struct{}
 
 // The sizes of the notice: the rules above and below, the padding, the gap between the message
 // and its actions, and the height of a line of text.
@@ -54,7 +49,7 @@ func (a *App) documentConflict(c ui.C, d *document) {
 	if d.conflictMissing {
 		keepLabel = i18n.Shared(a.language(), "native.allowRecreatingFile")
 	}
-	ui.Column(c).Fill().Background(background).Children(func() {
+	ui.Column(c).FillWidth().Shrink(0).Background(background).Children(func() {
 		ui.Row(c.Part("top")).FillWidth().Height(1).Shrink(0).Background(border)
 		ui.Row(c).FillWidth().Gap(conflictGap).PadX(conflictPadX).PadY(conflictPadY).Items(ui.Start).Children(func() {
 			ui.Icon(c, icons.BannerWarning).Size(conflictIcon, conflictIcon).Shrink(0).Color(gfx.RGB24(0xFFFFFF))

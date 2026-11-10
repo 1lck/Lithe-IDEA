@@ -4,7 +4,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/termview"
-	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -85,62 +84,4 @@ func (a *App) focusedTerminal(id gfx.ID) *termview.View {
 		}
 	}
 	return nil
-}
-
-// terminalPointer gives a pointer event to the open project's terminals. A terminal tells
-// the events that are its own, which include the moves and the release of a selection or
-// a scrollbar drag that left its hit, so the window does not route by target here: the
-// first terminal that takes the event gets it.
-func (a *App) terminalPointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
-	p := a.project
-	if p == nil {
-		return gfx.EventResult{}, false
-	}
-	for _, t := range p.terms.list {
-		if result, handled := t.view.Pointer(event); handled {
-			return result, true
-		}
-	}
-	return gfx.EventResult{}, false
-}
-
-// onScroll gives a wheel turn over a terminal to the terminal, which scrolls its history
-// or reports the wheel to a program that asked for the mouse. A sideways swipe over the
-// project tree scrolls it sideways, which Viva's scroll areas do not, and any wheel over an editor group's strip of tabs that does not fit scrolls
-// the strip; anything else scrolls the view under the pointer.
-func (a *App) onScroll(event gfx.ScrollEvent) gfx.EventResult {
-	if result, ok := a.pageWheel(event); ok {
-		return result
-	}
-	if t := a.focusedTerminal(event.Target); t != nil {
-		if result, ok := t.Scroll(event); ok {
-			return result
-		}
-	}
-	if v := a.focusedDocument(event.Target); v != nil {
-		a.pluginSemanticsScrolled(event.Target)
-		if result, ok := v.Scroll(event); ok {
-			return result
-		}
-	}
-	if result, ok := a.term.stripWheel(event); ok {
-		return result
-	}
-	return a.view.Wheel(event)
-}
-
-// textInput answers Config.TextInput: the platform asks which editor belongs to the focused
-// control. A terminal's grid takes typed text and input method composition itself; every
-// other control is a field the window declared or one of a Git page.
-func (a *App) textInput(ctx app.TextInputContext) *app.TextInput {
-	if input := a.pageTextInput(ctx); input != nil {
-		return input
-	}
-	if t := a.focusedTerminal(ctx.ID); t != nil {
-		return t.TextInput(ctx)
-	}
-	if v := a.focusedDocument(ctx.ID); v != nil {
-		return v.TextInput(ctx)
-	}
-	return a.fields(ctx)
 }

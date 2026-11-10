@@ -23,7 +23,7 @@ func (a *App) welcomeSeparator() gfx.Color {
 
 // welcomeView is the screen shown while no project is open: a sidebar with the
 // application's name and the places it leads to, and the list of recent projects.
-func (a *App) welcomeView(c ui.C) {
+func (a *App) welcomePanel(c ui.C) {
 	a.collectWelcomeBranches(c)
 	surface := gfx.RGB24(0xFFFFFF)
 	if a.colors.Dark {

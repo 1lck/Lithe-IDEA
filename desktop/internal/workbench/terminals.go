@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/termview"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"

@@ -9,7 +9,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/sheet"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -140,34 +139,40 @@ func (a *App) collectNewProjectSearch(c ui.C) {
 	}
 }
 
-// newProjectView declares the New Project sheet's contents as a Page: the
-// generator list on the left, the selected entry's form on the right and the
-// actions below.
-func (a *App) newProjectView(c ui.C) {
+// newProjectModal declares the New Project dialog while it is open: the generator list on
+// the left, the selected entry's form on the right and the actions below.
+func (a *App) newProjectModal(c ui.C) {
+	n := &a.newProject
+	if !n.open {
+		return
+	}
 	a.collectNewProject(c)
 	language := a.language()
-	divider, sidebar, footer := gfx.RGB24(0xD9DADF), gfx.RGB24(0xECECEE), gfx.RGB24(0xF7F8FA)
+	divider, sidebar := gfx.RGB24(0xD9DADF), gfx.RGB24(0xECECEE)
 	if a.colors.Dark {
-		divider, sidebar, footer = gfx.RGB24(0x333438), gfx.RGB24(0x232427), gfx.RGB24(0x191A1C)
+		divider, sidebar = gfx.RGB24(0x333438), gfx.RGB24(0x232427)
 	}
-	ui.Column(c).Fill().Children(func() {
-		ui.Row(c).FillWidth().Grow(1).Children(func() {
+	open := true
+	ui.ModalWith(c, &open, i18n.Shared(language, "desktop.newProject.title"), ui.ModalSpec{Width: 880, Height: 660}, func() {
+		ui.Row(c).Fill().Children(func() {
 			a.newProjectSidebar(c, language, sidebar, divider)
 			ui.Column(c).Width(1).FillHeight().Shrink(0).Background(divider)
 			a.newProjectContent(c, language)
 		})
-		ui.Row(c).FillWidth().Height(1).Shrink(0).Background(divider)
-		ui.Row(c).FillWidth().Height(56).Shrink(0).Items(ui.Center).Justify(ui.End).PadX(14).Gap(8).
-			Draw(func(d *ui.DrawContext) { sheet.PaintFooterBackground(d, footer) }).Children(func() {
-			a.newProjectFooter(c, language)
-		})
+	}, func() {
+		a.newProjectFooter(c, language)
 	})
+	if !open {
+		// Escape, the scrim and the close button end the dialog like Cancel: a running
+		// creation is asked to stop first.
+		c.After(a.cancelNewProject)
+	}
 }
 
 func (a *App) newProjectSidebar(c ui.C, language i18n.Language, background, divider gfx.Color) {
 	n := &a.newProject
 	ui.Column(c).Width(240).FillHeight().Shrink(0).
-		Draw(func(d *ui.DrawContext) { sheet.PaintLeadingBackground(d, background) }).Children(func() {
+		Background(background).Children(func() {
 		ui.Column(c).FillWidth().Grow(1).PadSides(10, 12, 0, 12).Gap(12).Children(func() {
 			search := i18n.Shared(language, "search.search")
 			field := ui.TextField(c, &n.search, search, search).Icon(icons.Search).Action(icons.X, i18n.Shared(language, "native.clearSearch")).AutoFocus()
@@ -529,30 +534,6 @@ func (a *App) newProjectFooter(c ui.C, language i18n.Language) {
 	}
 	if ui.Button(c, label).Disabled(disabled).Clicked() {
 		a.submitNewProject()
-	}
-}
-
-// drawNewProjectDialog paints the sheet and hands its contents to the page.
-func (a *App) drawNewProjectDialog(f *ui.Frame) {
-	n := &a.newProject
-	if !n.open || n.page == nil {
-		return
-	}
-	language := a.language()
-	background := gfx.RGB24(0xF7F8FA)
-	if a.colors.Dark {
-		background = gfx.RGB24(0x242529)
-	}
-	page := n.page
-	dismissed := sheet.Draw(f, sheet.Options{Width: 880, Height: 660, Background: background,
-		Scope: newProjectScope, Dismiss: newProjectDismiss,
-		DismissLabel: i18n.Shared(language, "desktop.newProject.cancel")}, func() {
-		f.Slot().Grow(1).FillWidth().Draw(func(d *ui.DrawContext) {
-			page.Draw(d.Canvas, d.Rect, a.newProjectView)
-		})
-	})
-	if dismissed {
-		a.cancelNewProject()
 	}
 }
 

@@ -316,7 +316,7 @@ func dockAnchorOrder(source zone) [dockAnchorCount]dockAnchorID {
 
 // dragDockAnchors builds the open or remembered pane rectangles used by detached drags.
 func (a *App) dragDockAnchors(viewport gfx.Size) [dockAnchorCount]dragDockAnchor {
-	main := a.layout.main.Rect()
+	main := a.layout.mainRect
 	plan := a.layout.frame
 	if main.Width <= 0 || main.Height <= 0 {
 		main = gfx.Rect{

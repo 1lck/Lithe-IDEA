@@ -20,12 +20,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/metrics"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/1lck/Lithe-IDEA/desktop/internal/appicon"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/documentio"
@@ -39,7 +37,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/projectgen"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/windowcontrols"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -361,17 +358,13 @@ type App struct {
 	logView          logView
 	// branch is the title bar's branch popup and the dialogs it opens.
 	branch branchState
-	// gitOverlay is the page of the branch popup and the sync dialogs.
-	gitOverlay gitOverlay
 	// commitView is the Commit tool window's splitter and message input.
 	commitView     commitView
 	searchView     searchView
 	everywhereView everywhereView
 	// problems is the Problems tool window's cached Core answer.
-	problems problemsView
-	// problemsHost is the page that shows it.
-	problemsHost gitHost
-	navigation   navigationView
+	problems   problemsView
+	navigation navigationView
 	// delays are how long the log waits before it acts on a selection or a filter.
 	delays logDelays
 	// term is what the frame being painted declared for the terminals, and the gesture that
@@ -552,10 +545,7 @@ func (a *App) systemAppearanceChanged() {
 func (a *App) closed() {
 	a.unsubscribeSettings()
 	a.closeClone()
-	a.closeOverlay()
-	a.closeSearchPanel()
 	a.closeNewProject()
-	a.closeGitPages()
 	a.closeWelcomeBranchReads()
 	a.closeProject()
 	a.settingsWindow.Close()
@@ -849,8 +839,9 @@ func (a *App) requestCloseProject(after func()) {
 		a.problems.reset()
 		a.toolchainRoot.Store(nil)
 		a.project = nil
-		a.cancelDrag()
-		a.cancelTabDrag()
+		a.dnd.tool.Cancel()
+		a.dnd.tab.Cancel()
+		a.drag, a.term.drag = dragState{}, tabDrag{}
 		a.title = titleState{}
 		a.branch.branchSession = branchSession{}
 		if after != nil {

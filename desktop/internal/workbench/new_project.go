@@ -15,14 +15,10 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/projectgen"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
-var (
-	newProjectScope   = tree.ID(shellPage, "new-project-scope")
-	newProjectDismiss = tree.ID(shellPage, "new-project-dismiss")
-)
+var ()
 
 // emptyProjectKey names the host's own entry in the generator list.
 const emptyProjectKey = "empty"
@@ -93,11 +89,7 @@ type newProjectState struct {
 	generation           uint64
 	cancel               context.CancelFunc
 	err, created         string
-	returnFocus          gfx.ID
-	restoreFocus         bool
 
-	// page is made for each opening, so closing it ends every effect it started.
-	page *ui.Page
 	list ui.ListState
 	// choice is the selected entry's key.
 	choice  string
@@ -148,13 +140,7 @@ func (a *App) openNewProject(surface string) {
 	}
 	n.generation++
 	n.open, n.busy, n.git, n.cancelling = true, false, false, false
-	n.err, n.created, n.restoreFocus = "", "", false
-	// The start screen is a page whose buttons the sheet cannot name, so nothing
-	// takes the focus back there; the workbench's project button can be named.
-	n.returnFocus = gfx.ID{}
-	if a.project != nil {
-		n.returnFocus = chromeProjectButton
-	}
+	n.err, n.created = "", ""
 	n.name = i18n.Shared(a.language(), "desktop.newProject.defaultName")
 	n.parent = filepath.Join("~", "LitheProjects")
 	n.search = ""
@@ -164,16 +150,13 @@ func (a *App) openNewProject(surface string) {
 	n.list = ui.ListState{}
 	n.catalogLoaded, n.catalogFailed, n.issues = false, false, nil
 	n.visible, n.checked, n.progress, n.toolsFor = nil, false, nil, ""
-	n.newPage(a)
+	n.newEffects(a)
 	a.performed("workspace.new", surface)
 }
 
-// newPage makes the Page and the effects that belong to it.
-func (n *newProjectState) newPage(a *App) {
-	n.page = ui.NewPage(ui.PageConfig{
-		View: a.newProjectView, Tree: &tree, Root: "new-project",
-		Theme: &a.theme, Invalidator: &a.invalidator,
-	})
+// newEffects makes the effects that belong to the dialog. They are declared by the window's
+// page while the dialog is open, so they end when it closes.
+func (n *newProjectState) newEffects(a *App) {
 	n.catalogFx = newKeyedEffect(a.loadProjectCatalog)
 	n.toolsFx = newKeyedEffect(a.loadProjectTools)
 	n.formFx = newKeyedEffect(a.evaluateProjectForm)
@@ -188,11 +171,6 @@ func (a *App) closeNewProject() {
 		n.cancel()
 		n.cancel = nil
 	}
-	if n.page != nil {
-		// Ends the catalog, tool, form, check and search work with the page.
-		n.page.Close()
-		n.page = nil
-	}
 	n.open, n.busy, n.cancelling = false, false, false
 }
 
@@ -201,12 +179,6 @@ func (a *App) dismissNewProject() {
 		return
 	}
 	a.closeNewProject()
-	generation := a.newProject.generation
-	a.post(func(a *App) {
-		if !a.newProject.open && a.newProject.generation == generation {
-			a.newProject.restoreFocus = true
-		}
-	})
 }
 
 // cancelNewProject waits for the worker to return, so a second attempt cannot

@@ -37,6 +37,16 @@ func (v *commitView) capture() {
 	v.bodyHeight = height
 }
 
+// splitKey gives a key to the splitter between the list and the commit area, which a Page does
+// not route to the splitter.
+func (v *commitView) splitKey(event gfx.KeyEvent) gfx.EventResult {
+	r := v.split.Key(event)
+	if r.Handled {
+		v.adoptArea()
+	}
+	return r
+}
+
 // adoptArea takes the splitter's position as the height of the commit area.
 func (v *commitView) adoptArea() {
 	room := v.bodyHeight - shellSplitter

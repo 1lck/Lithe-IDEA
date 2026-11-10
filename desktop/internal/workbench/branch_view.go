@@ -39,12 +39,8 @@ func branchRowKey(section string, r core.GitReference) string {
 // drawBranchPopup declares the open popup under the branch button: the panel with the search
 // field, the actions and the references, and the menu of the row the user opened. A press
 // outside it, or Escape, closes it.
-func (a *App) drawBranchPopup(c ui.C, p *project) {
+func (a *App) drawBranchPopup(c ui.C, p *project, anchor ui.Box) {
 	b, t := &a.branch, a.text.Branch
-	r := b.anchor
-	// The button is an element of the window's Frame, so the page hangs the popup off a box
-	// at the place the Frame laid it out.
-	anchor := ui.Row(c.Part("branch-anchor")).Absolute().Left(r.X).Top(r.Y).Size(r.Width, r.Height)
 	spec := ui.PopoverSpec{Align: ui.Start, Offset: chromeMenuOffset, Width: branchPopupWidth, ConsumeOutsidePress: true}
 	ui.PopoverWith(c, anchor, spec, &b.open, func() {
 		ui.Column(c).FillWidth().MaxHeight(branchPopupMaxHeight).Gap(chromeMenuItems).Children(func() {

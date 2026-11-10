@@ -34,7 +34,7 @@ func (a *App) navigationPopup(c ui.C) {
 			confirmed = ui.Button(c, a.text.Settings.OK).Disabled(v.target == nil || v.validated != v.input.Text()).Clicked()
 		})
 	if v.selectAll {
-		if input := a.overlayPage().TextInput(app.TextInputContext{ID: navigationField}); input != nil && input.Editor != nil {
+		if input := a.root.TextInput(app.TextInputContext{ID: navigationField}); input != nil && input.Editor != nil {
 			input.Editor.SetSelection(text.Range{Start: 0, End: input.Editor.RuneCount()})
 			v.selectAll = false
 		}

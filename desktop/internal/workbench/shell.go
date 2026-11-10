@@ -74,8 +74,6 @@ const (
 	shellSplitCount
 )
 
-)
-
 // layoutState is how the workbench divides its window: the sizes the user chose for the
 // tool windows and the splitters that change them.
 //
@@ -117,6 +115,9 @@ type layoutState struct {
 	// stripes at both sides, the title bar and the status bar.
 	insetW, insetH   float32
 	windowW, windowH float32
+	// mainRect is where the main column was laid out in the last paint, read by mainHook.
+	mainRect gfx.Rect
+	mainHook func(*ui.DrawContext)
 }
 
 func newLayoutState() layoutState {
@@ -345,4 +346,3 @@ func (l *layoutState) adopt(which shellSplit) {
 func shellClamp(v, lo, hi float32) float32 { return max(min(v, hi), lo) }
 func shellSnap(v float32) float32          { return float32(math.Round(float64(v))) }
 func shellFloor(v float32) float32         { return float32(math.Floor(float64(v))) }
-

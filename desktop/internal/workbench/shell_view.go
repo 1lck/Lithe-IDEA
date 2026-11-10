@@ -12,7 +12,10 @@ import (
 // row fill what is left; each splitter is declared right after the pane its Pos measures and
 // before the next one, as Viva wants.
 func (a *App) shellMain(c ui.C, plan shellPlan, open [slotCount]int, hidden *slot) {
-	ui.Column(c).Fill().Children(func() {
+	if a.layout.mainHook == nil {
+		a.layout.mainHook = func(d *ui.DrawContext) { a.layout.mainRect = d.Rect }
+	}
+	ui.Column(c).Fill().Draw(a.layout.mainHook).Children(func() {
 		ui.Row(c).Fill().Children(func() {
 			if plan.left() {
 				a.shellColumn(c, open, hidden, slotLeftTop, slotLeftBottom, shellSplitLeftColumn, plan.leftUpperH).Width(plan.leftW).Shrink(0)

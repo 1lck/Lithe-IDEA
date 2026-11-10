@@ -169,7 +169,7 @@ func (a *App) everywhereKey(p *project, event gfx.KeyEvent) gfx.EventResult {
 	if event.Release || event.Modifiers != 0 || event.Target != everywhereQueryID {
 		return gfx.EventResult{}
 	}
-	if input := a.overlayPage().TextInput(app.TextInputContext{ID: everywhereQueryID}); input != nil && input.Editor != nil {
+	if input := a.root.TextInput(app.TextInputContext{ID: everywhereQueryID}); input != nil && input.Editor != nil {
 		if _, composing := input.Editor.Composition(); composing {
 			return gfx.EventResult{}
 		}

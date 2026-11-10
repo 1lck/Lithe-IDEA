@@ -14,9 +14,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/documentio"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -396,12 +394,12 @@ func (a *App) placeDocumentAs(p *project, path, name string, content editorview.
 	}
 	d := &document{id: id, path: path, name: name, languageID: languageID, virtual: virtual}
 	d.view = editorview.New(editorview.Config{
-		Label:           name,
-		Content:         content,
-		Syntax:          grammar,
-		Notify:          a.invalidator.Invalidate,
-		Save:            func() { a.saveDocument(p, id) },
-		OnEdit:          func(edit editorview.Edit) { a.documentEdited(p, d, edit) },
+		Label:   name,
+		Content: content,
+		Syntax:  grammar,
+		Notify:  a.invalidator.Invalidate,
+		Save:    func() { a.saveDocument(p, id) },
+		OnEdit:  func(edit editorview.Edit) { a.documentEdited(p, d, edit) },
 	})
 	d.view.SetReadOnly(virtual)
 	a.documentInput(p, d)
@@ -616,7 +614,6 @@ func (a *App) closeDocument(p *project, id int) {
 			return
 		}
 		d.view.Close()
-		d.conflict.host.close()
 		p.docs.list = slices.DeleteFunc(p.docs.list, func(x *document) bool { return x.id == id })
 		a.unwatchDocument(p, d)
 		a.closeDocumentInSession(p, d)
@@ -706,7 +703,6 @@ func (a *App) closeDocuments(p *project) {
 	}
 	for _, d := range p.docs.list {
 		d.view.Close()
-		d.conflict.host.close()
 	}
 	p.docs = documentSet{}
 }
@@ -769,4 +765,3 @@ func (a *App) focusedDocument(id gfx.ID) *editorview.View {
 	}
 	return nil
 }
-

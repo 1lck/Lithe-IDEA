@@ -351,4 +351,3 @@ func unionRect(a, b gfx.Rect) gfx.Rect {
 func pointInRect(r gfx.Rect, x, y float32) bool {
 	return r.Width > 0 && r.Height > 0 && x >= r.X && x < r.Right() && y >= r.Y && y < r.Bottom()
 }
-
