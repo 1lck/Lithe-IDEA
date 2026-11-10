@@ -62,7 +62,7 @@ func (a *App) debugView(c ui.C, p *project) {
 		}
 		a.debugBreakpoints(c, p)
 		ui.Divider(c)
-		a.debugFrames(c, p)
+		a.debugSections(c, p)
 	})
 }
 
@@ -222,6 +222,11 @@ func (a *App) debugFrames(c ui.C, p *project) {
 		frame := d.frames[row.Index]
 		element := row.Element.Height(debugRowHeight).PadX(10).Items(ui.Center).Gap(6).Hover(ui.Look{}.Background(a.colors.Hover))
 		ui.Text(row.C, frame.Name).Grow(1).Shrink(1).FontSize(12.5).Color(a.colors.Text).Ellipsis()
+		index := row.Index
+		if element.Clicked() && index != d.vars.frame {
+			// The selected frame decides which scopes and variables are shown.
+			row.C.After(func() { a.selectDebugFrame(p, index) })
+		}
 		if frame.SourcePath == "" {
 			return
 		}

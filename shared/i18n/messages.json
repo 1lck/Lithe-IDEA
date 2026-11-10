@@ -10927,6 +10927,34 @@
       ]
     },
     {
+      "id": "desktop.debug.disassembly",
+      "description": "Debug tool window section showing the machine instructions around the paused frame",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.editValue",
+      "description": "Placeholder and label of the field that holds a variable's new value",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.endOfCode",
+      "description": "Disassembly note that no more instructions exist in that direction",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.exceptions",
+      "description": "Debug tool window section choosing which exceptions pause the debuggee",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.debug.failed",
       "description": "Debug session failed",
       "platforms": [
@@ -10955,6 +10983,34 @@
       ]
     },
     {
+      "id": "desktop.debug.loadAfter",
+      "description": "Disassembly button that lists instructions after the last one shown",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.loadBefore",
+      "description": "Disassembly button that lists instructions before the first one shown",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.loadMore",
+      "description": "Row that requests the next page of a large variable container",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.loadingVariables",
+      "description": "Row shown while a page of variables is being requested",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.debug.noAdapters",
       "description": "No installed plugin declares a stdio debug adapter.",
       "platforms": [
@@ -10964,6 +11020,13 @@
     {
       "id": "desktop.debug.noBreakpoints",
       "description": "No breakpoints",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.noDisassembly",
+      "description": "Disassembly section when the selected frame cannot be shown as instructions",
       "platforms": [
         "desktop"
       ]
@@ -10983,8 +11046,22 @@
       ]
     },
     {
+      "id": "desktop.debug.noExceptionFilters",
+      "description": "Exception section when the adapter offers no exception filters",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.debug.noFrames",
       "description": "No stack frames",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.noVariables",
+      "description": "Variables section when the debuggee is not paused or the frame has no variables",
       "platforms": [
         "desktop"
       ]
@@ -11013,6 +11090,13 @@
     {
       "id": "desktop.debug.pluginsUnavailable",
       "description": "Debug plugins are unavailable in this window.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.reload",
+      "description": "Disassembly button that rebuilds the window around the current instruction",
       "platforms": [
         "desktop"
       ]
@@ -11058,6 +11142,13 @@
     {
       "id": "desktop.debug.running",
       "description": "Running",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.setValue",
+      "description": "Button that writes the typed value into the selected variable",
       "platforms": [
         "desktop"
       ]
@@ -11114,6 +11205,27 @@
     {
       "id": "desktop.debug.toggleBreakpoint",
       "description": "Toggle breakpoint at caret",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.variables",
+      "description": "Debug tool window section listing the paused frame's scopes and variables",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.viewJson",
+      "description": "Variables section switch to the JSON text view of the loaded variables",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.viewTree",
+      "description": "Variables section switch to the expandable tree view",
       "platforms": [
         "desktop"
       ]

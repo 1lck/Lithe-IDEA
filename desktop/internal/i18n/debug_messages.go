@@ -33,6 +33,22 @@ type DebugMessages struct {
 	TimedOut           string
 	ConnectionClosed   string
 	WriteTimedOut      string
+	Variables          string
+	Exceptions         string
+	Disassembly        string
+	NoVariables        string
+	LoadingVariables   string
+	LoadMore           string
+	ViewTree           string
+	ViewJSON           string
+	EditValue          string
+	SetValue           string
+	NoExceptionFilters string
+	NoDisassembly      string
+	LoadBefore         string
+	LoadAfter          string
+	Reload             string
+	EndOfCode          string
 	BufferLimit        string
 	InvalidEndpoint    string
 	// RemotePrompt asks whether to attach to a debuggee that is not local.
@@ -74,6 +90,22 @@ func debugMessages(language Language) DebugMessages {
 		TimedOut:           Shared(language, "desktop.debug.timedOut"),
 		ConnectionClosed:   Shared(language, "desktop.debug.connectionClosed"),
 		WriteTimedOut:      Shared(language, "desktop.debug.writeTimedOut"),
+		Variables:          Shared(language, "desktop.debug.variables"),
+		Exceptions:         Shared(language, "desktop.debug.exceptions"),
+		Disassembly:        Shared(language, "desktop.debug.disassembly"),
+		NoVariables:        Shared(language, "desktop.debug.noVariables"),
+		LoadingVariables:   Shared(language, "desktop.debug.loadingVariables"),
+		LoadMore:           Shared(language, "desktop.debug.loadMore"),
+		ViewTree:           Shared(language, "desktop.debug.viewTree"),
+		ViewJSON:           Shared(language, "desktop.debug.viewJson"),
+		EditValue:          Shared(language, "desktop.debug.editValue"),
+		SetValue:           Shared(language, "desktop.debug.setValue"),
+		NoExceptionFilters: Shared(language, "desktop.debug.noExceptionFilters"),
+		NoDisassembly:      Shared(language, "desktop.debug.noDisassembly"),
+		LoadBefore:         Shared(language, "desktop.debug.loadBefore"),
+		LoadAfter:          Shared(language, "desktop.debug.loadAfter"),
+		Reload:             Shared(language, "desktop.debug.reload"),
+		EndOfCode:          Shared(language, "desktop.debug.endOfCode"),
 		BufferLimit:        Shared(language, "desktop.debug.bufferLimit"),
 		InvalidEndpoint:    Shared(language, "desktop.debug.invalidEndpoint"),
 		RemotePrompt: func(endpoint string) string {

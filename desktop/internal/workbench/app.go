@@ -71,6 +71,7 @@ type Kernel interface {
 	PlanDebugStart(context.Context, json.RawMessage, string, string, core.DebugStartFacts) (core.DebugStart, error)
 	DebugTransportPolicy(context.Context) (core.DebugTransportPolicy, error)
 	debugTransportKernel
+	debugStateKernel
 	MatchOutputLinks(context.Context, core.OutputLinkRequest) ([]core.OutputLink, error)
 	CreateDebugSession(ctx context.Context, request core.DebugCreateSessionRequest) (core.DebugUpdate, error)
 	LaunchDebug(ctx context.Context, sessionID, operationID string, configuration core.DebugLaunchConfiguration) (core.DebugUpdate, error)

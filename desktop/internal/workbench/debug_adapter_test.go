@@ -94,7 +94,15 @@ func serveFixtureAdapter(input io.Reader, output io.Writer, workspace string) in
 		}
 		switch request.Command {
 		case "initialize":
-			respond(map[string]any{"supportsConfigurationDoneRequest": true})
+			respond(map[string]any{
+				"supportsConfigurationDoneRequest": true,
+				"supportsSetVariable":              true,
+				"supportsDisassembleRequest":       true,
+				"exceptionBreakpointFilters": []any{
+					map[string]any{"filter": "uncaught", "label": "Uncaught Exceptions", "default": true},
+					map[string]any{"filter": "caught", "label": "Caught Exceptions", "default": false},
+				},
+			})
 			event("initialized", map[string]any{})
 		case "launch", "configurationDone", "disconnect", "terminate":
 			respond(map[string]any{})
@@ -108,9 +116,61 @@ func serveFixtureAdapter(input io.Reader, output io.Writer, workspace string) in
 			respond(map[string]any{"breakpoints": []any{map[string]any{"verified": true, "line": 3}}})
 		case "stackTrace":
 			respond(map[string]any{"stackFrames": []any{
-				map[string]any{"id": 1, "name": "main", "line": 3, "column": 1, "source": map[string]any{"path": source}},
+				map[string]any{"id": 1, "name": "main", "line": 3, "column": 1, "source": map[string]any{"path": source}, "instructionPointerReference": "0x1000"},
 				map[string]any{"id": 2, "name": "worker", "line": 8, "column": 2, "source": map[string]any{"path": source}},
 			}})
+		case "scopes":
+			respond(map[string]any{"scopes": []any{
+				map[string]any{"name": "Locals", "variablesReference": 100, "namedVariables": 3, "presentationHint": "locals"},
+				map[string]any{"name": "Globals", "variablesReference": 101, "expensive": true},
+			}})
+		case "variables":
+			var arguments struct {
+				Reference int    `json:"variablesReference"`
+				Filter    string `json:"filter"`
+				Start     int    `json:"start"`
+				Count     int    `json:"count"`
+			}
+			_ = json.Unmarshal(request.Body, &arguments)
+			switch arguments.Reference {
+			case 100:
+				respond(map[string]any{"variables": []any{
+					map[string]any{"name": "count", "value": "1", "type": "int", "variablesReference": 0},
+					map[string]any{"name": "items", "value": "List(250)", "type": "List", "variablesReference": 200, "indexedVariables": 250},
+					map[string]any{"name": "label", "value": "\"x\"", "type": "string", "variablesReference": 0},
+				}})
+			case 200:
+				variables := []any{}
+				for index := arguments.Start; index < arguments.Start+arguments.Count && index < 250; index++ {
+					variables = append(variables, map[string]any{"name": fmt.Sprintf("[%d]", index), "value": strconv.Itoa(index * 2), "variablesReference": 0})
+				}
+				respond(map[string]any{"variables": variables})
+			default:
+				respond(map[string]any{"variables": []any{}})
+			}
+		case "setVariable":
+			var arguments struct {
+				Name  string `json:"name"`
+				Value string `json:"value"`
+			}
+			_ = json.Unmarshal(request.Body, &arguments)
+			respond(map[string]any{"value": arguments.Value, "type": "int"})
+		case "disassemble":
+			var arguments struct {
+				Offset int `json:"instructionOffset"`
+				Count  int `json:"instructionCount"`
+			}
+			_ = json.Unmarshal(request.Body, &arguments)
+			instructions := []any{}
+			for index := 0; index < arguments.Count; index++ {
+				instructions = append(instructions, map[string]any{
+					"address":     fmt.Sprintf("0x%x", 0x1000+4*(arguments.Offset+index)),
+					"instruction": "nop",
+				})
+			}
+			respond(map[string]any{"instructions": instructions})
+		case "setExceptionBreakpoints":
+			respond(map[string]any{})
 		case "threads":
 			respond(map[string]any{"threads": []any{map[string]any{"id": 7, "name": "main"}}})
 		case "continue":

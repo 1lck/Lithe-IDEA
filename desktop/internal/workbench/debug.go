@@ -69,6 +69,14 @@ type debugState struct {
 	// pendingRemote is the start in flight, kept so a remote endpoint can be
 	// confirmed and the same start repeated.
 	pendingRemote *debugStart
+	// capabilities is what the adapter negotiated; nil until its capabilities
+	// event arrives, and a UI treats nil as unknown rather than unsupported.
+	capabilities *core.DebugCapabilities
+	// vars, exceptions and disassembly are the sections under the call stack.
+	vars        debugVariables
+	exceptions  debugExceptions
+	disassembly debugDisassembly
+	section     string
 }
 
 func (s *debugState) reset() { *s = debugState{} }
@@ -296,22 +304,31 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 	p.debug.state = update.State
 	for _, event := range update.Events {
 		switch event.Type {
+		case "capabilities":
+			p.debug.capabilities = event.Capabilities
+			a.sendDebugExceptions(p)
 		case "initialized":
 			p.debug.status = a.text.Debug.Initialized
 		case "stateChanged":
 			p.debug.state = event.State
 		case "stopped":
+			p.debug.vars.reset()
+			p.debug.disassembly.reset()
 			p.debug.pausedThread = event.ThreadID
 			p.debug.status = a.text.Debug.Paused
 			if event.ThreadID != nil {
 				a.inspectDebugStack(p, session, *event.ThreadID)
 			}
 		case "continued":
+			p.debug.vars.reset()
+			p.debug.disassembly.reset()
 			p.debug.frames = nil
 			p.debug.pausedThread = nil
 			p.debug.state = "running"
 			p.debug.status = a.text.Debug.Running
 		case "terminated":
+			p.debug.vars.reset()
+			p.debug.disassembly.reset()
 			p.debug.frames = nil
 			p.debug.pausedThread = nil
 			p.debug.state = "terminated"
@@ -321,15 +338,22 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 			p.debug.session = nil
 			a.releaseDebugSession(p, session)
 		case "operationFailed":
+			if a.completeDebugOperation(p, event) {
+				continue
+			}
 			p.debug.failure = event.Message
 			p.debug.status = a.text.Debug.Failed
 		case "operationCompleted":
+			if a.completeDebugOperation(p, event) {
+				continue
+			}
 			if event.Result != nil && event.Result.Kind == "stackTrace" {
 				frames := event.Result.StackFrames
 				if len(frames) > debugMaxFrames {
 					frames = frames[:debugMaxFrames]
 				}
 				p.debug.frames = frames
+				a.selectDebugFrame(p, 0)
 			}
 		case "output":
 			p.debug.output = appendDebugOutput(p.debug.output, event.Output)
