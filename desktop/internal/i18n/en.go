@@ -478,4 +478,5 @@ var english = Messages{
 	Build:  buildMessages(English),
 	Tests:  testMessages(English),
 	Debug:  debugMessages(English),
+	Sync:   syncMessages(English),
 }

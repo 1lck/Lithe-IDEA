@@ -103168,6 +103168,263 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.sync.fetching",
+      "description": "Desktop: sync.fetching",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.updating",
+      "description": "Desktop: sync.updating",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.sync.cancel",
+      "description": "Desktop: sync.cancel",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.fetched",
+      "description": "Desktop: sync.fetched",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.fetchFailed",
+      "description": "Desktop: sync.fetchFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.sync.updateFailed",
+      "description": "Desktop: sync.updateFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.sync.updated",
+      "description": "Desktop: sync.updated",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.sync.merged",
+      "description": "Desktop: sync.merged",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.sync.rebased",
+      "description": "Desktop: sync.rebased",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.sync.upToDate",
+      "description": "Desktop: sync.upToDate",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.sync.noUpstream",
+      "description": "Desktop: sync.noUpstream",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.sync.cancelled",
+      "description": "Desktop: sync.cancelled",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.authFailed",
+      "description": "Desktop: sync.authFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.sync.fetchTitle",
+      "description": "Desktop: sync.fetchTitle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.fetchPrompt",
+      "description": "Desktop: sync.fetchPrompt",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.allRemotes",
+      "description": "Desktop: sync.allRemotes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.remoteName",
+      "description": "Desktop: sync.remoteName",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.prune",
+      "description": "Desktop: sync.prune",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.submodules",
+      "description": "Desktop: sync.submodules",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.tags",
+      "description": "Desktop: sync.tags",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.inherit",
+      "description": "Desktop: sync.inherit",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.no",
+      "description": "Desktop: sync.no",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.onDemand",
+      "description": "Desktop: sync.onDemand",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.yes",
+      "description": "Desktop: sync.yes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.tagsAll",
+      "description": "Desktop: sync.tagsAll",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.tagsNone",
+      "description": "Desktop: sync.tagsNone",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.tagsPrune",
+      "description": "Desktop: sync.tagsPrune",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.fetchButton",
+      "description": "Desktop: sync.fetchButton",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.divergedTitle",
+      "description": "Desktop: sync.divergedTitle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.divergedPrompt",
+      "description": "Desktop: sync.divergedPrompt",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "upstream": "string",
+        "ahead": "integer",
+        "behind": "integer"
+      }
+    },
+    {
+      "id": "desktop.sync.merge",
+      "description": "Desktop: sync.merge",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.rebase",
+      "description": "Desktop: sync.rebase",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

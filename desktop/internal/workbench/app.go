@@ -111,6 +111,9 @@ type Kernel interface {
 	GitCheckoutRevision(ctx context.Context, root, revision string) error
 	GitCreateBranch(ctx context.Context, root, name string, from core.GitReference, checkout bool) error
 	GitRenameBranch(ctx context.Context, root string, branch core.GitReference, name string) error
+	GitFetch(ctx context.Context, root string, options *core.GitFetchOptions) error
+	GitPullPreflight(ctx context.Context, root string) (core.GitPullPreflight, error)
+	GitPull(ctx context.Context, root string, strategy core.GitPullStrategy) error
 	GitDeleteBranch(ctx context.Context, root string, branch core.GitReference) (core.GitBranchDeletion, error)
 	GitBranchNamePreview(ctx context.Context, request core.BranchNameRequest) (core.BranchNamePreview, error)
 	ListDirectories(ctx context.Context, root string, paths []string) ([]core.DirectoryListing, error)

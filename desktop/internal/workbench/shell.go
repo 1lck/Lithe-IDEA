@@ -388,6 +388,7 @@ func (a *App) drawWorkbench(f *ui.Frame) {
 		a.drawStatusBar(f)
 	})
 	a.drawBranchDialog(f)
+	a.drawSyncDialog(f)
 	if hidden != slotCount {
 		a.hidePanel(hidden)
 	}

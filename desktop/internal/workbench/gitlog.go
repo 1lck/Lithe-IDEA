@@ -152,6 +152,9 @@ type gitLogState struct {
 	// usersFor is the number of commits it was made from.
 	users    []string
 	usersFor int
+
+	// sync is the fetch and update the menu runs, with the dialogs they open.
+	sync syncState
 }
 
 func newGitLogState() gitLogState {

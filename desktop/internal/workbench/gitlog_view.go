@@ -605,6 +605,7 @@ func (a *App) drawLogCommits(f *ui.Frame, p *project) ui.Box {
 	return f.Column().FillHeight().MinWidth(logCommitsMin).Clip().Children(func() {
 		a.drawLogToolbar(f, p)
 		f.Divider()
+		a.drawSyncStatus(f, p)
 		a.drawLogList(f, p)
 	})
 }
@@ -1321,18 +1322,17 @@ func (a *App) drawLogPopover(f *ui.Frame, p *project) {
 // drawLogMenu declares the items of the log tab's menu.
 func (a *App) drawLogMenu(f *ui.Frame, p *project) {
 	l, g := &p.log, a.text.Git
-	unavailable := func() { a.notify(a.text.Welcome.Unavailable) }
 	items := []struct {
 		label    string
 		disabled bool
 		run      func()
 	}{
-		{g.FetchAll, false, unavailable},
-		{g.FetchOptions, false, unavailable},
-		{g.UpdateBranch, l.current == "", unavailable},
+		{g.FetchAll, l.sync.busy, func() { a.fetchAll(p) }},
+		{g.FetchOptions, l.sync.busy, func() { a.openFetchOptions(p) }},
+		{g.UpdateBranch, l.current == "" || l.sync.busy, func() { a.updateCurrentBranch(p) }},
 		{g.RefreshLog, false, func() { a.loadLog(p) }},
 		{"", false, nil},
-		{g.ShowChanges, false, unavailable},
+		{g.ShowChanges, false, a.showChanges},
 	}
 	for i, item := range items {
 		if item.run == nil {

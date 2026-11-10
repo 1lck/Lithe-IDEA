@@ -28,6 +28,10 @@ type gitWriteRequest struct {
 	Force bool `json:"force,omitempty"`
 	// AutoStash stashes the local changes before a checkout and restores them after it.
 	AutoStash bool `json:"autoStash,omitempty"`
+	// FetchOptions are the structured choices of one fetch.
+	FetchOptions *GitFetchOptions `json:"fetchOptions,omitempty"`
+	// Mode is how a pull combines diverged histories: ffOnly, merge or rebase.
+	Mode string `json:"mode,omitempty"`
 }
 
 // GitClone clones source into destination using Core's Git process and validation.
