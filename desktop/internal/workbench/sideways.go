@@ -19,11 +19,10 @@ const (
 	sidewaysListInset = 2
 )
 
-// The identities of the sideways scrollbars: the project tree's, that of the Git log's
+// The identities of the sideways scrollbars: that of the Git log's
 // changed files and, as tabScrollbar.At(n), that of the strip of the n-th group of tabs the
 // frame declares.
 var (
-	treeScrollbar     = tree.ID(shellPage, "project-tree-scrollbar")
 	logFilesScrollbar = tree.ID(shellPage, "log-files-scrollbar")
 	tabScrollbar      = tree.Sub(shellPage, tree.Name("editor-tab-scrollbar"))
 )
