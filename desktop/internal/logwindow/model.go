@@ -7,9 +7,10 @@
 // window is the reference for the layout, and both use the same kernel calls, so a log reads
 // the same in either client.
 //
-// Everything in the model runs on the window thread. Kernel and disk calls run on their own
-// goroutines; each hands its result back through the model's mailbox, which the window
-// drains in OnWake before it paints.
+// Everything in the model runs on the window thread. The query of the logs is a ui.Effect of
+// the window's page, keyed by the query; the other kernel and disk calls run on their own
+// goroutines and hand their result back through the model's mailbox, which the window drains
+// in OnWake before it paints.
 package logwindow
 
 import (
@@ -23,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unicode/utf8"
@@ -31,6 +33,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logstore"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/sysinfo"
+	"github.com/vivaui/viva/ui"
 )
 
 // Source is the log store the window reads. *logstore.Store implements it.
@@ -280,15 +283,21 @@ type Model struct {
 	// (a composed term, an applied bookmark), so the filter field can follow them.
 	expressionRevision int
 
-	records        []core.LogRecord
-	ids            []string
-	channels       map[string]core.LogChannelCount
-	histogram      *core.LogHistogram
-	foldMinimumRun int
-	selection      map[string]bool
-	// anchor is the row a Shift-click extends the selection from.
-	anchor       string
-	expandedRuns map[string]bool
+	records []core.LogRecord
+	ids     []string
+	// keyBase is the key of records[0]: a record's key is keyBase plus its index. Keys are
+	// handed out once and never reused, so a list can hold a record's selection by its key
+	// while the records before it are trimmed or the whole answer is replaced. keyNext is
+	// the key the next record gets.
+	keyBase, keyNext int
+	// selectionRevision counts the changes of the selection, so the table can tell the
+	// list's own choice from one the model made.
+	selectionRevision int
+	channels          map[string]core.LogChannelCount
+	histogram         *core.LogHistogram
+	foldMinimumRun    int
+	selection         map[string]bool
+	expandedRuns      map[string]bool
 
 	follows, scrolledUp bool
 	newCount, discarded int
@@ -310,8 +319,13 @@ type Model struct {
 	terms                         []core.LogParsedTerm
 	failed                        bool
 
+	// generation tells the answer to the latest query from one that a clear or a newer query
+	// replaced. queryKey is the generation of the latest refresh and the key of the page's
+	// query effect: a clear invalidates the answer in flight without asking again.
 	generation      int
-	queryCancel     context.CancelFunc
+	queryKey        int
+	job             atomic.Pointer[queryJob]
+	queryFx         *ui.EffectState[queryResult, int]
 	traceCancel     context.CancelFunc
 	traceOp         string
 	watermarks      map[string]uint64
@@ -367,6 +381,7 @@ func NewModel(opts Options) *Model {
 		m.opts.Debounce = defaultDebounce
 	}
 	m.ctx, m.stopAll = context.WithCancel(context.Background())
+	m.queryFx = ui.NewEffect[queryResult, int](m.runQuery)
 	if opts.Store != nil {
 		loaded := defaultPreferences()
 		if _, err := opts.Store.Load(prefsFile, &loaded); err == nil {
@@ -387,6 +402,12 @@ func (m *Model) post(fn func()) {
 	}
 	m.pending = append(m.pending, fn)
 	m.mu.Unlock()
+	m.wake()
+}
+
+// wake asks the window to paint, which drains the mailbox and starts the query a refresh
+// asked for.
+func (m *Model) wake() {
 	if m.opts.Wake != nil {
 		m.opts.Wake()
 	}
@@ -481,64 +502,95 @@ func (m *Model) persist() {
 	}
 }
 
-// refresh queries the logs again. debounce waits first, for typing.
+// queryJob is what a refresh asks of the query effect: the query, and how long to wait
+// before it for typing to settle.
+type queryJob struct {
+	generation int
+	q          logstore.Query
+	delay      time.Duration
+}
+
+// queryResult is the answer to a queryJob: the filter the kernel parsed and, when it has no
+// syntax error, the records.
+type queryResult struct {
+	generation int
+	q          logstore.Query
+	parsed     core.LogFilter
+	collection logstore.Collection
+}
+
+// refresh queries the logs again. debounce waits first, for typing. The page's query effect
+// is keyed by queryKey, so it cancels the query in flight and starts this one at the next
+// paint, which wake asks for.
 func (m *Model) refresh(debounce bool) {
 	m.generation++
+	m.queryKey = m.generation
 	m.queryPending = true
-	token := m.generation
-	q := m.query()
-	if m.queryCancel != nil {
-		m.queryCancel()
-	}
-	ctx, cancel := context.WithCancel(m.ctx)
-	m.queryCancel = cancel
 	delay := time.Duration(0)
 	if debounce && m.opts.Debounce > 0 {
 		delay = m.opts.Debounce
 	}
-	m.spawn(func() {
-		defer cancel()
-		if delay > 0 {
-			timer := time.NewTimer(delay)
-			select {
-			case <-timer.C:
-			case <-ctx.Done():
-				timer.Stop()
-				return
-			}
+	m.job.Store(&queryJob{generation: m.generation, q: m.query(), delay: delay})
+	m.wake()
+}
+
+// declareQuery declares the query effect in the window's page and applies the answer it
+// finished with. It is called once in each paint, before anything reads the records.
+func (m *Model) declareQuery(c ui.C) {
+	if m.job.Load() == nil {
+		return
+	}
+	ui.Effect(c, m.queryFx, m.queryKey)
+	if result, err, ok := m.queryFx.Take(); ok {
+		m.finishQuery(result, err)
+	}
+}
+
+// runQuery is the effect's work, off the window thread: it waits out the debounce, has the
+// kernel parse the expression and, when it parses, reads the records.
+func (m *Model) runQuery(ctx context.Context) (queryResult, error) {
+	job := m.job.Load()
+	result := queryResult{generation: job.generation, q: job.q}
+	if job.delay > 0 {
+		timer := time.NewTimer(job.delay)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			return result, ctx.Err()
 		}
-		parsed, err := m.opts.Kernel.ParseLogFilter(ctx, q.Expression)
-		if err != nil {
-			m.post(func() { m.queryFailed(token, err) })
-			return
-		}
-		if len(parsed.Errors) > 0 {
-			m.post(func() {
-				if token != m.generation {
-					return
-				}
-				m.diagnostics = parsed.Errors
-				m.queryPending = false
-				if m.needsRefresh {
-					m.needsRefresh = false
-				}
-			})
-			return
-		}
-		collection, err := m.opts.Source.QueryWindow(ctx, q)
-		if err != nil {
-			m.post(func() { m.queryFailed(token, err) })
-			return
-		}
-		m.post(func() {
-			if token != m.generation {
-				return
-			}
-			m.diagnostics = nil
-			m.terms = parsed.Terms
-			m.applyCollection(q, collection)
-		})
-	})
+	}
+	parsed, err := m.opts.Kernel.ParseLogFilter(ctx, job.q.Expression)
+	if err != nil {
+		return result, err
+	}
+	result.parsed = parsed
+	if len(parsed.Errors) > 0 {
+		return result, nil
+	}
+	result.collection, err = m.opts.Source.QueryWindow(ctx, job.q)
+	return result, err
+}
+
+// finishQuery applies the answer of the query effect unless a clear or a newer refresh made
+// it stale.
+func (m *Model) finishQuery(result queryResult, err error) {
+	if err != nil {
+		m.queryFailed(m.queryKey, err)
+		return
+	}
+	if result.generation != m.generation {
+		return
+	}
+	if len(result.parsed.Errors) > 0 {
+		m.diagnostics = result.parsed.Errors
+		m.queryPending = false
+		m.needsRefresh = false
+		return
+	}
+	m.diagnostics = nil
+	m.terms = result.parsed.Terms
+	m.applyCollection(result.q, result.collection)
 }
 
 func (m *Model) queryFailed(token int, err error) {
@@ -562,6 +614,8 @@ func (m *Model) applyCollection(q logstore.Query, c logstore.Collection) {
 		m.latestSequences = map[string]uint64{}
 	}
 	m.records = c.Result.Records
+	m.keyBase = m.keyNext
+	m.keyNext += len(m.records)
 	m.ids = make([]string, len(m.records))
 	present := make(map[string]bool, len(m.records))
 	for i, record := range m.records {
@@ -577,6 +631,7 @@ func (m *Model) applyCollection(q logstore.Query, c logstore.Collection) {
 		m.foldMinimumRun = c.Result.FoldMinimumRun
 	}
 	maps.DeleteFunc(m.selection, func(id string, _ bool) bool { return !present[id] })
+	m.selectionRevision++
 	maps.DeleteFunc(m.expandedRuns, func(id string, _ bool) bool { return !present[id] })
 	m.dirty = true
 	if !m.liveFailed {
@@ -752,13 +807,18 @@ func (m *Model) append(result core.LogQueryResult, summary *logstore.LiveSummary
 		m.records = append(m.records, record)
 		m.ids = append(m.ids, recordID(record))
 	}
+	m.keyNext += len(additions)
 	if removed := len(m.records) - maxRecords; removed > 0 {
 		for _, id := range m.ids[:removed] {
+			if m.selection[id] {
+				m.selectionRevision++
+			}
 			delete(m.selection, id)
 			delete(m.expandedRuns, id)
 		}
 		m.records = m.records[removed:]
 		m.ids = m.ids[removed:]
+		m.keyBase += removed
 		m.discarded += removed
 	}
 	if !m.follows {
@@ -877,6 +937,7 @@ func (m *Model) selectIDs(ids map[string]bool) {
 		ids = map[string]bool{}
 	}
 	m.selection = ids
+	m.selectionRevision++
 	m.dirty = true
 	m.syncDetail()
 	record, ok := m.selectedRecord()
@@ -913,52 +974,6 @@ func (m *Model) selectIDs(ids map[string]bool) {
 			m.trace = &collection.Result
 		})
 	})
-}
-
-// selectRow is a click on a row: plain replaces the selection, extend (⌘) adds or removes
-// the row and span (⇧) selects the rows between the anchor and this one.
-func (m *Model) selectRow(id string, extend, span bool) {
-	switch {
-	case span && m.anchor != "":
-		rows := m.displayRows()
-		from, to := -1, -1
-		for i, row := range rows {
-			if row.id == m.anchor {
-				from = i
-			}
-			if row.id == id {
-				to = i
-			}
-		}
-		if from < 0 || to < 0 {
-			m.anchor = id
-			m.selectIDs(map[string]bool{id: true})
-			return
-		}
-		if from > to {
-			from, to = to, from
-		}
-		ids := map[string]bool{}
-		if extend {
-			maps.Copy(ids, m.selection)
-		}
-		for _, row := range rows[from : to+1] {
-			ids[row.id] = true
-		}
-		m.selectIDs(ids)
-	case extend:
-		ids := maps.Clone(m.selection)
-		if ids[id] {
-			delete(ids, id)
-		} else {
-			ids[id] = true
-		}
-		m.anchor = id
-		m.selectIDs(ids)
-	default:
-		m.anchor = id
-		m.selectIDs(map[string]bool{id: true})
-	}
 }
 
 // toggleRun expands or folds a run of repeated records.
@@ -1049,14 +1064,13 @@ func (m *Model) clearDisplay() {
 	m.activeQuery.AfterSequences = maps.Clone(m.watermarks)
 	// A query or batch in flight must not bring the cleared rows back.
 	m.generation++
-	if m.queryCancel != nil {
-		m.queryCancel()
-	}
 	m.queryPending = false
 	m.needsRefresh = false
 	m.records = nil
 	m.ids = nil
+	m.keyBase = m.keyNext
 	m.selection = map[string]bool{}
+	m.selectionRevision++
 	m.expandedRuns = map[string]bool{}
 	m.trace = nil
 	m.cleared = true
@@ -1079,7 +1093,6 @@ func (m *Model) jump(epochMs int64) {
 			m.follows = false
 			m.scrollTarget = id
 			m.scrollRevision++
-			m.anchor = id
 			m.selectIDs(map[string]bool{id: true})
 			return
 		}
