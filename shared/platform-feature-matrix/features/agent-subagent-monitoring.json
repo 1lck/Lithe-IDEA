@@ -4,28 +4,34 @@
   "group": "Agent 对话",
   "capability": "原生子代理监视：有真实子会话时在任务状态行右侧显示独立子代理数量入口，查看真实任务、状态、完成进度及已收到的推理、工具和输出；嵌套子代理与授权由主会话管理，普通工具不计入子代理；子代理或祖先终止时只结算对应子树的未决授权，移除失效卡片并释放计时/静默计数，保留主轮次和其他授权",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/settingswindow/window.go",
-      "desktop/internal/workbench/app.go"
+      "desktop/internal/workbench/agent_activity.go",
+      "desktop/internal/workbench/agent_activity_view.go",
+      "desktop/internal/workbench/agent_activity_test.go",
+      "desktop/internal/workbench/agent.go",
+      "shared/fixtures/agent/acp-events-v1.json",
+      "shared/contracts/rust-core-api.md",
+      "desktop/internal/i18n/agent_activity_messages.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/settingswindow/window.go",
-      "desktop/internal/workbench/app.go"
+      "desktop/internal/workbench/agent_activity.go",
+      "desktop/internal/workbench/agent_activity_view.go",
+      "desktop/internal/workbench/agent_activity_test.go",
+      "desktop/internal/workbench/agent.go",
+      "shared/fixtures/agent/acp-events-v1.json",
+      "shared/contracts/rust-core-api.md",
+      "desktop/internal/i18n/agent_activity_messages.go"
     ]
   },
   "owner": "Agent",
   "verification": "macOS：使用支持 AIR nativeSubagentSessions 的 Claude/Codex 在隔离项目中创建真实子代理，确认名称、任务、嵌套关系、运行/完成/失败/取消/断开状态与完成数/总数；展开详情查看实际输出和工具，状态刷新保持弹层。普通工具不产生子代理；子输出不拼入主回复、历史预览或复制。切换会话隔离，历史恢复同一子代理，停止主任务收尾子代理授权等待；父代理结束后未报告结果的子代理显示已断开。运行 AgentConversationFeatureModelTests 的 nativeSubagents/nativeChild 回归、AgentActivityPresentationTests.subagentsExpandDeliveredOutputAndRefreshWithoutDismissing 和 Host 的 native_subagents_keep_child_permissions_owned_by_the_root_turn。受控协议与原生 UI 测试不能替代真实供应商工作流，完成该实测前保持 pending。Windows launch 已启用 observeSubagents，连接模型与 transcript 已呈现子代理层级、状态、输出和工具。状态机回归覆盖后代清理和权限归属；本次真实 Tauri 验收使用受控 ACP fixture，真实 Claude/Codex 子代理仍待完成。 macOS 窄宽面板：子代理入口在任务摘要右侧且与任务独立点击，无计划时仍可单独出现；数量为真实子会话总数，已完成/总数保留在可访问值与详情。子代理为空时不显示占位；保留深浅主题、展开输出、状态更新和弹层关闭验证。 终态授权清理：根 prompt 保持未结束，依次创建子代理、后代与同级代理并挂起授权；对子代理发送 completed/failed/cancelled/disconnected，确认只将其自身及后代请求回应 cancelled，根和同级请求仍可答复；终态后迟到请求不再入队。Swift 同步移除对应卡片、保留其他队列项，最后一项终止后注意状态解除、等待计时停止；虚拟时钟推进后 Host 静默提醒恢复，根轮次正常完成。 Windows 回归：累计创建并结束 70 个子 Agent 后，在本轮或下一轮新增子 Agent，其授权仍进入主会话；同时运行 70 个子 Agent 时全部保留授权所有者，终止后只保留最近 64 条终态展示记录。",
-  "notes": "Viva 工作台助手面板与对应设置页目前仅为占位，客户端未接入 Agent 会话、配置及宿主流程；Core 或旧客户端已有能力不代表用户入口已迁移。",
+  "notes": "launch 开启 observeSubagents；子会话的消息、思考、工具只进子代理监控，不进根对话；仅 completed 视为成功。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

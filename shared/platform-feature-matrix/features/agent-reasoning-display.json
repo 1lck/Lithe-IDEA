@@ -4,28 +4,34 @@
   "group": "Agent 对话",
   "capability": "每轮思考、过程说明和工具调用合成一个默认折叠的过程入口，流式时也由用户主动展开；最终回复单独展示，空白片段不占行，搜索临时展开匹配内容，原始思考记录与 Markdown 导出保持独立",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/settingswindow/window.go",
-      "desktop/internal/workbench/app.go"
+      "desktop/internal/workbench/agent_activity.go",
+      "desktop/internal/workbench/agent_activity_view.go",
+      "desktop/internal/workbench/agent_activity_test.go",
+      "desktop/internal/workbench/agent.go",
+      "shared/fixtures/agent/acp-events-v1.json",
+      "shared/contracts/rust-core-api.md",
+      "desktop/internal/i18n/agent_activity_messages.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/settingswindow/window.go",
-      "desktop/internal/workbench/app.go"
+      "desktop/internal/workbench/agent_activity.go",
+      "desktop/internal/workbench/agent_activity_view.go",
+      "desktop/internal/workbench/agent_activity_test.go",
+      "desktop/internal/workbench/agent.go",
+      "shared/fixtures/agent/acp-events-v1.json",
+      "shared/contracts/rust-core-api.md",
+      "desktop/internal/i18n/agent_activity_messages.go"
     ]
   },
   "owner": "Agent",
   "verification": "macOS 与 Windows：构造思考→过程说明→读文件→思考→执行命令→最终回复，确认每轮只有一个过程入口且默认收起，流式也不自动展开；收起时过程文字与工具行不占高度，最终回复始终可读。展开按原顺序呈现，只有相邻工具合并，状态与证据可继续查看。纯空白思考、过程说明不产生空行，没有思考和工具的直接回答不产生入口；新用户消息、已记录的轮次结束分别切断分组，工具或思考结束而没有最终回复时不伪造回复。搜索过程文字及工具输入、输出、文件路径，匹配组临时展开且不能在搜索期间收起，清空后恢复手动选择；切换和关闭会话验证偏好隔离与释放。深浅主题、窄宽面板、历史恢复和实时流均验证；历史导出、文件审阅、权限卡片、轮次统计和回复复制继续可用。单元测试与组件回放不替代真实 Agent 和 Windows Tauri 运行验收，未执行部分保持 pending。",
-  "notes": "Viva 工作台助手面板与对应设置页目前仅为占位，客户端未接入 Agent 会话、配置及宿主流程；Core 或旧客户端已有能力不代表用户入口已迁移。",
+  "notes": "agent_thought_chunk 合并为每段独立、默认收起的可折叠思考行；尚未与工具调用合成每轮一个过程入口，无搜索展开。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

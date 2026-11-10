@@ -4,28 +4,30 @@
   "group": "Agent 对话",
   "capability": "当前工作区的 Codex 归档历史：历史页“已归档（N）”分组默认折叠，搜索覆盖归档会话并自动展开命中项，分页不缺不重且空结果/折叠/无搜索命中时仍明示截断；活跃转归档不受响应先后或本地加载影响；已移除归档可独立恢复本地可见性；浏览只读，打开前确认后才通过官方 App Server 取消归档；不支持归档的 Agent（如 Claude）明确提示；Codex 同账号与工作区跨供应商历史可见，不因当前计费路由切换而漏查；主动按上游供应商筛选，默认全部、未知来源独立可选，和搜索/置顶/已移除组合",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/settingswindow/window.go",
-      "desktop/internal/workbench/app.go"
+      "desktop/internal/workbench/agent_archive.go",
+      "desktop/internal/workbench/agent_history.go",
+      "desktop/internal/workbench/agent_activity_view.go",
+      "desktop/internal/workbench/agent_activity_test.go",
+      "shared/fixtures/agent/acp-events-v1.json"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/settingswindow/window.go",
-      "desktop/internal/workbench/app.go"
+      "desktop/internal/workbench/agent_archive.go",
+      "desktop/internal/workbench/agent_history.go",
+      "desktop/internal/workbench/agent_activity_view.go",
+      "desktop/internal/workbench/agent_activity_test.go",
+      "shared/fixtures/agent/acp-events-v1.json"
     ]
   },
   "owner": "Agent",
   "verification": "macOS：Codex（订阅与 API Key 两种模式）打开历史页，确认“已归档（N）”默认折叠、只含当前工作区（路径大小写/尾斜杠按 codex-acp 规则）的归档会话且带“已归档”标记，与 Lithe 本地“已移除”互不影响；搜索标题或 ID 能命中归档会话并自动展开，清空搜索后恢复折叠；超过 Host 分页上限时，即使当前工作区结果为空、分组折叠或搜索无命中也显示“仅显示最近的归档会话”，不误报没有历史/没有匹配；让归档和活跃响应分别先返回，已加载与未打开的活跃转归档会话都在本轮刷新后仅出现在归档分组；在“已移除”中恢复归档会话只清除本地隐藏标记，保留标题与收藏，不取消归档或加载；浏览、刷新、搜索不改变 ~/.codex 下的归档状态。点击归档会话先弹出确认，取消不发送任何请求，确认后会话移回活跃历史并打开，失败时保留在归档分组并显示错误。恢复成功先于此前活跃与归档列表响应时，两个旧响应均失效，重新查询双列表；旧响应无论何种先后顺序、紧接成功事件或异步等待返回后到达，都不能把已恢复会话重新放回归档、结束新刷新或覆盖完整性状态。切换工作区、切换 Agent 或断开连接后归档列表清空，不混入旧结果。Claude 连接显示“Claude 不支持归档会话”且不请求归档列表。共享 Host 与 Windows Tauri/React 已接入归档列表、分页/完整性状态、与活跃历史独立的新鲜度缓存和确认后恢复。独立状态机测试覆盖恢复与并发旧响应；本次真实 Tauri 验收使用受控 ACP fixture，真实 Codex 账户执行仍待完成。 Codex 历史时间与排序使用上游 recencyAt：只查看/恢复旧会话、刷新、重命名或收藏后时间和顺序保持；新一轮对话活动出现后更新。活跃与归档一致，缺失活动时间不回退到元数据更新时间或当前时间；读取失败保留已有列表。保留历史页和弹框外观。 Codex 跨供应商回归：同账号与工作区准备官方、ACP 网关、原生自定义及之前供应商的记录，活跃与归档均可列出和搜索；不同账号、工作区及子代理仍隔离。查询全部 provider 并保持 useStateDbOnly，不改写旧记录或按 rollout 文件存在性判断历史丢失。 供应商筛选：默认全部；菜单候选合并活跃和归档的真实 modelProvider，未知/空白来源独立处理，不按当前路由或模型猜。验证精确 ID、未知来源、标题/ID 搜索、置顶/已移除交集、分页到达、归档分组和无命中提示；切换后清除批量选择，批量动作不得影响被筛掉的会话；恢复全部不重新查询或改写历史。窄宽面板、深浅主题、键盘选择和中英文入口验收。 归档折叠回归：无搜索词下选择有归档匹配的供应商或未知来源，首次点击归档标题立即收起，再点立即展开；搜索/供应商变化恢复新范围的自动默认，旧范围手动折叠不能泄漏，普通列表刷新保留用户选择。",
-  "notes": "Viva 工作台助手面板与对应设置页目前仅为占位，客户端未接入 Agent 会话、配置及宿主流程；Core 或旧客户端已有能力不代表用户入口已迁移。",
+  "notes": "已归档分组默认折叠，只读浏览，确认后才 unarchiveSession；尚无搜索、按供应商筛选、本地移除。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

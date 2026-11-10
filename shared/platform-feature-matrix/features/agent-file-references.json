@@ -4,28 +4,26 @@
   "group": "Agent 对话",
   "capability": "从 Finder 或项目树拖入文件、⌘V 粘贴 Finder 文件或剪贴板图片、单独输入 @ 或全角 ＠ 展示工作区文件候选、继续输入关键字筛选并附加到 Agent 输入框，文件选择器、图片缩略图与可移除标签、多文件去重和数量限制、文件引用随消息发送及失败保留草稿",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/settingswindow/window.go",
-      "desktop/internal/workbench/app.go"
+      "desktop/internal/workbench/agent_files.go",
+      "desktop/internal/workbench/root.go",
+      "desktop/internal/workbench/agent_activity_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/settingswindow/window.go",
-      "desktop/internal/workbench/app.go"
+      "desktop/internal/workbench/agent_files.go",
+      "desktop/internal/workbench/root.go",
+      "desktop/internal/workbench/agent_activity_test.go"
     ]
   },
   "owner": "Agent",
   "verification": "macOS：从 Finder、项目树拖入临时文件（多文件、中文/空格名）到输入区与上下文栏，检查高亮和可移除标签、去重、数量限制、会话切换和发送失败保留草稿；用隔离项目验证文字+文件与纯文件发送、历史加载后引用正确送到原会话、Agent 读取与权限流程。在 Finder 复制文件后于输入框 ⌘V 应附加文件，截图后 ⌘V 应生成带缩略图的图片附件（保存在 Caches/AgentPastedImages，仍被任一会话引用的图片不清理，未引用且超过一周的才清理，不写 app bundle），复制普通文字时 ⌘V 照常粘贴，Caps Lock 开启时附件 ⌘V 同样生效；切到另一窗口或同窗口其他输入框后，附件粘贴不得进入原 Agent 草稿；在深色和浅色主题下单独输入 @ 或全角 ＠ 应立即列出已加载工作区的文件候选（最多 20 项，不重新扫描）；扫描结束前输入 @，文件清单就绪后应自动出现候选，无需重输；继续输入关键字应筛选文件，旧查询不得覆盖新候选；方向键切换、回车/Tab 选中后移除 @ 查询并附加该文件，Esc 只关闭候选且保留草稿。图片按文件引用处理，无多模态上传。Windows 原生拖放和 Claude 端到端待验证。 macOS 裸 @ 与 @Name 共享项目文件可见性，均不显示 .build/node_modules 生成文件，不受 Search exclusions（例如 *.log）影响；全局搜索仍可单独包含生成目录名称。 Unicode 回归：@i 能找到 src/İ.txt，小写展开和希腊字母上下文转换不丢失候选；与共享 unicode-contiguous fixture 核对。 Windows：在真实 Tauri 窗口执行 Windows 支持拖放、选择器、当前文件、@ 引用、原生 CF_HDROP 文件粘贴与图片粘贴缩略图。图片按数量、类型和大小限制写入平台缓存，失败或放弃的粘贴立即清理，未被任何会话引用且超过一周的图片在首次使用时清理，已接受引用的图片保留。目录不递归展开。 单元测试不替代运行时验收，未执行的真实服务及平台动作保持 pending。",
-  "notes": "Viva 工作台助手面板与对应设置页目前仅为占位，客户端未接入 Agent 会话、配置及宿主流程；Core 或旧客户端已有能力不代表用户入口已迁移。",
+  "notes": "拖入输入框的文件、文件树加入与可移除标签、随 prompt/steer 的 files 字段发送；粘贴文件、@ 候选、图片缩略图未做（Viva 尚无剪贴板文件接口）。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
