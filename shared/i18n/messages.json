@@ -103727,6 +103727,166 @@
       ]
     },
     {
+      "id": "desktop.sync.stage.enumerating",
+      "description": "Desktop: sync.stage.enumerating",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.stage.counting",
+      "description": "Desktop: sync.stage.counting",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.stage.compressing",
+      "description": "Desktop: sync.stage.compressing",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.stage.receiving",
+      "description": "Desktop: sync.stage.receiving",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.stage.resolving",
+      "description": "Desktop: sync.stage.resolving",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.stage.writing",
+      "description": "Desktop: sync.stage.writing",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.stage.updating",
+      "description": "Desktop: sync.stage.updating",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.progress",
+      "description": "Desktop: sync.progress",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "stage": "string",
+        "percent": "unsignedInteger"
+      }
+    },
+    {
+      "id": "desktop.sync.settingsLoading",
+      "description": "Desktop: sync.settingsLoading",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.settingsHint",
+      "description": "Desktop: sync.settingsHint",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.settingsInvalid",
+      "description": "Desktop: sync.settingsInvalid",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.sync.settingsInvalidNoReason",
+      "description": "Desktop: sync.settingsInvalidNoReason",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.settingsFailed",
+      "description": "Desktop: sync.settingsFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.sync.tagBehavior",
+      "description": "Desktop: sync.tagBehavior",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "behavior": "string"
+      }
+    },
+    {
+      "id": "desktop.sync.tagBehavior.reachable",
+      "description": "Desktop: sync.tagBehavior.reachable",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.tagBehavior.all",
+      "description": "Desktop: sync.tagBehavior.all",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.tagBehavior.none",
+      "description": "Desktop: sync.tagBehavior.none",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.tagBehavior.prune",
+      "description": "Desktop: sync.tagBehavior.prune",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.tagBehavior.custom",
+      "description": "Desktop: sync.tagBehavior.custom",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.tagBehavior.remoteDependent",
+      "description": "Desktop: sync.tagBehavior.remoteDependent",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sync.tagBehavior.unavailable",
+      "description": "Desktop: sync.tagBehavior.unavailable",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.pluginHost.messageFrom",
       "description": "Title of a message sheet a plugin shows: names the plugin.",
       "platforms": [

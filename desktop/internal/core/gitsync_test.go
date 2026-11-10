@@ -1,6 +1,7 @@
 package core
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -110,5 +111,82 @@ func TestIsAuthenticationFailure(t *testing.T) {
 	text := &Error{Code: CodeProcessFailed, Message: "fatal: Authentication failed for 'https://h/'"}
 	if IsAuthenticationFailure(text) || IsAuthenticationFailure(&Error{Message: "other"}) || IsAuthenticationFailure(nil) {
 		t.Fatal("non-authentication error recognised as authentication failure")
+	}
+}
+
+func TestGitFetchReportsProgressPhases(t *testing.T) {
+	_, mine, other := remoteWithClones(t)
+	client := NewClient()
+	ctx := testContext(t)
+	publish(t, other, "progress.txt")
+
+	var phases []GitProgress
+	err := client.GitFetch(WithGitProgress(ctx, func(p GitProgress) { phases = append(phases, p) }), mine, nil)
+	if err != nil {
+		t.Fatalf("GitFetch() error: %v", err)
+	}
+	if len(phases) == 0 {
+		t.Fatal("a fetch that transferred objects reported no progress")
+	}
+	for _, p := range phases {
+		if p.Stage == "" || (p.Percent != nil && (*p.Percent < 0 || *p.Percent > 100)) {
+			t.Fatalf("malformed progress %+v", p)
+		}
+	}
+	if got := runGit(t, mine, "rev-list", "--count", "main..origin/main"); got != "1" {
+		t.Fatalf("commits fetched = %q, want 1", got)
+	}
+}
+
+func TestGitFetchWithoutProgressObserverStillWorks(t *testing.T) {
+	_, mine, other := remoteWithClones(t)
+	publish(t, other, "quiet.txt")
+	if err := NewClient().GitFetch(testContext(t), mine, nil); err != nil {
+		t.Fatalf("GitFetch() error: %v", err)
+	}
+}
+
+func TestGitFetchSettingsEchoTheRepositoryConfigurationWithoutWritingIt(t *testing.T) {
+	_, mine, _ := remoteWithClones(t)
+	client := NewClient()
+	ctx := testContext(t)
+
+	settings, err := client.GitFetchSettingsOf(ctx, mine)
+	if err != nil {
+		t.Fatalf("GitFetchSettingsOf() error: %v", err)
+	}
+	if settings.Invalid || settings.Options.Remote != nil || !settings.Options.Prune || settings.Options.Tags != GitFetchTagsInherit {
+		t.Fatalf("default settings = %+v", settings)
+	}
+	if settings.Sources["prune"] != "application" {
+		t.Fatalf("prune source = %q, want application", settings.Sources["prune"])
+	}
+
+	runGit(t, mine, "config", "lithe.fetch.prune", "false")
+	runGit(t, mine, "config", "lithe.fetch.tags", "all")
+	configPath := filepath.Join(mine, ".git", "config")
+	before, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err = client.GitFetchSettingsOf(ctx, mine)
+	if err != nil {
+		t.Fatalf("GitFetchSettingsOf() error: %v", err)
+	}
+	if settings.Options.Prune || settings.Options.Tags != GitFetchTagsAll {
+		t.Fatalf("settings = %+v, want prune off and all tags", settings.Options)
+	}
+	if settings.Sources["prune"] != "local" || settings.Sources["tags"] != "local" {
+		t.Fatalf("sources = %v, want local", settings.Sources)
+	}
+	after, err := os.ReadFile(configPath)
+	if err != nil || string(before) != string(after) {
+		t.Fatalf("reading the settings changed the configuration: %v", err)
+	}
+
+	runGit(t, mine, "config", "lithe.fetch.tags", "bogus")
+	settings, err = client.GitFetchSettingsOf(ctx, mine)
+	if err != nil || !settings.Invalid {
+		t.Fatalf("invalid configuration: settings %+v, err %v", settings, err)
 	}
 }

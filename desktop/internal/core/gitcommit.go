@@ -93,7 +93,9 @@ func (c *Client) gitWrite(ctx context.Context, request gitWriteRequest) error {
 // answer reports.
 func (c *Client) gitWriteAnswer(ctx context.Context, request gitWriteRequest) (gitWriteResponse, error) {
 	var response gitWriteResponse
-	if err := c.Execute(ctx, "git.write", request, &response); err != nil {
+	// Lost progress events only blur the status line; the operation's own result decides.
+	_, err := c.ExecuteWithEvents(ctx, "git.write", request, &response, gitProgressObserver(ctx))
+	if err != nil {
 		return gitWriteResponse{}, err
 	}
 	if err := response.failure(); err != nil {

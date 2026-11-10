@@ -104,3 +104,60 @@ func IsAuthenticationFailure(err error) bool {
 	var e *Error
 	return errors.As(err, &e) && e.Code == CodeGitAuthenticationFailed
 }
+
+// GitFetchSettings is what a fetch of the repository would do without being told otherwise:
+// the options Core resolves from the repository's own Git configuration (lithe.fetch.*) and
+// the application defaults, and where each choice comes from.
+type GitFetchSettings struct {
+	// Options are the effective choices; they are Core's defaults when Invalid.
+	Options GitFetchOptions
+	// Sources says per choice ("prune", "submodules", "tags") where it is configured:
+	// "local" for the repository's own configuration, "application" for Core's default.
+	Sources map[string]string
+	// TagBehavior is how Git will actually treat tags for this repository: reachable, all,
+	// none, prune, custom, remoteDependent or unavailable. Empty when Core cannot resolve it.
+	TagBehavior string
+	// Invalid says the repository's fetch preferences cannot be resolved; Problem is Core's
+	// own message about it, which may be empty.
+	Invalid bool
+	Problem string
+}
+
+// GitFetchSettingsOf reads, without writing anything, the fetch behaviour Git configuration
+// of the repository at root selects. It starts git and blocks; call it from a background
+// goroutine.
+func (c *Client) GitFetchSettingsOf(ctx context.Context, root string) (GitFetchSettings, error) {
+	var out struct {
+		FetchOptions *GitFetchOptions `json:"fetchOptions"`
+		FetchError   *struct {
+			Message string `json:"message"`
+		} `json:"fetchError"`
+		FetchSources map[string]struct {
+			Scope string `json:"scope"`
+		} `json:"fetchSources"`
+		Resolved *struct {
+			Tags struct {
+				Value string `json:"value"`
+			} `json:"tags"`
+		} `json:"resolvedFetchBehavior"`
+	}
+	if err := c.Execute(ctx, "git.executionInspect", struct {
+		Root string `json:"root"`
+	}{root}, &out); err != nil {
+		return GitFetchSettings{}, err
+	}
+	settings := GitFetchSettings{Options: DefaultGitFetchOptions(), Sources: map[string]string{}}
+	if out.FetchOptions != nil {
+		settings.Options = *out.FetchOptions
+	}
+	if out.FetchError != nil {
+		settings.Invalid, settings.Problem = true, out.FetchError.Message
+	}
+	for name, source := range out.FetchSources {
+		settings.Sources[name] = source.Scope
+	}
+	if out.Resolved != nil {
+		settings.TagBehavior = out.Resolved.Tags.Value
+	}
+	return settings, nil
+}

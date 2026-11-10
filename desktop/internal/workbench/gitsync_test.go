@@ -68,6 +68,7 @@ func TestLogFetchAllRefreshesTheReferences(t *testing.T) {
 func TestLogFetchOptionsFetchOneRemoteAndReportAFailure(t *testing.T) {
 	h, p, _, _ := syncFixture(t)
 	h.app.openFetchOptions(p)
+	h.settle()
 	s := &p.log.sync
 	s.onlyRemote = true
 	s.remote.SetText("missing")
@@ -82,6 +83,7 @@ func TestLogFetchOptionsFetchOneRemoteAndReportAFailure(t *testing.T) {
 		t.Fatalf("notice = %q, want a fetch failure", h.app.notice)
 	}
 	h.app.openFetchOptions(p)
+	h.settle()
 	s.onlyRemote = true
 	s.remote.SetText("origin")
 	s.tags = 1
@@ -140,5 +142,59 @@ func TestLogShowChangesOpensTheCommitToolWindow(t *testing.T) {
 	h.settle()
 	if !h.app.chrome.isOpen(catalogIndex[itemCommit]) {
 		t.Fatal("the Commit tool window is not open")
+	}
+}
+
+func TestLogFetchOptionsShowTheRepositoryConfigurationWithoutWritingIt(t *testing.T) {
+	h, p, dir, _ := syncFixture(t)
+	gitRun(t, dir, "config", "lithe.fetch.prune", "false")
+	gitRun(t, dir, "config", "lithe.fetch.tags", "none")
+	gitRun(t, dir, "config", "lithe.fetch.submodules", "no")
+	configPath := filepath.Join(dir, ".git", "config")
+	before, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.app.openFetchOptions(p)
+	s := &p.log.sync
+	if !s.settingsLoading {
+		t.Fatal("the dialog does not wait for the repository's configuration")
+	}
+	h.settle()
+	h.settle()
+	if s.settingsLoading || !s.keepStale || s.onlyRemote {
+		t.Fatalf("loading %v keepStale %v onlyRemote %v, want the configured prune off", s.settingsLoading, s.keepStale, s.onlyRemote)
+	}
+	options := s.fetchOptions()
+	if options.Prune || options.Tags != core.GitFetchTagsNone || options.Submodules != core.GitFetchSubmodulesNo {
+		t.Fatalf("options = %+v, want what lithe.fetch.* selects", options)
+	}
+	after, err := os.ReadFile(configPath)
+	if err != nil || string(before) != string(after) {
+		t.Fatalf("opening the dialog changed the configuration: %v", err)
+	}
+}
+
+func TestSyncProgressKeepsOnlyTheLatestPhaseOfTheRunningOperation(t *testing.T) {
+	h, p, _, _ := syncFixture(t)
+	s := &p.log.sync
+	relay := &syncProgressRelay{}
+	s.busy, s.relay = true, relay
+	percent := func(v int) *int { return &v }
+	h.app.postSyncProgress(p, relay, core.GitProgress{Stage: "counting", Percent: percent(10)})
+	h.app.postSyncProgress(p, relay, core.GitProgress{Stage: "receiving", Percent: percent(42)})
+	h.settle()
+	if !s.hasProgress || s.progress.Stage != "receiving" || *s.progress.Percent != 42 {
+		t.Fatalf("progress = %+v, want the latest phase", s.progress)
+	}
+	if got, want := h.app.syncProgressWords(s), h.app.text.Sync.Progress("receiving", 42); got == "" || got != want {
+		t.Fatalf("status words = %q, want %q", got, want)
+	}
+	// A phase that arrives after the operation ended must not show on the next one.
+	s.busy, s.relay, s.hasProgress = false, nil, false
+	h.app.postSyncProgress(p, relay, core.GitProgress{Stage: "writing"})
+	h.settle()
+	if s.hasProgress {
+		t.Fatal("a late phase leaked into the idle state")
 	}
 }

@@ -118,6 +118,7 @@ type Kernel interface {
 	GitRenameBranch(ctx context.Context, root string, branch core.GitReference, name string) error
 	GitFetch(ctx context.Context, root string, options *core.GitFetchOptions) error
 	GitPullPreflight(ctx context.Context, root string) (core.GitPullPreflight, error)
+	GitFetchSettingsOf(ctx context.Context, root string) (core.GitFetchSettings, error)
 	GitPull(ctx context.Context, root string, strategy core.GitPullStrategy) error
 	GitDeleteBranch(ctx context.Context, root string, branch core.GitReference) (core.GitBranchDeletion, error)
 	GitBranchNamePreview(ctx context.Context, request core.BranchNameRequest) (core.BranchNamePreview, error)

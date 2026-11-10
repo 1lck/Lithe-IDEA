@@ -3,7 +3,9 @@ package workbench
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -56,9 +58,52 @@ type syncState struct {
 	tagSel        ui.SelectState
 	remoteProblem string
 
+	// The dialog shows what the repository's Git configuration selects, read when it opens.
+	// settingsGen identifies the read, so a stale answer cannot overwrite a later dialog.
+	settingsGen     int
+	settingsLoading bool
+	settingsNote    string
+	tagBehavior     string
+
+	// progress is the latest Git phase of the running operation as the UI thread saw it;
+	// relay carries it from the goroutine that runs Core, coalescing bursts.
+	progress    core.GitProgress
+	hasProgress bool
+	relay       *syncProgressRelay
+
 	// preflight and branch are what the diverged dialog is about.
 	preflight core.GitPullPreflight
 	branch    string
+}
+
+// syncProgressRelay hands the newest Git phase from Core's request goroutine to the UI
+// thread. Git prints many lines per second; only the latest one is worth a redraw.
+type syncProgressRelay struct {
+	mu      sync.Mutex
+	pending bool
+	latest  core.GitProgress
+}
+
+// postSyncProgress queues the newest phase of the operation owning relay for the UI thread.
+// It never blocks on the UI thread, as Core requires of an event observer.
+func (a *App) postSyncProgress(p *project, relay *syncProgressRelay, progress core.GitProgress) {
+	relay.mu.Lock()
+	relay.latest = progress
+	if relay.pending {
+		relay.mu.Unlock()
+		return
+	}
+	relay.pending = true
+	relay.mu.Unlock()
+	a.post(func(a *App) {
+		relay.mu.Lock()
+		latest := relay.latest
+		relay.pending = false
+		relay.mu.Unlock()
+		if s := &p.log.sync; a.project == p && s.busy && s.relay == relay {
+			s.progress, s.hasProgress = latest, true
+		}
+	})
 }
 
 // fetchOptions are the options the fetch dialog describes.
@@ -85,19 +130,22 @@ func (a *App) runSync(p *project, operation, label string, failed func(reason st
 		return
 	}
 	op, cancel := context.WithCancel(p.ctx)
+	relay := &syncProgressRelay{}
 	s.busy, s.label, s.cancel = true, label, cancel
+	s.relay, s.progress, s.hasProgress = relay, core.GitProgress{}, false
 	kernel, root := a.kernel, p.git.repositoryRoot(p.root)
 	a.background(p, syncTimeout, func(ctx context.Context) func(*App) {
 		ctx, stop := context.WithCancel(ctx)
 		defer stop()
 		defer context.AfterFunc(op, stop)()
+		ctx = core.WithGitProgress(ctx, func(progress core.GitProgress) { a.postSyncProgress(p, relay, progress) })
 		done, err := work(ctx, kernel, root)
 		readCtx, readCancel := context.WithTimeout(p.ctx, gitTimeout)
 		defer readCancel()
 		status, statusErr := kernel.GitStatus(readCtx, p.root)
 		return func(a *App) {
 			s := &p.log.sync
-			s.busy, s.cancel = false, nil
+			s.busy, s.cancel, s.relay, s.hasProgress = false, nil, nil, false
 			cancel()
 			if statusErr == nil {
 				p.git = gitState{loaded: true, status: status}
@@ -148,7 +196,9 @@ func (a *App) fetchAll(p *project) {
 		})
 }
 
-// openFetchOptions opens the dialog that fetches with chosen options.
+// openFetchOptions opens the dialog that fetches with chosen options. It shows the choices
+// the repository's Git configuration selects, read in the background without writing
+// anything; until that answer arrives the dialog cannot fetch, so no stale default is sent.
 func (a *App) openFetchOptions(p *project) {
 	s := &p.log.sync
 	if s.busy {
@@ -157,6 +207,50 @@ func (a *App) openFetchOptions(p *project) {
 	s.dialog = syncDialogFetch
 	s.onlyRemote, s.keepStale, s.submodules, s.tags = false, false, 0, 0
 	s.remote.SetText("")
+	s.settingsGen++
+	gen := s.settingsGen
+	s.settingsLoading, s.settingsNote, s.tagBehavior = true, "", ""
+	kernel, root := a.kernel, p.git.repositoryRoot(p.root)
+	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
+		settings, err := kernel.GitFetchSettingsOf(ctx, root)
+		return func(a *App) {
+			s := &p.log.sync
+			if s.dialog != syncDialogFetch || s.settingsGen != gen {
+				return
+			}
+			s.settingsLoading = false
+			switch {
+			case err != nil:
+				s.keepStale = false
+				s.settingsNote = a.text.Sync.SettingsFailed(syncReason(err))
+			default:
+				a.applyFetchSettings(s, settings)
+			}
+		}
+	})
+}
+
+// applyFetchSettings fills the open fetch dialog with the choices Core resolved.
+func (a *App) applyFetchSettings(s *syncState, settings core.GitFetchSettings) {
+	t := a.text.Sync
+	if settings.Invalid {
+		s.settingsNote = t.SettingsInvalid(settings.Problem)
+	}
+	options := settings.Options
+	if options.Remote != nil {
+		s.onlyRemote = true
+		s.remote.SetText(*options.Remote)
+	}
+	s.keepStale = !options.Prune
+	if i := slices.Index(syncSubmoduleChoices, options.Submodules); i >= 0 {
+		s.submodules = i
+	}
+	if i := slices.Index(syncTagChoices, options.Tags); i >= 0 {
+		s.tags = i
+	}
+	if settings.TagBehavior != "" {
+		s.tagBehavior = t.TagBehavior(settings.TagBehavior)
+	}
 }
 
 // submitFetchOptions fetches with the options of the open dialog.

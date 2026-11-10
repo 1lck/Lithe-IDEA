@@ -41,6 +41,61 @@ type SyncMessages struct {
 	DivergePrompt func(name, upstream string, ahead, behind int) string
 	Merge         string
 	Rebase        string
+
+	// Progress words the Git phase a running transfer is in; percent is negative when Git
+	// printed none. A phase this client has no words for reads as the plain fetching label.
+	Progress func(stage string, percent int) string
+	// The fetch dialog reads the repository's own fetch configuration before it shows it.
+	SettingsLoading string
+	SettingsHint    string
+	// SettingsInvalid and SettingsFailed explain why defaults are shown instead.
+	SettingsInvalid func(reason string) string
+	SettingsFailed  func(reason string) string
+	// TagBehavior says what Git will actually do with tags; value is Core's name for it, shown
+	// as it is when this client has no words for it.
+	TagBehavior func(value string) string
+}
+
+// syncStageName is the name of one Git transfer phase, the plain fetching label when unknown.
+func syncStageName(language Language, stage string) string {
+	switch stage {
+	case "enumerating":
+		return Shared(language, "desktop.sync.stage.enumerating")
+	case "counting":
+		return Shared(language, "desktop.sync.stage.counting")
+	case "compressing":
+		return Shared(language, "desktop.sync.stage.compressing")
+	case "receiving":
+		return Shared(language, "desktop.sync.stage.receiving")
+	case "resolving":
+		return Shared(language, "desktop.sync.stage.resolving")
+	case "writing":
+		return Shared(language, "desktop.sync.stage.writing")
+	case "updating":
+		return Shared(language, "desktop.sync.stage.updating")
+	}
+	return Shared(language, "desktop.sync.fetching")
+}
+
+// syncTagBehaviorName is the words for one of Core's tag behaviors, value itself when unknown.
+func syncTagBehaviorName(language Language, value string) string {
+	switch value {
+	case "reachable":
+		return Shared(language, "desktop.sync.tagBehavior.reachable")
+	case "all":
+		return Shared(language, "desktop.sync.tagBehavior.all")
+	case "none":
+		return Shared(language, "desktop.sync.tagBehavior.none")
+	case "prune":
+		return Shared(language, "desktop.sync.tagBehavior.prune")
+	case "custom":
+		return Shared(language, "desktop.sync.tagBehavior.custom")
+	case "remoteDependent":
+		return Shared(language, "desktop.sync.tagBehavior.remoteDependent")
+	case "unavailable":
+		return Shared(language, "desktop.sync.tagBehavior.unavailable")
+	}
+	return value
 }
 
 func syncMessages(language Language) SyncMessages {
@@ -98,5 +153,26 @@ func syncMessages(language Language) SyncMessages {
 		},
 		Merge:  Shared(language, "desktop.sync.merge"),
 		Rebase: Shared(language, "desktop.sync.rebase"),
+		Progress: func(stage string, percent int) string {
+			name := syncStageName(language, stage)
+			if percent < 0 {
+				return name
+			}
+			return SharedFormat(language, "desktop.sync.progress", map[string]string{"stage": name, "percent": strconv.Itoa(percent)})
+		},
+		SettingsLoading: Shared(language, "desktop.sync.settingsLoading"),
+		SettingsHint:    Shared(language, "desktop.sync.settingsHint"),
+		SettingsInvalid: func(reason string) string {
+			if reason == "" {
+				return Shared(language, "desktop.sync.settingsInvalidNoReason")
+			}
+			return SharedFormat(language, "desktop.sync.settingsInvalid", map[string]string{"reason": reason})
+		},
+		SettingsFailed: func(reason string) string {
+			return SharedFormat(language, "desktop.sync.settingsFailed", map[string]string{"reason": reason})
+		},
+		TagBehavior: func(value string) string {
+			return SharedFormat(language, "desktop.sync.tagBehavior", map[string]string{"behavior": syncTagBehaviorName(language, value)})
+		},
 	}
 }

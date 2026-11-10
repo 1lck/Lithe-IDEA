@@ -17,6 +17,22 @@ var (
 // syncStatusHeight is the height of the status line under the log's filter bar.
 const syncStatusHeight = 28
 
+// syncProgressWidth is the width of the progress bar of the running operation's phase.
+const syncProgressWidth = 120
+
+// syncProgressWords names the Git phase the running operation is in, empty before Git has
+// printed one.
+func (a *App) syncProgressWords(s *syncState) string {
+	if !s.hasProgress {
+		return ""
+	}
+	percent := -1
+	if s.progress.Percent != nil {
+		percent = *s.progress.Percent
+	}
+	return a.text.Sync.Progress(s.progress.Stage, percent)
+}
+
 // drawSyncStatus declares the line that says a fetch or update is running, with its Cancel
 // button. It declares nothing while no operation runs.
 func (a *App) drawSyncStatus(f *ui.Frame, p *project) {
@@ -27,6 +43,12 @@ func (a *App) drawSyncStatus(f *ui.Frame, p *project) {
 	f.Row().Height(syncStatusHeight).Shrink(0).Items(ui.Center).Gap(8).PadX(8).Background(a.colors.Hover).Children(func() {
 		f.Text(s.label).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Text).Ellipsis().Shrink(1)
 		f.Spacer()
+		if words := a.syncProgressWords(s); words != "" {
+			f.Text(words).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1)
+		}
+		if s.hasProgress && s.progress.Percent != nil {
+			f.Progress(float32(*s.progress.Percent) / 100).Width(syncProgressWidth)
+		}
 		if f.Button(syncCancelID, a.text.Sync.Cancel).Outline().Clicked() {
 			a.cancelSync(p)
 		}
@@ -54,6 +76,19 @@ func (a *App) drawFetchDialog(f *ui.Frame, p *project) {
 	submitted := false
 	d.Body(func() {
 		f.Column().FillWidth().Gap(8).Children(func() {
+			if s.settingsLoading {
+				// No control is offered before the repository's own choices are known, so
+				// nothing typed here can be overwritten by the answer.
+				f.Text(t.SettingsLoading).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+				return
+			}
+			f.Paragraph(t.SettingsHint, 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+			if s.settingsNote != "" {
+				f.Paragraph(s.settingsNote, 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Warning)
+			}
+			if s.tagBehavior != "" {
+				f.Text(s.tagBehavior).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+			}
 			if f.Checkbox(syncAllRemotesID, !s.onlyRemote).Label(t.AllRemotes).Clicked() {
 				s.onlyRemote = !s.onlyRemote
 			}
@@ -74,7 +109,7 @@ func (a *App) drawFetchDialog(f *ui.Frame, p *project) {
 		})
 	})
 	cancelled, confirmed := false, false
-	ready := !s.onlyRemote || s.remote.Text() != ""
+	ready := !s.settingsLoading && (!s.onlyRemote || s.remote.Text() != "")
 	d.Footer(func() {
 		cancelled = f.Button(branchDialogCancel, a.text.Branch.Cancel).Outline().Clicked()
 		confirmed = f.Button(branchDialogConfirm, t.FetchButton).Disabled(!ready).Clicked()
