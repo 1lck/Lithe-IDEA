@@ -297,7 +297,7 @@ Viva 在 macOS、Windows 和 Linux 使用 `desktop/internal/i18n/` 的接口及�
   - 列表、树、菜单、弹窗、提示、表单优先用 `ui.List`、`ui.Tree`、`ui.Menu`/`ui.ContextMenu`、`ui.Modal`/`ui.Drawer`、`ui.Toasts` 和 `ui.TextField` 等，不再自造同类组件。
   - 属于页面的后台工作用 `ui.Effect`，不再手写“锁 + `Invalidate` + `OnWake`”。
   - 编辑器、终端等自绘控件用 `ui.Control` 加 `ui.Handlers` 接收输入，不走窗口级分发。
-  - 一个窗口就是一个 Page。Viva main 已删除 `Page.Key/Pointer/Owns/Overlay`，不再支持把 Page 嵌进 Frame 窗口再由宿主转发输入。面板、工具窗口、弹窗写成组件函数（`func (a *App) xxxPanel(c ui.C)`，状态放在模型里），由窗口的 Page 调用；不要为面板单独建 `*ui.Page`，也不要写应用自己的输入路由或命中测试。`workbench/pagehost.go` 只是工作台根窗口改为 Page 之前的过渡，不得再扩展。
+  - 一个窗口就是一个 Page。Viva main 已删除 `Page.Key/Pointer/Owns/Overlay`，不再支持把 Page 嵌进 Frame 窗口再由宿主转发输入。面板、工具窗口、弹窗写成组件函数（`func (a *App) xxxPanel(c ui.C)`，状态放在模型里），由窗口的 Page 调用；不要为面板单独建 `*ui.Page`，也不要写应用自己的输入路由或命中测试。工作台根窗口已经是一个 Page（`workbench/root.go`）：`pagehost.go` 与各面板单独的 `*ui.Page` 已删除，面板由 `shellMain` 和 `toolBody` 调用；编辑器与终端是 `ui.Control` 加 `ui.Handlers`，拖拽用 `ui.DragState`。详见 `.agents/notes/implemented/architecture/2026-11-10-workbench-root-page-and-viva-upgrade.md`。
   - 只有通过 `ui.View.Draw` 绘制的组件内部（如编辑器、终端渲染）可以保留 `ui.Frame`。
   - 逻辑（Core 调用、取消、过期结果隔离、状态转换）与绘制分文件，绘制层只读状态、声明元素和处理本次交互。
 

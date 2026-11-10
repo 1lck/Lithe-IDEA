@@ -11,7 +11,6 @@
       "desktop/internal/workbench/tabstrip_test.go",
       "desktop/internal/workbench/editorgroups.go",
       "desktop/internal/workbench/editorgroups_test.go",
-      "desktop/internal/hscroll/hscroll.go",
       "desktop/internal/settingswindow/window.go",
       "desktop/internal/settingswindow/editor_view_test.go"
     ]
@@ -24,7 +23,6 @@
       "desktop/internal/workbench/tabstrip_test.go",
       "desktop/internal/workbench/editorgroups.go",
       "desktop/internal/workbench/editorgroups_test.go",
-      "desktop/internal/hscroll/hscroll.go",
       "desktop/internal/settingswindow/window.go",
       "desktop/internal/settingswindow/editor_view_test.go"
     ]

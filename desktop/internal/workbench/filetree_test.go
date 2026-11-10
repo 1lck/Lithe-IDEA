@@ -885,3 +885,71 @@ func TestProjectTreeKeyboardKeepsSelectionVisible(t *testing.T) {
 		t.Fatal("long name could not be reached by horizontal scrolling")
 	}
 }
+
+// The arrow keys move the selection with the keyboard focus, a click puts the focus on the row it
+// chose, and locating the current file moves the focus to its row.
+func TestProjectTreeSelectionFollowsTheKeyboardFocus(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"a", "b", "c"} {
+		if err := os.Mkdir(filepath.Join(root, name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.open(root)
+	p := h.app.project
+	awaitDocumentState(t, h, func() bool { return p.tree.root != nil && p.tree.root.listed })
+	if err := h.driver.Advance(20 * time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	focusedRow := func() int {
+		t.Helper()
+		focused := h.driver.Snapshot().Focused
+		for i := range p.tree.rows {
+			if p.tree.view.RowID(i) == focused {
+				return i
+			}
+		}
+		return -1
+	}
+	rowOf := func(name string) int {
+		t.Helper()
+		for i, n := range p.tree.rows {
+			if n.name == name {
+				return i
+			}
+		}
+		t.Fatalf("the tree has no row %q", name)
+		return -1
+	}
+
+	// A click on a folder selects it and puts the keyboard on its row.
+	a := h.treeRowHit("a").Bounds
+	if err := h.driver.Click(a.X+a.Width-20, a.Y+a.Height/2); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	if got := focusedRow(); got != rowOf("a") {
+		t.Fatalf("after the click the focus is on row %d, want %d", got, rowOf("a"))
+	}
+
+	// The arrow keys move the focus down the rows and the selection goes with it.
+	if err := h.driver.Key(gfx.KeyDown, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.driver.Advance(20 * time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if p.tree.selected == nil || p.tree.selected.name != "b" {
+		t.Fatalf("after the down arrow the selection is %+v, want b", p.tree.selected)
+	}
+	if err := h.driver.Key(gfx.KeyDown, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.driver.Advance(20 * time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if p.tree.selected == nil || p.tree.selected.name != "c" {
+		t.Fatalf("after another down arrow the selection is %+v, want c", p.tree.selected)
+	}
+}

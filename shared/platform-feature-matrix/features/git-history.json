@@ -11,8 +11,6 @@
       "desktop/internal/workbench/gitlog_view.go",
       "desktop/internal/workbench/gitlog_files_test.go",
       "desktop/internal/treelist/treelist.go",
-      "desktop/internal/hscroll/hscroll.go",
-      "desktop/internal/workbench/sideways.go",
       "desktop/internal/workbench/theme.go",
       "desktop/internal/workbench/gitlog_details_test.go"
     ]
@@ -25,8 +23,6 @@
       "desktop/internal/workbench/gitlog_view.go",
       "desktop/internal/workbench/gitlog_files_test.go",
       "desktop/internal/treelist/treelist.go",
-      "desktop/internal/hscroll/hscroll.go",
-      "desktop/internal/workbench/sideways.go",
       "desktop/internal/workbench/theme.go",
       "desktop/internal/workbench/gitlog_details_test.go"
     ]

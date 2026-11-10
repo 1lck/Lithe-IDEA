@@ -16,10 +16,7 @@
       "desktop/internal/workbench/filetree_actions.go",
       "desktop/internal/workbench/filetree_actions_test.go",
       "desktop/internal/treelist/treelist.go",
-      "desktop/internal/treelist/treelist_test.go",
-      "desktop/internal/hscroll/hscroll.go",
-      "desktop/internal/hscroll/hscroll_test.go",
-      "desktop/internal/workbench/sideways.go"
+      "desktop/internal/treelist/treelist_test.go"
     ]
   },
   "windows": {
@@ -35,10 +32,7 @@
       "desktop/internal/workbench/filetree_actions.go",
       "desktop/internal/workbench/filetree_actions_test.go",
       "desktop/internal/treelist/treelist.go",
-      "desktop/internal/treelist/treelist_test.go",
-      "desktop/internal/hscroll/hscroll.go",
-      "desktop/internal/hscroll/hscroll_test.go",
-      "desktop/internal/workbench/sideways.go"
+      "desktop/internal/treelist/treelist_test.go"
     ]
   },
   "owner": "Workspace",

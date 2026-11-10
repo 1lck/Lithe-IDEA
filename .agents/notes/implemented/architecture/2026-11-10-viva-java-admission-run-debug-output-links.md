@@ -35,7 +35,7 @@ Java Support 的插件清单要求宿主提供 `settings` 2、`outputLinkMatcher
 
 - `debug/start` 宿主方法、`debug.target: launch`、launch.json 导入、`tcpPort` / `tcpAnnounced`（插件进程托管）、远程 attach 的路径映射输入。
 - Build 输出区只在检测到构建系统后显示；运行视图不受影响。
-- 运行视图和 Debug 表单已在 Page 迁移中改为 Viva Page（`workbench/runpanels.go`、`pagehost.go`）。
+- 运行视图和 Debug 表单已在 Page 迁移中改为 Viva Page（`workbench/runpanels.go`；工作台根窗口改为一个 Page 后它们是根 Page 调用的组件，见 `2026-11-10-workbench-root-page-and-viva-upgrade.md`）。
 
 ## 验证
 
