@@ -13081,13 +13081,6 @@
       ]
     },
     {
-      "id": "desktop.gitReview.manageTitle",
-      "description": "Title of the dialog with stashes, worktrees and repositories.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.gitReview.menu",
       "description": "Menu entry that opens the stash, worktree and repository tools.",
       "platforms": [
@@ -23502,7 +23495,8 @@
       "id": "git.diff.getStashDiffFailed",
       "description": "Windows UI: git.diff.getStashDiffFailed",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "error": "string",
@@ -23661,7 +23655,8 @@
       "id": "git.diff.noChangesInStash",
       "description": "Windows UI: git.diff.noChangesInStash",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -52371,7 +52366,8 @@
       "id": "native.dropStash",
       "description": "Native UI: Drop Stash",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Drop Stash",
@@ -68395,7 +68391,8 @@
       "id": "native.noSavedChanges",
       "description": "Native UI: No saved changes",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "No saved changes",
@@ -71874,7 +71871,8 @@
       "id": "native.pop",
       "description": "Native UI: Pop",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Pop",
@@ -79234,7 +79232,8 @@
       "id": "native.selectSavedChanges",
       "description": "Native UI: Select saved changes",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Select saved changes",
@@ -82168,7 +82167,8 @@
       "id": "native.stash",
       "description": "Native UI: Stash",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Stash",
@@ -82742,7 +82742,8 @@
       "id": "native.storeTemporaryChangesInGitSStashList",
       "description": "Native UI: Store temporary changes in Git's stash list.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Store temporary changes in Git's stash list.",
@@ -88269,7 +88270,8 @@
       "id": "native.thisRemovesTheStashFromGitAndCannotBeUndone",
       "description": "Native UI: This removes the stash from Git and cannot be undone.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "This removes the stash from Git and cannot be undone.",

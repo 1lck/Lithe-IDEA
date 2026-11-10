@@ -48,6 +48,7 @@ type gitReviewKernel interface {
 	GitStashApply(ctx context.Context, root string, stash core.GitStash) error
 	GitStashPop(ctx context.Context, root string, stash core.GitStash) error
 	GitStashDrop(ctx context.Context, root string, stash core.GitStash) error
+	GitStashDiff(ctx context.Context, root string, stash core.GitStash) ([]core.GitDiffFile, error)
 	GitPushPreviewOf(ctx context.Context, root string, branch core.GitReference, tags core.GitPushTags, target core.PushTargetChoice) (core.GitPushPreview, error)
 	GitPush(ctx context.Context, root string, preview core.GitPushPreview, tags core.GitPushTags, target core.PushTargetChoice, force bool) error
 	DiscoverWorkspaceRepositories(ctx context.Context, root string) ([]core.WorkspaceRepository, error)

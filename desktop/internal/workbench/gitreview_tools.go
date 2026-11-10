@@ -3,15 +3,14 @@ package workbench
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/ui"
 )
 
-// This file keeps the state and the actions of the Push dialog and of the stash and repository
-// tools. Core resolves the push destination and validates every write; the dialogs
+// This file keeps the state and the actions of the Push dialog and of the repositories
+// dialog. Core resolves the push destination and validates every write; the dialogs
 // show its answers and send the reviewed ones back.
 
 // pushTagChoices are the tag policies of the Push dialog, in the order of its select.
@@ -128,48 +127,29 @@ func (a *App) submitPush(p *project) {
 	}
 }
 
-// --- Stashes and repositories ---
+// --- Repositories ---
 
-// toolsTab names the tab of the tools dialog.
-type toolsTab int
-
-const (
-	toolsStashes toolsTab = iota
-	toolsRepositories
-)
-
-// toolsState is the open stash and repository tools dialog. The worktrees have the Git tool
+// toolsState is the open dialog of the repositories Core discovered under the project folder.
+// The stashes have the Commit tool window's Stash tab (stash.go) and the worktrees the Git tool
 // window's Worktrees tab (gitworktree.go).
 type toolsState struct {
 	open    bool
-	tab     toolsTab
 	loading bool
 	gen     int
-	busy    bool
-	// err is why the last read failed; writeErr why the last write did. A read clears only err,
-	// so a failed write stays visible after the lists reload.
-	err      string
-	writeErr string
+	// err is why the last read failed.
+	err string
 
-	stashes      []core.GitStash
 	repositories []core.WorkspaceRepository
-
-	// stashMessage and untracked shape the next stash.
-	stashMessage ui.Field
-	untracked    bool
-	// dropping is the stash identity waiting for the user to confirm dropping it.
-	dropping string
-
-	stashList, repoList ui.ListState
+	repoList     ui.ListState
 }
 
-// openTools opens the tools dialog on a tab and reads its lists.
-func (a *App) openTools(p *project, tab toolsTab) {
+// openTools opens the repositories dialog and reads the list.
+func (a *App) openTools(p *project) {
 	if _, ok := a.reviewKernel(); !ok {
 		return
 	}
 	t := &p.review.tools
-	t.open, t.tab, t.err, t.writeErr, t.dropping = true, tab, "", "", ""
+	t.open, t.err = true, ""
 	a.performed("git.tools.open", surfaceMenu)
 	a.loadTools(p)
 }
@@ -181,7 +161,7 @@ func (a *App) closeTools(p *project) {
 	t.gen++
 }
 
-// loadTools reads the two lists of the dialog in one background step.
+// loadTools reads the repositories of the dialog in the background.
 func (a *App) loadTools(p *project) {
 	kernel, ok := a.reviewKernel()
 	t := &p.review.tools
@@ -189,85 +169,21 @@ func (a *App) loadTools(p *project) {
 		return
 	}
 	t.loading, t.gen = true, t.gen+1
-	gen, root, folder := t.gen, p.git.repositoryRoot(p.root), p.root
-	repository := p.git.isRepository()
+	gen, folder := t.gen, p.root
 	a.background(p, reviewTimeout, func(ctx context.Context) func(*App) {
-		var (
-			stashes   []core.GitStash
-			err, rErr error
-		)
-		if repository {
-			stashes, err = kernel.GitStashes(ctx, root)
-		}
-		repos, rErr := kernel.DiscoverWorkspaceRepositories(ctx, folder)
+		repos, err := kernel.DiscoverWorkspaceRepositories(ctx, folder)
 		return func(a *App) {
 			t := &p.review.tools
 			if !t.open || t.gen != gen {
 				return
 			}
-			t.loading = false
-			t.stashes, t.repositories = stashes, repos
-			switch {
-			case err != nil:
-				t.err = reviewReason(err)
-				a.gitOperationFailed("git_tools_read", err)
-			case rErr != nil:
-				t.err = reviewReason(rErr)
-				a.gitOperationFailed("git_repositories", rErr)
-			default:
-				t.err = ""
-			}
-		}
-	})
-}
-
-// toolsWrite runs one write of the tools dialog, then reads the lists and the status again
-// whatever the outcome. The failure is shown in the dialog.
-func (a *App) toolsWrite(p *project, operation string, write func(ctx context.Context, kernel gitReviewKernel, root string) error) {
-	kernel, ok := a.reviewKernel()
-	t := &p.review.tools
-	if !ok || t.busy {
-		return
-	}
-	t.busy, t.writeErr, t.dropping = true, "", ""
-	root := p.git.repositoryRoot(p.root)
-	a.performed("git."+operation, surfaceButton)
-	a.background(p, syncTimeout, func(ctx context.Context) func(*App) {
-		err := write(ctx, kernel, root)
-		return func(a *App) {
-			t := &p.review.tools
-			t.busy = false
-			a.loadGit(p)
+			t.loading, t.repositories = false, repos
 			if err != nil {
-				t.writeErr = reviewReason(err)
-				a.gitOperationFailed(operation, err)
+				t.err = reviewReason(err)
+				a.gitOperationFailed("git_repositories", err)
+				return
 			}
-			if t.open {
-				a.loadTools(p)
-			}
+			t.err = ""
 		}
-	})
-}
-
-// stashChanges stashes the local changes with the typed message.
-func (a *App) stashChanges(p *project) {
-	t := &p.review.tools
-	message, untracked := strings.TrimSpace(t.stashMessage.Text()), t.untracked
-	a.toolsWrite(p, "git_stash_push", func(ctx context.Context, k gitReviewKernel, root string) error {
-		return k.GitStashPush(ctx, root, message, untracked)
-	})
-	t.stashMessage.SetText("")
-}
-
-// stashAction applies, pops or drops one stash by its immutable identity.
-func (a *App) stashAction(p *project, stash core.GitStash, action string) {
-	a.toolsWrite(p, "git_stash_"+action, func(ctx context.Context, k gitReviewKernel, root string) error {
-		switch action {
-		case "apply":
-			return k.GitStashApply(ctx, root, stash)
-		case "pop":
-			return k.GitStashPop(ctx, root, stash)
-		}
-		return k.GitStashDrop(ctx, root, stash)
 	})
 }

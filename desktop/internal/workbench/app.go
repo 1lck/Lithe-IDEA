@@ -289,6 +289,9 @@ type project struct {
 	ideAPI ideAPIState
 	// diffs are the Diff tabs of the editor area.
 	diffs diffSet
+	// stash is the Commit tool window's Stash tab: the repository's stashes and the files of
+	// the selected one.
+	stash stashState
 }
 
 // App is the state of the window.

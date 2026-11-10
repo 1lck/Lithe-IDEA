@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -93,6 +94,9 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 			if tabbed {
 				a.gitTabs(c)
 			}
+			if tool.id == itemCommit && p != nil {
+				a.commitTabs(c)
+			}
 			if tool.id == itemTerminal && p != nil {
 				// The tabs of the open project's terminals take the room a spacer would.
 				a.terminalTabs(c)
@@ -136,7 +140,11 @@ func (a *App) toolBody(c ui.C, tool item, p *project) {
 		case itemTerminal:
 			a.terminalToolBody(c, p)
 		case itemCommit:
-			a.commitPageView(c)
+			if a.layout.commitTab == commitTabStash {
+				a.stashPageView(c, p)
+			} else {
+				a.commitPageView(c)
+			}
 		case itemProject:
 			a.projectTree(c, p)
 		case itemFind:
@@ -192,6 +200,20 @@ const (
 	gitTabLog = iota
 	gitTabWorktrees
 	gitTabConsole
+)
+
+// commitTabs declares the tabs of the Commit tool window's header: the local changes and the
+// stashes.
+func (a *App) commitTabs(c ui.C) {
+	lang := a.language()
+	labels := [2]string{i18n.Shared(lang, "workbench.commit"), i18n.Shared(lang, "native.stash")}
+	a.toolTabs(c.Key("commit-tabs"), &a.layout.commitTab, labels[:])
+}
+
+// The tabs of the Commit tool window, in their order on its header.
+const (
+	commitTabChanges = iota
+	commitTabStash
 )
 
 // toolTabs declares the tabs of a tool window's header, as the macOS tool windows draw them

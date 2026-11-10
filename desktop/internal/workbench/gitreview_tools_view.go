@@ -10,14 +10,14 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// This file declares the Push dialog and the dialog of the stash and repository tools, and the
-// menu that opens them and the Git tool window's Worktrees tab. State and actions are in gitreview_tools.go.
+// This file declares the Push dialog and the repositories dialog, and the menu that opens them,
+// the Commit tool window's Stash tab and the Git tool window's Worktrees tab. State and actions are in gitreview_tools.go.
 
 // pushTagIndexes number the choices of the Push dialog's tag select.
 var pushTagIndexes = []int{0, 1, 2}
 
 // drawGitReviewMenu declares the Git tools button of the Git tool window's stripe, with the
-// menu that opens the Push dialog, the stash and repository tools and the Worktrees tab.
+// menu that opens the Push dialog, the Stash tab, the Worktrees tab and the repositories.
 func (a *App) drawGitReviewMenu(c ui.C, p *project) {
 	r := &a.reviewMenu
 	button, clicked := a.gitToolButton(c, i18n.Shared(a.language(), "desktop.gitReview.menuLabel"), icons.Ellipsis, r.open, !p.git.isRepository())
@@ -30,13 +30,13 @@ func (a *App) drawGitReviewMenu(c ui.C, p *project) {
 			c.After(func() { a.openPush(p) })
 		}
 		if menu.Item(i18n.Shared(a.language(), "git.saved.stashes")).Clicked() {
-			c.After(func() { a.openTools(p, toolsStashes) })
+			c.After(a.showStashes)
 		}
 		if menu.Item(i18n.Shared(a.language(), "git.worktrees")).Clicked() {
 			c.After(a.showWorktrees)
 		}
 		if menu.Item(i18n.Shared(a.language(), "git.repositories")).Clicked() {
-			c.After(func() { a.openTools(p, toolsRepositories) })
+			c.After(func() { a.openTools(p) })
 		}
 	})
 }
@@ -158,34 +158,20 @@ func (a *App) drawPushDialog(c ui.C, p *project) {
 	}
 }
 
-// toolsTabs lists the tabs of the tools dialog.
-var toolsTabs = []toolsTab{toolsStashes, toolsRepositories}
-
-// drawToolsDialog declares the stash and repository tools in one tabbed dialog.
+// drawToolsDialog declares the dialog of the repositories Core discovered under the project
+// folder.
 func (a *App) drawToolsDialog(c ui.C, p *project) {
 	t := &p.review.tools
 	open := true
-	closed := ui.ModalWith(c, &open, i18n.Shared(a.language(), "desktop.gitReview.manageTitle"), ui.ModalSpec{Width: 720, Height: 520}, func() {
+	closed := ui.ModalWith(c, &open, i18n.Shared(a.language(), "git.repositories"), ui.ModalSpec{Width: 720, Height: 520}, func() {
 		ui.Column(c).Fill().Gap(8).Children(func() {
-			ui.Tabs(c, &t.tab, toolsTabs, func(tab toolsTab) string {
-				if tab == toolsRepositories {
-					return i18n.Shared(a.language(), "git.repositories")
-				}
-				return i18n.Shared(a.language(), "git.saved.stashes")
-			})
-			for _, problem := range []string{t.err, t.writeErr} {
-				if problem != "" {
-					ui.Paragraph(c, problem, 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
-				}
+			if t.err != "" {
+				ui.Paragraph(c, t.err, 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
 			}
-			if t.tab == toolsRepositories {
-				a.drawRepositoriesTab(c, p)
-			} else {
-				a.drawStashesTab(c, p)
-			}
+			a.drawRepositories(c, p)
 		})
 	}, func() {
-		if ui.Button(c, i18n.Shared(a.language(), "desktop.gitReview.refresh")).Outline().Disabled(t.busy || t.loading).Clicked() {
+		if ui.Button(c, i18n.Shared(a.language(), "desktop.gitReview.refresh")).Outline().Disabled(t.loading).Clicked() {
 			c.After(func() { a.loadTools(p) })
 		}
 		if ui.Button(c, i18n.Shared(a.language(), "desktop.gitReview.close")).Outline().Clicked() {
@@ -197,55 +183,9 @@ func (a *App) drawToolsDialog(c ui.C, p *project) {
 	}
 }
 
-// drawStashesTab declares the stash list with its actions and the form that stashes the local
-// changes.
-func (a *App) drawStashesTab(c ui.C, p *project) {
-	t := &p.review.tools
-	size := a.theme.Metrics.FontSizeS
-	ui.Row(c).FillWidth().Shrink(0).Items(ui.Center).Gap(8).Children(func() {
-		submitted := ui.TextField(c, &t.stashMessage, i18n.Shared(a.language(), "git.stashMessage"), i18n.Shared(a.language(), "git.stashMessage")).Grow(1).Submitted()
-		ui.Checkbox(c, &t.untracked, i18n.Shared(a.language(), "git.saved.untracked")).Disabled(t.busy)
-		stash := ui.Button(c, i18n.Shared(a.language(), "desktop.gitReview.stashPush")).Disabled(t.busy).Clicked() || submitted
-		if stash && !t.busy {
-			c.After(func() { a.stashChanges(p) })
-		}
-	})
-	if len(t.stashes) == 0 {
-		a.gitEmpty(c, i18n.Shared(a.language(), "git.noStashes"))
-		return
-	}
-	ui.List(c, &t.stashList, len(t.stashes), func(row ui.ListRow) {
-		stash := t.stashes[row.Index]
-		row.Element.FillWidth().Height(reviewRowHeight + 8).Items(ui.Center).Gap(8).PadX(8).Children(func() {
-			ui.Column(row.C).Grow(1).Shrink(1).Children(func() {
-				ui.Text(row.C, stash.Message).Ellipsis()
-				ui.Text(row.C, stash.Date).FontSize(size).Color(a.colors.Subtle).Ellipsis()
-			})
-			if t.dropping == stash.OID {
-				if ui.Button(row.C, i18n.Shared(a.language(), "git.dropStash")).Destructive().Disabled(t.busy).Clicked() {
-					c.After(func() { a.stashAction(p, stash, "drop") })
-				}
-				if ui.Button(row.C, i18n.Shared(a.language(), "desktop.gitReview.cancel")).Outline().Clicked() {
-					c.After(func() { t.dropping = "" })
-				}
-				return
-			}
-			if ui.Button(row.C, i18n.Shared(a.language(), "git.applyStash")).Ghost().Disabled(t.busy).Clicked() {
-				c.After(func() { a.stashAction(p, stash, "apply") })
-			}
-			if ui.Button(row.C, i18n.Shared(a.language(), "git.popStash")).Ghost().Disabled(t.busy).Clicked() {
-				c.After(func() { a.stashAction(p, stash, "pop") })
-			}
-			if ui.Button(row.C, i18n.Shared(a.language(), "git.dropStash")).Ghost().Disabled(t.busy).Clicked() {
-				c.After(func() { t.dropping = stash.OID })
-			}
-		})
-	}).Grow(1).FillWidth()
-}
-
-// drawRepositoriesTab declares the repositories Core discovered under the project folder, the
+// drawRepositories declares the repositories Core discovered under the project folder, the
 // first being the one the Commit window acts on.
-func (a *App) drawRepositoriesTab(c ui.C, p *project) {
+func (a *App) drawRepositories(c ui.C, p *project) {
 	t := &p.review.tools
 	if len(t.repositories) == 0 {
 		a.gitEmpty(c, i18n.Shared(a.language(), "git.noRepositoriesFound"))

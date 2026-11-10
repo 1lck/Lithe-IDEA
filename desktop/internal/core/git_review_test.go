@@ -147,3 +147,36 @@ func TestGitRebasePreviewBlockersAndSession(t *testing.T) {
 		t.Fatalf("subject after the reword = %q, want second", got)
 	}
 }
+
+// GitStashDiff reads a stash whole, its untracked files among the files, by the stash's
+// identity, and keeps reading the same stash after another is pushed over it.
+func TestGitStashDiffReadsTheSavedFiles(t *testing.T) {
+	repo := committedRepository(t)
+	client := NewClient()
+	ctx := testContext(t)
+	writeFile(t, filepath.Join(repo, "base.txt"), "base\nmore\n")
+	writeFile(t, filepath.Join(repo, "notes.txt"), "new\n")
+	if err := client.GitStashPush(ctx, repo, "parked", true); err != nil {
+		t.Fatalf("GitStashPush() error: %v", err)
+	}
+	stashes, err := client.GitStashes(ctx, repo)
+	if err != nil || len(stashes) != 1 {
+		t.Fatalf("GitStashes() = %+v, %v; want one stash", stashes, err)
+	}
+	parked := stashes[0]
+	writeFile(t, filepath.Join(repo, "base.txt"), "other\n")
+	runGit(t, repo, "stash")
+
+	files, err := client.GitStashDiff(ctx, repo, parked)
+	if err != nil {
+		t.Fatalf("GitStashDiff() error: %v", err)
+	}
+	paths := map[string]GitDiffFile{}
+	for _, file := range files {
+		paths[file.Path] = file
+	}
+	base, notes := paths["base.txt"], paths["notes.txt"]
+	if len(files) != 2 || base.Additions != 1 || notes.Additions != 1 || len(base.Lines) == 0 {
+		t.Fatalf("GitStashDiff() = %+v; want base.txt and the untracked notes.txt, one line added each", files)
+	}
+}

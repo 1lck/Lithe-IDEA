@@ -98,8 +98,9 @@ type layoutState struct {
 	// takes while both bottom tool windows are open. The two halves are peers, so they
 	// share a resize instead of one of them absorbing it.
 	bottomShare float32
-	// gitTab is the selected tab of the Git tool window, one of the gitTab constants.
-	gitTab int
+	// gitTab is the selected tab of the Git tool window, one of the gitTab constants, and
+	// commitTab the Commit tool window's, one of the commitTab constants.
+	gitTab, commitTab int
 
 	split [shellSplitCount]ui.SplitterState
 

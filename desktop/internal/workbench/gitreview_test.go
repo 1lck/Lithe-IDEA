@@ -114,33 +114,21 @@ func TestPushDialogWithoutRemoteReportsIt(t *testing.T) {
 	}
 }
 
-func TestToolsDialogStashesAndListsRepositories(t *testing.T) {
+func TestRepositoriesDialogListsTheRepository(t *testing.T) {
 	dir := newTestRepository(t)
 	h := newHarness(t, &gitKernel{Client: core.NewClient()})
 	p := h.openCommit(dir)
 
-	h.app.openTools(p, toolsStashes)
+	h.app.openTools(p)
 	h.settle()
 	tools := &p.review.tools
-	if tools.err != "" || len(tools.stashes) != 0 || len(tools.repositories) == 0 {
-		t.Fatalf("tools = %+v, want no stash and a repository", tools)
+	if tools.err != "" || len(tools.repositories) == 0 {
+		t.Fatalf("repositories dialog = %+v, want the project's repository", tools)
 	}
-
-	tools.stashMessage.SetText("parked")
-	h.app.stashChanges(p)
+	h.app.closeTools(p)
 	h.settle()
-	h.settle()
-	if len(tools.stashes) != 1 || !strings.Contains(tools.stashes[0].Message, "parked") {
-		t.Fatalf("stashes after the stash = %+v, want the parked one", tools.stashes)
-	}
-	if got := gitRun(t, dir, "status", "--porcelain"); got != "" {
-		t.Fatalf("status after the stash = %q, want clean", got)
-	}
-	h.app.stashAction(p, tools.stashes[0], "pop")
-	h.settle()
-	h.settle()
-	if len(tools.stashes) != 0 || gitRun(t, dir, "status", "--porcelain") != "M changed.txt" {
-		t.Fatalf("after the pop: stashes %+v, status %q", tools.stashes, gitRun(t, dir, "status", "--porcelain"))
+	if tools.open {
+		t.Fatal("the dialog stayed open")
 	}
 }
 

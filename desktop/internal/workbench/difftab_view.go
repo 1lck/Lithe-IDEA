@@ -107,12 +107,15 @@ func (a *App) diffToolbar(c ui.C, p *project, t *diffTab) {
 	})
 }
 
-// diffSideLabels name the two sides of the tab: the parent and the commit, HEAD or the index
+// diffSideLabels name the two sides of the tab: the stash's base and the stash, the parent and
+// the commit, HEAD or the index
 // and the working tree, or nothing and the working tree for an untracked file.
 func (a *App) diffSideLabels(t *diffTab) (left, right string) {
 	lang := a.language()
 	head, index, worktree := i18n.Shared(lang, "native.head"), i18n.Shared(lang, "git.diff.indexVersion"), i18n.Shared(lang, "git.saved.worktree")
 	switch {
+	case t.stash != nil:
+		return t.stash.label + "^", t.stash.label
 	case t.commit != "":
 		return shortHash(t.commit) + "^", shortHash(t.commit)
 	case t.untracked():

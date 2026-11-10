@@ -68,6 +68,7 @@ type gitDiffPayload struct {
 	Commit              string   `json:"commit,omitempty"`
 	Staged              bool     `json:"staged,omitempty"`
 	Untracked           bool     `json:"untracked,omitempty"`
+	StashReference      string   `json:"stashReference,omitempty"`
 	IncludeFileSections bool     `json:"includeFileSections"`
 	OmitFilePatch       bool     `json:"omitFilePatch"`
 	// ContextLines is a pointer so the whole-file view's explicit 0 reaches Core.
@@ -92,6 +93,27 @@ func (c *Client) GitDiff(ctx context.Context, request GitDiffRequest) ([]GitDiff
 		IncludeFileSections: true,
 		OmitFilePatch:       true,
 	}
+	return c.gitDiffFiles(ctx, payload)
+}
+
+// GitStashDiff returns the files a stash saved, its untracked files among them, each with its
+// structured diff. Core reads the stash by its immutable identity, so a stash pushed or dropped
+// meanwhile does not change what is read.
+//
+// GitStashDiff starts git and blocks; call it from a background goroutine.
+func (c *Client) GitStashDiff(ctx context.Context, root string, stash GitStash) ([]GitDiffFile, error) {
+	// A stash is read for the whole repository only; Core refuses any other pathspec.
+	return c.gitDiffFiles(ctx, gitDiffPayload{
+		Root:                root,
+		Pathspecs:           []string{"."},
+		StashReference:      stash.OID,
+		IncludeFileSections: true,
+		OmitFilePatch:       true,
+	})
+}
+
+// gitDiffFiles runs one git.diff read that answers file by file.
+func (c *Client) gitDiffFiles(ctx context.Context, payload gitDiffPayload) ([]GitDiffFile, error) {
 	var response gitDiffResponse
 	if err := c.Execute(ctx, "git.diff", payload, &response); err != nil {
 		return nil, err

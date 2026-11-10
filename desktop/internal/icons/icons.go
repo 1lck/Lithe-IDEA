@@ -43,6 +43,33 @@ var Activity = gfx.Icon{
 	},
 }
 
+// archive is a compiled vector icon.
+var Archive = gfx.Icon{
+	ViewBox: 24.0,
+	Stroke:  2.0,
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Commands: []gfx.PathCommand{
+		gfx.MoveTo(21.0, 3.0),
+		gfx.CubicTo(21.5523, 3.0, 22.0, 3.44772, 22.0, 4.0),
+		gfx.LineTo(22.0, 7.0),
+		gfx.CubicTo(22.0, 7.55228, 21.5523, 8.0, 21.0, 8.0),
+		gfx.LineTo(3.0, 8.0),
+		gfx.CubicTo(2.44772, 8.0, 2.0, 7.55228, 2.0, 7.0),
+		gfx.LineTo(2.0, 4.0),
+		gfx.CubicTo(2.0, 3.44772, 2.44772, 3.0, 3.0, 3.0),
+		gfx.ClosePath(),
+		gfx.MoveTo(4.0, 8.0),
+		gfx.LineTo(4.0, 19.0),
+		gfx.CubicTo(4.0, 20.1046, 4.89543, 21.0, 6.0, 21.0),
+		gfx.LineTo(18.0, 21.0),
+		gfx.CubicTo(19.1046, 21.0, 20.0, 20.1046, 20.0, 19.0),
+		gfx.LineTo(20.0, 8.0),
+		gfx.MoveTo(10.0, 12.0),
+		gfx.LineTo(14.0, 12.0),
+	},
+}
+
 // arrow-down is a compiled vector icon.
 var ArrowDown = gfx.Icon{
 	ViewBox: 24.0,
