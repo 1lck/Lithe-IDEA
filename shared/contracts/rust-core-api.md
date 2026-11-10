@@ -1934,8 +1934,9 @@ is active; it does not wait behind a mutex outside its cancellation deadline.
 
 Git requests may include optional envelope metadata `gitExecution`:
 `{ executable?: string | null, interactive?: boolean, useCredentialHelper?: boolean,
-fetchDefaults?: GitFetchOptions, detailedFetch?: boolean, source?: "user" | "background" | "unknown" }`. Defaults are PATH,
-noninteractive, helper enabled, normal Fetch defaults, and legacy Fetch results.
+fetchDefaults?: GitFetchOptions, detailedFetch?: boolean, source?: "user" | "background" | "unknown",
+reportQueries?: boolean }`. Defaults are PATH, noninteractive, helper enabled, normal
+Fetch defaults, legacy Fetch results, and silent internal queries.
 An executable must be an absolute native path to Git 2.31 or newer. Interactive
 commands require an event receiver. These values are request-scoped, including
 nested requests, and never implicitly persist. Both current applications opt
@@ -2057,7 +2058,7 @@ Each event has `operationId` and `type`:
 | `started` | `invocationId`, `workingDirectory`, `arguments`, nullable resolved `executable`, `temporaryConfig` key/value pairs, `displayArguments`, `globalArguments`, `source` |
 | `output` | `invocationId`, `stream` (`stdout`/`stderr`), `text`, `progress`, `truncated`, optional `progressDetails` (`stage`, nullable `percent`, `completed`, `total`) |
 | `finished` | `invocationId`, nullable `exitCode`, monotonic `durationMilliseconds`, nullable `error`, `expectedExit` |
-| `requestFinished` | nullable `error`, including failures before a child started |
+| `requestFinished` | nullable `error`, including failures before a child started; `unconfirmedInvocations`, the started records without `finished`; `failureRecord`, true when `error` is set, is not a cancellation, and no record of the request failed or is unconfirmed, so the host shows the error as its own record |
 | `authentication` | `requestId`, `prompt`, `secret`, `attempt`, optional `retry`, `workingDirectory` |
 | `remoteResult` | `remote`, `succeeded`, nullable structured `error`, updated/deleted reference lists and counts, `referencesTruncated`, `referencesAvailable` |
 
@@ -2069,7 +2070,8 @@ unknown exit status remains null. A failed start may produce `finished` without
 Native journals track `requestStarted` separately from visible command records.
 The native receiver retains the originating request directory so a failure before
 `started` can be shown as an unconfirmed request with no fabricated arguments or
-exit code. Successfully completed internal queries still produce no history row.
+exit code. Successfully completed internal queries still produce no history row
+unless they were reported through `gitExecution.reportQueries`.
 A request that ends with the `cancelled` error before any command started was
 superseded, not a Git failure, and also produces no row; a cancelled request that
 had started a command keeps that command with the cancellation as its reason.
@@ -2093,9 +2095,19 @@ fold contiguous `-c` pairs at their original positions; other global arguments
 stay visible. Raw `arguments` remain authoritative for copying and diagnostics. Older events without projections retain their legacy display.
 Visible workflow commands and explicit `git.command` requests produce execution
 events. Internal read-only queries remain silent in the console while retaining
-normal workflow capture and result semantics. Missing optional config values retain their
-actual exit 1 with `expectedExit: true`; only the executing workflow can mark that
-normal result. Other nonzero exits and request errors remain failures. The
+normal workflow capture and result semantics, unless the request sets
+`gitExecution.reportQueries`: then each query produces the same `started`, `output`
+and `finished` events as a visible command, so the console records what the
+workbench read. Queries of a request whose provenance is `background` (an
+automatic refresh or watcher, which runs too often to record) stay silent even
+then; provenance is `gitExecution.source`, or the envelope origin when that is
+unknown. Reported queries never authenticate or prompt; a query that needs
+credentials fails as it does when silent. A query whose nonzero exit answers its
+question, such as a missing optional config value, an absent ref or a path outside
+a work tree, retains its actual exit code with `expectedExit: true`; only the
+executing workflow can mark that normal result. Other nonzero exits and request
+errors remain failures. Output records separated by NUL, as `-z` output is, are
+published as separate lines. The
 `remoteResult` event carries the transfer's `invocationId` so later inspection
 queries cannot acquire its summary. Final command response semantics remain unchanged.
 
@@ -2160,7 +2172,7 @@ same status and races after the last check are not an atomic snapshot guarantee.
 `stashApply`, `stashPop`, `stashDrop`, `deleteRemoteBranch`, `operationContinue`,
 `operationAbort`, `operationSkip`, `createTag`, and `deleteTag`. Optional fields are `paths`, `reference`, `referenceKind`,
 `gitReference`, `revision`, `revisions`, `name`, `message`, `lightweight`, `signed`, `remote`, `destination`, `mode`,
-`includeUntracked`, `checkout`, `amend`, `force`, `pushTags`, `expectedPush`, `autoStash`,
+`includeUntracked`, `checkout`, `amend`, `author`, `signOff`, `force`, `pushTags`, `expectedPush`, `autoStash`,
 `worktreeMode`, `noCheckout`, `expectedBranch`, and `expectedState`. The four history actions require the reviewed `expectedState`
 described below; earlier unreviewed history-write callers must migrate.
 
@@ -2351,7 +2363,16 @@ mode includes staged, unstaged, untracked, deleted, and same-path recreated
 files without reading or mutating the real index and cannot be combined with
 other diff reference modes.
 A `commit` request without `paths` retains
-the legacy behavior of committing the existing index. `ignore` appends root-anchored patterns to the
+the legacy behavior of committing the existing index. `commit` also accepts
+`author`, the commit's author as an exact `Name <email>` (a name without
+surrounding spaces, one space and a nonempty email between angle brackets, with
+no whitespace in the email and no line breaks), passed as `--author`; the
+committer stays the configured identity. Any other value fails with
+`git_commit_author_invalid` before Git runs, because Git would read it as a
+pattern selecting an earlier author. `signOff: true` adds `--signoff`, a
+`Signed-off-by` trailer for the committer. Both apply with or without `paths`
+and with `amend`. Logs show the author as `--author=<author>`; the execution
+events keep the actual argument. `ignore` appends root-anchored patterns to the
 repository's top-level `.gitignore`; `exclude` appends the same patterns to the
 worktree-aware Git metadata path for `info/exclude`. Both ignore operations
 preserve existing content, escape Git pattern characters, de-duplicate rules,
@@ -6140,9 +6161,12 @@ subdirectory as a summary, using the same change shape and nested-root
 exclusion as `git.status`.
 
 `git.workspaceCommitPrepare` owns the complete multi-repository policy. It accepts
-`repositories: [{ id, root }]`, `message`, `amend`, `push`,
-`includeParentReferences`, optional `previous` session for retry, and optional
-`reviewed` plan for confirmation. `id` is a workspace-relative path with `/`
+`repositories: [{ id, root }]`, `message`, `amend`, optional `author` and
+`signOff`, `push`, `includeParentReferences`, optional `previous` session for
+retry, and optional `reviewed` plan for confirmation. `author` and `signOff`
+have the `git.write` `commit` meaning, apply to every commit of the plan, and are
+kept in `plan` (omitted when unset), so changing them changes the reviewed plan;
+an invalid `author` fails the preparation with `git_commit_author_invalid`. `id` is a workspace-relative path with `/`
 separators (`..` is allowed for enclosing repositories). Windows manually selected
 roots on another volume use a stable `external/<encoded-volume>/<path>` virtual
 workspace ID. `root` is the native
