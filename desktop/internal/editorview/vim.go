@@ -460,7 +460,21 @@ func (v *View) vimCommandToken(tok vimToken) {
 			return
 		}
 		st.findKind, st.findChar, st.findValid = kind, s, true
-		v.vimFindCmd(kind, s, max(st.count, 1))
+		v.vimFindCmd(kind, s, max(v.vimRawCount(), 1))
+		return
+	case 'r':
+		st.pend = 0
+		if r, _ := utf8.DecodeRuneInString(s); vimPrintable(r) {
+			v.vimReplaceChars(s)
+		}
+		v.vimCancel()
+		return
+	case 'i', 'a':
+		inner := st.pend == 'i'
+		st.pend = 0
+		if from, to, ok := v.vimObject(inner, s); ok && st.op != 0 {
+			v.vimOperate(st.op, from, to, false)
+		}
 		v.vimCancel()
 		return
 	}
@@ -484,10 +498,14 @@ func (v *View) vimCancel() {
 	st.count, st.opCount, st.op, st.pend = 0, 0, 0, 0
 }
 
-// vimCommand runs a command key in Normal or Visual mode, the count and operator already typed.
+// vimCommand runs a command key in Normal or Visual mode, with the count and operator typed before
+// it.
 func (v *View) vimCommand(s string) {
 	st := &v.vim
 	visual := st.mode == vimVisual || st.mode == vimVisualLine
+	if visual && v.vimVisualCommand(s) {
+		return
+	}
 	switch s {
 	case vimEscape:
 		if visual {
@@ -496,17 +514,61 @@ func (v *View) vimCommand(s string) {
 		}
 		v.vimCancel()
 		return
-	case "i", "a", "I", "A", "R":
-		if visual {
-			break
+	case "i", "a":
+		if st.op != 0 {
+			st.pend = s[0]
+			return
 		}
-		v.vimInsertCmd(s)
-		v.vimCancel()
-		return
+		if !visual {
+			v.vimInsertCmd(s)
+		}
+	case "I", "A", "R":
+		if st.op == 0 && !visual {
+			v.vimInsertCmd(s)
+		}
+	case "o", "O":
+		if st.op == 0 && !visual {
+			v.vimOpenLine(s == "o")
+		}
 	case "v", "V":
-		v.vimVisualCmd(s)
-		v.vimCancel()
-		return
+		if st.op == 0 {
+			v.vimVisualCmd(s)
+		}
+	case "d", "c", "y", ">", "<":
+		if st.op == 0 {
+			st.op, st.opCount, st.count = s[0], st.count, 0
+			return
+		}
+		if st.op == s[0] {
+			v.vimLinesOp(s[0])
+		}
+	case "x":
+		v.vimOpMotion('d', "l")
+	case "X":
+		v.vimOpMotion('d', "h")
+	case "D":
+		v.vimOpMotion('d', "$")
+	case "C":
+		v.vimOpMotion('c', "$")
+	case "s":
+		v.vimOpMotion('c', "l")
+	case "S":
+		v.vimLinesOp('c')
+	case "Y":
+		v.vimLinesOp('y')
+	case "p", "P":
+		if st.op == 0 && !visual {
+			v.vimPaste(s == "p")
+		}
+	case "J":
+		if st.op == 0 && !visual {
+			v.vimJoin(v.vimRawCount())
+		}
+	case "r":
+		if st.op == 0 && !visual {
+			st.pend = 'r'
+			return
+		}
 	case "g":
 		st.pend = 'g'
 		return
@@ -515,15 +577,13 @@ func (v *View) vimCommand(s string) {
 		return
 	case ";", ",":
 		if !st.findValid {
-			v.vimCancel()
-			return
+			break
 		}
 		kind := st.findKind
 		if s == "," {
 			kind = vimReverseFind(kind)
 		}
-		v.vimFindCmd(kind, st.findChar, max(st.count, 1))
-		v.vimCancel()
+		v.vimFindCmd(kind, st.findChar, max(v.vimRawCount(), 1))
 		return
 	case ".":
 		count := st.count
@@ -531,23 +591,56 @@ func (v *View) vimCommand(s string) {
 		v.vimRepeat(count)
 		return
 	case "u":
-		if !visual {
+		if !visual && st.op == 0 {
 			v.Undo()
 		}
-		v.vimCancel()
-		return
 	case vimCtrlR:
-		if !visual {
+		if !visual && st.op == 0 {
 			v.Redo()
 		}
-		v.vimCancel()
-		return
-	}
-	if strings.Contains("hl jk+-\r\b$0^wWbBeE%G"+vimCtrlB+vimCtrlF, s) {
-		v.vimMotionCmd(s)
-		return
+	default:
+		if strings.Contains("hl jk+-\r\b$0^wWbBeE%G"+vimCtrlB+vimCtrlF, s) {
+			v.vimMotionCmd(s)
+			return
+		}
 	}
 	v.vimCancel()
+}
+
+// vimVisualCommand runs the commands that only Visual mode takes, and reports whether s was one.
+func (v *View) vimVisualCommand(s string) bool {
+	st := &v.vim
+	switch s {
+	case "d", "x":
+		v.vimVisualOp('d')
+	case "y":
+		v.vimVisualOp('y')
+	case "c", "s":
+		v.vimVisualOp('c')
+	case ">", "<":
+		v.vimVisualOp(s[0])
+	case "D", "X", "Y", "C", "S", "R":
+		st.mode = vimVisualLine
+		switch s {
+		case "D", "X":
+			v.vimVisualOp('d')
+		case "Y":
+			v.vimVisualOp('y')
+		default:
+			v.vimVisualOp('c')
+		}
+	case "p", "P":
+		v.vimVisualPaste()
+	case "o":
+		v.anchor, v.caret = v.caret, v.anchor
+		v.moved()
+	case "v", "V":
+		v.vimVisualCmd(s)
+	default:
+		return false
+	}
+	v.vimCancel()
+	return true
 }
 
 // vimReverseFind is the find that "," repeats: the opposite direction of kind.
@@ -634,7 +727,9 @@ func (v *View) vimRawCount() int {
 // range.
 func (v *View) vimApply(m vimMove) {
 	st := &v.vim
-	if st.op == 0 {
+	if st.op != 0 {
+		v.vimOperateMotion(st.op, m)
+	} else {
 		v.vimMoveCaret(m)
 	}
 	v.vimCancel()
