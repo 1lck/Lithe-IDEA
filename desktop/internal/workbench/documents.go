@@ -103,7 +103,10 @@ type document struct {
 	previousEncoding *encodingChoice
 	// actions are the plugin editor actions the last collection answered for this text, and
 	// actionTimer the pending collection after an edit (editor_actions.go).
-	actions     []pluginservice.EditorAction
+	actions []pluginservice.EditorAction
+	// links are the document links of the current text, from the plugin providers, indexed by
+	// the ID the view reports them with.
+	links       []pluginservice.EditorLink
 	actionTimer *time.Timer
 	// actionAnnotated says the line annotations show code lens titles, so clearing them is needed.
 	actionAnnotated bool

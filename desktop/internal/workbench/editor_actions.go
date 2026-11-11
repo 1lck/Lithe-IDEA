@@ -40,6 +40,9 @@ func (a *App) scheduleEditorActions(p *project, d *document) {
 
 // clearEditorActions forgets the document's actions and their annotations.
 func (a *App) clearEditorActions(d *document) {
+	d.links = nil
+	d.view.SetLinks(nil)
+	d.view.SetHoveredLink(nil)
 	if len(d.actions) == 0 {
 		return
 	}
@@ -65,7 +68,9 @@ func (a *App) collectEditorActions(p *project, d *document) {
 		// Code lenses come from the provider of the same document, as actions do, and join them.
 		lenses, lensErr := plugins.PluginCodeLenses(ctx, root, path, language, id, version)
 		actions = append(actions, lenses...)
-		err = errors.Join(err, lensErr)
+		// Document links come from the same document's providers and are shown on hover.
+		links, linkErr := plugins.PluginDocumentLinks(ctx, root, path, language, id, version)
+		err = errors.Join(err, lensErr, linkErr)
 		return func(a *App) {
 			if p.docs.find(d.id) != d || d.view.Revision() != version {
 				return
@@ -75,6 +80,8 @@ func (a *App) collectEditorActions(p *project, d *document) {
 			}
 			d.actions = actions
 			a.annotateEditorActions(d)
+			d.links = links
+			a.annotateDocumentLinks(d)
 		}
 	})
 }

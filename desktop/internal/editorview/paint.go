@@ -144,6 +144,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 			p := v.part(l, row, end, from, to)
 			v.paintRow(canvas, p.text, p.base, p.row, from, to, shift, y)
 			v.paintMarkers(canvas, line, from, to, shift, y)
+			v.paintHoveredLink(canvas, line, from, to, shift, y)
 			if k == len(wraps)-1 {
 				v.paintAnnotation(canvas, l, row, y, look, &annotation)
 			}
@@ -546,4 +547,33 @@ func (v *View) revealCaret() {
 func (v *View) clampScroll() {
 	v.scroll = min(max(v.scroll, 0), v.maxScroll())
 	v.scrollX = min(max(v.scrollX, 0), v.maxScrollX())
+}
+
+// linkOpenEnd is the column a hovered link underlines to on every line but its last: past any row.
+const linkOpenEnd = 1 << 30
+
+// paintHoveredLink underlines the hovered document link on one wrapped row. Its underline is the
+// link's colour, one marker thick, under the characters the link covers on this line.
+func (v *View) paintHoveredLink(canvas *gfx.Canvas, line, from, to, shift int, y float32) {
+	link := v.hovered
+	if link == nil || line < link.StartLine || line > link.EndLine {
+		return
+	}
+	start, end := 0, linkOpenEnd
+	if line == link.StartLine {
+		start = link.StartColumn
+	}
+	if line == link.EndLine {
+		end = link.EndColumn
+	}
+	start, end = max(start, from), min(end, to)
+	if end <= start {
+		return
+	}
+	canvas.Fill(gfx.Rect{
+		X:      v.textLeft + float32(start-shift)*v.cellW - v.scrollX,
+		Y:      y + v.lineH - markerThickness,
+		Width:  float32(end-start) * v.cellW,
+		Height: markerThickness,
+	}, gfx.RGB24(0x3B76D1))
 }

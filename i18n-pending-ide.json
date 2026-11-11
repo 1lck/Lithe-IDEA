@@ -392,5 +392,14 @@
     "description": "Message in the Problems preview pane before a diagnostic with a file is selected",
     "en-US": "Select a problem to preview its source.",
     "zh-CN": "选择一个问题以预览源码。"
+  },
+  {
+    "id": "desktop.editor.linkOpenFailed",
+    "description": "Notification when the system cannot open a web or mail link from the editor; {reason} is the system's error",
+    "en-US": "Could not open the link: {reason}",
+    "zh-CN": "无法打开链接：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
   }
 ]

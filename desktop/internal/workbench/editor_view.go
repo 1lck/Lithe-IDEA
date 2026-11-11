@@ -226,6 +226,9 @@ func (a *App) documentPointer(p *project, d *document, event gfx.PointerEvent) g
 	// A semantic popup or request belongs to the caret and symbol it was opened at; any
 	// pointer work that moved either closes it before the frame paints.
 	defer a.pluginSemanticsCaretSync()
+	if result, handled := a.documentLinkPointer(event, d); handled {
+		return result
+	}
 	if result, handled := a.pluginSemanticsPointer(event, p, d); handled {
 		return result
 	}
