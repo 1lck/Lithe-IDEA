@@ -30,6 +30,8 @@ const (
 	syncDialogFetch
 	// syncDialogDiverged asks how to combine a diverged branch with its upstream.
 	syncDialogDiverged
+	// syncDialogPull asks which remote branch to pull into which repository, and how.
+	syncDialogPull
 )
 
 // The choices of the fetch dialog's two selects, in the order of syncSubmoduleChoices and
@@ -75,6 +77,9 @@ type syncState struct {
 	// preflight and branch are what the diverged dialog is about.
 	preflight core.GitPullPreflight
 	branch    string
+
+	// pull is the Pull dialog, which reads its choices when it opens (gitpull.go).
+	pull pullState
 }
 
 // syncProgressRelay hands the newest Git phase from Core's request goroutine to the UI
@@ -120,11 +125,18 @@ func (s *syncState) fetchOptions() core.GitFetchOptions {
 	return options
 }
 
-// runSync runs work against the repository of p in the background, with the status line
+// runSync runs work against the repository the log walks, see runSyncAt.
+func (a *App) runSync(p *project, operation, label string, failed func(reason string) string,
+	work func(ctx context.Context, kernel Kernel, root string) (func(*App), error)) {
+	a.runSyncAt(p, p.logRepositoryRoot(), operation, label, failed, work)
+}
+
+// runSyncAt runs work against the repository at root in the background, with the status line
 // and Cancel button. work returns what to do on the UI thread once it succeeded. The status
 // and the log are read again afterwards whatever the outcome, since a failed fetch may have
-// moved some references.
-func (a *App) runSync(p *project, operation, label string, failed func(reason string) string,
+// moved some references. The Pull dialog names its own repository, which may not be the one
+// the log walks.
+func (a *App) runSyncAt(p *project, root, operation, label string, failed func(reason string) string,
 	work func(ctx context.Context, kernel Kernel, root string) (func(*App), error)) {
 	s := &p.log.sync
 	if s.busy {
@@ -134,7 +146,7 @@ func (a *App) runSync(p *project, operation, label string, failed func(reason st
 	relay := &syncProgressRelay{}
 	s.busy, s.label, s.cancel = true, label, cancel
 	s.relay, s.progress, s.hasProgress = relay, core.GitProgress{}, false
-	kernel, root := a.kernel, p.logRepositoryRoot()
+	kernel := a.kernel
 	a.background(p, syncTimeout, func(ctx context.Context) func(*App) {
 		ctx, stop := context.WithCancel(ctx)
 		defer stop()

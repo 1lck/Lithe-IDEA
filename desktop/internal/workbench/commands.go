@@ -125,6 +125,7 @@ func (a *App) commands() []command {
 	add("git.commit", t.GroupGit, t.Commit, "", true, func() { a.startCommit(p, false, surfaceMenu) })
 	add("git.commitPush", t.GroupGit, t.CommitAndPush, "", true, func() { a.startCommit(p, true, surfaceMenu) })
 	add("git.branches", t.GroupGit, t.Branches, "", true, a.openBranches)
+	add("git.pull", t.GroupGit, a.text.Sync.Pull.MenuItem, "", p.git.isRepository(), func() { a.openPullDialog(p) })
 	add("git.console", t.GroupGit, t.GitConsole, "", true, func() { a.showGitConsole("") })
 
 	add("run.selected", t.GroupRun, t.Run, "", true, func() { a.runSelectedBuildTask(p) })

@@ -78,6 +78,9 @@ func (a *App) drawLogMenu(c ui.C, p *project, button ui.Box) {
 		if menu.Item(g.UpdateBranch).Disabled(l.current == "" || l.sync.busy).Clicked() {
 			c.After(func() { a.updateCurrentBranch(p) })
 		}
+		if menu.Item(a.text.Sync.Pull.MenuItem).Disabled(l.sync.busy).Clicked() {
+			c.After(func() { a.openPullDialog(p) })
+		}
 		if menu.Item(g.RefreshLog).Clicked() {
 			c.After(func() { a.loadLog(p) })
 		}
