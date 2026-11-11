@@ -727,6 +727,7 @@ func (a *App) openPlugins(options Options) {
 		a.startupSweep = startupSweepState{open: true, leftovers: leftovers}
 	}
 	service.Backend.SetInitializeTimeout(options.PluginInitializeTimeout)
+	service.Backend.SetToolResolver(a.resolveBackendTool)
 	if err := service.AttachWorkbench(pluginWorkbench{app: a}); err != nil {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_host_services", err))
 	}

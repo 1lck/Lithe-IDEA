@@ -603,3 +603,35 @@ func (k *fakeKernel) PluginServerRequest(context.Context, string, string, string
 func (k *fakeKernel) PluginServerNotify(context.Context, string, string, string, string, json.RawMessage) (bool, error) {
 	return false, nil
 }
+
+func TestStartResolvesAToolThroughTheHostToolchain(t *testing.T) {
+	root := backendPackage(t)
+	plan := core.PluginBackendPlan{}
+	plan.Launch.Kind = pluginhost.LaunchTool
+	plan.Launch.Tool = "java"
+	plan.Environment = map[string]string{"JAVA_HOME": "/plan/jdk"}
+	kernel := &fakeKernel{plan: plan, started: core.PluginBackendStarted{SessionID: "session-1"}}
+	runner := New(kernel, echoServices(t))
+	request := startRequest(root)
+	if _, err := runner.Start(context.Background(), request); !errors.Is(err, ErrRequest) || kernel.started_.ExecutablePath != "" {
+		t.Fatalf("without a resolver: err = %v, started %q", err, kernel.started_.ExecutablePath)
+	}
+	var asked []string
+	runner.SetToolResolver(func(_ context.Context, pluginID, workingDirectory, tool string) (ToolExecutable, error) {
+		asked = append(asked, pluginID, workingDirectory, tool)
+		return ToolExecutable{Path: "/opt/jdk/bin/java", Environment: map[string]string{"JAVA_HOME": "/opt/jdk", "PATH": "/opt/jdk/bin"}}, nil
+	})
+	if _, err := runner.Start(context.Background(), request); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if kernel.started_.ExecutablePath != "/opt/jdk/bin/java" {
+		t.Fatalf("executable = %q", kernel.started_.ExecutablePath)
+	}
+	if len(asked) != 3 || asked[0] != request.PluginID || asked[1] != request.WorkingDirectory || asked[2] != "java" {
+		t.Fatalf("resolver asked %v", asked)
+	}
+	// The plan's environment wins over the selection's; the rest of the selection is kept.
+	if env := kernel.started_.Environment; env["JAVA_HOME"] != "/plan/jdk" || env["PATH"] != "/opt/jdk/bin" {
+		t.Fatalf("environment = %v", env)
+	}
+}

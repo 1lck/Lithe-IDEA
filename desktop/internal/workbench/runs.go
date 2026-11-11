@@ -9,6 +9,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/vivaui/viva/ui"
 )
@@ -77,6 +78,16 @@ func (a *App) resolveRunTool(ctx context.Context, workspaceRoot, tool string) (p
 	}
 	environment := applyToolchainSelection(nil, selection)
 	return pluginservice.RunExecutable{Path: selection.Executable, Environment: environment}, nil
+}
+
+// resolveBackendTool resolves the tool a plugin backend or language server launch
+// names, through the same layers as a run's tool, for the workspace it serves.
+func (a *App) resolveBackendTool(ctx context.Context, _, workingDirectory, tool string) (pluginbackend.ToolExecutable, error) {
+	resolved, err := a.resolveRunTool(ctx, workingDirectory, tool)
+	if err != nil {
+		return pluginbackend.ToolExecutable{}, err
+	}
+	return pluginbackend.ToolExecutable{Path: resolved.Path, Environment: resolved.Environment}, nil
 }
 
 // applyRunEvent shows one run event. Events of a workspace that is not open are

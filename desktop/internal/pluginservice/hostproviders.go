@@ -15,10 +15,11 @@ import (
 )
 
 // Editor language-feature providers: a plugin adds a feature the file's language server does not
-// supply. The host routes only the feature types it presents; Core refuses a registration of any
-// other type, so nothing is registered that the host would never call. Today the routed type is
-// definition, shown through the same presentation as a language server's answer, and only when no
-// language server serves the document, since the server's answer comes first.
+// supply. The host routes only the feature types it presents (routedProviderTypes, which Core is told
+// at session start and on every registration); Core refuses a registration of any other type, so
+// nothing is registered that the host would never call. Each routed type fills one function in the
+// binding (providerFunctionFields), and its answer is shown through the same presentation as a
+// language server's, only when no language server serves the document, since the server comes first.
 const (
 	methodRegisterEditorProviders = pluginhost.MethodPrefix + "editor/registerProviders"
 
@@ -30,6 +31,18 @@ const (
 
 // routedProviderTypes are the provider types this host routes, in the order Core is told them.
 var routedProviderTypes = core.EditorHost.ProviderTypes
+
+// providerFunctionFields is the binding field each routed provider type fills. Its keys are exactly
+// routedProviderTypes: a type routed without a field would be accepted and never called, and a field
+// without a routed type would be refused by Core.
+var providerFunctionFields = map[string]func(*editorProviderBinding) *string{
+	"definition":     func(b *editorProviderBinding) *string { return &b.definition },
+	"hover":          func(b *editorProviderBinding) *string { return &b.hover },
+	"completion":     func(b *editorProviderBinding) *string { return &b.completion },
+	"codeLens":       func(b *editorProviderBinding) *string { return &b.codeLens },
+	"semanticTokens": func(b *editorProviderBinding) *string { return &b.semanticTokens },
+	"documentLink":   func(b *editorProviderBinding) *string { return &b.documentLink },
+}
 
 // editorProviderDecoder is the part of Core that validates provider messages.
 type editorProviderDecoder interface {
@@ -113,72 +126,31 @@ func (s *Service) handleRegisterEditorProviders(ctx context.Context, params json
 		reference: mustMarshal(workspace.ContextRef), id: request.ID,
 		languages: map[string]bool{}, extensions: map[string]bool{}, names: map[string]bool{},
 	}
-	if definition, ok := request.Providers["definition"]; ok {
-		if !validFunctionID(definition.Function) {
-			return nil, failure(codeInvalidParams, "The definition provider needs a function ID.")
+	for kind, provider := range request.Providers {
+		field, routed := providerFunctionFields[kind]
+		if !routed {
+			return nil, failure(codeInvalidParams, "The host does not route the "+kind+" provider type.")
+		}
+		if !validFunctionID(provider.Function) {
+			return nil, failure(codeInvalidParams, "The "+kind+" provider needs a function ID.")
+		}
+		if kind == "semanticTokens" && (len(provider.Legend.TokenTypes) == 0 || len(provider.Legend.TokenTypes) > 64 || len(provider.Legend.TokenModifiers) > 64) {
+			return nil, failure(codeInvalidParams, "The semantic tokens provider needs a legend within the limits.")
 		}
 		session := s.Host.Running(caller.PluginID)
-		if session == nil || session.Session.ID != caller.SessionID || !session.hasFunction(definition.Function) {
+		if session == nil || session.Session.ID != caller.SessionID || !session.hasFunction(provider.Function) {
 			return nil, failure(CodePreconditionFailed, "The function is not registered on this session.")
 		}
-		binding.definition = definition.Function
+		*field(binding) = provider.Function
+		switch kind {
+		case "semanticTokens":
+			binding.tokenTypes = provider.Legend.TokenTypes
+			binding.tokenModifiers = provider.Legend.TokenModifiers
+		case "completion":
+			binding.triggers = provider.TriggerCharacters
+		}
 	}
-	if hover, ok := request.Providers["hover"]; ok {
-		if !validFunctionID(hover.Function) {
-			return nil, failure(codeInvalidParams, "The hover provider needs a function ID.")
-		}
-		session := s.Host.Running(caller.PluginID)
-		if session == nil || session.Session.ID != caller.SessionID || !session.hasFunction(hover.Function) {
-			return nil, failure(CodePreconditionFailed, "The function is not registered on this session.")
-		}
-		binding.hover = hover.Function
-	}
-	if completion, ok := request.Providers["completion"]; ok {
-		if !validFunctionID(completion.Function) {
-			return nil, failure(codeInvalidParams, "The completion provider needs a function ID.")
-		}
-		session := s.Host.Running(caller.PluginID)
-		if session == nil || session.Session.ID != caller.SessionID || !session.hasFunction(completion.Function) {
-			return nil, failure(CodePreconditionFailed, "The function is not registered on this session.")
-		}
-		binding.completion = completion.Function
-	}
-	if semantic, ok := request.Providers["semanticTokens"]; ok {
-		if !validFunctionID(semantic.Function) || len(semantic.Legend.TokenTypes) == 0 || len(semantic.Legend.TokenTypes) > 64 || len(semantic.Legend.TokenModifiers) > 64 {
-			return nil, failure(codeInvalidParams, "The semantic tokens provider needs a function ID and a legend within the limits.")
-		}
-		session := s.Host.Running(caller.PluginID)
-		if session == nil || session.Session.ID != caller.SessionID || !session.hasFunction(semantic.Function) {
-			return nil, failure(CodePreconditionFailed, "The function is not registered on this session.")
-		}
-		binding.semanticTokens = semantic.Function
-		binding.tokenTypes = semantic.Legend.TokenTypes
-		binding.tokenModifiers = semantic.Legend.TokenModifiers
-	}
-	if completion, ok := request.Providers["completion"]; ok {
-		binding.triggers = completion.TriggerCharacters
-	}
-	if lens, ok := request.Providers["codeLens"]; ok {
-		if !validFunctionID(lens.Function) {
-			return nil, failure(codeInvalidParams, "The code lens provider needs a function ID.")
-		}
-		session := s.Host.Running(caller.PluginID)
-		if session == nil || session.Session.ID != caller.SessionID || !session.hasFunction(lens.Function) {
-			return nil, failure(CodePreconditionFailed, "The function is not registered on this session.")
-		}
-		binding.codeLens = lens.Function
-	}
-	if link, ok := request.Providers["documentLink"]; ok {
-		if !validFunctionID(link.Function) {
-			return nil, failure(codeInvalidParams, "The document link provider needs a function ID.")
-		}
-		session := s.Host.Running(caller.PluginID)
-		if session == nil || session.Session.ID != caller.SessionID || !session.hasFunction(link.Function) {
-			return nil, failure(CodePreconditionFailed, "The function is not registered on this session.")
-		}
-		binding.documentLink = link.Function
-	}
-	if binding.definition == "" && binding.hover == "" && binding.completion == "" && binding.semanticTokens == "" && binding.codeLens == "" && binding.documentLink == "" {
+	if len(request.Providers) == 0 {
 		return nil, failure(codeInvalidParams, "The registration provides no routed provider type.")
 	}
 	for _, language := range request.Selector.Languages {

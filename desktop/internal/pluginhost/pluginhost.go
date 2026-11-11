@@ -69,34 +69,39 @@ type Capabilities map[string][]int
 //
 //   - languages: the grammar is decoded by Core and registered with the editor,
 //     and the delimiters reach the language's comment and bracket rules.
-//   - languageServers: this client resolves the launch Core
-//     plans (a packaged program, a packaged runtime, a bare command found on
-//     PATH, or the command line the plugin backend answers), starts the process,
-//     keeps the session's documents in step with the editor and draws the
-//     diagnostics it publishes. Plugin-owned sessions are wired: the backend's
-//     languageServer/request and notify reach the server under Core's session
-//     policy, and didReceiveNotification and didChangeState reach the backend.
+//   - languageServers: this client resolves the launch Core plans (a packaged
+//     program, a packaged runtime, a bare command found on PATH, a tool the
+//     toolchain layers select for the workspace, or the command line the plugin
+//     backend answers), starts the process and keeps the session's documents in
+//     step with the editor. The editor presents its diagnostics, completion,
+//     hover, definition, references, rename, formatting, document symbols,
+//     document links and semantic tokens. Plugin-owned sessions are wired: the
+//     backend's languageServer/request and notify reach the server under Core's
+//     session policy, and didReceiveNotification and didChangeState reach the
+//     backend.
 //   - backend and pluginFunctions: a backend starts on demand (onWorkspaceOpen,
 //     a launch answer, or a call from another plugin) and is answered the host
 //     services workspace/getFolders, listContexts and getContext (with
 //     didChangeContexts), subscriptions/dispose, the languageServer methods, the
 //     cross-plugin functions relay, credentials/get|set|delete, documents/list
 //     and getSnapshot, editor/getActive, getSelections, open, reveal, insertText,
-//     replaceSelections and applyEdits, window/showInformation|showWarning|
-//     showError, browser/openExternal (http and https only), terminal/create|
-//     show|close|reopen|dispose|onExit and documents/registerContentProvider.
-//     Window-bound methods are registered only when the window attaches
-//     (Service.AttachWorkbench); getCapabilities lists only what is registered.
-//     Run, debug, workspace file and search services, editor/registerActions
-//     and registerProviders and preview/openHTML are not registered, so a
-//     plugin that needs one is refused when it asks for that permission.
+//     replaceSelections and applyEdits, editor/registerActions and
+//     registerProviders (definition, hover, completion, codeLens, semanticTokens
+//     and documentLink), window/showInformation|showWarning|showError,
+//     browser/openExternal (http and https only), terminal/create|show|close|
+//     reopen|dispose|onExit, documents/registerContentProvider, run/start|stop|
+//     didExit and debug/start. Window-bound methods are registered only when the
+//     window attaches (Service.AttachWorkbench); getCapabilities lists only what
+//     is registered. Workspace file and search services and preview/openHTML are
+//     not registered, so a plugin that needs one is refused when it asks for
+//     that permission.
 //   - buildSystems and buildProviders: the Build window detects instances,
 //     loads provider models, resolves the ordered executable candidates Core
-//     returns, runs command and provider tasks and prepares application targets.
-//     Run sessions a backend starts (run/start, run/stop, run/didExit) are owned
-//     by the host.
-//   - toolDefinitions: settings discovery and Build/Run selection use the
-//     shared Core resolver.
+//     returns, runs command and provider tasks, prepares application targets
+//     and discovers and runs provider tests. Run sessions a backend starts are
+//     owned by the host.
+//   - toolDefinitions: settings discovery, Build/Run selection and tool
+//     launches use the shared Core resolver.
 //   - projectGenerators: the New Project window lists generators, evaluates
 //     their forms through Core, discovers tools with the shared toolchain and
 //     runs the plan in a staging directory.
@@ -115,15 +120,13 @@ type Capabilities map[string][]int
 //
 // Not presented yet (the plugin installs, the part has no surface):
 //
-//   - a language server launch answer of {kind: "tool"} is refused at start,
-//     because the tool is not resolved through the toolchain registry yet.
-//   - only diagnostics are presented; completion, hover, navigation, rename and
-//     formatting have no editor surface.
+//   - a language server's code actions, signature help and inlay hints, and a
+//     plugin's foldingRange provider, which is not routed.
 //   - tool discovery for system commands reads PATH only; a plan that depends
-//     on a project toolchain or a user override is refused.
-//   - build provider run preparation, tests, debug preparation, model inputs,
-//     native configuration, inline test reports and runtime debug; build system
-//     instance options and task preparations.
+//     on a project toolchain or a user override must use a tool launch.
+//   - build provider debug preparation, model inputs, native configuration,
+//     inline test reports and runtime debug; build system instance options and
+//     task preparations.
 //   - ui commands that belong to no tool window.
 //   - VCS provider annotation, file history, file operations, metadata
 //     watching, authentication, history entry diffs, status in the project tree

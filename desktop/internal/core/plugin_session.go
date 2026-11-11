@@ -55,7 +55,7 @@ var EditorHost = EditorHostOptions{
 		"navigate-super", "navigate-implementations",
 	},
 	ActionSourceBytes: 1024 * 1024,
-	ProviderTypes:     []string{"definition", "hover", "completion", "semanticTokens", "documentLink"},
+	ProviderTypes:     []string{"definition", "hover", "completion", "codeLens", "semanticTokens", "documentLink"},
 }
 
 // EditorActionDecodeVersion is the plugins.editorActions.decode request version EditorHost is

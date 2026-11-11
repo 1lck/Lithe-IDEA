@@ -169,9 +169,17 @@ type Runner struct {
 // Core's default.
 func (r *Runner) SetInitializeTimeout(timeout time.Duration) { r.initializeTimeout = timeout }
 
+// ToolExecutable is the installation a tool launch resolved to: the program and
+// the environment its selection declares (such as the tool's home and PATH).
+type ToolExecutable struct {
+	Path        string
+	Environment map[string]string
+}
+
 // ToolResolver resolves the tool definition a plugin launch names to the
-// executable the host runs, using the host's toolchain discovery.
-type ToolResolver func(ctx context.Context, pluginID, tool string) (string, error)
+// executable the host runs, using the host's toolchain layers for the workspace
+// the process serves (workingDirectory, empty for a process with no workspace).
+type ToolResolver func(ctx context.Context, pluginID, workingDirectory, tool string) (ToolExecutable, error)
 
 // SetToolResolver installs the resolver for tool launches. It must be called
 // before the first Start.
@@ -270,14 +278,18 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 			return Session{}, err
 		}
 	}
+	// A tool launch runs the installation the toolchain layers select; the plan's
+	// own environment wins over what the selection declares.
+	var toolEnvironment map[string]string
 	if executable == "" && plan.Launch.Kind == pluginhost.LaunchTool {
 		if r.tools == nil {
 			return Session{}, fmt.Errorf("%w: this host cannot resolve tool launches", ErrRequest)
 		}
-		executable, err = r.tools(ctx, request.PluginID, plan.Launch.Tool)
+		tool, err := r.tools(ctx, request.PluginID, request.WorkingDirectory, plan.Launch.Tool)
 		if err != nil {
 			return Session{}, err
 		}
+		executable, toolEnvironment = tool.Path, tool.Environment
 	}
 	if executable == "" {
 		return Session{}, fmt.Errorf("%w: the plan names no program", ErrRequest)
@@ -292,7 +304,7 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 		Role:                   role,
 		ExecutablePath:         executable,
 		Arguments:              Arguments(plan, resolved.Entry),
-		Environment:            mergeEnvironment(plan.Environment, request.Environment),
+		Environment:            mergeEnvironment(mergeEnvironment(toolEnvironment, plan.Environment), request.Environment),
 		SessionPolicy:          plan.SessionPolicy,
 		RootURI:                request.RootURI,
 		WorkingDirectory:       request.WorkingDirectory,
