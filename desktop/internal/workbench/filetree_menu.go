@@ -54,7 +54,15 @@ type treePrompt struct {
 func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 	language, t := a.language(), a.text
 	root := n == p.tree.root
-	target.Hit(ui.ID(c.Key("treectx/"+n.path)), n.name)
+	rowID := ui.ID(c.Key("treectx/" + n.path))
+	target.Hit(rowID, n.name)
+	if !root {
+		p.tree.rememberRow(rowID, n)
+		target.DragSource(&a.dnd.tree)
+	}
+	if n.dir && !root {
+		target.DropTarget(&a.dnd.tree, a.treeDragAccept, a.treeDragDrop)
+	}
 	ui.ContextMenu(c, target, func(menu *ui.MenuItems) {
 		menu.WidthRange(200, 280)
 		if nodes := p.tree.batchTargets(); len(nodes) > 1 && p.tree.marked[n.path] {
@@ -134,6 +142,17 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 			if menu.Item(i18n.Shared(language, "desktop.files.newDirectory")).Clicked() {
 				c.After(func() { a.openTreePrompt(p, treePromptNewDirectory, n) })
 			}
+		}
+		if !root {
+			if menu.Item(i18n.Shared(language, "desktop.files.cut")).Clicked() {
+				c.After(func() { a.treeCut(p, n) })
+			}
+			if menu.Item(i18n.Shared(language, "desktop.files.copy")).Clicked() {
+				c.After(func() { a.treeCopy(p, n) })
+			}
+		}
+		if n.dir && a.treeClipboardHas(p) && menu.Item(i18n.Shared(language, "desktop.files.paste")).Clicked() {
+			c.After(func() { a.treePaste(p, n) })
 		}
 		if !root {
 			if menu.Item(i18n.Shared(language, "desktop.files.duplicate")).Clicked() {

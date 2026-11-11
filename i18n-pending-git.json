@@ -486,5 +486,41 @@
     "parameters": {
       "count": "string"
     }
+  },
+  {
+    "id": "desktop.files.cut",
+    "description": "Project tree context menu item: cut the item to the tree clipboard",
+    "en-US": "Cut",
+    "zh-CN": "剪切"
+  },
+  {
+    "id": "desktop.files.copy",
+    "description": "Project tree context menu item: copy the item to the tree clipboard",
+    "en-US": "Copy",
+    "zh-CN": "复制"
+  },
+  {
+    "id": "desktop.files.paste",
+    "description": "Project tree context menu item on a folder: paste the cut or copied items into it",
+    "en-US": "Paste",
+    "zh-CN": "粘贴"
+  },
+  {
+    "id": "desktop.files.moveFailed",
+    "description": "Notice when a dragged item could not be moved",
+    "en-US": "Could not move the item: {reason}",
+    "zh-CN": "无法移动该项目：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.files.pasteFailed",
+    "description": "Notice when pasted items could not all be written",
+    "en-US": "Could not paste the item: {reason}",
+    "zh-CN": "无法粘贴该项目：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
   }
 ]

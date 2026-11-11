@@ -36,6 +36,7 @@ func (t *fileTree) describe(i int) ui.TreeNode {
 // time the tree is shown.
 func (a *App) projectTree(c ui.C, p *project) {
 	t := &p.tree
+	t.rowRefs = map[gfx.ID]treeRowRef{}
 	a.treePromptDialog(c, p)
 	a.treeBatchDialog(c, p)
 	if t.wake == nil {

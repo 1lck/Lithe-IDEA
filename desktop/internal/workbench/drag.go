@@ -103,6 +103,8 @@ type dragTarget struct {
 // which the target's accept callback runs for the pointer's position.
 type dragDrop struct {
 	tool, tab ui.DragState
+	// tree drags a project tree row onto a folder, which moves it (filetree_dnd.go).
+	tree ui.DragState
 }
 
 // toolAccept is the tool button target's accept callback: it follows the pointer of the drag
