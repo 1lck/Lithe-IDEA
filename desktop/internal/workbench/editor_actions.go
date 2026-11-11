@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"strconv"
 	"time"
@@ -44,6 +45,10 @@ func (a *App) clearEditorActions(d *document) {
 	}
 	d.actions = nil
 	d.view.SetLineIcons(nil)
+	if d.actionAnnotated {
+		d.view.SetLineAnnotations(nil)
+		d.actionAnnotated = false
+	}
 }
 
 // collectEditorActions asks the plugins for the actions of the document's current text. An answer
@@ -53,10 +58,14 @@ func (a *App) collectEditorActions(p *project, d *document) {
 		return
 	}
 	data, _ := d.view.Text()
-	text, version, id, path, root := string(data), d.view.Revision(), strconv.Itoa(d.id), d.path, p.root
+	text, version, id, path, root, language := string(data), d.view.Revision(), strconv.Itoa(d.id), d.path, p.root, d.languageID
 	plugins := a.plugins
 	a.background(p, 15*time.Second, func(ctx context.Context) func(*App) {
 		actions, err := plugins.CollectEditorActions(ctx, root, path, id, version, text)
+		// Code lenses come from the provider of the same document, as actions do, and join them.
+		lenses, lensErr := plugins.PluginCodeLenses(ctx, root, path, language, id, version)
+		actions = append(actions, lenses...)
+		err = errors.Join(err, lensErr)
 		return func(a *App) {
 			if p.docs.find(d.id) != d || d.view.Revision() != version {
 				return
@@ -88,6 +97,21 @@ func (a *App) annotateEditorActions(d *document) {
 	}
 	d.view.SetLineIcons(icons)
 	d.view.SetLineIconClick(func(line int) { a.runFirstActionOnLine(d, line) })
+	// Actions without an icon are code lenses: their titles show at their line.
+	var titles []editorview.LineAnnotation
+	titled := map[int]bool{}
+	for _, action := range d.actions {
+		line := action.Range.StartLine - 1
+		if action.Icon != "" || line < 0 || titled[line] {
+			continue
+		}
+		titled[line] = true
+		titles = append(titles, editorview.LineAnnotation{Line: line, Text: action.Title})
+	}
+	if len(titles) > 0 || d.actionAnnotated {
+		d.view.SetLineAnnotations(titles)
+	}
+	d.actionAnnotated = len(titles) > 0
 }
 
 // editorActionIcon maps the host's action icon names to the icons it draws. An unknown name has no icon.

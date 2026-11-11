@@ -68,6 +68,8 @@ type debugState struct {
 	instructionBreakpoints []core.DebugInstructionBreakpoint
 	// dataBreakpoints are the variables the session stops on when they change.
 	dataBreakpoints []debugDataBreakpoint
+	// exception is the exception info of the last stop, asked for by the exceptions section.
+	exception *core.DebugExceptionInfo
 	frames          []core.DebugStackFrame
 	// hideFiltered collapses the frames the session's stepping filters match into one
 	// row per run; framesExpanded shows them again until the next stack arrives.
@@ -367,6 +369,7 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 			p.debug.threads, p.debug.selectedThread, p.debug.threadsFailure = nil, 0, ""
 			p.debug.watch.valuesCleared()
 			p.debug.state = "running"
+			p.debug.exception = nil
 			p.debug.status = a.text.Debug.Running
 		case "terminated":
 			if event.ExitCode != nil {

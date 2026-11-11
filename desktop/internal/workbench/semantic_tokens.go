@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -111,10 +112,44 @@ func (a *App) requestSemanticTokens(p *project, d *document) {
 	}
 	server, offered := a.editorServer(d, featureSemanticTokens)
 	if server == nil || !offered {
+		// No language server offers tokens: a plugin's semantic tokens provider may, with its legend.
+		if a.plugins != nil && a.plugins.HasSemanticTokensProvider(p.root, d.path, d.languageID) {
+			a.requestProviderTokens(p, d, revision)
+		}
 		return
 	}
 	t.asked = revision
 	t.pending = a.submitEditorRequest(pluginSemanticTokens, p, d, server, core.PluginSemanticRequest{})
+}
+
+// requestProviderTokens asks a plugin's semantic tokens provider for the tokens of the text at revision. The
+// answer is laid over that text only while the document still has it; an edit asks again.
+func (a *App) requestProviderTokens(p *project, d *document, revision int) {
+	t := a.tokensOf(d)
+	t.asked = revision
+	view, text := d.view, d.view.TextSnapshot()
+	id, path, language, root, plugins := strconv.Itoa(d.id), d.path, d.languageID, p.root, a.plugins
+	a.background(p, 20*time.Second, func(ctx context.Context) func(*App) {
+		tokens, err := plugins.PluginSemanticTokens(ctx, root, path, language, id, revision)
+		return func(a *App) {
+			if p.docs.find(d.id) != d || view.Revision() != revision {
+				return
+			}
+			if err != nil {
+				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_semantic_tokens", err))
+				return
+			}
+			legend := syntax.NewSemanticLegend(tokens.Types, tokens.Modifiers)
+			spans := make([]syntax.SemanticToken, 0, len(tokens.Tokens))
+			for _, token := range tokens.Tokens {
+				spans = append(spans, syntax.SemanticToken{
+					Line: uint32(token.Line), StartChar: uint32(token.StartChar), Length: uint32(token.Length),
+					Type: uint32(token.Type), Modifiers: token.Modifiers,
+				})
+			}
+			view.SetSemantic(text, legend, spans)
+		}
+	})
 }
 
 // applySemanticTokens takes the answer of a semanticTokens request: the tokens are laid over

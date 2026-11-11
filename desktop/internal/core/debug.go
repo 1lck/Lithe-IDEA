@@ -62,6 +62,8 @@ type DebugOperationResult struct {
 	Description string   `json:"description,omitempty"`
 	AccessTypes []string `json:"accessTypes,omitempty"`
 	CanPersist  bool     `json:"canPersist,omitempty"`
+	// ExceptionInfo is the result of an exceptionInfo inspection.
+	ExceptionInfo *DebugExceptionInfo `json:"exceptionInfo,omitempty"`
 	// Variable is the replacement of a setVariable or the value of an evaluate.
 	Variable *DebugVariable `json:"variable,omitempty"`
 	// Instructions is the result of a disassemble inspection.
@@ -372,4 +374,29 @@ func (c *Client) RelocateDebugBreakpoints(ctx context.Context, source string, ed
 		return nil, err
 	}
 	return result.Breakpoints, nil
+}
+
+// DebugExceptionInfo is the adapter's account of the exception a thread stopped on.
+type DebugExceptionInfo struct {
+	ExceptionID string                `json:"exceptionId"`
+	Description string                `json:"description"`
+	BreakMode   string                `json:"breakMode"`
+	Details     DebugExceptionDetails `json:"details"`
+}
+
+// DebugExceptionDetails are the adapter's details of an exception, its inner exceptions included.
+type DebugExceptionDetails struct {
+	Message         string                    `json:"message,omitempty"`
+	TypeName        string                    `json:"typeName,omitempty"`
+	FullTypeName    string                    `json:"fullTypeName,omitempty"`
+	EvaluateName    string                    `json:"evaluateName,omitempty"`
+	StackTrace      string                    `json:"stackTrace,omitempty"`
+	InnerExceptions []DebugInnerExceptionInfo `json:"innerExceptions,omitempty"`
+}
+
+// DebugInnerExceptionInfo is one inner exception of an exception.
+type DebugInnerExceptionInfo struct {
+	Message      string `json:"message,omitempty"`
+	TypeName     string `json:"typeName,omitempty"`
+	FullTypeName string `json:"fullTypeName,omitempty"`
 }

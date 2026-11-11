@@ -374,5 +374,11 @@
     "description": "Shown when a source-backed plugin panel could not read its nodes",
     "en-US": "The plugin could not load this panel.",
     "zh-CN": "插件无法加载此面板。"
+  },
+  {
+    "id": "desktop.debug.exceptionInfo",
+    "description": "Button in the exceptions section that asks the adapter for the exception the thread stopped on",
+    "en-US": "Exception info",
+    "zh-CN": "异常信息"
   }
 ]

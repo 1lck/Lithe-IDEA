@@ -687,10 +687,18 @@ func (a *App) scheduleAutoCompletion(p *project, d *document, edit editorview.Ed
 		return
 	}
 	server, ok := a.semanticServer(d)
-	if !ok {
-		return
+	providerOnly := !ok
+	var triggers []string
+	if providerOnly {
+		// Without a language server, a plugin's completion provider asks on the characters it declared.
+		triggers = a.plugins.CompletionTriggers(p.root, d.path, d.languageID)
+		if len(triggers) == 0 {
+			return
+		}
+	} else {
+		triggers = server.completionTriggers
 	}
-	trigger, ok := autoCompletionContext(edit, server.completionTriggers)
+	trigger, ok := autoCompletionContext(edit, triggers)
 	if !ok {
 		return
 	}
@@ -717,6 +725,10 @@ func (a *App) scheduleAutoCompletion(p *project, d *document, edit editorview.Ed
 		}
 		return func(a *App) {
 			if a.semantics.autoGeneration != generation {
+				return
+			}
+			if providerOnly {
+				a.startProviderCompletion(p, d, line, column)
 				return
 			}
 			a.requestPluginCompletion(p, d, line, column, trigger, true)

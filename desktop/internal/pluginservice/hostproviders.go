@@ -46,6 +46,14 @@ type editorProviderBinding struct {
 	definition string
 	hover      string
 	completion string
+	// semanticTokens is the function that answers token requests, and tokenTypes/tokenModifiers its legend.
+	semanticTokens string
+	tokenTypes     []string
+	tokenModifiers []string
+	// triggers are the characters that ask for completion as they are typed.
+	triggers []string
+	// codeLens is the function that answers code lens requests.
+	codeLens   string
 	languages  map[string]bool
 	extensions map[string]bool
 	names      map[string]bool
@@ -72,7 +80,12 @@ func (s *Service) handleRegisterEditorProviders(ctx context.Context, params json
 			FileNames      []string `json:"fileNames"`
 		} `json:"selector"`
 		Providers map[string]struct {
-			Function string `json:"function"`
+			Function          string   `json:"function"`
+			TriggerCharacters []string `json:"triggerCharacters"`
+			Legend            struct {
+				TokenTypes     []string `json:"tokenTypes"`
+				TokenModifiers []string `json:"tokenModifiers"`
+			} `json:"legend"`
 		} `json:"providers"`
 	}
 	if err := decodeStrict(params, &request); err != nil {
@@ -128,7 +141,32 @@ func (s *Service) handleRegisterEditorProviders(ctx context.Context, params json
 		}
 		binding.completion = completion.Function
 	}
-	if binding.definition == "" && binding.hover == "" && binding.completion == "" {
+	if semantic, ok := request.Providers["semanticTokens"]; ok {
+		if !validFunctionID(semantic.Function) || len(semantic.Legend.TokenTypes) == 0 || len(semantic.Legend.TokenTypes) > 64 || len(semantic.Legend.TokenModifiers) > 64 {
+			return nil, failure(codeInvalidParams, "The semantic tokens provider needs a function ID and a legend within the limits.")
+		}
+		session := s.Host.Running(caller.PluginID)
+		if session == nil || session.Session.ID != caller.SessionID || !session.hasFunction(semantic.Function) {
+			return nil, failure(CodePreconditionFailed, "The function is not registered on this session.")
+		}
+		binding.semanticTokens = semantic.Function
+		binding.tokenTypes = semantic.Legend.TokenTypes
+		binding.tokenModifiers = semantic.Legend.TokenModifiers
+	}
+	if completion, ok := request.Providers["completion"]; ok {
+		binding.triggers = completion.TriggerCharacters
+	}
+	if lens, ok := request.Providers["codeLens"]; ok {
+		if !validFunctionID(lens.Function) {
+			return nil, failure(codeInvalidParams, "The code lens provider needs a function ID.")
+		}
+		session := s.Host.Running(caller.PluginID)
+		if session == nil || session.Session.ID != caller.SessionID || !session.hasFunction(lens.Function) {
+			return nil, failure(CodePreconditionFailed, "The function is not registered on this session.")
+		}
+		binding.codeLens = lens.Function
+	}
+	if binding.definition == "" && binding.hover == "" && binding.completion == "" && binding.semanticTokens == "" && binding.codeLens == "" {
 		return nil, failure(codeInvalidParams, "The registration provides no routed provider type.")
 	}
 	for _, language := range request.Selector.Languages {
@@ -467,4 +505,110 @@ func (s *Service) PluginDefinitions(ctx context.Context, root, path, languageID,
 		locations = append(locations, item)
 	}
 	return locations, nil
+}
+
+// semanticTokensBinding is the binding of the document whose semantic tokens provider answers, or nil.
+func (s *Service) semanticTokensBinding(root, path, languageID string) *editorProviderBinding {
+	if s == nil || s.providers2 == nil {
+		return nil
+	}
+	workspace, ok := s.Contexts.ByPath(root)
+	if !ok {
+		return nil
+	}
+	name := filepath.Base(path)
+	s.providers2.mu.Lock()
+	defer s.providers2.mu.Unlock()
+	for _, binding := range s.providers2.list {
+		if binding.contextID == workspace.ContextID && binding.semanticTokens != "" && binding.matchesDocument(languageID, name) {
+			return binding
+		}
+	}
+	return nil
+}
+
+// HasSemanticTokensProvider reports whether a plugin's semantic tokens provider serves the document.
+func (s *Service) HasSemanticTokensProvider(root, path, languageID string) bool {
+	return s.semanticTokensBinding(root, path, languageID) != nil
+}
+
+// SemanticTokens is the decoded answer of a semantic tokens provider: the token types and modifiers of its
+// registered legend, and the tokens with their positions made absolute.
+type SemanticTokens struct {
+	Types     []string
+	Modifiers []string
+	// Tokens are zero-based: line, UTF-16 start column, length, type index, modifier bit set.
+	Tokens []SemanticTokenSpan
+}
+
+// SemanticTokenSpan is one token of a provider's answer.
+type SemanticTokenSpan struct {
+	Line, StartChar, Length, Type int
+	Modifiers                     uint32
+}
+
+// PluginSemanticTokens asks the provider for the document's tokens, has Core normalise the answer to the
+// LSP relative encoding, and expands it into absolute positions.
+func (s *Service) PluginSemanticTokens(ctx context.Context, root, path, languageID, documentID string, version int) (SemanticTokens, error) {
+	binding := s.semanticTokensBinding(root, path, languageID)
+	if binding == nil {
+		return SemanticTokens{}, nil
+	}
+	session := s.Host.Running(binding.pluginID)
+	if session == nil || session.Session.ID != binding.sessionID {
+		return SemanticTokens{}, ErrBackendUnavailable
+	}
+	argument := mustMarshal(map[string]any{"document": map[string]any{"documentID": documentID, "version": version}})
+	answer, err := session.Call(ctx, binding.semanticTokens, argument, binding.reference, editorProviderTimeout)
+	if err != nil {
+		return SemanticTokens{}, err
+	}
+	decoder, ok := s.kernel.(editorProviderDecoder)
+	if !ok {
+		return SemanticTokens{}, errors.New("editor providers need the Core that normalises their answers")
+	}
+	legend := map[string]any{"tokenTypes": binding.tokenTypes, "tokenModifiers": binding.tokenModifiers}
+	decoded, err := decoder.DecodeEditorProviders(ctx, map[string]any{"kind": "result", "type": "semanticTokens", "value": answer, "legend": legend})
+	if err != nil {
+		return SemanticTokens{}, err
+	}
+	var result struct {
+		Result struct {
+			Data []int `json:"data"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(decoded, &result); err != nil {
+		return SemanticTokens{}, err
+	}
+	return SemanticTokens{Types: binding.tokenTypes, Modifiers: binding.tokenModifiers, Tokens: expandRelativeTokens(result.Result.Data)}, nil
+}
+
+// expandRelativeTokens reads the LSP relative encoding: five integers per token, a line delta, a start delta
+// (relative to the previous token only on the same line), a length, a type and a modifier bit set.
+func expandRelativeTokens(data []int) []SemanticTokenSpan {
+	var tokens []SemanticTokenSpan
+	line, start := 0, 0
+	for index := 0; index+5 <= len(data); index += 5 {
+		deltaLine, deltaStart := data[index], data[index+1]
+		if deltaLine < 0 || deltaStart < 0 || data[index+2] <= 0 || data[index+3] < 0 || data[index+4] < 0 {
+			continue
+		}
+		line += deltaLine
+		if deltaLine == 0 {
+			start += deltaStart
+		} else {
+			start = deltaStart
+		}
+		tokens = append(tokens, SemanticTokenSpan{Line: line, StartChar: start, Length: data[index+2], Type: data[index+3], Modifiers: uint32(data[index+4])})
+	}
+	return tokens
+}
+
+// CompletionTriggers returns the characters a plugin's completion provider asks for completion on, or nil.
+func (s *Service) CompletionTriggers(root, path, languageID string) []string {
+	binding := s.completionBinding(root, path, languageID)
+	if binding == nil {
+		return nil
+	}
+	return binding.triggers
 }

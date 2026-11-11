@@ -5,15 +5,13 @@ package pluginservice
 import (
 	"context"
 	"os/exec"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
 
-// Windows reports cumulative CPU seconds and working set per process through PowerShell. The CPU share
-// is the change between two samples of the same process, so the last reading of each PID is kept. Only
-// the root process is measured; the tree is not summed on this platform yet.
+// Windows has no ps. One PowerShell query reads the whole Win32_Process table, from which the tree under
+// the root is summed the same way the unix table is. The CPU share is the change in the tree's CPU time
+// between two samples of the same root, over the wall time between them.
 var windowsCPU struct {
 	sync.Mutex
 	last map[int]windowsReading
@@ -24,19 +22,15 @@ type windowsReading struct {
 	at         time.Time
 }
 
+const windowsTableCommand = "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,WorkingSetSize,KernelModeTime,UserModeTime | ConvertTo-Csv -NoTypeInformation"
+
 func sampleProcessTree(ctx context.Context, pid int) (ProcessSample, bool) {
-	command := "Get-Process -Id " + strconv.Itoa(pid) + " | ForEach-Object { \"$($_.CPU) $($_.WorkingSet64)\" }"
-	output, err := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", command).Output()
+	output, err := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", windowsTableCommand).Output()
 	if err != nil {
 		return ProcessSample{}, false
 	}
-	fields := strings.Fields(string(output))
-	if len(fields) != 2 {
-		return ProcessSample{}, false
-	}
-	cpuSeconds, err1 := strconv.ParseFloat(fields[0], 64)
-	memory, err2 := strconv.ParseUint(fields[1], 10, 64)
-	if err1 != nil || err2 != nil {
+	memory, cpuSeconds, ok := parseWindowsTable(output, pid)
+	if !ok {
 		return ProcessSample{}, false
 	}
 	now := time.Now()
@@ -49,7 +43,8 @@ func sampleProcessTree(ctx context.Context, pid int) (ProcessSample, bool) {
 	windowsCPU.last[pid] = windowsReading{cpuSeconds: cpuSeconds, at: now}
 	sample := ProcessSample{MemoryBytes: memory}
 	if seen && now.After(previous.at) {
-		sample.CPUPercent = (cpuSeconds - previous.cpuSeconds) / now.Sub(previous.at).Seconds() * 100
+		// A tree that lost a child can read less CPU than before; a share is never negative.
+		sample.CPUPercent = max(0, (cpuSeconds-previous.cpuSeconds)/now.Sub(previous.at).Seconds()*100)
 	}
 	return sample, true
 }

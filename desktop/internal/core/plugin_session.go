@@ -51,7 +51,7 @@ type EditorHostOptions struct {
 var EditorHost = EditorHostOptions{
 	ActionIcons:       []string{"run", "run-all", "debug", "test"},
 	ActionSourceBytes: 1024 * 1024,
-	ProviderTypes:     []string{"definition", "hover", "completion"},
+	ProviderTypes:     []string{"definition", "hover", "completion", "semanticTokens"},
 }
 
 // EditorActionDecodeVersion is the decode version EditorHost is declared under.

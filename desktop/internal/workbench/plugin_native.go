@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -207,32 +208,21 @@ func formValues(state *nativePanelState, form *pluginservice.NativeForm) map[str
 	return values
 }
 
-// pluginFormBody declares a form panel: its controls in declaration order, then its buttons. Every field
-// is disabled while a button's call is out, and a field the declaration disabled stays disabled.
+// pluginFormBody declares a form panel: its controls packed into the form's columns by their spans, then
+// its buttons. Every field is disabled while a call is out, and a field the declaration disabled stays
+// disabled. A change of a field with onCommit calls that action with every field's value.
 func (a *App) pluginFormBody(c ui.C, p *project, tool *pluginservice.ToolWindow, state *nativePanelState) {
 	form := tool.Native.Form
 	initForm(state, form)
 	ui.Column(c).Fill().Background(a.colors.Editor).Children(func() {
 		ui.Column(c).FillWidth().Grow(1).Gap(10).PadX(10).PadY(10).Children(func() {
-			for _, control := range form.Controls {
-				control := control
-				disabled := state.busy || !control.Enabled
-				key := c.Key("field-" + control.ID)
-				switch control.Kind {
-				case "checkbox":
-					ui.Checkbox(key, state.flags[control.ID], control.Label).Disabled(disabled)
-				case "select", "segmented":
-					ids := make([]string, len(control.Options))
-					labels := make(map[string]string, len(control.Options))
-					for index, option := range control.Options {
-						ids[index], labels[option.ID] = option.ID, option.Label
+			for _, row := range packFormRows(form) {
+				row := row
+				ui.Row(c.Key(fmt.Sprintf("row-%d", row[0].index))).FillWidth().Gap(10).Items(ui.Start).Children(func() {
+					for _, placed := range row {
+						a.drawFormControl(c, p, tool, state, placed.control, placed.index, float32(placed.control.Span))
 					}
-					ui.Select(key, state.text[control.ID], ids, func(id string) string { return labels[id] }).Label(control.Label).FillWidth().Disabled(disabled)
-				case "editor":
-					ui.TextArea(key, state.text[control.ID], control.Label, control.Placeholder).FillWidth().Disabled(disabled)
-				default:
-					ui.TextField(key, state.text[control.ID], control.Label, control.Placeholder).FillWidth().Disabled(disabled)
-				}
+				})
 			}
 			if len(form.Buttons) > 0 {
 				ui.Row(c).FillWidth().Items(ui.Center).Gap(8).Children(func() {
@@ -251,6 +241,123 @@ func (a *App) pluginFormBody(c ui.C, p *project, tool *pluginservice.ToolWindow,
 			}
 		})
 	})
+}
+
+// placedControl is a control with its place in the declaration.
+type placedControl struct {
+	control pluginservice.NativeControl
+	index   int
+}
+
+// packFormRows packs the controls in declaration order into rows of the form's columns: a control wraps to
+// the next row before its span would exceed the columns. Without a layout every control spans the one column.
+func packFormRows(form *pluginservice.NativeForm) [][]placedControl {
+	var rows [][]placedControl
+	var current []placedControl
+	used := 0
+	for index, control := range form.Controls {
+		if used+control.Span > form.Columns && len(current) > 0 {
+			rows = append(rows, current)
+			current, used = nil, 0
+		}
+		current = append(current, placedControl{control: control, index: index})
+		used += control.Span
+	}
+	if len(current) > 0 {
+		rows = append(rows, current)
+	}
+	return rows
+}
+
+// drawFormControl declares one field, filling its share of the row, and commits its change when it has an
+// onCommit. The first paint after a change compares with the last committed values, so a commit is never
+// repeated for the same value.
+func (a *App) drawFormControl(c ui.C, p *project, tool *pluginservice.ToolWindow, state *nativePanelState, control pluginservice.NativeControl, index int, span float32) {
+	disabled := state.busy || !control.Enabled
+	key := c.Key("field-" + control.ID)
+	commit := func() {
+		if control.OnCommit == "" {
+			return
+		}
+		action := nativeAction(tool.Native, control.OnCommit)
+		if action == nil {
+			return
+		}
+		values := formValues(state, tool.Native.Form)
+		c.After(func() { a.runNativeAction(p, tool, state, *action, values) })
+	}
+	ui.Column(c.Key(fmt.Sprintf("cell-%d", index))).Grow(span).Basis(0).MinWidth(0).Gap(4).Children(func() {
+		switch control.Kind {
+		case "checkbox":
+			if ui.Checkbox(key, state.flags[control.ID], control.Label).Disabled(disabled).Changed() {
+				commit()
+			}
+		case "select":
+			ids, labels := optionIDs(control.Options)
+			before := *state.text[control.ID]
+			ui.Select(key, state.text[control.ID], ids, func(id string) string { return labels[id] }).Label(control.Label).FillWidth().Disabled(disabled)
+			if *state.text[control.ID] != before {
+				commit()
+			}
+		case "segmented":
+			ui.Text(c, control.Label).FontSize(12).Color(a.colors.Subtle)
+			ui.Row(c.Key("seg-" + control.ID)).FillWidth().Gap(4).Children(func() {
+				for _, option := range control.Options {
+					option := option
+					button := ui.Button(c.Key("seg-"+control.ID+"-"+option.ID), option.Label).Small()
+					if *state.text[control.ID] != option.ID {
+						button = button.Outline()
+					}
+					if button.Disabled(disabled).Clicked() && *state.text[control.ID] != option.ID {
+						*state.text[control.ID] = option.ID
+						commit()
+					}
+				}
+			})
+		case "stepper":
+			ui.Row(c.Key("step-" + control.ID)).FillWidth().Gap(4).Items(ui.Center).Children(func() {
+				ui.Text(c, control.Label).Grow(1).FontSize(12).Color(a.colors.Subtle).Ellipsis()
+				if ui.Button(c.Key("step-down-"+control.ID), "−").Small().Outline().Disabled(disabled).Clicked() {
+					*state.text[control.ID] = stepValue(*state.text[control.ID], -control.Step, control.Minimum, control.Maximum)
+					commit()
+				}
+				ui.TextField(key, state.text[control.ID], "", control.Placeholder).Width(96).Disabled(disabled)
+				if ui.Button(c.Key("step-up-"+control.ID), "+").Small().Outline().Disabled(disabled).Clicked() {
+					*state.text[control.ID] = stepValue(*state.text[control.ID], control.Step, control.Minimum, control.Maximum)
+					commit()
+				}
+			})
+		case "editor":
+			ui.TextArea(key, state.text[control.ID], control.Label, control.Placeholder).FillWidth().Height(float32(control.Rows) * 20).Disabled(disabled)
+		case "input", "search":
+			if ui.TextField(key, state.text[control.ID], control.Label, control.Placeholder).FillWidth().Disabled(disabled).Submitted() {
+				commit()
+			}
+		default:
+			ui.TextField(key, state.text[control.ID], control.Label, control.Placeholder).FillWidth().Disabled(disabled)
+		}
+	})
+}
+
+// optionIDs splits options into their IDs and a label lookup for a select.
+func optionIDs(options []pluginservice.NativeOption) ([]string, map[string]string) {
+	ids := make([]string, len(options))
+	labels := make(map[string]string, len(options))
+	for index, option := range options {
+		ids[index], labels[option.ID] = option.ID, option.Label
+	}
+	return ids, labels
+}
+
+// stepValue moves a stepper's number by delta and keeps it inside its bounds. Text that is not a number
+// starts from the minimum.
+func stepValue(text string, delta, minimum, maximum float64) string {
+	value, err := strconv.ParseFloat(text, 64)
+	if err != nil {
+		value = minimum
+	}
+	value = min(max(value+delta, minimum), maximum)
+	return strconv.FormatFloat(value, 'f', -1, 64)
 }
 
 func (a *App) runNativeAction(p *project, tool *pluginservice.ToolWindow, state *nativePanelState, action pluginservice.NativeAction, values map[string]any) {
