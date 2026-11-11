@@ -196,6 +196,10 @@ func (a *App) snapshotRunOutput(p *project, entry *runEntry) {
 	content := editorview.Prepare([]byte(text))
 	grammar := a.syntaxRegistry().Syntax("")
 	a.placeDocumentAs(p, uri, a.text.Run.Snapshot.Tab(entry.label), content, grammar, "", true)
+	// Pinned at creation: the tab limit never closes a snapshot.
+	if d := p.docs.byPath(uri); d != nil {
+		d.pinned = true
+	}
 }
 
 // stopRun asks the plugin service to end a run. The process tree is stopped and
