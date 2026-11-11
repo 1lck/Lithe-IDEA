@@ -151,6 +151,11 @@ type View struct {
 	columnStart [2]float32
 	// remoteNoUndo makes the edit ApplyEdit makes leave the undo history alone (remote.go).
 	remoteNoUndo bool
+	// hoverFold says the pointer is on a band of a fold row (SetHoverBand): hoverLine is the row,
+	// hoverBand its band, and the pointer turns to a hand over the view.
+	hoverFold bool
+	hoverLine int
+	hoverBand int
 	// anchor and caret are the ends of the selection; they are equal when nothing is
 	// selected. goal is the column, in cells, that up and down keep to; -1 is the caret's.
 	anchor, caret                                      int
