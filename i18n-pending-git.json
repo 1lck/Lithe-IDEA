@@ -1,0 +1,14 @@
+[
+  {
+    "id": "desktop.files.stageAndCommit",
+    "description": "Project tree context menu item: stage the changed file and open the Commit tool window",
+    "en-US": "Stage and Open Commit…",
+    "zh-CN": "暂存并打开提交…"
+  },
+  {
+    "id": "desktop.files.showRepositoryChanges",
+    "description": "Project tree context menu item on a folder: open the Commit tool window of the repository",
+    "en-US": "Show Repository Changes",
+    "zh-CN": "显示仓库变更"
+  }
+]
