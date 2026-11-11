@@ -4,21 +4,27 @@
   "group": "终端",
   "capability": "Shell 发现与终端配置(默认 Shell、回滚行数)",
   "macos": {
-    "implementationStatus": "partial",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       "desktop/internal/workbench/terminal_shells.go",
       "desktop/internal/localshell/discovery.go",
-      "desktop/internal/settingswindow/terminal_view.go"
+      "desktop/internal/settingswindow/terminal_view.go",
+      "desktop/internal/workbench/terminal_env.go",
+      "desktop/internal/workbench/terminals.go"
     ]
   },
   "windows": {
-    "implementationStatus": "partial",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       "desktop/internal/workbench/terminal_shells.go",
       "desktop/internal/localshell/discovery.go",
-      "desktop/internal/settingswindow/terminal_view.go"
+      "desktop/internal/settingswindow/terminal_view.go",
+      "desktop/internal/workbench/terminal_env.go",
+      "desktop/internal/workbench/terminals.go"
     ]
   },
   "owner": "Terminal",
@@ -52,5 +58,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：默认 Shell 发现和选择已有（localshell/discovery.go 含 Git Bash，settingswindow/terminal_view.go 提供 automatic 选项，workbench/terminal_shells.go 提供新建菜单）；回滚行数没有设置项，term.DefaultScrollback 固定为 5000；TERM_PROGRAM、COLORFGBG、NO_COLOR 等环境导出在 desktop/ 中未找到。"
+  "notes": "Viva：默认 Shell 发现和选择（localshell/discovery.go 含 Git Bash，设置页有 automatic 选项，新建菜单列出可用 Shell）；设置 › 终端可调回滚行数（默认 2000，新终端生效）；terminal_env.go 导出 TERM_PROGRAM、TERM_PROGRAM_VERSION、CLICOLOR 与按主题的 COLORFGBG，并继承 NO_COLOR、FORCE_COLOR、CLICOLOR_FORCE、CI 等变量。"
 }

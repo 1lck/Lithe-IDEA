@@ -5,27 +5,31 @@
   "capability": "Maven 框架服务调试通过 Provider 准备当前目标，保留框架运行方式、工具与参数，再通过注册表中的适配器连接本机暂停的 JVM",
   "macos": {
     "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       "desktop/internal/workbench/catalog.go",
       "desktop/internal/workbench/shell.go",
       "desktop/internal/workbench/app.go",
-      "desktop/internal/workbench/chrome.go"
+      "desktop/internal/workbench/chrome.go",
+      "desktop/internal/pluginhost/pluginhost.go"
     ]
   },
   "windows": {
     "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       "desktop/internal/workbench/catalog.go",
       "desktop/internal/workbench/shell.go",
       "desktop/internal/workbench/app.go",
-      "desktop/internal/workbench/chrome.go"
+      "desktop/internal/workbench/chrome.go",
+      "desktop/internal/pluginhost/pluginhost.go"
     ]
   },
   "owner": "Build / Debug",
   "verification": "用当前 Maven 插件选择框架服务，配置 Profile、运行 JDK、JVM/应用参数和环境，启动调试，确认先暂停且可命中断点；覆盖编译失败、端口超时、Stop、替换、配置 ABA、插件更新/停用、工作区重开及非当前调试会话结束时的进程清理。协议与生命周期测试不能替代完整原生 UI 和发行组合验收。 Windows 增量：服务目标显式保存并调试，唯一当前 Registry 类型/身份、Core 连接绑定、stdio/同包语言服务器、完整参数/初始化身份/禁用能力；覆盖重复/缺失适配器、包和设置变化、注册 ABA、监听取消、迟到启动回执、Run 退出/替换、清理失败重试。原生能力准入仍关闭，正式 Windows 适配器与真实框架断点 UI 尚未验收。 macOS：该能力由独立的 Java/Maven/Gradle 插件（Lithe-IDEA/lithe-plugin-java、lithe-plugin-maven、lithe-plugin-gradle）实现，宿主只验证通用契约与接线，运行时验证记录归插件仓库。",
-  "notes": "Viva 当前的运行、调试和问题面板为占位，语言服务状态为静态未启动；桌面客户端尚未接入对应的 LSP、DAP 或构建 Provider 工作流。Core 接口及编辑器内部语义高亮数据结构不能代替端到端接入。",
+  "notes": "Viva：Build 窗口已能运行 Provider 任务与准备应用目标，Debug 窗口能启动插件声明的适配器（viva-debug-session）；但 Provider 的 debug preparation 与 runtime debug 未接入（pluginhost.go 的“未呈现”），框架服务的调试准备与连接暂停 JVM 没有入口。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

@@ -4,17 +4,21 @@
   "group": "项目浏览",
   "capability": "F4 打开焦点文件与搜索位置",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/filetree_open.go",
+      "desktop/internal/workbench/filetree_view.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/filetree_open.go",
+      "desktop/internal/workbench/filetree_view.go"
     ]
   },
   "owner": "Workspace",
@@ -46,5 +50,5 @@
       ]
     }
   },
-  "notes": "Viva：未找到 F4 打开所选文件的快捷键或动作；desktop/ 中 F4 仅出现在终端按键编码（term/keys.go、term/keyboard.go），没有工作台级绑定，也没有搜索位置保留逻辑。"
+  "notes": "Viva：项目树中按 F4 打开所选文件（文件夹则展开，filetree_open.go）；搜索结果列表里的 F4 与打开后保留搜索位置尚未实现。"
 }

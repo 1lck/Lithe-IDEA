@@ -4,22 +4,30 @@
   "group": "GitHub",
   "capability": "GitHub 设备授权",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/github_account.go",
+      "desktop/internal/githubapi/device.go",
+      "desktop/internal/core/github.go",
+      "desktop/internal/settingswindow/github_account_view.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/github_account.go",
+      "desktop/internal/githubapi/device.go",
+      "desktop/internal/core/github.go",
+      "desktop/internal/settingswindow/github_account_view.go"
     ]
   },
   "owner": "GitHub",
   "verification": "使用可控时钟验证待授权、退避、过期和成功授权；实际 GitHub OAuth 与钥匙串流程仍需在 macOS 上验收。",
-  "notes": "Viva：未找到 GitHub 设备授权流程（device code、轮询、退避或过期处理）；desktop/ 中的凭据模块 credentials/ 未发现 GitHub 相关代码。",
+  "notes": "Viva：GitHub 设备码登录：显示用户码并打开验证页，按服务器给的间隔轮询，处理 slow_down 退避与过期（githubapi/device.go），令牌存平台凭据库并用 currentUser 校验，设置页只显示登录名和阶段。OAuth client ID 从 LITHE_GITHUB_CLIENT_ID 读取，未配置时登录不可用。没有专门的自动化测试。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

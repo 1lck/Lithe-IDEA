@@ -4,24 +4,34 @@
   "group": "插件与主题",
   "capability": "插件私有函数：插件后端通过 litheFunctions v1 协商和注册，宿主按插件归属调用，接收结果与进度，并支持取消、超时和撤回；领域操作仍使用类型化契约；官方 Node、Java（Java 8+）与 Rust 后端 SDK（在 Lithe-core-rust 仓库的 shared/plugins/sdk）实现后端一侧",
   "macos": {
-    "implementationStatus": "missing",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       "desktop/internal/core/plugin_session.go",
-      "desktop/internal/core/plugin_session_test.go"
+      "desktop/internal/core/plugin_session_test.go",
+      "desktop/internal/pluginservice/pluginservice.go",
+      "desktop/internal/pluginservice/activation.go",
+      "desktop/internal/pluginservice/pages.go",
+      "desktop/internal/pluginservice/hostnative.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       "desktop/internal/core/plugin_session.go",
-      "desktop/internal/core/plugin_session_test.go"
+      "desktop/internal/core/plugin_session_test.go",
+      "desktop/internal/pluginservice/pluginservice.go",
+      "desktop/internal/pluginservice/activation.go",
+      "desktop/internal/pluginservice/pages.go",
+      "desktop/internal/pluginservice/hostnative.go"
     ]
   },
   "owner": "Extensions",
   "verification": "macOS Core 桥接测试覆盖声明校验、启动计划、进程协商、函数结果、插件归属拒绝、取消及迟到结果隔离、停止销毁；需接通可信插件宿主后在 macOS 与 Windows 验收完整工作流和进程清理。",
-  "notes": "Core 会话桥接已用测试后端验证，但 Viva 尚未接通可信插件发现、权限宿主、函数调用入口和生命周期管理，不能从插件界面使用。",
+  "notes": "Viva：pluginFunctions 已声明；宿主按插件归属调用后端函数（原生面板动作、编辑器动作、设置页按钮、插件页面），调用带上下文以支持取消与超时，页面调用可接收进度；跨插件调用经 Core 的函数中转（lsp.configureFunctionRelay）。尚未用三个官方 SDK 的真实插件在 Viva 上验收。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

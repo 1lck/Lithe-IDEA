@@ -4,21 +4,33 @@
   "group": "终端",
   "capability": "复制粘贴、搜索、调整大小、终端 Control 输入与切换快捷键及 macOS 终端 Nerd Font 优先选择",
   "macos": {
-    "implementationStatus": "partial",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       "desktop/internal/termview/input.go",
       "desktop/internal/term/search.go",
-      "desktop/internal/term/links.go"
+      "desktop/internal/term/links.go",
+      "desktop/internal/termview/find.go",
+      "desktop/internal/workbench/terminal_find.go",
+      "desktop/internal/workbench/fonts.go",
+      "desktop/internal/workbench/fonts_test.go",
+      "desktop/internal/bundledfont/bundledfont.go"
     ]
   },
   "windows": {
-    "implementationStatus": "partial",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       "desktop/internal/termview/input.go",
       "desktop/internal/term/search.go",
-      "desktop/internal/term/links.go"
+      "desktop/internal/term/links.go",
+      "desktop/internal/termview/find.go",
+      "desktop/internal/workbench/terminal_find.go",
+      "desktop/internal/workbench/fonts.go",
+      "desktop/internal/workbench/fonts_test.go",
+      "desktop/internal/bundledfont/bundledfont.go"
     ]
   },
   "owner": "Terminal",
@@ -64,5 +76,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：复制粘贴（termview/input.go）可用；term/search.go 的 Search 与 term/links.go 的 LinksAt 只在 term 包内实现，termview 和 workbench 没有调用，终端内搜索与链接点击（含 Windows 用系统浏览器打开）未接入；未找到 Nerd Font 优先选择逻辑。"
+  "notes": "Viva：复制粘贴与 Control 输入在 termview/input.go；终端内查找（termview/find.go、workbench/terminal_find.go）支持上下跳转与高亮；点击 http/https 链接用系统浏览器打开（openTerminalLink，其他协议不打开）；窗口大小变化时按单元格重新计算行列；终端切换快捷键走工作台快捷键。macOS 用户未选终端字体时，按 fonts.go 的 terminalNerdFonts 顺序选第一个可用的 Nerd Font：已安装的 MesloLGS Nerd Font Mono 优先，其次是发行包编译进可执行文件的 JetBrainsMono Nerd Font Mono（internal/bundledfont，lithe_bundled_fonts 构建标签），再其次其他已装 Nerd Font；都没有时用随包 JetBrains Mono。开发构建不带字体，回退到系统等宽字体。"
 }

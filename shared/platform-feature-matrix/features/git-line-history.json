@@ -7,14 +7,22 @@
     "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/core/git_blame.go"
+      "docs/viva-migration.md",
+      "desktop/internal/core/git_blame.go",
+      "desktop/internal/workbench/gitlinehistory.go",
+      "desktop/internal/workbench/gitlinehistory_view.go",
+      "desktop/internal/workbench/editor_menu.go"
     ]
   },
   "windows": {
     "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/core/git_blame.go"
+      "docs/viva-migration.md",
+      "desktop/internal/core/git_blame.go",
+      "desktop/internal/workbench/gitlinehistory.go",
+      "desktop/internal/workbench/gitlinehistory_view.go",
+      "desktop/internal/workbench/editor_menu.go"
     ]
   },
   "owner": "Git",
@@ -44,5 +52,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：Core 的 GitLineHistory（core/git_blame.go）实现了行范围历史的查询与结果类型，但 workbench 中没有任何调用方，编辑器行号右键菜单和历史结果列表未接入；插入行、改写行提示与差异跳转在 UI 层不存在。"
+  "notes": "Viva：编辑器右键“行历史”追踪光标行或所选行的首父提交，Core（git.lineHistory）按编辑器快照计算，未保存的修改也能回答；后台查询，丢弃对话框已不再等待的回答，结果列表可打开该提交的文件 Diff（gitlinehistory*.go）。插入行与改写行的区分提示尚未核对。"
 }

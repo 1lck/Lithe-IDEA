@@ -4,22 +4,28 @@
   "group": "GitHub",
   "capability": "GitHub 拉取请求安全检出",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/github_prs.go",
+      "desktop/internal/workbench/github_prs_view.go",
+      "desktop/internal/core/github_checkout.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/github_prs.go",
+      "desktop/internal/workbench/github_prs_view.go",
+      "desktop/internal/core/github_checkout.go"
     ]
   },
   "owner": "GitHub",
   "verification": "在临时本地仓库验证同名分支不被重置、过期预览被拒绝和确认后的新分支检出；真实 GitHub 远程认证仍需实机验收。",
-  "notes": "Viva：未找到拉取请求安全检出流程；现有检出与分支代码（core/git_checkout.go、workbench/branch.go）不处理 PR 引用、过期预览校验或同名分支保护。",
+  "notes": "Viva：PR 检出先由 Core 生成不改动仓库的预览（分支、冲突与动作，origin URL 只留指纹），用户确认后 Core 在仓库写租约下重新核对预览再 fetch 并建分支，过期预览与同名分支冲突被拒绝。没有专门的自动化测试。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

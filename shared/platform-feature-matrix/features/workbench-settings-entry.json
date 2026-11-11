@@ -7,6 +7,7 @@
     "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       "desktop/internal/workbench/chrome_view.go",
       "desktop/internal/workbench/catalog.go"
     ]
@@ -15,6 +16,7 @@
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       "desktop/internal/workbench/chrome_view.go",
       "desktop/internal/workbench/catalog.go"
     ]
@@ -41,5 +43,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：设置齿轮是标题栏 catalog 项（catalog.go 的 itemTitleSettings，位于搜索按钮之后），gearMenu 提供偏好设置、插件和日志入口；desktop/ 中未找到原生应用菜单的设置入口（无 app.Menu 调用），快捷键项只提示稍后提供。"
+  "notes": "Viva：标题栏搜索按钮之后的齿轮（catalog.go 的 itemTitleSettings）打开菜单：偏好设置、快捷键（直接打开设置 › 快捷键）、插件和日志；Primary+, 打开设置。macOS 原生应用菜单里的设置入口尚未接入。"
 }

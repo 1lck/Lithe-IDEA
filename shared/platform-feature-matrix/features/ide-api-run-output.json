@@ -4,25 +4,29 @@
   "group": "IDE MCP",
   "capability": "插件与 MCP 列举运行配置、启动重启，按执行 ID 查询和停止 Run 及 macOS 插件 Build 输出",
   "macos": {
-    "implementationStatus": "partial",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
       "desktop/internal/workbench/ide_api_dispatch.go",
       "desktop/internal/workbench/ide_api.go",
       "desktop/internal/workbench/build.go",
-      "desktop/internal/workbench/ide_api_dispatch_test.go"
+      "desktop/internal/workbench/ide_api_dispatch_test.go",
+      "desktop/internal/workbench/ide_api_run.go"
     ]
   },
   "windows": {
-    "implementationStatus": "partial",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
       "desktop/internal/workbench/ide_api_dispatch.go",
       "desktop/internal/workbench/ide_api.go",
       "desktop/internal/workbench/build.go",
-      "desktop/internal/workbench/ide_api_dispatch_test.go"
+      "desktop/internal/workbench/ide_api_dispatch_test.go",
+      "desktop/internal/workbench/ide_api_run.go"
     ]
   },
   "owner": "Agent",
@@ -50,5 +54,5 @@
       ]
     }
   },
-  "notes": "Viva：operation 列表/输出/停止只针对本连接通过 lithe_build_execute 启动的 Build 执行；输出从 Build 控制台按行序列读取，cursor 增量返回，控制台裁剪时 reset=true，state/exitCode 在终端事件写回。运行配置尚未在 Viva 实现，因此 lithe_run_list/start/restart 与 lithe_environment_* 不对外发布。"
+  "notes": "Viva：IDE API 发布 lithe_run_list（已保存运行配置及能否启动）、lithe_run_start 与 lithe_run_restart（经 Run 窗口同一启动路径，不返回环境变量和启动参数），lithe_operations_list、lithe_operation_output（cursor 增量读取，控制台裁剪时 reset=true）与 lithe_operation_stop 按操作 ID 查询和停止本连接启动的 Run 与 Build。lithe_environment_* 不在此项范围、不对外发布；ide_api_run.go 没有专门的自动化测试。"
 }

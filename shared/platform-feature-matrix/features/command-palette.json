@@ -4,17 +4,23 @@
   "group": "命令与布局",
   "capability": "命令面板与全局动作",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/commands.go",
+      "desktop/internal/workbench/search_everywhere_view.go",
+      "desktop/internal/shortcuts/shortcuts.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/commands.go",
+      "desktop/internal/workbench/search_everywhere_view.go",
+      "desktop/internal/shortcuts/shortcuts.go"
     ]
   },
   "owner": "Workbench",
@@ -39,5 +45,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：desktop/ 中没有命令注册表或命令面板；Search Everywhere 的“操作”页签在 search_everywhere_view.go 的 everywhereScopes 中被禁用，没有可执行的全局动作列表。"
+  "notes": "Viva：命令目录收录所有可按名称运行的工作台动作（commands.go），Search Everywhere 的“操作”页签（Find Action）列出它，每个命令调用与按钮、菜单项或快捷键相同的函数；插件编辑器动作与插件命令也进入目录。"
 }

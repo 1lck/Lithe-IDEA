@@ -4,10 +4,14 @@
   "group": "运行配置",
   "capability": "从 Finder / Dock 启动时继承登录 shell 的环境",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/loginenv/loginenv.go",
+      "desktop/internal/loginenv/loginenv_unix.go",
+      "desktop/cmd/lithe/main.go",
+      "desktop/internal/workbench/toolchains.go"
     ]
   },
   "windows": {
@@ -41,5 +45,5 @@
       "verificationStatus": "not-applicable"
     }
   },
-  "notes": "Viva：终端通过登录 shell 启动（localshell/backend_unix.go 的 -l 参数），但工具链发现只读取当前进程环境（toolchain/scan.go 的 currentEnvironment 使用 os.Environ），没有登录 shell 环境捕获或 login-path 缓存。"
+  "notes": "Viva：启动时（Core 线程读取环境之前）loginenv.Activate 把登录 shell 的 PATH 放在进程 PATH 之前，工具链发现、Core 的语言服务器、Git 与子进程都能看到 Homebrew、mise、SDKMAN、asdf、fnm 等工具；只缓存 PATH，放在用户缓存目录，热启动先用缓存再后台重读。其他变量只留在内存，用于补齐子进程缺少的值（Environ）。"
 }

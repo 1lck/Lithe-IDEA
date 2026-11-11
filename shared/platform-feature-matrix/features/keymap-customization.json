@@ -4,22 +4,32 @@
   "group": "应用配置",
   "capability": "快捷键查看与自定义",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/settingswindow/keymap_view.go",
+      "desktop/internal/settingswindow/keymap_view_test.go",
+      "desktop/internal/shortcuts/shortcuts.go",
+      "desktop/internal/core/keymap_gesture.go",
+      "desktop/internal/core/keymap_gesture_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/settingswindow/keymap_view.go",
+      "desktop/internal/settingswindow/keymap_view_test.go",
+      "desktop/internal/shortcuts/shortcuts.go",
+      "desktop/internal/core/keymap_gesture.go",
+      "desktop/internal/core/keymap_gesture_test.go"
     ]
   },
   "owner": "Settings",
   "verification": "macOS 使用默认 Command-Shift-A 从编辑器、侧栏及第二个项目窗口打开 Find Action，确认输入聚焦、/ 命令过滤、Return 仅执行一次、Escape 关闭且重新打开无旧查询；弹窗已打开时再次调用应切换到 / 并聚焦。改绑、禁用、恢复及录制时确认菜单与分发使用有效绑定；无工作区或搜索模块不可用时应禁用，激活失败应关闭。IDEA Classic 和 Eclipse 的 Find Action 暂无默认绑定，普通 Search Everywhere 保留双击 Shift 和 Shift-Command-O。macOS 从设置 → 快捷键依次选择 macOS、IntelliJ IDEA Classic、Eclipse，核对运行、调试、查找等操作在界面和实际监听器中的绑定；IDEA Classic 的 Stop Run 应为 Control-F2，Eclipse 的 Resume 应为 F8，继承父 keymap 的命令应使用上游绑定，Find、Replace、GotoImplementation 等显式清空的命令应无绑定；检查分类树初始折叠、全部展开和折叠、分类展开、搜索时自动显示匹配操作、选中行高亮、右侧紧凑键帽及工具栏编辑菜单；通过键帽、工具栏或右键菜单新增、删除与恢复默认，并检查键盘辅助功能；分别修改两套预设的同一命令，切换与重启后确认自定义绑定互不覆盖，并验证旧版单套覆盖迁移到 macOS；按命令名称、ID 和按键搜索，制造冲突并恢复当前预设或应用全部默认；导出再导入 keybindings.json，确认预设与自定义绑定恢复且命令实际执行。Windows 保持现有快捷键编辑、导出和导入验证。",
-  "notes": "Viva：settingswindow/model.go 定义了 pageKeymap，但 window_view.go 的分支没有渲染它（落入 unavailablePage）；chrome_view.go 的快捷键菜单项只提示“稍后”。没有改绑、禁用、恢复或录制的代码。",
+  "notes": "Viva：设置 › 快捷键页列出全部动作，可按名称或按键筛选；录制新增组合键、删除单个组合键、单项恢复默认与全部重置，覆盖项存入设置并由 shortcuts 应用到工作台与 Find Action；按键解析由 Core keymap 手势命令完成。keymap_view_test.go 覆盖页面交互；冲突提示与原生窗口验收 pending。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

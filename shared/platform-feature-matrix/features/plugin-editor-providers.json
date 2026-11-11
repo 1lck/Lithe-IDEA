@@ -7,21 +7,35 @@
     "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       "desktop/internal/workbench/pluginsemantics.go",
-      "desktop/internal/workbench/semantic_tokens.go"
+      "desktop/internal/workbench/semantic_tokens.go",
+      "desktop/internal/pluginservice/hostproviders.go",
+      "desktop/internal/pluginservice/hostcodelens.go",
+      "desktop/internal/pluginservice/hostdocumentlinks.go",
+      "desktop/internal/pluginservice/hostproviders_routes_test.go",
+      "desktop/internal/workbench/editor_actions.go",
+      "desktop/internal/core/editor_providers_test.go"
     ]
   },
   "windows": {
     "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       "desktop/internal/workbench/pluginsemantics.go",
-      "desktop/internal/workbench/semantic_tokens.go"
+      "desktop/internal/workbench/semantic_tokens.go",
+      "desktop/internal/pluginservice/hostproviders.go",
+      "desktop/internal/pluginservice/hostcodelens.go",
+      "desktop/internal/pluginservice/hostdocumentlinks.go",
+      "desktop/internal/pluginservice/hostproviders_routes_test.go",
+      "desktop/internal/workbench/editor_actions.go",
+      "desktop/internal/core/editor_providers_test.go"
     ]
   },
   "owner": "Extensions",
   "verification": "用一个资源 key 在模板与 .properties 之间跳转的第二工具插件注册 definition、hover、completion、codeLens、semanticTokens；验证语言服务器的答案先出现、插件的位置只追加、重复位置只显示一次、服务器只指回自身时让位；悬浮和补全超过期限、文档已变化、注册被撤回时安静丢弃；触发字符只问声明过它的注册；点击 CodeLens 与文档链接只回传宿主生成的键，command: 链接不会被执行，工作区外的 file: 目标不会打开；只读预览不询问插件；停用、卸载、关闭项目后旧结果不再出现。",
-  "notes": "Viva：pluginsemantics.go 处理语言服务器的定义、悬浮和补全请求，semantic_tokens.go 处理语义着色，答案由 Core 归一化；未找到普通工具插件把跳转、悬浮、补全、CodeLens、折叠、文档链接绑定到同插件函数的注册机制，也没有 CodeLens、折叠和文档链接。",
+  "notes": "Viva：普通插件经 editor/registerProviders 按语言、扩展名、文件名注册跳转、悬浮、补全（含触发字符）、CodeLens、语义着色与文档链接，绑定到同插件已注册的函数；注册与答案都由 Core 校验和归一化，只在没有语言服务器服务该文档时调用插件。CodeLens 在编辑器行上显示为可点击的动作。折叠（foldingRange）未路由，Core 会拒绝该类型的注册。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

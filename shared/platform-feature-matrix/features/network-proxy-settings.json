@@ -4,21 +4,29 @@
   "group": "网络",
   "capability": "在设置 › 外观与行为 › 网络配置应用自身 HTTP 流量的代理：跟随系统、不走代理、自定义代理服务器（HTTP/SOCKS5、服务器地址、端口、可选用户名与 Keychain 保存的密码、逗号分隔的排除列表），并提供有界的测试连接；插件市场、GitHub、AI 提供方与稳定版回滚下载经统一会话工厂解析代理策略，配置变化后对新请求生效",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/network.go",
+      "desktop/internal/netproxy/netproxy.go",
+      "desktop/internal/core/network.go",
+      "desktop/internal/settingswindow/network_view.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/network.go",
+      "desktop/internal/netproxy/netproxy.go",
+      "desktop/internal/core/network.go",
+      "desktop/internal/settingswindow/network_view.go"
     ]
   },
   "owner": "Settings",
-  "notes": "Viva：settingswindow/model.go 定义了 pageNetwork，但 window_view.go 的分支没有渲染它（落入 unavailablePage）；desktop/ 中没有代理配置、代理策略或测试连接代码。",
+  "notes": "Viva：设置 › 网络提供跟随系统、不走代理、自定义代理（HTTP/SOCKS5、地址、端口、用户名、排除列表），密码存平台密钥库；Core 归一化为代理策略（network.proxyPolicy），netproxy 把 http.DefaultTransport 指向当前策略，市场、插件与项目下载、GitHub、AI 提供方都经它，修改后对新请求生效。有界的“测试连接”尚未实现；没有专门的自动化测试。",
   "verification": "已完成实机验收（2026-10-29，macOS 15.8.1 Intel，打包构建）：设置 › 外观与行为 › 网络三档切换生效；自定义 HTTP 代理 + 测试连接返回成功耗时，错误端口返回失败原因；保存后重启保留且密码经 Keychain 不回显；经自定义代理完成插件市场访问与安装。自动化：运行 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'NetworkProxySettingsTests|MacNetworkSessionProviderTests' 与 ./scripts/macos/test/test-macos.sh --filter 'NetworkProxySettingsTests|MacNetworkSessionProviderTests|AppSettingsTests|SettingsSidebarLayoutTests|SettingsSearchVocabularyTests'；运行前后对比安装目录文件清单与哈希，确认运行时未写入发行目录。 本次安全与生命周期修复的真实认证代理/完整产品流程尚待复验，不沿用原实机验收作为新行为的 verified 证据。 本次修复本地验证：Swift 6.3.3 + macOS 26.5 SDK，逐项计时运行 8 套件 85 测试全过；Rust Core 1373 单元测试与 32 集成测试全过，网络策略 4 项另有逐项计时；i18n 35 项测试、语言/生成检查、共享契约、服务边界、bundle 只读、Agent Notes 与 Windows 静态边界门禁通过。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",

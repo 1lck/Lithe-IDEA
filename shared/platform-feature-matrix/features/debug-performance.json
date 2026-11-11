@@ -4,28 +4,36 @@
   "group": "调试器",
   "capability": "调试与测试目标进程树的实时 CPU 与内存图表；JVM 堆与 JFR 录制由 Java 插件提供",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       "desktop/internal/workbench/catalog.go",
       "desktop/internal/workbench/shell.go",
       "desktop/internal/workbench/app.go",
-      "desktop/internal/workbench/chrome.go"
+      "desktop/internal/workbench/chrome.go",
+      "desktop/internal/workbench/run_performance.go",
+      "desktop/internal/workbench/runs.go",
+      "desktop/internal/workbench/build_view.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       "desktop/internal/workbench/catalog.go",
       "desktop/internal/workbench/shell.go",
       "desktop/internal/workbench/app.go",
-      "desktop/internal/workbench/chrome.go"
+      "desktop/internal/workbench/chrome.go",
+      "desktop/internal/workbench/run_performance.go",
+      "desktop/internal/workbench/runs.go",
+      "desktop/internal/workbench/build_view.go"
     ]
   },
   "owner": "Debug",
   "verification": "用Lithe启动本地Java调试目标，展开Performance确认CPU与JDK堆数据，切换/结束会话、收起时释放采集。明暗主题检查折线与面积、底部基准线、紧凑高度，60秒窗口最新在右且历史左移，鼠标悬停两图显示同一真实采样的圆点/数值/时间；缺失数据不造零。 验证相同DAP会话重新启动新PID时清除旧历史；重复登记相同目标不重启；销毁Feature取消流；jstat超长/非法/缺失计数报错；显式Java21集成测试读取真实数据并核对取消后jstat PID退出。 Test 右侧 Performance/Details 共用一个可收缩区域，顶部两个标签切换；核对11pt常规标题和Islands文字色。Java选择本次启动器后代中的JUnit/Surefire/Gradle测试JVM，实时CPU/堆曲线，多个worker切换。开始/停止JFR录制、Show Results查看JDK热点方法和分配报告，结束/重跑/关闭正确取消及清理。非Java测试继续用明确标注的CPU/RSS；缺失worker或工具明确提示，不采样Maven/Gradle启动器。 审核回归：停止失败保留录制与可重试入口，不允许Show Results/重录；隐藏期间报告成功/失败或启动失败后停止发现轮询。已有兼容 Gradle daemon 时，内置测试计划使用 --no-daemon 生成本次拥有的 worker，既有 daemon 不采样、不停止；自定义扩展复用既有 daemon 且没有关联 PID 时仍不支持。",
-  "notes": "Viva 当前的运行、调试和问题面板为占位，语言服务状态为静态未启动；桌面客户端尚未接入对应的 LSP、DAP 或构建 Provider 工作流。Core 接口及编辑器内部语义高亮数据结构不能代替端到端接入。",
+  "notes": "Viva：运行期间每 2 秒在后台采样运行进程树的 CPU 与内存，在运行输出上方画两条曲线（run_performance.go），运行结束停止采样；调试与测试目标尚未接入采样，JVM 堆与 JFR 属 Java 插件。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

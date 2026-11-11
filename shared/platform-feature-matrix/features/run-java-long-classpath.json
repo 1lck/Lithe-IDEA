@@ -4,17 +4,27 @@
   "group": "运行配置",
   "capability": "超长 Java 类路径自动缩短",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/pluginservice/runargs.go",
+      "desktop/internal/pluginservice/argfile_encoding_windows.go",
+      "desktop/internal/pluginservice/argfile_encoding_other.go",
+      "desktop/internal/pluginservice/runs.go",
+      "desktop/internal/core/launch_plan.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/pluginservice/runargs.go",
+      "desktop/internal/pluginservice/argfile_encoding_windows.go",
+      "desktop/internal/pluginservice/argfile_encoding_other.go",
+      "desktop/internal/pluginservice/runs.go",
+      "desktop/internal/core/launch_plan.go"
     ]
   },
   "owner": "Run",
@@ -40,5 +50,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：desktop/ 中没有超长类路径缩短或参数文件（argfile）逻辑（grep classpath/argfile 无结果）；pluginhost.go 未声明 run preparation，executablePlan 只存在于调试适配器（core/debug_launch.go）。"
+  "notes": "Viva：命令行会超过系统上限的启动，由 Core（execution.planLaunchCommand）判断启动器是否为能读参数文件的 JDK、移走哪些路径列表选项以及参数文件内容；宿主读 JDK 的 release 文件、按启动器读取的编码写参数文件并负责其生命周期（runargs.go、argfile_encoding_*.go）。"
 }

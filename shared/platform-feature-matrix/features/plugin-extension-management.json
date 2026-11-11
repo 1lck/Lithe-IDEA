@@ -7,6 +7,7 @@
     "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       "desktop/internal/settingswindow/marketplace_view.go",
       "desktop/internal/plugininstall/plugininstall.go",
       "desktop/internal/pluginmanager/pluginmanager.go",
@@ -18,6 +19,7 @@
     "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       "desktop/internal/settingswindow/marketplace_view.go",
       "desktop/internal/plugininstall/plugininstall.go",
       "desktop/internal/pluginmanager/pluginmanager.go",
@@ -56,5 +58,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：市场详情提供安装、启用和禁用（marketplace_view.go），plugininstall 负责校验与提交，pluginmanager 提供卸载，pluginstate 保存启用状态；设置窗口和工作台中未找到从磁盘选择插件包安装的入口，也没有版本回滚。"
+  "notes": "Viva：插件市场提供安装、启用、禁用与卸载，也可从磁盘选择插件包安装（marketplace_view.go 的 installFromFile）；plugininstall 负责校验与提交，pluginstate 保存启用状态。版本回退尚未实现。"
 }

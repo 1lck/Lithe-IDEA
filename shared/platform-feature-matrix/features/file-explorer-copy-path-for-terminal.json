@@ -7,16 +7,20 @@
     "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       "desktop/internal/workbench/filetree_menu.go",
-      "desktop/internal/workbench/filetree_actions.go"
+      "desktop/internal/workbench/filetree_actions.go",
+      "desktop/internal/workbench/terminal_drop.go"
     ]
   },
   "windows": {
     "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       "desktop/internal/workbench/filetree_menu.go",
-      "desktop/internal/workbench/filetree_actions.go"
+      "desktop/internal/workbench/filetree_actions.go",
+      "desktop/internal/workbench/terminal_drop.go"
     ]
   },
   "owner": "Workspace",
@@ -49,5 +53,5 @@
       ]
     }
   },
-  "notes": "Viva：项目树右键菜单已有复制路径与复制相对路径（filetree_menu.go 的 copyTreePath），但未找到把路径送入集成终端的粘贴或拖拽逻辑；termview 中的输入与选择代码没有路径插入。"
+  "notes": "Viva：项目树行或系统文件拖到终端，按该终端的 shell 加引号后以绝对路径粘贴到提示符（多个用空格分隔），走粘贴而非键入执行，支持 bracketed paste（terminal_drop.go）；右键菜单另有复制绝对/相对路径。"
 }

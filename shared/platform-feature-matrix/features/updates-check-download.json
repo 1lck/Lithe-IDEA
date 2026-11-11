@@ -4,27 +4,35 @@
   "group": "应用更新",
   "capability": "检查、下载与安装更新",
   "macos": {
-    "implementationStatus": "missing",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       "desktop/internal/settingswindow/model.go",
       "desktop/internal/settingswindow/window.go",
-      ".github/workflows/desktop-release.yml"
+      ".github/workflows/desktop-release.yml",
+      "desktop/internal/workbench/updates.go",
+      "desktop/internal/settingswindow/updates_view.go",
+      "desktop/internal/buildinfo/update.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       "desktop/internal/settingswindow/model.go",
       "desktop/internal/settingswindow/window.go",
-      ".github/workflows/desktop-release.yml"
+      ".github/workflows/desktop-release.yml",
+      "desktop/internal/workbench/updates.go",
+      "desktop/internal/settingswindow/updates_view.go",
+      "desktop/internal/buildinfo/update.go"
     ]
   },
   "owner": "Release",
   "releaseSource": "Viva 桌面构建使用独立 desktop-v 标签和预发布包；应用内更新渠道和签名验证尚未接入。",
   "verification": "Viva 需要分别在 macOS 和 Windows 验证更新渠道、签名、下载、安装、取消和数据保护；当前尚无对应实机验收。",
-  "notes": "Viva 设置侧栏有更新入口，但页面尚未接入；独立桌面预发布打包不代表客户端能检查、校验或安装更新。旧版 Sparkle/Tauri 的渠道和签名结果保留在 legacy。",
+  "notes": "Viva：设置 › 更新页可检查、下载并安装：Viva 的更新包校验 latest.json 的 Ed25519 签名，按平台下载并校验大小与 SHA-256，下载放在用户缓存目录，安装后重启到新版本；启动时最多每天自动检查一次且只提示。更新源、公钥和渠道在链接时注入（buildinfo/update.go），打包与发布流程尚未注入也未发布签名 feed，所以发行构建目前不检查更新。没有专门的自动化测试。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

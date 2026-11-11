@@ -31,15 +31,17 @@
 
 | 现状 | 数量 |
 | --- | --- |
-| 完成 | 0 |
-| 部分 | 56 |
-| 未开始 | 96 |
+| 完成 | 38 |
+| 部分 | 109 |
+| 未开始 | 5 |
 
-2026-11-12 起 Agent 对话整体放弃，原先唯一“完成”的 `agent-minimal-conversation` 随之移入“放弃”。“部分”含 JSON 为 partial 的行与按代码改判的行；其中没有任何一行已完成原生窗口验收。
+2026-11-12 起 Agent 对话整体放弃，原先唯一“完成”的 `agent-minimal-conversation` 随之移入“放弃”。
+
+2026-11-12 按功能矩阵 JSON 与代码重新核对一遍现状列：“完成”是两端（平台专属行只看对应平台）在 JSON 里都为 implemented，即代码已接通，原生窗口验收仍为 pending；“部分”含 JSON 为 partial 的行与按代码改判的行；说明列原写“无 desktop/ 证据”的行改写为主要实现文件，具体缺口见对应 JSON 的 notes。仍未开始的 5 项：远程开发两项、构建 Provider 原生配置与只读模型输入，以及依赖 webview、按用户决定暂缓的 `embedded-viewers`。
 
 ## 主表（254 项，按 area 分组）
 
-列说明：基线为 5a54c41 上 macOS/Windows 的实现状态（实现/部分/缺/专属/插件/未盘）；Viva 现状为完成/部分/未开始，“—”表示该分类不迁移。
+列说明：基线为 5a54c41 上 macOS/Windows 的实现状态（实现/部分/缺/专属/插件/未盘）；Viva 现状为完成（代码接通、验收 pending）/部分/未开始，“—”表示该分类不迁移。
 
 ### AI（47）
 
@@ -48,7 +50,7 @@
 | `ai-chat-history` | 对话历史、置顶与归档 | 放弃 | 缺/实现 | — | 见“放弃”表 |
 | `ai-chat-providers` | 多 Provider 与工作区范围 | 放弃 | 缺/实现 | — | 见“放弃”表 |
 | `ai-chat-session` | 对话会话与流式响应 | 放弃 | 缺/实现 | — | 见“放弃”表 |
-| `ai-commit-generation` | Provider 配置与提交信息生成 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
+| `ai-commit-generation` | Provider 配置与提交信息生成 | 必须迁移 | 实现/实现 | 部分 | `workbench/aicommit.go` |
 | `agent-acp-conversation` | 可选 ACP Agent 对话 | 放弃 | 实现/实现 | — | 见“放弃”表 |
 | `agent-approval-mode-presentation` | Agent 权限模式呈现 | 放弃 | 实现/实现 | — | 见“放弃”表 |
 | `agent-archived-conversation-history` | 当前工作区的 Codex 归档历史 | 放弃 | 实现/实现 | — | 见“放弃”表 |
@@ -85,13 +87,13 @@
 | `agent-tool-activity-timeline` | 每轮工具调用与思考、过程说明放进同一个默认折叠的过程区 | 放弃 | 实现/实现 | — | 见“放弃”表 |
 | `agent-toolbar-brand-marks` | Agent 品牌标志 | 放弃 | 实现/实现 | — | 见“放弃”表 |
 | `agent-turn-statistics` | 发送后实时计时；每轮回复下方固定显示复制回复、用量胶囊（耗时 · t… | 放弃 | 实现/实现 | — | 见“放弃”表 |
-| `ide-api-environment` | 插件与 MCP 查询和修改项目 Java/Maven 默认环境，并返… | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
-| `ide-api-maven` | 插件与 MCP 按已接通工作流发现工具 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
-| `ide-api-run-output` | 插件与 MCP 列举运行配置、启动重启，按执行 ID 查询和停止 R… | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
-| `ide-mcp-connection` | 从设置侧栏独立的 MCP 配置页按项目开启连接，分别授权配置与执行，… | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
+| `ide-api-environment` | 插件与 MCP 查询和修改项目 Java/Maven 默认环境，并返… | 必须迁移 | 实现/实现 | 部分 | `workbench/ide_api_dispatch.go` |
+| `ide-api-maven` | 插件与 MCP 按已接通工作流发现工具 | 必须迁移 | 实现/实现 | 部分 | `workbench/ide_api_dispatch.go` |
+| `ide-api-run-output` | 插件与 MCP 列举运行配置、启动重启，按执行 ID 查询和停止 R… | 必须迁移 | 实现/实现 | 完成 | `workbench/ide_api_dispatch.go` |
+| `ide-mcp-connection` | 从设置侧栏独立的 MCP 配置页按项目开启连接，分别授权配置与执行，… | 必须迁移 | 实现/实现 | 部分 | `workbench/ide_api.go` |
 | `mcp-registry-discovery` | 同页上方管理服务器资源库，下方默认显示离线可用的内置精选 | 放弃 | 实现/缺 | — | 见“放弃”表 |
 | `mcp-server-library` | 在设置页统一发现、合并、编辑并删除 Codex 与 Claude C… | 放弃 | 实现/专属 | — | 见“放弃”表 |
-| `ai-inline-edit` | AI 行内编辑 | 必须迁移 | 专属/实现 | 未开始 | 无 desktop/ 证据 |
+| `ai-inline-edit` | AI 行内编辑 | 必须迁移 | 专属/实现 | 部分 | `workbench/inlineedit.go` |
 
 ### Java（19）
 
@@ -114,7 +116,7 @@
 | `java-import-progress-feedback` | 状态栏显示 Java 导入百分比、细进度条、当前模块与正在下载的依赖… | 插件提供 | 缺/实现 | 未开始 | 扩展点：进度/状态栏贡献；无 desktop/ 证据 |
 | `lsp-completion-hover` | 补全与 Hover | 必须迁移 | 实现/实现 | 部分 | C03 |
 | `lsp-diagnostics` | 诊断与编译错误定位 | 必须迁移 | 实现/实现 | 部分 | — |
-| `lsp-lifecycle` | 语言服务器启动与工作区准备 | 必须迁移 | 实现/实现 | 未开始 | C02 |
+| `lsp-lifecycle` | 语言服务器启动与工作区准备 | 必须迁移 | 实现/实现 | 部分 | C02 |
 | `lsp-navigation-edits` | 跳转、引用、语义标记与编辑 | 必须迁移 | 实现/实现 | 部分 | C03 |
 
 ### Run/Debug（2）
@@ -135,11 +137,11 @@
 
 | id | 能力 | 分类 | 基线 mac/win | Viva 现状 | 缺口 / 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `ai-pull-request-description` | AI 生成 Pull Request 标题与描述 | 必须迁移 | 实现/部分 | 未开始 | 无 desktop/ 证据 |
-| `github-device-authorization` | GitHub 设备授权 | 必须迁移 | 实现/缺 | 未开始 | 无 desktop/ 证据 |
-| `github-prs` | Pull Request 列表与详情 | 必须迁移 | 实现/部分 | 未开始 | 无 desktop/ 证据 |
-| `github-pull-request-checkout` | GitHub 拉取请求安全检出 | 必须迁移 | 实现/缺 | 未开始 | 无 desktop/ 证据 |
-| `github-reviews-comments` | Review 与评论 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
+| `ai-pull-request-description` | AI 生成 Pull Request 标题与描述 | 必须迁移 | 实现/部分 | 完成 | `workbench/github_create.go` |
+| `github-device-authorization` | GitHub 设备授权 | 必须迁移 | 实现/缺 | 完成 | `workbench/github_account.go` |
+| `github-prs` | Pull Request 列表与详情 | 必须迁移 | 实现/部分 | 完成 | `workbench/github_prs.go` |
+| `github-pull-request-checkout` | GitHub 拉取请求安全检出 | 必须迁移 | 实现/缺 | 完成 | `workbench/github_prs.go` |
+| `github-reviews-comments` | Review 与评论 | 必须迁移 | 实现/实现 | 部分 | `workbench/github_checks.go` |
 
 ### 发行（1）
 
@@ -151,8 +153,8 @@
 
 | id | 能力 | 分类 | 基线 mac/win | Viva 现状 | 缺口 / 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `updates-check-download` | 检查、下载与安装更新 | 必须迁移 | 实现/部分 | 未开始 | C07 |
-| `updates-failure-rollback` | 失败重试与回滚 | 必须迁移 | 部分/实现 | 未开始 | C07 |
+| `updates-check-download` | 检查、下载与安装更新 | 必须迁移 | 实现/部分 | 部分 | C07 |
+| `updates-failure-rollback` | 失败重试与回滚 | 必须迁移 | 部分/实现 | 部分 | C07 |
 
 ### 可观测性（4）
 
@@ -176,37 +178,37 @@
 | `windows-taskbar-project-titles` | Windows 任务栏与 Alt+Tab 显示项目展示名和活动文件，… | 平台专属 | 专属/实现 | 未开始 | Windows 任务栏标题 |
 | `workspace-document-sync` | 脏状态、保存与外部修改 | 必须迁移 | 实现/实现 | 部分 | — |
 | `workspace-files` | 文件树与文件操作 | 必须迁移 | 实现/实现 | 部分 | filetree.go、filetree_watch.go；创建/重命名/删除/批量操作未找到 |
-| `workspace-indexing-exclusions` | 目录索引排除与 Git 自动排除 | 必须迁移 | 部分/部分 | 未开始 | 无 desktop/ 证据 |
+| `workspace-indexing-exclusions` | 目录索引排除与 Git 自动排除 | 必须迁移 | 部分/部分 | 部分 | `core/workspace.go` |
 | `workspace-open-switch` | 打开工作区与切换项目 | 必须迁移 | 实现/实现 | 部分 | — |
 | `workspace-tabs-projects` | 多项目与多标签 | 必须迁移 | 实现/实现 | 部分 | editorgroups.go、tabstrip.go；仅单项目（workspace-open-switch） |
-| `workspace-tree-batch-files` | 项目树独立多选、范围选择及批量拖动移动、复制、重复和移到废纸篓 | 必须迁移 | 实现/缺 | 未开始 | 无 desktop/ 证据 |
+| `workspace-tree-batch-files` | 项目树独立多选、范围选择及批量拖动移动、复制、重复和移到废纸篓 | 必须迁移 | 实现/缺 | 部分 | `workbench/filetree_menu.go` |
 | `remote-development-workspace` | 在 SSH 主机、容器和远程 Mac 上打开并开发项目 | 必须迁移 | 部分/缺 | 未开始 | 无 desktop/ 证据 |
 | `remote-workspace` | 远程连接与远程路径工作区 | 必须迁移 | 部分/实现 | 未开始 | 无 desktop/ 证据 |
 | `plugin-project-generators` | 新建项目窗口按 IDEA 的布局列出“新建项目”和“生成器”两组条目 | 必须迁移 | 实现/缺 | 部分 | C04 |
-| `dependency-browser` | 项目依赖与模块浏览 | 必须迁移 | 实现/实现 | 未开始 | — |
+| `dependency-browser` | 项目依赖与模块浏览 | 必须迁移 | 实现/实现 | 部分 | — |
 | `file-explorer` | 项目文件树与资源打开 | 必须迁移 | 实现/实现 | 部分 | — |
-| `file-explorer-copy-path-for-terminal` | 把项目树中的文件或目录以路径形式送入集成终端（复制后粘贴，或直接拖拽） | 必须迁移 | 缺/实现 | 未开始 | 无 desktop/ 证据 |
-| `file-open-selected` | F4 打开焦点文件与搜索位置 | 必须迁移 | 缺/实现 | 未开始 | 无 desktop/ 证据 |
-| `file-open-with` | 项目文件通过系统打开方式选择外部应用 | 必须迁移 | 实现/缺 | 未开始 | 无 desktop/ 证据 |
+| `file-explorer-copy-path-for-terminal` | 把项目树中的文件或目录以路径形式送入集成终端（复制后粘贴，或直接拖拽） | 必须迁移 | 缺/实现 | 部分 | `workbench/filetree_menu.go` |
+| `file-open-selected` | F4 打开焦点文件与搜索位置 | 必须迁移 | 缺/实现 | 部分 | `workbench/filetree_open.go` |
+| `file-open-with` | 项目文件通过系统打开方式选择外部应用 | 必须迁移 | 实现/缺 | 完成 | `workbench/filetree_open.go` |
 
 ### 工作台（30）
 
 | id | 能力 | 分类 | 基线 mac/win | Viva 现状 | 缺口 / 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `macos-shared-tree-list-control` | macOS 原生树与列表使用完整公共入口，统一焦点、两侧留白、悬停、… | 必须迁移 | 实现/缺 | 部分 | — |
-| `command-palette` | 命令面板与全局动作 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
+| `command-palette` | 命令面板与全局动作 | 必须迁移 | 实现/实现 | 完成 | `workbench/commands.go` |
 | `windows-file-menu-settings` | Windows 文件菜单在“关闭标签页”上方提供带齿轮图标的“设置”… | 平台专属 | 专属/实现 | 未开始 | Windows 文件菜单 |
 | `workbench-compact-menu-bar` | 紧凑菜单栏可在标题栏左侧原位展开完整水平菜单，并在点击外部或按 Es… | 平台专属 | 专属/实现 | 未开始 | Windows 紧凑菜单栏 |
 | `workbench-panes` | 分栏、面板与工具窗布局 | 必须迁移 | 实现/实现 | 部分 | editorgroups.go、dockdrag.go |
 | `workbench-settings-entry` | 从工作台 chrome 打开设置 | 必须迁移 | 实现/实现 | 部分 | chrome.go、settingswindow/ |
 | `workbench-tool-window-docking` | 工具窗口拖动、分组、排序与布局恢复 | 必须迁移 | 实现/部分 | 部分 | catalog.go 六区停靠、dockdrag.go、workbench-layout-v2.json |
 | `shared-action-button-style` | 普通文字动作按钮采用欢迎页完整几何与间距 | 必须迁移 | 实现/部分 | 部分 | sheet/、icons/（按钮几何未逐项核） |
-| `workbench-islands-appearance` | IntelliJ Islands 外观 | 必须迁移 | 部分/实现 | 未开始 | 无 desktop/ 证据 |
-| `workbench-project-color-gradient` | 用颜色区分项目 | 必须迁移 | 部分/实现 | 未开始 | 无 desktop/ 证据 |
-| `workbench-activity-rail-window-edge` | 活动栏贴合窗口外沿 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
-| `workbench-activity-tooltips` | 活动栏图标的稳定悬停说明 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
-| `history-restore` | 恢复、删除与持久化 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
-| `history-snapshots` | 快照列表与 Diff | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
+| `workbench-islands-appearance` | IntelliJ Islands 外观 | 必须迁移 | 部分/实现 | 部分 | `workbench/theme.go` |
+| `workbench-project-color-gradient` | 用颜色区分项目 | 必须迁移 | 部分/实现 | 部分 | `workbench/identity.go` |
+| `workbench-activity-rail-window-edge` | 活动栏贴合窗口外沿 | 必须迁移 | 实现/实现 | 完成 | `workbench/chrome_view.go` |
+| `workbench-activity-tooltips` | 活动栏图标的稳定悬停说明 | 必须迁移 | 实现/实现 | 完成 | `workbench/chrome_view.go` |
+| `history-restore` | 恢复、删除与持久化 | 必须迁移 | 实现/实现 | 完成 | `workbench/local_history.go` |
+| `history-snapshots` | 快照列表与 Diff | 必须迁移 | 实现/实现 | 部分 | `workbench/local_history.go` |
 | `macos-shared-scrollbar-style` | macOS 共享滚动条样式 | 放弃 | 实现/专属 | — | 见“放弃”表 |
 | `macos-shared-selection-focus` | macOS 普通选中行主题与区域和窗口焦点 | 放弃 | 实现/专属 | — | 见“放弃”表 |
 | `window-controls` | 标题栏控制窗口最小化、最大化/还原与关闭 | 必须迁移 | 实现/实现 | 部分 | — |
@@ -215,12 +217,12 @@
 | `terminal-canvas-compositing` | macOS 终端 Metal 画布按预乘语义清屏 | 放弃 | 实现/专属 | — | 见“放弃”表 |
 | `terminal-copy-shortcut` | Windows 终端在有选中内容时用 Ctrl+C 复制，无选中时仍… | 平台专属 | 专属/实现 | 未开始 | Windows 终端 Ctrl+C 语义 |
 | `terminal-extended-keyboard` | 终端向 TUI 程序传递带修饰键的按键（如 Shift+Enter … | 必须迁移 | 实现/实现 | 部分 | term/keyboard.go、win32input*.go |
-| `terminal-interaction` | 复制粘贴、搜索、调整大小、终端 Control 输入与切换快捷键及 … | 必须迁移 | 实现/实现 | 部分 | term/、termview/（选择、搜索、键盘、鼠标） |
+| `terminal-interaction` | 复制粘贴、搜索、调整大小、终端 Control 输入与切换快捷键及 … | 必须迁移 | 实现/实现 | 完成 | term/、termview/（选择、搜索、键盘、鼠标）、workbench/fonts.go（终端 Nerd Font） |
 | `terminal-long-command-input` | Windows Shell 超长命令输入 | 平台专属 | 专属/实现 | 未开始 | Windows Shell 长命令输入 |
-| `terminal-native-palette` | macOS 终端 ANSI 配色逐项按与 Lithe 编辑器背景的 … | 必须迁移 | 实现/专属 | 未开始 | 无 desktop/ 证据 |
+| `terminal-native-palette` | macOS 终端 ANSI 配色逐项按与 Lithe 编辑器背景的 … | 必须迁移 | 实现/专属 | 完成 | `nativeterm/nativeterm.go` |
 | `terminal-sessions` | 多会话与标签 | 必须迁移 | 实现/实现 | 部分 | — |
-| `terminal-shell` | Shell 发现与终端配置(默认 Shell、回滚行数) | 必须迁移 | 实现/实现 | 部分 | terminal_shells.go、localshell/ |
-| `project-file-type-icons` | 项目树、标签页和搜索结果为常见项目文件显示专用图标 | 必须迁移 | 实现/实现 | 部分 | fileicons/ |
+| `terminal-shell` | Shell 发现与终端配置(默认 Shell、回滚行数) | 必须迁移 | 实现/实现 | 完成 | terminal_shells.go、localshell/ |
+| `project-file-type-icons` | 项目树、标签页和搜索结果为常见项目文件显示专用图标 | 必须迁移 | 实现/实现 | 完成 | fileicons/ |
 | `project-sidebar-header-icons` | 项目侧边栏标题与项目树行块左缘对齐，只显示右侧 IDEA Commu… | 必须迁移 | 实现/专属 | 部分 | — |
 | `project-sidebar-tree-disclosure-icons` | 项目树展开与折叠箭头使用 IDEA Community 明暗 SVG… | 放弃 | 实现/专属 | — | 见“放弃”表 |
 
@@ -228,43 +230,43 @@
 
 | id | 能力 | 分类 | 基线 mac/win | Viva 现状 | 缺口 / 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `build-model-project-presentation` | 搜索模块标签与编辑器测试源角色消费插件构建模型，按最深路径匹配并拒绝… | 必须迁移 | 实现/缺 | 未开始 | — |
+| `build-model-project-presentation` | 搜索模块标签与编辑器测试源角色消费插件构建模型，按最深路径匹配并拒绝… | 必须迁移 | 实现/缺 | 部分 | — |
 | `build-native-configuration` | Build Provider 协议 7 读取原生配置的实际来源、原值… | 必须迁移 | 实现/缺 | 未开始 | C07 |
 | `build-provider-readonly-model-inputs` | 已启用的构建 Provider 可显式发布只读项目、目标和内容目录及… | 必须迁移 | 实现/缺 | 未开始 | — |
-| `build-provider-refresh-and-tool` | 构建 Provider 请求区分首次加载与重新加载，并带上宿主解析好… | 必须迁移 | 实现/缺 | 未开始 | — |
+| `build-provider-refresh-and-tool` | 构建 Provider 请求区分首次加载与重新加载，并带上宿主解析好… | 必须迁移 | 实现/缺 | 完成 | — |
 | `build-system-plugins` | 构建系统插件（API 3 buildSystems） | 必须迁移 | 部分/缺 | 部分 | — |
 | `cargo-build-plugin` | Cargo 社区构建插件 | 插件提供 | 实现/缺 | 未开始 | C11,C12 扩展点：buildSystems/buildProviders；无 desktop/ 证据 |
 | `declarative-plugin-contract` | 声明式插件契约 v1（插件不在宿主进程内运行代码），API 2 支持… | 必须迁移 | 实现/部分 | 部分 | C12 |
-| `plugin-backend-run-start` | 插件后端发起原生运行 | 必须迁移 | 实现/缺 | 未开始 | C01 无 desktop/ 证据 |
-| `plugin-backend-workspace-context` | 插件后端 v2 与工作区上下文 | 必须迁移 | 部分/缺 | 未开始 | C01 无 desktop/ 证据 |
-| `plugin-cross-plugin-function-calls` | 插件函数的跨插件调用（API-35 第一阶段） | 必须迁移 | 部分/缺 | 未开始 | C01 无 desktop/ 证据 |
-| `plugin-editor-actions` | 普通工具插件的独立编辑器动作 | 必须迁移 | 部分/缺 | 未开始 | C03 无 desktop/ 证据 |
+| `plugin-backend-run-start` | 插件后端发起原生运行 | 必须迁移 | 实现/缺 | 部分 | C01 无 desktop/ 证据 |
+| `plugin-backend-workspace-context` | 插件后端 v2 与工作区上下文 | 必须迁移 | 部分/缺 | 部分 | C01 无 desktop/ 证据 |
+| `plugin-cross-plugin-function-calls` | 插件函数的跨插件调用（API-35 第一阶段） | 必须迁移 | 部分/缺 | 部分 | C01 无 desktop/ 证据 |
+| `plugin-editor-actions` | 普通工具插件的独立编辑器动作 | 必须迁移 | 部分/缺 | 完成 | C03 无 desktop/ 证据 |
 | `plugin-editor-grammars` | 独立插件语法高亮与编辑配置 | 必须迁移 | 部分/缺 | 部分 | — |
-| `plugin-editor-providers` | 普通工具插件的编辑器语言功能 | 必须迁移 | 部分/缺 | 未开始 | C03 无 desktop/ 证据 |
+| `plugin-editor-providers` | 普通工具插件的编辑器语言功能 | 必须迁移 | 部分/缺 | 部分 | C03 无 desktop/ 证据 |
 | `plugin-extension-management` | 插件、语言服务与主题管理 | 必须迁移 | 实现/实现 | 部分 | pluginmanager/、settings_plugins.go、plugininstall/ |
-| `plugin-functions` | 插件私有函数 | 必须迁移 | 部分/部分 | 未开始 | C01 |
-| `plugin-host-editor-file-window-services` | 插件公共宿主服务 | 必须迁移 | 部分/缺 | 未开始 | C01 无 desktop/ 证据 |
+| `plugin-functions` | 插件私有函数 | 必须迁移 | 部分/部分 | 完成 | C01 |
+| `plugin-host-editor-file-window-services` | 插件公共宿主服务 | 必须迁移 | 部分/缺 | 部分 | C01 无 desktop/ 证据 |
 | `plugin-injected-toolchains` | Viva 从已启用插件的 toolDefinitions 声明发现工… | 必须迁移 | 部分/部分 | 部分 | C12 |
-| `plugin-language-server-sessions` | 插件自有语言服务器会话与后端决定启动方式 | 必须迁移 | 实现/缺 | 未开始 | C01,C02 无 desktop/ 证据 |
+| `plugin-language-server-sessions` | 插件自有语言服务器会话与后端决定启动方式 | 必须迁移 | 实现/缺 | 部分 | C01,C02 无 desktop/ 证据 |
 | `plugin-marketplace` | 插件市场、插件仓库源与社区插件市场/磁盘安装 | 必须迁移 | 实现/部分 | 部分 | C12 |
-| `plugin-native-terminals` | 插件自有原生终端（API-24） | 必须迁移 | 实现/缺 | 未开始 | C01 无 desktop/ 证据 |
-| `plugin-output-link-matchers` | 插件声明输出链接匹配器 | 必须迁移 | 实现/缺 | 未开始 | C01 无 desktop/ 证据 |
+| `plugin-native-terminals` | 插件自有原生终端（API-24） | 必须迁移 | 实现/缺 | 部分 | C01 无 desktop/ 证据 |
+| `plugin-output-link-matchers` | 插件声明输出链接匹配器 | 必须迁移 | 实现/缺 | 部分 | C01 无 desktop/ 证据 |
 
 ### 插件（5）
 
 | id | 能力 | 分类 | 基线 mac/win | Viva 现状 | 缺口 / 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `declarative-native-plugin-ui` | 插件声明原生树/列表、工具栏按钮及右键菜单，由宿主统一样式 | 必须迁移 | 实现/缺 | 未开始 | C05 无 desktop/ 证据 |
-| `plugin-web-tool-windows` | 插件可以在宿主管理的工具窗口里显示自己包内的 HTML 页面（ui … | 必须迁移 | 实现/部分 | 未开始 | C05 无 desktop/ 证据 |
+| `declarative-native-plugin-ui` | 插件声明原生树/列表、工具栏按钮及右键菜单，由宿主统一样式 | 必须迁移 | 实现/缺 | 部分 | C05 无 desktop/ 证据 |
+| `plugin-web-tool-windows` | 插件可以在宿主管理的工具窗口里显示自己包内的 HTML 页面（ui … | 必须迁移 | 实现/部分 | 部分 | C05 无 desktop/ 证据 |
 | `declarative-plugin-settings` | 声明式插件通过 Core 校验的设置声明提供整数、枚举、布尔、多选、… | 必须迁移 | 实现/部分 | 部分 | C12 |
-| `plugin-detail-tabs` | 已安装插件详情分为概览、功能、设置、权限与程序、版本与来源五个页签，… | 必须迁移 | 实现/缺 | 未开始 | 无 desktop/ 证据 |
-| `plugin-registered-settings-pages` | 插件通过 settings 2 在 plugin.json 里把设置… | 必须迁移 | 实现/缺 | 未开始 | 无 desktop/ 证据 |
+| `plugin-detail-tabs` | 已安装插件详情分为概览、功能、设置、权限与程序、版本与来源五个页签，… | 必须迁移 | 实现/缺 | 部分 | `settingswindow/marketplace_view.go` |
+| `plugin-registered-settings-pages` | 插件通过 settings 2 在 plugin.json 里把设置… | 必须迁移 | 实现/缺 | 部分 | `settingswindow/settings_surfaces.go` |
 
 ### 插件与扩展（1）
 
 | id | 能力 | 分类 | 基线 mac/win | Viva 现状 | 缺口 / 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `ide-api-plugins` | 插件调用已授权项目的环境、Maven 与运行 API | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
+| `ide-api-plugins` | 插件调用已授权项目的环境、Maven 与运行 API | 必须迁移 | 实现/实现 | 部分 | `pluginservice/contexts.go` |
 
 ### 搜索（4）
 
@@ -273,7 +275,7 @@
 | `search-global` | 全局命令与设置搜索 | 必须迁移 | 实现/实现 | 部分 | — |
 | `search-project` | 项目范围文本搜索 | 必须迁移 | 实现/实现 | 部分 | — |
 | `search-quick-open` | 快速打开文件与符号 | 必须迁移 | 实现/实现 | 部分 | — |
-| `search-replace` | 项目替换与取消 | 必须迁移 | 实现/实现 | 未开始 | — |
+| `search-replace` | 项目替换与取消 | 必须迁移 | 实现/实现 | 完成 | — |
 
 ### 数据库（6）
 
@@ -293,21 +295,21 @@
 | `git-branches-remotes` | 分支、标签与远程 | 必须迁移 | 实现/实现 | 部分 | branch.go、branch_view.go、gitsync.go、core/gitbranch.go；标题栏分支弹窗可签出（含智能/强制签出）、新建、重命名、删除分支，按修订签出，列出标签；获取（含选项与进度）、更新当前或指定分支已接入，分叉时可选合并或变基；把分支合并/变基到当前分支、新建/删除标签、远程管理未找到 |
 | `git-commit-sidebar-toolbar-icons` | macOS Commit/Shelf 标签采用共享选中与悬停样式、1… | 放弃 | 实现/专属 | — | 见“放弃”表 |
 | `git-diff-review` | Diff 与变更审查（含未暂存修改块的暂存/取消暂存/回退操作；块级… | 必须迁移 | 实现/实现 | 部分 | difftab.go、difftab_view.go：Diff 为编辑区标签页，支持并排/统一、差异跳转、折叠未更改与文件切换；块级包含/排除（暂存/取消暂存）与回退修改块已接入；编辑器 gutter 可暂存修改块（git_gutter.go）；其余项未与旧版逐项核对 |
-| `git-explorer-context-actions` | 项目文件树右键 Git 操作 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
+| `git-explorer-context-actions` | 项目文件树右键 Git 操作 | 必须迁移 | 实现/实现 | 部分 | `core/git_untracked.go` |
 | `git-history` | 提交历史与图谱 | 必须迁移 | 实现/实现 | 部分 | C08 |
-| `git-large-untracked-directories` | 大型未跟踪目录汇总与按需展开 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
-| `git-line-history` | 行级修改历史 | 必须迁移 | 缺/实现 | 未开始 | 无 desktop/ 证据 |
+| `git-large-untracked-directories` | 大型未跟踪目录汇总与按需展开 | 必须迁移 | 实现/实现 | 部分 | `core/git_untracked.go` |
+| `git-line-history` | 行级修改历史 | 必须迁移 | 缺/实现 | 部分 | `core/git_blame.go` |
 | `git-local-changelists` | 本地 ChangeList | 必须迁移 | 实现/实现 | 部分 | changelists.go、changelists_view.go、core/changelists.go；多选/目录批量移动未做 |
-| `git-metadata-observation` | Git 元数据变化观察与刷新 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
-| `git-multi-repository-change-groups` | 多仓库变更折叠分组 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
-| `git-multi-repository-references` | 多仓库引用面板 | 必须迁移 | 实现/实现 | 未开始 | — |
+| `git-metadata-observation` | Git 元数据变化观察与刷新 | 必须迁移 | 实现/实现 | 部分 | `workbench/git_observation.go` |
+| `git-multi-repository-change-groups` | 多仓库变更折叠分组 | 必须迁移 | 实现/实现 | 部分 | `core/changelists.go` |
+| `git-multi-repository-references` | 多仓库引用面板 | 必须迁移 | 实现/实现 | 部分 | — |
 | `git-rebase-stash` | Rebase 与 Stash | 必须迁移 | 实现/实现 | 部分 | stash.go、stash_view.go：Commit 工具窗口暂存页可查看、应用、弹出、删除与新建 stash；拉取分叉时可选变基（gitsync.go）；独立 Rebase（含交互式）未找到 |
 | `git-repository-discovery` | 仓库自动发现排除隐藏目录与构建缓存 | 必须迁移 | 实现/实现 | 部分 | core/repository_colors.go、gitmetadata/ |
 | `git-status-colors-idea-alignment` | Windows 默认主题 Git 状态配色与 IDEA 对齐（修改/… | 放弃 | 专属/实现 | — | 见“放弃”表 |
-| `git-status-commit` | 状态、暂存与提交 | 必须迁移 | 实现/实现 | 部分 | commit.go、commit_view.go、core/gitcommit.go；“提交选项”可加 Sign-off、指定作者（必须是 `Name <email>`，否则 Core 以 `git_commit_author_invalid` 拒绝，作者在提交成功后清空）；Git 控制台（gitconsole.go、core/gitconsole.go）除自动刷新、监听这类后台命令外记录全部 Git 命令，含读取状态的内部查询，查询的答案型非零退出显示为预期；Commit 工具窗口、Diff 标签和分支弹窗发起的写操作会切到控制台页，Log 与工作树页的不切换 |
-| `git-submodule-commit-plan` | 子模块先提交与推送、自动更新父引用、计划变化再次确认 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
+| `git-status-commit` | 状态、暂存与提交 | 必须迁移 | 实现/实现 | 完成 | commit.go、commit_view.go、core/gitcommit.go；“提交选项”可加 Sign-off、指定作者（必须是 `Name <email>`，否则 Core 以 `git_commit_author_invalid` 拒绝，作者在提交成功后清空）；Git 控制台（gitconsole.go、core/gitconsole.go）除自动刷新、监听这类后台命令外记录全部 Git 命令，含读取状态的内部查询，查询的答案型非零退出显示为预期；Commit 工具窗口、Diff 标签和分支弹窗发起的写操作会切到控制台页，Log 与工作树页的不切换 |
+| `git-submodule-commit-plan` | 子模块先提交与推送、自动更新父引用、计划变化再次确认 | 必须迁移 | 实现/实现 | 部分 | `core/gitcommit.go` |
 | `git-workspace-commit-retry` | 失败后只重试未完成的提交或推送步骤 | 必须迁移 | 实现/实现 | 部分 | commit.go `retryCommit`：本项目仓库的提交失败后可重试剩余步骤，先显示复核；多仓库批量提交未接（见 `git-workspace-staged-commit`） |
-| `git-workspace-staged-commit` | 按文件所属仓库批量提交及推送，保留每仓库结果 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
+| `git-workspace-staged-commit` | 按文件所属仓库批量提交及推送，保留每仓库结果 | 必须迁移 | 实现/实现 | 部分 | `core/gitcommit.go` |
 | `git-worktrees` | Worktree 管理 | 必须迁移 | 实现/实现 | 部分 | gitworktree.go、gitworktree_view.go、core/gitworktree.go；在新窗口打开、悬停信息、设置页未做 |
 | `vcs-subversion-and-plugin-providers` | 统一 VCS 模型与插件 VCS Provider | 插件提供 | 部分/缺 | 部分 | C06 扩展点：vcsProviders；vcs.go、vcs_view.go、core/vcs.go：每个 Provider 一个工具窗口，状态、提交、回滚、更新、标记解决、清理、历史、只读 Diff；Annotate、单文件历史、gutter、元数据监听、fileOperations、项目树状态未做 |
 
@@ -317,7 +319,7 @@
 | --- | --- | --- | --- | --- | --- |
 | `macos-shared-hover-tooltip-style` | macOS 侧边栏与工具栏悬浮提示共用 IDEA Islands 的… | 放弃 | 实现/专属 | — | 见“放弃”表 |
 | `macos-shared-product-dropdowns` | macOS 全部产品操作菜单、选值下拉框与自定义弹窗使用 Git L… | 放弃 | 实现/专属 | — | 见“放弃”表 |
-| `macos-bundled-default-ui-font` | macOS 界面默认使用随安装包分发的 Inter，编辑器、终端和显… | 必须迁移 | 实现/专属 | 未开始 | 无 desktop/ 证据 |
+| `macos-bundled-default-ui-font` | macOS 界面默认使用随安装包分发的 Inter，编辑器、终端和显… | 必须迁移 | 实现/专属 | 完成 | `bundledfont/`（`lithe_bundled_fonts` 标签编进可执行文件）、`workbench/fonts_bundled.go` |
 
 ### 社区（2）
 
@@ -330,37 +332,37 @@
 
 | id | 能力 | 分类 | 基线 mac/win | Viva 现状 | 缺口 / 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `editor-git-blame-menu` | 行号及左侧 gutter 区域右键打开精简菜单 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
-| `editor-git-gutter-peek` | 编辑器 Git 行变更标记、点击预览与变更导航 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
-| `editor-git-gutter-setting` | 设置中开关编辑器 Git 变更标记 | 必须迁移 | 专属/实现 | 未开始 | 无 desktop/ 证据 |
-| `editor-git-gutter-stage` | 从编辑器行变更入口暂存单处修改 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
-| `editor-inline-git-blame` | Windows 行尾 Git Blame 默认关闭 | 必须迁移 | 缺/实现 | 未开始 | 无 desktop/ 证据 |
-| `markdown-images-links` | 图片导入与链接定位 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
-| `markdown-preview-outline` | Markdown 预览目录默认展开、全高滚动与标题跳转 | 必须迁移 | 实现/缺 | 未开始 | 无 desktop/ 证据 |
-| `markdown-rendering` | Markdown 预览与富文本渲染 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
-| `outline-symbols` | 当前文件 Outline 与符号树 | 必须迁移 | 部分/实现 | 未开始 | 无 desktop/ 证据 |
-| `references-pane` | 引用结果面板与引用跳转 | 必须迁移 | 实现/实现 | 未开始 | C03 无 desktop/ 证据 |
-| `editor-go-to-line` | 跳转到行或行列并选择目标 | 必须迁移 | 实现/实现 | 部分 | — |
-| `editor-font-family` | 代码编辑器可选择已安装的等宽编程字体族，未安装时回退到随包分发的默认… | 必须迁移 | 实现/实现 | 未开始 | — |
-| `editor-global-appearance` | 所有项目的源码编辑器共享字体、字号、行间距、高亮配色和常用显示偏好，… | 必须迁移 | 实现/部分 | 未开始 | 无 desktop/ 证据 |
+| `editor-git-blame-menu` | 行号及左侧 gutter 区域右键打开精简菜单 | 必须迁移 | 实现/实现 | 部分 | `core/git_blame.go` |
+| `editor-git-gutter-peek` | 编辑器 Git 行变更标记、点击预览与变更导航 | 必须迁移 | 实现/实现 | 部分 | `workbench/git_gutter.go` |
+| `editor-git-gutter-setting` | 设置中开关编辑器 Git 变更标记 | 必须迁移 | 专属/实现 | 完成 | `workbench/git_gutter.go` |
+| `editor-git-gutter-stage` | 从编辑器行变更入口暂存单处修改 | 必须迁移 | 实现/实现 | 完成 | `workbench/git_gutter.go` |
+| `editor-inline-git-blame` | Windows 行尾 Git Blame 默认关闭 | 必须迁移 | 缺/实现 | 完成 | `workbench/git_gutter.go` |
+| `markdown-images-links` | 图片导入与链接定位 | 必须迁移 | 实现/实现 | 部分 | `workbench/markdown_preview.go` |
+| `markdown-preview-outline` | Markdown 预览目录默认展开、全高滚动与标题跳转 | 必须迁移 | 实现/缺 | 完成 | `workbench/markdown_preview.go` |
+| `markdown-rendering` | Markdown 预览与富文本渲染 | 必须迁移 | 实现/实现 | 部分 | `workbench/markdown_preview.go` |
+| `outline-symbols` | 当前文件 Outline 与符号树 | 必须迁移 | 部分/实现 | 完成 | `core/plugin_symbols.go` |
+| `references-pane` | 引用结果面板与引用跳转 | 必须迁移 | 实现/实现 | 完成 | C03 无 desktop/ 证据 |
+| `editor-go-to-line` | 跳转到行或行列并选择目标 | 必须迁移 | 实现/实现 | 完成 | — |
+| `editor-font-family` | 代码编辑器可选择已安装的等宽编程字体族，未安装时回退到随包分发的默认… | 必须迁移 | 实现/实现 | 部分 | — |
+| `editor-global-appearance` | 所有项目的源码编辑器共享字体、字号、行间距、高亮配色和常用显示偏好，… | 必须迁移 | 实现/部分 | 部分 | `settingswindow/fonts_view.go` |
 | `editor-ide-settings-import` | macOS 导入 IDE 外观、编辑器偏好、受支持的自定义快捷键及全… | 放弃 | 实现/专属 | — | 见“放弃”表 |
-| `editor-cursor-history` | 键盘移动后优先撤销光标，并支持独立光标撤销与重做 | 必须迁移 | 部分/实现 | 未开始 | 无 desktop/ 证据 |
-| `editor-file-encoding-reopen` | 按指定编码重新打开文本文件 | 必须迁移 | 实现/实现 | 未开始 | — |
-| `editor-file-encoding-save` | 按指定编码保存文本文件 | 必须迁移 | 实现/实现 | 未开始 | — |
+| `editor-cursor-history` | 键盘移动后优先撤销光标，并支持独立光标撤销与重做 | 必须迁移 | 部分/实现 | 完成 | `core/navigation_history.go` |
+| `editor-file-encoding-reopen` | 按指定编码重新打开文本文件 | 必须迁移 | 实现/实现 | 完成 | — |
+| `editor-file-encoding-save` | 按指定编码保存文本文件 | 必须迁移 | 实现/实现 | 完成 | — |
 | `editor-language-basics` | 语法高亮与编辑器模型、关闭或切换模型后丢弃过期符号高亮回调 | 必须迁移 | 实现/实现 | 部分 | editor/syntax、editor/textmate |
 | `editor-macos-ime-presentation` | macOS 中文组合输入层遮住原文字，输入和删除候选文字时不透出整行… | 平台专属 | 实现/专属 | 未开始 | macOS 输入法组合层 |
 | `editor-multiline-tabs` | 多行标签与标签导航 | 必须迁移 | 实现/实现 | 部分 | — |
-| `editor-pointer-selection` | 鼠标与触控板点击、选词和拖选 | 必须迁移 | 实现/实现 | 部分 | editorview/input.go |
-| `editor-semantic-highlighting` | LSP 语义高亮 | 必须迁移 | 实现/实现 | 未开始 | C03 无 desktop/ 证据 |
-| `editor-tab-limit` | 标签数量上限与自动关闭策略 | 必须迁移 | 缺/实现 | 未开始 | 无 desktop/ 证据 |
+| `editor-pointer-selection` | 鼠标与触控板点击、选词和拖选 | 必须迁移 | 实现/实现 | 完成 | editorview/input.go |
+| `editor-semantic-highlighting` | LSP 语义高亮 | 必须迁移 | 实现/实现 | 部分 | C03 无 desktop/ 证据 |
+| `editor-tab-limit` | 标签数量上限与自动关闭策略 | 必须迁移 | 缺/实现 | 完成 | `workbench/tab_limit.go` |
 | `editor-text-tabs` | 文本编辑与标签生命周期 | 必须迁移 | 实现/实现 | 部分 | editorview/、tabstrip.go |
 | `editor-unicode-confusable-highlight` | 编辑器不把中文全角标点标记为易混淆字符 | 放弃 | 实现/实现 | — | 见“放弃”表 |
-| `editor-unicode-text-classification` | 中文 properties 与未知扩展名文本的一致打开和恢复 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
+| `editor-unicode-text-classification` | 中文 properties 与未知扩展名文本的一致打开和恢复 | 必须迁移 | 实现/实现 | 完成 | `core/documents.go` |
 | `editor-scrollbar-style` | 编辑器滚动条与文件树一致的细圆头样式 | 放弃 | 专属/实现 | — | 见“放弃”表 |
 | `editor-wallpaper-overview-ruler` | macOS 工作台壁纸模式下，编辑器概览标尺与代码缩略图随编辑器背景… | 放弃 | 实现/专属 | — | 见“放弃”表 |
-| `editor-line-operations` | 行注释、复制、删除与上下移动 | 必须迁移 | 本分支新增 | 未开始 | — |
-| `vim-mode` | Vim 模式与命令状态 | 必须迁移 | 缺/实现 | 未开始 | 无 desktop/ 证据 |
-| `lsp-status-logs` | LSP 状态栏控制与按服务器查看日志 | 必须迁移 | 实现/缺 | 未开始 | — |
+| `editor-line-operations` | 行注释、复制、删除与上下移动 | 必须迁移 | 本分支新增 | 完成 | — |
+| `vim-mode` | Vim 模式与命令状态 | 必须迁移 | 缺/实现 | 完成 | `workbench/vim_mode.go` |
+| `lsp-status-logs` | LSP 状态栏控制与按服务器查看日志 | 必须迁移 | 实现/缺 | 部分 | — |
 | `embedded-viewers` | HTML、SVG、媒体、PDF 与二进制预览 | 必须迁移 | 实现/实现 | 未开始 | — |
 
 ### 设置（3）
@@ -368,7 +370,7 @@
 | id | 能力 | 分类 | 基线 mac/win | Viva 现状 | 缺口 / 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `application-settings` | 应用、项目与运行设置及设置窗口操作 | 必须迁移 | 实现/实现 | 部分 | C07 |
-| `keymap-customization` | 快捷键查看与自定义 | 必须迁移 | 实现/实现 | 未开始 | C06,C07 无 desktop/ 证据 |
+| `keymap-customization` | 快捷键查看与自定义 | 必须迁移 | 实现/实现 | 完成 | C06,C07 无 desktop/ 证据 |
 | `shared-i18n` | 共享内置翻译完整来源 | 必须迁移 | 实现/实现 | 部分 | — |
 
 ### 语言支持（5）
@@ -392,32 +394,32 @@
 | id | 能力 | 分类 | 基线 mac/win | Viva 现状 | 缺口 / 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `build-provider-jvm-debug` | Maven 框架服务调试通过 Provider 准备当前目标，保留框… | 插件提供 | 插件/缺 | 未开始 | C02 扩展点：debugAdapters(tcp)、buildProviders |
-| `debug-breakpoints` | 启动调试与断点 | 必须迁移 | 实现/部分 | 未开始 | — |
-| `debug-disassembly` | 汇编级调试 | 必须迁移 | 实现/缺 | 未开始 | — |
+| `debug-breakpoints` | 启动调试与断点 | 必须迁移 | 实现/部分 | 部分 | — |
+| `debug-disassembly` | 汇编级调试 | 必须迁移 | 实现/缺 | 部分 | — |
 | `debug-java-runtime` | Java 调试与运行使用同一个 JDK | 插件提供 | 插件/缺 | 未开始 | C02 扩展点：toolchains、debugAdapters |
-| `debug-performance` | 调试与测试目标进程树的实时 CPU 与内存图表 | 必须迁移 | 实现/缺 | 未开始 | — |
-| `debug-state` | 变量、异常与断开策略 | 必须迁移 | 实现/部分 | 未开始 | — |
-| `debug-tcp-transport` | 普通 TCP 调试适配器连接与有界生命周期 | 必须迁移 | 实现/缺 | 未开始 | C02 |
-| `debug-variable-json-view` | 调试变量默认JSON与树形切换 | 必须迁移 | 实现/缺 | 未开始 | — |
+| `debug-performance` | 调试与测试目标进程树的实时 CPU 与内存图表 | 必须迁移 | 实现/缺 | 部分 | — |
+| `debug-state` | 变量、异常与断开策略 | 必须迁移 | 实现/部分 | 部分 | — |
+| `debug-tcp-transport` | 普通 TCP 调试适配器连接与有界生命周期 | 必须迁移 | 实现/缺 | 部分 | C02 |
+| `debug-variable-json-view` | 调试变量默认JSON与树形切换 | 必须迁移 | 实现/缺 | 完成 | — |
 | `plugin-debug-adapters` | 插件提供调试适配器 | 必须迁移 | 实现/缺 | 部分 | C02,C12 debug.go、debug_launch.go |
-| `plugin-debug-start-and-adapter-features` | 插件后端发起调试并声明适配器行为 | 必须迁移 | 实现/缺 | 未开始 | C01,C02 无 desktop/ 证据 |
+| `plugin-debug-start-and-adapter-features` | 插件后端发起调试并声明适配器行为 | 必须迁移 | 实现/缺 | 部分 | C01,C02 无 desktop/ 证据 |
 | `viva-debug-session` | Viva 调试面板使用插件声明的 stdio 调试适配器 | 必须迁移 | 本分支新增 | 部分 | C02,C12 |
-| `process-termination-policy` | 退出前逐个确认仍在运行程序的终端和 Agent 后台任务（Agent… | 必须迁移 | 部分/缺 | 未开始 | C07 无 desktop/ 证据 |
-| `run-processes-end-with-ide` | 退出 IDE 时结束它启动的全部运行、终端、服务、测试、语言服务器和… | 必须迁移 | 实现/部分 | 未开始 | 无 desktop/ 证据 |
-| `run-output-snapshot` | 运行输出快照 | 必须迁移 | 缺/实现 | 未开始 | 无 desktop/ 证据 |
+| `process-termination-policy` | 退出前逐个确认仍在运行程序的终端和 Agent 后台任务（Agent… | 必须迁移 | 部分/缺 | 部分 | C07 无 desktop/ 证据 |
+| `run-processes-end-with-ide` | 退出 IDE 时结束它启动的全部运行、终端、服务、测试、语言服务器和… | 必须迁移 | 实现/部分 | 部分 | `workbench/app.go` |
+| `run-output-snapshot` | 运行输出快照 | 必须迁移 | 缺/实现 | 完成 | `workbench/runs.go` |
 | `login-shell-environment` | 从 Finder / Dock 启动时继承登录 shell 的环境 | 平台专属 | 实现/专属 | 未开始 | macOS Finder/Dock 启动继承登录 shell 环境 |
-| `run-discovery` | 入口点与运行配置发现 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
+| `run-discovery` | 入口点与运行配置发现 | 必须迁移 | 实现/实现 | 部分 | `core/run_discovery.go` |
 | `run-java-long-classpath` | 超长 Java 类路径自动缩短 | 插件提供 | 插件/实现 | 未开始 | 扩展点：executablePlan/argfile；无 desktop/ 证据 |
 | `run-java-test` | Java main 与测试运行 | 插件提供 | 实现/实现 | 未开始 | 扩展点：executionProviders、test 模型；无 desktop/ 证据 |
-| `run-node-launch-path` | Node 生态运行脚本的启动 PATH | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
-| `run-save-toolchain` | 保存前同步与工具链解析 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
+| `run-node-launch-path` | Node 生态运行脚本的启动 PATH | 必须迁移 | 实现/实现 | 部分 | `workbench/toolchains.go` |
+| `run-save-toolchain` | 保存前同步与工具链解析 | 必须迁移 | 实现/实现 | 部分 | `workbench/toolchains.go` |
 | `docker-compose` | Docker / Compose 项目识别与运行 | 插件提供 | 部分/实现 | 未开始 | C11 扩展点：toolWindows、executionProviders；无 desktop/ 证据 |
 
 ### 通用（1）
 
 | id | 能力 | 分类 | 基线 mac/win | Viva 现状 | 缺口 / 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `network-proxy-settings` | 在设置 › 外观与行为 › 网络配置应用自身 HTTP 流量的代理 | 必须迁移 | 实现/专属 | 未开始 | C07 无 desktop/ 证据 |
+| `network-proxy-settings` | 在设置 › 外观与行为 › 网络配置应用自身 HTTP 流量的代理 | 必须迁移 | 实现/专属 | 部分 | C07 无 desktop/ 证据 |
 
 ### 项目（1）
 

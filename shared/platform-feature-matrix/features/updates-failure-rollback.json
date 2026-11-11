@@ -4,26 +4,32 @@
   "group": "应用更新",
   "capability": "失败重试与回滚",
   "macos": {
-    "implementationStatus": "missing",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       "desktop/internal/settingswindow/model.go",
       "desktop/internal/settingswindow/window.go",
-      ".github/workflows/desktop-release.yml"
+      ".github/workflows/desktop-release.yml",
+      "desktop/internal/workbench/updates.go",
+      "desktop/internal/settingswindow/updates_view.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
+      "docs/viva-migration.md",
       "desktop/internal/settingswindow/model.go",
       "desktop/internal/settingswindow/window.go",
-      ".github/workflows/desktop-release.yml"
+      ".github/workflows/desktop-release.yml",
+      "desktop/internal/workbench/updates.go",
+      "desktop/internal/settingswindow/updates_view.go"
     ]
   },
   "owner": "Release",
   "verification": "Viva 需要在 macOS 和 Windows 真实安装环境验证失败、取消、签名拒绝和回滚，当前尚无对应实现或实机验收。",
-  "notes": "Viva 尚未接入应用内更新与回滚；旧客户端的失败恢复、签名和全量回退能力只作为迁移基线。",
+  "notes": "Viva：检查、下载或安装任一步失败都显示原因并写日志，用户可从更新页重试该步；安装器拒绝时不改动现有程序，Viva 更新包在新版本启动前保留旧程序。回退到上一稳定版本的入口与签名发布链路尚未实现（见 updates-check-download）。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

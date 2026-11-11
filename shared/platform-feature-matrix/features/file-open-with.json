@@ -4,17 +4,21 @@
   "group": "项目浏览",
   "capability": "项目文件通过系统打开方式选择外部应用",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/filetree_open.go",
+      "desktop/internal/workbench/filetree_menu.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/filetree_open.go",
+      "desktop/internal/workbench/filetree_menu.go"
     ]
   },
   "owner": "Workspace",
@@ -42,5 +46,5 @@
       ]
     }
   },
-  "notes": "Viva：未找到通过系统打开方式选择外部应用的菜单或实现；项目树右键菜单（filetree_menu.go）只有打开、复制路径、在访达或资源管理器中显示等项。"
+  "notes": "Viva：项目树右键“打开方式”经平台的应用选择器选出外部应用，再由 Viva 的 app.OpenWith 打开文件（filetree_open.go）。原生窗口验收 pending。"
 }

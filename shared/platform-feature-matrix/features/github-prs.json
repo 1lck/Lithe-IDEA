@@ -4,22 +4,28 @@
   "group": "GitHub",
   "capability": "Pull Request 列表与详情",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/github_prs.go",
+      "desktop/internal/workbench/github_prs_view.go",
+      "desktop/internal/core/github.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/github_prs.go",
+      "desktop/internal/workbench/github_prs_view.go",
+      "desktop/internal/core/github.go"
     ]
   },
   "owner": "GitHub",
   "verification": "使用测试仓库验证 PR 列表、筛选、详情、分支比较和浏览器跳转。",
-  "notes": "Viva：未找到 Pull Request 列表、筛选、详情或浏览器跳转的实现；Git 历史与分支代码（core/gitlog.go、workbench/gitlog_page.go）只覆盖本地仓库。",
+  "notes": "Viva：Git Log 的 Pull Request 面板经 Core 从 origin 识别仓库、规划每个请求并用已登录账号的令牌发送；列出打开、已关闭或我的 PR，显示描述、状态与对话，可在浏览器打开。没有专门的自动化测试。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

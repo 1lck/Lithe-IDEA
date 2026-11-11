@@ -4,21 +4,27 @@
   "group": "文本编辑",
   "capability": "标签数量上限与自动关闭策略",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/tab_limit.go",
+      "desktop/internal/settingswindow/tab_limit_view.go",
+      "desktop/internal/workbench/settings.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/tab_limit.go",
+      "desktop/internal/settingswindow/tab_limit_view.go",
+      "desktop/internal/workbench/settings.go"
     ]
   },
   "owner": "Editor",
-  "notes": "Viva：settingswindow/window_view.go 的 editorPage 只有标签行数与溢出策略（一行滚动、挤压、多行），没有最大打开标签数或自动关闭最久未使用标签的代码。",
+  "notes": "Viva：编辑器最多保留用户设置的文件标签数（设置 › 编辑器，默认 30，0 为不限），超出时按最久未使用或最早打开关闭一个文件标签；有未保存修改、正在保存、刚打开的标签和终端都不关闭，运行输出快照创建即固定。没有专门的自动化测试，原生窗口验收 pending。",
   "verification": "Windows：把最大打开标签数设为 3，依次打开 5 个文件并切回第 1 个，确认默认策略关闭最久未使用的标签而不是最早打开的；切换为「关闭最早打开的」后行为随之改变。开着终端、Agent 对话、已固定和未保存标签重复上述步骤，确认它们都不被关闭。把上限设为 0 后继续打开文件，确认不再自动关闭。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",

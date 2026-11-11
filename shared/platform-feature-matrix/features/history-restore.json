@@ -4,22 +4,26 @@
   "group": "本地历史",
   "capability": "恢复、删除与持久化",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/local_history.go",
+      "desktop/internal/workbench/local_history_view.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/local_history.go",
+      "desktop/internal/workbench/local_history_view.go"
     ]
   },
   "owner": "Local History",
   "verification": "验证恢复、删除、应用重启后持久化和失败回滚。",
-  "notes": "Viva：desktop/ 中未找到本地历史的存储、恢复、删除或失败回滚实现（无 planEvent、relocate 或本地历史包）；legacyimport 也明确不导入本地历史。",
+  "notes": "Viva：本地历史由 Core 存储、清理并决定每个事件取哪些快照（history.planEvent），宿主提供事件与文本，存放在平台的用户应用数据目录（每个项目一个目录，不写项目或安装目录）。恢复把快照文本作为一次可撤销编辑放进编辑器，恢复前先记一条恢复快照；支持重命名标签和删除快照。没有专门的自动化测试，原生窗口验收 pending。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
