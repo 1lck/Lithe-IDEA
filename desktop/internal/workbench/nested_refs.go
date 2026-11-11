@@ -43,9 +43,9 @@ func (a *App) loadNestedReferences(p *project) {
 	n.refGen++
 	gen := n.refGen
 	// The branch popup lists every nested repository, so all of them are read; the project's own is
-	// read too while the log walks a nested repository, to list it as a group.
+	// read too while the log walks or the popup lists a nested repository, to list it as a group.
 	reads := append([]nestedRepo(nil), n.repos...)
-	if n.logRepo != "" {
+	if n.logRepo != "" || a.branch.repo != "" {
 		reads = append([]nestedRepo{{id: commitRepositoryID, root: p.root}}, reads...)
 	}
 	ids := p.workspaceRepositoryIDs()
@@ -121,15 +121,31 @@ func repositoryColor(slot int, dark bool) gfx.Color {
 	return pick(dark, pair[0], pair[1])
 }
 
-// drawNestedReferences declares the groups of the nested repositories in the branch popup: one
-// foldable group per repository, with its local branches and its tags.
+// branchGroups are the repositories the popup lists below the picked one's references: the project's
+// own repository when the popup lists a nested one, then every nested repository but the picked one.
+func (a *App) branchGroups(p *project) []nestedRepo {
+	picked := a.branchRoot(p)
+	var groups []nestedRepo
+	if picked != p.git.repositoryRoot(p.root) {
+		groups = append(groups, nestedRepo{id: commitRepositoryID, root: p.root})
+	}
+	for _, repo := range p.nested.repos {
+		if repo.root != picked {
+			groups = append(groups, repo)
+		}
+	}
+	return groups
+}
+
+// drawNestedReferences declares the groups of the repositories the branch popup does not list
+// itself: one foldable group per repository, with its local branches and its tags.
 func (a *App) drawNestedReferences(c ui.C, p *project, t i18n.BranchMessages) {
 	b := &a.branch
-	for _, repo := range p.nested.repos {
+	for _, repo := range a.branchGroups(p) {
 		key := "nested/" + repo.id
 		refs, loaded := p.nested.references[repo.id]
 		collapsed := b.collapsed[key]
-		if a.drawBranchSection(c, key, repo.id, collapsed, true) {
+		if a.drawBranchSection(c, key, p.repositoryName(repo.id), collapsed, true) {
 			c.After(func() { b.collapsed[key] = !b.collapsed[key] })
 		}
 		if collapsed {

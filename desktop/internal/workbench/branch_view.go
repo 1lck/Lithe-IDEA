@@ -58,6 +58,9 @@ func (a *App) drawBranchPanel(c ui.C, p *project, t i18n.BranchMessages) {
 	b := &a.branch
 	current := b.currentReference()
 	ui.TextField(c, &b.search, t.Search, t.Search).FillWidth().AutoFocus()
+	if len(p.nested.repos) > 0 {
+		a.drawBranchRepoPicker(c, p)
+	}
 	if a.drawBranchAction(c, "new", icons.Plus, t.NewBranch) {
 		c.After(func() { a.beginCreate(p, current) })
 	}
@@ -113,6 +116,42 @@ func (a *App) drawBranchPanel(c ui.C, p *project, t i18n.BranchMessages) {
 			a.drawNestedReferences(c, p, t)
 		}
 	})
+}
+
+// drawBranchRepoPicker declares the repository the popup lists, when the project has nested
+// repositories: a row that names the picked one, which opens the list of every repository.
+func (a *App) drawBranchRepoPicker(c ui.C, p *project) {
+	b, pull := &a.branch, a.text.Sync.Pull
+	picked := a.branchRoot(p)
+	repos := a.pullRepos(p)
+	name := ""
+	for _, r := range repos {
+		if r.root == picked {
+			name = r.name
+		}
+	}
+	chevron := icons.ChevronRight
+	if b.repoOpen {
+		chevron = icons.ChevronDown
+	}
+	row := ui.Row(c.Part("repo")).Height(chromeMenuRow).Shrink(0).FillWidth().Items(ui.Center).Gap(chromeGap).PadX(chromeEdge).
+		Radius(a.theme.Metrics.RadiusItem()).HitWith(ui.ID(c), pull.Repository, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Expandable: true, Expanded: b.repoOpen})
+	a.chromeHover(row).Children(func() {
+		ui.Text(c, pull.Repository).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).LineHeight(chromeLineHeight)
+		ui.Text(c, name).Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis().Grow(1)
+		ui.Icon(c, chevron).Size(chromeMarkSize, chromeMarkSize).Shrink(0).Color(a.colors.Subtle)
+	})
+	if row.Clicked() {
+		c.After(func() { b.repoOpen = !b.repoOpen })
+	}
+	if !b.repoOpen {
+		return
+	}
+	for _, r := range repos {
+		if a.logMenuItem(c, "repo/"+r.root, r.name, r.root == picked, false) {
+			c.After(func() { a.selectBranchRepo(p, r.root) })
+		}
+	}
 }
 
 // matchingReferences returns the references of refs whose short name contains query, which
