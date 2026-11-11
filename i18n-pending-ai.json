@@ -517,5 +517,117 @@
     "description": "Button that opens the AI settings to configure a custom API provider.",
     "en-US": "Custom API provider",
     "zh-CN": "自定义 API 供应商"
+  },
+  {
+    "id": "desktop.agent.detail.title",
+    "description": "Title of the session-detail sidebar beside the editor conversation.",
+    "en-US": "Session details",
+    "zh-CN": "会话详情"
+  },
+  {
+    "id": "desktop.agent.detail.show",
+    "description": "Button that opens the session-detail sidebar.",
+    "en-US": "Details",
+    "zh-CN": "详情"
+  },
+  {
+    "id": "desktop.agent.detail.hide",
+    "description": "Button that folds the session-detail sidebar away.",
+    "en-US": "Hide",
+    "zh-CN": "收起"
+  },
+  {
+    "id": "desktop.agent.detail.context",
+    "description": "Heading of the context usage section in the session-detail sidebar.",
+    "en-US": "Context",
+    "zh-CN": "上下文"
+  },
+  {
+    "id": "desktop.agent.detail.contextUsed",
+    "description": "Context usage line: used tokens, window size and percent.",
+    "en-US": "{used} of {size} ({percent}%)",
+    "zh-CN": "已用 {used} / {size}（{percent}%）",
+    "parameters": {
+      "used": "string",
+      "size": "string",
+      "percent": "string"
+    }
+  },
+  {
+    "id": "desktop.agent.detail.contextUnknown",
+    "description": "Shown when the Agent has not reported context usage.",
+    "en-US": "The Agent has not reported context usage yet.",
+    "zh-CN": "Agent 尚未上报上下文用量。"
+  },
+  {
+    "id": "desktop.agent.detail.contextSystem",
+    "description": "Context breakdown row for the system prompt.",
+    "en-US": "System prompt",
+    "zh-CN": "系统提示词"
+  },
+  {
+    "id": "desktop.agent.detail.contextTools",
+    "description": "Context breakdown row for tool definitions, including MCP tools.",
+    "en-US": "Tools",
+    "zh-CN": "工具定义"
+  },
+  {
+    "id": "desktop.agent.detail.contextMessages",
+    "description": "Context breakdown row for the conversation messages.",
+    "en-US": "Messages",
+    "zh-CN": "对话消息"
+  },
+  {
+    "id": "desktop.agent.detail.changes",
+    "description": "Heading of the changed-files section for the current turn.",
+    "en-US": "Changed in this turn",
+    "zh-CN": "本轮更改的文件"
+  },
+  {
+    "id": "desktop.agent.detail.changesNone",
+    "description": "Shown when the current turn changed no files.",
+    "en-US": "No files changed in this turn.",
+    "zh-CN": "本轮没有更改文件。"
+  },
+  {
+    "id": "desktop.agent.detail.statistics",
+    "description": "Heading of the session statistics section.",
+    "en-US": "Statistics",
+    "zh-CN": "统计"
+  },
+  {
+    "id": "desktop.agent.detail.turns",
+    "description": "Statistics row: number of conversation turns.",
+    "en-US": "Turns",
+    "zh-CN": "轮数"
+  },
+  {
+    "id": "desktop.agent.detail.toolCalls",
+    "description": "Statistics row: number of tool calls.",
+    "en-US": "Tool calls",
+    "zh-CN": "工具调用"
+  },
+  {
+    "id": "desktop.agent.detail.duration",
+    "description": "Statistics row: total model time of the session.",
+    "en-US": "Duration",
+    "zh-CN": "耗时"
+  },
+  {
+    "id": "desktop.agent.detail.tokens",
+    "description": "Statistics line: input, output and cache-read token counts.",
+    "en-US": "Input {input} · Output {output} · Cache read {cacheRead}",
+    "zh-CN": "输入 {input} · 输出 {output} · 缓存读取 {cacheRead}",
+    "parameters": {
+      "input": "string",
+      "output": "string",
+      "cacheRead": "string"
+    }
+  },
+  {
+    "id": "desktop.agent.detail.noStatistics",
+    "description": "Shown when the Agent has not reported statistics yet.",
+    "en-US": "The Agent has not reported statistics yet.",
+    "zh-CN": "Agent 尚未上报统计。"
   }
 ]

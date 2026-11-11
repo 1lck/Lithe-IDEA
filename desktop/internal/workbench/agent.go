@@ -194,6 +194,8 @@ type agentState struct {
 	notice *agentNotice
 	// chosen says an Agent was picked from the welcome page, so the setup can replace it.
 	chosen bool
+	// detailOpen shows the session-detail sidebar beside the editor conversation (agent_detail.go).
+	detailOpen bool
 	// mention is the workspace-file list for an @ mention in the draft (agent_mention.go).
 	mention agentMentionState
 	// composerRect is where the composer was laid out, for dropped files.
