@@ -311,14 +311,10 @@ func (w *window) searchField(c ui.C) {
 			field = field.Action(icons.X, logs.ClearSearch)
 		}
 		if w.focusFilter {
-			// The request is kept until the field has the focus: a paint that delivers a
-			// shortcut is not the one that is shown.
-			if field.State().Focused {
-				w.focusFilter = false
-			} else {
-				field.AutoFocus()
-				c.Canvas().RequestFrame()
-			}
+			// A request made while the shortcut is handled takes effect in the repaint
+			// that follows it.
+			w.focusFilter = false
+			field.AutoFocus()
 		}
 		switch {
 		case field.ActionClicked():

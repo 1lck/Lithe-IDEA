@@ -299,8 +299,7 @@ func TestFilterShortcutFocusesTheField(t *testing.T) {
 	if err := driver.Chord(ui.Primary, "f"); err != nil {
 		t.Fatal(err)
 	}
-	settleWindow(t, driver)
-	settleWindow(t, driver)
+	// The request is made while the shortcut is handled; the repaint that follows takes it.
 	if driver.Snapshot().Focused != hitLabeled(t, driver, w.text.Logs.FilterPlaceholder).ID {
 		t.Fatal("the focus is not in the filter field after the shortcut")
 	}

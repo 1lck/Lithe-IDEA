@@ -53,9 +53,7 @@ func (w *window) keys(c ui.C) {
 		w.accept()
 	}
 	if ui.Shortcut(c, ui.Primary, "f") {
-		// The paint that delivers a shortcut is not shown, so the request for the focus is
-		// made in the one that follows it.
-		c.After(func() { w.focusSearch = true })
+		w.focusSearch = true
 	}
 	if ui.Shortcut(c, ui.Primary, "w") {
 		w.cancel()

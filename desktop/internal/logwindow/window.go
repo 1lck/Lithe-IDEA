@@ -193,7 +193,7 @@ type window struct {
 	// an applied bookmark) replaces the text, and typing becomes the expression.
 	filterText     string
 	filterRevision int
-	// focusFilter asks the next paint to focus the filter field (⌘F).
+	// focusFilter asks the filter field, declared later in the paint, to take the focus (⌘F).
 	focusFilter bool
 
 	// The toolbar's menus and the time range editor, whether each is open, and the texts

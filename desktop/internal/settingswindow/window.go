@@ -115,7 +115,8 @@ type window struct {
 	// mcp is the MCP Configuration page's state.
 	mcp *mcpState
 
-	// focusSearch asks the next paint to focus the search field (the platform's Find).
+	// focusSearch asks the sidebar's search field, declared later in the paint, to take the
+	// focus (the platform's Find).
 	focusSearch bool
 	// searchField is the sidebar's search and marketQuery the marketplace's text.
 	searchField ui.Field
