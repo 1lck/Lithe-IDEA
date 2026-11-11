@@ -3,6 +3,7 @@ package toolchain
 import (
 	"context"
 	"errors"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/loginenv"
 	"os"
 	"os/exec"
 	"path"
@@ -77,7 +78,8 @@ func newWorkspace(root string, options Options) (*workspace, error) {
 
 func currentEnvironment() map[string]string {
 	result := make(map[string]string)
-	for _, entry := range os.Environ() {
+	// A client started from Finder sees the login shell's variables too (loginenv).
+	for _, entry := range loginenv.Environ() {
 		if key, value, ok := strings.Cut(entry, "="); ok {
 			result[key] = value
 		}

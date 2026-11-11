@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/loginenv"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
 	"io"
 	"os"
@@ -221,11 +222,13 @@ func stream(reader io.Reader, kind Stream, observe func(Stream, string)) {
 }
 
 func mergedEnvironment(extra map[string]string) []string {
+	// The login shell's variables fill what the process lacks (loginenv).
+	base := loginenv.Environ()
 	if len(extra) == 0 {
-		return os.Environ()
+		return base
 	}
-	merged := make(map[string]string, len(extra)+len(os.Environ()))
-	for _, entry := range os.Environ() {
+	merged := make(map[string]string, len(extra)+len(base))
+	for _, entry := range base {
 		key, value, ok := splitEnvironment(entry)
 		if ok {
 			merged[key] = value

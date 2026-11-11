@@ -10,6 +10,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/loginenv"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logstore"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/workbench"
@@ -19,11 +20,17 @@ func main() {
 	// AppKit needs the process's main thread for the application and its windows. Pin the
 	// main goroutine before any setup that can yield, so the scheduler cannot move it.
 	runtime.LockOSThread()
+	// An app started from Finder or the Dock gets only the system PATH; take the login shell's
+	// before Core starts the threads that read the environment.
+	refreshLoginEnvironment := loginenv.Activate()
 	preferences, err := store.Open()
 	if err != nil {
 		fail(err)
 	}
 	client := core.NewClient()
+	if refreshLoginEnvironment != nil {
+		go refreshLoginEnvironment()
+	}
 	version := desktop.Version()
 	options := workbench.DesktopOptions(client, preferences, version)
 	// A project folder given on the command line is opened when the window starts; a worktree's

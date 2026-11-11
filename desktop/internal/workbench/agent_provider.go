@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/loginenv"
 	"io"
 	"os"
 	"path/filepath"
@@ -157,7 +158,7 @@ func agentProviderSources() []string { return []string{"codex", "claude"} }
 // never leaves the process.
 func agentEnvironment() map[string]string {
 	environment := map[string]string{}
-	for _, entry := range os.Environ() {
+	for _, entry := range loginenv.Environ() {
 		name, value, ok := strings.Cut(entry, "=")
 		if ok && name != "" {
 			environment[name] = value
