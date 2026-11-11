@@ -7,6 +7,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/installedpackage"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/wslpath"
 )
@@ -106,7 +107,7 @@ func (a *App) openProjectInNewWindow(path string) {
 
 // launchClient starts this executable on path as a separate client and does not wait for it.
 func launchClient(path string) error {
-	exe, err := os.Executable()
+	exe, err := installedpackage.Executable()
 	if err != nil {
 		return err
 	}

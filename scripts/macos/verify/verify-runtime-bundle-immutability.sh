@@ -5,22 +5,40 @@ ROOT_DIR="${0:A:h:h:h:h}"
 cd "$ROOT_DIR"
 
 # The unified client shares its production sources across macOS and Windows.
-# No current runtime resource needs to locate the executable: bundled assets
-# are embedded and mutable data uses a platform user-data/cache directory.
-# Fail closed if a future change introduces executable-derived paths; it must
-# add explicit ownership and runtime bundle-hash validation before use.
+# Mutable data uses a platform user-data/cache directory. The installed package
+# (app bundle or installation folder) is located in one place only:
+# desktop/internal/installedpackage, which documents its read-only ownership and
+# whose tests check that reading bundled resources leaves the bundle's bytes
+# unchanged. Fail closed if any other file derives a path from the executable or
+# the bundle, or if that package ever writes to the file system.
 if [[ ! -d desktop/internal || ! -d desktop/cmd ]]; then
     print -u2 -- "Desktop production sources are missing; cannot verify runtime resource paths."
     exit 1
 fi
+installed_package_dir=desktop/internal/installedpackage
+if [[ ! -d "$installed_package_dir" ]]; then
+    print -u2 -- "Missing $installed_package_dir; cannot verify where the installed package is located."
+    exit 1
+fi
 desktop_path_pattern='os[.]Executable\(|os[.]Args\[0\]|GetModuleFileName|Contents/Resources|Bundle[.]main|resource_dir\('
 desktop_violations=$(
-    { find desktop/internal desktop/cmd -type f -name '*.go' ! -name '*_test.go' -print0 \
+    { find desktop/internal desktop/cmd -type f -name '*.go' ! -name '*_test.go' \
+        ! -path "$installed_package_dir/*" -print0 \
         | xargs -0 /usr/bin/grep -En -- "$desktop_path_pattern"; } 2>&1 || true
 )
 if [[ -n "$desktop_violations" ]]; then
-    print -u2 -- "Desktop runtime must not derive writable resources from its installed package:"
+    print -u2 -- "Desktop runtime must locate its installed package only through $installed_package_dir:"
     print -u2 -- "$desktop_violations"
+    exit 1
+fi
+installed_package_write_pattern='os[.](WriteFile|Create|CreateTemp|OpenFile|Mkdir|MkdirAll|MkdirTemp|Rename|Remove|RemoveAll|Chmod|Chown|Chtimes|Symlink|Link|Truncate)\(|ioutil[.]|os/exec|syscall[.]|golang[.]org/x/sys'
+installed_package_writes=$(
+    { find "$installed_package_dir" -type f -name '*.go' ! -name '*_test.go' -print0 \
+        | xargs -0 /usr/bin/grep -En -- "$installed_package_write_pattern"; } 2>&1 || true
+)
+if [[ -n "$installed_package_writes" ]]; then
+    print -u2 -- "$installed_package_dir must stay read-only:"
+    print -u2 -- "$installed_package_writes"
     exit 1
 fi
 

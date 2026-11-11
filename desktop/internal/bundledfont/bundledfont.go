@@ -2,16 +2,18 @@
 // process. The package is read-only: it reads the Fonts folder inside the application bundle and
 // never writes there, so the signed bundle and its update baseline stay as they were built.
 //
-// Font files are a build-time input. The package staging step copies them into
-// Contents/Resources/Fonts (Inter 4.1 static OTF and JetBrains Mono 2.304 static TTF, with their
-// licenses); until that step ships, the folder is absent and every caller falls back to the
-// system's fonts, which is what the client did before.
+// Font files are a build-time input. The package staging step copies them into the bundle's
+// Resources, in the folder FolderName (Inter 4.1 static OTF and JetBrains Mono 2.304 static TTF,
+// with their licenses); until that step ships, the folder is absent and every caller falls back
+// to the system's fonts, which is what the client did before. installedpackage locates the folder.
 package bundledfont
 
 import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/installedpackage"
 )
 
 // FolderName is the folder inside the bundle's Resources that holds the font files.
@@ -36,19 +38,10 @@ var groups = []struct {
 	{"JetBrainsMono", func(s *Set, f string) { s.Mono = f }},
 }
 
-// Folder returns the Fonts folder of the running application bundle, or "" when the executable is
-// not inside a macOS app bundle (development builds, other platforms).
-func Folder(executable string) string {
-	macos := filepath.Dir(executable)
-	contents := filepath.Dir(macos)
-	if filepath.Base(macos) != "MacOS" || filepath.Base(contents) != "Contents" {
-		return ""
-	}
-	folder := filepath.Join(contents, "Resources", FolderName)
-	if info, err := os.Stat(folder); err != nil || !info.IsDir() {
-		return ""
-	}
-	return folder
+// Folder returns the Fonts folder of the running application bundle, or "" when the client is
+// not running from a macOS app bundle (development builds, other platforms).
+func Folder() string {
+	return installedpackage.ResourceFolder(FolderName)
 }
 
 // Register reads the font files of folder and registers them. Only .otf, .ttf and .ttc files whose
