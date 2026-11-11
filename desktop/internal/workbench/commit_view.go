@@ -200,6 +200,11 @@ func (a *App) drawChangeRow(c ui.C, change core.GitChange, busy, selected bool, 
 		ui.Icon(c, icon).Size(14, 14).Color(a.colors.Subtle)
 		ui.Text(c, name).Color(tint).Ellipsis().Shrink(0).MaxWidth(320)
 		ui.Text(c, strings.TrimSuffix(dir, "/")).Muted().Ellipsis().Grow(1)
+		// A summarized untracked directory stands for its files: its count is shown beside it
+		// (matrix git-large-untracked-directories).
+		if change.UntrackedFileCount > 0 {
+			ui.Text(c, t.Files(change.UntrackedFileCount)).Muted().Shrink(0)
+		}
 		ui.Text(c, state).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
 	})
 	if row.Clicked() {
