@@ -385,7 +385,14 @@ func (a *App) runConsole(c ui.C, p *project, run *runEntry) {
 				ui.Text(c, t.EmptyOutput).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
 			})
 		} else {
-			a.outputList(c, p, &run.list, outputScopeRun, t.Output, lines).Grow(1)
+			list := a.outputList(c, p, &run.list, outputScopeRun, t.Output, lines).Grow(1)
+			list = list.Hit(ui.ID(c.Key("runsnapshot/"+run.id)), run.label)
+			ui.ContextMenu(c, list, func(menu *ui.MenuItems) {
+				menu.WidthRange(180, 260)
+				if menu.Item(a.text.Run.Snapshot.Menu).Clicked() {
+					c.After(func() { a.snapshotRunOutput(p, run) })
+				}
+			})
 		}
 		if run.summary != "" {
 			ui.Divider(c)

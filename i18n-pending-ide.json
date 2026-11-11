@@ -1,0 +1,4 @@
+[
+  {"id":"desktop.run.snapshot.menu","description":"Context menu item that freezes the current output of a run into a read-only tab","en-US":"Snapshot output","zh-CN":"快照当前输出"},
+  {"id":"desktop.run.snapshot.tab","description":"Title of the read-only tab holding an output snapshot of a run","en-US":"{label} (snapshot)","zh-CN":"{label}（快照）","parameters":{"label":"string"}}
+]

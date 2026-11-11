@@ -3,10 +3,12 @@ package workbench
 import (
 	"context"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/vivaui/viva/ui"
 )
@@ -41,6 +43,8 @@ type runEntry struct {
 	summary string
 	// list is the console's scroll state.
 	list ui.ListState
+	// snapshots counts the output snapshots taken of this run, so each tab has its own URI.
+	snapshots int
 }
 
 // wirePluginRuns connects the plugin service's run host to the window: where a
@@ -166,6 +170,22 @@ func (r *runEntry) append(text string) {
 		r.outputBytes -= len(r.output[0])
 		r.output = r.output[1:]
 	}
+}
+
+// snapshotRunOutput freezes the output the console holds now into a read-only tab. The
+// text is copied here, so later lines, and the ring buffer dropping old ones, leave the
+// tab unchanged; the tab is virtual, so it is never saved or watched and nothing closes it
+// on its own.
+func (a *App) snapshotRunOutput(p *project, entry *runEntry) {
+	if p == nil || entry == nil || len(entry.output) == 0 {
+		return
+	}
+	text := strings.Join(entry.output, "")
+	entry.snapshots++
+	uri := "lithe-run-snapshot:" + entry.id + "/" + strconv.Itoa(entry.snapshots)
+	content := editorview.Prepare([]byte(text))
+	grammar := a.syntaxRegistry().Syntax("")
+	a.placeDocumentAs(p, uri, a.text.Run.Snapshot.Tab(entry.label), content, grammar, "", true)
 }
 
 // stopRun asks the plugin service to end a run. The process tree is stopped and
