@@ -753,6 +753,9 @@ func (v *View) edit(start, end int, text string, kind editKind) {
 		column = v.caretUTF16Column - v.utf16Units(start, v.caretUTF16Offset) + utf16Length(text)
 	}
 	v.text = v.text.Replace(start, end, []byte(text))
+	if len(v.vim.marks) > 0 {
+		v.vimShiftMarks(start, end, len(text))
+	}
 	v.revision++
 	v.clearCursorHistory()
 	newLast := v.text.LineOf(start + len(text))

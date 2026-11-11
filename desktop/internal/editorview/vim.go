@@ -76,6 +76,11 @@ type vimState struct {
 	// the insert began, so the text typed since can be repeated.
 	insertCount int
 	insertStart int
+	// regName is the register the command names with " (zero for the unnamed one). regs holds
+	// the named registers a-z; marks the marks a-z, as byte offsets that edits move.
+	regName byte
+	regs    map[byte]vimReg
+	marks   map[byte]int
 	// exit runs the window's part of the commands that save and close (see SetVimExit).
 	exit           func(cmd string) bool
 	pattern        string
@@ -116,7 +121,7 @@ func (v *View) SetVimMode(on bool) {
 		return
 	}
 	keep := v.vim
-	v.vim = vimState{on: on, reg: keep.reg, regLine: keep.regLine, exit: keep.exit}
+	v.vim = vimState{on: on, reg: keep.reg, regLine: keep.regLine, regs: keep.regs, marks: keep.marks, exit: keep.exit}
 	if on {
 		v.vimClamp()
 		return
@@ -508,6 +513,30 @@ func (v *View) vimCommandToken(tok vimToken) {
 		st.findKind, st.findChar, st.findValid = kind, s, true
 		v.vimFindCmd(kind, s, max(v.vimRawCount(), 1))
 		return
+	case '"':
+		st.pend = 0
+		if r, _ := utf8.DecodeRuneInString(s); vimPrintable(r) && len(s) == 1 {
+			st.regName = s[0]
+		}
+		return
+	case 'm':
+		st.pend = 0
+		if r := s[0]; len(s) == 1 && r >= 'a' && r <= 'z' {
+			v.vimSetMark(r)
+		}
+		v.vimCancel()
+		return
+	case '`', '\'':
+		jump := st.pend
+		st.pend = 0
+		if r := s[0]; len(s) == 1 && r >= 'a' && r <= 'z' {
+			if m, ok := v.vimMarkMove(r, jump == '\''); ok {
+				v.vimApply(m)
+				return
+			}
+		}
+		v.vimCancel()
+		return
 	case 'r':
 		st.pend = 0
 		if r, _ := utf8.DecodeRuneInString(s); vimPrintable(r) {
@@ -541,7 +570,7 @@ func vimPrintable(r rune) bool { return r >= ' ' && r != 0x7f && r != utf8.RuneE
 // vimCancel ends the command in progress: its count, operator and pending key.
 func (v *View) vimCancel() {
 	st := &v.vim
-	st.count, st.opCount, st.op, st.pend = 0, 0, 0, 0
+	st.count, st.opCount, st.op, st.pend, st.regName = 0, 0, 0, 0, 0
 }
 
 // vimCommand runs a command key in Normal or Visual mode, with the count and operator typed before
@@ -618,6 +647,14 @@ func (v *View) vimCommand(s string) {
 	case "g":
 		st.pend = 'g'
 		return
+	case "\"":
+		st.pend = '"'
+		return
+	case "m", "`", "'":
+		if st.op == 0 || s == "`" || s == "'" {
+			st.pend = s[0]
+			return
+		}
 	case "f", "F", "t", "T":
 		st.pend = s[0]
 		return

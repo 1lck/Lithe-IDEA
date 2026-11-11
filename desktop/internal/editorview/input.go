@@ -52,6 +52,13 @@ func (v *View) Shortcut(event gfx.KeyEvent) (gfx.EventResult, bool) {
 		v.insert("", editOther)
 		return gfx.EventResult{Handled: true, Repaint: true, ClipboardText: text}, true
 	case "v":
+		if v.vim.on && v.vim.mode != vimInsert && v.vim.mode != vimReplace {
+			// In Normal and Visual modes the paste is a put (p), so the Vim commands see it.
+			if text, err := app.ClipboardText(); err == nil {
+				v.vimPasteAs(text)
+			}
+			break
+		}
 		if text, err := app.ClipboardText(); err == nil && text != "" {
 			v.insert(text, editOther)
 		}
@@ -372,7 +379,11 @@ func (v *View) applyText(event app.TextEvent) app.TextState {
 		}
 		redraw = true
 	case app.TextPaste:
-		v.insert(event.Text, editOther)
+		if v.vim.on && v.vim.mode != vimInsert && v.vim.mode != vimReplace {
+			v.vimPasteAs(event.Text)
+		} else {
+			v.insert(event.Text, editOther)
+		}
 		redraw = true
 	case app.TextSetMarked:
 		runes := utf8.RuneCountInString(event.Text)
