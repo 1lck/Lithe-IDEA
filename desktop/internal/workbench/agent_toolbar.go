@@ -33,6 +33,9 @@ func (a *App) agentHeader(c ui.C, p *project) {
 		if ui.Button(c, t.Change).Ghost().Clicked() {
 			c.After(func() { a.disconnectAgent(p) })
 		}
+		if ui.Button(c.Key("agent-export"), a.text.Agent.Export.Export).Ghost().Disabled(len(p.agent.messages) == 0).Clicked() {
+			c.After(func() { a.exportAgentConversation(p) })
+		}
 		if ui.Button(c.Key("agent-settings"), a.text.Agent.Header.Settings).Ghost().IconOnly().Icon(icons.Settings).Tooltip(a.text.Agent.Header.Settings).Clicked() {
 			c.After(func() { a.openSettingsPage(surfaceButton, settingsAI) })
 		}

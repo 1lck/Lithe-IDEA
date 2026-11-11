@@ -199,5 +199,32 @@
     "description": "Icon-only button at the top of the AI conversation that collapses the Assistant panel.",
     "en-US": "Collapse",
     "zh-CN": "收起"
+  },
+  {
+    "id": "desktop.agent.export.button",
+    "description": "Header button that exports the open AI conversation to a Markdown file.",
+    "en-US": "Export",
+    "zh-CN": "导出"
+  },
+  {
+    "id": "desktop.agent.export.dialogTitle",
+    "description": "Title of the save dialog for the exported conversation.",
+    "en-US": "Export conversation",
+    "zh-CN": "导出对话"
+  },
+  {
+    "id": "desktop.agent.export.failed",
+    "description": "Message shown when the conversation could not be written. {reason} is the system's reason.",
+    "en-US": "The conversation was not exported: {reason}",
+    "zh-CN": "对话未导出：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.agent.export.processSteps",
+    "description": "Line that stands for a turn's process in the exported Markdown.",
+    "en-US": "Process steps",
+    "zh-CN": "过程步骤"
   }
 ]
