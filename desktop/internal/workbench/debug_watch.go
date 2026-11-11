@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -24,6 +25,22 @@ type debugWatchEntry struct {
 type debugWatch struct {
 	entries []debugWatchEntry
 	input   string
+	// history is the expressions evaluated in this session, oldest first and without repeats, and
+	// pick is what the recent-expressions picker chose last.
+	history []string
+	pick    string
+}
+
+// maxWatchHistory bounds the recent expressions the picker offers.
+const maxWatchHistory = 20
+
+// rememberExpression moves an evaluated expression to the end of the history.
+func (w *debugWatch) rememberExpression(expression string) {
+	w.history = slices.DeleteFunc(w.history, func(item string) bool { return item == expression })
+	w.history = append(w.history, expression)
+	if len(w.history) > maxWatchHistory {
+		w.history = w.history[len(w.history)-maxWatchHistory:]
+	}
 }
 
 // valuesCleared drops the values of one stop but keeps the expressions: the next stop
@@ -42,6 +59,7 @@ func (a *App) addDebugWatch(p *project) {
 		return
 	}
 	d.watch.entries = append(d.watch.entries, debugWatchEntry{expression: expression})
+	d.watch.rememberExpression(expression)
 	d.watch.input = ""
 	index := len(d.watch.entries) - 1
 	a.evaluateDebugWatch(p, index)
@@ -125,6 +143,13 @@ func (a *App) debugWatchView(c ui.C, p *project) {
 				c.After(func() { a.refreshDebugWatches(p) })
 			}
 		})
+		if len(w.history) > 0 {
+			// The recent expressions of this session: choosing one fills the field, to be evaluated as typed.
+			ui.Select(c.Key("watchHistory"), &w.pick, w.history, func(expression string) string { return expression }).FillWidth()
+			if w.pick != "" {
+				w.input, w.pick = w.pick, ""
+			}
+		}
 		submitted := ui.TextField(c.Key("watchInput"), &w.input, t.WatchPlaceholder, t.WatchPlaceholder).FillWidth().Submitted()
 		if submitted || ui.Button(c.Key("watchAdd"), t.AddWatch).Outline().Disabled(strings.TrimSpace(w.input) == "").Clicked() {
 			c.After(func() { a.addDebugWatch(p) })
