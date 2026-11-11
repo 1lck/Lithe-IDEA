@@ -222,6 +222,9 @@ func (s *Service) CollectEditorActions(ctx context.Context, root, path string, d
 		}
 	}
 	s.actions.mu.Unlock()
+	// The eight seconds bound the whole batch of bindings, not each one: every call shares this context.
+	batch, cancel := context.WithTimeout(ctx, editorActionCollectTimeout)
+	defer cancel()
 	var actions []EditorAction
 	var failures []error
 	for _, binding := range bindings {
@@ -233,7 +236,7 @@ func (s *Service) CollectEditorActions(ctx context.Context, root, path string, d
 			"document": map[string]any{"documentID": documentID, "version": version, "path": path},
 			"text":     text,
 		})
-		answer, err := session.Call(ctx, binding.function, argument, binding.reference, editorActionCollectTimeout)
+		answer, err := session.Call(batch, binding.function, argument, binding.reference, editorActionCollectTimeout)
 		if err != nil {
 			failures = append(failures, err)
 			continue
