@@ -303,7 +303,12 @@ func (a *App) reloadPluginLanguages() {
 		}
 		languages, loadErr := a.plugins.LoadLanguages(ctx, entries)
 		windows, windowsErr := a.plugins.ToolWindows(ctx, entries)
+		commands, commandsErr := a.plugins.ToolCommands(ctx, entries)
 		return func(a *App) {
+			if commandsErr != nil {
+				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_tool_commands", commandsErr))
+			}
+			a.pluginCommands = commands
 			if loadErr != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_languages", loadErr))
 			}

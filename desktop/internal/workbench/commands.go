@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -94,6 +95,21 @@ func (a *App) commands() []command {
 		open := a.chrome.isOpen(index)
 		add("tool."+id, t.GroupToolWindows, t.ShowTool(it.label(a.text)), "", !open, func() {
 			a.reduceChrome(core.SetChromeOpen(id, true))
+		})
+	}
+
+	// A plugin command opens one of its plugin's tool windows; only commands offered in the palette.
+	for _, command := range a.pluginCommands {
+		if command.Title == "" || !slices.Contains(command.Placements, "commandPalette") {
+			continue
+		}
+		windowID := pluginItemPrefix + command.ToolWindowID
+		index := slices.IndexFunc(a.chrome.catalog, func(it item) bool { return it.id == windowID })
+		if index < 0 {
+			continue
+		}
+		add("plugin.command."+command.PluginID+"."+command.ID, t.GroupToolWindows, command.Title, "", !a.chrome.isOpen(index), func() {
+			a.reduceChrome(core.SetChromeOpen(windowID, true))
 		})
 	}
 

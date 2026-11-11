@@ -420,7 +420,10 @@ type App struct {
 	// (ai_generation.go).
 	instructions aiInstructionsDraft
 	// settingsWindow opens the settings window and keeps at most one open.
-	settingsWindow       *settingswindow.Controller
+	settingsWindow *settingswindow.Controller
+	// pluginCommands are the ui.commands of the enabled plugins, which the command palette offers
+	// (plugintools.go). Only the window thread reads or writes them.
+	pluginCommands       []pluginservice.ToolCommand
 	settingsSubscription *settingsSubscription
 	// plugins is the plugin stack, nil when the window was built without a plugin
 	// kernel or without a writable plugin root.

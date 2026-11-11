@@ -37,6 +37,9 @@ type ToolWindow struct {
 	Web string
 	// Native is the host-rendered content of a native window; nil for the other kinds.
 	Native *NativePanel
+	// IconHost is the declared host icon ID ("database", "git", ...), empty when the window
+	// declares none. Package resources are not read as icons.
+	IconHost string
 }
 
 // NativePanel is a host-rendered tree or list of literal nodes, with actions that call plugin
@@ -296,6 +299,9 @@ func (s *Service) ToolWindows(ctx context.Context, entries []pluginmanager.Entry
 					Web       *struct {
 						Entry string `json:"entry"`
 					} `json:"web"`
+					Icon *struct {
+						Host string `json:"host"`
+					} `json:"icon"`
 				} `json:"toolWindows"`
 			} `json:"ui"`
 		}
@@ -315,6 +321,9 @@ func (s *Service) ToolWindows(ctx context.Context, entries []pluginmanager.Entry
 			}
 			if window.Web != nil {
 				declaredWindow.Web = window.Web.Entry
+			}
+			if window.Icon != nil {
+				declaredWindow.IconHost = window.Icon.Host
 			}
 			if len(window.Native) > 0 {
 				panel, err := decodeNativePanel(window.Native)

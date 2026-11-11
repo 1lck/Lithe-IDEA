@@ -9,6 +9,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -35,6 +36,38 @@ func placementZone(placement string) zone {
 	return zoneBottomLeft
 }
 
+// pluginToolIcon is the host icon a window declared by ID, or the generic tool window icon for
+// an ID the host does not map. The IDs are the public ones the manifest contract lists.
+func pluginToolIcon(host string) *gfx.Icon {
+	switch host {
+	case "database", "services":
+		return &icons.Server
+	case "terminal":
+		return &icons.SquareTerminal
+	case "search":
+		return &icons.Search
+	case "refresh":
+		return &icons.RefreshCw
+	case "run":
+		return &icons.Play
+	case "debug":
+		return &icons.Bug
+	case "settings":
+		return &icons.Settings
+	case "add":
+		return &icons.Plus
+	case "remove":
+		return &icons.Minus
+	case "git":
+		return &icons.GitBranch
+	case "problems":
+		return &icons.CircleAlert
+	case "plugin":
+		return &icons.Sparkles
+	}
+	return &icons.LayoutGrid
+}
+
 // pluginItems is the built-in catalog followed by an item for each plugin tool window.
 // A window without its own icon has the generic tool window icon.
 func pluginItems(windows []pluginservice.ToolWindow) []item {
@@ -43,7 +76,7 @@ func pluginItems(windows []pluginservice.ToolWindow) []item {
 		window := &windows[i]
 		title := window.Title
 		items = append(items, item{
-			id: pluginItemPrefix + window.ID, zone: placementZone(window.Placement), icon: &icons.LayoutGrid,
+			id: pluginItemPrefix + window.ID, zone: placementZone(window.Placement), icon: pluginToolIcon(window.IconHost),
 			label: func(*i18n.Messages) string { return title }, panel: true, tool: window,
 		})
 	}
