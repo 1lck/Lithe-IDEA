@@ -35,11 +35,11 @@ func (a *App) agentConversationTitle(p *project) string {
 	agent, _ := p.selectedAgent()
 	provider, _ := p.selectedProvider()
 	title := agent.Name
-	if provider.Name != "" {
+	if name := a.agentProviderName(provider); name != "" {
 		if title != "" {
 			title += " · "
 		}
-		title += provider.Name
+		title += name
 	}
 	if session := p.agent.history.title(p.agent.sessionID); session != "" {
 		title += " · " + session

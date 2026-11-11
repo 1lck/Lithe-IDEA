@@ -1,0 +1,14 @@
+[
+  {
+    "id": "desktop.agent.subscription.codexProvider",
+    "description": "Label of the official ChatGPT subscription route of the Codex Agent, which reuses the local Codex sign-in.",
+    "en-US": "ChatGPT subscription (local Codex sign-in)",
+    "zh-CN": "ChatGPT 订阅（本机 Codex 登录）"
+  },
+  {
+    "id": "desktop.agent.subscription.signIn",
+    "description": "Button that starts the upstream ChatGPT browser sign-in when the Codex Agent reports that sign-in is required.",
+    "en-US": "Sign in with ChatGPT",
+    "zh-CN": "使用 ChatGPT 登录"
+  }
+]

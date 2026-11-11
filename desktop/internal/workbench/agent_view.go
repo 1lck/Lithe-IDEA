@@ -130,7 +130,7 @@ func (a *App) agentSetup(c ui.C, p *project) {
 			}
 			for i, provider := range providers {
 				disabled := provider.Issue != "" || provider.MissingKey
-				label := provider.Name
+				label := a.agentProviderName(provider)
 				if provider.Endpoint != "" {
 					label += " · " + provider.Endpoint
 				}
@@ -250,6 +250,13 @@ func (a *App) agentConversation(c ui.C, p *project) {
 						p.agent.err = ""
 						p.agent.phase = agentPhaseReady
 					})
+				}
+			})
+		}
+		if p.agent.auth == agentAuthRequired {
+			ui.Row(c).FillWidth().Shrink(0).Items(ui.Center).Gap(6).Pad(8).Background(a.colors.Active).Children(func() {
+				if ui.Button(c, t.Subscription.SignIn).Outline().Clicked() {
+					c.After(func() { a.authenticateAgent(p) })
 				}
 			})
 		}

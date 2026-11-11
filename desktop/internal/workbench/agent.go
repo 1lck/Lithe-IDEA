@@ -315,8 +315,16 @@ func (p *project) providersForAgent(agent core.AgentCatalogStatus) []agentProvid
 			}
 		}
 	}
+	// The official subscription route is listed after the configured providers so the
+	// default selection does not change for users who already have one.
+	if agent.ID == agentCodexSubscriptionAgent {
+		list = append(list, agentProvider{Subscription: true, Protocol: agent.Protocol})
+	}
 	return list
 }
+
+// agentCodexSubscriptionAgent is the one adapter Core accepts a subscription launch
+// for. It reuses the local Codex sign-in and takes no provider (launch contract).
 
 // canStartAgent reports that the selected adapter is installed and its provider
 // has everything Core needs to launch.
@@ -326,7 +334,29 @@ func (p *project) canStartAgent() bool {
 		return false
 	}
 	provider, ok := p.selectedProvider()
-	return ok && provider.Issue == "" && !provider.MissingKey && provider.APIKey != "" && provider.Protocol != ""
+	return ok && provider.Issue == "" && !provider.MissingKey && (provider.Subscription || provider.APIKey != "") && provider.Protocol != ""
+}
+
+// agentCodexSubscriptionAgent and agentAuthenticationCodexSubscription name the launch
+// route Core documents for the Codex subscription.
+const (
+	agentCodexSubscriptionAgent          = "codex-acp"
+	agentAuthenticationCodexSubscription = "codexSubscription"
+)
+
+// authenticateAgent asks Core to start the sign-in the Agent declared as required. The
+// browser login, its five-minute deadline and cancellation (closing the connection) are
+// Core's; the panel only sends the command.
+func (a *App) authenticateAgent(p *project) {
+	if p == nil || p.agent.conn == nil || p.agent.auth != agentAuthRequired {
+		return
+	}
+	if err := a.sendAgentCommand(p, map[string]any{"kind": "authenticate"}); err != nil {
+		p.agent.err = a.text.Agent.ErrorConnection
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("agent_authenticate", err))
+		return
+	}
+	a.performed("agent.authenticate", surfaceButton)
 }
 
 // startAgent opens one Core ACP connection for the selected agent and provider.
@@ -345,12 +375,16 @@ func (a *App) startAgent(p *project) {
 		// to observe them (launch JSON in the Core contract).
 		"observeSubagents":  true,
 		"observeModelCalls": true,
-		"provider": map[string]any{
+	}
+	if provider.Subscription {
+		request["authentication"] = agentAuthenticationCodexSubscription
+	} else {
+		request["provider"] = map[string]any{
 			"protocol": provider.Protocol,
 			"baseUrl":  provider.Endpoint,
 			"apiKey":   provider.APIKey,
 			"model":    provider.Model,
-		},
+		}
 	}
 	if limits := a.agentLaunchLimits(agent.ID); limits != nil {
 		request["contextLimits"] = limits
