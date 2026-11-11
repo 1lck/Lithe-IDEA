@@ -276,7 +276,7 @@ func (c *Client) SetDebugFunctionBreakpoints(ctx context.Context, sessionID stri
 	}
 	if err := c.Execute(ctx, "debug.setFunctionBreakpoints", struct {
 		SessionID           string                    `json:"sessionId"`
-		FunctionBreakpoints []DebugFunctionBreakpoint `json:"functionBreakpoints"`
+		FunctionBreakpoints []DebugFunctionBreakpoint `json:"breakpoints"`
 	}{sessionID, breakpoints}, &update); err != nil {
 		return DebugUpdate{}, err
 	}
@@ -302,7 +302,7 @@ func (c *Client) SetDebugInstructionBreakpoints(ctx context.Context, sessionID s
 	}
 	if err := c.Execute(ctx, "debug.setInstructionBreakpoints", struct {
 		SessionID              string                       `json:"sessionId"`
-		InstructionBreakpoints []DebugInstructionBreakpoint `json:"instructionBreakpoints"`
+		InstructionBreakpoints []DebugInstructionBreakpoint `json:"breakpoints"`
 	}{sessionID, breakpoints}, &update); err != nil {
 		return DebugUpdate{}, err
 	}
