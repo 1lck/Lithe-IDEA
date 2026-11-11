@@ -28,9 +28,6 @@ const (
 	marketSplitterWidth = 8
 )
 
-// marketSourceChoices are the sources of the index: community, official, installed.
-var marketSourceChoices = []int{0, 1, 2}
-
 func (w *window) marketLanguage() i18n.Language {
 	language := i18n.English
 	if w.ctrl.opts.Language != nil {
@@ -41,11 +38,15 @@ func (w *window) marketLanguage() i18n.Language {
 
 // marketSourceLabel is the words of source.
 func (w *window) marketSourceLabel(source int) string {
-	switch source {
-	case 1:
+	switch {
+	case source == 1:
 		return i18n.Shared(w.marketLanguage(), "desktop.marketplace.officialSource")
-	case 2:
+	case source == 2:
 		return i18n.Shared(w.marketLanguage(), "desktop.marketplace.installedSource")
+	case source == w.market.aggregateSource():
+		return i18n.Shared(w.marketLanguage(), "desktop.marketplace.allSources")
+	case source >= marketFixedSources && source-marketFixedSources < len(w.market.custom):
+		return w.market.custom[source-marketFixedSources]
 	}
 	return i18n.Shared(w.marketLanguage(), "desktop.marketplace.communitySource")
 }
@@ -124,19 +125,23 @@ func (w *window) marketColumns(c ui.C) {
 					ui.TextField(c, &w.marketQuery, search, search).Icon(icons.Search).FillWidth().Height(30)
 				})
 			}
-			if m.official != nil || m.installed != nil {
+			if m.official != nil || m.installed != nil || len(m.custom) > 0 {
 				ui.Row(c).FillWidth().Height(44).Shrink(0).PadX(12).Items(ui.Center).Children(func() {
-					choices := marketSourceChoices[:2]
-					if m.installed != nil {
-						choices = marketSourceChoices
-					}
 					w.marketSourcePick = m.source
-					ui.Select(c, &w.marketSourcePick, choices, w.marketSourceLabel).Width(150).Label(i18n.Shared(language, "desktop.marketplace.source"))
+					ui.Select(c, &w.marketSourcePick, m.sourceChoices(), w.marketSourceLabel).Width(150).Label(i18n.Shared(language, "desktop.marketplace.source"))
 					if w.marketSourcePick != m.source {
 						m.chooseSource(w.marketSourcePick)
 						m.list.ScrollTo(0, ui.ListStart)
 					}
 				})
+				w.marketSourceManager(c)
+				for _, failure := range m.failures {
+					name := failure.name
+					if name == "" {
+						name = i18n.Shared(language, "desktop.marketplace.communitySource")
+					}
+					ui.Text(c, i18n.SharedFormat(language, "desktop.marketplace.sourceUnavailable", map[string]string{"source": name})).FontSize(12).Color(w.pal.danger).Ellipsis()
+				}
 				ui.Row(c).FillWidth().Height(1).Shrink(0).Background(w.pal.line)
 			}
 			switch {

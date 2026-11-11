@@ -225,6 +225,8 @@ type settings struct {
 	Language         string      `json:"language,omitempty"`
 	Theme            themeChoice `json:"theme,omitempty"`
 	MarketplaceWidth float32     `json:"marketplaceWidth,omitempty"`
+	// MarketplaceSources are the custom plugin index URLs the user added, in the order they were added.
+	MarketplaceSources []string `json:"marketplaceSources,omitempty"`
 	// HideMinimap hides the minimap of every editor; the editors show it by default.
 	HideMinimap bool `json:"hideMinimap,omitempty"`
 	// HideGitGutter hides the Git change markers of the editor gutter; they show by default.

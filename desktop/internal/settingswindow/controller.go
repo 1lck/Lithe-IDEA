@@ -152,7 +152,12 @@ type Options struct {
 	MarketplaceOfficial func(context.Context) (marketplace.Snapshot, error)
 	// MarketplaceInstalled reads only local installed metadata, without a network request.
 	MarketplaceInstalled func(context.Context) (marketplace.Snapshot, error)
-	MarketplaceRank      func(context.Context, string, []core.RankCandidate) ([]int, error)
+	// MarketplaceSources are the custom index URLs read when the page opens; FetchMarketplaceSource reads one
+	// of them, and SetMarketplaceSources stores the list after the user adds or removes one.
+	MarketplaceSources     []string
+	FetchMarketplaceSource func(context.Context, string) (marketplace.Snapshot, error)
+	SetMarketplaceSources  func([]string)
+	MarketplaceRank        func(context.Context, string, []core.RankCandidate) ([]int, error)
 	// MarketplaceError must be safe from a worker: a cancelled request may fail
 	// after the window has discarded its result.
 	MarketplaceError    func(error)

@@ -131,6 +131,9 @@ type window struct {
 	// each paint: a change the control makes is what the window then applies.
 	themePick, languagePick, tabRowsPick, tabOverflowPick, shellPick string
 	marketSourcePick                                                 int
+	// marketSourceDraft is the index URL being typed; marketSourceNotice the last refusal.
+	marketSourceDraft  string
+	marketSourceNotice string
 
 	// What the current paint works from.
 	text  *i18n.Messages
@@ -189,6 +192,8 @@ func newWindow(c *Controller, current Values) *window {
 	w.market = newMarketplaceState(c.opts.Marketplace)
 	w.market.official = c.opts.MarketplaceOfficial
 	w.market.installed = c.opts.MarketplaceInstalled
+	w.market.customFetch = c.opts.FetchMarketplaceSource
+	w.market.setCustom(c.opts.MarketplaceSources)
 	w.market.reportDiscarded = c.opts.MarketplaceError
 	w.market.search.rank = c.opts.MarketplaceRank
 	w.market.search.report = c.opts.MarketplaceError

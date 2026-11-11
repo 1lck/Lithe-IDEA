@@ -114,6 +114,17 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			}
 			return ""
 		},
+		MarketplaceSources: append([]string(nil), a.settings.MarketplaceSources...),
+		FetchMarketplaceSource: func(ctx context.Context, url string) (marketplace.Snapshot, error) {
+			arch := runtime.GOARCH
+			if arch == "amd64" {
+				arch = "x64"
+			}
+			return service.Fetch(ctx, url, core.MarketplaceThirdParty, runtime.GOOS+"-"+arch, pluginhost.Declared().Clone())
+		},
+		SetMarketplaceSources: func(urls []string) {
+			a.post(func(a *App) { a.setMarketplaceSources(urls) })
+		},
 		InstallPluginFromFile: func(path string) {
 			a.post(func(a *App) { a.installPluginFromFile(path) })
 		},
@@ -221,6 +232,12 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		MCP:         a.mcpSettingsLoader(),
 		IDEAPI:      a.ideAPISettingsLoader(),
 	})
+}
+
+// setMarketplaceSources stores the custom index URLs and saves the settings.
+func (a *App) setMarketplaceSources(urls []string) {
+	a.settings.MarketplaceSources = append([]string(nil), urls...)
+	a.saveSettings()
 }
 
 func (a *App) setMarketplaceWidth(width float32) {

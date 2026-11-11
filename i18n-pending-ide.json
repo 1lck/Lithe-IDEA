@@ -281,5 +281,50 @@
     "description": "Find Action group of the plugin editor actions of the selected document",
     "en-US": "Editor",
     "zh-CN": "编辑器"
+  },
+  {
+    "id": "desktop.marketplace.allSources",
+    "description": "Source of the plugin page that merges every index",
+    "en-US": "All sources",
+    "zh-CN": "全部来源"
+  },
+  {
+    "id": "desktop.marketplace.sourceUnavailable",
+    "description": "Notice naming one index the plugin page could not read; other sources still show",
+    "en-US": "Source unavailable: {source}",
+    "zh-CN": "来源不可用：{source}",
+    "parameters": {
+      "source": "string"
+    }
+  },
+  {
+    "id": "desktop.marketplace.sourceInvalid",
+    "description": "Shown when a custom plugin index address is not an HTTPS URL",
+    "en-US": "Enter an HTTPS address for the index.",
+    "zh-CN": "请输入 HTTPS 格式的索引地址。"
+  },
+  {
+    "id": "desktop.marketplace.removeSource",
+    "description": "Button that removes a custom plugin index",
+    "en-US": "Remove",
+    "zh-CN": "移除"
+  },
+  {
+    "id": "desktop.marketplace.sourceURL",
+    "description": "Label of the field that types a custom plugin index address",
+    "en-US": "Index address",
+    "zh-CN": "索引地址"
+  },
+  {
+    "id": "desktop.marketplace.sourceURLPlaceholder",
+    "description": "Placeholder of the custom plugin index address field",
+    "en-US": "https://example.com/index.json",
+    "zh-CN": "https://example.com/index.json"
+  },
+  {
+    "id": "desktop.marketplace.addSource",
+    "description": "Button that adds a custom plugin index",
+    "en-US": "Add source",
+    "zh-CN": "添加来源"
   }
 ]
