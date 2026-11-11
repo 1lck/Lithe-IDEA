@@ -348,9 +348,11 @@ type App struct {
 	debugAttach debugAttachFields
 	// root is the window's page; dnd are its drag and drop gestures and focus the control
 	// that is to have the keyboard once it is on screen (see FocusBind).
-	root  *ui.Page
-	dnd   dragDrop
-	focus focusTarget
+	root *ui.Page
+	dnd  dragDrop
+	// github is the GitHub account and its sign-in (github_account.go).
+	github githubAccount
+	focus  focusTarget
 	// debugHostedPort and debugInitializeWindow replace, in tests, asking the
 	// language server for a debug port and Core's initialize deadline. Production
 	// leaves both zero.
@@ -652,6 +654,7 @@ func (a *App) Run() error {
 		// The plugin stack is assembled before the window exists, because opening a
 		// window is what installs the invalidator its background work needs.
 		a.reloadPluginLanguages()
+		a.loadGitHubAccount()
 		// Development builds mark the Dock icon without changing the product name in the UI.
 		if buildinfo.Development {
 			application.SetDockBadge(a.text.App.DevBadge)

@@ -30,6 +30,7 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		navigation = kernel.SettingsNavigation
 	}
 	return settingswindow.NewController(settingswindow.Options{
+		GitHub:             a.githubSettings(),
 		SettingsError:      func(err error) { (settingsToolchains{app: a}).recordFailure("plugin_settings_surface", err) },
 		SettingsNavigation: navigation,
 		SettingsPages: func(ctx context.Context) ([]core.SettingsPage, error) {

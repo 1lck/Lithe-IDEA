@@ -522,5 +522,92 @@
     "parameters": {
       "reason": "string"
     }
+  },
+  {
+    "id": "desktop.github.settingsTitle",
+    "description": "Title of the GitHub account card on the Version Control settings page",
+    "en-US": "GitHub Account",
+    "zh-CN": "GitHub 账号"
+  },
+  {
+    "id": "desktop.github.settingsHelp",
+    "description": "Help under the GitHub account card title",
+    "en-US": "Sign in to list, check out and review pull requests of this repository.",
+    "zh-CN": "登录后可以查看、检出和评审本仓库的 Pull Request。"
+  },
+  {
+    "id": "desktop.github.connectedAs",
+    "description": "GitHub account card: the connected login",
+    "en-US": "Connected as {login}",
+    "zh-CN": "已连接为 {login}",
+    "parameters": {
+      "login": "string"
+    }
+  },
+  {
+    "id": "desktop.github.signIn",
+    "description": "Button that starts the GitHub device sign-in",
+    "en-US": "Sign In to GitHub",
+    "zh-CN": "登录 GitHub"
+  },
+  {
+    "id": "desktop.github.signOut",
+    "description": "Button that removes the stored GitHub token",
+    "en-US": "Sign Out",
+    "zh-CN": "退出登录"
+  },
+  {
+    "id": "desktop.github.enterCode",
+    "description": "GitHub device sign-in: asks the user to type the code on GitHub",
+    "en-US": "Enter this code on GitHub:",
+    "zh-CN": "在 GitHub 上输入此代码："
+  },
+  {
+    "id": "desktop.github.cancelSignIn",
+    "description": "Button that stops the GitHub device sign-in",
+    "en-US": "Cancel",
+    "zh-CN": "取消"
+  },
+  {
+    "id": "desktop.github.working",
+    "description": "GitHub account card while the sign-in starts or validates",
+    "en-US": "Connecting to GitHub…",
+    "zh-CN": "正在连接 GitHub…"
+  },
+  {
+    "id": "desktop.github.notConfigured",
+    "description": "Shown when this build has no GitHub OAuth client",
+    "en-US": "GitHub sign-in is not configured for this build.",
+    "zh-CN": "此构建未配置 GitHub 登录。"
+  },
+  {
+    "id": "desktop.github.expired",
+    "description": "Device sign-in failure: the code expired",
+    "en-US": "The code expired before it was entered on GitHub. Try again.",
+    "zh-CN": "代码在 GitHub 上输入前已过期，请重试。"
+  },
+  {
+    "id": "desktop.github.denied",
+    "description": "Device sign-in failure: the user refused",
+    "en-US": "The authorization was denied on GitHub.",
+    "zh-CN": "GitHub 上的授权被拒绝。"
+  },
+  {
+    "id": "desktop.github.failed",
+    "description": "Device sign-in failure with the reason",
+    "en-US": "GitHub sign-in failed: {reason}",
+    "zh-CN": "GitHub 登录失败：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.github.signOutFailed",
+    "description": "Notice when the stored GitHub token could not be removed",
+    "en-US": "Could not remove the GitHub token: {reason}",
+    "zh-CN": "无法删除 GitHub 令牌：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
   }
 ]
