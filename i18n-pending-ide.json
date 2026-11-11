@@ -275,5 +275,11 @@
     "description": "Notice when a plugin editor action failed",
     "en-US": "The plugin could not run this action.",
     "zh-CN": "插件无法执行此动作。"
+  },
+  {
+    "id": "desktop.command.groupEditor",
+    "description": "Find Action group of the plugin editor actions of the selected document",
+    "en-US": "Editor",
+    "zh-CN": "编辑器"
   }
 ]

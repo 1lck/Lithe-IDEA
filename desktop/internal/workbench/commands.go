@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -54,6 +55,13 @@ func (a *App) commands() []command {
 	}
 	add("project.close", t.GroupProject, t.CloseProject, "", true, a.closeProject)
 	add("documents.saveAll", t.GroupProject, t.SaveAll, "", true, func() { a.saveProjectDocuments(p, func(bool) {}) })
+	// The plugin editor actions of the selected document, by name, as its menu runs them.
+	if d := p.selectedDocument(p.docs.group); d != nil {
+		for index := range d.actions {
+			action := d.actions[index]
+			add("editorAction."+strconv.Itoa(index), a.text.Commands.GroupEditor, action.Title, "", true, func() { a.runEditorAction(p, d, action, -1) })
+		}
+	}
 
 	// Every tool window, plugin ones included, can be shown by name.
 	for index, it := range a.chrome.catalog {
