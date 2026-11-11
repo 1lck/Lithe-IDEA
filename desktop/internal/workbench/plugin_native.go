@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -27,6 +28,11 @@ type nativePanelState struct {
 	sourceLoaded  bool
 	sourceBusy    bool
 	sourceFailure string
+	// form holds a form panel's fields: text for the string and number kinds, flags for checkboxes.
+	// They are created once from the declaration and kept across repaints and reopening.
+	formReady bool
+	text      map[string]*string
+	flags     map[string]*bool
 }
 
 // nativeRow is one visible row of a panel: a node and how deep it sits.
@@ -64,6 +70,10 @@ func flattenNativeRows(nodes []pluginservice.NativeNode, expanded map[string]boo
 func (a *App) pluginNativeBody(c ui.C, p *project, tool *pluginservice.ToolWindow) {
 	panel := tool.Native
 	state := a.nativeState(tool)
+	if panel.Form != nil {
+		a.pluginFormBody(c, p, tool, state)
+		return
+	}
 	nodes := panel.Nodes
 	if panel.Source != nil {
 		nodes = state.nodes
@@ -88,7 +98,7 @@ func (a *App) pluginNativeBody(c ui.C, p *project, tool *pluginservice.ToolWindo
 					button := ui.Button(c.Key("native-"+id), action.Title).Small().Outline()
 					button.Disabled(state.busy || (action.RequiresSelection && state.selected == ""))
 					if button.Clicked() {
-						c.After(func() { a.runNativeAction(p, tool, state, *action) })
+						c.After(func() { a.runNativeAction(p, tool, state, *action, nil) })
 					}
 				}
 			})
@@ -123,7 +133,7 @@ func (a *App) pluginNativeBody(c ui.C, p *project, tool *pluginservice.ToolWindo
 							if menu.Item(action.Title).Disabled(state.busy).Clicked() {
 								row.C.After(func() {
 									state.selected = item.node.ID
-									a.runNativeAction(p, tool, state, *action)
+									a.runNativeAction(p, tool, state, *action, nil)
 								})
 							}
 						}
@@ -153,7 +163,97 @@ func nativeAction(panel *pluginservice.NativePanel, id string) *pluginservice.Na
 // runNativeAction runs an action. A refresh has nothing to reload on a static panel, so it changes
 // nothing; an invoke calls its function in the background and shows the message the answer carries.
 // Only one action runs at a time.
-func (a *App) runNativeAction(p *project, tool *pluginservice.ToolWindow, state *nativePanelState, action pluginservice.NativeAction) {
+// initForm creates the fields of a form from its declaration, once.
+func initForm(state *nativePanelState, form *pluginservice.NativeForm) {
+	if state.formReady {
+		return
+	}
+	state.text, state.flags = map[string]*string{}, map[string]*bool{}
+	for _, control := range form.Controls {
+		switch control.Kind {
+		case "checkbox":
+			value, _ := control.Value.(bool)
+			state.flags[control.ID] = &value
+		case "stepper":
+			number, _ := control.Value.(float64)
+			text := strconv.FormatFloat(number, 'f', -1, 64)
+			state.text[control.ID] = &text
+		default:
+			text, _ := control.Value.(string)
+			state.text[control.ID] = &text
+		}
+	}
+	state.formReady = true
+}
+
+// formValues collects the current fields keyed by control ID, as the contract passes them to a button.
+// A stepper's text is read as a number when it parses, and kept as text otherwise.
+func formValues(state *nativePanelState, form *pluginservice.NativeForm) map[string]any {
+	values := make(map[string]any, len(form.Controls))
+	for _, control := range form.Controls {
+		if flag, ok := state.flags[control.ID]; ok {
+			values[control.ID] = *flag
+			continue
+		}
+		text := *state.text[control.ID]
+		if control.Kind == "stepper" {
+			if number, err := strconv.ParseFloat(text, 64); err == nil {
+				values[control.ID] = number
+				continue
+			}
+		}
+		values[control.ID] = text
+	}
+	return values
+}
+
+// pluginFormBody declares a form panel: its controls in declaration order, then its buttons. Every field
+// is disabled while a button's call is out, and a field the declaration disabled stays disabled.
+func (a *App) pluginFormBody(c ui.C, p *project, tool *pluginservice.ToolWindow, state *nativePanelState) {
+	form := tool.Native.Form
+	initForm(state, form)
+	ui.Column(c).Fill().Background(a.colors.Editor).Children(func() {
+		ui.Column(c).FillWidth().Grow(1).Gap(10).PadX(10).PadY(10).Children(func() {
+			for _, control := range form.Controls {
+				control := control
+				disabled := state.busy || !control.Enabled
+				key := c.Key("field-" + control.ID)
+				switch control.Kind {
+				case "checkbox":
+					ui.Checkbox(key, state.flags[control.ID], control.Label).Disabled(disabled)
+				case "select", "segmented":
+					ids := make([]string, len(control.Options))
+					labels := make(map[string]string, len(control.Options))
+					for index, option := range control.Options {
+						ids[index], labels[option.ID] = option.ID, option.Label
+					}
+					ui.Select(key, state.text[control.ID], ids, func(id string) string { return labels[id] }).Label(control.Label).FillWidth().Disabled(disabled)
+				case "editor":
+					ui.TextArea(key, state.text[control.ID], control.Label, control.Placeholder).FillWidth().Disabled(disabled)
+				default:
+					ui.TextField(key, state.text[control.ID], control.Label, control.Placeholder).FillWidth().Disabled(disabled)
+				}
+			}
+			if len(form.Buttons) > 0 {
+				ui.Row(c).FillWidth().Items(ui.Center).Gap(8).Children(func() {
+					for _, button := range form.Buttons {
+						button := button
+						action := nativeAction(tool.Native, button.Action)
+						if action == nil {
+							continue
+						}
+						if ui.Button(c.Key("button-"+button.ID), button.Label).Outline().Disabled(state.busy || !button.Enabled).Clicked() {
+							values := formValues(state, form)
+							c.After(func() { a.runNativeAction(p, tool, state, *action, values) })
+						}
+					}
+				})
+			}
+		})
+	})
+}
+
+func (a *App) runNativeAction(p *project, tool *pluginservice.ToolWindow, state *nativePanelState, action pluginservice.NativeAction, values map[string]any) {
 	if p == nil || a.plugins == nil || state.busy {
 		return
 	}
@@ -172,7 +272,7 @@ func (a *App) runNativeAction(p *project, tool *pluginservice.ToolWindow, state 
 	selected, root, plugins, pluginID, function := state.selected, p.root, a.plugins, tool.PluginID, action.Function
 	reload := tool.Native.Source != nil
 	a.background(p, 70*time.Second, func(ctx context.Context) func(*App) {
-		message, err := plugins.InvokeToolWindowAction(ctx, root, pluginID, function, selected)
+		message, err := plugins.InvokeToolWindowAction(ctx, root, pluginID, function, selected, values)
 		return func(a *App) {
 			state.busy = false
 			if err != nil {

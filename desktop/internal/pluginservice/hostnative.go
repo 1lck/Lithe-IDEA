@@ -13,7 +13,7 @@ const nativeActionTimeout = 60 * time.Second
 // InvokeToolWindowAction calls the function of a native panel's invoke action in the workspace at root,
 // with the selected node's ID (or null). The answer may carry a message the panel shows; the rest of it
 // belongs to the plugin. The plugin must be running: its panel does not start a backend.
-func (s *Service) InvokeToolWindowAction(ctx context.Context, root, pluginID, function, selectedID string) (string, error) {
+func (s *Service) InvokeToolWindowAction(ctx context.Context, root, pluginID, function, selectedID string, values map[string]any) (string, error) {
 	if s == nil {
 		return "", ErrBackendUnavailable
 	}
@@ -32,7 +32,11 @@ func (s *Service) InvokeToolWindowAction(ctx context.Context, root, pluginID, fu
 	if selectedID != "" {
 		selected = selectedID
 	}
-	answer, err := session.Call(ctx, function, mustMarshal(map[string]any{"selectedID": selected}), mustMarshal(workspace.ContextRef), nativeActionTimeout)
+	argument := map[string]any{"selectedID": selected}
+	if values != nil {
+		argument["values"] = values
+	}
+	answer, err := session.Call(ctx, function, mustMarshal(argument), mustMarshal(workspace.ContextRef), nativeActionTimeout)
 	if err != nil {
 		return "", err
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -44,6 +45,8 @@ type NativePanel struct {
 	// Kind is "tree" or "list".
 	Kind  string
 	Nodes []NativeNode
+	// Form is the declared form of a form panel; nil for tree and list panels.
+	Form *NativeForm
 	// Source, when set, supplies the nodes: a function of the plugin, called for the one detected instance
 	// of a build system, instead of the literal Nodes.
 	Source *NativeSource
@@ -51,6 +54,45 @@ type NativePanel struct {
 	Actions     []NativeAction
 	Toolbar     []string
 	ContextMenu []string
+}
+
+// NativeForm is a form panel's controls and buttons. Layout is the column count when the form declares
+// one, else 1; the host lays the controls out in order.
+type NativeForm struct {
+	Controls []NativeControl
+	Buttons  []NativeFormButton
+	Columns  int
+}
+
+// NativeControl is one field of a form. Value is a string, a boolean or a number, by kind.
+type NativeControl struct {
+	ID          string
+	Label       string
+	Kind        string
+	Value       any
+	Placeholder string
+	Enabled     bool
+	Info        string
+	Options     []NativeOption
+	Rows        int
+	Minimum     float64
+	Maximum     float64
+	Step        float64
+}
+
+// NativeOption is one choice of a select or segmented control.
+type NativeOption struct {
+	ID    string
+	Label string
+}
+
+// NativeFormButton is a button of a form that runs a declared action with the form's values.
+type NativeFormButton struct {
+	ID      string
+	Label   string
+	Action  string
+	Primary bool
+	Enabled bool
 }
 
 // NativeSource names the build system whose single instance a source panel reads, and the function that
@@ -124,6 +166,9 @@ func decodeNativePanel(raw json.RawMessage) (*NativePanel, error) {
 	}
 	if err := json.Unmarshal(raw, &declared); err != nil {
 		return nil, err
+	}
+	if declared.Kind == "form" {
+		return decodeNativeForm(raw, declared.Actions, declared.Source != nil)
 	}
 	if declared.Kind != "tree" && declared.Kind != "list" {
 		return nil, fmt.Errorf("native kind %q is not supported", declared.Kind)
@@ -286,4 +331,143 @@ func (s *Service) ToolWindows(ctx context.Context, entries []pluginmanager.Entry
 		})
 	}
 	return windows, errors.Join(failures...)
+}
+
+// decodeNativeForm reads a form declaration against the schema: at most 32 controls and 16 buttons, unique
+// IDs, a literal label, a known kind, options for the choice kinds, and bounds for the stepper. A button
+// names a declared action that selects nothing. A form declares no nodes and no source.
+func decodeNativeForm(raw json.RawMessage, actions []struct {
+	ID                string `json:"id"`
+	Title             string `json:"title"`
+	Kind              string `json:"kind"`
+	RequiresSelection bool   `json:"requiresSelection"`
+	Function          string `json:"function"`
+}, hasSource bool) (*NativePanel, error) {
+	var declared struct {
+		Nodes  []json.RawMessage `json:"nodes"`
+		Layout *struct {
+			Columns int `json:"columns"`
+		} `json:"layout"`
+		Controls []struct {
+			ID          string `json:"id"`
+			Label       string `json:"label"`
+			Kind        string `json:"kind"`
+			Value       any    `json:"value"`
+			Placeholder string `json:"placeholder"`
+			Enabled     *bool  `json:"enabled"`
+			Info        string `json:"info"`
+			Options     []struct {
+				ID    string `json:"id"`
+				Label string `json:"label"`
+			} `json:"options"`
+			Rows    int      `json:"rows"`
+			Minimum *float64 `json:"minimum"`
+			Maximum *float64 `json:"maximum"`
+			Step    *float64 `json:"step"`
+		} `json:"controls"`
+		Buttons []struct {
+			ID      string `json:"id"`
+			Label   string `json:"label"`
+			Action  string `json:"action"`
+			Primary bool   `json:"primary"`
+			Enabled *bool  `json:"enabled"`
+		} `json:"buttons"`
+	}
+	if err := json.Unmarshal(raw, &declared); err != nil {
+		return nil, err
+	}
+	if len(declared.Nodes) != 0 || hasSource {
+		return nil, errors.New("a form declares no nodes and no source")
+	}
+	if len(declared.Controls) > 32 || len(declared.Buttons) > 16 || len(declared.Controls)+len(declared.Buttons) == 0 {
+		return nil, errors.New("a form needs one to 32 controls and at most 16 buttons")
+	}
+	columns := 1
+	if declared.Layout != nil {
+		if declared.Layout.Columns < 1 || declared.Layout.Columns > 12 {
+			return nil, errors.New("a form layout has one to 12 columns")
+		}
+		columns = declared.Layout.Columns
+	}
+	form := &NativeForm{Columns: columns}
+	ids := map[string]bool{}
+	for _, control := range declared.Controls {
+		if !validNativeID(control.ID) || ids[control.ID] || strings.TrimSpace(control.Label) == "" || len(control.Label) > 256 {
+			return nil, errors.New("a form control needs a unique valid ID and a label")
+		}
+		ids[control.ID] = true
+		item := NativeControl{ID: control.ID, Label: control.Label, Kind: control.Kind, Value: control.Value, Placeholder: control.Placeholder, Enabled: control.Enabled == nil || *control.Enabled, Info: control.Info}
+		switch control.Kind {
+		case "input", "search", "editor":
+			if _, ok := control.Value.(string); !ok && control.Value != nil {
+				return nil, fmt.Errorf("the %s control %q takes a string", control.Kind, control.ID)
+			}
+			if control.Kind == "editor" {
+				item.Rows = control.Rows
+				if item.Rows == 0 {
+					item.Rows = 4
+				}
+				if item.Rows < 2 || item.Rows > 12 {
+					return nil, errors.New("an editor control has two to 12 rows")
+				}
+			}
+		case "select", "segmented":
+			if len(control.Options) == 0 || (control.Kind == "segmented" && len(control.Options) > 8) || len(control.Options) > 128 {
+				return nil, fmt.Errorf("the %s control %q needs options within the limits", control.Kind, control.ID)
+			}
+			for _, option := range control.Options {
+				if !validNativeID(option.ID) || strings.TrimSpace(option.Label) == "" {
+					return nil, errors.New("a form option needs a valid ID and a label")
+				}
+				item.Options = append(item.Options, NativeOption{ID: option.ID, Label: option.Label})
+			}
+			if text, ok := control.Value.(string); !ok || !slices.ContainsFunc(item.Options, func(o NativeOption) bool { return o.ID == text }) {
+				return nil, fmt.Errorf("the %s control %q takes one of its options", control.Kind, control.ID)
+			}
+		case "checkbox":
+			if _, ok := control.Value.(bool); !ok {
+				return nil, fmt.Errorf("the checkbox control %q takes a boolean", control.ID)
+			}
+		case "stepper":
+			number, ok := control.Value.(float64)
+			if !ok || control.Minimum == nil || control.Maximum == nil || control.Step == nil || *control.Step <= 0 {
+				return nil, fmt.Errorf("the stepper control %q needs a number, bounds and a positive step", control.ID)
+			}
+			if number < *control.Minimum || number > *control.Maximum {
+				return nil, fmt.Errorf("the stepper control %q is outside its bounds", control.ID)
+			}
+			item.Minimum, item.Maximum, item.Step = *control.Minimum, *control.Maximum, *control.Step
+		default:
+			return nil, fmt.Errorf("the form control kind %q is not supported", control.Kind)
+		}
+		form.Controls = append(form.Controls, item)
+	}
+	declaredActions := map[string]struct {
+		kind     string
+		selects  bool
+		function string
+	}{}
+	for _, action := range actions {
+		declaredActions[action.ID] = struct {
+			kind     string
+			selects  bool
+			function string
+		}{action.Kind, action.RequiresSelection, action.Function}
+	}
+	for _, button := range declared.Buttons {
+		if !validNativeID(button.ID) || ids[button.ID] || strings.TrimSpace(button.Label) == "" {
+			return nil, errors.New("a form button needs a unique valid ID and a label")
+		}
+		ids[button.ID] = true
+		target, ok := declaredActions[button.Action]
+		if !ok || target.selects {
+			return nil, fmt.Errorf("the button %q names no declared action that selects nothing", button.ID)
+		}
+		form.Buttons = append(form.Buttons, NativeFormButton{ID: button.ID, Label: button.Label, Action: button.Action, Primary: button.Primary, Enabled: button.Enabled == nil || *button.Enabled})
+	}
+	panel := &NativePanel{Kind: "form", Form: form}
+	for _, action := range actions {
+		panel.Actions = append(panel.Actions, NativeAction{ID: action.ID, Title: action.Title, Kind: action.Kind, RequiresSelection: action.RequiresSelection, Function: action.Function})
+	}
+	return panel, nil
 }
