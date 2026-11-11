@@ -25,8 +25,8 @@ func (w *window) skillRow(c ui.C, index int, skill core.AgentSkill, busy bool) {
 		known := skill.Enabled != nil && skill.PluginID == nil
 		on := known && *skill.Enabled
 		value := on
-		ui.Switch(c.KeyInt(index), &value, i18n.SharedFormat(language, "desktop.settings.agent.skills.enable", map[string]string{"name": skill.Name})).Disabled(!known || busy)
-		if value != on {
+		// The switch writes a click into value only when it is asked, after Disabled is set.
+		if ui.Switch(c.KeyInt(index), &value, i18n.SharedFormat(language, "desktop.settings.agent.skills.enable", map[string]string{"name": skill.Name})).Disabled(!known || busy).Changed() && value != on {
 			enabled := value
 			c.After(func() { s.setSkillEnabled(skill, enabled) })
 		}

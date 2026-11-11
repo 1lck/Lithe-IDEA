@@ -24,14 +24,19 @@ func (w *window) generationCard(c ui.C) {
 			}
 			provider := generationIndex(generationProviderChoices[:], current.Provider)
 			providers := []int{0, 1, 2}
-			ui.Select(c.Key("genProvider"), &provider, providers, func(i int) string { return w.generationProviderLabel(i) }).
-				Label(i18n.Shared(w.marketLanguage(), "desktop.settings.agent.generation.provider")).Height(28)
+			// A bound control writes the user's choice into its value only when it is asked
+			// (Changed) or when the page ends, so each is asked before the values are read.
+			providerChanged := ui.Select(c.Key("genProvider"), &provider, providers, func(i int) string { return w.generationProviderLabel(i) }).
+				Label(i18n.Shared(w.marketLanguage(), "desktop.settings.agent.generation.provider")).Height(28).Changed()
 			language := generationIndex(generationLanguageChoices[:], current.Language)
 			languages := []int{0, 1, 2}
-			ui.Select(c.Key("genLanguage"), &language, languages, func(i int) string { return w.generationLanguageLabel(i) }).
-				Label(i18n.Shared(w.marketLanguage(), "desktop.settings.agent.generation.language")).Height(28)
+			languageChanged := ui.Select(c.Key("genLanguage"), &language, languages, func(i int) string { return w.generationLanguageLabel(i) }).
+				Label(i18n.Shared(w.marketLanguage(), "desktop.settings.agent.generation.language")).Height(28).Changed()
 			body := current.IncludeBody
-			ui.Switch(c.Key("genBody"), &body, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.generation.includeBody"))
+			bodyChanged := ui.Switch(c.Key("genBody"), &body, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.generation.includeBody")).Changed()
+			if !providerChanged && !languageChanged && !bodyChanged {
+				return
+			}
 			next := current
 			next.Provider = generationProviderChoices[provider]
 			next.Language = generationLanguageChoices[language]

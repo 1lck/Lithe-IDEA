@@ -91,9 +91,10 @@ func (w *window) sharedTargetRow(c ui.C, target core.AgentSharedTarget, busy, lo
 		})
 		on := target.Enabled != nil && *target.Enabled
 		value := on
-		ui.Switch(c.Key("sync/"+target.AgentID), &value, i18n.SharedFormat(language, "desktop.settings.agent.shared.enable", map[string]string{"name": name})).
+		// The switch writes a click into value only when it is asked, after Disabled is set.
+		toggle := ui.Switch(c.Key("sync/"+target.AgentID), &value, i18n.SharedFormat(language, "desktop.settings.agent.shared.enable", map[string]string{"name": name})).
 			Disabled(target.File == nil || target.Enabled == nil || busy || locked)
-		if value != on {
+		if toggle.Changed() && value != on {
 			agentID, enabled := target.AgentID, value
 			c.After(func() { s.setSharedEnabled(agentID, enabled) })
 		}
