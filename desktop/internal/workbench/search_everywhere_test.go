@@ -40,11 +40,12 @@ func TestEverywhereFindsPagesAndOpensSelectedFile(t *testing.T) {
 	if p.everywhere.cursor == nil {
 		t.Fatal("first page did not offer a continuation")
 	}
-	area := center(h.pageHit("file-00.txt").Bounds)
+	// The preview shows the selected file's name too; a row below the first is only in the list.
+	area := center(h.pageHit("file-05.txt").Bounds)
 	if err := h.driver.Scroll(gfx.ScrollEvent{X: area.X, Y: area.Y, DeltaY: 20000, Precise: true}); err != nil {
 		t.Fatal(err)
 	}
-	h.clickShared("desktop.everywhere.more")
+	// Scrolling to the end of the list loads the next page; there is no button for it.
 	awaitDocumentState(t, h, func() bool { return !p.everywhere.loading && len(p.everywhere.matches) == 60 })
 	if p.everywhere.cursor != nil {
 		t.Fatal("last page unexpectedly has a continuation")

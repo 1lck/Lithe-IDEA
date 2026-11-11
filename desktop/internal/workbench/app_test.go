@@ -219,14 +219,17 @@ func TestWorkbenchDefaultLayout(t *testing.T) {
 		zoneRightBottom: nil,
 		zoneBottomRight: {itemUpdates, itemBackground},
 		zoneTitle:       {itemRunConfig, itemTitleRun, itemTitleDebug, itemTitleSearch, itemTitleSettings},
-		zoneStatus:      {itemCaret, itemLock, itemEncoding, itemLSP, itemMemory, itemFPS, itemChanges, itemHealth},
+		zoneStatus:      {itemCaret, itemLock, itemEncoding, itemIndent, itemEOL, itemLSP, itemVim, itemMemory, itemFPS, itemChanges, itemHealth},
 	}
 	for z, ids := range want {
 		if got := h.zoneItems(z); strings.Join(got, ",") != strings.Join(ids, ",") {
 			t.Errorf("zone %d = %v, want %v", z, got, ids)
 		}
 		for _, id := range ids {
-			h.button(id)
+			// The Vim item keeps its place in the status bar but is shown only in Vim mode.
+			if id != itemVim {
+				h.button(id)
+			}
 		}
 	}
 	if !h.app.chrome.isOpen(catalogIndex[itemProject]) || !h.app.chrome.isOpen(catalogIndex[itemGit]) {

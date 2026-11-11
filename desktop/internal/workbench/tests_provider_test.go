@@ -143,7 +143,7 @@ func TestProviderTestRunner(t *testing.T) {
 		case "lithe/build/model":
 			reply(request.ID, map[string]any{
 				"format":   "litheBuildModel",
-				"version":  1,
+				"version":  0,
 				"projects": []any{map[string]any{"path": ".", "name": "fixture"}},
 			})
 		case "lithe/build/test":
@@ -163,7 +163,7 @@ func TestProviderTestRunner(t *testing.T) {
 				"output":   "provider output\n",
 				"testResults": map[string]any{
 					"format":  "litheTestResults",
-					"version": 1,
+					"version": 0,
 					"tests": []any{
 						map[string]any{"suite": "ProviderSuite", "case": "providerPasses", "status": "passed"},
 						map[string]any{

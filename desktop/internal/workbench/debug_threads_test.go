@@ -75,6 +75,11 @@ func TestDebugThreadsSelectAndRestartWatchesOnEachStop(t *testing.T) {
 		return p.debug.state == "paused" && len(p.debug.threads) == 2 &&
 			len(p.debug.watch.entries) == 2 && p.debug.watch.entries[0].value == "42"
 	})
+	// The watch editor sits over the variables tree; a window as tall as a laptop screen leaves
+	// the bottom panel room for both under the breakpoints.
+	if err := h.driver.Resize(1280, 900); err != nil {
+		t.Fatal(err)
+	}
 	p.debug.section = debugSectionVariables
 	h.settle()
 	p.debug.section = debugSectionVariables

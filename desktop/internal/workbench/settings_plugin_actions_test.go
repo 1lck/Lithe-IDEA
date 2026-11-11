@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -39,6 +40,18 @@ func TestSettingsActionConfirmsInvokesExistingProviderWithoutSaving(t *testing.T
 			t.Fatal(err)
 		}
 	}
+	// The host resolves the provider's build tool before it starts the provider; the fixture
+	// provider never runs it.
+	bin := t.TempDir()
+	tool := filepath.Join(bin, "fixture-tool")
+	if runtime.GOOS == "windows" {
+		tool += ".exe"
+		t.Setenv("PATHEXT", ".EXE")
+	}
+	if err := writeFakeExecutable(tool); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(filepath.ListSeparator)+os.Getenv("PATH"))
 	p := openTestsPanel(t, h, root)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

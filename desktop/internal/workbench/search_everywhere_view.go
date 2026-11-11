@@ -238,8 +238,14 @@ func (a *App) everywhereResults(c ui.C, p *project, language i18n.Language) {
 		rowHeight = everywhereTextHeight
 	}
 	v.list.Label = func(i int) string { return searchMatchLabel(s.matches[i]) }
+	// The list learns its row count when it is declared, so the first paint with matches
+	// cannot select one yet and the next does. Only a selection that moved scrolls the list;
+	// otherwise that later selection would undo a wheel scroll made in between.
 	if s.selected != v.list.Selected() {
 		v.list.Select(s.selected)
+	}
+	if s.selected != v.scrolledTo {
+		v.scrolledTo = s.selected
 		v.list.ScrollIntoView(s.selected)
 	}
 	opened := -1
@@ -284,8 +290,10 @@ func (a *App) everywhereResults(c ui.C, p *project, language i18n.Language) {
 		return
 	}
 	if s.cursor != nil && !s.loading && !s.running {
+		// A wheel scroll paints without an event pass, which drops c.After, so the next page is
+		// asked for through the window's queue.
 		if _, last := v.list.Visible(); last >= len(s.matches)-everywherePrefetch {
-			c.After(func() { a.runEverywhere(p, true) })
+			a.post(func(a *App) { a.runEverywhere(p, true) })
 		}
 	}
 }

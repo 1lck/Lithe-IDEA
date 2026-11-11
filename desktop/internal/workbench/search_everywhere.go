@@ -41,6 +41,9 @@ type everywhereView struct {
 	open, focus bool
 	scope       int
 	list        ui.ListState
+	// scrolledTo is the selected match the list last scrolled into view, so only a selection
+	// that moved scrolls the list.
+	scrolledTo int
 	// actionList, actionSelected and actionCount are the Actions tab's list (commands.go).
 	actionList     ui.ListState
 	actionSelected int
