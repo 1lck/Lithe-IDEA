@@ -78,6 +78,8 @@ type titleState struct {
 	projectOpen bool
 	// gearOpen says the settings button's menu is open.
 	gearOpen bool
+	// menuOpen says the compact menu of the title bar is open (compact_menu.go).
+	menuOpen bool
 	// branches is the branch of each recent project the project menu has read, by path. The
 	// empty string stands for a folder that is not a repository or whose status could not be
 	// read. The map is allocated when the first answer arrives, and is dropped with the rest

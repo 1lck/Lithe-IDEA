@@ -907,5 +907,11 @@
     "description": "Gutter change peek: go to the next change marker",
     "en-US": "Next",
     "zh-CN": "下一处"
+  },
+  {
+    "id": "desktop.menu.open",
+    "description": "Compact title bar menu button: opens the menu of command groups (Windows and Linux)",
+    "en-US": "Menu",
+    "zh-CN": "菜单"
   }
 ]
