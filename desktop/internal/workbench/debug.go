@@ -660,12 +660,33 @@ func (a *App) toggleBreakpoint(p *project) {
 
 // sendDebugBreakpoints replaces one file's adapter breakpoints.
 func (a *App) sendDebugBreakpoints(p *project, path string) {
-	if p == nil || p.debug.activeSession() == nil {
+	if p == nil {
 		return
 	}
-	session := p.debug.activeSession()
+	// Every running session gets the change, the parent and the children it started
+	// alike: a breakpoint belongs to the file, not to the session shown.
+	for _, session := range p.debug.sessions {
+		a.sendSessionBreakpoints(p, session, path)
+	}
+}
+
+// sendSessionBreakpoints replaces one session's breakpoints in the file at path.
+func (a *App) sendSessionBreakpoints(p *project, session *debugSession, path string) {
+	if session == nil || session.stopped.Load() {
+		return
+	}
 	points := sourceBreakpoints(p.debug.breakpoints[path])
 	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
+		// A session still starting takes the change once Core has it; one that never
+		// got that far has no breakpoints to replace.
+		select {
+		case <-session.startupDone:
+		case <-ctx.Done():
+			return nil
+		}
+		if !session.created {
+			return nil
+		}
 		session.operationMu.Lock()
 		defer session.operationMu.Unlock()
 		if session.stopped.Load() {
