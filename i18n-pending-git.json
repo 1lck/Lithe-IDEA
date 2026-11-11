@@ -883,5 +883,29 @@
     "description": "Publish branch: the remote branch differs and the Push dialog must decide",
     "en-US": "The remote branch has diverged. Choose how to publish it in the Push dialog.",
     "zh-CN": "远程分支已分叉，请在推送对话框中选择发布方式。"
+  },
+  {
+    "id": "desktop.command.gitNextChange",
+    "description": "Command and shortcut: move to the next Git change marker of the file",
+    "en-US": "Go to Next Change",
+    "zh-CN": "转到下一处变更"
+  },
+  {
+    "id": "desktop.command.gitPreviousChange",
+    "description": "Command and shortcut: move to the previous Git change marker of the file",
+    "en-US": "Go to Previous Change",
+    "zh-CN": "转到上一处变更"
+  },
+  {
+    "id": "desktop.git.gutter.previous",
+    "description": "Gutter change peek: go to the previous change marker",
+    "en-US": "Previous",
+    "zh-CN": "上一处"
+  },
+  {
+    "id": "desktop.git.gutter.next",
+    "description": "Gutter change peek: go to the next change marker",
+    "en-US": "Next",
+    "zh-CN": "下一处"
   }
 ]

@@ -70,7 +70,7 @@ type debugState struct {
 	dataBreakpoints []debugDataBreakpoint
 	// exception is the exception info of the last stop, asked for by the exceptions section.
 	exception *core.DebugExceptionInfo
-	frames          []core.DebugStackFrame
+	frames    []core.DebugStackFrame
 	// hideFiltered collapses the frames the session's stepping filters match into one
 	// row per run; framesExpanded shows them again until the next stack arrives.
 	hideFiltered   bool

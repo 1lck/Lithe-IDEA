@@ -296,6 +296,14 @@ func (a *App) gitGutterPeek(c ui.C, p *project, d *document, anchor ui.Box) {
 				ui.Text(c.KeyInt(i), line).Mono().FontSize(12).Color(a.colors.Text).Ellipsis()
 			}
 			ui.Row(c).Gap(6).Children(func() {
+				if ui.Button(c.Key("previous"), i18n.Shared(a.language(), "desktop.git.gutter.previous")).Ghost().Clicked() {
+					c.After(func() { a.gitGutterStep(d, -1) })
+				}
+				if ui.Button(c.Key("next"), i18n.Shared(a.language(), "desktop.git.gutter.next")).Ghost().Clicked() {
+					c.After(func() { a.gitGutterStep(d, 1) })
+				}
+			})
+			ui.Row(c).Gap(6).Children(func() {
 				if ui.Button(c.Key("stage"), i18n.Shared(a.language(), "desktop.git.gutter.stage")).Disabled(d.dirty()).Clicked() {
 					c.After(func() { a.stageGitGutter(p, d, h) })
 				}
@@ -308,4 +316,41 @@ func (a *App) gitGutterPeek(c ui.C, p *project, d *document, anchor ui.Box) {
 	if !d.gutter.peekOpen {
 		d.gutter.peek = nil
 	}
+}
+
+// gitGutterStep moves to the next (by > 0) or the previous (by < 0) change marker of d in marker
+// order, wrapping around the file. The change's first line is selected and its peek opens.
+func (a *App) gitGutterStep(d *document, by int) {
+	hunks := d.gutter.hunks
+	if len(hunks) == 0 {
+		return
+	}
+	caret, _ := d.view.CaretUTF16()
+	i := -1
+	if by > 0 {
+		for k, h := range hunks {
+			if h.decoration().StartLine > caret {
+				i = k
+				break
+			}
+		}
+		if i < 0 {
+			i = 0
+		}
+	} else {
+		for k := len(hunks) - 1; k >= 0; k-- {
+			if hunks[k].decoration().StartLine < caret {
+				i = k
+				break
+			}
+		}
+		if i < 0 {
+			i = len(hunks) - 1
+		}
+	}
+	h := hunks[i]
+	d.view.GoToLine(h.decoration().StartLine + 1)
+	d.gutter.peek = &h
+	d.gutter.peekOpen = true
+	a.invalidator.Invalidate()
 }

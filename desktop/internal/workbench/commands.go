@@ -60,6 +60,11 @@ func (a *App) commands() []command {
 	}
 	add("project.close", t.GroupProject, t.CloseProject, "", true, a.closeProject)
 	add("documents.saveAll", t.GroupProject, t.SaveAll, "", true, func() { a.saveProjectDocuments(p, func(bool) {}) })
+	// The change markers of the selected document: next and previous, in marker order.
+	if d := p.selectedDocument(p.docs.group); d != nil && len(d.gutter.hunks) > 0 {
+		add("git.gutter.next", t.GroupGit, t.GitNextChange, "", true, func() { a.gitGutterStep(d, 1) })
+		add("git.gutter.previous", t.GroupGit, t.GitPreviousChange, "", true, func() { a.gitGutterStep(d, -1) })
+	}
 	// The plugin editor actions of the selected document, by name, as its menu runs them.
 	if d := p.selectedDocument(p.docs.group); d != nil {
 		for index := range d.actions {
