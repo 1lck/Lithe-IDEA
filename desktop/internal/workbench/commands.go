@@ -54,6 +54,7 @@ func (a *App) commands() []command {
 	})
 	add("language.en", t.GroupView, t.LanguageEnglish, "", a.settings.Language != "en", func() { a.setLanguage("en") })
 	add("language.zh", t.GroupView, t.LanguageChinese, "", a.settings.Language != "zh-Hans", func() { a.setLanguage("zh-Hans") })
+	add("editor.vimMode", t.GroupEditor, t.ToggleVim, "", true, func() { a.setVimMode(!a.settings.VimMode) })
 
 	add("project.open", t.GroupProject, t.OpenProject, "", true, func() { a.chooseProject(surfaceMenu) })
 	add("project.new", t.GroupProject, t.NewProject, "", true, func() { a.openNewProject(surfaceMenu) })

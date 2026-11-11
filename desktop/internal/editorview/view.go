@@ -77,6 +77,8 @@ type Messages struct {
 	Minimap, HideMinimap, ShowMinimap string
 	// VerticalScrollbar and HorizontalScrollbar name the scrollbars.
 	VerticalScrollbar, HorizontalScrollbar string
+	// VimNormal, VimInsert, VimReplace, VimVisual and VimVisualLine name the Vim modes in the status bar.
+	VimNormal, VimInsert, VimReplace, VimVisual, VimVisualLine string
 }
 
 // Look is the view's colors for the frame being painted.
@@ -248,6 +250,8 @@ type View struct {
 	// decor is the line highlights and labels a diff viewer sets, and the line it asked to
 	// center. See diffdecor.go.
 	decor decorState
+	// vim is the Vim mode (vim.go); it is off until SetVimMode turns it on.
+	vim vimState
 }
 
 // New makes the view of a document.
@@ -459,7 +463,9 @@ func (v *View) MarkSaved(text rope.Rope) {
 func (v *View) SetLabel(label string) { v.cfg.Label = label }
 
 // Selection is the selection's start and end, in order.
-func (v *View) Selection() (int, int) { return min(v.anchor, v.caret), max(v.anchor, v.caret) }
+func (v *View) Selection() (int, int) {
+	return v.vimSelection(min(v.anchor, v.caret), max(v.anchor, v.caret))
+}
 
 // GoToLine selects the start of a one-based line and reveals it on the next paint.
 // Active input-method composition retains its selection until it is committed.
@@ -715,11 +721,19 @@ func (v *View) edit(start, end int, text string, kind editKind) {
 	case editDeleting:
 		merge = merge && (end == v.lastEnd || start == v.lastEnd)
 	}
-	if !merge {
+	// With the Vim keys on, a command is one undo step: its first edit opens the step and the
+	// edits after it, up to the end of the command (see vimIdle), join it.
+	if v.vim.on && !v.vim.grouped {
+		merge = false
+	}
+	if !merge && !v.vim.grouped {
 		v.undo = append(v.undo, v.snapshot())
 		if len(v.undo) > undoLimit {
 			v.undo = v.undo[len(v.undo)-undoLimit:]
 		}
+	}
+	if v.vim.on {
+		v.vim.grouped = true
 	}
 	v.redo = v.redo[:0]
 	var change Edit

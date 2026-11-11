@@ -160,9 +160,17 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 		}
 		top += float32(len(wraps)) * v.lineH
 	}
-	if v.focused && !v.preedit.Composing && v.blinkOn(canvas) {
+	if v.focused && !v.preedit.Composing && (v.vimBlock() || v.blinkOn(canvas)) {
 		x, y := v.caretPoint()
-		canvas.Fill(gfx.Rect{X: float32(math.Round(float64(x))), Y: y, Width: 2, Height: v.lineH}, look.Caret)
+		if v.vimBlock() {
+			// The Vim modes draw the caret as a block over its character, solid, and let the
+			// text show through it.
+			block := look.Caret
+			block.Alpha *= 0.6
+			canvas.Fill(gfx.Rect{X: float32(math.Round(float64(x))), Y: y, Width: v.cellW, Height: v.lineH}, block)
+		} else {
+			canvas.Fill(gfx.Rect{X: float32(math.Round(float64(x))), Y: y, Width: 2, Height: v.lineH}, look.Caret)
+		}
 	}
 	canvas.Unclip()
 

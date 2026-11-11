@@ -175,6 +175,9 @@ type EditorMessages struct {
 	// SoftWrap names the button at the end of the tab bar that wraps long lines at the
 	// editor's width instead of scrolling them sideways.
 	SoftWrap string
+	// VimNormal, VimInsert, VimReplace, VimVisual and VimVisualLine name the Vim modes in the
+	// status bar and the editor's status text.
+	VimNormal, VimInsert, VimReplace, VimVisual, VimVisualLine string
 	// HiddenTabs names the button at the end of a tab strip that lists the tabs scrolled or
 	// squeezed out of view.
 	HiddenTabs string
@@ -516,6 +519,9 @@ type StatusMessages struct {
 	Writable      string
 	ReadOnly      string
 	LSPNotStarted string
+	// Vim is the status item of the Vim mode's name, shown while the Vim keys are on and no
+	// document shows its own mode.
+	Vim string
 	// Encoding names the status bar item that shows the file's text encoding.
 	Encoding string
 	// Problems is how many problems the language servers reported, for example

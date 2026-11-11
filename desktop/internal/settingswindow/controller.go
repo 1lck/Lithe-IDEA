@@ -83,6 +83,8 @@ type Values struct {
 	HideProjectColors bool
 	// DisableSemanticHighlight keeps the syntax colors alone; semantic coloring is on by default.
 	DisableSemanticHighlight bool
+	// VimMode turns on the Vim keys of the editor (Normal, Insert and Visual modes); off by default.
+	VimMode bool
 	// ProcessTermination is the Process Termination page's part of Core's termination
 	// settings; the zero value keeps Core's defaults.
 	ProcessTermination ProcessTermination
@@ -282,6 +284,9 @@ type Options struct {
 	// SetDisableSemanticHighlight hands a change of Values.DisableSemanticHighlight to the
 	// settings owner, like SetHideGitGutter.
 	SetDisableSemanticHighlight func(bool)
+	// SetVimMode hands a change of Values.VimMode to the settings owner, like
+	// SetDisableSemanticHighlight.
+	SetVimMode func(bool)
 	// ResetLayout puts the workbench's buttons back where the catalog puts them. It runs
 	// at once, on the settings window's thread, when the user presses the button, because
 	// pressing it is its own confirmation.

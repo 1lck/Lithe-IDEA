@@ -913,5 +913,59 @@
     "description": "Compact title bar menu button: opens the menu of command groups (Windows and Linux)",
     "en-US": "Menu",
     "zh-CN": "菜单"
+  },
+  {
+    "id": "desktop.status.vim",
+    "description": "Status bar item: the Vim mode's name when no document shows its own mode",
+    "en-US": "Vim",
+    "zh-CN": "Vim"
+  },
+  {
+    "id": "desktop.editor.vim.normal",
+    "description": "Vim mode name in the status bar: Normal mode",
+    "en-US": "NORMAL",
+    "zh-CN": "普通"
+  },
+  {
+    "id": "desktop.editor.vim.insert",
+    "description": "Vim mode name in the status bar: Insert mode",
+    "en-US": "INSERT",
+    "zh-CN": "插入"
+  },
+  {
+    "id": "desktop.editor.vim.replace",
+    "description": "Vim mode name in the status bar: Replace mode (R)",
+    "en-US": "REPLACE",
+    "zh-CN": "替换"
+  },
+  {
+    "id": "desktop.editor.vim.visual",
+    "description": "Vim mode name in the status bar: Visual mode",
+    "en-US": "VISUAL",
+    "zh-CN": "可视"
+  },
+  {
+    "id": "desktop.editor.vim.visualLine",
+    "description": "Vim mode name in the status bar: Visual Line mode",
+    "en-US": "V-LINE",
+    "zh-CN": "可视行"
+  },
+  {
+    "id": "desktop.command.toggleVim",
+    "description": "Command and shortcut catalog: turn the Vim keys of the editor on or off",
+    "en-US": "Toggle Vim Mode",
+    "zh-CN": "切换 Vim 模式"
+  },
+  {
+    "id": "desktop.editor.vimMode",
+    "description": "Editor settings page: switch title for the Vim keys",
+    "en-US": "Vim Mode",
+    "zh-CN": "Vim 模式"
+  },
+  {
+    "id": "desktop.editor.vimModeHelp",
+    "description": "Editor settings page: help under the Vim Mode switch",
+    "en-US": "Edit with Vim key bindings: Normal, Insert and Visual modes.",
+    "zh-CN": "使用 Vim 按键编辑：普通、插入和可视模式。"
   }
 ]
