@@ -142,6 +142,7 @@ const (
 	buildRowProject
 	buildRowTarget
 	buildRowTask
+	buildRowDependency
 )
 
 // buildRow is one row of the choices list: a section heading, a note that the
@@ -155,6 +156,10 @@ type buildRow struct {
 	// target belongs to.
 	id, project string
 	target      *core.BuildTarget
+	// depth, path and leaf place a dependency row in its tree (build_dependencies.go).
+	depth int
+	path  string
+	leaf  bool
 }
 
 // buildChoiceRows lists the sections of the selected build system with what is
@@ -173,6 +178,7 @@ func (a *App) buildChoiceRows(p *project, instance *buildInstance) []buildRow {
 		}
 		rows = append(rows, buildRow{kind: buildRowProject, label: name, detail: project.Path, id: project.ID, selected: b.projectID == project.ID})
 	}
+	rows = append(rows, a.buildDependencyRows(p, instance)...)
 	rows = append(rows, buildRow{kind: buildRowSection, label: t.Targets})
 	for index := range model.Targets {
 		target := &model.Targets[index]
@@ -254,6 +260,10 @@ func (a *App) buildChoiceRow(row ui.ListRow, p *project, instance *buildInstance
 	if spec.kind == buildRowEmpty {
 		row.Element.Height(buildRowHeight).PadX(16).Items(ui.Center)
 		ui.Text(c, spec.label).FontSize(small).Color(a.colors.Subtle).Ellipsis()
+		return
+	}
+	if spec.kind == buildRowDependency {
+		a.buildDependencyRow(row, p, instance, spec)
 		return
 	}
 	element := row.Element.Height(buildRowHeight).Items(ui.Center).Gap(6).PadX(8)

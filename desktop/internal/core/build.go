@@ -241,6 +241,8 @@ type buildOutcome struct {
 	Results    *BuildTestResults     `json:"results"`
 	Invocation *BuildInvocation      `json:"invocation"`
 	Version    *BuildToolVersion     `json:"version"`
+	// Dependencies is the answer of build.decodeDependencies.
+	Dependencies *BuildDependencyTree `json:"dependencies"`
 }
 
 func (o buildOutcome) failure(command string) error {

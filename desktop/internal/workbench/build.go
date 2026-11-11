@@ -64,6 +64,9 @@ type buildState struct {
 	view string
 	// generation rejects a detection or model load that a newer one replaced.
 	generation uint64
+	// dependencies are the loaded dependency trees by instance and project
+	// (build_dependencies.go).
+	dependencies map[string]*buildDependencies
 }
 
 func (s *buildState) reset() {
@@ -435,6 +438,7 @@ func (a *App) reloadBuildModel(p *project, index int) {
 	}
 	instance := &p.build.instances[index]
 	instance.modelLoaded, instance.modelError = false, ""
+	p.reloadBuildDependencies()
 	a.loadBuildModelWith(p, index, true)
 }
 
