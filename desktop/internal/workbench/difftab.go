@@ -641,6 +641,9 @@ func (a *App) diffEditorInput(t *diffTab, e *diffEditor, before bool) {
 	e.input = ui.Handlers{
 		Role: gfx.RoleTerminal,
 		Key: func(event gfx.KeyEvent) gfx.EventResult {
+			if a.diffFindChord(t, event) {
+				return gfx.EventResult{Handled: true, Repaint: true}
+			}
 			result, _ := e.view.Key(event)
 			return result
 		},

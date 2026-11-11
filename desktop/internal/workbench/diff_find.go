@@ -1,12 +1,14 @@
 package workbench
 
 import (
+	"runtime"
 	"strconv"
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -136,4 +138,22 @@ func (a *App) diffFindBar(c ui.C, t *diffTab) {
 		}
 	})
 	ui.Divider(c)
+}
+
+// diffFindChord opens the find bar of tab t on the find chord, Command+F on a Mac and Control+F
+// elsewhere, as the editors take their own chords, and reports whether event was that chord. The
+// chord is handled before the editor sees it, so the editor does not also take the letter.
+func (a *App) diffFindChord(t *diffTab, event gfx.KeyEvent) bool {
+	if event.Release || event.Key != gfx.KeyUnknown || t.file == nil {
+		return false
+	}
+	modifier := gfx.ModifierControl
+	if runtime.GOOS == "darwin" {
+		modifier = gfx.ModifierMeta
+	}
+	if event.Modifiers&^gfx.ModifierShift != modifier || strings.ToLower(event.Text) != "f" {
+		return false
+	}
+	t.find.open = true
+	return true
 }
