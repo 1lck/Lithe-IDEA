@@ -42,10 +42,7 @@ func (a *App) editorMenuItems(c ui.C, p *project, d *document) func(*ui.MenuItem
 			}
 		}
 		if !d.virtual && d.path != "" && a.agentKernelReady() {
-			if menu.Item(i18n.Shared(language, "desktop.agent.files.addToAgent")).Clicked() {
-				path := d.path
-				c.After(func() { a.addAgentFiles(p, []string{path}) })
-			}
+			a.agentFileMenuItems(c, menu, p, []string{d.path})
 		}
 		menu.Separator()
 		if menu.Item(i18n.Shared(language, "desktop.editorMenu.toggleComment")).Keys(primary, "/").Disabled(readOnly).Clicked() {

@@ -53,7 +53,7 @@ type treePrompt struct {
 // files and folders; any row but the root can be renamed or deleted. The Git items appear only
 // for a file the last status lists as changed.
 func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
-	language, t := a.language(), a.text
+	language := a.language()
 	root := n == p.tree.root
 	rowID := ui.ID(c.Key("treectx/" + n.path))
 	target.Hit(rowID, n.name)
@@ -86,9 +86,7 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 		}
 		if !root && a.agentKernelReady() {
 			file := filepath.Join(p.root, filepath.FromSlash(n.path))
-			if menu.Item(t.Agent.Activity.AddToAgent).Clicked() {
-				c.After(func() { a.addAgentFiles(p, []string{file}) })
-			}
+			a.agentFileMenuItems(c, menu, p, []string{file})
 			opened = true
 		}
 		if !n.dir {

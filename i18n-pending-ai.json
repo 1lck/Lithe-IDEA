@@ -794,5 +794,14 @@
     "description": "Error when the working directory of a custom Agent is not an absolute path.",
     "en-US": "The working directory must be an absolute path.",
     "zh-CN": "工作目录必须是绝对路径。"
+  },
+  {
+    "id": "desktop.agent.files.addToSession",
+    "description": "Context menu entry that adds a file to another Agent session's draft; the title is the session's title.",
+    "en-US": "Add to “{title}”",
+    "zh-CN": "添加到“{title}”",
+    "parameters": {
+      "title": "string"
+    }
   }
 ]

@@ -259,7 +259,9 @@ func (a *App) applyAgentSessionLoaded(p *project, token, sessionID string, confi
 	h.loadToken = ""
 	h.restoreSession = ""
 	h.replaySession = sessionID
+	p.agent.stashDraft(p.agent.sessionID)
 	p.agent.sessionID = sessionID
+	p.agent.loadDraft(sessionID)
 	p.agent.pending = ""
 	p.agent.connecting = false
 	p.agent.phase = agentPhaseReady
@@ -268,7 +270,6 @@ func (a *App) applyAgentSessionLoaded(p *project, token, sessionID string, confi
 	p.agent.messages = h.replayMessages
 	p.agent.bytes = h.replayBytes
 	p.agent.steer.drop()
-	p.agent.files = nil
 	h.replayMessages = nil
 	h.replayBytes = 0
 	if n := len(p.agent.messages); n > 0 {
@@ -282,6 +283,12 @@ func (a *App) applyAgentSessionLoaded(p *project, token, sessionID string, confi
 func (a *App) agentSessionCreated(p *project, sessionID string, configOptions json.RawMessage) {
 	p.agent.pending = ""
 	p.agent.connecting = false
+	// A new conversation starts with an empty draft; the draft typed before the first session
+	// belongs to that session.
+	if p.agent.sessionID != "" {
+		p.agent.stashDraft(p.agent.sessionID)
+		p.agent.loadDraft(sessionID)
+	}
 	p.agent.sessionID = sessionID
 	p.agent.history.replaySession = ""
 	p.agent.history.restoreSession = ""
