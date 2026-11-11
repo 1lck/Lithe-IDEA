@@ -46,6 +46,8 @@ type gitWriteRequest struct {
 	ExpectedPush json.RawMessage `json:"expectedPush,omitempty"`
 	// NoCheckout registers a created worktree without filling its directory.
 	NoCheckout bool `json:"noCheckout,omitempty"`
+	// Lightweight makes createTag a lightweight tag, which takes no message.
+	Lightweight bool `json:"lightweight,omitempty"`
 }
 
 // GitClone clones source into destination using Core's Git process and validation.

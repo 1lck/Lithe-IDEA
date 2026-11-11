@@ -108,6 +108,7 @@ func (a *App) drawCommitChanges(c ui.C, p *project) ui.Box {
 	cs, t := &p.commit, a.text.Commit
 	changes := p.git.status.Changes
 	return ui.Column(c).FillWidth().Clip().Children(func() {
+		a.drawRebaseBanner(c, p)
 		if p.lists.inUse() {
 			a.drawChangeListSections(c, p)
 			return
@@ -117,11 +118,13 @@ func (a *App) drawCommitChanges(c ui.C, p *project) ui.Box {
 				ui.Icon(c, icons.Check).Size(20, 20).Color(a.colors.Success)
 				ui.Text(c, t.Clean).Color(a.colors.Subtle)
 			})
+			a.drawNestedRepos(c, p)
 			return
 		}
 		a.drawChangeRows(c, t.ChangeList, t.Files(fileCount(changes)), changes, cs.busy,
 			func() { a.stageAll(p, surfaceButton) },
 			func(change core.GitChange) { a.drawCommitChange(c, p, change) })
+		a.drawNestedRepos(c, p)
 	})
 }
 

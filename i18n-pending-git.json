@@ -1,0 +1,346 @@
+[
+  {
+    "id": "desktop.files.stageAndCommit",
+    "description": "Project tree context menu item: stage the changed file and open the Commit tool window",
+    "en-US": "Stage and Open Commit…",
+    "zh-CN": "暂存并打开提交…"
+  },
+  {
+    "id": "desktop.files.showRepositoryChanges",
+    "description": "Project tree context menu item on a folder: open the Commit tool window of the repository",
+    "en-US": "Show Repository Changes",
+    "zh-CN": "显示仓库变更"
+  },
+  {
+    "id": "desktop.editorMenu.lineHistory",
+    "description": "Editor context menu item: trace the line history of the caret line or the selection",
+    "en-US": "Show Line History",
+    "zh-CN": "显示行历史"
+  },
+  {
+    "id": "desktop.lineHistory.title",
+    "description": "Title of the line history dialog",
+    "en-US": "Line History",
+    "zh-CN": "行历史"
+  },
+  {
+    "id": "desktop.lineHistory.lines",
+    "description": "Description under the line history title: the file and the traced line range",
+    "en-US": "{file}, lines {start}-{end}",
+    "zh-CN": "{file}，第 {start}-{end} 行",
+    "parameters": {
+      "file": "string",
+      "start": "string",
+      "end": "string"
+    }
+  },
+  {
+    "id": "desktop.lineHistory.loading",
+    "description": "Shown while the line history is traced",
+    "en-US": "Tracing line history…",
+    "zh-CN": "正在查询行历史…"
+  },
+  {
+    "id": "desktop.lineHistory.empty",
+    "description": "Shown when no commit touched the traced lines",
+    "en-US": "No commit touched these lines.",
+    "zh-CN": "这些行没有提交历史。"
+  },
+  {
+    "id": "desktop.lineHistory.truncated",
+    "description": "Shown when the line history is cut at its limit",
+    "en-US": "The list is truncated; only the newest commits are shown.",
+    "zh-CN": "结果已截断，仅显示最近的提交。"
+  },
+  {
+    "id": "desktop.lineHistory.inserted",
+    "description": "Note: traced lines inserted in the editor have no history yet",
+    "en-US": "Lines {lines} were inserted and have no history yet.",
+    "zh-CN": "第 {lines} 行是新插入的，尚无提交历史。",
+    "parameters": {
+      "lines": "string"
+    }
+  },
+  {
+    "id": "desktop.lineHistory.rewritten",
+    "description": "Note: traced lines rewritten in the editor cannot be matched to history reliably",
+    "en-US": "Lines {lines} were rewritten; their history cannot be matched reliably.",
+    "zh-CN": "第 {lines} 行被改写，无法可靠对应提交历史。",
+    "parameters": {
+      "lines": "string"
+    }
+  },
+  {
+    "id": "desktop.lineHistory.outsideRepository",
+    "description": "Shown when the line history is asked for a file outside the Git repository",
+    "en-US": "This file is outside the Git repository.",
+    "zh-CN": "此文件不在 Git 仓库内。"
+  },
+  {
+    "id": "desktop.tags.newTag",
+    "description": "Branch popup action: create a tag on HEAD",
+    "en-US": "New Tag…",
+    "zh-CN": "新建标签…"
+  },
+  {
+    "id": "desktop.tags.createTitle",
+    "description": "Title of the new tag dialog",
+    "en-US": "New Tag",
+    "zh-CN": "新建标签"
+  },
+  {
+    "id": "desktop.tags.createFrom",
+    "description": "Description under the new tag dialog title",
+    "en-US": "The tag is put on the current commit (HEAD).",
+    "zh-CN": "标签将打在当前提交（HEAD）上。"
+  },
+  {
+    "id": "desktop.tags.name",
+    "description": "Label of the tag name field",
+    "en-US": "Tag name",
+    "zh-CN": "标签名称"
+  },
+  {
+    "id": "desktop.tags.annotated",
+    "description": "Checkbox: create an annotated tag with a message",
+    "en-US": "Annotated tag with a message",
+    "zh-CN": "带说明的附注标签"
+  },
+  {
+    "id": "desktop.tags.message",
+    "description": "Label of the annotation field of a new tag",
+    "en-US": "Message",
+    "zh-CN": "说明"
+  },
+  {
+    "id": "desktop.tags.create",
+    "description": "Button that creates the tag",
+    "en-US": "Create Tag",
+    "zh-CN": "创建标签"
+  },
+  {
+    "id": "desktop.tags.failed",
+    "description": "Notice when a tag could not be created",
+    "en-US": "Could not create the tag: {reason}",
+    "zh-CN": "无法创建标签：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.tags.created",
+    "description": "Notice when a tag was created",
+    "en-US": "Created tag {name}",
+    "zh-CN": "已创建标签 {name}",
+    "parameters": {
+      "name": "string"
+    }
+  },
+  {
+    "id": "desktop.tags.deleteTitle",
+    "description": "Title of the delete tag dialog",
+    "en-US": "Delete Tag",
+    "zh-CN": "删除标签"
+  },
+  {
+    "id": "desktop.tags.deletePrompt",
+    "description": "Prompt of the delete tag dialog",
+    "en-US": "Delete tag {name}?",
+    "zh-CN": "要删除标签 {name} 吗？",
+    "parameters": {
+      "name": "string"
+    }
+  },
+  {
+    "id": "desktop.tags.delete",
+    "description": "Button that deletes the tag",
+    "en-US": "Delete",
+    "zh-CN": "删除"
+  },
+  {
+    "id": "desktop.tags.deleteFailed",
+    "description": "Notice when a tag could not be deleted",
+    "en-US": "Could not delete the tag: {reason}",
+    "zh-CN": "无法删除标签：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.tags.deleted",
+    "description": "Notice when a tag was deleted",
+    "en-US": "Deleted tag {name}",
+    "zh-CN": "已删除标签 {name}",
+    "parameters": {
+      "name": "string"
+    }
+  },
+  {
+    "id": "desktop.rebase.fromHere",
+    "description": "Log commit menu item: rebase the commits after this one",
+    "en-US": "Rebase from Here…",
+    "zh-CN": "从此处变基…"
+  },
+  {
+    "id": "desktop.rebase.title",
+    "description": "Title of the Rebase from Here dialog",
+    "en-US": "Rebase from Here",
+    "zh-CN": "从此处变基"
+  },
+  {
+    "id": "desktop.rebase.description",
+    "description": "Description under the rebase dialog title",
+    "en-US": "Replay the commits after {hash}.",
+    "zh-CN": "重放 {hash} 之后的提交。",
+    "parameters": {
+      "hash": "string"
+    }
+  },
+  {
+    "id": "desktop.rebase.loading",
+    "description": "Shown while the rebase preview is read",
+    "en-US": "Reading the commits to rebase…",
+    "zh-CN": "正在读取要变基的提交…"
+  },
+  {
+    "id": "desktop.rebase.empty",
+    "description": "Shown when no commit comes after the chosen one",
+    "en-US": "No commits to rebase after this commit.",
+    "zh-CN": "此提交之后没有可变基的提交。"
+  },
+  {
+    "id": "desktop.rebase.start",
+    "description": "Button that starts the reviewed rebase plan",
+    "en-US": "Start Rebase",
+    "zh-CN": "开始变基"
+  },
+  {
+    "id": "desktop.rebase.action.pick",
+    "description": "Rebase action: keep the commit as it is",
+    "en-US": "Pick",
+    "zh-CN": "保留"
+  },
+  {
+    "id": "desktop.rebase.action.fixup",
+    "description": "Rebase action: fold the commit into the one before it",
+    "en-US": "Fixup",
+    "zh-CN": "合并到前一个"
+  },
+  {
+    "id": "desktop.rebase.action.drop",
+    "description": "Rebase action: leave the commit out",
+    "en-US": "Drop",
+    "zh-CN": "丢弃"
+  },
+  {
+    "id": "desktop.rebase.status",
+    "description": "Rebase session status line; status is Core's session status",
+    "en-US": "Rebase: {status}",
+    "zh-CN": "变基状态：{status}",
+    "parameters": {
+      "status": "string"
+    }
+  },
+  {
+    "id": "desktop.rebase.conflicts",
+    "description": "Count of conflicted files of a paused rebase",
+    "en-US": "{count} conflicted files",
+    "zh-CN": "{count} 个冲突文件",
+    "parameters": {
+      "count": "string"
+    }
+  },
+  {
+    "id": "desktop.rebase.continue",
+    "description": "Button that continues a paused rebase",
+    "en-US": "Continue",
+    "zh-CN": "继续"
+  },
+  {
+    "id": "desktop.rebase.skip",
+    "description": "Button that skips the conflicted step of a rebase",
+    "en-US": "Skip",
+    "zh-CN": "跳过"
+  },
+  {
+    "id": "desktop.rebase.abort",
+    "description": "Button that aborts a rebase",
+    "en-US": "Abort",
+    "zh-CN": "中止"
+  },
+  {
+    "id": "desktop.rebase.controlFailed",
+    "description": "Notice when continuing, skipping or aborting a rebase failed",
+    "en-US": "Could not continue the rebase: {reason}",
+    "zh-CN": "无法继续变基：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.files.openWith",
+    "description": "Project tree context menu item: open the file with an application the user picks",
+    "en-US": "Open With…",
+    "zh-CN": "用其他应用打开…"
+  },
+  {
+    "id": "desktop.files.openWithTitle",
+    "description": "Title of the application picker of Open With",
+    "en-US": "Choose an Application",
+    "zh-CN": "选择应用程序"
+  },
+  {
+    "id": "desktop.files.openWithFailed",
+    "description": "Notice when the chosen application could not open the file",
+    "en-US": "Could not open the file: {reason}",
+    "zh-CN": "无法打开文件：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.files.duplicate",
+    "description": "Project tree context menu item: copy the file or folder beside itself",
+    "en-US": "Duplicate",
+    "zh-CN": "重复"
+  },
+  {
+    "id": "desktop.files.moveToTrash",
+    "description": "Project tree context menu item: move the file or folder to the system trash",
+    "en-US": "Move to Trash",
+    "zh-CN": "移到废纸篓"
+  },
+  {
+    "id": "desktop.files.duplicateFailed",
+    "description": "Notice when a file or folder could not be duplicated",
+    "en-US": "Could not duplicate the item: {reason}",
+    "zh-CN": "无法重复该项目：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.files.trashFailed",
+    "description": "Notice when a file or folder could not be moved to the trash",
+    "en-US": "Could not move the item to the trash: {reason}",
+    "zh-CN": "无法移到废纸篓：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.git.excludeLocally",
+    "description": "Commit change menu item: exclude an untracked file or folder from Git on this machine only",
+    "en-US": "Exclude From Git (Local Only)",
+    "zh-CN": "从 Git 排除（仅本地）"
+  },
+  {
+    "id": "desktop.git.excludeFailed",
+    "description": "Notice when an untracked change could not be added to info/exclude",
+    "en-US": "Could not exclude the item: {reason}",
+    "zh-CN": "无法排除该项目：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  }
+]

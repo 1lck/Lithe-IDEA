@@ -65,6 +65,10 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 					a.activateTreeNode(p, n)
 				})
 			}
+			if menu.Item(i18n.Shared(language, "desktop.files.openWith")).Clicked() {
+				file := filepath.Join(p.root, filepath.FromSlash(n.path))
+				c.After(func() { a.openTreeFileWith(file) })
+			}
 			opened = true
 		}
 		if !root && a.agentKernelReady() {
@@ -98,6 +102,12 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 							a.stageChange(p, change)
 						})
 					}
+					if stage && menu.Item(i18n.Shared(language, "desktop.files.stageAndCommit")).Clicked() {
+						c.After(func() {
+							a.performed("git.contextMenu.stageAndCommit", surfaceMenu)
+							a.stageChangeAndShowCommit(p, change)
+						})
+					}
 				}
 			}
 		}
@@ -105,6 +115,12 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 			menu.Separator()
 		}
 		if n.dir {
+			if p.git.isRepository() && menu.Item(i18n.Shared(language, "desktop.files.showRepositoryChanges")).Clicked() {
+				c.After(func() {
+					a.performed("git.contextMenu.showRepositoryChanges", surfaceMenu)
+					a.showRepositoryChangesOf(p, filepath.Join(p.root, filepath.FromSlash(n.path)))
+				})
+			}
 			if menu.Item(i18n.Shared(language, "desktop.files.newFile")).Clicked() {
 				c.After(func() { a.openTreePrompt(p, treePromptNewFile, n) })
 			}
@@ -113,6 +129,12 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 			}
 		}
 		if !root {
+			if menu.Item(i18n.Shared(language, "desktop.files.duplicate")).Clicked() {
+				c.After(func() { a.duplicateTreeItem(p, n) })
+			}
+			if menu.Item(i18n.Shared(language, "desktop.files.moveToTrash")).Clicked() {
+				c.After(func() { a.trashTreeItem(p, n) })
+			}
 			if menu.Item(i18n.Shared(language, "desktop.files.rename")).Clicked() {
 				c.After(func() { a.openTreePrompt(p, treePromptRename, n) })
 			}

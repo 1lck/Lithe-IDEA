@@ -515,6 +515,9 @@ func (a *App) drawLogRow(c ui.C, p *project, rows []core.GraphRow, row ui.ListRo
 	default:
 		box = box.Hover(ui.Look{}.Background(a.colors.Hover))
 	}
+	rc := c.Key("logrow/" + rows[i].CommitHash)
+	box.Hit(ui.ID(rc), rows[i].CommitHash)
+	ui.ContextMenu(rc, box, a.logRowRebaseMenu(p, rows[i].CommitHash))
 	box.Draw(v.rowPainter(a, i))
 }
 

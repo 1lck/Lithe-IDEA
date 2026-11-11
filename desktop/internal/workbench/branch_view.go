@@ -64,6 +64,9 @@ func (a *App) drawBranchPanel(c ui.C, p *project, t i18n.BranchMessages) {
 	if a.drawBranchAction(c, "revision", icons.GitCommitHorizontal, t.CheckoutRevision) {
 		c.After(a.beginRevision)
 	}
+	if a.drawBranchAction(c, "tag", icons.Tag, i18n.Shared(a.language(), "desktop.tags.newTag")) {
+		c.After(func() { a.beginCreateTag(p) })
+	}
 	ui.Divider(c)
 	ui.Scroll(c).FillWidth().MaxHeight(branchPopupMaxHeight).Gap(chromeMenuItems).Children(func() {
 		switch {
@@ -227,6 +230,9 @@ func (a *App) drawBranchRow(c ui.C, p *project, section string, r core.GitRefere
 		if menu.Item(t.NewBranchFrom(r.ShortName)).Clicked() {
 			c.After(func() { a.beginCreate(p, r) })
 		}
+		if r.Kind == "tag" && menu.Item(t.Delete).Destructive().Clicked() {
+			c.After(func() { a.beginDeleteTag(r) })
+		}
 		if r.Kind != "local" {
 			return
 		}
@@ -254,6 +260,10 @@ func (a *App) drawBranchDialog(c ui.C, p *project) {
 		a.drawBranchConflictDialog(c, p)
 	case branchDialogDelete:
 		a.drawBranchDeleteDialog(c, p)
+	case branchDialogTag:
+		a.drawTagDialog(c, p)
+	case branchDialogTagDelete:
+		a.drawTagDeleteDialog(c, p)
 	}
 }
 

@@ -190,7 +190,7 @@ func countStaged(changes []core.GitChange) int {
 func (p *project) canCommit() bool {
 	c := &p.commit
 	return p.git.isRepository() && p.listsReady() && c.idle() &&
-		p.activeStagedCount() > 0 && !p.otherStaged() && c.message() != ""
+		(p.activeStagedCount() > 0 || p.nestedStagedCount() > 0) && !p.otherStaged() && c.message() != ""
 }
 
 // idle reports that no commit work is under way or waiting for the user: nothing runs, no
@@ -250,7 +250,7 @@ func (a *App) prepareCommit(p *project, t commitTarget, request core.WorkspaceCo
 	c.busy = true
 	kernel := a.kernel
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		prep, err := kernel.WorkspaceCommitPrepare(ctx, request)
+		prep, err := kernel.WorkspaceCommitPrepare(ctx, includeNestedRepositories(ctx, kernel, p, t, request))
 		return func(a *App) {
 			c.busy = false
 			if err != nil {
@@ -297,7 +297,7 @@ func (a *App) confirmReview(p *project, t commitTarget) {
 	c.busy = true
 	kernel := a.kernel
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		prep, err := kernel.WorkspaceCommitPrepare(ctx, request)
+		prep, err := kernel.WorkspaceCommitPrepare(ctx, includeNestedRepositories(ctx, kernel, p, t, request))
 		return func(a *App) {
 			c.busy = false
 			switch {
