@@ -65,9 +65,17 @@ type document struct {
 	// conflict is the notice shown while the file changed on disk under unsaved edits.
 	conflict conflictBanner
 	// sync is the document's state in its language-server session.
-	sync               documentSync
-	saving             bool
-	saveAgain          bool
+	sync      documentSync
+	saving    bool
+	saveAgain bool
+	// linkConsent is the user's answer for the next save of a hard-linked file, used once.
+	// linkedAutoSaveOff stops auto-save for a file that is still hard-linked: only a save
+	// the user asks for may write it (document_autosave.go).
+	linkConsent       *documentio.HardLinkConsent
+	linkedAutoSaveOff bool
+	// autoSave counts the edits that scheduled an auto-save; a timer saves only when no
+	// later edit came.
+	autoSave           uint64
 	closeWaiters       []func(bool)
 	checkWaiters       []func(bool)
 	checkFailed        bool
@@ -529,9 +537,16 @@ func (a *App) focusDocument(id int) { a.focus = focusTarget{doc: id} }
 
 // saveDocument serializes writes for a document. A repeated request is coalesced,
 // and close waiters resume only after the latest editor contents are persisted.
-func (a *App) saveDocument(p *project, id int) {
+func (a *App) saveDocument(p *project, id int) { a.saveDocumentMode(p, id, false) }
+
+// saveDocumentMode is saveDocument for the user or, with auto, for auto-save, which never
+// overwrites a conflict, recreates a deleted file or asks about a hard link.
+func (a *App) saveDocumentMode(p *project, id int, auto bool) {
 	d := p.docs.find(id)
 	if d == nil || d.virtual {
+		return
+	}
+	if auto && (d.conflicted || d.recreateMissing || d.linkedAutoSaveOff) {
 		return
 	}
 	if d.view.IsComposing() {
@@ -550,16 +565,22 @@ func (a *App) saveDocument(p *project, id int) {
 	before := append([]byte(nil), d.view.SavedBytes()...)
 	path, name, revision := d.path, d.name, d.view.Revision()
 	write := a.documentWriter
+	writeLinked := a.documentLinkedWriter
 	create := a.documentCreator
 	missing := d.recreateMissing
+	consent := d.linkConsent
+	d.linkConsent = nil
 	d.saving = true
 	a.background(p, 0, func(ctx context.Context) func(*App) {
 		var err error
 		bytesOut := data
 		if bytesOut, err = a.encodeForSave(ctx, d, data); err == nil {
-			if missing {
+			switch {
+			case missing:
 				err = create(path, bytesOut)
-			} else {
+			case consent != nil:
+				err = writeLinked(path, bytesOut, expected, consent)
+			default:
 				err = write(path, bytesOut, expected)
 			}
 		}
@@ -568,6 +589,11 @@ func (a *App) saveDocument(p *project, id int) {
 			defer a.scheduleDocumentChecks(p)
 			if err != nil {
 				d.saveAgain = false
+				var required *documentio.HardLinkRequired
+				if errors.As(err, &required) {
+					a.hardLinkSaveRequired(p, d, required.Identity, auto && len(d.closeWaiters) == 0)
+					return
+				}
 				if _, unmappable := core.IsEncodingUnmappable(err); unmappable && d.encodingChanged {
 					// The reason names the encoding that failed, so it is shown first.
 					a.saveFailed(id, revision, name, err)
@@ -599,6 +625,8 @@ func (a *App) saveDocument(p *project, id int) {
 				d.diskBytes = nil
 			}
 			d.recreateMissing = false
+			// A file saved as its own is no longer linked; one written through its links still is.
+			d.linkedAutoSaveOff = consent != nil && consent.Mode == documentio.HardLinkUpdateShared
 			d.savedRevision = revision
 			a.clearDocumentConflict(d)
 			a.syncDocumentSaved(p, d, data)
@@ -679,6 +707,10 @@ func (a *App) saveFailed(id, revision int, name string, err error) {
 		reason = i18n.Shared(a.language(), "document.fileAccess.onlyRegularFilesCanBeOpenedAsTextDevicesSocketsAndNamedPipesAreNotSupported")
 	case errors.Is(err, documentio.ErrConflict):
 		reason = i18n.Shared(a.language(), "editor.externalConflict")
+	case errors.Is(err, documentio.ErrHardLinkChanged):
+		reason = i18n.Shared(a.language(), "document.fileAccess.theFileOrItsHardLinksChangedWhileSavingYourEditsAreStillUnsavedCheckTheFileAndSaveAgain")
+	case errors.Is(err, documentio.ErrInPlaceWriteFailed):
+		reason = i18n.Shared(a.language(), "document.fileAccess.theSharedFileCouldNotBeFullySavedAllHardLinksMayContainPartialChangesYourEditorContentsAreRetainedCheckTheFileBeforeRetrying")
 	case errors.Is(err, documentio.ErrHardLink):
 		reason = i18n.Shared(a.language(), "editor.hardLinkSaveUnavailable")
 	case errors.Is(err, documentio.ErrSymbolicLink):

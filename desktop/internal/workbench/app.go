@@ -251,6 +251,9 @@ type settings struct {
 	DisableSemanticHighlight bool `json:"disableSemanticHighlight,omitempty"`
 	// VimMode turns on the Vim keys of every editor; off by default (vim_mode.go).
 	VimMode bool `json:"vimMode,omitempty"`
+	// DisableAutoSave stops saving changed files a moment after typing stops
+	// (document_autosave.go); auto-save is on by default.
+	DisableAutoSave bool `json:"disableAutoSave,omitempty"`
 	// EditorTabRows and EditorTabOverflow say how an editor group lays out tabs that do not
 	// fit in one row, as settingswindow.Values does; see App.tabLayout.
 	EditorTabRows     string `json:"editorTabRows,omitempty"`
@@ -531,14 +534,16 @@ type App struct {
 	toolchainResolve func(ctx context.Context, root, directory, tool, minimumVersion string) (core.ToolchainSelection, error)
 	closingProject   bool
 	documentWriter   func(string, []byte, []byte) error
-	documentCreator  func(string, []byte) error
-	documentReader   func(string) ([]byte, error)
-	chrome           *chromeState
-	drag             dragState
-	title            titleState
-	layout           layoutState
-	status           statusState
-	logView          logView
+	// documentLinkedWriter writes a hard-linked file the way the user chose for one save.
+	documentLinkedWriter func(string, []byte, []byte, *documentio.HardLinkConsent) error
+	documentCreator      func(string, []byte) error
+	documentReader       func(string) ([]byte, error)
+	chrome               *chromeState
+	drag                 dragState
+	title                titleState
+	layout               layoutState
+	status               statusState
+	logView              logView
 	// branch is the title bar's branch popup and the dialogs it opens.
 	branch branchState
 	// commitView is the Commit tool window's splitter and message input.
@@ -597,22 +602,23 @@ func New(options Options) *App {
 		now = time.Now
 	}
 	a := &App{
-		kernel:          options.Kernel,
-		documentWriter:  documentio.WriteGuarded,
-		documentCreator: documentio.WriteMissing,
-		documentReader:  readDocument,
-		store:           options.Store,
-		startupPath:     options.OpenPath,
-		now:             now,
-		systemLanguage:  i18n.Detect(languages),
-		chrome:          newChromeState(),
-		layout:          newLayoutState(),
-		missing:         map[string]bool{},
-		logView:         newLogView(),
-		commitView:      newCommitView(),
-		delays:          defaultLogDelays,
-		agentKernel:     options.AgentKernel,
-		listShells:      localshell.InstalledShells,
+		kernel:               options.Kernel,
+		documentWriter:       documentio.WriteGuarded,
+		documentLinkedWriter: documentio.WriteGuardedLinked,
+		documentCreator:      documentio.WriteMissing,
+		documentReader:       readDocument,
+		store:                options.Store,
+		startupPath:          options.OpenPath,
+		now:                  now,
+		systemLanguage:       i18n.Detect(languages),
+		chrome:               newChromeState(),
+		layout:               newLayoutState(),
+		missing:              map[string]bool{},
+		logView:              newLogView(),
+		commitView:           newCommitView(),
+		delays:               defaultLogDelays,
+		agentKernel:          options.AgentKernel,
+		listShells:           localshell.InstalledShells,
 	}
 	a.gitConsole = core.NewGitConsole(a.gitConsoleChanged)
 	if _, err := a.store.Load(settingsFile, &a.settings); err != nil {

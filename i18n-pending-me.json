@@ -1169,5 +1169,11 @@
     "description": "Editor tab context menu: select the file in the Project tool window",
     "en-US": "Select in Project View",
     "zh-CN": "在项目视图中选择"
+  },
+  {
+    "id": "desktop.document.hardLinkCancel",
+    "description": "Button of the hard-linked file save question that keeps the edits unsaved",
+    "en-US": "Cancel",
+    "zh-CN": "取消"
   }
 ]

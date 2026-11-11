@@ -460,6 +460,7 @@ func (w *window) editorPage(c ui.C) {
 				w.setDisableSemanticHighlight(!semantic, false)
 			}
 		})
+		w.autoSaveCard(c)
 		w.vimCard(c)
 	})
 	if w.tabRowsPick != values.EditorTabRows {

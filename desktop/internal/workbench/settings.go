@@ -192,6 +192,14 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SetVimMode: func(value bool) {
 			a.post(func(a *App) { a.setVimMode(value) })
 		},
+		SetDisableAutoSave: func(value bool) {
+			a.post(func(a *App) {
+				if a.settings.DisableAutoSave != value {
+					a.settings.DisableAutoSave = value
+					a.saveSettings()
+				}
+			})
+		},
 		SetProcessTermination: func(value settingswindow.ProcessTermination) {
 			a.post(func(a *App) { a.setProcessTermination(value) })
 		},
@@ -400,6 +408,7 @@ func (a *App) openSettingsPageWith(surface string, page settingsPage, query stri
 			HideChangeLists: a.settings.HideChangeLists, HideParentReferences: a.settings.HideParentReferences,
 			DisableSemanticHighlight: a.settings.DisableSemanticHighlight,
 			VimMode:                  a.settings.VimMode,
+			DisableAutoSave:          a.settings.DisableAutoSave,
 			ProcessTermination:       a.settings.ProcessTermination,
 			SteppingFilters:          maps.Clone(a.settings.DebugSteppingFilters),
 			Fonts:                    fontprefs.Normalize(a.settings.Fonts),

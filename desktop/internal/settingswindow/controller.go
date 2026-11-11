@@ -92,6 +92,9 @@ type Values struct {
 	DisableSemanticHighlight bool
 	// VimMode turns on the Vim keys of the editor (Normal, Insert and Visual modes); off by default.
 	VimMode bool
+	// DisableAutoSave stops saving changed files a moment after typing stops; auto-save is
+	// on by default.
+	DisableAutoSave bool
 	// ProcessTermination is the Process Termination page's part of Core's termination
 	// settings; the zero value keeps Core's defaults.
 	ProcessTermination ProcessTermination
@@ -301,6 +304,8 @@ type Options struct {
 	// SetVimMode hands a change of Values.VimMode to the settings owner, like
 	// SetDisableSemanticHighlight.
 	SetVimMode func(bool)
+	// SetDisableAutoSave hands a change of Values.DisableAutoSave to the settings owner.
+	SetDisableAutoSave func(bool)
 	// ResetLayout puts the workbench's buttons back where the catalog puts them. It runs
 	// at once, on the settings window's thread, when the user presses the button, because
 	// pressing it is its own confirmation.
