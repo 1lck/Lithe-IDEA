@@ -458,6 +458,15 @@ func (a *App) stripTab(c ui.C, place *groupPlace, t shownTab, current string, i,
 				StateFrom(closeButton).Hover(ui.Look{}.Color(a.colors.Text))
 		})
 	})
+	// A file tab's context menu adds the file to the Agent draft, as the file tree's does.
+	if p := a.project; p != nil && t.doc != nil && !t.doc.virtual && t.doc.path != "" && a.agentKernelReady() {
+		path := t.doc.path
+		ui.ContextMenu(k.Part("menu"), chip, func(menu *ui.MenuItems) {
+			if menu.Item(a.text.Agent.Activity.AddToAgent).Clicked() {
+				c.After(func() { a.addAgentFiles(p, []string{path}) })
+			}
+		})
+	}
 	switch {
 	case closeButton.Clicked():
 		c.After(func() { a.closeTab(t) })
