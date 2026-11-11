@@ -6,6 +6,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -27,12 +28,7 @@ const commitReviewHeight = 320
 // commitPageView declares the body of the Commit tool window.
 func (a *App) commitPageView(c ui.C) {
 	v := &a.commitView
-	if v.bodyDraw == nil {
-		v.bodyDraw = func(d *ui.DrawContext) { v.bodyRect = d.Rect }
-	}
-	// What the splitter was dragged to in the last paint is the commit area's height now.
-	v.capture()
-	v.hasBody = false
+	v.begin()
 	p := a.project
 	if p == nil {
 		return
@@ -43,37 +39,42 @@ func (a *App) commitPageView(c ui.C) {
 		if !a.drawCommitStatus(c, p) {
 			return
 		}
-		ui.Column(c).Grow(1).Draw(v.bodyDraw).Children(func() {
-			if v.bodyHeight > 0 && !v.split.Dragging() {
-				v.derived = max(v.bodyHeight-shellSplitter-v.areaHeight, commitListMin)
-				v.split.Pos = v.derived
-			}
-			a.drawCommitChanges(c, p).Grow(1)
-			ui.Splitter(c, &v.split).Mins(commitListMin, commitAreaMin).Label(a.text.Panel.Resize)
-			a.drawCommitArea(c, p).Height(v.areaHeight).Shrink(0)
-		})
-		v.hasBody = true
+		a.drawChangeListBar(c, p)
+		a.drawCommitBody(c, v, func() ui.Box { return a.drawCommitChanges(c, p) },
+			func() ui.Box { return a.drawCommitArea(c, p) })
 	})
-	if p.commit.review != nil {
-		a.drawCommitReview(c, p)
-	}
 	a.drawGeneratedMessageConfirm(c, p)
+	a.drawChangeListDialog(c, p)
 }
 
-// drawCommitToolbar declares the buttons over the change list: read the status again, and
-// stage or unstage everything.
+// drawCommitToolbar declares the buttons over the change list, as on macOS: read the status
+// again, roll back the active ChangeList's changes, stage or unstage all of them, preview the
+// first one, and the branch that is checked out.
 func (a *App) drawCommitToolbar(c ui.C, p *project) {
-	cs, t := &p.commit, a.text.Commit
-	ui.Row(c).Height(logToolbarHeight).Shrink(0).Items(ui.Center).Gap(4).PadX(6).Children(func() {
+	cs, t, lang := &p.commit, a.text.Commit, a.language()
+	changes := p.activeChanges()
+	_, review := a.reviewKernel()
+	ui.Row(c).Height(logToolbarHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(4).PadX(6).Children(func() {
 		if a.gitIconButton(c, t.Refresh, icons.RefreshCw, false, false) {
 			c.After(func() { a.refreshChanges(p) })
 		}
+		if a.gitIconButton(c, i18n.Shared(lang, "git.rollback.title"), icons.Undo2, false, cs.busy || !review || len(changes) == 0) {
+			c.After(func() { a.openRollback(p, changes) })
+		}
 		label, icon := t.StageAll, icons.Plus
-		if p.git.allStaged() {
+		if allStaged(changes) {
 			label, icon = t.UnstageAll, icons.Minus
 		}
-		if a.gitIconButton(c, label, icon, false, cs.busy || !p.git.hasToggleable()) {
+		if a.gitIconButton(c, label, icon, false, cs.busy || !p.listsReady() || !hasToggleable(changes)) {
 			c.After(func() { a.stageAll(p, surfaceButton) })
+		}
+		if a.gitIconButton(c, i18n.Shared(lang, "git.previewFirstChange"), icons.Eye, false, !review || len(changes) == 0) {
+			first := changes[0]
+			c.After(func() { a.openChange(p, first) })
+		}
+		ui.Spacer(c)
+		if branch := p.git.branch(); branch != "" {
+			ui.Text(c, branch).Muted().Ellipsis().Shrink(1)
 		}
 	})
 }
@@ -106,6 +107,10 @@ func (a *App) drawCommitChanges(c ui.C, p *project) ui.Box {
 	cs, t := &p.commit, a.text.Commit
 	changes := p.git.status.Changes
 	return ui.Column(c).FillWidth().Clip().Children(func() {
+		if p.lists.inUse() {
+			a.drawChangeListSections(c, p)
+			return
+		}
 		if len(changes) == 0 {
 			ui.Column(c).Fill().Center().Gap(8).Children(func() {
 				ui.Icon(c, icons.Check).Size(20, 20).Color(a.colors.Success)
@@ -113,26 +118,48 @@ func (a *App) drawCommitChanges(c ui.C, p *project) ui.Box {
 			})
 			return
 		}
-		ui.Scroll(c).Grow(1).PadY(4).Children(func() {
-			ui.Row(c).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
-				all := p.git.allStaged()
-				if ui.Checkbox(c, &all, "").Label(t.ChangeList).Disabled(cs.busy || !p.git.hasToggleable()).Clicked() {
-					c.After(func() { a.stageAll(p, surfaceButton) })
-				}
-				ui.Text(c, t.ChangeList).Weight(gfx.WeightMedium).Ellipsis().Shrink(1)
-				ui.Text(c, t.Files(p.git.fileCount())).Muted().Shrink(0)
-			})
-			for _, change := range changes {
-				a.drawCommitChange(c, p, change)
-			}
-		})
+		a.drawChangeRows(c, t.ChangeList, t.Files(fileCount(changes)), changes, cs.busy,
+			func() { a.stageAll(p, surfaceButton) },
+			func(change core.GitChange) { a.drawCommitChange(c, p, change) })
 	})
 }
 
-// drawCommitChange declares the row of one change: its checkbox, its icon, its name and
-// folder, and whether it is staged.
+// drawCommitChange declares the row of one change of the project's repository.
 func (a *App) drawCommitChange(c ui.C, p *project, change core.GitChange) {
-	cs, t := &p.commit, a.text.Commit
+	toggled, opened := a.drawChangeRow(c, change, p.commit.busy, func(rowC ui.C) func(*ui.MenuItems) {
+		return a.changeMenuItems(rowC, p, change)
+	})
+	if toggled {
+		c.After(func() { a.stageChange(p, change) })
+	}
+	if opened {
+		c.After(func() { a.openChange(p, change) })
+	}
+}
+
+// drawChangeRows declares the rows of a change list in a scroll: the checkbox that stages or
+// unstages them all, with the list's title and size, over a row per change.
+func (a *App) drawChangeRows(c ui.C, title, size string, changes []core.GitChange, busy bool, toggleAll func(), row func(core.GitChange)) {
+	ui.Scroll(c).Grow(1).FillWidth().PadY(4).Children(func() {
+		ui.Row(c).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
+			all := allStaged(changes)
+			if ui.Checkbox(c, &all, "").Label(title).Disabled(busy || !hasToggleable(changes)).Clicked() {
+				c.After(toggleAll)
+			}
+			ui.Text(c, title).Weight(gfx.WeightMedium).Ellipsis().Shrink(1)
+			ui.Text(c, size).Muted().Shrink(0)
+		})
+		for _, change := range changes {
+			row(change)
+		}
+	})
+}
+
+// drawChangeRow declares the row of one change: its checkbox, its icon, its name and folder,
+// and whether it is staged, with the context menu menu builds. It reports a click on the
+// checkbox and a double click on the row.
+func (a *App) drawChangeRow(c ui.C, change core.GitChange, busy bool, menu func(ui.C) func(*ui.MenuItems)) (toggled, opened bool) {
+	t := a.text.Commit
 	state, label := t.UnstagedState, t.StageFile(change.Path)
 	switch {
 	case change.Staged && change.Worktree:
@@ -150,12 +177,10 @@ func (a *App) drawCommitChange(c ui.C, p *project, change core.GitChange) {
 	row := ui.Row(rowC).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).
 		PadSides(0, 8, 0, float32(8+logIndent)).Hover(ui.Look{}.Background(a.colors.Hover)).
 		HitWith(ui.ID(rowC), change.Path, gfx.HitOptions{Cursor: gfx.PointerCursorHand})
-	ui.ContextMenu(rowC, row, a.changeMenuItems(rowC, p, change))
+	ui.ContextMenu(rowC, row, menu(rowC))
 	row.Children(func() {
 		staged := change.Staged
-		if ui.Checkbox(c, &staged, "").Label(label).Disabled(cs.busy || !change.CanToggleStaging).Clicked() {
-			c.After(func() { a.stageChange(p, change) })
-		}
+		toggled = ui.Checkbox(c, &staged, "").Label(label).Disabled(busy || !change.CanToggleStaging).Clicked()
 		icon := fileicons.ForFile(path.Base(change.Path), a.colors.Dark)
 		if folder {
 			icon = fileicons.ForDirectory(path.Base(strings.TrimSuffix(change.Path, "/")), a.colors.Dark)
@@ -165,9 +190,7 @@ func (a *App) drawCommitChange(c ui.C, p *project, change core.GitChange) {
 		ui.Text(c, strings.TrimSuffix(dir, "/")).Muted().Ellipsis().Grow(1)
 		ui.Text(c, state).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
 	})
-	if row.DoubleClicked() {
-		c.After(func() { a.openChange(p, change) })
-	}
+	return toggled, row.DoubleClicked()
 }
 
 // changeColor is the color of a change's name, by the side of the change the row shows: the
@@ -197,9 +220,9 @@ func (a *App) changeColor(change core.GitChange) gfx.Color {
 	return a.colors.Text
 }
 
-// hasToggleable reports that some change can be staged or unstaged.
-func (g gitState) hasToggleable() bool {
-	for _, change := range g.status.Changes {
+// hasToggleable reports that some of the changes can be staged or unstaged.
+func hasToggleable(changes []core.GitChange) bool {
+	for _, change := range changes {
 		if change.CanToggleStaging {
 			return true
 		}
@@ -209,9 +232,9 @@ func (g gitState) hasToggleable() bool {
 
 // fileCount is the number of files the changes stand for: an untracked folder shown as
 // one change counts each file in it.
-func (g gitState) fileCount() int {
+func fileCount(changes []core.GitChange) int {
 	n := 0
-	for _, change := range g.status.Changes {
+	for _, change := range changes {
 		if change.UntrackedFileCount > 0 {
 			n += change.UntrackedFileCount
 			continue
@@ -224,45 +247,110 @@ func (g gitState) fileCount() int {
 // drawCommitArea declares the commit area: amend and the staged count, the message, the
 // results of the last run, and the commit buttons.
 func (a *App) drawCommitArea(c ui.C, p *project) ui.Box {
-	cs, t := &p.commit, a.text.Commit
+	return a.drawCommitAreaOf(c, p, commitArea{
+		target: p.projectCommit(),
+		staged: p.activeStagedCount(),
+		ready:  p.canCommit,
+		lists:  true,
+	})
+}
+
+// commitArea is what a commit area commits: the checkout of target, with staged changes in
+// it and ready saying the buttons may start a commit. lists says it is the project's own
+// checkout, which is held to the active ChangeList and has its message generated.
+type commitArea struct {
+	target commitTarget
+	staged int
+	ready  func() bool
+	lists  bool
+}
+
+// drawCommitAreaOf declares the commit area of area: amend, the commit options, the staged
+// count, the message, how the last run ended, and the buttons that commit, and commit and push.
+func (a *App) drawCommitAreaOf(c ui.C, p *project, area commitArea) ui.Box {
+	cs, t := area.target.state, a.text.Commit
 	return ui.Column(c).FillWidth().Clip().Pad(8).Gap(6).Children(func() {
 		ui.Row(c).FillWidth().Shrink(0).Items(ui.Center).Gap(6).Children(func() {
 			ui.Checkbox(c, &cs.amend, t.Amend).Disabled(cs.busy)
+			a.drawCommitOptions(c, cs)
 			ui.Spacer(c)
-			ui.Text(c, t.Staged(p.git.stagedCount())).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
+			ui.Text(c, t.Staged(area.staged)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
 		})
+		if area.lists && p.otherStaged() {
+			ui.Paragraph(c, i18n.Shared(a.language(), "native.otherChangeListsHaveStagedFilesUnstageThemBeforeCommittingTheCurrentChangeList"), 2).
+				FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Warning)
+		}
 		message := ui.TextArea(c, &cs.messageField, t.MessageLabel, t.MessagePlaceholder).FillWidth().Grow(1).Disabled(cs.busy)
 		if message.Shortcut(ui.Primary, "enter") {
 			c.After(func() {
-				if p.canCommit() {
-					a.startCommit(p, false, surfaceShortcut)
+				if area.ready() {
+					a.startCommitIn(p, area.target, false, surfaceShortcut)
 				}
 			})
 		}
 		if cs.attempt != nil {
-			a.drawCommitResults(c, p)
+			a.drawCommitResults(c, p, area.target)
 		}
 		ui.Row(c).FillWidth().Shrink(0).Items(ui.Center).Gap(6).Children(func() {
 			label := t.Commit
 			if cs.busy {
 				label = t.Committing
 			}
-			ready := p.canCommit()
+			ready := area.ready()
 			if ui.Button(c, label).Disabled(!ready).Clicked() {
-				c.After(func() { a.startCommit(p, false, surfaceButton) })
+				c.After(func() { a.startCommitIn(p, area.target, false, surfaceButton) })
 			}
 			if ui.Button(c, t.CommitAndPush).Outline().Disabled(!ready).Clicked() {
-				c.After(func() { a.startCommit(p, true, surfaceButton) })
+				c.After(func() { a.startCommitIn(p, area.target, true, surfaceButton) })
 			}
-			a.drawGenerateCommitButton(c, p)
+			if area.lists {
+				a.drawGenerateCommitButton(c, p)
+			}
+			ui.Spacer(c)
+			if a.gitIconButton(c, i18n.Shared(a.language(), "native.openAICommitSettings"), icons.Settings, false, false) {
+				c.After(func() { a.openSettingsPage(surfaceButton, settingsAI) })
+			}
 		})
 	})
 }
 
-// drawCommitResults declares how each repository of the last run ended, and the buttons
-// that forget the results or continue the run.
-func (a *App) drawCommitResults(c ui.C, p *project) {
-	cs, t := &p.commit, a.text.Commit
+// drawCommitOptions declares the button that opens the sign-off and the author of the next
+// commit. It is highlighted while either is set, so a commit under another name is never a
+// surprise.
+func (a *App) drawCommitOptions(c ui.C, cs *commitState) {
+	t := a.text.Commit
+	button, clicked := a.gitToolButton(c, t.Options, icons.Ellipsis, cs.signOff || cs.authorText() != "", cs.busy)
+	if clicked {
+		cs.optionsOpen = !cs.optionsOpen
+	}
+	ui.PopoverWith(c, button, ui.PopoverSpec{Align: ui.Start, Width: 280}, &cs.optionsOpen, func() {
+		ui.Column(c).FillWidth().Gap(8).Children(func() {
+			ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
+				before := cs.signOff
+				ui.Checkbox(c, &cs.signOff, t.SignOff).Disabled(cs.busy)
+				if cs.signOff != before {
+					a.performed("git.commit.signOff", surfaceButton)
+				}
+				a.commitOptionHelp(c, t.SignOffHelp)
+			})
+			ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
+				ui.Text(c, t.Author).Shrink(0)
+				a.commitOptionHelp(c, t.AuthorHelp)
+			})
+			ui.TextField(c, &cs.author, t.Author, t.AuthorPlaceholder).FillWidth().Disabled(cs.busy)
+		})
+	})
+}
+
+// commitOptionHelp declares the ⓘ that explains a commit option.
+func (a *App) commitOptionHelp(c ui.C, help string) {
+	ui.Button(c, i18n.Shared(a.language(), "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().Size(18, 18).Tooltip(help)
+}
+
+// drawCommitResults declares how each repository of the last run in the checkout of target
+// ended, and the buttons that forget the results or continue the run.
+func (a *App) drawCommitResults(c ui.C, p *project, target commitTarget) {
+	cs, t := target.state, a.text.Commit
 	session := cs.attempt
 	ui.Column(c).FillWidth().Shrink(0).Gap(2).Children(func() {
 		for _, id := range session.OrderedIDs {
@@ -273,7 +361,7 @@ func (a *App) drawCommitResults(c ui.C, p *project) {
 			}
 			ui.Row(c.Key(id)).FillWidth().Items(ui.Center).Gap(6).Children(func() {
 				ui.Icon(c, icons.CircleAlert).Size(14, 14).Color(tint)
-				ui.Text(c, t.Result(p.commitRepositoryName(id), a.commitStatusLabel(result.Status))).Color(tint).Ellipsis().Grow(1)
+				ui.Text(c, t.Result(target.repositoryName(id), a.commitStatusLabel(result.Status))).Color(tint).Ellipsis().Grow(1)
 			})
 			if result.Detail != "" {
 				ui.Paragraph(c.Key(id+"/detail"), result.Detail, 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
@@ -281,10 +369,10 @@ func (a *App) drawCommitResults(c ui.C, p *project) {
 		}
 		ui.Row(c).FillWidth().Items(ui.Center).Gap(6).Children(func() {
 			if ui.Button(c, t.Dismiss).Ghost().Clicked() {
-				c.After(func() { a.dismissResults(p) })
+				c.After(func() { a.dismissResults(cs) })
 			}
 			if cs.retryable() && ui.Button(c, t.Retry).Outline().Disabled(cs.busy).Clicked() {
-				c.After(func() { a.retryCommit(p) })
+				c.After(func() { a.retryCommit(p, target) })
 			}
 		})
 	})
@@ -321,10 +409,31 @@ func (a *App) commitStatusLabel(status core.WorkspaceCommitStatus) string {
 	return string(status)
 }
 
-// drawCommitReview declares the review of a plan: the message, then each repository in the
-// order the plan runs them with where it commits, what it pushes and the files it takes.
-func (a *App) drawCommitReview(c ui.C, p *project) {
-	cs, t := &p.commit, a.text.Commit
+// drawCommitReviews declares the review that is open, of the project's repository or of a
+// linked worktree, over the workbench wherever the commit was started.
+func (a *App) drawCommitReviews(c ui.C, p *project) {
+	if p.commit.review != nil {
+		a.drawCommitReview(c.Key("commit-review"), p, p.projectCommit())
+		return
+	}
+	// One review is shown at a time, the worktrees' in the order of their paths; the next
+	// opens when it closes.
+	first := ""
+	for path, cs := range p.worktrees.commits {
+		if cs.review != nil && (first == "" || path < first) {
+			first = path
+		}
+	}
+	if first != "" {
+		a.drawCommitReview(c.Key("commit-review/"+first), p, p.worktreeCommit(first))
+	}
+}
+
+// drawCommitReview declares the review of a plan in the checkout of target: the message, then
+// each repository in the order the plan runs them with where it commits, what it pushes and
+// the files it takes.
+func (a *App) drawCommitReview(c ui.C, p *project, target commitTarget) {
+	cs, t := target.state, a.text.Commit
 	r := cs.review
 	session := r.prep.Session
 	title := t.ReviewTitle
@@ -345,6 +454,12 @@ func (a *App) drawCommitReview(c ui.C, p *project) {
 			if session.Amend {
 				ui.Text(c, t.AmendNote).Color(a.colors.Warning)
 			}
+			if session.Author != "" {
+				ui.Paragraph(c, t.AuthorLine(session.Author), 2)
+			}
+			if session.SignOff {
+				ui.Text(c, t.SignOffNote)
+			}
 			ui.Scroll(c).FillWidth().MaxHeight(commitReviewHeight).Children(func() {
 				ui.Column(c).FillWidth().Gap(10).Children(func() {
 					for n, id := range session.OrderedIDs {
@@ -353,32 +468,32 @@ func (a *App) drawCommitReview(c ui.C, p *project) {
 						if asked {
 							question = &r.prep.PushTargetQuestions[index]
 						}
-						a.drawCommitReviewStep(c, p, n, id, question)
+						a.drawCommitReviewStep(c, target, n, id, question)
 					}
 				})
 			})
 		})
 	}, func() {
 		if ui.Button(c, t.Cancel).Outline().Clicked() {
-			c.After(func() { a.cancelReview(p) })
+			c.After(func() { a.cancelReview(cs) })
 		}
 		confirm := t.Continue
 		if session.Push {
 			confirm = t.CommitAndPush
 		}
 		if ui.Button(c, confirm).Disabled(cs.busy || !r.answered()).Clicked() {
-			c.After(func() { a.confirmReview(p) })
+			c.After(func() { a.confirmReview(p, target) })
 		}
 	})
 	if closed {
-		c.After(func() { a.cancelReview(p) })
+		c.After(func() { a.cancelReview(cs) })
 	}
 }
 
-// drawCommitReviewStep declares one repository of a review. question is the push of it the
-// user is asked about, nil when there is none.
-func (a *App) drawCommitReviewStep(c ui.C, p *project, n int, id string, question *core.PushTargetQuestion) {
-	r, t := p.commit.review, a.text.Commit
+// drawCommitReviewStep declares one repository of a review in the checkout of target.
+// question is the push of it the user is asked about, nil when there is none.
+func (a *App) drawCommitReviewStep(c ui.C, target commitTarget, n int, id string, question *core.PushTargetQuestion) {
+	r, t := target.state.review, a.text.Commit
 	session := r.prep.Session
 	state := session.States[id]
 	action := t.StepCommit
@@ -397,7 +512,7 @@ func (a *App) drawCommitReviewStep(c ui.C, p *project, n int, id string, questio
 		head = state.Head[:min(len(state.Head), 10)]
 	}
 	ui.Column(c.Key(id)).FillWidth().Gap(4).Children(func() {
-		ui.Text(c, t.Step(n+1, action, p.commitRepositoryName(id))).Weight(gfx.WeightMedium).Ellipsis()
+		ui.Text(c, t.Step(n+1, action, target.repositoryName(id))).Weight(gfx.WeightMedium).Ellipsis()
 		ui.Text(c, t.Where(branch, head)).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
 		if question != nil {
 			a.drawCommitTarget(c, r, *question)

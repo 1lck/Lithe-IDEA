@@ -91,11 +91,15 @@ func (a *App) editorGroup(c ui.C, id string) ui.Box {
 	})
 }
 
-// groupBody declares the body of group id: the control of the file it shows, or of the
-// terminal.
+// groupBody declares the body of group id: the control of the file it shows, of the Diff tab,
+// or of the terminal.
 func (a *App) groupBody(c ui.C, id string, doc *document) {
 	if doc != nil {
 		a.documentView(c, id, doc)
+		return
+	}
+	if t := a.project.selectedDiff(id); t != nil {
+		a.diffView(c, a.project, t)
 		return
 	}
 	if t := a.project.terms.selected(id); t != nil {
@@ -368,6 +372,9 @@ func (a *App) splitterKey(event gfx.KeyEvent) gfx.EventResult {
 		return r
 	}
 	if r := a.commitView.splitKey(event); r.Handled {
+		return r
+	}
+	if r := a.worktreeView.commit.splitKey(event); r.Handled {
 		return r
 	}
 	if r := a.logView.splitKey(event); r.Handled {

@@ -134,14 +134,15 @@ func emptyPolicy(group string) core.EmptyGroups {
 	return core.RemoveEmptyGroups
 }
 
-// tabSlotDecl is where the tab of one terminal was laid out in the last paint.
+// tabSlotDecl is where the tab of one group member, a terminal or a file, was laid out in
+// the last paint.
 type tabSlotDecl struct {
-	term int
-	rect gfx.Rect
+	member string
+	rect   gfx.Rect
 }
 
 // groupPlace is a tab group as the last paint declared it: where its strip of tabs and its
-// body were laid out and where each terminal's tab is, which is what a drag is aimed against.
+// body were laid out and where each tab is, which is what a drag is aimed against.
 // The rectangles are written by draw hooks as the paint goes, so between paints they are
 // those of the last complete one.
 type groupPlace struct {
@@ -161,7 +162,7 @@ func newGroupPlace(id string, tool bool) *groupPlace {
 	return g
 }
 
-// chipHook is the draw hook of the i-th terminal tab the group declared.
+// chipHook is the draw hook of the i-th tab the group declared.
 func (g *groupPlace) chipHook(i int) func(*ui.DrawContext) {
 	return func(d *ui.DrawContext) { g.chips[i].rect = d.Rect }
 }
@@ -170,23 +171,23 @@ func (g *groupPlace) chipHook(i int) func(*ui.DrawContext) {
 func (g *groupPlace) place() dropPlace {
 	p := dropPlace{group: g.id, tool: g.tool, strip: g.strip, body: g.body, tabs: make([]tabSlot, 0, len(g.chips))}
 	for _, t := range g.chips {
-		p.tabs = append(p.tabs, tabSlot{term: t.term, rect: t.rect})
+		p.tabs = append(p.tabs, tabSlot{member: t.member, rect: t.rect})
 	}
 	return p
 }
 
-// tabID is the identity a terminal's tab was declared with, which a drag maps its source
-// back to the terminal by.
+// tabID is the identity a tab was declared with, which a drag maps its source back to the
+// group member, a terminal or a file, by.
 type tabID struct {
-	id   gfx.ID
-	term int
+	id     gfx.ID
+	member string
 }
 
-// focusTarget names what is to have the keyboard once it is on screen: a terminal or an open
-// file, at most one of them; the zero value is nothing. It is the field a page's FocusBind
-// ties the terminals' and the editors' controls to.
+// focusTarget names what is to have the keyboard once it is on screen: a terminal, an open
+// file or a Diff tab, at most one of them; the zero value is nothing. It is the field a page's
+// FocusBind ties the terminals', the editors' and the diffs' controls to.
 type focusTarget struct {
-	term, doc int
+	term, doc, diff int
 }
 
 // terminalUI is what the window keeps for the terminals besides the project's own state: what
@@ -201,7 +202,7 @@ type terminalUI struct {
 	emptyRect  gfx.Rect
 	emptyDrawn bool
 	emptyDraw  func(*ui.DrawContext)
-	// tabIDs are the identities of the terminals' tabs the paint declared.
+	// tabIDs are the identities of the tabs the paint declared.
 	tabIDs []tabID
 	// autoFailed says opening a terminal for an open Terminal tool window with none failed, so
 	// it is not tried again every frame. The next time the tool window is shown it is tried
@@ -225,14 +226,14 @@ func (u *terminalUI) emptyHook(box ui.Box) {
 	box.Draw(u.emptyDraw)
 }
 
-// tabOf is the terminal whose tab was declared with id.
-func (u *terminalUI) tabOf(id gfx.ID) (int, bool) {
+// tabOf is the group member whose tab was declared with id.
+func (u *terminalUI) tabOf(id gfx.ID) (string, bool) {
 	for _, t := range u.tabIDs {
 		if t.id == id {
-			return t.term, true
+			return t.member, true
 		}
 	}
-	return 0, false
+	return "", false
 }
 
 // places are where the groups were laid out, the Terminal tool window first.
@@ -415,9 +416,7 @@ func (a *App) closeTerminal(p *project, id int) {
 	t.view.Close()
 	a.finishPluginTerminal(t, "closed", nil)
 	set.list = slices.DeleteFunc(set.list, func(x *terminal) bool { return x.id == id })
-	if next := set.selected(group); next != nil {
-		a.focusTerminal(next.id)
-	}
+	a.focusSelected(p, group)
 	if len(set.list) == 0 {
 		a.reduceChrome(core.SetChromeOpen(itemTerminal, false))
 	}
@@ -437,11 +436,11 @@ func (a *App) selectTerminal(p *project, id int) {
 	a.focusTerminal(id)
 }
 
-// dropTerminal does what dropping terminal id on target asks for, and gives the terminal
-// the keyboard if it was done: a tab dropped on a strip or on the middle of a group joins
-// it, one dropped near the edge of a group splits it, and one dropped on an empty editor
-// opens the first group. A target that is no place does nothing.
-func (a *App) dropTerminal(id int, target dropTarget) {
+// dropTab does what dropping the tab of group member on target asks for, and shows the
+// terminal, the file or the diff with the keyboard if it was done: a tab dropped on a strip or
+// on the middle of a group joins it, one dropped near the edge of a group splits it, and one
+// dropped on an empty editor opens the first group. A target that is no place does nothing.
+func (a *App) dropTab(member string, target dropTarget) {
 	p := a.project
 	if p == nil {
 		return
@@ -449,23 +448,29 @@ func (a *App) dropTerminal(id int, target dropTarget) {
 	done := false
 	switch target.kind {
 	case dropJoin:
-		done = a.moveTerminal(p, id, target.group, target.index)
+		done = a.moveTab(p, member, target.group, target.index)
 	case dropSplit:
-		done = a.splitTerminal(p, id, target.group, target.edge)
+		done = a.splitTab(p, member, target.group, target.edge)
 	case dropEmpty:
-		done = a.placeInEmptyEditor(p, id)
+		done = a.placeInEmptyEditor(p, member)
 	}
-	if done {
+	if !done {
+		return
+	}
+	if id, ok := memberTerminal(member); ok {
 		a.focusTerminal(id)
+	} else if id, ok := memberDocument(member); ok {
+		a.selectDocument(p, id)
+	} else if id, ok := memberDiff(member); ok {
+		a.selectDiff(p, id)
 	}
 }
 
-// moveTerminal puts terminal id into group as the tab at index, counted among the group's
-// tabs without it, and shows it there. Inside its own group that reorders the tabs. It
-// reports whether the kernel accepted the move.
-func (a *App) moveTerminal(p *project, id int, group string, index int) bool {
+// moveTab puts group member into group as the tab at index, counted among the group's tabs
+// without it, and shows it there. Inside its own group that reorders the tabs. It reports
+// whether the kernel accepted the move.
+func (a *App) moveTab(p *project, member, group string, index int) bool {
 	set := &p.terms
-	member := terminalMember(id)
 	src, dest := set.bench.GroupOf(member), set.bench.Group(group)
 	if src == nil || dest == nil {
 		return false
@@ -488,12 +493,11 @@ func (a *App) moveTerminal(p *project, id int, group string, index int) bool {
 	}))
 }
 
-// moveIntoNewGroup moves terminal id into a group of the editor area that it makes, and
+// moveIntoNewGroup moves group member into a group of the editor area that it makes, and
 // returns the new group's name. The caller gives the group its place in the layout. The
 // group it left goes if that leaves it empty, which the layout follows.
-func (a *App) moveIntoNewGroup(p *project, id int) (string, bool) {
+func (a *App) moveIntoNewGroup(p *project, member string) (string, bool) {
 	set := &p.terms
-	member := terminalMember(id)
 	src := set.bench.GroupOf(member)
 	if src == nil {
 		return "", false
@@ -512,20 +516,20 @@ func (a *App) moveIntoNewGroup(p *project, id int) (string, bool) {
 	return added, true
 }
 
-// splitTerminal moves terminal id into a new group beside the group target, on the side e
+// splitTab moves group member into a new group beside the group target, on the side e
 // names. Whether it can is checked before anything changes, so the layout never gets a
 // group the state does not have: target must be in the layout, and a group's only tab
 // cannot split off its own group, since nothing would be left to split from.
-func (a *App) splitTerminal(p *project, id int, target string, e edge) bool {
+func (a *App) splitTab(p *project, member, target string, e edge) bool {
 	set := &p.terms
-	src := set.bench.GroupOf(terminalMember(id))
+	src := set.bench.GroupOf(member)
 	if src == nil || e == edgeNone || !set.layout.contains(target) {
 		return false
 	}
 	if src.ID == target && len(src.Members) < 2 {
 		return false
 	}
-	added, ok := a.moveIntoNewGroup(p, id)
+	added, ok := a.moveIntoNewGroup(p, member)
 	if !ok {
 		return false
 	}
@@ -534,14 +538,14 @@ func (a *App) splitTerminal(p *project, id int, target string, e edge) bool {
 	return true
 }
 
-// placeInEmptyEditor moves terminal id into the first group of an editor that has none,
+// placeInEmptyEditor moves group member into the first group of an editor that has none,
 // which then fills the editor.
-func (a *App) placeInEmptyEditor(p *project, id int) bool {
+func (a *App) placeInEmptyEditor(p *project, member string) bool {
 	set := &p.terms
 	if set.layout != nil {
 		return false
 	}
-	added, ok := a.moveIntoNewGroup(p, id)
+	added, ok := a.moveIntoNewGroup(p, member)
 	if !ok {
 		return false
 	}

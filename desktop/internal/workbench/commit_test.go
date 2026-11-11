@@ -231,3 +231,80 @@ func TestCommitWithoutAMessageAsksForOne(t *testing.T) {
 		t.Fatalf("last commit = %q, want no new commit", got)
 	}
 }
+
+func TestCommitOptionsRecordTheAuthorAndASignOff(t *testing.T) {
+	dir := newTestRepository(t)
+	h := newHarness(t, &gitKernel{Client: core.NewClient()})
+	p := h.openCommit(dir)
+	h.stageAll(p)
+	p.commit.editor.Insert("Pair on the change")
+	h.settle()
+
+	text := h.app.text.Commit
+	h.clickNamed(text.Options)
+	h.clickNamed(text.SignOff)
+	h.clickNamed(text.Author)
+	if err := h.driver.Type("  Pair Author <pair@example.invalid> "); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	if !p.commit.signOff || p.commit.authorText() != "Pair Author <pair@example.invalid>" {
+		t.Fatalf("options = sign-off %v, author %q", p.commit.signOff, p.commit.authorText())
+	}
+	h.app.startCommit(p, false, surfaceButton)
+	for range gitChainSteps {
+		h.settle()
+	}
+
+	if got := gitRun(t, dir, "log", "-1", "--format=%s|%an <%ae>|%(trailers:key=Signed-off-by,valueonly)"); got != "Pair on the change|Pair Author <pair@example.invalid>|Lithe Test <test@example.invalid>" {
+		t.Fatalf("last commit = %q (notice %q)", got, h.app.notice)
+	}
+	if p.commit.authorText() != "" || !p.commit.signOff {
+		t.Fatalf("after the commit: author %q, sign-off %v; want the author cleared and the sign-off kept", p.commit.authorText(), p.commit.signOff)
+	}
+}
+
+func TestCommitRefusesAnAuthorThatIsNotNameAndEmail(t *testing.T) {
+	dir := newTestRepository(t)
+	h := newHarness(t, &gitKernel{Client: core.NewClient()})
+	p := h.openCommit(dir)
+	h.stageAll(p)
+	p.commit.editor.Insert("Pair on the change")
+	p.commit.author.SetText("pair@example.invalid")
+	h.settle()
+
+	h.app.startCommit(p, false, surfaceButton)
+	for range gitChainSteps {
+		h.settle()
+	}
+	if h.app.notice != h.app.text.Commit.AuthorInvalid {
+		t.Fatalf("notice = %q, want %q", h.app.notice, h.app.text.Commit.AuthorInvalid)
+	}
+	if got := gitRun(t, dir, "log", "-1", "--format=%s"); got != "initial" {
+		t.Fatalf("last commit = %q, want no new commit", got)
+	}
+	if p.commit.authorText() != "pair@example.invalid" {
+		t.Fatalf("author after the refusal = %q, want it kept for correcting", p.commit.authorText())
+	}
+}
+
+func TestCommitReviewNamesTheAuthorAndTheSignOff(t *testing.T) {
+	dir := newTestRepository(t)
+	h := newHarness(t, &gitKernel{Client: core.NewClient()})
+	p := h.openCommit(dir)
+	h.stageAll(p)
+	p.commit.editor.Insert("Publish the change")
+	p.commit.author.SetText("Pair Author <pair@example.invalid>")
+	p.commit.signOff = true
+	h.settle()
+
+	h.clickNamed(h.app.text.Commit.CommitAndPush)
+	if p.commit.review == nil {
+		t.Fatal("commit and push ran without showing the review")
+	}
+	text := h.app.text.Commit
+	if !h.shows(text.AuthorLine("Pair Author <pair@example.invalid>")) || !h.shows(text.SignOffNote) {
+		t.Fatal("the review does not name the author and the sign-off")
+	}
+	h.clickNamed(text.Cancel)
+}

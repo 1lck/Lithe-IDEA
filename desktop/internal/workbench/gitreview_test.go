@@ -22,83 +22,6 @@ func changeOf(t *testing.T, p *project, path string) core.GitChange {
 	return core.GitChange{}
 }
 
-func TestDiffDialogStagesAndRollsBackABlock(t *testing.T) {
-	dir := newTestRepository(t)
-	h := newHarness(t, &gitKernel{Client: core.NewClient()})
-	p := h.openCommit(dir)
-
-	h.app.openDiff(p, changeOf(t, p, "changed.txt"))
-	h.settle()
-	d := &p.review.diff
-	if !d.open || d.plan == nil || len(d.plan.Blocks) != 1 || d.file == nil {
-		t.Fatalf("diff = %+v, want an open dialog with one block", d)
-	}
-	blocks := 0
-	for _, item := range d.items {
-		if item.block != nil {
-			blocks++
-		}
-	}
-	if blocks != 1 || len(d.items) != len(d.file.Lines)+1 {
-		t.Fatalf("diff has %d block headers over %d rows for %d lines", blocks, len(d.items), len(d.file.Lines))
-	}
-	for _, label := range []string{"changed.txt", i18n.Shared(h.app.language(), "git.diff.unified")} {
-		if !h.shows(label) {
-			t.Errorf("the diff dialog does not show %q", label)
-		}
-	}
-
-	h.app.toggleDiffBlock(p, d.plan.Blocks[0])
-	h.settle()
-	h.settle()
-	if got := gitRun(t, dir, "diff", "--cached", "--name-only"); got != "changed.txt" {
-		t.Fatalf("staged files after the toggle = %q, want changed.txt", got)
-	}
-	if !d.plan.Blocks[0].Checked {
-		t.Fatalf("the reloaded plan does not show the block as staged: %+v", d.plan.Blocks)
-	}
-
-	h.app.toggleDiffBlock(p, d.plan.Blocks[0])
-	h.settle()
-	h.settle()
-	if got := gitRun(t, dir, "diff", "--cached", "--name-only"); got != "" {
-		t.Fatalf("staged files after the second toggle = %q, want none", got)
-	}
-	h.app.writeDiffBlock(p, d.plan.Blocks[0].ID, core.DiffBlockRollback)
-	h.settle()
-	h.settle()
-	if got := gitRun(t, dir, "status", "--porcelain"); got != "" {
-		t.Fatalf("status after the rollback = %q, want clean", got)
-	}
-	data, _ := os.ReadFile(filepath.Join(dir, "changed.txt"))
-	if string(data) != "first\n" {
-		t.Fatalf("file after the block rollback = %q, want the committed text", data)
-	}
-}
-
-func TestDiffDialogSplitViewAnchorsBlocksOnRows(t *testing.T) {
-	dir := newTestRepository(t)
-	h := newHarness(t, &gitKernel{Client: core.NewClient()})
-	p := h.openCommit(dir)
-	h.app.openDiff(p, changeOf(t, p, "changed.txt"))
-	h.settle()
-	d := &p.review.diff
-	d.split = true
-	d.rebuild()
-	blocks := 0
-	for _, item := range d.items {
-		if item.block != nil {
-			blocks++
-			if item.row < 0 {
-				t.Fatalf("split block header %+v is not anchored on a row", item)
-			}
-		}
-	}
-	if blocks != 1 {
-		t.Fatalf("split view has %d block headers, want 1", blocks)
-	}
-}
-
 func TestBlockLine(t *testing.T) {
 	for id, want := range map[string]int{"line-2": 2, "line-0": 0, "line-123": 123} {
 		if got, ok := blockLine(id); !ok || got != want {
@@ -191,58 +114,21 @@ func TestPushDialogWithoutRemoteReportsIt(t *testing.T) {
 	}
 }
 
-func TestToolsDialogStashesAndManagesWorktrees(t *testing.T) {
+func TestRepositoriesDialogListsTheRepository(t *testing.T) {
 	dir := newTestRepository(t)
 	h := newHarness(t, &gitKernel{Client: core.NewClient()})
 	p := h.openCommit(dir)
 
-	h.app.openTools(p, toolsStashes)
+	h.app.openTools(p)
 	h.settle()
 	tools := &p.review.tools
-	if tools.err != "" || len(tools.stashes) != 0 || len(tools.worktrees) != 1 || len(tools.repositories) == 0 {
-		t.Fatalf("tools = %+v, want no stash, the primary worktree and a repository", tools)
+	if tools.err != "" || len(tools.repositories) == 0 {
+		t.Fatalf("repositories dialog = %+v, want the project's repository", tools)
 	}
-
-	tools.stashMessage.SetText("parked")
-	h.app.stashChanges(p)
+	h.app.closeTools(p)
 	h.settle()
-	h.settle()
-	if len(tools.stashes) != 1 || !strings.Contains(tools.stashes[0].Message, "parked") {
-		t.Fatalf("stashes after the stash = %+v, want the parked one", tools.stashes)
-	}
-	if got := gitRun(t, dir, "status", "--porcelain"); got != "" {
-		t.Fatalf("status after the stash = %q, want clean", got)
-	}
-	h.app.stashAction(p, tools.stashes[0], "pop")
-	h.settle()
-	h.settle()
-	if len(tools.stashes) != 0 || gitRun(t, dir, "status", "--porcelain") != "M changed.txt" {
-		t.Fatalf("after the pop: stashes %+v, status %q", tools.stashes, gitRun(t, dir, "status", "--porcelain"))
-	}
-
-	tools.branchName.SetText("topic")
-	tools.destination.SetText(filepath.Join(t.TempDir(), "topic-tree"))
-	h.app.createWorktree(p)
-	h.settle()
-	h.settle()
-	if len(tools.worktrees) != 2 {
-		t.Fatalf("worktrees after the create = %+v, want two (err %q, write %q)", tools.worktrees, tools.err, tools.writeErr)
-	}
-	linked := tools.worktrees[1]
-	h.app.worktreeAction(p, linked, "lock")
-	h.settle()
-	h.settle()
-	if !tools.worktrees[1].IsLocked {
-		t.Fatalf("worktree after the lock = %+v, want it locked", tools.worktrees[1])
-	}
-	h.app.worktreeAction(p, tools.worktrees[1], "unlock")
-	h.settle()
-	h.settle()
-	h.app.worktreeAction(p, tools.worktrees[1], "remove")
-	h.settle()
-	h.settle()
-	if len(tools.worktrees) != 1 {
-		t.Fatalf("worktrees after the remove = %+v, want only the primary (err %q)", tools.worktrees, tools.err)
+	if tools.open {
+		t.Fatal("the dialog stayed open")
 	}
 }
 

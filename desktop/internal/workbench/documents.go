@@ -674,11 +674,7 @@ func (a *App) removeDocument(p *project, d *document) {
 	p.docs.list = slices.DeleteFunc(p.docs.list, func(x *document) bool { return x.id == d.id })
 	a.unwatchDocument(p, d)
 	a.closeDocumentInSession(p, d)
-	if next := p.selectedDocument(group); next != nil {
-		a.focusDocument(next.id)
-	} else if term := p.terms.selected(group); term != nil {
-		a.focusTerminal(term.id)
-	}
+	a.focusSelected(p, group)
 }
 
 // saveProjectDocuments drains writes and verifies each current document before closing.

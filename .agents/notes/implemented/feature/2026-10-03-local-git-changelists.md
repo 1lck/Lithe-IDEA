@@ -2,8 +2,10 @@
 
 状态：已实现
 
-> Viva 迁移状态（2026-11-08）：下文的列表管理、保存和提交范围保护属于旧客户端实现。Viva 当前 Commit 工作流使用当前仓库的 Git 暂存区，没有读取本地 ChangeList 分配，也没有向 Core 传 `pathScope`；因此不能将旧列表的排除规则视作当前保护。迁移需恢复数据归属、范围校验及两端验收。
-> 桌面 Core 适配层已支持调用列表 reducer 并向提交准备传递 Core 范围；临时仓库测试覆盖范围外文件拒绝、范围随计划保留和准备后暂存变化。尚未接入用户界面或旧数据。
+> Viva 迁移状态（2026-11-11）：Viva 的 Commit 面板已接入本地 ChangeList，含列表栏（当前列表下拉、新建、重命名、删除、更新父仓库引用）、按列表分组的变更区、右键“移动到更改列表”和弹窗。归属、重命名跟随和提交范围由 Core 的 `git.changelists` reducer 计算，提交请求带 Core `pathScope`；宿主只做保存，并以 `statusGen` 丢弃过期投影。
+> 保存按仓库绝对根分文件，放在应用数据目录（`git-changelists-<根哈希>.json`），不写入发行包。每次写入前都重读并比较，与其他窗口冲突时最多重试三次，不覆盖更新的值；读不出或版本、根不符时整套列表停用，禁止全部暂存、提交和 AI 生成，原文件保持不动。
+> 新建列表不带走已有文件，删除需确认且文件回到默认列表，父仓库引用默认开启。重试提交沿用上次计划的范围，不再传 `pathScope`。
+> 尚未迁移：多选和目录批量移动、Windows 设置页的显示开关，以及差异读取或 AI 生成期间切换列表时丢弃旧结果。旧客户端的说明见下文，不代表 Viva 的行为。
 
 ## 先说结论
 
@@ -67,6 +69,7 @@ Windows 提供两个独立的 Git 设置：`showGitChangelists` 和 `showGitPare
 - `rust/lithe-core/src/tests/git_workspace_commit.rs`：真实 Git 拦截范围外暂存、不改变索引和工作树、保留部分暂存、刷新前重命名。
 - `shared/fixtures/git/changelists-reducer-v1.json`：Core 和两端适配器验证同一归属及范围结果；旧 `local-changelist-scope-v1.json` 保留旧客户端契约。
 - `scripts/desktop/desktop-go.sh test -race ./internal/core -run 'Test(ChangeListsUseSharedMembershipAndScope|WorkspaceCommitScopeProtectsStagedChanges)' -count=3 -timeout=90s`：macOS 使用共享 fixture 和临时 Git 仓库验证 Core 范围、未出现在快照中的已分配文件、准备后暂存变化与 HEAD/索引不变；不是 Viva 界面或 Windows 验收。
+- `scripts/desktop/desktop-go.sh test ./internal/workbench -run TestChangeLists -count=1`：Viva 界面用真实 Git 验证只提交当前列表、其他列表已暂存时拦截并提示、重名被拒后弹窗保持、删除归还默认列表、列表文件损坏时停用且不覆盖；不是 Windows 实机验收。
 - 异步投影、跨窗口锁、过期状态和关闭后结果丢弃有受控回归；真实 Git 测试覆盖投影后新暂存的目录文件及显式默认覆盖。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh --platform all`。
 - 旧版 [Windows 边界检查](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/windows/verify/verify-windows-boundaries.sh)和 [共享契约检查](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/architecture/verify-shared-contracts.sh)尚无完整 Viva 等价门禁；当前仍需运行 `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`./scripts/agent-notes/verify-agent-notes.sh` 和 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
@@ -74,6 +77,8 @@ Windows 提供两个独立的 Git 设置：`showGitChangelists` 和 `showGitPare
 ## 适用范围
 
 - `desktop/internal/workbench/commit.go`
+- `desktop/internal/workbench/changelists.go`
+- `desktop/internal/workbench/changelists_view.go`
 - `desktop/internal/core/gitcommit.go`
 - `desktop/internal/core/changelists.go`
 - `shared/platform-feature-matrix/features/git-local-changelists.json`

@@ -24,6 +24,39 @@ type commitView struct {
 
 func newCommitView() commitView { return commitView{areaHeight: commitAreaHeight} }
 
+// begin starts a paint: what the splitter was dragged to in the last one is the commit area's
+// height now, and the body is not declared until drawCommitBody declares it.
+func (v *commitView) begin() {
+	if v.areaHeight == 0 {
+		v.areaHeight = commitAreaHeight
+	}
+	if v.bodyDraw == nil {
+		v.bodyDraw = func(d *ui.DrawContext) { v.bodyRect = d.Rect }
+	}
+	v.capture()
+	v.hasBody = false
+}
+
+// drawCommitBody declares the change list list draws over the commit area area draws, with
+// the splitter between them; the area keeps its chosen height while the list keeps its least,
+// and the list takes the rest.
+func (a *App) drawCommitBody(c ui.C, v *commitView, list, area func() ui.Box) {
+	height := v.areaHeight
+	if v.bodyHeight > 0 {
+		height = min(height, max(v.bodyHeight-shellSplitter-commitListMin, commitAreaMin))
+	}
+	ui.Column(c).Grow(1).FillWidth().Draw(v.bodyDraw).Children(func() {
+		if v.bodyHeight > 0 && !v.split.Dragging() {
+			v.derived = max(v.bodyHeight-shellSplitter-height, commitListMin)
+			v.split.Pos = v.derived
+		}
+		list().Grow(1)
+		ui.Splitter(c, &v.split).Mins(commitListMin, commitAreaMin).Label(a.text.Panel.Resize)
+		area().Height(height).Shrink(0)
+	})
+	v.hasBody = true
+}
+
 // capture keeps the height the list and the area shared, and takes a drag of the splitter as
 // a new height of the commit area.
 func (v *commitView) capture() {

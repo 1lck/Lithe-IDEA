@@ -64,6 +64,9 @@ type branchSession struct {
 	preview core.BranchNamePreview
 	// checkout says the created branch is checked out at once.
 	checkout bool
+	// fromPopup says the popup started the write or opened its dialog, outside the Git tool
+	// window, so that the write shows the Console tab; the Log page opens the same dialogs.
+	fromPopup bool
 	// busy is set while a write runs; the dialogs' buttons are disabled meanwhile.
 	busy bool
 }
@@ -95,6 +98,13 @@ func (a *App) openBranches() {
 // closeBranches closes the popup and the row menu in it.
 func (a *App) closeBranches() {
 	a.branch.open, a.branch.menu = false, ""
+}
+
+// leaveBranches closes the popup before a write or a dialog starts and records whether the
+// popup started it.
+func (a *App) leaveBranches() {
+	a.branch.fromPopup = a.branch.open
+	a.closeBranches()
 }
 
 // loadBranches reads the references of p in the background. A popup that reopens while
@@ -136,12 +146,15 @@ func (a *App) runBranchWrite(p *project, operation string, failed func(reason st
 	write func(ctx context.Context, kernel Kernel, root string) error, done func(a *App, status core.GitStatus)) {
 	b := &a.branch
 	b.busy = true
+	if b.fromPopup {
+		a.showGitConsole("")
+	}
 	kernel, root := a.kernel, p.git.repositoryRoot(p.root)
 	a.background(p, branchOperationTimeout, func(ctx context.Context) func(*App) {
 		err := write(ctx, kernel, root)
 		var status core.GitStatus
 		if err == nil {
-			status, err = kernel.GitStatus(ctx, p.root)
+			status, err = kernel.GitStatus(core.AutomaticRefresh(ctx), p.root)
 		}
 		return func(a *App) {
 			b := &a.branch
@@ -151,7 +164,7 @@ func (a *App) runBranchWrite(p *project, operation string, failed func(reason st
 				a.gitOperationFailed(operation, err)
 				return
 			}
-			p.git = gitState{loaded: true, status: status}
+			a.setGit(p, gitState{loaded: true, status: status})
 			if p.log.started {
 				a.loadLog(p)
 			}
@@ -164,7 +177,7 @@ func (a *App) runBranchWrite(p *project, operation string, failed func(reason st
 // checkoutBranch checks out r, after asking the kernel whether local changes stand in the
 // way. A branch that is already checked out only says so.
 func (a *App) checkoutBranch(p *project, r core.GitReference) {
-	a.closeBranches()
+	a.leaveBranches()
 	if r.Kind == "local" && r.IsCurrent {
 		a.notify(a.text.Branch.AlreadyOn(r.ShortName))
 		return
@@ -212,7 +225,7 @@ func (a *App) noticeCheckedOut(name string, status core.GitStatus) {
 
 // beginCreate opens the dialog that creates a branch from r.
 func (a *App) beginCreate(p *project, r core.GitReference) {
-	a.closeBranches()
+	a.leaveBranches()
 	b := &a.branch
 	b.dialog, b.target, b.checkout = branchDialogCreate, r, true
 	b.typed = ""
@@ -224,7 +237,7 @@ func (a *App) beginCreate(p *project, r core.GitReference) {
 
 // beginRename opens the dialog that renames the local branch r.
 func (a *App) beginRename(p *project, r core.GitReference) {
-	a.closeBranches()
+	a.leaveBranches()
 	b := &a.branch
 	b.dialog, b.target = branchDialogRename, r
 	b.name.SetText(r.ShortName)
@@ -234,7 +247,7 @@ func (a *App) beginRename(p *project, r core.GitReference) {
 
 // beginRevision opens the dialog that checks out a typed tag or revision.
 func (a *App) beginRevision() {
-	a.closeBranches()
+	a.leaveBranches()
 	b := &a.branch
 	b.dialog = branchDialogRevision
 	b.revision.SetText("")
@@ -242,7 +255,7 @@ func (a *App) beginRevision() {
 
 // beginDelete opens the dialog that confirms deleting the local branch r.
 func (a *App) beginDelete(r core.GitReference) {
-	a.closeBranches()
+	a.leaveBranches()
 	b := &a.branch
 	b.dialog, b.target = branchDialogDelete, r
 }

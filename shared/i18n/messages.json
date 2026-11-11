@@ -11107,6 +11107,44 @@
       ]
     },
     {
+      "id": "desktop.commit.author",
+      "description": "Desktop commit: label of the author field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.authorHelp",
+      "description": "Desktop commit: what the author field does",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.authorInvalid",
+      "description": "Desktop commit: notice when the author is not Name <email>",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.authorLine",
+      "description": "Desktop commit review: the author the commits record",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "author": "string"
+      }
+    },
+    {
+      "id": "desktop.commit.authorPlaceholder",
+      "description": "Desktop commit: placeholder of the author field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.commit.chooseTarget",
       "description": "Desktop commit: ChooseTarget",
       "platforms": [
@@ -11178,6 +11216,13 @@
     {
       "id": "desktop.commit.noCommits",
       "description": "Desktop commit: NoCommits",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.options",
+      "description": "Desktop commit: the button that opens the commit options (sign-off, author)",
       "platforms": [
         "desktop"
       ]
@@ -11255,6 +11300,27 @@
     {
       "id": "desktop.commit.reviewTitle",
       "description": "Desktop commit: ReviewTitle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.signOff",
+      "description": "Desktop commit: checkbox that adds a Signed-off-by trailer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.signOffHelp",
+      "description": "Desktop commit: what the sign-off option does",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.signOffNote",
+      "description": "Desktop commit review: the commits get a Signed-off-by trailer",
       "platforms": [
         "desktop"
       ]
@@ -11353,6 +11419,70 @@
         "branch": "string",
         "head": "string"
       }
+    },
+    {
+      "id": "desktop.credentials.importLegacy",
+      "description": "Settings menu item that imports the plugin credentials the earlier Lithe app saved.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.credentials.importLegacyBusy",
+      "description": "Settings menu item while the earlier Lithe app's plugin credentials are being imported.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.credentials.importLegacyConfirm",
+      "description": "Button that starts importing the earlier Lithe app's plugin credentials.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.credentials.importLegacyDescription",
+      "description": "Body of the dialog that confirms importing the earlier Lithe app's plugin credentials.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.credentials.importLegacyDone",
+      "description": "Notice after importing the earlier Lithe app's plugin credentials. {imported} were copied, {kept} were already saved here and kept, {failed} could not be read.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "imported": "string",
+        "kept": "string",
+        "failed": "string"
+      }
+    },
+    {
+      "id": "desktop.credentials.importLegacyFailed",
+      "description": "Notice when the earlier Lithe app's plugin credentials could not be listed. {error} is the diagnostic.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "error": "string"
+      }
+    },
+    {
+      "id": "desktop.credentials.importLegacyNone",
+      "description": "Notice after an import found no plugin credentials saved by the earlier Lithe app.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.credentials.importLegacyTitle",
+      "description": "Title of the dialog that confirms importing the earlier Lithe app's plugin credentials.",
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.debug.adapter",
@@ -13074,29 +13204,8 @@
       ]
     },
     {
-      "id": "desktop.gitReview.detached",
-      "description": "Label of a worktree whose HEAD is detached.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.gitReview.diffTab",
       "description": "Diff dialog view mode label.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.gitReview.lock",
-      "description": "Worktree action: lock.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.gitReview.manageTitle",
-      "description": "Title of the dialog with stashes, worktrees and repositories.",
       "platforms": [
         "desktop"
       ]
@@ -13140,13 +13249,6 @@
       }
     },
     {
-      "id": "desktop.gitReview.prune",
-      "description": "Worktree action: remove registrations whose checkout is gone.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.gitReview.refresh",
       "description": "Refresh the dialog's list.",
       "platforms": [
@@ -13166,13 +13268,6 @@
     {
       "id": "desktop.gitReview.stashPush",
       "description": "Button that stashes the local changes.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.gitReview.unlock",
-      "description": "Worktree action: unlock.",
       "platforms": [
         "desktop"
       ]
@@ -22230,7 +22325,8 @@
       "id": "git.changelists.activeSuffix",
       "description": "Windows UI: git.changelists.activeSuffix",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -22260,7 +22356,8 @@
       "description": "A ChangeList name must be nonempty, unique, and at most 100 characters.",
       "platforms": [
         "windows",
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Use a unique, nonempty name of at most 100 characters.",
@@ -22323,7 +22420,8 @@
       "id": "git.changelists.unavailable",
       "description": "Windows UI: git.changelists.unavailable",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -23409,7 +23507,8 @@
       "id": "git.diff.compareRefsFailed",
       "description": "Windows UI: git.diff.compareRefsFailed",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "base": "string",
@@ -23435,7 +23534,8 @@
       "id": "git.diff.differences",
       "description": "Windows UI: git.diff.differences",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "count": "string"
@@ -23452,7 +23552,8 @@
       "id": "git.diff.emptyRevision",
       "description": "Windows UI: git.diff.emptyRevision",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -23525,7 +23626,8 @@
       "id": "git.diff.getStashDiffFailed",
       "description": "Windows UI: git.diff.getStashDiffFailed",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "error": "string",
@@ -23593,7 +23695,8 @@
       "id": "git.diff.indexVersion",
       "description": "Windows UI: git.diff.indexVersion",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -23625,14 +23728,16 @@
       "id": "git.diff.nextDifference",
       "description": "Windows UI: git.diff.nextDifference",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.diff.nextFile",
       "description": "Windows UI: git.diff.nextFile",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -23681,7 +23786,8 @@
       "id": "git.diff.noChangesInStash",
       "description": "Windows UI: git.diff.noChangesInStash",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -23703,7 +23809,8 @@
       "id": "git.diff.oneDifference",
       "description": "Windows UI: git.diff.oneDifference",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -23721,14 +23828,16 @@
       "id": "git.diff.previousDifference",
       "description": "Windows UI: git.diff.previousDifference",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.diff.previousFile",
       "description": "Windows UI: git.diff.previousFile",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -26585,7 +26694,8 @@
       "id": "git.log.workingTreeComparisonFailed",
       "description": "Windows UI: git.log.workingTreeComparisonFailed",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "branch": "string",
@@ -26897,8 +27007,7 @@
       "id": "git.noWorktreesFound",
       "description": "Windows UI: git.noWorktreesFound",
       "platforms": [
-        "windows",
-        "desktop"
+        "windows"
       ]
     },
     {
@@ -26922,7 +27031,8 @@
       "id": "git.openFile",
       "description": "Windows UI: git.openFile",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -27265,7 +27375,8 @@
       "id": "git.previewFirstChange",
       "description": "Windows UI: git.previewFirstChange",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -28758,7 +28869,8 @@
       "id": "git.saved.worktree",
       "description": "Windows UI: git.saved.worktree",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -29718,7 +29830,8 @@
       "id": "git.workspaceCommit.parents",
       "description": "Windows UI: git.workspaceCommit.parents",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -29875,8 +29988,7 @@
       "id": "git.worktreeDialog.locked",
       "description": "Windows UI: git.worktreeDialog.locked",
       "platforms": [
-        "windows",
-        "desktop"
+        "windows"
       ]
     },
     {
@@ -29890,8 +30002,7 @@
       "id": "git.worktreeDialog.missing",
       "description": "Windows UI: git.worktreeDialog.missing",
       "platforms": [
-        "windows",
-        "desktop"
+        "windows"
       ]
     },
     {
@@ -29959,8 +30070,7 @@
       "id": "git.worktreeDialog.primary",
       "description": "Windows UI: git.worktreeDialog.primary",
       "platforms": [
-        "windows",
-        "desktop"
+        "windows"
       ]
     },
     {
@@ -29983,8 +30093,7 @@
       "id": "git.worktreeDialog.removeConfirm",
       "description": "Windows UI: git.worktreeDialog.removeConfirm",
       "platforms": [
-        "windows",
-        "desktop"
+        "windows"
       ],
       "parameters": {
         "path": "string"
@@ -46443,7 +46552,8 @@
       "id": "native.collapseUnchangedFragments",
       "description": "Native UI: Collapse unchanged fragments",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Collapse unchanged fragments",
@@ -50592,7 +50702,8 @@
       "id": "native.deleteChangeList",
       "description": "Native UI: Delete ChangeList",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Delete ChangeList",
@@ -50603,7 +50714,8 @@
       "id": "native.deleteChangeList.variant2",
       "description": "Native UI: Delete ChangeList?",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Delete ChangeList?",
@@ -52386,7 +52498,8 @@
       "id": "native.dropStash",
       "description": "Native UI: Drop Stash",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Drop Stash",
@@ -55468,7 +55581,8 @@
       "id": "native.filesReturnToTheDefaultChangeListAndMayBeIncludedByStageAllTheirGitStagingStateIsUnchanged",
       "description": "Native UI: Files return to the default ChangeList and may be included by Stage All. Their Git staging state is unchanged.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Files return to the default ChangeList and may be included by Stage All. Their Git staging state is unchanged.",
@@ -62971,7 +63085,8 @@
       "id": "native.lldUnchangedLines",
       "description": "Native UI: %lld unchanged lines",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "%lld unchanged lines",
@@ -65823,7 +65938,8 @@
       "id": "native.moveToChangeList",
       "description": "Native UI: Move to ChangeList",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Move to ChangeList",
@@ -66041,7 +66157,8 @@
       "id": "native.name",
       "description": "Native UI: Name",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Name",
@@ -66480,7 +66597,8 @@
       "id": "native.newChangeList",
       "description": "Native UI: New ChangeList",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "New ChangeList",
@@ -68405,7 +68523,8 @@
       "id": "native.noSavedChanges",
       "description": "Native UI: No saved changes",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "No saved changes",
@@ -69631,7 +69750,8 @@
       "id": "native.openAICommitSettings",
       "description": "Native UI: Open AI & Commit settings",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Open AI & Commit settings",
@@ -70544,7 +70664,8 @@
       "id": "native.otherChangeListsHaveStagedFilesUnstageThemBeforeCommittingTheCurrentChangeList",
       "description": "Native UI: Other ChangeLists have staged files. Unstage them before committing the current ChangeList.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Other ChangeLists have staged files. Unstage them before committing the current ChangeList.",
@@ -71882,7 +72003,8 @@
       "id": "native.pop",
       "description": "Native UI: Pop",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Pop",
@@ -75418,7 +75540,8 @@
       "id": "native.renameChangeList",
       "description": "Native UI: Rename ChangeList",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Rename ChangeList",
@@ -79241,7 +79364,8 @@
       "id": "native.selectSavedChanges",
       "description": "Native UI: Select saved changes",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Select saved changes",
@@ -81624,7 +81748,8 @@
       "id": "native.stageAllAndCommitUseTheCurrentChangeList",
       "description": "Native UI: Stage All and Commit use the current ChangeList.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Stage All and Commit use the current ChangeList.",
@@ -82174,7 +82299,8 @@
       "id": "native.stash",
       "description": "Native UI: Stash",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Stash",
@@ -82748,7 +82874,8 @@
       "id": "native.storeTemporaryChangesInGitSStashList",
       "description": "Native UI: Store temporary changes in Git's stash list.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Store temporary changes in Git's stash list.",
@@ -88275,7 +88402,8 @@
       "id": "native.thisRemovesTheStashFromGitAndCannotBeUndone",
       "description": "Native UI: This removes the stash from Git and cannot be undone.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "This removes the stash from Git and cannot be undone.",

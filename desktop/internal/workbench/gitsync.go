@@ -143,13 +143,13 @@ func (a *App) runSync(p *project, operation, label string, failed func(reason st
 		done, err := work(ctx, kernel, root)
 		readCtx, readCancel := context.WithTimeout(p.ctx, gitTimeout)
 		defer readCancel()
-		status, statusErr := kernel.GitStatus(readCtx, p.root)
+		status, statusErr := kernel.GitStatus(core.AutomaticRefresh(readCtx), p.root)
 		return func(a *App) {
 			s := &p.log.sync
 			s.busy, s.cancel, s.relay, s.hasProgress = false, nil, nil, false
 			cancel()
 			if statusErr == nil {
-				p.git = gitState{loaded: true, status: status}
+				a.setGit(p, gitState{loaded: true, status: status})
 			}
 			if p.log.started {
 				a.loadLog(p)
@@ -307,6 +307,39 @@ func (a *App) updateCurrentBranch(p *project) {
 				strategy = core.GitPullFastForward
 			}
 			return func(a *App) { a.notify(a.text.Sync.Updated(branch)) }, kernel.GitPull(ctx, root, strategy)
+		})
+}
+
+// branchUpdateKernel fast-forwards a local branch that is not checked out.
+type branchUpdateKernel interface {
+	GitUpdateBranch(ctx context.Context, root string, branch core.GitReference) error
+}
+
+// updateBranch brings the local branch r up to its upstream: the checked out one the way
+// updateCurrentBranch does, any other by fetching and fast-forwarding it without touching
+// HEAD.
+func (a *App) updateBranch(p *project, r core.GitReference) {
+	if r.Kind != "local" || r.IsCurrent {
+		a.updateCurrentBranch(p)
+		return
+	}
+	updater, ok := a.kernel.(branchUpdateKernel)
+	if !ok {
+		return
+	}
+	branch := r.ShortName
+	if r.UpstreamShortName == "" {
+		a.notify(a.text.Sync.NoUpstream(branch))
+		return
+	}
+	a.performed("git.updateBranch", surfaceButton)
+	t := a.text.Sync
+	a.runSync(p, "git_update_branch", t.Updating(branch), t.UpdateFailed,
+		func(ctx context.Context, kernel Kernel, root string) (func(*App), error) {
+			if err := kernel.GitFetch(ctx, root, nil); err != nil {
+				return nil, err
+			}
+			return func(a *App) { a.notify(a.text.Sync.Updated(branch)) }, updater.GitUpdateBranch(ctx, root, r)
 		})
 }
 

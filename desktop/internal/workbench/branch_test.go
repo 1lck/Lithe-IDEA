@@ -93,11 +93,14 @@ func TestBranchPopupCreatesABranchWithACleanedName(t *testing.T) {
 	}
 }
 
+// A checkout from the title bar's branch popup shows the Console tab of the Git tool window,
+// where the commands it ran are.
 func TestBranchRowMenuChecksOutABranch(t *testing.T) {
 	dir := newTestRepository(t)
 	gitRun(t, dir, "branch", "other")
 	h := newHarness(t, &gitKernel{Client: core.NewClient()})
 	h.openBranches(dir)
+	h.app.layout.gitTab = gitTabLog
 
 	h.click(center(h.branchRow("other")))
 	if h.app.branch.menu == "" {
@@ -112,6 +115,9 @@ func TestBranchRowMenuChecksOutABranch(t *testing.T) {
 	}
 	if h.app.branch.open {
 		t.Fatal("the popup stayed open after the checkout")
+	}
+	if h.app.layout.gitTab != gitTabConsole || !h.app.chrome.isOpen(catalogIndex[itemGit]) {
+		t.Fatalf("after the checkout: Git tab %d, Git open %v; want the Console", h.app.layout.gitTab, h.app.chrome.isOpen(catalogIndex[itemGit]))
 	}
 }
 

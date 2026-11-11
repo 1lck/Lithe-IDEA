@@ -312,6 +312,14 @@ type CommitMessages struct {
 
 	// The commit area.
 	Amend string
+	// The commit options: the sign-off and the author the next commit records.
+	Options           string
+	SignOff           string
+	SignOffHelp       string
+	Author            string
+	AuthorPlaceholder string
+	AuthorHelp        string
+	AuthorInvalid     string
 	// Staged counts the staged changes, for example "2 staged".
 	Staged             func(count int) string
 	MessageLabel       string
@@ -332,6 +340,9 @@ type CommitMessages struct {
 	// MessageLine repeats the commit message, for example "Commit message: Fix the build".
 	MessageLine func(message string) string
 	AmendNote   string
+	// AuthorLine names the author the commits record, for example "Author: Ada <ada@example.org>".
+	AuthorLine  func(author string) string
+	SignOffNote string
 	// Step is one repository of the plan, for example "1. Commit and push: lithe".
 	Step         func(n int, action, repository string) string
 	StepCommit   string

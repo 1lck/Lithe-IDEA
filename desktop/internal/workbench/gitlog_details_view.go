@@ -41,16 +41,10 @@ func (a *App) drawLogFiles(c ui.C, p *project) ui.Box {
 	return ui.Column(c).FillWidth().Clip().Children(func() {
 		ui.Row(c).Height(logToolbarHeight).Shrink(0).Items(ui.Center).Gap(4).PadX(6).Children(func() {
 			if a.gitIconButton(c, g.CompareChanges, icons.ArrowLeftRight, false, v.file == "") {
-				c.After(func() { a.notify(a.text.Welcome.Unavailable) })
+				c.After(func() { a.compareLogFile(p, v.file) })
 			}
 			if a.gitIconButton(c, g.FileHistory, icons.Clock, false, v.file == "") {
-				c.After(func() {
-					l.path = v.file
-					v.pathField.SetText(v.file)
-					if !l.loading {
-						a.reproject(p, 0)
-					}
-				})
+				c.After(func() { a.showLogFileHistory(p, v.file) })
 			}
 		})
 		ui.Divider(c)
@@ -118,8 +112,13 @@ func (a *App) drawLogFileList(c ui.C, p *project) {
 			a.selectLogFileRow(p, i)
 		}
 	}
-	if i, ok := v.files.Submitted(); ok && i >= 0 && i < len(v.fileRows) && v.fileRows[i].branch {
-		c.After(func() { a.toggleLogFolder(p, v.fileRows[i].folder) })
+	if i, ok := v.files.Submitted(); ok && i >= 0 && i < len(v.fileRows) {
+		if r := v.fileRows[i]; r.branch {
+			c.After(func() { a.toggleLogFolder(p, r.folder) })
+		} else if r.file >= 0 {
+			file := p.log.files[r.file].Path
+			c.After(func() { a.compareLogFile(p, file) })
+		}
 	}
 	if pane.Shortcut(0, "right") {
 		c.After(func() { a.stepLogFile(p, true) })
@@ -255,6 +254,30 @@ func (a *App) measureLogFiles(canvas *gfx.Canvas, p *project) float32 {
 	}
 	v.fileWidthOf, v.fileWidthFont = l.selected, font
 	return v.fileWidth
+}
+
+// compareLogFile opens the diff of what the selected commit changed in file.
+func (a *App) compareLogFile(p *project, file string) {
+	l := &p.log
+	i := slices.IndexFunc(l.files, func(f core.GitCommitFile) bool { return f.Path == file })
+	if l.selected == "" || i < 0 {
+		return
+	}
+	a.openCommitDiff(p, p.git.repositoryRoot(p.root), l.selected, l.files[i])
+}
+
+// showLogFileHistory narrows the log to the commits that changed file.
+func (a *App) showLogFileHistory(p *project, file string) {
+	l, v := &p.log, &a.logView
+	if file == "" {
+		return
+	}
+	a.performed("git.log.fileHistory", surfaceButton)
+	l.path = file
+	v.pathField.SetText(file)
+	if !l.loading {
+		a.reproject(p, 0)
+	}
 }
 
 // selectLogFileRow selects the folder or the file of row i of the changed files.

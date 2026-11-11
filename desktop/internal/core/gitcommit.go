@@ -210,6 +210,11 @@ type WorkspaceCommitRequest struct {
 	Message      string
 	Amend        bool
 	Push         bool
+	// Author records the commits as written by someone else, as "Name <email>"; empty keeps
+	// the configured identity. Core refuses any other form with CodeGitCommitAuthorInvalid.
+	Author string
+	// SignOff adds a Signed-off-by trailer for the committer to every commit.
+	SignOff bool
 	// PushTargets are the destinations the user confirmed by repository ID, answering the
 	// questions of an earlier preparation.
 	PushTargets map[string]WorkspaceCommitPushTarget
@@ -233,6 +238,8 @@ type workspaceCommitPrepareRequest struct {
 	Message                 string                               `json:"message"`
 	Amend                   bool                                 `json:"amend"`
 	Push                    bool                                 `json:"push"`
+	Author                  string                               `json:"author,omitempty"`
+	SignOff                 bool                                 `json:"signOff,omitempty"`
 	PushTargets             map[string]WorkspaceCommitPushTarget `json:"pushTargets,omitempty"`
 	IncludeParentReferences bool                                 `json:"includeParentReferences"`
 	PathScope               *ChangeListScope                     `json:"pathScope,omitempty"`
@@ -292,6 +299,10 @@ type WorkspaceCommitSession struct {
 	Message    string
 	Amend      bool
 	Push       bool
+	// Author is the "Name <email>" the plan records its commits under, empty for the
+	// configured identity.
+	Author  string
+	SignOff bool
 	// IsRetry reports a plan that continues a failed attempt.
 	IsRetry bool
 	// States are the reviewed states of the plan's repositories by ID.
@@ -337,6 +348,8 @@ func (s *WorkspaceCommitSession) UnmarshalJSON(data []byte) error {
 		Message    string                          `json:"message"`
 		Amend      bool                            `json:"amend"`
 		Push       bool                            `json:"push"`
+		Author     string                          `json:"author"`
+		SignOff    bool                            `json:"signOff"`
 		IsRetry    bool                            `json:"isRetry"`
 		OrderedIDs []string                        `json:"orderedIds"`
 		States     map[string]WorkspaceCommitState `json:"states"`
@@ -354,6 +367,8 @@ func (s *WorkspaceCommitSession) UnmarshalJSON(data []byte) error {
 		Message:       plan.Message,
 		Amend:         plan.Amend,
 		Push:          plan.Push,
+		Author:        plan.Author,
+		SignOff:       plan.SignOff,
 		IsRetry:       plan.IsRetry,
 		States:        plan.States,
 		Results:       wire.Results,
@@ -392,6 +407,8 @@ func (c *Client) WorkspaceCommitPrepare(ctx context.Context, request WorkspaceCo
 		Message:                 request.Message,
 		Amend:                   request.Amend,
 		Push:                    request.Push,
+		Author:                  request.Author,
+		SignOff:                 request.SignOff,
 		PushTargets:             request.PushTargets,
 		IncludeParentReferences: request.IncludeParentReferences,
 		PathScope:               request.PathScope,

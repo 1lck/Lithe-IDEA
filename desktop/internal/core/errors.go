@@ -47,6 +47,9 @@ const (
 	// CodeGitWorktreeHasChanges means Git refused a removal without force because the
 	// checkout has modified or untracked files, which a forced removal deletes.
 	CodeGitWorktreeHasChanges ErrorCode = "git_worktree_has_changes"
+	// CodeGitCommitAuthorInvalid means a commit named an author that is not exactly
+	// "Name <email>"; nothing was committed.
+	CodeGitCommitAuthorInvalid ErrorCode = "git_commit_author_invalid"
 	// CodeParseFailed means input or tool output could not be decoded into the stable
 	// contract. This package also uses it for a response it cannot decode.
 	CodeParseFailed ErrorCode = "parse_failed"

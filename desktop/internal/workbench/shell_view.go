@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -84,9 +85,7 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 	p := a.project
 	tabbed := tool.id == itemGit
 	header := float32(panelHeaderHeight)
-	if tabbed {
-		header = shellTabsHeaderHeight
-	} else if tool.id == itemFind && p != nil {
+	if tool.id == itemFind && p != nil {
 		header = 39
 	}
 	return ui.Column(c.KeyInt(int(s))).Background(a.colors.Panel).Clip().Children(func() {
@@ -94,6 +93,9 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 			ui.Text(c, tool.label(a.text)).Color(a.colors.Text).Weight(gfx.WeightMedium).Ellipsis()
 			if tabbed {
 				a.gitTabs(c)
+			}
+			if tool.id == itemCommit && p != nil {
+				a.commitTabs(c)
 			}
 			if tool.id == itemTerminal && p != nil {
 				// The tabs of the open project's terminals take the room a spacer would.
@@ -103,6 +105,9 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 			}
 			if tool.id == itemProject && p != nil {
 				a.projectTreeActions(c, p)
+			}
+			if tabbed && p != nil {
+				a.drawGitActions(c, p)
 			}
 			hide := ui.Button(c, a.text.Panel.Hide).Icon(icons.Minus).IconOnly().Ghost().Size(shellHideSize, shellHideSize).Shrink(0)
 			if hide.Clicked() {
@@ -125,9 +130,9 @@ func (a *App) toolBody(c ui.C, tool item, p *project) {
 		switch tool.id {
 		case itemGit:
 			switch a.layout.gitTab {
-			case 0:
+			case gitTabLog:
 				a.logPageView(c)
-			case 1:
+			case gitTabWorktrees:
 				a.worktreePageView(c)
 			default:
 				a.consolePageView(c)
@@ -135,7 +140,11 @@ func (a *App) toolBody(c ui.C, tool item, p *project) {
 		case itemTerminal:
 			a.terminalToolBody(c, p)
 		case itemCommit:
-			a.commitPageView(c)
+			if a.layout.commitTab == commitTabStash {
+				a.stashPageView(c, p)
+			} else {
+				a.commitPageView(c)
+			}
 		case itemProject:
 			a.projectTree(c, p)
 		case itemFind:
@@ -176,21 +185,74 @@ func (a *App) toolIconButton(c ui.C, label string, icon gfx.Icon, on, disabled b
 }
 
 // gitTabs declares the tabs of the Git tool window's header and takes a click on one as the
-// new selection. The strip may give up width, with the labels cut, before it pushes the hide
-// button out of a narrow panel.
+// new selection. The tabs may give up width, with the Log tab's branch cut, before they push
+// the hide button out of a narrow panel.
 func (a *App) gitTabs(c ui.C) {
-	l := &a.layout
-	l.gitLabels = [3]string{a.text.Git.Log, a.text.Git.Worktrees, a.text.Git.Console}
+	labels := [3]string{a.text.Git.Log, a.text.Git.Worktrees, a.text.Git.Console}
 	if p := a.project; p != nil && p.log.reference != "" {
-		l.gitLabels[0] = a.text.Git.LogTab(p.log.referenceLabel)
+		labels[0] = a.text.Git.LogTab(p.log.referenceLabel)
 	}
-	ui.Tabs(c, &l.gitTab, gitTabValues[:], l.gitLabel).Line().Height(shellTabsHeaderHeight).Shrink(1)
+	a.toolTabs(c.Key("git-tabs"), &a.layout.gitTab, labels[:])
 }
 
-// gitTabValues are the values of the Git tool window's tabs.
-var gitTabValues = [3]int{0, 1, 2}
+// The tabs of the Git tool window, in their order on its header.
+const (
+	gitTabLog = iota
+	gitTabWorktrees
+	gitTabConsole
+)
 
-func (l *layoutState) gitLabel(i int) string { return l.gitLabels[i] }
+// commitTabs declares the tabs of the Commit tool window's header: the local changes and the
+// stashes.
+func (a *App) commitTabs(c ui.C) {
+	lang := a.language()
+	labels := [2]string{i18n.Shared(lang, "workbench.commit"), i18n.Shared(lang, "native.stash")}
+	a.toolTabs(c.Key("commit-tabs"), &a.layout.commitTab, labels[:])
+}
+
+// The tabs of the Commit tool window, in their order on its header.
+const (
+	commitTabChanges = iota
+	commitTabStash
+)
+
+// toolTabs declares the tabs of a tool window's header, as the macOS tool windows draw them
+// and as the Terminal's tabs are drawn: each as wide as its label, the selected one on the
+// active background and the others lit while the pointer is on them. selected is the index
+// of the selected tab, and a click selects another. The row may shrink, the labels cut, in a
+// narrow panel.
+func (a *App) toolTabs(c ui.C, selected *int, labels []string) {
+	ui.Row(c).Shrink(1).MinWidth(0).Height(panelHeaderHeight).Items(ui.Center).Gap(2).Clip().Children(func() {
+		for i, label := range labels {
+			k := c.KeyInt(i)
+			on := i == *selected
+			chip := ui.Row(k).Height(rowHeight).Shrink(1).MinWidth(0).Items(ui.Center).PadX(toolTabPad).
+				Radius(a.theme.Metrics.RadiusItem()).
+				HitWith(ui.ID(k), label, gfx.HitOptions{
+					Role: gfx.RoleTab, Cursor: gfx.PointerCursorHand, Selected: on,
+					PosInSet: int32(i + 1), SetSize: int32(len(labels)),
+				}).
+				Pressed(ui.Look{}.Background(a.colors.Active))
+			if on {
+				chip = chip.Background(a.colors.Active)
+			} else {
+				chip = chip.Hover(ui.Look{}.Background(a.colors.Hover))
+			}
+			chip.Children(func() {
+				text := ui.Text(k, label).Ellipsis().Shrink(1)
+				if on {
+					text.Color(a.colors.Text)
+				} else {
+					text.Color(a.colors.Subtle).StateFrom(chip).Hover(ui.Look{}.Color(a.colors.Text))
+				}
+			})
+			if chip.Clicked() {
+				index := i
+				c.After(func() { *selected = index })
+			}
+		}
+	})
+}
 
 // editorArea declares the editor area. Once a terminal has been dragged into it, or a file
 // opened, it is the groups of tabs those are in (see editorGroups). Until then there is no

@@ -43,7 +43,7 @@ func (h *harness) openLogFilesWith(t *testing.T, names ...string) (*project, str
 	if p == nil || !p.git.isRepository() {
 		t.Fatalf("the project is not a loaded repository: %+v", p)
 	}
-	h.app.layout.gitTab = 0
+	h.app.layout.gitTab = gitTabLog
 	h.settle()
 	if !p.log.started {
 		h.click(center(h.button(itemGit)))
@@ -233,5 +233,49 @@ func TestLogChangedFilesScrollSideways(t *testing.T) {
 	h.settle()
 	if v.files.ScrollX() != 0 {
 		t.Fatalf("another commit kept the offset %v", v.files.ScrollX())
+	}
+}
+
+func TestLogChangedFileCompareAndHistory(t *testing.T) {
+	h := newHarness(t, gitKernel{core.NewClient()})
+	p, head, _ := h.openLogFiles(t)
+	g := h.app.text.Git
+	if hit, ok := h.findPageHit(g.CompareChanges); ok && !hit.Disabled {
+		t.Fatal("Compare is on with no file selected")
+	}
+	file, _ := h.logFileHit("top.txt")
+	h.click(center(file.Bounds))
+	h.clickNamed(g.CompareChanges)
+	if len(p.diffs.list) != 1 {
+		t.Fatalf("compare opened %d Diff tabs, want 1", len(p.diffs.list))
+	}
+	d := p.diffs.list[0]
+	h.await("the commit's diff", func() bool { return !d.loading })
+	if d.commit != head || d.change.Path != "top.txt" || d.err != "" || d.file == nil || !d.readOnly() {
+		t.Fatalf("compare opened %+v", d)
+	}
+	if g := p.terms.bench.GroupOf(diffMember(d.id)); g == nil || g.Selected != diffMember(d.id) {
+		t.Fatalf("the commit's diff is not the selected tab of an editor group: %+v", g)
+	}
+	if len(d.files) != 3 {
+		t.Fatalf("the commit's diff steps through %d files, want the commit's 3", len(d.files))
+	}
+	if d.plan != nil {
+		t.Fatal("a commit's change offers blocks to stage")
+	}
+	added := false
+	for _, line := range d.file.Lines {
+		added = added || (line.LineType == "added" && strings.Contains(line.Content, "top.txt"))
+	}
+	if !added {
+		t.Fatalf("the diff does not add the file's line: %+v", d.file.Lines)
+	}
+	h.app.closeDiffTab(p, d.id)
+	h.settle()
+
+	h.clickNamed(g.FileHistory)
+	h.settle()
+	if p.log.path != "top.txt" || h.app.logView.pathField.Text() != "top.txt" {
+		t.Fatalf("history filtered by %q, field %q", p.log.path, h.app.logView.pathField.Text())
 	}
 }

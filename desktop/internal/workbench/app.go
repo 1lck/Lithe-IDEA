@@ -251,6 +251,8 @@ type project struct {
 	git    gitState
 	log    gitLogState
 	commit commitState
+	// lists are the repository's local ChangeLists and the list each change belongs to.
+	lists changeListState
 	// worktrees is the Git tool window's Worktrees tab: the repository's worktrees and the
 	// details of the selected one.
 	worktrees worktreeState
@@ -277,7 +279,7 @@ type project struct {
 	panels runPanels
 	// agent is the project's Agent panel and connection.
 	agent agentState
-	// review holds the Git review dialogs: Diff, Push, stashes, worktrees and annotations.
+	// review holds the Git review dialogs: Push, stashes, worktrees and annotations.
 	review gitReview
 	// blame is the commit subjects the inline blame annotations show, kept per project.
 	blame gitBlameSubjects
@@ -285,6 +287,11 @@ type project struct {
 	observe gitObservation
 	// ideAPI is the project's IDE API connection for plugins and MCP clients (ide_api.go).
 	ideAPI ideAPIState
+	// diffs are the Diff tabs of the editor area.
+	diffs diffSet
+	// stash is the Commit tool window's Stash tab: the repository's stashes and the files of
+	// the selected one.
+	stash stashState
 }
 
 // App is the state of the window.
@@ -331,6 +338,9 @@ type App struct {
 	prompts pluginPrompts
 	// pluginInstall is the install the user started.
 	pluginInstall pluginInstallState
+	// credentialImport is the import of an earlier client's plugin secrets the user asked
+	// for from the settings menu (credentials_import.go).
+	credentialImport credentialImportState
 	// pluginState is what the settings window reads from its own thread about
 	// installed plugins; it is replaced whole, never mutated in place.
 	pluginState atomic.Pointer[map[string]settingswindow.PluginState]

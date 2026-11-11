@@ -28,7 +28,7 @@ func (h *harness) openConsole(t *testing.T, dir string) {
 	if err := kernel.GitPruneWorktrees(p.ctx, p.root); err != nil {
 		t.Fatalf("GitPruneWorktrees() error: %v", err)
 	}
-	h.app.layout.gitTab = 2
+	h.app.layout.gitTab = gitTabConsole
 	h.app.invalidator.Invalidate()
 	h.settle()
 	if !h.app.consoleView.read {
@@ -306,5 +306,47 @@ func TestConsoleCopyTexts(t *testing.T) {
 	want := "09:08:07.006: [repo] git status\na\n" + text.ExitCode(1)
 	if got := consoleCopyAll([]core.GitConsoleRecord{status}, text, time.UTC); got != want {
 		t.Fatalf("the copied console is %q, want %q", got, want)
+	}
+}
+
+// A Git write the user starts shows the Console tab of the Git tool window. Started in the
+// Commit tool window, it opens the Git tool window beside it; where the Commit tool window
+// stands in the Git tool window's place, it only selects the tab, so the write does not
+// close the window it was started in.
+func TestGitWritesShowTheConsole(t *testing.T) {
+	dir := newTestRepository(t)
+	h := newHarness(t, &gitKernel{Client: core.NewClient()})
+	p := h.openCommit(dir)
+	commit, git := catalogIndex[itemCommit], catalogIndex[itemGit]
+	h.app.reduceChrome(core.SetChromeOpen(itemGit, false))
+	h.app.layout.gitTab = gitTabLog
+	h.settle()
+
+	h.app.openStashPush(p)
+	h.app.pushStash(p)
+	h.settleChain()
+	if len(p.stash.list) != 1 || p.stash.writeErr != "" {
+		t.Fatalf("stashes after the stash = %+v (%q)", p.stash.list, p.stash.writeErr)
+	}
+	if h.app.layout.gitTab != gitTabConsole || !h.app.chrome.isOpen(git) || !h.app.chrome.isOpen(commit) {
+		t.Fatalf("after the stash: Git tab %d, Git open %v, Commit open %v; want the Console beside the Commit tool window",
+			h.app.layout.gitTab, h.app.chrome.isOpen(git), h.app.chrome.isOpen(commit))
+	}
+
+	h.app.reduceChrome(core.MoveChrome(itemCommit, core.ZoneBottomLeft, ""))
+	h.app.reduceChrome(core.SetChromeOpen(itemCommit, true))
+	h.app.layout.gitTab = gitTabLog
+	h.settle()
+	if h.app.chrome.isOpen(git) || !h.app.chrome.isOpen(commit) {
+		t.Fatal("the Commit tool window does not stand in the Git tool window's place")
+	}
+	h.app.applyStash(p, p.stash.list[0], true)
+	h.settleChain()
+	if len(p.stash.list) != 0 {
+		t.Fatalf("stashes after the pop = %+v", p.stash.list)
+	}
+	if h.app.layout.gitTab != gitTabConsole || h.app.chrome.isOpen(git) || !h.app.chrome.isOpen(commit) {
+		t.Fatalf("after the pop: Git tab %d, Git open %v, Commit open %v; want the Console tab selected behind the Commit tool window",
+			h.app.layout.gitTab, h.app.chrome.isOpen(git), h.app.chrome.isOpen(commit))
 	}
 }

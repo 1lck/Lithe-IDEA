@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -196,11 +197,12 @@ func TestGitConsoleSnapshotsDoNotChangeAfterwards(t *testing.T) {
 	}
 }
 
-// worktreeConsoleCommands are the commands of the console's records that run git worktree.
+// worktreeConsoleCommands are the commands of the console's records that change worktrees:
+// the git worktree commands other than list, which the requests read their worktrees with.
 func worktreeConsoleCommands(console *GitConsole) []string {
 	var commands []string
 	for _, record := range console.Snapshot().Records {
-		if len(record.Arguments) > 1 && record.Arguments[0] == "worktree" {
+		if len(record.Arguments) > 1 && record.Arguments[0] == "worktree" && record.Arguments[1] != "list" {
 			commands = append(commands, record.Arguments[1])
 		}
 	}
@@ -260,6 +262,11 @@ func TestGitWorktreesAreManagedAndRecordedInTheConsole(t *testing.T) {
 	if got := worktreeConsoleCommands(console); !slices.Equal(got, want) {
 		t.Fatalf("console worktree commands = %q, want %q", got, want)
 	}
+	if got := consoleCommands(console); !slices.Contains(got, "worktree") || !slices.ContainsFunc(console.Snapshot().Records, func(r GitConsoleRecord) bool {
+		return len(r.Arguments) > 1 && r.Arguments[0] == "worktree" && r.Arguments[1] == "list"
+	}) {
+		t.Fatalf("console commands = %q, want the worktree list queries recorded too", got)
+	}
 	snapshot := console.Snapshot()
 	var locked GitConsoleRecord
 	for _, record := range snapshot.Records {
@@ -315,5 +322,81 @@ func TestGitConsoleRecordsNothingForADetachedContext(t *testing.T) {
 	}
 	if records := console.Snapshot().Records; len(records) != 0 {
 		t.Fatalf("presentation request recorded %+v", records)
+	}
+}
+
+// consoleCommands are the Git subcommands of the console's records, in order.
+func consoleCommands(console *GitConsole) []string {
+	var commands []string
+	for _, record := range console.Snapshot().Records {
+		arguments := record.Arguments
+		// Global options come first; -c and -C take a value.
+		for len(arguments) > 0 && strings.HasPrefix(arguments[0], "-") {
+			if (arguments[0] == "-c" || arguments[0] == "-C") && len(arguments) > 1 {
+				arguments = arguments[1:]
+			}
+			arguments = arguments[1:]
+		}
+		if len(arguments) > 0 {
+			commands = append(commands, arguments[0])
+		}
+	}
+	return commands
+}
+
+// The console records the queries a request runs, as it records the commands the user
+// started, except those of an automatic refresh, which runs on every change.
+func TestGitConsoleRecordsQueriesButNotAutomaticRefreshes(t *testing.T) {
+	repo := committedRepository(t)
+	client := NewClient()
+	console := NewGitConsole(nil)
+	ctx := WithGitConsole(testContext(t), console, repo)
+
+	if _, err := client.GitStatus(AutomaticRefresh(ctx), repo); err != nil {
+		t.Fatalf("GitStatus(refresh) error: %v", err)
+	}
+	if records := console.Snapshot().Records; len(records) != 0 {
+		t.Fatalf("an automatic refresh recorded %+v", records)
+	}
+	if _, err := client.GitStatus(ctx, repo); err != nil {
+		t.Fatalf("GitStatus() error: %v", err)
+	}
+	if _, err := client.GitReferences(ctx, repo); err != nil {
+		t.Fatalf("GitReferences() error: %v", err)
+	}
+	commands := consoleCommands(console)
+	if !slices.Contains(commands, "status") || !slices.Contains(commands, "for-each-ref") {
+		t.Fatalf("console commands = %q, want the status and reference queries", commands)
+	}
+	for _, record := range console.Snapshot().Records {
+		if record.State != GitConsoleCompleted || (record.ExitCode != 0 && !record.ExpectedExit) {
+			t.Fatalf("query record %+v did not complete normally", record)
+		}
+	}
+}
+
+// Only a Git request with a console asks Core to report its queries, and an automatic
+// refresh names its provenance instead.
+func TestGitExecutionOfAsksForQueriesOnlyWithAConsole(t *testing.T) {
+	console := NewGitConsole(nil)
+	ctx := WithGitConsole(context.Background(), console, "/repo")
+	cases := []struct {
+		name    string
+		ctx     context.Context
+		command string
+		want    string
+	}{
+		{"console", ctx, "git.status", `{"reportQueries":true}`},
+		{"refresh", AutomaticRefresh(ctx), "git.status", `{"source":"background"}`},
+		{"no console", context.Background(), "git.status", `null`},
+		{"detached", WithGitConsole(ctx, nil, ""), "git.status", `null`},
+		{"never runs Git", ctx, "git.consolePresentation", `null`},
+		{"not Git", ctx, "core.ping", `null`},
+	}
+	for _, c := range cases {
+		got, err := json.Marshal(gitExecutionOf(c.ctx, c.command))
+		if err != nil || string(got) != c.want {
+			t.Fatalf("%s: gitExecution = %s (%v), want %s", c.name, got, err, c.want)
+		}
 	}
 }
