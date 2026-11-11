@@ -1,6 +1,9 @@
 package workbench
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -123,5 +126,50 @@ func TestRelativeGitTimeWordsTheAge(t *testing.T) {
 		if got := relativeGitTime(i18n.English, now, now.Add(-tc.age)); got != tc.want {
 			t.Errorf("age %v = %q, want %q", tc.age, got, tc.want)
 		}
+	}
+}
+
+// TestGitGutterStepsThroughChangesAndWraps: the next and previous change shortcuts move the
+// caret to the first line of the change after or before it, open that change's peek, and wrap
+// around the file at either end.
+func TestGitGutterStepsThroughChangesAndWraps(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	root := t.TempDir()
+	path := filepath.Join(root, "notes.txt")
+	if err := os.WriteFile(path, []byte(strings.Repeat("line\n", 20)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.open(root)
+	p := h.app.project
+	h.app.openFile(p, path)
+	h.settle()
+	d := p.docs.byPath(path)
+	d.gutter.hunks = []gitHunk{
+		{kind: editorview.GutterAdded, change: core.GutterChange{ModifiedStart: 3, ModifiedEnd: 5}},
+		{kind: editorview.GutterDeleted, change: core.GutterChange{ModifiedStart: 9, ModifiedEnd: 9}},
+		{kind: editorview.GutterModified, change: core.GutterChange{ModifiedStart: 15, ModifiedEnd: 16}},
+	}
+	caretLine := func() int { line, _ := d.view.CaretUTF16(); return line }
+	step := func(id string, want int) {
+		t.Helper()
+		h.app.runShortcut(id, nil)
+		if got := caretLine(); got != want {
+			t.Fatalf("%s moved the caret to line %d, want %d", id, got, want)
+		}
+		if !d.gutter.peekOpen || d.gutter.peek == nil || d.gutter.peek.change.ModifiedStart != want+1 {
+			t.Fatalf("%s opened the peek %+v, want the change at line %d", id, d.gutter.peek, want)
+		}
+	}
+	step("git.gutter.next", 2)
+	step("git.gutter.next", 8)
+	step("git.gutter.next", 14)
+	step("git.gutter.next", 2)
+	step("git.gutter.previous", 14)
+	step("git.gutter.previous", 8)
+
+	d.gutter.hunks, d.gutter.peek, d.gutter.peekOpen = nil, nil, false
+	h.app.runShortcut("git.gutter.next", nil)
+	if d.gutter.peekOpen || caretLine() != 8 {
+		t.Fatalf("a file without changes moved to line %d, peek open %v", caretLine(), d.gutter.peekOpen)
 	}
 }

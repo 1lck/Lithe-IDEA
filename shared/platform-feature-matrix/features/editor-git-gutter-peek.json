@@ -4,7 +4,7 @@
   "group": "Git 变更",
   "capability": "编辑器 Git 行变更标记、点击预览与变更导航",
   "macos": {
-    "implementationStatus": "partial",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
       ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
@@ -16,7 +16,7 @@
     ]
   },
   "windows": {
-    "implementationStatus": "partial",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
       ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
@@ -28,7 +28,7 @@
     ]
   },
   "owner": "Editor / Git",
-  "verification": "在 Windows 打开已跟踪文件，新增、修改、删除内容并保存，点击标记查看差异、切换前后变更、按 Escape 关闭；确认多仓库同名文件互不影响。切换浅色、深色及自定义主色，检查面板边框、焦点和 Git 语义色；关闭 Git 标记设置后标记消失。macOS 检查对应行变更入口。Linux 单元测试不替代目标平台运行验证。",
+  "verification": "在 Windows 打开已跟踪文件，新增、修改、删除内容并保存，点击标记查看差异、切换前后变更、按 Escape 关闭；确认多仓库同名文件互不影响。切换浅色、深色及自定义主色，检查面板边框、焦点和 Git 语义色；关闭 Git 标记设置后标记消失。macOS 检查对应行变更入口。Linux 单元测试不替代目标平台运行验证。 运行 scripts/desktop/desktop-go.sh test ./internal/workbench -run TestGitGutter -count=1，覆盖跨新增/删除/修改的上下跳转、末尾回绕和无标记时命令不可用。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -49,5 +49,5 @@
       ]
     }
   },
-  "notes": "Viva：行号区按 Core 的 git.diff 分组绘制新增/修改/删除标记，点击打开气泡显示被替换的原文并提供暂存与在 Diff 中回退；尚未做标记间的上/下一处跳转。markers 在打开、保存和 Git 状态刷新后实时重读，背景读取失败保留旧标记。"
+  "notes": "Viva：行号区按 Core 的 git.diff 分组绘制新增/修改/删除标记，点击打开气泡显示被替换的原文并提供暂存与在 Diff 中回退；“下一处/上一处变更”命令（git.gutter.next/previous，可在快捷键目录改绑）把光标移到下一处标记并打开该处气泡，到末尾回到第一处；文件没有标记时命令不出现，气泡内也有上/下一处按钮。markers 在打开、保存和 Git 状态刷新后实时重读，背景读取失败保留旧标记。"
 }

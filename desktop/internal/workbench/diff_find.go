@@ -15,8 +15,8 @@ import (
 // This file is the find bar of the Diff tab (matrix id git-diff-review): it searches the text the
 // two side editors show, without case where the case folds to the same length, and moves from
 // one match to the next by selecting it in its editor, which reveals it. The toolbar opens the bar
-// (difftab_view.go). Whitespace-insensitive comparison and word-level highlights are not here:
-// Core's diff has no option for either.
+// (difftab_view.go). Ignoring whitespace is a read option of the diff (difftab_whitespace.go), and
+// the word ranges come with Core's diff (difftab_view.go).
 
 // diffMatch is one occurrence of the query: the editor it is in and its byte range there.
 type diffMatch struct {

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 )
 
@@ -328,5 +329,67 @@ func TestDiffTabSidesScrollInStep(t *testing.T) {
 	h.settle()
 	if _, after := d.after.view.ScrollOffset(); after != 170*lineH {
 		t.Fatalf("after side at %v following the before side at 120, want 170", after/lineH)
+	}
+}
+
+// TestDiffTabFindsIgnoresWhitespaceAndEditsTheWorkingCopy: side by side, the find bar finds
+// text on either side, whatever its case. Ignoring whitespace drops a change that only
+// re-indents and reads the file without a block plan; then, with the file open, an edit on
+// the right side goes into the file's document.
+func TestDiffTabFindsIgnoresWhitespaceAndEditsTheWorkingCopy(t *testing.T) {
+	dir := newTestRepository(t)
+	commitLongFile(t, dir, numberedLines(20), func(lines []string) []string {
+		lines[2], lines[10] = "    line 3", "line eleven"
+		return lines
+	})
+	h := newHarness(t, &gitKernel{Client: core.NewClient()})
+	p := h.openCommit(dir)
+	h.app.openFile(p, filepath.Join(dir, "long.txt"))
+	h.settle()
+
+	d := openDiffTab(t, h, p, "long.txt")
+	if d.differences() != 2 {
+		t.Fatalf("the diff has %d differences, want the indent and the word", d.differences())
+	}
+
+	h.app.setDiffMode(p, d, true, false)
+	h.settle()
+	d.find.open = true
+	d.find.field.SetText("ELEVEN")
+	h.app.refreshDiffFind(d)
+	if m := d.find.matches; len(m) != 1 || m[0].view != d.after.view {
+		t.Fatalf("the find bar found %+v for ELEVEN, want the new side's line", m)
+	}
+	d.find.field.SetText("line 11")
+	h.app.refreshDiffFind(d)
+	if m := d.find.matches; len(m) != 1 || m[0].view != d.before.view {
+		t.Fatalf("the find bar found %+v for line 11, want the old side's line", m)
+	}
+	h.app.stepDiffFind(d, 1)
+	if d.find.current != 0 {
+		t.Fatalf("stepping past the only match went to %d", d.find.current)
+	}
+	d.closeDiffFind()
+
+	// The side stays read only while the block plan stages and rolls back blocks of the file on disk.
+	if d.plan == nil || d.after == nil || !d.after.view.ReadOnly() {
+		t.Fatalf("with a block plan (%v) the side is editable", d.plan != nil)
+	}
+
+	h.app.setDiffWhitespace(p, d, true)
+	h.await("the diff without whitespace", func() bool { return !d.loading })
+	h.settle()
+	if !d.ignoreSpace || d.differences() != 1 {
+		t.Fatalf("ignoring whitespace: %v, %d differences, want only the word", d.ignoreSpace, d.differences())
+	}
+	if d.after == nil || d.after.view.ReadOnly() {
+		t.Fatal("without a block plan the working copy's side is read only while its file is open")
+	}
+	if !d.after.view.ApplyEdit(editorview.Edit{StartLine: 0, EndLine: 0, Text: "// edited\n"}, true) {
+		t.Fatal("the edit did not apply to the side")
+	}
+	doc := p.docs.byPath(filepath.Join(dir, "long.txt"))
+	if text, _ := doc.view.Text(); !strings.HasPrefix(string(text), "// edited\nline 1\n") {
+		t.Fatalf("the document did not get the side's edit: %q", text[:min(len(text), 30)])
 	}
 }

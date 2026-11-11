@@ -4,25 +4,29 @@
   "group": "Markdown",
   "capability": "图片导入与链接定位",
   "macos": {
-    "implementationStatus": "partial",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
       ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
       "desktop/internal/workbench/markdown_preview.go",
-      "desktop/internal/workbench/markdown_preview_test.go"
+      "desktop/internal/workbench/markdown_preview_test.go",
+      "desktop/internal/workbench/markdown_images.go",
+      "desktop/internal/workbench/markdown_images_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "partial",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
       ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
       "desktop/internal/workbench/markdown_preview.go",
-      "desktop/internal/workbench/markdown_preview_test.go"
+      "desktop/internal/workbench/markdown_preview_test.go",
+      "desktop/internal/workbench/markdown_images.go",
+      "desktop/internal/workbench/markdown_images_test.go"
     ]
   },
   "owner": "Editor",
-  "verification": "验证本地图片、远程图片、相对链接和打开源文件行为。",
+  "verification": "验证本地图片、远程图片、相对链接和打开源文件行为。 运行 scripts/desktop/desktop-go.sh test ./internal/workbench -run 'TestMarkdownPreviewShowsRelativeAndRemoteImages|TestMarkdownImageSource' -count=1，覆盖相对图片、本地 HTTP 服务图片、404 与 SVG 显示替代文字；实机检查大图缩放与深浅主题仍待验收。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -42,5 +46,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 的 Markdown 预览由 Viva 自己的 markdown 解析与 MarkdownView 绘制，链接片段带命中区：http/https/mailto 交给系统打开，相对路径按文档目录解析后在工作台打开文件，锚点按 GitHub slug 匹配标题并滚动；其他 scheme 不跟随，避免从文档文本启动本地处理器。图片仍无法显示：Viva 的 markdown 包不解析图片，富文本 WebView 已随旧客户端删除；需要 Viva 渲染能力或 Core 结构化输出后再补。"
+  "notes": "Viva 的 Markdown 预览由 Viva 自己的 markdown 解析与 MarkdownView 绘制，链接片段带命中区：http/https/mailto 交给系统打开，相对路径按文档目录解析后在工作台打开文件，锚点按 GitHub slug 匹配标题并滚动；其他 scheme 不跟随，避免从文档文本启动本地处理器。图片在预览中显示：相对路径与 file 地址按文档目录读取，http/https 经网络设置的代理下载（markdown_images.go），PNG/JPEG/GIF 解码后按原尺寸绘制；SVG 等无法解码的格式和下载失败时显示替代文字，锚点、data 与其他 scheme 不加载。"
 }

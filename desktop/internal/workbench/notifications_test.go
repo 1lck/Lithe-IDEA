@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/vivaui/viva/ui"
 )
 
 // The same notice again is one entry that counts: it moves to the top, is unread again,
@@ -75,5 +76,38 @@ func TestNotificationHistoryKeepsTheNewest(t *testing.T) {
 	if len(list) != notificationHistoryLimit || list[0].text != fmt.Sprintf("notice %d", notificationHistoryLimit+4) ||
 		list[len(list)-1].text != "notice 5" {
 		t.Fatalf("history holds %d, newest %q, oldest %q", len(list), list[0].text, list[len(list)-1].text)
+	}
+}
+
+// A notice keeps its kind: the same words as an error and as a success are two entries.
+// At most three toasts are up at once, the oldest going first, while the history keeps all.
+// The welcome page, which has no status bar, still has the bell.
+func TestNoticesKeepTheirKindAndShowAtMostThreeToasts(t *testing.T) {
+	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
+	h.app.notifyError("Sync")
+	h.app.notifySuccess("Sync")
+	h.app.notifyInfo("Index ready")
+	h.app.notify("Disk almost full")
+	h.settle()
+
+	list := h.app.notifications.list
+	if len(list) != 4 {
+		t.Fatalf("history = %+v, want four entries", list)
+	}
+	kinds := map[ui.ToastKind]int{}
+	for _, entry := range list {
+		kinds[entry.kind]++
+	}
+	if kinds[ui.ToastError] != 1 || kinds[ui.ToastSuccess] != 1 || kinds[ui.ToastInfo] != 1 || kinds[ui.ToastWarning] != 1 {
+		t.Fatalf("the kinds are %v", kinds)
+	}
+	if n := h.app.overlay.toaster.Len(); n != 3 {
+		t.Fatalf("%d toasts are up, want three", n)
+	}
+	if !h.shows("Disk almost full") || !h.shows("Index ready") {
+		t.Fatal("the newest toasts are not up")
+	}
+	if _, ok := h.findPageHit("Notifications, 4 unread"); !ok {
+		t.Fatal("the welcome page has no bell")
 	}
 }

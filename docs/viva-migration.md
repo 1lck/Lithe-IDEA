@@ -31,8 +31,8 @@
 
 | 现状 | 数量 |
 | --- | --- |
-| 完成 | 38 |
-| 部分 | 109 |
+| 完成 | 40 |
+| 部分 | 107 |
 | 未开始 | 5 |
 
 2026-11-12 起 Agent 对话整体放弃，原先唯一“完成”的 `agent-minimal-conversation` 随之移入“放弃”。
@@ -163,7 +163,7 @@
 | `diagnostics-export` | 类型化会话日志筛选、保留与快照诊断包导出 | 必须迁移 | 实现/缺 | 部分 | logwindow/export.go、logstore/ |
 | `diagnostics-workspace` | 工作区诊断与问题面板 | 必须迁移 | 实现/实现 | 部分 | problems.go（诊断来自插件 LSP） |
 | `memory-monitor` | 应用与语言服务内存监控 | 必须迁移 | 实现/实现 | 部分 | sysinfo/（仅系统信息；语言服务内存监控未找到） |
-| `workbench-notifications` | 操作通知、错误提示与自动消失，重复消息合并计数 | 必须迁移 | 实现/实现 | 部分 | plugin 与文档冲突提示存在（document_conflict.go）；统一通知中心未找到 |
+| `workbench-notifications` | 操作通知、错误提示与自动消失，重复消息合并计数 | 必须迁移 | 实现/实现 | 部分 | `workbench/notifications.go`：四种类型、重复计数、最多三条 toast、悬停暂停、通知历史与铃铛（含欢迎页）；后台暂停、“还有 N 条”、语言切换重排与 InlineBanner 未做 |
 
 ### 启动与窗口（1）
 
@@ -333,11 +333,11 @@
 | id | 能力 | 分类 | 基线 mac/win | Viva 现状 | 缺口 / 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `editor-git-blame-menu` | 行号及左侧 gutter 区域右键打开精简菜单 | 必须迁移 | 实现/实现 | 部分 | `core/git_blame.go` |
-| `editor-git-gutter-peek` | 编辑器 Git 行变更标记、点击预览与变更导航 | 必须迁移 | 实现/实现 | 部分 | `workbench/git_gutter.go` |
+| `editor-git-gutter-peek` | 编辑器 Git 行变更标记、点击预览与变更导航 | 必须迁移 | 实现/实现 | 完成 | `workbench/git_gutter.go`（标记、气泡、上/下一处变更） |
 | `editor-git-gutter-setting` | 设置中开关编辑器 Git 变更标记 | 必须迁移 | 专属/实现 | 完成 | `workbench/git_gutter.go` |
 | `editor-git-gutter-stage` | 从编辑器行变更入口暂存单处修改 | 必须迁移 | 实现/实现 | 完成 | `workbench/git_gutter.go` |
 | `editor-inline-git-blame` | Windows 行尾 Git Blame 默认关闭 | 必须迁移 | 缺/实现 | 完成 | `workbench/git_gutter.go` |
-| `markdown-images-links` | 图片导入与链接定位 | 必须迁移 | 实现/实现 | 部分 | `workbench/markdown_preview.go` |
+| `markdown-images-links` | 图片导入与链接定位 | 必须迁移 | 实现/实现 | 完成 | `workbench/markdown_preview.go`、`markdown_images.go`（本地与 http(s) 图片、链接与锚点） |
 | `markdown-preview-outline` | Markdown 预览目录默认展开、全高滚动与标题跳转 | 必须迁移 | 实现/缺 | 完成 | `workbench/markdown_preview.go` |
 | `markdown-rendering` | Markdown 预览与富文本渲染 | 必须迁移 | 实现/实现 | 部分 | `workbench/markdown_preview.go` |
 | `outline-symbols` | 当前文件 Outline 与符号树 | 必须迁移 | 部分/实现 | 完成 | `core/plugin_symbols.go` |
