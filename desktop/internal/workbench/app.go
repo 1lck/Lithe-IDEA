@@ -1015,6 +1015,7 @@ func (a *App) openProjectHere(path string) {
 		a.startGitObservation(p)
 		a.loadLog(p)
 		a.activatePluginWorkspace(root)
+		a.restoreEditorSession(p)
 		a.openPendingFiles(p)
 	})
 }
@@ -1056,6 +1057,7 @@ func (a *App) finishCloseProject(p *project, after func()) {
 		return
 	}
 	{
+		a.saveEditorSession(p)
 		a.closeEverywhere(p)
 		if a.navigation.open && a.navigation.project == p {
 			a.closeNavigation()

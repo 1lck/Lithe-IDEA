@@ -237,6 +237,7 @@ func (a *App) openFinished(p *project, path string, err error) {
 	for _, waiter := range waiters {
 		waiter(d, err)
 	}
+	a.continueEditorRestore(p, path)
 }
 
 func (w pluginWorkbench) Open(ctx context.Context, root string, request pluginservice.OpenRequest) (pluginservice.OpenResult, error) {

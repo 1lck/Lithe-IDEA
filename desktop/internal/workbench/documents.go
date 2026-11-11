@@ -136,6 +136,9 @@ type documentLocation struct {
 	line      int
 	column    int
 	columnSet bool
+	// group is the editor group the file opens in when it is still there; "" opens it
+	// where files open (documentGroup). A restored session sets it (editor_session.go).
+	group string
 }
 
 // documentSet is the files a project has open. The zero value has none.
@@ -150,6 +153,8 @@ type documentSet struct {
 	openWaiters map[string][]func(*document, error)
 	// locations hold the latest requested position while a document opens.
 	locations map[string]documentLocation
+	// restore is the editor session being reopened as the project opens (editor_session.go).
+	restore *editorRestore
 	// group is the editor group a document was last shown or focused in, where the next file
 	// opens while it is still there.
 	group    string
@@ -263,6 +268,9 @@ func (a *App) openFile(p *project, path string) {
 				a.emit(documentFailedLevel, documentEventOpenFailed, documentOpenFields(err))
 				a.notifyError(a.text.Editor.OpenFailed(name, a.documentReason(err)))
 				return
+			}
+			if g := location.group; g != "" && p.terms.layout.contains(g) && p.terms.bench.Group(g) != nil {
+				p.docs.group = g
 			}
 			a.placeDocument(p, path, name, content, grammar, languageID)
 			if d := p.docs.byPath(path); d != nil {
