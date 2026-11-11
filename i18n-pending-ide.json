@@ -326,5 +326,17 @@
     "description": "Button that adds a custom plugin index",
     "en-US": "Add source",
     "zh-CN": "添加来源"
+  },
+  {
+    "id": "desktop.nativePanel.empty",
+    "description": "Shown in a plugin native panel that declares no node",
+    "en-US": "Nothing to show.",
+    "zh-CN": "没有可显示的内容。"
+  },
+  {
+    "id": "desktop.nativePanel.failed",
+    "description": "Notice when a plugin native panel action failed",
+    "en-US": "The plugin could not run this action.",
+    "zh-CN": "插件无法执行此操作。"
   }
 ]
