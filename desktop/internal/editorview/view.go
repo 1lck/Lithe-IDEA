@@ -236,6 +236,8 @@ type View struct {
 	numbers []gutterNumber
 	// gutter is what the host decorates the gutter and the line ends with.
 	gutter gutterState
+	// fold is the code folding (fold.go).
+	fold foldState
 	// iconX is where the per-line icon column starts, set when the view paints.
 	iconX      float32
 	numberText lineNumbers

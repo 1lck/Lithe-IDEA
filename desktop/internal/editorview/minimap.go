@@ -210,7 +210,7 @@ func (v *View) paintMinimap(canvas *gfx.Canvas, look Look, selStart, selEnd int)
 
 // lineRowEnd is the row after the last row of line.
 func (v *View) lineRowEnd(line int) int {
-	if !v.wrapping() {
+	if !v.mapped() {
 		return line + 1
 	}
 	v.ensureRows()
@@ -282,6 +282,9 @@ func (v *View) markRows(first, last, cols int) {
 // is broken into scratch space, so the minimap's many rows never push the visible lines out of
 // the view's cache.
 func (v *View) minimapRows(l lineRef) []wrapRow {
+	if v.fold.hides(l.line) {
+		return nil
+	}
 	if !v.wrapping() || l.size*tabSize <= v.wrapCols {
 		return oneRow
 	}

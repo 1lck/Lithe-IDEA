@@ -55,8 +55,12 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	v.applyLook(look)
 	lines := v.text.LineCount()
 	digits := v.gutterDigits(lines)
-	gutter := float32(digits)*cellW + 2*gutterPad + v.lineIconColumn()
-	v.iconX = area.X + gutter - v.lineIconColumn() + lineIconInset
+	// The gutter is the numbers with their padding, then the icon column, then the fold arrows.
+	numbersEnd := float32(digits)*cellW + 2*gutterPad
+	gutter := numbersEnd + v.lineIconColumn() + v.foldColumn()
+	v.iconX = area.X + numbersEnd + lineIconInset
+	v.fold.x = area.X + numbersEnd + v.lineIconColumn()
+	v.fold.boxes = v.fold.boxes[:0]
 	v.area = area
 	v.textLeft = area.X + gutter + textPad
 	v.layoutParts(gutter)
@@ -68,6 +72,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 		cols = max(int((v.textRight-v.textLeft-cellW)/cellW), 1)
 	}
 	v.setWrapCols(cols, wasLineH)
+	v.revealHiddenCaret()
 	if v.reveal {
 		v.revealCaret()
 		v.reveal = false
@@ -104,6 +109,10 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	for line := firstLine; line <= lastLine; line++ {
 		l := v.ref(line)
 		wraps := v.rowsOf(l)
+		if len(wraps) == 0 {
+			// A folded line: no rows, no number.
+			continue
+		}
 		if top+v.lineH > area.Y {
 			v.numbers = append(v.numbers, gutterNumber{line: line, y: top})
 		}
@@ -144,7 +153,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 			p := v.part(l, row, end, from, to)
 			v.paintRow(canvas, p.text, p.base, p.row, from, to, shift, y)
 			v.paintMarkers(canvas, line, from, to, shift, y)
-			if k == len(wraps)-1 {
+			if k == len(wraps)-1 && v.paintFoldBox(canvas, l, row, y, look) == 0 {
 				v.paintAnnotation(canvas, l, row, y, look, &annotation)
 			}
 		}
@@ -164,8 +173,9 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	canvas.Clip(gfx.Rect{X: area.X, Y: area.Y, Width: gutter, Height: area.Height})
 	v.paintGutterDecorations(canvas, area, look, firstLine, lastLine)
 	v.paintLineIcons(canvas, area, look, firstLine, lastLine)
+	v.paintFoldArrows(canvas, area, look, firstLine, lastLine)
 	style := gfx.TextStyle{Size: font.Size, Color: look.Subtle, Mono: true, MonoFace: font.Face}
-	right := area.X + gutter - gutterPad
+	right := area.X + numbersEnd - gutterPad
 	for _, number := range v.numbers {
 		label := v.lineLabel(number.line)
 		n := len(label)

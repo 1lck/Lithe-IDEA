@@ -50,6 +50,10 @@ func (v *View) Wrap() bool { return v.wrap }
 // wrapping says the last paint laid the text out with soft wrapping.
 func (v *View) wrapping() bool { return v.wrapCols > 0 }
 
+// mapped reports whether lines and rows differ: the text wraps or a fold hides lines. Without
+// either a line is one row.
+func (v *View) mapped() bool { return v.wrapCols > 0 || len(v.fold.collapsed) > 0 }
+
 // wrapLine appends to dst the rows text breaks into to fit cols columns. A row breaks after a
 // space or a tab, and before and after a wide character, such as a Chinese one; a word longer
 // than a row breaks inside it. A character wider than a whole row takes a row of its own. Tabs
@@ -133,6 +137,9 @@ func rowIndex(rows []wrapRow, col int) int {
 // rowsOf is the rows of l at the view's columns. The result is shared; callers must not change
 // it.
 func (v *View) rowsOf(l lineRef) []wrapRow {
+	if v.fold.hides(l.line) {
+		return nil
+	}
 	if !v.wrapping() || l.size*tabSize <= v.wrapCols {
 		return oneRow
 	}
@@ -174,7 +181,7 @@ func (v *View) setWrapCols(cols int, wasLineH float32) {
 	}
 	v.wrapCols = cols
 	clear(v.rowCache)
-	if cols == 0 {
+	if !v.mapped() {
 		v.wraps, v.rowStart = v.wraps[:0], v.rowStart[:0]
 	} else if len(v.wraps) == v.text.LineCount() {
 		for line := range v.wraps {
@@ -189,8 +196,12 @@ func (v *View) setWrapCols(cols int, wasLineH float32) {
 // when it may be wider than them, and without copying it.
 func (v *View) countRows(line int) {
 	w := &v.wraps[line]
+	if v.fold.hides(line) {
+		w.rows = 0
+		return
+	}
 	w.rows = 1
-	if int(w.cells) <= v.wrapCols {
+	if v.wrapCols == 0 || int(w.cells) <= v.wrapCols {
 		return
 	}
 	start, end := v.text.LineStart(line), v.text.LineEnd(line)
@@ -241,7 +252,13 @@ func (v *View) ensureRows() {
 // it lays out the new lines and keeps the counts of all the others.
 func (v *View) spliceRows(first, oldLast, newLast, oldCount int) {
 	clear(v.rowCache)
-	if !v.wrapping() || len(v.wraps) != oldCount {
+	collapsed := len(v.fold.collapsed)
+	v.shiftFolds(first, oldLast, newLast)
+	if len(v.fold.collapsed) != collapsed {
+		// A fold the edit opened changes the rows of lines outside it: lay them all out again.
+		v.wraps = v.wraps[:0]
+	}
+	if !v.mapped() || len(v.wraps) != oldCount {
 		v.wraps = v.wraps[:0]
 		return
 	}
@@ -260,13 +277,14 @@ func (v *View) spliceRows(first, oldLast, newLast, oldCount int) {
 
 // forgetRows drops the layout, for a text that changed as a whole.
 func (v *View) forgetRows() {
+	v.dropFolds()
 	clear(v.rowCache)
 	v.wraps = v.wraps[:0]
 }
 
 // rowCount is how many rows the text takes.
 func (v *View) rowCount() int {
-	if !v.wrapping() {
+	if !v.mapped() {
 		return v.text.LineCount()
 	}
 	v.ensureRows()
@@ -275,7 +293,7 @@ func (v *View) rowCount() int {
 
 // lineRow is the first row of line.
 func (v *View) lineRow(line int) int {
-	if !v.wrapping() {
+	if !v.mapped() {
 		return line
 	}
 	v.ensureRows()
@@ -285,7 +303,7 @@ func (v *View) lineRow(line int) int {
 // rowLine is the line row is on and which of the line's rows it is. A row past the last is the
 // last line's.
 func (v *View) rowLine(row int) (int, int) {
-	if !v.wrapping() {
+	if !v.mapped() {
 		line := min(max(row, 0), v.text.LineCount()-1)
 		return line, 0
 	}
