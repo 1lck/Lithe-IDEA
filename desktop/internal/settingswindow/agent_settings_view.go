@@ -426,6 +426,9 @@ func (w *window) hooksPage(c ui.C) {
 					ui.Text(c, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.loading")).FontSize(12).Color(w.pal.muted)
 				}
 				w.agentError(c, st.err)
+				if s.agentID() == "codex-acp" {
+					ui.Paragraph(c, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.hooks.codexApproval"), 4).FontSize(12).Color(w.pal.muted)
+				}
 				if st.loaded && len(st.library.Hooks) == 0 {
 					ui.Text(c, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.hooks.empty")).FontSize(12).Color(w.pal.muted)
 				}
@@ -532,6 +535,7 @@ func (w *window) hookEditor(c ui.C, st hooksState) {
 			ui.TextField(c.Key("desc"), &desc, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.hooks.description"), "").FillWidth()
 			ui.TextArea(c.Key("command"), &command, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.hooks.command"), "").FillWidth().Height(80)
 			ui.TextField(c.Key("timeout"), &timeout, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.hooks.timeout"), "").FillWidth()
+			ui.Paragraph(c, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.hooks.timeoutHelp"), 2).FontSize(12).Color(w.pal.muted)
 			events := make([]int, len(hookEvents))
 			for i := range events {
 				events[i] = i

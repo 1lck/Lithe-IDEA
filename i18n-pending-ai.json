@@ -379,5 +379,17 @@
     "description": "Shown after the adapter was uninstalled.",
     "en-US": "The adapter was uninstalled.",
     "zh-CN": "适配器已卸载。"
+  },
+  {
+    "id": "desktop.settings.agent.hooks.codexApproval",
+    "description": "Note on the hooks page when Codex is selected: Codex needs Hooks enabled and commands trusted in its own /hooks screen; saving does not grant trust.",
+    "en-US": "Codex requires Hooks to be enabled and commands to be trusted in its native /hooks screen. Lithe saves configuration without granting trust. Editing a command requires approval again. A configured Hook is not proof it ran.",
+    "zh-CN": "Codex 需要在它自己的 /hooks 界面中启用 Hook 并信任命令。Lithe 只保存配置，不授予信任。修改命令后需要重新批准。已配置的 Hook 不代表它已经运行。"
+  },
+  {
+    "id": "desktop.settings.agent.hooks.timeoutHelp",
+    "description": "Help under the Hook timeout field: empty uses the Agent default, otherwise 1 to 86400 seconds.",
+    "en-US": "Leave empty to use the Agent default, or enter an integer from 1 to 86400.",
+    "zh-CN": "留空则使用 Agent 的默认值，或输入 1 到 86400 之间的整数。"
   }
 ]
