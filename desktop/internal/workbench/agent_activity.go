@@ -29,11 +29,14 @@ const (
 // agentToolCall is one tool row of the transcript. Its title, kind and output are
 // the Agent's own words.
 type agentToolCall struct {
-	ID       string
-	Title    string
-	Kind     string
-	Status   string
-	Output   string
+	ID     string
+	Title  string
+	Kind   string
+	Status string
+	Output string
+	// Card is the Claude Desktop card Core attached (agent_cards.go), shown once
+	// the call completes.
+	Card     *agentCard
 	Expanded bool
 }
 
@@ -189,6 +192,7 @@ type agentUpdateWire struct {
 	Title         string          `json:"title"`
 	Kind          string          `json:"kind"`
 	Status        string          `json:"status"`
+	Meta          json.RawMessage `json:"_meta"`
 	Entries       []struct {
 		Content  string `json:"content"`
 		Priority string `json:"priority"`
@@ -258,9 +262,10 @@ func (a *App) applyAgentToolCall(p *project, update agentUpdateWire, messages *[
 	if act.tools == nil || len(act.tools) >= agentToolLimit {
 		act.tools = map[string]*agentToolCall{}
 	}
+	card := decodeAgentCard(update.Meta)
 	tool, known := act.tools[update.ToolCallID]
 	if !known {
-		if update.SessionUpdate == "tool_call_update" && update.Title == "" && update.Status == "" && len(update.Content) == 0 {
+		if update.SessionUpdate == "tool_call_update" && update.Title == "" && update.Status == "" && len(update.Content) == 0 && card == nil {
 			return
 		}
 		tool = &agentToolCall{ID: update.ToolCallID}
@@ -279,6 +284,10 @@ func (a *App) applyAgentToolCall(p *project, update agentUpdateWire, messages *[
 	}
 	if update.Status != "" {
 		tool.Status = update.Status
+	}
+	if card != nil {
+		*bytes += card.size() - tool.Card.size()
+		tool.Card = card
 	}
 	if text := agentToolContentText(update.Content); text != "" {
 		before := len(tool.Output)

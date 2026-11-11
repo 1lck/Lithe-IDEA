@@ -1115,7 +1115,7 @@ func (a *App) agentStatusText(p *project) string {
 func agentMessageSize(m agentMessage) int {
 	size := len(m.Text)
 	if m.Tool != nil {
-		size += len(m.Tool.Title) + len(m.Tool.Output)
+		size += len(m.Tool.Title) + len(m.Tool.Output) + m.Tool.Card.size()
 	}
 	return size
 }

@@ -32,8 +32,8 @@
 | 现状 | 数量 |
 | --- | --- |
 | 完成 | 1 |
-| 部分 | 62 |
-| 未开始 | 127 |
+| 部分 | 63 |
+| 未开始 | 126 |
 
 “完成”只有 `agent-minimal-conversation`（最小会话切片，非完整 Agent）。“部分”含 JSON 为 partial 的行与按代码改判的行；其中没有任何一行已完成原生窗口验收。
 
@@ -54,7 +54,7 @@
 | `agent-archived-conversation-history` | 当前工作区的 Codex 归档历史 | 必须迁移 | 实现/实现 | 未开始 | — |
 | `agent-chat-editor-placement` | 在编辑区标签页与 AI 工具窗口之间移动对话（按钮、右键菜单或把 A… | 必须迁移 | 实现/实现 | 未开始 | — |
 | `agent-claude-api-key-authentication` | Claude API Key 鉴权 | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-claude-desktop-mechanisms` | 在 Lithe 中打开 Claude Desktop 开始的 Cla… | 必须迁移 | 实现/部分 | 未开始 | — |
+| `agent-claude-desktop-mechanisms` | 在 Lithe 中打开 Claude Desktop 开始的 Cla… | 必须迁移 | 实现/部分 | 部分 | 卡片已绘制；可视化隔离网页待 Viva #209–#211，CI/跨会话通知折叠、`<pr-created>` 链接未做 |
 | `agent-claude-subscription` | Claude 供应商可选官方订阅 | 必须迁移 | 实现/部分 | 未开始 | — |
 | `agent-codex-subscription` | Codex 供应商选择官方订阅 | 必须迁移 | 实现/实现 | 未开始 | — |
 | `agent-connection-model-switching` | Agent 与模型切换 | 必须迁移 | 实现/实现 | 部分 | — |

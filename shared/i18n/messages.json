@@ -9668,6 +9668,135 @@
       ]
     },
     {
+      "id": "desktop.agent.card.directoryChanged",
+      "description": "Header of the working folder the Agent switched to",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.card.directoryRequested",
+      "description": "Header of a working folder the Agent asked to switch to",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.card.nextStep",
+      "description": "Header of the suggested replies a Claude Desktop session offers",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.card.openPullRequest",
+      "description": "Button that opens a pull request in the system browser",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.card.openPullRequestFailed",
+      "description": "Warning shown when the system browser could not open a pull request from an Agent card",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.agent.card.pullRequestAutoMergeOff",
+      "description": "Header of a pull request whose auto-merge the Agent turned off",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.card.pullRequestAutoMergeOn",
+      "description": "Header of a pull request whose auto-merge the Agent turned on",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.card.pullRequestBound",
+      "description": "Header of a pull request the Agent linked to the conversation",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.card.pullRequestMonitored",
+      "description": "Header of a pull request the Agent watches",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.card.pullRequestMonitoredAutoFix",
+      "description": "Header of a pull request the Agent watches and whose failed checks it fixes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.card.pullRequestUnbound",
+      "description": "Header of a pull request the Agent unlinked from the conversation",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.card.taskHandedOff",
+      "description": "Header of work the Agent handed off to a new session",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.card.taskProposed",
+      "description": "Header of a task the Agent suggests starting in another session",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.card.taskStarted",
+      "description": "Header of a suggested task that was started in a new session",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.card.taskWithdrawn",
+      "description": "Header of a suggested task the Agent withdrew",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.card.startTask",
+      "description": "Button that starts a new Agent conversation and puts a suggested task's prompt in its message box without sending it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.card.widget",
+      "description": "Header of a visualization the Agent produced",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agent.card.widgetNotRendered",
+      "description": "Note that this client does not render the Agent's visualization yet",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.agent.composer.label",
       "description": "Agent panel: composer accessibility label",
       "platforms": [

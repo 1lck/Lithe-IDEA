@@ -63,6 +63,10 @@ func (a *App) agentActivityRow(c ui.C, p *project, index int, message agentMessa
 		if tool == nil {
 			return
 		}
+		if agentCardShown(tool) {
+			a.agentCardRow(c, p, index, tool)
+			return
+		}
 		ui.Column(c).FillWidth().Gap(2).PadY(2).Children(func() {
 			ui.Row(c).FillWidth().Items(ui.Center).Gap(8).Children(func() {
 				ui.Text(c, tool.Title).Ellipsis().Grow(1).Color(a.colors.Text)
