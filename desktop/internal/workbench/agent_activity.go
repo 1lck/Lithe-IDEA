@@ -207,10 +207,11 @@ type agentUpdateWire struct {
 			Hint string `json:"hint"`
 		} `json:"input"`
 	} `json:"availableCommands"`
-	SubagentSessionID string `json:"subagentSessionId"`
-	Name              string `json:"name"`
-	Task              string `json:"task"`
-	State             string `json:"state"`
+	ConfigOptions     json.RawMessage `json:"configOptions"`
+	SubagentSessionID string          `json:"subagentSessionId"`
+	Name              string          `json:"name"`
+	Task              string          `json:"task"`
+	State             string          `json:"state"`
 }
 
 // agentTextContent reads the text of an ACP content block.
@@ -355,6 +356,13 @@ func (a *App) applyAgentSessionUpdate(p *project, sessionID string, update agent
 			list = append(list, item)
 		}
 		act.commands[id] = list
+		return true
+	case "config_option_update":
+		// The Agent changed a session setting itself (for example its permission
+		// mode). Its full list is authoritative, so the selectors follow it.
+		if agentSessionScoped(p, sessionID) {
+			a.replaceAgentConfigOptions(p, update.ConfigOptions)
+		}
 		return true
 	case "usage_update":
 		if !agentSessionScoped(p, sessionID) {

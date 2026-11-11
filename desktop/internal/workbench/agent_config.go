@@ -79,6 +79,14 @@ func (a *App) applyAgentConfigOptions(p *project, raw json.RawMessage) {
 	c := &p.agent.config
 	c.pendingToken = ""
 	c.err = ""
+	a.replaceAgentConfigOptions(p, raw)
+}
+
+// replaceAgentConfigOptions swaps in the Agent's full option list without touching
+// the panel's own pending command. The Agent-initiated config_option_update uses it,
+// so a mode the Agent switched itself is shown without cancelling a request in flight.
+func (a *App) replaceAgentConfigOptions(p *project, raw json.RawMessage) {
+	c := &p.agent.config
 	if len(raw) == 0 || string(raw) == "null" {
 		c.options = nil
 		return
