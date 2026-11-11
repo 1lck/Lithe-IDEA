@@ -42,9 +42,10 @@ type editorProviderBinding struct {
 	contextID string
 	reference json.RawMessage
 	id        string
-	// definition and hover are the functions that answer those requests; empty when not declared.
+	// definition, hover and completion are the functions that answer those requests; empty when not declared.
 	definition string
 	hover      string
+	completion string
 	languages  map[string]bool
 	extensions map[string]bool
 	names      map[string]bool
@@ -117,7 +118,17 @@ func (s *Service) handleRegisterEditorProviders(ctx context.Context, params json
 		}
 		binding.hover = hover.Function
 	}
-	if binding.definition == "" && binding.hover == "" {
+	if completion, ok := request.Providers["completion"]; ok {
+		if !validFunctionID(completion.Function) {
+			return nil, failure(codeInvalidParams, "The completion provider needs a function ID.")
+		}
+		session := s.Host.Running(caller.PluginID)
+		if session == nil || session.Session.ID != caller.SessionID || !session.hasFunction(completion.Function) {
+			return nil, failure(CodePreconditionFailed, "The function is not registered on this session.")
+		}
+		binding.completion = completion.Function
+	}
+	if binding.definition == "" && binding.hover == "" && binding.completion == "" {
 		return nil, failure(codeInvalidParams, "The registration provides no routed provider type.")
 	}
 	for _, language := range request.Selector.Languages {
@@ -271,6 +282,69 @@ func (s *Service) PluginHover(ctx context.Context, root, path, languageID, docum
 		}
 	}
 	return text, nil
+}
+
+// completionBinding is the binding of the document whose completion provider answers, or nil.
+func (s *Service) completionBinding(root, path, languageID string) *editorProviderBinding {
+	if s == nil || s.providers2 == nil {
+		return nil
+	}
+	workspace, ok := s.Contexts.ByPath(root)
+	if !ok {
+		return nil
+	}
+	name := filepath.Base(path)
+	s.providers2.mu.Lock()
+	defer s.providers2.mu.Unlock()
+	for _, binding := range s.providers2.list {
+		if binding.contextID == workspace.ContextID && binding.completion != "" && binding.matchesDocument(languageID, name) {
+			return binding
+		}
+	}
+	return nil
+}
+
+// HasCompletionProvider reports whether a plugin's completion provider serves the document.
+func (s *Service) HasCompletionProvider(root, path, languageID string) bool {
+	return s.completionBinding(root, path, languageID) != nil
+}
+
+// PluginCompletions asks the completion provider for the items at a zero-based UTF-16 position. The
+// answer is normalised by Core into the same items a language server's completion answer gives.
+func (s *Service) PluginCompletions(ctx context.Context, root, path, languageID, documentID string, version, line, column int) ([]core.PluginSemanticCompletionItem, error) {
+	binding := s.completionBinding(root, path, languageID)
+	if binding == nil {
+		return nil, nil
+	}
+	session := s.Host.Running(binding.pluginID)
+	if session == nil || session.Session.ID != binding.sessionID {
+		return nil, ErrBackendUnavailable
+	}
+	argument := mustMarshal(map[string]any{
+		"document": map[string]any{"documentID": documentID, "version": version},
+		"position": map[string]int{"line": line, "character": column},
+	})
+	answer, err := session.Call(ctx, binding.completion, argument, binding.reference, editorProviderTimeout)
+	if err != nil {
+		return nil, err
+	}
+	decoder, ok := s.kernel.(editorProviderDecoder)
+	if !ok {
+		return nil, errors.New("editor providers need the Core that normalises their answers")
+	}
+	decoded, err := decoder.DecodeEditorProviders(ctx, map[string]any{"kind": "result", "type": "completion", "value": answer})
+	if err != nil {
+		return nil, err
+	}
+	var result struct {
+		Result struct {
+			Items []core.PluginSemanticCompletionItem `json:"items"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(decoded, &result); err != nil {
+		return nil, err
+	}
+	return result.Result.Items, nil
 }
 
 // MergeDefinitions has Core keep the server's and the plugins' definition locations that belong to the

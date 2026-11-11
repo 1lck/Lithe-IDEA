@@ -605,6 +605,9 @@ func (a *App) requestPluginCompletion(p *project, d *document, line, column int,
 	}
 	server, ok := a.semanticServer(d)
 	if !ok {
+		if !automatic {
+			a.startProviderCompletion(p, d, line, column)
+		}
 		return
 	}
 	if !server.isReady() {
@@ -987,6 +990,35 @@ func (a *App) applySemanticCompletion(pending *semanticPending, event core.Backe
 		line:       pending.line,
 		column:     pending.column,
 	}
+}
+
+// startProviderCompletion shows a plugin completion provider's items when no language server serves the
+// document. Only explicit completion is routed; automatic triggers need the provider's trigger characters.
+func (a *App) startProviderCompletion(p *project, d *document, line, column int) {
+	if a.plugins == nil || d == nil || d.virtual || d.path == "" || !a.plugins.HasCompletionProvider(p.root, d.path, d.languageID) {
+		return
+	}
+	revision, id, path, language, root, plugins := d.view.Revision(), strconv.Itoa(d.id), d.path, d.languageID, p.root, a.plugins
+	a.background(p, 15*time.Second, func(ctx context.Context) func(*App) {
+		items, err := plugins.PluginCompletions(ctx, root, path, language, id, revision, line, column)
+		return func(a *App) {
+			if p.docs.find(d.id) != d || d.view.Revision() != revision {
+				return
+			}
+			if err != nil {
+				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_provider", err))
+				return
+			}
+			if len(items) > maxCompletionItems {
+				items = items[:maxCompletionItems]
+			}
+			if len(items) == 0 {
+				a.closeSemanticCompletion()
+				return
+			}
+			a.semantics.completion = completionState{open: true, items: items, documentID: d.id, revision: revision, line: line, column: column}
+		}
+	})
 }
 
 // semanticPositionCurrent says the trigger position still names the same place.
