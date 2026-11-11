@@ -19,6 +19,22 @@ type startupSweepState struct {
 	leftovers []processledger.Record
 }
 
+// startupSweepKindLabel is the category label of one leftover: a run, a terminal, a build, a debug
+// adapter or another process. A record written before kinds existed is a run.
+func startupSweepKindLabel(language i18n.Language, kind string) string {
+	switch kind {
+	case processledger.KindTerminal:
+		return i18n.Shared(language, "desktop.startupSweep.kind.terminal")
+	case processledger.KindBuild:
+		return i18n.Shared(language, "desktop.startupSweep.kind.build")
+	case processledger.KindDebug:
+		return i18n.Shared(language, "desktop.startupSweep.kind.debug")
+	case processledger.KindProcess:
+		return i18n.Shared(language, "desktop.startupSweep.kind.process")
+	}
+	return i18n.Shared(language, "desktop.startupSweep.kind.run")
+}
+
 // startupSweepTimeout bounds the ending of the confirmed leftovers.
 const startupSweepTimeout = 10 * time.Second
 
@@ -36,7 +52,7 @@ func (a *App) drawStartupSweep(c ui.C) {
 				FontSize(a.theme.Metrics.FontSizeS)
 			for _, record := range s.leftovers {
 				ui.Text(c, i18n.SharedFormat(language, "desktop.startupSweep.item", map[string]string{
-					"arg1": strconv.Itoa(record.PID), "arg2": record.Command,
+					"arg1": startupSweepKindLabel(language, record.Kind), "arg2": strconv.Itoa(record.PID), "arg3": record.Command,
 				})).FontSize(a.theme.Metrics.FontSizeS).Ellipsis()
 			}
 		})

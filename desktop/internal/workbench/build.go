@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -675,6 +676,7 @@ func (a *App) runCommandTask(ctx context.Context, p *project, instance buildInst
 	}
 	workingDirectory := filepath.Join(p.root, filepath.FromSlash(plan.WorkingDirectory))
 	process, err := buildprocess.Start(ctx, buildprocess.Spec{
+		Kind:             processledger.KindBuild,
 		Executable:       execution.Executable,
 		Arguments:        plan.Arguments,
 		WorkingDirectory: workingDirectory,
@@ -805,6 +807,7 @@ func captureBuildProcess(ctx context.Context, executable string, arguments []str
 	var output strings.Builder
 	var outputMu sync.Mutex
 	process, err := buildprocess.Start(ctx, buildprocess.Spec{
+		Kind:             processledger.KindBuild,
 		Executable:       executable,
 		Arguments:        arguments,
 		WorkingDirectory: workingDirectory,
@@ -924,6 +927,7 @@ func (a *App) runBuildTargetWith(p *project, instance *buildInstance, projectID,
 		}
 		workingDirectory := filepath.Join(p.root, filepath.FromSlash(launch.WorkingDirectory))
 		process, err := buildprocess.Start(ctx, buildprocess.Spec{
+			Kind:             processledger.KindBuild,
 			Executable:       execution.Executable,
 			Arguments:        launch.Arguments,
 			WorkingDirectory: workingDirectory,

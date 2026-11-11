@@ -33,6 +33,8 @@ type Record struct {
 	PID     int    `json:"pid"`
 	Started string `json:"started"`
 	Command string `json:"command"`
+	// Kind is what the process is (KindRun and the others); empty for records written before kinds.
+	Kind string `json:"kind,omitempty"`
 }
 
 // Ledger is the file of records. A nil Ledger records nothing, so platforms without the
@@ -42,17 +44,72 @@ type Ledger struct {
 	mu   sync.Mutex
 }
 
-// Open returns the ledger in dir. It does not read the file; Sweep does.
+// Kind names what a record is, so the start-up confirmation can label it.
+const (
+	KindRun      = "run"
+	KindTerminal = "terminal"
+	KindBuild    = "build"
+	KindDebug    = "debug"
+	KindProcess  = "process"
+)
+
+// ledgers memoizes one Ledger per directory, so every caller in the process shares one lock on the file.
+var (
+	ledgersMu sync.Mutex
+	ledgers   = map[string]*Ledger{}
+	active    *Ledger
+)
+
+// Open returns the ledger in dir, shared by every caller in the process. It does not read the file;
+// Sweep and Leftovers do.
 func Open(dir string) *Ledger {
 	if dir == "" {
 		return nil
 	}
-	return &Ledger{path: filepath.Join(dir, LedgerFile)}
+	path := filepath.Join(dir, LedgerFile)
+	ledgersMu.Lock()
+	defer ledgersMu.Unlock()
+	if l, ok := ledgers[path]; ok {
+		return l
+	}
+	l := &Ledger{path: path}
+	ledgers[path] = l
+	return l
+}
+
+// Activate makes the ledger in dir the one Track records into, and returns it.
+func Activate(dir string) *Ledger {
+	l := Open(dir)
+	ledgersMu.Lock()
+	active = l
+	ledgersMu.Unlock()
+	return l
+}
+
+// Track records a started process of the given kind in the active ledger and returns the function
+// that forgets it when the process has ended. Without an active ledger, or when the process cannot be
+// identified, it records nothing and the function does nothing.
+func Track(kind string, pid int) func() {
+	ledgersMu.Lock()
+	l := active
+	ledgersMu.Unlock()
+	if l == nil || pid <= 0 {
+		return func() {}
+	}
+	if err := l.AddKind(kind, pid); err != nil {
+		return func() {}
+	}
+	return func() { _ = l.Remove(pid) }
 }
 
 // Add records a started process. Errors are returned for the caller to report; a process that cannot
 // be identified is not recorded.
 func (l *Ledger) Add(pid int) error {
+	return l.AddKind(KindRun, pid)
+}
+
+// AddKind records a started process of the given kind.
+func (l *Ledger) AddKind(kind string, pid int) error {
 	if l == nil || pid <= 0 {
 		return nil
 	}
@@ -66,7 +123,7 @@ func (l *Ledger) Add(pid int) error {
 	if err != nil {
 		return err
 	}
-	records = append(records, Record{PID: pid, Started: started, Command: command})
+	records = append(records, Record{PID: pid, Started: started, Command: command, Kind: kind})
 	return l.write(records)
 }
 
