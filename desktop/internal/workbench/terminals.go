@@ -55,6 +55,9 @@ type terminal struct {
 	title string
 	// plugin is set when a plugin backend owns the terminal.
 	plugin *pluginTerminal
+	// scripts are the command scripts written for commands too long for the shell's line; they are
+	// removed when the terminal closes (terminal_commands.go).
+	scripts []string
 	// input and draw are the Control's handlers and painter, made once with the terminal;
 	// hit is the identity the paint declared it with.
 	input ui.Handlers
@@ -267,6 +270,7 @@ func (a *App) closeTerminals(p *project) {
 	}
 	for _, t := range p.terms.list {
 		t.view.Close()
+		t.removeCommandScripts()
 		a.finishPluginTerminal(t, "closed", nil)
 	}
 	p.terms = terminalSet{}
@@ -418,6 +422,7 @@ func (a *App) closeTerminal(p *project, id int) {
 		return
 	}
 	t.view.Close()
+	t.removeCommandScripts()
 	a.finishPluginTerminal(t, "closed", nil)
 	set.list = slices.DeleteFunc(set.list, func(x *terminal) bool { return x.id == id })
 	a.focusSelected(p, group)
