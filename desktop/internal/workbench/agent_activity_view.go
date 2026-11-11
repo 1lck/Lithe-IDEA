@@ -309,13 +309,6 @@ func (a *App) agentQuotaStrip(c ui.C, p *project, small float32) {
 	if act.quotaFailed != "" {
 		ui.Text(c.Key("quotaFailed"), t.QuotaFailed(act.quotaFailed)).FontSize(small).Color(a.colors.Subtle)
 	}
-	for _, window := range act.quota {
-		line := t.Quota(window.Name, fmt.Sprintf("%.0f", window.UsedPercent))
-		if window.ResetsAt > 0 {
-			line += " · " + t.QuotaReset(time.Unix(window.ResetsAt, 0).Local().Format("01-02 15:04"))
-		}
-		ui.Text(c.Key("quota/"+window.ID), line).FontSize(small).Color(a.agentUsageColor(int(window.UsedPercent))).Ellipsis()
-	}
 	if ui.Button(c.Key("quotaRefresh"), t.QuotaRefresh).Ghost().Disabled(act.quotaPending).Clicked() {
 		c.After(func() { a.refreshAgentQuota(p) })
 	}
