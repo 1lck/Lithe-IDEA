@@ -227,6 +227,9 @@ type settings struct {
 	// TerminalShell is the executable a new terminal runs, as settingswindow.Values says;
 	// empty runs the user's default shell (localshell.DefaultShell).
 	TerminalShell string `json:"terminalShell,omitempty"`
+	// ProcessTermination is the user's part of Core's process termination settings, as the
+	// Process Termination page edits it; the zero value keeps Core's defaults.
+	ProcessTermination settingswindow.ProcessTermination `json:"processTermination,omitzero"`
 	// AgentContextLimits are the per-Agent context window and auto-compact limits
 	// (agent_limits.go), keyed by adapter id.
 	AgentContextLimits map[string]agentContextLimit `json:"agentContextLimits,omitempty"`

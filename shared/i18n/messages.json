@@ -16338,6 +16338,76 @@
       ]
     },
     {
+      "id": "desktop.settings.processTermination.askBeforeEnding",
+      "description": "Choice: ask before ending busy terminals",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.processTermination.askBeforeStopping",
+      "description": "Choice: ask before stopping Run sessions",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.processTermination.confirmTabClose",
+      "description": "Switch: ask before closing a terminal tab, or a project, whose terminal runs a program",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.processTermination.endWithoutAsking",
+      "description": "Choice: end busy terminals without asking",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.processTermination.onQuit",
+      "description": "Label of the select for busy terminals when Lithe quits",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.processTermination.runServices",
+      "description": "Title of the Process Termination card about Run sessions (run configurations and build tasks)",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.processTermination.runServicesHelp",
+      "description": "Help of the Run services card",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.processTermination.stopWithoutAsking",
+      "description": "Choice: stop Run sessions without asking",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.processTermination.terminals",
+      "description": "Title of the Process Termination card about terminals whose shell runs a program",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.processTermination.terminalsHelp",
+      "description": "Help of the terminals card",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.resetLayout",
       "description": "Desktop settings: ResetLayout",
       "platforms": [

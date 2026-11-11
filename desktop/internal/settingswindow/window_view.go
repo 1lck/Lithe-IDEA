@@ -215,6 +215,8 @@ func (w *window) content(c ui.C) {
 			w.hooksPage(c)
 		case w.sess.page == pageVersionControl:
 			w.versionControlPage(c)
+		case w.sess.page == pageProcessTermination:
+			w.processTerminationPage(c)
 		case w.sess.page == pageMCP && w.ctrl.opts.MCP != nil:
 			w.mcpPage(c)
 		case w.sess.page == pageIDEAPI && w.ctrl.opts.IDEAPI != nil:
@@ -449,6 +451,7 @@ func (w *window) footer(c ui.C) {
 			w.setTabRows("", true)
 			w.setTabOverflow("", true)
 			w.setDisableSemanticHighlight(false, true)
+			w.setProcessTermination(ProcessTermination{}, true)
 			w.setTerminalShell("", true)
 			w.setFonts(fontprefs.Default(), true)
 		}

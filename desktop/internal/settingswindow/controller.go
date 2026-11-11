@@ -69,7 +69,34 @@ type Values struct {
 	InlineGitBlame bool
 	// DisableSemanticHighlight keeps the syntax colors alone; semantic coloring is on by default.
 	DisableSemanticHighlight bool
+	// ProcessTermination is the Process Termination page's part of Core's termination
+	// settings; the zero value keeps Core's defaults.
+	ProcessTermination ProcessTermination
 }
+
+// ProcessTermination is the part of Core's process termination settings this client
+// applies. Its JSON is a subset of Core's TerminationSettings, so the owner passes it to
+// processLifecycle.resolve as it is; an empty or nil field is left out and Core's default
+// applies. Agent tasks, background services, the startup sweep and the stop time are not
+// here because this client does not act on them yet.
+type ProcessTermination struct {
+	// RunServicesOnExit is RunServicesTerminate to stop Run sessions without asking when
+	// their project closes or Lithe quits; empty asks.
+	RunServicesOnExit string `json:"runServicesOnExit,omitempty"`
+	// TerminalOnQuit is TerminalsTerminate to end busy terminals without asking when Lithe
+	// quits; empty asks.
+	TerminalOnQuit string `json:"terminalOnQuit,omitempty"`
+	// ConfirmTerminalTabClose false closes a busy terminal tab, and the terminals of a
+	// closing project, without asking; nil asks.
+	ConfirmTerminalTabClose *bool `json:"confirmTerminalTabClose,omitempty"`
+}
+
+// The stored values of ProcessTermination besides the empty ones, which ask. They are
+// Core's own names.
+const (
+	RunServicesTerminate = "terminate"
+	TerminalsTerminate   = "terminate"
+)
 
 // The stored values of Values.EditorTabRows and Values.EditorTabOverflow besides the empty
 // ones, which are the defaults: one row that scrolls.
@@ -168,6 +195,9 @@ type Options struct {
 	// Values.InlineGitBlame to the settings owner, like SetTabRows.
 	SetHideGitGutter  func(bool)
 	SetInlineGitBlame func(bool)
+	// SetProcessTermination hands a change of Values.ProcessTermination to the settings
+	// owner, like SetTabRows.
+	SetProcessTermination func(ProcessTermination)
 	// SetDisableSemanticHighlight hands a change of Values.DisableSemanticHighlight to the
 	// settings owner, like SetHideGitGutter.
 	SetDisableSemanticHighlight func(bool)

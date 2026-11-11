@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 )
 
 // TestClosingWithARunningRunAsksFirst: a close while a Run session runs is a
@@ -165,5 +166,34 @@ func TestClosingAProjectListsItsBusyTerminals(t *testing.T) {
 	h.settle()
 	if closed {
 		t.Fatal("Cancel closed the project")
+	}
+}
+
+// The Process Termination settings reach Core: with the tab question off a busy tab
+// closes at once, and with busy terminals ended on quit, quitting asks nothing.
+func TestProcessTerminationSettingsSkipTheTerminalQuestions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses /bin/sh")
+	}
+	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
+	h.open(t.TempDir())
+	p := h.app.project
+	off := false
+	h.app.setProcessTermination(settingswindow.ProcessTermination{
+		TerminalOnQuit: settingswindow.TerminalsTerminate, ConfirmTerminalTabClose: &off,
+	})
+
+	first := busyTerminal(t, h, "sleep 30; true")
+	awaitBusy(t, first, true)
+	h.app.requestCloseTerminal(p, first.id)
+	h.await("the busy tab to close", func() bool { return p.terms.find(first.id) == nil })
+
+	second := busyTerminal(t, h, "sleep 30; true")
+	awaitBusy(t, second, true)
+	quit := false
+	h.app.confirmProcessExit(p, exitContextQuit, func() { quit = true })
+	h.await("quitting without a question", func() bool { return quit })
+	if len(h.app.prompts.queue) != 0 {
+		t.Fatal("a question was asked although the settings end busy terminals")
 	}
 }

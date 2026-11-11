@@ -8,6 +8,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 )
 
 // processExitKernel is the part of Core that decides how the programs Lithe
@@ -74,9 +75,9 @@ func needsConfirmation(action string) bool {
 	return action == "confirmStop" || action == "confirm"
 }
 
-// confirmationNames resolves records in lifecycleContext and lists the names of those
-// the user must confirm.
-func (a *App) confirmationNames(ctx context.Context, lifecycleContext string, records []exitRecord) ([]string, error) {
+// confirmationNames resolves records in lifecycleContext with the user's termination
+// settings and lists the names of those the user must confirm.
+func (a *App) confirmationNames(ctx context.Context, lifecycleContext string, settings json.RawMessage, records []exitRecord) ([]string, error) {
 	if len(records) == 0 {
 		return nil, nil
 	}
@@ -84,7 +85,7 @@ func (a *App) confirmationNames(ctx context.Context, lifecycleContext string, re
 	for i, record := range records {
 		wire[i] = record.record
 	}
-	plan, err := a.kernel.ResolveProcessLifecycle(ctx, lifecycleContext, nil, wire)
+	plan, err := a.kernel.ResolveProcessLifecycle(ctx, lifecycleContext, settings, wire)
 	if err != nil {
 		return nil, err
 	}
@@ -139,11 +140,12 @@ func (a *App) confirmProcessExit(p *project, lifecycleContext string, proceed fu
 	if lifecycleContext == exitContextQuit {
 		terminalContext = exitContextQuit
 	}
+	settings := terminationSettings(a.settings.ProcessTermination)
 	a.background(nil, debugOperationTimeout, func(ctx context.Context) func(*App) {
-		names, err := a.confirmationNames(ctx, lifecycleContext, records)
+		names, err := a.confirmationNames(ctx, lifecycleContext, settings, records)
 		if err == nil {
 			var terminalNames []string
-			terminalNames, err = a.confirmationNames(ctx, terminalContext, terminalRecords(terminals))
+			terminalNames, err = a.confirmationNames(ctx, terminalContext, settings, terminalRecords(terminals))
 			names = append(names, terminalNames...)
 		}
 		return func(a *App) {
@@ -190,8 +192,9 @@ func (a *App) requestCloseTerminal(p *project, id int) {
 	}
 	title := a.terminalTitle(t)
 	terminals := []exitTerminal{{id: id, label: title, busy: probe}}
+	settings := terminationSettings(a.settings.ProcessTermination)
 	a.background(nil, debugOperationTimeout, func(ctx context.Context) func(*App) {
-		names, err := a.confirmationNames(ctx, exitContextCloseTerminal, terminalRecords(terminals))
+		names, err := a.confirmationNames(ctx, exitContextCloseTerminal, settings, terminalRecords(terminals))
 		return func(a *App) {
 			if err != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("terminal_close_plan", err))
@@ -216,4 +219,21 @@ func (a *App) requestCloseTerminal(p *project, id int) {
 			})
 		}
 	})
+}
+
+// setProcessTermination stores the Process Termination page's settings. The next close
+// decides with them.
+func (a *App) setProcessTermination(value settingswindow.ProcessTermination) {
+	a.settings.ProcessTermination = value
+	a.saveSettings()
+}
+
+// terminationSettings is the settings as Core's TerminationSettings JSON: only the fields
+// the user changed, so Core supplies the defaults of the rest.
+func terminationSettings(value settingswindow.ProcessTermination) json.RawMessage {
+	data, err := json.Marshal(value)
+	if err != nil || string(data) == "{}" {
+		return nil
+	}
+	return data
 }

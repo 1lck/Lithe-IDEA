@@ -138,6 +138,9 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SetDisableSemanticHighlight: func(value bool) {
 			a.post(func(a *App) { a.setDisableSemanticHighlight(value) })
 		},
+		SetProcessTermination: func(value settingswindow.ProcessTermination) {
+			a.post(func(a *App) { a.setProcessTermination(value) })
+		},
 		SetFonts: func(fonts []fontprefs.Font) {
 			a.post(func(a *App) { a.setFonts(fonts) })
 		},
@@ -254,7 +257,9 @@ func (a *App) openSettingsPage(surface string, page settingsPage) {
 			EditorTabRows: a.settings.EditorTabRows, EditorTabOverflow: a.settings.EditorTabOverflow,
 			TerminalShell: a.settings.TerminalShell,
 			HideGitGutter: a.settings.HideGitGutter, InlineGitBlame: a.settings.InlineGitBlame,
-			Fonts: fontprefs.Normalize(a.settings.Fonts),
+			DisableSemanticHighlight: a.settings.DisableSemanticHighlight,
+			ProcessTermination:       a.settings.ProcessTermination,
+			Fonts:                    fontprefs.Normalize(a.settings.Fonts),
 		}
 		var err error
 		switch page {

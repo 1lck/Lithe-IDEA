@@ -527,6 +527,33 @@ func (w *window) setInlineGitBlame(value bool, force bool) {
 	}
 }
 
+// setProcessTermination stores a change of the Process Termination page and hands it to the
+// settings owner at once.
+func (w *window) setProcessTermination(value ProcessTermination, force bool) {
+	if w.sess.finished.Load() || (!force && sameProcessTermination(w.sess.values.ProcessTermination, value)) {
+		return
+	}
+	w.sess.values.ProcessTermination = value
+	if w.ctrl.opts.SetProcessTermination != nil {
+		w.ctrl.opts.SetProcessTermination(value)
+	}
+}
+
+// sameProcessTermination compares two settings by what they store.
+func sameProcessTermination(a, b ProcessTermination) bool {
+	confirms := func(v *bool) int {
+		if v == nil {
+			return -1
+		}
+		if *v {
+			return 1
+		}
+		return 0
+	}
+	return a.RunServicesOnExit == b.RunServicesOnExit && a.TerminalOnQuit == b.TerminalOnQuit &&
+		confirms(a.ConfirmTerminalTabClose) == confirms(b.ConfirmTerminalTabClose)
+}
+
 // setDisableSemanticHighlight stores a change of the Editor page's semantic switch and hands
 // it to the settings owner at once.
 func (w *window) setDisableSemanticHighlight(value bool, force bool) {

@@ -15,7 +15,9 @@
       "shared/fixtures/process-lifecycle/settle-v1.json",
       "desktop/internal/localshell/shell.go",
       "desktop/internal/localshell/backend_unix.go",
-      "desktop/internal/localshell/shell_unix_test.go"
+      "desktop/internal/localshell/shell_unix_test.go",
+      "desktop/internal/settingswindow/process_termination_view.go",
+      "desktop/internal/settingswindow/process_termination_view_test.go"
     ]
   },
   "windows": {
@@ -30,12 +32,14 @@
       "shared/fixtures/process-lifecycle/settle-v1.json",
       "desktop/internal/localshell/shell.go",
       "desktop/internal/localshell/backend_windows.go",
-      "desktop/internal/localshell/shell_windows_test.go"
+      "desktop/internal/localshell/shell_windows_test.go",
+      "desktop/internal/settingswindow/process_termination_view.go",
+      "desktop/internal/settingswindow/process_termination_view_test.go"
     ]
   },
   "owner": "Run",
   "verification": "macOS：在两个终端分别运行 Spring Boot 和空闲 shell，让 Agent 启动一个长时间命令，再在终端里 setsid 启动一个后台服务；退出时应只对忙碌终端逐个确认（可跳到终端或取消），再逐个确认 Agent 任务（带 --settings JSON 的命令应按层级缩进显示，长命令在命令框内上下滚动，复制得到原始命令），最后在列表中勾选后台服务；选择保留的进程退出后仍存活，取消退出时不结束任何进程。在 Lithe 外启动的进程不出现。修改设置页各选项后流程相应跳过确认；悬停 ⓘ 约 0.3 秒出现说明，点击可固定，读屏可读出；中英文文案齐全；设置搜索能找到该页。 后台服务验证单条跨多屏长命令及不含空格的参数换行、完整选择复制、200 项滚动到最后一项且挂载按钮数随视口有界，滚动不重建文本存储或改变固定容器宽度，返回后保留按资源 ID 的勾选，全选/全不选包含离屏项并更新数量，读屏保留的同一复选框元素在单项和批量变更后实时回读勾选值且身份稳定，变更发送辅助功能值通知，仅识别服务出现记住选项；深浅主题原生弹窗高度有界，真实工作区连续滚动需另做帧性能验收，按选择退出、全部结束和取消继续沿用现有语义。",
-  "notes": "关闭窗口或项目时，仍在运行的插件 Run 会话与调试会话交给 Core 的 processLifecycle.resolve，confirmStop 的记录合并成一次确认，取消则保持原样。终端忙闲已接入：macOS 用 pty 前台进程组（TIOCGPGRP）与 shell 进程比较，Windows 看 shell 是否有子进程；忙碌终端在退出（quit）和关闭项目（按 closeTerminalTab，因为项目关闭时终端随之结束）时与运行会话列在同一次确认里，关闭忙碌终端标签页单独确认，空闲终端直接关闭。已知差异：Viva 版把忙碌终端合并进一次“全部结束或取消”的确认，没有逐个确认和“跳到终端”；shell 被 exec 替换（如 exec vim）时读作空闲；WSL 终端在 Windows 上始终读作空闲。Agent 任务没有对应的进程探测，未纳入；processLifecycle.inventory/settle 与相关用户设置未接入。",
+  "notes": "关闭窗口或项目时，仍在运行的插件 Run 会话与调试会话交给 Core 的 processLifecycle.resolve，confirmStop 的记录合并成一次确认，取消则保持原样。终端忙闲已接入：macOS 用 pty 前台进程组（TIOCGPGRP）与 shell 进程比较，Windows 看 shell 是否有子进程；忙碌终端在退出（quit）和关闭项目（按 closeTerminalTab，因为项目关闭时终端随之结束）时与运行会话列在同一次确认里，关闭忙碌终端标签页单独确认，空闲终端直接关闭。已知差异：Viva 版把忙碌终端合并进一次“全部结束或取消”的确认，没有逐个确认和“跳到终端”；shell 被 exec 替换（如 exec vim）时读作空闲；WSL 终端在 Windows 上始终读作空闲。设置页“外观与行为 › 进程终止策略”已接入本客户端生效的三项：运行服务退出时询问或直接停止、退出时忙碌终端询问或直接结束、关闭有程序在运行的标签页或项目前是否询问；只保存改过的字段并原样交给 Core（其余取 Core 默认），恢复默认值清空。Agent 任务、后台服务、崩溃后遗留进程和停止等待时长本客户端尚未执行，所以页面不显示这些选项；Agent 任务没有对应的进程探测，processLifecycle.inventory/settle 未接入。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
