@@ -226,5 +226,41 @@
     "description": "Line that stands for a turn's process in the exported Markdown.",
     "en-US": "Process steps",
     "zh-CN": "过程步骤"
+  },
+  {
+    "id": "desktop.agent.history.search",
+    "description": "Placeholder and label of the search field in the conversation history list.",
+    "en-US": "Search conversations",
+    "zh-CN": "搜索对话"
+  },
+  {
+    "id": "desktop.agent.history.filterAll",
+    "description": "History filter that shows every conversation.",
+    "en-US": "All",
+    "zh-CN": "全部"
+  },
+  {
+    "id": "desktop.agent.history.filterPinned",
+    "description": "History filter that shows pinned conversations.",
+    "en-US": "Pinned",
+    "zh-CN": "已置顶"
+  },
+  {
+    "id": "desktop.agent.history.filterRemoved",
+    "description": "History filter that shows conversations removed from this list.",
+    "en-US": "Removed",
+    "zh-CN": "已移除"
+  },
+  {
+    "id": "desktop.agent.history.remove",
+    "description": "Context menu item that removes a conversation from this list only; the Agent keeps it.",
+    "en-US": "Remove from history",
+    "zh-CN": "从历史中移除"
+  },
+  {
+    "id": "desktop.agent.history.restore",
+    "description": "Context menu item that restores a conversation removed from this list.",
+    "en-US": "Restore conversation",
+    "zh-CN": "恢复对话"
   }
 ]
