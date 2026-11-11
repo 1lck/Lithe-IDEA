@@ -72,3 +72,57 @@ func parsePSTable(output []byte, root int) (ProcessSample, bool) {
 func psCommand(ctx context.Context) ([]byte, error) {
 	return exec.CommandContext(ctx, "ps", "-axo", "pid=,ppid=,pcpu=,rss=").Output()
 }
+
+// windowsProcess is one row of the Win32_Process table: its tree links, its working set and the CPU
+// time it has used in 100-nanosecond units.
+type windowsProcess struct {
+	pid, parent int
+	workingSet  uint64
+	cpuTicks    uint64
+}
+
+// parseWindowsTable reads the CSV the Win32_Process query prints (ProcessId, ParentProcessId,
+// WorkingSetSize, KernelModeTime, UserModeTime) and sums the tree under root. cpuSeconds is the CPU
+// time the tree has used so far; the caller turns two readings into a share.
+func parseWindowsTable(output []byte, root int) (memoryBytes uint64, cpuSeconds float64, ok bool) {
+	children := map[int][]int{}
+	rows := map[int]windowsProcess{}
+	for index, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if index == 0 || line == "" {
+			continue
+		}
+		fields := strings.Split(strings.Trim(line, `"`), `","`)
+		if len(fields) != 5 {
+			continue
+		}
+		pid, err1 := strconv.Atoi(fields[0])
+		parent, err2 := strconv.Atoi(fields[1])
+		workingSet, err3 := strconv.ParseUint(fields[2], 10, 64)
+		kernel, err4 := strconv.ParseUint(fields[3], 10, 64)
+		user, err5 := strconv.ParseUint(fields[4], 10, 64)
+		if err1 != nil || err2 != nil || err3 != nil || err4 != nil || err5 != nil {
+			continue
+		}
+		rows[pid] = windowsProcess{pid: pid, parent: parent, workingSet: workingSet, cpuTicks: kernel + user}
+		children[parent] = append(children[parent], pid)
+	}
+	if _, found := rows[root]; !found {
+		return 0, 0, false
+	}
+	var ticks uint64
+	stack, seen := []int{root}, map[int]bool{}
+	for len(stack) > 0 {
+		pid := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if seen[pid] {
+			continue
+		}
+		seen[pid] = true
+		current := rows[pid]
+		memoryBytes += current.workingSet
+		ticks += current.cpuTicks
+		stack = append(stack, children[pid]...)
+	}
+	return memoryBytes, float64(ticks) / 1e7, true
+}
