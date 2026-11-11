@@ -335,8 +335,14 @@ func (a *App) agentTranscript(c ui.C, p *project) {
 		return
 	}
 	assistantRole, _ := p.selectedAgent()
-	ui.List(c, &p.agent.transcript, len(messages), func(row ui.ListRow) {
-		message := messages[row.Index]
+	rows := agentTranscriptRows(messages)
+	ui.List(c, &p.agent.transcript, len(rows), func(row ui.ListRow) {
+		if span := rows[row.Index]; span.process {
+			a.agentProcessRow(row.C, p, span)
+			return
+		}
+		idx := rows[row.Index].from
+		message := messages[idx]
 		role := t.RoleUser
 		if message.Role == agentRoleAssistant {
 			role = assistantRole.Name
@@ -345,13 +351,13 @@ func (a *App) agentTranscript(c ui.C, p *project) {
 			}
 		}
 		if message.Role == agentRoleTool || message.Role == agentRoleThought {
-			a.agentActivityRow(row.C, p, row.Index, message)
+			a.agentActivityRow(row.C, p, idx, message)
 			return
 		}
 		ui.Column(row.C).FillWidth().Gap(2).PadY(4).Children(func() {
 			ui.Text(row.C, role).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 			if message.Role == agentRoleAssistant {
-				a.agentReplyMarkdown(row.C, &messages[row.Index])
+				a.agentReplyMarkdown(row.C, &messages[idx])
 			} else {
 				ui.Wrap(row.C, message.Text).Color(a.colors.Text)
 			}

@@ -178,5 +178,14 @@
     "description": "Button that drops a conversation rename.",
     "en-US": "Cancel",
     "zh-CN": "取消"
+  },
+  {
+    "id": "desktop.agent.process.title",
+    "description": "Collapsed entry that stands for one turn's thinking, progress text and tool calls before the reply. {count} is the number of thought and tool steps.",
+    "en-US": "Process · {count} steps",
+    "zh-CN": "过程 · {count} 步",
+    "parameters": {
+      "count": "string"
+    }
   }
 ]

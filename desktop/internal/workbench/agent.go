@@ -90,6 +90,8 @@ type agentMessage struct {
 	// md is the laid-out Markdown of an assistant reply (agent_markdown.go).
 	md       *agentMarkdown
 	Expanded bool
+	// ProcessOpen opens the collapsed process that starts at this message (agent_process.go).
+	ProcessOpen bool
 	// Files are the references the user attached; Delivery is the state of
 	// supplementary input sent while the turn ran (see agent_steer.go).
 	Files         []agentFileRef
