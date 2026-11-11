@@ -556,9 +556,9 @@ func (a *App) drawLogRow(c ui.C, p *project, rows []core.GraphRow, row ui.ListRo
 	default:
 		box = box.Hover(ui.Look{}.Background(a.colors.Hover))
 	}
-	rc := c.Key("logrow/" + rows[i].CommitHash)
-	box.Hit(ui.ID(rc), rows[i].CommitHash)
-	ui.ContextMenu(rc, box, a.logRowRebaseMenu(p, rows[i].CommitHash))
+	// The menu hangs on the row the list already identifies: an identity of its own would
+	// take the row's presses from the list, which then never chooses the commit.
+	ui.ContextMenu(row.C, box, a.logRowRebaseMenu(p, rows[i].CommitHash))
 	box.Draw(v.rowPainter(a, i))
 }
 
