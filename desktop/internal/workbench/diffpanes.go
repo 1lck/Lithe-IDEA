@@ -87,6 +87,50 @@ type diffMark struct {
 	boundary bool
 }
 
+// diffWord is a stretch of a changed line that differs from the line it pairs with on the other
+// side, as Core compared the two word by word: the UTF-16 columns from start to end, end
+// excluded, of pane line line, tinted by kind.
+type diffWord struct {
+	line, start, end int
+	kind             diffKind
+}
+
+// diffWords is where Core found the changed lines of a file to differ word by word: the ranges of
+// a line by its number in the before version, left, and in the after version, right. A changed
+// line Core showed as wholly changed has no entry.
+type diffWords struct{ left, right map[int][][2]int }
+
+// diffWordsOf collects the word ranges of the changed rows of a file's diff.
+func diffWordsOf(rows []core.GitDiffRow) diffWords {
+	var w diffWords
+	for _, row := range rows {
+		if row.Kind != "changed" {
+			continue
+		}
+		if row.OldLine != nil && len(row.LeftChanges) > 0 {
+			if w.left == nil {
+				w.left = make(map[int][][2]int)
+			}
+			w.left[*row.OldLine] = row.LeftChanges
+		}
+		if row.NewLine != nil && len(row.RightChanges) > 0 {
+			if w.right == nil {
+				w.right = make(map[int][][2]int)
+			}
+			w.right[*row.NewLine] = row.RightChanges
+		}
+	}
+	return w
+}
+
+// of is the word ranges of a line by its number in one version, nil without a number.
+func (w diffWords) of(ranges map[int][][2]int, number *int) [][2]int {
+	if number == nil {
+		return nil
+	}
+	return ranges[*number]
+}
+
 // diffPane is what one editor of a Diff tab shows: its text and the marks, labels and notes
 // the editor draws over it.
 type diffPane struct {
@@ -98,6 +142,9 @@ type diffPane struct {
 	marks []diffMark
 	// notes are the texts shown at the end of a line, in the order of the lines.
 	notes []editorview.LineAnnotation
+	// words are the stretches of the changed lines that differ from the other side, in the order
+	// of the lines.
+	words []diffWord
 }
 
 // lineCount is how many lines the pane has, which is at least one.
@@ -116,13 +163,15 @@ type diffLayout struct {
 }
 
 // layoutDiff lays out the unified lines of a file as the panes of a Diff tab, side by side
-// when split and as one pane otherwise. anchors names the block that starts at a line index:
-// Core names a block by the first removed line of its change run, else the first added one.
+// when split and as one pane otherwise. rows are the file's aligned rows, whose word ranges mark
+// what differs inside the changed lines; they may be nil. anchors names the block that starts at
+// a line index: Core names a block by the first removed line of its change run, else the first
+// added one.
 // Unchanged lines far from any change fold into a placeholder unless whole is set; the part of a
 // fold the tab has opened is in expanded, by the index of its first line, which may be nil. foldText
 // makes the note of a placeholder from the number of lines it hides.
-func layoutDiff(lines []core.GitDiffLine, anchors map[int]*core.DiffBlock, split, whole bool, expanded map[int]diffReveal, foldText func(hidden int) string) *diffLayout {
-	b := &diffLayoutBuilder{split: split, foldText: foldText}
+func layoutDiff(lines []core.GitDiffLine, rows []core.GitDiffRow, anchors map[int]*core.DiffBlock, split, whole bool, expanded map[int]diffReveal, foldText func(hidden int) string) *diffLayout {
+	b := &diffLayoutBuilder{split: split, foldText: foldText, words: diffWordsOf(rows)}
 	size := 0
 	for _, line := range lines {
 		size += len(line.Content) + 1
@@ -253,6 +302,7 @@ type diffPaneBuilder struct {
 	labels []string
 	marks  []diffMark
 	notes  []editorview.LineAnnotation
+	words  []diffWord
 }
 
 // reserve makes room for about size bytes of text and lines lines.
@@ -271,6 +321,13 @@ func (b *diffPaneBuilder) line(text, label string) int {
 	return len(b.labels) - 1
 }
 
+// word adds the ranges Core found to differ inside pane line line, tinted by kind.
+func (b *diffPaneBuilder) word(line int, ranges [][2]int, kind diffKind) {
+	for _, r := range ranges {
+		b.words = append(b.words, diffWord{line: line, start: r[0], end: r[1], kind: kind})
+	}
+}
+
 // count is how many lines the pane has so far.
 func (b *diffPaneBuilder) count() int { return len(b.labels) }
 
@@ -284,11 +341,14 @@ func (b *diffPaneBuilder) mark(span diffSpan, kind diffKind) {
 // icon of unfolding and a rule after it, as IDEA draws a fold.
 func (b *diffPaneBuilder) placeholder(text string) int {
 	line := b.line("", "")
-	hints := []gfx.Icon{icons.ChevronUp, icons.UnfoldVertical, icons.ChevronDown}
-	b.notes = append(b.notes, editorview.LineAnnotation{Line: line, Text: text, Icon: icons.UnfoldVertical, Rule: true, Hints: hints})
+	b.notes = append(b.notes, editorview.LineAnnotation{Line: line, Text: text, Icon: icons.UnfoldVertical, Rule: true, Hints: diffFoldHints})
 	b.mark(diffSpan{line, line + 1}, diffFolded)
 	return line
 }
+
+// diffFoldHints are the hints a placeholder shows under the pointer: open the lines above it,
+// all of them, or the lines below it. Every placeholder shares them and none changes them.
+var diffFoldHints = []gfx.Icon{icons.ChevronUp, icons.UnfoldVertical, icons.ChevronDown}
 
 // done is the pane that was collected. A pane without a line gets the one empty line an
 // editor always has; the rules of its boundary marks stay, at the top of that line.
@@ -296,7 +356,7 @@ func (b *diffPaneBuilder) done() diffPane {
 	if len(b.labels) == 0 {
 		return diffPane{labels: []string{""}, marks: b.marks, notes: b.notes}
 	}
-	return diffPane{text: b.text.Bytes(), labels: b.labels, marks: b.marks, notes: b.notes}
+	return diffPane{text: b.text.Bytes(), labels: b.labels, marks: b.marks, notes: b.notes, words: b.words}
 }
 
 // diffLayoutBuilder collects a layout: the panes, and the fragments and folds that go with
@@ -306,6 +366,7 @@ type diffLayoutBuilder struct {
 	// width is the width of each number of a unified gutter label.
 	width         int
 	foldText      func(hidden int) string
+	words         diffWords
 	before, after diffPaneBuilder
 	fragments     []diffFragment
 	folds         []diffFold
@@ -376,11 +437,15 @@ func (b *diffLayoutBuilder) change(run []core.GitDiffLine, block *core.DiffBlock
 		return
 	}
 	beforeStart, afterStart := b.before.count(), b.after.count()
+	// Only a line paired with one of the other side has word ranges, so the change they are in
+	// has lines on both sides and is a modification.
 	for _, line := range run {
 		if line.LineType == "removed" {
-			b.before.line(line.Content, diffNumberLabel(line.OldLine))
+			at := b.before.line(line.Content, diffNumberLabel(line.OldLine))
+			b.before.word(at, b.words.of(b.words.left, line.OldLine), diffModified)
 		} else {
-			b.after.line(line.Content, diffNumberLabel(line.NewLine))
+			at := b.after.line(line.Content, diffNumberLabel(line.NewLine))
+			b.after.word(at, b.words.of(b.words.right, line.NewLine), diffModified)
 		}
 	}
 	before := diffSpan{beforeStart, b.before.count()}
@@ -398,14 +463,15 @@ func (b *diffLayoutBuilder) changeUnified(run []core.GitDiffLine, block *core.Di
 	markStart, markKind := start, diffSame
 	removed, added := false, false
 	for _, line := range run {
-		kind := diffAdded
+		kind, words := diffAdded, b.words.of(b.words.right, line.NewLine)
 		if line.LineType == "removed" {
-			kind = diffRemoved
+			kind, words = diffRemoved, b.words.of(b.words.left, line.OldLine)
 			removed = true
 		} else {
 			added = true
 		}
 		at := b.after.line(line.Content, diffUnifiedLabel(line.OldLine, line.NewLine, b.width))
+		b.after.word(at, words, kind)
 		if kind != markKind {
 			if at > markStart {
 				b.after.mark(diffSpan{markStart, at}, markKind)

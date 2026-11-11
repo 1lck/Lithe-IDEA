@@ -583,7 +583,7 @@ func (a *App) rebuildDiff(t *diffTab) {
 		return
 	}
 	lang := a.language()
-	t.layout = layoutDiff(t.file.Lines, t.blockAnchors(), t.split, t.whole, t.expanded, func(n int) string {
+	t.layout = layoutDiff(t.file.Lines, t.file.Rows, t.blockAnchors(), t.split, t.whole, t.expanded, func(n int) string {
 		return i18n.SharedFormat(lang, "native.lldUnchangedLines", map[string]string{"arg1": strconv.Itoa(n)})
 	})
 	t.numberCells = 0

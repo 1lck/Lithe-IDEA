@@ -24,6 +24,22 @@ type LineHighlight struct {
 	Boundary           bool
 }
 
+// InlineHighlight tints the characters of Line from UTF-16 column Start to End, End excluded,
+// over the line's highlight and under the selection and the text, as a diff marks the words of a
+// changed line that differ from the other side. Columns count UTF-16 code units, the unit Core
+// reports them in.
+type InlineHighlight struct {
+	Line, Start, End int
+	Color            gfx.Color
+}
+
+// inlineSpan is an InlineHighlight laid out on the cell grid of its line when it was set: the
+// cells from from to to, to excluded.
+type inlineSpan struct {
+	line, from, to int
+	color          gfx.Color
+}
+
 // decorState is what the host set: the highlights, the labels that replace the line numbers,
 // and a line to scroll to the middle of the view.
 type decorState struct {
@@ -31,6 +47,8 @@ type decorState struct {
 	// maxEnd[i] is the largest line any of highlights[:i+1] reaches, so the first highlight that
 	// can touch a line is found by search.
 	maxEnd []int
+	// inline is the inline highlights in cells, sorted by line.
+	inline []inlineSpan
 	// labelled says labels replace the line numbers, and labelCells is the widest of them.
 	labelled   bool
 	labels     []string
@@ -62,6 +80,58 @@ func (v *View) SetLineHighlights(highlights []LineHighlight) {
 	for _, h := range d.highlights {
 		reach = max(reach, h.EndLine)
 		d.maxEnd = append(d.maxEnd, reach)
+	}
+}
+
+// SetInlineHighlights replaces the inline highlights. Each is laid out on the cells of its line
+// as the text is now, so the paint does no work that grows with the length of a line; a host
+// that changes the text sets them again. One with a transparent color, a line past the text, a
+// range that covers no character, or a column past its line or inside a surrogate pair is
+// dropped, and so is one on a line longer than a paint reads whole, which a diff never compares
+// word by word. The slice is not kept.
+func (v *View) SetInlineHighlights(highlights []InlineHighlight) {
+	d := &v.decor
+	d.inline = d.inline[:0]
+	lines := v.text.LineCount()
+	for _, h := range highlights {
+		if h.Color.Alpha == 0 || h.Line < 0 || h.Line >= lines || h.Start < 0 || h.End <= h.Start {
+			continue
+		}
+		l := v.ref(h.Line)
+		if l.long {
+			continue
+		}
+		start, ok := utf16ToByte(l.text, h.Start)
+		if !ok {
+			continue
+		}
+		end, ok := utf16ToByte(l.text, h.End)
+		if !ok {
+			continue
+		}
+		from, to := cellsOf(l.text, start), cellsOf(l.text, end)
+		if to <= from {
+			continue
+		}
+		d.inline = append(d.inline, inlineSpan{line: h.Line, from: from, to: to, color: h.Color})
+	}
+	sort.SliceStable(d.inline, func(i, j int) bool { return d.inline[i].line < d.inline[j].line })
+}
+
+// paintInline fills the inline highlights of line that fall inside one row: the cells from from
+// to to of the line, drawn shift columns to the left, at y.
+func (v *View) paintInline(canvas *gfx.Canvas, line, from, to, shift int, y float32) {
+	spans := v.decor.inline
+	if len(spans) == 0 {
+		return
+	}
+	for i := sort.Search(len(spans), func(i int) bool { return spans[i].line >= line }); i < len(spans) && spans[i].line == line; i++ {
+		s := spans[i]
+		lo, hi := max(s.from, from), min(s.to, to)
+		if hi <= lo {
+			continue
+		}
+		canvas.Fill(gfx.Rect{X: v.textLeft + float32(lo-shift)*v.cellW - v.scrollX, Y: y, Width: float32(hi-lo) * v.cellW, Height: v.lineH}, s.color)
 	}
 }
 

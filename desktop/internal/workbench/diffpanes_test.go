@@ -101,12 +101,12 @@ func wantMarks(t *testing.T, name string, got, want []diffMark) {
 }
 
 // wantNotes checks the notes of a pane, given by line and text: every note stands for a fold or
-// a hunk separator, so each carries the icon of unfolding and a rule.
+// a hunk separator, so each carries the icon of unfolding, a rule and the hints of unfolding.
 func wantNotes(t *testing.T, name string, got, want []editorview.LineAnnotation) {
 	t.Helper()
 	want = slices.Clone(want)
 	for i := range want {
-		want[i].Icon, want[i].Rule = icons.UnfoldVertical, true
+		want[i].Icon, want[i].Rule, want[i].Hints = icons.UnfoldVertical, true, diffFoldHints
 	}
 	if len(got) != len(want) || (len(want) > 0 && !reflect.DeepEqual(got, want)) {
 		t.Errorf("%s pane notes = %+v, want %+v", name, got, want)
@@ -130,7 +130,7 @@ func wantFolds(t *testing.T, got, want []diffFold) {
 }
 
 func TestDiffPanesSplitWhole(t *testing.T) {
-	l := layoutDiff(paneSample(), nil, true, true, nil, paneFoldText)
+	l := layoutDiff(paneSample(), nil, nil, true, true, nil, paneFoldText)
 	if !l.split {
 		t.Fatal("split layout reports split = false")
 	}
@@ -153,7 +153,7 @@ func TestDiffPanesSplitInsertionAndDeletion(t *testing.T) {
 			paneLine("added", 0, 2, "x"),
 			paneLine("added", 0, 3, "y"),
 			paneLine("context", 2, 4, "b"),
-		}, nil, true, true, nil, paneFoldText)
+		}, nil, nil, true, true, nil, paneFoldText)
 		wantPane(t, "before", l.before, []string{"a", "b"}, []string{"1", "2"})
 		wantPane(t, "after", l.after, []string{"a", "x", "y", "b"}, []string{"1", "2", "3", "4"})
 		wantFragments(t, l.fragments, []diffFragment{
@@ -168,7 +168,7 @@ func TestDiffPanesSplitInsertionAndDeletion(t *testing.T) {
 			paneLine("removed", 2, 0, "x"),
 			paneLine("removed", 3, 0, "y"),
 			paneLine("context", 4, 2, "b"),
-		}, nil, true, true, nil, paneFoldText)
+		}, nil, nil, true, true, nil, paneFoldText)
 		wantPane(t, "before", l.before, []string{"a", "x", "y", "b"}, []string{"1", "2", "3", "4"})
 		wantPane(t, "after", l.after, []string{"a", "b"}, []string{"1", "2"})
 		wantFragments(t, l.fragments, []diffFragment{
@@ -182,7 +182,7 @@ func TestDiffPanesSplitInsertionAndDeletion(t *testing.T) {
 			paneLine("header", 0, 0, "@@ -0,0 +1,2 @@"),
 			paneLine("added", 0, 1, "x"),
 			paneLine("added", 0, 2, "y"),
-		}, nil, true, false, nil, paneFoldText)
+		}, nil, nil, true, false, nil, paneFoldText)
 		if string(l.before.text) != "" || !reflect.DeepEqual(l.before.labels, []string{""}) {
 			t.Errorf("before pane of a new file = %q %q, want one empty line", l.before.text, l.before.labels)
 		}
@@ -212,7 +212,7 @@ func TestDiffPanesBlocks(t *testing.T) {
 			name = "split"
 		}
 		t.Run(name, func(t *testing.T) {
-			l := layoutDiff(lines, map[int]*core.DiffBlock{1: first, 4: second}, split, true, nil, paneFoldText)
+			l := layoutDiff(lines, nil, map[int]*core.DiffBlock{1: first, 4: second}, split, true, nil, paneFoldText)
 			if len(l.fragments) != 3 {
 				t.Fatalf("fragments = %d, want 3", len(l.fragments))
 			}
@@ -229,7 +229,7 @@ func TestDiffPanesBlocks(t *testing.T) {
 	}
 
 	// A block anchored on a later line of its run still names the run.
-	l := layoutDiff(lines, map[int]*core.DiffBlock{2: first}, true, true, nil, paneFoldText)
+	l := layoutDiff(lines, nil, map[int]*core.DiffBlock{2: first}, true, true, nil, paneFoldText)
 	if got := l.fragments[0]; got.block != first || got.number != 1 {
 		t.Errorf("run anchored on its second line has block %p number %d, want block %p number 1", got.block, got.number, first)
 	}
@@ -239,7 +239,7 @@ func TestDiffPanesBlocks(t *testing.T) {
 }
 
 func TestDiffPanesFolding(t *testing.T) {
-	l := layoutDiff(paneFoldLines(), nil, true, false, nil, paneFoldText)
+	l := layoutDiff(paneFoldLines(), nil, nil, true, false, nil, paneFoldText)
 	wantPane(t, "before", l.before,
 		[]string{"", "c18", "c19", "c20", "x1", "x2", "c22", "c23", "c24", ""},
 		[]string{"", "18", "19", "20", "21", "22", "23", "24", "25", ""})
@@ -267,7 +267,7 @@ func TestDiffPanesFolding(t *testing.T) {
 	})
 
 	t.Run("expanded", func(t *testing.T) {
-		l := layoutDiff(paneFoldLines(), nil, true, false, map[int]diffReveal{1: {all: true}}, paneFoldText)
+		l := layoutDiff(paneFoldLines(), nil, nil, true, false, map[int]diffReveal{1: {all: true}}, paneFoldText)
 		wantFolds(t, l.folds, []diffFold{{before: 25, after: 24, at: 24, hidden: 17}})
 		if got := paneLines(l.before); len(got) != 26 || got[0] != "c1" || got[19] != "c20" || got[20] != "x1" || got[25] != "" {
 			t.Errorf("before pane after opening the first fold = %q, want c1..c20, x1, x2, c22..c24 and a placeholder", got)
@@ -281,7 +281,7 @@ func TestDiffPanesFolding(t *testing.T) {
 	})
 
 	t.Run("whole", func(t *testing.T) {
-		l := layoutDiff(paneFoldLines(), nil, true, true, nil, paneFoldText)
+		l := layoutDiff(paneFoldLines(), nil, nil, true, true, nil, paneFoldText)
 		wantFolds(t, l.folds, nil)
 		if got := l.before.lineCount(); got != 42 {
 			t.Errorf("before pane of the whole file has %d lines, want 42", got)
@@ -301,7 +301,7 @@ func TestDiffPanesFolding(t *testing.T) {
 				paneContext(1, 2, tc.run),
 				[]core.GitDiffLine{paneLine("added", 0, tc.run+2, "n2")},
 			)
-			l := layoutDiff(lines, nil, true, false, nil, paneFoldText)
+			l := layoutDiff(lines, nil, nil, true, false, nil, paneFoldText)
 			if !tc.folded {
 				wantFolds(t, l.folds, nil)
 				if l.before.lineCount() != 9 || l.after.lineCount() != 11 {
@@ -330,7 +330,7 @@ func TestDiffPanesSeparator(t *testing.T) {
 		paneLine("removed", 41, 0, "y"),
 		paneLine("added", 0, 42, "Y"),
 	}
-	l := layoutDiff(lines, nil, true, false, nil, paneFoldText)
+	l := layoutDiff(lines, nil, nil, true, false, nil, paneFoldText)
 	wantPane(t, "before", l.before, []string{"a", "b", "", "x", "y"}, []string{"1", "2", "", "40", "41"})
 	wantPane(t, "after", l.after, []string{"a", "b", "", "x", "Y"}, []string{"1", "2", "", "41", "42"})
 	note := []editorview.LineAnnotation{{Line: 2, Text: "@@ -40,3 +41,3 @@"}}
@@ -354,7 +354,7 @@ func TestDiffPanesSeparator(t *testing.T) {
 			paneLine("header", 0, 0, "@@ -10,2 +10,2 @@"),
 			paneLine("context", 10, 10, "a"),
 			paneLine("context", 11, 11, "b"),
-		}, nil, true, true, nil, paneFoldText)
+		}, nil, nil, true, true, nil, paneFoldText)
 		wantPane(t, "before", l.before, []string{"", "a", "b"}, []string{"", "10", "11"})
 		wantPane(t, "after", l.after, []string{"", "a", "b"}, []string{"", "10", "11"})
 		wantNotes(t, "before", l.before.notes, []editorview.LineAnnotation{{Line: 0, Text: "@@ -10,2 +10,2 @@"}})
@@ -373,7 +373,7 @@ func TestDiffPanesUnified(t *testing.T) {
 		paneLine("added", 0, 11, "B"),
 		paneLine("context", 12, 12, "d"),
 	}
-	l := layoutDiff(lines, nil, false, true, nil, paneFoldText)
+	l := layoutDiff(lines, nil, nil, false, true, nil, paneFoldText)
 	if l.split {
 		t.Error("unified layout reports split = true")
 	}
@@ -400,7 +400,7 @@ func TestDiffPanesUnified(t *testing.T) {
 			paneLine("added", 0, 1, "c"),
 			paneLine("added", 0, 2, "d"),
 			paneLine("removed", 3, 0, "e"),
-		}, nil, false, true, nil, paneFoldText)
+		}, nil, nil, false, true, nil, paneFoldText)
 		wantPane(t, "after", l.after, []string{"a", "b", "c", "d", "e"}, []string{"1  ", "2  ", "  1", "  2", "3  "})
 		wantMarks(t, "after", l.after.marks, []diffMark{
 			{span: diffSpan{0, 2}, kind: diffRemoved},
@@ -418,7 +418,7 @@ func TestDiffPanesUnified(t *testing.T) {
 			paneLine("added", 0, 2, "b"),
 			paneLine("context", 2, 3, "c"),
 			paneLine("removed", 3, 0, "d"),
-		}, nil, false, true, nil, paneFoldText)
+		}, nil, nil, false, true, nil, paneFoldText)
 		wantFragments(t, l.fragments, []diffFragment{
 			{before: diffSpan{1, 2}, after: diffSpan{1, 2}, kind: diffAdded},
 			{before: diffSpan{3, 4}, after: diffSpan{3, 4}, kind: diffRemoved},
@@ -426,7 +426,7 @@ func TestDiffPanesUnified(t *testing.T) {
 	})
 
 	t.Run("folds", func(t *testing.T) {
-		l := layoutDiff(paneFoldLines(), nil, false, false, nil, paneFoldText)
+		l := layoutDiff(paneFoldLines(), nil, nil, false, false, nil, paneFoldText)
 		wantPane(t, "after", l.after,
 			[]string{"", "c18", "c19", "c20", "x1", "x2", "y", "c22", "c23", "c24", ""},
 			[]string{"", "18 18", "19 19", "20 20", "21   ", "22   ", "   21", "23 22", "24 23", "25 24", ""})
@@ -449,7 +449,7 @@ func TestDiffPanesUnified(t *testing.T) {
 
 func TestDiffPanesEmptyAndUnknown(t *testing.T) {
 	for _, split := range []bool{true, false} {
-		l := layoutDiff(nil, nil, split, false, nil, paneFoldText)
+		l := layoutDiff(nil, nil, nil, split, false, nil, paneFoldText)
 		if string(l.after.text) != "" || !reflect.DeepEqual(l.after.labels, []string{""}) {
 			t.Errorf("split=%v: after pane of an empty diff = %q %q, want one empty line", split, l.after.text, l.after.labels)
 		}
@@ -465,7 +465,7 @@ func TestDiffPanesEmptyAndUnknown(t *testing.T) {
 		paneLine("context", 1, 1, "a"),
 		paneLine("binary", 0, 0, "ignored"),
 		paneLine("context", 2, 2, "b"),
-	}, nil, true, true, nil, paneFoldText)
+	}, nil, nil, true, true, nil, paneFoldText)
 	wantPane(t, "before", l.before, []string{"a", "b"}, []string{"1", "2"})
 	wantPane(t, "after", l.after, []string{"a", "b"}, []string{"1", "2"})
 }
@@ -480,7 +480,7 @@ func TestDiffPanesMapLine(t *testing.T) {
 	}
 
 	t.Run("replacement", func(t *testing.T) {
-		l := layoutDiff(paneSample(), nil, true, true, nil, paneFoldText)
+		l := layoutDiff(paneSample(), nil, nil, true, true, nil, paneFoldText)
 		check(t, l, 0.5, true, 0.5)
 		check(t, l, 1.5, true, 2)
 		check(t, l, 2.5, true, 3.5)
@@ -495,7 +495,7 @@ func TestDiffPanesMapLine(t *testing.T) {
 			paneLine("added", 0, 3, "y"),
 			paneLine("added", 0, 4, "z"),
 			paneLine("context", 2, 5, "d"),
-		}, nil, true, true, nil, paneFoldText)
+		}, nil, nil, true, true, nil, paneFoldText)
 		wantFragments(t, l.fragments, []diffFragment{
 			{before: diffSpan{1, 1}, after: diffSpan{1, 4}, kind: diffAdded},
 		})
@@ -515,7 +515,7 @@ func TestDiffPanesMapLine(t *testing.T) {
 			paneLine("context", 3, 4, "d"),
 			paneLine("removed", 4, 0, "e"),
 			paneLine("context", 5, 5, "f"),
-		}, nil, true, true, nil, paneFoldText)
+		}, nil, nil, true, true, nil, paneFoldText)
 		wantFragments(t, l.fragments, []diffFragment{
 			{before: diffSpan{1, 2}, after: diffSpan{1, 3}, kind: diffModified},
 			{before: diffSpan{3, 4}, after: diffSpan{4, 4}, kind: diffRemoved},
@@ -528,14 +528,14 @@ func TestDiffPanesMapLine(t *testing.T) {
 	})
 
 	t.Run("unified", func(t *testing.T) {
-		l := layoutDiff(paneSample(), nil, false, true, nil, paneFoldText)
+		l := layoutDiff(paneSample(), nil, nil, false, true, nil, paneFoldText)
 		check(t, l, 2.5, true, 2.5)
 		check(t, l, 2.5, false, 2.5)
 	})
 }
 
 func TestDiffPanesFoldAt(t *testing.T) {
-	l := layoutDiff(paneFoldLines(), nil, true, false, nil, paneFoldText)
+	l := layoutDiff(paneFoldLines(), nil, nil, true, false, nil, paneFoldText)
 	first := diffFold{before: 0, after: 0, at: 1, hidden: 17}
 	second := diffFold{before: 9, after: 8, at: 24, hidden: 17}
 	for _, tc := range []struct {
@@ -561,8 +561,54 @@ func TestDiffPanesFoldAt(t *testing.T) {
 		}
 	}
 
-	none := layoutDiff(paneSample(), nil, true, true, nil, paneFoldText)
+	none := layoutDiff(paneSample(), nil, nil, true, true, nil, paneFoldText)
 	if got, ok := none.foldAt(0, true); ok {
 		t.Errorf("foldAt on a layout without folds = %+v, true; want false", got)
 	}
+}
+
+// The word ranges of a changed row land on the pane line of its side: the before line by its
+// old number, the after line by its new one. Rows that are not changed, and a changed row Core
+// shows wholly changed, add none.
+func TestDiffPanesCarryTheWordRangesOfChangedRows(t *testing.T) {
+	number := func(n int) *int { return &n }
+	rows := []core.GitDiffRow{
+		{OldLine: number(21), NewLine: number(21), Kind: "changed", LeftChanges: [][2]int{{0, 1}, {1, 2}}, RightChanges: [][2]int{{0, 1}}},
+		{OldLine: number(22), Kind: "changed"},
+		{OldLine: number(5), NewLine: number(5), Kind: "context", LeftChanges: [][2]int{{0, 1}}, RightChanges: [][2]int{{0, 1}}},
+	}
+	t.Run("split", func(t *testing.T) {
+		l := layoutDiff(paneFoldLines(), rows, nil, true, true, nil, paneFoldText)
+		before, after := slices.Index(l.before.labels, "21"), slices.Index(l.after.labels, "21")
+		if paneLines(l.before)[before] != "x1" || paneLines(l.after)[after] != "y" {
+			t.Fatalf("line 21 is %q before and %q after", paneLines(l.before)[before], paneLines(l.after)[after])
+		}
+		wantBefore := []diffWord{{line: before, start: 0, end: 1, kind: diffModified}, {line: before, start: 1, end: 2, kind: diffModified}}
+		if !reflect.DeepEqual(l.before.words, wantBefore) {
+			t.Errorf("before words = %+v, want %+v", l.before.words, wantBefore)
+		}
+		wantAfter := []diffWord{{line: after, start: 0, end: 1, kind: diffModified}}
+		if !reflect.DeepEqual(l.after.words, wantAfter) {
+			t.Errorf("after words = %+v, want %+v", l.after.words, wantAfter)
+		}
+	})
+	t.Run("unified", func(t *testing.T) {
+		l := layoutDiff(paneFoldLines(), rows, nil, false, true, nil, paneFoldText)
+		lines := paneLines(l.after)
+		removed, added := slices.Index(lines, "x1"), slices.Index(lines, "y")
+		want := []diffWord{
+			{line: removed, start: 0, end: 1, kind: diffRemoved},
+			{line: removed, start: 1, end: 2, kind: diffRemoved},
+			{line: added, start: 0, end: 1, kind: diffAdded},
+		}
+		if !reflect.DeepEqual(l.after.words, want) {
+			t.Errorf("words = %+v, want %+v", l.after.words, want)
+		}
+	})
+	t.Run("without rows", func(t *testing.T) {
+		l := layoutDiff(paneFoldLines(), nil, nil, true, true, nil, paneFoldText)
+		if len(l.before.words) != 0 || len(l.after.words) != 0 {
+			t.Errorf("words without rows = %+v, %+v", l.before.words, l.after.words)
+		}
+	})
 }

@@ -30,6 +30,9 @@ const (
 	diffRulerWidth = 8
 	// diffTint is the opacity of the background of a changed line.
 	diffTint = 0.16
+	// diffWordTint is the opacity of the background of the words of a changed line that differ
+	// from the other side, over the line's own tint.
+	diffWordTint = 0.28
 	// diffBandWidth is the width of the part of the gap where a band joins a difference of the
 	// before side to the after side.
 	diffBandWidth = 36
@@ -341,8 +344,8 @@ func (a *App) drawDiffEditor(dc *ui.DrawContext, t *diffTab, e *diffEditor, befo
 	}
 }
 
-// decorateDiffEditor hands editor e the labels, notes and tints of its side of the tab's
-// layout, when the layout or the colors changed since it last did. Side by side the before
+// decorateDiffEditor hands editor e the labels, notes, tints and word tints of its side of the
+// tab's layout, when the layout or the colors changed since it last did. Side by side the before
 // side shows no numbers: the gap shows them.
 func (a *App) decorateDiffEditor(t *diffTab, e *diffEditor, before bool) {
 	l, palette := t.layout, a.diffPalette()
@@ -375,6 +378,13 @@ func (a *App) decorateDiffEditor(t *diffTab, e *diffEditor, before bool) {
 		}
 	}
 	v.SetLineHighlights(highlights)
+	words := make([]editorview.InlineHighlight, 0, len(pane.words))
+	for _, w := range pane.words {
+		if color, ok := palette.color(w.kind); ok {
+			words = append(words, editorview.InlineHighlight{Line: w.line, Start: w.start, End: w.end, Color: color.WithAlpha(diffWordTint)})
+		}
+	}
+	v.SetInlineHighlights(words)
 }
 
 // drawDiffGap paints the gap of tab t and declares the controls of the blocks in it. Side by

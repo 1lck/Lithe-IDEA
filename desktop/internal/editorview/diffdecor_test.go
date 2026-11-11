@@ -209,3 +209,79 @@ func TestHideVerticalBarGivesTheHorizontalBarTheWidth(t *testing.T) {
 		t.Fatalf("horizontal bar width = %v, want %v reaching the edge", got, shown+barTrack)
 	}
 }
+
+// An inline highlight is laid out on the cells of its line: UTF-16 columns past a tab, a wide
+// character and a surrogate pair land on the cells they take, and one that cannot be placed is
+// dropped.
+func TestInlineHighlightsTintTheCellsOfTheirColumns(t *testing.T) {
+	// Line 1: a tab (cells 0-3), 中 (4-5), 😀 (two UTF-16 units, 6-7), then "xy" (8-9). The last
+	// line is wider than the view, so the view scrolls sideways.
+	v := New(Config{HitID: gfx.Item(1), Label: "test", Content: Prepare([]byte("plain\n\t中😀xy\nlast" + strings.Repeat("z", 200)))})
+	t.Cleanup(v.Close)
+	word := gfx.RGBA(0, 0, 200, 0.3)
+	other := gfx.RGBA(0, 200, 0, 0.3)
+	v.SetInlineHighlights([]InlineHighlight{
+		{Line: 1, Start: 2, End: 4, Color: word},  // 😀
+		{Line: 1, Start: 0, End: 2, Color: other}, // the tab and 中
+		{Line: 0, Start: 1, End: 3, Color: word},  // "la"
+		{Line: 1, Start: 3, End: 5, Color: word},  // starts inside the surrogate pair
+		{Line: 1, Start: 4, End: 9, Color: word},  // runs past the line
+		{Line: 2, Start: 1, End: 1, Color: word},  // covers nothing
+		{Line: 3, Start: 0, End: 1, Color: word},  // past the text
+		{Line: 2, Start: 0, End: 2},               // transparent
+	})
+	want := []inlineSpan{{line: 0, from: 1, to: 3, color: word}, {line: 1, from: 6, to: 8, color: word}, {line: 1, from: 0, to: 6, color: other}}
+	if got := v.decor.inline; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+		t.Fatalf("spans = %+v, want %+v", got, want)
+	}
+	canvas := new(gfx.Canvas)
+	v.Paint(canvas, gfx.Rect{Width: 600, Height: 400}, Look{})
+	tints := fills(canvas, word)
+	if len(tints) != 2 {
+		t.Fatalf("tinted %d spans, want 2: %+v", len(tints), tints)
+	}
+	if got := tints[1]; got.X != v.textLeft+6*v.cellW || got.Width != 2*v.cellW || got.Y != v.lineH || got.Height != v.lineH {
+		t.Fatalf("tint of 😀 = %+v, want cells 6 to 8 of line 1", got)
+	}
+	if got := fills(canvas, other); len(got) != 1 || got[0].X != v.textLeft || got[0].Width != 6*v.cellW {
+		t.Fatalf("tint of the tab and 中 = %+v, want cells 0 to 6", got)
+	}
+	// Scrolled sideways, a tint moves with its text.
+	canvas.Reset()
+	v.SetScrollOffset(2*v.cellW, 0)
+	v.Paint(canvas, gfx.Rect{Width: 600, Height: 400}, Look{})
+	if got := fills(canvas, word); len(got) != 2 || got[1].X != v.textLeft+4*v.cellW {
+		t.Fatalf("tints scrolled two cells = %+v", got)
+	}
+	// Setting none clears them.
+	v.SetInlineHighlights(nil)
+	if len(v.decor.inline) != 0 {
+		t.Fatalf("spans after clearing = %+v", v.decor.inline)
+	}
+}
+
+// Inline highlights add nothing a repaint allocates.
+func TestRepaintWithInlineHighlightsAllocatesNothing(t *testing.T) {
+	v := gutterView(t, 3000)
+	words := make([]InlineHighlight, 0, 600)
+	for i := range 300 {
+		words = append(words, InlineHighlight{Line: i * 10, Start: 0, End: 2, Color: gfx.RGBA(0, 0, 200, 0.3)})
+		words = append(words, InlineHighlight{Line: i * 10, Start: 3, End: 4, Color: gfx.RGBA(0, 0, 200, 0.3)})
+	}
+	v.SetInlineHighlights(words)
+	if len(v.decor.inline) == 0 {
+		t.Fatal("no inline highlight was placed")
+	}
+	canvas := new(gfx.Canvas)
+	area := gfx.Rect{Width: 900, Height: 600}
+	paint := func() {
+		canvas.Reset()
+		v.Paint(canvas, area, Look{})
+	}
+	paint()
+	v.SetScrollOffset(0, 1000*v.lineH)
+	paint()
+	if allocs := testing.AllocsPerRun(20, paint); allocs != 0 {
+		t.Fatalf("a repaint allocates %v times, want none", allocs)
+	}
+}

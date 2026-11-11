@@ -146,6 +146,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 			if !v.wrapping() {
 				from, to = v.visibleCells()
 			}
+			v.paintInline(canvas, line, from, to, shift, y)
 			lo, hi := selFrom, selTo
 			if v.wrapping() {
 				lo, hi = max(lo, row.cells), min(hi, to)
