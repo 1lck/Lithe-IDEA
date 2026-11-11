@@ -496,5 +496,6 @@ var english = Messages{
 	IDEAPI:    ideAPIMessages(English),
 	Sync:      syncMessages(English),
 	Worktrees: worktreeMessages(English),
+	Search:    searchMessages(English),
 	Console:   consoleMessages(English),
 }

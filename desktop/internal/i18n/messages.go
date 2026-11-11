@@ -31,6 +31,7 @@ type Messages struct {
 	Sync      SyncMessages
 	Worktrees WorktreeMessages
 	Console   ConsoleMessages
+	Search    SearchMessages
 }
 
 // AppMessages names the application.

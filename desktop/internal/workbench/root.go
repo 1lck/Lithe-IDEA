@@ -215,6 +215,7 @@ func (a *App) overlays(c ui.C) {
 		a.drawSyncDialog(c, p)
 		a.drawWorktreeDialog(c, p)
 		a.drawRunConfigEditor(c, p)
+		a.drawProjectReplace(c, p)
 		a.drawCommitReviews(c, p)
 		a.inlineEditView(c, p)
 		a.reviewOverlays(c, p)

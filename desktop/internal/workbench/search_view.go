@@ -37,6 +37,7 @@ func (a *App) searchPanel(c ui.C) {
 				v.query.SetText("")
 				c.Canvas().RequestFocus(searchQueryID)
 			}
+			a.searchReplaceToggle(c)
 			a.searchOptions(c, language)
 			refresh := ui.Button(c, i18n.Shared(language, "ui.refresh")).Icon(icons.RefreshCw).IconOnly().Ghost().
 				Disabled(strings.TrimSpace(p.search.want.text) == "")
@@ -45,6 +46,7 @@ func (a *App) searchPanel(c ui.C) {
 				c.After(func() { a.refreshProjectSearch(p) })
 			}
 		})
+		a.searchReplaceRow(c, query)
 		ui.Row(c).FillWidth().PadX(10).PadSides(0, 10, 10, 10).Children(func() {
 			label := i18n.Shared(language, "native.fileMask")
 			mask := ui.TextFieldID(c, searchMaskID, &v.mask, label, i18n.Shared(language, "desktop.search.fileMaskPlaceholder")).

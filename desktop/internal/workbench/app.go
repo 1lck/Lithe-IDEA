@@ -280,8 +280,10 @@ type project struct {
 	terms terminalSet
 	// docs are the project's open files. Each is a tab in a group of the editor area, next
 	// to the terminals that were moved there.
-	docs       documentSet
-	search     projectSearch
+	docs   documentSet
+	search projectSearch
+	// replace is Replace in Files: its preview and its application (search_replace.go).
+	replace    projectReplace
 	everywhere everywhereSearch
 	// tree is the Project tool window's tree of the project folder.
 	tree fileTree

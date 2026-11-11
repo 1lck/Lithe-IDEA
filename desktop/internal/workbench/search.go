@@ -38,6 +38,9 @@ type searchQuery struct {
 type searchView struct {
 	query, mask                                      ui.Field
 	optionsOpen, matchCase, wholeWords, regex, focus bool
+	// replace is the Replace in Files field, shown while replaceOpen.
+	replace     ui.Field
+	replaceOpen bool
 	// list is the result list's selection and scroll.
 	list ui.ListState
 	// delay is overridden in deterministic tests; negative means the normal delay.
@@ -47,6 +50,8 @@ type searchView struct {
 func (v *searchView) reset() {
 	v.query.SetText("")
 	v.mask.SetText("")
+	v.replace.SetText("")
+	v.replaceOpen = false
 	v.optionsOpen, v.matchCase, v.wholeWords, v.regex, v.focus = false, false, false, false, false
 	v.list = ui.ListState{}
 }

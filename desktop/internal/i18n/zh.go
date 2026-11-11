@@ -496,5 +496,6 @@ var chinese = Messages{
 	IDEAPI:    ideAPIMessages(Chinese),
 	Sync:      syncMessages(Chinese),
 	Worktrees: worktreeMessages(Chinese),
+	Search:    searchMessages(Chinese),
 	Console:   consoleMessages(Chinese),
 }

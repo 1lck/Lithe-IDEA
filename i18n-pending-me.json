@@ -1,0 +1,15 @@
+[
+{"id":"desktop.search.replace","description":"Accessible name of the Replace in Files field","en-US":"Replace","zh-CN":"替换"},
+{"id":"desktop.search.replacePlaceholder","description":"Placeholder of the Replace in Files field","en-US":"Replace with","zh-CN":"替换为"},
+{"id":"desktop.search.replaceAll","description":"Button that previews replacing every match in the project","en-US":"Replace All…","zh-CN":"全部替换…"},
+{"id":"desktop.search.replaceToggle","description":"Button that shows or hides the Replace in Files field","en-US":"Toggle Replace","zh-CN":"切换替换"},
+{"id":"desktop.search.replacePreviewTitle","description":"Title of the Replace in Files preview dialog","en-US":"Replace in Files","zh-CN":"在文件中替换"},
+{"id":"desktop.search.replacePreviewing","description":"Shown while the replacement preview is computed","en-US":"Finding replacements…","zh-CN":"正在查找可替换的内容…"},
+{"id":"desktop.search.noReplacements","description":"Preview dialog when nothing would change","en-US":"Nothing to replace.","zh-CN":"没有可替换的内容。"},
+{"id":"desktop.search.replaceConflict","description":"Reason a file was not replaced because it changed on disk meanwhile","en-US":"a file changed on disk while replacing","zh-CN":"替换期间有文件在磁盘上被修改"},
+{"id":"desktop.search.replaceSummary","description":"Preview dialog summary of what Replace All changes","en-US":"{occurrences} occurrences in {files} files","zh-CN":"{files} 个文件中的 {occurrences} 处","parameters":{"occurrences":"string","files":"string"}},
+{"id":"desktop.search.replaceFailed","description":"Preview dialog error when Core could not plan the replacement","en-US":"Could not prepare the replacement: {reason}","zh-CN":"无法准备替换：{reason}","parameters":{"reason":"string"}},
+{"id":"desktop.search.replaceDone","description":"Notification after Replace All","en-US":"Replaced in {files} files","zh-CN":"已在 {files} 个文件中替换","parameters":{"files":"string"}},
+{"id":"desktop.search.replaceSkipped","description":"Notification after Replace All left some files unchanged","en-US":"Replaced in {changed} files; {skipped} files were left unchanged because they changed or are not UTF-8","zh-CN":"已在 {changed} 个文件中替换；{skipped} 个文件已变化或不是 UTF-8，未修改","parameters":{"changed":"string","skipped":"string"}},
+{"id":"desktop.search.replacePartlyFailed","description":"Notification when Replace All failed for some files","en-US":"Replaced in {changed} files; {failed} failed: {reason}","zh-CN":"已在 {changed} 个文件中替换；{failed} 个失败：{reason}","parameters":{"changed":"string","failed":"string","reason":"string"}}
+]
