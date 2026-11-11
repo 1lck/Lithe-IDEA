@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
@@ -33,6 +34,167 @@ type ToolWindow struct {
 	Text string
 	// Web is the package-relative entry document of a web window.
 	Web string
+	// Native is the host-rendered content of a native window; nil for the other kinds.
+	Native *NativePanel
+}
+
+// NativePanel is a host-rendered tree or list of literal nodes, with actions that call plugin
+// functions. The host draws every control; the plugin supplies only the data and the handlers.
+type NativePanel struct {
+	// Kind is "tree" or "list".
+	Kind  string
+	Nodes []NativeNode
+	// Actions are the handlers the toolbar and context menu reference, by ID.
+	Actions     []NativeAction
+	Toolbar     []string
+	ContextMenu []string
+}
+
+// NativeNode is one row of a native panel.
+type NativeNode struct {
+	ID       string
+	Label    string
+	Children []NativeNode
+}
+
+// NativeAction is one handler of a native panel. Refresh redraws the panel; invoke calls Function with
+// the selected node's ID.
+type NativeAction struct {
+	ID                string
+	Title             string
+	Kind              string
+	RequiresSelection bool
+	Function          string
+}
+
+// Native schema limits, from the contract's native schema 1.
+const (
+	maxNativeNodes  = 2000
+	maxNativeDepth  = 16
+	maxNativeAction = 64
+)
+
+// nativeIDPattern reports whether an ID is ASCII letters, digits or "._-" within 128 bytes.
+func validNativeID(id string) bool {
+	if id == "" || len(id) > 128 {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '.', c == '_', c == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// decodeNativePanel validates a native declaration against the schema limits. A declaration that
+// breaks them is refused as a whole; the other windows of the plugin still load.
+func decodeNativePanel(raw json.RawMessage) (*NativePanel, error) {
+	var declared struct {
+		Kind    string            `json:"kind"`
+		Nodes   []json.RawMessage `json:"nodes"`
+		Actions []struct {
+			ID                string `json:"id"`
+			Title             string `json:"title"`
+			Kind              string `json:"kind"`
+			RequiresSelection bool   `json:"requiresSelection"`
+			Function          string `json:"function"`
+		} `json:"actions"`
+		Toolbar []struct {
+			Action string `json:"action"`
+		} `json:"toolbar"`
+		ContextMenu []string `json:"contextMenu"`
+	}
+	if err := json.Unmarshal(raw, &declared); err != nil {
+		return nil, err
+	}
+	if declared.Kind != "tree" && declared.Kind != "list" {
+		return nil, fmt.Errorf("native kind %q is not supported", declared.Kind)
+	}
+	if len(declared.Actions) > maxNativeAction {
+		return nil, errors.New("a native panel declares too many actions")
+	}
+	panel := &NativePanel{Kind: declared.Kind}
+	count := 0
+	nodes, err := decodeNativeNodes(declared.Nodes, 0, &count, declared.Kind == "list")
+	if err != nil {
+		return nil, err
+	}
+	panel.Nodes = nodes
+	actions := map[string]bool{}
+	for _, action := range declared.Actions {
+		if !validNativeID(action.ID) || action.Title == "" {
+			return nil, errors.New("a native action needs a valid ID and a title")
+		}
+		if actions[action.ID] {
+			return nil, fmt.Errorf("native action %q is declared twice", action.ID)
+		}
+		actions[action.ID] = true
+		switch action.Kind {
+		case "refresh":
+			if action.RequiresSelection || action.Function != "" {
+				return nil, errors.New("a refresh action selects nothing and names no function")
+			}
+		case "invoke":
+			if !validFunctionID(action.Function) {
+				return nil, errors.New("an invoke action names a function ID")
+			}
+		default:
+			return nil, fmt.Errorf("native action kind %q is not supported", action.Kind)
+		}
+		panel.Actions = append(panel.Actions, NativeAction{ID: action.ID, Title: action.Title, Kind: action.Kind, RequiresSelection: action.RequiresSelection, Function: action.Function})
+	}
+	for _, entry := range declared.Toolbar {
+		if !actions[entry.Action] {
+			return nil, fmt.Errorf("the toolbar names the undeclared action %q", entry.Action)
+		}
+		panel.Toolbar = append(panel.Toolbar, entry.Action)
+	}
+	for _, id := range declared.ContextMenu {
+		if !actions[id] {
+			return nil, fmt.Errorf("the context menu names the undeclared action %q", id)
+		}
+		panel.ContextMenu = append(panel.ContextMenu, id)
+	}
+	return panel, nil
+}
+
+// decodeNativeNodes reads a node list. Nodes need a valid ID and a non-blank label of at most 1024 bytes.
+// A list takes no children; the whole tree stays within the node and depth limits.
+func decodeNativeNodes(raw []json.RawMessage, depth int, count *int, flat bool) ([]NativeNode, error) {
+	if depth > maxNativeDepth {
+		return nil, errors.New("a native panel nests deeper than the limit")
+	}
+	var nodes []NativeNode
+	for _, item := range raw {
+		var declared struct {
+			ID       string            `json:"id"`
+			Label    string            `json:"label"`
+			Children []json.RawMessage `json:"children"`
+		}
+		if err := json.Unmarshal(item, &declared); err != nil {
+			return nil, err
+		}
+		*count++
+		if *count > maxNativeNodes {
+			return nil, errors.New("a native panel has too many nodes")
+		}
+		if !validNativeID(declared.ID) || strings.TrimSpace(declared.Label) == "" || len(declared.Label) > 1024 {
+			return nil, errors.New("a native node needs a valid ID and a label")
+		}
+		if flat && len(declared.Children) > 0 {
+			return nil, errors.New("a native list takes no children")
+		}
+		children, err := decodeNativeNodes(declared.Children, depth+1, count, flat)
+		if err != nil {
+			return nil, err
+		}
+		nodes = append(nodes, NativeNode{ID: declared.ID, Label: declared.Label, Children: children})
+	}
+	return nodes, nil
 }
 
 // ToolWindows reads the tool windows of every enabled plugin, ordered by
@@ -56,11 +218,12 @@ func (s *Service) ToolWindows(ctx context.Context, entries []pluginmanager.Entry
 			DisplayName string `json:"displayName"`
 			UI          struct {
 				ToolWindows []struct {
-					ID        string `json:"id"`
-					Title     string `json:"title"`
-					Placement string `json:"placement"`
-					Order     int    `json:"order"`
-					Text      string `json:"text"`
+					ID        string          `json:"id"`
+					Title     string          `json:"title"`
+					Placement string          `json:"placement"`
+					Order     int             `json:"order"`
+					Text      string          `json:"text"`
+					Native    json.RawMessage `json:"native"`
 					Web       *struct {
 						Entry string `json:"entry"`
 					} `json:"web"`
@@ -83,6 +246,14 @@ func (s *Service) ToolWindows(ctx context.Context, entries []pluginmanager.Entry
 			}
 			if window.Web != nil {
 				declaredWindow.Web = window.Web.Entry
+			}
+			if len(window.Native) > 0 {
+				panel, err := decodeNativePanel(window.Native)
+				if err != nil {
+					failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))
+					continue
+				}
+				declaredWindow.Native = panel
 			}
 			windows = append(windows, declaredWindow)
 		}
