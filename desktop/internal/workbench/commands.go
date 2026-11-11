@@ -7,6 +7,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -61,6 +62,9 @@ func (a *App) commands() []command {
 	}
 	add("project.close", t.GroupProject, t.CloseProject, "", true, a.closeProject)
 	add("documents.saveAll", t.GroupProject, t.SaveAll, "", true, func() { a.saveProjectDocuments(p, func(bool) {}) })
+	if d := p.selectedDocument(p.docs.group); browserPreviewable(d) {
+		add("editor.openInBrowser", t.GroupEditor, i18n.Shared(a.language(), "desktop.editorMenu.openInBrowser"), "", true, func() { a.openInBrowser(p, d) })
+	}
 	// Code folding of the selected document.
 	if d := p.selectedDocument(p.docs.group); d != nil {
 		add("editor.fold", t.GroupEditor, t.Fold, "", true, func() { a.foldCommand(d, func(v *editorview.View) { v.FoldAtCaret() }) })

@@ -1094,5 +1094,20 @@
     "description": "Code folding action in Find Action and the keymap.",
     "en-US": "Unfold All",
     "zh-CN": "全部展开"
+  },
+  {
+    "id": "desktop.editorMenu.openInBrowser",
+    "description": "Editor context menu: show an HTML or SVG file in the system browser.",
+    "en-US": "Open in Browser",
+    "zh-CN": "在浏览器中打开"
+  },
+  {
+    "id": "desktop.editorMenu.openInBrowserFailed",
+    "description": "Editor context menu: show an HTML or SVG file in the system browser.",
+    "en-US": "Could not open the file in the browser: {reason}",
+    "zh-CN": "无法在浏览器中打开文件：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
   }
 ]

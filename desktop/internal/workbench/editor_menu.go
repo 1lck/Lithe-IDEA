@@ -36,6 +36,11 @@ func (a *App) editorMenuItems(c ui.C, p *project, d *document) func(*ui.MenuItem
 		if menu.Item(i18n.Shared(language, "desktop.editorMenu.reformat")).Disabled(readOnly).Clicked() {
 			c.After(func() { a.startPluginFormattingAtSelection(p, d) })
 		}
+		if browserPreviewable(d) {
+			if menu.Item(i18n.Shared(language, "desktop.editorMenu.openInBrowser")).Clicked() {
+				c.After(func() { a.openInBrowser(p, d) })
+			}
+		}
 		if !d.virtual && d.path != "" && a.agentKernelReady() {
 			if menu.Item(i18n.Shared(language, "desktop.agent.files.addToAgent")).Clicked() {
 				path := d.path
