@@ -88,5 +88,59 @@
     "description": "Note under the provider details saying they are read-only.",
     "en-US": "Read-only. Edit the provider in your local Codex or Claude configuration.",
     "zh-CN": "只读。请在本机 Codex 或 Claude 配置中修改供应商。"
+  },
+  {
+    "id": "desktop.agent.mode.heading",
+    "description": "Heading of the approval mode list.",
+    "en-US": "Mode",
+    "zh-CN": "模式"
+  },
+  {
+    "id": "desktop.agent.mode.manual",
+    "description": "Product title of the Claude mode 'default'.",
+    "en-US": "Manual",
+    "zh-CN": "手动"
+  },
+  {
+    "id": "desktop.agent.mode.acceptEdits",
+    "description": "Product title of the Claude mode 'acceptEdits'.",
+    "en-US": "Accept edits",
+    "zh-CN": "接受编辑"
+  },
+  {
+    "id": "desktop.agent.mode.plan",
+    "description": "Product title of the Claude mode 'plan'.",
+    "en-US": "Plan",
+    "zh-CN": "计划"
+  },
+  {
+    "id": "desktop.agent.mode.auto",
+    "description": "Product title of the Claude mode 'auto'.",
+    "en-US": "Auto",
+    "zh-CN": "自动"
+  },
+  {
+    "id": "desktop.agent.mode.bypassPermissions",
+    "description": "Product title of the Claude mode 'bypassPermissions'.",
+    "en-US": "Bypass permissions",
+    "zh-CN": "绕过权限"
+  },
+  {
+    "id": "desktop.agent.mode.askForApproval",
+    "description": "Product title of the Codex mode 'read-only'.",
+    "en-US": "Ask for approval",
+    "zh-CN": "请求批准"
+  },
+  {
+    "id": "desktop.agent.mode.approveForMe",
+    "description": "Product title of the Codex mode 'agent'.",
+    "en-US": "Approve for me",
+    "zh-CN": "自动批准"
+  },
+  {
+    "id": "desktop.agent.mode.fullAccess",
+    "description": "Product title of the Codex mode 'agent-full-access'.",
+    "en-US": "Full access",
+    "zh-CN": "完全访问"
   }
 ]

@@ -20,11 +20,15 @@ type agentConfigOption struct {
 	// user's choice.
 	choiceIndexes []int
 	pick          int
+	// open says the approval-mode menu is showing.
+	open bool
 }
 
 type agentConfigChoice struct {
 	Value string
 	Name  string
+	// Description is the Agent's own one-line explanation of the choice, empty if none.
+	Description string
 }
 
 // agentSessionConfig is one connection's session settings. It is replaced
@@ -54,8 +58,9 @@ type agentConfigOptionWire struct {
 }
 
 type agentConfigChoiceWire struct {
-	Value string `json:"value"`
-	Name  string `json:"name"`
+	Value       string `json:"value"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 type agentConfigGroupWire struct {
@@ -157,7 +162,7 @@ func appendAgentConfigChoice(choices []agentConfigChoice, choice agentConfigChoi
 	if choice.Name == "" {
 		choice.Name = choice.Value
 	}
-	return append(choices, agentConfigChoice{Value: choice.Value, Name: choice.Name})
+	return append(choices, agentConfigChoice{Value: choice.Value, Name: choice.Name, Description: choice.Description})
 }
 
 // agentConfigCurrentName is the display name of the confirmed value. A value

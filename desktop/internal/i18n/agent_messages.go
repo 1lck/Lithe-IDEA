@@ -100,6 +100,7 @@ type AgentMessages struct {
 	Subscription AgentSubscriptionMessages
 	Editor       AgentEditorMessages
 	Provider     AgentProviderMessages
+	Mode         AgentModeMessages
 }
 
 func agentMessages(language Language) AgentMessages {
@@ -109,6 +110,7 @@ func agentMessages(language Language) AgentMessages {
 		Subscription:  agentSubscriptionMessages(language),
 		Editor:        agentEditorMessages(language),
 		Provider:      agentProviderMessages(language),
+		Mode:          agentModeMessages(language),
 		AgentLabel:    Shared(language, "desktop.agent.setup.agent"),
 		ProviderLabel: Shared(language, "desktop.agent.setup.provider"),
 		Start:         Shared(language, "desktop.agent.setup.start"),

@@ -154,14 +154,18 @@ func (a *App) agentConfigBar(c ui.C, p *project) {
 			option := &cfg.options[i]
 			ui.Row(c.Key(option.ID)).FillWidth().Height(28).Shrink(0).Items(ui.Center).Gap(8).Children(func() {
 				ui.Text(c, a.agentConfigLabel(option)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Width(72)
-				current := agentConfigChoiceIndex(*option)
-				option.pick = current
-				ui.Select(c, &option.pick, option.choiceIndexes, func(choice int) string { return option.Choices[choice].Name }).
-					Placeholder(agentConfigCurrentName(*option)).Label(a.agentConfigLabel(option)).
-					Disabled(disabled).Height(28).Grow(1)
-				if option.pick != current && option.pick >= 0 && option.pick < len(option.Choices) {
-					id, value := option.ID, option.Choices[option.pick].Value
-					c.After(func() { a.selectAgentConfig(p, id, value) })
+				if option.Category == "mode" {
+					a.agentModeMenu(c, p, option, disabled)
+				} else {
+					current := agentConfigChoiceIndex(*option)
+					option.pick = current
+					ui.Select(c, &option.pick, option.choiceIndexes, func(choice int) string { return option.Choices[choice].Name }).
+						Placeholder(agentConfigCurrentName(*option)).Label(a.agentConfigLabel(option)).
+						Disabled(disabled).Height(28).Grow(1)
+					if option.pick != current && option.pick >= 0 && option.pick < len(option.Choices) {
+						id, value := option.ID, option.Choices[option.pick].Value
+						c.After(func() { a.selectAgentConfig(p, id, value) })
+					}
 				}
 			})
 		}
