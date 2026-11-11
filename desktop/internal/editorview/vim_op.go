@@ -38,7 +38,7 @@ func (v *View) vimOperate(op byte, from, to int, linewise bool) {
 	}
 	switch op {
 	case 'y':
-		v.vimSetReg(text, linewise)
+		v.vimSetReg(op, text, linewise)
 		if linewise {
 			// Yanking upward moves the caret to the first line yanked; otherwise it stays.
 			if v.text.LineOf(v.caret) != first {
@@ -48,7 +48,7 @@ func (v *View) vimOperate(op byte, from, to int, linewise bool) {
 			v.moveTo(from, false)
 		}
 	case 'd':
-		v.vimSetReg(text, linewise)
+		v.vimSetReg(op, text, linewise)
 		st.changed = true
 		v.edit(delFrom, delTo, "", editOther)
 		if linewise {
@@ -58,7 +58,7 @@ func (v *View) vimOperate(op byte, from, to int, linewise bool) {
 		}
 		v.vimClamp()
 	case 'c':
-		v.vimSetReg(text, linewise)
+		v.vimSetReg(op, text, linewise)
 		if linewise {
 			// cc keeps the indentation of the first line, as an editor that indents does.
 			start := v.vimFirstNB(first)
