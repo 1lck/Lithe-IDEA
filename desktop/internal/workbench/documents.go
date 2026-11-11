@@ -474,7 +474,10 @@ func (a *App) placeDocumentAs(p *project, path, name string, content editorview.
 		Syntax:  grammar,
 		Notify:  a.invalidator.Invalidate,
 		Save:    func() { a.saveDocument(p, id) },
-		OnEdit:  func(edit editorview.Edit) { a.documentEdited(p, d, edit) },
+		OnEdit: func(edit editorview.Edit) {
+			a.documentEdited(p, d, edit)
+			a.mirrorDocumentEdit(p, d, edit)
+		},
 	})
 	d.view.SetReadOnly(virtual)
 	d.view.SetVimExit(func(cmd string) bool { return a.vimExit(p, d, cmd) })
@@ -617,6 +620,7 @@ func (a *App) saveDocumentMode(p *project, id int, auto bool) {
 				return
 			}
 			d.view.MarkSaved(text)
+			a.reloadDiffsOfPath(p, path)
 			a.recordLocalHistory(p, path, "save", historyTexts{before: before, after: data})
 			d.encodingChanged, d.previousEncoding = false, nil
 			if d.needsCodec() {

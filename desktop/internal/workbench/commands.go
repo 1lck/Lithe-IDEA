@@ -126,6 +126,9 @@ func (a *App) commands() []command {
 	add("git.commitPush", t.GroupGit, t.CommitAndPush, "", true, func() { a.startCommit(p, true, surfaceMenu) })
 	add("git.branches", t.GroupGit, t.Branches, "", true, a.openBranches)
 	add("git.pull", t.GroupGit, a.text.Sync.Pull.MenuItem, "", p.git.isRepository(), func() { a.openPullDialog(p) })
+	if d := p.selectedDocument(p.docs.group); d != nil && !d.virtual {
+		add("git.lineHistory", t.GroupGit, i18n.Shared(a.language(), "desktop.editorMenu.lineHistory"), "", p.git.isRepository(), func() { a.startLineHistory(p, d) })
+	}
 	add("git.console", t.GroupGit, t.GitConsole, "", true, func() { a.showGitConsole("") })
 
 	add("run.selected", t.GroupRun, t.Run, "", true, func() { a.runSelectedBuildTask(p) })

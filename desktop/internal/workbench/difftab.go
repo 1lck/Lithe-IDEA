@@ -50,6 +50,9 @@ type diffSet struct {
 	whole bool
 	// ignoreSpace reads the diffs ignoring whitespace, for the tabs opened after it is set.
 	ignoreSpace bool
+	// mirroring counts the edits the Diff tabs and the documents are mirroring into each other
+	// (difftab_edit.go); a mirrored edit is not mirrored back.
+	mirroring int
 }
 
 // find is the tab with id, nil when there is none.
@@ -133,7 +136,7 @@ type diffTab struct {
 	ignoreSpace bool
 	// expanded are the folds the user opened, by the unified index of the first unchanged line
 	// of the run they hide, which is the same in both modes.
-	expanded map[int]bool
+	expanded map[int]diffReveal
 	file     *core.GitDiffFile
 	plan     *core.DiffBlockPlan
 	// grammar colors the text of the file at grammarPath; it is found away from the window
@@ -610,8 +613,14 @@ func (a *App) presentDiff(t *diffTab) {
 // grammar; a new editor takes the scroll of the one it replaces.
 func (a *App) diffSideEditor(t *diffTab, e *diffEditor, pane *diffPane, before bool) *diffEditor {
 	content := editorview.Prepare(pane.text)
+	// The right side of a working copy shows its document, which may hold edits the disk does not.
+	editable := !before && a.diffDocument(t) != nil
+	if editable {
+		content = a.diffDocument(t).view.CopyContent()
+	}
 	if e != nil && e.grammar == t.grammar {
 		e.view.ShowContent(content)
+		e.view.SetReadOnly(!editable)
 		e.decorated = nil
 		return e
 	}
@@ -626,8 +635,17 @@ func (a *App) diffSideEditor(t *diffTab, e *diffEditor, pane *diffPane, before b
 		label = left + " " + t.change.Path
 	}
 	e = &diffEditor{label: label, grammar: t.grammar, x: x, y: y}
-	e.view = editorview.New(editorview.Config{Label: label, Content: content, Syntax: t.grammar, Notify: a.invalidator.Invalidate})
-	e.view.SetReadOnly(true)
+	cfg := editorview.Config{Label: label, Content: content, Syntax: t.grammar, Notify: a.invalidator.Invalidate}
+	if !before {
+		cfg.OnEdit = func(edit editorview.Edit) { a.diffEdited(t, edit) }
+		cfg.Save = func() {
+			if d := a.diffDocument(t); d != nil {
+				a.saveDocument(a.project, d.id)
+			}
+		}
+	}
+	e.view = editorview.New(cfg)
+	e.view.SetReadOnly(!editable)
 	e.view.SetWrap(false)
 	e.view.SetMinimap(false)
 	e.view.SetScrollOffset(x, y)
@@ -641,7 +659,7 @@ func (a *App) diffEditorInput(t *diffTab, e *diffEditor, before bool) {
 	e.input = ui.Handlers{
 		Role: gfx.RoleTerminal,
 		Key: func(event gfx.KeyEvent) gfx.EventResult {
-			if a.diffFindChord(t, event) {
+			if a.diffFindChord(t, event) || !before && a.diffUndoChord(t, event) {
 				return gfx.EventResult{Handled: true, Repaint: true}
 			}
 			result, _ := e.view.Key(event)
@@ -669,7 +687,7 @@ func (a *App) diffFoldPressed(t *diffTab, e *diffEditor, before bool, event gfx.
 	if event.Kind != gfx.PointerDown || event.Button != gfx.PointerButtonPrimary || event.Target != e.hit || t.layout == nil {
 		return false
 	}
-	line, ok := e.view.LineAt(event.Y)
+	line, fraction, ok := e.view.LineRowAt(event.Y)
 	if !ok {
 		return false
 	}
@@ -677,7 +695,16 @@ func (a *App) diffFoldPressed(t *diffTab, e *diffEditor, before bool, event gfx.
 	if !ok {
 		return false
 	}
-	a.expandDiff(t, fold.at)
+	// The placeholder row is split in three bands: the top opens the lines above the fold, the
+	// bottom the lines below it, and the middle opens all of it.
+	switch {
+	case fraction < 1.0/3:
+		a.revealDiff(t, fold.at, diffReveal{above: diffRevealStep})
+	case fraction >= 2.0/3:
+		a.revealDiff(t, fold.at, diffReveal{below: diffRevealStep})
+	default:
+		a.revealDiff(t, fold.at, diffReveal{all: true})
+	}
 	return true
 }
 
@@ -792,12 +819,12 @@ func (a *App) setDiffMode(p *project, t *diffTab, split, whole bool) {
 	}
 }
 
-// expandDiff opens the fold of tab t that starts at unified line at.
-func (a *App) expandDiff(t *diffTab, at int) {
+// revealDiff opens by more of the fold of tab t that starts at unified line at.
+func (a *App) revealDiff(t *diffTab, at int, by diffReveal) {
 	if t.expanded == nil {
-		t.expanded = map[int]bool{}
+		t.expanded = map[int]diffReveal{}
 	}
-	t.expanded[at] = true
+	t.expanded[at] = t.expanded[at].add(by)
 	a.rebuildDiff(t)
 }
 
