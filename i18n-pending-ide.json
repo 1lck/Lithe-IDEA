@@ -122,5 +122,47 @@
     "description": "Tooltip of a method breakpoint row that removes it",
     "en-US": "Remove method breakpoint",
     "zh-CN": "移除方法断点"
+  },
+  {
+    "id": "desktop.marketplace.tab.overview",
+    "description": "Tab of a plugin's detail: what it says about itself and its actions",
+    "en-US": "Overview",
+    "zh-CN": "概览"
+  },
+  {
+    "id": "desktop.marketplace.tab.versions",
+    "description": "Tab of a plugin's detail: released versions and the source",
+    "en-US": "Versions and source",
+    "zh-CN": "版本与来源"
+  },
+  {
+    "id": "desktop.marketplace.tab.settings",
+    "description": "Tab of a plugin's detail: settings of an installed plugin",
+    "en-US": "Settings",
+    "zh-CN": "设置"
+  },
+  {
+    "id": "desktop.marketplace.settingsNeedInstall",
+    "description": "Shown in the settings tab of a plugin that is not installed",
+    "en-US": "Install the plugin to change its settings.",
+    "zh-CN": "安装插件后才能修改其设置。"
+  },
+  {
+    "id": "desktop.marketplace.author",
+    "description": "Label of the publisher of a plugin",
+    "en-US": "Author",
+    "zh-CN": "作者"
+  },
+  {
+    "id": "desktop.marketplace.homepage",
+    "description": "Label of the homepage a plugin lists",
+    "en-US": "Homepage",
+    "zh-CN": "主页"
+  },
+  {
+    "id": "desktop.marketplace.noVersions",
+    "description": "Shown when the index lists no version of a plugin",
+    "en-US": "The index lists no versions.",
+    "zh-CN": "索引中没有版本。"
   }
 ]

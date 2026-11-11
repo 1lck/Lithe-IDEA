@@ -349,7 +349,7 @@ func (w *window) marketOverview(c ui.C, selected core.MarketplacePlugin) {
 // them, with the homepage and the publisher the listing names.
 func (w *window) marketVersions(c ui.C, selected core.MarketplacePlugin) {
 	language := w.marketLanguage()
-	w.marketMetadata(c, i18n.Shared(language, "native.author"), selected.Author)
+	w.marketMetadata(c, i18n.Shared(language, "desktop.marketplace.author"), selected.Author)
 	if selected.Homepage != nil && *selected.Homepage != "" {
 		w.marketMetadata(c, i18n.Shared(language, "desktop.marketplace.homepage"), *selected.Homepage)
 	}
