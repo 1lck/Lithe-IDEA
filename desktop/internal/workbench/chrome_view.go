@@ -1,6 +1,8 @@
 package workbench
 
 import (
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
@@ -229,9 +231,11 @@ func (a *App) stripeZone(c ui.C, z zone, dragging bool) int {
 			if open {
 				rest = a.colors.Text
 			}
-			if _, hit := a.chromeGlyph(c, i, chromeToolButton, rest, a.colors.Text, open); hit {
+			box, hit := a.chromeGlyph(c, i, chromeToolButton, rest, a.colors.Text, open)
+			if hit {
 				clicked = i
 			}
+			ui.ContextMenu(c.Part("menu").KeyInt(i), box, a.stripeButtonMenu(c, i, z))
 		}
 	})
 	a.chrome.placeZone(z, column)
@@ -521,5 +525,47 @@ func (a *App) gearMenu(c ui.C, anchor ui.Box) {
 	})
 	if !open {
 		a.title.gearOpen = false
+	}
+}
+
+// stripeZoneMoveKeys are the "Move to" entries of a stripe button's menu, by zone.
+var stripeZoneMoveKeys = [...]string{
+	zoneLeftTop:     "native.moveToLeftTop",
+	zoneLeftBottom:  "native.moveToLeftBottom",
+	zoneBottomLeft:  "native.moveToBottomLeft",
+	zoneRightTop:    "native.moveToRightTop",
+	zoneRightBottom: "native.moveToRightBottom",
+	zoneBottomRight: "native.moveToBottomRight",
+}
+
+// stripeButtonMenu is the context menu of the stripe button of catalog item i, which sits
+// in zone at: hiding its open tool window, and moving it to the end of another stripe zone,
+// the keyboard and pointer alternative to dragging it.
+func (a *App) stripeButtonMenu(c ui.C, i int, at zone) func(*ui.MenuItems) {
+	return func(menu *ui.MenuItems) {
+		language := a.language()
+		id := a.chrome.catalog[i].id
+		if a.chrome.isOpen(i) {
+			label := a.chrome.catalog[i].label(a.text)
+			if menu.Item(i18n.SharedFormat(language, "native.hideToolWindow", map[string]string{"arg1": label})).Clicked() {
+				c.After(func() {
+					a.performed("workbench.toolWindow.hide", surfaceMenu)
+					a.reduceChrome(core.SetChromeOpen(id, false))
+				})
+			}
+			menu.Separator()
+		}
+		for z, key := range stripeZoneMoveKeys {
+			if zone(z) == at {
+				continue
+			}
+			target := zoneNames[z]
+			if menu.Item(i18n.Shared(language, key)).Clicked() {
+				c.After(func() {
+					a.performed("workbench.toolWindow.move", surfaceMenu)
+					a.reduceChrome(core.MoveChrome(id, target, ""))
+				})
+			}
+		}
 	}
 }
