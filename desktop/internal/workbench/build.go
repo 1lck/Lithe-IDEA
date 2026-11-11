@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprocess"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprovider"
@@ -21,6 +21,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 )
 
@@ -93,26 +94,102 @@ type buildInstance struct {
 	modelError         string
 }
 
-// buildOperation is the one provider request or host process the window is
-// running. A provider model load also uses one, but it does not expose output.
+// buildOperation is the one Build execution the window runs: a task or a run, from the
+// moment its start is accepted until it ends. beginBuildOperation takes it before the plan,
+// the saves and the provider request, so a second start is refused and Stop works while the
+// execution is still being prepared; the provider request or host process it started is
+// attached once it exists. Its fields belong to the window thread; the goroutine preparing it
+// reads only stopped, through bind.
 type buildOperation struct {
-	label string
 	// configuration is the run configuration the operation runs, "" for anything else.
 	configuration string
 	provider      *buildprovider.Client
 	request       *buildprovider.Operation
 	process       *buildprocess.Process
 	cancelled     bool
+	// stopped is closed by stop.
+	stopped chan struct{}
+	// ide is the execution's IDE API identity and state (ide_api_dispatch.go).
+	ide *ideAPIOperation
 }
 
+// beginBuildOperation makes a new operation the window's current one and gives it the IDE
+// identity of the execution. kind is "build" for a task and "run" for an application run;
+// label names it in the operations list. Every path that follows ends it with
+// finishBuildTask, finishBuildRun or finishBuildError for this operation.
+func (a *App) beginBuildOperation(p *project, kind, label, configuration string) *buildOperation {
+	operation := &buildOperation{configuration: configuration, stopped: make(chan struct{})}
+	operation.ide = p.recordIDEOperation(kind, label, configuration)
+	p.build.operation = operation
+	p.build.status = a.text.Build.Preparing
+	return operation
+}
+
+// bind returns ctx ending also when the operation is stopped, so the kernel and provider calls
+// that prepare the execution end at once. A host process is not started with it: Stop ends a
+// process through its own termination. The preparing goroutine calls cancel when it is done.
+func (o *buildOperation) bind(ctx context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(ctx)
+	go func() {
+		select {
+		case <-o.stopped:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, cancel
+}
+
+// stop ends the operation's preparation and its process. A provider request is cancelled
+// by the caller, which owns the bounded wait for the provider's answer.
 func (o *buildOperation) stop() {
 	if o == nil {
 		return
+	}
+	if !o.cancelled && o.stopped != nil {
+		close(o.stopped)
 	}
 	o.cancelled = true
 	if o.process != nil {
 		o.process.Stop()
 	}
+}
+
+// buildRefusal is a start the window refused before it reserved an operation. code is the
+// IDE API failure code a tool call reports for it; the Build window shows nothing for one,
+// because its controls never offer the refused start.
+type buildRefusal struct {
+	code, message string
+}
+
+func (r *buildRefusal) Error() string { return r.message }
+
+// The IDE API failure codes a refused start maps to (shared/contracts/ide-api/v1.md).
+const (
+	refusalInvalid      = "INVALID_ARGUMENTS"
+	refusalNotFound     = "NOT_FOUND"
+	refusalNotReady     = "NOT_READY"
+	refusalNotSupported = "NOT_SUPPORTED"
+	refusalBusy         = "BUSY"
+)
+
+// refuseBuild returns the refusal of a start with the IDE API code and message.
+func refuseBuild(code, message string) error { return &buildRefusal{code: code, message: message} }
+
+// errBuildBusy refuses a start while the window runs another execution.
+var errBuildBusy = refuseBuild(refusalBusy, "the Build window is already running an operation")
+
+// attachProcess makes process the operation's process once it started. It reports false, and
+// stops the process, when the operation was stopped or replaced while the process started.
+func (a *App) attachProcess(p *project, op *buildOperation, process *buildprocess.Process) bool {
+	if op.cancelled || p.build.operation != op {
+		process.Stop()
+		return false
+	}
+	op.process = process
+	op.ide.start()
+	p.build.status = a.text.Build.Running
+	return true
 }
 
 // buildRuntime owns provider sessions for one project. A session is keyed by
@@ -633,25 +710,25 @@ func (p *project) selectedBuildInstance() *buildInstance {
 
 // runSelectedBuildTask runs the selected declared or model task.
 func (a *App) runSelectedBuildTask(p *project) {
-	_ = a.runBuildTask(p, p.build.projectID, p.build.targetID, p.build.taskID, nil)
+	_, _ = a.runBuildTask(p, p.build.projectID, p.build.targetID, p.build.taskID, nil)
 }
 
 // runBuildTask runs one declared or model task of the selected instance. The Build window
 // passes its stored selection and no user arguments; the IDE API passes the identities a
-// client chose. Validation refusals are returned so a tool call can report them, and the
-// Build window keeps its notification and ignores the error.
-func (a *App) runBuildTask(p *project, projectID, targetID, taskID string, userArguments []string) error {
+// client chose. It returns the execution it reserved; validation refusals are returned instead
+// so a tool call can report them, and the Build window keeps its notification and ignores them.
+func (a *App) runBuildTask(p *project, projectID, targetID, taskID string, userArguments []string) (*buildOperation, error) {
 	instance := p.selectedBuildInstance()
 	if instance == nil || taskID == "" {
 		a.notify(a.text.Build.ChooseTask)
-		return errors.New("choose a build task")
+		return nil, refuseBuild(refusalInvalid, "choose a build task")
 	}
 	if p.build.operation != nil {
-		return errors.New("the Build window is already running an operation")
+		return nil, errBuildBusy
 	}
 	task, modelTask := buildTaskByID(instance, taskID)
 	if task == nil && modelTask == nil {
-		return errors.New("unknown build task")
+		return nil, refuseBuild(refusalNotFound, "unknown build task")
 	}
 	request := core.BuildPlanRequest{
 		Root:          instance.Root,
@@ -663,7 +740,7 @@ func (a *App) runBuildTask(p *project, projectID, targetID, taskID string, userA
 		project, ok := buildProjectByID(instance.Model, projectID)
 		if !ok {
 			a.notifyError(a.text.Build.ProjectMissing)
-			return errors.New("unknown build project")
+			return nil, refuseBuild(refusalNotFound, "unknown build project")
 		}
 		request.Project = &core.BuildSelection{Name: project.Name, Path: project.Path, Properties: project.Properties}
 	}
@@ -671,7 +748,7 @@ func (a *App) runBuildTask(p *project, projectID, targetID, taskID string, userA
 		target, ok := buildTargetByID(instance.Model, targetID)
 		if !ok {
 			a.notifyError(a.text.Build.TargetMissing)
-			return errors.New("unknown build target")
+			return nil, refuseBuild(refusalNotFound, "unknown build target")
 		}
 		request.Target = &core.BuildSelection{Name: target.Name, Path: target.Path, Tags: target.Tags, Properties: target.Properties}
 	}
@@ -684,41 +761,42 @@ func (a *App) runBuildTask(p *project, projectID, targetID, taskID string, userA
 		request.Task = task.ID
 		if task.RequiresUserArguments && len(userArguments) == 0 {
 			a.notify(a.text.Build.ArgumentsRequired)
-			return errors.New("this task requires user arguments")
+			return nil, refuseBuild(refusalInvalid, "this task requires user arguments")
 		}
 	}
 	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "build.runTask", "surface": "build"})
 	captured := *instance
 	kernel := a.kernel
 	messages := a.text.Build
+	op := a.beginBuildOperation(p, "build", ideAPIBuildLabel(instance, taskID), "")
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
-		plan, err := kernel.PlanBuildTask(ctx, captured.Manifest, captured.BuildSystemID, request)
+		prepare, release := op.bind(ctx)
+		defer release()
+		plan, err := kernel.PlanBuildTask(prepare, captured.Manifest, captured.BuildSystemID, request)
 		if err != nil {
-			a.post(func(a *App) { a.finishBuildError(p, err) })
-			return nil
+			return func(a *App) { a.finishBuildError(p, op, err) }
 		}
 		if plan.Provider == nil {
-			if err := a.runCommandTask(ctx, p, captured, plan, messages); err != nil {
-				a.post(func(a *App) { a.finishBuildError(p, err) })
+			if err := a.runCommandTask(ctx, prepare, p, op, captured, plan, messages); err != nil {
+				return func(a *App) { a.finishBuildError(p, op, err) }
 			}
 			return nil
 		}
-		client, err := a.buildProvider(ctx, p, captured)
+		client, err := a.buildProvider(prepare, p, captured)
 		if err != nil {
-			a.post(func(a *App) { a.finishBuildError(p, err) })
-			return nil
+			return func(a *App) { a.finishBuildError(p, op, err) }
 		}
-		a.post(func(a *App) { p.build.status = messages.Running })
-		a.runProviderOperation(ctx, p, client, plan, buildOperationLabel(captured.System, request.Task, true))
+		a.runProviderOperation(ctx, prepare, p, op, client, plan)
 		return nil
 	})
-	return nil
+	return op, nil
 }
 
 // runCommandTask expands a command plan through Core, resolves the build tool
-// in Core's candidate order, and runs it as a host-owned process.
-func (a *App) runCommandTask(ctx context.Context, p *project, instance buildInstance, plan core.BuildPlan, messages i18n.BuildMessages) error {
-	execution, err := a.resolveBuildExecutable(ctx, p, instance, messages)
+// in Core's candidate order, and runs it as a host-owned process. prepare is ctx ending also
+// when the operation is stopped; the process runs under ctx and ends through Stop.
+func (a *App) runCommandTask(ctx, prepare context.Context, p *project, op *buildOperation, instance buildInstance, plan core.BuildPlan, messages i18n.BuildMessages) error {
+	execution, err := a.resolveBuildExecutable(prepare, p, instance, messages)
 	if err != nil {
 		return err
 	}
@@ -730,17 +808,14 @@ func (a *App) runCommandTask(ctx context.Context, p *project, instance buildInst
 		WorkingDirectory: workingDirectory,
 		Environment:      applyToolchainSelection(plan.Environment, execution.selection()),
 	}, func(_ buildprocess.Stream, text string) {
-		a.post(func(a *App) { a.appendBuildOutput(p, text) })
+		a.post(func(a *App) { a.appendBuildOutput(p, op, text) })
 	})
 	if err != nil {
 		return err
 	}
-	a.post(func(a *App) {
-		p.build.operation = &buildOperation{label: "command", process: process}
-		p.build.status = a.text.Build.Running
-	})
+	a.post(func(a *App) { a.attachProcess(p, op, process) })
 	err = process.Wait()
-	a.post(func(a *App) { a.finishBuildRun(p, err) })
+	a.post(func(a *App) { a.finishBuildRun(p, op, err) })
 	return nil
 }
 
@@ -887,22 +962,10 @@ func buildPlatform() string {
 	}
 }
 
-// runBuildTarget prepares and starts one provider application target.
+// runBuildTarget prepares and starts one provider application target of the selected instance.
 func (a *App) runBuildTarget(p *project, targetID, runID string) {
-	a.runBuildTargetWith(p, p.selectedBuildInstance(), p.build.projectID, targetID, runID, "", nil)
-}
-
-// runBuildTargetWith runs one target of instance through the provider's run
-// declaration runID. configuration is the run configuration it starts, "" for a target the
-// Build window runs, and options are that configuration's launch choices, nil for a launch
-// without any.
-func (a *App) runBuildTargetWith(p *project, instance *buildInstance, projectID, targetID, runID, configuration string, options *core.RunLaunchOptions) {
+	instance := p.selectedBuildInstance()
 	if instance == nil || p.build.operation != nil {
-		return
-	}
-	project, ok := buildProjectByID(instance.Model, projectID)
-	if !ok {
-		a.notifyError(a.text.Build.ProjectMissing)
 		return
 	}
 	target, ok := buildTargetByID(instance.Model, targetID)
@@ -910,12 +973,34 @@ func (a *App) runBuildTargetWith(p *project, instance *buildInstance, projectID,
 		a.notifyError(a.text.Build.TargetMissing)
 		return
 	}
+	op := a.beginBuildOperation(p, "run", target.Name, "")
+	a.runBuildTargetWith(p, op, instance, p.build.projectID, targetID, runID, nil)
+}
+
+// runBuildTargetWith runs one target of instance through the provider's run declaration runID
+// as the reserved operation op. options are the run configuration's launch choices, nil for a
+// launch without any. A project or target the model no longer has ends op as failed.
+func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *buildInstance, projectID, targetID, runID string, options *core.RunLaunchOptions) {
+	project, ok := buildProjectByID(instance.Model, projectID)
+	if !ok {
+		a.notifyError(a.text.Build.ProjectMissing)
+		a.finishBuildError(p, op, errors.New(a.text.Build.ProjectMissing))
+		return
+	}
+	target, ok := buildTargetByID(instance.Model, targetID)
+	if !ok {
+		a.notifyError(a.text.Build.TargetMissing)
+		a.finishBuildError(p, op, errors.New(a.text.Build.TargetMissing))
+		return
+	}
 	captured := *instance
 	kernel := a.kernel
 	messages := a.text.Build
 	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "build.runTarget", "surface": "build"})
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
-		plan, err := kernel.PlanBuildRun(ctx, captured.Manifest, captured.BuildSystemID, core.BuildPlanRequest{
+		prepare, release := op.bind(ctx)
+		defer release()
+		plan, err := kernel.PlanBuildRun(prepare, captured.Manifest, captured.BuildSystemID, core.BuildPlanRequest{
 			Root:          captured.Root,
 			Options:       captured.Options,
 			WorkspaceRoot: p.root,
@@ -925,56 +1010,56 @@ func (a *App) runBuildTargetWith(p *project, instance *buildInstance, projectID,
 			LaunchOptions: options,
 		})
 		if err != nil {
-			return func(a *App) { a.finishBuildError(p, err) }
+			return func(a *App) { a.finishBuildError(p, op, err) }
 		}
 		if plan.Provider == nil {
-			return func(a *App) { a.finishBuildError(p, errors.New(messages.CommandUnsupported)) }
+			return func(a *App) { a.finishBuildError(p, op, errors.New(messages.CommandUnsupported)) }
 		}
-		client, err := a.buildProvider(ctx, p, captured)
+		client, err := a.buildProvider(prepare, p, captured)
 		if err != nil {
-			return func(a *App) { a.finishBuildError(p, err) }
+			return func(a *App) { a.finishBuildError(p, op, err) }
 		}
-		a.post(func(a *App) { p.build.status = messages.Preparing })
-		operation, err := client.Execute(ctx, plan.Provider.Method, plan.Provider.Params, int(buildRequestTimeout/time.Millisecond))
+		operation, err := client.Execute(prepare, plan.Provider.Method, plan.Provider.Params, int(buildRequestTimeout/time.Millisecond))
 		if err != nil {
-			return func(a *App) { a.finishBuildError(p, err) }
+			return func(a *App) { a.finishBuildError(p, op, err) }
 		}
-		a.post(func(a *App) {
-			p.build.operation = &buildOperation{label: runID, configuration: configuration, provider: client, request: operation}
-		})
-		result, err := operation.Wait(ctx)
+		a.post(func(a *App) { a.attachRequest(p, op, client, operation, false) })
+		result, err := operation.Wait(prepare)
 		if err != nil {
-			return func(a *App) { a.finishBuildError(p, err) }
+			return func(a *App) { a.finishBuildError(p, op, err) }
 		}
-		launch, err := kernel.DecodeBuildRun(ctx, captured.Manifest, captured.BuildSystemID, core.BuildDecodeRunRequest{
+		launch, err := kernel.DecodeBuildRun(prepare, captured.Manifest, captured.BuildSystemID, core.BuildDecodeRunRequest{
 			WorkspaceRoot: p.root,
 			Root:          captured.Root,
 			Result:        result,
 			LaunchOptions: options,
 		})
 		if err != nil {
-			return func(a *App) { a.finishBuildError(p, err) }
+			return func(a *App) { a.finishBuildError(p, op, err) }
 		}
 		execution := buildExecution{}
 		switch launch.Executable.Kind {
 		case "command":
 			executable, lookupErr := exec.LookPath(launch.Executable.Value)
 			if lookupErr != nil {
-				return func(a *App) { a.finishBuildError(p, lookupErr) }
+				return func(a *App) { a.finishBuildError(p, op, lookupErr) }
 			}
 			execution.Executable = executable
 		case "toolchain":
-			selection, selectErr := a.resolveToolchainSelection(ctx, p.root, captured.Root, launch.Executable.Value, "")
+			selection, selectErr := a.resolveToolchainSelection(prepare, p.root, captured.Root, launch.Executable.Value, "")
 			if selectErr != nil {
-				return func(a *App) { a.finishBuildError(p, selectErr) }
+				return func(a *App) { a.finishBuildError(p, op, selectErr) }
 			}
 			execution.Executable = selection.Executable
 			execution.Environment = selection.Environment
 			execution.PathPrepend = selection.PathPrepend
 		default:
 			return func(a *App) {
-				a.finishBuildError(p, errors.New(messages.ToolchainGap(launch.Executable.Value)))
+				a.finishBuildError(p, op, errors.New(messages.ToolchainGap(launch.Executable.Value)))
 			}
+		}
+		if prepare.Err() != nil {
+			return func(a *App) { a.finishBuildError(p, op, prepare.Err()) }
 		}
 		workingDirectory := filepath.Join(p.root, filepath.FromSlash(launch.WorkingDirectory))
 		process, err := buildprocess.Start(ctx, buildprocess.Spec{
@@ -984,33 +1069,46 @@ func (a *App) runBuildTargetWith(p *project, instance *buildInstance, projectID,
 			WorkingDirectory: workingDirectory,
 			Environment:      applyToolchainSelection(launch.Environment, execution.selection()),
 		}, func(_ buildprocess.Stream, text string) {
-			a.post(func(a *App) { a.appendBuildOutput(p, text) })
+			a.post(func(a *App) { a.appendBuildOutput(p, op, text) })
 		})
 		if err != nil {
-			return func(a *App) { a.finishBuildError(p, err) }
+			return func(a *App) { a.finishBuildError(p, op, err) }
 		}
-		a.post(func(a *App) {
-			if p.build.operation != nil {
-				p.build.operation.process = process
-			}
-			p.build.status = a.text.Build.Running
-		})
+		a.post(func(a *App) { a.attachProcess(p, op, process) })
 		err = process.Wait()
-		return func(a *App) { a.finishBuildRun(p, err) }
+		return func(a *App) { a.finishBuildRun(p, op, err) }
 	})
 }
 
-// runProviderOperation sends one provider task and forwards progress and its
-// final output into the bounded window output.
-func (a *App) runProviderOperation(ctx context.Context, p *project, client *buildprovider.Client, plan core.BuildPlan, label string) {
-	operation, err := client.Execute(ctx, plan.Provider.Method, plan.Provider.Params, int(buildRequestTimeout/time.Millisecond))
-	if err != nil {
-		a.post(func(a *App) { a.finishBuildError(p, err) })
+// attachRequest makes the accepted provider request the operation's request, so Stop cancels
+// it. execution says the request is the execution itself, a task, rather than the plan of a
+// run's process. A request accepted after the operation was stopped or replaced is cancelled.
+func (a *App) attachRequest(p *project, op *buildOperation, client *buildprovider.Client, request *buildprovider.Operation, execution bool) {
+	if op.cancelled || p.build.operation != op {
+		a.background(p, buildStopTimeout, func(ctx context.Context) func(*App) {
+			_ = client.Cancel(ctx, request)
+			return nil
+		})
 		return
 	}
-	a.post(func(a *App) {
-		p.build.operation = &buildOperation{label: label, provider: client, request: operation}
-	})
+	op.provider, op.request = client, request
+	if execution {
+		op.ide.start()
+		p.build.status = a.text.Build.Running
+	}
+}
+
+// runProviderOperation sends one provider task and forwards progress and its final output into
+// the bounded window output. prepare ends also when the operation is stopped and bounds only the
+// request's start; once the provider accepted it, a stop cancels it and the terminal answer
+// still ends the operation, so a replacement cannot start before the provider answered.
+func (a *App) runProviderOperation(ctx, prepare context.Context, p *project, op *buildOperation, client *buildprovider.Client, plan core.BuildPlan) {
+	operation, err := client.Execute(prepare, plan.Provider.Method, plan.Provider.Params, int(buildRequestTimeout/time.Millisecond))
+	if err != nil {
+		a.post(func(a *App) { a.finishBuildError(p, op, err) })
+		return
+	}
+	a.post(func(a *App) { a.attachRequest(p, op, client, operation, true) })
 	sawProgress := false
 	for {
 		select {
@@ -1020,20 +1118,24 @@ func (a *App) runProviderOperation(ctx context.Context, p *project, client *buil
 			}
 			if progress.Output != "" {
 				sawProgress = true
-				a.post(func(a *App) { a.appendBuildOutput(p, progress.Output) })
+				a.post(func(a *App) { a.appendBuildOutput(p, op, progress.Output) })
 			}
 			if progress.Message != "" {
-				a.post(func(a *App) { p.build.status = progress.Message })
+				a.post(func(a *App) {
+					if p.build.operation == op && !op.cancelled {
+						p.build.status = progress.Message
+					}
+				})
 			}
 		case <-ctx.Done():
-			a.post(func(a *App) { a.finishBuildError(p, ctx.Err()) })
+			a.post(func(a *App) { a.finishBuildError(p, op, ctx.Err()) })
 			return
 		}
 	}
 done:
 	result, err := operation.Wait(ctx)
 	if err != nil {
-		a.post(func(a *App) { a.finishBuildError(p, err) })
+		a.post(func(a *App) { a.finishBuildError(p, op, err) })
 		return
 	}
 	if !sawProgress {
@@ -1041,84 +1143,107 @@ done:
 			Output string `json:"output"`
 		}
 		if json.Unmarshal(result, &execution) == nil && execution.Output != "" {
-			a.post(func(a *App) { a.appendBuildOutput(p, execution.Output) })
+			a.post(func(a *App) { a.appendBuildOutput(p, op, execution.Output) })
 		}
 	}
-	a.post(func(a *App) { a.finishBuildTask(p, result) })
+	a.post(func(a *App) { a.finishBuildTask(p, op, result) })
 }
 
-func (a *App) finishBuildTask(p *project, result json.RawMessage) {
-	if a.project != p {
-		return
+// endBuildOperation clears op as the window's operation and settles its IDE state. It reports
+// false when op is no longer the window's operation: a closed project or a plugin change already
+// detached and settled it, and its late terminal event changes nothing.
+func (a *App) endBuildOperation(p *project, op *buildOperation, state string, exitCode *int, failure string) bool {
+	if a.project != p || p.build.operation != op {
+		return false
 	}
 	p.build.operation = nil
+	op.ide.settle(state, exitCode, p.build.outputSequence, failure)
+	return true
+}
+
+// finishBuildTask ends a provider task with its result. A stopped task is cancelled whatever
+// the provider answered; a result without an exit code completes with a null one.
+func (a *App) finishBuildTask(p *project, op *buildOperation, result json.RawMessage) {
 	var execution struct {
-		ExitCode int `json:"exitCode"`
+		ExitCode *int `json:"exitCode"`
 	}
-	exitCode := 0
-	decoded := json.Unmarshal(result, &execution) == nil
-	if decoded {
-		exitCode = execution.ExitCode
+	_ = json.Unmarshal(result, &execution)
+	code := execution.ExitCode
+	switch {
+	case op.cancelled:
+		if a.endBuildOperation(p, op, "cancelled", code, "") {
+			p.build.status = a.text.Build.Cancelled
+		}
+	case code != nil && *code != 0:
+		if a.endBuildOperation(p, op, "failed", code, "") {
+			p.build.status = a.text.Build.Exited(*code)
+		}
+	default:
+		if a.endBuildOperation(p, op, "completed", code, "") {
+			p.build.status = a.text.Build.Succeeded
+		}
 	}
-	state := "succeeded"
-	if decoded && execution.ExitCode != 0 {
-		state = "failed"
-		p.build.status = a.text.Build.Exited(execution.ExitCode)
-		p.settleIDEOperations(state, &exitCode)
-		return
-	}
-	p.build.status = a.text.Build.Succeeded
-	p.settleIDEOperations(state, &exitCode)
 }
 
-func (a *App) finishBuildRun(p *project, err error) {
-	if a.project != p {
-		return
+// finishBuildRun ends a host process with how it exited: a non-zero exit fails with its code,
+// and a process that could not be waited for or ended on a signal fails without one.
+func (a *App) finishBuildRun(p *project, op *buildOperation, err error) {
+	var exit *exec.ExitError
+	switch {
+	case op.cancelled:
+		if a.endBuildOperation(p, op, "cancelled", nil, "") {
+			p.build.status = a.text.Build.Cancelled
+		}
+	case errors.As(err, &exit) && exit.ExitCode() > 0:
+		code := exit.ExitCode()
+		if a.endBuildOperation(p, op, "failed", &code, "") {
+			p.build.status = a.text.Build.Exited(code)
+		}
+	case err != nil:
+		if a.endBuildOperation(p, op, "failed", nil, "") {
+			p.build.status = a.text.Build.ProcessFailed(err.Error())
+		}
+	default:
+		code := 0
+		if a.endBuildOperation(p, op, "completed", &code, "") {
+			p.build.status = a.text.Build.Succeeded
+		}
 	}
-	cancelled := p.build.operation != nil && p.build.operation.cancelled
-	p.build.operation = nil
-	if cancelled {
-		p.build.status = a.text.Build.Cancelled
-		p.settleIDEOperations("cancelled", nil)
-		return
-	}
-	if err != nil {
-		p.build.status = a.text.Build.ProcessFailed(err.Error())
-		p.settleIDEOperations("failed", nil)
-		return
-	}
-	exitCode := 0
-	p.build.status = a.text.Build.Succeeded
-	p.settleIDEOperations("succeeded", &exitCode)
 }
 
-func (a *App) finishBuildError(p *project, err error) {
-	if a.project != p || err == nil {
+// finishBuildError ends op with err. A stopped operation is cancelled; an execution that failed
+// before it launched keeps err as the reason its start failed.
+func (a *App) finishBuildError(p *project, op *buildOperation, err error) {
+	if err == nil {
 		return
 	}
-	cancelled := p.build.operation != nil && p.build.operation.cancelled
-	p.build.operation = nil
-	if cancelled || errors.Is(err, context.Canceled) {
-		p.build.status = a.text.Build.Cancelled
-		p.settleIDEOperations("cancelled", nil)
+	if op.cancelled || errors.Is(err, context.Canceled) {
+		if a.endBuildOperation(p, op, "cancelled", nil, "") {
+			p.build.status = a.text.Build.Cancelled
+		}
 		return
 	}
-	p.build.status = err.Error()
-	p.settleIDEOperations("failed", nil)
-	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("build", err))
+	failure := ""
+	if op.ide != nil && op.ide.State == "preparing" {
+		failure = err.Error()
+	}
+	if a.endBuildOperation(p, op, "failed", nil, failure) {
+		p.build.status = err.Error()
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("build", err))
+	}
 }
 
-// stopBuildOperation stops the current process and asks the provider to cancel
-// its request. The terminal event still clears the operation, so a replacement
-// cannot start until Core answers.
+// stopBuildOperation stops the current execution: its preparation ends, its process is
+// terminated and the provider is asked to cancel its request. The terminal event still clears
+// the operation, so a replacement cannot start until the execution really ended.
 func (a *App) stopBuildOperation(p *project) {
-	if p == nil || p.build.operation == nil {
+	if p == nil || p.build.operation == nil || p.build.operation.cancelled {
 		return
 	}
 	operation := p.build.operation
 	operation.stop()
-	p.build.status = a.text.Build.Cancelled
-	p.settleIDEOperations("cancelled", nil)
+	operation.ide.stopping()
+	p.build.status = a.text.Build.Stopping
 	if operation.provider != nil && operation.request != nil {
 		client, request := operation.provider, operation.request
 		a.background(p, buildStopTimeout, func(ctx context.Context) func(*App) {
@@ -1145,7 +1270,9 @@ func (a *App) stopBuildSessions(p *project, closing bool) {
 	operation := p.build.operation
 	p.build.operation = nil
 	if operation != nil {
+		// Its terminal event finds the operation detached, so it settles here.
 		operation.stop()
+		operation.ide.settle("cancelled", nil, p.build.outputSequence, "")
 	}
 	clients := p.buildSessions.detach(closing)
 	a.tasks.running.Add(1)
@@ -1170,12 +1297,17 @@ func (a *App) invalidateBuild(p *project) {
 	}
 	a.stopTestsForProject(p)
 	a.stopBuildSessions(p, false)
-	p.build = buildState{}
+	// The output is gone, but its sequence keeps counting: an IDE operation's cursor then
+	// reports the discontinuity instead of reading lines written after it.
+	sequence := p.build.outputSequence
+	p.build = buildState{outputStart: sequence, outputSequence: sequence}
 }
 
-// appendBuildOutput adds text to the bounded output, splitting it into lines.
-func (a *App) appendBuildOutput(p *project, text string) {
-	if p == nil || a.project != p || text == "" {
+// appendBuildOutput adds text op wrote to the bounded output, splitting it into lines. Output
+// of an operation the window no longer runs is dropped, so it never lands in the next
+// execution's output.
+func (a *App) appendBuildOutput(p *project, op *buildOperation, text string) {
+	if p == nil || a.project != p || p.build.operation != op || text == "" {
 		return
 	}
 	for len(text) > 0 {
@@ -1187,7 +1319,12 @@ func (a *App) appendBuildOutput(p *project, text string) {
 			text = ""
 		}
 		if len(line) > buildOutputLineSize {
-			line = line[:buildOutputLineSize] + "\n"
+			// Cut at a character boundary, so the kept text stays valid UTF-8 for the IDE output pages.
+			cut := buildOutputLineSize
+			for cut > 0 && !utf8.RuneStart(line[cut]) {
+				cut--
+			}
+			line = line[:cut] + "\n"
 		}
 		p.build.output = append(p.build.output, line)
 		p.build.outputBytes += len(line)
@@ -1235,11 +1372,4 @@ func buildTaskByID(instance *buildInstance, id string) (*pluginservice.BuildTask
 		}
 	}
 	return nil, nil
-}
-
-func buildOperationLabel(system pluginservice.BuildSystemDeclaration, task string, provider bool) string {
-	if provider {
-		return system.DisplayName + ": " + task
-	}
-	return task
 }

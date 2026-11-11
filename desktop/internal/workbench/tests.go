@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprocess"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprovider"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
 
@@ -120,8 +121,17 @@ func (s *testState) reset() { *s = testState{} }
 // testOperation is the one provider request or host process a test run owns.
 // stopped is set on the window thread and read by the run goroutine.
 type testOperation struct {
-	buildOperation
-	stopped atomic.Bool
+	provider *buildprovider.Client
+	request  *buildprovider.Operation
+	process  *buildprocess.Process
+	stopped  atomic.Bool
+}
+
+// stop terminates the run's host process. A provider request is cancelled separately.
+func (o *testOperation) stop() {
+	if o != nil {
+		o.process.Stop()
+	}
 }
 
 // testRow is one flat row of the result tree. suite rows have no case index.

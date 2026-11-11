@@ -45,9 +45,11 @@ type ideAPIConnection struct {
 type ideAPIState struct {
 	mu   sync.Mutex
 	conn *ideAPIConnection
-	// operations are the Build executions started through this connection. They are
+	// current is the project's latest Build window execution, the only one the IDE API
+	// retains; epoch and nextOperation make its ID (ide_api_dispatch.go). They are
 	// window-thread state: a tool call posts its work and reads the answer back.
-	operations    []*ideAPIOperation
+	current       *ideAPIOperation
+	epoch         string
 	nextOperation int
 }
 

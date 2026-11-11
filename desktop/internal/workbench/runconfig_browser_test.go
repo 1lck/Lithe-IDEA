@@ -144,7 +144,7 @@ func TestRunConfigurationListScopesGroupsPinsAndRuns(t *testing.T) {
 	h.settle()
 
 	// The row of the configuration that runs shows it running, and its button stops it.
-	operation := &buildOperation{label: "serve", configuration: serve}
+	operation := &buildOperation{configuration: serve}
 	h.app.post(func(*App) { p.build.operation = operation })
 	h.settle()
 	if !h.shows(i18n.Shared(lang, "native.running")) {

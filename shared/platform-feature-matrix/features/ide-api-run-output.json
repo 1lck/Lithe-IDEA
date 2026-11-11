@@ -13,7 +13,9 @@
       "desktop/internal/workbench/ide_api.go",
       "desktop/internal/workbench/build.go",
       "desktop/internal/workbench/ide_api_dispatch_test.go",
-      "desktop/internal/workbench/ide_api_run.go"
+      "desktop/internal/workbench/ide_api_run.go",
+      "desktop/internal/workbench/ide_api_operation_test.go",
+      "desktop/internal/core/ide_host.go"
     ]
   },
   "windows": {
@@ -26,11 +28,13 @@
       "desktop/internal/workbench/ide_api.go",
       "desktop/internal/workbench/build.go",
       "desktop/internal/workbench/ide_api_dispatch_test.go",
-      "desktop/internal/workbench/ide_api_run.go"
+      "desktop/internal/workbench/ide_api_run.go",
+      "desktop/internal/workbench/ide_api_operation_test.go",
+      "desktop/internal/core/ide_host.go"
     ]
   },
   "owner": "Agent",
-  "verification": "运行服务、读增量输出、清空日志验证 reset、重启后拒绝旧 ID，停止正确进程，检查退出码及资源清理。 运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。 macOS Build 快照保留完成后的身份、退出码和任务输出；模型/依赖控制台日志不混入该任务，新运行或工作区重开后旧 ID 返回 OPERATION_EXPIRED，旧停止不得取消替换操作。",
+  "verification": "Viva 本地验证（2026-11-12）：bash scripts/desktop/desktop-go.sh test ./internal/workbench/ -run TestIDE；变异检查（不判旧 ID 失效、读输出不传游标、停止不结束准备、不用 Core 读回值、启动不预留构建窗口）各让对应测试失败。原生实机待验证。旧客户端基线：运行服务、读增量输出、清空日志验证 reset、重启后拒绝旧 ID，停止正确进程，检查退出码及资源清理。 运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。 macOS Build 快照保留完成后的身份、退出码和任务输出；模型/依赖控制台日志不混入该任务，新运行或工作区重开后旧 ID 返回 OPERATION_EXPIRED，旧停止不得取消替换操作。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -54,5 +58,5 @@
       ]
     }
   },
-  "notes": "Viva：IDE API 发布 lithe_run_list（已保存运行配置及能否启动）、lithe_run_start 与 lithe_run_restart（经 Run 窗口同一启动路径，不返回环境变量和启动参数），lithe_operations_list、lithe_operation_output（cursor 增量读取，控制台裁剪时 reset=true）与 lithe_operation_stop 按操作 ID 查询和停止本连接启动的 Run 与 Build。lithe_environment_* 不在此项范围、不对外发布；ide_api_run.go 没有专门的自动化测试。"
+  "notes": "Viva：IDE API 发布 lithe_run_list（已保存运行配置及能否启动）、lithe_run_start 与 lithe_run_restart（经 Run 窗口同一启动路径，不返回环境变量和启动参数），lithe_operations_list、lithe_operation_output 与 lithe_operation_stop 按操作 ID 查询和停止 Build 窗口当前的执行，不论它由窗口还是工具启动。执行从受理起占住 Build 窗口：准备期间（保存、计划、提供方请求）第二次启动返回 BUSY，停止立即生效；状态为 preparing、running、stopping、completed、failed、cancelled，退出码只在执行报告时给出，取消时为 null。run_start/restart 等到进程或提供方请求启动后应答，最多等 5 秒，启动前失败返回 LAUNCH_FAILED 和原因。输出由 Core output_page 按 32 KiB 分页，游标是前缀长度加哈希，控制台裁剪后旧游标返回 reset=true 并从头读。只保留最新一次执行：被替换的 ID 和项目重开前的 ID 返回 OPERATION_EXPIRED，从未发出的 ID 返回 NOT_FOUND。lithe_environment_* 不在此项范围、不对外发布。自动化测试：workbench/ide_api_operation_test.go（准备中预留与 BUSY、停止与取消状态、旧 ID 失效、Core 分页与 reset）、ide_api_dispatch_test.go（拒绝码、ID 规则、状态流转）；run_start/restart 等待启动的路径尚无专门测试。"
 }

@@ -48,5 +48,5 @@
       ]
     }
   },
-  "notes": "Viva：IDE API 桥只暴露 ideAPIServedTools 中的 lithe_project_inspect、lithe_build_* 与 lithe_operation* 工具，没有查询或修改项目 Java/Maven 默认环境的工具；通用工具链读取与保存已存在（settings_toolchains.go 的 Load/Save，toolchain/ 包），但未接入 IDE API，也未找到“返回实际选择结果”的协议。"
+  "notes": "Viva：IDE API 桥只暴露 ideAPIServedTools 中的 lithe_project_inspect、lithe_build_*、lithe_operation* 与 lithe_run_* 工具；lithe_environment_* 按契约不由本客户端提供、不发布，没有查询或修改项目 Java/Maven 默认环境的工具；通用工具链读取与保存已存在（settings_toolchains.go 的 Load/Save，toolchain/ 包），但未接入 IDE API，也未找到“返回实际选择结果”的协议。"
 }

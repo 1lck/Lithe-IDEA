@@ -141,49 +141,63 @@ func (a *App) finishRunConfigurations(p *project, generation uint64, resolved co
 // options Core resolves from the saved layers. The Run window ignores the refusal; the IDE
 // API reports it through startRunConfiguration.
 func (a *App) runConfiguration(p *project, id string) {
-	_ = a.startRunConfiguration(p, id, nil)
+	_, _ = a.startRunConfiguration(p, id)
 }
 
-// startRunConfiguration checks the request on the window thread and then starts the run
-// once unsaved documents are saved, so the run reads the files on disk. The instance must be
-// loaded, since the target is taken from its current model. refused runs when the save fails
-// after the check passed, so a caller that recorded the run can settle it.
-func (a *App) startRunConfiguration(p *project, id string, refused func()) error {
+// startRunConfiguration checks the request on the window thread, reserves the run as the
+// window's operation and starts it once unsaved documents are saved, so the run reads the files
+// on disk. The instance must be loaded, since the target is taken from its current model. A
+// refused start returns a *buildRefusal and reserves nothing; a reserved run that cannot launch
+// ends as failed with the reason, which the returned operation's IDE record keeps.
+func (a *App) startRunConfiguration(p *project, id string) (*buildOperation, error) {
 	configuration := p.runConfigs.configuration(id)
 	if configuration == nil {
-		return errors.New("unknown run configuration")
+		return nil, refuseBuild(refusalNotFound, "unknown run configuration")
 	}
 	if p.build.operation != nil {
-		return errors.New("the Build window is already running an operation")
+		return nil, errBuildBusy
 	}
 	reference, ok := configuration.BuildReference()
 	if !ok {
-		return errors.New("this configuration does not start through a build provider")
+		return nil, refuseBuild(refusalNotSupported, "this configuration does not start through a build provider")
 	}
 	index := p.buildInstanceIndex(reference)
 	if index < 0 || !p.build.instances[index].modelLoaded {
 		a.notifyError(a.text.Build.TargetMissing)
-		return errors.New(a.text.Build.TargetMissing)
+		return nil, refuseBuild(refusalNotReady, a.text.Build.TargetMissing)
 	}
 	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "run.configuration", "surface": "build"})
+	op := a.beginBuildOperation(p, "run", configuration.Name, id)
 	// The run starts a process on the files on disk, so unsaved documents are saved first,
-	// as a rerun does; a failed save keeps the run from starting.
+	// as a rerun does; a failed save keeps the run from starting. The save reports its own
+	// failure, so the window's status only drops the preparation.
 	a.saveProjectDocuments(p, func(ok bool) {
+		if op.cancelled {
+			a.finishBuildError(p, op, context.Canceled)
+			return
+		}
 		if !ok {
-			if refused != nil {
-				refused()
+			if a.endBuildOperation(p, op, "failed", nil, "unsaved documents could not be saved") {
+				p.build.status = ""
 			}
 			return
 		}
 		root, kernel := p.root, a.kernel
 		a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
-			inputs, err := kernel.ProviderLaunchInputs(ctx, root, id, reference.Root)
+			prepare, release := op.bind(ctx)
+			defer release()
+			inputs, err := kernel.ProviderLaunchInputs(prepare, root, id, reference.Root)
 			if err != nil {
-				return func(a *App) { a.finishBuildError(p, err) }
+				return func(a *App) { a.finishBuildError(p, op, err) }
 			}
 			return func(a *App) {
+				if op.cancelled || p.build.operation != op {
+					a.finishBuildError(p, op, context.Canceled)
+					return
+				}
 				if index >= len(p.build.instances) || p.build.instances[index].PluginID != reference.PluginID {
-					a.finishBuildError(p, errors.New(a.text.Build.TargetMissing))
+					a.notifyError(a.text.Build.TargetMissing)
+					a.finishBuildError(p, op, errors.New(a.text.Build.TargetMissing))
 					return
 				}
 				var options *core.RunLaunchOptions
@@ -191,11 +205,11 @@ func (a *App) startRunConfiguration(p *project, id string, refused func()) error
 				if inputs.LaunchOptions.Customized() {
 					options = &inputs.LaunchOptions
 				}
-				a.runBuildTargetWith(p, &p.build.instances[index], inputs.Reference.ProjectID, inputs.Reference.TargetID, inputs.Reference.Run, id, options)
+				a.runBuildTargetWith(p, op, &p.build.instances[index], inputs.Reference.ProjectID, inputs.Reference.TargetID, inputs.Reference.Run, options)
 			}
 		})
 	})
-	return nil
+	return op, nil
 }
 
 // buildInstanceIndex returns the detected build instance a provider reference names, or -1.

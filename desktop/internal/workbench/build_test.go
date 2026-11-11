@@ -30,8 +30,9 @@ func TestBuildOutputKeepsWholeLinesWithinTheBudget(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.open(t.TempDir())
 	p := h.app.project
+	op := h.app.beginBuildOperation(p, "build", "build", "")
 	for i := 0; i < buildOutputMaxLines+50; i++ {
-		h.app.appendBuildOutput(p, "line "+strings.Repeat("x", 8)+"\n")
+		h.app.appendBuildOutput(p, op, "line "+strings.Repeat("x", 8)+"\n")
 	}
 	if len(p.build.output) > buildOutputMaxLines {
 		t.Fatalf("output has %d lines, want at most %d", len(p.build.output), buildOutputMaxLines)

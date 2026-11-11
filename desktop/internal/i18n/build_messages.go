@@ -18,6 +18,7 @@ type BuildMessages struct {
 	ExecutableMissing  string
 	VersionTooOld      func(version, minimum string) string
 	Cancelled          string
+	Stopping           string
 	Refresh            string
 	Systems            string
 	Projects           string
@@ -58,6 +59,7 @@ func buildMessages(language Language) BuildMessages {
 			return SharedFormat(language, "desktop.build.exited", map[string]string{"code": strconv.Itoa(code)})
 		},
 		Cancelled:    Shared(language, "desktop.build.cancelled"),
+		Stopping:     Shared(language, "desktop.build.stopping"),
 		Refresh:      Shared(language, "desktop.build.refresh"),
 		Systems:      Shared(language, "desktop.build.systems"),
 		Projects:     Shared(language, "desktop.build.projects"),

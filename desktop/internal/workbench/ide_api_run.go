@@ -1,6 +1,6 @@
 package workbench
 
-import "fmt"
+import "errors"
 
 // This file serves the run tools of the IDE API. A run starts through the Run window's own
 // configuration path (startRunConfiguration), so the same saves, launch options and build
@@ -21,42 +21,39 @@ func ideAPIRunList(p *project) any {
 	return map[string]any{"configurations": configurations, "loading": p.runConfigs.loading}
 }
 
-// ideAPIRunStart records a run as an IDE operation and starts it. The operation is recorded
-// before the start so the answer carries its ID; a start refused before it began is removed
-// again, and a save failure after the record settles it as failed.
-func (a *App) ideAPIRunStart(p *project, configurationID string) any {
-	configuration := p.runConfigs.configuration(configurationID)
-	if configuration == nil {
-		return ideAPIFailure("INVALID_ARGUMENTS", "Unknown run configuration")
+// ideAPIRunStart starts a run configuration through the Run window and returns the execution
+// it reserved. A refused start reserves nothing and is answered with the refusal's code.
+func (a *App) ideAPIRunStart(p *project, configurationID string) (*ideAPIOperation, any) {
+	operation, err := a.startRunConfiguration(p, configurationID)
+	if err != nil {
+		return nil, ideAPIRefusal(err)
 	}
-	if p.build.operation != nil {
-		return ideAPIFailure("OPERATION_BUSY", "The Build window is already running an operation")
-	}
-	p.ideAPI.nextOperation++
-	operation := &ideAPIOperation{
-		ID:              fmt.Sprintf("ide-run-%d", p.ideAPI.nextOperation),
-		Label:           configuration.Name,
-		State:           "running",
-		startSequence:   p.build.outputSequence,
-		ConfigurationID: configurationID,
-	}
-	p.ideAPI.operations = append(p.ideAPI.operations, operation)
-	if err := a.startRunConfiguration(p, configurationID, func() { operation.State = "failed" }); err != nil {
-		p.ideAPI.operations = p.ideAPI.operations[:len(p.ideAPI.operations)-1]
-		return ideAPIFailure("INVALID_ARGUMENTS", err.Error())
-	}
-	return map[string]any{"operationID": operation.ID, "state": operation.State}
+	return operation.ide, nil
 }
 
-// ideAPIRunRestart starts again the run configuration of one recorded run operation. A
-// build execution has no configuration to reuse and is refused.
-func (a *App) ideAPIRunRestart(p *project, operationID string) any {
-	operation := p.ideAPI.operation(operationID)
-	if operation == nil {
-		return ideAPIFailure("INVALID_ARGUMENTS", "Unknown operation")
+// ideAPIRunRestart starts again the run configuration of one run operation, as a new execution
+// with a new ID. A build execution has no configuration to reuse, and an execution that is still
+// active must be stopped first, so a restart never runs two executions of the window at once.
+func (a *App) ideAPIRunRestart(p *project, operationID string) (*ideAPIOperation, any) {
+	operation, failure := p.ideAPIOperationByID(operationID)
+	if failure != nil {
+		return nil, failure
 	}
 	if operation.ConfigurationID == "" {
-		return ideAPIFailure("NOT_AVAILABLE", "This operation was not started from a run configuration")
+		return nil, ideAPIFailure("NOT_AVAILABLE", "This operation was not started from a run configuration")
+	}
+	if !operation.terminal() {
+		return nil, ideAPIFailure("BUSY", "The operation is still active; stop it first")
 	}
 	return a.ideAPIRunStart(p, operation.ConfigurationID)
+}
+
+// ideAPIRefusal is the failure of a refused start: its own code when the window refused it,
+// OPERATION_FAILED for anything else.
+func ideAPIRefusal(err error) any {
+	var refusal *buildRefusal
+	if errors.As(err, &refusal) {
+		return ideAPIFailure(refusal.code, refusal.message)
+	}
+	return ideAPIFailure("OPERATION_FAILED", err.Error())
 }

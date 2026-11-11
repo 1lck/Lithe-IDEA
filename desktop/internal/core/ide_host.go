@@ -194,3 +194,15 @@ func (c *Client) IDEHostCatalog(ctx context.Context, toolExposure []IDEToolExpos
 	err = json.Unmarshal(raw, &out)
 	return out, err
 }
+
+// IDEHostOutputPage returns one page of an operation snapshot's output. snapshot carries the
+// operation's complete retained output in "output"; Core answers the same snapshot with at most
+// 32 KiB of it after cursor and adds nextCursor, hasMore and reset. An empty cursor reads from
+// the start, and a cursor whose consumed prefix changed reports reset.
+func (c *Client) IDEHostOutputPage(ctx context.Context, snapshot any, cursor string) (json.RawMessage, error) {
+	args := map[string]any{"snapshot": snapshot}
+	if cursor != "" {
+		args["cursor"] = cursor
+	}
+	return c.IDEHostControl(ctx, "output", args)
+}

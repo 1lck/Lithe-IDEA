@@ -1186,6 +1186,7 @@
     "desktop.branch.smartCheckout": "Smart Checkout",
     "desktop.build.argumentsRequired": "This task asks for arguments, which this window cannot collect yet.",
     "desktop.build.cancelled": "Build cancelled",
+    "desktop.build.stopping": "Stopping…",
     "desktop.build.chooseTask": "Choose a build task first.",
     "desktop.build.commandUnsupported": "This build system answered with a command plan; provider-backed tasks are required here.",
     "desktop.build.emptyOutput": "Run a build task to see output.",

@@ -9715,6 +9715,13 @@
       ]
     },
     {
+      "id": "desktop.build.stopping",
+      "description": "Status while a stopped build execution is ending",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.build.chooseTask",
       "description": "Choose a build task first.",
       "platforms": [

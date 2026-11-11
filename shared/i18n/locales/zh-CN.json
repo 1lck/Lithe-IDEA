@@ -1186,6 +1186,7 @@
     "desktop.branch.smartCheckout": "智能检出",
     "desktop.build.argumentsRequired": "此任务需要额外参数，当前窗口尚不能收集。",
     "desktop.build.cancelled": "构建已取消",
+    "desktop.build.stopping": "正在停止…",
     "desktop.build.chooseTask": "请先选择一个构建任务。",
     "desktop.build.commandUnsupported": "此构建系统返回了命令计划；当前接入需要提供者驱动的任务。",
     "desktop.build.emptyOutput": "运行构建任务以查看输出。",

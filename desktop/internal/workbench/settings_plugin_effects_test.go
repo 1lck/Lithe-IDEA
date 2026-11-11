@@ -13,7 +13,7 @@ func TestPluginSettingsReloadInvalidatesOnlyOwningModelsAndKeepsRunningTask(t *t
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.open(t.TempDir())
 	p := h.app.project
-	running := &buildOperation{label: "already running"}
+	running := &buildOperation{}
 	p.build = buildState{selected: 1, operation: running, instances: []buildInstance{
 		{BuildInstance: core.BuildInstance{ID: "changed"}, PluginID: "changed.plugin", modelLoaded: true, modelLoading: true},
 		{BuildInstance: core.BuildInstance{ID: "unrelated"}, PluginID: "other.plugin", modelLoaded: true},

@@ -74,8 +74,13 @@ func TestIDEAPIDispatchReportsUnwiredTools(t *testing.T) {
 	if !ok || inspect["workspaceKey"] != "/project" {
 		t.Fatalf("inspect = %#v", inspect)
 	}
-	failure, ok := (&App{}).ideAPIDispatch(context.Background(), conn, "lithe_run_start", nil).(map[string]any)
-	if !ok || failure["error"] == nil {
-		t.Fatalf("unwired tool = %#v", failure)
+	// The environment and Maven tools are not served by this client, like any unknown tool.
+	for _, tool := range []string{"lithe_environment_inspect", "lithe_no_such_tool"} {
+		if code := ideAPIFailureCode((&App{}).ideAPIDispatch(context.Background(), conn, tool, nil)); code != "NOT_SUPPORTED" {
+			t.Fatalf("%s answered %q, want NOT_SUPPORTED", tool, code)
+		}
+	}
+	if code := ideAPIFailureCode((&App{}).ideAPIDispatch(context.Background(), conn, "lithe_run_start", nil)); code != "INVALID_ARGUMENTS" {
+		t.Fatalf("a start without a configuration answered %q, want INVALID_ARGUMENTS", code)
 	}
 }

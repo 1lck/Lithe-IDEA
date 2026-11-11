@@ -158,7 +158,7 @@ func (a *App) saveBuildOptions(p *project) {
 		return
 	}
 	e.saving, e.failure = true, ""
-	a.saveBuildOptionChanges(p, *instance, changes, func(err error) {
+	a.saveBuildOptionChanges(p, *instance, changes, func(_ json.RawMessage, err error) {
 		if e := &p.build.options; e.open {
 			e.saving = false
 			if err != nil {
@@ -178,31 +178,33 @@ type buildOptionChange struct {
 
 // saveBuildOptionChanges applies changes to one instance's local document. Core checks each edit; the host
 // writes the local document only when every edit succeeded, atomically, and then detects the instances again.
-// done receives the outcome on the window thread.
-func (a *App) saveBuildOptionChanges(p *project, instance buildInstance, changes []buildOptionChange, done func(error)) {
+// done receives the outcome on the window thread: the option states Core read back from the
+// edited documents, or why the edit was refused or could not be stored.
+func (a *App) saveBuildOptionChanges(p *project, instance buildInstance, changes []buildOptionChange, done func(options json.RawMessage, err error)) {
 	docs, err := a.readBuildOptionDocuments(context.Background(), p.root)
 	if err != nil {
-		done(err)
+		done(nil, err)
 		return
 	}
 	kernel, root := a.kernel, p.root
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		local := docs.local
+		var options json.RawMessage
 		for _, change := range changes {
 			edit, err := kernel.EditStoredBuildOption(ctx, instance.Manifest, instance.BuildSystemID, core.BuildOptionEditRequest{
 				Document: docs.team, Local: local, Root: instance.Root, OptionID: change.optionID, Value: change.value,
 			})
 			if err != nil {
-				return func(a *App) { done(err) }
+				return func(a *App) { done(nil, err) }
 			}
-			local = edit.Local
+			local, options = edit.Local, edit.Options
 		}
 		return func(a *App) {
 			if err := a.storeBuildLocalOptions(root, local); err != nil {
-				done(err)
+				done(nil, err)
 				return
 			}
-			done(nil)
+			done(options, nil)
 			a.requestBuildReload(p)
 		}
 	})
