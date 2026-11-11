@@ -371,7 +371,7 @@ func TestConsoleHeaderIsSpannedForItsColorsAndItsInlineFold(t *testing.T) {
 
 	v.flatten(text, time.UTC)
 	header := v.rows[0]
-	want := []string{"1:09:08:07.006:", "0: ", "2:[repo]", "0: git ", "3:-c ...", "0: fetch origin"}
+	want := []string{"1:09:08:07.006:", "0: ", "2:[repo]", "4: git ", "3:-c ...", "4: fetch origin"}
 	if got := consoleSpanTexts(header); !slices.Equal(got, want) {
 		t.Fatalf("the closed header's spans are %q, want %q", got, want)
 	}
@@ -384,7 +384,7 @@ func TestConsoleHeaderIsSpannedForItsColorsAndItsInlineFold(t *testing.T) {
 
 	v.open = map[consoleFold]bool{header.fold: true}
 	v.flatten(text, time.UTC)
-	want = []string{"1:09:08:07.006:", "0: ", "2:[repo]", "0: git ", "3:-c color.ui=false", "0: fetch origin"}
+	want = []string{"1:09:08:07.006:", "0: ", "2:[repo]", "4: git ", "3:-c color.ui=false", "4: fetch origin"}
 	if got := consoleSpanTexts(v.rows[0]); !slices.Equal(got, want) {
 		t.Fatalf("the open header's spans are %q, want %q", got, want)
 	}
@@ -392,7 +392,7 @@ func TestConsoleHeaderIsSpannedForItsColorsAndItsInlineFold(t *testing.T) {
 	// Without Core's presentation the header still has its stamp and repository.
 	raw := consoleViewOf([]core.GitConsoleRecord{record}, nil)
 	raw.flatten(text, time.UTC)
-	want = []string{"1:09:08:07.006:", "0: ", "2:[repo]", "0: git -c color.ui=false fetch origin"}
+	want = []string{"1:09:08:07.006:", "0: ", "2:[repo]", "4: git -c color.ui=false fetch origin"}
 	if got := consoleSpanTexts(raw.rows[0]); !slices.Equal(got, want) {
 		t.Fatalf("the raw header's spans are %q, want %q", got, want)
 	}

@@ -298,14 +298,20 @@ func consoleTextCells(text string) int {
 }
 
 // consoleSpanColor is the color of a stretch of kind in a row of tone: the stamp and the
-// configuration are subtle and the repository in the accent color whatever the tone, and the
-// rest takes the tone's.
+// configuration are subtle and the repository in the accent color whatever the tone, the
+// command green, or red when it failed, so that it stands apart from its output, and the rest
+// takes the tone's.
 func (a *App) consoleSpanColor(tone consoleTone, kind consoleSpanKind) gfx.Color {
 	switch kind {
 	case consoleSpanStamp, consoleSpanFold:
 		return a.colors.Subtle
 	case consoleSpanRepository:
 		return a.colors.Accent
+	case consoleSpanCommand:
+		if tone == consoleToneError {
+			return a.theme.Danger
+		}
+		return a.colors.Success
 	}
 	return a.consoleToneColor(tone)
 }
