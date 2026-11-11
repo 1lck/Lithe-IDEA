@@ -50,6 +50,8 @@ func pluginToolIcon(host string) *gfx.Icon {
 		return &icons.Search
 	case "refresh":
 		return &icons.RefreshCw
+	case "reset":
+		return &icons.Undo2
 	case "run":
 		return &icons.Play
 	case "debug":

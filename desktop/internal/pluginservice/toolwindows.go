@@ -57,6 +57,9 @@ type NativePanel struct {
 	Actions     []NativeAction
 	Toolbar     []string
 	ContextMenu []string
+	// Declaration is the window's native object as the manifest declares it. Core checks source replies
+	// against it, so the host never validates node data itself.
+	Declaration json.RawMessage
 }
 
 // NativeForm is a form panel's controls and buttons. Layout is the column count when the form declares
@@ -111,9 +114,9 @@ type NativeSource struct {
 
 // NativeNode is one row of a native panel.
 type NativeNode struct {
-	ID       string
-	Label    string
-	Children []NativeNode
+	ID       string       `json:"id"`
+	Label    string       `json:"label"`
+	Children []NativeNode `json:"children,omitempty"`
 }
 
 // NativeAction is one handler of a native panel. Refresh redraws the panel; invoke calls Function with
@@ -124,6 +127,31 @@ type NativeAction struct {
 	Kind              string
 	RequiresSelection bool
 	Function          string
+	// Icon is the declared host icon ID ("refresh", "reset", ...); empty when the action declares none.
+	Icon string
+}
+
+// nativeActionIcons maps the action IDs of a native declaration to their declared host icon IDs. The
+// declaration was checked by Core, so only the icon field is read here.
+func nativeActionIcons(raw json.RawMessage) map[string]string {
+	var declared struct {
+		Actions []struct {
+			ID   string `json:"id"`
+			Icon *struct {
+				Host string `json:"host"`
+			} `json:"icon"`
+		} `json:"actions"`
+	}
+	icons := map[string]string{}
+	if json.Unmarshal(raw, &declared) != nil {
+		return icons
+	}
+	for _, action := range declared.Actions {
+		if action.Icon != nil {
+			icons[action.ID] = action.Icon.Host
+		}
+	}
+	return icons
 }
 
 // Native schema limits, from the contract's native schema 1.
@@ -184,6 +212,7 @@ func decodeNativePanel(raw json.RawMessage) (*NativePanel, error) {
 		return nil, errors.New("a native panel declares too many actions")
 	}
 	panel := &NativePanel{Kind: declared.Kind}
+	icons := nativeActionIcons(raw)
 	count := 0
 	nodes, err := decodeNativeNodes(declared.Nodes, 0, &count, declared.Kind == "list")
 	if err != nil {
@@ -217,7 +246,7 @@ func decodeNativePanel(raw json.RawMessage) (*NativePanel, error) {
 		default:
 			return nil, fmt.Errorf("native action kind %q is not supported", action.Kind)
 		}
-		panel.Actions = append(panel.Actions, NativeAction{ID: action.ID, Title: action.Title, Kind: action.Kind, RequiresSelection: action.RequiresSelection, Function: action.Function})
+		panel.Actions = append(panel.Actions, NativeAction{ID: action.ID, Title: action.Title, Kind: action.Kind, RequiresSelection: action.RequiresSelection, Function: action.Function, Icon: icons[action.ID]})
 	}
 	for _, entry := range declared.Toolbar {
 		if !actions[entry.Action] {
@@ -331,6 +360,7 @@ func (s *Service) ToolWindows(ctx context.Context, entries []pluginmanager.Entry
 					failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))
 					continue
 				}
+				panel.Declaration = window.Native
 				declaredWindow.Native = panel
 			}
 			windows = append(windows, declaredWindow)

@@ -52,9 +52,10 @@ func (s *Service) InvokeToolWindowAction(ctx context.Context, root, pluginID, fu
 }
 
 // InvokeNativeSource calls a source panel's function for the instance it reads and returns the nodes it
-// answers with, checked against the same rules as the declared nodes. The function receives the build
-// system ID and the instance's root.
-func (s *Service) InvokeNativeSource(ctx context.Context, root, pluginID, function, buildSystemID, instanceRoot string) ([]NativeNode, error) {
+// answers with. Core checks the reply against the panel's declaration (declaration is the window's native
+// object), so the host applies no rule of its own. The function receives the build system ID and the
+// instance's root.
+func (s *Service) InvokeNativeSource(ctx context.Context, root, pluginID string, declaration json.RawMessage, function, buildSystemID, instanceRoot string) ([]NativeNode, error) {
 	if s == nil {
 		return nil, ErrBackendUnavailable
 	}
@@ -73,12 +74,18 @@ func (s *Service) InvokeNativeSource(ctx context.Context, root, pluginID, functi
 	if err != nil {
 		return nil, err
 	}
-	var result struct {
-		Nodes []json.RawMessage `json:"nodes"`
+	if s.kernel == nil {
+		return nil, ErrBackendUnavailable
 	}
-	if err := json.Unmarshal(answer, &result); err != nil {
+	checked, err := s.kernel.ValidatePluginNativeData(ctx, declaration, answer)
+	if err != nil {
 		return nil, err
 	}
-	count := 0
-	return decodeNativeNodes(result.Nodes, 0, &count, false)
+	var result struct {
+		Nodes []NativeNode `json:"nodes"`
+	}
+	if err := json.Unmarshal(checked, &result); err != nil {
+		return nil, err
+	}
+	return result.Nodes, nil
 }
