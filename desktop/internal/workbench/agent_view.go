@@ -119,7 +119,9 @@ func (a *App) agentSetup(c ui.C, p *project) {
 				installed := agent.InstalledVersion != nil
 				label := agent.Name
 				if installed {
-					label += " · " + *agent.InstalledVersion
+					if version := *agent.InstalledVersion; version != "" {
+						label += " · " + version
+					}
 				} else {
 					label += " · " + t.NotInstalled
 				}

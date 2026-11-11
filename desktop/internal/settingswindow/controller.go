@@ -306,6 +306,10 @@ type Options struct {
 	// AgentReportedContext is the context length the Agent last reported for itself, 0 when it
 	// has not reported one; the window field shows it as the default.
 	AgentReportedContext func(agentID string) uint64
+	// CustomAgents reads the saved custom Agent definitions and SetCustomAgents stores the whole
+	// list (agent_custom.go). Nil leaves the custom Agent card out.
+	CustomAgents    func() []CustomAgentSetting
+	SetCustomAgents func([]CustomAgentSetting)
 	// OpenSkill opens a skill's SKILL.md in the workbench editor. The path is the file the
 	// Skills listing reported; nil leaves the Open button out.
 	OpenSkill func(path string)

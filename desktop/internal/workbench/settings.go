@@ -5,6 +5,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"maps"
 	"runtime"
+	"slices"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
@@ -267,6 +268,12 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			return settingswindow.AgentContextLimit{WindowTokens: l.WindowTokens, AutoCompactTokens: l.AutoCompactTokens}
 		},
 		AgentReportedContext: a.agentReportedContextFor,
+		CustomAgents: func() []settingswindow.CustomAgentSetting {
+			return slices.Clone(a.settings.CustomAgents)
+		},
+		SetCustomAgents: func(list []settingswindow.CustomAgentSetting) {
+			a.post(func(a *App) { a.setCustomAgents(list) })
+		},
 		SetAgentContextLimits: func(id string, l settingswindow.AgentContextLimit) {
 			a.post(func(a *App) {
 				a.setAgentContextLimits(id, agentContextLimit{WindowTokens: l.WindowTokens, AutoCompactTokens: l.AutoCompactTokens})

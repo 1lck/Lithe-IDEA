@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -190,5 +189,12 @@ func (a *App) openAgentChangedFile(p *project, path string) {
 		a.openFile(p, abs)
 		return
 	}
-	a.openDiff(p, core.GitChange{Path: filepath.ToSlash(rel), Status: "M", Worktree: true})
+	// The Git status says what the change is (added, untracked, modified, ...). A file the status
+	// no longer lists has no diff to show, so the file opens instead.
+	change, found := p.git.changeAt(filepath.ToSlash(rel))
+	if !found {
+		a.openFile(p, abs)
+		return
+	}
+	a.openDiff(p, change)
 }

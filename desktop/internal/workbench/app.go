@@ -268,6 +268,9 @@ type settings struct {
 	// AgentContextLimits are the per-Agent context window and auto-compact limits
 	// (agent_limits.go), keyed by adapter id.
 	AgentContextLimits map[string]agentContextLimit `json:"agentContextLimits,omitempty"`
+	// CustomAgents are the user's command-line Agents (agent_custom.go), in the order the
+	// settings page lists them.
+	CustomAgents []settingswindow.CustomAgentSetting `json:"customAgents,omitempty"`
 	// AIGeneration is the provider and output choice of commit message generation and inline
 	// edits (ai_generation.go). It is Lithe's own preference, not the Agents' configuration.
 	AIGeneration settingswindow.AIGenerationSettings `json:"aiGeneration,omitempty"`

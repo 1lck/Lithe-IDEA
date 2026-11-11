@@ -144,9 +144,11 @@ const (
 // agentState is one project's Agent panel. It is created with the project and
 // dropped with it; no Agent process starts until the panel is first painted.
 type agentState struct {
-	statusLoaded     bool
-	statusErr        string
-	agents           []core.AgentCatalogStatus
+	statusLoaded bool
+	statusErr    string
+	agents       []core.AgentCatalogStatus
+	// catalog is Core's own list; agents is catalog followed by the custom Agents (agent_custom.go).
+	catalog          []core.AgentCatalogStatus
 	providers        map[string][]agentProvider
 	providerErr      map[string]string
 	selected         int
@@ -189,7 +191,9 @@ type agentState struct {
 	activity agentActivityState
 	steer    agentSteerState
 	files    []agentFileRef
-	slash    agentSlashState
+	// drafts are the composer drafts of the other sessions of this connection (agent_drafts.go).
+	drafts map[string]agentDraft
+	slash  agentSlashState
 	// notice is the latest live advisory of the session (agent_notice.go).
 	notice *agentNotice
 	// chosen says an Agent was picked from the welcome page, so the setup can replace it.
@@ -269,7 +273,8 @@ func (a *App) ensureAgentState(p *project) {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("agent_status", statusErr))
 				return
 			}
-			p.agent.agents = status.Agents
+			p.agent.catalog = status.Agents
+			p.agent.agents = withCustomAgents(status.Agents, a.settings.CustomAgents)
 			p.agent.providers = providers
 			p.agent.providerErr = providerErrs
 			for source, issue := range providerErrs {
@@ -378,13 +383,22 @@ func (a *App) startAgent(p *project) {
 	agent, _ := p.selectedAgent()
 	provider, _ := p.selectedProvider()
 	request := map[string]any{
-		"agentId":       agent.ID,
 		"cwd":           p.root,
 		"dataDirectory": a.store.Dir(),
 		// The panel presents subagents and model-call statistics, so it asks Core
 		// to observe them (launch JSON in the Core contract).
 		"observeSubagents":  true,
 		"observeModelCalls": true,
+	}
+	if custom, ok := a.customAgentFor(agent.ID); ok {
+		// A custom Agent is launched by its command (launch contract) instead of an adapter id.
+		request["command"] = custom.Command
+		request["args"] = append([]string{}, custom.Args...)
+		if custom.WorkingDirectory != "" {
+			request["cwd"] = custom.WorkingDirectory
+		}
+	} else {
+		request["agentId"] = agent.ID
 	}
 	if provider.Subscription {
 		request["authentication"] = agentAuthenticationCodexSubscription
@@ -412,6 +426,7 @@ func (a *App) startAgent(p *project) {
 	p.agent.messages = nil
 	p.agent.bytes = 0
 	p.agent.sessionID = ""
+	p.agent.drafts = nil
 	p.agent.pending = ""
 	p.agent.permission = nil
 	a.performed("agent.connect", surfaceButton)

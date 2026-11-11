@@ -14,7 +14,8 @@ func (a *App) agentConversationPane(c ui.C, p *project) {
 	// as the macOS editor tab does, so long replies do not run across a wide editor.
 	ui.Row(c.Key("editor-conversation")).Fill().Children(func() {
 		ui.Column(c.Key("editor-margin-start")).Grow(1).Fill()
-		ui.Column(c.Key("editor-reading")).Grow(8).Fill().Children(func() {
+		reading := ui.Column(c.Key("editor-reading")).Grow(8).Fill()
+		reading.Children(func() {
 			if p.agent.conn == nil {
 				if !p.agent.chosen {
 					a.agentWelcome(c, p)
@@ -25,6 +26,15 @@ func (a *App) agentConversationPane(c ui.C, p *project) {
 			}
 			a.agentConversation(c, p)
 		})
+		if p.agent.conn != nil {
+			// The menu item and the sidebar's own buttons set the same flag, so they stay in step.
+			ui.ContextMenu(c.Key("editor-menu"), reading, func(menu *ui.MenuItems) {
+				shown := p.agent.detailOpen
+				if menu.Item(a.text.Agent.Detail.ShowMenu).Checked(shown).Clicked() {
+					c.After(func() { p.agent.detailOpen = !shown })
+				}
+			})
+		}
 		ui.Column(c.Key("editor-margin-end")).Grow(1).Fill()
 		if p.agent.conn != nil {
 			a.agentDetailSide(c, p)

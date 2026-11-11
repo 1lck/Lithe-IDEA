@@ -42,36 +42,28 @@ func agentFileWire(files []agentFileRef) []map[string]string {
 	return wire
 }
 
-// addAgentFiles attaches absolute paths to the draft. Duplicates and relative
+// addAgentFiles attaches absolute paths to the open draft. Duplicates and relative
 // paths are ignored, and the list stays within Core's limit. It never sends.
 func (a *App) addAgentFiles(p *project, paths []string) int {
 	if p == nil {
 		return 0
 	}
-	added := 0
-	for _, path := range paths {
-		path = strings.TrimSpace(path)
-		if path == "" || !filepath.IsAbs(path) || len(p.agent.files) >= agentFileLimit {
-			continue
-		}
-		path = filepath.Clean(path)
-		duplicate := false
-		for _, file := range p.agent.files {
-			if file.Path == path {
-				duplicate = true
-				break
-			}
-		}
-		if duplicate {
-			continue
-		}
-		p.agent.files = append(p.agent.files, agentFileRef{URI: agentFileURL(path), Name: filepath.Base(path), Path: path})
-		added++
-	}
+	files, added := addFileRefs(p.agent.files, paths)
+	p.agent.files = files
 	if added > 0 {
 		a.performed("agent.files.add", surfaceMenu)
 	}
 	return added
+}
+
+// agentFileRefFor builds the reference of one absolute path; relative or empty paths have none.
+func agentFileRefFor(path string) (agentFileRef, bool) {
+	path = strings.TrimSpace(path)
+	if path == "" || !filepath.IsAbs(path) {
+		return agentFileRef{}, false
+	}
+	path = filepath.Clean(path)
+	return agentFileRef{URI: agentFileURL(path), Name: filepath.Base(path), Path: path}, true
 }
 
 // removeAgentFile detaches one file from the draft.

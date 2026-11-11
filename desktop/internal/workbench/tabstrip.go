@@ -462,9 +462,7 @@ func (a *App) stripTab(c ui.C, place *groupPlace, t shownTab, current string, i,
 	if p := a.project; p != nil && t.doc != nil && !t.doc.virtual && t.doc.path != "" && a.agentKernelReady() {
 		path := t.doc.path
 		ui.ContextMenu(k.Part("menu"), chip, func(menu *ui.MenuItems) {
-			if menu.Item(a.text.Agent.Activity.AddToAgent).Clicked() {
-				c.After(func() { a.addAgentFiles(p, []string{path}) })
-			}
+			a.agentFileMenuItems(c, menu, p, []string{path})
 		})
 	}
 	switch {

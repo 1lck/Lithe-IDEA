@@ -65,6 +65,12 @@ type agentHistoryState struct {
 	replayMessages []agentMessage
 	replayBytes    int
 
+	// selecting turns the list into a selection for batch export; selected holds the picks
+	// (agent_export_batch.go), batch the export running and cache the transcripts kept for it.
+	selecting bool
+	selected  map[string]bool
+	batch     agentExportBatch
+	cache     agentTranscriptCache
 	// archive is the Agent's archived group (agent_archive.go).
 	archive agentArchiveState
 	// meta holds the Lithe-owned titles and pins (agent_history_meta.go).
@@ -256,10 +262,20 @@ func (a *App) applyAgentSessionLoaded(p *project, token, sessionID string, confi
 	if token == "" || token != h.loadToken || sessionID == "" {
 		return
 	}
+	if b := h.batch; b.active && token == b.token {
+		if !b.restoring {
+			a.batchPartLoaded(p, sessionID)
+			return
+		}
+		a.batchRestored(p)
+	}
 	h.loadToken = ""
 	h.restoreSession = ""
 	h.replaySession = sessionID
+	a.cacheAgentTranscript(p, p.agent.sessionID, p.agent.messages)
+	p.agent.stashDraft(p.agent.sessionID)
 	p.agent.sessionID = sessionID
+	p.agent.loadDraft(sessionID)
 	p.agent.pending = ""
 	p.agent.connecting = false
 	p.agent.phase = agentPhaseReady
@@ -268,7 +284,6 @@ func (a *App) applyAgentSessionLoaded(p *project, token, sessionID string, confi
 	p.agent.messages = h.replayMessages
 	p.agent.bytes = h.replayBytes
 	p.agent.steer.drop()
-	p.agent.files = nil
 	h.replayMessages = nil
 	h.replayBytes = 0
 	if n := len(p.agent.messages); n > 0 {
@@ -282,6 +297,13 @@ func (a *App) applyAgentSessionLoaded(p *project, token, sessionID string, confi
 func (a *App) agentSessionCreated(p *project, sessionID string, configOptions json.RawMessage) {
 	p.agent.pending = ""
 	p.agent.connecting = false
+	// A new conversation starts with an empty draft; the draft typed before the first session
+	// belongs to that session.
+	if p.agent.sessionID != "" {
+		a.cacheAgentTranscript(p, p.agent.sessionID, p.agent.messages)
+		p.agent.stashDraft(p.agent.sessionID)
+		p.agent.loadDraft(sessionID)
+	}
 	p.agent.sessionID = sessionID
 	p.agent.history.replaySession = ""
 	p.agent.history.restoreSession = ""
@@ -332,6 +354,9 @@ func (a *App) agentRequestFailed(p *project, token, sessionID, message string) {
 		return
 	}
 	switch {
+	case token != "" && p.agent.history.batch.active && token == p.agent.history.batch.token:
+		a.batchReplayFailed(p)
+		return
 	case token != "" && token == p.agent.history.listToken:
 		p.agent.history.listToken = ""
 		p.agent.history.loading = false
@@ -389,6 +414,10 @@ func (a *App) agentRequestFailed(p *project, token, sessionID, message string) {
 // the stop was requested; a present one is upstream diagnostics and is kept.
 func (a *App) agentStopped(p *project, conn *agentConnection, message string) {
 	p.agent.connecting = false
+	// A batch export that was replaying writes nothing once the connection is gone.
+	p.agent.history.batch = agentExportBatch{}
+	p.agent.history.selecting = false
+	p.agent.history.selected = nil
 	p.agent.pending = ""
 	p.agent.auth = agentAuthNone
 	p.agent.history.loading = false
