@@ -671,7 +671,9 @@ func (a *App) diffEditorInput(t *diffTab, e *diffEditor, before bool) {
 			if a.diffFoldPressed(t, e, before, event) {
 				return gfx.EventResult{Handled: true, Repaint: true}
 			}
+			changed := a.diffFoldHover(t, e, before, event)
 			result, _ := e.view.Pointer(event)
+			result.Repaint = result.Repaint || changed
 			return result
 		},
 		Scroll: func(event gfx.ScrollEvent) gfx.EventResult {
@@ -697,17 +699,46 @@ func (a *App) diffFoldPressed(t *diffTab, e *diffEditor, before bool, event gfx.
 	if !ok {
 		return false
 	}
-	// The placeholder row is split in three bands: the top opens the lines above the fold, the
-	// bottom the lines below it, and the middle opens all of it.
-	switch {
-	case fraction < 1.0/3:
+	switch diffFoldBand(fraction) {
+	case 0:
 		a.revealDiff(t, fold.at, diffReveal{above: diffRevealStep})
-	case fraction >= 2.0/3:
+	case 2:
 		a.revealDiff(t, fold.at, diffReveal{below: diffRevealStep})
 	default:
 		a.revealDiff(t, fold.at, diffReveal{all: true})
 	}
 	return true
+}
+
+// diffFoldBand is the band of a fold's placeholder row a pointer at fraction of the row is in: 0 the
+// top third, which opens the lines above the fold, 2 the bottom third, which opens the lines below
+// it, and 1 the middle, which opens all of it.
+func diffFoldBand(fraction float32) int {
+	switch {
+	case fraction < 1.0/3:
+		return 0
+	case fraction >= 2.0/3:
+		return 2
+	}
+	return 1
+}
+
+// diffFoldHover shows the band of a fold's placeholder under the pointer, and clears it when the
+// pointer leaves the fold. It reports whether the hover changed. A pointer move with no button is
+// delivered to the editor, as the document's link hover is.
+func (a *App) diffFoldHover(t *diffTab, e *diffEditor, before bool, event gfx.PointerEvent) bool {
+	if event.Kind == gfx.PointerExit {
+		return e.view.SetHoverBand(0, -1)
+	}
+	if event.Kind != gfx.PointerMove || event.Target != e.hit || t.layout == nil {
+		return false
+	}
+	if line, fraction, ok := e.view.LineRowAt(event.Y); ok {
+		if _, ok := t.layout.foldAt(line, before); ok {
+			return e.view.SetHoverBand(line, diffFoldBand(fraction))
+		}
+	}
+	return e.view.SetHoverBand(0, -1)
 }
 
 // followDiffScroll keeps the two sides in step: when the user scrolled one of them, the other

@@ -99,3 +99,17 @@ func (v *View) LineRowAt(y float32) (line int, fraction float32, ok bool) {
 	line, _ = v.rowLine(row)
 	return line, (at - float32(row)*v.lineH) / v.lineH, true
 }
+
+// SetHoverBand says the pointer is on band (0 top, 1 middle, 2 bottom) of the row of line, a fold's
+// placeholder: the row's hints show the band and the pointer turns to a hand. A band below zero
+// clears it. It reports whether the hover changed, so the caller repaints only then.
+func (v *View) SetHoverBand(line, band int) bool {
+	if band < 0 {
+		changed := v.hoverFold
+		v.hoverFold = false
+		return changed
+	}
+	changed := !v.hoverFold || v.hoverLine != line || v.hoverBand != band
+	v.hoverFold, v.hoverLine, v.hoverBand = true, line, band
+	return changed
+}

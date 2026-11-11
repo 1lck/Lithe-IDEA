@@ -54,6 +54,9 @@ type LineAnnotation struct {
 	// Rule continues the annotation with a hairline through the middle of its row to the right
 	// edge of the text, as the row that stands for folded lines in a diff.
 	Rule bool
+	// Hints, when it holds three icons, are drawn at the right end of the row while the pointer
+	// is on one of its three bands (SetHoverBand); the band the pointer is on is drawn in full color.
+	Hints []gfx.Icon
 }
 
 const (
@@ -296,5 +299,25 @@ func (v *View) paintAnnotation(canvas *gfx.Canvas, l lineRef, row wrapRow, y flo
 			rule.Alpha *= 0.5
 			canvas.Fill(gfx.Rect{X: from, Y: float32(math.Floor(float64(y + v.lineH/2))), Width: v.textRight - from, Height: 1}, rule)
 		}
+	}
+	if len(note.Hints) == 3 && v.hoverFold && v.hoverLine == l.line {
+		v.paintFoldHints(canvas, note.Hints, look, y)
+	}
+}
+
+// paintFoldHints draws the three hints of an annotation, at the right end of row y: up, all and down
+// as the annotation gives them, the one under the pointer in full color.
+func (v *View) paintFoldHints(canvas *gfx.Canvas, hints []gfx.Icon, look Look, y float32) {
+	size := lineIconSize
+	gap := float32(4)
+	total := float32(len(hints))*size + float32(len(hints)-1)*gap
+	x := v.textRight - total - 4
+	for i, icon := range hints {
+		color := look.Subtle
+		if i != v.hoverBand {
+			color.Alpha *= 0.45
+		}
+		canvas.DrawIcon(icon, gfx.Rect{X: x, Y: y + (v.lineH-size)/2, Width: size, Height: size}, color)
+		x += size + gap
 	}
 }

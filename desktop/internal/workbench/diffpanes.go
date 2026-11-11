@@ -9,6 +9,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/vivaui/viva/gfx"
 )
 
 // This file is the model of a Diff tab laid out as editors. From the unified lines Core reads
@@ -283,7 +284,8 @@ func (b *diffPaneBuilder) mark(span diffSpan, kind diffKind) {
 // icon of unfolding and a rule after it, as IDEA draws a fold.
 func (b *diffPaneBuilder) placeholder(text string) int {
 	line := b.line("", "")
-	b.notes = append(b.notes, editorview.LineAnnotation{Line: line, Text: text, Icon: icons.UnfoldVertical, Rule: true})
+	hints := []gfx.Icon{icons.ChevronUp, icons.UnfoldVertical, icons.ChevronDown}
+	b.notes = append(b.notes, editorview.LineAnnotation{Line: line, Text: text, Icon: icons.UnfoldVertical, Rule: true, Hints: hints})
 	b.mark(diffSpan{line, line + 1}, diffFolded)
 	return line
 }

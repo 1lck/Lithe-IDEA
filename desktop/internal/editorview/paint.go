@@ -81,7 +81,11 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	v.clampScroll()
 
 	canvas.Fill(area, look.Background)
-	canvas.HitWithOptions(v.cfg.HitID, area, v.cfg.Label, gfx.HitOptions{Role: gfx.RoleTerminal, Cursor: gfx.PointerCursorText})
+	cursor := gfx.PointerCursorText
+	if v.hoverFold {
+		cursor = gfx.PointerCursorHand
+	}
+	canvas.HitWithOptions(v.cfg.HitID, area, v.cfg.Label, gfx.HitOptions{Role: gfx.RoleTerminal, Cursor: cursor})
 
 	rows := v.rowCount()
 	firstRow := min(int(v.scroll/v.lineH), rows-1)
