@@ -64,6 +64,8 @@ type RunEvent struct {
 	Signal    string
 	// Rerun is set on RunStarted when the plugin supplied a rerun function.
 	Rerun *RunRerun
+	// PID is the run's root process on RunStarted, 0 when it has none (a debug launch).
+	PID int
 }
 
 // RunExecutable is a tool the host resolved for a run.
@@ -435,7 +437,7 @@ func (r *Runs) handleStart(ctx context.Context, params json.RawMessage) (json.Ra
 	r.runs[run.id] = run
 	r.wait.Add(1)
 	r.mu.Unlock()
-	event := RunEvent{Type: RunStarted, RunID: run.id, PluginID: run.pluginID, Label: start.Label, Workspace: workspace.Path}
+	event := RunEvent{Type: RunStarted, RunID: run.id, PluginID: run.pluginID, Label: start.Label, Workspace: workspace.Path, PID: run.pid}
 	if start.Rerun != nil {
 		event.Rerun = &RunRerun{PluginID: run.pluginID, Function: start.Rerun.Function, Data: start.Rerun.Data, Workspace: workspace.Path}
 	}
