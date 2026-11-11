@@ -11357,7 +11357,8 @@
     "desktop.settings.fontsSizeIncrease": "增大字体大小",
     "desktop.settings.fontsSizeValue": "{size} pt",
     "desktop.settings.fontsSummary": "{family} · {size} pt · 行距 {spacing}",
-    "desktop.settings.fontsSystemDefault": "系统默认"
+    "desktop.settings.fontsSystemDefault": "系统默认",
+    "desktop.commit.parentsHelp": "提交子模块后，同时在父仓库提交新的子模块引用；推送时先推子模块再推父仓库。"
   },
   "overrides": {
     "macos": {

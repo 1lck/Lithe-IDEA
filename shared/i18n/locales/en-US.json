@@ -11357,7 +11357,8 @@
     "desktop.settings.fontsSizeIncrease": "Increase Font Size",
     "desktop.settings.fontsSizeValue": "{size} pt",
     "desktop.settings.fontsSummary": "{family} · {size} pt · line spacing {spacing}",
-    "desktop.settings.fontsSystemDefault": "System Default"
+    "desktop.settings.fontsSystemDefault": "System Default",
+    "desktop.commit.parentsHelp": "After a submodule is committed, also commit its new reference in the parent repository. Submodules are pushed before their parents."
   },
   "overrides": {
     "windows": {

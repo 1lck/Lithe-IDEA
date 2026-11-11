@@ -34,8 +34,9 @@ func (a *App) changeListNameByID(p *project, id string) string {
 }
 
 // drawChangeListBar declares the bar over the change list: the active list, the buttons that
-// create, rename and delete one, whether a commit updates the parent repositories'
-// references, and why the lists cannot be used when they cannot.
+// create, rename and delete one, and why the lists cannot be used when they cannot. Whether a
+// commit updates the parent repositories' references is a commit option (drawCommitOptions),
+// so the bar fits a narrow tool window.
 func (a *App) drawChangeListBar(c ui.C, p *project) {
 	if _, ok := a.kernel.(changeListKernel); !ok {
 		return
@@ -71,8 +72,6 @@ func (a *App) drawChangeListBar(c ui.C, p *project) {
 		if a.gitIconButton(c, i18n.Shared(lang, "native.deleteChangeList"), icons.Trash2, false, fixed) {
 			c.After(func() { a.openChangeListDialog(p, changeListDelete, nil) })
 		}
-		ui.Spacer(c)
-		ui.Checkbox(c, &p.commit.parents, i18n.Shared(lang, "git.workspaceCommit.parents")).Disabled(busy)
 	})
 	if l.failed != nil {
 		ui.Paragraph(c, i18n.Shared(lang, "git.changelists.unavailable"), 3).

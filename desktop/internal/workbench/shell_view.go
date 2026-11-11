@@ -90,12 +90,15 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 	}
 	return ui.Column(c.KeyInt(int(s))).Background(a.colors.Panel).Clip().Children(func() {
 		ui.Row(c).FillWidth().Height(header).Shrink(0).Items(ui.Center).Gap(shellHeaderGap).PadSides(0, 8, 0, 12).Children(func() {
-			ui.Text(c, tool.label(a.text)).Color(a.colors.Text).Weight(gfx.WeightMedium).Ellipsis()
-			if tabbed {
-				a.gitTabs(c)
-			}
+			// The Commit tool window's first tab carries its name, so a project's Commit tool
+			// window shows its tabs without the title, which would only repeat it.
 			if tool.id == itemCommit && p != nil {
 				a.commitTabs(c)
+			} else {
+				ui.Text(c, tool.label(a.text)).Color(a.colors.Text).Weight(gfx.WeightMedium).Ellipsis()
+			}
+			if tabbed {
+				a.gitTabs(c)
 			}
 			if tool.id == itemTerminal && p != nil {
 				// The tabs of the open project's terminals take the room a spacer would.

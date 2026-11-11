@@ -107956,6 +107956,13 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.commit.parentsHelp",
+      "description": "Commit options popover: what updating the parent repositories' references does",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

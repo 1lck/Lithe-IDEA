@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -261,6 +262,22 @@ func TestCommitOptionsRecordTheAuthorAndASignOff(t *testing.T) {
 	}
 	if p.commit.authorText() != "" || !p.commit.signOff {
 		t.Fatalf("after the commit: author %q, sign-off %v; want the author cleared and the sign-off kept", p.commit.authorText(), p.commit.signOff)
+	}
+}
+
+func TestCommitOptionsTurnOffUpdatingTheParentReferences(t *testing.T) {
+	dir := newTestRepository(t)
+	h := newHarness(t, &gitKernel{Client: core.NewClient()})
+	p := h.openCommit(dir)
+	h.settle()
+	if !p.commit.parents || !p.projectCommit().request(false).IncludeParentReferences {
+		t.Fatal("a commit does not update the parent references by default")
+	}
+
+	h.clickNamed(h.app.text.Commit.Options)
+	h.clickNamed(i18n.Shared(h.app.language(), "git.workspaceCommit.parents"))
+	if p.commit.parents || p.projectCommit().request(false).IncludeParentReferences {
+		t.Fatal("unchecking the option in the commit options left it on")
 	}
 }
 

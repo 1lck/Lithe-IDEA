@@ -314,9 +314,10 @@ func (a *App) drawCommitAreaOf(c ui.C, p *project, area commitArea) ui.Box {
 	})
 }
 
-// drawCommitOptions declares the button that opens the sign-off and the author of the next
-// commit. It is highlighted while either is set, so a commit under another name is never a
-// surprise.
+// drawCommitOptions declares the button that opens the options of the next commit: the
+// sign-off, whether the parent repositories' references are updated, and the author. It is
+// highlighted while the sign-off or the author is set, so a commit under another name is never
+// a surprise.
 func (a *App) drawCommitOptions(c ui.C, cs *commitState) {
 	t := a.text.Commit
 	button, clicked := a.gitToolButton(c, t.Options, icons.Ellipsis, cs.signOff || cs.authorText() != "", cs.busy)
@@ -326,12 +327,16 @@ func (a *App) drawCommitOptions(c ui.C, cs *commitState) {
 	ui.PopoverWith(c, button, ui.PopoverSpec{Align: ui.Start, Width: 280}, &cs.optionsOpen, func() {
 		ui.Column(c).FillWidth().Gap(8).Children(func() {
 			ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
-				before := cs.signOff
-				ui.Checkbox(c, &cs.signOff, t.SignOff).Disabled(cs.busy)
-				if cs.signOff != before {
+				// The checkbox writes a click into signOff only when it is asked, after Disabled.
+				if ui.Checkbox(c, &cs.signOff, t.SignOff).Disabled(cs.busy).Changed() {
 					a.performed("git.commit.signOff", surfaceButton)
 				}
 				a.commitOptionHelp(c, t.SignOffHelp)
+			})
+			ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
+				lang := a.language()
+				ui.Checkbox(c, &cs.parents, i18n.Shared(lang, "git.workspaceCommit.parents")).Disabled(cs.busy)
+				a.commitOptionHelp(c, i18n.Shared(lang, "desktop.commit.parentsHelp"))
 			})
 			ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
 				ui.Text(c, t.Author).Shrink(0)
