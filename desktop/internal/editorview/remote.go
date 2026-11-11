@@ -26,10 +26,29 @@ func (v *View) ApplyEdit(edit Edit, recordUndo bool) bool {
 	if !ok || end < start {
 		return false
 	}
+	// The other view's edit does not move this view's selection to the edit: each end keeps its place
+	// in the text around the change.
+	anchor, caret := v.anchor, v.caret
 	v.remoteNoUndo = !recordUndo
 	v.edit(start, end, edit.Text, editOther)
 	v.remoteNoUndo = false
+	delta := len(edit.Text) - (end - start)
+	v.anchor = shiftForEdit(anchor, start, end, delta)
+	v.caret = shiftForEdit(caret, start, end, delta)
 	return true
+}
+
+// shiftForEdit is where offset at lies after the bytes start..end were replaced, which changed the
+// text by delta bytes. An offset past the replaced bytes moves with them; one inside them goes to
+// their start.
+func shiftForEdit(at, start, end, delta int) int {
+	switch {
+	case at > end || at == end && start < end:
+		return at + delta
+	case at > start:
+		return start
+	}
+	return at
 }
 
 // offsetOf is the byte offset of the zero-based line and UTF-16 column in v's text. It reports
