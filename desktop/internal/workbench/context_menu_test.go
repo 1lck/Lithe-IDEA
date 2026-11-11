@@ -74,3 +74,29 @@ func TestTerminalMenuSelectsAllAndCopies(t *testing.T) {
 	h.click(center(h.popupHit(h.shared("terminal.contextClose"))))
 	h.await("the closed terminal", func() bool { return h.app.project.terms.find(term.id) == nil })
 }
+
+func TestRunConsoleMenuCopiesTheChosenLineAndTheWholeOutput(t *testing.T) {
+	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
+	h.open(t.TempDir())
+	p := h.app.project
+	run := &runEntry{id: "run-1", label: "Serve"}
+	run.append("first line\nsecond line\n")
+	p.build.runs = append(p.build.runs, run)
+	p.build.view = run.id
+	if !h.app.chrome.isOpen(catalogIndex[itemRun]) {
+		h.app.reduceChrome(core.SetChromeOpen(itemRun, true))
+	}
+	h.settle()
+
+	line := h.topHit(run.list.RowID(1))
+	h.rightClickAt(line)
+	h.click(center(h.popupHit(h.shared("menu.copy"))))
+	if got := h.driver.Clipboard(); got != "second line" {
+		t.Fatalf("Copy put %q on the clipboard, want the chosen line", got)
+	}
+	h.rightClickAt(line)
+	h.click(center(h.popupHit(h.shared("git.console.copyOutput"))))
+	if got := h.driver.Clipboard(); got != "first line\nsecond line\n" {
+		t.Fatalf("Copy Output put %q on the clipboard, want the whole output", got)
+	}
+}

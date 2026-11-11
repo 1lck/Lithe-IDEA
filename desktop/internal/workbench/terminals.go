@@ -269,7 +269,7 @@ func (a *App) closeTerminals(p *project) {
 		return
 	}
 	for _, t := range p.terms.list {
-		t.view.Close()
+		a.awaitShellEnd(t.view.Close())
 		t.removeCommandScripts()
 		a.finishPluginTerminal(t, "closed", nil)
 	}
@@ -402,6 +402,18 @@ func (a *App) newTerminalWith(p *project, options terminalOptions) *terminal {
 	return t
 }
 
+// awaitShellEnd counts the end of a closed terminal's shell as background work, so that
+// the window's shutdown, and a test's cleanup, wait until the process is gone and the
+// process ledger has forgotten it. Closing kills a shell that outlives its grace
+// period, which bounds the wait.
+func (a *App) awaitShellEnd(done <-chan struct{}) {
+	a.tasks.running.Add(1)
+	go func() {
+		defer a.tasks.running.Done()
+		<-done
+	}()
+}
+
 // closeTerminal ends terminal id's shell and removes its tab. The group shows the
 // neighbouring tab instead and gives it the keyboard. A group of the editor that this
 // leaves empty goes, with its place in the layout. When no terminal is left the Terminal
@@ -421,7 +433,7 @@ func (a *App) closeTerminal(p *project, id int) {
 	if !a.reduceTerminals(p, set.bench, core.CloseEditor(group, member, emptyPolicy(group), core.SelectAdjacent)) {
 		return
 	}
-	t.view.Close()
+	a.awaitShellEnd(t.view.Close())
 	t.removeCommandScripts()
 	a.finishPluginTerminal(t, "closed", nil)
 	set.list = slices.DeleteFunc(set.list, func(x *terminal) bool { return x.id == id })

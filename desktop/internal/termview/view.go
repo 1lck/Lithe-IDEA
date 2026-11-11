@@ -337,13 +337,26 @@ func (v *View) SendLine(text string) bool {
 	return v.sendInput([]byte(text + "\r"))
 }
 
-func (v *View) Close() {
+// Close ends the shell and returns a channel that is closed once its process has ended
+// and the shell has let go of what it holds; the shell is killed when it outlives its
+// grace period, so the channel is closed soon. A view with no shell returns a closed one.
+func (v *View) Close() <-chan struct{} {
 	v.closed = true
-	if v.shell != nil {
-		v.shell.Close()
-		v.shell = nil
+	if v.shell == nil {
+		return closedChannel
 	}
+	done := v.shell.Done()
+	v.shell.Close()
+	v.shell = nil
+	return done
 }
+
+// closedChannel is the end of a shell that is already gone.
+var closedChannel = func() chan struct{} {
+	c := make(chan struct{})
+	close(c)
+	return c
+}()
 
 // failed reports a failure to the client's log.
 func (v *View) failed(failure Failure) {

@@ -324,7 +324,8 @@ func (a *App) buildOutput(c ui.C, p *project) {
 			})
 			return
 		}
-		a.outputList(c, p, &p.panels.output, outputScopeRun, t.Output, lines).Grow(1)
+		menu := &outputMenu{key: "buildoutput", all: func() string { return strings.Join(p.build.output, "") }}
+		a.outputList(c, p, &p.panels.output, outputScopeRun, t.Output, lines, menu).Grow(1)
 	})
 }
 
@@ -400,14 +401,16 @@ func (a *App) runConsole(c ui.C, p *project, run *runEntry) {
 				ui.Text(c, t.EmptyOutput).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
 			})
 		} else {
-			list := a.outputList(c, p, &run.list, outputScopeRun, t.Output, lines).Grow(1)
-			list = list.Hit(ui.ID(c.Key("runsnapshot/"+run.id)), run.label)
-			ui.ContextMenu(c, list, func(menu *ui.MenuItems) {
-				menu.WidthRange(180, 260)
-				if menu.Item(a.text.Run.Snapshot.Menu).Clicked() {
-					c.After(func() { a.snapshotRunOutput(p, run) })
-				}
-			})
+			menu := &outputMenu{
+				key: "runsnapshot/" + run.id,
+				all: func() string { return strings.Join(run.output, "") },
+				extra: func(menu *ui.MenuItems) {
+					if menu.Item(a.text.Run.Snapshot.Menu).Clicked() {
+						c.After(func() { a.snapshotRunOutput(p, run) })
+					}
+				},
+			}
+			a.outputList(c, p, &run.list, outputScopeRun, t.Output, lines, menu).Grow(1)
 		}
 		if run.summary != "" {
 			ui.Divider(c)

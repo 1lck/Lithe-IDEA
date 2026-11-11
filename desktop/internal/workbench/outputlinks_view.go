@@ -4,23 +4,67 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
+
+// outputMenu is the context menu of a console's lines, as the old client's output view had:
+// copy the line right-clicked, copy the whole output all returns, then the items extra adds.
+// The empty space below the lines opens it too, with no line to copy; key names that space.
+type outputMenu struct {
+	key   string
+	all   func() string
+	extra func(*ui.MenuItems)
+}
+
+// outputLineMenu is the menu of the console line raw, or of no line when line is false.
+func (a *App) outputLineMenu(c ui.C, raw string, line bool, m *outputMenu) func(*ui.MenuItems) {
+	return func(menu *ui.MenuItems) {
+		lang := a.language()
+		menu.WidthRange(180, 260)
+		if menu.Item(i18n.Shared(lang, "menu.copy")).Disabled(!line).Clicked() {
+			line := strings.TrimRight(raw, "\r\n")
+			c.After(func() {
+				a.performed("output.copyLine", surfaceMenu)
+				_ = app.SetClipboardText(line)
+			})
+		}
+		if menu.Item(i18n.Shared(lang, "git.console.copyOutput")).Clicked() {
+			text := m.all()
+			c.After(func() {
+				a.performed("output.copyAll", surfaceMenu)
+				_ = app.SetClipboardText(text)
+			})
+		}
+		if m.extra != nil {
+			menu.Separator()
+			m.extra(menu)
+		}
+	}
+}
 
 // outputList declares console lines as a list that holds only the rows on screen.
 // A line with no link is plain text; one with links is split into text and
 // clickable ranges at the UTF-16 offsets Core reported.
 //
 // The lines are drawn in the run output's font (fonts.go), each line as tall as that font's
-// line spacing makes it.
-func (a *App) outputList(c ui.C, p *project, state *ui.ListState, scope, label string, lines []string) ui.Box {
+// line spacing makes it. A line right-clicked opens menu, when there is one.
+func (a *App) outputList(c ui.C, p *project, state *ui.ListState, scope, label string, lines []string, menu *outputMenu) ui.Box {
 	font := a.outputFont()
 	lineH := font.lineHeight(c.Canvas())
 	list := ui.List(c, state, len(lines), func(row ui.ListRow) {
 		a.outputLine(row, p, scope, lines[row.Index], font, lineH)
+		if menu != nil {
+			ui.ContextMenu(row.C, row.Element, a.outputLineMenu(row.C, lines[row.Index], true, menu))
+		}
 	}).Label(label).FillWidth()
 	a.flushOutputLinks(p)
+	if menu != nil {
+		list = list.Hit(ui.ID(c.Key(menu.key)), label)
+		ui.ContextMenu(c, list, a.outputLineMenu(c, "", false, menu))
+	}
 	return list
 }
 

@@ -10,9 +10,25 @@ import (
 // "flags" Shift says whether Shift is down and OtherModifiers whether any other
 // modifier is.
 type ModifierGestureEvent struct {
-	Kind           string `json:"kind"`
-	Shift          bool   `json:"shift,omitempty"`
-	OtherModifiers bool   `json:"otherModifiers,omitempty"`
+	Kind           string
+	Shift          bool
+	OtherModifiers bool
+}
+
+// MarshalJSON encodes e as Core decodes it: a "flags" event always carries both
+// flags, false included, and the other kinds carry nothing but their kind, since
+// Core refuses a missing flag and an unknown field alike.
+func (e ModifierGestureEvent) MarshalJSON() ([]byte, error) {
+	if e.Kind != "flags" {
+		return json.Marshal(struct {
+			Kind string `json:"kind"`
+		}{e.Kind})
+	}
+	return json.Marshal(struct {
+		Kind           string `json:"kind"`
+		Shift          bool   `json:"shift"`
+		OtherModifiers bool   `json:"otherModifiers"`
+	}{e.Kind, e.Shift, e.OtherModifiers})
 }
 
 // ModifierGestureStep advances the double-Shift gesture by one event. state is the

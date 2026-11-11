@@ -20,8 +20,12 @@ type modifierGestureKernel interface {
 	ModifierGestureStep(ctx context.Context, state json.RawMessage, event core.ModifierGestureEvent, timestamp float64) (json.RawMessage, bool, error)
 }
 
-// gestureClock is the host clock the gesture's timestamps are read from.
+// gestureClock is the origin of the gesture's timestamps. A.now is read against it, so
+// the window's monotonic clock times real taps and a test's clock times its own.
 var gestureClock = time.Now()
+
+// gestureTime is the timestamp of a gesture event now, in seconds.
+func (a *App) gestureTime() float64 { return a.now().Sub(gestureClock).Seconds() }
 
 // onModifierTap advances the double-Shift gesture with one Shift tap.
 func (a *App) onModifierTap(event gfx.ModifierTapEvent) gfx.EventResult {
@@ -33,7 +37,7 @@ func (a *App) onModifierTap(event gfx.ModifierTapEvent) gfx.EventResult {
 	if !ok {
 		return gfx.EventResult{}
 	}
-	now := time.Since(gestureClock).Seconds()
+	now := a.gestureTime()
 	v := &a.everywhereView
 	triggered := false
 	for _, shift := range []bool{true, false} {
@@ -63,7 +67,7 @@ func (a *App) resetModifierGesture() {
 		return
 	}
 	state, _, err := kernel.ModifierGestureStep(context.Background(), a.everywhereView.gesture,
-		core.ModifierGestureEvent{Kind: "reset"}, time.Since(gestureClock).Seconds())
+		core.ModifierGestureEvent{Kind: "reset"}, a.gestureTime())
 	if err != nil {
 		state = nil
 	}

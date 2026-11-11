@@ -54,7 +54,7 @@ func newFontRig(t *testing.T) *fontRig {
 		Args:  []string{},
 		start: func(localshell.Config) (shell, error) { return fake, nil },
 	})
-	t.Cleanup(view.Close)
+	t.Cleanup(func() { view.Close() })
 	canvas := new(gfx.Canvas)
 	canvas.SetCellMeasurer(func(size float32, _ gfx.MonoFace) (float32, float32) { return size / 2, size + 3 })
 	rig := &fontRig{view: view, shell: fake, canvas: canvas}

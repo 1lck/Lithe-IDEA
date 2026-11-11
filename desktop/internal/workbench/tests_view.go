@@ -3,6 +3,7 @@ package workbench
 import (
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
@@ -189,5 +190,6 @@ func (a *App) testOutput(c ui.C, p *project) {
 		lines = lines[len(lines)-12:]
 	}
 	ui.Divider(c)
-	a.outputList(c, p, &p.panels.testOutput, outputScopeTest, a.text.Build.Output, lines).Height(140).Shrink(0)
+	menu := &outputMenu{key: "testoutput", all: func() string { return strings.Join(p.tests.output, "\n") }}
+	a.outputList(c, p, &p.panels.testOutput, outputScopeTest, a.text.Build.Output, lines, menu).Height(140).Shrink(0)
 }
