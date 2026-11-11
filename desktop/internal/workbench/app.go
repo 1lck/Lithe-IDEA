@@ -387,6 +387,9 @@ type App struct {
 	// that is to have the keyboard once it is on screen (see FocusBind).
 	root *ui.Page
 	dnd  dragDrop
+	// editorFocus is the document whose editor had the keyboard last frame; the file is
+	// saved when the keyboard leaves it (document_autosave.go).
+	editorFocus int
 	// github is the GitHub account and its sign-in (github_account.go).
 	github githubAccount
 	// pullRequests is the pull-request panel of the Git log (github_prs.go).

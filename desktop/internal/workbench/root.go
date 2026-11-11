@@ -52,6 +52,8 @@ func (a *App) Config() app.Config {
 		OnModifierTap: a.onModifierTap,
 		OnScroll:      a.onScroll,
 		OnPointer:     a.onPointer,
+		// Switching to another window saves the changed files (document_autosave.go).
+		OnFocusLost: a.onFocusLost,
 		// Files dropped on the Agent composer become references in its draft.
 		OnFileDrop: a.fileDrop,
 		// Plugin web tool windows show their pages in views of the system's web engine.
@@ -120,6 +122,7 @@ func (a *App) page(c ui.C) {
 			a.workbench(c)
 		}
 		a.windowShortcuts(c)
+		a.noteEditorFocus(c.Canvas().Focused())
 		a.overlays(c)
 		ui.Toasts(c, &a.overlay.toaster)
 	})
