@@ -2,10 +2,13 @@ package workbench
 
 import (
 	"math"
+	"runtime"
+	"sync"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/termview"
+	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -31,12 +34,44 @@ type appFonts struct {
 // system's fixed-pitch face; gfx.MonoFamily gives that too for a name it cannot use.
 func resolveScopeFont(fonts []fontprefs.Font, scope fontprefs.Scope) scopeFont {
 	resolved := fontprefs.For(fonts, scope)
+	if resolved.Family == "" && scope == fontprefs.Terminal {
+		resolved.Family = preferredTerminalFamily()
+	}
 	face := gfx.MonoSystem
 	if resolved.Family != "" {
 		face = gfx.MonoFamily(resolved.Family)
 	}
 	return scopeFont{Resolved: resolved, face: face}
 }
+
+// terminalNerdFonts are the families the terminal prefers on macOS when the user chose none,
+// in the earlier client's order: Nerd Fonts carry the icons of prompts such as Powerlevel10k and
+// Starship, which the system's fixed-pitch face draws as boxes.
+var terminalNerdFonts = []string{
+	"MesloLGS Nerd Font Mono",
+	"JetBrainsMono Nerd Font Mono",
+	"Hack Nerd Font Mono",
+	"FiraCode Nerd Font Mono",
+	"IosevkaTerm Nerd Font Mono",
+}
+
+// preferredTerminalFamily is the first installed family of terminalNerdFonts on macOS, read
+// once, and empty for the system's face elsewhere or when none is installed.
+var preferredTerminalFamily = sync.OnceValue(func() string {
+	if runtime.GOOS != "darwin" {
+		return ""
+	}
+	installed := map[string]bool{}
+	for _, family := range app.MonospaceFamilies() {
+		installed[family] = true
+	}
+	for _, family := range terminalNerdFonts {
+		if installed[family] {
+			return family
+		}
+	}
+	return ""
+})
 
 // applyFonts works out the font of each scope from the settings. The editors and the
 // terminals take theirs at their next paint (see editorFont and terminalFont), and the
