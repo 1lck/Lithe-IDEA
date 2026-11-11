@@ -33,6 +33,10 @@ func (a *App) agentPanel(c ui.C) {
 		return
 	}
 	if p.agent.conn == nil {
+		if !p.agent.chosen {
+			a.agentWelcome(c, p)
+			return
+		}
 		a.agentSetup(c, p)
 		return
 	}

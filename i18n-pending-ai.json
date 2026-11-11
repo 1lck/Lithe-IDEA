@@ -457,5 +457,65 @@
     "description": "Label above the instruction field of an inline edit that covers the caret's line because nothing is selected.",
     "en-US": "Editing the current line",
     "zh-CN": "编辑当前行"
+  },
+  {
+    "id": "desktop.agent.welcome.title",
+    "description": "Heading of the Agent welcome page.",
+    "en-US": "Use an Agent in your project",
+    "zh-CN": "在项目中使用 Agent"
+  },
+  {
+    "id": "desktop.agent.welcome.bannerTitle",
+    "description": "Title of the banner on the Agent welcome page.",
+    "en-US": "Welcome to Lithe Agent",
+    "zh-CN": "欢迎使用 Lithe Agent"
+  },
+  {
+    "id": "desktop.agent.welcome.bannerBody",
+    "description": "Text of the banner on the Agent welcome page.",
+    "en-US": "Collaborate with Claude and Codex to ask questions, run tasks, and review code changes.",
+    "zh-CN": "与 Claude 和 Codex 协作，提问、执行任务并审阅代码修改。"
+  },
+  {
+    "id": "desktop.agent.welcome.chooseAgent",
+    "description": "Section label above the built-in Agent choices.",
+    "en-US": "Choose an Agent",
+    "zh-CN": "选择 Agent"
+  },
+  {
+    "id": "desktop.agent.welcome.codex",
+    "description": "Button that selects the Codex Agent.",
+    "en-US": "Codex",
+    "zh-CN": "Codex"
+  },
+  {
+    "id": "desktop.agent.welcome.claude",
+    "description": "Button that selects the Claude Agent.",
+    "en-US": "Claude Agent",
+    "zh-CN": "Claude Agent"
+  },
+  {
+    "id": "desktop.agent.welcome.moreAgents",
+    "description": "Button that opens the AI settings to add more ACP Agents.",
+    "en-US": "More Agents…",
+    "zh-CN": "更多 Agent…"
+  },
+  {
+    "id": "desktop.agent.welcome.moreSubtitle",
+    "description": "Tooltip of the More Agents button naming the ACP Agents it covers.",
+    "en-US": "Cline, Cursor, Kilo, Mistral, and more with ACP technology",
+    "zh-CN": "Cline、Cursor、Kilo、Mistral 等支持 ACP 的 Agent"
+  },
+  {
+    "id": "desktop.agent.welcome.providerTitle",
+    "description": "Section label above the third-party provider entry.",
+    "en-US": "Use a third-party provider",
+    "zh-CN": "使用第三方供应商"
+  },
+  {
+    "id": "desktop.agent.welcome.providerButton",
+    "description": "Button that opens the AI settings to configure a custom API provider.",
+    "en-US": "Custom API provider",
+    "zh-CN": "自定义 API 供应商"
   }
 ]
