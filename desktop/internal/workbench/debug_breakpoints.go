@@ -202,3 +202,50 @@ func (a *App) debugFunctionBreakpoints(c ui.C, p *project) {
 		})
 	}
 }
+
+// toggleInstructionBreakpoint adds or removes the breakpoint on one instruction address, then
+// sends the full set to the adapter when there is a session. Breakpoints of an earlier process
+// are never replayed: their addresses are valid for one run only.
+func (a *App) toggleInstructionBreakpoint(p *project, reference string) {
+	reference = strings.TrimSpace(reference)
+	if reference == "" {
+		return
+	}
+	breakpoints := p.debug.instructionBreakpoints
+	index := slices.IndexFunc(breakpoints, func(b core.DebugInstructionBreakpoint) bool {
+		return b.InstructionReference == reference
+	})
+	if index >= 0 {
+		p.debug.instructionBreakpoints = slices.Delete(breakpoints, index, index+1)
+	} else {
+		p.debug.instructionBreakpoints = append(breakpoints, core.DebugInstructionBreakpoint{InstructionReference: reference, Enabled: true})
+	}
+	if p.debug.session != nil {
+		a.sendInstructionBreakpoints(p)
+	}
+}
+
+// sendInstructionBreakpoints replaces the session's instruction breakpoints.
+func (a *App) sendInstructionBreakpoints(p *project) {
+	if p == nil || p.debug.session == nil {
+		return
+	}
+	session := p.debug.session
+	breakpoints := slices.Clone(p.debug.instructionBreakpoints)
+	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
+		session.operationMu.Lock()
+		defer session.operationMu.Unlock()
+		if session.stopped.Load() {
+			return nil
+		}
+		update, err := a.kernel.SetDebugInstructionBreakpoints(ctx, session.id, breakpoints)
+		if err != nil {
+			return func(a *App) { a.finishDebugError(p, session, err) }
+		}
+		if err := session.writeFrames(update.OutboundFrames); err != nil {
+			return func(a *App) { a.finishDebugError(p, session, err) }
+		}
+		a.postDebugUpdate(p, session, update)
+		return nil
+	})
+}

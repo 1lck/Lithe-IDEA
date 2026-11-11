@@ -64,7 +64,9 @@ type debugState struct {
 	// text the user is typing for the next one.
 	functionBreakpoints []core.DebugFunctionBreakpoint
 	functionName        string
-	frames              []core.DebugStackFrame
+	// instructionBreakpoints are the machine-instruction breakpoints of the session, by address text.
+	instructionBreakpoints []core.DebugInstructionBreakpoint
+	frames                 []core.DebugStackFrame
 	// hideFiltered collapses the frames the session's stepping filters match into one
 	// row per run; framesExpanded shows them again until the next stack arrives.
 	hideFiltered   bool

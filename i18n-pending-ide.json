@@ -164,5 +164,11 @@
     "description": "Shown when the index lists no version of a plugin",
     "en-US": "The index lists no versions.",
     "zh-CN": "索引中没有版本。"
+  },
+  {
+    "id": "desktop.debug.breakpoint.instruction",
+    "description": "Button on a disassembly row that toggles a machine-instruction breakpoint there",
+    "en-US": "Breakpoint",
+    "zh-CN": "断点"
   }
 ]

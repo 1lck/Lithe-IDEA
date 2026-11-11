@@ -339,6 +339,8 @@ func (a *App) beginDebug(p *project, start debugStart) {
 	p.debug.frames = nil
 	p.debug.pausedThread = nil
 	p.debug.output = nil
+	// Instruction addresses are valid for one run of one process: the set is not replayed.
+	p.debug.instructionBreakpoints = nil
 	// The user's stepping policy goes with the launch; without one Core applies the
 	// adapter's declared defaults. Either decides whether the call stack collapses
 	// the frames it filters.

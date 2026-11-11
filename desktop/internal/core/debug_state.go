@@ -10,6 +10,7 @@ type DebugCapabilities struct {
 	SupportsSetVariable            bool                   `json:"supportsSetVariable"`
 	SupportsDisassembleRequest     bool                   `json:"supportsDisassembleRequest"`
 	SupportsSteppingGranularity    bool                   `json:"supportsSteppingGranularity"`
+	SupportsInstructionBreakpoints bool                   `json:"supportsInstructionBreakpoints"`
 	SupportsReadMemoryRequest      bool                   `json:"supportsReadMemoryRequest"`
 	SupportsRestartRequest         bool                   `json:"supportsRestartRequest"`
 	SupportsTerminateRequest       bool                   `json:"supportsTerminateRequest"`
@@ -276,6 +277,32 @@ func (c *Client) SetDebugFunctionBreakpoints(ctx context.Context, sessionID stri
 	if err := c.Execute(ctx, "debug.setFunctionBreakpoints", struct {
 		SessionID           string                    `json:"sessionId"`
 		FunctionBreakpoints []DebugFunctionBreakpoint `json:"functionBreakpoints"`
+	}{sessionID, breakpoints}, &update); err != nil {
+		return DebugUpdate{}, err
+	}
+	return update, nil
+}
+
+// DebugInstructionBreakpoint is one machine-instruction breakpoint. The reference is the address
+// text the adapter reported, kept as text because a 64-bit address does not fit a JSON number.
+type DebugInstructionBreakpoint struct {
+	InstructionReference string `json:"instructionReference"`
+	Offset               *int64 `json:"offset,omitempty"`
+	Enabled              bool   `json:"enabled"`
+	Condition            string `json:"condition,omitempty"`
+	HitCondition         string `json:"hitCondition,omitempty"`
+}
+
+// SetDebugInstructionBreakpoints replaces the complete instruction breakpoint set of a session.
+// Core sends it only when the adapter advertised instruction breakpoints.
+func (c *Client) SetDebugInstructionBreakpoints(ctx context.Context, sessionID string, breakpoints []DebugInstructionBreakpoint) (DebugUpdate, error) {
+	var update DebugUpdate
+	if breakpoints == nil {
+		breakpoints = []DebugInstructionBreakpoint{}
+	}
+	if err := c.Execute(ctx, "debug.setInstructionBreakpoints", struct {
+		SessionID              string                       `json:"sessionId"`
+		InstructionBreakpoints []DebugInstructionBreakpoint `json:"instructionBreakpoints"`
 	}{sessionID, breakpoints}, &update); err != nil {
 		return DebugUpdate{}, err
 	}
