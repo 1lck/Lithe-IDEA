@@ -130,8 +130,8 @@ func indexRange(n int) []int {
 	return values
 }
 
-// drawRunOptionField declares one build option of the run: a checkbox, a choice picker or a text field by its
-// kind. A kind the editor cannot edit shows its stored JSON read-only.
+// drawRunOptionField declares one declared option: a checkbox, a picker, a text field or a list of
+// checkboxes by its kind. A kind the editor cannot edit shows its stored JSON read-only.
 func (a *App) drawRunOptionField(c ui.C, language i18n.Language, field *runOptionField, ready bool) {
 	switch field.kind {
 	case "boolean":
@@ -143,10 +143,14 @@ func (a *App) drawRunOptionField(c ui.C, language i18n.Language, field *runOptio
 				return i18n.Shared(language, "desktop.runConfig.optionDefault")
 			}
 			return labels[value]
-		}).
-			Label(field.title).FillWidth().Disabled(!ready)
+		}).Label(field.title).FillWidth().Disabled(!ready)
 	case "text", "file", "directory":
 		ui.TextField(c, &field.text, field.title, "").FillWidth().Disabled(!ready)
+	case "multiSelect":
+		ui.Text(c, field.title).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+		for index := range field.choices {
+			ui.Checkbox(c.KeyInt(index), &field.picks[index], field.choices[index].title).Disabled(!ready)
+		}
 	default:
 		text := field.title + ": " + i18n.Shared(language, "desktop.runConfig.optionReadOnly")
 		if field.raw != nil {

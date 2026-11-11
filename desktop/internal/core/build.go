@@ -243,6 +243,9 @@ type buildOutcome struct {
 	Version    *BuildToolVersion     `json:"version"`
 	// Dependencies is the answer of build.decodeDependencies.
 	Dependencies *BuildDependencyTree `json:"dependencies"`
+	// Storage and Edit answer build.resolveStoredOptions and build.editStoredOption.
+	Storage *BuildStoredOptions `json:"storage"`
+	Edit    *BuildOptionEdit    `json:"edit"`
 }
 
 func (o buildOutcome) failure(command string) error {
@@ -259,6 +262,12 @@ func (o buildOutcome) failure(command string) error {
 // plugins declare in workspaceRoot. The manifests come from the installed,
 // verified packages and are revalidated by Core.
 func (c *Client) DetectBuildSystems(ctx context.Context, workspaceRoot string, manifests []json.RawMessage) (BuildDetection, error) {
+	return c.DetectBuildSystemsWithOptions(ctx, workspaceRoot, manifests, BuildDetectOptions{})
+}
+
+// DetectBuildSystemsWithOptions is DetectBuildSystems with the stored option inputs of the workspace, so each
+// instance carries the values Core accepted from them.
+func (c *Client) DetectBuildSystemsWithOptions(ctx context.Context, workspaceRoot string, manifests []json.RawMessage, options BuildDetectOptions) (BuildDetection, error) {
 	const command = "build.detect"
 	type plugin struct {
 		Manifest json.RawMessage `json:"manifest"`
@@ -269,9 +278,13 @@ func (c *Client) DetectBuildSystems(ctx context.Context, workspaceRoot string, m
 	}
 	var result buildOutcome
 	if err := c.Execute(ctx, command, struct {
-		WorkspaceRoot string   `json:"workspaceRoot"`
-		Plugins       []plugin `json:"plugins"`
-	}{workspaceRoot, plugins}, &result); err != nil {
+		WorkspaceRoot    string                                           `json:"workspaceRoot"`
+		Plugins          []plugin                                         `json:"plugins"`
+		Options          map[string]map[string]json.RawMessage            `json:"options,omitempty"`
+		InstanceOptions  map[string]map[string]map[string]json.RawMessage `json:"instanceOptions,omitempty"`
+		InstanceDefaults map[string]map[string]json.RawMessage            `json:"instanceDefaults,omitempty"`
+		EmptySelections  map[string]map[string][]string                   `json:"emptySelections,omitempty"`
+	}{workspaceRoot, plugins, options.Options, options.InstanceOptions, options.InstanceDefaults, options.EmptySelections}, &result); err != nil {
 		return BuildDetection{}, err
 	}
 	if err := result.failure(command); err != nil {

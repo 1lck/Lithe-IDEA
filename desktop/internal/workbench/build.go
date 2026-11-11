@@ -39,6 +39,8 @@ type buildState struct {
 	loaded  bool
 	loading bool
 	failed  string
+	// options is the Build options editor of the selected instance (build_options.go).
+	options buildOptionsEditor
 	// status is the last result line under the output.
 	status string
 	// output is bounded and stores whole lines; the oldest lines go first.
@@ -338,10 +340,16 @@ func (a *App) loadBuildSystems(p *project) {
 	p.build.generation++
 	generation := p.build.generation
 	kernel := a.kernel
+	// The team and local option documents are read here, on the window thread, and resolved and detected
+	// with the instances below; a document that cannot be read fails the detection instead of emptying it.
+	docs, docsErr := a.readBuildOptionDocuments(context.Background(), p.root)
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		entries, err := a.plugins.Manager.Installed()
 		if err != nil {
 			return func(a *App) { a.finishBuildDetection(p, generation, nil, err) }
+		}
+		if docsErr != nil {
+			return func(a *App) { a.finishBuildDetection(p, generation, nil, docsErr) }
 		}
 		plugins, pluginErr := a.plugins.BuildPlugins(ctx, entries)
 		manifests := make([]json.RawMessage, 0, len(plugins))
@@ -350,7 +358,7 @@ func (a *App) loadBuildSystems(p *project) {
 			manifests = append(manifests, plugin.Manifest)
 			byPlugin[plugin.PluginID] = plugin
 		}
-		detection, detectErr := kernel.DetectBuildSystems(ctx, p.root, manifests)
+		detection, detectErr := detectBuildSystemsWithStoredOptions(ctx, kernel, p.root, manifests, docs)
 		instances := make([]buildInstance, 0, len(detection.Instances))
 		for _, detected := range detection.Instances {
 			plugin, ok := byPlugin[detected.PluginID]

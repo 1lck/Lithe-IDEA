@@ -617,5 +617,23 @@
     "description": "Run configuration build option whose stored value the editor cannot edit yet",
     "en-US": "Not editable here",
     "zh-CN": "此处无法编辑"
+  },
+  {
+    "id": "desktop.build.options",
+    "description": "Build tool window button that opens the Build options of the selected instance",
+    "en-US": "Options",
+    "zh-CN": "构建选项"
+  },
+  {
+    "id": "desktop.build.optionsTitle",
+    "description": "Title of the Build options dialog",
+    "en-US": "Build Options",
+    "zh-CN": "构建选项"
+  },
+  {
+    "id": "desktop.build.noOptions",
+    "description": "Build options dialog message when the build system declares no options",
+    "en-US": "This build system declares no options.",
+    "zh-CN": "此构建系统没有声明可配置的选项。"
   }
 ]

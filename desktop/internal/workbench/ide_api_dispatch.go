@@ -24,6 +24,7 @@ var ideAPIServedTools = []string{
 	"lithe_project_inspect",
 	"lithe_build_inspect",
 	"lithe_build_reload",
+	"lithe_build_configure",
 	"lithe_build_execute",
 	"lithe_operations_list",
 	"lithe_operation_output",
@@ -107,6 +108,16 @@ func (a *App) ideAPIDispatch(ctx context.Context, conn *ideAPIConnection, name s
 			}
 			return ideAPIFailure("INVALID_ARGUMENTS", "Unknown build instance")
 		})
+	case "lithe_build_configure":
+		var args struct {
+			InstanceID string          `json:"instanceID"`
+			OptionID   string          `json:"optionID"`
+			Value      json.RawMessage `json:"value"`
+		}
+		if err := ideAPIDecodeArguments(arguments, &args); err != nil || args.InstanceID == "" || args.OptionID == "" {
+			return ideAPIFailure("INVALID_ARGUMENTS", "instanceID and optionID are required")
+		}
+		return a.ideAPIOnProject(ctx, conn, func(p *project) any { return a.ideAPIBuildConfigure(p, args.InstanceID, args.OptionID, args.Value) })
 	case "lithe_build_execute":
 		var args ideAPIBuildExecuteArguments
 		if err := ideAPIDecodeArguments(arguments, &args); err != nil {
