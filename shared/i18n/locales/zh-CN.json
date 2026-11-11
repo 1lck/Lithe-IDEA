@@ -11319,7 +11319,13 @@
     "desktop.debug.watchPlaceholder": "求值表达式",
     "desktop.debug.addWatch": "添加监视",
     "desktop.debug.removeWatch": "移除监视",
-    "desktop.debug.evaluateFailed": "无法对该表达式求值"
+    "desktop.debug.evaluateFailed": "无法对该表达式求值",
+    "desktop.debug.memory": "内存",
+    "desktop.debug.noMemory": "适配器无法读取当前栈帧的内存。",
+    "desktop.debug.memoryUnreadableBytes": "无法读取的字节：{bytes}",
+    "desktop.debug.stepInto": "单步进入",
+    "desktop.debug.stepOver": "单步跳过",
+    "desktop.debug.stepOut": "单步跳出"
   },
   "overrides": {
     "macos": {

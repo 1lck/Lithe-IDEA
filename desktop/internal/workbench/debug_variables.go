@@ -244,6 +244,7 @@ func (a *App) selectDebugFrame(p *project, index int) {
 		return
 	}
 	d.vars.reset()
+	d.memory.reset()
 	d.vars.frame = index
 	d.vars.loading = true
 	frameID := d.frames[index].ID

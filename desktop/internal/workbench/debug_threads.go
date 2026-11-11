@@ -90,6 +90,7 @@ func (a *App) selectDebugThread(p *project, threadID int64) {
 	d.pausedThread = &threadID
 	d.vars.reset()
 	d.frames = nil
+	d.memory.reset()
 	a.inspectDebugStack(p, d.session, threadID)
 }
 

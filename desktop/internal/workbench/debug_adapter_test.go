@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"bufio"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -98,6 +99,8 @@ func serveFixtureAdapter(input io.Reader, output io.Writer, workspace string) in
 				"supportsConfigurationDoneRequest": true,
 				"supportsSetVariable":              true,
 				"supportsDisassembleRequest":       true,
+				"supportsSteppingGranularity":      true,
+				"supportsReadMemoryRequest":        true,
 				"exceptionBreakpointFilters": []any{
 					map[string]any{"filter": "uncaught", "label": "Uncaught Exceptions", "default": true},
 					map[string]any{"filter": "caught", "label": "Caught Exceptions", "default": false},
@@ -176,6 +179,31 @@ func serveFixtureAdapter(input io.Reader, output io.Writer, workspace string) in
 				map[string]any{"id": 7, "name": "main"},
 				map[string]any{"id": 8, "name": "worker"},
 			}})
+		case "readMemory":
+			respond(map[string]any{
+				"address":         "0x1000",
+				"unreadableBytes": 2,
+				"data":            base64.StdEncoding.EncodeToString([]byte{0x48, 0x8b, 0x05, 0x10}),
+			})
+		case "next", "stepIn", "stepOut":
+			var arguments struct {
+				Granularity string `json:"granularity"`
+			}
+			_ = json.Unmarshal(request.Body, &arguments)
+			if arguments.Granularity != "" && arguments.Granularity != "instruction" {
+				// Only the adapter default and the disassembly view's instruction
+				// granularity are expected.
+				write(map[string]any{"type": "response", "request_seq": request.Seq, "success": false,
+					"command": request.Command, "message": "unexpected stepping granularity"})
+				continue
+			}
+			respond(map[string]any{})
+			if arguments.Granularity == "instruction" {
+				event("output", map[string]any{"category": "console", "output": "stepped instruction\n"})
+			} else {
+				event("output", map[string]any{"category": "console", "output": "stepped statement\n"})
+			}
+			event("stopped", map[string]any{"reason": "step", "threadId": 7})
 		case "evaluate":
 			var arguments struct {
 				Expression string `json:"expression"`

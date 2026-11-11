@@ -11319,7 +11319,13 @@
     "desktop.debug.watchPlaceholder": "Evaluate expression",
     "desktop.debug.addWatch": "Add Watch",
     "desktop.debug.removeWatch": "Remove Watch",
-    "desktop.debug.evaluateFailed": "The expression could not be evaluated"
+    "desktop.debug.evaluateFailed": "The expression could not be evaluated",
+    "desktop.debug.memory": "Memory",
+    "desktop.debug.noMemory": "The adapter cannot read memory for this frame.",
+    "desktop.debug.memoryUnreadableBytes": "Unreadable bytes: {bytes}",
+    "desktop.debug.stepInto": "Step Into",
+    "desktop.debug.stepOver": "Step Over",
+    "desktop.debug.stepOut": "Step Out"
   },
   "overrides": {
     "windows": {

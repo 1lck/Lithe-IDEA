@@ -66,6 +66,14 @@ type DebugMessages struct {
 	AddWatch         string
 	RemoveWatch      string
 	EvaluateFailed   string
+	// Memory, NoMemory and MemoryUnreadableBytes are the read-only memory view,
+	// and StepInto, StepOver and StepOut step the disassembly one instruction.
+	Memory                string
+	NoMemory              string
+	MemoryUnreadableBytes func(bytes int) string
+	StepInto              string
+	StepOver              string
+	StepOut               string
 }
 
 func debugMessages(language Language) DebugMessages {
@@ -134,5 +142,13 @@ func debugMessages(language Language) DebugMessages {
 		AddWatch:         Shared(language, "desktop.debug.addWatch"),
 		RemoveWatch:      Shared(language, "desktop.debug.removeWatch"),
 		EvaluateFailed:   Shared(language, "desktop.debug.evaluateFailed"),
+		Memory:           Shared(language, "desktop.debug.memory"),
+		NoMemory:         Shared(language, "desktop.debug.noMemory"),
+		MemoryUnreadableBytes: func(bytes int) string {
+			return SharedFormat(language, "desktop.debug.memoryUnreadableBytes", map[string]string{"bytes": strconv.Itoa(bytes)})
+		},
+		StepInto: Shared(language, "desktop.debug.stepInto"),
+		StepOver: Shared(language, "desktop.debug.stepOver"),
+		StepOut:  Shared(language, "desktop.debug.stepOut"),
 	}
 }

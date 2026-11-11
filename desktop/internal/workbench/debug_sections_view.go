@@ -16,6 +16,7 @@ const (
 	debugSectionVariables   = "variables"
 	debugSectionExceptions  = "exceptions"
 	debugSectionDisassembly = "disassembly"
+	debugSectionMemory      = "memory"
 )
 
 // debugSections declares the section switch and the chosen section.
@@ -25,6 +26,12 @@ func (a *App) debugSections(c ui.C, p *project) {
 		d.section = debugSectionFrames
 	}
 	sections := []string{debugSectionFrames, debugSectionVariables, debugSectionExceptions, debugSectionDisassembly}
+	if d.capabilities != nil && d.capabilities.SupportsReadMemoryRequest {
+		sections = append(sections, debugSectionMemory)
+	}
+	if d.section == debugSectionMemory && len(sections) == 4 {
+		d.section = debugSectionFrames
+	}
 	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).PadX(8).Children(func() {
 		ui.Tabs(c, &d.section, sections, func(section string) string {
 			switch section {
@@ -34,6 +41,8 @@ func (a *App) debugSections(c ui.C, p *project) {
 				return t.Exceptions
 			case debugSectionDisassembly:
 				return t.Disassembly
+			case debugSectionMemory:
+				return t.Memory
 			}
 			return t.Frames
 		})
@@ -45,6 +54,8 @@ func (a *App) debugSections(c ui.C, p *project) {
 		a.debugExceptionsView(c, p)
 	case debugSectionDisassembly:
 		a.debugDisassemblyView(c, p)
+	case debugSectionMemory:
+		a.debugMemoryView(c, p)
 	default:
 		a.debugFrames(c, p)
 	}
@@ -262,6 +273,19 @@ func (a *App) debugDisassemblyView(c ui.C, p *project) {
 		}
 		if ui.Button(c, t.Reload).Outline().Disabled(w.loading).Clicked() {
 			c.After(func() { a.loadDisassembly(p) })
+		}
+		// A disassembly view steps one instruction at a time; Core forwards the
+		// granularity only when the adapter advertised it.
+		if d.capabilities.SupportsSteppingGranularity {
+			if ui.Button(c, t.StepInto).Outline().Clicked() {
+				c.After(func() { a.executeDebugWithGranularity(p, "stepIn", "instruction") })
+			}
+			if ui.Button(c, t.StepOver).Outline().Clicked() {
+				c.After(func() { a.executeDebugWithGranularity(p, "next", "instruction") })
+			}
+			if ui.Button(c, t.StepOut).Outline().Clicked() {
+				c.After(func() { a.executeDebugWithGranularity(p, "stepOut", "instruction") })
+			}
 		}
 		ui.Spacer(c)
 		switch {

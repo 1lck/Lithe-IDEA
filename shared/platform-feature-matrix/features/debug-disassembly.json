@@ -12,7 +12,9 @@
       "desktop/internal/workbench/debug_state_test.go",
       "desktop/internal/core/debug_state.go",
       "desktop/internal/core/debug_state_test.go",
-      "shared/fixtures/debug/disassembly-paging-v1.json"
+      "shared/fixtures/debug/disassembly-paging-v1.json",
+      "desktop/internal/workbench/debug_memory.go",
+      "desktop/internal/workbench/debug_memory_test.go"
     ]
   },
   "windows": {
@@ -24,7 +26,9 @@
       "desktop/internal/workbench/debug_state_test.go",
       "desktop/internal/core/debug_state.go",
       "desktop/internal/core/debug_state_test.go",
-      "shared/fixtures/debug/disassembly-paging-v1.json"
+      "shared/fixtures/debug/disassembly-paging-v1.json",
+      "desktop/internal/workbench/debug_memory.go",
+      "desktop/internal/workbench/debug_memory_test.go"
     ]
   },
   "owner": "Debug",
@@ -74,5 +78,5 @@
       "verificationStatus": "not-applicable"
     }
   },
-  "notes": "Viva 的反汇编区以栈帧的指令指针为中心列出指令，窗口规划、被拒请求的恢复、边界探测、去重和占位去除全部由 Core 的 planDisassemblyWindow/reduceDisassemblyPage 决定，可向上/向下加载。尚未接入指令级单步、指令断点、符号跳转与内存读取。"
+  "notes": "Viva 的反汇编区以栈帧的指令指针为中心列出指令，窗口规划、被拒请求的恢复、边界探测、去重和占位去除全部由 Core 的 planDisassemblyWindow/reduceDisassemblyPage 决定，可向上/向下加载。工具栏普通单步走适配器默认粒度，反汇编区的单步按钮显式使用 instruction 粒度（Core 仅在适配器声明 supportsSteppingGranularity 时转发）。只读内存通过 Core 的 readMemory 读取 256 字节窗口，base64 解码后按偏移/十六进制/ASCII 展示并显示不可读字节数；地址始终是适配器文本，主机不做地址算术。尚未接入指令断点、符号跳转与寄存器视图。"
 }

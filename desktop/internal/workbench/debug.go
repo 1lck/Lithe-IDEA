@@ -69,8 +69,10 @@ type debugState struct {
 	threadsFailure string
 	// threadSequence numbers the thread requests of this connection.
 	threadSequence uint64
-	// watch holds the expressions the user added and their last values.
+	// watch holds the expressions the user added and their last values, and
+	// memory the read-only bytes of the selected frame.
 	watch      debugWatch
+	memory     debugMemory
 	session    *debugSession
 	generation uint64
 	// remote is the non-local attach the user has not yet confirmed.
@@ -323,6 +325,7 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 		case "stopped":
 			p.debug.vars.reset()
 			p.debug.disassembly.reset()
+			p.debug.memory.reset()
 			p.debug.pausedThread = event.ThreadID
 			p.debug.threads, p.debug.selectedThread, p.debug.threadsFailure = nil, 0, ""
 			p.debug.watch.valuesCleared()
@@ -335,6 +338,7 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 		case "continued":
 			p.debug.vars.reset()
 			p.debug.disassembly.reset()
+			p.debug.memory.reset()
 			p.debug.frames = nil
 			p.debug.pausedThread = nil
 			p.debug.threads, p.debug.selectedThread, p.debug.threadsFailure = nil, 0, ""
@@ -344,6 +348,7 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 		case "terminated":
 			p.debug.vars.reset()
 			p.debug.disassembly.reset()
+			p.debug.memory.reset()
 			p.debug.frames = nil
 			p.debug.pausedThread = nil
 			p.debug.threads, p.debug.selectedThread, p.debug.threadsFailure = nil, 0, ""
@@ -422,6 +427,12 @@ func (a *App) pauseDebug(p *project) {
 }
 
 func (a *App) executeDebug(p *project, command string) {
+	a.executeDebugWithGranularity(p, command, "")
+}
+
+// executeDebugWithGranularity asks for one control command at an explicit step
+// granularity, so the disassembly view can step one instruction at a time.
+func (a *App) executeDebugWithGranularity(p *project, command, granularity string) {
 	if p == nil || p.debug.session == nil {
 		return
 	}
@@ -433,7 +444,7 @@ func (a *App) executeDebug(p *project, command string) {
 		if session.stopped.Load() {
 			return nil
 		}
-		update, err := a.kernel.ExecuteDebug(ctx, session.id, fmt.Sprintf("%s-%s", session.id, command), command, thread)
+		update, err := a.kernel.ExecuteDebug(ctx, session.id, fmt.Sprintf("%s-%s", session.id, command), command, thread, granularity)
 		if err != nil {
 			return func(a *App) { a.finishDebugError(p, session, err) }
 		}

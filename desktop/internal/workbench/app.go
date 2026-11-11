@@ -83,7 +83,7 @@ type Kernel interface {
 	CreateDebugSession(ctx context.Context, request core.DebugCreateSessionRequest) (core.DebugUpdate, error)
 	LaunchDebug(ctx context.Context, sessionID, operationID string, configuration core.DebugLaunchConfiguration) (core.DebugUpdate, error)
 	SetDebugBreakpoints(ctx context.Context, sessionID, sourcePath string, breakpoints []core.DebugSourceBreakpoint) (core.DebugUpdate, error)
-	ExecuteDebug(ctx context.Context, sessionID, operationID, command string, threadID *int64) (core.DebugUpdate, error)
+	ExecuteDebug(ctx context.Context, sessionID, operationID, command string, threadID *int64, granularity string) (core.DebugUpdate, error)
 	InspectDebug(ctx context.Context, request core.DebugInspectRequest) (core.DebugUpdate, error)
 	ReceiveDebug(ctx context.Context, sessionID string, data []byte) (core.DebugUpdate, error)
 	DisconnectDebug(ctx context.Context, sessionID string) (core.DebugUpdate, error)

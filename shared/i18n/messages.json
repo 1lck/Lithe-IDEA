@@ -107666,6 +107666,51 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.debug.memory",
+      "description": "Tab label of the read-only debug memory view.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.noMemory",
+      "description": "Shown when the selected frame has no readable memory.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.memoryUnreadableBytes",
+      "description": "Shows how many requested memory bytes the adapter could not read. {bytes} is the count.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "bytes": "string"
+      }
+    },
+    {
+      "id": "desktop.debug.stepInto",
+      "description": "Button that steps into a call one machine instruction at a time.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.stepOver",
+      "description": "Button that steps over a call one machine instruction at a time.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.stepOut",
+      "description": "Button that steps out of a call one machine instruction at a time.",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

@@ -61,6 +61,11 @@ type DebugOperationResult struct {
 	Variable *DebugVariable `json:"variable,omitempty"`
 	// Instructions is the result of a disassemble inspection.
 	Instructions []DebugInstruction `json:"instructions,omitempty"`
+	// Address, UnreadableBytes and DataBase64 are the result of a readMemory
+	// inspection; the bytes are base64 like DAP's readMemory response.
+	Address         string `json:"address,omitempty"`
+	UnreadableBytes int64  `json:"unreadableBytes,omitempty"`
+	DataBase64      string `json:"dataBase64,omitempty"`
 }
 
 // DebugInstruction is one disassembled machine instruction. Address stays the
@@ -198,15 +203,18 @@ func (c *Client) SetDebugBreakpoints(ctx context.Context, sessionID, sourcePath 
 }
 
 // ExecuteDebug queues continue, pause or a step. threadID is nil for commands
-// that do not name a thread.
-func (c *Client) ExecuteDebug(ctx context.Context, sessionID, operationID, command string, threadID *int64) (DebugUpdate, error) {
+// that do not name a thread. granularity is "statement", "line" or "instruction"
+// for a step, and empty keeps the adapter's default; Core forwards it only when
+// the adapter advertised supportsSteppingGranularity.
+func (c *Client) ExecuteDebug(ctx context.Context, sessionID, operationID, command string, threadID *int64, granularity string) (DebugUpdate, error) {
 	var update DebugUpdate
 	if err := c.Execute(ctx, "debug.execute", struct {
 		SessionID   string `json:"sessionId"`
 		OperationID string `json:"operationId"`
 		Command     string `json:"command"`
 		ThreadID    *int64 `json:"threadId,omitempty"`
-	}{sessionID, operationID, command, threadID}, &update); err != nil {
+		Granularity string `json:"granularity,omitempty"`
+	}{sessionID, operationID, command, threadID, granularity}, &update); err != nil {
 		return DebugUpdate{}, err
 	}
 	return update, nil

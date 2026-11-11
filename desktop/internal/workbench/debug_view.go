@@ -44,6 +44,18 @@ func (a *App) debugView(c ui.C, p *project) {
 			if ui.Button(c, t.Pause).Outline().Disabled(d.session == nil || d.state != "running").Clicked() {
 				a.pauseDebug(p)
 			}
+			// Steps need a stopped debuggee; the adapter decides which commands it
+			// serves and Core rejects the rest with a visible failure.
+			stepDisabled := d.session == nil || d.state != "paused"
+			if ui.Button(c, t.StepInto).Outline().Disabled(stepDisabled).Clicked() {
+				a.executeDebug(p, "stepIn")
+			}
+			if ui.Button(c, t.StepOver).Outline().Disabled(stepDisabled).Clicked() {
+				a.executeDebug(p, "next")
+			}
+			if ui.Button(c, t.StepOut).Outline().Disabled(stepDisabled).Clicked() {
+				a.executeDebug(p, "stepOut")
+			}
 			ui.Spacer(c)
 			if d.status != "" {
 				ui.Text(c, d.status).Shrink(1).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
