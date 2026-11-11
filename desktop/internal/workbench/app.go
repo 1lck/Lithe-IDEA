@@ -136,6 +136,10 @@ type Kernel interface {
 	GitPull(ctx context.Context, root string, strategy core.GitPullStrategy) error
 	GitDeleteBranch(ctx context.Context, root string, branch core.GitReference) (core.GitBranchDeletion, error)
 	GitCreateTag(ctx context.Context, root, name, revision, message string) error
+	GitRebasePreview(ctx context.Context, root, base string) (core.RebasePreview, error)
+	GitRebaseStart(ctx context.Context, root string, preview core.RebasePreview, steps []core.RebaseStep) (*core.RebaseSession, error)
+	GitRebaseSession(ctx context.Context, root string) (*core.RebaseSession, error)
+	GitRebaseControl(ctx context.Context, root string, session core.RebaseSession, action, amendMessage, expectedHead string) (*core.RebaseSession, error)
 	GitDeleteTag(ctx context.Context, root, name string) error
 	GitBranchNamePreview(ctx context.Context, request core.BranchNameRequest) (core.BranchNamePreview, error)
 	GitWorktrees(ctx context.Context, root string) ([]core.GitWorktree, error)
@@ -318,6 +322,8 @@ type project struct {
 	lineHistory lineHistoryState
 	// nested is the repositories nested in the project folder (nested_repos.go).
 	nested nestedState
+	// rebase is the Rebase from Here dialog and the rebase session of the repository (git_rebase.go).
+	rebase rebaseState
 }
 
 // App is the state of the window.

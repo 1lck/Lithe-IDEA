@@ -174,5 +174,107 @@
     "parameters": {
       "name": "string"
     }
+  },
+  {
+    "id": "desktop.rebase.fromHere",
+    "description": "Log commit menu item: rebase the commits after this one",
+    "en-US": "Rebase from Here…",
+    "zh-CN": "从此处变基…"
+  },
+  {
+    "id": "desktop.rebase.title",
+    "description": "Title of the Rebase from Here dialog",
+    "en-US": "Rebase from Here",
+    "zh-CN": "从此处变基"
+  },
+  {
+    "id": "desktop.rebase.description",
+    "description": "Description under the rebase dialog title",
+    "en-US": "Replay the commits after {hash}.",
+    "zh-CN": "重放 {hash} 之后的提交。",
+    "parameters": {
+      "hash": "string"
+    }
+  },
+  {
+    "id": "desktop.rebase.loading",
+    "description": "Shown while the rebase preview is read",
+    "en-US": "Reading the commits to rebase…",
+    "zh-CN": "正在读取要变基的提交…"
+  },
+  {
+    "id": "desktop.rebase.empty",
+    "description": "Shown when no commit comes after the chosen one",
+    "en-US": "No commits to rebase after this commit.",
+    "zh-CN": "此提交之后没有可变基的提交。"
+  },
+  {
+    "id": "desktop.rebase.start",
+    "description": "Button that starts the reviewed rebase plan",
+    "en-US": "Start Rebase",
+    "zh-CN": "开始变基"
+  },
+  {
+    "id": "desktop.rebase.action.pick",
+    "description": "Rebase action: keep the commit as it is",
+    "en-US": "Pick",
+    "zh-CN": "保留"
+  },
+  {
+    "id": "desktop.rebase.action.fixup",
+    "description": "Rebase action: fold the commit into the one before it",
+    "en-US": "Fixup",
+    "zh-CN": "合并到前一个"
+  },
+  {
+    "id": "desktop.rebase.action.drop",
+    "description": "Rebase action: leave the commit out",
+    "en-US": "Drop",
+    "zh-CN": "丢弃"
+  },
+  {
+    "id": "desktop.rebase.status",
+    "description": "Rebase session status line; status is Core's session status",
+    "en-US": "Rebase: {status}",
+    "zh-CN": "变基状态：{status}",
+    "parameters": {
+      "status": "string"
+    }
+  },
+  {
+    "id": "desktop.rebase.conflicts",
+    "description": "Count of conflicted files of a paused rebase",
+    "en-US": "{count} conflicted files",
+    "zh-CN": "{count} 个冲突文件",
+    "parameters": {
+      "count": "string"
+    }
+  },
+  {
+    "id": "desktop.rebase.continue",
+    "description": "Button that continues a paused rebase",
+    "en-US": "Continue",
+    "zh-CN": "继续"
+  },
+  {
+    "id": "desktop.rebase.skip",
+    "description": "Button that skips the conflicted step of a rebase",
+    "en-US": "Skip",
+    "zh-CN": "跳过"
+  },
+  {
+    "id": "desktop.rebase.abort",
+    "description": "Button that aborts a rebase",
+    "en-US": "Abort",
+    "zh-CN": "中止"
+  },
+  {
+    "id": "desktop.rebase.controlFailed",
+    "description": "Notice when continuing, skipping or aborting a rebase failed",
+    "en-US": "Could not continue the rebase: {reason}",
+    "zh-CN": "无法继续变基：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
   }
 ]

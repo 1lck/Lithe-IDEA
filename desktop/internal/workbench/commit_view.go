@@ -108,6 +108,7 @@ func (a *App) drawCommitChanges(c ui.C, p *project) ui.Box {
 	cs, t := &p.commit, a.text.Commit
 	changes := p.git.status.Changes
 	return ui.Column(c).FillWidth().Clip().Children(func() {
+		a.drawRebaseBanner(c, p)
 		if p.lists.inUse() {
 			a.drawChangeListSections(c, p)
 			return
