@@ -19,6 +19,9 @@ func (a *App) agentHeader(c ui.C, p *project) {
 		ui.Icon(c, a.agentBrandIcon(agent.ID)).Size(chromeIconSize, chromeIconSize).Shrink(0).Color(a.colors.Text)
 		ui.Text(c, a.agentConversationTitle(p)).Weight(gfx.WeightMedium).Ellipsis().Grow(1)
 		historyDisabled := p.agent.phase == agentPhaseStarting || p.agent.phase == agentPhaseLoading
+		if ui.Button(c, t.Editor.OpenInEditor).Ghost().Disabled(p.agent.conn == nil).Clicked() {
+			c.After(func() { a.openAgentInEditor(p) })
+		}
 		if ui.Button(c, t.History).Ghost().Disabled(historyDisabled).Clicked() {
 			c.After(func() { a.toggleAgentHistory(p) })
 		}

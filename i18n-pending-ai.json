@@ -10,5 +10,23 @@
     "description": "Button that starts the upstream ChatGPT browser sign-in when the Codex Agent reports that sign-in is required.",
     "en-US": "Sign in with ChatGPT",
     "zh-CN": "使用 ChatGPT 登录"
+  },
+  {
+    "id": "desktop.agent.editor.open",
+    "description": "Header button that moves the AI conversation into a new tab group of the editor area.",
+    "en-US": "Open in editor",
+    "zh-CN": "在编辑区打开"
+  },
+  {
+    "id": "desktop.agent.editor.inEditor",
+    "description": "Agent tool window text shown while the conversation is open as an editor tab.",
+    "en-US": "This conversation is open in the editor area.",
+    "zh-CN": "对话已在编辑区打开。"
+  },
+  {
+    "id": "desktop.agent.editor.show",
+    "description": "Button that brings the conversation's editor tab to the front from the Agent tool window.",
+    "en-US": "Show in editor",
+    "zh-CN": "在编辑区显示"
   }
 ]

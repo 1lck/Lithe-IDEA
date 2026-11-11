@@ -98,6 +98,7 @@ type AgentMessages struct {
 	Activity     AgentActivityMessages
 	Card         AgentCardMessages
 	Subscription AgentSubscriptionMessages
+	Editor       AgentEditorMessages
 }
 
 func agentMessages(language Language) AgentMessages {
@@ -105,6 +106,7 @@ func agentMessages(language Language) AgentMessages {
 		Activity:      agentActivityMessages(language),
 		Card:          agentCardMessages(language),
 		Subscription:  agentSubscriptionMessages(language),
+		Editor:        agentEditorMessages(language),
 		AgentLabel:    Shared(language, "desktop.agent.setup.agent"),
 		ProviderLabel: Shared(language, "desktop.agent.setup.provider"),
 		Start:         Shared(language, "desktop.agent.setup.start"),

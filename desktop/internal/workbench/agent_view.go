@@ -28,6 +28,10 @@ func (a *App) agentPanel(c ui.C) {
 		return
 	}
 	a.ensureAgentState(p)
+	if a.agentInEditor(p) {
+		a.agentEditorNotice(c, p)
+		return
+	}
 	if p.agent.conn == nil {
 		a.agentSetup(c, p)
 		return
