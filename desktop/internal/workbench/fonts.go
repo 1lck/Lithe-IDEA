@@ -35,13 +35,11 @@ type appFonts struct {
 func resolveScopeFont(fonts []fontprefs.Font, scope fontprefs.Scope) scopeFont {
 	resolved := fontprefs.For(fonts, scope)
 	if resolved.Family == "" && scope == fontprefs.Terminal {
-		resolved.Family = bundled().Mono
-	}
-	if resolved.Family == "" && scope == fontprefs.Terminal {
 		resolved.Family = preferredTerminalFamily()
 	}
-	if resolved.Family == "" && scope == fontprefs.Editor {
-		// The code font is the bundled monospace face when the user chose none.
+	if resolved.Family == "" && (scope == fontprefs.Terminal || scope == fontprefs.Editor) {
+		// The code font is the bundled monospace face when the user chose none; the terminal
+		// takes it too when no Nerd Font is there.
 		resolved.Family = bundled().Mono
 	}
 	face := gfx.MonoSystem
@@ -62,23 +60,33 @@ var terminalNerdFonts = []string{
 	"IosevkaTerm Nerd Font Mono",
 }
 
-// preferredTerminalFamily is the first installed family of terminalNerdFonts on macOS, read
-// once, and empty for the system's face elsewhere or when none is installed.
+// preferredTerminalFamily is the first available family of terminalNerdFonts on macOS, read
+// once, and empty for the system's face elsewhere or when none is there. The Nerd Font the
+// packaged build carries counts as available, so a MesloLGS the user installed still wins
+// and the bundled JetBrainsMono Nerd Font Mono comes next.
 var preferredTerminalFamily = sync.OnceValue(func() string {
 	if runtime.GOOS != "darwin" {
 		return ""
 	}
-	installed := map[string]bool{}
-	for _, family := range app.MonospaceFamilies() {
-		installed[family] = true
+	return firstAvailableFamily(terminalNerdFonts, app.MonospaceFamilies(), bundled().Terminal)
+})
+
+// firstAvailableFamily is the first of preferred that is installed or bundled, or "".
+func firstAvailableFamily(preferred, installed []string, bundled string) string {
+	available := map[string]bool{}
+	for _, family := range installed {
+		available[family] = true
 	}
-	for _, family := range terminalNerdFonts {
-		if installed[family] {
+	if bundled != "" {
+		available[bundled] = true
+	}
+	for _, family := range preferred {
+		if available[family] {
 			return family
 		}
 	}
 	return ""
-})
+}
 
 // applyFonts works out the font of each scope from the settings. The editors and the
 // terminals take theirs at their next paint (see editorFont and terminalFont), and the

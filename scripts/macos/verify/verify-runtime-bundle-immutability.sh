@@ -7,10 +7,11 @@ cd "$ROOT_DIR"
 # The unified client shares its production sources across macOS and Windows.
 # Mutable data uses a platform user-data/cache directory. The installed package
 # (app bundle or installation folder) is located in one place only:
-# desktop/internal/installedpackage, which documents its read-only ownership and
-# whose tests check that reading bundled resources leaves the bundle's bytes
-# unchanged. Fail closed if any other file derives a path from the executable or
-# the bundle, or if that package ever writes to the file system.
+# desktop/internal/installedpackage, which documents its read-only ownership;
+# fixed resources such as the bundled fonts are compiled into the executable, so
+# nothing reads the bundle for them. Fail closed if any other file derives a path
+# from the executable or the bundle, or if that package ever writes to the file
+# system.
 if [[ ! -d desktop/internal || ! -d desktop/cmd ]]; then
     print -u2 -- "Desktop production sources are missing; cannot verify runtime resource paths."
     exit 1

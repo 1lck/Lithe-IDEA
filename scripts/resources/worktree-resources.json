@@ -304,11 +304,12 @@
       "id": "bundled-ui-fonts",
       "reusable": false,
       "locations": [
-        "macos/Resources/Fonts",
-        "<app-bundle>/Contents/Resources/Fonts"
+        "desktop/internal/bundledfont/fonts",
+        "<packaged executable> (go:embed under the lithe_bundled_fonts build tag)",
+        "<user cache>/viva/fonts (staged copies app.RegisterFont writes at run time)"
       ],
-      "identity": "Inter 4.1 (18 static OTF faces; internal version 4.001) and JetBrains Mono 2.304 (16 static TTF faces) and JetBrains Mono Nerd Font Mono from Nerd Fonts v3.5.1 (four complete patched TTF faces; SHA-256 fixed in Fonts/NOTICE.txt) source files tracked by Git; independent of platform architecture and build toolchain. Version and read-only file hashes are checked by BundledUIFontTests; packaged presence is checked by verify-macos-package.sh.",
-      "reason": "Checkout source files through Git; build packaging copies them before signing. Never copy fonts from another worktree artifact or signed/installed bundle, and never modify them at runtime. No resource reuse copy stage is permitted."
+      "identity": "Inter 4.1 (18 static OTF faces; internal version 4.001) and JetBrains Mono 2.304 (16 static TTF faces) and JetBrains Mono Nerd Font Mono from Nerd Fonts v3.5.1 (four complete patched TTF faces) source files tracked by Git, every face's SHA-256 fixed in fonts/NOTICE.txt; independent of platform architecture and build toolchain. The manifest and the face count per family are checked by TestTheFontFolderMatchesItsManifest; the packaged build's embedded copy and its CoreText registration by the lithe_bundled_fonts tests of desktop/internal/bundledfont.",
+      "reason": "Checkout source files through Git; scripts/desktop/package-desktop.sh compiles them into the macOS executable, so the app bundle holds no font files and nothing reads or writes the installed package for them. Viva stages each registered face in the user cache directory, a per-user runtime cache named by content digest that the client never ships, signs or copies. Never copy fonts from another worktree artifact, a signed or installed bundle or that cache, and never modify them at runtime. No resource reuse copy stage is permitted."
     },
     {
       "id": "ide-mcp",

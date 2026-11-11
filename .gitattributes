@@ -13,3 +13,7 @@ rust/lithe-core/src/diagnostics/catalog_generated.rs text eol=lf
 
 # Generated Go localization must match byte-for-byte on all platforms.
 desktop/internal/i18n/shared.generated.go text eol=lf
+
+# The bundled fonts and their licenses are compiled in byte-for-byte and checked against the
+# SHA-256 manifest in NOTICE.txt; never convert their line endings.
+desktop/internal/bundledfont/fonts/** -text

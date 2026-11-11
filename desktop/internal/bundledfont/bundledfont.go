@@ -1,58 +1,59 @@
-// Package bundledfont finds the fonts the macOS package ships with and registers them for the
-// process. The package is read-only: it reads the Fonts folder inside the application bundle and
-// never writes there, so the signed bundle and its update baseline stay as they were built.
+// Package bundledfont registers the fonts the macOS client ships with, for this process only.
 //
-// Font files are a build-time input. The package staging step copies them into the bundle's
-// Resources, in the folder FolderName (Inter 4.1 static OTF and JetBrains Mono 2.304 static TTF,
-// with their licenses); until that step ships, the folder is absent and every caller falls back
-// to the system's fonts, which is what the client did before. installedpackage locates the folder.
+// The font files are tracked in fonts/ beside this package: the Inter 4.1 static OTF faces, the
+// JetBrains Mono 2.304 static TTF faces and the four JetBrains Mono Nerd Font Mono faces of Nerd
+// Fonts v3.5.1, unmodified, with their licenses and sources in fonts/NOTICE.txt. The packaged
+// macOS build compiles that folder into the executable under the lithe_bundled_fonts build tag
+// (scripts/desktop/package-desktop.sh passes it); every other build carries no fonts, Files is nil
+// and every caller keeps the system's fonts.
+//
+// The fonts travel inside the executable rather than as files in the app bundle: the packaging
+// tool has no step that adds files to the bundle, and an embedded face needs none. Nothing reads
+// or writes the installed package for them, so the signed bundle and its update baseline stay as
+// they were built. app.RegisterFont stages each face in the user's cache directory and registers
+// it with CoreText at process scope; the user's font library is never changed.
 package bundledfont
 
 import (
-	"os"
-	"path/filepath"
+	"io/fs"
+	"path"
 	"strings"
-
-	"github.com/1lck/Lithe-IDEA/desktop/internal/installedpackage"
 )
-
-// FolderName is the folder inside the bundle's Resources that holds the font files.
-const FolderName = "Fonts"
 
 // Set names the families the bundled fonts registered under. An empty name means that group is
 // not bundled and the caller keeps the system font.
 type Set struct {
-	// UI is the family of the interface font (Inter), Mono the family of the code font.
-	UI, Mono string
+	// UI is the interface font (Inter), Mono the code font (JetBrains Mono) and Terminal the
+	// terminal's Nerd Font (JetBrainsMono Nerd Font Mono), whose glyphs include the cell-aligned
+	// prompt symbols of shells such as Starship and Powerlevel10k.
+	UI, Mono, Terminal string
 }
 
 // Registrar registers one font file's data and returns its family name, as app.RegisterFont does.
 type Registrar func(data []byte) (family string, unregister func(), err error)
 
-// groups are the file name prefixes of each family, in the order the files are read.
+// groups map a file name prefix to the Set field it fills. The prefixes end at the dash before the
+// style, so the Nerd Font faces are never taken for the plain JetBrains Mono ones.
 var groups = []struct {
 	prefix string
-	set    func(*Set, string)
+	field  func(*Set) *string
 }{
-	{"Inter", func(s *Set, f string) { s.UI = f }},
-	{"JetBrainsMono", func(s *Set, f string) { s.Mono = f }},
+	{"Inter-", func(s *Set) *string { return &s.UI }},
+	{"JetBrainsMono-", func(s *Set) *string { return &s.Mono }},
+	{"JetBrainsMonoNerdFontMono-", func(s *Set) *string { return &s.Terminal }},
 }
 
-// Folder returns the Fonts folder of the running application bundle, or "" when the client is
-// not running from a macOS app bundle (development builds, other platforms).
-func Folder() string {
-	return installedpackage.ResourceFolder(FolderName)
-}
-
-// Register reads the font files of folder and registers them. Only .otf, .ttf and .ttc files whose
-// name starts with a known family are used; the first file of a family names it. Files that fail to
-// register are skipped, so one damaged file does not hide the others.
-func Register(folder string, register Registrar) Set {
+// Register reads the font files at the root of files and registers them. Only .otf, .ttf and .ttc
+// files whose name starts with a known group prefix are used; each weight and style is its own file
+// of the same family, so the first file of a group that registers names it. A file that cannot be
+// read or registered is skipped, so one damaged face does not hide the others. A nil files or
+// register registers nothing.
+func Register(files fs.FS, register Registrar) Set {
 	var set Set
-	if folder == "" || register == nil {
+	if files == nil || register == nil {
 		return set
 	}
-	entries, err := os.ReadDir(folder)
+	entries, err := fs.ReadDir(files, ".")
 	if err != nil {
 		return set
 	}
@@ -61,37 +62,37 @@ func Register(folder string, register Registrar) Set {
 		if entry.IsDir() || !fontFile(name) {
 			continue
 		}
-		for _, group := range groups {
-			if !strings.HasPrefix(name, group.prefix) {
-				continue
-			}
-			data, err := os.ReadFile(filepath.Join(folder, name))
-			if err != nil {
-				break
-			}
-			family, _, err := register(data)
-			if err != nil || family == "" {
-				break
-			}
-			// Each weight is its own file; the family is the same, so the first one names it.
-			current := ""
-			switch group.prefix {
-			case "Inter":
-				current = set.UI
-			case "JetBrainsMono":
-				current = set.Mono
-			}
-			if current == "" {
-				group.set(&set, family)
-			}
-			break
+		field := groupField(&set, name)
+		if field == nil {
+			continue
+		}
+		data, err := fs.ReadFile(files, name)
+		if err != nil {
+			continue
+		}
+		family, _, err := register(data)
+		if err != nil || family == "" {
+			continue
+		}
+		if *field == "" {
+			*field = family
 		}
 	}
 	return set
 }
 
+// groupField is the field of set the file name belongs to, or nil for a file of no group.
+func groupField(set *Set, name string) *string {
+	for _, group := range groups {
+		if strings.HasPrefix(name, group.prefix) {
+			return group.field(set)
+		}
+	}
+	return nil
+}
+
 func fontFile(name string) bool {
-	switch strings.ToLower(filepath.Ext(name)) {
+	switch strings.ToLower(path.Ext(name)) {
 	case ".otf", ".ttf", ".ttc":
 		return true
 	}

@@ -7,10 +7,11 @@ import (
 	"github.com/vivaui/viva/app"
 )
 
-// bundled is the set of fonts the application bundle ships, registered once per process. Its
-// files are read only; with no bundle or no files the set is empty and the system's fonts apply.
+// bundled is the set of fonts the packaged build carries, registered once per process for this
+// process only. A build without them (development, tests, other platforms) has an empty set and
+// the system's fonts apply.
 var bundled = sync.OnceValue(func() bundledfont.Set {
-	return bundledfont.Register(bundledfont.Folder(), app.RegisterFont)
+	return bundledfont.Register(bundledfont.Files(), app.RegisterFont)
 })
 
 // bundledInterfaceFamily applies the bundled interface font when there is one. It runs once,

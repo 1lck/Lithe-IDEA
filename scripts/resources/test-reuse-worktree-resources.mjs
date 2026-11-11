@@ -275,6 +275,7 @@ try {
     const fonts = registry.excludedResources.find(resource => resource.id === "bundled-ui-fonts");
     assert.match(fonts.identity, /Inter 4\.1.*18 static OTF.*JetBrains Mono 2\.304.*16 static TTF/);
     assert.match(fonts.identity, /Nerd Fonts v3\.5\.1.*four complete patched TTF/);
+    assert.ok(fonts.locations.includes("desktop/internal/bundledfont/fonts"));
     const rejected = run(process.execPath, [reuseScript, "--source", sourceRoot, "--resource", "bundled-ui-fonts"]);
     assert.notEqual(rejected.status, 0);
     assert.match(rejected.stderr, /bundled-ui-fonts is isolated/);

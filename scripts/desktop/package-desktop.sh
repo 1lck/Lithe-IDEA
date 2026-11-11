@@ -186,9 +186,12 @@ mkdir -p "$(dirname "$EMBED_FILE")"
 cp -- "$HELPER_SOURCE" "$EMBED_FILE"
 trap 'rm -f -- "$EMBED_FILE"' EXIT
 
+# The macOS client's fonts (desktop/internal/bundledfont/fonts, tracked in Git) are compiled into the
+# executable under the lithe_bundled_fonts build tag, so the app bundle gets no font files and the
+# client never reads its own installation for them. Other platforms ignore the tag.
 GOARCH="$ARCH" LITHE_DESKTOP_CORE_PROFILE=release \
     "$ROOT_DIR/scripts/desktop/desktop-go.sh" --exec "$VIVA_BIN" package \
     --target "$GOOS" --arch "$ARCH" --format "$FORMATS" -o "$VIVA_OUT" \
-    -tags lithe_bundled_helper \
+    -tags lithe_bundled_helper,lithe_bundled_fonts \
     "${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"}"
 printf '%s\n' "$OUT_DIR"

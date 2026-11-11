@@ -13,6 +13,11 @@ function fixture(t) {
   cpSync(resolve(import.meta.dirname, "verify-runtime-bundle-immutability.sh"), resolve(root, script));
   for (const dir of ["desktop/internal", "desktop/cmd"]) mkdirSync(resolve(root, dir), { recursive: true });
   writeFileSync(resolve(root, "desktop/cmd/main.go"), "package main\n");
+  mkdirSync(resolve(root, "desktop/internal/installedpackage"), { recursive: true });
+  writeFileSync(
+    resolve(root, "desktop/internal/installedpackage/installedpackage.go"),
+    "package installedpackage\nfunc Executable() (string, error) { return os.Executable() }\n",
+  );
   const write = (name, content) => {
     const file = resolve(root, name);
     mkdirSync(resolve(file, ".."), { recursive: true });
@@ -28,7 +33,17 @@ test("checks both desktop platforms and fails closed on executable-derived paths
   f.write("desktop/internal/resource_windows.go", "package sample\nvar path = os.Executable()\n");
   const result = f.run();
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Desktop runtime must not derive/);
+  assert.match(result.stderr, /Desktop runtime must locate its installed package only through/);
+});
+
+test("keeps the installed package locator read-only and required", { timeout: 15000 }, (t) => {
+  const f = fixture(t);
+  f.write("desktop/internal/installedpackage/write.go", "package installedpackage\nvar _ = os.WriteFile(\"x\", nil, 0)\n");
+  const result = f.run();
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /must stay read-only/);
+  rmSync(resolve(f.root, "desktop/internal/installedpackage"), { recursive: true });
+  assert.notEqual(f.run().status, 0);
 });
 
 test("ignores test-only executable lookups but rejects missing desktop sources", { timeout: 15000 }, (t) => {
