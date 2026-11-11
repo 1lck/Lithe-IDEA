@@ -188,7 +188,7 @@
 | `dependency-browser` | 项目依赖与模块浏览 | 必须迁移 | 实现/实现 | 部分 | — |
 | `file-explorer` | 项目文件树与资源打开 | 必须迁移 | 实现/实现 | 部分 | — |
 | `file-explorer-copy-path-for-terminal` | 把项目树中的文件或目录以路径形式送入集成终端（复制后粘贴，或直接拖拽） | 必须迁移 | 缺/实现 | 部分 | `workbench/filetree_menu.go` |
-| `file-open-selected` | F4 打开焦点文件与搜索位置 | 必须迁移 | 缺/实现 | 部分 | `workbench/filetree_open.go` |
+| `file-open-selected` | F4 打开焦点文件与搜索位置 | 必须迁移 | 缺/实现 | 部分 | `shortcuts/shortcuts.go`（可改绑）、`workbench/search_view.go`、`workbench/filetree_view.go`（树等 Lithe-IDEA/viva#9） |
 | `file-open-with` | 项目文件通过系统打开方式选择外部应用 | 必须迁移 | 实现/缺 | 完成 | `workbench/filetree_open.go` |
 
 ### 工作台（30）

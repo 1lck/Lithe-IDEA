@@ -3,6 +3,7 @@ package workbench
 import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/treelist"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -88,7 +89,7 @@ func (a *App) projectTree(c ui.C, p *project) {
 			named = i
 		}
 	}).Grow(1).FillWidth().PadY(treelist.PadY)
-	if tree.Shortcut(0, "f4") {
+	if a.elementShortcut(tree, shortcuts.OpenSelected) {
 		c.After(func() { a.openSelectedTreeFile(p) })
 	}
 	tree.Draw(t.areaHook())

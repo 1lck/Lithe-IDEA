@@ -3,7 +3,9 @@ package i18n
 // KeymapMessages are the words of the Keymap settings page and the actions only the
 // keymap names.
 type KeymapMessages struct {
-	GroupEditor, GoToLine, InlineEdit                       string
+	GroupEditor, GoToLine, InlineEdit string
+	// OpenSelected is the action that opens the selected file of the project tree or search results.
+	OpenSelected                                            string
 	Search, SearchPlaceholder, Add, Remove, Reset, ResetAll string
 	// RestoreDefault is the row menu's item that drops the user's keys of one action.
 	RestoreDefault                                            string
@@ -23,6 +25,7 @@ func keymapMessages(language Language) KeymapMessages {
 		GroupEditor:       Shared(language, "desktop.keymap.groupEditor"),
 		GoToLine:          Shared(language, "desktop.keymap.goToLine"),
 		InlineEdit:        Shared(language, "desktop.keymap.inlineEdit"),
+		OpenSelected:      Shared(language, "keybindings.commands.file.openSelected.title"),
 		Search:            Shared(language, "desktop.keymap.search"),
 		SearchPlaceholder: Shared(language, "desktop.keymap.searchPlaceholder"),
 		Add:               Shared(language, "desktop.keymap.add"),

@@ -9,6 +9,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/treelist"
 	"github.com/vivaui/viva/ui"
 )
@@ -129,8 +130,9 @@ func (a *App) searchResults(c ui.C, p *project, language i18n.Language) {
 	if row, ok := v.list.Submitted(); ok {
 		opened = row
 	}
-	// F4 opens the selected match at its line, as Enter does; the match keeps its place.
-	if resultList.Shortcut(0, "f4") && v.list.Selected() >= 0 {
+	// Open Selected File (F4 unless the user rebinds it) opens the selected match at its line, as
+	// Enter does; the match keeps its place.
+	if a.elementShortcut(resultList, shortcuts.OpenSelected) && v.list.Selected() >= 0 {
 		opened = v.list.Selected()
 	}
 	if opened >= 0 && opened < len(results) {

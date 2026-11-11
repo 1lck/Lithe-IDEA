@@ -14,8 +14,10 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/keymap"
 )
 
 func TestProjectSearchOpensMatchingLine(t *testing.T) {
@@ -535,4 +537,89 @@ func TestProjectSearchResultMenuCopiesThePathAndOpens(t *testing.T) {
 	h.rightClickNamed(label)
 	h.click(center(h.popupHit(h.shared("desktop.files.open"))))
 	awaitDocumentState(t, h, func() bool { return p.docs.byPath(path) != nil })
+}
+
+// TestProjectSearchF4OpensTheSelectedMatchAndKeepsItsPlace moves the keyboard into the result
+// list, picks the second match with the arrow and presses F4: the second file opens at the
+// match, and the list keeps that match selected. Rebound, Open Selected File acts on the user's
+// key and F4 leaves the list alone.
+func TestProjectSearchF4OpensTheSelectedMatchAndKeepsItsPlace(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.app.searchView.delay = 0
+	root := t.TempDir()
+	first, second := filepath.Join(root, "a.go"), filepath.Join(root, "b.go")
+	if err := os.WriteFile(first, []byte("needle\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("one\ntwo\nthe needle\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.open(root)
+	h.click(center(h.button(itemFind)))
+	if err := h.driver.Click(center(h.hit(searchQueryID)).X, center(h.hit(searchQueryID)).Y); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.driver.Type("needle"); err != nil {
+		t.Fatal(err)
+	}
+	p := h.app.project
+	awaitDocumentState(t, h, func() bool { return !p.search.loading && len(p.search.matches) == 2 })
+	log := &treeRecordingLog{}
+	h.app.logSink = log
+	t.Cleanup(func() { h.app.logSink = nil })
+	press := func(key gfx.Key) {
+		t.Helper()
+		if err := h.driver.Key(key, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	labels := map[string]bool{}
+	for _, match := range p.search.matches {
+		labels[searchMatchLabel(match)] = true
+	}
+	// focusRow moves the keyboard from the query into the list and selects row.
+	focusRow := func(row int) {
+		t.Helper()
+		if err := h.driver.Click(center(h.hit(searchQueryID)).X, center(h.hit(searchQueryID)).Y); err != nil {
+			t.Fatal(err)
+		}
+		for tabs := 0; !labels[h.focusedName()]; tabs++ {
+			if tabs == 12 {
+				t.Fatalf("the keyboard never reached the result list; focus is on %q", h.focusedName())
+			}
+			press(gfx.KeyTab)
+		}
+		for h.app.searchView.list.Selected() > row {
+			press(gfx.KeyUp)
+		}
+		for h.app.searchView.list.Selected() < row {
+			press(gfx.KeyDown)
+		}
+	}
+	opensAt := func(match core.WorkspaceSearchMatch, opens int) {
+		t.Helper()
+		path := filepath.Join(root, filepath.FromSlash(match.Path))
+		awaitDocumentState(t, h, func() bool {
+			return countPerformed(log, "workspace.search.openResult") == opens && p.docs.byPath(path) != nil
+		})
+		if line, column := p.docs.byPath(path).view.Caret(); line != *match.Line-1 || column != match.ContentMatchRanges[0].Start {
+			t.Fatalf("the match opened %s at %d:%d, want %d:%d", match.Path, line, column, *match.Line-1, match.ContentMatchRanges[0].Start)
+		}
+	}
+
+	focusRow(1)
+	press(gfx.KeyF4)
+	opensAt(p.search.matches[1], 1)
+	if got := h.app.searchView.list.Selected(); got != 1 {
+		t.Fatalf("the result list selects row %d after F4, want the opened match (1)", got)
+	}
+
+	h.app.settings.Keymap = h.app.settings.Keymap.With(shortcuts.OpenSelected, []keymap.Chord{chordF7(t)})
+	focusRow(0)
+	press(gfx.KeyF4)
+	if n := countPerformed(log, "workspace.search.openResult"); n != 1 {
+		t.Fatalf("F4 opened a match while Open Selected File is on F7 (%d opens)", n)
+	}
+	press(gfx.KeyF7)
+	opensAt(p.search.matches[0], 2)
 }

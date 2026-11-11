@@ -128,6 +128,9 @@ const (
 	FindAction = "search.findAction"
 	InlineEdit = "editor.inlineEdit"
 	GoToLine   = "navigate.gotoLine"
+	// OpenSelected opens the selected entry of the project tree or the search results. Those
+	// lists bind it on their own elements, so it acts only while the focus is in one of them.
+	OpenSelected = "workspace.openSelected"
 )
 
 // Catalog is every action a user can bind, in the order the Keymap page lists them.
@@ -147,6 +150,7 @@ var Catalog = []Action{
 	{ID: "project.clone", Group: GroupProject, Title: func(m *i18n.Messages) string { return m.Commands.Clone }},
 	{ID: "project.close", Group: GroupProject, Title: func(m *i18n.Messages) string { return m.Commands.CloseProject }},
 	{ID: "documents.saveAll", Group: GroupProject, Title: func(m *i18n.Messages) string { return m.Commands.SaveAll }},
+	{ID: OpenSelected, Group: GroupProject, Title: func(m *i18n.Messages) string { return m.Keymap.OpenSelected }, Defaults: chords(chord(0, "f4"))},
 	{ID: "localHistory.show", Group: GroupProject, Title: func(m *i18n.Messages) string { return m.History.Show }},
 	{ID: "search.everywhere", Group: GroupSearch, Title: func(m *i18n.Messages) string { return m.Commands.SearchEverywhere }, Defaults: chords(chord(keymap.Primary|gfx.ModifierShift, "o"))},
 	{ID: FindAction, Group: GroupSearch, Title: func(m *i18n.Messages) string { return m.Commands.FindAction }, Defaults: chords(chord(keymap.Primary|gfx.ModifierShift, "a"))},

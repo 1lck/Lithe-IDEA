@@ -33180,9 +33180,10 @@
     },
     {
       "id": "keybindings.commands.file.openSelected.title",
-      "description": "Windows command: open the focused file or search result",
+      "description": "Keymap command: open the focused file or search result",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {

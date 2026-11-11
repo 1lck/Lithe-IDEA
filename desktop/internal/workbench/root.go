@@ -187,6 +187,9 @@ func (a *App) workbench(c ui.C) {
 func (a *App) windowShortcuts(c ui.C) {
 	fired := ""
 	for _, action := range shortcuts.All() {
+		if action.ID == shortcuts.OpenSelected {
+			continue // the project tree and the search results bind it themselves (elementShortcut)
+		}
 		for _, chord := range a.settings.Keymap.Effective(action) {
 			if ui.Shortcut(c, chord.Modifiers, chord.Name()) && a.shortcutApplies(c, action.ID) && !a.vimOwnsChord(c, chord.Modifiers, chord.Name()) {
 				fired = action.ID
@@ -198,6 +201,23 @@ func (a *App) windowShortcuts(c ui.C) {
 	}
 	view := a.focusedDocument(c.Canvas().Focused())
 	c.After(func() { a.runShortcut(fired, view) })
+}
+
+// elementShortcut reports whether one of the catalog action's effective chords was pressed while
+// the focus is on or in element: the action works on what that element selected, so the user's
+// keys for it act only there.
+func (a *App) elementShortcut(element ui.Box, id string) bool {
+	action, ok := shortcuts.Find(id)
+	if !ok {
+		return false
+	}
+	pressed := false
+	for _, chord := range a.settings.Keymap.Effective(action) {
+		if element.Shortcut(chord.Modifiers, chord.Name()) {
+			pressed = true
+		}
+	}
+	return pressed
 }
 
 // shortcutApplies reports whether the action's chord acts where the focus is now.

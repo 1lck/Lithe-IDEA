@@ -11,7 +11,9 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/keymap"
 )
 
 // writeTreeFiles makes the files at the slash-separated paths under root, with the folders
@@ -337,4 +339,79 @@ func (h *harness) treeRowOwned(id gfx.ID) bool {
 		}
 	}
 	return false
+}
+
+// TestProjectTreeOpenSelectedFollowsTheKeymap opens the file the keyboard selected in the tree
+// with the user's key for Open Selected File, and with F4 once the action has its default again.
+// A click on a file would open it at once, so a click on an empty folder gives the tree the
+// keyboard and the arrows pick the file.
+func TestProjectTreeOpenSelectedFollowsTheKeymap(t *testing.T) {
+	// The pinned Viva leaves a Tree's focused rows outside the box Tree returns, so no
+	// Shortcut on the project tree acts while a row has the focus. Remove this skip with the
+	// pin that carries Lithe-IDEA/viva#9 (vivaui/viva#234).
+	t.Skip("needs Box.Shortcut to cover Tree rows: Lithe-IDEA/viva#9")
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "empty"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTreeFiles(t, root, "a.txt", "b.txt")
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	p := h.openTree(t, root)
+	log := &treeRecordingLog{}
+	h.app.logSink = log
+	t.Cleanup(func() { h.app.logSink = nil })
+	opens := func() int { return countPerformed(log, "workspace.tree.openSelected") }
+	press := func(key gfx.Key) {
+		t.Helper()
+		if err := h.driver.Key(key, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	selectFile := func(name string, downs int) {
+		t.Helper()
+		h.click(center(h.treeRowHit("empty").Bounds))
+		for range downs {
+			press(gfx.KeyDown)
+		}
+		if p.tree.selected == nil || p.tree.selected.name != name {
+			t.Fatalf("the tree selected %+v, want %s", p.tree.selected, name)
+		}
+	}
+
+	h.app.settings.Keymap = h.app.settings.Keymap.With(shortcuts.OpenSelected, []keymap.Chord{chordF7(t)})
+	selectFile("a.txt", 1)
+	press(gfx.KeyF4)
+	if n := opens(); n != 0 {
+		t.Fatalf("F4 opened the selected file while Open Selected File is on F7 (%d opens)", n)
+	}
+	press(gfx.KeyF7)
+	awaitDocumentState(t, h, func() bool { return opens() == 1 && p.docs.byPath(filepath.Join(root, "a.txt")) != nil })
+
+	h.app.settings.Keymap = h.app.settings.Keymap.Without(shortcuts.OpenSelected)
+	selectFile("b.txt", 2)
+	press(gfx.KeyF4)
+	awaitDocumentState(t, h, func() bool { return opens() == 2 && p.docs.byPath(filepath.Join(root, "b.txt")) != nil })
+}
+
+// countPerformed is how many times the log recorded the action as performed.
+func countPerformed(log *treeRecordingLog, action string) int {
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	n := 0
+	for _, event := range log.events {
+		if event.Event == "app.action.performed" && event.Fields["action"] == action {
+			n++
+		}
+	}
+	return n
+}
+
+// chordF7 is F7 alone, a key no default action of the window takes (F6 moves between panes).
+func chordF7(t *testing.T) keymap.Chord {
+	t.Helper()
+	chord, ok := keymap.Parse(0, "f7")
+	if !ok {
+		t.Fatal("F7 is not a chord")
+	}
+	return chord
 }
