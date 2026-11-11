@@ -267,7 +267,7 @@ func TestDiffPanesFolding(t *testing.T) {
 	})
 
 	t.Run("expanded", func(t *testing.T) {
-		l := layoutDiff(paneFoldLines(), nil, true, false, map[int]bool{1: true}, paneFoldText)
+		l := layoutDiff(paneFoldLines(), nil, true, false, map[int]diffReveal{1: {all: true}}, paneFoldText)
 		wantFolds(t, l.folds, []diffFold{{before: 25, after: 24, at: 24, hidden: 17}})
 		if got := paneLines(l.before); len(got) != 26 || got[0] != "c1" || got[19] != "c20" || got[20] != "x1" || got[25] != "" {
 			t.Errorf("before pane after opening the first fold = %q, want c1..c20, x1, x2, c22..c24 and a placeholder", got)

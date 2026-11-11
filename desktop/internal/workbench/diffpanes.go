@@ -19,6 +19,22 @@ import (
 // that correspond, which the view connects and which keep the scroll of the panes in step. It
 // draws nothing and holds no state of a tab.
 
+// diffRevealStep is how many unchanged lines one click of a fold shows above or below it, as IDEA
+// does.
+const diffRevealStep = 20
+
+// diffReveal is how much of a fold the user opened: the unchanged lines shown from the change above
+// it and from the change below it, or all of it.
+type diffReveal struct {
+	above, below int
+	all          bool
+}
+
+// add is the reveal after the user opened by more.
+func (r diffReveal) add(by diffReveal) diffReveal {
+	return diffReveal{above: r.above + by.above, below: r.below + by.below, all: r.all || by.all}
+}
+
 const (
 	// diffModified marks the lines of a change that replaces lines with others.
 	diffModified diffKind = diffAdded + 1
@@ -101,10 +117,10 @@ type diffLayout struct {
 // layoutDiff lays out the unified lines of a file as the panes of a Diff tab, side by side
 // when split and as one pane otherwise. anchors names the block that starts at a line index:
 // Core names a block by the first removed line of its change run, else the first added one.
-// Unchanged lines far from any change fold into a placeholder unless whole is set; a fold the
-// tab has opened is in expanded, by the index of its first line, which may be nil. foldText
+// Unchanged lines far from any change fold into a placeholder unless whole is set; the part of a
+// fold the tab has opened is in expanded, by the index of its first line, which may be nil. foldText
 // makes the note of a placeholder from the number of lines it hides.
-func layoutDiff(lines []core.GitDiffLine, anchors map[int]*core.DiffBlock, split, whole bool, expanded map[int]bool, foldText func(hidden int) string) *diffLayout {
+func layoutDiff(lines []core.GitDiffLine, anchors map[int]*core.DiffBlock, split, whole bool, expanded map[int]diffReveal, foldText func(hidden int) string) *diffLayout {
 	b := &diffLayoutBuilder{split: split, foldText: foldText}
 	size := 0
 	for _, line := range lines {
@@ -321,9 +337,9 @@ func (b *diffLayoutBuilder) placeholder(text string) (before, after int) {
 
 // plain writes the run of unchanged lines from i to j, end excluded, of a file that has no
 // anchor on them: all of them when the run is short or open, else the few next to the
-// changes around it, with a fold between.
-func (b *diffLayoutBuilder) plain(lines []core.GitDiffLine, i, j int, open bool) {
-	head, tail := diffContext, diffContext
+// changes around it, and the lines the user revealed of the fold, with a fold between.
+func (b *diffLayoutBuilder) plain(lines []core.GitDiffLine, i, j int, reveal diffReveal) {
+	head, tail := diffContext+reveal.above, diffContext+reveal.below
 	if !b.emitted() {
 		head = 0
 	}
@@ -331,7 +347,7 @@ func (b *diffLayoutBuilder) plain(lines []core.GitDiffLine, i, j int, open bool)
 		tail = 0
 	}
 	hidden := j - i - head - tail
-	if hidden < diffFoldLeast || open {
+	if hidden < diffFoldLeast || reveal.all {
 		for _, line := range lines[i:j] {
 			b.context(line)
 		}

@@ -231,7 +231,7 @@ func TestDiffTabFoldsAndStepsThroughDifferences(t *testing.T) {
 		t.Fatalf("the next difference went past the last to %d", d.current)
 	}
 
-	h.app.expandDiff(d, folds[0].at)
+	h.app.revealDiff(d, folds[0].at, diffReveal{all: true})
 	if len(diffFolds(d)) != len(folds)-1 {
 		t.Fatalf("opening a fold left %d of %d folds", len(diffFolds(d)), len(folds))
 	}
