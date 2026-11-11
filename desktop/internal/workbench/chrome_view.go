@@ -74,6 +74,7 @@ func (a *App) titleBar(c ui.C) {
 	ui.Row(c).FillWidth().Height(titleBarHeight).Shrink(0).Background(a.chromeFill()).
 		Items(ui.Center).Gap(chromeGap).PadSides(0, trailing+chromeEdge, 0, leading+chromeEdge).
 		MovesWindow().Children(func() {
+		a.compactMenuButton(c)
 		a.chromeProject(c)
 		a.chromeBranch(c)
 		ui.Spacer(c)

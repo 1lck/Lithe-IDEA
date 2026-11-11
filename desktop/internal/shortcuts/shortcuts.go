@@ -127,6 +127,8 @@ var Catalog = []Action{
 	{ID: FindAction, Group: GroupSearch, Title: func(m *i18n.Messages) string { return m.Commands.FindAction }, Defaults: chords(chord(keymap.Primary|gfx.ModifierShift, "a"))},
 	{ID: "search.files", Group: GroupSearch, Title: func(m *i18n.Messages) string { return m.Commands.FindInFiles }, Defaults: chords(chord(keymap.Primary|gfx.ModifierShift, "f"))},
 	{ID: "search.replace", Group: GroupSearch, Title: func(m *i18n.Messages) string { return m.Commands.ReplaceInFiles }},
+	{ID: "git.gutter.next", Group: GroupEditor, Title: func(m *i18n.Messages) string { return m.Commands.GitNextChange }, Defaults: chords(chord(gfx.ModifierControl|gfx.ModifierAlt|gfx.ModifierShift, "down"))},
+	{ID: "git.gutter.previous", Group: GroupEditor, Title: func(m *i18n.Messages) string { return m.Commands.GitPreviousChange }, Defaults: chords(chord(gfx.ModifierControl|gfx.ModifierAlt|gfx.ModifierShift, "up"))},
 	{ID: GoToLine, Group: GroupEditor, Title: func(m *i18n.Messages) string { return m.Keymap.GoToLine }, Defaults: chords(navigateDefault())},
 	{ID: InlineEdit, Group: GroupEditor, Title: func(m *i18n.Messages) string { return m.Keymap.InlineEdit }, Defaults: chords(chord(keymap.Primary, "k"))},
 	{ID: "git.commit", Group: GroupGit, Title: func(m *i18n.Messages) string { return m.Commands.Commit }},

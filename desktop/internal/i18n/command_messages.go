@@ -2,7 +2,7 @@ package i18n
 
 // CommandMessages name the actions of the command catalog (Find Action).
 type CommandMessages struct {
-	GroupEditor, GroupApp, GroupView, GroupProject, GroupToolWindows, GroupSearch, GroupGit, GroupRun, GroupTerminal, GroupAgent, Settings, Plugins, Logs, ImportLegacy, ThemeSystem, ThemeLight, ThemeDark, LanguageEnglish, LanguageChinese, OpenProject, NewProject, Clone, CloseProject, SaveAll, SearchEverywhere, FindInFiles, ReplaceInFiles, Commit, CommitAndPush, Branches, GitConsole, Run, Debug, ToggleBreakpoint, NewTerminal, NewAgentConversation, NoActions, FindAction string
+	GroupEditor, GroupApp, GroupView, GroupProject, GroupToolWindows, GroupSearch, GroupGit, GroupRun, GroupTerminal, GroupAgent, Settings, Plugins, Logs, ImportLegacy, ThemeSystem, ThemeLight, ThemeDark, LanguageEnglish, LanguageChinese, OpenProject, NewProject, Clone, CloseProject, SaveAll, SearchEverywhere, FindInFiles, ReplaceInFiles, Commit, CommitAndPush, Branches, GitConsole, Run, Debug, ToggleBreakpoint, NewTerminal, NewAgentConversation, NoActions, FindAction, GitNextChange, GitPreviousChange string
 	// ShowTool is the action that shows a tool window by its name.
 	ShowTool func(name string) string
 }
@@ -12,6 +12,8 @@ func commandMessages(language Language) CommandMessages {
 		GroupApp:             Shared(language, "desktop.command.groupApp"),
 		GroupView:            Shared(language, "desktop.command.groupView"),
 		GroupEditor:          Shared(language, "desktop.command.groupEditor"),
+		GitNextChange:        Shared(language, "desktop.command.gitNextChange"),
+		GitPreviousChange:    Shared(language, "desktop.command.gitPreviousChange"),
 		GroupProject:         Shared(language, "desktop.command.groupProject"),
 		GroupToolWindows:     Shared(language, "desktop.command.groupToolWindows"),
 		GroupSearch:          Shared(language, "desktop.command.groupSearch"),

@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -73,14 +74,23 @@ const (
 	exportFileDescription = "Core-redacted diagnostic evidence"
 	exportFailedEvent     = "app.diagnostics.export_failed"
 	// The stages of exportFailedEvent the window reports.
-	stagePlanning = "planning"
-	stageArchive  = "archive"
-	stageCleanup  = "cleanup"
+	// maxExportFiles is the most log files one bundle holds; the rest are counted in exportStatusFile.
+	maxExportFiles = 200
+	// exportStatusFile reports what the bundle left out.
+	exportStatusFile = "collection-status.txt"
+	// previewLifetime is how long a staged preview stays exportable; after it the staging is removed and
+	// the preview is planned again.
+	previewLifetime = 5 * time.Minute
+	stagePlanning   = "planning"
+	stageArchive    = "archive"
+	stageCleanup    = "cleanup"
 )
 
 // exportState is the export dialog's state.
 type exportState struct {
 	presented bool
+	// stagedAt is when the staged preview was made; an older preview is planned again.
+	stagedAt time.Time
 	// The dialog's choices.
 	scope              exportRange
 	currentFilterOnly  bool
@@ -298,6 +308,11 @@ func (m *Model) writeStaging(ctx context.Context, root string, collection logsto
 		snapshot = m.opts.System(volume)
 	}
 	files := slices.Clone(collection.Files)
+	if omitted := len(files) - maxExportFiles; omitted > 0 {
+		files = files[:maxExportFiles]
+		status := []byte("files omitted by the " + strconv.Itoa(maxExportFiles) + "-file limit: " + strconv.Itoa(omitted) + "\n")
+		files = append(files, logstore.ExportFile{RelativePath: exportStatusFile, Data: status})
+	}
 	if plan.includeEnvironment {
 		summary := core.LogEnvironment{AppVersion: plan.appVersion, OsVersion: snapshot.OSVersion, Architecture: "unknown"}
 		if plan.environment != nil {
@@ -397,12 +412,23 @@ func (m *Model) staged(token int, root string, manifest *core.DiagnosticsManifes
 		return
 	}
 	e.root, e.manifest, e.phase = root, manifest, exportAwaiting
+	e.stagedAt = m.now()
 }
+
+// errPreviewExpired reports that a staged preview is older than previewLifetime.
+var errPreviewExpired = errors.New("the diagnostic preview expired; prepare it again")
 
 // confirmExport asks where to save the staged bundle and saves it there.
 func (m *Model) confirmExport() {
 	e := &m.export
 	if e.phase != exportAwaiting || e.choosing || m.opts.SaveFile == nil {
+		return
+	}
+	if m.now().Sub(e.stagedAt) > previewLifetime {
+		// The frozen bytes are too old to save as previewed: the staging goes and the preview is made again.
+		m.removeStaging(e.root)
+		e.root, e.manifest, e.phase = "", nil, exportIdle
+		m.exportFailure(stagePlanning, errPreviewExpired)
 		return
 	}
 	e.choosing = true

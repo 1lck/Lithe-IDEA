@@ -131,7 +131,7 @@ func (a *App) gutterContextLine(d *document, line int) {
 	if selected && line >= startLine && line <= endLine {
 		return
 	}
-	d.view.GoToLine(line)
+	d.view.GoToLine(line + 1)
 }
 
 // revealDiffLine makes the diff tab t go to the change block that holds line (1-based, of the

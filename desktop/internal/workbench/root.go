@@ -34,6 +34,7 @@ func (a *App) Config() app.Config {
 		MinHeight:      600,
 		WindowMode:     app.WindowCustomTitlebar,
 		TitlebarHeight: titleBarHeight,
+		ClearColor:     a.startupBackground(),
 		WindowControls: func() app.WindowControlsStyle { return windowcontrols.Style(a.colors.Text, a.text) },
 		Tree:           &tree,
 		Invalidator:    &a.invalidator,
@@ -86,6 +87,7 @@ func (a *App) Config() app.Config {
 // paint declared that this one declares afresh.
 func (a *App) beginPaint(canvas *gfx.Canvas) {
 	a.theme, a.colors = look(a.settings.Theme)
+	a.rememberWindowBackground(a.colors.Editor)
 	a.shared.text.Store(a.text)
 	a.shared.dark.Store(a.colors.Dark)
 	a.status.frame(canvas, a.now())

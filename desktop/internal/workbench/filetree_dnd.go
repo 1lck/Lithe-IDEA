@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/wslpath"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -80,6 +81,10 @@ func (a *App) moveTreeItem(p *project, rel, dir string) {
 		a.notify(i18n.Shared(language, "desktop.files.nameExists"))
 		return
 	}
+	if err := wslpath.CheckMove(oldFull, newFull); err != nil {
+		a.notify(err.Error())
+		return
+	}
 	docs := a.documentsUnder(p, oldFull)
 	a.saveDocumentsThen(p, docs, func() {
 		if err := os.Rename(oldFull, newFull); err != nil {
@@ -129,6 +134,10 @@ func (a *App) treePaste(p *project, n *treeNode) {
 			}
 			if _, err := os.Lstat(dst); err == nil {
 				dst = freeCopyName(dst)
+			}
+			if err := wslpath.CheckMove(src, dst); err != nil {
+				failed = err
+				continue
 			}
 			if err := os.Rename(src, dst); err != nil {
 				failed = err

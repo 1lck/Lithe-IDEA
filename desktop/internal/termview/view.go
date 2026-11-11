@@ -321,6 +321,12 @@ func (v *View) BusyProbe() func() bool {
 }
 
 // Close ends the shell and keeps the view from starting another.
+// SendLine types text into the shell as one command line, followed by the Enter key. It reports
+// whether the shell accepted it.
+func (v *View) SendLine(text string) bool {
+	return v.sendInput([]byte(text + "\r"))
+}
+
 func (v *View) Close() {
 	v.closed = true
 	if v.shell != nil {
