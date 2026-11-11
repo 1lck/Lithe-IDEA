@@ -127,6 +127,7 @@ func (a *App) workbench(c ui.C) {
 	// declared, and the panels must be declared for the same tool windows the sizes were
 	// worked out for.
 	open := a.chrome.open
+	a.syncWindowTitle()
 	a.layout.capture()
 	plan := a.layout.arrange(c.Bounds(), open)
 	// The hide button is only noted while the paint is declared and acted on at its end, so

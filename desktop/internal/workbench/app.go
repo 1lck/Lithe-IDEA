@@ -387,6 +387,8 @@ type App struct {
 	// fills its monitor, as the host last reported.
 	window     *app.Window
 	fullscreen bool
+	// shownTitle is the system title last given to the window (window_title.go).
+	shownTitle string
 	// updates is the update check, download and install (updates.go).
 	updates updater
 	tasks   taskQueue
