@@ -101,6 +101,19 @@ func (v *View) vimMotionOf(s string, n int, op bool) (vimMove, bool) {
 			to = v.vimWordBack(to, big)
 		}
 		return vimMove{to: to}, true
+	case "H", "M", "L":
+		return v.vimScreenMotion(s, count)
+	case "g_":
+		return v.vimLastNonBlank(line), true
+	case "{", "}":
+		t := line
+		for i := 0; i < count; i++ {
+			t = v.vimParagraph(t, s == "}")
+		}
+		if t == last && s == "}" && strings.TrimSpace(v.text.Line(t)) != "" {
+			return vimMove{to: v.lineEnd(t)}, true
+		}
+		return vimMove{to: v.text.LineStart(t)}, true
 	case "%":
 		to, ok := v.vimMatchBracket(c)
 		return vimMove{to: to, incl: true}, ok
@@ -295,4 +308,60 @@ func (v *View) vimMatchBracket(c int) (int, bool) {
 			p = v.prevRune(p)
 		}
 	}
+}
+
+// vimScreenMotion is H, M or L: the first, middle or last line on the screen, counted in from the
+// top or bottom for H and L. Rows are the screen's, so a wrapped line counts as its rows.
+func (v *View) vimScreenMotion(s string, count int) (vimMove, bool) {
+	lineH := max(v.lineH, 1)
+	top := int(v.scroll / lineH)
+	visible := max(int(v.area.Height/lineH), 1)
+	bottom := min(top+visible-1, v.rowCount()-1)
+	row := (top + bottom) / 2
+	switch s {
+	case "H":
+		row = top + count - 1
+	case "L":
+		row = bottom - count + 1
+	}
+	line, _ := v.rowLine(min(max(row, top), max(bottom, top)))
+	return vimMove{to: v.vimFirstNB(line), line: true}, true
+}
+
+// vimParagraph is the blank line a paragraph motion from line stops at: the next one below
+// (forward) or above. A paragraph is the run of lines that are not blank.
+func (v *View) vimParagraph(line int, forward bool) int {
+	blank := func(l int) bool { return strings.TrimSpace(v.text.Line(l)) == "" }
+	last := v.text.LineCount() - 1
+	l := line
+	if forward {
+		for l < last && blank(l) {
+			l++
+		}
+		for l < last && !blank(l) {
+			l++
+		}
+		return l
+	}
+	for l > 0 && blank(l) {
+		l--
+	}
+	for l > 0 && !blank(l) {
+		l--
+	}
+	return l
+}
+
+// vimLastNonBlank is g_: the last character of the caret's line that is not a space, or the line's
+// start when the line is blank.
+func (v *View) vimLastNonBlank(line int) vimMove {
+	start, end := v.text.LineStart(line), v.lineEnd(line)
+	for p := end; p > start; {
+		q := v.prevRune(p)
+		if v.vimClass(q, false) != 1 {
+			return vimMove{to: q, incl: true}
+		}
+		p = q
+	}
+	return vimMove{to: start}
 }

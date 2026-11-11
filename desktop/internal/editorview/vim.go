@@ -70,6 +70,12 @@ type vimState struct {
 	// message is what the status bar shows in place of the mode, until the next key: the
 	// outcome of a command line that failed.
 	message string
+	// wholeWord says the last search matched whole words only (* and #).
+	wholeWord bool
+	// insertCount is the count an insert repeats its text by (3ifoo<Esc>), and insertStart where
+	// the insert began, so the text typed since can be repeated.
+	insertCount int
+	insertStart int
 	// exit runs the window's part of the commands that save and close (see SetVimExit).
 	exit           func(cmd string) bool
 	pattern        string
@@ -400,6 +406,14 @@ func (v *View) vimInsertToken(tok vimToken) {
 // vimLeaveInsert returns to Normal mode, and the caret steps back onto the character before it.
 func (v *View) vimLeaveInsert() {
 	st := &v.vim
+	if st.insertCount > 1 && v.caret >= st.insertStart {
+		// A count repeats what was typed: 3ifoo<Esc> types foo three times.
+		typed := string(v.text.AppendRange(nil, st.insertStart, v.caret))
+		for i := 1; i < st.insertCount && typed != ""; i++ {
+			v.edit(v.caret, v.caret, typed, editOther)
+		}
+	}
+	st.insertCount = 1
 	st.mode = vimNormal
 	if line := v.text.LineOf(v.caret); v.caret > v.text.LineStart(line) {
 		v.moveTo(v.prevRune(v.caret), false)
@@ -412,6 +426,7 @@ func (v *View) vimLeaveInsert() {
 func (v *View) vimEnterInsert(mode vimMode, at int) {
 	v.vim.mode = mode
 	v.vim.changed = true
+	v.vim.insertStart, v.vim.insertCount = at, 1
 	v.moveTo(at, false)
 }
 
@@ -473,9 +488,12 @@ func (v *View) vimCommandToken(tok vimToken) {
 	switch st.pend {
 	case 'g':
 		st.pend = 0
-		if s == "g" {
+		switch s {
+		case "g":
 			v.vimMotionCmd("gg")
-		} else {
+		case "_":
+			v.vimMotionCmd("g_")
+		default:
 			v.vimCancel()
 		}
 		return
@@ -648,8 +666,16 @@ func (v *View) vimCommand(s string) {
 		if !visual && st.op == 0 {
 			v.Redo()
 		}
+	case "*", "#":
+		if st.op == 0 {
+			v.vimSearchWordUnder(s == "#")
+		}
+	case "~":
+		if st.op == 0 && !visual {
+			v.vimToggleCase()
+		}
 	default:
-		if strings.Contains("hl jk+-\r\b$0^wWbBeE%G"+vimCtrlB+vimCtrlF, s) {
+		if strings.Contains("hl jk+-\r\b$0^wWbBeE%GHML{}"+vimCtrlB+vimCtrlF, s) {
 			v.vimMotionCmd(s)
 			return
 		}
@@ -744,6 +770,7 @@ func (v *View) vimInsertCmd(s string) {
 		mode = vimReplace
 	}
 	v.vimEnterInsert(mode, at)
+	v.vim.insertCount = max(v.vimRawCount(), 1)
 }
 
 // vimMotionCmd moves the caret, or with an operator pending, makes the operator's range of the

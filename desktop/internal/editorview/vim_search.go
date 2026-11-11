@@ -1,6 +1,10 @@
 package editorview
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+	"unicode/utf8"
+)
 
 // vim_search.go is the Vim search: the / and ? prompts, and n and N that repeat the last search. A
 // search finds the text as typed, with no pattern syntax, from the character after the caret, and
@@ -38,7 +42,7 @@ func (v *View) vimSearchInput(s string) {
 		if pat == "" {
 			return
 		}
-		st.pattern, st.searchBackward = pat, st.searchBack
+		st.pattern, st.searchBackward, st.wholeWord = pat, st.searchBack, false
 		v.vimSearchFrom(pat, st.searchBackward)
 	case vimBackspace:
 		if len(st.prompt) == 0 {
@@ -71,28 +75,113 @@ func (v *View) vimSearchRepeat(forward bool) {
 }
 
 // vimSearchFrom moves the caret to the next occurrence of pat after it, or before it when back is
-// set. It wraps around the text. The second result is false when pat does not occur.
+// set, and wraps around the text. With wholeWord set, an occurrence must not touch a word character
+// on either side. The second result is false when pat does not occur.
 func (v *View) vimSearchFrom(pat string, back bool) bool {
 	text := v.text.String()
 	c := v.caret
+	var hits []int
+	for i := 0; ; {
+		j := strings.Index(text[i:], pat)
+		if j < 0 {
+			break
+		}
+		at := i + j
+		if !v.vim.wholeWord || vimWholeAt(text, at, len(pat)) {
+			hits = append(hits, at)
+		}
+		i = at + 1
+	}
+	if len(hits) == 0 {
+		return false
+	}
 	at := -1
 	if !back {
-		from := min(v.nextRune(c), len(text))
-		if i := strings.Index(text[from:], pat); i >= 0 {
-			at = from + i
-		} else if i := strings.Index(text, pat); i >= 0 {
-			at = i
+		for _, h := range hits {
+			if h >= v.nextRune(c) {
+				at = h
+				break
+			}
+		}
+		if at < 0 {
+			at = hits[0]
 		}
 	} else {
-		if i := strings.LastIndex(text[:c], pat); i >= 0 {
-			at = i
-		} else if i := strings.LastIndex(text, pat); i >= 0 {
-			at = i
+		for k := len(hits) - 1; k >= 0; k-- {
+			if hits[k] < c {
+				at = hits[k]
+				break
+			}
 		}
-	}
-	if at < 0 {
-		return false
+		if at < 0 {
+			at = hits[len(hits)-1]
+		}
 	}
 	v.vimMoveCaret(vimMove{to: at})
 	return true
+}
+
+// vimWholeAt says the occurrence of length n at at is a whole word: no word character touches it.
+func vimWholeAt(text string, at, n int) bool {
+	if at > 0 {
+		r, _ := utf8.DecodeLastRuneInString(text[:at])
+		if vimWordRune(r) {
+			return false
+		}
+	}
+	if end := at + n; end < len(text) {
+		r, _ := utf8.DecodeRuneInString(text[end:])
+		if vimWordRune(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// vimWordRune says r is a word character for * and #: a letter, a digit or an underscore.
+func vimWordRune(r rune) bool { return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) }
+
+// vimSearchWordUnder is * (forward) and # (back): search for the word under the caret, as a whole
+// word. Nothing happens when the caret is not on a word.
+func (v *View) vimSearchWordUnder(back bool) {
+	if v.vimClass(v.caret, false) != 2 {
+		return
+	}
+	start, end, ok := v.vimWordObject(true, false)
+	if !ok {
+		return
+	}
+	word := string(v.text.AppendRange(nil, start, end))
+	st := &v.vim
+	st.pattern, st.searchBackward, st.wholeWord = word, back, true
+	v.vimSearchFrom(word, back)
+}
+
+// vimToggleCase is ~: the case of the count characters from the caret is swapped, and the caret
+// moves past them.
+func (v *View) vimToggleCase() {
+	n := max(v.vimRawCount(), 1)
+	from := v.caret
+	end := v.lineEnd(v.text.LineOf(from))
+	var b strings.Builder
+	to := from
+	for i := 0; i < n && to < end; i++ {
+		r := v.runeAt(to)
+		switch {
+		case unicode.IsUpper(r):
+			b.WriteRune(unicode.ToLower(r))
+		case unicode.IsLower(r):
+			b.WriteRune(unicode.ToUpper(r))
+		default:
+			b.WriteRune(r)
+		}
+		to = v.nextRune(to)
+	}
+	if to == from {
+		return
+	}
+	v.vim.changed = true
+	v.edit(from, to, b.String(), editOther)
+	v.moveTo(v.caret, false)
+	v.vimClamp()
 }
