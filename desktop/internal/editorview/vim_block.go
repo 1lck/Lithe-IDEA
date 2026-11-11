@@ -203,6 +203,36 @@ func (v *View) vimBlockInsert(after bool) {
 	v.vimBlockInsertMode()
 }
 
+// vimBlockPaste replaces every line of the block with the register. A register of one line per block line
+// (a block yank, or lines of the same count) gives each line its own text; any other text goes to every line.
+func (v *View) vimBlockPaste() {
+	st := &v.vim
+	text, _ := v.vimReadReg(st.regName)
+	st.regName = 0
+	if text == "" {
+		v.vimBlockExit(true)
+		return
+	}
+	parts := strings.Split(text, "\n")
+	n, _ := v.blockSpans()
+	if len(parts) != len(n) {
+		parts = []string{text}
+	}
+	st.changed = true
+	visited := 0
+	v.vimBlockEach(func(from, to int) int {
+		piece := parts[0]
+		if len(parts) == len(n) {
+			// The lines are visited from the last to the first.
+			piece = parts[len(n)-1-visited]
+		}
+		visited++
+		v.edit(from, to, piece, editOther)
+		return from + len(piece)
+	})
+	v.vimBlockExit(true)
+}
+
 // vimBlockReplace replaces every character of the block with ch.
 func (v *View) vimBlockReplace(ch string) {
 	v.vim.changed = true
@@ -240,6 +270,8 @@ func (v *View) vimBlockCommand(s string) bool {
 	case "C", "S":
 		b.toEnd = true
 		v.vimBlockOp('c')
+	case "p", "P":
+		v.vimBlockPaste()
 	case "I":
 		v.vimBlockInsert(false)
 	case "A":
