@@ -370,9 +370,29 @@ func (r *Runs) handleStart(ctx context.Context, params json.RawMessage) (json.Ra
 			}
 		}}
 	} else {
+		// A JDK launch whose class path would overflow the command line starts with an
+		// argument file in the run's temporary directory, removed when the run ends.
+		arguments := start.Arguments
+		if plan, ok := planJavaArgumentFile(executable, start.Arguments); ok {
+			if temporary == "" {
+				temporary, err = os.MkdirTemp("", "lithe-run-")
+				if err != nil {
+					cancel()
+					cleanup()
+					return nil, failure(pluginhost.CodeHostFailure, "the run's temporary directory cannot be created")
+				}
+			}
+			path, err := writeArgumentFile(temporary, plan.contents)
+			if err != nil {
+				cancel()
+				cleanup()
+				return nil, failure(pluginhost.CodeHostFailure, "the run's argument file cannot be written")
+			}
+			arguments = plan.withFile(path)
+		}
 		spawned, err := buildprocess.Start(runCtx, buildprocess.Spec{
 			Executable:       executable,
-			Arguments:        start.Arguments,
+			Arguments:        arguments,
 			WorkingDirectory: workingDirectory,
 			Environment:      environment,
 		}, func(_ buildprocess.Stream, text string) {
