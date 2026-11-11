@@ -629,5 +629,11 @@
     "description": "Shown when the Agent has not reported statistics yet.",
     "en-US": "The Agent has not reported statistics yet.",
     "zh-CN": "Agent 尚未上报统计。"
+  },
+  {
+    "id": "desktop.settings.agent.skills.openFile",
+    "description": "Button on a skill row of the Skills page that opens its SKILL.md in the workbench editor.",
+    "en-US": "Open SKILL.md",
+    "zh-CN": "打开 SKILL.md"
   }
 ]

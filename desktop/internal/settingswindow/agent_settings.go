@@ -61,6 +61,7 @@ type agentSettings struct {
 	aiGeneration    func() AIGenerationSettings
 	setAIGeneration func(AIGenerationSettings)
 	aiProviders     func(context.Context) []AIProviderStatus
+	openSkill       func(path string)
 	setLimits       func(agentID string, limit AgentContextLimit)
 	wake            func()
 
@@ -149,6 +150,7 @@ func newAgentSettings(o Options, wake func()) *agentSettings {
 		backend: o.AgentSettings, dataDirectory: o.AgentDataDirectory, workspace: o.AgentWorkspace,
 		limits: o.AgentContextLimits, setLimits: o.SetAgentContextLimits, wake: wake,
 		aiGeneration: o.AIGeneration, setAIGeneration: o.SetAIGeneration, aiProviders: o.AIProviders,
+		openSkill: o.OpenSkill,
 	}
 }
 

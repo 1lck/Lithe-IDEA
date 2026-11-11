@@ -298,6 +298,9 @@ type Options struct {
 	AgentWorkspace        func() string
 	AgentContextLimits    func(agentID string) AgentContextLimit
 	SetAgentContextLimits func(agentID string, limit AgentContextLimit)
+	// OpenSkill opens a skill's SKILL.md in the workbench editor. The path is the file the
+	// Skills listing reported; nil leaves the Open button out.
+	OpenSkill func(path string)
 	// AIGeneration reads the commit and inline-edit generation choices and SetAIGeneration
 	// saves them; they are Lithe's own preferences (agent_generation.go).
 	AIGeneration    func() AIGenerationSettings

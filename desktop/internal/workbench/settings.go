@@ -229,6 +229,14 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			})
 		},
 		OpenURL: func(address string) { _ = openURL(address) },
+		// A skill's SKILL.md opens as an ordinary editor tab of the open project.
+		OpenSkill: func(path string) {
+			a.post(func(a *App) {
+				if a.project != nil {
+					a.openFile(a.project, path)
+				}
+			})
+		},
 		SetNetwork: func(next settingswindow.NetworkSettings, password *string) {
 			a.post(func(a *App) { a.setNetwork(next, password) })
 		},

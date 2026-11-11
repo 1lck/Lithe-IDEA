@@ -33,6 +33,10 @@ func (w *window) skillRow(c ui.C, index int, skill core.AgentSkill, busy bool) {
 		if ui.Button(c.KeyInt(index).Key("view"), i18n.Shared(language, "desktop.settings.agent.skills.view")).Outline().Clicked() {
 			c.After(func() { s.readSkill(skill) })
 		}
+		if s.openSkill != nil && ui.Button(c.KeyInt(index).Key("open"), i18n.Shared(language, "desktop.settings.agent.skills.openFile")).Outline().Clicked() {
+			path := skill.Path
+			c.After(func() { s.openSkill(path) })
+		}
 		if ui.Button(c.KeyInt(index).Key("reveal"), i18n.Shared(language, "desktop.settings.agent.skills.reveal")).Outline().Clicked() {
 			path := skill.Path
 			c.After(func() { s.revealSkill(path) })
