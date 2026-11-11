@@ -82,6 +82,8 @@ type debugVariables struct {
 	// selected is the variable row the edit field acts on.
 	selected *debugVarNode
 	edit     debugVariableEdit
+	// menu is the context menu of the row right-clicked.
+	menu debugVarMenu
 	// json shows the loaded tree as JSON instead.
 	json bool
 	// registersView shows the registers scope alone, as the Registers tab does; the Variables tab lists

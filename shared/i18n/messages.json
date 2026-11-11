@@ -8396,7 +8396,8 @@
       "id": "debugger.disassembly.copyAddress",
       "description": "Context menu: copy an instruction or frame address",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Copy Address",
@@ -8506,7 +8507,8 @@
       "id": "debugger.disassembly.showDisassembly",
       "description": "Stack frame context menu: open the disassembly for this frame",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Show Disassembly",
@@ -9053,7 +9055,8 @@
       "id": "debugger.removeBreakpoint",
       "description": "Windows UI: debugger.removeBreakpoint",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -26102,7 +26105,8 @@
       "id": "git.jumpToSource",
       "description": "Windows UI: git.jumpToSource",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -40831,7 +40835,8 @@
       "id": "native.addToWatches",
       "description": "Native UI: Add to Watches",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Add to Watches",
@@ -43894,7 +43899,8 @@
       "id": "native.breakOnFieldAccess",
       "description": "Native UI: Break on Field Access…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Break on Field Access…",
@@ -49276,7 +49282,8 @@
       "id": "native.copyExpression",
       "description": "Native UI: Copy Expression",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Copy Expression",
@@ -49320,7 +49327,8 @@
       "id": "native.copyMethodName",
       "description": "Native UI: Copy Method Name",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Copy Method Name",
@@ -49331,7 +49339,8 @@
       "id": "native.copyName",
       "description": "Native UI: Copy Name",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Copy Name",
@@ -49420,7 +49429,8 @@
       "id": "native.copyRelativeLocation",
       "description": "Native UI: Copy Relative Location",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Copy Relative Location",
@@ -49487,7 +49497,8 @@
       "id": "native.copySourceLocation",
       "description": "Native UI: Copy Source Location",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Copy Source Location",
@@ -49509,7 +49520,8 @@
       "id": "native.copyThreadName",
       "description": "Native UI: Copy Thread Name",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Copy Thread Name",
@@ -49520,7 +49532,8 @@
       "id": "native.copyValue",
       "description": "Native UI: Copy Value",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Copy Value",
@@ -76085,7 +76098,8 @@
       "id": "native.removeAll",
       "description": "Native UI: Remove All",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Remove All",
@@ -80652,7 +80666,8 @@
       "id": "native.setValue",
       "description": "Native UI: Set Value…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Set Value…",

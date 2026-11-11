@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -156,7 +157,9 @@ func (a *App) debugWatchView(c ui.C, p *project) {
 		}
 		for index := range w.entries {
 			entry := w.entries[index]
-			ui.Row(c.Key("watch/" + entry.expression)).FillWidth().Items(ui.Center).Gap(6).Children(func() {
+			k := c.Key("watch/" + entry.expression)
+			row := ui.Row(k).FillWidth().Items(ui.Center).Gap(6).HitWith(ui.ID(k), entry.expression, gfx.HitOptions{SkipFocus: true})
+			row.Children(func() {
 				text := entry.expression
 				if entry.value != "" {
 					text += " = " + entry.value
@@ -177,6 +180,7 @@ func (a *App) debugWatchView(c ui.C, p *project) {
 					c.After(func() { a.removeDebugWatch(p, i) })
 				}
 			})
+			a.debugWatchMenu(k, row, p, index)
 		}
 	})
 }

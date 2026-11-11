@@ -141,6 +141,7 @@ func (a *App) debugVariablesTree(c ui.C, p *project) {
 	rows := v.flatten()
 	ui.Tree(c, &v.tree, len(rows), v.label, func(i int) {
 		node := rows[i]
+		a.debugVariablePointer(c, p, i, node)
 		if node.moreFor != nil {
 			a.debugVariableStatusRow(c, node, t.LoadingVariables, t.LoadMore)
 			return
@@ -156,6 +157,7 @@ func (a *App) debugVariablesTree(c ui.C, p *project) {
 			ui.Text(c, node.typeName).Shrink(0).FontSize(11.5).Color(a.colors.Subtle)
 		}
 	}).Grow(1).FillWidth()
+	a.debugVariableMenu(c, p)
 	if i, ok := v.tree.Toggled(); ok && i < len(rows) {
 		node := rows[i]
 		c.After(func() {

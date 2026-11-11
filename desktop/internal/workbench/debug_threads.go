@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -110,18 +111,23 @@ func (a *App) debugThreadPicker(c ui.C, p *project) {
 			selected = index
 		}
 	}
-	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).PadX(8).Items(ui.Center).Children(func() {
-		if ui.Select(c.Key("debugThread"), &selected, indexes, func(index int) string {
+	k := c.Key("debugThreads")
+	row := ui.Row(k).FillWidth().Height(panelHeaderHeight).Shrink(0).PadX(8).Items(ui.Center).
+		HitWith(ui.ID(k), t.Threads, gfx.HitOptions{SkipFocus: true})
+	row.Children(func() {
+		ui.Select(c.Key("debugThread"), &selected, indexes, func(index int) string {
 			name := d.threads[index].Name
 			if name == "" {
 				name = t.ThreadFallback(int(d.threads[index].ID))
 			}
 			return name
-		}).Label(t.Threads).Width(240).Height(24); selected != threadIndexOf(d.threads, d.selectedThread) {
+		}).Label(t.Threads).Width(240).Height(24)
+		if selected != threadIndexOf(d.threads, d.selectedThread) {
 			id := d.threads[selected].ID
 			c.After(func() { a.selectDebugThread(p, id) })
 		}
 	})
+	a.debugThreadMenu(k, row, p)
 }
 
 // threadIndexOf reports the position of one thread in the list, or 0 when it is absent.

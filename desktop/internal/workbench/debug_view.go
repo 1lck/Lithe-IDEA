@@ -199,12 +199,7 @@ func (a *App) debugBreakpoints(c ui.C, p *project) {
 		if marker := breakpointMarker(spec.breakpoint, t.Breakpoint.Conditional, t.Breakpoint.LogPoint); marker != "" {
 			ui.Text(row.C, marker).Shrink(0).FontSize(11.5).Color(a.colors.Accent).Ellipsis()
 		}
-		ui.ContextMenu(row.C, row.Element, func(menu *ui.MenuItems) {
-			menu.WidthRange(160, 240)
-			if menu.Item(t.Breakpoint.Edit).Clicked() {
-				row.C.After(func() { a.openBreakpointEdit(p, spec.path, spec.breakpoint.line) })
-			}
-		})
+		a.debugBreakpointMenu(row.C, row.Element, p, spec.path, spec.breakpoint.line)
 		if row.Element.Clicked() {
 			row.C.After(func() { a.removeBreakpoint(p, spec.path, spec.breakpoint.line) })
 		}
@@ -274,6 +269,7 @@ func (a *App) debugFrames(c ui.C, p *project) {
 		}
 		ui.Text(row.C, frame.Name).Grow(1).Shrink(1).FontSize(12.5).Color(color).Ellipsis()
 		index := r.frame
+		a.debugFrameMenu(row.C, element, p, index)
 		if element.Clicked() && index != d.vars.frame {
 			// The selected frame decides which scopes and variables are shown.
 			row.C.After(func() { a.selectDebugFrame(p, index) })
