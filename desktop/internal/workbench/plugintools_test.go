@@ -6,6 +6,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
@@ -31,7 +32,7 @@ func webPanelHarness(t *testing.T) (*harness, *store.Store) {
 	if err := os.MkdirAll(filepath.Join(installed, "ui"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := os.ReadFile("../../../shared/contracts/plugins/v1/fixtures/ui/web-panel.plugin.json")
+	manifest, err := os.ReadFile(contractfixture.Path("fixtures/ui/web-panel.plugin.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

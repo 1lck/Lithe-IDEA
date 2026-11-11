@@ -36,9 +36,11 @@ func TestMavenPluginProjectGeneratesABuildableMavenProject(t *testing.T) {
 	defer cancel()
 	kernel := core.NewClient()
 	// Core only needs a JDK's home and version for the templates; the files step runs no JDK.
+	home := t.TempDir()
 	input := core.ProjectGeneratorFormInput{
 		ProjectName: "maven-demo",
-		Runtimes:    map[string]core.ProjectRuntimeSelection{"jdk": {Home: t.TempDir(), Version: "17.0.2"}},
+		Values:      map[string]any{"jdk": home},
+		Tools:       map[string][]core.ProjectToolInstallation{"jdk": {{Home: home, Version: "17.0.2"}}},
 	}
 	form, err := kernel.ProjectGeneratorFormOf(ctx, manifest, "maven-java", input)
 	if err != nil || !form.Valid {
@@ -86,12 +88,14 @@ func TestMavenPluginArchetypeRunsRealMaven(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Minute)
 	defer cancel()
 	kernel := core.NewClient()
+	home := os.Getenv("JAVA_HOME")
+	if home == "" {
+		t.Skip("JAVA_HOME is not set")
+	}
 	input := core.ProjectGeneratorFormInput{
 		ProjectName: "archetype-demo",
-		Runtimes:    map[string]core.ProjectRuntimeSelection{"jdk": {Home: os.Getenv("JAVA_HOME"), Version: "17.0.2"}},
-	}
-	if input.Runtimes["jdk"].Home == "" {
-		t.Skip("JAVA_HOME is not set")
+		Values:      map[string]any{"jdk": home},
+		Tools:       map[string][]core.ProjectToolInstallation{"jdk": {{Home: home, Version: "17.0.2"}}},
 	}
 	plan, err := kernel.ProjectGenerationPlanOf(ctx, manifest, "maven-archetype", directory, input)
 	if err != nil {

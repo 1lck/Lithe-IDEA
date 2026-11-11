@@ -10,7 +10,7 @@ Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安�
 
 “官方”市场条目必须同时满足两点：来自默认源，并且带 Lithe 发布者签名。社区包也可以从磁盘 ZIP 或解包目录安装：先复制到本次操作的私有快照，再让用户确认权限和完整程序声明。市场索引校验值、本地快照摘要和发布者签名各自证明不同的事实，不能互相冒充；本地安装不会因市场出现同 ID 条目而自动变成市场管理的插件。
 
-对日常开发的直接影响：索引格式和校验规则只在 `shared/contracts/plugins/v1/` 与 `rust/lithe-core/src/plugins/marketplace.rs` 定义一次；官方插件不再跟随 Lithe 发版，而是每个插件按自己的标签单独发布。
+对日常开发的直接影响：索引格式和校验规则只在 `Lithe-core-rust/shared/plugins/contract/v1/` 与 `rust/lithe-core/src/plugins/marketplace.rs` 定义一次；官方插件不再跟随 Lithe 发版，而是每个插件按自己的标签单独发布。
 
 ## 问题
 
@@ -164,7 +164,7 @@ Viva 插件安装或宿主能力已经接通的证据。
 
 ## 适用范围
 
-- `shared/contracts/plugins/v1/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
 - `desktop/internal/core/marketplace.go`
 - `desktop/internal/marketplace/`
 - `desktop/internal/settingswindow/marketplace_view.go`

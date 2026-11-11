@@ -30,7 +30,7 @@ func TestDebugRealLLDBLaunchTargetAndBreakpoints(t *testing.T) {
 	}
 	validationContext, cancelValidation := context.WithTimeout(context.Background(), 5*time.Second)
 	_, validationErr := core.NewClient().ValidatePluginManifest(validationContext, manifest, map[string][]int{
-		"debugAdapters": {1}, "serverProcess": {1}, "languages": {1}, "settings": {2},
+		"debugAdapters": {0}, "languages": {0}, "settings": {0},
 	})
 	cancelValidation()
 	if validationErr != nil {

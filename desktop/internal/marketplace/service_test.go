@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
 
@@ -19,7 +20,7 @@ type transportFunc func(*http.Request) (*http.Response, error)
 func (f transportFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestFetchValidatesIndexThroughCore(t *testing.T) {
-	index, err := os.ReadFile("../../../shared/contracts/plugins/v1/fixtures/marketplace/index.json")
+	index, err := os.ReadFile(contractfixture.Path("fixtures/marketplace/index.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +83,7 @@ func TestPublishedOfficialIndexExistsInRepository(t *testing.T) {
 }
 
 func TestFetchOfficialSourceKeepsOfficialNamespace(t *testing.T) {
-	index, err := os.ReadFile("../../../shared/contracts/plugins/v1/fixtures/marketplace/index.json")
+	index, err := os.ReadFile(contractfixture.Path("fixtures/marketplace/index.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +159,7 @@ func (failingCloseBody) Close() error { return errCloseBody }
 var errCloseBody = errors.New("injected close failure")
 
 func TestFetchReportsResponseCloseFailure(t *testing.T) {
-	index, err := os.ReadFile("../../../shared/contracts/plugins/v1/fixtures/marketplace/index.json")
+	index, err := os.ReadFile(contractfixture.Path("fixtures/marketplace/index.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

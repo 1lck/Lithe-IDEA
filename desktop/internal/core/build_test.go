@@ -5,12 +5,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 // readBuildFixture returns a shared build-provider manifest.
 func readBuildFixture(t *testing.T, name string) json.RawMessage {
 	t.Helper()
-	body, err := os.ReadFile(filepath.Join("../../../shared/contracts/plugins/v1/fixtures/build-providers", name))
+	body, err := os.ReadFile(filepath.Join(contractfixture.Path("fixtures/build-providers"), name))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +82,7 @@ func TestBuildDecodeModelKeepsTargetsAndModelTasks(t *testing.T) {
 	manifest := readBuildFixture(t, "build-provider.plugin.json")
 	result := json.RawMessage(`{
 		"format": "litheBuildModel",
-		"version": 1,
+		"version": 0,
 		"projects": [{"path": ".", "name": "shop"}],
 		"targets": [{"project": ".", "name": "app", "path": "app", "tags": ["application"]}],
 		"tasks": [{"project": ".", "name": "bootRun", "template": "gradle-task", "execution": "service"}]
@@ -111,7 +113,7 @@ func TestBuildDecodeRunKeepsValidatedExecutable(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := readBuildFixture(t, "build-provider-run-preparation.plugin.json")
-	raw, err := os.ReadFile("../../../shared/contracts/plugins/v1/fixtures/build-providers/build-run-preparation.json")
+	raw, err := os.ReadFile(contractfixture.Path("fixtures/build-providers/build-run-preparation.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

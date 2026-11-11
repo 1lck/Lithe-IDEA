@@ -377,7 +377,7 @@ func (a *App) generatorField(c ui.C, language i18n.Language, form *generatorForm
 				ui.Checkbox(c, &field.flag, decl.Title)
 			case fieldMultiSelect:
 				a.multiSelectField(c, field)
-			case fieldRuntime, fieldTool:
+			case fieldTool:
 				a.installationField(c, language, form, field)
 			}
 		})
@@ -558,8 +558,6 @@ func fieldProblemMessage(language i18n.Language, problem string) string {
 		return i18n.Shared(language, "desktop.newProject.problem.tooLong")
 	case "invalidFormat":
 		return i18n.Shared(language, "desktop.newProject.problem.invalidFormat")
-	case "runtimeTooOld":
-		return i18n.Shared(language, "desktop.newProject.problem.runtimeTooOld")
 	case "toolTooOld":
 		return i18n.Shared(language, "desktop.newProject.problem.toolTooOld")
 	case "versionTooHigh":

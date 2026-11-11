@@ -13,12 +13,12 @@ import (
 // JUnit XML reports. Core validates it on every call, so this test exercises
 // the real planning and decoding paths rather than a host-side copy.
 const testsFixtureManifest = `{
-  "schemaVersion": 2,
+  "schemaVersion": 0,
   "id": "dev.lithe.test.tests-fixture",
   "displayName": "Tests Fixture",
   "version": "0.1.0",
-  "pluginAPIVersion": 3,
-  "requires": {"buildSystems": 1},
+  "pluginAPIVersion": 0,
+  "requires": {"buildSystems": 0},
   "vendor": {"id": "org.example", "displayName": "Example", "signatureRequirement": "publisherPackage"},
   "permissions": ["process.build"],
   "activationEvents": ["onBuildSystem:fixture-tests"],

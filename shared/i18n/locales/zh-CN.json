@@ -1900,7 +1900,6 @@
     "desktop.newProject.pinFailed": "项目已创建，但无法保存你选择的工具。你可以稍后在工具链设置中重新选择。",
     "desktop.newProject.problem.invalidFormat": "格式无效。",
     "desktop.newProject.problem.required": "此项必填。",
-    "desktop.newProject.problem.runtimeTooOld": "所选版本过旧。",
     "desktop.newProject.problem.tooLong": "内容过长。",
     "desktop.newProject.problem.toolTooOld": "所选版本过旧。",
     "desktop.newProject.problem.unsupportedValue": "不支持此值。",

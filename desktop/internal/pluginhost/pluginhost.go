@@ -52,106 +52,100 @@ type ManifestValidator interface {
 // the shape Core expects: capability name to the versions served.
 type Capabilities map[string][]int
 
-// Declared is what this client can serve today.
+// Declared is what this client can serve today, in plugin contract v1 terms.
 //
-// A plugin language needs a grammar file and a few editor delimiters, and both are
-// wired: the grammar is decoded by Core and registered with the editor, and the
-// delimiters reach the language's comment and bracket rules.
+// Every capability starts at version 0. A host declares a capability version
+// when it accepts every manifest form of that version and speaks its protocol.
+// Features a plugin offers may go unpresented: this client leaves such a part
+// out of the surface (no button, menu or window) instead of failing when a user
+// reaches for it, and the parts still missing are listed below so the table
+// never hides them. Host services a plugin needs are discovered at runtime
+// through getCapabilities and permissions, not through this table.
 //
-// A language server is served at versions 1 and 3. This client resolves the
-// launch Core plans (a packaged program, a packaged runtime, a bare command the
-// host finds on PATH, or, for serverProcess 3, the command line the plugin backend
-// answers), starts the process, keeps the session's documents in step with the
-// editor, and draws the diagnostics it publishes. languageServers 3 plugin-owned
-// sessions are wired: the backend's languageServer/request and notify reach the
-// server under Core's session policy, and didReceiveNotification and
-// didChangeState reach the backend.
+// Starting plugin processes and resolving executables are base contract rules,
+// not capabilities: every section that starts a process uses them.
 //
-// A plugin backend (backend 1 and 2) is started on demand: when a workspace opens
-// for a plugin that declares onWorkspaceOpen, when its language server needs a
-// launch answer, or when another plugin calls it. It is answered the host
-// services workspace/getFolders, listContexts and getContext (with
-// didChangeContexts), subscriptions/dispose, the languageServer methods, the
-// cross-plugin functions relay (pluginFunctions 1), credentials/get|set|delete
-// (the platform secret store), documents/list and getSnapshot,
-// editor/getActive, getSelections, open, reveal, insertText, replaceSelections
-// and applyEdits, window/showInformation|showWarning|showError,
-// browser/openExternal (http and https only), terminal/create|show|close|reopen|
-// dispose|onExit, and documents/registerContentProvider. The window-bound ones
-// are registered only when the window attaches (Service.AttachWorkbench), so a
-// session without a window is never granted a method nobody can answer.
-// getCapabilities lists only what is registered. Run, debug, workspace file and
-// search services, editor/registerActions and registerProviders and
-// preview/openHTML are not registered, so a plugin that needs one is refused when
-// it asks for the permission's methods.
+// Served:
 //
-// Three things the contract can ask for are still missing:
+//   - languages: the grammar is decoded by Core and registered with the editor,
+//     and the delimiters reach the language's comment and bracket rules.
+//   - languageServers: this client resolves the launch Core
+//     plans (a packaged program, a packaged runtime, a bare command found on
+//     PATH, or the command line the plugin backend answers), starts the process,
+//     keeps the session's documents in step with the editor and draws the
+//     diagnostics it publishes. Plugin-owned sessions are wired: the backend's
+//     languageServer/request and notify reach the server under Core's session
+//     policy, and didReceiveNotification and didChangeState reach the backend.
+//   - backend and pluginFunctions: a backend starts on demand (onWorkspaceOpen,
+//     a launch answer, or a call from another plugin) and is answered the host
+//     services workspace/getFolders, listContexts and getContext (with
+//     didChangeContexts), subscriptions/dispose, the languageServer methods, the
+//     cross-plugin functions relay, credentials/get|set|delete, documents/list
+//     and getSnapshot, editor/getActive, getSelections, open, reveal, insertText,
+//     replaceSelections and applyEdits, window/showInformation|showWarning|
+//     showError, browser/openExternal (http and https only), terminal/create|
+//     show|close|reopen|dispose|onExit and documents/registerContentProvider.
+//     Window-bound methods are registered only when the window attaches
+//     (Service.AttachWorkbench); getCapabilities lists only what is registered.
+//     Run, debug, workspace file and search services, editor/registerActions
+//     and registerProviders and preview/openHTML are not registered, so a
+//     plugin that needs one is refused when it asks for that permission.
+//   - buildSystems and buildProviders: the Build window detects instances,
+//     loads provider models, resolves the ordered executable candidates Core
+//     returns, runs command and provider tasks and prepares application targets.
+//     Run sessions a backend starts (run/start, run/stop, run/didExit) are owned
+//     by the host.
+//   - toolDefinitions: settings discovery and Build/Run selection use the
+//     shared Core resolver.
+//   - projectGenerators: the New Project window lists generators, evaluates
+//     their forms through Core, discovers tools with the shared toolchain and
+//     runs the plan in a staging directory.
+//   - settings: pages per language and build system, sections, every control
+//     type, the project layer, setting effects and page buttons.
+//   - debugAdapters: stdio adapters and adapters inside the plugin's language
+//     server over loopback TCP, launch and attach (a remote host after the user
+//     confirms it), argument and environment bindings, features and defaults.
+//   - outputLinkMatchers: Build, Run and Test console lines become links at the
+//     ranges Core finds; a matcher with resolve asks the backend on click.
+//   - ui: text, web (window.lithe bridge) and native tree, list or form tool
+//     windows docked in the tool stripes.
 //
-//   - a language server launch answer of {kind: "tool"} (serverProcess 4) is
-//     refused at start, because the tool is not resolved through the toolchain
-//     registry yet; the plugin's packaged answer works. requiresTools is accepted.
-//   - only diagnostics are presented. Completion, hover, navigation, rename and
-//     formatting have no editor surface, so a server runs and reports problems but
-//     cannot yet answer a question about the code.
-//   - tool discovery for system commands reads PATH only. A plan that depends on a
-//     project toolchain or a user override is refused rather than started with
-//     whatever PATH holds.
+// Not presented yet (the plugin installs, the part has no surface):
 //
-// Run sessions a backend starts (run/start, run/stop, run/didExit) are served
-// by the host: it owns the process, the console and the end of the run, and
-// resolves the plugin's required tools or packaged executable.
+//   - a language server launch answer of {kind: "tool"} is refused at start,
+//     because the tool is not resolved through the toolchain registry yet.
+//   - only diagnostics are presented; completion, hover, navigation, rename and
+//     formatting have no editor surface.
+//   - tool discovery for system commands reads PATH only; a plan that depends
+//     on a project toolchain or a user override is refused.
+//   - build provider run preparation, tests, debug preparation, model inputs,
+//     native configuration, inline test reports and runtime debug; build system
+//     instance options and task preparations.
+//   - ui commands that belong to no tool window.
 //
-// Build systems are served through both provider processes and command plans.
-// The Build window detects instances, loads their model, resolves the ordered
-// executable candidates Core returns, runs command and provider tasks, and
-// prepares application targets. A shared provider attaches to the language
-// server of the same plugin. Run preparation, tests and debug preparation are
-// not served. Everything else a manifest can ask for — user
-// interface contributions, project generators — is likewise not served,
-// and claiming one would let a plugin install and then fail the first time a
-// user reaches for it.
+// buildModelInputs, executionProviders, keymapImportProviders, packageTrust,
+// toolchainProviders and vcsProviders are not declared: nothing here serves
+// them, so a plugin that needs one is not offered for installation.
 func Declared() Capabilities {
-	return Capabilities{
-		"languages":       {1, 3},
-		"languageServers": {1, 3},
-		"serverProcess":   {1, 3, 4},
-		"backend":         {1, 2},
-		"pluginFunctions": {1},
-		// The Build tool window detects the declared build systems, loads
-		// provider models and runs command or provider tasks. Version 2 is
-		// provider task execution. Run preparation (4), tests, debug and
-		// toolchain resolution remain undeclared until their native surfaces
-		// are complete.
-		"buildSystems":   {1},
-		"buildProviders": {1, 2},
-		// Tool definitions and strict executable resolution behind them are
-		// wired: settings discovery and Build/Run selection use the shared Core
-		// resolver. Provider queries are not, so toolchainProviders stays out
-		// rather than admitting a backend whose answers this client cannot read.
-		"executableResolution": {2},
-		"toolDefinitions":      {1},
-		// The New Project window lists plugin generators, evaluates their forms
-		// through Core, discovers tool and runtime installations with the shared
-		// toolchain, and runs the plan (files, commands, archives) in a staging
-		// directory. Version 2 adds tool fields.
-		"projectGenerators": {1, 2},
-		// Settings v2: pages per language and build system, sections, every
-		// control type, the project layer, setting effects and page buttons.
-		"settings": {1, 2},
-		// Debug adapters run over stdio, or inside the plugin's language server
-		// over loopback TCP (tcpLanguageServer). Launch and attach (including a
-		// remote host and port after the user confirms it), argument and
-		// environment bindings, and the declared features and defaults reach the
-		// shared debug engine.
-		"debugAdapters": {1, 2, 3},
-		// Console lines of Build, Run and Test output become links at the ranges
-		// Core finds; a matcher with resolve asks the plugin's backend on click.
-		"outputLinkMatchers": {1},
-		// Plugin tool windows dock in the tool stripes: plain text (1), a
-		// page of the package behind the window.lithe bridge (2), or a
-		// host-rendered native tree, list or form (3) whose data Core checks.
-		"ui": {1, 2, 3},
+	baseline := []string{
+		"backend",
+		"buildProviders",
+		"buildSystems",
+		"debugAdapters",
+		"languageServers",
+		"languages",
+		"outputLinkMatchers",
+		"pluginFunctions",
+		"projectGenerators",
+		"settings",
+		"toolDefinitions",
+		"ui",
 	}
+	declared := make(Capabilities, len(baseline))
+	for _, name := range baseline {
+		declared[name] = []int{0}
+	}
+	return declared
 }
 
 // Clone returns a copy callers may modify without touching the original.

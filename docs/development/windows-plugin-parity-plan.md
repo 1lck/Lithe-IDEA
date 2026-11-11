@@ -24,7 +24,7 @@
 | Windows 声明式宿主 [PR #1424](https://github.com/1lck/Lithe-IDEA/pull/1424) | OPEN，head 为 `ce0ef4dfa24002c29ced37ec5f6b345d83cffd2e`，目标 preview | 尚不能把在审宿主当作 preview 已有能力 |
 | macOS 能力表 | `macos/Sources/LitheModuleAPI/Plugins/PluginTypes.swift` 的 `PluginManifest.hostCapabilities` | 作为能力盘点入口，还要核对实际产品入口与矩阵限制 |
 | Windows 在审能力表 | PR #1424 的 `plugin_host/mod.rs::host_capabilities` | 只说明宿主接受哪些版本，不证明全部语义已验收 |
-| 公共 SDK 与开发文档 | 已迁至 [lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs) | 不再使用主仓库旧 `sdk/node`、`sdk/java` 路径；测试固定外部提交与校验身份 |
+| 公共 SDK 与开发文档 | 位于 Core 仓库的 [`shared/plugins/`](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins)（`guides/`、`reference/`、`sdk/`）；原 lithe-plugin-docs 已退役 | 不使用本仓库旧 `sdk/node`、`sdk/java` 路径；测试固定 Core 提交与校验身份 |
 
 每个实施 PR 都从当时最新 preview 创建 `codex/` 分支。优先等前置 PR 合入后再开始依赖它的实现；必须提前验证时，可在隔离工作树试验并记录依赖，待前置合入后重新整理为可独立评审的差异。不要把别的工作树未提交文件当作依赖，也不要复制整个 `.artifacts`。
 
@@ -337,7 +337,7 @@ bun run typecheck
 
 这些命令是按受影响范围选择的检查集合，不要求每个纯文档 PR 重建所有平台。矩阵 change gate 使用真实 PR base/head SHA；实现期间仍要在提交前按 Skill 检查实际改动范围。Rust 改动另执行相应 manifest 的 `cargo fmt --check`，涉及 Core 时先执行 Core 注释门禁。
 
-macOS/具备 zsh 的正式验证环境按相应 Skill 执行 `scripts/architecture/verify-shared-contracts.sh`、`scripts/rust-core/verify-rust-core.sh`、`scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和相关 Swift 测试/计时 harness。`verify-agent-notes.sh` 只包装 Node 校验，可在 Windows 原样运行其 Node 入口；共享契约脚本包含多项语义检查，不能以“所有 JSON 能解析”冒充全脚本通过。安装资源的静态不可变检查也不能代替真实工作流前后的文件哈希比较。
+macOS/具备 zsh 的正式验证环境按相应 Skill 执行 `scripts/rust-core/verify-rust-core.sh`、`scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和相关 Swift 测试/计时 harness。`verify-agent-notes.sh` 只包装 Node 校验，可在 Windows 原样运行其 Node 入口。契约、指南和参考文档的检查在 Core 仓库根运行 `node shared/plugins/scripts/verify-docs.mjs`，不能以“所有 JSON 能解析”冒充整套检查通过。安装资源的静态不可变检查也不能代替真实工作流前后的文件哈希比较。
 
 ### 5.3 资源生命周期
 
@@ -378,7 +378,7 @@ macOS/具备 zsh 的正式验证环境按相应 Skill 执行 `scripts/architectu
 
 - [跨平台功能同步规则](platform-parity.md)。
 - [应用边界](../../shared/contracts/application-boundary.md)与 [Rust Core API](../../shared/contracts/rust-core-api.md)。
-- [插件契约与 fixtures](../../shared/contracts/plugins/v1/README.md)。
+- [插件契约与 fixtures](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md)。
 - [插件市场与来源](../../.agents/notes/implemented/feature/2026-10-12-plugin-marketplace.md)。
 - [构建系统契约](../../.agents/notes/implemented/architecture/2026-10-17-build-system-plugin-contract.md)。
 - [插件设置注册面](../../.agents/notes/implemented/architecture/2026-10-21-plugin-settings-surfaces.md)。

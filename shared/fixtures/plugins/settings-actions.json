@@ -5,7 +5,7 @@
       "name": "confirmation-before-invocation",
       "input": {
         "owner": {
-          "pluginID": "dev.lithe.fixture.settings-v2",
+          "pluginID": "dev.lithe.fixture.settings",
           "version": "0.1.0"
         },
         "actionID": "rebuildPlt",
@@ -14,7 +14,7 @@
         "enabled": true
       },
       "plan": {
-        "pluginID": "dev.lithe.fixture.settings-v2",
+        "pluginID": "dev.lithe.fixture.settings",
         "actionID": "rebuildPlt",
         "title": "Rebuild PLT",
         "kind": "confirmationRequired",
@@ -25,7 +25,7 @@
       "name": "confirmed-action-has-empty-params",
       "input": {
         "owner": {
-          "pluginID": "dev.lithe.fixture.settings-v2",
+          "pluginID": "dev.lithe.fixture.settings",
           "version": "0.1.0"
         },
         "actionID": "rebuildPlt",
@@ -34,7 +34,7 @@
         "enabled": true
       },
       "plan": {
-        "pluginID": "dev.lithe.fixture.settings-v2",
+        "pluginID": "dev.lithe.fixture.settings",
         "actionID": "rebuildPlt",
         "title": "Rebuild PLT",
         "kind": "invoke",
@@ -47,7 +47,7 @@
       "name": "project-required",
       "input": {
         "owner": {
-          "pluginID": "dev.lithe.fixture.settings-v2",
+          "pluginID": "dev.lithe.fixture.settings",
           "version": "0.1.0"
         },
         "actionID": "rebuildPlt",
@@ -56,7 +56,7 @@
         "enabled": true
       },
       "plan": {
-        "pluginID": "dev.lithe.fixture.settings-v2",
+        "pluginID": "dev.lithe.fixture.settings",
         "actionID": "rebuildPlt",
         "title": "Rebuild PLT",
         "kind": "unavailable",
@@ -68,7 +68,7 @@
       "name": "unknown-action",
       "input": {
         "owner": {
-          "pluginID": "dev.lithe.fixture.settings-v2",
+          "pluginID": "dev.lithe.fixture.settings",
           "version": "0.1.0"
         },
         "actionID": "missing",
@@ -82,7 +82,7 @@
       "name": "wrong-installed-owner",
       "input": {
         "owner": {
-          "pluginID": "dev.lithe.fixture.settings-v2",
+          "pluginID": "dev.lithe.fixture.settings",
           "version": "9.0.0"
         },
         "actionID": "rebuildPlt",
@@ -96,7 +96,7 @@
       "name": "action-without-confirmation",
       "input": {
         "owner": {
-          "pluginID": "dev.lithe.fixture.settings-v2",
+          "pluginID": "dev.lithe.fixture.settings",
           "version": "0.1.0"
         },
         "actionID": "rebuildPlt",
@@ -106,7 +106,7 @@
       },
       "confirmation": false,
       "plan": {
-        "pluginID": "dev.lithe.fixture.settings-v2",
+        "pluginID": "dev.lithe.fixture.settings",
         "actionID": "rebuildPlt",
         "title": "Rebuild PLT",
         "kind": "invoke",
@@ -119,7 +119,7 @@
       "name": "disabled-plugin-is-not-invoked",
       "input": {
         "owner": {
-          "pluginID": "dev.lithe.fixture.settings-v2",
+          "pluginID": "dev.lithe.fixture.settings",
           "version": "0.1.0"
         },
         "actionID": "rebuildPlt",
@@ -129,7 +129,7 @@
       },
       "plan": {
         "kind": "unavailable",
-        "pluginID": "dev.lithe.fixture.settings-v2",
+        "pluginID": "dev.lithe.fixture.settings",
         "actionID": "rebuildPlt",
         "title": "Rebuild PLT",
         "reason": "pluginDisabled",

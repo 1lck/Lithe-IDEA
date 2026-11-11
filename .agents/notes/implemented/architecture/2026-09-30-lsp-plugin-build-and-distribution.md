@@ -68,7 +68,7 @@ LSP 控制中心和语言工具发现沿用现有 Rust Core LSP 会话。组合�
 
 ### 6. 跨平台实现保持相同边界
 
-macOS 使用声明式插件包和 publisher Ed25519 包签名；Windows 使用自己的 Tauri 插件包和平台签名、缓存适配器，接入共享契约 `shared/contracts/plugins/v1/` 时复用同一份声明语义。Windows 不得因为跨平台而把 macOS 的目录或构建脚本复制到 Windows。两端都必须满足：插件自有资源、构建时校验、运行时只读安装目录、禁用和卸载可清理自有资源。
+macOS 使用声明式插件包和 publisher Ed25519 包签名；Windows 使用自己的 Tauri 插件包和平台签名、缓存适配器，接入共享契约 `Lithe-core-rust/shared/plugins/contract/v1/` 时复用同一份声明语义。Windows 不得因为跨平台而把 macOS 的目录或构建脚本复制到 Windows。两端都必须满足：插件自有资源、构建时校验、运行时只读安装目录、禁用和卸载可清理自有资源。
 
 ## 考虑过的备选方案
 

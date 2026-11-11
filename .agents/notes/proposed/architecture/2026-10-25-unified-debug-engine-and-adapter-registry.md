@@ -31,7 +31,7 @@
 
 - **不自研调试器。** 符号解析、ptrace / Mach 异常端口 / Windows Debug API、各 CPU 架构的断点和单步，都由 GDB、LLDB 等上游负责。GCC 是编译器；GCC 编出来的程序用 GDB 或 LLDB 调试。
 - **不重建项目模型。** Java 的主类和 classpath 来自 JDT，Python 解释器来自 Run，C/C++/Rust 产物来自 Build/Run。
-- **不另造插件协议。** 启动声明复用 `serverProcess`、启动模板、能力版本和安装审查，详见[正式调试适配器契约](../../../../shared/contracts/plugins/v1/README.md#api-level-4-debug-adapters)。
+- **不另造插件协议。** 启动声明复用 `serverProcess`、启动模板、能力版本和安装审查，详见[正式调试适配器契约](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md#debug-adapters)。
 - **现有行为是迁移基线，不能丢。** 包括 Java 热替换、JUnit/TestNG、调试使用 Run 选中的 JDK、子调试会话与 source map 位置透传、断点先于 launch 入队、停止与清理顺序。
 
 ## 提案
@@ -99,7 +99,7 @@ Registry 注册时不启动程序做验证。一个适配器在接入验收中�
 
 ### 5. Registry 与插件声明
 
-完整字段和拒绝规则见[正式调试适配器契约](../../../../shared/contracts/plugins/v1/README.md#api-level-4-debug-adapters)、[清单 schema](../../../../shared/contracts/plugins/v1/plugin-manifest.schema.json) 和[拒绝 fixtures](../../../../shared/contracts/plugins/v1/fixtures/debug-adapters/debug-adapter-rejections.json)，这里只记录决策：
+完整字段和拒绝规则见[正式调试适配器契约](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md#debug-adapters)、[清单 schema](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/plugin-manifest.schema.json) 和[拒绝 fixtures](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/fixtures/debug-adapters/debug-adapter-rejections.json)，这里只记录决策：
 
 - 插件只写一个 `plugin.json.debugAdapters` 块，必填 `id`、`displayName`、`launch`。`launch` 由两部分组成：复用 `serverProcess` 的进程，加上 `stdio`、`tcpAnnounced` 或 `tcpPort` 三种传输之一；调试服务寄居在同一插件的语言服务器里时（Java Debug Server 之于 JDT LS），改用 `tcpLanguageServer`，此时没有 `process`，只有 `endpoint`。
 - 拟定 API 4、`requires.debugAdapters: 1`、`debug.launch` / `debug.attach` 权限。需要 Run 选中的运行时时，使用 `serverProcess: 2` 的 `runSelectedRuntime`。
@@ -126,7 +126,7 @@ Registry 注册时不启动程序做验证。一个适配器在接入验收中�
 | P4 第三方纵向验收 | 两个平台各用一个真实第三方适配器（GDB DAP `gdb -i=dap` 或 `lldb-dap`）完成安装、选择、launch / attach、必选层全流程和资源回收 |
 | P5 删除旧路径 | 所有消费者迁到 v2 之后，在同一个 PR 里删除 Swift 会话、按语言的工厂和 v1 投影 |
 
-P0 的清单落在 `shared/fixtures/debug/v1-baseline.json`：每一项指向 Rust、macOS 上现有的测试和 fixture（Windows 不在当前阶段范围内），并标明 `covered` / `partial` / `gap`。`scripts/architecture/verify-debug-v1-baseline.mjs`（已接入 `verify-shared-contracts.sh`）检查引用的测试仍然存在，防止重命名或删除悄悄缩小基线。
+P0 的清单落在 `shared/fixtures/debug/v1-baseline.json`：每一项指向 Rust、macOS 上现有的测试和 fixture（Windows 不在当前阶段范围内），并标明 `covered` / `partial` / `gap`。`scripts/architecture/verify-debug-v1-baseline.mjs` 曾检查引用的测试仍然存在（该脚本和接入它的 `verify-shared-contracts.sh` 都已不存在），防止重命名或删除悄悄缩小基线。
 
 P1 已在 Rust Core 落地：v2 投影类型与校验（`debug/projection_v2.rs`，共用 `projection-v2-examples.json`）、DAP `startDebugging` 反向请求（`debug.startDebuggingResponse`，仅在宿主声明 `supportsStartDebuggingRequest` 时启用）、Node source map 位置透传。macOS 的 `DebugProjectionV2` 与 Core 会话读同一份 fixture。旧的 Swift `DebugAdapterProtocolSession` 已删除：Java、Python、Rust 全部走 Core 会话（Python、Rust 经 `DebugAdapterRuntimeFactory` 用 stdio 传输）。宿主同时移除了内置的 Go（Delve）和 Node（js-debug）调试，TCP 传输、会话工厂、启动配置解析和语言包调试入口都已删除，之后由对应语言插件按 Registry 契约补上。P1 之后基础层逻辑也已在 Core 落地（`debug/capabilities.rs`、`engine.rs`）：能力快照 `supported = 适配器协商 ∧ 扩展注册 ∧ 已授权`，带单调递增 `revision`，只在变化时发出；插件只能通过 `disabledCapabilities` 关闭标准能力，`supportsConfigurationDoneRequest` 不可关闭。停止代数（`stopGeneration`）在停止、继续、终止时递增，旧代数发出的引用型请求的回复被丢弃并报 `StaleReference`（`stale-reference-v1.json`）。evaluate 的 context 受校验。Core 记录父子会话树，随父会话停止发出 `ChildSessionStopRequested`。子会话生命周期与父会话统一：销毁父会话会级联销毁整棵子树（叶子在前），`debug.destroySession` 返回 `destroyedChildSessionIds` 供宿主关闭对应传输，Core 里不会留下孤儿子会话。栈帧与作用域响应同时发出 v2 `Projection` 事件，v1 仍为准，校验失败的 v2 投影不下发。
 macOS 多会话（本阶段）：宿主在 `DebugAdapterSessionManager` 里实现 `startDebugging`。父会话收到反向请求后，管理器通过 `makeChildSession` 向 provider 要一个子会话，把父会话的 Core 会话 ID 设为子会话的 `parentSessionId`，登记为带 `parentID` 的会话并用请求里的配置启动。子会话不会替换 provider 的当前会话（兼容目标仍是父会话），所以单会话的断点、状态和按钮行为不变。生命周期由宿主统一：停止父会话先停子会话；父会话进入 `terminated` 或 `failed` 也会关闭它的子会话；功能模型同步清理快照、Java 热更新目标，并在当前会话消失时改选剩余会话，没有剩余会话就回到空闲。
@@ -135,7 +135,7 @@ macOS 多会话（本阶段）：宿主在 `DebugAdapterSessionManager` 里实�
 
 `makeChildSession` 是可选覆盖：默认子会话就是 provider 的 `makeSession` 再开一个会话，宿主因此总会声明 `supportsStartDebuggingRequest`。这是有意取舍：旧调试内核要整体被替换，不为兼容旧行为保留休眠开关。代价是 debugpy 这类通过 `connect` 主机和端口附加的适配器，在没有 TCP 子会话传输前，子会话会被忽略该端点，多进程 Python 调试暂时不可用；由具体语言插件覆盖 `makeChildSession` 补上。Swift 侧仍未消费 `projection`、`childSession*` 与 `disabledCapabilities`。
 
-P3 的声明层已在 Rust Core 落地：`plugin.json.debugAdapters[]` 作为插件 API 4 进入正式契约（`shared/contracts/plugins/v1/`），`debug/adapters.rs` 校验声明、安装包资源和启动计划，C01–C09、S01–S02 拒绝用例由 `fixtures/debug-adapters/debug-adapter-rejections.json` 驱动 Core 测试。启动计划与安装检查由 macOS 声明式 Provider 接入（先 stdio + launch）。
+P3 的声明层已在 Rust Core 落地：`plugin.json.debugAdapters[]` 作为插件 API 4 进入正式契约（`Lithe-core-rust/shared/plugins/contract/v1/`），`debug/adapters.rs` 校验声明、安装包资源和启动计划，C01–C09、S01–S02 拒绝用例由 `fixtures/debug-adapters/debug-adapter-rejections.json` 驱动 Core 测试。启动计划与安装检查由 macOS 声明式 Provider 接入（先 stdio + launch）。
 
 macOS 声明式 Provider：
 - Rust Core 新增 `languageServerLaunchPlan` 的 `debugAdapterID` 选择器和 `debug.adapters.startArguments` 命令；后者按 manifest、adapterID、request 与事实（注册代次、目标、运行时选择）返回启动参数，拒绝码为 `debug.provider.stale`、`debug.request.unsupported`、`debug.runtime.stale`、`debug.target.invalid`、`plugin.launch.unavailable`。
@@ -317,15 +317,15 @@ P0–P5 完成后关闭 #1210。可选扩展、插件依赖和私有 resolver �
 
 ## 验证
 
-文档与共享 fixture 运行 `./scripts/agent-notes/verify-agent-notes.sh`、~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和 `git diff --check`。会话投影 v2 的解码、拒绝与往返一致性由正式 fixture 及现有 Rust、Swift 测试验证，不再依赖草案 schema。这些静态检查不构成运行时证据。
+文档与共享 fixture 运行 `./scripts/agent-notes/verify-agent-notes.sh`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和 `git diff --check`；契约与指南改动再在 Core 仓库根运行 `node shared/plugins/scripts/verify-docs.mjs`。会话投影 v2 的解码、拒绝与往返一致性由正式 fixture 及现有 Rust、Swift 测试验证，不再依赖草案 schema。这些静态检查不构成运行时证据。
 
-实施阶段加载 `write-stable-tests`，按改动范围运行 ~~./scripts/rust-core/verify-rust-core-comments.sh~~（随旧客户端移除）、~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）、~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除）、~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除） 和 ~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）；Windows 另外执行 ~~./scripts/windows/build/build-windows.ps1 -Configuration Release~~（随旧客户端移除）、宿主 Rust 测试和前端测试。所有等待都有上限，失败时也释放资源，结束后确认本次启动的进程都已退出。平台行为变化时同步功能矩阵，运行 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。正式契约与 Core 一起修改，合并后按[两仓库发布规则](../../implemented/architecture/2026-10-23-plugin-contract-publishing.md)同步 `lithe-plugin-docs`。
+实施阶段加载 `write-stable-tests`，按改动范围运行 ~~./scripts/rust-core/verify-rust-core-comments.sh~~（随旧客户端移除）、~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）、~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除）、~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除） 和 ~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）；Windows 另外执行 ~~./scripts/windows/build/build-windows.ps1 -Configuration Release~~（随旧客户端移除）、宿主 Rust 测试和前端测试。所有等待都有上限，失败时也释放资源，结束后确认本次启动的进程都已退出。平台行为变化时同步功能矩阵，运行 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。正式契约、API 总表和协议更新记录与 Core 在同一个 Core PR 里修改，规则见[契约单一来源规则](../../implemented/architecture/2026-11-11-plugin-contract-single-source-in-core.md)。
 
 ## 适用范围
 
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins)
-- `shared/contracts/plugins/v1/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
 - `shared/contracts/rust-core-api.md`
 - `shared/fixtures/debug/`
 - ~~`macos/Sources/LitheCoreContracts/Debug/`~~（已随 #1794 移除）
@@ -337,7 +337,7 @@ P0–P5 完成后关闭 #1210。可选扩展、插件依赖和私有 resolver �
 
 ## 依据
 
-- [公共扩展契约](2026-10-13-public-extension-contract-and-provider-api.md)、[能力版本](../../implemented/architecture/2026-10-17-plugin-capability-versions.md)、[插件函数契约](../../implemented/architecture/2026-10-20-plugin-function-contract.md)。
+- [公共扩展契约](2026-10-13-public-extension-contract-and-provider-api.md)、[能力版本](../../implemented/architecture/2026-11-11-plugin-contract-single-baseline.md)、[插件函数契约](../../implemented/architecture/2026-10-20-plugin-function-contract.md)。
 - [Java 构建与启动边界](../../implemented/architecture/2026-09-18-java-project-build-and-launch-boundary.md)、[Java Debug 使用 Run 的 JDK](../../implemented/bug-fix/2026-10-14-java-debug-uses-the-run-jdk.md)、[Windows Java 调试生命周期](../../implemented/bug-fix/2026-10-07-windows-java-debug-lifecycle.md)。
 - [DAP 标准](https://microsoft.github.io/debug-adapter-protocol/overview)、[DAP 定义](https://github.com/microsoft/debug-adapter-protocol/blob/main/debugAdapterProtocol.json)、[GDB DAP](https://sourceware.org/gdb/current/onlinedocs/gdb.html/Debugger-Adapter-Protocol.html)、[LLDB DAP](https://lldb.llvm.org/use/lldbdap.html)。
 - [debugpy 1.8.22 的 listen 启动适配器](https://github.com/microsoft/debugpy/blob/v1.8.22/src/debugpy/server/api.py#L189-L225)、[GDB 16.3 的 attach target 处理](https://github.com/RTEMS/sourceware-mirror-binutils-gdb/blob/gdb-16.3-release/gdb/python/lib/gdb/dap/launch.py#L129-L145)。

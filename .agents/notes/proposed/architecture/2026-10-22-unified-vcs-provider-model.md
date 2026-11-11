@@ -24,7 +24,7 @@ Lithe 现在只认识 Git：Rust Core、macOS 和 Windows 的变更列表、提�
 | `macos/Sources/LitheGitModule/` | `GitOperations` 端口、`GitFeatureModel`、Changelist、Shelve | Changelist 和 Shelve 在 IDEA 里属于平台层，与具体 VCS 无关；在 Lithe 里绑在 Git 模块上 |
 | `macos/Sources/Lithe/Views/`（项目树、编辑器、Diff） | 直接引用 `GitChange`、`GitChangeKind`、`GitSnapshot` | 文件颜色和 gutter 这类通用展示被 Git 类型锁死 |
 | `windows/tauri/src/features/git/` | 约 6 万行 React/TS，状态表、提交面板、Log | 同样只认 Git |
-| `shared/contracts/plugins/v1/` | 语言、语言服务器、构建系统等能力 | 没有 VCS 扩展点，社区插件无法提供 VCS |
+| `Lithe-core-rust/shared/plugins/contract/v1/` | 语言、语言服务器、构建系统等能力 | 没有 VCS 扩展点，社区插件无法提供 VCS |
 
 ### 不处理的后果
 
@@ -91,7 +91,7 @@ Git Log 图、Rebase、Worktree、Stash、Push 和 Fetch 对话框、历史改�
 
 - 清单在插件 API 级别 3 新增 `vcsProviders` 能力（`requires: { vcsProviders: 1 }`），只写启动前必须知道的事：VCS ID、显示名、根识别标记（例如名为 `.svn` 的目录），以及复用 `serverProcess` 的启动字段。
 - 打开项目时由 Core 按静态标记识别根，不启动进程。识别到这种 VCS 的根之后，宿主才启动 Provider，因为文件状态颜色在打开项目时就需要。安装审查时要向用户说明这一点。
-- 进程启动后，宿主在 `initialize` 里通过 `capabilities.experimental.litheVcs` 协商版本，Provider 在回复里给出自己的能力集。能力集描述的是运行中的进程，所以不写进清单，这遵守[声明式插件按能力分版本](../../implemented/architecture/2026-10-17-plugin-capability-versions.md)第 4 节的规则。
+- 进程启动后，宿主在 `initialize` 里通过 `capabilities.experimental.litheVcs` 协商版本，Provider 在回复里给出自己的能力集。能力集描述的是运行中的进程，所以不写进清单，这遵守[插件契约从统一基线 0 开始](../../implemented/architecture/2026-11-11-plugin-contract-single-baseline.md)第 4 节的规则。
 - 请求方法统一以 `lithe/vcs/` 开头。宿主不按 Provider ID 写分支；进程按“插件 ID + VCS ID + 工作区”隔离，生命周期规则与构建 Provider 相同。
 
 字段和方法见 [VCS Provider 契约](../../../../shared/contracts/vcs-provider-v1.md)，示例数据见 [`shared/fixtures/vcs/model-v1.json`](../../../../shared/fixtures/vcs/model-v1.json)。Core 已按契约实现（见第 9 节的进度），但还没有宿主声明 `vcsProviders`，所以插件市场不会列出这类插件；宿主接入前契约仍可以修改，改动要同时更新 fixtures 和 Core 测试。
@@ -100,7 +100,7 @@ Git Log 图、Rebase、Worktree、Stash、Push 和 Fetch 对话框、历史改�
 
 SVN 插件在独立仓库维护和发布（见第 9 节 P2），调用用户系统里的 `svn` 命令行，解析它稳定的 `--xml` 输出。IDEA 的 svn4idea 也是这样做的（`plugins/svn4idea/src/org/jetbrains/idea/svn/status/CmdStatusClient.kt` 使用 `svn status --xml`）。这和 Lithe 使用系统 Git 的方式一致，不需要打包 JVM 或跨平台编译 libsvn。
 
-后端进程用官方 Node SDK（[lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs) 的 `sdk/node`）编写，以 `runtime` 方式启动（`tool: node`）。SDK 已经负责线协议、协商、取消、子进程清理和错误映射，Cargo 社区插件也走这条路；同一份后端在 macOS 和 Windows 上都能运行，插件包里没有原生二进制，不涉及按架构编译和 Gatekeeper。代价是用户除了 `svn` 还需要 Node 20.3 以上，安装审查和缺少运行时的提示要说清楚。SDK 新增 `litheVcs` 支持，和 `litheBuild` 并列；2026-10-23 起 SDK 不在主仓库，这部分改动在 lithe-plugin-docs 提交（见[插件契约、SDK 与开发者资料的发布](../../implemented/architecture/2026-10-23-plugin-contract-publishing.md)）。
+后端进程用官方 Node SDK（Core 仓库的 [`shared/plugins/sdk/node`](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins/sdk/node)）编写，以 `runtime` 方式启动（`tool: node`）。SDK 已经负责线协议、协商、取消、子进程清理和错误映射，Cargo 社区插件也走这条路；同一份后端在 macOS 和 Windows 上都能运行，插件包里没有原生二进制，不涉及按架构编译和 Gatekeeper。代价是用户除了 `svn` 还需要 Node 20.3 以上，安装审查和缺少运行时的提示要说清楚。SDK 新增 `litheVcs` 支持，和 `litheBuild` 并列；SDK 不在本仓库：2026-10-23 起在 lithe-plugin-docs 维护，该仓库退役后在 Core 仓库的 `shared/plugins/sdk/node` 里与对应的 Core PR 一起提交（见[插件契约与开发资料只在 Rust Core](../../implemented/architecture/2026-11-11-plugin-contract-single-source-in-core.md)）。
 
 凭据规则沿用[Git 执行与项目控制台](../../implemented/architecture/2026-09-12-git-execution-and-project-console.md)：命令始终带 `--non-interactive`，SVN 自己的认证缓存优先回答。第一版只依赖这份缓存，认证失败时返回 `vcs.authentication.failed`，宿主提示原因；交互式认证（宿主弹窗收集用户名和密码，经 `--password-from-stdin` 传给 `svn`）在宿主阶段实现。密码不出现在命令参数、控制台和日志里，Lithe 也不保存密码。
 
@@ -129,15 +129,15 @@ P1 已完成（2026-10-22）：
 - 插件清单：API 级别 3 的 `vcsProviders`、`process.vcs` 权限和 `onVcsRoot:<id>` 激活事件；`git` 是保留 ID。安装审查列出 Provider 进程，SVN 这类工具路径另放在 `vcsTool` 字段，不覆盖运行时的 `tool`。
 - 根识别 `vcs.detectRoots`：只读目录项，不读文件、不启动进程；工作区自己没有标记时向上查祖先目录，所以“工作区开在 SVN 工作副本的子目录里”也能识别。新增 `vcs.ownerOf`，让各宿主用同一条“最深根”规则给文件找归属，不必各写一份。
 - 会话：`litheVcs` 只提供给插件启动的会话；`lsp.vcsRequest` 按操作名生成 `lithe/vcs/*` 请求，未协商的能力在写出前就拒绝；Provider 只能使用契约列出的错误码，其余一律变成 `vcs.provider.failed`。`lithe/vcs/authenticate` 在宿主实现交互式认证前按未知请求回绝。
-- Node SDK：`backend.vcs(id, handlers, traits)` 按声明的处理函数协商能力，VCS 处理函数里的 `context.run` 会自动发出 `lithe/vcs/execution` 执行报告（只带命令行、退出码、耗时和截断后的 stderr，不带 stdout）。示例 `sdk/node/examples/sample-vcs` 是一个把修订存在 JSON 文件里的玩具 VCS，端到端场景经真实 Core 会话跑通它的协商和全部 11 种操作。SDK、示例和端到端场景随 SDK 迁到 lithe-plugin-docs，在那里用 `scripts/sdk-e2e.mjs --ref <本分支>` 运行；主仓库只保留契约、fixtures 和 Core 测试。
+- Node SDK：`backend.vcs(id, handlers, traits)` 按声明的处理函数协商能力，VCS 处理函数里的 `context.run` 会自动发出 `lithe/vcs/execution` 执行报告（只带命令行、退出码、耗时和截断后的 stderr，不带 stdout）。示例 `sdk/node/examples/sample-vcs` 是一个把修订存在 JSON 文件里的玩具 VCS，端到端场景经真实 Core 会话跑通它的协商和全部 11 种操作。SDK、示例和端到端场景都在 Core 仓库的 `shared/plugins/` 下（曾发布在已退役的 lithe-plugin-docs），在 Core 仓库根运行 `node shared/plugins/scripts/sdk-e2e.mjs`；本仓库只保留宿主侧测试。
 
 P2 已完成（2026-10-23），同日改为社区插件：
 
 - 插件在独立仓库 [lithe-plugin-svn](https://github.com/Lithe-IDEA/lithe-plugin-svn)，ID 是 `io.github.lithe-idea.svn-support`，`vendor.signatureRequirement` 为 `none`。仓库结构照搬 [Cargo 插件](../../implemented/feature/2026-10-22-cargo-build-plugin.md)：`sdk.lock.json` 按上游提交和逐文件 SHA-256 固定 Node SDK，打包前校验；安装包发在插件仓库的 GitHub Releases，Lithe Store 索引记录下载地址和 SHA-256。
 - 插件仓库自己的 CI 按 `sdk.lock.json` 的同一个宿主提交检出 Core，经公开 JSON 接口在 `svnadmin create` 建立的 `file://` 仓库上跑状态、提交、更新、冲突、回滚、移动、历史和 Annotate。svn 怎样映射到每个操作、svn 错误码怎样映射到契约错误码，都写在插件仓库的 README 里，主仓库的契约只留一个指向。
-- 主仓库不再有 SVN 专属的代码和测试，CI 也不用装 svn。它保留通用的部分：契约、fixtures 和 Core 测试，以及宿主测试用的 `shared/contracts/plugins/v1/fixtures/vcs/vcs-provider.plugin.json`（只有清单，没有实现）。样例 Provider `sample-vcs` 和它的端到端场景随 SDK 在 lithe-plugin-docs。
+- 主仓库不再有 SVN 专属的代码和测试，CI 也不用装 svn。它保留通用的部分：契约、fixtures 和 Core 测试，以及宿主测试用的 `Lithe-core-rust/shared/plugins/contract/v1/fixtures/vcs/vcs-provider.plugin.json`（只有清单，没有实现）。样例 Provider `sample-vcs` 和它的端到端场景随 SDK 在 Core 仓库的 `shared/plugins/sdk/node`。
 
-正确做法：主仓库改 VCS 契约或 Core 时，用 fixtures 和 Core 测试验证，合并前在 lithe-plugin-docs 用 `scripts/sdk-e2e.mjs --ref <分支>` 跑样例 Provider；SVN 插件升级 `sdk.lock.json` 后在自己的 CI 里验证。
+正确做法：改 VCS 契约或 Core 时，用 fixtures 和 Core 测试验证，合并前在 Core 仓库根运行 `node shared/plugins/scripts/sdk-e2e.mjs` 跑样例 Provider；契约、API 总表和协议更新记录在同一个 Core PR 里修改；SVN 插件升级 `sdk.lock.json` 后在自己的 CI 里验证。
 不要这样做：在主仓库测试里引用隔壁的 SVN 插件 checkout，或者为 SVN 在宿主代码里加按名字判断的分支。
 
 宿主需要知道的 SVN 行为（插件 README 有完整说明）：
@@ -236,6 +236,6 @@ P2 的第一版就是这样：插件放在 `Plugins/mac/Official/SvnSupport/`，
 - [旧版 Windows Git 实现](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/windows/tauri/src/features/git)
 - `desktop/internal/workbench/`
 - `desktop/internal/core/plugin_session.go`
-- `shared/contracts/plugins/v1/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
 - `shared/contracts/vcs-provider-v1.md`
 - `shared/fixtures/vcs/`

@@ -28,13 +28,13 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
-# Lithe-core-rust main after Lithe-IDEA/Lithe-core-rust#15 merged: git.write documents and tests
-# the cherryPick, revert and reset fields the log's commit menu sends; on top of #14 (word-level
-# changed ranges of diff rows), #13 (execution.planLaunchCommand), #8 (gitExecution.reportQueries
-# records internal queries in the Git console, and commits take an author and a sign-off), #7 (git.stashes keeps each reference as stash@{N}), #6 (the git_worktree_* refusal codes of
-# the worktree writes) and #4 (git_authentication_failed code, featuresChanged completionOptions,
-# rangeFormatting and formattingOptions used by the Viva client).
-PINNED_CORE_REVISION="1274b3f20e1f0874b20b6bc60eb02aa862828fa3"
+# Lithe-core-rust feature/plugin-api-single-baseline (Lithe-IDEA/Lithe-core-rust#17): the plugin
+# contract is one baseline with pluginAPIVersion and every capability, protocol and document
+# version at 0, and the contract, plugin guides, reference and SDKs live only in shared/plugins;
+# merged with main through #16 (reported Git queries folded in the console), #15 (git.write
+# cherryPick, revert and reset fields), #14 (word-level changed ranges of diff rows), #13
+# (execution.planLaunchCommand), #8, #7, #6 and #4.
+PINNED_CORE_REVISION="7a71cd6aa4d1fadb3807be2e4a1788f8f04dd14d"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
 
@@ -98,7 +99,7 @@ type fixture struct {
 
 func openFixture(t *testing.T) *fixture {
 	t.Helper()
-	manifest, err := os.ReadFile("../../../shared/contracts/plugins/v1/fixtures/ui/web-panel.plugin.json")
+	manifest, err := os.ReadFile(contractfixture.Path("fixtures/ui/web-panel.plugin.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +186,7 @@ func errorCode(t *testing.T, message map[string]json.RawMessage) string {
 
 func TestPageServesItsPackageOnly(t *testing.T) {
 	f := openFixture(t)
-	if info := f.page.Info(); info.URL != "lithe-plugin://dev.lithe.fixture.web-panel/ui/index.html" || info.BridgeVersion != 2 {
+	if info := f.page.Info(); info.URL != "lithe-plugin://dev.lithe.fixture.web-panel/ui/index.html" || info.BridgeVersion != 0 {
 		t.Fatalf("page = %+v", info)
 	}
 	mime, body, ok := f.page.Serve("/ui/index.html")

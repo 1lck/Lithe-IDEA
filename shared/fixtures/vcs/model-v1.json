@@ -34,17 +34,17 @@
         }
       ],
       "capabilities": {
-        "annotate": 1,
-        "baseContent": 1,
-        "checkin": 1,
-        "cleanup": 1,
-        "conflicts": 1,
-        "fileHistory": 1,
-        "fileOperations": 1,
-        "history": 1,
-        "rollback": 1,
-        "status": 1,
-        "update": 1
+        "annotate": 0,
+        "baseContent": 0,
+        "checkin": 0,
+        "cleanup": 0,
+        "conflicts": 0,
+        "fileHistory": 0,
+        "fileOperations": 0,
+        "history": 0,
+        "rollback": 0,
+        "status": 0,
+        "update": 0
       }
     }
   ],
@@ -318,11 +318,11 @@
     {
       "name": "provider with a staging dimension",
       "capabilities": {
-        "baseContent": 1,
-        "checkin": 1,
-        "rollback": 1,
-        "status": 1,
-        "staging": 1
+        "baseContent": 0,
+        "checkin": 0,
+        "rollback": 0,
+        "status": 0,
+        "staging": 0
       },
       "snapshot": {
         "head": {
@@ -372,17 +372,17 @@
     {
       "name": "svn root without staging, with Subversion-only flags",
       "capabilities": {
-        "annotate": 1,
-        "baseContent": 1,
-        "checkin": 1,
-        "cleanup": 1,
-        "conflicts": 1,
-        "fileHistory": 1,
-        "fileOperations": 1,
-        "history": 1,
-        "rollback": 1,
-        "status": 1,
-        "update": 1
+        "annotate": 0,
+        "baseContent": 0,
+        "checkin": 0,
+        "cleanup": 0,
+        "conflicts": 0,
+        "fileHistory": 0,
+        "fileOperations": 0,
+        "history": 0,
+        "rollback": 0,
+        "status": 0,
+        "update": 0
       },
       "snapshot": {
         "head": {

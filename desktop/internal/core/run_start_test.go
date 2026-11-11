@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -107,7 +108,7 @@ func TestDecodeDebugBackendConfigurationFollowsTheContractFixture(t *testing.T) 
 			} `json:"error"`
 		} `json:"cases"`
 	}
-	path := filepath.Join("..", "..", "..", "shared", "contracts", "plugins", "v1", "fixtures", "debug-adapters")
+	path := contractfixture.Path("fixtures/debug-adapters")
 	raw, err := os.ReadFile(filepath.Join(path, "debug-start.json"))
 	if err != nil {
 		t.Fatal(err)

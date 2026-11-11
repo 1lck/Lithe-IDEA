@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
@@ -117,7 +118,7 @@ func (k *settingsPlanningKernel) UpdatePluginWorkspaceConfiguration(_ context.Co
 func TestSavedProjectSettingIsRereadBeforeUpdatingTheCurrentLanguageSession(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	manifest, err := os.ReadFile("../../../shared/contracts/plugins/v1/fixtures/settings/settings-v2.plugin.json")
+	manifest, err := os.ReadFile(contractfixture.Path("fixtures/settings/settings.plugin.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +139,7 @@ func TestSavedProjectSettingIsRereadBeforeUpdatingTheCurrentLanguageSession(t *t
 	if len(saved.Effects) != 1 || saved.Effects[0] != "immediate" {
 		t.Fatalf("unexpected Core effects: %v", saved.Effects)
 	}
-	session := &LanguageSession{PluginID: "dev.lithe.fixture.settings-v2", Version: "0.1.0", LanguageID: "elixir", manifest: manifest, workspace: workspace, Session: pluginbackend.Session{ID: "current-language-session"}}
+	session := &LanguageSession{PluginID: "dev.lithe.fixture.settings", Version: "0.1.0", LanguageID: "elixir", manifest: manifest, workspace: workspace, Session: pluginbackend.Session{ID: "current-language-session"}}
 	result, err := service.ApplyLanguageSettings(ctx, session)
 	if err != nil || !result.Available || !result.Sent {
 		t.Fatalf("apply saved source: %+v, %v", result, err)

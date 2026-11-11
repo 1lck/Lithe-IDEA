@@ -19,11 +19,11 @@ import (
 // system command, the host starts the real clangd process, and every assertion
 // below observes that process's diagnostics rather than injected records.
 const clangdManifest = `{
-  "schemaVersion": 2,
+  "schemaVersion": 0,
   "id": "dev.lithe.test.clangd",
   "displayName": "Clangd Test Server",
   "version": "1.0.0",
-  "pluginAPIVersion": 1,
+  "pluginAPIVersion": 0,
   "vendor": {"id": "dev.lithe.test", "displayName": "Test", "signatureRequirement": "publisherPackage"},
   "permissions": ["languageServer.launch", "process.run"],
   "activationEvents": ["onLanguage:c"],

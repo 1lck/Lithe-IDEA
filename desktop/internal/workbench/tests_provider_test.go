@@ -22,12 +22,12 @@ import (
 // its own provider process. Core still plans the test request and decodes the
 // canonical report; the host only starts the provider and routes frames.
 const providerTestsManifest = `{
-  "schemaVersion": 2,
+  "schemaVersion": 0,
   "id": "dev.lithe.test.provider-tests",
   "displayName": "Provider Tests Fixture",
   "version": "1.0.0",
-  "pluginAPIVersion": 3,
-  "requires": {"buildProviders": 8, "buildSystems": 1, "serverProcess": 1},
+  "pluginAPIVersion": 0,
+  "requires": {"buildProviders": 0, "buildSystems": 0},
   "vendor": {"id": "dev.lithe.test", "displayName": "Test", "signatureRequirement": "publisherPackage"},
   "permissions": ["languageServer.launch", "process.build"],
   "activationEvents": ["onBuildSystem:fixture-provider-tests"],
@@ -126,9 +126,9 @@ func TestProviderTestRunner(t *testing.T) {
 		}
 		switch request.Method {
 		case "initialize":
-			experimental := map[string]any{"litheBuild": map[string]any{"version": 8}}
+			experimental := map[string]any{"litheBuild": map[string]any{"version": 0}}
 			if _, err := os.Stat("settings-action.marker"); err == nil {
-				experimental["litheFunctions"] = map[string]any{"version": 2, "functions": []any{map[string]any{"id": "snapshot.refresh"}}}
+				experimental["litheFunctions"] = map[string]any{"version": 0, "functions": []any{map[string]any{"id": "snapshot.refresh"}}}
 			}
 			reply(request.ID, map[string]any{"capabilities": map[string]any{"experimental": experimental}})
 		case "lithe/function/invoke":

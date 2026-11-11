@@ -17,7 +17,6 @@ const (
 	fieldEnum        = "enum"
 	fieldBoolean     = "boolean"
 	fieldMultiSelect = "multiSelect"
-	fieldRuntime     = "runtime"
 	fieldTool        = "tool"
 )
 
@@ -28,11 +27,9 @@ type toolInstall struct {
 	Provider string
 }
 
-// toolList is what discovery found for one tool, and the installation the
-// toolchain would use on its own.
+// toolList is what discovery found for one tool.
 type toolList struct {
 	Installations []toolInstall
-	Default       string
 }
 
 // formField holds the widgets of one declared field. The widgets bind to these
@@ -160,34 +157,18 @@ func (g *generatorForm) toolIDs() []string {
 	return ids
 }
 
-// toolID is the tool definition a tool or runtime field selects an installation of.
+// toolID is the tool definition a tool field selects an installation of.
 func (f *formField) toolID() string {
-	switch f.decl.Type {
-	case fieldTool:
+	if f.decl.Type == fieldTool {
 		return f.decl.Tool
-	case fieldRuntime:
-		return f.decl.Runtime
 	}
 	return ""
 }
 
-// setTools records what discovery found. A runtime field the user has not
-// chosen for starts on the installation the toolchain would use itself.
+// setTools records what discovery found. Core derives each tool field's
+// default from the installations the form input lists.
 func (g *generatorForm) setTools(tools map[string]toolList, failed bool) {
 	g.tools, g.toolsLoaded, g.toolsFailed = tools, true, failed
-	for _, f := range g.fields {
-		if f.decl.Type != fieldRuntime || f.edited || f.text != "" {
-			continue
-		}
-		list := tools[f.toolID()]
-		switch {
-		case list.Default != "":
-			f.text = list.Default
-		case len(list.Installations) > 0:
-			f.text = list.Installations[0].Home
-		}
-		f.shown = f.text
-	}
 }
 
 func (g *generatorForm) installation(tool, home string) (toolInstall, bool) {
@@ -206,7 +187,6 @@ func (g *generatorForm) input(name string) core.ProjectGeneratorFormInput {
 	input := core.ProjectGeneratorFormInput{
 		ProjectName: name,
 		Values:      map[string]any{},
-		Runtimes:    map[string]core.ProjectRuntimeSelection{},
 		Tools:       map[string][]core.ProjectToolInstallation{},
 	}
 	for _, f := range g.fields {
@@ -231,10 +211,6 @@ func (g *generatorForm) input(name string) core.ProjectGeneratorFormInput {
 		case fieldMultiSelect:
 			if f.edited {
 				input.Values[id] = append([]string{}, f.selected()...)
-			}
-		case fieldRuntime:
-			if installation, ok := g.installation(f.toolID(), f.text); ok {
-				input.Runtimes[id] = core.ProjectRuntimeSelection{Home: installation.Home, Version: installation.Version}
 			}
 		case fieldTool:
 			list := g.tools[f.toolID()].Installations
@@ -261,7 +237,7 @@ func (g *generatorForm) apply(form core.ProjectGeneratorForm) {
 			continue
 		}
 		f.state = state
-		if f.edited || f.decl.Type == fieldRuntime {
+		if f.edited {
 			continue
 		}
 		f.show(state.Value)

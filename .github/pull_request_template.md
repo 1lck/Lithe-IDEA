@@ -107,7 +107,7 @@ Lithe 的目标是 macOS 与 Windows 能力对齐。必须选下面一项：
 - [ ] 长期决策、取舍和约束写在 `.agents/notes/`（中文），`docs/` 只保留操作说明、正式 schema、发布说明和验收材料；改了 Note 已运行 `./scripts/agent-notes/verify-agent-notes.sh`
 - [ ] 规则只在真源（Skill、Note）里写一份，入口文件只留指针，没有复制出会漂移的第二份
 - [ ] 文中的路径、命令、链接已核对真实存在
-- [ ] 改了 `shared/contracts/plugins/v1/` 的，已完成下方“插件与共享契约”一组
+- [ ] 涉及插件契约或宿主方法的，已完成下方“插件契约”一组
 
 ## 类型专属：release
 
@@ -185,17 +185,16 @@ Windows 目前仍使用 v1 日志，Windows 改动沿用现有写法，并在此
 - [ ] 非敏感的工具配置读取并回显工具的真实来源，用户确认后才写回并回读；打开页面不写文件；敏感字段不明文回显
 - [ ] 新增或移动 macOS 设置页的，归属已按设置页分类 Note 确定
 
-### 插件与共享契约 / Plugin and shared contracts
+### 插件契约 / Plugin contract
 
 <!--
-触发：改动 `shared/contracts/`、`rust/lithe-core/src/plugins/capabilities.rs`、
-`rust/lithe-core/src/lsp/interface/plugin_function.rs`，或新增、修改宿主方法与通知。
-规则见 `AGENTS.md` 的“插件契约的两仓库同步”。
+触发：依赖 Rust Core 里插件契约（`shared/plugins/contract/v1/`）、能力版本或插件函数协议的改动，
+或新增、修改宿主方法与通知。契约只在 Rust Core，规则见 `AGENTS.md` 的“插件契约只在 Rust Core”。
 -->
 
-- [ ] 契约、Core 和所有消费者同一个 PR 里一起改；方法的参数、返回值、错误码、权限、生命周期和平台限制写进契约 README，指向契约目录以外的链接是绝对 URL
-- [ ] 修改插件后端协议的，合并前已在 lithe-plugin-docs 运行 `node scripts/sdk-e2e.mjs --source <本仓库路径> --ref <分支>`，三个 SDK 示例后端仍能跑通
-- [ ] 合并后会在 lithe-plugin-docs 运行 `node scripts/contract.mjs sync --revision <合并后的 preview commit>`，并在插件协议更新记录登记（合入日期、PR、修改人、协议或 API）
+- [ ] 契约改动已在 Rust Core PR 里随执行它的代码一起提交，同一个 Core PR 已登记插件协议更新记录（合入日期、PR、修改人、协议或 API）；链接：
+- [ ] `scripts/desktop/build-desktop-core.sh` 的 `PINNED_CORE_REVISION` 已升到包含该契约的 Core commit，桌面端测试经 `scripts/desktop/desktop-go.sh` 读到的就是这份契约
+- [ ] 修改插件后端协议的，已在 Core 仓库运行 `node shared/plugins/scripts/sdk-e2e.mjs`，三个 SDK 示例后端仍能跑通
 - [ ] 新增或修改宿主方法、宿主通知的，已在下表逐个列出，原计划编号只用 API-01 到 API-44，不属于任何编号的写 —
 
 | 原计划编号 | 方法 | 用途 |

@@ -10,7 +10,7 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 
 映射（`map`）只从解码后的文档里挑值。挑值以外的逻辑由插件自己处理：读 JSON、YAML 清单，从工具读任务，计算父子关系，这些都交给插件自带的脚本输出规范格式（第 6 节）。声明和规范格式都表达不了的工具（Gradle Tooling API 等），由插件自带的 Provider 进程回答。Provider 就是语言服务器那种进程：共用启动字段、校验和启动计划，只多回答 `lithe/build/model`、`lithe/build/dependencies`，回复仍由 Core 解码（第 9 节）。
 
-目前落地的是 Core、共享契约和 macOS 宿主（第 10 节）。macOS 为每个启用的构建系统各开一个工具窗口，向 Core 声明 `buildSystems: [1]` 和 `buildProviders: [1]`，并在用户点击加载模型或依赖时启动 Provider、发送 `lithe/build/*`；Windows 宿主还没有接入。API 3 的清单按能力分版本，声明式构建系统使用 `buildSystems`，两种写法的 Provider 都额外使用 `buildProviders: 1`；插件市场只在宿主声明支持对应能力时才列出 API 3 的版本，见[声明式插件按能力分版本](2026-10-17-plugin-capability-versions.md)。宿主接入和 Maven 迁移的计划见[构建系统 Provider 提案](../../proposed/architecture/2026-10-17-build-system-provider-api.md)。
+目前落地的是 Core、共享契约和 macOS 宿主（第 10 节）。macOS 为每个启用的构建系统各开一个工具窗口，向 Core 声明 `buildSystems: [1]` 和 `buildProviders: [1]`，并在用户点击加载模型或依赖时启动 Provider、发送 `lithe/build/*`；Windows 宿主还没有接入。API 3 的清单按能力分版本，声明式构建系统使用 `buildSystems`，两种写法的 Provider 都额外使用 `buildProviders: 1`；插件市场只在宿主声明支持对应能力时才列出 API 3 的版本，见[插件契约从统一基线 0 开始](2026-11-11-plugin-contract-single-baseline.md)。宿主接入和 Maven 迁移的计划见[构建系统 Provider 提案](../../proposed/architecture/2026-10-17-build-system-provider-api.md)。
 
 ### 当前实现范围与删除条件
 
@@ -66,7 +66,7 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 
 `build.detect` 对普通文件根或不存在的根保留空实例结果，这属于检测入口的既有兼容边界。共用工作区扫描器后仍在此入口区分根的类型；真实目录的读取、权限或扫描失败继续返回拒绝，不能把所有 I/O 错误当作“未检测到项目”。不要为了修复某个平台的非目录错误而放宽共用扫描器，也不要让宿主按操作系统错误码猜测空结果。回归见 `detection_returns_empty_for_non_directory_and_missing_workspace_roots`。
 
-字段全集只写在 `shared/contracts/plugins/v1/README.md` 的 “API level 3: build systems” 一节和 `plugin-manifest.schema.json` 里，本 Note 不重复。四个 fixture 各示范一种模型来源，按能力命名而不是按真实插件命名：`build-static-file`（读项目文件，内容用 Cargo）、`build-command-stdout`（解码命令输出，内容用 Go）、`build-command-output-file`（解码命令写出的文件，内容用 Gradle）、`build-host-integration`（交给宿主集成，内容用 Maven）。`build-provider`、`build-provider-language-server` 分别示范 Provider 的两种写法。
+字段全集只写在 `Lithe-core-rust/shared/plugins/contract/v1/README.md` 的 “API level 3: build systems” 一节和 `plugin-manifest.schema.json` 里，本 Note 不重复。四个 fixture 各示范一种模型来源，按能力命名而不是按真实插件命名：`build-static-file`（读项目文件，内容用 Cargo）、`build-command-stdout`（解码命令输出，内容用 Go）、`build-command-output-file`（解码命令写出的文件，内容用 Gradle）、`build-host-integration`（交给宿主集成，内容用 Maven）。`build-provider`、`build-provider-language-server` 分别示范 Provider 的两种写法。
 
 ### 2. Core 与宿主的分工
 
@@ -108,7 +108,7 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 - **运行时**：`java`、`node`、`go` 由宿主管理，只写 ID 和最低版本，按用户的运行时设置发现。Core 提供 Java 的 `-version`、Node 的 `--version`、Go 的 `version` 探测参数，宿主合并标准输出与错误输出再交回 Core 校验；Java 8 不支持 `--version`，且版本信息通常写到错误输出，不能据此误判为不可用。其他任何 ID 都由插件自己写可执行文件候选和版本探测，所以运行时列表是开放的。
 - **自带逻辑**：插件附带的脚本（例如 Gradle 的 init script，即初始化脚本）可以直接输出规范格式，不必写选择器映射。规范格式有 `litheBuildModel`、`litheTestResults`、`litheDependencies`、`litheDiagnostics`。规范文档里的未知字段会被忽略，所以新脚本配旧宿主也能用。插件自带的常驻 Provider 进程也用这几种格式回复（第 9 节）。
 
-固定词汇（要扩展就给对应能力加一个新版本，见[声明式插件按能力分版本](2026-10-17-plugin-capability-versions.md)）：
+固定词汇（要扩展就给对应能力加一个新版本，见[插件契约从统一基线 0 开始](2026-11-11-plugin-contract-single-baseline.md)）：
 
 - 权限只新增一个 `process.build`；激活事件是 `onBuildSystem:<id>`。
 - 模板变量和参数条件。
@@ -395,7 +395,7 @@ macOS 接入规则（2026-10-18）：
 - ~~`macos/Sources/Lithe/Views/Run/BuildOutputView.swift`~~（已随 #1794 移除）
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/runtime/dispatcher.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/runtime/dispatcher.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/tests/build_systems.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/tests/build_systems.rs)
-- `shared/contracts/plugins/v1/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
 - `shared/contracts/rust-core-api.md`
 - ~~scripts/architecture/verify-shared-contracts.sh~~（脚本已随旧客户端移除）
 

@@ -1900,7 +1900,6 @@
     "desktop.newProject.pinFailed": "The project was created, but the tool you selected could not be saved. You can choose it again in the toolchain settings.",
     "desktop.newProject.problem.invalidFormat": "The value has an invalid format.",
     "desktop.newProject.problem.required": "This field is required.",
-    "desktop.newProject.problem.runtimeTooOld": "The selected version is too old.",
     "desktop.newProject.problem.tooLong": "The value is too long.",
     "desktop.newProject.problem.toolTooOld": "The selected version is too old.",
     "desktop.newProject.problem.unsupportedValue": "This value is not supported.",

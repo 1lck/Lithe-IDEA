@@ -346,12 +346,6 @@ func (a *App) loadProjectTools(ctx context.Context, tools []string) (map[string]
 					Provider:                installation.Provider,
 				})
 			}
-			switch {
-			case tool.Effective != nil && tool.Effective.Home != nil:
-				list.Default = *tool.Effective.Home
-			case tool.AutomaticHome != "":
-				list.Default = tool.AutomaticHome
-			}
 			break
 		}
 		result[wanted] = list
@@ -520,9 +514,6 @@ func (a *App) saveProjectPins(ctx context.Context, form *generatorForm, root str
 	}
 	for _, p := range plan.ToolPins {
 		pin(p.Tool, p.Home)
-	}
-	for _, runtime := range plan.Runtimes {
-		pin(runtime.Runtime, runtime.Home)
 	}
 	if len(edits) == 0 {
 		return nil

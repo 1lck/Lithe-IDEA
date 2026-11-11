@@ -21,12 +21,12 @@ import (
 // the server hands out. It also declares the debugAdapters 3 features and
 // defaults the engine has to receive.
 const debugHostedManifest = `{
-  "schemaVersion": 2,
+  "schemaVersion": 0,
   "id": "dev.lithe.test.debug-hosted",
   "displayName": "Hosted Debug Fixture",
   "version": "1.0.0",
-  "pluginAPIVersion": 4,
-  "requires": {"debugAdapters": 3, "languageServers": 1, "languages": 1, "serverProcess": 1},
+  "pluginAPIVersion": 0,
+  "requires": {"debugAdapters": 0, "languageServers": 0, "languages": 0},
   "vendor": {"id": "dev.lithe.test", "displayName": "Test", "signatureRequirement": "publisherPackage"},
   "permissions": ["debug.launch", "languageServer.launch"],
   "activationEvents": ["onDebug:hosted", "onLanguage:hosted"],
@@ -47,12 +47,12 @@ const debugHostedManifest = `{
 // debugAttachManifest is a stdio adapter that only attaches, to a host and port
 // the adapter's own arguments name.
 const debugAttachManifest = `{
-  "schemaVersion": 2,
+  "schemaVersion": 0,
   "id": "dev.lithe.test.debug-attach",
   "displayName": "Attach Debug Fixture",
   "version": "1.0.0",
-  "pluginAPIVersion": 4,
-  "requires": {"debugAdapters": 1, "serverProcess": 1},
+  "pluginAPIVersion": 0,
+  "requires": {"debugAdapters": 0},
   "vendor": {"id": "dev.lithe.test", "displayName": "Test", "signatureRequirement": "publisherPackage"},
   "permissions": ["debug.launch", "debug.attach"],
   "activationEvents": ["onDebug:attach"],

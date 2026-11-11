@@ -77,7 +77,7 @@ func TestDebugRuntimeArgumentsComeFromTheToolDefinition(t *testing.T) {
 	manifest["toolDefinitions"] = []any{definition}
 	manifest["requiresTools"] = []string{toolID}
 	requires := manifest["requires"].(map[string]any)
-	requires["serverProcess"], requires["toolDefinitions"], requires["executableResolution"], requires["debugAdapters"] = 4, 1, 2, 2
+	requires["toolDefinitions"], requires["debugAdapters"] = 0, 0
 	declared := manifest["debugAdapters"].([]any)[0].(map[string]any)
 	declared["configurations"].(map[string]any)["launch"].(map[string]any)["targetBindings"] = map[string]any{"args": "target.arguments", "env": "target.environment"}
 	declared["launch"].(map[string]any)["process"].(map[string]any)["launch"] = map[string]any{"kind": "runtime", "tool": toolID, "entry": "adapter-entry", "runtimeArguments": []string{"--runtime"}}
@@ -118,7 +118,7 @@ func debugAdapterWithProgramSetting(t *testing.T, adapter debugAdapter, candidat
 	if err := json.Unmarshal(adapter.Manifest, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	manifest["requires"].(map[string]any)["settings"] = 2
+	manifest["requires"].(map[string]any)["settings"] = 0
 	manifest["settings"] = []any{map[string]any{"id": "program", "type": "file", "title": "Program", "default": "", "scope": "project", "effect": "nextRun"}}
 	launch := manifest["debugAdapters"].([]any)[0].(map[string]any)["configurations"].(map[string]any)["launch"].(map[string]any)
 	launch["executable"] = map[string]any{"setting": "program", "candidates": candidates}

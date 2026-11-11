@@ -7,18 +7,17 @@
         "plugins": [
           {
             "manifest": {
-              "schemaVersion": 2,
-              "id": "dev.lithe.fixture.settings-v2",
-              "displayName": "Settings v2 Fixture",
+              "schemaVersion": 0,
+              "id": "dev.lithe.fixture.settings",
+              "displayName": "Settings Fixture",
               "version": "0.1.0",
-              "pluginAPIVersion": 3,
+              "pluginAPIVersion": 0,
               "requires": {
-                "buildProviders": 1,
-                "buildSystems": 1,
-                "languageServers": 2,
-                "languages": 1,
-                "serverProcess": 1,
-                "settings": 2
+                "buildProviders": 0,
+                "buildSystems": 0,
+                "languageServers": 0,
+                "languages": 0,
+                "settings": 0
               },
               "vendor": {
                 "id": "org.example",
@@ -197,7 +196,7 @@
               ]
             },
             "owner": {
-              "pluginID": "dev.lithe.fixture.settings-v2",
+              "pluginID": "dev.lithe.fixture.settings",
               "version": "0.1.0"
             },
             "enabled": true
@@ -214,18 +213,17 @@
         "plugins": [
           {
             "manifest": {
-              "schemaVersion": 2,
-              "id": "dev.lithe.fixture.settings-v2",
-              "displayName": "Settings v2 Fixture",
+              "schemaVersion": 0,
+              "id": "dev.lithe.fixture.settings",
+              "displayName": "Settings Fixture",
               "version": "0.1.0",
-              "pluginAPIVersion": 3,
+              "pluginAPIVersion": 0,
               "requires": {
-                "buildProviders": 1,
-                "buildSystems": 1,
-                "languageServers": 2,
-                "languages": 1,
-                "serverProcess": 1,
-                "settings": 2
+                "buildProviders": 0,
+                "buildSystems": 0,
+                "languageServers": 0,
+                "languages": 0,
+                "settings": 0
               },
               "vendor": {
                 "id": "org.example",
@@ -404,7 +402,7 @@
               ]
             },
             "owner": {
-              "pluginID": "dev.lithe.fixture.settings-v2",
+              "pluginID": "dev.lithe.fixture.settings",
               "version": "0.1.0"
             },
             "enabled": false
@@ -422,18 +420,17 @@
         "plugins": [
           {
             "manifest": {
-              "schemaVersion": 2,
-              "id": "dev.lithe.fixture.settings-v2",
-              "displayName": "Settings v2 Fixture",
+              "schemaVersion": 0,
+              "id": "dev.lithe.fixture.settings",
+              "displayName": "Settings Fixture",
               "version": "0.1.0",
-              "pluginAPIVersion": 3,
+              "pluginAPIVersion": 0,
               "requires": {
-                "buildProviders": 1,
-                "buildSystems": 1,
-                "languageServers": 2,
-                "languages": 1,
-                "serverProcess": 1,
-                "settings": 2
+                "buildProviders": 0,
+                "buildSystems": 0,
+                "languageServers": 0,
+                "languages": 0,
+                "settings": 0
               },
               "vendor": {
                 "id": "org.example",
@@ -612,25 +609,24 @@
               ]
             },
             "owner": {
-              "pluginID": "dev.lithe.fixture.settings-v2",
+              "pluginID": "dev.lithe.fixture.settings",
               "version": "0.1.0"
             },
             "enabled": true
           },
           {
             "manifest": {
-              "schemaVersion": 2,
-              "id": "dev.lithe.fixture.settings-v2",
-              "displayName": "Settings v2 Fixture",
+              "schemaVersion": 0,
+              "id": "dev.lithe.fixture.settings",
+              "displayName": "Settings Fixture",
               "version": "0.1.0",
-              "pluginAPIVersion": 3,
+              "pluginAPIVersion": 0,
               "requires": {
-                "buildProviders": 1,
-                "buildSystems": 1,
-                "languageServers": 2,
-                "languages": 1,
-                "serverProcess": 1,
-                "settings": 2
+                "buildProviders": 0,
+                "buildSystems": 0,
+                "languageServers": 0,
+                "languages": 0,
+                "settings": 0
               },
               "vendor": {
                 "id": "org.example",
@@ -809,7 +805,7 @@
               ]
             },
             "owner": {
-              "pluginID": "dev.lithe.fixture.settings-v2",
+              "pluginID": "dev.lithe.fixture.settings",
               "version": "0.1.0"
             },
             "enabled": true
@@ -985,18 +981,17 @@
         "plugins": [
           {
             "manifest": {
-              "schemaVersion": 2,
-              "id": "dev.lithe.fixture.settings-v2",
-              "displayName": "Settings v2 Fixture",
+              "schemaVersion": 0,
+              "id": "dev.lithe.fixture.settings",
+              "displayName": "Settings Fixture",
               "version": "0.1.0",
-              "pluginAPIVersion": 3,
+              "pluginAPIVersion": 0,
               "requires": {
-                "buildProviders": 1,
-                "buildSystems": 1,
-                "languageServers": 2,
-                "languages": 1,
-                "serverProcess": 1,
-                "settings": 2
+                "buildProviders": 0,
+                "buildSystems": 0,
+                "languageServers": 0,
+                "languages": 0,
+                "settings": 0
               },
               "vendor": {
                 "id": "org.example",
@@ -1175,7 +1170,7 @@
               ]
             },
             "owner": {
-              "pluginID": "dev.lithe.fixture.settings-v2",
+              "pluginID": "dev.lithe.fixture.settings",
               "version": "9.0.0"
             },
             "enabled": true
@@ -1191,18 +1186,17 @@
         "plugins": [
           {
             "manifest": {
-              "schemaVersion": 2,
+              "schemaVersion": 0,
               "id": "dev.lithe.fixture.other-settings",
-              "displayName": "Settings v2 Fixture",
+              "displayName": "Settings Fixture",
               "version": "0.1.0",
-              "pluginAPIVersion": 3,
+              "pluginAPIVersion": 0,
               "requires": {
-                "buildProviders": 1,
-                "buildSystems": 1,
-                "languageServers": 2,
-                "languages": 1,
-                "serverProcess": 1,
-                "settings": 2
+                "buildProviders": 0,
+                "buildSystems": 0,
+                "languageServers": 0,
+                "languages": 0,
+                "settings": 0
               },
               "vendor": {
                 "id": "org.example",
@@ -1388,18 +1382,17 @@
           },
           {
             "manifest": {
-              "schemaVersion": 2,
-              "id": "dev.lithe.fixture.settings-v2",
-              "displayName": "Settings v2 Fixture",
+              "schemaVersion": 0,
+              "id": "dev.lithe.fixture.settings",
+              "displayName": "Settings Fixture",
               "version": "0.1.0",
-              "pluginAPIVersion": 3,
+              "pluginAPIVersion": 0,
               "requires": {
-                "buildProviders": 1,
-                "buildSystems": 1,
-                "languageServers": 2,
-                "languages": 1,
-                "serverProcess": 1,
-                "settings": 2
+                "buildProviders": 0,
+                "buildSystems": 0,
+                "languageServers": 0,
+                "languages": 0,
+                "settings": 0
               },
               "vendor": {
                 "id": "org.example",
@@ -1578,7 +1571,7 @@
               ]
             },
             "owner": {
-              "pluginID": "dev.lithe.fixture.settings-v2",
+              "pluginID": "dev.lithe.fixture.settings",
               "version": "0.1.0"
             },
             "enabled": true
@@ -1590,7 +1583,7 @@
       "pageOwners": {
         "language:elixir": [
           "dev.lithe.fixture.other-settings",
-          "dev.lithe.fixture.settings-v2"
+          "dev.lithe.fixture.settings"
         ]
       }
     },
@@ -1601,16 +1594,15 @@
         "plugins": [
           {
             "manifest": {
-              "schemaVersion": 2,
-              "id": "dev.lithe.fixture.settings-v2",
-              "displayName": "Settings v2 Fixture",
+              "schemaVersion": 0,
+              "id": "dev.lithe.fixture.settings",
+              "displayName": "Settings Fixture",
               "version": "0.1.0",
-              "pluginAPIVersion": 3,
+              "pluginAPIVersion": 0,
               "requires": {
-                "languages": 1,
-                "settings": 2,
-                "languageServers": 1,
-                "serverProcess": 1
+                "languages": 0,
+                "settings": 0,
+                "languageServers": 0
               },
               "vendor": {
                 "id": "org.example",
@@ -1663,7 +1655,7 @@
               ]
             },
             "owner": {
-              "pluginID": "dev.lithe.fixture.settings-v2",
+              "pluginID": "dev.lithe.fixture.settings",
               "version": "0.1.0"
             },
             "enabled": true

@@ -40,7 +40,6 @@ type ProjectGeneratorField struct {
 	Presentation   string                   `json:"presentation,omitempty"`
 	Placeholder    string                   `json:"placeholder,omitempty"`
 	Optional       bool                     `json:"optional,omitempty"`
-	Runtime        string                   `json:"runtime,omitempty"`
 	Tool           string                   `json:"tool,omitempty"`
 	MinimumVersion string                   `json:"minimumVersion,omitempty"`
 }
@@ -110,12 +109,6 @@ type ProjectRejection struct {
 
 func (r *ProjectRejection) Error() string { return fmt.Sprintf("%s: %s", r.Code, r.Message) }
 
-// ProjectRuntimeSelection is the installation the user chose for a version 1 runtime field.
-type ProjectRuntimeSelection struct {
-	Home    string `json:"home"`
-	Version string `json:"version"`
-}
-
 // ProjectToolInstallation is an installation the host found for a tool field.
 type ProjectToolInstallation struct {
 	Home       string `json:"home"`
@@ -129,7 +122,6 @@ type ProjectGeneratorFormInput struct {
 	ProjectName string                               `json:"projectName"`
 	Values      map[string]any                       `json:"values"`
 	Edited      []string                             `json:"edited"`
-	Runtimes    map[string]ProjectRuntimeSelection   `json:"runtimes"`
 	Tools       map[string][]ProjectToolInstallation `json:"tools"`
 }
 
@@ -142,9 +134,6 @@ func (input ProjectGeneratorFormInput) normalized() ProjectGeneratorFormInput {
 	edited := append([]string{}, input.Edited...)
 	sort.Strings(edited)
 	input.Edited = edited
-	if input.Runtimes == nil {
-		input.Runtimes = map[string]ProjectRuntimeSelection{}
-	}
 	if input.Tools == nil {
 		input.Tools = map[string][]ProjectToolInstallation{}
 	}
@@ -202,14 +191,6 @@ type ProjectPlanStep struct {
 	Format         string            `json:"format,omitempty"`
 }
 
-// ProjectPlanRuntime is a version 1 runtime field's selection.
-type ProjectPlanRuntime struct {
-	Field   string `json:"field"`
-	Runtime string `json:"runtime"`
-	Home    string `json:"home"`
-	Version string `json:"version"`
-}
-
 // ProjectPlanToolPin is a tool selection the host saves as the project's pin.
 type ProjectPlanToolPin struct {
 	Field      string `json:"field"`
@@ -224,7 +205,6 @@ type ProjectGenerationPlan struct {
 	ProjectName string               `json:"projectName"`
 	Steps       []ProjectPlanStep    `json:"steps"`
 	OpenFiles   []string             `json:"openFiles"`
-	Runtimes    []ProjectPlanRuntime `json:"runtimes"`
 	ToolPins    []ProjectPlanToolPin `json:"toolPins"`
 	UsesNetwork bool                 `json:"usesNetwork"`
 }

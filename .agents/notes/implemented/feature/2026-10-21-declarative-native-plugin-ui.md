@@ -155,14 +155,14 @@ Git未跟踪目录摘要和可见行缓存；这些界面仍使用完整公共�
 - ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib native_ui_validates_version_ownership_actions_and_budgets`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginNativeUI|PluginWeb|WorkbenchContributionHostTests'`
-- `LITHE_PLUGIN_SDK_ROOT=<lithe-plugin-docs/sdk/node> node --test macos/Tests/Fixtures/native-ui-lab/native-ui-lab.test.mjs`
+- `LITHE_PLUGIN_SDK_ROOT=<Lithe-core-rust 检出>/shared/plugins/sdk/node node --test macos/Tests/Fixtures/native-ui-lab/native-ui-lab.test.mjs`
 - ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 
 ## 适用范围
 
-- `shared/contracts/plugins/v1/native-ui.schema.json`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/native-ui.schema.json`
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/native_ui.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/native_ui.rs)
 - ~~`macos/Sources/LitheModuleAPI/Plugins/PluginNativeUI.swift`~~（已随 #1794 移除）
 - ~~`macos/Sources/Lithe/Application/Features/PluginNativeUIFeature.swift`~~（已随 #1794 移除）
@@ -171,7 +171,7 @@ Git未跟踪目录摘要和可见行缓存；这些界面仍使用完整公共�
 
 ## 2026-10-23 SDK 迁移后的验收归属
 
-遵循 #1442，主仓库不恢复 SDK 及其端到端测试。UI Lab 作为 macOS 宿主的回归与人工验收 fixture 保留在 `macos/Tests/Fixtures/native-ui-lab/`；Core 继续验证其完整清单。打包和 Node 验收显式通过 `LITHE_PLUGIN_SDK_ROOT` 使用外部 lithe-plugin-docs 的官方 Node SDK，复制结果仅进入忽略的 `.artifacts/native-ui-lab/`，不写入已安装包或应用 bundle。插件开发者说明与 SDK 发版继续归 lithe-plugin-docs。
+遵循 #1442，主仓库不恢复 SDK 及其端到端测试。UI Lab 作为 macOS 宿主的回归与人工验收 fixture 保留在 `macos/Tests/Fixtures/native-ui-lab/`；Core 继续验证其完整清单。打包和 Node 验收显式通过 `LITHE_PLUGIN_SDK_ROOT` 使用外部的官方 Node SDK，即 Core 仓库的 `shared/plugins/sdk/node`（当时在 lithe-plugin-docs，该仓库已退役），复制结果仅进入忽略的 `.artifacts/native-ui-lab/`，不写入已安装包或应用 bundle。插件开发者说明与 SDK 发版归 Core 仓库的 `shared/plugins/`。
 
 ## 与 MCP 和 Agent 设置的公共输入入口兼容
 

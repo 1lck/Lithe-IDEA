@@ -3,8 +3,8 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -12,7 +12,7 @@ import (
 
 func readRunFixture(t *testing.T, name string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "shared", "contracts", "plugins", "v1", "fixtures", "run", name))
+	data, err := os.ReadFile(contractfixture.Path("fixtures/run/" + name))
 	if err != nil {
 		t.Fatal(err)
 	}

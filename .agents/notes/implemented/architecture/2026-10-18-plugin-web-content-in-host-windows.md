@@ -33,7 +33,7 @@
 
 ### 桥接对象
 
-宿主在页面脚本执行前注入 `window.lithe`（当前第 2 版，`lithe.version` 给出版本号）：`context`、`request(method, params)` 和 `on(event, listener)`。方法和事件的全集写在 `shared/contracts/plugins/v1/README.md` 的 “Web content (`ui` 2)” 一节，这里只记录边界：
+宿主在页面脚本执行前注入 `window.lithe`（当前第 2 版，`lithe.version` 给出版本号）：`context`、`request(method, params)` 和 `on(event, listener)`。方法和事件的全集写在 `Lithe-core-rust/shared/plugins/contract/v1/README.md` 的 “Web content (`ui` 2)” 一节，这里只记录边界：
 
 - 页面只能操作本插件声明的构建系统和当前工作区，越界返回 `plugin.web.forbidden`。
 - 凡是会启动进程的请求（刷新模型、跑任务、跑测试），都要经过与宿主自身按钮相同的信任和同意流程，输出进入宿主的 Build Output。页面不能提交或修改进程 argv，也不能自己拼命令；模型保留 Core 返回的声明运行项 `run` 和任务 `category` 供展示，执行入口仍只有宿主校验过的任务与测试。
@@ -132,7 +132,7 @@ Viva 的 Web 视图目前有四处达不到契约，已记录为上游缺口，�
 
 ## 适用范围
 
-- `shared/contracts/plugins/v1/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
 - Lithe-core-rust：`rust/lithe-core/src/plugins/web_content.rs`（Lithe-IDEA/Lithe-core-rust#9）
 - `desktop/internal/pluginweb/`
 - `desktop/internal/workbench/pluginpages.go`、`desktop/internal/workbench/plugintools.go`

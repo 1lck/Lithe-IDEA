@@ -3,6 +3,7 @@ package pluginservice
 import (
 	"context"
 	"encoding/json"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"os"
 	"path/filepath"
 	"sync"
@@ -25,7 +26,7 @@ func debugStartHarness(t *testing.T) (*Service, string) {
 	if err := os.MkdirAll(installed, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := os.ReadFile(filepath.Join("..", "..", "..", "shared", "contracts", "plugins", "v1", "fixtures", "debug-adapters", "debug-adapter-features.plugin.json"))
+	manifest, err := os.ReadFile(contractfixture.Path("fixtures/debug-adapters/debug-adapter-features.plugin.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

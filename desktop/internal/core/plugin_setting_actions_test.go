@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 func TestPluginSettingActionPlansMatchSharedFixture(t *testing.T) {
@@ -27,7 +29,7 @@ func TestPluginSettingActionPlansMatchSharedFixture(t *testing.T) {
 	if err := json.Unmarshal(data, &fixture); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := os.ReadFile("../../../shared/contracts/plugins/v1/fixtures/settings/settings-v2.plugin.json")
+	manifest, err := os.ReadFile(contractfixture.Path("fixtures/settings/settings.plugin.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

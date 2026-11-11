@@ -9,9 +9,11 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
-const projectGeneratorFixtures = "../../../shared/contracts/plugins/v1/fixtures/project-generators"
+var projectGeneratorFixtures = contractfixture.Path("fixtures/project-generators")
 
 func projectFixture(t *testing.T, name string) json.RawMessage {
 	t.Helper()
@@ -130,9 +132,6 @@ func normalizePlan(plan ProjectGenerationPlan) ProjectGenerationPlan {
 	if len(plan.OpenFiles) == 0 {
 		plan.OpenFiles = nil
 	}
-	if len(plan.Runtimes) == 0 {
-		plan.Runtimes = nil
-	}
 	if len(plan.ToolPins) == 0 {
 		plan.ToolPins = nil
 	}
@@ -166,7 +165,7 @@ func TestProjectGeneratorCatalogListsSectionsInOrderWithProviders(t *testing.T) 
 		t.Fatal("usesNetwork does not follow the declared steps")
 	}
 	app := catalog.Generators[0]
-	if len(app.Generator.Fields) != 4 || app.Generator.Fields[1].Runtime != "java" || app.Generator.Fields[0].Presentation != "segmented" {
+	if len(app.Generator.Fields) != 4 || app.Generator.Fields[1].Tool != "java" || app.Generator.Fields[0].Presentation != "segmented" {
 		t.Fatalf("fields = %+v", app.Generator.Fields)
 	}
 	if len(app.Requirements) != 2 || app.Requirements[0].LanguageID != "java" || len(app.Requirements[0].Providers) != 0 {

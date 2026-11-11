@@ -159,7 +159,7 @@ macOS 的声明式路线由 `MacToolchainDiscovery` 执行，宿主不认识任�
 
 阶段 3 清理 `ProjectRuntimeService` 的专属选择链和 `project-jdk`、`project-maven` 等被替代引用前，须按 [Java/Maven 迁移清单](2026-10-26-maven-java-domain-plugin-migration.md)核对真实消费者和数据迁移。Node、Go、Python 等在其插件声明定义之前保持当前实现，不新增特判；不能在本次提案删除仍在生产使用的代码，或用永久兼容别名伪装迁移完成。
 
-阶段 1 的契约草案 `shared/contracts/plugins/v1/toolchains/proposal/` 及其 fixture 已于 2026-11-05 删除。草案把已实现和未实现的行为写在一起，同步到 lithe-plugin-docs 后，插件开发者分不清哪些能用。其中已经实现的后端协商 `litheToolchains`、稳定失败码和错误回复规则已写进正式契约 `shared/contracts/plugins/v1/toolchains/README.md`；Core 测试改用 `rust/lithe-core/src/tests/toolchain_vectors.rs` 里的内联数据。消费者迁移、查询生命周期与缓存、固定值保存和版本管理器插件等未实现部分只在本笔记跟踪，实现时再写进正式契约；旧 `local-v1` schema 与 Run 配置读写路径保持不变，新 Core 固定解析入口只处理调用方传入的 JSON，不打开文件或保存忽略规则。合并后在插件文档仓库按合并的 `preview` 提交执行 `node scripts/contract.mjs sync --revision <commit>`；实际插件后端协议接入时同步 Node/Java SDK，并在合并前执行 SDK 端到端验证。每阶段的功能矩阵只记录实际实现和目标平台运行证据，不把本提案或 Core 单元测试当作 Windows 已完成。
+阶段 1 的契约草案 `Lithe-core-rust/shared/plugins/contract/v1/toolchains/proposal/` 及其 fixture 已于 2026-11-05 删除。草案把已实现和未实现的行为写在一起，插件开发者读到的是整个契约目录，分不清哪些能用。其中已经实现的后端协商 `litheToolchains`、稳定失败码和错误回复规则已写进正式契约 `Lithe-core-rust/shared/plugins/contract/v1/toolchains/README.md`；Core 测试改用 `rust/lithe-core/src/tests/toolchain_vectors.rs` 里的内联数据。消费者迁移、查询生命周期与缓存、固定值保存和版本管理器插件等未实现部分只在本笔记跟踪，实现时再写进正式契约；旧 `local-v1` schema 与 Run 配置读写路径保持不变，新 Core 固定解析入口只处理调用方传入的 JSON，不打开文件或保存忽略规则。契约、API 总表和协议更新记录在同一个 Core PR 里完成；实际插件后端协议接入时在同一个 Core PR 里更新 Node、Java、Rust SDK，并在合并前于 Core 仓库根运行 `node shared/plugins/scripts/sdk-e2e.mjs`。每阶段的功能矩阵只记录实际实现和目标平台运行证据，不把本提案或 Core 单元测试当作 Windows 已完成。
 
 ## 风险
 
@@ -176,7 +176,7 @@ macOS 的声明式路线由 `MacToolchainDiscovery` 执行，宿主不认识任�
 当前验证覆盖文档、契约、Core 纯数据边界和 macOS 设置页的扫描与布局测试，不声称运行时流程已验收：
 
 - `./scripts/agent-notes/verify-agent-notes.sh`：中文笔记格式、生命周期、链接与路径。
-- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）：现行共享契约及 JSON 有效性；不检查 Core 语义，语义由下面的 Core 测试保护。
+- `node shared/plugins/scripts/verify-docs.mjs`（在 Core 仓库根运行）：契约、指南和参考文档的检查；不检查 Core 语义，语义由下面的 Core 测试保护。
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`：矩阵记录实际 Core 切片与平台待接入状态，不把纯数据测试标成产品运行时已验证。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib toolchain_definitions -- --test-threads=1`：任何插件可定义短 ID、多个插件定义同一短 ID 时都不注册且 `conflicts` 排序稳定、其余定义照常注册、重复插件 ID 整批拒绝、嵌套字段失败即拒绝、只报告安装的提供方，以及定义插件为自己的工具声明提供方。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib toolchain_pins -- --test-threads=1`：目录按组件继承、失效数据、跨平台路径语法、数量边界和 legacy 数据保留。
@@ -187,7 +187,7 @@ macOS 的声明式路线由 `MacToolchainDiscovery` 执行，宿主不认识任�
 
 ## 适用范围
 
-- `shared/contracts/plugins/v1/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
 - `shared/contracts/toolchain-local-v1.schema.json`
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/execution/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/execution)
