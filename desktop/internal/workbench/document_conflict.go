@@ -115,7 +115,7 @@ func (a *App) loadDocumentDisk(p *project, d *document) {
 	read := a.documentReader
 	kernel, _ := a.kernel.(editorKernel)
 	encoding, hasBOM, coded := d.encoding, d.hasBOM, d.needsCodec()
-	var observed []byte
+	var observed, diskText []byte
 	a.background(p, 0, func(ctx context.Context) func(*App) {
 		var data []byte
 		var err error
@@ -130,6 +130,7 @@ func (a *App) loadDocumentDisk(p *project, d *document) {
 			var text []byte
 			if text, err = decodeExternal(ctx, kernel, data, encoding, hasBOM, coded); err == nil {
 				content = editorview.Prepare(text)
+				diskText = text
 			}
 		}
 		return func(a *App) {
@@ -146,7 +147,11 @@ func (a *App) loadDocumentDisk(p *project, d *document) {
 				}
 				return
 			}
+			buffer, _ := d.view.Text()
+			buffer = append([]byte(nil), buffer...)
 			if d.view.ResolveWithDisk(content) {
+				a.recordLocalHistory(p, d.path, "unsavedDiscard", historyTexts{buffer: buffer})
+				a.recordLocalHistory(p, d.path, "externalChange", historyTexts{after: diskText})
 				if d.needsCodec() {
 					d.diskBytes = observed
 				}

@@ -28,6 +28,7 @@ type localHistoryKernel interface {
 	HistoryContent(ctx context.Context, storageRoot, contentPath string) (string, error)
 	RenameHistory(ctx context.Context, storageRoot, path, id, label string) error
 	DeleteHistory(ctx context.Context, storageRoot, path, id string) error
+	RelocateHistory(ctx context.Context, storageRoot, source, destination string) error
 }
 
 // localHistoryStorage is where a project's snapshots are stored:
@@ -50,38 +51,46 @@ type historyTexts struct {
 // in the background. A text that is absent or not UTF-8 is not recorded. Failures are
 // logged and never interrupt the edit that caused them.
 func (a *App) recordLocalHistory(p *project, path, event string, texts historyTexts) {
+	a.localHistoryJob(p, func(ctx context.Context, kernel localHistoryKernel, root, storage string) error {
+		rel, inside := projectRelative(root, path)
+		if !inside {
+			return nil
+		}
+		return recordPlannedHistory(ctx, kernel, root, storage, rel, event, texts)
+	})
+}
+
+// renamedLocalHistory records the text a rename moves away from, then moves the
+// file's or folder's snapshots to its new path, in that order. before is nil for a
+// folder or a file whose text was not read.
+func (a *App) renamedLocalHistory(p *project, oldPath, newPath string, before []byte) {
+	a.localHistoryJob(p, func(ctx context.Context, kernel localHistoryKernel, root, storage string) error {
+		oldRel, inside := projectRelative(root, oldPath)
+		newRel, insideToo := projectRelative(root, newPath)
+		if !inside || !insideToo {
+			return nil
+		}
+		if before != nil {
+			if err := recordPlannedHistory(ctx, kernel, root, storage, oldRel, "beforeRename", historyTexts{before: before}); err != nil {
+				return err
+			}
+		}
+		return kernel.RelocateHistory(ctx, storage, oldRel, newRel)
+	})
+}
+
+// localHistoryJob runs one local history step for the project in the background and
+// logs its failure.
+func (a *App) localHistoryJob(p *project, work func(ctx context.Context, kernel localHistoryKernel, root, storage string) error) {
 	kernel, ok := a.kernel.(localHistoryKernel)
 	if !ok || p == nil {
-		return
-	}
-	rel, inside := projectRelative(p.root, path)
-	if !inside {
 		return
 	}
 	root := p.root
 	a.background(p, 10*time.Second, func(ctx context.Context) func(*App) {
 		storage, err := localHistoryStorage(root)
 		if err == nil {
-			var plan []core.HistorySnapshotPlan
-			if plan, err = kernel.PlanHistoryEvent(ctx, event); err == nil {
-				for _, snapshot := range plan {
-					var text []byte
-					switch snapshot.Source {
-					case "beforeChange":
-						text = texts.before
-					case "afterChange":
-						text = texts.after
-					case "editorBuffer":
-						text = texts.buffer
-					}
-					if text == nil || !utf8.Valid(text) {
-						continue
-					}
-					if _, err = kernel.RecordHistory(ctx, root, storage, rel, snapshot.Reason, string(text)); err != nil {
-						break
-					}
-				}
-			}
+			err = work(ctx, kernel, root, storage)
 		}
 		return func(a *App) {
 			if err != nil {
@@ -89,6 +98,49 @@ func (a *App) recordLocalHistory(p *project, path, event string, texts historyTe
 			}
 		}
 	})
+}
+
+// recordPlannedHistory records, under rel, each snapshot Core plans for event.
+func recordPlannedHistory(ctx context.Context, kernel localHistoryKernel, root, storage, rel, event string, texts historyTexts) error {
+	plan, err := kernel.PlanHistoryEvent(ctx, event)
+	if err != nil {
+		return err
+	}
+	for _, snapshot := range plan {
+		var text []byte
+		switch snapshot.Source {
+		case "beforeChange":
+			text = texts.before
+		case "afterChange":
+			text = texts.after
+		case "editorBuffer":
+			text = texts.buffer
+		}
+		if text == nil || !utf8.Valid(text) {
+			continue
+		}
+		if _, err := kernel.RecordHistory(ctx, root, storage, rel, snapshot.Reason, string(text)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// localHistoryReadLimit is the largest file a rename snapshots from disk.
+const localHistoryReadLimit = 8 << 20
+
+// readForLocalHistory is the text of the regular file at path for a snapshot, or nil
+// for a folder, a large file or one that cannot be read.
+func readForLocalHistory(path string) []byte {
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > localHistoryReadLimit {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	return data
 }
 
 // localHistoryState is the Local History dialog of one file.

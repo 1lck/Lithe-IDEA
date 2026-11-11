@@ -349,10 +349,12 @@ func (a *App) renameTreeItem(p *project) {
 	docs := a.documentsUnder(p, oldFull)
 	pr.open = false
 	a.saveDocumentsThen(p, docs, func() {
+		before := readForLocalHistory(oldFull)
 		if err := os.Rename(oldFull, newFull); err != nil {
 			a.notify(i18n.SharedFormat(language, "desktop.files.renameFailed", map[string]string{"reason": treeErrorReason(err)}))
 			return
 		}
+		a.renamedLocalHistory(p, oldFull, newFull, before)
 		a.performed("workspace.file.rename", surfaceMenu)
 		a.moveOpenDocuments(p, oldFull, newFull)
 		a.listTree(p, path.Dir(oldRel))

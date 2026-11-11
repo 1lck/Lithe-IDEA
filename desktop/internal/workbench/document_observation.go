@@ -299,6 +299,9 @@ func (a *App) applyDocumentCheck(p *project, d *document, baseline rope.Rope, co
 			}
 			d.savedRevision = d.view.Revision()
 			a.clearDocumentConflict(d)
+			if text, _ := d.view.Text(); text != nil {
+				a.recordLocalHistory(p, d.path, "externalChange", historyTexts{after: append([]byte(nil), text...)})
+			}
 		} else {
 			d.checkFailed = true
 			fields := documentOpenFields(errors.New("document reload was not accepted"))
