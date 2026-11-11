@@ -4,17 +4,21 @@
   "group": "Java/Maven",
   "capability": "Profile 与 Provider 依赖树；Java 导航使用 JDT 解析的依赖快照",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/buildprovider/buildprovider.go",
+      "desktop/internal/pluginservice/pages.go",
+      "desktop/internal/workbench/pluginpages.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/buildprovider/buildprovider.go",
+      "desktop/internal/pluginservice/pages.go",
+      "desktop/internal/workbench/pluginpages.go"
     ]
   },
   "owner": "Java / Maven",
@@ -44,5 +48,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：Profile 与依赖树由 Maven 插件的 buildProviders 与声明式 UI 提供；宿主通过 pluginservice/pages.go 与 workbench/pluginpages.go 承载插件页面并转发后端调用，desktop/ 中未找到 Maven profile 或依赖树专属代码。"
 }

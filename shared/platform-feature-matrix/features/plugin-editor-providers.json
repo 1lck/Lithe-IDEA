@@ -4,22 +4,24 @@
   "group": "插件与主题",
   "capability": "普通工具插件的编辑器语言功能：运行期把跳转、悬浮、补全、CodeLens、折叠、语义着色、文档链接绑定到同插件函数；语言服务器先答，插件只补充；不接 LSP/Build/Run/Debug",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/pluginsemantics.go",
+      "desktop/internal/workbench/semantic_tokens.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/pluginsemantics.go",
+      "desktop/internal/workbench/semantic_tokens.go"
     ]
   },
   "owner": "Extensions",
   "verification": "用一个资源 key 在模板与 .properties 之间跳转的第二工具插件注册 definition、hover、completion、codeLens、semanticTokens；验证语言服务器的答案先出现、插件的位置只追加、重复位置只显示一次、服务器只指回自身时让位；悬浮和补全超过期限、文档已变化、注册被撤回时安静丢弃；触发字符只问声明过它的注册；点击 CodeLens 与文档链接只回传宿主生成的键，command: 链接不会被执行，工作区外的 file: 目标不会打开；只读预览不询问插件；停用、卸载、关闭项目后旧结果不再出现。",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva：pluginsemantics.go 处理语言服务器的定义、悬浮和补全请求，semantic_tokens.go 处理语义着色，答案由 Core 归一化；未找到普通工具插件把跳转、悬浮、补全、CodeLens、折叠、文档链接绑定到同插件函数的注册机制，也没有 CodeLens、折叠和文档链接。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

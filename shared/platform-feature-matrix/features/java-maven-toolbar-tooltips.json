@@ -4,17 +4,19 @@
   "group": "Java/Maven",
   "capability": "Maven 工具栏提示；macOS 使用 IDEA 原色 SVG、共享按钮与单行树样式",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginservice/toolwindows.go",
+      "desktop/internal/workbench/plugintools.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginservice/toolwindows.go",
+      "desktop/internal/workbench/plugintools.go"
     ]
   },
   "owner": "Java / Maven",
@@ -41,5 +43,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：Maven 工具窗口与工具栏由插件声明，宿主通过 pluginservice/toolwindows.go 与 workbench/plugintools.go 挂载插件工具窗口；工具栏图标、提示和原色 SVG 由插件清单提供，desktop/ 中未找到 Maven 专属代码。"
 }

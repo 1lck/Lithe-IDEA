@@ -4,17 +4,19 @@
   "group": "项目运行",
   "capability": "Docker / Compose 项目识别与运行",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/fileicons/fileicons.go",
+      "desktop/internal/pluginhost/pluginhost.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/fileicons/fileicons.go",
+      "desktop/internal/pluginhost/pluginhost.go"
     ]
   },
   "owner": "Run / Docker",
@@ -38,5 +40,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：fileicons/fileicons.go 识别 Dockerfile 与 compose 文件名，但仅用于图标；工具窗口可由 ui 能力承接，但 Docker 运行准备与 executionProviders 未声明，容器和 Compose 的运行、输出和进程停止没有宿主入口。"
 }

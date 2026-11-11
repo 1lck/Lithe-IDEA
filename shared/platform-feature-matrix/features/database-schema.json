@@ -4,17 +4,21 @@
   "group": "数据库工作区",
   "capability": "Schema、表与列浏览及结构编辑（由社区插件提供）",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginhost/pluginhost.go",
+      "desktop/internal/workbench/plugintools.go",
+      "desktop/internal/workbench/plugins.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginhost/pluginhost.go",
+      "desktop/internal/workbench/plugintools.go",
+      "desktop/internal/workbench/plugins.go"
     ]
   },
   "owner": "Database（社区插件 Lithe-IDEA/lithe-plugin-database，Lithe Store 上架）",
@@ -42,5 +46,5 @@
       "verificationStatus": "not-applicable"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：Schema、表、列和结构编辑由社区插件提供，宿主依赖同一套工具窗口与 backend 能力（pluginhost.go、plugintools.go）。desktop/ 内没有 schema 浏览或 DDL 编辑代码；Windows 与 database-query-history 一样尚未提供数据库入口。"
 }

@@ -4,22 +4,24 @@
   "group": "Git",
   "capability": "失败后只重试未完成的提交或推送步骤",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/commit.go",
+      "desktop/internal/core/gitcommit.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/commit.go",
+      "desktop/internal/core/gitcommit.go"
     ]
   },
   "owner": "Git",
   "verification": "让子仓库推送失败，确认父仓库被阻塞、独立仓库成功；重试计划应显示子仓库只推送，验证子仓库提交数不增加，随后才提交和推送父仓库。",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva：项目仓库提交失败后的重试已接入（commit.go 的 retryCommit，Core 的 CanRetry 与 Previous 会话）。但提交请求只包含项目仓库（commit.go 的 request 只传 ID \".\"），子仓库仅推送的重试计划和父仓库阻塞的多仓库流程在 UI 中不可达。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

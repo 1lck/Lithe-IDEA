@@ -4,17 +4,17 @@
   "group": "运行配置",
   "capability": "超长 Java 类路径自动缩短",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "Run",
@@ -40,5 +40,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：desktop/ 中没有超长类路径缩短或参数文件（argfile）逻辑（grep classpath/argfile 无结果）；pluginhost.go 未声明 run preparation，executablePlan 只存在于调试适配器（core/debug_launch.go）。"
 }

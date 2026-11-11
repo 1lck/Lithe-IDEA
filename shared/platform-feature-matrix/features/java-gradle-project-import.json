@@ -4,17 +4,21 @@
   "group": "Java/Gradle",
   "capability": "在 Gradle 工作区显式声明 Buildship 导入开关，并把 Gradle 工程结构纳入 Windows 工作区指纹。声明的开关与 JDT LS 默认值相同，导入结果不变；实际行为变化是 settings.gradle 或 wrapper 描述文件变化时换用新的 JDT 数据目录",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginservice/settings_editor.go",
+      "desktop/internal/pluginservice/backends.go",
+      "desktop/internal/core/plugin_settings.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginservice/settings_editor.go",
+      "desktop/internal/pluginservice/backends.go",
+      "desktop/internal/core/plugin_settings.go"
     ]
   },
   "owner": "Java / Gradle",
@@ -49,5 +53,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：Buildship 导入开关属于 Java 插件的语言服务初始化选项，宿主只需要插件设置与后端激活的通用入口（pluginservice/settings_editor.go、backends.go）；desktop/ 中未找到 java.import、gradle 或工作区指纹字段，由 Core 与插件负责。"
 }

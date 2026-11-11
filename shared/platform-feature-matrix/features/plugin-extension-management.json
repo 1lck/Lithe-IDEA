@@ -4,17 +4,25 @@
   "group": "插件与主题",
   "capability": "插件、语言服务与主题管理",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/settingswindow/marketplace_view.go",
+      "desktop/internal/plugininstall/plugininstall.go",
+      "desktop/internal/pluginmanager/pluginmanager.go",
+      "desktop/internal/marketplace/service.go",
+      "desktop/internal/pluginstate/pluginstate.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/settingswindow/marketplace_view.go",
+      "desktop/internal/plugininstall/plugininstall.go",
+      "desktop/internal/pluginmanager/pluginmanager.go",
+      "desktop/internal/marketplace/service.go",
+      "desktop/internal/pluginstate/pluginstate.go"
     ]
   },
   "owner": "Extensions",
@@ -48,5 +56,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：市场详情提供安装、启用和禁用（marketplace_view.go），plugininstall 负责校验与提交，pluginmanager 提供卸载，pluginstate 保存启用状态；设置窗口和工作台中未找到从磁盘选择插件包安装的入口，也没有版本回滚。"
 }

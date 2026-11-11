@@ -4,17 +4,17 @@
   "group": "GitHub",
   "capability": "Review 与评论",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "GitHub",
@@ -36,5 +36,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：未找到 GitHub Review 与评论的创建、查看或回复代码；core/git_review.go 与 workbench/gitreview*.go 只处理本地差异审查，不对接 GitHub。"
 }

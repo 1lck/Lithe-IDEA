@@ -4,17 +4,17 @@
   "group": "命令与布局",
   "capability": "Windows 文件菜单在“关闭标签页”上方提供带齿轮图标的“设置”入口，点击打开设置对话框",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "Workbench",
@@ -38,5 +38,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：标题栏只有项目菜单、运行、调试、搜索和设置按钮（catalog.go 的 zoneTitle），desktop/ 中没有“文件”菜单，也没有“关闭标签页”上方的设置项。"
 }

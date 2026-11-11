@@ -4,17 +4,17 @@
   "group": "命令与布局",
   "capability": "命令面板与全局动作",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "Workbench",
@@ -39,5 +39,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：desktop/ 中没有命令注册表或命令面板；Search Everywhere 的“操作”页签在 search_everywhere_view.go 的 everywhereScopes 中被禁用，没有可执行的全局动作列表。"
 }

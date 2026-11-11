@@ -4,17 +4,21 @@
   "group": "Java 服务更新",
   "capability": "运行中的 Spring Boot DevTools 服务手动保存并编译更新",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginservice/runs.go",
+      "desktop/internal/pluginservice/debug_start.go",
+      "desktop/internal/workbench/debug_start.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginservice/runs.go",
+      "desktop/internal/pluginservice/debug_start.go",
+      "desktop/internal/workbench/debug_start.go"
     ]
   },
   "owner": "Run/Debug",
@@ -36,5 +40,5 @@
       ]
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：DevTools 手动保存并编译更新由插件的运行后端调用与运行动作提供；宿主通过 pluginservice/runs.go、debug_start.go 与 workbench/debug_start.go 承接运行与调试启动，desktop/ 中未找到 DevTools 或 JVM 结构修改拒绝的专属代码。"
 }

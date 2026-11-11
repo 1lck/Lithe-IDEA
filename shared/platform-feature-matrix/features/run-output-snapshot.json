@@ -4,22 +4,22 @@
   "group": "运行输出",
   "capability": "运行输出快照：右键菜单把当前缓冲的进程输出冻结为只读编辑器标签，环形缓冲继续淘汰旧行时快照内容保持不变，创建即固定防止标签自动淘汰",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "Run",
   "verification": "Windows：运行持续输出的服务，在输出区右键选择「快照当前输出」，确认编辑器区出现以捕获时间命名的只读标签，内容与当时的缓冲一致；继续产生输出并使其超过环形上限后，快照内容不变且可搜索、复制；连续创建多个快照各自独立成标签；把 maxOpenTabs 调小并打开大量其他文件，快照标签不被自动淘汰，仅用户手动关闭后消失；无输出时右键菜单不显示快照项。macOS：待实现后按同等场景验证。",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva：workbench 的运行面板中没有“快照当前输出”、冻结只读标签或快照固定逻辑（grep snapshot 无相关结果）。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

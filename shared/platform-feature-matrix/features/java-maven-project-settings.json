@@ -4,17 +4,21 @@
   "group": "Java/Maven",
   "capability": "项目与子项目工具链使用 canonical Run local.json；Maven 调用选项和原生 XML 归 Build Provider，旧配置只经校验、迁移和读回后清理",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginservice/toolchains.go",
+      "desktop/internal/pluginservice/settings_editor.go",
+      "desktop/internal/core/plugin_settings.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginservice/toolchains.go",
+      "desktop/internal/pluginservice/settings_editor.go",
+      "desktop/internal/core/plugin_settings.go"
     ]
   },
   "owner": "Java / Maven",
@@ -47,5 +51,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：项目与子项目工具链及 Maven 调用选项由插件的 settings2 与 toolchains 声明，宿主通过 pluginservice/toolchains.go 与 settings_editor.go 渲染和保存；desktop/ 中未找到 canonical local.json 迁移或旧 XML 表单代码。"
 }

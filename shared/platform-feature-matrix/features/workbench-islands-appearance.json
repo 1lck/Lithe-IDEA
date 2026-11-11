@@ -4,21 +4,21 @@
   "group": "外观",
   "capability": "IntelliJ Islands 外观：Islands 配色、10px 圆角面板卡片、控件 4px 圆角、卡片式查找栏与编辑器通知、Islands 滚动条颜色，窗口失焦时外框（标题栏、侧边按钮条、状态栏）降到 0.56 透明度",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/theme.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/theme.go"
     ]
   },
   "owner": "Workbench",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva：theme.go 按 IDEA 风格定义浅色和深色 palette（Chrome、Panel、Selection、Accent 等）并支持跟随系统；未找到 IntelliJ Islands 专用的 10px 卡片圆角、4px 控件圆角、失焦外框 0.56 透明度、#3871E1 选中入口，以及 Dracula 或高对比主题（themeChoice 只有系统、浅色、深色）。",
   "verification": "在 Windows 使用 Lithe Dark 与 Lithe Light：确认窗口底色、面板卡片、选中色与 IntelliJ Islands 一致；面板卡片为 10px 圆角，按钮与输入框为 4px 圆角；Ctrl+F 查找栏为离顶部 6px 的圆角浮动卡片；外部修改冲突提示为内缩圆角卡片；切换到其他应用后标题栏、侧边按钮条与状态栏变淡而编辑器正文不变，切回后恢复；在后台打开新窗口时一开始即为变淡状态；切换到 Dracula 或高对比主题确认标签与滚动条使用该主题自身颜色。 左右两侧按钮条的按钮为 30px 高亮区、6px 圆角、20px 图标、间隔 10px（IntelliJ StripeToolbar.Button），标题栏搜索、设置和菜单按钮为 30px、20px 图标（IntelliJ MainToolbar.Button）。 标题栏项目名和分支名常态使用主题 foreground 主文字色，深浅主题与 IDEA 主工具栏对照；悬停、菜单打开、加载禁用和窗口失焦后仍保持原有反馈，其他分支入口、箭头、图标和字重不变。 左上 Project、Commit 和左下 Run、Terminal、Problems、Git Log 选中入口在 Islands 深浅主题均为 #3871E1 蓝底、白色原始图标轮廓；悬停及键盘聚焦保留蓝底，关闭或切换侧栏、底部面板后旧入口恢复。禁用入口不显示选中蓝底，其他列表和 Search 活动项不变，第三方主题保留自己的配色与图标。 macOS 深浅外观在同一工作台中选择、更换和移除背景图，逐一检查 Agent 对话/欢迎/历史、Run/Maven/Tests 输出、模块加载、媒体与替换预览、数据库工具栏透出壁纸且移除后恢复底色；输入框、选择、通知及弹窗保持可读。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",

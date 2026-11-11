@@ -4,17 +4,23 @@
   "group": "插件管理",
   "capability": "插件通过 settings 2 在 plugin.json 里把设置项和按钮注册到“语言与框架 › <语言>”或“构建、执行、部署 › <构建系统>”页，按 section 分组；设置可声明项目级覆盖（写入项目 .lithe/plugin-settings.json）和生效方式（重启、立即、重新加载、下次运行），“立即生效”的值经 workspace/configuration 推给正在运行的语言服务器；按钮调用插件自己的插件函数。宿主只提供通用页面、控件和语言服务状态卡，不内置任何语言或构建工具的页面；路径选择按钮保持完整可见，窄面板由输入框和标题列缩短以容纳状态标签",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/settingswindow/settings_surfaces.go",
+      "desktop/internal/settingswindow/plugin_settings_view.go",
+      "desktop/internal/pluginsettings/store.go",
+      "desktop/internal/pluginservice/settings.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/settingswindow/settings_surfaces.go",
+      "desktop/internal/settingswindow/plugin_settings_view.go",
+      "desktop/internal/pluginsettings/store.go",
+      "desktop/internal/pluginservice/settings.go"
     ]
   },
   "owner": "Plugin Platform",
@@ -48,5 +54,5 @@
       "verificationStatus": "not-applicable"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：settings_surfaces.go 按 core.SettingsPage（Key、Kind、Contributors、Sections）动态生成插件设置页，带确认的页面按钮在 plugin_settings_actions_view.go；pluginsettings/store.go 提供项目层存储，pluginservice/settings.go 的 ApplyLanguageSettings 把配置推给运行中的语言服务器；pluginhost 声明 settings 1–2。"
 }

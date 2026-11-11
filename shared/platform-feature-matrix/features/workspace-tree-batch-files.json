@@ -4,17 +4,19 @@
   "group": "工作区生命周期",
   "capability": "项目树独立多选、范围选择及批量拖动移动、复制、重复和移到废纸篓",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/filetree_menu.go",
+      "desktop/internal/workbench/filetree.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/filetree_menu.go",
+      "desktop/internal/workbench/filetree.go"
     ]
   },
   "owner": "Workspace",
@@ -44,5 +46,5 @@
       ]
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：项目树支持单项新建、重命名与删除（filetree_menu.go，删除为 os.RemoveAll）；未找到独立多选、范围选择、批量拖动移动、复制、重复或移到废纸篓的实现，filetree.go 的选择模型为单项。"
 }

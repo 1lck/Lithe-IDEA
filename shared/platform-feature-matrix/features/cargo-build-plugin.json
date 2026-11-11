@@ -4,17 +4,21 @@
   "group": "插件与主题",
   "capability": "Cargo 社区构建插件：由 Cargo metadata 提供 workspace/package/target/features，使用原生构建窗口执行编译、检查、测试、清理和 binary/example 运行，支持 Release、Features、Offline；用户安装 Cargo 与 Node，插件独立打包且运行时只读；通过共享 executableResolution 候选解析支持可选设置路径、优先级与相对排序，空值自动发现、显式失败不回退",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginservice/builds.go",
+      "desktop/internal/buildprovider/buildprovider.go",
+      "desktop/internal/pluginhost/pluginhost.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginservice/builds.go",
+      "desktop/internal/buildprovider/buildprovider.go",
+      "desktop/internal/pluginhost/pluginhost.go"
     ]
   },
   "owner": "Plugin Platform",
@@ -41,5 +45,5 @@
       ]
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：宿主只提供通用构建入口（pluginservice/builds.go 读取声明 buildSystems 的插件，buildprovider 运行提供者任务，pluginhost 声明 executableResolution 2 与 buildProviders 1–2），Cargo 的具体逻辑属于独立插件；两平台共用此代码，状态相同。"
 }

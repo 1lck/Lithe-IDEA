@@ -4,17 +4,19 @@
   "group": "通知与资源",
   "capability": "应用与语言服务内存监控",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/chrome.go",
+      "desktop/internal/sysinfo/sysinfo.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/chrome.go",
+      "desktop/internal/sysinfo/sysinfo.go"
     ]
   },
   "owner": "Workbench",
@@ -38,5 +40,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：状态栏内存项（chrome.go 的 itemMemory，显示进程常驻内存）与进程内存采样（sysinfo.go 的 ResidentBytes）已存在；未找到语言服务内存采样、内存详情弹出或悬停分项，迁移表也记录语言服务内存监控缺失。"
 }

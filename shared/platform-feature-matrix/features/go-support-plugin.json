@@ -4,17 +4,21 @@
   "group": "Go",
   "capability": "Go 社区插件：gopls、运行与 go test（由 Lithe Store 社区插件提供）",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginhost/pluginhost.go",
+      "desktop/internal/pluginlsp",
+      "desktop/internal/workbench/plugins.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginhost/pluginhost.go",
+      "desktop/internal/pluginlsp",
+      "desktop/internal/workbench/plugins.go"
     ]
   },
   "owner": "Go Support（社区插件 Lithe-IDEA/lithe-plugin-go）",
@@ -44,5 +48,5 @@
       "verificationStatus": "not-applicable"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：languageServers 能力已声明（pluginhost.go），pluginlsp 承接插件语言服务器会话，gopls 可由插件启动。但 executionProviders 未声明，go run、go test 与单测试函数运行没有宿主入口（pluginhost.go 注释说明 Run preparation 与 tests 未服务）。"
 }

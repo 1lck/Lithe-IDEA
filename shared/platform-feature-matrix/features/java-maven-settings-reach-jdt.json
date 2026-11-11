@@ -4,17 +4,21 @@
   "group": "Java/Maven",
   "capability": "Maven 设置与重新加载实时作用于 Java 语言服务，并展示依赖解析问题",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginservice/languagesession.go",
+      "desktop/internal/pluginservice/backends.go",
+      "desktop/internal/pluginservice/settings_editor.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginservice/languagesession.go",
+      "desktop/internal/pluginservice/backends.go",
+      "desktop/internal/pluginservice/settings_editor.go"
     ]
   },
   "owner": "Java / Maven",
@@ -52,5 +56,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：Maven 设置实时作用于 Java 语言服务依赖插件后端与 Core build.languageImport；宿主通过 pluginservice/languagesession.go 与 backends.go 提供语言服务会话与后端通道，desktop/ 中未找到 languageImport 字段或依赖解析问题展示的宿主代码。"
 }

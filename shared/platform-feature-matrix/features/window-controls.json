@@ -4,10 +4,11 @@
   "group": "窗口管理",
   "capability": "标题栏控制窗口最小化、最大化/还原与关闭；macOS 绿色按钮可进入原生全屏 Space（而非主桌面最大化）；命令面板可最小化、最大化及切换全屏",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/root.go",
+      "desktop/internal/workbench/chrome_view.go"
     ]
   },
   "windows": {
@@ -45,5 +46,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端：Windows 与 Linux 的自定义标题栏最小化、最大化/还原、关闭按钮由 Viva 绘制和命中，工作台、设置窗口和日志窗口通过 windowcontrols.Style 按各自标题栏文字色着色并使用共享 i18n 名称（此前沿用 Viva 按默认深色清屏色推出的白色字形，浅色标题栏上看不见）；命令面板的窗口操作尚未接入，原生窗口中的按钮行为待在 Windows 与 Linux 验证。macOS 尚未逐项盘点。legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：Windows 使用 WindowCustomTitlebar 自绘最小化、最大化和关闭（root.go），windowcontrols/style.go 按标题栏墨色着色并使用本地化名称。macOS 依赖 Viva 框架保留系统红绿灯（chrome_view.go 的 titleBar 使用 app.TitlebarInsets），desktop/ 中未找到全屏切换后去掉左侧空位的处理。"
 }

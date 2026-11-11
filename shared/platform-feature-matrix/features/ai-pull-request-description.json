@@ -4,22 +4,22 @@
   "group": "GitHub",
   "capability": "AI 生成 Pull Request 标题与描述：Rust Core 统一证据预算、敏感文件策略、提示词与严格的 JSON 响应格式（ai.pullRequest.plan / ai.pullRequest.decode），凭据与 HTTP 留在平台",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "AI",
   "verification": "macOS：在测试仓库的新建 PR 页面生成描述，确认标题和描述同时填入、含敏感文件（如 credentials.json）的比较被拒绝、只返回标题的响应报错。Windows：使用 AI 提交服务商在新建 PR 页面生成草稿，确认使用本地 base...head 差异并报告本地化错误。",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva：未找到 Pull Request 标题与描述的生成代码，desktop/ 中没有 pullRequest 相关 Core 命令或新建 PR 页面；现有 AI 能力只覆盖提交信息（workbench/aicommit.go）。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

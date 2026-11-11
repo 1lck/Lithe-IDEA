@@ -4,17 +4,21 @@
   "group": "数据库工作区",
   "capability": "SQL 查询、历史与分页（由社区插件提供）",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginhost/pluginhost.go",
+      "desktop/internal/workbench/plugintools.go",
+      "desktop/internal/workbench/plugins.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginhost/pluginhost.go",
+      "desktop/internal/workbench/plugintools.go",
+      "desktop/internal/workbench/plugins.go"
     ]
   },
   "owner": "Database（社区插件 Lithe-IDEA/lithe-plugin-database，Lithe Store 上架）",
@@ -42,5 +46,5 @@
       "verificationStatus": "not-applicable"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：SQL 查询与历史由社区插件提供，宿主只需工具窗口（pluginhost 声明的 ui 能力，workbench/plugintools.go 停靠）与 backend 能力。desktop/ 内没有 SQL 执行、历史或分页代码；workbench 中也没有数据库入口，Windows 验收文本称插件市场就绪前不提供该功能。"
 }

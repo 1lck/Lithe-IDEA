@@ -4,22 +4,26 @@
   "group": "Git",
   "capability": "多仓库变更折叠分组",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/core/changelists.go",
+      "desktop/internal/workbench/changelists.go",
+      "desktop/internal/workbench/changelists_view.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/core/changelists.go",
+      "desktop/internal/workbench/changelists.go",
+      "desktop/internal/workbench/changelists_view.go"
     ]
   },
   "owner": "Git",
   "verification": "在同一工作区打开多个 Git 仓库，确认变更按仓库折叠分组；只剩一个仓库有变更时仍显示仓库名。仓库级和文件级勾选与 Git 暂存区同步；子模块只有未提交文件时显示提示，不能勾选未变化的引用。",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva：Core 的 ChangeList 按仓库根分组并接受多个 Repositories，但 workbench/changelists.go 只用当前项目的仓库根构造列表，变更列表没有按仓库折叠分组，也没有多仓库勾选同步或子模块未变化引用的提示。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

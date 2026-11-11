@@ -4,17 +4,17 @@
   "group": "Git",
   "capability": "macOS Commit/Shelf 标签采用共享选中与悬停样式、12pt 水平内边距、41pt 顶栏和共享主题分隔线，Commit 工具栏四个现有操作使用 IDEA 明暗 SVG 和共享按钮样式，工具栏下不绘制横线，Changes 列表紧贴工具栏；提交区可拖动分隔条使用共享边框且悬停/拖动不高亮，提交按钮及多行编辑框遵循 IDEA Community 尺寸、边框和字体，占位色与共享输入框一致；提交信息编辑框复用编辑器共享底色",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "Git",
@@ -48,5 +48,5 @@
       ]
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：Commit 工具窗口的工具栏、变更列表与提交区已实现（commit_view.go、commit_page.go），但文档要求的 41pt 顶栏、40pt 操作行、IDEA 16pt 图标和提交框圆角/字重等像素规格未找到对应代码；旧 macOS 标签样式按迁移表已放弃，Viva 以统一控件重做。"
 }

@@ -4,17 +4,23 @@
   "group": "IDE MCP",
   "capability": "插件与 MCP 查询和修改项目 Java/Maven 默认环境，并返回实际选择结果",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/ide_api_dispatch.go",
+      "desktop/internal/workbench/settings_ide_api.go",
+      "desktop/internal/workbench/settings_toolchains.go",
+      "desktop/internal/toolchain/toolchain.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/ide_api_dispatch.go",
+      "desktop/internal/workbench/settings_ide_api.go",
+      "desktop/internal/workbench/settings_toolchains.go",
+      "desktop/internal/toolchain/toolchain.go"
     ]
   },
   "owner": "Agent",
@@ -42,5 +48,5 @@
       ]
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：IDE API 桥只暴露 ideAPIServedTools 中的 lithe_project_inspect、lithe_build_* 与 lithe_operation* 工具，没有查询或修改项目 Java/Maven 默认环境的工具；通用工具链读取与保存已存在（settings_toolchains.go 的 Load/Save，toolchain/ 包），但未接入 IDE API，也未找到“返回实际选择结果”的协议。"
 }

@@ -4,17 +4,19 @@
   "group": "命令与布局",
   "capability": "从工作台 chrome 打开设置：Windows 点击标题栏搜索按钮右侧的齿轮，macOS 通过应用菜单及面板内入口",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/chrome_view.go",
+      "desktop/internal/workbench/catalog.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/chrome_view.go",
+      "desktop/internal/workbench/catalog.go"
     ]
   },
   "owner": "Workbench",
@@ -39,5 +41,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：设置齿轮是标题栏 catalog 项（catalog.go 的 itemTitleSettings，位于搜索按钮之后），gearMenu 提供偏好设置、插件和日志入口；desktop/ 中未找到原生应用菜单的设置入口（无 app.Menu 调用），快捷键项只提示稍后提供。"
 }

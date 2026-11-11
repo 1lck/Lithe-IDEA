@@ -4,17 +4,21 @@
   "group": "诊断与日志",
   "capability": "类型化会话日志筛选、保留与快照诊断包导出",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/logwindow/export.go",
+      "desktop/internal/logstore/collect.go",
+      "desktop/internal/logstore/store.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/logwindow/export.go",
+      "desktop/internal/logstore/collect.go",
+      "desktop/internal/logstore/store.go"
     ]
   },
   "owner": "Diagnostics",
@@ -75,5 +79,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：日志窗口导出（logwindow/export.go）使用暂存目录，logstore.ExportQuery 支持按会话、级别、时间与表达式筛选，store.go 负责保留预算；未确认 15 分钟诊断到期、过载不阻塞、凭据脱敏和 macOS v1 日志排除的专门实现。"
 }

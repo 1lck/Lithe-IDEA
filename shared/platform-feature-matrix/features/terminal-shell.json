@@ -4,17 +4,21 @@
   "group": "终端",
   "capability": "Shell 发现与终端配置(默认 Shell、回滚行数)",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/terminal_shells.go",
+      "desktop/internal/localshell/discovery.go",
+      "desktop/internal/settingswindow/terminal_view.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/terminal_shells.go",
+      "desktop/internal/localshell/discovery.go",
+      "desktop/internal/settingswindow/terminal_view.go"
     ]
   },
   "owner": "Terminal",
@@ -48,5 +52,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：默认 Shell 发现和选择已有（localshell/discovery.go 含 Git Bash，settingswindow/terminal_view.go 提供 automatic 选项，workbench/terminal_shells.go 提供新建菜单）；回滚行数没有设置项，term.DefaultScrollback 固定为 5000；TERM_PROGRAM、COLORFGBG、NO_COLOR 等环境导出在 desktop/ 中未找到。"
 }

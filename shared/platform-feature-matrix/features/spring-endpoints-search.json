@@ -4,17 +4,19 @@
   "group": "Spring / MyBatis",
   "capability": "Spring HTTP 接口筛选与源码跳转",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginservice/pages.go",
+      "desktop/internal/workbench/pluginpages.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginservice/pages.go",
+      "desktop/internal/workbench/pluginpages.go"
     ]
   },
   "owner": "Java / Spring",
@@ -39,5 +41,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：Spring HTTP 接口筛选与源码跳转由插件提供，宿主只承载插件页面与后端调用（pluginservice/pages.go、workbench/pluginpages.go）；desktop/ 中未找到接口扫描、筛选或源码跳转的专属代码。"
 }

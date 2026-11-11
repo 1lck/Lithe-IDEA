@@ -4,17 +4,18 @@
   "group": "WSL",
   "capability": "WSL 文件与工作区路径",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/localshell/wsl.go",
+      "desktop/internal/localshell/wsl_windows.go"
     ]
   },
   "owner": "Windows Platform",
@@ -37,5 +38,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：WSL 发行版发现（wsl_windows.go 的 InstalledWSL）、WSL shell 命名与解析（wsl.go 的 WSLShell、WSLDistro、ParseWSLDistros）已存在；但 WSL 路径解析仅在 localshell 包内使用，未找到 \\\\wsl$ 工作区打开或文件树读写的接线。该能力为 Windows 专属，macOS 端为平台专属。"
 }

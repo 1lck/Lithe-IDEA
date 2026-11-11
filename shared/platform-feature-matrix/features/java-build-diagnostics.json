@@ -4,17 +4,23 @@
   "group": "Java/Maven",
   "capability": "构建输出与编译诊断",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/buildprovider/buildprovider.go",
+      "desktop/internal/buildprocess/process.go",
+      "desktop/internal/workbench/problems.go",
+      "desktop/internal/workbench/build.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/buildprovider/buildprovider.go",
+      "desktop/internal/buildprocess/process.go",
+      "desktop/internal/workbench/problems.go",
+      "desktop/internal/workbench/build.go"
     ]
   },
   "owner": "Java / Maven",
@@ -48,5 +54,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：构建输出与编译诊断由 Java 插件通过 buildProviders 与 Problems 诊断扩展点提供；宿主具备通用构建进程（buildprocess/process.go）、构建窗口（workbench/build.go）和问题面板接收诊断（workbench/problems.go）。未找到 Java 编译诊断解析或 Run/Debug 保存前置的宿主专属代码。"
 }

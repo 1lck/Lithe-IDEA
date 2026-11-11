@@ -4,17 +4,23 @@
   "group": "Java/Maven",
   "capability": "JDK、Maven / mvnd 工具链发现、安装设置同步及按项目要求自动选择 JDK",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/toolchain/toolchain.go",
+      "desktop/internal/workbench/settings_toolchains.go",
+      "desktop/internal/core/toolchain.go",
+      "desktop/internal/pluginservice/toolchains.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/toolchain/toolchain.go",
+      "desktop/internal/workbench/settings_toolchains.go",
+      "desktop/internal/core/toolchain.go",
+      "desktop/internal/pluginservice/toolchains.go"
     ]
   },
   "owner": "Java / Maven",
@@ -58,5 +64,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：JDK 与 Maven/mvnd 工具定义由插件 toolDefinitions 提供，宿主通用 toolchain 包负责探测、目录选择与 .lithe/toolchains/local.json 项目固定，设置页在 workbench/settings_toolchains.go 读写；desktop/ 中未找到 JDK 版本匹配或 mvnd 专属代码。"
 }

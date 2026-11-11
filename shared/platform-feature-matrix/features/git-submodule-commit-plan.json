@@ -4,22 +4,26 @@
   "group": "Git",
   "capability": "子模块先提交与推送、自动更新父引用、计划变化再次确认",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/core/gitcommit.go",
+      "desktop/internal/workbench/commit.go",
+      "desktop/internal/workbench/commit_view.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/core/gitcommit.go",
+      "desktop/internal/workbench/commit.go",
+      "desktop/internal/workbench/commit_view.go"
     ]
   },
   "owner": "Git",
   "verification": "只勾选孙仓库文件，确认计划自动列出父祖仓库的引用更新且可关闭；确认期间改变暂存内容或分支，必须显示新计划再次确认。父仓库未暂存文件不能被带入；只勾选父引用时先推送子仓库现有提交，Git 发布检查应拒绝未发布的子引用。子仓库元数据被外部删除后必须拒绝读取和写入，不能向上回退父仓库。",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva：Core 计划包含父引用更新（IncludeParentReferences）、waitingForSubmodule 状态和 ReviewChanged 复核；workbench 提供“更新父引用”选项（commit_view.go）与复核流程（commit.go）。未逐项核对孙仓库路径和子仓库元数据被删除后的拒绝行为。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

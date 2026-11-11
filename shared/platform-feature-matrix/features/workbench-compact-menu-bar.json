@@ -4,17 +4,17 @@
   "group": "命令与布局",
   "capability": "紧凑菜单栏可在标题栏左侧原位展开完整水平菜单，并在点击外部或按 Escape 后收起，不遮挡工作区",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "Workbench",
@@ -40,5 +40,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：标题栏左侧是项目菜单（chrome_view.go 的 chromeProject），desktop/ 中未找到紧凑菜单栏、汉堡按钮或水平菜单展开的实现。"
 }

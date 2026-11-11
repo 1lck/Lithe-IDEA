@@ -4,17 +4,21 @@
   "group": "PHP",
   "capability": "PHP 插件按需安装与生命周期（macOS 为 Lithe Store 社区插件）",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/plugininstall/plugininstall.go",
+      "desktop/internal/pluginmanager/pluginmanager.go",
+      "desktop/internal/pluginhost/pluginhost.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/plugininstall/plugininstall.go",
+      "desktop/internal/pluginmanager/pluginmanager.go",
+      "desktop/internal/pluginhost/pluginhost.go"
     ]
   },
   "owner": "PHP Support（macOS 社区插件 Lithe-IDEA/lithe-plugin-php）",
@@ -50,5 +54,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：插件安装（plugininstall）、启用与禁用（pluginmanager.SetEnabled）和 languageServers 能力（pluginhost.go）构成宿主入口。未安装 intelephense 时的缺失提示和 PATH 继承未逐项核对。"
 }

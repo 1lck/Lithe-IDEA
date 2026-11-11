@@ -4,17 +4,17 @@
   "group": "远程开发",
   "capability": "在 SSH 主机、容器和远程 Mac 上打开并开发项目",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "Workspace",
@@ -68,5 +68,5 @@
       "verificationStatus": "not-applicable"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：未找到 SSH、容器或远程 Mac 的远程开发入口、远程文件、远程 Git 或 JDK 探测实现；localshell/shell.go 只在注释中提及 sshconn.Shell，desktop/ 中没有对应包。"
 }

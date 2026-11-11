@@ -4,17 +4,19 @@
   "group": "命令与布局",
   "capability": "工具窗口拖动、分组、排序与布局恢复",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/catalog.go",
+      "desktop/internal/workbench/dockdrag.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/catalog.go",
+      "desktop/internal/workbench/dockdrag.go"
     ]
   },
   "owner": "Workbench",
@@ -48,5 +50,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：catalog.go 定义六个停靠区，dockdrag.go 处理拖动落点与遮罩，布局经 loadChrome 保存；未核到组内排序、右键移动和多工作区布局恢复的完整实现。"
 }

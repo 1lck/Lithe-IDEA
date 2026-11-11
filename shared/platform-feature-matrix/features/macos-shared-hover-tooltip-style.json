@@ -4,17 +4,17 @@
   "group": "全局共享控件",
   "capability": "macOS 侧边栏与工具栏悬浮提示共用 IDEA Islands 的背景、边框、圆角及文字样式",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "macOS UI",
@@ -39,5 +39,5 @@
       ]
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：工具提示通过 viva ui 的 Tooltip 调用在 workbench 中使用（commit_view.go、debug_view.go、tests_view.go 等），但未找到 IDEA Islands 样式的共享悬浮提示表面（边框、4pt 圆角、颜色和内边距规格）。"
 }

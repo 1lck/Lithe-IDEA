@@ -4,17 +4,17 @@
   "group": "终端",
   "capability": "macOS 终端 ANSI 配色逐项按与 Lithe 编辑器背景的 WCAG 对比度门控（至少 4.5）；通过门控时优先使用 Terminal.app 描述文件颜色，未通过时逐项回退到 Lithe ANSI 配色",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "Terminal",
@@ -37,5 +37,5 @@
       ]
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：termview/palette.go 只有内置的 ANSI 固定配色表，未读取 Terminal.app 描述文件，也没有 WCAG 4.5 对比度门控与逐项回退。"
 }

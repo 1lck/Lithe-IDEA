@@ -4,17 +4,17 @@
   "group": "终端",
   "capability": "Windows 终端在有选中内容时用 Ctrl+C 复制，无选中时仍然中断运行中的命令",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/termview/input.go"
     ]
   },
   "owner": "Terminal",
@@ -38,5 +38,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：termview/input.go 的 clipboardChord 在非 macOS 上把 Ctrl+Shift+C/V 和 Ctrl/Shift+Insert 作为复制粘贴；Ctrl+C 在有选中内容时不会复制，而是作为普通按键交给程序。"
 }

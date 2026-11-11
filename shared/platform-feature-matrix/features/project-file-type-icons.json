@@ -4,17 +4,23 @@
   "group": "项目侧边栏",
   "capability": "项目树、标签页和搜索结果为常见项目文件显示专用图标：.gitignore/.gitattributes 用 Git 图标，go.mod/go.sum 用 Go 图标，Makefile 与 *.mk 用 Makefile 图标，package.json 用 Node.js 图标，bun.lock、Cargo.lock、package-lock.json 等锁文件用锁图标，README 用信息图标，LICENSE/COPYING 用许可证图标",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/fileicons/fileicons.go",
+      "desktop/internal/workbench/filetree_view.go",
+      "desktop/internal/workbench/tabstrip.go",
+      "desktop/internal/workbench/search_everywhere_view.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/fileicons/fileicons.go",
+      "desktop/internal/workbench/filetree_view.go",
+      "desktop/internal/workbench/tabstrip.go",
+      "desktop/internal/workbench/search_everywhere_view.go"
     ]
   },
   "owner": "Workbench",
@@ -43,5 +49,5 @@
       ]
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：fileicons/fileicons.go 的 fileKind 覆盖 .gitignore/.gitattributes、go.mod/go.sum、Makefile 与 *.mk、package.json、*.lock（含 bun.lock、Cargo.lock）、README、LICENSE；项目树、标签页和 Search Everywhere 调用 ForFile。NOTICE 不在分类中，仍显示文本图标。"
 }

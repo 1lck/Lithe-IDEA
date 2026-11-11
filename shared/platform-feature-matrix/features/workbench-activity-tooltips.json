@@ -4,17 +4,19 @@
   "group": "工作台布局",
   "capability": "活动栏图标的稳定悬停说明",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/chrome_view.go",
+      "desktop/internal/workbench/catalog.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/chrome_view.go",
+      "desktop/internal/workbench/catalog.go"
     ]
   },
   "owner": "Workbench",
@@ -40,5 +42,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：chromeBox 把 catalog 的 label 作为 HitWith 的悬停说明，禁用入口和状态项同样声明；未找到专门清理旧提示的代码，依赖 Viva 的命中系统。"
 }

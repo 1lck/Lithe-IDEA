@@ -4,22 +4,22 @@
   "group": "本地历史",
   "capability": "快照列表与 Diff",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "Local History",
   "verification": "编辑同一文件多次，比较快照时间、内容 Diff 和文件范围。 macOS 外部变更和目录操作按批记录历史，仅首个成功快照触发全库过期清理；验证跳过文件、连续批次、取消及单文件保存，4000 文件变化后 CPU 回落且历史仍可读取。 编辑同一文件多次，比较快照时间、内容 Diff 和文件范围。存储上限：Rust 测试覆盖基线跳过生成目录与嵌套仓库、保存时清理旧版本留下的排除目录基线、超过 100MB 先淘汰旧基线再淘汰编辑和标签、基线预算 50MB。忽略规则：Rust 测试覆盖通配符与正则忽略新记录但保留已有历史、正则不区分大小写且无效或空正则不匹配、预览报告无效正则行和命中规则（隐藏、通配符含内置文件夹、正则）、拒绝越界路径、占用统计与清空项目历史。内置项可改：Rust 测试覆盖内置文件夹以 `**/名称/` 通配符规则生效、命中时报告该规则、`!**/名称/` 或 `!名称` 关闭内置项后重新记录；隐藏路径的 `!` 条目关闭内置隐藏目录。上限可配：Rust 测试覆盖默认 100MB、配置值生效并限定在 10MB–100GB、基线预算为上限一半。Git 对照：Rust 测试覆盖测试路径在 Git 仓库中返回是否被 .gitignore 忽略、非仓库返回空。 PR #1615 回归：关闭内置隐藏项和历史忽略项后，添加无关通配符仍可预览及记录；清空前取消并等待已有保存和外部变更任务，清空代次拒绝在途批次续写，清空后新保存可记录；隐藏路径变化纳入预览请求身份并重新计算结果。 容量输入仅接受完整非负整数与可选 MB 后缀，指数、负数、字母、溢出等无效输入不改变已保存值；回车和失焦均验证恢复或范围限定。清空失败显示中英错误与需再次确认的重试入口，回读剩余用量；重试成功清除错误并显示新用量。 PR #1597 历史迁移回归：文件与目录已有历史后排除索引，再重命名或移动，按历史元数据迁移精确路径和后代，保留内容、ID及相对后缀，同名前缀兄弟不变；工作区回归使用真实文件操作与空索引候选，不能为迁移历史重新纳入索引。目标平台原生历史界面验收仍待完成。 记录时机统一：两端都按 Core 的 history.planEvent 记录，保存与自动保存先记被替换的文本、写入成功后立即再记保存后的文本，恢复先记当前文本。Windows 重命名或移动文件及目录（含拖放与剪切粘贴）后调用 history.relocate 迁移历史，验证旧路径无残留、新路径沿用原有快照。",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva：desktop/ 中没有快照列表、快照间 Diff 或历史保留与清理策略的实现，与 history-restore 同样缺失。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

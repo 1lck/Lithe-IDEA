@@ -5,21 +5,23 @@
   "capability": "Windows New菜单与Java类型/包创建",
   "owner": "Windows / Explorer",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/filetree_menu.go",
+      "desktop/internal/core/project_generators.go",
+      "desktop/internal/pluginhost/pluginhost.go"
     ]
   },
   "verification": "从File→New与资源树New创建文件、目录、Java类型和包；确认类/接口/枚举/record/注解/异常/抽象类/package-info模板、名称校验、同名保护、选中目录及workspace切换保护；检查树中的portal菜单不会被树键盘/鼠标事件拦截。",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva：该条目针对 Windows 资源树 New 菜单。树中已有 New File 与 New Directory（filetree_menu.go），New Project 列出插件 projectGenerators（core/project_generators.go）；但资源树中的 Java 类型与包创建模板、以及 portal 菜单事件处理未找到对应代码。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

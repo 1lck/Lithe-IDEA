@@ -4,21 +4,23 @@
   "group": "文本编辑",
   "capability": "macOS 中文组合输入层遮住原文字，输入和删除候选文字时不透出整行重影",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/editorview/view.go",
+      "desktop/internal/editorview/input.go",
+      "desktop/internal/editorview/hostedit.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "Editor",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva：原生编辑器跟踪输入法组合状态（view.go 的 preedit.Composing，input.go 与 hostedit.go 在组合期间拒绝外部编辑）。未找到规格中“组合层覆盖原文、不透出整行重影”的绘制代码，此项无法从代码确认。",
   "verification": "运行 scripts/macos/probe/probe-macos-monaco.sh --workbench-tests。在 macOS 使用系统拼音与微信输入法，在含中文和英文的同一行中间输入、删减候选拼音、确认上屏，再按删除键；检查整行无重影、候选与光标正常、撤销恢复文本。覆盖明暗主题、背景图开关和分屏，结束输入后背景恢复。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",

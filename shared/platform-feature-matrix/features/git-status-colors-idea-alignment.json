@@ -4,21 +4,21 @@
   "group": "Git",
   "capability": "Windows 默认主题 Git 状态配色与 IDEA 对齐（修改/重命名蓝、新增绿、删除灰、未跟踪暖红、gutter 浅色）",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "Git",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：该条目针对旧 Windows 默认主题，Viva 统一主题色。编辑器 gutter 增改删映射到主题 token（documents.go 的 GutterAdded/Modified/Deleted），提交列表使用 a.colors.Deleted；未找到文件树和提交面板中修改蓝、新增绿、删除灰、未跟踪暖红的 IDEA 对齐映射。",
   "verification": "在 Windows 打开包含已修改、已暂存修改、新增、删除、重命名、未跟踪文件与 .gitignore 忽略项的仓库，在 Lithe 明暗主题下确认：文件树、Commit 面板变更列表与 Git Log 提交文件树中已修改和重命名为蓝色（暂存修改为浅蓝）、新增为绿色、删除为灰色、未跟踪为暖红、忽略文件仍为置灰半透明；编辑器 gutter 修改/新增/删除标记为 IDEA 浅蓝/浅绿/灰色；diff 删除行与 -N 计数仍为红色；切换到未定义新 token 的其他内置主题时颜色回退正常；rebase/patch/历史改写对话框的警告文案与操作横幅保持琥珀警示色。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",

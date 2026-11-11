@@ -4,17 +4,21 @@
   "group": "PHP",
   "capability": "PHP 插件运行与 PHPUnit 测试",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/core/run_start.go",
+      "desktop/internal/core/run_config.go",
+      "desktop/internal/pluginhost/pluginhost.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/core/run_start.go",
+      "desktop/internal/core/run_config.go",
+      "desktop/internal/pluginhost/pluginhost.go"
     ]
   },
   "owner": "PHP Support",
@@ -42,5 +46,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：Core 的插件启动运行（run_start.go）与运行配置（run_config.go）已存在，但 pluginhost.go 未声明 run preparation、tests 与 executionProviders，PHPUnit 测试模型与单条测试发现没有宿主入口。"
 }

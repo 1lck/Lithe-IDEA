@@ -4,17 +4,17 @@
   "group": "项目侧边栏",
   "capability": "项目树展开与折叠箭头使用 IDEA Community 明暗 SVG，目录行保持默认箭头光标和 24pt 连续行距",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "Workbench",
@@ -39,5 +39,5 @@
       ]
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：treelist/treelist.go 固定 24pt 行高、17pt 展开槽和 16pt 箭头尺寸；箭头图形由 Viva Tree 绘制，desktop/ 中未找到 IDEA Community 明暗箭头 SVG 或对它的引用。"
 }

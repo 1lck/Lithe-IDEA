@@ -4,17 +4,19 @@
   "group": "插件管理",
   "capability": "已安装插件详情分为概览、功能、设置、权限与程序、版本与来源五个页签，信任与迁移提示固定在头部；已安装列表可按能力、更新、来源和启用状态过滤，搜索框输入 / 列出过滤选项；窗口缩放及调整列表宽度时详情保持在分隔线右侧，过窄的设置表单可横向滚动查看完整控件和状态",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/settingswindow/marketplace_view.go",
+      "desktop/internal/settingswindow/plugin_settings_view.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/settingswindow/marketplace_view.go",
+      "desktop/internal/settingswindow/plugin_settings_view.go"
     ]
   },
   "owner": "Plugin Platform",
@@ -42,5 +44,5 @@
       "verificationStatus": "not-applicable"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：市场详情显示名称、作者和安装或启用按钮（marketDetail、marketPluginActions），插件设置页在 plugin_settings_view.go；未找到概览、功能、设置、权限与程序、版本与来源五个页签，能力与来源过滤，以及版本回滚入口。"
 }

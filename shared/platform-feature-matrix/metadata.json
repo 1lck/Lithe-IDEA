@@ -1,10 +1,10 @@
 {
   "schemaVersion": 4,
-  "lastReviewed": "2026-11-08",
+  "lastReviewed": "2026-11-11",
   "review": {
     "status": "viva-migration-in-progress",
-    "method": "保留迁移前能力清单；未经新客户端核对的能力标为尚未盘点，历史状态与证据单独保留，不能视为 Viva 证据。",
-    "nextStep": "按能力核对 Viva 接入及 macOS、Windows 运行情况，逐项更新状态与当前证据。"
+    "method": "保留迁移前能力清单；每项能力已按 Viva 客户端（desktop/）的代码与接入逐项盘点实现状态，历史状态与证据单独保留在 legacy，不能视为 Viva 证据。迁移文档标为放弃或不纳入的能力记为未实现并在备注说明。",
+    "nextStep": "按各能力的 verification 在 macOS、Windows 实机验证并把验证状态改为 verified；补齐 partial 与 missing 项。"
   },
   "statusDefinitions": {
     "implementation": {

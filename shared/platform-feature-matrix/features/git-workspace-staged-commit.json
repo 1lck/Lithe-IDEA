@@ -4,22 +4,24 @@
   "group": "Git",
   "capability": "按文件所属仓库批量提交及推送，保留每仓库结果",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/core/gitcommit.go",
+      "desktop/internal/workbench/commit.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/core/gitcommit.go",
+      "desktop/internal/workbench/commit.go"
     ]
   },
   "owner": "Git",
   "verification": "勾选两个独立仓库文件，一次提交并推送，验证各自 HEAD 和远程；停止一个操作后其余独立仓库继续，已成功仓库不会回滚。",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva：Core 的 WorkspaceCommitRequest 支持多个仓库并为每个仓库保留 WorkspaceCommitResult，失败不回滚。workbench 的 commitTarget.request 只提交项目仓库，未按文件所属仓库分组，因此多仓库批量提交与每仓库结果在界面中未接入。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

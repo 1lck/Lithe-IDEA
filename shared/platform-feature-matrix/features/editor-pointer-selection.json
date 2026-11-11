@@ -4,21 +4,21 @@
   "group": "文本编辑",
   "capability": "鼠标与触控板点击、选词和拖选",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/editorview/input.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/editorview/input.go"
     ]
   },
   "owner": "Editor",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva：editorview/input.go 处理鼠标点击、Shift 扩选和按词选择等修饰键分支，拖选由同一输入路径完成。同位置双击选词和选中文字拖放未逐项核对。",
   "verification": "macOS 分别启用微信输入法和系统 ABC，快速轻点不同位置后松手移动，确认不扩展选区、不移动文字；验证同位置双击选词、Shift 点击扩选、按住拖选、选中文字拖放、主编辑器和分屏及 diff。运行 scripts/macos/probe/probe-macos-monaco.sh --workbench-tests；Windows 验证同样的正常鼠标交互。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",

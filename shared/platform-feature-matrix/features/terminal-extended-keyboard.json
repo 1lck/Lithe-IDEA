@@ -4,17 +4,20 @@
   "group": "终端",
   "capability": "终端向 TUI 程序传递带修饰键的按键（如 Shift+Enter 换行）",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/term/keyboard.go",
+      "desktop/internal/termview/input.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/term/keyboard.go",
+      "desktop/internal/term/win32input.go",
+      "desktop/internal/localshell/backend_windows.go"
     ]
   },
   "owner": "Terminal",
@@ -45,5 +48,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：term/keyboard.go 实现 kitty 键盘协议的 CSI ? u 应答、CSI > u 入栈和 Shift/Ctrl/Alt+Enter 编码，未按平台加门控。Windows 侧另有 win32input.go 编码和 ConPTY 后端，但 desktop/ 中未找到随应用分发 conpty.dll 与 OpenConsole.exe 的打包或加载逻辑。"
 }

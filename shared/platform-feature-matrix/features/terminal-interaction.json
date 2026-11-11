@@ -4,17 +4,21 @@
   "group": "终端",
   "capability": "复制粘贴、搜索、调整大小、终端 Control 输入与切换快捷键及 macOS 终端 Nerd Font 优先选择",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/termview/input.go",
+      "desktop/internal/term/search.go",
+      "desktop/internal/term/links.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/termview/input.go",
+      "desktop/internal/term/search.go",
+      "desktop/internal/term/links.go"
     ]
   },
   "owner": "Terminal",
@@ -60,5 +64,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：复制粘贴（termview/input.go）可用；term/search.go 的 Search 与 term/links.go 的 LinksAt 只在 term 包内实现，termview 和 workbench 没有调用，终端内搜索与链接点击（含 Windows 用系统浏览器打开）未接入；未找到 Nerd Font 优先选择逻辑。"
 }

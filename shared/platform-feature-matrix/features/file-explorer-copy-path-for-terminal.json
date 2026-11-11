@@ -4,17 +4,19 @@
   "group": "项目浏览",
   "capability": "把项目树中的文件或目录以路径形式送入集成终端（复制后粘贴，或直接拖拽）",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/filetree_menu.go",
+      "desktop/internal/workbench/filetree_actions.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/filetree_menu.go",
+      "desktop/internal/workbench/filetree_actions.go"
     ]
   },
   "owner": "Workspace",
@@ -47,5 +49,5 @@
       ]
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：项目树右键菜单已有复制路径与复制相对路径（filetree_menu.go 的 copyTreePath），但未找到把路径送入集成终端的粘贴或拖拽逻辑；termview 中的输入与选择代码没有路径插入。"
 }

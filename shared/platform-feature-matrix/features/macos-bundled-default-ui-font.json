@@ -4,17 +4,17 @@
   "group": "全局字体",
   "capability": "macOS 界面默认使用随安装包分发的 Inter，编辑器、终端和显式等宽内容默认使用 JetBrains Mono 2.304（代码编辑器的编程字体族可由用户在设置中改为其他已安装等宽字体，见 editor-font-family），SwiftUI 与 AppKit 共用字体入口",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "macOS UI",
@@ -43,5 +43,5 @@
       ]
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：desktop/ 中没有随包分发的 Inter 或 JetBrains Mono 字体文件（无 ttf/otf），pluginpages.go 只在插件页 CSS 中声明字体族名，依赖系统已安装的字体。"
 }

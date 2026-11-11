@@ -4,17 +4,21 @@
   "group": "Java 服务更新",
   "capability": "本地 Java Debug 服务手动编译并热替换代码",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginservice/debug_start.go",
+      "desktop/internal/workbench/debug_start.go",
+      "desktop/internal/core/debug_launch.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginservice/debug_start.go",
+      "desktop/internal/workbench/debug_start.go",
+      "desktop/internal/core/debug_launch.go"
     ]
   },
   "owner": "Run/Debug",
@@ -36,5 +40,5 @@
       ]
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：本地 Java Debug 的手动编译与热替换由插件通过 debug 动作和后端调用提供；宿主的调试启动与会话在 core/debug_launch.go、workbench/debug_start.go 中，desktop/ 中未找到 JVM 热替换或编译代码。"
 }

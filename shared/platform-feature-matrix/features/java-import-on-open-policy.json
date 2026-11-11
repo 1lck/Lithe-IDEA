@@ -4,17 +4,21 @@
   "group": "语言服务",
   "capability": "设置“打开 Java 项目时导入”：自动、询问（通知中可选导入或先配置 Maven）、手动（打开 Java 文件、运行或重新加载 Maven 时再导入）",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginservice/settings_editor.go",
+      "desktop/internal/pluginservice/backends.go",
+      "desktop/internal/workbench/plugin_settings.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/pluginservice/settings_editor.go",
+      "desktop/internal/pluginservice/backends.go",
+      "desktop/internal/workbench/plugin_settings.go"
     ]
   },
   "owner": "Language Tooling",
@@ -44,5 +48,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：导入策略由 Java 插件经 settings2 声明，宿主通过 pluginservice/settings_editor.go 与 workbench/plugin_settings.go 渲染设置，并在 pluginservice/backends.go 中激活后端；desktop/ 中未找到自动、询问、手动三种导入策略的宿主代码，属于插件实现范围。"
 }
