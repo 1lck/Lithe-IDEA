@@ -61,9 +61,19 @@ type vimState struct {
 	// searching says a / or ? prompt is open, searchBack is its direction and prompt the text
 	// typed so far. pattern is the last search and searchBackward its direction, for n and N.
 	searching, searchBack bool
-	prompt                []rune
-	pattern               string
-	searchBackward        bool
+	// exPrompt says the open prompt is the : command line rather than a search; exFrom and exTo
+	// are the lines a : started from a Visual selection takes as '<,'>.
+	exPrompt bool
+	exFrom   int
+	exTo     int
+	prompt   []rune
+	// message is what the status bar shows in place of the mode, until the next key: the
+	// outcome of a command line that failed.
+	message string
+	// exit runs the window's part of the commands that save and close (see SetVimExit).
+	exit           func(cmd string) bool
+	pattern        string
+	searchBackward bool
 	// findKind is the last f, F, t or T and findChar its character; findValid says there was one.
 	findKind  byte
 	findChar  string
@@ -99,8 +109,8 @@ func (v *View) SetVimMode(on bool) {
 	if v.vim.on == on {
 		return
 	}
-	reg, regLine := v.vim.reg, v.vim.regLine
-	v.vim = vimState{on: on, reg: reg, regLine: regLine}
+	keep := v.vim
+	v.vim = vimState{on: on, reg: keep.reg, regLine: keep.regLine, exit: keep.exit}
 	if on {
 		v.vimClamp()
 		return
@@ -121,10 +131,16 @@ func (v *View) VimStatus() string {
 	}
 	if st.searching {
 		prefix := "/"
-		if st.searchBack {
+		switch {
+		case st.exPrompt:
+			prefix = ":"
+		case st.searchBack:
 			prefix = "?"
 		}
 		return prefix + string(st.prompt)
+	}
+	if st.message != "" {
+		return st.message
 	}
 	switch st.mode {
 	case vimInsert:
@@ -280,8 +296,10 @@ func (v *View) vimBusy() bool {
 func (v *View) vimToken(tok vimToken) {
 	st := &v.vim
 	if !v.vimBusy() {
-		// A command starts: its edits open a new undo step, whatever the step before was.
+		// A command starts: its edits open a new undo step, whatever the step before was, and
+		// the message of the last one goes.
 		st.grouped = false
+		st.message = ""
 	}
 	if st.mode == vimInsert || st.mode == vimReplace {
 		v.vimInsertToken(tok)
@@ -588,6 +606,19 @@ func (v *View) vimCommand(s string) {
 	case "/", "?":
 		if st.op == 0 {
 			v.vimSearchStart(s == "?")
+			return
+		}
+	case ":":
+		if st.op == 0 {
+			prefill := ""
+			if visual {
+				first, last := v.vimSelectedLines()
+				st.exFrom, st.exTo = first, last
+				prefill = "'<,'>"
+				st.mode = vimNormal
+				v.vimClamp()
+			}
+			v.vimExStart(prefill)
 			return
 		}
 	case "n", "N":

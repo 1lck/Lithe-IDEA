@@ -178,6 +178,8 @@ type EditorMessages struct {
 	// VimNormal, VimInsert, VimReplace, VimVisual and VimVisualLine name the Vim modes in the
 	// status bar and the editor's status text.
 	VimNormal, VimInsert, VimReplace, VimVisual, VimVisualLine string
+	// VimUnknown and VimNotFound say a Vim command line is unknown and a pattern has no match.
+	VimUnknown, VimNotFound func(string) string
 	// HiddenTabs names the button at the end of a tab strip that lists the tabs scrolled or
 	// squeezed out of view.
 	HiddenTabs string

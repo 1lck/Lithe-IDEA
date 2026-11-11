@@ -79,6 +79,9 @@ type Messages struct {
 	VerticalScrollbar, HorizontalScrollbar string
 	// VimNormal, VimInsert, VimReplace, VimVisual and VimVisualLine name the Vim modes in the status bar.
 	VimNormal, VimInsert, VimReplace, VimVisual, VimVisualLine string
+	// VimUnknown names a command line the Vim mode does not know, and VimNotFound a pattern that
+	// no line has; each takes the text of the command or pattern.
+	VimUnknown, VimNotFound func(string) string
 }
 
 // Look is the view's colors for the frame being painted.

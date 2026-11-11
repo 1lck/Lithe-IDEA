@@ -967,5 +967,23 @@
     "description": "Editor settings page: help under the Vim Mode switch",
     "en-US": "Edit with Vim key bindings: Normal, Insert and Visual modes.",
     "zh-CN": "使用 Vim 按键编辑：普通、插入和可视模式。"
+  },
+  {
+    "id": "desktop.editor.vim.unknown",
+    "description": "Vim command line: the command is not one the editor knows (status bar message)",
+    "parameters": {
+      "name": "string"
+    },
+    "en-US": "Not an editor command: {name}",
+    "zh-CN": "不是编辑器命令：{name}"
+  },
+  {
+    "id": "desktop.editor.vim.notFound",
+    "description": "Vim command line: a substitute pattern matches no line (status bar message)",
+    "parameters": {
+      "pattern": "string"
+    },
+    "en-US": "Pattern not found: {pattern}",
+    "zh-CN": "未找到：{pattern}"
   }
 ]

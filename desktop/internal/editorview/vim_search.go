@@ -20,13 +20,18 @@ func (v *View) vimSearchInput(s string) {
 	st := &v.vim
 	switch s {
 	case vimEscape:
-		st.searching, st.prompt = false, nil
+		st.searching, st.exPrompt, st.prompt = false, false, nil
 		v.vimCancel()
 	case vimEnter:
 		st.searching = false
 		pat := string(st.prompt)
 		st.prompt = nil
 		v.vimCancel()
+		if st.exPrompt {
+			st.exPrompt = false
+			v.vimExecute(pat)
+			return
+		}
 		if pat == "" {
 			pat = st.pattern
 		}
@@ -37,7 +42,7 @@ func (v *View) vimSearchInput(s string) {
 		v.vimSearchFrom(pat, st.searchBackward)
 	case vimBackspace:
 		if len(st.prompt) == 0 {
-			st.searching = false
+			st.searching, st.exPrompt = false, false
 			v.vimCancel()
 			return
 		}

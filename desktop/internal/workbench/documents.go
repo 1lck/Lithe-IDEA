@@ -455,6 +455,7 @@ func (a *App) placeDocumentAs(p *project, path, name string, content editorview.
 		OnEdit:  func(edit editorview.Edit) { a.documentEdited(p, d, edit) },
 	})
 	d.view.SetReadOnly(virtual)
+	d.view.SetVimExit(func(cmd string) bool { return a.vimExit(p, d, cmd) })
 	setupFolding(d)
 	d.breakpointText = d.view.TextSnapshot()
 	a.documentInput(p, d)
@@ -841,6 +842,8 @@ func (a *App) editorMessages() editorview.Messages {
 		VimReplace:          words.VimReplace,
 		VimVisual:           words.VimVisual,
 		VimVisualLine:       words.VimVisualLine,
+		VimUnknown:          words.VimUnknown,
+		VimNotFound:         words.VimNotFound,
 	}
 }
 
