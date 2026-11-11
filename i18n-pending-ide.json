@@ -380,5 +380,17 @@
     "description": "Button in the exceptions section that asks the adapter for the exception the thread stopped on",
     "en-US": "Exception info",
     "zh-CN": "异常信息"
+  },
+  {
+    "id": "desktop.problems.showPreview",
+    "description": "Checkbox above the Problems list that shows a read-only source preview of the selected diagnostic beside the list",
+    "en-US": "Show Editor Preview",
+    "zh-CN": "显示编辑器预览"
+  },
+  {
+    "id": "desktop.problems.previewEmpty",
+    "description": "Message in the Problems preview pane before a diagnostic with a file is selected",
+    "en-US": "Select a problem to preview its source.",
+    "zh-CN": "选择一个问题以预览源码。"
   }
 ]

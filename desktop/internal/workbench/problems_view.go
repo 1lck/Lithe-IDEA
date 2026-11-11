@@ -33,15 +33,29 @@ func (a *App) problemsPanel(c ui.C, p *project) {
 		v.list.Header = func(i int) bool { _, _, header := v.rowAt(i); return header }
 		v.list.Label = v.rowLabel
 	}
+	if ui.Checkbox(c.Key("problemsPreview"), &v.show, i18n.Shared(a.language(), "desktop.problems.showPreview")).Changed() && !v.show {
+		v.preview.close()
+	}
+	a.syncProblemsPreview(p)
 	opened := -1
-	ui.List(c, &v.list, v.rows, func(row ui.ListRow) {
-		group, index, header := v.rowAt(row.Index)
-		if header {
-			a.drawProblemsGroupHeader(row, v.result.Groups[group])
-		} else if a.drawProblemsRow(row, v, group, index) {
-			opened = row.Index
-		}
-	}).Label(i18n.Shared(a.language(), "native.problems")).FillWidth().Grow(1).Shrink(1).MinHeight(0)
+	list := func(c ui.C) {
+		ui.List(c, &v.list, v.rows, func(row ui.ListRow) {
+			group, index, header := v.rowAt(row.Index)
+			if header {
+				a.drawProblemsGroupHeader(row, v.result.Groups[group])
+			} else if a.drawProblemsRow(row, v, group, index) {
+				opened = row.Index
+			}
+		}).Label(i18n.Shared(a.language(), "native.problems")).FillWidth().Grow(1).Basis(0).Shrink(1).MinHeight(0)
+	}
+	if v.show {
+		ui.Row(c).FillWidth().Grow(1).Basis(0).Shrink(1).MinHeight(0).Children(func() {
+			ui.Column(c).Grow(1).Basis(0).FillHeight().MinHeight(0).Children(func() { list(c) })
+			a.problemsPreviewPane(c, p)
+		})
+	} else {
+		list(c)
+	}
 	if row, ok := v.list.Submitted(); ok {
 		opened = row
 	}

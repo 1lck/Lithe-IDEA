@@ -33,13 +33,23 @@ type problemsView struct {
 	// failure is a query Core refused, shown in place of the list. It is cleared
 	// by the next successful answer or by a project change.
 	failure error
+	// show says the Show Editor Preview option is on: a read-only source view beside the list
+	// shows the selected diagnostic's line. preview is that view.
+	show    bool
+	preview problemsPreview
 	// list is the scrolling list of the rows, kept with the answer so a project switch
 	// starts it at the top.
 	list ui.ListState
 }
 
 // reset drops the cached answer, for a project switch or close.
-func (v *problemsView) reset() { *v = problemsView{} }
+// reset forgets the answer of the previous project. The preview's switch is a preference, so it
+// survives the project change; the preview itself is released.
+func (v *problemsView) reset() {
+	show := v.show
+	v.preview.close()
+	*v = problemsView{show: show}
+}
 
 // rowAt locates one flat row: a group header when header is true, otherwise the
 // diagnostic at indices[index] of the group.
