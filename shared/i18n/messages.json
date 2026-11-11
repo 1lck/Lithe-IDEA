@@ -107732,6 +107732,34 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.lsp.filterPlaceholder",
+      "description": "Placeholder and label of the language server log filter field.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.lsp.stopServer",
+      "description": "Button that stops the shown language server.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.lsp.restartServer",
+      "description": "Button that stops and starts the shown language server again.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.lsp.noFilteredLog",
+      "description": "Shown when the language server log filter matches no line.",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

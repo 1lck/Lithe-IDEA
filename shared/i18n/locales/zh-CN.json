@@ -11328,7 +11328,11 @@
     "desktop.debug.stepOut": "单步跳出",
     "desktop.settings.editorSemantic": "语义高亮",
     "desktop.settings.editorSemanticHelp": "语言服务器为类、方法和变量着色。关闭后只保留编辑器的语法高亮。",
-    "desktop.settings.semanticHighlight": "使用语义颜色"
+    "desktop.settings.semanticHighlight": "使用语义颜色",
+    "desktop.lsp.filterPlaceholder": "筛选日志",
+    "desktop.lsp.stopServer": "停止服务器",
+    "desktop.lsp.restartServer": "重启服务器",
+    "desktop.lsp.noFilteredLog": "没有匹配筛选条件的日志。"
   },
   "overrides": {
     "macos": {

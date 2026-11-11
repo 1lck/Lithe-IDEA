@@ -11328,7 +11328,11 @@
     "desktop.debug.stepOut": "Step Out",
     "desktop.settings.editorSemantic": "Semantic Highlighting",
     "desktop.settings.editorSemanticHelp": "The language server colors classes, methods and variables. Turn this off to keep only the editor's syntax colors.",
-    "desktop.settings.semanticHighlight": "Use semantic colors"
+    "desktop.settings.semanticHighlight": "Use semantic colors",
+    "desktop.lsp.filterPlaceholder": "Filter log messages",
+    "desktop.lsp.stopServer": "Stop Server",
+    "desktop.lsp.restartServer": "Restart Server",
+    "desktop.lsp.noFilteredLog": "No log line matches the filter."
   },
   "overrides": {
     "windows": {

@@ -29,6 +29,8 @@ type lspLogState struct {
 	open bool
 	// plugin is the server whose log is shown; empty selects the first.
 	plugin string
+	// filter keeps the lines that contain it, case-insensitively.
+	filter string
 	list   ui.ListState
 }
 
@@ -150,10 +152,32 @@ func (a *App) lspLogPopup(c ui.C) {
 				}
 			}
 		})
+		ui.Row(c).FillWidth().Shrink(0).Items(ui.Center).Gap(6).Children(func() {
+			ui.TextField(c.Key("lspFilter"), &v.filter,
+				i18n.Shared(language, "desktop.lsp.filterPlaceholder"), i18n.Shared(language, "desktop.lsp.filterPlaceholder")).Grow(1)
+			pluginID := shown.session.PluginID
+			if ui.Button(c.Key("lspStop"), i18n.Shared(language, "desktop.lsp.stopServer")).Outline().Clicked() {
+				c.After(func() { a.stopPluginServer(pluginID) })
+			}
+			if ui.Button(c.Key("lspRestart"), i18n.Shared(language, "desktop.lsp.restartServer")).Outline().Clicked() {
+				server := shown
+				c.After(func() {
+					workspace := ""
+					if server.project != nil {
+						workspace = server.project.root
+					}
+					a.restartSettingsPlugin(server.session.PluginID, server.session.Version, "project", workspace)
+				})
+			}
+		})
 		ui.Text(c, i18n.SharedFormat(language, "desktop.lsp.state", map[string]string{"state": shown.stateName()})).FontSize(12).Color(a.colors.Subtle).Shrink(0)
-		lines := shown.logs
+		lines := filterLogLines(shown.logs, v.filter)
 		if len(lines) == 0 {
-			ui.Paragraph(c, i18n.Shared(language, "desktop.lsp.noLog"), 3).Color(a.colors.Subtle)
+			message := "desktop.lsp.noLog"
+			if len(shown.logs) > 0 && strings.TrimSpace(v.filter) != "" {
+				message = "desktop.lsp.noFilteredLog"
+			}
+			ui.Paragraph(c, i18n.Shared(language, message), 3).Color(a.colors.Subtle)
 			return
 		}
 		ui.List(c, &v.list, len(lines), func(row ui.ListRow) {
@@ -165,6 +189,22 @@ func (a *App) lspLogPopup(c ui.C) {
 	if closed {
 		v.open = false
 	}
+}
+
+// filterLogLines keeps the log lines that contain filter, ignoring case and surrounding
+// spaces. An empty filter keeps every line.
+func filterLogLines(lines []string, filter string) []string {
+	filter = strings.ToLower(strings.TrimSpace(filter))
+	if filter == "" {
+		return lines
+	}
+	kept := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.Contains(strings.ToLower(line), filter) {
+			kept = append(kept, line)
+		}
+	}
+	return kept
 }
 
 // stateName is the state the server last reported, "starting" before any.
