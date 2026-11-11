@@ -11,8 +11,9 @@ import (
 // This file adds the repositories nested in the project folder to a commit of the project's
 // staged changes (matrix id git-workspace-staged-commit). Core discovers them; each one with
 // staged changes is planned and committed with the project's repository, and each keeps its
-// own result. The request of a retry and the request of a ChangeList scope keep the repositories
-// they were planned with, so only a first plan without a scope takes them.
+// own result. A first plan takes every nested repository unless a ChangeList scope holds the
+// commit to the project's repository; a retry takes only the repositories its failed attempt
+// planned, so the continued plan matches the one the attempt recorded.
 
 // repositoryDiscoverer is the part of the kernel the nested repositories use. Core's client
 // implements it.
@@ -21,12 +22,12 @@ type repositoryDiscoverer interface {
 }
 
 // includeNestedRepositories adds the repositories below the project folder, other than the
-// project's own, to request. It keeps request unchanged when the commit is a retry, is held to
-// a ChangeList scope, or when Core cannot discover the repositories; the project's repository
-// is committed in every case.
+// project's own, to request. It keeps request unchanged for the project's own checkouts other
+// than the Commit tool window, for a commit held to a ChangeList scope, and when Core cannot
+// discover the repositories; the project's repository is committed in every case.
 func includeNestedRepositories(ctx context.Context, kernel Kernel, p *project, t commitTarget, request core.WorkspaceCommitRequest) core.WorkspaceCommitRequest {
 	discoverer, ok := kernel.(repositoryDiscoverer)
-	if !ok || !t.console || t.scope != nil || request.Previous != nil {
+	if !ok || !t.console || request.PathScope != nil {
 		return request
 	}
 	repos, err := discoverer.DiscoverWorkspaceRepositories(ctx, p.root)
@@ -43,8 +44,14 @@ func includeNestedRepositories(ctx context.Context, kernel Kernel, p *project, t
 		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			continue
 		}
+		id := filepath.ToSlash(rel)
+		if request.Previous != nil {
+			if _, planned := request.Previous.States[id]; !planned {
+				continue
+			}
+		}
 		request.Repositories = append(request.Repositories, core.WorkspaceCommitRepository{
-			ID:   filepath.ToSlash(rel),
+			ID:   id,
 			Root: path,
 		})
 	}
