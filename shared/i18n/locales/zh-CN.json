@@ -12089,7 +12089,10 @@
     "desktop.document.hardLinkCancel": "取消",
     "desktop.rebase.action.reword": "改写消息",
     "desktop.rebase.action.edit": "编辑",
-    "desktop.rebase.action.squash": "压缩"
+    "desktop.rebase.action.squash": "压缩",
+    "desktop.git.console.hideQueries": "隐藏读取命令",
+    "desktop.git.console.queryOutput": "读取结果，共 {count} 行",
+    "desktop.git.console.expand": "展开"
   },
   "overrides": {
     "macos": {

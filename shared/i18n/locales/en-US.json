@@ -12089,7 +12089,10 @@
     "desktop.document.hardLinkCancel": "Cancel",
     "desktop.rebase.action.reword": "Reword",
     "desktop.rebase.action.edit": "Edit",
-    "desktop.rebase.action.squash": "Squash"
+    "desktop.rebase.action.squash": "Squash",
+    "desktop.git.console.hideQueries": "Hide Read Commands",
+    "desktop.git.console.queryOutput": "Read output, {count} lines",
+    "desktop.git.console.expand": "Expand"
   },
   "overrides": {
     "windows": {

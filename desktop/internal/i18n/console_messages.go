@@ -22,6 +22,8 @@ type ConsoleMessages struct {
 	Stop        string
 	Clear       string
 	CopyAll     string
+	// HideQueries leaves out the read-only queries that did not fail.
+	HideQueries string
 
 	// The context menu of a command.
 	CopyCommand string
@@ -46,7 +48,11 @@ type ConsoleMessages struct {
 	ExpandLines func(count int) string
 	// ExpandConfiguration opens a fold of count temporary Git settings of a command.
 	ExpandConfiguration func(count int) string
-	Collapse            string
+	// QueryOutput stands for the folded output of a read-only query, count lines; Expand
+	// opens it.
+	QueryOutput func(count int) string
+	Expand      string
+	Collapse    string
 	// Unavailable says the console shows the plain output because Core could not fold it.
 	Unavailable string
 }
@@ -70,6 +76,7 @@ func consoleMessages(language Language) ConsoleMessages {
 		Stop:        Shared(language, "git.console.cancel"),
 		Clear:       Shared(language, "native.clearGitConsole"),
 		CopyAll:     Shared(language, "native.copyCompleteConsole"),
+		HideQueries: Shared(language, "desktop.git.console.hideQueries"),
 
 		CopyCommand: Shared(language, "git.console.copyCommand"),
 		CopyOutput:  Shared(language, "git.console.copyOutput"),
@@ -93,6 +100,10 @@ func consoleMessages(language Language) ConsoleMessages {
 		ExpandConfiguration: func(n int) string {
 			return SharedFormat(language, "desktop.git.console.expandConfiguration", map[string]string{"count": strconv.Itoa(n)})
 		},
+		QueryOutput: func(n int) string {
+			return SharedFormat(language, "desktop.git.console.queryOutput", map[string]string{"count": strconv.Itoa(n)})
+		},
+		Expand:      Shared(language, "desktop.git.console.expand"),
 		Collapse:    Shared(language, "desktop.git.console.collapse"),
 		Unavailable: Shared(language, "git.console.presentationUnavailable"),
 	}

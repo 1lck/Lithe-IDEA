@@ -400,3 +400,28 @@ func TestGitExecutionOfAsksForQueriesOnlyWithAConsole(t *testing.T) {
 		}
 	}
 }
+
+// A started event says which command is a query and how Core projects it for consoles, and
+// the record carries both, the query also to Core's presentation of it.
+func TestGitConsoleRecordsTheQueryAndTheProjectionOfAStartedCommand(t *testing.T) {
+	console := newTestConsole()
+	consoleEvents(t, console, "/repo",
+		`{"operationId":"a","type":"requestStarted"}`,
+		`{"operationId":"a","type":"started","invocationId":1,"arguments":["-c","core.quotepath=false","log"],"displayArguments":["log"],"query":true}`,
+		`{"operationId":"a","type":"started","invocationId":2,"arguments":["fetch"]}`,
+	)
+	records := console.Snapshot().Records
+	if len(records) != 2 {
+		t.Fatalf("records = %+v, want two", records)
+	}
+	query, fetch := records[0], records[1]
+	if !query.Query || !slices.Equal(query.DisplayArguments, []string{"log"}) {
+		t.Fatalf("the query's record is %+v", query)
+	}
+	if fetch.Query || fetch.DisplayArguments != nil {
+		t.Fatalf("the fetch's record is %+v, want no query and no projection", fetch)
+	}
+	if wire, _ := query.wire(); !wire.Query {
+		t.Fatalf("the query's wire record %+v does not say it is a query", wire)
+	}
+}

@@ -113488,6 +113488,30 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.git.console.hideQueries",
+      "description": "Desktop Git console: toolbar toggle that hides the read-only Git queries that succeeded, leaving the commands workflows ran.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.console.queryOutput",
+      "description": "Desktop Git console: stands for the folded output of a read-only Git query.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.git.console.expand",
+      "description": "Desktop Git console: opens a folded output.",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }
