@@ -106,6 +106,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	canvas.Clip(textArea)
 	annotation := 0
 	top := area.Y + float32(firstRow-firstSub)*v.lineH - v.scroll
+	composeRow, composeAt, composeCells := v.compositionRoom()
 	for line := firstLine; line <= lastLine; line++ {
 		l := v.ref(line)
 		wraps := v.rowsOf(l)
@@ -151,7 +152,15 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 				end = wraps[k+1].at
 			}
 			p := v.part(l, row, end, from, to)
-			v.paintRow(canvas, p.text, p.base, p.row, from, to, shift, y)
+			if line == caretLine && k == composeRow && composeCells > 0 {
+				// The input method draws the text being composed at the caret, over the
+				// editor. The rest of the row moves right to make room for it, so no glyph
+				// of the line shows through the composition.
+				v.paintRow(canvas, p.text, p.base, p.row, from, min(to, composeAt), shift, y)
+				v.paintRow(canvas, p.text, p.base, p.row, max(from, composeAt), to, shift-composeCells, y)
+			} else {
+				v.paintRow(canvas, p.text, p.base, p.row, from, to, shift, y)
+			}
 			v.paintMarkers(canvas, line, from, to, shift, y)
 			v.paintHoveredLink(canvas, line, from, to, shift, y)
 			if k == len(wraps)-1 && v.paintFoldBox(canvas, l, row, y, look) == 0 {
@@ -517,6 +526,20 @@ func (v *View) visibleCells() (int, int) {
 	left := v.scrollX - textPad
 	right := v.scrollX + v.textRight - v.textLeft
 	return max(int(left/v.cellW), 0), max(int(math.Ceil(float64(right/v.cellW))), 0)
+}
+
+// compositionRoom is where an input-method composition sits while one is active: the
+// caret's wrapped row, the caret's cell in its line and how many cells the composed
+// text takes. The cell count is zero when nothing is being composed.
+func (v *View) compositionRoom() (row, at, cells int) {
+	if !v.preedit.Composing || v.preedit.Value == "" {
+		return 0, 0, 0
+	}
+	l, _, k := v.caretPlace()
+	for _, r := range v.preedit.Value {
+		cells += runeCells(r, 0)
+	}
+	return k, v.cellsAt(l, v.caret-l.start), cells
 }
 
 // caretPoint is the top left corner of the caret.
