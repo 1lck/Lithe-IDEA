@@ -78,6 +78,8 @@ func (a *App) applyEditorEvent(pending *semanticPending, event core.BackendEvent
 		a.applySemanticTokens(pending, event, failed)
 	case pluginSemanticFoldingRanges:
 		a.applyFoldRanges(pending, event, failed)
+	case pluginSemanticDocumentLinks:
+		a.applyServerDocumentLinks(pending, event, failed)
 	default:
 		return false
 	}

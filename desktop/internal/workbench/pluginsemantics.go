@@ -110,6 +110,8 @@ func (k semanticKind) method() string {
 		return pluginMethodDocumentSymbols
 	case pluginSemanticTokens:
 		return pluginMethodSemanticTokens
+	case pluginSemanticDocumentLinks:
+		return pluginMethodDocumentLinks
 	default:
 		return pluginMethodCompletion
 	}
