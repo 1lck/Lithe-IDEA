@@ -103,7 +103,13 @@ func (a *App) startDebug(p *project) {
 		}
 		start.request, start.target = "attach", target
 	}
-	a.beginDebug(p, start)
+	// A debuggee reads the files on disk, so settle pending writes before the
+	// adapter launches; a failed save keeps the session from starting.
+	a.saveProjectDocuments(p, func(ok bool) {
+		if ok {
+			a.beginDebug(p, start)
+		}
+	})
 }
 
 // attachTargetFromFields reads the attach form. The host is only checked for

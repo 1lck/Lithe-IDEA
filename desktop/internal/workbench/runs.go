@@ -187,13 +187,19 @@ func (a *App) rerunRun(p *project, entry *runEntry) {
 		return
 	}
 	runs, rerun := a.plugins.Runs, *entry.rerun
-	a.background(p, runRerunTimeout, func(ctx context.Context) func(*App) {
-		if err := runs.Rerun(ctx, rerun); err != nil {
-			return func(a *App) {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("run_rerun", err))
-			}
+	// The rerun starts a process on the files on disk, so save first.
+	a.saveProjectDocuments(p, func(ok bool) {
+		if !ok {
+			return
 		}
-		return nil
+		a.background(p, runRerunTimeout, func(ctx context.Context) func(*App) {
+			if err := runs.Rerun(ctx, rerun); err != nil {
+				return func(a *App) {
+					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("run_rerun", err))
+				}
+			}
+			return nil
+		})
 	})
 }
 
