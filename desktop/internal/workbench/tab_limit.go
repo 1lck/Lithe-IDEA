@@ -28,7 +28,7 @@ func (a *App) enforceTabLimit(p *project, keep *document) {
 	}
 	var candidates []*document
 	for _, d := range p.docs.list {
-		if d != keep && !p.documentPinned(d) && !d.dirty() && !d.saving && !d.view.IsComposing() {
+		if d != keep && !d.tabless && !p.documentPinned(d) && !d.dirty() && !d.saving && !d.view.IsComposing() {
 			candidates = append(candidates, d)
 		}
 	}

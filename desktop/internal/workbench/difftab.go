@@ -427,6 +427,7 @@ func (a *App) closeDiffTab(p *project, id int) {
 	t.gen++
 	t.closeEditors()
 	p.diffs.list = slices.DeleteFunc(p.diffs.list, func(x *diffTab) bool { return x == t })
+	a.releaseIdleTablessDocument(p, diffTabPath(t))
 }
 
 // focusSelected gives the keyboard to what group shows: a file, a Diff tab or a terminal.
@@ -556,6 +557,7 @@ func (a *App) loadDiffGrammar(p *project, t *diffTab) {
 func (a *App) readDiff(t *diffTab, file *core.GitDiffFile, plan *core.DiffBlockPlan) {
 	t.err, t.file, t.plan = "", file, plan
 	a.rebuildDiff(t)
+	a.ensureTablessDocument(t)
 	if !t.revealed {
 		t.revealed = true
 		t.step(1)
