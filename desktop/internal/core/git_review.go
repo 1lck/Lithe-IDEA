@@ -17,6 +17,11 @@ type GitDiffRow struct {
 	Right   string `json:"right"`
 	Kind    string `json:"kind"`
 	HunkID  string `json:"hunkID,omitempty"`
+	// LeftChanges and RightChanges are, for a changed row, the stretches of each side that
+	// differ from the other, as [start, end) UTF-16 columns compared word by word by Core;
+	// absent when the row should show as wholly changed.
+	LeftChanges  [][2]int `json:"leftChanges,omitempty"`
+	RightChanges [][2]int `json:"rightChanges,omitempty"`
 }
 
 // Text is the text the right side of the row shows.
