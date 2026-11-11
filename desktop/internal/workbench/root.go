@@ -209,6 +209,7 @@ func (a *App) overlays(c ui.C) {
 	a.pluginReviewView(c)
 	a.pluginPromptView(c)
 	a.credentialImportView(c)
+	a.legacyImportView(c)
 	if p := a.project; p != nil {
 		a.drawBranchDialog(c, p)
 		a.drawSyncDialog(c, p)

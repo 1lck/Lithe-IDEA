@@ -13526,6 +13526,203 @@
       ]
     },
     {
+      "id": "desktop.legacyImport.confirm",
+      "description": "Button that imports the chosen items from the earlier Lithe client.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.description",
+      "description": "Explanation in the import dialog; {source} is where the earlier client's preferences were read (a preferences domain or a settings file path).",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "source": "string"
+      }
+    },
+    {
+      "id": "desktop.legacyImport.done",
+      "description": "Notification after importing from an earlier Lithe client; {recent} is how many recent projects were added to the list.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "recent": "string"
+      }
+    },
+    {
+      "id": "desktop.legacyImport.editorFont",
+      "description": "Import dialog item: the editor font.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.failed",
+      "description": "Notification when saving the imported settings or recent projects failed or could not be read back; {error} is the reason.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "error": "string"
+      }
+    },
+    {
+      "id": "desktop.legacyImport.hidden",
+      "description": "Value of the minimap item: hidden.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.language",
+      "description": "Import dialog item: the interface language.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.menu",
+      "description": "Settings menu item that reads the preferences and recent projects of an earlier Lithe client installed on this machine, to choose what to import.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.minimap",
+      "description": "Import dialog item: whether editors show the minimap.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.none",
+      "description": "Notification when no preferences of an earlier Lithe client were found on this machine.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.processTermination",
+      "description": "Import dialog item: the choices about ending running processes when closing or quitting.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.readFailed",
+      "description": "Notification when reading an earlier Lithe client's preferences failed; {error} is the reason.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "error": "string"
+      }
+    },
+    {
+      "id": "desktop.legacyImport.recent",
+      "description": "Import dialog item: the recently opened projects.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.recentCount",
+      "description": "Value of the recent projects item; {count} is how many were found.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.legacyImport.shellAutomatic",
+      "description": "Value of the terminal shell item: the system's default shell.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.shown",
+      "description": "Value of the minimap item: shown.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.tabRows",
+      "description": "Import dialog item: how editor tabs are laid out.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.tabsMultiple",
+      "description": "Value of the editor tabs item: wrap onto multiple rows.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.tabsSingle",
+      "description": "Value of the editor tabs item: one row.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.terminalFont",
+      "description": "Import dialog item: the terminal font.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.terminalShell",
+      "description": "Import dialog item: the shell new terminals run.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.theme",
+      "description": "Import dialog item: the color theme.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.themeDark",
+      "description": "Value of the theme item: dark.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.themeLight",
+      "description": "Value of the theme item: light.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.themeSystem",
+      "description": "Value of the theme item: follow the system appearance.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.title",
+      "description": "Title of the dialog listing what an earlier Lithe client stored and can be imported.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.logs.apply",
       "description": "Desktop log window: Apply",
       "platforms": [

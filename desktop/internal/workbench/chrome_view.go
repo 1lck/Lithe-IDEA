@@ -490,6 +490,7 @@ func (a *App) gearMenu(c ui.C, anchor ui.Box) {
 		if menu.Item(a.text.Title.LogsAndDiagnostics).Keys(ui.Primary|ui.Shift, "l").Clicked() {
 			c.After(a.openLogs)
 		}
+		a.legacyImportMenuItem(c, menu)
 		a.credentialImportItem(c, menu)
 		menu.Separator()
 		if menu.Item(a.text.Title.ThemeMenu).Clicked() {

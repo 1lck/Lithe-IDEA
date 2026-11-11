@@ -373,6 +373,8 @@ type App struct {
 	// credentialImport is the import of an earlier client's plugin secrets the user asked
 	// for from the settings menu (credentials_import.go).
 	credentialImport credentialImportState
+	// legacyImport is the import of an earlier client's preferences and recent projects.
+	legacyImport legacyImportState
 	// pluginState is what the settings window reads from its own thread about
 	// installed plugins; it is replaced whole, never mutated in place.
 	pluginState atomic.Pointer[map[string]settingswindow.PluginState]
