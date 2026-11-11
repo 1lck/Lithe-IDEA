@@ -147,6 +147,7 @@ const (
 	buildRowTarget
 	buildRowTask
 	buildRowDependency
+	buildRowTest
 )
 
 // buildRow is one row of the choices list: a section heading, a note that the
@@ -166,6 +167,11 @@ type buildRow struct {
 	path         string
 	leaf         bool
 	dependencies bool
+	// tests marks a line of the Discovered Tests section that is not a test, and discover the
+	// one that starts discovery; test is the discovered test a row runs (build_tests.go).
+	tests    bool
+	discover bool
+	test     *core.BuildDiscoveredTest
 }
 
 // buildChoiceRows lists the sections of the selected build system with what is
@@ -208,7 +214,7 @@ func (a *App) buildChoiceRows(p *project, instance *buildInstance) []buildRow {
 		}
 		rows = append(rows, buildRow{kind: buildRowTask, label: name, detail: strings.Join(task.Category, " / "), id: task.ID, selected: b.taskID == task.ID})
 	}
-	return rows
+	return append(rows, a.buildTestRows(p, instance)...)
 }
 
 // buildChoices declares the projects, targets and tasks of the selected build
@@ -261,6 +267,14 @@ func (a *App) buildChoiceRow(row ui.ListRow, p *project, instance *buildInstance
 	if spec.kind == buildRowSection {
 		row.Element.Height(buildRowHeight).PadX(8).Items(ui.Center).Background(a.colors.Editor)
 		ui.Text(c, spec.label).FontSize(small).Weight(gfx.WeightSemibold).Color(a.colors.Subtle)
+		return
+	}
+	if spec.kind == buildRowEmpty && spec.tests {
+		a.buildTestStatusRow(row, p, instance, spec)
+		return
+	}
+	if spec.kind == buildRowTest {
+		a.buildTestRow(row, p, instance, spec)
 		return
 	}
 	if spec.kind == buildRowEmpty {

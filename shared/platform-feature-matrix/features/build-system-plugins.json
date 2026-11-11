@@ -23,7 +23,9 @@
       "desktop/internal/workbench/tests_test.go",
       "desktop/internal/workbench/tests_provider_test.go",
       "desktop/internal/workbench/build_settings_test.go",
-      "desktop/internal/workbench/plugin_settings.go"
+      "desktop/internal/workbench/plugin_settings.go",
+      "desktop/internal/workbench/build_tests.go",
+      "desktop/internal/workbench/build_tests_test.go"
     ]
   },
   "windows": {
@@ -46,7 +48,9 @@
       "desktop/internal/workbench/tests_test.go",
       "desktop/internal/workbench/tests_provider_test.go",
       "desktop/internal/workbench/build_settings_test.go",
-      "desktop/internal/workbench/plugin_settings.go"
+      "desktop/internal/workbench/plugin_settings.go",
+      "desktop/internal/workbench/build_tests.go",
+      "desktop/internal/workbench/build_tests_test.go"
     ]
   },
   "owner": "Extensions",

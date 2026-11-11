@@ -30,10 +30,12 @@ type BuildMessages struct {
 	NoProjects         string
 	LoadingModel       string
 	ModelFailed        func(error string) string
-	ProcessFailed      func(error string) string
-	ToolchainGap       func(toolchain string) string
-	RunSelected        string
-	RunTarget          func(name string) string
+	// TestDiscoveryFailed is the line of the Discovered Tests section after discovery failed.
+	TestDiscoveryFailed func(error string) string
+	ProcessFailed       func(error string) string
+	ToolchainGap        func(toolchain string) string
+	RunSelected         string
+	RunTarget           func(name string) string
 }
 
 func buildMessages(language Language) BuildMessages {
@@ -69,6 +71,9 @@ func buildMessages(language Language) BuildMessages {
 		LoadingModel: Shared(language, "desktop.build.loadingModel"),
 		ModelFailed: func(reason string) string {
 			return SharedFormat(language, "desktop.build.modelFailed", map[string]string{"error": reason})
+		},
+		TestDiscoveryFailed: func(reason string) string {
+			return SharedFormat(language, "desktop.build.testDiscoveryFailed", map[string]string{"error": reason})
 		},
 		ProcessFailed: func(reason string) string {
 			return SharedFormat(language, "desktop.build.processFailed", map[string]string{"error": reason})

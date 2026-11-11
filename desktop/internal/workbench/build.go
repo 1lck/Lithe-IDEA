@@ -72,6 +72,8 @@ type buildState struct {
 	// dependencies are the loaded dependency trees by instance and project
 	// (build_dependencies.go).
 	dependencies map[string]*buildDependencies
+	// discovered are the discovered tests by instance (build_tests.go).
+	discovered map[string]*buildDiscoveredTests
 }
 
 func (s *buildState) reset() {
@@ -404,6 +406,7 @@ func (a *App) finishBuildDetection(p *project, generation uint64, instances []bu
 	}
 	p.build.loaded = true
 	p.build.instances = instances
+	p.revokeAllBuildTests()
 	if p.build.selected >= len(instances) {
 		p.build.selected = 0
 	}
@@ -454,6 +457,7 @@ func (a *App) reloadBuildModel(p *project, index int) {
 	instance := &p.build.instances[index]
 	instance.modelLoaded, instance.modelError = false, ""
 	p.reloadBuildDependencies()
+	p.revokeBuildTests(instance.ID)
 	a.loadBuildModelWith(p, index, true)
 }
 

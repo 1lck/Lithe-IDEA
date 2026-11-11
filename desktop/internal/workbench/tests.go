@@ -55,8 +55,64 @@ type testState struct {
 	// rows is the flattened result tree: a suite header or one case.
 	rows      []testRow
 	operation *testOperation
+	// last is the selection of the latest run, which Rerun repeats; nil until a
+	// run started.
+	last *testSelection
 	// generation rejects a result a newer run or selection replaced.
 	generation uint64
+}
+
+// testSelection is what one run asked for: the build instance and, narrowing
+// the workspace, a project, a target, a suite or one case. Core checks the
+// scope against the declaration when it plans the run.
+type testSelection struct {
+	instanceID string
+	project    *core.BuildSelection
+	target     *core.BuildSelection
+	suite      string
+	caseName   string
+	// projects are the model's project directories, so Core also reads the
+	// reports a workspace run wrote under each of them.
+	projects []string
+}
+
+// scopeProject is the project argument of the outcome scope: any project or
+// target selection is project breadth, which Core distinguishes only from a
+// suite or case that matched nothing.
+func (s testSelection) scopeProject() string {
+	switch {
+	case s.project != nil:
+		return s.project.Name
+	case s.target != nil:
+		return s.target.Name
+	}
+	return ""
+}
+
+// scope names the selection for the action log without carrying a path.
+func (s testSelection) scope() string {
+	switch {
+	case s.caseName != "":
+		return "case"
+	case s.suite != "":
+		return "suite"
+	case s.target != nil:
+		return "target"
+	case s.project != nil:
+		return "project"
+	}
+	return "workspace"
+}
+
+// buildModelProjectPaths lists the project directories of a loaded model.
+func buildModelProjectPaths(model core.BuildModel) []string {
+	paths := make([]string, 0, len(model.Projects))
+	for _, project := range model.Projects {
+		if project.Path != "" {
+			paths = append(paths, project.Path)
+		}
+	}
+	return paths
 }
 
 func (s *testState) reset() { *s = testState{} }
@@ -98,15 +154,42 @@ func (p *project) testInstance() *buildInstance {
 	return nil
 }
 
-// runTests plans and runs the workspace-scope test selection of the first
-// test-capable build system. Core owns the selection rules and the result
-// decoding; this function owns only the process, cancellation and publication.
+// runTests runs the workspace-scope tests of the first test-capable build
+// system.
 func (a *App) runTests(p *project) {
-	if p == nil || p.tests.running {
+	if p == nil {
 		return
 	}
 	instance := p.testInstance()
 	if instance == nil {
+		a.notifyInfo(a.text.Tests.NoSystems)
+		return
+	}
+	a.startTests(p, testSelection{instanceID: instance.ID, projects: buildModelProjectPaths(instance.Model)})
+}
+
+// rerunTests repeats the latest run's selection, or runs the workspace when
+// nothing ran yet.
+func (a *App) rerunTests(p *project) {
+	if p == nil {
+		return
+	}
+	if p.tests.last == nil {
+		a.runTests(p)
+		return
+	}
+	a.startTests(p, *p.tests.last)
+}
+
+// startTests plans and runs one test selection. Core owns the selection rules
+// and the result decoding; this function owns only the process, cancellation
+// and publication.
+func (a *App) startTests(p *project, selection testSelection) {
+	if p == nil || p.tests.running {
+		return
+	}
+	instance := p.buildInstanceByID(selection.instanceID)
+	if instance == nil || instance.System.Test == nil {
 		a.notifyInfo(a.text.Tests.NoSystems)
 		return
 	}
@@ -122,35 +205,42 @@ func (a *App) runTests(p *project) {
 	p.tests.output = nil
 	p.tests.outputBytes = 0
 	p.tests.status = a.text.Tests.Preparing
+	last := selection
+	p.tests.last = &last
 	captured := *instance
 	startedMillis := time.Now().UnixMilli()
-	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "tests.run", "surface": "tests"})
+	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "tests.run", "surface": "tests", "scope": selection.scope()})
 	a.background(p, testRequestTimeout, func(ctx context.Context) func(*App) {
-		return a.executeTestRun(ctx, p, captured, generation, startedMillis)
+		return a.executeTestRun(ctx, p, captured, selection, generation, startedMillis)
 	})
 }
 
 // executeTestRun runs on a background goroutine. It posts progress and returns
 // the publication callback; Core calls happen here, never on the window thread.
-func (a *App) executeTestRun(ctx context.Context, p *project, instance buildInstance, generation uint64, startedMillis int64) func(*App) {
+func (a *App) executeTestRun(ctx context.Context, p *project, instance buildInstance, selection testSelection, generation uint64, startedMillis int64) func(*App) {
 	request := core.BuildTestRequest{
 		Root:          instance.Root,
 		Options:       instance.Options,
 		WorkspaceRoot: p.root,
+		Project:       selection.project,
+		Target:        selection.target,
+		Suite:         selection.suite,
+		Case:          selection.caseName,
+		Projects:      selection.projects,
 	}
 	plan, err := a.kernel.PlanBuildTest(ctx, instance.Manifest, instance.BuildSystemID, request)
 	if err != nil {
 		return func(a *App) { a.finishTestError(p, generation, err) }
 	}
 	if plan.Provider == nil {
-		return a.executeTestCommand(ctx, p, instance, plan, generation, startedMillis)
+		return a.executeTestCommand(ctx, p, instance, selection, plan, generation, startedMillis)
 	}
-	return a.executeTestProvider(ctx, p, instance, plan, generation, startedMillis)
+	return a.executeTestProvider(ctx, p, instance, selection, plan, generation, startedMillis)
 }
 
 // executeTestCommand resolves the executable through Core's candidate order,
 // runs it, and normalizes its declared reports.
-func (a *App) executeTestCommand(ctx context.Context, p *project, instance buildInstance, plan core.BuildPlan, generation uint64, startedMillis int64) func(*App) {
+func (a *App) executeTestCommand(ctx context.Context, p *project, instance buildInstance, selection testSelection, plan core.BuildPlan, generation uint64, startedMillis int64) func(*App) {
 	executable, err := a.resolveBuildExecutable(ctx, p, instance, a.text.Build)
 	if err != nil {
 		return func(a *App) { a.finishTestError(p, generation, err) }
@@ -182,18 +272,18 @@ func (a *App) executeTestCommand(ctx context.Context, p *project, instance build
 	waitErr := process.Wait()
 	termination, interrupted := testTermination(ctx, operation, waitErr)
 	if interrupted {
-		return func(a *App) { a.finishTestInterrupted(p, generation, termination) }
+		return func(a *App) { a.finishTestInterrupted(p, generation, selection, termination) }
 	}
-	result, decodeErr := a.decodeTestResults(ctx, p, instance, testResultsRequest(p, instance, output.text(), nil, startedMillis))
+	result, decodeErr := a.decodeTestResults(ctx, p, instance, testResultsRequest(p, instance, selection, output.text(), nil, startedMillis))
 	if decodeErr != nil {
 		return func(a *App) { a.finishTestError(p, generation, decodeErr) }
 	}
-	return func(a *App) { a.finishTestRun(p, generation, result, termination) }
+	return func(a *App) { a.finishTestRun(p, generation, selection, result, termination) }
 }
 
 // executeTestProvider runs the provider's lithe/build/test request. The reply's
 // canonical report, when negotiated, is passed back to Core without parsing.
-func (a *App) executeTestProvider(ctx context.Context, p *project, instance buildInstance, plan core.BuildPlan, generation uint64, startedMillis int64) func(*App) {
+func (a *App) executeTestProvider(ctx context.Context, p *project, instance buildInstance, selection testSelection, plan core.BuildPlan, generation uint64, startedMillis int64) func(*App) {
 	client, err := a.buildProvider(ctx, p, instance)
 	if err != nil {
 		return func(a *App) { a.finishTestError(p, generation, err) }
@@ -232,14 +322,14 @@ func (a *App) executeTestProvider(ctx context.Context, p *project, instance buil
 				})
 			}
 		case <-ctx.Done():
-			return func(a *App) { a.finishTestInterrupted(p, generation, testContextTermination(ctx)) }
+			return func(a *App) { a.finishTestInterrupted(p, generation, selection, testContextTermination(ctx)) }
 		}
 	}
 completed:
 	raw, waitErr := operation.Wait(ctx)
 	termination, interrupted := testTermination(ctx, testOp, waitErr)
 	if interrupted {
-		return func(a *App) { a.finishTestInterrupted(p, generation, termination) }
+		return func(a *App) { a.finishTestInterrupted(p, generation, selection, termination) }
 	}
 	if waitErr != nil {
 		return func(a *App) { a.finishTestError(p, generation, waitErr) }
@@ -260,23 +350,27 @@ completed:
 		a.post(func(a *App) { a.appendTestOutput(p, generation, execution.Output) })
 	}
 	providerResult = execution.TestResults
-	request := testResultsRequest(p, instance, output.text(), providerResult, startedMillis)
+	request := testResultsRequest(p, instance, selection, output.text(), providerResult, startedMillis)
 	result, decodeErr := a.decodeTestResults(ctx, p, instance, request)
 	if decodeErr != nil {
 		return func(a *App) { a.finishTestError(p, generation, decodeErr) }
 	}
-	return func(a *App) { a.finishTestRun(p, generation, result, termination) }
+	return func(a *App) { a.finishTestRun(p, generation, selection, result, termination) }
 }
 
 // testResultsRequest builds the decode request. notBeforeMillis is the host's
 // wall clock because Core compares it with report file times, which are not the
 // window's injected clock.
-func testResultsRequest(p *project, instance buildInstance, output string, result json.RawMessage, startedMillis int64) core.BuildTestResultsRequest {
+func testResultsRequest(p *project, instance buildInstance, selection testSelection, output string, result json.RawMessage, startedMillis int64) core.BuildTestResultsRequest {
 	request := core.BuildTestResultsRequest{
 		WorkspaceRoot:   p.root,
 		Root:            instance.Root,
+		Projects:        selection.projects,
 		Output:          output,
 		NotBeforeMillis: &startedMillis,
+	}
+	if selection.project != nil {
+		request.Project = selection.project.Path
 	}
 	if len(result) != 0 && string(result) != "null" {
 		request.Result = result
@@ -323,11 +417,11 @@ func testContextTermination(ctx context.Context) core.BuildTestTermination {
 }
 
 // finishTestRun reduces the run through Core and publishes the result tree.
-func (a *App) finishTestRun(p *project, generation uint64, results core.BuildTestResults, termination core.BuildTestTermination) {
+func (a *App) finishTestRun(p *project, generation uint64, selection testSelection, results core.BuildTestResults, termination core.BuildTestTermination) {
 	if a.project != p || p.tests.generation != generation {
 		return
 	}
-	verdict, err := a.kernel.ResolveBuildTestOutcome(context.Background(), termination, "", "", "", &results.Summary)
+	verdict, err := a.kernel.ResolveBuildTestOutcome(context.Background(), termination, selection.scopeProject(), selection.suite, selection.caseName, &results.Summary)
 	if err != nil {
 		a.finishTestError(p, generation, err)
 		return
@@ -344,11 +438,11 @@ func (a *App) finishTestRun(p *project, generation uint64, results core.BuildTes
 
 // finishTestInterrupted publishes a cancelled or timed-out run without
 // pretending it produced a test outcome.
-func (a *App) finishTestInterrupted(p *project, generation uint64, termination core.BuildTestTermination) {
+func (a *App) finishTestInterrupted(p *project, generation uint64, selection testSelection, termination core.BuildTestTermination) {
 	if a.project != p || p.tests.generation != generation {
 		return
 	}
-	verdict, err := a.kernel.ResolveBuildTestOutcome(context.Background(), termination, "", "", "", nil)
+	verdict, err := a.kernel.ResolveBuildTestOutcome(context.Background(), termination, selection.scopeProject(), selection.suite, selection.caseName, nil)
 	if err != nil {
 		a.finishTestError(p, generation, err)
 		return

@@ -1193,6 +1193,7 @@
     "desktop.build.exited": "构建以代码 {code} 退出。",
     "desktop.build.loadingModel": "正在加载构建模型…",
     "desktop.build.modelFailed": "构建模型加载失败：{error}",
+    "desktop.build.testDiscoveryFailed": "无法发现测试：{error}",
     "desktop.build.noBuildSystems": "没有检测到由提供者驱动的构建系统。",
     "desktop.build.noProjects": "构建模型中没有项目",
     "desktop.build.noTasks": "没有构建任务",

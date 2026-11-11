@@ -64,6 +64,10 @@ func TestProviderTestRunner(t *testing.T) {
 	if _, err := os.Stat("block.marker"); err == nil {
 		blocked = true
 	}
+	// discovery.marker selects the build window fixture: two projects, a test target and
+	// discovered tests (build_tests_test.go).
+	_, statErr := os.Stat("discovery.marker")
+	discovery := statErr == nil
 	reader := bufio.NewReader(os.Stdin)
 	write := func(value any) {
 		body, err := json.Marshal(value)
@@ -141,12 +145,52 @@ func TestProviderTestRunner(t *testing.T) {
 			}
 			reply(request.ID, map[string]any{"value": "fixture action completed"})
 		case "lithe/build/model":
+			if discovery {
+				reply(request.ID, map[string]any{
+					"format":  "litheBuildModel",
+					"version": 0,
+					"projects": []any{
+						map[string]any{"path": ".", "name": "fixture"},
+						map[string]any{"path": "lib", "name": "library"},
+					},
+					"targets": []any{
+						map[string]any{"project": "lib", "path": "lib", "name": "libtests", "tags": []string{"test"}},
+						map[string]any{"project": "lib", "path": "lib", "name": "libapp", "tags": []string{"app"}},
+					},
+				})
+				continue
+			}
 			reply(request.ID, map[string]any{
 				"format":   "litheBuildModel",
 				"version":  0,
 				"projects": []any{map[string]any{"path": ".", "name": "fixture"}},
 			})
+		case "lithe/build/discoverTests":
+			reply(request.ID, map[string]any{
+				"format":  "litheTestDiscovery",
+				"version": 0,
+				"tests": []any{
+					map[string]any{"suite": "LibSuite", "case": "libPasses", "project": map[string]any{"name": "library", "path": "lib"}},
+					map[string]any{"suite": "RootSuite", "case": "rootPasses", "project": map[string]any{"name": "fixture", "path": "."}},
+				},
+			})
 		case "lithe/build/test":
+			if discovery {
+				// The parent test reads which selection the host sent; every run passes.
+				if err := os.WriteFile("test-request.json", request.Params, 0o600); err != nil {
+					os.Exit(9)
+				}
+				reply(request.ID, map[string]any{
+					"exitCode": 0,
+					"output":   "",
+					"testResults": map[string]any{
+						"format":  "litheTestResults",
+						"version": 0,
+						"tests":   []any{map[string]any{"suite": "LibSuite", "case": "libPasses", "status": "passed"}},
+					},
+				})
+				continue
+			}
 			if blocked {
 				// The host's cancel notification ends this request; the parent
 				// test waits on the published run state, not on a timer.
@@ -187,6 +231,13 @@ func TestProviderTestRunner(t *testing.T) {
 // test binary as its packaged provider executable.
 func providerTestsHarness(t *testing.T, supplied ...pluginservice.Kernel) *harness {
 	t.Helper()
+	return providerTestsHarnessWith(t, providerTestsManifest, supplied...)
+}
+
+// providerTestsHarnessWith is providerTestsHarness with another declaration of the same
+// provider.
+func providerTestsHarnessWith(t *testing.T, manifest string, supplied ...pluginservice.Kernel) *harness {
+	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, settingsFile), []byte(`{"theme":"dark"}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -197,7 +248,7 @@ func providerTestsHarness(t *testing.T, supplied ...pluginservice.Kernel) *harne
 	if err := os.MkdirAll(installed, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(installed, "plugin.json"), []byte(providerTestsManifest), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(installed, "plugin.json"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	executable, err := os.Executable()

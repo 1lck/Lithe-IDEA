@@ -284,7 +284,7 @@ func TestTestsPanelDropsStaleResultAndBoundsOutput(t *testing.T) {
 
 	// A result from generation 1 belongs to a replaced run and must not replace
 	// the current state.
-	h.app.finishTestRun(p, 1, core.BuildTestResults{Summary: core.BuildTestSummary{Total: 1, Passed: 1}}, core.BuildTestTermination{Kind: "exited"})
+	h.app.finishTestRun(p, 1, testSelection{}, core.BuildTestResults{Summary: core.BuildTestSummary{Total: 1, Passed: 1}}, core.BuildTestTermination{Kind: "exited"})
 	if p.tests.hasResults || !p.tests.running {
 		t.Fatalf("a stale result changed the run state: %+v", p.tests)
 	}

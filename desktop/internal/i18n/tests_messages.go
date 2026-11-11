@@ -6,6 +6,7 @@ import "strconv"
 type TestMessages struct {
 	Run                string
 	Rerun              string
+	RunAll             string
 	Stop               string
 	Running            string
 	Preparing          string
@@ -28,6 +29,7 @@ func testMessages(language Language) TestMessages {
 	return TestMessages{
 		Run:             Shared(language, "desktop.tests.run"),
 		Rerun:           Shared(language, "desktop.tests.rerun"),
+		RunAll:          Shared(language, "native.runAllTests"),
 		Stop:            Shared(language, "desktop.tests.stop"),
 		Running:         Shared(language, "desktop.tests.running"),
 		Preparing:       Shared(language, "desktop.tests.preparing"),

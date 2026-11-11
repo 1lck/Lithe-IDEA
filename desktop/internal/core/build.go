@@ -246,6 +246,8 @@ type buildOutcome struct {
 	// Storage and Edit answer build.resolveStoredOptions and build.editStoredOption.
 	Storage *BuildStoredOptions `json:"storage"`
 	Edit    *BuildOptionEdit    `json:"edit"`
+	// Discovery answers build.decodeTestDiscovery.
+	Discovery *BuildTestDiscovery `json:"discovery"`
 }
 
 func (o buildOutcome) failure(command string) error {

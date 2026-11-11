@@ -13,8 +13,9 @@ import (
 // testRowHeight is the height of a suite header and of a case row.
 const testRowHeight = 24
 
-// testsView declares the Tests tool window: one workspace test run, its bounded
-// result tree and the failure location each decoded case carries.
+// testsView declares the Tests tool window: one test run (the workspace, or the
+// project, target or test the Build window chose), its bounded result tree and the
+// failure location each decoded case carries.
 func (a *App) testsView(c ui.C, p *project) {
 	t := a.text.Tests
 	s := &p.tests
@@ -22,14 +23,22 @@ func (a *App) testsView(c ui.C, p *project) {
 		a.loadBuildSystems(p)
 	}
 	instance := p.testInstance()
+	// A run the Build window started can be repeated even when no instance offers the
+	// workspace scope.
+	available := instance != nil || s.last != nil
 	ui.Column(c).Fill().Background(a.colors.Editor).Children(func() {
 		ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
 			label := t.Run
 			if s.hasResults || s.failed != "" {
 				label = t.Rerun
 			}
-			if ui.Button(c, label).Disabled(s.running || instance == nil).Clicked() {
-				a.runTests(p)
+			if ui.Button(c, label).Disabled(s.running || !available).Clicked() {
+				a.rerunTests(p)
+			}
+			if instance != nil && s.last != nil && s.last.scope() != "workspace" {
+				if ui.Button(c, t.RunAll).Ghost().Disabled(s.running).Clicked() {
+					a.runTests(p)
+				}
 			}
 			if s.operation != nil {
 				if ui.Button(c, t.Stop).Outline().Disabled(s.stopping).Clicked() {
@@ -42,7 +51,7 @@ func (a *App) testsView(c ui.C, p *project) {
 			}
 		})
 		ui.Divider(c)
-		if instance == nil {
+		if !available {
 			a.panelMessage(c, t.NoSystems, a.colors.Subtle)
 			return
 		}

@@ -9,9 +9,11 @@ import (
 
 // The context menus of the Build tool window, with the items the earlier client's build tool
 // window had: a task runs; a target runs each of the build system's runs that applies to it; a
-// project opens its build file and has the model loaded again; the dependency tree is loaded
-// again and opens the build file it came from. Each item acts through the action the window's
-// own controls run, so a menu item and its button are refused in the same states.
+// project opens its build file and has the model loaded again; a project or target whose
+// build system declares that test scope runs its tests in the Tests tool window; the
+// dependency tree is loaded again and opens the build file it came from. Each item acts
+// through the action the window's own controls run, so a menu item and its button are refused
+// in the same states.
 
 // buildRowMenu is the menu of one project, target or task row of the choices list.
 func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstance, spec buildRow) {
@@ -41,7 +43,24 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 					})
 				}
 			}
+			if buildTargetTestable(instance, *spec.target) {
+				if menu.Item(i18n.Shared(lang, "native.runTests")).Disabled(p.tests.running || instance.modelLoading).Clicked() {
+					c.After(func() {
+						a.performed("build.target.test", surfaceMenu)
+						b.projectID, b.targetID = spec.project, spec.id
+						a.runBuildTargetTests(p, instance, spec.id)
+					})
+				}
+			}
 		case buildRowProject:
+			if buildTestDeclares(instance, "project") {
+				if menu.Item(i18n.Shared(lang, "native.runTests")).Disabled(p.tests.running || instance.modelLoading).Clicked() {
+					c.After(func() {
+						a.performed("build.project.test", surfaceMenu)
+						a.runBuildProjectTests(p, instance, spec.id)
+					})
+				}
+			}
 			if path := buildFileOf(p, instance, spec.id); path != "" {
 				label := i18n.SharedFormat(lang, "native.open", map[string]string{"arg1": filepath.Base(path)})
 				if menu.Item(label).Clicked() {

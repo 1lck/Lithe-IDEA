@@ -41,6 +41,9 @@ type BuildSystemDeclaration struct {
 // BuildTestDeclaration is one build system's declared test entry.
 type BuildTestDeclaration struct {
 	Scopes []string
+	// TargetTags are the tags a target must carry for a target-scope test run; none accept
+	// every target. Core refuses a target without them; the window only hides the entry.
+	TargetTags []string
 	// Source is "command" or "provider"; the window does not interpret it
 	// beyond choosing how to present the run.
 	Source    string
@@ -124,9 +127,10 @@ type rawBuildManifest struct {
 			} `json:"fromTargets"`
 		} `json:"run"`
 		Test *struct {
-			Scopes    []string `json:"scopes"`
-			Source    string   `json:"source"`
-			Discovery bool     `json:"discovery"`
+			Scopes     []string `json:"scopes"`
+			TargetTags []string `json:"targetTags"`
+			Source     string   `json:"source"`
+			Discovery  bool     `json:"discovery"`
 		} `json:"test"`
 	} `json:"buildSystems"`
 }
@@ -177,9 +181,10 @@ func parseBuildSystems(manifest json.RawMessage) (map[string]BuildSystemDeclarat
 		}
 		if raw.Test != nil {
 			system.Test = &BuildTestDeclaration{
-				Scopes:    append([]string(nil), raw.Test.Scopes...),
-				Source:    raw.Test.Source,
-				Discovery: raw.Test.Discovery,
+				Scopes:     append([]string(nil), raw.Test.Scopes...),
+				TargetTags: append([]string(nil), raw.Test.TargetTags...),
+				Source:     raw.Test.Source,
+				Discovery:  raw.Test.Discovery,
 			}
 		}
 		systems[raw.ID] = system

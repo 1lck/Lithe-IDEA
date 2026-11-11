@@ -53,10 +53,11 @@ func (a *App) moduleName(p *project, relative string) string {
 	return module.Name
 }
 
-// reloadBuildForSavedFile reloads the build model of an instance when one of its marker files
-// (pom.xml, Cargo.toml and the like) is saved in the instance's directory, since the model is
-// read from those files. A model that is loading gets a pending reload instead, so the new
-// contents are read once the current read ends. Only a marker of the instance is a trigger.
+// reloadBuildForSavedFile follows a file saved inside a build instance's directory. Any saved
+// file revokes the tests the instance discovered, since a source edit can add, rename or remove
+// them. One of the instance's marker files (pom.xml, Cargo.toml and the like) also reloads the
+// model, which is read from those files; a model that is loading gets a pending reload instead,
+// so the new contents are read once the current read ends.
 func (a *App) reloadBuildForSavedFile(p *project, path string) {
 	if p == nil || path == "" {
 		return
@@ -69,11 +70,12 @@ func (a *App) reloadBuildForSavedFile(p *project, path string) {
 	name := filepath.Base(relative)
 	for index := range p.build.instances {
 		instance := &p.build.instances[index]
-		if !slices.Contains(instance.Markers, name) {
-			continue
-		}
 		root := strings.Trim(filepath.ToSlash(filepath.Clean(filepath.FromSlash(instance.Root))), "/")
 		if root != "." && root != "" && !strings.HasPrefix(relative, root+"/") {
+			continue
+		}
+		p.revokeBuildTests(instance.ID)
+		if !slices.Contains(instance.Markers, name) {
 			continue
 		}
 		if instance.modelLoading {

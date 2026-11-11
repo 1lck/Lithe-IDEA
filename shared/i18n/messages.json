@@ -9770,6 +9770,16 @@
       }
     },
     {
+      "id": "desktop.build.testDiscoveryFailed",
+      "description": "The build system could not list its tests: {error}",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "error": "string"
+      }
+    },
+    {
       "id": "desktop.build.noBuildSystems",
       "description": "No provider-backed build system was detected.",
       "platforms": [
@@ -50277,7 +50287,8 @@
       "id": "native.discoverTests",
       "description": "Native UI: Discover Tests",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Discover Tests",
@@ -50288,7 +50299,8 @@
       "id": "native.discoveredTests",
       "description": "Native UI: Discovered Tests",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Discovered Tests",
@@ -50299,7 +50311,8 @@
       "id": "native.discovering",
       "description": "Native UI: Discovering…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Discovering…",
@@ -67139,7 +67152,8 @@
       "id": "native.noTestsDiscovered",
       "description": "Native UI: No tests discovered.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "No tests discovered.",
@@ -72848,7 +72862,8 @@
       "id": "native.refreshDiscoveredTests",
       "description": "Native UI: Refresh discovered tests",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Refresh discovered tests",
@@ -75965,7 +75980,8 @@
       "id": "native.runAllTests",
       "description": "Native UI: Run All Tests",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Run All Tests",
@@ -76192,7 +76208,8 @@
       "id": "native.runTests",
       "description": "Native UI: Run Tests",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Run Tests",

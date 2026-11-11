@@ -1193,6 +1193,7 @@
     "desktop.build.exited": "Build exited with code {code}.",
     "desktop.build.loadingModel": "Loading build model…",
     "desktop.build.modelFailed": "The build model could not be loaded: {error}",
+    "desktop.build.testDiscoveryFailed": "Could not discover tests: {error}",
     "desktop.build.noBuildSystems": "No provider-backed build system was detected.",
     "desktop.build.noProjects": "No projects in the build model",
     "desktop.build.noTasks": "No build tasks",
