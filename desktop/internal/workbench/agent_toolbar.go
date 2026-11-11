@@ -175,6 +175,10 @@ func (a *App) agentConfigBar(c ui.C, p *project) {
 		for i := range cfg.options {
 			option := &cfg.options[i]
 			ui.Row(c.Key(option.ID)).FillWidth().Height(28).Shrink(0).Items(ui.Center).Gap(8).Children(func() {
+				if option.Category == "model" {
+					agent, _ := p.selectedAgent()
+					ui.Icon(c, a.agentBrandIcon(agent.ID)).Size(chromeMarkSize, chromeMarkSize).Shrink(0).Color(a.colors.Subtle)
+				}
 				ui.Text(c, a.agentConfigLabel(option)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Width(72)
 				if option.Category == "mode" {
 					a.agentModeMenu(c, p, option, disabled)
