@@ -124,6 +124,8 @@ type commitTarget struct {
 	// console says a run shows the Console tab of the Git tool window: the commit is the
 	// Commit tool window's, outside the Git tool window.
 	console bool
+	// repoID is the workspace ID of the repository the commit plans; empty for the project's own.
+	repoID string
 }
 
 // projectCommit is the commit of the project's repository, held to the active ChangeList.
@@ -150,13 +152,21 @@ func (t commitTarget) repositoryName(id string) string {
 	return id
 }
 
+// workspaceID is the ID the target's repository has in a workspace commit.
+func (t commitTarget) workspaceID() string {
+	if t.repoID != "" {
+		return t.repoID
+	}
+	return commitRepositoryID
+}
+
 // request is the request that plans a commit of the staged changes of the target with the
 // message typed, pushed afterwards when push is set. A retry leaves the scope out: Core keeps
 // the scope of the run it continues.
 func (t commitTarget) request(push bool) core.WorkspaceCommitRequest {
 	c := t.state
 	return core.WorkspaceCommitRequest{
-		Repositories:            []core.WorkspaceCommitRepository{{ID: commitRepositoryID, Root: t.root}},
+		Repositories:            []core.WorkspaceCommitRepository{{ID: t.workspaceID(), Root: t.root}},
 		Message:                 c.message(),
 		Amend:                   c.amend,
 		Author:                  c.authorText(),

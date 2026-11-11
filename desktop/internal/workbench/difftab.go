@@ -142,6 +142,11 @@ type diffTab struct {
 	// before and after are the editors of the two versions; the unified view shows only after.
 	// They are made with the first layout of a file and closed with the tab.
 	before, after *diffEditor
+	// find is the find bar of the tab (diff_find.go).
+	find diffFind
+	// revealLine is the 1-based line of the after side the tab goes to once its layout is ready;
+	// zero when nothing is pending (gitlinehistory.go).
+	revealLine int
 	// gap is the strip between the two editors, or before the unified one, that joins each
 	// difference across and carries its block's checkbox and rollback; gapDraw paints it.
 	gap     ui.Handlers
@@ -574,6 +579,7 @@ func (a *App) rebuildDiff(t *diffTab) {
 	}
 	t.current = min(t.current, len(t.layout.fragments)-1)
 	a.presentDiff(t)
+	a.applyDiffReveal(t)
 }
 
 // presentDiff hands the tab's layout to its editors: the before side's only side by side, the

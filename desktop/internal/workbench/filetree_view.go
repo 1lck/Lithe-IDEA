@@ -36,7 +36,9 @@ func (t *fileTree) describe(i int) ui.TreeNode {
 // time the tree is shown.
 func (a *App) projectTree(c ui.C, p *project) {
 	t := &p.tree
+	t.rowRefs = map[gfx.ID]treeRowRef{}
 	a.treePromptDialog(c, p)
+	a.treeBatchDialog(c, p)
 	if t.wake == nil {
 		t.wake = a.invalidator.Invalidate
 		t.view.Node = t.describe
@@ -102,15 +104,23 @@ func (a *App) projectTree(c ui.C, p *project) {
 		n := t.rows[i]
 		// The row a click chose takes the keyboard, so the arrow keys go on from it.
 		c.Canvas().RequestFocus(t.view.RowID(i))
-		c.After(func() {
-			t.selected = n
-			switch {
-			case !n.dir:
-				a.activateTreeNode(p, n)
-			case !repeated:
-				a.toggleFolder(p, n)
-			}
-		})
+		if clicked && info.Modifiers&(ui.Primary|gfx.ModifierShift) != 0 {
+			mods := info.Modifiers
+			c.After(func() { a.treeModifiedClick(p, n, mods) })
+		} else {
+			c.After(func() {
+				t.selected = n
+				if clicked {
+					t.marked, t.anchor = nil, ""
+				}
+				switch {
+				case !n.dir:
+					a.activateTreeNode(p, n)
+				case !repeated:
+					a.toggleFolder(p, n)
+				}
+			})
+		}
 	}
 
 }

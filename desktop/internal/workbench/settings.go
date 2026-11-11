@@ -261,6 +261,11 @@ func (a *App) openPluginSettings(surface string) {
 	a.openSettingsPage(surface, settingsPlugins)
 }
 
+// openPluginSettingsSearch shows the plugin page with the marketplace search set to query.
+func (a *App) openPluginSettingsSearch(surface, query string) {
+	a.openSettingsPageWith(surface, settingsPlugins, query)
+}
+
 // openTerminalSettings shows the settings window on its Terminal page, where the shell new
 // terminals run is picked.
 func (a *App) openTerminalSettings(surface string) {
@@ -288,6 +293,11 @@ const (
 )
 
 func (a *App) openSettingsPage(surface string, page settingsPage) {
+	a.openSettingsPageWith(surface, page, "")
+}
+
+// openSettingsPageWith is openSettingsPage with the marketplace search text the plugin page starts with.
+func (a *App) openSettingsPageWith(surface string, page settingsPage, query string) {
 	a.performed("settings.open", surface)
 	// Users can enter Plugins from any settings page. Publish native installed
 	// state when the window opens, including its general-settings entry point.
@@ -317,7 +327,11 @@ func (a *App) openSettingsPage(surface string, page settingsPage) {
 		var err error
 		switch page {
 		case settingsPlugins:
-			err = a.settingsWindow.OpenPlugins(a.application, current)
+			if query != "" {
+				err = a.settingsWindow.OpenPluginsWithQuery(a.application, current, query)
+			} else {
+				err = a.settingsWindow.OpenPlugins(a.application, current)
+			}
 		case settingsTerminal:
 			err = a.settingsWindow.OpenTerminal(a.application, current)
 		case settingsKeymap:

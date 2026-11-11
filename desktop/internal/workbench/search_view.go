@@ -105,7 +105,7 @@ func (a *App) searchResults(c ui.C, p *project, language i18n.Language) {
 	results := p.search.matches
 	v.list.Label = func(i int) string { return searchMatchLabel(results[i]) }
 	opened := -1
-	ui.List(c, &v.list, len(results), func(row ui.ListRow) {
+	resultList := ui.List(c, &v.list, len(results), func(row ui.ListRow) {
 		result := results[row.Index]
 		row.Element.FillWidth().Height(searchResultHeight).PadX(11).PadY(6).Gap(2).Hover(ui.Look{}.Background(a.colors.Hover)).Children(func() {
 			ui.Row(row.C).FillWidth().Items(ui.Center).Gap(6).Children(func() {
@@ -124,6 +124,10 @@ func (a *App) searchResults(c ui.C, p *project, language i18n.Language) {
 	}).Label(i18n.Shared(language, "native.searchAcrossTheProject")).FillWidth().Grow(1).MinHeight(0)
 	if row, ok := v.list.Submitted(); ok {
 		opened = row
+	}
+	// F4 opens the selected match at its line, as Enter does; the match keeps its place.
+	if resultList.Shortcut(0, "f4") && v.list.Selected() >= 0 {
+		opened = v.list.Selected()
 	}
 	if opened >= 0 && opened < len(results) {
 		result := results[opened]

@@ -121,8 +121,9 @@ func (a *App) drawCommitChanges(c ui.C, p *project) ui.Box {
 			a.drawNestedRepos(c, p)
 			return
 		}
-		a.drawChangeRows(c, t.ChangeList, t.Files(fileCount(changes)), changes, cs.busy,
-			func() { a.stageAll(p, surfaceButton) },
+		all := append(append([]core.GitChange(nil), changes...), nestedChanges(p)...)
+		a.drawChangeRows(c, t.ChangeList, t.Files(fileCount(all)), all, cs.busy,
+			func() { a.stageAllAcrossRepositories(p) },
 			func(change core.GitChange) { a.drawCommitChange(c, p, change) })
 		a.drawNestedRepos(c, p)
 	})
@@ -130,9 +131,12 @@ func (a *App) drawCommitChanges(c ui.C, p *project) ui.Box {
 
 // drawCommitChange declares the row of one change of the project's repository.
 func (a *App) drawCommitChange(c ui.C, p *project, change core.GitChange) {
-	toggled, opened := a.drawChangeRow(c, change, p.commit.busy, func(rowC ui.C) func(*ui.MenuItems) {
+	toggled, opened, clicked, mods := a.drawChangeRow(c, change, p.commit.busy, p.lists.selected[change.Path], func(rowC ui.C) func(*ui.MenuItems) {
 		return a.changeMenuItems(rowC, p, change)
 	})
+	if clicked && !toggled {
+		c.After(func() { a.clickChangeRow(p, change, mods) })
+	}
 	if toggled {
 		c.After(func() { a.stageChange(p, change) })
 	}
@@ -162,7 +166,7 @@ func (a *App) drawChangeRows(c ui.C, title, size string, changes []core.GitChang
 // drawChangeRow declares the row of one change: its checkbox, its icon, its name and folder,
 // and whether it is staged, with the context menu menu builds. It reports a click on the
 // checkbox and a double click on the row.
-func (a *App) drawChangeRow(c ui.C, change core.GitChange, busy bool, menu func(ui.C) func(*ui.MenuItems)) (toggled, opened bool) {
+func (a *App) drawChangeRow(c ui.C, change core.GitChange, busy, selected bool, menu func(ui.C) func(*ui.MenuItems)) (toggled, opened, clicked bool, mods gfx.Modifiers) {
 	t := a.text.Commit
 	state, label := t.UnstagedState, t.StageFile(change.Path)
 	switch {
@@ -181,6 +185,9 @@ func (a *App) drawChangeRow(c ui.C, change core.GitChange, busy bool, menu func(
 	row := ui.Row(rowC).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).
 		PadSides(0, 8, 0, float32(8+logIndent)).Hover(ui.Look{}.Background(a.colors.Hover)).
 		HitWith(ui.ID(rowC), change.Path, gfx.HitOptions{Cursor: gfx.PointerCursorHand})
+	if selected {
+		row = row.Background(a.colors.Selection)
+	}
 	ui.ContextMenu(rowC, row, menu(rowC))
 	row.Children(func() {
 		staged := change.Staged
@@ -194,7 +201,12 @@ func (a *App) drawChangeRow(c ui.C, change core.GitChange, busy bool, menu func(
 		ui.Text(c, strings.TrimSuffix(dir, "/")).Muted().Ellipsis().Grow(1)
 		ui.Text(c, state).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
 	})
-	return toggled, row.DoubleClicked()
+	if row.Clicked() {
+		info, _ := c.Canvas().ClickInfo()
+		mods = info.Modifiers
+		clicked = true
+	}
+	return toggled, row.DoubleClicked(), clicked, mods
 }
 
 // changeColor is the color of a change's name, by the side of the change the row shows: the

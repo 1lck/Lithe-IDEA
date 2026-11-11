@@ -40,6 +40,16 @@ type fileTree struct {
 	byPath map[string]*treeNode
 	// selected is the node whose row is highlighted, which the arrow keys move.
 	selected *treeNode
+	// marked are the paths a Ctrl or Shift click selected for a batch; anchor is the path a
+	// Shift click extends from (filetree_batch.go).
+	marked map[string]bool
+	anchor string
+	// batch is the batch delete dialog, open while the user confirms it.
+	batch treeBatchDelete
+	// rowRefs maps the hit identity of each row the last paint declared to its node, so a drag
+	// or drop finds the paths it names (filetree_dnd.go); clip is the cut or copied items.
+	rowRefs map[gfx.ID]treeRowRef
+	clip    treeClipboard
 	// failed is why the root could not be listed; empty otherwise.
 	failed string
 	next   int

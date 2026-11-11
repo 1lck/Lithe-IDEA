@@ -32,6 +32,10 @@ type nestedState struct {
 	// focus is the ID of the nested repository a folder of the project tree asked for; empty
 	// when the project's own repository is meant.
 	focus string
+	// refGen counts the reference readings; references are the last ones by repository ID
+	// (nested_refs.go).
+	refGen     int
+	references map[string]nestedReferences
 }
 
 // nestedRepositoryID is the ID of the repository at path in a workspace commit of projectRoot: its
@@ -185,4 +189,88 @@ func (a *App) writeNestedStaging(p *project, root string, stage bool, paths []st
 			}
 		}
 	})
+}
+
+// nestedCommitTarget is the commit of one nested repository: it commits the staged changes of
+// that repository alone, with the message the Commit tool window holds.
+func (a *App) nestedCommitTarget(p *project, repo nestedRepo) commitTarget {
+	return commitTarget{
+		state:  &p.commit,
+		root:   repo.root,
+		repoID: repo.id,
+		written: func(a *App) {
+			a.loadGit(p)
+		},
+	}
+}
+
+// canCommitNested reports that the commit button of repo may start a commit of its staged changes.
+func (p *project) canCommitNested(repo nestedRepo) bool {
+	return !p.lists.inUse() && p.listsReady() && p.commit.idle() && !p.commit.busy &&
+		countStaged(repo.changes) > 0 && p.commit.message() != ""
+}
+
+// stageAllRepositories stages every change of the project and of its nested repositories, or
+// unstages every staged one when stage is false: the checkbox of the project's change list acts
+// on all repositories it lists. The repositories are written one after another, then read again.
+func (a *App) stageAllRepositories(p *project, stage bool) {
+	if p.commit.busy {
+		return
+	}
+	a.performed("git.stageAll", surfaceButton)
+	p.commit.busy = true
+	kernel, root := a.kernel, p.git.repositoryRoot(p.root)
+	projectChanges := p.git.status.Changes
+	repos := append([]nestedRepo(nil), p.nested.repos...)
+	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
+		var err error
+		if stage {
+			err = kernel.GitStageAll(ctx, root)
+		} else if paths := stagedPaths(projectChanges); len(paths) > 0 {
+			err = kernel.GitUnstage(ctx, root, paths)
+		}
+		for _, repo := range repos {
+			if err != nil {
+				break
+			}
+			var paths []string
+			for _, change := range repo.changes {
+				if !change.CanToggleStaging {
+					continue
+				}
+				if stage && stagesChange(change) || !stage && change.Staged {
+					paths = append(paths, change.StagingPaths()...)
+				}
+			}
+			if len(paths) == 0 {
+				continue
+			}
+			if stage {
+				err = kernel.GitStage(ctx, repo.root, paths)
+			} else {
+				err = kernel.GitUnstage(ctx, repo.root, paths)
+			}
+		}
+		return func(a *App) {
+			p.commit.busy = false
+			a.loadGit(p)
+			a.loadNestedRepos(p)
+			if err != nil {
+				a.stagingFailed(stage, err)
+			}
+		}
+	})
+}
+
+// submoduleReferenceChanged reports that the project's own status lists the nested repository with
+// the given ID as changed: the reference the parent records for it has moved. A nested repository
+// that has changes of its own but no moved reference shows the hint that the parent does not
+// record them yet.
+func (p *project) submoduleReferenceChanged(id string) bool {
+	for _, change := range p.git.status.Changes {
+		if strings.TrimSuffix(change.Path, "/") == id {
+			return true
+		}
+	}
+	return false
 }

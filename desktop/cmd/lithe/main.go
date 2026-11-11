@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 
 	"github.com/1lck/Lithe-IDEA/desktop"
@@ -25,6 +26,11 @@ func main() {
 	client := core.NewClient()
 	version := desktop.Version()
 	options := workbench.DesktopOptions(client, preferences, version)
+	// A project folder given on the command line is opened when the window starts; a worktree's
+	// "Open in New Window" starts the client that way.
+	if folder := commandLineFolder(os.Args[1:]); folder != "" {
+		options.OpenPath = folder
+	}
 	// A log that cannot be opened leaves the client without its log window instead of
 	// keeping it from starting; the window says so when the log is asked for.
 	logs, err := logstore.Open(logstore.Options{Kernel: client, Settings: preferences, Version: version})
@@ -41,6 +47,21 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+}
+
+// commandLineFolder is the first argument that names an existing folder, made absolute; empty when
+// there is none.
+func commandLineFolder(args []string) string {
+	for _, arg := range args {
+		abs, err := filepath.Abs(arg)
+		if err != nil {
+			continue
+		}
+		if info, err := os.Stat(abs); err == nil && info.IsDir() {
+			return abs
+		}
+	}
+	return ""
 }
 
 // fail reports an error that keeps the client from starting or running and exits.

@@ -96,6 +96,7 @@ func (a *App) openBranches() {
 	a.title.gearOpen = false
 	b := &a.branch
 	b.open, b.menu, b.dialog = true, "", branchDialogNone
+	a.loadNestedReferences(p)
 	b.search.SetText("")
 	if b.collapsed == nil {
 		b.collapsed = map[string]bool{}

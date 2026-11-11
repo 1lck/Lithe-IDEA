@@ -342,5 +342,185 @@
     "parameters": {
       "reason": "string"
     }
+  },
+  {
+    "id": "desktop.diffFind.open",
+    "description": "Diff tab toolbar button: open or close the find bar of the diff",
+    "en-US": "Find in Diff",
+    "zh-CN": "在差异中查找"
+  },
+  {
+    "id": "desktop.diffFind.field",
+    "description": "Placeholder and label of the find field of the diff",
+    "en-US": "Find in diff",
+    "zh-CN": "在差异中查找"
+  },
+  {
+    "id": "desktop.diffFind.previous",
+    "description": "Diff find bar: select the previous match",
+    "en-US": "Previous match",
+    "zh-CN": "上一个匹配"
+  },
+  {
+    "id": "desktop.diffFind.next",
+    "description": "Diff find bar: select the next match",
+    "en-US": "Next match",
+    "zh-CN": "下一个匹配"
+  },
+  {
+    "id": "desktop.diffFind.close",
+    "description": "Diff find bar: close the bar",
+    "en-US": "Close find",
+    "zh-CN": "关闭查找"
+  },
+  {
+    "id": "desktop.rebase.messageTitle",
+    "description": "Title of the rebase message editor for a reword or squash",
+    "en-US": "Commit Message",
+    "zh-CN": "提交消息"
+  },
+  {
+    "id": "desktop.rebase.amendTitle",
+    "description": "Title of the message editor when a rebase paused at an edit",
+    "en-US": "Amend Commit Message",
+    "zh-CN": "修改提交消息"
+  },
+  {
+    "id": "desktop.rebase.messageApply",
+    "description": "Button that keeps the message typed in the rebase message editor",
+    "en-US": "Apply",
+    "zh-CN": "应用"
+  },
+  {
+    "id": "desktop.rebase.amend",
+    "description": "Button on a rebase paused at an edit: amend the message and continue",
+    "en-US": "Edit Message and Continue",
+    "zh-CN": "修改消息并继续"
+  },
+  {
+    "id": "desktop.files.excludeFromSearch",
+    "description": "Project tree context menu item on a folder: exclude the folder from search",
+    "en-US": "Exclude from Search",
+    "zh-CN": "从搜索中排除"
+  },
+  {
+    "id": "desktop.files.excludeFailed",
+    "description": "Notice when a folder could not be excluded from search",
+    "en-US": "Could not exclude the folder: {reason}",
+    "zh-CN": "无法排除该文件夹：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.worktree.openNewWindow",
+    "description": "Worktree detail action: open the checkout in a new window",
+    "en-US": "Open in New Window",
+    "zh-CN": "在新窗口中打开"
+  },
+  {
+    "id": "desktop.worktree.openNewWindowFailed",
+    "description": "Notice when a worktree could not be opened in a new window",
+    "en-US": "Could not open the worktree in a new window: {reason}",
+    "zh-CN": "无法在新窗口中打开工作树：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.nested.commit",
+    "description": "Button on a nested repository's group: commit its staged changes with the message of the Commit tool window",
+    "en-US": "Commit Repository",
+    "zh-CN": "提交此仓库"
+  },
+  {
+    "id": "desktop.nested.refUnchanged",
+    "description": "Hint under a nested repository whose reference the parent does not show as changed",
+    "en-US": "The parent repository's reference to this submodule is unchanged. Commit here, then update the parent to record it.",
+    "zh-CN": "父仓库中该子模块的引用没有变化。在此提交后需要在父仓库中更新引用。"
+  },
+  {
+    "id": "desktop.files.batchTrash",
+    "description": "Project tree batch menu: move the marked items to the trash",
+    "en-US": "Move {count} Items to Trash",
+    "zh-CN": "将 {count} 项移到废纸篓",
+    "parameters": {
+      "count": "string"
+    }
+  },
+  {
+    "id": "desktop.files.batchDelete",
+    "description": "Project tree batch menu: delete the marked items",
+    "en-US": "Delete {count} Items",
+    "zh-CN": "删除 {count} 项",
+    "parameters": {
+      "count": "string"
+    }
+  },
+  {
+    "id": "desktop.files.batchDeleteTitle",
+    "description": "Title of the batch delete confirmation",
+    "en-US": "Delete Items",
+    "zh-CN": "删除项目"
+  },
+  {
+    "id": "desktop.files.batchDeletePrompt",
+    "description": "Prompt of the batch delete confirmation",
+    "en-US": "Delete {count} items? This cannot be undone.",
+    "zh-CN": "要删除 {count} 个项目吗？此操作无法撤销。",
+    "parameters": {
+      "count": "string"
+    }
+  },
+  {
+    "id": "desktop.files.batchDeleteConfirm",
+    "description": "Button that confirms the batch delete",
+    "en-US": "Delete",
+    "zh-CN": "删除"
+  },
+  {
+    "id": "desktop.changelists.moveSelected",
+    "description": "Change row batch menu: move the selected changes to a change list; count is how many",
+    "en-US": "Move {count} Selected to Change List",
+    "zh-CN": "将所选 {count} 个变更移到变更列表",
+    "parameters": {
+      "count": "string"
+    }
+  },
+  {
+    "id": "desktop.files.cut",
+    "description": "Project tree context menu item: cut the item to the tree clipboard",
+    "en-US": "Cut",
+    "zh-CN": "剪切"
+  },
+  {
+    "id": "desktop.files.copy",
+    "description": "Project tree context menu item: copy the item to the tree clipboard",
+    "en-US": "Copy",
+    "zh-CN": "复制"
+  },
+  {
+    "id": "desktop.files.paste",
+    "description": "Project tree context menu item on a folder: paste the cut or copied items into it",
+    "en-US": "Paste",
+    "zh-CN": "粘贴"
+  },
+  {
+    "id": "desktop.files.moveFailed",
+    "description": "Notice when a dragged item could not be moved",
+    "en-US": "Could not move the item: {reason}",
+    "zh-CN": "无法移动该项目：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.files.pasteFailed",
+    "description": "Notice when pasted items could not all be written",
+    "en-US": "Could not paste the item: {reason}",
+    "zh-CN": "无法粘贴该项目：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
   }
 ]

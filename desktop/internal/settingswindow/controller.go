@@ -45,6 +45,9 @@ type PluginRuntimeState struct {
 // Values are the settings the window edits. A field is the value that is stored, so the
 // empty string is the one that follows the system.
 type Values struct {
+	// MarketplaceQuery is the text the marketplace search starts with when the window opens on
+	// the plugin page; empty leaves it as it is.
+	MarketplaceQuery string
 	// Language is a stored i18n language code ("en", "zh-Hans"); empty follows the system.
 	Language string
 	// Theme is "light" or "dark"; empty follows the system's look.
@@ -329,6 +332,13 @@ func (c *Controller) OpenPlugins(application *app.Application, current Values) e
 	return c.open(application, current, pagePlugins)
 }
 
+// OpenPluginsWithQuery shows the plugin page with the marketplace search set to query, which
+// is what "Find in Marketplace" asks for; an open window takes the query too.
+func (c *Controller) OpenPluginsWithQuery(application *app.Application, current Values, query string) error {
+	current.MarketplaceQuery = query
+	return c.openWithQuery(application, current, pagePlugins, query)
+}
+
 // OpenTerminal opens the Terminal page under Tools, including when a settings window is
 // already open: that window switches to the page and is raised, keeping its other values.
 func (c *Controller) OpenTerminal(application *app.Application, current Values) error {
@@ -347,9 +357,17 @@ func (c *Controller) OpenAI(application *app.Application, current Values) error 
 
 // open shows the window on page, or, with noPage, on the page it already has or starts on.
 func (c *Controller) open(application *app.Application, current Values, page pageID) error {
+	return c.openWithQuery(application, current, page, "")
+}
+
+// openWithQuery is open that also sets the marketplace search to query when it is not empty.
+func (c *Controller) openWithQuery(application *app.Application, current Values, page pageID, query string) error {
 	c.mu.Lock()
 	if open := c.current; open != nil && open.win != nil && !open.win.Closed() && !open.sess.finished.Load() {
 		win := open.win
+		if query != "" {
+			open.requestQuery(query)
+		}
 		if page != noPage {
 			open.requestPage(page)
 		}
