@@ -64,6 +64,9 @@ type agentSettings struct {
 	openSkill       func(path string)
 	setLimits       func(agentID string, limit AgentContextLimit)
 	reportedContext func(agentID string) uint64
+	customAgents    func() []CustomAgentSetting
+	setCustomAgents func([]CustomAgentSetting)
+	custom          customAgentDraft
 	wake            func()
 
 	mu sync.Mutex
@@ -163,7 +166,8 @@ func newAgentSettings(o Options, wake func()) *agentSettings {
 		backend: o.AgentSettings, dataDirectory: o.AgentDataDirectory, workspace: o.AgentWorkspace,
 		limits: o.AgentContextLimits, setLimits: o.SetAgentContextLimits, wake: wake,
 		reportedContext: o.AgentReportedContext,
-		aiGeneration:    o.AIGeneration, setAIGeneration: o.SetAIGeneration, aiProviders: o.AIProviders,
+		customAgents:    o.CustomAgents, setCustomAgents: o.SetCustomAgents,
+		aiGeneration: o.AIGeneration, setAIGeneration: o.SetAIGeneration, aiProviders: o.AIProviders,
 		openSkill: o.OpenSkill,
 	}
 }

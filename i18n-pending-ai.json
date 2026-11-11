@@ -692,5 +692,107 @@
     "description": "Error under the context limit fields when the auto-compact threshold is larger than the context window.",
     "en-US": "The auto-compact threshold cannot be larger than the context window.",
     "zh-CN": "自动压缩阈值不能大于上下文长度。"
+  },
+  {
+    "id": "desktop.settings.agent.custom.title",
+    "description": "Heading of the custom Agent card on the Agents page.",
+    "en-US": "Custom Agents",
+    "zh-CN": "自定义 Agent"
+  },
+  {
+    "id": "desktop.settings.agent.custom.help",
+    "description": "Help text of the custom Agent card: command-line ACP agents launched by their command.",
+    "en-US": "Command-line ACP agents you installed yourself. Lithe launches each one with its command and arguments; it does not install them.",
+    "zh-CN": "你自行安装的命令行 ACP Agent。Lithe 用其命令与参数启动，不负责安装。"
+  },
+  {
+    "id": "desktop.settings.agent.custom.empty",
+    "description": "Shown when no custom Agent is configured.",
+    "en-US": "No custom Agent yet.",
+    "zh-CN": "尚未配置自定义 Agent。"
+  },
+  {
+    "id": "desktop.settings.agent.custom.add",
+    "description": "Button that starts a new custom Agent.",
+    "en-US": "Add Agent",
+    "zh-CN": "新增 Agent"
+  },
+  {
+    "id": "desktop.settings.agent.custom.edit",
+    "description": "Button that edits a custom Agent.",
+    "en-US": "Edit",
+    "zh-CN": "编辑"
+  },
+  {
+    "id": "desktop.settings.agent.custom.remove",
+    "description": "Button that starts removing a custom Agent; a confirmation follows.",
+    "en-US": "Remove",
+    "zh-CN": "删除"
+  },
+  {
+    "id": "desktop.settings.agent.custom.confirmRemove",
+    "description": "Button that confirms removing a custom Agent.",
+    "en-US": "Confirm removal",
+    "zh-CN": "确认删除"
+  },
+  {
+    "id": "desktop.settings.agent.custom.cancel",
+    "description": "Button that closes a custom Agent form or cancels a removal without storing anything.",
+    "en-US": "Cancel",
+    "zh-CN": "取消"
+  },
+  {
+    "id": "desktop.settings.agent.custom.save",
+    "description": "Button that stores a custom Agent definition.",
+    "en-US": "Save",
+    "zh-CN": "保存"
+  },
+  {
+    "id": "desktop.settings.agent.custom.name",
+    "description": "Label of the custom Agent name field.",
+    "en-US": "Name",
+    "zh-CN": "名称"
+  },
+  {
+    "id": "desktop.settings.agent.custom.command",
+    "description": "Label of the custom Agent command field.",
+    "en-US": "Command",
+    "zh-CN": "命令"
+  },
+  {
+    "id": "desktop.settings.agent.custom.args",
+    "description": "Label of the custom Agent arguments field; one argument per line.",
+    "en-US": "Arguments (one per line)",
+    "zh-CN": "参数（每行一个）"
+  },
+  {
+    "id": "desktop.settings.agent.custom.directory",
+    "description": "Label of the optional working directory field of a custom Agent.",
+    "en-US": "Working directory (optional)",
+    "zh-CN": "工作目录（可选）"
+  },
+  {
+    "id": "desktop.settings.agent.custom.directoryHint",
+    "description": "Placeholder of the working directory field; empty means the project folder.",
+    "en-US": "Empty uses the project folder",
+    "zh-CN": "留空则使用项目目录"
+  },
+  {
+    "id": "desktop.settings.agent.custom.nameRequired",
+    "description": "Error when a custom Agent has no name.",
+    "en-US": "Enter a name for the Agent.",
+    "zh-CN": "请输入 Agent 名称。"
+  },
+  {
+    "id": "desktop.settings.agent.custom.commandRequired",
+    "description": "Error when a custom Agent has no command.",
+    "en-US": "Enter the command that starts the Agent.",
+    "zh-CN": "请输入启动 Agent 的命令。"
+  },
+  {
+    "id": "desktop.settings.agent.custom.directoryAbsolute",
+    "description": "Error when the working directory of a custom Agent is not an absolute path.",
+    "en-US": "The working directory must be an absolute path.",
+    "zh-CN": "工作目录必须是绝对路径。"
   }
 ]

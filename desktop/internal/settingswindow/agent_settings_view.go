@@ -61,6 +61,7 @@ func (w *window) agentsPage(c ui.C) {
 	w.pageScroll(c, pageAIAgents, func() {
 		w.agentPicker(c)
 		w.managementCard(c)
+		w.customAgentsCard(c)
 		s.mu.Lock()
 		d := s.limitDraft
 		s.mu.Unlock()
