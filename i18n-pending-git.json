@@ -426,5 +426,17 @@
     "parameters": {
       "reason": "string"
     }
+  },
+  {
+    "id": "desktop.nested.commit",
+    "description": "Button on a nested repository's group: commit its staged changes with the message of the Commit tool window",
+    "en-US": "Commit Repository",
+    "zh-CN": "提交此仓库"
+  },
+  {
+    "id": "desktop.nested.refUnchanged",
+    "description": "Hint under a nested repository whose reference the parent does not show as changed",
+    "en-US": "The parent repository's reference to this submodule is unchanged. Commit here, then update the parent to record it.",
+    "zh-CN": "父仓库中该子模块的引用没有变化。在此提交后需要在父仓库中更新引用。"
   }
 ]

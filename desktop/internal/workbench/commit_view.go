@@ -121,8 +121,9 @@ func (a *App) drawCommitChanges(c ui.C, p *project) ui.Box {
 			a.drawNestedRepos(c, p)
 			return
 		}
-		a.drawChangeRows(c, t.ChangeList, t.Files(fileCount(changes)), changes, cs.busy,
-			func() { a.stageAll(p, surfaceButton) },
+		all := append(append([]core.GitChange(nil), changes...), nestedChanges(p)...)
+		a.drawChangeRows(c, t.ChangeList, t.Files(fileCount(all)), all, cs.busy,
+			func() { a.stageAllAcrossRepositories(p) },
 			func(change core.GitChange) { a.drawCommitChange(c, p, change) })
 		a.drawNestedRepos(c, p)
 	})
