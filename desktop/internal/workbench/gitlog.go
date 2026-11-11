@@ -253,7 +253,9 @@ func (a *App) loadLog(p *project) {
 			}
 			l.loading = false
 			if err != nil {
+				// Once the walked repository cannot be read, the references shown before are not its own.
 				l.err = err
+				l.refs, l.sections, l.current = core.GitReferences{}, [3]logSection{}, ""
 				return
 			}
 			l.refs, l.sections, l.current = refs, sections, current
