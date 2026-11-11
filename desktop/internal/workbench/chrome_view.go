@@ -8,6 +8,7 @@ import (
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 	"runtime"
+	"slices"
 )
 
 // This file declares the window's chrome as components of the workbench page: the title bar
@@ -574,6 +575,31 @@ func (a *App) stripeButtonMenu(c ui.C, i int, at zone) func(*ui.MenuItems) {
 					a.reduceChrome(core.MoveChrome(id, target, ""))
 				})
 			}
+		}
+		// Move Earlier and Move Later swap the button with its neighbour in its own zone: the
+		// button goes in front of the one before it, or in front of the one after the next.
+		items := a.chrome.items[at]
+		position := slices.Index(items, i)
+		if position < 0 || len(items) < 2 {
+			return
+		}
+		menu.Separator()
+		if menu.Item(i18n.Shared(language, "native.moveEarlier")).Disabled(position == 0).Clicked() {
+			before := a.chrome.catalog[items[max(position-1, 0)]].id
+			c.After(func() {
+				a.performed("workbench.toolWindow.moveEarlier", surfaceMenu)
+				a.reduceChrome(core.MoveChrome(id, zoneNames[at], before))
+			})
+		}
+		if menu.Item(i18n.Shared(language, "native.moveLater")).Disabled(position == len(items)-1).Clicked() {
+			before := ""
+			if position+2 < len(items) {
+				before = a.chrome.catalog[items[position+2]].id
+			}
+			c.After(func() {
+				a.performed("workbench.toolWindow.moveLater", surfaceMenu)
+				a.reduceChrome(core.MoveChrome(id, zoneNames[at], before))
+			})
 		}
 	}
 }

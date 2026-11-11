@@ -4,7 +4,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -70,7 +73,7 @@ func (a *App) drawProjectReplace(c ui.C, p *project) {
 			default:
 				ui.Scroll(c.Part("replace-files")).FillWidth().MaxHeight(360).Children(func() {
 					for i := range r.files {
-						a.replacePreviewFile(c.KeyInt(i), r, i)
+						a.replacePreviewFile(c.KeyInt(i), p, i)
 					}
 				})
 			}
@@ -90,7 +93,8 @@ func (a *App) drawProjectReplace(c ui.C, p *project) {
 
 // replacePreviewFile is one file of the preview: a box that keeps it in the
 // replacement, its path and count, and its changed lines when expanded.
-func (a *App) replacePreviewFile(c ui.C, r *projectReplace, index int) {
+func (a *App) replacePreviewFile(c ui.C, p *project, index int) {
+	r := &p.replace
 	file := &r.files[index]
 	path := file.Path
 	count := 0
@@ -98,7 +102,10 @@ func (a *App) replacePreviewFile(c ui.C, r *projectReplace, index int) {
 		count += match.OccurrenceCount
 	}
 	ui.Column(c).FillWidth().Gap(2).Children(func() {
-		ui.Row(c).FillWidth().Items(ui.Center).Gap(6).Children(func() {
+		fk := c.Part("file")
+		fileRow := ui.Row(fk).FillWidth().Items(ui.Center).Gap(6).
+			HitWith(ui.ID(fk), i18n.Shared(a.language(), "desktop.search.replaceFile"), gfx.HitOptions{Value: path, SkipFocus: true})
+		fileRow.Children(func() {
 			ui.Checkbox(c.Key("include"), &r.include[index], path)
 			ui.Spacer(c)
 			ui.Text(c, strconv.Itoa(count)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
@@ -110,6 +117,14 @@ func (a *App) replacePreviewFile(c ui.C, r *projectReplace, index int) {
 				r.expanded[path] = !r.expanded[path]
 			}
 		})
+		// The file opens at its first changed line, as the earlier client's preview rows did;
+		// the preview is modal, so opening the file closes it first.
+		result := core.WorkspaceSearchMatch{Path: path}
+		if len(file.Matches) > 0 {
+			line := file.Matches[0].Line
+			result.Line = &line
+		}
+		a.searchResultMenu(fk, fileRow, p, result, a.language(), "workspace.replace", func() { a.closeProjectReplace(p) })
 		if !r.expanded[path] {
 			return
 		}

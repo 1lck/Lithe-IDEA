@@ -89,7 +89,13 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 		header = 39
 	}
 	return ui.Column(c.KeyInt(int(s))).Background(a.colors.Panel).Clip().Children(func() {
-		ui.Row(c).FillWidth().Height(header).Shrink(0).Items(ui.Center).Gap(shellHeaderGap).PadSides(0, 8, 0, 12).Children(func() {
+		// The header is a target of its own so a right-click on it offers to hide the tool
+		// window, as the earlier client's tool window headers did.
+		hk := c.KeyInt(int(s)).Part("header")
+		title := tool.label(a.text)
+		headerRow := ui.Row(hk).FillWidth().Height(header).Shrink(0).Items(ui.Center).Gap(shellHeaderGap).PadSides(0, 8, 0, 12).
+			HitWith(ui.ID(hk), i18n.Shared(a.language(), "desktop.panel.header"), gfx.HitOptions{Value: title, SkipFocus: true})
+		headerRow.Children(func() {
 			// The Commit tool window's first tab carries its name, so a project's Commit tool
 			// window shows its tabs without the title, which would only repeat it.
 			if tool.id == itemCommit && p != nil {
@@ -115,6 +121,15 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 			hide := ui.Button(c, a.text.Panel.Hide).Icon(icons.Minus).IconOnly().Ghost().Size(shellHideSize, shellHideSize).Shrink(0)
 			if hide.Clicked() {
 				*hidden = s
+			}
+		})
+		ui.ContextMenu(hk, headerRow, func(menu *ui.MenuItems) {
+			menu.WidthRange(180, 280)
+			if menu.Item(i18n.SharedFormat(a.language(), "native.hideToolWindow", map[string]string{"arg1": title})).Clicked() {
+				c.After(func() {
+					a.performed("workbench.toolWindow.hide", surfaceMenu)
+					a.hidePanel(s)
+				})
 			}
 		})
 		a.toolBody(c, tool, p)

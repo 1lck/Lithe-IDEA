@@ -12104,7 +12104,9 @@
     "desktop.refs.rebased": "Rebased the current branch onto {branch}",
     "desktop.refs.checkedOutAndRebased": "Checked out {branch} and rebased it onto the previous branch",
     "desktop.refs.trackingSet": "{branch} now tracks {upstream}",
-    "desktop.refs.trackingStopped": "{branch} no longer tracks a remote branch"
+    "desktop.refs.trackingStopped": "{branch} no longer tracks a remote branch",
+    "desktop.panel.header": "Tool window header",
+    "desktop.search.replaceFile": "Replacement file"
   },
   "overrides": {
     "windows": {

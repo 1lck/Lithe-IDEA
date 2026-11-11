@@ -66698,7 +66698,8 @@
       "id": "native.moveEarlier",
       "description": "Native UI: Move Earlier",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Move Earlier",
@@ -66709,7 +66710,8 @@
       "id": "native.moveLater",
       "description": "Native UI: Move Later",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Move Later",
@@ -113741,6 +113743,20 @@
       "parameters": {
         "branch": "string"
       }
+    },
+    {
+      "id": "desktop.panel.header",
+      "description": "Accessibility label of a tool window's header, whose context menu hides the tool window",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.replaceFile",
+      "description": "Accessibility label of one file row in the project replace preview; its value is the file path.",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

@@ -12104,7 +12104,9 @@
     "desktop.refs.rebased": "已把当前分支变基到 {branch}",
     "desktop.refs.checkedOutAndRebased": "已检出 {branch} 并把它变基到之前的分支",
     "desktop.refs.trackingSet": "{branch} 现在跟踪 {upstream}",
-    "desktop.refs.trackingStopped": "{branch} 不再跟踪远程分支"
+    "desktop.refs.trackingStopped": "{branch} 不再跟踪远程分支",
+    "desktop.panel.header": "工具窗口标题栏",
+    "desktop.search.replaceFile": "替换文件"
   },
   "overrides": {
     "macos": {

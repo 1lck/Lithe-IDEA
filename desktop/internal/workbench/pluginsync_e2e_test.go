@@ -24,6 +24,7 @@ const clangdManifest = `{
   "displayName": "Clangd Test Server",
   "version": "1.0.0",
   "pluginAPIVersion": 0,
+  "requires": {"languages": 0, "languageServers": 0},
   "vendor": {"id": "dev.lithe.test", "displayName": "Test", "signatureRequirement": "publisherPackage"},
   "permissions": ["languageServer.launch", "process.run"],
   "activationEvents": ["onLanguage:c"],
@@ -234,9 +235,11 @@ func TestClangdDocumentSyncEndToEnd(t *testing.T) {
 	h.settle()
 }
 
-// TestClangdProjectSwitchStopsSession proves a project switch cancels the old
-// workspace: the server is removed, its diagnostics are cleared, and the next
-// project starts with no stale list.
+// TestClangdProjectSwitchStopsSession proves leaving a project for another cancels
+// the old workspace: the server is removed, its diagnostics are cleared, and the
+// next project starts with no stale list. Opening a second project while one is
+// shown opens a project tab, so the workbench closes the first before it opens the
+// next one in its place.
 func TestClangdProjectSwitchStopsSession(t *testing.T) {
 	h := clangdHarness(t)
 	root := t.TempDir()
@@ -254,6 +257,10 @@ func TestClangdProjectSwitchStopsSession(t *testing.T) {
 	})
 
 	next := t.TempDir()
+	h.app.closeProject()
+	awaitStateWithin(t, h, 20*time.Second, "the closed project", func() bool {
+		return h.app.project == nil
+	})
 	h.app.openProject(next)
 	awaitStateWithin(t, h, 20*time.Second, "the switched project", func() bool {
 		return h.app.project != nil && h.app.project.root == next
