@@ -22744,7 +22744,8 @@
       "id": "git.abort",
       "description": "Windows UI: git.abort",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -23286,14 +23287,16 @@
       "id": "git.cherryPickCommit",
       "description": "Windows UI: git.cherryPickCommit",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.cherryPickCommitConfirm",
       "description": "Windows UI: git.cherryPickCommitConfirm",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "hash": "string",
@@ -23304,7 +23307,8 @@
       "id": "git.cherryPickInProgress",
       "description": "Windows UI: git.cherryPickInProgress",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -23521,7 +23525,8 @@
       "id": "git.conflictedFile",
       "description": "Windows UI: git.conflictedFile",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "count": "string"
@@ -23531,7 +23536,8 @@
       "id": "git.conflictedFiles",
       "description": "Windows UI: git.conflictedFiles",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "count": "string"
@@ -23541,7 +23547,8 @@
       "id": "git.conflictsResolved",
       "description": "Windows UI: git.conflictsResolved",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -23983,28 +23990,32 @@
       "id": "git.continueCherryPick",
       "description": "Windows UI: git.continueCherryPick",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.continueMerge",
       "description": "Windows UI: git.continueMerge",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.continueRebase",
       "description": "Windows UI: git.continueRebase",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.continueRevert",
       "description": "Windows UI: git.continueRevert",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -24128,7 +24139,8 @@
       "id": "git.deleteCommit",
       "description": "Windows UI: git.deleteCommit",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -24982,7 +24994,8 @@
       "id": "git.editCommitMessage",
       "description": "Windows UI: git.editCommitMessage",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -25782,7 +25795,8 @@
       "id": "git.historyReview.affected",
       "description": "Windows UI: git.historyReview.affected",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "count": "string"
@@ -25799,7 +25813,8 @@
       "id": "git.historyReview.completed",
       "description": "Windows UI: git.historyReview.completed",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -25813,21 +25828,24 @@
       "id": "git.historyReview.copied",
       "description": "Windows UI: git.historyReview.copied",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.historyReview.copyFailed",
       "description": "Windows UI: git.historyReview.copyFailed",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.historyReview.copyRecovery",
       "description": "Windows UI: git.historyReview.copyRecovery",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -25841,28 +25859,32 @@
       "id": "git.historyReview.deleteCommit",
       "description": "Windows UI: git.historyReview.deleteCommit",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.historyReview.description",
       "description": "Windows UI: git.historyReview.description",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.historyReview.editCommitMessage",
       "description": "Windows UI: git.historyReview.editCommitMessage",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.historyReview.failed",
       "description": "Windows UI: git.historyReview.failed",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -25876,21 +25898,24 @@
       "id": "git.historyReview.loading",
       "description": "Windows UI: git.historyReview.loading",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.historyReview.outcomeUnknown",
       "description": "Windows UI: git.historyReview.outcomeUnknown",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.historyReview.recovery",
       "description": "Windows UI: git.historyReview.recovery",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -25921,35 +25946,40 @@
       "id": "git.historyReview.refreshFailed",
       "description": "Windows UI: git.historyReview.refreshFailed",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.historyReview.reload",
       "description": "Windows UI: git.historyReview.reload",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.historyReview.reviewAgain",
       "description": "Windows UI: git.historyReview.reviewAgain",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.historyReview.running",
       "description": "Windows UI: git.historyReview.running",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.historyReview.squashCommits",
       "description": "Windows UI: git.historyReview.squashCommits",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "count": "string"
@@ -25986,7 +26016,8 @@
       "id": "git.historyReview.undoCommit",
       "description": "Windows UI: git.historyReview.undoCommit",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -26645,7 +26676,8 @@
       "id": "git.log.copyCommitHash",
       "description": "Windows UI: git.log.copyCommitHash",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -26659,7 +26691,8 @@
       "id": "git.log.copyFailed",
       "description": "Windows UI: git.log.copyFailed",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "label": "string"
@@ -26676,7 +26709,8 @@
       "id": "git.log.copyShortHash",
       "description": "Windows UI: git.log.copyShortHash",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -26991,7 +27025,8 @@
       "id": "git.log.newTag",
       "description": "Windows UI: git.log.newTag",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -27117,7 +27152,8 @@
       "id": "git.log.operationBlocked",
       "description": "Windows UI: git.log.operationBlocked",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "paths": "string"
@@ -27566,7 +27602,8 @@
       "id": "git.mergeInProgress",
       "description": "Windows UI: git.mergeInProgress",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -27850,7 +27887,8 @@
       "id": "git.operationError",
       "description": "Windows UI: git.operationError",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "error": "string"
@@ -27867,7 +27905,8 @@
       "id": "git.operationStep",
       "description": "Windows UI: git.operationStep",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "step": "string",
@@ -28847,7 +28886,8 @@
       "id": "git.rebaseInProgress",
       "description": "Windows UI: git.rebaseInProgress",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -29330,35 +29370,40 @@
       "id": "git.resetHard",
       "description": "Windows UI: git.resetHard",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.resetMixed",
       "description": "Windows UI: git.resetMixed",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.resetSoft",
       "description": "Windows UI: git.resetSoft",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.resetToCommit",
       "description": "Windows UI: git.resetToCommit",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.resetToCommitPrompt",
       "description": "Windows UI: git.resetToCommitPrompt",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "hash": "string"
@@ -29399,14 +29444,16 @@
       "id": "git.revertCommit",
       "description": "Windows UI: git.revertCommit",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.revertCommitConfirm",
       "description": "Windows UI: git.revertCommitConfirm",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ],
       "parameters": {
         "hash": "string",
@@ -29417,7 +29464,8 @@
       "id": "git.revertInProgress",
       "description": "Windows UI: git.revertInProgress",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -29539,7 +29587,8 @@
       "id": "git.saveCommitMessage",
       "description": "Windows UI: git.saveCommitMessage",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -30049,7 +30098,8 @@
       "id": "git.skipCommit",
       "description": "Windows UI: git.skipCommit",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -30084,7 +30134,8 @@
       "id": "git.squashCommits",
       "description": "Windows UI: git.squashCommits",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -30412,7 +30463,8 @@
       "id": "git.undoCommit",
       "description": "Windows UI: git.undoCommit",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -45240,7 +45292,8 @@
       "id": "native.cherryPick",
       "description": "Native UI: Cherry-pick",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Cherry-pick",
@@ -45262,7 +45315,8 @@
       "id": "native.cherryPickCommit",
       "description": "Native UI: Cherry-pick Commit…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Cherry-pick Commit…",
@@ -53502,7 +53556,8 @@
       "id": "native.editCommitMessage.variant2",
       "description": "Native UI: Edit Commit Message…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Edit Commit Message…",
@@ -75085,7 +75140,8 @@
       "id": "native.recoveryReference",
       "description": "Native UI: Recovery reference: %@",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Recovery reference: %@",
@@ -76938,7 +76994,8 @@
       "id": "native.reset",
       "description": "Native UI: Reset",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Reset",
@@ -76960,7 +77017,8 @@
       "id": "native.resetCurrentBranchToHere",
       "description": "Native UI: Reset Current Branch to Here…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Reset Current Branch to Here…",
@@ -77839,7 +77897,8 @@
       "id": "native.revert",
       "description": "Native UI: Revert",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Revert",
@@ -77861,7 +77920,8 @@
       "id": "native.revertCommit",
       "description": "Native UI: Revert Commit…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Revert Commit…",
@@ -82493,7 +82553,8 @@
       "id": "native.squashCommits.variant2",
       "description": "Native UI: Squash Commits…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Squash Commits…",
@@ -113512,6 +113573,60 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.gitHistory.undoCommit",
+      "description": "Desktop Git log commit menu: opens the review of undoing the HEAD commit, keeping its changes staged.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.gitHistory.deleteCommit",
+      "description": "Desktop Git log commit menu: opens the review of dropping the commit and replaying the later commits.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.gitHistory.cherryPicked",
+      "description": "Desktop Git log: notice after the change of commit {hash} was applied on the current branch.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "hash": "string"
+      }
+    },
+    {
+      "id": "desktop.gitHistory.reverted",
+      "description": "Desktop Git log: notice after a commit reverting {hash} was made.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "hash": "string"
+      }
+    },
+    {
+      "id": "desktop.gitHistory.resetDone",
+      "description": "Desktop Git log: notice after the current branch was reset to commit {hash}.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "hash": "string"
+      }
+    },
+    {
+      "id": "desktop.tags.createAt",
+      "description": "Desktop New Tag dialog opened from a commit of the log: says which commit the tag is put on.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "hash": "string"
+      }
     }
   ]
 }

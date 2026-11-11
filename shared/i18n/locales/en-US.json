@@ -12092,7 +12092,13 @@
     "desktop.rebase.action.squash": "Squash",
     "desktop.git.console.hideQueries": "Hide Read Commands",
     "desktop.git.console.queryOutput": "Read output, {count} lines",
-    "desktop.git.console.expand": "Expand"
+    "desktop.git.console.expand": "Expand",
+    "desktop.gitHistory.undoCommit": "Undo Commit…",
+    "desktop.gitHistory.deleteCommit": "Delete Commit…",
+    "desktop.gitHistory.cherryPicked": "Cherry-picked {hash} onto the current branch",
+    "desktop.gitHistory.reverted": "Reverted {hash} with a new commit",
+    "desktop.gitHistory.resetDone": "Reset the current branch to {hash}",
+    "desktop.tags.createAt": "The tag is put on commit {hash}."
   },
   "overrides": {
     "windows": {

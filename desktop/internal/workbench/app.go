@@ -386,6 +386,9 @@ type project struct {
 	nested nestedState
 	// rebase is the Rebase from Here dialog and the rebase session of the repository (git_rebase.go).
 	rebase rebaseState
+	// gitHistory is the history actions of the log's commit menu and the merge, cherry-pick or
+	// revert Git holds active (git_history.go).
+	gitHistory historyState
 }
 
 // App is the state of the window.

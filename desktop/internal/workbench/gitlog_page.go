@@ -118,6 +118,13 @@ type logView struct {
 	commits  ui.ListState
 	slotRow  [logRowSlots]int
 	painters [logRowSlots]func(*ui.DrawContext)
+	// chosen is the commits chosen in the list, by logCommitKey of their hashes: Primary or
+	// Shift with a click chooses several, for the commit menu's actions on a range. keyRows is
+	// the rows the list's Key names, as the paint being drawn has them, and keys the key of
+	// every commit hash it has shown (hashKey).
+	chosen  ui.Selection
+	keyRows []core.GraphRow
+	keys    map[string]int
 
 	// focus is the field to give the keyboard to in the next paint.
 	focus gfx.ID
@@ -169,6 +176,8 @@ func (v *logView) reset() {
 	v.dates = nil
 	v.upstream = nil
 	v.commits = ui.ListState{Label: v.commits.Label}
+	v.chosen.Clear()
+	v.keyRows, v.keys = nil, nil
 	v.files = ui.ListState{}
 	v.refs.ListState = ui.ListState{}
 }

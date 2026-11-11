@@ -12092,7 +12092,13 @@
     "desktop.rebase.action.squash": "压缩",
     "desktop.git.console.hideQueries": "隐藏读取命令",
     "desktop.git.console.queryOutput": "读取结果，共 {count} 行",
-    "desktop.git.console.expand": "展开"
+    "desktop.git.console.expand": "展开",
+    "desktop.gitHistory.undoCommit": "撤销提交…",
+    "desktop.gitHistory.deleteCommit": "删除提交…",
+    "desktop.gitHistory.cherryPicked": "已将 {hash} 拣选到当前分支",
+    "desktop.gitHistory.reverted": "已用新提交还原 {hash}",
+    "desktop.gitHistory.resetDone": "已将当前分支重置到 {hash}",
+    "desktop.tags.createAt": "标签将打在提交 {hash} 上。"
   },
   "overrides": {
     "macos": {

@@ -156,16 +156,6 @@ func (a *App) drawRebaseBanner(c ui.C, p *project) {
 	ui.Divider(c)
 }
 
-// logRowRebaseMenu declares the commit menu of a log row: Rebase from Here for the commit.
-func (a *App) logRowRebaseMenu(p *project, hash string) func(*ui.MenuItems) {
-	return func(menu *ui.MenuItems) {
-		// The rebase works in the repository the log walks, nested or the project's own.
-		if menu.Item(i18n.Shared(a.language(), "desktop.rebase.fromHere")).Disabled(p.rebase.busy).Clicked() {
-			a.beginRebaseFromHere(p, hash, "")
-		}
-	}
-}
-
 // rebaseActionText is the button text of a rebase plan action.
 func rebaseActionText(lang i18n.Language, action string) string {
 	switch action {
