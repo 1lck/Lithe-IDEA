@@ -106,7 +106,10 @@ func (a *App) openLineHistoryCommit(p *project, commit core.LineHistoryCommit) {
 	}
 	a.performed("git.lineHistory.openCommit", surfaceButton)
 	root := p.git.repositoryRoot(p.root)
-	a.openCommitDiff(p, root, commit.Hash, core.GitCommitFile{Status: "M", Path: commit.PathAtCommit})
+	t := a.openCommitDiff(p, root, commit.Hash, core.GitCommitFile{Status: "M", Path: commit.PathAtCommit})
+	if len(commit.RelevantRanges) > 0 {
+		a.revealDiffLine(t, commit.RelevantRanges[0].NewStart)
+	}
 }
 
 // unmappedLinesOf is the traced lines of kind, as a comma-separated list of line numbers.
@@ -118,4 +121,50 @@ func unmappedLinesOf(lines []core.LineHistoryUnmapped, kind string) string {
 		}
 	}
 	return strings.Join(numbers, ", ")
+}
+
+// gutterContextLine is called for a secondary press on line (zero-based) of the gutter of d. The
+// line history then traces that line: unless the press lands inside the selection, the caret moves
+// there, so the editor menu's Show Line History asks about it.
+func (a *App) gutterContextLine(d *document, line int) {
+	startLine, _, endLine, _, selected := d.view.SelectionUTF16()
+	if selected && line >= startLine && line <= endLine {
+		return
+	}
+	d.view.GoToLine(line)
+}
+
+// revealDiffLine makes the diff tab t go to the change block that holds line (1-based, of the
+// after side). A tab whose layout is not ready yet goes there when it is laid out.
+func (a *App) revealDiffLine(t *diffTab, line int) {
+	if t == nil || line <= 0 {
+		return
+	}
+	t.revealLine = line
+	a.applyDiffReveal(t)
+}
+
+// applyDiffReveal selects the difference whose after side holds the pending reveal line, the first
+// one after it when the line is unchanged, and scrolls to it.
+func (a *App) applyDiffReveal(t *diffTab) {
+	if t.revealLine <= 0 || t.layout == nil || t.after == nil {
+		return
+	}
+	line := t.revealLine - 1
+	pick := -1
+	for i, f := range t.layout.fragments {
+		if line >= f.after.start && line < f.after.end {
+			pick = i
+			break
+		}
+		if f.after.start > line && pick < 0 {
+			pick = i
+		}
+	}
+	t.revealLine = 0
+	if pick < 0 {
+		return
+	}
+	t.current = pick
+	t.scrollToCurrent()
 }

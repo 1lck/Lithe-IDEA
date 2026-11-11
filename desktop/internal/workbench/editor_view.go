@@ -177,6 +177,9 @@ func (a *App) documentInput(p *project, d *document) {
 		v.SetGutterClick(!d.virtual && a.gitGutterEnabled(), func(click editorview.GutterClick) {
 			a.gitGutterClicked(d, click)
 		})
+		v.SetGutterContext(func(line int) {
+			a.gutterContextLine(d, line)
+		})
 		// The blame of the caret line is set before the view paints, so the annotation shown
 		// belongs to the line the frame draws.
 		a.applyInlineBlame(p, d)

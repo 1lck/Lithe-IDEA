@@ -75,9 +75,11 @@ type gutterState struct {
 	decorations []GutterDecoration
 	// maxEnd[i] is the largest line any of decorations[:i+1] reaches, so the first decoration
 	// that can touch a line is found by search.
-	maxEnd      []int
-	clickable   bool
-	onClick     func(GutterClick)
+	maxEnd    []int
+	clickable bool
+	onClick   func(GutterClick)
+	// onContext is told the line of a secondary press in the gutter, before the menu opens.
+	onContext   func(line int)
 	annotations []LineAnnotation
 }
 
@@ -102,6 +104,25 @@ func (v *View) SetGutterDecorations(decorations []GutterDecoration) {
 		reach = max(reach, d.EndLine)
 		g.maxEnd = append(g.maxEnd, reach)
 	}
+}
+
+// SetGutterContext makes a secondary press in the gutter call fn with the line it is on, so the
+// host can act on that line (for example the context menu's line history) before the menu of the
+// view opens. The press still reaches the view.
+func (v *View) SetGutterContext(fn func(line int)) {
+	v.gutter.onContext = fn
+}
+
+// gutterContext reports a secondary press in the gutter to the host and never consumes it.
+func (v *View) gutterContext(event gfx.PointerEvent) {
+	g := &v.gutter
+	if g.onContext == nil || event.Button != gfx.PointerButtonSecondary || event.X >= v.textLeft-textPad || event.X < v.area.X {
+		return
+	}
+	row := int((event.Y - v.area.Y + v.scroll) / max(v.lineH, 1))
+	row = min(max(row, 0), v.rowCount()-1)
+	line, _ := v.rowLine(row)
+	g.onContext(line)
 }
 
 // SetGutterClick makes presses on decorated lines of the gutter call fn, while clickable is
