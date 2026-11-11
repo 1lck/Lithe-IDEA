@@ -79,6 +79,18 @@ func (a *App) drawRunConfigEditor(c ui.C, p *project) {
 					FillWidth().Height(72).Disabled(!ready)
 				ui.TextField(c.Part("entrypoint"), &e.entrypoint, i18n.Shared(language, "desktop.runConfig.entrypoint"), i18n.Shared(language, "desktop.runConfig.entrypointPlaceholder")).
 					FillWidth().Disabled(!ready)
+				if len(e.installs) > 0 {
+					labels := []string{i18n.Shared(language, "desktop.runConfig.toolPickNone")}
+					for _, install := range e.installs {
+						labels = append(labels, install.toolName+": "+install.path+" "+install.version)
+					}
+					ui.Select(c.Part("tool-pick"), &e.pick, indexRange(len(labels)), func(index int) string { return labels[index] }).
+						Label(i18n.Shared(language, "desktop.runConfig.toolPick")).FillWidth().Disabled(!ready)
+					if e.pick > 0 && e.pick <= len(e.installs) {
+						e.pickRunConfigInstall(e.installs[e.pick-1])
+					}
+					e.pick = 0
+				}
 				for index := range e.tools {
 					tool := &e.tools[index]
 					label := i18n.SharedFormat(language, "desktop.runConfig.toolPath", map[string]string{"arg1": tool.id, "arg2": tool.kind})
@@ -104,4 +116,13 @@ func (a *App) drawRunConfigEditor(c ui.C, p *project) {
 	if closed {
 		c.After(func() { a.closeRunConfigEditor(p) })
 	}
+}
+
+// indexRange is the list 0..n-1, the options of an index picker.
+func indexRange(n int) []int {
+	values := make([]int, n)
+	for i := range values {
+		values[i] = i
+	}
+	return values
 }

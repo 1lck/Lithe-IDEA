@@ -50,6 +50,15 @@ type runConfigEditor struct {
 	// tools are the tool choices by qualified tool ID, with the kind of each choice ("home" or
 	// "executable") and the path the editor shows. A cleared path sends null for that tool.
 	tools []runConfigTool
+	// installs are the installations the toolchain discovery found, offered by the picker; pick is
+	// the picker's selection, 0 for none.
+	installs []runConfigInstall
+	pick     int
+}
+
+// runConfigInstall is one discovered installation a tool choice can be set to.
+type runConfigInstall struct {
+	tool, toolName, kind, path, version string
 }
 
 // runConfigTool is one tool choice of a build provider run.
@@ -110,6 +119,7 @@ func (a *App) openRunConfigEditor(p *project, id string) {
 	}
 	if provider, ok := providerRunEditorState(*configuration); ok {
 		e.provider, e.runtimeArguments, e.entrypoint, e.options, e.tools = true, provider.runtimeArguments, provider.entrypoint, provider.options, provider.tools
+		a.loadRunConfigInstalls(p, generation)
 	}
 	args, kernel := slices.Clone(configuration.Args), a.kernel
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
@@ -268,4 +278,42 @@ func providerRunOptionsJSON(e *runConfigEditor) (json.RawMessage, error) {
 		}
 	}
 	return json.Marshal(snapshot)
+}
+
+// loadRunConfigInstalls reads the toolchain discovery the settings page reads, so the editor can offer
+// the discovered installations. The answer is applied only while the same editor is open.
+func (a *App) loadRunConfigInstalls(p *project, generation uint64) {
+	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+		snapshot, err := settingsToolchains{app: a}.Load(ctx)
+		var installs []runConfigInstall
+		for _, tool := range snapshot.Tools {
+			for _, installation := range tool.Installations {
+				install := runConfigInstall{tool: tool.ID, toolName: tool.DisplayName, path: installation.Home, kind: "home", version: installation.Version}
+				if installation.Home == "" {
+					install.path, install.kind = installation.Executable, "executable"
+				}
+				if install.path != "" {
+					installs = append(installs, install)
+				}
+			}
+		}
+		return func(a *App) {
+			e := &p.runConfigs.editor
+			if !e.open || e.generation != generation || err != nil {
+				return
+			}
+			e.installs = installs
+		}
+	})
+}
+
+// pickRunConfigInstall sets the tool choice to the picked installation, replacing the tool's entry.
+func (e *runConfigEditor) pickRunConfigInstall(install runConfigInstall) {
+	for index := range e.tools {
+		if e.tools[index].id == install.tool {
+			e.tools[index] = runConfigTool{id: install.tool, kind: install.kind, path: install.path, initial: e.tools[index].initial}
+			return
+		}
+	}
+	e.tools = append(e.tools, runConfigTool{id: install.tool, kind: install.kind, path: install.path})
 }
