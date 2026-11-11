@@ -1139,5 +1139,35 @@
     "description": "Choice of the project open setting that asks each time",
     "en-US": "Ask",
     "zh-CN": "每次询问"
+  },
+  {
+    "id": "desktop.tab.close",
+    "description": "Editor tab context menu: close this tab",
+    "en-US": "Close",
+    "zh-CN": "关闭"
+  },
+  {
+    "id": "desktop.tab.closeAllButPinned",
+    "description": "Editor tab context menu: close every tab of the group except pinned ones",
+    "en-US": "Close All but Pinned",
+    "zh-CN": "关闭除固定标签外的全部"
+  },
+  {
+    "id": "desktop.tab.pin",
+    "description": "Editor tab context menu: pin the tab",
+    "en-US": "Pin Tab",
+    "zh-CN": "固定标签"
+  },
+  {
+    "id": "desktop.tab.unpin",
+    "description": "Editor tab context menu: unpin the tab",
+    "en-US": "Unpin Tab",
+    "zh-CN": "取消固定标签"
+  },
+  {
+    "id": "desktop.tab.selectInProject",
+    "description": "Editor tab context menu: select the file in the Project tool window",
+    "en-US": "Select in Project View",
+    "zh-CN": "在项目视图中选择"
   }
 ]

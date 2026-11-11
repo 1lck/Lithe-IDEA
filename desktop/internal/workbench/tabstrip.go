@@ -312,7 +312,7 @@ func (a *App) tabBar(c ui.C, place *groupPlace, layout tabLayout, buttons func()
 			// The row of tabs is moved left by the offset and clipped to the view.
 			ui.Row(c).FillHeight().Items(ui.Center).Gap(chromeGap).Shrink(0).MarginSides(0, 0, 0, -s.offset).Children(func() {
 				for i, t := range tabs {
-					a.stripTab(c, place, t, current, i, len(tabs), s.widths[i])
+					a.stripTab(c, place, t, current, i, tabs, s.widths[i])
 				}
 			})
 		})
@@ -393,7 +393,7 @@ func (a *App) tabRows(c ui.C, place *groupPlace, s *tabStrip, tabs []shownTab, c
 				}
 				ui.Row(c.KeyInt(r)).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(chromeGap).Clip().Children(func() {
 					for i := start; i < end; i++ {
-						a.stripTab(c, place, tabs[i], current, i, len(tabs), s.widths[i])
+						a.stripTab(c, place, tabs[i], current, i, tabs, s.widths[i])
 					}
 				})
 			}
@@ -404,7 +404,8 @@ func (a *App) tabRows(c ui.C, place *groupPlace, s *tabStrip, tabs []shownTab, c
 }
 
 // stripTab declares tab i of the size tabs of a strip: a terminal's or a file's, width wide.
-func (a *App) stripTab(c ui.C, place *groupPlace, t shownTab, current string, i, size int, width float32) {
+func (a *App) stripTab(c ui.C, place *groupPlace, t shownTab, current string, i int, tabs []shownTab, width float32) {
+	size := len(tabs)
 	member := t.member()
 	selected := member == current
 	k := c.Key(member)
@@ -439,6 +440,9 @@ func (a *App) stripTab(c ui.C, place *groupPlace, t shownTab, current string, i,
 	var closeButton ui.Box
 	chip.Children(func() {
 		ui.Icon(k, icon).Size(terminalChipIcon, terminalChipIcon).Shrink(0).Color(a.colors.Subtle)
+		if tabPinned(t) {
+			ui.Icon(k.Part("pin"), icons.Pin).Size(terminalCloseIcon, terminalCloseIcon).Shrink(0).Color(a.colors.Subtle)
+		}
 		text := ui.Text(k, label).Ellipsis().Grow(1)
 		if selected {
 			text.Color(a.colors.Text)
@@ -458,13 +462,7 @@ func (a *App) stripTab(c ui.C, place *groupPlace, t shownTab, current string, i,
 				StateFrom(closeButton).Hover(ui.Look{}.Color(a.colors.Text))
 		})
 	})
-	// A file tab's context menu adds the file to the Agent draft, as the file tree's does.
-	if p := a.project; p != nil && t.doc != nil && !t.doc.virtual && t.doc.path != "" && a.agentKernelReady() {
-		path := t.doc.path
-		ui.ContextMenu(k.Part("menu"), chip, func(menu *ui.MenuItems) {
-			a.agentFileMenuItems(c, menu, p, []string{path})
-		})
-	}
+	ui.ContextMenu(k.Part("menu"), chip, a.tabMenuItems(c, place.id, t, tabs))
 	switch {
 	case closeButton.Clicked():
 		c.After(func() { a.closeTab(t) })
