@@ -27481,9 +27481,10 @@
     },
     {
       "id": "git.log.updateBranch",
-      "description": "Windows UI: git.log.updateBranch",
+      "description": "Menu item that brings a local branch up to its upstream, in the Git log and the branch popup.",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {

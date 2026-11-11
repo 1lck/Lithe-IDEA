@@ -29,17 +29,25 @@ type pushState struct {
 	force bool
 	// target answers a divergent destination; empty until the user picks one.
 	target core.PushTargetChoice
+	// root is the repository the dialog pushes from, and branch the local branch it pushes,
+	// empty for the checked-out one.
+	root   string
+	branch core.GitReference
 	// busy is set while the push runs.
 	busy bool
 }
 
-// openPush opens the Push dialog on the checked-out branch and reads Core's preview.
-func (a *App) openPush(p *project) {
+// openPush opens the Push dialog on the branch checked out in the repository the log walks.
+func (a *App) openPush(p *project) { a.openPushOf(p, p.logRepositoryRoot(), core.GitReference{}) }
+
+// openPushOf opens the Push dialog on the local branch of the repository at root, the
+// checked-out one when branch is empty, and reads Core's preview.
+func (a *App) openPushOf(p *project, root string, branch core.GitReference) {
 	if _, ok := a.reviewKernel(); !ok || !p.git.isRepository() {
 		return
 	}
 	s := &p.review.push
-	*s = pushState{open: true, gen: s.gen + 1}
+	*s = pushState{open: true, gen: s.gen + 1, root: root, branch: branch}
 	a.performed("git.push.open", surfaceMenu)
 	a.loadPush(p)
 }
@@ -62,9 +70,9 @@ func (a *App) loadPush(p *project) {
 		return
 	}
 	s.loading, s.err, s.gen = true, "", s.gen+1
-	gen, tags, target, root := s.gen, pushTagChoices[s.tags], s.target, p.git.repositoryRoot(p.root)
+	gen, tags, target, root, branch := s.gen, pushTagChoices[s.tags], s.target, s.root, s.branch
 	a.background(p, reviewTimeout, func(ctx context.Context) func(*App) {
-		preview, err := kernel.GitPushPreviewOf(ctx, root, core.GitReference{}, tags, target)
+		preview, err := kernel.GitPushPreviewOf(ctx, root, branch, tags, target)
 		return func(a *App) {
 			s := &p.review.push
 			if !s.open || s.gen != gen {
@@ -102,7 +110,7 @@ func (a *App) submitPush(p *project) {
 	preview, tags, target, force := s.preview, pushTagChoices[s.tags], s.target, s.force
 	a.performed("git.push", surfaceButton)
 	s.busy = true
-	a.runSync(p, "git_push", i18n.Shared(a.language(), "git.pushing"), func(reason string) string {
+	a.runSyncAt(p, s.root, "git_push", i18n.Shared(a.language(), "git.pushing"), func(reason string) string {
 		return i18n.SharedFormat(a.language(), "desktop.gitReview.operationFailed", map[string]string{"reason": reason})
 	}, func(ctx context.Context, kernel Kernel, root string) (func(*App), error) {
 		pusher, ok := kernel.(gitReviewKernel)

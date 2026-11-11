@@ -74,9 +74,10 @@ type syncState struct {
 	// that is running, for a dialog that follows it (the Push dialog).
 	done func(a *App, err error)
 
-	// preflight and branch are what the diverged dialog is about.
+	// preflight, branch and root, its repository, are what the diverged dialog is about.
 	preflight core.GitPullPreflight
 	branch    string
+	root      string
 
 	// pull is the Pull dialog, which reads its choices when it opens (gitpull.go).
 	pull pullState
@@ -204,10 +205,13 @@ func (a *App) cancelSync(p *project) {
 	}
 }
 
-// fetchAll fetches every remote of p with Core's default options.
-func (a *App) fetchAll(p *project) {
+// fetchAll fetches every remote of the repository the log walks with Core's default options.
+func (a *App) fetchAll(p *project) { a.fetchAllAt(p, p.logRepositoryRoot()) }
+
+// fetchAllAt fetches every remote of the repository at root with Core's default options.
+func (a *App) fetchAllAt(p *project, root string) {
 	a.performed("git.fetch", surfaceMenu)
-	a.runSync(p, "git_fetch", a.text.Sync.Fetching(), a.text.Sync.FetchFailed,
+	a.runSyncAt(p, root, "git_fetch", a.text.Sync.Fetching(), a.text.Sync.FetchFailed,
 		func(ctx context.Context, kernel Kernel, root string) (func(*App), error) {
 			return func(a *App) { a.notifySuccess(a.text.Sync.Fetched) }, kernel.GitFetch(ctx, root, nil)
 		})
@@ -285,16 +289,22 @@ func (a *App) submitFetchOptions(p *project) {
 		})
 }
 
-// updateCurrentBranch fetches, then brings the checked out branch up to its upstream. A
-// branch that has diverged asks how to combine, unless Git's configuration already says.
+// updateCurrentBranch fetches, then brings the branch checked out in the repository the log
+// walks up to its upstream, see updateCurrentBranchAt.
 func (a *App) updateCurrentBranch(p *project) {
-	branch := p.log.current
+	a.updateCurrentBranchAt(p, p.logRepositoryRoot(), p.log.current)
+}
+
+// updateCurrentBranchAt fetches, then brings branch, the one checked out in the repository at
+// root, up to its upstream. A branch that has diverged asks how to combine, unless Git's
+// configuration already says.
+func (a *App) updateCurrentBranchAt(p *project, root, branch string) {
 	if branch == "" {
 		return
 	}
 	a.performed("git.updateBranch", surfaceMenu)
 	t := a.text.Sync
-	a.runSync(p, "git_update_branch", t.Updating(branch), t.UpdateFailed,
+	a.runSyncAt(p, root, "git_update_branch", t.Updating(branch), t.UpdateFailed,
 		func(ctx context.Context, kernel Kernel, root string) (func(*App), error) {
 			if err := kernel.GitFetch(ctx, root, nil); err != nil {
 				return nil, err
@@ -311,7 +321,7 @@ func (a *App) updateCurrentBranch(p *project) {
 			case pre.Diverged && pre.ConfiguredStrategy == "":
 				return func(a *App) {
 					s := &p.log.sync
-					s.dialog, s.preflight, s.branch = syncDialogDiverged, pre, branch
+					s.dialog, s.preflight, s.branch, s.root = syncDialogDiverged, pre, branch, root
 				}, nil
 			}
 			strategy := pre.ConfiguredStrategy
@@ -327,12 +337,22 @@ type branchUpdateKernel interface {
 	GitUpdateBranch(ctx context.Context, root string, branch core.GitReference) error
 }
 
-// updateBranch brings the local branch r up to its upstream: the checked out one the way
-// updateCurrentBranch does, any other by fetching and fast-forwarding it without touching
-// HEAD.
+// updateBranch brings the local branch r of the repository the log walks up to its upstream,
+// see updateBranchAt; any other reference updates the checked out branch.
 func (a *App) updateBranch(p *project, r core.GitReference) {
-	if r.Kind != "local" || r.IsCurrent {
+	if r.Kind != "local" {
 		a.updateCurrentBranch(p)
+		return
+	}
+	a.updateBranchAt(p, p.logRepositoryRoot(), r)
+}
+
+// updateBranchAt brings the local branch r of the repository at root up to its upstream: the
+// checked out one the way updateCurrentBranchAt does, any other by fetching and
+// fast-forwarding it without touching HEAD.
+func (a *App) updateBranchAt(p *project, root string, r core.GitReference) {
+	if r.IsCurrent {
+		a.updateCurrentBranchAt(p, root, r.ShortName)
 		return
 	}
 	updater, ok := a.kernel.(branchUpdateKernel)
@@ -346,7 +366,7 @@ func (a *App) updateBranch(p *project, r core.GitReference) {
 	}
 	a.performed("git.updateBranch", surfaceButton)
 	t := a.text.Sync
-	a.runSync(p, "git_update_branch", t.Updating(branch), t.UpdateFailed,
+	a.runSyncAt(p, root, "git_update_branch", t.Updating(branch), t.UpdateFailed,
 		func(ctx context.Context, kernel Kernel, root string) (func(*App), error) {
 			if err := kernel.GitFetch(ctx, root, nil); err != nil {
 				return nil, err
@@ -362,7 +382,7 @@ func (a *App) resolveDiverged(p *project, strategy core.GitPullStrategy) {
 	s.dialog = syncDialogNone
 	t := a.text.Sync
 	a.performed("git.pull", surfaceButton)
-	a.runSync(p, "git_pull", t.Updating(branch), t.UpdateFailed,
+	a.runSyncAt(p, s.root, "git_pull", t.Updating(branch), t.UpdateFailed,
 		func(ctx context.Context, kernel Kernel, root string) (func(*App), error) {
 			done := func(a *App) {
 				if strategy == core.GitPullRebase {
