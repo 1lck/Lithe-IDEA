@@ -358,6 +358,31 @@ func TestWorktreeChangesStageAndUnstageInTheirCheckout(t *testing.T) {
 	}
 }
 
+// A worktree's context menu selects it and acts on it: it copies its path and locks it, as the
+// details header's buttons do.
+func TestWorktreeRowMenuSelectsAndActsOnTheWorktree(t *testing.T) {
+	dir, linked := newWorktreeRepository(t)
+	h := newHarness(t, gitKernel{core.NewClient()})
+	w := h.openWorktrees(t, dir)
+	text := &h.app.text.Worktrees
+
+	h.await("the linked worktree's row", func() bool { return h.shows(filepath.Base(linked)) })
+	h.rightClickAt(h.labelBounds(filepath.Base(linked)))
+	if w.selected != linked {
+		t.Fatalf("selected %q, want the right-clicked %q", w.selected, linked)
+	}
+	h.click(center(h.popupHit(text.CopyPath)))
+	if got := h.driver.Clipboard(); got != linked {
+		t.Fatalf("the clipboard holds %q, want %q", got, linked)
+	}
+	h.rightClickAt(h.labelBounds(filepath.Base(linked)))
+	h.click(center(h.popupHit(text.Lock)))
+	h.awaitWorktreeWrite("the lock", w, func() bool {
+		worktree, ok := w.find(linked)
+		return ok && worktree.IsLocked
+	})
+}
+
 // The diff and the rollback of a change of another worktree read and write that checkout.
 func TestWorktreeChangesShowTheDiffAndRollBackInTheirCheckout(t *testing.T) {
 	dir, linked := newWorktreeRepository(t)

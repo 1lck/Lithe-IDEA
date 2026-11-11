@@ -181,6 +181,44 @@ func (a *App) drawWorktreeRow(p *project, shown []core.GitWorktree, row ui.ListR
 		})
 		ui.Text(c, a.worktreeStatusText(status)).FontSize(a.theme.Metrics.FontSizeS).Color(a.worktreeStatusColor(status)).Shrink(0)
 	})
+	a.worktreeRowMenu(row, p, w)
+}
+
+// worktreeRowMenu is the context menu of a worktree in the list, with the actions of the
+// details header and the pruning of stale registrations, as the earlier client's list had.
+// The right-click selects the worktree first, so the details show what the menu acts on.
+func (a *App) worktreeRowMenu(row ui.ListRow, p *project, w core.GitWorktree) {
+	c := row.C
+	if canvas := c.Canvas(); canvas != nil && w.Path != p.worktrees.selected {
+		if event, ok := canvas.PointerOn(row.ID); ok && event.Kind == gfx.PointerDown && event.Button == gfx.PointerButtonSecondary {
+			path := w.Path
+			c.After(func() { a.selectWorktree(p, path) })
+		}
+	}
+	ui.ContextMenu(c, row.Element, func(menu *ui.MenuItems) {
+		ws, t := &p.worktrees, &a.text.Worktrees
+		menu.WidthRange(180, 260)
+		item := func(label string, disabled bool, action string, run func()) {
+			if menu.Item(label).Disabled(disabled).Clicked() {
+				c.After(func() {
+					a.performed(action, surfaceMenu)
+					run()
+				})
+			}
+		}
+		item(t.OpenCurrent, w.IsCurrent || w.IsPrunable || w.IsBare, "git.worktree.open", func() { a.openWorktree(w.Path) })
+		item(i18n.Shared(a.language(), "desktop.worktree.openNewWindow"), w.IsPrunable || w.IsBare, "git.worktree.openNewWindow", func() { a.openWorktreeInNewWindow(w.Path) })
+		item(t.Reveal, w.IsPrunable, "git.worktree.reveal", func() { a.revealWorktree(w.Path) })
+		item(t.CopyPath, false, "git.worktree.copyPath", func() { a.copyWorktreePath(w.Path) })
+		menu.Separator()
+		lock := t.Lock
+		if w.IsLocked {
+			lock = t.Unlock
+		}
+		item(lock, ws.busy || worktreeLockBlocked(t, w) != "", "git.worktree.toggleLock", func() { a.toggleWorktreeLock(p, w) })
+		item(t.Remove, ws.busy || worktreeRemoveBlocked(t, w) != "", "git.worktree.remove", func() { a.beginRemoveWorktree(p, w) })
+		item(t.Prune, ws.busy || ws.stale() == 0, "git.worktree.prune", func() { ws.dialog = worktreeDialogPrune })
+	})
 }
 
 // worktreeBranchText names what a worktree has checked out.
