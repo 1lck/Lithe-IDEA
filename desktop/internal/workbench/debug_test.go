@@ -164,7 +164,7 @@ func TestDebugPanelBreakpointPauseContinueFrames(t *testing.T) {
 
 	h.clickNamed(h.app.text.Debug.Stop)
 	awaitStateWithin(t, h, 20*time.Second, "the stopped session", func() bool {
-		return p.debug.session == nil && p.debug.state == "idle"
+		return p.debug.activeSession() == nil && p.debug.state == "idle"
 	})
 }
 
@@ -186,7 +186,7 @@ func TestDebugPanelCloseProjectStopsSession(t *testing.T) {
 	awaitStateWithin(t, h, 20*time.Second, "the project to close", func() bool {
 		return h.app.project == nil
 	})
-	if p.debug.session != nil || len(p.debug.frames) != 0 {
+	if p.debug.activeSession() != nil || len(p.debug.frames) != 0 {
 		t.Fatalf("closing the project kept debug state: %+v", p.debug)
 	}
 	h.settle()
@@ -209,15 +209,15 @@ func TestDebugLateErrorDoesNotChangeReplacementSession(t *testing.T) {
 	p := h.app.project
 	old := &debugSession{generation: 1}
 	current := &debugSession{generation: 2}
-	p.debug.session = current
-	defer func() { p.debug.session = nil }()
+	p.debug.addSession(current)
+	defer p.debug.removeSession(current)
 	p.debug.generation = 2
 	p.debug.status = "current"
 	h.app.finishDebugError(p, old, errors.New("old failure"))
 	if p.debug.failure != "" || p.debug.status != "current" {
 		t.Fatalf("old session changed replacement: failure=%q status=%q", p.debug.failure, p.debug.status)
 	}
-	p.debug.session = nil
+	p.debug.removeSession(current)
 }
 
 // Stepping before the stack of the previous stop arrived makes Core refuse that late
@@ -227,8 +227,9 @@ func TestDebugStaleInspectionIsNotAFailure(t *testing.T) {
 	h.open(t.TempDir())
 	p := h.app.project
 	session := &debugSession{generation: 1}
-	p.debug.session, p.debug.generation = session, 1
-	defer func() { p.debug.session = nil }()
+	p.debug.addSession(session)
+	p.debug.generation = 1
+	defer p.debug.removeSession(session)
 	h.app.applyDebugUpdate(p, session, core.DebugUpdate{State: "running", Events: []core.DebugEvent{
 		{Type: "operationFailed", OperationID: "stack-1", Command: "stackTrace", Code: debugStaleReference, Message: "The debuggee resumed or stopped again before the adapter replied."},
 	}})
@@ -257,8 +258,8 @@ func TestDebugPanelAdapterExitWithoutTerminated(t *testing.T) {
 	}
 	p := openDebugPanel(t, h, root)
 	h.app.startDebug(p)
-	session := p.debug.session
-	awaitStateWithin(t, h, debugAdapterExitWait, "adapter exit to release session", func() bool { return p.debug.session == nil })
+	session := p.debug.activeSession()
+	awaitStateWithin(t, h, debugAdapterExitWait, "adapter exit to release session", func() bool { return p.debug.activeSession() == nil })
 	// The adapter's first output can end the session before the startup goroutine,
 	// which stores the process right after Start returns, has run that line. Its
 	// startupDone is closed when startup finishes, so waiting for it orders the
@@ -311,7 +312,7 @@ func TestDebugStopBeforeCreateReturnsDestroysLateSession(t *testing.T) {
 	release := func() { once.Do(func() { close(gate.release) }) }
 	defer release()
 	h.app.startDebug(p)
-	session := p.debug.session
+	session := p.debug.activeSession()
 	select {
 	case <-gate.entered:
 	case <-time.After(5 * time.Second):

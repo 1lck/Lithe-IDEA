@@ -25,29 +25,29 @@ func (a *App) debugView(c ui.C, p *project) {
 	}
 	ui.Column(c).Fill().Background(a.colors.Editor).Children(func() {
 		a.debugAdapterRow(c, p)
-		if len(d.adapters) > 0 && d.session == nil && debugAttachOnly(d.adapters[d.selectedAdapter]) {
+		if len(d.adapters) > 0 && d.activeSession() == nil && debugAttachOnly(d.adapters[d.selectedAdapter]) {
 			a.debugAttachForm(c)
 		}
 		a.debugRemotePrompt(c, p)
 		a.debugBreakpointEditor(c, p)
 		ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
-			if ui.Button(c, t.Start).Disabled(d.session != nil || len(d.adapters) == 0).Clicked() {
+			if ui.Button(c, t.Start).Disabled(d.activeSession() != nil || len(d.adapters) == 0).Clicked() {
 				a.startDebug(p)
 			}
-			if d.session != nil {
+			if d.activeSession() != nil {
 				if ui.Button(c, t.Stop).Outline().Clicked() {
 					a.stopDebugByUser(p)
 				}
 			}
-			if ui.Button(c, t.Continue).Outline().Disabled(d.session == nil || d.state != "paused").Clicked() {
+			if ui.Button(c, t.Continue).Outline().Disabled(d.activeSession() == nil || d.state != "paused").Clicked() {
 				a.continueDebug(p)
 			}
-			if ui.Button(c, t.Pause).Outline().Disabled(d.session == nil || d.state != "running").Clicked() {
+			if ui.Button(c, t.Pause).Outline().Disabled(d.activeSession() == nil || d.state != "running").Clicked() {
 				a.pauseDebug(p)
 			}
 			// Steps need a stopped debuggee; the adapter decides which commands it
 			// serves and Core rejects the rest with a visible failure.
-			stepDisabled := d.session == nil || d.state != "paused"
+			stepDisabled := d.activeSession() == nil || d.state != "paused"
 			if ui.Button(c, t.StepInto).Outline().Disabled(stepDisabled).Clicked() {
 				a.executeDebug(p, "stepIn")
 			}
@@ -92,7 +92,7 @@ func (a *App) debugAdapterRow(c ui.C, p *project) {
 	}
 	label := i18n.Shared(a.language(), "desktop.debug.adapter")
 	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).PadX(8).Items(ui.Center).Children(func() {
-		if d.session != nil {
+		if d.activeSession() != nil {
 			ui.Text(c, d.adapters[d.selectedAdapter].Declaration.DisplayName).Color(a.colors.Text).Ellipsis().Grow(1).Label(label)
 			return
 		}
@@ -223,7 +223,7 @@ func (a *App) removeBreakpoint(p *project, path string, line int64) {
 	} else {
 		p.debug.breakpoints[path] = lines
 	}
-	if p.debug.session != nil {
+	if p.debug.activeSession() != nil {
 		a.sendDebugBreakpoints(p, path)
 	}
 }

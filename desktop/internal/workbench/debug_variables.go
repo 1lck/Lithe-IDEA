@@ -146,10 +146,10 @@ type debugOperationHandlers struct {
 // result. The operation ID is how Core correlates the answer, so the handlers
 // are stored before the request is sent.
 func (a *App) debugOperation(p *project, label string, call func(ctx context.Context, session *debugSession, operationID string) (core.DebugUpdate, error), handlers debugOperationHandlers) {
-	if p == nil || p.debug.session == nil {
+	if p == nil || p.debug.activeSession() == nil {
 		return
 	}
-	session := p.debug.session
+	session := p.debug.activeSession()
 	vars := &p.debug.vars
 	vars.sequence++
 	operationID := fmt.Sprintf("%s-%s-%d", session.id, label, vars.sequence)
@@ -181,7 +181,7 @@ func (a *App) debugOperation(p *project, label string, call func(ctx context.Con
 // finishDebugOperationError shows a failed inspect or edit without ending the
 // session: the adapter is still there, only this request was refused.
 func (a *App) finishDebugOperationError(p *project, session *debugSession, handlers debugOperationHandlers, err error) {
-	if a.project != p || p.debug.session != session || errors.Is(err, context.Canceled) {
+	if a.project != p || p.debug.activeSession() != session || errors.Is(err, context.Canceled) {
 		return
 	}
 	if handlers.failed != nil {
@@ -212,7 +212,7 @@ func (a *App) completeDebugOperation(p *project, event core.DebugEvent) bool {
 		}
 		vars.failure = event.Message
 		vars.loading = false
-		if p.debug.session != nil {
+		if p.debug.activeSession() != nil {
 			markDebugContainersFailed(vars, event.Message)
 		}
 	}
@@ -240,7 +240,7 @@ func markDebugContainersFailed(v *debugVariables, message string) {
 // selectDebugFrame makes one stack frame current and loads its scopes.
 func (a *App) selectDebugFrame(p *project, index int) {
 	d := &p.debug
-	if d.session == nil || index < 0 || index >= len(d.frames) {
+	if d.activeSession() == nil || index < 0 || index >= len(d.frames) {
 		return
 	}
 	d.vars.reset()
@@ -297,16 +297,16 @@ func (a *App) collapseDebugNode(p *project, node *debugVarNode) {
 // plans the cursor through Core, every later one follows the cursor's next window.
 func (a *App) loadDebugContainer(p *project, node *debugVarNode) {
 	container := node.container
-	if container == nil || container.loading || container.complete || p.debug.session == nil {
+	if container == nil || container.loading || container.complete || p.debug.activeSession() == nil {
 		return
 	}
 	container.loading, container.failure = true, ""
-	session := p.debug.session
+	session := p.debug.activeSession()
 	if !container.planned {
 		a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
 			state, err := a.kernel.PlanDebugVariablePage(ctx, container.ref, node.named, node.indexed, debugVariablePageSize)
 			return func(a *App) {
-				if a.project != p || p.debug.session != session {
+				if a.project != p || p.debug.activeSession() != session {
 					return
 				}
 				container.loading = false
@@ -345,7 +345,7 @@ func (a *App) loadDebugContainer(p *project, node *debugVarNode) {
 // reduceDebugVariablePage lets Core decide whether a returned page is kept and
 // whether the container is exhausted.
 func (a *App) reduceDebugVariablePage(p *project, node *debugVarNode, requested core.DebugVariablePageRequest, page []core.DebugVariable) {
-	container, session := node.container, p.debug.session
+	container, session := node.container, p.debug.activeSession()
 	items := make([]core.DebugVariablePageItem, 0, len(page))
 	fresh := uint64(0)
 	for _, variable := range page {
@@ -362,7 +362,7 @@ func (a *App) reduceDebugVariablePage(p *project, node *debugVarNode, requested 
 	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
 		accept, next, err := a.kernel.ReduceDebugVariablePage(ctx, state, requested, items, fresh)
 		return func(a *App) {
-			if a.project != p || p.debug.session != session {
+			if a.project != p || p.debug.activeSession() != session {
 				return
 			}
 			container.loading = false

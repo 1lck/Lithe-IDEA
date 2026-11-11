@@ -41,8 +41,8 @@ func TestDebugMissingTargetIsRejectedBeforeStartingTheAdapter(t *testing.T) {
 	counted := &countedDebugCreate{Kernel: h.app.kernel}
 	h.app.kernel = counted
 	h.app.startDebug(p)
-	session := p.debug.session
-	awaitStateWithin(t, h, 5*time.Second, "missing target rejection", func() bool { return p.debug.session == nil && p.debug.failure != "" })
+	session := p.debug.activeSession()
+	awaitStateWithin(t, h, 5*time.Second, "missing target rejection", func() bool { return p.debug.activeSession() == nil && p.debug.failure != "" })
 	if session.process.Load() != nil || counted.creates.Load() != 0 {
 		t.Fatal("invalid target started an adapter or Core session")
 	}

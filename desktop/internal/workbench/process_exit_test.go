@@ -23,13 +23,13 @@ func TestClosingWithARunningRunAsksFirst(t *testing.T) {
 	if prompt := h.app.prompts.queue[0]; !strings.Contains(prompt.text, "Serve") || strings.Contains(prompt.text, "Debug") {
 		t.Fatalf("the question lists %q, want only the Run session", prompt.text)
 	}
-	if closed || h.app.project != p || p.debug.session == nil {
+	if closed || h.app.project != p || p.debug.activeSession() == nil {
 		t.Fatal("the project closed before the user answered")
 	}
 	cancel := 0
 	h.app.answerPrompt(&cancel)
 	h.settle()
-	if closed || h.app.project != p || p.debug.session == nil {
+	if closed || h.app.project != p || p.debug.activeSession() == nil {
 		t.Fatal("cancelling must keep the project and its debug session")
 	}
 

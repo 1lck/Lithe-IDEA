@@ -50,10 +50,10 @@ func (a *App) setDebugException(p *project, filter string, enabled bool) {
 // adapter's declared defaults itself.
 func (a *App) sendDebugExceptions(p *project) {
 	d := &p.debug
-	if p == nil || d.session == nil || d.capabilities == nil || d.exceptions.enabled == nil {
+	if p == nil || d.activeSession() == nil || d.capabilities == nil || d.exceptions.enabled == nil {
 		return
 	}
-	session := d.session
+	session := d.activeSession()
 	selection := d.exceptions.selection(d.capabilities.ExceptionBreakpointFilters)
 	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
 		session.operationMu.Lock()

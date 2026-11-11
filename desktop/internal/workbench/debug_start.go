@@ -99,7 +99,7 @@ func debugTransportServed(declaration pluginservice.DebugAdapterDeclaration) boo
 // adapter serves launch, and otherwise attaches to the host and port the user
 // typed. The Core session owns DAP state; the host owns the process or stream.
 func (a *App) startDebug(p *project) {
-	if p == nil || p.debug.session != nil || len(p.debug.adapters) == 0 {
+	if p == nil || p.debug.activeSession() != nil || len(p.debug.adapters) == 0 {
 		return
 	}
 	adapter := p.debug.adapters[p.debug.selectedAdapter]
@@ -138,7 +138,7 @@ func (a *App) attachTargetFromFields() (*core.DebugTargetFacts, error) {
 
 // confirmRemoteDebug attaches to the endpoint the user accepted.
 func (a *App) confirmRemoteDebug(p *project) {
-	if p == nil || p.debug.remote == nil || p.debug.session != nil {
+	if p == nil || p.debug.remote == nil || p.debug.activeSession() != nil {
 		return
 	}
 	start := p.debug.remote.start
@@ -168,7 +168,7 @@ func (a *App) attachDebugForRun(ctx context.Context, request pluginservice.RunDe
 			result <- outcome{err: errors.New("the debug adapters are still loading")}
 			return
 		}
-		if p.debug.session != nil {
+		if p.debug.activeSession() != nil {
 			result <- outcome{err: errors.New("a debug session is already running")}
 			return
 		}
@@ -184,7 +184,7 @@ func (a *App) attachDebugForRun(ctx context.Context, request pluginservice.RunDe
 					adapter: adapter, request: "attach", confirmed: true,
 					target: &core.DebugTargetFacts{Kind: "connection", Host: request.Host, Port: request.Port},
 				})
-				result <- outcome{id: p.debug.session.id}
+				result <- outcome{id: p.debug.activeSession().id}
 				return
 			}
 		}
@@ -218,7 +218,7 @@ func (a *App) launchDebugForRun(ctx context.Context, request pluginservice.RunDe
 			result <- outcome{err: errors.New("the debug adapters are still loading")}
 			return
 		}
-		if p.debug.session != nil {
+		if p.debug.activeSession() != nil {
 			result <- outcome{err: errors.New("a debug session is already running")}
 			return
 		}
@@ -243,11 +243,11 @@ func (a *App) launchDebugForRun(ctx context.Context, request pluginservice.RunDe
 					WorkingDirectory: request.WorkingDirectory, Arguments: arguments, Environment: environment,
 				},
 			})
-			if p.debug.session == nil || p.debug.session.ended != ended {
+			if p.debug.activeSession() == nil || p.debug.activeSession().ended != ended {
 				result <- outcome{err: fmt.Errorf("the debug session did not start: %s", p.debug.failure)}
 				return
 			}
-			result <- outcome{session: pluginservice.RunDebugSession{ID: p.debug.session.id, Ended: ended}}
+			result <- outcome{session: pluginservice.RunDebugSession{ID: p.debug.activeSession().id, Ended: ended}}
 			return
 		}
 		result <- outcome{err: fmt.Errorf("no debug adapter launches %q", request.ConfigurationType)}
@@ -279,7 +279,7 @@ func (a *App) startDebugForBackend(ctx context.Context, request pluginservice.De
 		case !p.debug.loaded:
 			result <- outcome{err: errors.New("the debug adapters are still loading")}
 			return
-		case p.debug.session != nil:
+		case p.debug.activeSession() != nil:
 			result <- outcome{err: errors.New("a debug session is already running")}
 			return
 		}
@@ -288,11 +288,11 @@ func (a *App) startDebugForBackend(ctx context.Context, request pluginservice.De
 				continue
 			}
 			a.beginDebug(p, debugStart{adapter: adapter, request: request.Request, confirmed: true, configuration: request.Configuration})
-			if p.debug.session == nil {
+			if p.debug.activeSession() == nil {
 				result <- outcome{err: errors.New("the debug session could not start")}
 				return
 			}
-			result <- outcome{id: p.debug.session.id}
+			result <- outcome{id: p.debug.activeSession().id}
 			return
 		}
 		result <- outcome{err: fmt.Errorf("this client cannot start the debug adapter %q", request.AdapterID)}
@@ -309,7 +309,7 @@ func (a *App) startDebugForBackend(ctx context.Context, request pluginservice.De
 // window's current one.
 func (a *App) stopDebugForBackend(sessionID string) {
 	a.post(func(a *App) {
-		if p := a.project; p != nil && p.debug.session != nil && p.debug.session.id == sessionID {
+		if p := a.project; p != nil && p.debug.activeSession() != nil && p.debug.activeSession().id == sessionID {
 			a.stopDebugByUser(p)
 		}
 	})
@@ -317,7 +317,7 @@ func (a *App) stopDebugForBackend(sessionID string) {
 
 // beginDebug creates the session and starts its transport in the background.
 func (a *App) beginDebug(p *project, start debugStart) {
-	if p == nil || p.debug.session != nil {
+	if p == nil || p.debug.activeSession() != nil {
 		return
 	}
 	adapter := start.adapter
@@ -390,7 +390,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 		stdinReader = reader
 		session.setTransport(writer)
 	}
-	p.debug.session = session
+	p.debug.addSession(session)
 	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "debug.start", "surface": "debug"})
 
 	a.background(p, 0, func(_ context.Context) func(*App) {
@@ -506,7 +506,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 func (a *App) watchDebugInitialize(p *project, session *debugSession, window time.Duration) {
 	timer := time.AfterFunc(window, func() {
 		a.post(func(a *App) {
-			if a.project == p && p.debug.session == session && p.debug.state == "initializing" {
+			if a.project == p && p.debug.activeSession() == session && p.debug.state == "initializing" {
 				a.finishDebugError(p, session, errors.New(a.text.Debug.TimedOut))
 			}
 		})
@@ -552,14 +552,14 @@ func (a *App) startAdapterProcess(ctx context.Context, p *project, session *debu
 // its own. A clean end is a terminated session; anything else is a failure.
 func (a *App) debugStreamEnded(p *project, session *debugSession, err error) {
 	a.post(func(a *App) {
-		if a.project != p || p.debug.session != session {
+		if a.project != p || p.debug.activeSession() != session {
 			return
 		}
 		if err != nil {
 			a.finishDebugError(p, session, err)
 			return
 		}
-		p.debug.session = nil
+		p.debug.removeSession(session)
 		p.debug.frames = nil
 		p.debug.pausedThread = nil
 		p.debug.state = "terminated"
@@ -577,7 +577,7 @@ func (a *App) debugStreamEnded(p *project, session *debugSession, err error) {
 // by a termination.
 func (a *App) openHostedTransport(p *project, session *debugSession, adapter debugAdapter, messages i18n.DebugMessages) error {
 	a.post(func(a *App) {
-		if a.project == p && p.debug.session == session {
+		if a.project == p && p.debug.activeSession() == session {
 			p.debug.status = a.text.Debug.WaitingServer
 		}
 	})

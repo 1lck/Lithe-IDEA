@@ -55,7 +55,7 @@ func (w *debugWatch) valuesCleared() {
 func (a *App) addDebugWatch(p *project) {
 	d := &p.debug
 	expression := strings.TrimSpace(d.watch.input)
-	if expression == "" || d.session == nil || d.state != "paused" {
+	if expression == "" || d.activeSession() == nil || d.state != "paused" {
 		return
 	}
 	d.watch.entries = append(d.watch.entries, debugWatchEntry{expression: expression})
@@ -78,7 +78,7 @@ func (a *App) removeDebugWatch(p *project, index int) {
 // called after a stack loads, so an expression is never evaluated against a stale frame.
 func (a *App) refreshDebugWatches(p *project) {
 	d := &p.debug
-	if d.session == nil || len(d.watch.entries) == 0 || len(d.frames) == 0 {
+	if d.activeSession() == nil || len(d.watch.entries) == 0 || len(d.frames) == 0 {
 		return
 	}
 	for index := range d.watch.entries {
@@ -91,7 +91,7 @@ func (a *App) refreshDebugWatches(p *project) {
 // check in debugOperation's completion path.
 func (a *App) evaluateDebugWatch(p *project, index int) {
 	d := &p.debug
-	if index < 0 || index >= len(d.watch.entries) || d.session == nil || len(d.frames) == 0 {
+	if index < 0 || index >= len(d.watch.entries) || d.activeSession() == nil || len(d.frames) == 0 {
 		return
 	}
 	frameIndex := d.vars.frame
@@ -132,7 +132,7 @@ func (a *App) evaluateDebugWatch(p *project, index int) {
 func (a *App) debugWatchView(c ui.C, p *project) {
 	t, d := a.text.Debug, &p.debug
 	w := &d.watch
-	if d.session == nil || d.state != "paused" {
+	if d.activeSession() == nil || d.state != "paused" {
 		return
 	}
 	ui.Column(c).FillWidth().Shrink(0).Gap(4).PadX(8).PadY(4).Children(func() {

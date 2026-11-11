@@ -88,9 +88,12 @@ type debugState struct {
 	threadSequence uint64
 	// watch holds the expressions the user added and their last values, and
 	// memory the read-only bytes of the selected frame.
-	watch      debugWatch
-	memory     debugMemory
-	session    *debugSession
+	watch  debugWatch
+	memory debugMemory
+	// sessions are the live sessions of the project in start order; a child session
+	// follows the parent that started it. current indexes the one the window shows.
+	sessions   []*debugSession
+	current    int
 	generation uint64
 	// remote is the non-local attach the user has not yet confirmed.
 	remote *debugRemotePrompt
@@ -108,6 +111,35 @@ type debugState struct {
 }
 
 func (s *debugState) reset() { *s = debugState{} }
+
+// activeSession is the session the Debug window shows, or nil when none runs.
+func (s *debugState) activeSession() *debugSession {
+	if s.current < 0 || s.current >= len(s.sessions) {
+		return nil
+	}
+	return s.sessions[s.current]
+}
+
+// addSession appends a started session and makes it the one the window shows.
+func (s *debugState) addSession(session *debugSession) {
+	s.sessions = append(s.sessions, session)
+	s.current = len(s.sessions) - 1
+}
+
+// removeSession drops an ended session and keeps the window on a live one.
+func (s *debugState) removeSession(session *debugSession) {
+	index := slices.Index(s.sessions, session)
+	if index < 0 {
+		return
+	}
+	s.sessions = slices.Delete(s.sessions, index, index+1)
+	if s.current > index || s.current >= len(s.sessions) {
+		s.current--
+	}
+	if s.current < 0 {
+		s.current = 0
+	}
+}
 
 // debugSession owns one adapter process and the matching Core session.
 var debugSessionSequence atomic.Uint64
@@ -334,7 +366,7 @@ const debugStaleReference = "staleReference"
 // applyDebugUpdate publishes one Core update on the window thread. It can ask
 // for the next inspection; it never writes adapter bytes there.
 func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.DebugUpdate) {
-	if a.project != p || p.debug.session != session || p.debug.generation != session.generation {
+	if a.project != p || p.debug.activeSession() != session || p.debug.generation != session.generation {
 		return
 	}
 	p.debug.state = update.State
@@ -387,7 +419,7 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 			p.debug.status = a.text.Debug.Terminated
 			// The adapter ended the session itself, so the host releases the
 			// process and Core record without waiting for the user to press Stop.
-			p.debug.session = nil
+			p.debug.removeSession(session)
 			a.releaseDebugSession(p, session)
 		case "operationFailed":
 			if a.completeDebugOperation(p, event) {
@@ -470,10 +502,10 @@ func (a *App) executeDebug(p *project, command string) {
 // executeDebugWithGranularity asks for one control command at an explicit step
 // granularity, so the disassembly view can step one instruction at a time.
 func (a *App) executeDebugWithGranularity(p *project, command, granularity string) {
-	if p == nil || p.debug.session == nil {
+	if p == nil || p.debug.activeSession() == nil {
 		return
 	}
-	session := p.debug.session
+	session := p.debug.activeSession()
 	thread := p.debug.pausedThread
 	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
 		session.operationMu.Lock()
@@ -521,17 +553,17 @@ func (a *App) toggleBreakpoint(p *project) {
 		p.debug.breakpoints[doc.path] = lines
 	}
 	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "debug.toggleBreakpoint", "surface": "debug"})
-	if p.debug.session != nil {
+	if p.debug.activeSession() != nil {
 		a.sendDebugBreakpoints(p, doc.path)
 	}
 }
 
 // sendDebugBreakpoints replaces one file's adapter breakpoints.
 func (a *App) sendDebugBreakpoints(p *project, path string) {
-	if p == nil || p.debug.session == nil {
+	if p == nil || p.debug.activeSession() == nil {
 		return
 	}
-	session := p.debug.session
+	session := p.debug.activeSession()
 	points := sourceBreakpoints(p.debug.breakpoints[path])
 	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
 		session.operationMu.Lock()
@@ -554,11 +586,11 @@ func (a *App) sendDebugBreakpoints(p *project, path string) {
 // stopDebug ends the adapter process and the Core session. It never blocks the
 // window thread; the transport and process are released with bounded waits.
 func (a *App) stopDebug(p *project) {
-	if p == nil || p.debug.session == nil {
+	if p == nil || p.debug.activeSession() == nil {
 		return
 	}
-	session := p.debug.session
-	p.debug.session = nil
+	session := p.debug.activeSession()
+	p.debug.removeSession(session)
 	p.debug.frames = nil
 	p.debug.pausedThread = nil
 	p.debug.state = "idle"
@@ -570,8 +602,8 @@ func (a *App) stopDebug(p *project) {
 // first sends its DAP disconnect and lets Core's bounded drain flush it, so a
 // shared language server learns the session ended.
 func (a *App) stopDebugByUser(p *project) {
-	if p != nil && p.debug.session != nil {
-		p.debug.session.drainOnStop.Store(true)
+	if p != nil && p.debug.activeSession() != nil {
+		p.debug.activeSession().drainOnStop.Store(true)
 	}
 	a.stopDebug(p)
 }
@@ -662,9 +694,9 @@ func (a *App) stopDebugForProject(p *project) {
 	if p == nil {
 		return
 	}
-	session := p.debug.session
+	sessions := slices.Clone(p.debug.sessions)
 	p.debug.reset()
-	if session != nil {
+	for _, session := range sessions {
 		a.releaseDebugSession(p, session)
 	}
 }
@@ -674,7 +706,7 @@ func (a *App) finishDebugError(p *project, session *debugSession, err error) {
 	if err == nil || errors.Is(err, context.Canceled) {
 		return
 	}
-	if a.project != p || p.debug.session != session || p.debug.generation != session.generation {
+	if a.project != p || p.debug.activeSession() != session || p.debug.generation != session.generation {
 		return
 	}
 	var remote *debugRemoteError
@@ -688,7 +720,7 @@ func (a *App) finishDebugError(p *project, session *debugSession, err error) {
 		}
 		p.debug.pendingRemote = nil
 		p.debug.status = ""
-		if p.debug.session == session {
+		if p.debug.activeSession() == session {
 			a.stopDebug(p)
 		}
 		return
@@ -700,13 +732,13 @@ func (a *App) finishDebugError(p *project, session *debugSession, err error) {
 	}
 	p.debug.status = a.text.Debug.Failed
 	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("debug", err))
-	if p.debug.session == session {
+	if p.debug.activeSession() == session {
 		a.stopDebug(p)
 	}
 }
 
 func (a *App) appendDebugOutput(p *project, session *debugSession, text string) {
-	if a.project != p || p.debug.session != session {
+	if a.project != p || p.debug.activeSession() != session {
 		return
 	}
 	p.debug.output = appendDebugOutput(p.debug.output, text)

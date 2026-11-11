@@ -55,7 +55,7 @@ func (a *App) relocateDocumentBreakpoints(p *project, d *document, edit editorvi
 	} else {
 		p.debug.breakpoints[d.path] = next
 	}
-	if p.debug.session != nil {
+	if p.debug.activeSession() != nil {
 		a.sendDebugBreakpoints(p, d.path)
 	}
 }

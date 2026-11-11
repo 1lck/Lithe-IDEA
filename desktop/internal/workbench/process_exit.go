@@ -111,10 +111,10 @@ func (a *App) runningExitRecords(p *project) []exitRecord {
 			records = append(records, exitRecord{record: core.ProcessRecord{ID: "run:" + entry.id, Kind: "run", Ownership: "launched"}, label: entry.label})
 		}
 	}
-	if d := &p.debug; d.session != nil && len(d.adapters) > 0 {
+	if d := &p.debug; d.activeSession() != nil && len(d.adapters) > 0 {
 		name := d.adapters[d.selectedAdapter].Declaration.DisplayName
 		records = append(records, exitRecord{
-			record: core.ProcessRecord{ID: "debug:" + d.session.id, Kind: "debugAdapter", Ownership: "launched"},
+			record: core.ProcessRecord{ID: "debug:" + d.activeSession().id, Kind: "debugAdapter", Ownership: "launched"},
 			label:  i18n.SharedFormat(a.language(), "desktop.exit.debugSession", map[string]string{"adapter": name}),
 		})
 	}

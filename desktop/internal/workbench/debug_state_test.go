@@ -107,7 +107,7 @@ func TestDebugVariablesPageAndEditThroughCore(t *testing.T) {
 	}
 
 	h.app.stopDebugByUser(p)
-	awaitStateWithin(t, h, 20*time.Second, "the stopped session", func() bool { return p.debug.session == nil })
+	awaitStateWithin(t, h, 20*time.Second, "the stopped session", func() bool { return p.debug.activeSession() == nil })
 	if len(v.scopes) != 0 {
 		// Stop leaves the stop's variables to the next reset; they are never
 		// shown without a session.
@@ -148,7 +148,7 @@ func TestDebugExceptionFiltersAndDisassembly(t *testing.T) {
 		t.Fatalf("no earlier instructions were added: %d rows", len(d.disassembly.rows))
 	}
 	h.app.stopDebugByUser(p)
-	awaitStateWithin(t, h, 20*time.Second, "the stopped session", func() bool { return p.debug.session == nil })
+	awaitStateWithin(t, h, 20*time.Second, "the stopped session", func() bool { return p.debug.activeSession() == nil })
 }
 
 // TestBackendStartedDebugSessionRunsAndStopsBySessionID drives the window side
@@ -191,8 +191,8 @@ func TestBackendStartedDebugSessionRunsAndStopsBySessionID(t *testing.T) {
 			return false
 		}
 	})
-	if result.err != nil || result.id == "" || p.debug.session == nil || p.debug.session.id != result.id {
-		t.Fatalf("start = %+v, session %v", result, p.debug.session)
+	if result.err != nil || result.id == "" || p.debug.activeSession() == nil || p.debug.activeSession().id != result.id {
+		t.Fatalf("start = %+v, session %v", result, p.debug.activeSession())
 	}
 	awaitStateWithin(t, h, 30*time.Second, "the paused backend session", func() bool {
 		if p.debug.failure != "" {
@@ -221,5 +221,5 @@ func TestBackendStartedDebugSessionRunsAndStopsBySessionID(t *testing.T) {
 	}
 
 	h.app.stopDebugForBackend(result.id)
-	awaitStateWithin(t, h, 20*time.Second, "the session to stop", func() bool { return p.debug.session == nil })
+	awaitStateWithin(t, h, 20*time.Second, "the session to stop", func() bool { return p.debug.activeSession() == nil })
 }
