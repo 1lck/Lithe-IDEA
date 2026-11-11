@@ -1,6 +1,7 @@
 package editorview
 
 import (
+	"math"
 	"sort"
 
 	"github.com/vivaui/viva/gfx"
@@ -47,6 +48,12 @@ type LineAnnotation struct {
 	Line int
 	// Text must not change after it is handed over: the canvas keeps it across frames.
 	Text string
+	// Icon, when it is set, is drawn before the text in the text's color, two cells wide and a
+	// cell away from it.
+	Icon gfx.Icon
+	// Rule continues the annotation with a hairline through the middle of its row to the right
+	// edge of the text, as the row that stands for folded lines in a diff.
+	Rule bool
 }
 
 const (
@@ -58,6 +65,9 @@ const (
 	annotationLineLimit = 4096
 	// annotationGap is the cells between the end of a line and its annotation.
 	annotationGap = 3
+	// annotationIconCells is the cells an annotation's icon takes before its text: two for the
+	// icon and one between it and the text.
+	annotationIconCells = 3
 )
 
 // gutterState holds the decorations the host set.
@@ -224,7 +234,8 @@ func (v *View) paintAnnotation(canvas *gfx.Canvas, l lineRef, row wrapRow, y flo
 	if i >= n || g.annotations[i].Line != l.line {
 		return
 	}
-	text := g.annotations[i].Text
+	note := &g.annotations[i]
+	text := note.Text
 	cells := 0
 	for _, r := range text {
 		cells += runeCells(r, 0)
@@ -232,15 +243,32 @@ func (v *View) paintAnnotation(canvas *gfx.Canvas, l lineRef, row wrapRow, y flo
 	if cells == 0 {
 		return
 	}
+	lead := 0
+	if note.Icon.ViewBox > 0 {
+		lead = annotationIconCells
+	}
 	end := v.cellsAt(l, l.size) - row.cells
 	x := v.textLeft + float32(end+annotationGap)*v.cellW - v.scrollX
-	if x >= v.textRight || x+float32(cells)*v.cellW <= v.textLeft {
+	right := x + float32(lead+cells)*v.cellW
+	if x >= v.textRight || (right <= v.textLeft && !note.Rule) {
 		return
 	}
 	color := look.Subtle
 	color.Alpha *= 0.75
+	if lead > 0 {
+		side := min(v.cellH, float32(lead-1)*v.cellW)
+		canvas.DrawIcon(note.Icon, gfx.Rect{X: x, Y: y + (v.lineH-side)/2, Width: side, Height: side}, color)
+	}
 	style := gfx.TextStyle{Size: v.font.Size, Color: color, Mono: true, MonoFace: v.font.Face}
 	run := [1]gfx.TextRun{{Bytes: int32(len(text)), Cells: int32(cells), Color: color}}
-	rect := gfx.Rect{X: x, Y: y + (v.lineH-v.cellH)/2, Width: float32(cells)*v.cellW + 1, Height: v.cellH}
+	rect := gfx.Rect{X: x + float32(lead)*v.cellW, Y: y + (v.lineH-v.cellH)/2, Width: float32(cells)*v.cellW + 1, Height: v.cellH}
 	canvas.LabelRuns(text, rect, style, v.cellW, run[:])
+	if note.Rule {
+		from := max(right+v.cellW, v.textLeft)
+		if from < v.textRight {
+			rule := color
+			rule.Alpha *= 0.5
+			canvas.Fill(gfx.Rect{X: from, Y: float32(math.Floor(float64(y + v.lineH/2))), Width: v.textRight - from, Height: 1}, rule)
+		}
+	}
 }

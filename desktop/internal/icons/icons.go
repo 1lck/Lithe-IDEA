@@ -453,6 +453,27 @@ var CloudDownload = gfx.Icon{
 	},
 }
 
+// columns-2 is a compiled vector icon.
+var Columns2 = gfx.Icon{
+	ViewBox: 24.0,
+	Stroke:  2.0,
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Commands: []gfx.PathCommand{
+		gfx.MoveTo(19.0, 3.0),
+		gfx.CubicTo(20.1046, 3.0, 21.0, 3.89543, 21.0, 5.0),
+		gfx.LineTo(21.0, 19.0),
+		gfx.CubicTo(21.0, 20.1046, 20.1046, 21.0, 19.0, 21.0),
+		gfx.LineTo(5.0, 21.0),
+		gfx.CubicTo(3.89543, 21.0, 3.0, 20.1046, 3.0, 19.0),
+		gfx.LineTo(3.0, 5.0),
+		gfx.CubicTo(3.0, 3.89543, 3.89543, 3.0, 5.0, 3.0),
+		gfx.ClosePath(),
+		gfx.MoveTo(12.0, 3.0),
+		gfx.LineTo(12.0, 21.0),
+	},
+}
+
 // copy is a compiled vector icon.
 var Copy = gfx.Icon{
 	ViewBox: 24.0,

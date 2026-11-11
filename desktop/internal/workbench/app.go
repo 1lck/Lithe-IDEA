@@ -940,6 +940,7 @@ func (a *App) finishCloseProject(p *project, after func()) {
 		a.closeGitObservation(p)
 		a.releaseProjectSearch(p)
 		a.closeDocuments(p)
+		p.closeDiffs()
 		a.closeTerminals(p)
 		// A test run owns a process or provider request, so it is stopped before
 		// the build providers it borrowed close.

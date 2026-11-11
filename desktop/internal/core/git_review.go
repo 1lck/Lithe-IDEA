@@ -62,7 +62,14 @@ type GitDiffRequest struct {
 	// Base compares the file of a reference: with Target when it is set, with the working tree
 	// otherwise. A Base without a kind is a revision such as HEAD and takes no Target.
 	Base, Target *GitReference
+	// WholeFile reads the whole file as context around the changes, as a side-by-side view of
+	// the two versions needs; otherwise Core keeps its default context around each change.
+	WholeFile bool
 }
+
+// gitDiffWholeFileContext is the context Core reads as the whole file: its
+// FULL_FILE_CONTEXT_LINES, at which it also pins Git's inter-hunk context to zero.
+const gitDiffWholeFileContext = 1_073_741_823
 
 type gitDiffPayload struct {
 	Root                string               `json:"root"`
@@ -76,7 +83,7 @@ type gitDiffPayload struct {
 	StashReference      string               `json:"stashReference,omitempty"`
 	IncludeFileSections bool                 `json:"includeFileSections"`
 	OmitFilePatch       bool                 `json:"omitFilePatch"`
-	// ContextLines is a pointer so the whole-file view's explicit 0 reaches Core.
+	// ContextLines is the context around each change; nil leaves Core's default.
 	ContextLines *int `json:"contextLines,omitempty"`
 }
 
@@ -100,6 +107,10 @@ func (c *Client) GitDiff(ctx context.Context, request GitDiffRequest) ([]GitDiff
 	}
 	if request.Base != nil {
 		payload.Reference, payload.GitReference, payload.TargetGitReference = comparisonReferences(*request.Base, request.Target)
+	}
+	if request.WholeFile {
+		lines := gitDiffWholeFileContext
+		payload.ContextLines = &lines
 	}
 	return c.gitDiffFiles(ctx, payload)
 }

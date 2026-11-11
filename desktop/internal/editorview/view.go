@@ -237,6 +237,9 @@ type View struct {
 	// gutter is what the host decorates the gutter and the line ends with.
 	gutter     gutterState
 	numberText lineNumbers
+	// decor is the line highlights and labels a diff viewer sets, and the line it asked to
+	// center. See diffdecor.go.
+	decor decorState
 }
 
 // New makes the view of a document.

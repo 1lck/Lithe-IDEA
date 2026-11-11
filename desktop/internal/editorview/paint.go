@@ -54,7 +54,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	v.cellW, v.cellH, v.lineH = cellW, cellH, lineH
 	v.applyLook(look)
 	lines := v.text.LineCount()
-	digits := max(decimalDigits(lines), 2)
+	digits := v.gutterDigits(lines)
 	gutter := float32(digits)*cellW + 2*gutterPad
 	v.area = area
 	v.textLeft = area.X + gutter + textPad
@@ -71,6 +71,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 		v.revealCaret()
 		v.reveal = false
 	}
+	v.applyCenter()
 	v.clampScroll()
 
 	canvas.Fill(area, look.Background)
@@ -95,6 +96,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	textArea := gfx.Rect{X: area.X + gutter, Y: area.Y, Width: v.textRight - area.X - gutter, Height: area.Height}
 	bottom := area.Y + area.Height
 	v.numbers = v.numbers[:0]
+	v.paintHighlights(canvas, v.textRight, firstLine, lastLine)
 	canvas.Clip(textArea)
 	annotation := 0
 	top := area.Y + float32(firstRow-firstSub)*v.lineH - v.scroll
@@ -163,8 +165,11 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	style := gfx.TextStyle{Size: font.Size, Color: look.Subtle, Mono: true, MonoFace: font.Face}
 	right := area.X + gutter - gutterPad
 	for _, number := range v.numbers {
-		label := v.numberText.number(number.line)
+		label := v.lineLabel(number.line)
 		n := len(label)
+		if n == 0 {
+			continue
+		}
 		style.Color = look.Subtle
 		if number.line == caretLine {
 			style.Color = look.Foreground

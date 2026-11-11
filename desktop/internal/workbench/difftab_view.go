@@ -1,42 +1,49 @@
 package workbench
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
 // This file declares the body of a Diff tab: the toolbar that steps through the differences
-// and the files and switches the modes, the names of the two sides, and the list of the rows,
-// side by side or unified, with the marks of the differences beside it. State and actions are
-// in difftab.go.
+// and the files and switches the modes, the names of the two sides, and the editors with the
+// gap between them and the marks of the differences beside them. As in IDEA, side by side the
+// before editor shows no numbers of its own: the gap shows them next to it, then joins each
+// difference of the before side to the same difference of the after side with a band, and
+// carries the rollback and the checkbox of the difference's block. The unified editor has a
+// narrow gap before it with the blocks' controls. State and actions are in difftab.go.
 
 const (
-	// reviewNumberWidth is the width of a line-number column of the diff.
-	reviewNumberWidth = 44
-	// reviewBlockHeight is the height of the header over a block.
-	reviewBlockHeight = 28
-	// diffFoldHeight is the height of a fold row.
-	diffFoldHeight = 24
 	// diffSidesHeight is the height of the row that names the two sides.
 	diffSidesHeight = 26
-	// diffMarkWidth is the width of the bar at the start of a changed unified line.
-	diffMarkWidth = 3
-	// diffConnectorWidth is the width of the band between the two sides that joins the rows
-	// of a difference.
-	diffConnectorWidth = 12
-	// diffRulerWidth is the width of the strip beside the list that marks where the
+	// diffRulerWidth is the width of the strip beside the editors that marks where the
 	// differences are in the whole file.
 	diffRulerWidth = 8
 	// diffTint is the opacity of the background of a changed line.
 	diffTint = 0.16
-	// diffModeWidth is the width of the drop-down that switches the modes.
-	diffModeWidth = 104
+	// diffBandWidth is the width of the part of the gap where a band joins a difference of the
+	// before side to the after side.
+	diffBandWidth = 36
+	// diffNumberPad is the room on each side of the before side's numbers in the gap.
+	diffNumberPad = 6
+	// diffUnifiedGap is the width of the gap before the unified editor while the tab has blocks
+	// to stage; diffMarkWidth is the width of the gap without them, and of the bar that marks a
+	// difference in it.
+	diffUnifiedGap = 36
+	diffMarkWidth  = 3
+	// diffControlSize is the size of a block's checkbox and of its rollback in the gap, and
+	// diffControlPad the room between them and the gap's edges.
+	diffControlSize = 14
+	diffControlPad  = 3
 )
 
 // diffView declares Diff tab t in the group that shows it.
@@ -52,10 +59,11 @@ func (a *App) diffView(c ui.C, p *project, t *diffTab) {
 
 // diffToolbar declares the buttons over the diff: the previous and the next difference, open
 // the file, the previous and the next changed file, fold the unchanged lines, then the count of
-// the differences and the mode.
+// the differences and the two modes. A rollback waiting for the user's word shows its question
+// and its buttons in it.
 func (a *App) diffToolbar(c ui.C, p *project, t *diffTab) {
 	lang, size := a.language(), a.theme.Metrics.FontSizeS
-	n := len(t.changes)
+	n := t.differences()
 	ui.Row(c).Height(logToolbarHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(4).PadX(6).Children(func() {
 		if a.gitIconButton(c, i18n.Shared(lang, "git.diff.previousDifference"), icons.ArrowUp, false, n == 0 || t.current <= 0) {
 			c.After(func() { t.step(-1) })
@@ -81,7 +89,9 @@ func (a *App) diffToolbar(c ui.C, p *project, t *diffTab) {
 			c.After(func() { a.setDiffMode(p, t, t.split, !t.whole) })
 		}
 		ui.Spacer(c)
-		if t.note != "" {
+		if block := t.confirming(); block != nil {
+			a.diffRollbackConfirm(c, p, t, *block)
+		} else if t.note != "" {
 			ui.Text(c, t.note).FontSize(size).Color(a.colors.Warning).Ellipsis().Shrink(1)
 		}
 		if t.file != nil {
@@ -91,25 +101,48 @@ func (a *App) diffToolbar(c ui.C, p *project, t *diffTab) {
 			}
 			ui.Text(c, count).FontSize(size).Color(a.colors.Subtle).Shrink(0)
 		}
-		ui.Select(c, &t.split, []bool{true, false}, func(split bool) string {
-			if split {
-				return i18n.Shared(lang, "git.diff.split")
+		ui.Row(c).Shrink(0).Items(ui.Center).Gap(2).Label(i18n.Shared(lang, "desktop.gitReview.diffTab")).Children(func() {
+			if a.gitIconButton(c, i18n.Shared(lang, "git.diff.split"), icons.Columns2, t.split, false) && !t.split {
+				c.After(func() { a.setDiffMode(p, t, true, t.whole) })
 			}
-			return i18n.Shared(lang, "git.diff.unified")
-		}).Label(i18n.Shared(lang, "desktop.gitReview.diffTab")).Width(diffModeWidth).Shrink(0)
-		// The rows of this paint are laid out for the mode they were built for; the pick
-		// takes effect after it.
-		if t.split != t.builtSplit {
-			split := t.split
-			t.split = t.builtSplit
-			c.After(func() { a.setDiffMode(p, t, split, t.whole) })
-		}
+			if a.gitIconButton(c, i18n.Shared(lang, "git.diff.unified"), icons.Square, !t.split, false) && t.split {
+				c.After(func() { a.setDiffMode(p, t, false, t.whole) })
+			}
+		})
 	})
 }
 
+// confirming is the block whose rollback waits for the user's word, nil when none does or the
+// plan no longer has it.
+func (t *diffTab) confirming() *core.DiffBlock {
+	if t.confirm == "" || t.plan == nil {
+		return nil
+	}
+	for i := range t.plan.Blocks {
+		if t.plan.Blocks[i].ID == t.confirm {
+			return &t.plan.Blocks[i]
+		}
+	}
+	return nil
+}
+
+// diffRollbackConfirm declares the question of a rollback and its two answers.
+func (a *App) diffRollbackConfirm(c ui.C, p *project, t *diffTab, block core.DiffBlock) {
+	lang := a.language()
+	question := i18n.SharedFormat(lang, "git.diff.rollbackHunkConfirm", map[string]string{"path": t.change.Path})
+	ui.Text(c, question).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Warning).Ellipsis().Shrink(1)
+	if ui.Button(c, i18n.Shared(lang, "git.rollback.confirm")).Destructive().Disabled(t.busy).Clicked() {
+		id := block.ID
+		c.After(func() { a.writeDiffBlock(p, t, id, core.DiffBlockRollback) })
+	}
+	if ui.Button(c, i18n.Shared(lang, "desktop.gitReview.cancel")).Outline().Clicked() {
+		c.After(func() { t.confirm = "" })
+	}
+}
+
 // diffSideLabels name the two sides of the tab: the stash's base and the stash, the parent and
-// the commit, HEAD or the index
-// and the working tree, or nothing and the working tree for an untracked file.
+// the commit, HEAD or the index and the working tree, or nothing and the working tree for an
+// untracked file.
 func (a *App) diffSideLabels(t *diffTab) (left, right string) {
 	lang := a.language()
 	head, index, worktree := i18n.Shared(lang, "native.head"), i18n.Shared(lang, "git.diff.indexVersion"), i18n.Shared(lang, "git.saved.worktree")
@@ -133,23 +166,27 @@ func (a *App) diffSideLabels(t *diffTab) (left, right string) {
 	return index, worktree
 }
 
-// diffSides declares the row that names the two sides: side by side over each half, one after
-// the other over the unified lines. A side that cannot be edited shows a lock.
+// diffSides declares the row that names the two sides: side by side over each editor, with the
+// gap between them as wide as the editors', one after the other over the unified editor. A side
+// that cannot be edited shows a lock.
 func (a *App) diffSides(c ui.C, t *diffTab) {
 	left, right := a.diffSideLabels(t)
 	original := t.change.Path
 	if t.change.OriginalPath != "" {
 		original = t.change.OriginalPath
 	}
-	ui.Row(c).Height(diffSidesHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(8).PadX(8).Background(a.colors.Panel).Children(func() {
+	ui.Row(c).Height(diffSidesHeight).FillWidth().Shrink(0).Items(ui.Center).Background(a.colors.Panel).Children(func() {
 		if t.split {
-			ui.Row(c).Grow(1).Basis(0).Items(ui.Center).Gap(6).Children(func() { a.diffSide(c, left, original, true) })
-			ui.Row(c).Grow(1).Basis(0).Items(ui.Center).Gap(6).Children(func() { a.diffSide(c, right, t.change.Path, t.readOnly()) })
+			ui.Row(c).Grow(1).Basis(0).Items(ui.Center).Gap(6).PadX(8).Clip().Children(func() { a.diffSide(c, left, original, true) })
+			ui.Row(c).Width(a.diffGapWidth(t)).Shrink(0)
+			ui.Row(c).Grow(1).Basis(0).Items(ui.Center).Gap(6).PadX(8).Clip().Children(func() { a.diffSide(c, right, t.change.Path, t.readOnly()) })
 			ui.Row(c).Width(diffRulerWidth).Shrink(0)
 			return
 		}
-		a.diffSide(c, left, "", true)
-		a.diffSide(c, right, t.change.Path, t.readOnly())
+		ui.Row(c).Grow(1).Items(ui.Center).Gap(6).PadX(8).Clip().Children(func() {
+			a.diffSide(c, left, "", true)
+			a.diffSide(c, right, t.change.Path, t.readOnly())
+		})
 	})
 }
 
@@ -166,8 +203,26 @@ func (a *App) diffSide(c ui.C, label, path string, locked bool) {
 	}
 }
 
-// diffBody declares what the tab shows under its names: the rows of the file with the ruler of
-// its differences, or a message while it is read, when it failed, and for a file without lines.
+// diffGapWidth is the width of the gap of the tab: side by side the before side's numbers and
+// the band, unified the room of the blocks' controls, or only a mark when there are none.
+func (a *App) diffGapWidth(t *diffTab) float32 {
+	if t.split {
+		cellW := t.cellW
+		if cellW <= 0 {
+			// Before the gap measured the font: about the advance of a monospaced cell.
+			cellW = a.editorFont().Size * 0.6
+		}
+		return float32(max(t.numberCells, 1))*cellW + 2*diffNumberPad + diffBandWidth
+	}
+	if t.plan != nil && len(t.plan.Blocks) > 0 {
+		return diffUnifiedGap
+	}
+	return 2 * diffMarkWidth
+}
+
+// diffBody declares what the tab shows under its names: the editors with the gap and the ruler
+// of the differences, or a message while it is read, when it failed, and for a file without
+// lines.
 func (a *App) diffBody(c ui.C, p *project, t *diffTab) {
 	lang := a.language()
 	switch {
@@ -175,7 +230,7 @@ func (a *App) diffBody(c ui.C, p *project, t *diffTab) {
 		a.gitEmpty(c, i18n.Shared(lang, "git.loadingDiff"))
 	case t.err != "":
 		a.panelMessage(c, t.err, a.theme.Danger)
-	case t.file == nil:
+	case t.file == nil || t.layout == nil || t.after == nil:
 		a.gitEmpty(c, i18n.Shared(lang, "git.diff.noDifferences"))
 	case t.file.IsBinary:
 		a.gitEmpty(c, i18n.SharedFormat(lang, "git.binaryDiffDescription", map[string]string{"name": t.change.Path}))
@@ -183,208 +238,349 @@ func (a *App) diffBody(c ui.C, p *project, t *diffTab) {
 		if t.ruler == nil {
 			t.ruler = func(d *ui.DrawContext) { a.drawDiffRuler(d, t) }
 		}
-		label := i18n.Shared(lang, "git.diff.title") + " " + t.change.Path
-		// The list is a container without an identity, so the row around it is named to take the
-		// focus of the tab.
-		body := ui.Row(c).Fill().Hit(ui.ID(c.Key("diffbody"+strconv.Itoa(t.id))), label)
-		ui.FocusBind(body, &a.focus, focusTarget{diff: t.id})
-		body.Children(func() {
-			ui.List(c, &t.list, len(t.items), func(row ui.ListRow) { a.diffRow(row, p, t) }).
-				Grow(1).FillHeight().Background(a.colors.Editor).Label(label)
-			// The List moves to the row it was asked for only after its area took this paint's
-			// offset (Viva's listArea, unlike ScrollAt), so this paint lays the rows out at the
-			// new offset and shows them at the old one: nothing when the jump is far, as from
-			// the top of a whole file to its difference, until the pointer moves. The next
-			// paint shows them in place, so it is asked for at once. This goes once Viva
-			// shows the requested offset in the paint that applies it (#1820).
-			if t.scrolled {
-				t.scrolled = false
-				a.invalidator.Invalidate()
+		if t.gapDraw == nil {
+			t.gap = ui.Handlers{
+				Role: gfx.RoleGroup,
+				// The wheel over the gap scrolls the after side, and the before side follows.
+				Scroll: func(event gfx.ScrollEvent) gfx.EventResult {
+					if t.after == nil {
+						return gfx.EventResult{}
+					}
+					result, _ := t.after.view.Scroll(event)
+					return result
+				},
 			}
+			t.gapDraw = func(d *ui.DrawContext) { a.drawDiffGap(d, p, t) }
+		}
+		id := strconv.Itoa(t.id)
+		label := i18n.Shared(lang, "git.diff.title") + " " + t.change.Path
+		ui.Row(c).Fill().Children(func() {
+			if t.layout.split && t.before != nil {
+				a.diffEditorControl(c, t, t.before, "diffbefore"+id, false)
+			}
+			ui.Control(c.Part("diffgap"+id), label, &t.gap).Width(a.diffGapWidth(t)).FillHeight().Shrink(0).
+				Background(a.colors.Editor).Clip().Draw(t.gapDraw)
+			a.diffEditorControl(c, t, t.after, "diffafter"+id, true)
 			ui.Column(c).Width(diffRulerWidth).FillHeight().Shrink(0).Draw(t.ruler)
 		})
 	}
 }
 
-// diffRow declares one row of the list: a block's header, a fold, or a line.
-func (a *App) diffRow(row ui.ListRow, p *project, t *diffTab) {
-	if t.file == nil || row.Index >= len(t.items) {
-		return
-	}
-	item, c := t.items[row.Index], row.C
-	box := row.Element.FillWidth().Height(reviewRowHeight).Items(ui.Center)
-	switch {
-	case item.block != nil:
-		box.Height(reviewBlockHeight).Gap(6).PadX(8).Background(a.colors.Hover).Children(func() { a.diffBlockHeader(c, p, t, item) })
-	case item.fold > 0:
-		text := i18n.SharedFormat(a.language(), "native.lldUnchangedLines", map[string]string{"arg1": strconv.Itoa(item.fold)})
-		box.Height(diffFoldHeight).Gap(6).PadX(8).Background(a.colors.Hover).Children(func() {
-			ui.Icon(c, icons.UnfoldVertical).Size(shellIconSize, shellIconSize).Color(a.colors.Subtle).Shrink(0)
-			ui.Text(c, text).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1)
-		})
-		if box.Clicked() {
-			at := item.at
-			c.After(func() { t.expand(at) })
-		}
-	case item.row >= 0 && item.row < len(t.file.Rows):
-		a.diffSplitRow(c, box, t.file.Rows[item.row])
-	case item.line >= 0 && item.line < len(t.file.Lines):
-		a.diffUnifiedRow(c, box, t.file.Lines[item.line])
+// diffEditorControl declares the control of editor e of tab t under name. The editor paints
+// into it and takes keys, pointer, wheel and typing through its handlers; the after side's
+// control is the one that takes the tab's keyboard.
+func (a *App) diffEditorControl(c ui.C, t *diffTab, e *diffEditor, name string, focus bool) {
+	// A part names the next element only, so it is given again for the control: its identity is
+	// the one the view paints its hits under.
+	e.hit = ui.ID(c.Part(name))
+	box := ui.Control(c.Part(name), e.label, &e.input).Grow(1).Basis(0).FillHeight().Draw(e.draw)
+	if focus {
+		ui.FocusBind(box, &a.focus, focusTarget{diff: t.id})
 	}
 }
 
-// diffMark is the color that marks a line or a row of the kind: green for an added one, gray
-// for a removed one, blue for a changed one; ok is false for any other.
-func (a *App) diffMark(kind string) (color gfx.Color, ok bool) {
+// diffPalette is the colors a Diff tab marks its lines with: an added, a removed and a changed
+// line, the placeholder of a fold and the rules around it.
+type diffPalette struct {
+	added, removed, modified gfx.Color
+}
+
+// diffPalette is the colors of the current look.
+func (a *App) diffPalette() diffPalette {
+	return diffPalette{added: a.colors.Success, removed: a.colors.Subtle, modified: a.colors.Accent}
+}
+
+// color is the color that marks a line of kind, false for a line that did not change.
+func (p diffPalette) color(kind diffKind) (gfx.Color, bool) {
 	switch kind {
-	case "added", "addition":
-		return a.colors.Success, true
-	case "removed", "removal":
-		return a.colors.Subtle, true
-	case "changed":
-		return a.colors.Accent, true
+	case diffAdded:
+		return p.added, true
+	case diffRemoved:
+		return p.removed, true
+	case diffModified:
+		return p.modified, true
 	}
 	return gfx.Color{}, false
 }
 
-// diffUnifiedRow declares one unified line: the bar of a changed one, the old and the new line
-// number, and the text over the line's tint.
-func (a *App) diffUnifiedRow(c ui.C, box ui.Box, l core.GitDiffLine) {
-	size, text := a.theme.Metrics.FontSizeS, a.colors.Text
-	mark, changed := a.diffMark(l.LineType)
-	switch {
-	case changed:
-		box = box.Background(mark.WithAlpha(diffTint))
-	case l.LineType == "header":
-		box, text = box.Background(a.colors.Hover), a.colors.Accent
+// drawDiffEditor paints editor e of tab t: the before side when before is set. The view takes
+// the font and the labels, notes and tints of the layout, the two sides are put in step, and
+// a paint that moved the view, to a difference stepped to or back in range, asks for another,
+// so the other side and the gap follow it.
+func (a *App) drawDiffEditor(dc *ui.DrawContext, t *diffTab, e *diffEditor, before bool) {
+	v := e.view
+	v.BindWithoutMinimap(e.hit, e.input.Parts())
+	if before {
+		// The after side's bar scrolls both sides; a bar here would stand against the gap.
+		v.HideVerticalBar()
 	}
-	box.Gap(6).PadRight(8).Children(func() {
-		bar := ui.Row(c).Width(diffMarkWidth).FillHeight().Shrink(0)
-		if changed {
-			bar.Background(mark)
-		}
-		ui.Text(c, lineNumber(l.OldLine)).Mono().FontSize(size).Color(a.colors.Subtle).Width(reviewNumberWidth).Shrink(0).TextEnd()
-		ui.Text(c, lineNumber(l.NewLine)).Mono().FontSize(size).Color(a.colors.Subtle).Width(reviewNumberWidth).Shrink(0).TextEnd()
-		ui.Text(c, l.Content).Mono().FontSize(size).Color(text).Ellipsis().Grow(1)
-	})
+	v.SetFont(a.editorFont())
+	v.SetWrap(false)
+	v.SetMessages(a.editorMessages())
+	a.decorateDiffEditor(t, e, before)
+	a.followDiffScroll(t, dc.Rect.Height)
+	x, y := v.ScrollOffset()
+	v.Paint(dc.Canvas, dc.Rect, a.editorLook())
+	if nx, ny := v.ScrollOffset(); nx != x || ny != y {
+		a.invalidator.Invalidate()
+	}
 }
 
-// diffSplitRow declares one aligned row: the old text, the old number, the band that joins a
-// difference across, the new number and the new text. Each side is tinted for what changed on
-// it.
-func (a *App) diffSplitRow(c ui.C, box ui.Box, r core.GitDiffRow) {
-	size := a.theme.Metrics.FontSizeS
-	text := a.colors.Text
-	var left, right, band gfx.Color
-	mark, changed := a.diffMark(r.Kind)
-	switch {
-	case r.Kind == "addition":
-		right, band = mark.WithAlpha(diffTint), mark
-	case r.Kind == "removal":
-		left, band = mark.WithAlpha(diffTint), mark
-	case changed:
-		left, right, band = mark.WithAlpha(diffTint), mark.WithAlpha(diffTint), mark
-	case r.Kind == "information":
-		left, right, text = a.colors.Hover, a.colors.Hover, a.colors.Accent
+// decorateDiffEditor hands editor e the labels, notes and tints of its side of the tab's
+// layout, when the layout or the colors changed since it last did. Side by side the before
+// side shows no numbers: the gap shows them.
+func (a *App) decorateDiffEditor(t *diffTab, e *diffEditor, before bool) {
+	l, palette := t.layout, a.diffPalette()
+	if l == nil || (e.decorated == l && e.palette == palette) {
+		return
 	}
-	side := func(color gfx.Color, value string) {
-		cell := ui.Row(c).Grow(1).Basis(0).FillHeight().Items(ui.Center).PadX(8).Clip()
-		if color.Alpha > 0 {
-			cell = cell.Background(color)
+	e.decorated, e.palette = l, palette
+	pane := &l.after
+	if before {
+		pane = &l.before
+	}
+	v := e.view
+	if before {
+		v.SetLineLabels([]string{})
+	} else {
+		v.SetLineLabels(pane.labels)
+	}
+	v.SetLineAnnotations(pane.notes)
+	// A placeholder has no tint: its note, with an icon and a rule, marks it, as IDEA draws a
+	// fold.
+	highlights := make([]editorview.LineHighlight, 0, len(pane.marks))
+	for _, m := range pane.marks {
+		color, ok := palette.color(m.kind)
+		switch {
+		case !ok:
+		case m.boundary:
+			highlights = append(highlights, editorview.LineHighlight{StartLine: m.span.start, Color: color, Boundary: true})
+		default:
+			highlights = append(highlights, editorview.LineHighlight{StartLine: m.span.start, EndLine: m.span.end - 1, Color: color.WithAlpha(diffTint)})
 		}
-		cell.Children(func() { ui.Text(c, value).Mono().FontSize(size).Color(text).Ellipsis().Grow(1) })
 	}
-	number := func(n *int) {
-		ui.Text(c, lineNumber(n)).Mono().FontSize(size).Color(a.colors.Subtle).Width(reviewNumberWidth).Shrink(0).TextEnd().PadRight(4)
-	}
-	box.Children(func() {
-		side(left, r.Left)
-		number(r.OldLine)
-		connector := ui.Row(c).Width(diffConnectorWidth).FillHeight().Shrink(0)
-		if band.Alpha > 0 {
-			connector.Background(band.WithAlpha(diffTint * 2))
-		}
-		number(r.NewLine)
-		side(right, r.Text())
-	})
+	v.SetLineHighlights(highlights)
 }
 
-// diffBlockHeader declares the header over one block: a checkbox that stages or unstages it
-// and, for a block Core allows to roll back, the rollback with its confirmation.
-func (a *App) diffBlockHeader(c ui.C, p *project, t *diffTab, item diffItem) {
-	lang, block := a.language(), item.block
-	number := i18n.SharedFormat(lang, "desktop.gitReview.blockN", map[string]string{"n": strconv.Itoa(item.number)})
-	label := i18n.Shared(lang, "git.diff.includeBlock")
+// drawDiffGap paints the gap of tab t and declares the controls of the blocks in it. Side by
+// side it shows the numbers of the before side's lines in view next to the before editor, and
+// joins each difference in view across to the after side with a band; unified it marks each
+// difference with a bar. A block's rollback is at the top of its lines on the before side, its
+// checkbox at the top of them on the after side. A click on one of them, delivered in this
+// paint, toggles the block or asks to confirm its rollback.
+func (a *App) drawDiffGap(d *ui.DrawContext, p *project, t *diffTab) {
+	l, r, canvas := t.layout, d.Rect, d.Canvas
+	if l == nil || t.after == nil || r.Width <= 0 || r.Height <= 0 {
+		return
+	}
+	if i, ok := canvas.ClickedIn(t.gap.Parts()); ok {
+		a.diffGapClicked(p, t, i)
+	}
+	after := t.after.view
+	var before *editorview.View
+	if l.split && t.before != nil {
+		before = t.before.view
+	}
+	if after.LineHeight() <= 0 || (before != nil && before.LineHeight() <= 0) {
+		// The editors were not painted yet, so their lines have no place: the next paint draws
+		// the gap.
+		a.invalidator.Invalidate()
+		return
+	}
+	palette := a.diffPalette()
+	canvas.Clip(r)
+	defer canvas.Unclip()
+	if before == nil {
+		a.drawUnifiedGap(canvas, r, t, after, palette)
+		return
+	}
+	font := a.editorFont()
+	cellW, cellH := canvas.MonoCellSize(font.Size, font.Face)
+	if cellW != t.cellW {
+		// The gap was laid out for another cell width: the next paint lays it out for this one.
+		t.cellW = cellW
+		a.invalidator.Invalidate()
+	}
+	numbers := r.Width - diffBandWidth
+	x0, x1 := r.X+numbers, r.X+r.Width
+	bottom := r.Y + r.Height
+	// The tints and rules of the differences continue across the numbers, under them.
+	first := sort.Search(len(l.fragments), func(i int) bool {
+		f := l.fragments[i]
+		return before.LineTop(f.before.end) >= r.Y || after.LineTop(f.after.end) >= r.Y
+	})
+	for i := first; i < len(l.fragments); i++ {
+		f := l.fragments[i]
+		bt, bb := before.LineTop(f.before.start), before.LineTop(f.before.end)
+		at, ab := after.LineTop(f.after.start), after.LineTop(f.after.end)
+		if bt > bottom && at > bottom {
+			break
+		}
+		color, ok := palette.color(f.kind)
+		if !ok {
+			continue
+		}
+		if f.before.empty() {
+			canvas.Fill(gfx.Rect{X: r.X, Y: bt, Width: numbers, Height: 1}, color)
+		} else {
+			canvas.Fill(gfx.Rect{X: r.X, Y: bt, Width: numbers, Height: bb - bt}, color.WithAlpha(diffTint))
+		}
+		a.drawDiffBand(canvas, r, x0, x1, bt, bb, at, ab, color)
+		a.drawDiffBlockControls(canvas, t, i, f, x0, x1, bt, at, before.LineHeight())
+	}
+	// The numbers of the before side's lines in view, on the cell grid with their right edge on
+	// the numbers' column, as the editor draws its own.
+	look := a.editorLook()
+	style := gfx.TextStyle{Size: font.Size, Color: look.Subtle, Mono: true, MonoFace: font.Face}
+	lineH := before.LineHeight()
+	_, scroll := before.ScrollOffset()
+	right := r.X + numbers - diffNumberPad
+	for line := max(int(scroll/lineH), 0); line < l.before.lineCount(); line++ {
+		y := before.LineTop(line)
+		if y > bottom {
+			break
+		}
+		label := l.before.labels[line]
+		n := len(label)
+		if n == 0 {
+			continue
+		}
+		run := [1]gfx.TextRun{{Bytes: int32(n), Cells: int32(n), Color: style.Color}}
+		rect := gfx.Rect{X: right - float32(n)*cellW, Y: y + (lineH-cellH)/2, Width: float32(n)*cellW + 1, Height: cellH}
+		canvas.LabelRuns(label, rect, style, cellW, run[:])
+	}
+}
+
+// drawDiffBand fills the band that joins a difference across the gap, from the before side's
+// lines from bt to bb at x0 to the after side's from at to ab at x1, and draws its two edges.
+// A side without lines of the difference has its edges meet at the rule where they would be.
+func (a *App) drawDiffBand(canvas *gfx.Canvas, r gfx.Rect, x0, x1, bt, bb, at, ab float32, color gfx.Color) {
+	// The path is laid out in the gap's own box, so DrawPath maps it onto the gap one to one.
+	x0, x1 = x0-r.X, x1-r.X
+	bt, bb, at, ab = bt-r.Y, bb-r.Y, at-r.Y, ab-r.Y
+	mid := (x0 + x1) / 2
+	path := canvas.PathBuilder()
+	path.MoveTo(x0, bt)
+	path.CubicTo(mid, bt, mid, at, x1, at)
+	path.LineTo(x1, ab)
+	path.CubicTo(mid, ab, mid, bb, x0, bb)
+	path.Close()
+	canvas.DrawPath(path.Path(r.Width, r.Height), r, gfx.PathStyle{Fill: color.WithAlpha(diffTint)})
+	for _, edge := range [2][2]float32{{bt, at}, {bb, ab}} {
+		path = canvas.PathBuilder()
+		path.MoveTo(x0, edge[0])
+		path.CubicTo(mid, edge[0], mid, edge[1], x1, edge[1])
+		canvas.DrawPath(path.Path(r.Width, r.Height), r, gfx.PathStyle{Stroke: color, StrokeWidth: 1})
+	}
+}
+
+// drawUnifiedGap paints the gap before the unified editor: a bar beside each difference in view
+// and its block's controls.
+func (a *App) drawUnifiedGap(canvas *gfx.Canvas, r gfx.Rect, t *diffTab, after *editorview.View, palette diffPalette) {
+	l, bottom := t.layout, r.Y+r.Height
+	first := sort.Search(len(l.fragments), func(i int) bool { return after.LineTop(l.fragments[i].after.end) >= r.Y })
+	for i := first; i < len(l.fragments); i++ {
+		f := l.fragments[i]
+		top, end := after.LineTop(f.after.start), after.LineTop(f.after.end)
+		if top > bottom {
+			break
+		}
+		if color, ok := palette.color(f.kind); ok {
+			canvas.Fill(gfx.Rect{X: r.X + r.Width - diffMarkWidth, Y: top, Width: diffMarkWidth, Height: max(end-top, 2)}, color)
+		}
+		a.drawDiffBlockControls(canvas, t, i, f, r.X, r.X+r.Width-diffMarkWidth, top, top, after.LineHeight())
+	}
+}
+
+// drawDiffBlockControls declares and paints the controls of the block of fragment i, the k-th
+// difference: its rollback at the left of the gap, from x0, level with the line at bt, and its
+// checkbox at the right, up to x1, level with the line at at. A difference without a block has
+// none.
+func (a *App) drawDiffBlockControls(canvas *gfx.Canvas, t *diffTab, i int, f diffFragment, x0, x1, bt, at, lineH float32) {
+	block := f.block
+	if block == nil {
+		return
+	}
+	lang := a.language()
+	number := i18n.SharedFormat(lang, "desktop.gitReview.blockN", map[string]string{"n": strconv.Itoa(f.number)})
+	parts := t.gap.Parts()
+	inset := (lineH - diffControlSize) / 2
+	box := gfx.Rect{X: x1 - diffControlPad - diffControlSize, Y: at + inset, Width: diffControlSize, Height: diffControlSize}
+	toggle := i18n.Shared(lang, "git.diff.includeBlock")
 	if block.Checked {
-		label = i18n.Shared(lang, "git.diff.excludeBlock")
+		toggle = i18n.Shared(lang, "git.diff.excludeBlock")
 	}
-	checked := block.Checked
-	if ui.Checkbox(c, &checked, label).Label(label).Disabled(t.busy || !block.CanToggle).Clicked() {
-		b := *block
-		c.After(func() { a.toggleDiffBlock(p, t, b) })
+	disabled := t.busy || !block.CanToggle
+	canvas.HitWithOptions(parts.At(2*i), box, number+" "+toggle, gfx.HitOptions{
+		Role: gfx.RoleCheckbox, Checked: block.Checked, Mixed: block.Indeterminate, Disabled: disabled, Cursor: gfx.PointerCursorHand,
+	})
+	// The box looks as the checkboxes of the change lists do, opaque over the band.
+	state := gfx.State{Checked: block.Checked, Mixed: block.Indeterminate, Disabled: disabled}
+	look := components.CheckboxRecipe(a.theme, state)
+	fill := look.Fill
+	if fill.Alpha < 1 {
+		fill = fill.Over(a.colors.Editor)
 	}
-	ui.Text(c, number).Weight(gfx.WeightMedium).Shrink(0)
-	ui.Text(c, label).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Grow(1)
+	canvas.RoundedBorder(box, look.Radius, 1, look.Border, fill)
+	components.PaintCheckboxMark(canvas, box, state, look.Mark)
 	if !block.CanRollback {
 		return
 	}
+	undo := gfx.Rect{X: x0 + diffControlPad, Y: bt + inset, Width: diffControlSize, Height: diffControlSize}
+	canvas.HitWithOptions(parts.At(2*i+1), undo, number+" "+i18n.Shared(lang, "git.diff.rollbackHunk"), gfx.HitOptions{
+		Role: gfx.RoleButton, Disabled: t.busy, Cursor: gfx.PointerCursorHand,
+	})
+	tint := a.colors.Subtle
 	if t.confirm == block.ID {
-		ui.Text(c, i18n.SharedFormat(lang, "git.diff.rollbackHunkConfirm", map[string]string{"path": t.change.Path})).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Warning).Ellipsis().Shrink(1)
-		if ui.Button(c, i18n.Shared(lang, "git.rollback.confirm")).Destructive().Disabled(t.busy).Clicked() {
-			id := block.ID
-			c.After(func() { a.writeDiffBlock(p, t, id, core.DiffBlockRollback) })
-		}
-		if ui.Button(c, i18n.Shared(lang, "desktop.gitReview.cancel")).Outline().Clicked() {
-			c.After(func() { t.confirm = "" })
-		}
-		return
+		tint = a.colors.Warning
 	}
-	if ui.Button(c, i18n.Shared(lang, "git.diff.rollbackHunk")).Ghost().Disabled(t.busy).Clicked() {
-		id := block.ID
-		c.After(func() { t.confirm = id })
-	}
+	canvas.DrawIcon(icons.Undo2, undo, tint)
 }
 
-// diffItemHeight is the height the list gives item.
-func diffItemHeight(item diffItem) float32 {
+// diffGapClicked does what a click on control part of the gap of tab t asks: an even part is
+// the checkbox of the block of fragment part/2 and stages or unstages it, an odd one its
+// rollback and asks the user to confirm it.
+func (a *App) diffGapClicked(p *project, t *diffTab, part int) {
+	l := t.layout
+	if l == nil || t.busy || part/2 >= len(l.fragments) {
+		return
+	}
+	block := l.fragments[part/2].block
 	switch {
-	case item.block != nil:
-		return reviewBlockHeight
-	case item.fold > 0:
-		return diffFoldHeight
+	case block == nil:
+	case part%2 == 0:
+		if block.CanToggle {
+			a.toggleDiffBlock(p, t, *block)
+		}
+	case block.CanRollback:
+		t.confirm = block.ID
 	}
-	return reviewRowHeight
 }
 
-// drawDiffRuler paints, beside the list, a mark for every changed line where it is in the whole
-// list, so the user sees where the differences are when the file is longer than the view.
+// drawDiffRuler paints, beside the editors, a mark for every difference where it is in the
+// whole after side, so the user sees where the differences are when the file is longer than the
+// view. A difference that only removed lines is a thin mark where they were.
 func (a *App) drawDiffRuler(d *ui.DrawContext, t *diffTab) {
-	r := d.Rect
-	if t.file == nil || r.Height <= 0 {
+	r, l := d.Rect, t.layout
+	if l == nil || r.Height <= 0 {
 		return
 	}
-	var total float32
-	for _, item := range t.items {
-		total += diffItemHeight(item)
-	}
-	if total <= 0 {
-		return
-	}
-	scale := min(1, r.Height/total)
-	var y float32
-	for _, item := range t.items {
-		h := diffItemHeight(item)
-		kind := ""
-		switch {
-		case item.block != nil || item.fold > 0:
-		case item.row >= 0 && item.row < len(t.file.Rows):
-			kind = t.file.Rows[item.row].Kind
-		case item.line >= 0 && item.line < len(t.file.Lines):
-			kind = t.file.Lines[item.line].LineType
+	total := float32(l.after.lineCount())
+	scale := r.Height / total
+	if t.after != nil {
+		if lineH := t.after.view.LineHeight(); lineH > 0 {
+			// A file shorter than the view is marked where its lines are.
+			scale = min(scale, lineH)
 		}
-		if color, ok := a.diffMark(kind); ok {
-			d.Canvas.Fill(gfx.Rect{X: r.X + 1, Y: r.Y + y*scale, Width: r.Width - 2, Height: max(h*scale, 2)}, d.Fade(color))
+	}
+	palette := a.diffPalette()
+	for _, f := range l.fragments {
+		color, ok := palette.color(f.kind)
+		if !ok {
+			continue
 		}
-		y += h
+		top := float32(f.after.start) * scale
+		height := max(float32(f.after.end-f.after.start)*scale, 2)
+		d.Canvas.Fill(gfx.Rect{X: r.X + 1, Y: r.Y + top, Width: r.Width - 2, Height: height}, d.Fade(color))
 	}
 }

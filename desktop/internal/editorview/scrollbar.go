@@ -51,7 +51,10 @@ func (v *View) layoutParts(gutter float32) {
 	// The horizontal bar runs under the text and stops short of the vertical one, so their
 	// corners never overlap; with the minimap shown the vertical bar is past it already.
 	end := v.textRight
-	if v.mm.rect.Width == 0 {
+	switch {
+	case v.decor.noVerticalBar:
+		v.bars.vertical = gfx.Rect{}
+	case v.mm.rect.Width == 0:
 		end -= barTrack
 	}
 	v.bars.horizontal = gfx.Rect{X: area.X + gutter, Y: area.Y + area.Height - barTrack, Width: max(end-area.X-gutter, 0), Height: barTrack}

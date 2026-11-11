@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"math"
 	"path"
 	"path/filepath"
 	"slices"
@@ -9,7 +10,10 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -19,9 +23,12 @@ import (
 // or the index of a checkout, with Core's blocks to stage, unstage and roll back, or the
 // change a commit made, read only. It lays the file out side by side or as unified lines,
 // folds the unchanged lines between changes, steps through the differences and through the
-// other changed files of the same list. Core decides everything about Git (the lines, the
-// rows, the blocks and what a write runs); this file sequences the calls and lays the rows
-// out. difftab_view.go declares the tab's body.
+// other changed files of the same list. As in IDEA, the two versions of the file are two
+// read-only editors side by side, colored for the file's language, numbered as in their version,
+// with the changed lines tinted, joined across the gap between them and scrolled in step; the
+// unified view is one editor of the unified lines. Core decides everything about Git (the
+// lines, the blocks and what a write runs); this file sequences the calls and keeps the
+// editors' text (built by layoutDiff, diffpanes.go). difftab_view.go declares the tab's body.
 
 const (
 	// diffMemberPrefix starts the member name of a Diff tab in a tab group: "diff:3".
@@ -120,32 +127,64 @@ type diffTab struct {
 	// split shows the two sides next to each other instead of the unified lines, and whole
 	// shows every unchanged line instead of folding the long runs of them.
 	split, whole bool
-	// expanded are the folds the user opened, by the first line or row they hide.
+	// expanded are the folds the user opened, by the unified index of the first unchanged line
+	// of the run they hide, which is the same in both modes.
 	expanded map[int]bool
 	file     *core.GitDiffFile
 	plan     *core.DiffBlockPlan
-	// items is what the list shows, built from file and plan; builtSplit and builtWhole are
-	// the modes it was built for.
-	items                  []diffItem
-	builtSplit, builtWhole bool
-	// changes are the items that start a difference, a run of changed lines, and current the
-	// one the user last stepped to, -1 before the first step.
-	changes []int
+	// grammar colors the text of the file at grammarPath; it is found away from the window
+	// thread, and nil shows the text in one color.
+	grammar     *syntax.Syntax
+	grammarPath string
+	// layout is what the editors show, built from file and plan for the modes; nil while the
+	// tab has no file.
+	layout *diffLayout
+	// before and after are the editors of the two versions; the unified view shows only after.
+	// They are made with the first layout of a file and closed with the tab.
+	before, after *diffEditor
+	// gap is the strip between the two editors, or before the unified one, that joins each
+	// difference across and carries its block's checkbox and rollback; gapDraw paints it.
+	gap     ui.Handlers
+	gapDraw func(*ui.DrawContext)
+	// numberCells is how many cells the widest line number of the before side takes: the gap
+	// shows those numbers beside the before editor, as IDEA does, and is as wide as they are.
+	// cellW is the width of a cell at the last paint of the gap.
+	numberCells int
+	cellW       float32
+	// current is the difference, the fragment of the layout, the user last stepped to; -1
+	// before the first step.
 	current int
 	// revealed says the first difference was scrolled into view since the file was read.
 	revealed bool
-	list     ui.ListState
-	// scrolled says the list was asked to scroll to a difference and has not been declared
-	// since; see diffBody.
-	scrolled bool
 	// busy is set while a block is written.
 	busy bool
 	// confirm is the block waiting for the user to confirm its rollback, "" for none.
 	confirm string
 	// note is a refusal to show: the plan went stale, or a rollback is unsafe.
 	note string
-	// ruler paints the marks of the differences beside the list, made once.
+	// ruler paints the marks of the differences beside the editors, made once.
 	ruler func(*ui.DrawContext)
+}
+
+// diffEditor is the editor of one side of a Diff tab: a read-only view of the side's lines,
+// colored for the file's language, with the gutter numbering them as in that version and the
+// changed lines tinted.
+type diffEditor struct {
+	view *editorview.View
+	// label names the view's control: the side and the path.
+	label string
+	// grammar is the grammar the view was made with.
+	grammar *syntax.Syntax
+	hit     gfx.ID
+	input   ui.Handlers
+	draw    func(*ui.DrawContext)
+	// decorated and palette are the layout and the colors the view's labels, notes and tints
+	// were last set from.
+	decorated *diffLayout
+	palette   diffPalette
+	// x and y are the scroll the tab last saw the view at: a scroll that differs is the
+	// user's, and the other side follows it.
+	x, y float32
 }
 
 // stashSource is the stash a Diff tab shows a saved file of: the name its sides are labelled
@@ -179,20 +218,6 @@ func (c *diffComparison) key() string {
 type diffOrigin struct {
 	stash   *stashSource
 	compare *diffComparison
-}
-
-// diffItem is one row of a Diff tab's list: a line or an aligned row of the file, the header
-// of a block that carries its toggle and rollback, or a fold that stands for unchanged lines.
-type diffItem struct {
-	// block is the block a header row belongs to; nil for any other row.
-	block *core.DiffBlock
-	// number is the 1-based position of the block among the blocks.
-	number int
-	// line indexes the unified lines, row the aligned rows; -1 for the one the mode does not
-	// show and for a header or a fold.
-	line, row int
-	// fold is how many lines a fold row hides, 0 for any other row, and at the first of them.
-	fold, at int
 }
 
 // name is the title of the tab: the name of the file.
@@ -325,12 +350,35 @@ func (a *App) placeDiff(p *project, id int) bool {
 }
 
 // show makes the tab show change of its checkout or commit, forgetting what it read before.
+// Another file gets editors of its own, made for its language and scrolled to its top.
 func (t *diffTab) show(change core.GitChange) {
+	if change.Path != t.change.Path {
+		t.closeEditors()
+	}
 	t.change = change
 	t.staged = t.commit == "" && change.Staged && !change.Worktree
-	t.file, t.plan, t.items, t.changes = nil, nil, t.items[:0], t.changes[:0]
+	t.file, t.plan, t.layout = nil, nil, nil
 	t.expanded, t.current, t.revealed = nil, -1, false
 	t.err, t.note, t.confirm = "", "", ""
+}
+
+// closeEditors closes the editors of the two sides.
+func (t *diffTab) closeEditors() {
+	for _, e := range []*diffEditor{t.before, t.after} {
+		if e != nil {
+			e.view.Close()
+		}
+	}
+	t.before, t.after = nil, nil
+}
+
+// closeDiffs closes the editors of every Diff tab of the project, which is closing.
+func (p *project) closeDiffs() {
+	for _, t := range p.diffs.list {
+		t.gen++
+		t.closeEditors()
+	}
+	p.diffs.list = nil
 }
 
 // selectDiff shows Diff tab id in its group and gives its list the keyboard. Files open in
@@ -365,6 +413,7 @@ func (a *App) closeDiffTab(p *project, id int) {
 		a.focusSelected(p, group)
 	}
 	t.gen++
+	t.closeEditors()
 	p.diffs.list = slices.DeleteFunc(p.diffs.list, func(x *diffTab) bool { return x == t })
 }
 
@@ -391,14 +440,15 @@ func (p *project) live(t *diffTab, gen int) bool {
 }
 
 // loadDiff reads the diff of the tab's change again: the block plan for a tracked file of the
-// working tree or the index, and the plain diff for an untracked one, for a commit's change, for
-// a comparison's file and for a file the plan has no section for. A stash's file was read with
-// the stash, so it shows at once.
+// working tree or the index, and the diff of the whole file for an untracked one, for a commit's
+// change, for a comparison's file and for a file the plan has no section for. A stash's file was
+// read with the stash, so it shows at once.
 func (a *App) loadDiff(p *project, t *diffTab) {
 	kernel, ok := a.reviewKernel()
 	if !ok {
 		return
 	}
+	a.loadDiffGrammar(p, t)
 	if t.stash != nil {
 		t.loading, t.gen = false, t.gen+1
 		i := slices.IndexFunc(t.stash.files, func(f core.GitDiffFile) bool { return f.Path == t.change.Path })
@@ -407,7 +457,7 @@ func (a *App) loadDiff(p *project, t *diffTab) {
 			return
 		}
 		file := t.stash.files[i]
-		t.read(&file, nil)
+		a.readDiff(t, &file, nil)
 		return
 	}
 	t.loading, t.gen = true, t.gen+1
@@ -430,11 +480,13 @@ func (a *App) loadDiff(p *project, t *diffTab) {
 		if err == nil && file == nil {
 			plan = nil
 			var files []core.GitDiffFile
-			request := core.GitDiffRequest{Root: target.Root, Path: change.Path, Commit: commit}
+			// The editors show both versions in full, so the diff is read with the whole file
+			// as its context, as the block plan is.
+			request := core.GitDiffRequest{Root: target.Root, Path: change.Path, Commit: commit, WholeFile: true}
 			switch {
 			case compare != nil:
 				base := compare.base
-				request = core.GitDiffRequest{Root: target.Root, Path: change.Path, Base: &base, Target: compare.target, Untracked: untracked}
+				request = core.GitDiffRequest{Root: target.Root, Path: change.Path, Base: &base, Target: compare.target, Untracked: untracked, WholeFile: true}
 			case commit == "":
 				request.Staged, request.Untracked = target.Staged, untracked
 			}
@@ -453,16 +505,41 @@ func (a *App) loadDiff(p *project, t *diffTab) {
 				a.gitOperationFailed("git_diff", err)
 				return
 			}
-			t.read(file, plan)
+			a.readDiff(t, file, plan)
 		}
 	})
 }
 
-// read shows what was read for the tab's file and, the first time after the file changed,
+// loadDiffGrammar finds the grammar of the tab's file away from the window thread, once for a
+// file. The editors were made without it in the meantime, so they are made again with it, at
+// the scroll they had.
+func (a *App) loadDiffGrammar(p *project, t *diffTab) {
+	path := t.change.Path
+	if t.grammarPath == path {
+		return
+	}
+	t.grammarPath, t.grammar = path, nil
+	registry := a.syntaxRegistry()
+	a.background(p, 0, func(context.Context) func(*App) {
+		var grammar *syntax.Syntax
+		if language, ok := registry.ForPath(path); ok {
+			grammar = registry.Syntax(language.ID)
+		}
+		return func(a *App) {
+			if p.diffs.find(t.id) != t || t.grammarPath != path || grammar == nil {
+				return
+			}
+			t.grammar = grammar
+			a.presentDiff(t)
+		}
+	})
+}
+
+// readDiff shows what was read for the tab's file and, the first time after the file changed,
 // scrolls to its first difference.
-func (t *diffTab) read(file *core.GitDiffFile, plan *core.DiffBlockPlan) {
+func (a *App) readDiff(t *diffTab, file *core.GitDiffFile, plan *core.DiffBlockPlan) {
 	t.err, t.file, t.plan = "", file, plan
-	t.rebuild()
+	a.rebuildDiff(t)
 	if !t.revealed {
 		t.revealed = true
 		t.step(1)
@@ -479,121 +556,151 @@ func (a *App) reloadDiffs(p *project, root string) {
 	}
 }
 
-// units is how many lines the unified view or rows the side-by-side view lays out.
-func (t *diffTab) units() int {
+// rebuildDiff lays the tab's file out again for its modes and hands the text to the editors:
+// each side's lines in split mode, the unified lines otherwise, with the long runs of unchanged
+// lines folded unless the tab shows the whole file or the user opened them.
+func (a *App) rebuildDiff(t *diffTab) {
 	if t.file == nil {
-		return 0
-	}
-	if t.split {
-		return len(t.file.Rows)
-	}
-	return len(t.file.Lines)
-}
-
-// changed says unit i of the mode is a changed line: added or removed, or a row that changes,
-// adds or removes.
-func (t *diffTab) changed(i int) bool {
-	if t.split {
-		switch t.file.Rows[i].Kind {
-		case "addition", "removal", "changed":
-			return true
-		}
-		return false
-	}
-	switch t.file.Lines[i].LineType {
-	case "added", "removed":
-		return true
-	}
-	return false
-}
-
-// plain says unit i is an unchanged line, one a fold may hide. A hunk's header is neither
-// plain nor changed and always stays in view.
-func (t *diffTab) plain(i int) bool {
-	if t.split {
-		return t.file.Rows[i].Kind == "context"
-	}
-	return t.file.Lines[i].LineType == "context"
-}
-
-// unit is the item of unit i of the mode.
-func (t *diffTab) unit(i int) diffItem {
-	if t.split {
-		return diffItem{line: -1, row: i}
-	}
-	return diffItem{line: i, row: -1}
-}
-
-// rebuild lays out the list rows for the tab's modes: each block's header stands over its first
-// line, and while the tab folds, a run of unchanged lines longer than the context on both sides
-// of the changes around it gives way to one fold row, unless the user opened it.
-func (t *diffTab) rebuild() {
-	t.items, t.changes = t.items[:0], t.changes[:0]
-	t.builtSplit, t.builtWhole = t.split, t.whole
-	if t.file == nil {
+		t.layout = nil
 		return
 	}
-	anchors := t.blockAnchors()
-	n, number := t.units(), 0
-	for i := 0; i < n; {
-		if !t.whole && t.plain(i) && anchors[i] == nil {
-			j := i + 1
-			for j < n && t.plain(j) && anchors[j] == nil {
-				j++
-			}
-			head, tail := diffContext, diffContext
-			if i == 0 {
-				head = 0
-			}
-			if j == n {
-				tail = 0
-			}
-			hidden := j - i - head - tail
-			if hidden < diffFoldLeast || t.expanded[i] {
-				head, hidden = j-i, 0
-			}
-			for k := i; k < i+head; k++ {
-				t.items = append(t.items, t.unit(k))
-			}
-			if hidden > 0 {
-				t.items = append(t.items, diffItem{line: -1, row: -1, fold: hidden, at: i})
-				for k := j - tail; k < j; k++ {
-					t.items = append(t.items, t.unit(k))
-				}
-			}
-			i = j
-			continue
-		}
-		if t.changed(i) && (i == 0 || !t.changed(i-1)) {
-			t.changes = append(t.changes, len(t.items))
-		}
-		if block := anchors[i]; block != nil {
-			number++
-			t.items = append(t.items, diffItem{block: block, number: number, line: -1, row: -1})
-		}
-		t.items = append(t.items, t.unit(i))
-		i++
+	lang := a.language()
+	t.layout = layoutDiff(t.file.Lines, t.blockAnchors(), t.split, t.whole, t.expanded, func(n int) string {
+		return i18n.SharedFormat(lang, "native.lldUnchangedLines", map[string]string{"arg1": strconv.Itoa(n)})
+	})
+	t.numberCells = 0
+	for _, label := range t.layout.before.labels {
+		t.numberCells = max(t.numberCells, len(label))
 	}
-	t.current = min(t.current, len(t.changes)-1)
+	t.current = min(t.current, len(t.layout.fragments)-1)
+	a.presentDiff(t)
 }
 
-// blockAnchors maps the unit each block's header stands over to the block.
+// presentDiff hands the tab's layout to its editors: the before side's only side by side, the
+// after side's always. An editor is made when the side has none yet or its grammar changed.
+func (a *App) presentDiff(t *diffTab) {
+	l := t.layout
+	if l == nil {
+		return
+	}
+	if l.split {
+		t.before = a.diffSideEditor(t, t.before, &l.before, true)
+	} else if t.before != nil {
+		t.before.view.Close()
+		t.before = nil
+	}
+	t.after = a.diffSideEditor(t, t.after, &l.after, false)
+}
+
+// diffSideEditor shows pane in e, or in a new editor when e is nil or was made with another
+// grammar; a new editor takes the scroll of the one it replaces.
+func (a *App) diffSideEditor(t *diffTab, e *diffEditor, pane *diffPane, before bool) *diffEditor {
+	content := editorview.Prepare(pane.text)
+	if e != nil && e.grammar == t.grammar {
+		e.view.ShowContent(content)
+		e.decorated = nil
+		return e
+	}
+	var x, y float32
+	if e != nil {
+		x, y = e.view.ScrollOffset()
+		e.view.Close()
+	}
+	left, right := a.diffSideLabels(t)
+	label := right + " " + t.change.Path
+	if before {
+		label = left + " " + t.change.Path
+	}
+	e = &diffEditor{label: label, grammar: t.grammar, x: x, y: y}
+	e.view = editorview.New(editorview.Config{Label: label, Content: content, Syntax: t.grammar, Notify: a.invalidator.Invalidate})
+	e.view.SetReadOnly(true)
+	e.view.SetWrap(false)
+	e.view.SetMinimap(false)
+	e.view.SetScrollOffset(x, y)
+	a.diffEditorInput(t, e, before)
+	return e
+}
+
+// diffEditorInput makes the handlers and the painter of editor e of tab t, once, when it is
+// made. A press on a fold's line opens the fold; anything else is the editor's.
+func (a *App) diffEditorInput(t *diffTab, e *diffEditor, before bool) {
+	e.input = ui.Handlers{
+		Role: gfx.RoleTerminal,
+		Key: func(event gfx.KeyEvent) gfx.EventResult {
+			result, _ := e.view.Key(event)
+			return result
+		},
+		Pointer: func(event gfx.PointerEvent) gfx.EventResult {
+			if a.diffFoldPressed(t, e, before, event) {
+				return gfx.EventResult{Handled: true, Repaint: true}
+			}
+			result, _ := e.view.Pointer(event)
+			return result
+		},
+		Scroll: func(event gfx.ScrollEvent) gfx.EventResult {
+			result, _ := e.view.Scroll(event)
+			return result
+		},
+		Text: e.view.TextInput,
+	}
+	e.draw = func(dc *ui.DrawContext) { a.drawDiffEditor(dc, t, e, before) }
+}
+
+// diffFoldPressed opens the fold whose line the primary button pressed on in editor e, and
+// reports whether there was one.
+func (a *App) diffFoldPressed(t *diffTab, e *diffEditor, before bool, event gfx.PointerEvent) bool {
+	if event.Kind != gfx.PointerDown || event.Button != gfx.PointerButtonPrimary || event.Target != e.hit || t.layout == nil {
+		return false
+	}
+	line, ok := e.view.LineAt(event.Y)
+	if !ok {
+		return false
+	}
+	fold, ok := t.layout.foldAt(line, before)
+	if !ok {
+		return false
+	}
+	a.expandDiff(t, fold.at)
+	return true
+}
+
+// followDiffScroll keeps the two sides in step: when the user scrolled one of them, the other
+// is scrolled to the place that matches the middle of its view, and sideways as far, on a whole
+// pixel so its text stays sharp. height is the height of the editors. A side moved after it was
+// painted is painted again.
+func (a *App) followDiffScroll(t *diffTab, height float32) {
+	l, b, f := t.layout, t.before, t.after
+	if l == nil || !l.split || b == nil || f == nil {
+		return
+	}
+	bx, by := b.view.ScrollOffset()
+	ax, ay := f.view.ScrollOffset()
+	lineH := max(b.view.LineHeight(), f.view.LineHeight())
+	switch {
+	case lineH <= 0:
+	case bx != b.x || by != b.y:
+		y := l.mapLine(float64((by+height/2)/lineH), true)
+		f.view.SetScrollOffset(bx, float32(math.Round(y*float64(lineH)-float64(height/2))))
+		a.invalidator.Invalidate()
+	case ax != f.x || ay != f.y:
+		y := l.mapLine(float64((ay+height/2)/lineH), false)
+		b.view.SetScrollOffset(ax, float32(math.Round(y*float64(lineH)-float64(height/2))))
+		a.invalidator.Invalidate()
+	}
+	b.x, b.y = b.view.ScrollOffset()
+	f.x, f.y = f.view.ScrollOffset()
+}
+
+// blockAnchors maps the unified line each block starts at to the block.
 func (t *diffTab) blockAnchors() map[int]*core.DiffBlock {
 	anchors := map[int]*core.DiffBlock{}
 	if t.plan == nil {
 		return anchors
 	}
 	for i := range t.plan.Blocks {
-		n, ok := blockLine(t.plan.Blocks[i].ID)
-		if !ok {
-			continue
+		if n, ok := blockLine(t.plan.Blocks[i].ID); ok {
+			anchors[n] = &t.plan.Blocks[i]
 		}
-		if t.split {
-			if n, ok = t.rowOfLine(n); !ok {
-				continue
-			}
-		}
-		anchors[n] = &t.plan.Blocks[i]
 	}
 	return anchors
 }
@@ -614,38 +721,44 @@ func blockLine(id string) (int, bool) {
 	return n, true
 }
 
-// rowOfLine finds the aligned row that shows unified line index, by the line numbers they
-// share.
-func (t *diffTab) rowOfLine(index int) (int, bool) {
-	if t.file == nil || index < 0 || index >= len(t.file.Lines) {
-		return 0, false
+// differences is how many differences the tab shows.
+func (t *diffTab) differences() int {
+	if t.layout == nil {
+		return 0
 	}
-	line := t.file.Lines[index]
-	for i, row := range t.file.Rows {
-		switch {
-		case line.NewLine != nil && row.NewLine != nil && *line.NewLine == *row.NewLine:
-			return i, true
-		case line.NewLine == nil && line.OldLine != nil && row.OldLine != nil && *line.OldLine == *row.OldLine:
-			return i, true
-		}
-	}
-	return 0, false
+	return len(t.layout.fragments)
 }
 
 // step moves by differences, forward for a positive by, and scrolls the one it lands on to the
-// middle of the list. It stops at the first and the last.
+// middle of the editors. It stops at the first and the last.
 func (t *diffTab) step(by int) {
-	if len(t.changes) == 0 {
+	n := t.differences()
+	if n == 0 {
 		return
 	}
-	t.current = min(max(t.current+by, 0), len(t.changes)-1)
+	t.current = min(max(t.current+by, 0), n-1)
 	t.scrollToCurrent()
 }
 
-// scrollToCurrent scrolls the difference the user stands on to the middle of the list.
+// scrollToCurrent scrolls the difference the user stands on to the middle of the editors and
+// puts their carets on it. When the sides disagree, at an end of the file, the before side wins
+// and the after side follows it (see followDiffScroll).
 func (t *diffTab) scrollToCurrent() {
-	t.list.ScrollTo(t.changes[t.current], ui.ListCenter)
-	t.scrolled = true
+	l := t.layout
+	if l == nil || t.current < 0 || t.current >= len(l.fragments) || t.after == nil {
+		return
+	}
+	f := l.fragments[t.current]
+	// Each side puts its caret on the difference and centers it, so the caret never stays on a
+	// fold's row and the two sides agree when they follow each other.
+	center := func(e *diffEditor, span diffSpan) {
+		e.view.GoToLine(span.start + 1)
+		e.view.CenterLine(span.start + max(span.end-span.start-1, 0)/2)
+	}
+	center(t.after, f.after)
+	if l.split && t.before != nil {
+		center(t.before, f.before)
+	}
 }
 
 // setMode lays the tab out side by side or unified, folded or whole, and remembers the choice
@@ -656,19 +769,19 @@ func (a *App) setDiffMode(p *project, t *diffTab, split, whole bool) {
 	}
 	t.split, t.whole = split, whole
 	p.diffs.split, p.diffs.whole = split, whole
-	t.rebuild()
+	a.rebuildDiff(t)
 	if t.current >= 0 {
 		t.scrollToCurrent()
 	}
 }
 
-// expand opens the fold whose first hidden line is at.
-func (t *diffTab) expand(at int) {
+// expandDiff opens the fold of tab t that starts at unified line at.
+func (a *App) expandDiff(t *diffTab, at int) {
 	if t.expanded == nil {
 		t.expanded = map[int]bool{}
 	}
 	t.expanded[at] = true
-	t.rebuild()
+	a.rebuildDiff(t)
 }
 
 // fileIndex is the position of the tab's file among the files it steps through, -1 when it is
