@@ -26,6 +26,7 @@ func (a *App) inlineEditView(c ui.C, p *project) {
 					scope = i18n.Shared(a.language(), "desktop.ai.inlineEdit.editCurrentLine")
 				}
 				ui.Text(c, scope).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+				a.inlineEditProviderPicker(c, s)
 				field := ui.TextField(c.Part("instruction"), &s.instruction, t.Instruction, t.Instruction).FillWidth().Disabled(s.running).AutoFocus()
 				if field.Submitted() && !s.running {
 					c.After(func() { a.runInlineEdit(p) })
@@ -75,5 +76,36 @@ func (a *App) inlineEditView(c ui.C, p *project) {
 	})
 	if closed {
 		c.After(a.closeInlineEdit)
+	}
+}
+
+// inlineEditChoices are the picker's rows: the AI settings' default, then each configuration.
+var inlineEditChoices = []string{"", "codex", "claude"}
+
+// inlineEditProviderPicker declares the provider choice of the next edit. The model is the one
+// the chosen configuration declares, as the commit message generation uses it.
+func (a *App) inlineEditProviderPicker(c ui.C, s *inlineEditState) {
+	t := a.text.AI.InlineEdit
+	selected := 0
+	for i, choice := range inlineEditChoices {
+		if choice == s.source {
+			selected = i
+		}
+	}
+	indices := make([]int, len(inlineEditChoices))
+	for i := range indices {
+		indices[i] = i
+	}
+	if ui.Select(c.Part("provider"), &selected, indices, func(i int) string {
+		switch inlineEditChoices[i] {
+		case "codex":
+			return t.ProviderCodex
+		case "claude":
+			return t.ProviderClaude
+		}
+		return t.ProviderDefault
+	}).Label(t.Provider).Height(26).Disabled(s.running); selected != indexOfString(inlineEditChoices, s.source) {
+		choice := inlineEditChoices[selected]
+		c.After(func() { s.source = choice })
 	}
 }

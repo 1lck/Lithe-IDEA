@@ -41,6 +41,9 @@ type inlineEditState struct {
 	revision   int
 
 	instruction ui.Field
+	// source is the configuration the edit is sent with: codex or claude. Empty follows the
+	// AI settings, as the commit message generation does (inlineEditSources).
+	source string
 	// currentLine says the edit covers the caret's line because nothing was selected.
 	currentLine bool
 	running     bool
@@ -124,7 +127,7 @@ func (a *App) runInlineEdit(p *project) {
 	}
 	ctx, cancel := context.WithCancel(p.ctx)
 	s.running, s.cancel, s.failure, s.hasResult = true, cancel, "", false
-	sources := a.aiGenerationSources()
+	sources := a.inlineEditSources()
 	a.background(p, 0, func(context.Context) func(*App) {
 		defer cancel()
 		edited, err := a.fetchInlineEdit(ctx, kernel, edit, sources)
@@ -142,6 +145,15 @@ func (a *App) runInlineEdit(p *project) {
 			}
 		}
 	})
+}
+
+// inlineEditSources is the provider order of one edit: the picker's choice when there is one,
+// otherwise the same order the commit message generation uses.
+func (a *App) inlineEditSources() []string {
+	if source := a.inline.source; source != "" {
+		return []string{source}
+	}
+	return a.aiGenerationSources()
 }
 
 // fetchInlineEdit plans, sends and decodes one request off the window thread.

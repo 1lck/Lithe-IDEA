@@ -635,5 +635,29 @@
     "description": "Button on a skill row of the Skills page that opens its SKILL.md in the workbench editor.",
     "en-US": "Open SKILL.md",
     "zh-CN": "打开 SKILL.md"
+  },
+  {
+    "id": "desktop.inlineEdit.provider",
+    "description": "Label of the provider picker in the inline edit dialog.",
+    "en-US": "Provider",
+    "zh-CN": "供应商"
+  },
+  {
+    "id": "desktop.inlineEdit.providerDefault",
+    "description": "Provider picker choice that follows the AI settings for the inline edit.",
+    "en-US": "AI settings default",
+    "zh-CN": "跟随 AI 设置"
+  },
+  {
+    "id": "desktop.inlineEdit.providerCodex",
+    "description": "Provider picker choice: the local Codex configuration (brand name).",
+    "en-US": "Codex",
+    "zh-CN": "Codex"
+  },
+  {
+    "id": "desktop.inlineEdit.providerClaude",
+    "description": "Provider picker choice: the local Claude configuration (brand name).",
+    "en-US": "Claude",
+    "zh-CN": "Claude"
   }
 ]
