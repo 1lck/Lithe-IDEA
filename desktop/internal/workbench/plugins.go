@@ -126,6 +126,30 @@ func (a *App) installPlugin(plugin core.MarketplacePlugin) {
 	})
 }
 
+// installPluginFromFile reviews a package the user picked on disk. It goes through the
+// same review sheet as a marketplace install; nothing is written until the user confirms.
+// The package has no index digest to check, so its approval is asked for every time.
+func (a *App) installPluginFromFile(path string) {
+	if a.plugins == nil {
+		return
+	}
+	a.pluginInstall.generation++
+	generation := a.pluginInstall.generation
+	a.discardPluginInstall()
+	a.pluginInstall.plugin = core.MarketplacePlugin{}
+	a.pluginInstall.busy = true
+	a.pluginInstall.open = false
+	a.performed("plugin.install", "disk")
+	a.background(nil, pluginDownloadTimeout, func(ctx context.Context) func(*App) {
+		plan, err := a.plugins.Installer.Prepare(ctx, plugininstall.Request{
+			ArchivePath: path,
+			Root:        a.plugins.Root,
+			Source:      plugintrust.Disk,
+		})
+		return func(a *App) { a.finishPluginInstall(generation, plan, err) }
+	})
+}
+
 // finishPluginInstall takes the prepared plan back on the window thread.
 func (a *App) finishPluginInstall(generation uint64, plan plugininstall.Plan, err error) {
 	if a.pluginInstall.generation != generation {

@@ -1,6 +1,7 @@
 package settingswindow
 
 import (
+	"errors"
 	"hash/fnv"
 	"strings"
 	"unicode"
@@ -8,6 +9,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -71,6 +73,11 @@ func (w *window) marketplacePage(c ui.C) {
 		ui.Row(c).FillWidth().Height(46).Shrink(0).PadX(16).Items(ui.Center).Children(func() {
 			ui.Text(c, titleOf(&w.text.Settings, pagePlugins)).FontSize(13).Weight(gfx.WeightSemibold).Color(w.pal.text)
 			ui.Spacer(c)
+			if w.ctrl.opts.InstallPluginFromFile != nil {
+				if ui.Button(c, i18n.Shared(w.marketLanguage(), "desktop.marketplace.installFromFile")).Outline().Clicked() {
+					c.After(w.pickPluginPackage)
+				}
+			}
 			ui.Row(c).Height(30).PadX(12).Radius(6).Background(w.pal.selection).Center().Children(func() {
 				ui.Text(c, i18n.Shared(w.marketLanguage(), "native.marketplace")).FontSize(13).Weight(gfx.WeightSemibold).Color(w.pal.text)
 			})
@@ -78,6 +85,26 @@ func (w *window) marketplacePage(c ui.C) {
 		ui.Row(c).FillWidth().Height(1).Shrink(0).Background(w.pal.line)
 		w.marketColumns(c)
 	})
+}
+
+// pickPluginPackage asks for a plugin package on disk and hands it to the owner, which
+// reviews it. Cancelling the native dialog changes nothing.
+func (w *window) pickPluginPackage() {
+	paths, err := app.OpenFiles(app.OpenFileOptions{
+		Title:   i18n.Shared(w.marketLanguage(), "desktop.marketplace.installFromFile"),
+		Filters: []app.FileFilter{{Name: i18n.Shared(w.marketLanguage(), "desktop.marketplace.packageFilter"), Pattern: "*.zip"}},
+	})
+	// log-exempt: 用户取消：关闭原生文件选择器不安装任何插件。
+	if errors.Is(err, app.ErrCanceled) || len(paths) == 0 {
+		return
+	}
+	if err != nil {
+		if w.ctrl.opts.MarketplaceError != nil {
+			w.ctrl.opts.MarketplaceError(err)
+		}
+		return
+	}
+	w.ctrl.opts.InstallPluginFromFile(paths[0])
 }
 
 // marketColumns declares the list beside the detail of the selected plugin, with the

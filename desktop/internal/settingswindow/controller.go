@@ -163,7 +163,10 @@ type Options struct {
 	SetPluginEnabled func(id string, enabled bool)
 	// UninstallPlugin removes the installed version of a plugin.
 	UninstallPlugin func(id string)
-	Language        func() i18n.Language
+	// InstallPluginFromFile installs a plugin package the user picked on disk. The
+	// package is reviewed like a marketplace one before anything is written.
+	InstallPluginFromFile func(path string)
+	Language              func() i18n.Language
 	// Text is the interface language the window paints; nil is English. It is read at
 	// every paint, so the window changes language when the language does.
 	Text func() *i18n.Messages

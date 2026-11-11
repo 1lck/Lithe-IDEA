@@ -77,5 +77,17 @@
     "description": "Row marker of a log point",
     "en-US": "log",
     "zh-CN": "日志点"
+  },
+  {
+    "id": "desktop.marketplace.installFromFile",
+    "description": "Button in the plugin page that installs a plugin package picked on disk; also the file dialog title",
+    "en-US": "Install from file…",
+    "zh-CN": "从文件安装…"
+  },
+  {
+    "id": "desktop.marketplace.packageFilter",
+    "description": "File dialog filter name for plugin package archives",
+    "en-US": "Plugin package",
+    "zh-CN": "插件包"
   }
 ]
