@@ -135,26 +135,41 @@ func (a *App) finishRunConfigurations(p *project, generation uint64, resolved co
 }
 
 // runConfiguration starts configuration id through its build provider with the launch
-// options Core resolves from the saved layers. The instance must be loaded, since the
-// target is taken from its current model.
+// options Core resolves from the saved layers. The Run window ignores the refusal; the IDE
+// API reports it through startRunConfiguration.
 func (a *App) runConfiguration(p *project, id string) {
+	_ = a.startRunConfiguration(p, id, nil)
+}
+
+// startRunConfiguration checks the request on the window thread and then starts the run
+// once unsaved documents are saved, so the run reads the files on disk. The instance must be
+// loaded, since the target is taken from its current model. refused runs when the save fails
+// after the check passed, so a caller that recorded the run can settle it.
+func (a *App) startRunConfiguration(p *project, id string, refused func()) error {
 	configuration := p.runConfigs.configuration(id)
-	if configuration == nil || p.build.operation != nil {
-		return
+	if configuration == nil {
+		return errors.New("unknown run configuration")
 	}
-	reference, _ := configuration.BuildReference()
-	index := slices.IndexFunc(p.build.instances, func(i buildInstance) bool {
-		return i.PluginID == reference.PluginID && i.BuildSystemID == reference.BuildSystemID && i.Root == reference.Root
-	})
+	if p.build.operation != nil {
+		return errors.New("the Build window is already running an operation")
+	}
+	reference, ok := configuration.BuildReference()
+	if !ok {
+		return errors.New("this configuration does not start through a build provider")
+	}
+	index := p.buildInstanceIndex(reference)
 	if index < 0 || !p.build.instances[index].modelLoaded {
 		a.notify(a.text.Build.TargetMissing)
-		return
+		return errors.New(a.text.Build.TargetMissing)
 	}
 	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "run.configuration", "surface": "build"})
 	// The run starts a process on the files on disk, so unsaved documents are saved first,
 	// as a rerun does; a failed save keeps the run from starting.
 	a.saveProjectDocuments(p, func(ok bool) {
 		if !ok {
+			if refused != nil {
+				refused()
+			}
 			return
 		}
 		root, kernel := p.root, a.kernel
@@ -177,4 +192,23 @@ func (a *App) runConfiguration(p *project, id string) {
 			}
 		})
 	})
+	return nil
+}
+
+// buildInstanceIndex returns the detected build instance a provider reference names, or -1.
+func (p *project) buildInstanceIndex(reference core.RunProviderReference) int {
+	return slices.IndexFunc(p.build.instances, func(i buildInstance) bool {
+		return i.PluginID == reference.PluginID && i.BuildSystemID == reference.BuildSystemID && i.Root == reference.Root
+	})
+}
+
+// runConfigurationReady reports whether a configuration can start now: its build instance
+// has a loaded model.
+func (p *project) runConfigurationReady(configuration core.RunConfiguration) bool {
+	reference, ok := configuration.BuildReference()
+	if !ok {
+		return false
+	}
+	index := p.buildInstanceIndex(reference)
+	return index >= 0 && p.build.instances[index].modelLoaded
 }

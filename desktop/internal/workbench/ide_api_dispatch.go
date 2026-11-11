@@ -28,6 +28,9 @@ var ideAPIServedTools = []string{
 	"lithe_operations_list",
 	"lithe_operation_output",
 	"lithe_operation_stop",
+	"lithe_run_list",
+	"lithe_run_start",
+	"lithe_run_restart",
 }
 
 // ideAPIToolExposure is the Core selection matching ideAPIServedTools. No argument
@@ -49,6 +52,9 @@ type ideAPIOperation struct {
 	State         string
 	ExitCode      *int
 	startSequence int
+	// ConfigurationID names the run configuration a run started, so restart can reuse it.
+	// Build executions leave it empty.
+	ConfigurationID string
 }
 
 // operation returns one recorded execution.
@@ -110,6 +116,24 @@ func (a *App) ideAPIDispatch(ctx context.Context, conn *ideAPIConnection, name s
 			return ideAPIFailure("INVALID_ARGUMENTS", "instanceID and a task identity are required")
 		}
 		return a.ideAPIOnProject(ctx, conn, func(p *project) any { return a.ideAPIBuildExecute(p, args) })
+	case "lithe_run_list":
+		return a.ideAPIOnProject(ctx, conn, func(p *project) any { return ideAPIRunList(p) })
+	case "lithe_run_start":
+		var args struct {
+			ConfigurationID string `json:"configurationID"`
+		}
+		if err := ideAPIDecodeArguments(arguments, &args); err != nil || args.ConfigurationID == "" {
+			return ideAPIFailure("INVALID_ARGUMENTS", "configurationID is required")
+		}
+		return a.ideAPIOnProject(ctx, conn, func(p *project) any { return a.ideAPIRunStart(p, args.ConfigurationID) })
+	case "lithe_run_restart":
+		var args struct {
+			OperationID string `json:"operationID"`
+		}
+		if err := ideAPIDecodeArguments(arguments, &args); err != nil || args.OperationID == "" {
+			return ideAPIFailure("INVALID_ARGUMENTS", "operationID is required")
+		}
+		return a.ideAPIOnProject(ctx, conn, func(p *project) any { return a.ideAPIRunRestart(p, args.OperationID) })
 	case "lithe_operations_list":
 		return a.ideAPIOnProject(ctx, conn, func(p *project) any { return ideAPIOperationsList(p) })
 	case "lithe_operation_output":
