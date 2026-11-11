@@ -9,6 +9,9 @@ import (
 // page writes nothing; a switch hands its change to the settings owner at once.
 func (w *window) versionControlPage(c ui.C) {
 	language := w.marketLanguage()
+	if w.ctrl.opts.GitHub != nil {
+		w.gitHubCard(c, language, w.ctrl.opts.GitHub)
+	}
 	gutterTitle := i18n.Shared(language, "desktop.git.settings.gutter")
 	blameTitle := i18n.Shared(language, "desktop.git.settings.blame")
 	gutter := !w.sess.values.HideGitGutter

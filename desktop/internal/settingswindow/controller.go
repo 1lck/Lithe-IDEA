@@ -157,6 +157,8 @@ type PluginSettingsActionLoader interface {
 
 // Options configure the settings window.
 type Options struct {
+	// GitHub is the account the Version Control page shows and drives; nil hides the card.
+	GitHub             *GitHubAccount
 	SettingsError      func(error)
 	SettingsPages      func(context.Context) ([]core.SettingsPage, error)
 	SettingsNavigation func(context.Context, []core.SettingsNavigationItem, string) ([]core.SettingsNavigationRow, error)

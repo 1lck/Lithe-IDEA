@@ -522,5 +522,324 @@
     "parameters": {
       "reason": "string"
     }
+  },
+  {
+    "id": "desktop.github.settingsTitle",
+    "description": "Title of the GitHub account card on the Version Control settings page",
+    "en-US": "GitHub Account",
+    "zh-CN": "GitHub 账号"
+  },
+  {
+    "id": "desktop.github.settingsHelp",
+    "description": "Help under the GitHub account card title",
+    "en-US": "Sign in to list, check out and review pull requests of this repository.",
+    "zh-CN": "登录后可以查看、检出和评审本仓库的 Pull Request。"
+  },
+  {
+    "id": "desktop.github.connectedAs",
+    "description": "GitHub account card: the connected login",
+    "en-US": "Connected as {login}",
+    "zh-CN": "已连接为 {login}",
+    "parameters": {
+      "login": "string"
+    }
+  },
+  {
+    "id": "desktop.github.signIn",
+    "description": "Button that starts the GitHub device sign-in",
+    "en-US": "Sign In to GitHub",
+    "zh-CN": "登录 GitHub"
+  },
+  {
+    "id": "desktop.github.signOut",
+    "description": "Button that removes the stored GitHub token",
+    "en-US": "Sign Out",
+    "zh-CN": "退出登录"
+  },
+  {
+    "id": "desktop.github.enterCode",
+    "description": "GitHub device sign-in: asks the user to type the code on GitHub",
+    "en-US": "Enter this code on GitHub:",
+    "zh-CN": "在 GitHub 上输入此代码："
+  },
+  {
+    "id": "desktop.github.cancelSignIn",
+    "description": "Button that stops the GitHub device sign-in",
+    "en-US": "Cancel",
+    "zh-CN": "取消"
+  },
+  {
+    "id": "desktop.github.working",
+    "description": "GitHub account card while the sign-in starts or validates",
+    "en-US": "Connecting to GitHub…",
+    "zh-CN": "正在连接 GitHub…"
+  },
+  {
+    "id": "desktop.github.notConfigured",
+    "description": "Shown when this build has no GitHub OAuth client",
+    "en-US": "GitHub sign-in is not configured for this build.",
+    "zh-CN": "此构建未配置 GitHub 登录。"
+  },
+  {
+    "id": "desktop.github.expired",
+    "description": "Device sign-in failure: the code expired",
+    "en-US": "The code expired before it was entered on GitHub. Try again.",
+    "zh-CN": "代码在 GitHub 上输入前已过期，请重试。"
+  },
+  {
+    "id": "desktop.github.denied",
+    "description": "Device sign-in failure: the user refused",
+    "en-US": "The authorization was denied on GitHub.",
+    "zh-CN": "GitHub 上的授权被拒绝。"
+  },
+  {
+    "id": "desktop.github.failed",
+    "description": "Device sign-in failure with the reason",
+    "en-US": "GitHub sign-in failed: {reason}",
+    "zh-CN": "GitHub 登录失败：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.github.signOutFailed",
+    "description": "Notice when the stored GitHub token could not be removed",
+    "en-US": "Could not remove the GitHub token: {reason}",
+    "zh-CN": "无法删除 GitHub 令牌：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.github.pullRequests",
+    "description": "Git log menu item and title of the pull-request panel",
+    "en-US": "Pull Requests",
+    "zh-CN": "Pull Request"
+  },
+  {
+    "id": "desktop.github.unavailable",
+    "description": "Pull-request panel: GitHub cannot be reached from this build",
+    "en-US": "GitHub is not available in this build.",
+    "zh-CN": "此构建无法使用 GitHub。"
+  },
+  {
+    "id": "desktop.github.signInFirst",
+    "description": "Pull-request panel: the account must sign in before the list loads",
+    "en-US": "Sign in to GitHub in Settings to list pull requests.",
+    "zh-CN": "请先在设置中登录 GitHub 以查看 Pull Request。"
+  },
+  {
+    "id": "desktop.github.openFailed",
+    "description": "Notice when the pull request page could not be opened in the browser",
+    "en-US": "Could not open the browser: {reason}",
+    "zh-CN": "无法打开浏览器：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.github.checkedOut",
+    "description": "Notice after a pull request was checked out to a local branch",
+    "en-US": "Checked out pull request branch {branch}",
+    "zh-CN": "已检出 Pull Request 分支 {branch}",
+    "parameters": {
+      "branch": "string"
+    }
+  },
+  {
+    "id": "desktop.github.filter.open",
+    "description": "Pull-request panel filter: open pull requests",
+    "en-US": "Open",
+    "zh-CN": "打开"
+  },
+  {
+    "id": "desktop.github.filter.closed",
+    "description": "Pull-request panel filter: closed pull requests",
+    "en-US": "Closed",
+    "zh-CN": "已关闭"
+  },
+  {
+    "id": "desktop.github.filter.mine",
+    "description": "Pull-request panel filter: the signed-in account's pull requests",
+    "en-US": "Mine",
+    "zh-CN": "我的"
+  },
+  {
+    "id": "desktop.github.loading",
+    "description": "Pull-request panel while the list is read",
+    "en-US": "Loading pull requests…",
+    "zh-CN": "正在读取 Pull Request…"
+  },
+  {
+    "id": "desktop.github.noPullRequests",
+    "description": "Pull-request panel when the filter matches nothing",
+    "en-US": "No pull requests match this filter.",
+    "zh-CN": "没有符合此筛选的 Pull Request。"
+  },
+  {
+    "id": "desktop.github.draft",
+    "description": "Pull-request row marker for a draft",
+    "en-US": "Draft",
+    "zh-CN": "草稿"
+  },
+  {
+    "id": "desktop.github.prMeta",
+    "description": "Pull-request detail: state, head and base branches and author",
+    "en-US": "{state} · {head} → {base} · {author}",
+    "zh-CN": "{state} · {head} → {base} · {author}",
+    "parameters": {
+      "state": "string",
+      "head": "string",
+      "base": "string",
+      "author": "string"
+    }
+  },
+  {
+    "id": "desktop.github.openInBrowser",
+    "description": "Pull-request detail button: open the page on GitHub",
+    "en-US": "Open in Browser",
+    "zh-CN": "在浏览器中打开"
+  },
+  {
+    "id": "desktop.github.reviewCheckout",
+    "description": "Pull-request detail button: ask Core for the checkout of the head branch",
+    "en-US": "Review Checkout",
+    "zh-CN": "审阅检出"
+  },
+  {
+    "id": "desktop.github.checkedOutHint",
+    "description": "Pull-request detail: a checkout just finished",
+    "en-US": "The branch is checked out locally.",
+    "zh-CN": "分支已在本地检出。"
+  },
+  {
+    "id": "desktop.github.checkoutBranch",
+    "description": "Pull-request checkout review: the local branch Core proposes",
+    "en-US": "Local branch: {branch}",
+    "zh-CN": "本地分支：{branch}",
+    "parameters": {
+      "branch": "string"
+    }
+  },
+  {
+    "id": "desktop.github.branchExists",
+    "description": "Pull-request checkout review: the proposed local branch already exists",
+    "en-US": "A local branch with this name already exists. Rename or remove it, then review again.",
+    "zh-CN": "同名本地分支已存在。请先重命名或删除它，然后重新审阅。"
+  },
+  {
+    "id": "desktop.github.confirmCheckout",
+    "description": "Pull-request checkout review: run the reviewed checkout",
+    "en-US": "Check Out Branch",
+    "zh-CN": "检出分支"
+  },
+  {
+    "id": "desktop.github.reply",
+    "description": "Label and placeholder of the reply field of a pull request",
+    "en-US": "Write a comment",
+    "zh-CN": "写评论"
+  },
+  {
+    "id": "desktop.github.comment",
+    "description": "Button that posts the comment typed in the pull-request panel",
+    "en-US": "Comment",
+    "zh-CN": "评论"
+  },
+  {
+    "id": "desktop.github.approve",
+    "description": "Pull-request detail button: submit an approving review",
+    "en-US": "Approve",
+    "zh-CN": "批准"
+  },
+  {
+    "id": "desktop.github.requestChanges",
+    "description": "Pull-request detail button: submit a review requesting changes",
+    "en-US": "Request Changes",
+    "zh-CN": "请求修改"
+  },
+  {
+    "id": "desktop.github.reviewNeedsBody",
+    "description": "Pull-request review: requesting changes needs a comment",
+    "en-US": "Write a comment explaining the requested changes.",
+    "zh-CN": "请写明需要修改的内容。"
+  },
+  {
+    "id": "desktop.github.newPullRequest",
+    "description": "Pull-request panel button and title of the create dialog",
+    "en-US": "New Pull Request…",
+    "zh-CN": "新建 Pull Request…"
+  },
+  {
+    "id": "desktop.github.prTitle",
+    "description": "Create pull request dialog: title field",
+    "en-US": "Title",
+    "zh-CN": "标题"
+  },
+  {
+    "id": "desktop.github.prBody",
+    "description": "Create pull request dialog: description field",
+    "en-US": "Description (Markdown)",
+    "zh-CN": "描述（Markdown）"
+  },
+  {
+    "id": "desktop.github.prBranches",
+    "description": "Create pull request dialog: the head and base branches",
+    "en-US": "{head} → {base}",
+    "zh-CN": "{head} → {base}",
+    "parameters": {
+      "head": "string",
+      "base": "string"
+    }
+  },
+  {
+    "id": "desktop.github.nextBase",
+    "description": "Create pull request dialog: choose the next base branch",
+    "en-US": "Change Base",
+    "zh-CN": "更换基础分支"
+  },
+  {
+    "id": "desktop.github.draftChoice",
+    "description": "Create pull request dialog: start as a draft",
+    "en-US": "Create as draft",
+    "zh-CN": "创建为草稿"
+  },
+  {
+    "id": "desktop.github.generateDescription",
+    "description": "Create pull request dialog: draft the title and description with the AI provider",
+    "en-US": "Generate Description",
+    "zh-CN": "生成描述"
+  },
+  {
+    "id": "desktop.github.createPullRequest",
+    "description": "Create pull request dialog: create the pull request",
+    "en-US": "Create Pull Request",
+    "zh-CN": "创建 Pull Request"
+  },
+  {
+    "id": "desktop.github.createDetached",
+    "description": "Create pull request dialog: HEAD is detached",
+    "en-US": "HEAD is detached. Check out a branch before creating a pull request.",
+    "zh-CN": "HEAD 处于分离状态，创建 Pull Request 前请先检出分支。"
+  },
+  {
+    "id": "desktop.github.createUnpublished",
+    "description": "Create pull request dialog: the branch has commits its remote does not have",
+    "en-US": "This branch has commits its remote does not have yet. Publish it before creating a pull request.",
+    "zh-CN": "此分支有远程尚未包含的提交，请先发布再创建 Pull Request。"
+  },
+  {
+    "id": "desktop.github.draftNoProvider",
+    "description": "Notice when no AI provider can draft a pull request description",
+    "en-US": "No AI provider is configured to draft the description.",
+    "zh-CN": "没有可用的 AI 提供方来生成描述。"
+  },
+  {
+    "id": "desktop.github.draftFailed",
+    "description": "Notice when the AI draft of a pull request description failed",
+    "en-US": "Could not draft the description: {reason}",
+    "zh-CN": "无法生成描述：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
   }
 ]
