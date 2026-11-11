@@ -12,6 +12,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/documentio"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/rope"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -98,6 +99,9 @@ type document struct {
 	encodingChanged bool
 	// previousEncoding is what encodingChanged replaced, until the save succeeds.
 	previousEncoding *encodingChoice
+	// breakpointText is the text the breakpoints of this file were last placed in, so an edit can
+	// be given to Core with the text before it (debug_relocate.go).
+	breakpointText rope.Rope
 	// conflictBytes are the bytes of the disk version a conflict notice shows.
 	conflictBytes []byte
 }
@@ -425,6 +429,7 @@ func (a *App) placeDocumentAs(p *project, path, name string, content editorview.
 		OnEdit:  func(edit editorview.Edit) { a.documentEdited(p, d, edit) },
 	})
 	d.view.SetReadOnly(virtual)
+	d.breakpointText = d.view.TextSnapshot()
 	a.documentInput(p, d)
 	p.docs.list = append(p.docs.list, d)
 	a.refreshGitGutter(p, d)

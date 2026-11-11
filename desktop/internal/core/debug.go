@@ -342,3 +342,29 @@ func (c *Client) DestroyDebugSession(ctx context.Context, sessionID string) ([]s
 	}
 	return destroyed.ChildSessions, nil
 }
+
+// DebugTextEdit is one replacement of the source, in UTF-16 offsets of the text before it.
+type DebugTextEdit struct {
+	StartUTF16Offset int64  `json:"startUtf16Offset"`
+	EndUTF16Offset   int64  `json:"endUtf16Offset"`
+	Replacement      string `json:"replacement"`
+}
+
+// RelocateDebugBreakpoints moves the breakpoints of one source across an edit of it. Core
+// projects each line, merges duplicates and drops the breakpoints the edit removed.
+func (c *Client) RelocateDebugBreakpoints(ctx context.Context, source string, edit DebugTextEdit, breakpoints []DebugSourceBreakpoint) ([]DebugSourceBreakpoint, error) {
+	var result struct {
+		Breakpoints []DebugSourceBreakpoint `json:"breakpoints"`
+	}
+	if breakpoints == nil {
+		breakpoints = []DebugSourceBreakpoint{}
+	}
+	if err := c.Execute(ctx, "debug.relocateBreakpoints", struct {
+		Source      string                  `json:"source"`
+		Edit        DebugTextEdit           `json:"edit"`
+		Breakpoints []DebugSourceBreakpoint `json:"breakpoints"`
+	}{source, edit, breakpoints}, &result); err != nil {
+		return nil, err
+	}
+	return result.Breakpoints, nil
+}
