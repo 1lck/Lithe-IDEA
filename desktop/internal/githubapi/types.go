@@ -1,5 +1,35 @@
 package githubapi
 
+import "encoding/json"
+
+// DecodePullRequests reads the normalized list of pull requests.
+func DecodePullRequests(raw json.RawMessage) ([]PullRequest, error) {
+	var items []PullRequest
+	err := json.Unmarshal(raw, &items)
+	return items, err
+}
+
+// DecodePullRequest reads one normalized pull request.
+func DecodePullRequest(raw json.RawMessage) (PullRequest, error) {
+	var item PullRequest
+	err := json.Unmarshal(raw, &item)
+	return item, err
+}
+
+// DecodeComments reads the normalized conversation of a pull request.
+func DecodeComments(raw json.RawMessage) ([]Comment, error) {
+	var items []Comment
+	err := json.Unmarshal(raw, &items)
+	return items, err
+}
+
+// DecodeUser reads the normalized user of a currentUser answer.
+func DecodeUser(raw json.RawMessage) (User, error) {
+	var user User
+	err := json.Unmarshal(raw, &user)
+	return user, err
+}
+
 // The normalized shapes Rust Core returns (shared/contracts/github.md). They are decoded from the
 // normalized JSON; the host reads them and never reshapes them.
 

@@ -609,5 +609,140 @@
     "parameters": {
       "reason": "string"
     }
+  },
+  {
+    "id": "desktop.github.pullRequests",
+    "description": "Git log menu item and title of the pull-request panel",
+    "en-US": "Pull Requests",
+    "zh-CN": "Pull Request"
+  },
+  {
+    "id": "desktop.github.unavailable",
+    "description": "Pull-request panel: GitHub cannot be reached from this build",
+    "en-US": "GitHub is not available in this build.",
+    "zh-CN": "此构建无法使用 GitHub。"
+  },
+  {
+    "id": "desktop.github.signInFirst",
+    "description": "Pull-request panel: the account must sign in before the list loads",
+    "en-US": "Sign in to GitHub in Settings to list pull requests.",
+    "zh-CN": "请先在设置中登录 GitHub 以查看 Pull Request。"
+  },
+  {
+    "id": "desktop.github.openFailed",
+    "description": "Notice when the pull request page could not be opened in the browser",
+    "en-US": "Could not open the browser: {reason}",
+    "zh-CN": "无法打开浏览器：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.github.checkedOut",
+    "description": "Notice after a pull request was checked out to a local branch",
+    "en-US": "Checked out pull request branch {branch}",
+    "zh-CN": "已检出 Pull Request 分支 {branch}",
+    "parameters": {
+      "branch": "string"
+    }
+  },
+  {
+    "id": "desktop.github.filter.open",
+    "description": "Pull-request panel filter: open pull requests",
+    "en-US": "Open",
+    "zh-CN": "打开"
+  },
+  {
+    "id": "desktop.github.filter.closed",
+    "description": "Pull-request panel filter: closed pull requests",
+    "en-US": "Closed",
+    "zh-CN": "已关闭"
+  },
+  {
+    "id": "desktop.github.filter.mine",
+    "description": "Pull-request panel filter: the signed-in account's pull requests",
+    "en-US": "Mine",
+    "zh-CN": "我的"
+  },
+  {
+    "id": "desktop.github.loading",
+    "description": "Pull-request panel while the list is read",
+    "en-US": "Loading pull requests…",
+    "zh-CN": "正在读取 Pull Request…"
+  },
+  {
+    "id": "desktop.github.noPullRequests",
+    "description": "Pull-request panel when the filter matches nothing",
+    "en-US": "No pull requests match this filter.",
+    "zh-CN": "没有符合此筛选的 Pull Request。"
+  },
+  {
+    "id": "desktop.github.draft",
+    "description": "Pull-request row marker for a draft",
+    "en-US": "Draft",
+    "zh-CN": "草稿"
+  },
+  {
+    "id": "desktop.github.prMeta",
+    "description": "Pull-request detail: state, head and base branches and author",
+    "en-US": "{state} · {head} → {base} · {author}",
+    "zh-CN": "{state} · {head} → {base} · {author}",
+    "parameters": {
+      "state": "string",
+      "head": "string",
+      "base": "string",
+      "author": "string"
+    }
+  },
+  {
+    "id": "desktop.github.openInBrowser",
+    "description": "Pull-request detail button: open the page on GitHub",
+    "en-US": "Open in Browser",
+    "zh-CN": "在浏览器中打开"
+  },
+  {
+    "id": "desktop.github.reviewCheckout",
+    "description": "Pull-request detail button: ask Core for the checkout of the head branch",
+    "en-US": "Review Checkout",
+    "zh-CN": "审阅检出"
+  },
+  {
+    "id": "desktop.github.checkedOutHint",
+    "description": "Pull-request detail: a checkout just finished",
+    "en-US": "The branch is checked out locally.",
+    "zh-CN": "分支已在本地检出。"
+  },
+  {
+    "id": "desktop.github.checkoutBranch",
+    "description": "Pull-request checkout review: the local branch Core proposes",
+    "en-US": "Local branch: {branch}",
+    "zh-CN": "本地分支：{branch}",
+    "parameters": {
+      "branch": "string"
+    }
+  },
+  {
+    "id": "desktop.github.branchExists",
+    "description": "Pull-request checkout review: the proposed local branch already exists",
+    "en-US": "A local branch with this name already exists. Rename or remove it, then review again.",
+    "zh-CN": "同名本地分支已存在。请先重命名或删除它，然后重新审阅。"
+  },
+  {
+    "id": "desktop.github.confirmCheckout",
+    "description": "Pull-request checkout review: run the reviewed checkout",
+    "en-US": "Check Out Branch",
+    "zh-CN": "检出分支"
+  },
+  {
+    "id": "desktop.github.reply",
+    "description": "Label and placeholder of the reply field of a pull request",
+    "en-US": "Write a comment",
+    "zh-CN": "写评论"
+  },
+  {
+    "id": "desktop.github.comment",
+    "description": "Button that posts the comment typed in the pull-request panel",
+    "en-US": "Comment",
+    "zh-CN": "评论"
   }
 ]

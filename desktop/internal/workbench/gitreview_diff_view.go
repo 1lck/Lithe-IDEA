@@ -37,6 +37,9 @@ func (a *App) reviewOverlays(c ui.C, p *project) {
 	if p.rebase.open {
 		a.drawRebaseDialog(c, p)
 	}
+	if a.pullRequests.open {
+		a.drawPullRequestsDialog(c, p)
+	}
 }
 
 // shortHash is the first seven characters of hash, the way Git abbreviates a commit.

@@ -352,7 +352,9 @@ type App struct {
 	dnd  dragDrop
 	// github is the GitHub account and its sign-in (github_account.go).
 	github githubAccount
-	focus  focusTarget
+	// pullRequests is the pull-request panel of the Git log (github_prs.go).
+	pullRequests pullRequestState
+	focus        focusTarget
 	// debugHostedPort and debugInitializeWindow replace, in tests, asking the
 	// language server for a debug port and Core's initialize deadline. Production
 	// leaves both zero.

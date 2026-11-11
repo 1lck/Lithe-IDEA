@@ -3,6 +3,7 @@ package workbench
 import (
 	"strings"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -79,6 +80,9 @@ func (a *App) drawLogMenu(c ui.C, p *project, button ui.Box) {
 		}
 		if menu.Item(g.RefreshLog).Clicked() {
 			c.After(func() { a.loadLog(p) })
+		}
+		if menu.Item(i18n.Shared(a.language(), "desktop.github.pullRequests")).Clicked() {
+			c.After(func() { a.openPullRequests(p) })
 		}
 		menu.Separator()
 		if menu.Item(g.ShowChanges).Clicked() {
