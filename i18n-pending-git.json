@@ -1213,5 +1213,11 @@
     "parameters": {
       "reason": "string"
     }
+  },
+  {
+    "id": "desktop.rebase.slotBusy",
+    "description": "Notice when Rebase from Here is started while an unfinished rebase session holds the project's single slot",
+    "en-US": "Finish the rebase in progress before starting another one.",
+    "zh-CN": "请先结束正在进行的变基，再开始新的变基。"
   }
 ]
