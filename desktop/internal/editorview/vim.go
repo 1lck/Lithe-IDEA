@@ -442,6 +442,10 @@ func (v *View) vimCommandToken(tok vimToken) {
 	if s == "" {
 		return
 	}
+	if st.searching {
+		v.vimSearchInput(s)
+		return
+	}
 	switch st.pend {
 	case 'g':
 		st.pend = 0
@@ -575,6 +579,15 @@ func (v *View) vimCommand(s string) {
 	case "f", "F", "t", "T":
 		st.pend = s[0]
 		return
+	case "/", "?":
+		if st.op == 0 {
+			v.vimSearchStart(s == "?")
+			return
+		}
+	case "n", "N":
+		if st.op == 0 {
+			v.vimSearchRepeat(s == "n")
+		}
 	case ";", ",":
 		if !st.findValid {
 			break
