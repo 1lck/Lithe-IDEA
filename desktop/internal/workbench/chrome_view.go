@@ -5,6 +5,7 @@ import (
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
+	"runtime"
 )
 
 // This file declares the window's chrome as components of the workbench page: the title bar
@@ -65,6 +66,10 @@ func (a *App) titleBar(c ui.C) {
 	// The system's window buttons sit at one end of the strip, so the content keeps clear of
 	// them.
 	leading, trailing := app.TitlebarInsets()
+	if a.fullscreen && runtime.GOOS == "darwin" {
+		// macOS hides the traffic lights in fullscreen; the strip starts at the edge.
+		leading = 0
+	}
 	clicked := -1
 	ui.Row(c).FillWidth().Height(titleBarHeight).Shrink(0).Background(a.colors.Chrome).
 		Items(ui.Center).Gap(chromeGap).PadSides(0, trailing+chromeEdge, 0, leading+chromeEdge).

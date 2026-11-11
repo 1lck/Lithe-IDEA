@@ -43,6 +43,11 @@ func (a *App) commands() []command {
 	add("theme.system", t.GroupView, t.ThemeSystem, "", a.settings.Theme != themeSystem, func() { a.setTheme(themeSystem) })
 	add("theme.light", t.GroupView, t.ThemeLight, "", a.settings.Theme != themeLight, func() { a.setTheme(themeLight) })
 	add("theme.dark", t.GroupView, t.ThemeDark, "", a.settings.Theme != themeDark, func() { a.setTheme(themeDark) })
+	add("window.fullscreen", t.GroupView, a.text.Keymap.ToggleFullscreen, "", a.window != nil, func() {
+		if err := a.window.SetFullscreen(!a.window.Fullscreen()); err != nil {
+			a.notify(a.text.Keymap.FullscreenFailed(err.Error()))
+		}
+	})
 	add("language.en", t.GroupView, t.LanguageEnglish, "", a.settings.Language != "en", func() { a.setLanguage("en") })
 	add("language.zh", t.GroupView, t.LanguageChinese, "", a.settings.Language != "zh-Hans", func() { a.setLanguage("zh-Hans") })
 

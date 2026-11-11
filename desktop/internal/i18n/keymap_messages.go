@@ -11,6 +11,9 @@ type KeymapMessages struct {
 	// Unbindable says the pressed chord would take plain typing.
 	Unbindable string
 	Help       string
+	// ToggleFullscreen is the View action; FullscreenFailed says the window refused it.
+	ToggleFullscreen string
+	FullscreenFailed func(reason string) string
 }
 
 func keymapMessages(language Language) KeymapMessages {
@@ -33,7 +36,11 @@ func keymapMessages(language Language) KeymapMessages {
 		Conflict: func(keys, action string) string {
 			return SharedFormat(language, "desktop.keymap.conflict", map[string]string{"keys": keys, "action": action})
 		},
-		Unbindable: Shared(language, "desktop.keymap.unbindable"),
-		Help:       Shared(language, "desktop.keymap.help"),
+		Unbindable:       Shared(language, "desktop.keymap.unbindable"),
+		Help:             Shared(language, "desktop.keymap.help"),
+		ToggleFullscreen: Shared(language, "desktop.keymap.toggleFullscreen"),
+		FullscreenFailed: func(reason string) string {
+			return SharedFormat(language, "desktop.keymap.fullscreenFailed", map[string]string{"reason": reason})
+		},
 	}
 }

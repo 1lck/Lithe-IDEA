@@ -90,6 +90,14 @@ func navigateDefault() keymap.Chord {
 	return chord(gfx.ModifierControl, "g")
 }
 
+// fullscreenDefault is Toggle Full Screen: Control-Command-F on macOS, F11 elsewhere.
+func fullscreenDefault() keymap.Chord {
+	if runtime.GOOS == "darwin" {
+		return chord(gfx.ModifierControl|gfx.ModifierMeta, "f")
+	}
+	return chord(0, "f11")
+}
+
 // IDs of the actions the window treats specially when their keys are pressed.
 const (
 	FindAction = "search.findAction"
@@ -106,6 +114,7 @@ var Catalog = []Action{
 	{ID: "theme.system", Group: GroupView, Title: func(m *i18n.Messages) string { return m.Commands.ThemeSystem }},
 	{ID: "theme.light", Group: GroupView, Title: func(m *i18n.Messages) string { return m.Commands.ThemeLight }},
 	{ID: "theme.dark", Group: GroupView, Title: func(m *i18n.Messages) string { return m.Commands.ThemeDark }},
+	{ID: "window.fullscreen", Group: GroupView, Title: func(m *i18n.Messages) string { return m.Keymap.ToggleFullscreen }, Defaults: chords(fullscreenDefault())},
 	{ID: "language.en", Group: GroupView, Title: func(m *i18n.Messages) string { return m.Commands.LanguageEnglish }},
 	{ID: "language.zh", Group: GroupView, Title: func(m *i18n.Messages) string { return m.Commands.LanguageChinese }},
 	{ID: "project.open", Group: GroupProject, Title: func(m *i18n.Messages) string { return m.Commands.OpenProject }, Defaults: chords(chord(keymap.Primary, "o"))},

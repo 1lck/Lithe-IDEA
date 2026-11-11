@@ -640,5 +640,20 @@
     "description": "Terminal settings page, scrollback",
     "en-US": "Default",
     "zh-CN": "恢复默认"
+  },
+  {
+    "id": "desktop.keymap.toggleFullscreen",
+    "description": "View action",
+    "en-US": "Toggle Full Screen",
+    "zh-CN": "切换全屏"
+  },
+  {
+    "id": "desktop.keymap.fullscreenFailed",
+    "description": "Notice when the window refuses fullscreen",
+    "en-US": "Could not change full screen: {reason}",
+    "zh-CN": "无法切换全屏：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
   }
 ]

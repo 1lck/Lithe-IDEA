@@ -354,7 +354,11 @@ type App struct {
 	store                 *store.Store
 	now                   func() time.Time
 	invalidator           app.Invalidator
-	tasks                 taskQueue
+	// window is the workbench's native window once it is open; fullscreen is whether it
+	// fills its monitor, as the host last reported.
+	window     *app.Window
+	fullscreen bool
+	tasks      taskQueue
 	// languages are the languages the editor knows, made when the first file is opened.
 	languages *syntax.Registry
 
@@ -627,9 +631,11 @@ func (a *App) Run() error {
 		a.application = application
 		// System Quit bypasses window close requests unless it is intercepted here.
 		application.OnQuitRequest(a.requestCloseProject)
-		if _, err := application.OpenWindow(a.Config(), nil); err != nil {
+		window, err := application.OpenWindow(a.Config(), nil)
+		if err != nil {
 			return err
 		}
+		a.window = window
 		// The plugin stack is assembled before the window exists, because opening a
 		// window is what installs the invalidator its background work needs.
 		a.reloadPluginLanguages()

@@ -40,6 +40,8 @@ func (a *App) Config() app.Config {
 		OnWake:         a.drain,
 		OnCloseRequest: func(allow func()) { a.requestCloseProject(allow) },
 		OnClosed:       a.closed,
+		// A fullscreen window has no system buttons to keep clear of.
+		OnFullscreen: func(fullscreen bool) { a.fullscreen = fullscreen },
 		// A Page routes the keys and the chords of the controls it declares, but not the arrow
 		// keys of a splitter, nor the chords a terminal or an editor takes (Control-C, copy,
 		// paste): those two are the window's to give them.
