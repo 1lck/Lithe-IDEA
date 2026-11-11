@@ -102,6 +102,9 @@ type debugSessionView struct {
 	threads        []core.DebugThread
 	selectedThread int64
 	threadsFailure string
+	// resumedThreads are the threads resumed alone while the session stays paused; their
+	// stacks are gone until the next stop, which clears the set.
+	resumedThreads map[int64]bool
 	// threadSequence numbers the thread requests of this connection.
 	threadSequence uint64
 	// watch holds the expressions the user added and their last values, and
@@ -476,7 +479,7 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 			p.debug.disassembly.reset()
 			p.debug.memory.reset()
 			p.debug.pausedThread = event.ThreadID
-			p.debug.threads, p.debug.selectedThread, p.debug.threadsFailure = nil, 0, ""
+			p.debug.threads, p.debug.selectedThread, p.debug.threadsFailure, p.debug.resumedThreads = nil, 0, "", nil
 			p.debug.watch.valuesCleared()
 			p.debug.status = a.text.Debug.Paused
 			if event.ThreadID != nil {
@@ -485,12 +488,18 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 			}
 			a.inspectDebugThreads(p, session)
 		case "continued":
+			// Core keeps the session paused when the adapter resumed one thread alone
+			// (allThreadsContinued false), so only that thread's stop is gone.
+			if p.debug.state == "paused" && event.ThreadID != nil {
+				a.debugThreadResumed(p, *event.ThreadID)
+				continue
+			}
 			p.debug.vars.reset()
 			p.debug.disassembly.reset()
 			p.debug.memory.reset()
 			p.debug.frames = nil
 			p.debug.pausedThread = nil
-			p.debug.threads, p.debug.selectedThread, p.debug.threadsFailure = nil, 0, ""
+			p.debug.threads, p.debug.selectedThread, p.debug.threadsFailure, p.debug.resumedThreads = nil, 0, "", nil
 			p.debug.watch.valuesCleared()
 			p.debug.state = "running"
 			p.debug.exception = nil
@@ -505,7 +514,7 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 			p.debug.memory.reset()
 			p.debug.frames = nil
 			p.debug.pausedThread = nil
-			p.debug.threads, p.debug.selectedThread, p.debug.threadsFailure = nil, 0, ""
+			p.debug.threads, p.debug.selectedThread, p.debug.threadsFailure, p.debug.resumedThreads = nil, 0, "", nil
 			p.debug.watch.valuesCleared()
 			p.debug.state = "terminated"
 			p.debug.status = a.text.Debug.Terminated

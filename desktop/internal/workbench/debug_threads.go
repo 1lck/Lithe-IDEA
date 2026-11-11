@@ -93,7 +93,79 @@ func (a *App) selectDebugThread(p *project, threadID int64) {
 	d.vars.reset()
 	d.frames = nil
 	d.memory.reset()
+	d.watch.valuesCleared()
+	// A thread resumed alone has no stack to show until it stops again.
+	if d.resumedThreads[threadID] {
+		return
+	}
 	a.inspectDebugStack(p, d.activeSession(), threadID)
+}
+
+// canExecuteDebugThread reports which single-thread command the thread menu offers for one
+// thread and whether Core would accept it now. Core takes continue only while the session is
+// paused and pause only while it runs, and both need the adapter's single-thread support; a
+// thread resumed alone while the others stay stopped can therefore not be paused alone.
+func canExecuteDebugThread(d *debugState, threadID int64) (command string, enabled bool) {
+	if d.activeSession() == nil || d.capabilities == nil || !d.capabilities.SupportsSingleThreadExecutionRequests {
+		return "", false
+	}
+	switch {
+	case d.state == "paused" && !d.resumedThreads[threadID]:
+		return "continue", true
+	case d.state == "paused":
+		return "pause", false
+	case d.state == "running":
+		return "pause", true
+	}
+	return "", false
+}
+
+// executeDebugThread resumes or pauses one thread alone. A request Core refuses is shown as
+// a notice and leaves the session as it was: it is about one thread, not the connection.
+func (a *App) executeDebugThread(p *project, threadID int64) {
+	d := &p.debug
+	command, enabled := canExecuteDebugThread(d, threadID)
+	if !enabled {
+		return
+	}
+	session := d.activeSession()
+	operationID := fmt.Sprintf("%s-%s-thread-%d", session.id, command, threadID)
+	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
+		session.operationMu.Lock()
+		defer session.operationMu.Unlock()
+		if session.stopped.Load() {
+			return nil
+		}
+		update, err := a.kernel.ExecuteDebugThread(ctx, session.id, operationID, command, threadID)
+		if err != nil {
+			return func(a *App) { a.notify(err.Error()) }
+		}
+		if err := session.writeFrames(update.OutboundFrames); err != nil {
+			return func(a *App) { a.finishDebugError(p, session, err) }
+		}
+		a.postDebugUpdate(p, session, update)
+		return nil
+	})
+}
+
+// debugThreadResumed records that the adapter resumed one thread while the session stays
+// paused. Core keeps the other threads' frames and variables valid, so only what the
+// resumed thread showed is dropped.
+func (a *App) debugThreadResumed(p *project, threadID int64) {
+	d := &p.debug
+	if d.resumedThreads == nil {
+		d.resumedThreads = make(map[int64]bool)
+	}
+	d.resumedThreads[threadID] = true
+	if threadID != d.selectedThread {
+		return
+	}
+	d.vars.reset()
+	d.disassembly.reset()
+	d.memory.reset()
+	d.frames = nil
+	d.exception = nil
+	d.watch.valuesCleared()
 }
 
 // debugThreadPicker is the thread selector above the call stack. One thread needs no picker.
@@ -119,6 +191,9 @@ func (a *App) debugThreadPicker(c ui.C, p *project) {
 			name := d.threads[index].Name
 			if name == "" {
 				name = t.ThreadFallback(int(d.threads[index].ID))
+			}
+			if d.resumedThreads[d.threads[index].ID] {
+				name = t.ThreadRunning(name)
 			}
 			return name
 		}).Label(t.Threads).Width(240).Height(24)

@@ -62,9 +62,11 @@ type DebugMessages struct {
 	RemotePrompt func(endpoint string) string
 	// ConnectFailed reports a failed connection to the debug adapter.
 	ConnectFailed func(endpoint string) string
-	// Threads names the thread selector and ThreadFallback words a thread without a name.
+	// Threads names the thread selector, ThreadFallback words a thread without a name and
+	// ThreadRunning marks a thread resumed alone while the others stay paused.
 	Threads        string
 	ThreadFallback func(id int) string
+	ThreadRunning  func(name string) string
 	// Watches, WatchPlaceholder, AddWatch, RemoveWatch and EvaluateFailed are the watch editor.
 	Watches          string
 	WatchPlaceholder string
@@ -144,6 +146,9 @@ func debugMessages(language Language) DebugMessages {
 		Threads: Shared(language, "desktop.debug.threads"),
 		ThreadFallback: func(id int) string {
 			return SharedFormat(language, "desktop.debug.threadFallback", map[string]string{"id": strconv.Itoa(id)})
+		},
+		ThreadRunning: func(name string) string {
+			return SharedFormat(language, "desktop.debug.threadRunning", map[string]string{"name": name})
 		},
 		Watches:          Shared(language, "desktop.debug.watches"),
 		WatchPlaceholder: Shared(language, "desktop.debug.watchPlaceholder"),

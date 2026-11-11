@@ -96,11 +96,12 @@ func serveFixtureAdapter(input io.Reader, output io.Writer, workspace string) in
 		switch request.Command {
 		case "initialize":
 			respond(map[string]any{
-				"supportsConfigurationDoneRequest": true,
-				"supportsSetVariable":              true,
-				"supportsDisassembleRequest":       true,
-				"supportsSteppingGranularity":      true,
-				"supportsReadMemoryRequest":        true,
+				"supportsConfigurationDoneRequest":      true,
+				"supportsSetVariable":                   true,
+				"supportsDisassembleRequest":            true,
+				"supportsSteppingGranularity":           true,
+				"supportsReadMemoryRequest":             true,
+				"supportsSingleThreadExecutionRequests": true,
 				"exceptionBreakpointFilters": []any{
 					map[string]any{"filter": "uncaught", "label": "Uncaught Exceptions", "default": true},
 					map[string]any{"filter": "caught", "label": "Caught Exceptions", "default": false},
@@ -215,12 +216,23 @@ func serveFixtureAdapter(input io.Reader, output io.Writer, workspace string) in
 				continue
 			}
 			respond(map[string]any{"result": "42", "type": "int", "variablesReference": 0})
-		case "continue":
-			respond(map[string]any{"allThreadsContinued": true})
-			event("continued", map[string]any{"threadId": 7, "allThreadsContinued": true})
-		case "pause":
-			respond(map[string]any{})
-			event("stopped", map[string]any{"reason": "pause", "threadId": 7})
+		case "continue", "pause":
+			var arguments struct {
+				ThreadID     int  `json:"threadId"`
+				SingleThread bool `json:"singleThread"`
+			}
+			_ = json.Unmarshal(request.Body, &arguments)
+			thread := 7
+			if arguments.SingleThread {
+				thread = arguments.ThreadID
+			}
+			if request.Command == "continue" {
+				respond(map[string]any{"allThreadsContinued": !arguments.SingleThread})
+				event("continued", map[string]any{"threadId": thread, "allThreadsContinued": !arguments.SingleThread})
+			} else {
+				respond(map[string]any{})
+				event("stopped", map[string]any{"reason": "pause", "threadId": thread})
+			}
 		default:
 			respond(map[string]any{})
 		}

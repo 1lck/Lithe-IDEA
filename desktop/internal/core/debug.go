@@ -280,6 +280,24 @@ func (c *Client) ExecuteDebug(ctx context.Context, sessionID, operationID, comma
 	return update, nil
 }
 
+// ExecuteDebugThread queues continue or pause for one thread alone. Core sends it with
+// singleThread, which needs the adapter's supportsSingleThreadExecutionRequests, and keeps
+// the session paused while only that thread runs, so the other threads' stacks and
+// variables stay valid.
+func (c *Client) ExecuteDebugThread(ctx context.Context, sessionID, operationID, command string, threadID int64) (DebugUpdate, error) {
+	var update DebugUpdate
+	if err := c.Execute(ctx, "debug.execute", struct {
+		SessionID    string `json:"sessionId"`
+		OperationID  string `json:"operationId"`
+		Command      string `json:"command"`
+		ThreadID     int64  `json:"threadId"`
+		SingleThread bool   `json:"singleThread"`
+	}{sessionID, operationID, command, threadID, true}, &update); err != nil {
+		return DebugUpdate{}, err
+	}
+	return update, nil
+}
+
 // DebugInspectRequest is one typed thread, stack or scope request.
 type DebugInspectRequest struct {
 	SessionID          string `json:"sessionId"`

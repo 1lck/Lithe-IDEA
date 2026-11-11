@@ -97,6 +97,7 @@ type Kernel interface {
 	RunArgumentText(ctx context.Context, lists [][]string) ([]string, error)
 	SetDebugBreakpoints(ctx context.Context, sessionID, sourcePath string, breakpoints []core.DebugSourceBreakpoint) (core.DebugUpdate, error)
 	ExecuteDebug(ctx context.Context, sessionID, operationID, command string, threadID *int64, granularity string) (core.DebugUpdate, error)
+	ExecuteDebugThread(ctx context.Context, sessionID, operationID, command string, threadID int64) (core.DebugUpdate, error)
 	InspectDebug(ctx context.Context, request core.DebugInspectRequest) (core.DebugUpdate, error)
 	ReceiveDebug(ctx context.Context, sessionID string, data []byte) (core.DebugUpdate, error)
 	DisconnectDebug(ctx context.Context, sessionID string) (core.DebugUpdate, error)

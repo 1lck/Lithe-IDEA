@@ -11092,6 +11092,7 @@
     "workspace.openWithOther": "Other…",
     "desktop.debug.threads": "Threads",
     "desktop.debug.threadFallback": "Thread {id}",
+    "desktop.debug.threadRunning": "{name} (running)",
     "desktop.debug.watches": "Watches",
     "desktop.debug.watchPlaceholder": "Evaluate expression",
     "desktop.debug.addWatch": "Add Watch",

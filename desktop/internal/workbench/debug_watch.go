@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -30,6 +31,28 @@ type debugWatch struct {
 	// pick is what the recent-expressions picker chose last.
 	history []string
 	pick    string
+	// editOpen shows the watch at editIndex as a field holding edit. editFocus asks for the
+	// keyboard on the next paint, and editFocused records that the field had it, so moving
+	// the keyboard elsewhere ends the edit the way Enter does.
+	editOpen    bool
+	editIndex   int
+	edit        ui.Field
+	editFocus   bool
+	editFocused bool
+}
+
+// beginEdit turns the watch at index into a field holding its expression.
+func (w *debugWatch) beginEdit(index int) {
+	if index < 0 || index >= len(w.entries) {
+		return
+	}
+	w.editOpen, w.editIndex, w.editFocus, w.editFocused = true, index, true, false
+	w.edit.SetText(w.entries[index].expression)
+}
+
+// endEdit closes the field without changing the watch.
+func (w *debugWatch) endEdit() {
+	w.editOpen, w.editFocus, w.editFocused = false, false, false
 }
 
 // maxWatchHistory bounds the recent expressions the picker offers.
@@ -73,6 +96,35 @@ func (a *App) removeDebugWatch(p *project, index int) {
 		return
 	}
 	d.watch.entries = append(d.watch.entries[:index], d.watch.entries[index+1:]...)
+	if w := &d.watch; w.editOpen {
+		switch {
+		case index == w.editIndex:
+			w.endEdit()
+		case index < w.editIndex:
+			w.editIndex--
+		}
+	}
+}
+
+// commitDebugWatchEdit replaces the edited watch's expression with the field's text and
+// evaluates it at the current frame. An empty or unchanged text keeps the watch as it was.
+func (a *App) commitDebugWatchEdit(p *project) {
+	d := &p.debug
+	w := &d.watch
+	if !w.editOpen {
+		return
+	}
+	index := w.editIndex
+	w.endEdit()
+	expression := strings.TrimSpace(w.edit.Text())
+	if index < 0 || index >= len(w.entries) || expression == "" || expression == w.entries[index].expression {
+		return
+	}
+	w.entries[index] = debugWatchEntry{expression: expression}
+	w.rememberExpression(expression)
+	if d.activeSession() != nil && d.state == "paused" {
+		a.evaluateDebugWatch(p, index)
+	}
 }
 
 // refreshDebugWatches evaluates every expression at the current stop's first frame. It is
@@ -134,6 +186,7 @@ func (a *App) debugWatchView(c ui.C, p *project) {
 	t, d := a.text.Debug, &p.debug
 	w := &d.watch
 	if d.activeSession() == nil || d.state != "paused" {
+		w.endEdit()
 		return
 	}
 	ui.Column(c).FillWidth().Shrink(0).Gap(4).PadX(8).PadY(4).Children(func() {
@@ -156,6 +209,10 @@ func (a *App) debugWatchView(c ui.C, p *project) {
 			c.After(func() { a.addDebugWatch(p) })
 		}
 		for index := range w.entries {
+			if w.editOpen && w.editIndex == index {
+				a.debugWatchEditField(c, p)
+				continue
+			}
 			entry := w.entries[index]
 			k := c.Key("watch/" + entry.expression)
 			row := ui.Row(k).FillWidth().Items(ui.Center).Gap(6).HitWith(ui.ID(k), entry.expression, gfx.HitOptions{SkipFocus: true})
@@ -180,7 +237,43 @@ func (a *App) debugWatchView(c ui.C, p *project) {
 					c.After(func() { a.removeDebugWatch(p, i) })
 				}
 			})
+			if row.DoubleClicked() {
+				i := index
+				c.After(func() {
+					a.performed("debug.watch.edit", "debug")
+					w.beginEdit(i)
+				})
+			}
 			a.debugWatchMenu(k, row, p, index)
 		}
 	})
+}
+
+// debugWatchEditField declares the field that edits one watch in place: Enter or moving the
+// keyboard elsewhere keeps the new expression, and Escape keeps the old one.
+func (a *App) debugWatchEditField(c ui.C, p *project) {
+	w := &p.debug.watch
+	id := ui.ID(c.Key("watchEdit"))
+	canvas := c.Canvas()
+	switch {
+	case w.editFocus:
+		canvas.RequestFocus(id)
+		w.editFocus = false
+	case canvas.Focused() == id:
+		w.editFocused = true
+	case w.editFocused:
+		c.After(func() { a.commitDebugWatchEdit(p) })
+	}
+	label := i18n.Shared(a.language(), "native.editWatch")
+	field := ui.TextFieldID(c, id, &w.edit, label, a.text.Debug.WatchPlaceholder).FillWidth()
+	field.OnKey(func(event gfx.KeyEvent) gfx.EventResult {
+		if event.Key != gfx.KeyEscape {
+			return gfx.EventResult{}
+		}
+		w.endEdit()
+		return gfx.EventResult{Handled: true, Repaint: true}
+	})
+	if field.Submitted() {
+		c.After(func() { a.commitDebugWatchEdit(p) })
+	}
 }

@@ -47,9 +47,10 @@ func (a *App) debugView(c ui.C, p *project) {
 			if ui.Button(c, t.Pause).Outline().Disabled(d.activeSession() == nil || d.state != "running").Clicked() {
 				a.pauseDebug(p)
 			}
-			// Steps need a stopped debuggee; the adapter decides which commands it
-			// serves and Core rejects the rest with a visible failure.
-			stepDisabled := d.activeSession() == nil || d.state != "paused"
+			// Steps need a stopped debuggee and a stopped thread to step; the adapter decides
+			// which commands it serves and Core rejects the rest with a visible failure.
+			stepDisabled := d.activeSession() == nil || d.state != "paused" ||
+				(d.pausedThread != nil && d.resumedThreads[*d.pausedThread])
 			if ui.Button(c, t.StepInto).Outline().Disabled(stepDisabled).Clicked() {
 				a.executeDebug(p, "stepIn")
 			}

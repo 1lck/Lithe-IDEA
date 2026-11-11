@@ -11092,6 +11092,7 @@
     "workspace.openWithOther": "其他…",
     "desktop.debug.threads": "线程",
     "desktop.debug.threadFallback": "线程 {id}",
+    "desktop.debug.threadRunning": "{name}（运行中）",
     "desktop.debug.watches": "监视",
     "desktop.debug.watchPlaceholder": "求值表达式",
     "desktop.debug.addWatch": "添加监视",

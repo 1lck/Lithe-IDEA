@@ -7,17 +7,19 @@ import (
 // DebugCapabilities is what the adapter negotiated at initialize. A native UI
 // treats it as unknown until the `capabilities` event arrives.
 type DebugCapabilities struct {
-	SupportsSetVariable            bool                   `json:"supportsSetVariable"`
-	SupportsDisassembleRequest     bool                   `json:"supportsDisassembleRequest"`
-	SupportsSteppingGranularity    bool                   `json:"supportsSteppingGranularity"`
-	SupportsInstructionBreakpoints bool                   `json:"supportsInstructionBreakpoints"`
-	SupportsDataBreakpoints        bool                   `json:"supportsDataBreakpoints"`
-	SupportsExceptionInfoRequest   bool                   `json:"supportsExceptionInfoRequest"`
-	SupportsReadMemoryRequest      bool                   `json:"supportsReadMemoryRequest"`
-	SupportsRestartRequest         bool                   `json:"supportsRestartRequest"`
-	SupportsTerminateRequest       bool                   `json:"supportsTerminateRequest"`
-	SupportsExceptionFilterOptions bool                   `json:"supportsExceptionFilterOptions"`
-	ExceptionBreakpointFilters     []DebugExceptionFilter `json:"exceptionBreakpointFilters"`
+	SupportsSetVariable            bool `json:"supportsSetVariable"`
+	SupportsDisassembleRequest     bool `json:"supportsDisassembleRequest"`
+	SupportsSteppingGranularity    bool `json:"supportsSteppingGranularity"`
+	SupportsInstructionBreakpoints bool `json:"supportsInstructionBreakpoints"`
+	SupportsDataBreakpoints        bool `json:"supportsDataBreakpoints"`
+	SupportsExceptionInfoRequest   bool `json:"supportsExceptionInfoRequest"`
+	SupportsReadMemoryRequest      bool `json:"supportsReadMemoryRequest"`
+	SupportsRestartRequest         bool `json:"supportsRestartRequest"`
+	SupportsTerminateRequest       bool `json:"supportsTerminateRequest"`
+	SupportsExceptionFilterOptions bool `json:"supportsExceptionFilterOptions"`
+	// SupportsSingleThreadExecutionRequests lets continue and pause name one thread alone.
+	SupportsSingleThreadExecutionRequests bool                   `json:"supportsSingleThreadExecutionRequests"`
+	ExceptionBreakpointFilters            []DebugExceptionFilter `json:"exceptionBreakpointFilters"`
 }
 
 // DebugExceptionFilter is one adapter-defined exception category.

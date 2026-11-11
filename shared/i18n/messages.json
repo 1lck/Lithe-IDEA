@@ -51403,7 +51403,8 @@
       "id": "native.editWatch",
       "description": "Native UI: Edit Watch",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Edit Watch",
@@ -69667,7 +69668,8 @@
       "id": "native.pauseThread",
       "description": "Native UI: Pause Thread",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Pause Thread",
@@ -75252,7 +75254,8 @@
       "id": "native.resumeThread",
       "description": "Native UI: Resume Thread",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Resume Thread",
@@ -106136,6 +106139,16 @@
       ],
       "parameters": {
         "id": "string"
+      }
+    },
+    {
+      "id": "desktop.debug.threadRunning",
+      "description": "Debug thread selector entry for a thread resumed alone while the other threads stay paused. {name} is the thread's name.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
       }
     },
     {

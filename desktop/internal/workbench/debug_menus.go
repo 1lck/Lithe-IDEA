@@ -46,9 +46,23 @@ func (a *App) debugThreadMenu(c ui.C, picker ui.Box, p *project) {
 		if thread >= len(p.debug.threads) {
 			return
 		}
-		name := p.debug.threads[thread].Name
-		if menu.Item(i18n.Shared(a.language(), "native.copyThreadName")).Disabled(name == "").Clicked() {
+		lang := a.language()
+		name, id := p.debug.threads[thread].Name, p.debug.threads[thread].ID
+		if menu.Item(i18n.Shared(lang, "native.copyThreadName")).Disabled(name == "").Clicked() {
 			c.After(func() { a.copyDebugText("debug.thread.copyName", name) })
+		}
+		// Resuming or pausing one thread alone is offered only when the adapter supports it.
+		if command, enabled := canExecuteDebugThread(&p.debug, id); command != "" {
+			label := i18n.Shared(lang, "native.resumeThread")
+			if command == "pause" {
+				label = i18n.Shared(lang, "native.pauseThread")
+			}
+			if menu.Item(label).Disabled(!enabled).Clicked() {
+				c.After(func() {
+					a.performed("debug.thread."+command, surfaceMenu)
+					a.executeDebugThread(p, id)
+				})
+			}
 		}
 	})
 }
@@ -226,6 +240,12 @@ func (a *App) debugWatchMenu(c ui.C, row ui.Box, p *project, index int) {
 			c.After(func() {
 				a.performed("debug.watch.refresh", surfaceMenu)
 				a.refreshDebugWatches(p)
+			})
+		}
+		if menu.Item(i18n.Shared(lang, "native.editWatch")).Clicked() {
+			c.After(func() {
+				a.performed("debug.watch.edit", surfaceMenu)
+				w.beginEdit(index)
 			})
 		}
 		menu.Separator()
