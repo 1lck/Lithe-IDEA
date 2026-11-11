@@ -294,3 +294,70 @@ func TestWrapTabs(t *testing.T) {
 		}
 	}
 }
+
+// The list of hidden tabs scrolls once it is taller than tabMenuMaxHeight, and the close
+// button of a row closes that tab and leaves the list open on the rest.
+func TestHiddenTabsListScrollsAndClosesARow(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	docs, group := h.openTabs(t, 30)
+	s := h.app.term.strips[group]
+	h.press(h.hitLabeled(h.app.text.Editor.HiddenTabs))
+	if !s.menu {
+		t.Fatal("the button did not open the list of hidden tabs")
+	}
+	rows := h.menuItemHits()
+	if len(s.hidden) < 15 {
+		t.Fatalf("only %d of %d tabs are hidden; the list would not need to scroll", len(s.hidden), len(docs))
+	}
+	top, bottom := rows[0].Y, rows[0].Bottom()
+	for _, r := range rows {
+		top, bottom = min(top, r.Y), max(bottom, r.Bottom())
+	}
+	if bottom-top > tabMenuMaxHeight+tabHideSlack {
+		t.Fatalf("the list of %d hidden tabs is %v tall, want it to scroll within %v", len(s.hidden), bottom-top, tabMenuMaxHeight)
+	}
+
+	victim := docs[0]
+	if !slices.Contains(s.hidden, documentMember(victim.id)) {
+		t.Fatalf("hidden = %v lacks the first tab", s.hidden)
+	}
+	row := h.menuItemHit(victim.name)
+	closeButton, found := gfx.Rect{}, false
+	for _, hit := range h.driver.Snapshot().Hits {
+		if hit.Label == h.app.text.Editor.CloseTab && !hit.IsLabel && hit.Role == gfx.RoleButton &&
+			hit.Bounds.X >= row.X && hit.Bounds.Right() <= row.Right() && hit.Bounds.Y >= row.Y && hit.Bounds.Bottom() <= row.Bottom() {
+			closeButton, found = hit.Bounds, true
+		}
+	}
+	if !found {
+		t.Fatalf("the row of %s has no close button", victim.name)
+	}
+	h.press(closeButton)
+	if h.app.project.docs.byPath(victim.path) != nil {
+		t.Fatal("the row's close button did not close the tab")
+	}
+	if !s.menu {
+		t.Fatal("closing a tab from the list closed the list")
+	}
+	if slices.Contains(s.hidden, documentMember(victim.id)) {
+		t.Fatal("the closed tab is still listed")
+	}
+	if h.selectedMember(group) != documentMember(docs[len(docs)-1].id) {
+		t.Fatal("closing a hidden tab changed the selection")
+	}
+}
+
+// menuItemHits are the hits of the items of the menu or list that is open.
+func (h *harness) menuItemHits() []gfx.Rect {
+	h.t.Helper()
+	var rows []gfx.Rect
+	for _, hit := range h.driver.Snapshot().Hits {
+		if hit.Role == gfx.RoleMenuItem && !hit.IsLabel {
+			rows = append(rows, hit.Bounds)
+		}
+	}
+	if len(rows) == 0 {
+		h.t.Fatal("no menu is open")
+	}
+	return rows
+}

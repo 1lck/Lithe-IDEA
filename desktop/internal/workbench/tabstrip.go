@@ -44,8 +44,10 @@ const (
 	// tabHideSlack is how far a tab may poke out of the strip and still count as shown, for
 	// the rounding of the layout.
 	tabHideSlack = 0.5
-	// tabMenuWidth is the width of the lists of hidden tabs and of the new-terminal menu.
-	tabMenuWidth = 300
+	// tabMenuWidth is the width of the lists of hidden tabs and of the new-terminal menu, and
+	// tabMenuMaxHeight the most the list of hidden tabs grows before it scrolls.
+	tabMenuWidth     = 300
+	tabMenuMaxHeight = 360
 )
 
 // tabStrip is what the window remembers about one editor group's strip between paints.
@@ -466,7 +468,9 @@ func (a *App) closeTab(t shownTab) {
 }
 
 // hiddenTabsButton declares the button that lists the tabs the strip does not show in full,
-// and the menu it opens: a row selects its tab and scrolls it into view.
+// and the list it opens under it. A row selects its tab, scrolls it into view and closes the
+// list; its close button closes the tab and keeps the list open. A long list scrolls inside
+// tabMenuMaxHeight.
 func (a *App) hiddenTabsButton(c ui.C, place *groupPlace, s *tabStrip, tabs []shownTab, current string) {
 	icon := icons.ChevronDown
 	if place.tool {
@@ -475,28 +479,82 @@ func (a *App) hiddenTabsButton(c ui.C, place *groupPlace, s *tabStrip, tabs []sh
 	button, clicked := a.toolIconButton(c.Part("more"), a.text.Editor.HiddenTabs, icon, s.menu, false)
 	wasOpen := s.menu
 	if s.menu {
-		ui.Menu(c, button, &s.menu, func(menu *ui.MenuItems) {
-			menu.WidthRange(tabMenuWidth, tabMenuWidth)
-			for _, member := range s.hidden {
-				i := slices.IndexFunc(tabs, func(t shownTab) bool { return t.member() == member })
-				if i < 0 {
-					continue
+		spec := ui.PopoverSpec{Align: ui.End, Offset: chromeMenuOffset, Width: tabMenuWidth, ConsumeOutsidePress: true}
+		ui.PopoverWith(c, button, spec, &s.menu, func() {
+			ui.Scroll(c.Part("hidden")).FillWidth().MaxHeight(tabMenuMaxHeight).Gap(chromeMenuItems).Children(func() {
+				for _, member := range s.hidden {
+					i := slices.IndexFunc(tabs, func(t shownTab) bool { return t.member() == member })
+					if i < 0 {
+						continue
+					}
+					t := tabs[i]
+					switch a.hiddenTabRow(c.Key(member), t, member == current) {
+					case hiddenSelect:
+						c.After(func() {
+							a.selectTab(t)
+							s.menu, s.revealed = false, ""
+						})
+					case hiddenClose:
+						c.After(func() { a.closeTab(t) })
+					}
 				}
-				t := tabs[i]
-				item := menu.Item(a.tabLabel(t)).Icon(a.tabIcon(t)).Chosen(member == current)
-				if item.Clicked() {
-					c.After(func() {
-						a.selectTab(t)
-						s.revealed = ""
-					})
-				}
-			}
+			})
 		})
 	}
 	if clicked && !wasOpen {
 		a.term.closeStripMenus()
 		s.menu = true
 	}
+}
+
+// hiddenClick is what a click on a row of the list of hidden tabs asks for.
+type hiddenClick uint8
+
+const (
+	hiddenNone hiddenClick = iota
+	hiddenSelect
+	hiddenClose
+)
+
+// hiddenTabRow declares the row of one hidden tab: its icon, its name and a close button.
+func (a *App) hiddenTabRow(c ui.C, t shownTab, selected bool) hiddenClick {
+	label := a.tabLabel(t)
+	row := ui.Row(c).Height(chromeMenuRow).Shrink(0).FillWidth().Items(ui.Center).Gap(chromeMenuGap).PadX(chromeEdge).
+		Radius(a.theme.Metrics.RadiusItem()).
+		HitWith(ui.ID(c), label, gfx.HitOptions{Role: gfx.RoleMenuItem, Cursor: gfx.PointerCursorHand, Selected: selected})
+	if selected {
+		row = row.Background(a.colors.Active)
+	} else {
+		row = row.Hover(ui.Look{}.Background(a.colors.Hover))
+	}
+	closeLabel := a.text.Terminal.CloseTab
+	if t.term == nil {
+		closeLabel = a.text.Editor.CloseTab
+	}
+	var closeButton ui.Box
+	row.Children(func() {
+		ui.Icon(c, a.tabIcon(t)).Size(terminalChipIcon, terminalChipIcon).Shrink(0).Color(a.colors.Subtle)
+		ui.Text(c, label).Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis().Grow(1)
+		if t.doc != nil && t.doc.dirty() {
+			ui.Row(c).Size(documentDirty, documentDirty).Shrink(0).Radius(documentDirty / 2).Background(a.colors.Accent)
+		}
+		cc := c.Part("close")
+		closeButton = ui.Row(cc).Size(terminalCloseSize, terminalCloseSize).Shrink(0).Center().
+			Radius(a.theme.Metrics.RadiusItem()).
+			HitWith(ui.ID(cc), closeLabel, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}).
+			Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
+		closeButton.Children(func() {
+			ui.Icon(cc, icons.X).Size(terminalCloseIcon, terminalCloseIcon).Color(a.colors.Subtle).
+				StateFrom(closeButton).Hover(ui.Look{}.Color(a.colors.Text))
+		})
+	})
+	switch {
+	case closeButton.Clicked():
+		return hiddenClose
+	case row.Clicked():
+		return hiddenSelect
+	}
+	return hiddenNone
 }
 
 // tabLabel and tabIcon are the name and the icon of a tab.
