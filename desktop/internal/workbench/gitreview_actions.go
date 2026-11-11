@@ -39,6 +39,11 @@ func (a *App) changeMenuItems(c ui.C, p *project, change core.GitChange) func(*u
 		if !folder && tracked && menu.Item(i18n.Shared(a.language(), "git.blame.annotate")).Clicked() {
 			c.After(func() { a.openBlame(p, change.Path) })
 		}
+		if change.Untracked || change.Status == "??" {
+			if menu.Item(i18n.Shared(a.language(), "desktop.git.excludeLocally")).Clicked() {
+				c.After(func() { a.excludeLocally(p, change) })
+			}
+		}
 		a.changeListMenuItems(c, p, change, menu)
 		menu.Separator()
 		if menu.Item(i18n.Shared(a.language(), "git.rollback")).Destructive().Clicked() {

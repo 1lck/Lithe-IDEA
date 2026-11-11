@@ -327,5 +327,20 @@
     "parameters": {
       "reason": "string"
     }
+  },
+  {
+    "id": "desktop.git.excludeLocally",
+    "description": "Commit change menu item: exclude an untracked file or folder from Git on this machine only",
+    "en-US": "Exclude From Git (Local Only)",
+    "zh-CN": "从 Git 排除（仅本地）"
+  },
+  {
+    "id": "desktop.git.excludeFailed",
+    "description": "Notice when an untracked change could not be added to info/exclude",
+    "en-US": "Could not exclude the item: {reason}",
+    "zh-CN": "无法排除该项目：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
   }
 ]
