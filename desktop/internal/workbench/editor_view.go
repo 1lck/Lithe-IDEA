@@ -255,6 +255,7 @@ func (a *App) terminalView(c ui.C, t *terminal) {
 			box := ui.Control(c.Part(name), a.text.Terminal.Label, &t.input).Fill().Draw(t.draw)
 			box.DropTarget(&a.dnd.tree, a.terminalTreeAccept, a.terminalTreeDrop)
 			ui.FocusBind(box, &a.focus, focusTarget{term: t.id})
+			a.terminalMenu(c, name, box, t)
 		})
 		return
 	}
@@ -262,6 +263,7 @@ func (a *App) terminalView(c ui.C, t *terminal) {
 	// A project tree row dropped on the terminal pastes its path (terminal_drop.go).
 	box.DropTarget(&a.dnd.tree, a.terminalTreeAccept, a.terminalTreeDrop)
 	ui.FocusBind(box, &a.focus, focusTarget{term: t.id})
+	a.terminalMenu(c, name, box, t)
 }
 
 // terminalInput makes the handlers and the painter of terminal t, once, when it is opened.

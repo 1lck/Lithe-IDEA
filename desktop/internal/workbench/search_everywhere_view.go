@@ -3,7 +3,6 @@ package workbench
 import (
 	"path"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 
@@ -423,16 +422,10 @@ func (a *App) everywhereRowMenu(c ui.C, target ui.Box, p *project, result core.W
 				a.openSearchResult(p, result)
 			})
 		}
-		reveal := i18n.Shared(language, "desktop.files.revealInFinder")
-		if runtime.GOOS == "windows" {
-			reveal = i18n.Shared(language, "desktop.files.revealInExplorer")
-		}
-		if menu.Item(reveal).Clicked() {
+		if menu.Item(revealLabel(language)).Clicked() {
 			c.After(func() {
 				a.performed("workspace.searchEverywhere.reveal", surfaceMenu)
-				if err := treeRevealPath(full); err != nil {
-					a.notifyError(i18n.SharedFormat(language, "desktop.files.revealFailed", map[string]string{"reason": treeErrorReason(err)}))
-				}
+				a.revealPath(full)
 			})
 		}
 		menu.Separator()

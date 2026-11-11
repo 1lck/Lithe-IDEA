@@ -1,6 +1,8 @@
 package workbench
 
 import (
+	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -31,27 +33,68 @@ func (a *App) changeMenuItems(c ui.C, p *project, change core.GitChange) func(*u
 			a.changeListMenuItems(c, p, change, menu)
 			return
 		}
+		lang := a.language()
 		folder := strings.HasSuffix(change.Path, "/")
+		full := filepath.Join(p.git.repositoryRoot(p.root), filepath.FromSlash(strings.TrimSuffix(change.Path, "/")))
+		deleted := strings.ContainsRune(change.Status, 'D')
+		if !folder && !deleted && menu.Item(i18n.Shared(lang, "desktop.files.open")).Clicked() {
+			c.After(func() {
+				a.performed("git.change.open", surfaceMenu)
+				a.openFile(p, full)
+			})
+		}
 		if folder {
-			if menu.Item(i18n.Shared(a.language(), "desktop.gitReview.untrackedMenu")).Clicked() {
+			if menu.Item(i18n.Shared(lang, "desktop.gitReview.untrackedMenu")).Clicked() {
 				c.After(func() { a.openUntracked(p, change.Path) })
 			}
-		} else if menu.Item(i18n.Shared(a.language(), "git.showDiff")).Clicked() {
+		} else if menu.Item(i18n.Shared(lang, "git.showDiff")).Clicked() {
 			c.After(func() { a.openDiff(p, change) })
 		}
 		tracked := !change.Untracked && change.Status != "??" && !strings.HasSuffix(change.Status, "A") && !strings.HasPrefix(change.Status, "A")
-		if !folder && tracked && menu.Item(i18n.Shared(a.language(), "git.blame.annotate")).Clicked() {
+		if !folder && tracked && menu.Item(i18n.Shared(lang, "git.blame.annotate")).Clicked() {
 			c.After(func() { a.openBlame(p, change.Path) })
 		}
-		if change.Untracked || change.Status == "??" {
-			if menu.Item(i18n.Shared(a.language(), "desktop.git.excludeLocally")).Clicked() {
+		menu.Separator()
+		untracked := change.Untracked || change.Status == "??"
+		stage := stagesChange(change)
+		label := i18n.Shared(lang, "desktop.files.unstage")
+		switch {
+		case untracked:
+			label = i18n.Shared(lang, "vcs.commitFiles.addToVcs")
+		case stage:
+			label = i18n.Shared(lang, "desktop.files.stage")
+		}
+		if menu.Item(label).Disabled(p.commit.busy || !change.CanToggleStaging).Clicked() {
+			c.After(func() { a.stageChange(p, change) })
+		}
+		if untracked {
+			if menu.Item(i18n.Shared(lang, "desktop.git.excludeLocally")).Clicked() {
 				c.After(func() { a.excludeLocally(p, change) })
 			}
 		}
 		a.changeListMenuItems(c, p, change, menu)
 		menu.Separator()
-		if menu.Item(i18n.Shared(a.language(), "git.rollback")).Destructive().Clicked() {
+		if menu.Item(i18n.Shared(lang, "git.rollback")).Destructive().Clicked() {
 			c.After(func() { a.openRollback(p, []core.GitChange{change}) })
+		}
+		rel, inside := projectRelative(p.root, full)
+		if !deleted && inside && rel != "" && menu.Item(i18n.Shared(lang, "desktop.files.moveToTrash")).Clicked() {
+			c.After(func() {
+				a.trashTreeItem(p, &treeNode{path: rel, name: path.Base(rel), dir: folder})
+			})
+		}
+		menu.Separator()
+		if !deleted && menu.Item(revealLabel(lang)).Clicked() {
+			c.After(func() {
+				a.performed("git.change.reveal", surfaceMenu)
+				a.revealPath(full)
+			})
+		}
+		if menu.Item(i18n.Shared(lang, "native.copyPath")).Clicked() {
+			c.After(func() { a.copyTreePath(full, false) })
+		}
+		if menu.Item(i18n.Shared(lang, "native.copyRelativePath")).Clicked() {
+			c.After(func() { a.copyTreePath(full, true) })
 		}
 	}
 }

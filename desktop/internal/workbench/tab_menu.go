@@ -81,7 +81,20 @@ func (a *App) tabMenuItems(c ui.C, group string, t shownTab, tabs []shownTab) fu
 		if menu.Item(i18n.Shared(language, "native.copyRelativePath")).Clicked() {
 			c.After(func() { a.copyTreePath(path, true) })
 		}
-		if _, inside := projectRelativePath(p.root, path); inside && menu.Item(i18n.Shared(language, "desktop.tab.selectInProject")).Clicked() {
+		if menu.Item(revealLabel(language)).Clicked() {
+			c.After(func() {
+				a.performed("editor.tabs.reveal", surfaceMenu)
+				a.revealPath(path)
+			})
+		}
+		_, inside := projectRelativePath(p.root, path)
+		if _, ok := a.kernel.(localHistoryKernel); ok && inside && menu.Item(i18n.Shared(language, "desktop.history.show")).Clicked() {
+			c.After(func() {
+				a.performed("localHistory.show", surfaceMenu)
+				a.openLocalHistory(p, path)
+			})
+		}
+		if inside && menu.Item(i18n.Shared(language, "desktop.tab.selectInProject")).Clicked() {
 			c.After(func() {
 				a.performed("editor.tabs.selectInProject", surfaceMenu)
 				a.selectDocument(p, d.id)

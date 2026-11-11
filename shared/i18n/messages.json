@@ -39348,7 +39348,8 @@
       "description": "Windows UI: menu.copy",
       "platforms": [
         "macos",
-        "windows"
+        "windows",
+        "desktop"
       ],
       "macos": {
         "key": "Copy",
@@ -39598,7 +39599,8 @@
       "description": "Windows UI: menu.paste",
       "platforms": [
         "macos",
-        "windows"
+        "windows",
+        "desktop"
       ],
       "macos": {
         "key": "Paste",
@@ -39749,7 +39751,8 @@
       "description": "Windows UI: menu.selectAll",
       "platforms": [
         "macos",
-        "windows"
+        "windows",
+        "desktop"
       ],
       "macos": {
         "key": "Select All",
@@ -77363,7 +77366,8 @@
       "id": "native.restart",
       "description": "Native UI: Restart",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Restart",
@@ -105930,7 +105934,8 @@
       "description": "Common action: Clear.",
       "platforms": [
         "macos",
-        "windows"
+        "windows",
+        "desktop"
       ],
       "macos": {
         "key": "Clear",
@@ -106794,7 +106799,8 @@
       "id": "vcs.commitFiles.addToVcs",
       "description": "macOS Commit file context actions, confirmations and validation.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Add to VCS",

@@ -183,7 +183,9 @@ func TestWelcomeRevealFailureIsReportedAndLoggedWithoutThePath(t *testing.T) {
 	}
 }
 
-func TestWelcomeOpeningMissingProjectReportsAndLogsFailure(t *testing.T) {
+// Opening a recent project whose folder is gone asks to take it off the list, as the old
+// client did: Cancel keeps the entry, Remove from List drops it, and nothing opens.
+func TestWelcomeOpeningMissingProjectOffersToRemoveIt(t *testing.T) {
 	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
 	path := filepath.Join(t.TempDir(), "private-missing-project")
 	h.app.recent = []core.RecentProject{{Path: path}}
@@ -191,28 +193,32 @@ func TestWelcomeOpeningMissingProjectReportsAndLogsFailure(t *testing.T) {
 	if err := h.driver.Resize(900, 600); err != nil {
 		t.Fatal(err)
 	}
-	logger := &treeRecordingLog{}
-	h.app.logSink = logger
-	row := center(h.welcomeRowHit(path).Bounds)
-	if err := h.driver.Click(row.X, row.Y); err != nil {
-		t.Fatal(err)
-	}
-	if h.app.notice == "" || h.app.project != nil {
-		t.Fatal("opening a missing project did not show an error")
-	}
-	logger.mu.Lock()
-	defer logger.mu.Unlock()
-	var failure *core.LogEvent
-	for i := range logger.events {
-		if logger.events[i].Fields["operation"] == "workspace_open" {
-			failure = &logger.events[i]
+	open := func() {
+		row := center(h.welcomeRowHit(path).Bounds)
+		if err := h.driver.Click(row.X, row.Y); err != nil {
+			t.Fatal(err)
+		}
+		h.settle()
+		if len(h.app.prompts.queue) != 1 || h.app.prompts.queue[0].title != h.shared("fileSystem.recentProjectUnavailableTitle") {
+			t.Fatal("opening a missing project did not ask to remove it")
+		}
+		if h.app.project != nil {
+			t.Fatal("a missing project was opened")
 		}
 	}
-	if failure == nil {
-		t.Fatal("opening a missing project did not log the failure")
+
+	open()
+	h.clickNamed(h.shared("desktop.projectOpen.cancel"))
+	h.settle()
+	if len(h.app.recent) != 1 || !h.app.missing[path] {
+		t.Fatal("Cancel dropped the missing project or its mark")
 	}
-	if message, ok := failure.Fields["error"].(string); !ok || strings.Contains(message, path) {
-		t.Fatalf("workspace-open log leaked the path: %#v", failure.Fields)
+
+	open()
+	h.clickNamed(h.shared("fileSystem.removeFromList"))
+	h.settle()
+	if len(h.app.recent) != 0 {
+		t.Fatal("Remove from List kept the missing project")
 	}
 }
 
@@ -324,7 +330,7 @@ func TestWelcomeProjectMenuIsKeyboardReachable(t *testing.T) {
 	if h.app.welcome.menuPath != path || !h.app.welcome.menuOpen {
 		t.Fatal("keyboard activation did not open the project menu")
 	}
-	open, reveal, remove := h.app.text.Welcome.MenuOpen, h.app.welcomeRevealLabel(), h.app.text.Welcome.MenuRemove
+	open, reveal, pin, remove := h.app.text.Welcome.MenuOpen, h.app.welcomeRevealLabel(), h.app.text.Welcome.MenuPin, h.app.text.Welcome.MenuRemove
 	if _, ok := h.findPageHit(open); !ok {
 		t.Fatal("the menu did not show its open action")
 	}
@@ -337,7 +343,7 @@ func TestWelcomeProjectMenuIsKeyboardReachable(t *testing.T) {
 	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{open, reveal, remove} {
+	for _, want := range []string{open, reveal, pin, remove} {
 		if err := h.driver.Key(gfx.KeyDown, 0); err != nil {
 			t.Fatal(err)
 		}

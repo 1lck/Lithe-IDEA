@@ -124,6 +124,13 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 		}
 		if !n.dir && !root {
 			a.treeGitMenu(c, p, n, menu)
+			if _, ok := a.kernel.(localHistoryKernel); ok && menu.Item(i18n.Shared(language, "desktop.history.show")).Clicked() {
+				file := filepath.Join(p.root, filepath.FromSlash(n.path))
+				c.After(func() {
+					a.performed("localHistory.show", surfaceMenu)
+					a.openLocalHistory(p, file)
+				})
+			}
 			opened = true
 		}
 		if opened {
@@ -134,6 +141,12 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 			c.After(func() {
 				a.performed("workspace.search.open", surfaceMenu)
 				a.openFindInFiles(p, false)
+			})
+		}
+		if menu.Item(i18n.Shared(language, "desktop.command.replaceInFiles")).Clicked() {
+			c.After(func() {
+				a.performed("workspace.replace.open", surfaceMenu)
+				a.openFindInFiles(p, true)
 			})
 		}
 		if n.dir && !root {
@@ -205,16 +218,10 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 				})
 			}
 		}
-		reveal := i18n.Shared(language, "desktop.files.revealInFinder")
-		if runtime.GOOS == "windows" {
-			reveal = i18n.Shared(language, "desktop.files.revealInExplorer")
-		}
-		if menu.Item(reveal).Clicked() {
+		if menu.Item(revealLabel(language)).Clicked() {
 			c.After(func() {
 				a.performed("workspace.tree.reveal", surfaceMenu)
-				if err := treeRevealPath(full); err != nil {
-					a.notifyError(i18n.SharedFormat(language, "desktop.files.revealFailed", map[string]string{"reason": treeErrorReason(err)}))
-				}
+				a.revealPath(full)
 			})
 		}
 		menu.Separator()
@@ -225,6 +232,21 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 			})
 		}
 	})
+}
+
+// revealLabel is the menu label that shows a path in the platform's file manager.
+func revealLabel(language i18n.Language) string {
+	if runtime.GOOS == "windows" {
+		return i18n.Shared(language, "desktop.files.revealInExplorer")
+	}
+	return i18n.Shared(language, "desktop.files.revealInFinder")
+}
+
+// revealPath shows full in the platform's file manager and says why when it cannot.
+func (a *App) revealPath(full string) {
+	if err := treeRevealPath(full); err != nil {
+		a.notifyError(i18n.SharedFormat(a.language(), "desktop.files.revealFailed", map[string]string{"reason": treeErrorReason(err)}))
+	}
 }
 
 // copyTreePath copies a path to the clipboard, relative to the project when relative is set.
