@@ -207,6 +207,10 @@ func (a *App) openFile(p *project, path string) {
 		a.selectDocument(p, d.id)
 		return
 	}
+	if kind, ok := viewerKindOf(path); ok {
+		a.openViewer(p, path, kind)
+		return
+	}
 	if p.docs.opening[path] {
 		return
 	}
@@ -237,6 +241,11 @@ func (a *App) openFile(p *project, path string) {
 			location := p.docs.locations[path]
 			delete(p.docs.locations, path)
 			defer a.openFinished(p, path, err)
+			if errors.Is(err, errNotText) {
+				// A binary file opens in the hex viewer rather than not at all.
+				a.openViewer(p, path, viewerHex)
+				return
+			}
 			if err != nil {
 				a.emit(documentFailedLevel, documentEventOpenFailed, documentOpenFields(err))
 				a.notify(a.text.Editor.OpenFailed(name, a.documentReason(err)))

@@ -86,6 +86,8 @@ type shownTab struct {
 	term *terminal
 	doc  *document
 	diff *diffTab
+	// view is a viewer tab (viewer.go).
+	view *viewerTab
 	// agent is the AI conversation placed in the editor area.
 	agent bool
 }
@@ -97,6 +99,8 @@ func (s shownTab) member() string {
 		return documentMember(s.doc.id)
 	case s.diff != nil:
 		return diffMember(s.diff.id)
+	case s.view != nil:
+		return viewerMember(s.view.id)
 	case s.agent:
 		return agentConversationMember
 	}
@@ -196,6 +200,10 @@ func (a *App) groupTabs(group string) ([]shownTab, string) {
 			if t := p.diffs.find(id); t != nil {
 				shown = append(shown, shownTab{diff: t})
 			}
+		} else if id, ok := memberViewer(member); ok {
+			if t := p.viewers.find(id); t != nil {
+				shown = append(shown, shownTab{view: t})
+			}
 		}
 	}
 	return shown, g.Selected
@@ -214,6 +222,9 @@ func (a *App) tabWidth(canvas *gfx.Canvas, s shownTab) float32 {
 	}
 	if s.diff != nil {
 		return tabChrome + canvas.TextWidth(s.diff.name(), size)
+	}
+	if s.view != nil {
+		return tabChrome + canvas.TextWidth(s.view.name, size)
 	}
 	if s.agent {
 		return min(max(tabChrome+canvas.TextWidth(a.agentConversationTitle(a.project), size), terminalChipMinWidth), terminalChipMaxWidth)
@@ -462,6 +473,8 @@ func (a *App) selectTab(t shownTab) {
 		a.selectDocument(a.project, t.doc.id)
 	case t.diff != nil:
 		a.selectDiff(a.project, t.diff.id)
+	case t.view != nil:
+		a.selectViewer(a.project, t.view.id)
 	case t.agent:
 		a.selectAgentTab(a.project)
 	default:
@@ -476,6 +489,8 @@ func (a *App) closeTab(t shownTab) {
 		a.closeDocument(a.project, t.doc.id)
 	case t.diff != nil:
 		a.closeDiffTab(a.project, t.diff.id)
+	case t.view != nil:
+		a.closeViewer(a.project, t.view.id)
 	case t.agent:
 		a.closeAgentTab(a.project)
 	default:
@@ -580,6 +595,8 @@ func (a *App) tabLabel(t shownTab) string {
 		return t.doc.name
 	case t.diff != nil:
 		return t.diff.name()
+	case t.view != nil:
+		return t.view.name
 	case t.agent:
 		return a.agentConversationTitle(a.project)
 	}
@@ -592,6 +609,11 @@ func (a *App) tabIcon(t shownTab) gfx.Icon {
 		return fileicons.ForFile(t.doc.name, a.colors.Dark)
 	case t.diff != nil:
 		return icons.GitCompare
+	case t.view != nil:
+		if t.view.kind == viewerImage {
+			return icons.Image
+		}
+		return icons.File
 	case t.agent:
 		agent, _ := a.project.selectedAgent()
 		return a.agentBrandIcon(agent.ID)

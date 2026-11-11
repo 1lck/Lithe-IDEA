@@ -133,5 +133,10 @@ func (a *App) tabLook(member string) (string, gfx.Icon, bool) {
 			return t.name(), icons.GitCompare, true
 		}
 	}
+	if id, ok := memberViewer(member); ok {
+		if t := p.viewers.find(id); t != nil {
+			return t.name, icons.Image, true
+		}
+	}
 	return "", gfx.Icon{}, false
 }

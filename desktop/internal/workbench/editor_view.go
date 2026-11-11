@@ -102,6 +102,10 @@ func (a *App) groupBody(c ui.C, id string, doc *document) {
 		a.diffView(c, a.project, t)
 		return
 	}
+	if t := a.project.selectedViewer(id); t != nil {
+		a.viewerView(c, t)
+		return
+	}
 	if g := a.project.terms.bench.Group(id); g != nil && g.Selected == agentConversationMember {
 		a.agentConversationPane(c, a.project)
 		return

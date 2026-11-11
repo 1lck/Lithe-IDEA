@@ -469,6 +469,8 @@ func (a *App) dropTab(member string, target dropTarget) {
 		a.selectDocument(p, id)
 	} else if id, ok := memberDiff(member); ok {
 		a.selectDiff(p, id)
+	} else if id, ok := memberViewer(member); ok {
+		a.selectViewer(p, id)
 	}
 }
 
