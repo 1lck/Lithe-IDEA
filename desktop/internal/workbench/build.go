@@ -41,6 +41,9 @@ type buildState struct {
 	failed  string
 	// options is the Build options editor of the selected instance (build_options.go).
 	options buildOptionsEditor
+	// reloadPending says a stored option changed while a detection was running, so the instances are
+	// detected again when that detection ends.
+	reloadPending bool
 	// status is the last result line under the output.
 	status string
 	// output is bounded and stores whole lines; the oldest lines go first.
@@ -395,6 +398,10 @@ func (a *App) finishBuildDetection(p *project, generation uint64, instances []bu
 		return
 	}
 	p.build.loading = false
+	if p.build.reloadPending {
+		p.build.reloadPending = false
+		defer a.loadBuildSystems(p)
+	}
 	p.build.loaded = true
 	p.build.instances = instances
 	if p.build.selected >= len(instances) {

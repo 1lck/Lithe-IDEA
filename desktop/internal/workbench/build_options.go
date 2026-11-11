@@ -203,9 +203,19 @@ func (a *App) saveBuildOptionChanges(p *project, instance buildInstance, changes
 				return
 			}
 			done(nil)
-			a.loadBuildSystems(p)
+			a.requestBuildReload(p)
 		}
 	})
+}
+
+// requestBuildReload detects the instances again now, or when the detection in progress ends, since a
+// detection that started before the change read the old values.
+func (a *App) requestBuildReload(p *project) {
+	if p.build.loading {
+		p.build.reloadPending = true
+		return
+	}
+	a.loadBuildSystems(p)
 }
 
 // storeBuildLocalOptions writes the local document of a project into the data store.
