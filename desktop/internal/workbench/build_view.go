@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/vivaui/viva/gfx"
@@ -118,6 +119,9 @@ func (a *App) buildInstances(c ui.C, p *project) {
 			indexes[index] = index
 		}
 		panels.instance = b.selected
+		if len(b.instances) > 0 && ui.Button(c.Key("build-options"), i18n.Shared(a.language(), "desktop.build.options")).Ghost().Small().Clicked() {
+			c.After(func() { a.openBuildOptions(p) })
+		}
 		ui.Tabs(c, &panels.instance, indexes, func(index int) string {
 			instance := &b.instances[index]
 			if instance.System.DisplayName != "" {
