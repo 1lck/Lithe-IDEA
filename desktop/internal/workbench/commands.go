@@ -71,6 +71,10 @@ func (a *App) commands() []command {
 		})
 	}
 
+	if d := p.selectedDocument(p.docs.group); d != nil && !d.virtual {
+		path := d.path
+		add("localHistory.show", t.GroupProject, a.text.History.Show, "", true, func() { a.openLocalHistory(p, path) })
+	}
 	add("search.everywhere", t.GroupSearch, t.SearchEverywhere, primary+"Shift+O", true, func() { a.openEverywhere(p) })
 	add("search.files", t.GroupSearch, t.FindInFiles, primary+"Shift+F", true, func() {
 		a.reduceChrome(core.SetChromeOpen(itemFind, true))

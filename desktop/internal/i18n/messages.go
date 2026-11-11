@@ -32,6 +32,7 @@ type Messages struct {
 	Worktrees WorktreeMessages
 	Console   ConsoleMessages
 	Search    SearchMessages
+	History   HistoryMessages
 	Commands  CommandMessages
 }
 

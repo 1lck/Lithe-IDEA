@@ -496,6 +496,7 @@ func (a *App) saveDocument(p *project, id int) {
 	}
 	data, text := d.view.Text()
 	expected := d.expectedDiskBytes()
+	before := append([]byte(nil), d.view.SavedBytes()...)
 	path, name, revision := d.path, d.name, d.view.Revision()
 	write := a.documentWriter
 	create := a.documentCreator
@@ -539,6 +540,7 @@ func (a *App) saveDocument(p *project, id int) {
 				return
 			}
 			d.view.MarkSaved(text)
+			a.recordLocalHistory(p, path, "save", historyTexts{before: before, after: data})
 			d.encodingChanged, d.previousEncoding = false, nil
 			if d.needsCodec() {
 				d.diskBytes = bytesOut

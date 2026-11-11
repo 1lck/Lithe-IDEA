@@ -508,6 +508,7 @@ var chinese = Messages{
 	Sync:      syncMessages(Chinese),
 	Worktrees: worktreeMessages(Chinese),
 	Search:    searchMessages(Chinese),
+	History:   historyMessages(Chinese),
 	Commands:  commandMessages(Chinese),
 	Console:   consoleMessages(Chinese),
 }

@@ -284,6 +284,7 @@ type project struct {
 	search projectSearch
 	// replace is Replace in Files: its preview and its application (search_replace.go).
 	replace    projectReplace
+	history    localHistoryState
 	everywhere everywhereSearch
 	// tree is the Project tool window's tree of the project folder.
 	tree fileTree

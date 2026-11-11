@@ -1,379 +1,496 @@
 [
- {
-  "id": "desktop.search.replace",
-  "description": "Accessible name of the Replace in Files field",
-  "en-US": "Replace",
-  "zh-CN": "替换"
- },
- {
-  "id": "desktop.search.replacePlaceholder",
-  "description": "Placeholder of the Replace in Files field",
-  "en-US": "Replace with",
-  "zh-CN": "替换为"
- },
- {
-  "id": "desktop.search.replaceAll",
-  "description": "Button that previews replacing every match in the project",
-  "en-US": "Replace All…",
-  "zh-CN": "全部替换…"
- },
- {
-  "id": "desktop.search.replaceToggle",
-  "description": "Button that shows or hides the Replace in Files field",
-  "en-US": "Toggle Replace",
-  "zh-CN": "切换替换"
- },
- {
-  "id": "desktop.search.replacePreviewTitle",
-  "description": "Title of the Replace in Files preview dialog",
-  "en-US": "Replace in Files",
-  "zh-CN": "在文件中替换"
- },
- {
-  "id": "desktop.search.replacePreviewing",
-  "description": "Shown while the replacement preview is computed",
-  "en-US": "Finding replacements…",
-  "zh-CN": "正在查找可替换的内容…"
- },
- {
-  "id": "desktop.search.noReplacements",
-  "description": "Preview dialog when nothing would change",
-  "en-US": "Nothing to replace.",
-  "zh-CN": "没有可替换的内容。"
- },
- {
-  "id": "desktop.search.replaceConflict",
-  "description": "Reason a file was not replaced because it changed on disk meanwhile",
-  "en-US": "a file changed on disk while replacing",
-  "zh-CN": "替换期间有文件在磁盘上被修改"
- },
- {
-  "id": "desktop.search.replaceSummary",
-  "description": "Preview dialog summary of what Replace All changes",
-  "en-US": "{occurrences} occurrences in {files} files",
-  "zh-CN": "{files} 个文件中的 {occurrences} 处",
-  "parameters": {
-   "occurrences": "string",
-   "files": "string"
+  {
+    "id": "desktop.search.replace",
+    "description": "Accessible name of the Replace in Files field",
+    "en-US": "Replace",
+    "zh-CN": "替换"
+  },
+  {
+    "id": "desktop.search.replacePlaceholder",
+    "description": "Placeholder of the Replace in Files field",
+    "en-US": "Replace with",
+    "zh-CN": "替换为"
+  },
+  {
+    "id": "desktop.search.replaceAll",
+    "description": "Button that previews replacing every match in the project",
+    "en-US": "Replace All…",
+    "zh-CN": "全部替换…"
+  },
+  {
+    "id": "desktop.search.replaceToggle",
+    "description": "Button that shows or hides the Replace in Files field",
+    "en-US": "Toggle Replace",
+    "zh-CN": "切换替换"
+  },
+  {
+    "id": "desktop.search.replacePreviewTitle",
+    "description": "Title of the Replace in Files preview dialog",
+    "en-US": "Replace in Files",
+    "zh-CN": "在文件中替换"
+  },
+  {
+    "id": "desktop.search.replacePreviewing",
+    "description": "Shown while the replacement preview is computed",
+    "en-US": "Finding replacements…",
+    "zh-CN": "正在查找可替换的内容…"
+  },
+  {
+    "id": "desktop.search.noReplacements",
+    "description": "Preview dialog when nothing would change",
+    "en-US": "Nothing to replace.",
+    "zh-CN": "没有可替换的内容。"
+  },
+  {
+    "id": "desktop.search.replaceConflict",
+    "description": "Reason a file was not replaced because it changed on disk meanwhile",
+    "en-US": "a file changed on disk while replacing",
+    "zh-CN": "替换期间有文件在磁盘上被修改"
+  },
+  {
+    "id": "desktop.search.replaceSummary",
+    "description": "Preview dialog summary of what Replace All changes",
+    "en-US": "{occurrences} occurrences in {files} files",
+    "zh-CN": "{files} 个文件中的 {occurrences} 处",
+    "parameters": {
+      "occurrences": "string",
+      "files": "string"
+    }
+  },
+  {
+    "id": "desktop.search.replaceFailed",
+    "description": "Preview dialog error when Core could not plan the replacement",
+    "en-US": "Could not prepare the replacement: {reason}",
+    "zh-CN": "无法准备替换：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.search.replaceDone",
+    "description": "Notification after Replace All",
+    "en-US": "Replaced in {files} files",
+    "zh-CN": "已在 {files} 个文件中替换",
+    "parameters": {
+      "files": "string"
+    }
+  },
+  {
+    "id": "desktop.search.replaceSkipped",
+    "description": "Notification after Replace All left some files unchanged",
+    "en-US": "Replaced in {changed} files; {skipped} files were left unchanged because they changed or are not UTF-8",
+    "zh-CN": "已在 {changed} 个文件中替换；{skipped} 个文件已变化或不是 UTF-8，未修改",
+    "parameters": {
+      "changed": "string",
+      "skipped": "string"
+    }
+  },
+  {
+    "id": "desktop.search.replacePartlyFailed",
+    "description": "Notification when Replace All failed for some files",
+    "en-US": "Replaced in {changed} files; {failed} failed: {reason}",
+    "zh-CN": "已在 {changed} 个文件中替换；{failed} 个失败：{reason}",
+    "parameters": {
+      "changed": "string",
+      "failed": "string",
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.terminal.find",
+    "description": "Accessible name and placeholder of the terminal Find field",
+    "en-US": "Find in terminal",
+    "zh-CN": "在终端中查找"
+  },
+  {
+    "id": "desktop.terminal.findNone",
+    "description": "Terminal Find when nothing matches",
+    "en-US": "No matches",
+    "zh-CN": "无匹配"
+  },
+  {
+    "id": "desktop.terminal.findPrevious",
+    "description": "Terminal Find button: previous match",
+    "en-US": "Previous Match",
+    "zh-CN": "上一个匹配"
+  },
+  {
+    "id": "desktop.terminal.findNext",
+    "description": "Terminal Find button: next match",
+    "en-US": "Next Match",
+    "zh-CN": "下一个匹配"
+  },
+  {
+    "id": "desktop.terminal.findClose",
+    "description": "Terminal Find button that closes the bar",
+    "en-US": "Close Find",
+    "zh-CN": "关闭查找"
+  },
+  {
+    "id": "desktop.terminal.findCount",
+    "description": "Terminal Find position, e.g. 3 of 12",
+    "en-US": "{current} of {total}",
+    "zh-CN": "第 {current} 个，共 {total} 个",
+    "parameters": {
+      "current": "string",
+      "total": "string"
+    }
+  },
+  {
+    "id": "desktop.terminal.openLinkFailed",
+    "description": "Warning when a link clicked in the terminal could not be opened",
+    "en-US": "Could not open the link: {reason}",
+    "zh-CN": "无法打开链接：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.command.groupApp",
+    "description": "Find Action command or group: Application",
+    "en-US": "Application",
+    "zh-CN": "应用"
+  },
+  {
+    "id": "desktop.command.groupView",
+    "description": "Find Action command or group: View",
+    "en-US": "View",
+    "zh-CN": "视图"
+  },
+  {
+    "id": "desktop.command.groupProject",
+    "description": "Find Action command or group: Project",
+    "en-US": "Project",
+    "zh-CN": "项目"
+  },
+  {
+    "id": "desktop.command.groupToolWindows",
+    "description": "Find Action command or group: Tool Windows",
+    "en-US": "Tool Windows",
+    "zh-CN": "工具窗口"
+  },
+  {
+    "id": "desktop.command.groupSearch",
+    "description": "Find Action command or group: Search",
+    "en-US": "Search",
+    "zh-CN": "搜索"
+  },
+  {
+    "id": "desktop.command.groupGit",
+    "description": "Find Action command or group: Git",
+    "en-US": "Git",
+    "zh-CN": "Git"
+  },
+  {
+    "id": "desktop.command.groupRun",
+    "description": "Find Action command or group: Run",
+    "en-US": "Run",
+    "zh-CN": "运行"
+  },
+  {
+    "id": "desktop.command.groupTerminal",
+    "description": "Find Action command or group: Terminal",
+    "en-US": "Terminal",
+    "zh-CN": "终端"
+  },
+  {
+    "id": "desktop.command.groupAgent",
+    "description": "Find Action command or group: AI Agent",
+    "en-US": "AI Agent",
+    "zh-CN": "AI Agent"
+  },
+  {
+    "id": "desktop.command.settings",
+    "description": "Find Action command or group: Settings…",
+    "en-US": "Settings…",
+    "zh-CN": "设置…"
+  },
+  {
+    "id": "desktop.command.plugins",
+    "description": "Find Action command or group: Plugins…",
+    "en-US": "Plugins…",
+    "zh-CN": "插件…"
+  },
+  {
+    "id": "desktop.command.logs",
+    "description": "Find Action command or group: Show Logs",
+    "en-US": "Show Logs",
+    "zh-CN": "显示日志"
+  },
+  {
+    "id": "desktop.command.importLegacy",
+    "description": "Find Action command or group: Import Settings from Earlier Lithe…",
+    "en-US": "Import Settings from Earlier Lithe…",
+    "zh-CN": "从旧版 Lithe 导入设置…"
+  },
+  {
+    "id": "desktop.command.themeSystem",
+    "description": "Find Action command or group: Theme: Follow System",
+    "en-US": "Theme: Follow System",
+    "zh-CN": "主题：跟随系统"
+  },
+  {
+    "id": "desktop.command.themeLight",
+    "description": "Find Action command or group: Theme: Light",
+    "en-US": "Theme: Light",
+    "zh-CN": "主题：浅色"
+  },
+  {
+    "id": "desktop.command.themeDark",
+    "description": "Find Action command or group: Theme: Dark",
+    "en-US": "Theme: Dark",
+    "zh-CN": "主题：深色"
+  },
+  {
+    "id": "desktop.command.languageEnglish",
+    "description": "Find Action command or group: Language: English",
+    "en-US": "Language: English",
+    "zh-CN": "语言：English"
+  },
+  {
+    "id": "desktop.command.languageChinese",
+    "description": "Find Action command or group: Language: 简体中文",
+    "en-US": "Language: 简体中文",
+    "zh-CN": "语言：简体中文"
+  },
+  {
+    "id": "desktop.command.openProject",
+    "description": "Find Action command or group: Open Project…",
+    "en-US": "Open Project…",
+    "zh-CN": "打开项目…"
+  },
+  {
+    "id": "desktop.command.newProject",
+    "description": "Find Action command or group: New Project…",
+    "en-US": "New Project…",
+    "zh-CN": "新建项目…"
+  },
+  {
+    "id": "desktop.command.clone",
+    "description": "Find Action command or group: Clone Repository…",
+    "en-US": "Clone Repository…",
+    "zh-CN": "克隆仓库…"
+  },
+  {
+    "id": "desktop.command.closeProject",
+    "description": "Find Action command or group: Close Project",
+    "en-US": "Close Project",
+    "zh-CN": "关闭项目"
+  },
+  {
+    "id": "desktop.command.saveAll",
+    "description": "Find Action command or group: Save All",
+    "en-US": "Save All",
+    "zh-CN": "全部保存"
+  },
+  {
+    "id": "desktop.command.searchEverywhere",
+    "description": "Find Action command or group: Search Everywhere",
+    "en-US": "Search Everywhere",
+    "zh-CN": "随处搜索"
+  },
+  {
+    "id": "desktop.command.findInFiles",
+    "description": "Find Action command or group: Find in Files…",
+    "en-US": "Find in Files…",
+    "zh-CN": "在文件中查找…"
+  },
+  {
+    "id": "desktop.command.replaceInFiles",
+    "description": "Find Action command or group: Replace in Files…",
+    "en-US": "Replace in Files…",
+    "zh-CN": "在文件中替换…"
+  },
+  {
+    "id": "desktop.command.commit",
+    "description": "Find Action command or group: Commit…",
+    "en-US": "Commit…",
+    "zh-CN": "提交…"
+  },
+  {
+    "id": "desktop.command.commitAndPush",
+    "description": "Find Action command or group: Commit and Push…",
+    "en-US": "Commit and Push…",
+    "zh-CN": "提交并推送…"
+  },
+  {
+    "id": "desktop.command.branches",
+    "description": "Find Action command or group: Branches…",
+    "en-US": "Branches…",
+    "zh-CN": "分支…"
+  },
+  {
+    "id": "desktop.command.gitConsole",
+    "description": "Find Action command or group: Show Git Console",
+    "en-US": "Show Git Console",
+    "zh-CN": "显示 Git 控制台"
+  },
+  {
+    "id": "desktop.command.run",
+    "description": "Find Action command or group: Run",
+    "en-US": "Run",
+    "zh-CN": "运行"
+  },
+  {
+    "id": "desktop.command.debug",
+    "description": "Find Action command or group: Debug",
+    "en-US": "Debug",
+    "zh-CN": "调试"
+  },
+  {
+    "id": "desktop.command.toggleBreakpoint",
+    "description": "Find Action command or group: Toggle Line Breakpoint",
+    "en-US": "Toggle Line Breakpoint",
+    "zh-CN": "切换行断点"
+  },
+  {
+    "id": "desktop.command.newTerminal",
+    "description": "Find Action command or group: New Terminal",
+    "en-US": "New Terminal",
+    "zh-CN": "新建终端"
+  },
+  {
+    "id": "desktop.command.newAgentConversation",
+    "description": "Find Action command or group: New Agent Conversation",
+    "en-US": "New Agent Conversation",
+    "zh-CN": "新建 Agent 对话"
+  },
+  {
+    "id": "desktop.command.noActions",
+    "description": "Find Action command or group: No matching actions",
+    "en-US": "No matching actions",
+    "zh-CN": "没有匹配的操作"
+  },
+  {
+    "id": "desktop.command.findAction",
+    "description": "Find Action command or group: Find Action",
+    "en-US": "Find Action",
+    "zh-CN": "查找操作"
+  },
+  {
+    "id": "desktop.command.showTool",
+    "description": "Find Action command that shows a tool window",
+    "en-US": "Show {name}",
+    "zh-CN": "显示{name}",
+    "parameters": {
+      "name": "string"
+    }
+  },
+  {
+    "id": "desktop.history.show",
+    "description": "Local History dialog",
+    "en-US": "Show Local History",
+    "zh-CN": "显示本地历史"
+  },
+  {
+    "id": "desktop.history.title",
+    "description": "Local History dialog",
+    "en-US": "Local History",
+    "zh-CN": "本地历史"
+  },
+  {
+    "id": "desktop.history.loading",
+    "description": "Local History dialog",
+    "en-US": "Loading history…",
+    "zh-CN": "正在读取历史…"
+  },
+  {
+    "id": "desktop.history.empty",
+    "description": "Local History dialog",
+    "en-US": "No local history for this file yet.",
+    "zh-CN": "此文件还没有本地历史。"
+  },
+  {
+    "id": "desktop.history.restore",
+    "description": "Local History dialog",
+    "en-US": "Restore",
+    "zh-CN": "恢复"
+  },
+  {
+    "id": "desktop.history.delete",
+    "description": "Local History dialog",
+    "en-US": "Delete",
+    "zh-CN": "删除"
+  },
+  {
+    "id": "desktop.history.rename",
+    "description": "Local History dialog",
+    "en-US": "Label",
+    "zh-CN": "标签"
+  },
+  {
+    "id": "desktop.history.labelPlaceholder",
+    "description": "Local History dialog",
+    "en-US": "Name this version",
+    "zh-CN": "为此版本命名"
+  },
+  {
+    "id": "desktop.history.close",
+    "description": "Local History dialog",
+    "en-US": "Close",
+    "zh-CN": "关闭"
+  },
+  {
+    "id": "desktop.history.previewLoading",
+    "description": "Local History dialog",
+    "en-US": "Loading snapshot…",
+    "zh-CN": "正在读取快照…"
+  },
+  {
+    "id": "desktop.history.failed",
+    "description": "Local History dialog",
+    "en-US": "Local history failed: {reason}",
+    "zh-CN": "本地历史操作失败：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.history.reasonBaseline",
+    "description": "Local History snapshot reason",
+    "en-US": "Project baseline",
+    "zh-CN": "项目基线"
+  },
+  {
+    "id": "desktop.history.reasonSaved",
+    "description": "Local History snapshot reason",
+    "en-US": "Saved",
+    "zh-CN": "保存"
+  },
+  {
+    "id": "desktop.history.reasonRestored",
+    "description": "Local History snapshot reason",
+    "en-US": "Before restore",
+    "zh-CN": "恢复前"
+  },
+  {
+    "id": "desktop.history.reasonExternalChange",
+    "description": "Local History snapshot reason",
+    "en-US": "Changed on disk",
+    "zh-CN": "磁盘上被修改"
+  },
+  {
+    "id": "desktop.history.reasonBeforeRename",
+    "description": "Local History snapshot reason",
+    "en-US": "Before rename",
+    "zh-CN": "重命名前"
+  },
+  {
+    "id": "desktop.history.reasonBeforeDelete",
+    "description": "Local History snapshot reason",
+    "en-US": "Before delete",
+    "zh-CN": "删除前"
+  },
+  {
+    "id": "desktop.history.reasonBatchReplace",
+    "description": "Local History snapshot reason",
+    "en-US": "Before Replace in Files",
+    "zh-CN": "批量替换前"
+  },
+  {
+    "id": "desktop.history.reasonUnsavedDiscard",
+    "description": "Local History snapshot reason",
+    "en-US": "Discarded unsaved changes",
+    "zh-CN": "放弃的未保存修改"
   }
- },
- {
-  "id": "desktop.search.replaceFailed",
-  "description": "Preview dialog error when Core could not plan the replacement",
-  "en-US": "Could not prepare the replacement: {reason}",
-  "zh-CN": "无法准备替换：{reason}",
-  "parameters": {
-   "reason": "string"
-  }
- },
- {
-  "id": "desktop.search.replaceDone",
-  "description": "Notification after Replace All",
-  "en-US": "Replaced in {files} files",
-  "zh-CN": "已在 {files} 个文件中替换",
-  "parameters": {
-   "files": "string"
-  }
- },
- {
-  "id": "desktop.search.replaceSkipped",
-  "description": "Notification after Replace All left some files unchanged",
-  "en-US": "Replaced in {changed} files; {skipped} files were left unchanged because they changed or are not UTF-8",
-  "zh-CN": "已在 {changed} 个文件中替换；{skipped} 个文件已变化或不是 UTF-8，未修改",
-  "parameters": {
-   "changed": "string",
-   "skipped": "string"
-  }
- },
- {
-  "id": "desktop.search.replacePartlyFailed",
-  "description": "Notification when Replace All failed for some files",
-  "en-US": "Replaced in {changed} files; {failed} failed: {reason}",
-  "zh-CN": "已在 {changed} 个文件中替换；{failed} 个失败：{reason}",
-  "parameters": {
-   "changed": "string",
-   "failed": "string",
-   "reason": "string"
-  }
- },
- {
-  "id": "desktop.terminal.find",
-  "description": "Accessible name and placeholder of the terminal Find field",
-  "en-US": "Find in terminal",
-  "zh-CN": "在终端中查找"
- },
- {
-  "id": "desktop.terminal.findNone",
-  "description": "Terminal Find when nothing matches",
-  "en-US": "No matches",
-  "zh-CN": "无匹配"
- },
- {
-  "id": "desktop.terminal.findPrevious",
-  "description": "Terminal Find button: previous match",
-  "en-US": "Previous Match",
-  "zh-CN": "上一个匹配"
- },
- {
-  "id": "desktop.terminal.findNext",
-  "description": "Terminal Find button: next match",
-  "en-US": "Next Match",
-  "zh-CN": "下一个匹配"
- },
- {
-  "id": "desktop.terminal.findClose",
-  "description": "Terminal Find button that closes the bar",
-  "en-US": "Close Find",
-  "zh-CN": "关闭查找"
- },
- {
-  "id": "desktop.terminal.findCount",
-  "description": "Terminal Find position, e.g. 3 of 12",
-  "en-US": "{current} of {total}",
-  "zh-CN": "第 {current} 个，共 {total} 个",
-  "parameters": {
-   "current": "string",
-   "total": "string"
-  }
- },
- {
-  "id": "desktop.terminal.openLinkFailed",
-  "description": "Warning when a link clicked in the terminal could not be opened",
-  "en-US": "Could not open the link: {reason}",
-  "zh-CN": "无法打开链接：{reason}",
-  "parameters": {
-   "reason": "string"
-  }
- },
- {
-  "id": "desktop.command.groupApp",
-  "description": "Find Action command or group: Application",
-  "en-US": "Application",
-  "zh-CN": "应用"
- },
- {
-  "id": "desktop.command.groupView",
-  "description": "Find Action command or group: View",
-  "en-US": "View",
-  "zh-CN": "视图"
- },
- {
-  "id": "desktop.command.groupProject",
-  "description": "Find Action command or group: Project",
-  "en-US": "Project",
-  "zh-CN": "项目"
- },
- {
-  "id": "desktop.command.groupToolWindows",
-  "description": "Find Action command or group: Tool Windows",
-  "en-US": "Tool Windows",
-  "zh-CN": "工具窗口"
- },
- {
-  "id": "desktop.command.groupSearch",
-  "description": "Find Action command or group: Search",
-  "en-US": "Search",
-  "zh-CN": "搜索"
- },
- {
-  "id": "desktop.command.groupGit",
-  "description": "Find Action command or group: Git",
-  "en-US": "Git",
-  "zh-CN": "Git"
- },
- {
-  "id": "desktop.command.groupRun",
-  "description": "Find Action command or group: Run",
-  "en-US": "Run",
-  "zh-CN": "运行"
- },
- {
-  "id": "desktop.command.groupTerminal",
-  "description": "Find Action command or group: Terminal",
-  "en-US": "Terminal",
-  "zh-CN": "终端"
- },
- {
-  "id": "desktop.command.groupAgent",
-  "description": "Find Action command or group: AI Agent",
-  "en-US": "AI Agent",
-  "zh-CN": "AI Agent"
- },
- {
-  "id": "desktop.command.settings",
-  "description": "Find Action command or group: Settings…",
-  "en-US": "Settings…",
-  "zh-CN": "设置…"
- },
- {
-  "id": "desktop.command.plugins",
-  "description": "Find Action command or group: Plugins…",
-  "en-US": "Plugins…",
-  "zh-CN": "插件…"
- },
- {
-  "id": "desktop.command.logs",
-  "description": "Find Action command or group: Show Logs",
-  "en-US": "Show Logs",
-  "zh-CN": "显示日志"
- },
- {
-  "id": "desktop.command.importLegacy",
-  "description": "Find Action command or group: Import Settings from Earlier Lithe…",
-  "en-US": "Import Settings from Earlier Lithe…",
-  "zh-CN": "从旧版 Lithe 导入设置…"
- },
- {
-  "id": "desktop.command.themeSystem",
-  "description": "Find Action command or group: Theme: Follow System",
-  "en-US": "Theme: Follow System",
-  "zh-CN": "主题：跟随系统"
- },
- {
-  "id": "desktop.command.themeLight",
-  "description": "Find Action command or group: Theme: Light",
-  "en-US": "Theme: Light",
-  "zh-CN": "主题：浅色"
- },
- {
-  "id": "desktop.command.themeDark",
-  "description": "Find Action command or group: Theme: Dark",
-  "en-US": "Theme: Dark",
-  "zh-CN": "主题：深色"
- },
- {
-  "id": "desktop.command.languageEnglish",
-  "description": "Find Action command or group: Language: English",
-  "en-US": "Language: English",
-  "zh-CN": "语言：English"
- },
- {
-  "id": "desktop.command.languageChinese",
-  "description": "Find Action command or group: Language: 简体中文",
-  "en-US": "Language: 简体中文",
-  "zh-CN": "语言：简体中文"
- },
- {
-  "id": "desktop.command.openProject",
-  "description": "Find Action command or group: Open Project…",
-  "en-US": "Open Project…",
-  "zh-CN": "打开项目…"
- },
- {
-  "id": "desktop.command.newProject",
-  "description": "Find Action command or group: New Project…",
-  "en-US": "New Project…",
-  "zh-CN": "新建项目…"
- },
- {
-  "id": "desktop.command.clone",
-  "description": "Find Action command or group: Clone Repository…",
-  "en-US": "Clone Repository…",
-  "zh-CN": "克隆仓库…"
- },
- {
-  "id": "desktop.command.closeProject",
-  "description": "Find Action command or group: Close Project",
-  "en-US": "Close Project",
-  "zh-CN": "关闭项目"
- },
- {
-  "id": "desktop.command.saveAll",
-  "description": "Find Action command or group: Save All",
-  "en-US": "Save All",
-  "zh-CN": "全部保存"
- },
- {
-  "id": "desktop.command.searchEverywhere",
-  "description": "Find Action command or group: Search Everywhere",
-  "en-US": "Search Everywhere",
-  "zh-CN": "随处搜索"
- },
- {
-  "id": "desktop.command.findInFiles",
-  "description": "Find Action command or group: Find in Files…",
-  "en-US": "Find in Files…",
-  "zh-CN": "在文件中查找…"
- },
- {
-  "id": "desktop.command.replaceInFiles",
-  "description": "Find Action command or group: Replace in Files…",
-  "en-US": "Replace in Files…",
-  "zh-CN": "在文件中替换…"
- },
- {
-  "id": "desktop.command.commit",
-  "description": "Find Action command or group: Commit…",
-  "en-US": "Commit…",
-  "zh-CN": "提交…"
- },
- {
-  "id": "desktop.command.commitAndPush",
-  "description": "Find Action command or group: Commit and Push…",
-  "en-US": "Commit and Push…",
-  "zh-CN": "提交并推送…"
- },
- {
-  "id": "desktop.command.branches",
-  "description": "Find Action command or group: Branches…",
-  "en-US": "Branches…",
-  "zh-CN": "分支…"
- },
- {
-  "id": "desktop.command.gitConsole",
-  "description": "Find Action command or group: Show Git Console",
-  "en-US": "Show Git Console",
-  "zh-CN": "显示 Git 控制台"
- },
- {
-  "id": "desktop.command.run",
-  "description": "Find Action command or group: Run",
-  "en-US": "Run",
-  "zh-CN": "运行"
- },
- {
-  "id": "desktop.command.debug",
-  "description": "Find Action command or group: Debug",
-  "en-US": "Debug",
-  "zh-CN": "调试"
- },
- {
-  "id": "desktop.command.toggleBreakpoint",
-  "description": "Find Action command or group: Toggle Line Breakpoint",
-  "en-US": "Toggle Line Breakpoint",
-  "zh-CN": "切换行断点"
- },
- {
-  "id": "desktop.command.newTerminal",
-  "description": "Find Action command or group: New Terminal",
-  "en-US": "New Terminal",
-  "zh-CN": "新建终端"
- },
- {
-  "id": "desktop.command.newAgentConversation",
-  "description": "Find Action command or group: New Agent Conversation",
-  "en-US": "New Agent Conversation",
-  "zh-CN": "新建 Agent 对话"
- },
- {
-  "id": "desktop.command.noActions",
-  "description": "Find Action command or group: No matching actions",
-  "en-US": "No matching actions",
-  "zh-CN": "没有匹配的操作"
- },
- {
-  "id": "desktop.command.findAction",
-  "description": "Find Action command or group: Find Action",
-  "en-US": "Find Action",
-  "zh-CN": "查找操作"
- },
- {
-  "id": "desktop.command.showTool",
-  "description": "Find Action command that shows a tool window",
-  "en-US": "Show {name}",
-  "zh-CN": "显示{name}",
-  "parameters": {
-   "name": "string"
-  }
- }
 ]

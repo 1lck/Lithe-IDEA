@@ -121,6 +121,8 @@ type replaceOutcome struct {
 	path    string
 	err     error
 	skipped bool
+	// before is the text the replacement changed, recorded in local history.
+	before []byte
 }
 
 // applyProjectReplace applies the confirmed preview.
@@ -153,6 +155,11 @@ func (a *App) applyProjectReplace(p *project) {
 		}
 		return func(a *App) {
 			p.replace = projectReplace{}
+			for _, outcome := range outcomes {
+				if outcome.err == nil && !outcome.skipped && outcome.before != nil {
+					a.recordLocalHistory(p, outcome.path, "beforeBatchReplace", historyTexts{before: outcome.before})
+				}
+			}
 			a.reportProjectReplace(outcomes)
 			a.refreshProjectSearch(p)
 		}
@@ -174,6 +181,8 @@ func (a *App) replaceInDocument(d *document, file core.WorkspaceReplaceFile, rev
 		outcome.skipped = true
 		return outcome
 	}
+	outcome.before = append([]byte(nil), data...)
+	outcome.path = d.path
 	outcome.err = d.view.ApplyEdits([]editorview.TextEdit{{Range: editorview.Range{Start: 0, End: len(data)}, Text: file.ReplacementText}})
 	return outcome
 }
@@ -206,6 +215,7 @@ func replaceInFile(ctx context.Context, replacer searchReplacer, write func(stri
 		out = append(append([]byte{}, utf8BOM...), out...)
 	}
 	outcome.err = write(path, out, data)
+	outcome.before = body
 	return outcome
 }
 
