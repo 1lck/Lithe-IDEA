@@ -85,6 +85,12 @@ func (a *App) beginRebaseFromHere(p *project, base, subject string) {
 	if _, ok := a.kernel.(rebaseKernel); !ok {
 		return
 	}
+	// The project keeps one rebase session, in one slot. A new rebase would overwrite the session
+	// of an unfinished one, in any repository, so it waits until that session is finished.
+	if s := p.rebase.session; s != nil && !rebaseDone(s.Status) {
+		a.notifyInfo(i18n.Shared(a.language(), "desktop.rebase.slotBusy"))
+		return
+	}
 	r := &p.rebase
 	r.gen++
 	gen := r.gen
