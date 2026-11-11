@@ -338,5 +338,23 @@
     "description": "Notice when a plugin native panel action failed",
     "en-US": "The plugin could not run this action.",
     "zh-CN": "插件无法执行此操作。"
+  },
+  {
+    "id": "desktop.run.performance.cpu",
+    "description": "Latest CPU share of a running run's process tree, shown under its chart",
+    "en-US": "CPU {percent}%",
+    "zh-CN": "CPU {percent}%",
+    "parameters": {
+      "percent": "string"
+    }
+  },
+  {
+    "id": "desktop.run.performance.memory",
+    "description": "Latest resident memory of a running run's process tree, in megabytes",
+    "en-US": "Memory {megabytes} MB",
+    "zh-CN": "内存 {megabytes} MB",
+    "parameters": {
+      "megabytes": "string"
+    }
   }
 ]

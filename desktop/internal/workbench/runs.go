@@ -45,6 +45,9 @@ type runEntry struct {
 	list ui.ListState
 	// snapshots counts the output snapshots taken of this run, so each tab has its own URI.
 	snapshots int
+	// samples are the process tree's CPU and memory, oldest first, bounded; stopSampling ends the sampler.
+	samples      []pluginservice.ProcessSample
+	stopSampling context.CancelFunc
 }
 
 // wirePluginRuns connects the plugin service's run host to the window: where a
@@ -91,6 +94,9 @@ func (a *App) applyRunEvent(event pluginservice.RunEvent) {
 		p.links.loaded, p.links.sources = false, nil
 		entry := &runEntry{id: event.RunID, pluginID: event.PluginID, label: event.Label, rerun: event.Rerun, running: true}
 		p.build.runs = append(p.build.runs, entry)
+		if event.PID > 0 {
+			a.startRunSampling(entry, event.PID)
+		}
 		for len(p.build.runs) > maxRunEntries {
 			dropped := false
 			for index, candidate := range p.build.runs {
@@ -118,6 +124,10 @@ func (a *App) applyRunEvent(event pluginservice.RunEvent) {
 			return
 		}
 		entry.running = false
+		if entry.stopSampling != nil {
+			entry.stopSampling()
+			entry.stopSampling = nil
+		}
 		messages := a.text.Run
 		switch {
 		case event.ExitCode != nil:
