@@ -170,5 +170,98 @@
     "description": "Button on a disassembly row that toggles a machine-instruction breakpoint there",
     "en-US": "Breakpoint",
     "zh-CN": "断点"
+  },
+  {
+    "id": "desktop.languageStatus.title",
+    "description": "Label of the language server state card on a language settings page",
+    "en-US": "Language server",
+    "zh-CN": "语言服务"
+  },
+  {
+    "id": "desktop.languageStatus.none",
+    "description": "Language server state card value when no server runs",
+    "en-US": "Not running",
+    "zh-CN": "未运行"
+  },
+  {
+    "id": "desktop.languageStatus.starting",
+    "description": "Language server state card value while it starts",
+    "en-US": "Starting",
+    "zh-CN": "正在启动"
+  },
+  {
+    "id": "desktop.languageStatus.ready",
+    "description": "Language server state card value when it is ready",
+    "en-US": "Ready",
+    "zh-CN": "就绪"
+  },
+  {
+    "id": "desktop.languageStatus.degraded",
+    "description": "Language server state card value when it runs with reduced features",
+    "en-US": "Degraded",
+    "zh-CN": "功能受限"
+  },
+  {
+    "id": "desktop.languageStatus.stopped",
+    "description": "Language server state card value when it stopped",
+    "en-US": "Stopped",
+    "zh-CN": "已停止"
+  },
+  {
+    "id": "desktop.languageStatus.failed",
+    "description": "Language server state card value when it failed",
+    "en-US": "Failed",
+    "zh-CN": "失败"
+  },
+  {
+    "id": "desktop.marketplace.tab.features",
+    "description": "Tab of an installed plugin's detail: the contributions its manifest declares",
+    "en-US": "Features",
+    "zh-CN": "功能"
+  },
+  {
+    "id": "desktop.marketplace.tab.permissions",
+    "description": "Tab of an installed plugin's detail: the permissions its manifest asks for",
+    "en-US": "Permissions",
+    "zh-CN": "权限"
+  },
+  {
+    "id": "desktop.marketplace.noFeatures",
+    "description": "Shown in the features tab when the manifest declares no contribution",
+    "en-US": "This plugin declares no features.",
+    "zh-CN": "此插件未声明功能。"
+  },
+  {
+    "id": "desktop.marketplace.noPermissions",
+    "description": "Shown in the permissions tab when the manifest asks for no permission",
+    "en-US": "This plugin asks for no permissions.",
+    "zh-CN": "此插件未请求任何权限。"
+  },
+  {
+    "id": "desktop.debug.breakpoint.breakOnChange",
+    "description": "Button in the variables view that adds a data breakpoint on the selected variable (stops when its value changes)",
+    "en-US": "Break when value changes",
+    "zh-CN": "值变化时中断"
+  },
+  {
+    "id": "desktop.debug.breakpoint.dataRow",
+    "description": "Row of a data breakpoint, naming the variable it watches",
+    "en-US": "◆ {label}",
+    "zh-CN": "◆ {label}",
+    "parameters": {
+      "label": "string"
+    }
+  },
+  {
+    "id": "desktop.debug.breakpoint.removeData",
+    "description": "Tooltip of a data breakpoint row that removes it",
+    "en-US": "Remove data breakpoint",
+    "zh-CN": "移除数据断点"
+  },
+  {
+    "id": "desktop.debug.breakpoint.dataUnavailable",
+    "description": "Notice when the adapter cannot watch the selected variable for changes",
+    "en-US": "The adapter cannot break when this variable changes.",
+    "zh-CN": "适配器无法在此变量变化时中断。"
   }
 ]

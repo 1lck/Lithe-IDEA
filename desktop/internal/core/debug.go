@@ -57,6 +57,11 @@ type DebugOperationResult struct {
 	StackFrames []DebugStackFrame `json:"stackFrames,omitempty"`
 	Scopes      []DebugScope      `json:"scopes,omitempty"`
 	Variables   []DebugVariable   `json:"variables,omitempty"`
+	// DataID, Description, AccessTypes and CanPersist are the result of dataBreakpointInfo.
+	DataID      string   `json:"dataId,omitempty"`
+	Description string   `json:"description,omitempty"`
+	AccessTypes []string `json:"accessTypes,omitempty"`
+	CanPersist  bool     `json:"canPersist,omitempty"`
 	// Variable is the replacement of a setVariable or the value of an evaluate.
 	Variable *DebugVariable `json:"variable,omitempty"`
 	// Instructions is the result of a disassemble inspection.

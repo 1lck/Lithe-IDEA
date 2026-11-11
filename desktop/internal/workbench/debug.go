@@ -66,7 +66,9 @@ type debugState struct {
 	functionName        string
 	// instructionBreakpoints are the machine-instruction breakpoints of the session, by address text.
 	instructionBreakpoints []core.DebugInstructionBreakpoint
-	frames                 []core.DebugStackFrame
+	// dataBreakpoints are the variables the session stops on when they change.
+	dataBreakpoints []debugDataBreakpoint
+	frames          []core.DebugStackFrame
 	// hideFiltered collapses the frames the session's stepping filters match into one
 	// row per run; framesExpanded shows them again until the next stack arrives.
 	hideFiltered   bool

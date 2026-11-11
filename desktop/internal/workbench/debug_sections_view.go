@@ -127,6 +127,7 @@ func (a *App) debugVariablesView(c ui.C, p *project) {
 		a.debugVariablesTree(c, p)
 	}
 	a.debugVariableEdit(c, p)
+	a.debugVariableBreak(c, p)
 }
 
 func (a *App) debugVariablesTree(c ui.C, p *project) {

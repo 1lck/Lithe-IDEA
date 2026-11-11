@@ -7,12 +7,15 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugininstall"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugintrust"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/vivaui/viva/ui"
@@ -54,7 +57,9 @@ func (a *App) refreshPluginState() {
 	}
 	a.background(nil, pluginStateTimeout, func(ctx context.Context) func(*App) {
 		entries, err := a.plugins.CurrentInstalled(ctx)
+		facts := installedPluginFacts(entries)
 		return func(a *App) {
+			a.pluginFacts.Store(&facts)
 			if err != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_list", err))
 				if entries == nil {
@@ -367,4 +372,41 @@ func compactProgram(program json.RawMessage) string {
 		return string(program)
 	}
 	return buffer.String()
+}
+
+// manifestContributions are the manifest sections a plugin uses to contribute to the IDE, in the
+// order the detail lists them. The permissions list is read separately.
+var manifestContributions = []string{
+	"toolDefinitions", "toolchainProviders", "keymapImportProviders", "pluginFunctions", "languages",
+	"languageServers", "executionProviders", "buildSystems", "backend", "vcsProviders", "debugAdapters",
+	"projectGenerators", "outputLinkMatchers", "ui", "settings", "settingActions",
+}
+
+// installedPluginFacts reads the permissions and contributions each installed package's manifest
+// declares. It reads files, so it runs off the window thread; a package whose manifest cannot be
+// read is left out and its detail shows no facts.
+func installedPluginFacts(entries []pluginmanager.Entry) map[string]settingswindow.PluginFacts {
+	facts := make(map[string]settingswindow.PluginFacts, len(entries))
+	for _, entry := range entries {
+		data, err := os.ReadFile(filepath.Join(entry.Installed.Path, "plugin.json"))
+		if err != nil {
+			continue
+		}
+		var manifest map[string]json.RawMessage
+		if json.Unmarshal(data, &manifest) != nil {
+			continue
+		}
+		var item settingswindow.PluginFacts
+		var permissions []string
+		if json.Unmarshal(manifest["permissions"], &permissions) == nil {
+			item.Permissions = permissions
+		}
+		for _, key := range manifestContributions {
+			if value, ok := manifest[key]; ok && len(value) > 0 && string(value) != "null" {
+				item.Features = append(item.Features, key)
+			}
+		}
+		facts[entry.Installed.ID] = item
+	}
+	return facts
 }

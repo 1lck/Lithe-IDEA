@@ -400,6 +400,8 @@ type App struct {
 	// pluginState is what the settings window reads from its own thread about
 	// installed plugins; it is replaced whole, never mutated in place.
 	pluginState atomic.Pointer[map[string]settingswindow.PluginState]
+	// pluginFacts is each installed plugin's manifest facts, read from disk off the window thread.
+	pluginFacts atomic.Pointer[map[string]settingswindow.PluginFacts]
 	// pluginServerMu guards the language-server maps because a build provider
 	// may attach to a shared session from a background model load.
 	pluginServerMu sync.Mutex

@@ -27,6 +27,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugintrust"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
 
@@ -58,6 +59,8 @@ type Kernel interface {
 
 // Service is the assembled plugin stack.
 type Service struct {
+	// ledger records the run processes this app started, so the next start can end leftovers.
+	ledger *processledger.Ledger
 	// Root is the directory installed packages live in.
 	Root string
 	// Manager owns the installed set, uninstall and enablement.
@@ -117,6 +120,10 @@ func Open(kernel Kernel, preferences *store.Store, root string) (*Service, error
 	if err := pluginpkg.Sweep(root); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrAssembly, err)
 	}
+	// Runs the earlier app left behind are ended before anything new starts. A failure leaves them
+	// running, as they were before the ledger existed; the next start tries again.
+	ledger := processledger.Open(preferences.Dir())
+	_, _ = ledger.Sweep(context.Background())
 	service := &Service{
 		Root:         root,
 		Manager:      pluginmanager.New(root, approvals, state),
@@ -127,6 +134,7 @@ func Open(kernel Kernel, preferences *store.Store, root string) (*Service, error
 		Credentials:  credentials.Default(),
 		kernel:       kernel,
 		resources:    newHostResources(),
+		ledger:       ledger,
 		messages:     newMessageLimiter(),
 	}
 	service.Host = newBackendHost(service)

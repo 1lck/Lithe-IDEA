@@ -13,6 +13,8 @@ type debugStateKernel interface {
 	SetDebugExceptionBreakpoints(ctx context.Context, sessionID string, breakpoints []core.DebugExceptionBreakpoint) (core.DebugUpdate, error)
 	RelocateDebugBreakpoints(ctx context.Context, source string, edit core.DebugTextEdit, breakpoints []core.DebugSourceBreakpoint) ([]core.DebugSourceBreakpoint, error)
 	SetDebugInstructionBreakpoints(ctx context.Context, sessionID string, breakpoints []core.DebugInstructionBreakpoint) (core.DebugUpdate, error)
+	DebugDataBreakpointInfo(ctx context.Context, sessionID, operationID, name string, variablesReference int64) (core.DebugUpdate, error)
+	SetDebugDataBreakpoints(ctx context.Context, sessionID string, breakpoints []core.DebugDataBreakpoint) (core.DebugUpdate, error)
 	SetDebugFunctionBreakpoints(ctx context.Context, sessionID string, breakpoints []core.DebugFunctionBreakpoint) (core.DebugUpdate, error)
 	SetDebugVariable(ctx context.Context, sessionID, operationID string, variablesReference int64, name, value string) (core.DebugUpdate, error)
 	DebugStartDebuggingResponse(ctx context.Context, sessionID, requestID string, success bool, message string) (core.DebugUpdate, error)
