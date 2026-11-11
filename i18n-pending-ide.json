@@ -566,5 +566,23 @@
     "description": "First choice of the tool installation picker: keep the automatic selection",
     "en-US": "Choose an installation…",
     "zh-CN": "选择安装…"
+  },
+  {
+    "id": "desktop.debug.child.needsConfirmation",
+    "description": "Failure message sent to the parent adapter when a child debug session targets a remote endpoint that the user has not confirmed",
+    "en-US": "The child debug session targets a remote endpoint that Lithe has not confirmed.",
+    "zh-CN": "子调试会话指向未经确认的远程端点，Lithe 没有启动它。"
+  },
+  {
+    "id": "desktop.debug.child.stopped",
+    "description": "Failure message sent to the parent adapter when its child debug session was stopped before it started",
+    "en-US": "The child debug session was stopped before it started.",
+    "zh-CN": "子调试会话在启动前已被停止。"
+  },
+  {
+    "id": "desktop.debug.child.unavailable",
+    "description": "Failure message sent to the parent adapter when a startDebugging request carries no usable configuration",
+    "en-US": "Lithe could not start the child debug session.",
+    "zh-CN": "Lithe 无法启动子调试会话。"
   }
 ]

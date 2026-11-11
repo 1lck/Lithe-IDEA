@@ -5,6 +5,8 @@ import "strconv"
 // DebugMessages are the Debug tool window's words.
 type DebugMessages struct {
 	PluginsUnavailable string
+	// Child words the child sessions an adapter starts through startDebugging.
+	Child DebugChildMessages
 	// Breakpoint words the breakpoint editor (debug_breakpoint_messages.go).
 	Breakpoint         DebugBreakpointMessages
 	Start              string
@@ -81,6 +83,7 @@ type DebugMessages struct {
 func debugMessages(language Language) DebugMessages {
 	return DebugMessages{
 		PluginsUnavailable: Shared(language, "desktop.debug.pluginsUnavailable"),
+		Child:              debugChildMessages(language),
 		Breakpoint:         debugBreakpointMessages(language),
 		Start:              Shared(language, "desktop.debug.start"),
 		Stop:               Shared(language, "desktop.debug.stop"),

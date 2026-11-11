@@ -54,6 +54,10 @@ type debugStart struct {
 	// ended, when set, receives the debuggee's exit code once the session has been
 	// released, so the run that stands for it can end.
 	ended chan *int
+	// parent and startRequestID mark a child session an adapter started through
+	// startDebugging; its configuration is the adapter's, and parent answers the request.
+	parent         *debugSession
+	startRequestID string
 }
 
 // debugRemotePrompt is an attach to a non-local endpoint waiting for the user.
@@ -317,7 +321,7 @@ func (a *App) stopDebugForBackend(sessionID string) {
 
 // beginDebug creates the session and starts its transport in the background.
 func (a *App) beginDebug(p *project, start debugStart) {
-	if p == nil || p.debug.activeSession() != nil {
+	if p == nil || (start.parent == nil && p.debug.activeSession() != nil) {
 		return
 	}
 	adapter := start.adapter
@@ -330,7 +334,10 @@ func (a *App) beginDebug(p *project, start debugStart) {
 	hosted := adapter.Declaration.Transport == "tcpLanguageServer"
 	// Background work reads this copy, never a.text, which the window thread owns.
 	messages := a.text.Debug
-	p.debug.generation++
+	// A child shares its parent's generation, so the parent's replies stay current.
+	if start.parent == nil {
+		p.debug.generation++
+	}
 	generation := p.debug.generation
 	pending := start
 	p.debug.pendingRemote = &pending
@@ -366,15 +373,22 @@ func (a *App) beginDebug(p *project, start debugStart) {
 	}
 	ctx, cancel := context.WithCancel(p.ctx)
 	session := &debugSession{
-		id:           fmt.Sprintf("desktop-debug-%d", debugSessionSequence.Add(1)),
-		adapterID:    adapter.Declaration.AdapterID,
-		project:      p,
-		cancel:       cancel,
-		ctx:          ctx,
-		startupDone:  make(chan struct{}),
-		exitObserved: make(chan struct{}),
-		generation:   generation,
-		ended:        start.ended,
+		id:             fmt.Sprintf("desktop-debug-%d", debugSessionSequence.Add(1)),
+		adapterID:      adapter.Declaration.AdapterID,
+		project:        p,
+		cancel:         cancel,
+		ctx:            ctx,
+		startupDone:    make(chan struct{}),
+		exitObserved:   make(chan struct{}),
+		generation:     generation,
+		ended:          start.ended,
+		adapter:        adapter,
+		parent:         start.parent,
+		startRequestID: start.startRequestID,
+	}
+	parentSessionID := ""
+	if start.parent != nil {
+		parentSessionID = start.parent.id
 	}
 	stateRoot := filepath.Join(pluginRoot, ".state", adapter.PluginID, adapter.Version)
 	var stdinReader *os.File
@@ -433,17 +447,22 @@ func (a *App) beginDebug(p *project, start debugStart) {
 			return func(a *App) { a.finishDebugError(p, session, err) }
 		}
 		update, err := a.kernel.CreateDebugSession(ctx, core.DebugCreateSessionRequest{
-			SessionID:            session.id,
-			AdapterID:            session.adapterID,
-			RootPath:             p.root,
-			DisabledCapabilities: prepared.DisabledCapabilities,
-			Features:             prepared.Features,
-			Defaults:             prepared.Defaults,
+			SessionID:                     session.id,
+			AdapterID:                     session.adapterID,
+			RootPath:                      p.root,
+			SupportsStartDebuggingRequest: true,
+			ParentSessionID:               parentSessionID,
+			DisabledCapabilities:          prepared.DisabledCapabilities,
+			Features:                      prepared.Features,
+			Defaults:                      prepared.Defaults,
 		})
 		if err != nil {
 			return func(a *App) { a.finishDebugError(p, session, err) }
 		}
 		session.created = true
+		if session.parent != nil {
+			a.post(func(a *App) { a.answerChildStart(p, session, true, "") })
+		}
 		window := time.Duration(policy.InitializationMilliseconds) * time.Millisecond
 		if hosted {
 			// The session clock starts before discovery here, so it also covers

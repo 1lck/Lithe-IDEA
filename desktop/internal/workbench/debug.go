@@ -184,6 +184,13 @@ type debugSession struct {
 	failure     error
 	// generation matches debugState.generation so an old pump publishes nothing.
 	generation uint64
+	// adapter is the declaration the session runs, so a child session starts on the same adapter.
+	adapter debugAdapter
+	// parent is the session whose adapter asked for this one through startDebugging;
+	// startRequestID is that reverse request, answered once with this session's outcome.
+	parent         *debugSession
+	startRequestID string
+	startAnswered  atomic.Bool
 }
 
 // writeFrames writes Core's framed bytes to the adapter. The mutex keeps two
@@ -453,6 +460,8 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 				// them again without the user pressing anything.
 				a.refreshDebugWatches(p)
 			}
+		case "startDebuggingRequested":
+			a.startChildDebug(p, session, event)
 		case "output":
 			p.debug.output = appendDebugOutput(p.debug.output, event.Output)
 		}
@@ -610,8 +619,10 @@ func (a *App) stopDebugByUser(p *project) {
 
 // releaseDebugSession closes transport immediately and destroys Core state only
 // after startup returned, so cancellation cannot race a late session creation.
-func (a *App) releaseDebugSession(_ *project, session *debugSession) {
+func (a *App) releaseDebugSession(p *project, session *debugSession) {
 	session.cleanupOnce.Do(func() {
+		// A child that ends before its start was answered fails the parent's request.
+		a.answerChildStart(p, session, false, a.text.Debug.Child.Stopped)
 		session.stopped.Store(true)
 		session.cancel()
 		drain := session.drainOnStop.Load() && session.hosted != nil
@@ -704,6 +715,10 @@ func (a *App) stopDebugForProject(p *project) {
 // finishDebugError records a start or transport failure and stops the process.
 func (a *App) finishDebugError(p *project, session *debugSession, err error) {
 	if err == nil || errors.Is(err, context.Canceled) {
+		return
+	}
+	if session.parent != nil {
+		a.failChildDebug(p, session, err)
 		return
 	}
 	if a.project != p || p.debug.activeSession() != session || p.debug.generation != session.generation {
