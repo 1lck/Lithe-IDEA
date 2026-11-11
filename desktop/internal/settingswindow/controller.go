@@ -59,6 +59,10 @@ type Values struct {
 	// fit: TabOverflowSqueeze makes them narrower, and empty scrolls them sideways.
 	EditorTabRows     string
 	EditorTabOverflow string
+	// EditorTabLimit is the most file tabs open at once, 0 for no limit; EditorTabPolicy
+	// is "" to close the least recently used tab past it, TabPolicyOldest the oldest.
+	EditorTabLimit  int
+	EditorTabPolicy string
 	// TerminalShell is the executable path of the shell a new terminal runs; empty is
 	// automatic, the system's default shell. A path no installed shell has is kept as stored
 	// and shown as not found, not replaced by one that exists.
@@ -212,6 +216,9 @@ type Options struct {
 	// Values.EditorTabOverflow to the settings owner in the same way.
 	SetTabRows     func(string)
 	SetTabOverflow func(string)
+	// SetTabLimit hands a change of Values.EditorTabLimit or EditorTabPolicy to the
+	// settings owner.
+	SetTabLimit func(limit int, policy string)
 	// TerminalShells lists the installed shells for the Terminal page and names the
 	// program automatic runs (localshell.InstalledShells and localshell.DefaultShell).
 	// It runs off the window thread. Nil leaves the page unavailable.

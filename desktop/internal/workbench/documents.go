@@ -104,6 +104,8 @@ type document struct {
 	breakpointText rope.Rope
 	// conflictBytes are the bytes of the disk version a conflict notice shows.
 	conflictBytes []byte
+	// used is when the document was last shown, on documentSet.clock (tab_limit.go).
+	used uint64
 }
 
 func (d *document) dirty() bool { return d.view.Dirty() || d.recreateMissing || d.encodingChanged }
@@ -121,6 +123,8 @@ type documentLocation struct {
 type documentSet struct {
 	list []*document
 	next int
+	// clock orders the documents by when they were last shown (tab_limit.go).
+	clock uint64
 	// opening are the paths being read, so a second click while one is read opens nothing.
 	opening map[string]bool
 	// openWaiters are the callers that wait for a file being read to become a tab, or to fail.
@@ -439,9 +443,11 @@ func (a *App) placeDocumentAs(p *project, path, name string, content editorview.
 		a.watchDocument(p, d)
 	}
 	a.focusDocument(id)
+	p.touchDocument(id)
 	if !virtual {
 		a.startDocumentSync(p, d)
 	}
+	a.enforceTabLimit(p, d)
 }
 
 // documentGroup is the editor group a file opens in: the one a document was last shown in,
@@ -476,6 +482,7 @@ func (a *App) selectDocument(p *project, id int) {
 	}
 	p.docs.group = g.ID
 	a.focusDocument(id)
+	p.touchDocument(id)
 }
 
 // focusDocument asks for the keyboard to go to document id as soon as it is painted.

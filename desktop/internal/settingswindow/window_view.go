@@ -434,6 +434,7 @@ func (w *window) editorPage(c ui.C) {
 				w.radio(c.Part("several-rows"), &w.tabRowsPick, TabRowsMultiple, settings.TabsMultipleRows, false)
 			})
 		})
+		w.tabLimitCard(c)
 		semantic := !values.DisableSemanticHighlight
 		w.card(c, settings.EditorSemantic, settings.EditorSemanticHelp, func() {
 			if ui.Switch(c.Part("semantic"), &semantic, settings.SemanticHighlight).Changed() {

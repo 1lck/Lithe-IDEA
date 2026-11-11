@@ -243,6 +243,11 @@ type settings struct {
 	// fit in one row, as settingswindow.Values does; see App.tabLayout.
 	EditorTabRows     string `json:"editorTabRows,omitempty"`
 	EditorTabOverflow string `json:"editorTabOverflow,omitempty"`
+	// EditorTabLimit is the most file tabs open at once; nil is the default and 0 no limit.
+	// EditorTabPolicy is which tab the limit closes (settingswindow.TabPolicyOldest or the
+	// least recently used). See tab_limit.go.
+	EditorTabLimit  *int   `json:"editorTabLimit,omitempty"`
+	EditorTabPolicy string `json:"editorTabPolicy,omitempty"`
 	// TerminalShell is the executable a new terminal runs, as settingswindow.Values says;
 	// empty runs the user's default shell (localshell.DefaultShell).
 	TerminalShell string `json:"terminalShell,omitempty"`

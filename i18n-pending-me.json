@@ -775,5 +775,47 @@
     "description": "Network settings page",
     "en-US": "The port must be a number from 1 to 65535.",
     "zh-CN": "端口必须是 1 到 65535 之间的数字。"
+  },
+  {
+    "id": "desktop.settings.editor.tabLimit",
+    "description": "Editor settings, tab limit",
+    "en-US": "Tab limit",
+    "zh-CN": "标签数量上限"
+  },
+  {
+    "id": "desktop.settings.editor.tabLimitHelp",
+    "description": "Editor settings, tab limit",
+    "en-US": "Opening a file past the limit closes another file tab. Tabs with unsaved changes, terminals and Agent conversations are never closed.",
+    "zh-CN": "超过上限后再打开文件，会自动关闭另一个文件标签。有未保存修改的标签、终端和 Agent 对话不会被关闭。"
+  },
+  {
+    "id": "desktop.settings.editor.tabLimitCount",
+    "description": "Editor settings, tab limit",
+    "en-US": "Maximum open file tabs",
+    "zh-CN": "最多打开的文件标签"
+  },
+  {
+    "id": "desktop.settings.editor.tabLimitNone",
+    "description": "Editor settings, tab limit",
+    "en-US": "No limit",
+    "zh-CN": "不限制"
+  },
+  {
+    "id": "desktop.settings.editor.tabPolicy",
+    "description": "Editor settings, tab limit",
+    "en-US": "When the limit is reached, close",
+    "zh-CN": "达到上限时关闭"
+  },
+  {
+    "id": "desktop.settings.editor.tabPolicyRecent",
+    "description": "Editor settings, tab limit",
+    "en-US": "The least recently used tab",
+    "zh-CN": "最久未使用的标签"
+  },
+  {
+    "id": "desktop.settings.editor.tabPolicyOldest",
+    "description": "Editor settings, tab limit",
+    "en-US": "The tab opened first",
+    "zh-CN": "最早打开的标签"
   }
 ]

@@ -148,6 +148,19 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SetTabOverflow: func(value string) {
 			a.post(func(a *App) { a.setTabOverflow(value) })
 		},
+		SetTabLimit: func(limit int, policy string) {
+			a.post(func(a *App) {
+				a.settings.EditorTabLimit = &limit
+				if limit == settingswindow.DefaultTabLimit {
+					a.settings.EditorTabLimit = nil
+				}
+				a.settings.EditorTabPolicy = policy
+				a.saveSettings()
+				if p := a.project; p != nil {
+					a.enforceTabLimit(p, p.selectedDocument(p.docs.group))
+				}
+			})
+		},
 		SetHideGitGutter: func(value bool) {
 			a.post(func(a *App) { a.setHideGitGutter(value) })
 		},
@@ -318,6 +331,7 @@ func (a *App) openSettingsPageWith(surface string, page settingsPage, query stri
 		current := settingswindow.Values{
 			Language: a.settings.Language, Theme: string(a.settings.Theme), MarketplaceWidth: a.settings.MarketplaceWidth,
 			EditorTabRows: a.settings.EditorTabRows, EditorTabOverflow: a.settings.EditorTabOverflow,
+			EditorTabLimit: settingswindow.TabLimitOf(a.settings.EditorTabLimit), EditorTabPolicy: a.settings.EditorTabPolicy,
 			TerminalShell: a.settings.TerminalShell, TerminalScrollback: a.terminalScrollback(),
 			HideProjectColors: a.settings.HideProjectColors,
 			HideGitGutter:     a.settings.HideGitGutter, InlineGitBlame: a.settings.InlineGitBlame,
