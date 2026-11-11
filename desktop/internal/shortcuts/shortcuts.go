@@ -87,6 +87,29 @@ func chord(modifiers gfx.Modifiers, key string) keymap.Chord {
 
 func chords(list ...keymap.Chord) []keymap.Chord { return list }
 
+// The occurrence commands follow IntelliJ IDEA: Control-G, Control-Shift-G and Control-Command-G on macOS,
+// Alt-J, Alt-Shift-J and Control-Alt-Shift-J elsewhere. Clone Caret has no default chord, as in IDEA.
+func addNextOccurrenceDefault() keymap.Chord {
+	if runtime.GOOS == "darwin" {
+		return chord(gfx.ModifierControl, "g")
+	}
+	return chord(gfx.ModifierAlt, "j")
+}
+
+func unselectOccurrenceDefault() keymap.Chord {
+	if runtime.GOOS == "darwin" {
+		return chord(gfx.ModifierControl|gfx.ModifierShift, "g")
+	}
+	return chord(gfx.ModifierAlt|gfx.ModifierShift, "j")
+}
+
+func selectAllOccurrencesDefault() keymap.Chord {
+	if runtime.GOOS == "darwin" {
+		return chord(gfx.ModifierControl|gfx.ModifierMeta, "g")
+	}
+	return chord(gfx.ModifierControl|gfx.ModifierAlt|gfx.ModifierShift, "j")
+}
+
 // navigateDefault is Go to Line: Command-L on macOS, Control-G elsewhere.
 func navigateDefault() keymap.Chord {
 	if runtime.GOOS == "darwin" {
@@ -137,6 +160,11 @@ var Catalog = []Action{
 	{ID: "editor.foldAll", Group: GroupEditor, Title: func(m *i18n.Messages) string { return m.Commands.FoldAll }, Defaults: chords(chord(keymap.Primary|gfx.ModifierShift, "-"))},
 	{ID: "editor.unfoldAll", Group: GroupEditor, Title: func(m *i18n.Messages) string { return m.Commands.UnfoldAll }, Defaults: chords(chord(keymap.Primary|gfx.ModifierShift, "="))},
 	{ID: "editor.vimMode", Group: GroupEditor, Title: func(m *i18n.Messages) string { return m.Commands.ToggleVim }},
+	{ID: "editor.addNextOccurrence", Group: GroupEditor, Title: func(m *i18n.Messages) string { return m.Commands.AddNextOccurrence }, Defaults: chords(addNextOccurrenceDefault())},
+	{ID: "editor.unselectOccurrence", Group: GroupEditor, Title: func(m *i18n.Messages) string { return m.Commands.UnselectOccurrence }, Defaults: chords(unselectOccurrenceDefault())},
+	{ID: "editor.selectAllOccurrences", Group: GroupEditor, Title: func(m *i18n.Messages) string { return m.Commands.SelectAllOccurrences }, Defaults: chords(selectAllOccurrencesDefault())},
+	{ID: "editor.cloneCaretAbove", Group: GroupEditor, Title: func(m *i18n.Messages) string { return m.Commands.CloneCaretAbove }},
+	{ID: "editor.cloneCaretBelow", Group: GroupEditor, Title: func(m *i18n.Messages) string { return m.Commands.CloneCaretBelow }},
 	{ID: "git.gutter.next", Group: GroupEditor, Title: func(m *i18n.Messages) string { return m.Commands.GitNextChange }, Defaults: chords(chord(gfx.ModifierControl|gfx.ModifierAlt|gfx.ModifierShift, "down"))},
 	{ID: "git.gutter.previous", Group: GroupEditor, Title: func(m *i18n.Messages) string { return m.Commands.GitPreviousChange }, Defaults: chords(chord(gfx.ModifierControl|gfx.ModifierAlt|gfx.ModifierShift, "up"))},
 	{ID: GoToLine, Group: GroupEditor, Title: func(m *i18n.Messages) string { return m.Keymap.GoToLine }, Defaults: chords(navigateDefault())},

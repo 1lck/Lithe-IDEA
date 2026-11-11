@@ -31,11 +31,6 @@ func (v *View) Shortcut(event gfx.KeyEvent) (gfx.EventResult, bool) {
 			return result, true
 		}
 	}
-	if !v.vim.on {
-		if result, ok := v.occurrenceChord(event); ok {
-			return result, true
-		}
-	}
 	cmd := commandKey()
 	shift := event.Modifiers&gfx.ModifierShift != 0
 	if event.Modifiers&^gfx.ModifierShift != cmd {
@@ -138,7 +133,7 @@ func (v *View) key(event gfx.KeyEvent) (gfx.EventResult, bool) {
 		// The input method owns the keys while it composes.
 		return gfx.EventResult{Handled: true}, true
 	}
-	if v.vim.on {
+	if v.vim.on && !v.vimBlockKeepsCarets() {
 		v.extra = nil
 	}
 	if result, handled := v.vimKey(event); handled {

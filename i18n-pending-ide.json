@@ -635,5 +635,35 @@
     "description": "Build options dialog message when the build system declares no options",
     "en-US": "This build system declares no options.",
     "zh-CN": "此构建系统没有声明可配置的选项。"
+  },
+  {
+    "id": "desktop.command.addNextOccurrence",
+    "description": "Editor command: add a caret at the next occurrence of the selection",
+    "en-US": "Add Next Occurrence",
+    "zh-CN": "添加下一处匹配"
+  },
+  {
+    "id": "desktop.command.unselectOccurrence",
+    "description": "Editor command: take back the last occurrence caret",
+    "en-US": "Unselect Occurrence",
+    "zh-CN": "取消上一处匹配"
+  },
+  {
+    "id": "desktop.command.selectAllOccurrences",
+    "description": "Editor command: select every occurrence of the selection as carets",
+    "en-US": "Select All Occurrences",
+    "zh-CN": "选择所有匹配"
+  },
+  {
+    "id": "desktop.command.cloneCaretAbove",
+    "description": "Editor command: add a caret on the line above the primary caret",
+    "en-US": "Clone Caret Above",
+    "zh-CN": "在上方添加光标"
+  },
+  {
+    "id": "desktop.command.cloneCaretBelow",
+    "description": "Editor command: add a caret on the line below the primary caret",
+    "en-US": "Clone Caret Below",
+    "zh-CN": "在下方添加光标"
   }
 ]

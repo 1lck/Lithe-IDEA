@@ -79,7 +79,7 @@ func (v *View) vimPasteAs(text string) {
 	if text == "" {
 		return
 	}
-	if v.vim.mode == vimVisual || v.vim.mode == vimVisualLine {
+	if v.vim.mode == vimVisual || v.vim.mode == vimVisualLine || v.vim.mode == vimVisualBlock {
 		v.vimVisualPasteText(text, false)
 		return
 	}
