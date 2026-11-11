@@ -198,7 +198,7 @@ func (a *App) snapshotRunOutput(p *project, entry *runEntry) {
 	a.placeDocumentAs(p, uri, a.text.Run.Snapshot.Tab(entry.label), content, grammar, "", true)
 	// Pinned at creation: the tab limit never closes a snapshot.
 	if d := p.docs.byPath(uri); d != nil {
-		d.pinned = true
+		a.reduceTerminals(p, p.terms.bench, core.PinEditorEverywhere(documentMember(d.id), true))
 	}
 }
 

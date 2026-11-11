@@ -39,6 +39,7 @@ func (a *App) tabMenuItems(c ui.C, group string, t shownTab, tabs []shownTab) fu
 		if menu.Item(i18n.Shared(language, "desktop.tab.close")).Clicked() {
 			c.After(func() { a.closeTab(t) })
 		}
+		tabPinned := func(s shownTab) bool { return p.terms.bench.Group(group).IsPinned(s.member()) }
 		if menu.Item(i18n.Shared(language, "native.closeOtherTabs")).Disabled(len(tabs) < 2).Clicked() {
 			closeAll("editor.tabs.closeOthers", func(i int, s shownTab) bool { return i == at || tabPinned(s) })
 		}
@@ -64,12 +65,13 @@ func (a *App) tabMenuItems(c ui.C, group string, t shownTab, tabs []shownTab) fu
 			return
 		}
 		menu.Separator()
+		pinned := tabPinned(t)
 		pin := "desktop.tab.pin"
-		if d.pinned {
+		if pinned {
 			pin = "desktop.tab.unpin"
 		}
 		if menu.Item(i18n.Shared(language, pin)).Clicked() {
-			c.After(func() { a.setTabPinned(p, group, d, !d.pinned) })
+			c.After(func() { a.setTabPinned(p, group, d, !pinned) })
 		}
 		menu.Separator()
 		path := d.path
@@ -94,8 +96,11 @@ func (a *App) tabMenuItems(c ui.C, group string, t shownTab, tabs []shownTab) fu
 	}
 }
 
-// tabPinned reports whether tab s is a pinned file tab.
-func tabPinned(s shownTab) bool { return s.doc != nil && s.doc.pinned }
+// documentPinned reports whether a group pins document d's tab.
+func (p *project) documentPinned(d *document) bool {
+	member := documentMember(d.id)
+	return p.terms.bench.GroupOf(member).IsPinned(member)
+}
 
 // closeMembers closes the tabs of the given group members, one after another.
 func (a *App) closeMembers(p *project, members []string) {
@@ -114,32 +119,27 @@ func (a *App) closeMembers(p *project, members []string) {
 	}
 }
 
-// setTabPinned pins or unpins the tab of document d in group. A pinned tab moves to the end
-// of the pinned tabs at the front of the group; an unpinned one to just after them.
+// setTabPinned pins or unpins the tab of document d in group; Core keeps the pin. A pinned
+// tab moves to the end of the pinned tabs at the front of the group; an unpinned one to just
+// after them.
 func (a *App) setTabPinned(p *project, group string, d *document, pinned bool) {
-	if d.pinned == pinned {
-		return
-	}
 	action := "editor.tabs.unpin"
 	if pinned {
 		action = "editor.tabs.pin"
 	}
 	a.performed(action, surfaceMenu)
-	d.pinned = pinned
+	member := documentMember(d.id)
+	if !a.reduceTerminals(p, p.terms.bench, core.PinEditor(group, member, pinned)) {
+		return
+	}
 	g := p.terms.bench.Group(group)
 	if g == nil {
 		return
 	}
-	member := documentMember(d.id)
 	front := 0
 	for _, m := range g.Members {
-		if m == member {
-			continue
-		}
-		if id, ok := memberDocument(m); ok {
-			if other := p.docs.find(id); other != nil && other.pinned {
-				front++
-			}
+		if m != member && g.IsPinned(m) {
+			front++
 		}
 	}
 	a.moveTab(p, member, group, front)

@@ -440,7 +440,7 @@ func (a *App) stripTab(c ui.C, place *groupPlace, t shownTab, current string, i 
 	var closeButton ui.Box
 	chip.Children(func() {
 		ui.Icon(k, icon).Size(terminalChipIcon, terminalChipIcon).Shrink(0).Color(a.colors.Subtle)
-		if tabPinned(t) {
+		if a.project.terms.bench.Group(place.id).IsPinned(member) {
 			ui.Icon(k.Part("pin"), icons.Pin).Size(terminalCloseIcon, terminalCloseIcon).Shrink(0).Color(a.colors.Subtle)
 		}
 		text := ui.Text(k, label).Ellipsis().Grow(1)

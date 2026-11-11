@@ -96,9 +96,6 @@ type document struct {
 	// watched, saved or synchronized with a language server, and the host keeps no
 	// copy once it closes.
 	virtual bool
-	// pinned keeps a document open past the tab limit: an output snapshot is the user's
-	// own copy and closes only when the user closes it (tab_limit.go).
-	pinned bool
 	// encoding is the id of the text encoding the file is read and written in; "" is plain
 	// UTF-8. hasBOM says a byte order mark leads the file. diskBytes are the bytes the file
 	// held when it was last read or written, kept only for a document whose bytes differ from

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 )
 
 // EditorGroup is one tab group: the members it lists in tab order, the one it shows, and the
@@ -18,8 +19,7 @@ type EditorGroup struct {
 	Selected string `json:"selected,omitempty"`
 	// MRU lists the members from the most recently used.
 	MRU []string `json:"mru"`
-	// Pinned lists the pinned members. The desktop client pins nothing yet, but a state
-	// returned by the kernel is sent back as it came.
+	// Pinned lists the pinned members (PinEditor).
 	Pinned []string `json:"pinned"`
 	// Preview is the member shown as a preview tab; empty when there is none.
 	Preview string `json:"preview,omitempty"`
@@ -117,6 +117,8 @@ const (
 	editorMove      editorKind = "move"
 	editorReorder   editorKind = "reorder"
 	editorMerge     editorKind = "mergeGroup"
+	editorPin       editorKind = "setPinned"
+	editorPinAll    editorKind = "setPinnedEverywhere"
 )
 
 // EditorAction is one transition of an EditorWorkbench. Build it with NormalizeEditor,
@@ -190,6 +192,21 @@ func MergeEditorGroups(from, into string, activate bool) EditorAction {
 	return EditorAction{kind: editorMerge, group: from, member: into, activate: activate}
 }
 
+// PinEditor pins or unpins member in group. Pinning clears a preview of the same member.
+func PinEditor(group, member string, pinned bool) EditorAction {
+	return EditorAction{kind: editorPin, group: group, member: member, activate: pinned}
+}
+
+// PinEditorEverywhere pins or unpins member in every group that lists it.
+func PinEditorEverywhere(member string, pinned bool) EditorAction {
+	return EditorAction{kind: editorPinAll, member: member, activate: pinned}
+}
+
+// IsPinned reports whether the group pins member.
+func (g *EditorGroup) IsPinned(member string) bool {
+	return g != nil && slices.Contains(g.Pinned, member)
+}
+
 // The exact JSON shapes of the action variants. The kernel rejects unknown fields, so each
 // variant encodes only its own.
 type editorNormalizeWire struct {
@@ -238,6 +255,13 @@ type editorReorderWire struct {
 	ToIndex   int        `json:"toIndex"`
 }
 
+type editorPinWire struct {
+	Kind   editorKind `json:"kind"`
+	Group  string     `json:"group,omitempty"`
+	Member string     `json:"member"`
+	Pinned bool       `json:"pinned"`
+}
+
 type editorMergeWire struct {
 	Kind             editorKind `json:"kind"`
 	From             string     `json:"from"`
@@ -273,10 +297,12 @@ func (a EditorAction) MarshalJSON() ([]byte, error) {
 		})
 	case editorReorder:
 		return json.Marshal(editorReorderWire{Kind: a.kind, Group: a.group, FromIndex: a.from, ToIndex: a.to})
+	case editorPin, editorPinAll:
+		return json.Marshal(editorPinWire{Kind: a.kind, Group: a.group, Member: a.member, Pinned: a.activate})
 	case editorMerge:
 		return json.Marshal(editorMergeWire{Kind: a.kind, From: a.group, Into: a.member, ActivateSelected: a.activate})
 	}
-	return nil, errors.New("core: zero EditorAction; build one with NormalizeEditor, OpenEditor, CloseEditor, ActivateEditor, MoveEditor, ReorderEditor or MergeEditorGroups")
+	return nil, errors.New("core: zero EditorAction; build one with NormalizeEditor, OpenEditor, CloseEditor, ActivateEditor, MoveEditor, ReorderEditor, PinEditor or MergeEditorGroups")
 }
 
 // editorWorkbenchRequest is the payload of editor.workbenchState.reduce. The kernel rejects
