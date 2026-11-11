@@ -212,6 +212,29 @@ func TestDebugLateErrorDoesNotChangeReplacementSession(t *testing.T) {
 	p.debug.session = nil
 }
 
+// Stepping before the stack of the previous stop arrived makes Core refuse that late
+// reply as stale. The new stop inspects again, so the panel shows no failure.
+func TestDebugStaleInspectionIsNotAFailure(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.open(t.TempDir())
+	p := h.app.project
+	session := &debugSession{generation: 1}
+	p.debug.session, p.debug.generation = session, 1
+	defer func() { p.debug.session = nil }()
+	h.app.applyDebugUpdate(p, session, core.DebugUpdate{State: "running", Events: []core.DebugEvent{
+		{Type: "operationFailed", OperationID: "stack-1", Command: "stackTrace", Code: debugStaleReference, Message: "The debuggee resumed or stopped again before the adapter replied."},
+	}})
+	if p.debug.failure != "" {
+		t.Fatalf("a stale inspection was shown as a failure: %q", p.debug.failure)
+	}
+	h.app.applyDebugUpdate(p, session, core.DebugUpdate{State: "paused", Events: []core.DebugEvent{
+		{Type: "operationFailed", OperationID: "stack-2", Command: "stackTrace", Code: "adapterRejected", Message: "no stack"},
+	}})
+	if p.debug.failure != "no stack" {
+		t.Fatalf("a rejected inspection was not shown: %q", p.debug.failure)
+	}
+}
+
 // debugAdapterExitWait bounds the wait for a real adapter process to start and
 // exit. The adapter is a copy of this test binary, whose startup depends on how
 // busy the machine is, so the bound is as generous as the other tests that wait

@@ -306,6 +306,10 @@ func (a *App) postDebugUpdate(p *project, session *debugSession, update core.Deb
 	a.post(func(a *App) { a.applyDebugUpdate(p, session, update) })
 }
 
+// debugStaleReference is Core's failure code for a reply that used a frame or variables
+// reference from before the latest resume or stop.
+const debugStaleReference = "staleReference"
+
 // applyDebugUpdate publishes one Core update on the window thread. It can ask
 // for the next inspection; it never writes adapter bytes there.
 func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.DebugUpdate) {
@@ -361,6 +365,12 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 			a.releaseDebugSession(p, session)
 		case "operationFailed":
 			if a.completeDebugOperation(p, event) {
+				continue
+			}
+			// A reply to an inspection the debuggee outran (it resumed or stopped again
+			// before the adapter answered) is about a stop that is gone. The new stop
+			// asks again, so stepping quickly is not a failure to show.
+			if event.Code == debugStaleReference {
 				continue
 			}
 			p.debug.failure = event.Message
