@@ -135,6 +135,14 @@ func Start(ctx context.Context, spec Spec, observe func(Stream, string)) (*Proce
 	return process, nil
 }
 
+// Pid is the identifier of the root process, or 0 when it has none.
+func (p *Process) Pid() int {
+	if p == nil || p.command == nil || p.command.Process == nil {
+		return 0
+	}
+	return p.command.Process.Pid
+}
+
 // Wait blocks until the root exited, its inherited output pipes were drained or
 // bounded, and the process tree was released.
 func (p *Process) Wait() error {

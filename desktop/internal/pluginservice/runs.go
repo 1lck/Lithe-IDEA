@@ -172,6 +172,8 @@ type Runs struct {
 }
 
 type hostRun struct {
+	// pid is the root process of a started run, recorded in the ledger while it lives.
+	pid       int
 	id        string
 	pluginID  string
 	backend   string
@@ -415,6 +417,10 @@ func (r *Runs) handleStart(ctx context.Context, params json.RawMessage) (json.Ra
 		process = spawned
 	}
 	run.process = process
+	if owned, ok := process.(interface{ Pid() int }); ok {
+		run.pid = owned.Pid()
+		_ = r.service.ledger.Add(run.pid)
+	}
 	r.mu.Lock()
 	if r.closed {
 		r.mu.Unlock()
@@ -489,6 +495,7 @@ func runStartFailure(err error) *pluginhost.Failure {
 func (r *Runs) supervise(run *hostRun) {
 	defer r.wait.Done()
 	err := run.process.Wait()
+	_ = r.service.ledger.Remove(run.pid)
 	run.cancel()
 	if run.temporary != "" {
 		_ = os.RemoveAll(run.temporary)
