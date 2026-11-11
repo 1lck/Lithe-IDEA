@@ -17,7 +17,8 @@ import (
 var pushTagIndexes = []int{0, 1, 2}
 
 // drawGitReviewMenu declares the Git tools button of the Git tool window's stripe, with the
-// menu that opens the Push dialog, the Stash tab, the Worktrees tab and the repositories.
+// menu that opens the Push dialog, the Stash and Shelf tabs, the Worktrees tab and the
+// repositories.
 func (a *App) drawGitReviewMenu(c ui.C, p *project) {
 	r := &a.reviewMenu
 	button, clicked := a.gitToolButton(c, i18n.Shared(a.language(), "desktop.gitReview.menuLabel"), icons.Ellipsis, r.open, !p.git.isRepository())
@@ -31,6 +32,9 @@ func (a *App) drawGitReviewMenu(c ui.C, p *project) {
 		}
 		if menu.Item(i18n.Shared(a.language(), "git.saved.stashes")).Clicked() {
 			c.After(a.showStashes)
+		}
+		if menu.Item(i18n.Shared(a.language(), "git.saved.shelves")).Clicked() {
+			c.After(a.showShelves)
 		}
 		if menu.Item(i18n.Shared(a.language(), "git.worktrees")).Clicked() {
 			c.After(a.showWorktrees)

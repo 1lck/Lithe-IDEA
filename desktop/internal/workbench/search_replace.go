@@ -252,8 +252,8 @@ func (a *App) reportProjectReplace(outcomes []replaceOutcome) {
 	a.notifyKind(t.ReplaceDone(strconv.Itoa(changed)), ui.ToastSuccess)
 }
 
-// projectRelative is path relative to root with forward slashes, and false when it
-// lies outside root.
+// projectRelative is path relative to root with forward slashes, and false when path is root
+// itself or lies outside it.
 func projectRelative(root, path string) (string, bool) {
 	rel, err := filepath.Rel(root, path)
 	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {

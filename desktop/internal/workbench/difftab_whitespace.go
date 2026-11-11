@@ -7,7 +7,7 @@ package workbench
 
 // setDiffWhitespace turns the whitespace rules of tab t on or off and reads its change again.
 func (a *App) setDiffWhitespace(p *project, t *diffTab, ignore bool) {
-	if t.stash != nil || t.ignoreSpace == ignore {
+	if t.saved != nil || t.ignoreSpace == ignore {
 		return
 	}
 	t.ignoreSpace = ignore

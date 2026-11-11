@@ -158,9 +158,12 @@ func (a *App) toolBody(c ui.C, tool item, p *project) {
 		case itemTerminal:
 			a.terminalToolBody(c, p)
 		case itemCommit:
-			if a.layout.commitTab == commitTabStash {
+			switch a.layout.commitTab {
+			case commitTabStash:
 				a.stashPageView(c, p)
-			} else {
+			case commitTabShelf:
+				a.shelfPageView(c, p)
+			default:
 				a.commitPageView(c)
 			}
 		case itemProject:
@@ -227,11 +230,11 @@ const (
 	gitTabConsole
 )
 
-// commitTabs declares the tabs of the Commit tool window's header: the local changes and the
-// stashes.
+// commitTabs declares the tabs of the Commit tool window's header: the local changes, the
+// stashes and the shelves.
 func (a *App) commitTabs(c ui.C) {
 	lang := a.language()
-	labels := [2]string{i18n.Shared(lang, "workbench.commit"), i18n.Shared(lang, "native.stash")}
+	labels := [3]string{i18n.Shared(lang, "workbench.commit"), i18n.Shared(lang, "native.stash"), i18n.Shared(lang, "git.saved.tab")}
 	a.toolTabs(c.Key("commit-tabs"), &a.layout.commitTab, labels[:])
 }
 
@@ -239,6 +242,7 @@ func (a *App) commitTabs(c ui.C) {
 const (
 	commitTabChanges = iota
 	commitTabStash
+	commitTabShelf
 )
 
 // toolTabs declares the tabs of a tool window's header, as the macOS tool windows draw them

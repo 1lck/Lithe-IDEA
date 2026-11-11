@@ -2,7 +2,6 @@ package workbench
 
 import (
 	"context"
-	"path"
 	"slices"
 	"strings"
 	"time"
@@ -38,23 +37,16 @@ type stashState struct {
 	busy bool
 	list []core.GitStash
 
-	// selected is the identity of the selected stash, "" for none, and files and folders are
-	// what it saved, grouped as the Log tab groups a commit's files.
+	// selected is the identity of the selected stash, "" for none, files what it saved and
+	// tree the list of them.
 	selected string
 	files    []core.GitDiffFile
-	folders  []logFolder
+	tree     savedFiles
 	// filesLoading says the selected stash's files are being read, and filesGen counts the
 	// reads; filesErr is why the last one failed.
 	filesLoading bool
 	filesGen     int
 	filesErr     string
-	// closed are the folders of the files the user closed, and file the selected file.
-	closed map[string]bool
-	file   string
-	// rows are the rows of the files as they show, collected on each paint, and fileSelected
-	// the index of the selected file's row among them, -1 for none.
-	rows         []stashFileRow
-	fileSelected int
 
 	// pushOpen says the dialog that stashes the local changes is open; message and untracked
 	// shape the stash it makes.
@@ -64,15 +56,8 @@ type stashState struct {
 	// dropping is the stash waiting for the user to confirm dropping it, nil for none.
 	dropping *core.GitStash
 
-	stashes, fileList ui.ListState
-	split             ui.SplitterState
-}
-
-// stashFileRow is one row of the selected stash's files: a folder, at the index of the stash's
-// folders, or a file under it, at the index of the stash's files; file is -1 for a folder.
-type stashFileRow struct {
-	key, folder, file int
-	depth             int
+	stashes ui.ListState
+	split   ui.SplitterState
 }
 
 // selectedStash is the selected stash.
@@ -86,9 +71,9 @@ func (s *stashState) selectedStash() (core.GitStash, bool) {
 
 // clearSelection forgets the selected stash and what it saved.
 func (s *stashState) clearSelection() {
-	s.selected, s.file, s.files, s.folders, s.filesErr = "", "", nil, nil, ""
+	s.selected, s.files, s.filesErr = "", nil, ""
 	s.filesLoading, s.filesGen = false, s.filesGen+1
-	s.closed = nil
+	s.tree.reset()
 }
 
 // showStashes shows the Commit tool window on its Stash tab and reads the stashes again.
@@ -165,7 +150,7 @@ func (a *App) selectStash(p *project, oid string) {
 				return
 			}
 			s.files = files
-			s.folders = groupLogFiles(stashCommitFiles(files))
+			s.tree.reset(newSavedLayer("", files))
 		}
 	})
 }
@@ -187,64 +172,6 @@ func stashCommitFiles(files []core.GitDiffFile) []core.GitCommitFile {
 		out[i] = core.GitCommitFile{Path: f.Path, Status: f.Status}
 	}
 	return out
-}
-
-// collectStashFiles lists the rows of the selected stash's files the way they show: each
-// folder but the top of the repository as a row of its own, and the files of the open ones
-// under them.
-func (s *stashState) collectStashFiles() {
-	s.rows, s.fileSelected = s.rows[:0], -1
-	for g, folder := range s.folders {
-		depth := 0
-		if folder.dir != "." {
-			s.rows = append(s.rows, stashFileRow{key: g, folder: g, file: -1})
-			if s.closed[folder.dir] {
-				continue
-			}
-			depth = 1
-		}
-		for _, i := range folder.files {
-			if s.files[i].Path == s.file {
-				s.fileSelected = len(s.rows)
-			}
-			s.rows = append(s.rows, stashFileRow{key: len(s.folders) + i, folder: g, file: i, depth: depth})
-		}
-	}
-}
-
-// toggleStashFolder closes the folder at index g of the stash's files when it is open and
-// opens it when it is closed. A selected file it closes over is no longer selected.
-func (s *stashState) toggleStashFolder(g int) {
-	dir := s.folders[g].dir
-	if s.closed[dir] {
-		delete(s.closed, dir)
-		return
-	}
-	if s.closed == nil {
-		s.closed = map[string]bool{}
-	}
-	s.closed[dir] = true
-	if s.file != "" && path.Dir(s.file) == dir {
-		s.file = ""
-	}
-}
-
-// openStashFolders opens every folder of the stash's files, or closes every one but the top
-// of the repository.
-func (s *stashState) openStashFolders(open bool) {
-	s.closed = nil
-	if open {
-		return
-	}
-	s.closed = map[string]bool{}
-	for _, folder := range s.folders {
-		if folder.dir != "." {
-			s.closed[folder.dir] = true
-		}
-	}
-	if s.file != "" && path.Dir(s.file) != "." {
-		s.file = ""
-	}
 }
 
 // openStashFile opens the Diff tab of the file at path the selected stash saved.

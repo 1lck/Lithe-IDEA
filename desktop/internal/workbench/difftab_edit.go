@@ -22,7 +22,7 @@ func diffTabPath(t *diffTab) string {
 // diffWritable says the right side of tab t is the working copy of its file: the change of a
 // checkout's file against the file on disk, not a commit, a stash, the index or a plan.
 func diffWritable(t *diffTab) bool {
-	return t.file != nil && t.stash == nil && t.commit == "" && !t.staged && t.plan == nil &&
+	return t.file != nil && t.saved == nil && t.commit == "" && !t.staged && t.plan == nil &&
 		(t.compare == nil || t.compare.target == nil)
 }
 
@@ -109,7 +109,7 @@ func (a *App) diffUndoChord(t *diffTab, event gfx.KeyEvent) bool {
 // saved, so the change the tabs show is the one on disk.
 func (a *App) reloadDiffsOfPath(p *project, path string) {
 	for _, t := range p.diffs.list {
-		if t.stash == nil && diffTabPath(t) == path {
+		if t.saved == nil && diffTabPath(t) == path {
 			a.loadDiff(p, t)
 		}
 	}

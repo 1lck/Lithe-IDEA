@@ -241,7 +241,7 @@ func everywhereSymbolPath(p *project, uri string) (string, bool) {
 		return "", false
 	}
 	abs := fileURIPath(target)
-	relative, ok := projectRelativePath(p.root, abs)
+	relative, ok := projectRelative(p.root, abs)
 	if !ok {
 		return "", false
 	}

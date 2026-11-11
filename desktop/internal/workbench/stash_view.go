@@ -1,15 +1,11 @@
 package workbench
 
 import (
-	"path"
 	"slices"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/treelist"
-	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -64,19 +60,19 @@ func (a *App) drawStashToolbar(c ui.C, p *project) {
 		if a.gitIconButton(c, i18n.Shared(lang, "desktop.gitReview.refresh"), icons.RefreshCw, false, !repository || s.loading) {
 			c.After(func() { a.loadStashes(p) })
 		}
-		if a.gitIconButton(c, i18n.Shared(lang, "git.showDiff"), icons.Eye, false, s.file == "") {
-			file := s.file
+		if a.gitIconButton(c, i18n.Shared(lang, "git.showDiff"), icons.Eye, false, s.tree.file.path == "") {
+			file := s.tree.file.path
 			c.After(func() { a.openStashFile(p, file) })
 		}
 		if a.gitIconButton(c, i18n.Shared(lang, "desktop.gitReview.stashPush"), icons.Archive, false, !repository || s.busy || changes == 0) {
 			c.After(func() { a.openStashPush(p) })
 		}
-		folders := len(s.folders) == 0
+		folders := !s.tree.hasFolders()
 		if a.gitIconButton(c, i18n.Shared(lang, "outline.expandAll"), icons.ChevronsUpDown, false, folders) {
-			c.After(func() { s.openStashFolders(true) })
+			c.After(func() { s.tree.openFolders(true) })
 		}
 		if a.gitIconButton(c, i18n.Shared(lang, "files.collapseAll"), icons.ChevronsDownUp, false, folders) {
-			c.After(func() { s.openStashFolders(false) })
+			c.After(func() { s.tree.openFolders(false) })
 		}
 	})
 }
@@ -155,89 +151,9 @@ func (a *App) drawStashFiles(c ui.C, p *project) ui.Box {
 		case len(s.files) == 0:
 			a.gitEmpty(c, i18n.Shared(lang, "git.diff.noChangesInStash"))
 		default:
-			a.drawStashFileList(c, p)
+			a.drawSavedFileList(c, &s.tree, func(file savedPath) { a.openStashFile(p, file.path) })
 		}
 	})
-}
-
-// drawStashFileList declares the list of the stash's files. Selecting a file keeps it for the
-// Show Diff button; Enter or a double click opens its diff, and on a folder opens or closes it.
-func (a *App) drawStashFileList(c ui.C, p *project) {
-	s := &p.stash
-	s.collectStashFiles()
-	if s.fileList.Key == nil {
-		s.fileList.Key = func(i int) int { return s.rows[i].key }
-	}
-	if !s.fileList.Changed() && s.fileList.Selected() != s.fileSelected {
-		s.fileList.Select(s.fileSelected)
-	}
-	ui.List(c, &s.fileList, len(s.rows), func(row ui.ListRow) { a.drawStashFileRow(p, row) }).Grow(1).FillWidth()
-	if s.fileList.Changed() {
-		if i := s.fileList.Selected(); i >= 0 && i < len(s.rows) {
-			if r := s.rows[i]; r.file >= 0 {
-				s.file = s.files[r.file].Path
-			} else {
-				s.file = ""
-			}
-		}
-	}
-	if i, ok := s.fileList.Submitted(); ok && i >= 0 && i < len(s.rows) {
-		if r := s.rows[i]; r.file < 0 {
-			c.After(func() { s.toggleStashFolder(r.folder) })
-		} else {
-			file := s.files[r.file].Path
-			c.After(func() { a.openStashFile(p, file) })
-		}
-	}
-}
-
-// drawStashFileRow declares one row of the stash's files: a folder's arrow, icon and path, or a
-// file's change, icon and name in the color of its change.
-func (a *App) drawStashFileRow(p *project, row ui.ListRow) {
-	s := &p.stash
-	r := s.rows[row.Index]
-	box := row.Element.Height(treelist.RowHeight).Items(ui.Center).Gap(treelist.Gap).
-		PadSides(0, treelist.Gutter+treelist.Trailing, 0, float32(treelist.Gutter+r.depth*treelist.Indent)).
-		Radius(a.theme.Metrics.RadiusItem())
-	if row.Index == s.fileSelected {
-		box = box.Background(a.colors.Selection)
-	} else {
-		box = box.Hover(ui.Look{}.Background(a.colors.Hover))
-	}
-	box.Children(func() {
-		if r.file < 0 {
-			dir := s.folders[r.folder].dir
-			a.drawStashFolderArrow(row.C, s, r, dir)
-			ui.Icon(row.C, fileicons.ForDirectory(path.Base(dir), a.colors.Dark)).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
-			ui.Text(row.C, dir).FontSize(treeFontSize).Color(treelist.Text(a.colors.Dark)).Ellipsis()
-			return
-		}
-		file := s.files[r.file]
-		color := a.fileStatusColor(file.Status)
-		ui.Row(row.C.Part("arrow")).Size(treelist.Disclosure, treelist.Icon).Shrink(0)
-		ui.Text(row.C, statusLetter(file.Status)).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(color).Width(logFileStatus).Shrink(0)
-		ui.Icon(row.C, fileicons.ForFile(path.Base(file.Path), a.colors.Dark)).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
-		ui.Text(row.C, path.Base(file.Path)).FontSize(treeFontSize).Color(color).Ellipsis()
-	})
-}
-
-// drawStashFolderArrow declares the arrow that opens or closes a folder of the stash's files.
-func (a *App) drawStashFolderArrow(c ui.C, s *stashState, r stashFileRow, dir string) {
-	open := !s.closed[dir]
-	name, chevron := i18n.Shared(a.language(), "native.collapseDirectory"), icons.ChevronDown
-	if !open {
-		name, chevron = i18n.Shared(a.language(), "native.expandDirectory"), icons.ChevronRight
-	}
-	k := c.Part("arrow")
-	slot := ui.Row(k).Size(treelist.Disclosure, treelist.Icon).Shrink(0).Center().
-		HitWith(ui.ID(k), name+" "+dir, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Expandable: true, Expanded: open, SkipFocus: true})
-	slot.Children(func() {
-		ui.Icon(k, chevron).Size(12, 12).Color(a.colors.Subtle)
-	})
-	if slot.Clicked() {
-		folder := r.folder
-		c.After(func() { s.toggleStashFolder(folder) })
-	}
 }
 
 // drawStashButtons declares the buttons under the files that apply or pop the selected stash.

@@ -1,7 +1,6 @@
 package workbench
 
 import (
-	"path/filepath"
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -72,17 +71,7 @@ func activeTreePath(p *project) (string, bool) {
 	if doc == nil {
 		return "", false
 	}
-	return projectRelativePath(p.root, doc.path)
-}
-
-// projectRelativePath is path relative to root with "/" separators, and false when path is
-// root itself or not inside it.
-func projectRelativePath(root, path string) (string, bool) {
-	rel, err := filepath.Rel(root, path)
-	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return "", false
-	}
-	return filepath.ToSlash(rel), true
+	return projectRelative(p.root, doc.path)
 }
 
 // continueTreeActions goes on with the header buttons' work after a listing arrived: the walk

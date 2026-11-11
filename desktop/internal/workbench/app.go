@@ -376,6 +376,9 @@ type project struct {
 	// stash is the Commit tool window's Stash tab: the repository's stashes and the files of
 	// the selected one.
 	stash stashState
+	// shelf is the Commit tool window's Shelf tab: the shelves Lithe keeps of the repository
+	// and the files of the selected one (shelf.go).
+	shelf shelfState
 	// lineHistory is the editor's line history dialog (gitlinehistory.go).
 	lineHistory lineHistoryState
 	// nested is the repositories nested in the project folder (nested_repos.go).

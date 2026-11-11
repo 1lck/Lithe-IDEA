@@ -118,11 +118,11 @@ type diffTab struct {
 	staged bool
 	// commit is the commit whose change of the file the tab shows against its first parent,
 	// "" for a change of the working tree. A commit's change is read only. For a stash it is
-	// the stash's commit, and stash holds what the tab shows; for a comparison it is the
-	// comparison's key, and compare holds its two sides.
+	// the stash's commit and for a layer of a shelf the layer's key, and saved holds what the
+	// tab shows; for a comparison it is the comparison's key, and compare holds its two sides.
 	commit string
-	// stash is the stash whose saved file the tab shows, nil for any other change.
-	stash *stashSource
+	// saved is the stash or the shelf whose saved file the tab shows, nil for any other change.
+	saved *savedSource
 	// compare is the comparison of two references whose file the tab shows, nil for any other
 	// change.
 	compare *diffComparison
@@ -199,12 +199,12 @@ type diffEditor struct {
 	x, y float32
 }
 
-// stashSource is the stash a Diff tab shows a saved file of: the name its sides are labelled
-// with, and the files Core read for it, which the tab shows and steps through without asking
-// Git again.
-type stashSource struct {
-	label string
-	files []core.GitDiffFile
+// savedSource is the stash or the layer of a shelf a Diff tab shows a saved file of: the names
+// its sides are labelled with, and the files Core read for it, which the tab shows and steps
+// through without asking Git again.
+type savedSource struct {
+	before, after string
+	files         []core.GitDiffFile
 }
 
 // diffComparison is the comparison a Diff tab shows a file of: base against target, or against
@@ -225,10 +225,10 @@ func (c *diffComparison) key() string {
 }
 
 // diffOrigin is where a Diff tab of a commit reads its file instead of the commit: the files
-// a stash saved, or the comparison of two references. The zero value reads the commit, or the
-// working tree.
+// a stash or a shelf saved, or the comparison of two references. The zero value reads the
+// commit, or the working tree.
 type diffOrigin struct {
-	stash   *stashSource
+	saved   *savedSource
 	compare *diffComparison
 }
 
@@ -289,8 +289,8 @@ func (a *App) openStashDiff(p *project, root string, stash core.GitStash, path s
 	for j, f := range files {
 		changes[j] = core.GitChange{Path: f.Path, OriginalPath: f.OriginalPath, Status: f.Status}
 	}
-	source := &stashSource{label: stash.Reference, files: files}
-	t := a.showDiff(p, root, stash.OID, changes[i], changes, diffOrigin{stash: source})
+	source := &savedSource{before: stash.Reference + "^", after: stash.Reference, files: files}
+	t := a.showDiff(p, root, stash.OID, changes[i], changes, diffOrigin{saved: source})
 	if t != nil {
 		a.performed("git.diff.openStash", surfaceButton)
 	}
@@ -333,7 +333,7 @@ func (a *App) showDiff(p *project, root, commit string, change core.GitChange, f
 		s.next = t.id
 		s.list = append(s.list, t)
 	}
-	t.files, t.stash, t.compare = files, origin.stash, origin.compare
+	t.files, t.saved, t.compare = files, origin.saved, origin.compare
 	t.show(change)
 	a.selectDiff(p, t.id)
 	a.loadDiff(p, t)
@@ -454,22 +454,22 @@ func (p *project) live(t *diffTab, gen int) bool {
 
 // loadDiff reads the diff of the tab's change again: the block plan for a tracked file of the
 // working tree or the index, and the diff of the whole file for an untracked one, for a commit's
-// change, for a comparison's file and for a file the plan has no section for. A stash's file was
-// read with the stash, so it shows at once.
+// change, for a comparison's file and for a file the plan has no section for. A stash's or a
+// shelf's file was read with it, so it shows at once.
 func (a *App) loadDiff(p *project, t *diffTab) {
 	kernel, ok := a.reviewKernel()
 	if !ok {
 		return
 	}
 	a.loadDiffGrammar(p, t)
-	if t.stash != nil {
+	if t.saved != nil {
 		t.loading, t.gen = false, t.gen+1
-		i := slices.IndexFunc(t.stash.files, func(f core.GitDiffFile) bool { return f.Path == t.change.Path })
+		i := slices.IndexFunc(t.saved.files, func(f core.GitDiffFile) bool { return f.Path == t.change.Path })
 		if i < 0 {
 			t.err = i18n.Shared(a.language(), "git.diff.noChangesInStash")
 			return
 		}
-		file := t.stash.files[i]
+		file := t.saved.files[i]
 		a.readDiff(t, &file, nil)
 		return
 	}

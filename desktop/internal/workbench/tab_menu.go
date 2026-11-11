@@ -87,7 +87,7 @@ func (a *App) tabMenuItems(c ui.C, group string, t shownTab, tabs []shownTab) fu
 				a.revealPath(path)
 			})
 		}
-		_, inside := projectRelativePath(p.root, path)
+		_, inside := projectRelative(p.root, path)
 		if _, ok := a.kernel.(localHistoryKernel); ok && inside && menu.Item(i18n.Shared(language, "desktop.history.show")).Clicked() {
 			c.After(func() {
 				a.performed("localHistory.show", surfaceMenu)

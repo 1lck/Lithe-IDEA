@@ -156,7 +156,7 @@ func captureEditorGroup(p *project, id string) (savedEditorGroup, bool) {
 		if d == nil || d.virtual {
 			continue
 		}
-		rel, inside := projectRelativePath(p.root, d.path)
+		rel, inside := projectRelative(p.root, d.path)
 		if !inside {
 			continue
 		}
@@ -218,7 +218,7 @@ func (a *App) restoreEditorSession(p *project) {
 		group := ids[g.ID]
 		for _, f := range g.Files {
 			path := filepath.Join(p.root, filepath.FromSlash(f.Path))
-			if _, inside := projectRelativePath(p.root, path); !inside {
+			if _, inside := projectRelative(p.root, path); !inside {
 				continue
 			}
 			r.items = append(r.items, editorRestoreItem{path: path, group: group, line: f.Line, column: f.Column})

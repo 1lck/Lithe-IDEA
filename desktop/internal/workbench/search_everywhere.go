@@ -214,7 +214,7 @@ func (a *App) updateEverywhere(p *project, query string, scope int) {
 	}
 	openPaths := make([]string, 0, len(p.docs.list))
 	for _, doc := range p.docs.list {
-		if relative, ok := projectRelativePath(p.root, doc.path); ok {
+		if relative, ok := projectRelative(p.root, doc.path); ok {
 			openPaths = append(openPaths, relative)
 		}
 	}

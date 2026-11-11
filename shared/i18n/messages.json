@@ -27178,7 +27178,8 @@
       "description": "Saved changes operation",
       "platforms": [
         "windows",
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "The repository changed. The shelf was retained; review the working tree before retrying.",
@@ -27190,7 +27191,8 @@
       "description": "Saved changes operation",
       "platforms": [
         "windows",
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Resolve conflicts before shelving changes.",
@@ -27201,7 +27203,8 @@
       "id": "git.saved.drop",
       "description": "Windows UI: git.saved.drop",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -27228,7 +27231,8 @@
       "description": "Saved changes operation",
       "platforms": [
         "windows",
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "There are no changes to shelve",
@@ -27239,7 +27243,8 @@
       "id": "git.saved.restore",
       "description": "Windows UI: git.saved.restore",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -27253,14 +27258,16 @@
       "id": "git.saved.shelves",
       "description": "Windows UI: git.saved.shelves",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.saved.staged",
       "description": "Windows UI: git.saved.staged",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -27275,14 +27282,16 @@
       "id": "git.saved.tab",
       "description": "Windows UI: git.saved.tab",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "git.saved.unsaved",
       "description": "Windows UI: git.saved.unsaved",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -47370,7 +47379,8 @@
       "id": "native.couldNotLoadSavedChanges",
       "description": "Native UI: Could not load saved changes",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Could not load saved changes",
@@ -60855,7 +60865,8 @@
       "id": "native.lldFileS",
       "description": "Native UI: %lld file(s) · %@",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "%lld file(s) · %@",
@@ -67043,7 +67054,8 @@
       "id": "native.noShelves",
       "description": "Native UI: No shelves",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "No shelves",
@@ -78522,7 +78534,8 @@
       "id": "native.shelveChanges",
       "description": "Native UI: Shelve Changes",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Shelve Changes",
@@ -86905,7 +86918,8 @@
       "id": "native.thisRemovesTheSavedPatchFromLitheAndCannotBeUndone",
       "description": "Native UI: This removes the saved patch from Lithe and cannot be undone.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "This removes the saved patch from Lithe and cannot be undone.",

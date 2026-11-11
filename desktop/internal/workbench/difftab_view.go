@@ -116,7 +116,7 @@ func (a *App) diffToolbar(c ui.C, p *project, t *diffTab) {
 			}
 			ui.Text(c, count).FontSize(size).Color(a.colors.Subtle).Shrink(0)
 		}
-		if a.gitIconButton(c, i18n.Shared(lang, "git.diff.ignoreWhitespace"), icons.Eraser, t.ignoreSpace, t.stash != nil) {
+		if a.gitIconButton(c, i18n.Shared(lang, "git.diff.ignoreWhitespace"), icons.Eraser, t.ignoreSpace, t.saved != nil) {
 			c.After(func() { a.setDiffWhitespace(p, t, !t.ignoreSpace) })
 		}
 		ui.Row(c).Shrink(0).Items(ui.Center).Gap(2).Label(i18n.Shared(lang, "desktop.gitReview.diffTab")).Children(func() {
@@ -158,15 +158,15 @@ func (a *App) diffRollbackConfirm(c ui.C, p *project, t *diffTab, block core.Dif
 	}
 }
 
-// diffSideLabels name the two sides of the tab: the stash's base and the stash, the parent and
-// the commit, HEAD or the index and the working tree, or nothing and the working tree for an
+// diffSideLabels name the two sides of the tab: the two sides of a stash's or a shelf's saved
+// file, the parent and the commit, HEAD or the index and the working tree, or nothing and the working tree for an
 // untracked file.
 func (a *App) diffSideLabels(t *diffTab) (left, right string) {
 	lang := a.language()
 	head, index, worktree := i18n.Shared(lang, "native.head"), i18n.Shared(lang, "git.diff.indexVersion"), i18n.Shared(lang, "git.saved.worktree")
 	switch {
-	case t.stash != nil:
-		return t.stash.label + "^", t.stash.label
+	case t.saved != nil:
+		return t.saved.before, t.saved.after
 	case t.compare != nil:
 		if t.compare.target == nil {
 			return t.compare.base.ShortName, worktree
