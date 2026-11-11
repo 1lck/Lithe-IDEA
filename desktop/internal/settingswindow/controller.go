@@ -298,6 +298,12 @@ type Options struct {
 	AgentWorkspace        func() string
 	AgentContextLimits    func(agentID string) AgentContextLimit
 	SetAgentContextLimits func(agentID string, limit AgentContextLimit)
+	// AgentReportedContext is the context length the Agent last reported for itself, 0 when it
+	// has not reported one; the window field shows it as the default.
+	AgentReportedContext func(agentID string) uint64
+	// OpenSkill opens a skill's SKILL.md in the workbench editor. The path is the file the
+	// Skills listing reported; nil leaves the Open button out.
+	OpenSkill func(path string)
 	// AIGeneration reads the commit and inline-edit generation choices and SetAIGeneration
 	// saves them; they are Lithe's own preferences (agent_generation.go).
 	AIGeneration    func() AIGenerationSettings

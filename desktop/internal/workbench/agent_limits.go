@@ -74,3 +74,19 @@ func (a *App) agentSettingsBackend() settingswindow.AgentSettingsBackend {
 	}
 	return nil
 }
+
+// agentReportedContextFor is the context length the open project's connection reported for
+// the adapter, 0 when it has not reported one. It reads only the open session's own usage.
+func (a *App) agentReportedContextFor(agentID string) uint64 {
+	if a.project == nil {
+		return 0
+	}
+	agent, ok := a.project.selectedAgent()
+	if !ok || agent.ID != agentID {
+		return 0
+	}
+	if s := a.project.agent.activity.current(a.project.agent.sessionID); s != nil && s.usageKnown {
+		return s.size
+	}
+	return 0
+}

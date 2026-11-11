@@ -26,6 +26,9 @@ func (a *App) agentConversationPane(c ui.C, p *project) {
 			a.agentConversation(c, p)
 		})
 		ui.Column(c.Key("editor-margin-end")).Grow(1).Fill()
+		if p.agent.conn != nil {
+			a.agentDetailSide(c, p)
+		}
 	})
 }
 

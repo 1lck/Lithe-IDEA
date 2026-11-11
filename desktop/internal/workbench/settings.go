@@ -229,6 +229,14 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			})
 		},
 		OpenURL: func(address string) { _ = openURL(address) },
+		// A skill's SKILL.md opens as an ordinary editor tab of the open project.
+		OpenSkill: func(path string) {
+			a.post(func(a *App) {
+				if a.project != nil {
+					a.openFile(a.project, path)
+				}
+			})
+		},
 		SetNetwork: func(next settingswindow.NetworkSettings, password *string) {
 			a.post(func(a *App) { a.setNetwork(next, password) })
 		},
@@ -255,6 +263,7 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			l := a.agentContextLimitsFor(id)
 			return settingswindow.AgentContextLimit{WindowTokens: l.WindowTokens, AutoCompactTokens: l.AutoCompactTokens}
 		},
+		AgentReportedContext: a.agentReportedContextFor,
 		SetAgentContextLimits: func(id string, l settingswindow.AgentContextLimit) {
 			a.post(func(a *App) {
 				a.setAgentContextLimits(id, agentContextLimit{WindowTokens: l.WindowTokens, AutoCompactTokens: l.AutoCompactTokens})

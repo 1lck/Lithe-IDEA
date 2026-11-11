@@ -517,5 +517,180 @@
     "description": "Button that opens the AI settings to configure a custom API provider.",
     "en-US": "Custom API provider",
     "zh-CN": "自定义 API 供应商"
+  },
+  {
+    "id": "desktop.agent.detail.title",
+    "description": "Title of the session-detail sidebar beside the editor conversation.",
+    "en-US": "Session details",
+    "zh-CN": "会话详情"
+  },
+  {
+    "id": "desktop.agent.detail.show",
+    "description": "Button that opens the session-detail sidebar.",
+    "en-US": "Details",
+    "zh-CN": "详情"
+  },
+  {
+    "id": "desktop.agent.detail.hide",
+    "description": "Button that folds the session-detail sidebar away.",
+    "en-US": "Hide",
+    "zh-CN": "收起"
+  },
+  {
+    "id": "desktop.agent.detail.context",
+    "description": "Heading of the context usage section in the session-detail sidebar.",
+    "en-US": "Context",
+    "zh-CN": "上下文"
+  },
+  {
+    "id": "desktop.agent.detail.contextUsed",
+    "description": "Context usage line: used tokens, window size and percent.",
+    "en-US": "{used} of {size} ({percent}%)",
+    "zh-CN": "已用 {used} / {size}（{percent}%）",
+    "parameters": {
+      "used": "string",
+      "size": "string",
+      "percent": "string"
+    }
+  },
+  {
+    "id": "desktop.agent.detail.contextUnknown",
+    "description": "Shown when the Agent has not reported context usage.",
+    "en-US": "The Agent has not reported context usage yet.",
+    "zh-CN": "Agent 尚未上报上下文用量。"
+  },
+  {
+    "id": "desktop.agent.detail.contextSystem",
+    "description": "Context breakdown row for the system prompt.",
+    "en-US": "System prompt",
+    "zh-CN": "系统提示词"
+  },
+  {
+    "id": "desktop.agent.detail.contextTools",
+    "description": "Context breakdown row for tool definitions, including MCP tools.",
+    "en-US": "Tools",
+    "zh-CN": "工具定义"
+  },
+  {
+    "id": "desktop.agent.detail.contextMessages",
+    "description": "Context breakdown row for the conversation messages.",
+    "en-US": "Messages",
+    "zh-CN": "对话消息"
+  },
+  {
+    "id": "desktop.agent.detail.changes",
+    "description": "Heading of the changed-files section for the current turn.",
+    "en-US": "Changed in this turn",
+    "zh-CN": "本轮更改的文件"
+  },
+  {
+    "id": "desktop.agent.detail.changesNone",
+    "description": "Shown when the current turn changed no files.",
+    "en-US": "No files changed in this turn.",
+    "zh-CN": "本轮没有更改文件。"
+  },
+  {
+    "id": "desktop.agent.detail.statistics",
+    "description": "Heading of the session statistics section.",
+    "en-US": "Statistics",
+    "zh-CN": "统计"
+  },
+  {
+    "id": "desktop.agent.detail.turns",
+    "description": "Statistics row: number of conversation turns.",
+    "en-US": "Turns",
+    "zh-CN": "轮数"
+  },
+  {
+    "id": "desktop.agent.detail.toolCalls",
+    "description": "Statistics row: number of tool calls.",
+    "en-US": "Tool calls",
+    "zh-CN": "工具调用"
+  },
+  {
+    "id": "desktop.agent.detail.duration",
+    "description": "Statistics row: total model time of the session.",
+    "en-US": "Duration",
+    "zh-CN": "耗时"
+  },
+  {
+    "id": "desktop.agent.detail.tokens",
+    "description": "Statistics line: input, output and cache-read token counts.",
+    "en-US": "Input {input} · Output {output} · Cache read {cacheRead}",
+    "zh-CN": "输入 {input} · 输出 {output} · 缓存读取 {cacheRead}",
+    "parameters": {
+      "input": "string",
+      "output": "string",
+      "cacheRead": "string"
+    }
+  },
+  {
+    "id": "desktop.agent.detail.noStatistics",
+    "description": "Shown when the Agent has not reported statistics yet.",
+    "en-US": "The Agent has not reported statistics yet.",
+    "zh-CN": "Agent 尚未上报统计。"
+  },
+  {
+    "id": "desktop.settings.agent.skills.openFile",
+    "description": "Button on a skill row of the Skills page that opens its SKILL.md in the workbench editor.",
+    "en-US": "Open SKILL.md",
+    "zh-CN": "打开 SKILL.md"
+  },
+  {
+    "id": "desktop.inlineEdit.provider",
+    "description": "Label of the provider picker in the inline edit dialog.",
+    "en-US": "Provider",
+    "zh-CN": "供应商"
+  },
+  {
+    "id": "desktop.inlineEdit.providerDefault",
+    "description": "Provider picker choice that follows the AI settings for the inline edit.",
+    "en-US": "AI settings default",
+    "zh-CN": "跟随 AI 设置"
+  },
+  {
+    "id": "desktop.inlineEdit.providerCodex",
+    "description": "Provider picker choice: the local Codex configuration (brand name).",
+    "en-US": "Codex",
+    "zh-CN": "Codex"
+  },
+  {
+    "id": "desktop.inlineEdit.providerClaude",
+    "description": "Provider picker choice: the local Claude configuration (brand name).",
+    "en-US": "Claude",
+    "zh-CN": "Claude"
+  },
+  {
+    "id": "desktop.settings.agent.limits.notReported",
+    "description": "Placeholder of the context window field when the Agent has not reported its context length.",
+    "en-US": "Not reported yet",
+    "zh-CN": "暂未上报"
+  },
+  {
+    "id": "desktop.settings.agent.limits.reported",
+    "description": "Placeholder of the context window field: the context length the Agent reported for itself.",
+    "en-US": "Agent default: {tokens}",
+    "zh-CN": "Agent 默认：{tokens}",
+    "parameters": {
+      "tokens": "string"
+    }
+  },
+  {
+    "id": "desktop.settings.agent.limits.defaultHint",
+    "description": "Placeholder of the auto-compact threshold field when it is empty and the Agent default applies.",
+    "en-US": "Agent default",
+    "zh-CN": "Agent 默认"
+  },
+  {
+    "id": "desktop.settings.agent.limits.range",
+    "description": "Error under the context limit fields when a value is not 10K to 10M tokens.",
+    "en-US": "Enter 10K to 10M tokens, such as 200K or 1M, or leave the field empty.",
+    "zh-CN": "请输入 10K 到 10M 词元，例如 200K 或 1M，或留空。"
+  },
+  {
+    "id": "desktop.settings.agent.limits.compactOverWindow",
+    "description": "Error under the context limit fields when the auto-compact threshold is larger than the context window.",
+    "en-US": "The auto-compact threshold cannot be larger than the context window.",
+    "zh-CN": "自动压缩阈值不能大于上下文长度。"
   }
 ]

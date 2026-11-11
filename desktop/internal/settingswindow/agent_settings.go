@@ -61,7 +61,9 @@ type agentSettings struct {
 	aiGeneration    func() AIGenerationSettings
 	setAIGeneration func(AIGenerationSettings)
 	aiProviders     func(context.Context) []AIProviderStatus
+	openSkill       func(path string)
 	setLimits       func(agentID string, limit AgentContextLimit)
+	reportedContext func(agentID string) uint64
 	wake            func()
 
 	mu sync.Mutex
@@ -84,9 +86,21 @@ type agentSettings struct {
 type limitsState struct {
 	agent           int
 	window, compact string
-	loaded, saved   bool
-	invalid         bool
+	// stored is the limit the draft was last read from, so a change made elsewhere refreshes
+	// the form while an unsaved draft of this window is kept until it changes.
+	stored        AgentContextLimit
+	loaded, saved bool
+	invalid       bool
+	// invalidReason is the message key of the failed rule when invalid is set.
+	invalidReason string
 }
+
+// Context limits accepted by the settings page: a token count from 10K to 10M, and an
+// auto-compact threshold that does not exceed the window.
+const (
+	limitMinimumTokens = 10_000
+	limitMaximumTokens = 10_000_000
+)
 
 type instructionsState struct {
 	loaded, loading, saving, saved bool
@@ -148,7 +162,9 @@ func newAgentSettings(o Options, wake func()) *agentSettings {
 	return &agentSettings{
 		backend: o.AgentSettings, dataDirectory: o.AgentDataDirectory, workspace: o.AgentWorkspace,
 		limits: o.AgentContextLimits, setLimits: o.SetAgentContextLimits, wake: wake,
-		aiGeneration: o.AIGeneration, setAIGeneration: o.SetAIGeneration, aiProviders: o.AIProviders,
+		reportedContext: o.AgentReportedContext,
+		aiGeneration:    o.AIGeneration, setAIGeneration: o.SetAIGeneration, aiProviders: o.AIProviders,
+		openSkill: o.OpenSkill,
 	}
 }
 
@@ -203,25 +219,56 @@ func formatLimit(v uint64) string {
 	return strconv.FormatUint(v, 10)
 }
 
-// loadLimits fills the draft from the saved limits of the selected adapter.
+// loadLimits fills the draft from the saved limits of the selected adapter. A draft is replaced
+// when the saved limits of the same adapter changed elsewhere; the draft is untouched otherwise.
 func (s *agentSettings) loadLimits() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.limitDraft.loaded && s.limitDraft.agent == s.agent || s.limits == nil {
+	if s.limits == nil {
 		return
 	}
 	l := s.limits(s.agentID())
-	s.limitDraft = limitsState{agent: s.agent, window: formatLimit(l.WindowTokens), compact: formatLimit(l.AutoCompactTokens), loaded: true}
+	stored := AgentContextLimit{WindowTokens: l.WindowTokens, AutoCompactTokens: l.AutoCompactTokens}
+	d := &s.limitDraft
+	if d.loaded && d.agent == s.agent && d.stored == stored {
+		return
+	}
+	saved := d.loaded && d.agent == s.agent && d.saved
+	s.limitDraft = limitsState{agent: s.agent, window: formatLimit(l.WindowTokens), compact: formatLimit(l.AutoCompactTokens), stored: stored, loaded: true, saved: saved}
 }
 
-// parseLimit reads a token count; empty is unset.
+// parseLimit reads a token count, accepting plain digits or a K (thousand) or M (million)
+// suffix such as 200K or 1M; empty is unset.
 func parseLimit(text string) (uint64, bool) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return 0, true
 	}
-	v, err := strconv.ParseUint(text, 10, 64)
-	return v, err == nil
+	multiplier := uint64(1)
+	switch last := text[len(text)-1]; last {
+	case 'k', 'K':
+		multiplier, text = 1_000, text[:len(text)-1]
+	case 'm', 'M':
+		multiplier, text = 1_000_000, text[:len(text)-1]
+	}
+	v, err := strconv.ParseUint(strings.TrimSpace(text), 10, 64)
+	if err != nil || v > limitMaximumTokens {
+		return 0, false
+	}
+	return v * multiplier, true
+}
+
+// checkLimits applies the accepted ranges; the reason is a message key, empty when valid.
+func checkLimits(window, compact uint64) string {
+	for _, v := range []uint64{window, compact} {
+		if v != 0 && (v < limitMinimumTokens || v > limitMaximumTokens) {
+			return "desktop.settings.agent.limits.range"
+		}
+	}
+	if window != 0 && compact > window {
+		return "desktop.settings.agent.limits.compactOverWindow"
+	}
+	return ""
 }
 
 // saveLimits writes the draft through the owner; an invalid number saves nothing.
@@ -230,20 +277,27 @@ func (s *agentSettings) saveLimits() {
 	defer s.mu.Unlock()
 	window, ok1 := parseLimit(s.limitDraft.window)
 	compact, ok2 := parseLimit(s.limitDraft.compact)
+	reason := ""
 	if !ok1 || !ok2 {
-		s.limitDraft.invalid, s.limitDraft.saved = true, false
+		reason = "desktop.settings.agent.limits.range"
+	} else {
+		reason = checkLimits(window, compact)
+	}
+	if reason != "" {
+		s.limitDraft.invalid, s.limitDraft.invalidReason, s.limitDraft.saved = true, reason, false
 		return
 	}
-	s.limitDraft.invalid, s.limitDraft.saved = false, true
+	s.limitDraft.invalid, s.limitDraft.invalidReason, s.limitDraft.saved = false, "", true
 	if s.setLimits != nil {
-		s.setLimits(s.agentID(), AgentContextLimit{WindowTokens: window, AutoCompactTokens: compact})
+		limit := AgentContextLimit{WindowTokens: window, AutoCompactTokens: compact}
+		s.setLimits(s.agentID(), limit)
 	}
 }
 
 // resetLimits clears both limits, restoring the Agent's defaults.
 func (s *agentSettings) resetLimits() {
 	s.mu.Lock()
-	s.limitDraft.window, s.limitDraft.compact, s.limitDraft.invalid = "", "", false
+	s.limitDraft.window, s.limitDraft.compact, s.limitDraft.invalid, s.limitDraft.invalidReason = "", "", false, ""
 	s.mu.Unlock()
 	s.saveLimits()
 }
