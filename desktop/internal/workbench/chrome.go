@@ -109,6 +109,8 @@ func (a *App) chromeStatusText(i int) string {
 			}
 		}
 		return encodingLabel("utf-8")
+	case itemVim:
+		return a.vimStatusText()
 	case itemLSP:
 		// The count replaces the "not started" text only while a server has reported
 		// something: an empty count would read as a problem of its own.

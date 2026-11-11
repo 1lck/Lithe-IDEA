@@ -131,6 +131,7 @@ var Catalog = []Action{
 	{ID: "editor.unfold", Group: GroupEditor, Title: func(m *i18n.Messages) string { return m.Commands.Unfold }, Defaults: chords(chord(keymap.Primary, "="))},
 	{ID: "editor.foldAll", Group: GroupEditor, Title: func(m *i18n.Messages) string { return m.Commands.FoldAll }, Defaults: chords(chord(keymap.Primary|gfx.ModifierShift, "-"))},
 	{ID: "editor.unfoldAll", Group: GroupEditor, Title: func(m *i18n.Messages) string { return m.Commands.UnfoldAll }, Defaults: chords(chord(keymap.Primary|gfx.ModifierShift, "="))},
+	{ID: "editor.vimMode", Group: GroupEditor, Title: func(m *i18n.Messages) string { return m.Commands.ToggleVim }},
 	{ID: "git.gutter.next", Group: GroupEditor, Title: func(m *i18n.Messages) string { return m.Commands.GitNextChange }, Defaults: chords(chord(gfx.ModifierControl|gfx.ModifierAlt|gfx.ModifierShift, "down"))},
 	{ID: "git.gutter.previous", Group: GroupEditor, Title: func(m *i18n.Messages) string { return m.Commands.GitPreviousChange }, Defaults: chords(chord(gfx.ModifierControl|gfx.ModifierAlt|gfx.ModifierShift, "up"))},
 	{ID: GoToLine, Group: GroupEditor, Title: func(m *i18n.Messages) string { return m.Keymap.GoToLine }, Defaults: chords(navigateDefault())},

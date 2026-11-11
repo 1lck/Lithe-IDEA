@@ -33,3 +33,21 @@ func (a *App) vimOwnsChord(c ui.C, mods gfx.Modifiers, name string) bool {
 	}
 	return false
 }
+
+// vimStatusShown says a status bar item shows: the Vim item only while the Vim keys are on.
+func (a *App) vimStatusShown(i int) bool {
+	return a.chrome.catalog[i].id != itemVim || a.settings.VimMode
+}
+
+// vimStatusText is the status bar's reading of the Vim mode: the mode of the editor that has the
+// keyboard or the selected one, or the item's name when no editor shows one.
+func (a *App) vimStatusText() string {
+	if p := a.project; p != nil {
+		if d := p.selectedDocument(p.docs.group); d != nil {
+			if text := d.view.VimStatus(); text != "" {
+				return text
+			}
+		}
+	}
+	return a.text.Status.Vim
+}

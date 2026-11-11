@@ -250,6 +250,9 @@ func (a *App) statusBar(c ui.C) {
 			HitWith(ui.ID(k), a.text.Status.Path, gfx.HitOptions{Role: gfx.RoleStatus, Value: a.project.name, SkipFocus: true})
 		zone := ui.Row(c).Items(ui.Center).Gap(chromeGap).Children(func() {
 			for _, i := range a.chrome.items[zoneStatus] {
+				if !a.vimStatusShown(i) {
+					continue
+				}
 				if a.chromeStatusItem(c, i) {
 					clicked = i
 				}
