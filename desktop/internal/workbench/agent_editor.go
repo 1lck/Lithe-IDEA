@@ -10,11 +10,23 @@ import (
 // agentConversationPane declares the conversation as the body of an editor group: the
 // same setup or transcript the Agent tool window shows.
 func (a *App) agentConversationPane(c ui.C, p *project) {
-	if p.agent.conn == nil {
-		a.agentSetup(c, p)
-		return
-	}
-	a.agentConversation(c, p)
+	// The editor shows the conversation in a centred reading column of 8 parts out of 10,
+	// as the macOS editor tab does, so long replies do not run across a wide editor.
+	ui.Row(c.Key("editor-conversation")).Fill().Children(func() {
+		ui.Column(c.Key("editor-margin-start")).Grow(1).Fill()
+		ui.Column(c.Key("editor-reading")).Grow(8).Fill().Children(func() {
+			if p.agent.conn == nil {
+				if !p.agent.chosen {
+					a.agentWelcome(c, p)
+					return
+				}
+				a.agentSetup(c, p)
+				return
+			}
+			a.agentConversation(c, p)
+		})
+		ui.Column(c.Key("editor-margin-end")).Grow(1).Fill()
+	})
 }
 
 // agentConversationMember names the AI conversation when it is a tab of the editor area.
