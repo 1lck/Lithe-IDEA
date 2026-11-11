@@ -372,5 +372,29 @@
     "description": "Diff find bar: close the bar",
     "en-US": "Close find",
     "zh-CN": "关闭查找"
+  },
+  {
+    "id": "desktop.rebase.messageTitle",
+    "description": "Title of the rebase message editor for a reword or squash",
+    "en-US": "Commit Message",
+    "zh-CN": "提交消息"
+  },
+  {
+    "id": "desktop.rebase.amendTitle",
+    "description": "Title of the message editor when a rebase paused at an edit",
+    "en-US": "Amend Commit Message",
+    "zh-CN": "修改提交消息"
+  },
+  {
+    "id": "desktop.rebase.messageApply",
+    "description": "Button that keeps the message typed in the rebase message editor",
+    "en-US": "Apply",
+    "zh-CN": "应用"
+  },
+  {
+    "id": "desktop.rebase.amend",
+    "description": "Button on a rebase paused at an edit: amend the message and continue",
+    "en-US": "Edit Message and Continue",
+    "zh-CN": "修改消息并继续"
   }
 ]

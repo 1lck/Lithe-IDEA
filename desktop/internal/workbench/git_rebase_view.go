@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/gfx"
@@ -22,6 +23,8 @@ func (a *App) drawRebaseDialog(c ui.C, p *project) {
 				ui.Paragraph(c, r.err, 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
 			}
 			switch {
+			case r.editMode != rebaseEditNone:
+				a.drawRebaseEditor(c, p)
 			case r.busy:
 				a.gitEmpty(c, i18n.Shared(lang, "desktop.rebase.loading"))
 			case !r.preview.Allowed && len(r.preview.Blockers) > 0:
@@ -31,14 +34,14 @@ func (a *App) drawRebaseDialog(c ui.C, p *project) {
 			case len(r.preview.Commits) == 0:
 				a.gitEmpty(c, i18n.Shared(lang, "desktop.rebase.empty"))
 			default:
-				a.drawRebaseRows(c, r)
+				a.drawRebaseRows(c, p)
 			}
 		})
 	}, func() {
 		if ui.Button(c, i18n.Shared(lang, "desktop.gitReview.close")).Outline().Clicked() {
 			open = false
 		}
-		startable := !r.busy && r.preview.Allowed && len(r.preview.Commits) > 0
+		startable := !r.busy && r.editMode == rebaseEditNone && r.preview.Allowed && len(r.preview.Commits) > 0
 		if ui.Button(c, i18n.Shared(lang, "desktop.rebase.start")).Disabled(!startable).Clicked() {
 			c.After(func() { a.startRebase(p) })
 		}
@@ -49,8 +52,10 @@ func (a *App) drawRebaseDialog(c ui.C, p *project) {
 }
 
 // drawRebaseRows declares the commits of the preview, oldest first as they replay. A click on
-// an action cycles it through pick, fixup and drop.
-func (a *App) drawRebaseRows(c ui.C, r *rebaseState) {
+// an action walks it through the actions in turn; reword and squash open the message editor
+// first, and the action is kept when that editor is cancelled.
+func (a *App) drawRebaseRows(c ui.C, p *project) {
+	r := &p.rebase
 	lang := a.language()
 	size := a.theme.Metrics.FontSizeS
 	ui.List(c, &r.list, len(r.preview.Commits), func(row ui.ListRow) {
@@ -58,11 +63,39 @@ func (a *App) drawRebaseRows(c ui.C, r *rebaseState) {
 		action := r.actions[commit.Hash]
 		row.Element.FillWidth().Height(reviewRowHeight + 6).Items(ui.Center).Gap(8).PadX(8).Children(func() {
 			if ui.Button(row.C, i18n.Shared(lang, "desktop.rebase.action."+action)).Outline().Shrink(0).Clicked() {
-				next := rebaseActions[(indexOfAction(action)+1)%len(rebaseActions)]
-				row.C.After(func() { r.actions[commit.Hash] = next })
+				next := nextRebaseAction(action)
+				if next == "reword" || next == "squash" {
+					row.C.After(func() { a.openRebaseMessage(p, commit, next) })
+				} else {
+					row.C.After(func() { r.actions[commit.Hash] = next })
+				}
 			}
 			ui.Text(row.C, shortHash(commit.Hash)).Mono().FontSize(size).Color(a.colors.Accent).Width(64).Shrink(0)
-			ui.Text(row.C, firstLine(commit.Message)).FontSize(size).Ellipsis().Grow(1)
+			ui.Text(row.C, firstLine(r.messageOf(commit))).FontSize(size).Ellipsis().Grow(1)
+		})
+	})
+}
+
+// drawRebaseEditor declares the message editor of the dialog: the message of a reword or a
+// squash, or the amended message of a commit a session paused at an edit.
+func (a *App) drawRebaseEditor(c ui.C, p *project) {
+	r := &p.rebase
+	lang := a.language()
+	title := i18n.Shared(lang, "desktop.rebase.messageTitle")
+	if r.editMode == rebaseEditAmend {
+		title = i18n.Shared(lang, "desktop.rebase.amendTitle")
+	}
+	ui.Column(c).Fill().Gap(8).Children(func() {
+		ui.Text(c, title).Weight(gfx.WeightMedium)
+		ui.TextArea(c, &r.message, title, title).FillWidth().Grow(1)
+		ui.Row(c).FillWidth().Shrink(0).Gap(6).Children(func() {
+			ui.Spacer(c)
+			if ui.Button(c, i18n.Shared(lang, "desktop.gitReview.cancel")).Outline().Clicked() {
+				c.After(func() { a.cancelRebaseMessage(p) })
+			}
+			if ui.Button(c, i18n.Shared(lang, "desktop.rebase.messageApply")).Disabled(r.editMode == rebaseEditPlan && r.editAction == "reword" && strings.TrimSpace(r.message.Text()) == "").Clicked() {
+				c.After(func() { a.confirmRebaseMessage(p) })
+			}
 		})
 	})
 }
@@ -101,6 +134,11 @@ func (a *App) drawRebaseBanner(c ui.C, p *project) {
 			}
 			if ui.Button(c, i18n.Shared(lang, "desktop.rebase.abort")).Destructive().Outline().Disabled(busy || !s.CanAbort).Clicked() {
 				c.After(func() { a.controlRebase(p, "abort") })
+			}
+			if s.Status == "edit" && s.CurrentMessage != nil {
+				if ui.Button(c, i18n.Shared(lang, "desktop.rebase.amend")).Outline().Disabled(busy).Clicked() {
+					c.After(func() { a.openRebaseAmend(p) })
+				}
 			}
 		})
 	})
