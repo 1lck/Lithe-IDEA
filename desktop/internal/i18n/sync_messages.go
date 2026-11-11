@@ -54,6 +54,8 @@ type SyncMessages struct {
 	// TagBehavior says what Git will actually do with tags; value is Core's name for it, shown
 	// as it is when this client has no words for it.
 	TagBehavior func(value string) string
+	// Pull is the Pull dialog's words (git_pull_messages.go).
+	Pull PullMessages
 }
 
 // syncStageName is the name of one Git transfer phase, the plain fetching label when unknown.
@@ -174,5 +176,6 @@ func syncMessages(language Language) SyncMessages {
 		TagBehavior: func(value string) string {
 			return SharedFormat(language, "desktop.sync.tagBehavior", map[string]string{"behavior": syncTagBehaviorName(language, value)})
 		},
+		Pull: pullMessages(language),
 	}
 }

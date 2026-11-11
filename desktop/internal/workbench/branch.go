@@ -47,9 +47,12 @@ const (
 type branchSession struct {
 	// open says the popup is shown. A dialog closes the popup first.
 	open bool
-	// repo is the root of the repository the dialogs and writes act on when the log of a nested
-	// repository opened them; empty for the project's own repository (branchRoot).
+	// repo is the root of the repository the popup lists and the dialogs and writes act on: the
+	// one the log walks when the popup opened, or one the user picked in the popup. Empty for the
+	// project's own repository (branchRoot).
 	repo string
+	// repoOpen says the repository picker of the popup lists the repositories to pick from.
+	repoOpen bool
 	// gen counts the loads of the references; the answer of an older load is dropped.
 	gen int
 	// loading is set while the kernel reads; loaded once it answered.
@@ -99,7 +102,7 @@ func (a *App) openBranches() {
 	a.title.gearOpen = false
 	b := &a.branch
 	b.open, b.menu, b.dialog = true, "", branchDialogNone
-	b.repo = ""
+	b.repo, b.repoOpen = p.logBranchRepo(), false
 	a.loadNestedReferences(p)
 	b.search.SetText("")
 	if b.collapsed == nil {
@@ -127,7 +130,7 @@ func (a *App) loadBranches(p *project) {
 	b.gen++
 	gen := b.gen
 	b.loading = true
-	kernel, root := a.kernel, p.git.repositoryRoot(p.root)
+	kernel, root := a.kernel, a.branchRoot(p)
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		refs, sections, _, err := readReferences(ctx, kernel, root)
 		return func(a *App) {
@@ -159,6 +162,24 @@ func (a *App) branchRoot(p *project) string {
 		return a.branch.repo
 	}
 	return p.git.repositoryRoot(p.root)
+}
+
+// selectBranchRepo makes the repository at root the one the popup lists and its dialogs act on,
+// "" or the project's own root for the project's own repository, and reads its references.
+func (a *App) selectBranchRepo(p *project, root string) {
+	b := &a.branch
+	b.repoOpen, b.menu = false, ""
+	if root == p.git.repositoryRoot(p.root) {
+		root = ""
+	}
+	if b.repo == root {
+		return
+	}
+	b.repo = root
+	b.refs, b.sections = core.GitReferences{}, [3]logSection{}
+	b.loaded, b.err = false, nil
+	a.loadNestedReferences(p)
+	a.loadBranches(p)
 }
 
 // runBranchWrite runs write against the repository of p in the background and reads the
@@ -210,7 +231,7 @@ func (a *App) checkoutBranch(p *project, r core.GitReference) {
 	a.performed("git.checkout", surfaceMenu)
 	b := &a.branch
 	b.busy = true
-	kernel, root := a.kernel, p.git.repositoryRoot(p.root)
+	kernel, root := a.kernel, a.branchRoot(p)
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		blocking, err := kernel.GitCheckoutPreflight(ctx, root, r)
 		return func(a *App) {

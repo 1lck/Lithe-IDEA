@@ -1120,5 +1120,98 @@
     "parameters": {
       "name": "string"
     }
+  },
+  {
+    "id": "desktop.pull.menu",
+    "description": "Git menu item that opens the Pull dialog",
+    "en-US": "Pull…",
+    "zh-CN": "拉取…"
+  },
+  {
+    "id": "desktop.pull.title",
+    "description": "Title of the Pull dialog",
+    "en-US": "Pull",
+    "zh-CN": "拉取"
+  },
+  {
+    "id": "desktop.pull.prompt",
+    "description": "Description of the Pull dialog: pulls the chosen remote branch into the checked-out branch",
+    "en-US": "Pull the chosen remote branch into the branch checked out in the repository.",
+    "zh-CN": "将所选远程分支拉取并整合到该仓库当前检出的分支。"
+  },
+  {
+    "id": "desktop.pull.repository",
+    "description": "Label of the repository select in the Pull dialog",
+    "en-US": "Repository",
+    "zh-CN": "仓库"
+  },
+  {
+    "id": "desktop.pull.remote",
+    "description": "Label of the remote select in the Pull dialog",
+    "en-US": "Remote",
+    "zh-CN": "远程"
+  },
+  {
+    "id": "desktop.pull.remoteBranch",
+    "description": "Label of the remote branch select in the Pull dialog",
+    "en-US": "Remote branch",
+    "zh-CN": "远程分支"
+  },
+  {
+    "id": "desktop.pull.strategy",
+    "description": "Label of the strategy select in the Pull dialog",
+    "en-US": "Strategy",
+    "zh-CN": "策略"
+  },
+  {
+    "id": "desktop.pull.merge",
+    "description": "Pull strategy: merge the remote branch into the local branch",
+    "en-US": "Merge",
+    "zh-CN": "合并"
+  },
+  {
+    "id": "desktop.pull.rebase",
+    "description": "Pull strategy: rebase the local commits onto the remote branch",
+    "en-US": "Rebase",
+    "zh-CN": "变基"
+  },
+  {
+    "id": "desktop.pull.fastForward",
+    "description": "Pull strategy: only fast-forward, refuse a diverged history",
+    "en-US": "Fast-forward only",
+    "zh-CN": "仅快进"
+  },
+  {
+    "id": "desktop.pull.button",
+    "description": "Confirm button of the Pull dialog",
+    "en-US": "Pull",
+    "zh-CN": "拉取"
+  },
+  {
+    "id": "desktop.pull.loading",
+    "description": "Shown while the Pull dialog reads the repositories",
+    "en-US": "Reading repositories…",
+    "zh-CN": "正在读取仓库…"
+  },
+  {
+    "id": "desktop.pull.noRemote",
+    "description": "Shown in the Pull dialog when the repository has no remote",
+    "en-US": "This repository has no remote.",
+    "zh-CN": "此仓库没有远程。"
+  },
+  {
+    "id": "desktop.pull.noBranch",
+    "description": "Shown in the Pull dialog when the selected remote has no branches",
+    "en-US": "The selected remote has no branches.",
+    "zh-CN": "所选远程没有分支。"
+  },
+  {
+    "id": "desktop.pull.readFailed",
+    "description": "Shown in the Pull dialog when reading a repository failed; reason is Git's own first line",
+    "en-US": "Could not read the repository: {reason}",
+    "zh-CN": "无法读取仓库：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
   }
 ]

@@ -161,3 +161,41 @@ func (c *Client) GitFetchSettingsOf(ctx context.Context, root string) (GitFetchS
 	}
 	return settings, nil
 }
+
+// GitPullFrom brings the current branch up to source, a remote-tracking branch (kind "remote"),
+// with strategy. Core splits the remote from the branch and chooses the Git arguments; the
+// caller only names the reference it picked.
+//
+// GitPullFrom starts git and may take long; call it from a background goroutine.
+func (c *Client) GitPullFrom(ctx context.Context, root string, source GitReference, strategy GitPullStrategy) error {
+	return c.gitWrite(ctx, gitWriteRequest{Root: root, Operation: "pull", GitReference: source.request(), Mode: string(strategy)})
+}
+
+// GitRemote is one fetch remote of a repository.
+type GitRemote struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+
+// GitRemotes lists the fetch remotes of the repository at root, as Git configures them.
+func (c *Client) GitRemotes(ctx context.Context, root string) ([]GitRemote, error) {
+	var out struct {
+		Remotes []GitRemote `json:"remotes"`
+	}
+	err := c.Execute(ctx, "git.remotes", gitRootRequest{Root: root}, &out)
+	return out.Remotes, err
+}
+
+// GitDefaultPullStrategy is the strategy a Pull dialog preselects for preflight, which Core
+// derives from the Git configuration and whether a fast-forward is possible.
+func (c *Client) GitDefaultPullStrategy(ctx context.Context, preflight GitPullPreflight, fastForwardPossible bool) (GitPullStrategy, error) {
+	var out struct {
+		Strategy GitPullStrategy `json:"strategy"`
+	}
+	err := c.Execute(ctx, "git.updatePlan", struct {
+		Stage               string           `json:"stage"`
+		Preflight           GitPullPreflight `json:"preflight"`
+		FastForwardPossible bool             `json:"fastForwardPossible"`
+	}{"defaultStrategy", preflight, fastForwardPossible}, &out)
+	return out.Strategy, err
+}

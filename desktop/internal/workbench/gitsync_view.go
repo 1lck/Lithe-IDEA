@@ -61,6 +61,8 @@ func (a *App) drawSyncDialog(c ui.C, p *project) {
 		a.drawFetchDialog(c, p)
 	case syncDialogDiverged:
 		a.drawDivergedDialog(c, p)
+	case syncDialogPull:
+		a.drawPullDialog(c, p)
 	}
 }
 
