@@ -40,6 +40,7 @@ type DebugMessages struct {
 	ConnectionClosed   string
 	WriteTimedOut      string
 	Variables          string
+	Registers          string
 	Exceptions         string
 	Disassembly        string
 	NoVariables        string
@@ -116,6 +117,7 @@ func debugMessages(language Language) DebugMessages {
 		ConnectionClosed:   Shared(language, "desktop.debug.connectionClosed"),
 		WriteTimedOut:      Shared(language, "desktop.debug.writeTimedOut"),
 		Variables:          Shared(language, "desktop.debug.variables"),
+		Registers:          Shared(language, "desktop.debug.registers"),
 		Exceptions:         Shared(language, "desktop.debug.exceptions"),
 		Disassembly:        Shared(language, "desktop.debug.disassembly"),
 		NoVariables:        Shared(language, "desktop.debug.noVariables"),
