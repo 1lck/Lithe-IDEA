@@ -275,7 +275,11 @@ func (a *App) chromeStatusItem(c ui.C, i int) bool {
 	box.Children(func() {
 		switch a.chrome.catalog[i].id {
 		case itemLock:
-			ui.Icon(k, *a.chrome.catalog[i].icon).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
+			icon := *a.chrome.catalog[i].icon
+			if doc := a.selectedEditorDocument(); doc != nil && doc.view.ReadOnly() {
+				icon = icons.Lock
+			}
+			ui.Icon(k, icon).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
 		case itemHealth:
 			ui.Icon(k, *a.chrome.catalog[i].icon).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Success)
 		case itemMemory:

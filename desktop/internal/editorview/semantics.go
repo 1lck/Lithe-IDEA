@@ -138,3 +138,11 @@ func (v *View) ClearSemantic() { v.hl.ClearSemantic() }
 // SyntaxLine appends the tokens of line, lexical and semantic, to dst. It is for tests and
 // diagnostics: painting reads the same tokens through the highlighter directly.
 func (v *View) SyntaxLine(dst []syntax.Token, line int) []syntax.Token { return v.hl.Line(dst, line) }
+
+// SetIndentUnit sets what Tab inserts from now on: a tab ("\t") or a run of spaces. Any other
+// value is ignored, so a caller cannot leave the view with an unusable unit.
+func (v *View) SetIndentUnit(unit string) {
+	if unit == "\t" || (unit != "" && strings.Trim(unit, " ") == "") {
+		v.indentUnit = unit
+	}
+}

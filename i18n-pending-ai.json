@@ -852,5 +852,47 @@
     "description": "Notice on the start screen when the dropped items contain no folder, so no project opened.",
     "en-US": "Drop a folder to open it as a project.",
     "zh-CN": "请拖入文件夹以将其作为项目打开。"
+  },
+  {
+    "id": "desktop.status.indent",
+    "description": "Status bar item label: the editor's indentation.",
+    "en-US": "Indentation",
+    "zh-CN": "缩进"
+  },
+  {
+    "id": "desktop.status.indentSpaces",
+    "description": "Status bar indentation value when Tab inserts spaces.",
+    "en-US": "{count} spaces",
+    "zh-CN": "{count} 个空格",
+    "parameters": {
+      "count": "string"
+    }
+  },
+  {
+    "id": "desktop.status.indentTab",
+    "description": "Status bar indentation value when Tab inserts a tab; shows the tab width.",
+    "en-US": "Tab width: {width}",
+    "zh-CN": "Tab 宽度：{width}",
+    "parameters": {
+      "width": "string"
+    }
+  },
+  {
+    "id": "desktop.status.lineEnding",
+    "description": "Status bar item label: the file's line break style.",
+    "en-US": "Line separator",
+    "zh-CN": "换行符"
+  },
+  {
+    "id": "desktop.status.lineEndingLF",
+    "description": "Line break style LF (Unix).",
+    "en-US": "LF",
+    "zh-CN": "LF"
+  },
+  {
+    "id": "desktop.status.lineEndingCRLF",
+    "description": "Line break style CRLF (Windows).",
+    "en-US": "CRLF",
+    "zh-CN": "CRLF"
   }
 ]

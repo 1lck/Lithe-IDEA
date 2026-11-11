@@ -176,6 +176,8 @@ const (
 	itemLSP      = "status.lsp"
 	itemVim      = "status.vim"
 	itemEncoding = "status.encoding"
+	itemIndent   = "status.indent"
+	itemEOL      = "status.lineEnding"
 	itemMemory   = "status.memory"
 	itemFPS      = "status.fps"
 	itemChanges  = "status.changes"
@@ -232,6 +234,8 @@ var catalog = []item{
 	{id: itemCaret, zone: zoneStatus, label: func(m *i18n.Messages) string { return m.Status.Caret }},
 	{id: itemLock, zone: zoneStatus, icon: &icons.LockOpen, label: func(m *i18n.Messages) string { return m.Status.Writable }},
 	{id: itemEncoding, zone: zoneStatus, label: func(m *i18n.Messages) string { return m.Status.Encoding }},
+	{id: itemIndent, zone: zoneStatus, label: func(m *i18n.Messages) string { return m.Status.Indent }},
+	{id: itemEOL, zone: zoneStatus, label: func(m *i18n.Messages) string { return m.Status.LineEnding }},
 	{id: itemLSP, zone: zoneStatus, label: func(m *i18n.Messages) string { return m.Status.LSPNotStarted }},
 	{id: itemVim, zone: zoneStatus, label: func(m *i18n.Messages) string { return m.Status.Vim }},
 	{id: itemMemory, zone: zoneStatus, label: func(m *i18n.Messages) string { return m.Status.Memory }},

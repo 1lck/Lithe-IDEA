@@ -890,6 +890,12 @@ func (a *App) activate(index int) {
 		if a.project != nil && a.project.selectedDocument(a.project.docs.group) != nil {
 			a.editor.encoding.open = !a.editor.encoding.open
 		}
+	case it.id == itemIndent:
+		a.toggleIndentation(a.selectedEditorDocument())
+	case it.id == itemEOL:
+		a.toggleLineEnding(a.selectedEditorDocument())
+	case it.id == itemLock:
+		a.toggleReadOnly(a.selectedEditorDocument())
 	}
 }
 
