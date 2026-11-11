@@ -263,5 +263,80 @@
     "description": "Notice when the adapter cannot watch the selected variable for changes",
     "en-US": "The adapter cannot break when this variable changes.",
     "zh-CN": "适配器无法在此变量变化时中断。"
+  },
+  {
+    "id": "desktop.editorActions.stale",
+    "description": "Notice when a plugin editor action is chosen after the document changed",
+    "en-US": "The document changed. Wait for the actions to update.",
+    "zh-CN": "文档已变化，请等待动作更新。"
+  },
+  {
+    "id": "desktop.editorActions.failed",
+    "description": "Notice when a plugin editor action failed",
+    "en-US": "The plugin could not run this action.",
+    "zh-CN": "插件无法执行此动作。"
+  },
+  {
+    "id": "desktop.command.groupEditor",
+    "description": "Find Action group of the plugin editor actions of the selected document",
+    "en-US": "Editor",
+    "zh-CN": "编辑器"
+  },
+  {
+    "id": "desktop.marketplace.allSources",
+    "description": "Source of the plugin page that merges every index",
+    "en-US": "All sources",
+    "zh-CN": "全部来源"
+  },
+  {
+    "id": "desktop.marketplace.sourceUnavailable",
+    "description": "Notice naming one index the plugin page could not read; other sources still show",
+    "en-US": "Source unavailable: {source}",
+    "zh-CN": "来源不可用：{source}",
+    "parameters": {
+      "source": "string"
+    }
+  },
+  {
+    "id": "desktop.marketplace.sourceInvalid",
+    "description": "Shown when a custom plugin index address is not an HTTPS URL",
+    "en-US": "Enter an HTTPS address for the index.",
+    "zh-CN": "请输入 HTTPS 格式的索引地址。"
+  },
+  {
+    "id": "desktop.marketplace.removeSource",
+    "description": "Button that removes a custom plugin index",
+    "en-US": "Remove",
+    "zh-CN": "移除"
+  },
+  {
+    "id": "desktop.marketplace.sourceURL",
+    "description": "Label of the field that types a custom plugin index address",
+    "en-US": "Index address",
+    "zh-CN": "索引地址"
+  },
+  {
+    "id": "desktop.marketplace.sourceURLPlaceholder",
+    "description": "Placeholder of the custom plugin index address field",
+    "en-US": "https://example.com/index.json",
+    "zh-CN": "https://example.com/index.json"
+  },
+  {
+    "id": "desktop.marketplace.addSource",
+    "description": "Button that adds a custom plugin index",
+    "en-US": "Add source",
+    "zh-CN": "添加来源"
+  },
+  {
+    "id": "desktop.nativePanel.empty",
+    "description": "Shown in a plugin native panel that declares no node",
+    "en-US": "Nothing to show.",
+    "zh-CN": "没有可显示的内容。"
+  },
+  {
+    "id": "desktop.nativePanel.failed",
+    "description": "Notice when a plugin native panel action failed",
+    "en-US": "The plugin could not run this action.",
+    "zh-CN": "插件无法执行此操作。"
   }
 ]

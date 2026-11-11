@@ -228,6 +228,8 @@ type settings struct {
 	Language         string      `json:"language,omitempty"`
 	Theme            themeChoice `json:"theme,omitempty"`
 	MarketplaceWidth float32     `json:"marketplaceWidth,omitempty"`
+	// MarketplaceSources are the custom plugin index URLs the user added, in the order they were added.
+	MarketplaceSources []string `json:"marketplaceSources,omitempty"`
 	// HideMinimap hides the minimap of every editor; the editors show it by default.
 	HideMinimap bool `json:"hideMinimap,omitempty"`
 	// HideGitGutter hides the Git change markers of the editor gutter; they show by default.
@@ -419,6 +421,8 @@ type App struct {
 	// pluginState is what the settings window reads from its own thread about
 	// installed plugins; it is replaced whole, never mutated in place.
 	pluginState atomic.Pointer[map[string]settingswindow.PluginState]
+	// nativePanels holds the view state of each native plugin panel, by window (plugin_native.go).
+	nativePanels map[string]*nativePanelState
 	// pluginFacts is each installed plugin's manifest facts, read from disk off the window thread.
 	pluginFacts atomic.Pointer[map[string]settingswindow.PluginFacts]
 	// pluginServerMu guards the language-server maps because a build provider

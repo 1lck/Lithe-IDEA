@@ -16,6 +16,7 @@ func (a *App) editorMenuItems(c ui.C, p *project, d *document) func(*ui.MenuItem
 	primary := primaryModifier()
 	return func(menu *ui.MenuItems) {
 		menu.WidthRange(240, 280)
+		a.editorActionMenuItems(c, p, d, menu)
 		readOnly := d.view.ReadOnly()
 		if menu.Item(i18n.Shared(language, "desktop.editorMenu.goToDefinition")).Keys(0, "f12").Clicked() {
 			c.After(func() {

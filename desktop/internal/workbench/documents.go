@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/documentio"
@@ -17,6 +18,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -99,6 +101,10 @@ type document struct {
 	encodingChanged bool
 	// previousEncoding is what encodingChanged replaced, until the save succeeds.
 	previousEncoding *encodingChoice
+	// actions are the plugin editor actions the last collection answered for this text, and
+	// actionTimer the pending collection after an edit (editor_actions.go).
+	actions     []pluginservice.EditorAction
+	actionTimer *time.Timer
 	// breakpointText is the text the breakpoints of this file were last placed in, so an edit can
 	// be given to Core with the text before it (debug_relocate.go).
 	breakpointText rope.Rope
@@ -446,6 +452,7 @@ func (a *App) placeDocumentAs(p *project, path, name string, content editorview.
 	p.touchDocument(id)
 	if !virtual {
 		a.startDocumentSync(p, d)
+		a.scheduleEditorActions(p, d)
 	}
 	a.enforceTabLimit(p, d)
 }
