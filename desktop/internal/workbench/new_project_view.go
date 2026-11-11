@@ -473,7 +473,7 @@ func (a *App) requirementNotices(c ui.C, language i18n.Language, form *generator
 			}
 			ui.Text(c, i18n.SharedFormat(language, "desktop.newProject.requiresPlugin", map[string]string{"name": name})).Grow(1)
 			if ui.Button(c, i18n.Shared(language, "desktop.newProject.findPlugin")).Outline().Clicked() {
-				a.openPluginSettings(surfaceButton)
+				a.openPluginSettingsSearch(surfaceButton, marketplaceQueryOf(requirement.LanguageID, requirement.BuildSystemID))
 			}
 		})
 	}
@@ -566,4 +566,13 @@ func fieldProblemMessage(language i18n.Language, problem string) string {
 		return i18n.Shared(language, "desktop.newProject.problem.versionTooHigh")
 	}
 	return i18n.Shared(language, "desktop.newProject.problem.unsupportedValue")
+}
+
+// marketplaceQueryOf is the text "Find in Marketplace" starts the search with: the language the
+// generator needs, or else its build system.
+func marketplaceQueryOf(languageID, buildSystemID string) string {
+	if languageID != "" {
+		return languageID
+	}
+	return buildSystemID
 }

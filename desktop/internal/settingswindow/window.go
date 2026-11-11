@@ -1,6 +1,7 @@
 package settingswindow
 
 import (
+	"sync"
 	"sync/atomic"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/appicon"
@@ -121,6 +122,9 @@ type window struct {
 	// searchField is the sidebar's search and marketQuery the marketplace's text.
 	searchField ui.Field
 	marketQuery string
+	// queryMu guards queryWanted, the query a request set for the next paint (requestQuery).
+	queryMu     sync.Mutex
+	queryWanted *string
 	// The values the controls of the pages write into, set from the session's values in
 	// each paint: a change the control makes is what the window then applies.
 	themePick, languagePick, tabRowsPick, tabOverflowPick, shellPick string
@@ -185,6 +189,7 @@ func newWindow(c *Controller, current Values) *window {
 	w.market.installed = c.opts.MarketplaceInstalled
 	w.market.reportDiscarded = c.opts.MarketplaceError
 	w.market.search.rank = c.opts.MarketplaceRank
+	w.marketQuery = current.MarketplaceQuery
 	w.market.search.report = c.opts.MarketplaceError
 	w.pluginSettings = newPluginSettingsForm(c.opts.PluginSettings)
 	w.pluginForms = make(map[string]*pluginSettingsForm)
@@ -235,9 +240,33 @@ func (w *window) requestPage(page pageID) {
 	w.inv.Invalidate()
 }
 
+// requestQuery asks the window to set the marketplace search text to query on its next paint; it
+// is safe to call from any goroutine.
+func (w *window) requestQuery(query string) {
+	w.queryMu.Lock()
+	w.queryWanted = &query
+	w.queryMu.Unlock()
+	w.inv.Invalidate()
+}
+
+// takeQuery returns the query a request set, once.
+func (w *window) takeQuery() (string, bool) {
+	w.queryMu.Lock()
+	defer w.queryMu.Unlock()
+	if w.queryWanted == nil {
+		return "", false
+	}
+	q := *w.queryWanted
+	w.queryWanted = nil
+	return q, true
+}
+
 // wake runs on the window thread right before each repaint an Invalidate requested. It
 // takes a page request and what the plugin registry and the settings sources changed.
 func (w *window) wake() {
+	if q, ok := w.takeQuery(); ok {
+		w.marketQuery = q
+	}
 	if w.pluginRegistryChanged.Swap(false) {
 		w.dynamic.invalidate()
 		w.rowsValid = false
