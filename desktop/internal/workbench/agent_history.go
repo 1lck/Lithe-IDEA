@@ -67,6 +67,8 @@ type agentHistoryState struct {
 
 	// archive is the Agent's archived group (agent_archive.go).
 	archive agentArchiveState
+	// meta holds the Lithe-owned titles and pins (agent_history_meta.go).
+	meta agentHistoryMetaState
 }
 
 func newAgentHistoryState() agentHistoryState {

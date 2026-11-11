@@ -46,7 +46,7 @@ func (a *App) agentConversationTitle(p *project) string {
 		}
 		title += name
 	}
-	if session := p.agent.history.title(p.agent.sessionID); session != "" {
+	if session := a.agentCurrentTitle(p); session != "" {
 		title += " · " + session
 	}
 	return title
@@ -101,9 +101,15 @@ func (a *App) agentHistory(c ui.C, p *project) {
 		}
 		busy := p.agent.phase == agentPhaseBusy || p.agent.phase == agentPhaseCancelling ||
 			p.agent.connecting || h.restoring()
-		ui.List(c, &p.agent.historyList, len(h.sessions), func(row ui.ListRow) {
-			session := h.sessions[row.Index]
-			label := session.Title
+		ordered := a.agentHistoryOrdered(p)
+		ui.List(c, &p.agent.historyList, len(ordered), func(row ui.ListRow) {
+			session := ordered[row.Index]
+			row.Element.FillWidth().PadY(1)
+			if p.agent.history.meta.renaming == session.SessionID {
+				a.agentRenameRow(row.C, p, session, busy)
+				return
+			}
+			label := a.agentSessionTitle(p, session)
 			if label == "" {
 				label = t.Untitled
 			}
@@ -113,10 +119,26 @@ func (a *App) agentHistory(c ui.C, p *project) {
 			if session.SessionID == p.agent.sessionID {
 				label += " · " + t.Current
 			}
-			row.Element.FillWidth().PadY(1)
-			if ui.Button(row.C, label).Outline().FillWidth().Disabled(!h.canLoad || busy).Clicked() {
+			if p.agent.history.meta.items[session.SessionID].Favorite {
+				label += " · " + a.text.Agent.HistoryMeta.Pinned
+			}
+			button := ui.Button(row.C, label).Outline().FillWidth().Disabled(!h.canLoad || busy)
+			if button.Clicked() {
 				c.After(func() { a.openAgentHistorySession(p, session.SessionID) })
 			}
+			ui.ContextMenu(row.C, button, func(menu *ui.MenuItems) {
+				m := a.text.Agent.HistoryMeta
+				pinLabel := m.Pin
+				if p.agent.history.meta.items[session.SessionID].Favorite {
+					pinLabel = m.Unpin
+				}
+				if menu.Item(pinLabel).Clicked() {
+					c.After(func() { a.toggleAgentFavorite(p, session.SessionID) })
+				}
+				if menu.Item(m.Rename).Clicked() {
+					c.After(func() { a.beginAgentRename(p, session) })
+				}
+			})
 		}).Grow(1).Pad(shellContentPad)
 		if !h.canLoad {
 			ui.Text(c, t.HistoryLoadUnsupported).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Pad(shellContentPad)

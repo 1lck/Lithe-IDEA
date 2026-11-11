@@ -142,5 +142,41 @@
     "description": "Product title of the Codex mode 'agent-full-access'.",
     "en-US": "Full access",
     "zh-CN": "完全访问"
+  },
+  {
+    "id": "desktop.agent.history.pin",
+    "description": "Context menu item that pins a conversation to the top of the history list.",
+    "en-US": "Pin conversation",
+    "zh-CN": "置顶对话"
+  },
+  {
+    "id": "desktop.agent.history.unpin",
+    "description": "Context menu item that unpins a conversation.",
+    "en-US": "Unpin conversation",
+    "zh-CN": "取消置顶"
+  },
+  {
+    "id": "desktop.agent.history.rename",
+    "description": "Context menu item and field label that renames a conversation in Lithe.",
+    "en-US": "Rename conversation",
+    "zh-CN": "重命名对话"
+  },
+  {
+    "id": "desktop.agent.history.pinned",
+    "description": "Tag shown beside a pinned conversation in the history list.",
+    "en-US": "Pinned",
+    "zh-CN": "已置顶"
+  },
+  {
+    "id": "desktop.agent.history.save",
+    "description": "Button that stores a new conversation title.",
+    "en-US": "Save",
+    "zh-CN": "保存"
+  },
+  {
+    "id": "desktop.agent.history.cancel",
+    "description": "Button that drops a conversation rename.",
+    "en-US": "Cancel",
+    "zh-CN": "取消"
   }
 ]
