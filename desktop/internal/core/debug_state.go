@@ -12,6 +12,7 @@ type DebugCapabilities struct {
 	SupportsSteppingGranularity    bool                   `json:"supportsSteppingGranularity"`
 	SupportsInstructionBreakpoints bool                   `json:"supportsInstructionBreakpoints"`
 	SupportsDataBreakpoints        bool                   `json:"supportsDataBreakpoints"`
+	SupportsExceptionInfoRequest   bool                   `json:"supportsExceptionInfoRequest"`
 	SupportsReadMemoryRequest      bool                   `json:"supportsReadMemoryRequest"`
 	SupportsRestartRequest         bool                   `json:"supportsRestartRequest"`
 	SupportsTerminateRequest       bool                   `json:"supportsTerminateRequest"`

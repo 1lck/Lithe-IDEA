@@ -245,6 +245,7 @@ func (a *App) debugExceptionsView(c ui.C, p *project) {
 		a.panelMessage(c, t.NoExceptionFilters, a.colors.Subtle)
 		return
 	}
+	a.debugExceptionInfo(c, p)
 	ui.Column(c).FillWidth().Grow(1).Pad(8).Gap(4).Children(func() {
 		for _, filter := range d.capabilities.ExceptionBreakpointFilters {
 			enabled := d.exceptions.exceptionEnabled(filter)
