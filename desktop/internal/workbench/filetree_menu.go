@@ -114,7 +114,7 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 			if p.git.isRepository() && menu.Item(i18n.Shared(language, "desktop.files.showRepositoryChanges")).Clicked() {
 				c.After(func() {
 					a.performed("git.contextMenu.showRepositoryChanges", surfaceMenu)
-					a.showChanges()
+					a.showRepositoryChangesOf(p, filepath.Join(p.root, filepath.FromSlash(n.path)))
 				})
 			}
 			if menu.Item(i18n.Shared(language, "desktop.files.newFile")).Clicked() {

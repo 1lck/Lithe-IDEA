@@ -190,7 +190,7 @@ func countStaged(changes []core.GitChange) int {
 func (p *project) canCommit() bool {
 	c := &p.commit
 	return p.git.isRepository() && p.listsReady() && c.idle() &&
-		p.activeStagedCount() > 0 && !p.otherStaged() && c.message() != ""
+		(p.activeStagedCount() > 0 || p.nestedStagedCount() > 0) && !p.otherStaged() && c.message() != ""
 }
 
 // idle reports that no commit work is under way or waiting for the user: nothing runs, no

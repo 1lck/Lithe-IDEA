@@ -314,6 +314,8 @@ type project struct {
 	stash stashState
 	// lineHistory is the editor's line history dialog (gitlinehistory.go).
 	lineHistory lineHistoryState
+	// nested is the repositories nested in the project folder (nested_repos.go).
+	nested nestedState
 }
 
 // App is the state of the window.

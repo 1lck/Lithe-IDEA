@@ -117,11 +117,13 @@ func (a *App) drawCommitChanges(c ui.C, p *project) ui.Box {
 				ui.Icon(c, icons.Check).Size(20, 20).Color(a.colors.Success)
 				ui.Text(c, t.Clean).Color(a.colors.Subtle)
 			})
+			a.drawNestedRepos(c, p)
 			return
 		}
 		a.drawChangeRows(c, t.ChangeList, t.Files(fileCount(changes)), changes, cs.busy,
 			func() { a.stageAll(p, surfaceButton) },
 			func(change core.GitChange) { a.drawCommitChange(c, p, change) })
+		a.drawNestedRepos(c, p)
 	})
 }
 
