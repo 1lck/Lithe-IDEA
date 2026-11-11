@@ -26,7 +26,7 @@
     ]
   },
   "owner": "Extensions / Terminal / Docker plugin",
-  "verification": "运行 PluginTerminalHostServiceTests、PluginTerminalNativeTests 与 TerminalModuleTests：权限和归属、argv 原样、远程拒绝、取消和工作区关闭、真实 PTY create/close/reopen、UTF-8 历史字节预算、只恢复显示而不重放输入、dispose 释放及迟到 generation 隔离。在真实安装插件中核对本窗口终端标签、焦点、输入、Ctrl-C、缩放、用户关标签重开、插件停用与退出无残留进程；完成整机验收后再更新 verified。三个官方 SDK 在 lithe-plugin-docs 独立分支验证。 回归验证 show:false 创建/重开保留已有活动终端；用户关标签与自然退出后，在退出通知前释放原生会话和完整渲染缓冲区，按 0/8 字节保留历史；长参数和工作目录可完整滚动、选择、复制，取消确认不启动终端。 本次在 Swift 6.3.3 + macOS 26.5 SDK 下运行 75 项相关 Swift 测试全部通过（含四种真实 PTY 退出释放场景）；HTML/JUnit 逐项计时在 .artifacts/test-stability/plugin-terminal-review-fixes.*。完整安装插件的 GUI 验收仍 pending。",
+  "verification": "运行 PluginTerminalHostServiceTests、PluginTerminalNativeTests 与 TerminalModuleTests：权限和归属、argv 原样、远程拒绝、取消和工作区关闭、真实 PTY create/close/reopen、UTF-8 历史字节预算、只恢复显示而不重放输入、dispose 释放及迟到 generation 隔离。在真实安装插件中核对本窗口终端标签、焦点、输入、Ctrl-C、缩放、用户关标签重开、插件停用与退出无残留进程；完成整机验收后再更新 verified。三个官方 SDK 在 Lithe-core-rust 的 shared/plugins/sdk 验证。 回归验证 show:false 创建/重开保留已有活动终端；用户关标签与自然退出后，在退出通知前释放原生会话和完整渲染缓冲区，按 0/8 字节保留历史；长参数和工作目录可完整滚动、选择、复制，取消确认不启动终端。 本次在 Swift 6.3.3 + macOS 26.5 SDK 下运行 75 项相关 Swift 测试全部通过（含四种真实 PTY 退出释放场景）；HTML/JUnit 逐项计时在 .artifacts/test-stability/plugin-terminal-review-fixes.*。完整安装插件的 GUI 验收仍 pending。",
   "notes": "Viva 已实现 terminal/create|show|close|reopen|dispose|onExit：用户同意（精确程序、argv、目录）后在 Terminal 工具窗口里启动，与用户终端同一面板；每个插件最多 8 个句柄，按会话/工作区上下文归属，close 保留有界纯文本快照，reopen 起新进程并把快照画在上方（不写入输入），exit 事件按 generation 只发一次。环境变量 null 通过 localshell.Config.Unset 移除。未做：Windows 与 Linux 上的真实终端未验证，GUI 验收 pending。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",

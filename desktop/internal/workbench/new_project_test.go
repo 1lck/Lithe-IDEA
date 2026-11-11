@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
@@ -68,7 +69,7 @@ func (h *harness) openNewProjectSheet() {
 	h.await("the generator catalog", func() bool { return h.app.newProject.catalogLoaded })
 }
 
-const generatorFixtures = "../../../shared/contracts/plugins/v1/fixtures/project-generators"
+var generatorFixtures = contractfixture.Path("fixtures/project-generators")
 
 func fixtureGeneratorPlugin(t *testing.T) pluginservice.GeneratorPlugin {
 	t.Helper()
@@ -89,7 +90,6 @@ func fixtureJavaTools() map[string]toolList {
 			{ProjectToolInstallation: core.ProjectToolInstallation{Home: "/opt/jdk-21", Executable: "/opt/jdk-21/bin/java", Version: "21.0.4"}, Provider: "host:system"},
 			{ProjectToolInstallation: core.ProjectToolInstallation{Home: "/opt/jdk-11", Executable: "/opt/jdk-11/bin/java", Version: "11.0.2"}, Provider: "host:system"},
 		},
-		Default: "/opt/jdk-21",
 	}}
 }
 
@@ -574,8 +574,8 @@ func commandGeneratorPlugin(t *testing.T) pluginservice.GeneratorPlugin {
 		}
 	}
 	manifest, err := json.Marshal(map[string]any{
-		"schemaVersion": 2, "id": "dev.lithe.test.scaffold", "displayName": "Scaffold", "version": "1.0.0",
-		"pluginAPIVersion": 3, "requires": map[string]int{"projectGenerators": 1},
+		"schemaVersion": 0, "id": "dev.lithe.test.scaffold", "displayName": "Scaffold", "version": "1.0.0",
+		"pluginAPIVersion": 0, "requires": map[string]int{"projectGenerators": 0},
 		"vendor":      map[string]string{"id": "org.example", "displayName": "Example", "signatureRequirement": "publisherPackage"},
 		"permissions": []string{"project.generate"}, "activationEvents": []string{},
 		"projectGenerators": []map[string]any{
@@ -870,7 +870,7 @@ func TestNewProjectToolFieldListsInstallationsAndPinsTheChoice(t *testing.T) {
 	h.app.projectToolLists = func(_ context.Context, tools []string) (map[string]toolList, error) {
 		lists := map[string]toolList{}
 		for _, tool := range tools {
-			lists[tool] = toolList{Default: "/opt/python-3.12", Installations: []toolInstall{
+			lists[tool] = toolList{Installations: []toolInstall{
 				{ProjectToolInstallation: core.ProjectToolInstallation{Home: "/opt/python-3.10", Executable: "/opt/python-3.10/bin/python3", Version: "3.10.14"}, Provider: "host:system"},
 				{ProjectToolInstallation: core.ProjectToolInstallation{Home: "/opt/python-3.12", Executable: "/opt/python-3.12/bin/python3", Version: "3.12.4"}, Provider: "host:system"},
 			}}

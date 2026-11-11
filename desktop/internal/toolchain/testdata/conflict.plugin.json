@@ -1,13 +1,10 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 0,
   "id": "dev.example.conflicting",
   "displayName": "Fictional conflicting tool",
   "version": "1.0.0",
-  "pluginAPIVersion": 3,
-  "requires": {
-    "toolDefinitions": 1,
-    "executableResolution": 2
-  },
+  "pluginAPIVersion": 0,
+  "requires": {"toolDefinitions": 0},
   "vendor": {
     "id": "org.example",
     "displayName": "Fixture publisher",

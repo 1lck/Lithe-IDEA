@@ -81,7 +81,7 @@
 | 主仓库 | 只保留通用能力：契约、Rust Core 校验、两端宿主实现、Rust 后端 SDK 的契约测试 |
 | 主仓库最终删除 | `macos/Sources/LitheDatabaseModule/`、`macos/Sources/Lithe/Views/Database/`、`rust/lithe-db-sidecar/`、`rust/lithe-db-mcp/`、`windows/tauri/src/features/database/` 及打包脚本中的数据库部分 |
 
-插件仓库只依赖公开契约：`lithe-plugin-docs` 中锁定的契约副本加官方 SDK，和 Cargo、SVN 插件的做法相同。主仓库不再按“数据库”写任何分支。
+插件仓库只依赖公开契约：Core 仓库 `shared/plugins/contract/v1/` 的契约加官方 SDK（同在 Core 仓库的 `shared/plugins/sdk/`），和 Cargo、SVN 插件的做法相同。主仓库不再按“数据库”写任何分支。
 
 ### 三、插件身份与分发
 
@@ -104,7 +104,7 @@
 2. **宿主凭据存储（插件函数协议 v2，已在契约中实现）。** v2 是第一个提供宿主服务的协议版本：`lithe/host/credentials/{get,set,delete}`，需要 `credentials.store` 权限（没有后端时声明即无效）。Core 在宿主看到请求前校验协议版本、授权和参数（key 只允许 `[A-Za-z0-9._:-]` 且不超过 128 字节，secret 不超过 16 KiB，拒绝未知字段以便后续版本扩展），通过 `hostRequest` 事件交给宿主，宿主用 `lsp.hostResponse` 应答；每个会话最多 16 个未应答请求。macOS 使用 Keychain，按插件 ID 划分命名空间；插件读不到别的插件或宿主自身的凭据。生命周期：停用和更新时保留，卸载时与 `${stateDir}` 一起删除。
 3. **Agent 工具经由 `lithe` MCP（后续）。** 不新增“插件声明 MCP 服务”的契约，也不保留独立的 `lithe-db-mcp` 进程。之后由插件以插件函数的形式提供 Agent 工具，IDE 宿主把它们登记进现有 `lithe` MCP 的能力目录，沿用其项目授权；插件停用时工具随之消失。这一项在数据库插件上线后单独设计，不阻塞第 1 到第 5 期。
 4. **按平台的可执行文件：不改契约。** 每个平台单独出下载包，可执行文件放在包内固定路径（例如 `bin/backend`），macOS 包可以是 universal 二进制。`${arch}` 本来就不能用于 `packaged` 路径，这样也不需要。Windows 的 `.exe` 等 Windows 宿主就绪时再定。
-5. **Rust 后端 SDK。** 在 `lithe-plugin-docs` 中新增 `sdk/rust`，实现插件函数协议和宿主能力，并补端到端样例，和 Node、Java SDK 对齐。
+5. **Rust 后端 SDK。** 新增 `sdk/rust`，实现插件函数协议和宿主能力，并补端到端样例，和 Node、Java SDK 对齐。它当时放在 lithe-plugin-docs，现在和另外两个 SDK 一起在 Core 仓库的 `shared/plugins/sdk/rust`。
 
 ### 五、规则只保留一份
 
@@ -134,7 +134,7 @@
 | --- | --- | --- |
 | 1 | Windows 矩阵、`.db` 拦截、README 修正；修复 `WHERE` 误判，让 sidecar 与界面使用一致的词法判断，并让 macOS 处理 `confirmation_required` | 无 |
 | 2 | 契约：插件后端、函数协议 v2 凭据宿主服务；Rust Core 校验与样例 | 无 |
-| 3 | macOS 宿主实现第 2 期能力；`lithe-plugin-docs` 新增 Rust SDK | 第 2 期 |
+| 3 | macOS 宿主实现第 2 期能力；新增 Rust SDK（`sdk/rust`） | 第 2 期 |
 | 4 | 新建 `lithe-plugin-database`：Rust 后端、网页界面、样例；先在 macOS 上以本地开发包验证 | 第 3 期 |
 | 5 | macOS 发布插件，加入迁移提示，从主仓库删除数据库代码 | 第 4 期 |
 | 6 | Windows 插件宿主和插件市场就绪后，按当时的宿主能力小幅调整插件，补 Windows 构建后发布 | Windows 插件市场 |
@@ -229,7 +229,7 @@
 - ~~`macos/Sources/Lithe/Application/Features/DatabasePluginTransition.swift`~~（已随 #1794 移除）
 - ~~`macos/Sources/Lithe/Application/Features/PluginHostServices.swift`~~（已随 #1794 移除）
 - ~~`macos/Sources/Lithe/Models/AppModel/AppModel+DatabasePlugin.swift`~~（已随 #1794 移除）
-- `shared/contracts/plugins/v1/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/backend.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/backend.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/plugin_function.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/plugin_function.rs)
 - `shared/platform-feature-matrix/features/`

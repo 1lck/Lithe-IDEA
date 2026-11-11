@@ -93,7 +93,7 @@ IDE -- DAP（调试适配器协议，stdio 或 TCP）--> 调试适配器
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug)
 - ~~`macos/Sources/Lithe/Platform/MacOS/Debug/`~~（已随 #1794 移除）
 - ~~`windows/tauri/src-tauri/src/debug.rs`~~（已随 #1794 移除）
-- `shared/contracts/plugins/v1/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
 - Lithe-core-rust 锁定修订：[rust/lithe-remote/src/client/transport.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/client/transport.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-remote/src/client/forward.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/client/forward.rs)
 

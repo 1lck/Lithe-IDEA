@@ -60,8 +60,8 @@ See [source plan fixtures](../fixtures/keymap/source-plans-v1.json).
 For the provider foundation, `lsp.startServer` optionally accepts
 `keymapImportProviders`, an array of at most eight declared plugin-local IDs.
 Only a plugin-owned session with valid IDs offers
-`experimental.litheKeymapImport: {versions: [1], providers}`. A backend may
-select a non-empty, duplicate-free subset using `{version: 1, providers}`;
+`experimental.litheKeymapImport: {versions: [0], providers}`. A backend may
+select a non-empty, duplicate-free subset using `{version: 0, providers}`;
 Core emits `keymapImportProviders` with `result: {providers}` only for a valid
 selection. Invalid IDs, unknown selections and unsupported versions enable no
 providers. This negotiation alone does not implement the product workflow. See the
@@ -1571,7 +1571,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `diagnostics.configureCoreEvents` | Set the DEBUG admission gate for Core log facts from host detailed-diagnostics state |
 | `diagnostics.redactText` | Redact credentials, tokens, and home-directory paths from diagnostic-bundle text |
 | `diagnostics.buildManifest` | Shape a deterministic diagnostic bundle manifest from host-gathered environment and file facts |
-| `plugins.declarative.validate` | Validate and normalize a declarative plugin manifest (plugin contract v1) |
+| `plugins.declarative.validate` | Validate and normalize a declarative plugin manifest |
 | `plugins.declarative.runPlan` | Expand a declarative plugin's run template for one workspace file |
 | `plugins.declarative.discoverTests` | List a declarative plugin's workspace and file test items |
 | `plugins.declarative.testPlan` | Expand a declarative plugin's test template for a workspace, file, or test case |
@@ -1586,7 +1586,6 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.settingsState` | Read complete plugin preference documents into Core-normalized rows, sources, and bounded native read plans |
 | `plugins.declarative.editSettings` | Validate one atomic setting edit batch and return replacement text while preserving unrelated plugins and dormant values |
 | `plugins.declarative.workspaceConfiguration` | Expand a language server's `workspaceConfiguration` with the merged setting values |
-| `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
 | `toolchains.registry` | Revalidate complete enabled plugin manifests, `{plugins:[{manifest}]}`, into a deterministic tool-definition/provider registry; the host supplies no origin evidence. A short tool ID defined by several enabled plugins belongs to none of them: none of those definitions is registered, the rest register as usual, and `conflicts: [{tool, pluginIDs}]` (sorted by tool, `pluginIDs` sorted) reports each contested tool. A repeated plugin ID rejects the batch. No native host capability claim |
 | `toolchains.decodeReply` | Validate an inert toolchain query/reply pair against bound provider identity, generation, declared tools and host-native filesystem evidence; no transport or native I/O |
 | `toolchains.failureReply` | Build the JSON-RPC error reply for a query that missed its deadline or found no backend, so the host passes it to `toolchains.decodeReply` like a provider's own error; cancellation has none |
@@ -1602,7 +1601,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `toolchains.instantiateLaunch` | Expand an enabled tool definition's `launch` template for a selected executable, entry, runtime arguments and arguments; a part the template cannot carry is `plugin.toolchain.launchMismatch`; performs no I/O |
 | `toolchains.discoveryPlan` | Return platform-filtered definition-owned scan declarations, layouts, probes, PATH entries, login-shell home variables and budgets; never scans native directories |
 | `toolchains.candidates` | List one tool's login-shell homes and host-scanned installations with checked executables, versions or skip reasons, and the automatic-layer choice; never starts a probe |
-| `plugins.declarative.decodeGrammar` | Validate independent static editor resources (`languages` 3) |
+| `plugins.declarative.decodeGrammar` | Validate independent static editor resources |
 | `plugins.editorActions.decode` | Validate independent action registration, collection or click results |
 | `plugins.hostApi.describe` | Describe backend host methods and their required grants from Core's method table |
 | `plugins.hostApi.authorize` | Check a method, service and current session grants using Core's capability rules; the host still checks session and resource ownership |
@@ -1618,7 +1617,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `build.checkToolVersion` | Decide whether a build tool's or runtime's version output meets the declared minimum |
 | `build.resolveModelInputs` | Validate enabled producer facts and project a bounded public model snapshot for a declared consumer |
 | `build.resolveOptions` | Check stored build options against the declaration and return effective values, choices, and the fingerprint |
-| `build.configurationPlan` | Plan a read of the provider's non-sensitive native configuration (v7) |
+| `build.configurationPlan` | Plan a read of the provider's non-sensitive native configuration |
 | `build.decodeConfiguration` | Validate native source identities, raw/effective values and XML bindings |
 | `build.configurationEditPlan` | Plans format-independent provider editing into private host staging |
 | `build.decodeConfigurationEdit` | Validates the receipt without native document bytes |
@@ -1629,7 +1628,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `build.decodeTestDiscovery` | Validate, deduplicate and order Provider test selectors |
 | `build.prepareRunPlan` | Plan Provider-owned application/service/task preparation from a model target |
 | `build.decodeRunPreparation` | Validate portable launch data before the native Run host starts a process |
-| `build.prepareDebugPlan` | Plan same-plugin native debug preparation (Provider v5) |
+| `build.prepareDebugPlan` | Plan same-plugin native debug preparation |
 | `build.decodeDebugPreparation` | Validate an existing instance-contained native debug program and bounded process facts |
 | `build.dependencyPlan` | Expand the command that prints a project's dependency tree, or the request a build provider answers |
 | `build.decodeModel` | Decode model output or a provider result into projects, targets, tasks, content roots, option values, and run entries |
@@ -3875,38 +3874,41 @@ and virtual-location representation as ordinary navigation.
 `lsp.buildRequest` accepts `{ sessionId, operationId?, method, params,
 timeoutMilliseconds? }` and returns `{ operationId }`. `method` and `params`
 are the `provider` field of a `build.modelPlan`, `build.dependencyPlan` or
-provider-sourced `build.taskPlan`/`build.testPlan`, `build.testDiscoveryPlan`, or
-`build.prepareRunPlan` result. Version 1 accepts
-`lithe/build/model` and `lithe/build/dependencies`; version 2 adds
-`lithe/build/execute`, version 3 adds `lithe/build/test` with the same bounded
-execution lifecycle and `lithe/build/discoverTests` with the raw result lifecycle.
-Version 4 adds `lithe/build/prepareRun`, with execution progress but a raw launch
-plan passed to `build.decodeRunPreparation` before native process startup. Version 5 adds `lithe/build/prepareDebug`: raw native executable facts pass through `build.decodeDebugPreparation` and the existing DebugAdapter Registry, not private functions or a second DAP engine.
-Version 10 adds typed `launchOptions` for this run method and host-owned service/task
-preparation. These options require explicit version-10 negotiation before a
-request is written. The decoder accepts a workspace cwd outside the instance
+provider-sourced `build.taskPlan`/`build.testPlan`, `build.testDiscoveryPlan`,
+`build.prepareRunPlan`, `build.prepareDebugPlan`, `build.configurationPlan` or
+`build.configurationEditPlan` result. It accepts `lithe/build/model` and
+`lithe/build/dependencies`; `lithe/build/execute` and `lithe/build/test` with the
+same bounded execution lifecycle; `lithe/build/discoverTests` with the raw result
+lifecycle; `lithe/build/configuration` and `lithe/build/editConfiguration`; and
+`lithe/build/prepareRun`, with execution progress but a raw launch
+plan passed to `build.decodeRunPreparation` before native process startup.
+`lithe/build/prepareDebug` also reports progress: raw native executable facts
+pass through `build.decodeDebugPreparation` and the existing DebugAdapter
+Registry, not private functions or a second DAP engine.
+Typed `launchOptions` belong to the run method alone, together with host-owned
+service/task preparation; any other method carrying them is `invalid_request`.
+The decoder accepts a workspace cwd outside the instance
 only when it matches the same host-validated explicit option. Native debug
-preparation retains its existing application contract.
-Other methods are `invalid_request`; tasks on version 1
-and tests on versions 1/2 or run preparation on versions 1/2/3 are `not_supported`.
+preparation takes no launch options.
+Other methods are `invalid_request`.
 Every session offers
-`capabilities.experimental.litheBuild: { versions: [4, 3, 2, 1] }` in `initialize`; a
-session whose process did not answer one of those versions rejects the request
-with `not_supported`, so a shared provider that does not speak the protocol
-still serves its language. `timeoutMilliseconds` replaces the session's request
+`capabilities.experimental.litheBuild: { versions: [0] }` in `initialize`; a
+session whose process did not answer a version the host offered rejects the
+request with `not_supported`, so a shared provider that does not speak the
+protocol still serves its language. `timeoutMilliseconds` replaces the session's request
 timeout for this request and is capped at one hour. The `requestCompleted`
 event carries the provider's reply unchanged as `result.value`, which the host
 passes to `build.decodeModel` or `build.decodeDependencies` as `result`;
 cancellation and late results follow `lsp.cancelOperation`. Execution replies
 are validated as `{exitCode: Int32, output: string}` and progress is mapped
 from a Core-owned wire request ID to `requestProgress` for the still-pending
-operation. See the [provider execution contract](plugins/v1/README.md#provider-task-execution-buildproviders-2).
+operation. See the [provider execution contract](plugins/v1/README.md#provider-task-execution).
 
 `lsp.toolchainRequest` accepts `{ sessionId, operationId?, params,
 timeoutMilliseconds? }` and returns `{ operationId }`. `lsp.startServer` takes
 `toolchainProviders`, the manifest's provider IDs; only a plugin-owned session
-with some offers `capabilities.experimental.litheToolchains: { versions: [1],
-providers }`. A backend that answers `{ version: 1, providers }` with a non-empty,
+with some offers `capabilities.experimental.litheToolchains: { versions: [0],
+providers }`. A backend that answers `{ version: 0, providers }` with a non-empty,
 duplicate-free subset of the offer emits a `toolchainProviders` runtime event
 with `result: { providers }`; any other answer enables none. A request whose
 `params.providerID` was not negotiated is `not_supported` with details
@@ -3922,7 +3924,7 @@ tool?, arguments?, timeoutMilliseconds? }` and returns `{ operationId }`.
 operation name, never a method; Core checks `arguments`, adds the absolute
 `root` and `tool` paths, and writes the operation's `lithe/vcs/*` request.
 Only plugin-owned sessions offer `capabilities.experimental.litheVcs:
-{ versions: [1] }`; a session whose process did not answer with a VCS ID and
+{ versions: [0] }`; a session whose process did not answer with a VCS ID and
 every required capability, or answered another VCS than `vcs`, refuses the
 request with `not_supported` and details `vcs.provider.unavailable`, and an
 operation whose capability was not negotiated is `not_supported` with details
@@ -3947,8 +3949,8 @@ sessions refuse it with `invalid_request`.
 functionID }, params?, timeoutMilliseconds? }` and returns `{ operationId }`.
 It sends `lithe/function/invoke` to a session started with
 `lsp.startServer.pluginId` equal to `function.pluginID` that negotiated
-`capabilities.experimental.litheFunctions` version 1 or 2 and registered
-the function. `params` must be a JSON object and defaults to `{}`. Refusals are
+`capabilities.experimental.litheFunctions` and registered the function.
+`params` must be a JSON object and defaults to `{}`. Refusals are
 `invalid_request`, `not_supported`, or `permission_denied` with a
 `plugin.function.*` code in `details`, in the order the
 [plugin contract](plugins/v1/README.md#plugin-functions) defines. The
@@ -3972,13 +3974,17 @@ with `result: { functions, removed: [] }` after successful `initialize`
 negotiation, including an empty negotiated registry. Subsequent register and
 unregister requests publish
 `functionsChanged` with `result: { functions, removed }`; the current registry
-is `pluginFunctions` in the session's client state. Sessions without
+is `pluginFunctions` in the session's client state. A plugin-owned session offers
+`capabilities.experimental.litheFunctions: { versions: [0] }`; a reply negotiates
+the protocol only when it names a version the host offered. Sessions without
 `lsp.startServer.pluginId` neither offer nor accept `litheFunctions`, retain no
 registry, and publish no function-discovery events.
 
-A session that negotiated `litheFunctions` version 2 may send the
-[host-service requests](plugins/v1/README.md#host-services-protocol-version-2)
-its `hostServices` grant. Core checks method, grant, and params, then
+A session that negotiated `litheFunctions` may send the
+[host-service requests](plugins/v1/README.md#host-services)
+its `hostServices` grant. A session that did not negotiate it gets no host
+services: its requests are answered `plugin.host.unavailable` (-32601) and its
+notifications are dropped. Core checks method, grant, and params, then
 publishes the runtime event `hostRequest` with `method` and `result: {
 hostRequestID, service, params }`; refusals go back to the backend without an
 event. `lsp.hostResponse` accepts `{ sessionId, hostRequestID, result? }` or
@@ -3986,26 +3992,25 @@ event. `lsp.hostResponse` accepts `{ sessionId, hostRequestID, result? }` or
 `result` (default `null`) or `-32603` with `data.code: "plugin.host.failed"`
 to the backend. An unknown or already answered `hostRequestID` is
 `invalid_request`. At most 16 host requests are unanswered per session; more
-are refused with `plugin.host.failed`. From version 3 the error may also be
+are refused with `plugin.host.failed`. The error may also be
 `{ message, code?, details? }`: a host code reaches the backend with its own
 JSON-RPC number, and `details`, an object of at most 4 KiB, as
 `error.data.details`
-([failure codes](plugins/v1/README.md#workspace-contexts-and-capability-discovery-protocol-version-3)).
+([failure codes](plugins/v1/README.md#workspace-contexts-and-capability-discovery)).
 
-The macOS public document/file/window adapters use method-level grants for new
-permissions. Core intersects grants with its method table for capability discovery;
-macOS first intersects them with actual registered handlers. Legacy `workspace`
+The macOS public document/file/window adapters use method-level grants. Core
+intersects grants with its method table for capability discovery; macOS first
+intersects them with actual registered handlers. The `workspace` service grant
 never authorizes file methods. Host request/result JSON is bounded to 1 MiB;
-oversized v3 results return `plugin.host.limitExceeded`. See the plugin contract's
+oversized results return `plugin.host.limitExceeded`. See the plugin contract's
 public document, file and window method table for exact shapes and cancellation
-semantics. The underlying `PluginFunctionRequest` context and legacy SDK wire
-shapes remain compatible.
+semantics.
 
 `lsp.hostNotify` accepts `{ sessionId, method, params }` for a ready
 plugin-owned session and returns `{ delivered }`. Core sends the
-[host notification](plugins/v1/README.md#host-notifications-protocol-version-3)
-when the session negotiated version 3 and is granted its service, and returns
-`delivered: false` without sending for an older version. Another method, an
+[host notification](plugins/v1/README.md#host-notifications)
+when the session negotiated `litheFunctions` and is granted its service, and
+returns `delivered: false` without sending when it did not. Another method, an
 ungranted service, malformed or oversized params, a session that is not
 plugin-owned, or one that is not ready is `invalid_request` with the
 `plugin.host.*` code in `details`.
@@ -4047,11 +4052,12 @@ with `result: { serverID, method, params? }` for the host to relay as
 `remote: "unsupported"` fails with `not_supported` when the workspace is
 remote, before any process is started.
 
-A session that negotiated `litheFunctions` version 4 and holds the `functions`
+A session that negotiated `litheFunctions` and holds the `functions`
 grant may call another plugin's exported function through the
-[plugin-to-plugin relay](plugins/v1/README.md#cross-plugin-calls-protocol-version-4).
+[plugin-to-plugin relay](plugins/v1/README.md#cross-plugin-calls).
 Core runs the whole relay: it checks the declarations, keeps the call chain,
-writes the forwarded request, and answers the caller. `lsp.configureFunctionRelay`
+writes the forwarded request with the `caller` the callee receives, and answers
+the caller. `lsp.configureFunctionRelay`
 accepts the host's complete view and returns `{}`; every call replaces the
 previous view, and a call in flight that the new view forbids ends with an
 explicit `plugin.function.*` error.
@@ -4651,7 +4657,7 @@ configuration retains that execution kind when reopened. Process commands, toolc
 bindings and cached debug adapters are refused for `build.provider`. Generic args,
 environment and cwd overrides are user choices forwarded through typed launch options;
 explicit args replace older reference userArguments, including an empty array.
-An implicit selector-root cwd remains omitted from launch options for v4 compatibility. Current model membership is revalidated by the
+An implicit selector-root cwd remains omitted from launch options. Current model membership is revalidated by the
 native build workflow before every preparation. No generated document is needed:
 `runConfig.inspect` recognizes explicit saved team/local references and `runConfig.resolve`
 merges them against an empty generated layer. A workspace without generated data
@@ -4699,7 +4705,7 @@ Other extension namespaces and the selector remain intact. Re-saving the
 same selector preserves its working-directory override and portable choices.
 The production macOS store, Windows editor and preference copies carry the typed snapshot unchanged.
 See `fixtures/run-configuration/build-provider-options.json`; no new Provider RPC or
-SDK protocol version is needed, because preparation reuses accepted v10 launch options. Editor argument text uses quoting/escaping without expansion or execution; empty quoted tokens remain empty argv items. `fixtures/run-configuration/argument-text.json` is shared by Core and both editors.
+SDK protocol change is needed, because preparation reuses the accepted launch options. Editor argument text uses quoting/escaping without expansion or execution; empty quoted tokens remain empty argv items. `fixtures/run-configuration/argument-text.json` is shared by Core and both editors.
 
 `runConfig.providerLaunchInputs` takes `{root,configurationId,providerRoot,localDocument?}`
 and requires a complete `build.provider` selector. Unmigrated tool-specific records are rejected; only an isolated host import may translate their retired format. It resolves the same document layers for one preparation. It returns bounded typed
@@ -5353,9 +5359,12 @@ relevant facts with every call.
 and returns `{ "status": "ok", "plugin": object }` with the normalized
 manifest (names lowercased and sorted, argument order preserved), or
 `{ "status": "rejected", "error": { "code", "message", "field"? } }` with a
-stable `plugin.*` code. When the host sends the capability versions it runs,
-a level 3 manifest that requires another one is `plugin.api.unsupported`;
-levels 1 and 2 are unaffected. See Capability versions in
+stable `plugin.*` code. Every manifest declares `requires`, and a `requires`
+entry the Core build does not know, or whose version it does not support, is
+`plugin.api.unsupported`. When the host sends the capability versions it runs,
+a manifest that requires one the host lacks is `plugin.api.unsupported` too.
+Launches and executable resolution belong to the base contract, not to a
+capability, and are never listed in `requires`. See Capability versions in
 [`plugins/v1`](plugins/v1/README.md).
 
 `plugins.declarative.runPlan`, `plugins.declarative.discoverTests`, and
@@ -5368,7 +5377,7 @@ revalidate the manifest first. Their requests are respectively
 Success returns `plan` (`executable`, `arguments`, `workingDirectory`, plus
 `label` and `frameworkID` for tests) or `items`; refusals use the same
 `rejected` shape. Only a malformed payload is an `invalid_request` failure.
-`shared/contracts/plugins/v1/fixtures/` holds the golden cases.
+`Lithe-core-rust/shared/plugins/contract/v1/fixtures/` holds the golden cases.
 
 `plugins.declarative.languageServerLaunchPlan` accepts
 `{ "manifest": object, "languageID"?: string, "buildSystemID"?: string,
@@ -5387,7 +5396,7 @@ acceptable value falls back to the next layer and then the declared default. Suc
 `runtimeRequirements`, `requiredDirectories`, `requiredPackagePaths`, and
 `initializationOptions`, `hostIntegration`, `settings` (the effective
 values), and `workspaceConfiguration` (the server's expanded
-`workspaceConfiguration`, `languageServers` 2) when the plugin declares them. A `buildSystemID` plan adds
+`workspaceConfiguration`) when the plugin declares them. A `buildSystemID` plan adds
 `buildProvider: { buildSystemID, executesProjectCode, mayUseNetwork,
 languageServer? }`; with `languageServer` the plan is that language server's
 and the host reuses its session. An unknown
@@ -5396,13 +5405,12 @@ architecture or an empty directory is refused with
 build system, and a build system without a provider with
 `plugin.launch.unavailable`.
 
-A backend plan additionally returns `backend.hostServices` (and `version`
-for backend capability version 2 and later). These are the declared grants;
+A backend plan additionally returns `backend.hostServices`. These are the declared grants;
 the host must provide only services it actually implements and must verify the
 package and approved programs before starting the plan. A VCS or debug-adapter
 plan likewise includes its corresponding typed descriptor.
 
-A language server declared with `launch.kind: "backend"` (`serverProcess` 3) has
+A language server declared with `launch.kind: "backend"` has
 no command line in its manifest; the plugin's backend chooses it. The plan this
 command returns is then only the first step: `launch` is `{ kind: "backend",
 function, timeoutMilliseconds }` (30000 when absent) and `resolveParams` is the
@@ -5411,8 +5419,7 @@ arch }, stateDirectory, workspaceStateDirectory, logDirectory,
 temporaryDirectory, settings }`; the host adds `context` and, when the plugin
 declares tool definitions, `tools`. The request must carry all four of
 `stateDirectory`, `workspaceStateDirectory`, `logDirectory`, and
-`temporaryDirectory`, and the plan lists them in `requiredDirectories`. A server
-below `languageServers` 3 has no `sessionPolicy`; a version 3 plan carries it
+`temporaryDirectory`, and the plan lists them in `requiredDirectories`. Every language-server plan carries a `sessionPolicy`
 (`serverID`, `requestMethods`, `commands`, `serializedCommands`,
 `forwardNotifications`, `remote`, `gates`, `state`) for the engine to enforce.
 
@@ -5429,7 +5436,7 @@ Refusals are `plugin.launch.unavailable` (no such server),
 `plugin.launch.invalidResult`, `plugin.launch.outsidePackage`,
 `plugin.launch.undeclaredTool`, and `plugin.launch.unwritablePath` for the
 answer. The golden cases are
-`shared/contracts/plugins/v1/fixtures/languages/language-server-launch-resolution.json`.
+`Lithe-core-rust/shared/plugins/contract/v1/fixtures/languages/language-server-launch-resolution.json`.
 
 `plugins.languageServers.stateRetention` accepts `{ retention: { maxEntries,
 maxAgeDays }, nowUnixSeconds, entries: [{ name, lastModifiedUnixSeconds }],
@@ -5447,7 +5454,7 @@ function returned for a document of its content scheme, and returns
 than 1 MiB (1,048,576 UTF-8 bytes). The host opens `content` as a read-only
 document and never interprets it.
 
-A `debugAdapterID` selects a `debugAdapters[]` entry with a `serverProcess`
+A `debugAdapterID` selects a `debugAdapters[]` entry with an adapter process
 or a `tcpLanguageServer` transport (naming it together with another selector is
 the same `invalid_request` failure); the plan adds `debugAdapter: { id,
 providerID, displayName, adapterID, requests, selectors, configurationTypes,
@@ -5458,7 +5465,7 @@ plan of the plugin language server that `endpoint.languageID` names, so the
 host starts that server as for editing, then sends `workspace/executeCommand`
 with `endpoint.command` and connects to the loopback port the server answers
 with (an integer or a numeric string from 1 to 65535). When that server's
-launch is resolved by the plugin backend (`serverProcess` 3), the plan names
+launch is resolved by the plugin backend, the plan names
 only `launch: { kind: "backend", function, timeoutMilliseconds }` with empty
 `requiredDirectories` and no `resolveParams`: the server's own session asks
 the backend with the directories of its start, so resolving the adapter needs
@@ -5627,12 +5634,6 @@ successfully started session merely because other plugins failed discovery.
 This is metadata selection, not manifest validation, approval or admission.
 Shared cases are in `shared/fixtures/plugins/installed-versions.json`.
 
-`plugins.declarative.checkRuntimeVersion` accepts
-`{ tool, minimumVersion, output }`, where `output` is what the runtime printed
-for the plan's `launch.versionArguments`, and returns
-`{ "status": "ok", "check": { "satisfied": bool, "version"?: string } }`.
-`version` is absent when the output contains none. It takes no manifest.
-
 `plugins.declarative.decodeGrammar` accepts `{ manifest, languageID, grammar }`,
 where `grammar` is the text the host read from the language's `grammar.path`
 inside the installed package, and returns `language: { id, fileExtensions,
@@ -5659,13 +5660,15 @@ parameter, current-session, workspace-context, or resource-ownership checks. Hos
 deny access if the Core call fails.
 Shared cases are in `shared/fixtures/plugins/host-api-v1.json`.
 
-`plugins.editorActions.decode` accepts `{kind:"registration",value}` or
-`{kind:"actions",value,text}` and returns `{registration}` or `{actions}`.
-Core validates literal selectors, one-based UTF-16 ranges and bounded opaque
-function bindings. Version 1 (the default) admits the icons `run` and
-`run-all` and a 128 KiB source. `version: 2` with the host's `icons` and
-`sourceBytes` also admits `alternatives` and `{kind:"invokeResult",value}`,
-which returns `{}` or `{reveal:{locations}}` for a clicked action. Hosts enforce
+`plugins.editorActions.decode` accepts `{version,kind:"registration",value}` or
+`{version,kind:"actions",value,text}` and returns `{registration}` or `{actions}`.
+`version` is required; this Core accepts `0` and rejects any other request
+version. Core validates literal selectors, one-based UTF-16 ranges and bounded opaque
+function bindings. For `kind: "actions"` the request must carry the host's
+`icons` and `sourceBytes`, which bound the icon names and the document size;
+an action may carry `alternatives` that use the same icons.
+`{version,kind:"invokeResult",value}` needs no `icons` or `sourceBytes` and returns `{}` or
+`{reveal:{locations}}` for a clicked action. Hosts enforce
 permission, live document versions and session ownership; HTTP/SQL business
 semantics stay with plugins. See the plugin contract's independent editor
 actions section.
@@ -5705,7 +5708,7 @@ working directory must be a relative path of an existing directory inside
 Core writes nothing, the host writes `temporaryFiles`. A start Core refuses is
 `{ status: "rejected", error }` with `plugin.run.invalidStart` and the failing
 `field`. See the plugin contract's
-[run and debug sessions](plugins/v1/README.md#run-and-debug-sessions-protocol-version-3).
+[run and debug sessions](plugins/v1/README.md#run-and-debug-sessions).
 
 `debug.decodeBackendConfiguration` accepts `{ manifest, params }` with the
 params of `lithe/host/debug/start` and returns `{ status: "ok", start }` with
@@ -5721,15 +5724,15 @@ sources: [{ pluginID, matchers }], lines }` and returns `{ links }`;
 the matchers of each enabled plugin as `plugins.declarative.validate` returned
 them. A request Core cannot accept is `invalid_request`, not a policy outcome.
 See the plugin contract's
-[output link matchers](plugins/v1/README.md#output-link-matchers-outputlinkmatchers-1).
+[output link matchers](plugins/v1/README.md#output-link-matchers).
 
 
 The `plugins.marketplace.*` commands are equally pure: hosts fetch indexes and
 archives and pass the parsed JSON. `validateIndex` accepts
 `{ index, sourceKind: "official" | "thirdParty", platform, hostCapabilities? }`
 and returns `{ status: "ok", index: { plugins, rejected } }` with per-entry
-`availability`; a level 3 version is available only when every capability it
-requires is in `hostCapabilities`; `resolveSource` accepts `{ url }` and returns
+`availability`; a listed version is available only when its `pluginAPIVersion`
+is one Core supports and every capability it requires is in `hostCapabilities`; `resolveSource` accepts `{ url }` and returns
 `{ status: "ok", source: { indexURL, repository, displayName } }`;
 `installReview` accepts `{ manifest, expectedID?, expectedVersion?,
 approvedPrograms?, hostCapabilities? }` and returns `{ status: "ok", review: { id, version,
@@ -5739,19 +5742,20 @@ permissions, programs, newPrograms } }`. Content problems use the same
 
 ### Build systems
 
-The `build.*` commands implement API level 3 `buildSystems` of
+The `build.*` commands implement the `buildSystems` capability of
 [`plugins/v1`](plugins/v1/README.md). Every build tool shares them, so a host
 has one build workflow and never branches on a build-system ID: Core plans
 each process, the host runs it with the discovered executable, and Core
 decodes what it printed or wrote.
 
-A build system with a `provider` requires `buildProviders: 1`, version 2 when
-a task uses `source: "provider"`, version 3 when tests do, or version 4 for
-provider application run preparation, version 5 for native debug preparation, and
-version 6 for optional read-only model inputs. Core validates and plans all six versions;
-a host advertises each only after implementing its lifecycle and requests.
-macOS advertises all six and routes provider tasks, tests and run preparation through
-the existing workspace session. Prepared applications use the existing native Run host. Windows does not yet advertise Provider lifecycle support.
+A build system with a `provider` requires `buildProviders: 0`. That capability
+covers provider tasks, tests, run preparation, native debug preparation,
+optional native configuration, and optional read-only model inputs. Core
+validates and plans every one of them; a host advertises the capability only
+after implementing its lifecycle and requests. macOS advertises it and routes
+provider tasks, tests and run preparation through the existing workspace
+session. Prepared applications use the existing native Run host. Windows does
+not yet advertise Provider lifecycle support.
 
 Except `build.detect`, `build.projectOptions` and `build.resolveStoredOptions`, every command accepts
 `{ manifest, buildSystemID, request }`, revalidates the manifest, and answers
@@ -5766,8 +5770,8 @@ mechanism before platform filtering. A `setting` candidate emits
 `{kind: "setting", settingID, path: absolutePath | null}` in the same `executables`
 list; null skips, invalid stored values reject the plan, and native validation
 failure is terminal. There is no separate `configuredExecutable` result.
-See the plugin contract's **Shared executable candidates** section for ordering,
-capability negotiation and the compatibility adapter for published v2 previews.
+See the plugin contract's **Shared executable candidates** section for ordering
+and strict selection.
 
 Host-managed runtime probes use `java -version` (including Java 8),
 `node --version`, and `go version`. Hosts execute the returned arguments and
@@ -5789,20 +5793,20 @@ and the directories are absolute host paths used only as substitution text.
 | `build.projectOptions` | `{ document }`, host-read persisted v1 Build options, without a manifest | `document`: validated storage with version 1 and systems; options, instance defaults, root values, explicit empty selections and saved custom choices are retained. Missing system fields normalize to empty maps; malformed, unsupported or oversized documents reject with `plugin.build.invalidOptionsDocument`. This pure operation never reads or writes a file and does not replace declared option resolution. |
 | `build.invocationPlan` | `{ root, platform: "macos" \| "linux" \| "windows" }` | `invocation`: `{ buildSystemID, root, executables, environmentInputs, runtimeDependencies, version, minimumVersion }` with project-file paths joined to `root`; every runtime dependency with a known probe, host-managed ones included, carries `version: { arguments }` |
 | `build.checkToolVersion` | `{ runtime?, output }` | `version`: `{ satisfied, version? }`; `runtime` checks that runtime dependency instead of the tool |
-| `build.resolveModelInputs` | `{revision, sources: [{manifest, instances: [{buildSystemID, root, state, model?, options?}]}]}` from installed enabled current-workspace sources | `modelInputs`: version 1 public snapshot with exact optional producer slots, state, normalized projects/targets/content roots, configuration fingerprint and explicitly shared options; no tasks/run/settings/private functions; see the [plugin contract](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/plugins/v1/README.md#optional-read-only-model-inputs-buildmodelinputs-1) |
+| `build.resolveModelInputs` | `{revision, sources: [{manifest, instances: [{buildSystemID, root, state, model?, options?}]}]}` from installed enabled current-workspace sources | `modelInputs`: version 1 public snapshot with exact optional producer slots, state, normalized projects/targets/content roots, configuration fingerprint and explicitly shared options; no tasks/run/settings/private functions; see the [plugin contract](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md#optional-read-only-model-inputs) |
 | `build.resolveOptions` | `{ options, modelValues? }` | `options`: `{ options: [{ id, displayName, kind, scope?, value, source, choices, allowCustom }], dropped, fingerprint }` |
-| `build.configurationPlan` | plan fields and optional host-selected `tool` | `plan.provider` for `lithe/build/configuration` (v7); no mutation, project or output-file parameters |
+| `build.configurationPlan` | plan fields and optional host-selected `tool` | `plan.provider` for `lithe/build/configuration`; no mutation, project or output-file parameters |
 | `build.decodeConfiguration` | `{ result }` | `configuration`: bounded `litheBuildConfiguration` v1 native sources/fields; see the plugin contract |
 | `build.configurationEditPlan` | `{ root, options?, workspaceStateDirectory, outputFile, snapshot, edits: { sourceID, revision, values }, tool? }` | Provider request `lithe/build/editConfiguration`; existing private staging only, no document bytes |
 | `build.decodeConfigurationEdit` | `{ snapshot, edits, result }` | `edit: { sourceID, revision, changed }`; validates bounded receipt and exact draft/source identity; native adapter verifies staged hash and publishes atomically |
 | `build.modelPlan`, `build.dependencyPlan` | plan fields plus `project?` (dependencies), `outputFile?`, and for provider sources `refresh?` (boolean) and `tool?: { executable }` (absolute path) | `plan`: `{ buildSystemID, root, arguments, environment, workingDirectory, execution, optionFingerprint, output, decoder, executesProjectCode, mayUseNetwork }`; for a `provider` source `{ buildSystemID, root, provider: { method, params }, decoder, executesProjectCode, mayUseNetwork, optionFingerprint }`, where `method` is `lithe/build/model` or `lithe/build/dependencies` and `params` is `{ buildSystemID, root, options, optionArguments, environment, project?, refresh?, tool? }`; `refresh` appears only when `true` and `tool` only when the host sent it |
 | `build.taskPlan` | plan fields plus `task`, `project?`, `target?`, `modelTask?`, `userArguments?` | command `plan` with `arguments`, `environment`, `workingDirectory`, `execution`, and `optionFingerprint`; a provider task instead returns `provider: {method: "lithe/build/execute", params}` with effective options, selected task/entities, user arguments and effect metadata |
-| `build.testPlan` | plan fields plus `project?`, `target?`, `suite?`, `case?`, `userArguments?`, `projects?` (the model's project directories) | command plan or `provider: {method: "lithe/build/test", params}` (buildProviders 3), plus `results`: `null`, `{ decoder, reports }` with workspace-relative globs (for the selected project, or for the root and every listed project when none is selected), or command-only `{ decoder: "hostIntegration" }`. Command filters that templates cannot place, such as a case without its suite when the tool only addresses `Suite#case`, are `plugin.build.invalidSelection`; Provider filters remain separate typed values and must be declared supported |
-| `build.testDiscoveryPlan` | common plan fields plus `refresh?`, `tool?`; no project/output file | `plan.provider` for `lithe/build/discoverTests`, only with `test.discovery: true` (Provider v3), using the same effective options and effect metadata |
+| `build.testPlan` | plan fields plus `project?`, `target?`, `suite?`, `case?`, `userArguments?`, `projects?` (the model's project directories) | command plan or `provider: {method: "lithe/build/test", params}`, plus `results`: `null`, `{ decoder, reports }` with workspace-relative globs (for the selected project, or for the root and every listed project when none is selected), or command-only `{ decoder: "hostIntegration" }`. Command filters that templates cannot place, such as a case without its suite when the tool only addresses `Suite#case`, are `plugin.build.invalidSelection`; Provider filters remain separate typed values and must be declared supported |
+| `build.testDiscoveryPlan` | common plan fields plus `refresh?`, `tool?`; no project/output file | `plan.provider` for `lithe/build/discoverTests`, only with `test.discovery: true`, using the same effective options and effect metadata |
 | `build.decodeTestDiscovery` | common plan fields plus canonical `result` | `discovery.tests` with validated `{id, suite, case, project?, target?}` selectors; bounded at 10,000 items/32 MiB, deterministic and exactly runnable; malformed replies reject in full |
-| `build.prepareRunPlan` | common plan fields, `run`, required `project`/`target`, `userArguments?`, `launchOptions?`, `workspaceRoot?` (required for an explicit launch cwd); no output file | `plan.provider` for `lithe/build/prepareRun` (Provider v4), selected declaration/tags/paths/options validated; typed launch options and service/task execution require v10 |
+| `build.prepareRunPlan` | common plan fields, `run`, required `project`/`target`, `userArguments?`, `launchOptions?`, `workspaceRoot?` (required for an explicit launch cwd); no output file | `plan.provider` for `lithe/build/prepareRun`, selected declaration/tags/paths/options validated; typed launch options must match the run's declared execution kind, and a service or task run requires them |
 | `build.decodeRunPreparation` | `workspaceRoot`, instance `root`, raw `result`, same optional `launchOptions` | `launch` with portable `{executable:{kind,value},arguments,workingDirectory,environment}`; bounded strings and workspace directory containment, `plugin.build.invalidOutput` on invalid result |
-| `build.prepareDebugPlan` | same selected fields as `build.prepareRunPlan`; run declares same-plugin `debug.adapter` | `plan.provider` for `lithe/build/prepareDebug` (v5); no cross-package reference |
+| `build.prepareDebugPlan` | same selected fields as `build.prepareRunPlan`; run declares same-plugin `debug.adapter` | `plan.provider` for `lithe/build/prepareDebug`; no cross-package reference, and launch options are refused: they apply only to running a target |
 | `build.decodeDebugPreparation` | `workspaceRoot`, instance `root`, selected `run`, raw `result` | `preparation` with declaration-owned `adapter`, normalized `root`, `program`, `arguments`, `workingDirectory`, `environment`; program is an existing regular file contained in the instance after canonicalization |
 | `build.decodeModel` | `{ workspaceRoot, root, output?, outputFile?, result?, options? }`; `result` is the provider's JSON answer | `model`: `{ projects, targets, tasks, contentRoots, optionValues, run }`; `run` entries carry `buildSystem: { id, root, projectID, targetID?, optionFingerprint }` |
 | `build.decodeTestResults` | `{ workspaceRoot, root, project?, projects?, output, notBeforeMillis?, suite? }`; without `project` the reports of the root and every listed model project are read | `results`: `{ tests: [{ suite, case, status, message?, durationMillis?, path?, line?, invocations }], summary: { total, passed, failed, errors, skipped }, success }`; repeated invocations of one case merge into the most severe status |
@@ -5811,8 +5815,8 @@ and the directories are absolute host paths used only as substitution text.
 | `build.syncFingerprint` | `{ workspaceRoot, root, projects, options? }` | `sync`: `{ fingerprint, watch }` |
 | `build.languageImport` | `{ workspaceRoot, root, options?, executablePath? }` | `languageImport`: `null` without a `languageImport` declaration; `{ kind: "maven", mavenContext: { version, reactorPath, profiles, settingsPath?, localRepositoryPath?, mavenExecutablePath? } }` for `lsp.startServer.mavenContext` and `lsp.updateMavenConfiguration`; or `{ kind: "gradle", javaGradle: { wrapperPresent, offline, userHome? } }` for `lsp.startServer.javaGradle`, where `wrapperPresent` reports `gradle/wrapper/gradle-wrapper.properties` under `root` |
 
-`executableResolution: 2` adds `{ kind: "toolchain", toolchainID, root }` invocation
-candidates. Hosts resolve them through the same canonical project/subproject
+Invocation candidates also include `{ kind: "toolchain", toolchainID, root }`.
+Hosts resolve them through the same canonical project/subproject
 selection used by Run, preserving terminal failure and project-code identity.
 The optional plan hint `tool.environment` is a bounded string map (64 entries,
 valid environment names, 32768 bytes per value, no NUL). It merges into Provider
@@ -5827,12 +5831,12 @@ file refuses a plan without it. Unlike the `plugins.declarative.*` commands,
 `build.detect`, `build.decodeModel`, `build.decodeTestResults`,
 `build.decodeDependencies`, and `build.syncFingerprint` read bounded files
 inside `workspaceRoot` (and the given `outputFile`); none of the commands
-writes anything or starts a process. `shared/contracts/plugins/v1/fixtures/build-systems/build-plans.json`
+writes anything or starts a process. `Lithe-core-rust/shared/plugins/contract/v1/fixtures/build-systems/build-plans.json`
 holds the golden plans and decoded outputs.
 
 ### VCS providers
 
-The `vcs.*` commands implement API level 3 `vcsProviders` of
+The `vcs.*` commands implement the `vcsProviders` capability of
 [`plugins/v1`](plugins/v1/README.md) and the
 [VCS provider contract](vcs-provider-v1.md). Results use the
 `plugins.declarative.*` envelope; a malformed payload, a relative
@@ -5854,12 +5858,12 @@ detection cases, decoded snapshots, and reply validation cases.
 The `project.*` commands back the New Project window. Payloads, results, and
 problem codes are specified in the plugin contract's
 [Project generators](plugins/v1/README.md#project-generators) section, and
-`shared/contracts/plugins/v1/fixtures/project-generators/project-plans.json` holds the golden
+`Lithe-core-rust/shared/plugins/contract/v1/fixtures/project-generators/project-plans.json` holds the golden
 answers. Results use the `plugins.declarative.*` envelope: `catalog`, `form`,
 `plan`, `name`, and `extracted`. Commands that take a manifest revalidate it
 and answer `plugin.project.unavailable` for an undeclared generator.
 
-A `projectGenerators` 2 generator picks tool installations with `tool` fields.
+A project generator picks tool installations with `tool` fields.
 The host lists the installations of each field's tool and sends them as the
 form's `tools`; Core chooses among them, checks `minimumVersion`, expands
 `${field.<id>.executable}`, and returns `toolPins` in the plan. Core lists no
@@ -6546,7 +6550,7 @@ writes and honor the decoding-loss flag. See
 
 ### Plugin web pages
 
-A host that shows a plugin's web tool window (`ui` 2) keeps the web view, the
+A host that shows a plugin's web tool window keeps the web view, the
 package file reads, page state storage, file dialogs and the calls a page
 makes; Core decides what the page is served and which bridge requests it may
 make, and frames every answer, so all clients behave alike. Pages are
@@ -6555,7 +6559,7 @@ registered in Core for their lifetime:
 - `plugins.web.open` takes `{ manifest, windowID, platform, locale, theme:
   { theme: "light"|"dark", variables: { "--lithe-*": value } }, buildSystems? }`
   and returns `{ page, pluginID, windowID, scheme: "lithe-plugin", url,
-  bridgeVersion: 2, fileLimit, stateLimit }`. `url` is
+  bridgeVersion: 0, fileLimit, stateLimit }`. `url` is
   `lithe-plugin://<pluginID>/<entry>`. A window that is not one of the
   manifest's web windows is `invalid_request`. At most 512 pages are open.
 - `plugins.web.close` takes `{ page }` and returns `{ cancelCalls }`, the
@@ -6590,7 +6594,7 @@ registered in Core for their lifetime:
 ### Native plugin UI data
 
 `plugins.nativeUI.validateData` accepts `{ ui, data }`, where `ui` is the
-validated native schema-1 declaration and `data` is a provider's `{ nodes }`
+validated native declaration (`schemaVersion` 0) and `data` is a provider's `{ nodes }`
 reply. It returns `{ status: "ok", nodes }` or
 `{ status: "rejected", error: { code: "plugin.ui.invalidData", message } }`.
 Malformed envelopes remain Core `invalid_request` failures. The operation uses
@@ -6600,8 +6604,8 @@ controls (including search/editor/segmented/stepper), typed scalar defaults, cho
 info, button action references/width policies and onCommit references; form source replies
 require empty nodes. Hosts inject this typed operation into their
 presentation feature; views never call the C ABI. Windows can reuse validation
-when it later adds a native renderer; Core support does not advertise ui 3 on
-that platform.
+when it later adds a native renderer; Core support does not make Windows
+advertise native plugin content.
 
 ### Agent skill management
 
@@ -7179,8 +7183,8 @@ discovery deadline fires. `exit` applies only to an adapter that was reached.
 Core refusing the debug session is a host outcome and is not recorded.
 
 A declarative language server is resolved by the host and supervised by Core.
-The host records failures before launch, including plugin API 1 servers that
-launch as host-owned processes. Otherwise it passes
+The host records failures before launch, including servers that launch as
+host-owned processes. Otherwise it passes
 `startupOperation:{pluginId,operationId,elapsedMs}` on `lsp.startServer`. Core
 accepts the handoff only for the language server role, and only when the
 request's `pluginId` is absent or equals the handoff's `pluginId`; it ignores the
@@ -7213,18 +7217,19 @@ Missing, unusable, or relative values fail with `plugin.launch.invalidRequest`
 when needed; `requiredDirectories` adds `log` when used. The host creates the
 provided writable directory before launch, outside all bundles and installation
 resources. Validation probes cannot reference `${logDir}`. See the synchronized
-[plugin contract](plugins/v1/README.md). Existing API 1 literal arguments remain
-literal. Wire examples are exercised by
+[plugin contract](plugins/v1/README.md). Literal arguments that do not use
+`${logDir}` remain literal. Wire examples are exercised by
 `shared/fixtures/diagnostics/engine-logging-v2.json` and Core tests.
 
-Plugin-owned sessions offer `litheLogging` 1 independently of other protocols.
+Plugin-owned sessions offer `litheLogging: { versions: [0] }` independently of
+other protocols; a backend that answers `{ "version": 0 }` negotiates it.
 The negotiated `lithe/log` notification is validated in Core and enters the
 same bounded `diagnostics.drainCoreEvents` queue, with the installed plugin
 identity selecting `plugins/<id>/host`. It never copies notification JSON into
 legacy runtime detail. The four facts map to catalog INFO/ERROR/WARN/WARN,
 and a live wire request ID resolves to its original host `op`; no user content
 or backend-selected channel/level/message is accepted. See the
-[plugin logging contract](plugins/v1/README.md#structured-plugin-diagnostics-logging-protocol-1)
+[plugin logging contract](plugins/v1/README.md#structured-plugin-diagnostics)
 and `plugins/v1/fixtures/backend/plugin-logging.json`. Explicit upstream LSP message
 types retain their severity through separate catalog events; unclassified
 stderr is DEBUG and actual lifecycle failure is ERROR.
@@ -7454,7 +7459,7 @@ This is an internal desktop command, not a new public plugin host method.
 
 ### Dynamic plugin settings surfaces
 
-Internal desktop commands reuse the validated settings v2 manifest. They do not
+Internal desktop commands reuse the validated settings manifest. They do not
 add plugin RPCs or admit capabilities. `plugins.settings.catalog` accepts up to
 64 `{manifest, owner: {pluginID, version}, enabled}` records. It validates all
 identities, rejects duplicates and returns deterministic `pages` (up to 512),

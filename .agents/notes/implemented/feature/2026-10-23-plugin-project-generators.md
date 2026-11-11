@@ -17,7 +17,7 @@
 - **入口什么都没做。** 欢迎页和项目切换器的「New Project…」调用 `chooseProject(title: "New Project")`，与「打开」只差一个标题。
 - **生态知识没有地方放。** Cargo、Spring Initializr、Maven Archetype 各有自己的脚手架。写进宿主会违反「宿主不按插件名分支」；写进 Core 会重演 `execution/detectors/` 写死生态表的问题。
 - **基础环境要重复配置。** 建完 Java 项目后还得去设置里再选一次 JDK。
-- **能力版本的副作用。** [按能力分版本](../architecture/2026-10-17-plugin-capability-versions.md)要求 `requires` 恰好列出用到的能力，宿主缺任何一项就整个插件不可装。生成器放进语言插件后，不支持生成器的宿主连这一版语言支持一起看不到。Java Support 只在 macOS 分发、随同版本的 Lithe.app 内置，所以影响的只是「旧宿主拿不到新版 Java Support」；社区语言插件加生成器前要权衡这一点。
+- **能力版本的副作用。** [按能力分版本](../architecture/2026-11-11-plugin-contract-single-baseline.md)要求 `requires` 恰好列出用到的能力，宿主缺任何一项就整个插件不可装。生成器放进语言插件后，不支持生成器的宿主连这一版语言支持一起看不到。Java Support 只在 macOS 分发、随同版本的 Lithe.app 内置，所以影响的只是「旧宿主拿不到新版 Java Support」；社区语言插件加生成器前要权衡这一点。
 
 ## 决策
 
@@ -26,7 +26,7 @@
 | 部分 | 负责方 | 落点 |
 | --- | --- | --- |
 | 声明的校验、表单求值（派生默认值、显示条件、错误码）、生成计划、压缩包解压 | Rust Core | `rust/lithe-core/src/project_generators/`，命令 `project.*` |
-| 契约与标准答案 | 共享契约 | `shared/contracts/plugins/v1/README.md` 的 Project generators 一节，`fixtures/project-generators/project-generator.plugin.json`、`fixtures/project-generators/project-plans.json` |
+| 契约与标准答案 | 共享契约 | `Lithe-core-rust/shared/plugins/contract/v1/README.md` 的 Project generators 一节，`fixtures/project-generators/project-generator.plugin.json`、`fixtures/project-generators/project-plans.json` |
 | 窗口、名称、位置、Git、空项目、启用插件提示 | macOS 宿主 | `NewProjectView`、`NewProjectFeatureModel` |
 | 执行计划：临时目录、写文件、跑命令、下载、移动到位 | macOS 宿主 | `ProjectGenerationService`（编排）+ `MacProjectGenerationPlatform`（平台操作） |
 | Java、Maven Archetype、Spring Boot 的字段、模板和步骤 | 插件 | 组织插件仓库 `Lithe-IDEA/lithe-plugin-java`（`java`、`spring-boot`）与 `Lithe-IDEA/lithe-plugin-maven`（Maven Archetype），各自 `plugin.json` 的 `projectGenerators`、`icons/`、`templates/`；2026-11 起本仓库不再内置任何插件（#1495） |
@@ -179,7 +179,7 @@ cargo test --manifest-path rust/Cargo.toml -p lithe-core project_generators
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/project_generators/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/project_generators)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/declarative.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/declarative.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/capabilities.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/capabilities.rs)
-- `shared/contracts/plugins/v1/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
 - ~~`macos/Sources/Lithe/Views/Workspace/NewProjectView.swift`~~（已随 #1794 移除）
 - ~~`macos/Sources/Lithe/Application/Features/NewProjectFeatureModel.swift`~~（已随 #1794 移除）
 - ~~`macos/Sources/Lithe/Services/ProjectGeneration/`~~（已随 #1794 移除）

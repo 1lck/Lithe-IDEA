@@ -2,6 +2,10 @@
 
 状态：已实现
 
+归档日期：2026-11-11
+
+> 已被[插件契约从统一基线 0 开始](../../implemented/architecture/2026-11-11-plugin-contract-single-baseline.md)取代。
+
 > Viva 迁移状态：能力版本规则存在于固定修订的 Rust Core 和共享插件契约；当前桌面端已有市场索引校验与后端桥接，尚未完成插件安装和各能力的产品接入。下文的旧客户端验收不代表 Viva 已支持所有列出的能力；历史验证入口见[迁移前笔记](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-10-17-plugin-capability-versions.md)。
 
 ## 先说结论
@@ -162,7 +166,7 @@ backend 模块，不增加第二个开关。正确做法是让纯定义插件通
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/capabilities.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/capabilities.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/declarative.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/declarative.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/marketplace.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/marketplace.rs)
-- `shared/contracts/plugins/v1/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
 - `shared/contracts/rust-core-api.md`
 - `desktop/internal/core/plugin_session.go`
 - `desktop/internal/marketplace/`

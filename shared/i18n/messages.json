@@ -15094,13 +15094,6 @@
       ]
     },
     {
-      "id": "desktop.newProject.problem.runtimeTooOld",
-      "description": "Desktop new project: problem.runtimeTooOld",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.newProject.problem.tooLong",
       "description": "Desktop new project: problem.tooLong",
       "platforms": [

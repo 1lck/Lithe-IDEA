@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,7 +11,7 @@ import (
 // readMarketFixture uses the shared fixtures of the pinned Core contract.
 func readMarketFixture(t *testing.T, name string, value any) {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "shared", "contracts", "plugins", "v1", "fixtures", name))
+	data, err := os.ReadFile(contractfixture.Path("fixtures/" + name))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +114,8 @@ func TestMarketplaceReviewRejectsMissingHostCapabilities(t *testing.T) {
 }
 
 // The Store fixture is the public community index at Lithe-store revision
-// 53676c51c756d8ead093053f0128735626ff64ec (Apache-2.0).
+// 53676c51c756d8ead093053f0128735626ff64ec (Apache-2.0), written in contract
+// v2 form: every level and capability version is 0.
 func TestMarketplaceValidatesCommunityStore(t *testing.T) {
 	index, err := os.ReadFile(filepath.Join("testdata", "marketplace", "lithe-store-index.json"))
 	if err != nil {

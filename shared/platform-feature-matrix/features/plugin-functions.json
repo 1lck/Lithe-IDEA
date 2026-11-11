@@ -2,14 +2,13 @@
   "id": "plugin-functions",
   "area": "扩展",
   "group": "插件与主题",
-  "capability": "插件私有函数：插件后端通过 litheFunctions v1 协商和注册，宿主按插件归属调用，接收结果与进度，并支持取消、超时和撤回；领域操作仍使用类型化契约；官方 Node、Java（Java 8+）与 Rust 后端 SDK（在 lithe-plugin-docs 仓库）实现后端一侧",
+  "capability": "插件私有函数：插件后端通过 litheFunctions v1 协商和注册，宿主按插件归属调用，接收结果与进度，并支持取消、超时和撤回；领域操作仍使用类型化契约；官方 Node、Java（Java 8+）与 Rust 后端 SDK（在 Lithe-core-rust 仓库的 shared/plugins/sdk）实现后端一侧",
   "macos": {
     "implementationStatus": "missing",
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/core/plugin_session.go",
-      "desktop/internal/core/plugin_session_test.go",
-      "shared/contracts/plugins/v1/README.md"
+      "desktop/internal/core/plugin_session_test.go"
     ]
   },
   "windows": {
@@ -17,8 +16,7 @@
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/core/plugin_session.go",
-      "desktop/internal/core/plugin_session_test.go",
-      "shared/contracts/plugins/v1/README.md"
+      "desktop/internal/core/plugin_session_test.go"
     ]
   },
   "owner": "Extensions",

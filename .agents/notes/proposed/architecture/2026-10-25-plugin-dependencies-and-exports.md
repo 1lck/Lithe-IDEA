@@ -57,7 +57,7 @@
 
 ### 5. 第一阶段已落地的部分
 
-对应计划 API-35 的第一阶段，不新增 API 编号，决策正文写在[插件函数契约](../../implemented/architecture/2026-10-20-plugin-function-contract.md)的决策 8，契约写在 `shared/contracts/plugins/v1/README.md` 的 “Cross-plugin calls (protocol version 4)”。它只落地了本提案里不依赖安装解析的那一部分：
+对应计划 API-35 的第一阶段，不新增 API 编号，决策正文写在[插件函数契约](../../implemented/architecture/2026-10-20-plugin-function-contract.md)的决策 8，契约写在 `Lithe-core-rust/shared/plugins/contract/v1/README.md` 的 “Cross-plugin calls (protocol version 4)”。它只落地了本提案里不依赖安装解析的那一部分：
 
 - 清单新能力键 `requires.pluginFunctions: 1` 与顶层 `pluginFunctions {exports, calls}`。导出是 `{id, version, context}`，`context` 是封闭集合，第一阶段只有 `"workspace"`，缺失或未知就拒绝整个清单：这兑现了第 2 节“没有定义可接受调用上下文的导出，不允许跨包调用”。调用方只声明 `{id, version}`，版本必须相等，不相等是 `plugin.function.versionMismatch`。
 - 协议 `litheFunctions` 增加版本 4，只有协商到 4 的后端能用 `lithe/host/functions/providers` 与 `lithe/host/functions/invoke`。运行时发现被调方，清单里不写被调方的插件 ID。
@@ -87,7 +87,7 @@
 - 有共同兼容版本与不兼容菱形两组标准用例，冲突报告带确定排序的两条依赖路径；失败不修改原安装闭包。
 - 禁用/卸载、启动时依赖缺失、升级失效及恢复分别验证反向依赖与资源清理；任何失败不误停不相关插件。
 - 社区依赖官方、同名包来自不同来源、签名变化和导出撤回均有拒绝输入；旧私有函数的归属和递归拒绝语义不变。（第一阶段已覆盖导出撤回、禁用与卸载的进行中调用，以及旧 `wrongPlugin`、`recursiveCall` 不变；来源与签名相关的输入属于安装解析，尚未覆盖。）
-- 如涉及函数协议，在 `lithe-plugin-docs` 验证 Node/Java SDK；正式契约与 Core 一起落地后再同步副本。
+- 如涉及函数协议，合并前在 Core 仓库根运行 `node shared/plugins/scripts/sdk-e2e.mjs` 验证 Node、Java、Rust SDK；正式契约、API 总表和协议更新记录与 Core 在同一个 Core PR 里完成。
 - #1210 的基础 Registry 和第三方 DAP 验收可以完全不安装依赖包而完成。
 
 ## 风险
@@ -96,14 +96,14 @@
 
 ## 验证
 
-第一阶段的跨插件调用由 Core 测试（`plugins::plugin_functions`、`lsp::interface::function_relay`、`lsp::interface::engine`）和 macOS 单测（`MacPluginBackendSessionsTests`、`PluginHostServiceDispatchTests`、`PluginPublicHostAPITests`）覆盖，细节见实现 Note 的“验证”。依赖解析器和安装期规则仍没有实现，不能声称安装、版本冲突或依赖授权用例通过。实施时使用 `write-stable-tests`、~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除），并分别验证两个宿主和函数 SDK；新增资源时遵守工作树复用与安装目录只读要求。
+第一阶段的跨插件调用由 Core 测试（`plugins::plugin_functions`、`lsp::interface::function_relay`、`lsp::interface::engine`）和 macOS 单测（`MacPluginBackendSessionsTests`、`PluginHostServiceDispatchTests`、`PluginPublicHostAPITests`）覆盖，细节见实现 Note 的“验证”。依赖解析器和安装期规则仍没有实现，不能声称安装、版本冲突或依赖授权用例通过。实施时使用 `write-stable-tests`、~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除），并分别验证两个宿主和函数 SDK（在 Core 仓库根运行 `node shared/plugins/scripts/sdk-e2e.mjs`，契约与指南改动再运行 `node shared/plugins/scripts/verify-docs.mjs`）；新增资源时遵守工作树复用与安装目录只读要求。
 
 ## 适用范围
 
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/plugin_function.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/plugin_function.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/function_relay.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/function_relay.rs)
-- `shared/contracts/plugins/v1/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
 - ~~`macos/Sources/Lithe/Platform/MacOS/`~~（已随 #1794 移除）
 - ~~`windows/tauri/src-tauri/src/plugin_host/`~~（已随 #1794 移除）
-- [插件契约与 SDK 仓库](https://github.com/Lithe-IDEA/lithe-plugin-docs)
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins/sdk`

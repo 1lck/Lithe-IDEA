@@ -132,6 +132,6 @@ macOS 插件 API 计划里的 API-15（`editor.open/reveal`）、API-16（`previ
 ## 适用范围
 
 - `desktop/internal/core/plugin_session.go`
-- `shared/contracts/plugins/v1/README.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md`
 - `shared/platform-feature-matrix/features/plugin-functions.json`
 - [旧版服务、测试和原适用范围](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-10-30-plugin-host-open-preview-services.md)

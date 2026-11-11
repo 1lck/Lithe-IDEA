@@ -37,7 +37,7 @@ func TestValidatePassesCapabilitiesToCore(t *testing.T) {
 	if !validator.called {
 		t.Fatal("the validator was never called")
 	}
-	if versions := validator.capabilities["backend"]; len(versions) != 2 || versions[0] != 1 || versions[1] != 2 {
+	if versions := validator.capabilities["backend"]; len(versions) != 1 || versions[0] != 0 {
 		t.Fatalf("capabilities = %v", validator.capabilities)
 	}
 }
@@ -55,62 +55,29 @@ func TestValidateRefusesBrokenValidator(t *testing.T) {
 	}
 }
 
-func TestDeclaredServesLanguagesAndBaseLanguageServers(t *testing.T) {
+func TestDeclaredServesTheBaselineOfEveryWiredCapability(t *testing.T) {
 	declared := Declared()
-	if len(declared) != 14 {
+	want := []string{
+		"backend", "buildProviders", "buildSystems", "debugAdapters",
+		"languageServers", "languages", "outputLinkMatchers", "pluginFunctions",
+		"projectGenerators", "settings", "toolDefinitions", "ui",
+	}
+	if len(declared) != len(want) {
 		t.Fatalf("declared = %v", declared)
 	}
-	// Plugin tool windows: text (1) and package pages (2); native trees (3) are not served.
-	if versions := declared["ui"]; len(versions) != 2 || versions[0] != 1 || versions[1] != 2 {
-		t.Fatalf("ui = %v", versions)
-	}
-	// The New Project window serves generators and, with version 2, tool fields.
-	if versions := declared["projectGenerators"]; len(versions) != 2 || versions[0] != 1 || versions[1] != 2 {
-		t.Fatalf("projectGenerators = %v", versions)
-	}
-	for name, want := range map[string][]int{"settings": {1, 2}, "debugAdapters": {1, 2, 3}, "outputLinkMatchers": {1}} {
-		if got := declared[name]; len(got) != len(want) || got[len(got)-1] != want[len(want)-1] {
-			t.Fatalf("%s = %v, want %v", name, got, want)
+	for _, name := range want {
+		if versions := declared[name]; len(versions) != 1 || versions[0] != 0 {
+			t.Fatalf("%s = %v, want [0]", name, versions)
 		}
 	}
-	// Tool definitions are resolved through the shared Core resolver for settings
-	// and for Build/Run selection. Provider queries are not wired, so
-	// toolchainProviders must stay absent.
-	if versions := declared["executableResolution"]; len(versions) != 1 || versions[0] != 2 {
-		t.Fatalf("executableResolution = %v", versions)
-	}
-	if versions := declared["toolDefinitions"]; len(versions) != 1 || versions[0] != 1 {
-		t.Fatalf("toolDefinitions = %v", versions)
-	}
-	if _, ok := declared["toolchainProviders"]; ok {
-		t.Fatal("toolchainProviders was declared without a provider query path")
-	}
-	if versions := declared["languages"]; len(versions) != 2 || versions[0] != 1 || versions[1] != 3 {
-		t.Fatalf("languages = %v", versions)
-	}
-	// Plugin-owned sessions (languageServers 3) forward the backend's requests,
-	// and a backend-resolved launch (serverProcess 3) is answered by the backend.
-	if versions := declared["languageServers"]; len(versions) != 2 || versions[0] != 1 || versions[1] != 3 {
-		t.Fatalf("languageServers = %v", versions)
-	}
-	if versions := declared["serverProcess"]; len(versions) != 3 || versions[1] != 3 || versions[2] != 4 {
-		t.Fatalf("serverProcess = %v", versions)
-	}
-	if versions := declared["backend"]; len(versions) != 2 || versions[1] != 2 {
-		t.Fatalf("backend = %v", versions)
-	}
-	if versions := declared["pluginFunctions"]; len(versions) != 1 || versions[0] != 1 {
-		t.Fatalf("pluginFunctions = %v", versions)
-	}
-	// A plugin that declares a provider cannot be installed until both the
-	// build system and provider capability are advertised. The provider version
-	// gates task execution (2) and application run preparation (4); tests and
-	// debug stay undeclared because their native surfaces do not exist yet.
-	if versions := declared["buildSystems"]; len(versions) != 1 || versions[0] != 1 {
-		t.Fatalf("buildSystems = %v", versions)
-	}
-	if versions := declared["buildProviders"]; len(versions) != 2 || versions[0] != 1 || versions[1] != 2 {
-		t.Fatalf("buildProviders = %v", versions)
+	// Capabilities nothing here serves stay absent so their plugins are not
+	// offered for installation.
+	for _, name := range []string{
+		"buildModelInputs", "executionProviders", "keymapImportProviders", "packageTrust", "toolchainProviders", "vcsProviders",
+	} {
+		if _, ok := declared[name]; ok {
+			t.Fatalf("%s was declared", name)
+		}
 	}
 }
 

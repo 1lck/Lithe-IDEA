@@ -157,7 +157,7 @@
 仅在独立网络方案批准后细化，不是本轮的任务清单：
 
 1. Core：清单声明与 schema、declaration 校验与拒绝 fixture、`plan_descriptor.remoteRun`、目的地校验与命令构造、路径翻译函数与会话接入、首帧噪声丢弃、ssh 失败分类、测试。
-2. 契约与文档：`shared/contracts/plugins/v1/` 的 README、schema、fixture；合并后同步 lithe-plugin-docs。
+2. 契约与文档：`Lithe-core-rust/shared/plugins/contract/v1/` 的 README、schema、fixture，和 `Lithe-core-rust/shared/plugins/reference/` 的协议更新记录、API 总表，在同一个 Core PR 里完成。
 3. macOS 宿主：对话框、确认弹窗、进程所有权与清理、退出确认、`shared/i18n` 词条、假 ssh 集成测试。
 4. 真机验收：一台 Linux 主机上的 `gdb -i=dap`，覆盖设断点、命中、看栈帧、单步、结束、断线。
 5. Windows 宿主和模型 A 另议。
@@ -212,7 +212,7 @@
 - 首帧噪声：噪声后接正常帧能成功；超过 64 KiB 或没有 `Content-Length:` 时会话结束并返回被丢弃输出；进入帧流之后的格式错误仍然报错。
 - ssh 失败分类：每一类用固定 stderr 样本测试，原文被保留。
 - 平台集成测试使用**假 ssh 可执行文件**（有界等待），验证确认弹窗每次出现、结束后没有残留的 ssh 进程、断开时发送了正确的 `terminateDebuggee`。
-- 契约、README、schema、fixture 更新；`shared/i18n/` 补齐中英词条并通过 `node scripts/i18n/generate-i18n.mjs --check`；功能矩阵 `plugin-debug-adapters` 增补说明；合并后同步 lithe-plugin-docs。
+- 契约、README、schema、fixture 更新；`shared/i18n/` 补齐中英词条并通过 `node scripts/i18n/generate-i18n.mjs --check`；功能矩阵 `plugin-debug-adapters` 增补说明；协议更新记录和 API 总表的登记与契约在同一个 Core PR 里完成。
 - 真机验收：一台 Linux 主机上的 `gdb -i=dap`（设断点、命中、栈帧对应本地源码、单步、结束、断线）。
 
 ## 风险
@@ -232,6 +232,6 @@
 
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug)
 - Lithe-core-rust 锁定修订：[rust/lithe-remote/src/client/transport.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/client/transport.rs)
-- `shared/contracts/plugins/v1/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
 - ~~`macos/Sources/Lithe/Platform/MacOS/Debug/`~~（已随 #1794 移除）
 - `shared/i18n/`

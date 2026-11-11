@@ -9,8 +9,7 @@
     "evidence": [
       "desktop/internal/core/plugin_session_test.go",
       "desktop/internal/core/plugin_session.go",
-      "desktop/internal/editor/textmate/grammar.go",
-      "shared/contracts/plugins/v1/fixtures/languages/language-grammar.plugin.json"
+      "desktop/internal/editor/textmate/grammar.go"
     ]
   },
   "windows": {
@@ -19,8 +18,7 @@
     "evidence": [
       "desktop/internal/core/plugin_session_test.go",
       "desktop/internal/core/plugin_session.go",
-      "desktop/internal/editor/textmate/grammar.go",
-      "shared/contracts/plugins/v1/fixtures/languages/language-grammar.plugin.json"
+      "desktop/internal/editor/textmate/grammar.go"
     ]
   },
   "owner": "Extensions",

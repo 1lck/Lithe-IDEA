@@ -129,44 +129,38 @@ Viva 由 `desktop/go.mod` 的 `replace` 固定到 [Lithe-IDEA/viva](https://gith
 [LSP 插件构建与语言服务器资源归属](.agents/notes/implemented/architecture/2026-09-30-lsp-plugin-build-and-distribution.md)。
 所有 LSP 插件都必须在构建阶段固定来源并校验语言服务器，把完整资源放入插件包后签名；运行时只能从已安装插件发现入口，不能把下载物、解压物或插件状态写入 app bundle、安装目录或跨工作树共享缓存。
 
-## 插件契约的两仓库同步
+## 插件契约只在 Rust Core
 
-插件契约在本仓库的 `shared/contracts/plugins/v1/` 定义，和执行它的 Rust Core 一起修改。
-公开仓库 [Lithe-IDEA/lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs)
-的 `contract/v1/` 保存这个目录的逐字节副本，连同开发指南、教程和三个官方插件后端 SDK（Node、Java、Rust）的
-源码、发版和端到端测试。插件开发者只看 lithe-plugin-docs 就能开发，不需要克隆本仓库，所以两个仓库的契约
-必须保持一致：
+插件契约、插件开发指南与参考、三个官方插件后端 SDK（Node、Java、Rust）和它们的端到端测试只有一份，
+在 Rust Core 仓库 [Lithe-IDEA/Lithe-core-rust](https://github.com/Lithe-IDEA/Lithe-core-rust) 的
+[`shared/plugins/`](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins)，和执行契约的
+Core 代码在同一个仓库、同一个 PR 里修改。本仓库不保存契约、SDK 或插件开发文档的副本；插件开发者只看那个目录就能开发，
+不需要克隆本仓库。
 
-- 修改 `shared/contracts/plugins/v1/` 下任何文件（README、schema、fixture）的 PR 合并后，在
-  lithe-plugin-docs 运行 `node scripts/contract.mjs sync --revision <合并后的 preview commit>`
-  并提交。不要在 lithe-plugin-docs 里直接改副本。
-- 新增或修改插件协议、能力版本或 API 功能的 PR（即改动 `shared/contracts/plugins/v1/`、
-  `rust/lithe-core/src/plugins/capabilities.rs` 或 `rust/lithe-core/src/lsp/interface/plugin_function.rs`
-  的 PR），合并后必须在 lithe-plugin-docs 的
-  [插件协议更新记录](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/reference/protocol-changelog.md)
-  登记：合入日期、PR、修改人（PR 作者）、改了哪个协议或 API；新版本号同时写进该页“按协议查首次出现”的表。
-  只改了后两个文件、契约目录没变时，同样要同步到合并后的 commit 并登记。登记和契约同步放在同一个
-  lithe-plugin-docs PR 里，PR 描述中直接 `@` 每个被登记 PR 的作者，请他们核对自己那一行。具体步骤见该页的“维护”一节。
+- 改契约（`shared/plugins/contract/v1/` 的 README、schema、fixture）、能力版本
+  （`rust/lithe-core/src/plugins/capabilities.rs`）或插件函数协议
+  （`rust/lithe-core/src/lsp/interface/plugin_function.rs`）的 Core PR，在同一个 PR 里更新
+  [插件协议更新记录](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/reference/protocol-changelog.md)：
+  合入日期、PR、修改人（PR 作者）、改了哪个协议或 API；新版本号同时写进该页“按协议查首次出现”的表。
 - 新增或修改宿主方法、宿主通知的 PR，即使只是给已有 API 加一个子方法，也要在 PR 描述里附一张
   “原计划编号 | 方法 | 用途”表，每个方法占一行，格式参照
   [#1653](https://github.com/1lck/Lithe-IDEA/pull/1653) 的描述。原计划编号只用
   [API 实施计划](docs/development/macos-plugin-api-plan.md)里的 API-01–44，不得自编新号；
-  不属于任何编号的方法写 —。合并后登记时，每个方法在 lithe-plugin-docs 两处各加一行：
-  [API 总表](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/reference/api-catalog.md)的中英两张方法表
+  不属于任何编号的方法写 —。同一个 Core PR 里，每个方法在两处各加一行：
+  [API 总表](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/reference/api-catalog.md)的中英两张方法表
   （API、方法、用途、权限、协议），以及更新记录的“宿主方法（按 API 编号）”索引（API、方法、协议、日期、PR）。
-  这个 PR 在时间线上的“API 编号”列也要填上。同一个 API 的方法分几个 PR 加入时，每个方法记自己的 PR。
-- 插件开发者只读 lithe-plugin-docs 就必须能开发对应插件。方法的参数、返回值、错误码、权限、生命周期和平台限制，
-  要写进契约 README，再经同步进入 lithe-plugin-docs 的 `contract/v1/`；面向开发者的用法说明写进
-  lithe-plugin-docs 的功能页。只写在实施计划、Agent Note、契约草案或宿主代码里的行为，不算已公开。
-- 契约 README 里指向该目录以外的链接必须写成绝对 URL；`scripts/architecture/verify-shared-contracts.sh`
-  会拒绝离开该目录的相对链接。
-- 面向插件开发者的新说明写进 lithe-plugin-docs，不写进本仓库或 Lithe Store。
-- 本仓库不保存 SDK。修改插件后端协议（例如 `rust/lithe-core/src/lsp/interface/plugin_function.rs`）时，
-  合并前在 lithe-plugin-docs 运行 `node scripts/sdk-e2e.mjs --source <本仓库路径> --ref <分支>`，确认三个
-  SDK 的示例后端仍能跑通。
+  同一个 API 的方法分几个 PR 加入时，每个方法记自己的 PR。
+- 方法的参数、返回值、错误码、权限、生命周期和平台限制写进契约 README；面向开发者的用法写进
+  `shared/plugins/guides/` 或 `shared/plugins/reference/` 的对应页。只写在实施计划、Agent Note 或宿主代码里的行为，不算已公开。
+  面向插件开发者的新说明不写进本仓库或 Lithe Store。
+- Core 仓库根运行 `node shared/plugins/scripts/verify-docs.mjs`，检查每份 schema 的 `$id` 和文档相对链接；
+  改插件后端协议时运行 `node shared/plugins/scripts/sdk-e2e.mjs`，确认三个 SDK 的示例后端对当前 Core 仍能跑通。
+- 本仓库的桌面端测试通过 `desktop/internal/contractfixture` 读取正在链接的 Core 检出里的契约 fixture，
+  路径由 `scripts/desktop/desktop-go.sh` 导出的 `LITHE_PLUGIN_CONTRACT_DIR` 给出。不要把 fixture 复制回本仓库；
+  改了契约后，把 `scripts/desktop/build-desktop-core.sh` 的 `PINNED_CORE_REVISION` 升到包含该改动的 Core commit。
 
-决策原因、同步工具和被否方案见
-[插件契约、SDK 与开发者资料的发布](.agents/notes/implemented/architecture/2026-10-23-plugin-contract-publishing.md)。
+决策原因和被否方案见
+[插件契约与开发资料只在 Rust Core](.agents/notes/implemented/architecture/2026-11-11-plugin-contract-single-source-in-core.md)。
 
 ## 跨平台功能同步
 

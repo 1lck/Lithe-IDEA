@@ -83,6 +83,14 @@ STAGE_DIR="$("$ROOT_DIR/scripts/desktop/build-desktop-core.sh" "$PROFILE_FLAG")"
 # Packaging reads the staged helper to embed it; development runs use it directly so the IDE
 # Connection page is testable without a packaged build.
 export LITHE_CORE_STAGE_DIR="$STAGE_DIR"
+# The plugin contract has one copy, in the core checkout that was just built: tests read its
+# fixtures through internal/contractfixture. This mirrors the checkout build-desktop-core.sh uses.
+if [[ -n "${LITHE_CORE_RUST_DIR:-}" ]]; then
+    CORE_CHECKOUT="$(cd "$LITHE_CORE_RUST_DIR" && pwd -P)"
+else
+    CORE_CHECKOUT="$ROOT_DIR/.artifacts/desktop/lithe-core-rust/source"
+fi
+export LITHE_PLUGIN_CONTRACT_DIR="$(native_path "$CORE_CHECKOUT/shared/plugins/contract/v1")"
 if [[ -x "$STAGE_DIR/bin/lithe-mcp" ]]; then
     export LITHE_IDE_HELPER="$STAGE_DIR/bin/lithe-mcp"
 elif [[ -x "$STAGE_DIR/bin/lithe-mcp.exe" ]]; then

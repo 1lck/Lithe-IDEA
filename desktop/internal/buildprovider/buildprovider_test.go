@@ -84,13 +84,13 @@ func TestBuildProviderHelper(t *testing.T) {
 		case "initialize":
 			reply(request.ID, map[string]any{
 				"capabilities": map[string]any{
-					"experimental": map[string]any{"litheBuild": map[string]any{"version": 2}},
+					"experimental": map[string]any{"litheBuild": map[string]any{"version": 0}},
 				},
 			})
 		case "lithe/build/model":
 			reply(request.ID, map[string]any{
 				"format":   "litheBuildModel",
-				"version":  1,
+				"version":  0,
 				"projects": []any{map[string]any{"path": ".", "name": "fixture"}},
 			})
 		case "lithe/build/execute":
@@ -147,12 +147,12 @@ func TestProviderModelTaskAndCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := json.RawMessage(fmt.Sprintf(`{
-		"schemaVersion": 2,
+		"schemaVersion": 0,
 		"id": "dev.lithe.fixture.build-provider-test",
 		"displayName": "Build Provider Test",
 		"version": "1.0.0",
-		"pluginAPIVersion": 3,
-		"requires": {"buildProviders": 2, "buildSystems": 1, "serverProcess": 1},
+		"pluginAPIVersion": 0,
+		"requires": {"buildProviders": 0, "buildSystems": 0},
 		"vendor": {"id": "org.example", "displayName": "Example", "signatureRequirement": "publisherPackage"},
 		"permissions": ["languageServer.launch", "process.build"],
 		"activationEvents": ["onBuildSystem:fixture"],

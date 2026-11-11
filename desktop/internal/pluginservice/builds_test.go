@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
@@ -19,12 +20,12 @@ func TestBuildProviderManifestNeedsTheBuildCapabilities(t *testing.T) {
 	// the test about the build gate itself, not about the settings surface that
 	// this client does not advertise yet.
 	manifest := json.RawMessage(`{
-		"schemaVersion": 2,
+		"schemaVersion": 0,
 		"id": "dev.lithe.fixture.build-gate",
 		"displayName": "Build Gate",
 		"version": "1.0.0",
-		"pluginAPIVersion": 3,
-		"requires": {"buildProviders": 2, "buildSystems": 1, "serverProcess": 1},
+		"pluginAPIVersion": 0,
+		"requires": {"buildProviders": 0, "buildSystems": 0},
 		"vendor": {"id": "org.example", "displayName": "Example", "signatureRequirement": "publisherPackage"},
 		"permissions": ["languageServer.launch", "process.build"],
 		"activationEvents": ["onBuildSystem:fixture"],
@@ -53,7 +54,7 @@ func TestBuildProviderManifestNeedsTheBuildCapabilities(t *testing.T) {
 	}`)
 	client, ctx := core.NewClient(), context.Background()
 	_, err := client.ValidatePluginManifest(ctx, manifest, map[string][]int{
-		"languages": {1, 3}, "languageServers": {1}, "serverProcess": {1},
+		"languages": {0}, "languageServers": {0},
 	})
 	var rejection *core.MarketplaceRejection
 	if !errors.As(err, &rejection) || rejection.Code != "plugin.api.unsupported" {
@@ -68,7 +69,7 @@ func TestBuildProviderManifestNeedsTheBuildCapabilities(t *testing.T) {
 }
 
 func TestBuildPluginsReadsProviderTasksAndRuns(t *testing.T) {
-	manifest, err := os.ReadFile("../../../shared/contracts/plugins/v1/fixtures/build-providers/build-provider-run-preparation.plugin.json")
+	manifest, err := os.ReadFile(contractfixture.Path("fixtures/build-providers/build-provider-run-preparation.plugin.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +105,7 @@ func TestBuildPluginsReadsProviderTasksAndRuns(t *testing.T) {
 }
 
 func TestBuildPluginsSkipsDisabledPlugins(t *testing.T) {
-	manifest, err := os.ReadFile("../../../shared/contracts/plugins/v1/fixtures/build-providers/build-provider-execution.plugin.json")
+	manifest, err := os.ReadFile(contractfixture.Path("fixtures/build-providers/build-provider-execution.plugin.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

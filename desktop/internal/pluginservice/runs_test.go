@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"net"
 	"os"
 	"path/filepath"
@@ -80,7 +81,7 @@ func newRunHarness(t *testing.T) *runHarness {
 	if err := os.MkdirAll(installed, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := os.ReadFile(filepath.Join("..", "..", "..", "shared", "contracts", "plugins", "v1", "fixtures", "run", "tool-reference-launch.plugin.json"))
+	manifest, err := os.ReadFile(contractfixture.Path("fixtures/run/tool-reference-launch.plugin.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

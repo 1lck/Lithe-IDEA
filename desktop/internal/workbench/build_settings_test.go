@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
@@ -18,7 +19,7 @@ import (
 func TestBuildExecutableUsesActualGlobalPluginSettingWithoutFallback(t *testing.T) {
 	for _, mode := range []string{"configured", "missing-configured", "directory-configured", "invalid-stored-value"} {
 		t.Run(mode, func(t *testing.T) {
-			manifest, err := os.ReadFile("../../../shared/contracts/plugins/v1/fixtures/build-systems/build-tool-path.plugin.json")
+			manifest, err := os.ReadFile(contractfixture.Path("fixtures/build-systems/build-tool-path.plugin.json"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -115,7 +116,7 @@ func (k *providerPreferenceKernel) PluginDocumentURI(ctx context.Context, path, 
 func TestBuildProviderUsesCapturedSettingsAndCoreWorkspaceURI(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	raw, err := os.ReadFile("../../../shared/contracts/plugins/v1/fixtures/build-providers/build-provider.plugin.json")
+	raw, err := os.ReadFile(contractfixture.Path("fixtures/build-providers/build-provider.plugin.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +124,7 @@ func TestBuildProviderUsesCapturedSettingsAndCoreWorkspaceURI(t *testing.T) {
 	if err := json.Unmarshal(raw, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	manifest["requires"].(map[string]any)["settings"] = 2
+	manifest["requires"].(map[string]any)["settings"] = 0
 	manifest["settings"].([]any)[0].(map[string]any)["scope"] = "project"
 	encoded, err := json.Marshal(manifest)
 	if err != nil {

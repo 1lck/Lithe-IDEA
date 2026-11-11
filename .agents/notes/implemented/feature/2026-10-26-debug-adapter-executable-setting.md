@@ -61,7 +61,7 @@ lldb 社区插件把 `program` 写成 `/Users/.../lldb-demo/main`：
 ## 后果
 
 - 收益：lldb 插件不再带机器相关路径；换项目、换文件自动找到旁边的可执行文件；用户可以在设置里改成任何程序；找不到时界面直接说明去哪里、怎么做。
-- 代价：契约多了 `executable` 对象和 `target.executable` 绑定（加在尚未发布的插件 API 4 `debugAdapters` v1 内）；设置页每次读取快照会做一次 Core 调用和至多 8 次文件检查，目前不缓存，避免用户刚编译完仍显示“Not found”，若出现卡顿再考虑按活动文件和修改时间缓存；`shared/contracts/plugins/v1/` 合并后要在 lithe-plugin-docs 运行 `node scripts/contract.mjs sync` 同步副本。
+- 代价：契约多了 `executable` 对象和 `target.executable` 绑定（加在尚未发布的插件 API 4 `debugAdapters` v1 内）；设置页每次读取快照会做一次 Core 调用和至多 8 次文件检查，目前不缓存，避免用户刚编译完仍显示“Not found”，若出现卡顿再考虑按活动文件和修改时间缓存；契约改动要落在 Core 仓库的 `shared/plugins/contract/v1/`，并在同一个 Core PR 里登记协议更新记录。
 - 需要重新评估的触发条件：Windows 端接入同一契约；候选需要读取构建系统输出（如 `cargo metadata`）而不只是文件模板；需要让用户在多个候选间选择。
 
 ## 验证
@@ -77,7 +77,7 @@ lldb 社区插件把 `program` 写成 `/Users/.../lldb-demo/main`：
 
 ## 适用范围
 
-- `shared/contracts/plugins/v1/`（README、schema、`debug-adapter*.json` 夹具）
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`（README、schema、`debug-adapter*.json` 夹具）
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/adapters.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug/adapters.rs)、`rust/lithe-core/src/plugins/declarative.rs`、`rust/lithe-core/src/plugins/settings.rs`
 - ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginDebugExecutableResolver.swift`~~（已随 #1794 移除）
 - ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift`~~（已随 #1794 移除）

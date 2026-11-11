@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/configfile"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
@@ -32,7 +33,7 @@ func TestSettingsActionPlanningRechecksNativeOwnersWithoutPublishing(t *testing.
 		t.Run(scenario, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			manifest, err := os.ReadFile("../../../shared/contracts/plugins/v1/fixtures/settings/settings-v2.plugin.json")
+			manifest, err := os.ReadFile(contractfixture.Path("fixtures/settings/settings.plugin.json"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -40,7 +41,7 @@ func TestSettingsActionPlanningRechecksNativeOwnersWithoutPublishing(t *testing.
 			if err := os.Mkdir(workspace, 0o700); err != nil {
 				t.Fatal(err)
 			}
-			packageRoot := filepath.Join(plugins, "dev.lithe.fixture.settings-v2", "0.1.0")
+			packageRoot := filepath.Join(plugins, "dev.lithe.fixture.settings", "0.1.0")
 			writePackage := func() {
 				t.Helper()
 				if err := os.MkdirAll(packageRoot, 0o700); err != nil {
@@ -53,7 +54,7 @@ func TestSettingsActionPlanningRechecksNativeOwnersWithoutPublishing(t *testing.
 			writePackage()
 			storage := store.At(preferences)
 			state := pluginstate.New(storage)
-			if err := state.SetEnabled("dev.lithe.fixture.settings-v2", true); err != nil {
+			if err := state.SetEnabled("dev.lithe.fixture.settings", true); err != nil {
 				t.Fatal(err)
 			}
 			kernel := &settingsActionKernel{settingsPlanningKernel: &settingsPlanningKernel{fakeKernel: &fakeKernel{}, client: core.NewClient()}}
@@ -61,7 +62,7 @@ func TestSettingsActionPlanningRechecksNativeOwnersWithoutPublishing(t *testing.
 			if err != nil {
 				t.Fatal(err)
 			}
-			editor, err := service.LoadSettingsEditor(ctx, "dev.lithe.fixture.settings-v2", workspace)
+			editor, err := service.LoadSettingsEditor(ctx, "dev.lithe.fixture.settings", workspace)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -77,12 +78,12 @@ func TestSettingsActionPlanningRechecksNativeOwnersWithoutPublishing(t *testing.
 			var check func() error
 			switch scenario {
 			case "disabled":
-				if err := state.SetEnabled("dev.lithe.fixture.settings-v2", false); err != nil {
+				if err := state.SetEnabled("dev.lithe.fixture.settings", false); err != nil {
 					t.Fatal(err)
 				}
 			case "disabled-during-plan":
 				kernel.afterPlan = func() {
-					if err := state.SetEnabled("dev.lithe.fixture.settings-v2", false); err != nil {
+					if err := state.SetEnabled("dev.lithe.fixture.settings", false); err != nil {
 						t.Fatal(err)
 					}
 				}

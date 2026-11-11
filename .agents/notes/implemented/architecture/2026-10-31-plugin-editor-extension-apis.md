@@ -116,6 +116,6 @@ grammar 从只读插件包有界读取，校验结果仅在本次进程内缓存
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/editor_providers.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/editor_providers.rs)
 - `desktop/internal/core/plugin_session.go`
 - `desktop/internal/core/plugin_session_test.go`
-- `shared/contracts/plugins/v1/README.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md`
 - `shared/platform-feature-matrix/features/plugin-editor-grammars.json`
 - [旧版实现和原适用范围](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-10-31-plugin-editor-extension-apis.md)

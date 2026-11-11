@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 func TestPluginSettingsDocumentSharedFixture(t *testing.T) {
@@ -83,7 +85,7 @@ func TestPluginWorkspaceConfigurationUpdatesTheSameRealSession(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	client := NewClient()
-	manifest, err := os.ReadFile("../../../shared/contracts/plugins/v1/fixtures/settings/settings-v2.plugin.json")
+	manifest, err := os.ReadFile(contractfixture.Path("fixtures/settings/settings.plugin.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +102,7 @@ func TestPluginWorkspaceConfigurationUpdatesTheSameRealSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	started, err := client.StartPluginLanguageServer(ctx, PluginBackendStart{ProviderID: "settings-configuration-peer", PluginID: "dev.lithe.fixture.settings-v2", ExecutablePath: executable, Arguments: []string{"-test.run=^TestPluginBackendHelper$"}, Environment: map[string]string{"LITHE_TEST_PLUGIN_BACKEND": "1", "LITHE_TEST_PLUGIN_CONFIGURATION": "1"}, RootURI: uri, WorkingDirectory: root, WorkspaceConfiguration: initial, InitializeTimeoutMilliseconds: 3000, RequestTimeoutMilliseconds: 3000, ShutdownTimeoutMilliseconds: 2000})
+	started, err := client.StartPluginLanguageServer(ctx, PluginBackendStart{ProviderID: "settings-configuration-peer", PluginID: "dev.lithe.fixture.settings", ExecutablePath: executable, Arguments: []string{"-test.run=^TestPluginBackendHelper$"}, Environment: map[string]string{"LITHE_TEST_PLUGIN_BACKEND": "1", "LITHE_TEST_PLUGIN_CONFIGURATION": "1"}, RootURI: uri, WorkingDirectory: root, WorkspaceConfiguration: initial, InitializeTimeoutMilliseconds: 3000, RequestTimeoutMilliseconds: 3000, ShutdownTimeoutMilliseconds: 2000})
 	if err != nil {
 		t.Fatal(err)
 	}

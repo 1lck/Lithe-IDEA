@@ -1,16 +1,15 @@
 {
   "schemaVersion": 1,
   "manifest": {
-    "schemaVersion": 2,
+    "schemaVersion": 0,
     "id": "dev.example.settings",
     "displayName": "Settings Fixture",
     "version": "1.0.0",
-    "pluginAPIVersion": 3,
+    "pluginAPIVersion": 0,
     "requires": {
-      "settings": 2,
-      "languages": 1,
-      "serverProcess": 1,
-      "languageServers": 1
+      "settings": 0,
+      "languages": 0,
+      "languageServers": 0
     },
     "vendor": {
       "id": "dev.example",

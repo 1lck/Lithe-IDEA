@@ -338,7 +338,7 @@ Agent（经由 ACP 连接的 Claude Code、Codex 等）会用自己的工具在�
    语言服务器、运行命令都由宿主根据 `plugin.json` 启动（见
    [声明式语言插件](../../implemented/architecture/2026-10-12-declarative-language-plugins.md)）。
    宿主启动时一律经过账本，所以插件进程天然会被登记。
-2. **清单必须声明生命周期**。`shared/contracts/plugins/v1/` 为每个语言服务器、
+2. **清单必须声明生命周期**。`Lithe-core-rust/shared/plugins/contract/v1/` 为每个语言服务器、
    常驻服务和资源提供者增加 `lifecycle` 字段；`plugins.declarative.validate`
    对缺少或非法的字段返回稳定的 `plugin.*` 错误码，插件直接无法安装。
    CI 中的 `ci-plugins.yml` 对所有官方插件跑同一组校验。
@@ -372,7 +372,7 @@ Agent（经由 ACP 连接的 Claude Code、Codex 等）会用自己的工具在�
 }]
 ```
 
-字段名称在实现阶段以 `shared/contracts/plugins/v1/` 的 schema 为准，这里只说明
+字段名称在实现阶段以 `Lithe-core-rust/shared/plugins/contract/v1/` 的 schema 为准，这里只说明
 需要表达的信息。
 
 ### 第二层：操作系统级兜底
@@ -716,6 +716,6 @@ Windows 仍未完成的部分：终端（ConPTY）和 Agent 进程树还没有 J
 - Lithe-core-rust 锁定修订：[rust/lithe-core/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core)
 - `shared/contracts/`
 - `shared/fixtures/process-lifecycle/`
-- `shared/contracts/plugins/v1/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
 - [旧客户端实现与原适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/proposed/architecture/2026-10-16-unified-child-process-lifecycle.md)
 - 相关决策：[模块运行时边界与生命周期](../../implemented/architecture/2026-09-13-module-runtime-boundaries-and-lifecycle.md)

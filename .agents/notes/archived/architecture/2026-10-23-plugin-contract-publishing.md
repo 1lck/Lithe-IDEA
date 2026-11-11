@@ -2,9 +2,13 @@
 
 状态：已实现
 
+归档日期：2026-11-11
+
+> 已被[插件契约与开发资料只在 Rust Core](../../implemented/architecture/2026-11-11-plugin-contract-single-source-in-core.md)取代：Rust Core 拆成独立仓库后，契约、开发资料和 SDK 都并入 Core 的 `shared/plugins/`，lithe-plugin-docs 停止维护。
+
 ## 先说结论
 
-插件契约（`shared/contracts/plugins/v1/`，规定 `plugin.json` 每个字段的含义、错误码和标准答案用例）仍然在主仓库定义，由 Rust Core 执行。公开仓库 `Lithe-IDEA/lithe-plugin-docs` 的 `contract/v1/` 保存这个目录的**完整逐字节副本**，另外放开发指南、从 Lithe Store 搬过来的两篇教程、两个官方 SDK（源码、发版和端到端测试）和示例插件列表。插件开发者只看 lithe-plugin-docs 就能开发，写插件、发布插件都不需要克隆主仓库，也不需要给主仓库提 PR。
+插件契约（`Lithe-core-rust/shared/plugins/contract/v1/`，规定 `plugin.json` 每个字段的含义、错误码和标准答案用例）仍然在主仓库定义，由 Rust Core 执行。公开仓库 `Lithe-IDEA/lithe-plugin-docs` 的 `contract/v1/` 保存这个目录的**完整逐字节副本**，另外放开发指南、从 Lithe Store 搬过来的两篇教程、两个官方 SDK（源码、发版和端到端测试）和示例插件列表。插件开发者只看 lithe-plugin-docs 就能开发，写插件、发布插件都不需要克隆主仓库，也不需要给主仓库提 PR。
 
 日常开发要记住四件事：
 
@@ -38,7 +42,7 @@
 
 - `README.md`：中文开发指南，讲插件结构、API 等级怎么选、编辑器校验、后端 SDK 和示例插件。
 - `guides/`：从 Lithe Store 搬来的《LSP 插件完整生命周期》和《构建、运行与测试接入》。契约链接改为本仓库的 `contract/v1/`，发布相关链接指向 Store。
-- `contract/v1/`：主仓库 `shared/contracts/plugins/v1/` 整个目录的逐字节副本，包括 README、两份 schema 和全部 fixture。
+- `contract/v1/`：主仓库 `Lithe-core-rust/shared/plugins/contract/v1/` 整个目录的逐字节副本，包括 README、两份 schema 和全部 fixture。
 - `contract.lock.json`：记录来源仓库、来源目录、commit 和每个文件的 SHA-256，格式与 Cargo 插件的 `sdk.lock.json` 相同。
 - `sdk/node`、`sdk/java`：两个官方 SDK 和各自的示例插件；`sdk/e2e`：两个示例共用的端到端场景（Rust 测试文件）。
 - `scripts/contract.mjs` 提供四个命令：
@@ -61,7 +65,7 @@ Store 的 `validate-index.mjs` 仍然实现索引规则。它的 CI 原来比较
 ### Schema 地址固定为 docs 仓库的 raw 地址
 
 契约目录里每份 schema（包括子目录里的）的 `$id` 是它在 docs 仓库里的地址：
-`https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/main/contract/v1/<目录内路径>`。
+`https://raw.githubusercontent.com/Lithe-IDEA/Lithe-core-rust/main/shared/plugins/contract/v1/<目录内路径>`。
 
 两边都对这个地址做严格检查：
 
@@ -100,7 +104,7 @@ Core 解析清单时拒绝未知字段（serde `deny_unknown_fields`），schema
 
 ### fixture 按能力命名
 
-`shared/contracts/plugins/v1/fixtures/` 中的 fixture 改为按演示的能力命名，ID 同步改成 `dev.lithe.fixture.<新名字>`：
+`Lithe-core-rust/shared/plugins/contract/v1/fixtures/` 中的 fixture 改为按演示的能力命名，ID 同步改成 `dev.lithe.fixture.<新名字>`：
 
 | 原名 | 新名 | 演示什么 |
 | --- | --- | --- |
@@ -116,13 +120,13 @@ Core 解析清单时拒绝未知字段（serde `deny_unknown_fields`），schema
 
 fixture 的内容仍然用 Cargo、Go、Gradle、Maven 作为真实输入，契约 README 写明“它们不是这些插件”。macOS 测试中同 ID 的展示用副本（`macos/Tests/LitheTests/Fixtures/BuildSystems/`）一起改名。
 
-`shared/fixtures/plugins/language-support-v1.json` 保留旧 ID `dev.lithe.fixture.go-support`。它是已退役的 schema 1 格式，只被 `rust/lithe-core/src/tests/plugins.rs` 的旧格式测试读取，与声明式契约无关。
+`shared/fixtures/plugins/` 不再保存旧格式的插件清单 fixture。声明式插件的清单 fixture 只有 `Lithe-core-rust/shared/plugins/contract/v1/fixtures/` 这一套。
 
 ### SDK 整体移到 lithe-plugin-docs
 
 SDK 是给插件开发者用的库，不是契约。开发者要读它的 README、看示例、提问题、下载发布包，这些都应该在 lithe-plugin-docs 完成，所以 `sdk/`、SDK 端到端测试和两个发版工作流都从主仓库移走，主仓库只保留契约。
 
-- **发版**：lithe-plugin-docs 打 `sdk-node-v<版本>` 或 `sdk-java-v<版本>` 标签，`release-node-sdk.yml`、`release-java-sdk.yml` 发布包和 `.sha256`。具体规则见 [官方插件后端 SDK](2026-10-20-plugin-backend-sdk.md)。Java SDK 0.1.0 是迁移前从主仓库发布的，那个 Release 保留，Maven 插件锁定的下载地址不变。
+- **发版**：lithe-plugin-docs 打 `sdk-node-v<版本>` 或 `sdk-java-v<版本>` 标签，`release-node-sdk.yml`、`release-java-sdk.yml` 发布包和 `.sha256`。具体规则见 [官方插件后端 SDK](../../implemented/architecture/2026-10-20-plugin-backend-sdk.md)。Java SDK 0.1.0 是迁移前从主仓库发布的，那个 Release 保留，Maven 插件锁定的下载地址不变。
 - **单元测试**：SDK 自己的测试读 `contract/v1/fixtures/backend/function-protocol.json`，也就是契约副本，不再读主仓库。
 - **端到端测试**：场景仍是 Rust 测试，要链接 Rust Core。`sdk-e2e.mjs` 把锁文件记录的主仓库 commit 稀疏检出到 `.artifacts/lithe`（只取 `rust/` 和 `shared/`），把 `sdk/e2e` 复制进它的 `rust/lithe-core/tests/`，再用 `cargo test --locked` 运行。`LITHE_PLUGIN_SDK_ROOT` 告诉测试示例插件在哪里。这和 Cargo 插件测 Core 的方式相同。
 - **两个版本的 Core**：每次提交测契约副本锁定的那个 commit，保证 SDK、契约副本和 Core 是同一个版本；每周再用 `--ref preview` 测主仓库 `preview` 分支的最新 Core，提前发现 Core 的改动破坏了 SDK。
@@ -131,7 +135,7 @@ SDK 是给插件开发者用的库，不是契约。开发者要读它的 README
 
 ### 正确做法
 
-- 修改契约：在同一个 PR 里改 `shared/contracts/plugins/v1/`、Core 和测试。合并后，在 lithe-plugin-docs 运行 `node scripts/contract.mjs sync --revision <合并后的 preview commit>`，然后提交。
+- 修改契约：在同一个 PR 里改 `Lithe-core-rust/shared/plugins/contract/v1/`、Core 和测试。合并后，在 lithe-plugin-docs 运行 `node scripts/contract.mjs sync --revision <合并后的 preview commit>`，然后提交。
 - 改了 `plugin-index.schema.json`：同步 docs 仓库之后，Lithe Store 的 CI 会失败，按 Store 的 `docs/maintainers.md` 更新索引校验和记录的哈希。
 - 在契约 README 里引用目录外的文件：写 `https://github.com/1lck/Lithe-IDEA/blob/preview/<路径>`。
 - 新增 fixture：按演示的能力命名，例如 `build-command-stdout.plugin.json`，ID 使用 `dev.lithe.fixture.` 前缀。
@@ -209,7 +213,7 @@ npm 是 Node 开发者最熟悉的方式。但插件包安装后没有 `npm inst
 ## 适用范围
 
 - `AGENTS.md`
-- `shared/contracts/plugins/v1/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
 - ~~scripts/architecture/verify-shared-contracts.sh~~（脚本已随旧客户端移除）
 - ~~`scripts/plugins/plugin-settings-schema.test.mjs`~~（已随 #1794 移除）
 - ~~`scripts/rust-core/verify-rust-core-crates.sh`~~（已随 #1794 移除）

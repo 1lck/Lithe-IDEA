@@ -19,7 +19,7 @@ type backendLaunch struct {
 }
 
 // resolveBackendLaunch runs the two steps of a backend-resolved language-server
-// launch (serverProcess 3): Core plans the first step, the plugin backend answers
+// launch: Core plans the first step, the plugin backend answers
 // the command line through its launch function, and Core checks the answer and
 // returns the plan the host starts like any other.
 //

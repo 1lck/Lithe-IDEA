@@ -58,8 +58,9 @@ var EditorHost = EditorHostOptions{
 	ProviderTypes:     []string{"definition", "hover", "completion", "semanticTokens", "documentLink"},
 }
 
-// EditorActionDecodeVersion is the decode version EditorHost is declared under.
-const EditorActionDecodeVersion = 2
+// EditorActionDecodeVersion is the plugins.editorActions.decode request version EditorHost is
+// validated under.
+const EditorActionDecodeVersion = 0
 
 // NativeDocumentPath asks Core to convert a native absolute path to a URI.
 type NativeDocumentPath struct {
@@ -252,7 +253,7 @@ func (c *Client) PlanPluginLanguageServer(ctx context.Context, manifest json.Raw
 }
 
 // DecodePluginLanguageServerLaunch checks the answer of a backend-resolved launch
-// function (serverProcess 3) and returns the plan the host starts.
+// function and returns the plan the host starts.
 func (c *Client) DecodePluginLanguageServerLaunch(ctx context.Context, manifest json.RawMessage, languageID string, directories PluginBackendDirectories, answer json.RawMessage) (PluginBackendPlan, error) {
 	const command = "plugins.languageServers.decodeLaunch"
 	var result struct {

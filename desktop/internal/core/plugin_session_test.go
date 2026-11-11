@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/textmate"
 )
 
@@ -30,7 +31,7 @@ func TestPluginArchitectureUsesContractNames(t *testing.T) {
 }
 
 func TestPluginBackendPlanUsesCoreManifestAndCapabilities(t *testing.T) {
-	manifest, err := os.ReadFile("../../../shared/contracts/plugins/v1/fixtures/backend/backend.plugin.json")
+	manifest, err := os.ReadFile(contractfixture.Path("fixtures/backend/backend.plugin.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +41,7 @@ func TestPluginBackendPlanUsesCoreManifestAndCapabilities(t *testing.T) {
 	if !errors.As(err, &rejection) || rejection.Code != "plugin.api.unsupported" {
 		t.Fatalf("missing capabilities were accepted: %v", err)
 	}
-	validated, err := client.ValidatePluginManifest(ctx, manifest, map[string][]int{"backend": {1}, "serverProcess": {1}, "ui": {2}})
+	validated, err := client.ValidatePluginManifest(ctx, manifest, map[string][]int{"backend": {0}, "ui": {0}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,16 +59,16 @@ func TestPluginBackendPlanUsesCoreManifestAndCapabilities(t *testing.T) {
 // The desktop editor consumes TextMate, so a pinned Core must validate the
 // matching contract and reject the withdrawn Monarch capability version.
 func TestPluginTextMateGrammarUsesPinnedCore(t *testing.T) {
-	manifest, err := os.ReadFile("../../../shared/contracts/plugins/v1/fixtures/languages/language-grammar.plugin.json")
+	manifest, err := os.ReadFile(contractfixture.Path("fixtures/languages/language-grammar.plugin.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	grammar, err := os.ReadFile("../../../shared/contracts/plugins/v1/fixtures/languages/grammars/http.tmLanguage.json")
+	grammar, err := os.ReadFile(contractfixture.Path("fixtures/languages/grammars/http.tmLanguage.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	client, ctx := NewClient(), testContext(t)
-	validated, err := client.ValidatePluginManifest(ctx, manifest, map[string][]int{"languages": {3}})
+	validated, err := client.ValidatePluginManifest(ctx, manifest, map[string][]int{"languages": {0}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,23 +88,12 @@ func TestPluginTextMateGrammarUsesPinnedCore(t *testing.T) {
 	if !errors.As(err, &rejection) || rejection.Code != "plugin.grammar.invalid" {
 		t.Fatalf("invalid grammar was not rejected: %v", err)
 	}
-	var legacy map[string]any
-	if err := json.Unmarshal(manifest, &legacy); err != nil {
+	var configured map[string]any
+	if err := json.Unmarshal(manifest, &configured); err != nil {
 		t.Fatal(err)
 	}
-	legacy["requires"].(map[string]any)["languages"] = 2
-	legacy["languages"].([]any)[0].(map[string]any)["grammar"].(map[string]any)["kind"] = "monarch"
-	legacyJSON, err := json.Marshal(legacy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = client.ValidatePluginManifest(ctx, legacyJSON, map[string][]int{"languages": {2, 3}})
-	if !errors.As(err, &rejection) || rejection.Code != "plugin.api.unsupported" {
-		t.Fatalf("withdrawn Monarch capability was not rejected: %v", err)
-	}
-	delete(legacy["languages"].([]any)[0].(map[string]any), "grammar")
-	legacy["requires"].(map[string]any)["languages"] = 3
-	configOnly, err := json.Marshal(legacy)
+	delete(configured["languages"].([]any)[0].(map[string]any), "grammar")
+	configOnly, err := json.Marshal(configured)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +210,7 @@ func TestPluginBackendHelper(t *testing.T) {
 		var result any
 		switch request.Method {
 		case "initialize":
-			result = map[string]any{"capabilities": map[string]any{"experimental": map[string]any{"litheFunctions": map[string]any{"version": 2, "functions": []any{map[string]any{"id": "snapshot.refresh"}}}}}}
+			result = map[string]any{"capabilities": map[string]any{"experimental": map[string]any{"litheFunctions": map[string]any{"version": 0, "functions": []any{map[string]any{"id": "snapshot.refresh"}}}}}}
 		case "lithe/function/invoke":
 			var parameters struct {
 				Params struct {
@@ -256,7 +246,7 @@ func TestPluginBackendCoreSessionInvokesFunctionAndCleansUp(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	fixture, err := os.ReadFile("../../../shared/contracts/plugins/v1/fixtures/backend/backend.plugin.json")
+	fixture, err := os.ReadFile(contractfixture.Path("fixtures/backend/backend.plugin.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +261,7 @@ func TestPluginBackendCoreSessionInvokesFunctionAndCleansUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	validated, err := client.ValidatePluginManifest(ctx, input, map[string][]int{"backend": {1}, "serverProcess": {1}, "ui": {2}})
+	validated, err := client.ValidatePluginManifest(ctx, input, map[string][]int{"backend": {0}, "ui": {0}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,12 +407,12 @@ func TestPluginBackendCoreSessionInvokesFunctionAndCleansUp(t *testing.T) {
 
 // Verify accepted and rejected architecture spellings through the real Core planner.
 func TestPluginLaunchArchitectureAcceptsOnlyTheContractSpelling(t *testing.T) {
-	manifest, err := os.ReadFile("../../../shared/contracts/plugins/v1/fixtures/backend/backend.plugin.json")
+	manifest, err := os.ReadFile(contractfixture.Path("fixtures/backend/backend.plugin.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	client, ctx := NewClient(), testContext(t)
-	validated, err := client.ValidatePluginManifest(ctx, manifest, map[string][]int{"backend": {1}, "serverProcess": {1}, "ui": {2}})
+	validated, err := client.ValidatePluginManifest(ctx, manifest, map[string][]int{"backend": {0}, "ui": {0}})
 	if err != nil {
 		t.Fatal(err)
 	}

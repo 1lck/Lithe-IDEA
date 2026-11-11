@@ -184,7 +184,7 @@ func Run(ctx context.Context, request Request) Result {
 	}
 	moved = true
 	result := Result{Path: destination, OpenFiles: existingFiles(destination, request.Plan.OpenFiles)}
-	if request.SavePins != nil && (len(request.Plan.ToolPins) > 0 || len(request.Plan.Runtimes) > 0) {
+	if request.SavePins != nil && (len(request.Plan.ToolPins) > 0) {
 		if err := request.SavePins(ctx, destination, request.Plan); err != nil {
 			result.Failure = &Failure{Reason: ReasonPinFailed, Err: err}
 			return result

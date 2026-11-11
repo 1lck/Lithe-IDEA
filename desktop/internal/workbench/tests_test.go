@@ -16,12 +16,12 @@ import (
 // workspace test command. Core validates it, plans the command and decodes the
 // JUnit report; the host only runs the plan and presents the decoded tree.
 const testsPanelManifest = `{
-  "schemaVersion": 2,
+  "schemaVersion": 0,
   "id": "dev.lithe.test.tests-panel",
   "displayName": "Tests Panel Fixture",
   "version": "1.0.0",
-  "pluginAPIVersion": 3,
-  "requires": {"buildSystems": 1},
+  "pluginAPIVersion": 0,
+  "requires": {"buildSystems": 0},
   "vendor": {"id": "dev.lithe.test", "displayName": "Test", "signatureRequirement": "publisherPackage"},
   "permissions": ["process.build"],
   "activationEvents": ["onBuildSystem:fixture-tests"],

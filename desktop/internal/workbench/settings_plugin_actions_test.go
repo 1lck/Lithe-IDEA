@@ -24,7 +24,7 @@ func TestSettingsActionConfirmsInvokesExistingProviderWithoutSaving(t *testing.T
 		t.Fatal(err)
 	}
 	requires := manifest["requires"].(map[string]any)
-	requires["settings"] = 2
+	requires["settings"] = 0
 	manifest["settingActions"] = []any{map[string]any{"id": "refresh", "title": "Refresh fixture", "function": "snapshot.refresh", "confirm": true}}
 	data, err := json.Marshal(manifest)
 	if err != nil {

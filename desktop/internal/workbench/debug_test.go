@@ -23,12 +23,12 @@ import (
 // debugFixtureManifest declares one packaged stdio debug adapter. Core still
 // validates the manifest; the host only resolves and starts the process.
 const debugFixtureManifest = `{
-  "schemaVersion": 2,
+  "schemaVersion": 0,
   "id": "dev.lithe.test.debug-adapter",
   "displayName": "Debug Fixture",
   "version": "1.0.0",
-  "pluginAPIVersion": 4,
-  "requires": {"debugAdapters": 1, "serverProcess": 1},
+  "pluginAPIVersion": 0,
+  "requires": {"debugAdapters": 0},
   "vendor": {"id": "dev.lithe.test", "displayName": "Test", "signatureRequirement": "publisherPackage"},
   "permissions": ["debug.launch"],
   "activationEvents": ["onDebug:fixture"],
@@ -469,7 +469,7 @@ func TestDebugFrameRowsKeepTheTopAndSelectedFrames(t *testing.T) {
 // the run's program, arguments, directory and environment into the launch, and the run
 // learns when the session ends.
 func TestRunLaunchTargetBindsTheRunsProcessIntoTheLaunch(t *testing.T) {
-	manifest := strings.Replace(debugFixtureManifest, `"requires": {"debugAdapters": 1`, `"requires": {"debugAdapters": 2`, 1)
+	manifest := debugFixtureManifest
 	manifest = strings.Replace(manifest, `"configurations": {"launch":{"arguments":{"stopOnEntry":true}}}`,
 		`"configurationTypes": ["fixture"], "configurations": {"launch":{"arguments":{"stopOnEntry":true},`+
 			`"targetBindings":{"program":"target.path","cwd":"target.workingDirectory","args":"target.arguments","env":"target.environment"}}}`, 1)

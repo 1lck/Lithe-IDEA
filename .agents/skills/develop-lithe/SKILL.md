@@ -323,7 +323,7 @@ Viva 在 macOS、Windows 和 Linux 使用 `desktop/internal/i18n/` 的接口及�
 - 实现内部用 `//` 解释不明显的兼容性、确定性、顺序、安全、性能或跨平台约束。
 - 测试名和断言不足以说明意图时，补充场景、回归风险或保护的边界。
 - 不得为凑覆盖率复述赋值、声明或名称，也不得给简单访问器和直接的控制流机械地加注释。
-- 迁移前的 `scripts/rust-core/verify-rust-core-comments.sh` 未随 Core 移仓保留。Core 改动需要先恢复或提供等价的注释检查，再运行较慢的 Core 检查；不能把缺失脚本视为已通过。检查覆盖模块说明、导出项 Rustdoc、英文注释和 `unsafe` 安全说明，内部类型的语义仍须人工检查。
+- 注释检查脚本在 Rust Core 仓库：Core 改动先在 Core 仓库根运行 `scripts/rust-core/verify-rust-core-comments.sh`，通过后再运行较慢的 Core 检查。检查覆盖模块说明、导出项 Rustdoc、英文注释和 `unsafe` 安全说明，内部类型的语义仍须人工检查。
 
 ### Windows 平台适配
 

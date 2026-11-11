@@ -131,7 +131,7 @@ func TestOpenAssemblesEveryPart(t *testing.T) {
 	if service.Root == "" {
 		t.Fatal("the service has no root")
 	}
-	if versions := service.Capabilities()["languages"]; len(versions) != 2 {
+	if versions := service.Capabilities()["languages"]; len(versions) != 1 || versions[0] != 0 {
 		t.Fatalf("capabilities = %v", service.Capabilities())
 	}
 }
@@ -186,7 +186,7 @@ func TestReviewerAdaptsCoreReview(t *testing.T) {
 	}
 	// The capabilities handed to Core must be the ones this client implements, not
 	// what Core could parse.
-	if len(kernel.reviewCaps["languages"]) != 2 {
+	if caps := kernel.reviewCaps["languages"]; len(caps) != 1 || caps[0] != 0 {
 		t.Fatalf("capabilities = %v", kernel.reviewCaps)
 	}
 }

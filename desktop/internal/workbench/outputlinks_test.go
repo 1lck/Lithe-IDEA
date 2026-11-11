@@ -13,12 +13,12 @@ import (
 // outputLinkManifest is a plugin that only declares a matcher: no backend, no
 // language, no server. Core resolves a match to workspace files itself.
 const outputLinkManifest = `{
-  "schemaVersion": 2,
+  "schemaVersion": 0,
   "id": "dev.lithe.test.output-links",
   "displayName": "Output Link Fixture",
   "version": "1.0.0",
-  "pluginAPIVersion": 4,
-  "requires": {"outputLinkMatchers": 1},
+  "pluginAPIVersion": 0,
+  "requires": {"outputLinkMatchers": 0},
   "vendor": {"id": "dev.lithe.test", "displayName": "Test", "signatureRequirement": "publisherPackage"},
   "permissions": [],
   "activationEvents": [],

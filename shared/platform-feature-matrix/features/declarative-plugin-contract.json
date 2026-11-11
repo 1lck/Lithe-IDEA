@@ -9,7 +9,6 @@
     "evidence": [
       "desktop/internal/core/plugin_session.go",
       "desktop/internal/core/plugin_session_test.go",
-      "shared/contracts/plugins/v1/plugin-manifest.schema.json",
       ".agents/notes/implemented/architecture/2026-11-08-viva-plugin-backend-bridge.md",
       "desktop/internal/core/plugin_installed.go",
       "desktop/internal/core/plugin_installed_test.go",
@@ -27,7 +26,6 @@
     "evidence": [
       "desktop/internal/core/plugin_session.go",
       "desktop/internal/core/plugin_session_test.go",
-      "shared/contracts/plugins/v1/plugin-manifest.schema.json",
       ".agents/notes/implemented/architecture/2026-11-08-viva-plugin-backend-bridge.md",
       "desktop/internal/core/plugin_installed.go",
       "desktop/internal/core/plugin_installed_test.go",

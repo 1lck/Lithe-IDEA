@@ -114,7 +114,7 @@ type StartRequest struct {
 	RootURI          any
 	WorkingDirectory string
 	// Plan is an already decoded launch plan, such as the one Core returns for
-	// the answer of a backend-resolved language-server launch (serverProcess 3).
+	// the answer of a backend-resolved language-server launch.
 	// When set the runner does not plan again; the plan is still verified
 	// against the installed package exactly like a planned one.
 	Plan *core.PluginBackendPlan

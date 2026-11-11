@@ -80,4 +80,4 @@ Agent 的配置入口由同一个目录补齐，移动到任何已有停靠区�
 - ~~`macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift`~~（已随 #1794 移除）
 - ~~`macos/Sources/Lithe/Views/Workbench/`~~（已随 #1794 移除）
 - ~~`macos/Sources/Lithe/Application/Features/WorkbenchFeatureModel.swift`~~（已随 #1794 移除）
-- `shared/contracts/plugins/v1/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`

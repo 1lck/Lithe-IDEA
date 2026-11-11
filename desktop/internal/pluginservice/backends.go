@@ -183,7 +183,7 @@ type languageServerDeclaration struct {
 }
 
 // declaresBackendLaunch reports whether the plugin's backend resolves the launch
-// of the language server for languageID (serverProcess 3).
+// of the language server for languageID.
 func declaresBackendLaunch(manifest json.RawMessage, languageID string) bool {
 	var declaration languageServerDeclaration
 	if json.Unmarshal(manifest, &declaration) != nil {
