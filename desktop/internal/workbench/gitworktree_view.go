@@ -345,6 +345,7 @@ func (a *App) drawWorktreeActions(c ui.C, p *project, w core.GitWorktree) {
 		}
 	}
 	action(t.OpenCurrent, "", icons.FolderOpen, w.IsCurrent || w.IsPrunable || w.IsBare, func() { a.openWorktree(w.Path) })
+	action(i18n.Shared(a.language(), "desktop.worktree.openNewWindow"), "", icons.FolderOpen, w.IsPrunable || w.IsBare, func() { a.openWorktreeInNewWindow(w.Path) })
 	action(t.Reveal, "", icons.Folder, w.IsPrunable, func() { a.revealWorktree(w.Path) })
 	action(t.CopyPath, "", icons.Copy, false, func() { a.copyWorktreePath(w.Path) })
 	lockLabel, lockIcon := t.Lock, icons.Lock

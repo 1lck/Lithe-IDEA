@@ -176,6 +176,9 @@ type Options struct {
 	Kernel Kernel
 	// Store is where settings, recent projects and the layout are kept.
 	Store *store.Store
+	// OpenPath is a project folder the window opens when it starts; a window launched to show a
+	// worktree in a new window gets it from the command line.
+	OpenPath string
 	// Languages are the system's preferred languages, most preferred first; nil asks
 	// the system.
 	Languages []string
@@ -345,9 +348,11 @@ type App struct {
 	debugInitializeWindow time.Duration
 	kernel                Kernel
 	store                 *store.Store
-	now                   func() time.Time
-	invalidator           app.Invalidator
-	tasks                 taskQueue
+	// startupPath is the project folder the window opens once it exists (Options.OpenPath).
+	startupPath string
+	now         func() time.Time
+	invalidator app.Invalidator
+	tasks       taskQueue
 	// languages are the languages the editor knows, made when the first file is opened.
 	languages *syntax.Registry
 
@@ -526,6 +531,7 @@ func New(options Options) *App {
 		documentCreator: documentio.WriteMissing,
 		documentReader:  readDocument,
 		store:           options.Store,
+		startupPath:     options.OpenPath,
 		now:             now,
 		systemLanguage:  i18n.Detect(languages),
 		chrome:          newChromeState(),
@@ -619,6 +625,10 @@ func (a *App) Run() error {
 		application.OnQuitRequest(a.requestCloseProject)
 		if _, err := application.OpenWindow(a.Config(), nil); err != nil {
 			return err
+		}
+		if path := a.startupPath; path != "" {
+			a.startupPath = ""
+			a.post(func(a *App) { a.openProject(path) })
 		}
 		// The plugin stack is assembled before the window exists, because opening a
 		// window is what installs the invalidator its background work needs.

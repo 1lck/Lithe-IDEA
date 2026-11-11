@@ -411,5 +411,20 @@
     "parameters": {
       "reason": "string"
     }
+  },
+  {
+    "id": "desktop.worktree.openNewWindow",
+    "description": "Worktree detail action: open the checkout in a new window",
+    "en-US": "Open in New Window",
+    "zh-CN": "在新窗口中打开"
+  },
+  {
+    "id": "desktop.worktree.openNewWindowFailed",
+    "description": "Notice when a worktree could not be opened in a new window",
+    "en-US": "Could not open the worktree in a new window: {reason}",
+    "zh-CN": "无法在新窗口中打开工作树：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
   }
 ]
