@@ -69,6 +69,9 @@ type editorActionInvoke struct {
 	params   json.RawMessage
 }
 
+// Version is the document version the action was collected for; a click on a newer text is refused.
+func (a EditorAction) Version() int { return a.version }
+
 // EditorLocation is a place a clicked action reveals, zero-based as LSP positions are.
 type EditorLocation struct {
 	URI                       string

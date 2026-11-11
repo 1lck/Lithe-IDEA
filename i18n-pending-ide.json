@@ -263,5 +263,17 @@
     "description": "Notice when the adapter cannot watch the selected variable for changes",
     "en-US": "The adapter cannot break when this variable changes.",
     "zh-CN": "适配器无法在此变量变化时中断。"
+  },
+  {
+    "id": "desktop.editorActions.stale",
+    "description": "Notice when a plugin editor action is chosen after the document changed",
+    "en-US": "The document changed. Wait for the actions to update.",
+    "zh-CN": "文档已变化，请等待动作更新。"
+  },
+  {
+    "id": "desktop.editorActions.failed",
+    "description": "Notice when a plugin editor action failed",
+    "en-US": "The plugin could not run this action.",
+    "zh-CN": "插件无法执行此动作。"
   }
 ]
