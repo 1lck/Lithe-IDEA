@@ -99,6 +99,9 @@ const (
 	// consoleSpanFold is the command's temporary configuration, its preview while the fold
 	// is closed and all of it while open: a click on it opens or closes the row's fold.
 	consoleSpanFold
+	// consoleSpanCommand is the command the record ran, git and its arguments, drawn in its
+	// own color so that it stands apart from the output under it.
+	consoleSpanCommand
 )
 
 // consoleSpan is a stretch of a row's text of one kind: from where the span before it ends,
@@ -414,13 +417,14 @@ func (v *consoleView) rowSpans(start int) []consoleSpan {
 }
 
 // prefixSpans adds the spans of a header that starts with consoleHeaderParts' stamp and
-// repository, joined by a space, and is n bytes long, and returns them.
+// repository, joined by a space, and is n bytes long, the rest of it the command, and returns
+// them.
 func (v *consoleView) prefixSpans(stamp, repository string, n int) []consoleSpan {
 	start := len(v.spans)
 	v.endSpan(start, len(stamp), consoleSpanStamp)
 	v.endSpan(start, len(stamp)+1, consoleSpanText)
 	v.endSpan(start, len(stamp)+1+len(repository), consoleSpanRepository)
-	v.endSpan(start, n, consoleSpanText)
+	v.endSpan(start, n, consoleSpanCommand)
 	return v.rowSpans(start)
 }
 
@@ -541,14 +545,14 @@ func (v *consoleView) flattenRecord(old map[consoleRowID]int, index int, r *core
 			}
 			b.WriteByte(' ')
 			if configuration {
-				v.endSpan(start, b.Len(), consoleSpanText)
+				v.endSpan(start, b.Len(), consoleSpanCommand)
 				b.WriteString(part)
 				v.endSpan(start, b.Len(), consoleSpanFold)
 				continue
 			}
 			b.WriteString(part)
 		}
-		v.endSpan(start, b.Len(), consoleSpanText)
+		v.endSpan(start, b.Len(), consoleSpanCommand)
 		header.text, header.spans = b.String(), v.rowSpans(start)
 		if fold.fragment != "" {
 			header.fold, header.folded, header.inline = fold, folded, true
