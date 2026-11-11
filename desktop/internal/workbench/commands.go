@@ -74,6 +74,14 @@ func (a *App) commands() []command {
 		add("editor.foldAll", t.GroupEditor, t.FoldAll, "", true, func() { a.foldCommand(d, (*editorview.View).FoldAll) })
 		add("editor.unfoldAll", t.GroupEditor, t.UnfoldAll, "", true, func() { a.foldCommand(d, (*editorview.View).UnfoldAll) })
 	}
+	// The carets of the selected document: occurrences and clones of the primary caret (multicaret.go).
+	if d := p.selectedDocument(p.docs.group); d != nil {
+		add("editor.addNextOccurrence", t.GroupEditor, t.AddNextOccurrence, "", true, func() { a.caretCommand(d, (*editorview.View).AddNextOccurrence) })
+		add("editor.unselectOccurrence", t.GroupEditor, t.UnselectOccurrence, "", true, func() { a.caretCommand(d, (*editorview.View).UnselectOccurrence) })
+		add("editor.selectAllOccurrences", t.GroupEditor, t.SelectAllOccurrences, "", true, func() { a.caretCommand(d, (*editorview.View).SelectAllOccurrences) })
+		add("editor.cloneCaretAbove", t.GroupEditor, t.CloneCaretAbove, "", true, func() { a.caretCommand(d, (*editorview.View).CloneCaretAbove) })
+		add("editor.cloneCaretBelow", t.GroupEditor, t.CloneCaretBelow, "", true, func() { a.caretCommand(d, (*editorview.View).CloneCaretBelow) })
+	}
 	// The change markers of the selected document: next and previous, in marker order.
 	if d := p.selectedDocument(p.docs.group); d != nil && len(d.gutter.hunks) > 0 {
 		add("git.gutter.next", t.GroupGit, t.GitNextChange, "", true, func() { a.gitGutterStep(d, 1) })
@@ -249,4 +257,14 @@ func (a *App) runSelectedAction() {
 	if v.actionSelected >= 0 && v.actionSelected < len(matches) {
 		a.runCommand(matches[v.actionSelected])
 	}
+}
+
+// caretCommand runs a caret command of the document's view and repaints it. The command reports whether it
+// changed the carets; a command that changed nothing needs no repaint of its own.
+func (a *App) caretCommand(d *document, action func(*editorview.View) bool) {
+	if d == nil {
+		return
+	}
+	action(d.view)
+	a.invalidator.Invalidate()
 }

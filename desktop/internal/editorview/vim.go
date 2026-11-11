@@ -27,6 +27,7 @@ const (
 	vimReplace
 	vimVisual
 	vimVisualLine
+	vimVisualBlock
 )
 
 // The text the Vim mode reads for the keys that do not type a character.
@@ -104,6 +105,10 @@ type vimState struct {
 	grouped bool
 	// replaying says "." is replaying dot; its tokens are not recorded again.
 	replaying bool
+	// block is the rectangle of Visual Block; blockInsert says Insert mode is typing at the block's
+	// carets after I, A or c (vim_block.go).
+	block       vimBlockCorners
+	blockInsert bool
 }
 
 // vimMove is where a motion takes the caret, and how an operator reads its range.
@@ -168,7 +173,7 @@ func (v *View) VimStatus() string {
 
 // vimBlock says the caret is drawn as a block over its character: in Normal and Visual modes.
 func (v *View) vimBlock() bool {
-	return v.vim.on && (v.vim.mode == vimNormal || v.vim.mode == vimVisual || v.vim.mode == vimVisualLine)
+	return v.vim.on && (v.vim.mode == vimNormal || v.vim.mode == vimVisual || v.vim.mode == vimVisualLine || v.vim.mode == vimVisualBlock)
 }
 
 // vimSelection widens the selection of the Visual modes: Visual takes the character the caret is
@@ -177,6 +182,9 @@ func (v *View) vimSelection(start, end int) (int, int) {
 	switch v.vim.mode {
 	case vimVisual:
 		return start, v.nextRune(end)
+	case vimVisualBlock:
+		// The block's selections are exclusive already (vim_block.go).
+		return start, end
 	case vimVisualLine:
 		first, last := v.text.LineOf(start), v.text.LineOf(end)
 		end = v.text.Len()
@@ -274,6 +282,12 @@ func (v *View) vimChord(text string) (gfx.EventResult, bool) {
 		token = vimCtrlF
 	case "w", "t":
 		return handled, true
+	case "v":
+		// Control+V pastes in Insert and Replace mode, and starts the block everywhere else.
+		if v.vim.mode == vimInsert || v.vim.mode == vimReplace {
+			return gfx.EventResult{}, false
+		}
+		token = vimCtrlV
 	default:
 		return gfx.EventResult{}, false
 	}
@@ -316,6 +330,9 @@ func (v *View) vimToken(tok vimToken) {
 		v.vimInsertToken(tok)
 	} else {
 		v.vimCommandToken(tok)
+	}
+	if st.mode == vimVisualBlock {
+		v.vimBlockSync()
 	}
 	if !v.vimBusy() {
 		v.vimIdle()
@@ -411,6 +428,11 @@ func (v *View) vimInsertToken(tok vimToken) {
 // vimLeaveInsert returns to Normal mode, and the caret steps back onto the character before it.
 func (v *View) vimLeaveInsert() {
 	st := &v.vim
+	if st.blockInsert {
+		// The block's carets end with Insert mode; the caret keeps the place it typed at.
+		st.blockInsert = false
+		v.ClearExtraCarets()
+	}
 	if st.insertCount > 1 && v.caret >= st.insertStart {
 		// A count repeats what was typed: 3ifoo<Esc> types foo three times.
 		typed := string(v.text.AppendRange(nil, st.insertStart, v.caret))
@@ -439,7 +461,7 @@ func (v *View) vimEnterInsert(mode vimMode, at int) {
 // its last character. It leaves the goal column alone.
 func (v *View) vimClamp() {
 	st := &v.vim
-	if !st.on || st.mode == vimInsert || st.mode == vimReplace {
+	if !st.on || st.mode == vimInsert || st.mode == vimReplace || st.mode == vimVisualBlock {
 		return
 	}
 	line := v.text.LineOf(v.caret)
@@ -540,7 +562,11 @@ func (v *View) vimCommandToken(tok vimToken) {
 	case 'r':
 		st.pend = 0
 		if r, _ := utf8.DecodeRuneInString(s); vimPrintable(r) {
-			v.vimReplaceChars(s)
+			if st.mode == vimVisualBlock {
+				v.vimBlockReplace(s)
+			} else {
+				v.vimReplaceChars(s)
+			}
 		}
 		v.vimCancel()
 		return
@@ -577,7 +603,19 @@ func (v *View) vimCancel() {
 // it.
 func (v *View) vimCommand(s string) {
 	st := &v.vim
-	visual := st.mode == vimVisual || st.mode == vimVisualLine
+	if s == vimCtrlV && st.op == 0 {
+		if st.mode == vimVisualBlock {
+			v.vimBlockExit()
+		} else {
+			v.vimBlockStart()
+		}
+		v.vimCancel()
+		return
+	}
+	if st.mode == vimVisualBlock && v.vimBlockCommand(s) {
+		return
+	}
+	visual := st.mode == vimVisual || st.mode == vimVisualLine || st.mode == vimVisualBlock
 	if visual && v.vimVisualCommand(s) {
 		return
 	}
@@ -852,7 +890,7 @@ func (v *View) vimApply(m vimMove) {
 // vimMoveCaret puts the caret where motion m takes it. A vertical motion keeps the column it aims at.
 func (v *View) vimMoveCaret(m vimMove) {
 	goal := v.goal
-	extend := v.vim.mode == vimVisual || v.vim.mode == vimVisualLine
+	extend := v.vim.mode == vimVisual || v.vim.mode == vimVisualLine || v.vim.mode == vimVisualBlock
 	v.moveTo(m.to, extend)
 	if m.vertical {
 		v.goal = goal

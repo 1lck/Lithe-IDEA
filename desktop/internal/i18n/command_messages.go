@@ -2,6 +2,7 @@ package i18n
 
 // CommandMessages name the actions of the command catalog (Find Action).
 type CommandMessages struct {
+	AddNextOccurrence, UnselectOccurrence, SelectAllOccurrences, CloneCaretAbove, CloneCaretBelow                                                                                                                                                                                                                                                                                                                                                                                                                                                                       string
 	GroupEditor, GroupApp, GroupView, GroupProject, GroupToolWindows, GroupSearch, GroupGit, GroupRun, GroupTerminal, GroupAgent, Settings, Plugins, Logs, ImportLegacy, ThemeSystem, ThemeLight, ThemeDark, LanguageEnglish, LanguageChinese, OpenProject, NewProject, Clone, CloseProject, SaveAll, SearchEverywhere, FindInFiles, ReplaceInFiles, Commit, CommitAndPush, Branches, GitConsole, Run, Debug, ToggleBreakpoint, NewTerminal, NewAgentConversation, NoActions, FindAction, GitNextChange, GitPreviousChange, Fold, Unfold, FoldAll, UnfoldAll, ToggleVim string
 	// ShowTool is the action that shows a tool window by its name.
 	ShowTool func(name string) string
@@ -16,6 +17,11 @@ func commandMessages(language Language) CommandMessages {
 		Fold:                 Shared(language, "desktop.command.fold"),
 		Unfold:               Shared(language, "desktop.command.unfold"),
 		FoldAll:              Shared(language, "desktop.command.foldAll"),
+		AddNextOccurrence:    Shared(language, "desktop.command.addNextOccurrence"),
+		UnselectOccurrence:   Shared(language, "desktop.command.unselectOccurrence"),
+		SelectAllOccurrences: Shared(language, "desktop.command.selectAllOccurrences"),
+		CloneCaretAbove:      Shared(language, "desktop.command.cloneCaretAbove"),
+		CloneCaretBelow:      Shared(language, "desktop.command.cloneCaretBelow"),
 		UnfoldAll:            Shared(language, "desktop.command.unfoldAll"),
 		GitPreviousChange:    Shared(language, "desktop.command.gitPreviousChange"),
 		GroupProject:         Shared(language, "desktop.command.groupProject"),

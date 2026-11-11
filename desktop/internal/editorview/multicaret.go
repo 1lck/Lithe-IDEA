@@ -1,7 +1,6 @@
 package editorview
 
 import (
-	"runtime"
 	"slices"
 	"strings"
 
@@ -16,10 +15,10 @@ import (
 // edits make one undo step. Selections that come to touch merge.
 //
 // The carets are added with Alt+Shift+click (a click on a caret takes it away), with Alt
-// and a drag (one selection per line, a column selection), with Add Selection for Next
-// Occurrence (Control+G on macOS, Alt+J elsewhere), which first selects the word at the caret,
-// and Select All Occurrences (Control+Command+G, Control+Alt+Shift+J); Unselect Occurrence
-// (Control+Shift+G, Alt+Shift+J) takes the last one back. Escape goes back to one caret, as
+// and a drag (one selection per line, a column selection), and with the occurrence and clone
+// commands of the shortcut catalog (shortcuts.go): Add Selection for Next Occurrence, which first
+// selects the word at the caret, Select All Occurrences, Unselect Occurrence and Clone Caret
+// Above and Below. Escape goes back to one caret, as
 // does a plain click, Select All, a move to a line and any edit the view did not make at every
 // caret.
 
@@ -344,31 +343,25 @@ func (v *View) findFrom(needle []byte, from int, taken []span) int {
 	return -1
 }
 
-// occurrenceChord answers the chords of the occurrence commands.
-func (v *View) occurrenceChord(event gfx.KeyEvent) (gfx.EventResult, bool) {
-	key := strings.ToLower(event.Text)
-	mods := event.Modifiers
-	var next, all, unselect bool
-	if runtime.GOOS == "darwin" {
-		next = key == "g" && mods == gfx.ModifierControl
-		unselect = key == "g" && mods == gfx.ModifierControl|gfx.ModifierShift
-		all = key == "g" && mods == gfx.ModifierControl|gfx.ModifierMeta
-	} else {
-		next = key == "j" && mods == gfx.ModifierAlt
-		unselect = key == "j" && mods == gfx.ModifierAlt|gfx.ModifierShift
-		all = key == "j" && mods == gfx.ModifierControl|gfx.ModifierAlt|gfx.ModifierShift
+// CloneCaretAbove adds a caret on the line above the primary one, in its column, and makes it the primary.
+func (v *View) CloneCaretAbove() bool { return v.cloneCaret(-1) }
+
+// CloneCaretBelow adds a caret on the line below the primary one, in its column, and makes it the primary.
+func (v *View) CloneCaretBelow() bool { return v.cloneCaret(1) }
+
+// cloneCaret adds a caret at the primary's column on the line dir lines away, when there is one.
+func (v *View) cloneCaret(dir int) bool {
+	target := v.text.LineOf(v.caret) + dir
+	if target < 0 || target >= v.text.LineCount() {
+		return false
 	}
-	switch {
-	case next:
-		v.AddNextOccurrence()
-	case unselect:
-		v.UnselectOccurrence()
-	case all:
-		v.SelectAllOccurrences()
-	default:
-		return gfx.EventResult{}, false
-	}
-	return handled, true
+	at := v.offsetAtCell(target, v.cellOf(v.caret))
+	all, _ := v.spans()
+	all = append(all, span{at, at})
+	slices.SortStableFunc(all, func(a, b span) int { return a.lo() - b.lo() })
+	v.setSpans(all, slices.Index(all, span{at, at}))
+	v.moved()
+	return true
 }
 
 // paintExtraCarets draws the extra selections' carets; their selections are drawn with the
