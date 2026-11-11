@@ -236,20 +236,22 @@ func (v *logView) rowPainter(a *App, index int) func(*ui.DrawContext) {
 }
 
 // logRefRow is one visible row of the reference pane: HEAD, the head of a section, a folder
-// of a section's tree, or a reference.
+// of a section's tree, a reference, or the group of a nested repository and its references.
 type logRefRow struct {
 	kind logRefKind
 	// depth is the row's level in the tree.
 	depth int
 	label string
-	// key is what a click on the row acts on: the key of the section or folder in
-	// gitLogState.collapsed, or the full name of a reference.
+	// key is what a click on the row acts on: the key of the section, folder or repository group
+	// in gitLogState.collapsed, or the full name of a reference.
 	key string
-	// short is a reference's short name, and ref the reference itself (nil for HEAD, which
-	// stands for every reference).
+	// short is a reference's short name (a repository group's ID), and ref the reference itself
+	// (nil for HEAD, which stands for every reference).
 	short string
 	ref   *core.GitReference
 	open  bool
+	// tint is the color of a repository group (nested_refs.go).
+	tint gfx.Color
 }
 
 // logRefKind is what a row of the reference pane is.
@@ -260,4 +262,8 @@ const (
 	logRefSection
 	logRefFolder
 	logRefReference
+	// logRefRepository is the group of a nested repository; logRefForeign is one of its
+	// references, which the pane shows but cannot act on.
+	logRefRepository
+	logRefForeign
 )

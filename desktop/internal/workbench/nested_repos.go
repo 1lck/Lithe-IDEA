@@ -36,6 +36,10 @@ type nestedState struct {
 	// (nested_refs.go).
 	refGen     int
 	references map[string]nestedReferences
+	// slots are the color slots Core assigned to the repositories by ID, and showColors says a
+	// view with several repositories shows them (nested_refs.go).
+	slots      map[string]int
+	showColors bool
 }
 
 // nestedRepositoryID is the ID of the repository at path in a workspace commit of projectRoot: its
@@ -82,6 +86,11 @@ func (a *App) loadNestedRepos(p *project) {
 			p.nested.repos = repos
 			if _, ok := p.nested.repo(p.nested.focus); !ok {
 				p.nested.focus = ""
+			}
+			// The Git Log's reference pane lists the nested repositories' references too, so they
+			// are read again once the repositories are.
+			if p.log.started {
+				a.loadNestedReferences(p)
 			}
 		}
 	})
