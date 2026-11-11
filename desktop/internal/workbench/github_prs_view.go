@@ -112,9 +112,17 @@ func (a *App) drawPullRequestDetail(c ui.C, p *project) {
 				ui.Paragraph(c, pr.detailErr, 3).FontSize(size).Color(a.theme.Danger)
 			}
 			ui.TextField(c, &pr.replyField, i18n.Shared(lang, "desktop.github.reply"), i18n.Shared(lang, "desktop.github.reply")).FillWidth()
-			if ui.Button(c, i18n.Shared(lang, "desktop.github.comment")).Outline().Disabled(pr.replyPending).Clicked() {
-				c.After(func() { a.postPullRequestComment(p) })
-			}
+			ui.Row(c).FillWidth().Gap(6).Children(func() {
+				if ui.Button(c, i18n.Shared(lang, "desktop.github.comment")).Outline().Disabled(pr.replyPending).Clicked() {
+					c.After(func() { a.postPullRequestComment(p) })
+				}
+				if ui.Button(c, i18n.Shared(lang, "desktop.github.approve")).Outline().Disabled(pr.replyPending).Clicked() {
+					c.After(func() { a.submitPullRequestReview(p, "APPROVE") })
+				}
+				if ui.Button(c, i18n.Shared(lang, "desktop.github.requestChanges")).Outline().Disabled(pr.replyPending).Clicked() {
+					c.After(func() { a.submitPullRequestReview(p, "REQUEST_CHANGES") })
+				}
+			})
 		})
 	})
 }

@@ -744,5 +744,23 @@
     "description": "Button that posts the comment typed in the pull-request panel",
     "en-US": "Comment",
     "zh-CN": "评论"
+  },
+  {
+    "id": "desktop.github.approve",
+    "description": "Pull-request detail button: submit an approving review",
+    "en-US": "Approve",
+    "zh-CN": "批准"
+  },
+  {
+    "id": "desktop.github.requestChanges",
+    "description": "Pull-request detail button: submit a review requesting changes",
+    "en-US": "Request Changes",
+    "zh-CN": "请求修改"
+  },
+  {
+    "id": "desktop.github.reviewNeedsBody",
+    "description": "Pull-request review: requesting changes needs a comment",
+    "en-US": "Write a comment explaining the requested changes.",
+    "zh-CN": "请写明需要修改的内容。"
   }
 ]

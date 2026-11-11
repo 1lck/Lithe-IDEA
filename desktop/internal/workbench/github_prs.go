@@ -51,6 +51,38 @@ type pullRequestState struct {
 	busy       bool
 }
 
+// submitPullRequestReview submits a review of the selected pull request with the text typed in the
+// reply box: a comment, an approval, or a request for changes, which needs the text.
+func (a *App) submitPullRequestReview(p *project, event string) {
+	pr := &a.pullRequests
+	client := a.githubAPI()
+	token := a.githubToken()
+	body := strings.TrimSpace(pr.replyField.Text())
+	if client == nil || token == "" || pr.repo == nil || pr.selected == 0 || pr.replyPending {
+		return
+	}
+	if event == "REQUEST_CHANGES" && body == "" {
+		pr.detailErr = i18n.Shared(a.language(), "desktop.github.reviewNeedsBody")
+		return
+	}
+	repo, number := *pr.repo, pr.selected
+	pr.replyPending = true
+	a.performed("github.pullRequest.review", surfaceButton)
+	a.background(p, githubReadTimeout, func(ctx context.Context) func(*App) {
+		_, err := client.Do(ctx, core.GitHubRequest{Operation: "createPullRequestReview", Repository: &repo, PullNumber: number, Event: event, Body: &body}, token)
+		return func(a *App) {
+			pr := &a.pullRequests
+			pr.replyPending = false
+			if err != nil {
+				pr.detailErr = githubFailure(a.language(), err)
+				return
+			}
+			pr.replyField.SetText("")
+			a.selectPullRequest(p, number)
+		}
+	})
+}
+
 // githubReadTimeout bounds one GitHub read or write of the panel.
 const githubReadTimeout = githubAccountTimeout
 
