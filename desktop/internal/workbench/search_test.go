@@ -503,3 +503,36 @@ func (h *harness) clickClear(n int) {
 	}
 	h.click(center(found[n].Bounds))
 }
+
+// A Find in Files result's context menu copies the file's path relative to the project and
+// opens the match, as Search Everywhere's results do.
+func TestProjectSearchResultMenuCopiesThePathAndOpens(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.app.searchView.delay = 0
+	root := t.TempDir()
+	path := filepath.Join(root, "example.go")
+	if err := os.WriteFile(path, []byte("first\nsecond needle\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.open(root)
+	h.click(center(h.button(itemFind)))
+	if err := h.driver.Click(center(h.hit(searchQueryID)).X, center(h.hit(searchQueryID)).Y); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.driver.Type("needle"); err != nil {
+		t.Fatal(err)
+	}
+	p := h.app.project
+	awaitDocumentState(t, h, func() bool { return !p.search.loading && len(p.search.matches) == 1 })
+	h.settle()
+	label := searchMatchLabel(p.search.matches[0])
+
+	h.rightClickNamed(label)
+	h.click(center(h.popupHit(h.shared("desktop.files.copyRelativePath"))))
+	if got := h.driver.Clipboard(); got != "example.go" {
+		t.Fatalf("the clipboard holds %q, want the path relative to the project", got)
+	}
+	h.rightClickNamed(label)
+	h.click(center(h.popupHit(h.shared("desktop.files.open"))))
+	awaitDocumentState(t, h, func() bool { return p.docs.byPath(path) != nil })
+}

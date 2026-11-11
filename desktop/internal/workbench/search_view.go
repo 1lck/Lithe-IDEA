@@ -124,6 +124,7 @@ func (a *App) searchResults(c ui.C, p *project, language i18n.Language) {
 		if row.Element.Clicked() {
 			opened = row.Index
 		}
+		a.searchResultMenu(row.C, row.Element, p, result, language, "workspace.search", nil)
 	}).Label(i18n.Shared(language, "native.searchAcrossTheProject")).FillWidth().Grow(1).MinHeight(0)
 	if row, ok := v.list.Submitted(); ok {
 		opened = row

@@ -255,7 +255,7 @@ func (a *App) everywhereResults(c ui.C, p *project, language i18n.Language) {
 		row.Element.FillWidth().Height(rowHeight).Items(ui.Center).PadX(10).Gap(8).Children(func() {
 			a.everywhereRow(row.C, p, result, selected)
 		})
-		a.everywhereRowMenu(row.C, row.Element, p, result, language)
+		a.searchResultMenu(row.C, row.Element, p, result, language, "workspace.searchEverywhere", func() { a.closeEverywhere(p) })
 		switch {
 		case v.preview && row.Element.DoubleClicked():
 			opened = row.Index
@@ -415,9 +415,10 @@ func trimHighlightedLine(line string, ranges []core.SearchNameRange) (string, []
 	return strings.TrimRight(trimmed, "\r\n"), out
 }
 
-// everywhereRowMenu is a result's context menu: open it, show it in the file
-// manager, or copy its path.
-func (a *App) everywhereRowMenu(c ui.C, target ui.Box, p *project, result core.WorkspaceSearchMatch, language i18n.Language) {
+// searchResultMenu is the context menu of a search result, in Search Everywhere and in the
+// Find in Files results: open it, show it in the file manager, or copy its path. The actions
+// are recorded under surface; leave, when set, runs before the result opens.
+func (a *App) searchResultMenu(c ui.C, target ui.Box, p *project, result core.WorkspaceSearchMatch, language i18n.Language, surface string, leave func()) {
 	full, ok := everywhereResultPath(p, result)
 	if !ok {
 		return
@@ -425,24 +426,26 @@ func (a *App) everywhereRowMenu(c ui.C, target ui.Box, p *project, result core.W
 	ui.ContextMenu(c, target, func(menu *ui.MenuItems) {
 		if menu.Item(i18n.Shared(language, "desktop.files.open")).Clicked() {
 			c.After(func() {
-				a.performed("workspace.searchEverywhere.openResult", surfaceMenu)
-				a.closeEverywhere(p)
+				a.performed(surface+".openResult", surfaceMenu)
+				if leave != nil {
+					leave()
+				}
 				a.openSearchResult(p, result)
 			})
 		}
 		if menu.Item(revealLabel(language)).Clicked() {
 			c.After(func() {
-				a.performed("workspace.searchEverywhere.reveal", surfaceMenu)
+				a.performed(surface+".reveal", surfaceMenu)
 				a.revealPath(full)
 			})
 		}
 		menu.Separator()
 		if menu.Item(i18n.Shared(language, "desktop.files.copyPath")).Clicked() {
-			a.performed("workspace.searchEverywhere.copyPath", surfaceMenu)
+			a.performed(surface+".copyPath", surfaceMenu)
 			a.copyTreePath(full, false)
 		}
 		if menu.Item(i18n.Shared(language, "desktop.files.copyRelativePath")).Clicked() {
-			a.performed("workspace.searchEverywhere.copyRelativePath", surfaceMenu)
+			a.performed(surface+".copyRelativePath", surfaceMenu)
 			a.copyTreePath(full, true)
 		}
 	})
