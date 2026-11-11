@@ -446,5 +446,45 @@
     "parameters": {
       "arg1": "string"
     }
+  },
+  {
+    "id": "desktop.runConfig.runtimeArguments",
+    "description": "Label of the runtime arguments field of a build provider run, one argument per line",
+    "en-US": "Runtime arguments",
+    "zh-CN": "运行时参数"
+  },
+  {
+    "id": "desktop.runConfig.runtimeArgumentsPlaceholder",
+    "description": "Placeholder of the runtime arguments field",
+    "en-US": "One argument per line",
+    "zh-CN": "每行一个参数"
+  },
+  {
+    "id": "desktop.runConfig.entrypoint",
+    "description": "Label of the provider entrypoint field of a build provider run",
+    "en-US": "Entrypoint",
+    "zh-CN": "入口"
+  },
+  {
+    "id": "desktop.runConfig.entrypointPlaceholder",
+    "description": "Placeholder of the entrypoint field",
+    "en-US": "Provider default",
+    "zh-CN": "提供方默认值"
+  },
+  {
+    "id": "desktop.runConfig.toolPathPlaceholder",
+    "description": "Placeholder of a tool path field; empty clears the run's choice",
+    "en-US": "Empty uses automatic selection",
+    "zh-CN": "留空则自动选择"
+  },
+  {
+    "id": "desktop.runConfig.toolPath",
+    "description": "Label of a tool choice of a build provider run; {arg1} is the qualified tool ID, {arg2} the kind (home or executable)",
+    "en-US": "{arg1} {arg2}",
+    "zh-CN": "{arg1} {arg2}",
+    "parameters": {
+      "arg1": "string",
+      "arg2": "string"
+    }
   }
 ]

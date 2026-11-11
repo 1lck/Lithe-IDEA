@@ -133,6 +133,19 @@ type RunOptionsEdit struct {
 	Arguments        string            `json:"arguments"`
 	Environment      map[string]string `json:"environment"`
 	LocalDocument    json.RawMessage   `json:"localDocument,omitempty"`
+	// ProviderRunOptions replaces the build provider choices of the selected layer when set.
+	ProviderRunOptions json.RawMessage `json:"providerRunOptions,omitempty"`
+}
+
+// ProviderRunOptionsSnapshot is the typed choices of a build provider configuration
+// (extensions.build-run): runtime arguments, an entrypoint, the build option overrides and
+// the tool choices by qualified tool ID. A tool choice is {home} or {executable}; a nil
+// entry clears an inherited choice.
+type ProviderRunOptionsSnapshot struct {
+	RuntimeArguments []string                     `json:"runtimeArguments"`
+	Entrypoint       string                       `json:"entrypoint"`
+	Options          map[string]json.RawMessage   `json:"options"`
+	Tools            map[string]map[string]string `json:"tools"`
 }
 
 // UpdateRunConfigurationOptions returns the layer document with the edit applied.

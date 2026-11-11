@@ -40,6 +40,57 @@ type runConfigEditor struct {
 	loading bool
 	saving  bool
 	failure string
+	// provider says the configuration is a build provider run, whose choices are edited
+	// too. runtimeArguments is one argument per line; entrypoint is the provider's entry.
+	provider         bool
+	runtimeArguments string
+	entrypoint       string
+	// options are the build option overrides, kept as they were: this editor does not edit them.
+	options map[string]json.RawMessage
+	// tools are the tool choices by qualified tool ID, with the kind of each choice ("home" or
+	// "executable") and the path the editor shows. A cleared path sends null for that tool.
+	tools []runConfigTool
+}
+
+// runConfigTool is one tool choice of a build provider run.
+type runConfigTool struct {
+	id, kind, path, initial string
+}
+
+// providerRunChoices is the build-run namespace of a configuration as Core resolved it.
+type providerRunChoices struct {
+	RuntimeArguments []string                     `json:"runtimeArguments"`
+	Entrypoint       string                       `json:"entrypoint"`
+	Options          map[string]json.RawMessage   `json:"options"`
+	Tools            map[string]map[string]string `json:"tools"`
+}
+
+// runConfigProviderNamespace is the extension namespace of a build provider run's choices.
+const runConfigProviderNamespace = "build-run"
+
+// providerRunEditorState reads the provider choices of a configuration into the editor.
+func providerRunEditorState(configuration core.RunConfiguration) (runConfigEditor, bool) {
+	var state runConfigEditor
+	if _, ok := configuration.BuildReference(); !ok {
+		return state, false
+	}
+	var choices providerRunChoices
+	if raw, ok := configuration.Extensions[runConfigProviderNamespace]; ok && len(raw) > 0 {
+		if err := json.Unmarshal(raw, &choices); err != nil {
+			choices = providerRunChoices{}
+		}
+	}
+	state.provider = true
+	state.runtimeArguments = strings.Join(choices.RuntimeArguments, "\n")
+	state.entrypoint = choices.Entrypoint
+	state.options = choices.Options
+	ids := slices.Sorted(maps.Keys(choices.Tools))
+	for _, id := range ids {
+		for kind, path := range choices.Tools[id] {
+			state.tools = append(state.tools, runConfigTool{id: id, kind: kind, path: path, initial: path})
+		}
+	}
+	return state, true
 }
 
 // openRunConfigEditor opens the editor on configuration id. The argument field fills
@@ -56,6 +107,9 @@ func (a *App) openRunConfigEditor(p *project, id string) {
 		open: true, generation: generation, id: id, name: configuration.Name,
 		directory: configuration.Cwd, environment: environmentText(configuration.Env),
 		scope: "local", loading: true,
+	}
+	if provider, ok := providerRunEditorState(*configuration); ok {
+		e.provider, e.runtimeArguments, e.entrypoint, e.options, e.tools = true, provider.runtimeArguments, provider.entrypoint, provider.options, provider.tools
 	}
 	args, kernel := slices.Clone(configuration.Args), a.kernel
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
@@ -101,6 +155,14 @@ func (a *App) saveRunConfigEditor(p *project) {
 	edit := core.RunOptionsEdit{
 		Root: p.root, Scope: e.scope, ConfigurationID: e.id,
 		WorkingDirectory: strings.TrimSpace(e.directory), Arguments: e.arguments, Environment: environment,
+	}
+	if e.provider {
+		raw, err := providerRunOptionsJSON(e)
+		if err != nil {
+			e.failure = i18n.SharedFormat(a.language(), "desktop.runConfig.saveFailed", map[string]string{"reason": err.Error()})
+			return
+		}
+		edit.ProviderRunOptions = raw
 	}
 	kernel := a.kernel
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
@@ -180,4 +242,30 @@ func parseEnvironment(text string) (environment map[string]string, line int) {
 		environment[key] = value
 	}
 	return environment, 0
+}
+
+// providerRunOptionsJSON is the typed snapshot the editor saves: the arguments and entrypoint
+// the user sees, the option overrides carried over, and each tool path the user set. A tool whose
+// path was emptied sends null, which clears the inherited choice.
+func providerRunOptionsJSON(e *runConfigEditor) (json.RawMessage, error) {
+	snapshot := core.ProviderRunOptionsSnapshot{
+		RuntimeArguments: []string{},
+		Entrypoint:       strings.TrimSpace(e.entrypoint),
+		Options:          map[string]json.RawMessage{},
+		Tools:            map[string]map[string]string{},
+	}
+	if e.runtimeArguments != "" {
+		snapshot.RuntimeArguments = strings.Split(e.runtimeArguments, "\n")
+	}
+	maps.Copy(snapshot.Options, e.options)
+	for _, tool := range e.tools {
+		path := strings.TrimSpace(tool.path)
+		switch {
+		case path != "":
+			snapshot.Tools[tool.id] = map[string]string{tool.kind: path}
+		case strings.TrimSpace(tool.initial) != "":
+			snapshot.Tools[tool.id] = nil
+		}
+	}
+	return json.Marshal(snapshot)
 }

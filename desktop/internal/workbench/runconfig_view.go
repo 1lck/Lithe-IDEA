@@ -1,6 +1,8 @@
 package workbench
 
 import (
+	"strconv"
+
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/ui"
@@ -72,6 +74,18 @@ func (a *App) drawRunConfigEditor(c ui.C, p *project) {
 				FillWidth().Disabled(!ready)
 			ui.TextArea(c.Part("environment"), &e.environment, i18n.Shared(language, "desktop.runConfig.environment"), i18n.Shared(language, "desktop.runConfig.environmentPlaceholder")).
 				FillWidth().Height(96).Disabled(!ready)
+			if e.provider {
+				ui.TextArea(c.Part("runtime-arguments"), &e.runtimeArguments, i18n.Shared(language, "desktop.runConfig.runtimeArguments"), i18n.Shared(language, "desktop.runConfig.runtimeArgumentsPlaceholder")).
+					FillWidth().Height(72).Disabled(!ready)
+				ui.TextField(c.Part("entrypoint"), &e.entrypoint, i18n.Shared(language, "desktop.runConfig.entrypoint"), i18n.Shared(language, "desktop.runConfig.entrypointPlaceholder")).
+					FillWidth().Disabled(!ready)
+				for index := range e.tools {
+					tool := &e.tools[index]
+					label := i18n.SharedFormat(language, "desktop.runConfig.toolPath", map[string]string{"arg1": tool.id, "arg2": tool.kind})
+					ui.TextField(c.Part("tool-"+strconv.Itoa(index)), &tool.path, label, i18n.Shared(language, "desktop.runConfig.toolPathPlaceholder")).
+						FillWidth().Disabled(!ready)
+				}
+			}
 			labels := map[string]string{"local": i18n.Shared(language, "desktop.runConfig.scopeLocal"), "project": i18n.Shared(language, "desktop.runConfig.scopeProject")}
 			ui.Select(c.Part("scope"), &e.scope, []string{"local", "project"}, func(scope string) string { return labels[scope] }).
 				Label(i18n.Shared(language, "desktop.runConfig.scope")).FillWidth()
