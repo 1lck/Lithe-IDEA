@@ -445,5 +445,17 @@
     "description": "Note when a reported text was cut to the display limit.",
     "en-US": "Shortened to fit.",
     "zh-CN": "已截断以便显示。"
+  },
+  {
+    "id": "desktop.ai.inlineEdit.editSelection",
+    "description": "Label above the instruction field of an inline edit that covers the selection.",
+    "en-US": "Editing the selection",
+    "zh-CN": "编辑选中内容"
+  },
+  {
+    "id": "desktop.ai.inlineEdit.editCurrentLine",
+    "description": "Label above the instruction field of an inline edit that covers the caret's line because nothing is selected.",
+    "en-US": "Editing the current line",
+    "zh-CN": "编辑当前行"
   }
 ]
