@@ -290,6 +290,7 @@ func (a *App) agentConversation(c ui.C, p *project) {
 			})
 		}
 		a.agentConfigBar(c, p)
+		a.agentNoticeBanner(c, p)
 		a.agentTranscript(c, p)
 		if p.agent.permission != nil {
 			a.agentPermission(c, p)

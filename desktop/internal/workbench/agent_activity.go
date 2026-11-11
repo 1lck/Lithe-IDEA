@@ -190,6 +190,8 @@ type agentUpdateWire struct {
 	Content       json.RawMessage `json:"content"`
 	ToolCallID    string          `json:"toolCallId"`
 	Title         string          `json:"title"`
+	Severity      string          `json:"severity"`
+	Description   string          `json:"description"`
 	Kind          string          `json:"kind"`
 	Status        string          `json:"status"`
 	Meta          json.RawMessage `json:"_meta"`
@@ -356,6 +358,12 @@ func (a *App) applyAgentSessionUpdate(p *project, sessionID string, update agent
 			list = append(list, item)
 		}
 		act.commands[id] = list
+		return true
+	case "notice":
+		// A live advisory, not a reply: kept apart from the transcript (agent_notice.go).
+		if agentSessionScoped(p, sessionID) {
+			a.applyAgentNotice(p, update)
+		}
 		return true
 	case "config_option_update":
 		// The Agent changed a session setting itself (for example its permission

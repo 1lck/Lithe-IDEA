@@ -190,6 +190,8 @@ type agentState struct {
 	steer    agentSteerState
 	files    []agentFileRef
 	slash    agentSlashState
+	// notice is the latest live advisory of the session (agent_notice.go).
+	notice *agentNotice
 	// mention is the workspace-file list for an @ mention in the draft (agent_mention.go).
 	mention agentMentionState
 	// composerRect is where the composer was laid out, for dropped files.
@@ -1018,6 +1020,8 @@ func (a *App) sendAgentPrompt(p *project) {
 	if !a.agentCanSend(p) {
 		return
 	}
+	// A new prompt ends the notice shown for the previous turn.
+	p.agent.notice = nil
 	value := strings.TrimSpace(p.agent.editor.CommittedString())
 	files := append([]agentFileRef(nil), p.agent.files...)
 	request := map[string]any{"kind": "prompt", "sessionId": p.agent.sessionID, "text": value}

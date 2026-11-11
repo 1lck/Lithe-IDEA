@@ -123,7 +123,9 @@ func (a *App) replaceAgentConfigOptions(p *project, raw json.RawMessage) {
 		}
 		options = append(options, option)
 	}
+	previous := c.options
 	c.options = options
+	a.reconcileAgentNotice(p, previous, options)
 }
 
 // decodeAgentConfigChoices flattens ACP's ungrouped or grouped value list while
