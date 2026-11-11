@@ -416,6 +416,13 @@ func (a *App) splitterKey(event gfx.KeyEvent) gfx.EventResult {
 	if r := a.logView.splitKey(event); r.Handled {
 		return r
 	}
+	if p := a.project; p != nil {
+		for _, view := range p.vcs.views {
+			if r := view.commit.splitKey(event); r.Handled {
+				return r
+			}
+		}
+	}
 	if p := a.project; p != nil && p.terms.layout != nil {
 		if r := p.terms.layout.key(event); r.Handled {
 			return r

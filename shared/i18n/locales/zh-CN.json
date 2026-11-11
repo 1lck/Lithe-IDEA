@@ -11649,7 +11649,8 @@
     "desktop.refs.trackingSet": "{branch} 现在跟踪 {upstream}",
     "desktop.refs.trackingStopped": "{branch} 不再跟踪远程分支",
     "desktop.panel.header": "工具窗口标题栏",
-    "desktop.search.replaceFile": "替换文件"
+    "desktop.search.replaceFile": "替换文件",
+    "desktop.vcs.commitDirectly": "提交会立即发送到仓库，没有单独的推送步骤。"
   },
   "overrides": {
     "macos": {

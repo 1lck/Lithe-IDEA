@@ -305,6 +305,7 @@ func (a *App) reloadPluginLanguages() {
 		languages, loadErr := a.plugins.LoadLanguages(ctx, entries)
 		windows, windowsErr := a.plugins.ToolWindows(ctx, entries)
 		commands, commandsErr := a.plugins.ToolCommands(ctx, entries)
+		vcsPlugins, vcsErr := a.plugins.VcsPlugins(ctx, entries)
 		return func(a *App) {
 			if commandsErr != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_tool_commands", commandsErr))
@@ -317,7 +318,10 @@ func (a *App) reloadPluginLanguages() {
 			if windowsErr != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_tool_windows", windowsErr))
 			}
-			a.setPluginTools(windows)
+			if vcsErr != nil {
+				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_vcs_providers", vcsErr))
+			}
+			a.setPluginTools(windows, vcsWindows(vcsPlugins))
 			failed, _ := a.syntaxRegistry().SetPluginLanguages(languages)
 			if len(failed) > 0 {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_languages",

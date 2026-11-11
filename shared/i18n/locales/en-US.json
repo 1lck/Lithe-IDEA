@@ -11649,7 +11649,8 @@
     "desktop.refs.trackingSet": "{branch} now tracks {upstream}",
     "desktop.refs.trackingStopped": "{branch} no longer tracks a remote branch",
     "desktop.panel.header": "Tool window header",
-    "desktop.search.replaceFile": "Replacement file"
+    "desktop.search.replaceFile": "Replacement file",
+    "desktop.vcs.commitDirectly": "Commits are sent to the repository right away; there is no separate push."
   },
   "overrides": {
     "windows": {

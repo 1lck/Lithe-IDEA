@@ -91,16 +91,16 @@ func (s pluginSettingsSources) Action(ctx context.Context, editor pluginservice.
 	s.app.pluginServerMu.Unlock()
 	if server != nil {
 		key := result.Plan.PluginID + "\x00" + server.session.LanguageID
-		p.build.runtime.mu.Lock()
-		attached := p.build.runtime.shared[key]
-		p.build.runtime.mu.Unlock()
+		p.buildSessions.mu.Lock()
+		attached, detached := p.buildSessions.shared[key], p.buildSessions.detached
+		p.buildSessions.mu.Unlock()
 		if attached == nil || attached.Closed() {
-			if _, err := s.app.attachSharedBuildClient(ctx, p, buildInstance{}, key, server); err != nil {
+			if _, err := s.app.attachSharedBuildClient(ctx, p, buildInstance{}, key, server, detached); err != nil {
 				return result, err
 			}
 		}
 	}
-	clients := p.build.runtime.functionClients(result.Plan.PluginID)
+	clients := p.buildSessions.functionClients(result.Plan.PluginID)
 	candidates := make([]core.PluginFunctionProviderCandidate, 0, len(clients))
 	for _, client := range clients {
 		session := client.Session()

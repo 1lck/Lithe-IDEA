@@ -62,7 +62,6 @@ type buildState struct {
 	taskID    string
 
 	operation *buildOperation
-	runtime   buildRuntime
 	// runs are the plugin-started runs the panel keeps beside the build console,
 	// and view is the one it shows: "" for the build console, else a run's ID.
 	runs []*runEntry
@@ -125,23 +124,25 @@ type buildRuntime struct {
 	// language server's session.
 	shared map[string]*buildprovider.Client
 	closed bool
+	// detached counts detaches: a start that began before one belongs to the sessions it took
+	// and is stopped instead of kept.
+	detached uint64
 }
 
+// provider is the running provider of instance, started when there is none. The process starts
+// outside the lock, so detaching on the window thread never waits for a start; a start that lost
+// to another one or to a detach is stopped again.
 func (r *buildRuntime) provider(ctx context.Context, runner *pluginbackend.Runner, pluginRoot, root, rootURI string, instance buildInstance, settings core.PluginSettingsState) (*buildprovider.Client, error) {
 	key := instance.PluginID + "\x00" + instance.BuildSystemID
+	errClosing := errors.New("the project is closing")
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.closed {
-		return nil, errors.New("the project is closing")
+	closed, client, detached := r.closed, r.providers[key], r.detached
+	r.mu.Unlock()
+	if closed {
+		return nil, errClosing
 	}
-	if r.providers == nil {
-		r.providers = make(map[string]*buildprovider.Client)
-	}
-	if client := r.providers[key]; client != nil {
-		if !client.Closed() {
-			return client, nil
-		}
-		delete(r.providers, key)
+	if client != nil && !client.Closed() {
+		return client, nil
 	}
 	state := buildStateDirectory(pluginRoot, root, instance)
 	if err := os.MkdirAll(state, 0o700); err != nil {
@@ -155,7 +156,7 @@ func (r *buildRuntime) provider(ctx context.Context, runner *pluginbackend.Runne
 			return nil, err
 		}
 	}
-	client, err := buildprovider.Start(ctx, runner, pluginbackend.StartRequest{
+	started, err := buildprovider.Start(ctx, runner, pluginbackend.StartRequest{
 		Manifest:                instance.Manifest,
 		PackageDirectory:        instance.PackageDirectory,
 		PluginID:                instance.PluginID,
@@ -175,26 +176,45 @@ func (r *buildRuntime) provider(ctx context.Context, runner *pluginbackend.Runne
 	if err != nil {
 		return nil, err
 	}
-	r.providers[key] = client
+	r.mu.Lock()
+	current := !r.closed && r.detached == detached
+	client = r.providers[key]
+	if current && (client == nil || client.Closed()) {
+		if r.providers == nil {
+			r.providers = make(map[string]*buildprovider.Client)
+		}
+		r.providers[key] = started
+		r.mu.Unlock()
+		return started, nil
+	}
+	r.mu.Unlock()
+	_ = started.Close(ctx)
+	if !current {
+		return nil, errClosing
+	}
 	return client, nil
 }
 
-func (r *buildRuntime) close(ctx context.Context) {
+// detach takes every session the runtime holds, its own providers before the clients attached to
+// language servers, and leaves it empty. With closing set the runtime refuses new sessions, as for
+// a project that closes; without it the next detection starts fresh ones, as after the build
+// plugins changed.
+func (r *buildRuntime) detach(closing bool) []*buildprovider.Client {
 	r.mu.Lock()
-	r.closed = true
-	providers := r.providers
-	r.providers = nil
-	r.mu.Unlock()
-	for _, provider := range providers {
-		_ = provider.Close(ctx)
+	defer r.mu.Unlock()
+	clients := make([]*buildprovider.Client, 0, len(r.providers)+len(r.shared))
+	for _, provider := range r.providers {
+		clients = append(clients, provider)
 	}
-	r.mu.Lock()
-	shared := r.shared
-	r.shared = nil
-	r.mu.Unlock()
-	for _, provider := range shared {
-		_ = provider.Close(ctx)
+	for _, provider := range r.shared {
+		clients = append(clients, provider)
 	}
+	r.providers, r.shared = nil, nil
+	r.detached++
+	if closing {
+		r.closed = true
+	}
+	return clients
 }
 
 func workspaceDigest(root string) string {
@@ -217,7 +237,7 @@ func (a *App) buildProvider(ctx context.Context, p *project, instance buildInsta
 	if err != nil {
 		return nil, err
 	}
-	client, err := p.build.runtime.provider(ctx, a.plugins.Backend, a.plugins.Root, p.root, rootURI, instance, settings.State)
+	client, err := p.buildSessions.provider(ctx, a.plugins.Backend, a.plugins.Root, p.root, rootURI, instance, settings.State)
 	var shared *pluginbackend.SharedProviderError
 	if !errors.As(err, &shared) {
 		return client, err
@@ -230,17 +250,18 @@ func (a *App) buildProvider(ctx context.Context, p *project, instance buildInsta
 // window's language server so both build and editor requests reuse it.
 func (a *App) sharedBuildProvider(ctx context.Context, p *project, instance buildInstance, languageID string) (*buildprovider.Client, error) {
 	key := instance.PluginID + "\x00" + languageID
-	p.build.runtime.mu.Lock()
-	if client := p.build.runtime.shared[key]; client != nil && !client.Closed() {
-		p.build.runtime.mu.Unlock()
+	p.buildSessions.mu.Lock()
+	detached := p.buildSessions.detached
+	if client := p.buildSessions.shared[key]; client != nil && !client.Closed() {
+		p.buildSessions.mu.Unlock()
 		return client, nil
 	}
-	p.build.runtime.mu.Unlock()
+	p.buildSessions.mu.Unlock()
 
 	a.pluginServerMu.Lock()
 	if server := a.pluginServers[instance.PluginID]; server != nil && server.project == p {
 		a.pluginServerMu.Unlock()
-		return a.attachSharedBuildClient(ctx, p, instance, key, server)
+		return a.attachSharedBuildClient(ctx, p, instance, key, server, detached)
 	}
 	a.pluginServerMu.Unlock()
 
@@ -287,7 +308,7 @@ func (a *App) sharedBuildProvider(ctx context.Context, p *project, instance buil
 		// Another start won; attach to it and dispose the extra session.
 		serveCancel()
 		a.stopPluginSession(session)
-		return a.attachSharedBuildClient(ctx, p, instance, key, existing)
+		return a.attachSharedBuildClient(ctx, p, instance, key, existing, detached)
 	}
 	a.pluginServers[instance.PluginID] = server
 	if a.pluginServerLanguages == nil {
@@ -304,31 +325,33 @@ func (a *App) sharedBuildProvider(ctx context.Context, p *project, instance buil
 		a.releasePluginDocuments(instance.PluginID)
 		a.openDocumentsForPlugin(p, server, languageID)
 	})
-	return a.attachSharedBuildClient(ctx, p, instance, key, server)
+	return a.attachSharedBuildClient(ctx, p, instance, key, server, detached)
 }
 
 // attachSharedBuildClient waits for the session's real ready event before it
 // returns. A language server that is already ready is recorded by pluginServer,
-// so Attach can mark this client ready without inventing a ready state.
-func (a *App) attachSharedBuildClient(ctx context.Context, p *project, instance buildInstance, key string, server *pluginServer) (*buildprovider.Client, error) {
+// so Attach can mark this client ready without inventing a ready state. detached
+// is the runtime's detach count when the caller began: a client attached after
+// another detach belongs to the sessions it took and is dropped.
+func (a *App) attachSharedBuildClient(ctx context.Context, p *project, instance buildInstance, key string, server *pluginServer, detached uint64) (*buildprovider.Client, error) {
 	client := server.attachBuild(a.plugins.Backend, server.session.Session)
 	if err := client.WaitReady(ctx); err != nil {
 		server.detachBuild(client)
 		_ = client.Close(context.Background())
 		return nil, err
 	}
-	p.build.runtime.mu.Lock()
-	if p.build.runtime.closed || ctx.Err() != nil || p.ctx.Err() != nil {
-		p.build.runtime.mu.Unlock()
+	p.buildSessions.mu.Lock()
+	if p.buildSessions.closed || p.buildSessions.detached != detached || ctx.Err() != nil || p.ctx.Err() != nil {
+		p.buildSessions.mu.Unlock()
 		server.detachBuild(client)
 		_ = client.Close(context.Background())
 		return nil, buildprovider.ErrClosed
 	}
-	if p.build.runtime.shared == nil {
-		p.build.runtime.shared = make(map[string]*buildprovider.Client)
+	if p.buildSessions.shared == nil {
+		p.buildSessions.shared = make(map[string]*buildprovider.Client)
 	}
-	p.build.runtime.shared[key] = client
-	p.build.runtime.mu.Unlock()
+	p.buildSessions.shared[key] = client
+	p.buildSessions.mu.Unlock()
 	return client, nil
 }
 
@@ -1105,18 +1128,26 @@ func (a *App) stopBuildOperation(p *project) {
 	}
 }
 
-// stopBuild cancels the current operation and stops every provider this project
-// started. The sessions are stopped on a background task with a bounded wait.
+// stopBuild cancels the current operation and stops every provider this project started, for a
+// project that closes.
 func (a *App) stopBuild(p *project) {
+	a.stopBuildSessions(p, true)
+}
+
+// stopBuildSessions cancels the current operation and stops the sessions the project holds on a
+// background task with a bounded wait. The sessions are detached from the project first, so the
+// task closes exactly them whatever the project starts next; with closing set the project starts no
+// session again.
+func (a *App) stopBuildSessions(p *project, closing bool) {
 	if p == nil {
 		return
 	}
 	operation := p.build.operation
-	runtime := &p.build.runtime
 	p.build.operation = nil
 	if operation != nil {
 		operation.stop()
 	}
+	clients := p.buildSessions.detach(closing)
 	a.tasks.running.Add(1)
 	go func() {
 		defer a.tasks.running.Done()
@@ -1125,7 +1156,9 @@ func (a *App) stopBuild(p *project) {
 		if operation != nil && operation.request != nil && operation.provider != nil {
 			_ = operation.provider.Cancel(ctx, operation.request)
 		}
-		runtime.close(ctx)
+		for _, client := range clients {
+			_ = client.Close(ctx)
+		}
 	}()
 }
 
@@ -1136,9 +1169,7 @@ func (a *App) invalidateBuild(p *project) {
 		return
 	}
 	a.stopTestsForProject(p)
-	a.stopBuild(p)
-	// stopBuild captured the old runtime; replacing it lets the next detection
-	// start fresh sessions without waiting for the old close.
+	a.stopBuildSessions(p, false)
 	p.build = buildState{}
 }
 

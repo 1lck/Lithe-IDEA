@@ -109,6 +109,9 @@ type Capabilities map[string][]int
 //     ranges Core finds; a matcher with resolve asks the backend on click.
 //   - ui: text, web (window.lithe bridge) and native tree, list or form tool
 //     windows docked in the tool stripes.
+//   - vcsProviders: each provider's roots get a version control tool window
+//     with status, check-in, rollback, Diff and whatever else the provider
+//     negotiated; its session starts when the window first needs it.
 //
 // Not presented yet (the plugin installs, the part has no surface):
 //
@@ -122,9 +125,12 @@ type Capabilities map[string][]int
 //     native configuration, inline test reports and runtime debug; build system
 //     instance options and task preparations.
 //   - ui commands that belong to no tool window.
+//   - VCS provider annotation, file history, file operations, metadata
+//     watching, authentication, history entry diffs, status in the project tree
+//     and the editor gutter, and lithe/vcs/execution console output.
 //
-// buildModelInputs, executionProviders, keymapImportProviders, packageTrust,
-// toolchainProviders and vcsProviders are not declared: nothing here serves
+// buildModelInputs, executionProviders, keymapImportProviders, packageTrust and
+// toolchainProviders are not declared: nothing here serves
 // them, so a plugin that needs one is not offered for installation.
 func Declared() Capabilities {
 	baseline := []string{
@@ -140,6 +146,7 @@ func Declared() Capabilities {
 		"settings",
 		"toolDefinitions",
 		"ui",
+		"vcsProviders",
 	}
 	declared := make(Capabilities, len(baseline))
 	for _, name := range baseline {

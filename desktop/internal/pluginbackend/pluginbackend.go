@@ -61,6 +61,7 @@ type Kernel interface {
 	PlanPluginBackend(ctx context.Context, manifest json.RawMessage, directories core.PluginBackendDirectories) (core.PluginBackendPlan, error)
 	PlanPluginLanguageServer(ctx context.Context, manifest json.RawMessage, languageID string, directories core.PluginBackendDirectories) (core.PluginBackendPlan, error)
 	PlanPluginBuildProvider(ctx context.Context, manifest json.RawMessage, buildSystemID string, directories core.PluginBackendDirectories) (core.PluginBackendPlan, error)
+	PlanPluginVcsProvider(ctx context.Context, manifest json.RawMessage, vcsProviderID string, directories core.PluginBackendDirectories) (core.PluginBackendPlan, error)
 	StartPluginBackend(ctx context.Context, request core.PluginBackendStart) (core.PluginBackendStarted, error)
 	StartPluginLanguageServer(ctx context.Context, request core.PluginBackendStart) (core.PluginBackendStarted, error)
 	WaitBackendEvents(ctx context.Context, session string, timeoutMilliseconds int) ([]core.BackendEvent, error)
@@ -69,6 +70,7 @@ type Kernel interface {
 	RespondPluginHostRequest(ctx context.Context, session, requestID string, result json.RawMessage, failure *core.PluginHostFailure) error
 	RequestPluginSemantics(ctx context.Context, request core.PluginSemanticRequest) (string, error)
 	RequestPluginBuild(ctx context.Context, request core.PluginBuildProviderRequest) (string, error)
+	RequestPluginVcs(ctx context.Context, request core.PluginVcsRequest) (string, error)
 	InvokePluginFunction(ctx context.Context, session, operation, plugin, function string, params json.RawMessage) (string, error)
 	InvokePluginFunctionInContext(ctx context.Context, session, operation, plugin, function string, params, workspaceContext json.RawMessage, timeoutMilliseconds int) (string, error)
 	SendPluginHostNotification(ctx context.Context, session, method string, params json.RawMessage) (bool, error)
@@ -92,8 +94,11 @@ type StartRequest struct {
 	// BuildSystemID selects a build-system provider instead of a language
 	// server or generic backend. It is empty for those roles.
 	BuildSystemID string
+	// VcsProviderID selects a VCS provider the same way. It is empty for the
+	// other roles.
+	VcsProviderID string
 	// Role is the Core session role. Empty keeps the historical backend role;
-	// a build provider names "build".
+	// a build provider names "build" and a VCS provider "vcs".
 	Role string
 	// StateDirectory and the other directories are writable locations the host
 	// created before starting.
@@ -208,6 +213,8 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 		plan = *request.Plan
 	} else if request.BuildSystemID != "" {
 		plan, err = r.kernel.PlanPluginBuildProvider(ctx, request.Manifest, request.BuildSystemID, directories)
+	} else if request.VcsProviderID != "" {
+		plan, err = r.kernel.PlanPluginVcsProvider(ctx, request.Manifest, request.VcsProviderID, directories)
 	} else if request.LanguageID != "" {
 		plan, err = r.kernel.PlanPluginLanguageServer(ctx, request.Manifest, request.LanguageID, directories)
 	} else {
@@ -229,6 +236,9 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 				LanguageID:    plan.BuildProvider.LanguageServer,
 			}
 		}
+	}
+	if request.VcsProviderID != "" && plan.VcsProvider == nil {
+		return Session{}, fmt.Errorf("%w: the plan names no VCS provider", ErrRequest)
 	}
 	if plan.Owner != nil && plan.Owner.PluginID != request.PluginID {
 		return Session{}, fmt.Errorf("%w: launch plan belongs to another plugin", ErrRequest)
@@ -577,6 +587,29 @@ func (r *Runner) RequestBuild(ctx context.Context, session Session, request core
 	}
 	request.SessionID = session.ID
 	return r.kernel.RequestPluginBuild(ctx, request)
+}
+
+// ResolveCommand finds the first of commands the way a system-command launch
+// does, for a tool a provider runs itself rather than one the runner launches,
+// such as the client a VCS provider drives.
+func (r *Runner) ResolveCommand(commands []string) (string, error) {
+	if r == nil {
+		return "", errors.New("pluginbackend: no runner")
+	}
+	return pluginhost.ResolveCommand(commands, r.lookup)
+}
+
+// RequestVcs submits one VCS operation to a session that negotiated the
+// protocol and returns Core's operation ID.
+func (r *Runner) RequestVcs(ctx context.Context, session Session, request core.PluginVcsRequest) (string, error) {
+	if r == nil || r.kernel == nil {
+		return "", errors.New("pluginbackend: no kernel")
+	}
+	if session.ID == "" {
+		return "", ErrNoSession
+	}
+	request.SessionID = session.ID
+	return r.kernel.RequestPluginVcs(ctx, request)
 }
 
 // RequestFunction uses the owner of the running session. Core validates the

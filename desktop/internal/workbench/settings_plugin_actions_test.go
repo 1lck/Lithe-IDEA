@@ -62,7 +62,7 @@ func TestSettingsActionConfirmsInvokesExistingProviderWithoutSaving(t *testing.T
 	// Display metadata is mutable view state and must never authorize a backend version.
 	editor.Snapshot.State.Metadata.Version = "0.0.0"
 	sources := pluginSettingsSources{app: h.app}
-	beforeConfirmation := p.build.runtime.functionClients("dev.lithe.test.provider-tests")
+	beforeConfirmation := p.buildSessions.functionClients("dev.lithe.test.provider-tests")
 	publication := h.app.toolchainRoot.Load()
 	kernel.onPlan = func() { replacement := root; h.app.toolchainRoot.Store(&replacement) }
 	if _, err := sources.Action(ctx, editor, "refresh", false); !errors.Is(err, configfile.ErrConflict) {
@@ -75,7 +75,7 @@ func TestSettingsActionConfirmsInvokesExistingProviderWithoutSaving(t *testing.T
 	if err != nil || confirmation.Plan.Kind != "confirmationRequired" || confirmation.Completed {
 		t.Fatalf("confirmation: %+v %v", confirmation, err)
 	}
-	if len(p.build.runtime.functionClients("dev.lithe.test.provider-tests")) != len(beforeConfirmation) {
+	if len(p.buildSessions.functionClients("dev.lithe.test.provider-tests")) != len(beforeConfirmation) {
 		t.Fatal("confirmation started or attached a provider")
 	}
 	if _, err := os.Stat(filepath.Join(root, "action-invoked.marker")); !errors.Is(err, os.ErrNotExist) {
@@ -94,7 +94,7 @@ func TestSettingsActionConfirmsInvokesExistingProviderWithoutSaving(t *testing.T
 		awaitStateWithin(t, h, 8*time.Second, "settings action terminal", func() bool { return finished })
 		return result, actionErr
 	}
-	before := p.build.runtime.functionClients("dev.lithe.test.provider-tests")
+	before := p.buildSessions.functionClients("dev.lithe.test.provider-tests")
 	if len(before) != 1 {
 		t.Fatalf("warm provider count: %d", len(before))
 	}
@@ -102,7 +102,7 @@ func TestSettingsActionConfirmsInvokesExistingProviderWithoutSaving(t *testing.T
 	if err != nil || !completed.Completed {
 		t.Fatalf("action result: %+v %v", completed, err)
 	}
-	after := p.build.runtime.functionClients("dev.lithe.test.provider-tests")
+	after := p.buildSessions.functionClients("dev.lithe.test.provider-tests")
 	if len(after) != 1 || after[0].Session().ID != before[0].Session().ID {
 		t.Fatal("action replaced or duplicated its provider")
 	}

@@ -309,7 +309,7 @@
 | `git-workspace-commit-retry` | 失败后只重试未完成的提交或推送步骤 | 必须迁移 | 实现/实现 | 部分 | commit.go `retryCommit`：本项目仓库的提交失败后可重试剩余步骤，先显示复核；多仓库批量提交未接（见 `git-workspace-staged-commit`） |
 | `git-workspace-staged-commit` | 按文件所属仓库批量提交及推送，保留每仓库结果 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
 | `git-worktrees` | Worktree 管理 | 必须迁移 | 实现/实现 | 部分 | gitworktree.go、gitworktree_view.go、core/gitworktree.go；在新窗口打开、悬停信息、设置页未做 |
-| `vcs-subversion-and-plugin-providers` | 统一 VCS 模型与插件 VCS Provider | 插件提供 | 部分/缺 | 未开始 | C06 扩展点：vcsProviders；无 desktop/ 证据 |
+| `vcs-subversion-and-plugin-providers` | 统一 VCS 模型与插件 VCS Provider | 插件提供 | 部分/缺 | 部分 | C06 扩展点：vcsProviders；vcs.go、vcs_view.go、core/vcs.go：每个 Provider 一个工具窗口，状态、提交、回滚、更新、标记解决、清理、历史、只读 Diff；Annotate、单文件历史、gutter、元数据监听、fileOperations、项目树状态未做 |
 
 ### 界面（3）
 

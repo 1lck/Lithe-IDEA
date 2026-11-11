@@ -172,7 +172,7 @@ func (a *App) closePluginPages() {
 func (a *App) closeStalePluginPages() {
 	for id, page := range a.pluginPages {
 		index, known := a.chrome.index[id]
-		if !known || !sameToolWindow(a.chrome.catalog[index].tool, &page.tool) {
+		if !known || a.chrome.catalog[index].tool == nil || !sameToolWindow(a.chrome.catalog[index].tool, &page.tool) {
 			page.close()
 			delete(a.pluginPages, id)
 		}

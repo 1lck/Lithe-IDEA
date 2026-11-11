@@ -1,10 +1,11 @@
-// Package buildprovider owns one negotiated build-provider process and the
-// operations sent to it.
+// Package buildprovider owns one negotiated provider process, a build or a VCS
+// provider, and the operations sent to it.
 //
 // Core plans and verifies the process, keeps its event stream in order and
-// accepts only methods the litheBuild negotiation granted. This package starts
-// the planned process, waits for the ready state, correlates request events with
-// the host operation, and stops the session when its workspace closes.
+// accepts only methods the litheBuild or litheVcs negotiation granted. This
+// package starts the planned process, waits for the ready state, records the
+// VCS a provider negotiated, correlates request events with the host operation,
+// and stops the session when its workspace closes.
 package buildprovider
 
 import (
@@ -144,19 +145,26 @@ type Client struct {
 	mu      sync.Mutex
 	pending map[string]*Operation
 	closed  bool
+	// vcs and capabilities are what a VCS provider negotiated, recorded from
+	// Core's vcsProvider event before the session turned ready.
+	vcs          string
+	capabilities map[string]int
 
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
-// Start launches the provider Core planned for one build system and waits for
-// its initialize handshake. The caller must run this away from the window
-// thread. Close owns the process and must be called when the workspace closes.
+// Start launches the provider Core planned for one build system or VCS and
+// waits for its initialize handshake. A request without a role starts a build
+// provider. The caller must run this away from the window thread. Close owns
+// the process and must be called when the workspace closes.
 func Start(ctx context.Context, runner *pluginbackend.Runner, request pluginbackend.StartRequest) (*Client, error) {
 	if runner == nil {
 		return nil, errors.New("buildprovider: no runner")
 	}
-	request.Role = "build"
+	if request.Role == "" {
+		request.Role = "build"
+	}
 	session, err := runner.Start(ctx, request)
 	if err != nil {
 		return nil, err
@@ -241,6 +249,29 @@ func (c *Client) WaitReady(ctx context.Context) error {
 func (c *Client) Execute(ctx context.Context, method string, params json.RawMessage, timeoutMilliseconds int) (*Operation, error) {
 	return c.execute(ctx, method, params, func(id string) error {
 		_, err := c.runner.RequestBuild(ctx, c.session, core.PluginBuildProviderRequest{OperationID: id, Method: method, Params: params, TimeoutMilliseconds: timeoutMilliseconds})
+		return err
+	})
+}
+
+// VcsProvider is the VCS and capabilities the provider negotiated; ok is false
+// when it negotiated none. Core announces them before the session turns ready,
+// so they are known once Start returns.
+func (c *Client) VcsProvider() (vcs string, capabilities map[string]int, ok bool) {
+	if c == nil {
+		return "", nil, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.vcs, c.capabilities, c.vcs != ""
+}
+
+// ExecuteVcs sends one VCS operation and returns the correlated operation; its
+// result is the provider's reply, which the caller has Core decode. Core
+// refuses an operation the provider did not negotiate.
+func (c *Client) ExecuteVcs(ctx context.Context, request core.PluginVcsRequest) (*Operation, error) {
+	return c.execute(ctx, request.Operation, request.Arguments, func(id string) error {
+		request.OperationID = id
+		_, err := c.runner.RequestVcs(ctx, c.session, request)
 		return err
 	})
 }
@@ -357,6 +388,18 @@ func (c *Client) observe(event core.BackendEvent) {
 		c.markReady()
 		return
 	}
+	if event.Type == "vcsProvider" {
+		var negotiated struct {
+			Vcs          string         `json:"vcs"`
+			Capabilities map[string]int `json:"capabilities"`
+		}
+		if json.Unmarshal(event.Result, &negotiated) == nil && negotiated.Vcs != "" {
+			c.mu.Lock()
+			c.vcs, c.capabilities = negotiated.Vcs, negotiated.Capabilities
+			c.mu.Unlock()
+		}
+		return
+	}
 	if event.OperationID == "" {
 		return
 	}
@@ -429,16 +472,29 @@ func (c *Client) ended() error {
 	return ErrClosed
 }
 
+// ProviderError is the failure a provider completed an operation with: the
+// stable code Core kept or normalised, and the bounded message.
+type ProviderError struct {
+	Code    string
+	Message string
+}
+
+func (e *ProviderError) Error() string {
+	if e.Code == "" {
+		return e.Message
+	}
+	return e.Code + ": " + e.Message
+}
+
 func providerError(raw json.RawMessage) error {
-	var failure struct {
+	var failure ProviderError
+	var decoded struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
 	}
-	if json.Unmarshal(raw, &failure) == nil && failure.Message != "" {
-		if failure.Code != "" {
-			return fmt.Errorf("%s: %s", failure.Code, failure.Message)
-		}
-		return errors.New(failure.Message)
+	if json.Unmarshal(raw, &decoded) == nil && decoded.Message != "" {
+		failure.Code, failure.Message = decoded.Code, decoded.Message
+		return &failure
 	}
 	return fmt.Errorf("build provider failed: %s", string(raw))
 }

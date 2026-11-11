@@ -121,6 +121,8 @@ type PluginBackendPlan struct {
 	// LanguageServer names a session this host already keeps for that language
 	// instead of a second process; the host must send build requests to it.
 	BuildProvider *PluginBuildProviderPlan `json:"buildProvider"`
+	// VcsProvider is the descriptor of the VCS when the plan was selected by vcsProviderID.
+	VcsProvider *VcsProviderDescriptor `json:"vcsProvider"`
 }
 
 // PluginBuildProviderPlan identifies the build system a provider serves and

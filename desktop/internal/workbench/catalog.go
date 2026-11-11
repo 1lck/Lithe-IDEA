@@ -198,6 +198,9 @@ type item struct {
 	open bool
 	// tool is the plugin tool window the item shows; nil for a built-in item.
 	tool *pluginservice.ToolWindow
+	// vcs is the plugin version control provider whose window the item shows (vcs.go); nil for
+	// any other item.
+	vcs *vcsWindow
 }
 
 // catalog is every rearrangeable button, in the default order of each zone. The

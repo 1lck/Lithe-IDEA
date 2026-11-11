@@ -351,6 +351,12 @@ type project struct {
 	nativeSaved  map[string]savedNativePanel
 	// build is the Run tool window's provider-backed instances and output.
 	build buildState
+	// buildSessions are the build provider sessions the project started. They live beside build
+	// rather than in it, so dropping the detected instances never overwrites sessions a background
+	// task still holds or is closing.
+	buildSessions buildRuntime
+	// vcs is the state of the windows of the plugin version control providers (vcs.go).
+	vcs vcsState
 	// runConfigs are the run configurations Core resolved for the workspace.
 	runConfigs runConfigState
 	// links are the output link matchers and the answers for the lines shown.
@@ -1117,6 +1123,8 @@ func (a *App) finishCloseProject(p *project, after func()) {
 		// Build providers and prepared applications belong to the workspace and
 		// are stopped before the project state is dropped.
 		a.stopBuild(p)
+		// Version control provider sessions run in the workspace too.
+		a.stopVcs(p)
 		// A language server is bound to the workspace it was started for, so it goes
 		// with the project rather than outliving it.
 		a.stopAllPluginServers()

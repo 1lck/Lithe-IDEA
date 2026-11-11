@@ -4,22 +4,36 @@
   "group": "统一 VCS",
   "capability": "统一 VCS 模型与插件 VCS Provider：同一工作区可识别 Git 与 Subversion 等不同 VCS 的根，变更列表、提交、回滚、更新、文件历史、Annotate、项目树文件状态和 gutter 按 Provider 声明的能力工作；Subversion 由独立仓库的社区插件通过系统 svn 命令行接入",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/core/vcs.go",
+      "desktop/internal/core/textdiff.go",
+      "desktop/internal/pluginservice/vcs.go",
+      "desktop/internal/pluginhost/pluginhost.go",
+      "desktop/internal/workbench/vcs.go",
+      "desktop/internal/workbench/vcs_view.go",
+      "desktop/internal/workbench/vcs_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/core/vcs.go",
+      "desktop/internal/core/textdiff.go",
+      "desktop/internal/pluginservice/vcs.go",
+      "desktop/internal/pluginhost/pluginhost.go",
+      "desktop/internal/workbench/vcs.go",
+      "desktop/internal/workbench/vcs_view.go",
+      "desktop/internal/workbench/vcs_test.go"
     ]
   },
   "owner": "Git",
   "verification": "Core 共享层自动化：cargo test -p lithe-core vcs、cargo test -p lithe-core --lib lsp 与 scripts/architecture/verify-shared-contracts.sh，覆盖 vcsProviders 清单校验与 git 保留、onVcsRoot 激活、svn 根识别（嵌套、歧义目录与映射、git worktree 文件、工作区位于工作副本内部、剪枝目录、深度上限）、vcs.ownerOf 最深根归属、litheVcs 只向插件会话提供、协商缺必需能力时拒绝、lsp.vcsRequest 按操作生成请求与能力检查、Provider 错误码白名单、vcs.decodeReply 的回复校验用例；Node SDK 的 litheVcs 与示例 Provider 端到端测试在 Lithe-core-rust 运行（shared/plugins/scripts/sdk-e2e.mjs）。Subversion 社区插件：独立源码由 https://github.com/Lithe-IDEA/lithe-plugin-svn 维护；插件 CI 校验固定 SDK 的源码哈希，用 svn 录制的 status/info/log/blame --xml 与错误输出样例覆盖解析和错误码映射，并按 sdk.lock.json 的宿主提交构建 Core 桥接，在 svnadmin create 建立的 file:// 仓库上经 Core 跑通状态（含 changelist 中的路径）、提交、过期提交、更新与冲突、resolve、回滚、移动（未版本化文件不覆盖已有目标）、删除、历史分页、Annotate 和二进制文件；固定宿主基线不代表已验证未来 preview。主仓库只保留通用 VCS 契约回归（清单 fixture 与 Core 测试）。macOS 宿主自动化：VcsProviderHostTests 覆盖根识别与状态着色、每个根单独监听元数据目录（含包住工作区的工作副本）、工作区内新出现的工作副本重新识别、项目树移动两端都归同一个根才交给 Provider、等待归属判断时开始别的操作则退回磁盘移动、找不到 VCS 客户端时报 vcs.tool.unavailable、关闭项目窗口后停止 Provider 且之后的工作区加载不再启动、工具窗口使用通用版本控制图标。宿主验收：从磁盘或 Lithe Store 安装 Subversion 社区插件后，在本地 svnadmin create 建立的 file:// 仓库检出的工作副本上验证根识别、文件状态颜色、gutter、提交、更新、回滚、add/move/delete 跟踪、文件历史、Annotate 和冲突显示；同时打开一个包含 Git 仓库与 SVN 工作副本的工作区，确认文件只归属最深的根，Git 行为不变；运行前后 app bundle 文件清单不变（scripts/macos/verify/verify-runtime-bundle-immutability.sh）。 VcsHistoryListTests 覆盖修订去重、耗尽/无进展/循环 cursor、失败保留与显式同页重试、在途去重、重置旧回复及取消；VcsProviderHostTests 使用 fake Provider 和真实 SwiftUI/NSScrollView 验证工作副本/单文件历史自动请求第二页、50条限额、追加偏移不动和耗尽停止。真实插件历史仍需 macOS 实机连续滚动验收，不据组件测试标记全部能力已验证。 VcsProviderHostTests 验证真实菜单回调的排序精确 .add/.delete 批次、缺能力、嵌套/歧义根、迟到所有权、串行操作及重置；CommitFileDeletionTests 验证Provider删除确认与成功后的干净文档关闭；在真实SVN社区插件工作副本上仍需验证添加、跟踪删除、取消不写及新标签完整流程，不能用fake Provider代替插件验收。",
-  "notes": "Viva：pluginhost.go 的 Declared() 没有声明 vcsProviders 能力，desktop/ 中也没有统一 VCS 模型或 Subversion 接入；Git 逻辑直接绑定在 core/git*.go 与 workbench/git*.go 中。",
+  "notes": "Viva：pluginhost.go 的 Declared() 声明 vcsProviders；Core vcs.detectRoots 找到的每个 Provider 根有一个版本控制工具窗口（vcs*.go），窗口第一次需要时才启动 Provider 会话并检查 litheVcs 协商。窗口按冲突、变更、未版本化分区列出 status，显示修订、分支与位置；勾选提交（commit 区高度与 Commit 窗口共用分栏规则，短面板也可见）、回滚确认、标记解决、清理、更新、历史分页与修订详情，双击变更经 baseContent 打开只读 Diff；按钮按协商能力显示。vcs_test.go 用假 Provider 走通识别、状态、Diff、回滚、提交、标记解决和历史。未实现：Annotate、单文件历史、gutter、元数据监听、fileOperations、项目树状态、ownerOf、lithe/vcs/execution 控制台输出、冲突另一方显示、历史条目 Diff、authenticate；真实 Subversion 插件验收 pending。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

@@ -72,10 +72,11 @@ func pluginToolIcon(host string) *gfx.Icon {
 	return &icons.LayoutGrid
 }
 
-// pluginItems is the built-in catalog followed by an item for each plugin tool window.
-// A window without its own icon has the generic tool window icon.
-func pluginItems(windows []pluginservice.ToolWindow) []item {
-	items := append(make([]item, 0, len(catalog)+len(windows)), catalog...)
+// pluginItems is the built-in catalog followed by an item for each plugin tool window, then
+// one for each plugin version control provider. A tool window without its own icon has the
+// generic tool window icon.
+func pluginItems(windows []pluginservice.ToolWindow, vcs []vcsWindow) []item {
+	items := append(make([]item, 0, len(catalog)+len(windows)+len(vcs)), catalog...)
 	for i := range windows {
 		window := &windows[i]
 		title := window.Title
@@ -84,7 +85,37 @@ func pluginItems(windows []pluginservice.ToolWindow) []item {
 			label: func(*i18n.Messages) string { return title }, panel: true, tool: window,
 		})
 	}
+	for i := range vcs {
+		window := &vcs[i]
+		title := window.DisplayName
+		items = append(items, item{
+			id: vcsItemID(window), zone: zoneBottomLeft, icon: &icons.GitBranch,
+			label: func(*i18n.Messages) string { return title }, panel: true, vcs: window,
+		})
+	}
 	return items
+}
+
+// vcsItems are the version control windows among items, in their order.
+func vcsItems(items []item) []*vcsWindow {
+	var windows []*vcsWindow
+	for index := range items {
+		if items[index].vcs != nil {
+			windows = append(windows, items[index].vcs)
+		}
+	}
+	return windows
+}
+
+// samePluginItem reports whether two plugin items show the same window from the same package.
+func samePluginItem(a, b *item) bool {
+	switch {
+	case a.tool != nil && b.tool != nil:
+		return sameToolWindow(a.tool, b.tool)
+	case a.vcs != nil && b.vcs != nil:
+		return sameVcsWindow(a.vcs, b.vcs)
+	}
+	return false
 }
 
 // sameToolWindow reports whether two declarations show the same window from the same
@@ -95,29 +126,25 @@ func sameToolWindow(a, b *pluginservice.ToolWindow) bool {
 		a.Text == b.Text && a.Web == b.Web && bytes.Equal(a.Manifest, b.Manifest)
 }
 
-// setPluginTools makes the tool windows of the enabled plugins part of the window's
-// catalog. Pages of windows that are gone or come from another package now close, and
-// the arrangement is repaired against the new catalog, restoring the saved places of
-// windows whose plugin is back.
-func (a *App) setPluginTools(windows []pluginservice.ToolWindow) {
-	current := a.chrome.catalog[len(catalog):]
-	if len(current) == len(windows) {
-		same := true
-		for i := range windows {
-			if !sameToolWindow(current[i].tool, &windows[i]) {
-				same = false
-				break
-			}
-		}
-		if same {
-			return
-		}
+// setPluginTools makes the tool windows and version control providers of the enabled plugins
+// part of the window's catalog. Pages of windows that are gone or come from another package now
+// close, and the arrangement is repaired against the new catalog, restoring the saved places of
+// windows whose plugin is back. When the providers change, the project forgets its working
+// copies and stops their sessions, so the next provider window detects again.
+func (a *App) setPluginTools(windows []pluginservice.ToolWindow, vcs []vcsWindow) {
+	items := pluginItems(windows, vcs)
+	current, next := a.chrome.catalog[len(catalog):], items[len(catalog):]
+	if slices.EqualFunc(current, next, func(x, y item) bool { return samePluginItem(&x, &y) }) {
+		return
+	}
+	if !slices.EqualFunc(vcsItems(current), vcsItems(next), sameVcsWindow) {
+		a.invalidateVcs(a.project)
 	}
 	restated := a.chrome.restated()
 	// A drag holds catalog indices, which mean other items now.
 	a.dnd.tool.Cancel()
 	a.drag = dragState{}
-	a.chrome.setItems(pluginItems(windows))
+	a.chrome.setItems(items)
 	a.closeStalePluginPages()
 	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
 	defer cancel()

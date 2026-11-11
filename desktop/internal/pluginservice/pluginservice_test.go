@@ -61,6 +61,10 @@ func (k *fakeKernel) PlanPluginBuildProvider(context.Context, json.RawMessage, s
 	return k.plan, k.planErr
 }
 
+func (k *fakeKernel) PlanPluginVcsProvider(context.Context, json.RawMessage, string, core.PluginBackendDirectories) (core.PluginBackendPlan, error) {
+	return k.plan, k.planErr
+}
+
 func (k *fakeKernel) StartPluginBackend(context.Context, core.PluginBackendStart) (core.PluginBackendStarted, error) {
 	return k.started, k.startErr
 }
@@ -116,6 +120,10 @@ func (k *fakeKernel) RequestPluginSemantics(_ context.Context, request core.Plug
 
 func (k *fakeKernel) RequestPluginBuild(context.Context, core.PluginBuildProviderRequest) (string, error) {
 	return "build-1", nil
+}
+
+func (k *fakeKernel) RequestPluginVcs(context.Context, core.PluginVcsRequest) (string, error) {
+	return "vcs-1", nil
 }
 
 func (k *fakeKernel) CancelPluginOperation(context.Context, string, string) error { return nil }

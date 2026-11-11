@@ -38470,7 +38470,8 @@
       "id": "native.added",
       "description": "Native UI: Added",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Added",
@@ -40291,7 +40292,8 @@
       "id": "native.arg1FilesSelected",
       "description": "Native UI: %lld files selected",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "%lld files selected",
@@ -40307,7 +40309,8 @@
       "id": "native.arg1HoldsTheMetadataOfSeveralVersionControlSystemsChooseTheOneThatManagesIt",
       "description": "Native UI: %@ holds the metadata of several version control systems. Choose the one that manages it.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "%@ holds the metadata of several version control systems. Choose the one that manages it.",
@@ -40737,7 +40740,8 @@
       "id": "native.authenticationFailedLitheCannotAskForCredentialsYetSignInOnceWithTheCommandLineClientSoItStoresThemThenTryAgain",
       "description": "Native UI: Authentication failed. Lithe cannot ask for credentials yet: sign in once with the command-line client so it stores them, then try again.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Authentication failed. Lithe cannot ask for credentials yet: sign in once with the command-line client so it stores them, then try again.",
@@ -41183,7 +41187,8 @@
       "id": "native.baseRevision",
       "description": "Native UI: Base revision",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Base revision",
@@ -43817,7 +43822,8 @@
       "id": "native.cleanUpWorkingCopy",
       "description": "Native UI: Clean Up Working Copy",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Clean Up Working Copy",
@@ -45482,7 +45488,8 @@
       "id": "native.committed2",
       "description": "Native UI: Committed.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Committed.",
@@ -45537,7 +45544,8 @@
       "id": "native.committedRevisionArg1",
       "description": "Native UI: Committed revision %@.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Committed revision %@.",
@@ -46072,7 +46080,8 @@
       "id": "native.conflicted",
       "description": "Native UI: Conflicted",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Conflicted",
@@ -46083,7 +46092,8 @@
       "id": "native.conflicts",
       "description": "Native UI: Conflicts",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Conflicts",
@@ -46742,7 +46752,8 @@
       "id": "native.copied",
       "description": "Native UI: Copied",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Copied",
@@ -49329,7 +49340,8 @@
       "id": "native.deleted",
       "description": "Native UI: Deleted",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Deleted",
@@ -49576,7 +49588,8 @@
       "id": "native.detectAgain2",
       "description": "Native UI: Detect Again",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Detect Again",
@@ -49719,7 +49732,8 @@
       "id": "native.detectingWorkingCopies",
       "description": "Native UI: Detecting working copies…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Detecting working copies…",
@@ -56295,7 +56309,8 @@
       "id": "native.history",
       "description": "Native UI: History",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "History",
@@ -56761,7 +56776,8 @@
       "id": "native.ignored",
       "description": "Native UI: Ignored",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Ignored",
@@ -57025,7 +57041,8 @@
       "id": "native.includeInCommit",
       "description": "Native UI: Include in commit",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Include in commit",
@@ -60337,7 +60354,8 @@
       "id": "native.litheCouldNotEvaluateTheVersionControlDataArg1",
       "description": "Native UI: Lithe could not evaluate the version control data: %@",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Lithe could not evaluate the version control data: %@",
@@ -61731,7 +61749,8 @@
       "id": "native.loadMore",
       "description": "Native UI: Load More",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Load More",
@@ -62267,7 +62286,8 @@
       "id": "native.localEditsToTheseFilesAreLost",
       "description": "Native UI: Local edits to these files are lost.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Local edits to these files are lost.",
@@ -62466,7 +62486,8 @@
       "id": "native.lockedByAnotherUser",
       "description": "Native UI: Locked by another user",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Locked by another user",
@@ -62477,7 +62498,8 @@
       "id": "native.lockedInThisWorkingCopy",
       "description": "Native UI: Locked in this working copy",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Locked in this working copy",
@@ -62960,7 +62982,8 @@
       "id": "native.markAsResolved",
       "description": "Native UI: Mark as Resolved",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Mark as Resolved",
@@ -63981,7 +64004,8 @@
       "id": "native.missing",
       "description": "Native UI: Missing",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Missing",
@@ -64164,7 +64188,8 @@
       "id": "native.moreActions2",
       "description": "Native UI: More Actions",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "More Actions",
@@ -64557,7 +64582,8 @@
       "id": "native.moved",
       "description": "Native UI: Moved",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Moved",
@@ -64568,7 +64594,8 @@
       "id": "native.movedFromArg1",
       "description": "Native UI: Moved from %@",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Moved from %@",
@@ -65544,7 +65571,8 @@
       "id": "native.noArg1WorkingCopyWasDetectedInThisWorkspace",
       "description": "Native UI: No %@ working copy was detected in this workspace.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "No %@ working copy was detected in this workspace.",
@@ -66220,7 +66248,8 @@
       "id": "native.noLocalChanges",
       "description": "Native UI: No local changes",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "No local changes",
@@ -66954,7 +66983,8 @@
       "id": "native.noRevisions",
       "description": "Native UI: No revisions",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "No revisions",
@@ -71470,7 +71500,8 @@
       "id": "native.propertiesModified",
       "description": "Native UI: Properties modified",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Properties modified",
@@ -72397,7 +72428,8 @@
       "id": "native.readingChanges",
       "description": "Native UI: Reading changes…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Reading changes…",
@@ -74092,7 +74124,8 @@
       "id": "native.renamed",
       "description": "Native UI: Renamed",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Renamed",
@@ -74375,7 +74408,8 @@
       "id": "native.replaced",
       "description": "Native UI: Replaced",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Replaced",
@@ -75778,7 +75812,8 @@
       "id": "native.rollBack",
       "description": "Native UI: Roll Back",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Roll Back",
@@ -75789,7 +75824,8 @@
       "id": "native.rollBack.variant2",
       "description": "Native UI: Roll Back…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Roll Back…",
@@ -75844,7 +75880,8 @@
       "id": "native.rollBackTheSelectedChanges",
       "description": "Native UI: Roll back the selected changes?",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Roll back the selected changes?",
@@ -81634,7 +81671,8 @@
       "id": "native.switched",
       "description": "Native UI: Switched",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Switched",
@@ -82326,7 +82364,8 @@
       "id": "native.theActionStoppedOnConflictedFilesResolveThemThenTryAgain",
       "description": "Native UI: The action stopped on conflicted files. Resolve them, then try again.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "The action stopped on conflicted files. Resolve them, then try again.",
@@ -85875,7 +85914,8 @@
       "id": "native.theVersionControlClientCouldNotBeRunCheckThatItIsInstalled",
       "description": "Native UI: The version control client could not be run. Check that it is installed.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "The version control client could not be run. Check that it is installed.",
@@ -85886,7 +85926,8 @@
       "id": "native.theVersionControlProviderFailedToStart",
       "description": "Native UI: The version control provider failed to start.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "The version control provider failed to start.",
@@ -85897,7 +85938,8 @@
       "id": "native.theVersionControlProviderStoppedBeforeItWasReady",
       "description": "Native UI: The version control provider stopped before it was ready.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "The version control provider stopped before it was ready.",
@@ -85930,7 +85972,8 @@
       "id": "native.theWorkingCopyIsLockedByAnInterruptedActionRunCleanupThenTryAgain",
       "description": "Native UI: The working copy is locked by an interrupted action. Run Cleanup, then try again.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "The working copy is locked by an interrupted action. Run Cleanup, then try again.",
@@ -85941,7 +85984,8 @@
       "id": "native.theWorkingCopyIsOutOfDateUpdateItThenCommitAgain",
       "description": "Native UI: The working copy is out of date. Update it, then commit again.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "The working copy is out of date. Update it, then commit again.",
@@ -85952,7 +85996,8 @@
       "id": "native.theWorkingCopyWasCleanedUp",
       "description": "Native UI: The working copy was cleaned up.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "The working copy was cleaned up.",
@@ -85974,7 +86019,8 @@
       "id": "native.theWorkspace",
       "description": "Native UI: The workspace",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "The workspace",
@@ -86050,7 +86096,8 @@
       "id": "native.theWorkspaceIsTooLargeToSearchCompletelySomeWorkingCopiesMayBeMissing",
       "description": "Native UI: The workspace is too large to search completely; some working copies may be missing.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "The workspace is too large to search completely; some working copies may be missing.",
@@ -86096,7 +86143,8 @@
       "id": "native.thereAreTooManyChangesToListSomeAreNotShown",
       "description": "Native UI: There are too many changes to list; some are not shown.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "There are too many changes to list; some are not shown.",
@@ -87110,7 +87158,8 @@
       "id": "native.thisVersionControlProviderDoesNotSupportThisAction",
       "description": "Native UI: This version control provider does not support this action.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "This version control provider does not support this action.",
@@ -87198,7 +87247,8 @@
       "id": "native.thisWorkingCopyFormatIsNotSupportedUpgradeItWithTheCommandLineClient",
       "description": "Native UI: This working copy format is not supported. Upgrade it with the command-line client.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "This working copy format is not supported. Upgrade it with the command-line client.",
@@ -89172,7 +89222,8 @@
       "id": "native.treeConflict",
       "description": "Native UI: Tree conflict",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Tree conflict",
@@ -89354,7 +89405,8 @@
       "id": "native.typeChanged",
       "description": "Native UI: Type changed",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Type changed",
@@ -90115,7 +90167,8 @@
       "id": "native.unversioned",
       "description": "Native UI: Unversioned",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Unversioned",
@@ -90126,7 +90179,8 @@
       "id": "native.unversionedFiles",
       "description": "Native UI: Unversioned Files",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Unversioned Files",
@@ -90310,7 +90364,8 @@
       "id": "native.updateProject",
       "description": "Native UI: Update Project",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Update Project",
@@ -90457,7 +90512,8 @@
       "id": "native.updated2",
       "description": "Native UI: Updated.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Updated.",
@@ -90484,7 +90540,8 @@
       "id": "native.updatedToRevisionArg1",
       "description": "Native UI: Updated to revision %@.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Updated to revision %@.",
@@ -91545,7 +91602,8 @@
       "id": "native.versionControl",
       "description": "Native UI: Version Control",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Version Control",
@@ -91867,7 +91925,8 @@
       "id": "native.waitForTheRunningVersionControlActionToFinish",
       "description": "Native UI: Wait for the running version control action to finish.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Wait for the running version control action to finish.",
@@ -92544,7 +92603,8 @@
       "id": "native.workingCopy",
       "description": "Native UI: Working copy",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Working copy",
@@ -110415,6 +110475,13 @@
     {
       "id": "desktop.search.replaceFile",
       "description": "Accessibility label of one file row in the project replace preview; its value is the file path.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.vcs.commitDirectly",
+      "description": "Hint under the commit button of a plugin version control window whose provider sends a commit to the repository right away, with no separate push.",
       "platforms": [
         "desktop"
       ]

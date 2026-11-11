@@ -192,6 +192,8 @@ func (a *App) toolBody(c ui.C, tool item, p *project) {
 				a.pluginWebBody(c, tool, p)
 			case tool.tool != nil:
 				a.pluginTextBody(c, tool.tool)
+			case tool.vcs != nil:
+				a.vcsView(c, p, tool)
 			default:
 				a.toolPlaceholder(c)
 			}
