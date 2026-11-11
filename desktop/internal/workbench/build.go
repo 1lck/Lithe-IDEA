@@ -402,6 +402,12 @@ func (a *App) finishBuildDetection(p *project, generation uint64, instances []bu
 
 // loadBuildModel loads the selected provider-backed instance once.
 func (a *App) loadBuildModel(p *project, index int) {
+	a.loadBuildModelWith(p, index, false)
+}
+
+// loadBuildModelWith loads the model of one instance. refresh tells a provider the load is a
+// reload the user or the files asked for, so it re-reads what it caches.
+func (a *App) loadBuildModelWith(p *project, index int, refresh bool) {
 	if p == nil || index < 0 || index >= len(p.build.instances) {
 		return
 	}
@@ -414,7 +420,7 @@ func (a *App) loadBuildModel(p *project, index int) {
 	captured := *instance
 	kernel := a.kernel
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
-		model, err := a.providerModel(ctx, p, captured, kernel)
+		model, err := a.providerModel(ctx, p, captured, kernel, refresh)
 		return func(a *App) { a.finishBuildModel(p, captured.ID, model, err) }
 	})
 }
@@ -428,7 +434,7 @@ func (a *App) reloadBuildModel(p *project, index int) {
 	}
 	instance := &p.build.instances[index]
 	instance.modelLoaded, instance.modelError = false, ""
-	a.loadBuildModel(p, index)
+	a.loadBuildModelWith(p, index, true)
 }
 
 // commandModel runs a command-sourced model plan and decodes its output. The
@@ -478,12 +484,24 @@ func (a *App) commandModel(ctx context.Context, p *project, instance buildInstan
 	return model, runErr
 }
 
-func (a *App) providerModel(ctx context.Context, p *project, instance buildInstance, kernel Kernel) (core.BuildModel, error) {
+func (a *App) providerModel(ctx context.Context, p *project, instance buildInstance, kernel Kernel, refresh bool) (core.BuildModel, error) {
+	// The host resolves the build tool the provider runs with, so the provider never searches
+	// for it; an explicit tool setting that does not exist fails here, as it does for commands.
+	var tool *core.BuildTool
+	execution, err := a.resolveBuildExecutable(ctx, p, instance, a.text.Build)
+	if err != nil {
+		return core.BuildModel{}, err
+	}
+	if execution.Executable != "" {
+		tool = &core.BuildTool{Executable: execution.Executable, Environment: execution.Environment}
+	}
 	plan, err := kernel.PlanBuildModel(ctx, instance.Manifest, instance.BuildSystemID, core.BuildPlanRequest{
 		Root:                    instance.Root,
 		Options:                 instance.Options,
 		WorkspaceRoot:           p.root,
 		WorkspaceStateDirectory: "",
+		Refresh:                 refresh,
+		Tool:                    tool,
 	})
 	if err != nil {
 		return core.BuildModel{}, err
