@@ -475,6 +475,9 @@ func (a *App) startPluginLocations(kind semanticKind, p *project, d *document, l
 	a.closeSemanticHover()
 	a.closeSemanticCompletion()
 	a.closeSemanticDefinition()
+	if kind == pluginSemanticDefinition && a.startProviderDefinition(p, d, line, column) {
+		return
+	}
 	if !a.semanticDocumentReady(d) {
 		a.deferSemantic(p, d, func(a *App) { a.startPluginLocations(kind, p, d, line, column, requireCaret) })
 		a.startDocumentSync(p, d)
@@ -813,9 +816,16 @@ func (a *App) applySemanticDefinition(pending *semanticPending, event core.Backe
 		limit = maxReferenceTargets
 	}
 	targets := a.usableDefinitionTargets(locations, limit)
+	a.presentDefinitionTargets(p, d, pending.kind, targets, len(locations), pending.revision)
+}
+
+// presentDefinitionTargets shows the locations of a definition or references answer, from a language
+// server or a plugin provider: one definition opens, several wait in the list, and nothing found says so.
+func (a *App) presentDefinitionTargets(p *project, d *document, kind semanticKind, targets []core.PluginSemanticLocation, answered int, revision int) {
+	references := kind == pluginSemanticReferences
 	if len(targets) == 0 {
 		switch {
-		case len(locations) > 0:
+		case answered > 0:
 			// Every target is outside the file system (a class in a jar):
 			// say so instead of looking like an empty answer.
 			a.notify(i18n.Shared(a.language(), "desktop.semantics.targetUnavailable"))
@@ -841,8 +851,39 @@ func (a *App) applySemanticDefinition(pending *semanticPending, event core.Backe
 		references: references,
 		targets:    targets,
 		documentID: d.id,
-		revision:   pending.revision,
+		revision:   revision,
 	}
+}
+
+// startProviderDefinition asks a plugin's definition provider when no language server serves the
+// document. It reports whether a provider took the request; with a server, the server answers alone
+// for now, because merging provider locations with the server's answer is not wired yet.
+func (a *App) startProviderDefinition(p *project, d *document, line, column int) bool {
+	if a.plugins == nil || p == nil || d == nil || d.virtual || d.path == "" {
+		return false
+	}
+	if _, serverOK := a.semanticServer(d); serverOK {
+		return false
+	}
+	if !a.plugins.HasDefinitionProvider(p.root, d.path, d.languageID) {
+		return false
+	}
+	revision, id, path, language, root, plugins := d.view.Revision(), strconv.Itoa(d.id), d.path, d.languageID, p.root, a.plugins
+	a.background(p, 20*time.Second, func(ctx context.Context) func(*App) {
+		locations, err := plugins.PluginDefinitions(ctx, root, path, language, id, revision, line, column)
+		return func(a *App) {
+			if p.docs.find(d.id) != d || d.view.Revision() != revision {
+				return
+			}
+			if err != nil {
+				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_provider", err))
+				return
+			}
+			targets := a.usableDefinitionTargets(locations, maxDefinitionTargets)
+			a.presentDefinitionTargets(p, d, pluginSemanticDefinition, targets, len(locations), revision)
+		}
+	})
+	return true
 }
 
 func (a *App) applySemanticHover(pending *semanticPending, event core.BackendEvent) {
