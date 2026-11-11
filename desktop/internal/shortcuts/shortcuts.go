@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/gfx"
@@ -32,6 +33,8 @@ const (
 	GroupRun
 	GroupTerminal
 	GroupAgent
+	// GroupToolWindows holds the plugin commands that open a tool window.
+	GroupToolWindows
 )
 
 // Title is the group's name in the language of messages.
@@ -54,6 +57,8 @@ func (g Group) Title(messages *i18n.Messages) string {
 		return t.GroupRun
 	case GroupTerminal:
 		return t.GroupTerminal
+	case GroupToolWindows:
+		return t.GroupToolWindows
 	default:
 		return t.GroupAgent
 	}
@@ -147,9 +152,33 @@ var Catalog = []Action{
 	{ID: "agent.new", Group: GroupAgent, Title: func(m *i18n.Messages) string { return m.Commands.NewAgentConversation }},
 }
 
-// Find is the catalog action with id.
+// pluginActions are the plugin commands the window offers now, appended to the catalog. The window
+// thread sets them when the plugins change; the settings window reads them.
+var (
+	pluginMu      sync.RWMutex
+	pluginActions []Action
+)
+
+// SetPluginActions replaces the plugin commands bindable as shortcuts. Their IDs must be unique and
+// never collide with a catalog ID.
+func SetPluginActions(actions []Action) {
+	pluginMu.Lock()
+	defer pluginMu.Unlock()
+	pluginActions = append([]Action(nil), actions...)
+}
+
+// All is the catalog followed by the plugin commands offered now.
+func All() []Action {
+	pluginMu.RLock()
+	defer pluginMu.RUnlock()
+	all := make([]Action, 0, len(Catalog)+len(pluginActions))
+	all = append(all, Catalog...)
+	return append(all, pluginActions...)
+}
+
+// Find is the catalog action with id, plugin commands included.
 func Find(id string) (Action, bool) {
-	for _, action := range Catalog {
+	for _, action := range All() {
 		if action.ID == id {
 			return action, true
 		}
@@ -248,7 +277,7 @@ func (o Overrides) Changed(id string) bool {
 
 // Owner is the action, other than except, that chord runs now; ok is false when none does.
 func (o Overrides) Owner(c keymap.Chord, except string) (Action, bool) {
-	for _, action := range Catalog {
+	for _, action := range All() {
 		if action.ID != except && slices.Contains(o.Effective(action), c) {
 			return action, true
 		}

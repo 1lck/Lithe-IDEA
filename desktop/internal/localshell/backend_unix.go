@@ -4,6 +4,7 @@ package localshell
 
 import (
 	"errors"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
 	"os"
 	"os/exec"
 	"slices"
@@ -46,6 +47,8 @@ func startBackend(config Config) (backend, error) {
 	if err != nil {
 		return backend{}, err
 	}
+	// A terminal's shell is recorded until it ends, so a leftover can be offered for ending at start-up.
+	untrack := processledger.Track(processledger.KindTerminal, cmd.Process.Pid)
 	return backend{
 		io: master,
 		resize: func(cols, rows int) {
@@ -62,6 +65,7 @@ func startBackend(config Config) (backend, error) {
 		},
 		wait: func() (int, error) {
 			err := cmd.Wait()
+			untrack()
 			var exit *exec.ExitError
 			if errors.As(err, &exit) {
 				if code := exit.ExitCode(); code > 0 {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
 	"maps"
 	"net"
 	"os"
@@ -518,6 +519,7 @@ func (a *App) watchDebugInitialize(p *project, session *debugSession, window tim
 // adapter that dies without a DAP terminated event still ends the session.
 func (a *App) startAdapterProcess(ctx context.Context, p *project, session *debugSession, prepared preparedDebugLaunch, stdin *os.File) error {
 	process, err := buildprocess.Start(ctx, buildprocess.Spec{
+		Kind:             processledger.KindDebug,
 		Executable:       prepared.Executable,
 		Arguments:        prepared.Arguments,
 		Environment:      prepared.Environment,

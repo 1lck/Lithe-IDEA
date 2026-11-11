@@ -167,7 +167,7 @@ func (a *App) workbench(c ui.C) {
 // in an editor.
 func (a *App) windowShortcuts(c ui.C) {
 	fired := ""
-	for _, action := range shortcuts.Catalog {
+	for _, action := range shortcuts.All() {
 		for _, chord := range a.settings.Keymap.Effective(action) {
 			if ui.Shortcut(c, chord.Modifiers, chord.Name()) && a.shortcutApplies(c, action.ID) && !a.vimOwnsChord(c, chord.Modifiers, chord.Name()) {
 				fired = action.ID

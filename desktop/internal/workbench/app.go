@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"os"
 	"path/filepath"
@@ -632,6 +633,10 @@ func New(options Options) *App {
 			Dark:     a.shared.dark.Load,
 			Shortcut: logsShortcut,
 		})
+	}
+	if a.store != nil {
+		// Processes started from now on are recorded in the preferences' ledger (startup_sweep.go).
+		processledger.Activate(a.store.Dir())
 	}
 	a.openPlugins(options)
 	a.settingsWindow = a.newSettingsWindow()

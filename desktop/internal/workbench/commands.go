@@ -101,7 +101,7 @@ func (a *App) commands() []command {
 
 	// A plugin command opens one of its plugin's tool windows; only commands offered in the palette.
 	for _, command := range a.pluginCommands {
-		if command.Title == "" || !slices.Contains(command.Placements, "commandPalette") {
+		if !pluginCommandOffered(command) {
 			continue
 		}
 		windowID := pluginItemPrefix + command.ToolWindowID
@@ -109,7 +109,7 @@ func (a *App) commands() []command {
 		if index < 0 {
 			continue
 		}
-		add("plugin.command."+command.PluginID+"."+command.ID, t.GroupToolWindows, command.Title, "", !a.chrome.isOpen(index), func() {
+		add(pluginCommandID(command), t.GroupToolWindows, command.Title, "", !a.chrome.isOpen(index), func() {
 			a.reduceChrome(core.SetChromeOpen(windowID, true))
 		})
 	}

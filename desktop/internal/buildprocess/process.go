@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
 	"io"
 	"os"
 	"os/exec"
@@ -31,6 +32,9 @@ const pipeDrainTimeout = 2 * time.Second
 // Spec is one process the host will start. All paths are already validated by
 // Core or by the package resolver that owned the executable.
 type Spec struct {
+	// Kind, when set, records the started process in the active process ledger under this kind until
+	// it ends, so an earlier run's leftover can be offered for ending at start-up. Empty records nothing.
+	Kind             string
 	Executable       string
 	Arguments        []string
 	WorkingDirectory string
@@ -120,8 +124,13 @@ func Start(ctx context.Context, spec Spec, observe func(Stream, string)) (*Proce
 		defer process.readers.Done()
 		stream(stderrRead, Stderr, observe)
 	}()
+	untrack := func() {}
+	if spec.Kind != "" {
+		untrack = processledger.Track(spec.Kind, command.Process.Pid)
+	}
 	go func() {
 		process.err = command.Wait()
+		untrack()
 		process.drain()
 		close(process.done)
 	}()

@@ -515,13 +515,56 @@
     }
   },
   {
+    "id": "desktop.startupSweep.kind.run",
+    "description": "Category of a leftover run session started by a plugin's run",
+    "en-US": "Run",
+    "zh-CN": "运行"
+  },
+  {
+    "id": "desktop.startupSweep.kind.terminal",
+    "description": "Category of a leftover terminal shell",
+    "en-US": "Terminal",
+    "zh-CN": "终端"
+  },
+  {
+    "id": "desktop.startupSweep.kind.build",
+    "description": "Category of a leftover build or test process",
+    "en-US": "Build",
+    "zh-CN": "构建"
+  },
+  {
+    "id": "desktop.startupSweep.kind.debug",
+    "description": "Category of a leftover debug adapter process",
+    "en-US": "Debug",
+    "zh-CN": "调试"
+  },
+  {
+    "id": "desktop.startupSweep.kind.process",
+    "description": "Category of another leftover process Lithe started",
+    "en-US": "Process",
+    "zh-CN": "进程"
+  },
+  {
     "id": "desktop.startupSweep.item",
-    "description": "One leftover process in the start-up dialog: {arg1} process ID, {arg2} command name",
-    "en-US": "{arg1}  {arg2}",
-    "zh-CN": "{arg1}  {arg2}",
+    "description": "One leftover process in the start-up dialog: {arg1} category label, {arg2} process ID, {arg3} command name",
+    "en-US": "{arg1}  PID {arg2}  {arg3}",
+    "zh-CN": "{arg1}  PID {arg2}  {arg3}",
     "parameters": {
       "arg1": "string",
-      "arg2": "string"
+      "arg2": "string",
+      "arg3": "string"
     }
+  },
+  {
+    "id": "desktop.runConfig.toolPick",
+    "description": "Label of the picker that sets a build provider run's tool to a discovered installation (JDK, Maven)",
+    "en-US": "Tool installation",
+    "zh-CN": "工具安装"
+  },
+  {
+    "id": "desktop.runConfig.toolPickNone",
+    "description": "First choice of the tool installation picker: keep the automatic selection",
+    "en-US": "Choose an installation…",
+    "zh-CN": "选择安装…"
   }
 ]

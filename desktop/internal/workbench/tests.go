@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -158,6 +159,7 @@ func (a *App) executeTestCommand(ctx context.Context, p *project, instance build
 	operation := &testOperation{}
 	workingDirectory := filepath.Join(p.root, filepath.FromSlash(plan.WorkingDirectory))
 	process, err := buildprocess.Start(ctx, buildprocess.Spec{
+		Kind:             processledger.KindBuild,
 		Executable:       executable.Executable,
 		Arguments:        plan.Arguments,
 		WorkingDirectory: workingDirectory,

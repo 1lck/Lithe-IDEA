@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"maps"
 	"os"
 	"path/filepath"
@@ -309,6 +310,7 @@ func (a *App) reloadPluginLanguages() {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_tool_commands", commandsErr))
 			}
 			a.pluginCommands = commands
+			shortcuts.SetPluginActions(pluginCommandActions(commands))
 			if loadErr != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_languages", loadErr))
 			}

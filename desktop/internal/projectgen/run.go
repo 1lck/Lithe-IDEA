@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -326,6 +327,7 @@ func runCommand(ctx context.Context, request Request, step core.ProjectPlanStep,
 	defer cancel()
 	lines := newLineSplitter(func(line string) { request.observe(Event{Kind: EventOutput, Text: line}) })
 	process, err := buildprocess.Start(runCtx, buildprocess.Spec{
+		Kind:             processledger.KindProcess,
 		Executable:       command.Executable,
 		Arguments:        step.Arguments,
 		WorkingDirectory: staging,
