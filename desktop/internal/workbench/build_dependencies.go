@@ -215,11 +215,26 @@ func dependencyLabel(d *core.BuildDependency) string {
 }
 
 // openBuildFile opens the build file of the chosen project (of the instance's root when
-// none is chosen): the first of the build system's detection markers found there.
+// none is chosen).
 func (a *App) openBuildFile(p *project, instance *buildInstance) {
-	directory := instance.Root
-	if project, ok := buildProjectByID(instance.Model, p.build.projectID); ok && project.Path != "" {
-		directory = project.Path
+	if path := buildFileOf(p, instance, p.build.projectID); path != "" {
+		a.performed("build.dependencies.openBuildFile", surfaceButton)
+		a.openFile(p, path)
+	}
+}
+
+// buildFileOf is the build file of projectID (of the instance's root when it is empty): the
+// first of the build system's detection markers found in its directory, or "" when none is.
+// A model's project path is relative to the build root or absolute inside the workspace, and
+// the build root is relative to the workspace.
+func buildFileOf(p *project, instance *buildInstance, projectID string) string {
+	directory := filepath.FromSlash(instance.Root)
+	if project, ok := buildProjectByID(instance.Model, projectID); ok && project.Path != "" {
+		if path := filepath.FromSlash(project.Path); filepath.IsAbs(path) {
+			directory = path
+		} else {
+			directory = filepath.Join(directory, path)
+		}
 	}
 	if !filepath.IsAbs(directory) {
 		directory = filepath.Join(p.root, filepath.FromSlash(directory))
@@ -227,11 +242,10 @@ func (a *App) openBuildFile(p *project, instance *buildInstance) {
 	for _, marker := range buildMarkers(instance.Manifest, instance.BuildSystemID) {
 		path := filepath.Join(directory, filepath.FromSlash(marker))
 		if info, err := os.Stat(path); err == nil && !info.IsDir() {
-			a.performed("build.dependencies.openBuildFile", surfaceButton)
-			a.openFile(p, path)
-			return
+			return path
 		}
 	}
+	return ""
 }
 
 // buildMarkers reads the detection markers a build system declares in its manifest.
@@ -266,11 +280,11 @@ func (a *App) buildDependencyRows(p *project, instance *buildInstance) []buildRo
 	deps := a.dependenciesOf(p, instance)
 	switch {
 	case deps.loading:
-		return append(rows, buildRow{kind: buildRowEmpty, label: i18n.Shared(language, "native.loadingDependencies.variant2")})
+		return append(rows, buildRow{kind: buildRowEmpty, dependencies: true, label: i18n.Shared(language, "native.loadingDependencies.variant2")})
 	case deps.failed != "":
-		return append(rows, buildRow{kind: buildRowEmpty, label: i18n.Shared(language, "native.couldNotLoadDependencies") + ": " + deps.failed})
+		return append(rows, buildRow{kind: buildRowEmpty, dependencies: true, label: i18n.Shared(language, "native.couldNotLoadDependencies") + ": " + deps.failed})
 	case len(deps.tree.Dependencies) == 0:
-		return append(rows, buildRow{kind: buildRowEmpty, label: i18n.Shared(language, "native.noDependencies")})
+		return append(rows, buildRow{kind: buildRowEmpty, dependencies: true, label: i18n.Shared(language, "native.noDependencies")})
 	}
 	for _, shown := range deps.shownRows() {
 		rows = append(rows, buildRow{
@@ -310,4 +324,5 @@ func (a *App) buildDependencyRow(row ui.ListRow, p *project, instance *buildInst
 		path := spec.path
 		c.After(func() { deps.open[path] = !deps.open[path] })
 	}
+	a.buildDependencyMenu(c, element, p, instance)
 }

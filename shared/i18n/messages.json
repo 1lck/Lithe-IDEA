@@ -70608,7 +70608,8 @@
       "id": "native.open",
       "description": "Native UI: Open %@",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Open %@",
@@ -75640,7 +75641,8 @@
       "id": "native.reload",
       "description": "Native UI: Reload",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Reload",

@@ -160,10 +160,12 @@ type buildRow struct {
 	// target belongs to.
 	id, project string
 	target      *core.BuildTarget
-	// depth, path and leaf place a dependency row in its tree (build_dependencies.go).
-	depth int
-	path  string
-	leaf  bool
+	// depth, path and leaf place a dependency row in its tree (build_dependencies.go);
+	// dependencies marks the line that stands for a tree still loading, failed or empty.
+	depth        int
+	path         string
+	leaf         bool
+	dependencies bool
 }
 
 // buildChoiceRows lists the sections of the selected build system with what is
@@ -264,6 +266,9 @@ func (a *App) buildChoiceRow(row ui.ListRow, p *project, instance *buildInstance
 	if spec.kind == buildRowEmpty {
 		row.Element.Height(buildRowHeight).PadX(16).Items(ui.Center)
 		ui.Text(c, spec.label).FontSize(small).Color(a.colors.Subtle).Ellipsis()
+		if spec.dependencies {
+			a.buildDependencyMenu(c, row.Element, p, instance)
+		}
 		return
 	}
 	if spec.kind == buildRowDependency {
@@ -308,6 +313,7 @@ func (a *App) buildChoiceRow(row ui.ListRow, p *project, instance *buildInstance
 			}
 		})
 	}
+	a.buildRowMenu(c, element, p, instance, spec)
 }
 
 // buildOutput declares the console of the build system under its choices.
