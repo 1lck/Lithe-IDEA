@@ -40,6 +40,9 @@ type nestedState struct {
 	// view with several repositories shows them (nested_refs.go).
 	slots      map[string]int
 	showColors bool
+	// folded are the repositories whose changes the Commit window hides under their header; a
+	// group shows unfolded until it is folded (nested_repos_view.go).
+	folded map[string]bool
 }
 
 // nestedRepositoryID is the ID of the repository at path in a workspace commit of projectRoot: its

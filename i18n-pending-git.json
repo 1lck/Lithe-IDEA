@@ -1090,5 +1090,17 @@
     "description": "Help under the Show Update Parent Repository References switch",
     "en-US": "Shows the option that records the new commits of submodules in their parent repositories. Turned off, the option is hidden and every commit updates the parent references.",
     "zh-CN": "显示是否在父仓库中记录子模块新提交的选项。关闭后隐藏该选项，每次提交都会更新父仓库引用。"
+  },
+  {
+    "id": "desktop.nested.collapse",
+    "description": "Button on a nested repository's header in the Commit window: hide its changes",
+    "en-US": "Collapse Repository",
+    "zh-CN": "折叠仓库"
+  },
+  {
+    "id": "desktop.nested.expand",
+    "description": "Button on a nested repository's header in the Commit window: show its changes again",
+    "en-US": "Expand Repository",
+    "zh-CN": "展开仓库"
   }
 ]
