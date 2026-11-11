@@ -268,6 +268,16 @@ func (a *App) beginDebug(p *project, start debugStart) {
 	p.debug.frames = nil
 	p.debug.pausedThread = nil
 	p.debug.output = nil
+	// The user's stepping policy goes with the launch; without one Core applies the
+	// adapter's declared defaults. Either decides whether the call stack collapses
+	// the frames it filters.
+	stepping := a.steppingFiltersFor(adapter.Declaration.AdapterID)
+	p.debug.hideFiltered = false
+	if stepping != nil {
+		p.debug.hideFiltered = stepping.HideFilteredStackFrames
+	} else if declared, ok := core.DeclaredSteppingFilters(adapter.Declaration.Features, adapter.Declaration.Defaults); ok {
+		p.debug.hideFiltered = declared.HideFilteredStackFrames
+	}
 	breakpoints := make(map[string][]int64, len(p.debug.breakpoints))
 	for path, lines := range p.debug.breakpoints {
 		breakpoints[path] = append([]int64(nil), lines...)
@@ -327,6 +337,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 		if err != nil {
 			return func(a *App) { a.finishDebugError(p, session, err) }
 		}
+		prepared.Configuration.SteppingFilters = stepping
 		policy, err := a.kernel.DebugTransportPolicy(ctx)
 		if err != nil {
 			return func(a *App) { a.finishDebugError(p, session, err) }

@@ -60,6 +60,12 @@ type debugState struct {
 	// breakpoints maps an absolute source path to sorted one-based lines.
 	breakpoints map[string][]int64
 	frames      []core.DebugStackFrame
+	// hideFiltered collapses the frames the session's stepping filters match into one
+	// row per run; framesExpanded shows them again until the next stack arrives.
+	hideFiltered   bool
+	framesExpanded bool
+	// frameRows is the call stack's rows of the last paint, kept to reuse its memory.
+	frameRows []debugFrameRow
 	// pausedThread is the thread the last stopped event named.
 	pausedThread *int64
 	// threads is the adapter's thread list for the current stop and selectedThread the
@@ -389,6 +395,7 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 					frames = frames[:debugMaxFrames]
 				}
 				p.debug.frames = frames
+				p.debug.framesExpanded = false
 				a.selectDebugFrame(p, 0)
 				// Watches belong to the stop: the first frame of the new stack evaluates
 				// them again without the user pressing anything.

@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"maps"
 	"runtime"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -141,6 +142,11 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SetProcessTermination: func(value settingswindow.ProcessTermination) {
 			a.post(func(a *App) { a.setProcessTermination(value) })
 		},
+		SteppingAdapters:         a.steppingAdapters,
+		NormalizeSteppingFilters: a.kernel.NormalizeSteppingFilters,
+		SetSteppingFilters: func(adapter string, filters *core.DebugSteppingFilters) {
+			a.post(func(a *App) { a.setSteppingFilters(adapter, filters) })
+		},
 		SetFonts: func(fonts []fontprefs.Font) {
 			a.post(func(a *App) { a.setFonts(fonts) })
 		},
@@ -259,6 +265,7 @@ func (a *App) openSettingsPage(surface string, page settingsPage) {
 			HideGitGutter: a.settings.HideGitGutter, InlineGitBlame: a.settings.InlineGitBlame,
 			DisableSemanticHighlight: a.settings.DisableSemanticHighlight,
 			ProcessTermination:       a.settings.ProcessTermination,
+			SteppingFilters:          maps.Clone(a.settings.DebugSteppingFilters),
 			Fonts:                    fontprefs.Normalize(a.settings.Fonts),
 		}
 		var err error

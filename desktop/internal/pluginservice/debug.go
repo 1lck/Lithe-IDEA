@@ -43,6 +43,10 @@ type DebugAdapterDeclaration struct {
 	// AcceptsConnection is true when the attach configuration binds a remote
 	// host and port, so the host may offer the host-and-port form.
 	AcceptsConnection bool
+	// Features and Defaults are the adapter's `debugAdapters` 3 declarations as the
+	// manifest has them; the launch plan carries the same ones to the debug engine.
+	Features json.RawMessage
+	Defaults json.RawMessage
 }
 
 // DebugAdapterEndpoint is the `launch.endpoint` of a tcpLanguageServer adapter.
@@ -101,11 +105,13 @@ func (s *Service) DebugPlugins(ctx context.Context, entries []pluginmanager.Entr
 
 type rawDebugManifest struct {
 	DebugAdapters []struct {
-		ID                 string   `json:"id"`
-		DisplayName        string   `json:"displayName"`
-		AdapterID          string   `json:"adapterID"`
-		Requests           []string `json:"requests"`
-		ConfigurationTypes []string `json:"configurationTypes"`
+		ID                 string          `json:"id"`
+		DisplayName        string          `json:"displayName"`
+		AdapterID          string          `json:"adapterID"`
+		Requests           []string        `json:"requests"`
+		ConfigurationTypes []string        `json:"configurationTypes"`
+		Features           json.RawMessage `json:"features"`
+		Defaults           json.RawMessage `json:"defaults"`
 		Configurations     struct {
 			Attach *struct {
 				TargetBindings struct {
@@ -147,6 +153,8 @@ func parseDebugAdapters(manifest json.RawMessage) ([]DebugAdapterDeclaration, er
 			Requests:           raw.Requests,
 			ConfigurationTypes: raw.ConfigurationTypes,
 			AcceptsConnection:  raw.Configurations.Attach != nil && len(raw.Configurations.Attach.TargetBindings.Connection) > 0,
+			Features:           raw.Features,
+			Defaults:           raw.Defaults,
 		}
 		if raw.Launch.Process != nil {
 			declaration.LaunchKind = raw.Launch.Process.Launch.Kind

@@ -468,3 +468,17 @@ func TestDebugAttachFormRejectsABadPort(t *testing.T) {
 		t.Fatalf("session = %v, failure = %q, want the form message", p.debug.session, p.debug.failure)
 	}
 }
+
+// The settings window lists an installed adapter that declares stepping filters, with the
+// defaults its plugin declares.
+func TestSteppingAdaptersListsDeclaredDefaults(t *testing.T) {
+	h := debugPluginHarness(t, "dev.lithe.test.debug-hosted", debugHostedManifest, false)
+	adapters, err := h.app.steppingAdapters(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(adapters) != 1 || adapters[0].ID != "hosted-dap" || adapters[0].Name != "Hosted DAP" ||
+		!adapters[0].Defaults.SkipSynthetics || len(adapters[0].Defaults.ClassNameFilters) != 1 {
+		t.Fatalf("adapters = %+v", adapters)
+	}
+}

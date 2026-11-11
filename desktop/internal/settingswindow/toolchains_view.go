@@ -213,61 +213,69 @@ func (t *toolchainState) edits() []toolchain.Edit {
 // toolchainsPage is the Build settings page: each enabled plugin's declared
 // tools, the effective layer Core selected, and an explicit local pin draft.
 func (w *window) toolchainsPage(c ui.C) {
-	if w.ctrl.opts.Toolchains == nil {
+	if w.ctrl.opts.Toolchains == nil && !w.stepping.available() {
 		w.unavailablePage(c)
 		return
 	}
+	language := w.marketLanguage()
+	w.pageScroll(c, pageBuild, func() {
+		if w.ctrl.opts.Toolchains != nil {
+			w.toolchainCards(c, language)
+		}
+		w.steppingCard(c, language)
+	})
+}
+
+// toolchainCards are the Build page's cards of the tools the installed plugins resolve.
+func (w *window) toolchainCards(c ui.C, language i18n.Language) {
 	t := w.toolchains
 	if !t.loaded && !t.loading && !t.saving && t.failed == nil {
 		t.beginLoad()
 	}
-	language := w.marketLanguage()
-	w.pageScroll(c, pageBuild, func() {
-		w.card(c, i18n.Shared(language, "desktop.toolchains.title"), i18n.Shared(language, "desktop.toolchains.description"), func() {
-			ui.Column(c).FillWidth().Gap(8).Children(func() {
-				ui.Wrap(c, i18n.Shared(language, "desktop.toolchains.chooseHelp")).FontSize(12).Color(w.pal.muted)
-				ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
-					if ui.Button(c, i18n.Shared(language, "desktop.toolchains.reload")).Outline().Clicked() {
-						t.beginLoad()
-					}
-					if ui.Button(c, i18n.Shared(language, "desktop.toolchains.reset")).Outline().Clicked() {
-						t.resetDrafts()
-					}
-					ui.Spacer(c)
-					if ui.Button(c, i18n.Shared(language, "desktop.toolchains.save")).Disabled(!t.loaded || !t.hasDraft() || t.saving || t.loading).Clicked() {
-						t.beginSave()
-					}
-				})
-				switch {
-				case t.loading:
-					ui.Text(c, i18n.Shared(language, "desktop.toolchains.loading")).FontSize(12).Color(w.pal.muted)
-				case t.saving:
-					ui.Text(c, i18n.Shared(language, "desktop.toolchains.saving")).FontSize(12).Color(w.pal.muted)
-				case t.failed != nil:
-					ui.Text(c, toolchainFailureMessage(language, t.failed)).FontSize(12).Color(w.pal.danger)
-				case t.saved:
-					ui.Text(c, i18n.Shared(language, "desktop.toolchains.saved")).FontSize(12).Color(w.pal.muted)
+	w.card(c, i18n.Shared(language, "desktop.toolchains.title"), i18n.Shared(language, "desktop.toolchains.description"), func() {
+		ui.Column(c).FillWidth().Gap(8).Children(func() {
+			ui.Wrap(c, i18n.Shared(language, "desktop.toolchains.chooseHelp")).FontSize(12).Color(w.pal.muted)
+			ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
+				if ui.Button(c, i18n.Shared(language, "desktop.toolchains.reload")).Outline().Clicked() {
+					t.beginLoad()
+				}
+				if ui.Button(c, i18n.Shared(language, "desktop.toolchains.reset")).Outline().Clicked() {
+					t.resetDrafts()
+				}
+				ui.Spacer(c)
+				if ui.Button(c, i18n.Shared(language, "desktop.toolchains.save")).Disabled(!t.loaded || !t.hasDraft() || t.saving || t.loading).Clicked() {
+					t.beginSave()
 				}
 			})
+			switch {
+			case t.loading:
+				ui.Text(c, i18n.Shared(language, "desktop.toolchains.loading")).FontSize(12).Color(w.pal.muted)
+			case t.saving:
+				ui.Text(c, i18n.Shared(language, "desktop.toolchains.saving")).FontSize(12).Color(w.pal.muted)
+			case t.failed != nil:
+				ui.Text(c, toolchainFailureMessage(language, t.failed)).FontSize(12).Color(w.pal.danger)
+			case t.saved:
+				ui.Text(c, i18n.Shared(language, "desktop.toolchains.saved")).FontSize(12).Color(w.pal.muted)
+			}
 		})
-		if t.snapshot.Root == "" && t.loaded {
-			w.card(c.Part("no-project"), i18n.Shared(language, "desktop.toolchains.title"), "", func() {
-				ui.Text(c, i18n.Shared(language, "desktop.toolchains.noProject")).FontSize(12).Color(w.pal.muted)
-			})
-			return
-		}
-		for _, conflict := range t.snapshot.Conflicts {
-			plugins := strings.Join(conflict.PluginIDs, ", ")
-			w.card(c.Key("conflict:"+conflict.Tool), i18n.Shared(language, "desktop.toolchains.title"), "", func() {
-				ui.Text(c, i18n.SharedFormat(language, "desktop.toolchains.conflict", map[string]string{"tool": conflict.Tool, "plugins": plugins})).FontSize(12).Color(w.pal.danger)
-			})
-		}
-		for _, tool := range t.snapshot.Tools {
-			w.card(c.Key("tool:"+tool.ID), tool.DisplayName, "", func() {
-				w.toolchainTool(c, language, tool)
-			})
-		}
 	})
+	if t.snapshot.Root == "" && t.loaded {
+		w.card(c.Part("no-project"), i18n.Shared(language, "desktop.toolchains.title"), "", func() {
+			ui.Text(c, i18n.Shared(language, "desktop.toolchains.noProject")).FontSize(12).Color(w.pal.muted)
+		})
+		return
+	}
+	for _, conflict := range t.snapshot.Conflicts {
+		plugins := strings.Join(conflict.PluginIDs, ", ")
+		w.card(c.Key("conflict:"+conflict.Tool), i18n.Shared(language, "desktop.toolchains.title"), "", func() {
+			ui.Text(c, i18n.SharedFormat(language, "desktop.toolchains.conflict", map[string]string{"tool": conflict.Tool, "plugins": plugins})).FontSize(12).Color(w.pal.danger)
+		})
+	}
+	for _, tool := range t.snapshot.Tools {
+		w.card(c.Key("tool:"+tool.ID), tool.DisplayName, "", func() {
+			w.toolchainTool(c, language, tool)
+		})
+	}
 }
 
 func (w *window) toolchainTool(c ui.C, language i18n.Language, tool toolchain.Tool) {

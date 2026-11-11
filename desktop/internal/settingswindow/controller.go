@@ -72,6 +72,17 @@ type Values struct {
 	// ProcessTermination is the Process Termination page's part of Core's termination
 	// settings; the zero value keeps Core's defaults.
 	ProcessTermination ProcessTermination
+	// SteppingFilters are the user's stepping policies by debug adapter ID. An adapter
+	// without an entry uses the defaults its plugin declares.
+	SteppingFilters map[string]core.DebugSteppingFilters
+}
+
+// SteppingAdapter is an installed debug adapter that takes stepping filters: its ID, the
+// name the page shows and the defaults its plugin declares.
+type SteppingAdapter struct {
+	ID       string
+	Name     string
+	Defaults core.DebugSteppingFilters
 }
 
 // ProcessTermination is the part of Core's process termination settings this client
@@ -198,6 +209,13 @@ type Options struct {
 	// SetProcessTermination hands a change of Values.ProcessTermination to the settings
 	// owner, like SetTabRows.
 	SetProcessTermination func(ProcessTermination)
+	// SteppingAdapters lists the installed debug adapters that take stepping filters, for
+	// the Build page; NormalizeSteppingFilters has Core check and tidy a policy before it
+	// is stored. Both run off the window thread. SetSteppingFilters hands a change to the
+	// settings owner: nil removes the adapter's entry, so its declared defaults apply.
+	SteppingAdapters         func(context.Context) ([]SteppingAdapter, error)
+	NormalizeSteppingFilters func(context.Context, string, core.DebugSteppingFilters) (core.DebugSteppingFilters, error)
+	SetSteppingFilters       func(string, *core.DebugSteppingFilters)
 	// SetDisableSemanticHighlight hands a change of Values.DisableSemanticHighlight to the
 	// settings owner, like SetHideGitGutter.
 	SetDisableSemanticHighlight func(bool)

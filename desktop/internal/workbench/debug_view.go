@@ -230,12 +230,36 @@ func (a *App) debugFrames(c ui.C, p *project) {
 		return
 	}
 	list := &p.panels.frames
-	list.Label = func(i int) string { return d.frames[i].Name }
-	ui.List(c, list, len(d.frames), func(row ui.ListRow) {
-		frame := d.frames[row.Index]
+	rows := debugFrameRows(d.frameRows[:0], d.frames, d.hideFiltered && !d.framesExpanded, d.vars.frame)
+	d.frameRows = rows
+	language := a.language()
+	hiddenLabel := func(n int) string {
+		return i18n.SharedFormat(language, "desktop.debug.filteredFrames", map[string]string{"count": strconv.Itoa(n)})
+	}
+	list.Label = func(i int) string {
+		if r := rows[i]; r.hidden > 0 {
+			return hiddenLabel(r.hidden)
+		}
+		return d.frames[rows[i].frame].Name
+	}
+	ui.List(c, list, len(rows), func(row ui.ListRow) {
+		r := rows[row.Index]
 		element := row.Element.Height(debugRowHeight).PadX(10).Items(ui.Center).Gap(6).Hover(ui.Look{}.Background(a.colors.Hover))
-		ui.Text(row.C, frame.Name).Grow(1).Shrink(1).FontSize(12.5).Color(a.colors.Text).Ellipsis()
-		index := row.Index
+		if r.hidden > 0 {
+			// A run of frames the stepping filters match: a click shows them all again.
+			ui.Text(row.C, hiddenLabel(r.hidden)).Grow(1).Shrink(1).FontSize(12).Color(a.colors.Subtle).Ellipsis()
+			if element.Clicked() {
+				row.C.After(func() { p.debug.framesExpanded = true })
+			}
+			return
+		}
+		frame := d.frames[r.frame]
+		color := a.colors.Text
+		if frame.IsFiltered {
+			color = a.colors.Subtle
+		}
+		ui.Text(row.C, frame.Name).Grow(1).Shrink(1).FontSize(12.5).Color(color).Ellipsis()
+		index := r.frame
 		if element.Clicked() && index != d.vars.frame {
 			// The selected frame decides which scopes and variables are shown.
 			row.C.After(func() { a.selectDebugFrame(p, index) })

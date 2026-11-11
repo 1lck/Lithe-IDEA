@@ -150,10 +150,61 @@ type DebugCreateSessionRequest struct {
 }
 
 // DebugLaunchConfiguration is the language-neutral launch Core forwards.
+// SteppingFilters, when set, is the user's stepping policy for the adapter; Core
+// projects it into the launch argument the adapter declared, and uses the
+// adapter's declared defaults when it is nil.
 type DebugLaunchConfiguration struct {
-	Name      string         `json:"name"`
-	Request   string         `json:"request"`
-	Arguments map[string]any `json:"arguments,omitempty"`
+	Name            string                `json:"name"`
+	Request         string                `json:"request"`
+	Arguments       map[string]any        `json:"arguments,omitempty"`
+	SteppingFilters *DebugSteppingFilters `json:"steppingFilters,omitempty"`
+}
+
+// DebugSteppingFilters is the portable stepping policy of one adapter: class-name
+// patterns the adapter does not step into (passed to it unchanged, so it may use
+// its own wildcard syntax), the kinds of methods it steps over, and whether the
+// call stack collapses the frames the patterns match.
+type DebugSteppingFilters struct {
+	ClassNameFilters        []string `json:"classNameFilters"`
+	SkipSynthetics          bool     `json:"skipSynthetics"`
+	SkipStaticInitializers  bool     `json:"skipStaticInitializers"`
+	SkipConstructors        bool     `json:"skipConstructors"`
+	HideFilteredStackFrames bool     `json:"hideFilteredStackFrames"`
+}
+
+// NormalizeSteppingFilters asks Core to trim, sort, de-duplicate and validate a
+// stepping policy before it is stored (`debug.steppingFilters`).
+func (c *Client) NormalizeSteppingFilters(ctx context.Context, adapterID string, filters DebugSteppingFilters) (DebugSteppingFilters, error) {
+	if filters.ClassNameFilters == nil {
+		filters.ClassNameFilters = []string{}
+	}
+	var normalized DebugSteppingFilters
+	err := c.Execute(ctx, "debug.steppingFilters", struct {
+		AdapterID string               `json:"adapterId"`
+		Filters   DebugSteppingFilters `json:"filters"`
+	}{adapterID, filters}, &normalized)
+	return normalized, err
+}
+
+// DeclaredSteppingFilters reads a `debugAdapters` 3 declaration: whether the adapter
+// takes stepping filters (features.stepFilters) and the defaults it declared
+// (defaults.stepFilters), which Core applies when a launch names none.
+func DeclaredSteppingFilters(features, defaults json.RawMessage) (DebugSteppingFilters, bool) {
+	var declared struct {
+		StepFilters *struct {
+			Argument string `json:"argument"`
+		} `json:"stepFilters"`
+	}
+	if len(features) == 0 || json.Unmarshal(features, &declared) != nil || declared.StepFilters == nil || declared.StepFilters.Argument == "" {
+		return DebugSteppingFilters{}, false
+	}
+	var values struct {
+		StepFilters DebugSteppingFilters `json:"stepFilters"`
+	}
+	if len(defaults) > 0 {
+		_ = json.Unmarshal(defaults, &values)
+	}
+	return values.StepFilters, true
 }
 
 // DebugSourceBreakpoint is one one-based source breakpoint request.

@@ -83,6 +83,7 @@ type Kernel interface {
 	MatchOutputLinks(context.Context, core.OutputLinkRequest) ([]core.OutputLink, error)
 	CreateDebugSession(ctx context.Context, request core.DebugCreateSessionRequest) (core.DebugUpdate, error)
 	LaunchDebug(ctx context.Context, sessionID, operationID string, configuration core.DebugLaunchConfiguration) (core.DebugUpdate, error)
+	NormalizeSteppingFilters(ctx context.Context, adapterID string, filters core.DebugSteppingFilters) (core.DebugSteppingFilters, error)
 	SetDebugBreakpoints(ctx context.Context, sessionID, sourcePath string, breakpoints []core.DebugSourceBreakpoint) (core.DebugUpdate, error)
 	ExecuteDebug(ctx context.Context, sessionID, operationID, command string, threadID *int64, granularity string) (core.DebugUpdate, error)
 	InspectDebug(ctx context.Context, request core.DebugInspectRequest) (core.DebugUpdate, error)
@@ -230,6 +231,9 @@ type settings struct {
 	// ProcessTermination is the user's part of Core's process termination settings, as the
 	// Process Termination page edits it; the zero value keeps Core's defaults.
 	ProcessTermination settingswindow.ProcessTermination `json:"processTermination,omitzero"`
+	// DebugSteppingFilters are the user's stepping policies by debug adapter ID, as Core
+	// normalized them; an adapter without one uses its plugin's declared defaults.
+	DebugSteppingFilters map[string]core.DebugSteppingFilters `json:"debugSteppingFilters,omitempty"`
 	// AgentContextLimits are the per-Agent context window and auto-compact limits
 	// (agent_limits.go), keyed by adapter id.
 	AgentContextLimits map[string]agentContextLimit `json:"agentContextLimits,omitempty"`

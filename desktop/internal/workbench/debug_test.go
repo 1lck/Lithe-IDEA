@@ -7,12 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
@@ -389,5 +391,69 @@ func TestDebugLaunchUsesCoreDeclaredArguments(t *testing.T) {
 	configuration := <-gate.configurations
 	if configuration.Arguments["stopOnEntry"] != true {
 		t.Fatalf("DAP configuration discarded plugin defaults: %+v", configuration)
+	}
+}
+
+// The user's stepping policy for the adapter goes with the launch, and its collapse switch
+// decides how the call stack shows filtered frames; without one Core uses the defaults.
+func TestDebugLaunchCarriesTheUsersSteppingFilters(t *testing.T) {
+	h := debugHarness(t)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "debug.marker"), []byte("debug"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := openDebugPanel(t, h, root)
+	adapter := p.debug.adapters[p.debug.selectedAdapter].Declaration.AdapterID
+	policy := core.DebugSteppingFilters{ClassNameFilters: []string{"java.*"}, SkipConstructors: true, HideFilteredStackFrames: true}
+	h.app.setSteppingFilters(adapter, &policy)
+	gate := &captureDebugLaunch{Kernel: h.app.kernel, configurations: make(chan core.DebugLaunchConfiguration, 1)}
+	h.app.kernel = gate
+	h.app.startDebug(p)
+	awaitStateWithin(t, h, 5*time.Second, "Core launch configuration", func() bool { return len(gate.configurations) == 1 })
+	configuration := <-gate.configurations
+	if got := configuration.SteppingFilters; got == nil || !got.SkipConstructors || !slices.Equal(got.ClassNameFilters, policy.ClassNameFilters) {
+		t.Fatalf("launch stepping filters = %+v, want %+v", got, policy)
+	}
+	if !p.debug.hideFiltered {
+		t.Fatal("the session does not collapse filtered frames although the policy asks to")
+	}
+}
+
+// With collapsing on, each run of filtered frames below the top one is one row; a click on
+// it shows the frames until the next stack arrives.
+func TestCallStackCollapsesFilteredFrames(t *testing.T) {
+	h := debugHarness(t)
+	p := openDebugPanel(t, h, t.TempDir())
+	h.app.post(func(*App) {
+		p.debug.frames = []core.DebugStackFrame{
+			{ID: 1, Name: "main", IsFiltered: true},
+			{ID: 2, Name: "invoke0", IsFiltered: true},
+			{ID: 3, Name: "invoke", IsFiltered: true},
+			{ID: 4, Name: "run"},
+			{ID: 5, Name: "start", IsFiltered: true},
+		}
+		p.debug.hideFiltered = true
+	})
+	h.settle()
+	two := i18n.SharedFormat(h.app.language(), "desktop.debug.filteredFrames", map[string]string{"count": "2"})
+	h.press(h.hitLabeled(two))
+	if !p.debug.framesExpanded {
+		t.Fatal("clicking the collapsed row did not show the frames")
+	}
+	h.settle()
+	for _, name := range []string{"invoke0", "invoke"} {
+		h.hitLabeled(name)
+	}
+}
+
+func TestDebugFrameRowsKeepTheTopAndSelectedFrames(t *testing.T) {
+	frames := []core.DebugStackFrame{{IsFiltered: true}, {IsFiltered: true}, {IsFiltered: true}, {}, {IsFiltered: true}, {IsFiltered: true}}
+	rows := debugFrameRows(nil, frames, true, 2)
+	want := []debugFrameRow{{frame: 0}, {frame: 1, hidden: 1}, {frame: 2}, {frame: 3}, {frame: 4, hidden: 2}}
+	if !slices.Equal(rows, want) {
+		t.Fatalf("rows = %+v, want %+v", rows, want)
+	}
+	if rows := debugFrameRows(nil, frames, false, 0); len(rows) != len(frames) {
+		t.Fatalf("without collapsing rows = %+v", rows)
 	}
 }

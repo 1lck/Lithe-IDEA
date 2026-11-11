@@ -11586,6 +11586,16 @@
       ]
     },
     {
+      "id": "desktop.debug.filteredFrames",
+      "description": "A row of the call stack standing for consecutive frames the stepping filters match; clicking it shows them. {count} is how many",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
       "id": "desktop.debug.frames",
       "description": "Call stack",
       "platforms": [
@@ -16463,6 +16473,138 @@
     {
       "id": "desktop.settings.resetLayout",
       "description": "Desktop settings: ResetLayout",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.stepping.adapter",
+      "description": "Label of the select that picks which installed debugger's stepping filters are shown",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.stepping.apply",
+      "description": "Button that checks and stores the edited stepping filters",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.stepping.classFilters",
+      "description": "Label of the text area listing class patterns the debugger does not step into",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.stepping.classFiltersHelp",
+      "description": "Help under the class pattern text area",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.stepping.customized",
+      "description": "Status: the user set this debugger's stepping filters",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.stepping.description",
+      "description": "What the stepping card controls and when a change applies",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.stepping.hideFilteredFrames",
+      "description": "Switch: collapse runs of filtered frames in the call stack into one row",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.stepping.loadFailed",
+      "description": "The installed debuggers could not be read. {reason} is the error",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.stepping.loading",
+      "description": "Shown while the installed debuggers are read",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.stepping.none",
+      "description": "Shown when no installed debugger declares stepping filters",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.stepping.restoreDefaults",
+      "description": "Button that drops the user's stepping filters so the plugin's declared defaults apply",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.stepping.saveFailed",
+      "description": "Core rejected the edited stepping filters. {reason} is the error",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.stepping.saving",
+      "description": "Status while the stepping filters are checked and stored",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.stepping.skipConstructors",
+      "description": "Switch: step over constructors",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.stepping.skipStaticInitializers",
+      "description": "Switch: step over class static initializers",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.stepping.skipSynthetics",
+      "description": "Switch: step over compiler-generated methods",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.stepping.title",
+      "description": "Title of the Build page card for the debugger's stepping filters",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.stepping.usingDefaults",
+      "description": "Status: the debugger uses the stepping filters its plugin declares",
       "platforms": [
         "desktop"
       ]

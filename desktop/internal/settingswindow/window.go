@@ -96,6 +96,7 @@ type window struct {
 	pluginRegistryChanged atomic.Bool
 	// toolchains is the Build settings page's draft and loaded snapshot.
 	toolchains        *toolchainState
+	stepping          *steppingState
 	pluginSettings    *pluginSettingsForm
 	pluginForms       map[string]*pluginSettingsForm
 	formLimitReported bool
@@ -191,6 +192,7 @@ func newWindow(c *Controller, current Values) *window {
 	w.dynamic.bind()
 	w.pluginSettings.report = func(err error) { reportSettingsError(c.opts, err) }
 	w.toolchains = newToolchainState(c.opts.Toolchains)
+	w.stepping = newSteppingState(c.opts.SteppingAdapters, c.opts.NormalizeSteppingFilters)
 	w.terminal = newTerminalShellState(c.opts.TerminalShells)
 	w.fonts = newFontListState(c.opts.MonospaceFamilies)
 	w.agent = newAgentSettings(c.opts, func() { w.inv.Invalidate() })
@@ -348,6 +350,9 @@ func (w *window) prepare(size gfx.Size) {
 // collect takes the result of each background request on the window thread.
 func (w *window) collect() {
 	w.toolchains.take()
+	if saved, ok := w.stepping.take(); ok {
+		w.setSteppingFilters(saved.adapter, &saved.filters)
+	}
 	w.terminal.take()
 	w.fonts.take()
 	w.mcp.take()
@@ -385,6 +390,7 @@ func (w *window) reportMarket(previous marketStatus) {
 // paint, and in every paint, so leaving a page does not cancel what it asked for.
 func (w *window) declareWork(c ui.C) {
 	w.toolchains.declare(c)
+	w.stepping.declare(c)
 	w.terminal.declare(c)
 	w.fonts.declare(c)
 	w.mcp.declare(c)

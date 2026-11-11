@@ -201,7 +201,7 @@ func (w *window) content(c ui.C) {
 			w.editorPage(c)
 		case w.sess.page == pageFonts:
 			w.fontsPage(c)
-		case w.sess.page == pageBuild && w.ctrl.opts.Toolchains != nil:
+		case w.sess.page == pageBuild && (w.ctrl.opts.Toolchains != nil || w.stepping.available()):
 			w.toolchainsPage(c)
 		case w.sess.page == pageTerminal && w.ctrl.opts.TerminalShells != nil:
 			w.terminalPage(c)
@@ -452,6 +452,7 @@ func (w *window) footer(c ui.C) {
 			w.setTabOverflow("", true)
 			w.setDisableSemanticHighlight(false, true)
 			w.setProcessTermination(ProcessTermination{}, true)
+			w.resetSteppingFilters()
 			w.setTerminalShell("", true)
 			w.setFonts(fontprefs.Default(), true)
 		}
