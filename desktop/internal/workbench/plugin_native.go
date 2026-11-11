@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -23,6 +25,10 @@ type nativePanelState struct {
 	list     ui.ListState
 	busy     bool
 	message  string
+	// revealed says the toolbar shows: the pointer is over the panel, or the keyboard or assistive focus is on
+	// one of its buttons. It is read from the previous paint, so the toolbar keeps its place either way.
+	revealed       bool
+	toolbarFocused bool
 	// nodes are the rows of a source panel, read from its function; sourceLoaded says they are current,
 	// sourceBusy that a read is out, and sourceFailure names why the last read failed, if it did.
 	nodes         []pluginservice.NativeNode
@@ -83,21 +89,33 @@ func (a *App) pluginNativeBody(c ui.C, p *project, tool *pluginservice.ToolWindo
 		}
 	}
 	rows := flattenNativeRows(nodes, state.expanded, 0, nil)
-	ui.Column(c).Fill().Background(a.colors.Editor).Children(func() {
+	state.toolbarFocused = false
+	root := ui.Column(c).Fill().Background(a.colors.Editor).Hit(ui.ID(c.Key("native-panel")), tool.Title)
+	root.Children(func() {
 		if state.sourceFailure != "" {
 			ui.Row(c).FillWidth().Height(28).Shrink(0).Items(ui.Center).PadX(8).Children(func() {
 				ui.Text(c, state.sourceFailure).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Warning).Ellipsis()
 			})
 		}
 		if len(panel.Toolbar) > 0 {
-			ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
+			// Icon-only actions. They keep their place and stay focusable while hidden; the opacity is
+			// what the pointer or the keyboard reveals.
+			opacity := float32(0)
+			if state.revealed {
+				opacity = 1
+			}
+			ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(2).PadX(8).Children(func() {
 				for _, id := range panel.Toolbar {
 					action := nativeAction(panel, id)
 					if action == nil {
 						continue
 					}
-					button := ui.Button(c.Key("native-"+id), action.Title).Small().Outline()
-					button.Disabled(state.busy || (action.RequiresSelection && state.selected == ""))
+					button := ui.Button(c.Key("native-"+id), action.Title).Icon(*nativeActionIcon(action)).IconOnly().Ghost().
+						Size(shellHideSize, shellHideSize).Shrink(0).Tooltip(action.Title).Opacity(opacity)
+					button = button.Disabled(state.busy || (action.RequiresSelection && state.selected == ""))
+					if button.State().Focused {
+						state.toolbarFocused = true
+					}
 					if button.Clicked() {
 						c.After(func() { a.runNativeAction(p, tool, state, *action, nil) })
 					}
@@ -149,6 +167,19 @@ func (a *App) pluginNativeBody(c ui.C, p *project, tool *pluginservice.ToolWindo
 			})
 		}
 	})
+	state.revealed = root.State().Hovered || state.toolbarFocused
+}
+
+// nativeActionIcon is the host icon an action shows in the toolbar: its declared icon, else the refresh icon
+// for a refresh and the generic run icon for an invoke.
+func nativeActionIcon(action *pluginservice.NativeAction) *gfx.Icon {
+	if action.Icon != "" {
+		return pluginToolIcon(action.Icon)
+	}
+	if action.Kind == "refresh" {
+		return &icons.RefreshCw
+	}
+	return &icons.Play
 }
 
 // nativeAction finds a declared action by ID.
