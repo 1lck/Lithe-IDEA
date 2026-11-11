@@ -846,5 +846,11 @@
     "description": "Context menu item of the editor conversation that shows or hides the session-detail sidebar; checked while the sidebar shows.",
     "en-US": "Show Session Details",
     "zh-CN": "显示会话详情"
+  },
+  {
+    "id": "desktop.welcome.dropFolderOnly",
+    "description": "Notice on the start screen when the dropped items contain no folder, so no project opened.",
+    "en-US": "Drop a folder to open it as a project.",
+    "zh-CN": "请拖入文件夹以将其作为项目打开。"
   }
 ]

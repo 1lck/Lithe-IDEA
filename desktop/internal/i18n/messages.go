@@ -75,6 +75,8 @@ type WelcomeMessages struct {
 	Pinned     string
 	// Missing marks a recent project whose folder no longer exists.
 	Missing string
+	// DropFolderOnly says that a dropped item was not a folder, so nothing opened.
+	DropFolderOnly string
 }
 
 // WindowMessages names the minimize, maximize, restore and close buttons that Viva draws
