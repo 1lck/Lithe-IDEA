@@ -3,6 +3,8 @@ package workbench
 import (
 	"bytes"
 	"context"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
+	"slices"
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -132,4 +134,32 @@ func (a *App) pluginTextBody(c ui.C, tool *pluginservice.ToolWindow) {
 			ui.Wrap(c, tool.Text).Color(a.colors.Text)
 		})
 	})
+}
+
+// pluginCommandID is the palette and shortcut identity of one plugin command.
+func pluginCommandID(command pluginservice.ToolCommand) string {
+	return "plugin.command." + command.PluginID + "." + command.ID
+}
+
+// pluginCommandOffered says the command is listed in the command palette: it has a title and that
+// placement. Toolbar and menu placements are not offered yet.
+func pluginCommandOffered(command pluginservice.ToolCommand) bool {
+	return command.Title != "" && slices.Contains(command.Placements, "commandPalette")
+}
+
+// pluginCommandActions are the palette commands as shortcut catalog actions: each is bindable, has
+// no default chord and runs the same tool window opening the palette runs.
+func pluginCommandActions(commands []pluginservice.ToolCommand) []shortcuts.Action {
+	var actions []shortcuts.Action
+	for _, command := range commands {
+		if !pluginCommandOffered(command) {
+			continue
+		}
+		title := command.Title
+		actions = append(actions, shortcuts.Action{
+			ID: pluginCommandID(command), Group: shortcuts.GroupToolWindows,
+			Title: func(*i18n.Messages) string { return title },
+		})
+	}
+	return actions
 }

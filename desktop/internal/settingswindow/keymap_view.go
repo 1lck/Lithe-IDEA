@@ -65,7 +65,7 @@ func (w *window) keymapPage(c ui.C) {
 			})
 			rows = nil
 		}
-		for _, action := range shortcuts.Catalog {
+		for _, action := range shortcuts.All() {
 			if query != "" && !w.keymapMatches(action, keys, query) {
 				continue
 			}
