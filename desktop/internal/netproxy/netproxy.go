@@ -9,6 +9,8 @@
 package netproxy
 
 import (
+	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/url"
@@ -16,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
@@ -49,7 +52,11 @@ func Set(policy core.NetworkProxyPolicy) {
 // (HTTP_PROXY, HTTPS_PROXY, NO_PROXY) for the system policy, none for the direct
 // policy and for an excluded host, and the custom server otherwise.
 func Proxy(request *http.Request) (*url.URL, error) {
-	policy := current.Load()
+	return proxyFor(current.Load(), request)
+}
+
+// proxyFor is the proxy for request under policy; a nil policy is the system's.
+func proxyFor(policy *core.NetworkProxyPolicy, request *http.Request) (*url.URL, error) {
 	if policy == nil || policy.Policy == "system" || policy.Policy == "" {
 		return http.ProxyFromEnvironment(request)
 	}
@@ -60,6 +67,40 @@ func Proxy(request *http.Request) (*url.URL, error) {
 		return nil, nil
 	}
 	return proxyURL(*policy), nil
+}
+
+// Check sends one HEAD request for target under policy, on a transport of its own, so the check
+// neither uses nor closes the connections of the policy in force. A redirect is not followed:
+// any answer shows that the proxy carried the request. It returns the answer's status and the
+// time it took, or why no answer came; ctx bounds the wait.
+func Check(ctx context.Context, policy core.NetworkProxyPolicy, target string) (int, time.Duration, error) {
+	transport := &http.Transport{}
+	if base, ok := http.DefaultTransport.(*http.Transport); ok {
+		transport = base.Clone()
+	}
+	transport.Proxy = func(request *http.Request) (*url.URL, error) { return proxyFor(&policy, request) }
+	defer transport.CloseIdleConnections()
+	client := &http.Client{
+		Transport:     transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodHead, target, nil)
+	if err != nil {
+		return 0, 0, err
+	}
+	started := time.Now()
+	response, err := client.Do(request)
+	elapsed := time.Since(started)
+	if err != nil {
+		// The request's own address is known to the caller; the cause is what it needs.
+		var failure *url.Error
+		if errors.As(err, &failure) {
+			err = failure.Err
+		}
+		return 0, elapsed, err
+	}
+	_ = response.Body.Close()
+	return response.StatusCode, elapsed, nil
 }
 
 // proxyURL is the custom server as a URL the transport understands.

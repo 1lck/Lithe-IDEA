@@ -101320,7 +101320,8 @@
       "id": "settings.network.checkFailed",
       "description": "Native UI: The connection check failed.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "The connection check failed.",
@@ -101331,7 +101332,8 @@
       "id": "settings.network.connectionSucceeded",
       "description": "Native UI: Connection succeeded in %@ ms.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Connection succeeded in %@ ms.",
@@ -101358,7 +101360,8 @@
       "id": "settings.network.enterAddressAndPort",
       "description": "Native UI: Enter a server address and a port between 1 and 65535 first.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Enter a server address and a port between 1 and 65535 first.",
@@ -101567,7 +101570,8 @@
       "id": "settings.network.proxyAnsweredWithHTTP",
       "description": "Native UI: The proxy answered with HTTP %@.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "The proxy answered with HTTP %@.",
@@ -101616,7 +101620,8 @@
       "id": "settings.network.testConnection",
       "description": "Native UI: Test connection",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Test connection",
@@ -101627,7 +101632,8 @@
       "id": "settings.network.testing",
       "description": "Native UI: Testing…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Testing…",

@@ -1,9 +1,12 @@
 package settingswindow
 
 import (
+	"context"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -31,6 +34,62 @@ var (
 	proxyTypes   = []string{"", "socks5"}
 )
 
+// NetworkCheck is the outcome of the Network page's connection check. Incomplete says the
+// draft names no complete custom server, so nothing was sent. Otherwise Err says why no
+// answer came, or Status is the HTTP status of the answer, which came after Elapsed.
+type NetworkCheck struct {
+	Incomplete bool
+	Status     int
+	Elapsed    time.Duration
+	Err        error
+}
+
+// networkCheckTimeout bounds a connection check, Core's reading of the draft included.
+const networkCheckTimeout = 10 * time.Second
+
+// networkCheckState is the Network page's connection check. It runs off the window thread
+// and the page reads its outcome under the lock. A new check or a reload of the draft makes
+// the run in flight stale, so its outcome is dropped.
+type networkCheckState struct {
+	mu      sync.Mutex
+	running bool
+	run     int
+	outcome *NetworkCheck
+}
+
+// begin starts a run and returns its number.
+func (s *networkCheckState) begin() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.run++
+	s.running, s.outcome = true, nil
+	return s.run
+}
+
+// finish keeps the outcome of run, unless a later run or a reset made it stale.
+func (s *networkCheckState) finish(run int, outcome NetworkCheck) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if run == s.run {
+		s.running, s.outcome = false, &outcome
+	}
+}
+
+// reset forgets the outcome and makes the run in flight stale.
+func (s *networkCheckState) reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.run++
+	s.running, s.outcome = false, nil
+}
+
+// state is whether a run is in flight and the last outcome.
+func (s *networkCheckState) state() (bool, *NetworkCheck) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.running, s.outcome
+}
+
 // networkDraft is the Network page's unsaved edit. The page fills it from the stored
 // settings when it is first shown and after each apply; Apply hands it to the owner.
 type networkDraft struct {
@@ -40,6 +99,7 @@ type networkDraft struct {
 	password, exclusions ui.Field
 	clearPassword        bool
 	failure              string
+	check                networkCheckState
 }
 
 // load puts the stored settings in the draft. The password field starts empty: a stored
@@ -57,6 +117,7 @@ func (d *networkDraft) load(stored NetworkSettings) {
 	d.password.SetText("")
 	d.exclusions.SetText(strings.Join(stored.Exclusions, ", "))
 	d.clearPassword, d.failure = false, ""
+	d.check.reset()
 }
 
 // settings is what the draft would store, and the password to save: nil keeps the
@@ -167,7 +228,26 @@ func (w *window) networkPage(c ui.C) {
 		if d.failure != "" {
 			ui.Wrap(c, d.failure).FontSize(12).Color(w.pal.danger)
 		}
+		checking, outcome := d.check.state()
+		checkable := d.mode == "custom" && w.ctrl.opts.CheckNetwork != nil
+		if checkable && outcome != nil {
+			text, succeeded := networkCheckText(language, *outcome)
+			color := w.pal.danger
+			if succeeded {
+				color = w.pal.muted
+			}
+			ui.Wrap(c, text).FontSize(12).Color(color)
+		}
 		ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
+			if checkable {
+				label := i18n.Shared(language, "settings.network.testConnection")
+				if checking {
+					label = i18n.Shared(language, "settings.network.testing")
+				}
+				if ui.Button(c.Part("check"), label).Outline().Disabled(checking).Clicked() {
+					w.checkNetwork()
+				}
+			}
 			ui.Spacer(c)
 			if ui.Button(c.Part("revert"), i18n.Shared(language, "desktop.settings.network.revert")).Outline().Clicked() {
 				d.load(stored)
@@ -196,4 +276,39 @@ func (w *window) applyNetwork(language i18n.Language) {
 		w.ctrl.opts.SetNetwork(next, password)
 	}
 	d.load(next)
+}
+
+// checkNetwork sends one request through the draft, unsaved, off the window thread. A draft
+// without a server address or a valid port is answered at once, as Core would fall back to
+// the system's proxies for it and the check would prove nothing about the server.
+func (w *window) checkNetwork() {
+	d := &w.network
+	draft, password, ok := d.settings(w.sess.values.Network)
+	run := d.check.begin()
+	if !ok || draft.Host == "" || draft.Port == 0 {
+		d.check.finish(run, NetworkCheck{Incomplete: true})
+		return
+	}
+	check, inv := w.ctrl.opts.CheckNetwork, &w.inv
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), networkCheckTimeout)
+		defer cancel()
+		d.check.finish(run, check(ctx, draft, password))
+		inv.Invalidate()
+	}()
+}
+
+// networkCheckText says what a check found, and whether the server carried the request: any
+// answer from 200 to 399 does, since a redirect also came through it.
+func networkCheckText(language i18n.Language, outcome NetworkCheck) (string, bool) {
+	switch {
+	case outcome.Incomplete:
+		return i18n.Shared(language, "settings.network.enterAddressAndPort"), false
+	case outcome.Err != nil:
+		return i18n.Shared(language, "settings.network.checkFailed") + " " + outcome.Err.Error(), false
+	case outcome.Status >= 200 && outcome.Status < 400:
+		milliseconds := strconv.FormatInt(outcome.Elapsed.Milliseconds(), 10)
+		return i18n.SharedFormat(language, "settings.network.connectionSucceeded", map[string]string{"arg1": milliseconds}), true
+	}
+	return i18n.SharedFormat(language, "settings.network.proxyAnsweredWithHTTP", map[string]string{"arg1": strconv.Itoa(outcome.Status)}), false
 }

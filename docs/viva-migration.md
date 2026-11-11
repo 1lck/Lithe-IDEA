@@ -419,7 +419,7 @@
 
 | id | 能力 | 分类 | 基线 mac/win | Viva 现状 | 缺口 / 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `network-proxy-settings` | 在设置 › 外观与行为 › 网络配置应用自身 HTTP 流量的代理 | 必须迁移 | 实现/专属 | 部分 | C07 无 desktop/ 证据 |
+| `network-proxy-settings` | 在设置 › 外观与行为 › 网络配置应用自身 HTTP 流量的代理 | 必须迁移 | 实现/专属 | 部分 | `workbench/network.go`、`netproxy/netproxy.go`、`settingswindow/network_view.go`（测试连接已做；Digest/NTLM 认证、旧密码导入未做） |
 
 ### 项目（1）
 

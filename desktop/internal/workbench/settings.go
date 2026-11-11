@@ -257,6 +257,7 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SetNetwork: func(next settingswindow.NetworkSettings, password *string) {
 			a.post(func(a *App) { a.setNetwork(next, password) })
 		},
+		CheckNetwork: a.networkChecker(),
 		SetKeymap: func(value shortcuts.Overrides) {
 			value = shortcuts.Normalize(value)
 			a.post(func(a *App) {

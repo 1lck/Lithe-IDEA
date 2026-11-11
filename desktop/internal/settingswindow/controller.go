@@ -274,6 +274,10 @@ type Options struct {
 	// password to store: nil keeps the stored one and an empty string removes it. Nil
 	// leaves the page unavailable.
 	SetNetwork func(NetworkSettings, *string)
+	// CheckNetwork sends one request through the Network page's unsaved draft, with the
+	// password as SetNetwork takes it, the way the application's requests would go under it.
+	// It runs off the window thread and returns once ctx ends. Nil hides the check.
+	CheckNetwork func(ctx context.Context, draft NetworkSettings, password *string) NetworkCheck
 	// UpdateStatus reads what the updater is doing; it is safe from the window thread.
 	// CheckForUpdates, DownloadUpdate and InstallUpdate start the steps the Updates page
 	// offers, without waiting; SetAutoCheckUpdates hands a change of
