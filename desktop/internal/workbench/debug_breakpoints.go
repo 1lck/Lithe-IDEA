@@ -1,6 +1,8 @@
 package workbench
 
 import (
+	"context"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -126,5 +128,77 @@ func (a *App) debugBreakpointEditor(c ui.C, p *project) {
 	})
 	if closed || !open {
 		c.After(func() { p.debug.breakpointEdit = debugBreakpointEdit{} })
+	}
+}
+
+// addFunctionBreakpoint adds the typed method name. A duplicate or an empty name changes
+// nothing; with a session the full set goes to the adapter again.
+func (a *App) addFunctionBreakpoint(p *project) {
+	name := strings.TrimSpace(p.debug.functionName)
+	p.debug.functionName = ""
+	if name == "" {
+		return
+	}
+	for _, existing := range p.debug.functionBreakpoints {
+		if existing.Name == name {
+			return
+		}
+	}
+	p.debug.functionBreakpoints = append(p.debug.functionBreakpoints, core.DebugFunctionBreakpoint{Name: name, Enabled: true})
+	a.sendFunctionBreakpoints(p)
+}
+
+// removeFunctionBreakpoint drops one named breakpoint and tells the active adapter.
+func (a *App) removeFunctionBreakpoint(p *project, index int) {
+	if index < 0 || index >= len(p.debug.functionBreakpoints) {
+		return
+	}
+	p.debug.functionBreakpoints = slices.Delete(p.debug.functionBreakpoints, index, index+1)
+	a.sendFunctionBreakpoints(p)
+}
+
+// sendFunctionBreakpoints replaces the session's function breakpoints; without a session
+// they are sent at launch instead.
+func (a *App) sendFunctionBreakpoints(p *project) {
+	if p == nil || p.debug.session == nil {
+		return
+	}
+	session := p.debug.session
+	breakpoints := slices.Clone(p.debug.functionBreakpoints)
+	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
+		session.operationMu.Lock()
+		defer session.operationMu.Unlock()
+		if session.stopped.Load() {
+			return nil
+		}
+		update, err := a.kernel.SetDebugFunctionBreakpoints(ctx, session.id, breakpoints)
+		if err != nil {
+			return func(a *App) { a.finishDebugError(p, session, err) }
+		}
+		if err := session.writeFrames(update.OutboundFrames); err != nil {
+			return func(a *App) { a.finishDebugError(p, session, err) }
+		}
+		a.postDebugUpdate(p, session, update)
+		return nil
+	})
+}
+
+// debugFunctionBreakpoints declares the name field and the list of method breakpoints. A row
+// removes its breakpoint when clicked.
+func (a *App) debugFunctionBreakpoints(c ui.C, p *project) {
+	t := a.text.Debug.Breakpoint
+	ui.Row(c).FillWidth().Height(debugRowHeight + 4).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
+		ui.TextField(c.Part("function-name"), &p.debug.functionName, t.FunctionName, t.FunctionPlaceholder).Grow(1)
+		if ui.Button(c.Part("add-function"), t.AddFunction).Outline().Disabled(strings.TrimSpace(p.debug.functionName) == "").Clicked() {
+			c.After(func() { a.addFunctionBreakpoint(p) })
+		}
+	})
+	for index, breakpoint := range p.debug.functionBreakpoints {
+		index, name := index, breakpoint.Name
+		ui.Row(c).FillWidth().Height(debugRowHeight).Shrink(0).PadX(8).Items(ui.Center).Children(func() {
+			if ui.Button(c.Key("function-"+strconv.Itoa(index)), t.FunctionRow(name)).Small().Outline().Tooltip(t.RemoveFunction).Clicked() {
+				c.After(func() { a.removeFunctionBreakpoint(p, index) })
+			}
+		})
 	}
 }

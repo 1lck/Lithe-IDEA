@@ -257,3 +257,27 @@ func (c *Client) ReduceDebugDisassemblyPage(ctx context.Context, fetch DebugDisa
 	}
 	return step, nil
 }
+
+// DebugFunctionBreakpoint is one breakpoint on a named method or function. Core keeps the
+// complete sorted set and sends it only when the adapter negotiated function breakpoints.
+type DebugFunctionBreakpoint struct {
+	Name         string `json:"name"`
+	Enabled      bool   `json:"enabled"`
+	Condition    string `json:"condition,omitempty"`
+	HitCondition string `json:"hitCondition,omitempty"`
+}
+
+// SetDebugFunctionBreakpoints replaces the complete function breakpoint set of a session.
+func (c *Client) SetDebugFunctionBreakpoints(ctx context.Context, sessionID string, breakpoints []DebugFunctionBreakpoint) (DebugUpdate, error) {
+	var update DebugUpdate
+	if breakpoints == nil {
+		breakpoints = []DebugFunctionBreakpoint{}
+	}
+	if err := c.Execute(ctx, "debug.setFunctionBreakpoints", struct {
+		SessionID           string                    `json:"sessionId"`
+		FunctionBreakpoints []DebugFunctionBreakpoint `json:"functionBreakpoints"`
+	}{sessionID, breakpoints}, &update); err != nil {
+		return DebugUpdate{}, err
+	}
+	return update, nil
+}

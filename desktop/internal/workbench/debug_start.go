@@ -349,6 +349,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 	} else if declared, ok := core.DeclaredSteppingFilters(adapter.Declaration.Features, adapter.Declaration.Defaults); ok {
 		p.debug.hideFiltered = declared.HideFilteredStackFrames
 	}
+	functionBreakpoints := slices.Clone(p.debug.functionBreakpoints)
 	breakpoints := make(map[string][]debugBreakpoint, len(p.debug.breakpoints))
 	for path, lines := range p.debug.breakpoints {
 		breakpoints[path] = append([]debugBreakpoint(nil), lines...)
@@ -447,6 +448,16 @@ func (a *App) beginDebug(p *project, start debugStart) {
 			return func(a *App) { a.finishDebugError(p, session, err) }
 		}
 		a.postDebugUpdate(p, session, update)
+		if len(functionBreakpoints) > 0 {
+			update, err := a.kernel.SetDebugFunctionBreakpoints(ctx, session.id, functionBreakpoints)
+			if err != nil {
+				return func(a *App) { a.finishDebugError(p, session, err) }
+			}
+			if err := session.writeFrames(update.OutboundFrames); err != nil {
+				return func(a *App) { a.finishDebugError(p, session, err) }
+			}
+			a.postDebugUpdate(p, session, update)
+		}
 		for path, lines := range breakpoints {
 			update, err := a.kernel.SetDebugBreakpoints(ctx, session.id, path, sourceBreakpoints(lines))
 			if err != nil {

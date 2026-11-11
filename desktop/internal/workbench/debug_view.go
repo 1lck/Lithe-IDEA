@@ -176,6 +176,7 @@ func (a *App) debugBreakpoints(c ui.C, p *project) {
 			a.toggleBreakpoint(p)
 		}
 	})
+	a.debugFunctionBreakpoints(c, p)
 	rows := debugBreakpointList(d)
 	if len(rows) == 0 {
 		ui.Row(c).FillWidth().Height(debugRowHeight).Shrink(0).PadX(10).Items(ui.Center).Children(func() {

@@ -89,5 +89,38 @@
     "description": "File dialog filter name for plugin package archives",
     "en-US": "Plugin package",
     "zh-CN": "插件包"
+  },
+  {
+    "id": "desktop.debug.breakpoint.functionName",
+    "description": "Label of the field that names a method breakpoint",
+    "en-US": "Method or function",
+    "zh-CN": "方法或函数"
+  },
+  {
+    "id": "desktop.debug.breakpoint.functionPlaceholder",
+    "description": "Placeholder of the method breakpoint field",
+    "en-US": "For example example.Main.run",
+    "zh-CN": "例如 example.Main.run"
+  },
+  {
+    "id": "desktop.debug.breakpoint.addFunction",
+    "description": "Button that adds a method breakpoint",
+    "en-US": "Add",
+    "zh-CN": "添加"
+  },
+  {
+    "id": "desktop.debug.breakpoint.functionRow",
+    "description": "Row of a method breakpoint, showing its name",
+    "en-US": "ƒ {name}",
+    "zh-CN": "ƒ {name}",
+    "parameters": {
+      "name": "string"
+    }
+  },
+  {
+    "id": "desktop.debug.breakpoint.removeFunction",
+    "description": "Tooltip of a method breakpoint row that removes it",
+    "en-US": "Remove method breakpoint",
+    "zh-CN": "移除方法断点"
   }
 ]

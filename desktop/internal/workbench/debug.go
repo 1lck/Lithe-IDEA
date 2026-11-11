@@ -60,7 +60,11 @@ type debugState struct {
 	// breakpointEdit is the open editor of one of them (debug_breakpoints.go).
 	breakpoints    map[string][]debugBreakpoint
 	breakpointEdit debugBreakpointEdit
-	frames         []core.DebugStackFrame
+	// functionBreakpoints are the named method breakpoints of the session, and functionName the
+	// text the user is typing for the next one.
+	functionBreakpoints []core.DebugFunctionBreakpoint
+	functionName        string
+	frames              []core.DebugStackFrame
 	// hideFiltered collapses the frames the session's stepping filters match into one
 	// row per run; framesExpanded shows them again until the next stack arrives.
 	hideFiltered   bool

@@ -4,6 +4,11 @@ package i18n
 // hit count and log message a source breakpoint may carry.
 type DebugBreakpointMessages struct {
 	Edit                    string
+	FunctionName            string
+	FunctionPlaceholder     string
+	AddFunction             string
+	FunctionRow             func(name string) string
+	RemoveFunction          string
 	Title                   func(file, line string) string
 	Condition               string
 	ConditionPlaceholder    string
@@ -20,7 +25,13 @@ type DebugBreakpointMessages struct {
 
 func debugBreakpointMessages(language Language) DebugBreakpointMessages {
 	return DebugBreakpointMessages{
-		Edit: Shared(language, "desktop.debug.breakpoint.edit"),
+		Edit:                Shared(language, "desktop.debug.breakpoint.edit"),
+		FunctionName:        Shared(language, "desktop.debug.breakpoint.functionName"),
+		FunctionPlaceholder: Shared(language, "desktop.debug.breakpoint.functionPlaceholder"),
+		AddFunction:         Shared(language, "desktop.debug.breakpoint.addFunction"),
+		FunctionRow: func(name string) string {
+			return SharedFormat(language, "desktop.debug.breakpoint.functionRow", map[string]string{"name": name})
+		},
 		Title: func(file, line string) string {
 			return SharedFormat(language, "desktop.debug.breakpoint.title", map[string]string{"file": file, "line": line})
 		},
