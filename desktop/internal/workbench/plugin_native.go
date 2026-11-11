@@ -263,7 +263,11 @@ func (a *App) pluginFormBody(c ui.C, p *project, tool *pluginservice.ToolWindow,
 						if action == nil {
 							continue
 						}
-						if ui.Button(c.Key("button-"+button.ID), button.Label).Outline().Disabled(state.busy || !button.Enabled).Clicked() {
+						styled := ui.Button(c.Key("button-"+button.ID), button.Label)
+						if !button.Primary {
+							styled = styled.Outline()
+						}
+						if styled.Disabled(state.busy || !button.Enabled).Clicked() {
 							values := formValues(state, form)
 							c.After(func() { a.runNativeAction(p, tool, state, *action, values) })
 						}
@@ -366,6 +370,12 @@ func (a *App) drawFormControl(c ui.C, p *project, tool *pluginservice.ToolWindow
 			}
 		default:
 			ui.TextField(key, state.text[control.ID], control.Label, control.Placeholder).FillWidth().Disabled(disabled)
+		}
+		// The information icon sits under its field, and its tip stays readable while the field is disabled:
+		// only the field itself is inert.
+		if control.Info != "" {
+			ui.Button(c.Key("info-"+control.ID), control.Label).Icon(icons.Info).IconOnly().Ghost().
+				Size(shellHideSize, shellHideSize).Shrink(0).Tooltip(control.Info)
 		}
 	})
 }
