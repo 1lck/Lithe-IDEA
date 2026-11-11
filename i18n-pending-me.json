@@ -492,5 +492,117 @@
     "description": "Local History snapshot reason",
     "en-US": "Discarded unsaved changes",
     "zh-CN": "放弃的未保存修改"
+  },
+  {
+    "id": "desktop.keymap.groupEditor",
+    "description": "Keymap settings page",
+    "en-US": "Editor",
+    "zh-CN": "编辑器"
+  },
+  {
+    "id": "desktop.keymap.goToLine",
+    "description": "Keymap settings page",
+    "en-US": "Go to Line",
+    "zh-CN": "跳转到行"
+  },
+  {
+    "id": "desktop.keymap.inlineEdit",
+    "description": "Keymap settings page",
+    "en-US": "Inline Edit with AI",
+    "zh-CN": "AI 行内编辑"
+  },
+  {
+    "id": "desktop.keymap.search",
+    "description": "Keymap settings page",
+    "en-US": "Search actions",
+    "zh-CN": "搜索操作"
+  },
+  {
+    "id": "desktop.keymap.searchPlaceholder",
+    "description": "Keymap settings page",
+    "en-US": "Filter by name or key",
+    "zh-CN": "按名称或按键筛选"
+  },
+  {
+    "id": "desktop.keymap.add",
+    "description": "Keymap settings page",
+    "en-US": "Add Shortcut",
+    "zh-CN": "添加快捷键"
+  },
+  {
+    "id": "desktop.keymap.remove",
+    "description": "Keymap settings page",
+    "en-US": "Remove Shortcut",
+    "zh-CN": "移除快捷键"
+  },
+  {
+    "id": "desktop.keymap.reset",
+    "description": "Keymap settings page",
+    "en-US": "Reset",
+    "zh-CN": "恢复默认"
+  },
+  {
+    "id": "desktop.keymap.resetAll",
+    "description": "Keymap settings page",
+    "en-US": "Restore All Defaults",
+    "zh-CN": "全部恢复默认"
+  },
+  {
+    "id": "desktop.keymap.recording",
+    "description": "Keymap settings page",
+    "en-US": "Shortcut",
+    "zh-CN": "快捷键"
+  },
+  {
+    "id": "desktop.keymap.recordingHint",
+    "description": "Keymap settings page",
+    "en-US": "Press keys…",
+    "zh-CN": "请按下按键…"
+  },
+  {
+    "id": "desktop.keymap.cancel",
+    "description": "Keymap settings page",
+    "en-US": "Cancel",
+    "zh-CN": "取消"
+  },
+  {
+    "id": "desktop.keymap.none",
+    "description": "Keymap settings page",
+    "en-US": "No shortcut",
+    "zh-CN": "无快捷键"
+  },
+  {
+    "id": "desktop.keymap.modified",
+    "description": "Keymap settings page",
+    "en-US": "Modified",
+    "zh-CN": "已修改"
+  },
+  {
+    "id": "desktop.keymap.noMatch",
+    "description": "Keymap settings page",
+    "en-US": "No actions match.",
+    "zh-CN": "没有匹配的操作。"
+  },
+  {
+    "id": "desktop.keymap.conflict",
+    "description": "Keymap settings page",
+    "en-US": "{keys} is already used by “{action}”.",
+    "zh-CN": "{keys} 已被“{action}”使用。",
+    "parameters": {
+      "keys": "string",
+      "action": "string"
+    }
+  },
+  {
+    "id": "desktop.keymap.unbindable",
+    "description": "Keymap settings page",
+    "en-US": "A letter or symbol needs Command, Control or Option so typing never runs an action.",
+    "zh-CN": "字母或符号需要配合 Command、Control 或 Option，避免普通输入触发操作。"
+  },
+  {
+    "id": "desktop.keymap.help",
+    "description": "Keymap settings page",
+    "en-US": "Click + and press the new keys. Escape cancels recording. Changes apply at once.",
+    "zh-CN": "点击 + 后按下新的按键，Esc 取消录制。修改立即生效。"
   }
 ]

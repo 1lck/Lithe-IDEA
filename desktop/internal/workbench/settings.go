@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"maps"
 	"runtime"
 
@@ -167,6 +168,14 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		ResetLayout: func() {
 			a.post(func(a *App) { a.resetLayout() })
 		},
+		SetKeymap: func(value shortcuts.Overrides) {
+			value = shortcuts.Normalize(value)
+			a.post(func(a *App) {
+				a.settings.Keymap = value
+				a.saveSettings()
+				a.invalidator.Invalidate()
+			})
+		},
 		Toolchains:     settingsToolchains{app: a},
 		PluginSettings: pluginSettingsSources{app: a},
 		// The AI pages read and edit the Agents' own configuration through Core.
@@ -233,6 +242,11 @@ func (a *App) openTerminalSettings(surface string) {
 	a.openSettingsPage(surface, settingsTerminal)
 }
 
+// openKeymapSettings shows the settings window on its Keymap page.
+func (a *App) openKeymapSettings(surface string) {
+	a.openSettingsPage(surface, settingsKeymap)
+}
+
 // settingsPage is the page of the settings window an action opens it on.
 type settingsPage uint8
 
@@ -244,6 +258,8 @@ const (
 	// settingsAI is the AI page, where the providers a commit message is generated with are
 	// configured.
 	settingsAI
+	// settingsKeymap is the Keymap page, which the gear menu's Keymap item opens.
+	settingsKeymap
 )
 
 func (a *App) openSettingsPage(surface string, page settingsPage) {
@@ -270,6 +286,7 @@ func (a *App) openSettingsPage(surface string, page settingsPage) {
 			ProcessTermination:       a.settings.ProcessTermination,
 			SteppingFilters:          maps.Clone(a.settings.DebugSteppingFilters),
 			Fonts:                    fontprefs.Normalize(a.settings.Fonts),
+			Keymap:                   maps.Clone(a.settings.Keymap),
 		}
 		var err error
 		switch page {
@@ -277,6 +294,8 @@ func (a *App) openSettingsPage(surface string, page settingsPage) {
 			err = a.settingsWindow.OpenPlugins(a.application, current)
 		case settingsTerminal:
 			err = a.settingsWindow.OpenTerminal(a.application, current)
+		case settingsKeymap:
+			err = a.settingsWindow.OpenKeymap(a.application, current)
 		case settingsAI:
 			err = a.settingsWindow.OpenAI(a.application, current)
 		default:

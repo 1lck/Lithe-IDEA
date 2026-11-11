@@ -498,7 +498,7 @@ func (a *App) gearMenu(c ui.C, anchor ui.Box) {
 			c.After(func() { a.openSettings(surfaceMenu) })
 		}
 		if menu.Item(a.text.Title.Keymap).Clicked() {
-			c.After(func() { a.notify(a.text.Title.KeymapLater) })
+			c.After(func() { a.openKeymapSettings(surfaceMenu) })
 		}
 	})
 	if !open {

@@ -9,6 +9,7 @@ package settingswindow
 
 import (
 	"context"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"sync"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -75,6 +76,9 @@ type Values struct {
 	// SteppingFilters are the user's stepping policies by debug adapter ID. An adapter
 	// without an entry uses the defaults its plugin declares.
 	SteppingFilters map[string]core.DebugSteppingFilters
+	// Keymap is the user's changes to the keys of the shortcut catalog; nil keeps every
+	// default.
+	Keymap shortcuts.Overrides
 }
 
 // SteppingAdapter is an installed debug adapter that takes stepping filters: its ID, the
@@ -212,6 +216,8 @@ type Options struct {
 	// SetProcessTermination hands a change of Values.ProcessTermination to the settings
 	// owner, like SetTabRows.
 	SetProcessTermination func(ProcessTermination)
+	// SetKeymap hands a change of Values.Keymap to the settings owner, like SetTabRows.
+	SetKeymap func(shortcuts.Overrides)
 	// SteppingAdapters lists the installed debug adapters that take stepping filters, for
 	// the Build page; NormalizeSteppingFilters has Core check and tidy a policy before it
 	// is stored. Both run off the window thread. SetSteppingFilters hands a change to the
@@ -309,6 +315,11 @@ func (c *Controller) OpenPlugins(application *app.Application, current Values) e
 // already open: that window switches to the page and is raised, keeping its other values.
 func (c *Controller) OpenTerminal(application *app.Application, current Values) error {
 	return c.open(application, current, pageTerminal)
+}
+
+// OpenKeymap shows the window on the Keymap page, where the gear menu's Keymap item leads.
+func (c *Controller) OpenKeymap(application *app.Application, current Values) error {
+	return c.open(application, current, pageKeymap)
 }
 
 // OpenAI shows the window on the AI page, where the commit area's settings button leads.

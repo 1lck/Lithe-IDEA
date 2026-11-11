@@ -509,6 +509,7 @@ var english = Messages{
 	Worktrees: worktreeMessages(English),
 	Search:    searchMessages(English),
 	History:   historyMessages(English),
+	Keymap:    keymapMessages(English),
 	Commands:  commandMessages(English),
 	Console:   consoleMessages(English),
 }

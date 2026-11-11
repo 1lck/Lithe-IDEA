@@ -114,6 +114,8 @@ type window struct {
 	agent *agentSettings
 	// mcp is the MCP Configuration page's state.
 	mcp *mcpState
+	// keymap is the Keymap page's filter and recording.
+	keymap keymapState
 
 	// focusSearch asks the sidebar's search field, declared later in the paint, to take the
 	// focus (the platform's Find).

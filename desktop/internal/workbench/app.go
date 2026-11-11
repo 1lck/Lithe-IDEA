@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -254,6 +255,9 @@ type settings struct {
 	// Fonts are the fonts of the editor, the terminal and the run output (fonts.go); none
 	// is fontprefs.Default.
 	Fonts []fontprefs.Font `json:"fonts,omitempty"`
+	// Keymap is the user's changes to the keys of the shortcut catalog (shortcuts.Catalog),
+	// by action ID; none keeps every default.
+	Keymap shortcuts.Overrides `json:"keymap,omitempty"`
 }
 
 const (
@@ -541,6 +545,7 @@ func New(options Options) *App {
 	if _, err := a.store.Load(settingsFile, &a.settings); err != nil {
 		a.settings = settings{}
 	}
+	a.settings.Keymap = shortcuts.Normalize(a.settings.Keymap)
 	a.applyFonts()
 	a.searchView.delay = -1
 	a.everywhereView.delay = -1

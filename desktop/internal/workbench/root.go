@@ -1,10 +1,11 @@
 package workbench
 
 import (
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"runtime"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/appicon"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/windowcontrols"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
@@ -149,54 +150,70 @@ func (a *App) workbench(c ui.C) {
 	}
 }
 
-// windowShortcuts declares the window's own chords: Command-comma opens the settings,
-// Command-O asks for a project folder, Shift-Command-L shows the log window, and with a
-// project open Shift-Command-O searches everywhere, Shift-Command-F finds in files and the
-// navigation chord goes to a line.
+// windowShortcuts declares the window's own chords: every action of the shortcut catalog
+// on its effective keys (shortcuts.Catalog with the user's changes), which run the same
+// command Find Action runs. Go to Line and the inline edit only act where they apply:
+// Go to Line not in a terminal, and outside macOS only in an editor; the inline edit only
+// in an editor.
 func (a *App) windowShortcuts(c ui.C) {
-	if ui.Shortcut(c, ui.Primary, ",") {
-		c.After(func() { a.openSettings(surfaceShortcut) })
-	}
-	if ui.Shortcut(c, ui.Primary, "o") {
-		c.After(func() { a.chooseProject(surfaceShortcut) })
-	}
-	if ui.Shortcut(c, ui.Primary|ui.Shift, "l") {
-		c.After(a.openLogs)
-	}
-	p := a.project
-	if p == nil {
-		return
-	}
-	if ui.Shortcut(c, ui.Primary|ui.Shift, "o") {
-		c.After(func() {
-			a.performed("workspace.searchEverywhere.open", surfaceShortcut)
-			a.openEverywhere(p)
-		})
-	}
-	if ui.Shortcut(c, ui.Primary|ui.Shift, "a") {
-		c.After(func() {
-			a.performed("workspace.findAction.open", surfaceShortcut)
-			a.openFindAction()
-		})
-	}
-	if ui.Shortcut(c, ui.Primary|ui.Shift, "f") {
-		c.After(func() {
-			a.reduceChrome(core.SetChromeOpen(itemFind, true))
-			a.searchView.focus = true
-		})
-	}
-	if ui.Shortcut(c, ui.Primary, "k") {
-		if view := a.focusedDocument(c.Canvas().Focused()); view != nil {
-			c.After(func() { a.requestInlineEdit(p, view) })
+	fired := ""
+	for _, action := range shortcuts.Catalog {
+		for _, chord := range a.settings.Keymap.Effective(action) {
+			if ui.Shortcut(c, chord.Modifiers, chord.Name()) && a.shortcutApplies(c, action.ID) {
+				fired = action.ID
+			}
 		}
 	}
-	key, modifiers := "g", ui.Ctrl
-	if runtime.GOOS == "darwin" {
-		key, modifiers = "l", ui.Primary
+	if fired == "" {
+		return
 	}
-	if ui.Shortcut(c, modifiers, key) && a.focusedTerminal(c.Canvas().Focused()) == nil &&
-		(runtime.GOOS == "darwin" || a.focusedDocument(c.Canvas().Focused()) != nil) {
-		c.After(func() { a.openNavigation(p) })
+	view := a.focusedDocument(c.Canvas().Focused())
+	c.After(func() { a.runShortcut(fired, view) })
+}
+
+// shortcutApplies reports whether the action's chord acts where the focus is now.
+func (a *App) shortcutApplies(c ui.C, id string) bool {
+	focused := c.Canvas().Focused()
+	switch id {
+	case shortcuts.InlineEdit:
+		return a.project != nil && a.focusedDocument(focused) != nil
+	case shortcuts.GoToLine:
+		return a.project != nil && a.focusedTerminal(focused) == nil &&
+			(runtime.GOOS == "darwin" || a.focusedDocument(focused) != nil)
+	}
+	return true
+}
+
+// runShortcut runs the action a chord was pressed for. view is the editor that had the
+// focus, for the inline edit.
+func (a *App) runShortcut(id string, view *editorview.View) {
+	p := a.project
+	switch id {
+	case shortcuts.FindAction:
+		if p != nil {
+			a.performed("workspace.findAction.open", surfaceShortcut)
+			a.openFindAction()
+		}
+		return
+	case shortcuts.InlineEdit:
+		if p != nil && view != nil {
+			a.requestInlineEdit(p, view)
+		}
+		return
+	case shortcuts.GoToLine:
+		if p != nil {
+			a.openNavigation(p)
+		}
+		return
+	}
+	for _, command := range a.commands() {
+		if command.id == id {
+			if command.enabled && command.run != nil {
+				a.performed("command."+id, surfaceShortcut)
+				command.run()
+			}
+			return
+		}
 	}
 }
 

@@ -1,7 +1,6 @@
 package workbench
 
 import (
-	"runtime"
 	"sort"
 	"strings"
 
@@ -32,17 +31,14 @@ func (a *App) commands() []command {
 	t := a.text.Commands
 	p := a.project
 	var list []command
-	add := func(id, group, title, shortcut string, enabled bool, run func()) {
-		list = append(list, command{id: id, group: group, title: title, shortcut: shortcut, enabled: enabled, run: run})
-	}
-	primary := "⌘"
-	if runtime.GOOS != "darwin" {
-		primary = "Ctrl+"
+	keys := a.settings.Keymap
+	add := func(id, group, title, _ string, enabled bool, run func()) {
+		list = append(list, command{id: id, group: group, title: title, shortcut: keys.Label(id), enabled: enabled, run: run})
 	}
 
-	add("settings.open", t.GroupApp, t.Settings, primary+",", true, func() { a.openSettings(surfaceMenu) })
+	add("settings.open", t.GroupApp, t.Settings, "", true, func() { a.openSettings(surfaceMenu) })
 	add("plugins.open", t.GroupApp, t.Plugins, "", true, func() { a.openPluginSettings(surfaceMenu) })
-	add("logs.open", t.GroupApp, t.Logs, primary+"Shift+L", true, a.openLogs)
+	add("logs.open", t.GroupApp, t.Logs, "", true, a.openLogs)
 	add("legacy.import", t.GroupApp, t.ImportLegacy, "", true, a.readLegacyImport)
 	add("theme.system", t.GroupView, t.ThemeSystem, "", a.settings.Theme != themeSystem, func() { a.setTheme(themeSystem) })
 	add("theme.light", t.GroupView, t.ThemeLight, "", a.settings.Theme != themeLight, func() { a.setTheme(themeLight) })
@@ -50,7 +46,7 @@ func (a *App) commands() []command {
 	add("language.en", t.GroupView, t.LanguageEnglish, "", a.settings.Language != "en", func() { a.setLanguage("en") })
 	add("language.zh", t.GroupView, t.LanguageChinese, "", a.settings.Language != "zh-Hans", func() { a.setLanguage("zh-Hans") })
 
-	add("project.open", t.GroupProject, t.OpenProject, primary+"O", true, func() { a.chooseProject(surfaceMenu) })
+	add("project.open", t.GroupProject, t.OpenProject, "", true, func() { a.chooseProject(surfaceMenu) })
 	add("project.new", t.GroupProject, t.NewProject, "", true, func() { a.openNewProject(surfaceMenu) })
 	add("project.clone", t.GroupProject, t.Clone, "", true, func() { a.openClone(surfaceMenu) })
 	if p == nil {
@@ -75,8 +71,8 @@ func (a *App) commands() []command {
 		path := d.path
 		add("localHistory.show", t.GroupProject, a.text.History.Show, "", true, func() { a.openLocalHistory(p, path) })
 	}
-	add("search.everywhere", t.GroupSearch, t.SearchEverywhere, primary+"Shift+O", true, func() { a.openEverywhere(p) })
-	add("search.files", t.GroupSearch, t.FindInFiles, primary+"Shift+F", true, func() {
+	add("search.everywhere", t.GroupSearch, t.SearchEverywhere, "", true, func() { a.openEverywhere(p) })
+	add("search.files", t.GroupSearch, t.FindInFiles, "", true, func() {
 		a.reduceChrome(core.SetChromeOpen(itemFind, true))
 		a.searchView.focus = true
 	})

@@ -33,6 +33,7 @@ type Messages struct {
 	Console   ConsoleMessages
 	Search    SearchMessages
 	History   HistoryMessages
+	Keymap    KeymapMessages
 	Commands  CommandMessages
 }
 

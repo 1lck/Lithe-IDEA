@@ -509,6 +509,7 @@ var chinese = Messages{
 	Worktrees: worktreeMessages(Chinese),
 	Search:    searchMessages(Chinese),
 	History:   historyMessages(Chinese),
+	Keymap:    keymapMessages(Chinese),
 	Commands:  commandMessages(Chinese),
 	Console:   consoleMessages(Chinese),
 }
