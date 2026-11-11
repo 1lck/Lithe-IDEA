@@ -147,6 +147,9 @@ type completionState struct {
 	documentID   int
 	revision     int
 	line, column int
+	// incomplete says the server's list was cut short: what the user types next is asked again
+	// rather than filtered from these items.
+	incomplete bool
 }
 
 // definitionState is the multi-target definition popup.
@@ -686,6 +689,12 @@ func (a *App) scheduleAutoCompletion(p *project, d *document, edit editorview.Ed
 	if a.plugins == nil || a.project != p || d.view.IsComposing() {
 		return
 	}
+	// An incomplete list is asked again on every word character typed while it is open.
+	if completion := a.semantics.completion; completion.open && completion.incomplete && completion.documentID == d.id && isWordInsert(edit) {
+		line, column := d.view.CaretUTF16()
+		a.requestPluginCompletion(p, d, line, column, completionTriggerContext(), true)
+		return
+	}
 	server, ok := a.semanticServer(d)
 	providerOnly := !ok
 	var triggers []string
@@ -982,7 +991,7 @@ func (a *App) applySemanticCompletion(pending *semanticPending, event core.Backe
 	if p != pending.project || d == nil || d.view.Revision() != pending.revision || !a.semanticPositionCurrent(pending, d) {
 		return
 	}
-	items, _, err := core.PluginSemanticCompletions(event)
+	items, incomplete, err := core.PluginSemanticCompletions(event)
 	if err != nil {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_semantics", err))
 		return
@@ -1001,6 +1010,7 @@ func (a *App) applySemanticCompletion(pending *semanticPending, event core.Backe
 		revision:   pending.revision,
 		line:       pending.line,
 		column:     pending.column,
+		incomplete: incomplete,
 	}
 }
 
@@ -1560,4 +1570,17 @@ func (a *App) definitionPopupTitle(references bool) string {
 		return i18n.Shared(a.language(), "desktop.semantics.references")
 	}
 	return i18n.Shared(a.language(), "desktop.semantics.definitions")
+}
+
+// isWordInsert reports whether an edit types one identifier character at the caret.
+func isWordInsert(edit editorview.Edit) bool {
+	if edit.StartLine != edit.EndLine || edit.StartColumn != edit.EndColumn {
+		return false
+	}
+	runes := []rune(edit.Text)
+	if len(runes) != 1 {
+		return false
+	}
+	r := runes[0]
+	return r == '_' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
 }
