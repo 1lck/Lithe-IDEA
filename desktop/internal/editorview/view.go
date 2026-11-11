@@ -8,6 +8,7 @@
 package editorview
 
 import (
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -107,6 +108,7 @@ type Look struct {
 type snapshot struct {
 	text            rope.Rope
 	anchor, caret   int
+	extra           []span
 	scrollX, scroll float32
 	// widest is the view's widest at the time, no less than the widest line of text, so undo
 	// restores the scroll range without measuring the document again.
@@ -136,6 +138,17 @@ type View struct {
 	revision int
 	// readOnly makes every change a no-op; see SetReadOnly.
 	readOnly bool
+	// extra are the selections of the carets beyond the primary one (multicaret.go), in no
+	// order; multiEdit says eachCaret is running, multiBefore is the state its undo step goes
+	// back to and multiUndo whether that step was recorded. extraCells is paint scratch.
+	extra       []span
+	multiEdit   bool
+	multiUndo   bool
+	multiBefore snapshot
+	extraCells  [][2]int
+	// columnDrag says the drag selects a column (Alt); columnStart is where it started.
+	columnDrag  bool
+	columnStart [2]float32
 	// anchor and caret are the ends of the selection; they are equal when nothing is
 	// selected. goal is the column, in cells, that up and down keep to; -1 is the caret's.
 	anchor, caret                                      int
@@ -418,6 +431,7 @@ func (v *View) ResolveWithDisk(content Content) bool {
 func (c Content) Snapshot() rope.Rope { return c.text }
 
 func (v *View) replaceFromDisk(content Content) bool {
+	v.extra = nil
 	var change Edit
 	if v.cfg.OnEdit != nil {
 		change = v.wholeDocumentEdit(content.text)
@@ -473,6 +487,7 @@ func (v *View) Selection() (int, int) {
 // GoToLine selects the start of a one-based line and reveals it on the next paint.
 // Active input-method composition retains its selection until it is committed.
 func (v *View) GoToLine(line int) bool {
+	v.extra = nil
 	if v.preedit.Composing {
 		return false
 	}
@@ -486,6 +501,7 @@ func (v *View) GoToLine(line int) bool {
 // GoToNavigation applies Core's zero-based UTF-16 position to the live text.
 // A position inside a surrogate pair snaps to the preceding rune boundary.
 func (v *View) GoToNavigation(line, column int, wholeLine bool) bool {
+	v.extra = nil
 	if v.preedit.Composing {
 		return false
 	}
@@ -729,6 +745,19 @@ func (v *View) edit(start, end int, text string, kind editKind) {
 	if v.vim.on && !v.vim.grouped {
 		merge = false
 	}
+	if v.multiEdit {
+		// An edit at every caret is one undo step, recorded before its first edit.
+		if !v.multiUndo {
+			v.multiUndo = true
+			v.undo = append(v.undo, v.multiBefore)
+			if len(v.undo) > undoLimit {
+				v.undo = v.undo[len(v.undo)-undoLimit:]
+			}
+		}
+		merge = true
+	} else {
+		v.extra = nil
+	}
 	if !merge && !v.vim.grouped {
 		v.undo = append(v.undo, v.snapshot())
 		if len(v.undo) > undoLimit {
@@ -824,7 +853,7 @@ func (v *View) reportEdit(edit Edit) {
 
 // snapshot is the text and selection as they are now.
 func (v *View) snapshot() snapshot {
-	return snapshot{text: v.text, anchor: v.anchor, caret: v.caret, scroll: v.scroll, scrollX: v.scrollX, widest: v.widest}
+	return snapshot{text: v.text, anchor: v.anchor, caret: v.caret, extra: slices.Clone(v.extra), scroll: v.scroll, scrollX: v.scrollX, widest: v.widest}
 }
 
 // restore makes s the view's text and selection. The texts of an undo step are versions of one
@@ -850,6 +879,7 @@ func (v *View) restore(s snapshot) {
 	v.hl.Edit(v.text, start, oldEnd, newEnd)
 	v.spliceRows(firstLine, oldLast, newLast, oldCount)
 	v.anchor, v.caret = s.anchor, s.caret
+	v.extra = slices.Clone(s.extra)
 	v.lastKind = editOther
 	v.widest = max(v.widest, s.widest)
 	v.compare()
@@ -890,6 +920,7 @@ func (v *View) insert(text string, kind editKind) {
 
 // SelectAll selects the whole text.
 func (v *View) SelectAll() {
+	v.extra = nil
 	v.anchor, v.caret = 0, v.text.Len()
 	v.moved()
 }

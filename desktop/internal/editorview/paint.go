@@ -121,6 +121,9 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 			canvas.Fill(gfx.Rect{X: textArea.X, Y: top, Width: textArea.Width, Height: float32(len(wraps)) * v.lineH}, look.CurrentLine)
 		}
 		selFrom, selTo := v.selectionCells(l, selStart, selEnd)
+		if len(v.extra) > 0 {
+			v.extraCells = v.extraSelectionCells(l, v.extraCells)
+		}
 		v.tokens = v.hl.Line(v.tokens[:0], line)
 		for k, row := range wraps {
 			y := top + float32(k)*v.lineH
@@ -147,6 +150,18 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 				left := v.textLeft + float32(lo-shift)*v.cellW - v.scrollX
 				canvas.Fill(gfx.Rect{X: left, Y: y, Width: float32(hi-lo) * v.cellW, Height: v.lineH}, look.Selection)
 			}
+			if len(v.extra) > 0 {
+				for _, cells := range v.extraCells {
+					elo, ehi := cells[0], cells[1]
+					if v.wrapping() {
+						elo, ehi = max(elo, row.cells), min(ehi, to)
+					}
+					if ehi > elo {
+						left := v.textLeft + float32(elo-shift)*v.cellW - v.scrollX
+						canvas.Fill(gfx.Rect{X: left, Y: y, Width: float32(ehi-elo) * v.cellW, Height: v.lineH}, look.Selection)
+					}
+				}
+			}
 			end := l.size
 			if k+1 < len(wraps) {
 				end = wraps[k+1].at
@@ -170,6 +185,9 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 		top += float32(len(wraps)) * v.lineH
 	}
 	if v.focused && !v.preedit.Composing && (v.vimBlock() || v.blinkOn(canvas)) {
+		if len(v.extra) > 0 {
+			v.paintExtraCarets(canvas, look)
+		}
 		x, y := v.caretPoint()
 		if v.vimBlock() {
 			// The Vim modes draw the caret as a block over its character, solid, and let the

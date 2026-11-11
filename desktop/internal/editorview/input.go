@@ -31,6 +31,11 @@ func (v *View) Shortcut(event gfx.KeyEvent) (gfx.EventResult, bool) {
 			return result, true
 		}
 	}
+	if !v.vim.on {
+		if result, ok := v.occurrenceChord(event); ok {
+			return result, true
+		}
+	}
 	cmd := commandKey()
 	shift := event.Modifiers&gfx.ModifierShift != 0
 	if event.Modifiers&^gfx.ModifierShift != cmd {
@@ -40,11 +45,19 @@ func (v *View) Shortcut(event gfx.KeyEvent) (gfx.EventResult, bool) {
 	case "a":
 		v.SelectAll()
 	case "c":
+		if len(v.extra) > 0 {
+			return gfx.EventResult{Handled: true, ClipboardText: v.selectedTexts()}, true
+		}
 		if text := v.SelectedText(); text != "" {
 			return gfx.EventResult{Handled: true, ClipboardText: text}, true
 		}
 		return gfx.EventResult{Handled: true}, true
 	case "x":
+		if len(v.extra) > 0 {
+			text := v.selectedTexts()
+			v.insertAll("", editOther, false)
+			return gfx.EventResult{Handled: true, Repaint: true, ClipboardText: text}, true
+		}
 		text := v.SelectedText()
 		if text == "" {
 			return gfx.EventResult{Handled: true}, true
@@ -60,7 +73,11 @@ func (v *View) Shortcut(event gfx.KeyEvent) (gfx.EventResult, bool) {
 			break
 		}
 		if text, err := app.ClipboardText(); err == nil && text != "" {
-			v.insert(text, editOther)
+			if len(v.extra) > 0 {
+				v.insertAll(text, editOther, true)
+			} else {
+				v.insert(text, editOther)
+			}
 		}
 	case "z":
 		if shift {
@@ -121,8 +138,17 @@ func (v *View) key(event gfx.KeyEvent) (gfx.EventResult, bool) {
 		// The input method owns the keys while it composes.
 		return gfx.EventResult{Handled: true}, true
 	}
+	if v.vim.on {
+		v.extra = nil
+	}
 	if result, handled := v.vimKey(event); handled {
 		return result, true
+	}
+	if len(v.extra) > 0 && !v.multiEdit {
+		if event.Key != gfx.KeyPageUp && event.Key != gfx.KeyPageDown {
+			return v.multiKey(event)
+		}
+		v.ClearExtraCarets()
 	}
 	mods := event.Modifiers
 	extend := mods&gfx.ModifierShift != 0
@@ -372,15 +398,20 @@ func (v *View) applyText(event app.TextEvent) app.TextState {
 	switch event.Kind {
 	case app.TextInsert:
 		v.preedit = app.TextState{}
-		if v.vim.on {
+		switch {
+		case v.vim.on:
 			v.vimText(event.Text)
-		} else {
+		case len(v.extra) > 0:
+			v.insertAll(event.Text, editTyping, false)
+		default:
 			v.insert(event.Text, editTyping)
 		}
 		redraw = true
 	case app.TextPaste:
 		if v.vim.on && v.vim.mode != vimInsert && v.vim.mode != vimReplace {
 			v.vimPasteAs(event.Text)
+		} else if len(v.extra) > 0 {
+			v.insertAll(event.Text, editOther, true)
 		} else {
 			v.insert(event.Text, editOther)
 		}
@@ -444,8 +475,21 @@ func (v *View) Pointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 			// It stays unhandled, so the page can open the context menu on it.
 			return gfx.EventResult{Repaint: true, Focus: v.cfg.HitID}, true
 		}
-		v.dragging = true
 		v.clearCursorHistory()
+		mods := event.Modifiers
+		if mods == gfx.ModifierAlt|gfx.ModifierShift && !v.vim.on {
+			v.toggleCaret(offset)
+			return gfx.EventResult{Handled: true, Repaint: true, Focus: v.cfg.HitID}, true
+		}
+		if mods == gfx.ModifierAlt && !v.vim.on {
+			v.dragging, v.columnDrag = true, true
+			v.columnStart = [2]float32{event.X, event.Y}
+			v.columnSelect(event.X, event.Y, event.X, event.Y)
+			return gfx.EventResult{Handled: true, Repaint: true, Focus: v.cfg.HitID}, true
+		}
+		v.extra = nil
+		v.columnDrag = false
+		v.dragging = true
 		v.dragUnit = min(max(event.ClickCount, 1), 3)
 		if event.Modifiers&gfx.ModifierShift != 0 && v.dragUnit == 1 {
 			v.dragFrom, v.dragTo = v.anchor, v.anchor
@@ -455,10 +499,14 @@ func (v *View) Pointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 		v.dragSelect(offset)
 		return gfx.EventResult{Handled: true, Repaint: true, Focus: v.cfg.HitID}, true
 	case gfx.PointerMove:
+		if v.columnDrag {
+			v.columnSelect(v.columnStart[0], v.columnStart[1], event.X, event.Y)
+			return handled, true
+		}
 		v.dragSelect(offset)
 		return handled, true
 	}
-	v.dragging = false
+	v.dragging, v.columnDrag = false, false
 	return handled, true
 }
 
