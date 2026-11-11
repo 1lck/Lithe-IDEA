@@ -82,7 +82,7 @@ type gutterState struct {
 	// called with the line and column of a pressed icon.
 	icons  []LineIcon
 	slots  int
-	onIcon func(line, slot int)
+	onIcon func(line, slot int, cell gfx.Rect)
 	// onContext is told the line of a secondary press in the gutter, before the menu opens.
 	onContext   func(line int)
 	annotations []LineAnnotation

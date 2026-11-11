@@ -43,8 +43,9 @@ func (v *View) SetLineIcons(icons []LineIcon) {
 	}
 }
 
-// SetLineIconClick makes presses on the line icons call fn with the line and slot of the icon.
-func (v *View) SetLineIconClick(fn func(line, slot int)) { v.gutter.onIcon = fn }
+// SetLineIconClick makes presses on the line icons call fn with the line and slot of the icon
+// and the cell it is drawn in, in window coordinates, for a menu to open under it.
+func (v *View) SetLineIconClick(fn func(line, slot int, cell gfx.Rect)) { v.gutter.onIcon = fn }
 
 // lineIconColumn is the width the icon area takes now: zero without icons.
 func (v *View) lineIconColumn() float32 {
@@ -84,7 +85,8 @@ func (v *View) lineIconPointer(event gfx.PointerEvent) bool {
 	line, _ := v.rowLine(row)
 	for _, icon := range g.icons {
 		if icon.Line == line && icon.Slot == slot {
-			g.onIcon(line, slot)
+			top := v.area.Y + float32(v.lineRow(line))*v.lineH - v.scroll
+			g.onIcon(line, slot, gfx.Rect{X: v.iconX + float32(slot)*lineIconWidth, Y: top, Width: lineIconWidth, Height: v.lineH})
 			return true
 		}
 	}

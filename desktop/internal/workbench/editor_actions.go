@@ -126,7 +126,7 @@ func (a *App) annotateEditorActions(d *document) {
 		marks = append(marks, editorview.LineIcon{Line: line, Slot: slots[lane], Icon: icon})
 	}
 	d.view.SetLineIcons(marks)
-	d.view.SetLineIconClick(func(line, slot int) { a.pressEditorActionLane(d, line, slot) })
+	d.view.SetLineIconClick(func(line, slot int, cell gfx.Rect) { a.pressEditorActionLane(d, line, slot, cell) })
 	// Actions without an icon are code lenses: their titles show at their line.
 	var titles []editorview.LineAnnotation
 	titled := map[int]bool{}
@@ -180,6 +180,8 @@ type editorActionPanel struct {
 	menuOpen bool
 	menuLine int
 	menuLane string
+	// menuAt is the cell of the icon pressed; the menu opens under it.
+	menuAt gfx.Rect
 }
 
 // editorActionChoice is one row of a lane menu: an action, or one of its alternatives (alternative is
@@ -211,7 +213,7 @@ func editorActionChoices(actions []pluginservice.EditorAction, line int, lane st
 
 // pressEditorActionLane handles a press on the icon of a lane on a line. A lane with one choice runs it
 // at once; with several, the lane's menu opens and lists them.
-func (a *App) pressEditorActionLane(d *document, line, slot int) {
+func (a *App) pressEditorActionLane(d *document, line, slot int, cell gfx.Rect) {
 	p := a.project
 	if p == nil || p.docs.find(d.id) != d || slot < 0 || slot >= len(d.actionPanel.lanes) {
 		return
@@ -225,6 +227,7 @@ func (a *App) pressEditorActionLane(d *document, line, slot int) {
 		a.runEditorAction(p, d, choices[0].action, choices[0].alternative)
 	default:
 		d.actionPanel.menuLine, d.actionPanel.menuLane, d.actionPanel.menuOpen = line, lane, true
+		d.actionPanel.menuAt = cell
 	}
 }
 
