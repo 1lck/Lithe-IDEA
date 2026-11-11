@@ -31,10 +31,24 @@ func (h *harness) pageHit(name string) gfx.Hit {
 	return hit
 }
 
+// findPageHit is the topmost control named name that the pages declared. The window's own
+// caption buttons, which Viva draws on Linux and Windows over everything on a layer of their
+// own, are not page controls: the window's "Close" must not stand in for a dialog's.
 func (h *harness) findPageHit(name string) (gfx.Hit, bool) {
 	hits := h.driver.Snapshot().Hits
+	caption, captioned := uint16(0), false
+	for _, hit := range hits {
+		if hit.Label == h.app.text.Window.Minimize && !hit.IsLabel {
+			caption, captioned = hit.Layer, true
+			break
+		}
+	}
 	for i := len(hits) - 1; i >= 0; i-- {
-		if hit := hits[i]; hit.Label == name && !hit.IsLabel && !hit.Backdrop && !hit.ID.IsZero() {
+		hit := hits[i]
+		if captioned && hit.Layer == caption {
+			continue
+		}
+		if hit.Label == name && !hit.IsLabel && !hit.Backdrop && !hit.ID.IsZero() {
 			return hit, true
 		}
 	}
