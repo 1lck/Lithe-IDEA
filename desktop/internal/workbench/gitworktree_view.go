@@ -162,7 +162,7 @@ func (a *App) drawWorktreeRow(p *project, shown []core.GitWorktree, row ui.ListR
 		return
 	}
 	w, c := shown[row.Index], row.C
-	item := row.Element.FillWidth().PadX(10).PadY(5).Gap(8).Items(ui.Center)
+	item := row.Element.FillWidth().PadX(10).PadY(5).Gap(8).Items(ui.Center).Tooltip(w.Path)
 	if w.Path == p.worktrees.selected {
 		item = item.Background(a.colors.Selection)
 	} else {
