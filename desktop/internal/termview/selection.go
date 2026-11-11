@@ -266,6 +266,9 @@ func (v *View) terminalPointer(event gfx.PointerEvent) gfx.EventResult {
 	if result, handled := v.terminalMousePointer(event, position); handled {
 		return result
 	}
+	if v.openLinkAt(event, position) {
+		return gfx.EventResult{Handled: true}
+	}
 	row := v.screen.Row(position.Row)
 	if position.Column < len(row.Cells) && row.Cells[position.Column].Attr&term.WideTail != 0 && position.Column > 0 {
 		position.Column--

@@ -298,11 +298,22 @@ var chinese = Messages{
 		NewTab:             Shared(Chinese, "terminal.newTerminal"),
 		CloseTab:           Shared(Chinese, "terminal.contextClose"),
 		NoTerminals:        Shared(Chinese, "desktop.terminal.noTerminals"),
-		ShellMenu:          Shared(Chinese, "native.newTerminalWithShell"),
-		DetectingShells:    Shared(Chinese, "terminal.detectingShells"),
-		NoShells:           Shared(Chinese, "native.shellNotFound"),
-		ShellWithPath:      func(name, path string) string { return terminalShellWithPath(Chinese, name, path) },
-		Settings:           Shared(Chinese, "menu.settings"),
+		Find:               Shared(Chinese, "desktop.terminal.find"),
+		FindNone:           Shared(Chinese, "desktop.terminal.findNone"),
+		FindPrevious:       Shared(Chinese, "desktop.terminal.findPrevious"),
+		FindNext:           Shared(Chinese, "desktop.terminal.findNext"),
+		FindClose:          Shared(Chinese, "desktop.terminal.findClose"),
+		FindCount: func(current, total string) string {
+			return SharedFormat(Chinese, "desktop.terminal.findCount", map[string]string{"current": current, "total": total})
+		},
+		OpenLinkFailed: func(reason string) string {
+			return SharedFormat(Chinese, "desktop.terminal.openLinkFailed", map[string]string{"reason": reason})
+		},
+		ShellMenu:       Shared(Chinese, "native.newTerminalWithShell"),
+		DetectingShells: Shared(Chinese, "terminal.detectingShells"),
+		NoShells:        Shared(Chinese, "native.shellNotFound"),
+		ShellWithPath:   func(name, path string) string { return terminalShellWithPath(Chinese, name, path) },
+		Settings:        Shared(Chinese, "menu.settings"),
 	},
 
 	Agent: agentMessages(Chinese),

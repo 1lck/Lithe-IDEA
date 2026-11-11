@@ -49,6 +49,8 @@ type terminal struct {
 	// new-terminal menu or the Terminal setting, or empty for the user's login shell.
 	shell string
 	view  *termview.View
+	// find is the terminal's Find bar (terminal_find.go).
+	find terminalFind
 	// title replaces "Local (n)" on the tab; a plugin terminal sets it.
 	title string
 	// plugin is set when a plugin backend owns the terminal.
@@ -379,6 +381,7 @@ func (a *App) newTerminalWith(p *project, options terminalOptions) *terminal {
 		Messages: a.terminalMessages(),
 		Notify:   a.invalidator.Invalidate,
 		Failed:   a.terminalFailed,
+		OpenLink: a.openTerminalLink,
 	}
 	t := &terminal{id: id, number: set.freeNumber(), shell: shell, title: options.title, plugin: options.plugin}
 	if options.plugin != nil {

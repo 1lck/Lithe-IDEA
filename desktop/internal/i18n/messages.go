@@ -487,6 +487,11 @@ type TerminalMessages struct {
 	CloseTab string
 	// NoTerminals is the Terminal tool window when every terminal was moved to the editor.
 	NoTerminals string
+	// Find and the rest name the terminal's Find bar; FindCount is "3 of 12".
+	Find, FindNone, FindPrevious, FindNext, FindClose string
+	FindCount                                         func(current, total string) string
+	// OpenLinkFailed tells that a clicked link could not be opened.
+	OpenLinkFailed func(reason string) string
 	// ShellMenu is the accessible name of the button beside NewTab that lists the
 	// installed shells. DetectingShells and NoShells stand in that list while it is being
 	// made and when it found none. ShellWithPath names an installation whose name another

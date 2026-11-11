@@ -298,11 +298,22 @@ var english = Messages{
 		NewTab:             Shared(English, "terminal.newTerminal"),
 		CloseTab:           Shared(English, "terminal.contextClose"),
 		NoTerminals:        Shared(English, "desktop.terminal.noTerminals"),
-		ShellMenu:          Shared(English, "native.newTerminalWithShell"),
-		DetectingShells:    Shared(English, "terminal.detectingShells"),
-		NoShells:           Shared(English, "native.shellNotFound"),
-		ShellWithPath:      func(name, path string) string { return terminalShellWithPath(English, name, path) },
-		Settings:           Shared(English, "menu.settings"),
+		Find:               Shared(English, "desktop.terminal.find"),
+		FindNone:           Shared(English, "desktop.terminal.findNone"),
+		FindPrevious:       Shared(English, "desktop.terminal.findPrevious"),
+		FindNext:           Shared(English, "desktop.terminal.findNext"),
+		FindClose:          Shared(English, "desktop.terminal.findClose"),
+		FindCount: func(current, total string) string {
+			return SharedFormat(English, "desktop.terminal.findCount", map[string]string{"current": current, "total": total})
+		},
+		OpenLinkFailed: func(reason string) string {
+			return SharedFormat(English, "desktop.terminal.openLinkFailed", map[string]string{"reason": reason})
+		},
+		ShellMenu:       Shared(English, "native.newTerminalWithShell"),
+		DetectingShells: Shared(English, "terminal.detectingShells"),
+		NoShells:        Shared(English, "native.shellNotFound"),
+		ShellWithPath:   func(name, path string) string { return terminalShellWithPath(English, name, path) },
+		Settings:        Shared(English, "menu.settings"),
 	},
 
 	Agent: agentMessages(English),

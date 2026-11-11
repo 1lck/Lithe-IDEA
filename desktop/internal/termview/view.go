@@ -136,6 +136,9 @@ type Config struct {
 	Exited func(status *int)
 	// Clipboard reads the system clipboard for a paste. Nil uses app.ClipboardText.
 	Clipboard func() (string, error)
+	// OpenLink opens a link the user Command- (Control- off macOS) clicked. Nil leaves
+	// links inert.
+	OpenLink func(target string)
 	// start opens a shell; nil uses localshell.Start. Tests replace it.
 	start func(localshell.Config) (shell, error)
 }
@@ -219,6 +222,7 @@ type View struct {
 	cache   rowCache
 
 	selection terminalSelection
+	find      findState
 	blink     cursorBlink
 	bar       barState
 

@@ -166,3 +166,9 @@ func (t *Terminal) RevealLine(line int) bool {
 	t.version++
 	return true
 }
+
+// BufferPoint is the selection point of a retained-buffer position on the main
+// screen, so a search match or link can be selected and revealed.
+func (t *Terminal) BufferPoint(position BufferPosition) Point {
+	return Point{Line: t.scrolled - uint64(t.histCount) + uint64(position.Line) + 1, Column: position.Column}
+}

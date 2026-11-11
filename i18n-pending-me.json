@@ -1,15 +1,148 @@
 [
-{"id":"desktop.search.replace","description":"Accessible name of the Replace in Files field","en-US":"Replace","zh-CN":"替换"},
-{"id":"desktop.search.replacePlaceholder","description":"Placeholder of the Replace in Files field","en-US":"Replace with","zh-CN":"替换为"},
-{"id":"desktop.search.replaceAll","description":"Button that previews replacing every match in the project","en-US":"Replace All…","zh-CN":"全部替换…"},
-{"id":"desktop.search.replaceToggle","description":"Button that shows or hides the Replace in Files field","en-US":"Toggle Replace","zh-CN":"切换替换"},
-{"id":"desktop.search.replacePreviewTitle","description":"Title of the Replace in Files preview dialog","en-US":"Replace in Files","zh-CN":"在文件中替换"},
-{"id":"desktop.search.replacePreviewing","description":"Shown while the replacement preview is computed","en-US":"Finding replacements…","zh-CN":"正在查找可替换的内容…"},
-{"id":"desktop.search.noReplacements","description":"Preview dialog when nothing would change","en-US":"Nothing to replace.","zh-CN":"没有可替换的内容。"},
-{"id":"desktop.search.replaceConflict","description":"Reason a file was not replaced because it changed on disk meanwhile","en-US":"a file changed on disk while replacing","zh-CN":"替换期间有文件在磁盘上被修改"},
-{"id":"desktop.search.replaceSummary","description":"Preview dialog summary of what Replace All changes","en-US":"{occurrences} occurrences in {files} files","zh-CN":"{files} 个文件中的 {occurrences} 处","parameters":{"occurrences":"string","files":"string"}},
-{"id":"desktop.search.replaceFailed","description":"Preview dialog error when Core could not plan the replacement","en-US":"Could not prepare the replacement: {reason}","zh-CN":"无法准备替换：{reason}","parameters":{"reason":"string"}},
-{"id":"desktop.search.replaceDone","description":"Notification after Replace All","en-US":"Replaced in {files} files","zh-CN":"已在 {files} 个文件中替换","parameters":{"files":"string"}},
-{"id":"desktop.search.replaceSkipped","description":"Notification after Replace All left some files unchanged","en-US":"Replaced in {changed} files; {skipped} files were left unchanged because they changed or are not UTF-8","zh-CN":"已在 {changed} 个文件中替换；{skipped} 个文件已变化或不是 UTF-8，未修改","parameters":{"changed":"string","skipped":"string"}},
-{"id":"desktop.search.replacePartlyFailed","description":"Notification when Replace All failed for some files","en-US":"Replaced in {changed} files; {failed} failed: {reason}","zh-CN":"已在 {changed} 个文件中替换；{failed} 个失败：{reason}","parameters":{"changed":"string","failed":"string","reason":"string"}}
+ {
+  "id": "desktop.search.replace",
+  "description": "Accessible name of the Replace in Files field",
+  "en-US": "Replace",
+  "zh-CN": "替换"
+ },
+ {
+  "id": "desktop.search.replacePlaceholder",
+  "description": "Placeholder of the Replace in Files field",
+  "en-US": "Replace with",
+  "zh-CN": "替换为"
+ },
+ {
+  "id": "desktop.search.replaceAll",
+  "description": "Button that previews replacing every match in the project",
+  "en-US": "Replace All…",
+  "zh-CN": "全部替换…"
+ },
+ {
+  "id": "desktop.search.replaceToggle",
+  "description": "Button that shows or hides the Replace in Files field",
+  "en-US": "Toggle Replace",
+  "zh-CN": "切换替换"
+ },
+ {
+  "id": "desktop.search.replacePreviewTitle",
+  "description": "Title of the Replace in Files preview dialog",
+  "en-US": "Replace in Files",
+  "zh-CN": "在文件中替换"
+ },
+ {
+  "id": "desktop.search.replacePreviewing",
+  "description": "Shown while the replacement preview is computed",
+  "en-US": "Finding replacements…",
+  "zh-CN": "正在查找可替换的内容…"
+ },
+ {
+  "id": "desktop.search.noReplacements",
+  "description": "Preview dialog when nothing would change",
+  "en-US": "Nothing to replace.",
+  "zh-CN": "没有可替换的内容。"
+ },
+ {
+  "id": "desktop.search.replaceConflict",
+  "description": "Reason a file was not replaced because it changed on disk meanwhile",
+  "en-US": "a file changed on disk while replacing",
+  "zh-CN": "替换期间有文件在磁盘上被修改"
+ },
+ {
+  "id": "desktop.search.replaceSummary",
+  "description": "Preview dialog summary of what Replace All changes",
+  "en-US": "{occurrences} occurrences in {files} files",
+  "zh-CN": "{files} 个文件中的 {occurrences} 处",
+  "parameters": {
+   "occurrences": "string",
+   "files": "string"
+  }
+ },
+ {
+  "id": "desktop.search.replaceFailed",
+  "description": "Preview dialog error when Core could not plan the replacement",
+  "en-US": "Could not prepare the replacement: {reason}",
+  "zh-CN": "无法准备替换：{reason}",
+  "parameters": {
+   "reason": "string"
+  }
+ },
+ {
+  "id": "desktop.search.replaceDone",
+  "description": "Notification after Replace All",
+  "en-US": "Replaced in {files} files",
+  "zh-CN": "已在 {files} 个文件中替换",
+  "parameters": {
+   "files": "string"
+  }
+ },
+ {
+  "id": "desktop.search.replaceSkipped",
+  "description": "Notification after Replace All left some files unchanged",
+  "en-US": "Replaced in {changed} files; {skipped} files were left unchanged because they changed or are not UTF-8",
+  "zh-CN": "已在 {changed} 个文件中替换；{skipped} 个文件已变化或不是 UTF-8，未修改",
+  "parameters": {
+   "changed": "string",
+   "skipped": "string"
+  }
+ },
+ {
+  "id": "desktop.search.replacePartlyFailed",
+  "description": "Notification when Replace All failed for some files",
+  "en-US": "Replaced in {changed} files; {failed} failed: {reason}",
+  "zh-CN": "已在 {changed} 个文件中替换；{failed} 个失败：{reason}",
+  "parameters": {
+   "changed": "string",
+   "failed": "string",
+   "reason": "string"
+  }
+ },
+ {
+  "id": "desktop.terminal.find",
+  "description": "Accessible name and placeholder of the terminal Find field",
+  "en-US": "Find in terminal",
+  "zh-CN": "在终端中查找"
+ },
+ {
+  "id": "desktop.terminal.findNone",
+  "description": "Terminal Find when nothing matches",
+  "en-US": "No matches",
+  "zh-CN": "无匹配"
+ },
+ {
+  "id": "desktop.terminal.findPrevious",
+  "description": "Terminal Find button: previous match",
+  "en-US": "Previous Match",
+  "zh-CN": "上一个匹配"
+ },
+ {
+  "id": "desktop.terminal.findNext",
+  "description": "Terminal Find button: next match",
+  "en-US": "Next Match",
+  "zh-CN": "下一个匹配"
+ },
+ {
+  "id": "desktop.terminal.findClose",
+  "description": "Terminal Find button that closes the bar",
+  "en-US": "Close Find",
+  "zh-CN": "关闭查找"
+ },
+ {
+  "id": "desktop.terminal.findCount",
+  "description": "Terminal Find position, e.g. 3 of 12",
+  "en-US": "{current} of {total}",
+  "zh-CN": "第 {current} 个，共 {total} 个",
+  "parameters": {
+   "current": "string",
+   "total": "string"
+  }
+ },
+ {
+  "id": "desktop.terminal.openLinkFailed",
+  "description": "Warning when a link clicked in the terminal could not be opened",
+  "en-US": "Could not open the link: {reason}",
+  "zh-CN": "无法打开链接：{reason}",
+  "parameters": {
+   "reason": "string"
+  }
+ }
 ]

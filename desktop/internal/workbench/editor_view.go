@@ -228,6 +228,14 @@ func (a *App) documentPointer(p *project, d *document, event gfx.PointerEvent) g
 func (a *App) terminalView(c ui.C, t *terminal) {
 	name := "term" + strconv.Itoa(t.id)
 	t.hit = ui.ID(c.Part(name))
+	if t.find.open {
+		ui.Column(c.Part(name + "-find")).Fill().Children(func() {
+			a.terminalFindBar(c, t)
+			box := ui.Control(c.Part(name), a.text.Terminal.Label, &t.input).Fill().Draw(t.draw)
+			ui.FocusBind(box, &a.focus, focusTarget{term: t.id})
+		})
+		return
+	}
 	box := ui.Control(c.Part(name), a.text.Terminal.Label, &t.input).Fill().Draw(t.draw)
 	ui.FocusBind(box, &a.focus, focusTarget{term: t.id})
 }
@@ -325,6 +333,9 @@ func (a *App) onShortcut(event gfx.KeyEvent) gfx.EventResult {
 		if result := a.pluginSemanticsShortcut(event); result.Handled {
 			return result
 		}
+	}
+	if result := a.terminalFindShortcut(event); result.Handled {
+		return result
 	}
 	if t := a.focusedTerminal(event.Target); t != nil {
 		if result, handled := t.Shortcut(event); handled {
