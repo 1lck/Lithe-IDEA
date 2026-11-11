@@ -62,12 +62,17 @@ type agentSlashCandidate struct {
 	Name        string
 	Description string
 	Hint        string
+	// File is the absolute path an @ mention attaches instead of inserting text.
+	File string
 }
 
 // agentSlashCandidates lists what the draft's trigger offers, prefix matches first.
 func (a *App) agentSlashCandidates(p *project) []agentSlashCandidate {
 	if p == nil || p.agent.conn == nil || p.agent.sessionID == "" {
 		return nil
+	}
+	if _, ok := agentMentionQuery(p.agent.editor.CommittedString()); ok {
+		return a.agentMentionCandidates(p)
 	}
 	trigger, query, ok := agentSlashTrigger(p.agent.editor.CommittedString())
 	if !ok {
@@ -133,10 +138,15 @@ func (a *App) chooseAgentSlash(p *project, insert string) {
 	if p == nil {
 		return
 	}
-	editor := text.NewEditor(insert)
-	editor.MoveTo(len(insert), false)
+	a.setAgentDraft(p, insert)
+	a.performed("agent.slash.choose", surfaceMenu)
+}
+
+// setAgentDraft replaces the composer's text with draft and puts the caret at its end.
+func (a *App) setAgentDraft(p *project, draft string) {
+	editor := text.NewEditor(draft)
+	editor.MoveTo(len(draft), false)
 	p.agent.editor = editor
 	p.agent.input = ui.Field{}
 	p.agent.input.Bind(editor)
-	a.performed("agent.slash.choose", surfaceMenu)
 }

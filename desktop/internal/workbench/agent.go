@@ -188,6 +188,8 @@ type agentState struct {
 	steer    agentSteerState
 	files    []agentFileRef
 	slash    agentSlashState
+	// mention is the workspace-file list for an @ mention in the draft (agent_mention.go).
+	mention agentMentionState
 	// composerRect is where the composer was laid out, for dropped files.
 	composerRect gfx.Rect
 
