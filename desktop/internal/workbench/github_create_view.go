@@ -19,6 +19,9 @@ func (a *App) drawCreatePullRequestDialog(c ui.C, p *project) {
 			}
 			if cr.blocked != "" {
 				ui.Paragraph(c, cr.blocked, 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
+				if cr.publishable && ui.Button(c, i18n.Shared(lang, "desktop.github.publishBranch")).Outline().Disabled(cr.busy).Clicked() {
+					c.After(func() { a.publishCreateBranch(p) })
+				}
 			}
 			ui.TextField(c, &cr.title, i18n.Shared(lang, "desktop.github.prTitle"), i18n.Shared(lang, "desktop.github.prTitle")).FillWidth()
 			ui.TextArea(c, &cr.body, i18n.Shared(lang, "desktop.github.prBody"), i18n.Shared(lang, "desktop.github.prBody")).FillWidth().Grow(1)

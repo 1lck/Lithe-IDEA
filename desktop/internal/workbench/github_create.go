@@ -34,10 +34,12 @@ type prCreateState struct {
 	head       string
 	draft      bool
 	// blocked is why creation cannot start from this checkout, empty when it can.
-	blocked    string
-	title      ui.Field
-	body       ui.Field
-	baseChoice ui.ListState
+	blocked string
+	// publishable says the block is an unpublished branch, which Publish Branch can clear.
+	publishable bool
+	title       ui.Field
+	body        ui.Field
+	baseChoice  ui.ListState
 }
 
 // openCreatePullRequest opens the create dialog for the project's checkout: it reads the
@@ -98,6 +100,7 @@ func (a *App) openCreatePullRequest(p *project) {
 			}
 			cr.base = defaultBaseBranch(cr.branches, facts.SuggestedBaseBranch)
 			cr.blocked = creationBlockedReason(a.language(), facts)
+			cr.publishable = facts.RequiresPublish && !facts.Detached
 			if facts.CurrentBranch != nil {
 				cr.head = *facts.CurrentBranch
 			}
@@ -292,3 +295,56 @@ func aiPullRequestFailure(language i18n.Language, err error) string {
 	}
 	return i18n.SharedFormat(language, "desktop.github.draftFailed", map[string]string{"reason": err.Error()})
 }
+
+// publishCreateBranch publishes the checkout's branch so a pull request can be created from it. It
+// reviews the push the way the Push dialog does and sends it with Core, then asks Core again whether
+// creation is still blocked. A divergent destination needs the Push dialog's choice, so it is not
+// pushed here.
+func (a *App) publishCreateBranch(p *project) {
+	cr := &a.prCreate
+	kernel, ok := a.kernel.(interface {
+		GitPushPreviewOf(ctx context.Context, root string, branch core.GitReference, tags core.GitPushTags, target core.PushTargetChoice) (core.GitPushPreview, error)
+		GitPush(ctx context.Context, root string, preview core.GitPushPreview, tags core.GitPushTags, target core.PushTargetChoice, force bool) error
+		GitPullRequestContext(ctx context.Context, root string) (core.PullRequestContext, error)
+	})
+	if !ok || cr.busy || cr.blocked == "" {
+		return
+	}
+	root := p.git.repositoryRoot(p.root)
+	cr.busy, cr.err = true, ""
+	a.performed("git.publishBranch", surfaceButton)
+	language := a.language()
+	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
+		preview, err := kernel.GitPushPreviewOf(ctx, root, core.GitReference{}, core.GitPushTagsNone, "")
+		if err == nil && preview.TargetKind == "divergent" {
+			err = errPublishDivergent
+		}
+		if err == nil {
+			err = kernel.GitPush(ctx, root, preview, core.GitPushTagsNone, "", false)
+		}
+		var facts core.PullRequestContext
+		if err == nil {
+			facts, err = kernel.GitPullRequestContext(ctx, root)
+		}
+		return func(a *App) {
+			cr := &a.prCreate
+			cr.busy = false
+			if err != nil {
+				if errors.Is(err, errPublishDivergent) {
+					cr.err = i18n.Shared(language, "desktop.github.publishDivergent")
+				} else {
+					cr.err = githubFailure(language, err)
+				}
+				a.gitOperationFailed("git_publish_branch", err)
+				return
+			}
+			cr.blocked = creationBlockedReason(language, facts)
+			cr.publishable = facts.RequiresPublish && !facts.Detached
+			a.loadGit(p)
+		}
+	})
+}
+
+// errPublishDivergent reports that the branch's remote differs from it and the Push dialog must
+// decide how to publish.
+var errPublishDivergent = errors.New("the remote branch diverged")
