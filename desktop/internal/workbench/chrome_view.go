@@ -250,6 +250,7 @@ func (a *App) statusBar(c ui.C) {
 			}
 		})
 		a.chrome.placeZone(zoneStatus, zone)
+		a.notificationBell(c)
 		ui.Row(c).Absolute().Left(0).Right(0).Top(0).Height(1).Background(a.colors.Line)
 	})
 	if clicked >= 0 {

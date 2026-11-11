@@ -4,22 +4,24 @@
   "group": "通知与资源",
   "capability": "操作通知、错误提示与自动消失，重复消息合并计数",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/notifications.go",
+      "desktop/internal/workbench/notifications_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/notifications.go",
+      "desktop/internal/workbench/notifications_test.go"
     ]
   },
   "owner": "Workbench",
   "verification": "触发成功、警告和失败通知，验证队列、关闭、超时和重复通知。同一文案连续触发两次，确认通知栏只保留一条并在文案后显示计数（第二次 `（2）`、第三次 `（3）`），不同文案、不同类型或不同描述的通知仍各自独立；重复出现时该条回到列表顶部并重新标为未读，列表中显示的时间刷新为最后一次出现时间。重复通知使用固定 key 时，确认关闭后再次出现会继续累加而不是停在 1；把其中一个已合并的来源改写成另一段文案，确认只有该来源的次数随文案移动，原组剩余次数不变、新文案不被算成出现过两次。macOS 深浅主题检查共享卡片、官方图标、圆角边框、两行长消息与展开/收起。验证三条上限、旧消息折叠及历史入口，并确认重复一条带“还有 N 条通知”的气泡后该历史入口仍然存在；单条悬停不暂停其他通知，应用后台暂停全部、回到前台按剩余时间关闭；关闭与超时保留历史，清空历史关闭所有气泡。确定性时间测试覆盖计时与折叠，重复消息复核气泡置顶与计时重置，实际工作台检查叠放、关闭和通知中心。 macOS 各面板提示检查深浅主题下的共享 InlineBanner 与编辑器平面提示：六种状态背景/边框、13pt 正文、12pt 内边距或编辑器上下10pt、官方16pt图标、换行、动作链接和关闭按钮的实际点击。 在系统语言与应用语言不同时触发 Java 准备、就绪、超时和失败通知，检查气泡、通知历史及重复计数均跟随应用语言。 带错误详情的 Java 失败通知保留原始键和参数，在中文收到后切到 English，气泡与历史重新格式化；不同详情不合并，相同详情重复计数。中文 Maven 未准备就绪异常仍显示中文。 macOS 打开项目启动时（模块图重建、可见工具窗口和 Java 语言服务器被打断重启），确认不出现“未能完成操作（Swift.CancellationError 错误 1）”之类的取消通知；让模块激活抛出普通错误时仍弹出失败通知。 语言服务器激活进行中时在工作区关闭该语言服务器或关闭触发文档，确认之后不再弹出 “Could not start … language server”。",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva：通知以 toast 显示并记入通知历史（最多 100 条，最新在前）。同一文案同一类型再次出现合并为一条：计数加一、回到顶部、重新标为未读、时间刷新为最后一次，toast 文案带计数（“（2）”）。状态栏右端的铃铛显示未读数，点开即标为已读；历史面板列出文案、最后时间和次数，“清空”同时关闭仍在显示的 toast。尚未实现：成功/错误等类型区分（现在一律警告样式）、固定 key 的来源改写、三条上限与“还有 N 条”折叠、悬停与后台暂停计时、应用语言切换后重新格式化旧通知、欢迎页（无状态栏）上的入口、各面板 InlineBanner。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

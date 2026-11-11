@@ -337,6 +337,8 @@ type App struct {
 
 	// notice is the last message shown as a toast; notify sets it.
 	notice string
+	// notifications is the history of the notices, which the status bar's bell opens.
+	notifications notificationCenter
 	// overlay hosts the dialogs and the notice painted over the workbench.
 	overlay overlayHost
 	// instructions is the commit options' draft of the generation instructions
@@ -689,12 +691,6 @@ func (a *App) language() i18n.Language {
 		return language
 	}
 	return a.systemLanguage
-}
-
-// notify shows message in a toast.
-func (a *App) notify(message string) {
-	a.notice = message
-	a.overlay.toaster.Show(message, "", ui.ToastWarning)
 }
 
 // setLanguage switches the window to a stored i18n code; empty follows the system.

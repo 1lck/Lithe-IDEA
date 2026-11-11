@@ -14825,6 +14825,59 @@
       ]
     },
     {
+      "id": "desktop.notifications.clear",
+      "description": "Button that empties the notification history",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.notifications.empty",
+      "description": "Shown in the notification history when it holds nothing",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.notifications.meta",
+      "description": "When a repeated notice came last and how often, under it in the history. {time} is the time of day and {count} the number",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "time": "string",
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.notifications.repeated",
+      "description": "A notice that came several times. {message} is the notice and {count} how often it came",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "message": "string",
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.notifications.title",
+      "description": "Title of the notification history and the name of the status bar bell that opens it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.notifications.unread",
+      "description": "Name of the status bar bell when notices came since the history was last opened. {count} is their number",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
       "id": "desktop.outline.empty",
       "description": "Structure tool window text when the file has no symbols",
       "platforms": [
