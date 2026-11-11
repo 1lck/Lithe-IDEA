@@ -510,6 +510,7 @@ var english = Messages{
 	Search:    searchMessages(English),
 	History:   historyMessages(English),
 	Keymap:    keymapMessages(English),
+	Updates:   updatesMessages(English),
 	Commands:  commandMessages(English),
 	Console:   consoleMessages(English),
 }

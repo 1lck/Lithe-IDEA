@@ -92,6 +92,8 @@ type Values struct {
 	// Keymap is the user's changes to the keys of the shortcut catalog; nil keeps every
 	// default.
 	Keymap shortcuts.Overrides
+	// AutoCheckUpdates has Lithe check for a newer version when it starts, at most daily.
+	AutoCheckUpdates bool
 	// Network is the proxy settings of the application's own HTTP traffic.
 	Network NetworkSettings
 }
@@ -254,6 +256,17 @@ type Options struct {
 	// password to store: nil keeps the stored one and an empty string removes it. Nil
 	// leaves the page unavailable.
 	SetNetwork func(NetworkSettings, *string)
+	// UpdateStatus reads what the updater is doing; it is safe from the window thread.
+	// CheckForUpdates, DownloadUpdate and InstallUpdate start the steps the Updates page
+	// offers, without waiting; SetAutoCheckUpdates hands a change of
+	// Values.AutoCheckUpdates to the owner. A nil UpdateStatus leaves the page unavailable.
+	UpdateStatus        func() UpdateStatus
+	CheckForUpdates     func()
+	DownloadUpdate      func()
+	InstallUpdate       func()
+	SetAutoCheckUpdates func(bool)
+	// OpenURL opens an HTTPS page in the system browser.
+	OpenURL func(string)
 	// SetHideProjectColors hands a change of Values.HideProjectColors to the settings
 	// owner, like SetHideGitGutter.
 	SetHideProjectColors func(bool)

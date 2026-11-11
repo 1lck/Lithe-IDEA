@@ -871,5 +871,125 @@
     "description": "Editor viewer tab for non-text files",
     "en-US": "Only the first 64 KB are shown.",
     "zh-CN": "仅显示前 64 KB。"
+  },
+  {
+    "id": "desktop.settings.updates.title",
+    "description": "Updates settings page and update notices.",
+    "en-US": "Updates",
+    "zh-CN": "更新"
+  },
+  {
+    "id": "desktop.settings.updates.help",
+    "description": "Updates settings page and update notices.",
+    "en-US": "Lithe checks a signed release feed and installs the new version after you confirm. The current version stays in place until the new one starts.",
+    "zh-CN": "Lithe 从带签名的发布源检查新版本，经你确认后安装。新版本启动前，当前版本保持不变。"
+  },
+  {
+    "id": "desktop.settings.updates.notConfigured",
+    "description": "Updates settings page and update notices.",
+    "en-US": "This build has no update feed. Install new versions from the release page.",
+    "zh-CN": "此构建未配置更新源，请从发布页面安装新版本。"
+  },
+  {
+    "id": "desktop.settings.updates.auto",
+    "description": "Updates settings page and update notices.",
+    "en-US": "Check for updates automatically",
+    "zh-CN": "自动检查更新"
+  },
+  {
+    "id": "desktop.settings.updates.checking",
+    "description": "Updates settings page and update notices.",
+    "en-US": "Checking for updates…",
+    "zh-CN": "正在检查更新…"
+  },
+  {
+    "id": "desktop.settings.updates.installing",
+    "description": "Updates settings page and update notices.",
+    "en-US": "Installing the update…",
+    "zh-CN": "正在安装更新…"
+  },
+  {
+    "id": "desktop.settings.updates.downloading",
+    "description": "Updates settings page and update notices.",
+    "en-US": "Downloading… {percent}%",
+    "zh-CN": "正在下载… {percent}%",
+    "parameters": {
+      "percent": "string"
+    }
+  },
+  {
+    "id": "desktop.settings.updates.ready",
+    "description": "Updates settings page and update notices.",
+    "en-US": "Version {version} is downloaded and ready to install.",
+    "zh-CN": "版本 {version} 已下载，可以安装。",
+    "parameters": {
+      "version": "string"
+    }
+  },
+  {
+    "id": "desktop.settings.updates.available",
+    "description": "Updates settings page and update notices.",
+    "en-US": "Version {version} is available.",
+    "zh-CN": "有新版本 {version} 可用。",
+    "parameters": {
+      "version": "string"
+    }
+  },
+  {
+    "id": "desktop.settings.updates.upToDate",
+    "description": "Updates settings page and update notices.",
+    "en-US": "Lithe is up to date.",
+    "zh-CN": "Lithe 已是最新版本。"
+  },
+  {
+    "id": "desktop.settings.updates.failed",
+    "description": "Updates settings page and update notices.",
+    "en-US": "Update failed: {reason}",
+    "zh-CN": "更新失败：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.settings.updates.lastChecked",
+    "description": "Updates settings page and update notices.",
+    "en-US": "Last checked {time}",
+    "zh-CN": "上次检查：{time}",
+    "parameters": {
+      "time": "string"
+    }
+  },
+  {
+    "id": "desktop.settings.updates.check",
+    "description": "Updates settings page and update notices.",
+    "en-US": "Check Now",
+    "zh-CN": "立即检查"
+  },
+  {
+    "id": "desktop.settings.updates.download",
+    "description": "Updates settings page and update notices.",
+    "en-US": "Download",
+    "zh-CN": "下载"
+  },
+  {
+    "id": "desktop.settings.updates.install",
+    "description": "Updates settings page and update notices.",
+    "en-US": "Install and Restart",
+    "zh-CN": "安装并重启"
+  },
+  {
+    "id": "desktop.settings.updates.notes",
+    "description": "Updates settings page and update notices.",
+    "en-US": "Release Notes",
+    "zh-CN": "发布说明"
+  },
+  {
+    "id": "desktop.updates.available",
+    "description": "Notice after the startup update check finds a newer version.",
+    "en-US": "Lithe {version} is available. Open Settings > Updates to install it.",
+    "zh-CN": "Lithe {version} 已发布，可在“设置 > 更新”中安装。",
+    "parameters": {
+      "version": "string"
+    }
   }
 ]

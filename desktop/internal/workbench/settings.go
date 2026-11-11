@@ -217,6 +217,17 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 				}
 			})
 		},
+		UpdateStatus:    a.updateStatus,
+		CheckForUpdates: func() { a.post(func(a *App) { a.checkForUpdates(true) }) },
+		DownloadUpdate:  func() { a.post(func(a *App) { a.downloadUpdate() }) },
+		InstallUpdate:   func() { a.post(func(a *App) { a.installUpdate() }) },
+		SetAutoCheckUpdates: func(on bool) {
+			a.post(func(a *App) {
+				a.settings.UpdatesManual = !on
+				a.saveSettings()
+			})
+		},
+		OpenURL: func(address string) { _ = openURL(address) },
 		SetNetwork: func(next settingswindow.NetworkSettings, password *string) {
 			a.post(func(a *App) { a.setNetwork(next, password) })
 		},
@@ -358,6 +369,7 @@ func (a *App) openSettingsPageWith(surface string, page settingsPage, query stri
 			Fonts:                    fontprefs.Normalize(a.settings.Fonts),
 			Keymap:                   maps.Clone(a.settings.Keymap),
 			Network:                  a.settings.Network,
+			AutoCheckUpdates:         a.autoCheckUpdates(),
 		}
 		var err error
 		switch page {

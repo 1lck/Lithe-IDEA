@@ -274,6 +274,10 @@ type settings struct {
 	// Keymap is the user's changes to the keys of the shortcut catalog (shortcuts.Catalog),
 	// by action ID; none keeps every default.
 	Keymap shortcuts.Overrides `json:"keymap,omitempty"`
+	// UpdatesManual stops the daily check at startup; UpdatesCheckedAt is the last check
+	// that read the feed (updates.go).
+	UpdatesManual    bool      `json:"updatesManual,omitempty"`
+	UpdatesCheckedAt time.Time `json:"updatesCheckedAt,omitzero"`
 	// Network is the proxy settings of the application's own HTTP traffic (network.go).
 	Network settingswindow.NetworkSettings `json:"network,omitzero"`
 }
@@ -377,7 +381,9 @@ type App struct {
 	// fills its monitor, as the host last reported.
 	window     *app.Window
 	fullscreen bool
-	tasks      taskQueue
+	// updates is the update check, download and install (updates.go).
+	updates updater
+	tasks   taskQueue
 	// languages are the languages the editor knows, made when the first file is opened.
 	languages *syntax.Registry
 
@@ -659,6 +665,7 @@ func (a *App) Run() error {
 			return err
 		}
 		a.window = window
+		a.startUpdates()
 		if path := a.startupPath; path != "" {
 			a.startupPath = ""
 			a.post(func(a *App) { a.openProject(path) })

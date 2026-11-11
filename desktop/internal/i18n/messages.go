@@ -34,6 +34,7 @@ type Messages struct {
 	Search    SearchMessages
 	History   HistoryMessages
 	Keymap    KeymapMessages
+	Updates   UpdatesMessages
 	Commands  CommandMessages
 }
 

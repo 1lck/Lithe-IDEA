@@ -510,6 +510,7 @@ var chinese = Messages{
 	Search:    searchMessages(Chinese),
 	History:   historyMessages(Chinese),
 	Keymap:    keymapMessages(Chinese),
+	Updates:   updatesMessages(Chinese),
 	Commands:  commandMessages(Chinese),
 	Console:   consoleMessages(Chinese),
 }
