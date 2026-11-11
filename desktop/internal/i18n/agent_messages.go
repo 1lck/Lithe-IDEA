@@ -106,6 +106,7 @@ type AgentMessages struct {
 	Header       AgentHeaderMessages
 	Export       AgentExportMessages
 	Reply        AgentReplyMessages
+	ToolDetail   AgentToolDetailMessages
 }
 
 func agentMessages(language Language) AgentMessages {
@@ -121,6 +122,7 @@ func agentMessages(language Language) AgentMessages {
 		Header:        agentHeaderMessages(language),
 		Export:        agentExportMessages(language),
 		Reply:         agentReplyMessages(language),
+		ToolDetail:    agentToolDetailMessages(language),
 		AgentLabel:    Shared(language, "desktop.agent.setup.agent"),
 		ProviderLabel: Shared(language, "desktop.agent.setup.provider"),
 		Start:         Shared(language, "desktop.agent.setup.start"),

@@ -409,5 +409,41 @@
     "description": "Accessibility name of the formatted text of an Agent reply.",
     "en-US": "Reply text",
     "zh-CN": "回复内容"
+  },
+  {
+    "id": "desktop.agent.tool.showDiff",
+    "description": "Button under a tool call that shows the diffs it reported.",
+    "en-US": "Show diff",
+    "zh-CN": "查看差异"
+  },
+  {
+    "id": "desktop.agent.tool.hideDiff",
+    "description": "Button that hides the diffs of a tool call.",
+    "en-US": "Hide diff",
+    "zh-CN": "收起差异"
+  },
+  {
+    "id": "desktop.agent.tool.diffBefore",
+    "description": "Label of the text before a reported change.",
+    "en-US": "Before",
+    "zh-CN": "修改前"
+  },
+  {
+    "id": "desktop.agent.tool.diffAfter",
+    "description": "Label of the text after a reported change.",
+    "en-US": "After",
+    "zh-CN": "修改后"
+  },
+  {
+    "id": "desktop.agent.tool.diffNote",
+    "description": "Note above a reported diff: the Agent reports excerpts that may not include the whole file.",
+    "en-US": "Agent-reported changes; excerpts may not include the entire file.",
+    "zh-CN": "Agent 报告的修改；片段可能不包含整个文件。"
+  },
+  {
+    "id": "desktop.agent.tool.truncated",
+    "description": "Note when a reported text was cut to the display limit.",
+    "en-US": "Shortened to fit.",
+    "zh-CN": "已截断以便显示。"
   }
 ]

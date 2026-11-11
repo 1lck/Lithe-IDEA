@@ -81,6 +81,7 @@ func (a *App) agentActivityRow(c ui.C, p *project, index int, message agentMessa
 					}
 				}
 			})
+			a.agentToolDetails(c, p, tool)
 			if tool.Expanded && tool.Output != "" {
 				ui.Wrap(c, tool.Output).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 			}

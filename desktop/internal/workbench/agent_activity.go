@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 )
 
@@ -38,7 +39,21 @@ type agentToolCall struct {
 	// the call completes.
 	Card     *agentCard
 	Expanded bool
+	// Paths are the files the call touched, and Diffs the diffs it reported; DiffOpen shows them.
+	Paths    []string
+	Diffs    []agentToolDiff
+	DiffOpen bool
 }
+
+// agentToolDiff is one diff a tool call reported: the file and its text before and after.
+type agentToolDiff struct {
+	Path, OldText, NewText string
+}
+
+const (
+	agentToolPathLimit = 16
+	agentToolDiffLimit = 8
+)
 
 type agentPlanEntry struct {
 	Content  string
@@ -190,12 +205,15 @@ type agentUpdateWire struct {
 	Content       json.RawMessage `json:"content"`
 	ToolCallID    string          `json:"toolCallId"`
 	Title         string          `json:"title"`
-	Severity      string          `json:"severity"`
-	Description   string          `json:"description"`
-	Kind          string          `json:"kind"`
-	Status        string          `json:"status"`
-	Meta          json.RawMessage `json:"_meta"`
-	Entries       []struct {
+	Locations     []struct {
+		Path string `json:"path"`
+	} `json:"locations"`
+	Severity    string          `json:"severity"`
+	Description string          `json:"description"`
+	Kind        string          `json:"kind"`
+	Status      string          `json:"status"`
+	Meta        json.RawMessage `json:"_meta"`
+	Entries     []struct {
 		Content  string `json:"content"`
 		Priority string `json:"priority"`
 		Status   string `json:"status"`
@@ -214,6 +232,32 @@ type agentUpdateWire struct {
 	Name              string          `json:"name"`
 	Task              string          `json:"task"`
 	State             string          `json:"state"`
+}
+
+// agentToolDiffs reads the diff blocks of a tool call's content. Each text is bounded like the
+// call's output, and the number of diffs is capped.
+func agentToolDiffs(raw json.RawMessage) []agentToolDiff {
+	var items []struct {
+		Type    string `json:"type"`
+		Path    string `json:"path"`
+		OldText string `json:"oldText"`
+		NewText string `json:"newText"`
+	}
+	if len(raw) == 0 || json.Unmarshal(raw, &items) != nil {
+		return nil
+	}
+	var out []agentToolDiff
+	for _, item := range items {
+		if item.Type != "diff" || len(out) >= agentToolDiffLimit {
+			continue
+		}
+		out = append(out, agentToolDiff{
+			Path:    item.Path,
+			OldText: agentDisplayPrefix(item.OldText, agentToolOutputLimit),
+			NewText: agentDisplayPrefix(item.NewText, agentToolOutputLimit),
+		})
+	}
+	return out
 }
 
 // agentTextContent reads the text of an ACP content block.
@@ -296,6 +340,14 @@ func (a *App) applyAgentToolCall(p *project, update agentUpdateWire, messages *[
 		before := len(tool.Output)
 		tool.Output = agentDisplayPrefix(text, agentToolOutputLimit)
 		*bytes += len(tool.Output) - before
+	}
+	if diffs := agentToolDiffs(update.Content); len(diffs) > 0 {
+		tool.Diffs = diffs
+	}
+	for _, location := range update.Locations {
+		if location.Path != "" && len(tool.Paths) < agentToolPathLimit && !slices.Contains(tool.Paths, location.Path) {
+			tool.Paths = append(tool.Paths, location.Path)
+		}
 	}
 	if tool.Status == "" {
 		tool.Status = "pending"
