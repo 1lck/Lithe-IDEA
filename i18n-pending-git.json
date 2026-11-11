@@ -276,5 +276,26 @@
     "parameters": {
       "reason": "string"
     }
+  },
+  {
+    "id": "desktop.files.openWith",
+    "description": "Project tree context menu item: open the file with an application the user picks",
+    "en-US": "Open With…",
+    "zh-CN": "用其他应用打开…"
+  },
+  {
+    "id": "desktop.files.openWithTitle",
+    "description": "Title of the application picker of Open With",
+    "en-US": "Choose an Application",
+    "zh-CN": "选择应用程序"
+  },
+  {
+    "id": "desktop.files.openWithFailed",
+    "description": "Notice when the chosen application could not open the file",
+    "en-US": "Could not open the file: {reason}",
+    "zh-CN": "无法打开文件：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
   }
 ]

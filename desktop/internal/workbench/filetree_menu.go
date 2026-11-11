@@ -65,6 +65,10 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 					a.activateTreeNode(p, n)
 				})
 			}
+			if menu.Item(i18n.Shared(language, "desktop.files.openWith")).Clicked() {
+				file := filepath.Join(p.root, filepath.FromSlash(n.path))
+				c.After(func() { a.openTreeFileWith(file) })
+			}
 			opened = true
 		}
 		if !root && a.agentKernelReady() {

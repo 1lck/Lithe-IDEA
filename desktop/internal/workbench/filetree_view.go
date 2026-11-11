@@ -80,7 +80,11 @@ func (a *App) projectTree(c ui.C, p *project) {
 	t.view.RowWidth = a.measureTree(c.Canvas(), t)
 	// Names are never cut short: the rows are as wide as the widest one, and the tree
 	// scrolls sideways to show the rest of it.
-	ui.Tree(c, &t.view, len(t.rows), t.label, func(i int) { a.drawTreeContent(c, p, t.rows[i]) }).Grow(1).FillWidth().PadY(treelist.PadY).Draw(t.areaHook())
+	tree := ui.Tree(c, &t.view, len(t.rows), t.label, func(i int) { a.drawTreeContent(c, p, t.rows[i]) }).Grow(1).FillWidth().PadY(treelist.PadY)
+	if tree.Shortcut(0, "f4") {
+		c.After(func() { a.openSelectedTreeFile(p) })
+	}
+	tree.Draw(t.areaHook())
 	a.focusTreeRow(c.Canvas(), t)
 	if i, ok := t.view.Toggled(); ok && i < len(t.rows) {
 		n := t.rows[i]
