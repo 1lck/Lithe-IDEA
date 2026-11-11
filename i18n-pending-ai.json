@@ -391,5 +391,23 @@
     "description": "Help under the Hook timeout field: empty uses the Agent default, otherwise 1 to 86400 seconds.",
     "en-US": "Leave empty to use the Agent default, or enter an integer from 1 to 86400.",
     "zh-CN": "留空则使用 Agent 的默认值，或输入 1 到 86400 之间的整数。"
+  },
+  {
+    "id": "desktop.agent.reply.copyCode",
+    "description": "Button under a code block of an Agent reply that copies the block to the clipboard.",
+    "en-US": "Copy code",
+    "zh-CN": "复制代码"
+  },
+  {
+    "id": "desktop.agent.reply.insertCode",
+    "description": "Button under a code block of an Agent reply that adds the block to the composer without sending.",
+    "en-US": "Insert into draft",
+    "zh-CN": "插入输入框"
+  },
+  {
+    "id": "desktop.agent.reply.link",
+    "description": "Accessibility name of the formatted text of an Agent reply.",
+    "en-US": "Reply text",
+    "zh-CN": "回复内容"
   }
 ]
