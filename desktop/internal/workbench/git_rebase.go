@@ -54,6 +54,17 @@ type rebaseState struct {
 	list       ui.ListState
 	// session is the last rebase session the repository holds, nil when there is none.
 	session *core.RebaseSession
+	// root is the repository the dialog and the session act in: the one the log walked when the
+	// rebase began, empty for the project's own repository.
+	root string
+}
+
+// rebaseRoot is the repository the rebase dialog and session act in.
+func (p *project) rebaseRoot() string {
+	if p.rebase.root != "" {
+		return p.rebase.root
+	}
+	return p.git.repositoryRoot(p.root)
 }
 
 // rebaseKernel is the part of the kernel a rebase uses. *core.Client implements it.
@@ -77,8 +88,9 @@ func (a *App) beginRebaseFromHere(p *project, base, subject string) {
 	r := &p.rebase
 	r.gen++
 	gen := r.gen
-	*r = rebaseState{open: true, gen: gen, busy: true, base: base, subject: subject, session: r.session}
-	kernel, root := a.kernel.(rebaseKernel), p.git.repositoryRoot(p.root)
+	root := p.logRepositoryRoot()
+	*r = rebaseState{open: true, gen: gen, busy: true, base: base, subject: subject, session: r.session, root: root}
+	kernel := a.kernel.(rebaseKernel)
 	a.performed("git.rebase.fromHere", surfaceMenu)
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		preview, err := kernel.GitRebasePreview(ctx, root, base)
@@ -140,7 +152,7 @@ func (a *App) startRebase(p *project) {
 	preview := r.preview
 	r.busy = true
 	a.performed("git.rebase.start", surfaceButton)
-	root := p.git.repositoryRoot(p.root)
+	root := p.rebaseRoot()
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		session, err := kernel.GitRebaseStart(ctx, root, preview, steps)
 		return func(a *App) {
@@ -178,7 +190,7 @@ func (a *App) controlRebaseWith(p *project, action, message string) {
 	}
 	r.busy = true
 	a.performed("git.rebase."+action, surfaceButton)
-	root := p.git.repositoryRoot(p.root)
+	root := p.rebaseRoot()
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		next, err := kernel.GitRebaseControl(ctx, root, session, action, message, expectedHead)
 		return func(a *App) {
@@ -203,7 +215,7 @@ func (a *App) loadRebaseSession(p *project) {
 	if !ok || !p.git.isRepository() {
 		return
 	}
-	root := p.git.repositoryRoot(p.root)
+	root := p.rebaseRoot()
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		session, err := kernel.GitRebaseSession(ctx, root)
 		return func(a *App) {
