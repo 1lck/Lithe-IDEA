@@ -51,3 +51,22 @@ func (a *App) vimStatusText() string {
 	}
 	return a.text.Status.Vim
 }
+
+// vimExit runs the Vim commands that save and close document d: w saves, q closes, q! closes
+// without saving, and wq and x save and close. It reports false for any other command.
+func (a *App) vimExit(p *project, d *document, cmd string) bool {
+	switch cmd {
+	case "w":
+		a.saveDocument(p, d.id)
+	case "q":
+		a.closeDocument(p, d.id)
+	case "q!":
+		a.removeDocument(p, d)
+	case "wq", "x":
+		a.saveDocument(p, d.id)
+		a.closeDocument(p, d.id)
+	default:
+		return false
+	}
+	return true
+}

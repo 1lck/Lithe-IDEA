@@ -61,9 +61,30 @@ type vimState struct {
 	// searching says a / or ? prompt is open, searchBack is its direction and prompt the text
 	// typed so far. pattern is the last search and searchBackward its direction, for n and N.
 	searching, searchBack bool
-	prompt                []rune
-	pattern               string
-	searchBackward        bool
+	// exPrompt says the open prompt is the : command line rather than a search; exFrom and exTo
+	// are the lines a : started from a Visual selection takes as '<,'>.
+	exPrompt bool
+	exFrom   int
+	exTo     int
+	prompt   []rune
+	// message is what the status bar shows in place of the mode, until the next key: the
+	// outcome of a command line that failed.
+	message string
+	// wholeWord says the last search matched whole words only (* and #).
+	wholeWord bool
+	// insertCount is the count an insert repeats its text by (3ifoo<Esc>), and insertStart where
+	// the insert began, so the text typed since can be repeated.
+	insertCount int
+	insertStart int
+	// regName is the register the command names with " (zero for the unnamed one). regs holds
+	// the named registers a-z; marks the marks a-z, as byte offsets that edits move.
+	regName byte
+	regs    map[byte]vimReg
+	marks   map[byte]int
+	// exit runs the window's part of the commands that save and close (see SetVimExit).
+	exit           func(cmd string) bool
+	pattern        string
+	searchBackward bool
 	// findKind is the last f, F, t or T and findChar its character; findValid says there was one.
 	findKind  byte
 	findChar  string
@@ -99,8 +120,8 @@ func (v *View) SetVimMode(on bool) {
 	if v.vim.on == on {
 		return
 	}
-	reg, regLine := v.vim.reg, v.vim.regLine
-	v.vim = vimState{on: on, reg: reg, regLine: regLine}
+	keep := v.vim
+	v.vim = vimState{on: on, reg: keep.reg, regLine: keep.regLine, regs: keep.regs, marks: keep.marks, exit: keep.exit}
 	if on {
 		v.vimClamp()
 		return
@@ -121,10 +142,16 @@ func (v *View) VimStatus() string {
 	}
 	if st.searching {
 		prefix := "/"
-		if st.searchBack {
+		switch {
+		case st.exPrompt:
+			prefix = ":"
+		case st.searchBack:
 			prefix = "?"
 		}
 		return prefix + string(st.prompt)
+	}
+	if st.message != "" {
+		return st.message
 	}
 	switch st.mode {
 	case vimInsert:
@@ -280,8 +307,10 @@ func (v *View) vimBusy() bool {
 func (v *View) vimToken(tok vimToken) {
 	st := &v.vim
 	if !v.vimBusy() {
-		// A command starts: its edits open a new undo step, whatever the step before was.
+		// A command starts: its edits open a new undo step, whatever the step before was, and
+		// the message of the last one goes.
 		st.grouped = false
+		st.message = ""
 	}
 	if st.mode == vimInsert || st.mode == vimReplace {
 		v.vimInsertToken(tok)
@@ -382,6 +411,14 @@ func (v *View) vimInsertToken(tok vimToken) {
 // vimLeaveInsert returns to Normal mode, and the caret steps back onto the character before it.
 func (v *View) vimLeaveInsert() {
 	st := &v.vim
+	if st.insertCount > 1 && v.caret >= st.insertStart {
+		// A count repeats what was typed: 3ifoo<Esc> types foo three times.
+		typed := string(v.text.AppendRange(nil, st.insertStart, v.caret))
+		for i := 1; i < st.insertCount && typed != ""; i++ {
+			v.edit(v.caret, v.caret, typed, editOther)
+		}
+	}
+	st.insertCount = 1
 	st.mode = vimNormal
 	if line := v.text.LineOf(v.caret); v.caret > v.text.LineStart(line) {
 		v.moveTo(v.prevRune(v.caret), false)
@@ -394,6 +431,7 @@ func (v *View) vimLeaveInsert() {
 func (v *View) vimEnterInsert(mode vimMode, at int) {
 	v.vim.mode = mode
 	v.vim.changed = true
+	v.vim.insertStart, v.vim.insertCount = at, 1
 	v.moveTo(at, false)
 }
 
@@ -455,9 +493,12 @@ func (v *View) vimCommandToken(tok vimToken) {
 	switch st.pend {
 	case 'g':
 		st.pend = 0
-		if s == "g" {
+		switch s {
+		case "g":
 			v.vimMotionCmd("gg")
-		} else {
+		case "_":
+			v.vimMotionCmd("g_")
+		default:
 			v.vimCancel()
 		}
 		return
@@ -471,6 +512,30 @@ func (v *View) vimCommandToken(tok vimToken) {
 		}
 		st.findKind, st.findChar, st.findValid = kind, s, true
 		v.vimFindCmd(kind, s, max(v.vimRawCount(), 1))
+		return
+	case '"':
+		st.pend = 0
+		if r, _ := utf8.DecodeRuneInString(s); vimPrintable(r) && len(s) == 1 {
+			st.regName = s[0]
+		}
+		return
+	case 'm':
+		st.pend = 0
+		if r := s[0]; len(s) == 1 && r >= 'a' && r <= 'z' {
+			v.vimSetMark(r)
+		}
+		v.vimCancel()
+		return
+	case '`', '\'':
+		jump := st.pend
+		st.pend = 0
+		if r := s[0]; len(s) == 1 && r >= 'a' && r <= 'z' {
+			if m, ok := v.vimMarkMove(r, jump == '\''); ok {
+				v.vimApply(m)
+				return
+			}
+		}
+		v.vimCancel()
 		return
 	case 'r':
 		st.pend = 0
@@ -505,7 +570,7 @@ func vimPrintable(r rune) bool { return r >= ' ' && r != 0x7f && r != utf8.RuneE
 // vimCancel ends the command in progress: its count, operator and pending key.
 func (v *View) vimCancel() {
 	st := &v.vim
-	st.count, st.opCount, st.op, st.pend = 0, 0, 0, 0
+	st.count, st.opCount, st.op, st.pend, st.regName = 0, 0, 0, 0, 0
 }
 
 // vimCommand runs a command key in Normal or Visual mode, with the count and operator typed before
@@ -582,12 +647,33 @@ func (v *View) vimCommand(s string) {
 	case "g":
 		st.pend = 'g'
 		return
+	case "\"":
+		st.pend = '"'
+		return
+	case "m", "`", "'":
+		if st.op == 0 || s == "`" || s == "'" {
+			st.pend = s[0]
+			return
+		}
 	case "f", "F", "t", "T":
 		st.pend = s[0]
 		return
 	case "/", "?":
 		if st.op == 0 {
 			v.vimSearchStart(s == "?")
+			return
+		}
+	case ":":
+		if st.op == 0 {
+			prefill := ""
+			if visual {
+				first, last := v.vimSelectedLines()
+				st.exFrom, st.exTo = first, last
+				prefill = "'<,'>"
+				st.mode = vimNormal
+				v.vimClamp()
+			}
+			v.vimExStart(prefill)
 			return
 		}
 	case "n", "N":
@@ -617,8 +703,16 @@ func (v *View) vimCommand(s string) {
 		if !visual && st.op == 0 {
 			v.Redo()
 		}
+	case "*", "#":
+		if st.op == 0 {
+			v.vimSearchWordUnder(s == "#")
+		}
+	case "~":
+		if st.op == 0 && !visual {
+			v.vimToggleCase()
+		}
 	default:
-		if strings.Contains("hl jk+-\r\b$0^wWbBeE%G"+vimCtrlB+vimCtrlF, s) {
+		if strings.Contains("hl jk+-\r\b$0^wWbBeE%GHML{}"+vimCtrlB+vimCtrlF, s) {
 			v.vimMotionCmd(s)
 			return
 		}
@@ -713,6 +807,7 @@ func (v *View) vimInsertCmd(s string) {
 		mode = vimReplace
 	}
 	v.vimEnterInsert(mode, at)
+	v.vim.insertCount = max(v.vimRawCount(), 1)
 }
 
 // vimMotionCmd moves the caret, or with an operator pending, makes the operator's range of the

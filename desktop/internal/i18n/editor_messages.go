@@ -3,18 +3,24 @@ package i18n
 // editorMessages reads editor labels from the shared catalog.
 func editorMessages(language Language) EditorMessages {
 	return EditorMessages{
-		SearchEverywhere:    Shared(language, "desktop.everywhere.title"),
-		GoToFile:            Shared(language, "desktop.editor.goToFile"),
-		FindInFiles:         Shared(language, "native.findInFiles"),
-		RecentFiles:         Shared(language, "desktop.editor.recentFiles"),
-		DropFiles:           Shared(language, "desktop.editor.dropFiles"),
-		CloseTab:            Shared(language, "menu.closeTab"),
-		SoftWrap:            Shared(language, "desktop.editor.softWrap"),
-		VimNormal:           Shared(language, "desktop.editor.vim.normal"),
-		VimInsert:           Shared(language, "desktop.editor.vim.insert"),
-		VimReplace:          Shared(language, "desktop.editor.vim.replace"),
-		VimVisual:           Shared(language, "desktop.editor.vim.visual"),
-		VimVisualLine:       Shared(language, "desktop.editor.vim.visualLine"),
+		SearchEverywhere: Shared(language, "desktop.everywhere.title"),
+		GoToFile:         Shared(language, "desktop.editor.goToFile"),
+		FindInFiles:      Shared(language, "native.findInFiles"),
+		RecentFiles:      Shared(language, "desktop.editor.recentFiles"),
+		DropFiles:        Shared(language, "desktop.editor.dropFiles"),
+		CloseTab:         Shared(language, "menu.closeTab"),
+		SoftWrap:         Shared(language, "desktop.editor.softWrap"),
+		VimNormal:        Shared(language, "desktop.editor.vim.normal"),
+		VimInsert:        Shared(language, "desktop.editor.vim.insert"),
+		VimReplace:       Shared(language, "desktop.editor.vim.replace"),
+		VimVisual:        Shared(language, "desktop.editor.vim.visual"),
+		VimVisualLine:    Shared(language, "desktop.editor.vim.visualLine"),
+		VimUnknown: func(name string) string {
+			return SharedFormat(language, "desktop.editor.vim.unknown", map[string]string{"name": name})
+		},
+		VimNotFound: func(pattern string) string {
+			return SharedFormat(language, "desktop.editor.vim.notFound", map[string]string{"pattern": pattern})
+		},
 		HiddenTabs:          Shared(language, "desktop.editor.hiddenTabs"),
 		Minimap:             Shared(language, "desktop.editor.minimap"),
 		HideMinimap:         Shared(language, "desktop.editor.hideMinimap"),

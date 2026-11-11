@@ -38,7 +38,7 @@ func (v *View) vimOperate(op byte, from, to int, linewise bool) {
 	}
 	switch op {
 	case 'y':
-		st.reg, st.regLine = text, linewise
+		v.vimSetReg(text, linewise)
 		if linewise {
 			// Yanking upward moves the caret to the first line yanked; otherwise it stays.
 			if v.text.LineOf(v.caret) != first {
@@ -48,7 +48,7 @@ func (v *View) vimOperate(op byte, from, to int, linewise bool) {
 			v.moveTo(from, false)
 		}
 	case 'd':
-		st.reg, st.regLine = text, linewise
+		v.vimSetReg(text, linewise)
 		st.changed = true
 		v.edit(delFrom, delTo, "", editOther)
 		if linewise {
@@ -58,7 +58,7 @@ func (v *View) vimOperate(op byte, from, to int, linewise bool) {
 		}
 		v.vimClamp()
 	case 'c':
-		st.reg, st.regLine = text, linewise
+		v.vimSetReg(text, linewise)
 		if linewise {
 			// cc keeps the indentation of the first line, as an editor that indents does.
 			start := v.vimFirstNB(first)
@@ -149,46 +149,60 @@ func (v *View) vimVisualOp(op byte) {
 	v.vimClamp()
 }
 
-// vimVisualPaste replaces the selection with the unnamed register. The text replaced takes the
-// register's place, as it does in Vim.
+// vimVisualPaste replaces the selection with the register the command names. The text replaced
+// goes to the unnamed register, as in Vim; the named register is left as it was.
 func (v *View) vimVisualPaste() {
 	st := &v.vim
-	reg, regLine := st.reg, st.regLine
-	v.vimVisualOp('d')
-	deleted, deletedLine := st.reg, st.regLine
-	st.reg, st.regLine = reg, regLine
-	v.vimPaste(false)
-	st.reg, st.regLine = deleted, deletedLine
+	text, line := v.vimReadReg(st.regName)
+	v.vimVisualPasteText(text, line)
 }
 
-// vimPaste puts the unnamed register after the caret (p) or before it (P). Lines paste as whole
-// lines below or above the caret's line.
-func (v *View) vimPaste(after bool) {
+// vimVisualPasteText replaces the selection with text (line for whole lines).
+func (v *View) vimVisualPasteText(text string, line bool) {
 	st := &v.vim
-	if st.reg == "" {
+	if text == "" {
 		return
 	}
-	st.changed = true
-	line := v.text.LineOf(v.caret)
-	if st.regLine {
+	name := st.regName
+	st.regName = 0
+	v.vimVisualOp('d')
+	st.regName = name
+	v.vimPasteText(text, line, false)
+}
+
+// vimPaste puts the register the command names after the caret (p) or before it (P). Lines paste as
+// whole lines below or above the caret's line.
+func (v *View) vimPaste(after bool) {
+	text, line := v.vimReadReg(v.vim.regName)
+	v.vimPasteText(text, line, after)
+}
+
+// vimPasteText puts text after the caret or before it. Lines paste as whole lines.
+func (v *View) vimPasteText(text string, line, after bool) {
+	if text == "" {
+		return
+	}
+	v.vim.changed = true
+	lineNo := v.text.LineOf(v.caret)
+	if line {
 		if after {
-			at := v.lineEnd(line)
-			v.edit(at, at, "\n"+st.reg, editOther)
-			v.moveTo(v.vimFirstNB(line+1), false)
+			at := v.lineEnd(lineNo)
+			v.edit(at, at, "\n"+text, editOther)
+			v.moveTo(v.vimFirstNB(lineNo+1), false)
 		} else {
-			at := v.text.LineStart(line)
-			v.edit(at, at, st.reg+"\n", editOther)
-			v.moveTo(v.vimFirstNB(line), false)
+			at := v.text.LineStart(lineNo)
+			v.edit(at, at, text+"\n", editOther)
+			v.moveTo(v.vimFirstNB(lineNo), false)
 		}
 		v.vimClamp()
 		return
 	}
 	at := v.caret
-	if after && at < v.lineEnd(line) {
+	if after && at < v.lineEnd(lineNo) {
 		at = v.nextRune(at)
 	}
-	v.edit(at, at, st.reg, editOther)
-	v.moveTo(v.prevRune(at+len(st.reg)), false)
+	v.edit(at, at, text, editOther)
+	v.moveTo(v.prevRune(at+len(text)), false)
 	v.vimClamp()
 }
 

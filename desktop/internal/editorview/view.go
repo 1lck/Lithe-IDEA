@@ -79,6 +79,9 @@ type Messages struct {
 	VerticalScrollbar, HorizontalScrollbar string
 	// VimNormal, VimInsert, VimReplace, VimVisual and VimVisualLine name the Vim modes in the status bar.
 	VimNormal, VimInsert, VimReplace, VimVisual, VimVisualLine string
+	// VimUnknown names a command line the Vim mode does not know, and VimNotFound a pattern that
+	// no line has; each takes the text of the command or pattern.
+	VimUnknown, VimNotFound func(string) string
 }
 
 // Look is the view's colors for the frame being painted.
@@ -750,6 +753,9 @@ func (v *View) edit(start, end int, text string, kind editKind) {
 		column = v.caretUTF16Column - v.utf16Units(start, v.caretUTF16Offset) + utf16Length(text)
 	}
 	v.text = v.text.Replace(start, end, []byte(text))
+	if len(v.vim.marks) > 0 {
+		v.vimShiftMarks(start, end, len(text))
+	}
 	v.revision++
 	v.clearCursorHistory()
 	newLast := v.text.LineOf(start + len(text))
