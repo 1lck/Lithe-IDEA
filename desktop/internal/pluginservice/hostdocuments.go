@@ -126,6 +126,9 @@ func (s *Service) AttachWorkbench(workbench Workbench) error {
 			return err
 		}
 	}
+	if err := s.registerEditorActions(); err != nil {
+		return err
+	}
 	for _, level := range []struct {
 		method string
 		name   string
