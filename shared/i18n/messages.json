@@ -8408,7 +8408,8 @@
       "id": "debugger.disassembly.copyInstruction",
       "description": "Disassembly context menu: copy the instruction text",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Copy Instruction",
@@ -8452,7 +8453,8 @@
       "id": "debugger.disassembly.readMemoryAtAddress",
       "description": "Disassembly context menu: show memory starting at the instruction address",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Read Memory at Address",
@@ -8474,7 +8476,8 @@
       "id": "debugger.disassembly.removeBreakpoint",
       "description": "Disassembly context menu: remove the breakpoint on an instruction address",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Remove Instruction Breakpoint",
@@ -8496,7 +8499,8 @@
       "id": "debugger.disassembly.setBreakpoint",
       "description": "Disassembly context menu: set a breakpoint on an instruction address",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Set Instruction Breakpoint",
@@ -77563,7 +77567,8 @@
       "id": "native.restoreDefault",
       "description": "Native UI: Restore Default",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Restore Default",

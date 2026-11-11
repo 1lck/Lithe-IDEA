@@ -102,7 +102,11 @@ func (w *window) keymapRow(c ui.C, action shortcuts.Action, keys shortcuts.Overr
 	p := &w.pal
 	list := keys.Effective(action)
 	ui.Column(c).FillWidth().PadY(4).Gap(4).Children(func() {
-		ui.Row(c).FillWidth().MinHeight(28).Items(ui.Center).Gap(6).Children(func() {
+		// The row takes the right-click: its menu adds a shortcut and restores the default, as the
+		// earlier client's keymap did.
+		rc := c.Part("row")
+		row := ui.Row(rc).FillWidth().MinHeight(28).Items(ui.Center).Gap(6).HitWith(ui.ID(rc), action.Title(w.text), gfx.HitOptions{SkipFocus: true})
+		row.Children(func() {
 			ui.Text(c, action.Title(w.text)).FontSize(13).Color(p.text).Grow(1).Shrink(1).MinWidth(0).Ellipsis()
 			if keys.Changed(action.ID) {
 				ui.Text(c, t.Modified).FontSize(11).Color(p.muted).Shrink(0)
@@ -123,17 +127,42 @@ func (w *window) keymapRow(c ui.C, action shortcuts.Action, keys shortcuts.Overr
 			if k.recording == action.ID {
 				w.keymapRecorder(c, action, list)
 			} else if ui.Button(c.Part("add"), t.Add).Icon(icons.Plus).IconOnly().Ghost().Small().Clicked() {
-				k.recording, k.focus, k.message = action.ID, true, ""
-				k.record.SetText("")
+				w.beginRecording(action)
 			}
 			if ui.Button(c.Part("reset"), t.Reset).Ghost().Small().Disabled(!keys.Changed(action.ID)).Clicked() {
 				c.After(func() { w.setKeymap(w.sess.values.Keymap.Without(action.ID)) })
 			}
 		})
+		w.keymapRowMenu(rc, row, action, keys)
 		if k.messageFor == action.ID && k.message != "" {
 			ui.Wrap(c, k.message).FontSize(12).Color(p.danger)
 		}
 	})
+}
+
+// keymapRowMenu is the context menu of an action's row: Add Shortcut records a new chord for
+// it, Restore Default drops the user's changes to its keys.
+func (w *window) keymapRowMenu(c ui.C, row ui.Box, action shortcuts.Action, keys shortcuts.Overrides) {
+	ui.ContextMenu(c, row, func(menu *ui.MenuItems) {
+		t := &w.text.Keymap
+		menu.WidthRange(160, 240)
+		if menu.Item(t.Add).Clicked() {
+			c.After(func() { w.beginRecording(action) })
+		}
+		if keys.Changed(action.ID) && menu.Item(t.RestoreDefault).Clicked() {
+			c.After(func() {
+				w.keymap.recording, w.keymap.message = "", ""
+				w.setKeymap(w.sess.values.Keymap.Without(action.ID))
+			})
+		}
+	})
+}
+
+// beginRecording shows the field that takes the next chord for action.
+func (w *window) beginRecording(action shortcuts.Action) {
+	k := &w.keymap
+	k.recording, k.focus, k.message = action.ID, true, ""
+	k.record.SetText("")
 }
 
 // keymapRecorder is the field that takes the next chord for action: Escape alone cancels,

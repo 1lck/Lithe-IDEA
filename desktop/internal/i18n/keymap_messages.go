@@ -3,8 +3,10 @@ package i18n
 // KeymapMessages are the words of the Keymap settings page and the actions only the
 // keymap names.
 type KeymapMessages struct {
-	GroupEditor, GoToLine, InlineEdit                         string
-	Search, SearchPlaceholder, Add, Remove, Reset, ResetAll   string
+	GroupEditor, GoToLine, InlineEdit                       string
+	Search, SearchPlaceholder, Add, Remove, Reset, ResetAll string
+	// RestoreDefault is the row menu's item that drops the user's keys of one action.
+	RestoreDefault                                            string
 	Recording, RecordingHint, Cancel, None, Modified, NoMatch string
 	// Conflict says the pressed chord already runs another action.
 	Conflict func(keys, action string) string
@@ -27,6 +29,7 @@ func keymapMessages(language Language) KeymapMessages {
 		Remove:            Shared(language, "desktop.keymap.remove"),
 		Reset:             Shared(language, "desktop.keymap.reset"),
 		ResetAll:          Shared(language, "desktop.keymap.resetAll"),
+		RestoreDefault:    Shared(language, "native.restoreDefault"),
 		Recording:         Shared(language, "desktop.keymap.recording"),
 		RecordingHint:     Shared(language, "desktop.keymap.recordingHint"),
 		Cancel:            Shared(language, "desktop.keymap.cancel"),

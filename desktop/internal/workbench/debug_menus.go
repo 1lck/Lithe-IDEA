@@ -2,8 +2,10 @@ package workbench
 
 import (
 	"path/filepath"
+	"slices"
 	"strconv"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
@@ -12,7 +14,9 @@ import (
 
 // The context menus of the Debug tool window, with the items the earlier client's debugger
 // had: the thread picker copies the thread's name; a stack frame copies its method name, its
-// instruction address and its source location, and shows its disassembly; a variable is given
+// instruction address and its source location, and shows its disassembly; an instruction of
+// the disassembly takes or loses a breakpoint, has the memory at its address read and copies
+// its address or its text; a variable is given
 // a new value, watched or copied; a watch is evaluated again, copied or removed; a line
 // breakpoint is edited, shown in its file or removed, alone or with the others. Each item acts
 // through the action the panel's own controls run.
@@ -94,6 +98,43 @@ func (a *App) showFrameDisassembly(p *project, index int) {
 		a.selectDebugFrame(p, index)
 	}
 	p.debug.section = debugSectionDisassembly
+}
+
+// debugInstructionMenu is the menu of one instruction of the disassembly.
+func (a *App) debugInstructionMenu(c ui.C, row ui.Box, p *project, instruction core.DebugInstruction) {
+	ui.ContextMenu(c, row, func(menu *ui.MenuItems) {
+		d := &p.debug
+		lang := a.language()
+		menu.WidthRange(200, 280)
+		address := instruction.Address
+		if d.capabilities != nil && d.capabilities.SupportsInstructionBreakpoints {
+			label := i18n.Shared(lang, "debugger.disassembly.setBreakpoint")
+			if slices.ContainsFunc(d.instructionBreakpoints, func(b core.DebugInstructionBreakpoint) bool { return b.InstructionReference == address }) {
+				label = i18n.Shared(lang, "debugger.disassembly.removeBreakpoint")
+			}
+			if menu.Item(label).Clicked() {
+				c.After(func() {
+					a.performed("debug.instruction.toggleBreakpoint", surfaceMenu)
+					a.toggleInstructionBreakpoint(p, address)
+				})
+			}
+			menu.Separator()
+		}
+		if d.capabilities != nil && d.capabilities.SupportsReadMemoryRequest &&
+			menu.Item(i18n.Shared(lang, "debugger.disassembly.readMemoryAtAddress")).Disabled(d.state != "paused" || d.memory.loading).Clicked() {
+			c.After(func() {
+				a.performed("debug.instruction.readMemory", surfaceMenu)
+				a.readDebugMemoryAt(p, address)
+			})
+		}
+		if menu.Item(i18n.Shared(lang, "debugger.disassembly.copyAddress")).Clicked() {
+			c.After(func() { a.copyDebugText("debug.instruction.copyAddress", address) })
+		}
+		if menu.Item(i18n.Shared(lang, "debugger.disassembly.copyInstruction")).Clicked() {
+			text := instruction.Instruction
+			c.After(func() { a.copyDebugText("debug.instruction.copyInstruction", text) })
+		}
+	})
 }
 
 // debugVariablePointer opens the menu of variable row i when the row is right-clicked.

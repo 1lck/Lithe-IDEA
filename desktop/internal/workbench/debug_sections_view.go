@@ -269,7 +269,10 @@ func (a *App) debugDisassemblyView(c ui.C, p *project) {
 		return
 	}
 	if len(w.rows) == 0 && !w.loading && w.failure == "" {
-		c.After(func() { a.loadDisassembly(p) })
+		// Ask on this paint, as the memory section does: the section is also shown by a menu's
+		// Show Disassembly, after which an ordinary paint declares it, and a deferred callback
+		// of an ordinary paint is dropped. The load marks itself loading before it returns.
+		a.loadDisassembly(p)
 	}
 	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
 		if ui.Button(c, t.LoadBefore).Outline().Disabled(w.loading || w.beforeDone || len(w.rows) == 0).Clicked() {
@@ -333,5 +336,6 @@ func (a *App) debugDisassemblyView(c ui.C, p *project) {
 		if instruction.SourcePath != "" && instruction.Line != nil {
 			ui.Text(row.C, debugFileName(instruction.SourcePath)+":"+strconv.FormatInt(*instruction.Line, 10)).Shrink(0).FontSize(11.5).Color(a.colors.Subtle)
 		}
+		a.debugInstructionMenu(row.C, row.Element, p, instruction)
 	}).Label(t.Disassembly).FillWidth().Grow(1)
 }

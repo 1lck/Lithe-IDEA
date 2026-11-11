@@ -22,8 +22,12 @@ const (
 // the readMemory request and capability checks; the host decodes the base64
 // bytes and lays them out.
 type debugMemory struct {
-	bytes      []byte
-	address    string
+	bytes   []byte
+	address string
+	// at is the address the user asked to read, from the disassembly's menu; empty reads at the
+	// selected frame's instruction pointer. Like every reference of the adapter it is opaque
+	// text and holds only until the debuggee runs again.
+	at         string
 	unreadable int64
 	loading    bool
 	requested  bool
@@ -41,7 +45,32 @@ func (m *debugMemory) reset() { *m = debugMemory{} }
 // can read. It mirrors Core's checks so the section never asks for a refusal.
 func canReadDebugMemory(d *debugState) bool {
 	return d.activeSession() != nil && d.state == "paused" && d.capabilities != nil && d.capabilities.SupportsReadMemoryRequest &&
-		d.vars.frame >= 0 && d.vars.frame < len(d.frames) && d.frames[d.vars.frame].InstructionPointerReference != ""
+		debugMemoryReference(d) != ""
+}
+
+// debugMemoryReference is the address the memory window reads: the one asked for, or else
+// the selected frame's instruction pointer.
+func debugMemoryReference(d *debugState) string {
+	if d.memory.at != "" {
+		return d.memory.at
+	}
+	if d.vars.frame >= 0 && d.vars.frame < len(d.frames) {
+		return d.frames[d.vars.frame].InstructionPointerReference
+	}
+	return ""
+}
+
+// readDebugMemoryAt shows the memory window read at address, as the disassembly's Read Memory
+// at Address does.
+func (a *App) readDebugMemoryAt(p *project, address string) {
+	d := &p.debug
+	if d.memory.loading {
+		return
+	}
+	d.memory.reset()
+	d.memory.at = address
+	d.section = debugSectionMemory
+	a.loadDebugMemory(p)
 }
 
 // loadDebugMemory reads one bounded window at the selected frame's instruction
@@ -58,7 +87,7 @@ func (a *App) loadDebugMemory(p *project) {
 		d.memory.requested = false
 		return
 	}
-	reference := d.frames[d.vars.frame].InstructionPointerReference
+	reference := debugMemoryReference(d)
 	d.memory.loading, d.memory.requested, d.memory.failure = true, false, ""
 	offset, count := int64(0), int64(debugMemoryBytes)
 	a.debugOperation(p, "readMemory", func(ctx context.Context, session *debugSession, operationID string) (core.DebugUpdate, error) {
@@ -136,7 +165,7 @@ func (a *App) debugMemoryView(c ui.C, p *project) {
 	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
 		address := m.address
 		if address == "" {
-			address = d.frames[d.vars.frame].InstructionPointerReference
+			address = debugMemoryReference(d)
 		}
 		ui.Text(c, address).Shrink(0).FontSize(12).Color(a.colors.Subtle).Mono()
 		if ui.Button(c, t.Reload).Outline().Disabled(m.loading).Clicked() {

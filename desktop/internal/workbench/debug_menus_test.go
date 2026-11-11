@@ -8,8 +8,9 @@ import (
 	"github.com/vivaui/viva/gfx"
 )
 
-// The Debug tool window's context menus copy what a stack frame and a variable show, show a
-// frame's disassembly and remove the line breakpoints, as the earlier client's debugger did.
+// The Debug tool window's context menus copy what a stack frame, an instruction and a variable
+// show, show a frame's disassembly and the memory at an instruction, and remove the line
+// breakpoints, as the earlier client's debugger did.
 func TestDebugMenusCopyFramesAndVariablesAndRemoveBreakpoints(t *testing.T) {
 	h, p := pausedDebugSession(t)
 	defer releaseLaunchedDebug(h, p)
@@ -57,6 +58,22 @@ func TestDebugMenusCopyFramesAndVariablesAndRemoveBreakpoints(t *testing.T) {
 	if d.section != debugSectionDisassembly {
 		t.Fatalf("section = %q, want the disassembly", d.section)
 	}
+
+	// An instruction copies its address and has the memory at that address read.
+	awaitStateWithin(t, h, 20*time.Second, "the instruction window", func() bool { return !d.disassembly.loading && len(d.disassembly.rows) > 1 })
+	h.settle()
+	address := d.disassembly.rows[1].Address
+	h.rightClickAt(h.labelBounds(address))
+	h.click(center(h.popupHit(h.shared("debugger.disassembly.copyAddress"))))
+	if got := h.driver.Clipboard(); got != address {
+		t.Fatalf("the clipboard holds %q, want the instruction's address %q", got, address)
+	}
+	h.rightClickAt(h.labelBounds(address))
+	h.click(center(h.popupHit(h.shared("debugger.disassembly.readMemoryAtAddress"))))
+	if d.section != debugSectionMemory || d.memory.at != address {
+		t.Fatalf("section %q reads at %q, want the memory at %q", d.section, d.memory.at, address)
+	}
+	awaitStateWithin(t, h, 20*time.Second, "the memory read", func() bool { return !d.memory.loading && len(d.memory.bytes) > 0 })
 
 	// A variable copies its value and its name, and Set Value shows the field for it.
 	h.clickNamed(h.app.text.Debug.Variables)
