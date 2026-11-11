@@ -97,11 +97,13 @@ type buildInstance struct {
 // buildOperation is the one provider request or host process the window is
 // running. A provider model load also uses one, but it does not expose output.
 type buildOperation struct {
-	label     string
-	provider  *buildprovider.Client
-	request   *buildprovider.Operation
-	process   *buildprocess.Process
-	cancelled bool
+	label string
+	// configuration is the run configuration the operation runs, "" for anything else.
+	configuration string
+	provider      *buildprovider.Client
+	request       *buildprovider.Operation
+	process       *buildprocess.Process
+	cancelled     bool
 }
 
 func (o *buildOperation) stop() {
@@ -864,13 +866,14 @@ func buildPlatform() string {
 
 // runBuildTarget prepares and starts one provider application target.
 func (a *App) runBuildTarget(p *project, targetID, runID string) {
-	a.runBuildTargetWith(p, p.selectedBuildInstance(), p.build.projectID, targetID, runID, nil)
+	a.runBuildTargetWith(p, p.selectedBuildInstance(), p.build.projectID, targetID, runID, "", nil)
 }
 
 // runBuildTargetWith runs one target of instance through the provider's run
-// declaration runID. options are a run configuration's launch choices, nil for a
-// launch without any.
-func (a *App) runBuildTargetWith(p *project, instance *buildInstance, projectID, targetID, runID string, options *core.RunLaunchOptions) {
+// declaration runID. configuration is the run configuration it starts, "" for a target the
+// Build window runs, and options are that configuration's launch choices, nil for a launch
+// without any.
+func (a *App) runBuildTargetWith(p *project, instance *buildInstance, projectID, targetID, runID, configuration string, options *core.RunLaunchOptions) {
 	if instance == nil || p.build.operation != nil {
 		return
 	}
@@ -913,7 +916,9 @@ func (a *App) runBuildTargetWith(p *project, instance *buildInstance, projectID,
 		if err != nil {
 			return func(a *App) { a.finishBuildError(p, err) }
 		}
-		a.post(func(a *App) { p.build.operation = &buildOperation{label: runID, provider: client, request: operation} })
+		a.post(func(a *App) {
+			p.build.operation = &buildOperation{label: runID, configuration: configuration, provider: client, request: operation}
+		})
 		result, err := operation.Wait(ctx)
 		if err != nil {
 			return func(a *App) { a.finishBuildError(p, err) }

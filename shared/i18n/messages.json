@@ -13994,13 +13994,6 @@
       ]
     },
     {
-      "id": "desktop.runConfig.edit",
-      "description": "Button beside the run configuration picker in the Run tool window that opens the editor of the selected configuration.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.runConfig.editTitle",
       "description": "Title of the run configuration editor dialog; {name} is the configuration's name.",
       "platforms": [
@@ -14030,13 +14023,6 @@
     {
       "id": "desktop.runConfig.environmentPlaceholder",
       "description": "Placeholder of the environment variables field: one variable per line written as KEY=VALUE.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.runConfig.label",
-      "description": "Label before the select that picks a run configuration in the Run tool window",
       "platforms": [
         "desktop"
       ]
@@ -39259,7 +39245,8 @@
       "id": "native.allConfigurations",
       "description": "Native UI: All configurations",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "All configurations",
@@ -39990,7 +39977,8 @@
       "id": "native.applications",
       "description": "Native UI: Applications",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Applications",
@@ -45002,7 +44990,8 @@
       "id": "native.collapseSection",
       "description": "Native UI: Collapse section",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Collapse section",
@@ -51180,7 +51169,8 @@
       "id": "native.editConfiguration",
       "description": "Native UI: Edit Configuration…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Edit Configuration…",
@@ -53148,7 +53138,8 @@
       "id": "native.expandSection",
       "description": "Native UI: Expand section",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Expand section",
@@ -55818,7 +55809,8 @@
       "id": "native.groups",
       "description": "Native UI: Groups",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Groups",
@@ -60729,7 +60721,8 @@
       "id": "native.lld.variant2",
       "description": "Native UI: %@ (%lld)",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "%@ (%lld)",
@@ -65762,7 +65755,8 @@
       "id": "native.noConfigurationsInThisScope",
       "description": "Native UI: No configurations in this scope",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "No configurations in this scope",
@@ -69920,7 +69914,8 @@
       "id": "native.pinConfiguration",
       "description": "Native UI: Pin configuration",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Pin configuration",
@@ -69942,7 +69937,8 @@
       "id": "native.pinned",
       "description": "Native UI: Pinned",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Pinned",
@@ -76081,7 +76077,8 @@
       "id": "native.runConfigurations",
       "description": "Native UI: Run configurations",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Run configurations",
@@ -76298,7 +76295,8 @@
       "id": "native.running",
       "description": "Native UI: Running",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Running",
@@ -78189,7 +78187,8 @@
       "id": "native.services",
       "description": "Native UI: Services",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Services",
@@ -81219,7 +81218,8 @@
       "id": "native.stopRun.variant2",
       "description": "Native UI: Stop run",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Stop run",
@@ -81894,7 +81894,8 @@
       "id": "native.tasks",
       "description": "Native UI: Tasks",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Tasks",
@@ -89926,7 +89927,8 @@
       "id": "native.unpinConfiguration",
       "description": "Native UI: Unpin configuration",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Unpin configuration",

@@ -1,58 +1,205 @@
 package workbench
 
 import (
+	"slices"
 	"strconv"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/treelist"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
-// runConfigBar declares the row above the build systems that picks a run configuration
-// and runs it. It shows only once Core resolved at least one, or failed to.
-func (a *App) runConfigBar(c ui.C, p *project) {
+// runConfigList declares the run configurations over the build systems: a header with the
+// scope picker, the configurations of the scope under the build system that provides them,
+// and the splitter that sizes the list against the panes under it. It shows once Core resolved
+// at least one configuration; a failure without one is a line of its own.
+func (a *App) runConfigList(c ui.C, p *project) {
 	s := &p.runConfigs
-	if len(s.list) == 0 && s.failure == "" {
+	b := &s.browser
+	language, small := a.language(), a.theme.Metrics.FontSizeS
+	if len(s.list) == 0 {
+		if s.failure != "" {
+			ui.Row(c.Part("run-config")).Height(panelHeaderHeight).FillWidth().Shrink(0).Items(ui.Center).PadX(8).Children(func() {
+				ui.Text(c, i18n.SharedFormat(language, "desktop.runConfig.loadFailed", map[string]string{"reason": s.failure})).
+					FontSize(small).Color(a.colors.Warning).Ellipsis().Grow(1)
+			})
+			ui.Divider(c)
+		}
 		return
 	}
-	language := a.language()
-	label := i18n.Shared(language, "desktop.runConfig.label")
-	ui.Row(c.Part("run-config")).Height(panelHeaderHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(8).PadX(8).Children(func() {
-		if s.failure != "" && len(s.list) == 0 {
-			ui.Text(c, i18n.SharedFormat(language, "desktop.runConfig.loadFailed", map[string]string{"reason": s.failure})).
-				FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Warning).Ellipsis().Grow(1)
-			return
-		}
-		ui.Text(c, label).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
-		ids := make([]string, len(s.list))
-		for i := range s.list {
-			ids[i] = s.list[i].ID
-		}
-		ui.Select(c.Part("choice"), &s.selected, ids, func(id string) string {
-			if configuration := s.configuration(id); configuration != nil {
-				return configuration.Name
+	if b.split.Pos == 0 {
+		b.split.Pos = runConfigListHeight
+	}
+	scopes := s.scopes()
+	if !slices.Contains(scopes, b.scope) {
+		b.scope = ""
+	}
+	title := i18n.Shared(language, "native.runConfigurations")
+	ui.Column(c.Part("run-configs")).FillWidth().Height(b.split.Pos).Shrink(0).Clip().Children(func() {
+		ui.Row(c).Height(panelHeaderHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(8).PadX(8).Children(func() {
+			ui.Text(c, title).FontSize(small).Weight(gfx.WeightSemibold).Color(a.colors.Subtle).Shrink(0)
+			ui.Select(c.Part("scope"), &b.scope, scopes, func(scope string) string { return a.runScopeLabel(s, scope) }).
+				Label(title).Shrink(1).MinWidth(0).MaxWidth(240)
+			ui.Spacer(c)
+		})
+		a.drawRunConfigRows(c, p, title)
+	})
+	ui.Splitter(c, &b.split).Mins(runConfigListMin, runConfigRestMin).Label(a.text.Panel.Resize)
+}
+
+// drawRunConfigRows declares the rows of the scope. Selecting a row keeps it selected; Enter
+// or a double click runs a configuration, when nothing runs and its build model has loaded,
+// and on a group opens or closes it.
+func (a *App) drawRunConfigRows(c ui.C, p *project, title string) {
+	s := &p.runConfigs
+	b := &s.browser
+	p.collectRunConfigRows()
+	if len(b.rows) == 0 {
+		a.gitEmpty(c, i18n.Shared(a.language(), "native.noConfigurationsInThisScope"))
+		return
+	}
+	if b.view.Key == nil {
+		// A configuration keeps its row's state by its index in the resolved list, and a
+		// group by its place among the groups.
+		b.view.Key = func(i int) int {
+			if row := b.rows[i]; row.configuration >= 0 {
+				return 2 * row.configuration
 			}
-			return id
-		}).Label(label).Grow(1).Shrink(1).MinWidth(0).MaxWidth(360)
-		run := ui.Button(c.Part("run"), i18n.Shared(language, "desktop.runConfig.run")).Icon(icons.Play).Small()
-		if p.build.operation != nil || s.selected == "" {
-			run.Disabled(true)
+			return 2*b.rows[i].group + 1
 		}
-		if run.Clicked() {
-			id := s.selected
-			c.After(func() { a.runConfiguration(p, id) })
+		b.view.Label = func(i int) string {
+			if row := b.rows[i]; row.configuration >= 0 {
+				return s.list[row.configuration].Name
+			}
+			return b.groups[b.rows[i].group].title
 		}
-		edit := ui.Button(c.Part("edit"), i18n.Shared(language, "desktop.runConfig.edit")).Icon(icons.Pencil).Small().Outline()
-		if s.selected == "" {
-			edit.Disabled(true)
+	}
+	selected := p.selectedRunConfigRow()
+	if !b.view.Changed() && b.view.Selected() != selected {
+		b.view.Select(selected)
+	}
+	ui.List(c, &b.view, len(b.rows), func(row ui.ListRow) { a.drawRunConfigRow(p, row, row.Index == selected) }).Label(title).Grow(1).FillWidth()
+	if b.view.Changed() {
+		if i := b.view.Selected(); i >= 0 && i < len(b.rows) {
+			if row := b.rows[i]; row.configuration >= 0 {
+				s.selected, b.group = s.list[row.configuration].ID, ""
+			} else {
+				b.group = b.groups[row.group].key
+			}
 		}
-		if edit.Clicked() {
-			id := s.selected
-			c.After(func() { a.openRunConfigEditor(p, id) })
+	}
+	if i, ok := b.view.Submitted(); ok && i >= 0 && i < len(b.rows) {
+		row := b.rows[i]
+		if row.configuration < 0 {
+			key := b.groups[row.group].key
+			c.After(func() { s.toggleRunConfigGroup(key) })
+		} else if configuration := s.list[row.configuration]; p.build.operation == nil && p.runConfigurationReady(configuration) {
+			c.After(func() { a.runConfiguration(p, configuration.ID) })
+		}
+	}
+}
+
+// drawRunConfigRow declares one row: a group's arrow, title and count, or a configuration's
+// kind, name and pin with the button that runs it or stops its run, and the context menu of
+// its actions.
+func (a *App) drawRunConfigRow(p *project, row ui.ListRow, selected bool) {
+	s := &p.runConfigs
+	b := &s.browser
+	c, r, small := row.C, b.rows[row.Index], a.theme.Metrics.FontSizeS
+	box := row.Element.Height(buildRowHeight).Items(ui.Center).Gap(6).PadX(6).Radius(a.theme.Metrics.RadiusItem())
+	if selected {
+		box = box.Background(a.colors.Selection)
+	} else {
+		box = box.Hover(ui.Look{}.Background(a.colors.Hover))
+	}
+	if r.configuration < 0 {
+		group := b.groups[r.group]
+		box.Children(func() {
+			a.drawRunConfigGroupArrow(c, s, group)
+			ui.Text(c, group.title).FontSize(small).Weight(gfx.WeightSemibold).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
+			ui.Text(c, strconv.Itoa(len(group.configurations))).FontSize(small).Color(a.colors.Subtle).Shrink(0)
+		})
+		return
+	}
+	configuration := s.list[r.configuration]
+	running := p.runningConfiguration() == configuration.ID
+	a.runConfigMenu(c, box, p, configuration, running)
+	box.Children(func() {
+		ui.Row(c.Part("arrow")).Size(treelist.Disclosure, treelist.Icon).Shrink(0)
+		ui.Icon(c, runExecutionIcon(configuration.Execution)).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
+		ui.Text(c, configuration.Name).Color(a.colors.Text).Ellipsis().Shrink(1).MinWidth(0)
+		if b.pins[configuration.ID] {
+			ui.Icon(c, icons.Pin).Size(12, 12).Shrink(0).Color(a.colors.Subtle)
 		}
 		ui.Spacer(c)
+		language := a.language()
+		if running {
+			ui.Text(c, i18n.Shared(language, "native.running")).FontSize(small).Color(a.colors.Subtle).Shrink(0)
+			if a.gitIconButton(c.Part("stop"), i18n.Shared(language, "native.stopRun.variant2"), icons.Square, false, false) {
+				c.After(func() { a.stopBuildOperation(p) })
+			}
+			return
+		}
+		disabled := p.build.operation != nil || !p.runConfigurationReady(configuration)
+		if a.gitIconButton(c.Part("run"), i18n.Shared(language, "desktop.runConfig.run"), icons.Play, false, disabled) {
+			c.After(func() { a.runConfiguration(p, configuration.ID) })
+		}
 	})
-	ui.Divider(c)
+}
+
+// drawRunConfigGroupArrow declares the arrow that opens or closes a group of the list.
+func (a *App) drawRunConfigGroupArrow(c ui.C, s *runConfigState, group runConfigGroup) {
+	open := !s.browser.closed[group.key]
+	name, chevron := i18n.Shared(a.language(), "native.collapseSection"), icons.ChevronDown
+	if !open {
+		name, chevron = i18n.Shared(a.language(), "native.expandSection"), icons.ChevronRight
+	}
+	k := c.Part("arrow")
+	slot := ui.Row(k).Size(treelist.Disclosure, treelist.Icon).Shrink(0).Center().
+		HitWith(ui.ID(k), name+" "+group.title, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Expandable: true, Expanded: open, SkipFocus: true})
+	slot.Children(func() {
+		ui.Icon(k, chevron).Size(12, 12).Color(a.colors.Subtle)
+	})
+	if slot.Clicked() {
+		key := group.key
+		c.After(func() { s.toggleRunConfigGroup(key) })
+	}
+}
+
+// runConfigMenu declares the context menu of a configuration's row: run it or stop its run,
+// edit its saved options, and pin or unpin it.
+func (a *App) runConfigMenu(c ui.C, row ui.Box, p *project, configuration core.RunConfiguration, running bool) {
+	ui.ContextMenu(c, row, func(menu *ui.MenuItems) {
+		language, id := a.language(), configuration.ID
+		menu.WidthRange(180, 280)
+		if running {
+			if menu.Item(i18n.Shared(language, "native.stopRun.variant2")).Clicked() {
+				c.After(func() { a.stopBuildOperation(p) })
+			}
+		} else if menu.Item(i18n.Shared(language, "desktop.runConfig.run")).Disabled(p.build.operation != nil || !p.runConfigurationReady(configuration)).Clicked() {
+			c.After(func() { a.runConfiguration(p, id) })
+		}
+		menu.Separator()
+		if menu.Item(i18n.Shared(language, "native.editConfiguration")).Clicked() {
+			c.After(func() {
+				a.performed("run.configuration.edit", surfaceMenu)
+				a.openRunConfigEditor(p, id)
+			})
+		}
+		pin, action := i18n.Shared(language, "native.pinConfiguration"), "run.configuration.pin"
+		if p.runConfigs.browser.pins[id] {
+			pin, action = i18n.Shared(language, "native.unpinConfiguration"), "run.configuration.unpin"
+		}
+		if menu.Item(pin).Clicked() {
+			c.After(func() {
+				a.performed(action, surfaceMenu)
+				a.toggleRunConfigPin(p, id)
+			})
+		}
+	})
 }
 
 // drawRunConfigEditor declares the open run configuration editor: arguments, working

@@ -47,12 +47,16 @@ func (a *App) runView(c ui.C, p *project) {
 			a.panelMessage(c, t.NoBuildSystems, a.colors.Subtle)
 			return
 		}
-		a.runConfigBar(c, p)
-		a.buildInstances(c, p)
-		ui.Divider(c)
-		a.buildChoices(c, p)
-		ui.Divider(c)
-		a.buildOutput(c, p)
+		// The panes of the build systems are one, so the splitter under the run
+		// configurations sizes the list against all of them.
+		a.runConfigList(c, p)
+		ui.Column(c).FillWidth().Grow(1).Shrink(1).MinHeight(0).Children(func() {
+			a.buildInstances(c, p)
+			ui.Divider(c)
+			a.buildChoices(c, p)
+			ui.Divider(c)
+			a.buildOutput(c, p)
+		})
 	})
 }
 

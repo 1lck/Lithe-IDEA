@@ -23,6 +23,8 @@ type runConfigState struct {
 	failure    string
 	// editor is the dialog that edits one configuration's saved options.
 	editor runConfigEditor
+	// browser is the list that shows the configurations by scope and build system.
+	browser runConfigBrowser
 }
 
 // configuration is the listed configuration id, or nil.
@@ -113,6 +115,7 @@ func (a *App) finishRunConfigurations(p *project, generation uint64, resolved co
 		return
 	}
 	s.loading = false
+	a.loadRunConfigPins(p)
 	if err != nil {
 		s.failure = err.Error()
 		return
@@ -188,7 +191,7 @@ func (a *App) startRunConfiguration(p *project, id string, refused func()) error
 				if inputs.LaunchOptions.Customized() {
 					options = &inputs.LaunchOptions
 				}
-				a.runBuildTargetWith(p, &p.build.instances[index], inputs.Reference.ProjectID, inputs.Reference.TargetID, inputs.Reference.Run, options)
+				a.runBuildTargetWith(p, &p.build.instances[index], inputs.Reference.ProjectID, inputs.Reference.TargetID, inputs.Reference.Run, id, options)
 			}
 		})
 	})
