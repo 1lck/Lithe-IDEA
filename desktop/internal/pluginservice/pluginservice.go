@@ -59,6 +59,8 @@ type Kernel interface {
 
 // Service is the assembled plugin stack.
 type Service struct {
+	// providers2 holds the editor provider registrations of the window (hostproviders.go).
+	providers2 *editorProviderBindings
 	// actions holds the editor action registrations of the window (hostactions.go).
 	actions *editorActionBindings
 	// ledger records the run processes this app started, so the next start can end leftovers.
