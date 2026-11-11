@@ -37,18 +37,43 @@ type problemsView struct {
 	// shows the selected diagnostic's line. preview is that view.
 	show    bool
 	preview problemsPreview
+	// split is the width of the list beside the preview; the user drags it.
+	split ui.SplitterState
+	// hideErrors, hideWarnings and hideInfo narrow the severities shown; a query sends them
+	// as Core's severity filter. groupBy is Core's grouping: file, severity or none.
+	hideErrors, hideWarnings, hideInfo bool
+	groupBy                            string
 	// list is the scrolling list of the rows, kept with the answer so a project switch
 	// starts it at the top.
 	list ui.ListState
 }
 
-// reset drops the cached answer, for a project switch or close.
-// reset forgets the answer of the previous project. The preview's switch is a preference, so it
-// survives the project change; the preview itself is released.
+// reset forgets the answer of the previous project. The view options are preferences, so they
+// survive the project change; the preview itself is released.
 func (v *problemsView) reset() {
-	show := v.show
+	options := problemsView{show: v.show, split: v.split, hideErrors: v.hideErrors, hideWarnings: v.hideWarnings,
+		hideInfo: v.hideInfo, groupBy: v.groupBy}
 	v.preview.close()
-	*v = problemsView{show: show}
+	*v = options
+}
+
+// problemsSeverityFilter is the severity filter Core receives: nil keeps every severity, which is
+// also what unchecking all three options shows. Hint severities are shown with information.
+func (v *problemsView) severityFilter() []int {
+	if !v.hideErrors && !v.hideWarnings && !v.hideInfo || v.hideErrors && v.hideWarnings && v.hideInfo {
+		return nil
+	}
+	var kept []int
+	if !v.hideErrors {
+		kept = append(kept, 1)
+	}
+	if !v.hideWarnings {
+		kept = append(kept, 2)
+	}
+	if !v.hideInfo {
+		kept = append(kept, 3, 4)
+	}
+	return kept
 }
 
 // rowAt locates one flat row: a group header when header is true, otherwise the
@@ -90,6 +115,11 @@ func (a *App) requestProblemsQuery(p *project) {
 	}
 	sets := a.pluginDiagnosticSets()
 	generation := v.generation
+	groupBy := v.groupBy
+	if groupBy == "" {
+		groupBy = core.ProblemsGroupByFile
+	}
+	severityFilter := v.severityFilter()
 	v.querying = true
 	a.background(p, kernelCallTimeout, func(ctx context.Context) func(*App) {
 		diagnostics := make([]core.ProblemsDiagnostic, 0, 64)
@@ -107,7 +137,11 @@ func (a *App) requestProblemsQuery(p *project) {
 				})
 			}
 		}
-		result, err := a.kernel.QueryProblems(ctx, core.ProblemsQuery{Diagnostics: diagnostics})
+		query := core.ProblemsQuery{Diagnostics: diagnostics, GroupBy: groupBy}
+		if severities := severityFilter; severities != nil {
+			query.Filter = &core.ProblemsFilter{Severities: severities}
+		}
+		result, err := a.kernel.QueryProblems(ctx, query)
 		return func(a *App) { a.applyProblemsQuery(p, generation, diagnostics, result, err) }
 	})
 }

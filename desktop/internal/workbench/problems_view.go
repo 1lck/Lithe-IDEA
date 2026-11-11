@@ -13,7 +13,56 @@ import (
 const (
 	// problemsRowHeight is the height of a file header and of a diagnostic row.
 	problemsRowHeight = 22
+	// problemsListWidth is the list's width beside the preview until the user drags the splitter,
+	// and the least each side keeps while dragging.
+	problemsListWidth  = 320
+	problemsListMin    = 160
+	problemsPreviewMin = 160
 )
+
+// problemsGroupings are the groupings the toolbar cycles through, in order.
+var problemsGroupings = []string{core.ProblemsGroupByFile, core.ProblemsGroupBySeverity, core.ProblemsGroupByNone}
+
+// problemsToolbar declares the view options: the preview switch, the severity filters and the
+// grouping. Each change is a preference that asks Core for the list again.
+func (a *App) problemsToolbar(c ui.C, p *project, lang i18n.Language) {
+	v := &a.problems
+	preview := v.show
+	if ui.Checkbox(c.Key("problemsPreview"), &preview, i18n.Shared(lang, "desktop.problems.showPreview")).Changed() {
+		v.show = preview
+		if !v.show {
+			v.preview.close()
+		}
+	}
+	errors, warnings, info := !v.hideErrors, !v.hideWarnings, !v.hideInfo
+	changed := false
+	if ui.Checkbox(c.Key("problemsErrors"), &errors, i18n.Shared(lang, "desktop.problems.showErrors")).Changed() {
+		v.hideErrors, changed = !errors, true
+	}
+	if ui.Checkbox(c.Key("problemsWarnings"), &warnings, i18n.Shared(lang, "desktop.problems.showWarnings")).Changed() {
+		v.hideWarnings, changed = !warnings, true
+	}
+	if ui.Checkbox(c.Key("problemsInfo"), &info, i18n.Shared(lang, "desktop.problems.showInfo")).Changed() {
+		v.hideInfo, changed = !info, true
+	}
+	current := v.groupBy
+	if current == "" {
+		current = core.ProblemsGroupByFile
+	}
+	if ui.Button(c.Key("problemsGroup"), i18n.SharedFormat(lang, "desktop.problems.groupBy", map[string]string{"arg1": i18n.Shared(lang, "desktop.problems.group."+current)})).Ghost().Clicked() {
+		next := problemsGroupings[0]
+		for index, grouping := range problemsGroupings {
+			if grouping == current {
+				next = problemsGroupings[(index+1)%len(problemsGroupings)]
+				break
+			}
+		}
+		v.groupBy, changed = next, true
+	}
+	if changed {
+		a.markProblemsChanged()
+	}
+}
 
 // problemsPanel declares the Problems tool window of an open project: the files that have
 // diagnostics, each as a header over its diagnostics, in the order Core gave them.
@@ -33,24 +82,29 @@ func (a *App) problemsPanel(c ui.C, p *project) {
 		v.list.Header = func(i int) bool { _, _, header := v.rowAt(i); return header }
 		v.list.Label = v.rowLabel
 	}
-	if ui.Checkbox(c.Key("problemsPreview"), &v.show, i18n.Shared(a.language(), "desktop.problems.showPreview")).Changed() && !v.show {
-		v.preview.close()
-	}
+	lang := a.language()
+	a.problemsToolbar(c, p, lang)
 	a.syncProblemsPreview(p)
 	opened := -1
 	list := func(c ui.C) {
 		ui.List(c, &v.list, v.rows, func(row ui.ListRow) {
 			group, index, header := v.rowAt(row.Index)
+			// With the preview on, a click only selects: the preview follows the selection and
+			// a double click or Enter opens the file, as the preview's contract states.
 			if header {
 				a.drawProblemsGroupHeader(row, v.result.Groups[group])
-			} else if a.drawProblemsRow(row, v, group, index) {
+			} else if a.drawProblemsRow(row, v, group, index) && !v.show {
 				opened = row.Index
 			}
-		}).Label(i18n.Shared(a.language(), "native.problems")).FillWidth().Grow(1).Basis(0).Shrink(1).MinHeight(0)
+		}).Label(i18n.Shared(lang, "native.problems")).FillWidth().Grow(1).Basis(0).Shrink(1).MinHeight(0)
 	}
 	if v.show {
+		if v.split.Pos <= 0 {
+			v.split.Pos = problemsListWidth
+		}
 		ui.Row(c).FillWidth().Grow(1).Basis(0).Shrink(1).MinHeight(0).Children(func() {
-			ui.Column(c).Grow(1).Basis(0).FillHeight().MinHeight(0).Children(func() { list(c) })
+			ui.Column(c).Width(v.split.Pos).Shrink(0).FillHeight().MinHeight(0).Children(func() { list(c) })
+			ui.Splitter(c, &v.split).Mins(problemsListMin, problemsPreviewMin).Label(a.text.Panel.Resize)
 			a.problemsPreviewPane(c, p)
 		})
 	} else {
