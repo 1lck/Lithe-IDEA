@@ -43,7 +43,7 @@ func (d *debugDisassembly) reset() { *d = debugDisassembly{} }
 // adapter advertised disassemble, the session is paused and the frame carries
 // an instruction pointer.
 func canDisassemble(d *debugState) bool {
-	return d.session != nil && d.state == "paused" && d.capabilities != nil && d.capabilities.SupportsDisassembleRequest &&
+	return d.activeSession() != nil && d.state == "paused" && d.capabilities != nil && d.capabilities.SupportsDisassembleRequest &&
 		d.vars.frame < len(d.frames) && d.frames[d.vars.frame].InstructionPointerReference != ""
 }
 
@@ -78,13 +78,14 @@ func (a *App) loadDisassemblyEdge(p *project, direction string) {
 // planDisassembly asks Core for the first request of a window, then follows
 // Core's steps until it answers with a page or a failure.
 func (a *App) planDisassembly(p *project, direction, reference string, count, before uint32) {
-	session := p.debug.session
+	session := p.debug.activeSession()
 	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
 		fetch, err := a.kernel.PlanDebugDisassemblyWindow(ctx, direction, reference, count, before)
 		return func(a *App) {
-			if a.project != p || p.debug.session != session {
+			if a.project != p || !p.debug.hasSession(session) {
 				return
 			}
+			defer p.debug.bindSession(session)()
 			if err != nil {
 				p.debug.disassembly.loading, p.debug.disassembly.failure = false, err.Error()
 				return
@@ -128,7 +129,7 @@ func (a *App) fetchDisassembly(p *project, fetch core.DebugDisassemblyFetch) {
 
 // reduceDisassembly applies Core's decision for one reply.
 func (a *App) reduceDisassembly(p *project, fetch core.DebugDisassemblyFetch, reply core.DebugDisassemblyReply) {
-	session := p.debug.session
+	session := p.debug.activeSession()
 	known := make([]string, 0, len(p.debug.disassembly.rows))
 	for _, row := range p.debug.disassembly.rows {
 		known = append(known, row.Address)
@@ -139,9 +140,10 @@ func (a *App) reduceDisassembly(p *project, fetch core.DebugDisassemblyFetch, re
 		step, err := a.kernel.ReduceDebugDisassemblyPage(ctx, fetch, reply, known)
 		return func(a *App) {
 			d := &p.debug.disassembly
-			if a.project != p || p.debug.session != session {
+			if a.project != p || !p.debug.hasSession(session) {
 				return
 			}
+			defer p.debug.bindSession(session)()
 			if err != nil {
 				d.loading, d.failure = false, err.Error()
 				return

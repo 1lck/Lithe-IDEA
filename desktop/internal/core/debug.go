@@ -148,6 +148,8 @@ type DebugCreateSessionRequest struct {
 	RootPath                      string `json:"rootPath"`
 	SupportsRunInTerminalRequest  bool   `json:"supportsRunInTerminalRequest"`
 	SupportsStartDebuggingRequest bool   `json:"supportsStartDebuggingRequest"`
+	// ParentSessionID names the session whose adapter asked for this child through startDebugging.
+	ParentSessionID string `json:"parentSessionId,omitempty"`
 	// DisabledCapabilities, Features and Defaults are the adapter's declaration
 	// (the launch plan's debugAdapter descriptor), passed through unchanged so the
 	// engine follows the declaration instead of recognizing the adapter by ID.

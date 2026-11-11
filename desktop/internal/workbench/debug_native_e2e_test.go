@@ -110,7 +110,7 @@ func TestDebugRealLLDBLaunchTargetAndBreakpoints(t *testing.T) {
 		t.Fatal("the real DAP launch was not captured")
 	}
 	h.app.continueDebug(p)
-	awaitStateWithin(t, h, 10*time.Second, "real debuggee exit and native cleanup", func() bool { return p.debug.session == nil })
+	awaitStateWithin(t, h, 10*time.Second, "real debuggee exit and native cleanup", func() bool { return p.debug.activeSession() == nil })
 	h.settle()
 	after, err := os.ReadFile(installedManifest)
 	if err != nil {

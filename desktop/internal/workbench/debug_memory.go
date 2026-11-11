@@ -40,7 +40,7 @@ func (m *debugMemory) reset() { *m = debugMemory{} }
 // canReadDebugMemory reports whether the paused frame has an address the adapter
 // can read. It mirrors Core's checks so the section never asks for a refusal.
 func canReadDebugMemory(d *debugState) bool {
-	return d.session != nil && d.state == "paused" && d.capabilities != nil && d.capabilities.SupportsReadMemoryRequest &&
+	return d.activeSession() != nil && d.state == "paused" && d.capabilities != nil && d.capabilities.SupportsReadMemoryRequest &&
 		d.vars.frame >= 0 && d.vars.frame < len(d.frames) && d.frames[d.vars.frame].InstructionPointerReference != ""
 }
 

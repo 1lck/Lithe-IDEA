@@ -60,8 +60,8 @@ func TestDebugRemotePromptEscapeRefusesTheAttach(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.settle()
-	if p.debug.remote != nil || p.debug.session != nil {
-		t.Fatalf("Escape on the confirmation did not refuse the attach: remote=%v session=%v", p.debug.remote, p.debug.session)
+	if p.debug.remote != nil || p.debug.activeSession() != nil {
+		t.Fatalf("Escape on the confirmation did not refuse the attach: remote=%v session=%v", p.debug.remote, p.debug.activeSession())
 	}
 	if _, ok := h.findPageHit(h.app.text.Debug.RemoteAttach); ok {
 		t.Fatal("the confirmation stays on screen after it was refused")

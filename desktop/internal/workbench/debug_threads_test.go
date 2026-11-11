@@ -86,6 +86,6 @@ func TestDebugThreadsSelectAndRestartWatchesOnEachStop(t *testing.T) {
 
 	h.clickNamed(h.app.text.Debug.Stop)
 	awaitStateWithin(t, h, 20*time.Second, "the stopped session", func() bool {
-		return p.debug.session == nil
+		return p.debug.activeSession() == nil
 	})
 }

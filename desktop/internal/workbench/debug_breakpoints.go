@@ -98,7 +98,7 @@ func (a *App) saveBreakpointEdit(p *project) {
 	lines[index].condition = strings.TrimSpace(edit.condition)
 	lines[index].hitCondition = strings.TrimSpace(edit.hitCondition)
 	lines[index].logMessage = strings.TrimSpace(edit.logMessage)
-	if p.debug.session != nil {
+	if p.debug.activeSession() != nil {
 		a.sendDebugBreakpoints(p, edit.path)
 	}
 }
@@ -160,10 +160,10 @@ func (a *App) removeFunctionBreakpoint(p *project, index int) {
 // sendFunctionBreakpoints replaces the session's function breakpoints; without a session
 // they are sent at launch instead.
 func (a *App) sendFunctionBreakpoints(p *project) {
-	if p == nil || p.debug.session == nil {
+	if p == nil || p.debug.activeSession() == nil {
 		return
 	}
-	session := p.debug.session
+	session := p.debug.activeSession()
 	breakpoints := slices.Clone(p.debug.functionBreakpoints)
 	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
 		session.operationMu.Lock()
@@ -220,17 +220,17 @@ func (a *App) toggleInstructionBreakpoint(p *project, reference string) {
 	} else {
 		p.debug.instructionBreakpoints = append(breakpoints, core.DebugInstructionBreakpoint{InstructionReference: reference, Enabled: true})
 	}
-	if p.debug.session != nil {
+	if p.debug.activeSession() != nil {
 		a.sendInstructionBreakpoints(p)
 	}
 }
 
 // sendInstructionBreakpoints replaces the session's instruction breakpoints.
 func (a *App) sendInstructionBreakpoints(p *project) {
-	if p == nil || p.debug.session == nil {
+	if p == nil || p.debug.activeSession() == nil {
 		return
 	}
-	session := p.debug.session
+	session := p.debug.activeSession()
 	breakpoints := slices.Clone(p.debug.instructionBreakpoints)
 	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
 		session.operationMu.Lock()
@@ -272,7 +272,7 @@ func dataBreakpointAccess(types []string) string {
 // requestDataBreakpoint asks the adapter for the identity of a paused variable. The answer comes back
 // as an operation result and is stored by addDataBreakpoint.
 func (a *App) requestDataBreakpoint(p *project, name string, variablesReference int64) {
-	if p == nil || p.debug.session == nil {
+	if p == nil || p.debug.activeSession() == nil {
 		return
 	}
 	a.debugOperation(p, "dataBreakpointInfo", func(ctx context.Context, session *debugSession, operationID string) (core.DebugUpdate, error) {
@@ -315,10 +315,10 @@ func (a *App) removeDataBreakpoint(p *project, index int) {
 
 // sendDataBreakpoints replaces the session's data breakpoints with the stored set.
 func (a *App) sendDataBreakpoints(p *project) {
-	if p == nil || p.debug.session == nil {
+	if p == nil || p.debug.activeSession() == nil {
 		return
 	}
-	session := p.debug.session
+	session := p.debug.activeSession()
 	breakpoints := make([]core.DebugDataBreakpoint, 0, len(p.debug.dataBreakpoints))
 	for _, breakpoint := range p.debug.dataBreakpoints {
 		breakpoints = append(breakpoints, breakpoint.DebugDataBreakpoint)

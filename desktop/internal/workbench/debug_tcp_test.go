@@ -237,7 +237,7 @@ func TestDebugTCPLanguageServerAdapterBreakpointPauseContinueStop(t *testing.T) 
 
 	h.clickNamed(h.app.text.Debug.Stop)
 	awaitStateWithin(t, h, 20*time.Second, "the stopped session", func() bool {
-		return p.debug.session == nil && p.debug.state == "idle"
+		return p.debug.activeSession() == nil && p.debug.state == "idle"
 	})
 	// Closing the stream is how the host lets go of a shared server's session.
 	select {
@@ -288,7 +288,7 @@ func TestDebugTCPPeerClosingEndsTheSession(t *testing.T) {
 	h.clickNamed(h.app.text.Debug.Start)
 	awaitStateWithin(t, h, 30*time.Second, "the paused session", func() bool { return p.debug.state == "paused" })
 	server.dropConnections()
-	awaitStateWithin(t, h, 20*time.Second, "the session to end", func() bool { return p.debug.session == nil })
+	awaitStateWithin(t, h, 20*time.Second, "the session to end", func() bool { return p.debug.activeSession() == nil })
 	// A peer that drops the connection ends the session: a clean close is
 	// terminated, a reset is reported and released.
 	if state := p.debug.state; state != "terminated" && state != "idle" {
@@ -309,8 +309,8 @@ func TestDebugTCPUnreachableEndpointFailsWithAMessage(t *testing.T) {
 	p := openHostedPanel(t, h, root)
 	h.clickNamed(h.app.text.Debug.Start)
 	awaitStateWithin(t, h, 20*time.Second, "the failure", func() bool { return p.debug.failure != "" })
-	if !strings.Contains(p.debug.failure, "127.0.0.1") || p.debug.session != nil {
-		t.Fatalf("failure = %q, session = %v", p.debug.failure, p.debug.session)
+	if !strings.Contains(p.debug.failure, "127.0.0.1") || p.debug.activeSession() != nil {
+		t.Fatalf("failure = %q, session = %v", p.debug.failure, p.debug.activeSession())
 	}
 }
 
@@ -323,8 +323,8 @@ func TestDebugTCPEndpointFailureIsShownAndStartsNothing(t *testing.T) {
 	p := openHostedPanel(t, h, root)
 	h.clickNamed(h.app.text.Debug.Start)
 	awaitStateWithin(t, h, 20*time.Second, "the failure", func() bool { return p.debug.failure != "" })
-	if !strings.Contains(p.debug.failure, "no debug command") || p.debug.session != nil {
-		t.Fatalf("failure = %q, session = %v", p.debug.failure, p.debug.session)
+	if !strings.Contains(p.debug.failure, "no debug command") || p.debug.activeSession() != nil {
+		t.Fatalf("failure = %q, session = %v", p.debug.failure, p.debug.activeSession())
 	}
 }
 
@@ -337,7 +337,7 @@ func TestDebugTCPAdapterThatNeverInitializesTimesOut(t *testing.T) {
 	p := openHostedPanel(t, h, root)
 	h.clickNamed(h.app.text.Debug.Start)
 	awaitStateWithin(t, h, 20*time.Second, "the timeout", func() bool { return p.debug.failure != "" })
-	if p.debug.failure != h.app.text.Debug.TimedOut || p.debug.session != nil {
+	if p.debug.failure != h.app.text.Debug.TimedOut || p.debug.activeSession() != nil {
 		t.Fatalf("failure = %q, want the timeout message", p.debug.failure)
 	}
 	select {
@@ -374,7 +374,7 @@ func TestDebugTCPStopWhileWaitingForTheEndpointCancels(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("Stop did not cancel the wait for the endpoint")
 	}
-	awaitStateWithin(t, h, 20*time.Second, "the session to be released", func() bool { return p.debug.session == nil })
+	awaitStateWithin(t, h, 20*time.Second, "the session to be released", func() bool { return p.debug.activeSession() == nil })
 	if p.debug.failure != "" {
 		t.Fatalf("a user cancel was reported as a failure: %q", p.debug.failure)
 	}
@@ -414,8 +414,8 @@ func TestDebugRemoteAttachAsksBeforeConnectingAndLoopbackDoesNot(t *testing.T) {
 	h.app.debugAttach.port.SetText("5005")
 	h.app.startDebug(p)
 	awaitStateWithin(t, h, 20*time.Second, "the confirmation", func() bool { return p.debug.remote != nil })
-	if p.debug.session != nil || p.debug.failure != "" || len(gate.configurations) != 0 {
-		t.Fatalf("a remote attach started before confirmation: session=%v failure=%q", p.debug.session, p.debug.failure)
+	if p.debug.activeSession() != nil || p.debug.failure != "" || len(gate.configurations) != 0 {
+		t.Fatalf("a remote attach started before confirmation: session=%v failure=%q", p.debug.activeSession(), p.debug.failure)
 	}
 	if p.debug.remote.endpoint != "debug.example.test:5005" {
 		t.Fatalf("endpoint = %q", p.debug.remote.endpoint)
@@ -431,14 +431,14 @@ func TestDebugRemoteAttachAsksBeforeConnectingAndLoopbackDoesNot(t *testing.T) {
 		t.Fatalf("attach configuration = %+v", configuration)
 	}
 	h.app.stopDebug(p)
-	awaitStateWithin(t, h, 20*time.Second, "the session to stop", func() bool { return p.debug.session == nil })
+	awaitStateWithin(t, h, 20*time.Second, "the session to stop", func() bool { return p.debug.activeSession() == nil })
 
 	// A cancelled prompt starts nothing.
 	h.app.debugAttach.host.SetText("debug.example.test")
 	h.app.startDebug(p)
 	awaitStateWithin(t, h, 20*time.Second, "the second confirmation", func() bool { return p.debug.remote != nil })
 	h.clickNamed(h.app.text.Debug.RemoteCancel)
-	if p.debug.remote != nil || p.debug.session != nil {
+	if p.debug.remote != nil || p.debug.activeSession() != nil {
 		t.Fatal("cancelling the prompt did not drop the attach")
 	}
 
@@ -450,7 +450,7 @@ func TestDebugRemoteAttachAsksBeforeConnectingAndLoopbackDoesNot(t *testing.T) {
 		t.Fatal("a loopback endpoint asked for confirmation")
 	}
 	h.app.stopDebug(p)
-	awaitStateWithin(t, h, 20*time.Second, "the session to stop", func() bool { return p.debug.session == nil })
+	awaitStateWithin(t, h, 20*time.Second, "the session to stop", func() bool { return p.debug.activeSession() == nil })
 }
 
 func TestDebugAttachFormRejectsABadPort(t *testing.T) {
@@ -464,8 +464,8 @@ func TestDebugAttachFormRejectsABadPort(t *testing.T) {
 	p := h.app.project
 	h.app.debugAttach.port.SetText("not a port")
 	h.app.startDebug(p)
-	if p.debug.session != nil || p.debug.failure != h.app.text.Debug.AttachInvalid {
-		t.Fatalf("session = %v, failure = %q, want the form message", p.debug.session, p.debug.failure)
+	if p.debug.activeSession() != nil || p.debug.failure != h.app.text.Debug.AttachInvalid {
+		t.Fatalf("session = %v, failure = %q, want the form message", p.debug.activeSession(), p.debug.failure)
 	}
 }
 

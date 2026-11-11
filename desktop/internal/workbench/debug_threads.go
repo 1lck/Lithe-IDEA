@@ -32,7 +32,8 @@ func (a *App) inspectDebugThreads(p *project, session *debugSession) {
 		})
 		if err != nil {
 			return func(a *App) {
-				if a.project == p && p.debug.session == session {
+				if a.project == p && p.debug.hasSession(session) {
+					defer p.debug.bindSession(session)()
 					p.debug.threadsFailure = err.Error()
 				}
 			}
@@ -73,7 +74,7 @@ func (a *App) applyDebugThreads(p *project, session *debugSession, threads []cor
 // selectDebugThread shows one thread's stack. A thread the adapter no longer lists is ignored.
 func (a *App) selectDebugThread(p *project, threadID int64) {
 	d := &p.debug
-	if d.session == nil || threadID == d.selectedThread {
+	if d.activeSession() == nil || threadID == d.selectedThread {
 		return
 	}
 	found := false
@@ -91,7 +92,7 @@ func (a *App) selectDebugThread(p *project, threadID int64) {
 	d.vars.reset()
 	d.frames = nil
 	d.memory.reset()
-	a.inspectDebugStack(p, d.session, threadID)
+	a.inspectDebugStack(p, d.activeSession(), threadID)
 }
 
 // debugThreadPicker is the thread selector above the call stack. One thread needs no picker.

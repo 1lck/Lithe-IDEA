@@ -114,7 +114,7 @@ func (a *App) debugVariablesView(c ui.C, p *project) {
 	})
 	v.json = mode == "json"
 	switch {
-	case d.session == nil || len(v.scopes) == 0:
+	case d.activeSession() == nil || len(v.scopes) == 0:
 		message := t.NoVariables
 		if v.loading {
 			message = t.LoadingVariables

@@ -15,7 +15,7 @@ import (
 // answer is kept until the thread resumes.
 func (a *App) debugExceptionInfo(c ui.C, p *project) {
 	d := &p.debug
-	if d.state != "paused" || d.session == nil || d.pausedThread == nil || d.capabilities == nil || !d.capabilities.SupportsExceptionInfoRequest {
+	if d.state != "paused" || d.activeSession() == nil || d.pausedThread == nil || d.capabilities == nil || !d.capabilities.SupportsExceptionInfoRequest {
 		return
 	}
 	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
@@ -48,7 +48,7 @@ func (a *App) debugExceptionInfo(c ui.C, p *project) {
 
 // requestExceptionInfo asks the adapter for the exception the paused thread stopped on.
 func (a *App) requestExceptionInfo(p *project) {
-	if p == nil || p.debug.session == nil || p.debug.pausedThread == nil {
+	if p == nil || p.debug.activeSession() == nil || p.debug.pausedThread == nil {
 		return
 	}
 	thread := *p.debug.pausedThread
