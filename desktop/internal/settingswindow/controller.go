@@ -161,6 +161,9 @@ type Options struct {
 	InstallPlugin func(plugin core.MarketplacePlugin)
 	// SetPluginEnabled turns an installed plugin on or off.
 	SetPluginEnabled func(id string, enabled bool)
+	// LanguageServerState reports the state of a plugin's running language server: its state
+	// name, or "" when none runs. It is read while painting on the window's thread.
+	LanguageServerState func(pluginID string) string
 	// UninstallPlugin removes the installed version of a plugin.
 	UninstallPlugin func(id string)
 	// InstallPluginFromFile installs a plugin package the user picked on disk. The

@@ -170,5 +170,47 @@
     "description": "Button on a disassembly row that toggles a machine-instruction breakpoint there",
     "en-US": "Breakpoint",
     "zh-CN": "断点"
+  },
+  {
+    "id": "desktop.languageStatus.title",
+    "description": "Label of the language server state card on a language settings page",
+    "en-US": "Language server",
+    "zh-CN": "语言服务"
+  },
+  {
+    "id": "desktop.languageStatus.none",
+    "description": "Language server state card value when no server runs",
+    "en-US": "Not running",
+    "zh-CN": "未运行"
+  },
+  {
+    "id": "desktop.languageStatus.starting",
+    "description": "Language server state card value while it starts",
+    "en-US": "Starting",
+    "zh-CN": "正在启动"
+  },
+  {
+    "id": "desktop.languageStatus.ready",
+    "description": "Language server state card value when it is ready",
+    "en-US": "Ready",
+    "zh-CN": "就绪"
+  },
+  {
+    "id": "desktop.languageStatus.degraded",
+    "description": "Language server state card value when it runs with reduced features",
+    "en-US": "Degraded",
+    "zh-CN": "功能受限"
+  },
+  {
+    "id": "desktop.languageStatus.stopped",
+    "description": "Language server state card value when it stopped",
+    "en-US": "Stopped",
+    "zh-CN": "已停止"
+  },
+  {
+    "id": "desktop.languageStatus.failed",
+    "description": "Language server state card value when it failed",
+    "en-US": "Failed",
+    "zh-CN": "失败"
   }
 ]

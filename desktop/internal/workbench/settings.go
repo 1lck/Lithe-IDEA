@@ -99,6 +99,14 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		InstallPlugin: func(plugin core.MarketplacePlugin) {
 			a.post(func(a *App) { a.installPlugin(plugin) })
 		},
+		LanguageServerState: func(pluginID string) string {
+			for _, server := range a.lspServers() {
+				if server.session.PluginID == pluginID {
+					return server.stateName()
+				}
+			}
+			return ""
+		},
 		InstallPluginFromFile: func(path string) {
 			a.post(func(a *App) { a.installPluginFromFile(path) })
 		},

@@ -266,6 +266,9 @@ func (w *window) dynamicSettingsPage(c ui.C) {
 		}
 		ids := w.dynamic.contributorIDs[page.Key]
 		ui.Select(c, &w.contributorID, ids, w.contributorLabel).FillWidth().Label(i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.contributor"))
+		if page.Kind == "language" {
+			w.languageStatusCard(c, w.contributorID)
+		}
 		w.pluginSettingsPanel(c, w.contributorID)
 	})
 }
