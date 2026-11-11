@@ -153,6 +153,7 @@ func (a *App) documentView(c ui.C, group string, d *document) {
 	ui.FocusBind(box, &a.focus, focusTarget{doc: d.id})
 	if p := a.project; p != nil {
 		a.foldSync(c, p, d)
+		a.linkSync(c, p, d)
 	}
 	if p := a.project; p != nil && !d.virtual {
 		ui.ContextMenu(c.Key("menu"+name), box, a.editorMenuItems(c, p, d))

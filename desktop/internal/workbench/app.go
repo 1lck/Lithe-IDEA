@@ -325,6 +325,8 @@ type project struct {
 	replace    projectReplace
 	history    localHistoryState
 	everywhere everywhereSearch
+	// everywhereSymbols is the workspace/symbol query the language servers answer (search_everywhere_lsp.go).
+	everywhereSymbols everywhereSymbolState
 	// tree is the Project tool window's tree of the project folder.
 	tree fileTree
 	// build is the Run tool window's provider-backed instances and output.

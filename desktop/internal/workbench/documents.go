@@ -50,6 +50,10 @@ var (
 type document struct {
 	// folds is the document's code folding requests (folding.go).
 	folds documentFolds
+	// serverLinks are the links the language server reported for the text, and pluginLinks the
+	// plugin providers' (document_links.go); both are shown together.
+	serverLinks documentServerLinks
+	pluginLinks []pluginservice.EditorLink
 	// id identifies the document for as long as the project is open; it is never reused.
 	id int
 	// path is the file's absolute path, name its base name, which is the tab's

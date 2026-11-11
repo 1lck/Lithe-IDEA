@@ -40,6 +40,8 @@ func (a *App) scheduleEditorActions(p *project, d *document) {
 
 // clearEditorActions forgets the document's actions and their annotations.
 func (a *App) clearEditorActions(d *document) {
+	d.pluginLinks = nil
+	d.serverLinks = documentServerLinks{revision: d.serverLinks.revision, seen: d.serverLinks.seen, changedAt: d.serverLinks.changedAt}
 	d.links = nil
 	d.view.SetLinks(nil)
 	d.view.SetHoveredLink(nil)
@@ -80,8 +82,8 @@ func (a *App) collectEditorActions(p *project, d *document) {
 			}
 			d.actions = actions
 			a.annotateEditorActions(d)
-			d.links = links
-			a.annotateDocumentLinks(d)
+			d.pluginLinks = links
+			a.refreshDocumentLinks(d)
 		}
 	})
 }

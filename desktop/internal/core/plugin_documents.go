@@ -114,6 +114,8 @@ type PluginSemanticRequest struct {
 	OperationID string
 	// Command is the executeCommand operation's `{command, arguments}` payload.
 	Command json.RawMessage
+	// Query is the workspaceSymbols operation's search text; the URI is empty for it.
+	Query string
 }
 
 // FormattingOptions is the LSP FormattingOptions Core accepts on formatting and
@@ -157,6 +159,7 @@ type pluginSemanticBody struct {
 	FormattingOptions *FormattingOptions      `json:"formattingOptions,omitempty"`
 	OperationID       string                  `json:"operationId,omitempty"`
 	Command           json.RawMessage         `json:"command,omitempty"`
+	Query             string                  `json:"query,omitempty"`
 }
 
 // RequestPluginSemantics submits a semantic request and returns Core's opaque
@@ -166,7 +169,7 @@ func (c *Client) RequestPluginSemantics(ctx context.Context, request PluginSeman
 		SessionID: request.SessionID, Operation: request.Operation, URI: request.URI,
 		Position: request.Position, CompletionContext: request.CompletionContext, NewName: request.NewName,
 		Range: request.Range, FormattingOptions: request.FormattingOptions,
-		OperationID: request.OperationID, Command: request.Command,
+		OperationID: request.OperationID, Command: request.Command, Query: request.Query,
 	}
 	var response struct {
 		OperationID string `json:"operationId"`
