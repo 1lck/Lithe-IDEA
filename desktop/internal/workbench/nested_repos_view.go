@@ -3,6 +3,7 @@ package workbench
 import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -31,7 +32,20 @@ func (a *App) drawNestedRepos(c ui.C, p *project) {
 			if p.nested.focus == repo.id {
 				color = a.colors.Accent
 			}
+			folded := p.nested.folded[repo.id]
 			ui.Row(rc).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
+				chevron, foldLabel := icons.ChevronDown, i18n.Shared(lang, "desktop.nested.collapse")
+				if folded {
+					chevron, foldLabel = icons.ChevronRight, i18n.Shared(lang, "desktop.nested.expand")
+				}
+				if a.gitIconButton(rc, foldLabel, chevron, false, false) {
+					rc.After(func() {
+						if p.nested.folded == nil {
+							p.nested.folded = map[string]bool{}
+						}
+						p.nested.folded[repo.id] = !folded
+					})
+				}
 				if ui.Checkbox(rc, &all, "").Label(repo.id).Disabled(busy || !hasToggleable(repo.changes)).Clicked() {
 					rc.After(func() { a.stageNestedChanges(p, repo, repo.changes, allStaged(repo.changes)) })
 				}
@@ -41,6 +55,9 @@ func (a *App) drawNestedRepos(c ui.C, p *project) {
 					rc.After(func() { a.startCommitIn(p, a.nestedCommitTarget(p, repo), false, surfaceButton) })
 				}
 			})
+			if folded {
+				continue
+			}
 			if !p.submoduleReferenceChanged(repo.id) {
 				ui.Paragraph(rc, i18n.Shared(lang, "desktop.nested.refUnchanged"), 2).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).PadX(8)
 			}

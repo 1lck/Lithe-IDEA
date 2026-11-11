@@ -226,6 +226,9 @@ func (a *App) buildLogRefRows(p *project, query string) (shown int) {
 			rows = a.appendLogNodes(rows, p, s, s.nodes, 1)
 		}
 	}
+	var nested int
+	rows, nested = a.appendNestedLogRows(rows, p, query)
+	shown += nested
 	v.refItems = rows
 	return shown
 }
@@ -262,7 +265,7 @@ func (v *logView) refNode(i int) ui.TreeNode {
 	case logRefReference:
 		selected = v.refSel == r.key
 	}
-	return ui.TreeNode{Depth: r.depth, Branch: r.kind == logRefSection || r.kind == logRefFolder, Expanded: r.open, Selected: selected}
+	return ui.TreeNode{Depth: r.depth, Branch: r.kind == logRefSection || r.kind == logRefFolder || r.kind == logRefRepository, Expanded: r.open, Selected: selected}
 }
 
 // refRowLabel is the accessible name of row i of the reference pane.
@@ -273,13 +276,16 @@ func (a *App) drawLogRefContent(c ui.C, r logRefRow) {
 	switch r.kind {
 	case logRefSection:
 		ui.Text(c, r.label).Weight(gfx.WeightMedium).Ellipsis().Grow(1)
+	case logRefRepository:
+		ui.Icon(c, icons.Folder).Size(14, 14).Color(r.tint)
+		ui.Text(c, r.label).Weight(gfx.WeightMedium).Color(r.tint).Ellipsis().Grow(1)
 	case logRefFolder:
 		ui.Icon(c, icons.Folder).Size(14, 14).Color(a.colors.Subtle)
 		ui.Text(c, r.label).Ellipsis().Grow(1)
 	case logRefHead:
 		ui.Icon(c, icons.Tag).Size(14, 14).Color(referenceColor("head", a.colors.Dark))
 		ui.Text(c, r.label).Ellipsis().Grow(1)
-	default:
+	case logRefReference, logRefForeign:
 		ref := r.ref
 		kind := map[string]string{"local": "branch", "remote": "remote", "tag": "tag"}[ref.Kind]
 		icon := icons.GitBranch
@@ -307,7 +313,7 @@ func (a *App) drawLogRefContent(c ui.C, r logRefRow) {
 // toggleLogRef opens or closes the section or folder of a row; while the filter has text the
 // sections show every match and do not fold.
 func (a *App) toggleLogRef(p *project, r logRefRow, query string) {
-	if (r.kind == logRefSection || r.kind == logRefFolder) && query == "" {
+	if (r.kind == logRefSection || r.kind == logRefFolder || r.kind == logRefRepository) && query == "" {
 		p.log.collapsed[r.key] = r.open
 	}
 }
@@ -317,8 +323,10 @@ func (a *App) toggleLogRef(p *project, r logRefRow, query string) {
 func (a *App) chooseLogRef(p *project, r logRefRow, query string) {
 	l := &p.log
 	switch r.kind {
-	case logRefSection, logRefFolder:
+	case logRefSection, logRefFolder, logRefRepository:
 		a.toggleLogRef(p, r, query)
+	case logRefForeign:
+		// The references of another repository are read only: the log walks the project's own.
 	default:
 		l.refSelected = r.key
 		a.setLogReference(p, r.key, r.short)

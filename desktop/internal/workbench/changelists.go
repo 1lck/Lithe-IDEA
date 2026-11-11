@@ -61,6 +61,10 @@ type changeListState struct {
 	// staging all, committing and generating a message stay off.
 	failed error
 	state  core.ChangeListState
+	// hidden is the Version Control setting that lists the changes flat: the lists are kept
+	// and read as before, but nothing is grouped and every staged change commits together
+	// (changelists_settings.go).
+	hidden bool
 	// members is the list of each change of the status shown, by path; a path it lacks is in
 	// the default list. scope is the restriction a commit of the active list passes, nil
 	// while only the default list exists.
@@ -232,6 +236,7 @@ func reduceStoredChangeLists(ctx context.Context, s *store.Store, kernel changeL
 // setGit shows a status the project read and works out again where its changes belong.
 func (a *App) setGit(p *project, g gitState) {
 	p.git = g
+	a.syncChangeListSettings(p)
 	p.lists.statusGen++
 	a.queueChangeLists(p, changeListJob{})
 }
@@ -329,7 +334,7 @@ func (l *changeListState) activeID() string {
 
 // inUse reports that lists other than the default exist, so the changes are grouped and a
 // commit takes only the active list.
-func (l *changeListState) inUse() bool { return changeListsInUse(l.state) }
+func (l *changeListState) inUse() bool { return !l.hidden && changeListsInUse(l.state) }
 
 // list is the list with id.
 func (l *changeListState) list(id string) (core.ChangeList, bool) {

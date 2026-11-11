@@ -78,6 +78,10 @@ type Values struct {
 	// InlineGitBlame shows the blame of the caret line after its text, and is off by default.
 	HideGitGutter  bool
 	InlineGitBlame bool
+	// HideChangeLists and HideParentReferences hide the local ChangeLists and the option that
+	// updates the parent repositories' references in the Commit window; both show by default.
+	HideChangeLists      bool
+	HideParentReferences bool
 	// HideProjectColors leaves the open project's color out of the workbench's chrome,
 	// which shows it by default.
 	HideProjectColors bool
@@ -254,6 +258,10 @@ type Options struct {
 	// Values.InlineGitBlame to the settings owner, like SetTabRows.
 	SetHideGitGutter  func(bool)
 	SetInlineGitBlame func(bool)
+	// SetHideChangeLists and SetHideParentReferences hand a change of Values.HideChangeLists and
+	// Values.HideParentReferences to the settings owner, like SetHideGitGutter.
+	SetHideChangeLists      func(bool)
+	SetHideParentReferences func(bool)
 	// SetProcessTermination hands a change of Values.ProcessTermination to the settings
 	// owner, like SetTabRows.
 	SetProcessTermination func(ProcessTermination)

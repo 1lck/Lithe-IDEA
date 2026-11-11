@@ -1066,5 +1066,41 @@
     "description": "Diff tab toolbar: switch that reads the diff ignoring whitespace (git diff --ignore-all-space)",
     "en-US": "Ignore Whitespace",
     "zh-CN": "忽略空白"
+  },
+  {
+    "id": "desktop.git.settings.changeLists",
+    "description": "Version Control settings switch: show the local ChangeLists of the Commit window",
+    "en-US": "Show Change Lists",
+    "zh-CN": "显示变更列表"
+  },
+  {
+    "id": "desktop.git.settings.changeListsHelp",
+    "description": "Help under the Show Change Lists switch",
+    "en-US": "Groups the Commit window's changes by local change list, with the bar that creates, renames and deletes lists. Turned off, every change is listed in one flat list and all staged changes commit together. The lists and their assignments are kept.",
+    "zh-CN": "在提交窗口按本地更改列表分组变更，并显示创建、重命名和删除列表的工具栏。关闭后所有变更平铺显示，已暂存的变更可一起提交；列表及其分配会保留。"
+  },
+  {
+    "id": "desktop.git.settings.parentReferences",
+    "description": "Version Control settings switch: show the option that updates parent repositories' references",
+    "en-US": "Show Update Parent Repository References",
+    "zh-CN": "显示更新父仓库引用"
+  },
+  {
+    "id": "desktop.git.settings.parentReferencesHelp",
+    "description": "Help under the Show Update Parent Repository References switch",
+    "en-US": "Shows the option that records the new commits of submodules in their parent repositories. Turned off, the option is hidden and every commit updates the parent references.",
+    "zh-CN": "显示是否在父仓库中记录子模块新提交的选项。关闭后隐藏该选项，每次提交都会更新父仓库引用。"
+  },
+  {
+    "id": "desktop.nested.collapse",
+    "description": "Button on a nested repository's header in the Commit window: hide its changes",
+    "en-US": "Collapse Repository",
+    "zh-CN": "折叠仓库"
+  },
+  {
+    "id": "desktop.nested.expand",
+    "description": "Button on a nested repository's header in the Commit window: show its changes again",
+    "en-US": "Expand Repository",
+    "zh-CN": "展开仓库"
   }
 ]

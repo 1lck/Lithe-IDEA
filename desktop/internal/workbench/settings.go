@@ -180,6 +180,12 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SetInlineGitBlame: func(value bool) {
 			a.post(func(a *App) { a.setInlineGitBlame(value) })
 		},
+		SetHideChangeLists: func(value bool) {
+			a.post(func(a *App) { a.setHideChangeLists(value) })
+		},
+		SetHideParentReferences: func(value bool) {
+			a.post(func(a *App) { a.setHideParentReferences(value) })
+		},
 		SetDisableSemanticHighlight: func(value bool) {
 			a.post(func(a *App) { a.setDisableSemanticHighlight(value) })
 		},
@@ -391,6 +397,7 @@ func (a *App) openSettingsPageWith(surface string, page settingsPage, query stri
 			TerminalShell: a.settings.TerminalShell, TerminalScrollback: a.terminalScrollback(),
 			HideProjectColors: a.settings.HideProjectColors, ProjectOpenDestination: a.settings.ProjectOpenDestination,
 			HideGitGutter: a.settings.HideGitGutter, InlineGitBlame: a.settings.InlineGitBlame,
+			HideChangeLists: a.settings.HideChangeLists, HideParentReferences: a.settings.HideParentReferences,
 			DisableSemanticHighlight: a.settings.DisableSemanticHighlight,
 			VimMode:                  a.settings.VimMode,
 			ProcessTermination:       a.settings.ProcessTermination,

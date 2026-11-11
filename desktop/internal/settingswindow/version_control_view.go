@@ -16,6 +16,10 @@ func (w *window) versionControlPage(c ui.C) {
 	blameTitle := i18n.Shared(language, "desktop.git.settings.blame")
 	gutter := !w.sess.values.HideGitGutter
 	blame := w.sess.values.InlineGitBlame
+	changeLists := !w.sess.values.HideChangeLists
+	parents := !w.sess.values.HideParentReferences
+	changeListsTitle := i18n.Shared(language, "desktop.git.settings.changeLists")
+	parentsTitle := i18n.Shared(language, "desktop.git.settings.parentReferences")
 	w.pageScroll(c, pageVersionControl, func() {
 		w.card(c, gutterTitle, i18n.Shared(language, "desktop.git.settings.gutterHelp"), func() {
 			if ui.Switch(c.Part("gutter"), &gutter, gutterTitle).Changed() {
@@ -25,6 +29,16 @@ func (w *window) versionControlPage(c ui.C) {
 		w.card(c, blameTitle, i18n.Shared(language, "desktop.git.settings.blameHelp"), func() {
 			if ui.Switch(c.Part("blame"), &blame, blameTitle).Changed() {
 				w.setInlineGitBlame(blame, false)
+			}
+		})
+		w.card(c, changeListsTitle, i18n.Shared(language, "desktop.git.settings.changeListsHelp"), func() {
+			if ui.Switch(c.Part("changeLists"), &changeLists, changeListsTitle).Changed() {
+				w.setHideChangeLists(!changeLists, false)
+			}
+		})
+		w.card(c, parentsTitle, i18n.Shared(language, "desktop.git.settings.parentReferencesHelp"), func() {
+			if ui.Switch(c.Part("parentReferences"), &parents, parentsTitle).Changed() {
+				w.setHideParentReferences(!parents, false)
 			}
 		})
 	})

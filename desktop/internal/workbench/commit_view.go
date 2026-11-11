@@ -34,6 +34,7 @@ func (a *App) commitPageView(c ui.C) {
 	if p == nil {
 		return
 	}
+	a.syncChangeListSettings(p)
 	ui.Column(c).Fill().Background(a.colors.Editor).Children(func() {
 		a.drawCommitToolbar(c, p)
 		ui.Divider(c)
@@ -199,6 +200,11 @@ func (a *App) drawChangeRow(c ui.C, change core.GitChange, busy, selected bool, 
 		ui.Icon(c, icon).Size(14, 14).Color(a.colors.Subtle)
 		ui.Text(c, name).Color(tint).Ellipsis().Shrink(0).MaxWidth(320)
 		ui.Text(c, strings.TrimSuffix(dir, "/")).Muted().Ellipsis().Grow(1)
+		// A summarized untracked directory stands for its files: its count is shown beside it
+		// (matrix git-large-untracked-directories).
+		if change.UntrackedFileCount > 0 {
+			ui.Text(c, t.Files(change.UntrackedFileCount)).Muted().Shrink(0)
+		}
 		ui.Text(c, state).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
 	})
 	if row.Clicked() {
@@ -358,10 +364,14 @@ func (a *App) drawCommitOptions(c ui.C, cs *commitState, generates bool) {
 				}
 				a.commitOptionHelp(c, t.SignOffHelp)
 			})
-			ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
-				ui.Checkbox(c, &cs.parents, i18n.Shared(lang, "git.workspaceCommit.parents")).Disabled(cs.busy)
-				a.commitOptionHelp(c, i18n.Shared(lang, "desktop.commit.parentsHelp"))
-			})
+			// The Version Control setting can hide the option; the commit then updates the parent
+			// references all the same (commitRequest in commit.go).
+			if !a.settings.HideParentReferences {
+				ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
+					ui.Checkbox(c, &cs.parents, i18n.Shared(lang, "git.workspaceCommit.parents")).Disabled(cs.busy)
+					a.commitOptionHelp(c, i18n.Shared(lang, "desktop.commit.parentsHelp"))
+				})
+			}
 			if !generates {
 				return
 			}

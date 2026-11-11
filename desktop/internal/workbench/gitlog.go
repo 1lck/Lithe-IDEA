@@ -224,6 +224,8 @@ func (a *App) loadLog(p *project) {
 	l.graph, l.currentRows = core.Graph{}, nil
 	l.pathFiles = nil
 	a.selectCommit(p, "")
+	// The nested repositories' groups in the reference pane are read with the log (nested_refs.go).
+	a.loadNestedReferences(p)
 	kernel, root, reference := a.kernel, p.root, l.reference
 	expanded := l.expanded
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {

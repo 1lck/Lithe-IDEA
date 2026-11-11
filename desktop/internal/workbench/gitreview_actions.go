@@ -23,7 +23,7 @@ func (a *App) openChange(p *project, change core.GitChange) {
 func (a *App) changeMenuItems(c ui.C, p *project, change core.GitChange) func(*ui.MenuItems) {
 	return func(menu *ui.MenuItems) {
 		menu.WidthRange(220, 320)
-		if sel := p.selectedChanges(); len(sel) > 1 && p.lists.selected[change.Path] {
+		if sel := p.selectedChanges(); len(sel) > 1 && p.lists.selected[change.Path] && !p.lists.hidden {
 			a.changeListBatchMenu(c, p, sel, menu)
 			return
 		}

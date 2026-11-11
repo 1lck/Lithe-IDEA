@@ -241,6 +241,12 @@ type settings struct {
 	HideProjectColors bool `json:"hideProjectColors,omitempty"`
 	// InlineGitBlame shows the blame of the caret line after its text; off by default.
 	InlineGitBlame bool `json:"inlineGitBlame,omitempty"`
+	// HideChangeLists lists the Commit window's changes flat, without the local ChangeLists; the
+	// lists and their assignments are kept. They show by default (changelists_settings.go).
+	HideChangeLists bool `json:"hideChangeLists,omitempty"`
+	// HideParentReferences hides the option that records submodule commits in the parent
+	// repositories; while it is hidden every commit updates them. The option shows by default.
+	HideParentReferences bool `json:"hideParentReferences,omitempty"`
 	// DisableSemanticHighlight keeps the syntax colors alone; semantic coloring is on by default.
 	DisableSemanticHighlight bool `json:"disableSemanticHighlight,omitempty"`
 	// VimMode turns on the Vim keys of every editor; off by default (vim_mode.go).

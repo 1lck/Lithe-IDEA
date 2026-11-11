@@ -177,6 +177,17 @@ func (t commitTarget) request(push bool) core.WorkspaceCommitRequest {
 	}
 }
 
+// commitRequest is t.request with the Version Control setting applied: while the setting hides
+// the parent references option, every commit updates the parent repositories' references, as
+// the option would when it is on.
+func (a *App) commitRequest(t commitTarget, push bool) core.WorkspaceCommitRequest {
+	request := t.request(push)
+	if a.settings.HideParentReferences {
+		request.IncludeParentReferences = true
+	}
+	return request
+}
+
 // authorText is the author typed in the commit options, without the spaces around it.
 func (c *commitState) authorText() string { return strings.TrimSpace(c.author.Text()) }
 
@@ -229,7 +240,7 @@ func (a *App) startCommitIn(p *project, t commitTarget, push bool, surface strin
 		action = "git.commitAndPush"
 	}
 	a.performed(action, surface)
-	request := t.request(push)
+	request := a.commitRequest(t, push)
 	if request.Message == "" {
 		a.notify(a.text.Commit.EnterMessage)
 		return
@@ -246,7 +257,7 @@ func (a *App) retryCommit(p *project, t commitTarget) {
 	}
 	a.performed("git.commitRetry", surfaceButton)
 	previous := *c.attempt
-	request := t.request(previous.Push)
+	request := a.commitRequest(t, previous.Push)
 	request.Message, request.Amend = previous.Message, previous.Amend
 	request.Author, request.SignOff = previous.Author, previous.SignOff
 	request.Previous, request.PathScope = &previous, nil
@@ -290,7 +301,7 @@ func (a *App) confirmReview(p *project, t commitTarget) {
 		return
 	}
 	session := r.prep.Session
-	request := t.request(session.Push)
+	request := a.commitRequest(t, session.Push)
 	request.Message, request.Amend = session.Message, session.Amend
 	request.Author, request.SignOff = session.Author, session.SignOff
 	request.Reviewed = &session

@@ -38,7 +38,7 @@ func (a *App) changeListNameByID(p *project, id string) string {
 // commit updates the parent repositories' references is a commit option (drawCommitOptions),
 // so the bar fits a narrow tool window.
 func (a *App) drawChangeListBar(c ui.C, p *project) {
-	if _, ok := a.kernel.(changeListKernel); !ok {
+	if _, ok := a.kernel.(changeListKernel); !ok || p.lists.hidden {
 		return
 	}
 	l, lang, busy := &p.lists, a.language(), p.commit.busy
@@ -112,7 +112,7 @@ func (a *App) drawChangeListSections(c ui.C, p *project) {
 // list, then a new list that takes it.
 func (a *App) changeListMenuItems(c ui.C, p *project, change core.GitChange, menu *ui.MenuItems) {
 	l, lang := &p.lists, a.language()
-	if _, ok := a.kernel.(changeListKernel); !ok || !l.read || l.failed != nil {
+	if _, ok := a.kernel.(changeListKernel); !ok || !l.read || l.failed != nil || l.hidden {
 		return
 	}
 	current := p.changeListOf(change)
