@@ -89,6 +89,7 @@ func (a *App) beginPaint(canvas *gfx.Canvas) {
 	a.shared.text.Store(a.text)
 	a.shared.dark.Store(a.colors.Dark)
 	a.status.frame(canvas, a.now())
+	a.sampleMemory(a.now())
 	a.chrome.beginFrame()
 	a.beginTerminalFrame()
 	if a.clone.open || a.newProject.open {

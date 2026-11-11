@@ -36,3 +36,6 @@ func Current(volume string) Snapshot {
 		DiskFreeBytes: diskFree(volume),
 	}
 }
+
+// Resident is the memory the process holds in RAM now, in bytes; zero when the system does not say.
+func Resident() uint64 { return residentBytes() }

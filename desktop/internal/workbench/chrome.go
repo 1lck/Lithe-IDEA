@@ -115,7 +115,10 @@ func (a *App) chromeStatusText(i int) string {
 		}
 		return a.text.Status.LSPNotStarted
 	case itemMemory:
-		return a.text.Status.MemoryValue(int(a.status.memory >> 20))
+		if memoryShowsIcon() {
+			return a.memoryTooltip()
+		}
+		return a.memoryStatusText()
 	case itemFPS:
 		return a.text.Status.FPSValue(a.status.fps)
 	case itemChanges:

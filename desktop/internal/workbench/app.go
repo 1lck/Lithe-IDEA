@@ -387,6 +387,8 @@ type App struct {
 	// fills its monitor, as the host last reported.
 	window     *app.Window
 	fullscreen bool
+	// memory is the memory monitor's last reading (memory_monitor.go).
+	memory memoryState
 	// shownTitle is the system title last given to the window (window_title.go).
 	shownTitle string
 	// updates is the update check, download and install (updates.go).
@@ -864,6 +866,9 @@ func (a *App) activate(index int) {
 		if a.project != nil {
 			a.editor.lsp.open = true
 		}
+	case it.id == itemMemory:
+		a.memory.open = !a.memory.open
+		a.memory.sampledAt = time.Time{}
 	case it.id == itemEncoding:
 		if a.project != nil && a.project.selectedDocument(a.project.docs.group) != nil {
 			a.editor.encoding.open = !a.editor.encoding.open

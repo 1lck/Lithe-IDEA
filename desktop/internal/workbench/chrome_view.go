@@ -274,6 +274,8 @@ func (a *App) chromeStatusItem(c ui.C, i int) bool {
 			ui.Icon(k, *a.chrome.catalog[i].icon).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
 		case itemHealth:
 			ui.Icon(k, *a.chrome.catalog[i].icon).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Success)
+		case itemMemory:
+			a.memoryStatusItem(k)
 		case itemLSP:
 			ui.Row(k).Size(chromeDot, chromeDot).Shrink(0).Radius(chromeDot / 2).Background(a.colors.Subtle)
 			a.chromeStatusLabel(k, text)
@@ -281,8 +283,11 @@ func (a *App) chromeStatusItem(c ui.C, i int) bool {
 			a.chromeStatusLabel(k, text)
 		}
 	})
-	if a.chrome.catalog[i].id == itemEncoding {
+	switch a.chrome.catalog[i].id {
+	case itemEncoding:
 		a.encodingMenu(c, box)
+	case itemMemory:
+		a.memoryDetails(c, box)
 	}
 	return box.Clicked()
 }

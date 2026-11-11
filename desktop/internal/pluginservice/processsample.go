@@ -126,3 +126,26 @@ func parseWindowsTable(output []byte, root int) (memoryBytes uint64, cpuSeconds 
 	}
 	return memoryBytes, float64(ticks) / 1e7, true
 }
+
+// SampleProcessMemory reads the process table once and sums the resident memory of the tree under
+// each pid, in bytes. A pid that is gone is left out. Like SampleProcessTree it runs a short-lived
+// command, so it is called off the window thread.
+func SampleProcessMemory(ctx context.Context, pids []int) map[int]uint64 {
+	if len(pids) == 0 {
+		return nil
+	}
+	output, err := processTable(ctx)
+	if err != nil {
+		return nil
+	}
+	memory := make(map[int]uint64, len(pids))
+	for _, pid := range pids {
+		if pid <= 0 {
+			continue
+		}
+		if bytes, ok := treeMemory(output, pid); ok {
+			memory[pid] = bytes
+		}
+	}
+	return memory
+}

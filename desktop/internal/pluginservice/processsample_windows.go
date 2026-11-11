@@ -48,3 +48,12 @@ func sampleProcessTree(ctx context.Context, pid int) (ProcessSample, bool) {
 	}
 	return sample, true
 }
+
+func processTable(ctx context.Context) ([]byte, error) {
+	return exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", windowsTableCommand).Output()
+}
+
+func treeMemory(output []byte, pid int) (uint64, bool) {
+	memory, _, ok := parseWindowsTable(output, pid)
+	return memory, ok
+}

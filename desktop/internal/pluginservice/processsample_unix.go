@@ -13,3 +13,10 @@ func sampleProcessTree(ctx context.Context, pid int) (ProcessSample, bool) {
 	}
 	return parsePSTable(output, pid)
 }
+
+func processTable(ctx context.Context) ([]byte, error) { return psCommand(ctx) }
+
+func treeMemory(output []byte, pid int) (uint64, bool) {
+	sample, ok := parsePSTable(output, pid)
+	return sample.MemoryBytes, ok
+}
