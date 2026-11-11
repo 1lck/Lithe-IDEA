@@ -102,6 +102,9 @@ type Look struct {
 	// GutterAdded, GutterModified and GutterDeleted color the gutter decorations (see
 	// gutter.go); a color left transparent takes a default.
 	GutterAdded, GutterModified, GutterDeleted gfx.Color
+	// Breakpoint and LogPoint color the debugger's breakpoints in the gutter (see
+	// breakpoints.go); a color left transparent takes a default.
+	Breakpoint, LogPoint gfx.Color
 }
 
 // snapshot is the text and the selection before or after an edit, as undo restores them.
@@ -267,9 +270,11 @@ type View struct {
 	gutter gutterState
 	// fold is the code folding (fold.go).
 	fold foldState
-	// iconX is where the per-line icon column starts, set when the view paints.
-	iconX      float32
-	numberText lineNumbers
+	// iconX is where the per-line icon column starts and numbersRight where the line numbers'
+	// column ends, set when the view paints.
+	iconX        float32
+	numbersRight float32
+	numberText   lineNumbers
 	// decor is the line highlights and labels a diff viewer sets, and the line it asked to
 	// center. See diffdecor.go.
 	decor decorState

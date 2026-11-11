@@ -636,8 +636,14 @@ func (a *App) toggleBreakpoint(p *project) {
 		return
 	}
 	caretLine, _ := doc.view.Caret()
-	line := int64(caretLine + 1)
-	lines := p.debug.breakpoints[doc.path]
+	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "debug.toggleBreakpoint", "surface": "debug"})
+	a.toggleBreakpointAt(p, doc.path, int64(caretLine+1))
+}
+
+// toggleBreakpointAt adds a breakpoint on the one-based line of path or removes the one there,
+// and with a session sends the file's breakpoints to the adapter again.
+func (a *App) toggleBreakpointAt(p *project, path string, line int64) {
+	lines := p.debug.breakpoints[path]
 	index, found := breakpointIndex(lines, line)
 	if found {
 		lines = slices.Delete(lines, index, index+1)
@@ -648,13 +654,12 @@ func (a *App) toggleBreakpoint(p *project) {
 		p.debug.breakpoints = make(map[string][]debugBreakpoint)
 	}
 	if len(lines) == 0 {
-		delete(p.debug.breakpoints, doc.path)
+		delete(p.debug.breakpoints, path)
 	} else {
-		p.debug.breakpoints[doc.path] = lines
+		p.debug.breakpoints[path] = lines
 	}
-	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "debug.toggleBreakpoint", "surface": "debug"})
 	if p.debug.activeSession() != nil {
-		a.sendDebugBreakpoints(p, doc.path)
+		a.sendDebugBreakpoints(p, path)
 	}
 }
 

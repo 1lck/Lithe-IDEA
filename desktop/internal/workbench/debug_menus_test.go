@@ -93,11 +93,11 @@ func TestDebugMenusCopyFramesAndVariablesAndToggleBreakpoints(t *testing.T) {
 		t.Fatalf("Set Value selected %+v, want count", selected)
 	}
 
-	// A line breakpoint is removed with the others.
+	// The Breakpoints section lists the line breakpoints; one is removed with the others.
 	source := d.frames[0].SourcePath
 	d.breakpoints = map[string][]debugBreakpoint{source: {{line: 3}, {line: 5}}}
 	h.app.sendDebugBreakpoints(p, source)
-	h.settle()
+	h.showDebugSection(h.app.text.Debug.Breakpoints)
 	// A line breakpoint is disabled and enabled again; a disabled one keeps its line and is
 	// sent as disabled, so Core leaves it out of what the adapter gets.
 	h.rightClickNamed(filepath.Base(source) + ":3")

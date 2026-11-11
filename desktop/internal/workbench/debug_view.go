@@ -12,15 +12,13 @@ import (
 
 const (
 	debugRowHeight = 24
-	// debugBreakpointRows is how many breakpoint rows show before the list scrolls.
-	debugBreakpointRows = 6
 	// debugDisabledOpacity is the opacity of a disabled breakpoint's row, the fade the earlier
 	// client gave it.
 	debugDisabledOpacity = 0.55
 )
 
-// debugView declares the Debug tool window: one adapter session, its breakpoints,
-// pause/continue controls and the paused call stack.
+// debugView declares the Debug tool window: one adapter session, its pause/continue controls
+// and its sections, the paused call stack first and the breakpoints among them.
 func (a *App) debugView(c ui.C, p *project) {
 	t, d := a.text.Debug, &p.debug
 	if !d.loaded && !d.loading {
@@ -77,8 +75,6 @@ func (a *App) debugView(c ui.C, p *project) {
 			a.debugOutput(c, p)
 			return
 		}
-		a.debugBreakpoints(c, p)
-		ui.Divider(c)
 		a.debugSections(c, p)
 	})
 }
@@ -210,7 +206,7 @@ func (a *App) debugBreakpoints(c ui.C, p *project) {
 		if row.Element.Clicked() {
 			row.C.After(func() { a.removeBreakpoint(p, spec.path, spec.breakpoint.line) })
 		}
-	}).Label(t.Breakpoints).FillWidth().Height(float32(min(len(rows), debugBreakpointRows)) * debugRowHeight).Shrink(0)
+	}).Label(t.Breakpoints).FillWidth().Grow(1)
 }
 
 // removeBreakpoint drops one stored line and tells the active adapter.

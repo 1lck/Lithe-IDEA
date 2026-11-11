@@ -113,6 +113,20 @@ func openDebugPanel(t *testing.T, h *harness, root string) *project {
 	return p
 }
 
+// showDebugSection clicks the Debug tool window's tab named label. The section's own header and
+// list carry the same name and come after it, so the tab is the first control so named.
+func (h *harness) showDebugSection(label string) {
+	h.t.Helper()
+	for _, hit := range h.driver.Snapshot().Hits {
+		if hit.Label == label && !hit.IsLabel {
+			h.click(center(hit.Bounds))
+			h.settle()
+			return
+		}
+	}
+	h.t.Fatalf("no Debug section named %q", label)
+}
+
 func TestDebugPanelBreakpointPauseContinueFrames(t *testing.T) {
 	h := debugHarness(t)
 	root := t.TempDir()
@@ -130,10 +144,12 @@ func TestDebugPanelBreakpointPauseContinueFrames(t *testing.T) {
 	h.app.openFileAtPosition(p, source, 2, 0)
 	h.settle()
 
+	h.showDebugSection(h.app.text.Debug.Breakpoints)
 	h.clickNamed(h.app.text.Debug.ToggleBreakpoint)
 	if lines := p.debug.breakpoints[source]; len(lines) != 1 || lines[0].line != 3 {
 		t.Fatalf("breakpoints = %+v, want line 3 of %s", p.debug.breakpoints, source)
 	}
+	h.showDebugSection(h.app.text.Debug.Frames)
 
 	h.clickNamed(h.app.text.Debug.Start)
 	awaitStateWithin(t, h, 30*time.Second, "the paused debuggee and its stack", func() bool {

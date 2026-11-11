@@ -59,6 +59,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	numbersEnd := float32(digits)*cellW + 2*gutterPad
 	gutter := numbersEnd + v.lineIconColumn() + v.foldColumn()
 	v.iconX = area.X + numbersEnd + lineIconInset
+	v.numbersRight = area.X + numbersEnd
 	v.fold.x = area.X + numbersEnd + v.lineIconColumn()
 	v.fold.boxes = v.fold.boxes[:0]
 	v.area = area
@@ -217,7 +218,21 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	v.paintFoldArrows(canvas, area, look, firstLine, lastLine)
 	style := gfx.TextStyle{Size: font.Size, Color: look.Subtle, Mono: true, MonoFace: font.Face}
 	right := area.X + numbersEnd - gutterPad
+	// A line with a breakpoint shows the breakpoint in place of its number. The numbers go down
+	// the lines, so the breakpoints are walked once from the first in view.
+	points := v.gutter.breakpoints
+	point := 0
+	if len(points) > 0 && len(v.numbers) > 0 {
+		point = v.gutter.breakpointFrom(v.numbers[0].line)
+	}
 	for _, number := range v.numbers {
+		for point < len(points) && points[point].Line < number.line {
+			point++
+		}
+		if point < len(points) && points[point].Line == number.line {
+			v.paintBreakpoint(canvas, look, points[point], area.X+gutterBarX+gutterBarWidth, area.X+numbersEnd, number.y)
+			continue
+		}
 		label := v.lineLabel(number.line)
 		n := len(label)
 		if n == 0 {

@@ -89,6 +89,10 @@ type gutterState struct {
 	// onContext is told the line of a secondary press in the gutter, before the menu opens.
 	onContext   func(line int)
 	annotations []LineAnnotation
+	// breakpoints are the debugger's line breakpoints, sorted by line, and onBreakpoint is told
+	// the line of a press on a line number (breakpoints.go).
+	breakpoints  []Breakpoint
+	onBreakpoint func(line int)
 }
 
 // SetGutterDecorations replaces the gutter decorations. Decorations are kept sorted by

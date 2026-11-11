@@ -198,6 +198,7 @@ func (a *App) documentInput(p *project, d *document) {
 		// The blame of the caret line is set before the view paints, so the annotation shown
 		// belongs to the line the frame draws.
 		a.applyInlineBlame(p, d)
+		a.applyDebugGutter(p, d)
 		v.Paint(dc.Canvas, dc.Rect, a.editorLook())
 		if dc.State.Focused {
 			p.docs.group = d.group

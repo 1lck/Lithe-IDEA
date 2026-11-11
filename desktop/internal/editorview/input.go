@@ -444,6 +444,9 @@ func (v *View) Pointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 	if event.Kind == gfx.PointerDown && event.Target == v.cfg.HitID && v.painted && v.lineIconPointer(event) {
 		return gfx.EventResult{Handled: true, Repaint: true, Focus: v.cfg.HitID}, true
 	}
+	if event.Kind == gfx.PointerDown && event.Target == v.cfg.HitID && v.painted && v.breakpointPointer(event) {
+		return gfx.EventResult{Handled: true, Repaint: true, Focus: v.cfg.HitID}, true
+	}
 	if event.Kind == gfx.PointerDown && event.Target == v.cfg.HitID && v.painted && v.gutterPointer(event) {
 		return gfx.EventResult{Handled: true, Repaint: true, Focus: v.cfg.HitID}, true
 	}

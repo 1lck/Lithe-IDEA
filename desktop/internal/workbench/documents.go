@@ -101,6 +101,9 @@ type document struct {
 	// git_blame_inline.go).
 	gutter gitGutterState
 	blame  inlineBlame
+	// debugGutter is the debugger's breakpoints and paused line the view was given
+	// (debug_gutter.go).
+	debugGutter debugGutter
 	// virtual marks a read-only document a plugin provides for a URI that names no
 	// file (a class inside a jar). path then holds the URI: the document is never
 	// watched, saved or synchronized with a language server, and the host keeps no
@@ -887,6 +890,10 @@ func (a *App) editorLook() editorview.Look {
 		GutterAdded:    a.colors.Success,
 		GutterModified: a.colors.Accent,
 		GutterDeleted:  a.colors.Deleted,
+		// Breakpoints use the palette's danger red and log points its warning amber, the
+		// colors the Debug tool window marks them with.
+		Breakpoint: a.theme.Danger,
+		LogPoint:   a.colors.Warning,
 	}
 }
 

@@ -11,7 +11,10 @@
       "desktop/internal/workbench/debug_view.go",
       "desktop/internal/workbench/debug_test.go",
       "desktop/internal/workbench/debug_adapter_test.go",
-      "desktop/internal/core/debug.go"
+      "desktop/internal/core/debug.go",
+      "desktop/internal/editorview/breakpoints.go",
+      "desktop/internal/workbench/debug_gutter.go",
+      "desktop/internal/workbench/debug_gutter_test.go"
     ]
   },
   "windows": {
@@ -22,12 +25,15 @@
       "desktop/internal/workbench/debug_view.go",
       "desktop/internal/workbench/debug_test.go",
       "desktop/internal/workbench/debug_adapter_test.go",
-      "desktop/internal/core/debug.go"
+      "desktop/internal/core/debug.go",
+      "desktop/internal/editorview/breakpoints.go",
+      "desktop/internal/workbench/debug_gutter.go",
+      "desktop/internal/workbench/debug_gutter_test.go"
     ]
   },
   "owner": "Debug",
   "verification": "设置、命中、禁用和重新定位断点，确认调试会话生命周期。 Windows验证Java gutter增删断点、禁用断点和暂停行装饰；只读编辑器不增删断点，切换/销毁编辑器后订阅与装饰均释放。 Windows盘符路径的大小写/分隔符别名必须在 gutter mutation、按文件查询和 Monaco 投影使用同一字面身份；第二次点击移除可见位置及其历史重复别名，保留其他行/模块和原始持久化路径。POSIX大小写保持区分，真实store与隔离localStorage回归登记Windows CI。 macOS WebKit验证IDEA原始14pt断点SVG明暗变体、普通/禁用/静音/未验证/日志状态，未启动调试时为普通实心断点；启用且暂停的断点采用IDEA配色行背景，禁用和日志断点无此背景，增删不改变文本或边栏宽度。 可编辑行号区hover显示原始断点SVG预览，Islands深/浅透明度0.35/0.30，光标为pointer；已有断点保持完整不透明度，只读与Git blame不显示可点击预览。 macOS断点位置只检查合法源码行和provider能力，不以@注解、类型声明或单独花括号启发式拒绝；hover与点击共享宿主能力，未支持文件和只读等状态不发请求。真实JUnit/TestNG调试同时保留方法结束括号断点并在方法体语句暂停、检查局部变量及继续退出。Core requestedLine与适配器ID关联实际行号和后续无位置事件，拒绝旧请求回包；显示已调整位置的圆点仍切换原始持久化断点，新会话撤销旧绑定确认。 macOS暂停位置对齐IDEA EXECUTIONPOINT_ATTRIBUTES：Islands深/浅背景#2A5091/#2154A6，执行高亮覆盖同位置断点背景并保留语法色和已验证断点；不增加IDEA Java默认没有的黄色stack-frame箭头。行尾变量使用#849FBF/#A9B7D6斜体透明背景。真实WebKit覆盖深浅主题、单步移动、继续后清除暂停装饰并恢复断点背景及文本历史不变。 共享行尾变量注入必须设置showIfCollapsed，使零宽锚点实际渲染；不得只检查模型装饰存在。macOS实际演示项目已验证断点命中、单步到下一行及继续退出后的高亮和值清理。 macOS主工具栏对当前选中调试目标以Pause/Resume替换Run，使用IDEA原始16pt图标与普通按钮底色；执行请求处理中禁用，仍保留Restart Debug和Stop，退出调试或选择其他目标恢复Run/Rerun。检查暂停时点击Resume继续到下一断点、运行时Pause、目标切换及模块禁用；纯展示测试覆盖各会话状态和不匹配的目标。 顶栏选中测试目标时，Debug及其共享快捷键入口必须调用测试调试工作流，而非底下的Main配置；没有源码的测试必须明确报错，不能回退调试Main。 macOS 多会话（#1210）：启动带 startDebugging 子会话的调试，确认头部只有一个会话标签，线程选择器先列“会话”（子会话缩进、带状态和当前勾选）再列线程，切换会话后线程、栈帧和变量跟随；停止父会话连带停止子会话，父会话终止或失败也清理子会话，右键线程选择器可单独停止某个运行中的会话。运行 LitheDebugModuleTests 的多会话用例；真实多会话产品验收 pending。 Windows 编辑源码时通过 debug.relocateBreakpoints 移动断点，验证前方插入/删除、多光标、中文/emoji/CRLF、分屏去重、持久化与调试启动前等待；启动发送更新后的一基 DAP 行号。失败或队列超限时应提示清除并重新添加断点，不能继续使用旧位置启动。 批量编辑保留字符锚点后统一投影，覆盖 LF、CRLF 和 CR；排队期间用户修改断点时拒绝旧坐标；连续大文件编辑仅初始化传完整源码；排队中的连续事件按先后批处理，断点增删时拆批，限制待处理源文本和增量大小。共享样例覆盖逐事件投影、碰撞与 Unicode/CRLF，真实 Core 集成回归覆盖 9 MiB 文件 128 次连续输入。",
-  "notes": "Viva 的 Debug 工具窗口已能启动插件声明的调试适配器、设置/移除源码断点、暂停/继续并显示栈帧（见 viva-debug-session）。条件断点、日志点、函数/数据/指令断点和断点随编辑重定位尚未接入。",
+  "notes": "Viva 的 Debug 工具窗口已能启动插件声明的调试适配器、暂停/继续并显示栈帧（见 viva-debug-session）。源码断点支持条件、命中次数、日志点、启用/禁用和随编辑重定位，方法断点已接入。编辑器行号区在行号位置画断点（禁用为空心、条件断点带孔、日志点为圆角方块），点击行号增删断点，暂停时按所选栈帧给当前执行行着色；断点列表是调试窗口的一个分页，不占调用栈的高度。数据断点、指令断点和行号区悬停预览尚未接入。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

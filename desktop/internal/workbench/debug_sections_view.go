@@ -12,10 +12,12 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// The sections under the Debug tool window's breakpoint list.
+// The sections of the Debug tool window under its toolbar. The breakpoints are one of them, so
+// the call stack and the variables keep the window's height while the debuggee is paused.
 const (
 	debugSectionFrames      = "frames"
 	debugSectionVariables   = "variables"
+	debugSectionBreakpoints = "breakpoints"
 	debugSectionExceptions  = "exceptions"
 	debugSectionDisassembly = "disassembly"
 	debugSectionMemory      = "memory"
@@ -27,11 +29,11 @@ func (a *App) debugSections(c ui.C, p *project) {
 	if d.section == "" {
 		d.section = debugSectionFrames
 	}
-	sections := []string{debugSectionFrames, debugSectionVariables, debugSectionExceptions, debugSectionDisassembly}
+	sections := []string{debugSectionFrames, debugSectionVariables, debugSectionBreakpoints, debugSectionExceptions, debugSectionDisassembly}
 	if d.capabilities != nil && d.capabilities.SupportsReadMemoryRequest {
 		sections = append(sections, debugSectionMemory)
 	}
-	if d.section == debugSectionMemory && len(sections) == 4 {
+	if !slices.Contains(sections, d.section) {
 		d.section = debugSectionFrames
 	}
 	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).PadX(8).Children(func() {
@@ -39,6 +41,8 @@ func (a *App) debugSections(c ui.C, p *project) {
 			switch section {
 			case debugSectionVariables:
 				return t.Variables
+			case debugSectionBreakpoints:
+				return t.Breakpoints
 			case debugSectionExceptions:
 				return t.Exceptions
 			case debugSectionDisassembly:
@@ -52,6 +56,8 @@ func (a *App) debugSections(c ui.C, p *project) {
 	switch d.section {
 	case debugSectionVariables:
 		a.debugVariablesView(c, p)
+	case debugSectionBreakpoints:
+		a.debugBreakpoints(c, p)
 	case debugSectionExceptions:
 		a.debugExceptionsView(c, p)
 	case debugSectionDisassembly:
