@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/wslpath"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/ui"
 )
@@ -380,6 +381,10 @@ func (a *App) renameTreeItem(p *project) {
 	pr.open = false
 	a.saveDocumentsThen(p, docs, func() {
 		before := readForLocalHistory(oldFull)
+		if err := wslpath.CheckMove(oldFull, newFull); err != nil {
+			a.notify(err.Error())
+			return
+		}
 		if err := os.Rename(oldFull, newFull); err != nil {
 			a.notify(i18n.SharedFormat(language, "desktop.files.renameFailed", map[string]string{"reason": treeErrorReason(err)}))
 			return

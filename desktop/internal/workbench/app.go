@@ -39,6 +39,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/projectgen"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/wslpath"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -940,7 +941,7 @@ func (a *App) chooseProject(surface string) {
 // openProject opens the folder at path as the project of the window, replacing the one
 // that was open.
 func (a *App) openProject(path string) {
-	root, err := filepath.Abs(path)
+	root, err := filepath.Abs(wslpath.ToNative(path))
 	if err != nil {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_open", documentLogError(err)))
 		a.notify(a.text.Errors.OpenFailed(err.Error()))
