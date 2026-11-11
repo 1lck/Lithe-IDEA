@@ -204,7 +204,9 @@ func (a *App) writeNestedStaging(p *project, root string, stage bool, paths []st
 		}
 		return func(a *App) {
 			p.commit.busy = false
-			a.loadNestedRepos(p)
+			// The project's status is read with the nested repositories, as the group of its own changes
+			// may be the one that was staged.
+			a.loadGit(p)
 			if err != nil {
 				a.stagingFailed(stage, err)
 			}
