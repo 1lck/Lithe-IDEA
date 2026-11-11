@@ -366,6 +366,15 @@ func (w *window) generalPage(c ui.C) {
 			})
 		})
 		w.card(c, settings.Workbench, settings.LayoutHint, func() {
+			language := w.marketLanguage()
+			colors := !w.sess.values.HideProjectColors
+			if ui.Switch(c.Part("project-colors"), &colors, i18n.Shared(language, "desktop.settings.projectColors")).Changed() {
+				w.sess.values.HideProjectColors = !colors
+				if w.ctrl.opts.SetHideProjectColors != nil {
+					w.ctrl.opts.SetHideProjectColors(!colors)
+				}
+			}
+			ui.Wrap(c, i18n.Shared(language, "desktop.settings.projectColorsHelp")).FontSize(12).Color(p.muted)
 			ui.Row(c).FillWidth().Items(ui.Center).Children(func() {
 				// Pressing the button is its own confirmation, so it acts at once.
 				if ui.Button(c, settings.ResetLayout).Outline().Clicked() && w.ctrl.opts.ResetLayout != nil {

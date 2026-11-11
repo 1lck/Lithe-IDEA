@@ -229,6 +229,9 @@ type settings struct {
 	HideMinimap bool `json:"hideMinimap,omitempty"`
 	// HideGitGutter hides the Git change markers of the editor gutter; they show by default.
 	HideGitGutter bool `json:"hideGitGutter,omitempty"`
+	// HideProjectColors leaves the open project's color out of the window's chrome; it
+	// shows by default (project_gradient.go).
+	HideProjectColors bool `json:"hideProjectColors,omitempty"`
 	// InlineGitBlame shows the blame of the caret line after its text; off by default.
 	InlineGitBlame bool `json:"inlineGitBlame,omitempty"`
 	// DisableSemanticHighlight keeps the syntax colors alone; semantic coloring is on by default.

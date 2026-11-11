@@ -71,7 +71,7 @@ func (a *App) titleBar(c ui.C) {
 		leading = 0
 	}
 	clicked := -1
-	ui.Row(c).FillWidth().Height(titleBarHeight).Shrink(0).Background(a.colors.Chrome).
+	ui.Row(c).FillWidth().Height(titleBarHeight).Shrink(0).Background(a.chromeFill()).
 		Items(ui.Center).Gap(chromeGap).PadSides(0, trailing+chromeEdge, 0, leading+chromeEdge).
 		MovesWindow().Children(func() {
 		a.chromeProject(c)
@@ -186,7 +186,7 @@ func (a *App) stripe(c ui.C, left bool) {
 	dragging := a.draggingToolButton()
 	// As in the title bar, a click is acted on once the stripe is declared.
 	clicked := -1
-	ui.Column(c).Width(stripeWidth).FillHeight().Shrink(0).Background(a.colors.Chrome).Pad(chromeGap).Children(func() {
+	ui.Column(c).Width(stripeWidth).FillHeight().Shrink(0).Background(a.chromeFill()).Pad(chromeGap).Children(func() {
 		if i := a.stripeZone(c, top, dragging); i >= 0 {
 			clicked = i
 		}
@@ -241,7 +241,7 @@ func (a *App) stripeZone(c ui.C, z zone, dragging bool) int {
 // the trailing end the readouts the user can arrange.
 func (a *App) statusBar(c ui.C) {
 	clicked := -1
-	ui.Row(c).FillWidth().Height(statusBarHeight).Shrink(0).Background(a.colors.Chrome).
+	ui.Row(c).FillWidth().Height(statusBarHeight).Shrink(0).Background(a.chromeFill()).
 		Items(ui.Center).PadX(chromeEdge).Children(func() {
 		k := c.Part("path")
 		ui.Text(k, a.project.name).Grow(1).Ellipsis().FontSize(a.theme.Metrics.FontSizeS).LineHeight(chromeLineHeight).

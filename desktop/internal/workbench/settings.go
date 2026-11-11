@@ -185,6 +185,14 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		ResetLayout: func() {
 			a.post(func(a *App) { a.resetLayout() })
 		},
+		SetHideProjectColors: func(hide bool) {
+			a.post(func(a *App) {
+				if a.settings.HideProjectColors != hide {
+					a.settings.HideProjectColors = hide
+					a.saveSettings()
+				}
+			})
+		},
 		SetKeymap: func(value shortcuts.Overrides) {
 			value = shortcuts.Normalize(value)
 			a.post(func(a *App) {
@@ -298,7 +306,8 @@ func (a *App) openSettingsPage(surface string, page settingsPage) {
 			Language: a.settings.Language, Theme: string(a.settings.Theme), MarketplaceWidth: a.settings.MarketplaceWidth,
 			EditorTabRows: a.settings.EditorTabRows, EditorTabOverflow: a.settings.EditorTabOverflow,
 			TerminalShell: a.settings.TerminalShell, TerminalScrollback: a.terminalScrollback(),
-			HideGitGutter: a.settings.HideGitGutter, InlineGitBlame: a.settings.InlineGitBlame,
+			HideProjectColors: a.settings.HideProjectColors,
+			HideGitGutter:     a.settings.HideGitGutter, InlineGitBlame: a.settings.InlineGitBlame,
 			DisableSemanticHighlight: a.settings.DisableSemanticHighlight,
 			ProcessTermination:       a.settings.ProcessTermination,
 			SteppingFilters:          maps.Clone(a.settings.DebugSteppingFilters),

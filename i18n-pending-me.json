@@ -655,5 +655,17 @@
     "parameters": {
       "reason": "string"
     }
+  },
+  {
+    "id": "desktop.settings.projectColors",
+    "description": "General settings, Workbench card switch",
+    "en-US": "Differentiate projects with color",
+    "zh-CN": "用颜色区分项目"
+  },
+  {
+    "id": "desktop.settings.projectColorsHelp",
+    "description": "General settings, Workbench card help",
+    "en-US": "Tints the title bar and the space around the panels with the project's color, the same color as its badge.",
+    "zh-CN": "用项目颜色为标题栏和面板之间的区域着色，与项目头像颜色一致。"
   }
 ]

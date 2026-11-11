@@ -71,6 +71,9 @@ type Values struct {
 	// InlineGitBlame shows the blame of the caret line after its text, and is off by default.
 	HideGitGutter  bool
 	InlineGitBlame bool
+	// HideProjectColors leaves the open project's color out of the workbench's chrome,
+	// which shows it by default.
+	HideProjectColors bool
 	// DisableSemanticHighlight keeps the syntax colors alone; semantic coloring is on by default.
 	DisableSemanticHighlight bool
 	// ProcessTermination is the Process Termination page's part of Core's termination
@@ -230,6 +233,9 @@ type Options struct {
 	SetProcessTermination func(ProcessTermination)
 	// SetKeymap hands a change of Values.Keymap to the settings owner, like SetTabRows.
 	SetKeymap func(shortcuts.Overrides)
+	// SetHideProjectColors hands a change of Values.HideProjectColors to the settings
+	// owner, like SetHideGitGutter.
+	SetHideProjectColors func(bool)
 	// SteppingAdapters lists the installed debug adapters that take stepping filters, for
 	// the Build page; NormalizeSteppingFilters has Core check and tidy a policy before it
 	// is stored. Both run off the window thread. SetSteppingFilters hands a change to the
