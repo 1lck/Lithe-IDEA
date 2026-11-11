@@ -59,7 +59,7 @@ type DebugMessages struct {
 	ConnectFailed func(endpoint string) string
 	// Threads names the thread selector and ThreadFallback words a thread without a name.
 	Threads        string
-	ThreadFallback func(id int64) string
+	ThreadFallback func(id int) string
 	// Watches, WatchPlaceholder, AddWatch, RemoveWatch and EvaluateFailed are the watch editor.
 	Watches          string
 	WatchPlaceholder string
@@ -126,8 +126,8 @@ func debugMessages(language Language) DebugMessages {
 			return SharedFormat(language, "desktop.debug.connectFailed", map[string]string{"endpoint": endpoint})
 		},
 		Threads: Shared(language, "desktop.debug.threads"),
-		ThreadFallback: func(id int64) string {
-			return SharedFormat(language, "desktop.debug.threadFallback", map[string]string{"id": strconv.FormatInt(id, 10)})
+		ThreadFallback: func(id int) string {
+			return SharedFormat(language, "desktop.debug.threadFallback", map[string]string{"id": strconv.Itoa(id)})
 		},
 		Watches:          Shared(language, "desktop.debug.watches"),
 		WatchPlaceholder: Shared(language, "desktop.debug.watchPlaceholder"),

@@ -112,7 +112,7 @@ func (a *App) debugThreadPicker(c ui.C, p *project) {
 		if ui.Select(c.Key("debugThread"), &selected, indexes, func(index int) string {
 			name := d.threads[index].Name
 			if name == "" {
-				name = t.ThreadFallback(d.threads[index].ID)
+				name = t.ThreadFallback(int(d.threads[index].ID))
 			}
 			return name
 		}).Label(t.Threads).Width(240).Height(24); selected != threadIndexOf(d.threads, d.selectedThread) {
