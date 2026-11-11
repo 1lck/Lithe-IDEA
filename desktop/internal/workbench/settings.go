@@ -263,6 +263,7 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			l := a.agentContextLimitsFor(id)
 			return settingswindow.AgentContextLimit{WindowTokens: l.WindowTokens, AutoCompactTokens: l.AutoCompactTokens}
 		},
+		AgentReportedContext: a.agentReportedContextFor,
 		SetAgentContextLimits: func(id string, l settingswindow.AgentContextLimit) {
 			a.post(func(a *App) {
 				a.setAgentContextLimits(id, agentContextLimit{WindowTokens: l.WindowTokens, AutoCompactTokens: l.AutoCompactTokens})

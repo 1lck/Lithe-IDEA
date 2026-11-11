@@ -659,5 +659,38 @@
     "description": "Provider picker choice: the local Claude configuration (brand name).",
     "en-US": "Claude",
     "zh-CN": "Claude"
+  },
+  {
+    "id": "desktop.settings.agent.limits.notReported",
+    "description": "Placeholder of the context window field when the Agent has not reported its context length.",
+    "en-US": "Not reported yet",
+    "zh-CN": "暂未上报"
+  },
+  {
+    "id": "desktop.settings.agent.limits.reported",
+    "description": "Placeholder of the context window field: the context length the Agent reported for itself.",
+    "en-US": "Agent default: {tokens}",
+    "zh-CN": "Agent 默认：{tokens}",
+    "parameters": {
+      "tokens": "string"
+    }
+  },
+  {
+    "id": "desktop.settings.agent.limits.defaultHint",
+    "description": "Placeholder of the auto-compact threshold field when it is empty and the Agent default applies.",
+    "en-US": "Agent default",
+    "zh-CN": "Agent 默认"
+  },
+  {
+    "id": "desktop.settings.agent.limits.range",
+    "description": "Error under the context limit fields when a value is not 10K to 10M tokens.",
+    "en-US": "Enter 10K to 10M tokens, such as 200K or 1M, or leave the field empty.",
+    "zh-CN": "请输入 10K 到 10M 词元，例如 200K 或 1M，或留空。"
+  },
+  {
+    "id": "desktop.settings.agent.limits.compactOverWindow",
+    "description": "Error under the context limit fields when the auto-compact threshold is larger than the context window.",
+    "en-US": "The auto-compact threshold cannot be larger than the context window.",
+    "zh-CN": "自动压缩阈值不能大于上下文长度。"
   }
 ]

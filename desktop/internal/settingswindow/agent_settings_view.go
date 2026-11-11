@@ -68,15 +68,22 @@ func (w *window) agentsPage(c ui.C) {
 		w.card(c, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.limits.title"), i18n.Shared(w.marketLanguage(), "desktop.settings.agent.limits.help"), func() {
 			ui.Column(c).FillWidth().Gap(8).Children(func() {
 				window, compact := d.window, d.compact
-				ui.TextField(c.Key("window"), &window, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.limits.window"), "").FillWidth()
-				ui.TextField(c.Key("compact"), &compact, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.limits.compact"), "").FillWidth()
+				language := w.marketLanguage()
+				windowHint := i18n.Shared(language, "desktop.settings.agent.limits.notReported")
+				if s.reportedContext != nil {
+					if reported := s.reportedContext(s.agentID()); reported > 0 {
+						windowHint = i18n.SharedFormat(language, "desktop.settings.agent.limits.reported", map[string]string{"tokens": formatLimit(reported)})
+					}
+				}
+				ui.TextField(c.Key("window"), &window, i18n.Shared(language, "desktop.settings.agent.limits.window"), windowHint).FillWidth()
+				ui.TextField(c.Key("compact"), &compact, i18n.Shared(language, "desktop.settings.agent.limits.compact"), i18n.Shared(language, "desktop.settings.agent.limits.defaultHint")).FillWidth()
 				if window != d.window || compact != d.compact {
 					s.mu.Lock()
 					s.limitDraft.window, s.limitDraft.compact, s.limitDraft.saved = window, compact, false
 					s.mu.Unlock()
 				}
 				if d.invalid {
-					ui.Text(c, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.limits.invalid")).FontSize(12).Color(w.pal.danger)
+					ui.Text(c, i18n.Shared(w.marketLanguage(), d.invalidReason)).FontSize(12).Color(w.pal.danger)
 				}
 				if d.saved {
 					ui.Text(c, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.limits.saved")).FontSize(12).Color(w.pal.muted)
