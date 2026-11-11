@@ -20,6 +20,10 @@ github.com/vivaui/viva v0.5.2-0.20261110070358-339e1333c3b2 h1:yxtNuFQ/XqZsj5B1K
 github.com/vivaui/viva v0.5.2-0.20261110070358-339e1333c3b2/go.mod h1:iXOoCNuLlzKuz3cLna2y5bgXAFY8eLJSld6narLbpk4=
 github.com/vivaui/viva v0.5.2-0.20261110112637-189ed59da047 h1:zE+nWy4eoUp7N4KV+++BQQ/K7HqOmjOjLBk+2UeJH+g=
 github.com/vivaui/viva v0.5.2-0.20261110112637-189ed59da047/go.mod h1:iXOoCNuLlzKuz3cLna2y5bgXAFY8eLJSld6narLbpk4=
+github.com/vivaui/viva v0.5.2-0.20261111045247-e1dd67099771 h1:AxzidMgRIq2FQj7to7MSv+/zEQRsEnm9zWa+ozV8P6s=
+github.com/vivaui/viva v0.5.2-0.20261111045247-e1dd67099771/go.mod h1:iXOoCNuLlzKuz3cLna2y5bgXAFY8eLJSld6narLbpk4=
+github.com/vivaui/viva v0.5.2-0.20261111060121-b680a1cfe3a3 h1:y+Lfd5lDSrAx77UB2WIhKQlfa5lgmbv6S/pQxqfRGpY=
+github.com/vivaui/viva v0.5.2-0.20261111060121-b680a1cfe3a3/go.mod h1:iXOoCNuLlzKuz3cLna2y5bgXAFY8eLJSld6narLbpk4=
 github.com/zalando/go-keyring v0.2.8 h1:6sD/Ucpl7jNq10rM2pgqTs0sZ9V3qMrqfIIy5YPccHs=
 github.com/zalando/go-keyring v0.2.8/go.mod h1:tsMo+VpRq5NGyKfxoBVjCuMrG47yj8cmakZDO5QGii0=
 golang.org/x/sys v0.49.0 h1:XbzkgYJHdqh/8m2Uu0W/dQv8nktxx4BFHp1M0gROTXA=
