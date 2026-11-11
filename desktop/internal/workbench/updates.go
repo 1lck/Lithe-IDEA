@@ -138,7 +138,7 @@ func (a *App) checkForUpdates(manual bool) {
 			a.settings.UpdatesCheckedAt = time.Now()
 			a.saveSettings()
 			if feed != nil && !manual {
-				a.notify(a.text.Updates.Available(feed.Latest.Version))
+				a.notifyInfo(a.text.Updates.Available(feed.Latest.Version))
 			}
 		})
 	}()

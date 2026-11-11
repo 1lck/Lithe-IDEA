@@ -102,7 +102,7 @@ func (a *App) openTerminalLink(target string) {
 	}
 	a.post(func(a *App) {
 		if err := openURL(target); err != nil {
-			a.notify(a.text.Terminal.OpenLinkFailed(err.Error()))
+			a.notifyError(a.text.Terminal.OpenLinkFailed(err.Error()))
 		}
 		a.performed("terminal.link.open", surfaceButton)
 	})

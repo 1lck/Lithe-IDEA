@@ -22,6 +22,6 @@ func (a *App) openWorktreeInNewWindow(path string) {
 		}
 	}
 	if err != nil {
-		a.notify(i18n.SharedFormat(a.language(), "desktop.worktree.openNewWindowFailed", map[string]string{"reason": treeErrorReason(err)}))
+		a.notifyError(i18n.SharedFormat(a.language(), "desktop.worktree.openNewWindowFailed", map[string]string{"reason": treeErrorReason(err)}))
 	}
 }

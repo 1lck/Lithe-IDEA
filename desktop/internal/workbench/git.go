@@ -30,7 +30,7 @@ func (a *App) loadGit(p *project) {
 		return func(a *App) {
 			a.setGit(p, gitState{loaded: true, status: status, err: err})
 			if err != nil {
-				a.notify(a.text.Git.Failed(err.Error()))
+				a.notifyError(a.text.Git.Failed(err.Error()))
 				return
 			}
 			// The markers and the inline blame describe the file against the index and

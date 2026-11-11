@@ -454,7 +454,7 @@ func (a *App) loadChrome() {
 	var saved core.ChromeLayout
 	found, err := a.store.Load(layoutFile, &saved)
 	if err != nil {
-		a.notify(a.text.Errors.Core(err.Error()))
+		a.notifyError(a.text.Errors.Core(err.Error()))
 		saved, found = core.ChromeLayout{}, false
 	}
 	a.chrome.saved = saved
@@ -468,7 +468,7 @@ func (a *App) loadChrome() {
 	defer cancel()
 	layout, _, err := a.kernel.ReduceChromeLayout(ctx, a.chrome.coreItems, saved, action)
 	if err != nil {
-		a.notify(a.text.Errors.Core(err.Error()))
+		a.notifyError(a.text.Errors.Core(err.Error()))
 		return
 	}
 	a.chrome.apply(layout)
@@ -481,7 +481,7 @@ func (a *App) reduceChrome(action core.ChromeAction) {
 	defer cancel()
 	layout, changed, err := a.kernel.ReduceChromeLayout(ctx, a.chrome.coreItems, a.chrome.layout, action)
 	if err != nil {
-		a.notify(a.text.Errors.Core(err.Error()))
+		a.notifyError(a.text.Errors.Core(err.Error()))
 		return
 	}
 	a.chrome.apply(layout)
@@ -498,7 +498,7 @@ func (a *App) reduceChrome(action core.ChromeAction) {
 	}
 	saved := a.chrome.withAbsent(layout)
 	if err := a.store.Save(layoutFile, saved); err != nil {
-		a.notify(a.text.Errors.SaveFailed(err.Error()))
+		a.notifyError(a.text.Errors.SaveFailed(err.Error()))
 		return
 	}
 	a.chrome.saved = saved

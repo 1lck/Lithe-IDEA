@@ -185,7 +185,7 @@ func (a *App) controlRebaseWith(p *project, action, message string) {
 			r := &p.rebase
 			r.busy = false
 			if err != nil {
-				a.notify(i18n.SharedFormat(a.language(), "desktop.rebase.controlFailed", map[string]string{"reason": reviewReason(err)}))
+				a.notifyError(i18n.SharedFormat(a.language(), "desktop.rebase.controlFailed", map[string]string{"reason": reviewReason(err)}))
 				a.gitOperationFailed("git_rebase_control", err)
 				a.loadRebaseSession(p)
 				return
@@ -221,7 +221,7 @@ func (a *App) afterRebaseWrite(p *project) {
 		a.loadLog(p)
 	}
 	if p.rebase.session != nil {
-		a.notify(i18n.SharedFormat(a.language(), "desktop.rebase.status", map[string]string{"status": p.rebase.session.Status}))
+		a.notifyInfo(i18n.SharedFormat(a.language(), "desktop.rebase.status", map[string]string{"status": p.rebase.session.Status}))
 	}
 }
 

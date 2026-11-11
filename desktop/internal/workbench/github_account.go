@@ -233,7 +233,7 @@ func (a *App) signOutGitHub() {
 		err := credentials.Default().Delete(ctx, githubCredentialPlugin, githubCredentialKey)
 		return func(a *App) {
 			if err != nil {
-				a.notify(i18n.SharedFormat(a.language(), "desktop.github.signOutFailed", map[string]string{"reason": err.Error()}))
+				a.notifyError(i18n.SharedFormat(a.language(), "desktop.github.signOutFailed", map[string]string{"reason": err.Error()}))
 			}
 		}
 	})

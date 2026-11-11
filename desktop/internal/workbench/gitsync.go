@@ -164,12 +164,12 @@ func (a *App) runSync(p *project, operation, label string, failed func(reason st
 					done(a)
 				}
 			case errors.Is(err, context.Canceled):
-				a.notify(a.text.Sync.Cancelled)
+				a.notifyInfo(a.text.Sync.Cancelled)
 			case core.IsAuthenticationFailure(err):
-				a.notify(a.text.Sync.AuthFailed(syncReason(err)))
+				a.notifyError(a.text.Sync.AuthFailed(syncReason(err)))
 				a.gitOperationFailed(operation, err)
 			default:
-				a.notify(failed(syncReason(err)))
+				a.notifyError(failed(syncReason(err)))
 				a.gitOperationFailed(operation, err)
 			}
 		}
@@ -197,7 +197,7 @@ func (a *App) fetchAll(p *project) {
 	a.performed("git.fetch", surfaceMenu)
 	a.runSync(p, "git_fetch", a.text.Sync.Fetching(), a.text.Sync.FetchFailed,
 		func(ctx context.Context, kernel Kernel, root string) (func(*App), error) {
-			return func(a *App) { a.notify(a.text.Sync.Fetched) }, kernel.GitFetch(ctx, root, nil)
+			return func(a *App) { a.notifySuccess(a.text.Sync.Fetched) }, kernel.GitFetch(ctx, root, nil)
 		})
 }
 
@@ -269,7 +269,7 @@ func (a *App) submitFetchOptions(p *project) {
 	a.performed("git.fetch.options", surfaceButton)
 	a.runSync(p, "git_fetch", a.text.Sync.Fetching(), a.text.Sync.FetchFailed,
 		func(ctx context.Context, kernel Kernel, root string) (func(*App), error) {
-			return func(a *App) { a.notify(a.text.Sync.Fetched) }, kernel.GitFetch(ctx, root, &options)
+			return func(a *App) { a.notifySuccess(a.text.Sync.Fetched) }, kernel.GitFetch(ctx, root, &options)
 		})
 }
 
@@ -293,9 +293,9 @@ func (a *App) updateCurrentBranch(p *project) {
 			}
 			switch {
 			case pre.Upstream == "":
-				return func(a *App) { a.notify(a.text.Sync.NoUpstream(branch)) }, nil
+				return func(a *App) { a.notifyInfo(a.text.Sync.NoUpstream(branch)) }, nil
 			case pre.IsUpToDate():
-				return func(a *App) { a.notify(a.text.Sync.UpToDate(branch)) }, nil
+				return func(a *App) { a.notifyInfo(a.text.Sync.UpToDate(branch)) }, nil
 			case pre.Diverged && pre.ConfiguredStrategy == "":
 				return func(a *App) {
 					s := &p.log.sync
@@ -306,7 +306,7 @@ func (a *App) updateCurrentBranch(p *project) {
 			if strategy == "" {
 				strategy = core.GitPullFastForward
 			}
-			return func(a *App) { a.notify(a.text.Sync.Updated(branch)) }, kernel.GitPull(ctx, root, strategy)
+			return func(a *App) { a.notifySuccess(a.text.Sync.Updated(branch)) }, kernel.GitPull(ctx, root, strategy)
 		})
 }
 
@@ -329,7 +329,7 @@ func (a *App) updateBranch(p *project, r core.GitReference) {
 	}
 	branch := r.ShortName
 	if r.UpstreamShortName == "" {
-		a.notify(a.text.Sync.NoUpstream(branch))
+		a.notifyInfo(a.text.Sync.NoUpstream(branch))
 		return
 	}
 	a.performed("git.updateBranch", surfaceButton)
@@ -339,7 +339,7 @@ func (a *App) updateBranch(p *project, r core.GitReference) {
 			if err := kernel.GitFetch(ctx, root, nil); err != nil {
 				return nil, err
 			}
-			return func(a *App) { a.notify(a.text.Sync.Updated(branch)) }, updater.GitUpdateBranch(ctx, root, r)
+			return func(a *App) { a.notifySuccess(a.text.Sync.Updated(branch)) }, updater.GitUpdateBranch(ctx, root, r)
 		})
 }
 
@@ -354,9 +354,9 @@ func (a *App) resolveDiverged(p *project, strategy core.GitPullStrategy) {
 		func(ctx context.Context, kernel Kernel, root string) (func(*App), error) {
 			done := func(a *App) {
 				if strategy == core.GitPullRebase {
-					a.notify(a.text.Sync.Rebased(branch))
+					a.notifySuccess(a.text.Sync.Rebased(branch))
 				} else {
-					a.notify(a.text.Sync.Merged(branch))
+					a.notifySuccess(a.text.Sync.Merged(branch))
 				}
 			}
 			return done, kernel.GitPull(ctx, root, strategy)

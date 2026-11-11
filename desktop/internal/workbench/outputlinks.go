@@ -233,7 +233,7 @@ func (a *App) openOutputLink(p *project, link core.OutputLink) {
 		a.background(p, outputLinkTimeout, func(ctx context.Context) func(*App) {
 			path := firstExistingFile(location.Paths)
 			if path == "" {
-				return func(a *App) { a.notify(messages.LinkMissing) }
+				return func(a *App) { a.notifyError(messages.LinkMissing) }
 			}
 			return func(a *App) { a.openFileAtPosition(p, path, zeroBased(location.Line), zeroBased(location.Column)) }
 		})
@@ -244,15 +244,15 @@ func (a *App) openOutputLink(p *project, link core.OutputLink) {
 			if err != nil {
 				return func(a *App) {
 					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("output_link_resolve", err))
-					a.notify(messages.LinkUnresolved)
+					a.notifyError(messages.LinkUnresolved)
 				}
 			}
 			if location == nil {
-				return func(a *App) { a.notify(messages.LinkUnresolved) }
+				return func(a *App) { a.notifyError(messages.LinkUnresolved) }
 			}
 			path := firstExistingFile([]string{location.Path})
 			if path == "" {
-				return func(a *App) { a.notify(messages.LinkMissing) }
+				return func(a *App) { a.notifyError(messages.LinkMissing) }
 			}
 			return func(a *App) { a.openFileAtPosition(p, path, zeroBased(location.Line), zeroBased(location.Column)) }
 		})

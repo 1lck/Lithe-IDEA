@@ -182,7 +182,7 @@ func (a *App) reopenWithEncoding(p *project, d *document, encoding string) {
 		return func(a *App) {
 			if err != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_encoding_reopen", err))
-				a.notify(i18n.Shared(a.language(), "desktop.encoding.reopenFailed"))
+				a.notifyError(i18n.Shared(a.language(), "desktop.encoding.reopenFailed"))
 				return
 			}
 			if p.docs.find(d.id) != d || d.view.Revision() != revision || d.dirty() || d.saving {
@@ -195,7 +195,7 @@ func (a *App) reopenWithEncoding(p *project, d *document, encoding string) {
 			d.savedRevision = d.view.Revision()
 			a.clearDocumentConflict(d)
 			if lossy {
-				a.notify(i18n.Shared(a.language(), "desktop.encoding.reopenLossy"))
+				a.notifyError(i18n.Shared(a.language(), "desktop.encoding.reopenLossy"))
 			}
 		}
 	})

@@ -106,7 +106,7 @@ func (a *App) runTests(p *project) {
 	}
 	instance := p.testInstance()
 	if instance == nil {
-		a.notify(a.text.Tests.NoSystems)
+		a.notifyInfo(a.text.Tests.NoSystems)
 		return
 	}
 	p.tests.generation++

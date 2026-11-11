@@ -86,7 +86,7 @@ func (a *App) setPluginTools(windows []pluginservice.ToolWindow) {
 	defer cancel()
 	layout, _, err := a.kernel.ReduceChromeLayout(ctx, a.chrome.coreItems, restated, core.NormalizeChrome())
 	if err != nil {
-		a.notify(a.text.Errors.Core(err.Error()))
+		a.notifyError(a.text.Errors.Core(err.Error()))
 		layout = a.chrome.layout
 	}
 	a.chrome.apply(layout)

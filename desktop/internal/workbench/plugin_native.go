@@ -384,7 +384,7 @@ func (a *App) runNativeAction(p *project, tool *pluginservice.ToolWindow, state 
 			state.busy = false
 			if err != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_native_action", err))
-				a.notify(i18n.Shared(a.language(), "desktop.nativePanel.failed"))
+				a.notifyError(i18n.Shared(a.language(), "desktop.nativePanel.failed"))
 				return
 			}
 			state.message = message

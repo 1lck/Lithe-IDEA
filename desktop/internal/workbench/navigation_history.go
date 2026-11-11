@@ -94,7 +94,7 @@ func (a *App) stepNavigation(p *project, forward bool) {
 	}
 	// A destination that no longer exists keeps the history as it was, so the entry is not lost.
 	if _, err := os.Stat(destination.Document); err != nil {
-		a.notify(i18n.Shared(a.language(), "desktop.navigation.historyUnavailable"))
+		a.notifyError(i18n.Shared(a.language(), "desktop.navigation.historyUnavailable"))
 		return
 	}
 	s.history = next

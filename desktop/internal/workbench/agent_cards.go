@@ -241,7 +241,7 @@ func (a *App) agentCardRow(c ui.C, p *project, index int, tool *agentToolCall) {
 					address := card.URL
 					c.After(func() {
 						if err := openURL(address); err != nil {
-							a.notify(t.OpenPullRequestFailed(err.Error()))
+							a.notifyError(t.OpenPullRequestFailed(err.Error()))
 						}
 					})
 				}

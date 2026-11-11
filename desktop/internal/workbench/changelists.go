@@ -437,7 +437,7 @@ func (a *App) changeListAction(p *project, operation string, action core.ChangeL
 
 // changeListFailed tells the user that a list action failed and logs it.
 func (a *App) changeListFailed(err error) {
-	a.notify(a.text.Commit.Failed(err.Error()))
+	a.notifyError(a.text.Commit.Failed(err.Error()))
 	a.gitOperationFailed("git_changelists", err)
 }
 

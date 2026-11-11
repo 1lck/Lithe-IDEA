@@ -103,7 +103,7 @@ func (a *App) setNetwork(next settingswindow.NetworkSettings, password *string) 
 		}
 		a.post(func(a *App) {
 			if err != nil {
-				a.notify(a.text.Errors.SaveFailed(err.Error()))
+				a.notifyError(a.text.Errors.SaveFailed(err.Error()))
 			}
 			a.applyNetwork()
 		})

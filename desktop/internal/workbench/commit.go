@@ -367,9 +367,9 @@ func (a *App) runCommit(p *project, t commitTarget, session core.WorkspaceCommit
 func (a *App) commitFinished(c *commitState, session core.WorkspaceCommitSession) {
 	switch {
 	case session.Succeeded && session.Push:
-		a.notify(a.text.Commit.Pushed)
+		a.notifySuccess(a.text.Commit.Pushed)
 	case session.Succeeded:
-		a.notify(a.text.Commit.Done)
+		a.notifySuccess(a.text.Commit.Done)
 	default:
 		a.notify(a.text.Commit.NeedsAttention)
 		a.gitOperationFailed("git_commit", incompleteRun(session))
@@ -408,9 +408,9 @@ func (a *App) dismissResults(c *commitState) { c.attempt = nil }
 func (a *App) commitFailed(err error) {
 	var e *core.Error
 	if errors.As(err, &e) && e.Code == core.CodeGitCommitAuthorInvalid {
-		a.notify(a.text.Commit.AuthorInvalid)
+		a.notifyError(a.text.Commit.AuthorInvalid)
 	} else {
-		a.notify(a.text.Commit.Failed(err.Error()))
+		a.notifyError(a.text.Commit.Failed(err.Error()))
 	}
 	a.gitOperationFailed("git_commit", err)
 }
@@ -573,11 +573,11 @@ func (a *App) stagingDone(p *project, stage bool, err error) {
 // stagingFailed tells the user that staging or unstaging failed and logs it.
 func (a *App) stagingFailed(stage bool, err error) {
 	if stage {
-		a.notify(a.text.Commit.StageFailed(err.Error()))
+		a.notifyError(a.text.Commit.StageFailed(err.Error()))
 		a.gitOperationFailed("git_stage", err)
 		return
 	}
-	a.notify(a.text.Commit.UnstageFailed(err.Error()))
+	a.notifyError(a.text.Commit.UnstageFailed(err.Error()))
 	a.gitOperationFailed("git_unstage", err)
 }
 

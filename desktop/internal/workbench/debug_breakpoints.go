@@ -279,7 +279,7 @@ func (a *App) requestDataBreakpoint(p *project, name string, variablesReference 
 		return a.kernel.DebugDataBreakpointInfo(ctx, session.id, operationID, name, variablesReference)
 	}, debugOperationHandlers{done: func(a *App, result core.DebugOperationResult) {
 		if result.Kind != "dataBreakpointInfo" || result.DataID == "" {
-			a.notify(a.text.Debug.Breakpoint.DataUnavailable)
+			a.notifyError(a.text.Debug.Breakpoint.DataUnavailable)
 			return
 		}
 		a.addDataBreakpoint(p, result)

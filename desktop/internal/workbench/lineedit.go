@@ -115,7 +115,7 @@ func (a *App) runLineOperation(p *project, d *document, op core.LineEditOperatio
 				return func(a *App) { a.lineEditFailed(err) }
 			}
 			if token == nil {
-				return func(a *App) { a.notify(i18n.Shared(a.language(), "desktop.editor.noLineComment")) }
+				return func(a *App) { a.notifyInfo(i18n.Shared(a.language(), "desktop.editor.noLineComment")) }
 			}
 			request.CommentToken = token
 		}
@@ -140,7 +140,7 @@ func (a *App) runLineOperation(p *project, d *document, op core.LineEditOperatio
 
 func (a *App) lineEditFailed(err error) {
 	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_line_edit", err))
-	a.notify(i18n.Shared(a.language(), "desktop.editor.lineEditFailed"))
+	a.notifyError(i18n.Shared(a.language(), "desktop.editor.lineEditFailed"))
 }
 
 // primaryModifier is the modifier of the platform's primary chords: Command on a Mac,

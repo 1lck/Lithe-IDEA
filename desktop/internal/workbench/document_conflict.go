@@ -168,5 +168,5 @@ func (a *App) conflictResolutionFailed(d *document, err error) {
 		err = errors.New("unexpected document conflict lifecycle action")
 	}
 	a.emit(documentFailedLevel, documentEventOpenFailed, documentOpenFields(err))
-	a.notify(d.name + ": " + i18n.Shared(a.language(), "desktop.document.externalReadFailed"))
+	a.notifyError(d.name + ": " + i18n.Shared(a.language(), "desktop.document.externalReadFailed"))
 }

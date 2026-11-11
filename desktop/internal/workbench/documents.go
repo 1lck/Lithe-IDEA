@@ -252,7 +252,7 @@ func (a *App) openFile(p *project, path string) {
 			}
 			if err != nil {
 				a.emit(documentFailedLevel, documentEventOpenFailed, documentOpenFields(err))
-				a.notify(a.text.Editor.OpenFailed(name, a.documentReason(err)))
+				a.notifyError(a.text.Editor.OpenFailed(name, a.documentReason(err)))
 				return
 			}
 			a.placeDocument(p, path, name, content, grammar, languageID)
@@ -666,7 +666,7 @@ func (a *App) saveFailed(id, revision int, name string, err error) {
 	case errors.Is(err, documentio.ErrSymbolicLink):
 		reason = i18n.Shared(a.language(), "document.fileAccess.openTheTargetFileDirectlySymbolicLinkEditingIsNotSupportedByThisFileAdapter")
 	}
-	a.notify(a.text.Editor.SaveFailed(name, reason))
+	a.notifyError(a.text.Editor.SaveFailed(name, reason))
 }
 
 // documentSaveFields are the fields of editor.document.save_failed for document id, whose
@@ -741,7 +741,7 @@ func (a *App) saveProjectPass(p *project, verified map[int]int, done func(bool))
 	cancel()
 	if err != nil {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("document_save_batch", err))
-		a.notify(a.text.Errors.Core(err.Error()))
+		a.notifyError(a.text.Errors.Core(err.Error()))
 		done(false)
 		return
 	}
@@ -766,7 +766,7 @@ func (a *App) saveProjectPass(p *project, verified map[int]int, done func(bool))
 			cancel()
 			if err != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("document_save_batch", err))
-				a.notify(a.text.Errors.Core(err.Error()))
+				a.notifyError(a.text.Errors.Core(err.Error()))
 				done(false)
 				return
 			}

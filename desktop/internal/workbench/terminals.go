@@ -315,7 +315,7 @@ func (a *App) reduceTerminals(p *project, state core.EditorWorkbench, action cor
 	defer cancel()
 	next, removed, err := a.kernel.ReduceEditorWorkbench(ctx, state, action)
 	if err != nil {
-		a.notify(a.text.Errors.Core(err.Error()))
+		a.notifyError(a.text.Errors.Core(err.Error()))
 		return false
 	}
 	set := &p.terms

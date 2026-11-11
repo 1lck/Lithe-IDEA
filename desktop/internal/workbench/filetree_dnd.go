@@ -82,13 +82,13 @@ func (a *App) moveTreeItem(p *project, rel, dir string) {
 		return
 	}
 	if err := wslpath.CheckMove(oldFull, newFull); err != nil {
-		a.notify(err.Error())
+		a.notifyError(err.Error())
 		return
 	}
 	docs := a.documentsUnder(p, oldFull)
 	a.saveDocumentsThen(p, docs, func() {
 		if err := os.Rename(oldFull, newFull); err != nil {
-			a.notify(i18n.SharedFormat(language, "desktop.files.moveFailed", map[string]string{"reason": treeErrorReason(err)}))
+			a.notifyError(i18n.SharedFormat(language, "desktop.files.moveFailed", map[string]string{"reason": treeErrorReason(err)}))
 			return
 		}
 		a.moveOpenDocuments(p, oldFull, newFull)
@@ -153,7 +153,7 @@ func (a *App) treePaste(p *project, n *treeNode) {
 		p.tree.clip = treeClipboard{}
 	}
 	if failed != nil {
-		a.notify(i18n.SharedFormat(language, "desktop.files.pasteFailed", map[string]string{"reason": treeErrorReason(failed)}))
+		a.notifyError(i18n.SharedFormat(language, "desktop.files.pasteFailed", map[string]string{"reason": treeErrorReason(failed)}))
 	}
 	a.performed("workspace.file.paste", surfaceMenu)
 	a.listTree(p, dir)

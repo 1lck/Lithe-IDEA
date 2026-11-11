@@ -48,15 +48,15 @@ func (a *App) compareReferences(p *project, base core.GitReference, target *core
 			lang := a.language()
 			if err != nil {
 				if target == nil {
-					a.notify(i18n.SharedFormat(lang, "git.log.workingTreeComparisonFailed", map[string]string{"branch": base.ShortName, "error": reviewReason(err)}))
+					a.notifyError(i18n.SharedFormat(lang, "git.log.workingTreeComparisonFailed", map[string]string{"branch": base.ShortName, "error": reviewReason(err)}))
 				} else {
-					a.notify(i18n.SharedFormat(lang, "git.diff.compareRefsFailed", map[string]string{"base": base.ShortName, "target": target.ShortName, "error": reviewReason(err)}))
+					a.notifyError(i18n.SharedFormat(lang, "git.diff.compareRefsFailed", map[string]string{"base": base.ShortName, "target": target.ShortName, "error": reviewReason(err)}))
 				}
 				a.gitOperationFailed("git_comparison", err)
 				return
 			}
 			if len(files) == 0 {
-				a.notify(i18n.Shared(lang, "git.diff.noDifferences"))
+				a.notifyInfo(i18n.Shared(lang, "git.diff.noDifferences"))
 				return
 			}
 			a.openComparisonDiff(p, root, &diffComparison{base: base, target: target}, files)

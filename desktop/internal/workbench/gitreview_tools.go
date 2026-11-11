@@ -112,7 +112,7 @@ func (a *App) submitPush(p *project) {
 		if err := pusher.GitPush(ctx, root, preview, tags, target, force); err != nil {
 			return nil, err
 		}
-		return func(a *App) { a.notify(i18n.Shared(a.language(), "git.changesPushed")) }, nil
+		return func(a *App) { a.notifySuccess(i18n.Shared(a.language(), "git.changesPushed")) }, nil
 	})
 	// The dialog follows the outcome: it closes on success, and after a rejected or stale push
 	// it reviews the repository as it is now.

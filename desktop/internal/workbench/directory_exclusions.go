@@ -57,7 +57,7 @@ func (a *App) excludeFromSearch(p *project, rel string) {
 		}
 		return func(a *App) {
 			if err != nil {
-				a.notify(i18n.SharedFormat(a.language(), "desktop.files.excludeFailed", map[string]string{"reason": reviewReason(err)}))
+				a.notifyError(i18n.SharedFormat(a.language(), "desktop.files.excludeFailed", map[string]string{"reason": reviewReason(err)}))
 				a.gitOperationFailed("workspace_exclude", err)
 			}
 		}

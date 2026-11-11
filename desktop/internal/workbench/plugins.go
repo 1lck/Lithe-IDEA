@@ -97,7 +97,7 @@ func (a *App) installPlugin(plugin core.MarketplacePlugin) {
 		return
 	}
 	if plugin.Availability.Status != "available" || plugin.Availability.DownloadURL == "" {
-		a.notify(i18n.Shared(a.language(), "desktop.marketplace.installFailed"))
+		a.notifyError(i18n.Shared(a.language(), "desktop.marketplace.installFailed"))
 		return
 	}
 	a.pluginInstall.generation++
@@ -165,7 +165,7 @@ func (a *App) finishPluginInstall(generation uint64, plan plugininstall.Plan, er
 	}
 	a.pluginInstall.busy = false
 	if err != nil {
-		a.notify(i18n.Shared(a.language(), "desktop.marketplace.installFailed"))
+		a.notifyError(i18n.Shared(a.language(), "desktop.marketplace.installFailed"))
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_install", err))
 		return
 	}
@@ -194,7 +194,7 @@ func (a *App) confirmPluginInstall() {
 					// of the same version asks again.
 					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_approval", err))
 				} else {
-					a.notify(i18n.Shared(a.language(), "desktop.marketplace.installFailed"))
+					a.notifyError(i18n.Shared(a.language(), "desktop.marketplace.installFailed"))
 					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_commit", err))
 					// A refused install leaves the extracted package behind; Discard
 					// is a no-op once the rename consumed it.

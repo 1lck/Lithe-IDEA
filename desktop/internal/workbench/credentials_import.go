@@ -75,11 +75,11 @@ func (a *App) importLegacyCredentials() {
 			switch {
 			case err != nil:
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("credentials_import_legacy", err))
-				a.notify(i18n.SharedFormat(lang, "desktop.credentials.importLegacyFailed", map[string]string{"error": err.Error()}))
+				a.notifyError(i18n.SharedFormat(lang, "desktop.credentials.importLegacyFailed", map[string]string{"error": err.Error()}))
 			case result == credentials.ImportResult{}:
-				a.notify(i18n.Shared(lang, "desktop.credentials.importLegacyNone"))
+				a.notifyInfo(i18n.Shared(lang, "desktop.credentials.importLegacyNone"))
 			default:
-				a.notify(i18n.SharedFormat(lang, "desktop.credentials.importLegacyDone", map[string]string{
+				a.notifySuccess(i18n.SharedFormat(lang, "desktop.credentials.importLegacyDone", map[string]string{
 					"imported": strconv.Itoa(result.Imported),
 					"kept":     strconv.Itoa(result.Kept),
 					"failed":   strconv.Itoa(result.Failed),

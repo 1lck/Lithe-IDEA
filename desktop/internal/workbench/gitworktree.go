@@ -758,7 +758,7 @@ func (a *App) runWorktreeWrite(p *project, operation string, removing bool,
 					return
 				}
 				w.dialog = worktreeDialogNone
-				a.notify(worktreeFailureText(&a.text.Worktrees, removing, err))
+				a.notifyError(worktreeFailureText(&a.text.Worktrees, removing, err))
 				a.gitOperationFailed(operation, err)
 				if worktreeErrorCode(err) == core.CodeGitWorktreeNotRegistered {
 					a.loadWorktrees(p)
@@ -820,7 +820,7 @@ func (a *App) removeWorktree(p *project, force bool) {
 		p.worktrees.dialog, p.worktrees.refusal = worktreeDialogReview, e.Message
 		return true
 	}, func(a *App) {
-		a.notify(a.text.Worktrees.Removed(worktreeName(target)))
+		a.notifySuccess(a.text.Worktrees.Removed(worktreeName(target)))
 	})
 }
 
@@ -828,7 +828,7 @@ func (a *App) removeWorktree(p *project, force bool) {
 func (a *App) pruneWorktrees(p *project) {
 	a.runWorktreeWrite(p, "git_worktree_prune", false, func(ctx context.Context, kernel Kernel, root string) error {
 		return kernel.GitPruneWorktrees(ctx, root)
-	}, nil, func(a *App) { a.notify(a.text.Worktrees.Pruned) })
+	}, nil, func(a *App) { a.notifySuccess(a.text.Worktrees.Pruned) })
 }
 
 // repairWorktrees repairs the links between the repository and its worktrees.
@@ -836,7 +836,7 @@ func (a *App) repairWorktrees(p *project) {
 	a.performed("git.worktree.repair", surfaceButton)
 	a.runWorktreeWrite(p, "git_worktree_repair", false, func(ctx context.Context, kernel Kernel, root string) error {
 		return kernel.GitRepairWorktrees(ctx, root)
-	}, nil, func(a *App) { a.notify(a.text.Worktrees.Repaired) })
+	}, nil, func(a *App) { a.notifySuccess(a.text.Worktrees.Repaired) })
 }
 
 // revealWorktree shows the checkout at path in the system's file browser.
@@ -847,7 +847,7 @@ func (a *App) revealWorktree(path string) {
 		return func(a *App) {
 			if err != nil {
 				a.gitOperationFailed("git_worktree_reveal", err)
-				a.notify(a.text.Worktrees.Failed(err.Error()))
+				a.notifyError(a.text.Worktrees.Failed(err.Error()))
 			}
 		}
 	})
@@ -857,7 +857,7 @@ func (a *App) revealWorktree(path string) {
 func (a *App) copyWorktreePath(path string) {
 	a.performed("git.worktree.copyPath", surfaceButton)
 	if err := app.SetClipboardText(path); err != nil {
-		a.notify(a.text.Worktrees.Failed(err.Error()))
+		a.notifyError(a.text.Worktrees.Failed(err.Error()))
 	}
 }
 
@@ -990,7 +990,7 @@ func (a *App) submitCreateWorktree(p *project) {
 	a.runWorktreeWrite(p, "git_worktree_create", false, func(ctx context.Context, kernel Kernel, root string) error {
 		return kernel.GitCreateWorktree(ctx, root, creation)
 	}, nil, func(a *App) {
-		a.notify(a.text.Worktrees.Created(name))
+		a.notifySuccess(a.text.Worktrees.Created(name))
 		// Git lists the checkout by its canonical path, which differs from the typed one under
 		// a symbolic link.
 		selected := creation.Destination

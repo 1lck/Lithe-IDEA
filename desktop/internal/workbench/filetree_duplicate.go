@@ -45,7 +45,7 @@ func (a *App) duplicateTreeItem(p *project, n *treeNode) {
 		}
 	}
 	if err := copyTreeEntry(source, target); err != nil {
-		a.notify(i18n.SharedFormat(language, "desktop.files.duplicateFailed", map[string]string{"reason": treeErrorReason(err)}))
+		a.notifyError(i18n.SharedFormat(language, "desktop.files.duplicateFailed", map[string]string{"reason": treeErrorReason(err)}))
 		return
 	}
 	a.performed("workspace.file.duplicate", surfaceMenu)
@@ -120,7 +120,7 @@ func (a *App) trashTreeItem(p *project, n *treeNode) {
 			}
 		}
 		if err := moveToTrash(full); err != nil {
-			a.notify(i18n.SharedFormat(language, "desktop.files.trashFailed", map[string]string{"reason": treeErrorReason(err)}))
+			a.notifyError(i18n.SharedFormat(language, "desktop.files.trashFailed", map[string]string{"reason": treeErrorReason(err)}))
 			return
 		}
 		a.performed("workspace.file.trash", surfaceMenu)

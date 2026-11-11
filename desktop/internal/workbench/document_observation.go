@@ -133,7 +133,7 @@ func (a *App) drainDocumentWatch(p *project, dir string, slot *documentWatch) {
 		markDirectory()
 		if err != nil {
 			a.emit(core.LevelWarn, "editor.document.watch_failed", map[string]any{"stage": "create"})
-			a.notify(i18n.Shared(a.language(), "desktop.document.watchUnavailable"))
+			a.notifyError(i18n.Shared(a.language(), "desktop.document.watchUnavailable"))
 		}
 	}
 	if watch != nil {
@@ -255,7 +255,7 @@ func (a *App) applyDocumentCheck(p *project, d *document, baseline rope.Rope, co
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		d.checkFailed = true
 		a.emit(documentFailedLevel, documentEventOpenFailed, documentOpenFields(err))
-		a.notify(d.name + ": " + i18n.Shared(a.language(), "desktop.document.externalReadFailed"))
+		a.notifyError(d.name + ": " + i18n.Shared(a.language(), "desktop.document.externalReadFailed"))
 		return
 	}
 	if errors.Is(err, os.ErrNotExist) && d.recreateMissing && !d.conflicted {
@@ -284,7 +284,7 @@ func (a *App) applyDocumentCheck(p *project, d *document, baseline rope.Rope, co
 	if decisionErr != nil {
 		d.checkFailed = true
 		a.emit(documentFailedLevel, documentEventOpenFailed, documentOpenFields(decisionErr))
-		a.notify(d.name + ": " + i18n.Shared(a.language(), "desktop.document.externalReadFailed"))
+		a.notifyError(d.name + ": " + i18n.Shared(a.language(), "desktop.document.externalReadFailed"))
 		return
 	}
 	switch decision.Action {
@@ -306,7 +306,7 @@ func (a *App) applyDocumentCheck(p *project, d *document, baseline rope.Rope, co
 			d.checkFailed = true
 			fields := documentOpenFields(errors.New("document reload was not accepted"))
 			a.emit(documentFailedLevel, documentEventOpenFailed, fields)
-			a.notify(d.name + ": " + i18n.Shared(a.language(), "desktop.document.externalReadFailed"))
+			a.notifyError(d.name + ": " + i18n.Shared(a.language(), "desktop.document.externalReadFailed"))
 		}
 	case core.DocumentShowConflict:
 		d.conflictMissing = errors.Is(err, os.ErrNotExist)
@@ -321,6 +321,6 @@ func (a *App) applyDocumentCheck(p *project, d *document, baseline rope.Rope, co
 		d.checkFailed = true
 		fields := documentOpenFields(errors.New("unexpected document lifecycle action"))
 		a.emit(documentFailedLevel, documentEventOpenFailed, fields)
-		a.notify(d.name + ": " + i18n.Shared(a.language(), "desktop.document.externalReadFailed"))
+		a.notifyError(d.name + ": " + i18n.Shared(a.language(), "desktop.document.externalReadFailed"))
 	}
 }

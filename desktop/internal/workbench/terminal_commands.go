@@ -43,7 +43,7 @@ func (a *App) sendTerminalCommand(t *terminal, command string) bool {
 	}
 	line, path, err := writeCommandScript(kind, command)
 	if err != nil {
-		a.notify(err.Error())
+		a.notifyError(err.Error())
 		return false
 	}
 	t.scripts = append(t.scripts, path)

@@ -235,7 +235,7 @@ func treeParents(nodes []*treeNode) []string {
 func (a *App) finishBatch(p *project, parents []string, performed string, failed int, reason error, failedKey string) {
 	p.tree.marked, p.tree.anchor = nil, ""
 	if failed > 0 && reason != nil {
-		a.notify(i18n.SharedFormat(a.language(), failedKey, map[string]string{"reason": treeErrorReason(reason)}))
+		a.notifyError(i18n.SharedFormat(a.language(), failedKey, map[string]string{"reason": treeErrorReason(reason)}))
 	}
 	a.performed(performed, surfaceMenu)
 	for _, dir := range parents {

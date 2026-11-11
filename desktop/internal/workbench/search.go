@@ -128,7 +128,7 @@ func (a *App) drainProjectSearchWatch(p *project, slot *documentWatch) {
 		s.watchReady, s.watchAvailable, s.fullResync = true, watch != nil, true
 		if err != nil && s.watchAttached {
 			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_search_watch", err))
-			a.notify(i18n.Shared(a.language(), "desktop.search.watchUnavailable"))
+			a.notifyError(i18n.Shared(a.language(), "desktop.search.watchUnavailable"))
 		}
 	}
 	changed := false
@@ -206,7 +206,7 @@ func (a *App) updateProjectSearch(p *project, query searchQuery) {
 		if err != nil {
 			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_search_watch", err))
 		}
-		a.notify(i18n.Shared(a.language(), "desktop.search.watchUnavailable"))
+		a.notifyError(i18n.Shared(a.language(), "desktop.search.watchUnavailable"))
 	}
 	if s.watch == nil {
 		a.startProjectSearchWatch(p)

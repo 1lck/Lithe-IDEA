@@ -740,7 +740,7 @@ func (a *App) closed() {
 // one is painting is not allowed.
 func (a *App) openLogs() {
 	if a.logs == nil {
-		a.notify(a.text.Title.LogsUnavailable)
+		a.notifyError(a.text.Title.LogsUnavailable)
 		return
 	}
 	a.post(func(a *App) {
@@ -748,7 +748,7 @@ func (a *App) openLogs() {
 			return
 		}
 		if err := a.logs.Open(a.application); err != nil {
-			a.notify(a.text.Errors.LogsFailed(err.Error()))
+			a.notifyError(a.text.Errors.LogsFailed(err.Error()))
 		}
 	})
 }
@@ -823,7 +823,7 @@ func (a *App) setTheme(choice themeChoice) {
 func (a *App) saveSettings() {
 	if err := a.store.Save(settingsFile, a.settings); err != nil {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("settings_save", documentLogError(err)))
-		a.notify(a.text.Errors.SaveFailed(err.Error()))
+		a.notifyError(a.text.Errors.SaveFailed(err.Error()))
 	}
 }
 
@@ -853,9 +853,9 @@ func (a *App) activate(index int) {
 			a.runSelectedBuildTask(a.project)
 			return
 		}
-		a.notify(a.text.Title.RunLater)
+		a.notifyInfo(a.text.Title.RunLater)
 	case it.id == itemRunConfig || it.id == itemTitleDebug:
-		a.notify(a.text.Title.RunLater)
+		a.notifyInfo(a.text.Title.RunLater)
 	case it.id == itemTitleSearch:
 		if a.project != nil {
 			a.performed("workspace.searchEverywhere.open", surfaceButton)
@@ -890,7 +890,7 @@ func (a *App) hidePanel(s slot) {
 func (a *App) loadRecent() {
 	var entries []core.RecentProject
 	if _, err := a.store.Load(recentFile, &entries); err != nil {
-		a.notify(a.text.Errors.Core(err.Error()))
+		a.notifyError(a.text.Errors.Core(err.Error()))
 		entries = nil
 	}
 	a.reduceRecent(entries, core.NormalizeRecent(), false)
@@ -904,13 +904,13 @@ func (a *App) reduceRecent(entries []core.RecentProject, action core.RecentActio
 	result, err := a.kernel.ReduceRecentProjects(ctx, entries, action, 0)
 	if err != nil {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_recent_reduce", documentLogError(err)))
-		a.notify(a.text.Errors.Core(err.Error()))
+		a.notifyError(a.text.Errors.Core(err.Error()))
 		return
 	}
 	if save {
 		if err := a.store.Save(recentFile, result.Entries); err != nil {
 			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_recent_save", documentLogError(err)))
-			a.notify(a.text.Errors.SaveFailed(err.Error()))
+			a.notifyError(a.text.Errors.SaveFailed(err.Error()))
 			return
 		}
 	}
@@ -934,7 +934,7 @@ func (a *App) chooseProject(surface string) {
 			switch {
 			case errors.Is(err, app.ErrCanceled):
 			case err != nil:
-				a.notify(a.text.Errors.OpenFailed(err.Error()))
+				a.notifyError(a.text.Errors.OpenFailed(err.Error()))
 			default:
 				a.performed("workspace.open", surface)
 				a.openProject(path)
@@ -949,7 +949,7 @@ func (a *App) openProject(path string) {
 	root, err := filepath.Abs(wslpath.ToNative(path))
 	if err != nil {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_open", documentLogError(err)))
-		a.notify(a.text.Errors.OpenFailed(err.Error()))
+		a.notifyError(a.text.Errors.OpenFailed(err.Error()))
 		return
 	}
 	if info, err := os.Stat(root); err != nil || !info.IsDir() {
@@ -957,7 +957,7 @@ func (a *App) openProject(path string) {
 			err = errors.New("not a directory")
 		}
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_open", documentLogError(err)))
-		a.notify(a.text.Errors.FolderMissing(root))
+		a.notifyError(a.text.Errors.FolderMissing(root))
 		return
 	}
 	a.requestCloseProject(func() {

@@ -78,10 +78,12 @@ func (a *App) welcomeSidebar(c ui.C) {
 			})
 		})
 		ui.Spacer(c)
-		ui.Row(c).PadSides(0, 14, 14, 14).Children(func() {
+		ui.Row(c).PadSides(0, 14, 14, 14).Items(ui.Center).Gap(4).Children(func() {
 			if ui.Button(c, a.text.Welcome.Settings).Icon(icons.Settings).IconOnly().Ghost().Clicked() {
 				c.After(func() { a.openSettings(surfaceButton) })
 			}
+			// The welcome page has no status bar: the notices of a closed project are read here.
+			a.notificationBell(c)
 		})
 	})
 }
@@ -265,7 +267,7 @@ func (a *App) revealRecent(path string) {
 		return func(a *App) {
 			if err != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_reveal_recent", documentLogError(err)))
-				a.notify(a.text.Errors.OpenFailed(err.Error()))
+				a.notifyError(a.text.Errors.OpenFailed(err.Error()))
 			}
 		}
 	})

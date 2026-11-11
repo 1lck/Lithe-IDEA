@@ -171,11 +171,11 @@ func (a *App) applySemanticRename(pending *semanticPending, event core.BackendEv
 	a.closePluginRename()
 	if err != nil {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_rename", err))
-		a.notify(i18n.Shared(a.language(), "desktop.semantics.operationFailed"))
+		a.notifyError(i18n.Shared(a.language(), "desktop.semantics.operationFailed"))
 		return
 	}
 	if len(changes) == 0 {
-		a.notify(i18n.Shared(a.language(), "desktop.semantics.renameNothing"))
+		a.notifyInfo(i18n.Shared(a.language(), "desktop.semantics.renameNothing"))
 		return
 	}
 	a.applyWorkspaceChanges(p, changes)
@@ -211,10 +211,10 @@ func (a *App) applyWorkspaceChanges(p *project, changes map[string][]core.Plugin
 			}
 			if err != nil {
 				if errors.Is(err, errRenameRejected) {
-					a.notify(i18n.Shared(a.language(), "desktop.semantics.renameRejected"))
+					a.notifyError(i18n.Shared(a.language(), "desktop.semantics.renameRejected"))
 				} else {
 					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_rename", err))
-					a.notify(i18n.Shared(a.language(), "desktop.semantics.renameFailed"))
+					a.notifyError(i18n.Shared(a.language(), "desktop.semantics.renameFailed"))
 				}
 				return
 			}
@@ -226,10 +226,10 @@ func (a *App) applyWorkspaceChanges(p *project, changes map[string][]core.Plugin
 				}
 			}
 			if stale > 0 {
-				a.notify(i18n.Shared(a.language(), "desktop.semantics.renamePartial"))
+				a.notifyError(i18n.Shared(a.language(), "desktop.semantics.renamePartial"))
 				return
 			}
-			a.notify(i18n.SharedFormat(a.language(), "desktop.semantics.renameApplied", map[string]string{"count": strconv.Itoa(files + len(updates))}))
+			a.notifySuccess(i18n.SharedFormat(a.language(), "desktop.semantics.renameApplied", map[string]string{"count": strconv.Itoa(files + len(updates))}))
 		}
 	})
 }

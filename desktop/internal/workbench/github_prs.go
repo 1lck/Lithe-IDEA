@@ -273,7 +273,7 @@ func (a *App) openPullRequestInBrowser(url string) {
 	}
 	a.performed("github.pullRequest.openBrowser", surfaceButton)
 	if err := app.OpenURL(url); err != nil {
-		a.notify(i18n.SharedFormat(a.language(), "desktop.github.openFailed", map[string]string{"reason": err.Error()}))
+		a.notifyError(i18n.SharedFormat(a.language(), "desktop.github.openFailed", map[string]string{"reason": err.Error()}))
 	}
 }
 
@@ -335,7 +335,7 @@ func (a *App) checkoutPullRequest(p *project) {
 			}
 			pr.checkoutOK = true
 			a.checkoutWritten(p, root)
-			a.notify(i18n.SharedFormat(a.language(), "desktop.github.checkedOut", map[string]string{"branch": reviewed.Plan.Branch}))
+			a.notifySuccess(i18n.SharedFormat(a.language(), "desktop.github.checkedOut", map[string]string{"branch": reviewed.Plan.Branch}))
 		}
 	})
 }

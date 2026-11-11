@@ -185,7 +185,7 @@ func (a *App) runEditorAction(p *project, d *document, action pluginservice.Edit
 		locations, err := plugins.InvokeEditorAction(ctx, action, alternative)
 		return func(a *App) {
 			if err != nil {
-				a.notify(i18n.Shared(a.language(), "desktop.editorActions.failed"))
+				a.notifyError(i18n.Shared(a.language(), "desktop.editorActions.failed"))
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_action", err))
 				return
 			}
@@ -227,7 +227,7 @@ func (a *App) revealEditorLocations(p *project, d *document, root string, locati
 func (a *App) revealEditorLocation(p *project, root string, location pluginservice.EditorLocation) {
 	parsed, err := url.Parse(location.URI)
 	if err != nil {
-		a.notify(i18n.Shared(a.language(), "desktop.editorActions.failed"))
+		a.notifyError(i18n.Shared(a.language(), "desktop.editorActions.failed"))
 		return
 	}
 	if parsed.Scheme == "file" {
@@ -238,7 +238,7 @@ func (a *App) revealEditorLocation(p *project, root string, location pluginservi
 		uri, line, column := location.URI, location.StartLine, location.StartCharacter
 		a.background(p, 30*time.Second, func(ctx context.Context) func(*App) {
 			if err := a.plugins.OpenContentURI(ctx, root, uri, line, column); err != nil {
-				return func(a *App) { a.notify(i18n.Shared(a.language(), "desktop.editorActions.failed")) }
+				return func(a *App) { a.notifyError(i18n.Shared(a.language(), "desktop.editorActions.failed")) }
 			}
 			return nil
 		})

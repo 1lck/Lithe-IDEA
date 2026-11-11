@@ -56,7 +56,7 @@ func (a *App) excludeLocally(p *project, change core.GitChange) {
 		}
 		return func(a *App) {
 			if err != nil {
-				a.notify(i18n.SharedFormat(a.language(), "desktop.git.excludeFailed", map[string]string{"reason": reviewReason(err)}))
+				a.notifyError(i18n.SharedFormat(a.language(), "desktop.git.excludeFailed", map[string]string{"reason": reviewReason(err)}))
 				a.gitOperationFailed("git_exclude", err)
 			}
 			a.loadGit(p)

@@ -212,13 +212,13 @@ func (a *App) acceptInlineEdit(p *project) {
 	view := s.doc.view
 	text, _ := view.Text()
 	if view.Revision() != s.revision && (s.end > len(text) || string(text[s.start:s.end]) != s.selected) || view.IsComposing() {
-		a.notify(t.Stale)
+		a.notifyError(t.Stale)
 		a.closeInlineEdit()
 		return
 	}
 	a.performed("ai.inlineEdit.accept", surfaceButton)
 	if err := view.ApplyEdits([]editorview.TextEdit{{Range: editorview.Range{Start: s.start, End: s.end}, Text: s.result}}); err != nil {
-		a.notify(t.Failed(err.Error()))
+		a.notifyError(t.Failed(err.Error()))
 		a.gitOperationFailed("ai_inline_edit", err)
 	}
 	a.closeInlineEdit()

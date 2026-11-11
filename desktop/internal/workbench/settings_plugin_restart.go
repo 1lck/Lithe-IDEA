@@ -79,7 +79,7 @@ func (a *App) restartSettingsPlugin(id, version, scope, workspace string) {
 			}
 			a.pluginServerMu.Unlock()
 			if err != nil {
-				a.notify(i18n.Shared(a.language(), "desktop.pluginSettings.restartFailed"))
+				a.notifyError(i18n.Shared(a.language(), "desktop.pluginSettings.restartFailed"))
 			} else {
 				a.startPluginServer(server.session.LanguageID)
 			}

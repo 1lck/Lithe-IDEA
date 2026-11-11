@@ -242,7 +242,7 @@ func (a *App) reportProjectReplace(outcomes []replaceOutcome) {
 		if errors.Is(reason, documentio.ErrConflict) {
 			message = t.ReplaceConflict
 		}
-		a.notify(t.ReplacePartlyFailed(strconv.Itoa(changed), strconv.Itoa(failed), message))
+		a.notifyError(t.ReplacePartlyFailed(strconv.Itoa(changed), strconv.Itoa(failed), message))
 		return
 	}
 	if skipped > 0 {

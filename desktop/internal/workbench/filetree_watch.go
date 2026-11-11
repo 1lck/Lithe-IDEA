@@ -236,7 +236,7 @@ func (a *App) detachTreeRecursiveWatch(p *project) {
 
 func (a *App) treeWatchFailed(err error) {
 	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("project_tree_watch", err))
-	a.notify(i18n.Shared(a.language(), "desktop.project.watchUnavailable"))
+	a.notifyError(i18n.Shared(a.language(), "desktop.project.watchUnavailable"))
 }
 
 func (a *App) drainTreeWatch(p *project, path string, slot *documentWatch) {

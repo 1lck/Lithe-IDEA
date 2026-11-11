@@ -34,7 +34,7 @@ func (a *App) viewerView(c ui.C, t *viewerTab) {
 				path := t.path
 				c.After(func() {
 					if err := app.OpenPath(path); err != nil {
-						a.notify(i18n.SharedFormat(language, "desktop.viewer.openFailed", map[string]string{"reason": err.Error()}))
+						a.notifyError(i18n.SharedFormat(language, "desktop.viewer.openFailed", map[string]string{"reason": err.Error()}))
 					}
 				})
 			}

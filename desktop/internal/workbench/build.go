@@ -613,7 +613,7 @@ func (a *App) runBuildTask(p *project, projectID, targetID, taskID string, userA
 	if projectID != "" {
 		project, ok := buildProjectByID(instance.Model, projectID)
 		if !ok {
-			a.notify(a.text.Build.ProjectMissing)
+			a.notifyError(a.text.Build.ProjectMissing)
 			return errors.New("unknown build project")
 		}
 		request.Project = &core.BuildSelection{Name: project.Name, Path: project.Path, Properties: project.Properties}
@@ -621,7 +621,7 @@ func (a *App) runBuildTask(p *project, projectID, targetID, taskID string, userA
 	if targetID != "" {
 		target, ok := buildTargetByID(instance.Model, targetID)
 		if !ok {
-			a.notify(a.text.Build.TargetMissing)
+			a.notifyError(a.text.Build.TargetMissing)
 			return errors.New("unknown build target")
 		}
 		request.Target = &core.BuildSelection{Name: target.Name, Path: target.Path, Tags: target.Tags, Properties: target.Properties}
@@ -850,12 +850,12 @@ func (a *App) runBuildTargetWith(p *project, instance *buildInstance, projectID,
 	}
 	project, ok := buildProjectByID(instance.Model, projectID)
 	if !ok {
-		a.notify(a.text.Build.ProjectMissing)
+		a.notifyError(a.text.Build.ProjectMissing)
 		return
 	}
 	target, ok := buildTargetByID(instance.Model, targetID)
 	if !ok {
-		a.notify(a.text.Build.TargetMissing)
+		a.notifyError(a.text.Build.TargetMissing)
 		return
 	}
 	captured := *instance

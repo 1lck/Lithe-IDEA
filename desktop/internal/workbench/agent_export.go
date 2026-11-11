@@ -72,7 +72,7 @@ func (a *App) exportAgentConversation(p *project) {
 		}
 		return func(a *App) {
 			if err != nil {
-				a.notify(a.text.Agent.Export.Failed(err.Error()))
+				a.notifyError(a.text.Agent.Export.Failed(err.Error()))
 				return
 			}
 			a.performed("agent.export", surfaceMenu)

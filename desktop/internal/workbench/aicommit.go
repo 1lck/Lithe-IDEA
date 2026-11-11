@@ -196,7 +196,7 @@ func (a *App) finishCommitGeneration(p *project, message, token string, reposito
 		if errors.Is(err, context.Canceled) {
 			return
 		}
-		a.notify(a.aiCommitFailure(err))
+		a.notifyError(a.aiCommitFailure(err))
 		a.gitOperationFailed("ai_commit_generation", err)
 		return
 	}
@@ -254,9 +254,9 @@ func (a *App) confirmGeneratedMessage(p *project, replace bool) {
 		return func(a *App) {
 			switch {
 			case err != nil:
-				a.notify(a.aiCommitFailure(err))
+				a.notifyError(a.aiCommitFailure(err))
 			case !current:
-				a.notify(a.aiCommitFailure(errAIStale))
+				a.notifyError(a.aiCommitFailure(errAIStale))
 			case c.message() != typed:
 				// The user kept typing: the draft is theirs, not ours.
 			default:

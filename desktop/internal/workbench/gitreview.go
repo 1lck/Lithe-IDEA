@@ -81,7 +81,7 @@ func reviewReason(err error) string {
 
 // reviewFailed words a failed review operation for the user and logs it.
 func (a *App) reviewFailed(operation string, err error) {
-	a.notify(i18n.SharedFormat(a.language(), "desktop.gitReview.operationFailed", map[string]string{"reason": reviewReason(err)}))
+	a.notifyError(i18n.SharedFormat(a.language(), "desktop.gitReview.operationFailed", map[string]string{"reason": reviewReason(err)}))
 	a.gitOperationFailed(operation, err)
 }
 

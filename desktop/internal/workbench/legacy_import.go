@@ -93,11 +93,11 @@ func (a *App) showLegacyImport(found legacyimport.Found, err error) {
 	language := a.language()
 	switch {
 	case errors.Is(err, legacyimport.ErrNotFound) || (err == nil && found.Empty()):
-		a.notify(i18n.Shared(language, "desktop.legacyImport.none"))
+		a.notifyInfo(i18n.Shared(language, "desktop.legacyImport.none"))
 		return
 	case err != nil:
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("settings_import_legacy_read", err))
-		a.notify(i18n.SharedFormat(language, "desktop.legacyImport.readFailed", map[string]string{"error": err.Error()}))
+		a.notifyError(i18n.SharedFormat(language, "desktop.legacyImport.readFailed", map[string]string{"error": err.Error()}))
 		return
 	}
 	s.found = found
@@ -108,7 +108,7 @@ func (a *App) showLegacyImport(found legacyimport.Found, err error) {
 	s.items = slices.Clip(s.items)
 	s.plugins = a.missingLegacyPlugins(found.Plugins)
 	if len(s.items) == 0 && len(s.plugins) == 0 {
-		a.notify(i18n.Shared(language, "desktop.legacyImport.none"))
+		a.notifyInfo(i18n.Shared(language, "desktop.legacyImport.none"))
 		return
 	}
 	s.open = true
@@ -312,7 +312,7 @@ func (a *App) applyLegacyImport() {
 	language := a.language()
 	if err := a.verifySettingsSaved(); err != nil {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("settings_import_legacy_apply", err))
-		a.notify(i18n.SharedFormat(language, "desktop.legacyImport.failed", map[string]string{"error": err.Error()}))
+		a.notifyError(i18n.SharedFormat(language, "desktop.legacyImport.failed", map[string]string{"error": err.Error()}))
 		return
 	}
 	imported := 0
@@ -325,12 +325,12 @@ func (a *App) applyLegacyImport() {
 		a.reduceRecent(entries, core.NormalizeRecent(), true)
 		if err := a.verifyRecentSaved(); err != nil {
 			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("settings_import_legacy_recent", err))
-			a.notify(i18n.SharedFormat(language, "desktop.legacyImport.failed", map[string]string{"error": err.Error()}))
+			a.notifyError(i18n.SharedFormat(language, "desktop.legacyImport.failed", map[string]string{"error": err.Error()}))
 			return
 		}
 		imported = max(len(a.recent)-before, 0)
 	}
-	a.notify(i18n.SharedFormat(language, "desktop.legacyImport.done", map[string]string{"recent": strconv.Itoa(imported)}))
+	a.notifySuccess(i18n.SharedFormat(language, "desktop.legacyImport.done", map[string]string{"recent": strconv.Itoa(imported)}))
 }
 
 // legacyFonts puts the chosen earlier fonts in front of the current list, each for its

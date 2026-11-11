@@ -157,7 +157,7 @@ func (a *App) startEverywhereWatch(p *project) {
 			if err != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_search_everywhere_watch", err))
 			}
-			a.notify(i18n.Shared(a.language(), "desktop.everywhere.watchUnavailable"))
+			a.notifyError(i18n.Shared(a.language(), "desktop.everywhere.watchUnavailable"))
 		}
 	}
 }
@@ -173,7 +173,7 @@ func (a *App) applyEverywhereWatch(p *project, ready, available bool, err error,
 		s.watchReady, s.watchAvailable, s.fullResync = true, available, true
 		if err != nil {
 			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_search_everywhere_watch", err))
-			a.notify(i18n.Shared(a.language(), "desktop.everywhere.watchUnavailable"))
+			a.notifyError(i18n.Shared(a.language(), "desktop.everywhere.watchUnavailable"))
 		}
 	}
 	changed := false

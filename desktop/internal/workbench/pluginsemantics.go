@@ -902,11 +902,11 @@ func (a *App) presentDefinitionTargets(p *project, d *document, kind semanticKin
 		case answered > 0:
 			// Every target is outside the file system (a class in a jar):
 			// say so instead of looking like an empty answer.
-			a.notify(i18n.Shared(a.language(), "desktop.semantics.targetUnavailable"))
+			a.notifyError(i18n.Shared(a.language(), "desktop.semantics.targetUnavailable"))
 		case references:
-			a.notify(i18n.Shared(a.language(), "desktop.semantics.noReferences"))
+			a.notifyInfo(i18n.Shared(a.language(), "desktop.semantics.noReferences"))
 		default:
-			a.notify(i18n.Shared(a.language(), "desktop.semantics.noDefinition"))
+			a.notifyInfo(i18n.Shared(a.language(), "desktop.semantics.noDefinition"))
 		}
 		return
 	}
@@ -1133,7 +1133,7 @@ func (a *App) acceptPluginCompletion(index int) {
 			current, document := a.currentSemanticDocument(documentID)
 			if err != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_completion_apply", err))
-				a.notify(i18n.Shared(a.language(), "desktop.semantics.completionFailed"))
+				a.notifyError(i18n.Shared(a.language(), "desktop.semantics.completionFailed"))
 				return
 			}
 			if current != p || document == nil || a.project != p || document.view.Revision() != revision {

@@ -390,7 +390,7 @@ func (a *App) openSettingsPageWith(surface string, page settingsPage, query stri
 			err = a.settingsWindow.Open(a.application, current)
 		}
 		if err != nil {
-			a.notify(a.text.Errors.SettingsFailed(err.Error()))
+			a.notifyError(a.text.Errors.SettingsFailed(err.Error()))
 		}
 	})
 }

@@ -197,7 +197,7 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 			c.After(func() {
 				a.performed("workspace.tree.reveal", surfaceMenu)
 				if err := treeRevealPath(full); err != nil {
-					a.notify(i18n.SharedFormat(language, "desktop.files.revealFailed", map[string]string{"reason": treeErrorReason(err)}))
+					a.notifyError(i18n.SharedFormat(language, "desktop.files.revealFailed", map[string]string{"reason": treeErrorReason(err)}))
 				}
 			})
 		}
@@ -222,7 +222,7 @@ func (a *App) copyTreePath(full string, relative bool) {
 		}
 	}
 	if err := treeCopyText(text); err != nil {
-		a.notify(i18n.SharedFormat(a.language(), "desktop.files.copyFailed", map[string]string{"reason": treeErrorReason(err)}))
+		a.notifyError(i18n.SharedFormat(a.language(), "desktop.files.copyFailed", map[string]string{"reason": treeErrorReason(err)}))
 	}
 }
 
@@ -340,7 +340,7 @@ func (a *App) createTreeItem(p *project) {
 		err = os.Mkdir(full, 0o755)
 	}
 	if err != nil {
-		a.notify(i18n.SharedFormat(language, "desktop.files.createFailed", map[string]string{"reason": treeErrorReason(err)}))
+		a.notifyError(i18n.SharedFormat(language, "desktop.files.createFailed", map[string]string{"reason": treeErrorReason(err)}))
 		return
 	}
 	created := pr.kind == treePromptNewFile
@@ -382,11 +382,11 @@ func (a *App) renameTreeItem(p *project) {
 	a.saveDocumentsThen(p, docs, func() {
 		before := readForLocalHistory(oldFull)
 		if err := wslpath.CheckMove(oldFull, newFull); err != nil {
-			a.notify(err.Error())
+			a.notifyError(err.Error())
 			return
 		}
 		if err := os.Rename(oldFull, newFull); err != nil {
-			a.notify(i18n.SharedFormat(language, "desktop.files.renameFailed", map[string]string{"reason": treeErrorReason(err)}))
+			a.notifyError(i18n.SharedFormat(language, "desktop.files.renameFailed", map[string]string{"reason": treeErrorReason(err)}))
 			return
 		}
 		a.renamedLocalHistory(p, oldFull, newFull, before)
@@ -419,7 +419,7 @@ func (a *App) deleteTreeItem(p *project) {
 			}
 		}
 		if err := os.RemoveAll(full); err != nil {
-			a.notify(i18n.SharedFormat(language, "desktop.files.deleteFailed", map[string]string{"reason": treeErrorReason(err)}))
+			a.notifyError(i18n.SharedFormat(language, "desktop.files.deleteFailed", map[string]string{"reason": treeErrorReason(err)}))
 			return
 		}
 		a.performed("workspace.file.delete", surfaceMenu)

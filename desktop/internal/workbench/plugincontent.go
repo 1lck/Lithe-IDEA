@@ -43,7 +43,7 @@ func (a *App) openContentTarget(p *project, uri string, line, column int) {
 		}
 		return func(a *App) {
 			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_content", err))
-			a.notify(i18n.SharedFormat(a.language(), "desktop.pluginHost.contentFailed", map[string]string{"uri": uri}))
+			a.notifyError(i18n.SharedFormat(a.language(), "desktop.pluginHost.contentFailed", map[string]string{"uri": uri}))
 		}
 	})
 }

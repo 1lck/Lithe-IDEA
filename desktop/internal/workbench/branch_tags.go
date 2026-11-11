@@ -97,7 +97,7 @@ func (a *App) submitTag(p *project) {
 			return kernel.GitCreateTag(ctx, root, name, "HEAD", message)
 		},
 		func(a *App, status core.GitStatus) {
-			a.notify(i18n.SharedFormat(a.language(), "desktop.tags.created", map[string]string{"name": name}))
+			a.notifySuccess(i18n.SharedFormat(a.language(), "desktop.tags.created", map[string]string{"name": name}))
 		})
 }
 
@@ -116,6 +116,6 @@ func (a *App) confirmDeleteTag(p *project) {
 			return kernel.GitDeleteTag(ctx, root, name)
 		},
 		func(a *App, status core.GitStatus) {
-			a.notify(i18n.SharedFormat(a.language(), "desktop.tags.deleted", map[string]string{"name": name}))
+			a.notifySuccess(i18n.SharedFormat(a.language(), "desktop.tags.deleted", map[string]string{"name": name}))
 		})
 }

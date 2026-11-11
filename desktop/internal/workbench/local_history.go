@@ -247,7 +247,7 @@ func (a *App) restoreLocalHistory(p *project) {
 		data, _ := d.view.Text()
 		a.recordLocalHistory(p, path, "restore", historyTexts{before: append([]byte(nil), data...)})
 		if err := d.view.ApplyEdits([]editorview.TextEdit{{Range: editorview.Range{Start: 0, End: len(data)}, Text: text}}); err != nil {
-			a.notify(a.text.History.Failed(err.Error()))
+			a.notifyError(a.text.History.Failed(err.Error()))
 			return
 		}
 		a.performed("localHistory.restore", surfaceButton)

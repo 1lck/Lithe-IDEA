@@ -147,7 +147,7 @@ func (a *App) runConfiguration(p *project, id string) {
 		return i.PluginID == reference.PluginID && i.BuildSystemID == reference.BuildSystemID && i.Root == reference.Root
 	})
 	if index < 0 || !p.build.instances[index].modelLoaded {
-		a.notify(a.text.Build.TargetMissing)
+		a.notifyError(a.text.Build.TargetMissing)
 		return
 	}
 	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "run.configuration", "surface": "build"})

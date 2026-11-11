@@ -52,8 +52,33 @@ func (n *notificationCenter) unread() int {
 	return count
 }
 
-// notify shows message in a toast and keeps it in the notification history.
+// notify shows message in a toast and keeps it in the notification history. It is the
+// warning style: something the user should look at that did not fail. notifyError,
+// notifySuccess and notifyInfo are the other kinds, each with its own color and icon in the
+// toast and in the history.
 func (a *App) notify(message string) { a.notifyKind(message, ui.ToastWarning) }
+
+// notifyError reports an operation that failed.
+func (a *App) notifyError(message string) { a.notifyKind(message, ui.ToastError) }
+
+// notifySuccess reports an operation that finished as asked.
+func (a *App) notifySuccess(message string) { a.notifyKind(message, ui.ToastSuccess) }
+
+// notifyInfo reports a state, such as nothing to do.
+func (a *App) notifyInfo(message string) { a.notifyKind(message, ui.ToastInfo) }
+
+// notificationColor is the mark of a kind in the history.
+func (a *App) notificationColor(kind ui.ToastKind) gfx.Color {
+	switch kind {
+	case ui.ToastError:
+		return a.colors.Deleted
+	case ui.ToastSuccess:
+		return a.colors.Success
+	case ui.ToastWarning:
+		return a.colors.Warning
+	}
+	return a.colors.Subtle
+}
 
 // notifyKind shows message as a toast of kind and records it. The same message of the same
 // kind again is not a second entry: its entry counts it, moves to the top, is unread again
@@ -144,7 +169,12 @@ func (a *App) notificationPanel(c ui.C, anchor ui.Box) {
 	center := &a.notifications
 	language := a.language()
 	cleared := false
-	spec := ui.PopoverSpec{Side: components.PopoverTop, Align: ui.End, Offset: chromeMenuOffset, Width: notificationPanelWidth, ConsumeOutsidePress: true}
+	align := ui.End
+	if a.project == nil {
+		// On the welcome page the bell is at the left edge of the window.
+		align = ui.Start
+	}
+	spec := ui.PopoverSpec{Side: components.PopoverTop, Align: align, Offset: chromeMenuOffset, Width: notificationPanelWidth, ConsumeOutsidePress: true}
 	ui.PopoverWith(c, anchor, spec, &center.open, func() {
 		ui.Row(c).FillWidth().Height(28).Items(ui.Center).Gap(8).Children(func() {
 			ui.Text(c, i18n.Shared(language, "desktop.notifications.title")).Weight(gfx.WeightSemibold).Grow(1).Ellipsis()
@@ -159,13 +189,11 @@ func (a *App) notificationPanel(c ui.C, anchor ui.Box) {
 		ui.Scroll(c.Part("list")).FillWidth().MaxHeight(notificationPanelHeight).Gap(8).Children(func() {
 			for i, entry := range center.list {
 				k := c.KeyInt(i)
-				ui.Column(k).FillWidth().Shrink(0).Gap(2).Children(func() {
-					ui.Wrap(k, entry.text).FontSize(a.theme.Metrics.FontSizeS)
-					meta := entry.at.Format("15:04:05")
-					if entry.count > 1 {
-						meta = i18n.SharedFormat(language, "desktop.notifications.meta", map[string]string{"time": meta, "count": strconv.Itoa(entry.count)})
-					}
-					ui.Text(k, meta).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+				ui.Row(k).FillWidth().Shrink(0).Gap(8).Items(ui.Start).Children(func() {
+					ui.Row(k).Size(8, 8).Shrink(0).MarginTop(5).Radius(4).Background(a.notificationColor(entry.kind))
+					ui.Column(k).Grow(1).MinWidth(0).Gap(2).Children(func() {
+						a.notificationEntry(k, entry)
+					})
 				})
 			}
 		})
@@ -173,4 +201,14 @@ func (a *App) notificationPanel(c ui.C, anchor ui.Box) {
 	if cleared {
 		c.After(a.clearNotifications)
 	}
+}
+
+// notificationEntry declares a notice of the history: its words, when it came last and how often.
+func (a *App) notificationEntry(k ui.C, entry *notification) {
+	ui.Wrap(k, entry.text).FontSize(a.theme.Metrics.FontSizeS)
+	meta := entry.at.Format("15:04:05")
+	if entry.count > 1 {
+		meta = i18n.SharedFormat(a.language(), "desktop.notifications.meta", map[string]string{"time": meta, "count": strconv.Itoa(entry.count)})
+	}
+	ui.Text(k, meta).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 }

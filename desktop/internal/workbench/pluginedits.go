@@ -136,7 +136,7 @@ func (a *App) startPluginFormattingAtSelection(p *project, d *document) {
 func (a *App) semanticOperationFailed(kind semanticKind) {
 	switch kind {
 	case pluginSemanticFormatting, pluginSemanticRangeFormatting, pluginSemanticRename:
-		a.notify(i18n.Shared(a.language(), "desktop.semantics.operationFailed"))
+		a.notifyError(i18n.Shared(a.language(), "desktop.semantics.operationFailed"))
 		if kind == pluginSemanticRename {
 			a.renameAborted()
 		}
@@ -151,11 +151,11 @@ func (a *App) applySemanticFormatting(pending *semanticPending, event core.Backe
 	edits, err := core.PluginSemanticTextEdits(event)
 	if err != nil {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_format", err))
-		a.notify(i18n.Shared(a.language(), "desktop.semantics.formatFailed"))
+		a.notifyError(i18n.Shared(a.language(), "desktop.semantics.formatFailed"))
 		return
 	}
 	if len(edits) == 0 {
-		a.notify(i18n.Shared(a.language(), "desktop.semantics.formatNothing"))
+		a.notifyInfo(i18n.Shared(a.language(), "desktop.semantics.formatNothing"))
 		return
 	}
 	a.applyEditsToDocument(p, d, edits, "plugin_format")
@@ -179,7 +179,7 @@ func (a *App) applyEditsToDocument(p *project, d *document, edits []core.PluginT
 			current, document := a.currentSemanticDocument(documentID)
 			if err != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields(operation, err))
-				a.notify(i18n.Shared(a.language(), "desktop.semantics.formatFailed"))
+				a.notifyError(i18n.Shared(a.language(), "desktop.semantics.formatFailed"))
 				return
 			}
 			if current != p || document == nil || a.project != p || document.view.Revision() != revision {

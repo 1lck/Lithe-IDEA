@@ -169,7 +169,7 @@ func (a *App) runBranchWrite(p *project, operation string, failed func(reason st
 			b := &a.branch
 			b.busy = false
 			if err != nil {
-				a.notify(failed(err.Error()))
+				a.notifyError(failed(err.Error()))
 				a.gitOperationFailed(operation, err)
 				return
 			}
@@ -188,7 +188,7 @@ func (a *App) runBranchWrite(p *project, operation string, failed func(reason st
 func (a *App) checkoutBranch(p *project, r core.GitReference) {
 	a.leaveBranches()
 	if r.Kind == "local" && r.IsCurrent {
-		a.notify(a.text.Branch.AlreadyOn(r.ShortName))
+		a.notifyInfo(a.text.Branch.AlreadyOn(r.ShortName))
 		return
 	}
 	a.performed("git.checkout", surfaceMenu)
@@ -201,7 +201,7 @@ func (a *App) checkoutBranch(p *project, r core.GitReference) {
 			b := &a.branch
 			b.busy = false
 			if err != nil {
-				a.notify(a.text.Branch.CheckoutFailed(err.Error()))
+				a.notifyError(a.text.Branch.CheckoutFailed(err.Error()))
 				a.gitOperationFailed("git_checkout", err)
 				return
 			}
@@ -226,10 +226,10 @@ func (a *App) checkoutWith(p *project, r core.GitReference, mode core.CheckoutMo
 // noticeCheckedOut says what the checkout reached: the branch, or a detached HEAD at name.
 func (a *App) noticeCheckedOut(name string, status core.GitStatus) {
 	if status.Branch == "" || status.Branch == "detached" {
-		a.notify(a.text.Branch.Detached(name))
+		a.notifyInfo(a.text.Branch.Detached(name))
 		return
 	}
-	a.notify(a.text.Branch.CheckedOut(status.Branch))
+	a.notifySuccess(a.text.Branch.CheckedOut(status.Branch))
 }
 
 // beginCreate opens the dialog that creates a branch from r.
@@ -372,7 +372,7 @@ func (a *App) submitCreate(p *project) {
 		func(ctx context.Context, kernel Kernel, root string) error {
 			return kernel.GitCreateBranch(ctx, root, name, from, checkout)
 		},
-		func(a *App, status core.GitStatus) { a.notify(a.text.Branch.Created(name)) })
+		func(a *App, status core.GitStatus) { a.notifySuccess(a.text.Branch.Created(name)) })
 }
 
 // submitRename renames the branch the rename dialog is about.
@@ -391,7 +391,7 @@ func (a *App) submitRename(p *project) {
 		func(ctx context.Context, kernel Kernel, root string) error {
 			return kernel.GitRenameBranch(ctx, root, branch, name)
 		},
-		func(a *App, status core.GitStatus) { a.notify(a.text.Branch.Renamed(name)) })
+		func(a *App, status core.GitStatus) { a.notifySuccess(a.text.Branch.Renamed(name)) })
 }
 
 // submitRevision checks out the typed revision detached.
@@ -437,6 +437,6 @@ func (a *App) confirmDelete(p *project) {
 			if len(target) > 10 {
 				target = target[:10]
 			}
-			a.notify(a.text.Branch.Deleted(deleted.Name, target))
+			a.notifySuccess(a.text.Branch.Deleted(deleted.Name, target))
 		})
 }
