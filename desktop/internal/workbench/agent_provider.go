@@ -46,6 +46,18 @@ type agentProvider struct {
 	APIKey         string
 	Issue          string
 	MissingKey     bool
+	// Subscription marks the official account route of an adapter that has one.
+	// It carries no endpoint, model or key: Core owns the login and the account.
+	Subscription bool
+}
+
+// agentProviderName is the label of a provider's name. The subscription route has no
+// configured name, so its label comes from the panel's own words.
+func (a *App) agentProviderName(provider agentProvider) string {
+	if provider.Subscription {
+		return a.text.Agent.Subscription.CodexProvider
+	}
+	return provider.Name
 }
 
 // discoverAgentProviders reads the local Codex and Claude configuration through

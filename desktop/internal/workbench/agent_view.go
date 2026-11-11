@@ -3,7 +3,9 @@ package workbench
 import (
 	"fmt"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/agentbrand"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -26,6 +28,10 @@ func (a *App) agentPanel(c ui.C) {
 		return
 	}
 	a.ensureAgentState(p)
+	if a.agentInEditor(p) {
+		a.agentEditorNotice(c, p)
+		return
+	}
 	if p.agent.conn == nil {
 		a.agentSetup(c, p)
 		return
@@ -44,6 +50,21 @@ func (a *App) agentRetryCheck(p *project) {
 // agentChoiceRow declares one row of a radio list and reports a click on an enabled one.
 // key names the row among its siblings.
 func (a *App) agentChoiceRow(c ui.C, key, label string, selected, disabled bool) bool {
+	return a.agentMarkedChoiceRow(c, key, nil, label, selected, disabled)
+}
+
+// agentBrandIcon is the vendor mark of an Agent, or the generic sparkle for an Agent
+// the panel has no mark for, as the macOS panel shows it.
+func (a *App) agentBrandIcon(agentID string) gfx.Icon {
+	if icon, ok := agentbrand.Brand(agentID, a.colors.Dark); ok {
+		return icon
+	}
+	return icons.Sparkles
+}
+
+// agentMarkedChoiceRow is agentChoiceRow with an optional leading mark. A nil mark
+// leaves the row as it was.
+func (a *App) agentMarkedChoiceRow(c ui.C, key string, mark *gfx.Icon, label string, selected, disabled bool) bool {
 	id := ui.ID(c.Key("hit/" + key))
 	row := ui.Row(c.Key(key)).FillWidth().Height(rowHeight+6).Shrink(0).Items(ui.Center).PadX(8).
 		Radius(a.theme.Metrics.RadiusItem()).
@@ -53,6 +74,9 @@ func (a *App) agentChoiceRow(c ui.C, key, label string, selected, disabled bool)
 		row = row.Background(a.colors.Active)
 	}
 	row.Children(func() {
+		if mark != nil {
+			ui.Icon(c, *mark).Size(chromeIconSize, chromeIconSize).Shrink(0).Color(a.colors.Text)
+		}
 		ui.Text(c, label).Ellipsis().Color(a.colors.Text)
 	})
 	return row.Clicked() && !disabled
@@ -95,7 +119,8 @@ func (a *App) agentSetup(c ui.C, p *project) {
 				} else {
 					label += " · " + t.NotInstalled
 				}
-				if a.agentChoiceRow(c, "agent/"+agent.ID, label, i == p.agent.selected, !installed) {
+				mark := a.agentBrandIcon(agent.ID)
+				if a.agentMarkedChoiceRow(c, "agent/"+agent.ID, &mark, label, i == p.agent.selected, !installed) {
 					c.After(func() {
 						p.agent.selected = i
 						p.agent.selectedProvider = 0
@@ -130,7 +155,7 @@ func (a *App) agentSetup(c ui.C, p *project) {
 			}
 			for i, provider := range providers {
 				disabled := provider.Issue != "" || provider.MissingKey
-				label := provider.Name
+				label := a.agentProviderName(provider)
 				if provider.Endpoint != "" {
 					label += " · " + provider.Endpoint
 				}
@@ -146,6 +171,10 @@ func (a *App) agentSetup(c ui.C, p *project) {
 				case provider.Issue != "":
 					ui.Text(c.KeyInt(i), t.ProviderUnsupported(a.agentIssueText(provider.Issue))).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Warning)
 				}
+			}
+
+			if selected, ok := p.selectedProvider(); ok {
+				a.agentProviderDetail(c, selected)
 			}
 
 			if ui.Button(c, t.Start).Disabled(!p.canStartAgent() || p.agent.connecting).Clicked() {
@@ -253,7 +282,15 @@ func (a *App) agentConversation(c ui.C, p *project) {
 				}
 			})
 		}
+		if p.agent.auth == agentAuthRequired {
+			ui.Row(c).FillWidth().Shrink(0).Items(ui.Center).Gap(6).Pad(8).Background(a.colors.Active).Children(func() {
+				if ui.Button(c, t.Subscription.SignIn).Outline().Clicked() {
+					c.After(func() { a.authenticateAgent(p) })
+				}
+			})
+		}
 		a.agentConfigBar(c, p)
+		a.agentNoticeBanner(c, p)
 		a.agentTranscript(c, p)
 		if p.agent.permission != nil {
 			a.agentPermission(c, p)
@@ -265,6 +302,7 @@ func (a *App) agentConversation(c ui.C, p *project) {
 			a.agentComposer(c, p)
 			ui.Row(c).FillWidth().Shrink(0).Items(ui.Center).Gap(8).Children(func() {
 				ui.Text(c, a.agentStatusText(p)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Grow(1).Ellipsis()
+				a.agentQuotaRing(c, p)
 				if p.agent.phase == agentPhaseBusy || p.agent.phase == agentPhaseCancelling {
 					label := t.Stop
 					if p.agent.phase == agentPhaseCancelling {
@@ -299,8 +337,14 @@ func (a *App) agentTranscript(c ui.C, p *project) {
 		return
 	}
 	assistantRole, _ := p.selectedAgent()
-	ui.List(c, &p.agent.transcript, len(messages), func(row ui.ListRow) {
-		message := messages[row.Index]
+	rows := agentTranscriptRows(messages)
+	ui.List(c, &p.agent.transcript, len(rows), func(row ui.ListRow) {
+		if span := rows[row.Index]; span.process {
+			a.agentProcessRow(row.C, p, span)
+			return
+		}
+		idx := rows[row.Index].from
+		message := messages[idx]
 		role := t.RoleUser
 		if message.Role == agentRoleAssistant {
 			role = assistantRole.Name
@@ -309,13 +353,13 @@ func (a *App) agentTranscript(c ui.C, p *project) {
 			}
 		}
 		if message.Role == agentRoleTool || message.Role == agentRoleThought {
-			a.agentActivityRow(row.C, p, row.Index, message)
+			a.agentActivityRow(row.C, p, idx, message)
 			return
 		}
 		ui.Column(row.C).FillWidth().Gap(2).PadY(4).Children(func() {
 			ui.Text(row.C, role).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 			if message.Role == agentRoleAssistant {
-				a.agentReplyMarkdown(row.C, &messages[row.Index])
+				a.agentReplyMarkdown(row.C, &messages[idx])
 			} else {
 				ui.Wrap(row.C, message.Text).Color(a.colors.Text)
 			}

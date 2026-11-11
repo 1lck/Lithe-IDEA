@@ -309,13 +309,6 @@ func (a *App) agentQuotaStrip(c ui.C, p *project, small float32) {
 	if act.quotaFailed != "" {
 		ui.Text(c.Key("quotaFailed"), t.QuotaFailed(act.quotaFailed)).FontSize(small).Color(a.colors.Subtle)
 	}
-	for _, window := range act.quota {
-		line := t.Quota(window.Name, fmt.Sprintf("%.0f", window.UsedPercent))
-		if window.ResetsAt > 0 {
-			line += " · " + t.QuotaReset(time.Unix(window.ResetsAt, 0).Local().Format("01-02 15:04"))
-		}
-		ui.Text(c.Key("quota/"+window.ID), line).FontSize(small).Color(a.agentUsageColor(int(window.UsedPercent))).Ellipsis()
-	}
 	if ui.Button(c.Key("quotaRefresh"), t.QuotaRefresh).Ghost().Disabled(act.quotaPending).Clicked() {
 		c.After(func() { a.refreshAgentQuota(p) })
 	}
@@ -326,6 +319,9 @@ func (a *App) agentQuotaStrip(c ui.C, p *project, small float32) {
 func (a *App) agentSlashMenu(c ui.C, p *project) {
 	if trigger, _, ok := agentSlashTrigger(p.agent.editor.CommittedString()); ok && trigger == '$' {
 		a.ensureAgentSkills(p)
+	}
+	if _, ok := agentMentionQuery(p.agent.editor.CommittedString()); ok {
+		a.ensureAgentMentions(p)
 	}
 	candidates := a.agentSlashCandidates(p)
 	if len(candidates) == 0 {
@@ -345,8 +341,13 @@ func (a *App) agentSlashMenu(c ui.C, p *project) {
 				label += " · " + strings.TrimSpace(candidate.Description)
 			}
 			if ui.Button(c.KeyInt(i), label).Ghost().FillWidth().Clicked() {
-				insert := candidate.Insert
-				c.After(func() { a.chooseAgentSlash(p, insert) })
+				if candidate.File != "" {
+					file := candidate.File
+					c.After(func() { a.chooseAgentMention(p, file) })
+				} else {
+					insert := candidate.Insert
+					c.After(func() { a.chooseAgentSlash(p, insert) })
+				}
 			}
 		}
 	})

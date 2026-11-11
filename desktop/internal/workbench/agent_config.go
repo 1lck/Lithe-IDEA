@@ -20,11 +20,17 @@ type agentConfigOption struct {
 	// user's choice.
 	choiceIndexes []int
 	pick          int
+	// open says the approval-mode menu is showing.
+	open bool
 }
 
 type agentConfigChoice struct {
 	Value string
 	Name  string
+	// Description is the Agent's own one-line explanation of the choice, empty if none.
+	Description string
+	// Group is the name of the Agent's group this choice belongs to, empty if ungrouped.
+	Group string
 }
 
 // agentSessionConfig is one connection's session settings. It is replaced
@@ -54,8 +60,9 @@ type agentConfigOptionWire struct {
 }
 
 type agentConfigChoiceWire struct {
-	Value string `json:"value"`
-	Name  string `json:"name"`
+	Value       string `json:"value"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 type agentConfigGroupWire struct {
@@ -79,6 +86,14 @@ func (a *App) applyAgentConfigOptions(p *project, raw json.RawMessage) {
 	c := &p.agent.config
 	c.pendingToken = ""
 	c.err = ""
+	a.replaceAgentConfigOptions(p, raw)
+}
+
+// replaceAgentConfigOptions swaps in the Agent's full option list without touching
+// the panel's own pending command. The Agent-initiated config_option_update uses it,
+// so a mode the Agent switched itself is shown without cancelling a request in flight.
+func (a *App) replaceAgentConfigOptions(p *project, raw json.RawMessage) {
+	c := &p.agent.config
 	if len(raw) == 0 || string(raw) == "null" {
 		c.options = nil
 		return
@@ -110,7 +125,9 @@ func (a *App) applyAgentConfigOptions(p *project, raw json.RawMessage) {
 		}
 		options = append(options, option)
 	}
+	previous := c.options
 	c.options = options
+	a.reconcileAgentNotice(p, previous, options)
 }
 
 // decodeAgentConfigChoices flattens ACP's ungrouped or grouped value list while
@@ -129,7 +146,7 @@ func decodeAgentConfigChoices(raw json.RawMessage) []agentConfigChoice {
 		var group agentConfigGroupWire
 		if err := json.Unmarshal(entry, &group); err == nil && group.Group != "" {
 			for _, choice := range group.Options {
-				choices = appendAgentConfigChoice(choices, choice)
+				choices = appendAgentConfigChoice(choices, choice, group.groupName())
 			}
 			continue
 		}
@@ -137,19 +154,19 @@ func decodeAgentConfigChoices(raw json.RawMessage) []agentConfigChoice {
 		if err := json.Unmarshal(entry, &choice); err != nil {
 			continue
 		}
-		choices = appendAgentConfigChoice(choices, choice)
+		choices = appendAgentConfigChoice(choices, choice, "")
 	}
 	return choices
 }
 
-func appendAgentConfigChoice(choices []agentConfigChoice, choice agentConfigChoiceWire) []agentConfigChoice {
+func appendAgentConfigChoice(choices []agentConfigChoice, choice agentConfigChoiceWire, group string) []agentConfigChoice {
 	if choice.Value == "" {
 		return choices
 	}
 	if choice.Name == "" {
 		choice.Name = choice.Value
 	}
-	return append(choices, agentConfigChoice{Value: choice.Value, Name: choice.Name})
+	return append(choices, agentConfigChoice{Value: choice.Value, Name: choice.Name, Description: choice.Description, Group: group})
 }
 
 // agentConfigCurrentName is the display name of the confirmed value. A value
@@ -255,4 +272,13 @@ func (a *App) clearAgentAuthentication(p *project) {
 	if p != nil {
 		p.agent.auth = agentAuthNone
 	}
+}
+
+// groupName is the heading of an ACP group: its display name, or its identifier when the
+// Agent gave no name.
+func (g agentConfigGroupWire) groupName() string {
+	if g.Name != "" {
+		return g.Name
+	}
+	return g.Group
 }

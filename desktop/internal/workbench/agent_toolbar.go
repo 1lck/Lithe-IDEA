@@ -3,6 +3,8 @@ package workbench
 import (
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -15,8 +17,13 @@ import (
 func (a *App) agentHeader(c ui.C, p *project) {
 	t := a.text.Agent
 	ui.Row(c).Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(8).PadSides(0, 8, 0, 12).Children(func() {
+		agent, _ := p.selectedAgent()
+		ui.Icon(c, a.agentBrandIcon(agent.ID)).Size(chromeIconSize, chromeIconSize).Shrink(0).Color(a.colors.Text)
 		ui.Text(c, a.agentConversationTitle(p)).Weight(gfx.WeightMedium).Ellipsis().Grow(1)
 		historyDisabled := p.agent.phase == agentPhaseStarting || p.agent.phase == agentPhaseLoading
+		if ui.Button(c, t.Editor.OpenInEditor).Ghost().Disabled(p.agent.conn == nil).Clicked() {
+			c.After(func() { a.openAgentInEditor(p) })
+		}
 		if ui.Button(c, t.History).Ghost().Disabled(historyDisabled).Clicked() {
 			c.After(func() { a.toggleAgentHistory(p) })
 		}
@@ -25,6 +32,15 @@ func (a *App) agentHeader(c ui.C, p *project) {
 		}
 		if ui.Button(c, t.Change).Ghost().Clicked() {
 			c.After(func() { a.disconnectAgent(p) })
+		}
+		if ui.Button(c.Key("agent-export"), a.text.Agent.Export.Export).Ghost().Disabled(len(p.agent.messages) == 0).Clicked() {
+			c.After(func() { a.exportAgentConversation(p) })
+		}
+		if ui.Button(c.Key("agent-settings"), a.text.Agent.Header.Settings).Ghost().IconOnly().Icon(icons.Settings).Tooltip(a.text.Agent.Header.Settings).Clicked() {
+			c.After(func() { a.openSettingsPage(surfaceButton, settingsAI) })
+		}
+		if ui.Button(c.Key("agent-collapse"), a.text.Agent.Header.Collapse).Ghost().IconOnly().Icon(icons.Minus).Tooltip(a.text.Agent.Header.Collapse).Clicked() {
+			c.After(func() { a.reduceChrome(core.SetChromeOpen(itemAssistant, false)) })
 		}
 	})
 }
@@ -35,13 +51,13 @@ func (a *App) agentConversationTitle(p *project) string {
 	agent, _ := p.selectedAgent()
 	provider, _ := p.selectedProvider()
 	title := agent.Name
-	if provider.Name != "" {
+	if name := a.agentProviderName(provider); name != "" {
 		if title != "" {
 			title += " · "
 		}
-		title += provider.Name
+		title += name
 	}
-	if session := p.agent.history.title(p.agent.sessionID); session != "" {
+	if session := a.agentCurrentTitle(p); session != "" {
 		title += " · " + session
 	}
 	return title
@@ -96,9 +112,15 @@ func (a *App) agentHistory(c ui.C, p *project) {
 		}
 		busy := p.agent.phase == agentPhaseBusy || p.agent.phase == agentPhaseCancelling ||
 			p.agent.connecting || h.restoring()
-		ui.List(c, &p.agent.historyList, len(h.sessions), func(row ui.ListRow) {
-			session := h.sessions[row.Index]
-			label := session.Title
+		ordered := a.agentHistoryOrdered(p)
+		ui.List(c, &p.agent.historyList, len(ordered), func(row ui.ListRow) {
+			session := ordered[row.Index]
+			row.Element.FillWidth().PadY(1)
+			if p.agent.history.meta.renaming == session.SessionID {
+				a.agentRenameRow(row.C, p, session, busy)
+				return
+			}
+			label := a.agentSessionTitle(p, session)
 			if label == "" {
 				label = t.Untitled
 			}
@@ -108,10 +130,26 @@ func (a *App) agentHistory(c ui.C, p *project) {
 			if session.SessionID == p.agent.sessionID {
 				label += " · " + t.Current
 			}
-			row.Element.FillWidth().PadY(1)
-			if ui.Button(row.C, label).Outline().FillWidth().Disabled(!h.canLoad || busy).Clicked() {
+			if p.agent.history.meta.items[session.SessionID].Favorite {
+				label += " · " + a.text.Agent.HistoryMeta.Pinned
+			}
+			button := ui.Button(row.C, label).Outline().FillWidth().Disabled(!h.canLoad || busy)
+			if button.Clicked() {
 				c.After(func() { a.openAgentHistorySession(p, session.SessionID) })
 			}
+			ui.ContextMenu(row.C, button, func(menu *ui.MenuItems) {
+				m := a.text.Agent.HistoryMeta
+				pinLabel := m.Pin
+				if p.agent.history.meta.items[session.SessionID].Favorite {
+					pinLabel = m.Unpin
+				}
+				if menu.Item(pinLabel).Clicked() {
+					c.After(func() { a.toggleAgentFavorite(p, session.SessionID) })
+				}
+				if menu.Item(m.Rename).Clicked() {
+					c.After(func() { a.beginAgentRename(p, session) })
+				}
+			})
 		}).Grow(1).Pad(shellContentPad)
 		if !h.canLoad {
 			ui.Text(c, t.HistoryLoadUnsupported).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Pad(shellContentPad)
@@ -148,15 +186,23 @@ func (a *App) agentConfigBar(c ui.C, p *project) {
 		for i := range cfg.options {
 			option := &cfg.options[i]
 			ui.Row(c.Key(option.ID)).FillWidth().Height(28).Shrink(0).Items(ui.Center).Gap(8).Children(func() {
+				if option.Category == "model" {
+					agent, _ := p.selectedAgent()
+					ui.Icon(c, a.agentBrandIcon(agent.ID)).Size(chromeMarkSize, chromeMarkSize).Shrink(0).Color(a.colors.Subtle)
+				}
 				ui.Text(c, a.agentConfigLabel(option)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Width(72)
-				current := agentConfigChoiceIndex(*option)
-				option.pick = current
-				ui.Select(c, &option.pick, option.choiceIndexes, func(choice int) string { return option.Choices[choice].Name }).
-					Placeholder(agentConfigCurrentName(*option)).Label(a.agentConfigLabel(option)).
-					Disabled(disabled).Height(28).Grow(1)
-				if option.pick != current && option.pick >= 0 && option.pick < len(option.Choices) {
-					id, value := option.ID, option.Choices[option.pick].Value
-					c.After(func() { a.selectAgentConfig(p, id, value) })
+				if option.Category == "mode" || option.Category == "model" {
+					a.agentChoiceMenu(c, p, option, disabled)
+				} else {
+					current := agentConfigChoiceIndex(*option)
+					option.pick = current
+					ui.Select(c, &option.pick, option.choiceIndexes, func(choice int) string { return option.Choices[choice].Name }).
+						Placeholder(agentConfigCurrentName(*option)).Label(a.agentConfigLabel(option)).
+						Disabled(disabled).Height(28).Grow(1)
+					if option.pick != current && option.pick >= 0 && option.pick < len(option.Choices) {
+						id, value := option.ID, option.Choices[option.pick].Value
+						c.After(func() { a.selectAgentConfig(p, id, value) })
+					}
 				}
 			})
 		}

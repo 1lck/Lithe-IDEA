@@ -1,0 +1,230 @@
+[
+  {
+    "id": "desktop.agent.subscription.codexProvider",
+    "description": "Label of the official ChatGPT subscription route of the Codex Agent, which reuses the local Codex sign-in.",
+    "en-US": "ChatGPT subscription (local Codex sign-in)",
+    "zh-CN": "ChatGPT 订阅（本机 Codex 登录）"
+  },
+  {
+    "id": "desktop.agent.subscription.signIn",
+    "description": "Button that starts the upstream ChatGPT browser sign-in when the Codex Agent reports that sign-in is required.",
+    "en-US": "Sign in with ChatGPT",
+    "zh-CN": "使用 ChatGPT 登录"
+  },
+  {
+    "id": "desktop.agent.editor.open",
+    "description": "Header button that moves the AI conversation into a new tab group of the editor area.",
+    "en-US": "Open in editor",
+    "zh-CN": "在编辑区打开"
+  },
+  {
+    "id": "desktop.agent.editor.inEditor",
+    "description": "Agent tool window text shown while the conversation is open as an editor tab.",
+    "en-US": "This conversation is open in the editor area.",
+    "zh-CN": "对话已在编辑区打开。"
+  },
+  {
+    "id": "desktop.agent.editor.show",
+    "description": "Button that brings the conversation's editor tab to the front from the Agent tool window.",
+    "en-US": "Show in editor",
+    "zh-CN": "在编辑区显示"
+  },
+  {
+    "id": "desktop.agent.provider.detail",
+    "description": "Heading of the read-only details of the selected provider.",
+    "en-US": "Provider details",
+    "zh-CN": "供应商详情"
+  },
+  {
+    "id": "desktop.agent.provider.source",
+    "description": "Label of the row that names where the provider was read from.",
+    "en-US": "Source",
+    "zh-CN": "来源"
+  },
+  {
+    "id": "desktop.agent.provider.endpoint",
+    "description": "Label of the provider endpoint row.",
+    "en-US": "Endpoint",
+    "zh-CN": "地址"
+  },
+  {
+    "id": "desktop.agent.provider.model",
+    "description": "Label of the provider model row.",
+    "en-US": "Model",
+    "zh-CN": "模型"
+  },
+  {
+    "id": "desktop.agent.provider.protocol",
+    "description": "Label of the provider API protocol row.",
+    "en-US": "Protocol",
+    "zh-CN": "协议"
+  },
+  {
+    "id": "desktop.agent.provider.authentication",
+    "description": "Label of the provider authentication mode row.",
+    "en-US": "Authentication",
+    "zh-CN": "鉴权方式"
+  },
+  {
+    "id": "desktop.agent.provider.key",
+    "description": "Label of the row that says whether a key was found.",
+    "en-US": "API key",
+    "zh-CN": "API Key"
+  },
+  {
+    "id": "desktop.agent.provider.keyFound",
+    "description": "Value shown when a key was found; the key itself is never shown.",
+    "en-US": "Found (masked)",
+    "zh-CN": "已找到（已隐藏）"
+  },
+  {
+    "id": "desktop.agent.provider.keyMissing",
+    "description": "Value shown when no key was found for the provider.",
+    "en-US": "Not found",
+    "zh-CN": "未找到"
+  },
+  {
+    "id": "desktop.agent.provider.readOnly",
+    "description": "Note under the provider details saying they are read-only.",
+    "en-US": "Read-only. Edit the provider in your local Codex or Claude configuration.",
+    "zh-CN": "只读。请在本机 Codex 或 Claude 配置中修改供应商。"
+  },
+  {
+    "id": "desktop.agent.mode.heading",
+    "description": "Heading of the approval mode list.",
+    "en-US": "Mode",
+    "zh-CN": "模式"
+  },
+  {
+    "id": "desktop.agent.mode.manual",
+    "description": "Product title of the Claude mode 'default'.",
+    "en-US": "Manual",
+    "zh-CN": "手动"
+  },
+  {
+    "id": "desktop.agent.mode.acceptEdits",
+    "description": "Product title of the Claude mode 'acceptEdits'.",
+    "en-US": "Accept edits",
+    "zh-CN": "接受编辑"
+  },
+  {
+    "id": "desktop.agent.mode.plan",
+    "description": "Product title of the Claude mode 'plan'.",
+    "en-US": "Plan",
+    "zh-CN": "计划"
+  },
+  {
+    "id": "desktop.agent.mode.auto",
+    "description": "Product title of the Claude mode 'auto'.",
+    "en-US": "Auto",
+    "zh-CN": "自动"
+  },
+  {
+    "id": "desktop.agent.mode.bypassPermissions",
+    "description": "Product title of the Claude mode 'bypassPermissions'.",
+    "en-US": "Bypass permissions",
+    "zh-CN": "绕过权限"
+  },
+  {
+    "id": "desktop.agent.mode.askForApproval",
+    "description": "Product title of the Codex mode 'read-only'.",
+    "en-US": "Ask for approval",
+    "zh-CN": "请求批准"
+  },
+  {
+    "id": "desktop.agent.mode.approveForMe",
+    "description": "Product title of the Codex mode 'agent'.",
+    "en-US": "Approve for me",
+    "zh-CN": "自动批准"
+  },
+  {
+    "id": "desktop.agent.mode.fullAccess",
+    "description": "Product title of the Codex mode 'agent-full-access'.",
+    "en-US": "Full access",
+    "zh-CN": "完全访问"
+  },
+  {
+    "id": "desktop.agent.history.pin",
+    "description": "Context menu item that pins a conversation to the top of the history list.",
+    "en-US": "Pin conversation",
+    "zh-CN": "置顶对话"
+  },
+  {
+    "id": "desktop.agent.history.unpin",
+    "description": "Context menu item that unpins a conversation.",
+    "en-US": "Unpin conversation",
+    "zh-CN": "取消置顶"
+  },
+  {
+    "id": "desktop.agent.history.rename",
+    "description": "Context menu item and field label that renames a conversation in Lithe.",
+    "en-US": "Rename conversation",
+    "zh-CN": "重命名对话"
+  },
+  {
+    "id": "desktop.agent.history.pinned",
+    "description": "Tag shown beside a pinned conversation in the history list.",
+    "en-US": "Pinned",
+    "zh-CN": "已置顶"
+  },
+  {
+    "id": "desktop.agent.history.save",
+    "description": "Button that stores a new conversation title.",
+    "en-US": "Save",
+    "zh-CN": "保存"
+  },
+  {
+    "id": "desktop.agent.history.cancel",
+    "description": "Button that drops a conversation rename.",
+    "en-US": "Cancel",
+    "zh-CN": "取消"
+  },
+  {
+    "id": "desktop.agent.process.title",
+    "description": "Collapsed entry that stands for one turn's thinking, progress text and tool calls before the reply. {count} is the number of thought and tool steps.",
+    "en-US": "Process · {count} steps",
+    "zh-CN": "过程 · {count} 步",
+    "parameters": {
+      "count": "string"
+    }
+  },
+  {
+    "id": "desktop.agent.header.settings",
+    "description": "Icon-only button at the top of the AI conversation that opens the AI settings page.",
+    "en-US": "Agent settings",
+    "zh-CN": "Agent 设置"
+  },
+  {
+    "id": "desktop.agent.header.collapse",
+    "description": "Icon-only button at the top of the AI conversation that collapses the Assistant panel.",
+    "en-US": "Collapse",
+    "zh-CN": "收起"
+  },
+  {
+    "id": "desktop.agent.export.button",
+    "description": "Header button that exports the open AI conversation to a Markdown file.",
+    "en-US": "Export",
+    "zh-CN": "导出"
+  },
+  {
+    "id": "desktop.agent.export.dialogTitle",
+    "description": "Title of the save dialog for the exported conversation.",
+    "en-US": "Export conversation",
+    "zh-CN": "导出对话"
+  },
+  {
+    "id": "desktop.agent.export.failed",
+    "description": "Message shown when the conversation could not be written. {reason} is the system's reason.",
+    "en-US": "The conversation was not exported: {reason}",
+    "zh-CN": "对话未导出：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.agent.export.processSteps",
+    "description": "Line that stands for a turn's process in the exported Markdown.",
+    "en-US": "Process steps",
+    "zh-CN": "过程步骤"
+  }
+]
