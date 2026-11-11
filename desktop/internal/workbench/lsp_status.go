@@ -173,11 +173,11 @@ func (a *App) lspLogPopup(c ui.C) {
 		ui.Text(c, i18n.SharedFormat(language, "desktop.lsp.state", map[string]string{"state": shown.stateName()})).FontSize(12).Color(a.colors.Subtle).Shrink(0)
 		lines := filterLogLines(shown.logs, v.filter)
 		if len(lines) == 0 {
-			message := "desktop.lsp.noLog"
 			if len(shown.logs) > 0 && strings.TrimSpace(v.filter) != "" {
-				message = "desktop.lsp.noFilteredLog"
+				ui.Paragraph(c, i18n.Shared(language, "desktop.lsp.noFilteredLog"), 3).Color(a.colors.Subtle)
+			} else {
+				ui.Paragraph(c, i18n.Shared(language, "desktop.lsp.noLog"), 3).Color(a.colors.Subtle)
 			}
-			ui.Paragraph(c, i18n.Shared(language, message), 3).Color(a.colors.Subtle)
 			return
 		}
 		ui.List(c, &v.list, len(lines), func(row ui.ListRow) {
