@@ -15,6 +15,8 @@ import (
 func (a *App) agentHeader(c ui.C, p *project) {
 	t := a.text.Agent
 	ui.Row(c).Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(8).PadSides(0, 8, 0, 12).Children(func() {
+		agent, _ := p.selectedAgent()
+		ui.Icon(c, a.agentBrandIcon(agent.ID)).Size(chromeIconSize, chromeIconSize).Shrink(0).Color(a.colors.Text)
 		ui.Text(c, a.agentConversationTitle(p)).Weight(gfx.WeightMedium).Ellipsis().Grow(1)
 		historyDisabled := p.agent.phase == agentPhaseStarting || p.agent.phase == agentPhaseLoading
 		if ui.Button(c, t.History).Ghost().Disabled(historyDisabled).Clicked() {

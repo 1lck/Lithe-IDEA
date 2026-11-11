@@ -3,7 +3,9 @@ package workbench
 import (
 	"fmt"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/agentbrand"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -44,6 +46,21 @@ func (a *App) agentRetryCheck(p *project) {
 // agentChoiceRow declares one row of a radio list and reports a click on an enabled one.
 // key names the row among its siblings.
 func (a *App) agentChoiceRow(c ui.C, key, label string, selected, disabled bool) bool {
+	return a.agentMarkedChoiceRow(c, key, nil, label, selected, disabled)
+}
+
+// agentBrandIcon is the vendor mark of an Agent, or the generic sparkle for an Agent
+// the panel has no mark for, as the macOS panel shows it.
+func (a *App) agentBrandIcon(agentID string) gfx.Icon {
+	if icon, ok := agentbrand.Brand(agentID, a.colors.Dark); ok {
+		return icon
+	}
+	return icons.Sparkles
+}
+
+// agentMarkedChoiceRow is agentChoiceRow with an optional leading mark. A nil mark
+// leaves the row as it was.
+func (a *App) agentMarkedChoiceRow(c ui.C, key string, mark *gfx.Icon, label string, selected, disabled bool) bool {
 	id := ui.ID(c.Key("hit/" + key))
 	row := ui.Row(c.Key(key)).FillWidth().Height(rowHeight+6).Shrink(0).Items(ui.Center).PadX(8).
 		Radius(a.theme.Metrics.RadiusItem()).
@@ -53,6 +70,9 @@ func (a *App) agentChoiceRow(c ui.C, key, label string, selected, disabled bool)
 		row = row.Background(a.colors.Active)
 	}
 	row.Children(func() {
+		if mark != nil {
+			ui.Icon(c, *mark).Size(chromeIconSize, chromeIconSize).Shrink(0).Color(a.colors.Text)
+		}
 		ui.Text(c, label).Ellipsis().Color(a.colors.Text)
 	})
 	return row.Clicked() && !disabled
@@ -95,7 +115,8 @@ func (a *App) agentSetup(c ui.C, p *project) {
 				} else {
 					label += " · " + t.NotInstalled
 				}
-				if a.agentChoiceRow(c, "agent/"+agent.ID, label, i == p.agent.selected, !installed) {
+				mark := a.agentBrandIcon(agent.ID)
+				if a.agentMarkedChoiceRow(c, "agent/"+agent.ID, &mark, label, i == p.agent.selected, !installed) {
 					c.After(func() {
 						p.agent.selected = i
 						p.agent.selectedProvider = 0
