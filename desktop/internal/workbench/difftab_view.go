@@ -113,6 +113,9 @@ func (a *App) diffToolbar(c ui.C, p *project, t *diffTab) {
 			}
 			ui.Text(c, count).FontSize(size).Color(a.colors.Subtle).Shrink(0)
 		}
+		if a.gitIconButton(c, i18n.Shared(lang, "git.diff.ignoreWhitespace"), icons.Eraser, t.ignoreSpace, t.stash != nil) {
+			c.After(func() { a.setDiffWhitespace(p, t, !t.ignoreSpace) })
+		}
 		ui.Row(c).Shrink(0).Items(ui.Center).Gap(2).Label(i18n.Shared(lang, "desktop.gitReview.diffTab")).Children(func() {
 			if a.gitIconButton(c, i18n.Shared(lang, "git.diff.split"), icons.Columns2, t.split, false) && !t.split {
 				c.After(func() { a.setDiffMode(p, t, true, t.whole) })
