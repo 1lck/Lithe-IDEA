@@ -111,6 +111,7 @@ func (v *View) SetSelection(anchor, active int) bool {
 	}
 	v.anchor, v.caret = anchor, active
 	v.goal, v.lastKind, v.reveal = -1, editOther, true
+	v.clearCursorHistory()
 	v.moved()
 	return true
 }

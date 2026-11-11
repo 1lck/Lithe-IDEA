@@ -143,6 +143,11 @@ type View struct {
 	caretUTF16Offset, caretUTF16Line, caretUTF16Column int
 	caretUTF16Valid                                    bool
 	undo, redo                                         []snapshot
+	// cursorUndo and cursorRedo hold the selections keyboard moves left, newest last.
+	// cursorPending says Undo should restore a selection before undoing text, and
+	// cursorRedoPending says Redo should restore a selection before redoing text.
+	cursorUndo, cursorRedo           []cursorSpot
+	cursorPending, cursorRedoPending bool
 	// lastKind and lastEnd say what the last edit was and where it left the caret, so that
 	// typing on goes into the same undo step.
 	lastKind editKind
@@ -408,6 +413,7 @@ func (v *View) replaceFromDisk(content Content) bool {
 	v.text = content.text
 	v.saved = v.text
 	v.revision++
+	v.clearCursorHistory()
 	v.hl.SetText(v.text)
 	v.forgetRows()
 	boundary := func(at int) int {
@@ -721,6 +727,7 @@ func (v *View) edit(start, end int, text string, kind editKind) {
 	}
 	v.text = v.text.Replace(start, end, []byte(text))
 	v.revision++
+	v.clearCursorHistory()
 	newLast := v.text.LineOf(start + len(text))
 	v.keepStops(firstLine, oldLast, newLast, start-v.text.LineStart(firstLine))
 	v.hl.Edit(v.text, start, end, start+len(text))
@@ -807,6 +814,7 @@ func (v *View) restore(s snapshot) {
 	firstLine, oldLast, oldCount := v.text.LineOf(start), v.text.LineOf(oldEnd), v.text.LineCount()
 	v.text = s.text
 	v.revision++
+	v.clearCursorHistory()
 	newLast := v.text.LineOf(newEnd)
 	v.keepStops(firstLine, oldLast, newLast, start-v.text.LineStart(firstLine))
 	v.hl.Edit(v.text, start, oldEnd, newEnd)

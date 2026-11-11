@@ -52,15 +52,25 @@ func (v *View) Shortcut(event gfx.KeyEvent) (gfx.EventResult, bool) {
 		}
 	case "z":
 		if shift {
-			v.Redo()
-		} else {
+			if !v.CursorRedo() {
+				v.Redo()
+			}
+		} else if !v.CursorUndoPending() || !v.CursorUndo() {
 			v.Undo()
 		}
 	case "y":
 		if runtime.GOOS == "darwin" {
 			return gfx.EventResult{}, false
 		}
-		v.Redo()
+		if !v.CursorRedo() {
+			v.Redo()
+		}
+	case "u":
+		if shift {
+			v.CursorRedo()
+		} else {
+			v.CursorUndo()
+		}
 	case "s":
 		if v.cfg.Save != nil {
 			v.cfg.Save()
@@ -74,6 +84,21 @@ func (v *View) Shortcut(event gfx.KeyEvent) (gfx.EventResult, bool) {
 // Key moves the caret and edits with the named keys. Typed characters come as text input (see
 // TextInput); the second result is false for a key of another target.
 func (v *View) Key(event gfx.KeyEvent) (gfx.EventResult, bool) {
+	if event.Target != v.cfg.HitID || event.Release || v.preedit.Composing {
+		return v.key(event)
+	}
+	before := cursorSpot{anchor: v.anchor, caret: v.caret}
+	revision := v.revision
+	result, ok := v.key(event)
+	if ok && result.Handled && v.revision == revision && (v.anchor != before.anchor || v.caret != before.caret) {
+		v.rememberCursor(before)
+	}
+	return result, ok
+}
+
+// key is Key without the cursor-history bookkeeping; the wrapper records the selection a
+// keyboard move left, so Undo can restore it before it undoes text.
+func (v *View) key(event gfx.KeyEvent) (gfx.EventResult, bool) {
 	if event.Target != v.cfg.HitID {
 		return gfx.EventResult{}, false
 	}
@@ -380,12 +405,14 @@ func (v *View) Pointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 			// the selection, so the menu's actions are about the text pointed at.
 			if start, end := v.Selection(); offset < start || offset > end {
 				v.anchor, v.caret = offset, offset
+				v.clearCursorHistory()
 				v.moved()
 			}
 			// It stays unhandled, so the page can open the context menu on it.
 			return gfx.EventResult{Repaint: true, Focus: v.cfg.HitID}, true
 		}
 		v.dragging = true
+		v.clearCursorHistory()
 		v.dragUnit = min(max(event.ClickCount, 1), 3)
 		if event.Modifiers&gfx.ModifierShift != 0 && v.dragUnit == 1 {
 			v.dragFrom, v.dragTo = v.anchor, v.anchor
