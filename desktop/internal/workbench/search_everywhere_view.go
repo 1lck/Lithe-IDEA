@@ -126,7 +126,11 @@ func (a *App) everywhereResults(c ui.C, p *project, language i18n.Language) {
 				})
 			} else {
 				ui.Text(row.C, name).Grow(1).Shrink(1).MinWidth(0).FontSize(13).Ellipsis()
-				ui.Text(row.C, result.Path).FontSize(12).Color(a.colors.Subtle).Ellipsis()
+				subtitle := result.Path
+				if module := a.moduleName(p, result.Path); module != "" {
+					subtitle += " · " + module
+				}
+				ui.Text(row.C, subtitle).FontSize(12).Color(a.colors.Subtle).Ellipsis()
 			}
 		})
 		if row.Element.Clicked() {
