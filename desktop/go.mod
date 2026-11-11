@@ -2,6 +2,10 @@ module github.com/1lck/Lithe-IDEA/desktop
 
 go 1.26.0
 
+// gofmt output differs between releases (1.27 aligns long map keys differently),
+// so CI (setup-go reads this line) and local builds must format with one toolchain.
+toolchain go1.27.3
+
 require (
 	github.com/creack/pty v1.1.24
 	github.com/vivaui/viva v0.5.2-0.20261110112637-189ed59da047
