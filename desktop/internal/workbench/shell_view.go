@@ -81,7 +81,7 @@ func (a *App) shellSplitter(c ui.C, which shellSplit) ui.Box {
 // window of an open project holds that project's terminals, one tab each in its header, and
 // the body shows the selected one.
 func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
-	tool := catalog[index]
+	tool := a.chrome.catalog[index]
 	p := a.project
 	tabbed := tool.id == itemGit
 	header := float32(panelHeaderHeight)
@@ -169,7 +169,14 @@ func (a *App) toolBody(c ui.C, tool item, p *project) {
 		case itemAssistant:
 			a.agentPanel(c)
 		default:
-			a.toolPlaceholder(c)
+			switch {
+			case tool.tool != nil && tool.tool.Web != "":
+				a.pluginWebBody(c, tool, p)
+			case tool.tool != nil:
+				a.pluginTextBody(c, tool.tool)
+			default:
+				a.toolPlaceholder(c)
+			}
 		}
 	})
 }

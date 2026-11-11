@@ -256,10 +256,11 @@ func (a *App) uninstallPlugin(id string) {
 	})
 }
 
-// reloadPluginLanguages registers the languages of the enabled plugins.
+// reloadPluginLanguages registers the languages and tool windows of the enabled plugins.
 //
-// The registry replaces its plugin languages whole, so a plugin that was disabled
-// or removed loses its highlighting in the same pass that registers a new one.
+// The registry replaces its plugin languages whole, and the catalog its plugin tool
+// windows, so a plugin that was disabled or removed loses its highlighting and its
+// windows in the same pass that registers a new one.
 func (a *App) reloadPluginLanguages() {
 	if a.plugins == nil {
 		return
@@ -272,10 +273,15 @@ func (a *App) reloadPluginLanguages() {
 			}
 		}
 		languages, loadErr := a.plugins.LoadLanguages(ctx, entries)
+		windows, windowsErr := a.plugins.ToolWindows(ctx, entries)
 		return func(a *App) {
 			if loadErr != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_languages", loadErr))
 			}
+			if windowsErr != nil {
+				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_tool_windows", windowsErr))
+			}
+			a.setPluginTools(windows)
 			failed, _ := a.syntaxRegistry().SetPluginLanguages(languages)
 			if len(failed) > 0 {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_languages",

@@ -48,6 +48,12 @@ func (a *App) Config() app.Config {
 		OnPointer:  a.onPointer,
 		// Files dropped on the Agent composer become references in its draft.
 		OnFileDrop: a.agentFileDrop,
+		// Plugin web tool windows show their pages in views of the system's web engine.
+		Web: &a.web,
+	}
+	a.web.OnReady = func() {
+		a.webReady = true
+		a.invalidator.Invalidate()
 	}
 	background := a.colors.Chrome
 	a.root = ui.NewPage(ui.PageConfig{
@@ -91,7 +97,10 @@ func (a *App) beginPaint(canvas *gfx.Canvas) {
 }
 
 // endPaint settles what the paint declared.
-func (a *App) endPaint() { a.endTerminalFrame() }
+func (a *App) endPaint() {
+	a.endTerminalFrame()
+	a.endPluginPageFrame()
+}
 
 // page declares the window: one stack, so what is declared after the workbench lies over it
 // and an overlay that hangs off a point of the window is placed against the whole window.

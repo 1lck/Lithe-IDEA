@@ -11364,7 +11364,13 @@
     "desktop.commit.instructions": "Generation instructions",
     "desktop.commit.instructionsHelp": "Requirements handed to the AI with the changes when it writes a commit message, such as the tone, the format or what to leave out. Nothing is added when it is empty.",
     "desktop.commit.instructionsPlaceholder": "For example: avoid long descriptions",
-    "desktop.commit.openSettings": "Open in Settings…"
+    "desktop.commit.openSettings": "Open in Settings…",
+    "desktop.pluginWeb.openFileTitle": "Choose a File for {plugin}",
+    "desktop.pluginWeb.saveFileTitle": "Save a File for {plugin}",
+    "desktop.pluginWeb.dialogTitle": "{plugin}: {title}",
+    "desktop.pluginWeb.fileFilter": "Files ({extensions})",
+    "desktop.pluginWeb.unavailable": "This window cannot be shown: {reason}",
+    "desktop.pluginWeb.loading": "Opening…"
   },
   "overrides": {
     "windows": {

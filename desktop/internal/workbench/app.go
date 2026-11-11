@@ -347,6 +347,11 @@ type App struct {
 	plugins *pluginservice.Service
 	// prompts are the questions plugins ask the user, one sheet at a time.
 	prompts pluginPrompts
+	// web opens the pages of plugin web tool windows; webReady is set once it can.
+	web      app.WebHost
+	webReady bool
+	// pluginPages are the open pages of web tool windows by chrome identifier.
+	pluginPages map[string]*pluginPage
 	// pluginInstall is the install the user started.
 	pluginInstall pluginInstallState
 	// credentialImport is the import of an earlier client's plugin secrets the user asked
@@ -738,7 +743,7 @@ func (a *App) resetLayout() { a.reduceChrome(core.ResetChrome()) }
 // button opens or closes its tool window, the settings button opens or closes its menu
 // and the commands that need a provider that is not connected yet say so.
 func (a *App) activate(index int) {
-	it := catalog[index]
+	it := a.chrome.catalog[index]
 	switch {
 	case it.panel:
 		a.reduceChrome(core.ToggleChrome(it.id))
@@ -783,7 +788,7 @@ func (a *App) activate(index int) {
 // hidePanel closes the tool window open in a slot.
 func (a *App) hidePanel(s slot) {
 	if index := a.chrome.open[s]; index >= 0 {
-		a.reduceChrome(core.SetChromeOpen(catalog[index].id, false))
+		a.reduceChrome(core.SetChromeOpen(a.chrome.catalog[index].id, false))
 	}
 }
 
@@ -927,6 +932,7 @@ func (a *App) finishCloseProject(p *project, after func()) {
 		a.cancelPrompts()
 		a.ideAPIDisable(p)
 		p.cancel()
+		a.closePluginPages()
 		a.closeTree(p)
 		a.closeGitObservation(p)
 		a.releaseProjectSearch(p)

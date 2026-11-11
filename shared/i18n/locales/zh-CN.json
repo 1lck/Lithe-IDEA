@@ -11364,7 +11364,13 @@
     "desktop.commit.instructions": "生成提示词",
     "desktop.commit.instructionsHelp": "生成提交信息时一并交给 AI 的要求，例如语气、格式或要省略的内容。留空时不附加。",
     "desktop.commit.instructionsPlaceholder": "例如：不要写冗长的描述",
-    "desktop.commit.openSettings": "在设置中打开…"
+    "desktop.commit.openSettings": "在设置中打开…",
+    "desktop.pluginWeb.openFileTitle": "为 {plugin} 选择文件",
+    "desktop.pluginWeb.saveFileTitle": "为 {plugin} 保存文件",
+    "desktop.pluginWeb.dialogTitle": "{plugin}：{title}",
+    "desktop.pluginWeb.fileFilter": "文件（{extensions}）",
+    "desktop.pluginWeb.unavailable": "无法显示此窗口：{reason}",
+    "desktop.pluginWeb.loading": "正在打开…"
   },
   "overrides": {
     "macos": {

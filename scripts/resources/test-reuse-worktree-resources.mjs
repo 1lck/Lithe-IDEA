@@ -424,7 +424,7 @@ try {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "plugin-web-state");
     assert.equal(resource.reusable, false);
-    assert.ok(resource.locations.some(location => location.includes("web-state/<window-id>/<workspace-digest>.json")));
+    assert.ok(resource.locations.some(location => location.includes(".state/<plugin-id>/pages/workspaces/<workspace-key>/<window-digest>.json")));
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
     assert.ok(!listed.stdout.includes(resource.id));

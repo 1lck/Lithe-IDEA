@@ -147,6 +147,9 @@ func Declared() Capabilities {
 		// Console lines of Build, Run and Test output become links at the ranges
 		// Core finds; a matcher with resolve asks the plugin's backend on click.
 		"outputLinkMatchers": {1},
+		// Plugin tool windows dock in the tool stripes: plain text (1) or a
+		// page of the package behind the window.lithe bridge (2).
+		"ui": {1, 2},
 	}
 }
 

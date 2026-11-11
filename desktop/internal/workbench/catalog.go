@@ -7,6 +7,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -193,6 +194,8 @@ type item struct {
 	panel bool
 	// open reports that the tool window is open in the default layout.
 	open bool
+	// tool is the plugin tool window the item shows; nil for a built-in item.
+	tool *pluginservice.ToolWindow
 }
 
 // catalog is every rearrangeable button, in the default order of each zone. The
@@ -235,18 +238,13 @@ var catalog = []item{
 	{id: itemHealth, zone: zoneStatus, icon: &icons.CircleCheck, label: func(m *i18n.Messages) string { return m.Status.Healthy }},
 }
 
-var (
-	// coreCatalog is catalog in the kernel's terms, sent with every layout call.
-	coreCatalog []core.ChromeItem
-	// catalogIndex finds a catalog item by its identifier.
-	catalogIndex map[string]int
-)
+// catalogIndex finds a built-in item by its identifier. A window lists the built-in
+// items first, at the indices of catalog, so the index is the same in every window.
+var catalogIndex map[string]int
 
 func init() {
-	coreCatalog = make([]core.ChromeItem, len(catalog))
 	catalogIndex = make(map[string]int, len(catalog))
 	for i, it := range catalog {
-		coreCatalog[i] = core.ChromeItem{ID: it.id, DefaultZone: zoneNames[it.zone], Panel: it.panel, OpenByDefault: it.open}
 		catalogIndex[it.id] = i
 	}
 }
@@ -256,6 +254,17 @@ func init() {
 // which the drag gesture measures against.
 type chromeState struct {
 	layout core.ChromeLayout
+	// catalog is the catalog of this window: the built-in items at the indices of the
+	// package's catalog, then the tool windows of the enabled plugins. index finds an item
+	// by its identifier, and coreItems is catalog in the kernel's terms, sent with every
+	// layout call.
+	catalog   []item
+	index     map[string]int
+	coreItems []core.ChromeItem
+	// saved is the arrangement last read from or written to the layout file. It still
+	// places the tool windows of plugins that are not enabled now, so they come back where
+	// the user left them.
+	saved core.ChromeLayout
 	// items lists the catalog indices of each zone in display order.
 	items [zoneCount][]int
 	// open is the catalog index of the open tool window of each slot, -1 for none.
@@ -275,19 +284,74 @@ type chromeState struct {
 }
 
 func newChromeState() *chromeState {
-	c := &chromeState{
-		ids:       make([]gfx.ID, len(catalog)),
-		rects:     make([]gfx.Rect, len(catalog)),
-		rectHooks: make([]func(*ui.DrawContext), len(catalog)),
-	}
-	for i := range c.rectHooks {
-		c.rectHooks[i] = func(d *ui.DrawContext) { c.rects[i] = d.Rect }
-	}
+	c := &chromeState{}
+	c.setItems(catalog)
 	for z := range c.zoneHooks {
 		c.zoneHooks[z] = func(d *ui.DrawContext) { c.zoneRects[z] = d.Rect }
 	}
 	c.apply(defaultLayout())
 	return c
+}
+
+// setItems makes items the catalog of the window. The arrangement still names the old
+// items until the kernel repairs it against the new catalog and it is applied again.
+func (c *chromeState) setItems(items []item) {
+	c.catalog = items
+	c.index = make(map[string]int, len(items))
+	c.coreItems = make([]core.ChromeItem, len(items))
+	for i, it := range items {
+		c.coreItems[i] = core.ChromeItem{ID: it.id, DefaultZone: zoneNames[it.zone], Panel: it.panel, OpenByDefault: it.open}
+		c.index[it.id] = i
+	}
+	c.ids = make([]gfx.ID, len(items))
+	c.rects = make([]gfx.Rect, len(items))
+	c.rectHooks = make([]func(*ui.DrawContext), len(items))
+	for i := range c.rectHooks {
+		c.rectHooks[i] = func(d *ui.DrawContext) { c.rects[i] = d.Rect }
+	}
+}
+
+// withAbsent is layout with the saved places of plugin tool windows the catalog does not
+// list now, which the kernel leaves out of every layout it returns.
+func (c *chromeState) withAbsent(layout core.ChromeLayout) core.ChromeLayout {
+	merged := core.ChromeLayout{
+		Placements: append([]core.Placement(nil), layout.Placements...),
+		Open:       append([]string(nil), layout.Open...),
+	}
+	for _, placement := range c.saved.Placements {
+		if _, known := c.index[placement.ID]; !known && isPluginItem(placement.ID) {
+			merged.Placements = append(merged.Placements, placement)
+		}
+	}
+	for _, id := range c.saved.Open {
+		if _, known := c.index[id]; !known && isPluginItem(id) {
+			merged.Open = append(merged.Open, id)
+		}
+	}
+	return merged
+}
+
+// restated is the arrangement to repair against a changed catalog: the saved one, which
+// places the plugin tool windows the old catalog lacked where the user left them,
+// completed with the places of the current one that were never saved.
+func (c *chromeState) restated() core.ChromeLayout {
+	if len(c.saved.Placements) == 0 {
+		return c.layout
+	}
+	restated := core.ChromeLayout{
+		Placements: append([]core.Placement(nil), c.saved.Placements...),
+		Open:       append([]string(nil), c.saved.Open...),
+	}
+	saved := make(map[string]bool, len(c.saved.Placements))
+	for _, placement := range c.saved.Placements {
+		saved[placement.ID] = true
+	}
+	for _, placement := range c.layout.Placements {
+		if !saved[placement.ID] {
+			restated.Placements = append(restated.Placements, placement)
+		}
+	}
+	return restated
 }
 
 // defaultLayout is the catalog's default arrangement. It is what the window shows when
@@ -318,7 +382,7 @@ func (c *chromeState) apply(layout core.ChromeLayout) {
 		c.open[s] = -1
 	}
 	for _, placement := range layout.Placements {
-		index, known := catalogIndex[placement.ID]
+		index, known := c.index[placement.ID]
 		z, valid := zoneFromCore(placement.Zone)
 		if !known || !valid {
 			continue
@@ -326,7 +390,7 @@ func (c *chromeState) apply(layout core.ChromeLayout) {
 		c.items[z] = append(c.items[z], index)
 	}
 	for _, id := range layout.Open {
-		index, known := catalogIndex[id]
+		index, known := c.index[id]
 		if !known {
 			continue
 		}
@@ -345,7 +409,7 @@ func (c *chromeState) zoneOf(index int) zone {
 			}
 		}
 	}
-	return catalog[index].zone
+	return c.catalog[index].zone
 }
 
 // isOpen reports whether the tool window of catalog item index is open.
@@ -393,6 +457,7 @@ func (a *App) loadChrome() {
 		a.notify(a.text.Errors.Core(err.Error()))
 		saved, found = core.ChromeLayout{}, false
 	}
+	a.chrome.saved = saved
 	// Normalizing keeps the saved open list, and an empty one means every tool window
 	// is closed. With nothing saved the kernel's defaults apply, open windows included.
 	action := core.NormalizeChrome()
@@ -401,7 +466,7 @@ func (a *App) loadChrome() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
 	defer cancel()
-	layout, _, err := a.kernel.ReduceChromeLayout(ctx, coreCatalog, saved, action)
+	layout, _, err := a.kernel.ReduceChromeLayout(ctx, a.chrome.coreItems, saved, action)
 	if err != nil {
 		a.notify(a.text.Errors.Core(err.Error()))
 		return
@@ -414,7 +479,7 @@ func (a *App) loadChrome() {
 func (a *App) reduceChrome(action core.ChromeAction) {
 	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
 	defer cancel()
-	layout, changed, err := a.kernel.ReduceChromeLayout(ctx, coreCatalog, a.chrome.layout, action)
+	layout, changed, err := a.kernel.ReduceChromeLayout(ctx, a.chrome.coreItems, a.chrome.layout, action)
 	if err != nil {
 		a.notify(a.text.Errors.Core(err.Error()))
 		return
@@ -431,7 +496,10 @@ func (a *App) reduceChrome(action core.ChromeAction) {
 	if !changed {
 		return
 	}
-	if err := a.store.Save(layoutFile, layout); err != nil {
+	saved := a.chrome.withAbsent(layout)
+	if err := a.store.Save(layoutFile, saved); err != nil {
 		a.notify(a.text.Errors.SaveFailed(err.Error()))
+		return
 	}
+	a.chrome.saved = saved
 }

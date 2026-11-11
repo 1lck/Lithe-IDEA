@@ -72,8 +72,9 @@ type Host interface {
 	// CallBackend invokes a function of the plugin's backend for the
 	// workspace. progress, when not nil, receives the call's progress.
 	CallBackend(ctx context.Context, pluginID, function string, params json.RawMessage, progress func(json.RawMessage)) (json.RawMessage, error)
-	// ChooseFile shows a file dialog on the window thread and returns the
-	// chosen absolute path, or "" when cancelled.
+	// ChooseFile shows a file dialog and returns the chosen absolute path,
+	// or "" when cancelled. It is called off the window thread and blocks
+	// until the user answers; Core lets a page have one dialog at a time.
 	ChooseFile(pluginID string, request FileRequest) (string, error)
 	// OpenFile opens a workspace file in the editor on the window thread.
 	OpenFile(path string, line, column int) error
@@ -286,8 +287,8 @@ func (p *Page) answer(action core.PluginWebAction, call string, result any, fail
 	p.config.Post(func() { p.deliver(message) })
 }
 
-// carryOut runs one checked action. Work that waits or touches files runs
-// off the window thread; dialogs and editor navigation run on it.
+// carryOut runs one checked action. Work that waits, touches files or shows
+// a dialog runs off the window thread; editor navigation runs on it.
 func (p *Page) carryOut(action core.PluginWebAction) {
 	var params struct {
 		Path          string          `json:"path"`
@@ -361,11 +362,12 @@ func (p *Page) carryOut(action core.PluginWebAction) {
 		}
 		go p.answer(action, "", struct{}{}, nil)
 	case "dialog.openFile", "dialog.saveFile":
-		path, err := host.ChooseFile(plugin, FileRequest{
+		request := FileRequest{
 			Save: action.Method == "dialog.saveFile", Title: params.Title,
 			SuggestedName: params.SuggestedName, Extensions: params.Extensions,
-		})
+		}
 		go func() {
+			path, err := host.ChooseFile(plugin, request)
 			if err != nil {
 				p.log("dialog", err)
 				p.answer(action, "", nil, Fail("plugin.web.forbidden", err.Error()))

@@ -108005,6 +108005,64 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.pluginWeb.openFileTitle",
+      "description": "Title of the open-file dialog a plugin page asked for. {plugin} is the plugin's name.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "plugin": "string"
+      }
+    },
+    {
+      "id": "desktop.pluginWeb.saveFileTitle",
+      "description": "Title of the save-file dialog a plugin page asked for. {plugin} is the plugin's name.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "plugin": "string"
+      }
+    },
+    {
+      "id": "desktop.pluginWeb.dialogTitle",
+      "description": "Title of a file dialog a plugin page asked for with its own title, which names the plugin first.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "plugin": "string",
+        "title": "string"
+      }
+    },
+    {
+      "id": "desktop.pluginWeb.fileFilter",
+      "description": "Name of the file type filter of a plugin page's file dialog. {extensions} lists the extensions.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "extensions": "string"
+      }
+    },
+    {
+      "id": "desktop.pluginWeb.unavailable",
+      "description": "Shown in a plugin tool window whose page cannot be opened. {reason} is the error.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.pluginWeb.loading",
+      "description": "Shown in a plugin tool window while its page opens.",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

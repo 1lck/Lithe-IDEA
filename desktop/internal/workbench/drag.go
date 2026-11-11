@@ -145,7 +145,7 @@ func (a *App) toolDrop(_, _ gfx.ID) {
 	d := a.drag
 	a.drag = dragState{}
 	if d.active && d.hasTarget {
-		a.reduceChrome(core.MoveChrome(catalog[d.item].id, zoneNames[d.target.zone], d.target.before))
+		a.reduceChrome(core.MoveChrome(a.chrome.catalog[d.item].id, zoneNames[d.target.zone], d.target.before))
 	}
 }
 
@@ -253,7 +253,7 @@ func (a *App) dragInsertion(item int, z zone, x, y float32) (string, gfx.Rect) {
 		}
 		if pointer < start+extent/2 {
 			// The line sits in the middle of the gap in front of the button.
-			position, before = start-(chromeGap+dragMark)/2, catalog[other].id
+			position, before = start-(chromeGap+dragMark)/2, a.chrome.catalog[other].id
 			break
 		}
 		position = start + extent + (chromeGap-dragMark)/2
@@ -318,7 +318,7 @@ func (a *App) paintSnappedToolGhost(canvas *gfx.Canvas, d *dragState) {
 		gfx.Rect{Width: d.viewport.Width, Height: d.viewport.Height},
 	)
 	canvas.RoundedBorder(ghost, dragGhostRadius, dragGhostBorderWidth, a.colors.Accent, a.colors.Editor)
-	if icon := catalog[d.item].icon; icon != nil {
+	if icon := a.chrome.catalog[d.item].icon; icon != nil {
 		canvas.DrawIcon(*icon, ghost.Inset(gfx.All(dragSnappedGhostIconInset)), a.colors.Text)
 	}
 }
@@ -344,7 +344,7 @@ func (a *App) paintDetachedToolGhost(canvas *gfx.Canvas, d *dragState) {
 	}
 	color = color.WithAlpha(dragFloatingGhostOpacity)
 	canvas.RoundedBorder(ghost, dragFloatingGhostRadius, dragFloatingGhostBorderWidth, color, color)
-	if icon := catalog[d.item].icon; icon != nil {
+	if icon := a.chrome.catalog[d.item].icon; icon != nil {
 		canvas.DrawIcon(*icon, ghost.Inset(gfx.All(dragFloatingGhostIconInset)), a.colors.Text.WithAlpha(dragFloatingGhostOpacity))
 	}
 }
@@ -384,7 +384,7 @@ func (a *App) paintDetachedDropPreview(canvas *gfx.Canvas, target dragTarget) {
 // paintLegacyDragGhost keeps title and status drags on their original below-right ghost,
 // because those bars do not detach into the workbench.
 func (a *App) paintLegacyDragGhost(canvas *gfx.Canvas, d *dragState) {
-	icon := catalog[d.item].icon
+	icon := a.chrome.catalog[d.item].icon
 	text := a.dragGhostText(d.item)
 	ghost := gfx.Rect{X: d.x + dragGhostOffset, Y: d.y + dragGhostOffset, Width: dragGhostSize, Height: dragGhostSize}
 	if text != "" {
@@ -444,7 +444,7 @@ func dockMoveTitle(messages *i18n.Messages, z zone) string {
 // its icon: the reading of a status item, or the name of the run configuration. The
 // other buttons are icons only.
 func (a *App) dragGhostText(item int) string {
-	if catalog[item].id == itemRunConfig {
+	if a.chrome.catalog[item].id == itemRunConfig {
 		return a.text.Title.CurrentFile
 	}
 	return a.chromeStatusText(item)

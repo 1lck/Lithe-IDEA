@@ -76,7 +76,11 @@ func (h *fakeHost) CallBackend(ctx context.Context, _, function string, params j
 	return nil, Fail("plugin.function.unknown", "no such function")
 }
 
-func (h *fakeHost) ChooseFile(string, FileRequest) (string, error) { return h.chosen, nil }
+func (h *fakeHost) ChooseFile(string, FileRequest) (string, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.chosen, nil
+}
 
 func (h *fakeHost) OpenFile(path string, _, _ int) error {
 	h.mu.Lock()
@@ -239,7 +243,9 @@ func TestPageRequestsReachTheHost(t *testing.T) {
 		t.Fatalf("saveFile = %s", reply)
 	}
 	// The dialog's reply ended it, so the page may open another.
+	f.host.mu.Lock()
 	f.host.chosen = ""
+	f.host.mu.Unlock()
 	if reply := f.request(t, 6, "dialog.openFile", nil); string(reply["ok"]) != `{"path":null}` {
 		t.Fatalf("cancelled openFile = %s", reply)
 	}

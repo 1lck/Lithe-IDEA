@@ -19,7 +19,7 @@ import (
 // and report their state to assistive technology. value is the reading of a status item,
 // empty for the other buttons.
 func (a *App) chromeBox(row ui.Box, id gfx.ID, i int, open bool, value string) ui.Box {
-	it := catalog[i]
+	it := a.chrome.catalog[i]
 	label := it.label(a.text)
 	if it.id == itemChanges {
 		// The label of the changes item is a fixed "No changes"; the reading says how many.
@@ -52,7 +52,7 @@ func (a *App) chromeGlyph(c ui.C, i int, side float32, rest, hover gfx.Color, op
 	k := c.KeyInt(i)
 	box := a.chromeBox(ui.Row(k).Size(side, side).Shrink(0).Center(), ui.ID(k), i, open, "")
 	box.Children(func() {
-		ui.Icon(k, *catalog[i].icon).Size(chromeIconSize, chromeIconSize).Color(rest).
+		ui.Icon(k, *a.chrome.catalog[i].icon).Size(chromeIconSize, chromeIconSize).Color(rest).
 			StateFrom(box).Hover(ui.Look{}.Color(hover))
 	})
 	return box, box.Clicked()
@@ -133,12 +133,12 @@ func (a *App) chromeProject(c ui.C) {
 // chromeTitleButton declares the title bar button of catalog item i and reports a click on
 // it. The settings button's menu hangs off it.
 func (a *App) chromeTitleButton(c ui.C, i int) bool {
-	switch catalog[i].id {
+	switch a.chrome.catalog[i].id {
 	case itemRunConfig:
 		k := c.KeyInt(i)
 		box := a.chromeBox(ui.Row(k).Height(chromeIconButton).Shrink(0).Items(ui.Center).Gap(chromeGap).PadX(chromeEdge), ui.ID(k), i, false, "")
 		box.Children(func() {
-			ui.Icon(k, *catalog[i].icon).Size(chromeIconSize, chromeIconSize).Color(a.colors.Subtle)
+			ui.Icon(k, *a.chrome.catalog[i].icon).Size(chromeIconSize, chromeIconSize).Color(a.colors.Subtle)
 			ui.Text(k, a.text.Title.CurrentFile).Color(a.colors.Text).LineHeight(chromeLineHeight)
 			ui.Icon(k, icons.ChevronDown).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
 		})
@@ -263,11 +263,11 @@ func (a *App) chromeStatusItem(c ui.C, i int) bool {
 	k := c.KeyInt(i)
 	box := a.chromeBox(ui.Row(k).Height(chromeStatusItem).Shrink(0).Items(ui.Center).Gap(chromeGap).PadX(chromeEdge), ui.ID(k), i, false, text)
 	box.Children(func() {
-		switch catalog[i].id {
+		switch a.chrome.catalog[i].id {
 		case itemLock:
-			ui.Icon(k, *catalog[i].icon).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
+			ui.Icon(k, *a.chrome.catalog[i].icon).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
 		case itemHealth:
-			ui.Icon(k, *catalog[i].icon).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Success)
+			ui.Icon(k, *a.chrome.catalog[i].icon).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Success)
 		case itemLSP:
 			ui.Row(k).Size(chromeDot, chromeDot).Shrink(0).Radius(chromeDot / 2).Background(a.colors.Subtle)
 			a.chromeStatusLabel(k, text)
@@ -275,7 +275,7 @@ func (a *App) chromeStatusItem(c ui.C, i int) bool {
 			a.chromeStatusLabel(k, text)
 		}
 	})
-	if catalog[i].id == itemEncoding {
+	if a.chrome.catalog[i].id == itemEncoding {
 		a.encodingMenu(c, box)
 	}
 	return box.Clicked()

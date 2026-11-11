@@ -168,7 +168,7 @@ func (h *harness) shows(value string) bool {
 // button is where catalog item id was laid out in the last frame.
 func (h *harness) button(id string) gfx.Rect {
 	h.t.Helper()
-	rect := h.app.chrome.rects[catalogIndex[id]]
+	rect := h.app.chrome.rects[h.app.chrome.index[id]]
 	if rect.Width == 0 || rect.Height == 0 {
 		h.t.Fatalf("button %s is not shown", id)
 	}
@@ -197,7 +197,7 @@ func center(r gfx.Rect) gfx.Point { return gfx.Point{X: r.X + r.Width/2, Y: r.Y 
 func (h *harness) zoneItems(z zone) []string {
 	var ids []string
 	for _, index := range h.app.chrome.items[z] {
-		ids = append(ids, catalog[index].id)
+		ids = append(ids, h.app.chrome.catalog[index].id)
 	}
 	return ids
 }

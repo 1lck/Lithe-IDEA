@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-插件界面优先使用宿主的 SwiftUI 原生控件，Maven、Gradle 的任务树、工具栏和选项都由宿主按插件声明原生绘制。允许插件在需要时使用包内 HTML 页面（Web 内容，用宿主的 WebView 渲染），只是保留一种可选方式，不要求插件网页化，也不是原生构建插件的前置依赖。不管用哪种内容，停靠、标题、活动栏、顺序、显隐、布局和生命周期都只能由宿主管理。Core 校验这份契约（`ui` 能力版本 2、`ui.toolWindows[].web`、`ui.web` 权限）。macOS 已用 WKWebView 实现并声明 `ui: [1, 2]`；Windows 还没有实现，继续只声明 `ui: [1]`，Core 会在那里拒绝 `ui` 2 插件。
+插件界面优先使用宿主的 SwiftUI 原生控件，Maven、Gradle 的任务树、工具栏和选项都由宿主按插件声明原生绘制。允许插件在需要时使用包内 HTML 页面（Web 内容，用宿主的 WebView 渲染），只是保留一种可选方式，不要求插件网页化，也不是原生构建插件的前置依赖。不管用哪种内容，停靠、标题、活动栏、顺序、显隐、布局和生命周期都只能由宿主管理。Core 校验这份契约（`ui` 能力版本 2、`ui.toolWindows[].web`、`ui.web` 权限）。2026-11-11 起 Viva 桌面端（macOS、Windows、Linux 共用一套 Go 代码）声明 `ui: [1, 2]`：页面的加载和桥接规则在 Rust Core 的 `plugins.web.*` 命令里，桌面端只负责 Web 视图和 I/O。下文“macOS 的落点”记录的是已移除的 Swift 客户端，只作历史参考。
 
 ## 问题
 
@@ -52,7 +52,7 @@
 - 把宿主的 Swift 视图移进插件包，或者为一个插件在宿主里写 `if pluginID == …`。
 - 让某个插件免于摄像头 / 麦克风确认，或者绕过 `WebMediaCapture.decide` 直接授权；插件名只用在提问文字里，不影响是否询问。
 
-### macOS 的落点
+### macOS 的落点（已移除的 Swift 客户端，历史参考）
 
 代码按分层放置，任何一层都不按插件 ID 写分支：
 
@@ -63,6 +63,24 @@
 - `Platform/MacOS/Plugins/Web/`：`lithe-plugin://<pluginID>/<path>` 自定义 scheme 只读取已安装包内的普通文件（拒绝空段、`.`、`..`、编码分隔符、符号链接和越出包根的路径，单文件不超过 16 MiB），每个响应都带 CSP、`nosniff` 和 `no-store`；WKWebView 使用 `nonPersistent()` 数据存储，用户脚本在文档开始时定义冻结的 `window.lithe`，只接受主框架、本插件源的消息；跳出本插件源的导航、弹窗、无法显示的 MIME（会变成下载）一律取消。只有本地开发包可以打开 Web Inspector。摄像头 / 麦克风请求经 `WebMediaCapture.decide` 逐次确认，只认本插件主框架（scheme、host 等于插件 ID、端口 0），回答时页面必须仍在窗口里；视图离开窗口时 `MacPluginWebView.viewDidMoveToWindow` 触发结束采集，页面不在窗口里时设备变成使用中（`cameraCaptureState` / `microphoneCaptureState` 的 KVO）也立即停掉。
 - `ui.setState` 由 `MacPluginWebStateStore` 写到平台 adapter 解析的 `Application Support/Lithe/PluginState/<plugin>/web-state/<window>/<工作区摘要>.json`，单窗口/工作区上限 64 KiB，随插件状态目录卸载清理。它是用户可变状态，没有可复用的构建身份；`worktree-resources.json` 的 `plugin-web-state` 明确禁止任何阶段跨工作树复制。包内网页和脚本始终只读，不改变签名或 Sparkle delta 的源基线。
 - 安装校验（`MacPluginPackageStore.validatePackage`）要求每个 `web.entry` 是包内存在的 `.html` 普通文件。
+
+### Viva 的落点
+
+规则放在 Core，I/O 放在桌面端。这是 develop-lithe“可共享逻辑进 Core”的要求：三个平台共用同一份判断，桌面端不再各写一套。
+
+- **Core（`rust/lithe-core/src/plugins/web_content.rs`）**：`plugins.web.open` 为一个已声明的 web 窗口登记页面，返回私有源 URL 和限额；`resource` 判断一个请求路径能不能读、读包里的哪几段路径（拒绝 `..`、空段、编码分隔符和保留的 `.lithe-host/`）；`document` 在 HTML 文档最前面注入 CSP meta 和桥接脚本；`request` 校验页面发来的每条消息，要么直接给出拒绝回复，要么交回一个已规范化的动作；`reply` 和 `event` 把结果、进度和主题变化封装成发给页面的消息。调用 ID 不可复用、同时最多 16 个调用、一次只开一个对话框，这些计数也都在 Core 里。
+- **`desktop/internal/pluginweb`**：一个 `Page` 对应一个页面。它按 Core 给出的路径段逐级 `Lstat` 读取包文件，不跟随任何符号链接，并且限制大小；把 Core 交回的动作交给 `Host` 执行（状态读写、后端调用和进度、文件对话框、在编辑器里打开文件），再把 Core 封装好的回复投递给页面。等待、读写文件和弹对话框都在窗口线程之外进行。页面关闭时取消它的全部调用，之后的结果不再投递。
+- **`desktop/internal/workbench`**：插件工具窗口加进每个窗口自己的 chrome 目录，由 Core 统一排列。停用插件期间，保存的布局仍保留它的位置，重新启用后回到原处。网页窗口用 `app.WebHost` 打开 Web 视图，并用 `NativeView` 填满窗口正文。一帧没有声明某个页面，这个页面就在 `endPaint` 里关闭。所以隐藏或移动窗口、关闭项目、停用或更新插件，都走同一条关闭路径。
+- **状态（`pluginservice.SetPageState`）**：写到每用户插件根目录下的 `.state/<plugin>/pages/workspaces/<工作区键>/<窗口摘要>.json`，与插件后端的工作区状态放在一起，按窗口和工作区隔离，写入时先写临时文件再改名。它不在插件包或应用 bundle 里，所以不改变签名或增量更新的基线；`plugin-web-state` 仍然禁止跨工作树复用。
+
+Viva 的 Web 视图目前有四处达不到契约，已记录为上游缺口，补齐前按下面的方式处理：
+
+- 自定义 scheme 不能设置响应头，所以 CSP 以 meta 标签注入到文档最前面。不要因为页面里多了这行 meta 就把它删掉。
+- 不能在导航开始前拦截，只能在导航提交后发现页面离开了本插件源，再把它送回入口。
+- 数据存储是持久的，与契约“网页存储不持久”不符；状态仍然只走桥接。
+- 包资源回调在窗口线程上同步执行，所以读包文件要有大小上限，Core 判断要设本地期限。
+
+另外，本宿主不向页面提供构建系统（`build.*` 返回 `plugin.web.unknownMethod`），也还不支持摄像头、麦克风和插件声明的窗口图标（暂用通用工具窗口图标）。
 
 ### 启动进程前的确认
 
@@ -99,6 +117,10 @@
 
 ## 验证
 
+- Viva：`scripts/desktop/desktop-go.sh test -race -count=1 ./internal/pluginweb` 用真实 Core 和共享 web-panel 夹具，验证文档注入、包外路径和链接被拒、大小上限、状态往返、调用结果与只属于本调用的进度、页面取消和关闭页面取消调用、调用 ID 不可复用、对话框、越界的 `workspace.openFile`、离开插件源的导航被送回入口、主题事件。`./internal/pluginservice -run TestPage` 覆盖进度路由和按窗口、工作区隔离的状态；`./internal/workbench -run TestPluginToolWindows` 覆盖文本窗口内容、网页窗口在引擎未就绪和打不开时的提示、隐藏即关闭页面、停用期间保存的布局仍保留窗口位置。Core 侧有 `web_content_tests.rs` 9 项。无界面驱动没有 Web 引擎，真实页面显示、CSP 拦截和主题切换的产品验收保持 pending。
+
+以下为已移除的 Swift 客户端的历史验证记录：
+
 - 固定 Swift 6.3.3，配合 `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk`，`LITHE_SWIFT_BUILD_JOBS=4`、`CARGO_BUILD_JOBS=4`、`LITHE_TEST_WINDOW_MODE=isolated`，运行 `test-stability-macos.sh --suite-timeout-seconds 1200 -- --filter 'PluginWeb|PluginManagerTests|WorkbenchContributionHostTests|BuildSystemServiceTests|PluginPackageStoreTests|PluginMarketplace|Localiz'`。2026-10-18 最终增量回归 141 项、18 个 suite 全部通过，用例执行总计 2.759 秒，报告在 `.artifacts/test-stability/macos-swift.json` 与 `index.html`；首轮冷启动真实 WKWebView 用例 4.533 秒也通过。新增生命周期和模型字段修补均已纳入最终回归。
 - 整合树新增同进程双项目登记表、后注册窗口、旧管理器启用不能撤销包替换、弱引用释放与安装/回滚/卸载独立回调回归。2026-10-18 固定工具链的整合回归 261 项、21 个 suite 全部通过，测试执行 19.016 秒；报告为 `.artifacts/test-stability/plugin-integration-final.{json,html,junit.xml,log}`。三项跨项目生命周期用例各 1 毫秒，包修改独立通知 17 毫秒，真实 WKWebView 643 毫秒。上述 141 项记录只证明广播修补前的版本。
 - `PluginWebBridgeTests` 的 `busyBuildIsNotReplacedOrItsOutputCleared` 和 `runStartedWhileAwaitingConsentIsNotReplaced` 均参数化覆盖任务与测试入口；后者通过有本地期限的 `TestGate` 控制“等待确认 → 其他运行开始 → 确认允许”的顺序，断言不取消、不清输出、不认领其他运行。`sameNameTargetsAreSelectedByTheirModelTags` 覆盖同名同目录的 `demo` application/example 及标签顺序无关，确认最终 tags、properties 和 execution 均从模型重建；`cargoExampleSelectionReachesTheRealCorePlan` 用真实 Cargo 声明及静态模型解码生成同名 application/example，再把桥接选出的请求交给真实 Core `taskPlan`，验证 `targetTags: ["example"]` 接受该选择并生成 `run --example demo`；`ambiguousOrUnknownTargetTagsDoNotStartARun` 与 `malformedTargetTagsAreRefused` 覆盖歧义、伪造及错误类型标签。这批回归须由 macOS timing harness 单独执行后才视为已验证，前述历史报告不包含它们。
@@ -111,6 +133,10 @@
 ## 适用范围
 
 - `shared/contracts/plugins/v1/`
+- Lithe-core-rust：`rust/lithe-core/src/plugins/web_content.rs`（Lithe-IDEA/Lithe-core-rust#9）
+- `desktop/internal/pluginweb/`
+- `desktop/internal/workbench/pluginpages.go`、`desktop/internal/workbench/plugintools.go`
+- `desktop/internal/pluginservice/pages.go`、`desktop/internal/pluginservice/toolwindows.go`
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/declarative.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/declarative.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/capabilities.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/capabilities.rs)
 - ~~`macos/Sources/Lithe/Views/Workbench/`~~（已随 #1794 移除）

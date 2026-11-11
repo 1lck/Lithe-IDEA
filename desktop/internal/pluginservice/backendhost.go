@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -86,6 +87,8 @@ type BackendSession struct {
 	ended     bool
 	functions map[string]bool
 	waiters   map[string]chan core.BackendEvent
+	// progress receives the requestProgress results of calls that asked for them.
+	progress map[string]func(json.RawMessage)
 	// changed is closed and replaced whenever ready, functions or ended change.
 	changed chan struct{}
 }
@@ -204,7 +207,7 @@ func (h *BackendHost) start(ctx context.Context, pluginID string) (*BackendSessi
 	session := &BackendSession{
 		host: h, PluginID: pluginID, Version: entry.Installed.Version, Session: started,
 		cancel: cancel, done: make(chan struct{}),
-		functions: make(map[string]bool), waiters: make(map[string]chan core.BackendEvent),
+		functions: make(map[string]bool), waiters: make(map[string]chan core.BackendEvent), progress: make(map[string]func(json.RawMessage)),
 		changed: make(chan struct{}),
 	}
 	go session.serve(serveCtx)
@@ -285,8 +288,46 @@ func (h *BackendHost) Call(ctx context.Context, pluginID, function string, param
 	return session.Call(ctx, function, params, workspaceContext, timeout)
 }
 
+// CallWithProgress is Call that hands progress, the requestProgress results
+// `{ message?, percentage? }` of the call, to progress as they arrive.
+func (h *BackendHost) CallWithProgress(ctx context.Context, pluginID, function string, params, workspaceContext json.RawMessage, timeout time.Duration, progress func(json.RawMessage)) (json.RawMessage, error) {
+	session, err := h.EnsureBackend(ctx, pluginID)
+	if err != nil {
+		return nil, err
+	}
+	return session.call(ctx, function, params, workspaceContext, timeout, progress)
+}
+
+// Functions starts the plugin's backend and returns the sorted IDs of the
+// functions it registered once it is ready.
+func (h *BackendHost) Functions(ctx context.Context, pluginID string) ([]string, error) {
+	session, err := h.EnsureBackend(ctx, pluginID)
+	if err != nil {
+		return nil, err
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, backendReadyTimeout)
+	defer cancel()
+	var functions []string
+	err = session.waitFor(waitCtx, func() bool {
+		if !session.ready {
+			return false
+		}
+		functions = make([]string, 0, len(session.functions))
+		for id := range session.functions {
+			functions = append(functions, id)
+		}
+		return true
+	})
+	sort.Strings(functions)
+	return functions, err
+}
+
 // Call invokes one function and waits for its completion event.
 func (b *BackendSession) Call(ctx context.Context, function string, params, workspaceContext json.RawMessage, timeout time.Duration) (json.RawMessage, error) {
+	return b.call(ctx, function, params, workspaceContext, timeout, nil)
+}
+
+func (b *BackendSession) call(ctx context.Context, function string, params, workspaceContext json.RawMessage, timeout time.Duration, progress func(json.RawMessage)) (json.RawMessage, error) {
 	if timeout <= 0 {
 		timeout = backendFunctionTimeout
 	}
@@ -303,10 +344,14 @@ func (b *BackendSession) Call(ctx context.Context, function string, params, work
 		return nil, ErrBackendUnavailable
 	}
 	b.waiters[operation] = completed
+	if progress != nil {
+		b.progress[operation] = progress
+	}
 	b.mu.Unlock()
 	defer func() {
 		b.mu.Lock()
 		delete(b.waiters, operation)
+		delete(b.progress, operation)
 		b.mu.Unlock()
 	}()
 	if _, err := b.host.service.kernel.InvokePluginFunctionInContext(ctx, b.Session.ID, operation, b.PluginID, function, params, workspaceContext, int(timeout/time.Millisecond)); err != nil {
@@ -483,6 +528,13 @@ func (b *BackendSession) observe(event core.BackendEvent) {
 			case waiter <- event:
 			default:
 			}
+		}
+	case "requestProgress":
+		b.mu.Lock()
+		report := b.progress[event.OperationID]
+		b.mu.Unlock()
+		if report != nil {
+			report(event.Result)
 		}
 	case "functionProviderStartRequired":
 		// Core holds a cross-plugin call until the callee's backend registers the

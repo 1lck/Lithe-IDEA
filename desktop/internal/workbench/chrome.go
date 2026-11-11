@@ -91,7 +91,7 @@ type titleState struct {
 // chromeStatusText is the reading a status item shows, empty for the items that are only
 // a glyph. The drag shows the same words on the ghost of the item.
 func (a *App) chromeStatusText(i int) string {
-	switch catalog[i].id {
+	switch a.chrome.catalog[i].id {
 	case itemCaret:
 		if a.project != nil {
 			if doc := a.project.selectedDocument(a.project.docs.group); doc != nil {
