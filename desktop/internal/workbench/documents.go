@@ -105,6 +105,8 @@ type document struct {
 	// actionTimer the pending collection after an edit (editor_actions.go).
 	actions     []pluginservice.EditorAction
 	actionTimer *time.Timer
+	// actionAnnotated says the line annotations show code lens titles, so clearing them is needed.
+	actionAnnotated bool
 	// breakpointText is the text the breakpoints of this file were last placed in, so an edit can
 	// be given to Core with the text before it (debug_relocate.go).
 	breakpointText rope.Rope
