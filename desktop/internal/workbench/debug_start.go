@@ -340,24 +340,15 @@ func (a *App) beginDebug(p *project, start debugStart) {
 	}
 	generation := p.debug.generation
 	pending := start
-	p.debug.pendingRemote = &pending
-	p.debug.failure = ""
-	p.debug.state = "initializing"
-	p.debug.status = a.text.Debug.Starting
-	p.debug.frames = nil
-	p.debug.pausedThread = nil
-	p.debug.output = nil
-	// Instruction addresses are valid for one run of one process: the set is not replayed.
-	p.debug.instructionBreakpoints = nil
 	// The user's stepping policy goes with the launch; without one Core applies the
 	// adapter's declared defaults. Either decides whether the call stack collapses
 	// the frames it filters.
 	stepping := a.steppingFiltersFor(adapter.Declaration.AdapterID)
-	p.debug.hideFiltered = false
+	hideFiltered := false
 	if stepping != nil {
-		p.debug.hideFiltered = stepping.HideFilteredStackFrames
+		hideFiltered = stepping.HideFilteredStackFrames
 	} else if declared, ok := core.DeclaredSteppingFilters(adapter.Declaration.Features, adapter.Declaration.Defaults); ok {
-		p.debug.hideFiltered = declared.HideFilteredStackFrames
+		hideFiltered = declared.HideFilteredStackFrames
 	}
 	functionBreakpoints := slices.Clone(p.debug.functionBreakpoints)
 	// A data breakpoint whose identity does not persist ends with the session that resolved it.
@@ -396,15 +387,30 @@ func (a *App) beginDebug(p *project, start debugStart) {
 		reader, writer, err := os.Pipe()
 		if err != nil {
 			cancel()
-			p.debug.state = "failed"
-			p.debug.failure = err.Error()
+			a.answerChildStart(p, session, false, err.Error())
+			if start.parent == nil {
+				p.debug.state = "failed"
+				p.debug.failure = err.Error()
+			}
 			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("debug", err))
 			return
 		}
 		stdinReader = reader
 		session.setTransport(writer)
 	}
+	// The session is listed before the window state of the start is written, so the
+	// start writes the new session's view and never the one it interrupts.
 	p.debug.addSession(session)
+	p.debug.pendingRemote = &pending
+	p.debug.failure = ""
+	p.debug.state = "initializing"
+	p.debug.status = a.text.Debug.Starting
+	p.debug.frames = nil
+	p.debug.pausedThread = nil
+	p.debug.output = nil
+	// Instruction addresses are valid for one run of one process: the set is not replayed.
+	p.debug.instructionBreakpoints = nil
+	p.debug.hideFiltered = hideFiltered
 	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "debug.start", "surface": "debug"})
 
 	a.background(p, 0, func(_ context.Context) func(*App) {
@@ -525,7 +531,13 @@ func (a *App) beginDebug(p *project, start debugStart) {
 func (a *App) watchDebugInitialize(p *project, session *debugSession, window time.Duration) {
 	timer := time.AfterFunc(window, func() {
 		a.post(func(a *App) {
-			if a.project == p && p.debug.activeSession() == session && p.debug.state == "initializing" {
+			if a.project != p || !p.debug.hasSession(session) {
+				return
+			}
+			restore := p.debug.bindSession(session)
+			initializing := p.debug.state == "initializing"
+			restore()
+			if initializing {
 				a.finishDebugError(p, session, errors.New(a.text.Debug.TimedOut))
 			}
 		})
@@ -571,19 +583,21 @@ func (a *App) startAdapterProcess(ctx context.Context, p *project, session *debu
 // its own. A clean end is a terminated session; anything else is a failure.
 func (a *App) debugStreamEnded(p *project, session *debugSession, err error) {
 	a.post(func(a *App) {
-		if a.project != p || p.debug.activeSession() != session {
+		if a.project != p || !p.debug.hasSession(session) {
 			return
 		}
 		if err != nil {
 			a.finishDebugError(p, session, err)
 			return
 		}
+		// The adapter's stream ended on its own: the session leaves the list, and the
+		// window shows the terminated state only when nothing else runs.
 		p.debug.removeSession(session)
-		p.debug.frames = nil
-		p.debug.pausedThread = nil
-		p.debug.state = "terminated"
-		p.debug.status = a.text.Debug.Terminated
 		a.releaseDebugSession(p, session)
+		if p.debug.activeSession() == nil {
+			p.debug.state = "terminated"
+			p.debug.status = a.text.Debug.Terminated
+		}
 	})
 }
 
@@ -596,9 +610,11 @@ func (a *App) debugStreamEnded(p *project, session *debugSession, err error) {
 // by a termination.
 func (a *App) openHostedTransport(p *project, session *debugSession, adapter debugAdapter, messages i18n.DebugMessages) error {
 	a.post(func(a *App) {
-		if a.project == p && p.debug.activeSession() == session {
-			p.debug.status = a.text.Debug.WaitingServer
+		if a.project != p || !p.debug.hasSession(session) {
+			return
 		}
+		defer p.debug.bindSession(session)()
+		p.debug.status = a.text.Debug.WaitingServer
 	})
 	discover := func(ctx context.Context) (string, int, error) {
 		var port int

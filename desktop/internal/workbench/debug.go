@@ -45,17 +45,14 @@ type debugAdapter struct {
 	Declaration pluginservice.DebugAdapterDeclaration
 }
 
-// debugState is the Debug tool window's state for one project.
+// debugState is the Debug tool window's state for one project. The window shows
+// one session at a time: debugSessionView is the view of that session, and
+// sessions[current] owns it. A session keeps its own view while it is not shown.
 type debugState struct {
 	loaded          bool
 	loading         bool
 	adapters        []debugAdapter
 	selectedAdapter int
-	failure         string
-	status          string
-	// output is the adapter's bounded stderr and console text.
-	output []string
-	state  string
 	// breakpoints maps an absolute source path to its breakpoints, sorted by line, and
 	// breakpointEdit is the open editor of one of them (debug_breakpoints.go).
 	breakpoints    map[string][]debugBreakpoint
@@ -68,7 +65,28 @@ type debugState struct {
 	instructionBreakpoints []core.DebugInstructionBreakpoint
 	// dataBreakpoints are the variables the session stops on when they change.
 	dataBreakpoints []debugDataBreakpoint
-	// exception is the exception info of the last stop, asked for by the exceptions section.
+	// sessions are the live sessions of the project in start order; a child session
+	// follows the parent that started it. current indexes the one the window shows.
+	sessions   []*debugSession
+	current    int
+	generation uint64
+	// remote is the non-local attach the user has not yet confirmed.
+	remote *debugRemotePrompt
+	// pendingRemote is the start in flight, kept so a remote endpoint can be
+	// confirmed and the same start repeated.
+	pendingRemote *debugStart
+	// debugSessionView is what the window shows for the current session.
+	debugSessionView
+}
+
+// debugSessionView is what the Debug window shows for one session: its stop, stack,
+// variables, output and the status of its own start.
+type debugSessionView struct {
+	state   string
+	status  string
+	failure string
+	// output is the adapter's bounded stderr and console text.
+	output    []string
 	exception *core.DebugExceptionInfo
 	frames    []core.DebugStackFrame
 	// hideFiltered collapses the frames the session's stepping filters match into one
@@ -90,16 +108,6 @@ type debugState struct {
 	// memory the read-only bytes of the selected frame.
 	watch  debugWatch
 	memory debugMemory
-	// sessions are the live sessions of the project in start order; a child session
-	// follows the parent that started it. current indexes the one the window shows.
-	sessions   []*debugSession
-	current    int
-	generation uint64
-	// remote is the non-local attach the user has not yet confirmed.
-	remote *debugRemotePrompt
-	// pendingRemote is the start in flight, kept so a remote endpoint can be
-	// confirmed and the same start repeated.
-	pendingRemote *debugStart
 	// capabilities is what the adapter negotiated; nil until its capabilities
 	// event arrives, and a UI treats nil as unknown rather than unsupported.
 	capabilities *core.DebugCapabilities
@@ -120,24 +128,95 @@ func (s *debugState) activeSession() *debugSession {
 	return s.sessions[s.current]
 }
 
-// addSession appends a started session and makes it the one the window shows.
-func (s *debugState) addSession(session *debugSession) {
-	s.sessions = append(s.sessions, session)
-	s.current = len(s.sessions) - 1
+// hasSession reports whether the session is still one the project runs.
+func (s *debugState) hasSession(session *debugSession) bool {
+	return slices.Contains(s.sessions, session)
 }
 
-// removeSession drops an ended session and keeps the window on a live one.
+// addSession appends a started session and makes it the one the window shows. The
+// session it replaces keeps the view it had.
+func (s *debugState) addSession(session *debugSession) {
+	if shown := s.activeSession(); shown != nil {
+		shown.view = s.debugSessionView
+	}
+	s.sessions = append(s.sessions, session)
+	s.current = len(s.sessions) - 1
+	s.debugSessionView = session.view
+}
+
+// selectSession shows another live session and brings back the view it kept.
+func (s *debugState) selectSession(index int) {
+	if index == s.current || index < 0 || index >= len(s.sessions) {
+		return
+	}
+	if shown := s.activeSession(); shown != nil {
+		shown.view = s.debugSessionView
+	}
+	s.current = index
+	s.debugSessionView = s.sessions[index].view
+}
+
+// removeSession drops an ended session. When it was the one shown, the window moves to
+// the next live session; with none left, the last view stays as it was after Stop.
 func (s *debugState) removeSession(session *debugSession) {
 	index := slices.Index(s.sessions, session)
 	if index < 0 {
 		return
 	}
+	shown := index == s.current
 	s.sessions = slices.Delete(s.sessions, index, index+1)
-	if s.current > index || s.current >= len(s.sessions) {
+	switch {
+	case len(s.sessions) == 0:
+		s.current = 0
+	case shown:
+		if s.current >= len(s.sessions) {
+			s.current = len(s.sessions) - 1
+		}
+		s.debugSessionView = s.sessions[s.current].view
+	case s.current > index:
 		s.current--
 	}
-	if s.current < 0 {
-		s.current = 0
+}
+
+// descendantsOf lists the live sessions that a session's adapter started, at any depth.
+func (s *debugState) descendantsOf(session *debugSession) []*debugSession {
+	var descendants []*debugSession
+	for _, candidate := range s.sessions {
+		for ancestor := candidate.parent; ancestor != nil; ancestor = ancestor.parent {
+			if ancestor == session {
+				descendants = append(descendants, candidate)
+				break
+			}
+		}
+	}
+	return descendants
+}
+
+// bindSession makes session's view the one the state describes while one of its
+// updates is applied, and returns the function that gives the shown session back. A
+// session the window does not show keeps its events in its own view this way.
+func (s *debugState) bindSession(session *debugSession) (restore func()) {
+	shown := s.activeSession()
+	if shown == nil || shown == session || !s.hasSession(session) {
+		return func() {}
+	}
+	shownView := s.debugSessionView
+	s.current = slices.Index(s.sessions, session)
+	s.debugSessionView = session.view
+	return func() {
+		session.view = s.debugSessionView
+		if index := slices.Index(s.sessions, shown); index >= 0 {
+			s.current = index
+			s.debugSessionView = shownView
+			return
+		}
+		// The shown session ended inside this update, so the view of the update's
+		// session stays as the window's last view.
+		if index := slices.Index(s.sessions, session); index >= 0 {
+			s.current = index
+		} else {
+			s.current = 0
+		}
 	}
 }
 
@@ -191,6 +270,11 @@ type debugSession struct {
 	parent         *debugSession
 	startRequestID string
 	startAnswered  atomic.Bool
+	// coreGone is set once Core removed this session with its parent's tree, so the
+	// release does not ask Core to destroy it again.
+	coreGone bool
+	// view is the window's view of this session while another session is shown.
+	view debugSessionView
 }
 
 // writeFrames writes Core's framed bytes to the adapter. The mutex keeps two
@@ -373,9 +457,10 @@ const debugStaleReference = "staleReference"
 // applyDebugUpdate publishes one Core update on the window thread. It can ask
 // for the next inspection; it never writes adapter bytes there.
 func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.DebugUpdate) {
-	if a.project != p || p.debug.activeSession() != session || p.debug.generation != session.generation {
+	if a.project != p || !p.debug.hasSession(session) || p.debug.generation != session.generation {
 		return
 	}
+	defer p.debug.bindSession(session)()
 	p.debug.state = update.State
 	for _, event := range update.Events {
 		switch event.Type {
@@ -428,6 +513,11 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 			// process and Core record without waiting for the user to press Stop.
 			p.debug.removeSession(session)
 			a.releaseDebugSession(p, session)
+			if p.debug.activeSession() == nil {
+				p.debug.state = "terminated"
+				p.debug.status = a.text.Debug.Terminated
+			}
+			return
 		case "operationFailed":
 			if a.completeDebugOperation(p, event) {
 				continue
@@ -461,7 +551,8 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 				a.refreshDebugWatches(p)
 			}
 		case "startDebuggingRequested":
-			a.startChildDebug(p, session, event)
+			// Opening the child changes the sessions, so it runs after this update.
+			a.post(func(a *App) { a.startChildDebug(p, session, event) })
 		case "output":
 			p.debug.output = appendDebugOutput(p.debug.output, event.Output)
 		}
@@ -600,10 +691,23 @@ func (a *App) stopDebug(p *project) {
 	}
 	session := p.debug.activeSession()
 	p.debug.removeSession(session)
-	p.debug.frames = nil
-	p.debug.pausedThread = nil
-	p.debug.state = "idle"
-	p.debug.status = ""
+	a.releaseDebugSession(p, session)
+	if p.debug.activeSession() == nil {
+		p.debug.frames = nil
+		p.debug.pausedThread = nil
+		p.debug.state = "idle"
+		p.debug.status = ""
+	}
+}
+
+// endDebugSession ends one session of the project, shown or not. The shown one stops
+// the way the Stop button does; another one is released in place.
+func (a *App) endDebugSession(p *project, session *debugSession) {
+	if p.debug.activeSession() == session {
+		a.stopDebug(p)
+		return
+	}
+	p.debug.removeSession(session)
 	a.releaseDebugSession(p, session)
 }
 
@@ -623,6 +727,12 @@ func (a *App) releaseDebugSession(p *project, session *debugSession) {
 	session.cleanupOnce.Do(func() {
 		// A child that ends before its start was answered fails the parent's request.
 		a.answerChildStart(p, session, false, a.text.Debug.Child.Stopped)
+		// The children go with this session: they leave the list now and their
+		// transports close once Core has removed the tree.
+		children := p.debug.descendantsOf(session)
+		for _, child := range children {
+			p.debug.removeSession(child)
+		}
 		session.stopped.Store(true)
 		session.cancel()
 		drain := session.drainOnStop.Load() && session.hosted != nil
@@ -642,6 +752,7 @@ func (a *App) releaseDebugSession(p *project, session *debugSession) {
 			ctx, cancel := context.WithTimeout(context.Background(), debugStopTimeout)
 			defer cancel()
 			var cleanupErr error
+			var destroyed []string
 			if session.hosted != nil {
 				if drain && session.created {
 					a.drainHostedSession(ctx, session)
@@ -650,8 +761,8 @@ func (a *App) releaseDebugSession(p *project, session *debugSession) {
 				// session that never got to send a disconnect.
 				_ = session.hosted.Close()
 			}
-			if session.created {
-				_, cleanupErr = a.kernel.DestroyDebugSession(ctx, session.id)
+			if session.created && !session.coreGone {
+				destroyed, cleanupErr = a.kernel.DestroyDebugSession(ctx, session.id)
 			}
 			process := session.process.Load()
 			if process != nil {
@@ -668,10 +779,12 @@ func (a *App) releaseDebugSession(p *project, session *debugSession) {
 			if session.stateDirectory != "" {
 				cleanupErr = errors.Join(cleanupErr, os.RemoveAll(session.stateDirectory))
 			}
-			if cleanupErr != nil {
-				return func(a *App) { a.emit(core.LevelWarn, operationFailedEvent, operationFailedFields("debug", cleanupErr)) }
+			return func(a *App) {
+				a.releaseChildSessions(p, children, destroyed)
+				if cleanupErr != nil {
+					a.emit(core.LevelWarn, operationFailedEvent, operationFailedFields("debug", cleanupErr))
+				}
 			}
-			return nil
 		})
 	})
 }
@@ -705,11 +818,14 @@ func (a *App) stopDebugForProject(p *project) {
 	if p == nil {
 		return
 	}
-	sessions := slices.Clone(p.debug.sessions)
-	p.debug.reset()
-	for _, session := range sessions {
-		a.releaseDebugSession(p, session)
+	// Roots first: releasing one also releases the children it started.
+	for _, session := range slices.Clone(p.debug.sessions) {
+		if session.parent == nil && p.debug.hasSession(session) {
+			p.debug.removeSession(session)
+			a.releaseDebugSession(p, session)
+		}
 	}
+	p.debug.reset()
 }
 
 // finishDebugError records a start or transport failure and stops the process.
@@ -721,7 +837,7 @@ func (a *App) finishDebugError(p *project, session *debugSession, err error) {
 		a.failChildDebug(p, session, err)
 		return
 	}
-	if a.project != p || p.debug.activeSession() != session || p.debug.generation != session.generation {
+	if a.project != p || !p.debug.hasSession(session) || p.debug.generation != session.generation {
 		return
 	}
 	var remote *debugRemoteError
@@ -729,33 +845,31 @@ func (a *App) finishDebugError(p *project, session *debugSession, err error) {
 		// Not a failure: Core classified the endpoint as non-local, so the panel
 		// asks before connecting. Nothing was started yet.
 		endpoint := net.JoinHostPort(remote.host, strconv.Itoa(remote.port))
-		start := p.debug.pendingRemote
-		if start != nil {
+		if start := p.debug.pendingRemote; start != nil {
 			p.debug.remote = &debugRemotePrompt{start: *start, endpoint: endpoint}
 		}
 		p.debug.pendingRemote = nil
-		p.debug.status = ""
-		if p.debug.activeSession() == session {
-			a.stopDebug(p)
-		}
+		a.endDebugSession(p, session)
 		return
 	}
-	p.debug.failure = err.Error()
+	message := err.Error()
 	var settingsError *debugSettingsError
 	if errors.As(err, &settingsError) {
-		p.debug.failure = i18n.Shared(a.language(), "desktop.debug.settingsUnreadable")
+		message = i18n.Shared(a.language(), "desktop.debug.settingsUnreadable")
 	}
-	p.debug.status = a.text.Debug.Failed
 	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("debug", err))
-	if p.debug.activeSession() == session {
-		a.stopDebug(p)
+	a.endDebugSession(p, session)
+	p.debug.failure = message
+	if p.debug.activeSession() != nil {
+		p.debug.status = a.text.Debug.Failed
 	}
 }
 
 func (a *App) appendDebugOutput(p *project, session *debugSession, text string) {
-	if a.project != p || p.debug.activeSession() != session {
+	if a.project != p || !p.debug.hasSession(session) {
 		return
 	}
+	defer p.debug.bindSession(session)()
 	p.debug.output = appendDebugOutput(p.debug.output, text)
 }
 

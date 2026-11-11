@@ -82,9 +82,10 @@ func (a *App) planDisassembly(p *project, direction, reference string, count, be
 	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
 		fetch, err := a.kernel.PlanDebugDisassemblyWindow(ctx, direction, reference, count, before)
 		return func(a *App) {
-			if a.project != p || p.debug.activeSession() != session {
+			if a.project != p || !p.debug.hasSession(session) {
 				return
 			}
+			defer p.debug.bindSession(session)()
 			if err != nil {
 				p.debug.disassembly.loading, p.debug.disassembly.failure = false, err.Error()
 				return
@@ -139,9 +140,10 @@ func (a *App) reduceDisassembly(p *project, fetch core.DebugDisassemblyFetch, re
 		step, err := a.kernel.ReduceDebugDisassemblyPage(ctx, fetch, reply, known)
 		return func(a *App) {
 			d := &p.debug.disassembly
-			if a.project != p || p.debug.activeSession() != session {
+			if a.project != p || !p.debug.hasSession(session) {
 				return
 			}
+			defer p.debug.bindSession(session)()
 			if err != nil {
 				d.loading, d.failure = false, err.Error()
 				return

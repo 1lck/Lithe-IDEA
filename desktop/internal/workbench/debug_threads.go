@@ -32,7 +32,8 @@ func (a *App) inspectDebugThreads(p *project, session *debugSession) {
 		})
 		if err != nil {
 			return func(a *App) {
-				if a.project == p && p.debug.activeSession() == session {
+				if a.project == p && p.debug.hasSession(session) {
+					defer p.debug.bindSession(session)()
 					p.debug.threadsFailure = err.Error()
 				}
 			}

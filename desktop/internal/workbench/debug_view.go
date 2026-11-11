@@ -24,6 +24,7 @@ func (a *App) debugView(c ui.C, p *project) {
 		a.loadDebugAdapters(p)
 	}
 	ui.Column(c).Fill().Background(a.colors.Editor).Children(func() {
+		a.debugSessionRow(c, p)
 		a.debugAdapterRow(c, p)
 		if len(d.adapters) > 0 && d.activeSession() == nil && debugAttachOnly(d.adapters[d.selectedAdapter]) {
 			a.debugAttachForm(c)

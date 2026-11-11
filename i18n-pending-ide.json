@@ -584,5 +584,20 @@
     "description": "Failure message sent to the parent adapter when a startDebugging request carries no usable configuration",
     "en-US": "Lithe could not start the child debug session.",
     "zh-CN": "Lithe 无法启动子调试会话。"
+  },
+  {
+    "id": "desktop.debug.session",
+    "description": "Label of the Debug window's session picker, which chooses the session the window shows",
+    "en-US": "Session",
+    "zh-CN": "会话"
+  },
+  {
+    "id": "desktop.debug.child.startedBy",
+    "description": "Label of a child debug session in the session picker, naming the session whose adapter started it",
+    "en-US": "Started by {parent}",
+    "zh-CN": "由 {parent} 启动",
+    "parameters": {
+      "parent": "string"
+    }
   }
 ]

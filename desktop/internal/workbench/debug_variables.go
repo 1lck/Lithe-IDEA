@@ -181,9 +181,10 @@ func (a *App) debugOperation(p *project, label string, call func(ctx context.Con
 // finishDebugOperationError shows a failed inspect or edit without ending the
 // session: the adapter is still there, only this request was refused.
 func (a *App) finishDebugOperationError(p *project, session *debugSession, handlers debugOperationHandlers, err error) {
-	if a.project != p || p.debug.activeSession() != session || errors.Is(err, context.Canceled) {
+	if a.project != p || !p.debug.hasSession(session) || errors.Is(err, context.Canceled) {
 		return
 	}
+	defer p.debug.bindSession(session)()
 	if handlers.failed != nil {
 		handlers.failed(a, err.Error(), true)
 		return
@@ -306,9 +307,10 @@ func (a *App) loadDebugContainer(p *project, node *debugVarNode) {
 		a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
 			state, err := a.kernel.PlanDebugVariablePage(ctx, container.ref, node.named, node.indexed, debugVariablePageSize)
 			return func(a *App) {
-				if a.project != p || p.debug.activeSession() != session {
+				if a.project != p || !p.debug.hasSession(session) {
 					return
 				}
+				defer p.debug.bindSession(session)()
 				container.loading = false
 				if err != nil {
 					container.failure = err.Error()
@@ -362,9 +364,10 @@ func (a *App) reduceDebugVariablePage(p *project, node *debugVarNode, requested 
 	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
 		accept, next, err := a.kernel.ReduceDebugVariablePage(ctx, state, requested, items, fresh)
 		return func(a *App) {
-			if a.project != p || p.debug.activeSession() != session {
+			if a.project != p || !p.debug.hasSession(session) {
 				return
 			}
+			defer p.debug.bindSession(session)()
 			container.loading = false
 			if err != nil {
 				container.failure = err.Error()

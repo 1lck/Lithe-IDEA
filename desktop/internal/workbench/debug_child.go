@@ -3,6 +3,7 @@ package workbench
 import (
 	"context"
 	"errors"
+	"slices"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
@@ -14,6 +15,9 @@ import (
 // Core has already checked the request kind, and the parent answers it once the
 // child is created or fails.
 func (a *App) startChildDebug(p *project, parent *debugSession, event core.DebugEvent) {
+	if !p.debug.hasSession(parent) {
+		return
+	}
 	if event.StartDebugging == nil {
 		a.respondStartDebugging(p, parent, event.RequestID, false, a.text.Debug.Child.Unavailable)
 		return
@@ -57,9 +61,9 @@ func (a *App) respondStartDebugging(p *project, parent *debugSession, requestID 
 	})
 }
 
-// failChildDebug records a child session that could not start and releases it.
-// A remote endpoint is not asked about for a child: the child fails with a message
-// the parent adapter receives, and the user starts the attach from the panel.
+// failChildDebug records a child session that could not start and ends it. A remote
+// endpoint is not asked about for a child: the child fails with a message the parent
+// adapter receives, and the user starts the attach from the panel.
 func (a *App) failChildDebug(p *project, child *debugSession, err error) {
 	if errors.Is(err, context.Canceled) {
 		return
@@ -70,25 +74,24 @@ func (a *App) failChildDebug(p *project, child *debugSession, err error) {
 		message = a.text.Debug.Child.NeedsConfirmation
 	}
 	a.answerChildStart(p, child, false, message)
-	if a.project != p || !containsDebugSession(p.debug.sessions, child) {
+	if a.project != p || !p.debug.hasSession(child) {
 		return
 	}
-	p.debug.failure = message
-	p.debug.status = a.text.Debug.Failed
 	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("debug", err))
-	if p.debug.activeSession() == child {
-		a.stopDebug(p)
-		return
+	a.endDebugSession(p, child)
+	p.debug.failure = message
+	if p.debug.activeSession() != nil {
+		p.debug.status = a.text.Debug.Failed
 	}
-	p.debug.removeSession(child)
-	a.releaseDebugSession(p, child)
 }
 
-func containsDebugSession(sessions []*debugSession, session *debugSession) bool {
-	for _, candidate := range sessions {
-		if candidate == session {
-			return true
-		}
+// releaseChildSessions closes the transports of the children a released parent took
+// with it. Core removed the children named in destroyed together with the parent, so
+// their release does not destroy them again; a child Core never created has nothing to
+// destroy and is released here all the same.
+func (a *App) releaseChildSessions(p *project, children []*debugSession, destroyed []string) {
+	for _, child := range children {
+		child.coreGone = slices.Contains(destroyed, child.id)
+		a.releaseDebugSession(p, child)
 	}
-	return false
 }
