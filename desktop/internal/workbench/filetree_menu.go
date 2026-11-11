@@ -136,8 +136,19 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 				a.openFindInFiles(p, false)
 			})
 		}
-		if n.dir && !root && menu.Item(i18n.Shared(language, "desktop.files.excludeFromSearch")).Clicked() {
-			c.After(func() { a.excludeFromSearch(p, n.path) })
+		if n.dir && !root {
+			if p.directoryExcluded(n.path) {
+				if menu.Item(i18n.Shared(language, "indexing.cancelExclusion")).Clicked() {
+					c.After(func() { a.excludeFromSearch(p, n.path, true) })
+				}
+			} else if menu.Item(i18n.Shared(language, "desktop.files.excludeFromSearch")).Clicked() {
+				c.After(func() { a.excludeFromSearch(p, n.path, false) })
+			}
+		}
+		if root && p.indexing.loaded {
+			if on := p.indexing.gitIgnore; menu.Item(i18n.Shared(language, "indexing.autoGit")).Checked(on).Clicked() {
+				c.After(func() { a.setGitIgnoreIndexing(p, !on) })
+			}
 		}
 		if n.dir {
 			if p.git.isRepository() && menu.Item(i18n.Shared(language, "desktop.files.showRepositoryChanges")).Clicked() {

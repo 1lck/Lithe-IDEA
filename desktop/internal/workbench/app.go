@@ -313,6 +313,8 @@ const (
 type project struct {
 	// root is the absolute, cleaned path of the project folder.
 	root string
+	// indexing is the search exclusion policy the project installed in Core (directory_exclusions.go).
+	indexing projectIndexing
 	// name is the folder's name, shown in the title bar.
 	name string
 	// ctx ends when the project closes, which stops its kernel calls.
@@ -1022,6 +1024,7 @@ func (a *App) openProjectHere(path string) {
 		a.notice = ""
 		a.logView.reset()
 		a.worktreeView.reset()
+		a.installIndexing(p, false)
 		a.loadGit(p)
 		a.startGitObservation(p)
 		a.loadLog(p)
@@ -1071,6 +1074,7 @@ func (a *App) finishCloseProject(p *project, after func()) {
 	{
 		a.saveEditorSession(p)
 		a.saveNativePanels(p)
+		a.releaseIndexing(p)
 		a.closeEverywhere(p)
 		if a.navigation.open && a.navigation.project == p {
 			a.closeNavigation()

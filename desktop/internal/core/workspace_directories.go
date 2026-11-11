@@ -37,3 +37,25 @@ func (c *Client) ExcludeDirectory(ctx context.Context, path string, caseInsensit
 	}
 	return response.Changed, response.Rules, nil
 }
+
+// CancelDirectoryExclusion undoes the exclusion of path in rules: a manual exclusion gives
+// the folder back the role it had, a Git exclusion becomes an include exception.
+func (c *Client) CancelDirectoryExclusion(ctx context.Context, path string, caseInsensitive bool, rules json.RawMessage) (bool, json.RawMessage, error) {
+	if len(rules) == 0 {
+		rules = emptyDirectoryRules
+	}
+	payload := struct {
+		Path            string          `json:"path"`
+		Action          map[string]any  `json:"action"`
+		CaseInsensitive bool            `json:"caseInsensitive"`
+		Rules           json.RawMessage `json:"rules"`
+	}{path, map[string]any{"kind": "cancelExclusion"}, caseInsensitive, rules}
+	var response struct {
+		Changed bool            `json:"changed"`
+		Rules   json.RawMessage `json:"rules"`
+	}
+	if err := c.Execute(ctx, "workspace.reduceDirectoryAction", payload, &response); err != nil {
+		return false, nil, err
+	}
+	return response.Changed, response.Rules, nil
+}
