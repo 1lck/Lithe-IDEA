@@ -33,7 +33,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # of #7 (git.stashes keeps each reference as stash@{N}), #6 (the git_worktree_* refusal codes of
 # the worktree writes) and #4 (git_authentication_failed code, featuresChanged completionOptions,
 # rangeFormatting and formattingOptions used by the Viva client).
-PINNED_CORE_REVISION="a783ed9a537f35d88026355535e4284e45736456"
+PINNED_CORE_REVISION="7ce0444ecf87540ef254afcea2b0c19ea68d5d19"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
