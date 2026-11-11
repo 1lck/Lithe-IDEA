@@ -371,7 +371,9 @@ type App struct {
 	pullRequests pullRequestState
 	// prCreate is the create-pull-request dialog (github_create.go).
 	prCreate prCreateState
-	focus    focusTarget
+	// savedBackground is the window background last stored (window_background.go).
+	savedBackground gfx.Color
+	focus           focusTarget
 	// debugHostedPort and debugInitializeWindow replace, in tests, asking the
 	// language server for a debug port and Core's initialize deadline. Production
 	// leaves both zero.
