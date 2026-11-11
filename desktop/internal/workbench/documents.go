@@ -54,6 +54,8 @@ type document struct {
 	// plugin providers' (document_links.go); both are shown together.
 	serverLinks documentServerLinks
 	pluginLinks []pluginservice.EditorLink
+	// tabless says the document has no tab: a Diff tab opened it (documents_tabless.go).
+	tabless bool
 	// id identifies the document for as long as the project is open; it is never reused.
 	id int
 	// path is the file's absolute path, name its base name, which is the tab's
@@ -522,6 +524,10 @@ func (a *App) selectDocument(p *project, id int) {
 	member := documentMember(id)
 	g := p.terms.bench.GroupOf(member)
 	if g == nil {
+		// A document without a tab (documents_tabless.go) gets one when it is asked for.
+		if d := p.docs.find(id); d != nil && d.tabless && a.attachDocumentTab(p, d) {
+			a.selectDocument(p, id)
+		}
 		return
 	}
 	if a.semantics.documentID != 0 && a.semantics.documentID != id {
@@ -753,6 +759,12 @@ func (a *App) removeDocument(p *project, d *document) {
 	member := documentMember(d.id)
 	g := p.terms.bench.GroupOf(member)
 	if g == nil {
+		// A document without a tab is released with nothing to close, once it is saved.
+		if d.tabless && !d.dirty() {
+			a.semanticTokensDropped(d)
+			d.view.Close()
+			p.docs.list = slices.DeleteFunc(p.docs.list, func(x *document) bool { return x.id == d.id })
+		}
 		return
 	}
 	group := g.ID
