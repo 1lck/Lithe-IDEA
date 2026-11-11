@@ -34,6 +34,7 @@ func (a *App) commitPageView(c ui.C) {
 	if p == nil {
 		return
 	}
+	a.syncChangeListSettings(p)
 	ui.Column(c).Fill().Background(a.colors.Editor).Children(func() {
 		a.drawCommitToolbar(c, p)
 		ui.Divider(c)
@@ -358,10 +359,14 @@ func (a *App) drawCommitOptions(c ui.C, cs *commitState, generates bool) {
 				}
 				a.commitOptionHelp(c, t.SignOffHelp)
 			})
-			ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
-				ui.Checkbox(c, &cs.parents, i18n.Shared(lang, "git.workspaceCommit.parents")).Disabled(cs.busy)
-				a.commitOptionHelp(c, i18n.Shared(lang, "desktop.commit.parentsHelp"))
-			})
+			// The Version Control setting can hide the option; the commit then updates the parent
+			// references all the same (commitRequest in commit.go).
+			if !a.settings.HideParentReferences {
+				ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
+					ui.Checkbox(c, &cs.parents, i18n.Shared(lang, "git.workspaceCommit.parents")).Disabled(cs.busy)
+					a.commitOptionHelp(c, i18n.Shared(lang, "desktop.commit.parentsHelp"))
+				})
+			}
 			if !generates {
 				return
 			}

@@ -86,9 +86,16 @@ func (a *App) changeListBatchMenu(c ui.C, p *project, changes []core.GitChange, 
 }
 
 // discardListResults drops what was read for the active list: the selection, the running message
-// generation, and a generated message waiting for the user's word.
+// generation, a generated message waiting for the user's word, and a diff still being read. A
+// diff tab that was loading reads again, so its answer comes from the state the new list shows
+// and the answer for the old one is never applied (loadDiff drops it by its generation).
 func (a *App) discardListResults(p *project) {
 	p.lists.selected, p.lists.anchor = nil, ""
 	a.cancelCommitGeneration(p)
 	p.commit.ai.pending, p.commit.ai.hasPending = "", false
+	for _, t := range p.diffs.list {
+		if t.loading {
+			a.loadDiff(p, t)
+		}
+	}
 }

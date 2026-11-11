@@ -576,6 +576,28 @@ func (w *window) setInlineGitBlame(value bool, force bool) {
 	}
 }
 
+// setHideChangeLists and setHideParentReferences store a change of a Commit switch and hand it
+// to the settings owner at once, like setHideGitGutter.
+func (w *window) setHideChangeLists(value bool, force bool) {
+	if w.sess.finished.Load() || (!force && w.sess.values.HideChangeLists == value) {
+		return
+	}
+	w.sess.values.HideChangeLists = value
+	if w.ctrl.opts.SetHideChangeLists != nil {
+		w.ctrl.opts.SetHideChangeLists(value)
+	}
+}
+
+func (w *window) setHideParentReferences(value bool, force bool) {
+	if w.sess.finished.Load() || (!force && w.sess.values.HideParentReferences == value) {
+		return
+	}
+	w.sess.values.HideParentReferences = value
+	if w.ctrl.opts.SetHideParentReferences != nil {
+		w.ctrl.opts.SetHideParentReferences(value)
+	}
+}
+
 // setProcessTermination stores a change of the Process Termination page and hands it to the
 // settings owner at once.
 func (w *window) setProcessTermination(value ProcessTermination, force bool) {
