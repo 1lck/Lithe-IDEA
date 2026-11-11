@@ -136,6 +136,9 @@ type semanticPending struct {
 	fromPointer bool
 	anchor      gfx.Rect
 	operation   string
+	// join is set on the language-server side of an explicit completion that also asks a
+	// plugin completion provider; the answer feeds the join instead of opening the popup.
+	join *completionMergeJoin
 }
 
 // completionState is the explicit completion popup.
@@ -194,6 +197,8 @@ type pluginSemantics struct {
 	// have reached Core, so a definition never asks about stale text.
 	deferred   func(*App)
 	completion completionState
+	// merge is the explicit completion whose language-server and provider answers are pending.
+	merge      *completionMergeJoin
 	definition definitionState
 	hover      hoverState
 	rename     renameState
@@ -620,6 +625,10 @@ func (a *App) requestPluginCompletion(p *project, d *document, line, column int,
 	position := core.PluginDocumentPosition{Line: line, UTF16Column: column}
 	a.cancelSemanticKind(pluginSemanticCompletion)
 	pending := a.newSemanticPending(pluginSemanticCompletion, p, d, server, line, column, true, false)
+	if join := a.newCompletionMergeJoin(p, d, line, column, automatic); join != nil {
+		pending.join = join
+		a.startProviderCompletionFor(p, d, line, column, join)
+	}
 	a.semantics.pending = append(a.semantics.pending, pending)
 	request := core.PluginSemanticRequest{
 		Operation:         pluginSemanticCompletion,
@@ -792,6 +801,7 @@ func (a *App) semanticRequestStarted(pending *semanticPending, operation string,
 	pending.operation = operation
 	if err != nil {
 		a.removePending(pending)
+		a.settleMergeSide(pending.join, true, nil, false)
 		if errors.Is(err, context.Canceled) || errors.Is(ctxErr, context.Canceled) {
 			return
 		}
@@ -812,10 +822,12 @@ func (a *App) applyPluginSemanticEvent(server *pluginServer, event core.BackendE
 	}
 	a.removePending(pending)
 	if pending.project != a.project || !a.isCurrentPluginServer(server.session.PluginID, server) {
+		a.settleMergeSide(pending.join, true, nil, false)
 		return
 	}
 	if len(event.Error) != 0 && string(event.Error) != "null" {
 		a.logSemanticError(pending.kind, event.Error)
+		a.settleMergeSide(pending.join, true, nil, false)
 		if !a.applyEditorEvent(pending, event, true) {
 			a.semanticOperationFailed(pending.kind)
 		}
@@ -988,7 +1000,12 @@ func (a *App) applySemanticHover(pending *semanticPending, event core.BackendEve
 
 func (a *App) applySemanticCompletion(pending *semanticPending, event core.BackendEvent) {
 	p, d := a.currentSemanticDocument(pending.documentID)
-	if p != pending.project || d == nil || d.view.Revision() != pending.revision || !a.semanticPositionCurrent(pending, d) {
+	stale := p != pending.project || d == nil || d.view.Revision() != pending.revision || !a.semanticPositionCurrent(pending, d)
+	if pending.join != nil {
+		a.settleServerCompletion(pending, event, stale)
+		return
+	}
+	if stale {
 		return
 	}
 	items, incomplete, err := core.PluginSemanticCompletions(event)
@@ -1017,7 +1034,14 @@ func (a *App) applySemanticCompletion(pending *semanticPending, event core.Backe
 // startProviderCompletion shows a plugin completion provider's items when no language server serves the
 // document. Only explicit completion is routed; automatic triggers need the provider's trigger characters.
 func (a *App) startProviderCompletion(p *project, d *document, line, column int) {
+	a.startProviderCompletionFor(p, d, line, column, nil)
+}
+
+// startProviderCompletionFor asks the plugin completion provider. A join receives the answer as
+// one of its two sides instead of opening the popup itself.
+func (a *App) startProviderCompletionFor(p *project, d *document, line, column int, join *completionMergeJoin) {
 	if a.plugins == nil || d == nil || d.virtual || d.path == "" || !a.plugins.HasCompletionProvider(p.root, d.path, d.languageID) {
+		a.settleMergeSide(join, false, nil, false)
 		return
 	}
 	revision, id, path, language, root, plugins := d.view.Revision(), strconv.Itoa(d.id), d.path, d.languageID, p.root, a.plugins
@@ -1025,10 +1049,16 @@ func (a *App) startProviderCompletion(p *project, d *document, line, column int)
 		items, err := plugins.PluginCompletions(ctx, root, path, language, id, revision, line, column)
 		return func(a *App) {
 			if p.docs.find(d.id) != d || d.view.Revision() != revision {
+				a.settleMergeSide(join, false, nil, false)
 				return
 			}
 			if err != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_provider", err))
+				a.settleMergeSide(join, false, nil, false)
+				return
+			}
+			if join != nil {
+				a.settleMergeSide(join, false, items, false)
 				return
 			}
 			if len(items) > maxCompletionItems {
@@ -1453,6 +1483,10 @@ func (a *App) closePluginSemantics() {
 
 func (a *App) closeSemanticCompletion() {
 	a.semantics.completion = completionState{}
+	if a.semantics.merge != nil {
+		a.semantics.merge.closed = true
+		a.semantics.merge = nil
+	}
 }
 
 func (a *App) closeSemanticDefinition() {
