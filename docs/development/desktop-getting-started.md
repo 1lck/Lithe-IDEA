@@ -23,8 +23,10 @@
 
 | 部分 | 语言 | 来源 |
 | --- | --- | --- |
-| 界面与平台适配（`desktop/`） | Go + [Viva](https://github.com/vivaui/viva) | 本仓库 |
+| 界面与平台适配（`desktop/`） | Go + [Viva](https://github.com/vivaui/viva)，经 [Lithe-IDEA/viva](https://github.com/Lithe-IDEA/viva) 固定到 commit（见 `desktop/go.mod` 的 `replace`） | 本仓库 |
 | 共享内核 `liblithe_core.a` 和 IDE API 辅助程序 `lithe-mcp` | Rust | [Lithe-core-rust](https://github.com/Lithe-IDEA/Lithe-core-rust)，修订固定在 `scripts/desktop/build-desktop-core.sh` 的 `PINNED_CORE_REVISION` |
+
+Viva 由 `desktop/go.mod` 的 `replace` 固定到 Lithe-IDEA/viva 的 commit，修复先进 fork 再向上游提 PR，规则见 [Viva fork 维护与 commit 固定](../../.agents/notes/implemented/process/2026-11-11-viva-fork-maintenance-and-commit-pin.md)。
 
 Go 通过 cgo 静态链接 Rust 内核，所以**不能直接运行 `go build` 或 `go test`**，否则会因为找不到 `lithe_core.h` 或 `liblithe_core.a` 而失败。所有 Go 命令都要经过 `desktop/Makefile` 或 `scripts/desktop/desktop-go.sh`，它们会：
 

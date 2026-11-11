@@ -8,14 +8,18 @@
 # To add or drop an icon, edit ICONS and run this script again; do not edit icons.go by hand.
 # The downloads go into a fresh temporary directory that is removed on exit. They are only read
 # as data by the compiler, never executed, and nothing is written outside desktop/internal/icons/.
-# The compiler runs through "go run <module>@<version>", so it does not depend on the go.sum of
-# the desktop module and is pinned to the same Viva version as desktop/go.mod.
+# The compiler is built from the Viva source that desktop/go.mod resolves to (through its replace
+# directive, the Lithe-IDEA/viva fork) with Viva's own go.mod and go.sum, so it does not depend on
+# the go.sum of the desktop module. "go run <module>@<version>" would ignore the replace.
 set -euo pipefail
 
 ROOT_DIR="${0:A:h:h:h}"
 LUCIDE_VERSION="0.469.0"
-# desktop/go.mod is the only place the Viva version is written; the tools come from the same module.
-VIVA_VERSION="$(go -C "$ROOT_DIR/desktop" list -m -f '{{.Version}}' github.com/vivaui/viva)"
+# desktop/go.mod (its require and replace) is the only place the Viva source is pinned; the tools
+# come from the same module. The download honours the replace and fills the module cache, and the
+# Dir lookup then names the replacement's directory (or upstream's when there is no replace).
+go -C "$ROOT_DIR/desktop" mod download github.com/vivaui/viva
+VIVA_DIR="$(go -C "$ROOT_DIR/desktop" list -m -f '{{.Dir}}' github.com/vivaui/viva)"
 ICONS=(
     folder folder-open folder-tree file file-text file-code chevron-down chevron-right
     git-commit-horizontal git-branch list-tree search square-terminal circle-alert play bug
@@ -48,9 +52,10 @@ mkdir -p "$OUT_DIR"
     cat "$TMP_DIR/LICENSE"
 } > "$NOTICE_FILE"
 
-# Run from the repository root so the compiler resolves the pinned module outside any go.mod.
-cd "$ROOT_DIR"
-go run "github.com/vivaui/viva/cmd/viva@$VIVA_VERSION" icons \
+# The compiler binary goes into the temporary directory (removed on exit); it is named viva, so it
+# does not match the *.svg glob below.
+go -C "$VIVA_DIR" build -o "$TMP_DIR/viva" ./cmd/viva
+"$TMP_DIR/viva" icons \
     -o "$OUT_FILE" -pkg icons -license "$NOTICE_FILE" "$TMP_DIR"/*.svg
 
 UNFORMATTED="$(gofmt -l "$OUT_FILE")"

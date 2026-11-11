@@ -18,3 +18,5 @@ require (
 	github.com/ebitengine/purego v0.11.1 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 )
+
+replace github.com/vivaui/viva => github.com/Lithe-IDEA/viva v0.0.0-20261111062535-ed0b89b72c30

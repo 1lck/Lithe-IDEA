@@ -16,13 +16,18 @@
 # Python 3.9 or 3.11, picosvg and its dependencies are fixed to versions that reproduce the
 # existing icon vectors. Set LITHE_ICON_PYTHON to a supported executable when it is not on PATH.
 # Dependencies are installed in a fresh temporary virtual environment that is removed on exit;
-# nothing is written outside desktop/internal/fileicons/. The compiler runs through
-# "go run <module>@<version>", pinned to the same Viva version as desktop/go.mod.
+# nothing is written outside desktop/internal/fileicons/. The compiler is built into the same
+# temporary directory (also removed on exit) from the Viva source that desktop/go.mod resolves to
+# (through its replace directive, the Lithe-IDEA/viva fork) with Viva's own go.mod and go.sum.
+# "go run <module>@<version>" would ignore the replace.
 set -euo pipefail
 
 ROOT_DIR="${0:A:h:h:h}"
-# desktop/go.mod is the only place the Viva version is written; the tools come from the same module.
-VIVA_VERSION="$(go -C "$ROOT_DIR/desktop" list -m -f '{{.Version}}' github.com/vivaui/viva)"
+# desktop/go.mod (its require and replace) is the only place the Viva source is pinned; the tools
+# come from the same module. The download honours the replace and fills the module cache, and the
+# Dir lookup then names the replacement's directory (or upstream's when there is no replace).
+go -C "$ROOT_DIR/desktop" mod download github.com/vivaui/viva
+VIVA_DIR="$(go -C "$ROOT_DIR/desktop" list -m -f '{{.Dir}}' github.com/vivaui/viva)"
 ICON_DIR="$ROOT_DIR/desktop/internal/fileicons"
 OUT_FILE="$ICON_DIR/icons.go"
 TREE_OUT_FILE="$ICON_DIR/icons_tree.go"
@@ -65,6 +70,9 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 "$TMP_DIR/venv/bin/python" -m pip install --quiet --disable-pip-version-check \
     "picosvg==0.22.3" "skia-pathops==0.8.0.post2" "lxml==6.1.3" "absl-py==2.3.1"
 
+# Built once for both compile_icons calls; the binary lives in the temporary directory only.
+go -C "$VIVA_DIR" build -o "$TMP_DIR/viva" ./cmd/viva
+
 compile_icons() {
     local source_dir="$1" output="$2" name source
     local converted_dir="$TMP_DIR/converted"
@@ -76,9 +84,8 @@ compile_icons() {
         (cd "$TMP_DIR" && "$TMP_DIR/venv/bin/picosvg" "$source") > "$TMP_DIR/$name.pico"
         sed -E '/<path /{/ fill=/!s/<path /<path fill="#000000" /;}' "$TMP_DIR/$name.pico" > "$converted_dir/$name"
     done
-    # Run from the repository root so the compiler resolves the pinned module outside any go.mod.
-    (cd "$ROOT_DIR" && go run "github.com/vivaui/viva/cmd/viva@$VIVA_VERSION" icons \
-        -o "$output" -pkg fileicons -license "$NOTICE_FILE" "$converted_dir"/*.svg)
+    "$TMP_DIR/viva" icons \
+        -o "$output" -pkg fileicons -license "$NOTICE_FILE" "$converted_dir"/*.svg
     rm "$converted_dir"/*.svg
     rmdir "$converted_dir"
 }

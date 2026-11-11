@@ -70,6 +70,17 @@
 入口文件只保留这条提醒；规则和数值以 Skill 参考页为准，决策原因见
 `.agents/notes/implemented/testing/2026-11-09-viva-editor-performance-baseline.md`。
 
+## Viva 依赖由 Lithe-IDEA/viva 维护
+
+Viva 由 `desktop/go.mod` 的 `replace` 固定到 [Lithe-IDEA/viva](https://github.com/Lithe-IDEA/viva) `main` 上的一个 commit，发版只认这个 commit。
+
+- Viva 的问题在 fork 修复，合进 fork `main` 后更新 `replace`；同一修复分支必须向上游 [vivaui/viva](https://github.com/vivaui/viva) 提 PR。不要在 Lithe 应用层为 Viva 缺陷写绕过代码。
+- fork `main` 同步上游只用 merge，不 rebase、不 force push，保证已发布版本固定的 commit 始终可取。
+- 脚本不得用 `go run` 或 `go install` 的 `github.com/vivaui/viva/cmd/viva@<版本>`，它会忽略 `replace`。
+
+入口文件只保留这条提醒；分支规则、升级步骤和原因见
+`.agents/notes/implemented/process/2026-11-11-viva-fork-maintenance-and-commit-pin.md`。
+
 ## 设置页分类
 
 新增或移动 macOS 设置页前，先阅读

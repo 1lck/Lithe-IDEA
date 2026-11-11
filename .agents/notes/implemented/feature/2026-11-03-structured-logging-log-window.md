@@ -221,7 +221,7 @@ Swift 只负责读日志文件尾部、订阅 `MacLogStore` 的实时批次、�
 旧客户端的复验入口保留在上方迁移前笔记。Viva 的 Core 桥接和窗口使用下列桌面测试；真实应用的整机验收（Java 项目、失败的 Git fetch、中英文、深浅色、长列表滚动）没有完成前保持 pending：
 
 - `scripts/desktop/desktop-go.sh test ./internal/core ./internal/logstore ./internal/logwindow`（`page_test.go` 用无头驱动覆盖选择、键盘、菜单、导出面板、直方图和查询取消；`bench_test.go` 的 `go test -bench` 量表格滚动与按键的耗时和分配）
-- `scripts/desktop/desktop-go.sh --exec go run github.com/vivaui/viva/cmd/viva@<go.mod 里的版本> vet ./internal/logwindow/...`
+- `scripts/desktop/desktop-go.sh --exec go run github.com/vivaui/viva/cmd/viva vet ./internal/logwindow/...`
 - `scripts/desktop/desktop-go.sh test -race ./internal/logwindow ./internal/workbench -run 'Test(Log|Welcome)'`
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`

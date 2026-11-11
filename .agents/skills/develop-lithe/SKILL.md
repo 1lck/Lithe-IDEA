@@ -47,6 +47,7 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 | macOS 界面、控件或视觉交互 | [macOS 共享控件规范](references/macos-ui.md)，以及其中与本次改动相关的 Note |
 | 滚动列表、树、表格、日志、长文本或分页列表 | [滚动内容与连续列表](references/scrolling-content.md) |
 | 编辑器模块（`desktop/internal/editor/**`、`desktop/internal/editorview/**`）或它的性能基线 | [编辑器性能基线](references/editor-performance.md) |
+| 升级 Viva、修复 Viva 缺陷，或改动使用 Viva 命令行工具的脚本 | `.agents/notes/implemented/process/2026-11-11-viva-fork-maintenance-and-commit-pin.md` |
 | 分隔条、可调整面板、连续拖动等高频交互 | `.agents/notes/implemented/architecture/2026-09-13-resizable-ui-performance-boundaries.md` |
 | 新增、修改或审查设置 | `.agents/notes/implemented/architecture/2026-10-25-settings-native-configuration-editing.md` 和本文件第五节 |
 | 新增或移动 macOS 设置页 | `.agents/notes/implemented/feature/2026-10-15-macos-settings-hierarchy.md` |
@@ -292,6 +293,10 @@ Viva 在 macOS、Windows 和 Linux 使用 `desktop/internal/i18n/` 的接口及�
 ### Go 与 Viva 桌面客户端
 
 - 使用 `gofmt` 和 `desktop/go.mod` 固定的依赖；测试和构建通过 `scripts/desktop/desktop-go.sh` 接入固定版本的 Core。优先复用已有 Core 编译缓存，不为了普通界面迭代反复触发全量 Rust 构建。
+- Viva 由 `desktop/go.mod` 的 `replace` 固定到 [Lithe-IDEA/viva](https://github.com/Lithe-IDEA/viva) `main` 上的一个 commit，发版只认这个 commit。规则和原因见 `.agents/notes/implemented/process/2026-11-11-viva-fork-maintenance-and-commit-pin.md`：
+  - Viva 本身的缺陷或能力缺口在 fork 修复，不在 Lithe 应用层写绕过代码。修复从上游 `main` 切分支，合进 fork `main` 后更新 `replace`，同一分支向 vivaui/viva 提 PR。
+  - fork `main` 同步上游只用 merge，不 rebase、不 force push；`replace` 只指向已在 fork `main` 上的 commit，不提交本地路径替换。
+  - 脚本需要 Viva 命令行工具时，从 `desktop/go.mod` 解析出的源码目录构建，或在 `desktop/` 模块内用不带版本的 `go run github.com/vivaui/viva/cmd/viva`。不得使用 `go run`、`go install` 的 `@<版本>` 写法，它会忽略 `replace`。
 - 可交互界面使用 Viva 无头驱动验证，视觉改动与旧 macOS 客户端截图对照；无头截图不能代替目标平台的原生窗口验收。后台任务、文件监听和测试进程必须有界退出并清理。
 - 界面用 Viva 的 Page 写法（`func (m *model) page(c ui.C)`、`ui.NewPage`），不再新写基于 `*ui.Frame` 的界面；上游会把 Frame 收为底层引擎，应用层不再直接使用。写法以上游 `docs/skills/building-with-viva/SKILL.md` 为准：
   - 列表、树、菜单、弹窗、提示、表单优先用 `ui.List`、`ui.Tree`、`ui.Menu`/`ui.ContextMenu`、`ui.Modal`/`ui.Drawer`、`ui.Toasts` 和 `ui.TextField` 等，不再自造同类组件。
