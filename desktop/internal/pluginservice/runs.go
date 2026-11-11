@@ -383,10 +383,17 @@ func (r *Runs) handleStart(ctx context.Context, params json.RawMessage) (json.Ra
 		}}
 	} else {
 		// A JDK launch whose class path would overflow the command line starts with an
-		// argument file in the run's temporary directory, removed when the run ends.
+		// argument file in the run's temporary directory, removed when the run ends. Core
+		// plans it; a kernel that cannot leaves the launch as it is.
 		arguments := start.Arguments
-		if plan, ok := planJavaArgumentFile(executable, start.Arguments); ok {
-			if temporary == "" {
+		if planner, ok := r.service.kernel.(launchPlanner); ok {
+			plan, err := planLaunch(runCtx, planner, executable, start.Arguments)
+			if err != nil {
+				cancel()
+				cleanup()
+				return nil, failure(pluginhost.CodeHostFailure, err.Error())
+			}
+			if plan.ArgumentFile != nil && temporary == "" {
 				temporary, err = os.MkdirTemp("", "lithe-run-")
 				if err != nil {
 					cancel()
@@ -394,13 +401,12 @@ func (r *Runs) handleStart(ctx context.Context, params json.RawMessage) (json.Ra
 					return nil, failure(pluginhost.CodeHostFailure, "the run's temporary directory cannot be created")
 				}
 			}
-			path, err := writeArgumentFile(temporary, plan.contents)
+			arguments, err = launchArguments(plan, temporary)
 			if err != nil {
 				cancel()
 				cleanup()
-				return nil, failure(pluginhost.CodeHostFailure, "the run's argument file cannot be written")
+				return nil, failure(pluginhost.CodeHostFailure, "the run's argument file cannot be written: "+err.Error())
 			}
-			arguments = plan.withFile(path)
 		}
 		spawned, err := buildprocess.Start(runCtx, buildprocess.Spec{
 			Executable:       executable,
