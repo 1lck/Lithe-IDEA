@@ -61,7 +61,7 @@ func TestEverywhereFindsPagesAndOpensSelectedFile(t *testing.T) {
 func TestEverywhereOpensWithFileSearchShortcut(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.open(t.TempDir())
-	handled, err := h.driver.ShortcutChord(gfx.ModifierMeta|gfx.ModifierShift, 'o')
+	handled, err := h.driver.ShortcutChord(primaryModifier()|gfx.ModifierShift, 'o')
 	if err != nil || !handled {
 		t.Fatalf("shortcut: handled=%v error=%v", handled, err)
 	}
@@ -424,7 +424,7 @@ func TestEverywhereRebuildsAfterInterruptedIndexUpdate(t *testing.T) {
 func TestEverywhereHangsFromTheTopAndClosesOnAPressOutside(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.open(t.TempDir())
-	if handled, err := h.driver.ShortcutChord(gfx.ModifierMeta|gfx.ModifierShift, 'o'); err != nil || !handled {
+	if handled, err := h.driver.ShortcutChord(primaryModifier()|gfx.ModifierShift, 'o'); err != nil || !handled {
 		t.Fatalf("shortcut: handled=%v error=%v", handled, err)
 	}
 	if err := h.driver.Pump(); err != nil {

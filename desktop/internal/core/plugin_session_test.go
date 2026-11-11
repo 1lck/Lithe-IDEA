@@ -325,8 +325,14 @@ func TestPluginBackendCoreSessionInvokesFunctionAndCleansUp(t *testing.T) {
 			}
 		}
 	}
+	// Core publishes the functions while it handles the initialize response and
+	// marks the session ready only after it has sent `initialized`; a provider
+	// serves calls only once both have happened, in whichever order they arrive.
+	registered, ready := false, false
 	waitFor(func(event BackendEvent) bool {
-		return event.Type == "functionsChanged" && strings.Contains(string(event.Result), "snapshot.refresh")
+		registered = registered || event.Type == "functionsChanged" && strings.Contains(string(event.Result), "snapshot.refresh")
+		ready = ready || event.Type == "stateChanged" && event.State == "ready"
+		return registered && ready
 	})
 	candidates := []PluginFunctionProviderCandidate{{SessionID: started.SessionID, Version: "1.0.0"}}
 	for _, scope := range []struct{ root, version, want string }{{root, "1.0.0", started.SessionID}, {t.TempDir(), "1.0.0", ""}, {root, "9.0.0", ""}} {

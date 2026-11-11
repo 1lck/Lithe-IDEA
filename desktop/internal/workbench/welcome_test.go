@@ -123,7 +123,7 @@ func TestWelcomeProjectMenuRevealsExistingAndKeepsMissingEntryRemovable(t *testi
 		t.Fatal(err)
 	}
 	h.rightClickRow(dir)
-	h.clickNamed(h.app.text.Welcome.MenuReveal)
+	h.clickNamed(h.app.welcomeRevealLabel())
 	h.settle()
 	if got, ok := h.driver.LastRevealedPath(); !ok || got != dir {
 		t.Fatalf("revealed path = %q, recorded %v; want %q", got, ok, dir)
@@ -135,7 +135,7 @@ func TestWelcomeProjectMenuRevealsExistingAndKeepsMissingEntryRemovable(t *testi
 	if _, ok := h.findPageHit(h.app.text.Welcome.MenuRemove); !ok {
 		t.Fatal("Tab closed the missing project's menu")
 	}
-	for _, name := range []string{h.app.text.Welcome.MenuReveal} {
+	for _, name := range []string{h.app.welcomeRevealLabel()} {
 		if _, ok := h.findPageHit(name); ok {
 			t.Fatalf("a missing project offered the %q action", name)
 		}
@@ -162,7 +162,7 @@ func TestWelcomeRevealFailureIsReportedAndLoggedWithoutThePath(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	h.clickNamed(h.app.text.Welcome.MenuReveal)
+	h.clickNamed(h.app.welcomeRevealLabel())
 	h.settle()
 	if h.app.notice == "" {
 		t.Fatal("failed reveal did not show an error")
@@ -324,7 +324,7 @@ func TestWelcomeProjectMenuIsKeyboardReachable(t *testing.T) {
 	if h.app.welcome.menuPath != path || !h.app.welcome.menuOpen {
 		t.Fatal("keyboard activation did not open the project menu")
 	}
-	open, reveal, remove := h.app.text.Welcome.MenuOpen, h.app.text.Welcome.MenuReveal, h.app.text.Welcome.MenuRemove
+	open, reveal, remove := h.app.text.Welcome.MenuOpen, h.app.welcomeRevealLabel(), h.app.text.Welcome.MenuRemove
 	if _, ok := h.findPageHit(open); !ok {
 		t.Fatal("the menu did not show its open action")
 	}

@@ -61,21 +61,21 @@ func TestDebugMemoryReadsWithoutComputedAddresses(t *testing.T) {
 		t.Fatalf("memory line = %q", got)
 	}
 
-	// The toolbar steps by the adapter's default unit.
+	// The toolbar steps by the adapter's default unit. The adapter writes the
+	// step reply, its output and `stopped` as separate frames that may arrive in
+	// separate reads, so each step waits for the stop to be applied, not just
+	// for the output that precedes it.
 	h.clickNamed(h.app.text.Debug.StepOver)
 	awaitStateWithin(t, h, 20*time.Second, "the statement step", func() bool {
-		return strings.Contains(strings.Join(p.debug.output, ""), "stepped statement") && p.debug.failure == ""
+		return p.debug.state == "paused" && strings.Contains(strings.Join(p.debug.output, ""), "stepped statement") && p.debug.failure == ""
 	})
 
 	// The disassembly view steps one instruction: the fixture refuses anything
 	// but the instruction granularity, so a success proves Core forwarded it.
 	h.app.executeDebugWithGranularity(p, "stepIn", "instruction")
 	awaitStateWithin(t, h, 20*time.Second, "the instruction step", func() bool {
-		return strings.Contains(strings.Join(p.debug.output, ""), "stepped instruction") && p.debug.failure == ""
+		return p.debug.state == "paused" && strings.Contains(strings.Join(p.debug.output, ""), "stepped instruction") && p.debug.failure == ""
 	})
-	if p.debug.state != "paused" {
-		t.Fatalf("state = %q, want paused after the step", p.debug.state)
-	}
 
 	// The memory tab is offered only with the capability and shows the bytes.
 	// The step reset the window; the memory tab reloads it from the new stop.

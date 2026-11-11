@@ -244,14 +244,7 @@ func (a *App) welcomeMenuItems(c ui.C, path string) func(*ui.MenuItems) {
 					a.openProject(path)
 				})
 			}
-			label := a.text.Welcome.MenuReveal
-			switch runtime.GOOS {
-			case "windows":
-				label = i18n.Shared(a.language(), "desktop.welcome.menuRevealWindows")
-			case "linux":
-				label = i18n.Shared(a.language(), "desktop.welcome.menuRevealOther")
-			}
-			if menu.Item(label).Clicked() {
+			if menu.Item(a.welcomeRevealLabel()).Clicked() {
 				c.After(func() { a.revealRecent(path) })
 			}
 		}
@@ -291,4 +284,16 @@ func projectAvatar(c ui.C, identity projectIdentity, side float32) ui.Box {
 			text.Mono()
 		}
 	})
+}
+
+// welcomeRevealLabel names the system file manager the reveal action opens:
+// Finder on a Mac, File Explorer on Windows, a generic file manager elsewhere.
+func (a *App) welcomeRevealLabel() string {
+	switch runtime.GOOS {
+	case "windows":
+		return i18n.Shared(a.language(), "desktop.welcome.menuRevealWindows")
+	case "linux":
+		return i18n.Shared(a.language(), "desktop.welcome.menuRevealOther")
+	}
+	return a.text.Welcome.MenuReveal
 }
