@@ -217,6 +217,8 @@ type settings struct {
 	HideGitGutter bool `json:"hideGitGutter,omitempty"`
 	// InlineGitBlame shows the blame of the caret line after its text; off by default.
 	InlineGitBlame bool `json:"inlineGitBlame,omitempty"`
+	// DisableSemanticHighlight keeps the syntax colors alone; semantic coloring is on by default.
+	DisableSemanticHighlight bool `json:"disableSemanticHighlight,omitempty"`
 	// EditorTabRows and EditorTabOverflow say how an editor group lays out tabs that do not
 	// fit in one row, as settingswindow.Values does; see App.tabLayout.
 	EditorTabRows     string `json:"editorTabRows,omitempty"`

@@ -62,6 +62,8 @@ type Values struct {
 	// InlineGitBlame shows the blame of the caret line after its text, and is off by default.
 	HideGitGutter  bool
 	InlineGitBlame bool
+	// DisableSemanticHighlight keeps the syntax colors alone; semantic coloring is on by default.
+	DisableSemanticHighlight bool
 }
 
 // The stored values of Values.EditorTabRows and Values.EditorTabOverflow besides the empty
@@ -154,6 +156,9 @@ type Options struct {
 	// Values.InlineGitBlame to the settings owner, like SetTabRows.
 	SetHideGitGutter  func(bool)
 	SetInlineGitBlame func(bool)
+	// SetDisableSemanticHighlight hands a change of Values.DisableSemanticHighlight to the
+	// settings owner, like SetHideGitGutter.
+	SetDisableSemanticHighlight func(bool)
 	// ResetLayout puts the workbench's buttons back where the catalog puts them. It runs
 	// at once, on the settings window's thread, when the user presses the button, because
 	// pressing it is its own confirmation.

@@ -418,6 +418,12 @@ func (w *window) editorPage(c ui.C) {
 				w.radio(c.Part("several-rows"), &w.tabRowsPick, TabRowsMultiple, settings.TabsMultipleRows, false)
 			})
 		})
+		semantic := !values.DisableSemanticHighlight
+		w.card(c, settings.EditorSemantic, settings.EditorSemanticHelp, func() {
+			if ui.Switch(c.Part("semantic"), &semantic, settings.SemanticHighlight).Changed() {
+				w.setDisableSemanticHighlight(!semantic, false)
+			}
+		})
 	})
 	if w.tabRowsPick != values.EditorTabRows {
 		w.setTabRows(w.tabRowsPick, false)
@@ -439,6 +445,7 @@ func (w *window) footer(c ui.C) {
 			w.setTheme("", true)
 			w.setTabRows("", true)
 			w.setTabOverflow("", true)
+			w.setDisableSemanticHighlight(false, true)
 			w.setTerminalShell("", true)
 		}
 		ui.Spacer(c)

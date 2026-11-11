@@ -572,13 +572,17 @@ type SettingsMessages struct {
 	// The Editor page: the card that lays out the tabs of an editor group. TabsShowIn leads
 	// the choice between TabsOneRow, which TabsScroll and TabsSqueeze refine, and
 	// TabsMultipleRows.
-	EditorTabs       string
-	EditorTabsHelp   string
-	TabsShowIn       string
-	TabsOneRow       string
-	TabsScroll       string
-	TabsSqueeze      string
-	TabsMultipleRows string
+	EditorTabs     string
+	EditorTabsHelp string
+	TabsShowIn     string
+	TabsOneRow     string
+	// The Editor page's semantic highlighting switch, with its card text.
+	EditorSemantic     string
+	EditorSemanticHelp string
+	SemanticHighlight  string
+	TabsScroll         string
+	TabsSqueeze        string
+	TabsMultipleRows   string
 
 	// The Terminal page under Tools: the choice of the shell a new terminal runs.
 	// TerminalShellAuto is the choice that follows the system, with the shell it

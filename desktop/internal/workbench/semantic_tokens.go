@@ -57,7 +57,7 @@ func (a *App) tokensOf(d *document) *documentTokens {
 // scheduleSemanticTokens asks for the document's tokens after a pause, replacing a wait that
 // is still running.
 func (a *App) scheduleSemanticTokens(p *project, d *document, delay time.Duration) {
-	if a.plugins == nil || d == nil || d.virtual || a.project != p {
+	if a.plugins == nil || d == nil || d.virtual || a.project != p || a.settings.DisableSemanticHighlight {
 		return
 	}
 	t := a.tokensOf(d)
@@ -120,6 +120,9 @@ func (a *App) requestSemanticTokens(p *project, d *document) {
 // applySemanticTokens takes the answer of a semanticTokens request: the tokens are laid over
 // the text they were asked for, off the window thread.
 func (a *App) applySemanticTokens(pending *semanticPending, event core.BackendEvent, failed bool) {
+	if a.settings.DisableSemanticHighlight {
+		return
+	}
 	p, d := a.currentSemanticDocument(pending.documentID)
 	if p != pending.project || d == nil {
 		return
@@ -202,6 +205,29 @@ func (a *App) semanticTokensEdited(p *project, d *document) {
 		return
 	}
 	a.scheduleSemanticTokens(p, d, semanticTokensDelay)
+}
+
+// setDisableSemanticHighlight stores the editor switch and applies it at once: turning the
+// colors off clears every overlay and drops pending requests, turning them on asks again for
+// the open documents.
+func (a *App) setDisableSemanticHighlight(disabled bool) {
+	if a.settings.DisableSemanticHighlight == disabled {
+		return
+	}
+	a.settings.DisableSemanticHighlight = disabled
+	a.saveSettings()
+	p := a.project
+	if p == nil {
+		return
+	}
+	for _, d := range p.docs.list {
+		if disabled {
+			d.view.ClearSemantic()
+			a.semanticTokensDropped(d)
+			continue
+		}
+		a.scheduleSemanticTokens(p, d, 0)
+	}
 }
 
 // semanticTokensDropped forgets a closed document's state.

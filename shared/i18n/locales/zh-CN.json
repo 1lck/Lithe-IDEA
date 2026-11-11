@@ -11325,7 +11325,10 @@
     "desktop.debug.memoryUnreadableBytes": "无法读取的字节：{bytes}",
     "desktop.debug.stepInto": "单步进入",
     "desktop.debug.stepOver": "单步跳过",
-    "desktop.debug.stepOut": "单步跳出"
+    "desktop.debug.stepOut": "单步跳出",
+    "desktop.settings.editorSemantic": "语义高亮",
+    "desktop.settings.editorSemanticHelp": "语言服务器为类、方法和变量着色。关闭后只保留编辑器的语法高亮。",
+    "desktop.settings.semanticHighlight": "使用语义颜色"
   },
   "overrides": {
     "macos": {

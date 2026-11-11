@@ -50,3 +50,36 @@ func TestEditorTabPlacementAppliesAndRestores(t *testing.T) {
 		t.Fatalf("restore: rows=%v overflow=%v", rows, overflow)
 	}
 }
+
+// TestEditorSemanticHighlightSwitchAppliesAndRestores walks the Editor page's semantic
+// switch: a change reaches the settings owner at once, and Restore Defaults turns the colors
+// back on.
+func TestEditorSemanticHighlightSwitchAppliesAndRestores(t *testing.T) {
+	var disabled []bool
+	w := newWindow(NewController(Options{
+		SetDisableSemanticHighlight: func(value bool) { disabled = append(disabled, value) },
+	}), Values{})
+	w.sess.page = pageEditor
+	d := openWindow(t, w)
+	settings := w.text.Settings
+
+	if hit := d.hit(settings.SemanticHighlight); hit.Role != gfx.RoleSwitch || !hit.Checked {
+		t.Fatalf("semantic highlighting starts on: %+v", hit)
+	}
+	d.click(settings.SemanticHighlight)
+	if !slices.Equal(disabled, []bool{true}) {
+		t.Fatalf("turning the colors off = %v", disabled)
+	}
+	if hit := d.hit(settings.SemanticHighlight); hit.Checked {
+		t.Fatalf("the switch kept its on state: %+v", hit)
+	}
+	d.click(settings.SemanticHighlight)
+	if !slices.Equal(disabled, []bool{true, false}) {
+		t.Fatalf("turning the colors back on = %v", disabled)
+	}
+	d.click(settings.SemanticHighlight)
+	d.click("Restore Defaults")
+	if len(disabled) != 4 || disabled[len(disabled)-1] {
+		t.Fatalf("restore = %v, want a final enabled value", disabled)
+	}
+}

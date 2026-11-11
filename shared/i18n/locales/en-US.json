@@ -11325,7 +11325,10 @@
     "desktop.debug.memoryUnreadableBytes": "Unreadable bytes: {bytes}",
     "desktop.debug.stepInto": "Step Into",
     "desktop.debug.stepOver": "Step Over",
-    "desktop.debug.stepOut": "Step Out"
+    "desktop.debug.stepOut": "Step Out",
+    "desktop.settings.editorSemantic": "Semantic Highlighting",
+    "desktop.settings.editorSemanticHelp": "The language server colors classes, methods and variables. Turn this off to keep only the editor's syntax colors.",
+    "desktop.settings.semanticHighlight": "Use semantic colors"
   },
   "overrides": {
     "windows": {

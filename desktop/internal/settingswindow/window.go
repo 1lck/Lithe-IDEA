@@ -505,3 +505,15 @@ func (w *window) setInlineGitBlame(value bool, force bool) {
 		w.ctrl.opts.SetInlineGitBlame(value)
 	}
 }
+
+// setDisableSemanticHighlight stores a change of the Editor page's semantic switch and hands
+// it to the settings owner at once.
+func (w *window) setDisableSemanticHighlight(value bool, force bool) {
+	if w.sess.finished.Load() || (!force && w.sess.values.DisableSemanticHighlight == value) {
+		return
+	}
+	w.sess.values.DisableSemanticHighlight = value
+	if w.ctrl.opts.SetDisableSemanticHighlight != nil {
+		w.ctrl.opts.SetDisableSemanticHighlight(value)
+	}
+}

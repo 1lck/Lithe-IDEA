@@ -107711,6 +107711,27 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.settings.editorSemantic",
+      "description": "Title of the Editor settings card for semantic highlighting.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.editorSemanticHelp",
+      "description": "Explains that the language server colors identifiers and the switch keeps syntax colors only when off.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.semanticHighlight",
+      "description": "Label of the Editor page switch that turns language-server semantic colors on or off.",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

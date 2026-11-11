@@ -134,6 +134,9 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SetInlineGitBlame: func(value bool) {
 			a.post(func(a *App) { a.setInlineGitBlame(value) })
 		},
+		SetDisableSemanticHighlight: func(value bool) {
+			a.post(func(a *App) { a.setDisableSemanticHighlight(value) })
+		},
 		// The Terminal page lists the shells the new-terminal menu offers, found the same
 		// way, and names the login shell a terminal runs while the setting is automatic.
 		TerminalShells: func() ([]localshell.Choice, string) {

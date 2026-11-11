@@ -67,3 +67,43 @@ func TestSemanticTokensDroppedWithTheServer(t *testing.T) {
 		}
 	}
 }
+
+// Disabling semantic highlighting clears the colors already shown, stops asking the server,
+// and asks again when it is turned back on.
+func TestSemanticHighlightSwitchStopsRequestsAndClearsColors(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.server.features = map[string]bool{featureSemanticTokens: true}
+	f.d.sync.pluginID = "test"
+	f.h.app.semanticTokensRefresh(f.server)
+	f.h.settle()
+	f.waitForRequests(t, 1)
+	f.deliver(t, "op-1", pluginMethodSemanticTokens, tokensResult(t))
+	f.h.settle()
+	hasClassToken := func() bool {
+		tokens := f.d.view.SyntaxLine(nil, 0)
+		for _, token := range tokens {
+			if token.Name.String() == "class" {
+				return true
+			}
+		}
+		return false
+	}
+	if !hasClassToken() {
+		t.Fatal("the semantic overlay did not reach the editor")
+	}
+
+	f.h.app.setDisableSemanticHighlight(true)
+	f.h.settle()
+	if hasClassToken() {
+		t.Fatal("turning semantic colors off kept the overlay")
+	}
+	f.h.app.semanticTokensRefresh(f.server)
+	f.h.settle()
+	if got := f.kernel.requestCount(); got != 1 {
+		t.Fatalf("requests with the colors off = %d, want 1", got)
+	}
+
+	f.h.app.setDisableSemanticHighlight(false)
+	f.h.settle()
+	f.waitForRequests(t, 2)
+}
