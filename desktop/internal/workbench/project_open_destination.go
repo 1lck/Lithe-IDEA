@@ -12,7 +12,8 @@ import (
 )
 
 // Opening a project while another one is open asks where it goes, as the IDE does:
-// This Window replaces the open project, New Window starts another client for it.
+// This Window opens it in a new project tab of the window (window_sessions.go), New Window
+// starts another client for it. A project already open in a tab of the window is shown.
 // "Don't ask again" stores the answer as settings.ProjectOpenDestination, which the
 // General settings page shows and can set back to asking.
 
@@ -23,14 +24,13 @@ func (a *App) openProject(path string) {
 		a.askRemoveUnavailableRecent(path)
 		return
 	}
-	p := a.project
-	if p == nil || a.isOpenProjectRoot(path) {
-		a.openProjectHere(path)
+	if a.project == nil || a.sessions.showing(path) != nil {
+		a.openProjectThisWindow(path)
 		return
 	}
 	switch a.settings.ProjectOpenDestination {
 	case settingswindow.ProjectOpenThisWindow:
-		a.openProjectHere(path)
+		a.openProjectThisWindow(path)
 	case settingswindow.ProjectOpenNewWindow:
 		a.openProjectInNewWindow(path)
 	default:
@@ -38,10 +38,24 @@ func (a *App) openProject(path string) {
 	}
 }
 
-// isOpenProjectRoot reports whether path names the folder already open.
-func (a *App) isOpenProjectRoot(path string) bool {
-	root, err := filepath.Abs(wslpath.ToNative(path))
-	return err == nil && a.project != nil && filepath.Clean(root) == filepath.Clean(a.project.root)
+// sameProjectRoot reports whether path names the project folder root.
+func sameProjectRoot(path, root string) bool {
+	abs, err := filepath.Abs(wslpath.ToNative(path))
+	return err == nil && filepath.Clean(abs) == filepath.Clean(root)
+}
+
+// openProjectThisWindow opens path in this window: it shows the tab that already has it, opens it
+// here when this workbench has no project, and otherwise opens it in a new project tab.
+func (a *App) openProjectThisWindow(path string) {
+	if open := a.sessions.showing(path); open != nil {
+		a.sessions.activate(open)
+		return
+	}
+	if a.project == nil || a.sessions == nil {
+		a.openProjectHere(path)
+		return
+	}
+	a.sessions.openTab(path)
 }
 
 // askProjectOpenDestination asks where to open path: Cancel, New Window or This Window,
@@ -77,7 +91,7 @@ func (a *App) askProjectOpenDestination(path string) {
 			return
 		}
 		a.performed("workspace.open.thisWindow", surfaceButton)
-		a.openProjectHere(path)
+		a.openProjectThisWindow(path)
 	}
 	a.prompts.queue = append(a.prompts.queue, prompt)
 }

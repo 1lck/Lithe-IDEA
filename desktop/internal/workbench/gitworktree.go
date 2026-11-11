@@ -874,7 +874,7 @@ func (a *App) showWorktrees() {
 func (a *App) openWorktree(path string) {
 	a.performed("git.worktree.open", surfaceButton)
 	// The worktree menu offers This Window and New Window itself.
-	a.openProjectHere(path)
+	a.openProjectThisWindow(path)
 }
 
 // beginCreateWorktree opens the dialog that creates a worktree and reads the references it

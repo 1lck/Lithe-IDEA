@@ -110,6 +110,18 @@ type Service struct {
 
 // Open assembles the stack over one plugin root and one set of preferences.
 func Open(kernel Kernel, preferences *store.Store, root string) (*Service, error) {
+	return open(kernel, preferences, root, true)
+}
+
+// OpenAnother assembles the stack of another workbench of the same process, over the root and
+// preferences the first one opened. It leaves out what only the first may do at start-up: the sweep
+// of interrupted installs, which would remove an install the first is running, and the leftover
+// processes, which here would be the first's own runs.
+func OpenAnother(kernel Kernel, preferences *store.Store, root string) (*Service, error) {
+	return open(kernel, preferences, root, false)
+}
+
+func open(kernel Kernel, preferences *store.Store, root string, first bool) (*Service, error) {
 	if kernel == nil {
 		return nil, fmt.Errorf("%w: no kernel", ErrAssembly)
 	}
@@ -124,14 +136,19 @@ func Open(kernel Kernel, preferences *store.Store, root string) (*Service, error
 	hostServices := pluginhost.NewServices()
 	// Nothing else removes what an interrupted install or uninstall left behind, and
 	// Open runs before any installation can start.
-	if err := pluginpkg.Sweep(root); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrAssembly, err)
+	if first {
+		if err := pluginpkg.Sweep(root); err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrAssembly, err)
+		}
 	}
 	// Runs the earlier app left behind are ended before anything new starts. A failure leaves them
 	// running, as they were before the ledger existed; the next start tries again.
 	// The leftovers are offered for the user's decision at start-up instead of ended silently.
 	ledger := processledger.Open(preferences.Dir())
-	leftovers, _ := ledger.Leftovers()
+	var leftovers []processledger.Record
+	if first {
+		leftovers, _ = ledger.Leftovers()
+	}
 	service := &Service{
 		startupLeftovers: leftovers,
 		Root:             root,

@@ -22,8 +22,15 @@ import (
 // the page routes them. What remains of the Config's callbacks are the two that Viva leaves to
 // the window (see Config).
 
-// Config is the window's configuration.
+// Config is the window's configuration: the configuration of the workbench of each project tab,
+// with the callbacks that act on what the window shows given to the tab shown
+// (window_sessions.go).
 func (a *App) Config() app.Config {
+	return a.sessions.config()
+}
+
+// sessionConfig is the configuration of this workbench's page, as if it had the window alone.
+func (a *App) sessionConfig() app.Config {
 	a.subscribeSettings()
 	base := app.Config{
 		Title:          a.text.App.Name,
@@ -37,7 +44,7 @@ func (a *App) Config() app.Config {
 		ClearColor:     a.startupBackground(),
 		WindowControls: func() app.WindowControlsStyle { return windowcontrols.Style(a.colors.Text, a.text) },
 		Tree:           &tree,
-		Invalidator:    &a.invalidator,
+		Invalidator:    a.invalidator.invalidator,
 		OnWake:         a.drain,
 		OnCloseRequest: func(allow func()) { a.requestCloseProject(allow) },
 		OnClosed:       a.closed,
@@ -66,7 +73,7 @@ func (a *App) Config() app.Config {
 	background := a.colors.Chrome
 	a.root = ui.NewPage(ui.PageConfig{
 		View: a.page, Tree: &tree, Root: "workbench",
-		Theme: &a.theme, Background: &background, Invalidator: &a.invalidator,
+		Theme: &a.theme, Background: &background, Invalidator: a.invalidator.invalidator,
 	})
 	config := a.root.Config(base)
 	wheel := config.OnScroll
@@ -138,6 +145,9 @@ func (a *App) workbench(c ui.C) {
 	open := a.chrome.open
 	a.syncWindowTitle()
 	a.layout.capture()
+	// The strip of project tabs, when the window has several projects, takes its height from
+	// the main column.
+	a.layout.insetH = titleBarHeight + statusBarHeight + a.sessions.stripHeight()
 	plan := a.layout.arrange(c.Bounds(), open)
 	// The hide button is only noted while the paint is declared and acted on at its end, so
 	// the stripes and the status bar are declared with the same state as the panels.
@@ -155,7 +165,10 @@ func (a *App) workbench(c ui.C) {
 			a.titleBar(c)
 			ui.Row(c).Fill().Children(func() {
 				a.stripe(c, true)
-				a.shellMain(c, plan, open, &hidden)
+				ui.Column(c).Fill().Children(func() {
+					a.projectTabs(c)
+					a.shellMain(c, plan, open, &hidden)
+				})
 				a.stripe(c, false)
 			})
 			a.statusBar(c)

@@ -215,6 +215,9 @@ type Options struct {
 	// instrumented test binary raise it so scheduler load cannot masquerade as
 	// a provider failure.
 	PluginInitializeTimeout time.Duration
+	// first is the window's first workbench when this one is another project tab of its
+	// window; nil for the first (window_sessions.go).
+	first *App
 }
 
 // LogSink is the client's log as the window uses it: the log window reads it and the
@@ -421,7 +424,11 @@ type App struct {
 	// startupPath is the project folder the window opens once it exists (Options.OpenPath).
 	startupPath string
 	now         func() time.Time
-	invalidator app.Invalidator
+	// invalidator asks the window for a repaint. Every workbench of the window shares the one
+	// the window was opened with (window_sessions.go).
+	invalidator windowWake
+	// sessions are the workbenches of the window, one for each project tab.
+	sessions *windowSessions
 	// window is the workbench's native window once it is open; fullscreen is whether it
 	// fills its monitor, as the host last reported.
 	window     *app.Window
@@ -648,7 +655,18 @@ func New(options Options) *App {
 	a.theme, a.colors = look(a.settings.Theme)
 	a.shared.text.Store(a.text)
 	a.shared.dark.Store(a.colors.Dark)
-	if options.Logs != nil {
+	if first := options.first; first != nil {
+		// Another project tab: the window, its log window and its process ledger are the first
+		// workbench's.
+		a.sessions = first.sessions
+		a.invalidator = first.invalidator
+		a.application, a.window, a.fullscreen = first.application, first.window, first.fullscreen
+		a.logSink, a.logs = first.logSink, first.logs
+	} else {
+		a.sessions = newWindowSessions(a, options)
+		a.invalidator = windowWake{invalidator: new(app.Invalidator)}
+	}
+	if options.Logs != nil && options.first == nil {
 		a.logSink = options.Logs
 		version := options.Version
 		a.logs = logwindow.NewController(logwindow.WindowOptions{
@@ -666,7 +684,7 @@ func New(options Options) *App {
 			Shortcut: logsShortcut,
 		})
 	}
-	if a.store != nil {
+	if a.store != nil && options.first == nil {
 		// Processes started from now on are recorded in the preferences' ledger (startup_sweep.go).
 		processledger.Activate(a.store.Dir())
 	}
@@ -696,7 +714,11 @@ func (a *App) openPlugins(options Options) {
 		}
 		root = resolved
 	}
-	service, err := pluginservice.Open(options.PluginKernel, a.store, root)
+	open := pluginservice.Open
+	if options.first != nil {
+		open = pluginservice.OpenAnother
+	}
+	service, err := open(options.PluginKernel, a.store, root)
 	if err != nil {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_open", err))
 		return
@@ -722,7 +744,7 @@ func (a *App) Run() error {
 	err := app.RunApplication(func(application *app.Application) error {
 		a.application = application
 		// System Quit bypasses window close requests unless it is intercepted here.
-		application.OnQuitRequest(a.requestCloseProject)
+		application.OnQuitRequest(a.sessions.closeAll)
 		window, err := application.OpenWindow(a.Config(), nil)
 		if err != nil {
 			return err
@@ -743,13 +765,15 @@ func (a *App) Run() error {
 		}
 		return nil
 	})
-	a.unsubscribeSettings()
-	a.closeProject()
-	a.wait()
-	if a.plugins != nil && a.plugins.Runs != nil {
-		// Runs of the closed project are already stopped; this ends any the
-		// project close did not own and refuses new ones during shutdown.
-		a.plugins.Runs.StopAll()
+	for _, session := range a.sessions.everyOne() {
+		session.unsubscribeSettings()
+		session.closeProject()
+		session.wait()
+		if session.plugins != nil && session.plugins.Runs != nil {
+			// Runs of the closed project are already stopped; this ends any the
+			// project close did not own and refuses new ones during shutdown.
+			session.plugins.Runs.StopAll()
+		}
 	}
 	if a.logs != nil {
 		a.logs.Wait()
@@ -780,9 +804,6 @@ func (a *App) closed() {
 	a.closeNewProject()
 	a.closeProject()
 	a.settingsWindow.Close()
-	if a.logs != nil {
-		a.logs.Close()
-	}
 }
 
 // openLogs shows the log window. The window is opened from the queue drained in OnWake,
@@ -1120,6 +1141,9 @@ func (a *App) finishCloseProject(p *project, after func()) {
 		a.branch.branchSession = branchSession{}
 		if after != nil {
 			after()
+		} else {
+			// A project closed on its own leaves its tab when the window has others.
+			a.sessions.leave(a)
 		}
 	}
 }
