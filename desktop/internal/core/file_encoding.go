@@ -3,8 +3,6 @@ package core
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 )
 
 // FileEncodings are the encoding ids Core accepts, in the order a menu lists them.
@@ -41,31 +39,24 @@ type EncodedText struct {
 	HasBOM   bool
 }
 
-// Core's file commands read and write files under a workspace root, and the encoding rules
-// live behind them. The bytes a document was read from and is written to are guarded by the
-// host (documentio), so the host hands Core a private temporary directory holding only the
-// bytes to decode, or taking the bytes just encoded, and removes it again. No encoding rule
-// is repeated here.
+// The bytes a document was read from and is written to are guarded by the host
+// (documentio), so the host hands Core only bytes or text: text.decode and text.encode
+// apply the same encoding rules as file.read and file.write without touching a file. No
+// encoding rule is repeated here.
 
 // DecodeFileBytes decodes data with encoding, or detects the encoding when it is empty.
 // Detection fails with parse_failed for bytes that are valid in none of the supported
 // encodings; an explicit encoding never fails for that reason and reports Lossy instead.
 func (c *Client) DecodeFileBytes(ctx context.Context, data []byte, encoding string) (DecodedFile, error) {
-	root, err := os.MkdirTemp("", "lithe-decode-*")
-	if err != nil {
-		return DecodedFile{}, err
-	}
-	defer os.RemoveAll(root)
-	if err := os.WriteFile(filepath.Join(root, "document"), data, 0o600); err != nil {
-		return DecodedFile{}, err
+	if data == nil {
+		data = []byte{}
 	}
 	payload := struct {
-		Root     string `json:"root"`
-		Path     string `json:"path"`
+		Bytes    []byte `json:"bytes"`
 		Encoding string `json:"encoding,omitempty"`
-	}{root, "document", encoding}
+	}{data, encoding}
 	var decoded DecodedFile
-	err = c.Execute(ctx, "file.read", payload, &decoded)
+	err := c.Execute(ctx, "text.decode", payload, &decoded)
 	return decoded, err
 }
 
@@ -73,30 +64,23 @@ func (c *Client) DecodeFileBytes(ctx context.Context, data []byte, encoding stri
 // encodings write a byte order mark. A character the encoding cannot represent fails with
 // CodeEncodingUnmappable.
 func (c *Client) EncodeFileText(ctx context.Context, text, encoding string, bom *bool) (EncodedText, error) {
-	root, err := os.MkdirTemp("", "lithe-encode-*")
-	if err != nil {
-		return EncodedText{}, err
-	}
-	defer os.RemoveAll(root)
 	payload := struct {
-		Root     string `json:"root"`
-		Path     string `json:"path"`
 		Text     string `json:"text"`
 		Encoding string `json:"encoding,omitempty"`
 		BOM      *bool  `json:"bom,omitempty"`
-	}{root, "document", text, encoding, bom}
-	var written struct {
+	}{text, encoding, bom}
+	var encoded struct {
+		Bytes    []byte `json:"bytes"`
 		Encoding string `json:"encoding"`
 		HasBOM   bool   `json:"hasBom"`
 	}
-	if err := c.Execute(ctx, "file.write", payload, &written); err != nil {
+	if err := c.Execute(ctx, "text.encode", payload, &encoded); err != nil {
 		return EncodedText{}, err
 	}
-	data, err := os.ReadFile(filepath.Join(root, "document"))
-	if err != nil {
-		return EncodedText{}, err
+	if encoded.Bytes == nil {
+		encoded.Bytes = []byte{}
 	}
-	return EncodedText{Bytes: data, Encoding: written.Encoding, HasBOM: written.HasBOM}, nil
+	return EncodedText{Bytes: encoded.Bytes, Encoding: encoded.Encoding, HasBOM: encoded.HasBOM}, nil
 }
 
 // IsEncodingUnmappable reports whether err says the text cannot be written in the chosen

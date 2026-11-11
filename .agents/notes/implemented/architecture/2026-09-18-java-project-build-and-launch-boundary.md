@@ -280,10 +280,17 @@ Run 控件，也不在 `java-run-launch` 或平台 adapter 再做一次 `blocksR
 ### 每一步使用自己的工具链环境（#1216）
 
 Windows 曾先填入自动发现的 JAVA_HOME，再用“仅为空时插入”应用 Maven JDK，
-导致用户选的 Maven JDK 永远无法覆盖先填的 Java 值。两个宿主现在调用 Core 的
-execution.resolveEnvironment：继承环境低于当前步骤选定的工具链，用户显式
-字符串最高。Maven 资源处理步骤即使继承主程序的 Java 绑定，也选择 Maven JDK；
-后续 JVM 保持项目 JDK。Windows 环境键按不区分大小写处理。
+导致用户选的 Maven JDK 永远无法覆盖先填的 Java 值。当时的修法是让 Core 的
+execution.resolveEnvironment 按 `toolchain`/`javaHome`/`mavenJavaHome` 选 JDK。
+
+#1791 把 Java 专属逻辑移出 Core 之后，这条规则改由工具链完成：每一步使用的
+JDK 是插件声明、用户选定的工具链安装（`toolchains.*`），宿主在启动前把它的
+环境（例如 JAVA_HOME）和 PATH 前缀加进去（Viva 中是
+`desktop/internal/workbench/toolchains.go` 的 `applyToolchainSelection`）。
+execution.resolveEnvironment 只剩“继承环境低于显式值”的合并，不认识任何工具；
+契约和 `shared/fixtures/execution/launch-environment-v1.json` 已在
+Lithe-core-rust#10 改成这个语义并由 Core 测试执行。Windows 环境键按不区分
+大小写处理。
 
 平台仍负责定位可执行文件与 JDK home，Core 不探测机器、不执行 Maven，也不
 复制上游构建模型。不要在 Windows 调换两次 insert 就结束：这会让后续前置

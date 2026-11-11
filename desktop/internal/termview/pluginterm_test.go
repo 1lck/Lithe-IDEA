@@ -24,6 +24,7 @@ func (s *fakeShell) Resize(int, int)       {}
 func (s *fakeShell) Done() <-chan struct{} { return s.done }
 func (s *fakeShell) Err() error            { return s.err }
 func (s *fakeShell) Close()                {}
+func (s *fakeShell) Busy() bool            { return false }
 
 type exitStatus int
 

@@ -102,7 +102,7 @@ func (c *Client) PlanDebugExecutable(ctx context.Context, manifest json.RawMessa
 
 // DebugStartArguments validates facts and projects them through the adapter's bindings.
 func (c *Client) DebugStartArguments(ctx context.Context, manifest json.RawMessage, adapterID, request string, facts DebugStartFacts) (map[string]any, error) {
-	start, err := c.PlanDebugStart(ctx, manifest, adapterID, request, facts)
+	start, err := c.PlanDebugStart(ctx, manifest, adapterID, request, facts, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -110,8 +110,11 @@ func (c *Client) DebugStartArguments(ctx context.Context, manifest json.RawMessa
 }
 
 // PlanDebugStart is DebugStartArguments with the connection Core reports for a
-// remote attach, so the host can ask the user before it connects.
-func (c *Client) PlanDebugStart(ctx context.Context, manifest json.RawMessage, adapterID, request string, facts DebugStartFacts) (DebugStart, error) {
+// remote attach, so the host can ask the user before it connects. configuration
+// is a plugin backend's own DAP arguments from lithe/host/debug/start, nil for a
+// start the user made; Core puts each of its keys over the adapter's arguments,
+// so the result goes to the adapter unchanged.
+func (c *Client) PlanDebugStart(ctx context.Context, manifest json.RawMessage, adapterID, request string, facts DebugStartFacts, configuration map[string]any) (DebugStart, error) {
 	const command = "debug.adapters.startArguments"
 	var result struct {
 		Status     string                `json:"status"`
@@ -120,11 +123,12 @@ func (c *Client) PlanDebugStart(ctx context.Context, manifest json.RawMessage, a
 		Connection *DebugStartConnection `json:"connection"`
 	}
 	if err := c.Execute(ctx, command, struct {
-		Manifest  json.RawMessage `json:"manifest"`
-		AdapterID string          `json:"adapterID"`
-		Request   string          `json:"request"`
-		Facts     DebugStartFacts `json:"facts"`
-	}{manifest, adapterID, request, facts}, &result); err != nil {
+		Manifest      json.RawMessage `json:"manifest"`
+		AdapterID     string          `json:"adapterID"`
+		Request       string          `json:"request"`
+		Facts         DebugStartFacts `json:"facts"`
+		Configuration map[string]any  `json:"configuration,omitempty"`
+	}{manifest, adapterID, request, facts, configuration}, &result); err != nil {
 		return DebugStart{}, err
 	}
 	if result.Status == "rejected" && result.Error != nil {

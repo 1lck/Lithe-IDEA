@@ -1360,6 +1360,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `workspace.searchTextBatch` | Search provider-captured text snapshots using workspace matching rules |
 | `file.read` | Read a text file using a workspace-relative path; optional `encoding`, see [File encodings](#file-encodings) |
 | `file.write` | Write a text file using a workspace-relative path; optional `encoding` and `bom` |
+| `text.decode` | Decode `{ bytes }` (standard base64 of bytes the host read) like `file.read`, optional `encoding`; returns `{ text, encoding, hasBom, lossy, identity }` with the same 32 MB, plain-text and detection rules |
+| `text.encode` | Encode `{ text }` like `file.write`, optional `encoding` and `bom`; returns `{ bytes, encoding, hasBom, identity }` with `bytes` in standard base64. Nothing is written, and an unmappable character fails with `encoding_unmappable` as `file.write` does |
 | `document.lifecycle` | Reduce a shared document save, external-change, or conflict event without reading text or disk |
 | `document.planSaveBatch` | Select the open documents a Save All or save-before-launch batch writes |
 | `document.reduceSaveBatch` | Reduce save batch member outcomes and live documents into one batch status |
@@ -1376,7 +1378,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `diff.compareTexts` | Compare two host-supplied texts line by line into paired side-by-side rows and unified lines |
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.launchPlan` | Produce a deterministic Maven invocation from a versioned project context |
-| `execution.resolveEnvironment` | Merge native `inherited` string values, selected `javaHome`/`mavenJavaHome` for the current `toolchain`, and `overrides` into `{ environment }`. `caseInsensitive: true` canonicalizes Windows keys to uppercase. Maven uses Maven JDK with project-JDK fallback; Java uses project JDK. String overrides win; structured `{ toolchain, property: "home" }` bindings use the current step's home for JAVA_HOME, and the named toolchain for other variables. Unknown bindings are omitted. |
+| `execution.resolveEnvironment` | Merge native `inherited` string values and `overrides` into `{ environment }`; string overrides win. Core names no tool: a runtime home such as `JAVA_HOME` reaches a launch through the selected toolchain installation (`toolchains.*`), which the host applies before this merge, or as a literal override from the plugin that owns the toolchain. A structured `{ toolchain, property }` value the host could not resolve to text has no defined value and contributes nothing. `caseInsensitive: true` canonicalizes Windows keys to uppercase. |
 | `execution.resolveSearchPath` | Preserve existing path precedence, sort platform candidates by priority and identity, and deduplicate using the requested case policy. |
 | `execution.planLaunchCommand` | Move oversized Java path-list options into a JDK argument file |
 | `processLifecycle.resolve` | Decide how each process or resource of one Lithe instance ends |
@@ -5468,10 +5470,14 @@ process, with `plugin.launch.unsupportedTransport`.
 `debug.adapters.startArguments` accepts `{ manifest, adapterID, request:
 "launch" | "attach", facts: { registration: { generation, currentGeneration },
 runtimeSelection?, target: { kind, path?, processID?, workingDirectory?,
-executable?, host?, port?, pathMappings? } } }`
+executable?, host?, port?, pathMappings? } }, configuration? }`
 and returns `{ status: "ok", arguments, connection? }`: the request's configured
 `arguments` with each `targetBindings` name filled from the target unless the
-configuration already sets it. `program` is filled from `target.path`, or from
+configuration already sets it. `configuration` is a plugin backend's own DAP
+arguments from `lithe/host/debug/start`, as `debug.decodeBackendConfiguration`
+returned them; each of its keys replaces the argument of the same name, so the
+host sends `arguments` to the adapter unchanged. A `noDebug` or `__` key there is
+refused with `plugin.debug.invalidStart` and `field: "configuration.<key>"`. `program` is filled from `target.path`, or from
 `target.executable` (an absolute path the host found) when the configuration
 binds it to `target.executable`. Refusals use the `rejected` shape with
 `debug.provider.stale`, `debug.request.unsupported`, `debug.runtime.stale`, or
@@ -6294,6 +6300,17 @@ codePoint=U+XXXX` for the first offending scalar; nothing is written and no
 replacement character is substituted. The result is `{ path, bytesWritten,
 encoding, hasBom, identity }`, where `bytesWritten` is the encoded length
 including any BOM. Fixture: `shared/fixtures/editor/file-encoding-v1.json`.
+
+`text.decode` and `text.encode` are the same rules for a host that reads and
+writes the file itself (for example to guard against a file changing between
+its check and its write). `text.decode` takes `{ bytes, encoding? }`, where
+`bytes` is the standard base64 of the exact bytes, and returns `file.read`'s
+result without `path`; detection, `lossy`, `identity`, the 32 MB limit
+(`parse_failed`) and the plain-text check are identical, and base64 that does not
+decode is `invalid_request`. `text.encode` takes `{ text, encoding?, bom? }`
+and returns `{ bytes, encoding, hasBom, identity }`, with `bytes` the base64 of
+what `file.write` would write; nothing touches the file system, so the host
+needs no temporary file. Both run against the same fixture.
 
 ### Decoded document text classification
 

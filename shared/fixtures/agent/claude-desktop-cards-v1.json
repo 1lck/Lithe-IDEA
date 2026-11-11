@@ -1,0 +1,540 @@
+{
+  "schemaVersion": 1,
+  "description": "Claude Desktop tool calls as a host receives them (updates) and as lithe-agent-host presents them to clients (presented), in order. Cards are in _meta.lithe.claudeDesktop; see shared/contracts/application-boundary.md.",
+  "cases": [
+    {
+      "name": "chapter",
+      "updates": [
+        {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "c",
+          "name": "mcp__ccd_session__mark_chapter",
+          "title": "mcp__ccd_session__mark_chapter",
+          "status": "pending",
+          "rawInput": {
+            "title": "Core",
+            "summary": "Rust first"
+          }
+        },
+        {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "c",
+          "status": "completed"
+        }
+      ],
+      "presented": [
+        {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "c",
+          "name": "mcp__ccd_session__mark_chapter",
+          "title": "Chapter: Core",
+          "status": "pending",
+          "rawInput": {
+            "title": "Core",
+            "summary": "Rust first"
+          },
+          "_meta": {
+            "lithe": {
+              "claudeDesktop": {
+                "card": "chapter",
+                "title": "Core",
+                "summary": "Rust first"
+              }
+            }
+          },
+          "kind": "other"
+        },
+        {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "c",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "name": "next-step-from-wrap-up",
+      "updates": [
+        {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "w",
+          "name": "mcp__ccd_turn__wrap_up",
+          "title": "mcp__ccd_turn__wrap_up",
+          "status": "pending",
+          "rawInput": {
+            "recap": "PR opened.",
+            "ask": "Mark it ready?",
+            "actions": [
+              {
+                "label": "Yes",
+                "message": "yes"
+              },
+              {
+                "label": "Not now"
+              }
+            ]
+          }
+        },
+        {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "w",
+          "status": "completed"
+        }
+      ],
+      "presented": [
+        {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "PR opened.\n\nMark it ready?"
+          }
+        },
+        {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "w#next",
+          "title": "Suggested replies",
+          "kind": "other",
+          "status": "completed",
+          "_meta": {
+            "lithe": {
+              "claudeDesktop": {
+                "card": "nextStep",
+                "actions": [
+                  {
+                    "label": "Yes",
+                    "message": "yes"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "task-proposed-then-withdrawn",
+      "updates": [
+        {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "t1",
+          "name": "mcp__ccd_session__spawn_task",
+          "title": "mcp__ccd_session__spawn_task",
+          "status": "pending",
+          "rawInput": {
+            "title": "Fix",
+            "tldr": "Why",
+            "prompt": "Do it"
+          }
+        },
+        {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "t1",
+          "status": "completed",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "Noted (position 1, task_id: task_9edecafe). A chip is showing"
+              }
+            }
+          ]
+        },
+        {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "x",
+          "name": "mcp__ccd_session__dismiss_task",
+          "title": "mcp__ccd_session__dismiss_task",
+          "status": "pending",
+          "rawInput": {
+            "task_id": "task_9edecafe"
+          }
+        },
+        {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "x",
+          "status": "completed",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "Task task_9edecafe withdrawn"
+              }
+            }
+          ]
+        }
+      ],
+      "presented": [
+        {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "t1",
+          "name": "mcp__ccd_session__spawn_task",
+          "title": "Suggested task: Fix",
+          "status": "pending",
+          "rawInput": {
+            "title": "Fix",
+            "tldr": "Why",
+            "prompt": "Do it"
+          },
+          "_meta": {
+            "lithe": {
+              "claudeDesktop": {
+                "card": "task",
+                "title": "Fix",
+                "summary": "Why",
+                "prompt": "Do it",
+                "state": "proposed"
+              }
+            }
+          },
+          "kind": "other"
+        },
+        {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "t1",
+          "status": "completed",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "Noted (position 1, task_id: task_9edecafe). A chip is showing"
+              }
+            }
+          ]
+        },
+        {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "t1",
+          "_meta": {
+            "lithe": {
+              "claudeDesktop": {
+                "card": "task",
+                "title": "Fix",
+                "summary": "Why",
+                "prompt": "Do it",
+                "state": "withdrawn"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "task-handed-off",
+      "updates": [
+        {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "h",
+          "name": "mcp__ccd_session__hand_off_to_session",
+          "title": "mcp__ccd_session__hand_off_to_session",
+          "status": "pending",
+          "rawInput": {
+            "title": "Stats",
+            "remaining_plan": "\nDone: x\nNext: y"
+          }
+        },
+        {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "h",
+          "status": "completed"
+        }
+      ],
+      "presented": [
+        {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "h",
+          "name": "mcp__ccd_session__hand_off_to_session",
+          "title": "Suggested task: Stats",
+          "status": "pending",
+          "rawInput": {
+            "title": "Stats",
+            "remaining_plan": "\nDone: x\nNext: y"
+          },
+          "_meta": {
+            "lithe": {
+              "claudeDesktop": {
+                "card": "task",
+                "title": "Stats",
+                "summary": "Done: x",
+                "prompt": "Done: x\nNext: y",
+                "state": "handedOff"
+              }
+            }
+          },
+          "kind": "other"
+        },
+        {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "h",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "name": "pull-request-monitored",
+      "updates": [
+        {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "p",
+          "name": "mcp__ccd_pr__set_monitor",
+          "title": "mcp__ccd_pr__set_monitor",
+          "status": "pending",
+          "rawInput": {
+            "url": "https://github.com/o/r/pull/31",
+            "auto_fix": true
+          }
+        },
+        {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "p",
+          "status": "completed"
+        }
+      ],
+      "presented": [
+        {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "p",
+          "name": "mcp__ccd_pr__set_monitor",
+          "title": "Pull request https://github.com/o/r/pull/31",
+          "status": "pending",
+          "rawInput": {
+            "url": "https://github.com/o/r/pull/31",
+            "auto_fix": true
+          },
+          "_meta": {
+            "lithe": {
+              "claudeDesktop": {
+                "card": "pullRequest",
+                "action": "monitored",
+                "url": "https://github.com/o/r/pull/31",
+                "number": 31,
+                "autoFix": true
+              }
+            }
+          },
+          "kind": "other"
+        },
+        {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "p",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "name": "pull-request-auto-merge",
+      "updates": [
+        {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "m",
+          "name": "mcp__ccd_pr__set_auto_merge",
+          "title": "mcp__ccd_pr__set_auto_merge",
+          "status": "pending",
+          "rawInput": {
+            "url": "https://github.com/o/r/pull/7",
+            "enabled": false
+          }
+        },
+        {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "m",
+          "status": "completed"
+        }
+      ],
+      "presented": [
+        {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "m",
+          "name": "mcp__ccd_pr__set_auto_merge",
+          "title": "Pull request https://github.com/o/r/pull/7",
+          "status": "pending",
+          "rawInput": {
+            "url": "https://github.com/o/r/pull/7",
+            "enabled": false
+          },
+          "_meta": {
+            "lithe": {
+              "claudeDesktop": {
+                "card": "pullRequest",
+                "action": "autoMerge",
+                "url": "https://github.com/o/r/pull/7",
+                "number": 7,
+                "enabled": false
+              }
+            }
+          },
+          "kind": "other"
+        },
+        {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "m",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "name": "directory-requested",
+      "updates": [
+        {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "d",
+          "name": "mcp__ccd_directory__request_directory",
+          "title": "mcp__ccd_directory__request_directory",
+          "status": "pending",
+          "rawInput": {
+            "path": "/w/other"
+          }
+        },
+        {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "d",
+          "status": "completed"
+        }
+      ],
+      "presented": [
+        {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "d",
+          "name": "mcp__ccd_directory__request_directory",
+          "title": "Working folder /w/other",
+          "status": "pending",
+          "rawInput": {
+            "path": "/w/other"
+          },
+          "_meta": {
+            "lithe": {
+              "claudeDesktop": {
+                "card": "directory",
+                "action": "requested",
+                "path": "/w/other"
+              }
+            }
+          },
+          "kind": "other"
+        },
+        {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "d",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "name": "widget",
+      "updates": [
+        {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "v",
+          "name": "mcp__visualize__show_widget",
+          "title": "mcp__visualize__show_widget",
+          "status": "pending",
+          "rawInput": {
+            "title": "vcs_layers",
+            "widget_code": "<svg/>"
+          }
+        },
+        {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "v",
+          "status": "completed"
+        }
+      ],
+      "presented": [
+        {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "v",
+          "name": "mcp__visualize__show_widget",
+          "title": "Visualization: vcs layers",
+          "status": "pending",
+          "rawInput": {
+            "title": "vcs_layers",
+            "widget_code": "<svg/>"
+          },
+          "_meta": {
+            "lithe": {
+              "claudeDesktop": {
+                "card": "widget",
+                "title": "vcs layers",
+                "code": "<svg/>"
+              }
+            }
+          },
+          "kind": "other"
+        },
+        {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "v",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "name": "readable-row-without-card",
+      "updates": [
+        {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "g",
+          "name": "mcp__ccd_pr__get_status",
+          "title": "mcp__ccd_pr__get_status",
+          "status": "pending",
+          "rawInput": {}
+        },
+        {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "g",
+          "status": "completed"
+        }
+      ],
+      "presented": [
+        {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "g",
+          "name": "mcp__ccd_pr__get_status",
+          "title": "Checked the pull request status",
+          "status": "pending",
+          "rawInput": {},
+          "kind": "read"
+        },
+        {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "g",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "name": "unknown-server-passes-through",
+      "updates": [
+        {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "u",
+          "name": "mcp__dbx__list_connections",
+          "title": "mcp__dbx__list_connections",
+          "status": "pending",
+          "rawInput": {}
+        },
+        {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "u",
+          "status": "completed"
+        }
+      ],
+      "presented": [
+        {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "u",
+          "name": "mcp__dbx__list_connections",
+          "title": "mcp__dbx__list_connections",
+          "status": "pending",
+          "rawInput": {}
+        },
+        {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "u",
+          "status": "completed"
+        }
+      ]
+    }
+  ]
+}

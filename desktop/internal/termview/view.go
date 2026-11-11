@@ -153,6 +153,8 @@ type shell interface {
 	Done() <-chan struct{}
 	// Err says why the shell ended; nil for a clean exit.
 	Err() error
+	// Busy reports that the shell runs a program; it may be called from any goroutine.
+	Busy() bool
 	Close()
 }
 
@@ -299,6 +301,16 @@ func (v *View) Owns(id gfx.ID) bool {
 // SetMessages replaces the words the view shows, for a change of the window's language.
 // What is already written into the grid stays in the language it was written in.
 func (v *View) SetMessages(messages Messages) { v.cfg.Messages = messages }
+
+// BusyProbe returns what tells whether the running shell is busy with a program, nil
+// when no shell runs. The probe may be called from any goroutine and answers false
+// once that shell has ended, so it can be taken now and asked off the window thread.
+func (v *View) BusyProbe() func() bool {
+	if v.shell == nil {
+		return nil
+	}
+	return v.shell.Busy
+}
 
 // Close ends the shell and keeps the view from starting another.
 func (v *View) Close() {

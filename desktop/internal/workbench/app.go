@@ -75,7 +75,7 @@ type Kernel interface {
 	EditPluginSettings(context.Context, json.RawMessage, string, *string, []core.PluginSettingEdit) (core.PluginSettingsEditPlan, error)
 	PlanPluginDebugAdapter(context.Context, json.RawMessage, string, core.PluginBackendDirectories) (core.PluginBackendPlan, error)
 	PlanDebugExecutable(context.Context, json.RawMessage, string, string, string, map[string]json.RawMessage, map[string]json.RawMessage) (*core.DebugExecutablePlan, error)
-	PlanDebugStart(context.Context, json.RawMessage, string, string, core.DebugStartFacts) (core.DebugStart, error)
+	PlanDebugStart(context.Context, json.RawMessage, string, string, core.DebugStartFacts, map[string]any) (core.DebugStart, error)
 	DebugTransportPolicy(context.Context) (core.DebugTransportPolicy, error)
 	debugTransportKernel
 	debugStateKernel

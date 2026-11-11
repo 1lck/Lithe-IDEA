@@ -145,3 +145,27 @@ func TestConPTYStartsInTheRequestedDirectory(t *testing.T) {
 	shell.Write([]byte("cd\r\n"))
 	untilWindows(t, shell, wakes, dir)
 }
+
+// A console has no foreground group: the shell is busy while it has a child.
+func TestConPTYShellIsBusyWhileAProgramRuns(t *testing.T) {
+	shell, wakes := startWindows(t, Config{})
+	shell.Write([]byte("echo ready-%OS%\r\n"))
+	untilWindows(t, shell, wakes, "ready-Windows_NT")
+	if shell.Busy() {
+		t.Fatal("cmd at its prompt reads as busy")
+	}
+	shell.Write([]byte("ping -n 60 127.0.0.1\r\n"))
+	untilWindows(t, shell, wakes, "TTL=")
+	if !shell.Busy() {
+		t.Fatal("cmd running ping reads as idle")
+	}
+	shell.Close()
+	select {
+	case <-shell.Done():
+	case <-time.After(15 * time.Second):
+		t.Fatal("closing did not end the shell")
+	}
+	if shell.Busy() {
+		t.Fatal("an ended shell reads as busy")
+	}
+}

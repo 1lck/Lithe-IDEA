@@ -174,7 +174,29 @@ func startBackend(config Config) (backend, error) {
 		},
 		hangup: func() { _ = windows.TerminateProcess(process.Process, 1) },
 		kill:   func() { _ = windows.TerminateProcess(process.Process, 1) },
+		// A console has no foreground process group to ask: the shell is busy
+		// while it has a child. A WSL distribution's programs are not Windows
+		// processes, so a WSL terminal always reads as idle.
+		busy: func() bool { return hasChildProcess(process.ProcessId) },
 	}, nil
+}
+
+// hasChildProcess reports whether a running process names parent as its parent.
+// A snapshot that cannot be taken answers false.
+func hasChildProcess(parent uint32) bool {
+	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		return false
+	}
+	defer windows.CloseHandle(snapshot)
+	var entry windows.ProcessEntry32
+	entry.Size = uint32(unsafe.Sizeof(entry))
+	for err = windows.Process32First(snapshot, &entry); err == nil; err = windows.Process32Next(snapshot, &entry) {
+		if entry.ParentProcessID == parent && entry.ProcessID != parent {
+			return true
+		}
+	}
+	return false
 }
 
 // consoleIO is the two pipe ends of a pseudo console as one stream.

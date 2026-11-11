@@ -78,18 +78,18 @@ func (c *Client) GenerateRunConfigurations(ctx context.Context, root, cacheDirec
 }
 
 // ExecutionEnvironmentRequest is the input of the launch environment merge.
-// Overrides values are either a string or a {toolchain, property} binding.
+// Overrides values are either a string or a {toolchain, property} binding; a
+// binding the host could not resolve to text contributes nothing. A runtime
+// home such as JAVA_HOME is not chosen here: it comes from the toolchain
+// installation the step selected (applyToolchainSelection in the workbench).
 type ExecutionEnvironmentRequest struct {
-	Toolchain       string            `json:"toolchain"`
-	JavaHome        string            `json:"javaHome,omitempty"`
-	MavenJavaHome   string            `json:"mavenJavaHome,omitempty"`
 	Inherited       map[string]string `json:"inherited"`
 	Overrides       map[string]any    `json:"overrides"`
 	CaseInsensitive bool              `json:"caseInsensitive"`
 }
 
-// ResolveExecutionEnvironment merges inherited values, the selected JDK homes
-// and the explicit overrides into the environment a launch uses.
+// ResolveExecutionEnvironment merges inherited values and the explicit
+// overrides into the environment a launch uses; overrides win.
 func (c *Client) ResolveExecutionEnvironment(ctx context.Context, request ExecutionEnvironmentRequest) (map[string]string, error) {
 	if request.Inherited == nil {
 		request.Inherited = map[string]string{}

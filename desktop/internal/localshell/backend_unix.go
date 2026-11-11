@@ -73,6 +73,19 @@ func startBackend(config Config) (backend, error) {
 		},
 		hangup: func() { _ = cmd.Process.Signal(syscall.SIGHUP) },
 		kill:   func() { _ = cmd.Process.Kill() },
+		// The shell leads its own process group; a command it runs in the
+		// foreground gets another one, and the pty names the foreground group.
+		busy: func() bool {
+			control, err := master.SyscallConn()
+			if err != nil {
+				return false
+			}
+			group := 0
+			readErr := control.Control(func(fd uintptr) {
+				group, err = unix.IoctlGetInt(int(fd), unix.TIOCGPGRP)
+			})
+			return readErr == nil && err == nil && group > 0 && group != cmd.Process.Pid
+		},
 	}, nil
 }
 

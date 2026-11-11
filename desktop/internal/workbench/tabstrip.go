@@ -461,7 +461,7 @@ func (a *App) closeTab(t shownTab) {
 	case t.diff != nil:
 		a.closeDiffTab(a.project, t.diff.id)
 	default:
-		a.closeTerminal(a.project, t.term.id)
+		a.requestCloseTerminal(a.project, t.term.id)
 	}
 }
 

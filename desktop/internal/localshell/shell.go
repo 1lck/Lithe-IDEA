@@ -80,6 +80,10 @@ type backend struct {
 	wait func() (status int, err error)
 	// hangup asks the program to end; kill makes sure it does.
 	hangup, kill func()
+	// busy reports that a program other than the shell runs in the terminal. It is
+	// called from any goroutine, also after the shell ended, and answers false when
+	// it cannot tell.
+	busy func() bool
 }
 
 // ExitError is why a shell ended with a nonzero status. It has the same
@@ -257,6 +261,16 @@ func (shell *Shell) wait() {
 	shell.space.Broadcast()
 	close(shell.done)
 	shell.wake()
+}
+
+// Busy reports that the shell is running a program: a command in the foreground on
+// Unix, any child process of the shell on Windows. An ended shell, and a shell whose
+// state cannot be read, is not busy. It may be called from any goroutine.
+func (shell *Shell) Busy() bool {
+	shell.mu.Lock()
+	finished := shell.finished
+	shell.mu.Unlock()
+	return !finished && shell.b.busy != nil && shell.b.busy()
 }
 
 // Drain appends the output received since the last call to dst. It never blocks.

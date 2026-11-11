@@ -194,26 +194,17 @@ func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, stateDir
 			}
 		}
 	}
+	// A backend's configuration goes to Core too, which puts it over the
+	// adapter's arguments: the host sends the result as it is.
 	planned, err := a.kernel.PlanDebugStart(ctx, adapter.Manifest, adapter.Declaration.ID, start.request, core.DebugStartFacts{
 		Registration: core.DebugGeneration{Generation: generation, CurrentGeneration: generation},
 		Target:       target,
-	})
+	}, start.configuration)
 	if err != nil {
 		return preparedDebugLaunch{}, err
 	}
 	// Core says which endpoints it can prove local; every other one waits for the
 	// user, and the answer is not remembered.
-	if start.configuration != nil {
-		// The plugin's configuration wins over the adapter's declared arguments.
-		merged := make(map[string]any, len(planned.Arguments)+len(start.configuration))
-		for key, value := range planned.Arguments {
-			merged[key] = value
-		}
-		for key, value := range start.configuration {
-			merged[key] = value
-		}
-		planned.Arguments = merged
-	}
 	if planned.Connection != nil && planned.Connection.Remote && !start.confirmed {
 		return preparedDebugLaunch{}, &debugRemoteError{host: planned.Connection.Host, port: planned.Connection.Port}
 	}

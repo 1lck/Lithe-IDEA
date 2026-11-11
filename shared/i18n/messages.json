@@ -12317,6 +12317,16 @@
       ]
     },
     {
+      "id": "desktop.exit.terminal",
+      "description": "Name of a terminal whose shell is running a program, in the exit confirmation. {terminal} is the tab's title",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "terminal": "string"
+      }
+    },
+    {
       "id": "desktop.exit.title",
       "description": "Title of the confirmation shown when closing while programs started by Lithe are still running",
       "platforms": [
@@ -16941,6 +16951,30 @@
     {
       "id": "desktop.sync.yes",
       "description": "Desktop: sync.yes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.terminal.closeBusyBody",
+      "description": "Body of the confirmation shown when closing a busy terminal tab. {terminal} is the tab's title",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "terminal": "string"
+      }
+    },
+    {
+      "id": "desktop.terminal.closeBusyConfirm",
+      "description": "Button that closes a busy terminal tab and ends its program",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.terminal.closeBusyTitle",
+      "description": "Title of the confirmation shown when closing a terminal tab whose shell is running a program",
       "platforms": [
         "desktop"
       ]

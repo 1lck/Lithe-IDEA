@@ -60,12 +60,6 @@ func TestResolveExecutionEnvironmentFollowsTheContractFixture(t *testing.T) {
 	for _, test := range fixture.Cases {
 		t.Run(test.Name, func(t *testing.T) {
 			got, err := NewClient().ResolveExecutionEnvironment(ctx, test.Request)
-			if err == nil && !reflect.DeepEqual(got, test.Expected.Environment) && (test.Request.JavaHome != "" || test.Request.MavenJavaHome != "") {
-				// The pinned Core merges inherited values and overrides only; the
-				// JDK-home selection of the contract is not in it yet. The case
-				// starts to run by itself once the pin moves to a Core that has it.
-				t.Skipf("pinned Core does not select toolchain homes: got %v, want %v", got, test.Expected.Environment)
-			}
 			if err != nil || !reflect.DeepEqual(got, test.Expected.Environment) {
 				t.Fatalf("got %v, %v; want %v", got, err, test.Expected.Environment)
 			}

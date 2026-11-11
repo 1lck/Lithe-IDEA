@@ -194,3 +194,44 @@ func TestAStartedShellIsCountedUntilItIsClosed(t *testing.T) {
 		t.Fatalf("live shells = %d after Close, want %d", got, before)
 	}
 }
+
+// busyWithin waits for shell.Busy to report want. The foreground process group
+// changes without any output, so there is no event to wait on: the state is
+// polled, bounded by a deadline, and the failure says which state never came.
+func busyWithin(t *testing.T, shell *Shell, want bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for shell.Busy() != want {
+		if time.Now().After(deadline) {
+			t.Fatalf("Busy() stayed %v for 5s, want %v", !want, want)
+		}
+		// test-stability: allow(go-real-sleep) reason: the pty's foreground group changes without output or any other event a test could wait on.
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// A shell at its prompt is idle; a command it runs in the foreground makes it busy
+// until the command ends, and an ended shell is never busy.
+func TestShellIsBusyWhileAForegroundCommandRuns(t *testing.T) {
+	shell, wakes := start(t, Config{})
+	shell.Write([]byte("echo ready-$((1+1))\n"))
+	until(t, shell, wakes, "ready-2")
+	busyWithin(t, shell, false)
+
+	shell.Write([]byte("sleep 30\n"))
+	busyWithin(t, shell, true)
+	shell.Write([]byte{0x03}) // Ctrl+C ends the command, not the shell
+	busyWithin(t, shell, false)
+
+	shell.Write([]byte("sleep 30\n"))
+	busyWithin(t, shell, true)
+	shell.Close()
+	select {
+	case <-shell.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("closing did not end the shell")
+	}
+	if shell.Busy() {
+		t.Fatal("an ended shell reads as busy")
+	}
+}

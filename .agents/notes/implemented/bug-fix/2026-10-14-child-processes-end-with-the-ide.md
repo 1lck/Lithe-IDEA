@@ -2,7 +2,7 @@
 
 状态：已实现
 
-> Viva 迁移状态：以下完整退出兜底和询问是旧客户端的实现与历史验收，不能视为 Viva 已具备。当前 Core 会话桥接测试只覆盖各测试创建的插件或 Agent 进程在显式关闭后的清理；跨功能统一账本、退出确认、异常终止兜底及 Windows 实机行为仍需接入和验证。
+> Viva 迁移状态：以下完整退出兜底和询问是旧客户端的实现与历史验收，不能视为 Viva 已具备。Viva 已接入的部分见下文“Viva：运行会话与忙碌终端的确认”：关闭项目或退出时询问插件 Run、调试会话和忙碌终端，关闭忙碌终端标签页时单独询问。跨功能统一账本、Agent 任务、后台服务选择、异常终止兜底及 Windows 实机行为仍需接入和验证。
 
 ## 先说结论
 
@@ -74,6 +74,16 @@ Windows 原来有五个漏洞，叠在一起导致“关闭 Lithe 后服务还�
 - Windows 在窗口关闭守卫里询问，顺序是未保存文件在前、运行服务在后；更新安装时询问全部窗口的服务。
 - 设置：macOS 在“进程终止策略”页，Windows 在“运行配置”页（不打开项目也显示），默认询问。
 
+### Viva：运行会话与忙碌终端的确认
+
+Viva 客户端（`desktop/internal/workbench/process_exit.go`）把关闭时要问的东西交给同一条 Core 规则，自己只负责“现在有什么”和“它是否在忙”。
+
+- **什么叫忙碌终端。** 终端里的 shell 正在运行别的程序（比如 `npm run dev`），而不是停在提示符。macOS/Linux 读 pty 的前台进程组（`TIOCGPGRP`，内核记录的“当前在前台的那组进程”）：交互式 shell 有作业控制，每条命令自成一组，前台组不是 shell 自己就是忙。Windows 的控制台没有前台组的概念，改看 shell 进程有没有子进程。判断放在 `localshell.Shell.Busy()`，读不出来时一律算空闲。
+- **在哪里问。** 退出用 `quit` 场景；关闭项目时 Viva 的终端会随项目一起结束，不像旧客户端那样留到退出再决定，所以终端记录改按 `closeTerminalTab` 场景交给 Core，运行会话仍按 `closeWorkspace`。两组结果里 `confirmStop`（运行会话）和 `confirm`（忙碌终端）合并成一次“全部结束或取消”的确认；关闭单个忙碌终端标签页时单独问一次。空闲终端 Core 返回 `terminate`，直接关闭。
+- **探测不在窗口线程上跑。** 窗口线程只取出每个终端的探测函数（`termview.View.BusyProbe`），真正的系统调用（Windows 上是一次进程快照）在后台任务里执行，避免关闭时卡界面。
+- **不要这样做：** 不要在工作台里自己判断“忙碌终端要不要问”，也不要把 `confirm` 当成可以忽略的动作；这两件事由 Core 的规则和用户设置决定。也不要把 shell 有输出当作忙碌的依据：提示符本身也是输出。
+- **已知差异。** 旧客户端逐个确认终端并能跳到该终端；Viva 版合并成一次确认。shell 被 `exec` 替换（如 `exec vim`）后进程号不变，会读作空闲；Windows 上 WSL 终端里的程序不是 Windows 进程，始终读作空闲。
+
 ## 考虑过的备选方案
 
 - **只修 `ExecutionFeatureGraph.stop()`。** 能解决 Spring Boot 这一例，但下一个漏停的所有者、以及异步升级被进程退出截断的问题仍在。
@@ -93,6 +103,8 @@ Windows 原来有五个漏洞，叠在一起导致“关闭 Lithe 后服务还�
 - **Windows 终端和 Agent。** ConPTY 终端里启动的程序、Agent 进程树还没有放进 Job Object，Lithe 崩溃时仍可能残留；正常退出由各自的关闭流程处理。
 
 ## 验证
+
+- Viva：`desktop/internal/localshell/shell_unix_test.go` 的 `TestShellIsBusyWhileAForegroundCommandRuns`（提示符空闲、`sleep` 忙、Ctrl+C 后空闲、结束后不忙）与 Windows 对应的 `TestConPTYShellIsBusyWhileAProgramRuns`；`desktop/internal/workbench/process_exit_test.go` 用真实 Core 验证关闭忙碌标签页先问、取消保留、确认关闭，空闲终端直接关闭，以及关闭项目时只列出忙碌终端。
 
 - ~~`macos/Tests/LitheTests/LitheCoreLogicTests.swift`~~（已随 #1794 移除）：验证红色关闭按钮等待全部会话清理后保留欢迎窗口，取消与保存失败保留项目，重复点击不重复清理；同时覆盖 Cmd+W 和独立窗口隔离。
 
