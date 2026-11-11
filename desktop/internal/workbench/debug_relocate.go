@@ -44,6 +44,7 @@ func (a *App) relocateDocumentBreakpoints(p *project, d *document, edit editorvi
 	for _, point := range moved {
 		next = append(next, debugBreakpoint{
 			line:         point.Line,
+			disabled:     !point.Enabled,
 			condition:    point.Condition,
 			hitCondition: point.HitCondition,
 			logMessage:   point.LogMessage,

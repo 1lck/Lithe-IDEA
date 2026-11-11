@@ -9,9 +9,9 @@ import (
 )
 
 // The Debug tool window's context menus copy what a stack frame, an instruction and a variable
-// show, show a frame's disassembly and the memory at an instruction, and remove the line
-// breakpoints, as the earlier client's debugger did.
-func TestDebugMenusCopyFramesAndVariablesAndRemoveBreakpoints(t *testing.T) {
+// show, show a frame's disassembly and the memory at an instruction, and disable, enable and
+// remove the line breakpoints, as the earlier client's debugger did.
+func TestDebugMenusCopyFramesAndVariablesAndToggleBreakpoints(t *testing.T) {
 	h, p := pausedDebugSession(t)
 	defer releaseLaunchedDebug(h, p)
 	d := &p.debug
@@ -97,6 +97,20 @@ func TestDebugMenusCopyFramesAndVariablesAndRemoveBreakpoints(t *testing.T) {
 	source := d.frames[0].SourcePath
 	d.breakpoints = map[string][]debugBreakpoint{source: {{line: 3}, {line: 5}}}
 	h.app.sendDebugBreakpoints(p, source)
+	h.settle()
+	// A line breakpoint is disabled and enabled again; a disabled one keeps its line and is
+	// sent as disabled, so Core leaves it out of what the adapter gets.
+	h.rightClickNamed(filepath.Base(source) + ":3")
+	h.click(center(h.popupHit(h.shared("debugger.disableBreakpoint"))))
+	if points := sourceBreakpoints(d.breakpoints[source]); len(points) != 2 || points[0].Enabled || !points[1].Enabled {
+		t.Fatalf("after Disable the file sends %+v, want line 3 disabled", points)
+	}
+	h.settle()
+	h.rightClickNamed(filepath.Base(source) + ":3")
+	h.click(center(h.popupHit(h.shared("debugger.enableBreakpoint"))))
+	if d.breakpoints[source][0].disabled {
+		t.Fatal("Enable left line 3 disabled")
+	}
 	h.settle()
 	h.rightClickNamed(filepath.Base(source) + ":3")
 	h.click(center(h.popupHit(h.shared("native.removeAll"))))

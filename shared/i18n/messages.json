@@ -8389,7 +8389,8 @@
       "id": "debugger.disableBreakpoint",
       "description": "Windows UI: debugger.disableBreakpoint",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -8574,7 +8575,8 @@
       "id": "debugger.enableBreakpoint",
       "description": "Windows UI: debugger.enableBreakpoint",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {

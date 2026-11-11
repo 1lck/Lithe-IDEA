@@ -14,6 +14,9 @@ const (
 	debugRowHeight = 24
 	// debugBreakpointRows is how many breakpoint rows show before the list scrolls.
 	debugBreakpointRows = 6
+	// debugDisabledOpacity is the opacity of a disabled breakpoint's row, the fade the earlier
+	// client gave it.
+	debugDisabledOpacity = 0.55
 )
 
 // debugView declares the Debug tool window: one adapter session, its breakpoints,
@@ -193,13 +196,17 @@ func (a *App) debugBreakpoints(c ui.C, p *project) {
 		spec := rows[row.Index]
 		row.Element.Height(debugRowHeight).PadX(10).Items(ui.Center).Gap(6).Tooltip(t.RemoveBreakpoint).
 			Hover(ui.Look{}.Background(a.colors.Hover))
+		// A disabled breakpoint is shown faded, as the earlier client's list showed it.
+		if spec.breakpoint.disabled {
+			row.Element.Opacity(debugDisabledOpacity)
+		}
 		ui.Icon(row.C, icons.CircleX).Size(12, 12).Shrink(0).Color(a.theme.Danger)
 		ui.Text(row.C, debugFileName(spec.path)).Shrink(1).FontSize(12.5).Color(a.colors.Text).Ellipsis()
 		ui.Text(row.C, ":"+strconv.FormatInt(spec.breakpoint.line, 10)).Shrink(0).FontSize(11.5).Color(a.colors.Subtle)
 		if marker := breakpointMarker(spec.breakpoint, t.Breakpoint.Conditional, t.Breakpoint.LogPoint); marker != "" {
 			ui.Text(row.C, marker).Shrink(0).FontSize(11.5).Color(a.colors.Accent).Ellipsis()
 		}
-		a.debugBreakpointMenu(row.C, row.Element, p, spec.path, spec.breakpoint.line)
+		a.debugBreakpointMenu(row.C, row.Element, p, spec.path, spec.breakpoint.line, spec.breakpoint.disabled)
 		if row.Element.Clicked() {
 			row.C.After(func() { a.removeBreakpoint(p, spec.path, spec.breakpoint.line) })
 		}

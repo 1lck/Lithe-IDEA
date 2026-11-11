@@ -18,7 +18,8 @@ import (
 // the disassembly takes or loses a breakpoint, has the memory at its address read and copies
 // its address or its text; a variable is given
 // a new value, watched or copied; a watch is evaluated again, copied or removed; a line
-// breakpoint is edited, shown in its file or removed, alone or with the others. Each item acts
+// breakpoint is edited, enabled or disabled, shown in its file or removed, alone or with the
+// others. Each item acts
 // through the action the panel's own controls run.
 
 // debugVarMenu is the open context menu of one row of the variables tree. A tree row is
@@ -245,13 +246,23 @@ func (a *App) debugWatchMenu(c ui.C, row ui.Box, p *project, index int) {
 }
 
 // debugBreakpointMenu is the menu of the line breakpoint in path at line.
-func (a *App) debugBreakpointMenu(c ui.C, row ui.Box, p *project, path string, line int64) {
+func (a *App) debugBreakpointMenu(c ui.C, row ui.Box, p *project, path string, line int64, disabled bool) {
 	ui.ContextMenu(c, row, func(menu *ui.MenuItems) {
 		t := a.text.Debug
 		lang := a.language()
 		menu.WidthRange(160, 240)
 		if menu.Item(t.Breakpoint.Edit).Clicked() {
 			c.After(func() { a.openBreakpointEdit(p, path, line) })
+		}
+		toggle, action := i18n.Shared(lang, "debugger.disableBreakpoint"), "debug.breakpoint.disable"
+		if disabled {
+			toggle, action = i18n.Shared(lang, "debugger.enableBreakpoint"), "debug.breakpoint.enable"
+		}
+		if menu.Item(toggle).Clicked() {
+			c.After(func() {
+				a.performed(action, surfaceMenu)
+				a.setBreakpointEnabled(p, path, line, disabled)
+			})
 		}
 		if menu.Item(i18n.Shared(lang, "git.jumpToSource")).Clicked() {
 			c.After(func() {

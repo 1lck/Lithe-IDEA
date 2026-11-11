@@ -14,9 +14,11 @@ import (
 // debugBreakpoint is one source breakpoint of a file. The line is one-based. A condition
 // stops only when the expression holds, a hit condition stops on a count, and a log
 // message turns the breakpoint into a log point that prints instead of stopping. Core
-// validates none of them: the adapter decides what it supports.
+// validates none of them: the adapter decides what it supports. A disabled breakpoint keeps
+// its line and options; Core leaves it out of what it sends to the adapter.
 type debugBreakpoint struct {
 	line         int64
+	disabled     bool
 	condition    string
 	hitCondition string
 	logMessage   string
@@ -45,7 +47,7 @@ func sourceBreakpoints(lines []debugBreakpoint) []core.DebugSourceBreakpoint {
 	for _, line := range lines {
 		points = append(points, core.DebugSourceBreakpoint{
 			Line:         line.line,
-			Enabled:      true,
+			Enabled:      !line.disabled,
 			Condition:    line.condition,
 			HitCondition: line.hitCondition,
 			LogMessage:   line.logMessage,
@@ -100,6 +102,20 @@ func (a *App) saveBreakpointEdit(p *project) {
 	lines[index].logMessage = strings.TrimSpace(edit.logMessage)
 	if p.debug.activeSession() != nil {
 		a.sendDebugBreakpoints(p, edit.path)
+	}
+}
+
+// setBreakpointEnabled enables or disables one line breakpoint and, with a session, sends the
+// file's breakpoints to the adapter again.
+func (a *App) setBreakpointEnabled(p *project, path string, line int64, enabled bool) {
+	lines := p.debug.breakpoints[path]
+	index, found := breakpointIndex(lines, line)
+	if !found || lines[index].disabled == !enabled {
+		return
+	}
+	lines[index].disabled = !enabled
+	if p.debug.activeSession() != nil {
+		a.sendDebugBreakpoints(p, path)
 	}
 }
 
