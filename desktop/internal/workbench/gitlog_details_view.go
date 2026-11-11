@@ -261,7 +261,7 @@ func (a *App) compareLogFile(p *project, file string) {
 	if l.selected == "" || i < 0 {
 		return
 	}
-	a.openCommitDiff(p, p.git.repositoryRoot(p.root), l.selected, l.files[i])
+	a.openCommitDiff(p, p.logRepositoryRoot(), l.selected, l.files[i])
 }
 
 // showLogFileHistory narrows the log to the commits that changed file.

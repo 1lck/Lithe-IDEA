@@ -47,6 +47,9 @@ const (
 type branchSession struct {
 	// open says the popup is shown. A dialog closes the popup first.
 	open bool
+	// repo is the root of the repository the dialogs and writes act on when the log of a nested
+	// repository opened them; empty for the project's own repository (branchRoot).
+	repo string
 	// gen counts the loads of the references; the answer of an older load is dropped.
 	gen int
 	// loading is set while the kernel reads; loaded once it answered.
@@ -96,6 +99,7 @@ func (a *App) openBranches() {
 	a.title.gearOpen = false
 	b := &a.branch
 	b.open, b.menu, b.dialog = true, "", branchDialogNone
+	b.repo = ""
 	a.loadNestedReferences(p)
 	b.search.SetText("")
 	if b.collapsed == nil {
@@ -148,6 +152,15 @@ func (b *branchSession) currentReference() core.GitReference {
 	return headReference
 }
 
+// branchRoot is the root the branch dialogs and writes act in: the nested repository the log walks
+// when the log opened them, otherwise the project's own repository.
+func (a *App) branchRoot(p *project) string {
+	if a.branch.repo != "" {
+		return a.branch.repo
+	}
+	return p.git.repositoryRoot(p.root)
+}
+
 // runBranchWrite runs write against the repository of p in the background and reads the
 // status after it. operation names the write for the log, failed words its failure for the
 // user, and done reports its success once the status is in place.
@@ -158,12 +171,12 @@ func (a *App) runBranchWrite(p *project, operation string, failed func(reason st
 	if b.fromPopup {
 		a.showGitConsole("")
 	}
-	kernel, root := a.kernel, p.git.repositoryRoot(p.root)
+	kernel, root := a.kernel, a.branchRoot(p)
 	a.background(p, branchOperationTimeout, func(ctx context.Context) func(*App) {
 		err := write(ctx, kernel, root)
 		var status core.GitStatus
 		if err == nil {
-			status, err = kernel.GitStatus(core.AutomaticRefresh(ctx), p.root)
+			status, err = kernel.GitStatus(core.AutomaticRefresh(ctx), root)
 		}
 		return func(a *App) {
 			b := &a.branch
@@ -173,7 +186,10 @@ func (a *App) runBranchWrite(p *project, operation string, failed func(reason st
 				a.gitOperationFailed(operation, err)
 				return
 			}
-			a.setGit(p, gitState{loaded: true, status: status})
+			// The project's status describes its own repository only.
+			if root == p.git.repositoryRoot(p.root) {
+				a.setGit(p, gitState{loaded: true, status: status})
+			}
 			if p.log.started {
 				a.loadLog(p)
 			}

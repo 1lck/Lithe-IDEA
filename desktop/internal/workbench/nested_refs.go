@@ -14,10 +14,10 @@ import (
 // This file is the references of the nested repositories (matrix id
 // git-multi-repository-references). The branch popup lists, under the project's own references,
 // the local branches and tags of each repository nested in the project folder, each repository in
-// its own group. The Git Log's reference pane lists the same groups below its own sections, with
-// each repository's color from Core. Both are read-only: checking out or deleting a reference of
-// another repository, and making another repository the one the log walks, are not offered yet.
-// The references are read when the popup opens, and again with the log and the nested repositories.
+// its own group, read-only. The Git Log's reference pane lists the repository groups below its own
+// sections, with each repository's color from Core; a click on a group or one of its references makes
+// that repository the one the log walks (git_log_repo.go). The references are read when the popup
+// opens, and again with the log and the nested repositories.
 
 // nestedReferences are the references of one nested repository as the panel last read them.
 type nestedReferences struct {
@@ -34,25 +34,26 @@ type repositoryColorer interface {
 // repositoryColorPage is the most identities one color request carries, as Core bounds it.
 const repositoryColorPage = 128
 
-// loadNestedReferences reads the references of every nested repository in the background, and
-// the color slot of each repository with them. The answer of a reading that a newer one overtook
-// is dropped.
+// loadNestedReferences reads the references of the repository groups the reference pane lists in
+// the background, and the color slot of every repository of the workspace with them. The answer of
+// a reading that a newer one overtook is dropped.
 func (a *App) loadNestedReferences(p *project) {
 	kernel := a.kernel
 	n := &p.nested
 	n.refGen++
 	gen := n.refGen
-	repos := append([]nestedRepo(nil), n.repos...)
+	// The branch popup lists every nested repository, so all of them are read; the project's own is
+	// read too while the log walks a nested repository, to list it as a group.
+	reads := append([]nestedRepo(nil), n.repos...)
+	if n.logRepo != "" {
+		reads = append([]nestedRepo{{id: commitRepositoryID, root: p.root}}, reads...)
+	}
+	ids := p.workspaceRepositoryIDs()
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		out := make(map[string]nestedReferences, len(repos))
-		for _, repo := range repos {
+		out := make(map[string]nestedReferences, len(reads))
+		for _, repo := range reads {
 			refs, err := kernel.GitReferences(ctx, repo.root)
 			out[repo.id] = nestedReferences{refs: refs, err: err}
-		}
-		// The project's own repository comes first, as the workspace lists it.
-		ids := []string{commitRepositoryID}
-		for _, repo := range repos {
-			ids = append(ids, repo.id)
 		}
 		slots, showColors := assignRepositoryColors(ctx, kernel, ids)
 		return func(a *App) {
@@ -163,13 +164,13 @@ func (a *App) drawNestedReferenceRow(c ui.C, r core.GitReference) {
 	})
 }
 
-// appendNestedLogRows appends the groups of the nested repositories to the reference pane: one
-// row per repository with local branches or tags, then those references, read-only. While the
-// filter has text only the matching references show, and every group opens. It returns how many
-// references the groups list.
+// appendNestedLogRows appends the groups of the other repositories to the reference pane: one row
+// per repository with local branches or tags, then those references. A click on a group or a
+// reference makes its repository the one the log walks. While the filter has text only the matching
+// references show, and every group opens. It returns how many references the groups list.
 func (a *App) appendNestedLogRows(rows []logRefRow, p *project, query string) ([]logRefRow, int) {
 	shown := 0
-	for _, repo := range p.nested.repos {
+	for _, repo := range p.referenceGroups() {
 		refs, loaded := p.nested.references[repo.id]
 		if !loaded || refs.err != nil {
 			continue
@@ -191,7 +192,7 @@ func (a *App) appendNestedLogRows(rows []logRefRow, p *project, query string) ([
 		key := "nested/" + repo.id
 		open := query != "" || !p.log.collapsed[key]
 		rows = append(rows, logRefRow{
-			kind: logRefRepository, label: repo.id, short: repo.id, key: key, open: open,
+			kind: logRefRepository, label: p.repositoryName(repo.id), short: repo.id, repo: repo.id, key: key, open: open,
 			tint: a.repositoryTint(p, repo.id),
 		})
 		if !open {
@@ -199,7 +200,7 @@ func (a *App) appendNestedLogRows(rows []logRefRow, p *project, query string) ([
 		}
 		for i := range matches {
 			ref := &matches[i]
-			rows = append(rows, logRefRow{kind: logRefForeign, depth: 1, label: ref.ShortName, key: ref.FullName, short: ref.ShortName, ref: ref})
+			rows = append(rows, logRefRow{kind: logRefForeign, depth: 1, label: ref.ShortName, key: ref.FullName, short: ref.ShortName, ref: ref, repo: repo.id})
 		}
 	}
 	return rows, shown

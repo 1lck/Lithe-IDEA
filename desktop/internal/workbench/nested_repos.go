@@ -32,6 +32,9 @@ type nestedState struct {
 	// focus is the ID of the nested repository a folder of the project tree asked for; empty
 	// when the project's own repository is meant.
 	focus string
+	// logRepo is the ID of the nested repository the Git log walks; empty for the project's own
+	// repository (git_log_repo.go).
+	logRepo string
 	// refGen counts the reference readings; references are the last ones by repository ID
 	// (nested_refs.go).
 	refGen     int
@@ -89,6 +92,12 @@ func (a *App) loadNestedRepos(p *project) {
 			p.nested.repos = repos
 			if _, ok := p.nested.repo(p.nested.focus); !ok {
 				p.nested.focus = ""
+			}
+			// A repository the log walks that left the workspace hands the log back to the project's own,
+			// which loads the references too.
+			if a.logFallsBack(p) {
+				a.loadLog(p)
+				return
 			}
 			// The Git Log's reference pane lists the nested repositories' references too, so they
 			// are read again once the repositories are.

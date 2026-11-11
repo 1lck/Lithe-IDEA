@@ -249,7 +249,9 @@ type logRefRow struct {
 	// (nil for HEAD, which stands for every reference).
 	short string
 	ref   *core.GitReference
-	open  bool
+	// repo is the ID of the repository a group or one of its references belongs to.
+	repo string
+	open bool
 	// tint is the color of a repository group (nested_refs.go).
 	tint gfx.Color
 }
@@ -262,8 +264,8 @@ const (
 	logRefSection
 	logRefFolder
 	logRefReference
-	// logRefRepository is the group of a nested repository; logRefForeign is one of its
-	// references, which the pane shows but cannot act on.
+	// logRefRepository is the group of a repository other than the one the log walks; logRefForeign
+	// is one of its references, which a click makes the log walk.
 	logRefRepository
 	logRefForeign
 )

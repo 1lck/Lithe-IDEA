@@ -109,6 +109,7 @@ func (a *App) drawLogStripe(c ui.C, p *project) {
 			}
 			c.After(func() {
 				a.branch.refs = l.refs
+				a.branch.repo = p.logBranchRepo()
 				a.beginCreate(p, from)
 			})
 		}
@@ -116,7 +117,10 @@ func (a *App) drawLogStripe(c ui.C, p *project) {
 			c.After(func() { a.updateBranch(p, target) })
 		}
 		if a.gitIconButton(c, g.DeleteBranch, icons.Trash2, false, !deletable) {
-			c.After(func() { a.beginDelete(selected) })
+			c.After(func() {
+				a.branch.repo = p.logBranchRepo()
+				a.beginDelete(selected)
+			})
 		}
 		if a.gitIconButton(c, compare, icons.ArrowLeftRight, false, !comparable || l.comparing) {
 			c.After(func() { a.compareReferences(p, base, compareTarget) })
@@ -318,15 +322,18 @@ func (a *App) toggleLogRef(p *project, r logRefRow, query string) {
 	}
 }
 
-// chooseLogRef acts on a click on a row of the reference pane: a section or folder folds, and
-// a reference becomes the one the log walks.
+// chooseLogRef acts on a click on a row of the reference pane: a section or folder folds, a
+// repository's group or one of its references makes that repository the one the log walks, and a
+// reference of the walked repository becomes the one the log walks.
 func (a *App) chooseLogRef(p *project, r logRefRow, query string) {
 	l := &p.log
 	switch r.kind {
-	case logRefSection, logRefFolder, logRefRepository:
+	case logRefSection, logRefFolder:
 		a.toggleLogRef(p, r, query)
+	case logRefRepository:
+		a.setLogRepo(p, r.repo, "", "")
 	case logRefForeign:
-		// The references of another repository are read only: the log walks the project's own.
+		a.setLogRepo(p, r.repo, r.ref.FullName, r.ref.ShortName)
 	default:
 		l.refSelected = r.key
 		a.setLogReference(p, r.key, r.short)
@@ -336,6 +343,7 @@ func (a *App) chooseLogRef(p *project, r logRefRow, query string) {
 // drawLogCommits declares the commit pane: the filter bar over the list.
 func (a *App) drawLogCommits(c ui.C, p *project) ui.Box {
 	return ui.Column(c).FillHeight().MinWidth(logCommitsMin).Clip().Children(func() {
+		a.drawLogRepoBar(c, p)
 		a.drawLogToolbar(c, p)
 		ui.Divider(c)
 		a.drawSyncStatus(c, p)
@@ -425,6 +433,31 @@ func (a *App) drawLogToolbar(c ui.C, p *project) {
 			})
 		}
 	})
+}
+
+// drawLogRepoBar declares the header of the commit list that names the repository the log walks,
+// and, while a nested repository is walked, the way back to the project's own. It shows only in a
+// workspace with nested repositories.
+func (a *App) drawLogRepoBar(c ui.C, p *project) {
+	if len(p.nested.repos) == 0 && p.nested.logRepo == "" {
+		return
+	}
+	g := a.text.Git.Repositories
+	id := commitRepositoryID
+	if repo := p.logRepo(); repo != nil {
+		id = repo.id
+	}
+	tint := a.repositoryTint(p, id)
+	ui.Row(c).Height(logToolbarHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(6).Children(func() {
+		ui.Icon(c, icons.Folder).Size(14, 14).Shrink(0).Color(tint)
+		ui.Text(c, g.Current(p.repositoryName(id))).Weight(gfx.WeightMedium).Color(tint).Ellipsis().Grow(1)
+		if p.nested.logRepo != "" {
+			if ui.Button(c.Part("repo-back"), g.Back(p.repositoryName(commitRepositoryID))).Ghost().Clicked() {
+				c.After(func() { a.setLogRepo(p, commitRepositoryID, "", "") })
+			}
+		}
+	})
+	ui.Divider(c)
 }
 
 // drawLogChip declares a filter chip: its name, or the filter it applies, and a chevron.

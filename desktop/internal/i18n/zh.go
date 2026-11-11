@@ -13,9 +13,10 @@ var chinese = Messages{
 	Editor:  editorMessages(Chinese),
 	Project: projectMessages(Chinese),
 	Git: GitMessages{
-		Log:       Shared(Chinese, "desktop.git.log"),
-		Worktrees: Shared(Chinese, "git.worktrees"),
-		Console:   Shared(Chinese, "git.console.title"),
+		Log:          Shared(Chinese, "desktop.git.log"),
+		Worktrees:    Shared(Chinese, "git.worktrees"),
+		Console:      Shared(Chinese, "git.console.title"),
+		Repositories: gitRepositoryMessages(Chinese),
 		LogTab: func(reference string) string {
 			return SharedFormat(Chinese, "desktop.git.logTab", map[string]string{"reference": reference})
 		},
