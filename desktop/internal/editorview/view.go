@@ -136,6 +136,8 @@ type View struct {
 	revision int
 	// readOnly makes every change a no-op; see SetReadOnly.
 	readOnly bool
+	// remoteNoUndo makes the edit ApplyEdit makes leave the undo history alone (remote.go).
+	remoteNoUndo bool
 	// anchor and caret are the ends of the selection; they are equal when nothing is
 	// selected. goal is the column, in cells, that up and down keep to; -1 is the caret's.
 	anchor, caret                                      int
@@ -729,7 +731,7 @@ func (v *View) edit(start, end int, text string, kind editKind) {
 	if v.vim.on && !v.vim.grouped {
 		merge = false
 	}
-	if !merge && !v.vim.grouped {
+	if !merge && !v.vim.grouped && !v.remoteNoUndo {
 		v.undo = append(v.undo, v.snapshot())
 		if len(v.undo) > undoLimit {
 			v.undo = v.undo[len(v.undo)-undoLimit:]
