@@ -1,0 +1,174 @@
+[
+  {
+    "id": "desktop.run.snapshot.menu",
+    "description": "Context menu item that freezes the current output of a run into a read-only tab",
+    "en-US": "Snapshot output",
+    "zh-CN": "快照当前输出"
+  },
+  {
+    "id": "desktop.run.snapshot.tab",
+    "description": "Title of the read-only tab holding an output snapshot of a run",
+    "en-US": "{label} (snapshot)",
+    "zh-CN": "{label}（快照）",
+    "parameters": {
+      "label": "string"
+    }
+  },
+  {
+    "id": "desktop.debug.breakpoint.edit",
+    "description": "Context menu item that opens the editor of a breakpoint",
+    "en-US": "Edit breakpoint…",
+    "zh-CN": "编辑断点…"
+  },
+  {
+    "id": "desktop.debug.breakpoint.title",
+    "description": "Title of the breakpoint editor: file and line",
+    "en-US": "Breakpoint {file}:{line}",
+    "zh-CN": "断点 {file}:{line}",
+    "parameters": {
+      "file": "string",
+      "line": "string"
+    }
+  },
+  {
+    "id": "desktop.debug.breakpoint.condition",
+    "description": "Label of the breakpoint condition field",
+    "en-US": "Condition",
+    "zh-CN": "条件"
+  },
+  {
+    "id": "desktop.debug.breakpoint.conditionPlaceholder",
+    "description": "Placeholder of the breakpoint condition field",
+    "en-US": "Stop only when this expression is true",
+    "zh-CN": "仅当此表达式为真时暂停"
+  },
+  {
+    "id": "desktop.debug.breakpoint.hitCondition",
+    "description": "Label of the breakpoint hit count field",
+    "en-US": "Hit count",
+    "zh-CN": "命中次数"
+  },
+  {
+    "id": "desktop.debug.breakpoint.hitConditionPlaceholder",
+    "description": "Placeholder of the breakpoint hit count field",
+    "en-US": "For example >= 5",
+    "zh-CN": "例如 >= 5"
+  },
+  {
+    "id": "desktop.debug.breakpoint.logMessage",
+    "description": "Label of the log message field of a log point",
+    "en-US": "Log message",
+    "zh-CN": "日志消息"
+  },
+  {
+    "id": "desktop.debug.breakpoint.logMessagePlaceholder",
+    "description": "Placeholder of the log message field; braces mark an expression",
+    "en-US": "Text to log; {expression} is evaluated",
+    "zh-CN": "要记录的文本，{表达式} 会被求值"
+  },
+  {
+    "id": "desktop.debug.breakpoint.conditional",
+    "description": "Row marker of a breakpoint that has a condition or hit count",
+    "en-US": "if",
+    "zh-CN": "条件"
+  },
+  {
+    "id": "desktop.debug.breakpoint.logPoint",
+    "description": "Row marker of a log point",
+    "en-US": "log",
+    "zh-CN": "日志点"
+  },
+  {
+    "id": "desktop.marketplace.installFromFile",
+    "description": "Button in the plugin page that installs a plugin package picked on disk; also the file dialog title",
+    "en-US": "Install from file…",
+    "zh-CN": "从文件安装…"
+  },
+  {
+    "id": "desktop.marketplace.packageFilter",
+    "description": "File dialog filter name for plugin package archives",
+    "en-US": "Plugin package",
+    "zh-CN": "插件包"
+  },
+  {
+    "id": "desktop.debug.breakpoint.functionName",
+    "description": "Label of the field that names a method breakpoint",
+    "en-US": "Method or function",
+    "zh-CN": "方法或函数"
+  },
+  {
+    "id": "desktop.debug.breakpoint.functionPlaceholder",
+    "description": "Placeholder of the method breakpoint field",
+    "en-US": "For example example.Main.run",
+    "zh-CN": "例如 example.Main.run"
+  },
+  {
+    "id": "desktop.debug.breakpoint.addFunction",
+    "description": "Button that adds a method breakpoint",
+    "en-US": "Add",
+    "zh-CN": "添加"
+  },
+  {
+    "id": "desktop.debug.breakpoint.functionRow",
+    "description": "Row of a method breakpoint, showing its name",
+    "en-US": "ƒ {name}",
+    "zh-CN": "ƒ {name}",
+    "parameters": {
+      "name": "string"
+    }
+  },
+  {
+    "id": "desktop.debug.breakpoint.removeFunction",
+    "description": "Tooltip of a method breakpoint row that removes it",
+    "en-US": "Remove method breakpoint",
+    "zh-CN": "移除方法断点"
+  },
+  {
+    "id": "desktop.marketplace.tab.overview",
+    "description": "Tab of a plugin's detail: what it says about itself and its actions",
+    "en-US": "Overview",
+    "zh-CN": "概览"
+  },
+  {
+    "id": "desktop.marketplace.tab.versions",
+    "description": "Tab of a plugin's detail: released versions and the source",
+    "en-US": "Versions and source",
+    "zh-CN": "版本与来源"
+  },
+  {
+    "id": "desktop.marketplace.tab.settings",
+    "description": "Tab of a plugin's detail: settings of an installed plugin",
+    "en-US": "Settings",
+    "zh-CN": "设置"
+  },
+  {
+    "id": "desktop.marketplace.settingsNeedInstall",
+    "description": "Shown in the settings tab of a plugin that is not installed",
+    "en-US": "Install the plugin to change its settings.",
+    "zh-CN": "安装插件后才能修改其设置。"
+  },
+  {
+    "id": "desktop.marketplace.author",
+    "description": "Label of the publisher of a plugin",
+    "en-US": "Author",
+    "zh-CN": "作者"
+  },
+  {
+    "id": "desktop.marketplace.homepage",
+    "description": "Label of the homepage a plugin lists",
+    "en-US": "Homepage",
+    "zh-CN": "主页"
+  },
+  {
+    "id": "desktop.marketplace.noVersions",
+    "description": "Shown when the index lists no version of a plugin",
+    "en-US": "The index lists no versions.",
+    "zh-CN": "索引中没有版本。"
+  },
+  {
+    "id": "desktop.debug.breakpoint.instruction",
+    "description": "Button on a disassembly row that toggles a machine-instruction breakpoint there",
+    "en-US": "Breakpoint",
+    "zh-CN": "断点"
+  }
+]

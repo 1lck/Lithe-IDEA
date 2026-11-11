@@ -1,9 +1,11 @@
 package workbench
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/treelist"
 	"github.com/vivaui/viva/gfx"
@@ -305,6 +307,18 @@ func (a *App) debugDisassemblyView(c ui.C, p *project) {
 		element := row.Element.Height(debugRowHeight).PadX(10).Items(ui.Center).Gap(10)
 		if current {
 			element.Background(a.colors.Hover)
+		}
+		if d.capabilities.SupportsInstructionBreakpoints {
+			marked := slices.ContainsFunc(d.instructionBreakpoints, func(b core.DebugInstructionBreakpoint) bool {
+				return b.InstructionReference == instruction.Address
+			})
+			mark := ui.Button(row.C.Key("insn-bp"), t.Breakpoint.Instruction).Small()
+			if !marked {
+				mark = mark.Outline()
+			}
+			if mark.Clicked() {
+				row.C.After(func() { a.toggleInstructionBreakpoint(p, instruction.Address) })
+			}
 		}
 		ui.Text(row.C, instruction.Address).Shrink(0).FontSize(12).Color(a.colors.Subtle).Mono()
 		if instruction.Symbol != "" {

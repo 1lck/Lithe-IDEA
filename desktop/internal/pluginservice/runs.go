@@ -17,6 +17,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprocess"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/loginenv"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
@@ -333,6 +334,13 @@ func (r *Runs) handleStart(ctx context.Context, params json.RawMessage) (json.Ra
 	for key, value := range start.Environment {
 		environment[key] = value
 	}
+	// An app started from Finder has launchd's PATH; the run gets the user's shell PATH
+	// unless the plugin or the tool chose one.
+	if _, set := environment["PATH"]; !set {
+		if path := loginenv.Path(); path != "" {
+			environment["PATH"] = path
+		}
+	}
 	runCtx, cancel := context.WithCancel(context.Background())
 	run := &hostRun{
 		id:        fmt.Sprintf("run-%d", r.sequence.Add(1)),
@@ -370,9 +378,29 @@ func (r *Runs) handleStart(ctx context.Context, params json.RawMessage) (json.Ra
 			}
 		}}
 	} else {
+		// A JDK launch whose class path would overflow the command line starts with an
+		// argument file in the run's temporary directory, removed when the run ends.
+		arguments := start.Arguments
+		if plan, ok := planJavaArgumentFile(executable, start.Arguments); ok {
+			if temporary == "" {
+				temporary, err = os.MkdirTemp("", "lithe-run-")
+				if err != nil {
+					cancel()
+					cleanup()
+					return nil, failure(pluginhost.CodeHostFailure, "the run's temporary directory cannot be created")
+				}
+			}
+			path, err := writeArgumentFile(temporary, plan.contents)
+			if err != nil {
+				cancel()
+				cleanup()
+				return nil, failure(pluginhost.CodeHostFailure, "the run's argument file cannot be written")
+			}
+			arguments = plan.withFile(path)
+		}
 		spawned, err := buildprocess.Start(runCtx, buildprocess.Spec{
 			Executable:       executable,
-			Arguments:        start.Arguments,
+			Arguments:        arguments,
 			WorkingDirectory: workingDirectory,
 			Environment:      environment,
 		}, func(_ buildprocess.Stream, text string) {

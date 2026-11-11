@@ -131,7 +131,7 @@ func TestDebugPanelBreakpointPauseContinueFrames(t *testing.T) {
 	h.settle()
 
 	h.clickNamed(h.app.text.Debug.ToggleBreakpoint)
-	if lines := p.debug.breakpoints[source]; len(lines) != 1 || lines[0] != 3 {
+	if lines := p.debug.breakpoints[source]; len(lines) != 1 || lines[0].line != 3 {
 		t.Fatalf("breakpoints = %+v, want line 3 of %s", p.debug.breakpoints, source)
 	}
 

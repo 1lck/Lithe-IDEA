@@ -76,6 +76,7 @@ func (a *App) documentSyncServer(d *document) (*pluginServer, string) {
 // documentEdited records one edit and starts its synchronization. The hook runs
 // on the window thread, so it only queues work.
 func (a *App) documentEdited(p *project, d *document, edit editorview.Edit) {
+	a.relocateDocumentBreakpoints(p, d, edit)
 	if a.plugins == nil || a.project != p || p.docs.byPath(d.path) != d {
 		return
 	}

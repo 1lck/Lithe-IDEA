@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -57,9 +56,17 @@ type debugState struct {
 	// output is the adapter's bounded stderr and console text.
 	output []string
 	state  string
-	// breakpoints maps an absolute source path to sorted one-based lines.
-	breakpoints map[string][]int64
-	frames      []core.DebugStackFrame
+	// breakpoints maps an absolute source path to its breakpoints, sorted by line, and
+	// breakpointEdit is the open editor of one of them (debug_breakpoints.go).
+	breakpoints    map[string][]debugBreakpoint
+	breakpointEdit debugBreakpointEdit
+	// functionBreakpoints are the named method breakpoints of the session, and functionName the
+	// text the user is typing for the next one.
+	functionBreakpoints []core.DebugFunctionBreakpoint
+	functionName        string
+	// instructionBreakpoints are the machine-instruction breakpoints of the session, by address text.
+	instructionBreakpoints []core.DebugInstructionBreakpoint
+	frames                 []core.DebugStackFrame
 	// hideFiltered collapses the frames the session's stepping filters match into one
 	// row per run; framesExpanded shows them again until the next stack arrives.
 	hideFiltered   bool
@@ -494,14 +501,14 @@ func (a *App) toggleBreakpoint(p *project) {
 	caretLine, _ := doc.view.Caret()
 	line := int64(caretLine + 1)
 	lines := p.debug.breakpoints[doc.path]
-	index := sort.Search(len(lines), func(i int) bool { return lines[i] >= line })
-	if index < len(lines) && lines[index] == line {
+	index, found := breakpointIndex(lines, line)
+	if found {
 		lines = slices.Delete(lines, index, index+1)
 	} else {
-		lines = slices.Insert(lines, index, line)
+		lines = slices.Insert(lines, index, debugBreakpoint{line: line})
 	}
 	if p.debug.breakpoints == nil {
-		p.debug.breakpoints = make(map[string][]int64)
+		p.debug.breakpoints = make(map[string][]debugBreakpoint)
 	}
 	if len(lines) == 0 {
 		delete(p.debug.breakpoints, doc.path)
@@ -520,11 +527,7 @@ func (a *App) sendDebugBreakpoints(p *project, path string) {
 		return
 	}
 	session := p.debug.session
-	lines := append([]int64(nil), p.debug.breakpoints[path]...)
-	points := make([]core.DebugSourceBreakpoint, 0, len(lines))
-	for _, line := range lines {
-		points = append(points, core.DebugSourceBreakpoint{Line: line, Enabled: true})
-	}
+	points := sourceBreakpoints(p.debug.breakpoints[path])
 	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
 		session.operationMu.Lock()
 		defer session.operationMu.Unlock()

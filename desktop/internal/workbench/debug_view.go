@@ -29,6 +29,7 @@ func (a *App) debugView(c ui.C, p *project) {
 			a.debugAttachForm(c)
 		}
 		a.debugRemotePrompt(c, p)
+		a.debugBreakpointEditor(c, p)
 		ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
 			if ui.Button(c, t.Start).Disabled(d.session != nil || len(d.adapters) == 0).Clicked() {
 				a.startDebug(p)
@@ -144,8 +145,8 @@ func (a *App) debugRemotePrompt(c ui.C, p *project) {
 
 // debugBreakpointRow is one stored breakpoint line.
 type debugBreakpointRow struct {
-	path string
-	line int64
+	path       string
+	breakpoint debugBreakpoint
 }
 
 // debugBreakpointList lists the stored breakpoints by file and line.
@@ -157,8 +158,8 @@ func debugBreakpointList(d *debugState) []debugBreakpointRow {
 	sort.Strings(paths)
 	var rows []debugBreakpointRow
 	for _, path := range paths {
-		for _, line := range d.breakpoints[path] {
-			rows = append(rows, debugBreakpointRow{path: path, line: line})
+		for _, breakpoint := range d.breakpoints[path] {
+			rows = append(rows, debugBreakpointRow{path: path, breakpoint: breakpoint})
 		}
 	}
 	return rows
@@ -175,6 +176,7 @@ func (a *App) debugBreakpoints(c ui.C, p *project) {
 			a.toggleBreakpoint(p)
 		}
 	})
+	a.debugFunctionBreakpoints(c, p)
 	rows := debugBreakpointList(d)
 	if len(rows) == 0 {
 		ui.Row(c).FillWidth().Height(debugRowHeight).Shrink(0).PadX(10).Items(ui.Center).Children(func() {
@@ -183,16 +185,27 @@ func (a *App) debugBreakpoints(c ui.C, p *project) {
 		return
 	}
 	list := &p.panels.breakpoints
-	list.Label = func(i int) string { return debugFileName(rows[i].path) + ":" + strconv.FormatInt(rows[i].line, 10) }
+	list.Label = func(i int) string {
+		return debugFileName(rows[i].path) + ":" + strconv.FormatInt(rows[i].breakpoint.line, 10)
+	}
 	ui.List(c, list, len(rows), func(row ui.ListRow) {
 		spec := rows[row.Index]
 		row.Element.Height(debugRowHeight).PadX(10).Items(ui.Center).Gap(6).Tooltip(t.RemoveBreakpoint).
 			Hover(ui.Look{}.Background(a.colors.Hover))
 		ui.Icon(row.C, icons.CircleX).Size(12, 12).Shrink(0).Color(a.theme.Danger)
 		ui.Text(row.C, debugFileName(spec.path)).Shrink(1).FontSize(12.5).Color(a.colors.Text).Ellipsis()
-		ui.Text(row.C, ":"+strconv.FormatInt(spec.line, 10)).Shrink(0).FontSize(11.5).Color(a.colors.Subtle)
+		ui.Text(row.C, ":"+strconv.FormatInt(spec.breakpoint.line, 10)).Shrink(0).FontSize(11.5).Color(a.colors.Subtle)
+		if marker := breakpointMarker(spec.breakpoint, t.Breakpoint.Conditional, t.Breakpoint.LogPoint); marker != "" {
+			ui.Text(row.C, marker).Shrink(0).FontSize(11.5).Color(a.colors.Accent).Ellipsis()
+		}
+		ui.ContextMenu(row.C, row.Element, func(menu *ui.MenuItems) {
+			menu.WidthRange(160, 240)
+			if menu.Item(t.Breakpoint.Edit).Clicked() {
+				row.C.After(func() { a.openBreakpointEdit(p, spec.path, spec.breakpoint.line) })
+			}
+		})
 		if row.Element.Clicked() {
-			row.C.After(func() { a.removeBreakpoint(p, spec.path, spec.line) })
+			row.C.After(func() { a.removeBreakpoint(p, spec.path, spec.breakpoint.line) })
 		}
 	}).Label(t.Breakpoints).FillWidth().Height(float32(min(len(rows), debugBreakpointRows)) * debugRowHeight).Shrink(0)
 }
@@ -200,8 +213,8 @@ func (a *App) debugBreakpoints(c ui.C, p *project) {
 // removeBreakpoint drops one stored line and tells the active adapter.
 func (a *App) removeBreakpoint(p *project, path string, line int64) {
 	lines := p.debug.breakpoints[path]
-	index := sort.Search(len(lines), func(i int) bool { return lines[i] >= line })
-	if index >= len(lines) || lines[index] != line {
+	index, found := breakpointIndex(lines, line)
+	if !found {
 		return
 	}
 	lines = append(lines[:index], lines[index+1:]...)

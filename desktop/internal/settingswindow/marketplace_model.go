@@ -32,6 +32,9 @@ type marketplaceState struct {
 	installed       func(context.Context) (marketplace.Snapshot, error)
 	reportDiscarded func(error)
 	source          int
+	// detailTab is the page of the selected plugin's detail that is open: one of the detail*
+	// constants of marketplace_view.go.
+	detailTab int
 	// effects are the fetches of the three sources, community, official and installed.
 	effects [3]*ui.EffectState[marketResult, int]
 	// request is the number of the fetch that is out or was last taken; active says one is

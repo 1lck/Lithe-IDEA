@@ -150,24 +150,31 @@ func (a *App) runConfiguration(p *project, id string) {
 		a.notify(a.text.Build.TargetMissing)
 		return
 	}
-	root, kernel := p.root, a.kernel
 	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "run.configuration", "surface": "build"})
-	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
-		inputs, err := kernel.ProviderLaunchInputs(ctx, root, id, reference.Root)
-		if err != nil {
-			return func(a *App) { a.finishBuildError(p, err) }
+	// The run starts a process on the files on disk, so unsaved documents are saved first,
+	// as a rerun does; a failed save keeps the run from starting.
+	a.saveProjectDocuments(p, func(ok bool) {
+		if !ok {
+			return
 		}
-		return func(a *App) {
-			if index >= len(p.build.instances) || p.build.instances[index].PluginID != reference.PluginID {
-				a.finishBuildError(p, errors.New(a.text.Build.TargetMissing))
-				return
+		root, kernel := p.root, a.kernel
+		a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+			inputs, err := kernel.ProviderLaunchInputs(ctx, root, id, reference.Root)
+			if err != nil {
+				return func(a *App) { a.finishBuildError(p, err) }
 			}
-			var options *core.RunLaunchOptions
-			// An application run without choices keeps the request older providers serve.
-			if inputs.LaunchOptions.Customized() {
-				options = &inputs.LaunchOptions
+			return func(a *App) {
+				if index >= len(p.build.instances) || p.build.instances[index].PluginID != reference.PluginID {
+					a.finishBuildError(p, errors.New(a.text.Build.TargetMissing))
+					return
+				}
+				var options *core.RunLaunchOptions
+				// An application run without choices keeps the request older providers serve.
+				if inputs.LaunchOptions.Customized() {
+					options = &inputs.LaunchOptions
+				}
+				a.runBuildTargetWith(p, &p.build.instances[index], inputs.Reference.ProjectID, inputs.Reference.TargetID, inputs.Reference.Run, options)
 			}
-			a.runBuildTargetWith(p, &p.build.instances[index], inputs.Reference.ProjectID, inputs.Reference.TargetID, inputs.Reference.Run, options)
-		}
+		})
 	})
 }

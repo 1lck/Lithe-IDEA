@@ -99,6 +99,9 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		InstallPlugin: func(plugin core.MarketplacePlugin) {
 			a.post(func(a *App) { a.installPlugin(plugin) })
 		},
+		InstallPluginFromFile: func(path string) {
+			a.post(func(a *App) { a.installPluginFromFile(path) })
+		},
 		SetPluginEnabled: func(id string, enabled bool) {
 			a.post(func(a *App) { a.setPluginEnabled(id, enabled) })
 		},
