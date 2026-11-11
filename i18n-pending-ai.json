@@ -262,5 +262,41 @@
     "description": "Context menu item that restores a conversation removed from this list.",
     "en-US": "Restore conversation",
     "zh-CN": "恢复对话"
+  },
+  {
+    "id": "desktop.settings.agent.instructions.overrideActive",
+    "description": "Note shown when Codex reads AGENTS.override.md instead of AGENTS.md; clearing that file restores the base instructions.",
+    "en-US": "Codex is using AGENTS.override.md. Clearing it restores the base AGENTS.md instructions.",
+    "zh-CN": "Codex 正在使用 AGENTS.override.md。清空该文件即可恢复基础的 AGENTS.md 指令。"
+  },
+  {
+    "id": "desktop.settings.agent.instructions.tooLarge",
+    "description": "Error shown when the global instructions draft is larger than the 1 MiB Core accepts; saving is disabled.",
+    "en-US": "Global instructions must be no larger than 1 MiB.",
+    "zh-CN": "全局指令不得超过 1 MiB。"
+  },
+  {
+    "id": "desktop.settings.agent.instructions.discardTitle",
+    "description": "Title of the dialog that asks before a reload replaces an edited instructions draft.",
+    "en-US": "Discard draft and reload?",
+    "zh-CN": "放弃草稿并重新加载？"
+  },
+  {
+    "id": "desktop.settings.agent.instructions.discardBody",
+    "description": "Body of the discard-draft confirmation.",
+    "en-US": "Reloading replaces this draft with the current file contents.",
+    "zh-CN": "重新加载会用文件当前内容替换这份草稿。"
+  },
+  {
+    "id": "desktop.settings.agent.instructions.discardCancel",
+    "description": "Cancel button of the discard-draft confirmation.",
+    "en-US": "Cancel",
+    "zh-CN": "取消"
+  },
+  {
+    "id": "desktop.settings.agent.instructions.discardConfirm",
+    "description": "Confirm button that discards the draft and reloads the file.",
+    "en-US": "Reload from disk",
+    "zh-CN": "从磁盘重新加载"
   }
 ]
