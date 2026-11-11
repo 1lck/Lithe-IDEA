@@ -53,10 +53,12 @@ type editorProviderBinding struct {
 	// triggers are the characters that ask for completion as they are typed.
 	triggers []string
 	// codeLens is the function that answers code lens requests.
-	codeLens   string
-	languages  map[string]bool
-	extensions map[string]bool
-	names      map[string]bool
+	codeLens string
+	// documentLink is the function that answers document link requests.
+	documentLink string
+	languages    map[string]bool
+	extensions   map[string]bool
+	names        map[string]bool
 }
 
 type editorProviderBindings struct {
@@ -166,7 +168,17 @@ func (s *Service) handleRegisterEditorProviders(ctx context.Context, params json
 		}
 		binding.codeLens = lens.Function
 	}
-	if binding.definition == "" && binding.hover == "" && binding.completion == "" && binding.semanticTokens == "" && binding.codeLens == "" {
+	if link, ok := request.Providers["documentLink"]; ok {
+		if !validFunctionID(link.Function) {
+			return nil, failure(codeInvalidParams, "The document link provider needs a function ID.")
+		}
+		session := s.Host.Running(caller.PluginID)
+		if session == nil || session.Session.ID != caller.SessionID || !session.hasFunction(link.Function) {
+			return nil, failure(CodePreconditionFailed, "The function is not registered on this session.")
+		}
+		binding.documentLink = link.Function
+	}
+	if binding.definition == "" && binding.hover == "" && binding.completion == "" && binding.semanticTokens == "" && binding.codeLens == "" && binding.documentLink == "" {
 		return nil, failure(codeInvalidParams, "The registration provides no routed provider type.")
 	}
 	for _, language := range request.Selector.Languages {
