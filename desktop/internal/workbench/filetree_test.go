@@ -674,26 +674,38 @@ func TestProjectTreeFolderSelectionAndDisclosure(t *testing.T) {
 	row := h.treeRowHit("src").Bounds
 	_ = h.treeChevronHit("src")
 	name := gfx.Point{X: row.X + row.Width - 20, Y: row.Y + row.Height/2}
+	// A click on the name, not only on the arrow, opens the folder and selects it.
 	if err := h.driver.Click(name.X, name.Y); err != nil {
 		t.Fatal(err)
 	}
-	if p.tree.selected != folder || folder.expanded {
+	h.settle()
+	if p.tree.selected != folder || !folder.expanded {
 		t.Fatalf("single click selection=%v expanded=%v", p.tree.selected, folder.expanded)
 	}
+	awaitDocumentState(t, h, func() bool { return folder.listed })
+	if err := h.driver.Advance(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.driver.Click(name.X, name.Y); err != nil {
+		t.Fatal(err)
+	}
+	if folder.expanded {
+		t.Fatal("a second click did not close the folder")
+	}
+	if err := h.driver.Advance(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	// A double click toggles once: its second click leaves the folder as the first left it.
 	if err := h.driver.DoubleClick(name.X, name.Y); err != nil {
 		t.Fatal(err)
 	}
 	h.settle()
-	if !folder.expanded {
-		t.Fatal("double click did not expand folder")
-	}
 	if err := h.driver.Advance(20 * time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 	if !folder.expanded {
-		t.Fatal("the double click toggled the folder again")
+		t.Fatal("the double click toggled the folder twice")
 	}
-	awaitDocumentState(t, h, func() bool { return folder.listed })
 	arrow := center(h.treeChevronHit("src").Bounds)
 	if err := h.driver.Click(arrow.X, arrow.Y); err != nil {
 		t.Fatal(err)
@@ -701,16 +713,55 @@ func TestProjectTreeFolderSelectionAndDisclosure(t *testing.T) {
 	if folder.expanded || p.tree.selected != folder {
 		t.Fatal("disclosure did not collapse the selected folder")
 	}
-	// The keys act on the row that has the keyboard, so the row is clicked first.
+	if err := h.driver.Advance(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	// The keys act on the row that has the keyboard, so the row is clicked first; the click
+	// opens the folder, Left closes it and Right opens it again.
 	row = h.treeRowHit("src").Bounds
 	if err := h.driver.Click(row.X+row.Width-20, row.Y+row.Height/2); err != nil {
 		t.Fatal(err)
+	}
+	if err := h.driver.Key(gfx.KeyLeft, 0); err != nil {
+		t.Fatal(err)
+	}
+	if folder.expanded {
+		t.Fatal("left arrow did not collapse folder")
 	}
 	if err := h.driver.Key(gfx.KeyRight, 0); err != nil {
 		t.Fatal(err)
 	}
 	if !folder.expanded {
 		t.Fatal("right arrow did not expand folder")
+	}
+}
+
+// TestProjectTreeLeavesLineUpWithFolders checks that a file's icon starts where the icon of a
+// folder at the same depth starts: the file keeps the room of the chevron it does not have.
+func TestProjectTreeLeavesLineUpWithFolders(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "src"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "main.go"), []byte("package main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "README.md"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.open(root)
+	p := h.app.project
+	awaitDocumentState(t, h, func() bool { return p.tree.root != nil && p.tree.root.listed })
+	if err := h.driver.Advance(20 * time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	folder, file := h.labelBounds("src"), h.labelBounds("README.md")
+	if folder.Width == 0 || file.Width == 0 {
+		t.Fatalf("names not shown: folder=%v file=%v", folder, file)
+	}
+	if diff := folder.X - file.X; diff > 0.5 || diff < -0.5 {
+		t.Fatalf("file name starts at %v, folder name at %v", file.X, folder.X)
 	}
 }
 
@@ -952,4 +1003,15 @@ func TestProjectTreeSelectionFollowsTheKeyboardFocus(t *testing.T) {
 	if p.tree.selected == nil || p.tree.selected.name != "c" {
 		t.Fatalf("after another down arrow the selection is %+v, want c", p.tree.selected)
 	}
+}
+
+// labelBounds is where the label that reads exactly value was painted in the last frame, or
+// an empty rectangle when no label reads so.
+func (h *harness) labelBounds(value string) gfx.Rect {
+	for _, label := range h.driver.Snapshot().Labels {
+		if label.Value == value {
+			return label.Bounds
+		}
+	}
+	return gfx.Rect{}
 }

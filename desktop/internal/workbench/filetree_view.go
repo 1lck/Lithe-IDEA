@@ -89,11 +89,11 @@ func (a *App) projectTree(c ui.C, p *project) {
 			a.toggleFolder(p, n)
 		})
 	}
-	// A click selects a folder and opens a file; a folder opens or closes on Enter and on a
-	// double click, as the native tree does. Enter is a choice with no click behind it.
+	// A click opens a file, and opens or closes a folder anywhere on its row, not only on its
+	// arrow; Enter does the same. The second click of a double click leaves the folder as the
+	// first one left it. Enter is a choice with no click behind it.
 	info, clicked := c.Canvas().ClickInfo()
-	doubled := clicked && info.Clicks >= 2
-	enter := !clicked
+	repeated := clicked && info.Clicks >= 2
 	if i, ok := t.view.Chosen(); ok && i < len(t.rows) {
 		n := t.rows[i]
 		// The row a click chose takes the keyboard, so the arrow keys go on from it.
@@ -103,7 +103,7 @@ func (a *App) projectTree(c ui.C, p *project) {
 			switch {
 			case !n.dir:
 				a.activateTreeNode(p, n)
-			case enter || doubled:
+			case !repeated:
 				a.toggleFolder(p, n)
 			}
 		})
@@ -156,10 +156,8 @@ func (a *App) measureTree(canvas *gfx.Canvas, t *fileTree) float32 {
 		if n == t.root {
 			weight = gfx.WeightSemibold
 		}
-		row := float32(n.depth*treelist.Indent) + treelist.Icon + treelist.Gap + canvas.TextWidthWeight(n.name, font, weight) + treelist.Trailing
-		if n.dir && !n.empty {
-			row += treeChevron
-		}
+		// Every row starts after the room of a chevron, which a row without one keeps empty.
+		row := float32(n.depth*treelist.Indent) + treeChevron + treelist.Icon + treelist.Gap + canvas.TextWidthWeight(n.name, font, weight) + treelist.Trailing
 		width = max(width, row)
 	}
 	t.measureDirty, t.measureFont = false, font
@@ -167,18 +165,27 @@ func (a *App) measureTree(canvas *gfx.Canvas, t *fileTree) float32 {
 }
 
 // drawTreeContent declares what a row of the tree shows after its chevron: the node's icon and
-// its name, the root's in bold.
+// its name, the root's in bold. Viva's Tree starts a row without a chevron (a file, an empty
+// folder) where the chevron of a folder at its depth is, so such a row keeps the chevron's
+// room empty, and its icon lines up with the icons of the folders beside it.
 func (a *App) drawTreeContent(c ui.C, p *project, n *treeNode) {
-	icon := fileicons.ForFile(n.name, a.colors.Dark)
-	if n.dir {
-		icon = fileicons.ForDirectory(n.name, a.colors.Dark)
+	content := func() {
+		icon := fileicons.ForFile(n.name, a.colors.Dark)
+		if n.dir {
+			icon = fileicons.ForDirectory(n.name, a.colors.Dark)
+		}
+		ui.Icon(c, icon).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
+		name := ui.Text(c, n.name).FontSize(treeFontSize).Color(treelist.Text(a.colors.Dark)).Shrink(0)
+		if n == p.tree.root {
+			name.Bold()
+		}
+		a.projectTreeMenu(c, p, n, name)
 	}
-	ui.Icon(c, icon).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
-	name := ui.Text(c, n.name).FontSize(treeFontSize).Color(treelist.Text(a.colors.Dark)).Shrink(0)
-	if n == p.tree.root {
-		name.Bold()
+	if n.dir && !n.empty {
+		content()
+		return
 	}
-	a.projectTreeMenu(c, p, n, name)
+	ui.Row(c).Shrink(0).Items(ui.Center).Gap(c.Theme().Metrics.GapItem).PadLeft(treeChevron).Children(content)
 }
 
 // focusTreeRow gives the keyboard to the row the locate button brought into view, once the row
