@@ -29,9 +29,10 @@ native_path() {
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-core-rust feature/plugin-api-single-baseline: the plugin contract is one baseline with
-# pluginAPIVersion and every capability, protocol and document version at 0; on top of main at
-# #15 (word-level changed ranges in diff rows and the Git write-field documentation).
-PINNED_CORE_REVISION="83f853d278d34da551348248a5d8f2416c983ed5"
+# pluginAPIVersion and every capability, protocol and document version at 0, and the contract,
+# plugin guides, reference and SDKs live only in shared/plugins; on top of main at #15
+# (word-level changed ranges in diff rows and the Git write-field documentation).
+PINNED_CORE_REVISION="cae76160a8e3480e59f669da43e28b404a2dda96"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
