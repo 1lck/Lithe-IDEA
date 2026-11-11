@@ -52,6 +52,9 @@ func (a *App) editorMenuItems(c ui.C, p *project, d *document) func(*ui.MenuItem
 			c.After(func() { a.runLineOperation(p, d, core.MoveLineDown) })
 		}
 		menu.Separator()
+		if p.git.isRepository() && menu.Item(i18n.Shared(language, "desktop.editorMenu.lineHistory")).Clicked() {
+			c.After(func() { a.startLineHistory(p, d) })
+		}
 		if menu.Item(i18n.Shared(language, "desktop.editorMenu.goToLine")).Clicked() {
 			c.After(func() { a.openNavigation(p) })
 		}

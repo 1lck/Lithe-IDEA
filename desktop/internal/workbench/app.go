@@ -312,6 +312,8 @@ type project struct {
 	// stash is the Commit tool window's Stash tab: the repository's stashes and the files of
 	// the selected one.
 	stash stashState
+	// lineHistory is the editor's line history dialog (gitlinehistory.go).
+	lineHistory lineHistoryState
 }
 
 // App is the state of the window.

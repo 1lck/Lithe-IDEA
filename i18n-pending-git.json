@@ -10,5 +10,70 @@
     "description": "Project tree context menu item on a folder: open the Commit tool window of the repository",
     "en-US": "Show Repository Changes",
     "zh-CN": "显示仓库变更"
+  },
+  {
+    "id": "desktop.editorMenu.lineHistory",
+    "description": "Editor context menu item: trace the line history of the caret line or the selection",
+    "en-US": "Show Line History",
+    "zh-CN": "显示行历史"
+  },
+  {
+    "id": "desktop.lineHistory.title",
+    "description": "Title of the line history dialog",
+    "en-US": "Line History",
+    "zh-CN": "行历史"
+  },
+  {
+    "id": "desktop.lineHistory.lines",
+    "description": "Description under the line history title: the file and the traced line range",
+    "en-US": "{file}, lines {start}-{end}",
+    "zh-CN": "{file}，第 {start}-{end} 行",
+    "parameters": {
+      "file": "string",
+      "start": "string",
+      "end": "string"
+    }
+  },
+  {
+    "id": "desktop.lineHistory.loading",
+    "description": "Shown while the line history is traced",
+    "en-US": "Tracing line history…",
+    "zh-CN": "正在查询行历史…"
+  },
+  {
+    "id": "desktop.lineHistory.empty",
+    "description": "Shown when no commit touched the traced lines",
+    "en-US": "No commit touched these lines.",
+    "zh-CN": "这些行没有提交历史。"
+  },
+  {
+    "id": "desktop.lineHistory.truncated",
+    "description": "Shown when the line history is cut at its limit",
+    "en-US": "The list is truncated; only the newest commits are shown.",
+    "zh-CN": "结果已截断，仅显示最近的提交。"
+  },
+  {
+    "id": "desktop.lineHistory.inserted",
+    "description": "Note: traced lines inserted in the editor have no history yet",
+    "en-US": "Lines {lines} were inserted and have no history yet.",
+    "zh-CN": "第 {lines} 行是新插入的，尚无提交历史。",
+    "parameters": {
+      "lines": "string"
+    }
+  },
+  {
+    "id": "desktop.lineHistory.rewritten",
+    "description": "Note: traced lines rewritten in the editor cannot be matched to history reliably",
+    "en-US": "Lines {lines} were rewritten; their history cannot be matched reliably.",
+    "zh-CN": "第 {lines} 行被改写，无法可靠对应提交历史。",
+    "parameters": {
+      "lines": "string"
+    }
+  },
+  {
+    "id": "desktop.lineHistory.outsideRepository",
+    "description": "Shown when the line history is asked for a file outside the Git repository",
+    "en-US": "This file is outside the Git repository.",
+    "zh-CN": "此文件不在 Git 仓库内。"
   }
 ]
