@@ -384,6 +384,13 @@ func (k *captureDebugLaunch) LaunchDebug(ctx context.Context, sessionID, operati
 	return k.Kernel.LaunchDebug(ctx, sessionID, operationID, configuration)
 }
 
+// releaseLaunchedDebug stops the session a test launched and waits until its adapter is
+// released, so the adapter is gone before the project folder is removed.
+func releaseLaunchedDebug(h *harness, p *project) {
+	h.app.stopDebug(p)
+	h.app.wait()
+}
+
 func TestDebugLaunchUsesCoreDeclaredArguments(t *testing.T) {
 	h := debugHarness(t)
 	root := t.TempDir()
@@ -394,6 +401,7 @@ func TestDebugLaunchUsesCoreDeclaredArguments(t *testing.T) {
 	gate := &captureDebugLaunch{Kernel: h.app.kernel, configurations: make(chan core.DebugLaunchConfiguration, 1)}
 	h.app.kernel = gate
 	h.app.startDebug(p)
+	defer releaseLaunchedDebug(h, p)
 	awaitStateWithin(t, h, 5*time.Second, "Core launch configuration", func() bool { return len(gate.configurations) == 1 })
 	configuration := <-gate.configurations
 	if configuration.Arguments["stopOnEntry"] != true {
@@ -416,6 +424,7 @@ func TestDebugLaunchCarriesTheUsersSteppingFilters(t *testing.T) {
 	gate := &captureDebugLaunch{Kernel: h.app.kernel, configurations: make(chan core.DebugLaunchConfiguration, 1)}
 	h.app.kernel = gate
 	h.app.startDebug(p)
+	defer releaseLaunchedDebug(h, p)
 	awaitStateWithin(t, h, 5*time.Second, "Core launch configuration", func() bool { return len(gate.configurations) == 1 })
 	configuration := <-gate.configurations
 	if got := configuration.SteppingFilters; got == nil || !got.SkipConstructors || !slices.Equal(got.ClassNameFilters, policy.ClassNameFilters) {
