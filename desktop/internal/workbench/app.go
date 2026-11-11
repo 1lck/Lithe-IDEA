@@ -242,6 +242,8 @@ type settings struct {
 	InlineGitBlame bool `json:"inlineGitBlame,omitempty"`
 	// DisableSemanticHighlight keeps the syntax colors alone; semantic coloring is on by default.
 	DisableSemanticHighlight bool `json:"disableSemanticHighlight,omitempty"`
+	// VimMode turns on the Vim keys of every editor; off by default (vim_mode.go).
+	VimMode bool `json:"vimMode,omitempty"`
 	// EditorTabRows and EditorTabOverflow say how an editor group lays out tabs that do not
 	// fit in one row, as settingswindow.Values does; see App.tabLayout.
 	EditorTabRows     string `json:"editorTabRows,omitempty"`

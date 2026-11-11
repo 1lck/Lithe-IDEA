@@ -183,6 +183,7 @@ func (a *App) documentInput(p *project, d *document) {
 		}
 		v.SetFont(a.editorFont())
 		v.SetWrap(a.softWrap)
+		v.SetVimMode(a.settings.VimMode)
 		v.SetMinimap(!a.settings.HideMinimap)
 		v.SetMessages(a.editorMessages())
 		v.SetGutterClick(!d.virtual && a.gitGutterEnabled(), func(click editorview.GutterClick) {

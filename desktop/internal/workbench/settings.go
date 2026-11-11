@@ -182,6 +182,9 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SetDisableSemanticHighlight: func(value bool) {
 			a.post(func(a *App) { a.setDisableSemanticHighlight(value) })
 		},
+		SetVimMode: func(value bool) {
+			a.post(func(a *App) { a.setVimMode(value) })
+		},
 		SetProcessTermination: func(value settingswindow.ProcessTermination) {
 			a.post(func(a *App) { a.setProcessTermination(value) })
 		},
@@ -365,6 +368,7 @@ func (a *App) openSettingsPageWith(surface string, page settingsPage, query stri
 			HideProjectColors: a.settings.HideProjectColors,
 			HideGitGutter:     a.settings.HideGitGutter, InlineGitBlame: a.settings.InlineGitBlame,
 			DisableSemanticHighlight: a.settings.DisableSemanticHighlight,
+			VimMode:                  a.settings.VimMode,
 			ProcessTermination:       a.settings.ProcessTermination,
 			SteppingFilters:          maps.Clone(a.settings.DebugSteppingFilters),
 			Fonts:                    fontprefs.Normalize(a.settings.Fonts),

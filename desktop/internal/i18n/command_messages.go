@@ -2,7 +2,7 @@ package i18n
 
 // CommandMessages name the actions of the command catalog (Find Action).
 type CommandMessages struct {
-	GroupEditor, GroupApp, GroupView, GroupProject, GroupToolWindows, GroupSearch, GroupGit, GroupRun, GroupTerminal, GroupAgent, Settings, Plugins, Logs, ImportLegacy, ThemeSystem, ThemeLight, ThemeDark, LanguageEnglish, LanguageChinese, OpenProject, NewProject, Clone, CloseProject, SaveAll, SearchEverywhere, FindInFiles, ReplaceInFiles, Commit, CommitAndPush, Branches, GitConsole, Run, Debug, ToggleBreakpoint, NewTerminal, NewAgentConversation, NoActions, FindAction, GitNextChange, GitPreviousChange, Fold, Unfold, FoldAll, UnfoldAll string
+	GroupEditor, GroupApp, GroupView, GroupProject, GroupToolWindows, GroupSearch, GroupGit, GroupRun, GroupTerminal, GroupAgent, Settings, Plugins, Logs, ImportLegacy, ThemeSystem, ThemeLight, ThemeDark, LanguageEnglish, LanguageChinese, OpenProject, NewProject, Clone, CloseProject, SaveAll, SearchEverywhere, FindInFiles, ReplaceInFiles, Commit, CommitAndPush, Branches, GitConsole, Run, Debug, ToggleBreakpoint, NewTerminal, NewAgentConversation, NoActions, FindAction, GitNextChange, GitPreviousChange, Fold, Unfold, FoldAll, UnfoldAll, ToggleVim string
 	// ShowTool is the action that shows a tool window by its name.
 	ShowTool func(name string) string
 }
@@ -49,6 +49,7 @@ func commandMessages(language Language) CommandMessages {
 		Run:                  Shared(language, "desktop.command.run"),
 		Debug:                Shared(language, "desktop.command.debug"),
 		ToggleBreakpoint:     Shared(language, "desktop.command.toggleBreakpoint"),
+		ToggleVim:            Shared(language, "desktop.command.toggleVim"),
 		NewTerminal:          Shared(language, "desktop.command.newTerminal"),
 		NewAgentConversation: Shared(language, "desktop.command.newAgentConversation"),
 		NoActions:            Shared(language, "desktop.command.noActions"),

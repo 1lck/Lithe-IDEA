@@ -443,6 +443,7 @@ func (w *window) editorPage(c ui.C) {
 				w.setDisableSemanticHighlight(!semantic, false)
 			}
 		})
+		w.vimCard(c)
 	})
 	if w.tabRowsPick != values.EditorTabRows {
 		w.setTabRows(w.tabRowsPick, false)
@@ -465,6 +466,7 @@ func (w *window) footer(c ui.C) {
 			w.setTabRows("", true)
 			w.setTabOverflow("", true)
 			w.setDisableSemanticHighlight(false, true)
+			w.setVimMode(false, true)
 			w.setProcessTermination(ProcessTermination{}, true)
 			w.resetSteppingFilters()
 			w.setTerminalShell("", true)

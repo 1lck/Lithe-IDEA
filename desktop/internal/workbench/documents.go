@@ -833,6 +833,11 @@ func (a *App) editorMessages() editorview.Messages {
 		ShowMinimap:         words.ShowMinimap,
 		VerticalScrollbar:   words.VerticalScrollbar,
 		HorizontalScrollbar: words.HorizontalScrollbar,
+		VimNormal:           words.VimNormal,
+		VimInsert:           words.VimInsert,
+		VimReplace:          words.VimReplace,
+		VimVisual:           words.VimVisual,
+		VimVisualLine:       words.VimVisualLine,
 	}
 }
 
