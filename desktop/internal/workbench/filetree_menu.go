@@ -129,6 +129,12 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 			}
 		}
 		if !root {
+			if menu.Item(i18n.Shared(language, "desktop.files.duplicate")).Clicked() {
+				c.After(func() { a.duplicateTreeItem(p, n) })
+			}
+			if menu.Item(i18n.Shared(language, "desktop.files.moveToTrash")).Clicked() {
+				c.After(func() { a.trashTreeItem(p, n) })
+			}
 			if menu.Item(i18n.Shared(language, "desktop.files.rename")).Clicked() {
 				c.After(func() { a.openTreePrompt(p, treePromptRename, n) })
 			}

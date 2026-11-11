@@ -297,5 +297,35 @@
     "parameters": {
       "reason": "string"
     }
+  },
+  {
+    "id": "desktop.files.duplicate",
+    "description": "Project tree context menu item: copy the file or folder beside itself",
+    "en-US": "Duplicate",
+    "zh-CN": "重复"
+  },
+  {
+    "id": "desktop.files.moveToTrash",
+    "description": "Project tree context menu item: move the file or folder to the system trash",
+    "en-US": "Move to Trash",
+    "zh-CN": "移到废纸篓"
+  },
+  {
+    "id": "desktop.files.duplicateFailed",
+    "description": "Notice when a file or folder could not be duplicated",
+    "en-US": "Could not duplicate the item: {reason}",
+    "zh-CN": "无法重复该项目：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.files.trashFailed",
+    "description": "Notice when a file or folder could not be moved to the trash",
+    "en-US": "Could not move the item to the trash: {reason}",
+    "zh-CN": "无法移到废纸篓：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
   }
 ]
