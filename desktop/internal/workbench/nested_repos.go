@@ -32,6 +32,10 @@ type nestedState struct {
 	// focus is the ID of the nested repository a folder of the project tree asked for; empty
 	// when the project's own repository is meant.
 	focus string
+	// refGen counts the reference readings; references are the last ones by repository ID
+	// (nested_refs.go).
+	refGen     int
+	references map[string]nestedReferences
 }
 
 // nestedRepositoryID is the ID of the repository at path in a workspace commit of projectRoot: its

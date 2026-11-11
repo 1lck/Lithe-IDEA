@@ -109,6 +109,9 @@ func (a *App) drawBranchPanel(c ui.C, p *project, t i18n.BranchMessages) {
 		if listed == 0 {
 			a.drawBranchNote(c, t.NoMatches)
 		}
+		if query == "" {
+			a.drawNestedReferences(c, p, t)
+		}
 	})
 }
 
