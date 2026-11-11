@@ -53,7 +53,7 @@ func (a *App) Config() app.Config {
 		OnScroll:      a.onScroll,
 		OnPointer:     a.onPointer,
 		// Files dropped on the Agent composer become references in its draft.
-		OnFileDrop: a.agentFileDrop,
+		OnFileDrop: a.fileDrop,
 		// Plugin web tool windows show their pages in views of the system's web engine.
 		Web: &a.web,
 	}

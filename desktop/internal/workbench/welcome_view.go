@@ -180,6 +180,13 @@ func (a *App) welcomeProjects(c ui.C) {
 			ui.Column(row.C).Grow(1).PadSides(8, 0, 0, 0).Children(func() {
 				ui.Text(row.C, info.name).Ellipsis()
 				ui.Text(row.C, info.path).Ellipsis().Muted().FontSize(a.theme.Metrics.FontSizeS)
+				if entry.Pinned {
+					// Pinned projects come first; the mark says why this one is up there.
+					ui.Row(row.C).Height(14).Items(ui.Center).Gap(4).Children(func() {
+						ui.Icon(row.C, icons.Pin).Size(12, 12).Shrink(0).Color(a.colors.Subtle)
+						ui.Text(row.C, a.text.Welcome.Pinned).FontSize(a.theme.Metrics.FontSizeS).Muted()
+					})
+				}
 				if branch != "" {
 					ui.Row(row.C).Height(16).Items(ui.Center).Gap(4).Children(func() {
 						ui.Icon(row.C, icons.RecentProjectVCS(a.colors.Dark)).Size(16, 16).Shrink(0).Color(a.colors.Subtle)
@@ -249,6 +256,23 @@ func (a *App) welcomeMenuItems(c ui.C, path string) func(*ui.MenuItems) {
 			if menu.Item(a.welcomeRevealLabel()).Clicked() {
 				c.After(func() { a.revealRecent(path) })
 			}
+		}
+		// Pinned projects are listed first by Core; the entry flips the pin of this project only.
+		pinned := false
+		for _, entry := range a.recent {
+			if entry.Path == path {
+				pinned = entry.Pinned
+			}
+		}
+		pinLabel := a.text.Welcome.MenuPin
+		if pinned {
+			pinLabel = a.text.Welcome.MenuUnpin
+		}
+		if menu.Item(pinLabel).Clicked() {
+			c.After(func() {
+				a.performed("workspace.recent.pin", surfaceMenu)
+				a.reduceRecent(a.recent, core.TogglePinnedRecent(path), true)
+			})
 		}
 		if menu.Item(a.text.Welcome.MenuRemove).Clicked() {
 			c.After(func() {

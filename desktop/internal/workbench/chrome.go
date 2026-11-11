@@ -109,6 +109,23 @@ func (a *App) chromeStatusText(i int) string {
 			}
 		}
 		return encodingLabel("utf-8")
+	case itemIndent:
+		if doc := a.selectedEditorDocument(); doc != nil {
+			size, spaces := doc.view.IndentSettings()
+			if spaces {
+				return a.text.Status.IndentSpaces(size)
+			}
+			return a.text.Status.IndentTab(size)
+		}
+		return ""
+	case itemEOL:
+		if doc := a.selectedEditorDocument(); doc != nil {
+			if doc.view.LineEnding() == "crlf" {
+				return a.text.Status.LineEndingCRLF
+			}
+			return a.text.Status.LineEndingLF
+		}
+		return ""
 	case itemVim:
 		return a.vimStatusText()
 	case itemLSP:
@@ -134,6 +151,14 @@ func (a *App) chromeStatusText(i int) string {
 		return a.text.Status.NoChanges
 	}
 	return ""
+}
+
+// selectedEditorDocument is the document the editor shows, or nil when no file is open.
+func (a *App) selectedEditorDocument() *document {
+	if a.project == nil {
+		return nil
+	}
+	return a.project.selectedDocument(a.project.docs.group)
 }
 
 // openProjectMenu opens the project menu and asks for the branch of each recent project it

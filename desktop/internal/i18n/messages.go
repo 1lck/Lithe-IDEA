@@ -75,6 +75,8 @@ type WelcomeMessages struct {
 	Pinned     string
 	// Missing marks a recent project whose folder no longer exists.
 	Missing string
+	// DropFolderOnly says that a dropped item was not a folder, so nothing opened.
+	DropFolderOnly string
 }
 
 // WindowMessages names the minimize, maximize, restore and close buttons that Viva draws
@@ -536,6 +538,16 @@ type StatusMessages struct {
 	NoChanges string
 	Changes   func(count int) string
 	Healthy   string
+	// Indent is the status item of the editor's indentation: spaces per level, or the tab width
+	// when Tab inserts a tab. Clicking it switches between the two.
+	Indent       string
+	IndentSpaces func(count int) string
+	IndentTab    func(width int) string
+	// LineEnding is the status item of the file's line break; LineEndingLF and LineEndingCRLF
+	// name its two values.
+	LineEnding     string
+	LineEndingLF   string
+	LineEndingCRLF string
 }
 
 // SettingsMessages are the settings window's words.

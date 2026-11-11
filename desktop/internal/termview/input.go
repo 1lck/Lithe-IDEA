@@ -22,6 +22,9 @@ const (
 	clipboardNone clipboardAction = iota
 	clipboardCopy
 	clipboardPaste
+	// clipboardCopyIfSelected is Windows' plain Control+C: it copies when text is selected and
+	// otherwise reaches the program, which may take it as an interrupt.
+	clipboardCopyIfSelected
 )
 
 // clipboardChord says whether a key event is one of the terminal's clipboard chords. The
@@ -44,6 +47,9 @@ func clipboardChord(event gfx.KeyEvent) clipboardAction {
 		// A printable chord: Text holds its character without the modifiers.
 	default:
 		return clipboardNone
+	}
+	if runtime.GOOS == "windows" && event.Modifiers == gfx.ModifierControl && strings.EqualFold(event.Text, "c") {
+		return clipboardCopyIfSelected
 	}
 	want := gfx.ModifierControl | gfx.ModifierShift
 	if runtime.GOOS == "darwin" {
@@ -71,7 +77,12 @@ func (v *View) Key(event gfx.KeyEvent) (gfx.EventResult, bool) {
 		return gfx.EventResult{}, false
 	}
 	handled := gfx.EventResult{Handled: true}
-	if action := clipboardChord(event); action != clipboardNone {
+	action := clipboardChord(event)
+	if action == clipboardCopyIfSelected && !v.selection.selected {
+		// Nothing to copy: the key is the program's, as it is on every other press.
+		action = clipboardNone
+	}
+	if action != clipboardNone {
 		// The window's shortcut hook normally takes the lettered chords first. The named
 		// Insert keys never reach it, and a lettered chord it let through also ends here,
 		// rather than reaching the program as a key it never asked for. The release of a
@@ -79,7 +90,7 @@ func (v *View) Key(event gfx.KeyEvent) (gfx.EventResult, bool) {
 		if event.Release {
 			return handled, true
 		}
-		if action == clipboardCopy {
+		if action == clipboardCopy || action == clipboardCopyIfSelected {
 			return v.copySelection(), true
 		}
 		v.paste()

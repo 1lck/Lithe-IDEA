@@ -35,7 +35,14 @@ type appFonts struct {
 func resolveScopeFont(fonts []fontprefs.Font, scope fontprefs.Scope) scopeFont {
 	resolved := fontprefs.For(fonts, scope)
 	if resolved.Family == "" && scope == fontprefs.Terminal {
+		resolved.Family = bundled().Mono
+	}
+	if resolved.Family == "" && scope == fontprefs.Terminal {
 		resolved.Family = preferredTerminalFamily()
+	}
+	if resolved.Family == "" && scope == fontprefs.Editor {
+		// The code font is the bundled monospace face when the user chose none.
+		resolved.Family = bundled().Mono
 	}
 	face := gfx.MonoSystem
 	if resolved.Family != "" {
