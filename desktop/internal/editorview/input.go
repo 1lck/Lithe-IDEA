@@ -26,6 +26,11 @@ func (v *View) Shortcut(event gfx.KeyEvent) (gfx.EventResult, bool) {
 	if event.Target != v.cfg.HitID || event.Release || event.Key != gfx.KeyUnknown {
 		return gfx.EventResult{}, false
 	}
+	if v.vim.on && event.Modifiers == gfx.ModifierControl {
+		if result, handled := v.vimChord(event.Text); handled {
+			return result, true
+		}
+	}
 	cmd := commandKey()
 	shift := event.Modifiers&gfx.ModifierShift != 0
 	if event.Modifiers&^gfx.ModifierShift != cmd {
@@ -108,6 +113,9 @@ func (v *View) key(event gfx.KeyEvent) (gfx.EventResult, bool) {
 	if v.preedit.Composing {
 		// The input method owns the keys while it composes.
 		return gfx.EventResult{Handled: true}, true
+	}
+	if result, handled := v.vimKey(event); handled {
+		return result, true
 	}
 	mods := event.Modifiers
 	extend := mods&gfx.ModifierShift != 0
@@ -357,7 +365,11 @@ func (v *View) applyText(event app.TextEvent) app.TextState {
 	switch event.Kind {
 	case app.TextInsert:
 		v.preedit = app.TextState{}
-		v.insert(event.Text, editTyping)
+		if v.vim.on {
+			v.vimText(event.Text)
+		} else {
+			v.insert(event.Text, editTyping)
+		}
 		redraw = true
 	case app.TextPaste:
 		v.insert(event.Text, editOther)
