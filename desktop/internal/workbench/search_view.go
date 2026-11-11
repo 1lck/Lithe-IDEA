@@ -113,10 +113,13 @@ func (a *App) searchResults(c ui.C, p *project, language i18n.Language) {
 				ui.Icon(row.C, fileicons.ForFile(name, a.colors.Dark)).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
 				ui.Text(row.C, name).Grow(1).Shrink(1).FontSize(12.5).Ellipsis()
 				if result.Line != nil {
-					ui.Text(row.C, ":"+strconv.Itoa(*result.Line)).FontSize(12).Color(a.colors.Subtle)
+					ui.Text(row.C, searchLinePosition(result)).FontSize(12).Color(a.colors.Subtle)
 				}
 			})
-			ui.Text(row.C, result.Preview).FontSize(11.5).Mono().Color(a.colors.Subtle).Ellipsis()
+			preview, ranges := searchPreviewLine(result)
+			ui.Row(row.C).FillWidth().MinWidth(0).Clip().Children(func() {
+				a.highlightedText(row.C, preview, ranges, a.colors.Subtle, 11.5, true)
+			})
 		})
 		if row.Element.Clicked() {
 			opened = row.Index
@@ -141,11 +144,19 @@ func (a *App) searchResults(c ui.C, p *project, language i18n.Language) {
 	}
 }
 
-// searchMatchLabel names a match by its path and line.
+// searchMatchLabel names a match by its path, line and column.
 func searchMatchLabel(match core.WorkspaceSearchMatch) string {
-	label := match.Path
-	if match.Line != nil {
-		label += ":" + strconv.Itoa(*match.Line)
+	if match.Line == nil {
+		return match.Path
 	}
-	return label
+	return match.Path + searchLinePosition(match)
+}
+
+// searchLinePosition is ":line" or ":line:column" of a content match.
+func searchLinePosition(match core.WorkspaceSearchMatch) string {
+	position := ":" + strconv.Itoa(*match.Line)
+	if column := searchMatchColumn(match); column > 0 {
+		position += ":" + strconv.Itoa(column)
+	}
+	return position
 }

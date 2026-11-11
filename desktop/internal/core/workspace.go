@@ -100,6 +100,9 @@ type WorkspaceSearchRequest struct {
 	RegularExpression bool   `json:"regularExpression,omitempty"`
 	FileMask          string `json:"fileMask,omitempty"`
 	MaxResults        int    `json:"maxResults"`
+	// IncludeContentRanges asks for the untrimmed line and the match ranges of each
+	// content match (WorkspaceSearchMatch.SourceLine and ContentMatchRanges).
+	IncludeContentRanges bool `json:"includeContentRanges,omitempty"`
 }
 
 // WorkspaceSearchMatch is a file name or a content line returned by Core.

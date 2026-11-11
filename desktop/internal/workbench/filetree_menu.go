@@ -129,6 +129,13 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 		if opened {
 			menu.Separator()
 		}
+		// Find in Files searches the whole project from any row, as the IDE's entry does.
+		if menu.Item(i18n.Shared(language, "native.findInFiles")).Clicked() {
+			c.After(func() {
+				a.performed("workspace.search.open", surfaceMenu)
+				a.openFindInFiles(p, false)
+			})
+		}
 		if n.dir && !root && menu.Item(i18n.Shared(language, "desktop.files.excludeFromSearch")).Clicked() {
 			c.After(func() { a.excludeFromSearch(p, n.path) })
 		}

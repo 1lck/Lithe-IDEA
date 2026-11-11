@@ -119,15 +119,8 @@ func (a *App) commands() []command {
 		add("localHistory.show", t.GroupProject, a.text.History.Show, "", true, func() { a.openLocalHistory(p, path) })
 	}
 	add("search.everywhere", t.GroupSearch, t.SearchEverywhere, "", true, func() { a.openEverywhere(p) })
-	add("search.files", t.GroupSearch, t.FindInFiles, "", true, func() {
-		a.reduceChrome(core.SetChromeOpen(itemFind, true))
-		a.searchView.focus = true
-	})
-	add("search.replace", t.GroupSearch, t.ReplaceInFiles, "", true, func() {
-		a.reduceChrome(core.SetChromeOpen(itemFind, true))
-		a.searchView.replaceOpen = true
-		a.searchView.focus = true
-	})
+	add("search.files", t.GroupSearch, t.FindInFiles, "", true, func() { a.openFindInFiles(p, false) })
+	add("search.replace", t.GroupSearch, t.ReplaceInFiles, "", true, func() { a.openFindInFiles(p, true) })
 
 	add("git.commit", t.GroupGit, t.Commit, "", true, func() { a.startCommit(p, false, surfaceMenu) })
 	add("git.commitPush", t.GroupGit, t.CommitAndPush, "", true, func() { a.startCommit(p, true, surfaceMenu) })
