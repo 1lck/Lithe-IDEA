@@ -1,6 +1,8 @@
 package termview
 
 import (
+	"math"
+
 	"github.com/1lck/Lithe-IDEA/desktop/internal/term"
 	"github.com/vivaui/viva/gfx"
 )
@@ -44,7 +46,40 @@ func newPalette(look Look, epoch uint32) palette {
 	} else {
 		pal.ansi = lightANSI
 	}
+	if look.Native != nil {
+		background := rgb8(look.Background)
+		for index, native := range look.Native {
+			if native.Set && contrastRatio(native.RGB, background) >= nativeContrast {
+				pal.ansi[index] = native.RGB
+			}
+		}
+	}
 	return pal
+}
+
+// nativeContrast is the least contrast, by WCAG 2's ratio, a color of the system terminal's
+// profile needs against the background to replace the built-in one: the AA level for text.
+const nativeContrast = 4.5
+
+// contrastRatio is WCAG 2's contrast ratio of two sRGB colors, from 1 to 21.
+func contrastRatio(a, b [3]uint8) float64 {
+	la, lb := relativeLuminance(a), relativeLuminance(b)
+	if la < lb {
+		la, lb = lb, la
+	}
+	return (la + 0.05) / (lb + 0.05)
+}
+
+// relativeLuminance is WCAG 2's relative luminance of an sRGB color.
+func relativeLuminance(color [3]uint8) float64 {
+	linear := func(channel uint8) float64 {
+		value := float64(channel) / 255
+		if value <= 0.04045 {
+			return value / 12.92
+		}
+		return math.Pow((value+0.055)/1.055, 2.4)
+	}
+	return 0.2126*linear(color[0]) + 0.7152*linear(color[1]) + 0.0722*linear(color[2])
 }
 
 // termColor resolves a terminal color; fallback stands in for the default.

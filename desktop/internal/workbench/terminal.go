@@ -3,8 +3,10 @@ package workbench
 import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/nativeterm"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/termview"
 	"github.com/vivaui/viva/gfx"
+	"sync"
 )
 
 // terminalMessages are the terminal's words in the window's current language.
@@ -53,8 +55,24 @@ func (a *App) terminalLook() termview.Look {
 		look.Cursor = gfx.Color{Red: 0.35, Green: 0.67, Blue: 0.98, Alpha: 1}
 		look.Selection = gfx.Color{Red: 0.16, Green: 0.31, Blue: 0.48, Alpha: 1}
 	}
+	look.Native = nativeTerminalColors()
 	return look
 }
+
+// nativeTerminalColors is the system terminal profile's ANSI colors, read once (nativeterm), in
+// the form the terminal view takes; nil where the system keeps none. The same pointer is
+// returned every time, so the view sees an unchanged look and keeps its palette.
+var nativeTerminalColors = sync.OnceValue(func() *[16]termview.NativeColor {
+	colors := nativeterm.ANSI()
+	if colors == nil {
+		return nil
+	}
+	var native [16]termview.NativeColor
+	for index := range native {
+		native[index] = termview.NativeColor{RGB: colors.ANSI[index], Set: colors.Set[index]}
+	}
+	return &native
+})
 
 // pumpTerminal feeds the output the shells produced since the last frame into the open
 // project's screens. It runs in OnWake, before the frame the output shows in. Every

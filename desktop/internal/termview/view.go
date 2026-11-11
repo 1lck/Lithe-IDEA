@@ -87,6 +87,16 @@ type Look struct {
 	Foreground gfx.Color
 	Cursor     gfx.Color
 	Selection  gfx.Color
+	// Native is the system terminal's ANSI colors, nil for none: an entry it sets replaces the
+	// built-in one when it stands out enough from Background (see nativeContrast).
+	Native *[16]NativeColor
+}
+
+// NativeColor is one ANSI color of the system terminal's profile; Set is false where the
+// profile keeps the system's own default.
+type NativeColor struct {
+	RGB [3]uint8
+	Set bool
 }
 
 // Failure is a failure the terminal reports to the client's log.
