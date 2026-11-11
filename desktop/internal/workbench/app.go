@@ -607,6 +607,7 @@ func New(options Options) *App {
 	}
 	a.settings.Keymap = shortcuts.Normalize(a.settings.Keymap)
 	a.applyNetwork()
+	bundledInterfaceFamily()
 	a.applyFonts()
 	a.searchView.delay = -1
 	a.everywhereView.delay = -1
