@@ -107963,6 +107963,48 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.commit.optionsGit",
+      "description": "Commit options popover: heading of the Git options",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.optionsAI",
+      "description": "Commit options popover: heading of the AI options",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.instructions",
+      "description": "Commit options popover and Settings > AI: label of the extra requirements handed to commit message generation",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.instructionsHelp",
+      "description": "Commit options popover and Settings > AI: what the generation instructions are",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.instructionsPlaceholder",
+      "description": "Commit options popover and Settings > AI: placeholder of the generation instructions",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.commit.openSettings",
+      "description": "Commit options popover: button that opens the AI settings page",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

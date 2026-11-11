@@ -8,6 +8,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -265,14 +266,13 @@ type commitArea struct {
 	lists  bool
 }
 
-// drawCommitAreaOf declares the commit area of area: amend, the commit options, the staged
-// count, the message, how the last run ended, and the buttons that commit, and commit and push.
+// drawCommitAreaOf declares the commit area of area: amend, the staged count, the message, how
+// the last run ended, the buttons that commit, and commit and push, and the commit options.
 func (a *App) drawCommitAreaOf(c ui.C, p *project, area commitArea) ui.Box {
 	cs, t := area.target.state, a.text.Commit
 	return ui.Column(c).FillWidth().Clip().Pad(8).Gap(6).Children(func() {
 		ui.Row(c).FillWidth().Shrink(0).Items(ui.Center).Gap(6).Children(func() {
 			ui.Checkbox(c, &cs.amend, t.Amend).Disabled(cs.busy)
-			a.drawCommitOptions(c, cs)
 			ui.Spacer(c)
 			ui.Text(c, t.Staged(area.staged)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
 		})
@@ -307,25 +307,32 @@ func (a *App) drawCommitAreaOf(c ui.C, p *project, area commitArea) ui.Box {
 				a.drawGenerateCommitButton(c, p)
 			}
 			ui.Spacer(c)
-			if a.gitIconButton(c, i18n.Shared(a.language(), "native.openAICommitSettings"), icons.Settings, false, false) {
-				c.After(func() { a.openSettingsPage(surfaceButton, settingsAI) })
-			}
+			a.drawCommitOptions(c, cs, area.lists)
 		})
 	})
 }
 
-// drawCommitOptions declares the button that opens the options of the next commit: the
-// sign-off, whether the parent repositories' references are updated, and the author. It is
-// highlighted while the sign-off or the author is set, so a commit under another name is never
-// a surprise.
-func (a *App) drawCommitOptions(c ui.C, cs *commitState) {
-	t := a.text.Commit
-	button, clicked := a.gitToolButton(c, t.Options, icons.Ellipsis, cs.signOff || cs.authorText() != "", cs.busy)
+// drawCommitOptions declares the gear at the end of the commit buttons and the options it
+// opens, grouped as the commit options of other IDEs are: Git (the sign-off, whether the
+// parent repositories' references are updated, and the author of the next commit) and, where
+// the message can be generated, AI (the instructions handed to the generation, and the way to
+// the AI settings). The gear is highlighted while the sign-off or the author is set, so a
+// commit under another name is never a surprise.
+func (a *App) drawCommitOptions(c ui.C, cs *commitState, generates bool) {
+	t, lang := a.text.Commit, a.language()
+	button, clicked := a.gitToolButton(c, t.Options, icons.Settings, cs.signOff || cs.authorText() != "", false)
 	if clicked {
 		cs.optionsOpen = !cs.optionsOpen
 	}
-	ui.PopoverWith(c, button, ui.PopoverSpec{Align: ui.Start, Width: 280}, &cs.optionsOpen, func() {
+	spec := ui.PopoverSpec{Side: components.PopoverTop, Align: ui.End, Width: 320}
+	ui.PopoverWith(c, button, spec, &cs.optionsOpen, func() {
 		ui.Column(c).FillWidth().Gap(8).Children(func() {
+			a.commitOptionHeading(c, i18n.Shared(lang, "desktop.commit.optionsGit"))
+			ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
+				ui.Text(c, t.Author).Shrink(0)
+				a.commitOptionHelp(c, t.AuthorHelp)
+			})
+			ui.TextField(c, &cs.author, t.Author, t.AuthorPlaceholder).FillWidth().Disabled(cs.busy)
 			ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
 				// The checkbox writes a click into signOff only when it is asked, after Disabled.
 				if ui.Checkbox(c, &cs.signOff, t.SignOff).Disabled(cs.busy).Changed() {
@@ -334,17 +341,39 @@ func (a *App) drawCommitOptions(c ui.C, cs *commitState) {
 				a.commitOptionHelp(c, t.SignOffHelp)
 			})
 			ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
-				lang := a.language()
 				ui.Checkbox(c, &cs.parents, i18n.Shared(lang, "git.workspaceCommit.parents")).Disabled(cs.busy)
 				a.commitOptionHelp(c, i18n.Shared(lang, "desktop.commit.parentsHelp"))
 			})
+			if !generates {
+				return
+			}
+			a.commitOptionHeading(c, i18n.Shared(lang, "desktop.commit.optionsAI"))
 			ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
-				ui.Text(c, t.Author).Shrink(0)
-				a.commitOptionHelp(c, t.AuthorHelp)
+				label := i18n.Shared(lang, "desktop.commit.instructions")
+				ui.Text(c, label).Shrink(0)
+				a.commitOptionHelp(c, i18n.Shared(lang, "desktop.commit.instructionsHelp"))
+				ui.Spacer(c)
+				if ui.Button(c, i18n.Shared(lang, "desktop.commit.openSettings")).Ghost().Shrink(0).Clicked() {
+					c.After(func() {
+						cs.optionsOpen = false
+						a.openSettingsPage(surfaceButton, settingsAI)
+					})
+				}
 			})
-			ui.TextField(c, &cs.author, t.Author, t.AuthorPlaceholder).FillWidth().Disabled(cs.busy)
+			field := ui.TextArea(c, a.instructionsDraft(), i18n.Shared(lang, "desktop.commit.instructions"), i18n.Shared(lang, "desktop.commit.instructionsPlaceholder")).
+				FillWidth().Height(88)
+			// Typing delivers no click, and After runs only after a paint that does, so the
+			// edit is stored in this paint.
+			if field.Changed() {
+				a.storeInstructionsDraft()
+			}
 		})
 	})
+}
+
+// commitOptionHeading declares the heading of one group of the commit options.
+func (a *App) commitOptionHeading(c ui.C, title string) {
+	ui.Text(c, title).FontSize(a.theme.Metrics.FontSizeS).Weight(gfx.WeightMedium).Color(a.colors.Subtle)
 }
 
 // commitOptionHelp declares the ⓘ that explains a commit option.

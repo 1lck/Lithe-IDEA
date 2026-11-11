@@ -11358,7 +11358,13 @@
     "desktop.settings.fontsSizeValue": "{size} pt",
     "desktop.settings.fontsSummary": "{family} · {size} pt · line spacing {spacing}",
     "desktop.settings.fontsSystemDefault": "System Default",
-    "desktop.commit.parentsHelp": "After a submodule is committed, also commit its new reference in the parent repository. Submodules are pushed before their parents."
+    "desktop.commit.parentsHelp": "After a submodule is committed, also commit its new reference in the parent repository. Submodules are pushed before their parents.",
+    "desktop.commit.optionsGit": "Git",
+    "desktop.commit.optionsAI": "AI",
+    "desktop.commit.instructions": "Generation instructions",
+    "desktop.commit.instructionsHelp": "Requirements handed to the AI with the changes when it writes a commit message, such as the tone, the format or what to leave out. Nothing is added when it is empty.",
+    "desktop.commit.instructionsPlaceholder": "For example: avoid long descriptions",
+    "desktop.commit.openSettings": "Open in Settings…"
   },
   "overrides": {
     "windows": {

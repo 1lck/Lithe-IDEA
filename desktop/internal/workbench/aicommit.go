@@ -42,8 +42,8 @@ type aiCommitState struct {
 	repositories []core.CommitContextRepository
 }
 
-// aiCommitDefaults are the options of a generation. The Viva settings do not offer them yet, so
-// they are the shared defaults of the contract.
+// aiCommitOptions are the options of a generation: the language, the body and the instructions
+// the settings chose, and the shared defaults of the contract for the rest.
 func (a *App) aiCommitOptions() core.AICommitOptions {
 	generation := a.aiGenerationSettings()
 	language := "english"
@@ -56,6 +56,7 @@ func (a *App) aiCommitOptions() core.AICommitOptions {
 	return core.AICommitOptions{
 		Language: language, Format: "conventional", SubjectMaximumLength: 72,
 		MaximumDiffCharacters: 32000, ReasoningEffort: "default", IncludeBody: generation.IncludeBody,
+		CustomInstructions: strings.TrimSpace(generation.CustomInstructions),
 	}
 }
 

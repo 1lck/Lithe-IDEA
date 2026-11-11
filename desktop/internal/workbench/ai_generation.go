@@ -29,6 +29,34 @@ func (a *App) setAIGenerationSettings(value settingswindow.AIGenerationSettings)
 	a.saveSettings()
 }
 
+// aiInstructionsDraft is the text the commit options edit of the generation instructions. A
+// text area keeps its editor under the address of the string it edits, so the text lives here
+// rather than in the stored settings, which a save replaces; synced is the stored value it
+// last agreed with, so a change made in the settings window replaces the draft and a draft
+// being typed is never reset by its own saves.
+type aiInstructionsDraft struct {
+	text, synced string
+}
+
+// instructionsDraft is the draft of the generation instructions, first brought up to date
+// with the stored value when that changed elsewhere.
+func (a *App) instructionsDraft() *string {
+	if stored := a.settings.AIGeneration.CustomInstructions; stored != a.instructions.synced {
+		a.instructions.text, a.instructions.synced = stored, stored
+	}
+	return &a.instructions.text
+}
+
+// storeInstructionsDraft stores the instructions typed in the commit options, as the settings
+// window stores a choice; the text is kept as typed, and a generation trims it. The settings
+// window paints on the same event-loop thread, so it reads the value only between paints.
+func (a *App) storeInstructionsDraft() {
+	value := a.settings.AIGeneration
+	value.CustomInstructions = a.instructions.text
+	a.instructions.synced = value.CustomInstructions
+	a.setAIGenerationSettings(value)
+}
+
 // aiGenerationSources are the AI CLI sources the choice allows, in the order generation tries
 // them. It is read on the window thread and the list is handed to the background work.
 func (a *App) aiGenerationSources() []string {

@@ -325,3 +325,46 @@ func TestCommitReviewNamesTheAuthorAndTheSignOff(t *testing.T) {
 	}
 	h.clickNamed(text.Cancel)
 }
+
+func TestCommitOptionsEditTheGenerationInstructions(t *testing.T) {
+	dir := newTestRepository(t)
+	h := newHarness(t, &gitKernel{Client: core.NewClient()})
+	h.openCommit(dir)
+	h.settle()
+
+	lang := h.app.language()
+	h.clickNamed(h.app.text.Commit.Options)
+	for _, group := range []string{"desktop.commit.optionsGit", "desktop.commit.optionsAI"} {
+		heading, found := i18n.Shared(lang, group), false
+		for _, label := range h.driver.Snapshot().Labels {
+			found = found || label.Value == heading
+		}
+		if !found {
+			t.Fatalf("the commit options show no %q group", heading)
+		}
+	}
+	h.clickNamed(i18n.Shared(lang, "desktop.commit.instructions"))
+	if err := h.driver.Type(" Avoid long bodies "); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	if got := h.app.settings.AIGeneration.CustomInstructions; got != " Avoid long bodies " {
+		t.Fatalf("stored instructions = %q (draft %q), want them as typed", got, h.app.instructions.text)
+	}
+	if got := h.app.aiCommitOptions().CustomInstructions; got != "Avoid long bodies" {
+		t.Fatalf("generation instructions = %q, want them trimmed", got)
+	}
+	var saved settings
+	if found, err := h.store.Load(settingsFile, &saved); err != nil || !found || saved.AIGeneration.CustomInstructions != " Avoid long bodies " {
+		t.Fatalf("saved instructions = %q (found %v, err %v)", saved.AIGeneration.CustomInstructions, found, err)
+	}
+
+	// The settings window stores its own edit; the commit options then show it.
+	value := h.app.settings.AIGeneration
+	value.CustomInstructions = "Write in the imperative"
+	h.app.setAIGenerationSettings(value)
+	h.settle()
+	if got := *h.app.instructionsDraft(); got != "Write in the imperative" {
+		t.Fatalf("draft after a settings window edit = %q", got)
+	}
+}

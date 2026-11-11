@@ -336,6 +336,9 @@ type App struct {
 	notice string
 	// overlay hosts the dialogs and the notice painted over the workbench.
 	overlay overlayHost
+	// instructions is the commit options' draft of the generation instructions
+	// (ai_generation.go).
+	instructions aiInstructionsDraft
 	// settingsWindow opens the settings window and keeps at most one open.
 	settingsWindow       *settingswindow.Controller
 	settingsSubscription *settingsSubscription

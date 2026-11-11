@@ -11358,7 +11358,13 @@
     "desktop.settings.fontsSizeValue": "{size} pt",
     "desktop.settings.fontsSummary": "{family} · {size} pt · 行距 {spacing}",
     "desktop.settings.fontsSystemDefault": "系统默认",
-    "desktop.commit.parentsHelp": "提交子模块后，同时在父仓库提交新的子模块引用；推送时先推子模块再推父仓库。"
+    "desktop.commit.parentsHelp": "提交子模块后，同时在父仓库提交新的子模块引用；推送时先推子模块再推父仓库。",
+    "desktop.commit.optionsGit": "Git",
+    "desktop.commit.optionsAI": "AI",
+    "desktop.commit.instructions": "生成提示词",
+    "desktop.commit.instructionsHelp": "生成提交信息时一并交给 AI 的要求，例如语气、格式或要省略的内容。留空时不附加。",
+    "desktop.commit.instructionsPlaceholder": "例如：不要写冗长的描述",
+    "desktop.commit.openSettings": "在设置中打开…"
   },
   "overrides": {
     "macos": {

@@ -69,11 +69,15 @@ type agentSettings struct {
 	agent int
 
 	providerRead generationState
-	instructions instructionsState
-	shared       sharedState
-	skills       skillsState
-	hooks        hooksState
-	limitDraft   limitsState
+	// generationDraft is the text of the generation card's instructions field. Unlike the
+	// state around it, only the settings window thread touches it, in a paint, so mu does
+	// not guard it.
+	generationDraft generationInstructions
+	instructions    instructionsState
+	shared          sharedState
+	skills          skillsState
+	hooks           hooksState
+	limitDraft      limitsState
 }
 
 type limitsState struct {
