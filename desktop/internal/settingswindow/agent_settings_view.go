@@ -60,6 +60,7 @@ func (w *window) agentsPage(c ui.C) {
 	s.loadLimits()
 	w.pageScroll(c, pageAIAgents, func() {
 		w.agentPicker(c)
+		w.managementCard(c)
 		s.mu.Lock()
 		d := s.limitDraft
 		s.mu.Unlock()

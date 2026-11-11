@@ -78,6 +78,7 @@ type agentSettings struct {
 	skills          skillsState
 	hooks           hooksState
 	limitDraft      limitsState
+	management      agentManagementState
 }
 
 type limitsState struct {

@@ -298,5 +298,86 @@
     "description": "Confirm button that discards the draft and reloads the file.",
     "en-US": "Reload from disk",
     "zh-CN": "从磁盘重新加载"
+  },
+  {
+    "id": "desktop.settings.agent.management.title",
+    "description": "Title of the card that checks Node.js and npm and installs or uninstalls the selected Agent's adapter.",
+    "en-US": "Environment and adapter",
+    "zh-CN": "环境与适配器"
+  },
+  {
+    "id": "desktop.settings.agent.management.help",
+    "description": "Help text of the environment and adapter card. Lithe installs only the ACP adapter; the Agent's CLI is not changed.",
+    "en-US": "Check Node.js and npm, then install or uninstall this Agent's ACP adapter. Lithe does not change the Agent's own CLI.",
+    "zh-CN": "检查 Node.js 与 npm，然后安装或卸载此 Agent 的 ACP 适配器。Lithe 不会改动 Agent 自身的 CLI。"
+  },
+  {
+    "id": "desktop.settings.agent.management.check",
+    "description": "Button that reads the runtime and adapter state again. Reading happens only on this press.",
+    "en-US": "Check again",
+    "zh-CN": "重新检查"
+  },
+  {
+    "id": "desktop.settings.agent.management.working",
+    "description": "Shown while the runtime is read or the adapter is changed.",
+    "en-US": "Working…",
+    "zh-CN": "处理中…"
+  },
+  {
+    "id": "desktop.settings.agent.management.node",
+    "description": "Row showing the detected Node.js version. {version} is the version or the not-found text.",
+    "en-US": "Node.js: {version}",
+    "zh-CN": "Node.js：{version}",
+    "parameters": {
+      "version": "string"
+    }
+  },
+  {
+    "id": "desktop.settings.agent.management.npm",
+    "description": "Row showing the detected npm version. {version} is the version or the not-found text.",
+    "en-US": "npm: {version}",
+    "zh-CN": "npm：{version}",
+    "parameters": {
+      "version": "string"
+    }
+  },
+  {
+    "id": "desktop.settings.agent.management.notFound",
+    "description": "Shown when Core detects no runtime tool.",
+    "en-US": "Not found",
+    "zh-CN": "未找到"
+  },
+  {
+    "id": "desktop.settings.agent.management.installed",
+    "description": "Shown when the adapter is installed. {version} is its version.",
+    "en-US": "Installed: {version}",
+    "zh-CN": "已安装：{version}",
+    "parameters": {
+      "version": "string"
+    }
+  },
+  {
+    "id": "desktop.settings.agent.management.notInstalled",
+    "description": "Shown when the selected Agent's adapter is not installed.",
+    "en-US": "Not installed",
+    "zh-CN": "未安装"
+  },
+  {
+    "id": "desktop.settings.agent.management.install",
+    "description": "Button that installs the selected Agent's ACP adapter.",
+    "en-US": "Install adapter",
+    "zh-CN": "安装适配器"
+  },
+  {
+    "id": "desktop.settings.agent.management.uninstall",
+    "description": "Button that uninstalls the selected Agent's ACP adapter. The Agent's CLI is kept.",
+    "en-US": "Uninstall adapter",
+    "zh-CN": "卸载适配器"
+  },
+  {
+    "id": "desktop.settings.agent.management.uninstalled",
+    "description": "Shown after the adapter was uninstalled.",
+    "en-US": "The adapter was uninstalled.",
+    "zh-CN": "适配器已卸载。"
   }
 ]
