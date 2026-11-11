@@ -206,7 +206,7 @@ func (a *App) openFindAction() {
 // Enter runs one, a greyed one cannot run now.
 func (a *App) everywhereActions(c ui.C) {
 	v := &a.everywhereView
-	matches := matchCommands(a.commands(), v.query.Text())
+	matches := matchCommands(a.commands(), v.actionQuery())
 	v.actionCount = len(matches)
 	if len(matches) == 0 {
 		ui.Text(c, a.text.Commands.NoActions).Muted()
@@ -248,7 +248,7 @@ func (a *App) everywhereActions(c ui.C) {
 // runSelectedAction runs the selected action on Enter in the query field.
 func (a *App) runSelectedAction() {
 	v := &a.everywhereView
-	matches := matchCommands(a.commands(), v.query.Text())
+	matches := matchCommands(a.commands(), v.actionQuery())
 	if v.actionSelected >= 0 && v.actionSelected < len(matches) {
 		a.runCommand(matches[v.actionSelected])
 	}

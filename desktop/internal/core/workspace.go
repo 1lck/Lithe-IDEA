@@ -110,6 +110,12 @@ type WorkspaceSearchMatch struct {
 	Preview         string            `json:"preview"`
 	SymbolName      *string           `json:"symbolName,omitempty"`
 	NameMatchRanges []SearchNameRange `json:"nameMatchRanges,omitempty"`
+	// MatchingDegree is Core's rank of a name match, higher first.
+	MatchingDegree *int `json:"matchingDegree,omitempty"`
+	// SourceLine and ContentMatchRanges are the untrimmed line of a content match and
+	// its matches in UTF-16 units, returned when the request sets IncludeContentRanges.
+	SourceLine         *string           `json:"sourceLine,omitempty"`
+	ContentMatchRanges []SearchNameRange `json:"contentMatchRanges,omitempty"`
 }
 
 // SearchNameRange locates one Core-selected highlight in UTF-16 code units.
@@ -129,6 +135,11 @@ type EverywhereSearchRequest struct {
 	ResultKinds               []string                 `json:"resultKinds"`
 	IncludeGeneratedFileNames bool                     `json:"includeGeneratedFileNames"`
 	Context                   *EverywhereSearchContext `json:"context,omitempty"`
+	// The text options apply to content matches, as in Find in Files.
+	CaseSensitive        bool `json:"caseSensitive,omitempty"`
+	WholeWords           bool `json:"wholeWords,omitempty"`
+	RegularExpression    bool `json:"regularExpression,omitempty"`
+	IncludeContentRanges bool `json:"includeContentRanges,omitempty"`
 }
 
 type EverywhereSearchContext struct {

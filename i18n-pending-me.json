@@ -1109,5 +1109,11 @@
     "parameters": {
       "reason": "string"
     }
+  },
+  {
+    "id": "desktop.everywhere.retry",
+    "description": "Search Everywhere: button that runs a failed search or page again.",
+    "en-US": "Retry",
+    "zh-CN": "重试"
   }
 ]

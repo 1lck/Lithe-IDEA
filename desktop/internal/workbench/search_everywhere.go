@@ -2,7 +2,9 @@ package workbench
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -19,6 +21,12 @@ var everywhereQueryID = tree.ID(shellPage, "everywhere-query")
 // everywhereScopeActions is the index of the Actions tab, which lists commands
 // rather than searching the project.
 const everywhereScopeActions = 4
+
+// everywhereScopeCount is the number of tabs, everywhereKinds the kinds of names the
+// All tab lists (each can be filtered out).
+const everywhereScopeCount = 6
+
+var everywhereKinds = []string{"file", "type", "symbol"}
 
 const (
 	everywherePageSize   = 50
@@ -39,11 +47,88 @@ type everywhereView struct {
 	actionCount    int
 	// Tests can request zero delay without changing production timing.
 	delay time.Duration
+	// preview shows the selected result's file below the list; split is the list's
+	// height above it and source the read-only view.
+	preview bool
+	split   ui.SplitterState
+	source  sourcePreview
+	// filterOpen shows the tab's filter; hiddenKinds are the kinds the All tab leaves
+	// out, and the three switches are the Text tab's options.
+	filterOpen                   bool
+	hiddenKinds                  map[string]bool
+	matchCase, wholeWords, regex bool
+	// gesture is Core's double-Shift state (keymap.modifierGestureStep), opaque here.
+	gesture json.RawMessage
+}
+
+// everywhereOptions is what besides the query and the tab decides a search.
+type everywhereOptions struct {
+	kinds                        string
+	matchCase, wholeWords, regex bool
+}
+
+// effectiveScope is the tab the query is for: a query that starts with "/" lists
+// commands whatever tab is selected.
+func (v *everywhereView) effectiveScope() int {
+	if strings.HasPrefix(v.query.Text(), "/") {
+		return everywhereScopeActions
+	}
+	return v.scope
+}
+
+// actionQuery is the text the Actions list matches: the query without the "/" that
+// asked for commands.
+func (v *everywhereView) actionQuery() string {
+	return strings.TrimPrefix(v.query.Text(), "/")
+}
+
+// resultKinds are the kinds of match a tab asks Core for.
+func (v *everywhereView) resultKinds(scope int) []string {
+	switch scope {
+	case 1:
+		return []string{"type"}
+	case 2:
+		return []string{"file"}
+	case 3:
+		return []string{"symbol"}
+	case 5:
+		return []string{"content"}
+	}
+	kinds := make([]string, 0, len(everywhereKinds))
+	for _, kind := range everywhereKinds {
+		if !v.hiddenKinds[kind] {
+			kinds = append(kinds, kind)
+		}
+	}
+	return kinds
+}
+
+// options is the search options of a tab.
+func (v *everywhereView) options(scope int) everywhereOptions {
+	o := everywhereOptions{kinds: strings.Join(v.resultKinds(scope), ",")}
+	if scope == 5 {
+		o.matchCase, o.wholeWords, o.regex = v.matchCase, v.wholeWords, v.regex
+	}
+	return o
+}
+
+// filtered reports whether the current tab's filter differs from its default.
+func (v *everywhereView) filtered() bool {
+	if v.scope == 5 {
+		return v.matchCase || v.wholeWords || v.regex
+	}
+	for _, kind := range everywhereKinds {
+		if v.hiddenKinds[kind] {
+			return true
+		}
+	}
+	return false
 }
 
 type everywhereSearch struct {
 	query                    string
 	scope                    int
+	options                  everywhereOptions
 	generation               uint64
 	cancel                   context.CancelFunc
 	running, loading, failed bool
@@ -100,30 +185,28 @@ func (a *App) closeEverywhere(p *project) {
 	s.watchReady, s.watchAvailable, s.fullResync = false, false, true
 	s.pending = nil
 	a.everywhereView.open, a.everywhereView.focus = false, false
+	a.everywhereView.filterOpen = false
+	a.everywhereView.source.close()
 	a.everywhereView.query.SetText("")
 }
 
 func (a *App) updateEverywhere(p *project, query string, scope int) {
 	v, s := &a.everywhereView, &p.everywhere
-	if s.query == query && s.scope == scope {
+	options := v.options(scope)
+	if s.query == query && s.scope == scope && s.options == options {
 		return
 	}
-	s.query, s.scope = query, scope
+	s.query, s.scope, s.options = query, scope, options
 	s.generation++
 	s.matches, s.cursor, s.failed, s.selected = nil, nil, false, 0
 	v.list.ScrollTo(0, ui.ListStart)
 	if s.cancel != nil {
 		s.cancel()
 	}
-	if strings.TrimSpace(query) == "" || scope == everywhereScopeActions {
+	kinds := v.resultKinds(scope)
+	if strings.TrimSpace(query) == "" || scope == everywhereScopeActions || len(kinds) == 0 {
 		s.loading = false
 		return
-	}
-	kinds := []string{"file", "type", "symbol"}
-	if scope == 2 {
-		kinds = []string{"file"}
-	} else if scope == 5 {
-		kinds = []string{"content"}
 	}
 	openPaths := make([]string, 0, len(p.docs.list))
 	for _, doc := range p.docs.list {
@@ -132,7 +215,9 @@ func (a *App) updateEverywhere(p *project, query string, scope int) {
 		}
 	}
 	s.request = core.EverywhereSearchRequest{Root: p.root, Query: query, PageSize: everywherePageSize, ResultKinds: kinds,
-		IncludeGeneratedFileNames: scope != 5, Context: &core.EverywhereSearchContext{OpenPaths: openPaths}}
+		IncludeGeneratedFileNames: scope != 5, Context: &core.EverywhereSearchContext{OpenPaths: openPaths},
+		CaseSensitive: options.matchCase, WholeWords: options.wholeWords, RegularExpression: options.regex,
+		IncludeContentRanges: scope == 5}
 	s.loading = true
 	if !s.watchAttached {
 		a.startEverywhereWatch(p)
@@ -283,6 +368,7 @@ func (a *App) finishEverywhere(p *project, generation uint64, next bool, page co
 		}
 		return
 	}
+	sortEverywherePage(page.Matches)
 	if next {
 		type identity struct {
 			kind, path, symbol string
@@ -322,4 +408,17 @@ func (a *App) finishEverywhere(p *project, generation uint64, next bool, page co
 		s.matches = s.matches[:everywhereMaxResults]
 	}
 	s.cursor = page.NextCursor
+}
+
+// sortEverywherePage orders one page by Core's matching degree, highest first. Equal
+// degrees keep Core's order, so rows do not jump while the user types; earlier pages
+// stay where they are.
+func sortEverywherePage(matches []core.WorkspaceSearchMatch) {
+	degree := func(m core.WorkspaceSearchMatch) int {
+		if m.MatchingDegree == nil {
+			return 0
+		}
+		return *m.MatchingDegree
+	}
+	sort.SliceStable(matches, func(i, j int) bool { return degree(matches[i]) > degree(matches[j]) })
 }

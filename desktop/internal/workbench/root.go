@@ -48,8 +48,10 @@ func (a *App) Config() app.Config {
 		// paste): those two are the window's to give them.
 		OnKey:      a.onKey,
 		OnShortcut: a.onShortcut,
-		OnScroll:   a.onScroll,
-		OnPointer:  a.onPointer,
+		// Shift pressed twice opens Search Everywhere (search_everywhere_gesture.go).
+		OnModifierTap: a.onModifierTap,
+		OnScroll:      a.onScroll,
+		OnPointer:     a.onPointer,
 		// Files dropped on the Agent composer become references in its draft.
 		OnFileDrop: a.agentFileDrop,
 		// Plugin web tool windows show their pages in views of the system's web engine.
