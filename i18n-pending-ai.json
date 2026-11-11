@@ -840,5 +840,11 @@
       "done": "string",
       "total": "string"
     }
+  },
+  {
+    "id": "desktop.agent.detail.showMenu",
+    "description": "Context menu item of the editor conversation that shows or hides the session-detail sidebar; checked while the sidebar shows.",
+    "en-US": "Show Session Details",
+    "zh-CN": "显示会话详情"
   }
 ]

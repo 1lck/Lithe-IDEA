@@ -21,6 +21,8 @@ type AgentDetailMessages struct {
 	Duration       string
 	Tokens         func(input, output, cacheRead string) string
 	NoStatistics   string
+	// ShowMenu is the context menu item that shows or hides the sidebar, checked while it shows.
+	ShowMenu string
 }
 
 func agentDetailMessages(language Language) AgentDetailMessages {
@@ -46,5 +48,6 @@ func agentDetailMessages(language Language) AgentDetailMessages {
 			return SharedFormat(language, "desktop.agent.detail.tokens", map[string]string{"input": input, "output": output, "cacheRead": cacheRead})
 		},
 		NoStatistics: Shared(language, "desktop.agent.detail.noStatistics"),
+		ShowMenu:     Shared(language, "desktop.agent.detail.showMenu"),
 	}
 }
