@@ -443,6 +443,8 @@ func (a *App) reproject(p *project, delay time.Duration) {
 				return nil
 			}
 		}
+		ctx, cancel := untilStopped(ctx, stop)
+		defer cancel()
 		graph, files, err := in.run(ctx, kernel, root, dated)
 		return func(a *App) {
 			if l.projGen != gen {
@@ -603,7 +605,12 @@ func (a *App) selectCommit(p *project, hash string) {
 				return nil
 			}
 		}
+		ctx, cancel := untilStopped(ctx, stop)
+		defer cancel()
 		files, err := kernel.GitCommitFiles(ctx, root, hash)
+		if ctx.Err() != nil {
+			return nil
+		}
 		detail, detailErr := kernel.GitCommit(ctx, root, hash)
 		return func(a *App) {
 			if l.selGen != gen {
@@ -619,6 +626,22 @@ func (a *App) selectCommit(p *project, hash string) {
 			}
 		}
 	})
+}
+
+// untilStopped is ctx, cancelled as well once stop is closed. A newer selection or filter
+// closes the stop of the one it replaces, and the Git reads that one started stop with it
+// instead of running on, and showing as running in the Git console, for an answer no one
+// reads.
+func untilStopped(ctx context.Context, stop <-chan struct{}) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(ctx)
+	go func() {
+		select {
+		case <-stop:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, cancel
 }
 
 // logFolder is one folder of the selected commit's changed files: its path from the top of
