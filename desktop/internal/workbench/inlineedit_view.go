@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -20,7 +21,15 @@ func (a *App) inlineEditView(c ui.C, p *project) {
 	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: 640}, func() {
 		ui.Column(c).FillWidth().Gap(8).Children(func() {
 			if !s.hasResult {
-				ui.TextField(c.Part("instruction"), &s.instruction, t.Instruction, t.Instruction).FillWidth().Disabled(s.running).AutoFocus()
+				scope := i18n.Shared(a.language(), "desktop.ai.inlineEdit.editSelection")
+				if s.currentLine {
+					scope = i18n.Shared(a.language(), "desktop.ai.inlineEdit.editCurrentLine")
+				}
+				ui.Text(c, scope).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+				field := ui.TextField(c.Part("instruction"), &s.instruction, t.Instruction, t.Instruction).FillWidth().Disabled(s.running).AutoFocus()
+				if field.Submitted() && !s.running {
+					c.After(func() { a.runInlineEdit(p) })
+				}
 				if s.running {
 					ui.Text(c, t.Running).Color(a.colors.Subtle)
 				}

@@ -81,6 +81,7 @@ func (a *App) agentHistory(c ui.C, p *project) {
 				c.After(func() { a.closeAgentHistory(p) })
 			}
 		})
+		a.agentHistoryControls(c, p)
 		a.agentArchivedSection(c, p)
 		if !h.canList {
 			ui.Row(c).FillWidth().Pad(shellContentPad).Children(func() {
@@ -148,6 +149,13 @@ func (a *App) agentHistory(c ui.C, p *project) {
 				}
 				if menu.Item(m.Rename).Clicked() {
 					c.After(func() { a.beginAgentRename(p, session) })
+				}
+				if p.agent.history.meta.items[session.SessionID].Hidden {
+					if menu.Item(m.Restore).Clicked() {
+						c.After(func() { a.setAgentSessionHidden(p, session.SessionID, false) })
+					}
+				} else if menu.Item(m.Remove).Clicked() {
+					c.After(func() { a.setAgentSessionHidden(p, session.SessionID, true) })
 				}
 			})
 		}).Grow(1).Pad(shellContentPad)

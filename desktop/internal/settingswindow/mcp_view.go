@@ -419,11 +419,15 @@ func (w *window) mcpDiscovery(c ui.C) {
 		if s.search.err != nil {
 			ui.Wrap(c, w.text.MCP.SearchFailed(s.search.err.Error())).FontSize(12).Color(p.danger)
 		}
-		if s.searched && len(page.Entries) == 0 && !s.search.busy && s.search.err == nil {
+		entries := page.Entries
+		if s.searched {
+			entries = mergeRegistryWithFeatured(s.featuredPage.Entries, s.searchedQuery, page.Entries)
+		}
+		if s.searched && len(entries) == 0 && !s.search.busy && s.search.err == nil {
 			ui.Text(c, w.text.MCP.NoResults).FontSize(12).Color(p.muted)
 		}
-		for i := range page.Entries {
-			w.mcpRegistryRow(c, &page.Entries[i])
+		for i := range entries {
+			w.mcpRegistryRow(c, &entries[i])
 		}
 		if s.searched && page.NextCursor != nil && !s.search.busy {
 			if ui.Button(c, w.text.MCP.More).Outline().Clicked() {

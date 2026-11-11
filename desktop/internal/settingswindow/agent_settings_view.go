@@ -60,6 +60,7 @@ func (w *window) agentsPage(c ui.C) {
 	s.loadLimits()
 	w.pageScroll(c, pageAIAgents, func() {
 		w.agentPicker(c)
+		w.managementCard(c)
 		s.mu.Lock()
 		d := s.limitDraft
 		s.mu.Unlock()
@@ -136,17 +137,61 @@ func (w *window) instructionsPage(c ui.C) {
 				if st.saved {
 					ui.Text(c, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.instructions.saved")).FontSize(12).Color(w.pal.muted)
 				}
+				if strings.HasSuffix(st.file.Path, "AGENTS.override.md") {
+					ui.Paragraph(c, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.instructions.overrideActive"), 3).FontSize(12).Color(w.pal.muted)
+				}
+				if len(draft) > agentInstructionsLimit {
+					ui.Paragraph(c, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.instructions.tooLarge"), 2).FontSize(12).Color(w.pal.danger)
+				}
 				ui.Row(c).Gap(8).Children(func() {
-					if ui.Button(c.Key("save"), i18n.Shared(w.marketLanguage(), "desktop.settings.agent.instructions.save")).Disabled(!st.changed() || st.saving).Clicked() {
+					if ui.Button(c.Key("save"), i18n.Shared(w.marketLanguage(), "desktop.settings.agent.instructions.save")).Disabled(!st.changed() || st.saving || len(draft) > agentInstructionsLimit).Clicked() {
 						c.After(s.saveInstructions)
 					}
 					if ui.Button(c.Key("reload"), i18n.Shared(w.marketLanguage(), "desktop.settings.agent.reload")).Outline().Disabled(st.saving).Clicked() {
-						c.After(func() { s.beginInstructions(true) })
+						c.After(func() {
+							if st.changed() {
+								s.mu.Lock()
+								s.instructions.confirmReload = true
+								s.mu.Unlock()
+								return
+							}
+							s.beginInstructions(true)
+						})
 					}
 				})
 			})
 		})
+		w.instructionsReloadDialog(c, s)
 	})
+}
+
+// agentInstructionsLimit is the largest global instructions text Core accepts (1 MiB).
+const agentInstructionsLimit = 1 << 20
+
+// instructionsReloadDialog asks before a reload throws away an edited draft.
+func (w *window) instructionsReloadDialog(c ui.C, s *agentSettings) {
+	s.mu.Lock()
+	pending := s.instructions.confirmReload
+	s.mu.Unlock()
+	if !pending {
+		return
+	}
+	lang := w.marketLanguage()
+	open := true
+	closed := ui.ModalWith(c, &open, i18n.Shared(lang, "desktop.settings.agent.instructions.discardTitle"), ui.ModalSpec{Description: i18n.Shared(lang, "desktop.settings.agent.instructions.discardBody"), Width: 420}, func() {}, func() {
+		if ui.Button(c, i18n.Shared(lang, "desktop.settings.agent.instructions.discardCancel")).Outline().Clicked() {
+			c.After(func() { s.dismissInstructionsReload() })
+		}
+		if ui.Button(c, i18n.Shared(lang, "desktop.settings.agent.instructions.discardConfirm")).Clicked() {
+			c.After(func() {
+				s.dismissInstructionsReload()
+				s.beginInstructions(true)
+			})
+		}
+	})
+	if closed {
+		s.dismissInstructionsReload()
+	}
 }
 
 func (w *window) skillScopeLabel(scope string) string {
@@ -381,6 +426,9 @@ func (w *window) hooksPage(c ui.C) {
 					ui.Text(c, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.loading")).FontSize(12).Color(w.pal.muted)
 				}
 				w.agentError(c, st.err)
+				if s.agentID() == "codex-acp" {
+					ui.Paragraph(c, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.hooks.codexApproval"), 4).FontSize(12).Color(w.pal.muted)
+				}
 				if st.loaded && len(st.library.Hooks) == 0 {
 					ui.Text(c, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.hooks.empty")).FontSize(12).Color(w.pal.muted)
 				}
@@ -487,6 +535,7 @@ func (w *window) hookEditor(c ui.C, st hooksState) {
 			ui.TextField(c.Key("desc"), &desc, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.hooks.description"), "").FillWidth()
 			ui.TextArea(c.Key("command"), &command, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.hooks.command"), "").FillWidth().Height(80)
 			ui.TextField(c.Key("timeout"), &timeout, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.hooks.timeout"), "").FillWidth()
+			ui.Paragraph(c, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.hooks.timeoutHelp"), 2).FontSize(12).Color(w.pal.muted)
 			events := make([]int, len(hookEvents))
 			for i := range events {
 				events[i] = i

@@ -1,6 +1,9 @@
 package workbench
 
 import (
+	"strings"
+
+	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/markdown"
@@ -21,6 +24,8 @@ type agentMarkdown struct {
 	view   components.MarkdownView
 	parsed int
 	layout agentMarkdownLayout
+	// input holds the link hit regions of the painted reply (see agentReplyMarkdown).
+	input ui.Handlers
 }
 
 // agentMarkdownLayout gives the reply the height its laid-out text needs at the width the
@@ -65,11 +70,66 @@ func (a *App) agentReplyMarkdown(c ui.C, message *agentMessage) {
 	md.layout.md, md.layout.canvas, md.layout.size = md, c.Canvas(), a.theme.Metrics.FontSizeM
 	// Viva gap: MarkdownView paints text without accessibility nodes, so a screen reader
 	// cannot read a reply yet.
+	if md.input.Pointer == nil {
+		md.input.Pointer = func(event gfx.PointerEvent) gfx.EventResult {
+			if event.Kind != gfx.PointerDown || event.Button != gfx.PointerButtonPrimary {
+				return gfx.EventResult{}
+			}
+			index, ok := event.Target.In(md.input.Parts())
+			if !ok {
+				return gfx.EventResult{}
+			}
+			if destination := md.view.Link(index); destination != "" {
+				_ = openURL(destination)
+				return gfx.EventResult{Handled: true, Repaint: true}
+			}
+			return gfx.EventResult{}
+		}
+	}
 	ui.CustomLayout(c, &md.layout).FillWidth().Children(func() {
-		ui.Row(c).FillWidth().Draw(func(d *ui.DrawContext) {
+		ui.Control(c.Part("reply"), a.text.Agent.Reply.Link, &md.input).FillWidth().Draw(func(d *ui.DrawContext) {
 			md.view.Paint(d.Canvas, components.MarkdownPaint{
 				Look: components.MarkdownLookFor(*d.Theme), X: d.Rect.X, Y: d.Rect.Y, Clip: d.Rect,
+				Links: md.input.Parts(),
 			})
 		})
 	})
+	a.agentCodeActions(c, md)
+}
+
+// agentCodeActions puts a copy and an insert action under each code block of the reply. Copy
+// takes the block's text to the clipboard; insert adds it to the composer without sending.
+func (a *App) agentCodeActions(c ui.C, md *agentMarkdown) {
+	codes := md.view.Codes()
+	if len(codes) == 0 {
+		return
+	}
+	t := a.text.Agent.Reply
+	ui.Column(c.Key("code-actions")).FillWidth().Shrink(0).Gap(4).Children(func() {
+		for i, code := range codes {
+			text := code.Text
+			ui.Row(c.KeyInt(i)).FillWidth().Shrink(0).Gap(6).Children(func() {
+				if ui.Button(c.KeyInt(2*i), t.CopyCode).Ghost().Clicked() {
+					c.After(func() { _ = app.SetClipboardText(text) })
+				}
+				if ui.Button(c.KeyInt(2*i+1), t.InsertCode).Ghost().Clicked() {
+					c.After(func() { a.insertAgentCode(text) })
+				}
+			})
+		}
+	})
+}
+
+// insertAgentCode adds a code block to the end of the composer's text as a fenced block. It
+// does not send.
+func (a *App) insertAgentCode(code string) {
+	p := a.project
+	if p == nil {
+		return
+	}
+	draft := p.agent.editor.CommittedString()
+	if draft != "" && !strings.HasSuffix(draft, "\n") {
+		draft += "\n"
+	}
+	a.setAgentDraft(p, draft+"```\n"+code+"\n```\n")
 }

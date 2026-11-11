@@ -33,6 +33,10 @@ func (a *App) agentPanel(c ui.C) {
 		return
 	}
 	if p.agent.conn == nil {
+		if !p.agent.chosen {
+			a.agentWelcome(c, p)
+			return
+		}
 		a.agentSetup(c, p)
 		return
 	}
@@ -302,6 +306,7 @@ func (a *App) agentConversation(c ui.C, p *project) {
 			a.agentComposer(c, p)
 			ui.Row(c).FillWidth().Shrink(0).Items(ui.Center).Gap(8).Children(func() {
 				ui.Text(c, a.agentStatusText(p)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Grow(1).Ellipsis()
+				a.agentContextRing(c, p)
 				a.agentQuotaRing(c, p)
 				if p.agent.phase == agentPhaseBusy || p.agent.phase == agentPhaseCancelling {
 					label := t.Stop

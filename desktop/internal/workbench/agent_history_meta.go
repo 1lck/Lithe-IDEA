@@ -16,6 +16,8 @@ const agentHistoryMetadataFile = "agent-history-metadata.json"
 type agentSessionMeta struct {
 	Title    string `json:"title,omitempty"`
 	Favorite bool   `json:"favorite,omitempty"`
+	// Hidden removes the conversation from this list only; the Agent keeps it.
+	Hidden bool `json:"hidden,omitempty"`
 }
 
 // agentHistoryMetaState is the loaded annotations of the open project and the rename in
@@ -26,7 +28,20 @@ type agentHistoryMetaState struct {
 	// renaming is the session whose row shows the title field, and field its text.
 	renaming string
 	field    ui.Field
+	// query is the search text of the list, and filter the chosen filter (agentHistoryFilter*).
+	query  ui.Field
+	filter agentHistoryFilter
 }
+
+// agentHistoryFilter is the list's filter: every conversation, the pinned ones, or the ones
+// removed from this list.
+type agentHistoryFilter uint8
+
+const (
+	agentHistoryFilterAll agentHistoryFilter = iota
+	agentHistoryFilterFavorites
+	agentHistoryFilterRemoved
+)
 
 // loadAgentSessionMeta reads the project's annotations once.
 func (a *App) loadAgentSessionMeta(p *project) {
@@ -88,7 +103,22 @@ func (a *App) agentSessionTitle(p *project, session agentSessionSummary) string 
 func (a *App) agentHistoryOrdered(p *project) []agentSessionSummary {
 	a.loadAgentSessionMeta(p)
 	items := p.agent.history.meta.items
-	list := slices.Clone(p.agent.history.sessions)
+	filter := p.agent.history.meta.filter
+	query := strings.ToLower(strings.TrimSpace(p.agent.history.meta.query.Text()))
+	list := make([]agentSessionSummary, 0, len(p.agent.history.sessions))
+	for _, session := range p.agent.history.sessions {
+		meta := items[session.SessionID]
+		if meta.Hidden != (filter == agentHistoryFilterRemoved) {
+			continue
+		}
+		if filter == agentHistoryFilterFavorites && !meta.Favorite {
+			continue
+		}
+		if query != "" && !strings.Contains(strings.ToLower(a.agentSessionTitle(p, session)), query) {
+			continue
+		}
+		list = append(list, session)
+	}
 	slices.SortStableFunc(list, func(x, y agentSessionSummary) int {
 		fx, fy := items[x.SessionID].Favorite, items[y.SessionID].Favorite
 		switch {
@@ -156,4 +186,43 @@ func (a *App) agentCurrentTitle(p *project) string {
 		return title
 	}
 	return p.agent.history.title(p.agent.sessionID)
+}
+
+// setAgentSessionHidden removes a conversation from this list or puts it back. The Agent's
+// records are not changed.
+func (a *App) setAgentSessionHidden(p *project, sessionID string, hidden bool) {
+	a.updateAgentSessionMeta(p, sessionID, func(m *agentSessionMeta) { m.Hidden = hidden })
+	if hidden {
+		a.performed("agent.history.remove", surfaceMenu)
+	} else {
+		a.performed("agent.history.restore", surfaceMenu)
+	}
+}
+
+// agentHistoryControls declares the search field and the filter of the history list.
+func (a *App) agentHistoryControls(c ui.C, p *project) {
+	m := a.text.Agent.HistoryMeta
+	s := &p.agent.history.meta
+	ui.Column(c).FillWidth().Shrink(0).Gap(6).PadX(shellContentPad).Children(func() {
+		ui.TextField(c.Key("history-query"), &s.query, m.Search, m.Search).FillWidth().Height(28)
+		ui.Row(c).FillWidth().Shrink(0).Gap(4).Children(func() {
+			filters := []struct {
+				filter agentHistoryFilter
+				label  string
+			}{
+				{agentHistoryFilterAll, m.FilterAll},
+				{agentHistoryFilterFavorites, m.FilterPinned},
+				{agentHistoryFilterRemoved, m.FilterRemoved},
+			}
+			for i, f := range filters {
+				button := ui.Button(c.KeyInt(i), f.label).Ghost()
+				if s.filter == f.filter {
+					button = button.Outline()
+				}
+				if button.Clicked() {
+					c.After(func() { s.filter = f.filter })
+				}
+			}
+		})
+	})
 }

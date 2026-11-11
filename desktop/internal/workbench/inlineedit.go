@@ -41,6 +41,8 @@ type inlineEditState struct {
 	revision   int
 
 	instruction ui.Field
+	// currentLine says the edit covers the caret's line because nothing was selected.
+	currentLine bool
 	running     bool
 	cancel      context.CancelFunc
 	// result is the model's replacement once there is one; diff compares it with the selection.
@@ -70,6 +72,17 @@ func (a *App) requestInlineEdit(p *project, view *editorview.View) {
 	}
 	t := a.text.AI.InlineEdit
 	start, end := view.Selection()
+	currentLine := start == end
+	text, rope := view.Text()
+	if currentLine {
+		// Without a selection the edit covers the caret's line, as the Windows client does.
+		line, _ := view.Caret()
+		start = rope.LineStart(line)
+		end = start
+		for end < len(text) && text[end] != '\n' {
+			end++
+		}
+	}
 	if start == end {
 		a.notify(t.NoSelection)
 		return
@@ -79,9 +92,8 @@ func (a *App) requestInlineEdit(p *project, view *editorview.View) {
 		return
 	}
 	a.performed("ai.inlineEdit.open", surfaceShortcut)
-	text, _ := view.Text()
 	s := &a.inline
-	*s = inlineEditState{open: true, doc: doc, start: start, end: end, selected: string(text[start:end]), revision: view.Revision()}
+	*s = inlineEditState{open: true, doc: doc, start: start, end: end, selected: string(text[start:end]), revision: view.Revision(), currentLine: currentLine}
 }
 
 // inlineContext is the text around the selection, cut at character boundaries.

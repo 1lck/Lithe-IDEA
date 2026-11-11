@@ -78,6 +78,7 @@ type agentSettings struct {
 	skills          skillsState
 	hooks           hooksState
 	limitDraft      limitsState
+	management      agentManagementState
 }
 
 type limitsState struct {
@@ -95,6 +96,8 @@ type instructionsState struct {
 	err   error
 	// agentFor is the adapter the loaded file belongs to.
 	agentFor string
+	// confirmReload asks before a reload replaces an edited draft.
+	confirmReload bool
 }
 
 type skillsState struct {
@@ -619,5 +622,12 @@ func (s *agentSettings) readSkill(skill core.AgentSkill) {
 func (s *agentSettings) closeSkill() {
 	s.mu.Lock()
 	s.skills.viewPath, s.skills.viewContent = "", ""
+	s.mu.Unlock()
+}
+
+// dismissInstructionsReload closes the discard confirmation.
+func (s *agentSettings) dismissInstructionsReload() {
+	s.mu.Lock()
+	s.instructions.confirmReload = false
 	s.mu.Unlock()
 }

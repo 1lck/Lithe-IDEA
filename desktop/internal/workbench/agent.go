@@ -192,6 +192,8 @@ type agentState struct {
 	slash    agentSlashState
 	// notice is the latest live advisory of the session (agent_notice.go).
 	notice *agentNotice
+	// chosen says an Agent was picked from the welcome page, so the setup can replace it.
+	chosen bool
 	// mention is the workspace-file list for an @ mention in the draft (agent_mention.go).
 	mention agentMentionState
 	// composerRect is where the composer was laid out, for dropped files.

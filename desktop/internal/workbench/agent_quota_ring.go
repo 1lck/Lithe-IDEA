@@ -80,7 +80,26 @@ func (a *App) agentQuotaRing(c ui.C, p *project) {
 	if known {
 		color = a.agentUsageColor(int(percent))
 	}
-	box := ui.Row(c.Key("quota-ring")).Size(agentQuotaRingSize+4, agentQuotaRingSize+4).Shrink(0).Items(ui.Center).
+	a.agentRingBox(c.Key("quota-ring"), fraction, known, color, a.agentQuotaTooltip(act))
+}
+
+// agentContextRing shows the context window in use as a ring: the share of the configured
+// window (see agent_limits.go) that the conversation occupies. It is empty while unknown.
+func (a *App) agentContextRing(c ui.C, p *project) {
+	s := p.agent.activity.current(p.agent.sessionID)
+	if s == nil || !s.usageKnown || s.size == 0 {
+		return
+	}
+	percent := agentUsagePercent(s.used, s.size)
+	fraction := float64(min(percent, 100)) / 100
+	t := a.text.Agent.Activity
+	tip := t.Context(agentCompactCount(s.used), agentCompactCount(s.size), fmt.Sprint(percent))
+	a.agentRingBox(c.Key("context-ring"), fraction, true, a.agentUsageColor(percent), tip)
+}
+
+// agentRingBox draws a grey track with a coloured arc of fraction, and shows tip on hover.
+func (a *App) agentRingBox(c ui.C, fraction float64, known bool, color gfx.Color, tip string) {
+	box := ui.Row(c).Size(agentQuotaRingSize+4, agentQuotaRingSize+4).Shrink(0).Items(ui.Center).
 		Draw(func(d *ui.DrawContext) {
 			bounds := gfx.Rect{X: d.Rect.X + 2, Y: d.Rect.Y + 2, Width: agentQuotaRingSize, Height: agentQuotaRingSize}
 			track := a.colors.Subtle
@@ -90,7 +109,7 @@ func (a *App) agentQuotaRing(c ui.C, p *project) {
 				d.Canvas.DrawIcon(agentRingIcon(fraction), bounds, color)
 			}
 		})
-	if tip := a.agentQuotaTooltip(act); tip != "" {
+	if tip != "" {
 		box = box.Tooltip(tip)
 	}
 	box.Children(func() {})
