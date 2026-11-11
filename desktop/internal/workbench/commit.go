@@ -250,7 +250,7 @@ func (a *App) prepareCommit(p *project, t commitTarget, request core.WorkspaceCo
 	c.busy = true
 	kernel := a.kernel
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		prep, err := kernel.WorkspaceCommitPrepare(ctx, request)
+		prep, err := kernel.WorkspaceCommitPrepare(ctx, includeNestedRepositories(ctx, kernel, p, t, request))
 		return func(a *App) {
 			c.busy = false
 			if err != nil {
@@ -297,7 +297,7 @@ func (a *App) confirmReview(p *project, t commitTarget) {
 	c.busy = true
 	kernel := a.kernel
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		prep, err := kernel.WorkspaceCommitPrepare(ctx, request)
+		prep, err := kernel.WorkspaceCommitPrepare(ctx, includeNestedRepositories(ctx, kernel, p, t, request))
 		return func(a *App) {
 			c.busy = false
 			switch {
