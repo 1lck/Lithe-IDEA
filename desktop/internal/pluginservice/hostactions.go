@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -132,7 +133,7 @@ func (s *Service) handleRegisterEditorActions(ctx context.Context, params json.R
 		return nil, failure(CodePreconditionFailed, "The function is not registered on this session.")
 	}
 	if decoder, ok := s.kernel.(editorActionDecoder); ok {
-		if _, err := decoder.DecodeEditorActions(ctx, map[string]any{"kind": "registration", "value": json.RawMessage(params)}); err != nil {
+		if _, err := decoder.DecodeEditorActions(ctx, map[string]any{"kind": "registration", "value": json.RawMessage(params), "version": core.EditorActionDecodeVersion, "icons": core.EditorHost.ActionIcons, "sourceBytes": core.EditorHost.ActionSourceBytes}); err != nil {
 			return nil, failure(codeInvalidParams, err.Error())
 		}
 	}
@@ -237,7 +238,7 @@ func (s *Service) CollectEditorActions(ctx context.Context, root, path string, d
 			failures = append(failures, err)
 			continue
 		}
-		decoded, err := decoder.DecodeEditorActions(ctx, map[string]any{"kind": "actions", "value": answer, "text": text})
+		decoded, err := decoder.DecodeEditorActions(ctx, map[string]any{"kind": "actions", "value": answer, "text": text, "version": core.EditorActionDecodeVersion, "icons": core.EditorHost.ActionIcons, "sourceBytes": core.EditorHost.ActionSourceBytes})
 		if err != nil {
 			failures = append(failures, err)
 			continue
@@ -325,7 +326,7 @@ func (s *Service) InvokeEditorAction(ctx context.Context, action EditorAction, a
 	if !ok {
 		return nil, nil
 	}
-	decoded, err := decoder.DecodeEditorActions(ctx, map[string]any{"kind": "invokeResult", "value": answer})
+	decoded, err := decoder.DecodeEditorActions(ctx, map[string]any{"kind": "invokeResult", "value": answer, "version": core.EditorActionDecodeVersion, "icons": core.EditorHost.ActionIcons, "sourceBytes": core.EditorHost.ActionSourceBytes})
 	if err != nil {
 		return nil, err
 	}

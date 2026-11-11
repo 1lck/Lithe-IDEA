@@ -29,7 +29,7 @@ const (
 )
 
 // routedProviderTypes are the provider types this host routes, in the order Core is told them.
-var routedProviderTypes = []string{"definition"}
+var routedProviderTypes = core.EditorHost.ProviderTypes
 
 // editorProviderDecoder is the part of Core that validates provider messages.
 type editorProviderDecoder interface {

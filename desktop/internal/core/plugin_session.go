@@ -9,17 +9,20 @@ import (
 // PluginBackendStart is the host-resolved process and workspace. The host must
 // only supply programs and grants from an approved, verified plugin package.
 type PluginBackendStart struct {
-	ProviderID             string            `json:"providerId"`
-	PluginID               string            `json:"pluginId"`
-	Role                   string            `json:"role,omitempty"`
-	ExecutablePath         string            `json:"executablePath"`
-	Arguments              []string          `json:"arguments,omitempty"`
-	Environment            map[string]string `json:"environment,omitempty"`
-	RootURI                any               `json:"rootUri"`
-	WorkingDirectory       string            `json:"workingDirectory"`
-	HostServices           []string          `json:"hostServices,omitempty"`
-	InitializationOptions  json.RawMessage   `json:"initializationOptions,omitempty"`
-	WorkspaceConfiguration json.RawMessage   `json:"workspaceConfiguration,omitempty"`
+	ProviderID       string            `json:"providerId"`
+	PluginID         string            `json:"pluginId"`
+	Role             string            `json:"role,omitempty"`
+	ExecutablePath   string            `json:"executablePath"`
+	Arguments        []string          `json:"arguments,omitempty"`
+	Environment      map[string]string `json:"environment,omitempty"`
+	RootURI          any               `json:"rootUri"`
+	WorkingDirectory string            `json:"workingDirectory"`
+	HostServices     []string          `json:"hostServices,omitempty"`
+	// HostOptions are the options of the granted services, which Core reports to the
+	// backend through lithe/host/getCapabilities.
+	HostOptions            *PluginHostOptions `json:"hostOptions,omitempty"`
+	InitializationOptions  json.RawMessage    `json:"initializationOptions,omitempty"`
+	WorkspaceConfiguration json.RawMessage    `json:"workspaceConfiguration,omitempty"`
 	// SessionPolicy is the launch plan's sessionPolicy, sent unchanged so Core's
 	// engine enforces what a plugin backend may ask of its own language server.
 	SessionPolicy                 json.RawMessage `json:"sessionPolicy,omitempty"`
@@ -27,6 +30,32 @@ type PluginBackendStart struct {
 	RequestTimeoutMilliseconds    int             `json:"requestTimeoutMilliseconds,omitempty"`
 	ShutdownTimeoutMilliseconds   int             `json:"shutdownTimeoutMilliseconds,omitempty"`
 }
+
+// PluginHostOptions are what the host declares about the services it grants one session.
+type PluginHostOptions struct {
+	Editor *EditorHostOptions `json:"editor,omitempty"`
+}
+
+// EditorHostOptions are the editor service's options: the icons the host draws for an
+// action, the largest document it collects actions for, and the provider types
+// editor/registerProviders accepts because the host routes them.
+type EditorHostOptions struct {
+	ActionIcons       []string `json:"actionIcons"`
+	ActionSourceBytes int      `json:"actionSourceBytes"`
+	ProviderTypes     []string `json:"providerTypes"`
+}
+
+// EditorHost is this host's editor service: the action icons it has resources for, a
+// 1 MiB source bound, and the provider types it routes. Sessions are started with it
+// and every editor action message is decoded against it (version 2).
+var EditorHost = EditorHostOptions{
+	ActionIcons:       []string{"run", "run-all", "debug", "test"},
+	ActionSourceBytes: 1024 * 1024,
+	ProviderTypes:     []string{"definition"},
+}
+
+// EditorActionDecodeVersion is the decode version EditorHost is declared under.
+const EditorActionDecodeVersion = 2
 
 // NativeDocumentPath asks Core to convert a native absolute path to a URI.
 type NativeDocumentPath struct {

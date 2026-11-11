@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -286,6 +287,7 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 		RootURI:                request.RootURI,
 		WorkingDirectory:       request.WorkingDirectory,
 		HostServices:           granted,
+		HostOptions:            hostOptions(granted),
 		InitializationOptions:  plan.InitializationOptions,
 		WorkspaceConfiguration: plan.WorkspaceConfiguration,
 
@@ -647,6 +649,18 @@ func checkStartRequest(request StartRequest) error {
 	}
 	if request.StateDirectory == "" || !filepath.IsAbs(request.StateDirectory) {
 		return fmt.Errorf("%w: the state directory must be absolute", ErrRequest)
+	}
+	return nil
+}
+
+// hostOptions declares the editor service's options when the session is granted one of
+// its registration methods; Core reports them only for granted methods.
+func hostOptions(granted []string) *core.PluginHostOptions {
+	for _, method := range granted {
+		if strings.HasSuffix(method, "editor/registerActions") || strings.HasSuffix(method, "editor/registerProviders") {
+			editor := core.EditorHost
+			return &core.PluginHostOptions{Editor: &editor}
+		}
 	}
 	return nil
 }
