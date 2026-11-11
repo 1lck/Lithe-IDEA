@@ -51,6 +51,9 @@ func (a *App) diffView(c ui.C, p *project, t *diffTab) {
 	ui.Column(c.Key("diff" + strconv.Itoa(t.id))).Fill().Background(a.colors.Editor).Children(func() {
 		a.diffToolbar(c, p, t)
 		ui.Divider(c)
+		if t.find.open && t.file != nil {
+			a.diffFindBar(c, t)
+		}
 		a.diffSides(c, t)
 		ui.Divider(c)
 		a.diffBody(c, p, t)
@@ -87,6 +90,15 @@ func (a *App) diffToolbar(c ui.C, p *project, t *diffTab) {
 		}
 		if a.gitIconButton(c, i18n.Shared(lang, "native.collapseUnchangedFragments"), icons.FoldVertical, !t.whole, t.file == nil) {
 			c.After(func() { a.setDiffMode(p, t, t.split, !t.whole) })
+		}
+		if a.gitIconButton(c, i18n.Shared(lang, "desktop.diffFind.open"), icons.Search, t.find.open, t.file == nil) {
+			c.After(func() {
+				if t.find.open {
+					t.closeDiffFind()
+				} else {
+					t.find.open = true
+				}
+			})
 		}
 		ui.Spacer(c)
 		if block := t.confirming(); block != nil {

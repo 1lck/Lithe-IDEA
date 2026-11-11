@@ -342,5 +342,35 @@
     "parameters": {
       "reason": "string"
     }
+  },
+  {
+    "id": "desktop.diffFind.open",
+    "description": "Diff tab toolbar button: open or close the find bar of the diff",
+    "en-US": "Find in Diff",
+    "zh-CN": "在差异中查找"
+  },
+  {
+    "id": "desktop.diffFind.field",
+    "description": "Placeholder and label of the find field of the diff",
+    "en-US": "Find in diff",
+    "zh-CN": "在差异中查找"
+  },
+  {
+    "id": "desktop.diffFind.previous",
+    "description": "Diff find bar: select the previous match",
+    "en-US": "Previous match",
+    "zh-CN": "上一个匹配"
+  },
+  {
+    "id": "desktop.diffFind.next",
+    "description": "Diff find bar: select the next match",
+    "en-US": "Next match",
+    "zh-CN": "下一个匹配"
+  },
+  {
+    "id": "desktop.diffFind.close",
+    "description": "Diff find bar: close the bar",
+    "en-US": "Close find",
+    "zh-CN": "关闭查找"
   }
 ]

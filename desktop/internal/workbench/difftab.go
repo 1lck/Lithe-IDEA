@@ -142,6 +142,8 @@ type diffTab struct {
 	// before and after are the editors of the two versions; the unified view shows only after.
 	// They are made with the first layout of a file and closed with the tab.
 	before, after *diffEditor
+	// find is the find bar of the tab (diff_find.go).
+	find diffFind
 	// gap is the strip between the two editors, or before the unified one, that joins each
 	// difference across and carries its block's checkbox and rollback; gapDraw paints it.
 	gap     ui.Handlers
