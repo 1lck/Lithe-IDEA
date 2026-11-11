@@ -43,3 +43,33 @@ func PluginServerDocumentLinks(event BackendEvent) ([]DocumentLink, error) {
 	}
 	return links, nil
 }
+
+// WorkspaceSymbol is one symbol of Core's normalized workspace/symbol answer. Kind is the LSP
+// SymbolKind number; URI is the document's file URI; Range is nil when the server gave none.
+type WorkspaceSymbol struct {
+	Name          string `json:"name"`
+	Kind          int    `json:"kind"`
+	ContainerName string `json:"containerName"`
+	URI           string `json:"uri"`
+	Range         *struct {
+		Start struct {
+			Line        int `json:"line"`
+			UTF16Column int `json:"utf16Column"`
+		} `json:"start"`
+		End struct {
+			Line        int `json:"line"`
+			UTF16Column int `json:"utf16Column"`
+		} `json:"end"`
+	} `json:"range"`
+}
+
+// PluginWorkspaceSymbols decodes the symbols of a completed workspaceSymbols request.
+func PluginWorkspaceSymbols(event BackendEvent) ([]WorkspaceSymbol, error) {
+	var payload struct {
+		Symbols []WorkspaceSymbol `json:"symbols"`
+	}
+	if err := decodePluginSemanticResult(event, &payload); err != nil {
+		return nil, err
+	}
+	return payload.Symbols, nil
+}

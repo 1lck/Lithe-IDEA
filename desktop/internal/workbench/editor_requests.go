@@ -80,6 +80,8 @@ func (a *App) applyEditorEvent(pending *semanticPending, event core.BackendEvent
 		a.applyFoldRanges(pending, event, failed)
 	case pluginSemanticDocumentLinks:
 		a.applyServerDocumentLinks(pending, event, failed)
+	case pluginSemanticWorkspaceSymbols:
+		a.applyWorkspaceSymbols(pending, event, failed)
 	default:
 		return false
 	}

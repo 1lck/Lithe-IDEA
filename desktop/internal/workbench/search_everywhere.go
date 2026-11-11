@@ -115,14 +115,20 @@ func (a *App) updateEverywhere(p *project, query string, scope int) {
 	if s.cancel != nil {
 		s.cancel()
 	}
+	a.startEverywhereSymbols(p, query, scope)
 	if strings.TrimSpace(query) == "" || scope == everywhereScopeActions {
 		s.loading = false
 		return
 	}
 	kinds := []string{"file", "type", "symbol"}
-	if scope == 2 {
+	switch scope {
+	case 1:
+		kinds = []string{"type"}
+	case 2:
 		kinds = []string{"file"}
-	} else if scope == 5 {
+	case 3:
+		kinds = []string{"symbol"}
+	case 5:
 		kinds = []string{"content"}
 	}
 	openPaths := make([]string, 0, len(p.docs.list))
@@ -275,6 +281,9 @@ func (a *App) finishEverywhere(p *project, generation uint64, next bool, page co
 		}
 		return
 	}
+	// Symbols from the language servers are rebuilt with the Core list on every answer.
+	a.everywhereStripSymbols(p)
+	defer a.everywhereSymbolsMerge(p)
 	s.loading = false
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {

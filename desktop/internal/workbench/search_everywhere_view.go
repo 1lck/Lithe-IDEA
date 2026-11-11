@@ -89,7 +89,7 @@ func (a *App) everywhereScopes(c ui.C, p *project, language i18n.Language) {
 	}
 	ui.Row(c).FillWidth().Gap(4).Children(func() {
 		for index, label := range labels {
-			disabled := index == 1 || index == 3
+			disabled := false
 			tab := ui.Button(c.KeyInt(index), label).Ghost().Disabled(disabled)
 			if index == v.scope {
 				tab.Secondary()
