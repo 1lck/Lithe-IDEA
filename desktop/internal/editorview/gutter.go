@@ -78,9 +78,11 @@ type gutterState struct {
 	maxEnd    []int
 	clickable bool
 	onClick   func(GutterClick)
-	// icons are the per-line icons (lineicons.go), and onIcon is called when one is pressed.
+	// icons are the per-line icons (lineicons.go), slots the columns they take, and onIcon is
+	// called with the line and column of a pressed icon.
 	icons  []LineIcon
-	onIcon func(line int)
+	slots  int
+	onIcon func(line, slot int)
 	// onContext is told the line of a secondary press in the gutter, before the menu opens.
 	onContext   func(line int)
 	annotations []LineAnnotation

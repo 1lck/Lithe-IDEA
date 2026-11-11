@@ -40,6 +40,7 @@ func (a *App) scheduleEditorActions(p *project, d *document) {
 
 // clearEditorActions forgets the document's actions and their annotations.
 func (a *App) clearEditorActions(d *document) {
+	d.actionPanel = editorActionPanel{}
 	d.pluginLinks = nil
 	d.serverLinks = documentServerLinks{revision: d.serverLinks.revision, seen: d.serverLinks.seen, changedAt: d.serverLinks.changedAt}
 	d.links = nil
@@ -88,24 +89,44 @@ func (a *App) collectEditorActions(p *project, d *document) {
 	})
 }
 
-// annotateEditorActions puts an icon in the gutter of each line that starts an action; the first action
-// of a line stands for it, and a press on the icon runs that action. The icons are the editor's own,
-// so they never overlap the blame annotations of the line.
+// annotateEditorActions puts icons in the gutter. The icon area has one slot per lane in use, left to
+// right in editorActionLanes order, so the run, debug, test and navigation icons of a line sit side by
+// side. A line shows the first action of each lane; a press on that icon opens the lane's menu, or
+// runs the only choice it has. The icons are the editor's own, so they never overlap the blame
+// annotations of the line.
 func (a *App) annotateEditorActions(d *document) {
-	seen := map[int]bool{}
-	var icons []editorview.LineIcon
+	inUse := map[string]bool{}
 	for _, action := range d.actions {
-		line := action.Range.StartLine - 1
-		if line < 0 || seen[line] {
-			continue
-		}
-		seen[line] = true
-		if icon, ok := editorActionIcon(action.Icon); ok {
-			icons = append(icons, editorview.LineIcon{Line: line, Icon: icon})
+		lane, _, ok := editorActionPresentation(action.Icon)
+		if ok && action.Range.StartLine-1 >= 0 {
+			inUse[lane] = true
 		}
 	}
-	d.view.SetLineIcons(icons)
-	d.view.SetLineIconClick(func(line int) { a.runFirstActionOnLine(d, line) })
+	d.actionPanel.lanes = d.actionPanel.lanes[:0]
+	slots := map[string]int{}
+	for _, lane := range editorActionLanes {
+		if inUse[lane] {
+			slots[lane] = len(d.actionPanel.lanes)
+			d.actionPanel.lanes = append(d.actionPanel.lanes, lane)
+		}
+	}
+	type cell struct {
+		line int
+		lane string
+	}
+	seen := map[cell]bool{}
+	var marks []editorview.LineIcon
+	for _, action := range d.actions {
+		line := action.Range.StartLine - 1
+		lane, icon, ok := editorActionPresentation(action.Icon)
+		if !ok || line < 0 || seen[cell{line, lane}] {
+			continue
+		}
+		seen[cell{line, lane}] = true
+		marks = append(marks, editorview.LineIcon{Line: line, Slot: slots[lane], Icon: icon})
+	}
+	d.view.SetLineIcons(marks)
+	d.view.SetLineIconClick(func(line, slot int) { a.pressEditorActionLane(d, line, slot) })
 	// Actions without an icon are code lenses: their titles show at their line.
 	var titles []editorview.LineAnnotation
 	titled := map[int]bool{}
@@ -123,28 +144,101 @@ func (a *App) annotateEditorActions(d *document) {
 	d.actionAnnotated = len(titles) > 0
 }
 
-// editorActionIcon maps the host's action icon names to the icons it draws. An unknown name has no icon.
-func editorActionIcon(name string) (gfx.Icon, bool) {
+// editorActionLanes are the lanes of the gutter's icon area, in the order they are drawn from left to
+// right: navigation, then run, debug and the test status.
+var editorActionLanes = []string{"navigate", "run", "debug", "test"}
+
+// editorActionPresentation maps the host's action icon names to the lane they belong to and the icon
+// the host draws for them. The host never starts anything because of an icon; the names only pick a
+// picture. An unknown name has no lane and no icon, so its action is shown as a title.
+func editorActionPresentation(name string) (string, gfx.Icon, bool) {
 	switch name {
 	case "run", "run-all":
-		return icons.Play, true
+		return "run", icons.Play, true
 	case "debug":
-		return icons.Bug, true
-	case "test", "test-passed", "test-failed", "test-skipped":
-		return icons.Check, true
+		return "debug", icons.Bug, true
+	case "test":
+		return "test", icons.Check, true
+	case "test-passed":
+		return "test", icons.CircleCheck, true
+	case "test-failed":
+		return "test", icons.CircleX, true
+	case "test-skipped":
+		return "test", icons.Minus, true
+	case "navigate-super":
+		return "navigate", icons.ArrowUp, true
+	case "navigate-implementations":
+		return "navigate", icons.ArrowDown, true
 	}
-	return gfx.Icon{}, false
+	return "", gfx.Icon{}, false
 }
 
-// runFirstActionOnLine runs the first action that starts on a line, the one its gutter icon shows.
-func (a *App) runFirstActionOnLine(d *document, line int) {
-	for _, action := range d.actions {
-		if action.Range.StartLine-1 == line {
-			p := a.project
-			if p != nil && p.docs.find(d.id) == d {
-				a.runEditorAction(p, d, action, -1)
+// editorActionPanel is the state of a document's action icons beyond the actions themselves: the lane
+// of each slot of the icon area, and the lane menu a press has opened.
+type editorActionPanel struct {
+	lanes    []string
+	menuOpen bool
+	menuLine int
+	menuLane string
+}
+
+// editorActionChoice is one row of a lane menu: an action, or one of its alternatives (alternative is
+// -1 for the action itself).
+type editorActionChoice struct {
+	title       string
+	action      pluginservice.EditorAction
+	alternative int
+}
+
+// editorActionChoices lists what the lane of a line offers: each action of that line in that lane,
+// followed by its alternatives.
+func editorActionChoices(actions []pluginservice.EditorAction, line int, lane string) []editorActionChoice {
+	var choices []editorActionChoice
+	for _, action := range actions {
+		if action.Range.StartLine-1 != line {
+			continue
+		}
+		if actionLane, _, ok := editorActionPresentation(action.Icon); !ok || actionLane != lane {
+			continue
+		}
+		choices = append(choices, editorActionChoice{title: action.Title, action: action, alternative: -1})
+		for index, alternative := range action.Alternatives {
+			choices = append(choices, editorActionChoice{title: alternative.Title, action: action, alternative: index})
+		}
+	}
+	return choices
+}
+
+// pressEditorActionLane handles a press on the icon of a lane on a line. A lane with one choice runs it
+// at once; with several, the lane's menu opens and lists them.
+func (a *App) pressEditorActionLane(d *document, line, slot int) {
+	p := a.project
+	if p == nil || p.docs.find(d.id) != d || slot < 0 || slot >= len(d.actionPanel.lanes) {
+		return
+	}
+	lane := d.actionPanel.lanes[slot]
+	choices := editorActionChoices(d.actions, line, lane)
+	switch len(choices) {
+	case 0:
+		return
+	case 1:
+		a.runEditorAction(p, d, choices[0].action, choices[0].alternative)
+	default:
+		d.actionPanel.menuLine, d.actionPanel.menuLane, d.actionPanel.menuOpen = line, lane, true
+	}
+}
+
+// editorActionLaneMenu declares the menu a lane's icon opened: one row per choice of the lane. Choosing
+// a row closes the menu and calls the plugin through runEditorAction.
+func (a *App) editorActionLaneMenu(c ui.C, p *project, d *document) func(*ui.MenuItems) {
+	return func(menu *ui.MenuItems) {
+		menu.WidthRange(240, 280)
+		for _, choice := range editorActionChoices(d.actions, d.actionPanel.menuLine, d.actionPanel.menuLane) {
+			choice := choice
+			if menu.Item(choice.title).Clicked() {
+				d.actionPanel.menuOpen = false
+				c.After(func() { a.runEditorAction(p, d, choice.action, choice.alternative) })
 			}
-			return
 		}
 	}
 }

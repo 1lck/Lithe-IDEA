@@ -157,6 +157,7 @@ func (a *App) documentView(c ui.C, group string, d *document) {
 	}
 	if p := a.project; p != nil && !d.virtual {
 		ui.ContextMenu(c.Key("menu"+name), box, a.editorMenuItems(c, p, d))
+		ui.Menu(c.Key("lanemenu"+name), box, &d.actionPanel.menuOpen, a.editorActionLaneMenu(c, p, d))
 		a.gitGutterPeek(c, p, d, box)
 	}
 }
