@@ -1,6 +1,8 @@
 package workbench
 
 import (
+	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -124,15 +126,32 @@ func (a *App) markdownPreviewPanel(c ui.C, p *project) {
 		return
 	}
 	if s.draw == nil {
-		s.input = ui.Handlers{Scroll: func(event gfx.ScrollEvent) gfx.EventResult {
-			before := s.scroll
-			dy := event.DeltaY
-			if !event.Precise {
-				dy *= 3
-			}
-			s.scroll = min(max(s.scroll+dy, 0), max(s.height-s.area.Height, 0))
-			return gfx.EventResult{Handled: true, Repaint: s.scroll != before}
-		}}
+		s.input = ui.Handlers{
+			Scroll: func(event gfx.ScrollEvent) gfx.EventResult {
+				before := s.scroll
+				dy := event.DeltaY
+				if !event.Precise {
+					dy *= 3
+				}
+				s.scroll = min(max(s.scroll+dy, 0), max(s.height-s.area.Height, 0))
+				return gfx.EventResult{Handled: true, Repaint: s.scroll != before}
+			},
+			Pointer: func(event gfx.PointerEvent) gfx.EventResult {
+				if event.Kind != gfx.PointerDown || event.Button != gfx.PointerButtonPrimary {
+					return gfx.EventResult{}
+				}
+				index, ok := event.Target.In(s.input.Parts())
+				if !ok {
+					return gfx.EventResult{}
+				}
+				destination := s.view.Link(index)
+				if destination == "" {
+					return gfx.EventResult{}
+				}
+				a.followMarkdownLink(p, d, destination)
+				return gfx.EventResult{Handled: true, Repaint: true}
+			},
+		}
 		s.draw = func(dc *ui.DrawContext) { a.paintMarkdown(dc) }
 	}
 	jump := -1
@@ -178,6 +197,82 @@ func (a *App) paintMarkdown(dc *ui.DrawContext) {
 	s.view.Paint(dc.Canvas, components.MarkdownPaint{
 		Look: components.MarkdownLookFor(a.theme),
 		X:    dc.Rect.X + markdownPadding, Y: dc.Rect.Y + markdownPadding - s.scroll,
-		Clip: dc.Rect,
+		Clip:  dc.Rect,
+		Links: s.input.Parts(),
 	})
+}
+
+// markdownLinkTarget is where a Markdown link points: an external address, a file relative to
+// the document or an anchor inside it.
+type markdownLinkTarget struct {
+	external string
+	path     string
+	anchor   string
+}
+
+// markdownLinkTargetOf classifies one destination. A scheme other than http, https or mailto
+// is not followed: a preview never launches a local handler from a file's text.
+func markdownLinkTargetOf(documentPath, destination string) markdownLinkTarget {
+	destination = strings.TrimSpace(destination)
+	if destination == "" {
+		return markdownLinkTarget{}
+	}
+	if strings.HasPrefix(destination, "#") {
+		return markdownLinkTarget{anchor: strings.TrimPrefix(destination, "#")}
+	}
+	if parsed, err := url.Parse(destination); err == nil && parsed.Scheme != "" {
+		switch strings.ToLower(parsed.Scheme) {
+		case "http", "https", "mailto":
+			return markdownLinkTarget{external: destination}
+		}
+		return markdownLinkTarget{}
+	}
+	path := destination
+	if index := strings.IndexAny(path, "?#"); index >= 0 {
+		path = path[:index]
+	}
+	if path == "" {
+		return markdownLinkTarget{}
+	}
+	path = filepath.FromSlash(path)
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(filepath.Dir(documentPath), path)
+	}
+	return markdownLinkTarget{path: filepath.Clean(path)}
+}
+
+// followMarkdownLink opens what a preview link points at: an external address in the system
+// browser, a file in the editor, or the heading an anchor names.
+func (a *App) followMarkdownLink(p *project, d *document, destination string) {
+	s := &a.editor.markdown
+	target := markdownLinkTargetOf(d.path, destination)
+	switch {
+	case target.external != "":
+		_ = openURL(target.external)
+	case target.anchor != "":
+		if index := s.headingIndex(target.anchor); index >= 0 {
+			if y, ok := s.view.YAtSource(s.source, s.headings[index].start); ok {
+				s.scroll = min(max(y, 0), max(s.height-s.area.Height, 0))
+			}
+		}
+	case target.path != "":
+		info, err := os.Stat(target.path)
+		if err != nil || info.IsDir() {
+			return
+		}
+		a.openFileAtPosition(p, target.path, 0, 0)
+	}
+}
+
+// headingIndex finds the heading an anchor names, matching GitHub's slug of the heading text.
+func (s *markdownPreviewState) headingIndex(anchor string) int {
+	want := strings.ToLower(strings.TrimSpace(anchor))
+	for index, heading := range s.headings {
+		slug := strings.ToLower(strings.TrimSpace(heading.text))
+		slug = strings.ReplaceAll(slug, " ", "-")
+		if slug == want {
+			return index
+		}
+	}
+	return -1
 }

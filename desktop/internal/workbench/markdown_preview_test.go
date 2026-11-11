@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
@@ -53,4 +54,51 @@ func TestMarkdownPreviewIgnoresOtherFiles(t *testing.T) {
 	if !h.shows("Markdown") || len(h.app.editor.markdown.headings) != 0 || strings.Contains(h.app.editor.markdown.source, "package") {
 		t.Fatalf("a Go file was previewed: %+v", h.app.editor.markdown.headings)
 	}
+}
+
+func TestMarkdownLinkTargetResolvesExternalRelativeAndAnchor(t *testing.T) {
+	document := filepath.Join("work", "README.md")
+	if got := markdownLinkTargetOf(document, "https://example.com/a?b=1"); got.external != "https://example.com/a?b=1" || got.path != "" {
+		t.Fatalf("external target = %+v", got)
+	}
+	if got := markdownLinkTargetOf(document, "docs/guide.md#setup"); got.path != filepath.Join("work", "docs", "guide.md") {
+		t.Fatalf("relative target = %+v", got)
+	}
+	if got := markdownLinkTargetOf(document, "#Second-part"); got.anchor != "Second-part" {
+		t.Fatalf("anchor target = %+v", got)
+	}
+	if got := markdownLinkTargetOf(document, "file:///tmp/secret"); got != (markdownLinkTarget{}) {
+		t.Fatalf("a non-web scheme resolved to a path: %+v", got)
+	}
+}
+
+// A relative link in the preview opens the file it points at in the editor.
+func TestMarkdownPreviewFollowsRelativeLink(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "docs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	guide := filepath.Join(root, "docs", "guide.md")
+	if err := os.WriteFile(guide, []byte("# Guide\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	readme := filepath.Join(root, "README.md")
+	if err := os.WriteFile(readme, []byte("[Guide](docs/guide.md)\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.open(root)
+	p := h.app.project
+	h.app.openFile(p, readme)
+	h.settle()
+	h.app.reduceChrome(core.SetChromeOpen(itemMarkdown, true))
+	h.settle()
+	d := p.docs.byPath(readme)
+	if d == nil {
+		t.Fatal("the Markdown file did not open")
+	}
+	h.app.followMarkdownLink(p, d, "docs/guide.md")
+	awaitStateWithin(t, h, 8*time.Second, "the linked file in the editor", func() bool {
+		return p.selectedDocument(p.docs.group) != nil && filepath.Clean(p.selectedDocument(p.docs.group).path) == filepath.Clean(guide)
+	})
 }

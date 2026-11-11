@@ -4,17 +4,21 @@
   "group": "Markdown",
   "capability": "图片导入与链接定位",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
+      "desktop/internal/workbench/markdown_preview.go",
+      "desktop/internal/workbench/markdown_preview_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
+      "desktop/internal/workbench/markdown_preview.go",
+      "desktop/internal/workbench/markdown_preview_test.go"
     ]
   },
   "owner": "Editor",
@@ -38,5 +42,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva 的 Markdown 预览由 Viva 自己的 markdown 解析与 MarkdownView 绘制，链接片段带命中区：http/https/mailto 交给系统打开，相对路径按文档目录解析后在工作台打开文件，锚点按 GitHub slug 匹配标题并滚动；其他 scheme 不跟随，避免从文档文本启动本地处理器。图片仍无法显示：Viva 的 markdown 包不解析图片，富文本 WebView 已随旧客户端删除；需要 Viva 渲染能力或 Core 结构化输出后再补。"
 }
