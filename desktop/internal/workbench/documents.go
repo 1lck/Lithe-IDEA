@@ -558,6 +558,7 @@ func (a *App) saveDocument(p *project, id int) {
 			a.syncDocumentSaved(p, d, data)
 			a.refreshGitGutter(p, d)
 			a.refreshInlineBlame(p, d)
+			a.reloadBuildForSavedFile(p, path)
 			if d.view.IsComposing() && len(d.closeWaiters) > 0 {
 				a.saveFailed(id, d.view.Revision(), name, errComposing)
 				waiters := d.closeWaiters
