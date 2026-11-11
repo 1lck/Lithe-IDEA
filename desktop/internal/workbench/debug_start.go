@@ -352,6 +352,13 @@ func (a *App) beginDebug(p *project, start debugStart) {
 		p.debug.hideFiltered = declared.HideFilteredStackFrames
 	}
 	functionBreakpoints := slices.Clone(p.debug.functionBreakpoints)
+	// A data breakpoint whose identity does not persist ends with the session that resolved it.
+	dataBreakpoints := make([]core.DebugDataBreakpoint, 0, len(p.debug.dataBreakpoints))
+	for _, breakpoint := range p.debug.dataBreakpoints {
+		if breakpoint.persist {
+			dataBreakpoints = append(dataBreakpoints, breakpoint.DebugDataBreakpoint)
+		}
+	}
 	breakpoints := make(map[string][]debugBreakpoint, len(p.debug.breakpoints))
 	for path, lines := range p.debug.breakpoints {
 		breakpoints[path] = append([]debugBreakpoint(nil), lines...)
@@ -450,6 +457,16 @@ func (a *App) beginDebug(p *project, start debugStart) {
 			return func(a *App) { a.finishDebugError(p, session, err) }
 		}
 		a.postDebugUpdate(p, session, update)
+		if len(dataBreakpoints) > 0 {
+			update, err := a.kernel.SetDebugDataBreakpoints(ctx, session.id, dataBreakpoints)
+			if err != nil {
+				return func(a *App) { a.finishDebugError(p, session, err) }
+			}
+			if err := session.writeFrames(update.OutboundFrames); err != nil {
+				return func(a *App) { a.finishDebugError(p, session, err) }
+			}
+			a.postDebugUpdate(p, session, update)
+		}
 		if len(functionBreakpoints) > 0 {
 			update, err := a.kernel.SetDebugFunctionBreakpoints(ctx, session.id, functionBreakpoints)
 			if err != nil {

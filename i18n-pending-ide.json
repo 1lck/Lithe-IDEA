@@ -236,5 +236,32 @@
     "description": "Shown in the permissions tab when the manifest asks for no permission",
     "en-US": "This plugin asks for no permissions.",
     "zh-CN": "此插件未请求任何权限。"
+  },
+  {
+    "id": "desktop.debug.breakpoint.breakOnChange",
+    "description": "Button in the variables view that adds a data breakpoint on the selected variable (stops when its value changes)",
+    "en-US": "Break when value changes",
+    "zh-CN": "值变化时中断"
+  },
+  {
+    "id": "desktop.debug.breakpoint.dataRow",
+    "description": "Row of a data breakpoint, naming the variable it watches",
+    "en-US": "◆ {label}",
+    "zh-CN": "◆ {label}",
+    "parameters": {
+      "label": "string"
+    }
+  },
+  {
+    "id": "desktop.debug.breakpoint.removeData",
+    "description": "Tooltip of a data breakpoint row that removes it",
+    "en-US": "Remove data breakpoint",
+    "zh-CN": "移除数据断点"
+  },
+  {
+    "id": "desktop.debug.breakpoint.dataUnavailable",
+    "description": "Notice when the adapter cannot watch the selected variable for changes",
+    "en-US": "The adapter cannot break when this variable changes.",
+    "zh-CN": "适配器无法在此变量变化时中断。"
   }
 ]

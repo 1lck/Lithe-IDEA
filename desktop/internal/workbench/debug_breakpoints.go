@@ -249,3 +249,118 @@ func (a *App) sendInstructionBreakpoints(p *project) {
 		return nil
 	})
 }
+
+// debugDataBreakpoint is a data breakpoint with the flag Core gave its identity. An identity that
+// does not persist is dropped when the session ends, so it is never sent to a later session.
+type debugDataBreakpoint struct {
+	core.DebugDataBreakpoint
+	persist bool
+}
+
+// dataBreakpointAccess picks the access a "break when the value changes" breakpoint uses: write
+// when the adapter offers it, else the first access it offers.
+func dataBreakpointAccess(types []string) string {
+	if slices.Contains(types, "write") {
+		return "write"
+	}
+	if len(types) > 0 {
+		return types[0]
+	}
+	return ""
+}
+
+// requestDataBreakpoint asks the adapter for the identity of a paused variable. The answer comes back
+// as an operation result and is stored by addDataBreakpoint.
+func (a *App) requestDataBreakpoint(p *project, name string, variablesReference int64) {
+	if p == nil || p.debug.session == nil {
+		return
+	}
+	a.debugOperation(p, "dataBreakpointInfo", func(ctx context.Context, session *debugSession, operationID string) (core.DebugUpdate, error) {
+		return a.kernel.DebugDataBreakpointInfo(ctx, session.id, operationID, name, variablesReference)
+	}, debugOperationHandlers{done: func(a *App, result core.DebugOperationResult) {
+		if result.Kind != "dataBreakpointInfo" || result.DataID == "" {
+			a.notify(a.text.Debug.Breakpoint.DataUnavailable)
+			return
+		}
+		a.addDataBreakpoint(p, result)
+	}})
+}
+
+// addDataBreakpoint stores the identity Core resolved and sends the set to the adapter.
+func (a *App) addDataBreakpoint(p *project, result core.DebugOperationResult) {
+	for _, existing := range p.debug.dataBreakpoints {
+		if existing.DataID == result.DataID {
+			return
+		}
+	}
+	label := result.Description
+	if label == "" {
+		label = result.DataID
+	}
+	p.debug.dataBreakpoints = append(p.debug.dataBreakpoints, debugDataBreakpoint{
+		DebugDataBreakpoint: core.DebugDataBreakpoint{DataID: result.DataID, Label: label, Enabled: true, AccessType: dataBreakpointAccess(result.AccessTypes)},
+		persist:             result.CanPersist,
+	})
+	a.sendDataBreakpoints(p)
+}
+
+// removeDataBreakpoint drops one data breakpoint and sends the rest.
+func (a *App) removeDataBreakpoint(p *project, index int) {
+	if index < 0 || index >= len(p.debug.dataBreakpoints) {
+		return
+	}
+	p.debug.dataBreakpoints = slices.Delete(p.debug.dataBreakpoints, index, index+1)
+	a.sendDataBreakpoints(p)
+}
+
+// sendDataBreakpoints replaces the session's data breakpoints with the stored set.
+func (a *App) sendDataBreakpoints(p *project) {
+	if p == nil || p.debug.session == nil {
+		return
+	}
+	session := p.debug.session
+	breakpoints := make([]core.DebugDataBreakpoint, 0, len(p.debug.dataBreakpoints))
+	for _, breakpoint := range p.debug.dataBreakpoints {
+		breakpoints = append(breakpoints, breakpoint.DebugDataBreakpoint)
+	}
+	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
+		session.operationMu.Lock()
+		defer session.operationMu.Unlock()
+		if session.stopped.Load() {
+			return nil
+		}
+		update, err := a.kernel.SetDebugDataBreakpoints(ctx, session.id, breakpoints)
+		if err != nil {
+			return func(a *App) { a.finishDebugError(p, session, err) }
+		}
+		if err := session.writeFrames(update.OutboundFrames); err != nil {
+			return func(a *App) { a.finishDebugError(p, session, err) }
+		}
+		a.postDebugUpdate(p, session, update)
+		return nil
+	})
+}
+
+// debugVariableBreak declares the "break when the value changes" action of the selected variable,
+// and the data breakpoints already set. It shows only while paused on an adapter that supports them.
+func (a *App) debugVariableBreak(c ui.C, p *project) {
+	t, d := a.text.Debug, &p.debug
+	node := d.vars.selected
+	if node == nil || node.scope || node.parentRef <= 0 || d.state != "paused" || d.capabilities == nil || !d.capabilities.SupportsDataBreakpoints {
+		return
+	}
+	name, parent := node.name, node.parentRef
+	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
+		if ui.Button(c, t.Breakpoint.BreakOnChange).Outline().Clicked() {
+			c.After(func() { a.requestDataBreakpoint(p, name, parent) })
+		}
+	})
+	for index, breakpoint := range d.dataBreakpoints {
+		index, label := index, breakpoint.Label
+		ui.Row(c).FillWidth().Height(debugRowHeight).Shrink(0).PadX(8).Items(ui.Center).Children(func() {
+			if ui.Button(c.Key("data-bp-"+strconv.Itoa(index)), t.Breakpoint.DataRow(label)).Small().Outline().Tooltip(t.Breakpoint.RemoveData).Clicked() {
+				c.After(func() { a.removeDataBreakpoint(p, index) })
+			}
+		})
+	}
+}

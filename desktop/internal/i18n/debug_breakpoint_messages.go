@@ -11,6 +11,10 @@ type DebugBreakpointMessages struct {
 	RemoveFunction      string
 	// Instruction labels the button that toggles a machine-instruction breakpoint on a row.
 	Instruction             string
+	BreakOnChange           string
+	DataRow                 func(label string) string
+	RemoveData              string
+	DataUnavailable         string
 	Title                   func(file, line string) string
 	Condition               string
 	ConditionPlaceholder    string

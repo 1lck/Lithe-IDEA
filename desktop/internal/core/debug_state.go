@@ -11,6 +11,7 @@ type DebugCapabilities struct {
 	SupportsDisassembleRequest     bool                   `json:"supportsDisassembleRequest"`
 	SupportsSteppingGranularity    bool                   `json:"supportsSteppingGranularity"`
 	SupportsInstructionBreakpoints bool                   `json:"supportsInstructionBreakpoints"`
+	SupportsDataBreakpoints        bool                   `json:"supportsDataBreakpoints"`
 	SupportsReadMemoryRequest      bool                   `json:"supportsReadMemoryRequest"`
 	SupportsRestartRequest         bool                   `json:"supportsRestartRequest"`
 	SupportsTerminateRequest       bool                   `json:"supportsTerminateRequest"`
@@ -303,6 +304,47 @@ func (c *Client) SetDebugInstructionBreakpoints(ctx context.Context, sessionID s
 	if err := c.Execute(ctx, "debug.setInstructionBreakpoints", struct {
 		SessionID              string                       `json:"sessionId"`
 		InstructionBreakpoints []DebugInstructionBreakpoint `json:"instructionBreakpoints"`
+	}{sessionID, breakpoints}, &update); err != nil {
+		return DebugUpdate{}, err
+	}
+	return update, nil
+}
+
+// DebugDataBreakpoint is one resolved data breakpoint: the adapter's identity from
+// dataBreakpointInfo plus how it fires. CanPersist-false identities end with their session.
+type DebugDataBreakpoint struct {
+	DataID       string `json:"dataId"`
+	Label        string `json:"label,omitempty"`
+	Enabled      bool   `json:"enabled"`
+	AccessType   string `json:"accessType,omitempty"`
+	Condition    string `json:"condition,omitempty"`
+	HitCondition string `json:"hitCondition,omitempty"`
+}
+
+// DebugDataBreakpointInfo asks the adapter to identify a paused variable for a data breakpoint.
+// The answer arrives as an operationCompleted event with the dataBreakpointInfo result.
+func (c *Client) DebugDataBreakpointInfo(ctx context.Context, sessionID, operationID, name string, variablesReference int64) (DebugUpdate, error) {
+	var update DebugUpdate
+	if err := c.Execute(ctx, "debug.dataBreakpointInfo", struct {
+		SessionID          string `json:"sessionId"`
+		OperationID        string `json:"operationId"`
+		Name               string `json:"name"`
+		VariablesReference int64  `json:"variablesReference"`
+	}{sessionID, operationID, name, variablesReference}, &update); err != nil {
+		return DebugUpdate{}, err
+	}
+	return update, nil
+}
+
+// SetDebugDataBreakpoints replaces the complete data breakpoint set of a session.
+func (c *Client) SetDebugDataBreakpoints(ctx context.Context, sessionID string, breakpoints []DebugDataBreakpoint) (DebugUpdate, error) {
+	var update DebugUpdate
+	if breakpoints == nil {
+		breakpoints = []DebugDataBreakpoint{}
+	}
+	if err := c.Execute(ctx, "debug.setDataBreakpoints", struct {
+		SessionID   string                `json:"sessionId"`
+		Breakpoints []DebugDataBreakpoint `json:"breakpoints"`
 	}{sessionID, breakpoints}, &update); err != nil {
 		return DebugUpdate{}, err
 	}
