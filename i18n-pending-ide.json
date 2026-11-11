@@ -486,5 +486,42 @@
       "arg1": "string",
       "arg2": "string"
     }
+  },
+  {
+    "id": "desktop.startupSweep.title",
+    "description": "Title of the dialog that asks at start-up about processes an earlier run of Lithe left running",
+    "en-US": "Leftover processes",
+    "zh-CN": "残留进程"
+  },
+  {
+    "id": "desktop.startupSweep.end",
+    "description": "Button that ends the leftover processes listed at start-up",
+    "en-US": "End them",
+    "zh-CN": "结束这些进程"
+  },
+  {
+    "id": "desktop.startupSweep.keep",
+    "description": "Button that forgets the leftover processes listed at start-up and leaves them running",
+    "en-US": "Keep them running",
+    "zh-CN": "保留运行"
+  },
+  {
+    "id": "desktop.startupSweep.body",
+    "description": "Start-up dialog text: {arg1} processes started by an earlier run of Lithe are still running",
+    "en-US": "{arg1} processes started by an earlier run of Lithe are still running. Ending them stops them.",
+    "zh-CN": "上次运行 Lithe 启动的 {arg1} 个进程仍在运行。结束它们会停止这些进程。",
+    "parameters": {
+      "arg1": "string"
+    }
+  },
+  {
+    "id": "desktop.startupSweep.item",
+    "description": "One leftover process in the start-up dialog: {arg1} process ID, {arg2} command name",
+    "en-US": "{arg1}  {arg2}",
+    "zh-CN": "{arg1}  {arg2}",
+    "parameters": {
+      "arg1": "string",
+      "arg2": "string"
+    }
   }
 ]

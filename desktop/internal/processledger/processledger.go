@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -112,6 +113,70 @@ func (l *Ledger) Sweep(ctx context.Context) (int, error) {
 	ended := 0
 	var failures []error
 	for _, record := range records {
+		started, command, ok := identity(record.PID)
+		if !ok || started != record.Started || command != record.Command {
+			continue
+		}
+		if err := endProcess(ctx, record.PID); err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		ended++
+	}
+	return ended, errors.Join(failures...)
+}
+
+// Leftovers returns the recorded processes that are still the processes that were recorded. It
+// ends nothing and changes nothing: the startup confirmation shows them and Settle acts on the answer.
+func (l *Ledger) Leftovers() ([]Record, error) {
+	if l == nil {
+		return nil, nil
+	}
+	l.mu.Lock()
+	records, err := l.read()
+	l.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	var leftovers []Record
+	for _, record := range records {
+		started, command, ok := identity(record.PID)
+		if ok && started == record.Started && command == record.Command {
+			leftovers = append(leftovers, record)
+		}
+	}
+	return leftovers, nil
+}
+
+// Settle forgets the given leftovers, and ends each one that is still the recorded process when end
+// is true. Other records, including ones added since, stay in the ledger.
+func (l *Ledger) Settle(ctx context.Context, settled []Record, end bool) (int, error) {
+	if l == nil || len(settled) == 0 {
+		return 0, nil
+	}
+	l.mu.Lock()
+	records, err := l.read()
+	if err != nil {
+		l.mu.Unlock()
+		return 0, err
+	}
+	kept := make([]Record, 0, len(records))
+	for _, record := range records {
+		if !slices.Contains(settled, record) {
+			kept = append(kept, record)
+		}
+	}
+	if err := l.write(kept); err != nil {
+		l.mu.Unlock()
+		return 0, err
+	}
+	l.mu.Unlock()
+	if !end {
+		return 0, nil
+	}
+	ended := 0
+	var failures []error
+	for _, record := range settled {
 		started, command, ok := identity(record.PID)
 		if !ok || started != record.Started || command != record.Command {
 			continue

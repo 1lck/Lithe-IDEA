@@ -423,7 +423,9 @@ type App struct {
 	settingsWindow *settingswindow.Controller
 	// pluginCommands are the ui.commands of the enabled plugins, which the command palette offers
 	// (plugintools.go). Only the window thread reads or writes them.
-	pluginCommands       []pluginservice.ToolCommand
+	pluginCommands []pluginservice.ToolCommand
+	// startupSweep is the start-up confirmation of processes an earlier run left behind (startup_sweep.go).
+	startupSweep         startupSweepState
 	settingsSubscription *settingsSubscription
 	// plugins is the plugin stack, nil when the window was built without a plugin
 	// kernel or without a writable plugin root.
@@ -658,6 +660,9 @@ func (a *App) openPlugins(options Options) {
 		return
 	}
 	a.plugins = service
+	if leftovers := service.StartupLeftovers(); len(leftovers) > 0 {
+		a.startupSweep = startupSweepState{open: true, leftovers: leftovers}
+	}
 	service.Backend.SetInitializeTimeout(options.PluginInitializeTimeout)
 	if err := service.AttachWorkbench(pluginWorkbench{app: a}); err != nil {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_host_services", err))

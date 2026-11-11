@@ -65,6 +65,8 @@ type Service struct {
 	actions *editorActionBindings
 	// ledger records the run processes this app started, so the next start can end leftovers.
 	ledger *processledger.Ledger
+	// startupLeftovers are the processes an earlier run left behind, awaiting the user's decision.
+	startupLeftovers []processledger.Record
 	// Root is the directory installed packages live in.
 	Root string
 	// Manager owns the installed set, uninstall and enablement.
@@ -126,20 +128,22 @@ func Open(kernel Kernel, preferences *store.Store, root string) (*Service, error
 	}
 	// Runs the earlier app left behind are ended before anything new starts. A failure leaves them
 	// running, as they were before the ledger existed; the next start tries again.
+	// The leftovers are offered for the user's decision at start-up instead of ended silently.
 	ledger := processledger.Open(preferences.Dir())
-	_, _ = ledger.Sweep(context.Background())
+	leftovers, _ := ledger.Leftovers()
 	service := &Service{
-		Root:         root,
-		Manager:      pluginmanager.New(root, approvals, state),
-		Installer:    plugininstall.New(kernel, NewReviewer(kernel), approvals, pluginhost.Declared()),
-		Backend:      pluginbackend.New(kernel, hostServices),
-		Settings:     pluginsettings.New(kernel, preferences.Dir()),
-		HostServices: hostServices,
-		Credentials:  credentials.Default(),
-		kernel:       kernel,
-		resources:    newHostResources(),
-		ledger:       ledger,
-		messages:     newMessageLimiter(),
+		startupLeftovers: leftovers,
+		Root:             root,
+		Manager:          pluginmanager.New(root, approvals, state),
+		Installer:        plugininstall.New(kernel, NewReviewer(kernel), approvals, pluginhost.Declared()),
+		Backend:          pluginbackend.New(kernel, hostServices),
+		Settings:         pluginsettings.New(kernel, preferences.Dir()),
+		HostServices:     hostServices,
+		Credentials:      credentials.Default(),
+		kernel:           kernel,
+		resources:        newHostResources(),
+		ledger:           ledger,
+		messages:         newMessageLimiter(),
 	}
 	service.Host = newBackendHost(service)
 	service.Runs = newRuns(service)
