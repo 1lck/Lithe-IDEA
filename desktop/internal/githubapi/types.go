@@ -124,3 +124,17 @@ type deviceTokenResponse struct {
 	Message     *string `json:"message"`
 	Interval    *uint64 `json:"interval"`
 }
+
+// DecodeBranches reads the normalized branch list of a repository.
+func DecodeBranches(raw json.RawMessage) ([]Branch, error) {
+	var items []Branch
+	err := json.Unmarshal(raw, &items)
+	return items, err
+}
+
+// DecodeComparison reads the normalized comparison of two branches.
+func DecodeComparison(raw json.RawMessage) (Comparison, error) {
+	var comparison Comparison
+	err := json.Unmarshal(raw, &comparison)
+	return comparison, err
+}

@@ -18,6 +18,9 @@ func (a *App) drawPullRequestsDialog(c ui.C, p *project) {
 	closed := ui.ModalWith(c, &open, i18n.Shared(lang, "desktop.github.pullRequests"), ui.ModalSpec{Width: reviewDialogWidth, Height: reviewDialogHeight}, func() {
 		ui.Column(c).Fill().Gap(8).Children(func() {
 			ui.Row(c).FillWidth().Shrink(0).Gap(6).Children(func() {
+				if ui.Button(c, i18n.Shared(lang, "desktop.github.newPullRequest")).Outline().Disabled(pr.repo == nil && pr.err == "").Clicked() {
+					c.After(func() { a.openCreatePullRequest(p) })
+				}
 				for _, filter := range pullRequestFilters {
 					label := i18n.Shared(lang, "desktop.github.filter."+filter)
 					if ui.Button(c, label).Outline().Disabled(pr.repo == nil && pr.err == "").Clicked() {

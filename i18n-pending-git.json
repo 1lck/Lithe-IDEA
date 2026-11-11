@@ -762,5 +762,84 @@
     "description": "Pull-request review: requesting changes needs a comment",
     "en-US": "Write a comment explaining the requested changes.",
     "zh-CN": "请写明需要修改的内容。"
+  },
+  {
+    "id": "desktop.github.newPullRequest",
+    "description": "Pull-request panel button and title of the create dialog",
+    "en-US": "New Pull Request…",
+    "zh-CN": "新建 Pull Request…"
+  },
+  {
+    "id": "desktop.github.prTitle",
+    "description": "Create pull request dialog: title field",
+    "en-US": "Title",
+    "zh-CN": "标题"
+  },
+  {
+    "id": "desktop.github.prBody",
+    "description": "Create pull request dialog: description field",
+    "en-US": "Description (Markdown)",
+    "zh-CN": "描述（Markdown）"
+  },
+  {
+    "id": "desktop.github.prBranches",
+    "description": "Create pull request dialog: the head and base branches",
+    "en-US": "{head} → {base}",
+    "zh-CN": "{head} → {base}",
+    "parameters": {
+      "head": "string",
+      "base": "string"
+    }
+  },
+  {
+    "id": "desktop.github.nextBase",
+    "description": "Create pull request dialog: choose the next base branch",
+    "en-US": "Change Base",
+    "zh-CN": "更换基础分支"
+  },
+  {
+    "id": "desktop.github.draftChoice",
+    "description": "Create pull request dialog: start as a draft",
+    "en-US": "Create as draft",
+    "zh-CN": "创建为草稿"
+  },
+  {
+    "id": "desktop.github.generateDescription",
+    "description": "Create pull request dialog: draft the title and description with the AI provider",
+    "en-US": "Generate Description",
+    "zh-CN": "生成描述"
+  },
+  {
+    "id": "desktop.github.createPullRequest",
+    "description": "Create pull request dialog: create the pull request",
+    "en-US": "Create Pull Request",
+    "zh-CN": "创建 Pull Request"
+  },
+  {
+    "id": "desktop.github.createDetached",
+    "description": "Create pull request dialog: HEAD is detached",
+    "en-US": "HEAD is detached. Check out a branch before creating a pull request.",
+    "zh-CN": "HEAD 处于分离状态，创建 Pull Request 前请先检出分支。"
+  },
+  {
+    "id": "desktop.github.createUnpublished",
+    "description": "Create pull request dialog: the branch has commits its remote does not have",
+    "en-US": "This branch has commits its remote does not have yet. Publish it before creating a pull request.",
+    "zh-CN": "此分支有远程尚未包含的提交，请先发布再创建 Pull Request。"
+  },
+  {
+    "id": "desktop.github.draftNoProvider",
+    "description": "Notice when no AI provider can draft a pull request description",
+    "en-US": "No AI provider is configured to draft the description.",
+    "zh-CN": "没有可用的 AI 提供方来生成描述。"
+  },
+  {
+    "id": "desktop.github.draftFailed",
+    "description": "Notice when the AI draft of a pull request description failed",
+    "en-US": "Could not draft the description: {reason}",
+    "zh-CN": "无法生成描述：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
   }
 ]

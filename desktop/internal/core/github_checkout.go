@@ -77,3 +77,24 @@ func (c *Client) GitRemoteURL(ctx context.Context, root, remote string) (*string
 	}
 	return response.URL, nil
 }
+
+// PullRequestContext is what Core knows before a pull request is created from the checkout: the
+// current branch, the likely base, the branch a push would publish, whether the branch must be
+// published first, whether HEAD is detached, and whether the working tree has uncommitted changes.
+type PullRequestContext struct {
+	CurrentBranch          *string `json:"currentBranch"`
+	SuggestedBaseBranch    *string `json:"suggestedBaseBranch"`
+	SuggestedPublishBranch *string `json:"suggestedPublishBranch"`
+	RequiresPublish        bool    `json:"requiresPublish"`
+	Detached               bool    `json:"detached"`
+	HasUncommittedChanges  bool    `json:"hasUncommittedChanges"`
+}
+
+// GitPullRequestContext reads the pull-request facts of the checkout at root.
+func (c *Client) GitPullRequestContext(ctx context.Context, root string) (PullRequestContext, error) {
+	var result PullRequestContext
+	if err := c.Execute(ctx, "git.pullRequestContext", gitRootRequest{Root: root}, &result); err != nil {
+		return PullRequestContext{}, err
+	}
+	return result, nil
+}
