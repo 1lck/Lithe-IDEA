@@ -3,6 +3,8 @@ package workbench
 import (
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -30,6 +32,12 @@ func (a *App) agentHeader(c ui.C, p *project) {
 		}
 		if ui.Button(c, t.Change).Ghost().Clicked() {
 			c.After(func() { a.disconnectAgent(p) })
+		}
+		if ui.Button(c.Key("agent-settings"), a.text.Agent.Header.Settings).Ghost().IconOnly().Icon(icons.Settings).Tooltip(a.text.Agent.Header.Settings).Clicked() {
+			c.After(func() { a.openSettingsPage(surfaceButton, settingsAI) })
+		}
+		if ui.Button(c.Key("agent-collapse"), a.text.Agent.Header.Collapse).Ghost().IconOnly().Icon(icons.Minus).Tooltip(a.text.Agent.Header.Collapse).Clicked() {
+			c.After(func() { a.reduceChrome(core.SetChromeOpen(itemAssistant, false)) })
 		}
 	})
 }

@@ -187,5 +187,17 @@
     "parameters": {
       "count": "string"
     }
+  },
+  {
+    "id": "desktop.agent.header.settings",
+    "description": "Icon-only button at the top of the AI conversation that opens the AI settings page.",
+    "en-US": "Agent settings",
+    "zh-CN": "Agent 设置"
+  },
+  {
+    "id": "desktop.agent.header.collapse",
+    "description": "Icon-only button at the top of the AI conversation that collapses the Assistant panel.",
+    "en-US": "Collapse",
+    "zh-CN": "收起"
   }
 ]

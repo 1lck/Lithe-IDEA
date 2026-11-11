@@ -103,6 +103,7 @@ type AgentMessages struct {
 	Mode         AgentModeMessages
 	HistoryMeta  AgentHistoryMetaMessages
 	Process      AgentProcessMessages
+	Header       AgentHeaderMessages
 }
 
 func agentMessages(language Language) AgentMessages {
@@ -115,6 +116,7 @@ func agentMessages(language Language) AgentMessages {
 		Mode:          agentModeMessages(language),
 		HistoryMeta:   agentHistoryMetaMessages(language),
 		Process:       agentProcessMessages(language),
+		Header:        agentHeaderMessages(language),
 		AgentLabel:    Shared(language, "desktop.agent.setup.agent"),
 		ProviderLabel: Shared(language, "desktop.agent.setup.provider"),
 		Start:         Shared(language, "desktop.agent.setup.start"),
