@@ -985,5 +985,86 @@
     },
     "en-US": "Pattern not found: {pattern}",
     "zh-CN": "未找到：{pattern}"
+  },
+  {
+    "id": "desktop.github.checks",
+    "description": "PR panel: section title of the head commit's checks (check runs and commit statuses)",
+    "en-US": "Checks",
+    "zh-CN": "检查"
+  },
+  {
+    "id": "desktop.github.checksUnavailable",
+    "description": "PR panel: checks cannot be read because the pull request has no head commit SHA",
+    "en-US": "Checks are unavailable: the head commit is unknown.",
+    "zh-CN": "无法读取检查：未知的提交。"
+  },
+  {
+    "id": "desktop.github.noChecks",
+    "description": "PR panel: the head commit has no checks",
+    "en-US": "No checks",
+    "zh-CN": "没有检查"
+  },
+  {
+    "id": "desktop.github.checkRunning",
+    "description": "PR panel: a check that has not completed",
+    "en-US": "Running",
+    "zh-CN": "进行中"
+  },
+  {
+    "id": "desktop.github.checkPassed",
+    "description": "PR panel: a completed check that succeeded",
+    "en-US": "Passed",
+    "zh-CN": "通过"
+  },
+  {
+    "id": "desktop.github.checkFailed",
+    "description": "PR panel: a completed check that failed, timed out, was cancelled or needs action",
+    "en-US": "Failed",
+    "zh-CN": "失败"
+  },
+  {
+    "id": "desktop.github.checkSkipped",
+    "description": "PR panel: a completed check that was skipped or is neutral",
+    "en-US": "Skipped",
+    "zh-CN": "已跳过"
+  },
+  {
+    "id": "desktop.github.checkUnknown",
+    "description": "PR panel: a completed check whose conclusion the panel does not know",
+    "en-US": "Completed",
+    "zh-CN": "已完成"
+  },
+  {
+    "id": "desktop.github.reviewThreads",
+    "description": "PR panel: section title of the line review threads, grouped by file",
+    "en-US": "Review threads",
+    "zh-CN": "评审线程"
+  },
+  {
+    "id": "desktop.github.noReviewThreads",
+    "description": "PR panel: the pull request has no line review comments",
+    "en-US": "No review threads",
+    "zh-CN": "没有评审线程"
+  },
+  {
+    "id": "desktop.github.threadLine",
+    "description": "PR panel: a review thread's line, opens the file at it",
+    "en-US": "Line {line}",
+    "zh-CN": "第 {line} 行",
+    "parameters": {
+      "line": "string"
+    }
+  },
+  {
+    "id": "desktop.github.threadOutdated",
+    "description": "PR panel: a review thread whose line is gone (its anchor is outdated)",
+    "en-US": "Outdated",
+    "zh-CN": "锚点已过期"
+  },
+  {
+    "id": "git.diff.ignoreWhitespace",
+    "description": "Diff tab toolbar: switch that reads the diff ignoring whitespace (git diff --ignore-all-space)",
+    "en-US": "Ignore Whitespace",
+    "zh-CN": "忽略空白"
   }
 ]

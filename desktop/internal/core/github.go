@@ -33,6 +33,8 @@ type GitHubRequest struct {
 	MergeMethod string      `json:"mergeMethod,omitempty"`
 	Labels      []string    `json:"labels,omitempty"`
 	Assignees   []string    `json:"assignees,omitempty"`
+	// Commit is the commit a check read names, as a hexadecimal SHA of at least four digits.
+	Commit string `json:"commit,omitempty"`
 }
 
 // GitHubPlan is the HTTP request Core planned: the host it goes to, the method, the path and the

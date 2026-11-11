@@ -107,10 +107,12 @@ func (a *App) drawPullRequestDetail(c ui.C, p *project) {
 				}
 			})
 			a.drawPullRequestCheckout(c, p)
+			a.drawPullRequestChecks(c)
 			for _, comment := range pr.comments {
 				ui.Text(c, comment.Author.Login).FontSize(size).Weight(gfx.WeightMedium)
 				ui.Paragraph(c, comment.Body, 8).FontSize(size)
 			}
+			a.drawPullRequestThreads(c, p)
 			if pr.detailErr != "" {
 				ui.Paragraph(c, pr.detailErr, 3).FontSize(size).Color(a.theme.Danger)
 			}

@@ -48,6 +48,8 @@ type diffSet struct {
 	next  int
 	split bool
 	whole bool
+	// ignoreSpace reads the diffs ignoring whitespace, for the tabs opened after it is set.
+	ignoreSpace bool
 }
 
 // find is the tab with id, nil when there is none.
@@ -127,6 +129,8 @@ type diffTab struct {
 	// split shows the two sides next to each other instead of the unified lines, and whole
 	// shows every unchanged line instead of folding the long runs of them.
 	split, whole bool
+	// ignoreSpace reads the diff ignoring all whitespace (see setDiffWhitespace).
+	ignoreSpace bool
 	// expanded are the folds the user opened, by the unified index of the first unchanged line
 	// of the run they hide, which is the same in both modes.
 	expanded map[int]bool
@@ -319,7 +323,7 @@ func (a *App) showDiff(p *project, root, commit string, change core.GitChange, f
 	s := &p.diffs
 	t := s.showing(root, commit, change.Path)
 	if t == nil {
-		t = &diffTab{id: s.next + 1, root: root, commit: commit, split: s.split, whole: s.whole, current: -1}
+		t = &diffTab{id: s.next + 1, root: root, commit: commit, split: s.split, whole: s.whole, ignoreSpace: s.ignoreSpace, current: -1}
 		if !a.placeDiff(p, t.id) {
 			return nil
 		}
@@ -467,13 +471,16 @@ func (a *App) loadDiff(p *project, t *diffTab) {
 	}
 	t.loading, t.gen = true, t.gen+1
 	gen, change, target, commit, untracked, compare := t.gen, t.change, t.target(), t.commit, t.untracked(), t.compare
+	// The block plan of a working-tree change is read without whitespace rules, so a diff that
+	// ignores whitespace reads its file instead; its blocks cannot be staged meanwhile.
+	ignore := t.ignoreSpace
 	a.background(p, reviewTimeout, func(ctx context.Context) func(*App) {
 		var (
 			file *core.GitDiffFile
 			plan *core.DiffBlockPlan
 			err  error
 		)
-		if commit == "" && !untracked {
+		if commit == "" && !untracked && !ignore {
 			var got core.DiffBlockPlan
 			if got, err = kernel.PlanDiffBlocks(ctx, target); err == nil {
 				plan = &got
@@ -495,6 +502,7 @@ func (a *App) loadDiff(p *project, t *diffTab) {
 			case commit == "":
 				request.Staged, request.Untracked = target.Staged, untracked
 			}
+			request.IgnoreAllWhitespace = ignore
 			files, err = kernel.GitDiff(ctx, request)
 			if err == nil && len(files) > 0 {
 				file = &files[0]

@@ -23,6 +23,21 @@ func DecodeComments(raw json.RawMessage) ([]Comment, error) {
 	return items, err
 }
 
+// DecodeCheckRuns reads the normalized check runs or commit statuses of a commit: the checks of a
+// pull request's head read through either operation, decoded the same way.
+func DecodeCheckRuns(raw json.RawMessage) ([]CheckRun, error) {
+	var items []CheckRun
+	err := json.Unmarshal(raw, &items)
+	return items, err
+}
+
+// DecodeReviewComments reads the normalized line review comments of a pull request.
+func DecodeReviewComments(raw json.RawMessage) ([]ReviewComment, error) {
+	var items []ReviewComment
+	err := json.Unmarshal(raw, &items)
+	return items, err
+}
+
 // DecodeUser reads the normalized user of a currentUser answer.
 func DecodeUser(raw json.RawMessage) (User, error) {
 	var user User
@@ -69,6 +84,9 @@ type PullRequest struct {
 	CommentsCount  uint64  `json:"commentsCount"`
 	Labels         []Label `json:"labels"`
 	Assignees      []User  `json:"assignees"`
+	// HeadSHA is the head commit's SHA, which the checks of the pull request are read for. The
+	// normalized shape carries it as headSha; without it the checks cannot be read.
+	HeadSHA *string `json:"headSha"`
 }
 
 // Comment is a conversation comment of a pull request.
@@ -137,4 +155,29 @@ func DecodeComparison(raw json.RawMessage) (Comparison, error) {
 	var comparison Comparison
 	err := json.Unmarshal(raw, &comparison)
 	return comparison, err
+}
+
+// CheckRun is one check of a commit: a check run, or a commit status. Status is the state the check
+// is in ("queued", "in_progress" or "completed"; a legacy pending status reads "in_progress").
+// Conclusion is set once it completed. DetailsURL leads to the check's page.
+type CheckRun struct {
+	Name       string  `json:"name"`
+	Status     string  `json:"status"`
+	Conclusion *string `json:"conclusion"`
+	DetailsURL *string `json:"detailsUrl"`
+}
+
+// ReviewComment is one line comment of a pull request's review. Line is nil when the comment's
+// anchor is outdated: the code it was made on has changed since. InReplyTo is nil for the root
+// comment of a thread and the root's ID for a reply.
+type ReviewComment struct {
+	ID        uint64  `json:"id"`
+	Path      string  `json:"path"`
+	Line      *uint64 `json:"line"`
+	Side      string  `json:"side"`
+	Body      string  `json:"body"`
+	Author    User    `json:"author"`
+	InReplyTo *uint64 `json:"inReplyTo"`
+	CreatedAt string  `json:"createdAt"`
+	URL       string  `json:"url"`
 }

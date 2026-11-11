@@ -49,6 +49,16 @@ type pullRequestState struct {
 	preview    *core.PullRequestCheckoutPreview
 	checkoutOK bool
 	busy       bool
+	// checks are the check runs and commit statuses of the head commit, read by checkGen; the
+	// checks are read again while one is still running, and never after the panel closed.
+	checks       []githubapi.CheckRun
+	checksErr    string
+	checksLoaded bool
+	checkGen     int
+	// threads are the line review comments of the selected pull request, and threadsErr says why
+	// they could not be read.
+	threads    []githubapi.ReviewComment
+	threadsErr string
 }
 
 // submitPullRequestReview submits a review of the selected pull request with the text typed in the
@@ -157,6 +167,7 @@ func (a *App) closePullRequests() {
 	pr.open = false
 	pr.gen++
 	pr.detailGen++
+	pr.checkGen++
 }
 
 // setPullRequestFilter changes the list shown and reads it again.
@@ -235,6 +246,7 @@ func (a *App) selectPullRequest(p *project, number uint64) {
 	pr.detailGen++
 	gen := pr.detailGen
 	pr.selected, pr.detail, pr.comments, pr.detailErr, pr.preview, pr.checkoutOK = number, nil, nil, "", nil, false
+	pr.checks, pr.checksErr, pr.checksLoaded, pr.threads, pr.threadsErr = nil, "", false, nil, ""
 	repo := *pr.repo
 	a.performed("github.pullRequest.select", surfaceButton)
 	a.background(p, githubReadTimeout, func(ctx context.Context) func(*App) {
@@ -252,6 +264,17 @@ func (a *App) selectPullRequest(p *project, number uint64) {
 				comments, err = githubapi.DecodeComments(commentsRaw)
 			}
 		}
+		// The line review threads are read beside the conversation; their failure does not hide it.
+		var threads []githubapi.ReviewComment
+		var threadsErr error
+		if err == nil {
+			threadsRaw, terr := client.Do(ctx, core.GitHubRequest{Operation: "listReviewComments", Repository: &repo, PullNumber: number}, token)
+			if terr != nil {
+				threadsErr = terr
+			} else {
+				threads, threadsErr = githubapi.DecodeReviewComments(threadsRaw)
+			}
+		}
 		return func(a *App) {
 			pr := &a.pullRequests
 			if pr.detailGen != gen || !pr.open {
@@ -262,6 +285,11 @@ func (a *App) selectPullRequest(p *project, number uint64) {
 				return
 			}
 			pr.detail, pr.comments = &detail, comments
+			pr.threads, pr.threadsErr = threads, ""
+			if threadsErr != nil {
+				pr.threadsErr = githubFailure(a.language(), threadsErr)
+			}
+			a.loadPullRequestChecks(p, number)
 		}
 	})
 }

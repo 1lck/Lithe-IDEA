@@ -65,6 +65,9 @@ type GitDiffRequest struct {
 	// WholeFile reads the whole file as context around the changes, as a side-by-side view of
 	// the two versions needs; otherwise Core keeps its default context around each change.
 	WholeFile bool
+	// IgnoreAllWhitespace reads the diff as git diff --ignore-all-space does: a change that only
+	// adds, removes or moves whitespace is not a change.
+	IgnoreAllWhitespace bool
 }
 
 // gitDiffWholeFileContext is the context Core reads as the whole file: its
@@ -85,6 +88,8 @@ type gitDiffPayload struct {
 	OmitFilePatch       bool                 `json:"omitFilePatch"`
 	// ContextLines is the context around each change; nil leaves Core's default.
 	ContextLines *int `json:"contextLines,omitempty"`
+	// IgnoreAllWhitespace is git diff's --ignore-all-space.
+	IgnoreAllWhitespace bool `json:"ignoreAllWhitespace,omitempty"`
 }
 
 type gitDiffResponse struct {
@@ -104,6 +109,7 @@ func (c *Client) GitDiff(ctx context.Context, request GitDiffRequest) ([]GitDiff
 		Untracked:           request.Untracked,
 		IncludeFileSections: true,
 		OmitFilePatch:       true,
+		IgnoreAllWhitespace: request.IgnoreAllWhitespace,
 	}
 	if request.Base != nil {
 		payload.Reference, payload.GitReference, payload.TargetGitReference = comparisonReferences(*request.Base, request.Target)
