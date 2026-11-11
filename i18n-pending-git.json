@@ -396,5 +396,20 @@
     "description": "Button on a rebase paused at an edit: amend the message and continue",
     "en-US": "Edit Message and Continue",
     "zh-CN": "修改消息并继续"
+  },
+  {
+    "id": "desktop.files.excludeFromSearch",
+    "description": "Project tree context menu item on a folder: exclude the folder from search",
+    "en-US": "Exclude from Search",
+    "zh-CN": "从搜索中排除"
+  },
+  {
+    "id": "desktop.files.excludeFailed",
+    "description": "Notice when a folder could not be excluded from search",
+    "en-US": "Could not exclude the folder: {reason}",
+    "zh-CN": "无法排除该文件夹：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
   }
 ]

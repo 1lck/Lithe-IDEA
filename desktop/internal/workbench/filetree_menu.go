@@ -114,6 +114,9 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 		if opened {
 			menu.Separator()
 		}
+		if n.dir && !root && menu.Item(i18n.Shared(language, "desktop.files.excludeFromSearch")).Clicked() {
+			c.After(func() { a.excludeFromSearch(p, n.path) })
+		}
 		if n.dir {
 			if p.git.isRepository() && menu.Item(i18n.Shared(language, "desktop.files.showRepositoryChanges")).Clicked() {
 				c.After(func() {
