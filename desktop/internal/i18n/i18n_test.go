@@ -1,6 +1,7 @@
 package i18n
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 )
@@ -306,6 +307,13 @@ func checkComplete(t *testing.T, path string, value reflect.Value) {
 	case reflect.String:
 		if value.String() == "" {
 			t.Errorf("%s is empty", path)
+		}
+	case reflect.Map:
+		if value.Len() == 0 {
+			t.Errorf("%s is empty", path)
+		}
+		for iter := value.MapRange(); iter.Next(); {
+			checkComplete(t, fmt.Sprintf("%s[%v]", path, iter.Key()), iter.Value())
 		}
 	case reflect.Func:
 		if value.IsNil() {

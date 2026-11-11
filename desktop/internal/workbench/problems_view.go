@@ -49,7 +49,7 @@ func (a *App) problemsToolbar(c ui.C, p *project, lang i18n.Language) {
 	if current == "" {
 		current = core.ProblemsGroupByFile
 	}
-	if ui.Button(c.Key("problemsGroup"), i18n.SharedFormat(lang, "desktop.problems.groupBy", map[string]string{"arg1": i18n.Shared(lang, "desktop.problems.group."+current)})).Ghost().Clicked() {
+	if ui.Button(c.Key("problemsGroup"), i18n.SharedFormat(lang, "desktop.problems.groupBy", map[string]string{"arg1": problemsGroupingText(lang, current)})).Ghost().Clicked() {
 		next := problemsGroupings[0]
 		for index, grouping := range problemsGroupings {
 			if grouping == current {
@@ -188,5 +188,17 @@ func (a *App) problemSeverityMark(severity int) (gfx.Icon, gfx.Color) {
 		return icons.CircleAlert, a.colors.Warning
 	default:
 		return icons.Info, a.colors.Subtle
+	}
+}
+
+// problemsGroupingText is the name of a grouping of the problems list.
+func problemsGroupingText(lang i18n.Language, grouping string) string {
+	switch grouping {
+	case core.ProblemsGroupBySeverity:
+		return i18n.Shared(lang, "desktop.problems.group.severity")
+	case core.ProblemsGroupByNone:
+		return i18n.Shared(lang, "desktop.problems.group.none")
+	default:
+		return i18n.Shared(lang, "desktop.problems.group.file")
 	}
 }

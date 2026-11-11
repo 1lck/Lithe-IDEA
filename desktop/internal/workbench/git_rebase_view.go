@@ -73,7 +73,7 @@ func (a *App) drawRebaseRows(c ui.C, p *project) {
 				hash := commit.Hash
 				row.C.After(func() { r.moveRebaseCommit(hash, 1) })
 			}
-			if ui.Button(row.C, i18n.Shared(lang, "desktop.rebase.action."+action)).Outline().Shrink(0).Clicked() {
+			if ui.Button(row.C, rebaseActionText(lang, action)).Outline().Shrink(0).Clicked() {
 				next := nextRebaseAction(action)
 				if next == "reword" || next == "squash" {
 					row.C.After(func() { a.openRebaseMessage(p, commit, next) })
@@ -163,5 +163,23 @@ func (a *App) logRowRebaseMenu(p *project, hash string) func(*ui.MenuItems) {
 		if menu.Item(i18n.Shared(a.language(), "desktop.rebase.fromHere")).Disabled(p.rebase.busy).Clicked() {
 			a.beginRebaseFromHere(p, hash, "")
 		}
+	}
+}
+
+// rebaseActionText is the button text of a rebase plan action.
+func rebaseActionText(lang i18n.Language, action string) string {
+	switch action {
+	case "reword":
+		return i18n.Shared(lang, "desktop.rebase.action.reword")
+	case "edit":
+		return i18n.Shared(lang, "desktop.rebase.action.edit")
+	case "squash":
+		return i18n.Shared(lang, "desktop.rebase.action.squash")
+	case "fixup":
+		return i18n.Shared(lang, "desktop.rebase.action.fixup")
+	case "drop":
+		return i18n.Shared(lang, "desktop.rebase.action.drop")
+	default:
+		return i18n.Shared(lang, "desktop.rebase.action.pick")
 	}
 }

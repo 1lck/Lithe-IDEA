@@ -25,9 +25,19 @@ type customAgentDraft struct {
 	id              string
 	name, command   string
 	args, directory string
-	err             string
+	err             customAgentProblem
 	confirmRemove   string
 }
+
+// customAgentProblem is the first rule a custom agent draft breaks.
+type customAgentProblem uint8
+
+const (
+	customAgentValid customAgentProblem = iota
+	customAgentNameRequired
+	customAgentCommandRequired
+	customAgentDirectoryAbsolute
+)
 
 // customAgentArgs splits the args field into one argument per non-empty line.
 func customAgentArgs(text string) []string {
@@ -40,17 +50,17 @@ func customAgentArgs(text string) []string {
 	return args
 }
 
-// validateCustomAgent returns the message key of the first rule the draft breaks, or "".
-func validateCustomAgent(d customAgentDraft) string {
+// validateCustomAgent returns the first rule the draft breaks, or customAgentValid.
+func validateCustomAgent(d customAgentDraft) customAgentProblem {
 	switch {
 	case strings.TrimSpace(d.name) == "":
-		return "desktop.settings.agent.custom.nameRequired"
+		return customAgentNameRequired
 	case strings.TrimSpace(d.command) == "":
-		return "desktop.settings.agent.custom.commandRequired"
+		return customAgentCommandRequired
 	case strings.TrimSpace(d.directory) != "" && !filepath.IsAbs(strings.TrimSpace(d.directory)):
-		return "desktop.settings.agent.custom.directoryAbsolute"
+		return customAgentDirectoryAbsolute
 	}
-	return ""
+	return customAgentValid
 }
 
 // saveCustomAgent writes the draft into the saved list and asks the owner to store it.
@@ -58,9 +68,9 @@ func (s *agentSettings) saveCustomAgent(list []CustomAgentSetting) {
 	s.mu.Lock()
 	d := s.custom
 	s.mu.Unlock()
-	if key := validateCustomAgent(d); key != "" {
+	if problem := validateCustomAgent(d); problem != customAgentValid {
 		s.mu.Lock()
-		s.custom.err = key
+		s.custom.err = problem
 		s.mu.Unlock()
 		return
 	}

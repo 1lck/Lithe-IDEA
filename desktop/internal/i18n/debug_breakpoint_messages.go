@@ -38,6 +38,14 @@ func debugBreakpointMessages(language Language) DebugBreakpointMessages {
 		FunctionRow: func(name string) string {
 			return SharedFormat(language, "desktop.debug.breakpoint.functionRow", map[string]string{"name": name})
 		},
+		RemoveFunction: Shared(language, "desktop.debug.breakpoint.removeFunction"),
+		Instruction:    Shared(language, "desktop.debug.breakpoint.instruction"),
+		BreakOnChange:  Shared(language, "desktop.debug.breakpoint.breakOnChange"),
+		DataRow: func(label string) string {
+			return SharedFormat(language, "desktop.debug.breakpoint.dataRow", map[string]string{"label": label})
+		},
+		RemoveData:      Shared(language, "desktop.debug.breakpoint.removeData"),
+		DataUnavailable: Shared(language, "desktop.debug.breakpoint.dataUnavailable"),
 		Title: func(file, line string) string {
 			return SharedFormat(language, "desktop.debug.breakpoint.title", map[string]string{"file": file, "line": line})
 		},

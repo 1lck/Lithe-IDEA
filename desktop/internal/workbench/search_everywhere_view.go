@@ -423,11 +423,11 @@ func (a *App) everywhereRowMenu(c ui.C, target ui.Box, p *project, result core.W
 				a.openSearchResult(p, result)
 			})
 		}
-		reveal := "desktop.files.revealInFinder"
+		reveal := i18n.Shared(language, "desktop.files.revealInFinder")
 		if runtime.GOOS == "windows" {
-			reveal = "desktop.files.revealInExplorer"
+			reveal = i18n.Shared(language, "desktop.files.revealInExplorer")
 		}
-		if menu.Item(i18n.Shared(language, reveal)).Clicked() {
+		if menu.Item(reveal).Clicked() {
 			c.After(func() {
 				a.performed("workspace.searchEverywhere.reveal", surfaceMenu)
 				if err := treeRevealPath(full); err != nil {

@@ -111,11 +111,11 @@ func (t *fileTree) insideMarked(at string) bool {
 // batch holds, then the operations that apply to all of them.
 func (a *App) treeBatchMenu(c ui.C, p *project, menu *ui.MenuItems, nodes []*treeNode) {
 	lang := a.language()
-	count := map[string]string{"count": strconv.Itoa(len(nodes))}
-	if menu.Item(i18n.SharedFormat(lang, "desktop.files.batchTrash", count)).Clicked() {
+	count := strconv.Itoa(len(nodes))
+	if menu.Item(i18n.SharedFormat(lang, "desktop.files.batchTrash", map[string]string{"count": count})).Clicked() {
 		c.After(func() { a.trashTreeItems(p, nodes) })
 	}
-	if menu.Item(i18n.SharedFormat(lang, "desktop.files.batchDelete", count)).Destructive().Clicked() {
+	if menu.Item(i18n.SharedFormat(lang, "desktop.files.batchDelete", map[string]string{"count": count})).Destructive().Clicked() {
 		paths := make([]string, 0, len(nodes))
 		for _, n := range nodes {
 			paths = append(paths, n.path)
@@ -181,7 +181,7 @@ func (a *App) trashTreeItems(p *project, nodes []*treeNode) {
 				reason = err
 			}
 		}
-		a.finishBatch(p, parents, "workspace.file.trashBatch", failed, reason, "desktop.files.trashFailed")
+		a.finishBatch(p, parents, "workspace.file.trashBatch", failed, reason, trashFailedText)
 	})
 }
 
@@ -205,7 +205,7 @@ func (a *App) deleteTreeItems(p *project, paths []string) {
 				reason = err
 			}
 		}
-		a.finishBatch(p, parents, "workspace.file.deleteBatch", failed, reason, "desktop.files.deleteFailed")
+		a.finishBatch(p, parents, "workspace.file.deleteBatch", failed, reason, deleteFailedText)
 	})
 }
 
@@ -231,11 +231,11 @@ func treeParents(nodes []*treeNode) []string {
 }
 
 // finishBatch clears the marks, lists the directories again and reads the status. A failure is
-// reported once, with the last reason, since the rest of the batch still ran.
-func (a *App) finishBatch(p *project, parents []string, performed string, failed int, reason error, failedKey string) {
+// reported once, with the last reason, since the rest of the batch still ran; failure words it.
+func (a *App) finishBatch(p *project, parents []string, performed string, failed int, reason error, failure func(i18n.Language, string) string) {
 	p.tree.marked, p.tree.anchor = nil, ""
 	if failed > 0 && reason != nil {
-		a.notifyError(i18n.SharedFormat(a.language(), failedKey, map[string]string{"reason": treeErrorReason(reason)}))
+		a.notifyError(failure(a.language(), treeErrorReason(reason)))
 	}
 	a.performed(performed, surfaceMenu)
 	for _, dir := range parents {
@@ -270,4 +270,14 @@ func (a *App) treeBatchDialog(c ui.C, p *project) {
 	if closed || !open {
 		c.After(func() { p.tree.batch = treeBatchDelete{} })
 	}
+}
+
+// trashFailedText is the message of a batch trash an item of failed for reason.
+func trashFailedText(lang i18n.Language, reason string) string {
+	return i18n.SharedFormat(lang, "desktop.files.trashFailed", map[string]string{"reason": reason})
+}
+
+// deleteFailedText is the message of a batch delete an item of failed for reason.
+func deleteFailedText(lang i18n.Language, reason string) string {
+	return i18n.SharedFormat(lang, "desktop.files.deleteFailed", map[string]string{"reason": reason})
 }

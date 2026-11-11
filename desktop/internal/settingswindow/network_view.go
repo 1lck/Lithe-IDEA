@@ -100,15 +100,14 @@ func (w *window) networkPage(c ui.C) {
 	if !d.loaded {
 		d.load(stored)
 	}
-	label := func(key string) string { return i18n.Shared(language, key) }
 	modeLabel := func(mode string) string {
 		switch mode {
 		case "direct":
-			return label("desktop.settings.network.direct")
+			return i18n.Shared(language, "desktop.settings.network.direct")
 		case "custom":
-			return label("desktop.settings.network.custom")
+			return i18n.Shared(language, "desktop.settings.network.custom")
 		}
-		return label("desktop.settings.network.system")
+		return i18n.Shared(language, "desktop.settings.network.system")
 	}
 	typeLabel := func(kind string) string {
 		if kind == "socks5" {
@@ -125,43 +124,43 @@ func (w *window) networkPage(c ui.C) {
 		})
 	}
 	w.pageScroll(c, pageNetwork, func() {
-		w.card(c, label("desktop.settings.network.proxy"), label("desktop.settings.network.proxyHelp"), func() {
+		w.card(c, i18n.Shared(language, "desktop.settings.network.proxy"), i18n.Shared(language, "desktop.settings.network.proxyHelp"), func() {
 			ui.Column(c).FillWidth().Gap(8).Children(func() {
-				row(label("desktop.settings.network.mode"), func() {
-					ui.Select(c.Part("mode"), &d.mode, networkModes, modeLabel).Width(selectWidth).Label(label("desktop.settings.network.mode"))
+				row(i18n.Shared(language, "desktop.settings.network.mode"), func() {
+					ui.Select(c.Part("mode"), &d.mode, networkModes, modeLabel).Width(selectWidth).Label(i18n.Shared(language, "desktop.settings.network.mode"))
 				})
 				if d.mode != "custom" {
 					return
 				}
-				row(label("desktop.settings.network.type"), func() {
-					ui.Select(c.Part("type"), &d.proxyType, proxyTypes, typeLabel).Width(selectWidth).Label(label("desktop.settings.network.type"))
+				row(i18n.Shared(language, "desktop.settings.network.type"), func() {
+					ui.Select(c.Part("type"), &d.proxyType, proxyTypes, typeLabel).Width(selectWidth).Label(i18n.Shared(language, "desktop.settings.network.type"))
 				})
-				row(label("desktop.settings.network.host"), func() {
-					ui.TextField(c.Part("host"), &d.host, label("desktop.settings.network.host"), "proxy.example.com").Grow(1).MinWidth(0)
+				row(i18n.Shared(language, "desktop.settings.network.host"), func() {
+					ui.TextField(c.Part("host"), &d.host, i18n.Shared(language, "desktop.settings.network.host"), "proxy.example.com").Grow(1).MinWidth(0)
 				})
-				row(label("desktop.settings.network.port"), func() {
-					ui.TextField(c.Part("port"), &d.port, label("desktop.settings.network.port"), "8080").Width(100)
+				row(i18n.Shared(language, "desktop.settings.network.port"), func() {
+					ui.TextField(c.Part("port"), &d.port, i18n.Shared(language, "desktop.settings.network.port"), "8080").Width(100)
 				})
-				row(label("desktop.settings.network.username"), func() {
-					ui.TextField(c.Part("username"), &d.username, label("desktop.settings.network.username"), "").Grow(1).MinWidth(0)
+				row(i18n.Shared(language, "desktop.settings.network.username"), func() {
+					ui.TextField(c.Part("username"), &d.username, i18n.Shared(language, "desktop.settings.network.username"), "").Grow(1).MinWidth(0)
 				})
-				row(label("desktop.settings.network.password"), func() {
+				row(i18n.Shared(language, "desktop.settings.network.password"), func() {
 					placeholder := ""
 					if stored.HasPassword && !d.clearPassword {
-						placeholder = label("desktop.settings.network.passwordStored")
+						placeholder = i18n.Shared(language, "desktop.settings.network.passwordStored")
 					}
-					ui.TextField(c.Part("password"), &d.password, label("desktop.settings.network.password"), placeholder).Secure().Grow(1).MinWidth(0)
+					ui.TextField(c.Part("password"), &d.password, i18n.Shared(language, "desktop.settings.network.password"), placeholder).Secure().Grow(1).MinWidth(0)
 					if stored.HasPassword && !d.clearPassword {
-						if ui.Button(c.Part("clear-password"), label("desktop.settings.network.clearPassword")).Ghost().Small().Clicked() {
+						if ui.Button(c.Part("clear-password"), i18n.Shared(language, "desktop.settings.network.clearPassword")).Ghost().Small().Clicked() {
 							d.clearPassword = true
 							d.password.SetText("")
 						}
 					}
 				})
 				ui.Column(c).FillWidth().Gap(4).Children(func() {
-					ui.Text(c, label("desktop.settings.network.exclusions")).FontSize(12).Color(w.pal.text)
-					ui.TextField(c.Part("exclusions"), &d.exclusions, label("desktop.settings.network.exclusions"), "localhost, *.internal, 10.0.0.0/8").FillWidth()
-					ui.Wrap(c, label("desktop.settings.network.exclusionsHelp")).FontSize(12).Color(w.pal.muted)
+					ui.Text(c, i18n.Shared(language, "desktop.settings.network.exclusions")).FontSize(12).Color(w.pal.text)
+					ui.TextField(c.Part("exclusions"), &d.exclusions, i18n.Shared(language, "desktop.settings.network.exclusions"), "localhost, *.internal, 10.0.0.0/8").FillWidth()
+					ui.Wrap(c, i18n.Shared(language, "desktop.settings.network.exclusionsHelp")).FontSize(12).Color(w.pal.muted)
 				})
 			})
 		})
@@ -170,10 +169,10 @@ func (w *window) networkPage(c ui.C) {
 		}
 		ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
 			ui.Spacer(c)
-			if ui.Button(c.Part("revert"), label("desktop.settings.network.revert")).Outline().Clicked() {
+			if ui.Button(c.Part("revert"), i18n.Shared(language, "desktop.settings.network.revert")).Outline().Clicked() {
 				d.load(stored)
 			}
-			if ui.Button(c.Part("apply"), label("desktop.settings.network.apply")).Clicked() {
+			if ui.Button(c.Part("apply"), i18n.Shared(language, "desktop.settings.network.apply")).Clicked() {
 				w.applyNetwork(language)
 			}
 		})
