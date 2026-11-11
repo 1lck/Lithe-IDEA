@@ -477,5 +477,14 @@
     "description": "Button that confirms the batch delete",
     "en-US": "Delete",
     "zh-CN": "删除"
+  },
+  {
+    "id": "desktop.changelists.moveSelected",
+    "description": "Change row batch menu: move the selected changes to a change list; count is how many",
+    "en-US": "Move {count} Selected to Change List",
+    "zh-CN": "将所选 {count} 个变更移到变更列表",
+    "parameters": {
+      "count": "string"
+    }
   }
 ]

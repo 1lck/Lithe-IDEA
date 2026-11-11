@@ -45,7 +45,7 @@ func (a *App) drawNestedRepos(c ui.C, p *project) {
 				ui.Paragraph(rc, i18n.Shared(lang, "desktop.nested.refUnchanged"), 2).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).PadX(8)
 			}
 			for _, change := range repo.changes {
-				toggled, _ := a.drawChangeRow(rc, change, busy, func(ui.C) func(*ui.MenuItems) {
+				toggled, _, _, _ := a.drawChangeRow(rc, change, busy, false, func(ui.C) func(*ui.MenuItems) {
 					return func(*ui.MenuItems) {}
 				})
 				if toggled {

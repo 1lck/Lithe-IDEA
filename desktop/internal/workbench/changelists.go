@@ -77,7 +77,11 @@ type changeListState struct {
 	pick string
 	// dialog is the dialog that is open, target the list it renames or removes, name its
 	// text field and nameError why Core refused the name.
-	dialog    changeListDialog
+	dialog changeListDialog
+	// selected are the paths of the changes a Ctrl, Cmd or Shift click picked for a batch move;
+	// anchor is the path a Shift click extends from (changelists_select.go).
+	selected  map[string]bool
+	anchor    string
 	target    string
 	name      ui.Field
 	nameError string
@@ -442,11 +446,15 @@ func (a *App) activateChangeList(p *project, id string) {
 	if id == p.lists.activeID() {
 		return
 	}
+	// Results read for the list that was active belong to it: the selection, a generation
+	// that is still running and a message waiting to be confirmed are dropped.
+	a.discardListResults(p)
 	a.changeListAction(p, "git.changelists.activate", core.ChangeListAction{Type: "activate", ID: id}, nil, nil)
 }
 
 // moveToChangeList moves changes to the list id.
 func (a *App) moveToChangeList(p *project, changes []core.GitChange, id string) {
+	p.lists.selected, p.lists.anchor = nil, ""
 	files := changeListFiles(p.git.repositoryRoot(p.root), changes)
 	a.changeListAction(p, "git.changelists.move", core.ChangeListAction{Type: "move", ID: id, Files: &files}, nil, nil)
 }

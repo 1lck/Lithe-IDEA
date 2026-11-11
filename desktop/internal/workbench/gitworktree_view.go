@@ -446,7 +446,7 @@ func (a *App) drawWorktreeChanges(c ui.C, p *project, w core.GitWorktree) {
 // drawWorktreeChange declares the row of one local change of the worktree at root, with the
 // commit panel's checkbox; a double click shows its diff.
 func (a *App) drawWorktreeChange(c ui.C, p *project, root string, busy bool, change core.GitChange) {
-	toggled, opened := a.drawChangeRow(c, change, busy, func(rowC ui.C) func(*ui.MenuItems) {
+	toggled, opened, _, _ := a.drawChangeRow(c, change, busy, false, func(rowC ui.C) func(*ui.MenuItems) {
 		return a.worktreeChangeMenuItems(rowC, p, root, change)
 	})
 	if toggled {
