@@ -343,6 +343,11 @@ func TestCommitOptionsEditTheGenerationInstructions(t *testing.T) {
 			t.Fatalf("the commit options show no %q group", heading)
 		}
 	}
+	gear := h.pageHit(h.app.text.Commit.Options).Bounds
+	field := h.pageHit(i18n.Shared(lang, "desktop.commit.instructions")).Bounds
+	if field.X < gear.X+gear.Width || field.Y+field.Height > gear.Y+gear.Height+1 {
+		t.Fatalf("the options open at %+v, want them right of the gear %+v and no lower than it", field, gear)
+	}
 	h.clickNamed(i18n.Shared(lang, "desktop.commit.instructions"))
 	if err := h.driver.Type(" Avoid long bodies "); err != nil {
 		t.Fatal(err)
