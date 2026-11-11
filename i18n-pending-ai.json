@@ -28,5 +28,65 @@
     "description": "Button that brings the conversation's editor tab to the front from the Agent tool window.",
     "en-US": "Show in editor",
     "zh-CN": "在编辑区显示"
+  },
+  {
+    "id": "desktop.agent.provider.detail",
+    "description": "Heading of the read-only details of the selected provider.",
+    "en-US": "Provider details",
+    "zh-CN": "供应商详情"
+  },
+  {
+    "id": "desktop.agent.provider.source",
+    "description": "Label of the row that names where the provider was read from.",
+    "en-US": "Source",
+    "zh-CN": "来源"
+  },
+  {
+    "id": "desktop.agent.provider.endpoint",
+    "description": "Label of the provider endpoint row.",
+    "en-US": "Endpoint",
+    "zh-CN": "地址"
+  },
+  {
+    "id": "desktop.agent.provider.model",
+    "description": "Label of the provider model row.",
+    "en-US": "Model",
+    "zh-CN": "模型"
+  },
+  {
+    "id": "desktop.agent.provider.protocol",
+    "description": "Label of the provider API protocol row.",
+    "en-US": "Protocol",
+    "zh-CN": "协议"
+  },
+  {
+    "id": "desktop.agent.provider.authentication",
+    "description": "Label of the provider authentication mode row.",
+    "en-US": "Authentication",
+    "zh-CN": "鉴权方式"
+  },
+  {
+    "id": "desktop.agent.provider.key",
+    "description": "Label of the row that says whether a key was found.",
+    "en-US": "API key",
+    "zh-CN": "API Key"
+  },
+  {
+    "id": "desktop.agent.provider.keyFound",
+    "description": "Value shown when a key was found; the key itself is never shown.",
+    "en-US": "Found (masked)",
+    "zh-CN": "已找到（已隐藏）"
+  },
+  {
+    "id": "desktop.agent.provider.keyMissing",
+    "description": "Value shown when no key was found for the provider.",
+    "en-US": "Not found",
+    "zh-CN": "未找到"
+  },
+  {
+    "id": "desktop.agent.provider.readOnly",
+    "description": "Note under the provider details saying they are read-only.",
+    "en-US": "Read-only. Edit the provider in your local Codex or Claude configuration.",
+    "zh-CN": "只读。请在本机 Codex 或 Claude 配置中修改供应商。"
   }
 ]

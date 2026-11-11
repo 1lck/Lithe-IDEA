@@ -173,6 +173,10 @@ func (a *App) agentSetup(c ui.C, p *project) {
 				}
 			}
 
+			if selected, ok := p.selectedProvider(); ok {
+				a.agentProviderDetail(c, selected)
+			}
+
 			if ui.Button(c, t.Start).Disabled(!p.canStartAgent() || p.agent.connecting).Clicked() {
 				c.After(func() { a.startAgent(p) })
 			}
