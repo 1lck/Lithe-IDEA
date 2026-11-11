@@ -841,5 +841,17 @@
     "parameters": {
       "reason": "string"
     }
+  },
+  {
+    "id": "desktop.rebase.moveUp",
+    "description": "Rebase plan row button: move the commit one place earlier in the replay order",
+    "en-US": "Up",
+    "zh-CN": "上移"
+  },
+  {
+    "id": "desktop.rebase.moveDown",
+    "description": "Rebase plan row button: move the commit one place later in the replay order",
+    "en-US": "Down",
+    "zh-CN": "下移"
   }
 ]
