@@ -21,6 +21,12 @@ type nativePanelState struct {
 	list     ui.ListState
 	busy     bool
 	message  string
+	// nodes are the rows of a source panel, read from its function; sourceLoaded says they are current,
+	// sourceBusy that a read is out, and sourceFailure names why the last read failed, if it did.
+	nodes         []pluginservice.NativeNode
+	sourceLoaded  bool
+	sourceBusy    bool
+	sourceFailure string
 }
 
 // nativeRow is one visible row of a panel: a node and how deep it sits.
@@ -58,8 +64,20 @@ func flattenNativeRows(nodes []pluginservice.NativeNode, expanded map[string]boo
 func (a *App) pluginNativeBody(c ui.C, p *project, tool *pluginservice.ToolWindow) {
 	panel := tool.Native
 	state := a.nativeState(tool)
-	rows := flattenNativeRows(panel.Nodes, state.expanded, 0, nil)
+	nodes := panel.Nodes
+	if panel.Source != nil {
+		nodes = state.nodes
+		if !state.sourceLoaded && !state.sourceBusy {
+			a.loadNativeSource(p, tool, state)
+		}
+	}
+	rows := flattenNativeRows(nodes, state.expanded, 0, nil)
 	ui.Column(c).Fill().Background(a.colors.Editor).Children(func() {
+		if state.sourceFailure != "" {
+			ui.Row(c).FillWidth().Height(28).Shrink(0).Items(ui.Center).PadX(8).Children(func() {
+				ui.Text(c, state.sourceFailure).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Warning).Ellipsis()
+			})
+		}
 		if len(panel.Toolbar) > 0 {
 			ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
 				for _, id := range panel.Toolbar {
@@ -136,11 +154,23 @@ func nativeAction(panel *pluginservice.NativePanel, id string) *pluginservice.Na
 // nothing; an invoke calls its function in the background and shows the message the answer carries.
 // Only one action runs at a time.
 func (a *App) runNativeAction(p *project, tool *pluginservice.ToolWindow, state *nativePanelState, action pluginservice.NativeAction) {
-	if action.Kind != "invoke" || state.busy || a.plugins == nil || p == nil {
+	if p == nil || a.plugins == nil || state.busy {
+		return
+	}
+	if action.Kind == "refresh" {
+		// A refresh reads the source again; a static panel has nothing to read.
+		if tool.Native.Source != nil {
+			state.sourceLoaded = false
+			a.loadNativeSource(p, tool, state)
+		}
+		return
+	}
+	if action.Kind != "invoke" {
 		return
 	}
 	state.busy, state.message = true, ""
 	selected, root, plugins, pluginID, function := state.selected, p.root, a.plugins, tool.PluginID, action.Function
+	reload := tool.Native.Source != nil
 	a.background(p, 70*time.Second, func(ctx context.Context) func(*App) {
 		message, err := plugins.InvokeToolWindowAction(ctx, root, pluginID, function, selected)
 		return func(a *App) {
@@ -151,6 +181,49 @@ func (a *App) runNativeAction(p *project, tool *pluginservice.ToolWindow, state 
 				return
 			}
 			state.message = message
+			// The contract reloads a source after an invocation, since the invocation may have changed it.
+			if reload {
+				state.sourceLoaded = false
+			}
+		}
+	})
+}
+
+// loadNativeSource reads a source panel's nodes for the one detected instance of its build system. Zero
+// or several instances fail the read instead of guessing a root, as the contract requires.
+func (a *App) loadNativeSource(p *project, tool *pluginservice.ToolWindow, state *nativePanelState) {
+	source := tool.Native.Source
+	var instances []buildInstance
+	for _, instance := range p.build.instances {
+		if instance.PluginID == tool.PluginID && instance.BuildSystemID == source.BuildSystemID {
+			instances = append(instances, instance)
+		}
+	}
+	language := a.language()
+	switch {
+	case len(instances) == 0:
+		state.nodes, state.sourceLoaded = nil, true
+		state.sourceFailure = i18n.Shared(language, "desktop.nativePanel.noInstance")
+		return
+	case len(instances) > 1:
+		state.nodes, state.sourceLoaded = nil, true
+		state.sourceFailure = i18n.Shared(language, "desktop.nativePanel.multipleInstances")
+		return
+	}
+	state.sourceBusy = true
+	plugins, root, pluginID, function, buildSystemID, instanceRoot := a.plugins, p.root, tool.PluginID, source.Function, source.BuildSystemID, instances[0].Root
+	a.background(p, 30*time.Second, func(ctx context.Context) func(*App) {
+		nodes, err := plugins.InvokeNativeSource(ctx, root, pluginID, function, buildSystemID, instanceRoot)
+		return func(a *App) {
+			state.sourceBusy = false
+			state.sourceLoaded = true
+			if err != nil {
+				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_native_source", err))
+				state.nodes = nil
+				state.sourceFailure = i18n.Shared(a.language(), "desktop.nativePanel.sourceFailed")
+				return
+			}
+			state.nodes, state.sourceFailure = nodes, ""
 		}
 	})
 }

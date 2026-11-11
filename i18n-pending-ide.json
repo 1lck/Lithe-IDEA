@@ -356,5 +356,23 @@
     "parameters": {
       "megabytes": "string"
     }
+  },
+  {
+    "id": "desktop.nativePanel.noInstance",
+    "description": "Shown in a source-backed plugin panel when the workspace has no instance of the build system it reads",
+    "en-US": "This workspace has no build system instance for this panel.",
+    "zh-CN": "此工作区没有该面板需要的构建系统实例。"
+  },
+  {
+    "id": "desktop.nativePanel.multipleInstances",
+    "description": "Shown in a source-backed plugin panel when the workspace has several instances, so the root is ambiguous",
+    "en-US": "This workspace has several build system instances; the panel cannot choose one.",
+    "zh-CN": "此工作区有多个构建系统实例，面板无法选择。"
+  },
+  {
+    "id": "desktop.nativePanel.sourceFailed",
+    "description": "Shown when a source-backed plugin panel could not read its nodes",
+    "en-US": "The plugin could not load this panel.",
+    "zh-CN": "插件无法加载此面板。"
   }
 ]

@@ -44,10 +44,20 @@ type NativePanel struct {
 	// Kind is "tree" or "list".
 	Kind  string
 	Nodes []NativeNode
+	// Source, when set, supplies the nodes: a function of the plugin, called for the one detected instance
+	// of a build system, instead of the literal Nodes.
+	Source *NativeSource
 	// Actions are the handlers the toolbar and context menu reference, by ID.
 	Actions     []NativeAction
 	Toolbar     []string
 	ContextMenu []string
+}
+
+// NativeSource names the build system whose single instance a source panel reads, and the function that
+// returns its nodes.
+type NativeSource struct {
+	BuildSystemID string
+	Function      string
 }
 
 // NativeNode is one row of a native panel.
@@ -107,6 +117,10 @@ func decodeNativePanel(raw json.RawMessage) (*NativePanel, error) {
 			Action string `json:"action"`
 		} `json:"toolbar"`
 		ContextMenu []string `json:"contextMenu"`
+		Source      *struct {
+			BuildSystemID string `json:"buildSystemID"`
+			Function      string `json:"function"`
+		} `json:"source"`
 	}
 	if err := json.Unmarshal(raw, &declared); err != nil {
 		return nil, err
@@ -124,6 +138,12 @@ func decodeNativePanel(raw json.RawMessage) (*NativePanel, error) {
 		return nil, err
 	}
 	panel.Nodes = nodes
+	if declared.Source != nil {
+		if strings.TrimSpace(declared.Source.BuildSystemID) == "" || !validFunctionID(declared.Source.Function) {
+			return nil, errors.New("a native source names a build system and a function ID")
+		}
+		panel.Source = &NativeSource{BuildSystemID: declared.Source.BuildSystemID, Function: declared.Source.Function}
+	}
 	actions := map[string]bool{}
 	for _, action := range declared.Actions {
 		if !validNativeID(action.ID) || action.Title == "" {
