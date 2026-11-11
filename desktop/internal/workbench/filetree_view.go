@@ -82,7 +82,12 @@ func (a *App) projectTree(c ui.C, p *project) {
 	t.view.RowWidth = a.measureTree(c.Canvas(), t)
 	// Names are never cut short: the rows are as wide as the widest one, and the tree
 	// scrolls sideways to show the rest of it.
-	tree := ui.Tree(c, &t.view, len(t.rows), t.label, func(i int) { a.drawTreeContent(c, p, t.rows[i]) }).Grow(1).FillWidth().PadY(treelist.PadY)
+	named := -1
+	tree := ui.Tree(c, &t.view, len(t.rows), t.label, func(i int) {
+		if a.drawTreeContent(c, p, t.rows[i]) {
+			named = i
+		}
+	}).Grow(1).FillWidth().PadY(treelist.PadY)
 	if tree.Shortcut(0, "f4") {
 		c.After(func() { a.openSelectedTreeFile(p) })
 	}
@@ -100,7 +105,15 @@ func (a *App) projectTree(c ui.C, p *project) {
 	// first one left it. Enter is a choice with no click behind it.
 	info, clicked := c.Canvas().ClickInfo()
 	repeated := clicked && info.Clicks >= 2
-	if i, ok := t.view.Chosen(); ok && i < len(t.rows) {
+	i, ok := t.view.Chosen()
+	if !ok && named >= 0 {
+		// The name is the target of the row's context menu, which takes the click before the
+		// Tree sees it, so a click on the name is a click on its row. Viva's Tree gives a row
+		// no other place for a context menu; once the pinned Viva has Box.LabelFor
+		// (vivaui/viva#221), the name labels its row and this goes (#1821).
+		i, ok = named, true
+	}
+	if ok && i < len(t.rows) {
 		n := t.rows[i]
 		// The row a click chose takes the keyboard, so the arrow keys go on from it.
 		c.Canvas().RequestFocus(t.view.RowID(i))
@@ -179,10 +192,12 @@ func (a *App) measureTree(canvas *gfx.Canvas, t *fileTree) float32 {
 }
 
 // drawTreeContent declares what a row of the tree shows after its chevron: the node's icon and
-// its name, the root's in bold. Viva's Tree starts a row without a chevron (a file, an empty
-// folder) where the chevron of a folder at its depth is, so such a row keeps the chevron's
-// room empty, and its icon lines up with the icons of the folders beside it.
-func (a *App) drawTreeContent(c ui.C, p *project, n *treeNode) {
+// its name, the root's in bold, and reports whether this paint delivers a click on the name.
+// Viva's Tree starts a row without a chevron (a file, an empty folder) where the chevron of a
+// folder at its depth is, so such a row keeps the chevron's room empty, and its icon lines up
+// with the icons of the folders beside it.
+func (a *App) drawTreeContent(c ui.C, p *project, n *treeNode) bool {
+	clicked := false
 	content := func() {
 		icon := fileicons.ForFile(n.name, a.colors.Dark)
 		if n.dir {
@@ -194,12 +209,14 @@ func (a *App) drawTreeContent(c ui.C, p *project, n *treeNode) {
 			name.Bold()
 		}
 		a.projectTreeMenu(c, p, n, name)
+		clicked = name.Clicked()
 	}
 	if n.dir && !n.empty {
 		content()
-		return
+		return clicked
 	}
 	ui.Row(c).Shrink(0).Items(ui.Center).Gap(c.Theme().Metrics.GapItem).PadLeft(treeChevron).Children(content)
+	return clicked
 }
 
 // focusTreeRow gives the keyboard to the row the locate button brought into view, once the row

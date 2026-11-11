@@ -671,9 +671,8 @@ func TestProjectTreeFolderSelectionAndDisclosure(t *testing.T) {
 	if err := h.driver.Advance(20 * time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
-	row := h.treeRowHit("src").Bounds
 	_ = h.treeChevronHit("src")
-	name := gfx.Point{X: row.X + row.Width - 20, Y: row.Y + row.Height/2}
+	name := center(h.treeNameHit("src").Bounds)
 	// A click on the name, not only on the arrow, opens the folder and selects it.
 	if err := h.driver.Click(name.X, name.Y); err != nil {
 		t.Fatal(err)
@@ -716,9 +715,9 @@ func TestProjectTreeFolderSelectionAndDisclosure(t *testing.T) {
 	if err := h.driver.Advance(time.Second); err != nil {
 		t.Fatal(err)
 	}
-	// The keys act on the row that has the keyboard, so the row is clicked first; the click
-	// opens the folder, Left closes it and Right opens it again.
-	row = h.treeRowHit("src").Bounds
+	// The keys act on the row that has the keyboard, so the row is clicked first, past its
+	// name; the click opens the folder, Left closes it and Right opens it again.
+	row := h.treeRowHit("src").Bounds
 	if err := h.driver.Click(row.X+row.Width-20, row.Y+row.Height/2); err != nil {
 		t.Fatal(err)
 	}

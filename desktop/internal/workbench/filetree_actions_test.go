@@ -275,6 +275,22 @@ func (h *harness) treeRowHit(name string) gfx.Hit {
 	return gfx.Hit{}
 }
 
+// treeNameHit is the hit over the name of the tree's row named name, narrower than the row and
+// after its chevron.
+func (h *harness) treeNameHit(name string) gfx.Hit {
+	h.t.Helper()
+	row := h.treeRowHit(name).Bounds
+	for _, hit := range h.driver.Snapshot().Hits {
+		b := hit.Bounds
+		if hit.Label == name && b.Width > 0 && b.Width < row.Width/2 && b.X > row.X+treeChevron &&
+			b.Y >= row.Y && b.Y+b.Height <= row.Y+row.Height {
+			return hit
+		}
+	}
+	h.t.Fatalf("the tree shows no name hit for %q", name)
+	return gfx.Hit{}
+}
+
 // treeRowCount is how many rows the tree declared in the last paint.
 func (h *harness) treeRowCount() int {
 	n := 0
