@@ -418,9 +418,9 @@ func (a *App) loadNativeSource(p *project, tool *pluginservice.ToolWindow, state
 		return
 	}
 	state.sourceBusy = true
-	plugins, root, pluginID, function, buildSystemID, instanceRoot := a.plugins, p.root, tool.PluginID, source.Function, source.BuildSystemID, instances[0].Root
+	plugins, root, pluginID, declaration, function, buildSystemID, instanceRoot := a.plugins, p.root, tool.PluginID, tool.Native.Declaration, source.Function, source.BuildSystemID, instances[0].Root
 	a.background(p, 30*time.Second, func(ctx context.Context) func(*App) {
-		nodes, err := plugins.InvokeNativeSource(ctx, root, pluginID, function, buildSystemID, instanceRoot)
+		nodes, err := plugins.InvokeNativeSource(ctx, root, pluginID, declaration, function, buildSystemID, instanceRoot)
 		return func(a *App) {
 			state.sourceBusy = false
 			state.sourceLoaded = true

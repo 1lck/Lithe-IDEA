@@ -57,6 +57,9 @@ type NativePanel struct {
 	Actions     []NativeAction
 	Toolbar     []string
 	ContextMenu []string
+	// Declaration is the window's native object as the manifest declares it. Core checks source replies
+	// against it, so the host never validates node data itself.
+	Declaration json.RawMessage
 }
 
 // NativeForm is a form panel's controls and buttons. Layout is the column count when the form declares
@@ -111,9 +114,9 @@ type NativeSource struct {
 
 // NativeNode is one row of a native panel.
 type NativeNode struct {
-	ID       string
-	Label    string
-	Children []NativeNode
+	ID       string       `json:"id"`
+	Label    string       `json:"label"`
+	Children []NativeNode `json:"children,omitempty"`
 }
 
 // NativeAction is one handler of a native panel. Refresh redraws the panel; invoke calls Function with
@@ -331,6 +334,7 @@ func (s *Service) ToolWindows(ctx context.Context, entries []pluginmanager.Entry
 					failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))
 					continue
 				}
+				panel.Declaration = window.Native
 				declaredWindow.Native = panel
 			}
 			windows = append(windows, declaredWindow)

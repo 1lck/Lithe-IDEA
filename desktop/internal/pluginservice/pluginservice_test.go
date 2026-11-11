@@ -423,6 +423,10 @@ func (k *fakeKernel) ReadInstalledPluginSettingsState(ctx context.Context, manif
 	return core.NewClient().ReadInstalledPluginSettingsState(ctx, manifest, id, version)
 }
 
+func (k *fakeKernel) ValidatePluginNativeData(ctx context.Context, declaration, data json.RawMessage) (json.RawMessage, error) {
+	return core.NewClient().ValidatePluginNativeData(ctx, declaration, data)
+}
+
 func (k *fakeKernel) InvokePluginFunction(context.Context, string, string, string, string, json.RawMessage) (string, error) {
 	return "", errors.New("fixture kernel does not serve plugin functions")
 }
