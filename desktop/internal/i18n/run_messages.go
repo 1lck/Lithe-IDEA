@@ -12,6 +12,8 @@ type RunMessages struct {
 	LinkUnresolved string
 	// Snapshot words the output snapshot of a run (run_snapshot_messages.go).
 	Snapshot RunSnapshotMessages
+	// Performance words the CPU and memory readings of a run (run_performance_messages.go).
+	Performance RunPerformanceMessages
 	// Exited reports a finished process and its exit code.
 	Exited func(code int) string
 	// Signalled reports a process ended by a signal.
@@ -26,6 +28,7 @@ func runMessages(language Language) RunMessages {
 		LinkMissing:    Shared(language, "desktop.run.linkMissing"),
 		LinkUnresolved: Shared(language, "desktop.run.linkUnresolved"),
 		Snapshot:       runSnapshotMessages(language),
+		Performance:    runPerformanceMessages(language),
 		Exited: func(code int) string {
 			return SharedFormat(language, "desktop.run.exited", map[string]string{"code": strconv.Itoa(code)})
 		},

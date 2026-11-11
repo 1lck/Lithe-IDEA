@@ -379,6 +379,7 @@ func (a *App) runConsole(c ui.C, p *project, run *runEntry) {
 			}
 		})
 		ui.Divider(c)
+		a.runPerformanceChart(c, run)
 		lines := buildVisibleOutput(run.output)
 		if len(lines) == 0 {
 			ui.Row(c).FillWidth().Grow(1).Items(ui.Center).PadX(shellContentPad).Children(func() {

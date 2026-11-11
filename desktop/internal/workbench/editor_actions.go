@@ -6,9 +6,12 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -40,7 +43,7 @@ func (a *App) clearEditorActions(d *document) {
 		return
 	}
 	d.actions = nil
-	d.view.SetLineAnnotations(nil)
+	d.view.SetLineIcons(nil)
 }
 
 // collectEditorActions asks the plugins for the actions of the document's current text. An answer
@@ -67,19 +70,50 @@ func (a *App) collectEditorActions(p *project, d *document) {
 	})
 }
 
-// annotateEditorActions shows the first action of each line at the end of that line.
+// annotateEditorActions puts an icon in the gutter of each line that starts an action; the first action
+// of a line stands for it, and a press on the icon runs that action. The icons are the editor's own,
+// so they never overlap the blame annotations of the line.
 func (a *App) annotateEditorActions(d *document) {
 	seen := map[int]bool{}
-	var annotations []editorview.LineAnnotation
+	var icons []editorview.LineIcon
 	for _, action := range d.actions {
 		line := action.Range.StartLine - 1
 		if line < 0 || seen[line] {
 			continue
 		}
 		seen[line] = true
-		annotations = append(annotations, editorview.LineAnnotation{Line: line, Text: action.Title})
+		if icon, ok := editorActionIcon(action.Icon); ok {
+			icons = append(icons, editorview.LineIcon{Line: line, Icon: icon})
+		}
 	}
-	d.view.SetLineAnnotations(annotations)
+	d.view.SetLineIcons(icons)
+	d.view.SetLineIconClick(func(line int) { a.runFirstActionOnLine(d, line) })
+}
+
+// editorActionIcon maps the host's action icon names to the icons it draws. An unknown name has no icon.
+func editorActionIcon(name string) (gfx.Icon, bool) {
+	switch name {
+	case "run", "run-all":
+		return icons.Play, true
+	case "debug":
+		return icons.Bug, true
+	case "test", "test-passed", "test-failed", "test-skipped":
+		return icons.Check, true
+	}
+	return gfx.Icon{}, false
+}
+
+// runFirstActionOnLine runs the first action that starts on a line, the one its gutter icon shows.
+func (a *App) runFirstActionOnLine(d *document, line int) {
+	for _, action := range d.actions {
+		if action.Range.StartLine-1 == line {
+			p := a.project
+			if p != nil && p.docs.find(d.id) == d {
+				a.runEditorAction(p, d, action, -1)
+			}
+			return
+		}
+	}
 }
 
 // editorActionMenuItems declares the actions that start on the caret line as menu entries, each
@@ -134,9 +168,34 @@ func (a *App) runEditorAction(p *project, d *document, action pluginservice.Edit
 			if len(locations) == 0 {
 				return
 			}
-			a.revealEditorLocation(p, root, locations[0])
+			a.revealEditorLocations(p, d, root, locations)
 		}
 	})
+}
+
+// revealEditorLocations shows the locations a result named. One opens directly; several go to the
+// definition list, the same popup a language server's several definitions use. Files and other URIs
+// both qualify: a URI the host cannot serve is dropped by the usable filter.
+func (a *App) revealEditorLocations(p *project, d *document, root string, locations []pluginservice.EditorLocation) {
+	targets := make([]core.PluginSemanticLocation, 0, len(locations))
+	for _, location := range locations {
+		item := core.PluginSemanticLocation{
+			URI: location.URI,
+			Range: core.PluginDocumentRange{
+				Start: core.PluginDocumentPosition{Line: location.StartLine, UTF16Column: location.StartCharacter},
+				End:   core.PluginDocumentPosition{Line: location.EndLine, UTF16Column: location.EndCharacter},
+			},
+		}
+		if parsed, err := url.Parse(location.URI); err == nil && parsed.Scheme == "file" {
+			item.FilePath = parsed.Path
+		}
+		targets = append(targets, item)
+	}
+	if len(targets) == 1 && targets[0].FilePath != "" {
+		a.revealEditorLocation(p, root, locations[0])
+		return
+	}
+	a.presentDefinitionTargets(p, d, pluginSemanticDefinition, a.usableDefinitionTargets(targets, maxDefinitionTargets), len(targets), d.view.Revision())
 }
 
 // revealEditorLocation opens a location a result named: a file opens at its position, another URI
