@@ -123,6 +123,10 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 				}
 			}
 		}
+		if !n.dir && !root {
+			a.treeGitMenu(c, p, n, menu)
+			opened = true
+		}
 		if opened {
 			menu.Separator()
 		}

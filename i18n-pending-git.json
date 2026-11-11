@@ -853,5 +853,23 @@
     "description": "Rebase plan row button: move the commit one place later in the replay order",
     "en-US": "Down",
     "zh-CN": "下移"
+  },
+  {
+    "id": "desktop.files.gitSubmenu",
+    "description": "Project tree context menu: the Git submenu of a file",
+    "en-US": "Git",
+    "zh-CN": "Git"
+  },
+  {
+    "id": "desktop.files.showHistory",
+    "description": "Project tree Git submenu: show the Log tab narrowed to the file's commits",
+    "en-US": "Show History",
+    "zh-CN": "显示历史"
+  },
+  {
+    "id": "desktop.files.compareBranch",
+    "description": "Project tree Git submenu: compare the file with a branch",
+    "en-US": "Compare with Branch",
+    "zh-CN": "与分支比较"
   }
 ]
