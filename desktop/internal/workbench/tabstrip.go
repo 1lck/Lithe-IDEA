@@ -22,8 +22,11 @@ import (
 //   - tabsRows wraps the tabs onto as many rows as they need, the strip's buttons at the end
 //     of the first row.
 //
-// The row that scrolls is the only row of a Viva List whose RowWidth is the width of all the
-// tabs, so the List scrolls it sideways and keeps the offset. The widths of the tabs are
+// The row that scrolls keeps its own offset: the row of all the tabs is moved left by it and
+// clipped to the strip, and the wheel over the strip, turned up or down as well as sideways,
+// moves it (stripWheel). A Viva ScrollArea that scrolls sideways takes only the sideways
+// wheel, or the wheel with Shift held, and the list of hidden tabs and the scroll to the
+// selected tab read the offset and the strip's width directly. The widths of the tabs are
 // measured before they are declared, and the width of the strip is read from the paint
 // before, which asks for one more paint when it changes what the strip shows.
 

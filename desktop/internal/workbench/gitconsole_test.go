@@ -398,11 +398,11 @@ func TestConsoleHeaderIsSpannedForItsColorsAndItsInlineFold(t *testing.T) {
 	}
 }
 
-// consolePieceTexts is pieces as "line:kind:text/cells".
+// consolePieceTexts is pieces as "line:kind:text".
 func consolePieceTexts(pieces []consolePiece) []string {
 	out := make([]string, 0, len(pieces))
 	for _, p := range pieces {
-		out = append(out, fmt.Sprintf("%d:%d:%s/%d", p.line, p.kind, p.text, p.cells))
+		out = append(out, fmt.Sprintf("%d:%d:%s", p.line, p.kind, p.text))
 	}
 	return out
 }
@@ -417,14 +417,14 @@ func TestLayoutConsoleRowBreaksAndCutsByCells(t *testing.T) {
 		wrap  bool
 		want  []string
 	}{
-		{name: "unknown width", text: "abcdefgh", cells: 0, want: []string{"0:0:abcdefgh/8"}},
-		{name: "fits", text: "abcd", cells: 4, want: []string{"0:0:abcd/4"}},
-		{name: "cut", text: "abcdef", cells: 4, want: []string{"0:0:abc/3", "0:0:…/1"}},
-		{name: "cut in the second span", text: "abcdefgh", spans: spans, cells: 6, want: []string{"0:1:abc/3", "0:0:de/2", "0:0:…/1"}},
-		{name: "wrap across spans", text: "abcdefgh", spans: spans, cells: 5, wrap: true, want: []string{"0:1:abc/3", "0:0:de/2", "1:0:fgh/3"}},
-		{name: "wide characters", text: "中文ab", cells: 3, wrap: true, want: []string{"0:0:中/2", "1:0:文a/3", "2:0:b/1"}},
-		{name: "cut before a wide character", text: "a中文", cells: 4, want: []string{"0:0:a中/3", "0:0:…/1"}},
-		{name: "wide character wider than the row", text: "中", cells: 1, wrap: true, want: []string{"0:0:中/2"}},
+		{name: "unknown width", text: "abcdefgh", cells: 0, want: []string{"0:0:abcdefgh"}},
+		{name: "fits", text: "abcd", cells: 4, want: []string{"0:0:abcd"}},
+		{name: "cut", text: "abcdef", cells: 4, want: []string{"0:0:abc", "0:0:…"}},
+		{name: "cut in the second span", text: "abcdefgh", spans: spans, cells: 6, want: []string{"0:1:abc", "0:0:de", "0:0:…"}},
+		{name: "wrap across spans", text: "abcdefgh", spans: spans, cells: 5, wrap: true, want: []string{"0:1:abc", "0:0:de", "1:0:fgh"}},
+		{name: "wide characters", text: "中文ab", cells: 3, wrap: true, want: []string{"0:0:中", "1:0:文a", "2:0:b"}},
+		{name: "cut before a wide character", text: "a中文", cells: 4, want: []string{"0:0:a中", "0:0:…"}},
+		{name: "wide character wider than the row", text: "中", cells: 1, wrap: true, want: []string{"0:0:中"}},
 		{name: "empty", text: "", cells: 4, want: []string{}},
 	}
 	for _, tc := range cases {

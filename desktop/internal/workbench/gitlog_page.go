@@ -48,10 +48,10 @@ const (
 )
 
 // The reference chips under the author line of the commit details. drawLogRefChip lays a
-// chip out and refRows measures it with the same numbers, so they must change together: a
-// chip is logRefChipPad on either side of a logRefIconSize tag icon, logRefChipGap and the
-// name, and chips stand logRefChipGap apart along a line and between the lines they wrap
-// onto.
+// chip out and the Flow of the chips measures it as laid out: a chip is logRefChipPad on
+// either side of a logRefIconSize tag icon, logRefChipGap and the name, and chips stand
+// logRefChipGap apart along a line and between the lines they wrap onto. A chip wider than a
+// line has one to itself, shrinks to it and its name ends in an ellipsis.
 const (
 	logRefChipHeight = 20
 	logRefChipPad    = 6
@@ -60,8 +60,8 @@ const (
 )
 
 // The author line of the commit details: the short hash, the author, the email and the
-// date. drawLogMeta lays the parts out and metaRows measures them with the same numbers:
-// parts stand logAuthorGap apart along a line, and the lines they wrap onto logAuthorLineGap.
+// date. drawLogMeta lays the parts out in a Flow: parts stand logAuthorGap apart along a
+// line, and the lines they wrap onto logAuthorLineGap.
 const (
 	logAuthorGap     = 6
 	logAuthorLineGap = 2
@@ -122,23 +122,9 @@ type logView struct {
 	// focus is the field to give the keyboard to in the next paint.
 	focus gfx.ID
 
-	// subject is the selected commit's subject broken into the lines the commit details draw
-	// it in: subjectOf, in the details subjectWidth wide, with the fonts of subjectFonts.
-	subject      []string
-	subjectOf    string
-	subjectWidth float32
-	subjectFonts uint32
-	// refWidths are the widths refRows measured the selected commit's reference chips at, and
-	// refStarts the index of the first chip of each line they wrap onto; both are kept so the
-	// next paint reuses their arrays.
-	refWidths []float32
-	refStarts []int
-	// metaParts are the parts of the selected commit's author line, metaWidths the widths
-	// metaRows measured them at, and metaStarts the index of the first part of each line
-	// they wrap onto; all are kept so the next paint reuses their arrays.
-	metaParts  []logMetaPart
-	metaWidths []float32
-	metaStarts []int
+	// metaParts are the parts of the selected commit's author line; the array is kept so the
+	// next paint reuses it.
+	metaParts []logMetaPart
 
 	// file is the path of the selected changed file, and folder the path of the selected
 	// folder of the changed files; at most one of them is set.

@@ -50,30 +50,26 @@ func TestLogCommitDetailsShowWholeAuthorLine(t *testing.T) {
 	if len(parts) != 4 || parts[1].text != author || parts[2].text != "<"+email+">" {
 		t.Fatalf("the author line is %+v, want the hash, %q, <%s> and the date", parts, author, email)
 	}
-	if len(v.metaWidths) != len(parts) || len(v.metaStarts) < 2 {
-		t.Fatalf("%d parts measured %v and wrapped at %v, want all in at least two lines", len(parts), v.metaWidths, v.metaStarts)
-	}
-	if line := slices.Index(v.metaStarts, 2); line < 0 || line+1 >= len(v.metaStarts) || v.metaStarts[line+1] != 3 {
-		t.Fatalf("the email wider than a line does not have one to itself: lines start at %v", v.metaStarts)
-	}
+	mailbox := parts[2].text
 
 	// Every text of the details at the body size lies inside the pane's padding and none
-	// ends in an ellipsis; the email's lines join into the whole email, and the other parts
-	// are drawn whole. The details pane starts after its splitter, is detailWidth wide and
-	// as tall as the splitter; the commit details lie below the splitter of the changed
-	// files, which this commit, changing none, leaves empty.
+	// ends in an ellipsis; the texts are drawn on at least two lines. The email's lines
+	// join into the whole email and have no other part on them, and the other parts are
+	// drawn whole. The details pane starts after its splitter, is detailWidth wide and as
+	// tall as the splitter; the commit details lie below the splitter of the changed files,
+	// which this commit, changing none, leaves empty.
 	split, files := h.logDetailsSplit(), h.logFilesSplit()
 	left, top, bottom := split.Right(), files.Bottom(), split.Bottom()
 	contentLeft, contentRight := left+logDetailPad, left+v.detailWidth-logDetailPad
 	const slack = 0.5
 	var drawn []app.Label
-	var joined strings.Builder
+	lines := map[float32]bool{}
 	for _, label := range h.driver.Snapshot().Labels {
 		if label.FontSize != h.app.theme.Metrics.FontSizeM || label.Bounds.X < left || label.Bounds.Y < top || label.Bounds.Y >= bottom {
 			continue
 		}
 		drawn = append(drawn, label)
-		joined.WriteString(label.Value)
+		lines[label.Bounds.Y] = true
 		if strings.Contains(label.Value, "…") {
 			t.Errorf("%q is cut short", label.Value)
 		}
@@ -81,18 +77,37 @@ func TestLogCommitDetailsShowWholeAuthorLine(t *testing.T) {
 			t.Errorf("%q drawn at %+v, outside the details' %v..%v", label.Value, label.Bounds, contentLeft, contentRight)
 		}
 	}
-	if !strings.Contains(joined.String(), parts[2].text) {
-		t.Errorf("the email is not drawn whole across its lines; drawn %+v", drawn)
+	if len(lines) < 2 {
+		t.Fatalf("the author line is drawn on %d lines, want at least two; drawn %+v", len(lines), drawn)
+	}
+	// A label is a piece of the email when its text is part of the email and not another
+	// part's whole text, such as the hash.
+	isEmail := func(label app.Label) bool {
+		return label.Value != "" && strings.Contains(mailbox, label.Value) &&
+			!slices.ContainsFunc(parts, func(part logMetaPart) bool { return part.text != mailbox && part.text == label.Value })
+	}
+	var joined strings.Builder
+	mailLines := map[float32]bool{}
+	for _, label := range drawn {
+		if isEmail(label) {
+			joined.WriteString(label.Value)
+			mailLines[label.Bounds.Y] = true
+		}
+	}
+	if joined.String() != mailbox {
+		t.Errorf("the email's lines are %q, want the whole %q; drawn %+v", joined.String(), mailbox, drawn)
+	}
+	for _, label := range drawn {
+		if !isEmail(label) && mailLines[label.Bounds.Y] {
+			t.Errorf("%q shares a line with the email, which has its lines to itself; drawn %+v", label.Value, drawn)
+		}
 	}
 	for i, part := range parts {
 		if i == 2 {
 			continue
 		}
-		at := slices.IndexFunc(drawn, func(label app.Label) bool { return label.Value == part.text })
-		if at < 0 {
+		if !slices.ContainsFunc(drawn, func(label app.Label) bool { return label.Value == part.text }) {
 			t.Errorf("%q is not drawn whole; drawn %+v", part.text, drawn)
-		} else if drawn[at].Bounds.Width < v.metaWidths[i]-1 {
-			t.Errorf("%q is %v wide, want its whole %v", part.text, drawn[at].Bounds.Width, v.metaWidths[i])
 		}
 	}
 }
@@ -149,13 +164,7 @@ func TestLogCommitDetailsWrapReferenceChips(t *testing.T) {
 			t.Fatalf("no chip for the tag %q among %+v", tag, chips)
 		}
 	}
-	if len(v.refWidths) != len(chips) || len(v.refStarts) < 2 {
-		t.Fatalf("%d chips measured %v and wrapped at %v, want all %d in at least two lines", len(v.refWidths), v.refWidths, v.refStarts, len(chips))
-	}
 	wide := slices.IndexFunc(chips, func(x core.GraphLabel) bool { return x.Title == long })
-	if line := slices.Index(v.refStarts, wide); line < 0 || line+1 < len(v.refStarts) && v.refStarts[line+1] != wide+1 {
-		t.Fatalf("the chip wider than a line, %d, shares a line: lines start at %v", wide, v.refStarts)
-	}
 
 	// The details pane starts after its splitter and is detailWidth wide; the chips lie
 	// below the changed files, inside the pane's padding.
@@ -168,37 +177,109 @@ func TestLogCommitDetailsWrapReferenceChips(t *testing.T) {
 			drawn = append(drawn, label)
 		}
 	}
-	const chrome = 2*logRefChipPad + logRefIconSize + logRefChipGap
 	const slack = 0.5
+	// Each chip's name is found as drawn: whole, but for the chip wider than a line.
+	labels := make([]app.Label, len(chips))
 	lines := map[float32]bool{}
 	for i, chip := range chips {
-		var label app.Label
-		found := false
-		for _, d := range drawn {
-			if d.Value == chip.Title || i == wide && strings.HasPrefix(d.Value, long[:24]) {
-				label, found = d, true
-				break
-			}
-		}
-		if !found {
+		at := slices.IndexFunc(drawn, func(d app.Label) bool {
+			return d.Value == chip.Title || i == wide && strings.HasPrefix(d.Value, long[:24])
+		})
+		if at < 0 {
 			t.Fatalf("chip %q is not drawn in the details; drawn %+v", chip.Title, drawn)
 		}
+		label := drawn[at]
+		labels[i] = label
 		lines[label.Bounds.Y] = true
 		if label.Bounds.X-logRefIconSize-logRefChipGap-logRefChipPad < contentLeft-slack ||
 			label.Bounds.Right()+logRefChipPad > contentRight+slack {
 			t.Errorf("chip %q drawn at %+v, outside the details' %v..%v", chip.Title, label.Bounds, contentLeft, contentRight)
 		}
-		text := v.refWidths[i] - chrome
 		if i == wide {
-			if label.Bounds.Width >= text {
-				t.Errorf("the chip wider than a line kept its name %v wide, want it cut short of %v", label.Bounds.Width, text)
+			if label.Value == long || !strings.HasSuffix(label.Value, "…") {
+				t.Errorf("the chip wider than a line is drawn as %q, want its name cut short and ending in an ellipsis", label.Value)
 			}
-		} else if label.Bounds.Width < text-slack {
-			t.Errorf("chip %q is %v wide, want its whole name %v", chip.Title, label.Bounds.Width, text)
+		} else if label.Value != chip.Title {
+			t.Errorf("chip %q is drawn as %q, want its whole name", chip.Title, label.Value)
+		}
+	}
+	for i, label := range labels {
+		if i != wide && label.Bounds.Y == labels[wide].Bounds.Y {
+			t.Errorf("chip %q shares a line with the chip wider than a line, which has one to itself", chips[i].Title)
 		}
 	}
 	if len(lines) < 2 {
 		t.Fatalf("the chips are drawn in %d lines, want at least two", len(lines))
+	}
+}
+
+// TestLogCommitDetailsWrapMonospacedSubject checks that the subject of the commit details,
+// which is monospaced, wraps onto more lines in a narrow pane instead of running past its
+// edge: every line of it is drawn inside the details, none ends in an ellipsis, and the
+// lines together are the whole subject, wide characters mixed with ASCII ones included.
+func TestLogCommitDetailsWrapMonospacedSubject(t *testing.T) {
+	h := newHarness(t, gitKernel{core.NewClient()})
+	dir := newTestRepository(t)
+	subject := strings.TrimRight("修复 detached HEAD 下的提交列表 "+strings.Repeat("宽字符与 ASCII 混排的提交标题 ", 6), " ")
+	gitRun(t, dir, "commit", "--allow-empty", "-m", subject)
+	head := gitRun(t, dir, "rev-parse", "HEAD")
+	h.app.delays = logDelays{}
+	h.open(dir)
+	p := h.app.project
+	if p == nil || !p.git.isRepository() {
+		t.Fatalf("the project is not a loaded repository: %+v", p)
+	}
+	v := &h.app.logView
+	// The details at their least width are the narrow pane; a tall bottom area and short
+	// changed files leave the commit details room for every line.
+	v.detailWidth = logDetailsMin
+	v.filesSplit.Pos = logFilesMin
+	h.app.layout.bottom = 10000
+	h.app.layout.gitTab = gitTabLog
+	h.settle()
+	if !p.log.started {
+		h.click(center(h.button(itemGit)))
+		h.settle()
+	}
+	h.app.selectCommit(p, head)
+	h.settle()
+	h.settle()
+	if p.log.detail == nil {
+		t.Fatalf("no details of %q: files %v", head, p.log.filesState)
+	}
+
+	// The subject is drawn at the log's font size, which is also the body size the author
+	// line is drawn at, so the lines are the texts at that size whose characters are part of
+	// the subject. The details pane starts after its splitter and is detailWidth wide; the
+	// subject lies below the changed files, inside the pane's padding.
+	split, files := h.logDetailsSplit(), h.logFilesSplit()
+	left, top := split.Right(), files.Bottom()
+	contentLeft, contentRight := left+logDetailPad, left+v.detailWidth-logDetailPad
+	const slack = 0.5
+	compact := func(value string) string { return strings.ReplaceAll(value, " ", "") }
+	var joined strings.Builder
+	lines := map[float32]bool{}
+	for _, label := range h.driver.Snapshot().Labels {
+		if label.FontSize != logFontSize || label.Bounds.X < left || label.Bounds.Y < top {
+			continue
+		}
+		if value := compact(label.Value); value == "" || !strings.Contains(compact(subject), value) {
+			continue
+		}
+		joined.WriteString(label.Value)
+		lines[label.Bounds.Y] = true
+		if strings.Contains(label.Value, "…") {
+			t.Errorf("%q is cut short", label.Value)
+		}
+		if label.Bounds.X < contentLeft-slack || label.Bounds.Right() > contentRight+slack {
+			t.Errorf("%q drawn at %+v, outside the details' %v..%v", label.Value, label.Bounds, contentLeft, contentRight)
+		}
+	}
+	if len(lines) < 2 {
+		t.Errorf("the subject is drawn on %d lines, want at least two", len(lines))
+	}
+	if compact(joined.String()) != compact(subject) {
+		t.Errorf("the subject's lines are %q, want the whole %q", joined.String(), subject)
 	}
 }
 

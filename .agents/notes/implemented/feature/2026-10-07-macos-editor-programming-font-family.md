@@ -226,6 +226,5 @@ IDEA 的编辑器字体组合框确实有这个开关，功能上更完整。本
 
 - `desktop/internal/editorview/`
 - `desktop/internal/settingswindow/`
-- `desktop/internal/monogrid/`
 - `shared/platform-feature-matrix/features/editor-font-family.json`
 - [旧客户端字体实现与原适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/feature/2026-10-07-macos-editor-programming-font-family.md)

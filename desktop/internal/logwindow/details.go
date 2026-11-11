@@ -5,11 +5,9 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/vivaui/viva/gfx"
-	vivatext "github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -28,11 +26,6 @@ const (
 	detailsButtonHeight = 25
 	// detailsNoteSize is the size of the note under the actions.
 	detailsNoteSize = 10
-	// detailsGutter is kept free at the trailing edge of the JSON so that a scroll bar never
-	// covers the last column.
-	detailsGutter = 8
-	// detailsMinCols is the fewest columns the JSON is wrapped to, however narrow the window.
-	detailsMinCols = 16
 
 	// The call chain's rows: their height, the font and the padding of the list.
 	detailsTraceRowHeight = 22
@@ -77,8 +70,8 @@ type detailSpan struct {
 type detailRow []detailSpan
 
 // detailsState is what the details pane remembers between frames: the tab that is open and
-// the JSON of the selected record, tokenized and wrapped, so that a frame with the same
-// record and the same width does no work on the text.
+// the JSON of the selected record, tokenized, so that a frame with the same record does no
+// work on the text.
 type detailsState struct {
 	// tab is detailsTabFields or detailsTabTrace.
 	tab int
@@ -94,12 +87,9 @@ type detailsState struct {
 	traceList ui.ListState
 	records   []core.LogRecord
 
-	// header and body are the note and the tokens wrapped to laidCols columns, for the note
-	// laidHeader.
-	header, body []detailRow
-	laidCols     int
-	laidHeader   string
-	laidOut      bool
+	// header is the row of the note above the JSON, built for the note laidHeader.
+	header     []detailRow
+	laidHeader string
 }
 
 // detailsToken finds the tokens the JSON is colored by: a string, true, false and null, and a
@@ -194,120 +184,20 @@ func splitDetailLines(spans []detailSpan) []detailRow {
 	return append(lines, line)
 }
 
-// wrapDetailRows breaks every line at cols cells of a monospaced font. Viva has no horizontal scrolling and a
-// Text is one clipped line, so a long line continues on the next row instead of running out
-// of the pane where the macOS window would let the user scroll sideways.
-func wrapDetailRows(lines []detailRow, cols int) []detailRow {
-	var rows []detailRow
-	for _, line := range lines {
-		rows = append(rows, wrapDetailRow(line, cols)...)
-	}
-	return rows
-}
-
-// wrapDetailRow breaks one line at cols cells of a monospaced font, where a wide character,
-// such as a Chinese one, takes two. An empty line stays one empty row.
-func wrapDetailRow(line detailRow, cols int) []detailRow {
-	cols = max(cols, 1)
-	var rows []detailRow
-	var row detailRow
-	used := 0
-	for _, span := range line {
-		for span.text != "" {
-			if used == cols {
-				rows = append(rows, row)
-				row, used = nil, 0
-			}
-			room := cols - used
-			if n := monoCells(span.text); n <= room {
-				row = append(row, span)
-				used += n
-				break
-			}
-			cut := detailCellOffset(span.text, room)
-			if cut == 0 && used > 0 {
-				// The next character is wider than what is left of the row.
-				rows = append(rows, row)
-				row, used = nil, 0
-				continue
-			}
-			if cut == 0 {
-				// A character wider than a whole row takes a row of its own.
-				_, cut = utf8.DecodeRuneInString(span.text)
-			}
-			row = append(row, detailSpan{text: span.text[:cut], role: span.role, field: span.field})
-			rows = append(rows, row)
-			row, used = nil, 0
-			span.text = span.text[cut:]
-		}
-	}
-	return append(rows, row)
-}
-
-// detailCellOffset is the byte offset of the longest start of s that takes at most cells
-// cells of a monospaced font.
-func detailCellOffset(s string, cells int) int {
-	for i, r := range s {
-		if cells -= vivatext.CellWidth(r); cells < 0 {
-			return i
-		}
-	}
-	return len(s)
-}
-
-// wrapDetailWords breaks s into lines of at most cols cells of a monospaced font, between
-// words where it can and inside a word that is longer than a line, such as a run of Chinese,
-// whose characters take two cells each. The note under the actions is set by it: a paragraph
-// of Viva measures the text it wraps with the proportional font, which is narrower than the
-// monospaced font the note is drawn in.
-func wrapDetailWords(s string, cols int) []string {
-	cols = max(cols, 1)
-	var lines []string
-	var line []rune
-	used := 0
-	flush := func() {
-		if len(line) > 0 {
-			lines = append(lines, string(line))
-			line, used = line[:0], 0
-		}
-	}
-	for _, word := range strings.Fields(s) {
-		width := monoCells(word)
-		if len(line) > 0 && used+1+width <= cols {
-			line = append(append(line, ' '), []rune(word)...)
-			used += 1 + width
-			continue
-		}
-		flush()
-		for _, r := range word {
-			cells := vivatext.CellWidth(r)
-			if used+cells > cols && len(line) > 0 {
-				flush()
-			}
-			line = append(line, r)
-			used += cells
-		}
-	}
-	flush()
-	return lines
-}
-
 // layoutDetail makes the tokens of the selected record's JSON when the record or its text
-// changed, and wraps the note and the tokens to cols columns when they or the width changed.
-func (w *window) layoutDetail(fields map[string]string, header string, cols int) {
+// changed, and the row of the note above them when the note changed. The lines are not
+// broken: the area they are in scrolls sideways.
+func (w *window) layoutDetail(fields map[string]string, header string) {
 	d := &w.details
 	id, text := w.model.detailID, w.model.detailText
 	if !d.tokenized || d.tokenID != id || d.tokenText != text {
 		d.tokens = tokenizeDetailJSON(text, fields)
 		d.tokenID, d.tokenText, d.tokenized = id, text, true
-		d.laidOut = false
 	}
-	if d.laidOut && d.laidCols == cols && d.laidHeader == header {
-		return
+	if d.header == nil || d.laidHeader != header {
+		d.header = []detailRow{{{text: header, role: detailNote}}}
+		d.laidHeader = header
 	}
-	d.header = wrapDetailRows([]detailRow{{{text: header, role: detailNote}}}, cols)
-	d.body = wrapDetailRows(d.tokens, cols)
-	d.laidCols, d.laidHeader, d.laidOut = cols, header, true
 }
 
 // detailsPanel is the details pane: the tabs and the selected record's JSON or call chain on
@@ -368,33 +258,32 @@ func (w *window) detailTab(c ui.C, name string, index int, title string, count i
 }
 
 // detailFields is the Detail tab: the file and line of the record, then its JSON as the
-// kernel formats it, colored. Nothing is drawn while no record is selected.
+// kernel formats it, colored. A line is never broken: the area scrolls sideways, as the macOS
+// window's does, so a long value runs on past the pane's edge. Nothing is drawn while no
+// record is selected.
 func (w *window) detailFields(c ui.C, record core.LogRecord, selected bool) {
-	cw, ch := c.Canvas().CellSize(detailsFontSize)
-	area := ui.Scroll(c).FillWidth().Grow(1).Shrink(1).MinHeight(0).
+	_, ch := c.Canvas().CellSize(detailsFontSize)
+	area := ui.Scroll(c).Sideways().Scrollbars().FillWidth().Grow(1).Shrink(1).MinHeight(0).
 		PadSides(detailsPadY, detailsPadX, detailsPadY, detailsPadX)
 	if !selected {
 		area.Children(func() {})
 		return
 	}
-	// The pane's width is known without a layout: the window less the channel list, the
-	// column of actions and the lines between them.
-	width := c.Bounds().Width - sidebarWidth - 1 - 1 - detailsActionsWidth - 2*detailsPadX - detailsGutter
-	cols := max(detailsMinCols, int(width/cw))
 	relative := record.RelativePath
 	if session := w.model.currentSessionPath; session != "" {
 		relative = strings.ReplaceAll(relative, session+"/", "")
 	}
 	header := "// " + relative + "  ·  " + w.text.Logs.SourceLine(record.LineNumber)
-	w.layoutDetail(record.Fields, header, cols)
+	w.layoutDetail(record.Fields, header)
 	area.Children(func() {
 		w.detailRows(c, w.details.header, ch, record)
 		ui.Row(c).Height(2).Shrink(0)
-		w.detailRows(c, w.details.body, ch, record)
+		w.detailRows(c, w.details.tokens, ch, record)
 	})
 }
 
-// detailRows declares rows of the JSON, each as a row of monospaced spans.
+// detailRows declares rows of the JSON, each as a row of monospaced spans. A row is as wide as
+// the area or as its longest line, so that the area scrolls to the end of the line.
 func (w *window) detailRows(c ui.C, rows []detailRow, height float32, record core.LogRecord) {
 	for _, row := range rows {
 		ui.Row(c).FillWidth().Height(height).Shrink(0).Children(func() {
@@ -537,10 +426,7 @@ func (w *window) detailActions(c ui.C, record core.LogRecord, selected bool) {
 			w.openExport()
 		}
 
-		cw, ch := c.Canvas().CellSize(detailsNoteSize)
-		cols := int((detailsActionsWidth - 2*detailsActionsPad) / cw)
-		for _, line := range wrapDetailWords(m.RedactedNote, cols) {
-			w.mono(c, line, detailsNoteSize, w.pal.tx3).Shrink(0).Height(ch)
-		}
+		_, ch := c.Canvas().CellSize(detailsNoteSize)
+		ui.Wrap(c, m.RedactedNote).Mono().FontSize(detailsNoteSize).Color(w.pal.tx3).FillWidth().Shrink(0).LineHeight(ch)
 	})
 }

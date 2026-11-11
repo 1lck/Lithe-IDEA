@@ -17,7 +17,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/windowcontrols"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
-	vivatext "github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -606,43 +605,17 @@ func (w *window) button(c ui.C, name, symbol, title string, o buttonOptions) ui.
 	})
 }
 
-// mono declares a line of monospaced text. A ui Text measures a monospaced text as one cell
-// for every character, too few for a wide one such as a Chinese one, which is drawn on two,
-// so a text that is not all printable ASCII is given the width it is drawn at. Viva's Wrap
-// and Text have no monospaced break by cells yet (vivaui/viva#187), so wrapDetailWords and
-// the wide-character width below stay until they do.
+// mono declares a line of monospaced text. Viva lays a Mono text out on the cells of its
+// fixed-pitch font, two for a wide character such as a Chinese one and none for a combining
+// mark, so the text is as wide as it is drawn, and a Wrap of it breaks where its cells fill the
+// line.
 func (w *window) mono(c ui.C, s string, size float32, color ui.Color) ui.Box {
-	b := ui.Text(c, s).Mono().FontSize(size).Color(color)
-	if !printableASCII(s) {
-		b = b.Width(monoWidth(c.Canvas(), s, size))
-	}
-	return b
+	return ui.Text(c, s).Mono().FontSize(size).Color(color)
 }
 
 // monoWidth is how wide a line of monospaced text at size is drawn.
 func monoWidth(canvas *gfx.Canvas, s string, size float32) float32 {
 	return canvas.TextWidthStyle(s, gfx.TextStyle{Size: size, Weight: gfx.WeightRegular, Mono: true})
-}
-
-// printableASCII says s holds nothing but printable ASCII, each character one cell of a
-// monospaced line.
-func printableASCII(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] < 0x20 || s[i] >= 0x7F {
-			return false
-		}
-	}
-	return true
-}
-
-// monoCells is how many cells of a monospaced font s takes: two for a wide character, none
-// for a combining mark and one for any other.
-func monoCells(s string) int {
-	cells := 0
-	for _, r := range s {
-		cells += vivatext.CellWidth(r)
-	}
-	return cells
 }
 
 // badge declares a small framed key, such as the ⌘F beside the filter.

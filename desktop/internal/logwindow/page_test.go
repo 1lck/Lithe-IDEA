@@ -5,6 +5,8 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -454,6 +456,37 @@ func TestDetailsTabsSwitchBetweenTheJSONAndTheCallChain(t *testing.T) {
 	if w.details.tab != detailsTabFields {
 		t.Fatal("the detail tab did not open again")
 	}
+}
+
+// jsonKernel formats every record as a JSON object with one message, as the kernel's formatted
+// copy is, so that a test decides the text the details show.
+type jsonKernel struct {
+	*exportKernel
+	msg string
+}
+
+func (k jsonKernel) FormatLogRecords(context.Context, []string, string, *core.LogEnvironment) (string, error) {
+	return "{\n  \"msg\": " + strconv.Quote(k.msg) + "\n}", nil
+}
+
+func TestDetailJSONScrollsSidewaysInsteadOfWrapping(t *testing.T) {
+	fixture, _, driver := bigFixture(t, 50)
+	long := strings.Repeat("工作区打开失败，请检查目录 ", 20)
+	fixture.model.opts.Kernel = jsonKernel{exportKernel: fixture.kernel, msg: long}
+	clickHit(t, driver, tableRowHits(driver)[1])
+	pumpUntil(t, driver, "the selected record's JSON", func() bool { return fixture.model.detailText != "" })
+	settleWindow(t, driver)
+	snapshot := driver.Snapshot()
+	for _, text := range snapshot.Texts {
+		if !strings.Contains(text.Value, long) {
+			continue
+		}
+		if text.Bounds.Width <= float32(snapshot.Width) {
+			t.Fatalf("the long value is %.0f points wide in a window %d wide, so it was cut or broken", text.Bounds.Width, snapshot.Width)
+		}
+		return
+	}
+	t.Fatal("no line of the details holds the whole long value, so the JSON was broken into rows")
 }
 
 // querySource answers every query with a fixed collection, and holds the answer while gate

@@ -213,7 +213,7 @@ Swift 只负责读日志文件尾部、订阅 `MacLogStore` 的实时批次、�
 - 记录表是 `ui.List`：只声明可见行，多选和键盘导航由列表给出，`RowWidth` 让窄窗口横向滚动，表头是单独一行并用 `ScrollWith` 跟随。列表按记录的稳定 key（`Model.keyBase` 加下标，永不复用）持有选中状态，Model 的 `selection`（按记录 id）仍是详情和复制读取的真源，两边用 `selectionRevision` 区分谁改了选择。
 - 日志查询是页面的 `ui.Effect`，以 `Model.queryKey` 为 key：新的过滤条件取消上一次查询，清屏只让在途结果过期、不重新查询（所以 key 和 `generation` 分开）。实时订阅是推送流，不是一次一个结果的任务，仍走 Model 的邮箱（`post`、`drain`），在 `OnWake` 里应用；查询以外的后台任务（用量、导出暂存、目录选择）同样没有迁。
 - 菜单、时间范围编辑器、确认框、命名框、导出面板分别用 `ui.Menu`、`ui.Popover`、`ui.Modal`；详情的上下分隔用 `ui.Splitter`（比例保持，不再限制最大高度）。直方图是 `ui.Control` 加 `Draw`，调用链是第二个 `ui.List`。
-- 等宽文字：Viva 当前没有按格子断行的等宽文字（vivaui/viva#187），`mono()` 里非 ASCII 的补宽和 `wrapDetailWords` 保留，上游修复后删除。
+- 等宽文字：vivaui/viva#187 已合入，Viva 按格子测量、断行和截断等宽文字，所以 `mono()` 不再给非 ASCII 文字补宽，脱敏说明改用 `ui.Wrap(...).Mono()` 断行。详情 JSON 不再按列折行：所在区域是 `ui.Scroll(...).Sideways().Scrollbars()`，长行和 macOS 一样横向滚动，并显示滚动条。
 - 被放弃的做法：把表头做成 `ListState.Header` 的第 0 行（记录下标整体错位，选择和 key 要处处减一）；把整个查询邮箱改成 Effect（实时流没有“一个 key 一个结果”的形状）。
 
 ## 验证

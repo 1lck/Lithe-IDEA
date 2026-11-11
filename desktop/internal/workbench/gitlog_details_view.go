@@ -1,7 +1,6 @@
 package workbench
 
 import (
-	"math"
 	"path"
 	"slices"
 	"strings"
@@ -10,7 +9,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/monogrid"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/treelist"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -389,27 +387,12 @@ func (a *App) drawLogCommitDetail(c ui.C, p *project) ui.Box {
 			}
 		}
 		ui.Scroll(c).Grow(1).Pad(logDetailPad).Gap(8).Children(func() {
-			ui.Column(c).FillWidth().Children(func() {
-				for i, line := range a.logView.subjectLines(c.Canvas(), d.Commit.Subject) {
-					ui.Text(c.KeyInt(i), line).Mono().Bold().FontSize(logFontSize).FillWidth()
-				}
-			})
+			ui.Wrap(c, d.Commit.Subject).Mono().Bold().FontSize(logFontSize).FillWidth()
 			a.drawLogMeta(c, d)
 			if chips := slices.DeleteFunc(slices.Clone(labels), func(x core.GraphLabel) bool { return x.Kind == "head" }); len(chips) > 0 {
-				// Viva has no wrapping row, so the chips are broken into lines here, each line
-				// a row of the chips that fit it whole.
-				starts := a.logView.refRows(c.Canvas(), chips, a.theme.Metrics.FontSizeS)
-				ui.Column(c).FillWidth().Gap(logRefChipGap).Children(func() {
-					for line, start := range starts {
-						end := len(chips)
-						if line+1 < len(starts) {
-							end = starts[line+1]
-						}
-						ui.Row(c.KeyInt(line)).FillWidth().Gap(logRefChipGap).Clip().Children(func() {
-							for _, label := range chips[start:end] {
-								a.drawLogRefChip(c, label)
-							}
-						})
+				ui.Flow(c).FillWidth().Gap(logRefChipGap).Children(func() {
+					for _, label := range chips {
+						a.drawLogRefChip(c, label)
 					}
 				})
 			}
@@ -420,48 +403,11 @@ func (a *App) drawLogCommitDetail(c ui.C, p *project) ui.Box {
 	})
 }
 
-// subjectLines is subject broken into the lines the commit details draw it in, monospaced and
-// bold. A ui Wrap breaks a Mono text where the proportional font fills the line, narrower
-// than the cells a Mono line is drawn on, so its lines would run past the pane and lose
-// their ends. The lines are kept until the subject, the width of the details or the fonts
-// change.
-func (v *logView) subjectLines(canvas *gfx.Canvas, subject string) []string {
-	width := v.detailWidth - 2*logDetailPad
-	if fonts := canvas.FontGeneration(); subject != v.subjectOf || width != v.subjectWidth || fonts != v.subjectFonts {
-		style := gfx.TextStyle{Size: logFontSize, Weight: gfx.WeightSemibold, Mono: true}
-		v.subject = monogrid.Lines(canvas, v.subject[:0], subject, style, width)
-		v.subjectOf, v.subjectWidth, v.subjectFonts = subject, width, fonts
-	}
-	return v.subject
-}
-
-// refRows is where the lines of reference chips start when the commit details wrap labels,
-// drawn at font size size: the index of the first chip of each line. Each chip is measured
-// as drawLogRefChip lays it out, and the lines are as wide as subjectLines breaks the
-// subject at, the details less their padding; the details pane is given exactly
-// detailWidth, so the width is known before the page is laid out. A line holds the chips
-// that fit it whole, so none is cut off by the pane's edge, and a chip wider than a line
-// has one to itself. Without a canvas to measure with the chips stay in one line.
-func (v *logView) refRows(canvas *gfx.Canvas, labels []core.GraphLabel, size float32) []int {
-	avail := v.detailWidth - 2*logDetailPad
-	v.refWidths = v.refWidths[:0]
-	if canvas == nil || avail <= 0 {
-		v.refStarts = append(v.refStarts[:0], 0)
-		return v.refStarts
-	}
-	for _, label := range labels {
-		width := 2*logRefChipPad + logRefIconSize + logRefChipGap + canvas.TextWidth(label.Title, size)
-		v.refWidths = append(v.refWidths, width)
-	}
-	v.refStarts = wrapTabs(v.refStarts[:0], v.refWidths, avail, logRefChipGap)
-	return v.refStarts
-}
-
 // drawLogMeta declares the author line of commit d's details: the short hash, the author,
-// the email and the date. None of them is cut short. The parts wrap onto more lines when the
-// details are narrow, as metaRows breaks them, and a part wider than a line, such as a long
-// email, has one to itself and breaks inside it as a ui Wrap does. The short hash is a few
-// characters, so the fixed-pitch part never needs breaking.
+// the email and the date. None of them is cut short. The parts are a Flow, so they wrap onto
+// more lines when the details are narrow, a part that fits a line is drawn whole on one, and
+// a part wider than a line, such as a long email, has one to itself and wraps inside it as a
+// ui Wrap does.
 func (a *App) drawLogMeta(c ui.C, d *core.GitCommitDetail) {
 	v := &a.logView
 	muted := a.theme.MutedForeground
@@ -473,55 +419,20 @@ func (a *App) drawLogMeta(c ui.C, d *core.GitCommitDetail) {
 	}
 	parts = append(parts, logMetaPart{text: a.text.Git.On(v.date(d.Commit)), color: muted})
 	v.metaParts = parts
-	starts := v.metaRows(c.Canvas(), parts, a.theme.Metrics.FontSizeM)
-	avail := v.detailWidth - 2*logDetailPad
-	ui.Column(c).FillWidth().Gap(logAuthorLineGap).Children(func() {
-		for line, start := range starts {
-			end := len(parts)
-			if line+1 < len(starts) {
-				end = starts[line+1]
+	ui.Flow(c).FillWidth().Items(ui.Center).Gap(logAuthorGap).LineGap(logAuthorLineGap).Children(func() {
+		for _, part := range parts {
+			text := ui.Wrap(c, part.text).Color(part.color)
+			if part.mono {
+				text.Mono()
 			}
-			if end-start == 1 && start < len(v.metaWidths) && v.metaWidths[start] > avail {
-				ui.Wrap(c.KeyInt(line), parts[start].text).FillWidth().Color(parts[start].color)
-				continue
-			}
-			ui.Row(c.KeyInt(line)).FillWidth().Items(ui.Center).Gap(logAuthorGap).Children(func() {
-				for _, part := range parts[start:end] {
-					text := ui.Text(c, part.text).Color(part.color).Shrink(0)
-					if part.mono {
-						text.Mono()
-					}
-				}
-			})
 		}
 	})
 }
 
-// metaRows is where the lines of the author line's parts start when the commit details wrap
-// it, drawn at font size size: the index of the first part of each line. Each part is
-// measured in the font drawLogMeta draws it in and rounded up to a whole point, so a line
-// that fits by these numbers fits once laid out, and the lines are as wide as refRows wraps
-// the reference chips at. A part wider than a line has one to itself. Without a canvas to
-// measure with the parts stay in one line.
-func (v *logView) metaRows(canvas *gfx.Canvas, parts []logMetaPart, size float32) []int {
-	avail := v.detailWidth - 2*logDetailPad
-	v.metaWidths = v.metaWidths[:0]
-	if canvas == nil || avail <= 0 {
-		v.metaStarts = append(v.metaStarts[:0], 0)
-		return v.metaStarts
-	}
-	for _, part := range parts {
-		width := canvas.TextWidthStyle(part.text, gfx.TextStyle{Size: size, Weight: gfx.WeightRegular, Mono: part.mono})
-		v.metaWidths = append(v.metaWidths, float32(math.Ceil(float64(width))))
-	}
-	v.metaStarts = wrapTabs(v.metaStarts[:0], v.metaWidths, avail, logAuthorGap)
-	return v.metaStarts
-}
-
-// drawLogRefChip declares one reference chip of the commit details, laid out with the
-// numbers refRows measures it by. Its name is drawn whole unless the chip is wider than a
-// line, which refRows gives it alone; then the chip gives way to the line and its name
-// ends in an ellipsis.
+// drawLogRefChip declares one reference chip of the commit details. The Flow of the chips
+// measures a chip as it is laid out here, and a name is drawn whole unless the chip is wider
+// than a line; then the chip has a line to itself, shrinks to it and its name ends in an
+// ellipsis.
 func (a *App) drawLogRefChip(c ui.C, label core.GraphLabel) {
 	chip := ui.Row(c.Key(label.ID)).Height(logRefChipHeight).Shrink(1).Items(ui.Center).Gap(logRefChipGap).PadX(logRefChipPad).
 		Radius(a.theme.Metrics.RadiusItem()).Background(a.colors.Hover)

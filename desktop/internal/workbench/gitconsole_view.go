@@ -15,10 +15,11 @@ import (
 // their toggle after the row, and a header its running badge.
 //
 // The rows are broken into lines or cut to the list's width here, by the cells of the font,
-// rather than by ui Wrap and Ellipsis, and each stretch is given the width its cells take:
-// Viva measures a fixed-pitch text one cell a character and breaks it where the
-// proportional font would, so wide characters such as Chinese ones would overlap and lines
-// would run past the edge (vivaui/viva#187). The workaround goes when that is fixed.
+// rather than by ui Wrap and Ellipsis. A row is several spans in different colors, and a
+// header's configuration span is an inline toggle that takes clicks, while a Wrap or an
+// Ellipsis breaks or cuts one Text. A wrapped row breaks anywhere a line is full, as a
+// terminal breaks it, not between words. Viva lays each piece out on its cells, so a piece
+// needs no width of its own.
 
 const (
 	// consoleRowPadX is the room on either side of a row, and consoleRowGap the room between
@@ -188,14 +189,15 @@ func (a *App) drawConsoleRow(row ui.ListRow) {
 }
 
 // drawConsolePieces declares the pieces of one drawn line of row r, each in the run output's
-// font, as wide as its cells and in the color of its kind. A piece of the configuration of a
-// header is the toggle of its fold: it says what a click does to assistive technology, shows
-// the hand and the accent color under the pointer, and opens or closes the fold.
+// font, which Viva lays out on its cells, and in the color of its kind. A piece of the
+// configuration of a header is the toggle of its fold: it says what a click does to assistive
+// technology, shows the hand and the accent color under the pointer, and opens or closes the
+// fold.
 func (a *App) drawConsolePieces(c ui.C, r *consoleRow, pieces []consolePiece) {
 	v := &a.consoleView
 	for _, piece := range pieces {
 		box := ui.Text(c, piece.text).FontSize(v.font.Size).MonoFace(v.font.face).LineHeight(v.lineH).
-			Width(float32(piece.cells) * v.cellW).Shrink(0).Color(a.consoleSpanColor(r.tone, piece.kind))
+			Shrink(0).Color(a.consoleSpanColor(r.tone, piece.kind))
 		if piece.kind != consoleSpanFold || !r.inline {
 			continue
 		}
@@ -229,12 +231,11 @@ func (a *App) consoleCells(canvas *gfx.Canvas, r *consoleRow) int {
 }
 
 // consolePiece is a stretch of a row's text drawn on one of its lines: the text, the kind of
-// the span it is from, the line it is on and the cells it takes.
+// the span it is from and the line it is on.
 type consolePiece struct {
-	text  string
-	kind  consoleSpanKind
-	line  int
-	cells int
+	text string
+	kind consoleSpanKind
+	line int
 }
 
 // layoutConsoleRow appends to dst the pieces text is drawn in on a row cells cells wide: the
@@ -260,32 +261,31 @@ func layoutConsoleRow(dst []consolePiece, text string, spans []consoleSpan, cell
 		if end <= from {
 			continue
 		}
-		at, n := from, 0
+		at := from
 		for i, r := range text[from:end] {
 			i += from
 			w := vivatext.CellWidth(r)
 			if cells > 0 && used+w > limit && (cut || used > 0) {
-				dst = appendConsolePiece(dst, text[at:i], span.kind, line, n)
+				dst = appendConsolePiece(dst, text[at:i], span.kind, line)
 				if cut {
-					return append(dst, consolePiece{text: consoleEllipsis, kind: span.kind, line: line, cells: 1})
+					return append(dst, consolePiece{text: consoleEllipsis, kind: span.kind, line: line})
 				}
-				line, used, at, n = line+1, 0, i, 0
+				line, used, at = line+1, 0, i
 			}
 			used += w
-			n += w
 		}
-		dst = appendConsolePiece(dst, text[at:end], span.kind, line, n)
+		dst = appendConsolePiece(dst, text[at:end], span.kind, line)
 		from = end
 	}
 	return dst
 }
 
 // appendConsolePiece appends the piece of text to dst unless it is empty.
-func appendConsolePiece(dst []consolePiece, text string, kind consoleSpanKind, line, cells int) []consolePiece {
+func appendConsolePiece(dst []consolePiece, text string, kind consoleSpanKind, line int) []consolePiece {
 	if text == "" {
 		return dst
 	}
-	return append(dst, consolePiece{text: text, kind: kind, line: line, cells: cells})
+	return append(dst, consolePiece{text: text, kind: kind, line: line})
 }
 
 // consoleTextCells is how many cells of a fixed-pitch font text takes.

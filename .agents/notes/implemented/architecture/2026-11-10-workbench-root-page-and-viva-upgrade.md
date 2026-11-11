@@ -39,7 +39,7 @@
 
 ## 已知缺口（Viva）
 
-vivaui/viva#187、#200–#204 仍是 open：Splitter 的方向键不由 Page 路由（#204）；`Handlers` 没有 chord 钩子；Tree 不处理横向滚轮（#203）；List 在纵向滑动时会带走横向分量。以上都在窗口回调里做了最小规避。
+vivaui/viva#187 已合入，Lithe 固定的 Viva 版本已包含：等宽文字按格子测量、断行和截断。Git 日志详情的标题、作者行和引用标签改用 `ui.Wrap` 与 `ui.Flow`，删除了手工断行和 `monogrid` 包；Git 控制台每段文字不再自己设宽度，但一行有多种颜色和可点击的折叠开关，仍按格子自己折行；日志窗口的等宽文字不再补宽，详情 JSON 改为 `ui.Scroll(...).Sideways().Scrollbars()`，和 macOS 一样横向滚动并显示滚动条，不再按列折行。#201、#202 已关闭；#200、#203、#204 仍是 open：Splitter 的方向键不由 Page 路由（#204）；`Handlers` 没有 chord 钩子；Tree 不处理横向滚轮（#203）；List 在纵向滑动时会带走横向分量。以上都在窗口回调里做了最小规避。
 
 ## 验证
 
