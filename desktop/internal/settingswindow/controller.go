@@ -81,6 +81,9 @@ type Values struct {
 	// HideProjectColors leaves the open project's color out of the workbench's chrome,
 	// which shows it by default.
 	HideProjectColors bool
+	// ProjectOpenDestination is where a project opened while another is open goes:
+	// ProjectOpenThisWindow, ProjectOpenNewWindow, or empty to ask each time.
+	ProjectOpenDestination string
 	// DisableSemanticHighlight keeps the syntax colors alone; semantic coloring is on by default.
 	DisableSemanticHighlight bool
 	// VimMode turns on the Vim keys of the editor (Normal, Insert and Visual modes); off by default.
@@ -274,6 +277,9 @@ type Options struct {
 	// SetHideProjectColors hands a change of Values.HideProjectColors to the settings
 	// owner, like SetHideGitGutter.
 	SetHideProjectColors func(bool)
+	// SetProjectOpenDestination hands a change of Values.ProjectOpenDestination to the
+	// settings owner.
+	SetProjectOpenDestination func(string)
 	// SteppingAdapters lists the installed debug adapters that take stepping filters, for
 	// the Build page; NormalizeSteppingFilters has Core check and tidy a policy before it
 	// is stored. Both run off the window thread. SetSteppingFilters hands a change to the
@@ -497,3 +503,12 @@ type PluginFacts struct {
 	// Features are the contribution sections the manifest declares, as the contract names them.
 	Features []string
 }
+
+// The values of Values.ProjectOpenDestination besides asking.
+const (
+	ProjectOpenThisWindow = "thisWindow"
+	ProjectOpenNewWindow  = "newWindow"
+)
+
+// projectOpenDestinations are the choices of the setting, asking first.
+var projectOpenDestinations = []string{"", ProjectOpenThisWindow, ProjectOpenNewWindow}

@@ -222,6 +222,14 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 				}
 			})
 		},
+		SetProjectOpenDestination: func(destination string) {
+			a.post(func(a *App) {
+				if a.settings.ProjectOpenDestination != destination {
+					a.settings.ProjectOpenDestination = destination
+					a.saveSettings()
+				}
+			})
+		},
 		UpdateStatus:    a.updateStatus,
 		CheckForUpdates: func() { a.post(func(a *App) { a.checkForUpdates(true) }) },
 		DownloadUpdate:  func() { a.post(func(a *App) { a.downloadUpdate() }) },
@@ -381,8 +389,8 @@ func (a *App) openSettingsPageWith(surface string, page settingsPage, query stri
 			EditorTabRows: a.settings.EditorTabRows, EditorTabOverflow: a.settings.EditorTabOverflow,
 			EditorTabLimit: settingswindow.TabLimitOf(a.settings.EditorTabLimit), EditorTabPolicy: a.settings.EditorTabPolicy,
 			TerminalShell: a.settings.TerminalShell, TerminalScrollback: a.terminalScrollback(),
-			HideProjectColors: a.settings.HideProjectColors,
-			HideGitGutter:     a.settings.HideGitGutter, InlineGitBlame: a.settings.InlineGitBlame,
+			HideProjectColors: a.settings.HideProjectColors, ProjectOpenDestination: a.settings.ProjectOpenDestination,
+			HideGitGutter: a.settings.HideGitGutter, InlineGitBlame: a.settings.InlineGitBlame,
 			DisableSemanticHighlight: a.settings.DisableSemanticHighlight,
 			VimMode:                  a.settings.VimMode,
 			ProcessTermination:       a.settings.ProcessTermination,

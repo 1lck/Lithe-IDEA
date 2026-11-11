@@ -20,6 +20,10 @@ type pluginPrompt struct {
 	// mono shows the text in a fixed-pitch font, for commands and paths.
 	mono    bool
 	actions []string
+	// check, when set, is the label of a checkbox under the text, such as "Don't ask
+	// again"; checked is its state, which onAnswer reads.
+	check   string
+	checked bool
 	// open is the flag the modal that shows the prompt keeps.
 	open bool
 	// answer receives the chosen index, or nil for a dismissal. It is buffered, so
@@ -120,6 +124,9 @@ func (a *App) pluginPromptView(c ui.C) {
 				text.Mono()
 			}
 		})
+		if prompt.check != "" {
+			ui.Checkbox(c.Part("check"), &prompt.checked, prompt.check)
+		}
 	}, func() {
 		for i, action := range prompt.actions {
 			button := ui.Button(c.KeyInt(i), action)

@@ -1,9 +1,6 @@
 package workbench
 
 import (
-	"os"
-	"os/exec"
-
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 )
 
@@ -12,16 +9,7 @@ import (
 // Options.OpenPath). The current window and its project are left as they are.
 func (a *App) openWorktreeInNewWindow(path string) {
 	a.performed("git.worktree.openNewWindow", surfaceButton)
-	exe, err := os.Executable()
-	if err == nil {
-		cmd := exec.Command(exe, path)
-		err = cmd.Start()
-		if err == nil {
-			// The new client runs on its own; the current one does not wait for it.
-			go func() { _ = cmd.Wait() }()
-		}
-	}
-	if err != nil {
+	if err := launchClient(path); err != nil {
 		a.notifyError(i18n.SharedFormat(a.language(), "desktop.worktree.openNewWindowFailed", map[string]string{"reason": treeErrorReason(err)}))
 	}
 }

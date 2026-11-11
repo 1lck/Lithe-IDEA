@@ -135,8 +135,8 @@ type window struct {
 	queryWanted *string
 	// The values the controls of the pages write into, set from the session's values in
 	// each paint: a change the control makes is what the window then applies.
-	themePick, languagePick, tabRowsPick, tabOverflowPick, shellPick string
-	marketSourcePick                                                 int
+	themePick, languagePick, tabRowsPick, tabOverflowPick, shellPick, projectOpenPick string
+	marketSourcePick                                                                  int
 	// marketSourceDraft is the index URL being typed; marketSourceNotice the last refusal.
 	marketSourceDraft  string
 	marketSourceNotice string

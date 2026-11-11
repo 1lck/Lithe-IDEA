@@ -873,7 +873,8 @@ func (a *App) showWorktrees() {
 // openWorktree opens the checkout at path as the window's project.
 func (a *App) openWorktree(path string) {
 	a.performed("git.worktree.open", surfaceButton)
-	a.openProject(path)
+	// The worktree menu offers This Window and New Window itself.
+	a.openProjectHere(path)
 }
 
 // beginCreateWorktree opens the dialog that creates a worktree and reads the references it

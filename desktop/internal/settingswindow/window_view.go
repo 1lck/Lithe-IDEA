@@ -379,6 +379,23 @@ func (w *window) generalPage(c ui.C) {
 				}
 			}
 			ui.Wrap(c, i18n.Shared(language, "desktop.settings.projectColorsHelp")).FontSize(12).Color(p.muted)
+			ui.Row(c).FillWidth().Height(28).Items(ui.Center).Gap(12).Children(func() {
+				label := i18n.Shared(language, "desktop.settings.projectOpen")
+				ui.Row(c).WidthPercent(34).Shrink(1).MinWidth(0).Items(ui.Center).Children(func() {
+					ui.Text(c, label).FontSize(12).Color(p.text).Ellipsis()
+				})
+				// The control writes into the window's own copy, like the language choice.
+				w.projectOpenPick = w.sess.values.ProjectOpenDestination
+				ui.Select(c.Part("project-open"), &w.projectOpenPick, projectOpenDestinations, func(value string) string {
+					return projectOpenLabel(language, value)
+				}).Width(selectWidth).Label(label)
+				if destination := w.projectOpenPick; destination != w.sess.values.ProjectOpenDestination {
+					w.sess.values.ProjectOpenDestination = destination
+					if w.ctrl.opts.SetProjectOpenDestination != nil {
+						w.ctrl.opts.SetProjectOpenDestination(destination)
+					}
+				}
+			})
 			ui.Row(c).FillWidth().Items(ui.Center).Children(func() {
 				// Pressing the button is its own confirmation, so it acts at once.
 				if ui.Button(c, settings.ResetLayout).Outline().Clicked() && w.ctrl.opts.ResetLayout != nil {
@@ -480,4 +497,15 @@ func (w *window) footer(c ui.C) {
 			w.accept()
 		}
 	})
+}
+
+// projectOpenLabel is the words of one project open destination.
+func projectOpenLabel(language i18n.Language, value string) string {
+	switch value {
+	case ProjectOpenThisWindow:
+		return i18n.Shared(language, "native.thisWindow")
+	case ProjectOpenNewWindow:
+		return i18n.Shared(language, "native.newWindow")
+	}
+	return i18n.Shared(language, "desktop.settings.projectOpenAsk")
 }

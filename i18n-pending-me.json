@@ -1115,5 +1115,29 @@
     "description": "Search Everywhere: button that runs a failed search or page again.",
     "en-US": "Retry",
     "zh-CN": "重试"
+  },
+  {
+    "id": "desktop.projectOpen.cancel",
+    "description": "Button that keeps the open project when asked where to open another one",
+    "en-US": "Cancel",
+    "zh-CN": "取消"
+  },
+  {
+    "id": "desktop.projectOpen.newWindowFailed",
+    "description": "Error when a new window could not be started for a project",
+    "en-US": "Could not open the project in a new window: {reason}",
+    "zh-CN": "无法在新窗口中打开项目：{reason}"
+  },
+  {
+    "id": "desktop.settings.projectOpen",
+    "description": "Setting label: where a project opened while another is open goes",
+    "en-US": "Open project in",
+    "zh-CN": "打开项目的位置"
+  },
+  {
+    "id": "desktop.settings.projectOpenAsk",
+    "description": "Choice of the project open setting that asks each time",
+    "en-US": "Ask",
+    "zh-CN": "每次询问"
   }
 ]

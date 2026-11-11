@@ -281,6 +281,10 @@ type settings struct {
 	// Keymap is the user's changes to the keys of the shortcut catalog (shortcuts.Catalog),
 	// by action ID; none keeps every default.
 	Keymap shortcuts.Overrides `json:"keymap,omitempty"`
+	// ProjectOpenDestination is where a project opened while another is open goes:
+	// settingswindow.ProjectOpenThisWindow, ProjectOpenNewWindow, or empty to ask
+	// (project_open_destination.go).
+	ProjectOpenDestination string `json:"projectOpenDestination,omitempty"`
 	// UpdatesManual stops the daily check at startup; UpdatesCheckedAt is the last check
 	// that read the feed (updates.go).
 	UpdatesManual    bool      `json:"updatesManual,omitempty"`
@@ -970,9 +974,9 @@ func (a *App) chooseProject(surface string) {
 	})
 }
 
-// openProject opens the folder at path as the project of the window, replacing the one
-// that was open.
-func (a *App) openProject(path string) {
+// openProjectHere opens the folder at path as the project of the window, replacing the
+// one that was open. openProject first asks where to open it.
+func (a *App) openProjectHere(path string) {
 	root, err := filepath.Abs(wslpath.ToNative(path))
 	if err != nil {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_open", documentLogError(err)))
