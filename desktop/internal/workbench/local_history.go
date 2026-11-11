@@ -1,9 +1,11 @@
 package workbench
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"time"
@@ -17,8 +19,8 @@ import (
 // Local history keeps versioned snapshots of the project's files. Core stores and
 // prunes them and decides which snapshots an event takes (history.planEvent); the
 // host names the event, supplies the text and chooses where the snapshots live:
-// the platform's per-user application data, one folder per project, never the
-// project or the installed application.
+// the client's own data directory, one folder per project (localHistoryDirectory),
+// never the project or the installed application.
 
 // localHistoryKernel is the part of Core local history uses.
 type localHistoryKernel interface {
@@ -31,15 +33,16 @@ type localHistoryKernel interface {
 	RelocateHistory(ctx context.Context, storageRoot, source, destination string) error
 }
 
-// localHistoryStorage is where a project's snapshots are stored:
-// <user config>/Lithe/LocalHistory/<hash of the project path>.
-func localHistoryStorage(root string) (string, error) {
-	base, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
+// localHistoryDirectory is where the snapshots of the project at root are kept: the client's own
+// data directory, <store>/LocalHistory/<hash of the project path>, as the shelves are. It is
+// never the project, the installed application or the older Lithe's data folder, which this
+// client only ever reads to import from. ok is false when the client has no data directory.
+func (a *App) localHistoryDirectory(root string) (string, bool) {
+	if a.store == nil {
+		return "", false
 	}
 	sum := sha256.Sum256([]byte(filepath.Clean(root)))
-	return filepath.Join(base, "Lithe", "LocalHistory", hex.EncodeToString(sum[:8])), nil
+	return filepath.Join(a.store.Dir(), "LocalHistory", hex.EncodeToString(sum[:8])), true
 }
 
 // historyTexts is the text an event supplies for each snapshot source.
@@ -87,11 +90,12 @@ func (a *App) localHistoryJob(p *project, work func(ctx context.Context, kernel 
 		return
 	}
 	root := p.root
+	storage, ok := a.localHistoryDirectory(root)
+	if !ok {
+		return
+	}
 	a.background(p, 10*time.Second, func(ctx context.Context) func(*App) {
-		storage, err := localHistoryStorage(root)
-		if err == nil {
-			err = work(ctx, kernel, root, storage)
-		}
+		err := work(ctx, kernel, root, storage)
 		return func(a *App) {
 			if err != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("local_history_record", err))
@@ -170,15 +174,15 @@ func (a *App) openLocalHistory(p *project, path string) {
 	if !inside {
 		return
 	}
+	root := p.root
+	storage, ok := a.localHistoryDirectory(root)
+	if !ok {
+		return
+	}
 	h := &p.history
 	*h = localHistoryState{open: true, loading: true, path: path, rel: rel, selected: -1}
-	root := p.root
 	a.background(p, 10*time.Second, func(ctx context.Context) func(*App) {
-		storage, err := localHistoryStorage(root)
-		var entries []core.HistoryEntry
-		if err == nil {
-			entries, err = kernel.HistoryEntries(ctx, root, storage, rel)
-		}
+		entries, err := kernel.HistoryEntries(ctx, root, storage, rel)
 		return func(a *App) {
 			if !h.open || h.path != path {
 				return
@@ -210,14 +214,13 @@ func (a *App) selectLocalHistory(p *project, index int) {
 	if h.previewID == entry.ID {
 		return
 	}
+	storage, ok := a.localHistoryDirectory(p.root)
+	if !ok {
+		return
+	}
 	h.preview, h.previewID, h.previewReady = "", entry.ID, false
-	root := p.root
 	a.background(p, 10*time.Second, func(ctx context.Context) func(*App) {
-		storage, err := localHistoryStorage(root)
-		var text string
-		if err == nil {
-			text, err = kernel.HistoryContent(ctx, storage, entry.ContentPath)
-		}
+		text, err := kernel.HistoryContent(ctx, storage, entry.ContentPath)
 		return func(a *App) {
 			if h.previewID != entry.ID {
 				return
@@ -290,14 +293,14 @@ func (a *App) changeLocalHistory(p *project, change func(context.Context, localH
 	if !ok || h.busy || h.selected < 0 || h.selected >= len(h.entries) {
 		return
 	}
+	storage, ok := a.localHistoryDirectory(p.root)
+	if !ok {
+		return
+	}
 	entry, label, path := h.entries[h.selected], h.label.Text(), h.path
 	h.busy = true
-	root := p.root
 	a.background(p, 10*time.Second, func(ctx context.Context) func(*App) {
-		storage, err := localHistoryStorage(root)
-		if err == nil {
-			err = change(ctx, kernel, storage, entry, label)
-		}
+		err := change(ctx, kernel, storage, entry, label)
 		return func(a *App) {
 			h.busy = false
 			if err != nil {
@@ -309,4 +312,116 @@ func (a *App) changeLocalHistory(p *project, change func(context.Context, localH
 			}
 		}
 	})
+}
+
+// historyComparer is the part of Core the Local History Diff uses: it compares two texts the
+// client already holds.
+type historyComparer interface {
+	CompareTexts(ctx context.Context, oldText, newText string) (core.GitDiffFile, error)
+}
+
+// compareLocalHistory opens a read-only Diff tab of the selected snapshot against the file's
+// current text, or, with previous, of the snapshot before it against the selected one. The
+// current text is the open editor's, unsaved edits included, else the file on disk; a file
+// that is gone compares as empty. Core compares the texts; a comparison without differences
+// is reported in the dialog instead of opening a tab.
+func (a *App) compareLocalHistory(p *project, previous bool) {
+	kernel, ok := a.kernel.(localHistoryKernel)
+	comparer, compares := a.kernel.(historyComparer)
+	h := &p.history
+	if !ok || !compares || h.busy || h.selected < 0 || h.selected >= len(h.entries) {
+		return
+	}
+	storage, ok := a.localHistoryDirectory(p.root)
+	if !ok {
+		return
+	}
+	t := a.text.History
+	left, rightEntry := h.entries[h.selected], (*core.HistoryEntry)(nil)
+	leftLabel, rightLabel := localHistorySide(left), t.CurrentVersion
+	var current []byte
+	read := true
+	if previous {
+		if h.selected+1 >= len(h.entries) {
+			return
+		}
+		right := left
+		left, rightEntry = h.entries[h.selected+1], &right
+		leftLabel, rightLabel = localHistorySide(left), localHistorySide(right)
+	} else if d := p.docs.byPath(h.path); d != nil {
+		data, _ := d.view.Text()
+		current, read = append([]byte(nil), data...), false
+	}
+	path, rel := h.path, h.rel
+	key := "localHistory:" + left.ID + "..current"
+	if rightEntry != nil {
+		key = "localHistory:" + left.ID + ".." + rightEntry.ID
+	}
+	h.busy, h.failure = true, ""
+	a.background(p, 10*time.Second, func(ctx context.Context) func(*App) {
+		file := core.GitDiffFile{Path: rel, Status: "M", Lines: []core.GitDiffLine{}, Rows: []core.GitDiffRow{}}
+		before, err := kernel.HistoryContent(ctx, storage, left.ContentPath)
+		var after string
+		switch {
+		case err != nil:
+		case rightEntry != nil:
+			after, err = kernel.HistoryContent(ctx, storage, rightEntry.ContentPath)
+		default:
+			if read {
+				current, err = os.ReadFile(path)
+				if errors.Is(err, os.ErrNotExist) {
+					current, err = nil, nil
+				}
+			}
+			after = string(current)
+			file.IsBinary = !utf8.Valid(current) || bytes.IndexByte(current, 0) >= 0
+		}
+		if err == nil && !file.IsBinary {
+			var compared core.GitDiffFile
+			if compared, err = comparer.CompareTexts(ctx, before, after); err == nil {
+				file.Lines, file.Rows, file.Additions, file.Deletions = compared.Lines, compared.Rows, compared.Additions, compared.Deletions
+			}
+		}
+		return func(a *App) {
+			// The dialog may have moved on to another file meanwhile; its state is that file's.
+			same := h.path == path
+			if same {
+				h.busy = false
+			}
+			if err != nil {
+				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("local_history_compare", err))
+				if same {
+					h.failure = a.text.History.Failed(err.Error())
+				}
+				return
+			}
+			if !file.IsBinary && file.Additions == 0 && file.Deletions == 0 {
+				if same {
+					h.failure = a.text.History.NoChanges
+				}
+				return
+			}
+			action := "localHistory.compareWithCurrent"
+			if previous {
+				action = "localHistory.compareWithPrevious"
+			}
+			change := core.GitChange{Path: rel, Status: "M", Worktree: true}
+			saved := &savedSource{before: leftLabel, after: rightLabel, files: []core.GitDiffFile{file}}
+			if a.showDiff(p, p.root, key, change, []core.GitChange{change}, diffOrigin{saved: saved}) != nil {
+				a.performed(action, surfaceButton)
+				if same {
+					h.open = false
+				}
+			}
+		}
+	})
+}
+
+// localHistorySide names a snapshot as a side of a Diff tab: its time, and its label when it
+// has one.
+func localHistorySide(entry core.HistoryEntry) string {
+	if entry.Label != "" {
+		return localHistoryTime(entry.Timestamp) + " · " + entry.Label
+	}
+	return localHistoryTime(entry.Timestamp)
 }

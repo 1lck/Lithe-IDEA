@@ -4,7 +4,11 @@ package i18n
 type HistoryMessages struct {
 	Show, Title, Loading, Empty, Restore, Delete, Rename string
 	LabelPlaceholder, Close, PreviewLoading              string
-	Failed                                               func(reason string) string
+	// CompareWithCurrent and CompareWithPrevious open the Diff of the selected snapshot
+	// against the current text or against the snapshot before it; CurrentVersion names the
+	// current text as a side of that Diff, and NoChanges says the two sides are the same.
+	CompareWithCurrent, CompareWithPrevious, CurrentVersion, NoChanges string
+	Failed                                                             func(reason string) string
 	// Reason names the event that took a snapshot.
 	Reason func(reason string) string
 }
@@ -21,16 +25,20 @@ func historyMessages(language Language) HistoryMessages {
 		"unsavedDiscard":     Shared(language, "desktop.history.reasonUnsavedDiscard"),
 	}
 	return HistoryMessages{
-		Show:             Shared(language, "desktop.history.show"),
-		Title:            Shared(language, "desktop.history.title"),
-		Loading:          Shared(language, "desktop.history.loading"),
-		Empty:            Shared(language, "desktop.history.empty"),
-		Restore:          Shared(language, "desktop.history.restore"),
-		Delete:           Shared(language, "desktop.history.delete"),
-		Rename:           Shared(language, "desktop.history.rename"),
-		LabelPlaceholder: Shared(language, "desktop.history.labelPlaceholder"),
-		Close:            Shared(language, "desktop.history.close"),
-		PreviewLoading:   Shared(language, "desktop.history.previewLoading"),
+		Show:                Shared(language, "desktop.history.show"),
+		Title:               Shared(language, "desktop.history.title"),
+		Loading:             Shared(language, "desktop.history.loading"),
+		Empty:               Shared(language, "desktop.history.empty"),
+		Restore:             Shared(language, "desktop.history.restore"),
+		Delete:              Shared(language, "desktop.history.delete"),
+		Rename:              Shared(language, "desktop.history.rename"),
+		LabelPlaceholder:    Shared(language, "desktop.history.labelPlaceholder"),
+		Close:               Shared(language, "desktop.history.close"),
+		PreviewLoading:      Shared(language, "desktop.history.previewLoading"),
+		CompareWithCurrent:  Shared(language, "localHistory.compareWithCurrent"),
+		CompareWithPrevious: Shared(language, "localHistory.compareWithPrevious"),
+		CurrentVersion:      Shared(language, "native.currentVersion"),
+		NoChanges:           Shared(language, "localHistory.noChangesToCompare"),
 		Failed: func(reason string) string {
 			return SharedFormat(language, "desktop.history.failed", map[string]string{"reason": reason})
 		},

@@ -13,7 +13,9 @@ import (
 const localHistoryPreviewLines = 2000
 
 // drawLocalHistory declares the Local History dialog: the file's snapshots newest
-// first, the selected one's text, its label, and Restore and Delete.
+// first, the selected one's text, its label, Restore and Delete, and the comparisons of
+// the selected snapshot with the one before it and with the current text, each opened
+// as a read-only Diff tab.
 func (a *App) drawLocalHistory(c ui.C, p *project) {
 	h := &p.history
 	if p == nil || !h.open {
@@ -65,6 +67,12 @@ func (a *App) drawLocalHistory(c ui.C, p *project) {
 			c.After(func() { a.deleteLocalHistory(p) })
 		}
 		ui.Spacer(c)
+		if ui.Button(c, t.CompareWithPrevious).Outline().Disabled(!ready || h.selected+1 >= len(h.entries)).Clicked() {
+			c.After(func() { a.compareLocalHistory(p, true) })
+		}
+		if ui.Button(c, t.CompareWithCurrent).Outline().Disabled(!ready).Clicked() {
+			c.After(func() { a.compareLocalHistory(p, false) })
+		}
 		if ui.Button(c, t.Close).Outline().Clicked() {
 			c.After(func() { h.open = false })
 		}

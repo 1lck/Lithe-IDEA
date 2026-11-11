@@ -33966,14 +33966,16 @@
       "id": "localHistory.compareWithCurrent",
       "description": "Windows UI: localHistory.compareWithCurrent",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "localHistory.compareWithPrevious",
       "description": "Windows UI: localHistory.compareWithPrevious",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -34064,7 +34066,8 @@
       "id": "localHistory.noChangesToCompare",
       "description": "Windows UI: localHistory.noChangesToCompare",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -48465,7 +48468,8 @@
       "id": "native.currentVersion",
       "description": "Native UI: Current Version",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Current Version",
