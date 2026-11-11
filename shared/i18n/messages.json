@@ -14539,6 +14539,48 @@
       ]
     },
     {
+      "id": "desktop.settings.processTermination.leftoverTerminals",
+      "description": "Label of the select for terminals an earlier run left running",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.processTermination.seconds",
+      "description": "Unit after the stop time field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.processTermination.startupSweepHelp",
+      "description": "Help of the card for processes left after a crash",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.processTermination.stopTimeLonger",
+      "description": "Button that adds a second to the stop time",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.processTermination.stopTimeShorter",
+      "description": "Button that takes a second off the stop time",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.process.forceStop",
+      "description": "Stop button of a run or build that is already stopping: kills it at once",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.resetLayout",
       "description": "Desktop settings: ResetLayout",
       "platforms": [
@@ -38658,7 +38700,8 @@
       "id": "native.afterLitheClosesUnexpectedly",
       "description": "Native UI: After Lithe closes unexpectedly",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "After Lithe closes unexpectedly",
@@ -40592,7 +40635,8 @@
       "id": "native.askOnNextLaunch",
       "description": "Native UI: Ask on next launch",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Ask on next launch",
@@ -52325,7 +52369,8 @@
       "id": "native.endOnNextLaunch",
       "description": "Native UI: End on next launch",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "End on next launch",
@@ -60479,7 +60524,8 @@
       "id": "native.litheFirstAsksEachProgramToStopGivingItThisLongToSaveItsWorkAndExitProgramsStiffc3767044",
       "description": "Native UI: Lithe first asks each program to stop, giving it this long to save its work and exit. Programs still running afterwards are force-stopped.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Lithe first asks each program to stop, giving it this long to save its work and exit. Programs still running afterwards are force-stopped.",
@@ -81428,7 +81474,8 @@
       "id": "native.stoppingPrograms",
       "description": "Native UI: Stopping programs",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Stopping programs",
@@ -87316,7 +87363,8 @@
       "id": "native.timeToExit",
       "description": "Native UI: Time to exit",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Time to exit",

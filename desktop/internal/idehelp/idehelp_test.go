@@ -3,6 +3,7 @@ package idehelp
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -27,7 +28,9 @@ func TestInstallWritesTheHelperOnceAndReplacesAnotherVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o700 || info.Mode()&0o111 == 0 {
+	// Windows has no permission bits: Go reports every writable file as 0666 there, and the
+	// user's profile directory is what keeps the helper private.
+	if runtime.GOOS != "windows" && (info.Mode().Perm() != 0o700 || info.Mode()&0o111 == 0) {
 		t.Fatalf("mode = %v, want an executable file only the user can use", info.Mode())
 	}
 	first, _ := os.Stat(path)

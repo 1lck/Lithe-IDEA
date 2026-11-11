@@ -470,8 +470,14 @@ type App struct {
 	// pluginCommands are the ui.commands of the enabled plugins, which the command palette offers
 	// (plugintools.go). Only the window thread reads or writes them.
 	pluginCommands []pluginservice.ToolCommand
-	// startupSweep is the start-up confirmation of processes an earlier run left behind (startup_sweep.go).
-	startupSweep         startupSweepState
+	// startupSweep is the start-up question about processes an earlier run left behind (startup_sweep.go).
+	startupSweep startupSweepState
+	// stopGraceRequest numbers the requests for Core's stop time, so only the latest is applied.
+	stopGraceRequest int
+	// stopTime is Core's rule for the stop time once it was read (refreshStopGrace); the
+	// settings window reads it from its own thread.
+	stopTime atomic.Pointer[settingswindow.StopTime]
+
 	settingsSubscription *settingsSubscription
 	// plugins is the plugin stack, nil when the window was built without a plugin
 	// kernel or without a writable plugin root.
@@ -724,9 +730,6 @@ func (a *App) openPlugins(options Options) {
 		return
 	}
 	a.plugins = service
-	if leftovers := service.StartupLeftovers(); len(leftovers) > 0 {
-		a.startupSweep = startupSweepState{open: true, leftovers: leftovers}
-	}
 	service.Backend.SetInitializeTimeout(options.PluginInitializeTimeout)
 	service.Backend.SetToolResolver(a.resolveBackendTool)
 	if err := service.AttachWorkbench(pluginWorkbench{app: a}); err != nil {
@@ -760,6 +763,10 @@ func (a *App) Run() error {
 		// window is what installs the invalidator its background work needs.
 		a.reloadPluginLanguages()
 		a.loadGitHubAccount()
+		// Core's stop time applies to every process stopped from now on, and Core decides what an
+		// earlier run left behind; both need the window, which delivers their answers.
+		a.refreshStopGrace()
+		a.planStartupSweep()
 		// Development builds mark the Dock icon without changing the product name in the UI.
 		if buildinfo.Development {
 			application.SetDockBadge(a.text.App.DevBadge)

@@ -299,9 +299,13 @@ func (a *App) applyLegacyImport() {
 		a.setTerminalShell(*f.TerminalShell)
 	}
 	if chosen[legacyProcessTermination] {
-		value := settingswindow.ProcessTermination{RunServicesOnExit: f.ProcessTermination.RunServicesOnExit, TerminalOnQuit: f.ProcessTermination.TerminalOnQuit}
-		if !f.ProcessTermination.ConfirmTerminalTabClose {
+		stored := f.ProcessTermination
+		value := settingswindow.ProcessTermination{RunServicesOnExit: stored.RunServicesOnExit, TerminalOnQuit: stored.TerminalOnQuit, StartupSweep: stored.StartupSweep}
+		if !stored.ConfirmTerminalTabClose {
 			value.ConfirmTerminalTabClose = new(false)
+		}
+		if stored.GracefulStopSeconds != 0 {
+			value.GracefulStopSeconds = new(stored.GracefulStopSeconds)
 		}
 		a.setProcessTermination(value)
 	}

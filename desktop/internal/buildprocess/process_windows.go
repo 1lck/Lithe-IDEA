@@ -13,6 +13,11 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// StopsGracefully says Stop asks the tree to stop and gives it the stop time before it is
+// killed. Here it does not: the tree runs without a console to send a stop to, so Stop ends
+// its job at once (interrupt).
+const StopsGracefully = false
+
 // processPlatform owns the Windows Job Object that contains the build process
 // and every descendant it starts. It mirrors the semantics of Core's
 // lithe-git-host ProcessTree: the child is created suspended, joins a job with
@@ -73,6 +78,11 @@ func (p *processPlatform) adopt(process *os.Process) error {
 	p.mu.Unlock()
 	return nil
 }
+
+// interrupt reports false: a job has no request to end that every process in it answers.
+// A console control event reaches only processes that share the sender's console, and the
+// tree is started without one (CREATE_NO_WINDOW), so Stop terminates the job at once.
+func (*processPlatform) interrupt() bool { return false }
 
 func (p *processPlatform) terminate(process *os.Process) {
 	p.mu.Lock()

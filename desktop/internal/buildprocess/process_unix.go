@@ -9,6 +9,10 @@ import (
 	"syscall"
 )
 
+// StopsGracefully says Stop asks the tree to stop and gives it the stop time before it is
+// killed. Here it does: the tree's process group is sent SIGTERM.
+const StopsGracefully = true
+
 type processPlatform struct {
 	mu     sync.Mutex
 	pid    int
@@ -37,6 +41,14 @@ func (p *processPlatform) release() {
 	p.active = false
 	p.pid = 0
 	p.mu.Unlock()
+}
+
+// interrupt asks the process group to end with SIGTERM. It reports false when the group is
+// no longer owned or the signal could not be sent, and the caller then kills it instead.
+func (p *processPlatform) interrupt() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.active && p.pid != 0 && syscall.Kill(-p.pid, syscall.SIGTERM) == nil
 }
 
 func (p *processPlatform) terminate(process *os.Process) {

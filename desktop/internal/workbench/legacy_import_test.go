@@ -23,7 +23,7 @@ func earlierLithe(recent string) legacyimport.Found {
 		HideMinimap:        new(true),
 		EditorTabRows:      new("multiple"),
 		TerminalShell:      new("/bin/bash"),
-		ProcessTermination: &legacyimport.ProcessTermination{TerminalOnQuit: "terminate"},
+		ProcessTermination: &legacyimport.ProcessTermination{TerminalOnQuit: "terminate", StartupSweep: "terminate", GracefulStopSeconds: 12},
 		EditorFont:         &legacyimport.Font{Family: "Menlo", Size: 15},
 		Recent:             []legacyimport.Recent{{Path: recent, OpenedAt: 1000}},
 	}
@@ -65,7 +65,8 @@ func TestLegacyImportAppliesTheChosenSettings(t *testing.T) {
 	if got.Language != "en" || got.Theme != themeDark || !got.HideMinimap || got.EditorTabRows != "multiple" || got.TerminalShell != "/bin/bash" {
 		t.Fatalf("settings = %+v", got)
 	}
-	if p := got.ProcessTermination; p.TerminalOnQuit != "terminate" || p.RunServicesOnExit != "" || p.ConfirmTerminalTabClose == nil || *p.ConfirmTerminalTabClose {
+	if p := got.ProcessTermination; p.TerminalOnQuit != "terminate" || p.RunServicesOnExit != "" || p.ConfirmTerminalTabClose == nil || *p.ConfirmTerminalTabClose ||
+		p.StartupSweep != "terminate" || p.GracefulStopSeconds == nil || *p.GracefulStopSeconds != 12 {
 		t.Fatalf("process termination = %+v", p)
 	}
 	if editor, terminal := fontprefs.For(got.Fonts, fontprefs.Editor), fontprefs.For(got.Fonts, fontprefs.Terminal); editor.Family != "Menlo" || editor.Size != 15 || terminal.Family != "" {

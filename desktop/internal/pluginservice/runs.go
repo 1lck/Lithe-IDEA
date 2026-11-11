@@ -33,7 +33,7 @@ const (
 	runDebugConnectTimeout = 30 * time.Second
 	// runDebugPollInterval is how often the port is probed while waiting.
 	runDebugPollInterval = 100 * time.Millisecond
-	// runStopTimeout bounds waiting for a stopped run's process tree to be reaped.
+	// runStopTimeout bounds waiting, beyond the stop time, for a stopped run's process tree to be reaped.
 	runStopTimeout = 10 * time.Second
 	// runRerunTimeout bounds the backend function a rerun calls.
 	runRerunTimeout = 60 * time.Second
@@ -119,10 +119,12 @@ type RunDebugSession struct {
 type RunDebugLauncher func(ctx context.Context, request RunDebugLaunchRequest) (RunDebugSession, error)
 
 // runProcess is what a run waits on and stops: the process the host started, or the
-// debug session whose adapter started it.
+// debug session whose adapter started it. Stop asks it to end within the stop time and
+// Kill ends it at once.
 type runProcess interface {
 	Wait() error
 	Stop()
+	Kill()
 }
 
 // debugRunProcess is a launch-target run: stopping it ends the debug session, and it
@@ -146,6 +148,9 @@ func (d *debugRunProcess) Wait() error {
 }
 
 func (d *debugRunProcess) Stop() { d.stop() }
+
+// Kill ends the debug session as Stop does: the session owns how its adapter ends.
+func (d *debugRunProcess) Kill() { d.stop() }
 
 // Runs owns the processes plugin backends start through run/start. The host owns
 // the process, its output and its end; the backend only decides what to start.
@@ -233,13 +238,19 @@ func (r *Runs) Stop(runID string) {
 	r.stopRun(run)
 }
 
+// stopRun stops a run and waits, bounded, for its process tree. The tree first gets the
+// stop time to end on its own (buildprocess.StopGrace). Stopping a run that is already
+// stopping kills it at once and returns: the first stop is the one still waiting.
 func (r *Runs) stopRun(run *hostRun) {
-	run.stopped.Store(true)
+	if run.stopped.Swap(true) {
+		run.process.Kill()
+		return
+	}
 	run.cancel()
 	run.process.Stop()
 	select {
 	case <-run.done:
-	case <-time.After(runStopTimeout):
+	case <-time.After(buildprocess.StopGrace() + runStopTimeout):
 	}
 }
 

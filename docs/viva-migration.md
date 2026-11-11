@@ -404,10 +404,10 @@
 | `plugin-debug-adapters` | 插件提供调试适配器 | 必须迁移 | 实现/缺 | 部分 | C02,C12 debug.go、debug_launch.go |
 | `plugin-debug-start-and-adapter-features` | 插件后端发起调试并声明适配器行为 | 必须迁移 | 实现/缺 | 部分 | C01,C02 无 desktop/ 证据 |
 | `viva-debug-session` | Viva 调试面板使用插件声明的 stdio 调试适配器 | 必须迁移 | 本分支新增 | 部分 | C02,C12 |
-| `process-termination-policy` | 退出前逐个确认仍在运行程序的终端和 Agent 后台任务（Agent… | 必须迁移 | 部分/缺 | 部分 | C07 无 desktop/ 证据 |
-| `run-processes-end-with-ide` | 退出 IDE 时结束它启动的全部运行、终端、服务、测试、语言服务器和… | 必须迁移 | 实现/部分 | 部分 | `workbench/app.go` |
+| `process-termination-policy` | 退出前逐个确认仍在运行程序的终端和 Agent 后台任务（Agent… | 必须迁移 | 部分/缺 | 部分 | C07 `workbench/process_exit.go`、`workbench/startup_sweep.go`、`settingswindow/process_termination_view.go` |
+| `run-processes-end-with-ide` | 退出 IDE 时结束它启动的全部运行、终端、服务、测试、语言服务器和… | 必须迁移 | 实现/部分 | 部分 | `workbench/startup_sweep.go`、`processledger/processledger.go`（启动清扫仅 macOS） |
 | `run-output-snapshot` | 运行输出快照 | 必须迁移 | 缺/实现 | 完成 | `workbench/runs.go` |
-| `login-shell-environment` | 从 Finder / Dock 启动时继承登录 shell 的环境 | 平台专属 | 实现/专属 | 未开始 | macOS Finder/Dock 启动继承登录 shell 环境 |
+| `login-shell-environment` | 从 Finder / Dock 启动时继承登录 shell 的环境 | 平台专属 | 实现/专属 | 完成 | `loginenv/loginenv_unix.go`、`cmd/lithe/main.go` |
 | `run-discovery` | 入口点与运行配置发现 | 必须迁移 | 实现/实现 | 部分 | `core/run_discovery.go` |
 | `run-java-long-classpath` | 超长 Java 类路径自动缩短 | 插件提供 | 插件/实现 | 未开始 | 扩展点：executablePlan/argfile；无 desktop/ 证据 |
 | `run-java-test` | Java main 与测试运行 | 插件提供 | 实现/实现 | 未开始 | 扩展点：executionProviders、test 模型；无 desktop/ 证据 |

@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -25,8 +26,10 @@ import (
 // LedgerFile is the name of the ledger in the application's preferences directory.
 const LedgerFile = "process-ledger.json"
 
-// stopWait bounds the wait between the polite and the forced end of a leftover process.
-const stopWait = 2 * time.Second
+// Supported says this platform can tell a process's start time and command (identity), so
+// the ledger records the processes the app starts. On Windows it cannot, and nothing is
+// recorded or found at the next start.
+const Supported = runtime.GOOS != "windows"
 
 // Record is one process the app started.
 type Record struct {
@@ -61,7 +64,7 @@ var (
 )
 
 // Open returns the ledger in dir, shared by every caller in the process. It does not read the file;
-// Sweep and Leftovers do.
+// Leftovers does.
 func Open(dir string) *Ledger {
 	if dir == "" {
 		return nil
@@ -150,39 +153,6 @@ func (l *Ledger) Remove(pid int) error {
 	return l.write(kept)
 }
 
-// Sweep ends the recorded processes that are still the processes that were recorded, then empties the
-// ledger. It returns the number of processes it ended. Errors from ending one process do not stop the rest.
-func (l *Ledger) Sweep(ctx context.Context) (int, error) {
-	if l == nil {
-		return 0, nil
-	}
-	l.mu.Lock()
-	records, err := l.read()
-	if err != nil {
-		l.mu.Unlock()
-		return 0, err
-	}
-	if err := l.write(nil); err != nil {
-		l.mu.Unlock()
-		return 0, err
-	}
-	l.mu.Unlock()
-	ended := 0
-	var failures []error
-	for _, record := range records {
-		started, command, ok := identity(record.PID)
-		if !ok || started != record.Started || command != record.Command {
-			continue
-		}
-		if err := endProcess(ctx, record.PID); err != nil {
-			failures = append(failures, err)
-			continue
-		}
-		ended++
-	}
-	return ended, errors.Join(failures...)
-}
-
 // Leftovers returns the recorded processes that are still the processes that were recorded. It
 // ends nothing and changes nothing: the startup confirmation shows them and Settle acts on the answer.
 func (l *Ledger) Leftovers() ([]Record, error) {
@@ -197,17 +167,18 @@ func (l *Ledger) Leftovers() ([]Record, error) {
 	}
 	var leftovers []Record
 	for _, record := range records {
-		started, command, ok := identity(record.PID)
-		if ok && started == record.Started && command == record.Command {
+		if current(record) {
 			leftovers = append(leftovers, record)
 		}
 	}
 	return leftovers, nil
 }
 
-// Settle forgets the given leftovers, and ends each one that is still the recorded process when end
-// is true. Other records, including ones added since, stay in the ledger.
-func (l *Ledger) Settle(ctx context.Context, settled []Record, end bool) (int, error) {
+// Settle forgets the given leftovers, and when end is true ends each one that is still the
+// recorded process: every one is asked to stop at once, and those still running after grace are
+// killed. Other records, including ones added since, stay in the ledger. It returns the number of
+// processes that ended.
+func (l *Ledger) Settle(ctx context.Context, settled []Record, end bool, grace time.Duration) (int, error) {
 	if l == nil || len(settled) == 0 {
 		return 0, nil
 	}
@@ -231,20 +202,7 @@ func (l *Ledger) Settle(ctx context.Context, settled []Record, end bool) (int, e
 	if !end {
 		return 0, nil
 	}
-	ended := 0
-	var failures []error
-	for _, record := range settled {
-		started, command, ok := identity(record.PID)
-		if !ok || started != record.Started || command != record.Command {
-			continue
-		}
-		if err := endProcess(ctx, record.PID); err != nil {
-			failures = append(failures, err)
-			continue
-		}
-		ended++
-	}
-	return ended, errors.Join(failures...)
+	return endProcesses(ctx, settled, grace)
 }
 
 func (l *Ledger) read() ([]Record, error) {
@@ -300,23 +258,57 @@ func identity(pid int) (started, command string, ok bool) {
 	return strings.TrimSpace(line[:24]), strings.TrimSpace(line[24:]), true
 }
 
-// endProcess asks the process to stop, then kills it if it has not gone within stopWait.
-func endProcess(ctx context.Context, pid int) error {
-	if err := signal(pid, "TERM"); err != nil {
-		return err
+// current reports that record's PID is still the process that was recorded.
+func current(record Record) bool {
+	started, command, ok := identity(record.PID)
+	return ok && started == record.Started && command == record.Command
+}
+
+// endProcesses asks every recorded process that is still running to stop, waits up to grace for
+// them to exit and kills the ones still running then. The identity is checked again before the
+// kill, so a PID the system reused during the wait is left alone.
+func endProcesses(ctx context.Context, records []Record, grace time.Duration) (int, error) {
+	var failures []error
+	var asked []Record
+	for _, record := range records {
+		if !current(record) {
+			continue
+		}
+		if err := signal(record.PID, "TERM"); err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		asked = append(asked, record)
 	}
-	deadline := time.Now().Add(stopWait)
-	for time.Now().Before(deadline) {
-		if _, _, alive := identity(pid); !alive {
-			return nil
+	ended := 0
+	deadline := time.Now().Add(grace)
+	for {
+		running := asked[:0]
+		for _, record := range asked {
+			if current(record) {
+				running = append(running, record)
+			} else {
+				ended++
+			}
+		}
+		asked = running
+		if len(asked) == 0 || !time.Now().Before(deadline) {
+			break
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return ended, errors.Join(append(failures, ctx.Err())...)
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
-	return signal(pid, "KILL")
+	for _, record := range asked {
+		if err := signal(record.PID, "KILL"); err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		ended++
+	}
+	return ended, errors.Join(failures...)
 }
 
 func signal(pid int, name string) error {

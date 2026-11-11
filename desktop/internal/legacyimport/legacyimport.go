@@ -39,12 +39,14 @@ type Recent struct {
 }
 
 // ProcessTermination is the earlier client's process termination choices in the Viva
-// client's values: "terminate" or empty (ask), and whether closing a busy terminal tab
-// asks.
+// client's values: "terminate" or empty (ask), whether closing a busy terminal tab asks, and
+// the stop time in seconds, zero when none was stored.
 type ProcessTermination struct {
 	RunServicesOnExit       string
 	TerminalOnQuit          string
 	ConfirmTerminalTabClose bool
+	StartupSweep            string
+	GracefulStopSeconds     uint32
 }
 
 // Found is what an earlier client stored, mapped onto the Viva client's settings. A nil
@@ -186,6 +188,9 @@ func processTermination(data []byte) *ProcessTermination {
 		TerminalOnQuit          string `json:"terminalOnQuit"`
 		ConfirmTerminalTabClose *bool  `json:"confirmTerminalTabClose"`
 		RunServicesOnExit       string `json:"runServicesOnExit"`
+		StartupSweep            string `json:"startupSweep"`
+		// GracefulStopSeconds is read as any number, so one out of range drops only itself.
+		GracefulStopSeconds float64 `json:"gracefulStopSeconds"`
 	}
 	if json.Unmarshal(data, &stored) != nil {
 		return nil
@@ -196,6 +201,12 @@ func processTermination(data []byte) *ProcessTermination {
 	}
 	if stored.RunServicesOnExit == "terminate" {
 		value.RunServicesOnExit = "terminate"
+	}
+	if stored.StartupSweep == "terminate" {
+		value.StartupSweep = "terminate"
+	}
+	if seconds := stored.GracefulStopSeconds; seconds > 0 && seconds <= math.MaxUint32 && seconds == math.Trunc(seconds) {
+		value.GracefulStopSeconds = uint32(seconds)
 	}
 	if stored.ConfirmTerminalTabClose != nil {
 		value.ConfirmTerminalTabClose = *stored.ConfirmTerminalTabClose

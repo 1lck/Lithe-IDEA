@@ -6,8 +6,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -27,6 +29,23 @@ func TestBuildProcessHelper(t *testing.T) {
 		fmt.Fprintln(os.Stderr, "stderr line")
 		os.Exit(0)
 	case "sleep":
+		fmt.Fprintln(os.Stdout, "started")
+		time.Sleep(30 * time.Second)
+		os.Exit(0)
+	case "trap-term":
+		// Saves its work and exits when asked to stop.
+		stop := make(chan os.Signal, 1)
+		signal.Notify(stop, syscall.SIGTERM)
+		fmt.Fprintln(os.Stdout, "started")
+		select {
+		case <-stop:
+			fmt.Fprintln(os.Stdout, "saved")
+			os.Exit(0)
+		case <-time.After(30 * time.Second):
+			os.Exit(6)
+		}
+	case "ignore-term":
+		signal.Ignore(syscall.SIGTERM)
 		fmt.Fprintln(os.Stdout, "started")
 		time.Sleep(30 * time.Second)
 		os.Exit(0)

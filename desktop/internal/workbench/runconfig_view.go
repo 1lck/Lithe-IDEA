@@ -138,7 +138,7 @@ func (a *App) drawRunConfigRow(p *project, row ui.ListRow, selected bool) {
 		language := a.language()
 		if running {
 			ui.Text(c, i18n.Shared(language, "native.running")).FontSize(small).Color(a.colors.Subtle).Shrink(0)
-			if a.gitIconButton(c.Part("stop"), i18n.Shared(language, "native.stopRun.variant2"), icons.Square, false, false) {
+			if a.gitIconButton(c.Part("stop"), runStopLabel(language, p), icons.Square, false, false) {
 				c.After(func() { a.stopBuildOperation(p) })
 			}
 			return
@@ -148,6 +148,15 @@ func (a *App) drawRunConfigRow(p *project, row ui.ListRow, selected bool) {
 			c.After(func() { a.runConfiguration(p, configuration.ID) })
 		}
 	})
+}
+
+// runStopLabel names the stop of the project's running configuration: stopping one that is
+// already stopping kills it at once.
+func runStopLabel(language i18n.Language, p *project) string {
+	if p.build.operation != nil && p.build.operation.cancelled {
+		return i18n.Shared(language, "desktop.process.forceStop")
+	}
+	return i18n.Shared(language, "native.stopRun.variant2")
 }
 
 // drawRunConfigGroupArrow declares the arrow that opens or closes a group of the list.
@@ -176,7 +185,7 @@ func (a *App) runConfigMenu(c ui.C, row ui.Box, p *project, configuration core.R
 		language, id := a.language(), configuration.ID
 		menu.WidthRange(180, 280)
 		if running {
-			if menu.Item(i18n.Shared(language, "native.stopRun.variant2")).Clicked() {
+			if menu.Item(runStopLabel(language, p)).Clicked() {
 				c.After(func() { a.stopBuildOperation(p) })
 			}
 		} else if menu.Item(i18n.Shared(language, "desktop.runConfig.run")).Disabled(p.build.operation != nil || !p.runConfigurationReady(configuration)).Clicked() {

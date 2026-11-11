@@ -69,7 +69,11 @@ func (a *App) runHeader(c ui.C, p *project) {
 		a.runViews(c, p)
 		ui.Spacer(c)
 		if b.operation != nil {
-			if ui.Button(c, t.Stop).Outline().Clicked() {
+			label := t.Stop
+			if b.operation.cancelled {
+				label = i18n.Shared(a.language(), "desktop.process.forceStop")
+			}
+			if ui.Button(c, label).Outline().Clicked() {
 				a.stopBuildOperation(p)
 			}
 		}

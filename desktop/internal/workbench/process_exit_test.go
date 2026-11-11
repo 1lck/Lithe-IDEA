@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprocess"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 )
@@ -195,5 +196,34 @@ func TestProcessTerminationSettingsSkipTheTerminalQuestions(t *testing.T) {
 	h.await("quitting without a question", func() bool { return quit })
 	if len(h.app.prompts.queue) != 0 {
 		t.Fatal("a question was asked although the settings end busy terminals")
+	}
+}
+
+// TestStopTimeFollowsCoreAndTheSetting: the stop time every stopped process gets is what Core
+// resolves from the setting, kept within Core's limits, and the settings page reads Core's rule.
+func TestStopTimeFollowsCoreAndTheSetting(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	previous := buildprocess.StopGrace()
+	t.Cleanup(func() { buildprocess.SetStopGrace(previous) })
+	// Run calls this when the window opens; the harness never runs the application.
+	h.app.refreshStopGrace()
+	awaitStateWithin(t, h, 20*time.Second, "Core's stop time rule", func() bool { return h.app.stopTime.Load() != nil })
+	if rule := *h.app.stopTime.Load(); rule != (settingswindow.StopTime{Default: 5, Min: 1, Max: 60}) {
+		t.Fatalf("the rule is %+v", rule)
+	}
+	for _, step := range []struct {
+		stored *uint32
+		want   time.Duration
+	}{
+		{new(uint32(12)), 12 * time.Second},
+		{new(uint32(1000)), 60 * time.Second},
+		{nil, 5 * time.Second},
+	} {
+		h.app.settings.ProcessTermination.GracefulStopSeconds = step.stored
+		h.app.refreshStopGrace()
+		awaitStateWithin(t, h, 20*time.Second, "the stop time to apply", func() bool { return buildprocess.StopGrace() == step.want })
+	}
+	if option := h.app.stopTimeOption(); (option != nil) != buildprocess.StopsGracefully {
+		t.Fatal("the settings page shows the stop time where processes are not stopped gracefully")
 	}
 }

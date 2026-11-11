@@ -117,6 +117,10 @@ type window struct {
 	// typed in it since the stored number was last shown.
 	scrollbackField   ui.Field
 	scrollbackEditing bool
+	// stopTimeField is the Process Termination page's stop time field; stopTimeEditing says
+	// the user typed in it since the stored time was last shown.
+	stopTimeField   ui.Field
+	stopTimeEditing bool
 	// network is the Network page's unsaved edit.
 	network networkDraft
 	// keymap is the Keymap page's filter and recording.
@@ -616,8 +620,15 @@ func sameProcessTermination(a, b ProcessTermination) bool {
 		}
 		return 0
 	}
+	seconds := func(v *uint32) int64 {
+		if v == nil {
+			return -1
+		}
+		return int64(*v)
+	}
 	return a.RunServicesOnExit == b.RunServicesOnExit && a.TerminalOnQuit == b.TerminalOnQuit &&
-		confirms(a.ConfirmTerminalTabClose) == confirms(b.ConfirmTerminalTabClose)
+		confirms(a.ConfirmTerminalTabClose) == confirms(b.ConfirmTerminalTabClose) &&
+		a.StartupSweep == b.StartupSweep && seconds(a.GracefulStopSeconds) == seconds(b.GracefulStopSeconds)
 }
 
 // setDisableSemanticHighlight stores a change of the Editor page's semantic switch and hands

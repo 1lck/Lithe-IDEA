@@ -121,8 +121,8 @@ type SteppingAdapter struct {
 // ProcessTermination is the part of Core's process termination settings this client
 // applies. Its JSON is a subset of Core's TerminationSettings, so the owner passes it to
 // processLifecycle.resolve as it is; an empty or nil field is left out and Core's default
-// applies. Agent tasks, background services, the startup sweep and the stop time are not
-// here because this client does not act on them yet.
+// applies. Agent tasks and background services are not here because this client starts
+// neither.
 type ProcessTermination struct {
 	// RunServicesOnExit is RunServicesTerminate to stop Run sessions without asking when
 	// their project closes or Lithe quits; empty asks.
@@ -133,14 +133,36 @@ type ProcessTermination struct {
 	// ConfirmTerminalTabClose false closes a busy terminal tab, and the terminals of a
 	// closing project, without asking; nil asks.
 	ConfirmTerminalTabClose *bool `json:"confirmTerminalTabClose,omitempty"`
+	// StartupSweep is StartupSweepTerminate to end, at the next start, the terminals an
+	// earlier run that crashed or was killed left running, without asking; empty asks. The
+	// other processes it left are ended without asking either way.
+	StartupSweep string `json:"startupSweep,omitempty"`
+	// GracefulStopSeconds is how long a stopped program gets to exit before it is killed;
+	// nil is Core's default. Core keeps it within its limits (StopTime).
+	GracefulStopSeconds *uint32 `json:"gracefulStopSeconds,omitempty"`
 }
 
 // The stored values of ProcessTermination besides the empty ones, which ask. They are
 // Core's own names.
 const (
-	RunServicesTerminate = "terminate"
-	TerminalsTerminate   = "terminate"
+	RunServicesTerminate  = "terminate"
+	TerminalsTerminate    = "terminate"
+	StartupSweepTerminate = "terminate"
 )
+
+// StopTime is Core's rule for ProcessTermination.GracefulStopSeconds, in seconds: the time a
+// stopped program gets when none is stored, and the limits a stored time is kept within.
+type StopTime struct {
+	Default, Min, Max int
+}
+
+// Seconds is the stop time value gives, as Core applies it.
+func (t StopTime) Seconds(value ProcessTermination) int {
+	if value.GracefulStopSeconds == nil {
+		return t.Default
+	}
+	return int(min(max(int64(*value.GracefulStopSeconds), int64(t.Min)), int64(t.Max)))
+}
 
 // The stored values of Values.EditorTabRows and Values.EditorTabOverflow besides the empty
 // ones, which are the defaults: one row that scrolls.
@@ -268,6 +290,13 @@ type Options struct {
 	// SetProcessTermination hands a change of Values.ProcessTermination to the settings
 	// owner, like SetTabRows.
 	SetProcessTermination func(ProcessTermination)
+	// StopTime reads Core's rule for the stop time; it is safe from the window thread, and ok
+	// is false until Core has answered. Nil hides the stop time, for a platform where a
+	// stopped program is ended at once.
+	StopTime func() (rule StopTime, ok bool)
+	// SweepsLeftovers says the client finds, at start-up, the processes an earlier run left
+	// behind; false hides the setting for them.
+	SweepsLeftovers bool
 	// SetKeymap hands a change of Values.Keymap to the settings owner, like SetTabRows.
 	SetKeymap func(shortcuts.Overrides)
 	// SetNetwork hands the Network page's applied settings to the settings owner, with the

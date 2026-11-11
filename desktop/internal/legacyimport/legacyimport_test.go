@@ -13,7 +13,7 @@ func defaultsExport(t *testing.T) string {
 	t.Helper()
 	encode := func(value string) string { return base64.StdEncoding.EncodeToString([]byte(value)) }
 	recent := encode(`[{"path":"/Users/me/app","lastOpened":800000000.5,"branch":"main"},{"path":"","lastOpened":1},{"path":"/Users/me/lib","lastOpened":-978307300}]`)
-	termination := encode(`{"terminalOnQuit":"terminate","confirmTerminalTabClose":false,"runServicesOnExit":"ask","gracefulStopSeconds":5}`)
+	termination := encode(`{"terminalOnQuit":"terminate","confirmTerminalTabClose":false,"runServicesOnExit":"ask","startupSweep":"terminate","gracefulStopSeconds":12}`)
 	return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -70,7 +70,7 @@ func TestDefaultsMapOntoTheVivaSettings(t *testing.T) {
 	if found.EditorFont == nil || *found.EditorFont != (Font{Family: "JetBrains Mono", Size: 14}) || found.TerminalFont != nil {
 		t.Fatalf("fonts = %+v %+v", found.EditorFont, found.TerminalFont)
 	}
-	if p := found.ProcessTermination; p == nil || *p != (ProcessTermination{TerminalOnQuit: "terminate"}) {
+	if p := found.ProcessTermination; p == nil || *p != (ProcessTermination{TerminalOnQuit: "terminate", StartupSweep: "terminate", GracefulStopSeconds: 12}) {
 		t.Fatalf("process termination = %+v", p)
 	}
 	want := []Recent{{Path: "/Users/me/app", OpenedAt: 1778307200500}, {Path: "/Users/me/lib", OpenedAt: 0}}
@@ -137,6 +137,20 @@ func TestPlistRejectsMalformedDocuments(t *testing.T) {
 	} {
 		if _, err := parsePlist(strings.NewReader(document)); err == nil {
 			t.Errorf("%q parsed", document)
+		}
+	}
+}
+
+// TestProcessTerminationDropsOnlyTheValuesItCannotMap checks that a stop time out of range or
+// an unknown startup sweep choice is left out, while the rest of the stored choices import.
+func TestProcessTerminationDropsOnlyTheValuesItCannotMap(t *testing.T) {
+	for _, stored := range []string{
+		`{"terminalOnQuit":"terminate","startupSweep":"later","gracefulStopSeconds":-3}`,
+		`{"terminalOnQuit":"terminate","gracefulStopSeconds":2.5}`,
+		`{"terminalOnQuit":"terminate","gracefulStopSeconds":1e12}`,
+	} {
+		if p := processTermination([]byte(stored)); p == nil || *p != (ProcessTermination{TerminalOnQuit: "terminate", ConfirmTerminalTabClose: true}) {
+			t.Fatalf("%s imported %+v", stored, p)
 		}
 	}
 }

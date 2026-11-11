@@ -140,17 +140,24 @@ func (o *buildOperation) bind(ctx context.Context) (context.Context, context.Can
 	return ctx, cancel
 }
 
-// stop ends the operation's preparation and its process. A provider request is cancelled
-// by the caller, which owns the bounded wait for the provider's answer.
+// stop ends the operation's preparation and its process. The first stop asks the process tree
+// to stop and gives it the stop time; stopping again kills it at once. A provider request is
+// cancelled by the caller, which owns the bounded wait for the provider's answer.
 func (o *buildOperation) stop() {
 	if o == nil {
 		return
 	}
-	if !o.cancelled && o.stopped != nil {
+	again := o.cancelled
+	if !again && o.stopped != nil {
 		close(o.stopped)
 	}
 	o.cancelled = true
-	if o.process != nil {
+	if o.process == nil {
+		return
+	}
+	if again {
+		o.process.Kill()
+	} else {
 		o.process.Stop()
 	}
 }
@@ -1233,14 +1240,19 @@ func (a *App) finishBuildError(p *project, op *buildOperation, err error) {
 	}
 }
 
-// stopBuildOperation stops the current execution: its preparation ends, its process is
-// terminated and the provider is asked to cancel its request. The terminal event still clears
-// the operation, so a replacement cannot start until the execution really ended.
+// stopBuildOperation stops the current execution: its preparation ends, its process is asked
+// to stop and the provider is asked to cancel its request. Stopping an execution that is already
+// stopping kills its process at once instead of waiting out the stop time. The terminal event
+// still clears the operation, so a replacement cannot start until the execution really ended.
 func (a *App) stopBuildOperation(p *project) {
-	if p == nil || p.build.operation == nil || p.build.operation.cancelled {
+	if p == nil || p.build.operation == nil {
 		return
 	}
 	operation := p.build.operation
+	if operation.cancelled {
+		operation.stop()
+		return
+	}
 	operation.stop()
 	operation.ide.stopping()
 	p.build.status = a.text.Build.Stopping

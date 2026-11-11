@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -29,6 +30,19 @@ const (
 // end first; closing the read side after this bound keeps Wait finite even when
 // a descendant ignores termination.
 const pipeDrainTimeout = 2 * time.Second
+
+// stopGrace is how long, in nanoseconds, Stop lets a process tree end on its own before it
+// kills the tree. Zero kills at once.
+var stopGrace atomic.Int64
+
+// SetStopGrace sets how long a stopped process tree may take to end before it is killed. The
+// owner passes Core's effective stop time (processLifecycle.resolve's
+// gracefulStopMilliseconds), so this package holds no default or range of its own. A tree
+// already stopping keeps the time it was given. Until it is set, Stop kills at once.
+func SetStopGrace(grace time.Duration) { stopGrace.Store(int64(max(grace, 0))) }
+
+// StopGrace is the time SetStopGrace last set.
+func StopGrace() time.Duration { return time.Duration(stopGrace.Load()) }
 
 // Spec is one process the host will start. All paths are already validated by
 // Core or by the package resolver that owned the executable.
@@ -57,8 +71,9 @@ type Process struct {
 	readers  sync.WaitGroup
 	done     chan struct{}
 	err      error
-	// stopOnce prevents a second signal from racing the first.
-	stopOnce sync.Once
+	// stopping is set by the first Stop or Kill, so a repeated Stop neither signals again
+	// nor restarts the wait.
+	stopping atomic.Bool
 }
 
 // Start runs spec and reports every output chunk to observe. observe runs on a
@@ -163,18 +178,40 @@ func (p *Process) Wait() error {
 	return p.err
 }
 
-// Stop terminates the process tree. Repeated calls, including after the root
-// exited, are harmless and never signal a reused process identity.
+// Stop ends the process tree. The first call asks the tree to end and kills it when it
+// is still running after StopGrace, so a program can save its work and exit. Where the
+// platform has no request the whole tree answers (Windows), or no grace was set, the
+// tree is killed at once. Repeated calls do nothing more; Kill ends a tree that is still
+// in its grace. No call, including one after the root exited, signals a reused process
+// identity.
 func (p *Process) Stop() {
-	if p == nil {
+	if p == nil || p.command == nil || p.command.Process == nil || !p.stopping.CompareAndSwap(false, true) {
 		return
 	}
-	p.stopOnce.Do(func() {
-		if p.command == nil || p.command.Process == nil {
-			return
-		}
+	grace := StopGrace()
+	if grace <= 0 || !p.platform.interrupt() {
 		p.platform.terminate(p.command.Process)
-	})
+		return
+	}
+	go func() {
+		timer := time.NewTimer(grace)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			p.platform.terminate(p.command.Process)
+		case <-p.done:
+		}
+	}()
+}
+
+// Kill ends the process tree at once, also while an earlier Stop is waiting for it to end.
+// It is what stopping a program a second time does.
+func (p *Process) Kill() {
+	if p == nil || p.command == nil || p.command.Process == nil {
+		return
+	}
+	p.stopping.Store(true)
+	p.platform.terminate(p.command.Process)
 }
 
 func (p *Process) drain() {

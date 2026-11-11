@@ -10,7 +10,12 @@
       "desktop/internal/workbench/app.go",
       "desktop/internal/workbench/runs.go",
       "desktop/internal/workbench/process_exit.go",
-      "desktop/internal/workbench/process_exit_test.go"
+      "desktop/internal/workbench/process_exit_test.go",
+      "desktop/internal/workbench/startup_sweep.go",
+      "desktop/internal/workbench/startup_sweep_unix_test.go",
+      "desktop/internal/processledger/processledger.go",
+      "desktop/internal/processledger/processledger_unix_test.go",
+      "desktop/internal/pluginservice/leftovers.go"
     ]
   },
   "windows": {
@@ -25,7 +30,7 @@
   },
   "owner": "Run",
   "verification": "运行一个长驻服务（如 Spring Boot）、一个 setsid 脱离的后台进程和一个忽略终止信号的程序，分别通过菜单退出、更新重启和对主进程 kill -9 关闭 IDE，确认除用户选择保留的项目外，带本实例 LITHE_PROCESS_SCOPE 的进程全部退出、端口已释放；主进程和监护进程同时被结束后再次启动，确认残留进程出现在启动清扫确认中。 Windows Run 原生测试按父 PID 和 ping.exe 名称唯一识别夹具后代，覆盖快照乱序、大小写、缺失和歧义；停止前持有该后代进程句柄，以两秒退出信号确认根进程和后代结束，以零等待确认另一窗口仍在运行；cmd 禁用 AutoRun，首字节就绪等待有界，夹具在断言失败时也清理所属进程树。",
-  "notes": "关闭项目或窗口时结束该项目的 Run 会话、调试会话、测试和终端（先确认，见 process-termination-policy）。IDE 异常退出后的遗留进程清扫与启动时确认（startupSweep/crashRecovery）未做。",
+  "notes": "关闭项目或窗口时结束该项目的 Run 会话、调试会话、测试和终端（先确认，见 process-termination-policy）。IDE 异常退出后的遗留进程：macOS 的运行、构建、调试适配器、插件工具和终端写入进程台账（PID 与启动时间，防 PID 复用），下次启动由 Core 的 processLifecycle.resolve（startupSweep）决定，运行、构建、调试适配器和插件工具直接结束，终端按设置询问或直接结束，确认窗口里可结束或保留；Core 不可用时全部交给用户决定、不自动结束。结束时先 SIGTERM，等待 Core 给出的停止时长后再 SIGKILL。Windows 没有进程台账（缺少 ps 的启动时间核对），不做启动清扫；没有监护进程，崩溃当下不清理。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

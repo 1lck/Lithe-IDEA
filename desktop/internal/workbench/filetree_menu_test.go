@@ -96,19 +96,21 @@ func TestProjectTreePromptRejectsUnusableNames(t *testing.T) {
 func TestDocumentsUnderSpansOneFolder(t *testing.T) {
 	a := &App{}
 	p := &project{}
+	// Document paths use the platform separator, as the window builds them with filepath.
+	path := filepath.FromSlash
 	p.docs.list = []*document{
-		{path: "/work/a.txt"},
-		{path: "/work/dir/b.txt"},
-		{path: "/work/dir/sub/c.txt"},
-		{path: "/work/dir2/d.txt"},
+		{path: path("/work/a.txt")},
+		{path: path("/work/dir/b.txt")},
+		{path: path("/work/dir/sub/c.txt")},
+		{path: path("/work/dir2/d.txt")},
 	}
-	if got := len(a.documentsUnder(p, "/work/dir")); got != 2 {
+	if got := len(a.documentsUnder(p, path("/work/dir"))); got != 2 {
 		t.Fatalf("documentsUnder(/work/dir) = %d, want 2", got)
 	}
-	if got := len(a.documentsUnder(p, "/work/a.txt")); got != 1 {
+	if got := len(a.documentsUnder(p, path("/work/a.txt"))); got != 1 {
 		t.Fatalf("documentsUnder(a file) = %d, want 1", got)
 	}
-	if got := len(a.documentsUnder(p, "/work")); got != 4 {
+	if got := len(a.documentsUnder(p, path("/work"))); got != 4 {
 		t.Fatalf("documentsUnder(the root) = %d, want 4", got)
 	}
 }
