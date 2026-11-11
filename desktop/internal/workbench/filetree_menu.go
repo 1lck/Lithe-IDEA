@@ -57,6 +57,10 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 	target.Hit(ui.ID(c.Key("treectx/"+n.path)), n.name)
 	ui.ContextMenu(c, target, func(menu *ui.MenuItems) {
 		menu.WidthRange(200, 280)
+		if nodes := p.tree.batchTargets(); len(nodes) > 1 && p.tree.marked[n.path] {
+			a.treeBatchMenu(c, p, menu, nodes)
+			return
+		}
 		opened := false
 		if !n.dir {
 			if menu.Item(i18n.Shared(language, "desktop.files.open")).Clicked() {

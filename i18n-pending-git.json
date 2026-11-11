@@ -438,5 +438,44 @@
     "description": "Hint under a nested repository whose reference the parent does not show as changed",
     "en-US": "The parent repository's reference to this submodule is unchanged. Commit here, then update the parent to record it.",
     "zh-CN": "父仓库中该子模块的引用没有变化。在此提交后需要在父仓库中更新引用。"
+  },
+  {
+    "id": "desktop.files.batchTrash",
+    "description": "Project tree batch menu: move the marked items to the trash",
+    "en-US": "Move {count} Items to Trash",
+    "zh-CN": "将 {count} 项移到废纸篓",
+    "parameters": {
+      "count": "string"
+    }
+  },
+  {
+    "id": "desktop.files.batchDelete",
+    "description": "Project tree batch menu: delete the marked items",
+    "en-US": "Delete {count} Items",
+    "zh-CN": "删除 {count} 项",
+    "parameters": {
+      "count": "string"
+    }
+  },
+  {
+    "id": "desktop.files.batchDeleteTitle",
+    "description": "Title of the batch delete confirmation",
+    "en-US": "Delete Items",
+    "zh-CN": "删除项目"
+  },
+  {
+    "id": "desktop.files.batchDeletePrompt",
+    "description": "Prompt of the batch delete confirmation",
+    "en-US": "Delete {count} items? This cannot be undone.",
+    "zh-CN": "要删除 {count} 个项目吗？此操作无法撤销。",
+    "parameters": {
+      "count": "string"
+    }
+  },
+  {
+    "id": "desktop.files.batchDeleteConfirm",
+    "description": "Button that confirms the batch delete",
+    "en-US": "Delete",
+    "zh-CN": "删除"
   }
 ]
