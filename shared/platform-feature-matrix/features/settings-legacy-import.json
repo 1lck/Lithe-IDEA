@@ -2,7 +2,7 @@
   "id": "settings-legacy-import",
   "area": "设置",
   "group": "迁移",
-  "capability": "从旧版 Lithe 只读导入应用偏好与最近项目",
+  "capability": "从旧版 Lithe 只读导入应用偏好、最近项目并列出待重装的插件",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
@@ -12,7 +12,9 @@
       "desktop/internal/legacyimport/source_darwin.go",
       "desktop/internal/legacyimport/legacyimport_test.go",
       "desktop/internal/workbench/legacy_import.go",
-      "desktop/internal/workbench/legacy_import_test.go"
+      "desktop/internal/workbench/legacy_import_test.go",
+      "desktop/internal/legacyimport/plugins.go",
+      "desktop/internal/legacyimport/plugins_test.go"
     ]
   },
   "windows": {
@@ -22,10 +24,12 @@
       "desktop/internal/legacyimport/legacyimport.go",
       "desktop/internal/legacyimport/source_windows.go",
       "desktop/internal/legacyimport/legacyimport_test.go",
-      "desktop/internal/workbench/legacy_import.go"
+      "desktop/internal/workbench/legacy_import.go",
+      "desktop/internal/legacyimport/plugins.go",
+      "desktop/internal/legacyimport/plugins_test.go"
     ]
   },
   "owner": "Settings",
-  "verification": "装有旧版 Lithe 的机器上从设置齿轮菜单选“从旧版 Lithe 导入设置…”：对话框列出找到的语言、主题、小地图、标签行、终端 Shell、进程终止选项、编辑器/终端字体与最近项目数量，可逐项关闭；导入后设置窗口与工作台立即反映所选值，未勾选项保持不变，最近项目按旧的打开时间并入当前列表且不重复；settings.json 与 recent-projects.json 被读回校验。导入前后旧客户端的偏好（macOS `defaults export app.lithe.desktop -` 输出、Windows `%APPDATA%\\app.lithe.windows\\settings.json`）字节不变，旧客户端仍可正常启动。没有旧版时提示未找到且不弹对话框。Windows 实机验证 Tauri store 读取。",
-  "notes": "Viva 新增的迁移入口，旧客户端没有对应功能。macOS 读取用户默认值域 app.lithe.desktop，Windows 读取 Tauri store；Windows 最近项目位于 WebView localStorage，尚未读取，所以 Windows 为 partial。自定义日志目录、快捷键、会话、本地历史与 Shelf 不导入，原因见 docs/viva-migration.md“旧客户端数据来源清单”。"
+  "verification": "装有旧版 Lithe 的机器上从设置齿轮菜单选“从旧版 Lithe 导入设置…”：对话框列出找到的语言、主题、小地图、标签行、终端 Shell、进程终止选项、编辑器/终端字体与最近项目数量，可逐项关闭；导入后设置窗口与工作台立即反映所选值，未勾选项保持不变，最近项目按旧的打开时间并入当前列表且不重复；settings.json 与 recent-projects.json 被读回校验。导入前后旧客户端的偏好（macOS `defaults export app.lithe.desktop -` 输出、Windows `%APPDATA%\\app.lithe.windows\\settings.json`）字节不变，旧客户端仍可正常启动。没有旧版时提示未找到且不弹对话框。Windows 实机验证 Tauri store 读取。 旧版装过而本版未装的插件在对话框中列出（超过 8 个时显示剩余数量），已装的不列出；“打开插件市场”打开设置窗口的插件页，重新安装走市场下载、校验与审查，旧安装包不被复制或读取执行。",
+  "notes": "Viva 新增的迁移入口，旧客户端没有对应功能。插件只列出、不复制旧包，经市场重新安装；旧启用状态未导入。macOS 读取用户默认值域 app.lithe.desktop，Windows 读取 Tauri store；Windows 最近项目位于 WebView localStorage，尚未读取，所以 Windows 为 partial。自定义日志目录、快捷键、会话、本地历史与 Shelf 不导入，原因见 docs/viva-migration.md“旧客户端数据来源清单”。"
 }

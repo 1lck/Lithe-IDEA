@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/legacyimport"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -47,6 +49,8 @@ type legacyImportState struct {
 	reading, open bool
 	found         legacyimport.Found
 	items         []legacyImportItem
+	// plugins are the earlier client's plugins this client has not installed.
+	plugins []legacyimport.Plugin
 	// read reads the earlier client's preferences; nil is legacyimport.Read. Tests set it.
 	read func(context.Context) (legacyimport.Found, error)
 }
@@ -102,7 +106,50 @@ func (a *App) showLegacyImport(found legacyimport.Found, err error) {
 		s.items = append(s.items, legacyImportItem{item: item, chosen: true})
 	}
 	s.items = slices.Clip(s.items)
+	s.plugins = a.missingLegacyPlugins(found.Plugins)
+	if len(s.items) == 0 && len(s.plugins) == 0 {
+		a.notify(i18n.Shared(language, "desktop.legacyImport.none"))
+		return
+	}
 	s.open = true
+}
+
+// missingLegacyPlugins are the plugins of plugins this client has not installed.
+func (a *App) missingLegacyPlugins(plugins []legacyimport.Plugin) []legacyimport.Plugin {
+	var installed map[string]settingswindow.PluginState
+	if states := a.pluginState.Load(); states != nil {
+		installed = *states
+	}
+	return slices.DeleteFunc(slices.Clone(plugins), func(plugin legacyimport.Plugin) bool { return installed[plugin.ID].Installed })
+}
+
+// legacyPluginsShown is how many plugin names the dialog lists before summing up the rest.
+const legacyPluginsShown = 8
+
+// legacyPluginsView lists the earlier client's plugins this client has not installed,
+// with the way to the marketplace. Packages are never copied: a plugin is installed again
+// from the marketplace, which checks it for this host.
+func (a *App) legacyPluginsView(c ui.C) {
+	s := &a.legacyImport
+	if len(s.plugins) == 0 {
+		return
+	}
+	language := a.language()
+	ui.Column(c.Part("legacy-plugins")).FillWidth().Gap(4).PadY(4).Children(func() {
+		ui.Text(c, i18n.Shared(language, "desktop.legacyImport.plugins")).Weight(gfx.WeightMedium)
+		names := make([]string, 0, legacyPluginsShown+1)
+		for _, plugin := range s.plugins[:min(len(s.plugins), legacyPluginsShown)] {
+			names = append(names, plugin.Name)
+		}
+		if rest := len(s.plugins) - legacyPluginsShown; rest > 0 {
+			names = append(names, i18n.SharedFormat(language, "desktop.legacyImport.pluginsMore", map[string]string{"count": strconv.Itoa(rest)}))
+		}
+		ui.Paragraph(c, strings.Join(names, " · "), 4).FontSize(a.theme.Metrics.FontSizeS)
+		ui.Paragraph(c, i18n.Shared(language, "desktop.legacyImport.pluginsHelp"), 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+		if ui.Button(c.Part("marketplace"), i18n.Shared(language, "desktop.legacyImport.openMarketplace")).Outline().Small().Clicked() {
+			c.After(func() { a.openPluginSettings(surfaceButton) })
+		}
+	})
 }
 
 // legacyItems lists what found holds, in the dialog's order.
@@ -208,6 +255,7 @@ func (a *App) legacyImportView(c ui.C) {
 					}
 				})
 			}
+			a.legacyPluginsView(c)
 		})
 	}, func() {
 		cancelled = ui.Button(c, i18n.Shared(language, "desktop.git.cancel")).Outline().Clicked()

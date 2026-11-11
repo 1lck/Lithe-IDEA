@@ -13605,6 +13605,37 @@
       ]
     },
     {
+      "id": "desktop.legacyImport.openMarketplace",
+      "description": "Button in the import dialog that opens the plugin marketplace in the settings window.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.plugins",
+      "description": "Heading in the import dialog above the plugins the earlier Lithe client had installed that this client has not.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.pluginsHelp",
+      "description": "Explains under the earlier plugins that they are installed again from the marketplace and their packages are not copied.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.legacyImport.pluginsMore",
+      "description": "Ends the list of earlier plugins when it is cut short; {count} is how many more there are.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
       "id": "desktop.legacyImport.processTermination",
       "description": "Import dialog item: the choices about ending running processes when closing or quitting.",
       "platforms": [

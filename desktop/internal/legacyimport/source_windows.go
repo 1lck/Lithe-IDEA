@@ -20,7 +20,8 @@ const (
 // macDomain names the macOS source; unused on Windows but shared by the mapping.
 const macDomain = "app.lithe.desktop"
 
-// read reads the Tauri store's settings.json. A missing file is ErrNotFound.
+// read reads the Tauri store's settings.json and lists the installed plugins. Neither
+// existing is ErrNotFound.
 func read(ctx context.Context) (Found, error) {
 	if err := ctx.Err(); err != nil {
 		return Found{}, err
@@ -30,26 +31,31 @@ func read(ctx context.Context) (Found, error) {
 		return Found{}, err
 	}
 	path := filepath.Join(base, tauriIdentifier, "settings.json")
+	found := Found{Source: path}
 	file, err := os.Open(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return Found{}, ErrNotFound
-	}
-	if err != nil {
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+	case err != nil:
 		return Found{}, err
+	default:
+		defer file.Close()
+		data, err := io.ReadAll(io.LimitReader(file, maxSettingsBytes+1))
+		if err != nil {
+			return Found{}, err
+		}
+		if len(data) > maxSettingsBytes {
+			return Found{}, errTooLarge
+		}
+		var values map[string]json.RawMessage
+		if err := json.Unmarshal(data, &values); err != nil {
+			return Found{}, err
+		}
+		found = fromTauriSettings(path, values)
 	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, maxSettingsBytes+1))
-	if err != nil {
-		return Found{}, err
+	// %LOCALAPPDATA% is the user cache directory on Windows.
+	if local, err := os.UserCacheDir(); err == nil {
+		found.Plugins = windowsPlugins(filepath.Join(local, tauriIdentifier, "plugins"))
 	}
-	if len(data) > maxSettingsBytes {
-		return Found{}, errTooLarge
-	}
-	var values map[string]json.RawMessage
-	if err := json.Unmarshal(data, &values); err != nil {
-		return Found{}, err
-	}
-	found := fromTauriSettings(path, values)
 	if found.Empty() {
 		return Found{}, ErrNotFound
 	}

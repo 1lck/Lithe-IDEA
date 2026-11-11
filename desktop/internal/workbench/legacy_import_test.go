@@ -11,6 +11,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/legacyimport"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -114,5 +115,37 @@ func TestLegacyFontsTakeOnlyTheirScope(t *testing.T) {
 	}
 	if _, ok := legacyFonts(current, found, true, false); ok {
 		t.Fatal("an unchosen font was taken")
+	}
+}
+
+// Plugins alone open the dialog; it lists only those this client has not installed.
+func TestLegacyImportListsMissingPlugins(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.settle()
+	h.app.pluginState.Store(&map[string]settingswindow.PluginState{"dev.example.java": {Installed: true}})
+	h.app.legacyImport.read = func(context.Context) (legacyimport.Found, error) {
+		return legacyimport.Found{Source: "app.lithe.desktop", Plugins: []legacyimport.Plugin{
+			{ID: "dev.example.java", Name: "Java Support"}, {ID: "dev.example.db", Name: "Database Tools"},
+		}}, nil
+	}
+	s := &h.app.legacyImport
+	h.app.post((*App).readLegacyImport)
+	awaitStateWithin(t, h, 10*time.Second, "the import dialog", func() bool { return s.open })
+	h.settle()
+	if !h.shows("Database Tools") || h.shows("Java Support") || len(s.items) != 0 {
+		t.Fatalf("plugins = %+v items = %+v", s.plugins, s.items)
+	}
+	if !h.shows(i18n.Shared(h.app.language(), "desktop.legacyImport.openMarketplace")) {
+		t.Fatal("the marketplace button is not shown")
+	}
+
+	// Once every earlier plugin is installed, nothing is left to import.
+	h.app.post(func(a *App) { a.legacyImport.open = false })
+	h.app.pluginState.Store(&map[string]settingswindow.PluginState{"dev.example.java": {Installed: true}, "dev.example.db": {Installed: true}})
+	h.app.post((*App).readLegacyImport)
+	want := i18n.Shared(h.app.language(), "desktop.legacyImport.none")
+	awaitStateWithin(t, h, 10*time.Second, "the notice", func() bool { return h.app.notice == want })
+	if s.open {
+		t.Fatal("the dialog opened with nothing to import")
 	}
 }

@@ -5,8 +5,10 @@
 //
 // Sources, read-only:
 //   - macOS: the user defaults domain app.lithe.desktop, through `defaults export`, which
-//     reads them as the earlier client sees them without touching the file.
-//   - Windows: %APPDATA%\app.lithe.windows\settings.json, the Tauri store. Its recent
+//     reads them as the earlier client sees them without touching the file, and the
+//     installation records under Application Support/Lithe/Plugins.
+//   - Windows: %APPDATA%\app.lithe.windows\settings.json, the Tauri store, and the
+//     installation records under %LOCALAPPDATA%\app.lithe.windows\plugins. Its recent
 //     folders live in the WebView's localStorage and are not read.
 //
 // Not imported: the custom log directory, since sharing it with the earlier client mixes
@@ -63,12 +65,14 @@ type Found struct {
 	EditorFont         *Font
 	TerminalFont       *Font
 	Recent             []Recent
+	// Plugins are the plugins the earlier client had installed, by ID.
+	Plugins []Plugin
 }
 
 // Empty says nothing was found to import.
 func (f Found) Empty() bool {
 	return f.Language == nil && f.Theme == nil && f.HideMinimap == nil && f.EditorTabRows == nil && f.TerminalShell == nil &&
-		f.ProcessTermination == nil && f.EditorFont == nil && f.TerminalFont == nil && len(f.Recent) == 0
+		f.ProcessTermination == nil && f.EditorFont == nil && f.TerminalFont == nil && len(f.Recent) == 0 && len(f.Plugins) == 0
 }
 
 // ErrNotFound says this machine has no earlier client's preferences.
