@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/wslpath"
@@ -18,6 +19,10 @@ import (
 // openProject opens the folder at path, asking first where to open it when the window
 // already has a project.
 func (a *App) openProject(path string) {
+	if a.missing[path] {
+		a.askRemoveUnavailableRecent(path)
+		return
+	}
 	p := a.project
 	if p == nil || a.isOpenProjectRoot(path) {
 		a.openProjectHere(path)
@@ -97,4 +102,30 @@ func launchClient(path string) error {
 	}
 	go func() { _ = cmd.Wait() }()
 	return nil
+}
+
+// askRemoveUnavailableRecent answers the opening of a recent project whose folder is gone
+// (a.missing): it offers to take it off the list, and Cancel keeps it, still marked. The
+// folder is looked at again first, since a drive may have come back since the mark.
+func (a *App) askRemoveUnavailableRecent(path string) {
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		delete(a.missing, path)
+		a.openProject(path)
+		return
+	}
+	language := a.language()
+	a.prompts.queue = append(a.prompts.queue, &pluginPrompt{
+		title: i18n.Shared(language, "fileSystem.recentProjectUnavailableTitle"),
+		text:  i18n.SharedFormat(language, "fileSystem.recentProjectUnavailable", map[string]string{"path": path}),
+		actions: []string{
+			i18n.Shared(language, "desktop.projectOpen.cancel"),
+			i18n.Shared(language, "fileSystem.removeFromList"),
+		},
+		onAnswer: func(choice *int) {
+			if choice != nil && *choice == 1 {
+				a.performed("workspace.recent.remove", surfaceButton)
+				a.reduceRecent(a.recent, core.RemoveRecent(path), true)
+			}
+		},
+	})
 }
