@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -41,6 +42,9 @@ type debugVarNode struct {
 	id int
 	// expensive scopes load only when the user opens them.
 	expensive bool
+	// registers marks the scope of the adapter's registers (DAP presentationHint "registers"), which the
+	// Registers tab shows apart from the variables.
+	registers bool
 }
 
 // debugVarContainer is the children of one node and their page cursor.
@@ -80,6 +84,9 @@ type debugVariables struct {
 	edit     debugVariableEdit
 	// json shows the loaded tree as JSON instead.
 	json bool
+	// registersView shows the registers scope alone, as the Registers tab does; the Variables tab lists
+	// every other scope. It stays on Variables when the adapter reports no registers scope.
+	registersView bool
 	// jsonLines and jsonList render that text; version rises with every change
 	// of the tree so the text is rebuilt only when it changed.
 	jsonLines   []string
@@ -129,9 +136,30 @@ func (v *debugVariables) flatten() []*debugVarNode {
 			}
 		}
 	}
-	walk(v.scopes)
+	walk(v.visibleScopes())
 	v.rows = rows
 	return rows
+}
+
+// visibleScopes are the scopes the current tab lists: the registers on the Registers tab, every other scope
+// on the Variables tab.
+func (v *debugVariables) visibleScopes() []*debugVarNode {
+	shown := make([]*debugVarNode, 0, len(v.scopes))
+	for _, scope := range v.scopes {
+		if scope.registers == v.registersView {
+			shown = append(shown, scope)
+		}
+	}
+	return shown
+}
+
+// registersScope is the adapter's registers scope, nil when it reports none.
+func (v *debugVariables) registersScope() *debugVarNode {
+	i := slices.IndexFunc(v.scopes, func(scope *debugVarNode) bool { return scope.registers })
+	if i < 0 {
+		return nil
+	}
+	return v.scopes[i]
 }
 
 // debugOperationHandlers are what happens to one operation's answer. failed is
@@ -260,7 +288,7 @@ func (a *App) selectDebugFrame(p *project, index int) {
 		for _, scope := range result.Scopes {
 			scopes = append(scopes, &debugVarNode{
 				name: scope.Name, ref: scope.VariablesReference, named: scope.NamedVariables, indexed: scope.IndexedVariables,
-				scope: true, expensive: scope.Expensive,
+				scope: true, expensive: scope.Expensive, registers: scope.PresentationHint == "registers",
 			})
 		}
 		p.debug.vars.scopes = scopes

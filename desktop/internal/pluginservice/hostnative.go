@@ -54,8 +54,8 @@ func (s *Service) InvokeToolWindowAction(ctx context.Context, root, pluginID, fu
 // InvokeNativeSource calls a source panel's function for the instance it reads and returns the nodes it
 // answers with. Core checks the reply against the panel's declaration (declaration is the window's native
 // object), so the host applies no rule of its own. The function receives the build system ID and the
-// instance's root.
-func (s *Service) InvokeNativeSource(ctx context.Context, root, pluginID string, declaration json.RawMessage, function, buildSystemID, instanceRoot string) ([]NativeNode, error) {
+// instance's root, and a form's current values when values is not nil.
+func (s *Service) InvokeNativeSource(ctx context.Context, root, pluginID string, declaration json.RawMessage, function, buildSystemID, instanceRoot string, values map[string]any) ([]NativeNode, error) {
 	if s == nil {
 		return nil, ErrBackendUnavailable
 	}
@@ -70,7 +70,11 @@ func (s *Service) InvokeNativeSource(ctx context.Context, root, pluginID string,
 	if !session.hasFunction(function) {
 		return nil, errors.New("the source's function is not registered")
 	}
-	answer, err := session.Call(ctx, function, mustMarshal(map[string]any{"buildSystemID": buildSystemID, "root": instanceRoot}), mustMarshal(workspace.ContextRef), nativeActionTimeout)
+	argument := map[string]any{"buildSystemID": buildSystemID, "root": instanceRoot}
+	if values != nil {
+		argument["values"] = values
+	}
+	answer, err := session.Call(ctx, function, mustMarshal(argument), mustMarshal(workspace.ContextRef), nativeActionTimeout)
 	if err != nil {
 		return nil, err
 	}

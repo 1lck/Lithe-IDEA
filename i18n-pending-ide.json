@@ -599,5 +599,11 @@
     "parameters": {
       "parent": "string"
     }
+  },
+  {
+    "id": "desktop.debug.registers",
+    "description": "Variables section tab that shows the adapter's registers scope alone",
+    "en-US": "Registers",
+    "zh-CN": "寄存器"
   }
 ]

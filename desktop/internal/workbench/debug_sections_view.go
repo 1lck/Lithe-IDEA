@@ -102,6 +102,7 @@ func (a *App) debugVariablesView(c ui.C, p *project) {
 		mode = "json"
 	}
 	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
+		a.debugRegistersTabs(c, p)
 		ui.Tabs(c, &mode, []string{"tree", "json"}, func(m string) string {
 			if m == "json" {
 				return t.ViewJSON

@@ -342,6 +342,10 @@ type project struct {
 	everywhereSymbols everywhereSymbolState
 	// tree is the Project tool window's tree of the project folder.
 	tree fileTree
+	// nativePanels is the view state of each native plugin panel the project shows, by window, and
+	// nativeSaved what the project kept for them when it last closed (plugin_native.go, plugin_native_state.go).
+	nativePanels map[string]*nativePanelState
+	nativeSaved  map[string]savedNativePanel
 	// build is the Run tool window's provider-backed instances and output.
 	build buildState
 	// runConfigs are the run configurations Core resolved for the workspace.
@@ -471,8 +475,6 @@ type App struct {
 	// pluginState is what the settings window reads from its own thread about
 	// installed plugins; it is replaced whole, never mutated in place.
 	pluginState atomic.Pointer[map[string]settingswindow.PluginState]
-	// nativePanels holds the view state of each native plugin panel, by window (plugin_native.go).
-	nativePanels map[string]*nativePanelState
 	// pluginFacts is each installed plugin's manifest facts, read from disk off the window thread.
 	pluginFacts atomic.Pointer[map[string]settingswindow.PluginFacts]
 	// pluginServerMu guards the language-server maps because a build provider
@@ -1025,6 +1027,7 @@ func (a *App) openProjectHere(path string) {
 		a.loadLog(p)
 		a.activatePluginWorkspace(root)
 		a.restoreEditorSession(p)
+		a.restoreNativePanels(p)
 		a.openPendingFiles(p)
 	})
 }
@@ -1067,6 +1070,7 @@ func (a *App) finishCloseProject(p *project, after func()) {
 	}
 	{
 		a.saveEditorSession(p)
+		a.saveNativePanels(p)
 		a.closeEverywhere(p)
 		if a.navigation.open && a.navigation.project == p {
 			a.closeNavigation()
