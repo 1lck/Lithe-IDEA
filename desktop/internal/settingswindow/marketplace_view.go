@@ -288,6 +288,44 @@ func (w *window) marketDetail(c ui.C) {
 	if w.ctrl.opts.PluginSettings == nil {
 		ui.Wrap(c, i18n.Shared(language, "desktop.marketplace.hostUnavailable")).FontSize(12).Color(w.pal.muted)
 	}
+	tabs := []int{detailOverview, detailVersions, detailSettings}
+	ui.Tabs(c, &m.detailTab, tabs, func(tab int) string { return marketTabLabel(language, tab) })
+	switch m.detailTab {
+	case detailVersions:
+		w.marketVersions(c, *selected)
+	case detailSettings:
+		if w.ctrl.opts.PluginState != nil && w.ctrl.opts.PluginState(selected.ID).Installed {
+			w.pluginSettingsPanel(c, selected.ID)
+		} else {
+			ui.Wrap(c, i18n.Shared(language, "desktop.marketplace.settingsNeedInstall")).FontSize(12).Color(w.pal.muted)
+		}
+	default:
+		w.marketOverview(c, *selected)
+	}
+}
+
+// The tabs of a plugin's detail. Overview holds what the plugin says about itself and the
+// actions; Versions the released versions with the source the listing names; Settings the
+// settings of an installed plugin.
+const (
+	detailOverview = iota
+	detailVersions
+	detailSettings
+)
+
+func marketTabLabel(language i18n.Language, tab int) string {
+	switch tab {
+	case detailVersions:
+		return i18n.Shared(language, "desktop.marketplace.tab.versions")
+	case detailSettings:
+		return i18n.Shared(language, "desktop.marketplace.tab.settings")
+	}
+	return i18n.Shared(language, "desktop.marketplace.tab.overview")
+}
+
+// marketOverview declares the description, the latest release and the actions of a plugin.
+func (w *window) marketOverview(c ui.C, selected core.MarketplacePlugin) {
+	language := w.marketLanguage()
 	description := selected.Description
 	if w.ctrl.opts.Language != nil && w.ctrl.opts.Language() == i18n.Chinese {
 		if value := selected.LocalizedDescriptions["zh-Hans"]; value != "" {
@@ -304,9 +342,23 @@ func (w *window) marketDetail(c ui.C) {
 	if selected.License != "" {
 		w.marketMetadata(c, i18n.Shared(language, "native.license"), selected.License)
 	}
-	w.marketPluginActions(c, *selected)
-	if w.ctrl.opts.PluginState != nil && w.ctrl.opts.PluginState(selected.ID).Installed {
-		w.pluginSettingsPanel(c, selected.ID)
+	w.marketPluginActions(c, selected)
+}
+
+// marketVersions declares every released version of a plugin, newest first as the index lists
+// them, with the homepage and the publisher the listing names.
+func (w *window) marketVersions(c ui.C, selected core.MarketplacePlugin) {
+	language := w.marketLanguage()
+	w.marketMetadata(c, i18n.Shared(language, "native.author"), selected.Author)
+	if selected.Homepage != nil && *selected.Homepage != "" {
+		w.marketMetadata(c, i18n.Shared(language, "desktop.marketplace.homepage"), *selected.Homepage)
+	}
+	if len(selected.Versions) == 0 {
+		ui.Wrap(c, i18n.Shared(language, "desktop.marketplace.noVersions")).FontSize(12).Color(w.pal.muted)
+		return
+	}
+	for _, version := range selected.Versions {
+		w.marketMetadata(c, version.Version, version.ReleaseDate)
 	}
 }
 
