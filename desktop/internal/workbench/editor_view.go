@@ -250,11 +250,14 @@ func (a *App) terminalView(c ui.C, t *terminal) {
 		ui.Column(c.Part(name + "-find")).Fill().Children(func() {
 			a.terminalFindBar(c, t)
 			box := ui.Control(c.Part(name), a.text.Terminal.Label, &t.input).Fill().Draw(t.draw)
+			box.DropTarget(&a.dnd.tree, a.terminalTreeAccept, a.terminalTreeDrop)
 			ui.FocusBind(box, &a.focus, focusTarget{term: t.id})
 		})
 		return
 	}
 	box := ui.Control(c.Part(name), a.text.Terminal.Label, &t.input).Fill().Draw(t.draw)
+	// A project tree row dropped on the terminal pastes its path (terminal_drop.go).
+	box.DropTarget(&a.dnd.tree, a.terminalTreeAccept, a.terminalTreeDrop)
 	ui.FocusBind(box, &a.focus, focusTarget{term: t.id})
 }
 

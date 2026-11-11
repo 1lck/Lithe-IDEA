@@ -12,6 +12,9 @@ func (a *App) fileDrop(event gfx.FileDropEvent) gfx.EventResult {
 	if a.project == nil {
 		return a.welcomeFileDrop(event)
 	}
+	if result, ok := a.terminalFileDrop(event); ok {
+		return result
+	}
 	return a.agentFileDrop(event)
 }
 
