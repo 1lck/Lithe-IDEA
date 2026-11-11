@@ -180,7 +180,11 @@ func (a *App) drawLogReferences(c ui.C, p *project) ui.Box {
 			ui.TextFieldID(c, logRefSearchID, &v.refSearch, g.BranchSearch, g.BranchSearch).Grow(1)
 		})
 		ui.Divider(c)
-		ui.Tree(c, &v.refs, len(v.refItems), v.refLabel, func(i int) { a.drawLogRefContent(c, v.refItems[i]) }).Grow(1).PadY(4)
+		ui.Tree(c, &v.refs, len(v.refItems), v.refLabel, func(i int) {
+			a.logRefPointer(c, p, i)
+			a.drawLogRefContent(c, v.refItems[i])
+		}).Grow(1).PadY(4)
+		a.drawLogRefMenu(c, p)
 		if i, ok := v.refs.Toggled(); ok {
 			c.After(func() { a.toggleLogRef(p, v.refItems[i], query) })
 		}
@@ -512,6 +516,10 @@ func (a *App) drawLogList(c ui.C, p *project) {
 	}
 	rows := l.graph.Rows
 	n := len(rows)
+	v.keyRows = rows
+	if v.commits.Selection == nil {
+		v.commits.Selection, v.commits.Key = &v.chosen, v.logCommitKey
+	}
 	if l.reveal {
 		l.reveal = false
 		if at := slices.IndexFunc(rows, func(r core.GraphRow) bool { return r.CommitHash == l.selected }); at >= 0 {
@@ -519,9 +527,16 @@ func (a *App) drawLogList(c ui.C, p *project) {
 		}
 	}
 	// The list's choice follows the commit selected anywhere else: a reference located in
-	// the graph, a selection that a filter dropped.
+	// the graph, a selection that a filter dropped. With no row selected before or after, the
+	// commits chosen are left as they are.
 	if cur := v.commits.Selected(); !v.commits.Changed() && (cur < 0 || cur >= n || rows[cur].CommitHash != l.selected) {
-		v.commits.Select(slices.IndexFunc(rows, func(r core.GraphRow) bool { return r.CommitHash == l.selected }))
+		if at := slices.IndexFunc(rows, func(r core.GraphRow) bool { return r.CommitHash == l.selected }); at >= 0 || cur >= 0 {
+			v.commits.Select(at)
+			v.chosen.Clear()
+			if at >= 0 {
+				v.chosen.Add(v.hashKey(l.selected))
+			}
+		}
 	}
 	total := n
 	if l.hasMore || l.loadingMore {
@@ -549,7 +564,7 @@ func (a *App) drawLogRow(c ui.C, p *project, rows []core.GraphRow, row ui.ListRo
 	}
 	box := row.Element.Height(logRowHeight).FillWidth()
 	switch {
-	case rows[i].CommitHash == l.selected:
+	case rows[i].CommitHash == l.selected || v.chosen.Len() > 1 && v.commits.Chosen(i):
 		box = box.Background(a.colors.Selection)
 	case l.currentRows[rows[i].CommitHash]:
 		box = box.Background(currentBranchBackground(a.colors.Dark)).Hover(ui.Look{}.Background(a.colors.Hover))
@@ -558,7 +573,7 @@ func (a *App) drawLogRow(c ui.C, p *project, rows []core.GraphRow, row ui.ListRo
 	}
 	// The menu hangs on the row the list already identifies: an identity of its own would
 	// take the row's presses from the list, which then never chooses the commit.
-	ui.ContextMenu(row.C, box, a.logRowRebaseMenu(p, rows[i].CommitHash))
+	ui.ContextMenu(row.C, box, a.logCommitMenu(p, i))
 	box.Draw(v.rowPainter(a, i))
 }
 
@@ -585,4 +600,28 @@ func (a *App) drawLogFooter(c ui.C, p *project, row ui.ListRow) {
 		}
 		ui.Spacer(c)
 	})
+}
+
+// logCommitKey is the key of row i of the commit list in its selection: the key of the commit's
+// hash, so a choice survives a reload that moves the rows. The row past the commits has none.
+func (v *logView) logCommitKey(i int) int {
+	if i < 0 || i >= len(v.keyRows) {
+		return -1
+	}
+	return v.hashKey(v.keyRows[i].CommitHash)
+}
+
+// hashKey is the selection key of the commit hash: the order the list first showed it in. A
+// row's key is its identity too, which has to be unique and below 2^31, as no digest of the
+// hash is.
+func (v *logView) hashKey(hash string) int {
+	if k, ok := v.keys[hash]; ok {
+		return k
+	}
+	if v.keys == nil {
+		v.keys = map[string]int{}
+	}
+	k := len(v.keys)
+	v.keys[hash] = k
+	return k
 }

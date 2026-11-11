@@ -36,6 +36,7 @@ var (
 const (
 	consoleFragmentConfiguration = "configuration"
 	consoleFragmentProgress      = "progress"
+	consoleFragmentQuery         = "query"
 	consoleHitRepository         = "repository"
 	consoleHitError              = "error"
 	consoleHitProgress           = "progress"
@@ -133,6 +134,9 @@ type consoleRow struct {
 	toggle string
 	folded bool
 	inline bool
+	// summary says the row stands for a closed fold by its size rather than by one of its
+	// lines, so a search hit on any of its lines is inside the fold.
+	summary bool
 	// first and last are the lines of the record's output the row stands for: one line, or
 	// the lines of a closed fold. They are meaningful for line rows only.
 	first, last int
@@ -197,7 +201,10 @@ type consoleView struct {
 	open map[consoleFold]bool
 	// wrap says long lines break into several instead of ending in an ellipsis.
 	wrap bool
-	list ui.ListState
+	// hideQueries says the internal read-only queries Core reported are left out, except
+	// those that failed, so only the commands the workflows ran visibly are shown.
+	hideQueries bool
+	list        ui.ListState
 	// drawRow is drawConsoleRow, made once because a method value made in each paint
 	// allocates.
 	drawRow func(ui.ListRow)
@@ -390,11 +397,34 @@ func (v *consoleView) add(old map[consoleRowID]int, row consoleRow) int {
 	return len(v.rows) - 1
 }
 
-// addLines appends a row for each of the lines [from, to) of r, the record at index.
+// addLines appends a row for each of the lines [from, to) of r, the record at index. The
+// lines of a query are drawn subtle, as its header is.
 func (v *consoleView) addLines(old map[consoleRowID]int, index int, r *core.GitConsoleRecord, from, to int) {
-	for j := from; j < to; j++ {
-		v.add(old, consoleRow{id: consoleRowID{record: r.ID, part: consolePartLine, index: j}, record: index, text: consoleExpandTabs(r.Lines[j].Text), first: j, last: j})
+	tone := consoleToneText
+	if r.Query {
+		tone = consoleToneSubtle
 	}
+	for j := from; j < to; j++ {
+		v.add(old, consoleRow{id: consoleRowID{record: r.ID, part: consolePartLine, index: j}, record: index, text: consoleExpandTabs(r.Lines[j].Text), tone: tone, first: j, last: j})
+	}
+}
+
+// addQueryFold appends the rows of the fold of a query's output, the lines [start, end) of r,
+// the record at index: while closed, one row that says how many lines it holds, named by its
+// first line so that it keeps its key as it opens; while open, its lines, the last with the
+// toggle that closes it.
+func (v *consoleView) addQueryFold(old map[consoleRowID]int, index int, r *core.GitConsoleRecord, fragment core.GitConsoleOutputFragment, start, end int, text *i18n.ConsoleMessages) {
+	fold := consoleFold{record: r.ID, fragment: fragment.ID}
+	if v.open[fold] {
+		v.addLines(old, index, r, start, end-1)
+		v.add(old, consoleRow{id: consoleRowID{record: r.ID, part: consolePartLine, index: end - 1}, record: index, text: consoleExpandTabs(r.Lines[end-1].Text), tone: consoleToneSubtle, fold: fold, toggle: text.Collapse, first: end - 1, last: end - 1})
+		return
+	}
+	count := fragment.Count
+	if count <= 0 {
+		count = end - start
+	}
+	v.add(old, consoleRow{id: consoleRowID{record: r.ID, part: consolePartLine, index: start}, record: index, text: text.QueryOutput(count), tone: consoleToneSubtle, fold: fold, toggle: text.Expand, folded: true, summary: true, first: start, last: end - 1})
 }
 
 // endSpan ends the span of kind that runs to end in the spans of the row whose spans start at
@@ -495,6 +525,13 @@ func (v *consoleView) flattenRecord(old map[consoleRowID]int, index int, r *core
 	// A presentation made before lines were dropped from the front no longer indexes them.
 	use := p != nil && !p.raw && !v.failed && (p.revision == r.Revision || !r.Truncated && p.lines <= len(r.Lines))
 	exact := use && p.revision == r.Revision
+	failed := consoleFailed(r, p, exact)
+	if v.hideQueries && r.Query && !failed {
+		return
+	}
+	// A query that answered the workflow is drawn subtle, so the commands the workflows ran
+	// stand out among the reads around them.
+	quiet := r.Query && !failed
 	searching := v.searchFor != ""
 	if searching {
 		if p != nil && p.search == v.searchFor {
@@ -562,15 +599,18 @@ func (v *consoleView) flattenRecord(old map[consoleRowID]int, index int, r *core
 			}
 		}
 	} else {
-		header.text = consoleRawHeader(r, loc)
+		header.text = consoleDrawnHeader(r, loc)
 		stamp, repository := consoleHeaderParts(r.Started, r.Root, loc)
 		header.spans = v.prefixSpans(stamp, repository, len(header.text))
 	}
 	if r.State == core.GitConsoleRunning {
 		header.badge = text.Running
 	}
-	if consoleFailed(r, p, exact) {
+	switch {
+	case failed:
 		header.tone = consoleToneError
+	case quiet:
+		header.tone = consoleToneSubtle
 	}
 	headerRow := v.add(old, header)
 
@@ -586,6 +626,10 @@ func (v *consoleView) flattenRecord(old map[consoleRowID]int, index int, r *core
 			}
 			v.addLines(old, index, r, next, start)
 			next = end
+			if fragment.Kind == consoleFragmentQuery && end-start > 1 {
+				v.addQueryFold(old, index, r, fragment, start, end, text)
+				continue
+			}
 			if fragment.Kind != consoleFragmentProgress || end-start <= 1 {
 				v.addLines(old, index, r, start, end)
 				continue
@@ -647,7 +691,7 @@ func (v *consoleView) flattenRecord(old map[consoleRowID]int, index int, r *core
 		switch {
 		case hit.LineIndex != nil:
 			row = v.lineRow(lo, hi, *hit.LineIndex)
-			if row >= 0 && v.rows[row].folded && v.rows[row].last != *hit.LineIndex {
+			if row >= 0 && v.rows[row].folded && (v.rows[row].summary || v.rows[row].last != *hit.LineIndex) {
 				fold = v.rows[row].fold
 			}
 		case hit.FragmentID == consoleHitRepository:
@@ -771,6 +815,13 @@ func (a *App) toggleConsoleFold(fold consoleFold, opening bool) {
 func (a *App) closeConsoleSearch() {
 	a.performed("git.console.closeSearch", surfaceButton)
 	a.consoleView.search.SetText("")
+}
+
+// toggleConsoleQueries shows or hides the internal read-only queries that did not fail.
+func (a *App) toggleConsoleQueries() {
+	a.performed("git.console.hideQueries", surfaceButton)
+	v := &a.consoleView
+	v.hideQueries, v.dirty, v.hasCurrent = !v.hideQueries, true, false
 }
 
 // toggleConsoleWrap switches between breaking long lines and ending them in an ellipsis.
@@ -902,6 +953,24 @@ func consoleHeaderParts(started time.Time, root string, loc *time.Location) (sta
 		base = filepath.Base(root)
 	}
 	return started.In(loc).Format("15:04:05.000") + ":", "[" + base + "]"
+}
+
+// consoleDrawnHeader is the header of r drawn before Core presented it: the prefix and the
+// command from its subcommand on, as Core projects it for consoles, so that the temporary
+// configuration Core folds is not spelled out meanwhile. Without that projection it is the
+// raw header.
+func consoleDrawnHeader(r *core.GitConsoleRecord, loc *time.Location) string {
+	if len(r.DisplayArguments) == 0 {
+		return consoleRawHeader(r, loc)
+	}
+	var b strings.Builder
+	b.WriteString(consoleHeaderPrefix(r.Started, r.Root, loc))
+	b.WriteString(" git")
+	for _, argument := range r.DisplayArguments {
+		b.WriteByte(' ')
+		b.WriteString(consoleQuote(argument))
+	}
+	return b.String()
 }
 
 // consoleRawHeader is the header of r drawn without Core's presentation, and the header the

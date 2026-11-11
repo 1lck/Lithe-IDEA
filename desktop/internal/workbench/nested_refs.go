@@ -174,7 +174,7 @@ func (a *App) drawNestedReferenceRow(c ui.C, r core.GitReference) {
 	if r.Kind == "tag" {
 		icon = icons.Tag
 	}
-	ui.Row(c.Key("nestedref/" + r.FullName)).Height(chromeMenuRow).Shrink(0).FillWidth().Items(ui.Center).Gap(chromeMenuGap).PadX(chromeEdge + 12).Children(func() {
+	ui.Row(c.Key("nestedref/" + r.FullName)).Height(branchRowHeight).Shrink(0).FillWidth().Items(ui.Center).Gap(chromeMenuGap).PadX(chromeEdge + 12).Children(func() {
 		ui.Icon(c, icon).Size(chromeIconSize, chromeIconSize).Shrink(0).Color(referenceColor(r.Kind, a.colors.Dark))
 		ui.Text(c, r.ShortName).Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis().Grow(1)
 	})

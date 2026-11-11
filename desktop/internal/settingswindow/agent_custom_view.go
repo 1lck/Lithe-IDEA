@@ -79,11 +79,11 @@ func (w *window) customAgentForm(c ui.C, d customAgentDraft, list []CustomAgentS
 	if name != d.name || command != d.command || args != d.args || directory != d.directory {
 		s.mu.Lock()
 		s.custom.name, s.custom.command, s.custom.args, s.custom.directory = name, command, args, directory
-		s.custom.err = ""
+		s.custom.err = customAgentValid
 		s.mu.Unlock()
 	}
-	if d.err != "" {
-		ui.Wrap(c, i18n.Shared(lang, d.err)).FontSize(12).Color(w.pal.danger)
+	if d.err != customAgentValid {
+		ui.Wrap(c, customAgentProblemText(lang, d.err)).FontSize(12).Color(w.pal.danger)
 	}
 	ui.Row(c).Gap(8).Children(func() {
 		if ui.Button(c.Key("save"), i18n.Shared(lang, "desktop.settings.agent.custom.save")).Clicked() {
@@ -93,4 +93,16 @@ func (w *window) customAgentForm(c ui.C, d customAgentDraft, list []CustomAgentS
 			c.After(s.cancelCustomAgent)
 		}
 	})
+}
+
+// customAgentProblemText is the message of a broken custom agent rule.
+func customAgentProblemText(lang i18n.Language, problem customAgentProblem) string {
+	switch problem {
+	case customAgentNameRequired:
+		return i18n.Shared(lang, "desktop.settings.agent.custom.nameRequired")
+	case customAgentCommandRequired:
+		return i18n.Shared(lang, "desktop.settings.agent.custom.commandRequired")
+	default:
+		return i18n.Shared(lang, "desktop.settings.agent.custom.directoryAbsolute")
+	}
 }

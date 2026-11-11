@@ -20,6 +20,11 @@ const (
 	// branchPopupWidth and branchPopupMaxHeight size the popup; a longer list scrolls.
 	branchPopupWidth     = 360
 	branchPopupMaxHeight = 560
+	// branchRowHeight is the height of every row of the popup, as dense as IDEA's popup, and
+	// branchIndent the step of each level of a tree: a folder's chevron sits one step left of
+	// its icon, so the icons of one level line up whether or not the row folds.
+	branchRowHeight = 24
+	branchIndent    = chromeMarkSize + chromeGap
 	// branchDialogWidth is the width of the dialogs.
 	branchDialogWidth = 440
 	// branchBlockingHeight caps the list of paths the conflict dialog shows.
@@ -35,6 +40,9 @@ var branchSectionKeys = [4]string{"recent", "local", "remote", "tag"}
 func branchRowKey(section string, r core.GitReference) string {
 	return section + "\x00" + r.FullName
 }
+
+// branchInset is the left padding of a row at depth in the list: depth 0 is a section's head.
+func branchInset(depth int) float32 { return chromeEdge + float32(depth)*branchIndent }
 
 // drawBranchPopup declares the open popup under the branch button: the panel with the search
 // field, the actions and the references, and the menu of the row the user opened. A press
@@ -53,25 +61,21 @@ func (a *App) drawBranchPopup(c ui.C, p *project, anchor ui.Box) {
 	}
 }
 
-// drawBranchPanel declares the popup's contents.
+// drawBranchPanel declares the popup's contents: the search field, the repository picker of a
+// project with nested repositories, the actions, and the references. Without a search the
+// sections show Core's folder trees; a search lists every match by its full name.
 func (a *App) drawBranchPanel(c ui.C, p *project, t i18n.BranchMessages) {
 	b := &a.branch
 	current := b.currentReference()
+	query := strings.ToLower(strings.TrimSpace(b.search.Text()))
 	ui.TextField(c, &b.search, t.Search, t.Search).FillWidth().AutoFocus()
 	if len(p.nested.repos) > 0 {
 		a.drawBranchRepoPicker(c, p)
 	}
-	if a.drawBranchAction(c, "new", icons.Plus, t.NewBranch) {
-		c.After(func() { a.beginCreate(p, current) })
+	if a.drawBranchActions(c, p, current, query) {
+		ui.Divider(c)
 	}
-	if a.drawBranchAction(c, "revision", icons.GitCommitHorizontal, t.CheckoutRevision) {
-		c.After(a.beginRevision)
-	}
-	if a.drawBranchAction(c, "tag", icons.Tag, i18n.Shared(a.language(), "desktop.tags.newTag")) {
-		c.After(func() { a.beginCreateTag(p) })
-	}
-	ui.Divider(c)
-	ui.Scroll(c).FillWidth().MaxHeight(branchPopupMaxHeight).Gap(chromeMenuItems).Children(func() {
+	ui.Scroll(c).FillWidth().MaxHeight(branchPopupMaxHeight).Children(func() {
 		switch {
 		case b.err != nil && !b.loading:
 			ui.Paragraph(c, t.LoadFailed(b.err.Error()), 4).Color(a.colors.Subtle).PadX(chromeEdge)
@@ -80,7 +84,7 @@ func (a *App) drawBranchPanel(c ui.C, p *project, t i18n.BranchMessages) {
 			a.drawBranchNote(c, t.Loading)
 			return
 		}
-		query := strings.ToLower(strings.TrimSpace(b.search.Text()))
+		labels := [4]string{t.Recent, t.Local, t.Remote, t.Tags}
 		listed := 0
 		for i, key := range branchSectionKeys {
 			refs := b.refs.RecentReferences
@@ -99,14 +103,18 @@ func (a *App) drawBranchPanel(c ui.C, p *project, t i18n.BranchMessages) {
 			}
 			listed += len(refs)
 			collapsed := query == "" && b.collapsed[key]
-			if a.drawBranchSection(c, key, [4]string{t.Recent, t.Local, t.Remote, t.Tags}[i], collapsed, query == "") {
+			if a.drawBranchSection(c, key, labels[i], collapsed, query == "") {
 				c.After(func() { b.collapsed[key] = !b.collapsed[key] })
 			}
-			if collapsed {
-				continue
-			}
-			for _, r := range refs {
-				a.drawBranchRow(c, p, key, r, r.FullName == current.FullName)
+			switch {
+			case collapsed:
+			case i == 0 || query != "":
+				for _, r := range refs {
+					a.drawBranchRow(c, p, key, r, r.ShortName, 1, r.FullName == current.FullName)
+				}
+			default:
+				s := &b.sections[i-1]
+				a.drawBranchNodes(c, p, s, key, s.nodes, 1, current)
 			}
 		}
 		if listed == 0 {
@@ -116,6 +124,81 @@ func (a *App) drawBranchPanel(c ui.C, p *project, t i18n.BranchMessages) {
 			a.drawNestedReferences(c, p, t)
 		}
 	})
+}
+
+// drawBranchActions declares the actions at the top of the popup in IDEA's order and reports
+// whether it showed any: Fetch, which shows only while the search names it, then updating,
+// committing and pushing the current branch, then creating a branch, checking out a revision
+// and creating a tag. A search keeps the actions whose names contain it. Every action works
+// in the repository the popup lists.
+func (a *App) drawBranchActions(c ui.C, p *project, current core.GitReference, query string) bool {
+	b, t, g := &a.branch, a.text.Branch, a.text.Git
+	lang := a.language()
+	root := a.branchRoot(p)
+	busy := b.busy || p.log.sync.busy
+	onBranch := current.IsCurrent
+	named := func(label string) bool { return query == "" || strings.Contains(strings.ToLower(label), query) }
+	shown := 0
+	if query != "" && named(g.Fetch) {
+		shown++
+		if a.drawBranchAction(c, "fetch", icons.Download, g.Fetch, busy) {
+			c.After(func() {
+				a.closeBranches()
+				a.fetchAllAt(p, root)
+			})
+		}
+	}
+	if named(g.UpdateBranch) {
+		shown++
+		if a.drawBranchAction(c, "update", icons.ArrowDownLeft, g.UpdateBranch, busy || !onBranch) {
+			c.After(func() {
+				a.closeBranches()
+				a.updateCurrentBranchAt(p, root, current.ShortName)
+			})
+		}
+	}
+	if commit := i18n.Shared(lang, "desktop.command.commit"); named(commit) {
+		shown++
+		if a.drawBranchAction(c, "commit", icons.GitCommitHorizontal, commit, false) {
+			c.After(func() {
+				a.closeBranches()
+				a.layout.commitTab = commitTabChanges
+				a.showChanges()
+			})
+		}
+	}
+	if push := i18n.Shared(lang, "git.contextMenu.push"); named(push) {
+		shown++
+		if a.drawBranchAction(c, "push", icons.ArrowUp, push, busy || !onBranch) {
+			c.After(func() {
+				a.closeBranches()
+				a.openPushOf(p, root, core.GitReference{})
+			})
+		}
+	}
+	tag := i18n.Shared(lang, "desktop.tags.newTag")
+	if shown > 0 && (named(t.NewBranch) || named(t.CheckoutRevision) || named(tag)) {
+		ui.Divider(c)
+	}
+	if named(t.NewBranch) {
+		shown++
+		if a.drawBranchAction(c, "new", icons.Plus, t.NewBranch, busy) {
+			c.After(func() { a.beginCreate(p, current) })
+		}
+	}
+	if named(t.CheckoutRevision) {
+		shown++
+		if a.drawBranchAction(c, "revision", gfx.Icon{}, t.CheckoutRevision, busy) {
+			c.After(a.beginRevision)
+		}
+	}
+	if named(tag) {
+		shown++
+		if a.drawBranchAction(c, "tag", icons.Tag, tag, busy) {
+			c.After(func() { a.beginCreateTag(p) })
+		}
+	}
+	return shown > 0
 }
 
 // drawBranchRepoPicker declares the repository the popup lists, when the project has nested
@@ -134,7 +217,7 @@ func (a *App) drawBranchRepoPicker(c ui.C, p *project) {
 	if b.repoOpen {
 		chevron = icons.ChevronDown
 	}
-	row := ui.Row(c.Part("repo")).Height(chromeMenuRow).Shrink(0).FillWidth().Items(ui.Center).Gap(chromeGap).PadX(chromeEdge).
+	row := ui.Row(c.Part("repo")).Height(branchRowHeight).Shrink(0).FillWidth().Items(ui.Center).Gap(chromeGap).PadX(chromeEdge).
 		Radius(a.theme.Metrics.RadiusItem()).HitWith(ui.ID(c), pull.Repository, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Expandable: true, Expanded: b.repoOpen})
 	a.chromeHover(row).Children(func() {
 		ui.Text(c, pull.Repository).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).LineHeight(chromeLineHeight)
@@ -167,21 +250,35 @@ func matchingReferences(refs []core.GitReference, query string) []core.GitRefere
 }
 
 // drawBranchAction declares one of the actions at the top of the popup, an icon and its
-// name, and reports a click on it.
-func (a *App) drawBranchAction(c ui.C, part string, icon gfx.Icon, label string) bool {
-	row := ui.Row(c.Part(part)).Height(chromeMenuRow).Shrink(0).FillWidth().Items(ui.Center).Gap(chromeMenuGap).PadX(chromeEdge).
-		Radius(a.theme.Metrics.RadiusItem()).
-		HitWith(ui.ID(c), label, gfx.HitOptions{Role: gfx.RoleMenuItem, Cursor: gfx.PointerCursorHand})
-	a.chromeHover(row).Children(func() {
-		ui.Icon(c, icon).Size(chromeIconSize, chromeIconSize).Color(a.colors.Subtle)
-		ui.Text(c, label).Color(a.colors.Text).LineHeight(chromeLineHeight)
+// name, and reports a click on it. A zero icon leaves its place empty, so the names line up.
+func (a *App) drawBranchAction(c ui.C, part string, icon gfx.Icon, label string, disabled bool) bool {
+	options := gfx.HitOptions{Role: gfx.RoleMenuItem, Cursor: gfx.PointerCursorHand, Disabled: disabled}
+	if disabled {
+		options.Cursor = gfx.PointerCursorDefault
+	}
+	row := ui.Row(c.Part(part)).Height(branchRowHeight).Shrink(0).FillWidth().Items(ui.Center).Gap(chromeMenuGap).PadX(chromeEdge).
+		Radius(a.theme.Metrics.RadiusItem()).HitWith(ui.ID(c), label, options)
+	if !disabled {
+		row = a.chromeHover(row)
+	}
+	text, mark := a.colors.Text, a.colors.Subtle
+	if disabled {
+		text = a.colors.Subtle
+	}
+	row.Children(func() {
+		if len(icon.Commands) == 0 {
+			ui.Spacer(c).Size(chromeIconSize, chromeIconSize).Grow(0).Shrink(0)
+		} else {
+			ui.Icon(c, icon).Size(chromeIconSize, chromeIconSize).Shrink(0).Color(mark)
+		}
+		ui.Text(c, label).Color(text).LineHeight(chromeLineHeight).Ellipsis()
 	})
-	return row.Clicked()
+	return !disabled && row.Clicked()
 }
 
 // drawBranchNote declares a line of the list that says why it shows no branch.
 func (a *App) drawBranchNote(c ui.C, note string) {
-	ui.Row(c).Height(chromeMenuRow).Shrink(0).Items(ui.Center).PadX(chromeEdge).Children(func() {
+	ui.Row(c).Height(branchRowHeight).Shrink(0).Items(ui.Center).PadX(chromeEdge).Children(func() {
 		ui.Text(c, note).Color(a.colors.Subtle).LineHeight(chromeLineHeight)
 	})
 }
@@ -193,7 +290,7 @@ func (a *App) drawBranchSection(c ui.C, key, label string, collapsed, foldable b
 	if !foldable {
 		options.Cursor, options.Disabled = gfx.PointerCursorDefault, true
 	}
-	head := ui.Row(c.Key("section/"+key)).Height(chromeMenuTitle).Shrink(0).FillWidth().Items(ui.Center).Gap(chromeGap).PadX(chromeEdge).
+	head := ui.Row(c.Key("section/"+key)).Height(branchRowHeight).Shrink(0).FillWidth().Items(ui.Center).Gap(chromeGap).PadX(chromeEdge).
 		Radius(a.theme.Metrics.RadiusItem()).HitWith(ui.ID(c), label, options)
 	if foldable {
 		head = a.chromeHover(head)
@@ -209,10 +306,68 @@ func (a *App) drawBranchSection(c ui.C, key, label string, collapsed, foldable b
 	return foldable && head.Clicked()
 }
 
-// drawBranchRow declares the row of reference r in section key: its mark, its name, its
-// upstream and how far the two are apart, and the chevron of its menu. A click opens the
-// menu of the row, which is declared under it.
-func (a *App) drawBranchRow(c ui.C, p *project, section string, r core.GitReference, current bool) {
+// drawBranchNodes declares the folders and references of nodes, a level of the folder tree
+// Core built for section s, at depth. A folder starts closed; an open one shows its level
+// under it. A reference row shows the last part of its name, which its folders spell out.
+func (a *App) drawBranchNodes(c ui.C, p *project, s *logSection, section string, nodes []core.ReferenceTreeNode, depth int, current core.GitReference) {
+	b := &a.branch
+	for i := range nodes {
+		node := &nodes[i]
+		if node.Reference != nil {
+			if r := *node.Reference; r >= 0 && r < len(s.refs) {
+				ref := s.refs[r]
+				a.drawBranchRow(c, p, section, ref, node.Name, depth, ref.FullName == current.FullName)
+			}
+			continue
+		}
+		key := "f" + s.kind + "/" + node.Path
+		open := b.expanded[key]
+		if a.drawBranchFolder(c, key, node.Name, depth, open) {
+			c.After(func() { b.expanded[key] = !b.expanded[key] })
+		}
+		if open {
+			a.drawBranchNodes(c, p, s, section, node.Children, depth+1, current)
+		}
+	}
+}
+
+// drawBranchFolder declares the row of a folder of references at depth, its chevron one step
+// left of its icon, and reports a click on it.
+func (a *App) drawBranchFolder(c ui.C, key, name string, depth int, open bool) bool {
+	chevron := icons.ChevronRight
+	if open {
+		chevron = icons.ChevronDown
+	}
+	row := ui.Row(c.Key("folder/"+key)).Height(branchRowHeight).Shrink(0).FillWidth().Items(ui.Center).Gap(chromeGap).
+		PadLeft(branchInset(depth)-branchIndent).PadRight(chromeEdge).Radius(a.theme.Metrics.RadiusItem()).
+		HitWith(ui.ID(c), name, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Expandable: true, Expanded: open})
+	a.chromeHover(row).Children(func() {
+		ui.Icon(c, chevron).Size(chromeMarkSize, chromeMarkSize).Shrink(0).Color(a.colors.Subtle)
+		ui.Row(c).Items(ui.Center).Gap(chromeMenuGap).Grow(1).Children(func() {
+			ui.Icon(c, icons.Folder).Size(chromeIconSize, chromeIconSize).Shrink(0).Color(a.colors.Subtle)
+			ui.Text(c, name).Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis()
+		})
+	})
+	return row.Clicked()
+}
+
+// branchTracking words how far the local branch r and its upstream are apart, as the log's
+// reference pane does: "↑ahead ↓behind", empty when they are level or r tracks nothing.
+func branchTracking(r core.GitReference) string {
+	tracking := ""
+	if r.Ahead > 0 {
+		tracking = "↑" + strconv.Itoa(r.Ahead)
+	}
+	if r.Behind > 0 {
+		tracking = strings.TrimSpace(tracking + " ↓" + strconv.Itoa(r.Behind))
+	}
+	return tracking
+}
+
+// drawBranchRow declares the row of reference r in section key at depth, named label: its
+// mark, its name, how far it and its upstream are apart, the upstream on the right, and the
+// chevron of its menu. A click opens the menu of the row beside it.
+func (a *App) drawBranchRow(c ui.C, p *project, section string, r core.GitReference, label string, depth int, current bool) {
 	b, t := &a.branch, a.text.Branch
 	rowKey := branchRowKey(section, r)
 	open := b.menu == rowKey
@@ -224,19 +379,12 @@ func (a *App) drawBranchRow(c ui.C, p *project, section string, r core.GitRefere
 	case current:
 		kind, icon = "head", icons.Tag
 	}
-	trailing := r.UpstreamShortName
-	if r.Ahead > 0 {
-		trailing = strings.TrimSpace(trailing + " ↑" + strconv.Itoa(r.Ahead))
-	}
-	if r.Behind > 0 {
-		trailing = strings.TrimSpace(trailing + " ↓" + strconv.Itoa(r.Behind))
-	}
 	options := gfx.HitOptions{Role: gfx.RoleMenuItem, Cursor: gfx.PointerCursorHand, Expandable: true, Expanded: open, Selected: current}
 	if current {
 		options.Value = t.Current
 	}
-	row := ui.Row(c.Key(rowKey)).Height(chromeMenuRow).Shrink(0).FillWidth().Items(ui.Center).Gap(chromeMenuGap).PadX(chromeEdge).
-		Radius(a.theme.Metrics.RadiusItem()).HitWith(ui.ID(c), r.ShortName, options)
+	row := ui.Row(c.Key(rowKey)).Height(branchRowHeight).Shrink(0).FillWidth().Items(ui.Center).Gap(chromeMenuGap).
+		PadLeft(branchInset(depth)).PadRight(chromeEdge).Radius(a.theme.Metrics.RadiusItem()).HitWith(ui.ID(c), r.ShortName, options)
 	if open {
 		row = row.Background(a.colors.Selection)
 	} else {
@@ -244,9 +392,13 @@ func (a *App) drawBranchRow(c ui.C, p *project, section string, r core.GitRefere
 	}
 	row.Children(func() {
 		ui.Icon(c, icon).Size(chromeIconSize, chromeIconSize).Shrink(0).Color(referenceColor(kind, a.colors.Dark))
-		ui.Text(c, r.ShortName).Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis().Grow(1)
-		if trailing != "" {
-			ui.Text(c, trailing).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).LineHeight(chromeLineHeight).
+		ui.Text(c, label).Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis().Shrink(1)
+		if tracking := branchTracking(r); tracking != "" {
+			ui.Text(c, tracking).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).LineHeight(chromeLineHeight).Shrink(0)
+		}
+		ui.Spacer(c)
+		if r.UpstreamShortName != "" {
+			ui.Text(c, r.UpstreamShortName).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).LineHeight(chromeLineHeight).
 				Ellipsis().MaxWidth(branchPopupWidth / 3)
 		}
 		ui.Icon(c, icons.ChevronRight).Size(chromeMarkSize, chromeMarkSize).Shrink(0).Color(a.colors.Subtle)
@@ -263,30 +415,75 @@ func (a *App) drawBranchRow(c ui.C, p *project, section string, r core.GitRefere
 	if !open {
 		return
 	}
-	// The checked-out branch is not checked out again, nor deleted; only a local branch is
-	// renamed or deleted.
 	ui.Menu(c, row, &open, func(menu *ui.MenuItems) {
-		if !current && menu.Item(t.Checkout).Clicked() {
-			c.After(func() { a.checkoutBranch(p, r) })
-		}
-		if menu.Item(t.NewBranchFrom(r.ShortName)).Clicked() {
-			c.After(func() { a.beginCreate(p, r) })
-		}
-		if r.Kind == "tag" && menu.Item(t.Delete).Destructive().Clicked() {
-			c.After(func() { a.beginDeleteTag(r) })
-		}
-		if r.Kind != "local" {
-			return
-		}
-		if menu.Item(t.Rename).Clicked() {
-			c.After(func() { a.beginRename(p, r) })
-		}
-		if !current && menu.Item(t.Delete).Destructive().Clicked() {
-			c.After(func() { a.beginDelete(r) })
-		}
+		menu.Beside()
+		a.drawBranchRowMenu(c, menu, p, r, current)
 	})
 	if !open {
 		b.menu = ""
+	}
+}
+
+// drawBranchRowMenu declares the items of the menu of reference r in IDEA's order: a branch
+// from it and the two comparisons, the checkout, the update and push of a local branch, its
+// rename, and the delete. The checked-out branch is not checked out again, compared with
+// itself or deleted; only a local branch is updated, pushed or renamed. The comparisons, the
+// update and the push work in the repository the popup lists.
+func (a *App) drawBranchRowMenu(c ui.C, menu *ui.MenuItems, p *project, r core.GitReference, current bool) {
+	b, t, g := &a.branch, a.text.Branch, a.text.Git
+	lang := a.language()
+	root := a.branchRoot(p)
+	busy := b.busy || p.log.sync.busy
+	head := b.currentReference()
+	if menu.Item(t.NewBranchFrom(r.ShortName)).Clicked() {
+		c.After(func() { a.beginCreate(p, r) })
+	}
+	if menu.Item(g.CompareWorkingTree).Disabled(p.log.comparing).Clicked() {
+		c.After(func() {
+			a.closeBranches()
+			a.compareReferencesAt(p, root, r, nil)
+		})
+	}
+	if !current && head.IsCurrent && menu.Item(g.CompareWithCurrent).Disabled(p.log.comparing).Clicked() {
+		c.After(func() {
+			a.closeBranches()
+			a.compareReferencesAt(p, root, head, &r)
+		})
+	}
+	if !current {
+		menu.Separator()
+		if menu.Item(t.Checkout).Disabled(busy).Clicked() {
+			c.After(func() { a.checkoutBranch(p, r) })
+		}
+	}
+	if r.Kind == "local" {
+		menu.Separator()
+		// Any other local branch fast-forwards from its upstream in place, as in IDEA.
+		if menu.Item(i18n.Shared(lang, "git.log.updateBranch")).Disabled(busy || !current && r.UpstreamShortName == "").Clicked() {
+			c.After(func() {
+				a.closeBranches()
+				a.updateBranchAt(p, root, r)
+			})
+		}
+		if menu.Item(i18n.Shared(lang, "git.contextMenu.push")).Disabled(busy).Clicked() {
+			c.After(func() {
+				a.closeBranches()
+				a.openPushOf(p, root, r)
+			})
+		}
+		if menu.Item(t.Rename).Disabled(busy).Clicked() {
+			c.After(func() { a.beginRename(p, r) })
+		}
+	}
+	if r.Kind == "tag" || r.Kind == "local" && !current {
+		menu.Separator()
+		if menu.Item(t.Delete).Destructive().Disabled(busy).Clicked() {
+			if r.Kind == "tag" {
+				c.After(func() { a.beginDeleteTag(r) })
+			} else {
+				c.After(func() { a.beginDelete(r) })
+			}
+		}
 	}
 }
 

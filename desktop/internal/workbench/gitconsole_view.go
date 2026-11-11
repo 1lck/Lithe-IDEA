@@ -81,6 +81,9 @@ func (a *App) drawConsoleToolbar(c ui.C) {
 		}
 		ui.Spacer(c)
 		empty := len(v.snapshot.Records) == 0
+		if a.gitIconButton(c, t.HideQueries, icons.EyeOff, v.hideQueries, false) {
+			c.After(a.toggleConsoleQueries)
+		}
 		if a.gitIconButton(c, t.Wrap, icons.WrapText, v.wrap, false) {
 			c.After(a.toggleConsoleWrap)
 		}
@@ -299,8 +302,8 @@ func consoleTextCells(text string) int {
 
 // consoleSpanColor is the color of a stretch of kind in a row of tone: the stamp and the
 // configuration are subtle and the repository in the accent color whatever the tone, the
-// command green, or red when it failed, so that it stands apart from its output, and the rest
-// takes the tone's.
+// command green, so that it stands apart from its output, red when it failed and subtle for a
+// query that answered the workflow, and the rest takes the tone's.
 func (a *App) consoleSpanColor(tone consoleTone, kind consoleSpanKind) gfx.Color {
 	switch kind {
 	case consoleSpanStamp, consoleSpanFold:
@@ -308,8 +311,11 @@ func (a *App) consoleSpanColor(tone consoleTone, kind consoleSpanKind) gfx.Color
 	case consoleSpanRepository:
 		return a.colors.Accent
 	case consoleSpanCommand:
-		if tone == consoleToneError {
+		switch tone {
+		case consoleToneError:
 			return a.theme.Danger
+		case consoleToneSubtle:
+			return a.colors.Subtle
 		}
 		return a.colors.Success
 	}

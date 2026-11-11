@@ -38,17 +38,16 @@ func (w *window) updatesPage(c ui.C) {
 	language := w.marketLanguage()
 	opts := &w.ctrl.opts
 	status := opts.UpdateStatus()
-	label := func(key string) string { return i18n.Shared(language, key) }
 	w.pageScroll(c, pageUpdates, func() {
-		w.card(c, label("desktop.settings.updates.title"), label("desktop.settings.updates.help"), func() {
+		w.card(c, i18n.Shared(language, "desktop.settings.updates.title"), i18n.Shared(language, "desktop.settings.updates.help"), func() {
 			ui.Column(c).FillWidth().Gap(8).Children(func() {
 				ui.Text(c, w.text.App.Version(opts.Version)).FontSize(13).Color(w.pal.text)
 				if !status.Configured {
-					ui.Wrap(c, label("desktop.settings.updates.notConfigured")).FontSize(12).Color(w.pal.muted)
+					ui.Wrap(c, i18n.Shared(language, "desktop.settings.updates.notConfigured")).FontSize(12).Color(w.pal.muted)
 					return
 				}
 				auto := w.sess.values.AutoCheckUpdates
-				if ui.Switch(c.Part("auto"), &auto, label("desktop.settings.updates.auto")).Changed() {
+				if ui.Switch(c.Part("auto"), &auto, i18n.Shared(language, "desktop.settings.updates.auto")).Changed() {
 					w.sess.values.AutoCheckUpdates = auto
 					if opts.SetAutoCheckUpdates != nil {
 						opts.SetAutoCheckUpdates(auto)
@@ -57,9 +56,9 @@ func (w *window) updatesPage(c ui.C) {
 				var line string
 				switch {
 				case status.Checking:
-					line = label("desktop.settings.updates.checking")
+					line = i18n.Shared(language, "desktop.settings.updates.checking")
 				case status.Installing:
-					line = label("desktop.settings.updates.installing")
+					line = i18n.Shared(language, "desktop.settings.updates.installing")
 				case status.Downloading:
 					line = i18n.SharedFormat(language, "desktop.settings.updates.downloading", map[string]string{"percent": strconv.Itoa(int(status.Progress * 100))})
 				case status.Ready:
@@ -67,7 +66,7 @@ func (w *window) updatesPage(c ui.C) {
 				case status.Available != "":
 					line = i18n.SharedFormat(language, "desktop.settings.updates.available", map[string]string{"version": status.Available})
 				case status.UpToDate:
-					line = label("desktop.settings.updates.upToDate")
+					line = i18n.Shared(language, "desktop.settings.updates.upToDate")
 				}
 				if line != "" {
 					ui.Wrap(c, line).FontSize(12).Color(w.pal.text)
@@ -83,21 +82,21 @@ func (w *window) updatesPage(c ui.C) {
 				}
 				busy := status.Checking || status.Downloading || status.Installing
 				ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
-					if ui.Button(c.Part("check"), label("desktop.settings.updates.check")).Outline().Disabled(busy).Clicked() && opts.CheckForUpdates != nil {
+					if ui.Button(c.Part("check"), i18n.Shared(language, "desktop.settings.updates.check")).Outline().Disabled(busy).Clicked() && opts.CheckForUpdates != nil {
 						opts.CheckForUpdates()
 					}
 					if status.Available != "" && !status.Ready {
-						if ui.Button(c.Part("download"), label("desktop.settings.updates.download")).Disabled(busy).Clicked() && opts.DownloadUpdate != nil {
+						if ui.Button(c.Part("download"), i18n.Shared(language, "desktop.settings.updates.download")).Disabled(busy).Clicked() && opts.DownloadUpdate != nil {
 							opts.DownloadUpdate()
 						}
 					}
 					if status.Ready {
-						if ui.Button(c.Part("install"), label("desktop.settings.updates.install")).Disabled(busy).Clicked() && opts.InstallUpdate != nil {
+						if ui.Button(c.Part("install"), i18n.Shared(language, "desktop.settings.updates.install")).Disabled(busy).Clicked() && opts.InstallUpdate != nil {
 							opts.InstallUpdate()
 						}
 					}
 					if status.NotesURL != "" && opts.OpenURL != nil {
-						if ui.Button(c.Part("notes"), label("desktop.settings.updates.notes")).Ghost().Clicked() {
+						if ui.Button(c.Part("notes"), i18n.Shared(language, "desktop.settings.updates.notes")).Ghost().Clicked() {
 							opts.OpenURL(status.NotesURL)
 						}
 					}

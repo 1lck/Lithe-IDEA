@@ -72,6 +72,7 @@ func TestPluginSettingsFormEditsOnlyOnExplicitSaveAndPreservesConflictDraft(t *t
 			runtime.RestartRequired = false
 		}, Marketplace: fetch, MarketplaceInstalled: fetch, PluginSettings: source, PluginState: func(string) PluginState { return PluginState{Installed: true} }}), Values{})
 	w.sess.page = pagePlugins
+	w.market.detailTab = detailSettings
 	d := openWindow(t, w, func(config *app.Config) { config.Height = 1100 })
 	words := func(key string) string { return i18n.Shared(i18n.English, "desktop.pluginSettings."+key) }
 	wait := func(done func() bool) {

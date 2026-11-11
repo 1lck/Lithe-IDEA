@@ -303,9 +303,11 @@ type diffPalette struct {
 	added, removed, modified gfx.Color
 }
 
-// diffPalette is the colors of the current look.
+// diffPalette is the colors of the current look. Removed lines are red, the color of a deleted
+// file, rather than the gray of secondary text: in the unified mode they lie between added
+// lines, where gray reads as dimmed or as the current line instead of removed.
 func (a *App) diffPalette() diffPalette {
-	return diffPalette{added: a.colors.Success, removed: a.colors.Subtle, modified: a.colors.Accent}
+	return diffPalette{added: a.colors.Success, removed: a.colors.Deleted, modified: a.colors.Accent}
 }
 
 // color is the color that marks a line of kind, false for a line that did not change.
@@ -499,19 +501,29 @@ func (a *App) drawDiffBand(canvas *gfx.Canvas, r gfx.Rect, x0, x1, bt, bb, at, a
 	}
 }
 
-// drawUnifiedGap paints the gap before the unified editor: a bar beside each difference in view
-// and its block's controls.
+// drawUnifiedGap paints the gap before the unified editor: a bar beside each run of removed or
+// added lines in view, in the color the lines are tinted with, and the controls of each
+// difference's block. A difference that replaces lines is two runs there, so its bar is two
+// colors rather than the blue of a change, which no line of the unified mode is tinted with.
 func (a *App) drawUnifiedGap(canvas *gfx.Canvas, r gfx.Rect, t *diffTab, after *editorview.View, palette diffPalette) {
 	l, bottom := t.layout, r.Y+r.Height
-	first := sort.Search(len(l.fragments), func(i int) bool { return after.LineTop(l.fragments[i].after.end) >= r.Y })
-	for i := first; i < len(l.fragments); i++ {
-		f := l.fragments[i]
-		top, end := after.LineTop(f.after.start), after.LineTop(f.after.end)
+	marks := l.after.marks
+	firstMark := sort.Search(len(marks), func(i int) bool { return after.LineTop(marks[i].span.end) >= r.Y })
+	for _, m := range marks[firstMark:] {
+		top, end := after.LineTop(m.span.start), after.LineTop(m.span.end)
 		if top > bottom {
 			break
 		}
-		if color, ok := palette.color(f.kind); ok {
+		if color, ok := palette.color(m.kind); ok && !m.boundary {
 			canvas.Fill(gfx.Rect{X: r.X + r.Width - diffMarkWidth, Y: top, Width: diffMarkWidth, Height: max(end-top, 2)}, color)
+		}
+	}
+	first := sort.Search(len(l.fragments), func(i int) bool { return after.LineTop(l.fragments[i].after.end) >= r.Y })
+	for i := first; i < len(l.fragments); i++ {
+		f := l.fragments[i]
+		top := after.LineTop(f.after.start)
+		if top > bottom {
+			break
 		}
 		a.drawDiffBlockControls(canvas, t, i, f, r.X, r.X+r.Width-diffMarkWidth, top, top, after.LineHeight())
 	}
@@ -599,13 +611,24 @@ func (a *App) drawDiffRuler(d *ui.DrawContext, t *diffTab) {
 		}
 	}
 	palette := a.diffPalette()
-	for _, f := range l.fragments {
-		color, ok := palette.color(f.kind)
-		if !ok {
-			continue
+	mark := func(span diffSpan, kind diffKind) {
+		if color, ok := palette.color(kind); ok {
+			top := float32(span.start) * scale
+			height := max(float32(span.end-span.start)*scale, 2)
+			d.Canvas.Fill(gfx.Rect{X: r.X + 1, Y: r.Y + top, Width: r.Width - 2, Height: height}, d.Fade(color))
 		}
-		top := float32(f.after.start) * scale
-		height := max(float32(f.after.end-f.after.start)*scale, 2)
-		d.Canvas.Fill(gfx.Rect{X: r.X + 1, Y: r.Y + top, Width: r.Width - 2, Height: height}, d.Fade(color))
+	}
+	if !l.split {
+		// Unified, a difference is the runs of removed and added lines its lines are tinted
+		// by, and the ruler marks them the same.
+		for _, m := range l.after.marks {
+			if !m.boundary {
+				mark(m.span, m.kind)
+			}
+		}
+		return
+	}
+	for _, f := range l.fragments {
+		mark(f.after, f.kind)
 	}
 }

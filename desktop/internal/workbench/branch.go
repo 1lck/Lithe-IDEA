@@ -60,8 +60,12 @@ type branchSession struct {
 	err             error
 	refs            core.GitReferences
 	sections        [3]logSection
-	// collapsed holds the sections the user folded, by key: "recent" or "s"+kind.
+	// collapsed holds the sections the user folded, by key: one of branchSectionKeys, or
+	// "nested/" and a nested repository's ID.
 	collapsed map[string]bool
+	// expanded holds the folders of the reference trees the user opened, by "f", the
+	// section's kind, "/" and the folder's path; a folder starts closed.
+	expanded map[string]bool
 	// menu is the key of the row whose menu is open (branchRowKey), empty for none.
 	menu string
 
@@ -106,7 +110,7 @@ func (a *App) openBranches() {
 	a.loadNestedReferences(p)
 	b.search.SetText("")
 	if b.collapsed == nil {
-		b.collapsed = map[string]bool{}
+		b.collapsed, b.expanded = map[string]bool{}, map[string]bool{}
 	}
 	a.loadBranches(p)
 }

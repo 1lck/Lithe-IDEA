@@ -113,11 +113,28 @@ type logView struct {
 	// refLabel names the rows of refs, made once because a method value made in each paint
 	// allocates.
 	refLabel func(int) string
+	// refMenu says the menu of a reference is open, at refMenuAt, on refMenuRef of the repository
+	// refMenuRoot (gitlog_ref_menu.go).
+	refMenu     bool
+	refMenuAt   ui.Rect
+	refMenuRef  core.GitReference
+	refMenuRoot string
+	// compareSource is the reference Select for Compare picked in the repository compareRoot,
+	// which the menu of another reference then compares with.
+	compareSource *core.GitReference
+	compareRoot   string
 	// commits is the commit list; slotRow is the row each draw slot paints and painters the
 	// callbacks that paint them.
 	commits  ui.ListState
 	slotRow  [logRowSlots]int
 	painters [logRowSlots]func(*ui.DrawContext)
+	// chosen is the commits chosen in the list, by logCommitKey of their hashes: Primary or
+	// Shift with a click chooses several, for the commit menu's actions on a range. keyRows is
+	// the rows the list's Key names, as the paint being drawn has them, and keys the key of
+	// every commit hash it has shown (hashKey).
+	chosen  ui.Selection
+	keyRows []core.GraphRow
+	keys    map[string]int
 
 	// focus is the field to give the keyboard to in the next paint.
 	focus gfx.ID
@@ -169,8 +186,11 @@ func (v *logView) reset() {
 	v.dates = nil
 	v.upstream = nil
 	v.commits = ui.ListState{Label: v.commits.Label}
+	v.chosen.Clear()
+	v.keyRows, v.keys = nil, nil
 	v.files = ui.ListState{}
 	v.refs.ListState = ui.ListState{}
+	v.refMenu, v.compareSource, v.compareRoot = false, nil, ""
 }
 
 // capture keeps the width the commit list and the details shared, and takes a drag of the

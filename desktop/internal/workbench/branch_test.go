@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -39,6 +40,24 @@ func (h *harness) branchRow(name string) gfx.Rect {
 	}
 	h.t.Fatalf("no row for %q in the branch popup", name)
 	return gfx.Rect{}
+}
+
+// popupHit is the control named label on the topmost layer, the open popup, so a control of
+// the same name in the window behind it does not match.
+func (h *harness) popupHit(label string) gfx.Rect {
+	h.t.Helper()
+	var found *gfx.Hit
+	hits := h.driver.Snapshot().Hits
+	for i := range hits {
+		if hits[i].Label == label && !hits[i].IsLabel && (found == nil || hits[i].Layer > found.Layer) {
+			found = &hits[i]
+		}
+	}
+	if found == nil {
+		h.t.Fatalf("no control named %q is shown", label)
+		return gfx.Rect{}
+	}
+	return found.Bounds
 }
 
 // typeInto empties field, clicks the control named name and types value into it.
@@ -198,5 +217,57 @@ func TestBranchPopupClosesOnEscape(t *testing.T) {
 	escape()
 	if h.app.branch.open {
 		t.Fatal("second Escape left the popup open")
+	}
+}
+
+// The popup lists a namespaced branch in a closed folder of Core's reference tree, and the
+// menu of its row opens beside the row, with IDEA's comparisons, update and push. Push opens
+// the Push dialog on that branch rather than the checked-out one.
+func TestBranchPopupFoldsNamespacesAndOpensTheRowMenuBeside(t *testing.T) {
+	dir := newTestRepository(t)
+	gitRun(t, dir, "branch", "feature/one")
+	h := newHarness(t, &gitKernel{Client: core.NewClient()})
+	p := h.openBranches(dir)
+
+	hasRow := func(name string) bool {
+		for _, hit := range h.driver.Snapshot().Hits {
+			if hit.Role == gfx.RoleMenuItem && hit.Label == name {
+				return true
+			}
+		}
+		return false
+	}
+	// Recent lists feature/one flat, since Core counts a new branch as recent; fold it so only
+	// the Local tree can show the row.
+	h.click(center(h.popupHit(h.app.text.Branch.Recent)))
+	if hasRow("feature/one") {
+		t.Fatal("feature/one is listed before its folder was opened")
+	}
+	h.click(center(h.popupHit("feature")))
+	if !hasRow("feature/one") {
+		t.Fatal("opening the feature folder did not list feature/one")
+	}
+
+	row := h.branchRow("feature/one")
+	h.click(center(row))
+	if h.app.branch.menu == "" {
+		t.Fatal("clicking the row did not open its menu")
+	}
+	git := h.app.text.Git
+	for _, item := range []string{git.CompareWorkingTree, git.CompareWithCurrent, h.app.text.Branch.Checkout} {
+		if !h.shows(item) {
+			t.Fatalf("the row menu does not offer %q", item)
+		}
+	}
+	compare := h.popupHit(git.CompareWorkingTree)
+	if compare.X < row.X+row.Width {
+		t.Fatalf("menu item at x %v, row ends at %v; want the menu beside the row", compare.X, row.X+row.Width)
+	}
+
+	h.clickNamed(i18n.Shared(h.app.language(), "git.contextMenu.push"))
+	s := &p.review.push
+	if h.app.branch.open || !s.open || s.branch.ShortName != "feature/one" {
+		t.Fatalf("after Push: popup open %v, Push dialog open %v on %q; want the dialog on feature/one",
+			h.app.branch.open, s.open, s.branch.ShortName)
 	}
 }

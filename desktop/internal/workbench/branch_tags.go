@@ -14,12 +14,8 @@ import (
 // menu. Both run through the branch writes, so the popup's references and the log are read
 // again afterwards. The dialogs are declared in branch_view.go's dialog switch.
 
-// tagKey is the localized text key of the tag dialogs.
-func tagKey(lang i18n.Language, key string) string {
-	return i18n.Shared(lang, "desktop.tags."+key)
-}
-
-// beginCreateTag opens the dialog that creates a tag on HEAD.
+// beginCreateTag opens the dialog that creates a tag on HEAD; beginTagAt puts it on another
+// commit.
 func (a *App) beginCreateTag(p *project) {
 	a.leaveBranches()
 	b := &a.branch
@@ -43,19 +39,23 @@ func (a *App) drawTagDialog(c ui.C, p *project) {
 	name := strings.TrimSpace(b.name.Text())
 	ready := !b.busy && name != ""
 	submitted := false
-	a.branchDialogOf(c, tagKey(lang, "createTitle"), tagKey(lang, "createFrom"), func() {
+	description := i18n.Shared(lang, "desktop.tags.createFrom")
+	if b.target.FullName != headReference.FullName {
+		description = i18n.SharedFormat(lang, "desktop.tags.createAt", map[string]string{"hash": b.target.ShortName})
+	}
+	a.branchDialogOf(c, i18n.Shared(lang, "desktop.tags.createTitle"), description, func() {
 		ui.Column(c).FillWidth().Gap(8).Children(func() {
-			submitted = ui.TextField(c, &b.name, tagKey(lang, "name"), tagKey(lang, "name")).FillWidth().Submitted()
-			ui.Checkbox(c, &b.annotated, tagKey(lang, "annotated")).Disabled(b.busy)
+			submitted = ui.TextField(c, &b.name, i18n.Shared(lang, "desktop.tags.name"), i18n.Shared(lang, "desktop.tags.name")).FillWidth().Submitted()
+			ui.Checkbox(c, &b.annotated, i18n.Shared(lang, "desktop.tags.annotated")).Disabled(b.busy)
 			if b.annotated {
-				ui.TextField(c, &b.tagMessage, tagKey(lang, "message"), tagKey(lang, "message")).FillWidth()
+				ui.TextField(c, &b.tagMessage, i18n.Shared(lang, "desktop.tags.message"), i18n.Shared(lang, "desktop.tags.message")).FillWidth()
 			}
 		})
 	}, func() {
 		if ui.Button(c, a.text.Branch.Cancel).Outline().Clicked() {
 			c.After(a.cancelBranchDialog)
 		}
-		if ui.Button(c, tagKey(lang, "create")).Disabled(!ready).Clicked() {
+		if ui.Button(c, i18n.Shared(lang, "desktop.tags.create")).Disabled(!ready).Clicked() {
 			c.After(func() { a.submitTag(p) })
 		}
 	})
@@ -68,22 +68,27 @@ func (a *App) drawTagDialog(c ui.C, p *project) {
 func (a *App) drawTagDeleteDialog(c ui.C, p *project) {
 	b := &a.branch
 	lang := a.language()
-	a.branchDialogOf(c, tagKey(lang, "deleteTitle"), i18n.SharedFormat(lang, "desktop.tags.deletePrompt", map[string]string{"name": b.target.ShortName}), nil, func() {
+	a.branchDialogOf(c, i18n.Shared(lang, "desktop.tags.deleteTitle"), i18n.SharedFormat(lang, "desktop.tags.deletePrompt", map[string]string{"name": b.target.ShortName}), nil, func() {
 		if ui.Button(c, a.text.Branch.Cancel).Outline().Clicked() {
 			c.After(a.cancelBranchDialog)
 		}
-		if ui.Button(c, tagKey(lang, "delete")).Destructive().Disabled(b.busy).Clicked() {
+		if ui.Button(c, i18n.Shared(lang, "desktop.tags.delete")).Destructive().Disabled(b.busy).Clicked() {
 			c.After(func() { a.confirmDeleteTag(p) })
 		}
 	})
 }
 
-// submitTag creates the tag the open dialog names on HEAD.
+// submitTag creates the tag the open dialog names on the commit it was opened on: HEAD, or
+// the commit of the log's menu.
 func (a *App) submitTag(p *project) {
 	b := &a.branch
 	name := strings.TrimSpace(b.name.Text())
 	if b.busy || name == "" {
 		return
+	}
+	revision := b.target.FullName
+	if revision == "" {
+		revision = headReference.FullName
 	}
 	message := ""
 	if b.annotated {
@@ -94,7 +99,7 @@ func (a *App) submitTag(p *project) {
 		return i18n.SharedFormat(a.language(), "desktop.tags.failed", map[string]string{"reason": reason})
 	},
 		func(ctx context.Context, kernel Kernel, root string) error {
-			return kernel.GitCreateTag(ctx, root, name, "HEAD", message)
+			return kernel.GitCreateTag(ctx, root, name, revision, message)
 		},
 		func(a *App, status core.GitStatus) {
 			a.notifySuccess(i18n.SharedFormat(a.language(), "desktop.tags.created", map[string]string{"name": name}))

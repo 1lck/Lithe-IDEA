@@ -16,7 +16,9 @@ import (
 // the console stores them in the bounded journal the contract describes, and Core's
 // git.consolePresentation turns the stored records into what the console draws. Core has
 // already redacted every text it reports, so nothing here redacts again, and Core decides
-// which commands are visible: an internal read-only query never reports a started command.
+// which commands are visible: an internal read-only query reports a started command only for
+// a request that asks for queries (gitExecutionOf), and Core marks it as a query, whose output
+// git.consolePresentation folds.
 //
 // The lengths of the retention budget are counted in bytes of UTF-8, which is never fewer
 // than the characters the budget names, so the console keeps at most what it allows.
@@ -93,6 +95,12 @@ type GitConsoleRecord struct {
 	// TemporaryConfig is the configuration the command was given on its command line.
 	TemporaryConfig [][2]string
 	Executable      string
+	// DisplayArguments are Core's console projection of Arguments: the subcommand and what
+	// follows it, without the global options a presentation folds. Empty when Core sent none.
+	DisplayArguments []string
+	// Query says the command is an internal read-only query Core reported because the request
+	// asked for queries, rather than a command the workflow runs visibly.
+	Query bool
 	// Lines are the retained output, oldest first; Truncated says some of it was dropped.
 	Lines     []GitConsoleLine
 	Truncated bool
@@ -295,6 +303,8 @@ type gitConsoleEvent struct {
 	Arguments        []string    `json:"arguments"`
 	TemporaryConfig  [][2]string `json:"temporaryConfig"`
 	Executable       *string     `json:"executable"`
+	DisplayArguments []string    `json:"displayArguments"`
+	Query            bool        `json:"query"`
 
 	Stream    string `json:"stream"`
 	Text      string `json:"text"`
@@ -457,12 +467,14 @@ func (c *GitConsole) start(request *gitConsoleRequest, event *gitConsoleEvent) {
 		root = request.root
 	}
 	record := GitConsoleRecord{
-		OperationID:     event.OperationID,
-		Root:            root,
-		Arguments:       slices.Clone(event.Arguments),
-		TemporaryConfig: slices.Clone(event.TemporaryConfig),
-		State:           GitConsoleRunning,
-		ExitCode:        -1,
+		OperationID:      event.OperationID,
+		Root:             root,
+		Arguments:        slices.Clone(event.Arguments),
+		TemporaryConfig:  slices.Clone(event.TemporaryConfig),
+		DisplayArguments: slices.Clone(event.DisplayArguments),
+		Query:            event.Query,
+		State:            GitConsoleRunning,
+		ExitCode:         -1,
 	}
 	if event.Executable != nil {
 		record.Executable = *event.Executable
@@ -718,12 +730,13 @@ type GitConsoleCommandFragment struct {
 }
 
 // GitConsoleOutputFragment is a half-open range [Start, End) of a record's Lines: plain
-// lines, or a fold of progress lines labelled by its last line.
+// lines, a fold of progress lines labelled by its last line, or the fold of a query's whole
+// output, labelled by its Count.
 type GitConsoleOutputFragment struct {
 	ID    string `json:"id"`
 	Start int    `json:"start"`
 	End   int    `json:"end"`
-	// Kind is "text" or "progress".
+	// Kind is "text", "progress" or "query".
 	Kind  string `json:"kind"`
 	Count int    `json:"count"`
 	// Added, Updated and Deleted are the reference changes a fold reports.
@@ -797,6 +810,7 @@ type gitConsoleWireRecord struct {
 	Progress        *string               `json:"progress,omitempty"`
 	RemoteResult    *gitConsoleWireRemote `json:"remoteResult,omitempty"`
 	Truncated       bool                  `json:"truncated"`
+	Query           bool                  `json:"query"`
 }
 
 type gitConsolePresentationRequest struct {
@@ -834,6 +848,7 @@ func (r *GitConsoleRecord) wire() (gitConsoleWireRecord, int) {
 		State:           r.State,
 		ExpectedExit:    r.ExpectedExit,
 		Truncated:       r.Truncated,
+		Query:           r.Query,
 	}
 	size := len(r.ID) + len(r.Root) + len(r.State) + len(r.Error) + len(r.Progress) + len(r.Executable) + 32*len(r.Lines) + 8*len(r.Arguments)
 	for _, line := range r.Lines {

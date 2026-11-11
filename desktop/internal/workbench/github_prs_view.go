@@ -22,7 +22,7 @@ func (a *App) drawPullRequestsDialog(c ui.C, p *project) {
 					c.After(func() { a.openCreatePullRequest(p) })
 				}
 				for _, filter := range pullRequestFilters {
-					label := i18n.Shared(lang, "desktop.github.filter."+filter)
+					label := pullRequestFilterText(lang, filter)
 					if ui.Button(c, label).Outline().Disabled(pr.repo == nil && pr.err == "").Clicked() {
 						c.After(func() { a.setPullRequestFilter(p, filter) })
 					}
@@ -151,5 +151,17 @@ func (a *App) drawPullRequestCheckout(c ui.C, p *project) {
 	}
 	if ui.Button(c, i18n.Shared(lang, "desktop.github.confirmCheckout")).Disabled(pr.busy).Clicked() {
 		c.After(func() { a.checkoutPullRequest(p) })
+	}
+}
+
+// pullRequestFilterText is the button text of a pull request list filter.
+func pullRequestFilterText(lang i18n.Language, filter string) string {
+	switch filter {
+	case "closed":
+		return i18n.Shared(lang, "desktop.github.filter.closed")
+	case "mine":
+		return i18n.Shared(lang, "desktop.github.filter.mine")
+	default:
+		return i18n.Shared(lang, "desktop.github.filter.open")
 	}
 }

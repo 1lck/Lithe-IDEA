@@ -84,7 +84,7 @@ func (w *window) agentsPage(c ui.C) {
 					s.mu.Unlock()
 				}
 				if d.invalid {
-					ui.Text(c, i18n.Shared(w.marketLanguage(), d.invalidReason)).FontSize(12).Color(w.pal.danger)
+					ui.Text(c, limitProblemText(w.marketLanguage(), d.invalidReason)).FontSize(12).Color(w.pal.danger)
 				}
 				if d.saved {
 					ui.Text(c, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.limits.saved")).FontSize(12).Color(w.pal.muted)
@@ -586,3 +586,11 @@ func (w *window) hookEditor(c ui.C, st hooksState) {
 }
 
 var _ = gfx.Color{}
+
+// limitProblemText is the message of a broken context limit rule.
+func limitProblemText(lang i18n.Language, problem limitProblem) string {
+	if problem == limitCompactOverWindow {
+		return i18n.Shared(lang, "desktop.settings.agent.limits.compactOverWindow")
+	}
+	return i18n.Shared(lang, "desktop.settings.agent.limits.range")
+}

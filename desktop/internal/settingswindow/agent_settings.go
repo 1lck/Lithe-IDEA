@@ -94,9 +94,18 @@ type limitsState struct {
 	stored        AgentContextLimit
 	loaded, saved bool
 	invalid       bool
-	// invalidReason is the message key of the failed rule when invalid is set.
-	invalidReason string
+	// invalidReason is the failed rule when invalid is set.
+	invalidReason limitProblem
 }
+
+// limitProblem is the rule a context limit draft breaks.
+type limitProblem uint8
+
+const (
+	limitValid limitProblem = iota
+	limitOutOfRange
+	limitCompactOverWindow
+)
 
 // Context limits accepted by the settings page: a token count from 10K to 10M, and an
 // auto-compact threshold that does not exceed the window.
@@ -262,17 +271,17 @@ func parseLimit(text string) (uint64, bool) {
 	return v * multiplier, true
 }
 
-// checkLimits applies the accepted ranges; the reason is a message key, empty when valid.
-func checkLimits(window, compact uint64) string {
+// checkLimits applies the accepted ranges and returns the rule the limits break, or limitValid.
+func checkLimits(window, compact uint64) limitProblem {
 	for _, v := range []uint64{window, compact} {
 		if v != 0 && (v < limitMinimumTokens || v > limitMaximumTokens) {
-			return "desktop.settings.agent.limits.range"
+			return limitOutOfRange
 		}
 	}
 	if window != 0 && compact > window {
-		return "desktop.settings.agent.limits.compactOverWindow"
+		return limitCompactOverWindow
 	}
-	return ""
+	return limitValid
 }
 
 // saveLimits writes the draft through the owner; an invalid number saves nothing.
@@ -281,17 +290,15 @@ func (s *agentSettings) saveLimits() {
 	defer s.mu.Unlock()
 	window, ok1 := parseLimit(s.limitDraft.window)
 	compact, ok2 := parseLimit(s.limitDraft.compact)
-	reason := ""
-	if !ok1 || !ok2 {
-		reason = "desktop.settings.agent.limits.range"
-	} else {
+	reason := limitOutOfRange
+	if ok1 && ok2 {
 		reason = checkLimits(window, compact)
 	}
-	if reason != "" {
+	if reason != limitValid {
 		s.limitDraft.invalid, s.limitDraft.invalidReason, s.limitDraft.saved = true, reason, false
 		return
 	}
-	s.limitDraft.invalid, s.limitDraft.invalidReason, s.limitDraft.saved = false, "", true
+	s.limitDraft.invalid, s.limitDraft.invalidReason, s.limitDraft.saved = false, limitValid, true
 	if s.setLimits != nil {
 		limit := AgentContextLimit{WindowTokens: window, AutoCompactTokens: compact}
 		s.setLimits(s.agentID(), limit)
@@ -301,7 +308,7 @@ func (s *agentSettings) saveLimits() {
 // resetLimits clears both limits, restoring the Agent's defaults.
 func (s *agentSettings) resetLimits() {
 	s.mu.Lock()
-	s.limitDraft.window, s.limitDraft.compact, s.limitDraft.invalid, s.limitDraft.invalidReason = "", "", false, ""
+	s.limitDraft.window, s.limitDraft.compact, s.limitDraft.invalid, s.limitDraft.invalidReason = "", "", false, limitValid
 	s.mu.Unlock()
 	s.saveLimits()
 }

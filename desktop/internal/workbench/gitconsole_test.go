@@ -451,3 +451,137 @@ func TestConsoleExpandTabsToTheNextStop(t *testing.T) {
 		}
 	}
 }
+
+// consoleQuery is a query Core reported, a log of four lines, and Core's presentation of it,
+// which folds the whole output.
+func consoleQuery() (core.GitConsoleRecord, *consolePresented) {
+	record := core.GitConsoleRecord{
+		ID:               "q1",
+		Revision:         2,
+		Started:          consoleStarted,
+		Root:             "/work/repo",
+		Arguments:        []string{"-c", "core.quotepath=false", "log", "--format=%H"},
+		DisplayArguments: []string{"log", "--format=%H"},
+		Query:            true,
+		Lines: []core.GitConsoleLine{
+			{Stream: "stdout", Text: "a1"},
+			{Stream: "stdout", Text: "b2"},
+			{Stream: "stdout", Text: "c3"},
+			{Stream: "stdout", Text: "d4"},
+		},
+		State:  core.GitConsoleCompleted,
+		Exited: true,
+	}
+	presented := &consolePresented{
+		revision: 2,
+		lines:    4,
+		entry: core.GitConsoleEntry{
+			ID:              "q1",
+			RepositoryLabel: "/work/repo",
+			Command: []core.GitConsoleCommandFragment{
+				{ID: "argument-0", Kind: "text", Text: "log"},
+				{ID: "argument-1", Kind: "text", Text: "--format=%H"},
+			},
+			Output: []core.GitConsoleOutputFragment{{ID: "output-0", Start: 0, End: 4, Kind: consoleFragmentQuery, Count: 4}},
+		},
+	}
+	return record, presented
+}
+
+func TestConsoleFoldsTheWholeOutputOfAQuery(t *testing.T) {
+	text := &i18n.For(i18n.English).Console
+	record, presented := consoleQuery()
+	v := consoleViewOf([]core.GitConsoleRecord{record}, map[string]*consolePresented{record.ID: presented})
+
+	v.flatten(text, time.UTC)
+	if len(v.rows) != 2 {
+		t.Fatalf("the closed rows are %+v, want the header and the fold", v.rows)
+	}
+	header, fold := v.rows[0], v.rows[1]
+	if header.text != "09:08:07.006: [repo] git log --format=%H" || header.tone != consoleToneSubtle {
+		t.Fatalf("the query's header is %+v, want it subtle", header)
+	}
+	if fold.text != text.QueryOutput(4) || fold.toggle != text.Expand || !fold.folded || !fold.summary || fold.tone != consoleToneSubtle {
+		t.Fatalf("the closed fold is %+v", fold)
+	}
+
+	v.open = map[consoleFold]bool{fold.fold: true}
+	v.flatten(text, time.UTC)
+	if len(v.rows) != 5 {
+		t.Fatalf("the open rows are %+v, want the header and four lines", v.rows)
+	}
+	first, last := v.rows[1], v.rows[4]
+	if first.text != "a1" || first.toggle != "" || first.tone != consoleToneSubtle {
+		t.Fatalf("the open fold's first line is %+v", first)
+	}
+	if last.text != "d4" || last.toggle != text.Collapse || last.folded {
+		t.Fatalf("the open fold's last line is %+v", last)
+	}
+	if first.key != fold.key {
+		t.Fatalf("the fold's key changed from %d to %d as it opened", fold.key, first.key)
+	}
+}
+
+func TestConsoleStepOpensTheFoldOfAQueryHit(t *testing.T) {
+	text := &i18n.For(i18n.English).Console
+	record, presented := consoleQuery()
+	line := 2
+	presented.search = "c3"
+	presented.entry.Matches = 1
+	presented.hits = []core.GitConsoleHit{{RecordID: record.ID, FragmentID: "output-0", LineIndex: &line}}
+	v := consoleViewOf([]core.GitConsoleRecord{record}, map[string]*consolePresented{record.ID: presented})
+	v.searchFor = "c3"
+
+	v.flatten(text, time.UTC)
+	if len(v.hits) != 1 || v.hits[0].row != 1 {
+		t.Fatalf("the hits are %+v, want one on the closed fold", v.hits)
+	}
+	v.step(1, text, time.UTC)
+	if !v.open[consoleFold{record: record.ID, fragment: "output-0"}] {
+		t.Fatalf("stepping to the hit left the query's fold closed: %+v", v.open)
+	}
+	if v.rows[v.hitRow].text != "c3" {
+		t.Fatalf("the current hit is on row %d, %+v, want the line it matched", v.hitRow, v.rows[v.hitRow])
+	}
+}
+
+func TestConsoleHidesSuccessfulQueriesOnly(t *testing.T) {
+	text := &i18n.For(i18n.English).Console
+	query, presented := consoleQuery()
+	broken := query
+	broken.ID, broken.ExitCode = "q2", 128
+	fetch, fetched := consoleFetch()
+	v := consoleViewOf([]core.GitConsoleRecord{query, broken, fetch}, map[string]*consolePresented{query.ID: presented, fetch.ID: fetched})
+
+	v.hideQueries = true
+	v.flatten(text, time.UTC)
+	records := map[string]bool{}
+	for _, row := range v.rows {
+		records[row.id.record] = true
+	}
+	if records[query.ID] || !records[broken.ID] || !records[fetch.ID] {
+		t.Fatalf("hiding queries drew the records %v, want the failed query and the fetch only", records)
+	}
+	for _, row := range v.rows {
+		if row.id.record == broken.ID && row.id.part == consolePartHeader && row.tone != consoleToneError {
+			t.Fatalf("the failed query's header is %+v, want it drawn failed", row)
+		}
+	}
+	if !consoleHasRow(v, "d4") {
+		t.Fatalf("the failed query's output is folded: %+v", v.rows)
+	}
+}
+
+func TestConsoleDrawsTheProjectedCommandBeforeItIsPresented(t *testing.T) {
+	record, _ := consoleQuery()
+	if got := consoleDrawnHeader(&record, time.UTC); got != "09:08:07.006: [repo] git log --format=%H" {
+		t.Fatalf("consoleDrawnHeader() = %q, want the projected command", got)
+	}
+	if got := consoleRawHeader(&record, time.UTC); !strings.Contains(got, "core.quotepath=false") {
+		t.Fatalf("consoleRawHeader() = %q, want the whole command for copying", got)
+	}
+	record.DisplayArguments = nil
+	if got, want := consoleDrawnHeader(&record, time.UTC), consoleRawHeader(&record, time.UTC); got != want {
+		t.Fatalf("consoleDrawnHeader() without a projection = %q, want the raw header %q", got, want)
+	}
+}

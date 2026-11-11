@@ -29,17 +29,22 @@ func (l *gitLogState) primaryComparison() (base core.GitReference, target *core.
 	return base, &selected, true
 }
 
-// compareReferences lists the files that differ between base and target, or between base and
-// the working tree when target is nil, and opens the Diff tab of the first one. A comparison
-// with nothing to show says so instead.
+// compareReferences compares references of the repository the log walks, see
+// compareReferencesAt.
 func (a *App) compareReferences(p *project, base core.GitReference, target *core.GitReference) {
+	a.compareReferencesAt(p, p.logRepositoryRoot(), base, target)
+}
+
+// compareReferencesAt lists the files that differ between base and target, or between base and
+// the working tree when target is nil, in the repository at root, and opens the Diff tab of the
+// first one. A comparison with nothing to show says so instead.
+func (a *App) compareReferencesAt(p *project, root string, base core.GitReference, target *core.GitReference) {
 	kernel, ok := a.reviewKernel()
 	l := &p.log
 	if !ok || !p.git.isRepository() || l.comparing || base.FullName == "" {
 		return
 	}
 	l.comparing = true
-	root := p.logRepositoryRoot()
 	a.performed("git.compare", surfaceButton)
 	a.background(p, reviewTimeout, func(ctx context.Context) func(*App) {
 		files, err := kernel.GitComparison(ctx, root, base, target)

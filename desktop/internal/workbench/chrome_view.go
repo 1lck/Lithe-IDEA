@@ -528,14 +528,22 @@ func (a *App) gearMenu(c ui.C, anchor ui.Box) {
 	}
 }
 
-// stripeZoneMoveKeys are the "Move to" entries of a stripe button's menu, by zone.
-var stripeZoneMoveKeys = [...]string{
-	zoneLeftTop:     "native.moveToLeftTop",
-	zoneLeftBottom:  "native.moveToLeftBottom",
-	zoneBottomLeft:  "native.moveToBottomLeft",
-	zoneRightTop:    "native.moveToRightTop",
-	zoneRightBottom: "native.moveToRightBottom",
-	zoneBottomRight: "native.moveToBottomRight",
+// stripeZoneMoveText is the "Move to" entry of a stripe button's menu for zone z.
+func stripeZoneMoveText(lang i18n.Language, z zone) string {
+	switch z {
+	case zoneLeftTop:
+		return i18n.Shared(lang, "native.moveToLeftTop")
+	case zoneLeftBottom:
+		return i18n.Shared(lang, "native.moveToLeftBottom")
+	case zoneBottomLeft:
+		return i18n.Shared(lang, "native.moveToBottomLeft")
+	case zoneRightTop:
+		return i18n.Shared(lang, "native.moveToRightTop")
+	case zoneRightBottom:
+		return i18n.Shared(lang, "native.moveToRightBottom")
+	default:
+		return i18n.Shared(lang, "native.moveToBottomRight")
+	}
 }
 
 // stripeButtonMenu is the context menu of the stripe button of catalog item i, which sits
@@ -555,12 +563,12 @@ func (a *App) stripeButtonMenu(c ui.C, i int, at zone) func(*ui.MenuItems) {
 			}
 			menu.Separator()
 		}
-		for z, key := range stripeZoneMoveKeys {
-			if zone(z) == at {
+		for z := zoneLeftTop; z <= zoneBottomRight; z++ {
+			if z == at {
 				continue
 			}
 			target := zoneNames[z]
-			if menu.Item(i18n.Shared(language, key)).Clicked() {
+			if menu.Item(stripeZoneMoveText(language, z)).Clicked() {
 				c.After(func() {
 					a.performed("workbench.toolWindow.move", surfaceMenu)
 					a.reduceChrome(core.MoveChrome(id, target, ""))

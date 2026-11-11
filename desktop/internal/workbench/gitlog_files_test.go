@@ -1,11 +1,13 @@
 package workbench
 
 import (
+	"context"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -278,4 +280,43 @@ func TestLogChangedFileCompareAndHistory(t *testing.T) {
 	if p.log.path != "top.txt" || h.app.logView.pathField.Text() != "top.txt" {
 		t.Fatalf("history filtered by %q, field %q", p.log.path, h.app.logView.pathField.Text())
 	}
+}
+
+// heldCommitFiles is a kernel whose GitCommitFiles waits for its context to end and then tells
+// which commit's read ended.
+type heldCommitFiles struct {
+	Kernel
+	ended chan string
+}
+
+func (k heldCommitFiles) GitCommitFiles(ctx context.Context, _, commit string) ([]core.GitCommitFile, error) {
+	<-ctx.Done()
+	k.ended <- commit
+	return nil, ctx.Err()
+}
+
+// A newer selection cancels the Git read of the commit it replaces, which would otherwise run
+// on, showing as running in the Git console, for an answer nothing reads.
+func TestLogSelectionCancelsTheReadOfTheCommitItReplaces(t *testing.T) {
+	h := newHarness(t, gitKernel{core.NewClient()})
+	p, head, initial := h.openLogFiles(t)
+	held := heldCommitFiles{Kernel: h.app.kernel, ended: make(chan string, 2)}
+	h.app.kernel = held
+	const bound = 10 * time.Second
+	wait := func(want string) {
+		t.Helper()
+		select {
+		case got := <-held.ended:
+			if got != want {
+				t.Fatalf("the read of %q ended, want the read of %q", got, want)
+			}
+		case <-time.After(bound):
+			t.Fatalf("the read of %q still runs %v after another selection replaced it", want, bound)
+		}
+	}
+	h.app.selectCommit(p, initial)
+	h.app.selectCommit(p, head)
+	wait(initial)
+	h.app.selectCommit(p, "")
+	wait(head)
 }

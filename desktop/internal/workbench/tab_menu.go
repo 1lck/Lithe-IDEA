@@ -66,11 +66,11 @@ func (a *App) tabMenuItems(c ui.C, group string, t shownTab, tabs []shownTab) fu
 		}
 		menu.Separator()
 		pinned := tabPinned(t)
-		pin := "desktop.tab.pin"
+		pin := i18n.Shared(language, "desktop.tab.pin")
 		if pinned {
-			pin = "desktop.tab.unpin"
+			pin = i18n.Shared(language, "desktop.tab.unpin")
 		}
-		if menu.Item(i18n.Shared(language, pin)).Clicked() {
+		if menu.Item(pin).Clicked() {
 			c.After(func() { a.setTabPinned(p, group, d, !pinned) })
 		}
 		menu.Separator()

@@ -39,6 +39,7 @@ func (a *App) loadGit(p *project) {
 			a.refreshInlineBlames(p)
 			a.loadNestedRepos(p)
 			a.loadRebaseSession(p)
+			a.loadGitOperation(p)
 		}
 	})
 }
