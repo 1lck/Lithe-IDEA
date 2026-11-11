@@ -991,5 +991,108 @@
     "parameters": {
       "version": "string"
     }
+  },
+  {
+    "id": "desktop.memory.status",
+    "description": "Memory monitor in the status bar.",
+    "en-US": "{total} MB · Lithe {lithe} MB",
+    "zh-CN": "{total} MB · Lithe {lithe} MB",
+    "parameters": {
+      "total": "string",
+      "lithe": "string"
+    }
+  },
+  {
+    "id": "desktop.memory.tooltip",
+    "description": "Memory monitor in the status bar.",
+    "en-US": "Memory: {total} MB in total. Lithe {lithe} MB, language servers {lsp} MB, services {services} MB.",
+    "zh-CN": "内存：共 {total} MB。Lithe {lithe} MB，语言服务器 {lsp} MB，服务 {services} MB。",
+    "parameters": {
+      "total": "string",
+      "lithe": "string",
+      "lsp": "string",
+      "services": "string"
+    }
+  },
+  {
+    "id": "desktop.memory.title",
+    "description": "Memory monitor in the status bar.",
+    "en-US": "Memory",
+    "zh-CN": "内存"
+  },
+  {
+    "id": "desktop.memory.value",
+    "description": "Memory monitor in the status bar.",
+    "en-US": "{value} MB",
+    "zh-CN": "{value} MB",
+    "parameters": {
+      "value": "string"
+    }
+  },
+  {
+    "id": "desktop.memory.total",
+    "description": "Memory monitor in the status bar.",
+    "en-US": "Total",
+    "zh-CN": "总计"
+  },
+  {
+    "id": "desktop.memory.lithe",
+    "description": "Memory monitor in the status bar.",
+    "en-US": "Lithe",
+    "zh-CN": "Lithe"
+  },
+  {
+    "id": "desktop.memory.languageServers",
+    "description": "Memory monitor in the status bar.",
+    "en-US": "Language servers",
+    "zh-CN": "语言服务器"
+  },
+  {
+    "id": "desktop.memory.services",
+    "description": "Memory monitor in the status bar.",
+    "en-US": "Plugin services",
+    "zh-CN": "插件服务"
+  },
+  {
+    "id": "desktop.memory.noProcesses",
+    "description": "Memory monitor in the status bar.",
+    "en-US": "No language servers or plugin services are running.",
+    "zh-CN": "没有运行中的语言服务器或插件服务。"
+  },
+  {
+    "id": "desktop.memory.kindServer",
+    "description": "Memory monitor in the status bar.",
+    "en-US": "language server",
+    "zh-CN": "语言服务器"
+  },
+  {
+    "id": "desktop.memory.kindService",
+    "description": "Memory monitor in the status bar.",
+    "en-US": "plugin service",
+    "zh-CN": "插件服务"
+  },
+  {
+    "id": "desktop.command.fold",
+    "description": "Code folding action in Find Action and the keymap.",
+    "en-US": "Fold",
+    "zh-CN": "折叠"
+  },
+  {
+    "id": "desktop.command.unfold",
+    "description": "Code folding action in Find Action and the keymap.",
+    "en-US": "Unfold",
+    "zh-CN": "展开"
+  },
+  {
+    "id": "desktop.command.foldAll",
+    "description": "Code folding action in Find Action and the keymap.",
+    "en-US": "Fold All",
+    "zh-CN": "全部折叠"
+  },
+  {
+    "id": "desktop.command.unfoldAll",
+    "description": "Code folding action in Find Action and the keymap.",
+    "en-US": "Unfold All",
+    "zh-CN": "全部展开"
   }
 ]
