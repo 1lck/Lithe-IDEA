@@ -372,16 +372,17 @@ func (a *App) newTerminalWith(p *project, options terminalOptions) *terminal {
 		dir = p.root
 	}
 	config := termview.Config{
-		Dir:      dir,
-		Shell:    shell,
-		Args:     options.args,
-		Env:      options.env,
-		Unset:    options.unset,
-		Prefill:  options.prefill,
-		Messages: a.terminalMessages(),
-		Notify:   a.invalidator.Invalidate,
-		Failed:   a.terminalFailed,
-		OpenLink: a.openTerminalLink,
+		Dir:        dir,
+		Shell:      shell,
+		Args:       options.args,
+		Env:        append(a.terminalEnvironment(), options.env...),
+		Unset:      append(slices.Clone(inheritedColorVariables), options.unset...),
+		Scrollback: a.terminalScrollback(),
+		Prefill:    options.prefill,
+		Messages:   a.terminalMessages(),
+		Notify:     a.invalidator.Invalidate,
+		Failed:     a.terminalFailed,
+		OpenLink:   a.openTerminalLink,
 	}
 	t := &terminal{id: id, number: set.freeNumber(), shell: shell, title: options.title, plugin: options.plugin}
 	if options.plugin != nil {

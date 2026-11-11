@@ -60,6 +60,9 @@ type Values struct {
 	// automatic, the system's default shell. A path no installed shell has is kept as stored
 	// and shown as not found, not replaced by one that exists.
 	TerminalShell string
+	// TerminalScrollback is the history lines a new terminal keeps, within
+	// MinScrollback and MaxScrollback.
+	TerminalScrollback int
 	// Fonts are the fonts of the editor, the terminal and the run output, as
 	// fontprefs.Normalize returns them. Nil is fontprefs.Default, the system's fixed-pitch
 	// font for every place.
@@ -202,6 +205,9 @@ type Options struct {
 	// SetTerminalShell hands a change of Values.TerminalShell to the settings owner,
 	// like SetTabRows.
 	SetTerminalShell func(string)
+	// SetTerminalScrollback hands a change of Values.TerminalScrollback to the settings
+	// owner, like SetTabRows.
+	SetTerminalScrollback func(int)
 	// SetFonts hands a change of Values.Fonts to the settings owner, like SetTabRows. The
 	// list it receives is normalized.
 	SetFonts func([]fontprefs.Font)

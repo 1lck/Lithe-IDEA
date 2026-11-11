@@ -114,6 +114,10 @@ type window struct {
 	agent *agentSettings
 	// mcp is the MCP Configuration page's state.
 	mcp *mcpState
+	// scrollbackField is the Terminal page's history field; scrollbackEditing says the user
+	// typed in it since the stored number was last shown.
+	scrollbackField   ui.Field
+	scrollbackEditing bool
 	// keymap is the Keymap page's filter and recording.
 	keymap keymapState
 

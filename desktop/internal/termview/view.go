@@ -14,6 +14,7 @@
 package termview
 
 import (
+	"cmp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -110,6 +111,9 @@ const (
 type Config struct {
 	// Dir is the working directory of each shell the view starts.
 	Dir string
+	// Scrollback is how many lines of history the view keeps above its screen; zero
+	// keeps scrollbackLines.
+	Scrollback int
 	// Shell is the program to run; empty runs the user's default shell.
 	Shell string
 	// HitID is the grid's hit; keyboard focus rests on it. BarID is the scrollbar's.
@@ -263,7 +267,7 @@ func New(cfg Config) *View {
 	}
 	v := &View{
 		cfg:    cfg,
-		screen: term.New(80, 24, scrollbackLines),
+		screen: term.New(80, 24, cmp.Or(cfg.Scrollback, scrollbackLines)),
 		layout: geometry{cols: 80, rows: 24},
 		font:   DefaultFont(),
 	}

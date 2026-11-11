@@ -240,6 +240,9 @@ type settings struct {
 	// TerminalShell is the executable a new terminal runs, as settingswindow.Values says;
 	// empty runs the user's default shell (localshell.DefaultShell).
 	TerminalShell string `json:"terminalShell,omitempty"`
+	// TerminalScrollback is the history lines a new terminal keeps; zero is
+	// settingswindow.DefaultScrollback.
+	TerminalScrollback int `json:"terminalScrollback,omitempty"`
 	// ProcessTermination is the user's part of Core's process termination settings, as the
 	// Process Termination page edits it; the zero value keeps Core's defaults.
 	ProcessTermination settingswindow.ProcessTermination `json:"processTermination,omitzero"`

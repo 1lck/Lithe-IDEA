@@ -604,5 +604,41 @@
     "description": "Keymap settings page",
     "en-US": "Click + and press the new keys. Escape cancels recording. Changes apply at once.",
     "zh-CN": "点击 + 后按下新的按键，Esc 取消录制。修改立即生效。"
+  },
+  {
+    "id": "desktop.settings.terminal.scrollback",
+    "description": "Terminal settings page, scrollback",
+    "en-US": "Scrollback",
+    "zh-CN": "回滚行数"
+  },
+  {
+    "id": "desktop.settings.terminal.scrollbackHelp",
+    "description": "Terminal settings page, scrollback",
+    "en-US": "How many lines of history a new terminal keeps above its screen (100–50,000). Open terminals keep their current limit.",
+    "zh-CN": "新建终端在屏幕上方保留的历史行数（100–50000）。已打开的终端保持原有上限。"
+  },
+  {
+    "id": "desktop.settings.terminal.scrollbackLines",
+    "description": "Terminal settings page, scrollback",
+    "en-US": "Lines kept",
+    "zh-CN": "保留行数"
+  },
+  {
+    "id": "desktop.settings.terminal.scrollbackLess",
+    "description": "Terminal settings page, scrollback",
+    "en-US": "Fewer lines",
+    "zh-CN": "减少行数"
+  },
+  {
+    "id": "desktop.settings.terminal.scrollbackMore",
+    "description": "Terminal settings page, scrollback",
+    "en-US": "More lines",
+    "zh-CN": "增加行数"
+  },
+  {
+    "id": "desktop.settings.terminal.scrollbackDefault",
+    "description": "Terminal settings page, scrollback",
+    "en-US": "Default",
+    "zh-CN": "恢复默认"
   }
 ]

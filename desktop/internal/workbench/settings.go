@@ -165,6 +165,9 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SetTerminalShell: func(value string) {
 			a.post(func(a *App) { a.setTerminalShell(value) })
 		},
+		SetTerminalScrollback: func(lines int) {
+			a.post(func(a *App) { a.setTerminalScrollback(lines) })
+		},
 		ResetLayout: func() {
 			a.post(func(a *App) { a.resetLayout() })
 		},
@@ -280,7 +283,7 @@ func (a *App) openSettingsPage(surface string, page settingsPage) {
 		current := settingswindow.Values{
 			Language: a.settings.Language, Theme: string(a.settings.Theme), MarketplaceWidth: a.settings.MarketplaceWidth,
 			EditorTabRows: a.settings.EditorTabRows, EditorTabOverflow: a.settings.EditorTabOverflow,
-			TerminalShell: a.settings.TerminalShell,
+			TerminalShell: a.settings.TerminalShell, TerminalScrollback: a.terminalScrollback(),
 			HideGitGutter: a.settings.HideGitGutter, InlineGitBlame: a.settings.InlineGitBlame,
 			DisableSemanticHighlight: a.settings.DisableSemanticHighlight,
 			ProcessTermination:       a.settings.ProcessTermination,
