@@ -1,7 +1,9 @@
 package workbench
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
@@ -13,33 +15,54 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// Native plugin panels: a tool window the plugin declares as a tree or list of literal nodes. The host
-// draws the rows, the toolbar and the context menu with its own controls; a click selects a node, and an
-// action calls the plugin function with the selected ID. Forms and build-system sources are not drawn yet.
+// Native plugin panels: a tool window the plugin declares as a tree, a list or a form. The host draws the
+// rows, fields, toolbar and context menu with its own controls. A click or an arrow key selects a node, Left
+// and Right close and open a tree branch, and an action calls the plugin function with the selected ID. A
+// form's values and a panel's selection and open branches are kept per project (plugin_native_state.go).
 
 // nativePanelState is one panel's view state: what is selected, which tree nodes are open, the list's
 // scroll, whether an action is running and the message the last action answered.
 type nativePanelState struct {
-	selected string
-	expanded map[string]bool
-	list     ui.ListState
-	busy     bool
-	message  string
+	// declaration is the window's native object the state was made for; a changed package starts afresh.
+	declaration json.RawMessage
+	form        *pluginservice.NativeForm
+	selected    string
+	expanded    map[string]bool
+	list        ui.ListState
+	tree        ui.TreeState
+	// rows are the visible rows of a tree or list this paint, which the tree's Node reads.
+	rows    []nativeRow
+	busy    bool
+	message string
 	// revealed says the toolbar shows: the pointer is over the panel, or the keyboard or assistive focus is on
 	// one of its buttons. It is read from the previous paint, so the toolbar keeps its place either way.
 	revealed       bool
 	toolbarFocused bool
+	// shown says the paint in progress declared this panel. A panel a paint leaves out is hidden: its
+	// pending calls end (endNativePanels).
+	shown bool
 	// nodes are the rows of a source panel, read from its function; sourceLoaded says they are current,
 	// sourceBusy that a read is out, and sourceFailure names why the last read failed, if it did.
 	nodes         []pluginservice.NativeNode
 	sourceLoaded  bool
 	sourceBusy    bool
 	sourceFailure string
+	source        nativeCall
+	action        nativeCall
 	// form holds a form panel's fields: text for the string and number kinds, flags for checkboxes.
-	// They are created once from the declaration and kept across repaints and reopening.
+	// They are created once from the declaration and kept across repaints and reopening. savedForm holds
+	// the values the project kept until the fields are created.
 	formReady bool
 	text      map[string]*string
 	flags     map[string]*bool
+	savedForm map[string]any
+}
+
+// nativeCall is the background call of a panel: its cancel ends it, and its generation tells the answer
+// that the panel still wants it. A call that was stopped or superseded has an old generation and is dropped.
+type nativeCall struct {
+	cancel context.CancelFunc
+	gen    uint64
 }
 
 // nativeRow is one visible row of a panel: a node and how deep it sits.
@@ -48,18 +71,72 @@ type nativeRow struct {
 	depth int
 }
 
-// nativeState returns the state of a window, creating it on first use.
-func (a *App) nativeState(tool *pluginservice.ToolWindow) *nativePanelState {
-	if a.nativePanels == nil {
-		a.nativePanels = map[string]*nativePanelState{}
+// nativeWindowKey names a native window within its project.
+func nativeWindowKey(tool *pluginservice.ToolWindow) string {
+	return tool.PluginID + "\x00" + tool.ID
+}
+
+// nativeState returns the state of a window in project p, creating it on first use. A window whose
+// declaration changed (its package was replaced) starts from nothing but what the project kept for it.
+func (a *App) nativeState(p *project, tool *pluginservice.ToolWindow) *nativePanelState {
+	if p.nativePanels == nil {
+		p.nativePanels = map[string]*nativePanelState{}
 	}
-	key := tool.PluginID + "\x00" + tool.ID
-	state := a.nativePanels[key]
+	key := nativeWindowKey(tool)
+	state := p.nativePanels[key]
+	if state != nil && !bytes.Equal(state.declaration, tool.Native.Declaration) {
+		state.hide()
+		state = nil
+	}
 	if state == nil {
-		state = &nativePanelState{expanded: map[string]bool{}}
-		a.nativePanels[key] = state
+		state = newNativePanelState(p, key, tool)
+		p.nativePanels[key] = state
 	}
 	return state
+}
+
+// newNativePanelState makes the state of a window, applying what the project kept for it: the selection,
+// the open branches and the form values. A tree's Node describes its rows from this state.
+func newNativePanelState(p *project, key string, tool *pluginservice.ToolWindow) *nativePanelState {
+	state := &nativePanelState{declaration: tool.Native.Declaration, form: tool.Native.Form, expanded: map[string]bool{}}
+	state.tree.RowHeight = debugRowHeight
+	state.tree.Node = func(i int) ui.TreeNode {
+		row := state.rows[i]
+		return ui.TreeNode{
+			Depth:    row.depth,
+			Branch:   len(row.node.Children) > 0,
+			Expanded: state.expanded[row.node.ID],
+			Selected: row.node.ID == state.selected,
+		}
+	}
+	if saved, ok := p.nativeSaved[key]; ok {
+		state.selected = saved.Selected
+		for _, id := range saved.Expanded {
+			state.expanded[id] = true
+		}
+		state.savedForm = saved.Form
+	}
+	return state
+}
+
+// hide ends the calls of a panel that is no longer shown, so their answers are dropped. A reopened panel
+// reads its source again and its action buttons are enabled.
+func (s *nativePanelState) hide() {
+	if s.source.cancel == nil && s.action.cancel == nil {
+		return
+	}
+	s.source.stop()
+	s.action.stop()
+	s.sourceBusy, s.sourceLoaded, s.busy = false, false, false
+}
+
+// stop ends the call if one is out and makes its answer stale.
+func (c *nativeCall) stop() {
+	if c.cancel != nil {
+		c.cancel()
+		c.cancel = nil
+	}
+	c.gen++
 }
 
 // flattenNativeRows lists the rows a panel shows: every node, with the children of the open nodes.
@@ -73,10 +150,51 @@ func flattenNativeRows(nodes []pluginservice.NativeNode, expanded map[string]boo
 	return rows
 }
 
+// endNativePanels runs at the end of each paint: a native panel of the open project that the paint did not
+// declare is hidden, and every panel is marked as not declared until the next paint declares it.
+func (a *App) endNativePanels() {
+	p := a.project
+	if p == nil {
+		return
+	}
+	for _, state := range p.nativePanels {
+		if !state.shown {
+			state.hide()
+		}
+		state.shown = false
+	}
+}
+
+// startCall runs work for a panel in the background, with the project's context. Starting a call ends the
+// previous one of the same kind. The answer is applied only while the call is still wanted and the project
+// is open; the call ends with the project, when the panel is hidden, or at its timeout.
+func (a *App) startCall(p *project, call *nativeCall, timeout time.Duration, work func(ctx context.Context) func(*App)) {
+	call.stop()
+	ctx, cancel := context.WithTimeout(p.ctx, timeout)
+	call.cancel = cancel
+	gen := call.gen
+	a.tasks.running.Add(1)
+	go func() {
+		defer a.tasks.running.Done()
+		apply := work(ctx)
+		a.post(func(a *App) {
+			if call.gen != gen || a.project != p {
+				return
+			}
+			call.cancel = nil
+			cancel()
+			if apply != nil {
+				apply(a)
+			}
+		})
+	}()
+}
+
 // pluginNativeBody declares a native panel: its toolbar, its rows and the actions of its context menu.
 func (a *App) pluginNativeBody(c ui.C, p *project, tool *pluginservice.ToolWindow) {
 	panel := tool.Native
-	state := a.nativeState(tool)
+	state := a.nativeState(p, tool)
+	state.shown = true
 	if panel.Form != nil {
 		a.pluginFormBody(c, p, tool, state)
 		return
@@ -88,15 +206,12 @@ func (a *App) pluginNativeBody(c ui.C, p *project, tool *pluginservice.ToolWindo
 			a.loadNativeSource(p, tool, state)
 		}
 	}
-	rows := flattenNativeRows(nodes, state.expanded, 0, nil)
+	state.rows = flattenNativeRows(nodes, state.expanded, 0, nil)
+	rows := state.rows
 	state.toolbarFocused = false
 	root := ui.Column(c).Fill().Background(a.colors.Editor).Hit(ui.ID(c.Key("native-panel")), tool.Title)
 	root.Children(func() {
-		if state.sourceFailure != "" {
-			ui.Row(c).FillWidth().Height(28).Shrink(0).Items(ui.Center).PadX(8).Children(func() {
-				ui.Text(c, state.sourceFailure).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Warning).Ellipsis()
-			})
-		}
+		a.nativeFailure(c, state)
 		if len(panel.Toolbar) > 0 {
 			// Icon-only actions. They keep their place and stay focusable while hidden; the opacity is
 			// what the pointer or the keyboard reveals.
@@ -122,52 +237,115 @@ func (a *App) pluginNativeBody(c ui.C, p *project, tool *pluginservice.ToolWindo
 				}
 			})
 		}
-		if len(rows) == 0 {
+		switch {
+		case len(rows) == 0:
 			a.panelMessage(c, i18n.Shared(a.language(), "desktop.nativePanel.empty"), a.colors.Subtle)
-		} else {
-			ui.List(c, &state.list, len(rows), func(row ui.ListRow) {
-				item := rows[row.Index]
-				row.Element.Height(debugRowHeight).PadX(10).Items(ui.Center).Gap(6).Hover(ui.Look{}.Background(a.colors.Hover))
-				if item.node.ID == state.selected {
-					row.Element.Background(a.colors.Selection)
-				}
-				row.Element.Children(func() {
-					ui.Spacer(row.C).Width(float32(item.depth) * 14)
-					ui.Text(row.C, item.node.Label).Grow(1).Shrink(1).FontSize(12.5).Color(a.colors.Text).Ellipsis()
-				})
-				if len(item.node.Children) > 0 && row.Element.Clicked() {
-					state.expanded[item.node.ID] = !state.expanded[item.node.ID]
-				}
-				if row.Element.Clicked() {
-					state.selected = item.node.ID
-				}
-				if len(panel.ContextMenu) > 0 {
-					ui.ContextMenu(row.C, row.Element, func(menu *ui.MenuItems) {
-						menu.WidthRange(160, 240)
-						for _, id := range panel.ContextMenu {
-							action := nativeAction(panel, id)
-							if action == nil {
-								continue
-							}
-							if menu.Item(action.Title).Disabled(state.busy).Clicked() {
-								row.C.After(func() {
-									state.selected = item.node.ID
-									a.runNativeAction(p, tool, state, *action, nil)
-								})
-							}
-						}
-					})
-				}
-			}).Label(tool.Title).Grow(1).FillWidth()
+		case panel.Kind == "tree":
+			a.nativeTree(c, p, tool, state)
+		default:
+			a.nativeList(c, p, tool, state)
 		}
-		if state.message != "" {
-			ui.Divider(c)
-			ui.Row(c).FillWidth().Height(28).Shrink(0).Items(ui.Center).PadX(8).Children(func() {
-				ui.Text(c, state.message).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
-			})
-		}
+		a.nativeMessage(c, state)
 	})
 	state.revealed = root.State().Hovered || state.toolbarFocused
+}
+
+// nativeFailure shows why the last source read failed, above the rows.
+func (a *App) nativeFailure(c ui.C, state *nativePanelState) {
+	if state.sourceFailure == "" {
+		return
+	}
+	ui.Row(c).FillWidth().Height(28).Shrink(0).Items(ui.Center).PadX(8).Children(func() {
+		ui.Text(c, state.sourceFailure).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Warning).Ellipsis()
+	})
+}
+
+// nativeMessage shows the message the last action answered, under the rows.
+func (a *App) nativeMessage(c ui.C, state *nativePanelState) {
+	if state.message == "" {
+		return
+	}
+	ui.Divider(c)
+	ui.Row(c).FillWidth().Height(28).Shrink(0).Items(ui.Center).PadX(8).Children(func() {
+		ui.Text(c, state.message).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
+	})
+}
+
+// nativeTree declares a tree panel. The Tree answers the arrows: Right opens a closed branch and Left
+// closes an open one (Toggled), a click or Enter chooses a row (Chosen), and a branch chosen that way
+// opens or closes as well.
+func (a *App) nativeTree(c ui.C, p *project, tool *pluginservice.ToolWindow, state *nativePanelState) {
+	rows := state.rows
+	ui.Tree(c, &state.tree, len(rows), func(i int) string { return rows[i].node.Label }, func(i int) {
+		a.nativeRowContent(c.KeyInt(i), p, tool, state, rows[i])
+	}).Label(tool.Title).Grow(1).FillWidth()
+	toggled, didToggle := state.tree.Toggled()
+	if didToggle && toggled < len(rows) {
+		id := rows[toggled].node.ID
+		c.After(func() { state.expanded[id] = !state.expanded[id] })
+	}
+	if i, ok := state.tree.Chosen(); ok && i < len(rows) {
+		row := rows[i]
+		opens := len(row.node.Children) > 0 && !(didToggle && toggled == i)
+		c.After(func() {
+			state.selected = row.node.ID
+			if opens {
+				state.expanded[row.node.ID] = !state.expanded[row.node.ID]
+			}
+		})
+	}
+}
+
+// nativeRowContent declares what a tree row shows after its chevron, and its context menu.
+func (a *App) nativeRowContent(c ui.C, p *project, tool *pluginservice.ToolWindow, state *nativePanelState, row nativeRow) {
+	box := ui.Row(c).Grow(1).Shrink(1).Items(ui.Center).Gap(6)
+	box.Children(func() {
+		ui.Text(c, row.node.Label).Grow(1).Shrink(1).FontSize(12.5).Color(a.colors.Text).Ellipsis()
+	})
+	a.nativeContextMenu(c, box, p, tool, state, row.node.ID)
+}
+
+// nativeList declares a list panel: one row per node, a click selects it.
+func (a *App) nativeList(c ui.C, p *project, tool *pluginservice.ToolWindow, state *nativePanelState) {
+	rows := state.rows
+	ui.List(c, &state.list, len(rows), func(row ui.ListRow) {
+		item := rows[row.Index]
+		row.Element.Height(debugRowHeight).PadX(10).Items(ui.Center).Gap(6).Hover(ui.Look{}.Background(a.colors.Hover))
+		if item.node.ID == state.selected {
+			row.Element.Background(a.colors.Selection)
+		}
+		row.Element.Children(func() {
+			ui.Text(row.C, item.node.Label).Grow(1).Shrink(1).FontSize(12.5).Color(a.colors.Text).Ellipsis()
+		})
+		if row.Element.Clicked() {
+			state.selected = item.node.ID
+		}
+		a.nativeContextMenu(row.C, row.Element, p, tool, state, item.node.ID)
+	}).Label(tool.Title).Grow(1).FillWidth()
+}
+
+// nativeContextMenu attaches the panel's context menu to a row. An action selects the row it was opened on
+// and then runs.
+func (a *App) nativeContextMenu(c ui.C, target ui.Box, p *project, tool *pluginservice.ToolWindow, state *nativePanelState, id string) {
+	panel := tool.Native
+	if len(panel.ContextMenu) == 0 {
+		return
+	}
+	ui.ContextMenu(c, target, func(menu *ui.MenuItems) {
+		menu.WidthRange(160, 240)
+		for _, actionID := range panel.ContextMenu {
+			action := nativeAction(panel, actionID)
+			if action == nil {
+				continue
+			}
+			if menu.Item(action.Title).Disabled(state.busy).Clicked() {
+				c.After(func() {
+					state.selected = id
+					a.runNativeAction(p, tool, state, *action, nil)
+				})
+			}
+		}
+	})
 }
 
 // nativeActionIcon is the host icon an action shows in the toolbar: its declared icon, else the refresh icon
@@ -192,30 +370,56 @@ func nativeAction(panel *pluginservice.NativePanel, id string) *pluginservice.Na
 	return nil
 }
 
-// runNativeAction runs an action. A refresh has nothing to reload on a static panel, so it changes
-// nothing; an invoke calls its function in the background and shows the message the answer carries.
-// Only one action runs at a time.
-// initForm creates the fields of a form from its declaration, once.
+// initForm creates the fields of a form from its declaration, once. A value the project kept is used when
+// its field still exists with the same kind and, for a choice, one of its options, and within the bounds of
+// a stepper; anything else falls back to the declared value.
 func initForm(state *nativePanelState, form *pluginservice.NativeForm) {
 	if state.formReady {
 		return
 	}
 	state.text, state.flags = map[string]*string{}, map[string]*bool{}
 	for _, control := range form.Controls {
+		saved, kept := state.savedForm[control.ID]
 		switch control.Kind {
 		case "checkbox":
 			value, _ := control.Value.(bool)
+			if flag, ok := saved.(bool); kept && ok {
+				value = flag
+			}
 			state.flags[control.ID] = &value
 		case "stepper":
 			number, _ := control.Value.(float64)
+			if kept {
+				if value, ok := saved.(float64); ok && value >= control.Minimum && value <= control.Maximum {
+					number = value
+				}
+			}
 			text := strconv.FormatFloat(number, 'f', -1, 64)
 			state.text[control.ID] = &text
 		default:
 			text, _ := control.Value.(string)
+			if value, ok := saved.(string); kept && ok && savedTextFits(control, value) {
+				text = value
+			}
 			state.text[control.ID] = &text
 		}
 	}
+	state.savedForm = nil
 	state.formReady = true
+}
+
+// savedTextFits reports whether a kept text value is still a value of its field: a choice must still have
+// the option, and a text field keeps any text.
+func savedTextFits(control pluginservice.NativeControl, value string) bool {
+	if control.Kind != "select" && control.Kind != "segmented" {
+		return true
+	}
+	for _, option := range control.Options {
+		if option.ID == value {
+			return true
+		}
+	}
+	return false
 }
 
 // formValues collects the current fields keyed by control ID, as the contract passes them to a button.
@@ -241,11 +445,16 @@ func formValues(state *nativePanelState, form *pluginservice.NativeForm) map[str
 
 // pluginFormBody declares a form panel: its controls packed into the form's columns by their spans, then
 // its buttons. Every field is disabled while a call is out, and a field the declaration disabled stays
-// disabled. A change of a field with onCommit calls that action with every field's value.
+// disabled. A change of a field with onCommit calls that action with every field's value. A form with a
+// source reads it when it is shown, and again after each action with the current values.
 func (a *App) pluginFormBody(c ui.C, p *project, tool *pluginservice.ToolWindow, state *nativePanelState) {
 	form := tool.Native.Form
 	initForm(state, form)
+	if tool.Native.Source != nil && !state.sourceLoaded && !state.sourceBusy {
+		a.loadNativeSource(p, tool, state)
+	}
 	ui.Column(c).Fill().Background(a.colors.Editor).Children(func() {
+		a.nativeFailure(c, state)
 		ui.Column(c).FillWidth().Grow(1).Gap(10).PadX(10).PadY(10).Children(func() {
 			for _, row := range packFormRows(form) {
 				row := row
@@ -267,14 +476,20 @@ func (a *App) pluginFormBody(c ui.C, p *project, tool *pluginservice.ToolWindow,
 						if !button.Primary {
 							styled = styled.Outline()
 						}
-						if styled.Disabled(state.busy || !button.Enabled).Clicked() {
+						if styled.Disabled(state.busy || state.sourceBusy || !button.Enabled).Clicked() {
 							values := formValues(state, form)
 							c.After(func() { a.runNativeAction(p, tool, state, *action, values) })
+						}
+						if button.Info != "" {
+							// The information icon is inert, so its tip stays readable while the button is disabled.
+							ui.Button(c.Key("info-"+button.ID), button.Label).Icon(icons.Info).IconOnly().Ghost().
+								Size(shellHideSize, shellHideSize).Shrink(0).Tooltip(button.Info)
 						}
 					}
 				})
 			}
 		})
+		a.nativeMessage(c, state)
 	})
 }
 
@@ -308,7 +523,7 @@ func packFormRows(form *pluginservice.NativeForm) [][]placedControl {
 // onCommit. The first paint after a change compares with the last committed values, so a commit is never
 // repeated for the same value.
 func (a *App) drawFormControl(c ui.C, p *project, tool *pluginservice.ToolWindow, state *nativePanelState, control pluginservice.NativeControl, index int, span float32) {
-	disabled := state.busy || !control.Enabled
+	disabled := state.busy || state.sourceBusy || !control.Enabled
 	key := c.Key("field-" + control.ID)
 	commit := func() {
 		if control.OnCommit == "" {
@@ -401,12 +616,14 @@ func stepValue(text string, delta, minimum, maximum float64) string {
 	return strconv.FormatFloat(value, 'f', -1, 64)
 }
 
+// runNativeAction runs an action. A refresh reads the source again, and a static panel has nothing to
+// read, so it changes nothing; an invoke calls its function in the background and shows the message the
+// answer carries. Only one action runs at a time.
 func (a *App) runNativeAction(p *project, tool *pluginservice.ToolWindow, state *nativePanelState, action pluginservice.NativeAction, values map[string]any) {
 	if p == nil || a.plugins == nil || state.busy {
 		return
 	}
 	if action.Kind == "refresh" {
-		// A refresh reads the source again; a static panel has nothing to read.
 		if tool.Native.Source != nil {
 			state.sourceLoaded = false
 			a.loadNativeSource(p, tool, state)
@@ -419,7 +636,7 @@ func (a *App) runNativeAction(p *project, tool *pluginservice.ToolWindow, state 
 	state.busy, state.message = true, ""
 	selected, root, plugins, pluginID, function := state.selected, p.root, a.plugins, tool.PluginID, action.Function
 	reload := tool.Native.Source != nil
-	a.background(p, 70*time.Second, func(ctx context.Context) func(*App) {
+	a.startCall(p, &state.action, 70*time.Second, func(ctx context.Context) func(*App) {
 		message, err := plugins.InvokeToolWindowAction(ctx, root, pluginID, function, selected, values)
 		return func(a *App) {
 			state.busy = false
@@ -438,7 +655,8 @@ func (a *App) runNativeAction(p *project, tool *pluginservice.ToolWindow, state 
 }
 
 // loadNativeSource reads a source panel's nodes for the one detected instance of its build system. Zero
-// or several instances fail the read instead of guessing a root, as the contract requires.
+// or several instances fail the read instead of guessing a root, as the contract requires. A form's source
+// receives the form's values; its answer has no nodes, so only the failure is shown.
 func (a *App) loadNativeSource(p *project, tool *pluginservice.ToolWindow, state *nativePanelState) {
 	source := tool.Native.Source
 	var instances []buildInstance
@@ -458,10 +676,14 @@ func (a *App) loadNativeSource(p *project, tool *pluginservice.ToolWindow, state
 		state.sourceFailure = i18n.Shared(language, "desktop.nativePanel.multipleInstances")
 		return
 	}
+	var values map[string]any
+	if tool.Native.Form != nil {
+		values = formValues(state, tool.Native.Form)
+	}
 	state.sourceBusy = true
 	plugins, root, pluginID, declaration, function, buildSystemID, instanceRoot := a.plugins, p.root, tool.PluginID, tool.Native.Declaration, source.Function, source.BuildSystemID, instances[0].Root
-	a.background(p, 30*time.Second, func(ctx context.Context) func(*App) {
-		nodes, err := plugins.InvokeNativeSource(ctx, root, pluginID, declaration, function, buildSystemID, instanceRoot)
+	a.startCall(p, &state.source, 30*time.Second, func(ctx context.Context) func(*App) {
+		nodes, err := plugins.InvokeNativeSource(ctx, root, pluginID, declaration, function, buildSystemID, instanceRoot, values)
 		return func(a *App) {
 			state.sourceBusy = false
 			state.sourceLoaded = true

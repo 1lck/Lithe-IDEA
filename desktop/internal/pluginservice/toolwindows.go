@@ -96,13 +96,15 @@ type NativeOption struct {
 	Label string
 }
 
-// NativeFormButton is a button of a form that runs a declared action with the form's values.
+// NativeFormButton is a button of a form that runs a declared action with the form's values. Info is the
+// text of the information icon beside it, empty when the button declares none.
 type NativeFormButton struct {
 	ID      string
 	Label   string
 	Action  string
 	Primary bool
 	Enabled bool
+	Info    string
 }
 
 // NativeSource names the build system whose single instance a source panel reads, and the function that
@@ -202,8 +204,15 @@ func decodeNativePanel(raw json.RawMessage) (*NativePanel, error) {
 	if err := json.Unmarshal(raw, &declared); err != nil {
 		return nil, err
 	}
+	var source *NativeSource
+	if declared.Source != nil {
+		if strings.TrimSpace(declared.Source.BuildSystemID) == "" || !validFunctionID(declared.Source.Function) {
+			return nil, errors.New("a native source names a build system and a function ID")
+		}
+		source = &NativeSource{BuildSystemID: declared.Source.BuildSystemID, Function: declared.Source.Function}
+	}
 	if declared.Kind == "form" {
-		return decodeNativeForm(raw, declared.Actions, declared.Source != nil)
+		return decodeNativeForm(raw, declared.Actions, source)
 	}
 	if declared.Kind != "tree" && declared.Kind != "list" {
 		return nil, fmt.Errorf("native kind %q is not supported", declared.Kind)
@@ -219,12 +228,7 @@ func decodeNativePanel(raw json.RawMessage) (*NativePanel, error) {
 		return nil, err
 	}
 	panel.Nodes = nodes
-	if declared.Source != nil {
-		if strings.TrimSpace(declared.Source.BuildSystemID) == "" || !validFunctionID(declared.Source.Function) {
-			return nil, errors.New("a native source names a build system and a function ID")
-		}
-		panel.Source = &NativeSource{BuildSystemID: declared.Source.BuildSystemID, Function: declared.Source.Function}
-	}
+	panel.Source = source
 	actions := map[string]bool{}
 	for _, action := range declared.Actions {
 		if !validNativeID(action.ID) || action.Title == "" {
@@ -378,14 +382,15 @@ func (s *Service) ToolWindows(ctx context.Context, entries []pluginmanager.Entry
 
 // decodeNativeForm reads a form declaration against the schema: at most 32 controls and 16 buttons, unique
 // IDs, a literal label, a known kind, options for the choice kinds, and bounds for the stepper. A button
-// names a declared action that selects nothing. A form declares no nodes and no source.
+// names a declared action that selects nothing. A form declares no nodes; its optional source is called
+// with the form's values and answers {nodes: []}, which the host never shows.
 func decodeNativeForm(raw json.RawMessage, actions []struct {
 	ID                string `json:"id"`
 	Title             string `json:"title"`
 	Kind              string `json:"kind"`
 	RequiresSelection bool   `json:"requiresSelection"`
 	Function          string `json:"function"`
-}, hasSource bool) (*NativePanel, error) {
+}, source *NativeSource) (*NativePanel, error) {
 	var declared struct {
 		Nodes  []json.RawMessage `json:"nodes"`
 		Layout *struct {
@@ -416,13 +421,14 @@ func decodeNativeForm(raw json.RawMessage, actions []struct {
 			Action  string `json:"action"`
 			Primary bool   `json:"primary"`
 			Enabled *bool  `json:"enabled"`
+			Info    string `json:"info"`
 		} `json:"buttons"`
 	}
 	if err := json.Unmarshal(raw, &declared); err != nil {
 		return nil, err
 	}
-	if len(declared.Nodes) != 0 || hasSource {
-		return nil, errors.New("a form declares no nodes and no source")
+	if len(declared.Nodes) != 0 {
+		return nil, errors.New("a form declares no nodes")
 	}
 	if len(declared.Controls) > 32 || len(declared.Buttons) > 16 || len(declared.Controls)+len(declared.Buttons) == 0 {
 		return nil, errors.New("a form needs one to 32 controls and at most 16 buttons")
@@ -533,9 +539,9 @@ func decodeNativeForm(raw json.RawMessage, actions []struct {
 		if !ok || target.selects {
 			return nil, fmt.Errorf("the button %q names no declared action that selects nothing", button.ID)
 		}
-		form.Buttons = append(form.Buttons, NativeFormButton{ID: button.ID, Label: button.Label, Action: button.Action, Primary: button.Primary, Enabled: button.Enabled == nil || *button.Enabled})
+		form.Buttons = append(form.Buttons, NativeFormButton{ID: button.ID, Label: button.Label, Action: button.Action, Primary: button.Primary, Enabled: button.Enabled == nil || *button.Enabled, Info: button.Info})
 	}
-	panel := &NativePanel{Kind: "form", Form: form}
+	panel := &NativePanel{Kind: "form", Form: form, Source: source}
 	for _, action := range actions {
 		panel.Actions = append(panel.Actions, NativeAction{ID: action.ID, Title: action.Title, Kind: action.Kind, RequiresSelection: action.RequiresSelection, Function: action.Function})
 	}

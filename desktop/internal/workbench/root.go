@@ -108,6 +108,7 @@ func (a *App) beginPaint(canvas *gfx.Canvas) {
 func (a *App) endPaint() {
 	a.endTerminalFrame()
 	a.endPluginPageFrame()
+	a.endNativePanels()
 }
 
 // page declares the window: one stack, so what is declared after the workbench lies over it
