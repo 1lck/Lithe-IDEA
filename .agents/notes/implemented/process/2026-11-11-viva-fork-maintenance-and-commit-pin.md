@@ -23,13 +23,15 @@ replace github.com/vivaui/viva => github.com/Lithe-IDEA/viva <fork commit 的伪
 
 - 代码里的 import 路径不变，仍是 `github.com/vivaui/viva/...`。fork 的 `go.mod` 保持 `module github.com/vivaui/viva`，不改模块名，这样同一个修复分支可以原样向上游提 PR。
 - 真正参与构建的是 `replace` 指向的版本。`require` 写 fork 当前合入的上游 commit，读者一眼能看出基线是上游的哪一版。
-- fork 没有 tag，伪版本（pseudo-version，Go 用“时间戳 + 12 位 commit hash”生成的版本号）就是 commit ID。`desktop/go.sum` 里只留 `replace` 目标的条目；它的哈希和上游同一 commit 的哈希不同，这是正常的。
+- fork 的补丁 commit 没有自己的 tag，`replace` 写伪版本（pseudo-version，Go 用“最近的 tag + 时间戳 + 12 位 commit hash”生成的版本号，例如 `v0.6.1-0.20261111063413-7edac95eed01`），它就代表 commit ID。`require` 写 fork 所基于的上游 tag；基线不是 tag 时写上游 commit 的伪版本。`desktop/go.sum` 里只留 `replace` 目标的条目；它的哈希和上游同一 commit 的哈希不同，这是正常的。
 - 不要用本地路径 `replace`（`=> ../viva`）提交。本地调试可以临时用，提交前必须换回 fork 的 commit。
 
 ### fork 的分支规则
 
 - fork 的 `main` 是集成分支，内容是“上游 `main` + 还没被上游合入的 Lithe 修复”。Lithe 只固定 fork `main` 上的 commit。
 - 同步上游只用 merge（没有本地补丁时快进）。不 rebase，不 force push。Lithe 已发布版本固定的 commit 必须一直能取到，否则旧版本无法重新构建。
+- GitHub 不会自动同步 fork：分支只在创建 fork 时复制一次，Release 从不复制，tag 在默认的“只复制 main 分支”下也不会带过来。所以同步是手动的：merge 上游 `main` 之后，用 `git push <fork> 'refs/tags/*:refs/tags/*'` 把上游的 tag 原样推到 fork，推之前先确认本地 tag 和 `git ls-remote --tags --refs <上游>` 完全一致。tag 必须同步，否则 fork commit 的伪版本没有基线，只能写成 `v0.0.0-…`，看不出基于上游哪个版本。
+- fork 不建 Release，也不复制上游的 Release。Lithe 从源码构建 Viva 命令行工具，用不到 Release 里的二进制；复制过来会多出一个看起来像官方的下载渠道，而 Homebrew/Scoop 清单仍然指向上游。上游的 `release.yml` 在推送 `v*` tag 时触发，fork 的工作流目前没有启用；以后要在 fork 启用 Actions，先停用这个工作流和上游 CI。
 - 修复从上游 `main` 切分支（例如 `fix/list-scroll-request-offset`），推到 fork，从这个分支向 vivaui/viva 提 PR，同时把它合进 fork `main`。上游 PR 按上游的 `CONTRIBUTING.md` 和 PR 模板准备：格式、`go vet`、`go test`、涉及绘制/布局/输入的基准、可视证据、边界与成本。
 - 上游要求修改时，在同一分支追加 commit，再把更新合进 fork `main`；不改写已经合进 `main` 的历史。
 - 上游合入后，下次同步上游时补丁自然消失。在 fork 里运行 `git log upstream/main..main` 应该只剩尚未合入上游的补丁，每一条都要有对应的上游 PR。
