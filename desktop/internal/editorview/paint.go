@@ -55,7 +55,8 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	v.applyLook(look)
 	lines := v.text.LineCount()
 	digits := v.gutterDigits(lines)
-	gutter := float32(digits)*cellW + 2*gutterPad
+	gutter := float32(digits)*cellW + 2*gutterPad + v.lineIconColumn()
+	v.iconX = area.X + gutter - v.lineIconColumn() + lineIconInset
 	v.area = area
 	v.textLeft = area.X + gutter + textPad
 	v.layoutParts(gutter)
@@ -162,6 +163,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	// measured at the font's own advance, not the grid's, and drift off it.
 	canvas.Clip(gfx.Rect{X: area.X, Y: area.Y, Width: gutter, Height: area.Height})
 	v.paintGutterDecorations(canvas, area, look, firstLine, lastLine)
+	v.paintLineIcons(canvas, area, look, firstLine, lastLine)
 	style := gfx.TextStyle{Size: font.Size, Color: look.Subtle, Mono: true, MonoFace: font.Face}
 	right := area.X + gutter - gutterPad
 	for _, number := range v.numbers {

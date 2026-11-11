@@ -235,7 +235,9 @@ type View struct {
 	// numberText their text.
 	numbers []gutterNumber
 	// gutter is what the host decorates the gutter and the line ends with.
-	gutter     gutterState
+	gutter gutterState
+	// iconX is where the per-line icon column starts, set when the view paints.
+	iconX      float32
 	numberText lineNumbers
 	// decor is the line highlights and labels a diff viewer sets, and the line it asked to
 	// center. See diffdecor.go.
