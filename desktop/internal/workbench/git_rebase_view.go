@@ -58,10 +58,21 @@ func (a *App) drawRebaseRows(c ui.C, p *project) {
 	r := &p.rebase
 	lang := a.language()
 	size := a.theme.Metrics.FontSizeS
-	ui.List(c, &r.list, len(r.preview.Commits), func(row ui.ListRow) {
-		commit := r.preview.Commits[row.Index]
+	ui.List(c, &r.list, len(r.order), func(row ui.ListRow) {
+		commit, ok := r.commitByHash(r.order[row.Index])
+		if !ok {
+			return
+		}
 		action := r.actions[commit.Hash]
 		row.Element.FillWidth().Height(reviewRowHeight + 6).Items(ui.Center).Gap(8).PadX(8).Children(func() {
+			if ui.Button(row.C, i18n.Shared(lang, "desktop.rebase.moveUp")).Ghost().Shrink(0).Disabled(row.Index == 0).Clicked() {
+				hash := commit.Hash
+				row.C.After(func() { r.moveRebaseCommit(hash, -1) })
+			}
+			if ui.Button(row.C, i18n.Shared(lang, "desktop.rebase.moveDown")).Ghost().Shrink(0).Disabled(row.Index == len(r.order)-1).Clicked() {
+				hash := commit.Hash
+				row.C.After(func() { r.moveRebaseCommit(hash, 1) })
+			}
 			if ui.Button(row.C, i18n.Shared(lang, "desktop.rebase.action."+action)).Outline().Shrink(0).Clicked() {
 				next := nextRebaseAction(action)
 				if next == "reword" || next == "squash" {

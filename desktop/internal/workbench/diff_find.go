@@ -117,7 +117,9 @@ func (a *App) diffFindBar(c ui.C, t *diffTab) {
 	n := len(t.find.matches)
 	lang := a.language()
 	ui.Row(c).FillWidth().Height(logToolbarHeight).Shrink(0).Items(ui.Center).Gap(4).PadX(6).Children(func() {
-		ui.TextField(c, &t.find.field, i18n.Shared(lang, "desktop.diffFind.field"), i18n.Shared(lang, "desktop.diffFind.field")).Grow(1).FillWidth().AutoFocus()
+		if ui.TextField(c, &t.find.field, i18n.Shared(lang, "desktop.diffFind.field"), i18n.Shared(lang, "desktop.diffFind.field")).Grow(1).FillWidth().AutoFocus().Submitted() {
+			c.After(func() { a.stepDiffFind(t, 1) })
+		}
 		count := "0/0"
 		if n > 0 {
 			count = strconv.Itoa(t.find.current+1) + "/" + strconv.Itoa(n)

@@ -841,5 +841,47 @@
     "parameters": {
       "reason": "string"
     }
+  },
+  {
+    "id": "desktop.rebase.moveUp",
+    "description": "Rebase plan row button: move the commit one place earlier in the replay order",
+    "en-US": "Up",
+    "zh-CN": "上移"
+  },
+  {
+    "id": "desktop.rebase.moveDown",
+    "description": "Rebase plan row button: move the commit one place later in the replay order",
+    "en-US": "Down",
+    "zh-CN": "下移"
+  },
+  {
+    "id": "desktop.files.gitSubmenu",
+    "description": "Project tree context menu: the Git submenu of a file",
+    "en-US": "Git",
+    "zh-CN": "Git"
+  },
+  {
+    "id": "desktop.files.showHistory",
+    "description": "Project tree Git submenu: show the Log tab narrowed to the file's commits",
+    "en-US": "Show History",
+    "zh-CN": "显示历史"
+  },
+  {
+    "id": "desktop.files.compareBranch",
+    "description": "Project tree Git submenu: compare the file with a branch",
+    "en-US": "Compare with Branch",
+    "zh-CN": "与分支比较"
+  },
+  {
+    "id": "desktop.github.publishBranch",
+    "description": "Create pull request dialog: publish the checkout's branch so a pull request can be made from it",
+    "en-US": "Publish Branch",
+    "zh-CN": "发布分支"
+  },
+  {
+    "id": "desktop.github.publishDivergent",
+    "description": "Publish branch: the remote branch differs and the Push dialog must decide",
+    "en-US": "The remote branch has diverged. Choose how to publish it in the Push dialog.",
+    "zh-CN": "远程分支已分叉，请在推送对话框中选择发布方式。"
   }
 ]

@@ -39,6 +39,9 @@ type rebaseState struct {
 	preview core.RebasePreview
 	// actions holds the chosen action of each commit of the preview, by hash.
 	actions map[string]string
+	// order is the replay order of the preview's commits, by hash, oldest first as Core lists them
+	// until the user moves one.
+	order []string
 	// messages holds the message a reword or squash takes, by hash.
 	messages map[string]string
 	// editMode says the message editor is open; editHash and editAction are the commit and the
@@ -93,8 +96,10 @@ func (a *App) beginRebaseFromHere(p *project, base, subject string) {
 			r.preview = preview
 			r.actions = map[string]string{}
 			r.messages = map[string]string{}
+			r.order = r.order[:0]
 			for _, commit := range preview.Commits {
 				r.actions[commit.Hash] = "pick"
+				r.order = append(r.order, commit.Hash)
 			}
 		}
 	})
@@ -116,7 +121,11 @@ func (a *App) startRebase(p *project) {
 		return
 	}
 	steps := make([]core.RebaseStep, 0, len(r.preview.Commits))
-	for _, commit := range r.preview.Commits {
+	for _, hash := range r.order {
+		commit, ok := r.commitByHash(hash)
+		if !ok {
+			continue
+		}
 		step := core.RebaseStep{Hash: commit.Hash, Action: r.actions[commit.Hash]}
 		switch step.Action {
 		case "reword":
@@ -213,6 +222,30 @@ func (a *App) afterRebaseWrite(p *project) {
 	}
 	if p.rebase.session != nil {
 		a.notify(i18n.SharedFormat(a.language(), "desktop.rebase.status", map[string]string{"status": p.rebase.session.Status}))
+	}
+}
+
+// commitByHash is the commit of the preview with hash.
+func (r *rebaseState) commitByHash(hash string) (core.RebaseCommit, bool) {
+	for _, commit := range r.preview.Commits {
+		if commit.Hash == hash {
+			return commit, true
+		}
+	}
+	return core.RebaseCommit{}, false
+}
+
+// moveRebaseCommit moves the commit with hash one place up (by -1) or down (by 1) in the replay order.
+func (r *rebaseState) moveRebaseCommit(hash string, by int) {
+	for i, h := range r.order {
+		if h != hash {
+			continue
+		}
+		j := i + by
+		if j >= 0 && j < len(r.order) {
+			r.order[i], r.order[j] = r.order[j], r.order[i]
+		}
+		return
 	}
 }
 
