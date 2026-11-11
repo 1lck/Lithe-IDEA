@@ -135,6 +135,9 @@ type diffTab struct {
 	// revealed says the first difference was scrolled into view since the file was read.
 	revealed bool
 	list     ui.ListState
+	// scrolled says the list was asked to scroll to a difference and has not been declared
+	// since; see diffBody.
+	scrolled bool
 	// busy is set while a block is written.
 	busy bool
 	// confirm is the block waiting for the user to confirm its rollback, "" for none.
@@ -636,7 +639,13 @@ func (t *diffTab) step(by int) {
 		return
 	}
 	t.current = min(max(t.current+by, 0), len(t.changes)-1)
+	t.scrollToCurrent()
+}
+
+// scrollToCurrent scrolls the difference the user stands on to the middle of the list.
+func (t *diffTab) scrollToCurrent() {
 	t.list.ScrollTo(t.changes[t.current], ui.ListCenter)
+	t.scrolled = true
 }
 
 // setMode lays the tab out side by side or unified, folded or whole, and remembers the choice
@@ -649,7 +658,7 @@ func (a *App) setDiffMode(p *project, t *diffTab, split, whole bool) {
 	p.diffs.split, p.diffs.whole = split, whole
 	t.rebuild()
 	if t.current >= 0 {
-		t.list.ScrollTo(t.changes[t.current], ui.ListCenter)
+		t.scrollToCurrent()
 	}
 }
 

@@ -191,6 +191,16 @@ func (a *App) diffBody(c ui.C, p *project, t *diffTab) {
 		body.Children(func() {
 			ui.List(c, &t.list, len(t.items), func(row ui.ListRow) { a.diffRow(row, p, t) }).
 				Grow(1).FillHeight().Background(a.colors.Editor).Label(label)
+			// The List moves to the row it was asked for only after its area took this paint's
+			// offset (Viva's listArea, unlike ScrollAt), so this paint lays the rows out at the
+			// new offset and shows them at the old one: nothing when the jump is far, as from
+			// the top of a whole file to its difference, until the pointer moves. The next
+			// paint shows them in place, so it is asked for at once. This goes once Viva
+			// shows the requested offset in the paint that applies it (#1820).
+			if t.scrolled {
+				t.scrolled = false
+				a.invalidator.Invalidate()
+			}
 			ui.Column(c).Width(diffRulerWidth).FillHeight().Shrink(0).Draw(t.ruler)
 		})
 	}

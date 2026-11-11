@@ -234,3 +234,41 @@ func TestDiffTabFoldsAndStepsThroughDifferences(t *testing.T) {
 		t.Fatalf("the next file is %q in %d tabs", d.change.Path, len(p.diffs.list))
 	}
 }
+
+// TestDiffTabShowsTheDifferenceRightAfterTheFoldToggle switches a long file between folded and
+// whole and back with the toolbar button, and wants the difference shown after the click alone:
+// the jump from the top to the middle of the file used to leave the list blank until the
+// pointer moved.
+func TestDiffTabShowsTheDifferenceRightAfterTheFoldToggle(t *testing.T) {
+	dir := newTestRepository(t)
+	lines := make([]string, 300)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line %d", i+1)
+	}
+	write := func() {
+		if err := os.WriteFile(filepath.Join(dir, "long.txt"), []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write()
+	gitRun(t, dir, "add", "long.txt")
+	gitRun(t, dir, "commit", "-m", "long")
+	lines[200] = "line two hundred and one"
+	write()
+	h := newHarness(t, &gitKernel{Client: core.NewClient()})
+	p := h.openCommit(dir)
+	d := openDiffTab(t, h, p, "long.txt")
+	if d.whole || !h.shows(lines[200]) {
+		t.Fatalf("the folded diff does not show the difference %q", lines[200])
+	}
+	toggle := i18n.Shared(h.app.language(), "native.collapseUnchangedFragments")
+	for _, whole := range []bool{true, false, true} {
+		h.clickNamed(toggle)
+		if d.whole != whole {
+			t.Fatalf("after the click the diff is whole %v, want %v", d.whole, whole)
+		}
+		if !h.shows(lines[200]) || !h.shows(lines[199]) {
+			t.Fatalf("whole %v: the difference %q and the line above it are not shown after the click", whole, lines[200])
+		}
+	}
+}
