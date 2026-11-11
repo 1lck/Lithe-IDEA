@@ -31,12 +31,27 @@ const (
 // view's hits, so the view takes the pointer and the keyboard where it was painted.
 func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	v.clock = canvas.Now()
-	cellW, cellH := canvas.MonoCellSize(fontSize, 0)
+	font := v.font
+	cellW, cellH := canvas.MonoCellSize(font.Size, font.Face)
 	if cellW <= 0 || cellH <= 0 || area.Width <= 0 || area.Height <= 0 {
 		return
 	}
-	v.cellW, v.cellH = cellW, cellH
-	v.lineH = float32(math.Round(float64(cellH * lineSpacing)))
+	// A line is at least a point high, however small the spacing is, so the rows the scroll is
+	// divided into never have no height.
+	lineH := max(float32(math.Round(float64(cellH*font.LineSpacing))), 1)
+	// The scroll is in pixels, so it means a different place once the cell's size changes, as it
+	// does when the font does. The paint keeps the reader's place: the column at the left edge of
+	// the view stays there (here), and so does the row at the top (setWrapCols below, which also
+	// lays a wrapped text out again for the new width of a cell). Before the first paint nothing
+	// has been measured, so nothing moves.
+	wasCellW, wasLineH := v.cellW, v.lineH
+	if wasCellW > 0 && wasCellW != cellW {
+		v.scrollX = v.scrollX / wasCellW * cellW
+	}
+	if wasLineH <= 0 {
+		wasLineH = lineH
+	}
+	v.cellW, v.cellH, v.lineH = cellW, cellH, lineH
 	v.applyLook(look)
 	lines := v.text.LineCount()
 	digits := max(decimalDigits(lines), 2)
@@ -51,7 +66,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 		// A cell is kept free at the right edge for the caret after a full row.
 		cols = max(int((v.textRight-v.textLeft-cellW)/cellW), 1)
 	}
-	v.setWrapCols(cols)
+	v.setWrapCols(cols, wasLineH)
 	if v.reveal {
 		v.revealCaret()
 		v.reveal = false
@@ -145,7 +160,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	// measured at the font's own advance, not the grid's, and drift off it.
 	canvas.Clip(gfx.Rect{X: area.X, Y: area.Y, Width: gutter, Height: area.Height})
 	v.paintGutterDecorations(canvas, area, look, firstLine, lastLine)
-	style := gfx.TextStyle{Size: fontSize, Color: look.Subtle, Mono: true}
+	style := gfx.TextStyle{Size: font.Size, Color: look.Subtle, Mono: true, MonoFace: font.Face}
 	right := area.X + gutter - gutterPad
 	for _, number := range v.numbers {
 		label := v.numberText.number(number.line)
@@ -324,7 +339,8 @@ func (v *View) paintRow(canvas *gfx.Canvas, text string, base int, row wrapRow, 
 	limit := v.labelCells()
 	v.runs = v.runs[:0]
 	defaultStyle := v.theme.Default()
-	textStyle := gfx.TextStyle{Size: fontSize, Color: uiColor(defaultStyle.Foreground), Mono: true}
+	textStyle := gfx.TextStyle{Size: v.font.Size, Color: uiColor(defaultStyle.Foreground), Mono: true, MonoFace: v.font.Face}
+	ligatures := v.font.Ligatures
 	// token is the last token that starts at or before the row.
 	token := max(sort.Search(len(v.tokens), func(i int) bool { return int(v.tokens[i].Start) > row.at })-1, 0)
 	cells := row.cells
@@ -380,6 +396,10 @@ func (v *View) paintRow(canvas *gfx.Canvas, text string, base int, row wrapRow, 
 			v.runs[run].Color == color && v.runs[run].Weight == weight && v.runs[run].Italic == italic {
 			v.runs[run].Bytes += int32(size)
 			v.runs[run].Cells += int32(width)
+			// Only a run of ASCII reaches this merge, and one of two cells or more is what the
+			// renderer shapes as one line, so the font's ligatures show. A run of a single
+			// character, or of any other, is never asked to.
+			v.runs[run].Ligatures = ligatures && v.runs[run].Cells >= 2
 		} else {
 			bytes := size
 			if invalid {

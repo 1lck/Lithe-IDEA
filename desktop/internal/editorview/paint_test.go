@@ -82,7 +82,8 @@ func TestLongLineIsOneLabelOfTheVisibleColumnsInsideTheWindow(t *testing.T) {
 // would cross the end of one starts the next, whose runs count columns from its own start.
 func TestWideViewSplitsALineIntoAdjacentLabels(t *testing.T) {
 	canvas := new(gfx.Canvas)
-	cellW, _ := canvas.MonoCellSize(fontSize, 0)
+	font := DefaultFont()
+	cellW, _ := canvas.MonoCellSize(font.Size, font.Face)
 	limit := max(int(labelWidth/cellW), 1)
 	v := newTestView(t, strings.Repeat("a", limit-1)+"中bc")
 	v.Paint(canvas, gfx.Rect{Width: 2 * labelWidth, Height: 200}, Look{})

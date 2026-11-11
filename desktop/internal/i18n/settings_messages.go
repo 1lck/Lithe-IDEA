@@ -12,6 +12,7 @@ func settingsMessages(language Language) SettingsMessages {
 		Updates:            Shared(language, "settings.tabs.updates"),
 		Network:            Shared(language, "settings.network.title"),
 		Editor:             Shared(language, "settings.editor.section"),
+		Fonts:              Shared(language, "desktop.settings.fonts"),
 		Keymap:             Shared(language, "settings.tabs.keyboard"),
 		ProcessTermination: Shared(language, "native.processTerminationPolicy"),
 		Plugins:            Shared(language, "settings.tabs.plugins"),

@@ -1,7 +1,9 @@
 package workbench
 
 import (
+	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -83,7 +85,7 @@ func TestConsoleListsTheRecordedCommands(t *testing.T) {
 	h := newHarness(t, gitKernel{core.NewClient()})
 	h.openConsole(t, dir)
 	header := "[" + filepath.Base(dir) + "] git "
-	h.await("a recorded git command", func() bool { return h.shows(header) })
+	h.await("a recorded git command", func() bool { return h.showsWrapped(header) })
 
 	h.clickNamed(h.app.text.Console.CopyAll)
 	if copied := h.driver.Clipboard(); !strings.Contains(copied, header) {
@@ -348,5 +350,104 @@ func TestGitWritesShowTheConsole(t *testing.T) {
 	if h.app.layout.gitTab != gitTabConsole || h.app.chrome.isOpen(git) || !h.app.chrome.isOpen(commit) {
 		t.Fatalf("after the pop: Git tab %d, Git open %v, Commit open %v; want the Console tab selected behind the Commit tool window",
 			h.app.layout.gitTab, h.app.chrome.isOpen(git), h.app.chrome.isOpen(commit))
+	}
+}
+
+// consoleSpanTexts is the stretches of row's text, each with its kind.
+func consoleSpanTexts(row consoleRow) []string {
+	var out []string
+	from := 0
+	for _, span := range row.spans {
+		out = append(out, fmt.Sprintf("%d:%s", span.kind, row.text[from:span.end]))
+		from = span.end
+	}
+	return out
+}
+
+func TestConsoleHeaderIsSpannedForItsColorsAndItsInlineFold(t *testing.T) {
+	text := &i18n.For(i18n.English).Console
+	record, presented := consoleFetch()
+	v := consoleViewOf([]core.GitConsoleRecord{record}, map[string]*consolePresented{record.ID: presented})
+
+	v.flatten(text, time.UTC)
+	header := v.rows[0]
+	want := []string{"1:09:08:07.006:", "0: ", "2:[repo]", "0: git ", "3:-c ...", "0: fetch origin"}
+	if got := consoleSpanTexts(header); !slices.Equal(got, want) {
+		t.Fatalf("the closed header's spans are %q, want %q", got, want)
+	}
+	if !header.inline || header.toggle != text.ExpandConfiguration(1) {
+		t.Fatalf("the closed header's fold is not inline: %+v", header)
+	}
+	if fold := v.rows[2]; fold.inline || len(fold.spans) != 0 {
+		t.Fatalf("the progress fold's toggle is inline or the line is spanned: %+v", fold)
+	}
+
+	v.open = map[consoleFold]bool{header.fold: true}
+	v.flatten(text, time.UTC)
+	want = []string{"1:09:08:07.006:", "0: ", "2:[repo]", "0: git ", "3:-c color.ui=false", "0: fetch origin"}
+	if got := consoleSpanTexts(v.rows[0]); !slices.Equal(got, want) {
+		t.Fatalf("the open header's spans are %q, want %q", got, want)
+	}
+
+	// Without Core's presentation the header still has its stamp and repository.
+	raw := consoleViewOf([]core.GitConsoleRecord{record}, nil)
+	raw.flatten(text, time.UTC)
+	want = []string{"1:09:08:07.006:", "0: ", "2:[repo]", "0: git -c color.ui=false fetch origin"}
+	if got := consoleSpanTexts(raw.rows[0]); !slices.Equal(got, want) {
+		t.Fatalf("the raw header's spans are %q, want %q", got, want)
+	}
+}
+
+// consolePieceTexts is pieces as "line:kind:text/cells".
+func consolePieceTexts(pieces []consolePiece) []string {
+	out := make([]string, 0, len(pieces))
+	for _, p := range pieces {
+		out = append(out, fmt.Sprintf("%d:%d:%s/%d", p.line, p.kind, p.text, p.cells))
+	}
+	return out
+}
+
+func TestLayoutConsoleRowBreaksAndCutsByCells(t *testing.T) {
+	spans := []consoleSpan{{end: 3, kind: consoleSpanStamp}, {end: 8, kind: consoleSpanText}}
+	cases := []struct {
+		name  string
+		text  string
+		spans []consoleSpan
+		cells int
+		wrap  bool
+		want  []string
+	}{
+		{name: "unknown width", text: "abcdefgh", cells: 0, want: []string{"0:0:abcdefgh/8"}},
+		{name: "fits", text: "abcd", cells: 4, want: []string{"0:0:abcd/4"}},
+		{name: "cut", text: "abcdef", cells: 4, want: []string{"0:0:abc/3", "0:0:…/1"}},
+		{name: "cut in the second span", text: "abcdefgh", spans: spans, cells: 6, want: []string{"0:1:abc/3", "0:0:de/2", "0:0:…/1"}},
+		{name: "wrap across spans", text: "abcdefgh", spans: spans, cells: 5, wrap: true, want: []string{"0:1:abc/3", "0:0:de/2", "1:0:fgh/3"}},
+		{name: "wide characters", text: "中文ab", cells: 3, wrap: true, want: []string{"0:0:中/2", "1:0:文a/3", "2:0:b/1"}},
+		{name: "cut before a wide character", text: "a中文", cells: 4, want: []string{"0:0:a中/3", "0:0:…/1"}},
+		{name: "wide character wider than the row", text: "中", cells: 1, wrap: true, want: []string{"0:0:中/2"}},
+		{name: "empty", text: "", cells: 4, want: []string{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := consolePieceTexts(layoutConsoleRow(nil, tc.text, tc.spans, tc.cells, tc.wrap))
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("layoutConsoleRow(%q, %d, wrap %v) = %q, want %q", tc.text, tc.cells, tc.wrap, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestConsoleExpandTabsToTheNextStop(t *testing.T) {
+	cases := map[string]string{
+		"no tab":          "no tab",
+		"\tmodified:   a": "        modified:   a",
+		"ab\tc":           "ab      c",
+		"中\tx":            "中      x",
+		"12345678\ty":     "12345678        y",
+	}
+	for in, want := range cases {
+		if got := consoleExpandTabs(in); got != want {
+			t.Fatalf("consoleExpandTabs(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

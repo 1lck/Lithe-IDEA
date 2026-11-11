@@ -337,7 +337,8 @@ func (v *View) TextInput(ctx app.TextInputContext) *app.TextInput {
 	}
 	x, y := v.caretPoint()
 	v.input.Bounds = gfx.Rect{X: x, Y: y + (v.lineH-v.cellH)/2, Width: float32(cells) * v.cellW, Height: v.cellH}
-	v.input.FontSize = fontSize
+	v.input.FontSize = v.font.Size
+	v.input.MonoFace = v.font.Face
 	v.input.Color = v.themeFG
 	v.input.State = v.preedit
 	v.input.AltSendsEscape = false

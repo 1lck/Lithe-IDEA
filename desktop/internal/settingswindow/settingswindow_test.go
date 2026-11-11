@@ -1,9 +1,11 @@
 package settingswindow
 
 import (
+	"reflect"
 	"slices"
 	"testing"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/gfx"
 )
@@ -112,6 +114,7 @@ func TestDefaultSidebarListsTheTopLevelWithAppearanceExpanded(t *testing.T) {
 		{page: pageUpdates, level: 1},
 		{page: pageNetwork, level: 1},
 		{page: pageEditor, level: 1},
+		{page: pageFonts, level: 1},
 		{page: pageKeymap, level: 1},
 		{page: pageProcessTermination, level: 1},
 		{page: pagePlugins},
@@ -146,8 +149,8 @@ func TestExpandedToolsGroupListsTerminal(t *testing.T) {
 	open := initialOpen()
 	open[pageTools] = true
 	rows := appendVisible(nil, english(), &open, "")
-	if len(rows) != 14 {
-		t.Fatalf("rows = %v, want the 13 of the default sidebar and the Terminal page", rows)
+	if len(rows) != 15 {
+		t.Fatalf("rows = %v, want the 14 of the default sidebar and the Terminal page", rows)
 	}
 	for i, r := range rows {
 		if r.page != pageTools {
@@ -209,7 +212,7 @@ func TestSearchKeepsTheGroupOfAMatchingPageExpanded(t *testing.T) {
 func TestSearchOnAGroupTitleKeepsAllItsPages(t *testing.T) {
 	var open [pageCount]bool
 	rows := appendVisible(nil, english(), &open, foldQuery("appearance"))
-	want := []pageID{pageAppearance, pageGeneral, pageUpdates, pageNetwork, pageEditor, pageKeymap, pageProcessTermination}
+	want := []pageID{pageAppearance, pageGeneral, pageUpdates, pageNetwork, pageEditor, pageFonts, pageKeymap, pageProcessTermination}
 	if got := pagesOf(rows); !slices.Equal(got, want) {
 		t.Fatalf("pages = %v, want %v", got, want)
 	}
@@ -263,8 +266,8 @@ func TestAppendVisibleKeepsWhatIsAlreadyInDst(t *testing.T) {
 	open := initialOpen()
 	dst := []row{{page: pageAI}}
 	rows := appendVisible(dst, english(), &open, "")
-	if len(rows) != 14 || rows[0] != (row{page: pageAI}) {
-		t.Fatalf("rows = %v, want the old row followed by the 13 of the sidebar", rows)
+	if len(rows) != 15 || rows[0] != (row{page: pageAI}) {
+		t.Fatalf("rows = %v, want the old row followed by the 14 of the sidebar", rows)
 	}
 }
 
@@ -283,6 +286,7 @@ func TestBreadcrumb(t *testing.T) {
 		want []string
 	}{
 		{pageGeneral, []string{"Appearance & Behavior", "General"}},
+		{pageFonts, []string{"Appearance & Behavior", "Fonts"}},
 		{pageProcessTermination, []string{"Appearance & Behavior", "Process Termination Policy"}},
 		{pageAppearance, []string{"Appearance & Behavior"}},
 		{pagePlugins, []string{"Plugins"}},
@@ -425,22 +429,30 @@ func TestWindowDarkFollowsThePickedLookElseTheSystem(t *testing.T) {
 	}
 }
 
+// withDefaultFonts is v with the font list that sanitize gives a window whose owner stored
+// none: Values holds a list, so the tests compare it with reflect.DeepEqual, and the list
+// every window shows is never empty.
+func withDefaultFonts(v Values) Values {
+	v.Fonts = fontprefs.Default()
+	return v
+}
+
 func TestSanitizeKeepsWhatTheControlsCanShow(t *testing.T) {
-	kept := Values{Language: i18n.Chinese.Code(), Theme: themeDark}
-	if got := sanitize(kept); got != kept {
+	kept := withDefaultFonts(Values{Language: i18n.Chinese.Code(), Theme: themeDark})
+	if got := sanitize(kept); !reflect.DeepEqual(got, kept) {
 		t.Errorf("sanitize(%+v) = %+v, want it unchanged", kept, got)
 	}
-	if got := sanitize(Values{Language: "fr", Theme: "sepia"}); got != (Values{}) {
+	if got := sanitize(Values{Language: "fr", Theme: "sepia"}); !reflect.DeepEqual(got, withDefaultFonts(Values{})) {
 		t.Errorf("sanitize of unknown values = %+v, want the defaults", got)
 	}
-	if got := sanitize(Values{Language: "en", Theme: "sepia"}); got != (Values{Language: "en"}) {
+	if got := sanitize(Values{Language: "en", Theme: "sepia"}); !reflect.DeepEqual(got, withDefaultFonts(Values{Language: "en"})) {
 		t.Errorf("sanitize dropped the known language: %+v", got)
 	}
 }
 
 func TestNewSessionStartsFromTheSettingsInForce(t *testing.T) {
 	s := newSession(Values{Language: "zh-Hans", Theme: themeDark})
-	if s.values != (Values{Language: "zh-Hans", Theme: themeDark}) {
+	if want := withDefaultFonts(Values{Language: "zh-Hans", Theme: themeDark}); !reflect.DeepEqual(s.values, want) {
 		t.Errorf("values = %+v, want the settings in force", s.values)
 	}
 	if s.page != initialPage || s.open != initialOpen() {
@@ -449,7 +461,7 @@ func TestNewSessionStartsFromTheSettingsInForce(t *testing.T) {
 	if s.finished.Load() {
 		t.Error("a new session is already finished")
 	}
-	if got := newSession(Values{Language: "fr", Theme: "sepia"}).values; got != (Values{}) {
+	if got := newSession(Values{Language: "fr", Theme: "sepia"}).values; !reflect.DeepEqual(got, withDefaultFonts(Values{})) {
 		t.Errorf("displayed unknown settings = %+v, want the defaults", got)
 	}
 }

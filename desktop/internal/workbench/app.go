@@ -28,6 +28,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/documentio"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
@@ -232,6 +233,9 @@ type settings struct {
 	// AIGeneration is the provider and output choice of commit message generation and inline
 	// edits (ai_generation.go). It is Lithe's own preference, not the Agents' configuration.
 	AIGeneration settingswindow.AIGenerationSettings `json:"aiGeneration,omitempty"`
+	// Fonts are the fonts of the editor, the terminal and the run output (fonts.go); none
+	// is fontprefs.Default.
+	Fonts []fontprefs.Font `json:"fonts,omitempty"`
 }
 
 const (
@@ -318,7 +322,9 @@ type App struct {
 	// languages are the languages the editor knows, made when the first file is opened.
 	languages *syntax.Registry
 
-	settings       settings
+	settings settings
+	// fonts is the font of each scope the settings name, worked out by applyFonts.
+	fonts          appFonts
 	systemLanguage i18n.Language
 	// text is the catalog of the current language; theme and colors are the look
 	// of the frame being painted.
@@ -494,6 +500,7 @@ func New(options Options) *App {
 	if _, err := a.store.Load(settingsFile, &a.settings); err != nil {
 		a.settings = settings{}
 	}
+	a.applyFonts()
 	a.searchView.delay = -1
 	a.everywhereView.delay = -1
 	a.version = options.Version

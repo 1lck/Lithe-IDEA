@@ -4,6 +4,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 )
 
@@ -18,12 +19,13 @@ import (
 type pageID uint8
 
 const (
-	// pageAppearance is the group "Appearance & Behavior"; the six pages after it belong to it.
+	// pageAppearance is the group "Appearance & Behavior"; the seven pages after it belong to it.
 	pageAppearance pageID = iota
 	pageGeneral
 	pageUpdates
 	pageNetwork
 	pageEditor
+	pageFonts
 	pageKeymap
 	pageProcessTermination
 	// The pages on the top level of the sidebar.
@@ -56,6 +58,7 @@ var parents = [pageCount]pageID{
 	pageUpdates:            pageAppearance,
 	pageNetwork:            pageAppearance,
 	pageEditor:             pageAppearance,
+	pageFonts:              pageAppearance,
 	pageKeymap:             pageAppearance,
 	pageProcessTermination: pageAppearance,
 	pagePlugins:            noPage,
@@ -107,6 +110,8 @@ func titleOf(messages *i18n.SettingsMessages, id pageID) string {
 		return messages.Network
 	case pageEditor:
 		return messages.Editor
+	case pageFonts:
+		return messages.Fonts
 	case pageKeymap:
 		return messages.Keymap
 	case pageProcessTermination:
@@ -333,6 +338,7 @@ func sanitize(v Values) Values {
 	if v.EditorTabOverflow != TabOverflowSqueeze {
 		v.EditorTabOverflow = ""
 	}
+	v.Fonts = fontprefs.Normalize(v.Fonts)
 	return v
 }
 

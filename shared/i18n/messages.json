@@ -99143,7 +99143,8 @@
       "id": "settings.editor.fontFamily",
       "description": "Windows UI: settings.editor.fontFamily",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -99157,7 +99158,8 @@
       "id": "settings.editor.fontLigatures",
       "description": "Windows UI: settings.editor.fontLigatures",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -99178,7 +99180,8 @@
       "id": "settings.editor.fontSize",
       "description": "Windows UI: settings.editor.fontSize",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -107757,6 +107760,199 @@
     {
       "id": "desktop.lsp.noFilteredLog",
       "description": "Shown when the language server log filter matches no line.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.fonts",
+      "description": "Settings: sidebar entry and title of the Fonts page",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.fontsLigaturesHelp",
+      "description": "Settings > Fonts: info popover of font ligatures",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.fontsLineSpacing",
+      "description": "Settings > Fonts: label of a font group's line spacing",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.fontsLineSpacingAuto",
+      "description": "Settings > Fonts: checkbox for automatic line spacing, naming the spacing in force",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.fontsLineSpacingDecrease",
+      "description": "Settings > Fonts: accessible label of the button that makes the line spacing smaller",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.fontsLineSpacingIncrease",
+      "description": "Settings > Fonts: accessible label of the button that makes the line spacing larger",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.fontsLineSpacingScope",
+      "description": "Settings > Fonts: one place's automatic line spacing, inside the automatic checkbox",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "scope": "string",
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.fontsLoading",
+      "description": "Settings > Fonts: shown while the installed fonts are read",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.fontsNotInstalled",
+      "description": "Settings > Fonts: a stored font family that is not installed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "family": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.fontsOverview",
+      "description": "Settings > Fonts: title of the card that shows each place's font in force",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.fontsOverviewHelp",
+      "description": "Settings > Fonts: info popover of the overview card",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.fontsPreview",
+      "description": "Settings > Fonts: label of a font group's preview line",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.fontsScope",
+      "description": "Settings > Fonts: label of the places a font group applies to",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.fontsScopeEditor",
+      "description": "Settings > Fonts: the code editor as a place a font applies to",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.fontsScopeHelp",
+      "description": "Settings > Fonts: info popover of the places a font group applies to",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.fontsScopeOutput",
+      "description": "Settings > Fonts: the run output and Git console as a place a font applies to",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.fontsScopeSeparator",
+      "description": "Settings > Fonts: separator between place names in a font group's title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.fontsScopeTerminal",
+      "description": "Settings > Fonts: the terminal as a place a font applies to",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.fontsSearch",
+      "description": "Settings > Fonts: placeholder of the font family search",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.fontsSeparate",
+      "description": "Settings > Fonts: button that gives a place that shares its font a font of its own",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.fontsSizeDecrease",
+      "description": "Settings > Fonts: accessible label of the button that makes the font smaller",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.fontsSizeIncrease",
+      "description": "Settings > Fonts: accessible label of the button that makes the font larger",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.fontsSizeValue",
+      "description": "Settings > Fonts: a font size in points",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "size": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.fontsSummary",
+      "description": "Settings > Fonts: one place's font in force, after its preview",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "family": "string",
+        "size": "string",
+        "spacing": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.fontsSystemDefault",
+      "description": "Settings > Fonts: the font choice that uses the system's fixed-pitch font",
       "platforms": [
         "desktop"
       ]

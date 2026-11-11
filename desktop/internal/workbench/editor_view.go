@@ -170,6 +170,7 @@ func (a *App) documentInput(p *project, d *document) {
 		if dc.Canvas.Clicked(d.input.Parts().At(1)) {
 			a.toggleMinimap(dc.Canvas)
 		}
+		v.SetFont(a.editorFont())
 		v.SetWrap(a.softWrap)
 		v.SetMinimap(!a.settings.HideMinimap)
 		v.SetMessages(a.editorMessages())
@@ -256,6 +257,7 @@ func (a *App) terminalInput(t *terminal) {
 		// at once; what a terminal already wrote into its grid stays in the language it was
 		// written in.
 		t.view.SetMessages(a.terminalMessages())
+		t.view.SetFont(a.terminalFont())
 		t.view.Paint(dc.Canvas, dc.Rect, a.terminalLook())
 	}
 }

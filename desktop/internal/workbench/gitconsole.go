@@ -12,6 +12,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/app"
+	vivatext "github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -84,6 +85,29 @@ type consoleFold struct {
 	record, fragment string
 }
 
+// consoleSpanKind is what a stretch of a row's text says, which picks the color it is drawn in.
+type consoleSpanKind uint8
+
+// The kinds of stretch a header is made of; every other row is one stretch of text.
+const (
+	// consoleSpanText is drawn in the row's tone.
+	consoleSpanText consoleSpanKind = iota
+	// consoleSpanStamp is when the command started, drawn subtle.
+	consoleSpanStamp
+	// consoleSpanRepository is the repository the command ran in, drawn in the accent color.
+	consoleSpanRepository
+	// consoleSpanFold is the command's temporary configuration, its preview while the fold
+	// is closed and all of it while open: a click on it opens or closes the row's fold.
+	consoleSpanFold
+)
+
+// consoleSpan is a stretch of a row's text of one kind: from where the span before it ends,
+// or the start of the text, to the byte offset end.
+type consoleSpan struct {
+	end  int
+	kind consoleSpanKind
+}
+
 // consoleRow is one row of the console's list.
 type consoleRow struct {
 	id consoleRowID
@@ -93,14 +117,19 @@ type consoleRow struct {
 	// note, which has no context menu.
 	record int
 	text   string
-	tone   consoleTone
+	// spans are the stretches text is made of, in order; none is one stretch of text.
+	spans []consoleSpan
+	tone  consoleTone
 	// badge is a note drawn after the text, the running mark of a header.
 	badge string
 	// fold, with toggle set, is the fold the row's toggle opens or closes; toggle is the
-	// toggle's text and folded says it opens the fold.
+	// toggle's text and folded says it opens the fold. inline says the toggle is the
+	// configuration in the header's own text, its consoleSpanFold spans, and toggle only
+	// names it for assistive technology; otherwise toggle is drawn after the text.
 	fold   consoleFold
 	toggle string
 	folded bool
+	inline bool
 	// first and last are the lines of the record's output the row stands for: one line, or
 	// the lines of a closed fold. They are meaningful for line rows only.
 	first, last int
@@ -170,6 +199,19 @@ type consoleView struct {
 	// allocates.
 	drawRow func(ui.ListRow)
 	rows    []consoleRow
+	// spans holds the spans of all the rows, which slice it; it is reused by each
+	// flattening.
+	spans []consoleSpan
+	// width is the width of the list as it was last drawn, which the rows are broken or cut
+	// to, or 0 before it was; measure, made once, records it and asks for a paint when it
+	// changed. pieces is the layout of the row being declared, reused from row to row.
+	width   float32
+	measure func(*ui.DrawContext)
+	pieces  []consolePiece
+	// font is the run output's font the rows are drawn in, taken as the list is declared,
+	// with the width of its character cell and the height of a line in it.
+	font         scopeFont
+	cellW, lineH float32
 	// keys are the list keys of the rows by id; spareKeys is the map of the flattening
 	// before, reused so that flattening allocates no map once warm. nextKey is the key a
 	// new row gets.
@@ -348,8 +390,65 @@ func (v *consoleView) add(old map[consoleRowID]int, row consoleRow) int {
 // addLines appends a row for each of the lines [from, to) of r, the record at index.
 func (v *consoleView) addLines(old map[consoleRowID]int, index int, r *core.GitConsoleRecord, from, to int) {
 	for j := from; j < to; j++ {
-		v.add(old, consoleRow{id: consoleRowID{record: r.ID, part: consolePartLine, index: j}, record: index, text: r.Lines[j].Text, first: j, last: j})
+		v.add(old, consoleRow{id: consoleRowID{record: r.ID, part: consolePartLine, index: j}, record: index, text: consoleExpandTabs(r.Lines[j].Text), first: j, last: j})
 	}
+}
+
+// endSpan ends the span of kind that runs to end in the spans of the row whose spans start at
+// index start of v.spans. A span that would be empty is left out.
+func (v *consoleView) endSpan(start, end int, kind consoleSpanKind) {
+	from := 0
+	if n := len(v.spans); n > start {
+		from = v.spans[n-1].end
+	}
+	if end > from {
+		v.spans = append(v.spans, consoleSpan{end: end, kind: kind})
+	}
+}
+
+// rowSpans is the spans of the row that start at index start of v.spans, capped so that no
+// later row's spans are appended into them.
+func (v *consoleView) rowSpans(start int) []consoleSpan {
+	n := len(v.spans)
+	return v.spans[start:n:n]
+}
+
+// prefixSpans adds the spans of a header that starts with consoleHeaderParts' stamp and
+// repository, joined by a space, and is n bytes long, and returns them.
+func (v *consoleView) prefixSpans(stamp, repository string, n int) []consoleSpan {
+	start := len(v.spans)
+	v.endSpan(start, len(stamp), consoleSpanStamp)
+	v.endSpan(start, len(stamp)+1, consoleSpanText)
+	v.endSpan(start, len(stamp)+1+len(repository), consoleSpanRepository)
+	v.endSpan(start, n, consoleSpanText)
+	return v.rowSpans(start)
+}
+
+// consoleTabStop is how many cells apart the stops a tab in a command's output moves to are,
+// as a terminal sets them.
+const consoleTabStop = 8
+
+// consoleExpandTabs is line with each tab replaced by the spaces to the next tab stop, so that
+// the fixed-pitch font draws the columns git aligns with tabs, as git status does, where a
+// terminal does. A line without a tab is returned as it is.
+func consoleExpandTabs(line string) string {
+	if strings.IndexByte(line, '\t') < 0 {
+		return line
+	}
+	var b strings.Builder
+	b.Grow(len(line) + consoleTabStop)
+	cells := 0
+	for _, r := range line {
+		if r == '\t' {
+			n := consoleTabStop - cells%consoleTabStop
+			b.WriteString(strings.Repeat(" ", n))
+			cells += n
+			continue
+		}
+		b.WriteRune(r)
+		cells += vivatext.CellWidth(r)
+	}
+	return b.String()
 }
 
 // flatten turns the snapshot into the rows of the list and places the search hits on them.
@@ -362,7 +461,7 @@ func (v *consoleView) flatten(text *i18n.ConsoleMessages, loc *time.Location) {
 		v.keys = map[consoleRowID]int{}
 	}
 	clear(v.keys)
-	v.rows, v.hits, v.total, v.counted = v.rows[:0], v.hits[:0], 0, true
+	v.rows, v.spans, v.hits, v.total, v.counted = v.rows[:0], v.spans[:0], v.hits[:0], 0, true
 	if v.snapshot.Omitted {
 		v.add(old, consoleRow{id: consoleRowID{part: consolePartOmitted}, record: -1, text: text.HistoryTruncated, tone: consoleToneSubtle})
 	}
@@ -419,24 +518,40 @@ func (v *consoleView) flattenRecord(old map[consoleRowID]int, index int, r *core
 			}
 		}
 		folded := fold.fragment != "" && !v.open[fold]
+		start := len(v.spans)
+		stamp, repository := consoleHeaderParts(r.Started, label, loc)
 		var b strings.Builder
-		b.WriteString(consoleHeaderPrefix(r.Started, label, loc))
+		b.WriteString(stamp)
+		v.endSpan(start, b.Len(), consoleSpanStamp)
+		b.WriteByte(' ')
+		v.endSpan(start, b.Len(), consoleSpanText)
+		b.WriteString(repository)
+		v.endSpan(start, b.Len(), consoleSpanRepository)
 		if len(entry.Command) > 0 {
 			b.WriteString(" git")
 		}
 		for _, fragment := range entry.Command {
 			part := fragment.Text
-			if fragment.Kind == consoleFragmentConfiguration && folded {
+			configuration := fragment.Kind == consoleFragmentConfiguration
+			if configuration && folded {
 				part = fragment.Preview
 			}
-			if part != "" {
-				b.WriteByte(' ')
-				b.WriteString(part)
+			if part == "" {
+				continue
 			}
+			b.WriteByte(' ')
+			if configuration {
+				v.endSpan(start, b.Len(), consoleSpanText)
+				b.WriteString(part)
+				v.endSpan(start, b.Len(), consoleSpanFold)
+				continue
+			}
+			b.WriteString(part)
 		}
-		header.text = b.String()
+		v.endSpan(start, b.Len(), consoleSpanText)
+		header.text, header.spans = b.String(), v.rowSpans(start)
 		if fold.fragment != "" {
-			header.fold, header.folded = fold, folded
+			header.fold, header.folded, header.inline = fold, folded, true
 			header.toggle = text.Collapse
 			if folded {
 				header.toggle = text.ExpandConfiguration(count)
@@ -444,6 +559,8 @@ func (v *consoleView) flattenRecord(old map[consoleRowID]int, index int, r *core
 		}
 	} else {
 		header.text = consoleRawHeader(r, loc)
+		stamp, repository := consoleHeaderParts(r.Started, r.Root, loc)
+		header.spans = v.prefixSpans(stamp, repository, len(header.text))
 	}
 	if r.State == core.GitConsoleRunning {
 		header.badge = text.Running
@@ -470,7 +587,7 @@ func (v *consoleView) flattenRecord(old map[consoleRowID]int, index int, r *core
 				continue
 			}
 			fold := consoleFold{record: r.ID, fragment: fragment.ID}
-			last := consoleRow{id: consoleRowID{record: r.ID, part: consolePartLine, index: end - 1}, record: index, text: r.Lines[end-1].Text, fold: fold, first: end - 1, last: end - 1}
+			last := consoleRow{id: consoleRowID{record: r.ID, part: consolePartLine, index: end - 1}, record: index, text: consoleExpandTabs(r.Lines[end-1].Text), fold: fold, first: end - 1, last: end - 1}
 			if v.open[fold] {
 				v.addLines(old, index, r, start, end-1)
 				last.toggle = text.Collapse
@@ -765,13 +882,22 @@ func consoleOutput(r *core.GitConsoleRecord) string {
 }
 
 // consoleHeaderPrefix is the start of a header: when the command started, in loc to the
-// millisecond, and the name of the repository it ran in.
+// millisecond, and the name of the repository it ran in, as consoleHeaderParts gives them,
+// joined by a space.
 func consoleHeaderPrefix(started time.Time, root string, loc *time.Location) string {
+	stamp, repository := consoleHeaderParts(started, root, loc)
+	return stamp + " " + repository
+}
+
+// consoleHeaderParts is the two parts of the start of a header, drawn in colors of their
+// own: the stamp, when the command started in loc to the millisecond with a colon after it,
+// and the name of the repository it ran in, in brackets.
+func consoleHeaderParts(started time.Time, root string, loc *time.Location) (stamp, repository string) {
 	base := ""
 	if root != "" {
 		base = filepath.Base(root)
 	}
-	return started.In(loc).Format("15:04:05.000") + ": [" + base + "]"
+	return started.In(loc).Format("15:04:05.000") + ":", "[" + base + "]"
 }
 
 // consoleRawHeader is the header of r drawn without Core's presentation, and the header the

@@ -25,21 +25,24 @@ func (span cellSpan) holds(column int) bool { return column >= span.from && colu
 
 // rowEntry is a terminal line prepared for painting: its text, the colored
 // runs of it and the background spans. It stays valid while the line's
-// identity, version, cursor, covered cells and the palette stay the same, so
-// an unchanged line costs nothing to paint again, and a line that only moved
-// (the screen scrolled) is found again by its ID.
+// identity, version, cursor, covered cells, the palette and the font's
+// ligature setting stay the same, so an unchanged line costs nothing to paint
+// again, and a line that only moved (the screen scrolled) is found again by
+// its ID. Cells are counted in columns, never in pixels, so the entry does not
+// depend on the font's size or spacing.
 type rowEntry struct {
-	id       uint64
-	version  uint32
-	cursor   int // the column drawn as the cursor block, or -1
-	covered  cellSpan
-	epoch    uint32
-	cols     int
-	usedCols int
-	used     uint32 // paint generation that last used the entry
-	text     string
-	runs     []gfx.TextRun
-	spans    []bgSpan
+	id        uint64
+	version   uint32
+	cursor    int // the column drawn as the cursor block, or -1
+	covered   cellSpan
+	epoch     uint32
+	ligatures bool // the runs were built to be shaped with ligatures where they can be
+	cols      int
+	usedCols  int
+	used      uint32 // paint generation that last used the entry
+	text      string
+	runs      []gfx.TextRun
+	spans     []bgSpan
 }
 
 // rowCache holds the prepared lines of one terminal.
@@ -73,7 +76,10 @@ func (cache *rowCache) end(visible int) {
 // covered is the stretch of cells something else is drawn over, an input
 // method's composition: they are left out, text and background, because a
 // rectangle painted over a cell does not hide the text already in it.
-func (cache *rowCache) row(line term.Row, cols, cursor int, covered cellSpan, pal *palette) *rowEntry {
+// ligatures is the font's ligature setting (Font.Ligatures). It is part of what
+// an entry was built for, so a row is built again when the setting changes,
+// though the line did not.
+func (cache *rowCache) row(line term.Row, cols, cursor int, covered cellSpan, pal *palette, ligatures bool) *rowEntry {
 	// The epoch carries the palette's look in its low bit, so a row prepared for the dark
 	// colors is never shown for the light ones even if the epochs were ever to meet.
 	epoch := uint32(pal.epoch) << 1
@@ -95,9 +101,10 @@ func (cache *rowCache) row(line term.Row, cols, cursor int, covered cellSpan, pa
 		entry.version = ^uint32(0) // never matches: build below
 	}
 	entry.used = cache.generation
-	if entry.version != line.Version || entry.cursor != cursor || entry.covered != covered || entry.epoch != epoch {
-		cache.build(entry, line, cols, cursor, covered, pal)
-		entry.version, entry.cursor, entry.covered, entry.epoch, entry.cols = line.Version, cursor, covered, epoch, cols
+	if entry.version != line.Version || entry.cursor != cursor || entry.covered != covered || entry.epoch != epoch ||
+		entry.ligatures != ligatures {
+		cache.build(entry, line, cols, cursor, covered, pal, ligatures)
+		entry.version, entry.cursor, entry.covered, entry.epoch, entry.ligatures, entry.cols = line.Version, cursor, covered, epoch, ligatures, cols
 	} else if entry.cols != cols {
 		rebuild := entry.usedCols > min(entry.cols, cols)
 		if !rebuild && cols > entry.cols {
@@ -112,7 +119,7 @@ func (cache *rowCache) row(line term.Row, cols, cursor int, covered cellSpan, pa
 			}
 		}
 		if rebuild {
-			cache.build(entry, line, cols, cursor, covered, pal)
+			cache.build(entry, line, cols, cursor, covered, pal, ligatures)
 		}
 		entry.cols = cols
 	}
@@ -175,8 +182,9 @@ func resolveCell(cell term.Cell, pal *palette) cellStyle {
 // where a blank begins swallows it; otherwise it is a gap between runs and
 // costs nothing. Every non-ASCII character is a run of its own, placed at its
 // cell by the renderer, so a wide or fallback-font glyph can never push the
-// text after it off its column.
-func (cache *rowCache) build(entry *rowEntry, line term.Row, cols, cursor int, covered cellSpan, pal *palette) {
+// text after it off its column. ligatures lets the runs that can take them
+// ask for ligatures (see row).
+func (cache *rowCache) build(entry *rowEntry, line term.Row, cols, cursor int, covered cellSpan, pal *palette, ligatures bool) {
 	cache.builds++
 	entry.runs = entry.runs[:0]
 	entry.spans = entry.spans[:0]
@@ -335,13 +343,14 @@ func (cache *rowCache) build(entry *rowEntry, line term.Row, cols, cursor int, c
 	cache.scratch = text
 	entry.text = string(text)
 	// A run of plain ASCII with room for a substitution is shaped as one line
-	// by Viva, so a programming font's ligatures appear. Single cells and
-	// non-ASCII runs keep the one-glyph-per-cell path.
+	// by Viva, so a programming font's ligatures appear, when the font has them
+	// on. Single cells and non-ASCII runs keep the one-glyph-per-cell path, and
+	// so does every run of a font with ligatures off.
 	offset := 0
 	for index := range entry.runs {
 		run := &entry.runs[index]
 		end := offset + int(run.Bytes)
-		run.Ligatures = run.Cells >= 2 && asciiOnly(entry.text[offset:end])
+		run.Ligatures = ligatures && run.Cells >= 2 && asciiOnly(entry.text[offset:end])
 		offset = end
 	}
 }

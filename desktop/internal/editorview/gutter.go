@@ -239,7 +239,7 @@ func (v *View) paintAnnotation(canvas *gfx.Canvas, l lineRef, row wrapRow, y flo
 	}
 	color := look.Subtle
 	color.Alpha *= 0.75
-	style := gfx.TextStyle{Size: fontSize, Color: color, Mono: true}
+	style := gfx.TextStyle{Size: v.font.Size, Color: color, Mono: true, MonoFace: v.font.Face}
 	run := [1]gfx.TextRun{{Bytes: int32(len(text)), Cells: int32(cells), Color: color}}
 	rect := gfx.Rect{X: x, Y: y + (v.lineH-v.cellH)/2, Width: float32(cells)*v.cellW + 1, Height: v.cellH}
 	canvas.LabelRuns(text, rect, style, v.cellW, run[:])

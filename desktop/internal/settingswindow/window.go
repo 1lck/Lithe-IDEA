@@ -4,6 +4,7 @@ import (
 	"sync/atomic"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/appicon"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/windowcontrols"
 	"github.com/vivaui/viva/app"
@@ -106,6 +107,8 @@ type window struct {
 	settingsNotices chan string
 	// terminal is the Terminal page's list of installed shells.
 	terminal terminalShellState
+	// fonts is the Fonts page's list of installed fixed-pitch families.
+	fonts fontListState
 	// agent is the AI pages' state (agent_settings.go).
 	agent *agentSettings
 	// mcp is the MCP Configuration page's state.
@@ -189,6 +192,7 @@ func newWindow(c *Controller, current Values) *window {
 	w.pluginSettings.report = func(err error) { reportSettingsError(c.opts, err) }
 	w.toolchains = newToolchainState(c.opts.Toolchains)
 	w.terminal = newTerminalShellState(c.opts.TerminalShells)
+	w.fonts = newFontListState(c.opts.MonospaceFamilies)
 	w.agent = newAgentSettings(c.opts, func() { w.inv.Invalidate() })
 	w.mcp = newMCPState(c.opts.MCP)
 	w.nav.Node, w.nav.Key, w.nav.RowHeight, w.nav.Indent = w.navNode, w.navKey, rowHeight, childIndent
@@ -345,6 +349,7 @@ func (w *window) prepare(size gfx.Size) {
 func (w *window) collect() {
 	w.toolchains.take()
 	w.terminal.take()
+	w.fonts.take()
 	w.mcp.take()
 	if w.dynamic.take() {
 		w.rowsValid = false
@@ -381,6 +386,7 @@ func (w *window) reportMarket(previous marketStatus) {
 func (w *window) declareWork(c ui.C) {
 	w.toolchains.declare(c)
 	w.terminal.declare(c)
+	w.fonts.declare(c)
 	w.mcp.declare(c)
 	w.dynamic.declare(c)
 	w.market.declare(c)
@@ -481,6 +487,21 @@ func (w *window) setTerminalShell(value string, force bool) {
 	w.sess.values.TerminalShell = value
 	if w.ctrl.opts.SetTerminalShell != nil {
 		w.ctrl.opts.SetTerminalShell(value)
+	}
+}
+
+// setFonts stores a change of the font list and hands it to the settings owner at once, as
+// setTabRows does. The list is normalized before it is kept, so the page and the owner always
+// see every scope in exactly one font, and a list that means the same as the one in force is
+// not sent again. The owner gets its own copy, so what it keeps cannot be changed through the
+// window's list.
+func (w *window) setFonts(fonts []fontprefs.Font, force bool) {
+	if w.sess.finished.Load() || (!force && fontprefs.Equal(w.sess.values.Fonts, fonts)) {
+		return
+	}
+	w.sess.values.Fonts = fontprefs.Normalize(fonts)
+	if w.ctrl.opts.SetFonts != nil {
+		w.ctrl.opts.SetFonts(fontprefs.Normalize(w.sess.values.Fonts))
 	}
 }
 

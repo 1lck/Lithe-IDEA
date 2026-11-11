@@ -339,7 +339,7 @@ func (v *View) terminalPointer(event gfx.PointerEvent) gfx.EventResult {
 func (v *View) armSelectionScroll(event gfx.PointerEvent, column int) {
 	selection := &v.selection
 	_, rows := v.screen.Size()
-	bottom := v.layout.top + float32(rows)*v.cellH
+	bottom := v.layout.top + float32(rows)*v.rowH
 	edge := selectionEdge{column: column, last: selection.edge.last, stepped: selection.edge.stepped}
 	var distance float32
 	switch {
@@ -351,8 +351,8 @@ func (v *View) armSelectionScroll(event gfx.PointerEvent, column int) {
 		selection.edge = selectionEdge{}
 		return
 	}
-	if v.cellH > 0 {
-		edge.lines = min(1+int(distance/v.cellH), selectionScrollMaxLines)
+	if v.rowH > 0 {
+		edge.lines = min(1+int(distance/v.rowH), selectionScrollMaxLines)
 	} else {
 		edge.lines = 1
 	}
@@ -534,8 +534,8 @@ func (v *View) positionAt(x, y float32) term.Position {
 	if v.cellW > 0 {
 		column = int(math.Floor(float64((x - v.layout.left) / v.cellW)))
 	}
-	if v.cellH > 0 {
-		row = int(math.Floor(float64((y - v.layout.top) / v.cellH)))
+	if v.rowH > 0 {
+		row = int(math.Floor(float64((y - v.layout.top) / v.rowH)))
 	}
 	return term.Position{
 		Row:    min(max(row, 0), min(v.layout.rows, rows)-1),

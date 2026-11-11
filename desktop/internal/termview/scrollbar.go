@@ -14,12 +14,12 @@ func (v *View) scrollbarShown() bool {
 }
 
 // scrollArea is the terminal's text as a scroll area: the history above the screen and the
-// screen itself, one cell height per line. It paints only the bar, over the right edge of the
+// screen itself, one row height per line. It paints only the bar, over the right edge of the
 // grid, in the terminal's own colors since the window theme has no say in what the terminal's
 // ground looks like. A nil canvas gives the geometry alone. fade scales the bar's opacity, 0
 // being hidden.
 func (v *View) scrollArea(canvas *gfx.Canvas, area gfx.Rect, fade float32) components.ScrollArea {
-	history := float32(v.screen.Scrollback()) * v.cellH
+	history := float32(v.screen.Scrollback()) * v.rowH
 	// Painting the bar reads only these two colors of the theme: the thumb at rest and the
 	// thumb under the pointer. The focus ring is not painted since the bar never takes focus.
 	theme := gfx.Theme{
@@ -27,7 +27,7 @@ func (v *View) scrollArea(canvas *gfx.Canvas, area gfx.Rect, fade float32) compo
 		MutedForeground: withAlpha(v.pal.termFG, 0.55*fade),
 	}
 	return components.BeginScrollArea(canvas, theme, area, gfx.Size{Width: area.Width, Height: area.Height + history}).
-		Offset(0, float32(v.screen.Scrollback()-v.screen.ViewOffset())*v.cellH).
+		Offset(0, float32(v.screen.Scrollback()-v.screen.ViewOffset())*v.rowH).
 		VerticalScrollbar(v.cfg.BarID, v.cfg.Messages.ScrollbarLabel, "")
 }
 
@@ -61,7 +61,7 @@ func (v *View) barFade(canvas *gfx.Canvas) float32 {
 // the view moves or the pointer is over the terminal, but its track always takes hits while
 // there is history, so moving to the right edge brings it back.
 func (v *View) paintScrollbar(canvas *gfx.Canvas) {
-	if !v.scrollbarShown() || v.cellH <= 0 {
+	if !v.scrollbarShown() || v.rowH <= 0 {
 		return
 	}
 	fade := v.barFade(canvas)
@@ -72,7 +72,7 @@ func (v *View) paintScrollbar(canvas *gfx.Canvas) {
 // barPointer drags the thumb and pages when the track beside it is pressed. It reports false
 // for what is not the bar's, so the event goes on to the grid.
 func (v *View) barPointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
-	if v.cellH <= 0 {
+	if v.rowH <= 0 {
 		return gfx.EventResult{}, false
 	}
 	if !v.scrollbarShown() {
@@ -100,7 +100,7 @@ func (v *View) barPointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 			return gfx.EventResult{}, false
 		}
 		offset := bounds.VerticalOffsetForThumb(event.Y - v.bar.grab)
-		line := int(math.Round(float64(offset / v.cellH)))
+		line := int(math.Round(float64(offset / v.rowH)))
 		result := v.scrollView(v.screen.Scrollback() - line - v.screen.ViewOffset())
 		if event.Kind == gfx.PointerUp {
 			v.bar.dragging = false

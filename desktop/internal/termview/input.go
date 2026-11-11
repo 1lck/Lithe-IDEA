@@ -195,13 +195,15 @@ func (v *View) TextInput(ctx app.TextInputContext) *app.TextInput {
 	if v.preedit.Composing {
 		cells += displayCells(v.preedit.Value)
 	}
+	// The composition is drawn in the glyph cell, which sits centered in the cursor's row, so
+	// it lines up with the text the grid draws there whatever the line spacing.
 	v.input.Bounds = gfx.Rect{
 		X:     v.layout.left + float32(cursor.X)*v.cellW,
-		Y:     v.layout.top + float32(cursor.Y)*v.cellH,
-		Width: float32(cells) * v.cellW, Height: v.cellH,
+		Y:     v.layout.top + float32(cursor.Y)*v.rowH + v.glyphInset(),
+		Width: float32(cells) * v.cellW, Height: v.glyphH,
 	}
-	v.input.FontSize = fontSize
-	v.input.MonoFace = v.face
+	v.input.FontSize = v.font.Size
+	v.input.MonoFace = v.font.Face
 	v.input.Color = v.pal.termFG
 	v.input.State = v.preedit
 	// Option stays a composing key (it types accents and symbols on a Mac keyboard), so the
@@ -295,7 +297,7 @@ func (v *View) Scroll(event gfx.ScrollEvent) (gfx.EventResult, bool) {
 	if event.Target != v.cfg.HitID && event.Target != v.cfg.BarID {
 		return gfx.EventResult{}, false
 	}
-	if v.cellW <= 0 || v.cellH <= 0 {
+	if v.cellW <= 0 || v.rowH <= 0 {
 		return gfx.EventResult{}, false
 	}
 	handled := gfx.EventResult{Handled: true}
@@ -310,7 +312,7 @@ func (v *View) Scroll(event gfx.ScrollEvent) (gfx.EventResult, bool) {
 		return handled, true
 	}
 	// A small wheel step is not worth a line, so the distance is kept until it adds up to one.
-	v.wheelY += event.StepY(v.cellH) / v.cellH
+	v.wheelY += event.StepY(v.rowH) / v.rowH
 	lines := int(v.wheelY)
 	if lines == 0 {
 		return handled, true
@@ -346,7 +348,7 @@ func (v *View) mouseScroll(event gfx.ScrollEvent) gfx.EventResult {
 		}
 	}
 
-	v.wheelY += event.StepY(v.cellH) / v.cellH
+	v.wheelY += event.StepY(v.rowH) / v.rowH
 	vertical := int(v.wheelY)
 	v.wheelY -= float32(vertical)
 	button := term.MouseWheelDown

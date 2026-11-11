@@ -538,6 +538,7 @@ type SettingsMessages struct {
 	Updates            string
 	Network            string
 	Editor             string
+	Fonts              string
 	Keymap             string
 	ProcessTermination string
 	Plugins            string

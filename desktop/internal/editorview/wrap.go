@@ -154,17 +154,23 @@ func (v *View) rowsOf(l lineRef) []wrapRow {
 
 // setWrapCols lays the text out for cols columns, none when cols is 0, and scrolls so the line
 // that was at the top of the view stays there. A line whose first row was partly scrolled out
-// of the view stays as far out of it.
-func (v *View) setWrapCols(cols int) {
+// of the view stays as far out of it. wasLineH is the height of a row the scroll was measured in,
+// which is not the view's lineH when the paint that calls this one measured a new font: the scroll
+// is then converted to the new height of a row, whether the columns changed or not.
+func (v *View) setWrapCols(cols int, wasLineH float32) {
 	if cols == v.wrapCols {
+		if wasLineH != v.lineH {
+			v.scroll = v.scroll / wasLineH * v.lineH
+		}
 		return
 	}
-	lineH := max(v.lineH, 1)
+	lineH := max(wasLineH, 1)
 	row := int(v.scroll / lineH)
 	top, sub := v.rowLine(row)
 	part := float32(0)
 	if sub == 0 {
-		part = v.scroll - float32(row)*lineH
+		// part is in the old row height, and the same share of a row in the new one.
+		part = (v.scroll - float32(row)*lineH) * (v.lineH / lineH)
 	}
 	v.wrapCols = cols
 	clear(v.rowCache)

@@ -1,6 +1,7 @@
 package settingswindow
 
 import (
+	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/app"
@@ -198,6 +199,8 @@ func (w *window) content(c ui.C) {
 			w.generalPage(c)
 		case w.sess.page == pageEditor:
 			w.editorPage(c)
+		case w.sess.page == pageFonts:
+			w.fontsPage(c)
 		case w.sess.page == pageBuild && w.ctrl.opts.Toolchains != nil:
 			w.toolchainsPage(c)
 		case w.sess.page == pageTerminal && w.ctrl.opts.TerminalShells != nil:
@@ -447,6 +450,7 @@ func (w *window) footer(c ui.C) {
 			w.setTabOverflow("", true)
 			w.setDisableSemanticHighlight(false, true)
 			w.setTerminalShell("", true)
+			w.setFonts(fontprefs.Default(), true)
 		}
 		ui.Spacer(c)
 		if ui.Button(c, settings.Cancel).Outline().Clicked() {

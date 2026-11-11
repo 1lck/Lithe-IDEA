@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
@@ -58,6 +59,10 @@ type Values struct {
 	// automatic, the system's default shell. A path no installed shell has is kept as stored
 	// and shown as not found, not replaced by one that exists.
 	TerminalShell string
+	// Fonts are the fonts of the editor, the terminal and the run output, as
+	// fontprefs.Normalize returns them. Nil is fontprefs.Default, the system's fixed-pitch
+	// font for every place.
+	Fonts []fontprefs.Font
 	// HideGitGutter hides the Git change markers of the editor gutter, which show by default.
 	// InlineGitBlame shows the blame of the caret line after its text, and is off by default.
 	HideGitGutter  bool
@@ -152,6 +157,13 @@ type Options struct {
 	// SetTerminalShell hands a change of Values.TerminalShell to the settings owner,
 	// like SetTabRows.
 	SetTerminalShell func(string)
+	// SetFonts hands a change of Values.Fonts to the settings owner, like SetTabRows. The
+	// list it receives is normalized.
+	SetFonts func([]fontprefs.Font)
+	// MonospaceFamilies lists the installed fixed-pitch font families for the Fonts page,
+	// sorted as the page should show them. It runs off the window thread. Nil shows only
+	// the system's default font and the families already stored.
+	MonospaceFamilies func() []string
 	// SetHideGitGutter and SetInlineGitBlame hand a change of Values.HideGitGutter and
 	// Values.InlineGitBlame to the settings owner, like SetTabRows.
 	SetHideGitGutter  func(bool)

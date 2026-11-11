@@ -5,6 +5,7 @@ import (
 	"runtime"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
@@ -137,6 +138,12 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SetDisableSemanticHighlight: func(value bool) {
 			a.post(func(a *App) { a.setDisableSemanticHighlight(value) })
 		},
+		SetFonts: func(fonts []fontprefs.Font) {
+			a.post(func(a *App) { a.setFonts(fonts) })
+		},
+		// The Fonts page lists the installed fixed-pitch families; reading them is slow, so
+		// the page asks for them off its window thread.
+		MonospaceFamilies: app.MonospaceFamilies,
 		// The Terminal page lists the shells the new-terminal menu offers, found the same
 		// way, and names the login shell a terminal runs while the setting is automatic.
 		TerminalShells: func() ([]localshell.Choice, string) {
@@ -247,6 +254,7 @@ func (a *App) openSettingsPage(surface string, page settingsPage) {
 			EditorTabRows: a.settings.EditorTabRows, EditorTabOverflow: a.settings.EditorTabOverflow,
 			TerminalShell: a.settings.TerminalShell,
 			HideGitGutter: a.settings.HideGitGutter, InlineGitBlame: a.settings.InlineGitBlame,
+			Fonts: fontprefs.Normalize(a.settings.Fonts),
 		}
 		var err error
 		switch page {

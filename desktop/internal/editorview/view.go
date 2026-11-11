@@ -22,10 +22,6 @@ import (
 )
 
 const (
-	// fontSize is the size of the editor's fixed-pitch font, the terminal's.
-	fontSize = float32(13)
-	// lineSpacing is how much taller a line is than the font's cell.
-	lineSpacing = float32(1.4)
 	// tabSize is how many columns a tab character advances to the next stop.
 	tabSize = 4
 	// undoLimit bounds how many steps undo keeps.
@@ -188,6 +184,9 @@ type View struct {
 	hlGen atomic.Uint64
 	words Messages
 
+	// font is the font the view draws with, normalized; see SetFont. The cell size and line height
+	// below are measured from it at each paint.
+	font Font
 	// scroll and scrollX are how far the text is scrolled, in pixels.
 	scroll, scrollX float32
 	// reveal asks the next paint to scroll the caret into view.
@@ -247,7 +246,7 @@ func New(cfg Config) *View {
 	// alive once edits have replaced it.
 	cfg.Content = Content{}
 	text := content.text
-	v := &View{cfg: cfg, text: text, saved: text, goal: -1, indentUnit: content.indent, widest: content.widest}
+	v := &View{cfg: cfg, text: text, saved: text, goal: -1, indentUnit: content.indent, widest: content.widest, font: DefaultFont()}
 	if v.indentUnit == "" {
 		// A zero Content is an empty document, which Prepare was not asked to measure.
 		v.indentUnit = indentUnit(text)

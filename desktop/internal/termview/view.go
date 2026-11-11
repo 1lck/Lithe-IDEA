@@ -24,9 +24,8 @@ import (
 	"github.com/vivaui/viva/gfx"
 )
 
-// The terminal's fixed-pitch font size and the margins around its grid.
+// The margins around the terminal's grid.
 const (
-	fontSize  = float32(13)
 	padX      = float32(14)
 	padTop    = float32(8)
 	padBottom = float32(8)
@@ -201,11 +200,16 @@ type View struct {
 	// exitSent is true once Exited was called.
 	exitSent bool
 
-	// cellW and cellH are the cell at the terminal's font, measured on the window's canvas
-	// at each paint; zero before the first.
-	cellW, cellH float32
-	face         gfx.MonoFace
-	layout       geometry // the grid of the last paint
+	// font is the fixed-pitch font the grid is drawn with. SetFont changes it, and it always
+	// holds a normalized font, so two fonts that draw alike are equal.
+	font Font
+	// cellW and glyphH are the character cell of the font, and rowH the pitch of a row: glyphH
+	// times the font's line spacing, rounded to a whole pixel. All three are measured on the
+	// window's canvas at each paint and are zero before the first. Everything that turns a
+	// distance into rows (placing rows, the grid's size, the pointer, the wheel, the
+	// scrollbar) uses rowH; only the text itself is drawn glyphH tall.
+	cellW, glyphH, rowH float32
+	layout              geometry // the grid of the last paint
 
 	look    Look
 	hasLook bool
@@ -255,6 +259,7 @@ func New(cfg Config) *View {
 		cfg:    cfg,
 		screen: term.New(80, 24, scrollbackLines),
 		layout: geometry{cols: 80, rows: 24},
+		font:   DefaultFont(),
 	}
 	if cfg.Prefill != "" {
 		v.screen.Write([]byte(strings.ReplaceAll(strings.ReplaceAll(cfg.Prefill, "\r\n", "\n"), "\n", "\r\n") + "\r\n"))
