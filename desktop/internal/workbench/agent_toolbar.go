@@ -180,8 +180,8 @@ func (a *App) agentConfigBar(c ui.C, p *project) {
 					ui.Icon(c, a.agentBrandIcon(agent.ID)).Size(chromeMarkSize, chromeMarkSize).Shrink(0).Color(a.colors.Subtle)
 				}
 				ui.Text(c, a.agentConfigLabel(option)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Width(72)
-				if option.Category == "mode" {
-					a.agentModeMenu(c, p, option, disabled)
+				if option.Category == "mode" || option.Category == "model" {
+					a.agentChoiceMenu(c, p, option, disabled)
 				} else {
 					current := agentConfigChoiceIndex(*option)
 					option.pick = current

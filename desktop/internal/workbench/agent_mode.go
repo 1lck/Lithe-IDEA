@@ -32,10 +32,11 @@ func (a *App) agentConfigChoiceTitle(option agentConfigOption, choice agentConfi
 	return choice.Name
 }
 
-// agentModeMenu declares the approval mode as a button that opens a list of the Agent's
-// modes. The current one is checked on the left and the Agent's own description of each
-// mode is shown beside it. Choosing one sends the same explicit command as the drop-down.
-func (a *App) agentModeMenu(c ui.C, p *project, option *agentConfigOption, disabled bool) {
+// agentChoiceMenu declares a select option as a button that opens the Agent's full list. The
+// approval mode is headed "Mode" and its current choice is checked on the left with the
+// Agent's own description beside it; a model list keeps the Agent's groups as headings.
+// Choosing one sends the same explicit command as the drop-down.
+func (a *App) agentChoiceMenu(c ui.C, p *project, option *agentConfigOption, disabled bool) {
 	current := option
 	label := ""
 	for _, choice := range current.Choices {
@@ -51,8 +52,15 @@ func (a *App) agentModeMenu(c ui.C, p *project, option *agentConfigOption, disab
 		current.open = !current.open
 	}
 	ui.Menu(c, button, &current.open, func(menu *ui.MenuItems) {
-		menu.Label(a.text.Agent.Mode.Heading)
+		if current.Category == "mode" {
+			menu.Label(a.text.Agent.Mode.Heading)
+		}
+		group := ""
 		for _, choice := range current.Choices {
+			if choice.Group != "" && choice.Group != group {
+				group = choice.Group
+				menu.Label(group)
+			}
 			item := menu.Item(a.agentConfigChoiceTitle(*current, choice)).Checked(choice.Value == current.Current)
 			if choice.Description != "" {
 				item = item.Description(choice.Description)

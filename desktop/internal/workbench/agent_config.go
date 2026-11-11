@@ -29,6 +29,8 @@ type agentConfigChoice struct {
 	Name  string
 	// Description is the Agent's own one-line explanation of the choice, empty if none.
 	Description string
+	// Group is the name of the Agent's group this choice belongs to, empty if ungrouped.
+	Group string
 }
 
 // agentSessionConfig is one connection's session settings. It is replaced
@@ -144,7 +146,7 @@ func decodeAgentConfigChoices(raw json.RawMessage) []agentConfigChoice {
 		var group agentConfigGroupWire
 		if err := json.Unmarshal(entry, &group); err == nil && group.Group != "" {
 			for _, choice := range group.Options {
-				choices = appendAgentConfigChoice(choices, choice)
+				choices = appendAgentConfigChoice(choices, choice, group.groupName())
 			}
 			continue
 		}
@@ -152,19 +154,19 @@ func decodeAgentConfigChoices(raw json.RawMessage) []agentConfigChoice {
 		if err := json.Unmarshal(entry, &choice); err != nil {
 			continue
 		}
-		choices = appendAgentConfigChoice(choices, choice)
+		choices = appendAgentConfigChoice(choices, choice, "")
 	}
 	return choices
 }
 
-func appendAgentConfigChoice(choices []agentConfigChoice, choice agentConfigChoiceWire) []agentConfigChoice {
+func appendAgentConfigChoice(choices []agentConfigChoice, choice agentConfigChoiceWire, group string) []agentConfigChoice {
 	if choice.Value == "" {
 		return choices
 	}
 	if choice.Name == "" {
 		choice.Name = choice.Value
 	}
-	return append(choices, agentConfigChoice{Value: choice.Value, Name: choice.Name, Description: choice.Description})
+	return append(choices, agentConfigChoice{Value: choice.Value, Name: choice.Name, Description: choice.Description, Group: group})
 }
 
 // agentConfigCurrentName is the display name of the confirmed value. A value
@@ -270,4 +272,13 @@ func (a *App) clearAgentAuthentication(p *project) {
 	if p != nil {
 		p.agent.auth = agentAuthNone
 	}
+}
+
+// groupName is the heading of an ACP group: its display name, or its identifier when the
+// Agent gave no name.
+func (g agentConfigGroupWire) groupName() string {
+	if g.Name != "" {
+		return g.Name
+	}
+	return g.Group
 }
