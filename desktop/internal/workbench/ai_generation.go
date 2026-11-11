@@ -10,7 +10,7 @@ import (
 // This file keeps the provider and output choice of commit message generation and inline
 // edits (matrix ids ai-commit-generation, ai-inline-edit). The choice is Lithe's own setting
 // and never written into the Codex or Claude configuration. The provider each source offers
-// comes from the same discovery the generation uses, so the Agents page shows what it reads.
+// comes from the same discovery the generation uses, so Settings › AI › Generation shows what it reads.
 
 // aiGenerationSettings is the stored choice; it is read on the window thread.
 func (a *App) aiGenerationSettings() settingswindow.AIGenerationSettings {
@@ -63,15 +63,15 @@ func (a *App) aiGenerationSources() []string {
 	if provider := a.aiGenerationSettings().Provider; provider != "" {
 		return []string{provider}
 	}
-	return agentProviderSources()
+	return aiProviderSources()
 }
 
 // aiProviderStatuses reports, for each source, the provider discovery reads and the native
 // configuration file it comes from. It runs off the window thread and never returns a key.
 func (a *App) aiProviderStatuses(ctx context.Context) []settingswindow.AIProviderStatus {
-	providers, _ := a.discoverAgentProviders(ctx)
+	providers := a.discoverAIProviders(ctx)
 	var out []settingswindow.AIProviderStatus
-	for _, source := range agentProviderSources() {
+	for _, source := range aiProviderSources() {
 		status := settingswindow.AIProviderStatus{Source: source, Path: a.aiConfigurationPath(ctx, source)}
 		if provider, ok := pickAIProviderFrom(providers, []string{source}); ok {
 			status.Name, status.Model, status.Usable = provider.Name, provider.Model, true
@@ -84,14 +84,14 @@ func (a *App) aiProviderStatuses(ctx context.Context) []settingswindow.AIProvide
 // aiConfigurationPath is the first native file of a source that exists, or the first file Core
 // names when none does. Empty means Core named no file.
 func (a *App) aiConfigurationPath(ctx context.Context, source string) string {
-	if a.agentKernel == nil {
+	if a.aiKernel == nil {
 		return ""
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	files, err := a.agentKernel.AIConfigurationSources(ctx, source, home, agentEnvironment())
+	files, err := a.aiKernel.AIConfigurationSources(ctx, source, home, aiEnvironment())
 	if err != nil || len(files) == 0 {
 		return ""
 	}

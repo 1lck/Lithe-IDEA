@@ -95,11 +95,10 @@ func TestGenerationInstructionsSync(t *testing.T) {
 func generationInstructionsWindow(t *testing.T, read func() AIGenerationSettings, write func(AIGenerationSettings)) *windowDriver {
 	t.Helper()
 	w := newWindow(NewController(Options{
-		AgentSettings:   &fakeAgentBackend{},
 		AIGeneration:    read,
 		SetAIGeneration: write,
 	}), Values{})
-	w.sess.page = pageAIAgents
+	w.sess.page = pageAIGeneration
 	return openWindow(t, w, func(config *app.Config) { config.Height = 1100 })
 }
 

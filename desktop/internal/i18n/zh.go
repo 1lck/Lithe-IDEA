@@ -317,8 +317,6 @@ var chinese = Messages{
 		Settings:        Shared(Chinese, "menu.settings"),
 	},
 
-	Agent: agentMessages(Chinese),
-
 	Status: StatusMessages{
 		Path:           Shared(Chinese, "desktop.status.path"),
 		Caret:          Shared(Chinese, "desktop.status.caret"),
@@ -511,7 +509,6 @@ var chinese = Messages{
 	Debug:     debugMessages(Chinese),
 	Run:       runMessages(Chinese),
 	AI:        aiMessages(Chinese),
-	MCP:       mcpMessages(Chinese),
 	IDEAPI:    ideAPIMessages(Chinese),
 	Sync:      syncMessages(Chinese),
 	Worktrees: worktreeMessages(Chinese),

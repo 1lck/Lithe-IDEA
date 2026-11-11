@@ -2,9 +2,23 @@ package core
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// readSharedJSON decodes a fixture under the repository shared directory.
+func readSharedJSON(t *testing.T, path string, value any) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(append([]string{"..", "..", "..", "shared"}, filepath.SplitList(path)...)...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, value); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestAICommitFixture(t *testing.T) {
 	var fixture struct {

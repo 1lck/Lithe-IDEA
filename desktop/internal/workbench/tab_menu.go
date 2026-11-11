@@ -102,10 +102,6 @@ func (a *App) tabMenuItems(c ui.C, group string, t shownTab, tabs []shownTab) fu
 				a.revealActiveFile(p)
 			})
 		}
-		if a.agentKernelReady() {
-			menu.Separator()
-			a.agentFileMenuItems(c, menu, p, []string{path})
-		}
 	}
 }
 

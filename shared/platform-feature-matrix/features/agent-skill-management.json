@@ -4,31 +4,17 @@
   "group": "Agent 对话",
   "capability": "技能设置：全局与项目分类、Agent 来源筛选、搜索刷新、查看与定位、原生目录新建和导入、原生配置启停开关（点击立即切换、后台确认、失败回滚、不显示加载转圈、保存提示不推动列表、仅待确认行禁用、其他行保持颜色并按序保存）；操作菜单保留所属窗口焦点和开启开关的颜色；技能目录最终发布在 macOS/Linux/Windows 均原子拒绝已有目标（包含空目录）",
   "macos": {
-    "implementationStatus": "partial",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      "desktop/internal/settingswindow/agent_settings.go",
-      "desktop/internal/settingswindow/agent_settings_view.go",
-      "desktop/internal/settingswindow/agent_settings_test.go",
-      "desktop/internal/core/agent_settings.go",
-      "shared/fixtures/agent/skills-management-v1.json",
-      "desktop/internal/settingswindow/skill_files.go",
-      "desktop/internal/settingswindow/skill_view.go",
-      "desktop/internal/settingswindow/skill_files_test.go"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
-    "implementationStatus": "partial",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      "desktop/internal/settingswindow/agent_settings.go",
-      "desktop/internal/settingswindow/agent_settings_view.go",
-      "desktop/internal/settingswindow/agent_settings_test.go",
-      "desktop/internal/core/agent_settings.go",
-      "shared/fixtures/agent/skills-management-v1.json",
-      "desktop/internal/settingswindow/skill_files.go",
-      "desktop/internal/settingswindow/skill_view.go",
-      "desktop/internal/settingswindow/skill_files_test.go"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "Agent",
@@ -65,5 +51,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：技能页按全局/项目分组，支持本地搜索、查看 SKILL.md（Core ReadAgentSkill）、系统文件/目录选择器导入、启用开关回显 Core 结果、创建与刷新。尚未做 Agent 来源筛选、原生目录直接新建与定位动作的完整错误提示；排序沿用 Core 返回顺序。"
+  "notes": "Viva：2026-11-12 用户决定不做 Agent 对话，#1799 已删除桌面端实现，见 docs/viva-migration.md 的“放弃：Agent 对话”。Rust Core 中的 Agent 代码暂留，是否删除另行决定。"
 }

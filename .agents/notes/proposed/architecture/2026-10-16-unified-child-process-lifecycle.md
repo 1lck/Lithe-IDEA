@@ -2,7 +2,7 @@
 
 状态：提议中
 
-> Viva 迁移状态（2026-11-08）：下文关于 Swift/Tauri 的现状和已完成内容属于旧客户端，不代表 Viva 已实现统一账本、确认或崩溃兜底。Viva 目前有独立的终端管理和尚未接入用户界面的 Core Agent 会话桥；本提案的所有权与用户确认目标仍需结合新架构逐项实现并在两平台验证。
+> Viva 迁移状态（2026-11-08）：下文关于 Swift/Tauri 的现状和已完成内容属于旧客户端，不代表 Viva 已实现统一账本、确认或崩溃兜底。Viva 目前有独立的终端管理；2026-11-12 起桌面端不做 Agent 对话，不再启动 Agent 进程；本提案的所有权与用户确认目标仍需结合新架构逐项实现并在两平台验证。
 
 ## 先说结论
 
@@ -710,7 +710,6 @@ Windows 仍未完成的部分：终端（ConPTY）和 Agent 进程树还没有 J
 - `desktop/internal/term/`
 - `desktop/internal/localshell/`
 - `desktop/internal/workbench/terminals.go`
-- `desktop/internal/core/agent.go`
 - `desktop/internal/settingswindow/`
 - Lithe-core-rust 锁定修订：[rust/lithe-agent-host/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core)

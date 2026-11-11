@@ -44,9 +44,9 @@ func TestDesktopStartupMakesInstalledPluginSettingsReachable(t *testing.T) {
 	options := DesktopOptions(core.NewClient(), store.At(preferences), "test")
 	options.PluginRoot = plugins
 	options.Languages = []string{"en"}
-	// This integration isolates plugin startup. Agent detection has its own
-	// explicitly controlled process fixtures and is not triggered here.
-	options.AgentKernel = nil
+	// This integration isolates plugin startup. AI provider discovery has its own
+	// test with written configuration files and is not triggered here.
+	options.AIKernel = nil
 	h := newHarnessWithOptions(t, options)
 	if h.app.plugins == nil {
 		t.Fatal("production startup omitted the plugin Core consumer")

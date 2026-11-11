@@ -4,34 +4,22 @@
   "group": "Agent 对话",
   "capability": "Agent 思考强度英文呈现：Claude/Codex 子菜单、设置行当前值和模型底栏统一使用上游英文名称",
   "macos": {
-    "implementationStatus": "partial",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/settingswindow/window.go",
-      "desktop/internal/workbench/app.go",
-      "desktop/internal/workbench/agent_config.go",
-      "desktop/internal/workbench/agent_toolbar.go",
-      "desktop/internal/workbench/agent_history_test.go"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
-    "implementationStatus": "partial",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/settingswindow/window.go",
-      "desktop/internal/workbench/app.go",
-      "desktop/internal/workbench/agent_config.go",
-      "desktop/internal/workbench/agent_toolbar.go",
-      "desktop/internal/workbench/agent_history_test.go"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "Agent",
   "verification": "2026-10-01 macOS：最新 preview 独立 PR 分支 83 项 Agent 回归通过；含 PR #1007 前置修复的组合构建 87 项回归及真实界面验收通过；中文真实界面确认 Codex 的 Low、Medium、High、Xhigh、Max、Ultra 和 Claude 的 Low、Medium、High、Max 均显示英文。两边分别切换 Low，确认子菜单、设置行当前值和模型底栏同步英文，并恢复 Claude Medium、Codex Xhigh；权限、速度和思考强度标题仍显示中文。不改原始选项 ID、顺序和确认行为，运行前后 bundle 全部 990 个文件 SHA-256 一致。 Windows 已按同一规则实现上述英文呈现，真机验收待执行。",
-  "notes": "2026-11-09：Viva 的 thought_level 选择器显示适配器返回的选项名称原文，当前值经 sessionConfigured 确认；滑块呈现、子菜单和设置行同步仍未迁移。",
+  "notes": "Viva：2026-11-12 用户决定不做 Agent 对话，#1799 已删除桌面端实现，见 docs/viva-migration.md 的“放弃：Agent 对话”。Rust Core 中的 Agent 代码暂留，是否删除另行决定。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

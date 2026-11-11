@@ -2,8 +2,8 @@ package i18n
 
 // CommandMessages name the actions of the command catalog (Find Action).
 type CommandMessages struct {
-	AddNextOccurrence, UnselectOccurrence, SelectAllOccurrences, CloneCaretAbove, CloneCaretBelow                                                                                                                                                                                                                                                                                                                                                                                                                                                                       string
-	GroupEditor, GroupApp, GroupView, GroupProject, GroupToolWindows, GroupSearch, GroupGit, GroupRun, GroupTerminal, GroupAgent, Settings, Plugins, Logs, ImportLegacy, ThemeSystem, ThemeLight, ThemeDark, LanguageEnglish, LanguageChinese, OpenProject, NewProject, Clone, CloseProject, SaveAll, SearchEverywhere, FindInFiles, ReplaceInFiles, Commit, CommitAndPush, Branches, GitConsole, Run, Debug, ToggleBreakpoint, NewTerminal, NewAgentConversation, NoActions, FindAction, GitNextChange, GitPreviousChange, Fold, Unfold, FoldAll, UnfoldAll, ToggleVim string
+	AddNextOccurrence, UnselectOccurrence, SelectAllOccurrences, CloneCaretAbove, CloneCaretBelow                                                                                                                                                                                                                                                                                                                                                                                                                                     string
+	GroupEditor, GroupApp, GroupView, GroupProject, GroupToolWindows, GroupSearch, GroupGit, GroupRun, GroupTerminal, Settings, Plugins, Logs, ImportLegacy, ThemeSystem, ThemeLight, ThemeDark, LanguageEnglish, LanguageChinese, OpenProject, NewProject, Clone, CloseProject, SaveAll, SearchEverywhere, FindInFiles, ReplaceInFiles, Commit, CommitAndPush, Branches, GitConsole, Run, Debug, ToggleBreakpoint, NewTerminal, NoActions, FindAction, GitNextChange, GitPreviousChange, Fold, Unfold, FoldAll, UnfoldAll, ToggleVim string
 	// ShowTool is the action that shows a tool window by its name.
 	ShowTool func(name string) string
 }
@@ -30,7 +30,6 @@ func commandMessages(language Language) CommandMessages {
 		GroupGit:             Shared(language, "desktop.command.groupGit"),
 		GroupRun:             Shared(language, "desktop.command.groupRun"),
 		GroupTerminal:        Shared(language, "desktop.command.groupTerminal"),
-		GroupAgent:           Shared(language, "desktop.command.groupAgent"),
 		Settings:             Shared(language, "desktop.command.settings"),
 		Plugins:              Shared(language, "desktop.command.plugins"),
 		Logs:                 Shared(language, "desktop.command.logs"),
@@ -57,7 +56,6 @@ func commandMessages(language Language) CommandMessages {
 		ToggleBreakpoint:     Shared(language, "desktop.command.toggleBreakpoint"),
 		ToggleVim:            Shared(language, "desktop.command.toggleVim"),
 		NewTerminal:          Shared(language, "desktop.command.newTerminal"),
-		NewAgentConversation: Shared(language, "desktop.command.newAgentConversation"),
 		NoActions:            Shared(language, "desktop.command.noActions"),
 		FindAction:           Shared(language, "desktop.command.findAction"),
 		ShowTool: func(name string) string {

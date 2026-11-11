@@ -7,25 +7,19 @@
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable",
     "evidence": [
-      "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/settingswindow/window.go",
-      "desktop/internal/workbench/app.go"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable",
     "evidence": [
-      "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/settingswindow/window.go",
-      "desktop/internal/workbench/app.go"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "Agent",
   "verification": "macOS：已有 Codex ChatGPT 登录直接对话；未登录只显示登录按钮，点击才打开浏览器，取消与超时清理进程；API Key 与订阅空闲切换后验证实际计费来源，不携带旧 key/URL/模型、不改提交服务商；忙碌时拒绝切换，账号变化后断开；老配置仍走 API Key，Codex 订阅不能用于 Claude（Claude 订阅见 agent-claude-subscription）。真实账号与 macOS UI 待验证；Windows 连接桥已接通共享 host，UI 待接入；2026-10-16 删除了从未接入后端的「Codex 集成」设置页与 Codex app-server 客户端死代码，AI 设置不再显示 Codex CLI 状态或连接按钮。 Windows：Codex 设置显示 macOS 同款订阅行，未启用时只提供 Enable，启用后提供 “Use API key” 返回 API Key 模式；切换按钮在连接中、创建会话、回复中、加载历史、等待权限或配置确认时禁用，避免中断当前工作。订阅启动不携带 provider 的 key、地址或模型；未登录时 Agent 面板只显示“Sign in with ChatGPT”，点击后才启动登录，登录中可取消并清理连接。旧配置仍按 API Key 读取；Claude 不显示订阅入口。真实 ChatGPT 账号验收待执行。",
-  "notes": "Viva 工作台助手面板与对应设置页目前仅为占位，客户端未接入 Agent 会话、配置及宿主流程；Core 或旧客户端已有能力不代表用户入口已迁移。",
+  "notes": "Viva：2026-11-12 用户决定不做 Agent 对话，#1799 已删除桌面端实现，见 docs/viva-migration.md 的“放弃：Agent 对话”。Rust Core 中的 Agent 代码暂留，是否删除另行决定。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

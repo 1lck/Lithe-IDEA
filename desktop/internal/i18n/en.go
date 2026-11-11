@@ -317,8 +317,6 @@ var english = Messages{
 		Settings:        Shared(English, "menu.settings"),
 	},
 
-	Agent: agentMessages(English),
-
 	Status: StatusMessages{
 		Path:           Shared(English, "desktop.status.path"),
 		Caret:          Shared(English, "desktop.status.caret"),
@@ -511,7 +509,6 @@ var english = Messages{
 	Debug:     debugMessages(English),
 	Run:       runMessages(English),
 	AI:        aiMessages(English),
-	MCP:       mcpMessages(English),
 	IDEAPI:    ideAPIMessages(English),
 	Sync:      syncMessages(English),
 	Worktrees: worktreeMessages(English),

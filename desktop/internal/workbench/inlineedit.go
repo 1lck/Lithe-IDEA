@@ -61,7 +61,7 @@ var inlineEditCode = regexp.MustCompile(`AI_INLINE_EDIT_[A-Z_]+`)
 // requestInlineEdit opens the inline edit on the selection of the document that has the
 // keyboard. A missing selection or a read-only file is reported and nothing opens.
 func (a *App) requestInlineEdit(p *project, view *editorview.View) {
-	if _, ok := a.kernel.(aiInlineKernel); !ok || !a.agentKernelReady() || a.inline.open {
+	if _, ok := a.kernel.(aiInlineKernel); !ok || !a.aiKernelReady() || a.inline.open {
 		return
 	}
 	var doc *document
@@ -158,7 +158,7 @@ func (a *App) inlineEditSources() []string {
 
 // fetchInlineEdit plans, sends and decodes one request off the window thread.
 func (a *App) fetchInlineEdit(ctx context.Context, kernel aiInlineKernel, edit core.AIInlineEdit, sources []string) (string, error) {
-	providers, _ := a.discoverAgentProviders(ctx)
+	providers := a.discoverAIProviders(ctx)
 	provider, ok := pickAIProviderFrom(providers, sources)
 	if !ok {
 		return "", errAINoProvider

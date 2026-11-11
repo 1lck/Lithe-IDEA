@@ -313,34 +313,13 @@ type Options struct {
 	// Toolchains is the Build settings page's loader. Nil leaves the page unavailable.
 	Toolchains     ToolchainLoader
 	PluginSettings PluginSettingsLoader
-	// AgentSettings is the Core surface of the AI pages; nil leaves them unavailable.
-	// AgentDataDirectory is the writable application-support directory the Hook library
-	// lives in, AgentWorkspace the open project's root (empty without one), and
-	// AgentContextLimits and SetAgentContextLimits read and save one Agent's launch limits.
-	AgentSettings         AgentSettingsBackend
-	AgentDataDirectory    func() string
-	AgentWorkspace        func() string
-	AgentContextLimits    func(agentID string) AgentContextLimit
-	SetAgentContextLimits func(agentID string, limit AgentContextLimit)
-	// AgentReportedContext is the context length the Agent last reported for itself, 0 when it
-	// has not reported one; the window field shows it as the default.
-	AgentReportedContext func(agentID string) uint64
-	// CustomAgents reads the saved custom Agent definitions and SetCustomAgents stores the whole
-	// list (agent_custom.go). Nil leaves the custom Agent card out.
-	CustomAgents    func() []CustomAgentSetting
-	SetCustomAgents func([]CustomAgentSetting)
-	// OpenSkill opens a skill's SKILL.md in the workbench editor. The path is the file the
-	// Skills listing reported; nil leaves the Open button out.
-	OpenSkill func(path string)
 	// AIGeneration reads the commit and inline-edit generation choices and SetAIGeneration
-	// saves them; they are Lithe's own preferences (agent_generation.go).
+	// saves them; they are Lithe's own preferences (ai_generation.go).
 	AIGeneration    func() AIGenerationSettings
 	SetAIGeneration func(AIGenerationSettings)
 	// AIProviders reads the Codex and Claude providers generation would use, off the window
 	// thread; nil leaves the source lines out.
 	AIProviders func(context.Context) []AIProviderStatus
-	// MCP is the MCP Configuration page's loader. Nil leaves the page unavailable.
-	MCP MCPLoader
 	// IDEAPI is the IDE Connection page's loader. Nil leaves the page unavailable.
 	IDEAPI        IDEAPILoader
 	PluginRuntime func(string) PluginRuntimeState
@@ -417,9 +396,9 @@ func (c *Controller) OpenKeymap(application *app.Application, current Values) er
 	return c.open(application, current, pageKeymap)
 }
 
-// OpenAI shows the window on the AI page, where the commit area's settings button leads.
+// OpenAI shows the window on the Generation page, where the commit area's settings button leads.
 func (c *Controller) OpenAI(application *app.Application, current Values) error {
-	return c.open(application, current, pageAI)
+	return c.open(application, current, pageAIGeneration)
 }
 
 // open shows the window on page, or, with noPage, on the page it already has or starts on.

@@ -2,7 +2,7 @@
 
 状态：已实现
 
-> Viva 迁移状态：以下完整退出兜底和询问是旧客户端的实现与历史验收，不能视为 Viva 已具备。Viva 已接入的部分见下文“Viva：运行会话与忙碌终端的确认”：关闭项目或退出时询问插件 Run、调试会话和忙碌终端，关闭忙碌终端标签页时单独询问。跨功能统一账本、Agent 任务、后台服务选择、异常终止兜底及 Windows 实机行为仍需接入和验证。
+> Viva 迁移状态：以下完整退出兜底和询问是旧客户端的实现与历史验收，不能视为 Viva 已具备。Viva 已接入的部分见下文“Viva：运行会话与忙碌终端的确认”：关闭项目或退出时询问插件 Run、调试会话和忙碌终端，关闭忙碌终端标签页时单独询问。跨功能统一账本、后台服务选择、异常终止兜底及 Windows 实机行为仍需接入和验证。
 
 ## 先说结论
 
@@ -122,8 +122,6 @@ Viva 客户端（`desktop/internal/workbench/process_exit.go`）把关闭时要�
 
 ## 适用范围
 
-- `desktop/internal/core/agent.go`
-- `desktop/internal/core/agent_test.go`
 - `desktop/internal/core/plugin_session.go`
 - `desktop/internal/core/plugin_session_test.go`
 - `shared/platform-feature-matrix/features/run-processes-end-with-ide.json`

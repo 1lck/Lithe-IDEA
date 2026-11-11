@@ -142,7 +142,6 @@ HTML 预览和插件页已经有统一的默认拒绝门，但它只管网页。
 - [旧版进程启动和生命周期实现](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/Lithe/Platform/MacOS)
 - [旧版网页媒体权限入口](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/Lithe/Platform/MacOS/WebMediaCapture.swift)、[源码扫描测试](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Tests/LitheTests/WebMediaCaptureTests.swift)和[旧版用途说明](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Resources/Info.plist)
 - `desktop/internal/term/`
-- `desktop/internal/core/agent.go`
 - `desktop/internal/core/plugin_session.go`
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/process.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/process.rs)（插件后端和语言服务器的启动入口）
 - Lithe-core-rust 锁定修订：[rust/lithe-agent-host/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host)

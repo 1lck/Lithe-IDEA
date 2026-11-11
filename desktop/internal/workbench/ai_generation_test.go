@@ -19,7 +19,7 @@ func TestAIGenerationSourcesFollowTheChosenProvider(t *testing.T) {
 }
 
 func TestPickAIProviderFromRespectsTheSources(t *testing.T) {
-	providers := map[string][]agentProvider{
+	providers := map[string][]aiProvider{
 		"codex":  {{Endpoint: "https://a", APIKey: "k"}},
 		"claude": {{Endpoint: "https://b", APIKey: "k"}},
 	}
@@ -30,7 +30,7 @@ func TestPickAIProviderFromRespectsTheSources(t *testing.T) {
 	if _, ok := pickAIProviderFrom(providers, []string{"codex"}); !ok {
 		t.Fatal("codex only found nothing")
 	}
-	if _, ok := pickAIProviderFrom(map[string][]agentProvider{"claude": {{Endpoint: "https://b"}}}, []string{"claude"}); ok {
+	if _, ok := pickAIProviderFrom(map[string][]aiProvider{"claude": {{Endpoint: "https://b"}}}, []string{"claude"}); ok {
 		t.Fatal("a provider without a key was picked")
 	}
 }

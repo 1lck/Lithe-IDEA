@@ -23,7 +23,7 @@ func TestStagedChangeKindUsesTheIndexSide(t *testing.T) {
 }
 
 func TestPickAIProviderNeedsACredential(t *testing.T) {
-	providers := map[string][]agentProvider{
+	providers := map[string][]aiProvider{
 		"codex":  {{Endpoint: "https://a", MissingKey: true}},
 		"claude": {{Endpoint: "https://b", APIKey: "k", Issue: ""}},
 	}
@@ -31,7 +31,7 @@ func TestPickAIProviderNeedsACredential(t *testing.T) {
 	if !ok || got.Endpoint != "https://b" {
 		t.Fatalf("picked %#v %v", got, ok)
 	}
-	if _, ok := pickAIProvider(map[string][]agentProvider{"codex": {{Endpoint: "https://a", APIKey: "k", Issue: agentIssueCredential}}}); ok {
+	if _, ok := pickAIProvider(map[string][]aiProvider{"codex": {{Endpoint: "https://a", APIKey: "k", Issue: aiIssueCredential}}}); ok {
 		t.Fatal("a provider with an issue was picked")
 	}
 }

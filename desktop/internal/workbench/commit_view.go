@@ -627,15 +627,3 @@ func firstLine(message string) string {
 	}
 	return message
 }
-
-// byteOffsetOfRune is the byte offset in value of its n-th rune, or its length past the end.
-// The agent composer still uses it.
-func byteOffsetOfRune(value string, n int) int {
-	for offset := range value {
-		if n == 0 {
-			return offset
-		}
-		n--
-	}
-	return len(value)
-}

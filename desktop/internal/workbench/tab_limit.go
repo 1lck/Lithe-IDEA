@@ -9,8 +9,8 @@ import (
 // The editor keeps at most the user's number of file tabs open (Settings › Editor; 30
 // by default, 0 for no limit). Opening one more closes a file tab chosen by the policy:
 // the least recently used by default, or the one opened first. A tab with unsaved
-// changes, one being saved and the tab just opened are never closed, and terminals and
-// Agent conversations do not count.
+// changes, one being saved and the tab just opened are never closed, and terminals do
+// not count.
 
 // touchDocument marks document id as the most recently used.
 func (p *project) touchDocument(id int) {

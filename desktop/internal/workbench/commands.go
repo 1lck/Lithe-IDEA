@@ -144,7 +144,6 @@ func (a *App) commands() []command {
 	add("debug.toggleBreakpoint", t.GroupRun, t.ToggleBreakpoint, "", true, func() { a.toggleBreakpoint(p) })
 
 	add("terminal.new", t.GroupTerminal, t.NewTerminal, "", true, func() { a.openToolTerminal("") })
-	add("agent.new", t.GroupAgent, t.NewAgentConversation, "", a.agentCanStartConversation(p), func() { a.newAgentConversation(p) })
 	return sortCommands(list)
 }
 

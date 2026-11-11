@@ -113,10 +113,6 @@ func (a *App) tabLook(member string) (string, gfx.Icon, bool) {
 	if p == nil {
 		return "", gfx.Icon{}, false
 	}
-	if member == agentConversationMember {
-		agent, _ := p.selectedAgent()
-		return a.agentConversationTitle(p), a.agentBrandIcon(agent.ID), true
-	}
 	if id, ok := memberTerminal(member); ok {
 		if t := p.terms.find(id); t != nil {
 			return a.terminalTitle(t), icons.SquareTerminal, true

@@ -16,7 +16,6 @@ type Messages struct {
 	Commit    CommitMessages
 	Branch    BranchMessages
 	Terminal  TerminalMessages
-	Agent     AgentMessages
 	Status    StatusMessages
 	Settings  SettingsMessages
 	Logs      LogMessages
@@ -26,7 +25,6 @@ type Messages struct {
 	Debug     DebugMessages
 	Run       RunMessages
 	AI        AIMessages
-	MCP       MCPMessages
 	IDEAPI    IDEAPIMessages
 	Sync      SyncMessages
 	Worktrees WorktreeMessages
@@ -139,7 +137,6 @@ type ToolMessages struct {
 	Security        string
 	Debug           string
 	Notifications   string
-	Assistant       string
 	Updates         string
 	Background      string
 	// DragHint tells assistive technology that a toolbar item can be dragged elsewhere.
@@ -556,8 +553,8 @@ type StatusMessages struct {
 
 // SettingsMessages are the settings window's words.
 type SettingsMessages struct {
-	AIAgents, AIInstructions, AISkills, AIHooks string
-	Title                                       string
+	AIGeneration string
+	Title        string
 	// Search is the sidebar's search field; NoMatches is the sidebar when it finds no page.
 	Search    string
 	NoMatches string
@@ -579,7 +576,6 @@ type SettingsMessages struct {
 	Languages          string
 	Tools              string
 	AI                 string
-	MCP                string
 	IDEAPI             string
 	// PageLater is the body of a page the new desktop client does not offer yet.
 	PageLater string

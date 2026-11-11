@@ -76,5 +76,4 @@ func (a *App) background(p *project, timeout time.Duration, work func(ctx contex
 // results they posted stay queued until the next drain.
 func (a *App) wait() {
 	a.tasks.running.Wait()
-	a.agentClosing.Wait()
 }

@@ -1,6 +1,11 @@
 # Agent 笔记：Viva 的 ACP Core 连接桥与最小会话面板
 
 状态：已实现
+归档日期：2026-11-12
+
+## 归档原因
+
+2026-11-12 用户决定 Viva 桌面端不做 Agent 对话，#1799 删除了本文描述的助手面板、Core ACP 连接桥（`desktop/internal/core/agent*.go`）、适配器安装和历史恢复。provider 发现和凭据定位器的规则保留下来，现在只供 AI 提交信息与行内编辑使用，见[Viva 桌面端不做 Agent 对话，只保留 AI 生成](../../implemented/feature/2026-11-12-viva-agent-conversation-removed.md)。Rust Core 的 Agent 宿主暂留。
 
 ## 先说结论
 

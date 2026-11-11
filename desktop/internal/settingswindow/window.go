@@ -111,10 +111,8 @@ type window struct {
 	terminal terminalShellState
 	// fonts is the Fonts page's list of installed fixed-pitch families.
 	fonts fontListState
-	// agent is the AI pages' state (agent_settings.go).
-	agent *agentSettings
-	// mcp is the MCP Configuration page's state.
-	mcp *mcpState
+	// generation is the Generation page's state (ai_generation.go).
+	generation *aiGeneration
 	// scrollbackField is the Terminal page's history field; scrollbackEditing says the user
 	// typed in it since the stored number was last shown.
 	scrollbackField   ui.Field
@@ -214,8 +212,7 @@ func newWindow(c *Controller, current Values) *window {
 	w.stepping = newSteppingState(c.opts.SteppingAdapters, c.opts.NormalizeSteppingFilters)
 	w.terminal = newTerminalShellState(c.opts.TerminalShells)
 	w.fonts = newFontListState(c.opts.MonospaceFamilies)
-	w.agent = newAgentSettings(c.opts, func() { w.inv.Invalidate() })
-	w.mcp = newMCPState(c.opts.MCP)
+	w.generation = newAIGeneration(c.opts, func() { w.inv.Invalidate() })
 	w.nav.Node, w.nav.Key, w.nav.RowHeight, w.nav.Indent = w.navNode, w.navKey, rowHeight, childIndent
 	return w
 }
@@ -398,7 +395,6 @@ func (w *window) collect() {
 	}
 	w.terminal.take()
 	w.fonts.take()
-	w.mcp.take()
 	if w.dynamic.take() {
 		w.rowsValid = false
 	}
@@ -436,7 +432,6 @@ func (w *window) declareWork(c ui.C) {
 	w.stepping.declare(c)
 	w.terminal.declare(c)
 	w.fonts.declare(c)
-	w.mcp.declare(c)
 	w.dynamic.declare(c)
 	w.market.declare(c)
 	w.market.search.declare(c)

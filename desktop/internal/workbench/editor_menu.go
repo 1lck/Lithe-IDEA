@@ -41,9 +41,6 @@ func (a *App) editorMenuItems(c ui.C, p *project, d *document) func(*ui.MenuItem
 				c.After(func() { a.openInBrowser(p, d) })
 			}
 		}
-		if !d.virtual && d.path != "" && a.agentKernelReady() {
-			a.agentFileMenuItems(c, menu, p, []string{d.path})
-		}
 		menu.Separator()
 		if menu.Item(i18n.Shared(language, "desktop.editorMenu.toggleComment")).Keys(primary, "/").Disabled(readOnly).Clicked() {
 			c.After(func() { a.runLineOperation(p, d, core.ToggleLineComment) })

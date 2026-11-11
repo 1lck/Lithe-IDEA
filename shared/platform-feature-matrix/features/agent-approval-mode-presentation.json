@@ -4,34 +4,22 @@
   "group": "Agent 对话",
   "capability": "Agent 权限模式呈现：Claude/Codex 名称保留上游原文，当前模式说明按界面语言显示，菜单使用左侧勾选的紧凑单行列表，保留各 Agent 实际支持的选项及权限语义",
   "macos": {
-    "implementationStatus": "partial",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/settingswindow/window.go",
-      "desktop/internal/workbench/app.go",
-      "desktop/internal/workbench/agent_config.go",
-      "desktop/internal/workbench/agent_toolbar.go",
-      "desktop/internal/workbench/agent_history_test.go"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
-    "implementationStatus": "partial",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/settingswindow/window.go",
-      "desktop/internal/workbench/app.go",
-      "desktop/internal/workbench/agent_config.go",
-      "desktop/internal/workbench/agent_toolbar.go",
-      "desktop/internal/workbench/agent_history_test.go"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "Agent",
   "verification": "中文和英文环境分别验证 Claude/Codex：权限名称保留上游原文，Plan 菜单与底栏一致，模式入口只显示名称及向下箭头，未知选项原文不变；当前模式说明在入口 tooltip 使用当前界面语言，保留各 Agent 实际的审批和环境约束。检查原始 ID、数量、顺序及确认/失败行为不变。使用指定语言的资源 Bundle 验证名称与通用 Plan 翻译不会串用；菜单使用共享单行选项、左侧勾选、普通/hover/选中/禁用状态；深浅主题验证紧凑菜单、长列表方向键/Enter 导航、选择后关闭及响应期间下一轮配置仍可操作。 Windows 已按同一呈现规则实现，真机中英文验收待执行。",
-  "notes": "2026-11-09：Viva 在会话设置栏显示适配器声明的 mode select 及上游名称，选择经确认后生效；按当前模式解释权限语义、tooltip 与专属紧凑菜单仍未迁移。",
+  "notes": "Viva：2026-11-12 用户决定不做 Agent 对话，#1799 已删除桌面端实现，见 docs/viva-migration.md 的“放弃：Agent 对话”。Rust Core 中的 Agent 代码暂留，是否删除另行决定。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

@@ -102,8 +102,6 @@ func (a *App) confirmationNames(ctx context.Context, lifecycleContext string, se
 // the plugin-started Run sessions and the debug session. Core decides what each
 // one means for closing; the host only says what exists. Terminals are listed by
 // exitTerminals, because whether one is busy is read off the window thread.
-//
-// Agent tasks are not listed: the Agent panel keeps its own tasks.
 func (a *App) runningExitRecords(p *project) []exitRecord {
 	var records []exitRecord
 	for _, entry := range p.build.runs {

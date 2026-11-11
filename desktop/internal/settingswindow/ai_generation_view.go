@@ -5,24 +5,29 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// generationCard is the Agents page's section for commit message generation and inline edits:
-// the provider and output choice, the instructions handed to a commit message generation, and
-// the provider each source reads from its configuration.
+// generationPage is the Generation page: the provider and output choice of commit message
+// generation and inline edits, the instructions handed to a commit message generation, and the
+// provider each source reads from its configuration.
+func (w *window) generationPage(c ui.C) {
+	w.pageScroll(c, pageAIGeneration, func() { w.generationCard(c) })
+}
+
+// generationCard is the Generation page's one card.
 func (w *window) generationCard(c ui.C) {
-	s := w.agent
+	s := w.generation
 	s.beginProviders(false)
 	current := s.generation()
 	// The instructions text is brought up to date before the text area is declared, because
 	// declaring it is what shows the text; opening the page only reads, so nothing is saved.
-	draft := &s.generationDraft
+	draft := &s.draft
 	draft.sync(current.CustomInstructions)
 	s.mu.Lock()
-	st := s.providerRead
+	st := s.read
 	s.mu.Unlock()
-	w.card(c, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.generation.title"), i18n.Shared(w.marketLanguage(), "desktop.settings.agent.generation.help"), func() {
+	w.card(c, i18n.Shared(w.marketLanguage(), "desktop.settings.aiGeneration.title"), i18n.Shared(w.marketLanguage(), "desktop.settings.aiGeneration.help"), func() {
 		ui.Column(c).FillWidth().Gap(8).Children(func() {
 			if st.loading && !st.loaded {
-				ui.Text(c, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.loading")).FontSize(12).Color(w.pal.muted)
+				ui.Text(c, i18n.Shared(w.marketLanguage(), "desktop.settings.aiGeneration.loading")).FontSize(12).Color(w.pal.muted)
 			}
 			for _, source := range []string{"codex", "claude"} {
 				ui.Wrap(c.Key("gen/"+source), w.generationSourceLine(w.marketLanguage(), source, st.providers, st.loaded)).FontSize(12).Color(w.pal.muted)
@@ -32,13 +37,13 @@ func (w *window) generationCard(c ui.C) {
 			// A bound control writes the user's choice into its value only when it is asked
 			// (Changed) or when the page ends, so each is asked before the values are read.
 			providerChanged := ui.Select(c.Key("genProvider"), &provider, providers, func(i int) string { return w.generationProviderLabel(i) }).
-				Label(i18n.Shared(w.marketLanguage(), "desktop.settings.agent.generation.provider")).Height(28).Changed()
+				Label(i18n.Shared(w.marketLanguage(), "desktop.settings.aiGeneration.provider")).Height(28).Changed()
 			language := generationIndex(generationLanguageChoices[:], current.Language)
 			languages := []int{0, 1, 2}
 			languageChanged := ui.Select(c.Key("genLanguage"), &language, languages, func(i int) string { return w.generationLanguageLabel(i) }).
-				Label(i18n.Shared(w.marketLanguage(), "desktop.settings.agent.generation.language")).Height(28).Changed()
+				Label(i18n.Shared(w.marketLanguage(), "desktop.settings.aiGeneration.language")).Height(28).Changed()
 			body := current.IncludeBody
-			bodyChanged := ui.Switch(c.Key("genBody"), &body, i18n.Shared(w.marketLanguage(), "desktop.settings.agent.generation.includeBody")).Changed()
+			bodyChanged := ui.Switch(c.Key("genBody"), &body, i18n.Shared(w.marketLanguage(), "desktop.settings.aiGeneration.includeBody")).Changed()
 			// The text area is declared in every paint, before anything decides to save, so
 			// it is drawn whether or not a choice changed.
 			instructionsChanged := w.generationInstructionsField(c, draft)
@@ -86,38 +91,38 @@ func (w *window) generationInstructionsField(c ui.C, draft *generationInstructio
 func (w *window) generationSourceLine(language i18n.Language, source string, providers []AIProviderStatus, loaded bool) string {
 	name := providerSourceName(source)
 	if !loaded {
-		return name + " · " + i18n.Shared(language, "desktop.settings.agent.loading")
+		return name + " · " + i18n.Shared(language, "desktop.settings.aiGeneration.loading")
 	}
 	for _, p := range providers {
 		if p.Source != source {
 			continue
 		}
 		if !p.Usable {
-			return i18n.SharedFormat(language, "desktop.settings.agent.generation.sourceUnavailable", map[string]string{"source": name})
+			return i18n.SharedFormat(language, "desktop.settings.aiGeneration.sourceUnavailable", map[string]string{"source": name})
 		}
-		return i18n.SharedFormat(language, "desktop.settings.agent.generation.sourceReady", map[string]string{
+		return i18n.SharedFormat(language, "desktop.settings.aiGeneration.sourceReady", map[string]string{
 			"source": name, "name": p.Name, "model": p.Model, "path": p.Path,
 		})
 	}
-	return i18n.SharedFormat(language, "desktop.settings.agent.generation.sourceUnavailable", map[string]string{"source": name})
+	return i18n.SharedFormat(language, "desktop.settings.aiGeneration.sourceUnavailable", map[string]string{"source": name})
 }
 
 func (w *window) generationProviderLabel(index int) string {
 	switch generationProviderChoices[index] {
 	case "codex":
-		return i18n.Shared(w.marketLanguage(), "desktop.settings.agent.generation.providerCodex")
+		return i18n.Shared(w.marketLanguage(), "desktop.settings.aiGeneration.providerCodex")
 	case "claude":
-		return i18n.Shared(w.marketLanguage(), "desktop.settings.agent.generation.providerClaude")
+		return i18n.Shared(w.marketLanguage(), "desktop.settings.aiGeneration.providerClaude")
 	}
-	return i18n.Shared(w.marketLanguage(), "desktop.settings.agent.generation.providerAuto")
+	return i18n.Shared(w.marketLanguage(), "desktop.settings.aiGeneration.providerAuto")
 }
 
 func (w *window) generationLanguageLabel(index int) string {
 	switch generationLanguageChoices[index] {
 	case "english":
-		return i18n.Shared(w.marketLanguage(), "desktop.settings.agent.generation.languageEnglish")
+		return i18n.Shared(w.marketLanguage(), "desktop.settings.aiGeneration.languageEnglish")
 	case "simplifiedChinese":
-		return i18n.Shared(w.marketLanguage(), "desktop.settings.agent.generation.languageChinese")
+		return i18n.Shared(w.marketLanguage(), "desktop.settings.aiGeneration.languageChinese")
 	}
-	return i18n.Shared(w.marketLanguage(), "desktop.settings.agent.generation.languageInterface")
+	return i18n.Shared(w.marketLanguage(), "desktop.settings.aiGeneration.languageInterface")
 }

@@ -5,7 +5,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"maps"
 	"runtime"
-	"slices"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
@@ -255,14 +254,6 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			})
 		},
 		OpenURL: func(address string) { _ = openURL(address) },
-		// A skill's SKILL.md opens as an ordinary editor tab of the open project.
-		OpenSkill: func(path string) {
-			a.post(func(a *App) {
-				if a.project != nil {
-					a.openFile(a.project, path)
-				}
-			})
-		},
 		SetNetwork: func(next settingswindow.NetworkSettings, password *string) {
 			a.post(func(a *App) { a.setNetwork(next, password) })
 		},
@@ -276,37 +267,11 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		},
 		Toolchains:     settingsToolchains{app: a},
 		PluginSettings: pluginSettingsSources{app: a},
-		// The AI pages read and edit the Agents' own configuration through Core.
-		AgentSettings:      a.agentSettingsBackend(),
-		AgentDataDirectory: a.store.Dir,
-		AgentWorkspace: func() string {
-			if root := a.toolchainRoot.Load(); root != nil {
-				return *root
-			}
-			return ""
-		},
-		AgentContextLimits: func(id string) settingswindow.AgentContextLimit {
-			l := a.agentContextLimitsFor(id)
-			return settingswindow.AgentContextLimit{WindowTokens: l.WindowTokens, AutoCompactTokens: l.AutoCompactTokens}
-		},
-		AgentReportedContext: a.agentReportedContextFor,
-		CustomAgents: func() []settingswindow.CustomAgentSetting {
-			return slices.Clone(a.settings.CustomAgents)
-		},
-		SetCustomAgents: func(list []settingswindow.CustomAgentSetting) {
-			a.post(func(a *App) { a.setCustomAgents(list) })
-		},
-		SetAgentContextLimits: func(id string, l settingswindow.AgentContextLimit) {
-			a.post(func(a *App) {
-				a.setAgentContextLimits(id, agentContextLimit{WindowTokens: l.WindowTokens, AutoCompactTokens: l.AutoCompactTokens})
-			})
-		},
-		AIGeneration: a.aiGenerationSettings,
+		AIGeneration:   a.aiGenerationSettings,
 		SetAIGeneration: func(value settingswindow.AIGenerationSettings) {
 			a.post(func(a *App) { a.setAIGenerationSettings(value) })
 		},
 		AIProviders: a.aiProviderStatuses,
-		MCP:         a.mcpSettingsLoader(),
 		IDEAPI:      a.ideAPISettingsLoader(),
 	})
 }

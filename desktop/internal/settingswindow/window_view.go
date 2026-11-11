@@ -203,14 +203,8 @@ func (w *window) content(c ui.C) {
 			w.toolchainsPage(c)
 		case w.sess.page == pageTerminal && w.ctrl.opts.TerminalShells != nil:
 			w.terminalPage(c)
-		case w.sess.page == pageAIAgents:
-			w.agentsPage(c)
-		case w.sess.page == pageAIInstructions:
-			w.instructionsPage(c)
-		case w.sess.page == pageAISkills:
-			w.skillsPage(c)
-		case w.sess.page == pageAIHooks:
-			w.hooksPage(c)
+		case w.sess.page == pageAIGeneration:
+			w.generationPage(c)
 		case w.sess.page == pageVersionControl:
 			w.versionControlPage(c)
 		case w.sess.page == pageNetwork && w.ctrl.opts.SetNetwork != nil:
@@ -221,8 +215,6 @@ func (w *window) content(c ui.C) {
 			w.keymapPage(c)
 		case w.sess.page == pageProcessTermination:
 			w.processTerminationPage(c)
-		case w.sess.page == pageMCP && w.ctrl.opts.MCP != nil:
-			w.mcpPage(c)
 		case w.sess.page == pageIDEAPI && w.ctrl.opts.IDEAPI != nil:
 			w.ideAPIPage(c)
 		default:

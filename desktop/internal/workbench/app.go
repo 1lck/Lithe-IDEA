@@ -206,10 +206,10 @@ type Options struct {
 	// PluginRoot is the directory installed plugin packages live in. Empty asks
 	// pluginpkg.DefaultRoot, which is the platform's own data directory.
 	PluginRoot string
-	// AgentKernel runs the Agent panel: adapter detection, credential-free
-	// provider discovery and the Core ACP connection. nil leaves the panel
-	// unavailable instead of refusing to start.
-	AgentKernel AgentKernel
+	// AIKernel discovers the providers of commit message generation and inline edits from
+	// the user's Codex and Claude configuration. nil leaves AI generation unavailable
+	// instead of refusing to start.
+	AIKernel AIKernel
 	// PluginInitializeTimeout bounds every plugin backend's startup handshake.
 	// Zero keeps Core's default. Host tests whose fixture is a copy of the large
 	// instrumented test binary raise it so scheduler load cannot masquerade as
@@ -281,14 +281,8 @@ type settings struct {
 	// DebugSteppingFilters are the user's stepping policies by debug adapter ID, as Core
 	// normalized them; an adapter without one uses its plugin's declared defaults.
 	DebugSteppingFilters map[string]core.DebugSteppingFilters `json:"debugSteppingFilters,omitempty"`
-	// AgentContextLimits are the per-Agent context window and auto-compact limits
-	// (agent_limits.go), keyed by adapter id.
-	AgentContextLimits map[string]agentContextLimit `json:"agentContextLimits,omitempty"`
-	// CustomAgents are the user's command-line Agents (agent_custom.go), in the order the
-	// settings page lists them.
-	CustomAgents []settingswindow.CustomAgentSetting `json:"customAgents,omitempty"`
 	// AIGeneration is the provider and output choice of commit message generation and inline
-	// edits (ai_generation.go). It is Lithe's own preference, not the Agents' configuration.
+	// edits (ai_generation.go). It is Lithe's own preference, not the Codex or Claude configuration.
 	AIGeneration settingswindow.AIGenerationSettings `json:"aiGeneration,omitempty"`
 	// Fonts are the fonts of the editor, the terminal and the run output (fonts.go); none
 	// is fontprefs.Default.
@@ -366,8 +360,6 @@ type project struct {
 	debug debugState
 	// panels are the pages of the Run, Tests and Debug tool windows.
 	panels runPanels
-	// agent is the project's Agent panel and connection.
-	agent agentState
 	// review holds the Git review dialogs: Push, stashes, worktrees and annotations.
 	review gitReview
 	// blame is the commit subjects the inline blame annotations show, kept per project.
@@ -495,16 +487,13 @@ type App struct {
 	// pluginServerMu guards the language-server maps because a build provider
 	// may attach to a shared session from a background model load.
 	pluginServerMu sync.Mutex
-	// agentKernel is the Agent panel's kernel, nil when the window was built
-	// without one.
-	agentKernel AgentKernel
+	// aiKernel discovers AI generation providers (ai_provider.go), nil when the window was
+	// built without one.
+	aiKernel AIKernel
 	// inline is the editor's AI inline edit dialog (inlineedit.go).
 	inline inlineEditState
 	// ideAPIBridgeState lets the IDE Connection settings page reach the open project (settings_ide_api.go).
 	ideAPIBridgeState ideAPIBridge
-	// agentClosing tracks Core sessions being closed off the window thread, so
-	// shutdown waits for their process trees.
-	agentClosing sync.WaitGroup
 	// pluginServers are the language servers this window started, keyed by plugin.
 	pluginServers map[string]*pluginServer
 	// Native restart tokens prevent a late stop completion from restarting a
@@ -637,7 +626,7 @@ func New(options Options) *App {
 		logView:              newLogView(),
 		commitView:           newCommitView(),
 		delays:               defaultLogDelays,
-		agentKernel:          options.AgentKernel,
+		aiKernel:             options.AIKernel,
 		listShells:           localshell.InstalledShells,
 	}
 	a.gitConsole = core.NewGitConsole(a.gitConsoleChanged)
@@ -1041,7 +1030,7 @@ func (a *App) openProjectHere(path string) {
 		a.reduceRecent(a.recent, core.RecordRecent(root, a.now()), true)
 		// Every Git command the project runs is kept in the Git console.
 		ctx, cancel := context.WithCancel(core.WithGitConsole(context.Background(), a.gitConsole, root))
-		p := &project{root: root, name: filepath.Base(root), ctx: ctx, cancel: cancel, commit: newCommitState(), agent: newAgentState()}
+		p := &project{root: root, name: filepath.Base(root), ctx: ctx, cancel: cancel, commit: newCommitState()}
 		a.searchView.reset()
 		a.openTerminals(p)
 		a.project = p
@@ -1124,7 +1113,6 @@ func (a *App) finishCloseProject(p *project, after func()) {
 		// Build providers and prepared applications belong to the workspace and
 		// are stopped before the project state is dropped.
 		a.stopBuild(p)
-		a.closeAgent(p)
 		// A language server is bound to the workspace it was started for, so it goes
 		// with the project rather than outliving it.
 		a.stopAllPluginServers()

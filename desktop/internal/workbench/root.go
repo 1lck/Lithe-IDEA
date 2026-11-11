@@ -61,7 +61,7 @@ func (a *App) sessionConfig() app.Config {
 		OnPointer:     a.onPointer,
 		// Switching to another window saves the changed files (document_autosave.go).
 		OnFocusLost: a.onFocusLost,
-		// Files dropped on the Agent composer become references in its draft.
+		// Files dropped on the welcome page open a folder; on a terminal they become paths.
 		OnFileDrop: a.fileDrop,
 		// Plugin web tool windows show their pages in views of the system's web engine.
 		Web: &a.web,

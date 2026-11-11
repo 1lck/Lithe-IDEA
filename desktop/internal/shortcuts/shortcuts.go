@@ -32,7 +32,6 @@ const (
 	GroupGit
 	GroupRun
 	GroupTerminal
-	GroupAgent
 	// GroupToolWindows holds the plugin commands that open a tool window.
 	GroupToolWindows
 )
@@ -57,10 +56,8 @@ func (g Group) Title(messages *i18n.Messages) string {
 		return t.GroupRun
 	case GroupTerminal:
 		return t.GroupTerminal
-	case GroupToolWindows:
-		return t.GroupToolWindows
 	default:
-		return t.GroupAgent
+		return t.GroupToolWindows
 	}
 }
 
@@ -177,7 +174,6 @@ var Catalog = []Action{
 	{ID: "debug.start", Group: GroupRun, Title: func(m *i18n.Messages) string { return m.Commands.Debug }},
 	{ID: "debug.toggleBreakpoint", Group: GroupRun, Title: func(m *i18n.Messages) string { return m.Commands.ToggleBreakpoint }},
 	{ID: "terminal.new", Group: GroupTerminal, Title: func(m *i18n.Messages) string { return m.Commands.NewTerminal }},
-	{ID: "agent.new", Group: GroupAgent, Title: func(m *i18n.Messages) string { return m.Commands.NewAgentConversation }},
 }
 
 // pluginActions are the plugin commands the window offers now, appended to the catalog. The window

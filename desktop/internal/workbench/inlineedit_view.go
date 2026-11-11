@@ -1,6 +1,8 @@
 package workbench
 
 import (
+	"slices"
+
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/ui"
 )
@@ -104,7 +106,7 @@ func (a *App) inlineEditProviderPicker(c ui.C, s *inlineEditState) {
 			return t.ProviderClaude
 		}
 		return t.ProviderDefault
-	}).Label(t.Provider).Height(26).Disabled(s.running); selected != indexOfString(inlineEditChoices, s.source) {
+	}).Label(t.Provider).Height(26).Disabled(s.running); selected != max(slices.Index(inlineEditChoices, s.source), 0) {
 		choice := inlineEditChoices[selected]
 		c.After(func() { s.source = choice })
 	}

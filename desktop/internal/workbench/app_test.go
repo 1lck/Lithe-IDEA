@@ -138,6 +138,27 @@ func (h *harness) settle() {
 	}
 }
 
+// await pumps frames until condition is true, or fails at the deadline. It
+// observes the driver's wake channel rather than sleeping.
+func (h *harness) await(what string, condition func() bool) {
+	h.t.Helper()
+	deadline := time.NewTimer(8 * time.Second)
+	defer deadline.Stop()
+	for {
+		if condition() {
+			return
+		}
+		select {
+		case <-h.driver.Wakes():
+			if err := h.driver.Pump(); err != nil {
+				h.t.Fatalf("pump while waiting for %s: %v", what, err)
+			}
+		case <-deadline.C:
+			h.t.Fatalf("timed out waiting for %s", what)
+		}
+	}
+}
+
 // open opens dir as the project and paints the workbench with its Git answer.
 func (h *harness) open(dir string) {
 	h.t.Helper()
@@ -150,16 +171,6 @@ func (h *harness) shows(value string) bool {
 	for _, label := range h.driver.Snapshot().Labels {
 		if strings.Contains(label.Value, value) {
 			return true
-		}
-	}
-	// An assistant reply is painted by Viva's Markdown view, which records no labels. Its
-	// message gets a view only when its row is declared, so this keeps the virtual window
-	// meaningful: a row that was never declared has none.
-	if p := h.app.project; p != nil {
-		for _, m := range p.agent.messages {
-			if m.md != nil && m.md.parsed > 0 && strings.Contains(m.Text, value) {
-				return true
-			}
 		}
 	}
 	return false
@@ -215,7 +226,7 @@ func TestWorkbenchDefaultLayout(t *testing.T) {
 		zoneLeftTop:     {itemProject, itemCommit, itemStructure, itemFind},
 		zoneLeftBottom:  nil,
 		zoneBottomLeft:  {itemGit, itemTerminal, itemProblems, itemReferences, itemRun, itemTests, itemSecurity, itemDebug},
-		zoneRightTop:    {itemNotifications, itemMarkdown, itemAssistant},
+		zoneRightTop:    {itemNotifications, itemMarkdown},
 		zoneRightBottom: nil,
 		zoneBottomRight: {itemUpdates, itemBackground},
 		zoneTitle:       {itemRunConfig, itemTitleRun, itemTitleDebug, itemTitleSearch, itemTitleSettings},
@@ -367,7 +378,7 @@ func TestSnappedStripeDragReordersAndLocksTheGhostToItsColumn(t *testing.T) {
 	h.open(t.TempDir())
 	kernel.chromeActions = nil
 
-	from := center(h.button(itemAssistant))
+	from := center(h.button(itemMarkdown))
 	targetButton := h.button(itemNotifications)
 	to := gfx.Point{X: from.X, Y: targetButton.Y + dragThreshold}
 	if err := h.driver.Press(from.X, from.Y, gfx.PointerButtonPrimary); err != nil {
@@ -404,7 +415,7 @@ func TestSnappedStripeDragReordersAndLocksTheGhostToItsColumn(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.settle()
-	wantAction := core.MoveChrome(itemAssistant, core.ZoneRightTop, itemNotifications)
+	wantAction := core.MoveChrome(itemMarkdown, core.ZoneRightTop, itemNotifications)
 	if len(kernel.chromeActions) != 1 || kernel.chromeActions[0] != wantAction {
 		t.Fatalf("chrome actions = %v, want one MoveChrome to right top before %q", kernel.chromeActions, itemNotifications)
 	}
@@ -457,7 +468,7 @@ func TestDetachedStripeDragTargetsDockAreasAndOtherStripeButtons(t *testing.T) {
 			h.open(t.TempDir())
 			kernel.chromeActions = nil
 
-			from := center(h.button(itemAssistant))
+			from := center(h.button(itemMarkdown))
 			stripes := dragStripeRects(gfx.Rect{Width: 1280, Height: 800})
 			detached := gfx.Point{X: stripes[stripeRight].X - dragDetachDistance - 1, Y: from.Y}
 			if err := h.driver.Press(from.X, from.Y, gfx.PointerButtonPrimary); err != nil {
@@ -479,12 +490,12 @@ func TestDetachedStripeDragTargetsDockAreasAndOtherStripeButtons(t *testing.T) {
 			}
 			h.settle()
 
-			wantAction := core.MoveChrome(itemAssistant, zoneNames[tc.zone], tc.before)
+			wantAction := core.MoveChrome(itemMarkdown, zoneNames[tc.zone], tc.before)
 			if len(kernel.chromeActions) != 1 || kernel.chromeActions[0] != wantAction {
 				t.Fatalf("chrome actions = %v, want one MoveChrome to zone %d before %q", kernel.chromeActions, tc.zone, tc.before)
 			}
-			if got := h.app.chrome.zoneOf(catalogIndex[itemAssistant]); got != tc.zone {
-				t.Fatalf("assistant is in zone %d after release, want zone %d", got, tc.zone)
+			if got := h.app.chrome.zoneOf(catalogIndex[itemMarkdown]); got != tc.zone {
+				t.Fatalf("markdown is in zone %d after release, want zone %d", got, tc.zone)
 			}
 		})
 	}
@@ -496,7 +507,7 @@ func TestDetachedStripeDragWithoutATargetDoesNotCommit(t *testing.T) {
 	h.open(t.TempDir())
 	kernel.chromeActions = nil
 
-	from := center(h.button(itemAssistant))
+	from := center(h.button(itemMarkdown))
 	stripes := dragStripeRects(gfx.Rect{Width: 1280, Height: 800})
 	detached := gfx.Point{X: stripes[stripeRight].X - dragDetachDistance - 1, Y: from.Y}
 	main := h.app.layout.mainRect
@@ -521,8 +532,8 @@ func TestDetachedStripeDragWithoutATargetDoesNotCommit(t *testing.T) {
 	if len(kernel.chromeActions) != 0 {
 		t.Fatalf("chrome actions = %v, want no committed move", kernel.chromeActions)
 	}
-	if got := h.app.chrome.zoneOf(catalogIndex[itemAssistant]); got != zoneRightTop {
-		t.Fatalf("assistant is in zone %d after a targetless release, want the source zone", got)
+	if got := h.app.chrome.zoneOf(catalogIndex[itemMarkdown]); got != zoneRightTop {
+		t.Fatalf("markdown is in zone %d after a targetless release, want the source zone", got)
 	}
 }
 
@@ -531,7 +542,7 @@ func TestDetachedDropPreviewUsesTheLocalizedDockTitle(t *testing.T) {
 		t.Run(language.Code(), func(t *testing.T) {
 			h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{language.Code()})
 			h.open(t.TempDir())
-			from := center(h.button(itemAssistant))
+			from := center(h.button(itemMarkdown))
 			stripes := dragStripeRects(gfx.Rect{Width: 1280, Height: 800})
 			detached := gfx.Point{X: stripes[stripeRight].X - dragDetachDistance - 1, Y: from.Y}
 			area := h.app.dragDockAnchors(gfx.Size{Width: 1280, Height: 800})[dockAnchorRight].area

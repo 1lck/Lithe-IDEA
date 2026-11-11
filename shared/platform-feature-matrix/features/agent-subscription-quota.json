@@ -4,34 +4,22 @@
   "group": "Agent 对话",
   "capability": "Codex 订阅额度：输入框底部工具栏靠右对标 Claude Desktop 的单个圆环（灰轨，按已用最多的窗口填充），悬停显示灰底分窗口进度条；已用超过60%黄色、超过90%红色、默认绿色，未知/过期灰显，实际重置时间与账号隔离",
   "macos": {
-    "implementationStatus": "partial",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      "desktop/internal/workbench/agent_activity.go",
-      "desktop/internal/workbench/agent_activity_view.go",
-      "desktop/internal/workbench/agent_activity_test.go",
-      "desktop/internal/workbench/agent.go",
-      "shared/fixtures/agent/acp-events-v1.json",
-      "shared/contracts/rust-core-api.md",
-      "desktop/internal/i18n/agent_activity_messages.go"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
-    "implementationStatus": "partial",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      "desktop/internal/workbench/agent_activity.go",
-      "desktop/internal/workbench/agent_activity_view.go",
-      "desktop/internal/workbench/agent_activity_test.go",
-      "desktop/internal/workbench/agent.go",
-      "shared/fixtures/agent/acp-events-v1.json",
-      "shared/contracts/rust-core-api.md",
-      "desktop/internal/i18n/agent_activity_messages.go"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "Agent",
   "verification": "macOS：真实订阅模式在输入框底部工具栏靠右只显示一个灰轨圆环，按五小时/七天中已用最多的窗口填充并着色，不再显示文字；仅悬停展示灰底面板，移开收起，无点击弹层，面板含五小时/七天已用百分比及灰轨进度条、实际重置时间与账号；面板中五小时优先，不伪造窗口时长，未上报时圆环只有灰轨。检查60%仍绿色、超过60%黄色、90%仍黄色、超过90%红色；未知及过期灰显。窄宽面板、深浅主题、单周窗口和缺失值截图检查，切换会话/账号或隐藏工具栏后清除旧悬停。原可见且活跃时每分钟刷新、隐藏停止轮询、单连接不并发、查询不创建会话或模型请求保持；失败保留旧值，账号不匹配清除，API Key模式不显示。 Windows：输入框上方只保留一个灰轨圆环，按已用最多的窗口填充，不再显示文字；60% 内绿色、超过 60% 黄色、超过 90% 红色。悬停卡片使用灰底面板，按 5 小时、7 天、其他窗口排序展示名称、已用百分比、灰轨进度条与实际重置时间；失败或过期时圆环与进度条灰显并显示原因，账号变更提示重新连接。未知窗口不伪造百分比。真实账号、断网与换账号清理仍待真机验收。",
-  "notes": "quota/quotaFailed 与 refreshQuota 已接入，收到过额度才显示文字与刷新按钮，轮次结束后刷新一次；尚无圆环/悬停详情，订阅账号与登录流程未接入。",
+  "notes": "Viva：2026-11-12 用户决定不做 Agent 对话，#1799 已删除桌面端实现，见 docs/viva-migration.md 的“放弃：Agent 对话”。Rust Core 中的 Agent 代码暂留，是否删除另行决定。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

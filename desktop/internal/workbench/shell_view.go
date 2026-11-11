@@ -181,8 +181,6 @@ func (a *App) toolBody(c ui.C, tool item, p *project) {
 			a.testsView(c, p)
 		case itemDebug:
 			a.debugView(c, p)
-		case itemAssistant:
-			a.agentPanel(c)
 		default:
 			switch {
 			case tool.tool != nil && tool.tool.Native != nil:

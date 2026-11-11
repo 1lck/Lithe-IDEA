@@ -1,6 +1,11 @@
 # Agent 笔记：Viva 客户端的 Agent Markdown 回复与 AI 设置分组
 
 状态：已实现
+归档日期：2026-11-12
+
+## 归档原因
+
+2026-11-12 用户决定 Viva 桌面端不做 Agent 对话，Agent 回复的 Markdown 视图、已归档对话的本地隐藏列表，以及 Agents/指令/技能/Hooks/MCP 设置页都已删除。AI 设置分组现在只有“AI → 生成 → IDE 连接”，见[Viva 桌面端不做 Agent 对话，只保留 AI 生成](../../implemented/feature/2026-11-12-viva-agent-conversation-removed.md)；工具窗口的 Markdown 预览仍用 Viva 的 Markdown 视图。
 
 ## 先说结论
 
@@ -10,7 +15,7 @@ Viva 客户端的 Agent 回复改用 Viva 自己的 Markdown 视图渲染，而�
 
 旧 macOS 和 Windows 客户端的 Agent 回复都用共享的 Markdown 渲染链路（Core `markdown.render` 产出 HTML，再由平台 WebView 显示）。Viva 桌面客户端没有 HTML 渲染器，也没有 WebView 控件。第一轮迁移把回复退成纯文本，代码块、列表和标题都看不出来，长回复难以阅读。
 
-设置窗口在 Viva 里由 `desktop/internal/settingswindow` 重新实现。旧 macOS 的七组侧栏规则（见 [macOS 设置分类归属规则](2026-10-15-macos-settings-hierarchy.md)）仍是目标，但 Viva 页面和分组表是另一份代码。如果不把 AI 页面的归属写清楚，后续页面（例如 IDE 连接）会被放到顶层或“工具”组，侧栏顺序与旧客户端不一致。
+设置窗口在 Viva 里由 `desktop/internal/settingswindow` 重新实现。旧 macOS 的七组侧栏规则（见 [macOS 设置分类归属规则](../../implemented/feature/2026-10-15-macos-settings-hierarchy.md)）仍是目标，但 Viva 页面和分组表是另一份代码。如果不把 AI 页面的归属写清楚，后续页面（例如 IDE 连接）会被放到顶层或“工具”组，侧栏顺序与旧客户端不一致。
 
 已归档对话的列表、恢复和移除都是 Agent 的状态。旧客户端的“Removed conversations”只隐藏本地列表，不删除 Agent 记录。Viva 若把“移除”实现成调用 Agent 删除，会破坏用户无法从 IDE 恢复的数据。
 

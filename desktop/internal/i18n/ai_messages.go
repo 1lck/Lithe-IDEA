@@ -3,7 +3,7 @@ package i18n
 import "strconv"
 
 // AIMessages are the words of the AI-assisted features: commit message generation, inline
-// edits, and the MCP and IDE API settings.
+// edits.
 type AIMessages struct {
 	Commit     AICommitMessages
 	InlineEdit AIInlineEditMessages

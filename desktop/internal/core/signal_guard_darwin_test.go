@@ -8,29 +8,26 @@ import (
 	"time"
 )
 
-// Integration: the real Core Agent initializes Tokio's SIGCHLD handler, then
-// Go starts more child processes. A handler lacking SA_ONSTACK can crash the
-// entire process asynchronously rather than produce a normal test failure.
-func TestCoreAgentKeepsGoChildSignalStack(t *testing.T) {
+// Integration: Go and Core both start child processes. A SIGCHLD handler lacking
+// SA_ONSTACK can crash the entire process asynchronously rather than produce a
+// normal test failure, so the flags are checked after real child exits.
+func TestCoreChildProcessesKeepGoSignalStack(t *testing.T) {
 	before, onstack := childSignalFlags()
 	if before < 0 || before&onstack == 0 {
 		t.Fatalf("initial SIGCHLD flags = %#x; SA_ONSTACK = %#x", before, onstack)
 	}
-	session, _ := openAgentFixture(t)
-	session.Close()
-	after, _ := childSignalFlags()
-	if after < 0 || after&onstack == 0 {
-		t.Fatalf("Core Agent changed SIGCHLD flags from %#x to %#x without SA_ONSTACK %#x", before, after, onstack)
-	}
-	// Exercise actual child exits after the handler is installed, including Git
-	// invoked by both Go and Core; helpers enforce individual deadlines.
+	// Git invoked by both Go and Core; helpers enforce individual deadlines.
 	requireGit(t)
 	repo := newRepository(t)
 	for range 8 {
 		runGit(t, repo, "status", "--porcelain")
 		if _, err := NewClient().GitStatus(testContext(t), repo); err != nil {
-			t.Fatalf("Core Git status after Agent startup: %v", err)
+			t.Fatalf("Core Git status: %v", err)
 		}
+	}
+	after, _ := childSignalFlags()
+	if after < 0 || after&onstack == 0 {
+		t.Fatalf("SIGCHLD flags changed from %#x to %#x without SA_ONSTACK %#x", before, after, onstack)
 	}
 }
 

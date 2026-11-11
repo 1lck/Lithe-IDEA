@@ -7,20 +7,14 @@
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable",
     "evidence": [
-      "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/settingswindow/window.go",
-      "desktop/internal/workbench/app.go"
+      "docs/viva-migration.md"
     ]
   },
   "windows": {
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable",
     "evidence": [
-      "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/shell.go",
-      "desktop/internal/settingswindow/window.go",
-      "desktop/internal/workbench/app.go"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "Agent",
@@ -53,5 +47,5 @@
       ]
     }
   },
-  "notes": "Viva 工作台助手面板与对应设置页目前仅为占位，客户端未接入 Agent 会话、配置及宿主流程；Core 或旧客户端已有能力不代表用户入口已迁移。"
+  "notes": "Viva：2026-11-12 用户决定不做 Agent 对话，#1799 已删除桌面端实现，见 docs/viva-migration.md 的“放弃：Agent 对话”。Rust Core 中的 Agent 代码暂留，是否删除另行决定。"
 }

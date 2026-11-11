@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -16,7 +17,7 @@ func (a *App) viewerView(c ui.C, t *viewerTab) {
 	language := a.language()
 	ui.Column(c.Key("viewer-" + strconv.Itoa(t.id))).Fill().Background(a.colors.Panel).Children(func() {
 		ui.Row(c).FillWidth().Height(32).Shrink(0).PadX(10).Gap(8).Items(ui.Center).Children(func() {
-			info := agentFormatBytes(uint64(max(t.size, 0)))
+			info := formatByteSize(uint64(max(t.size, 0)))
 			if t.bitmap.Width > 0 {
 				info = strconv.Itoa(t.bitmap.Width) + " × " + strconv.Itoa(t.bitmap.Height) + " · " + info
 			}
@@ -92,4 +93,20 @@ func (a *App) viewerHex(c ui.C, t *viewerTab) {
 			ui.Text(c, i18n.Shared(language, "desktop.viewer.truncated")).FontSize(12).Color(a.colors.Subtle)
 		}
 	})
+}
+
+// formatByteSize is a size in bytes as the viewer bar shows it: bytes below a kilobyte, then
+// one decimal of the largest unit that keeps the number at least one.
+func formatByteSize(bytes uint64) string {
+	if bytes < 1024 {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	value := float64(bytes)
+	units := [...]string{"B", "KB", "MB", "GB", "TB"}
+	unit := 0
+	for value >= 1024 && unit < len(units)-1 {
+		value /= 1024
+		unit++
+	}
+	return fmt.Sprintf("%.1f %s", value, units[unit])
 }

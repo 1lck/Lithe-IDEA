@@ -20,22 +20,22 @@
 
 | 分类 | 数量 |
 | --- | --- |
-| 必须迁移 | 190 |
+| 必须迁移 | 152 |
 | 插件提供 | 34 |
 | 平台专属 | 11 |
-| 放弃 | 17 |
+| 放弃 | 55 |
 | 不纳入 | 2 |
 | 合计 | 254 |
 
-必须迁移 190 项的 Viva 现状：
+必须迁移 152 项的 Viva 现状：
 
 | 现状 | 数量 |
 | --- | --- |
-| 完成 | 1 |
-| 部分 | 63 |
-| 未开始 | 126 |
+| 完成 | 0 |
+| 部分 | 56 |
+| 未开始 | 96 |
 
-“完成”只有 `agent-minimal-conversation`（最小会话切片，非完整 Agent）。“部分”含 JSON 为 partial 的行与按代码改判的行；其中没有任何一行已完成原生窗口验收。
+2026-11-12 起 Agent 对话整体放弃，原先唯一“完成”的 `agent-minimal-conversation` 随之移入“放弃”。“部分”含 JSON 为 partial 的行与按代码改判的行；其中没有任何一行已完成原生窗口验收。
 
 ## 主表（254 项，按 area 分组）
 
@@ -49,48 +49,48 @@
 | `ai-chat-providers` | 多 Provider 与工作区范围 | 放弃 | 缺/实现 | — | 见“放弃”表 |
 | `ai-chat-session` | 对话会话与流式响应 | 放弃 | 缺/实现 | — | 见“放弃”表 |
 | `ai-commit-generation` | Provider 配置与提交信息生成 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
-| `agent-acp-conversation` | 可选 ACP Agent 对话 | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-approval-mode-presentation` | Agent 权限模式呈现 | 必须迁移 | 实现/实现 | 部分 | — |
-| `agent-archived-conversation-history` | 当前工作区的 Codex 归档历史 | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-chat-editor-placement` | 在编辑区标签页与 AI 工具窗口之间移动对话（按钮、右键菜单或把 A… | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-claude-api-key-authentication` | Claude API Key 鉴权 | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-claude-desktop-mechanisms` | 在 Lithe 中打开 Claude Desktop 开始的 Cla… | 必须迁移 | 实现/部分 | 部分 | 卡片已绘制；可视化隔离网页待 Viva #209–#211，CI/跨会话通知折叠、`<pr-created>` 链接未做 |
-| `agent-claude-subscription` | Claude 供应商可选官方订阅 | 必须迁移 | 实现/部分 | 未开始 | — |
-| `agent-codex-subscription` | Codex 供应商选择官方订阅 | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-connection-model-switching` | Agent 与模型切换 | 必须迁移 | 实现/实现 | 部分 | — |
-| `agent-context-limits` | Agent 上下文长度与自动压缩阈值 | 必须迁移 | 实现/部分 | 未开始 | — |
-| `agent-context-usage` | Agent 上下文用量与会话详情共用发送旁单一入口（未上报显示信息图… | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-conversation-history` | CC GUI 风格历史页 | 必须迁移 | 实现/实现 | 部分 | — |
-| `agent-entry-discoverability` | 新安装及模块关闭时仍显示 Agent 侧栏入口，打开项目不自动恢复 … | 必须迁移 | 实现/实现 | 部分 | — |
-| `agent-file-context-actions` | 从编辑器文件标签或项目树右键把文件添加到当前或指定 Agent 会话… | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-file-references` | 从 Finder 或项目树拖入文件、⌘V 粘贴 Finder 文件或… | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-global-instructions` | 全局指令卡片 | 必须迁移 | 实现/部分 | 未开始 | — |
-| `agent-hooks` | Hook 资源库 | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-management` | Agent 管理 | 必须迁移 | 实现/实现 | 部分 | — |
-| `agent-mid-turn-steering` | 回复过程中发送补充指令 | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-minimal-conversation` | Agent 最小会话纵向切片 | 必须迁移 | 本分支新增 | 完成 | — |
-| `agent-mode-sync` | Agent 自行切换模式时同步权限选择器 | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-model-call-statistics` | Agent 发送旁单一入口按需展开的上下文与会话详情（有用量显示圆环… | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-opened-workspace-context` | 当前打开项目的明确上下文 | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-plan-display` | 任务以紧凑状态行显示 Agent 上报计划（ACP plan）的已完… | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-provider-configuration` | Agent 供应商管理 | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-reasoning-display` | 每轮思考、过程说明和工具调用合成一个默认折叠的过程入口，流式时也由用… | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-reply-markdown` | Agent 回复的 Markdown 渲染 | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-skill-management` | 技能设置 | 必须迁移 | 实现/部分 | 未开始 | — |
-| `agent-slash-commands` | 输入框以 / 开头（或以 $ 开头选择 Skill）时，按 Agen… | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-subagent-monitoring` | 原生子代理监视 | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-subscription-multi-account` | Claude 与 Codex 官方订阅支持多个账号 | 必须迁移 | 实现/部分 | 未开始 | — |
-| `agent-subscription-quota` | Codex 订阅额度 | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-thinking-level-labels` | Agent 思考强度英文呈现 | 必须迁移 | 实现/实现 | 部分 | — |
-| `agent-tool-activity-timeline` | 每轮工具调用与思考、过程说明放进同一个默认折叠的过程区 | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-toolbar-brand-marks` | Agent 品牌标志 | 必须迁移 | 实现/实现 | 未开始 | — |
-| `agent-turn-statistics` | 发送后实时计时；每轮回复下方固定显示复制回复、用量胶囊（耗时 · t… | 必须迁移 | 实现/实现 | 未开始 | — |
+| `agent-acp-conversation` | 可选 ACP Agent 对话 | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-approval-mode-presentation` | Agent 权限模式呈现 | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-archived-conversation-history` | 当前工作区的 Codex 归档历史 | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-chat-editor-placement` | 在编辑区标签页与 AI 工具窗口之间移动对话（按钮、右键菜单或把 A… | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-claude-api-key-authentication` | Claude API Key 鉴权 | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-claude-desktop-mechanisms` | 在 Lithe 中打开 Claude Desktop 开始的 Cla… | 放弃 | 实现/部分 | — | 见“放弃”表 |
+| `agent-claude-subscription` | Claude 供应商可选官方订阅 | 放弃 | 实现/部分 | — | 见“放弃”表 |
+| `agent-codex-subscription` | Codex 供应商选择官方订阅 | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-connection-model-switching` | Agent 与模型切换 | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-context-limits` | Agent 上下文长度与自动压缩阈值 | 放弃 | 实现/部分 | — | 见“放弃”表 |
+| `agent-context-usage` | Agent 上下文用量与会话详情共用发送旁单一入口（未上报显示信息图… | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-conversation-history` | CC GUI 风格历史页 | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-entry-discoverability` | 新安装及模块关闭时仍显示 Agent 侧栏入口，打开项目不自动恢复 … | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-file-context-actions` | 从编辑器文件标签或项目树右键把文件添加到当前或指定 Agent 会话… | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-file-references` | 从 Finder 或项目树拖入文件、⌘V 粘贴 Finder 文件或… | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-global-instructions` | 全局指令卡片 | 放弃 | 实现/部分 | — | 见“放弃”表 |
+| `agent-hooks` | Hook 资源库 | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-management` | Agent 管理 | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-mid-turn-steering` | 回复过程中发送补充指令 | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-minimal-conversation` | Agent 最小会话纵向切片 | 放弃 | 本分支新增 | — | 见“放弃”表 |
+| `agent-mode-sync` | Agent 自行切换模式时同步权限选择器 | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-model-call-statistics` | Agent 发送旁单一入口按需展开的上下文与会话详情（有用量显示圆环… | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-opened-workspace-context` | 当前打开项目的明确上下文 | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-plan-display` | 任务以紧凑状态行显示 Agent 上报计划（ACP plan）的已完… | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-provider-configuration` | Agent 供应商管理 | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-reasoning-display` | 每轮思考、过程说明和工具调用合成一个默认折叠的过程入口，流式时也由用… | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-reply-markdown` | Agent 回复的 Markdown 渲染 | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-skill-management` | 技能设置 | 放弃 | 实现/部分 | — | 见“放弃”表 |
+| `agent-slash-commands` | 输入框以 / 开头（或以 $ 开头选择 Skill）时，按 Agen… | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-subagent-monitoring` | 原生子代理监视 | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-subscription-multi-account` | Claude 与 Codex 官方订阅支持多个账号 | 放弃 | 实现/部分 | — | 见“放弃”表 |
+| `agent-subscription-quota` | Codex 订阅额度 | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-thinking-level-labels` | Agent 思考强度英文呈现 | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-tool-activity-timeline` | 每轮工具调用与思考、过程说明放进同一个默认折叠的过程区 | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-toolbar-brand-marks` | Agent 品牌标志 | 放弃 | 实现/实现 | — | 见“放弃”表 |
+| `agent-turn-statistics` | 发送后实时计时；每轮回复下方固定显示复制回复、用量胶囊（耗时 · t… | 放弃 | 实现/实现 | — | 见“放弃”表 |
 | `ide-api-environment` | 插件与 MCP 查询和修改项目 Java/Maven 默认环境，并返… | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
 | `ide-api-maven` | 插件与 MCP 按已接通工作流发现工具 | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
 | `ide-api-run-output` | 插件与 MCP 列举运行配置、启动重启，按执行 ID 查询和停止 R… | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
 | `ide-mcp-connection` | 从设置侧栏独立的 MCP 配置页按项目开启连接，分别授权配置与执行，… | 必须迁移 | 实现/实现 | 未开始 | 无 desktop/ 证据 |
-| `mcp-registry-discovery` | 同页上方管理服务器资源库，下方默认显示离线可用的内置精选 | 必须迁移 | 实现/缺 | 未开始 | 无 desktop/ 证据 |
-| `mcp-server-library` | 在设置页统一发现、合并、编辑并删除 Codex 与 Claude C… | 必须迁移 | 实现/专属 | 未开始 | 无 desktop/ 证据 |
+| `mcp-registry-discovery` | 同页上方管理服务器资源库，下方默认显示离线可用的内置精选 | 放弃 | 实现/缺 | — | 见“放弃”表 |
+| `mcp-server-library` | 在设置页统一发现、合并、编辑并删除 Codex 与 Claude C… | 放弃 | 实现/专属 | — | 见“放弃”表 |
 | `ai-inline-edit` | AI 行内编辑 | 必须迁移 | 专属/实现 | 未开始 | 无 desktop/ 证据 |
 
 ### Java（19）
@@ -429,9 +429,9 @@
 
 | id | 能力 | 基线 mac/win | 理由 |
 | --- | --- | --- | --- |
-| `ai-chat-history` | 对话历史、置顶与归档 | 缺/实现 | Windows 自带 AI Chat 的对话历史；已被 ACP Agent 会话与历史（agent-conversation-history）取代，macOS 基线也只是缺失 |
-| `ai-chat-providers` | 多 Provider 与工作区范围 | 缺/实现 | Windows 自带 AI Chat 的多 Provider；供应商配置由 Agent 供应商管理（agent-provider-configuration）承接 |
-| `ai-chat-session` | 对话会话与流式响应 | 缺/实现 | Windows 自带 AI Chat 会话与流式响应；被 Agent 会话取代，不再维护第二套聊天 |
+| `ai-chat-history` | 对话历史、置顶与归档 | 缺/实现 | Windows 自带 AI Chat 的对话历史；macOS 基线也只是缺失。原计划由 ACP Agent 会话与历史取代，Agent 对话已于 2026-11-12 一并放弃 |
+| `ai-chat-providers` | 多 Provider 与工作区范围 | 缺/实现 | Windows 自带 AI Chat 的多 Provider；保留的 AI 生成提交信息与内联编辑只读取用户 Codex/Claude 配置，不另做供应商管理 |
+| `ai-chat-session` | 对话会话与流式响应 | 缺/实现 | Windows 自带 AI Chat 会话与流式响应；Viva 桌面端不做对话（Agent 对话也已于 2026-11-12 放弃） |
 | `macos-shared-scrollbar-style` | macOS 共享滚动条样式 | 实现/专属 | 旧 AppKit 滚动条样式规格；Viva 用 hscroll/共享控件统一绘制，不再逐平台复刻 |
 | `macos-shared-selection-focus` | macOS 普通选中行主题与区域和窗口焦点 | 实现/专属 | 旧 macOS 原生列表选中行与焦点样式；Viva treelist 自带活动/失焦选择色 |
 | `terminal-canvas-compositing` | macOS 终端 Metal 画布按预乘语义清屏 | 实现/专属 | 旧 macOS 终端 Metal 画布清屏语义；Viva termview 自绘，不再有该合成路径 |
@@ -446,6 +446,51 @@
 | `editor-scrollbar-style` | 编辑器滚动条与文件树一致的细圆头样式 | 专属/实现 | 旧 Windows 编辑器滚动条细圆头样式；Viva 编辑器滚动条由 editorview/scrollbar.go 自绘 |
 | `editor-wallpaper-overview-ruler` | macOS 工作台壁纸模式下，编辑器概览标尺与代码缩略图随编辑器背景… | 实现/专属 | 旧 macOS 壁纸模式下概览标尺透明处理；Viva 中未找到壁纸模式，随该模式一并不迁 |
 | `lsp-control-center-performance` | 大型工作区的 LSP 设置页后台识别、快照缓存与可及时取消的页面等待 | 实现/专属 | 旧 macOS LSP 设置页的后台识别/快照优化；Viva 设置页重做，按新页面另行评估性能 |
+
+## 放弃：Agent 对话（38 项，2026-11-12 用户决定）
+
+用户决定 Viva 桌面端不做 Agent 对话。#1799 删除了助手面板、会话与历史、卡片、Agent 安装与管理、自定义 Agent，以及 AI 设置下的 Agents、Instructions、Skills、Hooks、MCP 配置页。保留 AI 生成提交信息（`ai-commit-generation`）、编辑器内联 AI 编辑（`ai-inline-edit`）和 IDE 连接（`ide-mcp-connection`），它们读取用户 Codex/Claude 配置的服务商发现移到 `desktop/internal/workbench/ai_provider.go`。Rust Core 中的 Agent 代码与 `shared/fixtures/agent`、`shared/fixtures/mcp` 契约暂留，是否删除另行决定。
+
+| id | 能力 | 基线 mac/win | 理由 |
+| --- | --- | --- | --- |
+| `agent-acp-conversation` | 可选 ACP Agent 对话 | 实现/实现 | Agent 对话整体放弃 |
+| `agent-approval-mode-presentation` | Agent 权限模式呈现 | 实现/实现 | Agent 对话整体放弃 |
+| `agent-archived-conversation-history` | 当前工作区的 Codex 归档历史 | 实现/实现 | Agent 对话整体放弃 |
+| `agent-chat-editor-placement` | 在编辑区标签页与 AI 工具窗口之间移动对话（按钮、右键菜单或把 A… | 实现/实现 | Agent 对话整体放弃 |
+| `agent-claude-api-key-authentication` | Claude API Key 鉴权 | 实现/实现 | Agent 对话整体放弃 |
+| `agent-claude-desktop-mechanisms` | 在 Lithe 中打开 Claude Desktop 开始的 Cla… | 实现/部分 | Agent 对话整体放弃 |
+| `agent-claude-subscription` | Claude 供应商可选官方订阅 | 实现/部分 | Agent 对话整体放弃 |
+| `agent-codex-subscription` | Codex 供应商选择官方订阅 | 实现/实现 | Agent 对话整体放弃 |
+| `agent-connection-model-switching` | Agent 与模型切换 | 实现/实现 | Agent 对话整体放弃 |
+| `agent-context-limits` | Agent 上下文长度与自动压缩阈值 | 实现/部分 | Agent 对话整体放弃 |
+| `agent-context-usage` | Agent 上下文用量与会话详情共用发送旁单一入口（未上报显示信息图… | 实现/实现 | Agent 对话整体放弃 |
+| `agent-conversation-history` | CC GUI 风格历史页 | 实现/实现 | Agent 对话整体放弃 |
+| `agent-entry-discoverability` | 新安装及模块关闭时仍显示 Agent 侧栏入口，打开项目不自动恢复 … | 实现/实现 | Agent 对话整体放弃 |
+| `agent-file-context-actions` | 从编辑器文件标签或项目树右键把文件添加到当前或指定 Agent 会话… | 实现/实现 | Agent 对话整体放弃 |
+| `agent-file-references` | 从 Finder 或项目树拖入文件、⌘V 粘贴 Finder 文件或… | 实现/实现 | Agent 对话整体放弃 |
+| `agent-global-instructions` | 全局指令卡片 | 实现/部分 | Agent 对话整体放弃 |
+| `agent-hooks` | Hook 资源库 | 实现/实现 | Agent 对话整体放弃 |
+| `agent-management` | Agent 管理 | 实现/实现 | Agent 对话整体放弃 |
+| `agent-mid-turn-steering` | 回复过程中发送补充指令 | 实现/实现 | Agent 对话整体放弃 |
+| `agent-minimal-conversation` | Agent 最小会话纵向切片 | 本分支新增 | Agent 对话整体放弃 |
+| `agent-mode-sync` | Agent 自行切换模式时同步权限选择器 | 实现/实现 | Agent 对话整体放弃 |
+| `agent-model-call-statistics` | Agent 发送旁单一入口按需展开的上下文与会话详情（有用量显示圆环… | 实现/实现 | Agent 对话整体放弃 |
+| `agent-opened-workspace-context` | 当前打开项目的明确上下文 | 实现/实现 | Agent 对话整体放弃 |
+| `agent-plan-display` | 任务以紧凑状态行显示 Agent 上报计划（ACP plan）的已完… | 实现/实现 | Agent 对话整体放弃 |
+| `agent-provider-configuration` | Agent 供应商管理 | 实现/实现 | Agent 对话整体放弃 |
+| `agent-reasoning-display` | 每轮思考、过程说明和工具调用合成一个默认折叠的过程入口，流式时也由用… | 实现/实现 | Agent 对话整体放弃 |
+| `agent-reply-markdown` | Agent 回复的 Markdown 渲染 | 实现/实现 | Agent 对话整体放弃 |
+| `agent-skill-management` | 技能设置 | 实现/部分 | Agent 对话整体放弃 |
+| `agent-slash-commands` | 输入框以 / 开头（或以 $ 开头选择 Skill）时，按 Agen… | 实现/实现 | Agent 对话整体放弃 |
+| `agent-subagent-monitoring` | 原生子代理监视 | 实现/实现 | Agent 对话整体放弃 |
+| `agent-subscription-multi-account` | Claude 与 Codex 官方订阅支持多个账号 | 实现/部分 | Agent 对话整体放弃 |
+| `agent-subscription-quota` | Codex 订阅额度 | 实现/实现 | Agent 对话整体放弃 |
+| `agent-thinking-level-labels` | Agent 思考强度英文呈现 | 实现/实现 | Agent 对话整体放弃 |
+| `agent-tool-activity-timeline` | 每轮工具调用与思考、过程说明放进同一个默认折叠的过程区 | 实现/实现 | Agent 对话整体放弃 |
+| `agent-toolbar-brand-marks` | Agent 品牌标志 | 实现/实现 | Agent 对话整体放弃 |
+| `agent-turn-statistics` | 发送后实时计时；每轮回复下方固定显示复制回复、用量胶囊（耗时 · t… | 实现/实现 | Agent 对话整体放弃 |
+| `mcp-registry-discovery` | 同页上方管理服务器资源库，下方默认显示离线可用的内置精选 | 实现/缺 | Agent 对话整体放弃 |
+| `mcp-server-library` | 在设置页统一发现、合并、编辑并删除 Codex 与 Claude C… | 实现/专属 | Agent 对话整体放弃 |
 
 ## 矩阵之外的能力
 

@@ -109,9 +109,9 @@ func (a *App) replacePreviewFile(c ui.C, p *project, index int) {
 			ui.Checkbox(c.Key("include"), &r.include[index], path)
 			ui.Spacer(c)
 			ui.Text(c, strconv.Itoa(count)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
-			label := a.text.Agent.Activity.Expand
+			label := i18n.Shared(a.language(), "desktop.search.expandFile")
 			if r.expanded[path] {
-				label = a.text.Agent.Activity.Collapse
+				label = i18n.Shared(a.language(), "desktop.search.collapseFile")
 			}
 			if ui.Button(c.Key("expand"), label).Ghost().Small().Clicked() {
 				r.expanded[path] = !r.expanded[path]

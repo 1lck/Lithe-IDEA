@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"net/url"
 	"strconv"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
@@ -97,7 +98,7 @@ func (a *App) closeTerminalFind(t *terminal) {
 // openTerminalLink opens a link clicked in a terminal: a web address in the system
 // browser. Other schemes a program may emit through OSC 8 are not opened.
 func (a *App) openTerminalLink(target string) {
-	if !agentCardWebURL(target) {
+	if !isWebURL(target) {
 		return
 	}
 	a.post(func(a *App) {
@@ -106,4 +107,10 @@ func (a *App) openTerminalLink(target string) {
 		}
 		a.performed("terminal.link.open", surfaceButton)
 	})
+}
+
+// isWebURL reports whether address is an http or https address with a host.
+func isWebURL(address string) bool {
+	parsed, err := url.Parse(address)
+	return err == nil && (parsed.Scheme == "https" || parsed.Scheme == "http") && parsed.Host != ""
 }

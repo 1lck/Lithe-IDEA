@@ -2,7 +2,7 @@
 
 状态：已实现
 
-> Viva 迁移状态（2026-11-09）：本文记录旧客户端已实现的行为，不能视作新客户端已完成。Viva 已有 Core ACP 连接桥和最小会话面板（本机 provider 发现/选择、发送、增量输出、停止、错误与权限确认），见 [Viva 的 ACP Core 连接桥与最小会话面板](2026-11-08-viva-agent-core-bridge.md)；历史、安装/订阅、配置设置、附件、远程/MCP 等仍未迁移，以跨平台功能矩阵的当前状态为准。
+> Viva 迁移状态（2026-11-12）：本文记录旧客户端已实现的行为。用户决定 Viva 桌面端不做 Agent 对话，#1799 已删除桌面端的 Core ACP 连接桥和会话面板，Viva 中没有本文描述的任何 Agent 对话功能，见 [Viva 桌面端不做 Agent 对话，只保留 AI 生成](../feature/2026-11-12-viva-agent-conversation-removed.md)。Rust Core 的 Agent 宿主和 `shared/fixtures/agent/` 暂留，是否删除另行决定。
 
 ## 先说结论
 
@@ -510,8 +510,7 @@ Windows 连接桥已接入共享 Host，面板 UI 也已落地（活动栏入口
 
 ## 适用范围
 
-- `desktop/internal/core/agent.go`
-- `desktop/internal/core/agent_bridge.go`
+- [删除前的 Viva Core ACP 连接桥（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/e2737bf7b48285a59191943d8af926ab5aa4df4a/desktop/internal/core/agent.go)
 - `shared/contracts/rust-core-api.md`
 - `shared/fixtures/agent/`
 - [固定 Core 的 Agent 宿主](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host)

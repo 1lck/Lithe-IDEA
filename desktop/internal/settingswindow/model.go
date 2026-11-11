@@ -36,13 +36,9 @@ const (
 	// pageTools is the group "Tools"; the page after it belongs to it.
 	pageTools
 	pageTerminal
-	// pageAI is the group "AI"; the six pages after it belong to it.
+	// pageAI is the group "AI"; the two pages after it belong to it.
 	pageAI
-	pageAIAgents
-	pageAIInstructions
-	pageAISkills
-	pageAIHooks
-	pageMCP
+	pageAIGeneration
 	pageIDEAPI
 	// pageCount is how many entries there are. As a parent it means "none": the parent
 	// of an entry on the top level.
@@ -68,11 +64,7 @@ var parents = [pageCount]pageID{
 	pageTools:              noPage,
 	pageTerminal:           pageTools,
 	pageAI:                 noPage,
-	pageAIAgents:           pageAI,
-	pageAIInstructions:     pageAI,
-	pageAISkills:           pageAI,
-	pageAIHooks:            pageAI,
-	pageMCP:                pageAI,
+	pageAIGeneration:       pageAI,
 	pageIDEAPI:             pageAI,
 }
 
@@ -130,16 +122,8 @@ func titleOf(messages *i18n.SettingsMessages, id pageID) string {
 		return messages.Terminal
 	case pageAI:
 		return messages.AI
-	case pageAIAgents:
-		return messages.AIAgents
-	case pageAIInstructions:
-		return messages.AIInstructions
-	case pageAISkills:
-		return messages.AISkills
-	case pageAIHooks:
-		return messages.AIHooks
-	case pageMCP:
-		return messages.MCP
+	case pageAIGeneration:
+		return messages.AIGeneration
 	case pageIDEAPI:
 		return messages.IDEAPI
 	}

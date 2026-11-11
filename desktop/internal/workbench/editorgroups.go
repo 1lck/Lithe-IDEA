@@ -356,3 +356,14 @@ func unionRect(a, b gfx.Rect) gfx.Rect {
 func pointInRect(r gfx.Rect, x, y float32) bool {
 	return r.Width > 0 && r.Height > 0 && x >= r.X && x < r.Right() && y >= r.Y && y < r.Bottom()
 }
+
+// firstEditorGroup is the first group of the layout, the one a new group is split from.
+func firstEditorGroup(n *splitNode) string {
+	for n != nil && !n.leaf() {
+		n = n.first
+	}
+	if n == nil {
+		return ""
+	}
+	return n.group
+}

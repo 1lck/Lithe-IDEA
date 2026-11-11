@@ -208,7 +208,7 @@ func (a *App) generatePullRequestDescription(p *project) {
 		AIPlanPullRequest(ctx context.Context, provider core.AICommitProvider, options core.AIPullRequestOptions, comparison core.PullRequestComparison) (core.AIHTTPRequest, error)
 		AIDecodePullRequest(ctx context.Context, protocol string, response json.RawMessage) (string, string, error)
 	})
-	if !ok || client == nil || token == "" || cr.repo == nil || cr.generating || cr.base == "" || cr.head == "" || !a.agentKernelReady() {
+	if !ok || client == nil || token == "" || cr.repo == nil || cr.generating || cr.base == "" || cr.head == "" || !a.aiKernelReady() {
 		return
 	}
 	repo, base, head := *cr.repo, cr.base, cr.head
@@ -217,7 +217,7 @@ func (a *App) generatePullRequestDescription(p *project) {
 	options := a.aiCommitOptions()
 	sources := a.aiGenerationSources()
 	a.background(p, aiRequestTimeoutPR, func(ctx context.Context) func(*App) {
-		providers, _ := a.discoverAgentProviders(ctx)
+		providers := a.discoverAIProviders(ctx)
 		provider, found := pickAIProviderFrom(providers, sources)
 		if !found {
 			return a.finishPullRequestDraft("", "", errAINoProvider)

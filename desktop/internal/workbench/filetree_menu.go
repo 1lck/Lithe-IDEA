@@ -84,11 +84,6 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 			}
 			opened = true
 		}
-		if !root && a.agentKernelReady() {
-			file := filepath.Join(p.root, filepath.FromSlash(n.path))
-			a.agentFileMenuItems(c, menu, p, []string{file})
-			opened = true
-		}
 		if !n.dir {
 			if change, found := p.git.changeAt(n.path); found {
 				if opened {

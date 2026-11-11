@@ -64,7 +64,7 @@ func (a *App) aiCommitOptions() core.AICommitOptions {
 func (a *App) canGenerateCommit(p *project) bool {
 	_, ok := a.kernel.(aiCommitKernel)
 	c := &p.commit
-	return ok && a.agentKernelReady() && p.git.isRepository() && !c.busy && !c.ai.running && c.review == nil &&
+	return ok && a.aiKernelReady() && p.git.isRepository() && !c.busy && !c.ai.running && c.review == nil &&
 		p.listsReady() && p.activeStagedCount() > 0 && !p.otherStaged()
 }
 
@@ -103,12 +103,12 @@ func stagedChangeKind(status string) string {
 
 // pickAIProvider is the first provider of the Codex then the Claude configuration that can
 // be used: it has no issue and holds a credential.
-func pickAIProvider(providers map[string][]agentProvider) (agentProvider, bool) {
-	return pickAIProviderFrom(providers, agentProviderSources())
+func pickAIProvider(providers map[string][]aiProvider) (aiProvider, bool) {
+	return pickAIProviderFrom(providers, aiProviderSources())
 }
 
 // pickAIProviderFrom is pickAIProvider over the given sources in their order.
-func pickAIProviderFrom(providers map[string][]agentProvider, sources []string) (agentProvider, bool) {
+func pickAIProviderFrom(providers map[string][]aiProvider, sources []string) (aiProvider, bool) {
 	for _, source := range sources {
 		for _, provider := range providers[source] {
 			if provider.Issue == "" && !provider.MissingKey && provider.APIKey != "" && provider.Endpoint != "" {
@@ -116,7 +116,7 @@ func pickAIProviderFrom(providers map[string][]agentProvider, sources []string) 
 			}
 		}
 	}
-	return agentProvider{}, false
+	return aiProvider{}, false
 }
 
 // errAINoProvider reports that no configured provider can be used.
@@ -148,7 +148,7 @@ func (a *App) generateCommitMessage(p *project) {
 // runCommitGeneration captures the evidence, plans and sends the request and decodes the
 // answer. It runs off the window thread.
 func (a *App) runCommitGeneration(ctx context.Context, kernel aiCommitKernel, repositories []core.CommitContextRepository, options core.AICommitOptions, sources []string) (string, string, error) {
-	providers, _ := a.discoverAgentProviders(ctx)
+	providers := a.discoverAIProviders(ctx)
 	provider, ok := pickAIProviderFrom(providers, sources)
 	if !ok {
 		return "", "", errAINoProvider

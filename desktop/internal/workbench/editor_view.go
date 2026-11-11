@@ -106,10 +106,6 @@ func (a *App) groupBody(c ui.C, id string, doc *document) {
 		a.viewerView(c, t)
 		return
 	}
-	if g := a.project.terms.bench.Group(id); g != nil && g.Selected == agentConversationMember {
-		a.agentConversationPane(c, a.project)
-		return
-	}
 	if t := a.project.terms.selected(id); t != nil {
 		a.terminalView(c, t)
 	}

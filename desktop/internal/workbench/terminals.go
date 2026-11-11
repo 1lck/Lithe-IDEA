@@ -478,9 +478,7 @@ func (a *App) dropTab(member string, target dropTarget) {
 	if !done {
 		return
 	}
-	if member == agentConversationMember {
-		a.selectAgentTab(p)
-	} else if id, ok := memberTerminal(member); ok {
+	if id, ok := memberTerminal(member); ok {
 		a.focusTerminal(id)
 	} else if id, ok := memberDocument(member); ok {
 		a.selectDocument(p, id)

@@ -7,15 +7,13 @@ import (
 )
 
 // fileDrop routes files dropped on the window. The start screen opens a dropped folder as a
-// project; with a project open, files dropped on the Agent composer become its references.
+// project; with a project open, files dropped on a terminal are typed into it.
 func (a *App) fileDrop(event gfx.FileDropEvent) gfx.EventResult {
 	if a.project == nil {
 		return a.welcomeFileDrop(event)
 	}
-	if result, ok := a.terminalFileDrop(event); ok {
-		return result
-	}
-	return a.agentFileDrop(event)
+	result, _ := a.terminalFileDrop(event)
+	return result
 }
 
 // welcomeFileDrop opens the first dropped folder as a project. Dropped files that are not folders

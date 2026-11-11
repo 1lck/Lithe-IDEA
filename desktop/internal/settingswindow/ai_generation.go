@@ -2,6 +2,8 @@ package settingswindow
 
 import (
 	"context"
+	"sync"
+	"time"
 )
 
 // The generation choices are Lithe's own preferences: the commit message generator and the
@@ -50,8 +52,31 @@ func generationIndex(choices []string, value string) int {
 	return 0
 }
 
+// generationTimeout bounds one read of the provider lines.
+const generationTimeout = 30 * time.Second
+
+// aiGeneration is the state of the Generation page. The provider read runs off the window
+// thread and writes under mu, then wakes the window; a paint reads under mu, so the window
+// thread never waits on Core.
+type aiGeneration struct {
+	get       func() AIGenerationSettings
+	set       func(AIGenerationSettings)
+	providers func(context.Context) []AIProviderStatus
+	wake      func()
+
+	mu   sync.Mutex
+	read generationState
+	// draft is the text of the instructions field. Only the settings window thread touches
+	// it, in a paint, so mu does not guard it.
+	draft generationInstructions
+}
+
+func newAIGeneration(o Options, wake func()) *aiGeneration {
+	return &aiGeneration{get: o.AIGeneration, set: o.SetAIGeneration, providers: o.AIProviders, wake: wake}
+}
+
 // generationState is the provider read the generation card shows. Background work writes it
-// under the agentSettings lock.
+// under the aiGeneration lock.
 type generationState struct {
 	loaded, loading bool
 	providers       []AIProviderStatus
@@ -107,36 +132,42 @@ func (g *generationInstructions) send() {
 }
 
 // generation returns the stored choices; an unset callback means the defaults.
-func (s *agentSettings) generation() AIGenerationSettings {
-	if s.aiGeneration == nil {
+func (s *aiGeneration) generation() AIGenerationSettings {
+	if s.get == nil {
 		return AIGenerationSettings{}
 	}
-	return s.aiGeneration()
+	return s.get()
 }
 
 // saveGeneration hands a changed choice to the settings owner, which stores it.
-func (s *agentSettings) saveGeneration(value AIGenerationSettings) {
-	if s.setAIGeneration != nil {
-		s.setAIGeneration(value)
+func (s *aiGeneration) saveGeneration(value AIGenerationSettings) {
+	if s.set != nil {
+		s.set(value)
 	}
 }
 
-// beginProviders reads the provider lines once, off the window thread.
-func (s *agentSettings) beginProviders(force bool) {
+// beginProviders reads the provider lines once, off the window thread, bounded in time, and
+// wakes the window after.
+func (s *aiGeneration) beginProviders(force bool) {
 	s.mu.Lock()
-	st := &s.providerRead
-	if s.aiProviders == nil || st.loading || (st.loaded && !force) {
+	st := &s.read
+	if s.providers == nil || st.loading || (st.loaded && !force) {
 		s.mu.Unlock()
 		return
 	}
 	st.loading, st.err = true, nil
 	s.mu.Unlock()
-	s.run(func(ctx context.Context) {
-		providers := s.aiProviders(ctx)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), generationTimeout)
+		defer cancel()
+		providers := s.providers(ctx)
 		s.mu.Lock()
-		defer s.mu.Unlock()
 		st.loading, st.loaded, st.providers = false, true, providers
-	})
+		s.mu.Unlock()
+		if s.wake != nil {
+			s.wake()
+		}
+	}()
 }
 
 // providerSourceName is the product name a source is shown under.

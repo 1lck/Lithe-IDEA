@@ -37,5 +37,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：旧 AI Chat 的历史与归档已由 Agent 会话承接：agent_history.go 负责会话列表、打开与新建，agent_archive.go 负责归档与取消归档；未找到置顶、重命名与删除会话的代码，旧 AI Chat 界面不存在（迁移表标记为放弃）。"
+  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。原计划替代它的 Agent 对话也已于 2026-11-12 放弃并从桌面端删除。"
 }
