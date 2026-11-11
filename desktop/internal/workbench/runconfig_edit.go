@@ -50,6 +50,8 @@ type runConfigEditor struct {
 	// tools are the tool choices by qualified tool ID, with the kind of each choice ("home" or
 	// "executable") and the path the editor shows. A cleared path sends null for that tool.
 	tools []runConfigTool
+	// optionFields are the build options the provider declares, shown for this run (runconfig_options.go).
+	optionFields []runOptionField
 	// installs are the installations the toolchain discovery found, offered by the picker; pick is
 	// the picker's selection, 0 for none.
 	installs []runConfigInstall
@@ -119,6 +121,9 @@ func (a *App) openRunConfigEditor(p *project, id string) {
 	}
 	if provider, ok := providerRunEditorState(*configuration); ok {
 		e.provider, e.runtimeArguments, e.entrypoint, e.options, e.tools = true, provider.runtimeArguments, provider.entrypoint, provider.options, provider.tools
+		if reference, ok := configuration.BuildReference(); ok {
+			e.optionFields = p.runOptionFields(reference, e.options)
+		}
 		a.loadRunConfigInstalls(p, generation)
 	}
 	args, kernel := slices.Clone(configuration.Args), a.kernel
@@ -167,6 +172,7 @@ func (a *App) saveRunConfigEditor(p *project) {
 		WorkingDirectory: strings.TrimSpace(e.directory), Arguments: e.arguments, Environment: environment,
 	}
 	if e.provider {
+		applyRunOptionFields(e)
 		raw, err := providerRunOptionsJSON(e)
 		if err != nil {
 			e.failure = i18n.SharedFormat(a.language(), "desktop.runConfig.saveFailed", map[string]string{"reason": err.Error()})
