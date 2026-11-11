@@ -53,3 +53,22 @@ func PluginSemanticTokens(event BackendEvent) (SemanticTokens, error) {
 	}
 	return tokens, nil
 }
+
+// FoldingRange is one range of Core's normalized foldingRanges answer, in zero-based lines.
+type FoldingRange struct {
+	StartLine     int    `json:"startLine"`
+	EndLine       int    `json:"endLine"`
+	Kind          string `json:"kind,omitempty"`
+	CollapsedText string `json:"collapsedText,omitempty"`
+}
+
+// PluginFoldingRanges decodes the ranges of a completed foldingRanges request.
+func PluginFoldingRanges(event BackendEvent) ([]FoldingRange, error) {
+	var payload struct {
+		Ranges []FoldingRange `json:"ranges"`
+	}
+	if err := decodePluginSemanticResult(event, &payload); err != nil {
+		return nil, err
+	}
+	return payload.Ranges, nil
+}

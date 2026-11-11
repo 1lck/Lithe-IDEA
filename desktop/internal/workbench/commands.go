@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -60,6 +61,13 @@ func (a *App) commands() []command {
 	}
 	add("project.close", t.GroupProject, t.CloseProject, "", true, a.closeProject)
 	add("documents.saveAll", t.GroupProject, t.SaveAll, "", true, func() { a.saveProjectDocuments(p, func(bool) {}) })
+	// Code folding of the selected document.
+	if d := p.selectedDocument(p.docs.group); d != nil {
+		add("editor.fold", t.GroupEditor, t.Fold, "", true, func() { a.foldCommand(d, func(v *editorview.View) { v.FoldAtCaret() }) })
+		add("editor.unfold", t.GroupEditor, t.Unfold, "", true, func() { a.foldCommand(d, func(v *editorview.View) { v.UnfoldAtCaret() }) })
+		add("editor.foldAll", t.GroupEditor, t.FoldAll, "", true, func() { a.foldCommand(d, (*editorview.View).FoldAll) })
+		add("editor.unfoldAll", t.GroupEditor, t.UnfoldAll, "", true, func() { a.foldCommand(d, (*editorview.View).UnfoldAll) })
+	}
 	// The change markers of the selected document: next and previous, in marker order.
 	if d := p.selectedDocument(p.docs.group); d != nil && len(d.gutter.hunks) > 0 {
 		add("git.gutter.next", t.GroupGit, t.GitNextChange, "", true, func() { a.gitGutterStep(d, 1) })

@@ -76,6 +76,8 @@ func (a *App) applyEditorEvent(pending *semanticPending, event core.BackendEvent
 		a.applyOutline(pending, event, failed)
 	case pluginSemanticTokens:
 		a.applySemanticTokens(pending, event, failed)
+	case pluginSemanticFoldingRanges:
+		a.applyFoldRanges(pending, event, failed)
 	default:
 		return false
 	}

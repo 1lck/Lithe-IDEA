@@ -151,6 +151,9 @@ func (a *App) documentView(c ui.C, group string, d *document) {
 	d.group = group
 	box := ui.Control(c.Part(name), d.name, &d.input).Fill().Draw(d.draw)
 	ui.FocusBind(box, &a.focus, focusTarget{doc: d.id})
+	if p := a.project; p != nil {
+		a.foldSync(c, p, d)
+	}
 	if p := a.project; p != nil && !d.virtual {
 		ui.ContextMenu(c.Key("menu"+name), box, a.editorMenuItems(c, p, d))
 		a.gitGutterPeek(c, p, d, box)

@@ -48,6 +48,8 @@ var (
 
 // document is a file open in a tab of the editor area.
 type document struct {
+	// folds is the document's code folding requests (folding.go).
+	folds documentFolds
 	// id identifies the document for as long as the project is open; it is never reused.
 	id int
 	// path is the file's absolute path, name its base name, which is the tab's
@@ -450,6 +452,7 @@ func (a *App) placeDocumentAs(p *project, path, name string, content editorview.
 		OnEdit:  func(edit editorview.Edit) { a.documentEdited(p, d, edit) },
 	})
 	d.view.SetReadOnly(virtual)
+	setupFolding(d)
 	d.breakpointText = d.view.TextSnapshot()
 	a.documentInput(p, d)
 	p.docs.list = append(p.docs.list, d)
