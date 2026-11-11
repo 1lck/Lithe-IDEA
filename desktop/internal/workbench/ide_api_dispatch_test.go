@@ -18,7 +18,7 @@ func TestIDEAPIToolExposureIsTheServedList(t *testing.T) {
 			t.Fatalf("exposure[%d] = %+v", i, tool)
 		}
 	}
-	if slices.Contains(ideAPIServedTools, "lithe_run_start") || slices.Contains(ideAPIServedTools, "lithe_build_configure") {
+	if !slices.Contains(ideAPIServedTools, "lithe_run_start") || slices.Contains(ideAPIServedTools, "lithe_build_configure") {
 		t.Fatal("a tool the client does not dispatch is advertised")
 	}
 }

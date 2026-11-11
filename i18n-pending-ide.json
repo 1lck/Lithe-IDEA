@@ -401,5 +401,50 @@
     "parameters": {
       "reason": "string"
     }
+  },
+  {
+    "id": "desktop.problems.showErrors",
+    "description": "Checkbox in the Problems toolbar that shows error diagnostics",
+    "en-US": "Errors",
+    "zh-CN": "错误"
+  },
+  {
+    "id": "desktop.problems.showWarnings",
+    "description": "Checkbox in the Problems toolbar that shows warning diagnostics",
+    "en-US": "Warnings",
+    "zh-CN": "警告"
+  },
+  {
+    "id": "desktop.problems.showInfo",
+    "description": "Checkbox in the Problems toolbar that shows information and hint diagnostics",
+    "en-US": "Information",
+    "zh-CN": "信息"
+  },
+  {
+    "id": "desktop.problems.group.file",
+    "description": "Grouping name: diagnostics grouped by file",
+    "en-US": "By file",
+    "zh-CN": "按文件"
+  },
+  {
+    "id": "desktop.problems.group.severity",
+    "description": "Grouping name: diagnostics grouped by severity",
+    "en-US": "By severity",
+    "zh-CN": "按严重级别"
+  },
+  {
+    "id": "desktop.problems.group.none",
+    "description": "Grouping name: diagnostics in one flat list",
+    "en-US": "No grouping",
+    "zh-CN": "不分组"
+  },
+  {
+    "id": "desktop.problems.groupBy",
+    "description": "Toolbar button that cycles the Problems grouping; {arg1} is the current grouping's name",
+    "en-US": "Group: {arg1}",
+    "zh-CN": "分组：{arg1}",
+    "parameters": {
+      "arg1": "string"
+    }
   }
 ]
