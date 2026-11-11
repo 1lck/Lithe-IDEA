@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"path/filepath"
 	"runtime"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/loginenv"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 )
 
@@ -81,7 +81,7 @@ func applyToolchainSelection(environment map[string]string, selection core.Toolc
 	if len(selection.PathPrepend) > 0 {
 		current, set := merged["PATH"]
 		if !set {
-			current = os.Getenv("PATH")
+			current = loginenv.Path()
 		}
 		parts := append([]string(nil), selection.PathPrepend...)
 		if current != "" {

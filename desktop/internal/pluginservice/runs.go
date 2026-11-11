@@ -17,6 +17,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprocess"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/loginenv"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
@@ -332,6 +333,13 @@ func (r *Runs) handleStart(ctx context.Context, params json.RawMessage) (json.Ra
 	}
 	for key, value := range start.Environment {
 		environment[key] = value
+	}
+	// An app started from Finder has launchd's PATH; the run gets the user's shell PATH
+	// unless the plugin or the tool chose one.
+	if _, set := environment["PATH"]; !set {
+		if path := loginenv.Path(); path != "" {
+			environment["PATH"] = path
+		}
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
 	run := &hostRun{
