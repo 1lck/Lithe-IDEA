@@ -49,7 +49,11 @@ type EditorHostOptions struct {
 // 1 MiB source bound, and the provider types it routes. Sessions are started with it
 // and every editor action message is decoded against it (version 2).
 var EditorHost = EditorHostOptions{
-	ActionIcons:       []string{"run", "run-all", "debug", "test"},
+	// The names are the icons the host draws (workbench/editor_actions.go); Core refuses any other.
+	ActionIcons: []string{
+		"run", "run-all", "debug", "test", "test-passed", "test-failed", "test-skipped",
+		"navigate-super", "navigate-implementations",
+	},
 	ActionSourceBytes: 1024 * 1024,
 	ProviderTypes:     []string{"definition", "hover", "completion", "semanticTokens", "documentLink"},
 }

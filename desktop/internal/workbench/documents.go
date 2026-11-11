@@ -116,6 +116,8 @@ type document struct {
 	actionTimer *time.Timer
 	// actionAnnotated says the line annotations show code lens titles, so clearing them is needed.
 	actionAnnotated bool
+	// actionPanel holds the lanes of the action icons and the lane menu a press opened.
+	actionPanel editorActionPanel
 	// breakpointText is the text the breakpoints of this file were last placed in, so an edit can
 	// be given to Core with the text before it (debug_relocate.go).
 	breakpointText rope.Rope
