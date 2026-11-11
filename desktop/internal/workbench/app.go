@@ -87,6 +87,8 @@ type Kernel interface {
 	GenerateRunConfigurations(ctx context.Context, root, cacheDirectory string, providerRuns json.RawMessage) (core.RunConfigGeneration, error)
 	ResolveRunConfigurations(ctx context.Context, root string) (core.RunConfigResolution, error)
 	ProviderLaunchInputs(ctx context.Context, root, configurationID, providerRoot string) (core.RunProviderLaunchInputs, error)
+	UpdateRunConfigurationOptions(ctx context.Context, edit core.RunOptionsEdit) (string, error)
+	RunArgumentText(ctx context.Context, lists [][]string) ([]string, error)
 	SetDebugBreakpoints(ctx context.Context, sessionID, sourcePath string, breakpoints []core.DebugSourceBreakpoint) (core.DebugUpdate, error)
 	ExecuteDebug(ctx context.Context, sessionID, operationID, command string, threadID *int64, granularity string) (core.DebugUpdate, error)
 	InspectDebug(ctx context.Context, request core.DebugInspectRequest) (core.DebugUpdate, error)

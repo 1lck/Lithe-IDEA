@@ -21,6 +21,8 @@ type runConfigState struct {
 	list       []core.RunConfiguration
 	selected   string
 	failure    string
+	// editor is the dialog that edits one configuration's saved options.
+	editor runConfigEditor
 }
 
 // configuration is the listed configuration id, or nil.

@@ -51,3 +51,52 @@ func TestProviderRunsResolveAndLaunchInputs(t *testing.T) {
 		t.Fatalf("launch inputs = %+v", inputs)
 	}
 }
+
+// An edit saved through updateOptions resolves back as the configuration's
+// arguments, environment and working directory, and argumentText round-trips them.
+func TestRunConfigurationOptionsRoundTrip(t *testing.T) {
+	client := NewClient()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "app", "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reference := RunProviderReference{PluginID: "dev.example.engine", BuildSystemID: "engine", Root: "app", Run: "application",
+		ProjectID: "app", TargetID: "main", UserArguments: []string{}}
+	runs, err := json.Marshal([]RunProviderRun{{ProjectPath: "app", Name: "Run Main", Reference: reference}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.GenerateRunConfigurations(ctx, root, "", runs); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := client.ResolveRunConfigurations(ctx, root)
+	if err != nil || len(resolved.Configurations) != 1 {
+		t.Fatalf("resolve = %+v, %v", resolved, err)
+	}
+	id := resolved.Configurations[0].ID
+	document, err := client.UpdateRunConfigurationOptions(ctx, RunOptionsEdit{Root: root, Scope: "local", ConfigurationID: id,
+		WorkingDirectory: "app/data", Arguments: `--name "Alice Smith"`, Environment: map[string]string{"MODE": "dev"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".lithe", "run"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".lithe", "run", "local.json"), []byte(document), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err = client.ResolveRunConfigurations(ctx, root)
+	if err != nil || len(resolved.Configurations) != 1 {
+		t.Fatalf("resolve = %+v, %v", resolved, err)
+	}
+	got := resolved.Configurations[0]
+	if len(got.Args) != 2 || got.Args[1] != "Alice Smith" || got.Env["MODE"] != "dev" || got.Cwd != "app/data" {
+		t.Fatalf("configuration = %+v", got)
+	}
+	texts, err := client.RunArgumentText(ctx, [][]string{got.Args, {}})
+	if err != nil || len(texts) != 2 || texts[0] != `--name "Alice Smith"` || texts[1] != "" {
+		t.Fatalf("argument text = %q, %v", texts, err)
+	}
+}

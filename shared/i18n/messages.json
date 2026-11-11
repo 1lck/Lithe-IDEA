@@ -15367,6 +15367,68 @@
       }
     },
     {
+      "id": "desktop.runConfig.arguments",
+      "description": "Label of the program arguments field in the run configuration editor.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.argumentsPlaceholder",
+      "description": "Placeholder of the program arguments field: arguments are separated by spaces and quoted when they contain spaces.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.conflict",
+      "description": "Error in the run configuration editor when the target file changed on disk between reading and saving.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.edit",
+      "description": "Button beside the run configuration picker in the Run tool window that opens the editor of the selected configuration.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.editTitle",
+      "description": "Title of the run configuration editor dialog; {name} is the configuration's name.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.environment",
+      "description": "Label of the environment variables field in the run configuration editor.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.environmentInvalid",
+      "description": "Error under the environment variables field when a non-empty line has no name before an equals sign; {line} is the 1-based line number.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "line": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.environmentPlaceholder",
+      "description": "Placeholder of the environment variables field: one variable per line written as KEY=VALUE.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.runConfig.label",
       "description": "Label before the select that picks a run configuration in the Run tool window",
       "platforms": [
@@ -15386,6 +15448,51 @@
     {
       "id": "desktop.runConfig.run",
       "description": "Button that runs the selected run configuration",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.saveFailed",
+      "description": "Error in the run configuration editor when saving failed; {reason} is the underlying error.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.scope",
+      "description": "Label of the choice of which file the run configuration editor saves to.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.scopeLocal",
+      "description": "Save target option: the machine-local run configuration file that is not shared with the team.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.scopeProject",
+      "description": "Save target option: the project's shared run configuration file committed with the code.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.workingDirectory",
+      "description": "Label of the working directory field in the run configuration editor.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.workingDirectoryPlaceholder",
+      "description": "Placeholder of the working directory field: a path inside the workspace; empty keeps the run's default directory.",
       "platforms": [
         "desktop"
       ]

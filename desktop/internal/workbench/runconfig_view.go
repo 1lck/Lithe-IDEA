@@ -40,7 +40,54 @@ func (a *App) runConfigBar(c ui.C, p *project) {
 			id := s.selected
 			c.After(func() { a.runConfiguration(p, id) })
 		}
+		edit := ui.Button(c.Part("edit"), i18n.Shared(language, "desktop.runConfig.edit")).Icon(icons.Pencil).Small().Outline()
+		if s.selected == "" {
+			edit.Disabled(true)
+		}
+		if edit.Clicked() {
+			id := s.selected
+			c.After(func() { a.openRunConfigEditor(p, id) })
+		}
 		ui.Spacer(c)
 	})
 	ui.Divider(c)
+}
+
+// drawRunConfigEditor declares the open run configuration editor: arguments, working
+// directory, environment and the layer file the edit is saved into.
+func (a *App) drawRunConfigEditor(c ui.C, p *project) {
+	e := &p.runConfigs.editor
+	if !e.open {
+		return
+	}
+	language := a.language()
+	ready := !e.loading && !e.saving
+	open := true
+	title := i18n.SharedFormat(language, "desktop.runConfig.editTitle", map[string]string{"name": e.name})
+	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: 460}, func() {
+		ui.Column(c.Part("run-config-editor")).FillWidth().Gap(10).Children(func() {
+			ui.TextField(c.Part("arguments"), &e.arguments, i18n.Shared(language, "desktop.runConfig.arguments"), i18n.Shared(language, "desktop.runConfig.argumentsPlaceholder")).
+				FillWidth().Disabled(!ready)
+			ui.TextField(c.Part("directory"), &e.directory, i18n.Shared(language, "desktop.runConfig.workingDirectory"), i18n.Shared(language, "desktop.runConfig.workingDirectoryPlaceholder")).
+				FillWidth().Disabled(!ready)
+			ui.TextArea(c.Part("environment"), &e.environment, i18n.Shared(language, "desktop.runConfig.environment"), i18n.Shared(language, "desktop.runConfig.environmentPlaceholder")).
+				FillWidth().Height(96).Disabled(!ready)
+			labels := map[string]string{"local": i18n.Shared(language, "desktop.runConfig.scopeLocal"), "project": i18n.Shared(language, "desktop.runConfig.scopeProject")}
+			ui.Select(c.Part("scope"), &e.scope, []string{"local", "project"}, func(scope string) string { return labels[scope] }).
+				Label(i18n.Shared(language, "desktop.runConfig.scope")).FillWidth()
+			if e.failure != "" {
+				ui.Paragraph(c, e.failure, 4).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
+			}
+		})
+	}, func() {
+		if ui.Button(c, i18n.Shared(language, "desktop.git.cancel")).Outline().Clicked() {
+			c.After(func() { a.closeRunConfigEditor(p) })
+		}
+		if ui.Button(c, i18n.Shared(language, "ui.save")).Disabled(!ready).Clicked() {
+			c.After(func() { a.saveRunConfigEditor(p) })
+		}
+	})
+	if closed {
+		c.After(func() { a.closeRunConfigEditor(p) })
+	}
 }

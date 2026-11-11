@@ -120,3 +120,37 @@ func (c *Client) ProviderLaunchInputs(ctx context.Context, root, configurationID
 	}{root, configurationID, providerRoot}, &result)
 	return result, err
 }
+
+// RunOptionsEdit is a `runConfig.updateOptions` request: the user's arguments
+// (editor text Core splits), working directory and environment for one
+// configuration in the local or project layer. LocalDocument, when set, is the
+// captured local layer Core edits and resolves against instead of reading it.
+type RunOptionsEdit struct {
+	Root             string            `json:"root"`
+	Scope            string            `json:"scope"`
+	ConfigurationID  string            `json:"configurationId"`
+	WorkingDirectory string            `json:"workingDirectory"`
+	Arguments        string            `json:"arguments"`
+	Environment      map[string]string `json:"environment"`
+	LocalDocument    json.RawMessage   `json:"localDocument,omitempty"`
+}
+
+// UpdateRunConfigurationOptions returns the layer document with the edit applied.
+// Core writes nothing; the host publishes the document to the scope's file.
+func (c *Client) UpdateRunConfigurationOptions(ctx context.Context, edit RunOptionsEdit) (string, error) {
+	var result struct {
+		Document string `json:"document"`
+	}
+	err := c.Execute(ctx, "runConfig.updateOptions", edit, &result)
+	return result.Document, err
+}
+
+// RunArgumentText formats each argument vector as the editor text that
+// `runConfig.updateOptions` splits back into the same vector.
+func (c *Client) RunArgumentText(ctx context.Context, lists [][]string) ([]string, error) {
+	var result []string
+	err := c.Execute(ctx, "runConfig.argumentText", struct {
+		ArgumentLists [][]string `json:"argumentLists"`
+	}{lists}, &result)
+	return result, err
+}
