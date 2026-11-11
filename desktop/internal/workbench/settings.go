@@ -193,6 +193,9 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 				}
 			})
 		},
+		SetNetwork: func(next settingswindow.NetworkSettings, password *string) {
+			a.post(func(a *App) { a.setNetwork(next, password) })
+		},
 		SetKeymap: func(value shortcuts.Overrides) {
 			value = shortcuts.Normalize(value)
 			a.post(func(a *App) {
@@ -323,6 +326,7 @@ func (a *App) openSettingsPageWith(surface string, page settingsPage, query stri
 			SteppingFilters:          maps.Clone(a.settings.DebugSteppingFilters),
 			Fonts:                    fontprefs.Normalize(a.settings.Fonts),
 			Keymap:                   maps.Clone(a.settings.Keymap),
+			Network:                  a.settings.Network,
 		}
 		var err error
 		switch page {

@@ -213,6 +213,8 @@ func (w *window) content(c ui.C) {
 			w.hooksPage(c)
 		case w.sess.page == pageVersionControl:
 			w.versionControlPage(c)
+		case w.sess.page == pageNetwork && w.ctrl.opts.SetNetwork != nil:
+			w.networkPage(c)
 		case w.sess.page == pageKeymap:
 			w.keymapPage(c)
 		case w.sess.page == pageProcessTermination:

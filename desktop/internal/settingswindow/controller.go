@@ -88,6 +88,8 @@ type Values struct {
 	// Keymap is the user's changes to the keys of the shortcut catalog; nil keeps every
 	// default.
 	Keymap shortcuts.Overrides
+	// Network is the proxy settings of the application's own HTTP traffic.
+	Network NetworkSettings
 }
 
 // SteppingAdapter is an installed debug adapter that takes stepping filters: its ID, the
@@ -236,6 +238,10 @@ type Options struct {
 	SetProcessTermination func(ProcessTermination)
 	// SetKeymap hands a change of Values.Keymap to the settings owner, like SetTabRows.
 	SetKeymap func(shortcuts.Overrides)
+	// SetNetwork hands the Network page's applied settings to the settings owner, with the
+	// password to store: nil keeps the stored one and an empty string removes it. Nil
+	// leaves the page unavailable.
+	SetNetwork func(NetworkSettings, *string)
 	// SetHideProjectColors hands a change of Values.HideProjectColors to the settings
 	// owner, like SetHideGitGutter.
 	SetHideProjectColors func(bool)

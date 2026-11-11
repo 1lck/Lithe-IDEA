@@ -119,6 +119,8 @@ type window struct {
 	// typed in it since the stored number was last shown.
 	scrollbackField   ui.Field
 	scrollbackEditing bool
+	// network is the Network page's unsaved edit.
+	network networkDraft
 	// keymap is the Keymap page's filter and recording.
 	keymap keymapState
 

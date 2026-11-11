@@ -667,5 +667,113 @@
     "description": "General settings, Workbench card help",
     "en-US": "Tints the title bar and the space around the panels with the project's color, the same color as its badge.",
     "zh-CN": "用项目颜色为标题栏和面板之间的区域着色，与项目头像颜色一致。"
+  },
+  {
+    "id": "desktop.settings.network.proxy",
+    "description": "Network settings page",
+    "en-US": "Proxy",
+    "zh-CN": "代理"
+  },
+  {
+    "id": "desktop.settings.network.proxyHelp",
+    "description": "Network settings page",
+    "en-US": "How Lithe's own requests (marketplace, downloads, AI providers, registries) reach the internet. Terminals and run processes keep their own environment.",
+    "zh-CN": "Lithe 自身的请求（插件市场、下载、AI 供应商、注册表）如何访问网络。终端和运行进程保持各自的环境。"
+  },
+  {
+    "id": "desktop.settings.network.mode",
+    "description": "Network settings page",
+    "en-US": "Connection",
+    "zh-CN": "连接方式"
+  },
+  {
+    "id": "desktop.settings.network.system",
+    "description": "Network settings page",
+    "en-US": "Use system proxy settings",
+    "zh-CN": "使用系统代理设置"
+  },
+  {
+    "id": "desktop.settings.network.direct",
+    "description": "Network settings page",
+    "en-US": "No proxy",
+    "zh-CN": "不使用代理"
+  },
+  {
+    "id": "desktop.settings.network.custom",
+    "description": "Network settings page",
+    "en-US": "Manual proxy configuration",
+    "zh-CN": "手动配置代理"
+  },
+  {
+    "id": "desktop.settings.network.type",
+    "description": "Network settings page",
+    "en-US": "Protocol",
+    "zh-CN": "协议"
+  },
+  {
+    "id": "desktop.settings.network.host",
+    "description": "Network settings page",
+    "en-US": "Host",
+    "zh-CN": "主机"
+  },
+  {
+    "id": "desktop.settings.network.port",
+    "description": "Network settings page",
+    "en-US": "Port",
+    "zh-CN": "端口"
+  },
+  {
+    "id": "desktop.settings.network.username",
+    "description": "Network settings page",
+    "en-US": "Username",
+    "zh-CN": "用户名"
+  },
+  {
+    "id": "desktop.settings.network.password",
+    "description": "Network settings page",
+    "en-US": "Password",
+    "zh-CN": "密码"
+  },
+  {
+    "id": "desktop.settings.network.passwordStored",
+    "description": "Network settings page",
+    "en-US": "Saved — leave empty to keep",
+    "zh-CN": "已保存，留空保持不变"
+  },
+  {
+    "id": "desktop.settings.network.clearPassword",
+    "description": "Network settings page",
+    "en-US": "Remove Password",
+    "zh-CN": "移除密码"
+  },
+  {
+    "id": "desktop.settings.network.exclusions",
+    "description": "Network settings page",
+    "en-US": "No proxy for",
+    "zh-CN": "不使用代理的地址"
+  },
+  {
+    "id": "desktop.settings.network.exclusionsHelp",
+    "description": "Network settings page",
+    "en-US": "Comma-separated hosts, domain suffixes (*.example.com), IP addresses, CIDR blocks, or <local> for names without a dot.",
+    "zh-CN": "用逗号分隔：主机名、域名后缀（*.example.com）、IP 地址、CIDR 网段，或用 <local> 表示不含点的主机名。"
+  },
+  {
+    "id": "desktop.settings.network.revert",
+    "description": "Network settings page",
+    "en-US": "Revert",
+    "zh-CN": "还原"
+  },
+  {
+    "id": "desktop.settings.network.apply",
+    "description": "Network settings page",
+    "en-US": "Apply",
+    "zh-CN": "应用"
+  },
+  {
+    "id": "desktop.settings.network.invalidPort",
+    "description": "Network settings page",
+    "en-US": "The port must be a number from 1 to 65535.",
+    "zh-CN": "端口必须是 1 到 65535 之间的数字。"
   }
 ]

@@ -267,6 +267,8 @@ type settings struct {
 	// Keymap is the user's changes to the keys of the shortcut catalog (shortcuts.Catalog),
 	// by action ID; none keeps every default.
 	Keymap shortcuts.Overrides `json:"keymap,omitempty"`
+	// Network is the proxy settings of the application's own HTTP traffic (network.go).
+	Network settingswindow.NetworkSettings `json:"network,omitzero"`
 }
 
 const (
@@ -564,6 +566,7 @@ func New(options Options) *App {
 		a.settings = settings{}
 	}
 	a.settings.Keymap = shortcuts.Normalize(a.settings.Keymap)
+	a.applyNetwork()
 	a.applyFonts()
 	a.searchView.delay = -1
 	a.everywhereView.delay = -1
