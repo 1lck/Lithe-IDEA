@@ -216,6 +216,8 @@ type GitMessages struct {
 	Log       string
 	Worktrees string
 	Console   string
+	// Repositories name the repository the log walks, and the way back to the project's own.
+	Repositories GitRepositoryMessages
 	// LogTab is the log tab while the log shows one reference, for example "Log: main".
 	LogTab        func(reference string) string
 	AllReferences string

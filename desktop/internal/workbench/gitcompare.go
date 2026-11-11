@@ -39,7 +39,7 @@ func (a *App) compareReferences(p *project, base core.GitReference, target *core
 		return
 	}
 	l.comparing = true
-	root := p.git.repositoryRoot(p.root)
+	root := p.logRepositoryRoot()
 	a.performed("git.compare", surfaceButton)
 	a.background(p, reviewTimeout, func(ctx context.Context) func(*App) {
 		files, err := kernel.GitComparison(ctx, root, base, target)

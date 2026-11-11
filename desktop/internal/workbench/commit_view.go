@@ -114,19 +114,20 @@ func (a *App) drawCommitChanges(c ui.C, p *project) ui.Box {
 			a.drawChangeListSections(c, p)
 			return
 		}
+		if len(p.nested.repos) > 0 {
+			a.drawRepositoryChanges(c, p)
+			return
+		}
 		if len(changes) == 0 {
 			ui.Column(c).Fill().Center().Gap(8).Children(func() {
 				ui.Icon(c, icons.Check).Size(20, 20).Color(a.colors.Success)
 				ui.Text(c, t.Clean).Color(a.colors.Subtle)
 			})
-			a.drawNestedRepos(c, p)
 			return
 		}
-		all := append(append([]core.GitChange(nil), changes...), nestedChanges(p)...)
-		a.drawChangeRows(c, t.ChangeList, t.Files(fileCount(all)), all, cs.busy,
+		a.drawChangeRows(c, t.ChangeList, t.Files(fileCount(changes)), changes, cs.busy,
 			func() { a.stageAllAcrossRepositories(p) },
 			func(change core.GitChange) { a.drawCommitChange(c, p, change) })
-		a.drawNestedRepos(c, p)
 	})
 }
 
@@ -150,17 +151,23 @@ func (a *App) drawCommitChange(c ui.C, p *project, change core.GitChange) {
 // unstages them all, with the list's title and size, over a row per change.
 func (a *App) drawChangeRows(c ui.C, title, size string, changes []core.GitChange, busy bool, toggleAll func(), row func(core.GitChange)) {
 	ui.Scroll(c).Grow(1).FillWidth().PadY(4).Children(func() {
-		ui.Row(c).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
-			all := allStaged(changes)
-			if ui.Checkbox(c, &all, "").Label(title).Disabled(busy || !hasToggleable(changes)).Clicked() {
-				c.After(toggleAll)
-			}
-			ui.Text(c, title).Weight(gfx.WeightMedium).Ellipsis().Shrink(1)
-			ui.Text(c, size).Muted().Shrink(0)
-		})
+		a.drawChangeListHeader(c, title, size, changes, busy, toggleAll)
 		for _, change := range changes {
 			row(change)
 		}
+	})
+}
+
+// drawChangeListHeader declares the line over a change list: the checkbox that stages or unstages
+// all of its changes, with the list's title and size.
+func (a *App) drawChangeListHeader(c ui.C, title, size string, changes []core.GitChange, busy bool, toggleAll func()) {
+	ui.Row(c).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
+		all := allStaged(changes)
+		if ui.Checkbox(c, &all, "").Label(title).Disabled(busy || !hasToggleable(changes)).Clicked() {
+			c.After(toggleAll)
+		}
+		ui.Text(c, title).Weight(gfx.WeightMedium).Ellipsis().Shrink(1)
+		ui.Text(c, size).Muted().Shrink(0)
 	})
 }
 

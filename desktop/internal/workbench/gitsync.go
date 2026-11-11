@@ -134,7 +134,7 @@ func (a *App) runSync(p *project, operation, label string, failed func(reason st
 	relay := &syncProgressRelay{}
 	s.busy, s.label, s.cancel = true, label, cancel
 	s.relay, s.progress, s.hasProgress = relay, core.GitProgress{}, false
-	kernel, root := a.kernel, p.git.repositoryRoot(p.root)
+	kernel, root := a.kernel, p.logRepositoryRoot()
 	a.background(p, syncTimeout, func(ctx context.Context) func(*App) {
 		ctx, stop := context.WithCancel(ctx)
 		defer stop()
@@ -215,7 +215,7 @@ func (a *App) openFetchOptions(p *project) {
 	s.settingsGen++
 	gen := s.settingsGen
 	s.settingsLoading, s.settingsNote, s.tagBehavior = true, "", ""
-	kernel, root := a.kernel, p.git.repositoryRoot(p.root)
+	kernel, root := a.kernel, p.logRepositoryRoot()
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		settings, err := kernel.GitFetchSettingsOf(ctx, root)
 		return func(a *App) {

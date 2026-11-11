@@ -13,9 +13,10 @@ var english = Messages{
 	Editor:  editorMessages(English),
 	Project: projectMessages(English),
 	Git: GitMessages{
-		Log:       Shared(English, "desktop.git.log"),
-		Worktrees: Shared(English, "git.worktrees"),
-		Console:   Shared(English, "git.console.title"),
+		Log:          Shared(English, "desktop.git.log"),
+		Worktrees:    Shared(English, "git.worktrees"),
+		Console:      Shared(English, "git.console.title"),
+		Repositories: gitRepositoryMessages(English),
 		LogTab: func(reference string) string {
 			return SharedFormat(English, "desktop.git.logTab", map[string]string{"reference": reference})
 		},

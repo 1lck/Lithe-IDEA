@@ -223,10 +223,12 @@ func (a *App) loadLog(p *project) {
 	l.loadingMore, l.moreFailed, l.window = false, false, nil
 	l.graph, l.currentRows = core.Graph{}, nil
 	l.pathFiles = nil
+	// The upstreams the graph paints were read for the repository before this one.
+	a.logView.upstream, a.logView.upstreamFor = nil, nil
 	a.selectCommit(p, "")
 	// The nested repositories' groups in the reference pane are read with the log (nested_refs.go).
 	a.loadNestedReferences(p)
-	kernel, root, reference := a.kernel, p.root, l.reference
+	kernel, root, reference := a.kernel, p.logRoot(), l.reference
 	expanded := l.expanded
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		refs, sections, current, err := readReferences(ctx, kernel, root)
@@ -251,7 +253,9 @@ func (a *App) loadLog(p *project) {
 			}
 			l.loading = false
 			if err != nil {
+				// Once the walked repository cannot be read, the references shown before are not its own.
 				l.err = err
+				l.refs, l.sections, l.current = core.GitReferences{}, [3]logSection{}, ""
 				return
 			}
 			l.refs, l.sections, l.current = refs, sections, current
@@ -313,7 +317,7 @@ func readReferences(ctx context.Context, kernel Kernel, root string) (core.GitRe
 
 // loadLogWindow reads the wider history window and lays the graph out again against it.
 func (a *App) loadLogWindow(p *project, gen int) {
-	kernel, root, reference := a.kernel, p.root, p.log.reference
+	kernel, root, reference := a.kernel, p.logRoot(), p.log.reference
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		page, err := kernel.GitHistoryPage(ctx, root, reference, "", logWindowSize)
 		if err == nil && page.NextCursor != "" {
@@ -341,7 +345,7 @@ func (a *App) loadMoreLog(p *project) {
 	}
 	l.loadingMore = true
 	gen := l.gen
-	kernel, root, reference, cursor := a.kernel, p.root, l.reference, l.cursor
+	kernel, root, reference, cursor := a.kernel, p.logRoot(), l.reference, l.cursor
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		page, err := kernel.GitHistoryPage(ctx, root, reference, cursor, logPageSize)
 		return func(a *App) {
@@ -363,7 +367,7 @@ func (a *App) loadMoreLog(p *project) {
 
 // closeLogCursor releases a history walk the log no longer continues.
 func (a *App) closeLogCursor(p *project, cursor string) {
-	kernel, root := a.kernel, p.root
+	kernel, root := a.kernel, p.logRoot()
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		_, _ = kernel.CloseGitHistoryCursor(ctx, root, cursor)
 		return nil
@@ -428,7 +432,7 @@ func (a *App) reproject(p *project, delay time.Duration) {
 		}
 	}
 	dated := l.date != logAnyTime
-	kernel, root := a.kernel, p.root
+	kernel, root := a.kernel, p.logRoot()
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		if delay > 0 {
 			select {
@@ -588,7 +592,7 @@ func (a *App) selectCommit(p *project, hash string) {
 	stop := make(chan struct{})
 	l.selStop = stop
 	delay := a.delays.files
-	kernel, root := a.kernel, p.root
+	kernel, root := a.kernel, p.logRoot()
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		if delay > 0 {
 			select {

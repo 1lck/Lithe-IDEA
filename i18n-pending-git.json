@@ -1102,5 +1102,23 @@
     "description": "Button on a nested repository's header in the Commit window: show its changes again",
     "en-US": "Expand Repository",
     "zh-CN": "展开仓库"
+  },
+  {
+    "id": "desktop.git.repo.current",
+    "description": "Header of the Git log's commit list: the repository the log walks",
+    "en-US": "Repository: {name}",
+    "zh-CN": "仓库：{name}",
+    "parameters": {
+      "name": "string"
+    }
+  },
+  {
+    "id": "desktop.git.repo.back",
+    "description": "Button in the Git log's header: walk the project's own repository again after a nested one",
+    "en-US": "Back to {name}",
+    "zh-CN": "切回 {name}",
+    "parameters": {
+      "name": "string"
+    }
   }
 ]
