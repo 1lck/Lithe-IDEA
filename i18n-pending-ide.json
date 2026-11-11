@@ -212,5 +212,29 @@
     "description": "Language server state card value when it failed",
     "en-US": "Failed",
     "zh-CN": "失败"
+  },
+  {
+    "id": "desktop.marketplace.tab.features",
+    "description": "Tab of an installed plugin's detail: the contributions its manifest declares",
+    "en-US": "Features",
+    "zh-CN": "功能"
+  },
+  {
+    "id": "desktop.marketplace.tab.permissions",
+    "description": "Tab of an installed plugin's detail: the permissions its manifest asks for",
+    "en-US": "Permissions",
+    "zh-CN": "权限"
+  },
+  {
+    "id": "desktop.marketplace.noFeatures",
+    "description": "Shown in the features tab when the manifest declares no contribution",
+    "en-US": "This plugin declares no features.",
+    "zh-CN": "此插件未声明功能。"
+  },
+  {
+    "id": "desktop.marketplace.noPermissions",
+    "description": "Shown in the permissions tab when the manifest asks for no permission",
+    "en-US": "This plugin asks for no permissions.",
+    "zh-CN": "此插件未请求任何权限。"
   }
 ]

@@ -3,6 +3,7 @@ package settingswindow
 import (
 	"errors"
 	"hash/fnv"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -288,9 +289,23 @@ func (w *window) marketDetail(c ui.C) {
 	if w.ctrl.opts.PluginSettings == nil {
 		ui.Wrap(c, i18n.Shared(language, "desktop.marketplace.hostUnavailable")).FontSize(12).Color(w.pal.muted)
 	}
-	tabs := []int{detailOverview, detailVersions, detailSettings}
+	tabs := []int{detailOverview}
+	installed := w.ctrl.opts.PluginState != nil && w.ctrl.opts.PluginState(selected.ID).Installed
+	var facts PluginFacts
+	if installed && w.ctrl.opts.PluginFacts != nil {
+		facts = w.ctrl.opts.PluginFacts(selected.ID)
+		tabs = append(tabs, detailFeatures, detailPermissions)
+	}
+	tabs = append(tabs, detailVersions, detailSettings)
+	if !slices.Contains(tabs, m.detailTab) {
+		m.detailTab = detailOverview
+	}
 	ui.Tabs(c, &m.detailTab, tabs, func(tab int) string { return marketTabLabel(language, tab) })
 	switch m.detailTab {
+	case detailFeatures:
+		w.marketFeatures(c, facts.Features)
+	case detailPermissions:
+		w.marketPermissions(c, facts.Permissions)
 	case detailVersions:
 		w.marketVersions(c, *selected)
 	case detailSettings:
@@ -311,6 +326,8 @@ const (
 	detailOverview = iota
 	detailVersions
 	detailSettings
+	detailFeatures
+	detailPermissions
 )
 
 func marketTabLabel(language i18n.Language, tab int) string {
@@ -319,8 +336,34 @@ func marketTabLabel(language i18n.Language, tab int) string {
 		return i18n.Shared(language, "desktop.marketplace.tab.versions")
 	case detailSettings:
 		return i18n.Shared(language, "desktop.marketplace.tab.settings")
+	case detailFeatures:
+		return i18n.Shared(language, "desktop.marketplace.tab.features")
+	case detailPermissions:
+		return i18n.Shared(language, "desktop.marketplace.tab.permissions")
 	}
 	return i18n.Shared(language, "desktop.marketplace.tab.overview")
+}
+
+// marketFeatures lists the contribution sections of an installed plugin's manifest.
+func (w *window) marketFeatures(c ui.C, features []string) {
+	if len(features) == 0 {
+		ui.Wrap(c, i18n.Shared(w.marketLanguage(), "desktop.marketplace.noFeatures")).FontSize(12).Color(w.pal.muted)
+		return
+	}
+	for _, feature := range features {
+		ui.Text(c, feature).FontSize(12).Color(w.pal.text).Mono()
+	}
+}
+
+// marketPermissions lists the permissions an installed plugin's manifest asks for.
+func (w *window) marketPermissions(c ui.C, permissions []string) {
+	if len(permissions) == 0 {
+		ui.Wrap(c, i18n.Shared(w.marketLanguage(), "desktop.marketplace.noPermissions")).FontSize(12).Color(w.pal.muted)
+		return
+	}
+	for _, permission := range permissions {
+		ui.Text(c, permission).FontSize(12).Color(w.pal.text).Mono()
+	}
 }
 
 // marketOverview declares the description, the latest release and the actions of a plugin.

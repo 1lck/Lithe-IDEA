@@ -161,6 +161,9 @@ type Options struct {
 	InstallPlugin func(plugin core.MarketplacePlugin)
 	// SetPluginEnabled turns an installed plugin on or off.
 	SetPluginEnabled func(id string, enabled bool)
+	// PluginFacts reports what an installed plugin's manifest declares: the permissions it asks for
+	// and the contributions it makes. It is read while painting, so it answers from memory.
+	PluginFacts func(id string) PluginFacts
 	// LanguageServerState reports the state of a plugin's running language server: its state
 	// name, or "" when none runs. It is read while painting on the window's thread.
 	LanguageServerState func(pluginID string) string
@@ -396,4 +399,12 @@ func (c *Controller) PluginSettingsChanged(id string) {
 		}
 		c.current.inv.Invalidate()
 	}
+}
+
+// PluginFacts is what an installed plugin's manifest declares, shown in its detail.
+type PluginFacts struct {
+	// Permissions are the permission names the manifest lists, as the contract spells them.
+	Permissions []string
+	// Features are the contribution sections the manifest declares, as the contract names them.
+	Features []string
 }
