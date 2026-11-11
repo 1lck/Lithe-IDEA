@@ -97,6 +97,9 @@ func (a *App) drawRunConfigEditor(c ui.C, p *project) {
 					ui.TextField(c.Part("tool-"+strconv.Itoa(index)), &tool.path, label, i18n.Shared(language, "desktop.runConfig.toolPathPlaceholder")).
 						FillWidth().Disabled(!ready)
 				}
+				for index := range e.optionFields {
+					a.drawRunOptionField(c.Part("option-"+strconv.Itoa(index)), language, &e.optionFields[index], ready)
+				}
 			}
 			labels := map[string]string{"local": i18n.Shared(language, "desktop.runConfig.scopeLocal"), "project": i18n.Shared(language, "desktop.runConfig.scopeProject")}
 			ui.Select(c.Part("scope"), &e.scope, []string{"local", "project"}, func(scope string) string { return labels[scope] }).
@@ -125,4 +128,30 @@ func indexRange(n int) []int {
 		values[i] = i
 	}
 	return values
+}
+
+// drawRunOptionField declares one build option of the run: a checkbox, a choice picker or a text field by its
+// kind. A kind the editor cannot edit shows its stored JSON read-only.
+func (a *App) drawRunOptionField(c ui.C, language i18n.Language, field *runOptionField, ready bool) {
+	switch field.kind {
+	case "boolean":
+		ui.Checkbox(c, &field.flag, field.title).Disabled(!ready)
+	case "singleSelect":
+		values, labels := runOptionChoiceIDs(*field)
+		ui.Select(c, &field.text, values, func(value string) string {
+			if value == "" {
+				return i18n.Shared(language, "desktop.runConfig.optionDefault")
+			}
+			return labels[value]
+		}).
+			Label(field.title).FillWidth().Disabled(!ready)
+	case "text", "file", "directory":
+		ui.TextField(c, &field.text, field.title, "").FillWidth().Disabled(!ready)
+	default:
+		text := field.title + ": " + i18n.Shared(language, "desktop.runConfig.optionReadOnly")
+		if field.raw != nil {
+			text = field.title + ": " + string(field.raw)
+		}
+		ui.Wrap(c, text).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+	}
 }

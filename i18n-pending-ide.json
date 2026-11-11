@@ -605,5 +605,17 @@
     "description": "Variables section tab that shows the adapter's registers scope alone",
     "en-US": "Registers",
     "zh-CN": "寄存器"
+  },
+  {
+    "id": "desktop.runConfig.optionDefault",
+    "description": "Run configuration build option choice that removes this run's override, so the plugin declaration applies",
+    "en-US": "Default",
+    "zh-CN": "默认"
+  },
+  {
+    "id": "desktop.runConfig.optionReadOnly",
+    "description": "Run configuration build option whose stored value the editor cannot edit yet",
+    "en-US": "Not editable here",
+    "zh-CN": "此处无法编辑"
   }
 ]
