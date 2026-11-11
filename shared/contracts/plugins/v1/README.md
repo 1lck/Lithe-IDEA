@@ -3980,6 +3980,9 @@ Hosts load a page under these rules:
   connections, remote resources, frames, inline scripts, and `eval`.
   Navigation away from the package, popups, and downloads are blocked.
 - Web storage is not persistent. A page keeps its state through the bridge.
+- The package path `.lithe-host/` is reserved: the host answers
+  `.lithe-host/bridge.js` with its own bridge script and serves no package
+  file under it.
 - The host creates the page when the window is first shown. It may destroy
   the page whenever the window is hidden, and does destroy it when the plugin
   is disabled, updated, or uninstalled. A page restores itself from its

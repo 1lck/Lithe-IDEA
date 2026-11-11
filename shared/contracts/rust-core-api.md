@@ -6527,6 +6527,49 @@ writes and honor the decoding-loss flag. See
 `shared/fixtures/git/saved-stash-v1.json` and
 `shared/fixtures/git/parsed-diff-v1.json`.
 
+### Plugin web pages
+
+A host that shows a plugin's web tool window (`ui` 2) keeps the web view, the
+package file reads, page state storage, file dialogs and the calls a page
+makes; Core decides what the page is served and which bridge requests it may
+make, and frames every answer, so all clients behave alike. Pages are
+registered in Core for their lifetime:
+
+- `plugins.web.open` takes `{ manifest, windowID, platform, locale, theme:
+  { theme: "light"|"dark", variables: { "--lithe-*": value } }, buildSystems? }`
+  and returns `{ page, pluginID, windowID, scheme: "lithe-plugin", url,
+  bridgeVersion: 2, fileLimit, stateLimit }`. `url` is
+  `lithe-plugin://<pluginID>/<entry>`. A window that is not one of the
+  manifest's web windows is `invalid_request`. At most 512 pages are open.
+- `plugins.web.close` takes `{ page }` and returns `{ cancelCalls }`, the
+  calls the host still has to cancel. Closing twice is not an error.
+- `plugins.web.resource` takes `{ page, path }`, the decoded URL path, and
+  returns `{ kind: "bootstrap", mime, body }` for `/.lithe-host/bridge.js`
+  (the script that defines `window.lithe` over the web view's `window.viva`
+  channel), `{ kind: "file", segments, mime, document }` for a package file
+  the host reads itself (refusing symbolic links, non-regular files and
+  files over `fileLimit`), or `{ kind: "refused" }`, answered as missing.
+- `plugins.web.document` takes `{ page, html }` for a file with `document`
+  true and returns `{ html }` with the content security policy (a meta
+  element) and the bridge script first in the document.
+- `plugins.web.request` takes `{ page, message }`, the text the page posted
+  (`{ id, method, params }`), and returns `{ reply }` (a refusal to post back
+  at once), `{ action: { id, method, params } }` (checked, normalized
+  parameters for the host to carry out), or `{ ignored }` (no request ID,
+  not JSON, over 1 MiB, or the page is closed). A `functions.invoke` action
+  carries the `call` it holds (page-chosen or host-made) and `progress`,
+  whether progress may reach the page; at most 16 calls are held, and a
+  page-chosen ID is never accepted twice. A dialog action holds the page's
+  only dialog. `build.*` and an `instance` parameter are answered only when
+  the page was opened with `buildSystems`.
+- `plugins.web.reply` takes `{ page, id, method, call?, result? | error?:
+  { code, message, pluginErrorCode? } }`, releases what the action held and
+  returns `{ message }` to post, `null` after the page closed.
+- `plugins.web.event` takes `{ page, event, payload }` for
+  `functions.progress`, `ui.themeChanged`, `build.instancesChanged` or
+  `build.runChanged` and returns `{ message }`, `null` when the page is
+  closed or the progress is for a call that ended or has no page ID.
+
 ### Native plugin UI data
 
 `plugins.nativeUI.validateData` accepts `{ ui, data }`, where `ui` is the
