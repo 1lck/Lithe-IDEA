@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -44,6 +46,13 @@ type debugStart struct {
 	// when a backend started the session through debug/start. They apply on top
 	// of the adapter's declared arguments and no file or connection is planned.
 	configuration map[string]any
+	// launchTarget is a plugin run's process that the adapter starts itself
+	// (`debug.target: {kind: "launch"}`); Core binds it through the adapter's
+	// launch targetBindings.
+	launchTarget *core.DebugTargetFacts
+	// ended, when set, receives the debuggee's exit code once the session has been
+	// released, so the run that stands for it can end.
+	ended chan *int
 }
 
 // debugRemotePrompt is an attach to a non-local endpoint waiting for the user.
@@ -188,6 +197,68 @@ func (a *App) attachDebugForRun(ctx context.Context, request pluginservice.RunDe
 	}
 }
 
+// launchDebugForRun has the adapter a run's configuration type names start the run's
+// process itself, for a run with a launch debug target. It runs on a background
+// goroutine, waits for the window thread to create the session and returns it with
+// the channel that reports its end.
+func (a *App) launchDebugForRun(ctx context.Context, request pluginservice.RunDebugLaunchRequest) (pluginservice.RunDebugSession, error) {
+	type outcome struct {
+		session pluginservice.RunDebugSession
+		err     error
+	}
+	result := make(chan outcome, 1)
+	a.post(func(a *App) {
+		p := a.project
+		if p == nil || filepath.Clean(p.root) != filepath.Clean(request.WorkspaceRoot) {
+			result <- outcome{err: errors.New("the run's workspace is not open")}
+			return
+		}
+		if !p.debug.loaded {
+			result <- outcome{err: errors.New("the debug adapters are still loading")}
+			return
+		}
+		if p.debug.session != nil {
+			result <- outcome{err: errors.New("a debug session is already running")}
+			return
+		}
+		for _, adapter := range p.debug.adapters {
+			if adapter.PluginID != request.PluginID || !adapter.Declaration.Serves("launch") ||
+				!slices.Contains(adapter.Declaration.ConfigurationTypes, request.ConfigurationType) {
+				continue
+			}
+			ended := make(chan *int, 1)
+			arguments := slices.Clone(request.Arguments)
+			if arguments == nil {
+				arguments = []string{}
+			}
+			environment := maps.Clone(request.Environment)
+			if environment == nil {
+				environment = map[string]string{}
+			}
+			a.beginDebug(p, debugStart{
+				adapter: adapter, request: "launch", ended: ended,
+				launchTarget: &core.DebugTargetFacts{
+					Kind: "executable", Path: request.Executable, Executable: request.Executable,
+					WorkingDirectory: request.WorkingDirectory, Arguments: arguments, Environment: environment,
+				},
+			})
+			if p.debug.session == nil || p.debug.session.ended != ended {
+				result <- outcome{err: fmt.Errorf("the debug session did not start: %s", p.debug.failure)}
+				return
+			}
+			result <- outcome{session: pluginservice.RunDebugSession{ID: p.debug.session.id, Ended: ended}}
+			return
+		}
+		result <- outcome{err: fmt.Errorf("no debug adapter launches %q", request.ConfigurationType)}
+	})
+	select {
+	case r := <-result:
+		return r.session, r.err
+	case <-ctx.Done():
+		return pluginservice.RunDebugSession{}, ctx.Err()
+	}
+}
+
 // startDebugForBackend starts the plugin's own adapter for a backend's
 // debug/start. It runs on a background goroutine, asks the window thread to
 // create the session and returns its ID. The workspace must be the open project
@@ -292,6 +363,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 		startupDone:  make(chan struct{}),
 		exitObserved: make(chan struct{}),
 		generation:   generation,
+		ended:        start.ended,
 	}
 	stateRoot := filepath.Join(pluginRoot, ".state", adapter.PluginID, adapter.Version)
 	var stdinReader *os.File

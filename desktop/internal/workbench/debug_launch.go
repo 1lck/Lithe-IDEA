@@ -155,6 +155,10 @@ func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, stateDir
 	// file to look up and no endpoint to ask the user about.
 	if start.configuration != nil {
 		// target stays the empty file fact.
+	} else if start.launchTarget != nil {
+		// A plugin run's process: the run resolved the program, and Core binds it
+		// through the adapter's launch targetBindings.
+		target = *start.launchTarget
 	} else if start.request == "attach" && start.target != nil {
 		// A remote debuggee: Core binds host, port and mappings through the
 		// adapter's declared connection, so the host passes the facts unchanged.

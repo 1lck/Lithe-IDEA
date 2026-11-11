@@ -127,6 +127,10 @@ type debugSession struct {
 	cancel         context.CancelFunc
 	// stopped is set when Stop or project close already took the session apart.
 	stopped atomic.Bool
+	// exitCode is the debuggee's exit code from the terminated event, when the
+	// adapter reported one. ended, when set, receives it once the session is released.
+	exitCode atomic.Pointer[int]
+	ended    chan *int
 	// hosted is the lifecycle-driven stream of a tcpLanguageServer adapter; nil
 	// for a stdio adapter. It is also the session's transport.
 	hosted *debugTransport
@@ -356,6 +360,10 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 			p.debug.state = "running"
 			p.debug.status = a.text.Debug.Running
 		case "terminated":
+			if event.ExitCode != nil {
+				code := int(*event.ExitCode)
+				session.exitCode.Store(&code)
+			}
 			p.debug.vars.reset()
 			p.debug.disassembly.reset()
 			p.debug.memory.reset()
@@ -575,6 +583,10 @@ func (a *App) releaseDebugSession(_ *project, session *debugSession) {
 		}
 		// Cleanup belongs to the app, not the now-cancelled project.
 		a.background(nil, 0, func(_ context.Context) func(*App) {
+			if session.ended != nil {
+				// The run that stands for the session ends once it is fully released.
+				defer func() { session.ended <- session.exitCode.Load() }()
+			}
 			<-session.startupDone
 			ctx, cancel := context.WithTimeout(context.Background(), debugStopTimeout)
 			defer cancel()

@@ -29,7 +29,7 @@
   },
   "owner": "Debug / Extensions",
   "verification": "macOS：（1）用声明 debugAdapters 3 与 permissions debug.start 的测试插件，让后端对自己的适配器调用 debug/start，launch 与 attach 都能启动会话并返回 sessionID，调试面板出现该会话；配置超过 256 KiB、含 noDebug 或 __ 前缀键、引用其他插件的适配器或未声明的适配器时分别返回 invalidParams、limitExceeded、notFound 且不启动会话；run/stop 带 sessionID 只停止调用方插件自己的会话。（2）适配器声明 features.hotCodeReplace 后，调试工具栏出现应用代码变更按钮，点击先保存已修改文档，再发送声明的自定义请求，进度事件的 message 进入调试控制台，响应里 changedField 列出的单元与 errorField 的失败都在控制台显示；未声明时没有该按钮，也不会向适配器发送自定义请求。（3）适配器声明 features.stepFilters.argument 与 defaults.stepFilters 后，启动请求按声明的参数名携带默认过滤器，用户或启动配置给出的过滤器优先。Java 步进过滤界面仍只对 Java 适配器显示，本项不改变它。Windows：宿主尚未接入 debug/start 与 features，Core 校验通过不代表 Windows 能由后端发起调试。",
-  "notes": "插件后端的 lithe/host/debug/start 已由 Core 的 decodeBackendConfiguration 校验并交给窗口启动自己的适配器，配置覆盖适配器声明的默认参数，run/stop 的 sessionID 可结束该会话；适配器声明的 features/defaults 随会话传给 Core。debug.target: launch 的 run/start 仍由宿主拒绝；startDebugging 子会话（debug.startDebuggingResponse）和 startOrContinue 只封装了 Core 命令，界面尚未使用。",
+  "notes": "插件后端的 lithe/host/debug/start 已由 Core 的 decodeBackendConfiguration 校验并交给窗口启动自己的适配器，配置覆盖适配器声明的默认参数，run/stop 的 sessionID 可结束该会话；适配器声明的 features/defaults 随会话传给 Core。debug.target: launch 的 run/start 已支持（见 plugin-backend-run-start）。startDebugging 子会话（debug.startDebuggingResponse）和 startOrContinue 只封装了 Core 命令：调试窗口一个项目只有一个会话，宿主不声明 supportsStartDebuggingRequest，依赖子会话的适配器（如 js-debug）暂不可用，需先做多会话调试窗口。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

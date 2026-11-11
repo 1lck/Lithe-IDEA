@@ -53,6 +53,7 @@ func (a *App) wirePluginRuns() {
 	runs := a.plugins.Runs
 	runs.Tools = a.resolveRunTool
 	runs.Debug = a.attachDebugForRun
+	runs.LaunchDebug = a.launchDebugForRun
 	runs.StartDebugSession = a.startDebugForBackend
 	runs.StopDebugSession = a.stopDebugForBackend
 	runs.SetObserver(func(event pluginservice.RunEvent) {

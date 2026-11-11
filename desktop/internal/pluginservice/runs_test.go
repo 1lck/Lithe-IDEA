@@ -273,7 +273,60 @@ func TestRunStartRefusesALaunchDebugTargetItCannotServe(t *testing.T) {
 	h := newRunHarness(t)
 	params := h.params(t, "print", map[string]any{"debug": map[string]any{"configurationType": "script", "target": map[string]any{"kind": "launch"}}})
 	if _, refusal := respond(t, h.service, runFixturePlugin, "run/start", params); refusal == nil || refusal.Code != "plugin.host.unavailable" {
-		t.Fatalf("a launch debug target = %+v, want unavailable", refusal)
+		t.Fatalf("a launch debug target without a launcher = %+v, want unavailable", refusal)
+	}
+}
+
+// A launch debug target hands the run's process to the adapter: the host starts no
+// process, the run stands for the debug session, stopping the run stops the session,
+// and the run ends with the debuggee's exit code when the session ends.
+func TestRunStartLaunchesTheProcessUnderTheDebugger(t *testing.T) {
+	h := newRunHarness(t)
+	launched := make(chan RunDebugLaunchRequest, 1)
+	stopped := make(chan string, 1)
+	ended := make(chan *int, 1)
+	h.service.Runs.LaunchDebug = func(_ context.Context, request RunDebugLaunchRequest) (RunDebugSession, error) {
+		launched <- request
+		return RunDebugSession{ID: "debug-session-7", Ended: ended}, nil
+	}
+	// Stopping the session ends it, as the window's release does, with the debuggee's code.
+	h.service.Runs.StopDebugSession = func(id string) {
+		stopped <- id
+		code := 3
+		ended <- &code
+	}
+	params := h.params(t, "print", map[string]any{"debug": map[string]any{"configurationType": "script", "target": map[string]any{"kind": "launch"}}})
+	result, refusal := respond(t, h.service, runFixturePlugin, "run/start", params)
+	runID := startedRunID(t, result, refusal)
+	request := <-launched
+	if request.PluginID != runFixturePlugin || request.ConfigurationType != "script" || request.Executable == "" ||
+		!filepath.IsAbs(request.WorkingDirectory) || len(request.Arguments) != 1 || request.Environment["LITHE_RUN_HELPER"] != "print" {
+		t.Fatalf("launch request = %+v", request)
+	}
+	body, err := json.Marshal(map[string]string{"runID": runID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, refusal := respond(t, h.service, runFixturePlugin, "run/stop", string(body)); refusal != nil {
+		t.Fatalf("run/stop = %+v", refusal)
+	}
+	select {
+	case id := <-stopped:
+		if id != "debug-session-7" {
+			t.Fatalf("stopped session %q", id)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("stopping the run did not stop the debug session")
+	}
+	events := h.await(t, "the run to end with the session", func(events []RunEvent) bool { return exitedEvent(events) != nil })
+	exited := exitedEvent(events)
+	if exited.RunID != runID || exited.ExitCode == nil || *exited.ExitCode != 3 {
+		t.Fatalf("exit = %+v", exited)
+	}
+	for _, event := range events {
+		if event.Type == RunOutput {
+			t.Fatalf("a launch run printed process output itself: %q", event.Text)
+		}
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
@@ -60,6 +61,12 @@ func debugFixtureProgramName() string {
 // session; nothing is replaced by a fake DAP implementation.
 func debugHarness(t *testing.T) *harness {
 	t.Helper()
+	return debugHarnessWith(t, debugFixtureManifest)
+}
+
+// debugHarnessWith is debugHarness with another manifest for the fixture package.
+func debugHarnessWith(t *testing.T, manifest string) *harness {
+	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, settingsFile), []byte(`{"theme":"dark"}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -70,7 +77,6 @@ func debugHarness(t *testing.T) *harness {
 	if err := os.MkdirAll(installed, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	manifest := debugFixtureManifest
 	if runtime.GOOS == "windows" {
 		manifest = strings.ReplaceAll(manifest, `"path": "adapter"`, `"path": "adapter.exe"`)
 	}
@@ -456,4 +462,68 @@ func TestDebugFrameRowsKeepTheTopAndSelectedFrames(t *testing.T) {
 	if rows := debugFrameRows(nil, frames, false, 0); len(rows) != len(frames) {
 		t.Fatalf("without collapsing rows = %+v", rows)
 	}
+}
+
+// A plugin run with a launch debug target hands its process to the adapter: Core binds
+// the run's program, arguments, directory and environment into the launch, and the run
+// learns when the session ends.
+func TestRunLaunchTargetBindsTheRunsProcessIntoTheLaunch(t *testing.T) {
+	manifest := strings.Replace(debugFixtureManifest, `"requires": {"debugAdapters": 1`, `"requires": {"debugAdapters": 2`, 1)
+	manifest = strings.Replace(manifest, `"configurations": {"launch":{"arguments":{"stopOnEntry":true}}}`,
+		`"configurationTypes": ["fixture"], "configurations": {"launch":{"arguments":{"stopOnEntry":true},`+
+			`"targetBindings":{"program":"target.path","cwd":"target.workingDirectory","args":"target.arguments","env":"target.environment"}}}`, 1)
+	h := debugHarnessWith(t, manifest)
+	root := t.TempDir()
+	p := openDebugPanel(t, h, root)
+	gate := &captureDebugLaunch{Kernel: h.app.kernel, configurations: make(chan core.DebugLaunchConfiguration, 1)}
+	h.app.kernel = gate
+	program := filepath.Join(root, "app")
+	type outcome struct {
+		session pluginservice.RunDebugSession
+		err     error
+	}
+	launched := make(chan outcome, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		session, err := h.app.launchDebugForRun(ctx, pluginservice.RunDebugLaunchRequest{
+			PluginID: "dev.lithe.test.debug-adapter", WorkspaceRoot: root, Label: "Run app", ConfigurationType: "fixture",
+			Executable: program, Arguments: []string{"--port", "8080"}, WorkingDirectory: root, Environment: map[string]string{"APP_MODE": "dev"},
+		})
+		launched <- outcome{session, err}
+	}()
+	awaitStateWithin(t, h, 10*time.Second, "the launch to be planned", func() bool { return len(launched) == 1 || len(gate.configurations) == 1 })
+	awaitStateWithin(t, h, 10*time.Second, "the session to start", func() bool { return len(launched) == 1 })
+	result := <-launched
+	if result.err != nil || result.session.ID == "" {
+		t.Fatalf("launch = %+v", result)
+	}
+	awaitStateWithin(t, h, 10*time.Second, "Core launch configuration", func() bool { return len(gate.configurations) == 1 })
+	arguments := (<-gate.configurations).Arguments
+	args, _ := arguments["args"].([]any)
+	env, _ := arguments["env"].(map[string]any)
+	if arguments["program"] != program || arguments["cwd"] != root || len(args) != 2 || args[0] != "--port" || env["APP_MODE"] != "dev" {
+		t.Fatalf("launch arguments = %+v", arguments)
+	}
+	// The release ends on a background goroutine that may post nothing, so the waiter
+	// wakes the window itself once the end arrives.
+	ended := make(chan struct{})
+	go func() {
+		select {
+		case <-result.session.Ended:
+		case <-t.Context().Done():
+			return
+		}
+		close(ended)
+		h.app.post(func(*App) {})
+	}()
+	h.app.post(func(a *App) { a.stopDebug(p) })
+	awaitStateWithin(t, h, 20*time.Second, "the run to learn that the session ended", func() bool {
+		select {
+		case <-ended:
+			return true
+		default:
+			return false
+		}
+	})
 }

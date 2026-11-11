@@ -89,6 +89,61 @@ type RunDebugRequest struct {
 // names. It returns the session's ID.
 type RunDebugAttacher func(ctx context.Context, request RunDebugRequest) (string, error)
 
+// RunDebugLaunchRequest asks the host to have the adapter a configuration type names
+// start a run's process itself (`debug.target: {kind: "launch"}`). The process facts
+// are the run's: the resolved program, its arguments, the absolute working directory
+// and the environment the run declares.
+type RunDebugLaunchRequest struct {
+	PluginID          string
+	WorkspaceRoot     string
+	Label             string
+	ConfigurationType string
+	Executable        string
+	Arguments         []string
+	WorkingDirectory  string
+	Environment       map[string]string
+}
+
+// RunDebugSession is a debug session that stands for a run: its ID, and a channel
+// that receives the debuggee's exit code (nil when the adapter reported none) once
+// the session has ended and been released.
+type RunDebugSession struct {
+	ID    string
+	Ended <-chan *int
+}
+
+// RunDebugLauncher starts a launch debug session for a run.
+type RunDebugLauncher func(ctx context.Context, request RunDebugLaunchRequest) (RunDebugSession, error)
+
+// runProcess is what a run waits on and stops: the process the host started, or the
+// debug session whose adapter started it.
+type runProcess interface {
+	Wait() error
+	Stop()
+}
+
+// debugRunProcess is a launch-target run: stopping it ends the debug session, and it
+// ends when the session does.
+type debugRunProcess struct {
+	ended <-chan *int
+	stop  func()
+}
+
+// debugRunExit is a launch-target run's exit status.
+type debugRunExit struct{ code *int }
+
+func (e *debugRunExit) Error() string { return "the debug session ended" }
+
+func (d *debugRunProcess) Wait() error {
+	code := <-d.ended
+	if code != nil && *code == 0 {
+		return nil
+	}
+	return &debugRunExit{code: code}
+}
+
+func (d *debugRunProcess) Stop() { d.stop() }
+
 // Runs owns the processes plugin backends start through run/start. The host owns
 // the process, its output and its end; the backend only decides what to start.
 type Runs struct {
@@ -96,8 +151,10 @@ type Runs struct {
 	// Tools resolves {kind: "tool"} executables. A run that needs one fails with
 	// plugin.host.toolUnresolved while it is nil.
 	Tools RunToolResolver
-	// Debug attaches the adapter of a run started with a debug target.
-	Debug RunDebugAttacher
+	// Debug attaches the adapter of a run started with a connection debug target,
+	// and LaunchDebug has the adapter start the process of one with a launch target.
+	Debug       RunDebugAttacher
+	LaunchDebug RunDebugLauncher
 	// StartDebugSession and StopDebugSession serve lithe/host/debug/start and the
 	// sessionID form of run/stop. Without a starter the method is unavailable.
 	StartDebugSession DebugSessionStarter
@@ -119,7 +176,7 @@ type hostRun struct {
 	backend   string
 	workspace WorkspaceContext
 	start     core.RunStart
-	process   *buildprocess.Process
+	process   runProcess
 	cancel    context.CancelFunc
 	temporary string
 	debug     atomic.Pointer[string]
@@ -253,9 +310,14 @@ func (r *Runs) handleStart(ctx context.Context, params json.RawMessage) (json.Ra
 		cleanup()
 		return nil, runStartFailure(err)
 	}
-	if start.Debug != nil && start.Debug.Target.Kind != "connection" {
+	launch := start.Debug != nil && start.Debug.Target.Kind == "launch"
+	if start.Debug != nil && start.Debug.Target.Kind != "connection" && !launch {
 		cleanup()
-		return nil, failure("plugin.host.unavailable", "A debug target that launches the process is not served by this host.")
+		return nil, failure("plugin.host.unavailable", "This host does not serve the debug target.")
+	}
+	if launch && r.LaunchDebug == nil {
+		cleanup()
+		return nil, failure("plugin.host.unavailable", "This host starts no debug sessions.")
 	}
 	executable, environment, refusal := r.resolveExecutable(ctx, entry, workspace.Path, start)
 	if refusal != nil {
@@ -285,19 +347,44 @@ func (r *Runs) handleStart(ctx context.Context, params json.RawMessage) (json.Ra
 	// Output is delivered only after the started event, so an observer never sees
 	// a run's text before it knows the run.
 	started := make(chan struct{})
-	process, err := buildprocess.Start(runCtx, buildprocess.Spec{
-		Executable:       executable,
-		Arguments:        start.Arguments,
-		WorkingDirectory: filepath.Join(workspace.Path, filepath.FromSlash(start.WorkingDirectory)),
-		Environment:      environment,
-	}, func(_ buildprocess.Stream, text string) {
-		<-started
-		r.emit(RunEvent{Type: RunOutput, RunID: run.id, PluginID: run.pluginID, Text: text})
-	})
-	if err != nil {
-		cancel()
-		cleanup()
-		return nil, failure(pluginhost.CodeHostFailure, err.Error())
+	workingDirectory := filepath.Join(workspace.Path, filepath.FromSlash(start.WorkingDirectory))
+	var process runProcess
+	if launch {
+		// The adapter starts the process: the run stands for the debug session, its
+		// output is the Debug console's, and stopping the run stops the session.
+		session, err := r.LaunchDebug(ctx, RunDebugLaunchRequest{
+			PluginID: run.pluginID, WorkspaceRoot: workspace.Path, Label: start.Label,
+			ConfigurationType: start.Debug.ConfigurationType, Executable: executable,
+			Arguments: start.Arguments, WorkingDirectory: workingDirectory, Environment: environment,
+		})
+		if err != nil {
+			cancel()
+			cleanup()
+			return nil, failure(pluginhost.CodeHostFailure, err.Error())
+		}
+		run.debug.Store(&session.ID)
+		stop := r.StopDebugSession
+		process = &debugRunProcess{ended: session.Ended, stop: func() {
+			if stop != nil {
+				stop(session.ID)
+			}
+		}}
+	} else {
+		spawned, err := buildprocess.Start(runCtx, buildprocess.Spec{
+			Executable:       executable,
+			Arguments:        start.Arguments,
+			WorkingDirectory: workingDirectory,
+			Environment:      environment,
+		}, func(_ buildprocess.Stream, text string) {
+			<-started
+			r.emit(RunEvent{Type: RunOutput, RunID: run.id, PluginID: run.pluginID, Text: text})
+		})
+		if err != nil {
+			cancel()
+			cleanup()
+			return nil, failure(pluginhost.CodeHostFailure, err.Error())
+		}
+		process = spawned
 	}
 	run.process = process
 	r.mu.Lock()
@@ -321,7 +408,7 @@ func (r *Runs) handleStart(ctx context.Context, params json.RawMessage) (json.Ra
 	r.emit(event)
 	close(started)
 	go r.supervise(run)
-	if start.Debug != nil {
+	if start.Debug != nil && !launch {
 		go r.attachDebugger(runCtx, run)
 	}
 	return marshalResult(map[string]string{"runID": run.id})
@@ -419,6 +506,10 @@ func exitStatus(err error) (*int, string) {
 	if err == nil {
 		code := 0
 		return &code, ""
+	}
+	var debugEnd *debugRunExit
+	if errors.As(err, &debugEnd) {
+		return debugEnd.code, ""
 	}
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
