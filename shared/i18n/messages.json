@@ -15367,6 +15367,30 @@
       }
     },
     {
+      "id": "desktop.runConfig.label",
+      "description": "Label before the select that picks a run configuration in the Run tool window",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.loadFailed",
+      "description": "The run configurations could not be resolved. {reason} is the error",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.run",
+      "description": "Button that runs the selected run configuration",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.search.fileMaskPlaceholder",
       "description": "Example glob patterns in the project search mask field.",
       "platforms": [

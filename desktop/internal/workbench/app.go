@@ -84,6 +84,9 @@ type Kernel interface {
 	CreateDebugSession(ctx context.Context, request core.DebugCreateSessionRequest) (core.DebugUpdate, error)
 	LaunchDebug(ctx context.Context, sessionID, operationID string, configuration core.DebugLaunchConfiguration) (core.DebugUpdate, error)
 	NormalizeSteppingFilters(ctx context.Context, adapterID string, filters core.DebugSteppingFilters) (core.DebugSteppingFilters, error)
+	GenerateRunConfigurations(ctx context.Context, root, cacheDirectory string, providerRuns json.RawMessage) (core.RunConfigGeneration, error)
+	ResolveRunConfigurations(ctx context.Context, root string) (core.RunConfigResolution, error)
+	ProviderLaunchInputs(ctx context.Context, root, configurationID, providerRoot string) (core.RunProviderLaunchInputs, error)
 	SetDebugBreakpoints(ctx context.Context, sessionID, sourcePath string, breakpoints []core.DebugSourceBreakpoint) (core.DebugUpdate, error)
 	ExecuteDebug(ctx context.Context, sessionID, operationID, command string, threadID *int64, granularity string) (core.DebugUpdate, error)
 	InspectDebug(ctx context.Context, request core.DebugInspectRequest) (core.DebugUpdate, error)
@@ -282,6 +285,8 @@ type project struct {
 	tree fileTree
 	// build is the Run tool window's provider-backed instances and output.
 	build buildState
+	// runConfigs are the run configurations Core resolved for the workspace.
+	runConfigs runConfigState
 	// links are the output link matchers and the answers for the lines shown.
 	links outputLinkState
 	// tests is the Tests tool window's run and decoded result tree.

@@ -540,6 +540,8 @@ func (a *App) finishBuildModel(p *project, id string, model core.BuildModel, err
 		p.build.instances[index].Model = model
 		p.build.instances[index].modelLoaded = true
 		p.build.status = ""
+		// The runs the model offers become run configurations.
+		a.refreshRunConfigurations(p)
 		return
 	}
 }
@@ -818,11 +820,16 @@ func buildPlatform() string {
 
 // runBuildTarget prepares and starts one provider application target.
 func (a *App) runBuildTarget(p *project, targetID, runID string) {
-	instance := p.selectedBuildInstance()
+	a.runBuildTargetWith(p, p.selectedBuildInstance(), p.build.projectID, targetID, runID, nil)
+}
+
+// runBuildTargetWith runs one target of instance through the provider's run
+// declaration runID. options are a run configuration's launch choices, nil for a
+// launch without any.
+func (a *App) runBuildTargetWith(p *project, instance *buildInstance, projectID, targetID, runID string, options *core.RunLaunchOptions) {
 	if instance == nil || p.build.operation != nil {
 		return
 	}
-	projectID := p.build.projectID
 	project, ok := buildProjectByID(instance.Model, projectID)
 	if !ok {
 		a.notify(a.text.Build.ProjectMissing)
@@ -845,6 +852,7 @@ func (a *App) runBuildTarget(p *project, targetID, runID string) {
 			Run:           runID,
 			Project:       &core.BuildSelection{Name: project.Name, Path: project.Path, Properties: project.Properties},
 			Target:        &core.BuildSelection{Name: target.Name, Path: target.Path, Tags: target.Tags, Properties: target.Properties},
+			LaunchOptions: options,
 		})
 		if err != nil {
 			return func(a *App) { a.finishBuildError(p, err) }
@@ -870,6 +878,7 @@ func (a *App) runBuildTarget(p *project, targetID, runID string) {
 			WorkspaceRoot: p.root,
 			Root:          captured.Root,
 			Result:        result,
+			LaunchOptions: options,
 		})
 		if err != nil {
 			return func(a *App) { a.finishBuildError(p, err) }

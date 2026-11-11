@@ -123,6 +123,8 @@ type BuildPlanRequest struct {
 	Refresh                 bool                       `json:"refresh,omitempty"`
 	Tool                    *BuildTool                 `json:"tool,omitempty"`
 	WorkspaceRoot           string                     `json:"workspaceRoot,omitempty"`
+	// LaunchOptions are a run configuration's choices (buildProviders 10).
+	LaunchOptions *RunLaunchOptions `json:"launchOptions,omitempty"`
 }
 
 // BuildProviderRequest is the typed request a provider-backed plan names.
@@ -225,6 +227,8 @@ type BuildDecodeRunRequest struct {
 	WorkspaceRoot string          `json:"workspaceRoot"`
 	Root          string          `json:"root"`
 	Result        json.RawMessage `json:"result"`
+	// LaunchOptions are the ones the preparation was asked with.
+	LaunchOptions *RunLaunchOptions `json:"launchOptions,omitempty"`
 }
 
 type buildOutcome struct {

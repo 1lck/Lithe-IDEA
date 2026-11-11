@@ -46,6 +46,7 @@ func (a *App) runView(c ui.C, p *project) {
 			a.panelMessage(c, t.NoBuildSystems, a.colors.Subtle)
 			return
 		}
+		a.runConfigBar(c, p)
 		a.buildInstances(c, p)
 		ui.Divider(c)
 		a.buildChoices(c, p)
