@@ -75,5 +75,104 @@
     "description": "Shown when the line history is asked for a file outside the Git repository",
     "en-US": "This file is outside the Git repository.",
     "zh-CN": "此文件不在 Git 仓库内。"
+  },
+  {
+    "id": "desktop.tags.newTag",
+    "description": "Branch popup action: create a tag on HEAD",
+    "en-US": "New Tag…",
+    "zh-CN": "新建标签…"
+  },
+  {
+    "id": "desktop.tags.createTitle",
+    "description": "Title of the new tag dialog",
+    "en-US": "New Tag",
+    "zh-CN": "新建标签"
+  },
+  {
+    "id": "desktop.tags.createFrom",
+    "description": "Description under the new tag dialog title",
+    "en-US": "The tag is put on the current commit (HEAD).",
+    "zh-CN": "标签将打在当前提交（HEAD）上。"
+  },
+  {
+    "id": "desktop.tags.name",
+    "description": "Label of the tag name field",
+    "en-US": "Tag name",
+    "zh-CN": "标签名称"
+  },
+  {
+    "id": "desktop.tags.annotated",
+    "description": "Checkbox: create an annotated tag with a message",
+    "en-US": "Annotated tag with a message",
+    "zh-CN": "带说明的附注标签"
+  },
+  {
+    "id": "desktop.tags.message",
+    "description": "Label of the annotation field of a new tag",
+    "en-US": "Message",
+    "zh-CN": "说明"
+  },
+  {
+    "id": "desktop.tags.create",
+    "description": "Button that creates the tag",
+    "en-US": "Create Tag",
+    "zh-CN": "创建标签"
+  },
+  {
+    "id": "desktop.tags.failed",
+    "description": "Notice when a tag could not be created",
+    "en-US": "Could not create the tag: {reason}",
+    "zh-CN": "无法创建标签：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.tags.created",
+    "description": "Notice when a tag was created",
+    "en-US": "Created tag {name}",
+    "zh-CN": "已创建标签 {name}",
+    "parameters": {
+      "name": "string"
+    }
+  },
+  {
+    "id": "desktop.tags.deleteTitle",
+    "description": "Title of the delete tag dialog",
+    "en-US": "Delete Tag",
+    "zh-CN": "删除标签"
+  },
+  {
+    "id": "desktop.tags.deletePrompt",
+    "description": "Prompt of the delete tag dialog",
+    "en-US": "Delete tag {name}?",
+    "zh-CN": "要删除标签 {name} 吗？",
+    "parameters": {
+      "name": "string"
+    }
+  },
+  {
+    "id": "desktop.tags.delete",
+    "description": "Button that deletes the tag",
+    "en-US": "Delete",
+    "zh-CN": "删除"
+  },
+  {
+    "id": "desktop.tags.deleteFailed",
+    "description": "Notice when a tag could not be deleted",
+    "en-US": "Could not delete the tag: {reason}",
+    "zh-CN": "无法删除标签：{reason}",
+    "parameters": {
+      "reason": "string"
+    }
+  },
+  {
+    "id": "desktop.tags.deleted",
+    "description": "Notice when a tag was deleted",
+    "en-US": "Deleted tag {name}",
+    "zh-CN": "已删除标签 {name}",
+    "parameters": {
+      "name": "string"
+    }
   }
 ]

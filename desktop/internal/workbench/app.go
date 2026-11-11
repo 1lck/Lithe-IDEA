@@ -135,6 +135,8 @@ type Kernel interface {
 	GitFetchSettingsOf(ctx context.Context, root string) (core.GitFetchSettings, error)
 	GitPull(ctx context.Context, root string, strategy core.GitPullStrategy) error
 	GitDeleteBranch(ctx context.Context, root string, branch core.GitReference) (core.GitBranchDeletion, error)
+	GitCreateTag(ctx context.Context, root, name, revision, message string) error
+	GitDeleteTag(ctx context.Context, root, name string) error
 	GitBranchNamePreview(ctx context.Context, request core.BranchNameRequest) (core.BranchNamePreview, error)
 	GitWorktrees(ctx context.Context, root string) ([]core.GitWorktree, error)
 	GitCreateWorktree(ctx context.Context, root string, creation core.GitWorktreeCreation) error

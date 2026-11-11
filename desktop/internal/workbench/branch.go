@@ -15,6 +15,8 @@ type branchState struct {
 	// search filters the list; name is the name typed in the create and rename dialogs;
 	// revision is the revision typed in the checkout dialog.
 	search, name, revision ui.Field
+	// tagMessage is the annotation typed in the new tag dialog.
+	tagMessage ui.Field
 	branchSession
 }
 
@@ -34,6 +36,10 @@ const (
 	branchDialogConflict
 	// branchDialogDelete confirms deleting a local branch.
 	branchDialogDelete
+	// branchDialogTag asks for the name, target and message of a new tag.
+	branchDialogTag
+	// branchDialogTagDelete confirms deleting a tag.
+	branchDialogTagDelete
 )
 
 // branchSession is the state of the branch popup while it is open and of the dialog it
@@ -69,6 +75,8 @@ type branchSession struct {
 	fromPopup bool
 	// busy is set while a write runs; the dialogs' buttons are disabled meanwhile.
 	busy bool
+	// annotated says the new tag takes the typed message; otherwise it is lightweight.
+	annotated bool
 }
 
 // branchOperationTimeout bounds one branch write and the status read after it.
