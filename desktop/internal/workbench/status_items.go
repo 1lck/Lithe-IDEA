@@ -10,7 +10,7 @@ import (
 // indentation Tab inserts, switch the line break of the whole file, and lock the document
 // against changes. Each one changes only the open document; the file on disk is written by Save.
 
-// indentUnits are the two indentations the status item switches between.
+// statusIndentSpaceCount is the width of the spaces the status item switches Tab to.
 const statusIndentSpaceCount = 4
 
 // toggleIndentation switches what Tab inserts between spaces and a tab.
