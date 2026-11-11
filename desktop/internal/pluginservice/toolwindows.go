@@ -78,6 +78,10 @@ type NativeControl struct {
 	Minimum     float64
 	Maximum     float64
 	Step        float64
+	// OnCommit names the action a change of the field calls with every field's value; empty keeps the field local.
+	OnCommit string
+	// Span is how many of the form's columns the field takes; 1 when the form declares no layout.
+	Span int
 }
 
 // NativeOption is one choice of a select or segmented control.
@@ -360,10 +364,12 @@ func decodeNativeForm(raw json.RawMessage, actions []struct {
 				ID    string `json:"id"`
 				Label string `json:"label"`
 			} `json:"options"`
-			Rows    int      `json:"rows"`
-			Minimum *float64 `json:"minimum"`
-			Maximum *float64 `json:"maximum"`
-			Step    *float64 `json:"step"`
+			Rows     int      `json:"rows"`
+			Minimum  *float64 `json:"minimum"`
+			Maximum  *float64 `json:"maximum"`
+			Step     *float64 `json:"step"`
+			OnCommit string   `json:"onCommit"`
+			Span     int      `json:"span"`
 		} `json:"controls"`
 		Buttons []struct {
 			ID      string `json:"id"`
@@ -396,7 +402,22 @@ func decodeNativeForm(raw json.RawMessage, actions []struct {
 			return nil, errors.New("a form control needs a unique valid ID and a label")
 		}
 		ids[control.ID] = true
-		item := NativeControl{ID: control.ID, Label: control.Label, Kind: control.Kind, Value: control.Value, Placeholder: control.Placeholder, Enabled: control.Enabled == nil || *control.Enabled, Info: control.Info}
+		item := NativeControl{ID: control.ID, Label: control.Label, Kind: control.Kind, Value: control.Value, Placeholder: control.Placeholder, Enabled: control.Enabled == nil || *control.Enabled, Info: control.Info, OnCommit: control.OnCommit, Span: 1}
+		if control.Kind == "editor" && control.OnCommit != "" {
+			return nil, errors.New("an editor control takes no onCommit")
+		}
+		if declared.Layout == nil && control.Span != 0 {
+			return nil, errors.New("a span needs the form's layout")
+		}
+		if declared.Layout != nil {
+			if control.Span == 0 {
+				item.Span = columns
+			} else if control.Span < 1 || control.Span > columns {
+				return nil, errors.New("a control's span is outside the form's columns")
+			} else {
+				item.Span = control.Span
+			}
+		}
 		switch control.Kind {
 		case "input", "search", "editor":
 			if _, ok := control.Value.(string); !ok && control.Value != nil {
@@ -453,6 +474,16 @@ func decodeNativeForm(raw json.RawMessage, actions []struct {
 			selects  bool
 			function string
 		}{action.Kind, action.RequiresSelection, action.Function}
+	}
+	for index := range form.Controls {
+		commit := form.Controls[index].OnCommit
+		if commit == "" {
+			continue
+		}
+		target, ok := declaredActions[commit]
+		if !ok || target.selects || target.kind != "invoke" {
+			return nil, fmt.Errorf("the onCommit of %q names no declared invoke action that selects nothing", form.Controls[index].ID)
+		}
 	}
 	for _, button := range declared.Buttons {
 		if !validNativeID(button.ID) || ids[button.ID] || strings.TrimSpace(button.Label) == "" {
