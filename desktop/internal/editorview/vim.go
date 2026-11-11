@@ -182,10 +182,16 @@ func (v *View) vimKey(event gfx.KeyEvent) (gfx.EventResult, bool) {
 	if st.searching && event.Key != gfx.KeyEscape && event.Key != gfx.KeyEnter && event.Key != gfx.KeyBackspace {
 		return handled, true
 	}
-	if text, ok := vimKeyText(event.Key); ok {
-		v.vimFeed(vimToken{text: text})
+	text, ok := vimKeyText(event.Key)
+	if !ok {
+		// A chord that is not the Vim mode's goes on to the chords of the view; a named key the
+		// Vim mode does not use does nothing, rather than edit as Insert mode would.
+		if event.Key == gfx.KeyUnknown {
+			return gfx.EventResult{}, false
+		}
+		return handled, true
 	}
-	// Normal and Visual modes take no other key: it does nothing rather than edit.
+	v.vimFeed(vimToken{text: text})
 	return handled, true
 }
 
