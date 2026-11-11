@@ -144,5 +144,236 @@
   "parameters": {
    "reason": "string"
   }
+ },
+ {
+  "id": "desktop.command.groupApp",
+  "description": "Find Action command or group: Application",
+  "en-US": "Application",
+  "zh-CN": "应用"
+ },
+ {
+  "id": "desktop.command.groupView",
+  "description": "Find Action command or group: View",
+  "en-US": "View",
+  "zh-CN": "视图"
+ },
+ {
+  "id": "desktop.command.groupProject",
+  "description": "Find Action command or group: Project",
+  "en-US": "Project",
+  "zh-CN": "项目"
+ },
+ {
+  "id": "desktop.command.groupToolWindows",
+  "description": "Find Action command or group: Tool Windows",
+  "en-US": "Tool Windows",
+  "zh-CN": "工具窗口"
+ },
+ {
+  "id": "desktop.command.groupSearch",
+  "description": "Find Action command or group: Search",
+  "en-US": "Search",
+  "zh-CN": "搜索"
+ },
+ {
+  "id": "desktop.command.groupGit",
+  "description": "Find Action command or group: Git",
+  "en-US": "Git",
+  "zh-CN": "Git"
+ },
+ {
+  "id": "desktop.command.groupRun",
+  "description": "Find Action command or group: Run",
+  "en-US": "Run",
+  "zh-CN": "运行"
+ },
+ {
+  "id": "desktop.command.groupTerminal",
+  "description": "Find Action command or group: Terminal",
+  "en-US": "Terminal",
+  "zh-CN": "终端"
+ },
+ {
+  "id": "desktop.command.groupAgent",
+  "description": "Find Action command or group: AI Agent",
+  "en-US": "AI Agent",
+  "zh-CN": "AI Agent"
+ },
+ {
+  "id": "desktop.command.settings",
+  "description": "Find Action command or group: Settings…",
+  "en-US": "Settings…",
+  "zh-CN": "设置…"
+ },
+ {
+  "id": "desktop.command.plugins",
+  "description": "Find Action command or group: Plugins…",
+  "en-US": "Plugins…",
+  "zh-CN": "插件…"
+ },
+ {
+  "id": "desktop.command.logs",
+  "description": "Find Action command or group: Show Logs",
+  "en-US": "Show Logs",
+  "zh-CN": "显示日志"
+ },
+ {
+  "id": "desktop.command.importLegacy",
+  "description": "Find Action command or group: Import Settings from Earlier Lithe…",
+  "en-US": "Import Settings from Earlier Lithe…",
+  "zh-CN": "从旧版 Lithe 导入设置…"
+ },
+ {
+  "id": "desktop.command.themeSystem",
+  "description": "Find Action command or group: Theme: Follow System",
+  "en-US": "Theme: Follow System",
+  "zh-CN": "主题：跟随系统"
+ },
+ {
+  "id": "desktop.command.themeLight",
+  "description": "Find Action command or group: Theme: Light",
+  "en-US": "Theme: Light",
+  "zh-CN": "主题：浅色"
+ },
+ {
+  "id": "desktop.command.themeDark",
+  "description": "Find Action command or group: Theme: Dark",
+  "en-US": "Theme: Dark",
+  "zh-CN": "主题：深色"
+ },
+ {
+  "id": "desktop.command.languageEnglish",
+  "description": "Find Action command or group: Language: English",
+  "en-US": "Language: English",
+  "zh-CN": "语言：English"
+ },
+ {
+  "id": "desktop.command.languageChinese",
+  "description": "Find Action command or group: Language: 简体中文",
+  "en-US": "Language: 简体中文",
+  "zh-CN": "语言：简体中文"
+ },
+ {
+  "id": "desktop.command.openProject",
+  "description": "Find Action command or group: Open Project…",
+  "en-US": "Open Project…",
+  "zh-CN": "打开项目…"
+ },
+ {
+  "id": "desktop.command.newProject",
+  "description": "Find Action command or group: New Project…",
+  "en-US": "New Project…",
+  "zh-CN": "新建项目…"
+ },
+ {
+  "id": "desktop.command.clone",
+  "description": "Find Action command or group: Clone Repository…",
+  "en-US": "Clone Repository…",
+  "zh-CN": "克隆仓库…"
+ },
+ {
+  "id": "desktop.command.closeProject",
+  "description": "Find Action command or group: Close Project",
+  "en-US": "Close Project",
+  "zh-CN": "关闭项目"
+ },
+ {
+  "id": "desktop.command.saveAll",
+  "description": "Find Action command or group: Save All",
+  "en-US": "Save All",
+  "zh-CN": "全部保存"
+ },
+ {
+  "id": "desktop.command.searchEverywhere",
+  "description": "Find Action command or group: Search Everywhere",
+  "en-US": "Search Everywhere",
+  "zh-CN": "随处搜索"
+ },
+ {
+  "id": "desktop.command.findInFiles",
+  "description": "Find Action command or group: Find in Files…",
+  "en-US": "Find in Files…",
+  "zh-CN": "在文件中查找…"
+ },
+ {
+  "id": "desktop.command.replaceInFiles",
+  "description": "Find Action command or group: Replace in Files…",
+  "en-US": "Replace in Files…",
+  "zh-CN": "在文件中替换…"
+ },
+ {
+  "id": "desktop.command.commit",
+  "description": "Find Action command or group: Commit…",
+  "en-US": "Commit…",
+  "zh-CN": "提交…"
+ },
+ {
+  "id": "desktop.command.commitAndPush",
+  "description": "Find Action command or group: Commit and Push…",
+  "en-US": "Commit and Push…",
+  "zh-CN": "提交并推送…"
+ },
+ {
+  "id": "desktop.command.branches",
+  "description": "Find Action command or group: Branches…",
+  "en-US": "Branches…",
+  "zh-CN": "分支…"
+ },
+ {
+  "id": "desktop.command.gitConsole",
+  "description": "Find Action command or group: Show Git Console",
+  "en-US": "Show Git Console",
+  "zh-CN": "显示 Git 控制台"
+ },
+ {
+  "id": "desktop.command.run",
+  "description": "Find Action command or group: Run",
+  "en-US": "Run",
+  "zh-CN": "运行"
+ },
+ {
+  "id": "desktop.command.debug",
+  "description": "Find Action command or group: Debug",
+  "en-US": "Debug",
+  "zh-CN": "调试"
+ },
+ {
+  "id": "desktop.command.toggleBreakpoint",
+  "description": "Find Action command or group: Toggle Line Breakpoint",
+  "en-US": "Toggle Line Breakpoint",
+  "zh-CN": "切换行断点"
+ },
+ {
+  "id": "desktop.command.newTerminal",
+  "description": "Find Action command or group: New Terminal",
+  "en-US": "New Terminal",
+  "zh-CN": "新建终端"
+ },
+ {
+  "id": "desktop.command.newAgentConversation",
+  "description": "Find Action command or group: New Agent Conversation",
+  "en-US": "New Agent Conversation",
+  "zh-CN": "新建 Agent 对话"
+ },
+ {
+  "id": "desktop.command.noActions",
+  "description": "Find Action command or group: No matching actions",
+  "en-US": "No matching actions",
+  "zh-CN": "没有匹配的操作"
+ },
+ {
+  "id": "desktop.command.findAction",
+  "description": "Find Action command or group: Find Action",
+  "en-US": "Find Action",
+  "zh-CN": "查找操作"
+ },
+ {
+  "id": "desktop.command.showTool",
+  "description": "Find Action command that shows a tool window",
+  "en-US": "Show {name}",
+  "zh-CN": "显示{name}",
+  "parameters": {
+   "name": "string"
+  }
  }
 ]

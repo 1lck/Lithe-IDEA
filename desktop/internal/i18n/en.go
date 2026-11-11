@@ -508,5 +508,6 @@ var english = Messages{
 	Sync:      syncMessages(English),
 	Worktrees: worktreeMessages(English),
 	Search:    searchMessages(English),
+	Commands:  commandMessages(English),
 	Console:   consoleMessages(English),
 }

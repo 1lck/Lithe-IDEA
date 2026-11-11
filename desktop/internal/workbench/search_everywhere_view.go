@@ -32,7 +32,7 @@ func (a *App) everywherePopup(c ui.C) {
 	bounds := c.Bounds()
 	width := min(float32(670), max(0, bounds.Width-32))
 	var height float32 = 84 - 2*8
-	if strings.TrimSpace(v.query.Text()) != "" {
+	if strings.TrimSpace(v.query.Text()) != "" || v.scope == everywhereScopeActions {
 		height = min(684, max(84, bounds.Height-100)) - 16
 	}
 	var anchor ui.Box
@@ -50,6 +50,10 @@ func (a *App) everywherePopup(c ui.C) {
 				a.performed("workspace.search.clear", surfaceButton)
 				v.query.SetText("")
 				a.focusEverywhere(p)
+			}
+			if v.scope == everywhereScopeActions {
+				a.everywhereActions(c)
+				return
 			}
 			if strings.TrimSpace(v.query.Text()) == "" {
 				return
@@ -71,8 +75,8 @@ func (a *App) everywherePopup(c ui.C) {
 	}
 }
 
-// everywhereScopes are the tabs that narrow the search. The classes, symbols and
-// actions tabs are shown but not available yet.
+// everywhereScopes are the tabs that narrow the search. The classes and symbols
+// tabs are shown but not available yet; Actions lists commands (commands.go).
 func (a *App) everywhereScopes(c ui.C, p *project, language i18n.Language) {
 	v := &a.everywhereView
 	labels := [...]string{
@@ -85,7 +89,7 @@ func (a *App) everywhereScopes(c ui.C, p *project, language i18n.Language) {
 	}
 	ui.Row(c).FillWidth().Gap(4).Children(func() {
 		for index, label := range labels {
-			disabled := index == 1 || index == 3 || index == 4
+			disabled := index == 1 || index == 3
 			tab := ui.Button(c.KeyInt(index), label).Ghost().Disabled(disabled)
 			if index == v.scope {
 				tab.Secondary()
@@ -173,6 +177,20 @@ func (a *App) everywhereKey(p *project, event gfx.KeyEvent) gfx.EventResult {
 		if _, composing := input.Editor.Composition(); composing {
 			return gfx.EventResult{}
 		}
+	}
+	if a.everywhereView.scope == everywhereScopeActions {
+		v := &a.everywhereView
+		switch event.Key {
+		case gfx.KeyUp:
+			v.actionSelected = max(0, v.actionSelected-1)
+		case gfx.KeyDown:
+			v.actionSelected = min(max(0, v.actionCount-1), v.actionSelected+1)
+		case gfx.KeyEnter:
+			a.runSelectedAction()
+		default:
+			return gfx.EventResult{}
+		}
+		return gfx.EventResult{Handled: true, Repaint: true}
 	}
 	s := &p.everywhere
 	switch event.Key {

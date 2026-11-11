@@ -173,6 +173,12 @@ func (a *App) windowShortcuts(c ui.C) {
 			a.openEverywhere(p)
 		})
 	}
+	if ui.Shortcut(c, ui.Primary|ui.Shift, "a") {
+		c.After(func() {
+			a.performed("workspace.findAction.open", surfaceShortcut)
+			a.openFindAction()
+		})
+	}
 	if ui.Shortcut(c, ui.Primary|ui.Shift, "f") {
 		c.After(func() {
 			a.reduceChrome(core.SetChromeOpen(itemFind, true))

@@ -16,6 +16,10 @@ import (
 // and the host can tell when a key is typed in it.
 var everywhereQueryID = tree.ID(shellPage, "everywhere-query")
 
+// everywhereScopeActions is the index of the Actions tab, which lists commands
+// rather than searching the project.
+const everywhereScopeActions = 4
+
 const (
 	everywherePageSize   = 50
 	everywhereMaxResults = 500
@@ -29,6 +33,10 @@ type everywhereView struct {
 	open, focus bool
 	scope       int
 	list        ui.ListState
+	// actionList, actionSelected and actionCount are the Actions tab's list (commands.go).
+	actionList     ui.ListState
+	actionSelected int
+	actionCount    int
 	// Tests can request zero delay without changing production timing.
 	delay time.Duration
 }
@@ -107,7 +115,7 @@ func (a *App) updateEverywhere(p *project, query string, scope int) {
 	if s.cancel != nil {
 		s.cancel()
 	}
-	if strings.TrimSpace(query) == "" {
+	if strings.TrimSpace(query) == "" || scope == everywhereScopeActions {
 		s.loading = false
 		return
 	}
