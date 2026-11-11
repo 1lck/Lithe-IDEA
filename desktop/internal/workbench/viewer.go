@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"image/draw"
 	_ "image/gif"  // GIF images open in a viewer tab.
 	_ "image/jpeg" // JPEG images open in a viewer tab.
 	_ "image/png"  // PNG images open in a viewer tab.
@@ -236,15 +235,7 @@ func decodeViewerImage(path string, id uint64) (gfx.Bitmap, error) {
 	if err != nil {
 		return gfx.Bitmap{}, err
 	}
-	bounds := decoded.Bounds()
-	rgba := image.NewRGBA(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
-	draw.Draw(rgba, rgba.Bounds(), decoded, bounds.Min, draw.Src)
-	// image.RGBA is premultiplied RGBA; the canvas takes premultiplied BGRA.
-	pix := rgba.Pix
-	for i := 0; i+3 < len(pix); i += 4 {
-		pix[i], pix[i+2] = pix[i+2], pix[i]
-	}
-	return gfx.Bitmap{Pix: pix, Width: rgba.Rect.Dx(), Height: rgba.Rect.Dy(), Stride: rgba.Stride, ID: 0x5669657700000000 | id, Version: 1}, nil
+	return bitmapOf(decoded, 0x5669657700000000|id), nil
 }
 
 // readViewerHex is the hex view of the leading bytes of a file: offset, sixteen bytes

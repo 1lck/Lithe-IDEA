@@ -41,10 +41,13 @@ type markdownHeading struct {
 // markdownPreviewState is the preview's state for the selected document.
 type markdownPreviewState struct {
 	documentID, revision int
-	source               string
-	doc                  markdown.Document
-	view                 components.MarkdownView
-	headings             []markdownHeading
+	// path is the file shown; images are its images, by file or address (markdown_images.go).
+	path     string
+	images   map[string]*markdownImage
+	source   string
+	doc      markdown.Document
+	view     components.MarkdownView
+	headings []markdownHeading
 	// laidWidth and laidRevision say what the view was laid out for.
 	laidWidth    float32
 	laidRevision int
@@ -80,9 +83,11 @@ func (a *App) syncMarkdownPreview(d *document) {
 	if s.documentID == d.id && s.revision == revision {
 		return
 	}
-	if s.documentID != d.id {
+	if s.documentID != d.id || s.path != d.path {
 		s.scroll = 0
 		s.contents = ui.ListState{}
+		s.images = nil
+		s.path = d.path
 	}
 	s.documentID, s.revision = d.id, revision
 	text := d.view.TextSnapshot()
@@ -189,7 +194,7 @@ func (a *App) paintMarkdown(dc *ui.DrawContext) {
 		return
 	}
 	if s.laidRevision != s.revision || s.laidWidth != width {
-		style := components.MarkdownStyle{Size: a.theme.Metrics.FontSizeM, LineHeight: 20}
+		style := components.MarkdownStyle{Size: a.theme.Metrics.FontSizeM, LineHeight: 20, Image: a.markdownImageBitmap}
 		s.height = s.view.Layout(dc.Canvas, style, &s.doc, width) + 2*markdownPadding
 		s.laidWidth, s.laidRevision = width, s.revision
 		s.scroll = min(s.scroll, max(s.height-dc.Rect.Height, 0))
