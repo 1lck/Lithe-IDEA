@@ -12098,7 +12098,14 @@
     "desktop.gitHistory.cherryPicked": "Cherry-picked {hash} onto the current branch",
     "desktop.gitHistory.reverted": "Reverted {hash} with a new commit",
     "desktop.gitHistory.resetDone": "Reset the current branch to {hash}",
-    "desktop.tags.createAt": "The tag is put on commit {hash}."
+    "desktop.tags.createAt": "The tag is put on commit {hash}.",
+    "desktop.refs.mergeConfirm": "Merge {branch} into the current branch. If Git stops at conflicts, the Commit tool window shows the merge until you continue or abort it.",
+    "desktop.refs.rebaseConfirm": "Replay the current branch onto {branch}. If Git stops at conflicts, the Commit tool window shows the rebase until you continue or abort it.",
+    "desktop.refs.merged": "Merged {branch} into the current branch",
+    "desktop.refs.rebased": "Rebased the current branch onto {branch}",
+    "desktop.refs.checkedOutAndRebased": "Checked out {branch} and rebased it onto the previous branch",
+    "desktop.refs.trackingSet": "{branch} now tracks {upstream}",
+    "desktop.refs.trackingStopped": "{branch} no longer tracks a remote branch"
   },
   "overrides": {
     "windows": {

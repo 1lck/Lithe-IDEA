@@ -48,6 +48,8 @@ type historyState struct {
 	rewrite historyRewriteState
 	reset   historyResetState
 	confirm historyConfirmState
+	// integrate is the confirmation of a merge, rebase or pull the reference menu asked for.
+	integrate historyIntegrateState
 	// hintsKey names the repository, the history load and the commits hints are for; hintsGen
 	// counts the requests, so only the newest answer is kept. hintsReady says it arrived.
 	hintsKey   string
@@ -196,8 +198,7 @@ func (a *App) copyRevisions(revisions []string, short bool, label string) {
 
 // beginTagAt opens the New Tag dialog on the commit revision of the repository the log walks.
 func (a *App) beginTagAt(p *project, revision string) {
-	a.branch.refs = p.log.refs
-	a.branch.repo = p.logBranchRepo()
+	a.adoptLogBranches(p)
 	a.beginCreateTag(p)
 	a.branch.target = core.GitReference{FullName: revision, ShortName: shortHash(revision)}
 }

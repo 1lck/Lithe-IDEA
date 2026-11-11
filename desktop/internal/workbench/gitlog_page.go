@@ -113,6 +113,16 @@ type logView struct {
 	// refLabel names the rows of refs, made once because a method value made in each paint
 	// allocates.
 	refLabel func(int) string
+	// refMenu says the menu of a reference is open, at refMenuAt, on refMenuRef of the repository
+	// refMenuRoot (gitlog_ref_menu.go).
+	refMenu     bool
+	refMenuAt   ui.Rect
+	refMenuRef  core.GitReference
+	refMenuRoot string
+	// compareSource is the reference Select for Compare picked in the repository compareRoot,
+	// which the menu of another reference then compares with.
+	compareSource *core.GitReference
+	compareRoot   string
 	// commits is the commit list; slotRow is the row each draw slot paints and painters the
 	// callbacks that paint them.
 	commits  ui.ListState
@@ -180,6 +190,7 @@ func (v *logView) reset() {
 	v.keyRows, v.keys = nil, nil
 	v.files = ui.ListState{}
 	v.refs.ListState = ui.ListState{}
+	v.refMenu, v.compareSource, v.compareRoot = false, nil, ""
 }
 
 // capture keeps the width the commit list and the details shared, and takes a drag of the

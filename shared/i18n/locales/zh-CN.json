@@ -12098,7 +12098,14 @@
     "desktop.gitHistory.cherryPicked": "已将 {hash} 拣选到当前分支",
     "desktop.gitHistory.reverted": "已用新提交还原 {hash}",
     "desktop.gitHistory.resetDone": "已将当前分支重置到 {hash}",
-    "desktop.tags.createAt": "标签将打在提交 {hash} 上。"
+    "desktop.tags.createAt": "标签将打在提交 {hash} 上。",
+    "desktop.refs.mergeConfirm": "把 {branch} 合并到当前分支。如果 Git 因冲突停下，提交工具窗口会显示这次合并，直到你继续或中止。",
+    "desktop.refs.rebaseConfirm": "把当前分支变基到 {branch} 上。如果 Git 因冲突停下，提交工具窗口会显示这次变基，直到你继续或中止。",
+    "desktop.refs.merged": "已把 {branch} 合并到当前分支",
+    "desktop.refs.rebased": "已把当前分支变基到 {branch}",
+    "desktop.refs.checkedOutAndRebased": "已检出 {branch} 并把它变基到之前的分支",
+    "desktop.refs.trackingSet": "{branch} 现在跟踪 {upstream}",
+    "desktop.refs.trackingStopped": "{branch} 不再跟踪远程分支"
   },
   "overrides": {
     "macos": {

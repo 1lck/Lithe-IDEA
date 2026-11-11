@@ -180,7 +180,11 @@ func (a *App) drawLogReferences(c ui.C, p *project) ui.Box {
 			ui.TextFieldID(c, logRefSearchID, &v.refSearch, g.BranchSearch, g.BranchSearch).Grow(1)
 		})
 		ui.Divider(c)
-		ui.Tree(c, &v.refs, len(v.refItems), v.refLabel, func(i int) { a.drawLogRefContent(c, v.refItems[i]) }).Grow(1).PadY(4)
+		ui.Tree(c, &v.refs, len(v.refItems), v.refLabel, func(i int) {
+			a.logRefPointer(c, p, i)
+			a.drawLogRefContent(c, v.refItems[i])
+		}).Grow(1).PadY(4)
+		a.drawLogRefMenu(c, p)
 		if i, ok := v.refs.Toggled(); ok {
 			c.After(func() { a.toggleLogRef(p, v.refItems[i], query) })
 		}

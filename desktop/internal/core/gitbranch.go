@@ -101,6 +101,46 @@ func (c *Client) GitRenameBranch(ctx context.Context, root string, branch GitRef
 	return c.gitWrite(ctx, gitWriteRequest{Root: root, Operation: "renameBranch", GitReference: branch.request(), Name: name})
 }
 
+// GitMerge merges reference into the branch checked out in the repository at root. Core refuses
+// the checked-out branch itself. A merge Git stops at conflicts stays active; git.operationState
+// reports it.
+//
+// GitMerge starts git and blocks; call it from a background goroutine.
+func (c *Client) GitMerge(ctx context.Context, root string, reference GitReference) error {
+	return c.gitWrite(ctx, gitWriteRequest{Root: root, Operation: "merge", GitReference: reference.request()})
+}
+
+// GitRebaseOnto replays the branch checked out in the repository at root onto reference. Core
+// refuses the checked-out branch itself. A rebase Git stops at conflicts stays active.
+//
+// GitRebaseOnto starts git and blocks; call it from a background goroutine.
+func (c *Client) GitRebaseOnto(ctx context.Context, root string, reference GitReference) error {
+	return c.gitWrite(ctx, gitWriteRequest{Root: root, Operation: "rebase", GitReference: reference.request()})
+}
+
+// GitCheckoutAndRebase checks out the local or remote branch reference in the repository at root
+// and replays it onto the branch that was checked out before. Core refuses it while the working
+// tree has changes.
+//
+// GitCheckoutAndRebase starts git and blocks; call it from a background goroutine.
+func (c *Client) GitCheckoutAndRebase(ctx context.Context, root string, reference GitReference) error {
+	return c.gitWrite(ctx, gitWriteRequest{Root: root, Operation: "checkoutAndRebase", GitReference: reference.request()})
+}
+
+// GitSetUpstream makes the local branch track the remote branch upstream in the repository at root.
+//
+// GitSetUpstream starts git and blocks; call it from a background goroutine.
+func (c *Client) GitSetUpstream(ctx context.Context, root string, branch, upstream GitReference) error {
+	return c.gitWrite(ctx, gitWriteRequest{Root: root, Operation: "setUpstream", Name: branch.ShortName, GitReference: upstream.request()})
+}
+
+// GitUnsetUpstream makes the local branch track no remote branch in the repository at root.
+//
+// GitUnsetUpstream starts git and blocks; call it from a background goroutine.
+func (c *Client) GitUnsetUpstream(ctx context.Context, root string, branch GitReference) error {
+	return c.gitWrite(ctx, gitWriteRequest{Root: root, Operation: "unsetUpstream", Name: branch.ShortName})
+}
+
 // GitBranchDeletion is what a deleted branch was, enough to create it again.
 type GitBranchDeletion struct {
 	// Name is the branch's short name.

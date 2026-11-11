@@ -26669,7 +26669,8 @@
       "id": "git.log.copyBranchName",
       "description": "Windows UI: git.log.copyBranchName",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -45187,7 +45188,8 @@
       "id": "native.checkoutAndRebase",
       "description": "Native UI: Checkout and Rebase",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Checkout and Rebase",
@@ -45198,7 +45200,8 @@
       "id": "native.checkoutAndRebaseBranch",
       "description": "Native UI: Checkout and rebase branch?",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Checkout and rebase branch?",
@@ -45209,7 +45212,8 @@
       "id": "native.checkoutAndRebaseOntoCurrentBranch",
       "description": "Native UI: Checkout and Rebase onto Current Branch",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Checkout and Rebase onto Current Branch",
@@ -45276,7 +45280,8 @@
       "id": "native.checkoutThenReplayItOntoTheBranchThatIsCurrentNow",
       "description": "Native UI: Checkout %@, then replay it onto the branch that is current now.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Checkout %@, then replay it onto the branch that is current now.",
@@ -48118,7 +48123,8 @@
       "id": "native.compareWith",
       "description": "Native UI: Compare '%@' with '%@'",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Compare '%@' with '%@'",
@@ -66056,7 +66062,8 @@
       "id": "native.merge",
       "description": "Native UI: Merge",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Merge",
@@ -66078,7 +66085,8 @@
       "id": "native.mergeBranch",
       "description": "Native UI: Merge branch?",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Merge branch?",
@@ -66100,7 +66108,8 @@
       "id": "native.mergeIntoCurrentBranch",
       "description": "Native UI: Merge into Current Branch",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Merge into Current Branch",
@@ -69302,7 +69311,8 @@
       "id": "native.noRemoteBranches",
       "description": "Native UI: No Remote Branches",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "No Remote Branches",
@@ -74244,7 +74254,8 @@
       "id": "native.pullIntoTheCurrentBranchAndReplayLocalCommits",
       "description": "Native UI: Pull %@ into the current branch and replay local commits.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Pull %@ into the current branch and replay local commits.",
@@ -74260,7 +74271,8 @@
       "id": "native.pullIntoTheCurrentBranchWithAMerge",
       "description": "Native UI: Pull %@ into the current branch with a merge.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Pull %@ into the current branch with a merge.",
@@ -74276,7 +74288,8 @@
       "id": "native.pullRemoteBranchWithMerge",
       "description": "Native UI: Pull remote branch with merge?",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Pull remote branch with merge?",
@@ -74287,7 +74300,8 @@
       "id": "native.pullRemoteBranchWithRebase",
       "description": "Native UI: Pull remote branch with rebase?",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Pull remote branch with rebase?",
@@ -74430,7 +74444,8 @@
       "id": "native.pullWithMerge",
       "description": "Native UI: Pull with Merge",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Pull with Merge",
@@ -74441,7 +74456,8 @@
       "id": "native.pullWithRebase",
       "description": "Native UI: Pull with Rebase",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Pull with Rebase",
@@ -74920,7 +74936,8 @@
       "id": "native.rebase",
       "description": "Native UI: Rebase",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Rebase",
@@ -74975,7 +74992,8 @@
       "id": "native.rebaseBranch",
       "description": "Native UI: Rebase branch?",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Rebase branch?",
@@ -74986,7 +75004,8 @@
       "id": "native.rebaseCurrentBranchOnto",
       "description": "Native UI: Rebase Current Branch onto…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Rebase Current Branch onto…",
@@ -80200,7 +80219,8 @@
       "id": "native.selectForCompare",
       "description": "Native UI: Select for Compare",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Select for Compare",
@@ -83668,7 +83688,8 @@
       "id": "native.stopTrackingBranch",
       "description": "Native UI: Stop Tracking Branch",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Stop Tracking Branch",
@@ -91502,7 +91523,8 @@
       "id": "native.trackingBranch",
       "description": "Native UI: Tracking Branch",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Tracking Branch",
@@ -113626,6 +113648,77 @@
       ],
       "parameters": {
         "hash": "string"
+      }
+    },
+    {
+      "id": "desktop.refs.mergeConfirm",
+      "description": "Desktop Git log reference menu: description of the dialog that confirms merging branch {branch} into the checked-out branch.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "branch": "string"
+      }
+    },
+    {
+      "id": "desktop.refs.rebaseConfirm",
+      "description": "Desktop Git log reference menu: description of the dialog that confirms replaying the checked-out branch onto {branch}.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "branch": "string"
+      }
+    },
+    {
+      "id": "desktop.refs.merged",
+      "description": "Desktop Git log reference menu: notice after {branch} was merged into the checked-out branch.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "branch": "string"
+      }
+    },
+    {
+      "id": "desktop.refs.rebased",
+      "description": "Desktop Git log reference menu: notice after the checked-out branch was replayed onto {branch}.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "branch": "string"
+      }
+    },
+    {
+      "id": "desktop.refs.checkedOutAndRebased",
+      "description": "Desktop Git log reference menu: notice after {branch} was checked out and replayed onto the branch checked out before.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "branch": "string"
+      }
+    },
+    {
+      "id": "desktop.refs.trackingSet",
+      "description": "Desktop Git log reference menu: notice after local branch {branch} was set to track remote branch {upstream}.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "branch": "string",
+        "upstream": "string"
+      }
+    },
+    {
+      "id": "desktop.refs.trackingStopped",
+      "description": "Desktop Git log reference menu: notice after local branch {branch} stopped tracking its remote branch.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "branch": "string"
       }
     }
   ]

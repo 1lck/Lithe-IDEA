@@ -15,7 +15,7 @@ type gitWriteRequest struct {
 	Paths     []string `json:"paths,omitempty"`
 	// GitReference is the reference a branch operation acts on or starts from.
 	GitReference *gitReferenceRequest `json:"gitReference,omitempty"`
-	// Name is the new name of a created or renamed branch.
+	// Name is the new name of a created or renamed branch, or the local branch whose upstream is set.
 	Name string `json:"name,omitempty"`
 	// Remote and Destination are passed unchanged to Core for a clone.
 	Remote      string `json:"remote,omitempty"`

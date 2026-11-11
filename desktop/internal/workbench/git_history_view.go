@@ -144,6 +144,9 @@ func (a *App) drawHistoryDialogs(c ui.C, p *project) {
 	if h.reset.open {
 		a.drawHistoryResetDialog(c, p)
 	}
+	if h.integrate.open {
+		a.drawRefIntegrateDialog(c, p)
+	}
 }
 
 // drawHistoryRewriteDialog declares the review of a rewrite: what it does, the reasons Core
