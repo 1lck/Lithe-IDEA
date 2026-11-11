@@ -803,5 +803,42 @@
     "parameters": {
       "title": "string"
     }
+  },
+  {
+    "id": "desktop.agent.export.batchSelect",
+    "description": "Button that starts selecting history conversations for a batch Markdown export.",
+    "en-US": "Select",
+    "zh-CN": "选择"
+  },
+  {
+    "id": "desktop.agent.export.batchDone",
+    "description": "Button that ends the history selection for a batch export.",
+    "en-US": "Done",
+    "zh-CN": "完成"
+  },
+  {
+    "id": "desktop.agent.export.batchCancel",
+    "description": "Button that cancels a running batch export; the open conversation is restored and nothing is written.",
+    "en-US": "Cancel export",
+    "zh-CN": "取消导出"
+  },
+  {
+    "id": "desktop.agent.export.batchExport",
+    "description": "Button that exports the selected history conversations to one Markdown file.",
+    "en-US": "Export selected ({count})",
+    "zh-CN": "导出所选（{count}）",
+    "parameters": {
+      "count": "string"
+    }
+  },
+  {
+    "id": "desktop.agent.export.batchProgress",
+    "description": "Progress of a batch export: the conversation being read out of the total.",
+    "en-US": "Exporting {done} of {total}",
+    "zh-CN": "正在导出 {done}/{total}",
+    "parameters": {
+      "done": "string",
+      "total": "string"
+    }
   }
 ]

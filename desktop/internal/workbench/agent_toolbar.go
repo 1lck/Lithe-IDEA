@@ -82,6 +82,7 @@ func (a *App) agentHistory(c ui.C, p *project) {
 			}
 		})
 		a.agentHistoryControls(c, p)
+		a.agentExportBar(c, p)
 		a.agentArchivedSection(c, p)
 		if !h.canList {
 			ui.Row(c).FillWidth().Pad(shellContentPad).Children(func() {
@@ -134,9 +135,16 @@ func (a *App) agentHistory(c ui.C, p *project) {
 			if p.agent.history.meta.items[session.SessionID].Favorite {
 				label += " · " + a.text.Agent.HistoryMeta.Pinned
 			}
-			button := ui.Button(row.C, label).Outline().FillWidth().Disabled(!h.canLoad || busy)
+			if h.selecting && h.selected[session.SessionID] {
+				label = "✓ " + label
+			}
+			button := ui.Button(row.C, label).Outline().FillWidth().Disabled(!h.canLoad || busy || h.batch.active)
 			if button.Clicked() {
-				c.After(func() { a.openAgentHistorySession(p, session.SessionID) })
+				if h.selecting {
+					c.After(func() { h.toggleExportSelection(session.SessionID) })
+				} else {
+					c.After(func() { a.openAgentHistorySession(p, session.SessionID) })
+				}
 			}
 			ui.ContextMenu(row.C, button, func(menu *ui.MenuItems) {
 				m := a.text.Agent.HistoryMeta
