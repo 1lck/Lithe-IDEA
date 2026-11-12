@@ -371,6 +371,14 @@ func (c *Client) PlanBuildRun(ctx context.Context, manifest json.RawMessage, bui
 	return c.planBuild(ctx, "build.prepareRunPlan", manifest, buildSystemID, request)
 }
 
+// PlanBuildDebug prepares the native debug program a provider owns for one target, the
+// request the Debug window makes before it starts a provider-prepared program. It answers
+// the same plan envelope as PlanBuildRun, and the host reads the provider's debug program
+// out of it.
+func (c *Client) PlanBuildDebug(ctx context.Context, manifest json.RawMessage, buildSystemID string, request BuildPlanRequest) (BuildPlan, error) {
+	return c.planBuild(ctx, "build.prepareDebugPlan", manifest, buildSystemID, request)
+}
+
 func (c *Client) planBuild(ctx context.Context, command string, manifest json.RawMessage, buildSystemID string, request BuildPlanRequest) (BuildPlan, error) {
 	var result buildOutcome
 	if err := c.Execute(ctx, command, struct {

@@ -4,21 +4,23 @@
   "group": "排版",
   "capability": "macOS 导入 IDE 外观、编辑器偏好、受支持的自定义快捷键及全局基础缩进，支持冲突保护和撤销",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/pluginhost/pluginhost.go",
+      "shared/contracts/rust-core-api.md"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/pluginhost/pluginhost.go",
+      "shared/contracts/rust-core-api.md"
     ]
   },
   "owner": "Editor / Settings",
-  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：workbench/legacy_import.go 只导入旧 Lithe 客户端的偏好与最近项目（legacyimport 包），没有导入 IDE 外观、编辑器偏好、快捷键或缩进的代码。",
+  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：workbench/legacy_import.go 只导入旧 Lithe 客户端的偏好与最近项目（legacyimport 包），没有导入 IDE 外观、编辑器偏好、快捷键或缩进的代码。 2026-11-12：结论确定——客户端不声明 keymapImportProviders（pluginhost.go 明确列出未声明项）。原因是契约要求先有原生快照服务、lsp.startServer 的 provider 协商与产品侧消费入口，三者在 Viva 客户端都不存在；只声明不服务会让需要该能力的插件可以安装但导入必然失败，因此保持不声明。键位导入与“导入其他 IDE 设置”由插件生态按契约补齐，不再计入本 PR 的宿主接线。",
   "verification": "EditorSettingsImportTests 和 AppSettingsTests 验证 JSONC、XML、字体/单位、来源只读、配置版本/Profile、冲突、持久化、恢复和撤销。完整欢迎页/设置页交互、不同真实 IDE 版本以及多窗口/重启视觉验收仍待完成。 EditorSettingsImportTests 增加入口覆盖检查和深浅色真实窗口呈现检查，LitheCenteredPopupTests 验证共享生命周期。 原生深浅色测试验证启动时欢迎页未挂载且无 child window/sheet，跳过后才显示欢迎页；覆盖无来源、读取失败、成功导入和无变化字段。 WindowFullScreenCapabilityGuardTests 验证导入窗口实际尺寸及切回欢迎页；导入启动测试生成可选深浅色布局截图。 choosingSourceNavigatesWithoutWritingSettings 验证翻页、返回、无效来源和实际导入边界。 回归测试覆盖损坏 JSON/XML 修复重读，以及无来源重启后通过原生按钮撤销并核对持久化。 回归覆盖 Code/Cursor 无设置文件、Profile 发现、手选身份一致性、保存后重扫并实际导入 Cursor 字号行距、源文件不变和任意空目录不误识别。 显式开启的本机只读集成检查确认真实扫描器发现无 settings.json 的 VS Code 和已有 settings.json 的 Cursor；不代表新版产品面板已完成人工视觉验收。 原生无障碍回归检查重扫位置、空状态隐藏导入、重新读取后恢复导入按钮、返回候选保留，以及手动/启动跳过的写入边界；深浅色空状态截图可由 LITHE_POPUP_CAPTURE_DIR 输出。 新增分阶段回归：外观模式持久化/回滚，参考默认值与非法显式值隔离，IDEA 应用字体与方案覆盖、字体列表、未知/循环配色父方案、同名冲突、未来版本、目录越界及来源变更；本次结果计数与重开状态，原生整组选取不污染其他组。真实打包应用全流程、多版本/Profile 的人工验收仍待完成，不以测试宿主截图冒充整包验收。 新增空配置默认方案、键位继承与遮蔽、未知方案及循环拒绝、导入撤销回归。 WebKit 回归核对固定 Tab 8、自动检测空格 2及新文档默认 4的原生消息；Swift 验证每文档状态隔离及非法宽度拒绝。 快捷键顺序回归确认后续扩展或条件规则遮蔽此前用户映射，并覆盖参考默认值开关和反向顺序。 插件回归测试覆盖连续按键首键遮蔽、参考默认值开关、此前的用户映射、未知扩展/条件/白名单命令，以及反向顺序与不产生单键动作。 插件测试覆盖 IDEA 旧方案、快捷键注册输入，以及 VS Code 常用键位和用户覆盖；隔离存储回归验证冲突与撤销；真实打包产品快捷键验收仍待完成。 2026-11-03 隔离 macOS Release 应用从本机 IDEA/VS Code 配置导入，并验证 IDEA 新旧方案跳行与查找、VS Code 跳行、替换、项目搜索、自定义键和 Java 定义/引用；重启后验证常用键。终端焦点下 VS Code 的 Control-反引号不能关闭终端，其他版本与布局仍待验收。 importPanelRetainsNativeShadowChromeAndCloses 覆盖深浅色原生阴影面板的标题栏、关闭按钮、内容尺寸和父子窗口清理；整包视觉验收仍待完成。 titledPanelDetachesDuringDragAndCleansUp 覆盖拖动解除/恢复、内容点击、移动结束兜底与拖动期间关闭；macOS 27 实机拖动流畅度待验证。 插件版 Release 包已验证 IDEA/VS Code 导入、断点、导航、终端、F5 调试启动和继续、自定义键、源变化保护及撤销；其他版本和键盘布局仍待验收。 插件会话测试经真实 Core 驱动 VS Code 导入，断言 plugins.operation.finished 进入该插件的 host 通道；换回旧 SDK 时该断言失败。打包应用中查看该日志的人工验收仍待完成。 快捷键来源解析、命令映射和真实 Core 会话测试随插件迁到独立仓库，由该仓库 CI 用真实 Lithe Core 跑导入、失败、日志事实和插件包不被修改；宿主侧 keymap_import.rs 和 Mac 快捷键导入测试继续用契约 fixture 验证通用规划、快照和多提供方拒绝。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
