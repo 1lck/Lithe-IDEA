@@ -5,21 +5,21 @@
   "capability": "编辑器不把中文全角标点标记为易混淆字符",
   "owner": "Editor",
   "macos": {
-    "implementationStatus": "missing",
+    "implementationStatus": "implemented",
     "verificationStatus": "not-applicable",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/editorview/paint.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
+    "implementationStatus": "implemented",
     "verificationStatus": "not-applicable",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/editorview/paint.go"
     ]
   },
   "verification": "双端打开含全角括号、全角逗号等中文标点的文档或代码文件，并覆盖 Notebook 代码单元与提交差异视图（拆分与统一），悬停这些字符不再出现 \"could be confused with the ASCII character\" 提示，也没有对应高亮标记；不可见字符检测等其他 Unicode 高亮行为保持不变。",
-  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：desktop/ 中没有易混淆字符检测或其高亮机制（grep confusable 无结果），因此不存在被误报的全角标点提示；按缺失记录，验收对象在 Viva 中不存在，需由评审确认。",
+  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：desktop/ 中没有易混淆字符检测或其高亮机制（grep confusable 无结果），因此不存在被误报的全角标点提示；按缺失记录，验收对象在 Viva 中不存在，需由评审确认。 2026-11-12：本条要的是“不误报易混字符”。自绘编辑器没有 Monaco 的 unicodeHighlight 机制，全角标点与控制字符按普通字宽绘制（paint.go），因此目标状态天然满足；没有实现侧缺口。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

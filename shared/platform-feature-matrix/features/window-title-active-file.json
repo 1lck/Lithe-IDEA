@@ -4,21 +4,23 @@
   "group": "窗口管理",
   "capability": "Windows 原生窗口标题显示「项目名 – 当前编辑文件」，编辑区未打开文件时仅显示项目名，任务栏悬停预览与 Alt+Tab 据此区分窗口内容；超长标题由系统自动折叠",
   "macos": {
-    "implementationStatus": "platform-specific",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/workbench/window_title.go",
+      "desktop/internal/workbench/root.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/workbench/window_title.go",
+      "desktop/internal/workbench/root.go"
     ]
   },
   "owner": "Workbench",
-  "notes": "Viva：root.go 的 Config.Title 固定为应用名，desktop/ 中未找到随当前编辑文件更新窗口标题的逻辑。",
+  "notes": "Viva：root.go 的 Config.Title 固定为应用名，desktop/ 中未找到随当前编辑文件更新窗口标题的逻辑。 2026-11-12：窗口标题由 window_title.go 实现并每帧经 syncWindowTitle 接到 Window.SetTitle：无项目显示应用名，macOS 只显示项目名，Windows/Linux 显示“项目 – 活动文档”。原生任务栏/Alt-Tab 验收保持 pending。",
   "verification": "在 Windows 运行应用并打开项目：任务栏图标悬停预览标题显示「项目名 – 文件名」，切换编辑区文件后标题随之更新；关闭全部编辑标签或聚焦终端/欢迎页后标题回落为项目名；无项目时显示 Lithe；打开超长文件名的文件确认预览卡片由系统折叠显示，悬停任务栏图标可看到完整标题。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
