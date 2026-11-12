@@ -18,6 +18,9 @@ type gitState struct {
 	loaded bool
 	status core.GitStatus
 	err    error
+	// tree is the same answer indexed for the project tree, which colors the rows of the
+	// changed paths. It is rebuilt whenever the status is replaced.
+	tree treeStatus
 }
 
 // loadGit asks the kernel for the Git status of p and keeps the answer in p.git. The

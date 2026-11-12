@@ -195,6 +195,21 @@ func (p palette) gitStatusColor(side byte, staged bool) gfx.Color {
 	return p.Text
 }
 
+// treeStatusColor is the color of a project-tree row whose Git letter is letter. A
+// conflict keeps the warning color the change list uses and an untracked path the warm
+// red of IDEA; every other letter is a change and shares the change-list colors.
+func (p palette) treeStatusColor(letter string) gfx.Color {
+	switch letter {
+	case "":
+		return p.Text
+	case "?":
+		return p.GitUntracked
+	case "!":
+		return p.Warning
+	}
+	return p.gitStatusColor(letter[0], false)
+}
+
 // nativeAppearance is the appearance the system parts of the window (traffic lights,
 // file dialogs) are pinned to for a theme choice.
 func nativeAppearance(choice themeChoice) app.Appearance {

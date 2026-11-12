@@ -205,7 +205,7 @@ func (a *App) drawTreeContent(c ui.C, p *project, n *treeNode) bool {
 			icon = fileicons.ForDirectory(n.name, a.colors.Dark)
 		}
 		ui.Icon(c, icon).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
-		name := ui.Text(c, n.name).FontSize(treeFontSize).Color(treelist.Text(a.colors.Dark)).Shrink(0)
+		name := ui.Text(c, n.name).FontSize(treeFontSize).Color(a.treeTextColor(p, n)).Shrink(0)
 		if n == p.tree.root {
 			name.Bold()
 		}

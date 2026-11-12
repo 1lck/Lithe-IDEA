@@ -235,6 +235,7 @@ func reduceStoredChangeLists(ctx context.Context, s *store.Store, kernel changeL
 
 // setGit shows a status the project read and works out again where its changes belong.
 func (a *App) setGit(p *project, g gitState) {
+	g.tree = newTreeStatus(p.root, g.status)
 	p.git = g
 	a.syncChangeListSettings(p)
 	p.lists.statusGen++
