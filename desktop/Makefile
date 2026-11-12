@@ -41,8 +41,10 @@ help:
 	@echo "make release       macOS arm64+amd64, Windows amd64, or the Linux host architecture"
 	@echo "make clean         remove the client builds and packages (the core cache stays)"
 
+# desktop-go.sh selects the core target (x86_64-pc-windows-gnu on Windows), which a direct
+# build-desktop-core.sh call would take from the rustc host instead.
 core:
-	$(SCRIPTS)/build-desktop-core.sh --debug
+	$(SCRIPTS)/desktop-go.sh --print-core-stage
 
 build:
 	$(SCRIPTS)/desktop-go.sh build -tags dev -o $(BIN) ./cmd/lithe

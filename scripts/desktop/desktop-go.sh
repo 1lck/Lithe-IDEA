@@ -6,11 +6,14 @@
 #   scripts/desktop/desktop-go.sh build -o ../.artifacts/desktop/bin/lithe ./cmd/lithe
 #   GOARCH=amd64 scripts/desktop/desktop-go.sh build ./cmd/lithe
 #   scripts/desktop/desktop-go.sh --exec PROGRAM [ARGS...]
+#   scripts/desktop/desktop-go.sh --print-core-stage
 #
 # The core is staged before every run so a changed pin or local LITHE_CORE_RUST_DIR cannot leave
 # cgo linking the previous revision. GOOS must be the host OS; GOARCH selects a supported core
 # target. The --exec mode keeps the same directory, core staging and cgo environment for tools
-# such as Viva that build the application themselves.
+# such as Viva that build the application themselves. The --print-core-stage mode stages the core
+# for that target and prints only its staging directory; callers that need the staged core without
+# running Go use it instead of build-desktop-core.sh, whose default is the rustc host target.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
@@ -79,7 +82,15 @@ if [[ "$GOOS" == "darwin" ]]; then
 else
     unset MACOSX_DEPLOYMENT_TARGET
 fi
+if [[ "${1:-}" == "--print-core-stage" && $# -ne 1 ]]; then
+    printf '%s\n' "Usage: $0 --print-core-stage" >&2
+    exit 2
+fi
 STAGE_DIR="$("$ROOT_DIR/scripts/desktop/build-desktop-core.sh" "$PROFILE_FLAG")"
+if [[ "${1:-}" == "--print-core-stage" ]]; then
+    printf '%s\n' "$STAGE_DIR"
+    exit 0
+fi
 # Packaging reads the staged helper to embed it; development runs use it directly so the IDE
 # Connection page is testable without a packaged build.
 export LITHE_CORE_STAGE_DIR="$STAGE_DIR"
