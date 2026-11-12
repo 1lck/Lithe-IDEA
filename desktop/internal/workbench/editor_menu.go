@@ -18,7 +18,7 @@ func (a *App) editorMenuItems(c ui.C, p *project, d *document) func(*ui.MenuItem
 		menu.WidthRange(240, 280)
 		a.editorActionMenuItems(c, p, d, menu)
 		readOnly := d.view.ReadOnly()
-		if menu.Item(i18n.Shared(language, "desktop.editorMenu.goToDefinition")).Keys(0, "f12").Clicked() {
+		if menu.Item(i18n.Shared(language, "desktop.editorMenu.goToDefinition")).Keys(primary, "b").Clicked() {
 			c.After(func() {
 				line, column := d.view.CaretUTF16()
 				a.startPluginDefinition(p, d, line, column, true)

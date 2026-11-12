@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 	"unicode"
 
@@ -143,6 +144,11 @@ type semanticPending struct {
 	// join is set on the language-server side of an explicit completion that also asks a
 	// plugin completion provider; the answer feeds the join instead of opening the popup.
 	join *completionMergeJoin
+	// usages marks the references request of a go-to-declaration gesture made on the
+	// declaration itself: its answer, without the declaration, opens a single usage or lists
+	// several, as IntelliJ IDEA's Go to Declaration or Usages does, instead of filling the
+	// References tool window.
+	usages bool
 }
 
 // completionState is the explicit completion popup.
@@ -381,6 +387,9 @@ func (a *App) pluginSemanticsShortcut(event gfx.KeyEvent) gfx.EventResult {
 	if result := a.pluginEditShortcut(event); result.Handled {
 		return result
 	}
+	if result := a.declarationShortcut(event); result.Handled {
+		return result
+	}
 	if event.Release || (event.Key != gfx.KeySpace && event.Text != " ") {
 		return gfx.EventResult{}
 	}
@@ -393,6 +402,22 @@ func (a *App) pluginSemanticsShortcut(event gfx.KeyEvent) gfx.EventResult {
 	}
 	line, column := d.view.CaretUTF16()
 	a.startPluginCompletion(p, d, line, column)
+	return gfx.EventResult{Handled: true, Repaint: true}
+}
+
+// declarationShortcut handles Go to Declaration or Usages, IntelliJ IDEA's Command+B (Control+B
+// elsewhere), at the caret of the editor that owns the keyboard. It is the keyboard form of
+// the modifier-click and asks the same definition request.
+func (a *App) declarationShortcut(event gfx.KeyEvent) gfx.EventResult {
+	if event.Release || event.Modifiers != primaryModifier() || !strings.EqualFold(event.Text, "b") {
+		return gfx.EventResult{}
+	}
+	p, d := a.pluginSemanticHit(event.Target)
+	if d == nil || d.view.IsComposing() {
+		return gfx.EventResult{}
+	}
+	line, column := d.view.CaretUTF16()
+	a.startPluginDefinition(p, d, line, column, true)
 	return gfx.EventResult{Handled: true, Repaint: true}
 }
 
@@ -468,16 +493,23 @@ func choiceOffset(selected, total, current int) int {
 // startPluginDefinition asks for the definition at a position. A request that
 // would race the document's pending changes waits for them first.
 func (a *App) startPluginDefinition(p *project, d *document, line, column int, requireCaret bool) {
-	a.startPluginLocations(pluginSemanticDefinition, p, d, line, column, requireCaret)
+	a.startPluginLocations(pluginSemanticDefinition, p, d, line, column, requireCaret, false)
 }
 
 // startPluginReferences asks for every reference to the symbol at the caret.
 func (a *App) startPluginReferences(p *project, d *document, line, column int) {
-	a.startPluginLocations(pluginSemanticReferences, p, d, line, column, true)
+	a.startPluginLocations(pluginSemanticReferences, p, d, line, column, true, false)
 }
 
-// startPluginLocations asks for a location list (definition or references).
-func (a *App) startPluginLocations(kind semanticKind, p *project, d *document, line, column int, requireCaret bool) {
+// startPluginUsages asks for the usages of the declaration a go-to-declaration gesture was
+// made on, without the declaration itself.
+func (a *App) startPluginUsages(p *project, d *document, line, column int, requireCaret bool) {
+	a.startPluginLocations(pluginSemanticReferences, p, d, line, column, requireCaret, true)
+}
+
+// startPluginLocations asks for a location list (definition or references); usages marks the
+// references of a declaration a go-to-declaration gesture was made on.
+func (a *App) startPluginLocations(kind semanticKind, p *project, d *document, line, column int, requireCaret, usages bool) {
 	if a.plugins == nil || p == nil || d == nil || a.project != p {
 		return
 	}
@@ -491,7 +523,7 @@ func (a *App) startPluginLocations(kind semanticKind, p *project, d *document, l
 		return
 	}
 	if !a.semanticDocumentReady(d) {
-		a.deferSemantic(p, d, func(a *App) { a.startPluginLocations(kind, p, d, line, column, requireCaret) })
+		a.deferSemantic(p, d, func(a *App) { a.startPluginLocations(kind, p, d, line, column, requireCaret, usages) })
 		a.startDocumentSync(p, d)
 		return
 	}
@@ -500,17 +532,22 @@ func (a *App) startPluginLocations(kind semanticKind, p *project, d *document, l
 		return
 	}
 	if !server.isReady() {
-		a.deferSemantic(p, d, func(a *App) { a.startPluginLocations(kind, p, d, line, column, requireCaret) })
+		a.deferSemantic(p, d, func(a *App) { a.startPluginLocations(kind, p, d, line, column, requireCaret, usages) })
 		return
 	}
 	position := core.PluginDocumentPosition{Line: line, UTF16Column: column}
 	a.cancelSemanticKind(kind)
 	pending := a.newSemanticPending(kind, p, d, server, line, column, requireCaret, false)
+	pending.usages = usages
 	a.semantics.pending = append(a.semantics.pending, pending)
 	request := core.PluginSemanticRequest{
 		Operation: string(kind),
 		URI:       d.sync.uri,
 		Position:  &position,
+	}
+	if usages {
+		includeDeclaration := false
+		request.IncludeDeclaration = &includeDeclaration
 	}
 	a.submitSemantic(pending, request)
 }
@@ -881,24 +918,67 @@ func (a *App) applySemanticDefinition(pending *semanticPending, event core.Backe
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_semantics", err))
 		return
 	}
-	references := pending.kind == pluginSemanticReferences
-	limit := maxDefinitionTargets
-	if references {
-		limit = maxReferenceTargets
+	if pending.usages {
+		a.presentUsages(p, d, a.usableDefinitionTargets(locations, maxReferenceTargets), len(locations), pending.revision)
+		return
 	}
-	if !references && a.plugins != nil && a.plugins.HasDefinitionProvider(p.root, d.path, d.languageID) {
+	if pending.kind == pluginSemanticReferences {
+		a.presentDefinitionTargets(p, d, pending.kind, a.usableDefinitionTargets(locations, maxReferenceTargets), len(locations), pending.revision)
+		return
+	}
+	if a.plugins != nil && a.plugins.HasDefinitionProvider(p.root, d.path, d.languageID) {
 		a.mergeProviderDefinitions(p, d, pending, locations)
 		return
 	}
-	targets := a.usableDefinitionTargets(locations, limit)
-	a.presentDefinitionTargets(p, d, pending.kind, targets, len(locations), pending.revision)
+	targets := a.usableDefinitionTargets(locations, maxDefinitionTargets)
+	a.presentDefinitionOrUsages(p, d, pending.line, pending.column, pending.requireCaret, targets, len(locations), pending.revision)
+}
+
+// presentDefinitionOrUsages finishes a go-to-declaration gesture (Command+B, modifier-click,
+// F12, the editor menu) the way IntelliJ IDEA's Go to Declaration or Usages does. From a use it
+// opens the declaration; when Core finds the answer is the declaration the gesture was made on,
+// it asks for that declaration's usages instead of jumping to where the caret already is.
+func (a *App) presentDefinitionOrUsages(p *project, d *document, line, column int, requireCaret bool, targets []core.PluginSemanticLocation, answered, revision int) {
+	if a.gestureOnDeclaration(d, line, column, targets) {
+		a.startPluginUsages(p, d, line, column, requireCaret)
+		return
+	}
+	a.presentDefinitionTargets(p, d, pluginSemanticDefinition, targets, answered, revision)
+}
+
+// gestureOnDeclaration asks Core whether every definition target is the place the gesture was
+// made at. A failed decision is logged and the definition answer is presented as before.
+func (a *App) gestureOnDeclaration(d *document, line, column int, targets []core.PluginSemanticLocation) bool {
+	kernel, ok := a.kernel.(editorKernel)
+	if !ok || len(targets) == 0 {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
+	defer cancel()
+	position := core.PluginDocumentPosition{Line: line, UTF16Column: column}
+	usages, err := kernel.DeclarationOrUsages(ctx, d.sync.uri, position, targets)
+	if err != nil {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_declaration_or_usages", err))
+		return false
+	}
+	return usages
+}
+
+// presentUsages shows the usages of a declaration a go-to-declaration gesture was made on: a
+// single usage opens, several wait in the list, and none says so.
+func (a *App) presentUsages(p *project, d *document, targets []core.PluginSemanticLocation, answered, revision int) {
+	if len(targets) == 0 && answered == 0 {
+		a.notifyInfo(i18n.Shared(a.language(), "desktop.semantics.noReferences"))
+		return
+	}
+	a.presentDefinitionTargets(p, d, pluginSemanticDefinition, targets, answered, revision)
 }
 
 // mergeProviderDefinitions asks the definition provider for its locations and lets Core merge them with
 // the language server's, the server's first. The merged list is presented as one answer.
 func (a *App) mergeProviderDefinitions(p *project, d *document, pending *semanticPending, server []core.PluginSemanticLocation) {
 	revision, id, path, language, root, plugins := pending.revision, strconv.Itoa(d.id), d.path, d.languageID, p.root, a.plugins
-	line, column, uri, kind := pending.line, pending.column, d.sync.uri, pending.kind
+	line, column, uri, requireCaret := pending.line, pending.column, d.sync.uri, pending.requireCaret
 	a.background(p, 25*time.Second, func(ctx context.Context) func(*App) {
 		provided, err := plugins.PluginDefinitions(ctx, root, path, language, id, revision, line, column)
 		var merged []core.PluginSemanticLocation
@@ -913,7 +993,7 @@ func (a *App) mergeProviderDefinitions(p *project, d *document, pending *semanti
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_provider", err))
 				merged = server
 			}
-			a.presentDefinitionTargets(p, d, kind, a.usableDefinitionTargets(merged, maxDefinitionTargets), len(merged), revision)
+			a.presentDefinitionOrUsages(p, d, line, column, requireCaret, a.usableDefinitionTargets(merged, maxDefinitionTargets), len(merged), revision)
 		}
 	})
 }

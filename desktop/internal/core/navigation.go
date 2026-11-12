@@ -21,3 +21,28 @@ func (c *Client) ParseNavigationInput(ctx context.Context, input string) (*Navig
 	}{input}, &response)
 	return response.Target, err
 }
+
+// DeclarationOrUsages asks Core whether a go-to-declaration gesture made at position in the
+// document uri, whose definition answer is definitions, should show the usages of the
+// declaration instead (lsp.declarationOrUsages). It is true when every definition is the
+// gesture's own place: the caret is already on the declaration, as IntelliJ IDEA's Go to
+// Declaration or Usages has it.
+func (c *Client) DeclarationOrUsages(ctx context.Context, uri string, position PluginDocumentPosition, definitions []PluginSemanticLocation) (bool, error) {
+	type place struct {
+		URI   string              `json:"uri"`
+		Range PluginDocumentRange `json:"range"`
+	}
+	places := make([]place, len(definitions))
+	for i, definition := range definitions {
+		places[i] = place{URI: definition.URI, Range: definition.Range}
+	}
+	var response struct {
+		Action string `json:"action"`
+	}
+	err := c.Execute(ctx, "lsp.declarationOrUsages", struct {
+		URI         string                 `json:"uri"`
+		Position    PluginDocumentPosition `json:"position"`
+		Definitions []place                `json:"definitions"`
+	}{uri, position, places}, &response)
+	return response.Action == "usages", err
+}

@@ -28,12 +28,14 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
-# Lithe-core-rust main at #17: the plugin contract is one baseline with pluginAPIVersion and every
+# Lithe-core-rust main at #20 (lsp.declarationOrUsages and the references operation's
+# includeDeclaration, for Go to Declaration or Usages), on top of #19 (MCP configuration and
+# library commands removed) and #17: the plugin contract is one baseline with pluginAPIVersion and every
 # capability, protocol and document version at 0, and the contract, plugin guides, reference and
 # SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13 (execution.planLaunchCommand), #8, #7, #6 and #4.
-PINNED_CORE_REVISION="47c9859d2f4346a516dca17274d312384518a01e"
+PINNED_CORE_REVISION="74d5aacac4fad9bbaf847128c7fd545ffd8b8374"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
