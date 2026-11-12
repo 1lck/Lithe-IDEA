@@ -10999,7 +10999,8 @@
     "desktop.search.replaceFile": "Replacement file",
     "desktop.vcs.commitDirectly": "Commits are sent to the repository right away; there is no separate push.",
     "desktop.settings.fontsNoneChecked": "No Place Checked",
-    "desktop.settings.fontsEditHelp": "Check the places to change in the list above, one or more. Changes here take effect when you click Save, and the checked places then share them; Revert drops unsaved changes. Run output includes the output of runs, builds and tests and the Git console."
+    "desktop.settings.fontsEditHelp": "Check the places to change in the list above, one or more. Changes here take effect when you click Save, and the checked places then share them; Revert drops unsaved changes. Run output includes the output of runs, builds and tests and the Git console.",
+    "desktop.terminal.runSelection": "Run Selection in Terminal"
   },
   "overrides": {
     "windows": {

@@ -70,6 +70,20 @@ func (a *App) commands() []command {
 		id := d.id
 		add("tab.close", t.GroupProject, a.text.Editor.CloseTab, "", true, func() { a.closeDocument(p, id) })
 	}
+	// The Terminal menu runs the editor's selection as one command through the long-command
+	// path, so a cmd.exe or PowerShell line over its limit runs from a one-off script instead
+	// of being typed into a shell that would truncate it.
+	if d := p.selectedDocument(p.docs.group); d != nil {
+		if text := strings.TrimSpace(d.view.SelectedText()); text != "" {
+			command := text
+			add("terminal.runSelection", t.GroupTerminal, i18n.Shared(a.language(), "desktop.terminal.runSelection"), "", true, func() {
+				if term := a.newTerminal(p, ""); term != nil {
+					a.openTerminals(p)
+					a.sendTerminalCommand(term, command)
+				}
+			})
+		}
+	}
 	if d := p.selectedDocument(p.docs.group); browserPreviewable(d) {
 		add("editor.openInBrowser", t.GroupEditor, i18n.Shared(a.language(), "desktop.editorMenu.openInBrowser"), "", true, func() { a.openInBrowser(p, d) })
 	}

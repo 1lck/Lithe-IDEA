@@ -4,24 +4,26 @@
   "group": "终端",
   "capability": "Windows Shell 超长命令输入",
   "macos": {
-    "implementationStatus": "partial",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/workbench/terminal_commands.go",
+      "desktop/internal/workbench/commands.go",
       "desktop/internal/shellkind"
     ]
   },
   "windows": {
-    "implementationStatus": "partial",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/workbench/terminal_commands.go",
+      "desktop/internal/workbench/commands.go",
       "desktop/internal/shellkind"
     ]
   },
   "owner": "Terminal",
   "verification": "在 Windows cmd.exe 和 PowerShell 中执行超过 Shell 单行限制的 IDE 多行命令，确认脚本执行、原始命令内容和终端关闭后的临时文件清理。",
-  "notes": "Viva：desktop/ 中未找到超过 Shell 单行限制时改用临时脚本执行的逻辑，也没有相应的临时文件清理。 2026-11-12：长命令落盘执行（cmd 的 call 脚本、PowerShell 的 scriptblock 绕过执行策略、8000 字符阈值、关闭终端时清理）已实现在 terminal_commands.go，但宿主目前没有“把命令下发给终端”的入口，sendTerminalCommand 没有调用方，因此仍为部分实现，等入口出现后接上即可。",
+  "notes": "Viva：desktop/ 中未找到超过 Shell 单行限制时改用临时脚本执行的逻辑，也没有相应的临时文件清理。 2026-11-12：长命令落盘执行（cmd 的 call 脚本、PowerShell 的 scriptblock 绕过执行策略、8000 字符阈值、关闭终端时清理）已实现在 terminal_commands.go，但宿主目前没有“把命令下发给终端”的入口，sendTerminalCommand 没有调用方，因此仍为部分实现，等入口出现后接上即可。 2026-11-12：已接通调用方——Terminal 菜单新增“在终端运行选中内容”，把编辑器选中文本作为一条命令发进新终端，经 sendTerminalCommand 走长命令路径（cmd 的 call 脚本、PowerShell 的 scriptblock，8000 字符阈值，关闭终端清理）。原生窗口验收保持 pending。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
