@@ -214,7 +214,7 @@ IDEA 的编辑器字体组合框确实有这个开关，功能上更完整。本
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter AgentActivityPresentationTests`
 - 旧版 [macOS 测试入口](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/macos/test/test-macos.sh) 及上面的 Swift 测试不能替代 Viva 字体选择验收。
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 
 关于缺字回退与提示，`EditorFontFamilyTests` 覆盖：网页字体栈把打包字族放在所选字族之后且以

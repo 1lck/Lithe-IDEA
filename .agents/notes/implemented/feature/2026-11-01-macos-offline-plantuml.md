@@ -58,7 +58,7 @@ Issue #706 提出图表支持，原实现只保留 `language-plantuml` 类名，
   验证取消、超大输入拒绝、正文被动图片、include 拒绝时源码/本地化回退、旧结果隔离。
 - `node --test scripts/macos/test/test-markdown-preview.mjs`：既有目录与刷新状态回归。
 - `node --test scripts/resources/test-reuse-worktree-resources.mjs`：资源隔离与固定身份。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
 - `node scripts/i18n/generate-i18n.mjs --check`。
 
 组件运行验证不代替完整应用视觉验收；不以本地新编译器通过冒充 CI 固定工具链通过。

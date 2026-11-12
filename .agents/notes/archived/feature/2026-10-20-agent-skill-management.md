@@ -88,7 +88,7 @@ Windows 已能使用共享 Core 与 Host 操作，但设置页面和真实 Windo
 - Windows 在原生 CI 中运行相同 Host 测试，覆盖暂存后出现的空目录、普通文件和非空目录都不覆盖，缺失的 Unicode 目标完整发布，以及 NUL 路径不按截断名称发布。这些文件系统用例不等于 Windows 设置页或真实 Agent 会话验收。
 - ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
 - ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 

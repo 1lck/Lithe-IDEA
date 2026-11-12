@@ -80,7 +80,7 @@ Git Log 与 Project 的滚轮过渡一致，保留分页、图谱布局、选择
   两方向位移、按键/指针取消、减少动态效果和卸载；覆盖视口外的滚动条区域
   共享动画目标，以及拖动该区域取消惯性。
 - ~~scripts/windows/build/build-windows.ps1 -Configuration Release~~（脚本已随旧客户端移除）、Windows Tauri Cargo 测试、
-  ~~scripts/windows/verify/verify-windows-boundaries.ps1~~（随旧客户端移除）、`scripts/macos/verify/verify-runtime-bundle-immutability.sh`、
+  ~~scripts/windows/verify/verify-windows-boundaries.ps1~~（随旧客户端移除）、`scripts/desktop/verify/verify-runtime-bundle-immutability.sh`、
   `node scripts/agent-notes/verify-agent-notes.mjs`、`node scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs --check`。
 - 产品验收：在分支树、长提交列表、Commit Files 和 Project 文件树中连续向下/向上滚轮，核对过渡、反向、
   顶底边界、分页保持位置、Shift 横向滚动、键盘定位、滑块拖动和关闭工具窗。

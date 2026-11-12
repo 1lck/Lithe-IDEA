@@ -374,7 +374,7 @@ capability 为准。
 macOS 状态栏投影、停止/重启的偏好边界、过期激活身份、按服务器过滤与清空由
 `macos/Tests/LitheTests/LanguageServerStatusTests.swift` 覆盖。使用
 `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter LanguageServerStatusTests`
-记录逐项计时，并运行 `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`。
+记录逐项计时，并运行 `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
 这些组件回归不替代真实多语言服务、明暗主题及编辑器标签交互验收。
 
 本次等待策略由 `jdt_progress.rs` 的受控时钟测试和 `engine.rs` 的模拟服务测试

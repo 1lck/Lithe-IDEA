@@ -208,7 +208,7 @@ D/E/F 完成须逐行附上真实新路径、删除证据、工具/插件/平台
 
 ```bash
 ./scripts/agent-notes/verify-agent-notes.sh
-./scripts/macos/verify/verify-runtime-bundle-immutability.sh
+./scripts/desktop/verify/verify-runtime-bundle-immutability.sh
 git diff --check
 ```
 

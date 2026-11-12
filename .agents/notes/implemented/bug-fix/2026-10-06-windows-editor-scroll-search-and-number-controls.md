@@ -64,7 +64,7 @@ IDEA 参考版本为 `fb72b4df43aba102479eb0502d20b03586b9c5b8`：
   组件探针不等于完整 WebView2 应用与 IDEA 的帧性能对照。
 - 运行 `.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend`、
   ~~scripts/windows/build/build-windows.ps1 -Configuration Release~~（随旧客户端移除）、~~scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）、
-  `scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`scripts/platform-feature-matrix/verify-platform-feature-matrix.sh` 和 `scripts/agent-notes/verify-agent-notes.sh`。
+  `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`、`scripts/platform-feature-matrix/verify-platform-feature-matrix.sh` 和 `scripts/agent-notes/verify-agent-notes.sh`。
 
 ## 适用范围
 

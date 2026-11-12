@@ -96,7 +96,7 @@ macOS 提交面板复用原来的弯箭头按钮，先打开可重新勾选文�
   因而集成用例验证原生响应链，不把它视为完整产品的辅助功能验收。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh` 与该 Skill 的 macOS 逐项计时入口。
 - ~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除）、~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）、
-  `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`./scripts/agent-notes/verify-agent-notes.sh`、
+  `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`、`./scripts/agent-notes/verify-agent-notes.sh`、
   `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`，以及共享 i18n 检查。
 - 原生组件和真实 Git 测试不能替代完整工作台人工验收；平台矩阵保留 pending。
 

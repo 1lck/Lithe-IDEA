@@ -51,7 +51,7 @@ macOS 可以直接恢复上次打开的设置窗口，不会重新执行用户�
 - 原生宿主测试挂载真实 `SettingsWindowHost`，以有两秒本地期限的无障碍边界检查实际搜索控件；同时覆盖浅色和深色，以及移除后重新挂载。
 - `settingsStayBoundToOpeningSessionUntilAnotherSessionReopensThem` 继续验证跨窗口焦点切换保留显式设置归属。
 - 运行 `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'SettingsWindowRestorationTests|settingsStayBoundToOpeningSessionUntilAnotherSessionReopensThem|closingDedicatedProjectRevokesHiddenPageWhileSettingsRetainsItsModel'`，检查逐项计时报告。
-- 运行 ~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除）、~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和 `./scripts/agent-notes/verify-agent-notes.sh`。
+- 运行 ~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除）、~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）、`./scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 和 `./scripts/agent-notes/verify-agent-notes.sh`。
 - 真实应用保留窗口后重开三轮，对照恢复日志、搜索输入框、取消/确认/标题栏关闭及再次打开；区分应用重开与整机重启。
 
 ## 适用范围

@@ -45,7 +45,7 @@ Viva 桌面客户端使用同一套 Go 界面代码适配 macOS、Windows 和 Li
 - `go test -count=3 ./internal/documentio ./internal/gitmetadata ./internal/icons ./internal/appicon`：在 Windows 实机的隔离副本运行，验证文件适配器和相对、绝对 worktree 路径；该测试使用 Core 解析结果替身，不证明 Windows 下真实 Core 或窗口已完成验收。
 - Windows 隔离环境使用真实 GNU 目标 Core 运行 `scripts/desktop/desktop-go.sh test -count=1 ./internal/core ./internal/workbench -run 'TestBuildDesktopCoreChecksOutFreshPinnedRevision|TestCheckoutMetadataUsesSharedFixture|TestRecentBranchReadsNormalAndWorktreeMetadata|TestWelcome'`，并用 Viva Windows 无头渲染检查普通仓库分支行；这不是完整原生窗口工作流验收。
 - `./scripts/desktop/desktop-go.sh test -race ./internal/appicon ./internal/workbench -run '^(TestWelcome|TestLogEventsMatchCatalog)' -count=3`：覆盖欢迎页菜单、焦点、错误日志及图标数据；不替代原版视觉与 Windows 实机验收。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `node scripts/i18n/verify-app-language-localization.mjs`
 - `node scripts/i18n/generate-i18n.mjs --check`
 - `./scripts/agent-notes/verify-agent-notes.sh`：当前迁移分支仍有旧 Note 引用待清理，须通过后才能提交相关笔记。

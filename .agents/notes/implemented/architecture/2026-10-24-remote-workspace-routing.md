@@ -97,7 +97,7 @@
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'RemotePluginDeploymentTests|RemotePluginLaunchPreparerTests|RemoteBuildExecutionTests|MacBuildProviderSessionsTests|MacVcsProviderSessionsTests'
 ./scripts/remote/verify-remote-workspace.sh
 node scripts/resources/test-reuse-worktree-resources.mjs
-./scripts/macos/verify/verify-runtime-bundle-immutability.sh
+./scripts/desktop/verify/verify-runtime-bundle-immutability.sh
 ./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh
 ./scripts/architecture/verify-service-boundaries.sh
 ```

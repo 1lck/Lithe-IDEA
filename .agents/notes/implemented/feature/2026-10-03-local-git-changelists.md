@@ -72,7 +72,7 @@ Windows 提供两个独立的 Git 设置：`showGitChangelists` 和 `showGitPare
 - `scripts/desktop/desktop-go.sh test ./internal/workbench -run TestChangeLists -count=1`：Viva 界面用真实 Git 验证只提交当前列表、其他列表已暂存时拦截并提示、重名被拒后弹窗保持、删除归还默认列表、列表文件损坏时停用且不覆盖；不是 Windows 实机验收。
 - 异步投影、跨窗口锁、过期状态和关闭后结果丢弃有受控回归；真实 Git 测试覆盖投影后新暂存的目录文件及显式默认覆盖。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh --platform all`。
-- 旧版 [Windows 边界检查](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/windows/verify/verify-windows-boundaries.sh)和 [共享契约检查](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/architecture/verify-shared-contracts.sh)尚无完整 Viva 等价门禁；当前仍需运行 `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`./scripts/agent-notes/verify-agent-notes.sh` 和 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
+- 旧版 [Windows 边界检查](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/windows/verify/verify-windows-boundaries.sh)和 [共享契约检查](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/architecture/verify-shared-contracts.sh)尚无完整 Viva 等价门禁；当前仍需运行 `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`、`./scripts/agent-notes/verify-agent-notes.sh` 和 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
 
 ## 适用范围
 

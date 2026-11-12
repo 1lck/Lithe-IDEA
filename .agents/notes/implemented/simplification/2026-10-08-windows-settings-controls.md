@@ -41,7 +41,7 @@ Windows 设置页的固定选项和可搜索选项统一通过 `SettingsSelect` 
 - `.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend` 验证现有设置路由、持久化与新增的空值选择回归。
 - ~~`windows/tauri/src/ui/settings-select.test.tsx`~~（已随 #1794 移除） 验证自动配置选中态、切换后恢复自动配置、禁用选项和外部标签；此回归不能由类型检查证明。
 - ~~`windows/tauri/src/ui/settings-path-input.test.tsx`~~（已随 #1794 移除） 通过实际输入和 Esc 键盘事件验证任意路径草稿保留、继续编辑及手动清空，并以独立进程接入 Windows CI（持续集成），避免其他组件测试的浏览器环境干扰。
-- `scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`、`scripts/macos/verify/verify-runtime-bundle-immutability.sh` 与 `scripts/agent-notes/verify-agent-notes.sh` 检查当前矩阵、只读边界和文档；旧 Windows 边界脚本已移除，等价检查恢复前不能记作通过。
+- `scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`、`scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 与 `scripts/agent-notes/verify-agent-notes.sh` 检查当前矩阵、只读边界和文档；旧 Windows 边界脚本已移除，等价检查恢复前不能记作通过。
 - 在实际设置窗口检查深浅色、普通与可搜索列表、键盘选择与 Esc、点击外部关闭、切换分类、长列表滚动和选项持久化。
 
 ## 适用范围

@@ -143,7 +143,7 @@ Claude Code 会在会话开始时自己发一次“起标题”请求（系统�
 - ~~./scripts/macos/test/test-macos.sh --filter "AgentConversationFeatureModelTests|AgentConversationPresentationTests|AgentSessionSelectorLayoutTests|WorkbenchHoverTooltipTests"~~（随旧客户端移除）：模型调用聚合、未归属事件丢弃、工具与授权用时只计一次、重新加载后按已保存合计继续累加且不重复计数、辅助请求不抵消缺失 usage、只有辅助请求时的 Token 显示与持久化、旧统计文档兼容、损坏文档与 200 条上限、ACP 用量的缓存口径判断，以及悬停卡片布局。
 - `node --test scripts/agent/test-codex-config-relay.mjs`：订阅路由证明、未知/受限/失败/迟到账户结果不得开启观察，账户变更关闭连接。
 - 原生订阅集成测试（显式设置 LITHE_CODEX_OBSERVATION_CLI 后运行忽略测试）：隔离 CODEX_HOME、假凭据、本地假账户与模型服务，经过真实原生中继完成两轮 WebSocket 请求，确认预热排除、用量与上下文构成；不调用真实模型。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：代理不向安装目录写入任何内容。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：代理不向安装目录写入任何内容。
 
 ## 适用范围
 

@@ -157,7 +157,7 @@ Git未跟踪目录摘要和可见行缓存；这些界面仍使用完整公共�
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginNativeUI|PluginWeb|WorkbenchContributionHostTests'`
 - `LITHE_PLUGIN_SDK_ROOT=<Lithe-core-rust 检出>/shared/plugins/sdk/node node --test macos/Tests/Fixtures/native-ui-lab/native-ui-lab.test.mjs`
 - ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 
 ## 适用范围

@@ -159,7 +159,7 @@ Agent 的查询先执行只读目录检测，返回已准入清单、Core 校验
   握手、工具发现、结构化结果和可见工具错误。Windows CI 在共享 Rust 测试后
   显式构建 helper 并执行同一协议矩阵，不能仅测试依赖库而遗漏发行平台的 stdio 程序。
 - ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）、
-  `./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 验证契约和平台边界。
+  `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 验证契约和平台边界。
 - Windows 的 `ide-capabilities.test.ts` 验证旧执行 ID、撤销期间的设置写入、
   设置补丁和共享权限拒绝；macOS 的 `IdeCapabilitiesTests.swift` 验证授权与
   工作区代际、模块不被错误激活以及执行身份。

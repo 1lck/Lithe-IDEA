@@ -48,7 +48,7 @@ Issue #1623 中 README 徽章纵向堆叠、标题丢失居中，看起来像是
   直接测试生产解析与过滤，保留对齐和尺寸，同时剥离脚本、事件、样式和危险 URL。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter MarkdownPreviewHTMLTests`：
   深浅主题实际测量徽章同行、居中、窄视口折行，检查段落、显式换行、相对资源和图片放大。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
 
 原生组件回归不替代完整应用手动验收，Windows 运行时未在本次验证。

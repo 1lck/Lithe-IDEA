@@ -108,7 +108,7 @@ Equinox（JDT LS 使用的 OSGi 框架，负责加载插件）会往 `-configura
 - 升级 JDT LS 后会留下一个旧的配置区（几 MB），30 天没被使用就自动删除。
 - 已经被旧版本写过的安装目录：macOS 在这次更新时回退完整 ZIP 一次，替换后的
   bundle 是干净的；Windows 安装目录里的旧状态文件还在，但 JDT LS 不再读写它们。
-- 守护脚本 `scripts/macos/verify/verify-runtime-bundle-immutability.sh` 只保留对 macOS Swift
+- 守护脚本 `scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 只保留对 macOS Swift
   源码的通用写入扫描。JDT LS 的约束由 Core 的行为测试保证，不再用 grep 检查实现
   代码的字面量，也不再检查一段只在 macOS CI 上运行的 Windows 源码。
 
@@ -124,7 +124,7 @@ Equinox（JDT LS 使用的 OSGi 框架，负责加载插件）会往 `-configura
 - ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）
 - `cd desktop && ../scripts/desktop/desktop-go.sh test -race ./internal/idehelp/`：辅助程序首次安装、同字节复用、旧版本原子替换、未嵌入时报告缺失。
 - 打包后检查 `.app` 内没有 `lithe-mcp` 文件，且 `desktop/internal/idehelp/lithe-mcp.bin` 已清理。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 
 ## 适用范围
@@ -133,7 +133,7 @@ Equinox（JDT LS 使用的 OSGi 框架，负责加载插件）会往 `-configura
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/engine.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/engine.rs)
 - 已迁出：原 `rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
 - `shared/contracts/rust-core-api.md`
-- `scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - ~~`scripts/macos/verify/verify-macos-app-build-safety.sh`~~（已随 #1794 移除）
 - ~~`scripts/macos/test/test-macos.sh`~~（已随 #1794 移除）
 - `.agents/skills/develop-lithe/SKILL.md`

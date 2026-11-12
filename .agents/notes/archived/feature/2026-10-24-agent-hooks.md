@@ -125,7 +125,7 @@ Swift 功能模型负责草稿与 UI 状态，Rust Core 负责严格命令分派
   Swift 桥接与 TypeScript 请求测试共同读取，固定每个字段码。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AgentHooks|SettingsSidebarLayoutTests|SettingsSearchVocabularyTests|ContextMenuCoverageTests'`。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`、~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）、
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`、~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）、
   ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、`./scripts/agent-notes/verify-agent-notes.sh`、
   `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
 - `node --test scripts/resources/test-reuse-worktree-resources.mjs`。

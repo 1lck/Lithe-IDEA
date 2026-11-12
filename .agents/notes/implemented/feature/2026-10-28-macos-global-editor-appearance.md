@@ -134,7 +134,7 @@
   显示选项、深浅配色、斜体撤销、内容和撤销栈保留；隐藏行号后的断点图标、已有断点与空白行的鼠标点击、恢复相对行号。
 - `node scripts/i18n/generate-i18n.mjs --check`
 - `node scripts/i18n/verify-app-language-localization.mjs`
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `node scripts/architecture/verify-editor-boundaries.mjs`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 

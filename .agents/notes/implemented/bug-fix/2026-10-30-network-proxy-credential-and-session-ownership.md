@@ -37,7 +37,7 @@ macOS 会话缓存与每个请求分别持有一个会话入口。请求租约�
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core network::tests`
 - ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
 - ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 
 ## 适用范围
 

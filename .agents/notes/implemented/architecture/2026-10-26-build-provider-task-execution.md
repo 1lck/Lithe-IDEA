@@ -469,7 +469,7 @@ Agent 入口回归从真实本地 Run 配置读取选择器，用可控 Provider
 
 ```bash
 ./scripts/agent-notes/verify-agent-notes.sh
-./scripts/macos/verify/verify-runtime-bundle-immutability.sh
+./scripts/desktop/verify/verify-runtime-bundle-immutability.sh
 ./scripts/architecture/verify-service-boundaries.sh
 ./scripts/windows/verify/verify-windows-boundaries.sh
 ./scripts/rust-core/verify-rust-core-comments.sh

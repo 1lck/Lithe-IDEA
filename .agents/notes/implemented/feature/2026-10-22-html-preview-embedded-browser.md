@@ -258,7 +258,7 @@ WebKit 没有公开的 Web Inspector 开关，所以：
 ## 验证
 
 - 旧客户端用 [macOS 测试入口（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/macos/test/test-macos.sh) 运行 HTMLPreview、HTMLPreviewPageShortcut、AppLocalizationTests 和 WebMedia 相关测试，并用稳定测试入口对真实 `WKWebView` 逐项计时；模拟摄像头 / 麦克风的测试必须串行。Viva 尚无这些功能的等价验收。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 - 在运行的应用中打开 HTML：用工具栏后退/前进/刷新，输入本地路径和网址，点击锚点和相对链接，触发 `alert`/`confirm`/`prompt`，打开开发者工具并确认停靠在页面下方。

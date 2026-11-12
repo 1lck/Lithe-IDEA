@@ -63,7 +63,7 @@ Docker 插件需要一键进入容器，但公共 API 计划中的 API-24 只有
 
 - ~~scripts/macos/test/test-macos.sh --filter 'PluginTerminalHostServiceTests|PluginTerminalNativeTests|TerminalModuleTests'~~（随旧客户端移除）：隔离、未知字段、remote 拒绝、关闭工作区期间的在途创建、退出去重、generation、历史后缀及真实 PTY 输入不重放；后台创建/重开保留已有选择，用户关标签和自然退出按 0/8 字节预算释放原生缓冲区，长参数完整进入原生可选择视口且取消不启动进程。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib plugin_function` 和 `--lib terminal_permission`：逐方法授权与旧协议拒绝。
-- ~~scripts/architecture/verify-service-boundaries.sh~~（脚本已随旧客户端移除）、~~scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、`scripts/macos/verify/verify-runtime-bundle-immutability.sh`。
+- ~~scripts/architecture/verify-service-boundaries.sh~~（脚本已随旧客户端移除）、~~scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、`scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
 - `scripts/agent-notes/verify-agent-notes.sh`、`scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
 
 原生 PTY 集成测试不替代用户在安装插件中的完整点击、滚动、窗口焦点和退出验收；功能矩阵的待验收状态按真实证据维护。

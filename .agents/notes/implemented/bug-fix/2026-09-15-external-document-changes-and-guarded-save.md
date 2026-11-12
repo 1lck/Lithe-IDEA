@@ -257,7 +257,7 @@ Windows 是独立前端实现，写入进行中到期的那次延迟自动保存
 
 共享 fixture 位于 `shared/fixtures/documents/lifecycle-v1.json`。运行
 `scripts/desktop/desktop-go.sh test ./internal/documentio ./internal/workbench` 和
-`scripts/macos/verify/verify-runtime-bundle-immutability.sh`。
+`scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
 
 Viva 适配器的 `desktop/internal/documentio` 测试已在 Windows Server 2022 上
 执行交叉编译后的测试二进制：受保护写入、冲突、缺失文件和普通读写通过；两项

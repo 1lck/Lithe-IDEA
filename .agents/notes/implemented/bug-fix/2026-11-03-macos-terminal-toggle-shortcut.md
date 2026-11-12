@@ -29,7 +29,7 @@ macOS 事件监听器复用当前有效注册，先识别命令；终端持有�
 
 - `TerminalShortcutInputPolicyTests` 使用真实 AppKit 事件监听器验证切换、Control-D、Control-R 和普通应用组合键；输入法及 HTML 预览回归与其共同运行。
 - 隔离的 macOS Release 包导入 VS Code 键位后，从编辑器按 Control 加反引号打开终端，终端有焦点时再次按下成功关闭；重开后 Control-D 结束测试 shell。包内文件清单和 SHA-256 在流程前后保持一致。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和 `./scripts/agent-notes/verify-agent-notes.sh`。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 和 `./scripts/agent-notes/verify-agent-notes.sh`。
 
 ## 适用范围
 

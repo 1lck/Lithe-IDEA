@@ -228,7 +228,7 @@ ZIP 生成增量；不兼容身份跳过，损坏归档仍失败。新开发版�
 `scripts/release/sparkle/test-sparkle-update.rb`（六种渠道/架构元数据、同身份基线与差分验签、
 损坏 ZIP/缺失或非法元数据必须返回 1，只有验证后身份不兼容才返回 3，发布链必须停止）、
 `scripts/resources/test-reuse-worktree-resources.mjs`（运行状态拒绝复用）及
-`scripts/macos/verify/verify-runtime-bundle-immutability.sh`（发行目录只读规则）。真实 Windows
+`scripts/desktop/verify/verify-runtime-bundle-immutability.sh`（发行目录只读规则）。真实 Windows
 双安装器并存和原生 WebView，以及真实双架构签名升级，仍须在对应平台复验，不能
 用前端测试替代。
 

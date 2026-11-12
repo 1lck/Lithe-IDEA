@@ -104,7 +104,7 @@ Provider 自身负责服务器与工作副本的原子性，宿主不保证其�
   不扫描同级仓库；竞争写入、旧快照、跨根批次部分请求替代、父/子模型独立展开及迟到结果、读取失败和重置隔离。
 - 使用 `write-stable-tests` 的 macOS 计时入口生成逐项 HTML/JUnit；中英文明暗截图用携带当前语言、字体和图标的临时宿主。
 - ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）、~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、
-  `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`./scripts/agent-notes/verify-agent-notes.sh`、
+  `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`、`./scripts/agent-notes/verify-agent-notes.sh`、
   `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh` 和共享 i18n 检查。
 - fake Provider 与原生组件不替代真实 SVN 插件整机验收；Windows 未实现这些新增 macOS 入口，矩阵验证保持 pending。
 

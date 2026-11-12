@@ -952,4 +952,4 @@ Windows 在 Monaco 环境入口注入指纹化资源 URL，主编辑区、独立
 Windows 单元回归消费同一 fixture；Windows WebView2 实机验收仍以功能矩阵为准。
 验证入口：~~./scripts/macos/probe/probe-macos-monaco.sh --workbench-tests~~（随旧客户端移除）、
 `node --test scripts/resources/test-reuse-worktree-resources.mjs`、
-`./scripts/macos/verify/verify-runtime-bundle-immutability.sh`。
+`./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。

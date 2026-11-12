@@ -101,7 +101,7 @@ JDT LS、JDK、Lombok、Debug 和 Test 扩展保持当前锁定版本。资源�
 - ~~./scripts/macos/verify/verify-macos-package.sh --slim~~（随旧客户端移除）：以临时完整索引构建精简 universal app，拒绝 JDT/JDK 下载输入，检查资源缺失、签名和 DMG；默认模式检查保留过渡包。
 - `node --test scripts/plugins/test-official-plugin-distribution.mjs`：完整与部分上架、来源/能力不匹配和后续版本门槛。
 - `node --test scripts/plugins/official-plugin-releases.test.mjs`：双架构索引、部分归档拒绝、历史标签元数据以及上游输入变更约束。
-- `node scripts/resources/test-reuse-worktree-resources.mjs`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：生成资源拒绝复用、发行目录只读边界。
+- `node scripts/resources/test-reuse-worktree-resources.mjs`、`./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：生成资源拒绝复用、发行目录只读边界。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh` 和 macOS 计时入口：相关测试必须有单项时长与 HTML/JUnit 结果。
 - 已迁出：原 `.github/workflows/release-official-plugins.yml`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 

@@ -51,7 +51,7 @@ JVM agent。Run 保留启动目标和源码路径；更新前重新向 JDT 查�
 
 ## 验证
 
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 检查双端安装目录只读边界。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 检查双端安装目录只读边界。
 - ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除） 校验共享契约。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh` 检查测试有界性。
 - ~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除） 执行 macOS 工作流测试。

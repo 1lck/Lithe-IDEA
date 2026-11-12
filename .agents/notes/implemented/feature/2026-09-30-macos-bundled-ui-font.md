@@ -69,7 +69,7 @@ Nerd Font Mono；常规、粗体、斜体、粗斜体下的圆弧、箭头、Git
 设置 `LITHE_TERMINAL_CAPTURE_DIR` 可捕获真实 SwiftTerm 的明暗 CoreGraphics 样图；
 该样图不代替 Metal 实机验收。2026-10-07 在重新构建的预览中确认 Metal 终端的
 Starship 圆弧、箭头、Git/Bun 图标正常，用户随后明确确认已修复。运行 ~~./scripts/macos/test/test-macos.sh --filter BundledUIFontTests~~（随旧客户端移除）、
-`node scripts/resources/test-reuse-worktree-resources.mjs` 和 `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`。
+`node scripts/resources/test-reuse-worktree-resources.mjs` 和 `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
 
 ### Viva 客户端：字体编译进可执行文件
 
@@ -272,7 +272,7 @@ bash ../scripts/desktop/desktop-go.sh test -tags lithe_bundled_fonts ./internal/
 ```bash
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter BundledUIFontTests
 node scripts/resources/test-reuse-worktree-resources.mjs
-./scripts/macos/verify/verify-runtime-bundle-immutability.sh
+./scripts/desktop/verify/verify-runtime-bundle-immutability.sh
 ./scripts/agent-notes/verify-agent-notes.sh
 ```
 

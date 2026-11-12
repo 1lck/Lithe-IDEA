@@ -115,7 +115,7 @@ Windows 的既有分栏实现不受此次 macOS 呈现改动影响，完整两�
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter EditorTabOrderFeatureModelTests`
 - 旧版服务边界入口已移除，见[历史验证脚本](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/architecture/verify-service-boundaries.sh)；不得把该项记为 Viva 已通过。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 - 原生事件检查右侧、底部半区、释放提交、Esc 取消、重排、关闭与焦点；实机预览另检查真实字体资源、代码输入、灰色浮动标签及分隔器调整。

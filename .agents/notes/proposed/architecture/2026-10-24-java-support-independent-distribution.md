@@ -193,7 +193,7 @@ git diff --check
 node shared/plugins/scripts/verify-docs.mjs  # 在 Core 仓库根运行
 ./scripts/plugins/verify-official-plugins.sh
 ./scripts/macos/verify/verify-macos-package.sh
-./scripts/macos/verify/verify-runtime-bundle-immutability.sh
+./scripts/desktop/verify/verify-runtime-bundle-immutability.sh
 node scripts/resources/test-reuse-worktree-resources.mjs
 node scripts/architecture/verify-java-semantic-ownership.mjs
 ./scripts/architecture/verify-service-boundaries.sh

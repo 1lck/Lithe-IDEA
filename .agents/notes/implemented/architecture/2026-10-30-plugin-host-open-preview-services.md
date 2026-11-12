@@ -80,7 +80,7 @@ macOS 插件 API 计划里的 API-15（`editor.open/reveal`）、API-16（`previ
 
 ### 8. 运行期不写发行包
 
-这些服务只读磁盘元数据（`FileStorage.metadata`）、读写内存状态、向 Launch Services 查询并启动浏览器，不创建任何文件。浏览器打开的是用户工作区里的 HTML，不涉及 `Contents/Resources`、插件目录或安装目录，不影响代码签名与 Sparkle 增量更新的基线。因此不新增资源路径，也不需要新增 bundle 哈希验证；`scripts/macos/verify/verify-runtime-bundle-immutability.sh` 照常覆盖。
+这些服务只读磁盘元数据（`FileStorage.metadata`）、读写内存状态、向 Launch Services 查询并启动浏览器，不创建任何文件。浏览器打开的是用户工作区里的 HTML，不涉及 `Contents/Resources`、插件目录或安装目录，不影响代码签名与 Sparkle 增量更新的基线。因此不新增资源路径，也不需要新增 bundle 哈希验证；`scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 照常覆盖。
 
 ### 正确做法
 

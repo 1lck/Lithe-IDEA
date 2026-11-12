@@ -56,7 +56,7 @@ macOS 点击另一仓库的分支时，先刷新目标仓库，再设置目标�
 - ~~`macos/Tests/LitheGitModuleTests/GitModuleTests.swift`~~（已随 #1794 移除） 覆盖普通切仓库、直接选目标分支、
   旧游标归属及新历史读取失败后的旧状态清理。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
 - `./scripts/agent-notes/verify-agent-notes.sh`
 

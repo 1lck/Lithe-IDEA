@@ -8,8 +8,8 @@ import test from "node:test";
 function fixture(t) {
   const root = mkdtempSync(resolve(tmpdir(), "lithe-bundle-check-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const script = "scripts/macos/verify/verify-runtime-bundle-immutability.sh";
-  mkdirSync(resolve(root, "scripts/macos/verify"), { recursive: true });
+  const script = "scripts/desktop/verify/verify-runtime-bundle-immutability.sh";
+  mkdirSync(resolve(root, "scripts/desktop/verify"), { recursive: true });
   cpSync(resolve(import.meta.dirname, "verify-runtime-bundle-immutability.sh"), resolve(root, script));
   for (const dir of ["desktop/internal", "desktop/cmd"]) mkdirSync(resolve(root, dir), { recursive: true });
   writeFileSync(resolve(root, "desktop/cmd/main.go"), "package main\n");

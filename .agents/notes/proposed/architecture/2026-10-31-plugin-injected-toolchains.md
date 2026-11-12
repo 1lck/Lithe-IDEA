@@ -183,7 +183,7 @@ macOS 的声明式路线由 `MacToolchainDiscovery` 执行，宿主不认识任�
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib toolchain_resolution -- --test-threads=1`：通过正式命令验证四层选择、真实回复解码、冲突和版本规则，以及设置页候选的登录 Shell home、跳过原因和自动选择；文件事实与探测结果由隔离快照注入，不访问本机工具。
 - macOS 稳定性测试 `--filter 'MacToolchainDiscoveryTests|ToolchainSettings'`：真实临时目录与注入的 home 和探测，验证扫描、隐藏项与未匹配条目、工作区链接不探测、同版本冲突、拒绝的声明不扫描、Core 解析出的生效层与未满足要求、固定值只在自己的目录生效且不进入自动检测，以及隔离预览样例清单通过 Core 准入；不运行本机安装的工具。
 
-后续实现必须按对应平台执行稳定性测试、Core/边界验证和 `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`，并留下真实视口、完整启动流程和进程清理证据。安全与生命周期测试使用隔离文件系统、可控制的时钟/事件和明确本地期限，不依赖开发者安装的 mise、SDKMAN 或个人配置。
+后续实现必须按对应平台执行稳定性测试、Core/边界验证和 `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`，并留下真实视口、完整启动流程和进程清理证据。安全与生命周期测试使用隔离文件系统、可控制的时钟/事件和明确本地期限，不依赖开发者安装的 mise、SDKMAN 或个人配置。
 
 ## 适用范围
 
@@ -290,7 +290,7 @@ Foundation 的整路径规范化漏过外部别名。目标是用户工作区的
 已安装插件、代码签名资源或共享缓存，因此不会改变 Sparkle 的发行基线。
 
 验证用 `ToolchainPreferencesTests`、`ToolchainSettingsLoaderTests`、Core 偏好/Run JSON
-回归及 `scripts/macos/verify/verify-runtime-bundle-immutability.sh`。深浅主题的原生按钮
+回归及 `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。深浅主题的原生按钮
 验证仍是组件级证据，不能替代完整 Maven 插件、Windows 和正式发行组合验收。
 显式集成场景 `consumerDefaultChangesReachTheRealMavenProcessWhileExplicitRunsStayFixed`
 通过生产保存和解析入口切换两个已选 JDK，再启动真实 Maven 检查实际 Java home，

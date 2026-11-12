@@ -9,7 +9,7 @@
     "evidence": [
       "desktop/internal/workbench/bundle_immutability_test.go",
       "desktop/internal/store/store.go",
-      "scripts/macos/verify/verify-runtime-bundle-immutability.sh"
+      "scripts/desktop/verify/verify-runtime-bundle-immutability.sh"
     ]
   },
   "windows": {
@@ -18,7 +18,7 @@
     "evidence": [
       "desktop/internal/workbench/bundle_immutability_test.go",
       "desktop/internal/store/store.go",
-      "scripts/macos/verify/verify-runtime-bundle-immutability.sh"
+      "scripts/desktop/verify/verify-runtime-bundle-immutability.sh"
     ]
   },
   "owner": "Desktop",

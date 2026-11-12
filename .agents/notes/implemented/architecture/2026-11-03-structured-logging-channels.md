@@ -314,7 +314,7 @@ Swift 侧对应 `PluginOperationAttempt`。差异只在 `plugin_operations.rs` �
 - ~~./scripts/rust-core/verify-rust-core-comments.sh~~（随旧客户端移除）
 - ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
 - ~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 
 fixture 覆盖往返、转义、非法输入、路径段、轮转与保留、共享旧日志兼容、macOS 排除 v1 与按年龄清理，以及查询的不完整性。`--check` 只读比较生成物，不能用重新生成来掩盖声明或生成器的错误。Windows 边界脚本通过也不能代替 Windows Rust 编译。

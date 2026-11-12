@@ -53,7 +53,7 @@ Issue #966 同时报告更新提示和浏览器预览问题。原来的两个浏
 
 ## 验证
 
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - ~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）

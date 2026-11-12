@@ -317,7 +317,7 @@ P0–P5 完成后关闭 #1210。可选扩展、插件依赖和私有 resolver �
 
 ## 验证
 
-文档与共享 fixture 运行 `./scripts/agent-notes/verify-agent-notes.sh`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和 `git diff --check`；契约与指南改动再在 Core 仓库根运行 `node shared/plugins/scripts/verify-docs.mjs`。会话投影 v2 的解码、拒绝与往返一致性由正式 fixture 及现有 Rust、Swift 测试验证，不再依赖草案 schema。这些静态检查不构成运行时证据。
+文档与共享 fixture 运行 `./scripts/agent-notes/verify-agent-notes.sh`、`./scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 和 `git diff --check`；契约与指南改动再在 Core 仓库根运行 `node shared/plugins/scripts/verify-docs.mjs`。会话投影 v2 的解码、拒绝与往返一致性由正式 fixture 及现有 Rust、Swift 测试验证，不再依赖草案 schema。这些静态检查不构成运行时证据。
 
 实施阶段加载 `write-stable-tests`，按改动范围运行 ~~./scripts/rust-core/verify-rust-core-comments.sh~~（随旧客户端移除）、~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）、~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除）、~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除） 和 ~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）；Windows 另外执行 ~~./scripts/windows/build/build-windows.ps1 -Configuration Release~~（随旧客户端移除）、宿主 Rust 测试和前端测试。所有等待都有上限，失败时也释放资源，结束后确认本次启动的进程都已退出。平台行为变化时同步功能矩阵，运行 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。正式契约、API 总表和协议更新记录与 Core 在同一个 Core PR 里修改，规则见[契约单一来源规则](../../implemented/architecture/2026-11-11-plugin-contract-single-source-in-core.md)。
 

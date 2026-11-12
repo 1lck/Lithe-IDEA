@@ -1124,7 +1124,7 @@ SwiftUI 更新锚点时，AppKit（macOS 原生界面库）可能还在计算父
 - `ContextMenuCoverageTests.searchableDropdownUsesSharedWindowAndDismissal` 验证可搜索面板的透明无边框窗口、动态尺寸、Esc 关闭与关闭回调只执行一次。
 - `ContextMenuCoverageTests.anchoredActionAndSearchableDropdownsShareTopLeft` 验证相同锚点下 Date 操作菜单与可搜索内容的左上角一致、无动画、键盘关闭回调及屏幕边界限制。
 - `SettingsSelectPopupGeometryTests` 验证设置选择控件定位边界；真实父/子面板验证 Database 一类表单弹窗内打开选值菜单时保留父面板，Esc 只关闭子菜单并解除窗口关系。
-- 执行 `./scripts/agent-notes/verify-agent-notes.sh`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`；[旧服务边界检查](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/architecture/verify-service-boundaries.sh) 尚无 Viva 等价门禁。
+- 执行 `./scripts/agent-notes/verify-agent-notes.sh`、`./scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 和 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`；[旧服务边界检查](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/architecture/verify-service-boundaries.sh) 尚无 Viva 等价门禁。
 - 组件检查不能替代旧版 [完整应用预览入口](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/macos/build/preview.sh) 的检查；Viva 实际预览还需确认
   分组开合、原生侧向子菜单、搜索焦点与输入、通知历史入口以及主工具栏动作。
 

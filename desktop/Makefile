@@ -64,7 +64,8 @@ fmt:
 fmt-check:
 	@unformatted="$$(gofmt -l .)"; if [ -n "$$unformatted" ]; then echo "gofmt would change:"; echo "$$unformatted"; exit 1; fi
 
-check: fmt-check vet test
+check:
+	$(SCRIPTS)/check.sh
 
 version:
 	@printf '%s\n' "$(VERSION)"

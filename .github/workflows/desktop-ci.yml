@@ -19,6 +19,26 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  pins:
+    name: Verify pins
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: desktop/go.mod
+          cache: false
+
+      # A pin that was rewritten, mistyped or left behind a force-push fails here in a minute,
+      # instead of inside a cold core build in each platform lane.
+      - name: Verify the viva and core pins
+        run: node scripts/desktop/validate-pins.mjs
+
   linux:
     name: Format and script tests
     runs-on: ubuntu-latest
@@ -45,6 +65,7 @@ jobs:
 
       - name: Check shell script syntax
         run: |
+          bash -n scripts/desktop/check.sh
           bash -n scripts/desktop/build-desktop-core.sh
           bash -n scripts/desktop/desktop-go.sh
           bash -n scripts/desktop/package-desktop.sh
@@ -57,6 +78,7 @@ jobs:
       - name: Run ShellCheck
         run: |
           shellcheck -S warning \
+            scripts/desktop/check.sh \
             scripts/desktop/build-desktop-core.sh \
             scripts/desktop/desktop-go.sh \
             scripts/desktop/package-desktop.sh \
@@ -72,8 +94,8 @@ jobs:
 
       - name: Check installed resource paths
         run: |
-          ./scripts/macos/verify/verify-runtime-bundle-immutability.sh
-          node --test scripts/macos/verify/test-runtime-bundle-immutability.mjs
+          ./scripts/desktop/verify/verify-runtime-bundle-immutability.sh
+          node --test scripts/desktop/verify/test-runtime-bundle-immutability.mjs
 
       - name: Run script tests
         run: |
@@ -119,9 +141,7 @@ jobs:
           node --test --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/core-cache.junit.xml scripts/desktop/desktop-core-cache.test.mjs
 
       - name: Vet and test
-        run: |
-          scripts/desktop/desktop-go.sh vet ./...
-          scripts/desktop/desktop-go.sh test ./...
+        run: ./scripts/desktop/check.sh
 
       - name: Upload native cache regression report
         if: always()
@@ -174,8 +194,7 @@ jobs:
           node --test --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/core-cache.junit.xml scripts/desktop/desktop-core-cache.test.mjs
 
       - name: Vet and test
-        working-directory: desktop
-        run: make check
+        run: ./scripts/desktop/check.sh
 
       - name: Upload native cache regression report
         if: always()
@@ -245,9 +264,7 @@ jobs:
           node --test --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/core-cache.junit.xml scripts/desktop/desktop-core-cache.test.mjs
 
       - name: Vet and test
-        run: |
-          scripts/desktop/desktop-go.sh vet ./...
-          scripts/desktop/desktop-go.sh test ./...
+        run: ./scripts/desktop/check.sh
 
       - name: Upload native cache regression report
         if: always()

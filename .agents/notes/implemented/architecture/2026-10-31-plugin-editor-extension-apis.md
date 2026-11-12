@@ -107,7 +107,7 @@ grammar 从只读插件包有界读取，校验结果仅在本次进程内缓存
 
 - 旧版 Core、Monaco 与 macOS 的测试覆盖静态资源及预算、动作和 Provider 注册与撤回、查询过期处理、不透明链接和语义着色合并；测试命令和原证据见[历史记录](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-10-31-plugin-editor-extension-apis.md)，不能作为 Viva 已通过的证据。
 - `scripts/desktop/desktop-go.sh test ./internal/core -run '^TestPluginTextMateGrammarUsesPinnedCore$'`：当前共享语法样例经锁定 Core 解码；不证明插件安装和编辑器注册。
-- `scripts/macos/verify/verify-runtime-bundle-immutability.sh`：发行路径只读静态边界。
+- `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：发行路径只读静态边界。
 
 ## 适用范围
 

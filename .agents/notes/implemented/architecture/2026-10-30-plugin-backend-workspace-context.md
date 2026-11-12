@@ -224,7 +224,7 @@ contextExpired 必须重新解析原目标，不能换成活动窗口。新协�
   - 以及 `fixtures/manifest/invalid-manifests.json` 新增的 6 个拒绝用例
 - ~~./scripts/macos/test/test-macos.sh --filter "PluginHostServiceDispatchTests|MacPluginBackendSessionsTests|PluginWebBridgeTests"~~（随旧客户端移除）：上下文 generation 与换工作区发新 ID、按插件的 rootID 与密钥文件、`listContexts` 不建目录、授权核验、本地与远程描述、过期与格式错误、订阅的三条释放路径与 sequence、错误码与 details 透传、命令和订阅通知按顺序送达运行中的后端、`backend: 1` 与未运行的后端不收命令。
 - `node shared/plugins/scripts/verify-docs.mjs`（在 Core 仓库根目录运行）：契约 schema 的 `$id` 与文档链接。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：运行时不向发行目录写入。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：运行时不向发行目录写入。
 - 合入前，在 Core 仓库根目录运行 `node shared/plugins/scripts/sdk-e2e.mjs`（测试当前工作树的 Core），确认 Node 和 Java SDK 的示例后端在协议 3 下仍能跑通。
 
 ## 适用范围

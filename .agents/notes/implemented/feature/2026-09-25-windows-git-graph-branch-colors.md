@@ -284,7 +284,7 @@ ResizeObserver（浏览器按帧合并的尺寸观察器）服务已挂载行，
 - `use-git-log-controller.integration.test.tsx` 通过可控异步事件验证首批不等待上下文、切仓库和刷新取消、分页独立、卸载与迟到游标清理以及失败回退；`git-commit-table.navigation.test.tsx` 验证真实行与工具栏、屏幕外双向导航、延迟挂载、选择/焦点及普通 Diff。浏览器再用真实虚拟列表和原生 Enter／空格检查同一序列，不把 viewport mock 当作原生内核证明。
 - 原生验收：在包含交错分支和合并的 Windows Git Log 中，分别使用文本、作者、分支名称筛选，确认跨过隐藏提交的连接为虚线，直接父子为实线，无关分支不误连，清空筛选恢复原图和选择行为。
 - 分页回归：`git-commit-table.navigation.test.tsx` 验证手动滚动后追加页面不定位旧选择，分支头请求仍能定位已选提交一次；`git-commit-inspector.test.tsx` 验证加载中和已加载选择的重绘、单提交/连续范围/离散多选、文件节点与选择保留、显式预览及切仓库的迟到结果。浏览器使用实际表格、IntersectionObserver、虚拟列表和 Inspector，连续由 50 条加载到 150 条，检查滚动偏移与文件读取次数；平台返回值在隔离页面替代，WebView2 实机验收仍 pending。
-- 运行时资源：`./scripts/macos/verify/verify-runtime-bundle-immutability.sh`；旧客户端的 [服务边界检查（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/architecture/verify-service-boundaries.sh) 尚无 Viva 等价门禁。
+- 运行时资源：`./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`；旧客户端的 [服务边界检查（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/architecture/verify-service-boundaries.sh) 尚无 Viva 等价门禁。
 
 ## 适用范围
 

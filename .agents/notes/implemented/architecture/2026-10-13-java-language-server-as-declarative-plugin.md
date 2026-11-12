@@ -213,7 +213,7 @@ dev.lithe.plugin.java-support/
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'Plugin|LanguageExtensionProcessLifecycleTests|LanguageServerToolServiceTests|JavaLanguageServerRuntimeTests|MacJdtWorkspaceStateTests|MacJdtHostIntegrationStateTests|LanguageToolEnvironmentTests'`：按声明定位资源、路径固定在包内、版本过滤、默认启用、移除与恢复；卸载后 JDT 的索引和 Equinox 配置区被删除（扫描失败或插件被拒绝时保留）；运行时启动的服务器 `PATH` 上先找到宿主选中的运行时。
 - 旧版 `RealJavaDebugIntegrationTests` 从组装好的插件包启动真实 JDT LS 并完成 Spring Boot 断点调试。迁移初版时它因 `java.project.getClasspaths` 在服务端抛空指针而失败（迁移前的代码同样失败），该问题已随入口发现的修复一并解决，见 [Java 入口由 JDT 判定](2026-09-21-java-entrypoints-owned-by-jdt.md)。这组测试直接组装调试会话，不验证应用里的能力目录。
 - 旧版能力目录测试用官方 Java 清单验证运行、测试、调试声明和未声明能力的隔离；旧版打包检查验证 Java Support 文件齐全，且不存在 `Contents/Resources/LanguageServers`。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：启动与插件工作流不改写安装目录。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：启动与插件工作流不改写安装目录。
 
 生产启动适配的回归使用 `RustLanguageServerLaunchTests`，直接从 `RustCoreBridge.startPluginLanguageServer` 经 C ABI 启动本地标准输入输出协议夹具；不经过协议默认回退。它用函数所属插件校验、credentials 请求与响应、通用插件配置查询、Java 启动参数、缓存配置副本和工作区指纹日志验证实际接线。夹具使用 macOS 开发工具已有的 Python，不依赖真实 JVM 或联网；Core 会话负责子进程，测试始终停止并销毁会话，再移除临时资源。运行命令：`./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter RustLanguageServerLaunchTests`。
 

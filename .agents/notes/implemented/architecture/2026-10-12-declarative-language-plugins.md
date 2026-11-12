@@ -104,7 +104,7 @@ gopls 把 `fmt.Println` 的定义指向 `GOROOT/src/fmt/print.go`，Intelephense
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'Plugin|LanguageExtensionProcessLifecycleTests|LanguageServerToolServiceTests|LanguageNavigationCoordinatorTests|ExternalNavigationTests'`：包校验、旧包过渡、签名、启停与进程清理、打包入口固定、跨工作区跳转边界。
 - `LITHE_RUN_PHP_INTEGRATION=1 ./scripts/macos/test/test-macos.sh --filter RealPhpIntegrationTests`：真实 Intelephense 与 PHPUnit。
 - `node scripts/resources/test-reuse-worktree-resources.mjs`：磁盘快照、安装状态和审批记录禁止跨工作树复制。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：静态检查两端发行资源写入边界；磁盘安装、取消、失败、扫描与回滚的产品验收还需比较前后 bundle 文件清单/哈希，不能用静态通过替代真实验证。磁盘每次确认与两入口完整程序展示的行为验收见插件市场 Note；功能矩阵继续保持 `pending`。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：静态检查两端发行资源写入边界；磁盘安装、取消、失败、扫描与回滚的产品验收还需比较前后 bundle 文件清单/哈希，不能用静态通过替代真实验证。磁盘每次确认与两入口完整程序展示的行为验收见插件市场 Note；功能矩阵继续保持 `pending`。
 
 ## 适用范围
 

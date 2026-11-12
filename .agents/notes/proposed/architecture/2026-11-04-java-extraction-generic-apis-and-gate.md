@@ -249,7 +249,7 @@ A0 提交时的基线快照（以 baseline 文件为准）：
 - 中转的拒绝路径都有测试，且全部使用第二种工具（例如 Python、Go）的桩：被调方未导出、调用方未声明、任一方未启用、环路、超过深度和并发上限、超时、远程工作区。
 - 旧的 `wrongPlugin` 与 `recursiveCall` 行为有不变的回归测试。
 - 导入配置的完整流程可以复现：打开 Maven 工程 → jdtls 带着 Maven 提供的配置启动 → 修改 Maven 设置 → jdtls 收到新值；提供方超时时 jdtls 用默认配置启动，并显示哪个插件没有提供。
-- 每个 PR 运行 `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`；Windows 的 PR 运行 `cargo check --manifest-path windows/tauri/src-tauri/Cargo.toml`。
+- 每个 PR 运行 `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`；Windows 的 PR 运行 `cargo check --manifest-path windows/tauri/src-tauri/Cargo.toml`。
 
 ## 风险
 
@@ -273,7 +273,7 @@ node scripts/architecture/verify-java-semantic-ownership.mjs
 ./scripts/agent-notes/verify-agent-notes.sh
 ```
 
-后续 PR 按受影响边界运行 `./scripts/architecture/verify-core.sh`、~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh`。契约、指南和 SDK 的改动在 Core 仓库根运行 `node shared/plugins/scripts/verify-docs.mjs`；修改后端协议时在同一目录运行 `node shared/plugins/scripts/sdk-e2e.mjs`。契约、`capabilities.rs`、`plugin_function.rs` 的改动与协议更新记录、API 总表的登记在同一个 Core PR 里完成，规则见[契约单一来源规则](../../implemented/architecture/2026-11-11-plugin-contract-single-source-in-core.md)。
+后续 PR 按受影响边界运行 `./scripts/architecture/verify-core.sh`、~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）、`./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。契约、指南和 SDK 的改动在 Core 仓库根运行 `node shared/plugins/scripts/verify-docs.mjs`；修改后端协议时在同一目录运行 `node shared/plugins/scripts/sdk-e2e.mjs`。契约、`capabilities.rs`、`plugin_function.rs` 的改动与协议更新记录、API 总表的登记在同一个 Core PR 里完成，规则见[契约单一来源规则](../../implemented/architecture/2026-11-11-plugin-contract-single-source-in-core.md)。
 
 ## 适用范围
 

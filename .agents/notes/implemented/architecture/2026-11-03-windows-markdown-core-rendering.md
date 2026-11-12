@@ -57,7 +57,7 @@ Windows 的数学公式与图表展示没有因此自动达到 macOS 的能力�
   可控 Promise 验证乱序、卸载、清空、失败与高亮回退。
 - ~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）。
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
 
 自动化组件及动态库测试不替代真实 WebView2（Windows 内嵌浏览器）交互验收，
 功能矩阵保留 pending。

@@ -86,7 +86,7 @@ Viva 使用同一共享词条生成 Go 字典。`verify-app-language-localizatio
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`：稳定性静态规则。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'SharedI18nTests|AppLocalizationTests|LocalizationPackagingTests|GitLocalizationTests'`：原生资源查找、兼容 key、实际参数格式化、切换及原有行为。
 - `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs -- src/i18n/locale.test.ts src/i18n/shared-i18n.test.ts src/features/settings/lib/settings-normalization.test.ts`：Windows 前端资源与设置；宿主平台必须在报告中注明。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：同时检查 macOS 与 Windows 运行时资源路径。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：同时检查 macOS 与 Windows 运行时资源路径。
 - `node --test --test-timeout=15000 scripts/resources/test-reuse-worktree-resources.mjs`：拒绝跨工作树资源复制。
 - ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除） 和
   `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`：共享边界与能力记录。

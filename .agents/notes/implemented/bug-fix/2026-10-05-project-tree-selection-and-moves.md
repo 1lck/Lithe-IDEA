@@ -142,7 +142,7 @@ Windows 现已加入 Ctrl/Shift 可见范围多选、批量复制/剪切/删除�
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'ProjectTree|batchMove'`
 - ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 - macOS 实机分别测量大目录选择、展开与滚动，验证能滚动至末尾及定位到未显示行；同时回归修饰键、右键、目录与多文件拖动。

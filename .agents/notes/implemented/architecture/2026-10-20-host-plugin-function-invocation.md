@@ -148,7 +148,7 @@ if pluginID == "dev.lithe.maven" { 启动带函数的会话 }   // 宿主按插�
   - 传输失败保留 `processFailed`，OS 错误文字不会成为页面的 `code`。
   - Provider 初始化中取消调用会立刻结束该调用，启动继续并服务下一次调用；初始化中停止时迟到的 ready 不会触发请求。
   - 每个 Provider 带独有的 `LITHE_PLUGIN_BACKEND_SCOPE`，会话结束后宿主按该标记优雅结束遗留进程。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：确认没有新增写入 bundle 的路径。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：确认没有新增写入 bundle 的路径。
 - macOS 原生验收（2026-10-20，PR #1366 合并 PR #1365 后的 debug 应用）：
   - 环境：Node SDK 的示例插件 `sdk/node/examples/sample-build`（当时在主仓库，现位于 Core 仓库的 `shared/plugins/sdk/node/examples/sample-build`）加一个只用于验收的网页窗口，作为开发包从磁盘安装；另装一个带自己构建系统和网页窗口的验收插件；示例工作区含成功、失败（退出码 3）和长时间运行三个项目。页面把每一步结果写进 `ui.setState`，验收读取 Application Support 中的状态文件核对。
   - `functions.list` 返回 `snapshot.read`、`workspace.build`；一次成功构建后再列出，多了运行时注册的 `snapshot.clear`。

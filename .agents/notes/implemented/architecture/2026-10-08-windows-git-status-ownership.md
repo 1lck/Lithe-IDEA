@@ -100,7 +100,7 @@ worktree 列表；macOS 的既有状态读取仍会附带 stash 等查询。合�
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend`
 - 旧版 Windows 边界及发行构建脚本已随旧客户端移除，历史命令见上方迁移前笔记。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - 真实 Windows 产品中关闭 Commit，外部 pull、checkout、暂存，再核对顶部、文件树和
   重开 Commit；测试多仓库、工作树与快速切项目。原生交互验收继续为 pending。
 

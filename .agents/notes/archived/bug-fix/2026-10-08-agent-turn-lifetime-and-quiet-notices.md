@@ -84,7 +84,7 @@ Windows 共享 Host 完整对话接入仍是已有的待完成能力，不能因
 - `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs -- src/features/ai/lib/acp-activity-monitor.test.ts src/i18n/locale.test.ts`
 - ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
 - ~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 

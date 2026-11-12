@@ -113,7 +113,7 @@ Agent 的 Skills、Hooks、MCP 是用户管理的 Codex/Claude 原生配置，�
 
 ## 验证
 
-- 本次计划只校验文档与边界：`./scripts/agent-notes/verify-agent-notes.sh`、Core 仓库的 `node shared/plugins/scripts/verify-docs.mjs`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
+- 本次计划只校验文档与边界：`./scripts/agent-notes/verify-agent-notes.sh`、Core 仓库的 `node shared/plugins/scripts/verify-docs.mjs`、`./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`、`./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
 - 后续实现按实施计划的三个真实插件验收，包含 SDK 端到端、Mac 实机、越权/取消/失效结果、进程清理与 bundle 哈希不变；本 Note 不将计划中的验收记成已经通过。
 
 ## 适用范围

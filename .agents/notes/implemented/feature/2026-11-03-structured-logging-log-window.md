@@ -223,7 +223,7 @@ Swift 只负责读日志文件尾部、订阅 `MacLogStore` 的实时批次、�
 - `scripts/desktop/desktop-go.sh test ./internal/core ./internal/logstore ./internal/logwindow`（`page_test.go` 用无头驱动覆盖选择、键盘、菜单、导出面板、直方图和查询取消；`bench_test.go` 的 `go test -bench` 量表格滚动与按键的耗时和分配）
 - `scripts/desktop/desktop-go.sh --exec go run github.com/vivaui/viva/cmd/viva vet ./internal/logwindow/...`
 - `scripts/desktop/desktop-go.sh test -race ./internal/logwindow ./internal/workbench -run 'Test(Log|Welcome)'`
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 - 旧版日志生成、使用检查和共享契约检查已移除；等价门禁恢复前不能记作通过。
 

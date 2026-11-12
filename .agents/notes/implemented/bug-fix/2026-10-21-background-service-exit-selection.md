@@ -43,7 +43,7 @@ Issue #1627 又报告该列表滚动卡顿。原实现虽然限制了视口高�
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'BackgroundResourceSelectionViewTests|ProcessExitCoordinatorTests'`
 - ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 

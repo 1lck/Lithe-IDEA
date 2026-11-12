@@ -86,7 +86,7 @@ macOS 使用声明式插件包和 publisher Ed25519 包签名；Windows 使用�
 ## 验证
 
 - 官方插件包的组装与校验（原 verify-official-plugins 脚本：检查官方插件组装、语言服务器清单、启动器、包内无原生代码和包签名。）已随插件移出本仓库，由各插件仓库的 CI 负责（#1495）。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：确认典型启动和插件工作流不会改写已安装 bundle。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：确认典型启动和插件工作流不会改写已安装 bundle。
 - `node scripts/resources/test-reuse-worktree-resources.mjs`：确认语言服务器下载和插件包不能跨工作树复用。
 - `./scripts/agent-notes/verify-agent-notes.sh`：确认本笔记格式、路径和验证命令有效。
 - 相关 macOS 测试：`MacPluginPackageDownloaderTests`、`LanguageServerToolServiceTests`、`LanguageExtensionProcessLifecycleTests` 和 `PluginPackageStoreTests`。

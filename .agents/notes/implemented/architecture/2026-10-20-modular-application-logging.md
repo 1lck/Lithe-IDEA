@@ -125,7 +125,7 @@ Windows 预览只保存已经脱敏的内存快照，最多四份、五分钟有
 
 旧客户端的验证不能直接代表 Viva 已通过；当前需运行桌面日志测试、发行包只读检查，并在恢复等价日志门禁和目标平台验收后再确认完整覆盖。
 
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'MacApplicationLogWriterTests|DiagnosticsExportServiceTests|StableRollbackTests'`

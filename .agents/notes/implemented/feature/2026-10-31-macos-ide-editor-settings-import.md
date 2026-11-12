@@ -106,7 +106,7 @@ IDEA 自定义配色现在有独立的受校验覆盖层 `ImportedEditorTheme`�
 
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'EditorSettingsImportTests|AppSettingsTests'`：隔离存储/临时目录验证来源只读、版本和 Profile、字段隔离、JSONC、XML 实体拒绝、单位换算、字体缺失、来源/目标冲突、持久化、部分写入失败、重启恢复及撤销保护。
 - ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `node scripts/i18n/generate-i18n.mjs --check`
 - `node scripts/i18n/verify-app-language-localization.mjs`
 - `./scripts/agent-notes/verify-agent-notes.sh`

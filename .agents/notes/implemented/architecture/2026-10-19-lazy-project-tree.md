@@ -186,7 +186,7 @@ Windows 以后也没法复用。因此生产路径走 Rust，Swift 版本只作�
 ## 验证
 
 - Viva 项目树回归：`./scripts/desktop/desktop-go.sh test -race ./internal/workbench -run TestProjectTree`
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 - 旧版 macOS 的 Swift 和 Core 测试及共享契约脚本仅是迁移前的历史验证，不能代替 Viva 验收。
 

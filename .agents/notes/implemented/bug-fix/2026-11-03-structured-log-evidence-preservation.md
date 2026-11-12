@@ -37,7 +37,7 @@ macOS 切到结构化日志后，不能继续用文件名倒序分配读取预�
 - `node scripts/logging/generate-log-events.mjs --check`
 - `node --test --test-timeout=60000 scripts/logging/test-log-events.mjs`
 - ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 
 三项原生文件回归在修复前分别遗漏最新通道、丢失删除/替换后的事件和漏掉更新分类；Core 的 C++ 语法失败用例在修复前返回字段非法。
 

@@ -77,7 +77,7 @@
 cargo test --manifest-path rust/Cargo.toml -p lithe-remote --lib
 cargo test --manifest-path rust/Cargo.toml -p lithe-remote --all-features --test server
 cargo test --manifest-path rust/Cargo.toml -p lithe-core remote::
-./scripts/macos/verify/verify-runtime-bundle-immutability.sh
+./scripts/desktop/verify/verify-runtime-bundle-immutability.sh
 ```
 
 `lithe-remote-server` 的 `one_connection_installs_once_and_starts_the_server` 通过本机传输验证“首次上传、再次复用、两次都能建立会话”。`lithe-core` 的远程测试用假 `ssh` 覆盖选项映射、失败分类、平台不支持和主机信息解析。

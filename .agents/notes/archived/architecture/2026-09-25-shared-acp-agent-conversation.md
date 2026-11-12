@@ -477,7 +477,7 @@ Windows 连接桥已接入共享 Host，面板 UI 也已落地（活动栏入口
 
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AgentConversationFeatureModelTests|AgentEditRestorerTests|DocumentGuardedSaveTests'`：驱动保留→断连→重连回放→继续编辑→回撤，以及回撤后重连、加载失败、上游证据变化和关闭后重开。临时工作区受控验证末端链接、最后快照后原生保存、移动期间外部替换、链接替换、原路径重建及 Trash 失败；测试注入同一原生受保护移除逻辑的恢复目标，不污染用户废纸篓，不依赖睡眠，成功失败均清理临时文件。
 
-- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AgentActivityTests|AgentEditRestorerTests|AgentActivityPresentationTests'`：检查合并、上游统计缺失、部分更新、确认后的新基线、会话隔离、部分失败及取消；临时工作区验证逆序恢复、编码、唯一片段、歧义和重叠匹配、删除冲突及路径越界。原生鼠标验证三项入口、打开文件和保留回调；任务回归覆盖没有计划但已有工具调用、计划到达后显示 1/3、空计划及无计划恢复空态，普通工具不计为子代理，原生子代理展开实际输出且状态刷新不关闭面板，并保留深浅主题及中英文环境的渲染截图；从弹出面板打开真实差异 sheet 与回撤确认，确认后只提交捕获的文件选择；同步编辑器最后一次输入后拒绝脏缓冲区，测试窗口与临时目录均清理。生产包另执行 `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`。
+- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AgentActivityTests|AgentEditRestorerTests|AgentActivityPresentationTests'`：检查合并、上游统计缺失、部分更新、确认后的新基线、会话隔离、部分失败及取消；临时工作区验证逆序恢复、编码、唯一片段、歧义和重叠匹配、删除冲突及路径越界。原生鼠标验证三项入口、打开文件和保留回调；任务回归覆盖没有计划但已有工具调用、计划到达后显示 1/3、空计划及无计划恢复空态，普通工具不计为子代理，原生子代理展开实际输出且状态刷新不关闭面板，并保留深浅主题及中英文环境的渲染截图；从弹出面板打开真实差异 sheet 与回撤确认，确认后只提交捕获的文件选择；同步编辑器最后一次输入后拒绝脏缓冲区，测试窗口与临时目录均清理。生产包另执行 `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
 
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AgentThoughtTranscriptTests|AgentConversationPresentationTests'`：验证整轮思考、过程说明和工具仅有一个默认折叠入口，最终回复保留在外，空白片段不占行；在生产对话容器中通过鼠标展开/收起思考，搜索隐藏行后进入空会话使列表实际销毁，再返回并清空搜索，确认手动选择保留；同时验证命中时保持文字可见、清空后恢复折叠、会话切换独立和关闭后重新加载的默认状态。渲染只等待可观察的原生画面，每次等待最多两秒；比较同一宿主的完整画面，不依赖系统字体快照基线。窗口和功能模型在成功、失败路径都清理。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter AgentConversationSelectionTests`：原生 SwiftUI 宿主不替换根视图，直接改变模块选择，验证 Agent、模型与连接立即同步；配置确认前保留旧值、确认后刷新，来回切换保持各自配置，删除当前 Agent 时正确回退，关闭全部测试窗口和连接。另对 Claude/Codex 显式驱动最后一个标签关闭→唯一新建请求→过期响应→新会话确认→发送，确认连接不变、准备期间不闪现模型、确认后底栏恢复且消息只交给新会话。显式控制切换→连接→ready→创建确认及历史加载的事件顺序，比较原生工具栏，验证准备期间改变本地默认模型不影响显示、过期响应不能解除等待、已确认连接复用、失败和无配置能力不会一直加载。2026-10-01 修复版真实窗口已验证 Codex 初始化加载提示到 Astra/审批控件、Astra→Luna→Astra 模型切换和重新展开的勾选、模型名称搜索与空结果、Claude/Codex 来回切换保留配置，Codex 最小消息收到预期回复。关闭测试项目后确认无 Agent 子进程，990 个 bundle 文件哈希不变；Windows 对话 UI 与运行验收仍待完成。
@@ -508,7 +508,7 @@ Windows 连接桥已接入共享 Host，面板 UI 也已落地（活动栏入口
 - `node --test scripts/resources/test-reuse-worktree-resources.mjs`（拒绝复制用户级 CLI 安装与缓存）
 - `node --test rust/lithe-agent-host/tests/npm-progress.test.mjs`（本地 HTTP 响应不被观察器消费，归档字节计数准确，元数据与重定向不计入）
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter AgentHistoryTests`（元数据隔离、筛选、刷新 token、导出回放/失败/取消及窄宽主题布局；可选 `LITHE_AGENT_HISTORY_SCREENSHOTS` 使用合成数据输出截图）
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - 旧客户端模块边界检查（[旧脚本固定版本](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/architecture/verify-module-boundaries.sh)；Viva 尚无等价检查）。
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - 在 Mac 上实测：连续对话、权限选择、刚发出就取消、切换项目标签后旧会话继续运行、打开历史会话、关闭项目后进程全部退出。

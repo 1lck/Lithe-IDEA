@@ -44,7 +44,7 @@ vivaui/viva#187 已合入，Lithe 固定的 Viva 版本已包含：等宽文字�
 ## 验证
 
 - `desktop/internal/workbench` 全量测试通过，原有断言未删，只把依赖 Frame 内部的部分改成按名字或 Viva 标识驱动；新增根 Page 下的标签拖放、文件树选中跟随焦点测试。
-- `viva vet ./...`、`go vet ./...`、i18n 三项、功能矩阵 `--check`、`scripts/macos/verify/verify-runtime-bundle-immutability.sh`。
+- `viva vet ./...`、`go vet ./...`、i18n 三项、功能矩阵 `--check`、`scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
 - 编辑器基准（`scripts/desktop/perf/editor-bench.sh`）在改动前后各跑一次，结果写在 PR 说明里。
 
 ## 适用范围

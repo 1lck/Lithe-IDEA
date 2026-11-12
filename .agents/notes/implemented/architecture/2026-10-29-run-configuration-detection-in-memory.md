@@ -197,7 +197,7 @@ v1 文档在发布时整体转换字段形状，无关 Java 条目保留原身�
 - `cd windows/tauri && bun test src/features/run`
 - ~~./scripts/macos/test/test-macos.sh --filter 'RunConfigurationIntegrationTests|MavenRuntimeTests|RunEntryPointTests'~~（随旧客户端移除）
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'MacLegacyMavenRunConfigurationMigrationTests|ExecutionModuleTests|MacNativeBuildProviderIntegrationTests'`
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 
 ## 适用范围
 

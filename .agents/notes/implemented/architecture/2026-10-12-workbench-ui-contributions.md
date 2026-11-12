@@ -70,7 +70,7 @@ Agent 的配置入口由同一个目录补齐，移动到任何已有停靠区�
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib declarative_plugins`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginUIIconTests|WorkbenchContributionHostTests|WorkbenchFeatureModelTests|WorkbenchModuleUIRegistryTests|ModuleSessionCoordinatorTests'`
 - ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 
 ## 适用范围

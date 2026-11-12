@@ -81,7 +81,7 @@ macOS 的工具窗口位置由工作台维护，功能模块继续维护自己�
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - ~~./scripts/macos/test/test-macos.sh --filter 'ToolWindowDockingTests|WorkbenchFeatureModelTests|WorkbenchMavenLayoutTests'~~（随旧客户端移除）
 - ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 - `ToolWindowDockingTests.transparentProjectStripesOnlyCaptureTheSelectedProjectsClicks` 使用三个透明度不同、原生命中区域重叠的项目入口，验证反复切换后只有选中项目响应；`projectStripeOwnershipIsScopedToItsWindowInsteadOfTheKeyWindow` 验证两个窗口各自的首次点击；`switchingProjectsCancelsToolPressesAndFloatingDragPreviews` 验证按下后切换、无后续鼠标事件时取消预览以及旧释放不提交动作。
