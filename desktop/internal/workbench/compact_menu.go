@@ -73,10 +73,19 @@ func (a *App) compactMenu(c ui.C, anchor ui.Box) {
 	commands := a.commands()
 	ui.Menu(c, anchor, &open, func(menu *ui.MenuItems) {
 		menu.WidthRange(220, 320)
-		for _, group := range compactMenuGroups(a.text.Commands) {
+		for i, group := range compactMenuGroups(a.text.Commands) {
+			if i > 0 {
+				menu.Separator()
+			}
 			menu.Sub(group.title(a.text.Commands), func(sub *ui.MenuItems) {
 				for _, cmd := range compactMenuItems(commands, group.groups) {
-					if sub.Item(cmd.title).Disabled(!cmd.enabled).Clicked() {
+					item := sub.Item(cmd.title).Disabled(!cmd.enabled)
+					if cmd.id == "settings.open" {
+						// The File menu leads with Settings, the way the old Windows menu bar did,
+						// with its icon and the chord that opens the window too.
+						item = item.Icon(icons.Settings).Keys(primaryModifier(), ",")
+					}
+					if item.Clicked() {
 						run := cmd
 						c.After(func() { a.runCommand(run) })
 						a.title.menuOpen = false

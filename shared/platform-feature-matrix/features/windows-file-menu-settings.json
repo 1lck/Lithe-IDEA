@@ -11,10 +11,11 @@
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
+    "implementationStatus": "partial",
     "verificationStatus": "not-applicable",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/workbench/compact_menu.go",
+      "desktop/internal/workbench/commands.go"
     ]
   },
   "owner": "Workbench",
@@ -38,5 +39,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：标题栏只有项目菜单、运行、调试、搜索和设置按钮（catalog.go 的 zoneTitle），desktop/ 中没有“文件”菜单，也没有“关闭标签页”上方的设置项。"
+  "notes": "Viva：标题栏只有项目菜单、运行、调试、搜索和设置按钮（catalog.go 的 zoneTitle），desktop/ 中没有“文件”菜单，也没有“关闭标签页”上方的设置项。 2026-11-12：紧凑菜单的各命令分组之间加了分隔线，File 子菜单首位的设置项补上齿轮图标与 Primary+, 快捷键提示。未做：菜单里还没有“关闭标签页”项（关闭仍走标签右键与标签按钮），因此“设置位于关闭标签页上方”的顺序仍无从满足。"
 }
