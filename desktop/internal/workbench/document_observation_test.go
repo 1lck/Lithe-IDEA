@@ -60,12 +60,17 @@ func awaitDocumentState(t *testing.T, h *harness, condition func() bool) {
 	t.Helper()
 	deadline := time.NewTimer(8 * time.Second)
 	defer deadline.Stop()
+	// A watcher delivers its event on a background goroutine that need not post, so the wait
+	// re-checks on a short tick as well as on a wake.
+	tick := time.NewTicker(20 * time.Millisecond)
+	defer tick.Stop()
 	for !condition() {
 		select {
 		case <-h.driver.Wakes():
 			if err := h.driver.Pump(); err != nil {
 				t.Fatal(err)
 			}
+		case <-tick.C:
 		case <-deadline.C:
 			t.Fatal("document watcher did not deliver the expected state before the deadline")
 		}

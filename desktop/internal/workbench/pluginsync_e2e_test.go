@@ -81,17 +81,22 @@ func clangdHarness(t *testing.T) *harness {
 
 // awaitStateWithin pumps the driver until condition holds or limit expires. It
 // is the bounded wait for an external language server; every iteration reacts
-// to a wake, so an idle test does not spin.
+// to a wake, so an idle test does not spin. A background goroutine can finish its
+// state change without posting anything, which rings no wake, so the wait also
+// re-checks on a short tick instead of waiting the deadline out.
 func awaitStateWithin(t *testing.T, h *harness, limit time.Duration, what string, condition func() bool) {
 	t.Helper()
 	deadline := time.NewTimer(limit)
 	defer deadline.Stop()
+	tick := time.NewTicker(20 * time.Millisecond)
+	defer tick.Stop()
 	for !condition() {
 		select {
 		case <-h.driver.Wakes():
 			if err := h.driver.Pump(); err != nil {
 				t.Fatal(err)
 			}
+		case <-tick.C:
 		case <-deadline.C:
 			t.Fatalf("%s did not happen before the deadline", what)
 		}

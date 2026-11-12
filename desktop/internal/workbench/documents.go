@@ -19,6 +19,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/winpath"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -193,7 +194,7 @@ func (s *documentSet) find(id int) *document {
 // byPath is the open document of the file at path, and nil when it is not open.
 func (s *documentSet) byPath(path string) *document {
 	for _, d := range s.list {
-		if d.path == path {
+		if d.path == path || winpath.Equal(d.path, path) {
 			return d
 		}
 	}
