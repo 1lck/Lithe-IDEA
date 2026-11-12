@@ -14,6 +14,12 @@ rust/lithe-core/src/diagnostics/catalog_generated.rs text eol=lf
 # Generated Go localization must match byte-for-byte on all platforms.
 desktop/internal/i18n/shared.generated.go text eol=lf
 
+# gofmt compares the bytes it prints with the file, so a Windows checkout that converted Go
+# sources to CRLF would report every file as unformatted. Keep them LF like the other hosts.
+desktop/**/*.go text eol=lf
+desktop/go.mod text eol=lf
+desktop/go.sum text eol=lf
+
 # The bundled fonts and their licenses are compiled in byte-for-byte and checked against the
 # SHA-256 manifest in NOTICE.txt; never convert their line endings.
 desktop/internal/bundledfont/fonts/** -text
