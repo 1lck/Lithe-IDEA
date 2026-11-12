@@ -10,7 +10,9 @@
 
 保留 AI 提交信息生成、编辑器行内 AI 编辑和创建 PR 时的 AI 描述。三者共用的 Codex/Claude provider 发现搬到 `desktop/internal/workbench/ai_provider.go`，只调用 Core 的 `ai.configuration.sources` 和 `ai.configuration.parse`，不再经过 Agent 状态。设置窗口的 AI 分组只剩“生成”和“IDE 连接”两页。
 
-Rust Core 的 Agent 宿主（`lithe-agent-host` 和 C ABI 里的 Agent 入口）以及 `shared/fixtures/agent/`、`shared/fixtures/mcp/`、`shared/contracts/agent-turn-policy.json` 保持不变：它们属于 Core 的兼容面，删除要单独的 Core PR 并提升 `PINNED_CORE_REVISION`。桌面端不再调用它们。
+Rust Core 的 Agent 宿主（`lithe-agent-host` 和 C ABI 里的 Agent 入口）以及 `shared/fixtures/agent/`、`shared/contracts/agent-turn-policy.json` 保持不变：它们属于 Core 的兼容面，删除要单独的 Core PR 并提升 `PINNED_CORE_REVISION`。桌面端不再调用它们。
+
+后续清理又删掉了 Core 侧全部 Agent 代码（Lithe-core-rust#18）。`shared/fixtures/mcp` 与 `shared/contracts/mcp-registry-page.json` 随后随 MCP 管理整块删除一起移除（Lithe-core-rust#19），历史决策见 `.agents/notes/archived/feature/2026-10-17-mcp-server-library.md`。
 
 ## 问题
 

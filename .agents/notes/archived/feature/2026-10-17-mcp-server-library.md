@@ -1,6 +1,11 @@
 # Agent 笔记：MCP 服务器资源库与项目级 Lithe 注册
 
 状态：已实现
+归档日期：2026-11-12
+
+## 归档原因
+
+2026-11-12 用户决定 MCP 管理整块删除、后续重新设计。Core 侧已删除 `mcp` 模块与全部 `mcp.*` 命令，Lithe-IDEA 侧删除 `shared/fixtures/mcp`、`shared/contracts/mcp-registry-page.json`、对应能力记录与词条。本文描述的服务器库、探测与导入流程在仓库中已不存在，保留为历史决策记录。Lithe 对外提供的 IDE API MCP 服务端（`lithe-mcp`）不受影响，见[IDE 能力与本机 MCP](../../implemented/architecture/2026-09-30-ide-capabilities-and-local-mcp.md)。
 
 ## 先说结论
 

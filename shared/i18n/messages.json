@@ -34610,17 +34610,6 @@
       }
     },
     {
-      "id": "native.aSecureConnectionToTheMcpRegistryCouldNotBeEstablishedCheckTheProxyOrRetryDirectly",
-      "description": "Native UI: A secure connection to the MCP Registry could not be established. Check the proxy or retry directly.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "A secure connection to the MCP Registry could not be established. Check the proxy or retry directly.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.aSkillHasAnUnknownScopeAndCannotBeClassified",
       "description": "Native UI: A skill has an unknown scope and cannot be classified.",
       "platforms": [
@@ -35571,17 +35560,6 @@
       ],
       "macos": {
         "key": "AI settings and credentials are read directly from its local configuration files.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.aiToolConnectionsMCP",
-      "description": "Native UI: AI tool connections (MCP)",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "AI tool connections (MCP)",
         "arguments": []
       }
     },
@@ -38901,17 +38879,6 @@
       }
     },
     {
-      "id": "native.checkTheMcpCommandUrlAndHeaders",
-      "description": "Native UI: Check the MCP command, URL and headers.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Check the MCP command, URL and headers.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.checkYourInternetConnectionAndTryAgainLater",
       "description": "Native UI: Check your internet connection and try again later.",
       "platforms": [
@@ -39896,17 +39863,6 @@
       ],
       "macos": {
         "key": "Claude Code has disabled all Hooks in its settings.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.claudeCodeHasMcpToolRestrictionsUpdateItsNativeRulesBeforeRenamingAServerSoDisabledToolsDoNotBecomeAvailableUnderANewName",
-      "description": "Native UI: Claude Code has MCP tool restrictions. Update its native rules before renaming a server so disabled tools do not become available under a new name.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Claude Code has MCP tool restrictions. Update its native rules before renaming a server so disabled tools do not become available under a new name.",
         "arguments": []
       }
     },
@@ -43392,17 +43348,6 @@
       }
     },
     {
-      "id": "native.couldNotImportMcpJsonCheckTheMcpserversObjectAndTryAgain",
-      "description": "Native UI: Could not import MCP JSON. Check the mcpServers object and try again.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Could not import MCP JSON. Check the mcpServers object and try again.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.couldNotInspectSavedFile",
       "description": "Native UI: Could not inspect saved file",
       "platforms": [
@@ -43678,42 +43623,6 @@
       }
     },
     {
-      "id": "native.couldNotRegisterLitheMCPIn",
-      "description": "Native UI: Could not register Lithe MCP in %@: %@",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Could not register Lithe MCP in %@: %@",
-        "arguments": [
-          "arg1",
-          "arg2"
-        ]
-      },
-      "parameters": {
-        "arg1": "string",
-        "arg2": "string"
-      }
-    },
-    {
-      "id": "native.couldNotRemoveLitheMCPFrom",
-      "description": "Native UI: Could not remove Lithe MCP from %@: %@",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Could not remove Lithe MCP from %@: %@",
-        "arguments": [
-          "arg1",
-          "arg2"
-        ]
-      },
-      "parameters": {
-        "arg1": "string",
-        "arg2": "string"
-      }
-    },
-    {
       "id": "native.couldNotRestoreLocalHistory",
       "description": "Native UI: Could not restore local history",
       "platforms": [
@@ -43828,17 +43737,6 @@
       },
       "parameters": {
         "arg1": "string"
-      }
-    },
-    {
-      "id": "native.couldNotStartTheMcpCommandCheckItsExecutableAndRuntime",
-      "description": "Native UI: Could not start the MCP command. Check its executable and runtime.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Could not start the MCP command. Check its executable and runtime.",
-        "arguments": []
       }
     },
     {
@@ -46108,17 +46006,6 @@
       }
     },
     {
-      "id": "native.disableMCP",
-      "description": "Native UI: Disable MCP",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Disable MCP",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.disableMethodBreakpoint",
       "description": "Native UI: Disable %@ method breakpoint",
       "platforms": [
@@ -46323,17 +46210,6 @@
       ],
       "macos": {
         "key": "Disconnected",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.discoverMcpServers",
-      "description": "Native UI: Discover MCP servers",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Discover MCP servers",
         "arguments": []
       }
     },
@@ -47298,17 +47174,6 @@
       }
     },
     {
-      "id": "native.editMcpServer",
-      "description": "Native UI: Edit MCP server",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Edit MCP server",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.editMessage",
       "description": "Native UI: Edit message",
       "platforms": [
@@ -48194,17 +48059,6 @@
       ],
       "macos": {
         "key": "Enable Hook",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.enableMCP",
-      "description": "Native UI: Enable MCP",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Enable MCP",
         "arguments": []
       }
     },
@@ -49533,28 +49387,6 @@
       ],
       "macos": {
         "key": "Featured",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.featuredAndTheOfficialMcpRegistry",
-      "description": "Native UI: Featured and the official MCP Registry",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Featured and the official MCP Registry",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.featuredServersShipWithLitheAndWorkOfflineSearchingAlsoChecksTheOfficialMcpRegistryListingIsNotASecurityReviewAddingOpensAConfigurationToReviewPackagesAreNotDownloadedOrRunFollowThePublisherSDocumentationForAuthenticationAndOtherRequirements",
-      "description": "Native UI: Featured servers ship with Lithe and work offline. Searching also checks the official MCP Registry. Listing is not a security review. Adding opens a configuration to review; packages are not downloaded or run. Follow the publisher's documentation for authentication and other requirements.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Featured servers ship with Lithe and work offline. Searching also checks the official MCP Registry. Listing is not a security review. Adding opens a configuration to review; packages are not downloaded or run. Follow the publisher's documentation for authentication and other requirements.",
         "arguments": []
       }
     },
@@ -52881,17 +52713,6 @@
       }
     },
     {
-      "id": "native.importMcpConfiguration",
-      "description": "Native UI: Import MCP configuration",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Import MCP configuration",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.importSkill",
       "description": "Native UI: Import skill",
       "platforms": [
@@ -54539,17 +54360,6 @@
       ],
       "macos": {
         "key": "Invalid JVM performance output.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.invalidMcpToolConfiguration",
-      "description": "Native UI: Invalid MCP tool configuration",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Invalid MCP tool configuration",
         "arguments": []
       }
     },
@@ -56467,22 +56277,6 @@
       "macos": {
         "key": "Lithe looks for ~/.codex/config.toml and ~/.codex/auth.json on this Mac.",
         "arguments": []
-      }
-    },
-    {
-      "id": "native.litheMCPWasRegisteredButCodexConfigTomlCouldNotBeAddedToGitSLocalExcludeList",
-      "description": "Native UI: Lithe MCP was registered, but .codex/config.toml could not be added to Git’s local exclude list: %@",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Lithe MCP was registered, but .codex/config.toml could not be added to Git’s local exclude list: %@",
-        "arguments": [
-          "arg1"
-        ]
-      },
-      "parameters": {
-        "arg1": "string"
       }
     },
     {
@@ -59388,149 +59182,6 @@
       }
     },
     {
-      "id": "native.mcp",
-      "description": "Native UI: MCP",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "MCP",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.mcpConfiguration",
-      "description": "Native UI: MCP Configuration",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "MCP Configuration",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.mcpConfigurationManagementIsUnavailable",
-      "description": "Native UI: MCP configuration management is unavailable.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "MCP configuration management is unavailable.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.mcpConnectionFailedCheckTheServerNetworkAndAuthentication",
-      "description": "Native UI: MCP connection failed. Check the server, network and authentication.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "MCP connection failed. Check the server, network and authentication.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.mcpDetectionTimedOutAfter30Seconds",
-      "description": "Native UI: MCP detection timed out after 30 seconds.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "MCP detection timed out after 30 seconds.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.mcpDetectionWasCancelled",
-      "description": "Native UI: MCP detection was cancelled.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "MCP detection was cancelled.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.mcpIsEnabledForThisProject",
-      "description": "Native UI: MCP is enabled for this project.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "MCP is enabled for this project.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.mcpIsOffForThisProject",
-      "description": "Native UI: MCP is off for this project.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "MCP is off for this project.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.mcpJson",
-      "description": "Native UI: MCP JSON",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "MCP JSON",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.mcpServers",
-      "description": "Native UI: MCP servers",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "MCP servers",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.mcpToolMetadataExceededTheInspectionLimit",
-      "description": "Native UI: MCP tool metadata exceeded the inspection limit.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "MCP tool metadata exceeded the inspection limit.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.mcpTools",
-      "description": "Native UI: MCP tools",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "MCP tools",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.mcpToolsSent",
-      "description": "Native UI: MCP tools sent",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "MCP tools sent",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.me",
       "description": "Native UI: Me",
       "platforms": [
@@ -61092,17 +60743,6 @@
       }
     },
     {
-      "id": "native.newMcpServer",
-      "description": "Native UI: New MCP server",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "New MCP server",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.newProject",
       "description": "Native UI: New Project…",
       "platforms": [
@@ -62091,17 +61731,6 @@
       }
     },
     {
-      "id": "native.noMCPServersRegistered",
-      "description": "Native UI: No MCP servers registered",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "No MCP servers registered",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.noMatches",
       "description": "Native UI: No matches",
       "platforms": [
@@ -62265,17 +61894,6 @@
       ],
       "macos": {
         "key": "No matching items",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.noMatchingMcpServers",
-      "description": "Native UI: No matching MCP servers",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "No matching MCP servers",
         "arguments": []
       }
     },
@@ -62607,17 +62225,6 @@
       ],
       "macos": {
         "key": "No project is open. Rows backed by Git configuration write to the global Git configuration; commit identity needs a repository.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.noProjectLevelMCPEntryWasWritten",
-      "description": "Native UI: No project-level MCP entry was written.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "No project-level MCP entry was written.",
         "arguments": []
       }
     },
@@ -63637,17 +63244,6 @@
       ],
       "macos": {
         "key": "Official",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.officialMcpRegistry",
-      "description": "Native UI: Official MCP Registry",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Official MCP Registry",
         "arguments": []
       }
     },
@@ -65262,17 +64858,6 @@
       }
     },
     {
-      "id": "native.pasteAJsonObjectContainingMcpservers",
-      "description": "Native UI: Paste a JSON object containing mcpServers.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Paste a JSON object containing mcpServers.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.pasteAnHttpsPluginIndexURLOrAGitHubRepositoryURLAGitHubRepositoryMustContainLi7616c31790",
       "description": "Native UI: Paste an https plugin index URL or a GitHub repository URL. A GitHub repository must contain lithe-plugin-index.json at its root.",
       "platforms": [
@@ -65291,28 +64876,6 @@
       ],
       "macos": {
         "key": "Paste Patch",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.pasteStandardJsonWithAnMcpserversObjectChooseAServerToReviewBeforeSavingOnlyTheEditorSSupportedCommandArgumentsEnvironmentUrlAndHeaderFieldsAreImportedAuthenticationAndClientSpecificOptionsMustBeConfiguredSeparatelyImportingDoesNotTakeOwnershipOfAnExistingEntry",
-      "description": "Native UI: Paste standard JSON with an mcpServers object. Choose a server to review before saving. Only the editor's supported command, arguments, environment, URL and header fields are imported; authentication and client-specific options must be configured separately. Importing does not take ownership of an existing entry.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Paste standard JSON with an mcpServers object. Choose a server to review before saving. Only the editor's supported command, arguments, environment, URL and header fields are imported; authentication and client-specific options must be configured separately. Importing does not take ownership of an existing entry.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.pasteThisIntoYourMCPClientConfiguration",
-      "description": "Native UI: Paste this into your MCP client configuration.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Paste this into your MCP client configuration.",
         "arguments": []
       }
     },
@@ -67477,17 +67040,6 @@
       ],
       "macos": {
         "key": "Pruned stale worktree records",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.publicDirectoryMetadataIsSuppliedByTheOfficialMcpRegistryListingIsNotAnEndorsementOrASecurityReviewAddingOpensAnEditableConfigurationLitheDoesNotDownloadOrRunServerPackagesServersWithComplexInputsMustBeConfiguredUsingThePublisherSDocumentation",
-      "description": "Native UI: Public directory metadata is supplied by the official MCP Registry. Listing is not an endorsement or a security review. Adding opens an editable configuration; Lithe does not download or run server packages. Servers with complex inputs must be configured using the publisher's documentation.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Public directory metadata is supplied by the official MCP Registry. Listing is not an endorsement or a security review. Adding opens an editable configuration; Lithe does not download or run server packages. Servers with complex inputs must be configured using the publisher's documentation.",
         "arguments": []
       }
     },
@@ -71947,17 +71499,6 @@
       }
     },
     {
-      "id": "native.runThisMcpCommand",
-      "description": "Native UI: Run this MCP command?",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Run this MCP command?",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.runToCursorIsUnavailableForTheActiveDebugSession",
       "description": "Native UI: Run to Cursor is unavailable for the active debug session",
       "platforms": [
@@ -73014,28 +72555,6 @@
       }
     },
     {
-      "id": "native.searchMcpServers",
-      "description": "Native UI: Search MCP servers",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Search MCP servers",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.searchMcpServersGithubBrowsersDocumentation",
-      "description": "Native UI: Search MCP servers — GitHub, browsers, documentation…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Search MCP servers — GitHub, browsers, documentation…",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.searchOfficialMicrosoftAndAzureDocumentationAndCodeSamples",
       "description": "Native UI: Search official Microsoft and Azure documentation and code samples.",
       "platforms": [
@@ -73126,17 +72645,6 @@
       ],
       "macos": {
         "key": "Search text across the workspace",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.searchTheOfficialMcpRegistry",
-      "description": "Native UI: Search the official MCP Registry",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Search the official MCP Registry",
         "arguments": []
       }
     },
@@ -75620,22 +75128,6 @@
       "macos": {
         "key": "Some dependencies are not shown.",
         "arguments": []
-      }
-    },
-    {
-      "id": "native.someMCPConfigurationFilesCouldNotBeRestoredRefreshAndCheckTheseFilesBeforeRetrying",
-      "description": "Native UI: Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying.",
-        "arguments": [
-          "arg1"
-        ]
-      },
-      "parameters": {
-        "arg1": "string"
       }
     },
     {
@@ -78726,17 +78218,6 @@
       }
     },
     {
-      "id": "native.theFeaturedMcpCatalogCouldNotBeLoaded",
-      "description": "Native UI: The featured MCP catalog could not be loaded.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The featured MCP catalog could not be loaded.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.theFieldValueDoesNotMatchItsDeclarationOrExceedsItsSizeLimit",
       "description": "Native UI: The field value does not match its declaration or exceeds its size limit.",
       "platforms": [
@@ -79525,39 +79006,6 @@
       ],
       "macos": {
         "key": "The Maven project could not be reloaded. The previous model is still available.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theMcpRegistryCouldNotBeLoadedTryAgainOrAddAServerManually",
-      "description": "Native UI: The MCP Registry could not be loaded. Try again or add a server manually.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The MCP Registry could not be loaded. Try again or add a server manually.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theMcpRegistryIsUnreachableCheckTheNetworkOrProxy",
-      "description": "Native UI: The MCP Registry is unreachable. Check the network or proxy.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The MCP Registry is unreachable. Check the network or proxy.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theMcpRegistryRequestTimedOutTryAgain",
-      "description": "Native UI: The MCP Registry request timed out. Try again.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The MCP Registry request timed out. Try again.",
         "arguments": []
       }
     },
@@ -96162,151 +95610,6 @@
     {
       "id": "settings.mac.wrapRows",
       "description": "Windows UI: settings.mac.wrapRows",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.mcp.allowConfigure",
-      "description": "Windows UI: settings.mcp.allowConfigure",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.mcp.allowConfigure.info",
-      "description": "Native UI: Connected agents can change the project toolchain, build and run configuration settings.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Connected agents can change the project toolchain, build and run configuration settings.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "settings.mcp.allowConfigure.title",
-      "description": "Native UI: Allow project environment and build configuration changes",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Allow project environment and build configuration changes",
-        "arguments": []
-      }
-    },
-    {
-      "id": "settings.mcp.allowExecute",
-      "description": "Windows UI: settings.mcp.allowExecute",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.mcp.copyConfiguration",
-      "description": "Windows UI: settings.mcp.copyConfiguration",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.mcp.description",
-      "description": "Windows UI: settings.mcp.description",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.mcp.disable",
-      "description": "Windows UI: settings.mcp.disable",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.mcp.enable",
-      "description": "Windows UI: settings.mcp.enable",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.mcp.error.expired",
-      "description": "Windows IDE MCP request error: expired",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.mcp.error.request",
-      "description": "Windows IDE MCP request error: request",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.mcp.error.transport",
-      "description": "Windows IDE MCP request error: transport",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.mcp.error.undelivered",
-      "description": "Windows IDE MCP request error: undelivered",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.mcp.info.projectAccess",
-      "description": "Native UI: Authorize this project to expose its environment, build tools, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes, and the project-level server registration is removed. Enabled plugins can also use this project grant.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Authorize this project to expose its environment, build tools, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes, and the project-level server registration is removed. Enabled plugins can also use this project grant.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "settings.mcp.openProject",
-      "description": "Windows UI: settings.mcp.openProject",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.mcp.plugins",
-      "description": "Windows UI: settings.mcp.plugins",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.mcp.status.active",
-      "description": "Windows IDE MCP request status: active",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.mcp.status.failed",
-      "description": "Windows IDE MCP request status: failed",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.mcp.status.waiting",
-      "description": "Windows IDE MCP request status: waiting",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.mcp.title",
-      "description": "Windows UI: settings.mcp.title",
       "platforms": [
         "windows"
       ]

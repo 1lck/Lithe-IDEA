@@ -69,6 +69,6 @@
         "windows/tauri/src/features/host-api/mcp-events.integration.test.ts"
       ]
     },
-    "notes": "macOS 设置页把 MCP 授权整理为“服务器资源库 + Lithe IDE 访问”两段：资源库负责第三方服务器发现与编辑，见独立能力 mcp-server-library；Lithe IDE 访问段保留状态徽标、状态卡、项目权限和 Agent 配置，安全说明收进 ⓘ。开启授权时还会把随包的 lithe-mcp 写入当前项目的 Claude Code（projects.<path>.mcpServers）与 Codex（<项目>/.codex/config.toml）配置，并在关闭授权或项目时按账本清理；全局配置不受影响。 Windows 原生开启请求使用 ownerId 绑定当前窗口；关闭窗口仍使用 closeOwner 的 ownerID，避免严格字段校验拒绝开启请求。 Windows 改用窗口定向独立事件通知和执行前 claim，取消 WebView 轮询心跳依赖；过期、取消和重复通知不会执行操作，单次失败保留授权且不重放操作。设置页分别展示授权和最近请求结果，错误提示使用共享翻译。独立事件避免序号缺失阻塞后续请求，Windows 单调时钟阻止系统时间回拨延长请求有效期。共享 MCP helper 为新版协议补齐 ttlMs/cacheScope。"
+    "notes": "macOS 设置页把 MCP 授权整理为“服务器资源库 + Lithe IDE 访问”两段：资源库负责第三方服务器发现与编辑（该部分已随 MCP 管理整块删除，见 `docs/viva-migration.md` 的“放弃：MCP 配置与库”）；Lithe IDE 访问段保留状态徽标、状态卡、项目权限和 Agent 配置，安全说明收进 ⓘ。开启授权时还会把随包的 lithe-mcp 写入当前项目的 Claude Code（projects.<path>.mcpServers）与 Codex（<项目>/.codex/config.toml）配置，并在关闭授权或项目时按账本清理；全局配置不受影响。 Windows 原生开启请求使用 ownerId 绑定当前窗口；关闭窗口仍使用 closeOwner 的 ownerID，避免严格字段校验拒绝开启请求。 Windows 改用窗口定向独立事件通知和执行前 claim，取消 WebView 轮询心跳依赖；过期、取消和重复通知不会执行操作，单次失败保留授权且不重放操作。设置页分别展示授权和最近请求结果，错误提示使用共享翻译。独立事件避免序号缺失阻塞后续请求，Windows 单调时钟阻止系统时间回拨延长请求有效期。共享 MCP helper 为新版协议补齐 ttlMs/cacheScope。"
   }
 }
