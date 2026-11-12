@@ -490,6 +490,29 @@ func TestDebugFrameRowsKeepTheTopAndSelectedFrames(t *testing.T) {
 	}
 }
 
+// awaitCoreLaunch returns the launch configuration Core received for the session. A
+// start that fails ends the session without one, so the wait reports that failure
+// instead of waiting out the deadline for a configuration that will never arrive.
+func awaitCoreLaunch(t *testing.T, h *harness, p *project, session pluginservice.RunDebugSession, gate <-chan core.DebugLaunchConfiguration) core.DebugLaunchConfiguration {
+	t.Helper()
+	deadline := time.NewTimer(10 * time.Second)
+	defer deadline.Stop()
+	for {
+		select {
+		case configuration := <-gate:
+			return configuration
+		case <-session.Ended:
+			t.Fatalf("the debug session ended before Core received the launch configuration (state %q, failure %q)", p.debug.state, p.debug.failure)
+		case <-h.driver.Wakes():
+			if err := h.driver.Pump(); err != nil {
+				t.Fatal(err)
+			}
+		case <-deadline.C:
+			t.Fatalf("Core launch configuration did not happen before the deadline (state %q, failure %q)", p.debug.state, p.debug.failure)
+		}
+	}
+}
+
 // A plugin run with a launch debug target hands its process to the adapter: Core binds
 // the run's program, arguments, directory and environment into the launch, and the run
 // learns when the session ends.
@@ -500,6 +523,11 @@ func TestRunLaunchTargetBindsTheRunsProcessIntoTheLaunch(t *testing.T) {
 			`"targetBindings":{"program":"target.path","cwd":"target.workingDirectory","args":"target.arguments","env":"target.environment"}}}`, 1)
 	h := debugHarnessWith(t, manifest)
 	root := t.TempDir()
+	// The fixture adapter only serves a workspace carrying its marker; without it the
+	// child exits before speaking DAP and the start fails instead of launching.
+	if err := os.WriteFile(filepath.Join(root, "debug.marker"), []byte("debug\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	p := openDebugPanel(t, h, root)
 	gate := &captureDebugLaunch{Kernel: h.app.kernel, configurations: make(chan core.DebugLaunchConfiguration, 1)}
 	h.app.kernel = gate
@@ -522,7 +550,7 @@ func TestRunLaunchTargetBindsTheRunsProcessIntoTheLaunch(t *testing.T) {
 	if result.err != nil || result.session.ID == "" {
 		t.Fatalf("launch = %+v", result)
 	}
-	arguments := awaitValueWithin(t, h, 10*time.Second, gate.configurations, "Core launch configuration").Arguments
+	arguments := awaitCoreLaunch(t, h, p, result.session, gate.configurations).Arguments
 	args, _ := arguments["args"].([]any)
 	env, _ := arguments["env"].(map[string]any)
 	if arguments["program"] != program || arguments["cwd"] != root || len(args) != 2 || args[0] != "--port" || env["APP_MODE"] != "dev" {
