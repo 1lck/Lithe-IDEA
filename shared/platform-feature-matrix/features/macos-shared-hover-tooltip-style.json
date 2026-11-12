@@ -4,17 +4,17 @@
   "group": "全局共享控件",
   "capability": "macOS 侧边栏与工具栏悬浮提示共用 IDEA Islands 的背景、边框、圆角及文字样式",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/workbench/theme.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/workbench/theme.go"
     ]
   },
   "owner": "macOS UI",
@@ -39,5 +39,5 @@
       ]
     }
   },
-  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：工具提示通过 viva ui 的 Tooltip 调用在 workbench 中使用（commit_view.go、debug_view.go、tests_view.go 等），但未找到 IDEA Islands 样式的共享悬浮提示表面（边框、4pt 圆角、颜色和内边距规格）。"
+  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：工具提示通过 viva ui 的 Tooltip 调用在 workbench 中使用（commit_view.go、debug_view.go、tests_view.go 等），但未找到 IDEA Islands 样式的共享悬浮提示表面（边框、4pt 圆角、颜色和内边距规格）。 2026-11-12：viva 新增 gfx.TooltipStyle（Lithe-IDEA/viva#10），workbench 明暗两套主题写入 IDEA 表面：4pt 圆角、12/8 内边距、13pt 文字、各自背景/文字/1pt 边框色。原生窗口验收保持 pending。"
 }

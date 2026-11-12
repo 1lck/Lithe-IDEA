@@ -4,17 +4,19 @@
   "group": "项目侧边栏",
   "capability": "项目树展开与折叠箭头使用 IDEA Community 明暗 SVG，目录行保持默认箭头光标和 24pt 连续行距",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/workbench/filetree_view.go",
+      "desktop/internal/fileicons/icons_tree.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/workbench/filetree_view.go",
+      "desktop/internal/fileicons/icons_tree.go"
     ]
   },
   "owner": "Workbench",
@@ -39,5 +41,5 @@
       ]
     }
   },
-  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：treelist/treelist.go 固定 24pt 行高、17pt 展开槽和 16pt 箭头尺寸；箭头图形由 Viva Tree 绘制，desktop/ 中未找到 IDEA Community 明暗箭头 SVG 或对它的引用。"
+  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：treelist/treelist.go 固定 24pt 行高、17pt 展开槽和 16pt 箭头尺寸；箭头图形由 Viva Tree 绘制，desktop/ 中未找到 IDEA Community 明暗箭头 SVG 或对它的引用。 2026-11-12：viva 新增 components.TreeDisclosure（Lithe-IDEA/viva#10），项目树改用 fileicons.TreeChevron 的 16pt 填充箭头，行内槽宽保持 24pt 不动，只有箭头图形变化。"
 }

@@ -5,6 +5,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/treelist"
+	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -84,6 +85,13 @@ func (a *App) projectTree(c ui.C, p *project) {
 	// Names are never cut short: the rows are as wide as the widest one, and the tree
 	// scrolls sideways to show the rest of it.
 	named := -1
+	// IDEA's own disclosure arrows: filled 16 point geometry in the row's existing slot,
+	// so only the arrow changes and no row moves.
+	t.view.Disclosure = &components.TreeDisclosure{
+		Collapsed: fileicons.TreeChevron(false, a.colors.Dark),
+		Expanded:  fileicons.TreeChevron(true, a.colors.Dark),
+		Size:      16,
+	}
 	tree := ui.Tree(c, &t.view, len(t.rows), t.label, func(i int) {
 		if a.drawTreeContent(c, p, t.rows[i]) {
 			named = i

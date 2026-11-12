@@ -27,6 +27,7 @@ func (v *View) scrollArea(canvas *gfx.Canvas, area gfx.Rect, fade float32) compo
 		MutedForeground: withAlpha(v.pal.termFG, 0.55*fade),
 	}
 	return components.BeginScrollArea(canvas, theme, area, gfx.Size{Width: area.Width, Height: area.Height + history}).
+		Bars(components.ScrollBarStyle{Size: 11, HoverSize: 5, Inset: 1, MinThumb: 20}).
 		Offset(0, float32(v.screen.Scrollback()-v.screen.ViewOffset())*v.rowH).
 		VerticalScrollbar(v.cfg.BarID, v.cfg.Messages.ScrollbarLabel, "")
 }

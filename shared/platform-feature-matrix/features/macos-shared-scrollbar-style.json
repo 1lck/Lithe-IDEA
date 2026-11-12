@@ -4,17 +4,19 @@
   "group": "界面样式",
   "capability": "macOS 共享滚动条样式",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/editorview/scrollbar.go",
+      "desktop/internal/termview/scrollbar.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/editorview/scrollbar.go",
+      "desktop/internal/termview/scrollbar.go"
     ]
   },
   "owner": "Workbench",
@@ -40,5 +42,5 @@
       "verificationStatus": "not-applicable"
     }
   },
-  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：编辑器（editorview/scrollbar.go）和终端（termview/paint.go）各自绘制滚动条；desktop/ 中没有 AppKit 比例、自动隐藏或工作台共享滚动条轨道的实现，与迁移文档的“放弃”口径一致。"
+  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：编辑器（editorview/scrollbar.go）和终端（termview/paint.go）各自绘制滚动条；desktop/ 中没有 AppKit 比例、自动隐藏或工作台共享滚动条轨道的实现，与迁移文档的“放弃”口径一致。 2026-11-12：viva 新增 components.ScrollBarStyle（Lithe-IDEA/viva#10），编辑器自绘 11/5，终端 ScrollArea 用同一组几何；工作台列表与树的滚动条仍在 viva 内部 ScrollArea、ui 层尚未透出该参数，因此本条保持部分实现。"
 }

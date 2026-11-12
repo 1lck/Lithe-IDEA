@@ -121,6 +121,13 @@ func lightLook() (gfx.Theme, palette) {
 	theme.Success = p.Success
 	theme.Metrics = theme.Metrics.WithDensity(gfx.DensityCompact)
 	theme.Metrics.FontSizeS = 12
+	// Hover tips keep IDEA's own surface: a four point corner, a one point border and the
+	// two theme colors, instead of the inverted body the shared default draws.
+	theme.Tooltip = gfx.TooltipStyle{
+		Radius: 4, PadX: 12, PadY: 8, FontSize: 13,
+		Background: gfx.RGB24(0xFFFFFF), Text: gfx.RGB24(0x000000),
+		Border: gfx.RGB24(0xD1D3D9), BorderSize: 1,
+	}
 	return theme, p
 }
 
@@ -170,6 +177,11 @@ func darkLook() (gfx.Theme, palette) {
 	theme.Success = p.Success
 	theme.Metrics = theme.Metrics.WithDensity(gfx.DensityCompact)
 	theme.Metrics.FontSizeS = 12
+	theme.Tooltip = gfx.TooltipStyle{
+		Radius: 4, PadX: 12, PadY: 8, FontSize: 13,
+		Background: gfx.RGB24(0x33353B), Text: gfx.RGB24(0xD1D3D9),
+		Border: gfx.RGB24(0x33353B), BorderSize: 1,
+	}
 	return theme, p
 }
 
