@@ -19,6 +19,9 @@ desktop/internal/i18n/shared.generated.go text eol=lf
 desktop/**/*.go text eol=lf
 desktop/go.mod text eol=lf
 desktop/go.sum text eol=lf
+# desktop/version_test.go reads this file line by line with a `$`-anchored expression, which a
+# CRLF checkout would never match.
+desktop/viva.toml text eol=lf
 
 # The bundled fonts and their licenses are compiled in byte-for-byte and checked against the
 # SHA-256 manifest in NOTICE.txt; never convert their line endings.
