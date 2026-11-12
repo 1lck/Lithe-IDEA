@@ -90,7 +90,8 @@ if [[ -n "${LITHE_CORE_RUST_DIR:-}" ]]; then
 else
     CORE_CHECKOUT="$ROOT_DIR/.artifacts/desktop/lithe-core-rust/source"
 fi
-export LITHE_PLUGIN_CONTRACT_DIR="$(native_path "$CORE_CHECKOUT/shared/plugins/contract/v1")"
+LITHE_PLUGIN_CONTRACT_DIR="$(native_path "$CORE_CHECKOUT/shared/plugins/contract/v1")"
+export LITHE_PLUGIN_CONTRACT_DIR
 if [[ -x "$STAGE_DIR/bin/lithe-mcp" ]]; then
     export LITHE_IDE_HELPER="$STAGE_DIR/bin/lithe-mcp"
 elif [[ -x "$STAGE_DIR/bin/lithe-mcp.exe" ]]; then

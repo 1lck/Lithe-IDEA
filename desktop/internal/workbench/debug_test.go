@@ -518,14 +518,11 @@ func TestRunLaunchTargetBindsTheRunsProcessIntoTheLaunch(t *testing.T) {
 		})
 		launched <- outcome{session, err}
 	}()
-	awaitStateWithin(t, h, 10*time.Second, "the launch to be planned", func() bool { return len(launched) == 1 || len(gate.configurations) == 1 })
-	awaitStateWithin(t, h, 10*time.Second, "the session to start", func() bool { return len(launched) == 1 })
-	result := <-launched
+	result := awaitValueWithin(t, h, 10*time.Second, launched, "the launch to return a session")
 	if result.err != nil || result.session.ID == "" {
 		t.Fatalf("launch = %+v", result)
 	}
-	awaitStateWithin(t, h, 10*time.Second, "Core launch configuration", func() bool { return len(gate.configurations) == 1 })
-	arguments := (<-gate.configurations).Arguments
+	arguments := awaitValueWithin(t, h, 10*time.Second, gate.configurations, "Core launch configuration").Arguments
 	args, _ := arguments["args"].([]any)
 	env, _ := arguments["env"].(map[string]any)
 	if arguments["program"] != program || arguments["cwd"] != root || len(args) != 2 || args[0] != "--port" || env["APP_MODE"] != "dev" {

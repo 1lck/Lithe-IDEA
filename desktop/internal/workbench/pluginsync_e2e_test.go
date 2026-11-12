@@ -98,6 +98,30 @@ func awaitStateWithin(t *testing.T, h *harness, limit time.Duration, what string
 	}
 }
 
+// awaitValueWithin receives one value while pumping the driver, so a producer that
+// still needs a window turn can finish. Waiting on the value itself keeps the result
+// independent of a window wake: polling a channel length only rechecks after a wake,
+// so a producer that posts nothing stays unobserved until the deadline.
+func awaitValueWithin[T any](t *testing.T, h *harness, limit time.Duration, channel <-chan T, what string) T {
+	t.Helper()
+	deadline := time.NewTimer(limit)
+	defer deadline.Stop()
+	for {
+		select {
+		case value := <-channel:
+			return value
+		case <-h.driver.Wakes():
+			if err := h.driver.Pump(); err != nil {
+				t.Fatal(err)
+			}
+		case <-deadline.C:
+			var zero T
+			t.Fatalf("%s did not happen before the deadline", what)
+			return zero
+		}
+	}
+}
+
 // problemMessagesContain reports whether a live server's diagnostics contain
 // text. It reads the same store the Problems panel queries.
 func problemMessagesContain(a *App, text string) bool {
