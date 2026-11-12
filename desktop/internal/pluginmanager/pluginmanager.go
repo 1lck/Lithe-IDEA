@@ -119,6 +119,13 @@ func (m *Manager) Enabled(id string) (bool, error) {
 	return m.state.Enabled(id)
 }
 
+// Approval reports what the user approved when this version was installed: where
+// the package came from, its digests, permissions and programs. A version without
+// a record reports false; the plugin page shows its source as unknown.
+func (m *Manager) Approval(id, version string) (plugintrust.Record, bool, error) {
+	return m.approvals.Record(id, version)
+}
+
 func installsID(installed []pluginpkg.Installed, id string) bool {
 	for _, entry := range installed {
 		if entry.ID == id {

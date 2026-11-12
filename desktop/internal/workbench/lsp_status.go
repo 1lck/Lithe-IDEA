@@ -43,6 +43,8 @@ func (a *App) recordServerEvent(server *pluginServer, event core.BackendEvent) {
 	case "stateChanged":
 		if event.State != "" {
 			server.state = event.State
+			state := event.State
+			server.sharedState.Store(&state)
 			a.invalidator.Invalidate()
 		}
 	case "log":
@@ -208,6 +210,14 @@ func filterLogLines(lines []string, filter string) []string {
 }
 
 // stateName is the state the server last reported, "starting" before any.
+// sharedStateName is stateName for a caller off the window thread.
+func (s *pluginServer) sharedStateName() string {
+	if state := s.sharedState.Load(); state != nil && *state != "" {
+		return *state
+	}
+	return "starting"
+}
+
 func (s *pluginServer) stateName() string {
 	if s.state == "" {
 		return "starting"

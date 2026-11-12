@@ -45,6 +45,10 @@ type pluginServer struct {
 	// newest log lines of the session; only the window thread reads or writes them.
 	state string
 	logs  []string
+	// sharedState is state again for other windows: the settings window's plugin page asks
+	// whether the plugin is running from its own thread, so it reads this copy, which the
+	// window thread writes whenever it writes state.
+	sharedState atomic.Pointer[string]
 	// buildMu guards both the attached clients and readiness. A ready event and
 	// an attach race through the same lock, so a client either receives the
 	// event or is marked ready from the recorded state, never both and never

@@ -12,7 +12,8 @@
       "desktop/internal/plugininstall/plugininstall.go",
       "desktop/internal/pluginmanager/pluginmanager.go",
       "desktop/internal/marketplace/service.go",
-      "desktop/internal/pluginstate/pluginstate.go"
+      "desktop/internal/pluginstate/pluginstate.go",
+      "desktop/internal/settingswindow/installed_view.go"
     ]
   },
   "windows": {
@@ -24,7 +25,8 @@
       "desktop/internal/plugininstall/plugininstall.go",
       "desktop/internal/pluginmanager/pluginmanager.go",
       "desktop/internal/marketplace/service.go",
-      "desktop/internal/pluginstate/pluginstate.go"
+      "desktop/internal/pluginstate/pluginstate.go",
+      "desktop/internal/settingswindow/installed_view.go"
     ]
   },
   "owner": "Extensions",
@@ -58,5 +60,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：插件市场提供安装、启用、禁用与卸载，也可从磁盘选择插件包安装（marketplace_view.go 的 installFromFile）；plugininstall 负责校验与提交，pluginstate 保存启用状态。版本回退尚未实现。"
+  "notes": "Viva：市场标签提供安装；已安装标签提供启用、禁用、更新与卸载（卸载前确认）；从磁盘安装在插件页齿轮菜单的“从磁盘安装插件…”；plugininstall 负责校验与提交，pluginstate 保存启用状态。版本回退尚未实现。"
 }

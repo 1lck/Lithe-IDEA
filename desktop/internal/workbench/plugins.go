@@ -10,6 +10,8 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -58,7 +60,7 @@ func (a *App) refreshPluginState() {
 	}
 	a.background(nil, pluginStateTimeout, func(ctx context.Context) func(*App) {
 		entries, err := a.plugins.CurrentInstalled(ctx)
-		facts := installedPluginFacts(entries)
+		facts := installedPluginFacts(entries, a.plugins.Manager)
 		return func(a *App) {
 			a.pluginFacts.Store(&facts)
 			if err != nil {
@@ -385,39 +387,206 @@ func compactProgram(program json.RawMessage) string {
 	return buffer.String()
 }
 
-// manifestContributions are the manifest sections a plugin uses to contribute to the IDE, in the
-// order the detail lists them. The permissions list is read separately.
-var manifestContributions = []string{
-	"toolDefinitions", "toolchainProviders", "keymapImportProviders", "pluginFunctions", "languages",
-	"languageServers", "executionProviders", "buildSystems", "backend", "vcsProviders", "debugAdapters",
-	"projectGenerators", "outputLinkMatchers", "ui", "settings", "settingActions",
+// pluginManifestFacts is the part of an installed manifest the Installed tab shows.
+type pluginManifestFacts struct {
+	DisplayName string   `json:"displayName"`
+	Permissions []string `json:"permissions"`
+	Vendor      struct {
+		DisplayName string `json:"displayName"`
+	} `json:"vendor"`
+	Languages []struct {
+		ID             string   `json:"id"`
+		DisplayName    string   `json:"displayName"`
+		FileExtensions []string `json:"fileExtensions"`
+	} `json:"languages"`
+	LanguageServers []struct {
+		LanguageID string `json:"languageID"`
+		Launch     struct {
+			Kind     string   `json:"kind"`
+			Commands []string `json:"commands"`
+		} `json:"launch"`
+	} `json:"languageServers"`
+	ExecutionProviders []struct {
+		LanguageID string          `json:"languageID"`
+		Run        json.RawMessage `json:"run"`
+		Test       json.RawMessage `json:"test"`
+	} `json:"executionProviders"`
+	BuildSystems []struct {
+		ID          string            `json:"id"`
+		DisplayName string            `json:"displayName"`
+		Tasks       []json.RawMessage `json:"tasks"`
+		Run         json.RawMessage   `json:"run"`
+		Test        json.RawMessage   `json:"test"`
+	} `json:"buildSystems"`
+	DebugAdapters []struct {
+		ID          string `json:"id"`
+		DisplayName string `json:"displayName"`
+	} `json:"debugAdapters"`
+	ProjectGenerators []struct {
+		ID          string `json:"id"`
+		DisplayName string `json:"displayName"`
+		Description string `json:"description"`
+	} `json:"projectGenerators"`
+	VcsProviders []struct {
+		ID          string `json:"id"`
+		DisplayName string `json:"displayName"`
+	} `json:"vcsProviders"`
+	UI struct {
+		ToolWindows []struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		} `json:"toolWindows"`
+		Commands []struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		} `json:"commands"`
+	} `json:"ui"`
+	Settings       []json.RawMessage `json:"settings"`
+	SettingActions []json.RawMessage `json:"settingActions"`
 }
 
-// installedPluginFacts reads the permissions and contributions each installed package's manifest
-// declares. It reads files, so it runs off the window thread; a package whose manifest cannot be
-// read is left out and its detail shows no facts.
-func installedPluginFacts(entries []pluginmanager.Entry) map[string]settingswindow.PluginFacts {
-	facts := make(map[string]settingswindow.PluginFacts, len(entries))
+// pluginApprovals looks up what the user approved for one installed version.
+type pluginApprovals interface {
+	Approval(id, version string) (plugintrust.Record, bool, error)
+}
+
+// installedPluginFacts reads what each installed package's manifest declares and what its
+// approval recorded, in the order the Installed tab lists them: by name, then by ID. It reads
+// files, so it runs off the window thread. A package whose manifest cannot be read still gets an
+// entry with its ID, version and path, so the Installed tab lists every package on disk;
+// approvals may be nil, which leaves every source unknown.
+func installedPluginFacts(entries []pluginmanager.Entry, approvals pluginApprovals) []settingswindow.PluginFacts {
+	facts := make([]settingswindow.PluginFacts, 0, len(entries))
 	for _, entry := range entries {
-		data, err := os.ReadFile(filepath.Join(entry.Installed.Path, "plugin.json"))
-		if err != nil {
-			continue
+		item := settingswindow.PluginFacts{
+			ID:      entry.Installed.ID,
+			Version: entry.Installed.Version,
+			Path:    entry.Installed.Path,
 		}
-		var manifest map[string]json.RawMessage
-		if json.Unmarshal(data, &manifest) != nil {
-			continue
-		}
-		var item settingswindow.PluginFacts
-		var permissions []string
-		if json.Unmarshal(manifest["permissions"], &permissions) == nil {
-			item.Permissions = permissions
-		}
-		for _, key := range manifestContributions {
-			if value, ok := manifest[key]; ok && len(value) > 0 && string(value) != "null" {
-				item.Features = append(item.Features, key)
+		if approvals != nil {
+			if record, ok, err := approvals.Approval(entry.Installed.ID, entry.Installed.Version); err == nil && ok {
+				item.Source = string(record.Source)
+				item.ArchiveSHA256 = record.ArchiveSHA256
+				item.ContentDigest = record.ContentDigest
+				for _, program := range record.ApprovedPrograms {
+					item.Programs = append(item.Programs, compactProgram(program))
+				}
 			}
 		}
-		facts[entry.Installed.ID] = item
+		if data, err := os.ReadFile(filepath.Join(entry.Installed.Path, "plugin.json")); err == nil {
+			var manifest pluginManifestFacts
+			if json.Unmarshal(data, &manifest) == nil {
+				describeManifest(&item, manifest)
+			}
+		}
+		facts = append(facts, item)
 	}
+	slices.SortStableFunc(facts, func(left, right settingswindow.PluginFacts) int {
+		if order := strings.Compare(strings.ToLower(pluginFactsName(left)), strings.ToLower(pluginFactsName(right))); order != 0 {
+			return order
+		}
+		return strings.Compare(left.ID, right.ID)
+	})
 	return facts
+}
+
+// pluginFactsName is the name the Installed tab sorts by: the manifest's, or the ID when the
+// manifest could not be read.
+func pluginFactsName(facts settingswindow.PluginFacts) string {
+	if facts.Name != "" {
+		return facts.Name
+	}
+	return facts.ID
+}
+
+// describeManifest copies what the Installed tab shows out of a parsed manifest, listing the
+// capabilities in the order the detail shows them.
+func describeManifest(item *settingswindow.PluginFacts, manifest pluginManifestFacts) {
+	item.Name = manifest.DisplayName
+	item.Vendor = manifest.Vendor.DisplayName
+	item.Permissions = manifest.Permissions
+	item.Settings = len(manifest.Settings) + len(manifest.SettingActions)
+	languageNames := make(map[string]string, len(manifest.Languages))
+	for _, language := range manifest.Languages {
+		languageNames[language.ID] = language.DisplayName
+		item.Capabilities = append(item.Capabilities, settingswindow.PluginCapability{
+			Kind: settingswindow.CapabilityLanguage, ID: language.ID, Title: language.DisplayName,
+			Extensions: language.FileExtensions,
+		})
+	}
+	languageTitle := func(id string) string {
+		if name := languageNames[id]; name != "" {
+			return name
+		}
+		return id
+	}
+	for _, server := range manifest.LanguageServers {
+		capability := settingswindow.PluginCapability{
+			Kind: settingswindow.CapabilityLanguageServer, ID: server.LanguageID, Title: languageTitle(server.LanguageID),
+		}
+		if server.Launch.Kind == "systemCommand" {
+			capability.Commands = server.Launch.Commands
+		} else {
+			capability.Packaged = true
+		}
+		item.Capabilities = append(item.Capabilities, capability)
+	}
+	for _, provider := range manifest.ExecutionProviders {
+		if declared(provider.Run) {
+			item.Capabilities = append(item.Capabilities, settingswindow.PluginCapability{
+				Kind: settingswindow.CapabilityRun, ID: provider.LanguageID, Title: languageTitle(provider.LanguageID),
+			})
+		}
+		if declared(provider.Test) {
+			item.Capabilities = append(item.Capabilities, settingswindow.PluginCapability{
+				Kind: settingswindow.CapabilityTest, ID: provider.LanguageID, Title: languageTitle(provider.LanguageID),
+			})
+		}
+	}
+	for _, system := range manifest.BuildSystems {
+		item.Capabilities = append(item.Capabilities, settingswindow.PluginCapability{
+			Kind: settingswindow.CapabilityBuildSystem, ID: system.ID, Title: system.DisplayName, Tasks: len(system.Tasks),
+		})
+		if declared(system.Run) {
+			item.Capabilities = append(item.Capabilities, settingswindow.PluginCapability{
+				Kind: settingswindow.CapabilityRun, ID: system.ID, Title: system.DisplayName,
+			})
+		}
+		if declared(system.Test) {
+			item.Capabilities = append(item.Capabilities, settingswindow.PluginCapability{
+				Kind: settingswindow.CapabilityTest, ID: system.ID, Title: system.DisplayName,
+			})
+		}
+	}
+	for _, adapter := range manifest.DebugAdapters {
+		item.Capabilities = append(item.Capabilities, settingswindow.PluginCapability{
+			Kind: settingswindow.CapabilityDebugger, ID: adapter.ID, Title: adapter.DisplayName,
+		})
+	}
+	for _, generator := range manifest.ProjectGenerators {
+		item.Capabilities = append(item.Capabilities, settingswindow.PluginCapability{
+			Kind: settingswindow.CapabilityProjectTemplate, ID: generator.ID, Title: generator.DisplayName,
+			Description: generator.Description,
+		})
+	}
+	for _, window := range manifest.UI.ToolWindows {
+		item.Capabilities = append(item.Capabilities, settingswindow.PluginCapability{
+			Kind: settingswindow.CapabilityToolWindow, ID: window.ID, Title: window.Title,
+		})
+	}
+	for _, command := range manifest.UI.Commands {
+		item.Capabilities = append(item.Capabilities, settingswindow.PluginCapability{
+			Kind: settingswindow.CapabilityCommand, ID: command.ID, Title: command.Title,
+		})
+	}
+	for _, provider := range manifest.VcsProviders {
+		item.Capabilities = append(item.Capabilities, settingswindow.PluginCapability{
+			Kind: settingswindow.CapabilityVersionControl, ID: provider.ID, Title: provider.DisplayName,
+		})
+	}
+}
+
+// declared reports whether an optional manifest section is present.
+func declared(value json.RawMessage) bool {
+	return len(value) > 0 && string(value) != "null"
 }
