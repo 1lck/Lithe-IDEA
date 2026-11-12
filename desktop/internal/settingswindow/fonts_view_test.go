@@ -92,75 +92,158 @@ func TestFontsPageWritesNothingWhenOpenedOrPainted(t *testing.T) {
 	}
 }
 
-// TestFontsUncheckingAPlaceGivesItAFontOfItsOwn covers the places of a font: unchecking
-// Terminal in the one font of the default list splits it in two, the font of the Terminal
-// keeps that place checked and cannot lose it, and checking Terminal again in the first font
-// joins the two.
-func TestFontsUncheckingAPlaceGivesItAFontOfItsOwn(t *testing.T) {
-	var changed [][]fontprefs.Font
-	w, d := fontsWindow(t, nil, nil, &changed)
-	terminal := w.fontWords().scope(fontprefs.Terminal)
-
-	boxes := fontHits(d, terminal, gfx.RoleCheckbox)
-	if len(boxes) != 1 || !boxes[0].Checked || boxes[0].Disabled {
-		t.Fatalf("the Terminal checkbox of the one font: %+v", boxes)
+// fontsControl is the one control of role named by the shared text id, as the Fonts page
+// shows it now.
+func fontsControl(t *testing.T, d *windowDriver, w *window, id string, role gfx.Role) gfx.Hit {
+	t.Helper()
+	hits := fontHits(d, i18n.Shared(w.fontWords().language, id), role)
+	if len(hits) != 1 {
+		t.Fatalf("the page shows %d controls named %q, want 1", len(hits), id)
 	}
-	d.clickHit(boxes[0])
-	if len(changed) != 1 {
-		t.Fatalf("unchecking Terminal handed %d lists to the owner, want 1", len(changed))
-	}
-	requireFonts(t, "unchecking Terminal", changed[0], []fontprefs.Font{
-		fontOf(fontprefs.Editor, fontprefs.Output),
-		fontOf(fontprefs.Terminal),
-	})
+	return hits[0]
+}
 
+// fontsPlace is the checkbox of a place in the overview.
+func fontsPlace(t *testing.T, d *windowDriver, w *window, scope fontprefs.Scope) gfx.Hit {
+	t.Helper()
+	hits := fontHits(d, w.fontWords().scope(scope), gfx.RoleCheckbox)
+	if len(hits) != 1 {
+		t.Fatalf("the overview shows %d checkboxes for %s, want 1", len(hits), scope)
+	}
+	return hits[0]
+}
+
+// fontsClick clicks a control and paints the page again from what the click left.
+func fontsClick(t *testing.T, d *windowDriver, hit gfx.Hit) {
+	t.Helper()
+	d.clickHit(hit)
 	fontsRepaint(d)
-	boxes = fontHits(d, terminal, gfx.RoleCheckbox)
-	if len(boxes) != 2 || boxes[0].Checked || boxes[0].Disabled || !boxes[1].Checked || !boxes[1].Disabled {
-		t.Fatalf("the Terminal checkboxes of the two fonts: %+v", boxes)
-	}
+}
 
-	d.clickHit(boxes[0])
-	if len(changed) != 2 {
-		t.Fatalf("checking Terminal again handed %d lists to the owner, want 2", len(changed))
-	}
-	requireFonts(t, "checking Terminal again", changed[1], fontprefs.Default())
-	fontsRepaint(d)
-	if got := fontHits(d, terminal, gfx.RoleCheckbox); len(got) != 1 {
-		t.Fatalf("the joined list shows %d Terminal checkboxes, want 1", len(got))
+// requireFontButtons fails the test unless Save and Revert are enabled as given.
+func requireFontButtons(t *testing.T, d *windowDriver, w *window, what string, save, revert bool) {
+	t.Helper()
+	gotSave := !fontsControl(t, d, w, "ui.save", gfx.RoleButton).Disabled
+	gotRevert := !fontsControl(t, d, w, "desktop.settings.network.revert", gfx.RoleButton).Disabled
+	if gotSave != save || gotRevert != revert {
+		t.Fatalf("%s: Save enabled %v, Revert enabled %v; want %v and %v", what, gotSave, gotRevert, save, revert)
 	}
 }
 
-// TestFontsOverviewSeparateButtonGivesAPlaceItsOwnFont covers the buttons of the overview:
-// each place that shares its font has one, it does what unchecking the place in its card
-// does, and a place that has its font to itself no longer offers it.
-func TestFontsOverviewSeparateButtonGivesAPlaceItsOwnFont(t *testing.T) {
-	cases := []struct {
-		scope fontprefs.Scope
-		want  []fontprefs.Font
-	}{
-		{fontprefs.Editor, []fontprefs.Font{fontOf(fontprefs.Editor), fontOf(fontprefs.Terminal, fontprefs.Output)}},
-		{fontprefs.Terminal, []fontprefs.Font{fontOf(fontprefs.Editor, fontprefs.Output), fontOf(fontprefs.Terminal)}},
-		{fontprefs.Output, []fontprefs.Font{fontOf(fontprefs.Editor, fontprefs.Terminal), fontOf(fontprefs.Output)}},
+// TestFontsSaveGivesTheCheckedPlacesTheLook covers the flow of the page: the places that share
+// the editor's font start checked, unchecking one and stepping the size hand nothing to the
+// owner, and Save gives the checked places the new size while the unchecked one keeps its font.
+func TestFontsSaveGivesTheCheckedPlacesTheLook(t *testing.T) {
+	var changed [][]fontprefs.Font
+	w, d := fontsWindow(t, nil, nil, &changed)
+	for _, scope := range fontprefs.Scopes {
+		if !fontsPlace(t, d, w, scope).Checked {
+			t.Fatalf("%s is not checked at first, though every place shares the editor's font", scope)
+		}
 	}
-	for i, tc := range cases {
-		t.Run(string(tc.scope), func(t *testing.T) {
-			var changed [][]fontprefs.Font
-			w, d := fontsWindow(t, nil, nil, &changed)
-			label := i18n.Shared(w.marketLanguage(), "desktop.settings.fontsSeparate")
-			buttons := fontHits(d, label, gfx.RoleButton)
-			if len(buttons) != len(fontprefs.Scopes) {
-				t.Fatalf("the overview has %d buttons, want one for each of the three places that share a font", len(buttons))
-			}
-			d.clickHit(buttons[i])
-			if len(changed) != 1 {
-				t.Fatalf("the button handed %d lists to the owner, want 1", len(changed))
-			}
-			requireFonts(t, "setting "+string(tc.scope)+" separately", changed[0], tc.want)
-			fontsRepaint(d)
-			if got := fontHits(d, label, gfx.RoleButton); len(got) != 2 {
-				t.Fatalf("after the split the overview has %d buttons, want 2: the place with its own font has none", len(got))
-			}
-		})
+	requireFontButtons(t, d, w, "before any change", false, false)
+
+	fontsClick(t, d, fontsPlace(t, d, w, fontprefs.Terminal))
+	if fontsPlace(t, d, w, fontprefs.Terminal).Checked {
+		t.Fatal("clicking Terminal left it checked")
+	}
+	if !d.text(w.fontWords().scopes([]fontprefs.Scope{fontprefs.Editor, fontprefs.Output})) {
+		t.Fatal("the card's title does not name the checked places")
+	}
+	larger := fontsControl(t, d, w, "desktop.settings.fontsSizeIncrease", gfx.RoleButton)
+	fontsClick(t, d, larger)
+	fontsClick(t, d, larger)
+	if len(changed) != 0 {
+		t.Fatalf("checking places and stepping the size handed %+v to the owner before Save", changed)
+	}
+	requireFontButtons(t, d, w, "after stepping the size", true, true)
+	save := fontsControl(t, d, w, "ui.save", gfx.RoleButton)
+	revert := fontsControl(t, d, w, "desktop.settings.network.revert", gfx.RoleButton)
+	if right := save.Bounds.X + save.Bounds.Width; revert.Bounds.X >= save.Bounds.X || right <= larger.Bounds.X+larger.Bounds.Width {
+		t.Fatalf("Save at %+v and Revert at %+v, want Save last, at the right of the card past the size buttons at %+v", save.Bounds, revert.Bounds, larger.Bounds)
+	}
+
+	fontsClick(t, d, fontsControl(t, d, w, "ui.save", gfx.RoleButton))
+	if len(changed) != 1 {
+		t.Fatalf("Save handed %d lists to the owner, want 1", len(changed))
+	}
+	saved := fontOf(fontprefs.Editor, fontprefs.Output)
+	saved.Size = 15
+	requireFonts(t, "saving 15 pt for the editor and the run output", changed[0], []fontprefs.Font{saved, fontOf(fontprefs.Terminal)})
+	requireFontButtons(t, d, w, "after saving", false, false)
+	if !d.text(w.fontWords().sizeValue(15)) {
+		t.Fatal("after saving, the card does not show the saved size")
+	}
+}
+
+// TestFontsSavingAPlacesLookForAnotherJoinsThem covers checking a place whose font differs: the
+// card keeps showing the font of the first checked place, Save gives it to the newly checked
+// one too, and places that end with the same look are joined into one font.
+func TestFontsSavingAPlacesLookForAnotherJoinsThem(t *testing.T) {
+	editor := fontOf(fontprefs.Editor)
+	editor.Size = 15
+	var changed [][]fontprefs.Font
+	w, d := fontsWindow(t, []fontprefs.Font{editor, fontOf(fontprefs.Terminal, fontprefs.Output)}, nil, &changed)
+	if !fontsPlace(t, d, w, fontprefs.Editor).Checked || fontsPlace(t, d, w, fontprefs.Terminal).Checked || fontsPlace(t, d, w, fontprefs.Output).Checked {
+		t.Fatal("at first only the editor, which has its font to itself, should be checked")
+	}
+	requireFontButtons(t, d, w, "with the editor checked", false, false)
+
+	fontsClick(t, d, fontsPlace(t, d, w, fontprefs.Terminal))
+	if !d.text(w.fontWords().sizeValue(15)) {
+		t.Fatal("checking Terminal changed the size the card shows, want the editor's")
+	}
+	requireFontButtons(t, d, w, "with the terminal checked too", true, false)
+	fontsClick(t, d, fontsControl(t, d, w, "ui.save", gfx.RoleButton))
+	shared := fontOf(fontprefs.Editor, fontprefs.Terminal)
+	shared.Size = 15
+	output := fontOf(fontprefs.Output)
+	if len(changed) != 1 {
+		t.Fatalf("Save handed %d lists, want 1", len(changed))
+	}
+	requireFonts(t, "giving the terminal the editor's font", changed[0], []fontprefs.Font{shared, output})
+
+	fontsClick(t, d, fontsPlace(t, d, w, fontprefs.Output))
+	fontsClick(t, d, fontsControl(t, d, w, "ui.save", gfx.RoleButton))
+	every := fontprefs.Default()
+	every[0].Size = 15
+	if len(changed) != 2 {
+		t.Fatalf("the second Save handed %d lists in all, want 2", len(changed))
+	}
+	requireFonts(t, "giving every place the editor's font", changed[1], every)
+}
+
+// TestFontsRevertDropsTheUnsavedLook covers Revert, which brings the card back to the stored
+// font without handing anything to the owner, and a card with no place checked, whose title
+// says so and whose Save stays off whatever it is set to.
+func TestFontsRevertDropsTheUnsavedLook(t *testing.T) {
+	var changed [][]fontprefs.Font
+	w, d := fontsWindow(t, nil, nil, &changed)
+	fontsClick(t, d, fontsControl(t, d, w, "desktop.settings.fontsSizeDecrease", gfx.RoleButton))
+	fontsClick(t, d, fontsControl(t, d, w, "settings.editor.fontLigatures", gfx.RoleSwitch))
+	if !w.fontEdit.draft.Ligatures || w.fontEdit.draft.Size != fontprefs.DefaultSize-1 {
+		t.Fatalf("the card's look is %+v, want ligatures on at one point smaller", w.fontEdit.draft)
+	}
+	requireFontButtons(t, d, w, "after the edits", true, true)
+
+	fontsClick(t, d, fontsControl(t, d, w, "desktop.settings.network.revert", gfx.RoleButton))
+	if len(changed) != 0 {
+		t.Fatalf("Revert handed %+v to the owner", changed)
+	}
+	if w.fontEdit.draft.Ligatures || w.fontEdit.draft.Size != fontprefs.DefaultSize {
+		t.Fatalf("after Revert the card's look is %+v, want the stored font", w.fontEdit.draft)
+	}
+	requireFontButtons(t, d, w, "after Revert", false, false)
+
+	for _, scope := range fontprefs.Scopes {
+		fontsClick(t, d, fontsPlace(t, d, w, scope))
+	}
+	if !d.text(i18n.Shared(w.fontWords().language, "desktop.settings.fontsNoneChecked")) {
+		t.Fatal("with no place checked the card's title does not say so")
+	}
+	fontsClick(t, d, fontsControl(t, d, w, "desktop.settings.fontsSizeIncrease", gfx.RoleButton))
+	requireFontButtons(t, d, w, "with no place checked", false, true)
+	if len(changed) != 0 {
+		t.Fatalf("with no place checked the page handed %+v to the owner", changed)
 	}
 }

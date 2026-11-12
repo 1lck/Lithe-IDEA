@@ -11125,16 +11125,13 @@
     "desktop.settings.fontsLoading": "Reading installed fonts…",
     "desktop.settings.fontsNotInstalled": "{family} (not installed)",
     "desktop.settings.fontsOverview": "Each Place",
-    "desktop.settings.fontsOverviewHelp": "The fonts the editor, the terminal and the run output are drawn with now. A place that shares its font with others can be given a font of its own.",
+    "desktop.settings.fontsOverviewHelp": "The fonts the editor, the terminal and the run output are drawn with now. Check the places to change, then adjust them below and save.",
     "desktop.settings.fontsPreview": "Preview",
-    "desktop.settings.fontsScope": "Applies To",
     "desktop.settings.fontsScopeEditor": "Editor",
-    "desktop.settings.fontsScopeHelp": "The places checked share this font. Checking a place moves it here from the font it had; unchecking one gives it a font of its own that starts with these values. A font keeps at least one place. Run output includes the output of runs, builds and tests and the Git console.",
     "desktop.settings.fontsScopeOutput": "Run Output",
     "desktop.settings.fontsScopeSeparator": ", ",
     "desktop.settings.fontsScopeTerminal": "Terminal",
     "desktop.settings.fontsSearch": "Search fonts",
-    "desktop.settings.fontsSeparate": "Set Separately",
     "desktop.settings.fontsSizeDecrease": "Decrease Font Size",
     "desktop.settings.fontsSizeIncrease": "Increase Font Size",
     "desktop.settings.fontsSizeValue": "{size} pt",
@@ -11660,7 +11657,9 @@
     "desktop.refs.trackingStopped": "{branch} no longer tracks a remote branch",
     "desktop.panel.header": "Tool window header",
     "desktop.search.replaceFile": "Replacement file",
-    "desktop.vcs.commitDirectly": "Commits are sent to the repository right away; there is no separate push."
+    "desktop.vcs.commitDirectly": "Commits are sent to the repository right away; there is no separate push.",
+    "desktop.settings.fontsNoneChecked": "No Place Checked",
+    "desktop.settings.fontsEditHelp": "Check the places to change in the list above, one or more. Changes here take effect when you click Save, and the checked places then share them; Revert drops unsaved changes. Run output includes the output of runs, builds and tests and the Git console."
   },
   "overrides": {
     "windows": {

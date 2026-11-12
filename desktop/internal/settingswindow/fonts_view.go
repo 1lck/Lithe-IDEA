@@ -31,14 +31,14 @@ const (
 	fontComboWidth = 280
 	// fontStackedInner is the width of a card's rows under which a row puts its control
 	// under its name instead of beside it, and fontOverviewInner the width from which an
-	// overview row keeps its preview, summary and button on one line.
+	// overview row keeps its name, preview and summary on one line.
 	fontStackedInner  = 520
 	fontOverviewInner = 700
-	// fontOverviewLabelWidth, fontSummaryWidth and fontSeparateWidth are the cells of an
-	// overview row that is on one line; fixed widths keep the three rows in columns.
-	fontOverviewLabelWidth = 88
+	// fontOverviewLabelWidth and fontSummaryWidth are the cells of an overview row that is on
+	// one line, the first holding the place's checkbox and name; fixed widths keep the three
+	// rows in columns.
+	fontOverviewLabelWidth = 120
 	fontSummaryWidth       = 220
-	fontSeparateWidth      = 112
 	// fontValueWidth is the width of the number between the two buttons that step it, and
 	// fontStepSize the side of those buttons.
 	fontValueWidth = 56
@@ -250,32 +250,87 @@ func groupIndex(fonts []fontprefs.Font, scope fontprefs.Scope) int {
 	return 0
 }
 
+// fontEditState is the places checked on the Fonts page and the look the user sets up for
+// them, which reaches the stored list only when Save is pressed. Only the window thread reads
+// or writes it, and it lasts while the window is open.
+type fontEditState struct {
+	// chosen is the places checked in the overview, in the order of fontprefs.Scopes. ready
+	// says it has been set: the first time the page is drawn it checks the places that share
+	// the editor's font, so that saving at once keeps them together.
+	chosen []fontprefs.Scope
+	ready  bool
+	// draft is the look being set up; its scopes are not used. While edited is false the page
+	// loads it on every paint from the stored font of the first checked place, so it shows
+	// what is in force. Once the user changes it, it stays as they left it while places are
+	// checked or unchecked, until Save or Revert.
+	draft  fontprefs.Font
+	edited bool
+}
+
+// prepare brings the state up to date with fonts, the normalized stored list, for a paint.
+func (e *fontEditState) prepare(fonts []fontprefs.Font) {
+	if !e.ready {
+		e.chosen, e.ready = slices.Clone(fonts[0].Scopes), true
+	}
+	if !e.edited {
+		e.draft = fonts[groupIndex(fonts, e.first())]
+		e.draft.Scopes = nil
+	}
+}
+
+// first is the first checked place, or the editor when none is checked. The card loads its
+// look from that place's font and shows the automatic line spacing of that place.
+func (e *fontEditState) first() fontprefs.Scope {
+	if len(e.chosen) > 0 {
+		return e.chosen[0]
+	}
+	return fontprefs.Editor
+}
+
+// choose checks or unchecks scope, keeping the order of fontprefs.Scopes.
+func (e *fontEditState) choose(scope fontprefs.Scope, on bool) {
+	var next []fontprefs.Scope
+	for _, s := range fontprefs.Scopes {
+		if (s == scope && on) || (s != scope && slices.Contains(e.chosen, s)) {
+			next = append(next, s)
+		}
+	}
+	e.chosen = next
+}
+
+// edit applies change to the draft, clamped as the stored list is, and keeps it as the user
+// left it.
+func (e *fontEditState) edit(change func(*fontprefs.Font)) {
+	change(&e.draft)
+	e.draft.Size = fontprefs.ClampSize(e.draft.Size)
+	e.draft.LineSpacing = fontprefs.ClampLineSpacing(e.draft.LineSpacing)
+	e.edited = true
+}
+
 // fontsInner is the width the rows of a card have to share.
 func (w *window) fontsInner() float32 {
 	return w.extent - 2*contentPad - 2*cardPad
 }
 
-// fontsPage is the Fonts page: an overview of the font each place draws with, then a card
-// for every font of the list, in which the user chooses its places, family, size, line
-// spacing and ligatures. Opening the page writes nothing. A control hands a change to
-// setFonts only when the user operates it, as an edit of the snapshot of the list this paint
-// was declared from, so the controls of one paint never disagree about the list.
+// fontsPage is the Fonts page: an overview of the font each place draws with now, in which the
+// user checks the places to change, one or more, and under it a card that sets up their
+// family, size, line spacing and ligatures. Opening the page writes nothing and neither does
+// editing the card: only Save hands a list to setFonts, which gives the checked places the
+// card's look and leaves the others as they are.
 func (w *window) fontsPage(c ui.C) {
 	w.fonts.begin()
 	words := w.fontWords()
 	fonts := fontprefs.Normalize(w.sess.values.Fonts)
+	w.fontEdit.prepare(fonts)
 	w.pageScroll(c, pageFonts, func() {
 		w.fontsOverviewCard(c, words, fonts)
-		for i := range fonts {
-			w.fontGroupCard(c, words, fonts, i)
-		}
+		w.fontEditCard(c, words, fonts)
 	})
 }
 
 // fontsOverviewCard shows one row for each place, in the font it is drawn with now, so the
-// effect of the cards below is visible at once and in every place. A place that shares its
-// font with others offers to be set separately, which is the same as unchecking it in its
-// font's card.
+// effect of a save is visible at once and in every place. The checkbox of a row chooses the
+// places the card below changes.
 func (w *window) fontsOverviewCard(c ui.C, words fontWords, fonts []fontprefs.Font) {
 	title := i18n.Shared(words.language, "desktop.settings.fontsOverview")
 	help := i18n.Shared(words.language, "desktop.settings.fontsOverviewHelp")
@@ -291,15 +346,19 @@ func (w *window) fontsOverviewCard(c ui.C, words fontWords, fonts []fontprefs.Fo
 
 // fontsOverviewRow is the row of one place. Its first declaration is the container named by
 // the key the caller set, so the row keeps its identity however the others change. When the
-// card is wide the name, the sample, the summary and the button share one line; when it is
-// not, the sample moves under the other three so that it keeps the room to be read. Run
-// output does not draw ligatures yet, so its sample does not either, whatever its font sets.
+// card is wide the checkbox with the place's name, the sample and the summary share one line;
+// when it is not, the sample moves under the other two so that it keeps the room to be read.
+// Run output does not draw ligatures yet, so its sample does not either, whatever its font
+// sets.
 func (w *window) fontsOverviewRow(c ui.C, words fontWords, fonts []fontprefs.Font, scope fontprefs.Scope, oneLine bool) {
 	p := &w.pal
+	e := &w.fontEdit
 	resolved := fontprefs.For(fonts, scope)
-	index := groupIndex(fonts, scope)
 	name := func() {
-		ui.Text(c, words.scope(scope)).FontSize(12).Color(p.text).Ellipsis()
+		checked := slices.Contains(e.chosen, scope)
+		if ui.Checkbox(c.Part("checked"), &checked, words.scope(scope)).Changed() {
+			e.choose(scope, checked)
+		}
 	}
 	sample := func() ui.Box {
 		return w.fontSampleBox(c, resolved.Family, resolved.Size, resolved.LineSpacing, resolved.Ligatures && scope != fontprefs.Output)
@@ -307,20 +366,11 @@ func (w *window) fontsOverviewRow(c ui.C, words fontWords, fonts []fontprefs.Fon
 	summary := func() {
 		ui.Text(c, words.summary(resolved)).FontSize(12).Color(p.muted).Ellipsis()
 	}
-	action := func() {
-		if len(fonts[index].Scopes) < 2 {
-			return
-		}
-		if ui.Button(c, i18n.Shared(words.language, "desktop.settings.fontsSeparate")).Outline().Small().Clicked() {
-			w.setFonts(fontprefs.SetScope(fonts, index, scope, false), false)
-		}
-	}
 	if oneLine {
 		ui.Row(c).FillWidth().MinHeight(fontRowHeight).Gap(12).Items(ui.Center).Children(func() {
 			ui.Row(c).Width(fontOverviewLabelWidth).Shrink(0).Items(ui.Center).Children(name)
 			sample().Grow(1)
 			ui.Row(c).Width(fontSummaryWidth).Shrink(1).MinWidth(0).Items(ui.Center).Children(summary)
-			ui.Row(c).Width(fontSeparateWidth).Shrink(0).Justify(ui.End).Items(ui.Center).Children(action)
 		})
 		return
 	}
@@ -328,24 +378,41 @@ func (w *window) fontsOverviewRow(c ui.C, words fontWords, fonts []fontprefs.Fon
 		ui.Row(c).FillWidth().MinHeight(fontRowHeight).Gap(8).Items(ui.Center).Children(func() {
 			ui.Row(c).Width(fontOverviewLabelWidth).Shrink(0).Items(ui.Center).Children(name)
 			ui.Row(c).Grow(1).Shrink(1).MinWidth(0).Items(ui.Center).Children(summary)
-			action()
 		})
 		sample().FillWidth()
 	})
 }
 
-// fontGroupCard is the card of the font at index i of the list. It is named by its index, so
-// the controls of a card keep their identity while the others are added or dropped. Its
-// title says which places it is for.
-func (w *window) fontGroupCard(c ui.C, words fontWords, fonts []fontprefs.Font, i int) {
-	w.card(c.KeyInt(i), words.scopes(fonts[i].Scopes), "", func() {
+// fontEditCard sets up a look for the places checked in the overview. Its title names them,
+// its rows edit the unsaved look, and at the end of its last row Revert drops the changes and
+// Save gives the checked places the look, which fontprefs.Assign does. Save is offered only
+// when a place is checked and saving would change the stored list.
+func (w *window) fontEditCard(c ui.C, words fontWords, fonts []fontprefs.Font) {
+	e := &w.fontEdit
+	title := i18n.Shared(words.language, "desktop.settings.fontsNoneChecked")
+	if len(e.chosen) > 0 {
+		title = words.scopes(e.chosen)
+	}
+	help := i18n.Shared(words.language, "desktop.settings.fontsEditHelp")
+	w.card(c.Part("edit"), title, help, func() {
 		ui.Column(c).FillWidth().Gap(6).Children(func() {
-			w.fontScopesRow(c, words, fonts, i)
-			w.fontFamilyRow(c, words, fonts, i)
-			w.fontPreviewRow(c, words, fonts, i)
-			w.fontSizeRow(c, words, fonts, i)
-			w.fontSpacingRow(c, words, fonts, i)
-			w.fontLigaturesRow(c, words, fonts, i)
+			w.fontFamilyRow(c, words)
+			w.fontPreviewRow(c, words)
+			w.fontSizeRow(c, words)
+			w.fontSpacingRow(c, words)
+			w.fontLigaturesRow(c, words)
+			ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
+				ui.Spacer(c)
+				if ui.Button(c.Part("revert"), i18n.Shared(words.language, "desktop.settings.network.revert")).Outline().Disabled(!e.edited).Clicked() {
+					e.edited = false
+					e.prepare(fonts)
+				}
+				next := fontprefs.Assign(fonts, e.chosen, e.draft)
+				if ui.Button(c.Part("save"), i18n.Shared(words.language, "ui.save")).Disabled(len(e.chosen) == 0 || fontprefs.Equal(fonts, next)).Clicked() {
+					w.setFonts(next, false)
+					e.edited = false
+				}
+			})
 		})
 	})
 }
@@ -376,40 +443,22 @@ func (w *window) fontRow(c ui.C, label, help string, control func()) {
 	})
 }
 
-// fontScopesRow chooses the places a font applies to. Checking a place moves it here from
-// the font that had it, and unchecking one gives it a font of its own, which fontprefs does.
-// A font keeps at least one place, so its last one is checked and cannot be unchecked.
-func (w *window) fontScopesRow(c ui.C, words fontWords, fonts []fontprefs.Font, i int) {
-	font := fonts[i]
-	label := i18n.Shared(words.language, "desktop.settings.fontsScope")
-	help := i18n.Shared(words.language, "desktop.settings.fontsScopeHelp")
-	w.fontRow(c, label, help, func() {
-		for _, scope := range fontprefs.Scopes {
-			has := slices.Contains(font.Scopes, scope)
-			checked := has
-			box := ui.Checkbox(c.Part(string(scope)), &checked, words.scope(scope)).Disabled(has && len(font.Scopes) == 1)
-			if box.Changed() {
-				w.setFonts(fontprefs.SetScope(fonts, i, scope, checked), false)
-			}
-		}
-	})
-}
-
-// fontFamilyRow chooses the family. The field offers the system default and the installed
-// families and filters them as the user types. The stored family is always among the choices:
-// while the list is being read it is named as it is stored, with a note that the fonts are
-// being read, and once the list is here a family it lacks is named as not installed. It stays
-// chosen either way, so the stored value changes only when the user chooses another.
-func (w *window) fontFamilyRow(c ui.C, words fontWords, fonts []fontprefs.Font, i int) {
+// fontFamilyRow chooses the family of the card's look. The field offers the system default and
+// the installed families and filters them as the user types. The family the card shows is
+// always among the choices: while the list is being read it is named as it is stored, with a
+// note that the fonts are being read, and once the list is here a family it lacks is named as
+// not installed. It stays chosen either way, so it changes only when the user chooses another.
+func (w *window) fontFamilyRow(c ui.C, words fontWords) {
 	state := &w.fonts
-	stored := fonts[i].Family
-	choice := stored
-	choices := state.choices(stored)
-	missing := state.missing(stored)
+	e := &w.fontEdit
+	current := e.draft.Family
+	choice := current
+	choices := state.choices(current)
+	missing := state.missing(current)
 	label := i18n.Shared(words.language, "settings.editor.fontFamily")
 	nameOf := func(family string) string {
-		if family == stored && missing {
-			return words.notInstalled(stored)
+		if family == current && missing {
+			return words.notInstalled(current)
 		}
 		return words.family(family)
 	}
@@ -422,78 +471,84 @@ func (w *window) fontFamilyRow(c ui.C, words fontWords, fonts []fontprefs.Font, 
 			})
 		}
 		if field.Changed() {
-			w.setFonts(fontprefs.Update(fonts, i, func(f *fontprefs.Font) { f.Family = choice }), false)
+			e.edit(func(f *fontprefs.Font) { f.Family = choice })
 		}
 	})
 }
 
-// fontPreviewRow draws the sample in the font as the card sets it, with the line spacing of
-// the font's first place, so the card's own choices can be judged before they are used.
-func (w *window) fontPreviewRow(c ui.C, words fontWords, fonts []fontprefs.Font, i int) {
-	font := fonts[i]
-	spacing := fontprefs.For(fonts, font.Scopes[0]).LineSpacing
+// fontPreviewRow draws the sample in the card's look, with the line spacing of the first
+// checked place when the spacing is automatic, so the look can be judged before it is saved.
+func (w *window) fontPreviewRow(c ui.C, words fontWords) {
+	e := &w.fontEdit
+	font := e.draft
+	spacing := font.LineSpacing
+	if spacing == 0 {
+		spacing = fontprefs.AutoLineSpacing(e.first())
+	}
 	w.fontRow(c, i18n.Shared(words.language, "desktop.settings.fontsPreview"), "", func() {
 		w.fontSampleBox(c, font.Family, font.Size, spacing, font.Ligatures).Grow(1)
 	})
 }
 
 // fontSizeRow steps the size by one point between the two ends of its range.
-func (w *window) fontSizeRow(c ui.C, words fontWords, fonts []fontprefs.Font, i int) {
-	font := fonts[i]
+func (w *window) fontSizeRow(c ui.C, words fontWords) {
+	e := &w.fontEdit
+	size := e.draft.Size
 	w.fontRow(c, i18n.Shared(words.language, "settings.editor.fontSize"), "", func() {
-		if fontStep(c, icons.Minus, i18n.Shared(words.language, "desktop.settings.fontsSizeDecrease"), font.Size <= fontprefs.MinSize) {
-			size := fontprefs.ClampSize(font.Size - 1)
-			w.setFonts(fontprefs.Update(fonts, i, func(f *fontprefs.Font) { f.Size = size }), false)
+		if fontStep(c, icons.Minus, i18n.Shared(words.language, "desktop.settings.fontsSizeDecrease"), size <= fontprefs.MinSize) {
+			e.edit(func(f *fontprefs.Font) { f.Size = size - 1 })
 		}
-		w.fontStepValue(c, words.sizeValue(font.Size))
-		if fontStep(c, icons.Plus, i18n.Shared(words.language, "desktop.settings.fontsSizeIncrease"), font.Size >= fontprefs.MaxSize) {
-			size := fontprefs.ClampSize(font.Size + 1)
-			w.setFonts(fontprefs.Update(fonts, i, func(f *fontprefs.Font) { f.Size = size }), false)
+		w.fontStepValue(c, words.sizeValue(size))
+		if fontStep(c, icons.Plus, i18n.Shared(words.language, "desktop.settings.fontsSizeIncrease"), size >= fontprefs.MaxSize) {
+			e.edit(func(f *fontprefs.Font) { f.Size = size + 1 })
 		}
 	})
 }
 
 // fontSpacingRow chooses between the automatic line spacing of each place and one the user
-// sets. Unchecking automatic starts the manual spacing at what automatic gave the font's first
-// place, so the lines do not jump; checking it again clears the manual spacing. The buttons
-// that step the manual spacing are shown only while it is manual.
-func (w *window) fontSpacingRow(c ui.C, words fontWords, fonts []fontprefs.Font, i int) {
-	font := fonts[i]
-	auto := font.LineSpacing == 0
+// sets. Unchecking automatic starts the manual spacing at what automatic gives the first
+// checked place, so the lines do not jump; checking it again clears the manual spacing. The
+// buttons that step the manual spacing are shown only while it is manual.
+func (w *window) fontSpacingRow(c ui.C, words fontWords) {
+	e := &w.fontEdit
+	spacing := e.draft.LineSpacing
+	auto := spacing == 0
+	places := e.chosen
+	if len(places) == 0 {
+		places = []fontprefs.Scope{e.first()}
+	}
 	w.fontRow(c, i18n.Shared(words.language, "desktop.settings.fontsLineSpacing"), "", func() {
 		checked := auto
-		if ui.Checkbox(c.Part("line-spacing-auto"), &checked, words.autoSpacing(font.Scopes)).Changed() {
-			spacing := float32(0)
+		if ui.Checkbox(c.Part("line-spacing-auto"), &checked, words.autoSpacing(places)).Changed() {
+			next := float32(0)
 			if !checked {
-				spacing = fontprefs.AutoLineSpacing(font.Scopes[0])
+				next = fontprefs.AutoLineSpacing(e.first())
 			}
-			w.setFonts(fontprefs.Update(fonts, i, func(f *fontprefs.Font) { f.LineSpacing = spacing }), false)
+			e.edit(func(f *fontprefs.Font) { f.LineSpacing = next })
 		}
 		if auto {
 			return
 		}
-		if fontStep(c, icons.Minus, i18n.Shared(words.language, "desktop.settings.fontsLineSpacingDecrease"), font.LineSpacing <= fontprefs.MinLineSpacing) {
-			spacing := fontprefs.ClampLineSpacing(font.LineSpacing - fontprefs.LineSpacingStep)
-			w.setFonts(fontprefs.Update(fonts, i, func(f *fontprefs.Font) { f.LineSpacing = spacing }), false)
+		if fontStep(c, icons.Minus, i18n.Shared(words.language, "desktop.settings.fontsLineSpacingDecrease"), spacing <= fontprefs.MinLineSpacing) {
+			e.edit(func(f *fontprefs.Font) { f.LineSpacing = spacing - fontprefs.LineSpacingStep })
 		}
-		w.fontStepValue(c, formatSpacing(font.LineSpacing))
-		if fontStep(c, icons.Plus, i18n.Shared(words.language, "desktop.settings.fontsLineSpacingIncrease"), font.LineSpacing >= fontprefs.MaxLineSpacing) {
-			spacing := fontprefs.ClampLineSpacing(font.LineSpacing + fontprefs.LineSpacingStep)
-			w.setFonts(fontprefs.Update(fonts, i, func(f *fontprefs.Font) { f.LineSpacing = spacing }), false)
+		w.fontStepValue(c, formatSpacing(spacing))
+		if fontStep(c, icons.Plus, i18n.Shared(words.language, "desktop.settings.fontsLineSpacingIncrease"), spacing >= fontprefs.MaxLineSpacing) {
+			e.edit(func(f *fontprefs.Font) { f.LineSpacing = spacing + fontprefs.LineSpacingStep })
 		}
 	})
 }
 
-// fontLigaturesRow switches the ligatures of the font. The help says the font itself must
-// support them and that run output does not draw them yet.
-func (w *window) fontLigaturesRow(c ui.C, words fontWords, fonts []fontprefs.Font, i int) {
-	font := fonts[i]
+// fontLigaturesRow switches the ligatures of the card's look. The help says the font itself
+// must support them and that run output does not draw them yet.
+func (w *window) fontLigaturesRow(c ui.C, words fontWords) {
+	e := &w.fontEdit
 	label := i18n.Shared(words.language, "settings.editor.fontLigatures")
 	help := i18n.Shared(words.language, "desktop.settings.fontsLigaturesHelp")
 	w.fontRow(c, label, help, func() {
-		on := font.Ligatures
+		on := e.draft.Ligatures
 		if ui.Switch(c.Part("ligatures"), &on, "").Label(label).Changed() {
-			w.setFonts(fontprefs.Update(fonts, i, func(f *fontprefs.Font) { f.Ligatures = on }), false)
+			e.edit(func(f *fontprefs.Font) { f.Ligatures = on })
 		}
 	})
 }

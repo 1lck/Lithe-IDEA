@@ -2,8 +2,9 @@
 // spacing and ligatures the editor, the terminal and the run output are drawn with.
 //
 // The choice is a list of fonts, each applying to the scopes it names. Every scope belongs
-// to exactly one font of the list, so the places that share a font are edited together and
-// a place given its own font is edited on its own. The package holds the rules of that list
+// to exactly one font of the list, and the settings window sets the places the user checks
+// to one look at once with Assign, which keeps the places of one look in one font. The
+// package holds the rules of that list
 // and touches no Viva type: the workbench turns a family name into a face and the settings
 // window draws the list, and both read it through Normalize and For.
 //
@@ -182,54 +183,48 @@ func For(fonts []Font, scope Scope) Resolved {
 	return resolved
 }
 
-// SetScope returns fonts with scope moved into or out of the font at index i of
-// Normalize(fonts). Including it takes it from the font that had it, which is dropped if it
-// keeps no scope. Excluding it gives it a font of its own with the values of font i, which
-// the user then changes. A font keeps at least one scope, so excluding the last one, an
-// index out of range or a scope not in Scopes leaves the list as it is. The result is
-// normalized; fonts is not changed.
-func SetScope(fonts []Font, i int, scope Scope, include bool) []Font {
+// Assign returns fonts with the scopes given drawn with the values of font, whose own scopes
+// are ignored. Each of those scopes is taken from the font that had it, which is dropped if it
+// keeps no scope, and fonts that end with the same values are joined into one, so that one
+// font of the list is one look and the settings window can tell which places share it. Scopes
+// not in Scopes are skipped, and none at all leaves the list as it is. The values are clamped
+// as Normalize clamps them. The result is normalized; fonts is not changed.
+func Assign(fonts []Font, scopes []Scope, font Font) []Font {
 	list := Normalize(fonts)
-	if i < 0 || i >= len(list) || !known(scope) {
+	var taken []Scope
+	for _, scope := range Scopes {
+		if slices.Contains(scopes, scope) {
+			taken = append(taken, scope)
+		}
+	}
+	if len(taken) == 0 {
 		return list
 	}
-	has := slices.Contains(list[i].Scopes, scope)
-	switch {
-	case include && !has:
-		for j := range list {
-			list[j].Scopes = slices.DeleteFunc(slices.Clone(list[j].Scopes), func(s Scope) bool { return s == scope })
-		}
-		list[i].Scopes = append(list[i].Scopes, scope)
-	case !include && has && len(list[i].Scopes) > 1:
-		split := list[i]
-		split.Scopes = []Scope{scope}
-		list[i].Scopes = slices.DeleteFunc(slices.Clone(list[i].Scopes), func(s Scope) bool { return s == scope })
-		list = append(list, split)
+	for i := range list {
+		list[i].Scopes = slices.DeleteFunc(slices.Clone(list[i].Scopes), func(s Scope) bool { return slices.Contains(taken, s) })
 	}
-	return Normalize(list)
+	font.Scopes = taken
+	var joined []Font
+	for _, candidate := range Normalize(append(list, font)) {
+		if j := slices.IndexFunc(joined, func(f Font) bool { return SameLook(f, candidate) }); j >= 0 {
+			joined[j].Scopes = append(joined[j].Scopes, candidate.Scopes...)
+			continue
+		}
+		joined = append(joined, candidate)
+	}
+	return Normalize(joined)
 }
 
-// Update returns fonts with the font at index i of Normalize(fonts) replaced by edit applied
-// to a copy of it. edit may change any field but the scopes, which SetScope moves. An index
-// out of range leaves the list as it is. The result is normalized; fonts is not changed.
-func Update(fonts []Font, i int, edit func(*Font)) []Font {
-	list := Normalize(fonts)
-	if i < 0 || i >= len(list) || edit == nil {
-		return list
-	}
-	font := list[i]
-	scopes := font.Scopes
-	font.Scopes = slices.Clone(scopes)
-	edit(&font)
-	font.Scopes = scopes
-	list[i] = font
-	return Normalize(list)
+// SameLook says whether a and b draw text the same way, whatever scopes they apply to. A zero
+// line spacing is the same automatic spacing in both, even though it resolves differently in
+// each scope.
+func SameLook(a, b Font) bool {
+	return a.Family == b.Family && a.Size == b.Size && a.LineSpacing == b.LineSpacing && a.Ligatures == b.Ligatures
 }
 
 // Equal says whether a and b mean the same list.
 func Equal(a, b []Font) bool {
 	return slices.EqualFunc(Normalize(a), Normalize(b), func(x, y Font) bool {
-		return x.Family == y.Family && x.Size == y.Size && x.LineSpacing == y.LineSpacing &&
-			x.Ligatures == y.Ligatures && slices.Equal(x.Scopes, y.Scopes)
+		return SameLook(x, y) && slices.Equal(x.Scopes, y.Scopes)
 	})
 }

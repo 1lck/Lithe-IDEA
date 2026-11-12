@@ -106542,6 +106542,20 @@
       ]
     },
     {
+      "id": "desktop.settings.fontsNoneChecked",
+      "description": "Settings > Fonts: title of the editing card when no place is checked in the overview",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.fontsEditHelp",
+      "description": "Settings > Fonts: info popover of the card that edits the checked places",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.fontsPreview",
       "description": "Settings > Fonts: label of a font group's preview line",
       "platforms": [
@@ -106549,22 +106563,8 @@
       ]
     },
     {
-      "id": "desktop.settings.fontsScope",
-      "description": "Settings > Fonts: label of the places a font group applies to",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.settings.fontsScopeEditor",
       "description": "Settings > Fonts: the code editor as a place a font applies to",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.settings.fontsScopeHelp",
-      "description": "Settings > Fonts: info popover of the places a font group applies to",
       "platforms": [
         "desktop"
       ]
@@ -106593,13 +106593,6 @@
     {
       "id": "desktop.settings.fontsSearch",
       "description": "Settings > Fonts: placeholder of the font family search",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.settings.fontsSeparate",
-      "description": "Settings > Fonts: button that gives a place that shares its font a font of its own",
       "platforms": [
         "desktop"
       ]

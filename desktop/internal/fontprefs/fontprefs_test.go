@@ -2,6 +2,7 @@ package fontprefs
 
 import (
 	"encoding/json"
+	"reflect"
 	"slices"
 	"testing"
 )
@@ -61,58 +62,38 @@ func TestForResolvesAutomaticLineSpacingPerScope(t *testing.T) {
 	}
 }
 
-func TestSetScopeSplitsAndMoves(t *testing.T) {
+// TestAssignSetsTheScopesGivenAndJoinsTheSameLook: assigning a look to some scopes takes them
+// from the font that had them and leaves the others as they were; assigning the look another
+// font has joins the two; the values are clamped; no scope or only unknown ones change nothing,
+// and the argument is not changed.
+func TestAssignSetsTheScopesGivenAndJoinsTheSameLook(t *testing.T) {
 	fonts := []Font{{Family: "A", Size: 15, Scopes: Scopes}}
 
-	// Unchecking the terminal gives it a font of its own that starts as a copy.
-	split := SetScope(fonts, 0, Terminal, false)
-	if len(split) != 2 || !slices.Equal(split[0].Scopes, []Scope{Editor, Output}) || !slices.Equal(split[1].Scopes, []Scope{Terminal}) {
-		t.Fatalf("split = %+v", split)
+	split := Assign(fonts, []Scope{Output, Editor}, Font{Family: "B", Size: 2, LineSpacing: 9, Ligatures: true, Scopes: []Scope{Terminal}})
+	want := []Font{
+		{Family: "B", Size: MinSize, LineSpacing: MaxLineSpacing, Ligatures: true, Scopes: []Scope{Editor, Output}},
+		{Family: "A", Size: 15, Scopes: []Scope{Terminal}},
 	}
-	if split[1].Family != "A" || split[1].Size != 15 {
-		t.Fatalf("the split font = %+v, want a copy of the values", split[1])
-	}
-
-	// A font keeps its last scope.
-	if kept := SetScope(split, 1, Terminal, false); !Equal(kept, split) {
-		t.Fatalf("unchecking the last scope changed the list: %+v", kept)
+	if !reflect.DeepEqual(split, want) {
+		t.Fatalf("split = %+v, want %+v", split, want)
 	}
 
-	// Checking the terminal in the first font moves it back and drops the emptied font.
-	merged := SetScope(split, 0, Terminal, true)
-	if len(merged) != 1 || !slices.Equal(merged[0].Scopes, Scopes) || merged[0].Family != "A" {
-		t.Fatalf("merged = %+v", merged)
+	joined := Assign(split, []Scope{Terminal}, split[0])
+	if len(joined) != 1 || !slices.Equal(joined[0].Scopes, Scopes) || joined[0].Family != "B" {
+		t.Fatalf("assigning the look of the first font to the terminal = %+v, want one font", joined)
+	}
+	if back := Assign(split, []Scope{Editor, Output}, Font{Family: "A", Size: 15}); !Equal(back, fonts) {
+		t.Fatalf("assigning the terminal's look to the others = %+v, want %+v", back, fonts)
 	}
 
-	// Out of range and unknown scopes change nothing.
-	if got := SetScope(split, 5, Editor, true); !Equal(got, split) {
-		t.Fatalf("an index out of range changed the list: %+v", got)
+	if got := Assign(split, nil, Font{Family: "C"}); !Equal(got, split) {
+		t.Fatalf("no scope changed the list: %+v", got)
 	}
-	if got := SetScope(split, 0, "unknown", true); !Equal(got, split) {
+	if got := Assign(split, []Scope{"unknown"}, Font{Family: "C"}); !Equal(got, split) {
 		t.Fatalf("an unknown scope changed the list: %+v", got)
 	}
-	if len(fonts[0].Scopes) != len(Scopes) {
-		t.Fatalf("SetScope changed its argument: %+v", fonts)
-	}
-}
-
-func TestUpdateKeepsScopesAndClamps(t *testing.T) {
-	fonts := []Font{{Scopes: []Scope{Editor}}, {Scopes: []Scope{Terminal, Output}}}
-	got := Update(fonts, 1, func(f *Font) {
-		f.Family = "Fira Code"
-		f.Size = 2
-		f.LineSpacing = 9
-		f.Ligatures = true
-		f.Scopes = nil
-	})
-	if got[1].Family != "Fira Code" || got[1].Size != MinSize || got[1].LineSpacing != MaxLineSpacing || !got[1].Ligatures {
-		t.Fatalf("updated font = %+v", got[1])
-	}
-	if !slices.Equal(got[1].Scopes, []Scope{Terminal, Output}) {
-		t.Fatalf("Update changed the scopes: %+v", got[1].Scopes)
-	}
-	if got[0].Family != "" {
-		t.Fatalf("Update changed another font: %+v", got[0])
+	if len(fonts[0].Scopes) != len(Scopes) || fonts[0].Family != "A" {
+		t.Fatalf("Assign changed its argument: %+v", fonts)
 	}
 }
 
@@ -126,8 +107,7 @@ func TestClampLineSpacingRoundsToAStep(t *testing.T) {
 }
 
 func TestFontsRoundTripThroughJSON(t *testing.T) {
-	fonts := SetScope(Default(), 0, Terminal, false)
-	fonts = Update(fonts, 1, func(f *Font) { f.Family = "Menlo"; f.LineSpacing = 1.2 })
+	fonts := Assign(Default(), []Scope{Terminal}, Font{Family: "Menlo", Size: DefaultSize, LineSpacing: 1.2})
 	data, err := json.Marshal(fonts)
 	if err != nil {
 		t.Fatal(err)

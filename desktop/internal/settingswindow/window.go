@@ -109,8 +109,10 @@ type window struct {
 	settingsNotices chan string
 	// terminal is the Terminal page's list of installed shells.
 	terminal terminalShellState
-	// fonts is the Fonts page's list of installed fixed-pitch families.
-	fonts fontListState
+	// fonts is the Fonts page's list of installed fixed-pitch families, and fontEdit the
+	// places checked on it and the unsaved look being set up for them (fonts_view.go).
+	fonts    fontListState
+	fontEdit fontEditState
 	// generation is the Generation page's state (ai_generation.go).
 	generation *aiGeneration
 	// scrollbackField is the Terminal page's history field; scrollbackEditing says the user
