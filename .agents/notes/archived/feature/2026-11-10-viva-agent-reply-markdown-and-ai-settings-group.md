@@ -5,7 +5,7 @@
 
 ## 归档原因
 
-2026-11-12 用户决定 Viva 桌面端不做 Agent 对话，Agent 回复的 Markdown 视图、已归档对话的本地隐藏列表，以及 Agents/指令/技能/Hooks/MCP 设置页都已删除。AI 设置分组现在只有“AI → 生成 → IDE 连接”，见[Viva 桌面端不做 Agent 对话，只保留 AI 生成](../../implemented/feature/2026-11-12-viva-agent-conversation-removed.md)；工具窗口的 Markdown 预览仍用 Viva 的 Markdown 视图。
+2026-11-12 用户决定 Viva 桌面端不做 Agent 对话，Agent 回复的 Markdown 视图、已归档对话的本地隐藏列表，以及 Agents/指令/技能/Hooks/MCP 设置页都已删除。AI 设置分组现在只有“AI → 生成 → IDE 连接”，见[Viva 桌面端不做 Agent 对话，只保留 AI 生成](../../implemented/feature/2026-11-12-viva-agent-conversation-removed.md)；Markdown 文件双栏编辑器的渲染页仍用 Viva 的 Markdown 视图。
 
 ## 先说结论
 
@@ -26,7 +26,7 @@ Viva 客户端的 Agent 回复改用 Viva 自己的 Markdown 视图渲染，而�
 - 回复文本由 `components.MarkdownView` 解析并绘制，代码在 `desktop/internal/workbench/agent_markdown.go`。解析结果和布局宽度按消息缓存，流式回复只在文本增长时重新解析。
 - 支持的语法以 Viva 解析器为准：标题、列表、引用、围栏代码、表格和 `http`/`https`/`mailto` 链接；不支持 HTML、图片、数学公式、Mermaid 和脚注。
 - 无障碍缺口记录在代码注释：Viva 的 Markdown 视图不产出可读的无障碍节点，读屏器暂时读不到回复内容，等 Viva 上游 (#200–#204) 补齐后再补。
-- 工具窗口里的 Markdown 预览使用同一套 Viva 视图，见 `desktop/internal/workbench/markdown_preview.go`；两处都不引入 HTML 渲染或第二套 Markdown 解析器。
+- Markdown 预览使用同一套 Viva 视图（2026-11-12 起由工具窗口改为 Markdown 文件的双栏编辑器），见 `desktop/internal/workbench/markdown_preview.go`；两处都不引入 HTML 渲染或第二套 Markdown 解析器。
 
 ### AI 设置分组
 

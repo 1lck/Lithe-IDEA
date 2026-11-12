@@ -12931,22 +12931,8 @@
       ]
     },
     {
-      "id": "desktop.markdown.noFile",
-      "description": "Markdown preview text when the selected file is not Markdown",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.markdown.preview",
       "description": "Name of the rendered Markdown area",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.markdown.title",
-      "description": "Name of the Markdown preview tool window",
       "platforms": [
         "desktop"
       ]
@@ -18090,21 +18076,24 @@
       "id": "editor.markdownPreviewView",
       "description": "Windows UI: editor.markdownPreviewView",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "editor.markdownSourceView",
       "description": "Windows UI: editor.markdownSourceView",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
       "id": "editor.markdownSplitView",
       "description": "Windows UI: editor.markdownSplitView",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {

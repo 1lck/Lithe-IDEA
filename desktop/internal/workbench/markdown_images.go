@@ -64,10 +64,9 @@ func markdownImageSource(documentPath, destination string) (key string, remote b
 	return target.path, false, true
 }
 
-// markdownImageBitmap answers the view's question for one destination: the bitmap when it is
+// markdownImageBitmap answers the page's question for one destination of d: the bitmap when it is
 // loaded, and otherwise false after starting its load.
-func (a *App) markdownImageBitmap(destination string) (gfx.Bitmap, bool) {
-	s := &a.editor.markdown
+func (a *App) markdownImageBitmap(d *document, s *markdownPreviewState, destination string) (gfx.Bitmap, bool) {
 	key, remote, ok := markdownImageSource(s.path, destination)
 	if !ok {
 		return gfx.Bitmap{}, false
@@ -80,12 +79,11 @@ func (a *App) markdownImageBitmap(destination string) (gfx.Bitmap, bool) {
 	}
 	image := &markdownImage{loading: true}
 	s.images[key] = image
-	documentID := s.documentID
 	go func() {
 		bitmap, err := loadMarkdownImage(key, remote)
 		a.post(func(a *App) {
-			s := &a.editor.markdown
-			if s.documentID != documentID || s.images[key] != image {
+			// The file may have been renamed or closed while the image loaded.
+			if d.markdown != s || s.images[key] != image {
 				return
 			}
 			image.loading = false

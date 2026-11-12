@@ -11,6 +11,5 @@ type editorFeatures struct {
 	refs     referencesState
 	encoding encodingState
 	lsp      lspLogState
-	markdown markdownPreviewState
 	tokens   semanticTokensState
 }

@@ -104,6 +104,11 @@ type document struct {
 	// debugGutter is the debugger's breakpoints and paused line the view was given
 	// (debug_gutter.go).
 	debugGutter debugGutter
+	// markdown is the rendered page of a Markdown file, made the first time it is shown, and
+	// markdownMode how the file's tab shows it: source, both side by side, or the page alone
+	// (markdown_preview.go).
+	markdown     *markdownPreviewState
+	markdownMode markdownMode
 	// virtual marks a read-only document a plugin provides for a URI that names no
 	// file (a class inside a jar). path then holds the URI: the document is never
 	// watched, saved or synchronized with a language server, and the host keeps no

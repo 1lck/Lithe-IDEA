@@ -226,7 +226,7 @@ func TestWorkbenchDefaultLayout(t *testing.T) {
 		zoneLeftTop:     {itemProject, itemCommit, itemStructure, itemFind},
 		zoneLeftBottom:  nil,
 		zoneBottomLeft:  {itemGit, itemTerminal, itemProblems, itemReferences, itemRun, itemTests, itemSecurity, itemDebug},
-		zoneRightTop:    {itemNotifications, itemMarkdown},
+		zoneRightTop:    {itemNotifications},
 		zoneRightBottom: nil,
 		zoneBottomRight: {itemUpdates, itemBackground},
 		zoneTitle:       {itemRunConfig, itemTitleRun, itemTitleDebug, itemTitleSearch, itemTitleSettings},
@@ -378,7 +378,7 @@ func TestSnappedStripeDragReordersAndLocksTheGhostToItsColumn(t *testing.T) {
 	h.open(t.TempDir())
 	kernel.chromeActions = nil
 
-	from := center(h.button(itemMarkdown))
+	from := center(h.button(itemBackground))
 	targetButton := h.button(itemNotifications)
 	to := gfx.Point{X: from.X, Y: targetButton.Y + dragThreshold}
 	if err := h.driver.Press(from.X, from.Y, gfx.PointerButtonPrimary); err != nil {
@@ -415,7 +415,7 @@ func TestSnappedStripeDragReordersAndLocksTheGhostToItsColumn(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.settle()
-	wantAction := core.MoveChrome(itemMarkdown, core.ZoneRightTop, itemNotifications)
+	wantAction := core.MoveChrome(itemBackground, core.ZoneRightTop, itemNotifications)
 	if len(kernel.chromeActions) != 1 || kernel.chromeActions[0] != wantAction {
 		t.Fatalf("chrome actions = %v, want one MoveChrome to right top before %q", kernel.chromeActions, itemNotifications)
 	}
@@ -468,7 +468,7 @@ func TestDetachedStripeDragTargetsDockAreasAndOtherStripeButtons(t *testing.T) {
 			h.open(t.TempDir())
 			kernel.chromeActions = nil
 
-			from := center(h.button(itemMarkdown))
+			from := center(h.button(itemNotifications))
 			stripes := dragStripeRects(gfx.Rect{Width: 1280, Height: 800})
 			detached := gfx.Point{X: stripes[stripeRight].X - dragDetachDistance - 1, Y: from.Y}
 			if err := h.driver.Press(from.X, from.Y, gfx.PointerButtonPrimary); err != nil {
@@ -490,12 +490,12 @@ func TestDetachedStripeDragTargetsDockAreasAndOtherStripeButtons(t *testing.T) {
 			}
 			h.settle()
 
-			wantAction := core.MoveChrome(itemMarkdown, zoneNames[tc.zone], tc.before)
+			wantAction := core.MoveChrome(itemNotifications, zoneNames[tc.zone], tc.before)
 			if len(kernel.chromeActions) != 1 || kernel.chromeActions[0] != wantAction {
 				t.Fatalf("chrome actions = %v, want one MoveChrome to zone %d before %q", kernel.chromeActions, tc.zone, tc.before)
 			}
-			if got := h.app.chrome.zoneOf(catalogIndex[itemMarkdown]); got != tc.zone {
-				t.Fatalf("markdown is in zone %d after release, want zone %d", got, tc.zone)
+			if got := h.app.chrome.zoneOf(catalogIndex[itemNotifications]); got != tc.zone {
+				t.Fatalf("notifications is in zone %d after release, want zone %d", got, tc.zone)
 			}
 		})
 	}
@@ -507,7 +507,7 @@ func TestDetachedStripeDragWithoutATargetDoesNotCommit(t *testing.T) {
 	h.open(t.TempDir())
 	kernel.chromeActions = nil
 
-	from := center(h.button(itemMarkdown))
+	from := center(h.button(itemNotifications))
 	stripes := dragStripeRects(gfx.Rect{Width: 1280, Height: 800})
 	detached := gfx.Point{X: stripes[stripeRight].X - dragDetachDistance - 1, Y: from.Y}
 	main := h.app.layout.mainRect
@@ -532,8 +532,8 @@ func TestDetachedStripeDragWithoutATargetDoesNotCommit(t *testing.T) {
 	if len(kernel.chromeActions) != 0 {
 		t.Fatalf("chrome actions = %v, want no committed move", kernel.chromeActions)
 	}
-	if got := h.app.chrome.zoneOf(catalogIndex[itemMarkdown]); got != zoneRightTop {
-		t.Fatalf("markdown is in zone %d after a targetless release, want the source zone", got)
+	if got := h.app.chrome.zoneOf(catalogIndex[itemNotifications]); got != zoneRightTop {
+		t.Fatalf("notifications is in zone %d after a targetless release, want the source zone", got)
 	}
 }
 
@@ -542,7 +542,7 @@ func TestDetachedDropPreviewUsesTheLocalizedDockTitle(t *testing.T) {
 		t.Run(language.Code(), func(t *testing.T) {
 			h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{language.Code()})
 			h.open(t.TempDir())
-			from := center(h.button(itemMarkdown))
+			from := center(h.button(itemNotifications))
 			stripes := dragStripeRects(gfx.Rect{Width: 1280, Height: 800})
 			detached := gfx.Point{X: stripes[stripeRight].X - dragDetachDistance - 1, Y: from.Y}
 			area := h.app.dragDockAnchors(gfx.Size{Width: 1280, Height: 800})[dockAnchorRight].area

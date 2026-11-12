@@ -31,7 +31,7 @@ func pngOf(t *testing.T, width, height int) []byte {
 	return encoded.Bytes()
 }
 
-// TestMarkdownPreviewShowsRelativeAndRemoteImages: the preview loads an image beside the file
+// TestMarkdownPreviewShowsRelativeAndRemoteImages: the page beside the source loads an image beside the file
 // and one served over http, and gives up on a missing download and a format it cannot decode,
 // which keep their alt text.
 func TestMarkdownPreviewShowsRelativeAndRemoteImages(t *testing.T) {
@@ -65,10 +65,11 @@ func TestMarkdownPreviewShowsRelativeAndRemoteImages(t *testing.T) {
 	h.open(root)
 	h.app.openFile(h.app.project, readme)
 	h.settle()
-	h.app.reduceChrome(core.SetChromeOpen(itemMarkdown, true))
-	h.settle()
-
-	s := &h.app.editor.markdown
+	d := h.app.project.docs.byPath(readme)
+	if d == nil || d.markdown == nil {
+		t.Fatal("the Markdown file did not open beside its page")
+	}
+	s := d.markdown
 	loaded := func() bool {
 		if len(s.images) != 4 {
 			return false
@@ -95,10 +96,10 @@ func TestMarkdownPreviewShowsRelativeAndRemoteImages(t *testing.T) {
 	if vector := s.images[filepath.Join(root, "logo.svg")]; vector == nil || !vector.failed {
 		t.Fatalf("an SVG is %+v, want failed", vector)
 	}
-	if _, ok := h.app.markdownImageBitmap("img/local.png"); !ok {
+	if _, ok := h.app.markdownImageBitmap(d, s, "img/local.png"); !ok {
 		t.Fatal("the loaded image is not handed to the view")
 	}
-	if _, ok := h.app.markdownImageBitmap(server.URL + "/gone.png"); ok {
+	if _, ok := h.app.markdownImageBitmap(d, s, server.URL+"/gone.png"); ok {
 		t.Fatal("a failed image is handed to the view")
 	}
 	h.settle()

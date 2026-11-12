@@ -60,7 +60,8 @@ func (a *App) editorNode(c ui.C, n *splitNode) ui.Box {
 
 // editorGroup declares one group of the editor: a strip of its tabs over a body that shows
 // the selected file or terminal. The group is recorded for the drag, which aims at the strip
-// and the body. A group that shows an open file ends its strip with the soft wrap switch.
+// and the body. A group that shows an open file ends its strip with the soft wrap switch, after
+// the switch of a Markdown file's view.
 func (a *App) editorGroup(c ui.C, id string) ui.Box {
 	u := &a.term
 	place := newGroupPlace(id, false)
@@ -77,6 +78,9 @@ func (a *App) editorGroup(c ui.C, id string) ui.Box {
 			// The tabs fill the strip and give up their room before the buttons do, so they
 			// stay at the end of the strip's first row however many files are open.
 			a.tabBar(c, place, layout, func() {
+				if isMarkdownDocument(doc) {
+					a.markdownModeSwitch(c, doc)
+				}
 				if doc != nil {
 					a.softWrapSwitch(c)
 				}
@@ -91,9 +95,13 @@ func (a *App) editorGroup(c ui.C, id string) ui.Box {
 	})
 }
 
-// groupBody declares the body of group id: the control of the file it shows, of the Diff tab,
-// or of the terminal.
+// groupBody declares the body of group id: the control of the file it shows (a Markdown file
+// with its rendered page), of the Diff tab, or of the terminal.
 func (a *App) groupBody(c ui.C, id string, doc *document) {
+	if isMarkdownDocument(doc) {
+		a.markdownDocument(c, a.project, id, doc)
+		return
+	}
 	if doc != nil {
 		a.documentView(c, id, doc)
 		return
