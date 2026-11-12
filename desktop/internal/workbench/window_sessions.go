@@ -102,13 +102,31 @@ func (s *windowSessions) config() app.Config {
 	window.OnFocusLost = func() gfx.EventResult {
 		var result gfx.EventResult
 		for _, a := range s.list {
+			// Another window holds the keyboard: every list greys the row it keeps selected
+			// until this window is activated again.
+			a.windowInactive = true
+			a.applySelectionFocus()
 			if lost := s.of(a).OnFocusLost; lost != nil {
 				if answer := lost(); a == s.active {
 					result = answer
 				}
 			}
+			if a == s.active {
+				result.Repaint = true
+			}
 		}
 		return result
+	}
+	// OnActivate brings the selection color back when this window gets the keyboard again.
+	window.OnActivate = func() {
+		for _, a := range s.list {
+			if !a.windowInactive {
+				continue
+			}
+			a.windowInactive = false
+			a.applySelectionFocus()
+			a.invalidator.Invalidate()
+		}
 	}
 	window.OnFullscreen = func(fullscreen bool) {
 		for _, a := range s.list {

@@ -33,6 +33,9 @@ type palette struct {
 	Active gfx.Color
 	// Selection is the selected row of a list or tree.
 	Selection gfx.Color
+	// SelectionIdle is that same row while another window has the keyboard: the row stays
+	// marked, greyed, as IDEA dims the selection of an unfocused tree.
+	SelectionIdle gfx.Color
 	// Text is ordinary text; Subtle is secondary text and inactive icons.
 	Text   gfx.Color
 	Subtle gfx.Color
@@ -78,22 +81,40 @@ func look(choice themeChoice) (gfx.Theme, palette) {
 	return lightLook()
 }
 
+// applyLook settles the window's theme and palette and then picks the selection color the
+// focus calls for, so every paint and every look change agree on it.
+func (a *App) applyLook(choice themeChoice) {
+	a.theme, a.colors = look(choice)
+	a.applySelectionFocus()
+}
+
+// applySelectionFocus greys the selection of every list while another window has the
+// keyboard and restores it when this one comes back, the way IDEA dims an unfocused tree.
+func (a *App) applySelectionFocus() {
+	if a.windowInactive {
+		a.theme.Selection = a.colors.SelectionIdle
+		return
+	}
+	a.theme.Selection = a.colors.Selection
+}
+
 func lightLook() (gfx.Theme, palette) {
 	accent := gfx.RGB24(0x3574F0)
 	p := palette{
-		Chrome:    gfx.RGB24(0xF7F8FA),
-		Panel:     gfx.RGB24(0xF7F8FA),
-		Editor:    gfx.RGB24(0xFFFFFF),
-		Line:      gfx.RGB24(0xEBECF0),
-		Hover:     gfx.RGB24(0xEBECF0),
-		Active:    gfx.RGB24(0xDFE1E5),
-		Selection: gfx.RGB24(0xD5E1FF),
-		Text:      gfx.RGB24(0x1E1F22),
-		Subtle:    gfx.RGB24(0x6C707E),
-		Accent:    accent,
-		Success:   gfx.RGB24(0x208A3C),
-		Warning:   gfx.RGB24(0xC27D04),
-		Deleted:   gfx.RGB24(0xDB3B4B),
+		Chrome:        gfx.RGB24(0xF7F8FA),
+		Panel:         gfx.RGB24(0xF7F8FA),
+		Editor:        gfx.RGB24(0xFFFFFF),
+		Line:          gfx.RGB24(0xEBECF0),
+		Hover:         gfx.RGB24(0xEBECF0),
+		Active:        gfx.RGB24(0xDFE1E5),
+		Selection:     gfx.RGB24(0xD5E1FF),
+		SelectionIdle: gfx.RGB24(0xE9EAEE),
+		Text:          gfx.RGB24(0x1E1F22),
+		Subtle:        gfx.RGB24(0x6C707E),
+		Accent:        accent,
+		Success:       gfx.RGB24(0x208A3C),
+		Warning:       gfx.RGB24(0xC27D04),
+		Deleted:       gfx.RGB24(0xDB3B4B),
 
 		GitModified:       gfx.RGB24(0x0033B3),
 		GitModifiedStaged: gfx.RGB24(0x2652BE),
@@ -134,20 +155,21 @@ func lightLook() (gfx.Theme, palette) {
 func darkLook() (gfx.Theme, palette) {
 	accent := gfx.RGB24(0x3574F0)
 	p := palette{
-		Chrome:    gfx.RGB24(0x2B2D30),
-		Panel:     gfx.RGB24(0x2B2D30),
-		Editor:    gfx.RGB24(0x1E1F22),
-		Line:      gfx.RGB24(0x1E1F22),
-		Hover:     gfx.RGB24(0x393B40),
-		Active:    gfx.RGB24(0x43454A),
-		Selection: gfx.RGB24(0x2E436E),
-		Text:      gfx.RGB24(0xDFE1E5),
-		Subtle:    gfx.RGB24(0x868A91),
-		Accent:    gfx.RGB24(0x548AF7),
-		Success:   gfx.RGB24(0x5FB865),
-		Warning:   gfx.RGB24(0xE0A33B),
-		Deleted:   gfx.RGB24(0xDB5C5C),
-		Dark:      true,
+		Chrome:        gfx.RGB24(0x2B2D30),
+		Panel:         gfx.RGB24(0x2B2D30),
+		Editor:        gfx.RGB24(0x1E1F22),
+		Line:          gfx.RGB24(0x1E1F22),
+		Hover:         gfx.RGB24(0x393B40),
+		Active:        gfx.RGB24(0x43454A),
+		Selection:     gfx.RGB24(0x2E436E),
+		SelectionIdle: gfx.RGB24(0x33353B),
+		Text:          gfx.RGB24(0xDFE1E5),
+		Subtle:        gfx.RGB24(0x868A91),
+		Accent:        gfx.RGB24(0x548AF7),
+		Success:       gfx.RGB24(0x5FB865),
+		Warning:       gfx.RGB24(0xE0A33B),
+		Deleted:       gfx.RGB24(0xDB5C5C),
+		Dark:          true,
 
 		GitModified:       gfx.RGB24(0x70AEFF),
 		GitModifiedStaged: gfx.RGB24(0x85BAFF),

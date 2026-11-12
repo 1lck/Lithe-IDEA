@@ -101,7 +101,7 @@ func (a *App) sessionConfig() app.Config {
 // beginPaint settles the look of the paint about to be declared and forgets what the last
 // paint declared that this one declares afresh.
 func (a *App) beginPaint(canvas *gfx.Canvas) {
-	a.theme, a.colors = look(a.settings.Theme)
+	a.applyLook(a.settings.Theme)
 	a.rememberWindowBackground(a.colors.Editor)
 	a.shared.text.Store(a.text)
 	a.shared.dark.Store(a.colors.Dark)

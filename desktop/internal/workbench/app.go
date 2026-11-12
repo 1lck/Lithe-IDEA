@@ -439,6 +439,9 @@ type App struct {
 	// fills its monitor, as the host last reported.
 	window     *app.Window
 	fullscreen bool
+	// windowInactive is set while another window holds the keyboard, which greys the
+	// selection of every list (theme.go applySelectionFocus).
+	windowInactive bool
 	// memory is the memory monitor's last reading (memory_monitor.go).
 	memory memoryState
 	// shownTitle is the system title last given to the window (window_title.go).
@@ -661,7 +664,7 @@ func New(options Options) *App {
 	a.everywhereView.delay = -1
 	a.version = options.Version
 	a.text = i18n.For(a.language())
-	a.theme, a.colors = look(a.settings.Theme)
+	a.applyLook(a.settings.Theme)
 	a.shared.text.Store(a.text)
 	a.shared.dark.Store(a.colors.Dark)
 	if first := options.first; first != nil {
@@ -799,7 +802,7 @@ func (a *App) systemAppearanceChanged() {
 		if a.settings.Theme != themeSystem {
 			return
 		}
-		a.theme, a.colors = look(themeSystem)
+		a.applyLook(themeSystem)
 		a.shared.dark.Store(a.colors.Dark)
 		if a.logs != nil {
 			a.logs.Invalidate()
@@ -891,7 +894,7 @@ func (a *App) setTheme(choice themeChoice) {
 	}
 	a.settings.Theme = choice
 	app.SetNativeAppearance(nativeAppearance(choice))
-	a.theme, a.colors = look(choice)
+	a.applyLook(choice)
 	a.shared.dark.Store(a.colors.Dark)
 	if a.settingsWindow != nil {
 		a.settingsWindow.Invalidate()

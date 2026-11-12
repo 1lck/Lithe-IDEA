@@ -4,17 +4,19 @@
   "group": "界面样式",
   "capability": "macOS 普通选中行主题与区域和窗口焦点",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/workbench/theme.go",
+      "desktop/internal/workbench/window_sessions.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/workbench/theme.go",
+      "desktop/internal/workbench/window_sessions.go"
     ]
   },
   "owner": "Workbench",
@@ -40,5 +42,5 @@
       "verificationStatus": "not-applicable"
     }
   },
-  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：树行尺寸在 treelist/treelist.go 统一，选中色由 workbench/theme.go 的 Selection 提供；未找到窗口失焦变灰、焦点转移或选中区域的专门实现。"
+  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：树行尺寸在 treelist/treelist.go 统一，选中色由 workbench/theme.go 的 Selection 提供；未找到窗口失焦变灰、焦点转移或选中区域的专门实现。 2026-11-12：调色板新增 SelectionIdle（亮 0xE9EAEE / 暗 0x33353B），窗口失去键盘时把 theme.Selection 换成它、OnActivate 恢复，主题切换与每帧绘制都走 applyLook 保持一致。未做：列表内的焦点转移（哪一棵树有控件焦点）仍需 Viva 暴露控件焦点状态，所以本条保持部分实现。"
 }
