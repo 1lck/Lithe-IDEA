@@ -48,7 +48,7 @@ Windows 产品从来没有实现过原生 Codex 集成，但「设置 → 工具
 - 隔离到 legacy 目录：文件仍参与 typecheck 和前端测试，而且下一位贡献者很容易
   再把它当成可复用的地基；issue #440 已经判定这段代码不作为参考依据。
 - 在后端补齐这些 Codex 专用命令：会让 Windows 出现第二套 Agent 栈，与
-  [共享 ACP Agent 对话决策](../architecture/2026-09-25-shared-acp-agent-conversation.md)
+  共享 ACP Agent 对话决策见 `.agents/notes/archived/architecture/2026-09-25-shared-acp-agent-conversation.md`（已归档，仅作历史记录）。
   冲突——该决策规定 ACP 连接与进程管理只写在 `rust/lithe-agent-host`，
   Mac 与 Windows 只各自实现界面。
 - 只把文案改成「待开发」并保留面板：入口仍然承诺一个不存在的集成，清理工作

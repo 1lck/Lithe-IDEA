@@ -453,6 +453,8 @@
 
 用户决定 Viva 桌面端不做 Agent 对话。#1799 删除了助手面板、会话与历史、卡片、Agent 安装与管理、自定义 Agent，以及 AI 设置下的 Agents、Instructions、Skills、Hooks、MCP 配置页。保留 AI 生成提交信息（`ai-commit-generation`）、编辑器内联 AI 编辑（`ai-inline-edit`）和 IDE 连接（`ide-mcp-connection`），它们读取用户 Codex/Claude 配置的服务商发现移到 `desktop/internal/workbench/ai_provider.go`。Rust Core 中的 Agent 代码与 `shared/fixtures/agent`、`shared/fixtures/mcp` 契约暂留，是否删除另行决定。
 
+第二轮清理删掉了只描述放弃能力的记录：`shared/i18n/` 里 593 条含 `agent` 的词条（唯一还被引用的 `agent.state.cancel` 改用通用 `ui.cancel`）、功能矩阵的 36 个 `agent-*.json` 条目（矩阵从 255 条降到 219 条），以及旧客户端 Agent 对话的 15 篇 Note（移入 `.agents/notes/archived/`）。下表保留为放弃清单，不再对应矩阵文件。
+
 | id | 能力 | 基线 mac/win | 理由 |
 | --- | --- | --- | --- |
 | `agent-acp-conversation` | 可选 ACP Agent 对话 | 实现/实现 | Agent 对话整体放弃 |

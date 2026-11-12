@@ -52,7 +52,7 @@ func settingsMessages(language Language) SettingsMessages {
 		DetectingShells:    Shared(language, "terminal.detectingShells"),
 		NoShells:           Shared(language, "native.shellNotFound"),
 		RestoreDefaults:    Shared(language, "settings.mac.restoreDefaults"),
-		Cancel:             Shared(language, "agent.state.cancel"),
+		Cancel:             Shared(language, "ui.cancel"),
 		OK:                 Shared(language, "desktop.settings.ok"),
 		FollowSystem: func(effective string) string {
 			return SharedFormat(language, "desktop.settings.followSystemEffective", map[string]string{"effective": effective})

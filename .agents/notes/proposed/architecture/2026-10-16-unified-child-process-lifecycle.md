@@ -210,7 +210,7 @@ Agent（经由 ACP 连接的 Claude Code、Codex 等）会用自己的工具在�
 - **断开 Agent 时也要确认**：关闭 Agent 连接、停止对话模块，或取消确认
   超时后停止 Agent 时，如果存在 `agentTask`，同样逐个确认，不能再直接
   `terminate_tree`。落地时需要同步修改
-  [共享 ACP Agent 对话](../../implemented/architecture/2026-09-25-shared-acp-agent-conversation.md)
+  共享 ACP Agent 对话见 `.agents/notes/archived/architecture/2026-09-25-shared-acp-agent-conversation.md`（已归档，仅作历史记录）。
   中“停止该 Agent 的进程树”的描述。
 
 #### 设置：进程终止策略

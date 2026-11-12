@@ -162,7 +162,7 @@ var chinese = Messages{
 			return SharedFormat(Chinese, "desktop.commit.pushTo", map[string]string{"upstream": upstream})
 		},
 		Continue:             Shared(Chinese, "git.execution.continue"),
-		Cancel:               Shared(Chinese, "agent.state.cancel"),
+		Cancel:               Shared(Chinese, "ui.cancel"),
 		Pending:              Shared(Chinese, "git.workspaceCommit.pending"),
 		NotIncluded:          Shared(Chinese, "git.workspaceCommit.notIncluded"),
 		Committed:            Shared(Chinese, "git.workspaceCommit.committed"),
@@ -226,7 +226,7 @@ var chinese = Messages{
 			return SharedFormat(Chinese, "desktop.branch.renameFrom", map[string]string{"name": name})
 		},
 		RenameButton: Shared(Chinese, "desktop.branch.renameButton"),
-		Cancel:       Shared(Chinese, "agent.state.cancel"),
+		Cancel:       Shared(Chinese, "ui.cancel"),
 		NameEmpty:    Shared(Chinese, "git.log.branchNameEmpty"),
 		NameHead:     Shared(Chinese, "git.log.branchNameHead"),
 		NameRemote: func(name string) string {
@@ -400,7 +400,7 @@ var chinese = Messages{
 		ClearTitle:   Shared(Chinese, "desktop.logs.clearTitle"),
 		ClearAction:  Shared(Chinese, "desktop.logs.clearAction"),
 		ClearMessage: Shared(Chinese, "desktop.logs.clearMessage"),
-		Cancel:       Shared(Chinese, "agent.state.cancel"),
+		Cancel:       Shared(Chinese, "ui.cancel"),
 		Save:         Shared(Chinese, "ui.save"),
 		Apply:        Shared(Chinese, "desktop.logs.apply"),
 		Delete:       Shared(Chinese, "ui.delete"),

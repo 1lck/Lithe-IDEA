@@ -2,3000 +2,6 @@
   "schemaVersion": 1,
   "messages": [
     {
-      "id": "agent.actions.close",
-      "description": "Windows UI: agent.actions.close",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.actions.closeSearch",
-      "description": "Windows UI: agent.actions.closeSearch",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.actions.hideDetails",
-      "description": "Windows UI: agent.actions.hideDetails",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.actions.history",
-      "description": "Windows UI: agent.actions.history",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.actions.moveToToolWindow",
-      "description": "Windows UI: agent.actions.moveToToolWindow",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.actions.newConversation",
-      "description": "Windows UI: agent.actions.newConversation",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.actions.openInEditor",
-      "description": "Windows UI: agent.actions.openInEditor",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.actions.openSettings",
-      "description": "Windows UI: agent.actions.openSettings",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.actions.reconnect",
-      "description": "Windows UI: agent.actions.reconnect",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.actions.search",
-      "description": "Windows UI: agent.actions.search",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.actions.settings",
-      "description": "Windows UI: agent.actions.settings",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.actions.showDetails",
-      "description": "Windows UI: agent.actions.showDetails",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.actions.switchAgent",
-      "description": "Windows UI: agent.actions.switchAgent",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.actions.tabs",
-      "description": "Windows UI: agent.actions.tabs",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.activity.edits",
-      "description": "Windows UI: agent.activity.edits",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.activity.executing",
-      "description": "Windows UI: agent.activity.executing",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.activity.permission",
-      "description": "Windows UI: agent.activity.permission",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.activity.quiet",
-      "description": "Windows UI: agent.activity.quiet",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.activity.reasoning",
-      "description": "Windows UI: agent.activity.reasoning",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.activity.recovering",
-      "description": "Windows UI: agent.activity.recovering",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "attempt": "string"
-      }
-    },
-    {
-      "id": "agent.activity.responding",
-      "description": "Windows UI: agent.activity.responding",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.activity.retrying",
-      "description": "Windows UI: agent.activity.retrying",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "attempt": "string",
-        "max": "string"
-      }
-    },
-    {
-      "id": "agent.activity.running",
-      "description": "Windows UI: agent.activity.running",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.activity.tasks",
-      "description": "Windows UI: agent.activity.tasks",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.activity.waiting",
-      "description": "Windows UI: agent.activity.waiting",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.archive.badge",
-      "description": "Windows UI: agent.archive.badge",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.archive.confirmMessage",
-      "description": "Windows UI: agent.archive.confirmMessage",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.archive.empty",
-      "description": "Windows UI: agent.archive.empty",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.archive.incomplete",
-      "description": "Windows UI: agent.archive.incomplete",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.archive.refresh",
-      "description": "Windows UI: agent.archive.refresh",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.archive.restore",
-      "description": "Windows UI: agent.archive.restore",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.archive.title",
-      "description": "Windows UI: agent.archive.title",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.archive.unsupported",
-      "description": "Windows UI: agent.archive.unsupported",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.agentSettings",
-      "description": "Windows UI: agent.composer.agentSettings",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.attachActive",
-      "description": "Windows UI: agent.composer.attachActive",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.attachFile",
-      "description": "Windows UI: agent.composer.attachFile",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.attachFiles",
-      "description": "Windows UI: agent.composer.attachFiles",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.attachHint",
-      "description": "Windows UI: agent.composer.attachHint",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.cancelling",
-      "description": "Windows UI: agent.composer.cancelling",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.chooseAgent",
-      "description": "Windows UI: agent.composer.chooseAgent",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.clipboardBusy",
-      "description": "Windows UI: agent.composer.clipboardBusy",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.commands",
-      "description": "Windows UI: agent.composer.commands",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.connectionClosed",
-      "description": "Windows UI: agent.composer.connectionClosed",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.dropFiles",
-      "description": "Windows UI: agent.composer.dropFiles",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.dropHere",
-      "description": "Windows UI: agent.composer.dropHere",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.fileLimit",
-      "description": "Windows UI: agent.composer.fileLimit",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "agent.composer.imageCleanupFailed",
-      "description": "Windows UI: agent.composer.imageCleanupFailed",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.invalidImage",
-      "description": "Windows UI: agent.composer.invalidImage",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.message",
-      "description": "Windows UI: agent.composer.message",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.messageHint",
-      "description": "Windows UI: agent.composer.messageHint",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.noAgent",
-      "description": "Windows UI: agent.composer.noAgent",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.noCommands",
-      "description": "Windows UI: agent.composer.noCommands",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.noFiles",
-      "description": "Windows UI: agent.composer.noFiles",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.placeholder",
-      "description": "Windows UI: agent.composer.placeholder",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.preparing",
-      "description": "Windows UI: agent.composer.preparing",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.queued",
-      "description": "Windows UI: agent.composer.queued",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "text": "string"
-      }
-    },
-    {
-      "id": "agent.composer.received",
-      "description": "Windows UI: agent.composer.received",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.removeAttachment",
-      "description": "Windows UI: agent.composer.removeAttachment",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "name": "string"
-      }
-    },
-    {
-      "id": "agent.composer.removeFile",
-      "description": "Windows UI: agent.composer.removeFile",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "name": "string"
-      }
-    },
-    {
-      "id": "agent.composer.searchFiles",
-      "description": "Windows UI: agent.composer.searchFiles",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.send",
-      "description": "Windows UI: agent.composer.send",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.sending",
-      "description": "Windows UI: agent.composer.sending",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.stop",
-      "description": "Windows UI: agent.composer.stop",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.supplementCancelled",
-      "description": "Windows UI: agent.composer.supplementCancelled",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.supplementRejected",
-      "description": "Windows UI: agent.composer.supplementRejected",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.tooManyFiles",
-      "description": "Windows UI: agent.composer.tooManyFiles",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.composer.tooManyImages",
-      "description": "Windows UI: agent.composer.tooManyImages",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.configuration.staged",
-      "description": "Windows UI: agent.configuration.staged",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.context.attach",
-      "description": "Windows UI: agent.context.attach",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.context.busy",
-      "description": "Windows UI: agent.context.busy",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.context.current",
-      "description": "Windows UI: agent.context.current",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.context.dirty",
-      "description": "Windows UI: agent.context.dirty",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.context.label",
-      "description": "Windows UI: agent.context.label",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.context.new",
-      "description": "Windows UI: agent.context.new",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.context.placeholder",
-      "description": "Windows UI: agent.context.placeholder",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "percent": "string"
-      }
-    },
-    {
-      "id": "agent.context.setup",
-      "description": "Windows UI: agent.context.setup",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.context.stale",
-      "description": "Windows UI: agent.context.stale",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.context.tokens",
-      "description": "Windows UI: agent.context.tokens",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "capacity": "string",
-        "percent": "string",
-        "used": "string"
-      }
-    },
-    {
-      "id": "agent.context.unavailable",
-      "description": "Windows UI: agent.context.unavailable",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.continueWaiting",
-      "description": "Windows UI: agent.continueWaiting",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.details.agent",
-      "description": "Windows UI: agent.details.agent",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.details.context",
-      "description": "Windows UI: agent.details.context",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.details.messages",
-      "description": "Windows UI: agent.details.messages",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.details.noConfig",
-      "description": "Windows UI: agent.details.noConfig",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.details.session",
-      "description": "Windows UI: agent.details.session",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.details.sessionId",
-      "description": "Windows UI: agent.details.sessionId",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.details.title",
-      "description": "Windows UI: agent.details.title",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.details.titleLabel",
-      "description": "Windows UI: agent.details.titleLabel",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.details.turns",
-      "description": "Windows UI: agent.details.turns",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.details.unavailable",
-      "description": "Windows UI: agent.details.unavailable",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.details.workspace",
-      "description": "Windows UI: agent.details.workspace",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.editor.focusTab",
-      "description": "Windows UI: agent.editor.focusTab",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.editor.foreignAgentMessage",
-      "description": "Windows UI: agent.editor.foreignAgentMessage",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "agent": "string",
-        "current": "string"
-      },
-      "literalBraces": true
-    },
-    {
-      "id": "agent.editor.foreignAgentTitle",
-      "description": "Windows UI: agent.editor.foreignAgentTitle",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.editor.handoffNotice",
-      "description": "Windows UI: agent.editor.handoffNotice",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.editor.switchBack",
-      "description": "Windows UI: agent.editor.switchBack",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "agent": "string"
-      },
-      "literalBraces": true
-    },
-    {
-      "id": "agent.edits.changed",
-      "description": "Windows UI: agent.edits.changed",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.edits.diff",
-      "description": "Windows UI: agent.edits.diff",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.edits.dirty",
-      "description": "Windows UI: agent.edits.dirty",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.edits.failed",
-      "description": "Windows UI: agent.edits.failed",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.edits.incomplete",
-      "description": "Windows UI: agent.edits.incomplete",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.edits.keep",
-      "description": "Windows UI: agent.edits.keep",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.edits.recoveryRequired",
-      "description": "Windows UI: agent.edits.recoveryRequired",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "path": "string"
-      }
-    },
-    {
-      "id": "agent.edits.revert",
-      "description": "Windows UI: agent.edits.revert",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.edits.title",
-      "description": "Windows UI: agent.edits.title",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "agent.error.disabled",
-      "description": "Windows UI: agent.error.disabled",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.error.notConnected",
-      "description": "Windows UI: agent.error.notConnected",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.error.preparing",
-      "description": "Windows UI: agent.error.preparing",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.evidence.input",
-      "description": "Windows UI: agent.evidence.input",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.evidence.result",
-      "description": "Windows UI: agent.evidence.result",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.hero.choose",
-      "description": "Windows UI: agent.hero.choose",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.hero.sendTo",
-      "description": "Windows UI: agent.hero.sendTo",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "name": "string"
-      }
-    },
-    {
-      "id": "agent.history.addFavorite",
-      "description": "Windows UI: agent.history.addFavorite",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.allProviders",
-      "description": "Agent conversation history provider filtering",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "All providers",
-        "arguments": []
-      }
-    },
-    {
-      "id": "agent.history.conversations",
-      "description": "Windows UI: agent.history.conversations",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "agent.history.copied",
-      "description": "Windows UI: agent.history.copied",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.copyId",
-      "description": "Windows UI: agent.history.copyId",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.deselectAll",
-      "description": "Windows UI: agent.history.deselectAll",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.done",
-      "description": "Windows UI: agent.history.done",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.empty",
-      "description": "Windows UI: agent.history.empty",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.export",
-      "description": "Windows UI: agent.history.export",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.exportFailed",
-      "description": "Windows UI: agent.history.exportFailed",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.exportFileType",
-      "description": "Windows UI: agent.history.exportFileType",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.exportTooLarge",
-      "description": "Windows UI: agent.history.exportTooLarge",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.exportUnfinished",
-      "description": "Windows UI: agent.history.exportUnfinished",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.exporting",
-      "description": "Windows UI: agent.history.exporting",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.filter",
-      "description": "Windows UI: agent.history.filter",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.filter.all",
-      "description": "Windows UI: agent.history.filter.all",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.filter.favorites",
-      "description": "Windows UI: agent.history.filter.favorites",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.filter.removed",
-      "description": "Windows UI: agent.history.filter.removed",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.loading",
-      "description": "Windows UI: agent.history.loading",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.messages",
-      "description": "Windows UI: agent.history.messages",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "agent.history.noMatch",
-      "description": "Windows UI: agent.history.noMatch",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.noMatchHint",
-      "description": "Windows UI: agent.history.noMatchHint",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.provider",
-      "description": "Agent conversation history provider filtering",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "Conversation provider",
-        "arguments": []
-      }
-    },
-    {
-      "id": "agent.history.providerHint",
-      "description": "Agent conversation history provider filtering",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "Try another search or provider filter.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "agent.history.refresh",
-      "description": "Windows UI: agent.history.refresh",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.remove",
-      "description": "Windows UI: agent.history.remove",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.removeConfirm",
-      "description": "Windows UI: agent.history.removeConfirm",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "agent.history.removeFavorite",
-      "description": "Windows UI: agent.history.removeFavorite",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.removedNotice",
-      "description": "Windows UI: agent.history.removedNotice",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.rename",
-      "description": "Windows UI: agent.history.rename",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.renameMessage",
-      "description": "Windows UI: agent.history.renameMessage",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.restore",
-      "description": "Windows UI: agent.history.restore",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.saveFailed",
-      "description": "Windows UI: agent.history.saveFailed",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.search",
-      "description": "Windows UI: agent.history.search",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.select",
-      "description": "Windows UI: agent.history.select",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.selectAll",
-      "description": "Windows UI: agent.history.selectAll",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.selectedCount",
-      "description": "Windows UI: agent.history.selectedCount",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "agent.history.thinking",
-      "description": "Windows UI: agent.history.thinking",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.title",
-      "description": "Windows UI: agent.history.title",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "agent.history.tool",
-      "description": "Windows UI: agent.history.tool",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.history.unknownProvider",
-      "description": "Agent conversation history provider filtering",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "Unknown provider",
-        "arguments": []
-      }
-    },
-    {
-      "id": "agent.history.you",
-      "description": "Windows UI: agent.history.you",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.hooks.draft.agents.duplicate",
-      "description": "Hook editor field issue from Core agent.hooks.validateDraft (agents: duplicate)",
-      "platforms": [
-        "macos",
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.hooks.draft.agents.required",
-      "description": "Hook editor field issue from Core agent.hooks.validateDraft (agents: required)",
-      "platforms": [
-        "macos",
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.hooks.draft.agents.unsupported",
-      "description": "Hook editor field issue from Core agent.hooks.validateDraft (agents: unsupported)",
-      "platforms": [
-        "macos",
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.hooks.draft.command.containsNul",
-      "description": "Hook editor field issue from Core agent.hooks.validateDraft (command: contains_nul)",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "agent.hooks.draft.command.contains_nul",
-        "arguments": []
-      },
-      "windows": {
-        "key": "agent.hooks.draft.command.contains_nul"
-      }
-    },
-    {
-      "id": "agent.hooks.draft.command.required",
-      "description": "Hook editor field issue from Core agent.hooks.validateDraft (command: required)",
-      "platforms": [
-        "macos",
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.hooks.draft.command.tooLong",
-      "description": "Hook editor field issue from Core agent.hooks.validateDraft (command: too_long)",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "agent.hooks.draft.command.too_long",
-        "arguments": []
-      },
-      "windows": {
-        "key": "agent.hooks.draft.command.too_long"
-      }
-    },
-    {
-      "id": "agent.hooks.draft.description.tooLong",
-      "description": "Hook editor field issue from Core agent.hooks.validateDraft (description: too_long)",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "agent.hooks.draft.description.too_long",
-        "arguments": []
-      },
-      "windows": {
-        "key": "agent.hooks.draft.description.too_long"
-      }
-    },
-    {
-      "id": "agent.hooks.draft.id.invalid",
-      "description": "Hook editor field issue from Core agent.hooks.validateDraft (id: invalid)",
-      "platforms": [
-        "macos",
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.hooks.draft.matcher.incompatibleEvent",
-      "description": "Hook editor field issue from Core agent.hooks.validateDraft (matcher: incompatible_event)",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "agent.hooks.draft.matcher.incompatible_event",
-        "arguments": []
-      },
-      "windows": {
-        "key": "agent.hooks.draft.matcher.incompatible_event"
-      }
-    },
-    {
-      "id": "agent.hooks.draft.name.duplicate",
-      "description": "Hook editor field issue from Core agent.hooks.validateDraft (name: duplicate)",
-      "platforms": [
-        "macos",
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.hooks.draft.name.invalidCharacters",
-      "description": "Hook editor field issue from Core agent.hooks.validateDraft (name: invalid_characters)",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "agent.hooks.draft.name.invalid_characters",
-        "arguments": []
-      },
-      "windows": {
-        "key": "agent.hooks.draft.name.invalid_characters"
-      }
-    },
-    {
-      "id": "agent.hooks.draft.name.required",
-      "description": "Hook editor field issue from Core agent.hooks.validateDraft (name: required)",
-      "platforms": [
-        "macos",
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.hooks.draft.name.tooLong",
-      "description": "Hook editor field issue from Core agent.hooks.validateDraft (name: too_long)",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "agent.hooks.draft.name.too_long",
-        "arguments": []
-      },
-      "windows": {
-        "key": "agent.hooks.draft.name.too_long"
-      }
-    },
-    {
-      "id": "agent.hooks.draft.responseInvalid",
-      "description": "Windows UI: Core returned an unrecognised Hook draft validation response",
-      "platforms": [
-        "windows"
-      ],
-      "windows": {
-        "key": "The Hook draft validation response was not recognised."
-      }
-    },
-    {
-      "id": "agent.hooks.draft.timeout.notInteger",
-      "description": "Hook editor field issue from Core agent.hooks.validateDraft (timeout: not_integer)",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "agent.hooks.draft.timeout.not_integer",
-        "arguments": []
-      },
-      "windows": {
-        "key": "agent.hooks.draft.timeout.not_integer"
-      }
-    },
-    {
-      "id": "agent.hooks.draft.timeout.outOfRange",
-      "description": "Hook editor field issue from Core agent.hooks.validateDraft (timeout: out_of_range)",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "agent.hooks.draft.timeout.out_of_range",
-        "arguments": []
-      },
-      "windows": {
-        "key": "agent.hooks.draft.timeout.out_of_range"
-      }
-    },
-    {
-      "id": "agent.notice.dismiss",
-      "description": "Windows UI: agent.notice.dismiss",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.permission.deny",
-      "description": "Windows UI: agent.permission.deny",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.permission.dismiss",
-      "description": "Windows UI: agent.permission.dismiss",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.permission.title",
-      "description": "Windows UI: agent.permission.title",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.plan.collapse",
-      "description": "Windows UI: agent.plan.collapse",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.plan.completed",
-      "description": "Windows UI: agent.plan.completed",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.plan.expand",
-      "description": "Windows UI: agent.plan.expand",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.plan.pending",
-      "description": "Windows UI: agent.plan.pending",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.plan.progress",
-      "description": "Windows UI: agent.plan.progress",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "completed": "string",
-        "total": "string"
-      }
-    },
-    {
-      "id": "agent.plan.running",
-      "description": "Windows UI: agent.plan.running",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.quietNotice",
-      "description": "Windows UI: agent.quietNotice",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.quota.primary",
-      "description": "Windows UI: agent.quota.primary",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "percent": "string",
-        "window": "string"
-      }
-    },
-    {
-      "id": "agent.quota.resetsAt",
-      "description": "Windows UI: agent.quota.resetsAt",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "time": "string"
-      }
-    },
-    {
-      "id": "agent.quota.unknown",
-      "description": "Windows UI: agent.quota.unknown",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "window": "string"
-      }
-    },
-    {
-      "id": "agent.quotaView.accountChanged",
-      "description": "Windows UI: agent.quotaView.accountChanged",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.quotaView.fiveHours",
-      "description": "Windows UI: agent.quotaView.fiveHours",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.quotaView.resets",
-      "description": "Windows UI: agent.quotaView.resets",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "time": "string"
-      }
-    },
-    {
-      "id": "agent.quotaView.sevenDays",
-      "description": "Windows UI: agent.quotaView.sevenDays",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.quotaView.stale",
-      "description": "Windows UI: agent.quotaView.stale",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.quotaView.title",
-      "description": "Windows UI: agent.quotaView.title",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.quotaView.unknown",
-      "description": "Windows UI: agent.quotaView.unknown",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.quotaView.updated",
-      "description": "Windows UI: agent.quotaView.updated",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "time": "string"
-      }
-    },
-    {
-      "id": "agent.quotaView.used",
-      "description": "Windows UI: agent.quotaView.used",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "percent": "string",
-        "window": "string"
-      }
-    },
-    {
-      "id": "agent.quotaView.usedPercent",
-      "description": "Windows UI: agent.quotaView.usedPercent",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "percent": "string"
-      }
-    },
-    {
-      "id": "agent.quotaView.waiting",
-      "description": "Windows UI: agent.quotaView.waiting",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.reportedLabels.alwaysAskToEditExternalFilesAndUseTheInternet",
-      "description": "Selected-language presentation: Always ask to edit external files and use the internet",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.reportedLabels.approvalMode",
-      "description": "Selected-language presentation: Approval mode",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.reportedLabels.collaborationMode",
-      "description": "Selected-language presentation: Collaboration mode",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.reportedLabels.fastMode",
-      "description": "Selected-language presentation: Fast mode",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.reportedLabels.model",
-      "description": "Selected-language presentation: Model",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.reportedLabels.onlyAskForActionsDetectedAsPotentiallyUnsafe",
-      "description": "Selected-language presentation: Only ask for actions detected as potentially unsafe",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.reportedLabels.planBeforeMakingChanges",
-      "description": "Selected-language presentation: Plan before making changes",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.reportedLabels.reasoningEffort",
-      "description": "Selected-language presentation: Reasoning effort",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.reportedLabels.unrestrictedAccessToTheInternetAndAnyFileOnYourComputer",
-      "description": "Selected-language presentation: Unrestricted access to the internet and any file on your computer",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.role.agent",
-      "description": "Windows UI: agent.role.agent",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.role.user",
-      "description": "Windows UI: agent.role.user",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.selector.fast",
-      "description": "Windows UI: agent.selector.fast",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.selector.mode",
-      "description": "Windows UI: agent.selector.mode",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.selector.model",
-      "description": "Windows UI: agent.selector.model",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.selector.more",
-      "description": "Windows UI: agent.selector.more",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.selector.noModels",
-      "description": "Windows UI: agent.selector.noModels",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.selector.searchModels",
-      "description": "Windows UI: agent.selector.searchModels",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.selector.speed",
-      "description": "Windows UI: agent.selector.speed",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.selector.standard",
-      "description": "Windows UI: agent.selector.standard",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.selector.thinkingLevel",
-      "description": "Windows UI: agent.selector.thinkingLevel",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.addProvider",
-      "description": "Windows UI: agent.settings.addProvider",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.agent",
-      "description": "Windows UI: agent.settings.agent",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.allowInsecureHint",
-      "description": "Windows UI: agent.settings.allowInsecureHint",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.apiKey",
-      "description": "Windows UI: agent.settings.apiKey",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.apiKeyMode",
-      "description": "Windows UI: agent.settings.apiKeyMode",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.apiKeyPlaceholder",
-      "description": "Windows UI: agent.settings.apiKeyPlaceholder",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.apiKeyStored",
-      "description": "Windows UI: agent.settings.apiKeyStored",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.arguments",
-      "description": "Windows UI: agent.settings.arguments",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.authJson",
-      "description": "Windows UI: agent.settings.authJson",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.authentication",
-      "description": "Windows UI: agent.settings.authentication",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.back",
-      "description": "Windows UI: agent.settings.back",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.baseUrl",
-      "description": "Windows UI: agent.settings.baseUrl",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.busyAuthentication",
-      "description": "Windows UI: agent.settings.busyAuthentication",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.cliDetected",
-      "description": "Windows UI: agent.settings.cliDetected",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "name": "string",
-        "version": "string"
-      }
-    },
-    {
-      "id": "agent.settings.cliMissing",
-      "description": "Windows UI: agent.settings.cliMissing",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "name": "string",
-        "version": "string"
-      }
-    },
-    {
-      "id": "agent.settings.cliUpdateWarning",
-      "description": "Windows UI: agent.settings.cliUpdateWarning",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "warning": "string"
-      }
-    },
-    {
-      "id": "agent.settings.cliUpdated",
-      "description": "Windows UI: agent.settings.cliUpdated",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "version": "string"
-      }
-    },
-    {
-      "id": "agent.settings.command",
-      "description": "Windows UI: agent.settings.command",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.configurationTooLarge",
-      "description": "Windows UI: agent.settings.configurationTooLarge",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.conflict",
-      "description": "Windows UI: agent.settings.conflict",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.customAgent",
-      "description": "Windows UI: agent.settings.customAgent",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.editProvider",
-      "description": "Windows UI: agent.settings.editProvider",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.enable",
-      "description": "Windows UI: agent.settings.enable",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.enableHint",
-      "description": "Windows UI: agent.settings.enableHint",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.enableSubscription",
-      "description": "Windows UI: agent.settings.enableSubscription",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "Enable",
-        "arguments": []
-      }
-    },
-    {
-      "id": "agent.settings.formMode",
-      "description": "Windows UI: agent.settings.formMode",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.hideKey",
-      "description": "Windows UI: agent.settings.hideKey",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.importConfiguration",
-      "description": "Windows UI: agent.settings.importConfiguration",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.importConfigurationAction",
-      "description": "Windows UI: agent.settings.importConfigurationAction",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.importConfigurationHint",
-      "description": "Windows UI: agent.settings.importConfigurationHint",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.importFailed",
-      "description": "Windows UI: agent.settings.importFailed",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.importProtocolMismatch",
-      "description": "Windows UI: agent.settings.importProtocolMismatch",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.importingConfiguration",
-      "description": "Windows UI: agent.settings.importingConfiguration",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.install",
-      "description": "Windows UI: agent.settings.install",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.installCli",
-      "description": "Windows UI: agent.settings.installCli",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.installed",
-      "description": "Windows UI: agent.settings.installed",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "name": "string",
-        "version": "string"
-      }
-    },
-    {
-      "id": "agent.settings.installing",
-      "description": "Windows UI: agent.settings.installing",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.invalidProviderUrl",
-      "description": "Windows UI: agent.settings.invalidProviderUrl",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.keyFailed",
-      "description": "Windows UI: agent.settings.keyFailed",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.linkLocal",
-      "description": "Windows UI: agent.settings.linkLocal",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.model",
-      "description": "Windows UI: agent.settings.model",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.modelPlaceholder",
-      "description": "Windows UI: agent.settings.modelPlaceholder",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.notInstalled",
-      "description": "Windows UI: agent.settings.notInstalled",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "name": "string"
-      }
-    },
-    {
-      "id": "agent.settings.preflight",
-      "description": "Windows UI: agent.settings.preflight",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.progress",
-      "description": "Windows UI: agent.settings.progress",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "megabytes": "string",
-        "stage": "string"
-      }
-    },
-    {
-      "id": "agent.settings.provider",
-      "description": "Windows UI: agent.settings.provider",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.providerName",
-      "description": "Windows UI: agent.settings.providerName",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.readLocalConfiguration",
-      "description": "Windows UI: agent.settings.readLocalConfiguration",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.reconnect",
-      "description": "Windows UI: agent.settings.reconnect",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.reconnectHint",
-      "description": "Windows UI: agent.settings.reconnectHint",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.refresh",
-      "description": "Windows UI: agent.settings.refresh",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.reinstall",
-      "description": "Windows UI: agent.settings.reinstall",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.removeProvider",
-      "description": "Windows UI: agent.settings.removeProvider",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.removeProviderConfirm",
-      "description": "Windows UI: agent.settings.removeProviderConfirm",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.requiredProviderFields",
-      "description": "Windows UI: agent.settings.requiredProviderFields",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.saveFailed",
-      "description": "Windows UI: agent.settings.saveFailed",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.saveKey",
-      "description": "Windows UI: agent.settings.saveKey",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.showKey",
-      "description": "Windows UI: agent.settings.showKey",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.subscriptionHint",
-      "description": "Windows UI: agent.settings.subscriptionHint",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.subscriptionMode",
-      "description": "Windows UI: agent.settings.subscriptionMode",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.subscriptionRowHint",
-      "description": "Windows UI: agent.settings.subscriptionRowHint",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.textMode",
-      "description": "Windows UI: agent.settings.textMode",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.title",
-      "description": "Windows UI: agent.settings.title",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.uninstall",
-      "description": "Windows UI: agent.settings.uninstall",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.unlinkKey",
-      "description": "Windows UI: agent.settings.unlinkKey",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.updateCli",
-      "description": "Windows UI: agent.settings.updateCli",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.updatingCli",
-      "description": "Windows UI: agent.settings.updatingCli",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.settings.useApiKey",
-      "description": "Windows UI: agent.settings.useApiKey",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.setup.disabled",
-      "description": "Windows UI: agent.setup.disabled",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.setup.enable",
-      "description": "Windows UI: agent.setup.enable",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.setup.invalidCliConfiguration",
-      "description": "Windows UI: agent.setup.invalidCliConfiguration",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.setup.missingApiKey",
-      "description": "Windows UI: agent.setup.missingApiKey",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.setup.missingCommand",
-      "description": "Windows UI: agent.setup.missingCommand",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.setup.missingProvider",
-      "description": "Windows UI: agent.setup.missingProvider",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.setup.noAgent",
-      "description": "Windows UI: agent.setup.noAgent",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.setup.noProject",
-      "description": "Windows UI: agent.setup.noProject",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.setup.openSettings",
-      "description": "Windows UI: agent.setup.openSettings",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.setup.subscriptionNeedsCodex",
-      "description": "Windows UI: agent.setup.subscriptionNeedsCodex",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.state.cancel",
-      "description": "Windows UI: agent.state.cancel",
-      "platforms": [
-        "windows",
-        "desktop"
-      ]
-    },
-    {
-      "id": "agent.state.failed",
-      "description": "Windows UI: agent.state.failed",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.state.signIn",
-      "description": "Windows UI: agent.state.signIn",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.state.signInAction",
-      "description": "Windows UI: agent.state.signInAction",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.state.signInMessage",
-      "description": "Windows UI: agent.state.signInMessage",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.state.signingIn",
-      "description": "Windows UI: agent.state.signingIn",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.state.signingInMessage",
-      "description": "Windows UI: agent.state.signingInMessage",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.state.starting",
-      "description": "Windows UI: agent.state.starting",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.state.startingMessage",
-      "description": "Windows UI: agent.state.startingMessage",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.stats.calibrated",
-      "description": "Windows UI: agent.stats.calibrated",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.stats.calls",
-      "description": "Windows UI: agent.stats.calls",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.stats.estimated",
-      "description": "Windows UI: agent.stats.estimated",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.stats.lowerBound",
-      "description": "Windows UI: agent.stats.lowerBound",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.stats.mcp",
-      "description": "Windows UI: agent.stats.mcp",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.stats.messages",
-      "description": "Windows UI: agent.stats.messages",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.stats.modelTime",
-      "description": "Windows UI: agent.stats.modelTime",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.stats.noComposition",
-      "description": "Windows UI: agent.stats.noComposition",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.stats.nonStreaming",
-      "description": "Windows UI: agent.stats.nonStreaming",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.stats.observe",
-      "description": "Windows UI: agent.stats.observe",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.stats.observeHint",
-      "description": "Windows UI: agent.stats.observeHint",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.stats.system",
-      "description": "Windows UI: agent.stats.system",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.stats.toolCalls",
-      "description": "Windows UI: agent.stats.toolCalls",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.stats.toolCount",
-      "description": "Windows UI: agent.stats.toolCount",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "mcp": "string",
-        "tools": "string"
-      }
-    },
-    {
-      "id": "agent.stats.toolTime",
-      "description": "Windows UI: agent.stats.toolTime",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.stats.tools",
-      "description": "Windows UI: agent.stats.tools",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.stats.tps",
-      "description": "Windows UI: agent.stats.tps",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.stats.ttft",
-      "description": "Windows UI: agent.stats.ttft",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.stats.unknown",
-      "description": "Windows UI: agent.stats.unknown",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.status.connecting",
-      "description": "Windows UI: agent.status.connecting",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.status.failed",
-      "description": "Windows UI: agent.status.failed",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.status.retry",
-      "description": "Windows UI: agent.status.retry",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.stop",
-      "description": "Windows UI: agent.stop",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "Stop",
-        "arguments": []
-      }
-    },
-    {
-      "id": "agent.subagents.cancelled",
-      "description": "Windows UI: agent.subagents.cancelled",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.subagents.completed",
-      "description": "Windows UI: agent.subagents.completed",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.subagents.disconnected",
-      "description": "Windows UI: agent.subagents.disconnected",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.subagents.failed",
-      "description": "Windows UI: agent.subagents.failed",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.subagents.progress",
-      "description": "Windows UI: agent.subagents.progress",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "completed": "string",
-        "total": "string"
-      }
-    },
-    {
-      "id": "agent.subagents.running",
-      "description": "Windows UI: agent.subagents.running",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.subagents.title",
-      "description": "Windows UI: agent.subagents.title",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.subscription.authenticating",
-      "description": "Windows UI: agent.subscription.authenticating",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.subscription.cancelSignIn",
-      "description": "Windows UI: agent.subscription.cancelSignIn",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.subscription.required",
-      "description": "Windows UI: agent.subscription.required",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.subscription.signIn",
-      "description": "Windows UI: agent.subscription.signIn",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.subscription.signedIn",
-      "description": "Windows UI: agent.subscription.signedIn",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.tabs.close",
-      "description": "Windows UI: agent.tabs.close",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.tabs.label",
-      "description": "Windows UI: agent.tabs.label",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.tabs.untitled",
-      "description": "Windows UI: agent.tabs.untitled",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.title",
-      "description": "Windows UI: agent.title",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.tool.details",
-      "description": "Windows UI: agent.tool.details",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.tool.status.completed",
-      "description": "Windows UI: agent.tool.status.completed",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.tool.status.failed",
-      "description": "Windows UI: agent.tool.status.failed",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.tool.status.inProgress",
-      "description": "Windows UI: agent.tool.status.in_progress",
-      "platforms": [
-        "windows"
-      ],
-      "windows": {
-        "key": "agent.tool.status.in_progress"
-      }
-    },
-    {
-      "id": "agent.tool.status.interrupted",
-      "description": "Windows UI: agent.tool.status.interrupted",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.tool.status.pending",
-      "description": "Windows UI: agent.tool.status.pending",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.toolGroup.allCompleted",
-      "description": "Windows UI: agent.toolGroup.allCompleted",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.toolGroup.completed",
-      "description": "Windows UI: agent.toolGroup.completed",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "done": "string",
-        "total": "string"
-      }
-    },
-    {
-      "id": "agent.toolGroup.failed",
-      "description": "Windows UI: agent.toolGroup.failed",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "agent.toolGroup.hide",
-      "description": "Windows UI: agent.toolGroup.hide",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.toolGroup.interrupted",
-      "description": "Windows UI: agent.toolGroup.interrupted",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "agent.toolGroup.show",
-      "description": "Windows UI: agent.toolGroup.show",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.toolGroup.title",
-      "description": "Windows UI: agent.toolGroup.title",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "agent.transcript.code",
-      "description": "Windows UI: agent.transcript.code",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.transcript.copyCode",
-      "description": "Windows UI: agent.transcript.copyCode",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.transcript.copyReply",
-      "description": "Windows UI: agent.transcript.copyReply",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.transcript.empty",
-      "description": "Windows UI: agent.transcript.empty",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.transcript.hideReasoning",
-      "description": "Windows UI: agent.transcript.hideReasoning",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.transcript.loading",
-      "description": "Windows UI: agent.transcript.loading",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.transcript.noMatch",
-      "description": "Windows UI: agent.transcript.noMatch",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.transcript.pickSession",
-      "description": "Windows UI: agent.transcript.pickSession",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.transcript.reasoning",
-      "description": "Windows UI: agent.transcript.reasoning",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.transcript.showReasoning",
-      "description": "Windows UI: agent.transcript.showReasoning",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.transcript.stopping",
-      "description": "Windows UI: agent.transcript.stopping",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.transcript.thinking",
-      "description": "Windows UI: agent.transcript.thinking",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.turn.cacheRead",
-      "description": "Windows UI: agent.turn.cacheRead",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "agent.turn.cacheReadLabel",
-      "description": "Windows UI: agent.turn.cacheReadLabel",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.turn.cacheWrite",
-      "description": "Windows UI: agent.turn.cacheWrite",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "agent.turn.cacheWriteLabel",
-      "description": "Windows UI: agent.turn.cacheWriteLabel",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.turn.elapsed",
-      "description": "Windows UI: agent.turn.elapsed",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "duration": "string"
-      }
-    },
-    {
-      "id": "agent.turn.elapsedHint",
-      "description": "Windows UI: agent.turn.elapsedHint",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.turn.elapsedLabel",
-      "description": "Windows UI: agent.turn.elapsedLabel",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.turn.hours",
-      "description": "Windows UI: agent.turn.hours",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "hours": "string",
-        "minutes": "string",
-        "seconds": "string"
-      }
-    },
-    {
-      "id": "agent.turn.input",
-      "description": "Windows UI: agent.turn.input",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "agent.turn.inputLabel",
-      "description": "Windows UI: agent.turn.inputLabel",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.turn.minutes",
-      "description": "Windows UI: agent.turn.minutes",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "minutes": "string",
-        "seconds": "string"
-      }
-    },
-    {
-      "id": "agent.turn.output",
-      "description": "Windows UI: agent.turn.output",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "agent.turn.outputLabel",
-      "description": "Windows UI: agent.turn.outputLabel",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.turn.reasoning",
-      "description": "Windows UI: agent.turn.reasoning",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "agent.turn.reasoningLabel",
-      "description": "Windows UI: agent.turn.reasoningLabel",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.turn.seconds",
-      "description": "Windows UI: agent.turn.seconds",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "seconds": "string"
-      }
-    },
-    {
-      "id": "agent.turn.thisTurn",
-      "description": "Windows UI: agent.turn.thisTurn",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.turn.total",
-      "description": "Windows UI: agent.turn.total",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "agent.turn.totalLabel",
-      "description": "Windows UI: agent.turn.totalLabel",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.turn.usageHint",
-      "description": "Windows UI: agent.turn.usageHint",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "agent.usage.tokens",
-      "description": "Windows UI: agent.usage.tokens",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "capacity": "string",
-        "used": "string"
-      }
-    },
-    {
-      "id": "agent.usage.unknown",
-      "description": "Windows UI: agent.usage.unknown",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
       "id": "ai.actionRunNumber",
       "description": "Windows UI: ai.actionRunNumber",
       "platforms": [
@@ -3034,68 +40,6 @@
     {
       "id": "ai.added",
       "description": "Windows UI: ai.added",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "ai.agent",
-      "description": "Windows UI: ai.agent",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "ai.agentDefault",
-      "description": "Windows UI: ai.agentDefault",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "ai.agentHistory",
-      "description": "Windows UI: ai.agentHistory",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "ai.agentInstallFailed",
-      "description": "Windows UI: ai.agentInstallFailed",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "name": "string"
-      }
-    },
-    {
-      "id": "ai.agentInstalled",
-      "description": "Windows UI: ai.agentInstalled",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "name": "string"
-      }
-    },
-    {
-      "id": "ai.agentSessionRestarted",
-      "description": "Windows UI: ai.agentSessionRestarted",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "ai.agentSetup",
-      "description": "Windows UI: ai.agentSetup",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "ai.agents",
-      "description": "Windows UI: ai.agents",
       "platforms": [
         "windows"
       ]
@@ -3295,20 +239,6 @@
       ]
     },
     {
-      "id": "ai.couldNotOpenAgentTerminal",
-      "description": "Windows UI: ai.couldNotOpenAgentTerminal",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "ai.couldNotRestartAgentSession",
-      "description": "Windows UI: ai.couldNotRestartAgentSession",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
       "id": "ai.deleteNamedSkill",
       "description": "Windows UI: ai.deleteNamedSkill",
       "platforms": [
@@ -3439,13 +369,6 @@
       ]
     },
     {
-      "id": "ai.finishAgentSetupThenRestart",
-      "description": "Windows UI: ai.finishAgentSetupThenRestart",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
       "id": "ai.generatedContentNumber",
       "description": "Windows UI: ai.generatedContentNumber",
       "platforms": [
@@ -3482,16 +405,6 @@
       "macos": {
         "key": "Install",
         "arguments": []
-      }
-    },
-    {
-      "id": "ai.installingAgent",
-      "description": "Windows UI: ai.installingAgent",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "name": "string"
       }
     },
     {
@@ -3602,13 +515,6 @@
     {
       "id": "ai.new",
       "description": "Windows UI: ai.new",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "ai.newAgent",
-      "description": "Windows UI: ai.newAgent",
       "platforms": [
         "windows"
       ]
@@ -3727,13 +633,6 @@
     {
       "id": "ai.open",
       "description": "Windows UI: ai.open",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "ai.openAgentTerminal",
-      "description": "Windows UI: ai.openAgentTerminal",
       "platforms": [
         "windows"
       ]
@@ -3919,13 +818,6 @@
       "parameters": {
         "title": "string"
       }
-    },
-    {
-      "id": "ai.restartAgentSession",
-      "description": "Windows UI: ai.restartAgentSession",
-      "platforms": [
-        "windows"
-      ]
     },
     {
       "id": "ai.restarting",
@@ -4171,13 +1063,6 @@
     {
       "id": "ai.title",
       "description": "Windows UI: ai.title",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "ai.toggleAgentHistory",
-      "description": "Windows UI: ai.toggleAgentHistory",
       "platforms": [
         "windows"
       ]
@@ -5106,20 +1991,6 @@
       ]
     },
     {
-      "id": "aiSettings.agentHistory",
-      "description": "Windows UI: aiSettings.agentHistory",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "aiSettings.agentHistoryCleared",
-      "description": "Windows UI: aiSettings.agentHistoryCleared",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
       "id": "aiSettings.aiAutocomplete",
       "description": "Windows UI: aiSettings.aiAutocomplete",
       "platforms": [
@@ -5206,20 +2077,6 @@
     {
       "id": "aiSettings.checking",
       "description": "Windows UI: aiSettings.checking",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "aiSettings.clearAgentHistory",
-      "description": "Windows UI: aiSettings.clearAgentHistory",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "aiSettings.clearAgentHistoryDescription",
-      "description": "Windows UI: aiSettings.clearAgentHistoryDescription",
       "platforms": [
         "windows"
       ]
@@ -18521,20 +15378,6 @@
       }
     },
     {
-      "id": "extensions.agentFallbackDescription",
-      "description": "Windows UI: extensions.agentFallbackDescription",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "extensions.agents",
-      "description": "Windows UI: extensions.agents",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
       "id": "extensions.ai",
       "description": "Windows UI: extensions.ai",
       "platforms": [
@@ -18594,13 +15437,6 @@
       "parameters": {
         "name": "string"
       }
-    },
-    {
-      "id": "extensions.category.agent",
-      "description": "Windows UI: extensions.category.agent",
-      "platforms": [
-        "windows"
-      ]
     },
     {
       "id": "extensions.category.ai",
@@ -18856,13 +15692,6 @@
     {
       "id": "extensions.languages",
       "description": "Windows UI: extensions.languages",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "extensions.loadingAgents",
-      "description": "Windows UI: extensions.loadingAgents",
       "platforms": [
         "windows"
       ]
@@ -31054,20 +27883,6 @@
       ]
     },
     {
-      "id": "hooks.agents",
-      "description": "Windows UI: hooks.agents",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "hooks.allAgents",
-      "description": "Windows UI: hooks.allAgents",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
       "id": "hooks.codexApproval",
       "description": "Windows UI: hooks.codexApproval",
       "platforms": [
@@ -33389,13 +30204,6 @@
     {
       "id": "keybindings.commands.window.toggleMenuBar.title",
       "description": "Windows UI: keybindings.commands.window.toggleMenuBar.title",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "keybindings.commands.workbench.agentLauncher.title",
-      "description": "Windows UI: keybindings.commands.workbench.agentLauncher.title",
       "platforms": [
         "windows"
       ]
@@ -37626,17 +34434,6 @@
       }
     },
     {
-      "id": "native.aCustomAgentCanFollowEitherYourCodexOrYourClaudeConfiguration",
-      "description": "Native UI: A custom Agent can follow either your Codex or your Claude configuration.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "A custom Agent can follow either your Codex or your Claude configuration.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.aDetailedMessageWithAClearSubjectAndBody",
       "description": "Native UI: A detailed message with a clear subject and body",
       "platforms": [
@@ -38700,471 +35497,6 @@
       }
     },
     {
-      "id": "native.agent",
-      "description": "Native UI: Agent",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Agent",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentAccountAdd",
-      "description": "Native UI: Add another account",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Add another account",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentAccountDefaultName",
-      "description": "Native UI: Account %@",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Account %@",
-        "arguments": [
-          "arg1"
-        ]
-      },
-      "parameters": {
-        "arg1": "string"
-      }
-    },
-    {
-      "id": "native.agentAccountPace",
-      "description": "Native UI: Pace %@",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Pace %@",
-        "arguments": [
-          "arg1"
-        ]
-      },
-      "parameters": {
-        "arg1": "string"
-      }
-    },
-    {
-      "id": "native.agentAccountPreferred",
-      "description": "Native UI: Preferred",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Preferred",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentAccountRemove",
-      "description": "Native UI: Remove account",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Remove account",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentAccountRemoveMessage",
-      "description": "Native UI: Remove this account from Lithe? Its sign-in folder is left on disk untouched.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Remove this account from Lithe? Its sign-in folder is left on disk untouched.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentAccountResets",
-      "description": "Native UI: Resets %@",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Resets %@",
-        "arguments": [
-          "arg1"
-        ]
-      },
-      "parameters": {
-        "arg1": "string"
-      }
-    },
-    {
-      "id": "native.agentAccountSetPreferred",
-      "description": "Native UI: Set as preferred",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Set as preferred",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentAccountSignInAgain",
-      "description": "Native UI: Sign in again",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Sign in again",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentAccountSignInFailed",
-      "description": "Native UI: Sign-in did not finish. Check that the Agent's CLI is installed, then try again.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Sign-in did not finish. Check that the Agent's CLI is installed, then try again.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentAccountSignInTimedOut",
-      "description": "Native UI: Sign-in timed out. Try again.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Sign-in timed out. Try again.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentAccountSignInUnsupported",
-      "description": "Native UI: This Agent has no account sign-in.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "This Agent has no account sign-in.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentAccountSnapshotNote",
-      "description": "Native UI: As of %@; not refreshed by Lithe.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "As of %@; not refreshed by Lithe.",
-        "arguments": [
-          "arg1"
-        ]
-      },
-      "parameters": {
-        "arg1": "string"
-      }
-    },
-    {
-      "id": "native.agentAccountUsageInfo",
-      "description": "Native UI: Usage is whatever the Agent last reported. Claude Code reports it while a reply runs; Codex is also refreshed about once a minute while the Agent panel is open. Lithe never queries the account itself, so a value can be out of date, and an account you are not using keeps its last values until you switch back. A window that has already reset is shown without a reset time or pace.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Usage is whatever the Agent last reported. Claude Code reports it while a reply runs; Codex is also refreshed about once a minute while the Agent panel is open. Lithe never queries the account itself, so a value can be out of date, and an account you are not using keeps its last values until you switch back. A window that has already reset is shown without a reset time or pace.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentAccountWaiting",
-      "description": "Native UI: Waiting for browser sign-in…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Waiting for browser sign-in…",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentAccounts",
-      "description": "Native UI: Subscription accounts",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Subscription accounts",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentAccountsInfo",
-      "description": "Native UI: Each account is a separate configuration folder of the official CLI. Sign-in runs the CLI's own login command in the background and opens your browser, so Lithe never reads or copies credentials. Switching restarts this project's connection for this Agent and is refused while a reply or permission request is pending. Lithe never switches accounts by itself when a limit is reached.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Each account is a separate configuration folder of the official CLI. Sign-in runs the CLI's own login command in the background and opens your browser, so Lithe never reads or copies credentials. Switching restarts this project's connection for this Agent and is refused while a reply or permission request is pending. Lithe never switches accounts by itself when a limit is reached.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentChangeRollbackIsUnavailable",
-      "description": "Native UI: Agent change rollback is unavailable.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Agent change rollback is unavailable.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentCommands",
-      "description": "Native UI: Agent commands",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Agent commands",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentConfiguration",
-      "description": "Native UI: Agent configuration",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Agent configuration",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentConversation",
-      "description": "Native UI: Agent conversation",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Agent conversation",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentConversationIsTurnedOffTurnItOnInThePanelSettingsToSendMessages",
-      "description": "Native UI: Agent conversation is turned off. Turn it on in the panel settings to send messages.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Agent conversation is turned off. Turn it on in the panel settings to send messages.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentDefault",
-      "description": "Native UI: Agent default",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Agent default",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentDefaultValue",
-      "description": "Native UI: Agent default: %@",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Agent default: %@",
-        "arguments": [
-          "arg1"
-        ]
-      },
-      "parameters": {
-        "arg1": "string"
-      }
-    },
-    {
-      "id": "native.agentExecutable",
-      "description": "Native UI: Agent executable",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Agent executable",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentHooks",
-      "description": "Native UI: Agent hooks",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Agent hooks",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentList",
-      "description": "Native UI: Agent list",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Agent list",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentProvider",
-      "description": "Native UI: Agent provider",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Agent provider",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentReceived",
-      "description": "Native UI: Agent received",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Agent received",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentReportedChangesExcerptsMayNotIncludeTheEntireFile",
-      "description": "Native UI: Agent-reported changes; excerpts may not include the entire file.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Agent-reported changes; excerpts may not include the entire file.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentSettings",
-      "description": "Native UI: Agent Settings",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Agent Settings",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentSettings.variant2",
-      "description": "Native UI: Agent Settings…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Agent Settings…",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentSkills",
-      "description": "Native UI: Agent skills",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Agent skills",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentTasks",
-      "description": "Native UI: Agent tasks",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Agent tasks",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentTasksWillBeEndedWithoutAskingADeploymentOrMigrationThatIsStillRunningWillBeInterrupted",
-      "description": "Native UI: Agent tasks will be ended without asking. A deployment or migration that is still running will be interrupted.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Agent tasks will be ended without asking. A deployment or migration that is still running will be interrupted.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agents",
-      "description": "Native UI: Agents",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Agents",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agents2",
-      "description": "Native UI: Instruction Agents",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Instruction Agents",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentsMayRunDeploymentsMigrationsOrLongBuildsEndingOneHalfwayCanLeaveDataOrSer5ca5732b6c",
-      "description": "Native UI: Agents may run deployments, migrations or long builds. Ending one halfway can leave data or services inconsistent. Keep it if you are not sure what it does.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Agents may run deployments, migrations or long builds. Ending one halfway can leave data or services inconsistent. Keep it if you are not sure what it does.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.agentsRunOnTheNodeJsInstalledOnThisMacInstallOrUpdateNodeJsYourselfThenCheckAgain",
-      "description": "Native UI: Agents run on the Node.js installed on this Mac. Install or update Node.js yourself, then check again.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Agents run on the Node.js installed on this Mac. Install or update Node.js yourself, then check again.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.ai",
       "description": "Native UI: AI",
       "platforms": [
@@ -39526,17 +35858,6 @@
       }
     },
     {
-      "id": "native.allowTheAgentToContinue",
-      "description": "Native UI: Allow the Agent to continue?",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Allow the Agent to continue?",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.allowToRunBuildTools",
       "description": "Native UI: Allow “%@” to run build tools?",
       "platforms": [
@@ -39667,17 +35988,6 @@
       ],
       "macos": {
         "key": "Amend applies to repositories with selected files.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.anAgentStartsWhenYouOpenThisPanelInAProjectTurningThisOffStopsEveryAgentProcess",
-      "description": "Native UI: An Agent starts when you open this panel in a project. Turning this off stops every Agent process.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "An Agent starts when you open this panel in a project. Turning this off stops every Agent process.",
         "arguments": []
       }
     },
@@ -40646,28 +36956,6 @@
       }
     },
     {
-      "id": "native.askTheAgentAboutThisWorkspace",
-      "description": "Native UI: Ask the Agent about this workspace",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Ask the Agent about this workspace",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.askTheAgentEnterToSendShiftEnterForANewLine",
-      "description": "Native UI: Ask the Agent, Enter to send, Shift-Enter for a new line",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Ask the Agent, Enter to send, Shift-Enter for a new line",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.askedForAccessTo",
       "description": "Native UI: Asked for access to %@",
       "platforms": [
@@ -41011,17 +37299,6 @@
       ],
       "macos": {
         "key": "Available",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.availableToAgents",
-      "description": "Native UI: Available to Agents",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Available to Agents",
         "arguments": []
       }
     },
@@ -42083,17 +38360,6 @@
       }
     },
     {
-      "id": "native.cannotAccessHookConfigurationCheckTheFilePermissionsAndAgentProfile",
-      "description": "Native UI: Cannot access Hook configuration. Check the file permissions and Agent profile.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Cannot access Hook configuration. Check the file permissions and Agent profile.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.cannotAccessTheGlobalInstructionFileCheckItsPermissionsAndTryAgain",
       "description": "Native UI: Cannot access the global instruction file. Check its permissions and try again.",
       "platforms": [
@@ -42177,17 +38443,6 @@
       ],
       "macos": {
         "key": "Cannot encode the Hook library.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.cannotLocateTheAgentUserDirectory",
-      "description": "Native UI: Cannot locate the Agent user directory.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Cannot locate the Agent user directory.",
         "arguments": []
       }
     },
@@ -42642,17 +38897,6 @@
       ],
       "macos": {
         "key": "Check the configuration format, API URL and model. Each configuration must be under 64 KiB.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.checkTheHookNameCommandEventAgentsAndTimeout186400Seconds",
-      "description": "Native UI: Check the Hook name, command, event, Agents and timeout (1–86400 seconds).",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Check the Hook name, command, event, Agents and timeout (1–86400 seconds).",
         "arguments": []
       }
     },
@@ -43128,28 +39372,6 @@
       }
     },
     {
-      "id": "native.chooseALocalOrCustomProviderInTheAgentPanelSettings",
-      "description": "Native UI: Choose a local or custom provider in the Agent panel settings.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Choose a local or custom provider in the Agent panel settings.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.chooseALocalOrCustomProviderSoTheAgentCanSignIn",
-      "description": "Native UI: Choose a local or custom provider so the Agent can sign in.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Choose a local or custom provider so the Agent can sign in.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.chooseAPrivateKeyFile",
       "description": "Native UI: Choose a private key file.",
       "platforms": [
@@ -43238,39 +39460,6 @@
       }
     },
     {
-      "id": "native.chooseAnAIProviderBelowSoTheAgentCanSignIn",
-      "description": "Native UI: Choose an AI provider below so the Agent can sign in.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Choose an AI provider below so the Agent can sign in.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.chooseAnAgent",
-      "description": "Native UI: Choose an Agent",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Choose an Agent",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.chooseAnAgentToStart",
-      "description": "Native UI: Choose an Agent to start",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Choose an Agent to start",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.chooseAnotherJDKInSettingsProjectOrClearTheInvalidPath",
       "description": "Native UI: Choose another JDK in Settings → Project or clear the invalid path.",
       "platforms": [
@@ -43278,17 +39467,6 @@
       ],
       "macos": {
         "key": "Choose another JDK in Settings → Project or clear the invalid path.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.chooseAtLeastOneAgent",
-      "description": "Native UI: Choose at least one Agent.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Choose at least one Agent.",
         "arguments": []
       }
     },
@@ -43707,17 +39885,6 @@
       ],
       "macos": {
         "key": "Classes",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.claudeAgent",
-      "description": "Native UI: Claude Agent",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Claude Agent",
         "arguments": []
       }
     },
@@ -44722,17 +40889,6 @@
       }
     },
     {
-      "id": "native.codexAgentsRequireTheResponsesAPIClaudeAgentsRequireAnAnthropicAPIKey",
-      "description": "Native UI: Codex Agents require the Responses API. Claude Agents require an Anthropic API key.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Codex Agents require the Responses API. Claude Agents require an Anthropic API key.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.codexArchivedHistoryCouldNotBeRead",
       "description": "Native UI: Codex archived history could not be read.",
       "platforms": [
@@ -44784,17 +40940,6 @@
       ],
       "macos": {
         "key": "Codex Hook approval",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.codexIsUsingAgentsOverrideMdClearingItRestoresTheBaseAgentsMdInstructions",
-      "description": "Native UI: Codex is using AGENTS.override.md. Clearing it restores the base AGENTS.md instructions.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Codex is using AGENTS.override.md. Clearing it restores the base AGENTS.md instructions.",
         "arguments": []
       }
     },
@@ -45189,17 +41334,6 @@
       ],
       "macos": {
         "key": "Command Palette Actions",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.commandsAnAIAgentStartedThatAreStillRunningForExampleADeploymentADatabaseMigradd876f8a4a",
-      "description": "Native UI: Commands an AI Agent started that are still running, for example a deployment, a database migration or a dev server. Each one is asked about separately because ending one halfway can leave data or services inconsistent. What the Agent needs for itself, such as its MCP servers, always ends with the Agent.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Commands an AI Agent started that are still running, for example a deployment, a database migration or a dev server. Each one is asked about separately because ending one halfway can leave data or services inconsistent. What the Agent needs for itself, such as its MCP servers, always ends with the Agent.",
         "arguments": []
       }
     },
@@ -46243,28 +42377,6 @@
       }
     },
     {
-      "id": "native.connectedAgentsCanRunBuildReloadAndStopTheProjectCommandsExecuteProjectCodeSoE6d273dab37",
-      "description": "Native UI: Connected agents can run, build, reload and stop the project. Commands execute project code, so enable this only for projects you trust.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Connected agents can run, build, reload and stop the project. Commands execute project code, so enable this only for projects you trust.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.connectedAgentsCanUseTheConfigurationBelowWhileThisProjectIsOpen",
-      "description": "Native UI: Connected agents can use the configuration below while this project is open.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Connected agents can use the configuration below while this project is open.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.connectedAs",
       "description": "Native UI: Connected as @%@",
       "platforms": [
@@ -46321,17 +42433,6 @@
       ],
       "macos": {
         "key": "Connection",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.connectionRecoveryIsTakingLongerTheAgentIsStillRetrying",
-      "description": "Native UI: Connection recovery is taking longer. The Agent is still retrying.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Connection recovery is taking longer. The Agent is still retrying.",
         "arguments": []
       }
     },
@@ -46505,17 +42606,6 @@
       ],
       "macos": {
         "key": "Context usage",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.contextUsageIsNotReportedByThisAgent",
-      "description": "Native UI: Context usage is not reported by this Agent",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Context usage is not reported by this Agent",
         "arguments": []
       }
     },
@@ -46787,17 +42877,6 @@
       }
     },
     {
-      "id": "native.conversationsForThisProjectAndAgentAppearHere",
-      "description": "Native UI: Conversations for this project and Agent appear here.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Conversations for this project and Agent appear here.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.copied",
       "description": "Native UI: Copied",
       "platforms": [
@@ -46817,17 +42896,6 @@
       ],
       "macos": {
         "key": "Copied files",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.copyAgentConfiguration",
-      "description": "Native UI: Copy agent configuration",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Copy agent configuration",
         "arguments": []
       }
     },
@@ -48450,17 +44518,6 @@
       }
     },
     {
-      "id": "native.currentLibraryDocumentationAndCodeExamplesForCodingAgents",
-      "description": "Native UI: Current library documentation and code examples for coding agents.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Current library documentation and code examples for coding agents.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.currentProvider",
       "description": "Native UI: Current provider: %@",
       "platforms": [
@@ -48580,17 +44637,6 @@
       ],
       "macos": {
         "key": "Custom API provider",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.customAgent",
-      "description": "Native UI: Custom Agent",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Custom Agent",
         "arguments": []
       }
     },
@@ -49089,17 +45135,6 @@
       }
     },
     {
-      "id": "native.defaultAgentAccount",
-      "description": "Native UI: Default account",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Default account",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.defaultChangeList",
       "description": "Native UI: Default ChangeList",
       "platforms": [
@@ -49373,17 +45408,6 @@
       },
       "parameters": {
         "arg1": "string"
-      }
-    },
-    {
-      "id": "native.deleteThisProviderAndItsSavedAPIKeyAgentsUsingItWillBeUnlinkedItIsAlsoRemovedFc47686de94",
-      "description": "Native UI: Delete this provider and its saved API key? Agents using it will be unlinked. It is also removed from AI Providers in Settings.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Delete this provider and its saved API key? Agents using it will be unlinked. It is also removed from AI Providers in Settings.",
-        "arguments": []
       }
     },
     {
@@ -49791,17 +45815,6 @@
       }
     },
     {
-      "id": "native.detectionConnectsToThisServerAndListsToolMetadataWithoutCallingAnyToolLocalCommandsMayRunCodeOrDownloadPackagesResultsDescribeThisCheckNotTheAvailabilityOfAnExistingAgentSessionToolSwitchesApplyToTheSelectedAgentSUserConfigurationProjectAndManagedPoliciesCanStillRestrictAccessStartANewAgentSessionAfterChanges",
-      "description": "Native UI: Detection connects to this server and lists tool metadata without calling any tool. Local commands may run code or download packages. Results describe this check, not the availability of an existing Agent session. Tool switches apply to the selected Agent's user configuration; project and managed policies can still restrict access. Start a new Agent session after changes.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Detection connects to this server and lists tool metadata without calling any tool. Local commands may run code or download packages. Results describe this check, not the availability of an existing Agent session. Tool switches apply to the selected Agent's user configuration; project and managed policies can still restrict access. Start a new Agent session after changes.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.detectionStartsTheConfiguredExecutableAndMayDownloadPackagesContinueOnlyIfYouTrustThisServerLitheWillListToolsThenStopTheProbeProcess",
       "description": "Native UI: Detection starts the configured executable and may download packages. Continue only if you trust this server. Lithe will list tools, then stop the probe process.",
       "platforms": [
@@ -49966,17 +45979,6 @@
       ],
       "macos": {
         "key": "Direct connection",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.directRetryAppliesOnlyToPublicMcpRegistrySearchesOnThisPageSystemProxySettingsAndAgentServerConnectionsAreUnchangedTlsCertificateValidationRemainsEnabled",
-      "description": "Native UI: Direct retry applies only to public MCP Registry searches on this page. System proxy settings and Agent server connections are unchanged. TLS certificate validation remains enabled.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Direct retry applies only to public MCP Registry searches on this page. System proxy settings and Agent server connections are unchanged. TLS certificate validation remains enabled.",
         "arguments": []
       }
     },
@@ -50167,17 +46169,6 @@
       ],
       "macos": {
         "key": "Disabled",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.disabledInAgent",
-      "description": "Native UI: Disabled in Agent",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Disabled in Agent",
         "arguments": []
       }
     },
@@ -51083,17 +47074,6 @@
       },
       "parameters": {
         "arg1": "integer"
-      }
-    },
-    {
-      "id": "native.eachAgentKeepsItsOwnConfigurationFileTurningAnAgentOffRemovesOnlyTheEntryLithe602e7165d1",
-      "description": "Native UI: Each Agent keeps its own configuration file. Turning an Agent off removes only the entry Lithe wrote; an entry created outside Lithe is never removed without taking ownership first.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Each Agent keeps its own configuration file. Turning an Agent off removes only the entry Lithe wrote; an entry created outside Lithe is never removed without taking ownership first.",
-        "arguments": []
       }
     },
     {
@@ -52142,17 +48122,6 @@
       }
     },
     {
-      "id": "native.enableAgentConversation",
-      "description": "Native UI: Enable Agent conversation",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Enable Agent conversation",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.enableBreakpoint",
       "description": "Native UI: Enable breakpoint",
       "platforms": [
@@ -52290,17 +48259,6 @@
       ],
       "macos": {
         "key": "Enabled",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.enabledInAgent",
-      "description": "Native UI: Enabled in Agent",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Enabled in Agent",
         "arguments": []
       }
     },
@@ -53843,17 +49801,6 @@
       }
     },
     {
-      "id": "native.fetchThisAgentSLocalConfigurationInThePanelSettings",
-      "description": "Native UI: Fetch this Agent's local configuration in the panel settings.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Fetch this Agent's local configuration in the panel settings.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.fetchWebPagesAndConvertTheirContentToMarkdownRequiresUvAndPython310OrLater",
       "description": "Native UI: Fetch web pages and convert their content to Markdown. Requires uv and Python 3.10 or later.",
       "platforms": [
@@ -53872,17 +49819,6 @@
       ],
       "macos": {
         "key": "Fetch when needed",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.fetchYourLocalConfigurationSoTheAgentCanSignIn",
-      "description": "Native UI: Fetch your local configuration so the Agent can sign in.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Fetch your local configuration so the Agent can sign in.",
         "arguments": []
       }
     },
@@ -54099,17 +50035,6 @@
       ],
       "macos": {
         "key": "files",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.filesAddedSaveYourEditorChangesBeforeSendingSoTheAgentCanReadThem",
-      "description": "Native UI: Files added. Save your editor changes before sending so the Agent can read them.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Files added. Save your editor changes before sending so the Agent can read them.",
         "arguments": []
       }
     },
@@ -55529,17 +51454,6 @@
       }
     },
     {
-      "id": "native.githubRequiresAPersonalAccessTokenSetTheAuthorizationHeaderToBearerFollowedByYourTokenItIsStoredInTheAgentConfigurationFile",
-      "description": "Native UI: GitHub requires a personal access token. Set the Authorization header to Bearer followed by your token. It is stored in the Agent configuration file.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "GitHub requires a personal access token. Set the Authorization header to Bearer followed by your token. It is stored in the Agent configuration file.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.githubReturnedAnInvalidHttpResponse",
       "description": "Native UI: GitHub returned an invalid HTTP response",
       "platforms": [
@@ -55640,17 +51554,6 @@
       ],
       "macos": {
         "key": "Global instructions",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.globalInstructionsApplyToAllProjectsUsingThisAgentEachAgentKeepsItsOwnNativeFile",
-      "description": "Native UI: Global instructions apply to all projects using this Agent. Each Agent keeps its own native file.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Global instructions apply to all projects using this Agent. Each Agent keeps its own native file.",
         "arguments": []
       }
     },
@@ -56577,17 +52480,6 @@
       ],
       "macos": {
         "key": "Hooks",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.hooksRunShellCommandsAtAgentLifecycleEventsTheAgentSuppliesEventJSONOnStandardInputAndRuns",
-      "description": "Native UI: Hooks run shell commands at Agent lifecycle events. The Agent supplies event JSON on standard input and runs the command in the session folder. Changes apply to new sessions; existing sessions keep their own loaded configuration.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Hooks run shell commands at Agent lifecycle events. The Agent supplies event JSON on standard input and runs the command in the session folder. Changes apply to new sessions; existing sessions keep their own loaded configuration.",
         "arguments": []
       }
     },
@@ -58387,17 +54279,6 @@
       }
     },
     {
-      "id": "native.instructionAgent",
-      "description": "Native UI: Instruction Agent",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Instruction Agent",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.instructionSynchronizationWasCancelled",
       "description": "Native UI: Instruction synchronization was cancelled.",
       "platforms": [
@@ -59951,17 +55832,6 @@
       }
     },
     {
-      "id": "native.latestTurnAsReportedByTheAgentItsAccountingScopeDependsOnTheAgentTurnOnModelCa4056cd34fb",
-      "description": "Native UI: Latest turn as reported by the Agent; its accounting scope depends on the Agent. Turn on Model call statistics for session totals.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Latest turn as reported by the Agent; its accounting scope depends on the Agent. Turn on Model call statistics for session totals.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.latestVersion",
       "description": "Native UI: Latest Version",
       "platforms": [
@@ -60028,17 +55898,6 @@
       }
     },
     {
-      "id": "native.leaveEmptyToUseTheAgentDefaultOrEnterAnIntegerFrom1To86400",
-      "description": "Native UI: Leave empty to use the Agent default, or enter an integer from 1 to 86400.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Leave empty to use the Agent default, or enter an integer from 1 to 86400.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.leaveEmptyToUseTheLatestVersionMavenFindsInItsCatalog",
       "description": "Native UI: Leave empty to use the latest version Maven finds in its catalog.",
       "platforms": [
@@ -60090,17 +55949,6 @@
       ],
       "macos": {
         "key": "Legacy SSE probing is unavailable. Use the publisher's Streamable HTTP endpoint.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.letConnectedAgentsInspectAndControlThisProject",
-      "description": "Native UI: Let connected agents inspect and control this project.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Let connected agents inspect and control this project.",
         "arguments": []
       }
     },
@@ -60318,17 +56166,6 @@
       ],
       "macos": {
         "key": "Lithe",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.litheAgent",
-      "description": "Native UI: Lithe Agent",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Lithe Agent",
         "arguments": []
       }
     },
@@ -63965,17 +59802,6 @@
       }
     },
     {
-      "id": "native.messageTheAgent",
-      "description": "Native UI: Message the Agent",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Message the Agent",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.messages",
       "description": "Native UI: Messages",
       "platforms": [
@@ -64256,17 +60082,6 @@
       ],
       "macos": {
         "key": "More Actions",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.moreAgents",
-      "description": "Native UI: More Agents…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "More Agents…",
         "arguments": []
       }
     },
@@ -65572,61 +61387,6 @@
       ],
       "macos": {
         "key": "No additional paths",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.noAgent",
-      "description": "Native UI: no Agent",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "no Agent",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.noAgentIsReadyYetOpenThePanelSettingsToInstallAnAgentAndChooseALocalOrCustomProvider",
-      "description": "Native UI: No Agent is ready yet. Open the panel settings to install an Agent and choose a local or custom provider.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "No Agent is ready yet. Open the panel settings to install an Agent and choose a local or custom provider.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.noAgentIsReadyYetOpenThePanelSettingsToInstallAnAgentAndFetchItsLocalConfiguration",
-      "description": "Native UI: No Agent is ready yet. Open the panel settings to install an Agent and fetch its local configuration.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "No Agent is ready yet. Open the panel settings to install an Agent and fetch its local configuration.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.noAgentIsSelected",
-      "description": "Native UI: No Agent is selected.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "No Agent is selected.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.noAgentIsSetUpYet",
-      "description": "Native UI: No Agent is set up yet",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "No Agent is set up yet",
         "arguments": []
       }
     },
@@ -67199,28 +62959,6 @@
       }
     },
     {
-      "id": "native.noSubagentOutputYet",
-      "description": "Native UI: No subagent output yet",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "No subagent output yet",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.noSubagentsYet",
-      "description": "Native UI: No subagents yet",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "No subagents yet",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.noTasksYet",
       "description": "Native UI: No tasks yet",
       "platforms": [
@@ -67659,17 +63397,6 @@
       },
       "parameters": {
         "arg1": "string"
-      }
-    },
-    {
-      "id": "native.notInstalledInstallItToStartUsingThisAgent",
-      "description": "Native UI: Not installed. Install it to start using this Agent.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Not installed. Install it to start using this Agent.",
-        "arguments": []
       }
     },
     {
@@ -68165,17 +63892,6 @@
       }
     },
     {
-      "id": "native.onlyAPIKeysAreUsedTheAgentSOwnAccountSignInSuchAsAChatGPTLoginIsNeverUsed",
-      "description": "Native UI: Only API keys are used. The Agent's own account sign-in, such as a ChatGPT login, is never used.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Only API keys are used. The Agent's own account sign-in, such as a ChatGPT login, is never used.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.onlyAskForActionsDetectedAsPotentiallyUnsafe",
       "description": "Native UI: Only ask for actions detected as potentially unsafe",
       "platforms": [
@@ -68205,17 +63921,6 @@
       ],
       "macos": {
         "key": "Only http and https addresses with a host name can be opened.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.onlyLocalFilesCanBeAttachedToAnAgentMessage",
-      "description": "Native UI: Only local files can be attached to an Agent message.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Only local files can be attached to an Agent message.",
         "arguments": []
       }
     },
@@ -68276,17 +63981,6 @@
       ],
       "macos": {
         "key": "Only the most recent archived conversations are shown.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.onlyTheReportedAgentEditsWillBeReversedConflictingChangesAndUnsavedEditorChangesWillBePreserved",
-      "description": "Native UI: Only the reported Agent edits will be reversed. Conflicting changes and unsaved editor changes will be preserved.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Only the reported Agent edits will be reversed. Conflicting changes and unsaved editor changes will be preserved.",
         "arguments": []
       }
     },
@@ -68474,28 +64168,6 @@
       }
     },
     {
-      "id": "native.openAProjectToConfigureMCPAccessForAgents",
-      "description": "Native UI: Open a project to configure MCP access for agents.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Open a project to configure MCP access for agents.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.openAProjectToLetConnectedAgentsInspectAndControlIt",
-      "description": "Native UI: Open a project to let connected agents inspect and control it.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Open a project to let connected agents inspect and control it.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.openAProjectToManageItsSkills",
       "description": "Native UI: Open a project to manage its skills.",
       "platforms": [
@@ -68570,17 +64242,6 @@
       ],
       "macos": {
         "key": "Open again",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.openAgentSettings",
-      "description": "Native UI: Open Agent Settings",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Open Agent Settings",
         "arguments": []
       }
     },
@@ -72796,17 +68457,6 @@
       }
     },
     {
-      "id": "native.reconnectThisAgentToRefreshItsModelList",
-      "description": "Native UI: Reconnect this Agent to refresh its model list.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Reconnect this Agent to refresh its model list.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.reconnectToApplyLimits",
       "description": "Native UI: Reconnect the Agent to apply these limits.",
       "platforms": [
@@ -73472,17 +69122,6 @@
       }
     },
     {
-      "id": "native.reloadThisAgentBeforeSynchronizingInstructions",
-      "description": "Native UI: Reload this Agent before synchronizing instructions.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Reload this Agent before synchronizing instructions.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.reloadToolSettings",
       "description": "Native UI: Reload tool settings",
       "platforms": [
@@ -74068,17 +69707,6 @@
       ],
       "macos": {
         "key": "Removed conversations",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.removedConversationsAreHiddenOnlyInLitheTheAgentSOriginalRecordsAreKept",
-      "description": "Native UI: Removed conversations are hidden only in Lithe. The Agent's original records are kept.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Removed conversations are hidden only in Lithe. The Agent's original records are kept.",
         "arguments": []
       }
     },
@@ -75911,28 +71539,6 @@
       }
     },
     {
-      "id": "native.rollBackAgentChanges",
-      "description": "Native UI: Roll back Agent changes",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Roll back Agent changes",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.rollBackAgentChanges.variant2",
-      "description": "Native UI: Roll back Agent changes?",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Roll back Agent changes?",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.rollBackAll",
       "description": "Native UI: Roll back all",
       "platforms": [
@@ -76108,17 +71714,6 @@
       ],
       "macos": {
         "key": "Run and detect",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.runAnotherACPAgentYouInstalledYourselfItMustSupportSigningInWithACustomAPIKeyGateway",
-      "description": "Native UI: Run another ACP Agent you installed yourself. It must support signing in with a custom API key gateway.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Run another ACP Agent you installed yourself. It must support signing in with a custom API key gateway.",
         "arguments": []
       }
     },
@@ -77546,17 +73141,6 @@
       }
     },
     {
-      "id": "native.searchTheWebAndCodeAndRetrievePageContentForCodingAgents",
-      "description": "Native UI: Search the web and code, and retrieve page content for coding agents.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Search the web and code, and retrieve page content for coding agents.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.searchUsers",
       "description": "Native UI: Search users",
       "platforms": [
@@ -78344,17 +73928,6 @@
       }
     },
     {
-      "id": "native.setTheCustomAgentSExecutableInThePanelSettings",
-      "description": "Native UI: Set the custom Agent's executable in the panel settings.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Set the custom Agent's executable in the panel settings.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.setTheDefaultsUsedByOrdinaryFetchInEveryProjectCredentialsUseYourExistingGitHea37790d0a5",
       "description": "Native UI: Set the defaults used by ordinary Fetch in every project. Credentials use your existing Git helper and SSH configuration.",
       "platforms": [
@@ -78362,17 +73935,6 @@
       ],
       "macos": {
         "key": "Set the defaults used by ordinary Fetch in every project. Credentials use your existing Git helper and SSH configuration.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.setUpAgentFileAttachments",
-      "description": "Native UI: Set Up Agent File Attachments…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Set Up Agent File Attachments…",
         "arguments": []
       }
     },
@@ -78708,17 +74270,6 @@
       ],
       "macos": {
         "key": "Show API key",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.showAgentDiff",
-      "description": "Native UI: Show Agent diff",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Show Agent diff",
         "arguments": []
       }
     },
@@ -79742,17 +75293,6 @@
       }
     },
     {
-      "id": "native.skillSavedRefreshOrReconnectTheAgentIfItDoesNotAppearInTheConversation",
-      "description": "Native UI: Skill saved. Refresh or reconnect the Agent if it does not appear in the conversation.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Skill saved. Refresh or reconnect the Agent if it does not appear in the conversation.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.skillSettingSaved",
       "description": "Native UI: Skill setting saved.",
       "platforms": [
@@ -79804,17 +75344,6 @@
       ],
       "macos": {
         "key": "Skill source",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.skillTargetAgent",
-      "description": "Native UI: Skill target Agent",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Skill target Agent",
         "arguments": []
       }
     },
@@ -80892,17 +76421,6 @@
       }
     },
     {
-      "id": "native.startingTheAgent",
-      "description": "Native UI: Starting the Agent…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Starting the Agent…",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.startsNoPrograms",
       "description": "Native UI: Starts no programs.",
       "platforms": [
@@ -81526,50 +77044,6 @@
       }
     },
     {
-      "id": "native.subagent",
-      "description": "Native UI: Subagent",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Subagent",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.subagentOutput",
-      "description": "Native UI: Subagent output",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Subagent output",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.subagentTask",
-      "description": "Native UI: Subagent task",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Subagent task",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.subagents",
-      "description": "Native UI: Subagents",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Subagents",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.subjectMaximumLength",
       "description": "Native UI: Subject maximum length",
       "platforms": [
@@ -81703,17 +77177,6 @@
       }
     },
     {
-      "id": "native.switchAgent",
-      "description": "Native UI: Switch Agent",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Switch Agent",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.switchProjectView",
       "description": "Native UI: Switch project view",
       "platforms": [
@@ -81744,17 +77207,6 @@
       ],
       "macos": {
         "key": "Switched",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.switchesSaveNativeAgentSettingsReconnectExistingConversationsToRefreshAvailableSkills",
-      "description": "Native UI: Switches save native Agent settings. Reconnect existing conversations to refresh available skills.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Switches save native Agent settings. Reconnect existing conversations to refresh available skills.",
         "arguments": []
       }
     },
@@ -82509,251 +77961,6 @@
       ],
       "macos": {
         "key": "The address is invalid.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theAgentAlreadySavedTheseFilesMarkTheCurrentChangesAsReviewed",
-      "description": "Native UI: The Agent already saved these files. Mark the current changes as reviewed.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The Agent already saved these files. Mark the current changes as reviewed.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theAgentConfigurationIsInvalidCheckTheExecutable",
-      "description": "Native UI: The Agent configuration is invalid. Check the executable, API endpoint, and key.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The Agent configuration is invalid. Check the executable, API endpoint, and key.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theAgentCouldNotStart",
-      "description": "Native UI: The Agent could not start",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The Agent could not start",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theAgentDeclinedToContinue",
-      "description": "Native UI: The Agent declined to continue.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The Agent declined to continue.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theAgentDidNotAcceptTheRequestIt",
-      "description": "Native UI: The Agent did not accept the request. It may have stopped.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The Agent did not accept the request. It may have stopped.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theAgentDidNotAcceptTheSupplementaryMessage",
-      "description": "Native UI: The Agent did not accept the supplementary message.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The Agent did not accept the supplementary message.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theAgentDidNotApplyTheSkillSettingRefreshAndCheckProjectOrManagedConfiguration",
-      "description": "Native UI: The Agent did not apply the skill setting. Refresh and check project or managed configuration.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The Agent did not apply the skill setting. Refresh and check project or managed configuration.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theAgentDidNotConfirmTheSelectedSessionSetting",
-      "description": "Native UI: The Agent did not confirm the selected session setting.",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "The Agent did not confirm the selected session setting.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theAgentDidNotProvideEnoughOriginalContentToSafelyRollBackThisFile",
-      "description": "Native UI: The Agent did not provide enough original content to safely roll back this file.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The Agent did not provide enough original content to safely roll back this file.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theAgentDiffIsTooLargeToDisplayCompletelyRollbackIsUnavailable",
-      "description": "Native UI: The Agent diff is too large to display completely. Rollback is unavailable.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The Agent diff is too large to display completely. Rollback is unavailable.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theAgentExecutesThisCommandUsingItsOwnShellAndPassesEventJSONOnStandardInputCommandsRunWit",
-      "description": "Native UI: The Agent executes this command using its own shell and passes event JSON on standard input. Commands run with your user permissions; add only commands you trust.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The Agent executes this command using its own shell and passes event JSON on standard input. Commands run with your user permissions; add only commands you trust.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theAgentHasNotReportedContextUsageYet",
-      "description": "Native UI: The Agent has not reported context usage yet.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The Agent has not reported context usage yet.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theAgentIsNotRunningConnectToStartAConversation",
-      "description": "Native UI: The Agent is not running. Connect to start a conversation.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The Agent is not running. Connect to start a conversation.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theAgentIsStillRespondingInThisConversation",
-      "description": "Native UI: The Agent is still responding in this conversation.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The Agent is still responding in this conversation.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theAgentIsWaitingForYourPermission",
-      "description": "Native UI: The Agent is waiting for your permission",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The Agent is waiting for your permission",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theAgentModuleIsStillStartingTryAgainInAMoment",
-      "description": "Native UI: The Agent module is still starting. Try again in a moment.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The Agent module is still starting. Try again in a moment.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theAgentNoLongerSupportsTheSelectedSessionSetting",
-      "description": "Native UI: The Agent no longer supports the selected session setting.",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "The Agent no longer supports the selected session setting.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theAgentProcessStartsWhenThisPanelOpens",
-      "description": "Native UI: The Agent process starts when this panel opens.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The Agent process starts when this panel opens.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theAgentProfileChangedRestoreThePreviousProfileBeforeSynchronizingItsHooks",
-      "description": "Native UI: The Agent profile changed. Restore the previous profile before synchronizing its Hooks.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The Agent profile changed. Restore the previous profile before synchronizing its Hooks.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theAgentRequestFailed",
-      "description": "Native UI: The Agent request failed.",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "The Agent request failed.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theAgentStoppedAfterReachingItsRequestLimitForThisTurn",
-      "description": "Native UI: The Agent stopped after reaching its request limit for this turn.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The Agent stopped after reaching its request limit for this turn.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theAgentUserDirectoryMustBeAnAbsolutePathCheckCodexHomeOrClaudeConfigDir",
-      "description": "Native UI: The Agent user directory must be an absolute path. Check CODEX_HOME or CLAUDE_CONFIG_DIR.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The Agent user directory must be an absolute path. Check CODEX_HOME or CLAUDE_CONFIG_DIR.",
         "arguments": []
       }
     },
@@ -83570,17 +78777,6 @@
       ],
       "macos": {
         "key": "The file could not be opened as a text document.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theFileHasChangedSinceTheAgentEditOpenTheDiffAndReviewItManually",
-      "description": "Native UI: The file has changed since the Agent edit. Open the diff and review it manually.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The file has changed since the Agent edit. Open the diff and review it manually.",
         "arguments": []
       }
     },
@@ -84989,17 +80185,6 @@
       }
     },
     {
-      "id": "native.thePreviousAgentIsStillStoppingTryAgainShortly",
-      "description": "Native UI: The previous Agent is still stopping. Try again shortly.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The previous Agent is still stopping. Try again shortly.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.thePreviousVersionIsUsedAfterRestartingLitheYourSettingValuesAreKept",
       "description": "Native UI: The previous version is used after restarting Lithe. Your setting values are kept.",
       "platforms": [
@@ -85787,17 +80972,6 @@
       }
     },
     {
-      "id": "native.theSwitchControlsTheLitheSharedBlockNotTheAgentOrItsOwnInstructionsSaveSharedChangesBeforeSwitchingOpenARowToEditTheCompleteNativeFile",
-      "description": "Native UI: The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.theTestFileIsOutsideTheCurrentWorkspace",
       "description": "Native UI: The test file is outside the current workspace: %@",
       "platforms": [
@@ -86375,61 +81549,6 @@
       }
     },
     {
-      "id": "native.thisAgent",
-      "description": "Native UI: This Agent",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "This Agent",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.thisAgentCannotReopenEarlierConversationsStartANewConversation",
-      "description": "Native UI: This Agent cannot reopen earlier conversations. Start a new conversation.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "This Agent cannot reopen earlier conversations. Start a new conversation.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.thisAgentHasNoGlobalMCPConfigurationFile",
-      "description": "Native UI: This Agent has no global MCP configuration file.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "This Agent has no global MCP configuration file.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.thisAgentIsNoLongerConfiguredOpenAgentSettingsToConfigureIt",
-      "description": "Native UI: This Agent is no longer configured. Open Agent settings to configure it.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "This Agent is no longer configured. Open Agent settings to configure it.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.thisAgentSProviderHasNoAPIKeyUpdateItsLocalConfigurationOrEditTheCustomProvidebf9a7aac24",
-      "description": "Native UI: This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.thisBranchHasNoCommitsYet",
       "description": "Native UI: This branch has no commits yet",
       "platforms": [
@@ -86617,17 +81736,6 @@
       }
     },
     {
-      "id": "native.thisEditorShowsTheCompleteNativeFileIncludingAnyLitheSharedBlockEditingSharedTextHereCanLeaveItOutOfSyncUseTheSharedEditorToUpdateAllEnabledAgents",
-      "description": "Native UI: This editor shows the complete native file, including any Lithe shared block. Editing shared text here can leave it out of sync; use the shared editor to update all enabled Agents.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "This editor shows the complete native file, including any Lithe shared block. Editing shared text here can leave it out of sync; use the shared editor to update all enabled Agents.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.thisEntryBelongsToTheOpenProjectAndIsManagedByLitheIDEAccess",
       "description": "Native UI: This entry belongs to the open project and is managed by Lithe IDE access.",
       "platforms": [
@@ -86658,17 +81766,6 @@
       ],
       "macos": {
         "key": "This file changed outside Lithe while you had unsaved edits.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.thisFileHasUnsavedEditorChangesSaveOrDiscardThemBeforeRollingBackTheAgentEdit",
-      "description": "Native UI: This file has unsaved editor changes. Save or discard them before rolling back the Agent edit.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "This file has unsaved editor changes. Save or discard them before rolling back the Agent edit.",
         "arguments": []
       }
     },
@@ -87175,17 +82272,6 @@
       }
     },
     {
-      "id": "native.thisToolIsRestrictedOutsideLitheEditTheNativeAgentPolicyToEnableIt",
-      "description": "Native UI: This tool is restricted outside Lithe. Edit the native Agent policy to enable it.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "This tool is restricted outside Lithe. Edit the native Agent policy to enable it.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.thisTurn",
       "description": "Native UI: This turn",
       "platforms": [
@@ -87630,17 +82716,6 @@
       },
       "parameters": {
         "arg1": "string"
-      }
-    },
-    {
-      "id": "native.tokenCountsReportedByTheAgentAccountingScopeDependsOnTheAgent",
-      "description": "Native UI: Token counts reported by the Agent. Accounting scope depends on the Agent.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Token counts reported by the Agent. Accounting scope depends on the Agent.",
-        "arguments": []
       }
     },
     {
@@ -89373,28 +84448,6 @@
       }
     },
     {
-      "id": "native.turnOnMCPToGenerateAConfigurationForAgents",
-      "description": "Native UI: Turn on MCP to generate a configuration for agents.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Turn on MCP to generate a configuration for agents.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.turnOnModelCallStatisticsInAgentSettingsAndReconnectToSeeTheMCPToolsSentWithEachRequest",
-      "description": "Native UI: Turn on Model call statistics in Agent settings and reconnect to see the MCP tools sent with each request.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Turn on Model call statistics in Agent settings and reconnect to see the MCP tools sent with each request.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.turnUsage",
       "description": "Native UI: Turn usage",
       "platforms": [
@@ -89424,17 +84477,6 @@
       ],
       "macos": {
         "key": "Turned on auto-merge",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.turningThisOffStopsEveryAgentProcess",
-      "description": "Native UI: Turning this off stops every Agent process.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Turning this off stops every Agent process.",
         "arguments": []
       }
     },
@@ -90866,17 +85908,6 @@
       }
     },
     {
-      "id": "native.useAnAgentInYourProject",
-      "description": "Native UI: Use an Agent in your project",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Use an Agent in your project",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.useAutoBuild",
       "description": "Native UI: Use AutoBuild",
       "platforms": [
@@ -91405,17 +86436,6 @@
       }
     },
     {
-      "id": "native.usesTheClaudeAiAccountSignedInToClaudeCodeSignInWithLoginInClaudeCodeIfTheAgentAsks",
-      "description": "Native UI: Uses the claude.ai account signed in to Claude Code. Sign in with /login in Claude Code if the Agent asks.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Uses the claude.ai account signed in to Claude Code. Sign in with /login in Claude Code if the Agent asks.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.usesYourLocalChatGPTAccount",
       "description": "Native UI: Uses your local ChatGPT account.",
       "platforms": [
@@ -91589,17 +86609,6 @@
       ],
       "macos": {
         "key": "8 spaces",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.valuesAreMaskedHereButStoredAsPlainTextInTheAgentSConfigurationFile",
-      "description": "Native UI: Values are masked here but stored as plain text in the Agent's configuration file.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Values are masked here but stored as plain text in the Agent's configuration file.",
         "arguments": []
       }
     },
@@ -91928,39 +86937,6 @@
       }
     },
     {
-      "id": "native.waitForTheAgentConfigurationToFinishUpdating",
-      "description": "Native UI: Wait for the Agent configuration to finish updating.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Wait for the Agent configuration to finish updating.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.waitForTheAgentFileRollbackToFinish",
-      "description": "Native UI: Wait for the Agent file rollback to finish.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Wait for the Agent file rollback to finish.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.waitForTheAgentOperationToFinishBeforeChangingProviders",
-      "description": "Native UI: Wait for the Agent operation to finish before changing providers.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Wait for the Agent operation to finish before changing providers.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.waitForTheCurrentGitOperationToFinish",
       "description": "Native UI: Wait for the current Git operation to finish.",
       "platforms": [
@@ -92013,17 +86989,6 @@
       ],
       "macos": {
         "key": "Waiting for a local test JVM…",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.waitingForAgentResponse",
-      "description": "Native UI: Waiting for Agent response…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Waiting for Agent response…",
         "arguments": []
       }
     },
@@ -92342,17 +87307,6 @@
       ],
       "macos": {
         "key": "Welcome to Lithe",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.welcomeToLitheAgent",
-      "description": "Native UI: Welcome to Lithe Agent",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Welcome to Lithe Agent",
         "arguments": []
       }
     },
@@ -92936,17 +87890,6 @@
       }
     },
     {
-      "id": "native.writeSharedInstructionsOnceThenEnableThemForEachAgentLitheOnlyChangesItsMarkedBlockTheRestOfEachNativeFileStaysYoursStartANewConversationToLoadChangesProjectInstructionsStillApply",
-      "description": "Native UI: Write shared instructions once, then enable them for each Agent. Lithe only changes its marked block; the rest of each native file stays yours. Start a new conversation to load changes. Project instructions still apply.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Write shared instructions once, then enable them for each Agent. Lithe only changes its marked block; the rest of each native file stays yours. Start a new conversation to load changes. Project instructions still apply.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.writeToGlobalConfig",
       "description": "Native UI: Write to global config",
       "platforms": [
@@ -93109,17 +88052,6 @@
       "parameters": {
         "arg1": "string",
         "arg2": "string"
-      }
-    },
-    {
-      "id": "native.yourLocalConfigurationHasNoAPIKeyForThisAgentAddOneThenFetchTheConfigurationAgain",
-      "description": "Native UI: Your local configuration has no API key for this Agent. Add one, then fetch the configuration again.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Your local configuration has no API key for this Agent. Add one, then fetch the configuration again.",
-        "arguments": []
       }
     },
     {
@@ -101958,13 +96890,6 @@
       ]
     },
     {
-      "id": "settings.tabs.agents",
-      "description": "Windows UI: settings.tabs.agents",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
       "id": "settings.tabs.ai",
       "description": "Windows UI: settings.tabs.ai",
       "platforms": [
@@ -103673,6 +98598,7 @@
       "id": "ui.cancel",
       "description": "Common action: Cancel.",
       "platforms": [
+        "desktop",
         "macos",
         "windows"
       ],
@@ -105352,36 +100278,6 @@
       }
     },
     {
-      "id": "windows.agentDefault",
-      "description": "Windows UI: Agent default",
-      "platforms": [
-        "windows"
-      ],
-      "windows": {
-        "key": "Agent default"
-      }
-    },
-    {
-      "id": "windows.agentHooks",
-      "description": "Windows UI: Agent hooks",
-      "platforms": [
-        "windows"
-      ],
-      "windows": {
-        "key": "Agent hooks"
-      }
-    },
-    {
-      "id": "windows.agents",
-      "description": "Windows UI: Agents",
-      "platforms": [
-        "windows"
-      ],
-      "windows": {
-        "key": "Agents"
-      }
-    },
-    {
       "id": "windows.allTools",
       "description": "Windows UI: All tools",
       "platforms": [
@@ -105422,16 +100318,6 @@
       }
     },
     {
-      "id": "windows.cannotAccessHookConfigurationCheckTheFilePermissionsAndAgentProfile",
-      "description": "Windows UI: Cannot access Hook configuration. Check the file permissions and Agent profile.",
-      "platforms": [
-        "windows"
-      ],
-      "windows": {
-        "key": "Cannot access Hook configuration. Check the file permissions and Agent profile."
-      }
-    },
-    {
       "id": "windows.cannotAccessTheHookLibraryCheckItsPermissions",
       "description": "Windows UI: Cannot access the Hook library. Check its permissions.",
       "platforms": [
@@ -105459,16 +100345,6 @@
       ],
       "windows": {
         "key": "Cannot encode the Hook library."
-      }
-    },
-    {
-      "id": "windows.checkTheHookNameCommandEventAgentsAndTimeout186400Seconds",
-      "description": "Windows UI: Check the Hook name, command, event, Agents and timeout (1–86400 seconds).",
-      "platforms": [
-        "windows"
-      ],
-      "windows": {
-        "key": "Check the Hook name, command, event, Agents and timeout (1–86400 seconds)."
       }
     },
     {
@@ -105702,16 +100578,6 @@
       }
     },
     {
-      "id": "windows.hooksRunShellCommandsAtAgentLifecycleEventsTheAgentSuppliesEventJSONOnStandardInputAndRuns",
-      "description": "Windows UI: Hooks run shell commands at Agent lifecycle events. The Agent supplies event JSON on standard input and runs the command in the session folder. Changes apply to new sessions; existing sessions keep their own loaded configuration.",
-      "platforms": [
-        "windows"
-      ],
-      "windows": {
-        "key": "Hooks run shell commands at Agent lifecycle events. The Agent supplies event JSON on standard input and runs the command in the session folder. Changes apply to new sessions; existing sessions keep their own loaded configuration."
-      }
-    },
-    {
       "id": "windows.invalidHookFileGuards",
       "description": "Windows UI: Invalid Hook file guards.",
       "platforms": [
@@ -105719,16 +100585,6 @@
       ],
       "windows": {
         "key": "Invalid Hook file guards."
-      }
-    },
-    {
-      "id": "windows.leaveEmptyToUseTheAgentDefaultOrEnterAnIntegerFrom1To86400",
-      "description": "Windows UI: Leave empty to use the Agent default, or enter an integer from 1 to 86400.",
-      "platforms": [
-        "windows"
-      ],
-      "windows": {
-        "key": "Leave empty to use the Agent default, or enter an integer from 1 to 86400."
       }
     },
     {
@@ -105819,26 +100675,6 @@
       ],
       "windows": {
         "key": "Sync needed"
-      }
-    },
-    {
-      "id": "windows.theAgentExecutesThisCommandUsingItsOwnShellAndPassesEventJSONOnStandardInputCommandsRunWit",
-      "description": "Windows UI: The Agent executes this command using its own shell and passes event JSON on standard input. Commands run with your user permissions; add only commands you trust.",
-      "platforms": [
-        "windows"
-      ],
-      "windows": {
-        "key": "The Agent executes this command using its own shell and passes event JSON on standard input. Commands run with your user permissions; add only commands you trust."
-      }
-    },
-    {
-      "id": "windows.theAgentProfileChangedRestoreThePreviousProfileBeforeSynchronizingItsHooks",
-      "description": "Windows UI: The Agent profile changed. Restore the previous profile before synchronizing its Hooks.",
-      "platforms": [
-        "windows"
-      ],
-      "windows": {
-        "key": "The Agent profile changed. Restore the previous profile before synchronizing its Hooks."
       }
     },
     {

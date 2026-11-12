@@ -162,7 +162,7 @@ var english = Messages{
 			return SharedFormat(English, "desktop.commit.pushTo", map[string]string{"upstream": upstream})
 		},
 		Continue:             Shared(English, "git.execution.continue"),
-		Cancel:               Shared(English, "agent.state.cancel"),
+		Cancel:               Shared(English, "ui.cancel"),
 		Pending:              Shared(English, "git.workspaceCommit.pending"),
 		NotIncluded:          Shared(English, "git.workspaceCommit.notIncluded"),
 		Committed:            Shared(English, "git.workspaceCommit.committed"),
@@ -226,7 +226,7 @@ var english = Messages{
 			return SharedFormat(English, "desktop.branch.renameFrom", map[string]string{"name": name})
 		},
 		RenameButton: Shared(English, "desktop.branch.renameButton"),
-		Cancel:       Shared(English, "agent.state.cancel"),
+		Cancel:       Shared(English, "ui.cancel"),
 		NameEmpty:    Shared(English, "git.log.branchNameEmpty"),
 		NameHead:     Shared(English, "git.log.branchNameHead"),
 		NameRemote: func(name string) string {
@@ -400,7 +400,7 @@ var english = Messages{
 		ClearTitle:   Shared(English, "desktop.logs.clearTitle"),
 		ClearAction:  Shared(English, "desktop.logs.clearAction"),
 		ClearMessage: Shared(English, "desktop.logs.clearMessage"),
-		Cancel:       Shared(English, "agent.state.cancel"),
+		Cancel:       Shared(English, "ui.cancel"),
 		Save:         Shared(English, "ui.save"),
 		Apply:        Shared(English, "desktop.logs.apply"),
 		Delete:       Shared(English, "ui.delete"),

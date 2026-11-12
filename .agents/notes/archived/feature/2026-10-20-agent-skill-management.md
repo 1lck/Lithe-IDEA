@@ -1,6 +1,11 @@
 # Agent 笔记：技能文件管理与原生 Agent 加载边界
 
 状态：已实现
+归档日期：2026-11-12
+
+## 归档原因
+
+2026-11-12 用户决定 Viva 桌面端不做 Agent 对话，本分支删除桌面端实现后旧 SwiftUI 与 Tauri 客户端也整体移除，本文描述的代码在仓库中已不存在，保留为历史决策记录，见[Viva 桌面端不做 Agent 对话，只保留 AI 生成](../../implemented/feature/2026-11-12-viva-agent-conversation-removed.md)。
 
 ## 先说结论
 

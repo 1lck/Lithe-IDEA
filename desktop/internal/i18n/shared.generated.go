@@ -3,7 +3,6 @@ package i18n
 
 var sharedCatalogs = map[string]map[string]string{
 	"en-US": {
-		"agent.state.cancel":                                    "Cancel",
 		"debugger.disableBreakpoint":                            "Disable breakpoint",
 		"debugger.disassembly.copyAddress":                      "Copy Address",
 		"debugger.disassembly.copyInstruction":                  "Copy Instruction",
@@ -2233,6 +2232,7 @@ var sharedCatalogs = map[string]map[string]string{
 		"titleProject.open":                      "Open…",
 		"titleProject.openProjects":              "Open Projects",
 		"titleProject.recentProjects":            "Recent Projects",
+		"ui.cancel":                              "Cancel",
 		"ui.clear":                               "Clear",
 		"ui.delete":                              "Delete",
 		"ui.refresh":                             "Refresh",
@@ -2258,7 +2258,6 @@ var sharedCatalogs = map[string]map[string]string{
 		"workbench.terminal":                     "Terminal",
 	},
 	"zh-CN": {
-		"agent.state.cancel":                                    "取消",
 		"debugger.disableBreakpoint":                            "禁用断点",
 		"debugger.disassembly.copyAddress":                      "复制地址",
 		"debugger.disassembly.copyInstruction":                  "复制指令",
@@ -4488,6 +4487,7 @@ var sharedCatalogs = map[string]map[string]string{
 		"titleProject.open":                      "打开…",
 		"titleProject.openProjects":              "打开的项目",
 		"titleProject.recentProjects":            "最近项目",
+		"ui.cancel":                              "取消",
 		"ui.clear":                               "清空",
 		"ui.delete":                              "删除",
 		"ui.refresh":                             "刷新",

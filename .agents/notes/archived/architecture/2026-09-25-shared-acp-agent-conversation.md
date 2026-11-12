@@ -1,8 +1,13 @@
 # Agent 笔记：共享 ACP Agent 对话
 
 状态：已实现
+归档日期：2026-11-12
 
-> Viva 迁移状态（2026-11-12）：本文记录旧客户端已实现的行为。用户决定 Viva 桌面端不做 Agent 对话，#1799 已删除桌面端的 Core ACP 连接桥和会话面板，Viva 中没有本文描述的任何 Agent 对话功能，见 [Viva 桌面端不做 Agent 对话，只保留 AI 生成](../feature/2026-11-12-viva-agent-conversation-removed.md)。Rust Core 的 Agent 宿主和 `shared/fixtures/agent/` 暂留，是否删除另行决定。
+## 归档原因
+
+2026-11-12 用户决定 Viva 桌面端不做 Agent 对话，本分支删除桌面端实现后旧 SwiftUI 与 Tauri 客户端也整体移除，本文描述的代码在仓库中已不存在，保留为历史决策记录，见[Viva 桌面端不做 Agent 对话，只保留 AI 生成](../../implemented/feature/2026-11-12-viva-agent-conversation-removed.md)。
+
+> Viva 迁移状态（2026-11-12）：本文记录旧客户端已实现的行为。用户决定 Viva 桌面端不做 Agent 对话，#1799 已删除桌面端的 Core ACP 连接桥和会话面板，Viva 中没有本文描述的任何 Agent 对话功能，见 [Viva 桌面端不做 Agent 对话，只保留 AI 生成](../../implemented/feature/2026-11-12-viva-agent-conversation-removed.md)。Rust Core 的 Agent 宿主和 `shared/fixtures/agent/` 暂留，是否删除另行决定。
 
 ## 先说结论
 

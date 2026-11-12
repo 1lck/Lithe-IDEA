@@ -812,7 +812,7 @@ must label as such. Unparsable provider data omits the
 optional fields and never affects forwarding. Without these events, consumers do
 not estimate model-call counts, first-token latency, output speed or prompt
 composition. Decision:
-`.agents/notes/implemented/architecture/2026-10-13-agent-model-call-observation.md`.
+`.agents/notes/archived/architecture/2026-10-13-agent-model-call-observation.md`.
 
 macOS keeps local turn statistics in memory. Elapsed time uses a monotonic clock
 from user submission (including queued session creation/loading, tools and
