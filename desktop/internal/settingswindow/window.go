@@ -7,6 +7,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/appicon"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/uistyle"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/windowcontrols"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
@@ -228,7 +229,7 @@ func newWindow(c *Controller, current Values) *window {
 
 // config is the native window's configuration: the Page paints it and routes its input.
 func (w *window) config() app.Config {
-	w.page = ui.NewPage(ui.PageConfig{View: w.view, Theme: &w.theme, Background: &w.background, Invalidator: &w.inv})
+	w.page = ui.NewPage(ui.PageConfig{View: w.view, Theme: &w.theme, Background: &w.background, Invalidator: &w.inv, BarStyle: uistyle.Bars})
 	config := w.page.Config(app.Config{
 		Title:          w.ctrl.text().Settings.Title,
 		Icon:           appicon.Window(),

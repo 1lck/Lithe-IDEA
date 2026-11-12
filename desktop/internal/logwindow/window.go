@@ -14,6 +14,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/sysinfo"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/uistyle"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/windowcontrols"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
@@ -238,6 +239,7 @@ func (w *window) config() app.Config {
 		Theme:       &w.theme,
 		Background:  &w.background,
 		Invalidator: &w.inv,
+		BarStyle:    uistyle.Bars,
 	})
 	config := w.page.Config(app.Config{
 		Title:          w.ctrl.text().Logs.Logs,
