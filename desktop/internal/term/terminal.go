@@ -94,6 +94,10 @@ type Modes struct {
 	// Win32Input is DECSET 9001: the program asked for Windows console key
 	// packets (Vk;Sc;Uc;Kd;Cs;Rc). It is only accepted on Windows.
 	Win32Input bool
+	// BackgroundReport is DECSET 2031: the program asked to be told when the
+	// terminal's background changes, through OSC 11 and the color-scheme report
+	// (CSI ? 997 n). Programs use it to follow the editor's light or dark theme.
+	BackgroundReport bool
 }
 
 type pen struct {
@@ -277,7 +281,38 @@ func (t *Terminal) SetClipboardWrite(write func(ClipboardWrite)) { t.clipboardFn
 // SetDefaultColors tells the terminal the default foreground and background so
 // it can answer OSC 10 and 11 queries.
 func (t *Terminal) SetDefaultColors(foreground, background [3]uint8) {
+	changed := t.haveDefaults && t.defBG != background
 	t.defFG, t.defBG, t.haveDefaults = foreground, background, true
+	if changed && t.modes.BackgroundReport {
+		t.reportBackground()
+	}
+}
+
+// backgroundIsDark reports whether the default background reads as the dark scheme. The
+// color-scheme report answers light or dark and never a color, so the answer comes from
+// the background's luma rather than from the theme the owner chose.
+func (t *Terminal) backgroundIsDark() bool {
+	if !t.haveDefaults {
+		return true
+	}
+	b := t.defBG
+	return (int(b[0])*299+int(b[1])*587+int(b[2])*114)/1000 < 128
+}
+
+// reportColorScheme answers the color-scheme report, CSI ? 997 n: 1 is dark and 2 is light.
+func (t *Terminal) reportColorScheme() {
+	if t.backgroundIsDark() {
+		t.send(append(t.scratch[:0], "\x1b[?997;1n"...))
+		return
+	}
+	t.send(append(t.scratch[:0], "\x1b[?997;2n"...))
+}
+
+// reportBackground tells a subscribed program that the default background changed, with
+// the two answers a program that read the theme on its own would have asked for.
+func (t *Terminal) reportBackground() {
+	t.answerColor(11, t.defBG)
+	t.reportColorScheme()
 }
 
 // Scrollback is the number of history lines above the screen.

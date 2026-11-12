@@ -511,6 +511,13 @@ func (t *Terminal) setPrivateMode(mode int, set bool) {
 		}
 	case 25:
 		m.CursorVisible = set
+	case 2031:
+		m.BackgroundReport = set
+		if set {
+			// A program that just subscribed learns the current background at once instead of
+			// having to ask for it separately.
+			t.reportBackground()
+		}
 	case 47:
 		if set {
 			t.enterAlt(false)
@@ -625,6 +632,8 @@ func (t *Terminal) modeState(mode int, private bool) int {
 			on = m.BracketedPaste
 		case 2026:
 			on = m.Sync
+		case 2031:
+			on = m.BackgroundReport
 		case 9001:
 			if win32InputSupported {
 				on = m.Win32Input
@@ -678,6 +687,11 @@ func (t *Terminal) deviceStatus(private bool) {
 		b = strconv.AppendInt(b, int64(t.cx+1), 10)
 		b = append(b, 'R')
 		t.send(b)
+	case 997:
+		// The color-scheme report: 1 for the dark scheme, 2 for the light one.
+		if private {
+			t.reportColorScheme()
+		}
 	}
 }
 

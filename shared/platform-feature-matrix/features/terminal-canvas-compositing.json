@@ -4,17 +4,21 @@
   "group": "终端",
   "capability": "macOS 终端 Metal 画布按预乘语义清屏：无壁纸时画布自身承载不透明编辑器底色，有壁纸时清屏为透明 (0,0,0,0) 由壁纸透出；OSC 11 应答与画布清屏色一致（无壁纸报告编辑器底色，有壁纸报告黑色）；已打开终端随 Color theme 变化刷新背景和前景及 OSC 11/10 应答；背景变化时仅向订阅 kitty DEC mode 2031 的终端应用推送 OSC 11 与 DSR 997，997;1n 报暗、997;2n 报亮",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/term/csi.go",
+      "desktop/internal/term/terminal.go",
+      "desktop/internal/term/color_scheme_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/term/csi.go",
+      "desktop/internal/term/terminal.go",
+      "desktop/internal/term/color_scheme_test.go"
     ]
   },
   "owner": "Terminal",
@@ -39,5 +43,5 @@
       ]
     }
   },
-  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：term/parser.go 的 answerColor 应答 OSC 10/11 查询，termview/palette.go 的 applyLook 在主题变化时调用 SetDefaultColors 更新默认色；未找到 DSR 997 报告、DEC mode 2031 订阅与背景变化推送，也没有有壁纸时报告黑色的逻辑。"
+  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：term/parser.go 的 answerColor 应答 OSC 10/11 查询，termview/palette.go 的 applyLook 在主题变化时调用 SetDefaultColors 更新默认色；未找到 DSR 997 报告、DEC mode 2031 订阅与背景变化推送，也没有有壁纸时报告黑色的逻辑。 2026-11-12：终端已跟踪 DECSET 2031 背景订阅，主题切换时向订阅者推送 OSC 11 与颜色方案报告（CSI ? 997 n，1 暗 / 2 亮），模式查询 CSI ? 2031 $ p 如实应答，订阅即时上报当前背景。未做：壁纸/背景图模式下的透明画布合成（依赖尚不存在的背景图模式）。"
 }
