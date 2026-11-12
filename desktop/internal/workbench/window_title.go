@@ -21,7 +21,7 @@ func (a *App) windowTitle() string {
 	if p == nil {
 		return a.text.App.Name
 	}
-	title := p.name
+	title := a.projectDisplayName(p)
 	if runtime.GOOS == "darwin" {
 		return title
 	}
@@ -29,6 +29,37 @@ func (a *App) windowTitle() string {
 		title += windowTitleSeparator + filepath.Base(d.path)
 	}
 	return title
+}
+
+// projectDisplayName is the name the taskbar and Alt+Tab show for p: its folder's name, or
+// that name under the folder above it when another open tab shows a project of the same name,
+// so two checkouts of one repository do not look alike.
+func (a *App) projectDisplayName(p *project) string {
+	name := p.name
+	if !a.projectNameShared(p) {
+		return name
+	}
+	parent := filepath.Base(filepath.Dir(p.root))
+	if parent == "" || parent == "." || parent == string(filepath.Separator) {
+		return name
+	}
+	return filepath.Join(parent, name)
+}
+
+// projectNameShared reports whether another open tab shows a project with p's name.
+func (a *App) projectNameShared(p *project) bool {
+	if a.sessions == nil {
+		return false
+	}
+	for _, other := range a.sessions.list {
+		if other == a || other.project == nil {
+			continue
+		}
+		if other.project.name == p.name {
+			return true
+		}
+	}
+	return false
 }
 
 // syncWindowTitle gives the window the title windowTitle names, when it changed. It runs

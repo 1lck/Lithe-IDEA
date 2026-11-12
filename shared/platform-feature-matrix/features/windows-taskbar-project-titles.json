@@ -11,16 +11,17 @@
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/workbench/app.go",
-      ".agents/notes/implemented/feature/2026-10-02-windows-taskbar-project-titles.md"
+      "desktop/internal/workbench/window_title.go",
+      "desktop/internal/workbench/window_title_test.go",
+      "desktop/internal/workbench/window_sessions.go"
     ]
   },
   "owner": "Workspace",
   "verification": "Windows：打开两个不同项目与不同目录的同名项目，检查任务栏悬停和 Alt+Tab 标题；切换项目、分屏、文件、终端、搜索与 Diff，确认文件名只来自当前活动文件。搜索侧栏获得焦点时清除文件名，返回编辑器时恢复；仅可见不清除文件名。修改项目别名、关闭项目或窗口，确认其余窗口的重名路径同步恢复。覆盖独立文件、预览源文件、中文、UNC 路径、启动恢复与初始化身份刷新；测试已应用但应答失败后的 A/B/A 恢复、登记快照复用、路径回退、统一截止时间、迟到回调及窗口销毁，生成前端和宿主逐测试计时报告。",
-  "notes": "Viva 系统窗口标题目前固定为应用名，尚未同步项目、活动文件和焦点；欢迎页中绘制的标题不等于系统任务栏标题。Windows 实机验收待完成；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva 系统窗口标题目前固定为应用名，尚未同步项目、活动文件和焦点；欢迎页中绘制的标题不等于系统任务栏标题。Windows 实机验收待完成；legacy 是迁移前基线，不代表当前实现。 2026-11-12：标题已按 IDEA 规则生成——非 macOS 为“项目 – 活动文件”，工具页、终端或没有活动文档时只显示项目；活动文件取聚焦的编辑器组（terms.bench.FocusedGroup）；两个打开的标签同名时自动前缀上一级目录（projectDisplayName/projectNameShared，附单测），任务栏与 Alt+Tab 能区分同名仓库。未做：用户自定义项目展示名（别名）仍要一个设置项，以及 Windows 实机验收。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
