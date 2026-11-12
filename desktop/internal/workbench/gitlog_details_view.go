@@ -351,16 +351,15 @@ func statusLetter(status string) string {
 	return strings.ToUpper(status[:1])
 }
 
+// fileStatusColor is the IDEA-aligned color of a commit's file name in the Git Log
+// details. The log shows the recorded side of a change, so every status is the
+// worktree one.
 func (a *App) fileStatusColor(status string) gfx.Color {
-	switch statusLetter(status) {
-	case "A":
-		return a.colors.Success
-	case "D":
-		return a.colors.Deleted
-	case "M", "R", "C":
-		return a.colors.Accent
+	letter := statusLetter(status)
+	if len(letter) != 1 {
+		return a.colors.GitUntracked
 	}
-	return a.colors.Text
+	return a.colors.gitStatusColor(letter[0], false)
 }
 
 // drawLogCommitDetail declares the details of the selected commit.

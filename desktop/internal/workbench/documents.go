@@ -890,11 +890,11 @@ func (a *App) editorLook() editorview.Look {
 		Button:       a.colors.Panel,
 		ButtonHover:  a.colors.Hover,
 		ButtonBorder: a.theme.Border,
-		// Git change markers use the palette's own success blue and red, as the status
-		// bar and the Change list name the same changes with them.
-		GutterAdded:    a.colors.Success,
-		GutterModified: a.colors.Accent,
-		GutterDeleted:  a.colors.Deleted,
+		// Git change markers use the palette's gutter tokens, the lighter marks IDEA draws
+		// beside a changed line, so they match the change list without shouting.
+		GutterAdded:    a.colors.GutterAdded,
+		GutterModified: a.colors.GutterModified,
+		GutterDeleted:  a.colors.GutterDeleted,
 		// Breakpoints use the palette's danger red and log points its warning amber, the
 		// colors the Debug tool window marks them with.
 		Breakpoint: a.theme.Danger,

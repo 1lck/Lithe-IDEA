@@ -20,10 +20,10 @@
 
 | 分类 | 数量 |
 | --- | --- |
-| 必须迁移 | 152 |
+| 必须迁移 | 153 |
 | 插件提供 | 34 |
 | 平台专属 | 11 |
-| 放弃 | 55 |
+| 放弃 | 54 |
 | 不纳入 | 2 |
 | 合计 | 254 |
 
@@ -32,7 +32,7 @@
 | 现状 | 数量 |
 | --- | --- |
 | 完成 | 40 |
-| 部分 | 107 |
+| 部分 | 108 |
 | 未开始 | 5 |
 
 2026-11-12 起 Agent 对话整体放弃，原先唯一“完成”的 `agent-minimal-conversation` 随之移入“放弃”。
@@ -305,7 +305,7 @@
 | `git-multi-repository-references` | 多仓库引用面板 | 必须迁移 | 实现/实现 | 部分 | — |
 | `git-rebase-stash` | Rebase 与 Stash | 必须迁移 | 实现/实现 | 部分 | stash.go、stash_view.go：Commit 工具窗口暂存页可查看、应用、弹出、删除与新建 stash；拉取分叉时可选变基（gitsync.go）；独立 Rebase（含交互式）未找到 |
 | `git-repository-discovery` | 仓库自动发现排除隐藏目录与构建缓存 | 必须迁移 | 实现/实现 | 部分 | core/repository_colors.go、gitmetadata/ |
-| `git-status-colors-idea-alignment` | Windows 默认主题 Git 状态配色与 IDEA 对齐（修改/… | 放弃 | 专属/实现 | — | 见“放弃”表 |
+| `git-status-colors-idea-alignment` | Windows 默认主题 Git 状态配色与 IDEA 对齐（修改/… | 必须迁移 | 专属/实现 | 部分 | theme.go 新增 GitModified/GitModifiedStaged/GitRenamed/GitAdded/GitFileDeleted/GitUntracked 与 Gutter* 令牌（IDEA expUI 明暗值）；commit_view.go、gitlog_details_view.go 统一走 palette.gitStatusColor，删除文件改灰、未跟踪改暖红、暂存修改用浅蓝；documents.go 的 gutter 改用浅色令牌。未做：项目文件树与 Git Log 文件树尚未按状态着色（filetree 缺少状态字段） |
 | `git-status-commit` | 状态、暂存与提交 | 必须迁移 | 实现/实现 | 完成 | commit.go、commit_view.go、core/gitcommit.go；“提交选项”可加 Sign-off、指定作者（必须是 `Name <email>`，否则 Core 以 `git_commit_author_invalid` 拒绝，作者在提交成功后清空）；Git 控制台（gitconsole.go、core/gitconsole.go）除自动刷新、监听这类后台命令外记录全部 Git 命令，含读取状态的内部查询，查询的答案型非零退出显示为预期；Commit 工具窗口、Diff 标签和分支弹窗发起的写操作会切到控制台页，Log 与工作树页的不切换 |
 | `git-submodule-commit-plan` | 子模块先提交与推送、自动更新父引用、计划变化再次确认 | 必须迁移 | 实现/实现 | 部分 | `core/gitcommit.go` |
 | `git-workspace-commit-retry` | 失败后只重试未完成的提交或推送步骤 | 必须迁移 | 实现/实现 | 部分 | commit.go `retryCommit`：本项目仓库的提交失败后可重试剩余步骤，先显示复核；多仓库批量提交未接（见 `git-workspace-staged-commit`） |
@@ -440,7 +440,6 @@
 | `project-sidebar-tree-disclosure-icons` | 项目树展开与折叠箭头使用 IDEA Community 明暗 SVG… | 实现/专属 | 旧 macOS 树展开/折叠箭头 SVG 规格；Viva 公共 treelist 已自带展开图标 |
 | `database-plugin-migration` | 内置数据库模块的连接迁入插件与安装提示 | 实现/专属 | 旧内置数据库模块的连接迁入插件的过渡实现；Viva 从未内置数据库模块，旧连接迁移放入数据来源清单（database.profiles.v1） |
 | `git-commit-sidebar-toolbar-icons` | macOS Commit/Shelf 标签采用共享选中与悬停样式、1… | 实现/专属 | 旧 macOS Commit/Shelf 标签的样式规格；Viva commit_view 已重做界面 |
-| `git-status-colors-idea-alignment` | Windows 默认主题 Git 状态配色与 IDEA 对齐（修改/… | 专属/实现 | 旧 Windows 默认主题 Git 状态配色对齐；Viva 统一主题色，不再按平台分别对齐 |
 | `macos-shared-hover-tooltip-style` | macOS 侧边栏与工具栏悬浮提示共用 IDEA Islands 的… | 实现/专属 | 旧 SwiftUI/AppKit 悬浮提示样式；Viva 使用统一控件，样式随 Viva 设计验收 |
 | `macos-shared-product-dropdowns` | macOS 全部产品操作菜单、选值下拉框与自定义弹窗使用 Git L… | 实现/专属 | 旧 SwiftUI 下拉菜单/弹窗实现规格；Viva 以自己的弹出控件重做 |
 | `editor-ide-settings-import` | macOS 导入 IDE 外观、编辑器偏好、受支持的自定义快捷键及全… | 实现/专属 | 旧 macOS 一次性导入 IDE 外观/偏好；快捷键导入由 keymap-import 插件承接，其余不单独迁移 |

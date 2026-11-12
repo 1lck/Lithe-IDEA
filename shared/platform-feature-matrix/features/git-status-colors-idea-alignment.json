@@ -4,22 +4,28 @@
   "group": "Git",
   "capability": "Windows 默认主题 Git 状态配色与 IDEA 对齐（修改/重命名蓝、新增绿、删除灰、未跟踪暖红、gutter 浅色）",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/workbench/theme.go",
+      "desktop/internal/workbench/commit_view.go",
+      "desktop/internal/workbench/gitlog_details_view.go",
+      "desktop/internal/workbench/documents.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/workbench/theme.go",
+      "desktop/internal/workbench/commit_view.go",
+      "desktop/internal/workbench/gitlog_details_view.go",
+      "desktop/internal/workbench/documents.go"
     ]
   },
   "owner": "Git",
-  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：该条目针对旧 Windows 默认主题，Viva 统一主题色。编辑器 gutter 增改删映射到主题 token（documents.go 的 GutterAdded/Modified/Deleted），提交列表使用 a.colors.Deleted；未找到文件树和提交面板中修改蓝、新增绿、删除灰、未跟踪暖红的 IDEA 对齐映射。",
-  "verification": "在 Windows 打开包含已修改、已暂存修改、新增、删除、重命名、未跟踪文件与 .gitignore 忽略项的仓库，在 Lithe 明暗主题下确认：文件树、Commit 面板变更列表与 Git Log 提交文件树中已修改和重命名为蓝色（暂存修改为浅蓝）、新增为绿色、删除为灰色、未跟踪为暖红、忽略文件仍为置灰半透明；编辑器 gutter 修改/新增/删除标记为 IDEA 浅蓝/浅绿/灰色；diff 删除行与 -N 计数仍为红色；切换到未定义新 token 的其他内置主题时颜色回退正常；rebase/patch/历史改写对话框的警告文案与操作横幅保持琥珀警示色。",
+  "notes": "2026-11-12：调色板新增 GitModified、GitModifiedStaged、GitRenamed、GitAdded、GitFileDeleted、GitUntracked 与 GutterAdded/Modified/Deleted 令牌（IDEA expUI 明暗值），Commit 面板与 Git Log 提交文件树统一走 palette.gitStatusColor：删除文件改灰、未跟踪改暖红、暂存修改用浅蓝、重命名有独立蓝；编辑器 gutter 改用浅色令牌，diff 删除行与删除计数仍为红色。未做：项目文件树与 Git Log 文件树按状态着色需要先让树节点携带状态（filetree 目前没有该字段），因此本条仍为 partial；原生窗口验收保持 pending。",
+  "verification": "在 Windows 打开包含已修改、已暂存修改、新增、删除、重命名、未跟踪文件与 .gitignore 忽略项的仓库，在 Lithe 明暗主题下确认：Commit 面板变更列表与 Git Log 提交文件树中已修改和重命名为蓝色（暂存修改为浅蓝）、新增为绿色、删除为灰色、未跟踪为暖红；编辑器 gutter 修改/新增/删除标记为 IDEA 浅蓝/浅绿/灰色；diff 删除行与 -N 计数仍为红色；切换主题时颜色随调色板生效。文件树着色在补齐节点状态后再纳入验收。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

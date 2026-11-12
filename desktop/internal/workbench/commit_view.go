@@ -229,7 +229,7 @@ func (a *App) changeColor(change core.GitChange) gfx.Color {
 	status := change.Status
 	switch {
 	case change.Untracked || status == "??":
-		return a.colors.Warning
+		return a.colors.GitUntracked
 	case len(status) < 2:
 		return a.colors.Text
 	case strings.ContainsRune(status, 'U') || status == "AA" || status == "DD":
@@ -239,15 +239,7 @@ func (a *App) changeColor(change core.GitChange) gfx.Color {
 	if change.Staged {
 		side = status[0]
 	}
-	switch side {
-	case 'A', 'C':
-		return a.colors.Success
-	case 'D':
-		return a.colors.Deleted
-	case 'M', 'R', 'T':
-		return a.colors.Accent
-	}
-	return a.colors.Text
+	return a.colors.gitStatusColor(side, change.Staged)
 }
 
 // hasToggleable reports that some of the changes can be staged or unstaged.

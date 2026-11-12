@@ -44,6 +44,22 @@ type palette struct {
 	// Deleted is the name of a file a change deletes. It is red rather than the gray of
 	// secondary text, which on the dark editor reads as dimmed instead of deleted.
 	Deleted gfx.Color
+	// Git* are the file-status colors of a change list, aligned with IDEA's expUI
+	// schemes: modifications and renames are blue, a staged modification is the paler
+	// blue of the index, additions are green, an untracked file is warm red, and a
+	// deleted file is grey. Red stays with Deleted, which diff rows and deletion counts
+	// keep using.
+	GitModified       gfx.Color
+	GitModifiedStaged gfx.Color
+	GitRenamed        gfx.Color
+	GitAdded          gfx.Color
+	GitFileDeleted    gfx.Color
+	GitUntracked      gfx.Color
+	// Gutter* mark the editor's change bar. They are lighter than the file-name colors
+	// so a one-line mark does not read as loud as the text beside it.
+	GutterAdded    gfx.Color
+	GutterModified gfx.Color
+	GutterDeleted  gfx.Color
 	// Dark is set in the dark look, for the few colors that are not a theme surface, such
 	// as the commit graph's lane colors.
 	Dark bool
@@ -78,6 +94,16 @@ func lightLook() (gfx.Theme, palette) {
 		Success:   gfx.RGB24(0x208A3C),
 		Warning:   gfx.RGB24(0xC27D04),
 		Deleted:   gfx.RGB24(0xDB3B4B),
+
+		GitModified:       gfx.RGB24(0x0033B3),
+		GitModifiedStaged: gfx.RGB24(0x2652BE),
+		GitRenamed:        gfx.RGB24(0x0033B3),
+		GitAdded:          gfx.RGB24(0x067D17),
+		GitFileDeleted:    gfx.RGB24(0x6C707E),
+		GitUntracked:      gfx.RGB24(0xB23247),
+		GutterAdded:       gfx.RGB24(0x7FC784),
+		GutterModified:    gfx.RGB24(0x88ADF7),
+		GutterDeleted:     gfx.RGB24(0x767A8A),
 	}
 	theme := gfx.LightTheme()
 	theme.Background = p.Editor
@@ -115,6 +141,16 @@ func darkLook() (gfx.Theme, palette) {
 		Warning:   gfx.RGB24(0xE0A33B),
 		Deleted:   gfx.RGB24(0xDB5C5C),
 		Dark:      true,
+
+		GitModified:       gfx.RGB24(0x70AEFF),
+		GitModifiedStaged: gfx.RGB24(0x85BAFF),
+		GitRenamed:        gfx.RGB24(0x70AEFF),
+		GitAdded:          gfx.RGB24(0x73BD79),
+		GitFileDeleted:    gfx.RGB24(0x6F737A),
+		GitUntracked:      gfx.RGB24(0xE88F89),
+		GutterAdded:       gfx.RGB24(0x549159),
+		GutterModified:    gfx.RGB24(0x375FAD),
+		GutterDeleted:     gfx.RGB24(0x868A91),
 	}
 	theme := gfx.DarkTheme()
 	theme.Background = p.Editor
@@ -135,6 +171,28 @@ func darkLook() (gfx.Theme, palette) {
 	theme.Metrics = theme.Metrics.WithDensity(gfx.DensityCompact)
 	theme.Metrics.FontSizeS = 12
 	return theme, p
+}
+
+// gitStatusColor is the IDEA-aligned color of a changed file's name. staged picks the
+// index side of the change, so a staged modification shows the paler blue instead of
+// the worktree blue. Unknown letters keep the ordinary text color.
+func (p palette) gitStatusColor(side byte, staged bool) gfx.Color {
+	switch side {
+	case 'A', 'C':
+		return p.GitAdded
+	case 'D':
+		return p.GitFileDeleted
+	case 'R':
+		return p.GitRenamed
+	case 'M':
+		if staged {
+			return p.GitModifiedStaged
+		}
+		return p.GitModified
+	case 'T':
+		return p.GitModified
+	}
+	return p.Text
 }
 
 // nativeAppearance is the appearance the system parts of the window (traffic lights,

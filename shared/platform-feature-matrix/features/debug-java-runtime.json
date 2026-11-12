@@ -29,7 +29,7 @@
   },
   "owner": "Debug",
   "verification": "为项目或运行配置指定与语言服务器运行时不同的 JDK，分别运行和调试 Java 主类、Maven 类配置与测试，确认三者的被调试 JVM 都是运行所用的 JDK；把 JDK 改为无效路径，确认调试与运行给出相同的报错。 macOS：该能力由独立的 Java/Maven/Gradle 插件（Lithe-IDEA/lithe-plugin-java、lithe-plugin-maven、lithe-plugin-gradle）实现，宿主只验证通用契约与接线，运行时验证记录归插件仓库。",
-  "notes": "Viva：调试运行时由插件声明的调试适配器与 Core 的进程启动计划决定（见 viva-debug-session）；Java 插件尚未在 Viva 上接入，调试随运行配置、项目 JDK 与 JAVA_HOME 选择 JDK 的流程没有验证。",
+  "notes": "Viva：调试运行时由插件声明的调试适配器与 Core 的进程启动计划决定（见 viva-debug-session）；Java 插件尚未在 Viva 上接入，调试随运行配置、项目 JDK 与 JAVA_HOME 选择 JDK 的流程没有验证。归属：调试适配器是插件契约的一等能力（插件声明 requires.debugAdapters 与 debug.launch，自己提供 DAP 适配器），宿主只做会话编排、传输与界面（desktop/internal/workbench/debug_*.go），协议引擎在 Core 的 rust/lithe-core/src/debug/。因此补这条需要一个提供 Java 调试适配器的插件，不需要把 Java 调试耦合进主项目；在插件出来前本条保持 missing。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
