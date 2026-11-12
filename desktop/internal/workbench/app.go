@@ -104,6 +104,10 @@ type Kernel interface {
 	DisconnectDebug(ctx context.Context, sessionID string) (core.DebugUpdate, error)
 	DestroyDebugSession(ctx context.Context, sessionID string) ([]string, error)
 	PlanBuildRun(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildPlanRequest) (core.BuildPlan, error)
+	// PlanBuildDebug plans the native debug program a provider owns for one target, and
+	// DecodeBuildDebug validates it into the launch the Debug host starts.
+	PlanBuildDebug(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildPlanRequest) (core.BuildPlan, error)
+	DecodeBuildDebug(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeDebugRequest) (core.BuildLaunch, error)
 	DecodeBuildModel(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeModelRequest) (core.BuildModel, error)
 	DecodeBuildRun(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeRunRequest) (core.BuildLaunch, error)
 	ToolchainRegistryOf(ctx context.Context, manifests []json.RawMessage) (core.ToolchainRegistry, error)

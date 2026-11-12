@@ -42,6 +42,15 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 						a.runBuildTarget(p, spec.id, runID)
 					})
 				}
+				// The same target under the debugger: the provider prepares the native debug
+				// program and its own plugin's adapter starts it.
+				if menu.Item(i18n.Shared(lang, "desktop.build.debugTarget")).Disabled(b.operation != nil || instance.modelLoading).Clicked() {
+					c.After(func() {
+						a.performed("build.target.debug", surfaceMenu)
+						b.projectID, b.targetID = spec.project, spec.id
+						a.debugBuildTarget(p, spec.id, runID)
+					})
+				}
 			}
 			if buildTargetTestable(instance, *spec.target) {
 				if menu.Item(i18n.Shared(lang, "native.runTests")).Disabled(p.tests.running || instance.modelLoading).Clicked() {

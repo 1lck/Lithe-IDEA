@@ -11000,7 +11000,9 @@
     "desktop.vcs.commitDirectly": "Commits are sent to the repository right away; there is no separate push.",
     "desktop.settings.fontsNoneChecked": "No Place Checked",
     "desktop.settings.fontsEditHelp": "Check the places to change in the list above, one or more. Changes here take effect when you click Save, and the checked places then share them; Revert drops unsaved changes. Run output includes the output of runs, builds and tests and the Git console.",
-    "desktop.terminal.runSelection": "Run Selection in Terminal"
+    "desktop.terminal.runSelection": "Run Selection in Terminal",
+    "desktop.build.debugTarget": "Debug",
+    "desktop.build.noDebugAdapter": "The build provider's own plugin declares no debug adapter that can start a prepared program."
   },
   "overrides": {
     "windows": {

@@ -6586,6 +6586,13 @@
       ]
     },
     {
+      "id": "desktop.build.debugTarget",
+      "description": "Start the selected build target's application under the plugin's own debug adapter",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.build.emptyOutput",
       "description": "Run a build task to see output.",
       "platforms": [
@@ -6629,6 +6636,13 @@
     {
       "id": "desktop.build.noBuildSystems",
       "description": "No provider-backed build system was detected.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.noDebugAdapter",
+      "description": "The build provider's own plugin declares no debug adapter that can start a prepared program",
       "platforms": [
         "desktop"
       ]

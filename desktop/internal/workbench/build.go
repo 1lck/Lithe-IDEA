@@ -984,6 +984,104 @@ func (a *App) runBuildTarget(p *project, targetID, runID string) {
 	a.runBuildTargetWith(p, op, instance, p.build.projectID, targetID, runID, nil)
 }
 
+// debugBuildTarget prepares one provider application target for debugging and starts the
+// plugin's own debug adapter on the program the provider prepared. The adapter comes from the
+// same plugin as the build system: the first one that serves launch.
+func (a *App) debugBuildTarget(p *project, targetID, runID string) {
+	instance := p.selectedBuildInstance()
+	if instance == nil || p.build.operation != nil {
+		return
+	}
+	project, ok := buildProjectByID(instance.Model, p.build.projectID)
+	if !ok {
+		a.notifyError(a.text.Build.ProjectMissing)
+		return
+	}
+	target, ok := buildTargetByID(instance.Model, targetID)
+	if !ok {
+		a.notifyError(a.text.Build.TargetMissing)
+		return
+	}
+	captured := *instance
+	kernel := a.kernel
+	messages := a.text.Build
+	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "build.debugTarget", "surface": "build"})
+	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+		plan, err := kernel.PlanBuildDebug(ctx, captured.Manifest, captured.BuildSystemID, core.BuildPlanRequest{
+			Root:          captured.Root,
+			Options:       captured.Options,
+			WorkspaceRoot: p.root,
+			Run:           runID,
+			Project:       &core.BuildSelection{Name: project.Name, Path: project.Path, Properties: project.Properties},
+			Target:        &core.BuildSelection{Name: target.Name, Path: target.Path, Tags: target.Tags, Properties: target.Properties},
+		})
+		if err != nil {
+			return func(a *App) { a.notifyError(err.Error()) }
+		}
+		if plan.Provider == nil {
+			return func(a *App) { a.notifyError(messages.CommandUnsupported) }
+		}
+		client, err := a.buildProvider(ctx, p, captured)
+		if err != nil {
+			return func(a *App) { a.notifyError(err.Error()) }
+		}
+		operation, err := client.Execute(ctx, plan.Provider.Method, plan.Provider.Params, int(buildRequestTimeout/time.Millisecond))
+		if err != nil {
+			return func(a *App) { a.notifyError(err.Error()) }
+		}
+		result, err := operation.Wait(ctx)
+		if err != nil {
+			return func(a *App) { a.notifyError(err.Error()) }
+		}
+		launch, err := kernel.DecodeBuildDebug(ctx, captured.Manifest, captured.BuildSystemID, core.BuildDecodeDebugRequest{
+			WorkspaceRoot: p.root,
+			Root:          captured.Root,
+			Result:        result,
+		})
+		if err != nil {
+			return func(a *App) { a.notifyError(err.Error()) }
+		}
+		return func(a *App) { a.startProviderDebug(p, captured.PluginID, launch) }
+	})
+}
+
+// startProviderDebug starts the prepared program under the first adapter its own plugin
+// declares for launch, and reports it when the plugin declares none.
+func (a *App) startProviderDebug(p *project, pluginID string, launch core.BuildLaunch) {
+	if launch.Executable.Value == "" {
+		return
+	}
+	for _, adapter := range p.debug.adapters {
+		if adapter.PluginID != pluginID || !adapter.Declaration.Serves("launch") {
+			continue
+		}
+		executable := launch.Executable.Value
+		if launch.Executable.Kind == "command" {
+			if resolved, err := exec.LookPath(executable); err == nil {
+				executable = resolved
+			}
+		}
+		arguments := launch.Arguments
+		if arguments == nil {
+			arguments = []string{}
+		}
+		environment := launch.Environment
+		if environment == nil {
+			environment = map[string]string{}
+		}
+		a.beginDebug(p, debugStart{
+			adapter: adapter, request: "launch", ended: make(chan *int, 1),
+			launchTarget: &core.DebugTargetFacts{
+				Kind: "executable", Path: executable, Executable: executable,
+				WorkingDirectory: filepath.Join(p.root, filepath.FromSlash(launch.WorkingDirectory)),
+				Arguments:        arguments, Environment: environment,
+			},
+		})
+		return
+	}
+	a.notifyError(i18n.Shared(a.language(), "desktop.build.noDebugAdapter"))
+}
+
 // runBuildTargetWith runs one target of instance through the provider's run declaration runID
 // as the reserved operation op. options are the run configuration's launch choices, nil for a
 // launch without any. A project or target the model no longer has ends op as failed.

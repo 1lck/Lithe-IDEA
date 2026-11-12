@@ -11000,7 +11000,9 @@
     "desktop.vcs.commitDirectly": "提交会立即发送到仓库，没有单独的推送步骤。",
     "desktop.settings.fontsNoneChecked": "未勾选位置",
     "desktop.settings.fontsEditHelp": "在上方列表勾选要调整的位置，可以多选。这里的修改点“保存”后才生效，勾选的位置随后使用同一套设置；“还原”放弃未保存的修改。运行输出包括运行、构建、测试的输出和 Git 控制台。",
-    "desktop.terminal.runSelection": "在终端运行选中内容"
+    "desktop.terminal.runSelection": "在终端运行选中内容",
+    "desktop.build.debugTarget": "调试",
+    "desktop.build.noDebugAdapter": "该构建插件所属的插件没有声明可以启动已准备程序的调试适配器。"
   },
   "overrides": {
     "macos": {
