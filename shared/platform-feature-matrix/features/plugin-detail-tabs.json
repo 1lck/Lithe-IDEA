@@ -9,7 +9,9 @@
     "evidence": [
       "docs/viva-migration.md",
       "desktop/internal/settingswindow/marketplace_view.go",
-      "desktop/internal/settingswindow/plugin_settings_view.go"
+      "desktop/internal/settingswindow/plugin_settings_view.go",
+      "desktop/internal/settingswindow/installed_view.go",
+      "desktop/internal/settingswindow/installed_view_test.go"
     ]
   },
   "windows": {
@@ -18,7 +20,9 @@
     "evidence": [
       "docs/viva-migration.md",
       "desktop/internal/settingswindow/marketplace_view.go",
-      "desktop/internal/settingswindow/plugin_settings_view.go"
+      "desktop/internal/settingswindow/plugin_settings_view.go",
+      "desktop/internal/settingswindow/installed_view.go",
+      "desktop/internal/settingswindow/installed_view_test.go"
     ]
   },
   "owner": "Plugin Platform",
@@ -46,5 +50,5 @@
       "verificationStatus": "not-applicable"
     }
   },
-  "notes": "Viva：插件详情有概览、功能、权限、版本与设置页签（功能与权限仅在清单提供时显示）；版本页列出已发布版本与来源，但不能安装旧版本，能力与来源过滤尚未实现。"
+  "notes": "Viva：插件页分为“已安装”和“市场”两个标签，已安装为默认页（installed_view.go）。已安装详情有概览、功能、设置、权限与程序、版本与来源五个页签，社区、磁盘等提示固定在页签上方；头部提供停用/启用、更新到新版本和卸载（先确认）。列表可按语言服务器、构建、调试、界面、可更新、社区、已停用过滤，按“已启用 / 已停用”分组并显示启用数量，搜索框输入 / 列出过滤选项。尚缺：版本与来源不能回滚上一版本，安装记录没有保存索引地址，来源只显示笼统的“市场”；窄设置表单横向滚动和整机验收待做。"
 }
