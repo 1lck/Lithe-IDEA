@@ -3,6 +3,7 @@
 package winpath
 
 import (
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/sys/windows"
@@ -24,7 +25,11 @@ func short(p string) string {
 	return p
 }
 
-func indexOf(text, p string) int { return strings.Index(strings.ToLower(text), strings.ToLower(p)) }
+// equal compares two Windows paths as the file system does: separators are not significant and
+// letters are not case sensitive.
+func equal(a, b string) bool {
+	return strings.EqualFold(filepath.ToSlash(a), filepath.ToSlash(b))
+}
 
 // call runs one of the KERNEL32 path conversions, which take and return UTF-16 buffers. A buffer
 // that is too small answers the length it needs, so the call retries once with that size: paths on

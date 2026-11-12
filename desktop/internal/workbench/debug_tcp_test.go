@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -83,6 +84,11 @@ func debugPluginHarness(t *testing.T, id, manifest string, withBinary bool) *har
 	installed := filepath.Join(pluginRoot, id, "1.0.0")
 	if err := os.MkdirAll(installed, 0o700); err != nil {
 		t.Fatal(err)
+	}
+	// The copied test binary is adapter.exe on Windows, so the manifest's packaged path must name
+	// the same file: a packaged path that does not exist is refused before Core starts a session.
+	if runtime.GOOS == "windows" {
+		manifest = strings.ReplaceAll(manifest, `"path": "adapter"`, `"path": "adapter.exe"`)
 	}
 	if err := os.WriteFile(filepath.Join(installed, "plugin.json"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
