@@ -4,7 +4,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/vivaui/viva/gfx"
@@ -53,7 +52,7 @@ func TestDebugRemotePromptEscapeRefusesTheAttach(t *testing.T) {
 	h.app.debugAttach.host.SetText("debug.example.test")
 	h.app.debugAttach.port.SetText("5005")
 	h.app.startDebug(p)
-	awaitStateWithin(t, h, 20*time.Second, "the confirmation", func() bool { return p.debug.remote != nil })
+	awaitRemotePrompt(t, h, p)
 	h.settle()
 	h.pageHit(h.app.text.Debug.RemoteAttach)
 	if err := h.driver.Key(gfx.KeyEscape, 0); err != nil {

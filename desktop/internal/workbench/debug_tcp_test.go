@@ -415,7 +415,7 @@ func TestDebugRemoteAttachAsksBeforeConnectingAndLoopbackDoesNot(t *testing.T) {
 	h.app.debugAttach.host.SetText("debug.example.test")
 	h.app.debugAttach.port.SetText("5005")
 	h.app.startDebug(p)
-	awaitStateWithin(t, h, 20*time.Second, "the confirmation", func() bool { return p.debug.remote != nil })
+	awaitRemotePrompt(t, h, p)
 	if p.debug.activeSession() != nil || p.debug.failure != "" || len(gate.configurations) != 0 {
 		t.Fatalf("a remote attach started before confirmation: session=%v failure=%q", p.debug.activeSession(), p.debug.failure)
 	}

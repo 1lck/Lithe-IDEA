@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
@@ -82,14 +81,10 @@ func TestRunOutputLinkOpensTheFileAtItsLineAndColumn(t *testing.T) {
 		t.Fatalf("sources = %+v, want the one plugin matcher", p.links.sources)
 	}
 	h.clickNamed("at src/main.txt:3:2")
-	awaitStateWithin(t, h, 20*time.Second, "the linked file to open", func() bool {
-		d := p.docs.byPath(target)
-		if d == nil {
-			return false
-		}
-		line, column := d.view.Caret()
-		return line == 2 && column == 1
-	})
+	d := awaitLinkedFile(t, h, p, target)
+	if line, column := d.view.Caret(); line != 2 || column != 1 {
+		t.Fatalf("caret = %d:%d, want the link's 2:1", line, column)
+	}
 }
 
 func TestOutputLinkToAMissingFileOnlyNotifies(t *testing.T) {
