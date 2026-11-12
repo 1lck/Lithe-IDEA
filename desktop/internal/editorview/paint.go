@@ -17,7 +17,7 @@ const (
 	textPad   = float32(8)
 	// barWidth is the thickness of a scrollbar's thumb, and barMin its least length. See
 	// scrollbar.go.
-	barWidth = float32(6)
+	barWidth = float32(5)
 	barMin   = float32(24)
 	// prepareMargin is how many lines past the screen the highlighter colors ahead.
 	prepareMargin = 50

@@ -531,7 +531,7 @@ func TestMinimapButtonHidesAndShowsTheMinimap(t *testing.T) {
 
 // barTrackForTest is the width of the editor's vertical scrollbar track, at the text's right
 // edge.
-const barTrackForTest = 10
+const barTrackForTest = 11
 
 // insertForTest appends text to the document as one edit, as the editor would take typing.
 func (a *App) insertForTest(d *document, text string) {

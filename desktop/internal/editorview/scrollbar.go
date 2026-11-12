@@ -9,8 +9,8 @@ import "github.com/vivaui/viva/gfx"
 // follows while it is dragged; pressing the track beside it scrolls a page towards the press.
 
 // barTrack is the thickness of a scrollbar's track, where it takes the pointer; the thumb is
-// barWidth of it, in the middle.
-const barTrack = float32(10)
+// barWidth of it, in the middle. IDEA's editor bar is eleven wide with a five-wide thumb.
+const barTrack = float32(11)
 
 // gripKind is which part a press holds while it is dragged.
 type gripKind uint8

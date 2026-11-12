@@ -5,21 +5,23 @@
   "capability": "编辑器滚动条与文件树一致的细圆头样式",
   "owner": "Editor",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/editorview/scrollbar.go",
+      "desktop/internal/editorview/paint.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/editorview/scrollbar.go",
+      "desktop/internal/editorview/paint.go"
     ]
   },
   "verification": "Windows 深浅主题下打开超出视口的文件，核对主编辑器与 Notebook 代码单元的 Monaco 滚动条为约 5px 圆头滑块、11px 轨道，颜色与文件树滚动条一致；hover 与按下的颜色变化一致，横向滚动条同样生效。提交差异预览（统一与拆分视图）保留其自有滑块与变更标记轨道设计，不在本条目对齐范围。真实 WebView2 深浅主题下已核对。",
-  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：编辑器滚动条由 editorview/scrollbar.go 自绘，但轨道宽度为 10（barTrack），滑块宽度为 6（paint.go 的 barWidth），与规格的 11px 轨道、约 5px 滑块不一致；未找到与文件树滚动条共用的样式 token。",
+  "notes": "2026-11-12：编辑器滚动条按 11pt 轨道与 5pt 圆头滑块对齐（scrollbar.go 的 barTrack、paint.go 的 barWidth），滑块居中、hover 只提亮不换色；文件树与列表用的是 Viva 的 ScrollArea，无法共享同一组常量，需要 Viva 暴露滚动条参数后再统一。原生窗口验收保持 pending。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
