@@ -62,9 +62,10 @@ const (
 	// between the rows.
 	chromeMenuGap   = 8
 	chromeMenuItems = 2
-	// The project menu's padding and the height of its actions.
-	chromeMenuPadding = 4
-	chromeMenuRow     = 32
+	// The project menu's padding and the height of its actions. The height matches the
+	// branch popup's rows, so one dropdown row reads the same wherever it is opened.
+	chromeMenuPadding = 6
+	chromeMenuRow     = 24
 
 	// chromeDragDim is the opacity the source of a drag keeps while its ghost follows
 	// the pointer.
