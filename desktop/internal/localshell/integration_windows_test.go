@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/term"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/winpath"
 )
 
 func TestWindowsShellReportsDirectoryAfterChangingIt(t *testing.T) {
@@ -42,7 +43,7 @@ func TestWindowsShellReportsDirectoryAfterChangingIt(t *testing.T) {
 				defer deadline.Stop()
 				for {
 					screen.Write(shell.Drain(nil))
-					if cwd, ok := screen.WorkingDirectory(); ok && cwd.Path == want && started {
+					if cwd, ok := screen.WorkingDirectory(); ok && winpath.Equal(cwd.Path, want) && started {
 						return
 					}
 					select {

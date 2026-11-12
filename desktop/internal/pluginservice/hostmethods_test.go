@@ -15,6 +15,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/winpath"
 )
 
 func openHostService(t *testing.T) *Service {
@@ -101,7 +102,7 @@ func TestWorkspaceContextsAreScopedToTheCallingPlugin(t *testing.T) {
 		t.Fatalf("getContext did not create the state directory: %v", err)
 	}
 
-	if result, refusal = respond(t, service, "a", "workspace/getFolders", reference); refusal != nil || !strings.Contains(string(result), root) {
+	if result, refusal = respond(t, service, "a", "workspace/getFolders", reference); refusal != nil || !winpath.Holds(string(result), root) {
 		t.Fatalf("getFolders = %s, %+v", result, refusal)
 	}
 

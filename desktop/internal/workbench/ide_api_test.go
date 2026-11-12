@@ -9,6 +9,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/winpath"
 )
 
 // newIDEAPIApp makes an App whose Core is the real kernel, with its store in a
@@ -37,7 +38,7 @@ func TestIDEAPIEnableAndDisable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("enable: %v", err)
 	}
-	if !strings.Contains(string(configuration), helper) {
+	if !winpath.Holds(string(configuration), helper) {
 		t.Fatalf("configuration does not name the helper: %s", configuration)
 	}
 	if _, err := app.ideAPIEnable(p, core.IDEPermissions{}, helper); err == nil {
