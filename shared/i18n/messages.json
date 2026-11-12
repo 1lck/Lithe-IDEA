@@ -16,7 +16,8 @@
       "description": "Windows UI: ai.add",
       "platforms": [
         "macos",
-        "windows"
+        "windows",
+        "desktop"
       ],
       "macos": {
         "key": "Add",
@@ -11983,27 +11984,6 @@
       ]
     },
     {
-      "id": "desktop.marketplace.addSource",
-      "description": "Button that adds a custom plugin index",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.allSources",
-      "description": "Source of the plugin page that merges every index",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.author",
-      "description": "Label of the publisher of a plugin",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.marketplace.cancel",
       "description": "Button that closes the review without installing.",
       "platforms": [
@@ -12025,29 +12005,8 @@
       ]
     },
     {
-      "id": "desktop.marketplace.disable",
-      "description": "Button that turns an installed plugin off.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.marketplace.enable",
       "description": "Button that turns an installed plugin on.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.homepage",
-      "description": "Label of the homepage a plugin lists",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.hostUnavailable",
-      "description": "Plugin host is not connected to the desktop client yet.",
       "platforms": [
         "desktop"
       ]
@@ -12074,13 +12033,6 @@
       ]
     },
     {
-      "id": "desktop.marketplace.installed",
-      "description": "Badge saying the selected plugin is installed.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.marketplace.installedSource",
       "description": "Local installed plugin source in settings; available offline.",
       "platforms": [
@@ -12088,29 +12040,8 @@
       ]
     },
     {
-      "id": "desktop.marketplace.installing",
-      "description": "Status while a plugin archive is being downloaded and reviewed.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.marketplace.noFeatures",
       "description": "Shown in the features tab when the manifest declares no contribution",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.noPermissions",
-      "description": "Shown in the permissions tab when the manifest asks for no permission",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.noVersions",
-      "description": "Shown when the index lists no version of a plugin",
       "platforms": [
         "desktop"
       ]
@@ -12132,13 +12063,6 @@
     {
       "id": "desktop.marketplace.queryTooLong",
       "description": "The plugin search query exceeds the size limit.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.removeSource",
-      "description": "Button that removes a custom plugin index",
       "platforms": [
         "desktop"
       ]
@@ -12179,43 +12103,8 @@
       ]
     },
     {
-      "id": "desktop.marketplace.search",
-      "description": "Search plugin names or IDs in the current marketplace.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.settingsNeedInstall",
-      "description": "Shown in the settings tab of a plugin that is not installed",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.source",
-      "description": "Label for the plugin marketplace source selector.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.marketplace.sourceInvalid",
       "description": "Shown when a custom plugin index address is not an HTTPS URL",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.sourceURL",
-      "description": "Label of the field that types a custom plugin index address",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.sourceURLPlaceholder",
-      "description": "Placeholder of the custom plugin index address field",
       "platforms": [
         "desktop"
       ]
@@ -12231,36 +12120,8 @@
       }
     },
     {
-      "id": "desktop.marketplace.tab.features",
-      "description": "Tab of an installed plugin's detail: the contributions its manifest declares",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.tab.overview",
-      "description": "Tab of a plugin's detail: what it says about itself and its actions",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.tab.permissions",
-      "description": "Tab of an installed plugin's detail: the permissions its manifest asks for",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.marketplace.tab.settings",
       "description": "Tab of a plugin's detail: settings of an installed plugin",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.tab.versions",
-      "description": "Tab of a plugin's detail: released versions and the source",
       "platforms": [
         "desktop"
       ]
@@ -13262,6 +13123,16 @@
       ],
       "parameters": {
         "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.installedOnThisComputer",
+      "description": "Feature card of a plugin language server that runs a program already installed on this computer; arg1 lists the commands it tries",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "arg1": "string"
       }
     },
     {
@@ -20091,7 +19962,8 @@
       "description": "Windows UI: extensions.reinstall",
       "platforms": [
         "macos",
-        "windows"
+        "windows",
+        "desktop"
       ],
       "macos": {
         "key": "Reinstall",
@@ -39577,7 +39449,8 @@
       "id": "native.addToolWindowsAndCommandsToTheWorkbench",
       "description": "Native UI: Add tool windows and commands to the workbench",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Add tool windows and commands to the workbench",
@@ -40000,7 +39873,8 @@
       "id": "native.allRepositories",
       "description": "Native UI: All Repositories",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "All Repositories",
@@ -40869,7 +40743,8 @@
       "id": "native.archiveSHA256",
       "description": "Native UI: Archive SHA-256",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Archive SHA-256",
@@ -42185,7 +42060,8 @@
       "id": "native.build",
       "description": "Native UI: Build",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Build",
@@ -42373,7 +42249,8 @@
       "id": "native.buildSystem",
       "description": "Native UI: Build System",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Build System",
@@ -43233,7 +43110,8 @@
       "id": "native.checkedAgainEveryTimeLitheLoadsThePlugin",
       "description": "Native UI: Checked again every time Lithe loads the plugin.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Checked again every time Lithe loads the plugin.",
@@ -45569,7 +45447,8 @@
       "id": "native.command",
       "description": "Native UI: Command",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Command",
@@ -46066,7 +45945,8 @@
       "id": "native.communityDisk",
       "description": "Native UI: Community / Disk",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Community / Disk",
@@ -46093,7 +45973,8 @@
       "id": "native.communityPluginInstalledFromDiskItsPublisherAndRepositoryHaveNotBeenVerified",
       "description": "Native UI: Community plugin installed from disk. Its publisher and repository have not been verified.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Community plugin installed from disk. Its publisher and repository have not been verified.",
@@ -46104,7 +45985,8 @@
       "id": "native.communityPluginMaintainedByAThirdPartyReportPluginProblemsInItsOwnRepository",
       "description": "Native UI: Community plugin maintained by a third party. Report plugin problems in its own repository.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Community plugin maintained by a third party. Report plugin problems in its own repository.",
@@ -46403,7 +46285,8 @@
       "id": "native.configure",
       "description": "Native UI: Configure",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Configure",
@@ -46458,7 +46341,8 @@
       "id": "native.configureInSettings",
       "description": "Native UI: Configure in Settings",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Configure in Settings",
@@ -46766,7 +46650,8 @@
       "id": "native.contentSHA256",
       "description": "Native UI: Content SHA-256",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Content SHA-256",
@@ -49258,7 +49143,8 @@
       "id": "native.debugger",
       "description": "Native UI: Debugger",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Debugger",
@@ -49346,7 +49232,8 @@
       "id": "native.default",
       "description": "Native UI: Default",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Default",
@@ -50265,7 +50152,8 @@
       "id": "native.disable",
       "description": "Native UI: Disable",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Disable",
@@ -50373,7 +50261,8 @@
       "id": "native.disabled.variant2",
       "description": "Native UI: Disabled",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Disabled",
@@ -52430,7 +52319,8 @@
       "id": "native.enabled.variant2",
       "description": "Native UI: Enabled",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Enabled",
@@ -53715,7 +53605,8 @@
       "id": "native.features",
       "description": "Native UI: Features",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Features",
@@ -54892,7 +54783,8 @@
       "id": "native.fullProgramDeclaration",
       "description": "Native UI: Full Program Declaration",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Full Program Declaration",
@@ -54980,7 +54872,8 @@
       "id": "native.generatedFromThePluginSDeclaration",
       "description": "Native UI: Generated from the plugin's declaration.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Generated from the plugin's declaration.",
@@ -56519,7 +56412,8 @@
       "id": "native.homepage",
       "description": "Native UI: Homepage",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Homepage",
@@ -58005,7 +57899,8 @@
       "id": "native.insideThePlugin",
       "description": "Native UI: Inside the plugin",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Inside the plugin",
@@ -58175,7 +58070,8 @@
       "id": "native.installPluginFromDisk.variant2",
       "description": "Native UI: Install Plugin from Disk…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Install Plugin from Disk…",
@@ -58235,7 +58131,8 @@
       "id": "native.installed",
       "description": "Native UI: Installed",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Installed",
@@ -58262,7 +58159,8 @@
       "id": "native.installedFrom",
       "description": "Native UI: Installed from %@",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Installed from %@",
@@ -58278,7 +58176,8 @@
       "id": "native.installedFromDisk",
       "description": "Native UI: Installed from Disk",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Installed from Disk",
@@ -58289,7 +58188,8 @@
       "id": "native.installedFromUpdatesOnlyComeFromThatRepository",
       "description": "Native UI: Installed from %@. Updates only come from that repository.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Installed from %@. Updates only come from that repository.",
@@ -58305,7 +58205,8 @@
       "id": "native.installedLldOfLldEnabled",
       "description": "Native UI: Installed (%lld of %lld enabled)",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Installed (%lld of %lld enabled)",
@@ -58567,7 +58468,8 @@
       "id": "native.interface",
       "description": "Native UI: Interface",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Interface",
@@ -59588,7 +59490,8 @@
       "id": "native.languageServer",
       "description": "Native UI: Language Server",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Language Server",
@@ -59889,7 +59792,8 @@
       "id": "native.languageServices",
       "description": "Native UI: Language Services",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Language Services",
@@ -62417,7 +62321,8 @@
       "id": "native.localPackage",
       "description": "Native UI: Local Package",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Local Package",
@@ -62887,7 +62792,8 @@
       "id": "native.managePluginRepositories",
       "description": "Native UI: Manage Plugin Repositories…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Manage Plugin Repositories…",
@@ -62964,7 +62870,8 @@
       "id": "native.managedOutsideTheMarketplaceNoUpdateSource",
       "description": "Native UI: Managed outside the Marketplace; no update source.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Managed outside the Marketplace; no update source.",
@@ -64841,7 +64748,8 @@
       "id": "native.needsNoExtraPermissions",
       "description": "Native UI: Needs no extra permissions.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Needs no extra permissions.",
@@ -66233,7 +66141,8 @@
       "id": "native.noMatchingPlugins",
       "description": "Native UI: No matching plugins",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "No matching plugins",
@@ -66409,7 +66318,8 @@
       "id": "native.noPlugins",
       "description": "Native UI: No Plugins",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "No Plugins",
@@ -67397,7 +67307,8 @@
       "id": "native.notSupported",
       "description": "Native UI: Not Supported",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Not Supported",
@@ -67561,7 +67472,8 @@
       "id": "native.official",
       "description": "Native UI: Official",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Official",
@@ -69182,7 +69094,8 @@
       "id": "native.pasteAnHttpsPluginIndexURLOrAGitHubRepositoryURLAGitHubRepositoryMustContainLi7616c31790",
       "description": "Native UI: Paste an https plugin index URL or a GitHub repository URL. A GitHub repository must contain lithe-plugin-index.json at its root.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Paste an https plugin index URL or a GitHub repository URL. A GitHub repository must contain lithe-plugin-index.json at its root.",
@@ -69476,7 +69389,8 @@
       "id": "native.permissions",
       "description": "Native UI: Permissions",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Permissions",
@@ -69487,7 +69401,8 @@
       "id": "native.permissionsPrograms",
       "description": "Native UI: Permissions & Programs",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Permissions & Programs",
@@ -69701,7 +69616,8 @@
       "id": "native.platforms",
       "description": "Native UI: Platforms",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Platforms",
@@ -69772,7 +69688,8 @@
       "id": "native.pluginDisabled",
       "description": "Native UI: Plugin disabled",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Plugin disabled",
@@ -69865,7 +69782,8 @@
       "id": "native.pluginID",
       "description": "Native UI: Plugin ID",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Plugin ID",
@@ -70064,7 +69982,8 @@
       "id": "native.pluginRepositories",
       "description": "Native UI: Plugin Repositories",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Plugin Repositories",
@@ -70075,7 +69994,8 @@
       "id": "native.pluginRepository",
       "description": "Native UI: Plugin repository",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Plugin repository",
@@ -70097,7 +70017,8 @@
       "id": "native.pluginSource",
       "description": "Native UI: Plugin Source",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Plugin Source",
@@ -70488,7 +70409,8 @@
       "id": "native.previousVersion",
       "description": "Native UI: Previous Version",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Previous Version",
@@ -70733,7 +70655,8 @@
       "id": "native.programsItCanRun",
       "description": "Native UI: Programs it can run",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Programs it can run",
@@ -71068,7 +70991,8 @@
       "id": "native.projectTemplate",
       "description": "Native UI: Project Template",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Project Template",
@@ -71276,7 +71200,8 @@
       "id": "native.provides",
       "description": "Native UI: Provides",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Provides",
@@ -72435,7 +72360,8 @@
       "id": "native.refreshAll",
       "description": "Native UI: Refresh All",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Refresh All",
@@ -72558,7 +72484,8 @@
       "id": "native.refreshPluginRepositories",
       "description": "Native UI: Refresh Plugin Repositories",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Refresh Plugin Repositories",
@@ -74048,7 +73975,8 @@
       "id": "native.repository",
       "description": "Native UI: Repository",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Repository",
@@ -75834,7 +75762,8 @@
       "id": "native.runYourFiles",
       "description": "Native UI: Run your files",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Run your files",
@@ -75845,7 +75774,8 @@
       "id": "native.runYourTests",
       "description": "Native UI: Run your tests",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Run your tests",
@@ -76929,7 +76859,8 @@
       "id": "native.searchPlugins",
       "description": "Native UI: Search plugins",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Search plugins",
@@ -77850,7 +77781,8 @@
       "id": "native.settingValuesOnlyFillThePlacesTheProgramTemplatesReserveForThemSoChangingASetta1ef53141a",
       "description": "Native UI: Setting values only fill the places the program templates reserve for them, so changing a setting never changes the programs above.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Setting values only fill the places the program templates reserve for them, so changing a setting never changes the programs above.",
@@ -78402,7 +78334,8 @@
       "id": "native.showItsOwnPageInAToolWindow",
       "description": "Native UI: Show its own page in a tool window",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Show its own page in a tool window",
@@ -79455,7 +79388,8 @@
       "id": "native.sortByLastUpdated",
       "description": "Native UI: Sort by Last Updated",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Sort by Last Updated",
@@ -79466,7 +79400,8 @@
       "id": "native.sortByName",
       "description": "Native UI: Sort by Name",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Sort by Name",
@@ -79477,7 +79412,8 @@
       "id": "native.sortPlugins",
       "description": "Native UI: Sort plugins",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Sort plugins",
@@ -79521,7 +79457,8 @@
       "id": "native.sourceRepository",
       "description": "Native UI: Source Repository",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Source Repository",
@@ -79941,7 +79878,8 @@
       "id": "native.startALanguageServerWhenYouOpenFilesOfItsLanguage",
       "description": "Native UI: Start a language server when you open files of its language",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Start a language server when you open files of its language",
@@ -80237,7 +80175,8 @@
       "id": "native.startsNoPrograms",
       "description": "Native UI: Starts no programs.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Starts no programs.",
@@ -81293,7 +81232,8 @@
       "id": "native.tasksD",
       "description": "Native UI: Tasks: %d",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Tasks: %d",
@@ -81410,7 +81350,8 @@
       "id": "native.test",
       "description": "Native UI: Test",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Test",
@@ -85780,7 +85721,8 @@
       "id": "native.thisPluginIsMaintainedByACommunityDeveloperNotByLitheLitheVerifiedThatTheDownl1989920b43",
       "description": "Native UI: This plugin is maintained by a community developer, not by Lithe. Lithe verified that the download matches the plugin repository, and will show what the plugin can run before installing it. Report problems with the plugin in its own repository.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "This plugin is maintained by a community developer, not by Lithe. Lithe verified that the download matches the plugin repository, and will show what the plugin can run before installing it. Report problems with the plugin in its own repository.",
@@ -86595,7 +86537,8 @@
       "id": "native.toolWindow",
       "description": "Native UI: Tool Window",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Tool Window",
@@ -88311,7 +88254,8 @@
       "id": "native.typeToSeeOptions",
       "description": "Native UI: Type / to see options",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Type / to see options",
@@ -88634,7 +88578,8 @@
       "id": "native.uninstall",
       "description": "Native UI: Uninstall %@?",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Uninstall %@?",
@@ -89084,7 +89029,8 @@
       "id": "native.update",
       "description": "Native UI: Update",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Update",
@@ -89142,7 +89088,8 @@
       "id": "native.updateAvailable.variant2",
       "description": "Native UI: Update available",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Update available",
@@ -89346,7 +89293,8 @@
       "id": "native.updateTo.variant2",
       "description": "Native UI: Update to %@",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Update to %@",
@@ -90518,7 +90466,8 @@
       "id": "native.versionIsInstalled",
       "description": "Native UI: Version %@ is installed.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Version %@ is installed.",
@@ -90577,7 +90526,8 @@
       "id": "native.versionsSource",
       "description": "Native UI: Versions & Source",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Versions & Source",
@@ -90588,7 +90538,8 @@
       "id": "native.view",
       "description": "Native UI: View",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "View",
@@ -102326,7 +102277,8 @@
       "description": "Common action: Done.",
       "platforms": [
         "macos",
-        "windows"
+        "windows",
+        "desktop"
       ],
       "macos": {
         "key": "Done",
@@ -102513,7 +102465,8 @@
       "description": "Common action: Remove.",
       "platforms": [
         "macos",
-        "windows"
+        "windows",
+        "desktop"
       ],
       "macos": {
         "key": "Remove",

@@ -39,9 +39,10 @@ func TestMarketplaceSourceSelectorLoadsTheChosenIndex(t *testing.T) {
 	}
 	w := newWindow(NewController(Options{Marketplace: makeFetch("community"), MarketplaceOfficial: makeFetch("official")}), Values{})
 	w.sess.page = pagePlugins
+	w.pluginTab = pluginTabMarketplace
 	d := openWindow(t, w)
 	d.until("the community index", func() bool { return w.market.status == marketReady && w.market.selected == "community" })
-	d.click(i18n.Shared(i18n.English, "desktop.marketplace.source"))
+	d.click(i18n.Shared(i18n.English, "native.pluginRepository"))
 	d.click(i18n.Shared(i18n.English, "desktop.marketplace.officialSource"))
 	d.until("the official index", func() bool { return w.market.status == marketReady && w.market.selected == "official" })
 	if w.market.source != 1 {
@@ -63,13 +64,14 @@ func TestMarketplaceSourceSelectorRemainsAvailableWhileLoading(t *testing.T) {
 		},
 	}), Values{})
 	w.sess.page = pagePlugins
+	w.pluginTab = pluginTabMarketplace
 	d := openWindow(t, w)
 	select {
 	case <-started:
 	case <-time.After(5 * time.Second):
 		t.Fatal("community fetch did not start")
 	}
-	d.click(i18n.Shared(i18n.English, "desktop.marketplace.source"))
+	d.click(i18n.Shared(i18n.English, "native.pluginRepository"))
 	d.click(i18n.Shared(i18n.English, "desktop.marketplace.officialSource"))
 	stopsWithin(t, stopped, "the old source")
 	d.until("the official index", func() bool { return w.market.status == marketReady && w.market.selected == "official" })
@@ -83,9 +85,10 @@ func TestMarketplaceSearchUsesCoreAndOpensMatchingSelection(t *testing.T) {
 	}, MarketplaceRank: client.RankNames}), Values{})
 	w.market.search.delay = -1
 	w.sess.page = pagePlugins
+	w.pluginTab = pluginTabMarketplace
 	d := openWindow(t, w)
 	d.until("the index", func() bool { return w.market.status == marketReady })
-	d.click(i18n.Shared(i18n.English, "desktop.marketplace.search"))
+	d.click(i18n.Shared(i18n.English, "native.searchPlugins"))
 	d.typeText("Lua")
 	d.until("the Lua search", func() bool {
 		return w.market.search.known && w.market.search.query == "Lua" && !w.market.search.loading
@@ -141,6 +144,7 @@ func TestMarketplaceWindowLoadsAndVirtualizes(t *testing.T) {
 	default:
 	}
 	w.sess.page = pagePlugins
+	w.pluginTab = pluginTabMarketplace
 	w.inv.Invalidate()
 	d.pump()
 	select {
@@ -215,6 +219,7 @@ func TestMarketplaceWindowCancelsWhenLeavingPage(t *testing.T) {
 		return marketplace.Snapshot{}, ctx.Err()
 	}, Dark: func() bool { return true }}), Values{Theme: "dark"})
 	w.sess.page = pagePlugins
+	w.pluginTab = pluginTabMarketplace
 	d := openWindow(t, w)
 	select {
 	case <-started:
@@ -236,6 +241,7 @@ func TestMarketplaceRequestSwitchesOpenSettingsWindow(t *testing.T) {
 	}, Dark: func() bool { return true }}), Values{Theme: "dark"})
 	d := openWindow(t, w)
 	w.searchField.SetText("general")
+	w.pluginTab = pluginTabMarketplace
 	w.requestPage(pagePlugins)
 	d.pump()
 	select {
@@ -270,6 +276,7 @@ func TestMarketplaceDividerDragResizeAndRestore(t *testing.T) {
 				}
 				w := newWindow(NewController(options), Values{Theme: theme})
 				w.sess.page = pagePlugins
+				w.pluginTab = pluginTabMarketplace
 				w.market.apply(marketplace.Snapshot{Index: core.MarketplaceIndex{Plugins: []core.MarketplacePlugin{{ID: "demo", Name: "Demo", Author: "Author", Description: "Detail text for a plugin"}}}}, nil)
 				d := openWindow(t, w)
 				handle := i18n.Shared(language, "settings.resizePlugins")

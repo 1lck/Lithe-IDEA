@@ -64,8 +64,10 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			if arch == "amd64" {
 				arch = "x64"
 			}
-			return service.Fetch(ctx, "https://github.com/Lithe-IDEA/Lithe-store", core.MarketplaceThirdParty, runtime.GOOS+"-"+arch, pluginhost.Declared().Clone())
+			return service.Fetch(ctx, marketplace.CommunityRepositoryURL, core.MarketplaceThirdParty, runtime.GOOS+"-"+arch, pluginhost.Declared().Clone())
 		},
+		MarketplaceURL:         marketplace.CommunityRepositoryURL,
+		OfficialMarketplaceURL: marketplace.OfficialIndexURL,
 		MarketplaceOfficial: func(ctx context.Context) (marketplace.Snapshot, error) {
 			arch := runtime.GOARCH
 			if arch == "amd64" {
@@ -102,16 +104,16 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		InstallPlugin: func(plugin core.MarketplacePlugin) {
 			a.post(func(a *App) { a.installPlugin(plugin) })
 		},
-		PluginFacts: func(id string) settingswindow.PluginFacts {
+		InstalledPlugins: func() []settingswindow.PluginFacts {
 			if facts := a.pluginFacts.Load(); facts != nil {
-				return (*facts)[id]
+				return *facts
 			}
-			return settingswindow.PluginFacts{}
+			return nil
 		},
 		LanguageServerState: func(pluginID string) string {
 			for _, server := range a.lspServers() {
 				if server.session.PluginID == pluginID {
-					return server.stateName()
+					return server.sharedStateName()
 				}
 			}
 			return ""

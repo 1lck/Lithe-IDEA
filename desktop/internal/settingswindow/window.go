@@ -82,6 +82,15 @@ type window struct {
 	page *ui.Page
 
 	market *marketplaceState
+	// pluginTab is the open tab of the plugin page, one of the pluginTab constants:
+	// what is installed, or the marketplace. installed is the Installed tab's own list,
+	// filter and detail (installed_view.go).
+	pluginTab int
+	installed installedState
+	// pluginMenuOpen says the plugin page's gear menu is open, and repositoriesOpen the
+	// window that manages the plugin repositories.
+	pluginMenuOpen   bool
+	repositoriesOpen bool
 	// marketSplit is the plugin list's divider. marketPreferred is the width the user chose,
 	// which a narrow window clamps only for as long as it is narrow, marketApplied the width
 	// the last paint gave the divider (a different Pos means the user moved it since) and
@@ -211,6 +220,9 @@ func newWindow(c *Controller, current Values) *window {
 	w.market.reportDiscarded = c.opts.MarketplaceError
 	w.market.search.rank = c.opts.MarketplaceRank
 	w.marketQuery = current.MarketplaceQuery
+	if w.marketQuery != "" {
+		w.pluginTab = pluginTabMarketplace
+	}
 	w.market.search.report = c.opts.MarketplaceError
 	w.pluginSettings = newPluginSettingsForm(c.opts.PluginSettings)
 	w.pluginForms = make(map[string]*pluginSettingsForm)
@@ -285,7 +297,9 @@ func (w *window) takeQuery() (string, bool) {
 // takes a page request and what the plugin registry and the settings sources changed.
 func (w *window) wake() {
 	if q, ok := w.takeQuery(); ok {
+		// A search the workbench asks for is a search of the marketplace.
 		w.marketQuery = q
+		w.pluginTab = pluginTabMarketplace
 	}
 	if w.pluginRegistryChanged.Swap(false) {
 		w.dynamic.invalidate()

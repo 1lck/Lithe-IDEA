@@ -201,6 +201,10 @@ type Options struct {
 	SettingsNavigation func(context.Context, []core.SettingsNavigationItem, string) ([]core.SettingsNavigationRow, error)
 	// Marketplace fetches the enabled source only while the plugin page is open.
 	Marketplace func(context.Context) (marketplace.Snapshot, error)
+	// MarketplaceURL and OfficialMarketplaceURL are the addresses Marketplace and
+	// MarketplaceOfficial read, which the repositories dialog shows.
+	MarketplaceURL         string
+	OfficialMarketplaceURL string
 	// MarketplaceOfficial fetches the separately validated official source.
 	MarketplaceOfficial func(context.Context) (marketplace.Snapshot, error)
 	// MarketplaceInstalled reads only local installed metadata, without a network request.
@@ -226,9 +230,10 @@ type Options struct {
 	InstallPlugin func(plugin core.MarketplacePlugin)
 	// SetPluginEnabled turns an installed plugin on or off.
 	SetPluginEnabled func(id string, enabled bool)
-	// PluginFacts reports what an installed plugin's manifest declares: the permissions it asks for
-	// and the contributions it makes. It is read while painting, so it answers from memory.
-	PluginFacts func(id string) PluginFacts
+	// InstalledPlugins reports every installed plugin in name order: what its manifest declares
+	// and what the user approved when it was installed. It is read while painting, so it answers
+	// from memory. Nil shows the Installed tab empty.
+	InstalledPlugins func() []PluginFacts
 	// LanguageServerState reports the state of a plugin's running language server: its state
 	// name, or "" when none runs. It is read while painting on the window's thread.
 	LanguageServerState func(pluginID string) string
@@ -529,13 +534,69 @@ func (c *Controller) PluginSettingsChanged(id string) {
 	}
 }
 
-// PluginFacts is what an installed plugin's manifest declares, shown in its detail.
+// PluginFacts is what the Installed tab shows about one installed plugin: what its manifest
+// declares and what the user approved when the package was installed.
 type PluginFacts struct {
+	// ID and Version name the installed package. Name and Vendor are the manifest's display
+	// names; a manifest that cannot be read leaves them empty and the page shows the ID.
+	ID, Name, Vendor, Version string
 	// Permissions are the permission names the manifest lists, as the contract spells them.
 	Permissions []string
-	// Features are the contribution sections the manifest declares, as the contract names them.
-	Features []string
+	// Capabilities are what the plugin provides, in the order the detail lists them.
+	Capabilities []PluginCapability
+	// Settings counts the settings and setting actions the manifest declares.
+	Settings int
+	// Source is where the package came from, PluginSourceDisk or PluginSourceMarketplace, and
+	// empty when no approval is recorded for this version.
+	Source string
+	// ArchiveSHA256 and ContentDigest are the digests the approval recorded.
+	ArchiveSHA256, ContentDigest string
+	// Programs are the program declarations the user approved, each compacted onto one line.
+	Programs []string
+	// Path is the installed package's directory.
+	Path string
 }
+
+// Where an installed package came from, as its approval records it.
+const (
+	PluginSourceDisk        = "disk"
+	PluginSourceMarketplace = "marketplace"
+)
+
+// PluginCapability is one thing an installed plugin provides, as its manifest declares it.
+type PluginCapability struct {
+	// Kind is one of the Capability constants.
+	Kind string
+	// ID is the language or build system the capability is for; it is the ID of the settings
+	// page Core makes for it, so the detail can link there.
+	ID string
+	// Title is the declared display name.
+	Title string
+	// Extensions are a language's file extensions.
+	Extensions []string
+	// Commands are the programs a language server runs from the user's system; Packaged says
+	// the server ships inside the plugin instead.
+	Commands []string
+	Packaged bool
+	// Tasks counts a build system's declared tasks.
+	Tasks int
+	// Description is a project template's own description.
+	Description string
+}
+
+// The kinds of PluginCapability, in the words the contract uses for its sections.
+const (
+	CapabilityLanguage        = "language"
+	CapabilityLanguageServer  = "languageServer"
+	CapabilityRun             = "run"
+	CapabilityTest            = "test"
+	CapabilityDebugger        = "debugger"
+	CapabilityBuildSystem     = "buildSystem"
+	CapabilityProjectTemplate = "projectTemplate"
+	CapabilityToolWindow      = "toolWindow"
+	CapabilityCommand         = "command"
+	CapabilityVersionControl  = "versionControl"
+)
 
 // The values of Values.ProjectOpenDestination besides asking.
 const (

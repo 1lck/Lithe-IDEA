@@ -35,6 +35,7 @@ func TestMarketplaceSourceSwitchCancelsAndIgnoresLateResult(t *testing.T) {
 		MarketplaceOfficial: func(context.Context) (marketplace.Snapshot, error) { return indexOf("official"), nil },
 	}), Values{})
 	w.sess.page = pagePlugins
+	w.pluginTab = pluginTabMarketplace
 	d := openWindow(t, w)
 	select {
 	case <-started:
@@ -79,6 +80,7 @@ func TestMarketplaceReportsDiscardedSourceFailure(t *testing.T) {
 		MarketplaceError:    func(err error) { reported <- err },
 	}), Values{})
 	w.sess.page = pagePlugins
+	w.pluginTab = pluginTabMarketplace
 	d := openWindow(t, w)
 	select {
 	case <-started:
@@ -141,6 +143,7 @@ func TestMarketplaceRapidSwitchingKeepsOneFetchPerSource(t *testing.T) {
 	}
 	w := newWindow(NewController(Options{Marketplace: fetch(0, "community"), MarketplaceOfficial: fetch(1, "official")}), Values{})
 	w.sess.page = pagePlugins
+	w.pluginTab = pluginTabMarketplace
 	d := openWindow(t, w)
 	for _, source := range []int{1, 0, 1, 0, 1} {
 		w.market.chooseSource(source)
@@ -174,6 +177,7 @@ func TestMarketplaceFetchIsLazyAndCloseCancels(t *testing.T) {
 		t.Fatal("marketplace fetched before opening")
 	default:
 	}
+	w.pluginTab = pluginTabMarketplace
 	w.requestPage(pagePlugins)
 	d.pump()
 	select {
@@ -218,6 +222,7 @@ func TestMarketplaceReportsRejectedEntries(t *testing.T) {
 		MarketplaceRejected: func(n int) { count.Add(int32(n)) },
 	}), Values{})
 	w.sess.page = pagePlugins
+	w.pluginTab = pluginTabMarketplace
 	d := openWindow(t, w)
 	d.until("the index", func() bool { return w.market.status == marketReady })
 	for range 3 {
@@ -241,6 +246,7 @@ func TestInstalledMarketplaceSourceWorksWithoutRemoteFetch(t *testing.T) {
 	}), Values{})
 	w.market.chooseSource(2)
 	w.sess.page = pagePlugins
+	w.pluginTab = pluginTabMarketplace
 	d := openWindow(t, w)
 	d.until("the installed index", func() bool { return w.market.status == marketReady })
 	if w.market.source != 2 || w.market.selected != "local" {

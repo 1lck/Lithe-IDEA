@@ -70,9 +70,12 @@ func TestPluginSettingsFormEditsOnlyOnExplicitSaveAndPreservesConflictDraft(t *t
 			}
 			restartCalls++
 			runtime.RestartRequired = false
-		}, Marketplace: fetch, MarketplaceInstalled: fetch, PluginSettings: source, PluginState: func(string) PluginState { return PluginState{Installed: true} }}), Values{})
+		}, Marketplace: fetch, MarketplaceInstalled: fetch, PluginSettings: source, PluginState: func(string) PluginState { return PluginState{Installed: true} },
+		InstalledPlugins: func() []PluginFacts {
+			return []PluginFacts{{ID: "dev.example.settings", Name: "Settings", Version: "1.0.0", Settings: 3}}
+		}}), Values{})
 	w.sess.page = pagePlugins
-	w.market.detailTab = detailSettings
+	w.installed.tab = installedSettings
 	d := openWindow(t, w, func(config *app.Config) { config.Height = 1100 })
 	words := func(key string) string { return i18n.Shared(i18n.English, "desktop.pluginSettings."+key) }
 	wait := func(done func() bool) {
