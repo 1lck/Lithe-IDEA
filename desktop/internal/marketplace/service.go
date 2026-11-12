@@ -18,6 +18,9 @@ const (
 	// OfficialIndexURL follows the current main repository, rather than the
 	// retired organization URL that redirects to a temporary repository (#1781).
 	OfficialIndexURL = "https://raw.githubusercontent.com/1lck/Lithe-IDEA/HEAD/Plugins/marketplace/index.json"
+	// CommunityRepositoryURL is the community store, a GitHub repository whose index Core
+	// resolves to the file the repository keeps at its root.
+	CommunityRepositoryURL = "https://github.com/Lithe-IDEA/Lithe-store"
 	// MaxIndexBytes matches the existing macOS market's index budget.
 	MaxIndexBytes = 5 << 20
 	fetchTimeout  = 20 * time.Second

@@ -28,6 +28,9 @@ type palette struct {
 	text, muted, subtle gfx.Color
 	// accent is the primary button and the focus ring; danger an error.
 	accent, danger gfx.Color
+	// warning marks a community plugin and its notices; success a running or available
+	// one. Both are the colors the macOS plugin page uses for the same badges.
+	warning, success gfx.Color
 	// white is the glyph on a colored tile and the text on the primary button.
 	white gfx.Color
 }
@@ -42,6 +45,7 @@ func lightPalette() palette {
 		selection: gfx.RGB24(0xD0DFFE), selectionIdle: gfx.RGB24(0xE9EAEE),
 		text: gfx.RGB24(0x1f2328), muted: gfx.RGB24(0x59636e), subtle: gfx.RGB24(0x8c959f),
 		accent: gfx.RGB24(0x3871e1), danger: gfx.RGB24(0xc72d2d),
+		warning: gfx.RGB24(0x9a6700), success: gfx.RGB24(0x1a7f37),
 		white: gfx.RGB24(0xffffff),
 	}
 }
@@ -56,6 +60,7 @@ func darkPalette() palette {
 		selection: gfx.RGB24(0x2A4371), selectionIdle: gfx.RGB24(0x33353B),
 		text: gfx.RGB24(0xdfe1e5), muted: gfx.RGB24(0x8c8d8e), subtle: gfx.RGB24(0x727375),
 		accent: gfx.RGB24(0x3871e1), danger: gfx.RGB24(0xea5454),
+		warning: gfx.RGB24(0xd29922), success: gfx.RGB24(0x3fb950),
 		white: gfx.RGB24(0xffffff),
 	}
 }

@@ -26,6 +26,7 @@ func searchWindow(t *testing.T, rank func(context.Context, string, []core.RankCa
 	w.market.search.delay = -1
 	w.market.apply(indexOf(names...), nil)
 	w.sess.page = pagePlugins
+	w.pluginTab = pluginTabMarketplace
 	return w, openWindow(t, w)
 }
 
@@ -88,6 +89,7 @@ func TestMarketplaceSearchRejectsInvalidCoreIndices(t *testing.T) {
 	w.market.search.delay = -1
 	w.market.apply(indexOf("a"), nil)
 	w.sess.page = pagePlugins
+	w.pluginTab = pluginTabMarketplace
 	d := openWindow(t, w)
 	ask(d, "A")
 	d.until("the failed search", func() bool { return w.market.search.failed })

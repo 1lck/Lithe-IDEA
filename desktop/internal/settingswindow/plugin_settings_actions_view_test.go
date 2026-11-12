@@ -47,9 +47,12 @@ func TestSettingsActionButtonsConfirmDismissAndPreserveUnsavedInput(t *testing.T
 	fetch := func(context.Context) (marketplace.Snapshot, error) {
 		return marketplace.Snapshot{Index: core.MarketplaceIndex{Plugins: []core.MarketplacePlugin{{ID: "dev.example.settings", Name: "Settings", LatestVersion: "1.0.0"}}}}, nil
 	}
-	w := newWindow(NewController(Options{PluginSettings: source, Marketplace: fetch, MarketplaceInstalled: fetch, PluginState: func(string) PluginState { return PluginState{Installed: true} }}), Values{})
+	w := newWindow(NewController(Options{PluginSettings: source, Marketplace: fetch, MarketplaceInstalled: fetch, PluginState: func(string) PluginState { return PluginState{Installed: true} },
+		InstalledPlugins: func() []PluginFacts {
+			return []PluginFacts{{ID: "dev.example.settings", Name: "Settings", Version: "1.0.0", Settings: 1}}
+		}}), Values{})
 	w.sess.page = pagePlugins
-	w.market.detailTab = detailSettings
+	w.installed.tab = installedSettings
 	d := openWindow(t, w, func(config *app.Config) { config.Height = 1100 })
 	words := func(key string) string { return i18n.Shared(i18n.English, "desktop.pluginSettings."+key) }
 	wait := func(done func() bool) {

@@ -3,6 +3,8 @@ package settingswindow
 import (
 	"context"
 	"errors"
+	"slices"
+	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
@@ -49,9 +51,12 @@ type marketplaceState struct {
 	customFetch func(context.Context, string) (marketplace.Snapshot, error)
 	// failures are the sources the last aggregate could not read.
 	failures []marketFailure
-	// detailTab is the page of the selected plugin's detail that is open: one of the detail*
-	// constants of marketplace_view.go.
-	detailTab int
+	// sort is the order the list shows the plugins in when no search ranks them: one of the
+	// marketSort constants. sorted is the visible rows in that order, kept for sortedFrom, the
+	// visible rows it was made from, so the order is worked out once per catalog or search.
+	sort       int
+	sorted     []int
+	sortedFrom []int
 	// effects are the fetches of the sources: community, official, installed, the custom ones and
 	// the aggregate of all of them last. runs are what they run, captured when they were built.
 	effects []*ui.EffectState[marketResult, int]
@@ -81,11 +86,45 @@ func newMarketplaceState(fetch func(context.Context) (marketplace.Snapshot, erro
 	return m
 }
 
-// listKey names the visible row i by the plugin it lists, so the row keeps its identity
-// while a search reorders the list.
+// The orders the marketplace list offers. Core sorts the index by name; the other order is
+// the newest release first.
+const (
+	marketSortName = iota
+	marketSortUpdated
+)
+
+// rows are the indexes of the plugins the list shows, in the order it shows them: what the
+// search finds, ranked by the search while it has a query, otherwise in the chosen order.
+func (m *marketplaceState) rows() []int {
+	visible := m.search.visible()
+	ranked := m.search.rank != nil && !m.search.empty && m.search.known
+	if m.sort != marketSortUpdated || ranked || len(visible) == 0 {
+		return visible
+	}
+	if sameRows(m.sortedFrom, visible) {
+		return m.sorted
+	}
+	sorted := slices.Clone(visible)
+	plugins := m.snapshot.Index.Plugins
+	// ISO dates compare as text; a plugin without a date goes last.
+	slices.SortStableFunc(sorted, func(a, b int) int {
+		return strings.Compare(plugins[b].LatestReleaseDate, plugins[a].LatestReleaseDate)
+	})
+	m.sorted, m.sortedFrom = sorted, visible
+	return sorted
+}
+
+// sameRows reports whether a and b are the same slice, not only equal ones: the search hands
+// out a new slice whenever what it lists changes.
+func sameRows(a, b []int) bool {
+	return len(a) == len(b) && len(a) > 0 && &a[0] == &b[0]
+}
+
+// listKey names the row i by the plugin it lists, so the row keeps its identity while a
+// search or the order moves it.
 func (m *marketplaceState) listKey(i int) int {
-	if visible := m.search.visible(); i >= 0 && i < len(visible) {
-		return visible[i]
+	if rows := m.rows(); i >= 0 && i < len(rows) {
+		return rows[i]
 	}
 	return i
 }
@@ -93,8 +132,8 @@ func (m *marketplaceState) listKey(i int) int {
 // listLabel is the name of the plugin row i lists: what assistive technology reads and what
 // typing the first letters of a name finds.
 func (m *marketplaceState) listLabel(i int) string {
-	if visible := m.search.visible(); i >= 0 && i < len(visible) {
-		return m.snapshot.Index.Plugins[visible[i]].Name
+	if rows := m.rows(); i >= 0 && i < len(rows) {
+		return m.snapshot.Index.Plugins[rows[i]].Name
 	}
 	return ""
 }
