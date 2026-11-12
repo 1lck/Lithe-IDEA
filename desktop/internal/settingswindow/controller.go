@@ -108,6 +108,9 @@ type Values struct {
 	AutoCheckUpdates bool
 	// Network is the proxy settings of the application's own HTTP traffic.
 	Network NetworkSettings
+	// LocalHistory is the user's local history settings: what is not recorded and how much
+	// one project's history may keep.
+	LocalHistory LocalHistorySettings
 }
 
 // SteppingAdapter is an installed debug adapter that takes stepping filters: its ID, the
@@ -307,6 +310,11 @@ type Options struct {
 	// password as SetNetwork takes it, the way the application's requests would go under it.
 	// It runs off the window thread and returns once ctx ends. Nil hides the check.
 	CheckNetwork func(ctx context.Context, draft NetworkSettings, password *string) NetworkCheck
+	// SetLocalHistory hands the General page's applied local history settings to the settings
+	// owner. LocalHistory measures, clears and checks rules against the open project's history
+	// off the window thread; nil leaves the local history card out.
+	SetLocalHistory func(LocalHistorySettings)
+	LocalHistory    LocalHistorySource
 	// UpdateStatus reads what the updater is doing; it is safe from the window thread.
 	// CheckForUpdates, DownloadUpdate and InstallUpdate start the steps the Updates page
 	// offers, without waiting; SetAutoCheckUpdates hands a change of

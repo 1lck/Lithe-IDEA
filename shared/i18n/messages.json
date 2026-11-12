@@ -31049,7 +31049,8 @@
       "id": "history.clearFailed",
       "description": "Native UI: local history storage clear failure with an explicit retry action.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Could not clear this project's local history. Check storage permissions and try again.",
@@ -37919,7 +37920,8 @@
       "id": "native.aTestPathMustStayInsideTheCurrent",
       "description": "Native UI: A test path must stay inside the current workspace.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "A test path must stay inside the current workspace.",
@@ -44055,7 +44057,8 @@
       "id": "native.clearProjectHistory",
       "description": "Native UI: Clear Project History…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Clear Project History…",
@@ -44133,7 +44136,8 @@
       "id": "native.clearThisProjectSLocalHistory",
       "description": "Native UI: Clear this project's local history?",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Clear this project's local history?",
@@ -44155,7 +44159,8 @@
       "id": "native.clearing",
       "description": "Native UI: Clearing…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Clearing…",
@@ -52942,7 +52947,8 @@
       "id": "native.everySavedVersionOfThisProjectSFilesIsDeletedOpenFilesAreNotChanged",
       "description": "Native UI: Every saved version of this project's files is deleted. Open files are not changed.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Every saved version of this project's files is deleted. Open files are not changed.",
@@ -55239,7 +55245,8 @@
       "id": "native.gitIgnored",
       "description": "Native UI: Git: ignored",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Git: ignored",
@@ -55283,7 +55290,8 @@
       "id": "native.gitNotIgnored",
       "description": "Native UI: Git: not ignored",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Git: not ignored",
@@ -56030,7 +56038,8 @@
       "id": "native.hiddenInTheProjectTreeNotRecorded",
       "description": "Native UI: Hidden in the project tree, not recorded",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Hidden in the project tree, not recorded",
@@ -56845,7 +56854,8 @@
       "id": "native.ignoredByRegularExpressionLineLld",
       "description": "Native UI: Ignored by regular expression line %lld",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Ignored by regular expression line %lld",
@@ -56861,7 +56871,8 @@
       "id": "native.ignoredByWildcardRule",
       "description": "Native UI: Ignored by wildcard rule %@",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Ignored by wildcard rule %@",
@@ -60153,7 +60164,8 @@
       "id": "native.limitPerProject",
       "description": "Native UI: Limit per project",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Limit per project",
@@ -60228,7 +60240,8 @@
       "id": "native.lineLldIsNotAValidRegularExpressionAndIsSkipped",
       "description": "Native UI: Line %lld is not a valid regular expression and is skipped.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Line %lld is not a valid regular expression and is skipped.",
@@ -62356,7 +62369,8 @@
       "id": "native.localHistory",
       "description": "Native UI: Local History",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Local History",
@@ -62389,7 +62403,8 @@
       "id": "native.localHistoryFormat",
       "description": "Native UI: Local history: %@",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Local history: %@",
@@ -62427,7 +62442,8 @@
       "id": "native.localHistoryLimitPerProject",
       "description": "Native UI: Local history limit per project",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Local history limit per project",
@@ -68505,7 +68521,8 @@
       "id": "native.openAProjectToSeeHowMuchSpaceItsHistoryUses",
       "description": "Native UI: Open a project to see how much space its history uses.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Open a project to see how much space its history uses.",
@@ -72848,7 +72865,8 @@
       "id": "native.recorded",
       "description": "Native UI: Recorded",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Recorded",
@@ -73234,7 +73252,8 @@
       "id": "native.regularExpression.variant2",
       "description": "Native UI: Regular expression",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Regular expression",
@@ -73245,7 +73264,8 @@
       "id": "native.regularExpressionIgnoreRules",
       "description": "Native UI: Regular expression ignore rules",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Regular expression ignore rules",
@@ -82169,7 +82189,8 @@
       "id": "native.testPath",
       "description": "Native UI: Test path",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Test path",
@@ -89454,7 +89475,8 @@
       "id": "native.typeAPathInsideTheProjectToCheckItAgainstTheRulesAboveAsYouEditThemWhetherLocalH0f31e93916",
       "description": "Native UI: Type a path inside the project to check it against the rules above as you edit them: whether local history records the file, and whether Git ignores it. Git ignore rules do not affect local history.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Type a path inside the project to check it against the rules above as you edit them: whether local history records the file, and whether Git ignores it. Git ignore rules do not affect local history.",
@@ -91271,7 +91293,8 @@
       "id": "native.used.variant3",
       "description": "Native UI: Used",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Used",
@@ -92436,7 +92459,8 @@
       "id": "native.whenTheLimitIsReachedTheOldestVersionsAreRemovedFirst",
       "description": "Native UI: When the limit is reached, the oldest versions are removed first.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "When the limit is reached, the oldest versions are removed first.",
@@ -92531,7 +92555,8 @@
       "id": "native.wildcard",
       "description": "Native UI: Wildcard",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Wildcard",
@@ -92542,7 +92567,8 @@
       "id": "native.wildcardIgnoreRules",
       "description": "Native UI: Wildcard ignore rules",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Wildcard ignore rules",
@@ -109894,6 +109920,44 @@
     {
       "id": "desktop.settings.network.invalidPort",
       "description": "Network settings page",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.localHistory.help",
+      "description": "Settings > General > Local History: what local history keeps and where",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.localHistory.wildcardHelp",
+      "description": "Settings > General > Local History: how wildcard ignore rules are written",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.localHistory.builtIns",
+      "description": "Settings > General > Local History: the built-in ignore rules Core applies besides the user rules, and how to turn one off",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "patterns": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.localHistory.regexHelp",
+      "description": "Settings > General > Local History: how regular expression ignore rules are matched",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.localHistory.invalidLimit",
+      "description": "Settings > General > Local History: the limit per project is not a positive whole number",
       "platforms": [
         "desktop"
       ]

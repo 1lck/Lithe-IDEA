@@ -123,6 +123,9 @@ type window struct {
 	stopTimeEditing bool
 	// network is the Network page's unsaved edit.
 	network networkDraft
+	// localHistory is the General page's unsaved local history settings and the open
+	// project's history size (local_history_view.go).
+	localHistory localHistoryDraft
 	// keymap is the Keymap page's filter and recording.
 	keymap keymapState
 

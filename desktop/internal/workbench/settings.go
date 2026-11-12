@@ -261,6 +261,13 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			a.post(func(a *App) { a.setNetwork(next, password) })
 		},
 		CheckNetwork: a.networkChecker(),
+		SetLocalHistory: func(next settingswindow.LocalHistorySettings) {
+			a.post(func(a *App) {
+				a.settings.LocalHistory = next
+				a.saveSettings()
+			})
+		},
+		LocalHistory: a.localHistorySettingsSource(),
 		SetKeymap: func(value shortcuts.Overrides) {
 			value = shortcuts.Normalize(value)
 			a.post(func(a *App) {
@@ -383,6 +390,7 @@ func (a *App) openSettingsPageWith(surface string, page settingsPage, query stri
 			Fonts:                    fontprefs.Normalize(a.settings.Fonts),
 			Keymap:                   maps.Clone(a.settings.Keymap),
 			Network:                  a.settings.Network,
+			LocalHistory:             a.settings.LocalHistory,
 			AutoCheckUpdates:         a.autoCheckUpdates(),
 		}
 		var err error

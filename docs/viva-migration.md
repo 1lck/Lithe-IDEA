@@ -208,7 +208,7 @@
 | `workbench-activity-rail-window-edge` | 活动栏贴合窗口外沿 | 必须迁移 | 实现/实现 | 完成 | `workbench/chrome_view.go` |
 | `workbench-activity-tooltips` | 活动栏图标的稳定悬停说明 | 必须迁移 | 实现/实现 | 完成 | `workbench/chrome_view.go` |
 | `history-restore` | 恢复、删除与持久化 | 必须迁移 | 实现/实现 | 完成 | `workbench/local_history.go` |
-| `history-snapshots` | 快照列表与 Diff | 必须迁移 | 实现/实现 | 部分 | `workbench/local_history.go`（Diff 已做；设置、时间线未做） |
+| `history-snapshots` | 快照列表与 Diff | 必须迁移 | 实现/实现 | 部分 | `workbench/local_history.go`、`local_history_settings.go`、`settingswindow/local_history_view.go`（Diff 与设置已做；全项目时间线、手动标记条目未做） |
 | `macos-shared-scrollbar-style` | macOS 共享滚动条样式 | 放弃 | 实现/专属 | — | 见“放弃”表 |
 | `macos-shared-selection-focus` | macOS 普通选中行主题与区域和窗口焦点 | 放弃 | 实现/专属 | — | 见“放弃”表 |
 | `window-controls` | 标题栏控制窗口最小化、最大化/还原与关闭 | 必须迁移 | 实现/实现 | 部分 | — |

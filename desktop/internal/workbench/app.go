@@ -302,6 +302,9 @@ type settings struct {
 	UpdatesCheckedAt time.Time `json:"updatesCheckedAt,omitzero"`
 	// Network is the proxy settings of the application's own HTTP traffic (network.go).
 	Network settingswindow.NetworkSettings `json:"network,omitzero"`
+	// LocalHistory is which files local history leaves out and how much of it a project keeps
+	// (local_history_settings.go).
+	LocalHistory settingswindow.LocalHistorySettings `json:"localHistory,omitzero"`
 }
 
 const (

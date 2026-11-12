@@ -25,7 +25,10 @@ import (
 // localHistoryKernel is the part of Core local history uses.
 type localHistoryKernel interface {
 	PlanHistoryEvent(context.Context, string) ([]core.HistorySnapshotPlan, error)
-	RecordHistory(ctx context.Context, workspaceRoot, storageRoot, path, reason, content string) (*core.HistoryEntry, error)
+	RecordHistory(ctx context.Context, workspaceRoot, storageRoot, path, reason, content string, policy core.HistoryPolicy) (*core.HistoryEntry, error)
+	PreviewHistoryIgnore(ctx context.Context, rules core.HistoryIgnoreRules, workspaceRoot, path string) (core.HistoryIgnorePreview, error)
+	LocalHistoryUsage(ctx context.Context, storageRoot string, limitBytes uint64) (core.HistoryUsage, error)
+	ClearHistory(ctx context.Context, storageRoot string) error
 	HistoryEntries(ctx context.Context, workspaceRoot, storageRoot, path string) ([]core.HistoryEntry, error)
 	HistoryContent(ctx context.Context, storageRoot, contentPath string) (string, error)
 	RenameHistory(ctx context.Context, storageRoot, path, id, label string) error
@@ -54,12 +57,12 @@ type historyTexts struct {
 // in the background. A text that is absent or not UTF-8 is not recorded. Failures are
 // logged and never interrupt the edit that caused them.
 func (a *App) recordLocalHistory(p *project, path, event string, texts historyTexts) {
-	a.localHistoryJob(p, func(ctx context.Context, kernel localHistoryKernel, root, storage string) error {
+	a.localHistoryJob(p, func(ctx context.Context, kernel localHistoryKernel, root, storage string, policy core.HistoryPolicy) error {
 		rel, inside := projectRelative(root, path)
 		if !inside {
 			return nil
 		}
-		return recordPlannedHistory(ctx, kernel, root, storage, rel, event, texts)
+		return recordPlannedHistory(ctx, kernel, root, storage, rel, event, texts, policy)
 	})
 }
 
@@ -67,14 +70,14 @@ func (a *App) recordLocalHistory(p *project, path, event string, texts historyTe
 // file's or folder's snapshots to its new path, in that order. before is nil for a
 // folder or a file whose text was not read.
 func (a *App) renamedLocalHistory(p *project, oldPath, newPath string, before []byte) {
-	a.localHistoryJob(p, func(ctx context.Context, kernel localHistoryKernel, root, storage string) error {
+	a.localHistoryJob(p, func(ctx context.Context, kernel localHistoryKernel, root, storage string, policy core.HistoryPolicy) error {
 		oldRel, inside := projectRelative(root, oldPath)
 		newRel, insideToo := projectRelative(root, newPath)
 		if !inside || !insideToo {
 			return nil
 		}
 		if before != nil {
-			if err := recordPlannedHistory(ctx, kernel, root, storage, oldRel, "beforeRename", historyTexts{before: before}); err != nil {
+			if err := recordPlannedHistory(ctx, kernel, root, storage, oldRel, "beforeRename", historyTexts{before: before}, policy); err != nil {
 				return err
 			}
 		}
@@ -83,19 +86,20 @@ func (a *App) renamedLocalHistory(p *project, oldPath, newPath string, before []
 }
 
 // localHistoryJob runs one local history step for the project in the background and
-// logs its failure.
-func (a *App) localHistoryJob(p *project, work func(ctx context.Context, kernel localHistoryKernel, root, storage string) error) {
+// logs its failure. The step records under the user's local history settings as they are
+// when it is asked for.
+func (a *App) localHistoryJob(p *project, work func(ctx context.Context, kernel localHistoryKernel, root, storage string, policy core.HistoryPolicy) error) {
 	kernel, ok := a.kernel.(localHistoryKernel)
 	if !ok || p == nil {
 		return
 	}
-	root := p.root
+	root, policy := p.root, a.settings.LocalHistory.Policy()
 	storage, ok := a.localHistoryDirectory(root)
 	if !ok {
 		return
 	}
 	a.background(p, 10*time.Second, func(ctx context.Context) func(*App) {
-		err := work(ctx, kernel, root, storage)
+		err := work(ctx, kernel, root, storage, policy)
 		return func(a *App) {
 			if err != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("local_history_record", err))
@@ -104,8 +108,9 @@ func (a *App) localHistoryJob(p *project, work func(ctx context.Context, kernel 
 	})
 }
 
-// recordPlannedHistory records, under rel, each snapshot Core plans for event.
-func recordPlannedHistory(ctx context.Context, kernel localHistoryKernel, root, storage, rel, event string, texts historyTexts) error {
+// recordPlannedHistory records, under rel, each snapshot Core plans for event. Core leaves out a
+// file policy's rules ignore and keeps the project's history under policy's limit.
+func recordPlannedHistory(ctx context.Context, kernel localHistoryKernel, root, storage, rel, event string, texts historyTexts, policy core.HistoryPolicy) error {
 	plan, err := kernel.PlanHistoryEvent(ctx, event)
 	if err != nil {
 		return err
@@ -123,7 +128,7 @@ func recordPlannedHistory(ctx context.Context, kernel localHistoryKernel, root, 
 		if text == nil || !utf8.Valid(text) {
 			continue
 		}
-		if _, err := kernel.RecordHistory(ctx, root, storage, rel, snapshot.Reason, string(text)); err != nil {
+		if _, err := kernel.RecordHistory(ctx, root, storage, rel, snapshot.Reason, string(text), policy); err != nil {
 			return err
 		}
 	}

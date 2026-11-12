@@ -395,6 +395,9 @@ func (w *window) generalPage(c ui.C) {
 				}
 			})
 		})
+		if w.ctrl.opts.SetLocalHistory != nil {
+			w.localHistoryCard(c)
+		}
 		w.card(c, settings.About, "", func() {
 			ui.Column(c).FillWidth().Gap(2).Children(func() {
 				ui.Text(c, w.text.App.Name).FontSize(13).Weight(gfx.WeightSemibold).Color(p.text).Ellipsis()
