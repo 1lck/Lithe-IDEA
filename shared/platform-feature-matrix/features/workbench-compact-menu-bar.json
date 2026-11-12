@@ -11,10 +11,11 @@
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
+    "implementationStatus": "partial",
     "verificationStatus": "not-applicable",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/workbench/compact_menu.go",
+      "desktop/internal/workbench/chrome_view.go"
     ]
   },
   "owner": "Workbench",
@@ -40,5 +41,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：标题栏左侧是项目菜单（chrome_view.go 的 chromeProject），desktop/ 中未找到紧凑菜单栏、汉堡按钮或水平菜单展开的实现。"
+  "notes": "Viva：标题栏左侧是项目菜单（chrome_view.go 的 chromeProject），desktop/ 中未找到紧凑菜单栏、汉堡按钮或水平菜单展开的实现。 2026-11-12：菜单展开时隐藏标题栏的项目与分支控件，让菜单占据它们的位置（chrome_view.go），菜单仍从按钮下方展开；未做：Escape 后回焦到入口、窄窗口内菜单与标题栏同高横向滚动，两项依赖 Viva 的菜单焦点与布局能力。"
 }

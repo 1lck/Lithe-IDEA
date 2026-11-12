@@ -78,8 +78,12 @@ func (a *App) titleBar(c ui.C) {
 		Items(ui.Center).Gap(chromeGap).PadSides(0, trailing+chromeEdge, 0, leading+chromeEdge).
 		MovesWindow().Children(func() {
 		a.compactMenuButton(c)
-		a.chromeProject(c)
-		a.chromeBranch(c)
+		if !a.title.menuOpen {
+			// The open menu takes the place of the project and branch controls, the way the old
+			// Windows menu bar turned into the open menu's title.
+			a.chromeProject(c)
+			a.chromeBranch(c)
+		}
 		ui.Spacer(c)
 		zone := ui.Row(c).Items(ui.Center).Gap(chromeGap).Children(func() {
 			for _, i := range a.chrome.items[zoneTitle] {
