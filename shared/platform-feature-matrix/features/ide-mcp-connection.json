@@ -16,7 +16,9 @@
       "desktop/internal/core/ide_host.go",
       "desktop/internal/core/ide_host_helper.go",
       "desktop/internal/workbench/ide_api_operation_test.go",
-      "desktop/internal/workbench/ide_api_dispatch_test.go"
+      "desktop/internal/workbench/ide_api_dispatch_test.go",
+      "scripts/desktop/package-desktop.sh",
+      "scripts/desktop/package-desktop.test.mjs"
     ]
   },
   "windows": {
@@ -32,12 +34,14 @@
       "desktop/internal/core/ide_host.go",
       "desktop/internal/core/ide_host_helper.go",
       "desktop/internal/workbench/ide_api_operation_test.go",
-      "desktop/internal/workbench/ide_api_dispatch_test.go"
+      "desktop/internal/workbench/ide_api_dispatch_test.go",
+      "scripts/desktop/package-desktop.sh",
+      "scripts/desktop/package-desktop.test.mjs"
     ]
   },
   "owner": "Agent",
-  "notes": "Viva：设置 › AI › IDE 连接按项目开启/关闭连接，分别授权配置与执行（默认关，连接期间不可改），复制 stdio 客户端配置；授权按项目保存在本地偏好，连接目录在应用数据的 ide-host 下，关闭项目撤销连接。broker 循环实现 open/poll/claim/validate/respond/close，open 时用 toolExposure 只发布已实现的工具，validate 用同一列表；工具分发已接入 11 个工具：project_inspect、build inspect/reload/configure/execute、operations list/output/stop、run list/start/restart；environment 与 maven 专属工具按契约不由本客户端提供、不发布（工具链与构建工具由插件经通用 Build 入口暴露）。失败码只用契约列出的共享码与应用码。lithe-mcp 辅助程序已随包嵌入并在应用数据目录安装。",
-  "verification": "Viva 本地验证（2026-11-12）：bash scripts/desktop/desktop-go.sh test ./internal/workbench/ -run TestIDE；变异检查（不判旧 ID 失效、读输出不传游标、停止不结束准备、不用 Core 读回值、启动不预留构建窗口）各让对应测试失败。原生实机待验证。旧客户端基线：检查设置侧栏 MCP 配置入口与搜索跳转；未打开项目时资源库照常列出全局服务器，Lithe IDE 访问段显示打开项目提示；切换项目后展示对应授权。双端打包启动后开启连接，配置真实 Agent，验证工具发现、默认拒绝写入、启用权限、禁用、项目关闭和多窗口隔离。macOS 打开 MCP 配置页确认状态徽标与状态卡文案跟随启用状态变化，header ⓘ 可打开完整安全说明，配置代码块只在存在配置时出现且可选中复制；启用后确认项目级 lithe 条目写入两个 Agent 的配置，禁用后条目清理，外部修改过的条目保留并提示。运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。 Windows 验证开启请求通过真实 Host 解码、客户端不能覆盖窗口所有者、关闭其他窗口保留连接及所属窗口关闭删除连接文件。 验证旧版、新版直接发现与初始化后新版发现三个独立 stdio 会话；Windows 验证原生通知、过期领取拒绝、失败后新请求恢复、最小化与休眠恢复、系统时钟回拨、丢失通知后交付新请求、打开失败和关闭后监听释放、中英文错误提示及无重复执行。 Windows 暴露 lithe_build_configure，经过既有 configure 权限，复用 UI 的同一原生本机偏好保存与读回；false、空数组和 null 重置不混淆，旧版本/并发保存和工作区关闭不覆盖新状态；活动构建返回 BUSY。验证共享工具清单、真实 stdio 发现与授权拒绝，旧 Maven 消费者尚未删除。",
+  "notes": "Viva：设置 › AI › IDE 连接按项目开启/关闭连接，分别授权配置与执行（默认关，连接期间不可改），复制 stdio 客户端配置；授权按项目保存在本地偏好，连接目录在应用数据的 ide-host 下，关闭项目撤销连接。broker 循环实现 open/poll/claim/validate/respond/close，open 时用 toolExposure 只发布已实现的工具，validate 用同一列表；工具分发已接入 11 个工具：project_inspect、build inspect/reload/configure/execute、operations list/output/stop、run list/start/restart；environment 与 maven 专属工具按契约不由本客户端提供、不发布（工具链与构建工具由插件经通用 Build 入口暴露）。失败码只用契约列出的共享码与应用码。lithe-mcp 辅助程序已随包嵌入并在应用数据目录安装；打包时它按 desktop-go.sh 的目标映射构建，与安装包同一目标（Windows 为 x86_64-pc-windows-gnu，arm64 主机上打的 amd64 macOS 包为 x86_64-apple-darwin），不取 rustc 主机默认目标。",
+  "verification": "Viva 本地验证（2026-11-12）：bash scripts/desktop/desktop-go.sh test ./internal/workbench/ -run TestIDE；node --test scripts/desktop/package-desktop.test.mjs 验证 Windows 打包在 rustc 默认 MSVC 时暂存并嵌入 GNU 目标的 Core 与 lithe-mcp、arm64 主机打 amd64 macOS 包嵌入 x86_64 辅助程序、make core 在 Windows 暂存 GNU 目标（修复前三项均失败）；变异检查（不判旧 ID 失效、读输出不传游标、停止不结束准备、不用 Core 读回值、启动不预留构建窗口）各让对应测试失败。原生实机待验证。旧客户端基线：检查设置侧栏 MCP 配置入口与搜索跳转；未打开项目时资源库照常列出全局服务器，Lithe IDE 访问段显示打开项目提示；切换项目后展示对应授权。双端打包启动后开启连接，配置真实 Agent，验证工具发现、默认拒绝写入、启用权限、禁用、项目关闭和多窗口隔离。macOS 打开 MCP 配置页确认状态徽标与状态卡文案跟随启用状态变化，header ⓘ 可打开完整安全说明，配置代码块只在存在配置时出现且可选中复制；启用后确认项目级 lithe 条目写入两个 Agent 的配置，禁用后条目清理，外部修改过的条目保留并提示。运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。 Windows 验证开启请求通过真实 Host 解码、客户端不能覆盖窗口所有者、关闭其他窗口保留连接及所属窗口关闭删除连接文件。 验证旧版、新版直接发现与初始化后新版发现三个独立 stdio 会话；Windows 验证原生通知、过期领取拒绝、失败后新请求恢复、最小化与休眠恢复、系统时钟回拨、丢失通知后交付新请求、打开失败和关闭后监听释放、中英文错误提示及无重复执行。 Windows 暴露 lithe_build_configure，经过既有 configure 权限，复用 UI 的同一原生本机偏好保存与读回；false、空数组和 null 重置不混淆，旧版本/并发保存和工作区关闭不覆盖新状态；活动构建返回 BUSY。验证共享工具清单、真实 stdio 发现与授权拒绝，旧 Maven 消费者尚未删除。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

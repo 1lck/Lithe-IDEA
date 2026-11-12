@@ -101,6 +101,7 @@ jobs:
         run: |
           node --test \
             scripts/release/notes/test-validate-stable-release-notes.mjs \
+            scripts/desktop/package-desktop.test.mjs \
             scripts/desktop/perf/editor-perf-report.test.mjs \
             scripts/ci/cancel-closed-pr-runs/cancel-closed-pr-runs.test.mjs
 

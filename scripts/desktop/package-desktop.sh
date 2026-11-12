@@ -170,8 +170,11 @@ esac
 # The IDE API helper is embedded into the packaged Go binary under the lithe_bundled_helper
 # build tag; the generated file is build input of this run only and never tracked. The client
 # installs that copy under its application-data directory at first use, so the app bundle gets
-# no extra executable and the client never reads its own installation for it.
-HELPER_STAGE="$("$ROOT_DIR/scripts/desktop/build-desktop-core.sh" --release)"
+# no extra executable and the client never reads its own installation for it. desktop-go.sh maps
+# GOOS and ARCH to the core target, so the helper matches the package (the GNU target on Windows,
+# x86_64 for an amd64 macOS package built on arm64) rather than the rustc host default.
+HELPER_STAGE="$(GOARCH="$ARCH" LITHE_DESKTOP_CORE_PROFILE=release \
+    "$ROOT_DIR/scripts/desktop/desktop-go.sh" --print-core-stage)"
 HELPER_NAME="lithe-mcp"
 if [[ "$GOOS" == "windows" ]]; then
     HELPER_NAME="lithe-mcp.exe"
