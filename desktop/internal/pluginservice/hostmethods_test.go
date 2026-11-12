@@ -102,8 +102,21 @@ func TestWorkspaceContextsAreScopedToTheCallingPlugin(t *testing.T) {
 		t.Fatalf("getContext did not create the state directory: %v", err)
 	}
 
-	if result, refusal = respond(t, service, "a", "workspace/getFolders", reference); refusal != nil || !winpath.Holds(string(result), root) {
+	if result, refusal = respond(t, service, "a", "workspace/getFolders", reference); refusal != nil {
 		t.Fatalf("getFolders = %s, %+v", result, refusal)
+	}
+	// Compare the path the answer names, expanded to its long form: the folder arrives as the
+	// 8.3 short name when the environment carries one, which no string search of root matches.
+	var folders struct {
+		Folders []struct {
+			Path string `json:"path"`
+		} `json:"folders"`
+	}
+	if err := json.Unmarshal(result, &folders); err != nil {
+		t.Fatalf("getFolders = %s: %v", result, err)
+	}
+	if len(folders.Folders) != 1 || !winpath.Equal(folders.Folders[0].Path, root) {
+		t.Fatalf("getFolders = %s, want the calling plugin's folder %q", result, root)
 	}
 
 	stale := `{"context":{"contextID":"` + workspace.ContextID + `","generation":2}}`

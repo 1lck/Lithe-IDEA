@@ -118,12 +118,29 @@ func (a *App) startDebug(p *project) {
 		start.request, start.target = "attach", target
 	}
 	// A debuggee reads the files on disk, so settle pending writes before the
-	// adapter launches; a failed save keeps the session from starting.
+	// adapter launches; a failed save keeps the session from starting. Nothing to
+	// settle when every document is already on disk, which also keeps the session
+	// from waiting on a save batch that has no work.
+	if !a.projectHasPendingWrites(p) {
+		a.beginDebug(p, start)
+		return
+	}
 	a.saveProjectDocuments(p, func(ok bool) {
 		if ok {
 			a.beginDebug(p, start)
 		}
 	})
+}
+
+// projectHasPendingWrites reports whether some open document has content the debuggee would
+// not see on disk yet.
+func (a *App) projectHasPendingWrites(p *project) bool {
+	for _, d := range p.docs.list {
+		if d.saving || d.dirty() || d.conflicted || d.checkPending || d.checking || d.view.IsComposing() {
+			return true
+		}
+	}
+	return false
 }
 
 // attachTargetFromFields reads the attach form. The host is only checked for

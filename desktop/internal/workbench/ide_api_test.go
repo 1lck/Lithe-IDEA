@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -37,8 +38,18 @@ func TestIDEAPIEnableAndDisable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("enable: %v", err)
 	}
-	if !winpath.Holds(string(configuration), helper) {
-		t.Fatalf("configuration does not name the helper: %s", configuration)
+	// The configuration names the helper with the path the environment carried, which on Windows
+	// can be the 8.3 short form; compare parsed paths instead of searching the document text.
+	var configured struct {
+		Servers map[string]struct {
+			Command string `json:"command"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(configuration, &configured); err != nil {
+		t.Fatalf("configuration = %s: %v", configuration, err)
+	}
+	if command := configured.Servers["lithe"].Command; !winpath.Equal(command, helper) {
+		t.Fatalf("configuration names %q, want the helper %q", command, helper)
 	}
 	if _, err := app.ideAPIEnable(p, core.IDEPermissions{}, helper); err == nil {
 		t.Fatal("a second enable of the same project succeeded")
