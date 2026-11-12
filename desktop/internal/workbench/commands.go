@@ -64,6 +64,12 @@ func (a *App) commands() []command {
 	}
 	add("project.close", t.GroupProject, t.CloseProject, "", true, a.closeProject)
 	add("documents.saveAll", t.GroupProject, t.SaveAll, "", true, func() { a.saveProjectDocuments(p, func(bool) {}) })
+	// The File menu closes the selected tab above its separator and Settings above it, as the
+	// old Windows menu bar ordered them.
+	if d := p.selectedDocument(p.docs.group); d != nil {
+		id := d.id
+		add("tab.close", t.GroupProject, a.text.Editor.CloseTab, "", true, func() { a.closeDocument(p, id) })
+	}
 	if d := p.selectedDocument(p.docs.group); browserPreviewable(d) {
 		add("editor.openInBrowser", t.GroupEditor, i18n.Shared(a.language(), "desktop.editorMenu.openInBrowser"), "", true, func() { a.openInBrowser(p, d) })
 	}

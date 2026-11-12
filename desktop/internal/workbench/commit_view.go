@@ -37,7 +37,6 @@ func (a *App) commitPageView(c ui.C) {
 	a.syncChangeListSettings(p)
 	ui.Column(c).Fill().Background(a.colors.Editor).Children(func() {
 		a.drawCommitToolbar(c, p)
-		ui.Divider(c)
 		if !a.drawCommitStatus(c, p) {
 			return
 		}
