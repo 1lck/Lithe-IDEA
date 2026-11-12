@@ -636,9 +636,11 @@ cannot replace the active selection and its returned cursor is also closed.
 
 Launch environment precedence and automatic run scanning are Rust Core policy.
 Platform adapters discover executable/home paths and provide the native parent
-environment; `execution.resolveEnvironment` applies inherited < selected current
-step toolchain < explicit user values. A Maven resource step uses its Maven JVM,
-while the subsequent Java process uses the project JVM. Automatic scan exclusions,
+environment; `execution.resolveEnvironment` applies inherited < explicit values.
+The selected toolchain installation of each step (a runtime home, a build
+tool's own home) is applied by the host from `toolchains.*` before that merge,
+so Core names no tool and a plugin decides which installation a step uses.
+Automatic scan exclusions,
 partial-snapshot retention and diagnostics share one implementation; unreadable
 optional subtrees must not erase previously discovered configurations.
 
@@ -874,6 +876,7 @@ JDT-owned workspace build paths and the existing platform-owned JDT state.
 - 有交互含义的调用在 `tool_call` / `tool_call_update` 的 `_meta.lithe.claudeDesktop` 附加卡片，字段 `card` 决定类型：`chapter {title, summary?}`、`nextStep {actions: [{label, message}] ≤4}`、`task {title, summary?, prompt?, state: proposed|withdrawn|started|handedOff}`、`pullRequest {action: bound|unbound|monitored|autoMerge, url, number?, autoFix?, enabled?}`、`directory {action: changed|requested, path}`、`widget {title, code ≤256 KiB 字符}`。文本字段截断到 16 KiB 字符；超限的 `widget.code` 置空。
 - `nextStep` 是 Host 另发的已完成调用，id 为原 `wrap_up` 调用 id 加 `#next`；任务撤回或启动的结果到达后，Host 以原卡片调用 id 补发整张卡片。后到的卡片整体替换先前的卡片；不带卡片的更新不清除卡片。
 - 客户端只在调用状态为 `completed` 时显示卡片；未知 `card` 类型、缺字段或非 http(s) 的 PR 链接退回普通工具行。卡片动作只填写输入框，不代替用户发送。可视化内容必须在禁止网络加载、非持久存储、禁止导航的隔离网页中渲染。
+- 共享样例 `shared/fixtures/agent/claude-desktop-cards-v1.json` 按调用顺序记录 Host 收到的更新（`updates`）和呈现给客户端的结果（`presented`），覆盖六种卡片、只换标题的行和原样透传；Host 测试逐例重放它，客户端按它解码卡片。
 
 
 Agent skill management groups files by Global/Project and retains their Agent

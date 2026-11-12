@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "description": "Golden bytes for file.read/file.write. For every case, writing text with encoding yields bytesHex; reading bytesHex with encoding yields text and hasBom. autoDetectedEncoding, when non-null, is what file.read reports with no encoding; null means automatic detection does not apply.",
+  "cases": [
+    {
+      "name": "UTF-8",
+      "encoding": "utf-8",
+      "text": "A中😀",
+      "bytesHex": "41e4b8adf09f9880",
+      "hasBom": false,
+      "autoDetectedEncoding": "utf-8"
+    },
+    {
+      "name": "UTF-8 BOM",
+      "encoding": "utf-8-bom",
+      "text": "A中",
+      "bytesHex": "efbbbf41e4b8ad",
+      "hasBom": true,
+      "autoDetectedEncoding": "utf-8-bom"
+    },
+    {
+      "name": "UTF-16 LE BOM",
+      "encoding": "utf-16le-bom",
+      "text": "A中",
+      "bytesHex": "fffe41002d4e",
+      "hasBom": true,
+      "autoDetectedEncoding": "utf-16le-bom"
+    },
+    {
+      "name": "UTF-16 BE BOM",
+      "encoding": "utf-16be-bom",
+      "text": "A中",
+      "bytesHex": "feff00414e2d",
+      "hasBom": true,
+      "autoDetectedEncoding": "utf-16be-bom"
+    },
+    {
+      "name": "UTF-16 LE",
+      "encoding": "utf-16le",
+      "text": "A中",
+      "bytesHex": "41002d4e",
+      "hasBom": false,
+      "autoDetectedEncoding": null
+    },
+    {
+      "name": "UTF-16 BE",
+      "encoding": "utf-16be",
+      "text": "A中",
+      "bytesHex": "00414e2d",
+      "hasBom": false,
+      "autoDetectedEncoding": null
+    },
+    {
+      "name": "GBK",
+      "encoding": "gbk",
+      "text": "中文",
+      "bytesHex": "d6d0cec4",
+      "hasBom": false,
+      "autoDetectedEncoding": "gbk"
+    },
+    {
+      "name": "GB18030 four byte",
+      "encoding": "gb18030",
+      "text": "𠀀",
+      "bytesHex": "95328236",
+      "hasBom": false,
+      "autoDetectedEncoding": "gb18030"
+    },
+    {
+      "name": "Big5",
+      "encoding": "big5",
+      "text": "中文",
+      "bytesHex": "a4a4a4e5",
+      "hasBom": false,
+      "autoDetectedEncoding": null
+    },
+    {
+      "name": "Shift JIS",
+      "encoding": "shift-jis",
+      "text": "こんにちは",
+      "bytesHex": "82b182f182c982bf82cd",
+      "hasBom": false,
+      "autoDetectedEncoding": null
+    },
+    {
+      "name": "EUC-JP",
+      "encoding": "euc-jp",
+      "text": "こんにちは",
+      "bytesHex": "a4b3a4f3a4cba4c1a4cf",
+      "hasBom": false,
+      "autoDetectedEncoding": null
+    },
+    {
+      "name": "EUC-KR",
+      "encoding": "euc-kr",
+      "text": "한국어",
+      "bytesHex": "c7d1b1b9beee",
+      "hasBom": false,
+      "autoDetectedEncoding": null
+    },
+    {
+      "name": "Windows-1250",
+      "encoding": "windows-1250",
+      "text": "ąęł",
+      "bytesHex": "b9eab3",
+      "hasBom": false,
+      "autoDetectedEncoding": null
+    },
+    {
+      "name": "Windows-1251",
+      "encoding": "windows-1251",
+      "text": "привет",
+      "bytesHex": "eff0e8e2e5f2",
+      "hasBom": false,
+      "autoDetectedEncoding": null
+    },
+    {
+      "name": "Windows-1252",
+      "encoding": "windows-1252",
+      "text": "éü",
+      "bytesHex": "e9fc",
+      "hasBom": false,
+      "autoDetectedEncoding": null
+    },
+    {
+      "name": "KOI8-R",
+      "encoding": "koi8-r",
+      "text": "привет",
+      "bytesHex": "d0d2c9d7c5d4",
+      "hasBom": false,
+      "autoDetectedEncoding": null
+    }
+  ],
+  "unmappable": [
+    {
+      "encoding": "gbk",
+      "text": "ab😀",
+      "scalarOffset": 2,
+      "codePoint": "U+1F600"
+    },
+    {
+      "encoding": "windows-1252",
+      "text": "中",
+      "scalarOffset": 0,
+      "codePoint": "U+4E2D"
+    }
+  ]
+}

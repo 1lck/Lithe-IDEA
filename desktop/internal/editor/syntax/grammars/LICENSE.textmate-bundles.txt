@@ -1,0 +1,87 @@
+https://github.com/textmate/c.tmbundle 60daf83b9d45329524f7847a75e9298b3aae5805
+
+Copyright (c) textmate-c.tmbundle authors
+
+If not otherwise specified (see below), files in this repository fall under the following license:
+
+Permission to copy, use, modify, sell and distribute this
+software is granted. This software is provided "as is" without
+express or implied warranty, and with no claim as to its
+suitability for any purpose.
+
+An exception is made for files in readable text which contain their own license information,
+or files where an accompanying file exists (in the same directory) with a "-license" suffix added
+to the base-name name of the original file, and an extension of txt, html, or similar. For example
+"tidy" is accompanied by "tidy-license.txt".
+
+---
+
+https://github.com/textmate/html.tmbundle 0c3d5ee54de3a993f747f54186b73a4d2d3c44a2
+
+Copyright (c) textmate-html.tmbundle project authors
+
+If not otherwise specified (see below), files in this repository fall under the following license:
+
+Permission to copy, use, modify, sell and distribute this
+software is granted. This software is provided "as is" without
+express or implied warranty, and with no claim as to its
+suitability for any purpose.
+
+An exception is made for files in readable text which contain their own license information,
+or files where an accompanying file exists (in the same directory) with a "-license" suffix added
+to the base-name name of the original file, and an extension of txt, html, or similar. For example
+"tidy" is accompanied by "tidy-license.txt".
+
+---
+
+https://github.com/textmate/ini.tmbundle 2af0cbb0704940f967152616f2f1ff0aae6287a6
+
+Copyright (c) textmate-ini.tmbundle project authors
+
+If not otherwise specified (see below), files in this folder fall under the following license: 
+
+Permission to copy, use, modify, sell and distribute this
+software is granted. This software is provided "as is" without
+express or implied warranty, and with no claim as to its
+suitability for any purpose.
+
+An exception is made for files in readable text which contain their own license information, 
+or files where an accompanying file exists (in the same directory) with a "-license" suffix added 
+to the base-name name of the original file, and an extension of txt, html, or similar. For example 
+"tidy" is accompanied by "tidy-license.txt".
+
+---
+
+https://github.com/textmate/javascript.tmbundle fccf0af0c95430a42e1bf98f0c7a4723a53283e7
+
+Copyright (c) textmate-javascript.tmbundle project authors
+
+If not otherwise specified (see below), files in this repository fall under the following license:
+
+Permission to copy, use, modify, sell and distribute this
+software is granted. This software is provided "as is" without
+express or implied warranty, and with no claim as to its
+suitability for any purpose.
+
+An exception is made for files in readable text which contain their own license information,
+or files where an accompanying file exists (in the same directory) with a "-license" suffix added
+to the base-name name of the original file, and an extension of txt, html, or similar. For example
+"tidy" is accompanied by "tidy-license.txt".
+
+---
+
+https://github.com/textmate/markdown.tmbundle 11cf764606cb2cde54badb5d0e5a0758a8871c4b
+
+Copyright (c) markdown.tmbundle authors
+
+If not otherwise specified (see below), files in this repository fall under the following license:
+
+Permission to copy, use, modify, sell and distribute this
+software is granted. This software is provided "as is" without
+express or implied warranty, and with no claim as to its
+suitability for any purpose.
+
+An exception is made for files in readable text which contain their own license information,
+or files where an accompanying file exists (in the same directory) with a "-license" suffix added
+to the base-name name of the original file, and an extension of txt, html, or similar. For example
+"tidy" is accompanied by "tidy-license.txt".

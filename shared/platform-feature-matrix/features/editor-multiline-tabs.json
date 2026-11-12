@@ -4,21 +4,49 @@
   "group": "文本编辑",
   "capability": "多行标签与标签导航",
   "macos": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "macos/Sources/Lithe/Views/Editor",
-      "macos/Tests/LitheTests/EditorTabOrderFeatureModelTests.swift",
-      "macos/Sources/Lithe/Views/Editor/EditorTabFrameStore.swift"
-    ],
-    "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+      "desktop/internal/workbench/tabstrip.go",
+      "desktop/internal/workbench/tabstrip_test.go",
+      "desktop/internal/workbench/editorgroups.go",
+      "desktop/internal/workbench/editorgroups_test.go",
+      "desktop/internal/settingswindow/window.go",
+      "desktop/internal/settingswindow/editor_view_test.go"
+    ]
   },
   "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "windows/tauri/src/features/tabs"
-    ],
-    "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+      "desktop/internal/workbench/tabstrip.go",
+      "desktop/internal/workbench/tabstrip_test.go",
+      "desktop/internal/workbench/editorgroups.go",
+      "desktop/internal/workbench/editorgroups_test.go",
+      "desktop/internal/settingswindow/window.go",
+      "desktop/internal/settingswindow/editor_view_test.go"
+    ]
   },
   "owner": "Editor",
-  "verification": "打开足够多文件触发多行标签，确认滚动、切换、关闭和活动文件保持。 单行和多行文件、媒体与 Repository Diff 复用固定标签栏坐标手势，原生窗口按下/移动/松开检查 .gitignore 与 Diff 双向跨行重排；终端跨工具窗口仍使用原生载荷。 普通文件/媒体/Repository Diff 共用独立浮动标签预览，可沿两个方向离开标签栏再返回；移除蓝色插入竖线，以原尺寸圆角占位表示落点，临时显示重排在松开时才提交。单/多行核对无裁剪、90% 预览、原字型图标、Esc 后同次拖动不重启、栏外释放恢复顺序，结束/卸载清理窗口及事件监视器；原生组件验证不替代完整工作区验收。 标签拖动开始、换位、松开与取消直接完成，无透明度渐变/弹簧；原生浮动窗口禁用系统动画，事件回归使用未额外屏蔽动画的测试宿主。 从标签上边缘而非中心抓取，在标签栏上缘返回并松开，真实鼠标位置决定栏内外及跨行落点；单行/多行及文件/Repository Diff 双向重排均通过原生事件回归。"
+  "verification": "打开足够多文件触发多行标签，确认滚动、切换、关闭和活动文件保持。 单行和多行文件、媒体与 Repository Diff 复用固定标签栏坐标手势，原生窗口按下/移动/松开检查 .gitignore 与 Diff 双向跨行重排；终端跨工具窗口仍使用原生载荷。 普通文件/媒体/Repository Diff 共用独立浮动标签预览，可沿两个方向离开标签栏再返回；移除蓝色插入竖线，以原尺寸圆角占位表示落点，临时显示重排在松开时才提交。单/多行核对无裁剪、90% 预览、原字型图标、Esc 后同次拖动不重启、栏外释放恢复顺序，结束/卸载清理窗口及事件监视器；原生组件验证不替代完整工作区验收。 标签拖动开始、换位、松开与取消直接完成，无透明度渐变/弹簧；原生浮动窗口禁用系统动画，事件回归使用未额外屏蔽动画的测试宿主。 从标签上边缘而非中心抓取，在标签栏上缘返回并松开，真实鼠标位置决定栏内外及跨行落点；单行/多行及文件/Repository Diff 双向重排均通过原生事件回归。 Viva：运行 scripts/desktop/desktop-go.sh test ./internal/workbench -run 'TestEditorTabs|TestWrapTabs|TestInsertion|TestHiddenTabs' -count=1 和 scripts/desktop/desktop-go.sh test ./internal/settingswindow -count=1；实机打开二十个长文件名文件，确认标签栏顶部出现细滚动条、滚轮和触控板可左右滚动、所选标签自动滚入视野，右端 ⌄ 按钮列出看不见的标签，可选择和关闭；设置 > 编辑器 > 标签页切换“滚动标签页面板”“挤压标签页”“多行”立即生效并在重启后保持，多行时按钮在第一行右端，拖动终端标签时插入位置按行计算。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Views/Editor",
+        "macos/Tests/LitheTests/EditorTabOrderFeatureModelTests.swift",
+        "macos/Sources/Lithe/Views/Editor/EditorTabFrameStore.swift"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features/tabs"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    }
+  },
+  "notes": "Viva 编辑器组标签栏：默认一行，放不下时横向滚动，顶部细滚动条显示位置，所选标签自动滚入视野；纵向滚轮在标签栏上转为横向滚动；右端 ⌄ 按钮列出部分或完全不可见的标签（图标、名称、未保存标记、关闭按钮；点关闭只关该标签、列表保持打开；超过 360 高时在列表内滚动），Esc 或点击外部关闭。设置 > 编辑器 > 标签页参照 IDEA：一行（滚动标签页面板 / 挤压标签页，挤压时标签最窄 72 并截断名称）或多行（按宽度换行，按钮在第一行右端）；设置写入 desktop 设置文件的 editorTabRows/editorTabOverflow，未知值回到默认。拖动终端标签的插入位置按行计算。macOS 和 Windows 原生窗口、触控板手感及与旧版逐像素对照待验收。"
 }

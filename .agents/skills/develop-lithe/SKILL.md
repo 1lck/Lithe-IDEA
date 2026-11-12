@@ -14,11 +14,11 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 | 必须、不得 | 没有例外。无法满足时停下来告知用户，不得自行放宽。 |
 | 默认 | 除非满足该条写明的例外条件，否则照做。采用例外时在 PR 说明中写明理由。 |
 | 可以 | 允许，但不要求。 |
-| Core | `rust/lithe-core/`。 |
-| 平台层 | macOS 的 Swift 代码（`macos/`）和 Windows 的 React/Tauri 代码（`windows/`）。 |
-| 原生适配器 | 直接调用操作系统 API 的代码：平台层中的 `macos/Sources/Lithe/Platform/MacOS/`、`windows/tauri/src-tauri/`，以及两端共用的进程执行 crate `rust/lithe-git-host/`。 |
+| Core | Lithe-core-rust 仓库的 `rust/lithe-core/`，由桌面构建脚本固定修订。 |
+| 平台层 | `desktop/` 中的 Viva 呈现、系统适配和桥接。 |
+| 原生适配器 | 直接调用操作系统 API 的桌面适配器，以及 Lithe-core-rust 的 `rust/lithe-git-host/` 等进程执行 crate。 |
 | 共享契约 | `shared/contracts/` 下的接口文档与 schema，以及 `shared/fixtures/` 下的 fixture。 |
-| 主线程 | macOS 的主线程（MainActor）和 Windows 的 WebView2 UI 线程。 |
+| 主线程 | Viva 窗口的 UI 线程，以及平台原生窗口要求使用的线程。 |
 
 路径除特别说明外都相对于仓库根目录；本文件中的 Markdown 链接相对于本文件。
 
@@ -46,13 +46,15 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 | 创建插件，或为已有插件新增提供者 | `.agents/skills/create-lithe-plugin/SKILL.md` |
 | macOS 界面、控件或视觉交互 | [macOS 共享控件规范](references/macos-ui.md)，以及其中与本次改动相关的 Note |
 | 滚动列表、树、表格、日志、长文本或分页列表 | [滚动内容与连续列表](references/scrolling-content.md) |
+| 编辑器模块（`desktop/internal/editor/**`、`desktop/internal/editorview/**`）或它的性能基线 | [编辑器性能基线](references/editor-performance.md) |
+| 升级 Viva、修复 Viva 缺陷，或改动使用 Viva 命令行工具的脚本 | `.agents/notes/implemented/process/2026-11-11-viva-fork-maintenance-and-commit-pin.md` |
 | 分隔条、可调整面板、连续拖动等高频交互 | `.agents/notes/implemented/architecture/2026-09-13-resizable-ui-performance-boundaries.md` |
 | 新增、修改或审查设置 | `.agents/notes/implemented/architecture/2026-10-25-settings-native-configuration-editing.md` 和本文件第五节 |
 | 新增或移动 macOS 设置页 | `.agents/notes/implemented/feature/2026-10-15-macos-settings-hierarchy.md` |
 | 修复缺陷 | 本文件第八节，以及 `.agents/notes/implemented/bug-fix/` 中涉及同一模块的 Note |
-| 新增、迁移或审查日志事件、写入器和诊断采集；新增界面警告或错误；写会丢弃错误的代码 | [日志接入](references/logging.md)，声明规则以 `shared/logging/README.md` 为准 |
+| 新增、迁移或审查日志事件、写入器和诊断采集；新增界面警告或错误；写会丢弃错误的代码 | [日志接入](references/logging.md)，声明规则以固定 Core 仓库的 `shared/logging/README.md` 为准 |
 | 新增、移动或审查脚本 | [脚本放置与分类](references/scripts.md) |
-| 新增 Windows 前端必须同步调用的纯规则（按键、`set()`、渲染路径） | 先读 `.agents/notes/implemented/architecture/2026-11-05-core-rules-wasm-sync-bridge.md`，放进 `rust/lithe-core-rules` |
+| 新增需要同步调用的共享纯规则（按键、选择、渲染路径） | 先核对外部 Lithe-core-rust 的现有接口，规则仍归 Rust Core；不能在 Viva 界面新增第二份 |
 | 创建、迁移、更新、归档或审查 Agent Note | `.agents/skills/agent-notes/SKILL.md` |
 | 创建、修改或审查测试及测试基础设施 | `.agents/skills/write-stable-tests/SKILL.md` |
 
@@ -64,22 +66,14 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 
 | 路径 | 职责 |
 | --- | --- |
-| `rust/lithe-core/` | 两端共享的确定性逻辑：命令、模型、解析、校验、状态规则、C ABI |
-| `rust/lithe-git-host/` | 两端共用的原生子进程执行：管道、临时输入、进程树归属与有界清理 |
-| `macos/Sources/Lithe/Views/` | SwiftUI/AppKit 呈现，以及只属于视图自身的呈现状态 |
-| `macos/Sources/Lithe/Models/` | 面向界面的模型和 `AppModel` 聚合 |
-| `macos/Sources/Lithe/Application/` | 功能模型：持有界面状态、接收用户动作、调用服务 |
-| `macos/Sources/Lithe/Services/` | 产品工作流编排 |
-| `macos/Sources/Lithe/Core/` | Swift 侧的平台无关端口和类型化 Rust 调用 |
-| `macos/Sources/Lithe/Platform/MacOS/` | macOS 原生适配器和依赖组装 |
-| `windows/` | 独立的 React/Tauri Windows 产品及其 Rust 原生适配器 |
-| `Plugins/mac/`、`Plugins/win/` | 各平台自己的插件包 |
-| `frontend/editor/` | 两端共用的 Monaco 呈现、词法着色和编辑器模型生命周期；不得调用平台 API |
+| Lithe-core-rust 的 `rust/lithe-core/` | 共享确定性逻辑：命令、模型、解析、校验、状态规则和 C ABI；修订由 `scripts/desktop/build-desktop-core.sh` 固定 |
+| Lithe-core-rust 的 `rust/lithe-git-host/` | 原生子进程执行、管道、临时输入、进程树归属与有界清理 |
+| `desktop/` | Viva（Go）统一客户端：窗口、工作台呈现、平台适配和 Core C ABI 调用。功能仍在迁移，不能因代码存在就视为已验收 |
+| Lithe-IDEA 组织的插件仓库 | 插件源码、工具专属知识和插件包；不要在本仓库维护第二份 SDK 或插件业务 |
 | `shared/` | 共享契约、fixture 和 i18n 词条；不放编译实现 |
 | `scripts/`、`.github/` | 仓库级脚本和 CI 工作流；脚本按[脚本放置与分类](references/scripts.md)放置 |
-| `third_party/` | 上游代码；除非任务明确针对它，否则不得修改 |
 
-macOS 是当前参考产品。Windows 是独立实现：不得导入 Swift 源码，不得依赖 macOS 类型。
+macOS 旧客户端是视觉与行为对照基线；新客户端共用 Viva 界面，macOS、Windows 和 Linux 的系统适配仍需分别验证。旧 Swift、React/Tauri 和 Monaco 目录已经从本分支移除，历史决策不能当作当前代码位置。
 
 ### 逻辑归属：可共享的逻辑必须放进 Rust Core
 
@@ -117,12 +111,10 @@ macOS 是当前参考产品。Windows 是独立实现：不得导入 Swift 源�
 
 ### 分层边界
 
-- Views 只依赖 `AppModel` 或专用功能模型；不得调用 Rust C ABI，不得创建平台适配器，不得依赖具体的工作流服务。
-- Application 功能模型持有界面状态、接收用户动作、调用服务；状态转换规则按“逻辑归属”放进 Core。平台初始化不得放进 `AppModel`。
-- Services 通过端口编排工作流；不得直接创建 `Process`、`Pipe`、`FileManager`、`FileHandle`、文件监听、持久化存储或具体的 `Mac*` 适配器。
-- `macos/Sources/Lithe/Core/` 和 Application 不得依赖 SwiftUI、AppKit、CoreServices、Tauri、WebView2、Win32 或任何具体平台实现。
-- `MacServiceContainer` 是 macOS 唯一的依赖组装入口。
-- Windows 功能代码只能通过 `@/platform/tauri-core` 调用宿主，不得直接导入 Tauri core API。共享操作经过 Core；Windows 专属的终端、文件监听、凭据、进程和 WebView 行为放在 `windows/tauri/src-tauri/` 或平台插件。
+- Viva 视图负责呈现和用户输入，通过明确的接口调用功能编排；不要让视图直接管理平台进程或重复实现共享规则。
+- `desktop/internal/core/` 是类型化 C ABI 桥接，Core 的命令语义、状态转换与契约不在 Go 桥接层重新实现。
+- 操作系统专属的终端、监听、存储、凭据和窗口行为放在桌面平台适配器；后台 I/O 不得阻塞界面线程。跨平台共用界面不等于已经完成各平台适配。
+- 功能迁移要检查现有平台层是否仍持有共享规则；发现既有债务按第九节建单，不能把临时界面实现误写成 Core 已支持。
 
 ### 复用成熟上游
 
@@ -160,7 +152,7 @@ Lithe 自己负责的是：有界生命周期、取消、过期结果隔离、�
 - 新增 API 的每个数值错误码（例如 JSON-RPC 的 `error.code`）只对应一种错误，调用方只凭数值码就能分支。方法不存在、参数错误、取消等标准语义使用 JSON-RPC/LSP 标准码；其余错误各自占用服务端自定义区间内的独立码，并在契约文档和 fixture 中列出映射。已发布协议版本中的旧码保持不变，从新版本起区分。
 - 进程型功能保留 `operationID`、取消、超时和过期结果丢弃语义。
 - 新的 Core 命令或字段接入任一平台之前，必须先补充或更新共享 fixture。
-- 以下内容是兼容面，修改时必须同步更新契约文档和所有消费者：命令名、JSON 字段、错误码、C ABI 符号；Core 的公开 Rust 类型、结构体字段和函数签名。后一组的原因是 `windows/tauri/src-tauri/` 和 `windows/tauri/crates/project/` 直接链接 Core crate，不经过 JSON：macOS 通过 JSON 调用时缺省字段按 `None` 处理，Windows 的结构体字面量却会因缺字段编译失败（给 `JavaSelectionRequest` 新增 `requirements` 曾导致 Windows 安装包构建报 E0063）。只改 Core 也必须修正这些调用点。
+- 以下内容是兼容面，修改时必须同步更新契约文档和所有消费者：命令名、JSON 字段、错误码、C ABI 符号，以及 Core 的公开 Rust 类型、结构体字段和函数签名。除 Viva 桥接外还要检查 Core 仓库及插件等真实消费者；只改 Core 也必须修正受影响调用点。
 
 ## 四、性能与内存
 
@@ -168,6 +160,7 @@ Lithe 自己负责的是：有界生命周期、取消、过期结果隔离、�
 
 - 性能：用户操作到界面给出结果的延迟、主线程占用时间、启动时间。
 - 内存：Lithe 进程及其启动的全部子进程（语言服务器、调试适配器、Agent、插件后端、WebView 进程）的常驻内存。
+- 热路径：每一帧或每一次按键都会执行的代码，包括绘制、滚动、光标移动、输入处理，以及它们调用的布局、测量和染色读取。
 
 ### 规则
 
@@ -179,43 +172,50 @@ Lithe 自己负责的是：有界生命周期、取消、过期结果隔离、�
 
 2. 功能、插件后端、语言服务器、WebView 和子进程在首次需要时才启动。“需要”指用户的操作已经要用到它的结果，例如打开对应语言的文件、打开对应面板。不得在应用启动或项目打开时，为用户尚未使用的功能预先启动。
 3. 不得新增在应用空闲时持续运行的轮询或定时器。需要感知外部变化时使用文件监听或事件通知；确实只能轮询时，必须设置最小间隔，并在窗口失去焦点或不可见时暂停。
+4. 空闲时不得重绘。没有输入、动画或新的后台结果时不得请求帧；周期性的变化（例如光标闪烁）只请求下一次变化时刻的那一帧。
 
 **上限与释放**
 
-4. 缓存、队列、历史记录、日志缓冲、终端和运行输出缓冲必须有明确上限（条数或字节数）和淘汰策略。上限定义为命名常量或用户可配置项；不得无界增长。
-5. 关闭项目、窗口、面板或编辑器标签时，必须释放它独占的子进程、文件监听、定时器、缓存和 WebView，不得保留到应用退出。
-6. 支持内存上限参数的子进程（例如 JVM 的 `-Xmx`）必须显式设置上限。
+5. 缓存、队列、历史记录、日志缓冲、终端和运行输出缓冲必须有明确上限（条数或字节数）和淘汰策略。上限定义为命名常量或用户可配置项；不得无界增长。
+6. 关闭项目、窗口、面板或编辑器标签时，必须释放它独占的子进程、文件监听、定时器、缓存和 WebView，不得保留到应用退出。
+7. 支持内存上限参数的子进程（例如 JVM 的 `-Xmx`）必须显式设置上限。
 
 **数据与线程**
 
-7. 同一份大数据（文件内容、搜索结果、日志、Git 历史、项目树）只由一层持有完整副本；其他层只持有可见窗口、摘要或标识。
-8. 跨 C ABI、Tauri IPC 和 WebView 消息边界时，只传输增量、分页结果或可见窗口，不得传输全量数据。
-9. 主线程不得执行文件读写、目录遍历、进程启动或探测、大量数据的解析和排序。这些工作在后台执行，必须可以取消，过期结果必须丢弃。Windows 的写法见第六节“Windows、React 与 Tauri”。
-10. 诊断、进度、日志、文件变化等高频事件在发送端按批合并：每批只跨边界发送一次，接收端每批只更新一次状态。
+8. 同一份大数据（文件内容、搜索结果、日志、Git 历史、项目树）只由一层持有完整副本；其他层只持有可见窗口、摘要或标识。
+9. 跨 C ABI、Tauri IPC 和 WebView 消息边界时，只传输增量、分页结果或可见窗口，不得传输全量数据。
+10. 主线程不得执行文件读写、目录遍历、进程启动或探测，以及与数据总量成正比的解析、扫描和排序。这些工作在后台执行，必须可以取消，过期结果必须丢弃。Windows 的写法见第六节“Windows、React 与 Tauri”。
+11. 诊断、进度、日志、文件变化等高频事件在发送端按批合并：每批只跨边界发送一次，接收端每批只更新一次状态。
 
-**呈现**
+**热路径与呈现**
 
-11. 滚动列表、树、表格、日志和长文本默认虚拟化：只创建视口及预取范围内的行，无论是 SwiftUI 视图还是 DOM 节点。细则和例外见[滚动内容与连续列表](references/scrolling-content.md)。
-12. 拖动、滚动等高频交互中的逐帧状态留在视图本地，不得发布到 `AppModel` 或业务根状态。细则见第二节列出的高频交互 Note。
+12. 热路径不得为了写法方便而分配堆内存，不得做与文档、列表或日志总长成正比的工作。需要的缓冲放在视图上复用；交给 Viva 画布的字符串必须不可变，不得用 `unsafe` 把复用的缓冲当作字符串。
+13. 一帧的开销只取决于可见范围（视口里的行数和列数），不取决于数据总量或单行长度。
+14. 滚动列表、树、表格、日志和长文本默认虚拟化：只创建视口及预取范围内的行，无论是 SwiftUI 视图还是 DOM 节点。细则和例外见[滚动内容与连续列表](references/scrolling-content.md)。
+15. 拖动、滚动等高频交互中的逐帧状态留在视图本地，不得发布到 `AppModel` 或业务根状态。细则见第二节列出的高频交互 Note。
+
+**测量**
+
+16. 没有数据不得写性能结论。写“更快”“更省内存”时，必须附同一台空闲机器上改动前后的基准结果，用 `benchstat` 或 Viva 的 `perfhistory compare` 对比。测量期间不得同时编译或运行其他负载。
+17. 编辑器模块（`desktop/internal/editor/**`、`desktop/internal/editorview/**`）有固定的基线、预算和硬性规则，见[编辑器性能基线](references/editor-performance.md)。
 
 **依赖**
 
-13. 新增运行时（JVM、Node.js、额外的 WebView 等）或大型依赖前，必须在 PR 说明中给出它对启动时间、常驻内存和安装包体积的影响。
+18. 新增运行时（JVM、Node.js、额外的 WebView 等）或大型依赖前，必须在 PR 说明中给出它对启动时间、常驻内存和安装包体积的影响。
 
 ### 验证
 
-改动涉及启动、打开项目、输入、滚动、大文件、长输出或搜索时，在改动前后各运行一次对应平台的性能基线，并在 PR 说明中给出对比数据：
+改动涉及启动、打开项目、输入、滚动、大文件、长输出或搜索时，在改动前后分别测量相同场景和规模，并在 PR 说明中给出方法、数据和限制。
 
-- macOS：`./scripts/macos/perf/measure-macos-performance-baseline.sh --scenario <场景> --fixture <规模>`（`--list` 列出场景和规模）。报告中的 `ready_rss_kib`、`stable_rss_kib` 是常驻内存。场景定义见 `.agents/notes/implemented/testing/2026-09-13-macos-interaction-performance-baseline.md`。
-- Windows：`node scripts/windows/perf/run-windows-perf.mjs`，预算在 `scripts/windows/perf/budgets.json`。
-
-已有基线没有覆盖本次场景时，在 PR 说明中写明测量方法和数据。不得通过上调预算、删减场景或缩小 fixture 让检查通过。
+- 编辑器模块：按[编辑器性能基线](references/editor-performance.md)运行 `scripts/desktop/perf/editor-bench.sh`，附改动前后的对比。基线不是 CI 必跑项，改到编辑器模块的 PR 必须在本地运行。超出预算只报告不阻塞，但 PR 说明必须逐项解释改动新引入的超预算结果。
+- 其他场景：原 macOS 与 Windows 基线脚本随旧客户端移除，恢复等价基线前必须在 PR 说明中标明该项未验证。Viva 无头基准不能代替原生窗口、GPU 或常驻内存数据。
+- 不得通过上调预算、删除场景、缩小规模或改动基准文档的生成方式让结果变好看。
 
 ## 五、界面与交互
 
 ### 共享控件
 
-macOS 界面改动前必须读 [macOS 共享控件规范](references/macos-ui.md)。业务视图只提供内容和动作；共享控件已经覆盖的样式和交互，不得在调用处另行定义。Windows 使用 `windows/tauri/src/ui/` 中已有的共享组件，不得在功能代码中另造同类控件。
+界面改动前必须读 [macOS 共享控件规范](references/macos-ui.md) 作为原版视觉和交互基线。Viva 业务视图只提供内容和动作，复用现有共享控件；Windows 也使用同一 Viva 界面，不再引用旧 Tauri 组件路径。
 
 ### 用 ⓘ 解释难以理解的配置和功能
 
@@ -226,12 +226,11 @@ macOS 界面改动前必须读 [macOS 共享控件规范](references/macos-ui.md
 3. 有多个取值，只凭取值名称无法区分它们的效果。
 4. 有“自动”模式。ⓘ 中必须说明自动如何决定取值，例如按什么顺序查找。
 
-ⓘ 的内容说明这一项做什么、对用户有什么影响，不得只重复标签文字。只有图标、没有标题的按钮无法放 ⓘ，改用悬停提示（macOS `.help("…")`，Windows `Tooltip`），提示写出动作名称，以及第 2 条中的后果。
+ⓘ 的内容说明这一项做什么、对用户有什么影响，不得只重复标签文字。只有图标、没有标题的按钮无法放 ⓘ，改用悬停提示，提示写出动作名称，以及第 2 条中的后果。
 
 呈现方式：
 
-- macOS 使用 `LitheInfoTip`：设置行用 `LitheSettingsRow` 或 `LitheSettingsLabel` 的 `info:` 参数，分组用 `LitheSettingsSection` 的 accessory。插件设置的 `description` 和插件动作的 `summary` 也通过 ⓘ 或悬停提示显示。
-- Windows 把 `@/ui/icons` 的 `InfoIcon` 放进 `@/ui/tooltip` 的 `Tooltip`，写法参照 `windows/tauri/src/features/settings/components/workspace-indexing-settings.tsx`。
+- Viva 沿用已有设置视图中的信息按钮和提示交互（见 `desktop/internal/settingswindow/`）；插件设置的 `description` 和插件动作的 `summary` 也通过 ⓘ 或悬停提示显示。图标的提示必须支持鼠标和键盘访问。
 
 不得在控件下方常驻说明段落或说明性小字，不得把说明写进状态标签。每行保持“标签、ⓘ、控件、状态标签”的紧凑结构；状态标签只显示生效值、作用域、来源、是否生效等状态。
 
@@ -268,15 +267,9 @@ macOS 界面改动前必须读 [macOS 共享控件规范](references/macos-ui.md
 
 所有用户可见文案必须通过共享 i18n 生成。词条的唯一来源是 `shared/i18n/`，格式规则以 `shared/i18n/README.md` 为准。硬编码文案会在系统语言与应用语言不一致时显示错误的语言。
 
-macOS：
+Viva 在 macOS、Windows 和 Linux 使用 `desktop/internal/i18n/` 的接口及生成字典；共享词条通过 `i18n.Shared` 读取，不能在 Go 字典手写译文。旧 Swift 和 Tauri 接口仅是历史客户端的参考。
 
-- SwiftUI 视图中的字面量（`Text("…")`、`Button("…")`、`.help("…")` 等）由 SwiftUI 按应用语言查表。每个字面量都必须有共享词条，否则所有语言都显示英文。
-- 视图之外的文案用 `LitheModuleAPI` 的 `L10n.string("…")`，包括：错误和 `errorDescription`、`NSAlert` 的标题和按钮、`NSLocalizedDescriptionKey`、通知、状态文本、以 `String` 类型传入的 `title:`、`help:`、`message:` 等参数。运行时才确定的键用 `L10n.string(key:)`。
-- 不得直接调用 `String(localized:)` 或 `NSLocalizedString`；不得用 `locale:` 参数代替应用语言选择，它只影响数字和日期格式。
-
-Windows 使用 `windows/tauri/src/i18n/` 的接口。
-
-两端共同的规则：
+共同规则：
 
 - Services、Core 和原生适配器不得拼接英文后直接显示；不得把一句话拆成几段分别翻译再拼接，必须使用带参数的词条。唯一的例外是调用方为测试或 Agent 显式注入自有语言包。
 - 新增或修改文案时，在同一次改动中完成：
@@ -289,7 +282,7 @@ Windows 使用 `windows/tauri/src/i18n/` 的接口。
 
 ### 滚动内容与连续列表
 
-- 滚动内容默认虚拟化，规则见第四节第 11 条。
+- 滚动内容默认虚拟化，规则见第四节第 14 条。
 - Git 历史、反汇编等连续浏览的分页列表，在滚动接近视口边缘时自动加载下一页，不得要求用户反复点击“加载更多”。内存查看器等离散页面仍可显式翻页。
 - 两条的细则、例外和验证要求见[滚动内容与连续列表](references/scrolling-content.md)。
 
@@ -297,10 +290,21 @@ Windows 使用 `windows/tauri/src/i18n/` 的接口。
 
 遵循相邻代码的风格：命名清晰，类型和函数职责单一，所有权明确，控制流直接。不得夹带无关的清理、推测性的抽象，或现有技术栈不需要的新依赖。
 
-### Swift 与 macOS
+### Go 与 Viva 桌面客户端
 
-- 使用 `.swift-version` 固定的 Swift 6.3.3 工具链（Xcode 26.6）。应用 target 使用 Swift 5 语言模式，测试 target 使用 Swift 6；不得更改。
-- 测试沿用 `macos/Tests/LitheTests/` 的 Swift Testing 写法；稳定性、资源清理和逐项计时遵循 `write-stable-tests` Skill。
+- 使用 `gofmt` 和 `desktop/go.mod` 固定的依赖；测试和构建通过 `scripts/desktop/desktop-go.sh` 接入固定版本的 Core。优先复用已有 Core 编译缓存，不为了普通界面迭代反复触发全量 Rust 构建。
+- Viva 由 `desktop/go.mod` 的 `replace` 固定到 [Lithe-IDEA/viva](https://github.com/Lithe-IDEA/viva) `main` 上的一个 commit，发版只认这个 commit。规则和原因见 `.agents/notes/implemented/process/2026-11-11-viva-fork-maintenance-and-commit-pin.md`：
+  - Viva 本身的缺陷或能力缺口在 fork 修复，不在 Lithe 应用层写绕过代码。修复从上游 `main` 切分支，合进 fork `main` 后更新 `replace`，同一分支向 vivaui/viva 提 PR。
+  - fork `main` 同步上游只用 merge，不 rebase、不 force push；`replace` 只指向已在 fork `main` 上的 commit，不提交本地路径替换。
+  - 脚本需要 Viva 命令行工具时，从 `desktop/go.mod` 解析出的源码目录构建，或在 `desktop/` 模块内用不带版本的 `go run github.com/vivaui/viva/cmd/viva`。不得使用 `go run`、`go install` 的 `@<版本>` 写法，它会忽略 `replace`。
+- 可交互界面使用 Viva 无头驱动验证，视觉改动与旧 macOS 客户端截图对照；无头截图不能代替目标平台的原生窗口验收。后台任务、文件监听和测试进程必须有界退出并清理。
+- 界面用 Viva 的 Page 写法（`func (m *model) page(c ui.C)`、`ui.NewPage`），不再新写基于 `*ui.Frame` 的界面；上游会把 Frame 收为底层引擎，应用层不再直接使用。写法以上游 `docs/skills/building-with-viva/SKILL.md` 为准：
+  - 列表、树、菜单、弹窗、提示、表单优先用 `ui.List`、`ui.Tree`、`ui.Menu`/`ui.ContextMenu`、`ui.Modal`/`ui.Drawer`、`ui.Toasts` 和 `ui.TextField` 等，不再自造同类组件。
+  - 属于页面的后台工作用 `ui.Effect`，不再手写“锁 + `Invalidate` + `OnWake`”。
+  - 编辑器、终端等自绘控件用 `ui.Control` 加 `ui.Handlers` 接收输入，不走窗口级分发。
+  - 一个窗口就是一个 Page。Viva main 已删除 `Page.Key/Pointer/Owns/Overlay`，不再支持把 Page 嵌进 Frame 窗口再由宿主转发输入。面板、工具窗口、弹窗写成组件函数（`func (a *App) xxxPanel(c ui.C)`，状态放在模型里），由窗口的 Page 调用；不要为面板单独建 `*ui.Page`，也不要写应用自己的输入路由或命中测试。工作台根窗口已经是一个 Page（`workbench/root.go`）：`pagehost.go` 与各面板单独的 `*ui.Page` 已删除，面板由 `shellMain` 和 `toolBody` 调用；编辑器与终端是 `ui.Control` 加 `ui.Handlers`，拖拽用 `ui.DragState`。详见 `.agents/notes/implemented/architecture/2026-11-10-workbench-root-page-and-viva-upgrade.md`。
+  - 只有通过 `ui.View.Draw` 绘制的组件内部（如编辑器、终端渲染）可以保留 `ui.Frame`。
+  - 逻辑（Core 调用、取消、过期结果隔离、状态转换）与绘制分文件，绘制层只读状态、声明元素和处理本次交互。
 
 ### Rust
 
@@ -319,15 +323,13 @@ Windows 使用 `windows/tauri/src/i18n/` 的接口。
 - 实现内部用 `//` 解释不明显的兼容性、确定性、顺序、安全、性能或跨平台约束。
 - 测试名和断言不足以说明意图时，补充场景、回归风险或保护的边界。
 - 不得为凑覆盖率复述赋值、声明或名称，也不得给简单访问器和直接的控制流机械地加注释。
-- 运行较慢的 Rust Core 检查前，先运行 `./scripts/rust-core/verify-rust-core-comments.sh`。它检查模块说明、导出项的 Rustdoc、英文注释和 `unsafe` 的安全说明；它不检查内部 helper 是否都有文档，也不能替代对内部类型语义的人工检查。
+- 注释检查脚本在 Rust Core 仓库：Core 改动先在 Core 仓库根运行 `scripts/rust-core/verify-rust-core-comments.sh`，通过后再运行较慢的 Core 检查。检查覆盖模块说明、导出项 Rustdoc、英文注释和 `unsafe` 安全说明，内部类型的语义仍须人工检查。
 
-### Windows、React 与 Tauri
+### Windows 平台适配
 
-- 前端脚本使用 Bun，宿主使用 Tauri 2。功能代码在 `windows/tauri/src/features/`，共享界面在 `windows/tauri/src/ui/`，invoke 边界在 `windows/tauri/src/platform/`，原生 Rust 行为在 `windows/tauri/src-tauri/`。
-- 不得恢复平行的 C++/Qt 应用层；不得为每个共享 Core 操作新增一个 Tauri command，旧命令名统一在中央 dispatcher（`windows/tauri/src-tauri/src/platform.rs`）中转换。
-- 同步的 `#[tauri::command] fn` 在派发 IPC 的线程上执行，在 Windows 上就是 WebView2 UI 线程：它运行期间窗口停止绘制、输入排队、其他 invoke 全部等待。凡是读写文件、遍历或删除目录、启动或探测进程（例如 `java -version`、`mvn -version`、Shell、Agent）、注册原生监听的命令，必须写成 `async fn`，并把主体交给 `crate::blocking::run_blocking`。同步命令只用于不碰磁盘和进程、只读写内存状态的轻量操作。
-- 诊断、进度、日志等高频事件不得逐条 `emit`：每次 `emit` 都是一次完整的 IPC 往返，并且会广播到所有窗口。在一次 drain 内按 key 合并后整批发送，store 也一次更新完。
-- 产品行为补前端测试，Rust 行为在所属 crate 中测试。WebView2、ConPTY、安装、签名和更新行为必须在 Windows 上验证。
+- Windows 与其他平台共用 Viva 界面；文件监听、进程、ConPTY、路径、窗口和安装等系统差异由平台适配器处理。
+- 文件、目录、进程探测和其他可能阻塞的工作必须离开 UI 线程；高频事件应有界合并，避免每条事件触发一次全量界面更新。
+- 桌面行为补 Go 回归，Core 行为在所属 crate 中测试。Windows 原生窗口、ConPTY、安装、签名和更新行为必须在 Windows 上验证，不能以 macOS 无头测试代替。
 
 ## 七、安全、资源与失败处理
 
@@ -431,19 +433,17 @@ git diff --name-only origin/preview...HEAD
 | 用户可见文案 | `node scripts/i18n/verify-app-language-localization.mjs`、`node scripts/i18n/generate-i18n.mjs --check`、`node --test --test-timeout=60000 scripts/i18n/test-i18n.mjs` |
 | 缺陷修复 | 第八节的回归测试（修复前失败、修复后通过），以及下面对应行的检查 |
 | 启动、打开项目、输入、滚动、大文件、长输出或搜索 | 第四节“验证”中对应平台的性能基线，改动前后对比 |
+| 编辑器模块 | 改动前后各运行一次 `scripts/desktop/perf/editor-bench.sh run --count 6`，用 `editor-bench.sh compare` 对比，把报告写进 PR 说明；见[编辑器性能基线](references/editor-performance.md) |
 | Agent Note 或架构决策迁移 | `./scripts/agent-notes/verify-agent-notes.sh` |
-| 日志事件、日志调用、界面警告或错误、会丢弃错误的代码 | `node scripts/logging/generate-log-events.mjs --check`、`node scripts/logging/verify-log-usage.mjs` |
+| 日志事件、日志调用、界面警告或错误、会丢弃错误的代码 | 按共享日志契约检查目录与使用；旧日志生成和使用校验脚本已移除，等价检查恢复前标记门禁未完成 |
 | 测试代码或测试基础设施 | `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`，再运行该 Skill 中对应平台的逐项计时入口 |
-| Swift 应用或测试 | `./scripts/macos/test/test-macos.sh` |
-| `macos/Sources/Lithe/` 的 Core、Services、Views 或依赖组装边界 | `./scripts/architecture/verify-service-boundaries.sh` |
-| 共享应用行为或 JSON fixture | `./scripts/architecture/verify-shared-contracts.sh` |
-| Rust Core、JSON C ABI 或 Swift bridge | 先 `./scripts/rust-core/verify-rust-core-comments.sh`，再 `./scripts/rust-core/verify-rust-core.sh` |
-| Core 功能行为 | `./scripts/architecture/verify-core.sh` |
-| Git graph 行为 | `./scripts/git-graph/verify-git-graph.sh` |
+| Viva 桌面代码 | `./scripts/desktop/desktop-go.sh test ./...`、受影响包的竞态测试，以及目标平台相应原生验证 |
+| 共享应用行为或 JSON fixture | 运行受影响的 Core 与桌面契约测试；旧 `verify-shared-contracts.sh` 已移除，等价边界检查恢复前标记门禁未完成 |
+| Rust Core、JSON C ABI 或桌面桥接 | 先完成 Core 注释与契约检查，再运行受影响 crate、桥接和目标平台消费者测试；旧 Core 验证脚本移除后不得把缺失检查记为通过 |
+| Core 功能或 Git graph 行为 | 运行所属 Core crate 和桌面消费者的相关测试；旧 `verify-core.sh`、`verify-git-graph.sh` 移除后，等价边界验证恢复前标记门禁未完成 |
 | 运行时资源或发行目录只读边界 | `./scripts/macos/verify/verify-runtime-bundle-immutability.sh` |
-| 在 macOS/Linux 上验证 Windows 边界 | `./scripts/windows/verify/verify-windows-boundaries.sh` |
-| Core 的公开 Rust 类型或函数签名 | 用 `rg '<类型或函数名>' windows/` 找到 Windows 调用点；在 `windows/tauri/src-tauri` 运行 `cargo check --bin lithe-windows`，与改动前的结果对比，确认没有新增错误。macOS 上存在 Windows 专有 API 的既有报错；交叉编译 `x86_64-pc-windows-msvc` 会卡在 `ring` 的 C 构建脚本；边界脚本不运行 `cargo`，发现不了这类问题 |
-| 在 Windows 上验证 Windows 实现 | `./scripts/windows/build/build-windows.ps1 -Configuration Release`，再 `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml` |
+| Core 的公开 Rust 类型或函数签名 | 搜索 `desktop/` 中的调用方并检查 C ABI、共享契约及两个平台的桥接消费者；不能只在一个平台编译 |
+| 在 Windows 上验证 Windows 实现 | 在 Windows 运行受影响桌面测试及原生工作流，涉及安装、ConPTY、签名或更新时分别验证；旧 Tauri 边界和构建脚本已移除，等价检查恢复前标记门禁未完成 |
 
 同时运行直接受影响的 crate 或 target 的测试。当前机器无法执行的平台检查必须明确报告；不得声称未执行的检查已经通过。
 

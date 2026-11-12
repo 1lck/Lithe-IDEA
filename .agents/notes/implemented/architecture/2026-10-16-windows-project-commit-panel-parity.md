@@ -65,18 +65,18 @@ Shelf 存储在平台 `app_data_dir()/git-shelves/<规范化根路径哈希>`，
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml git_patch_exchange -- --test-threads=1`
 - Shelf 真实 Git 回归覆盖暂存删除后保留同内容或改过内容的原文件，以及暂存重命名后重建源文件；核对清理后的干净状态和恢复后的暂存内容、磁盘字节。Dependencies 组件测试双击嵌套 reactor 的根和子模块依赖，确认编辑器接收正确的 POM 路径。
 - `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml`
-- `./scripts/windows/build/build-windows.ps1 -Configuration Release`
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- ~~./scripts/windows/build/build-windows.ps1 -Configuration Release~~（随旧客户端移除）
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 - 真实 WebView2 中检查明暗主题、窄宽布局、范围多选、目录双击、重名移动、切换页签保留草稿、Shelf 两版本恢复、Stash 位置变化与冲突后的记录保留；自动化控制不可用时保持矩阵 pending。
 
 ## 适用范围
 
-- `windows/tauri/src/features/file-explorer`
-- `windows/tauri/src/features/git`
-- `windows/tauri/src/features/local-history`
-- `windows/tauri/src-tauri/src/shelf_storage.rs`
-- `windows/tauri/src-tauri/src/file_publication.rs`
-- `rust/lithe-core/src/git/patch_exchange.rs`
+- ~~`windows/tauri/src/features/file-explorer`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/git`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/local-history`~~（已随 #1794 移除）
+- ~~`windows/tauri/src-tauri/src/shelf_storage.rs`~~（已随 #1794 移除）
+- ~~`windows/tauri/src-tauri/src/file_publication.rs`~~（已随 #1794 移除）
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/patch_exchange.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/patch_exchange.rs)
 - `shared/contracts/rust-core-api.md`

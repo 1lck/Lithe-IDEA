@@ -34,11 +34,11 @@ Issue #975 要右键直接比对和提交单个文件。Windows 端 Diff、暂�
 ## 验证
 
 - `cd windows/tauri && bun test src/features/file-explorer/lib/file-context-menu-git-file-items.test.ts`
-- `cd windows/tauri && bun run typecheck`；`./scripts/windows/verify/verify-windows-boundaries.ps1`
+- `cd windows/tauri && bun run typecheck`；~~./scripts/windows/verify/verify-windows-boundaries.ps1~~（随旧客户端移除）
 - `node scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs && ./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - 实机点检项见矩阵 `git-explorer-context-actions` 条目的 verification 字段。
 
 ## 适用范围
 
-- `windows/tauri/src/features/file-explorer/hooks/use-file-explorer-context-menu.tsx`
-- `windows/tauri/src/features/file-explorer/lib/file-context-menu-git-file-items.ts`
+- ~~`windows/tauri/src/features/file-explorer/hooks/use-file-explorer-context-menu.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/file-explorer/lib/file-context-menu-git-file-items.ts`~~（已随 #1794 移除）

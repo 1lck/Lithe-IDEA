@@ -11,7 +11,7 @@
     <a href="#产品截图">产品截图</a> ·
     <a href="#下载与安装">下载</a> ·
     <a href="https://github.com/Lithe-IDEA/Lithe-store">插件市场</a> ·
-    <a href="https://github.com/Lithe-IDEA/lithe-plugin-docs">插件开发</a> ·
+    <a href="https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins">插件开发</a> ·
     <a href="https://1lck.github.io/Lithe-IDEA/">工程决策看板</a> ·
     <a href="#如何开发">如何开发</a>
   </p>
@@ -249,12 +249,13 @@ open dist/Lithe.app
 ./scripts/architecture/verify-core.sh
 ./scripts/git-graph/verify-git-graph.sh
 ./scripts/architecture/verify-service-boundaries.sh
-./scripts/architecture/verify-shared-contracts.sh
 ./scripts/windows/verify/verify-windows-boundaries.sh
 ./scripts/rust-core/verify-rust-core.sh
 ```
 
-目录归属、跨平台边界、共享规则以及 Rust Core 必须遵守的注释规范见[仓库所有权与共享边界](./.agents/notes/implemented/architecture/2026-09-13-repository-ownership-and-sharing-boundaries.md)。提交功能改动时，请说明验证方式和已知限制。
+插件契约、开发指南和官方 SDK 在 Rust Core 仓库的 [`shared/plugins/`](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins) 下。修改那里的内容时，在该仓库根目录运行 `node shared/plugins/scripts/verify-docs.mjs`；修改后端协议时再运行 `node shared/plugins/scripts/sdk-e2e.mjs`。
+
+目录归属、跨平台边界、共享规则以及 Rust Core 必须遵守的注释规范见[仓库所有权与共享边界](./.agents/notes/implemented/architecture/2026-11-08-viva-repository-ownership-and-sharing-boundaries.md)。提交功能改动时，请说明验证方式和已知限制。
 
 </details>
 

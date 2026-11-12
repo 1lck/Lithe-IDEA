@@ -4,21 +4,39 @@
   "group": "LINUX DO 社区",
   "capability": "社区认证与请求失败处理",
   "macos": {
-    "evidence": [
-      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift",
-      "shared/fixtures/community"
-    ],
     "implementationStatus": "missing",
-    "verificationStatus": "not-applicable"
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "docs/viva-migration.md"
+    ]
   },
   "windows": {
-    "evidence": [
-      "windows/tauri/src/features"
-    ],
     "implementationStatus": "missing",
-    "verificationStatus": "not-applicable"
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "docs/viva-migration.md"
+    ]
   },
   "owner": "Community",
   "verification": "如果重新引入社区入口，在 macOS 和 Windows 验证认证、过期、限流和网络错误。",
-  "notes": "macOS 的 LINUX DO 插件已退役，现存 fixture 不代表产品接入。"
+  "notes": "Viva：不纳入新客户端（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：desktop/ 中没有社区认证、过期、限流或网络错误处理；此能力按迁移表“不纳入”，两端基线均缺失。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift",
+        "shared/fixtures/community"
+      ],
+      "implementationStatus": "missing",
+      "verificationStatus": "not-applicable"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features"
+      ],
+      "implementationStatus": "missing",
+      "verificationStatus": "not-applicable"
+    },
+    "notes": "macOS 的 LINUX DO 插件已退役，现存 fixture 不代表产品接入。"
+  }
 }

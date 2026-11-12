@@ -2,6 +2,8 @@
 
 这是执行计划，不代表下面的迁移已经完成。总目标见 [#1495](https://github.com/1lck/Lithe-IDEA/issues/1495)，职责和取舍以 [Build Provider 决策笔记](../../.agents/notes/implemented/architecture/2026-10-26-build-provider-task-execution.md) 为准。每个大任务可以包含多个可验收 PR，不能只增加新接口而一直保留旧业务入口。
 
+文中的 `lithe-plugin-docs`（SDK PR、CI 编号、“公开契约镜像”和“漂移检查”）指已退役的文档与 SDK 仓库，只作为当时的历史证据保留。插件契约、指南、API 总表、协议更新记录和三个官方 SDK 现在都在 [Lithe-core-rust](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins) 的 `shared/plugins/` 下；契约改动与登记在同一个 Core PR 里完成，不再有镜像同步。
+
 ## 当前交付边界
 
 - 阶段 A 清单 [PR #1513](https://github.com/1lck/Lithe-IDEA/pull/1513) 与独立分发 [PR #1483](https://github.com/1lck/Lithe-IDEA/pull/1483) 已合并，保持原范围，不重复认领。
@@ -22,7 +24,7 @@
 | 服务调试 v11 | 已删除本入口的 `runtime: jvm` 与内置 Java attach；协议传递适配器身份、公开配置类型和 `connection` 目标，宿主从当前 Registry 选择并验证配置，跨准备/监听/连接检查包与注册代次。Java Support 自己声明同包 JDT 托管适配器，Maven 仅声明配置类型；真实断点 UI 与发行组合仍待验收。 |
 | 工具选择 | #1581 已实际合并，本分支从已授权的 b87 预集成继续适配最终版本及最新 preview，仍保持 Draft、不合并发布。macOS Build/Provider Run 已接 `toolDefinitions` / `toolchainProviders` 与四层选择；删除新增的 Maven JDK 注册和 Java 准备按 Maven 名字选工具的分支。按 Run 的明确工具选择现已接入两端 adapter，并保留两层继承和显式清空；旧 Maven 明确路径可一次性转移。Windows 已补来源证明和操作内 Provider 查询；项目/全局默认与应用 JDK 联动、Windows 完整产品准入和现有 Java 消费者仍待完成。 |
 | Maven 运行配置与准备任务 | 新 Provider 路径已改为不透明通用选择器：Core 不解释 Maven profile/reactor/framework，提供者拥有语义。准备任务已改为 `buildSystems: 4` 清单的通用用途和适用源码角色，宿主不约定固定任务 ID。自动运行配置已由声明/目标生成 `build.provider` 选择器，独立于 Java 导入，删除 `mavenRunProvider` 字段与 Core 框架名单；快照指纹、目标撤回和用户通用覆盖已接线。旧 Run v2 中可确认的服务/显式任务已保留 ID 转为通用引用并通过两层预检及冲突保护；后续已补 v1、可确认偏好、隐式模块及明确的按 Run 工具转换，当前归属投影已移除 reactor/Wrapper/版本字段；项目/全局默认的动态继承、Windows 旧生产路径与旧 Java 扩展兼容消费者仍待处理。 |
-| SDK 与版本 | 当前分支已整合公开 main 的函数协议 3、源码版本 0.2.0 与已合并 f64d262c 契约副本，Node 20/Java 8 固定组合 CI 已通过；Build 7～11 增量仍在 Draft、未正式发布。重写 v7 为提供者暂存编辑，保留 8～10 版本及处理器，v11 改为注册表连接目标，正式发行组合仍待验收。只在宿主合并后同步契约副本，正式 SDK 锁定值不变。 |
+| SDK 与版本 | 当前分支已整合公开 main 的函数协议 3、源码版本 0.2.0 与已合并 f64d262c 契约副本，Node 20/Java 8 固定组合 CI 已通过；Build 7～11 增量仍在 Draft、未正式发布。重写 v7 为提供者暂存编辑，保留 8～10 版本及处理器，v11 改为注册表连接目标，正式发行组合仍待验收。契约副本已随 lithe-plugin-docs 退役，不再有同步步骤，正式 SDK 锁定值不变。 |
 
 ### 整合最新 preview 与工具默认迁移的切片边界（2026-11-04）
 
@@ -731,12 +733,12 @@ N+2 目标版本。兼容窗口关闭须在该稳定版发布说明交代，跳�
 **范围与顺序：**
 
 1. #1517 已于 2026-10-29 核实合入 preview（`659739011`）；以合并提交核对最终契约，阶段 D 增量仍需各自验证。
-2. 在 `lithe-plugin-docs` 用合并后的 preview commit 运行 `node scripts/contract.mjs sync --revision <commit>`；不手改镜像或伪造锁定值。
-3. 已合并的 Node/Java SDK 实现按最终契约重新验证，在锁定 Core 与当前 preview 上运行真实端到端场景；补齐 Node 20、Java 8 运行证据后，按其发布流程发布实际的新版本。
+2. 确认 Core 仓库 `shared/plugins/contract/v1/` 的契约与 #1517 合并提交的最终契约一致，协议更新记录和 API 总表与对应 Core 改动在同一个 Core PR 里登记；不手改任何副本，不伪造锁定值。
+3. 已合并的 Node/Java SDK 实现按最终契约重新验证：在 Core 仓库根运行 `node shared/plugins/scripts/sdk-e2e.mjs`，对当前工作树的 Core 跑真实端到端场景；补齐 Node 20、Java 8 运行证据后，从 Core 仓库按 SDK 标签（例如 `sdk-node-v0.5.0`）发布实际的新版本。
 4. Maven 插件将 `sdk.lock.json` 和构建依赖更新到实际发布的版本、URL、SHA-256；用正式 `package.mjs` 验证，开发构建覆盖不能进入发行流程。
 5. 验证最新宿主的安装、更新、能力拒绝提示和插件包只读。只有实际符合来源、签名和市场规则的工件才进入分发。
 
-**退出条件：** 三仓 PR 和依赖顺序可追踪；契约副本逐字节一致；SDK 和 Maven 包都有真实发行地址与校验值；正式打包、最低支持运行时和当前平台流程通过。未实现的 Windows Provider 能力继续明确拒绝。这个任务不负责删除全部旧 Maven/Java 业务。
+**退出条件：** 三仓 PR 和依赖顺序可追踪；契约、API 总表和协议更新记录与 Core 实现在同一个 Core 提交里一致；SDK 和 Maven 包都有真实发行地址与校验值；正式打包、最低支持运行时和当前平台流程通过。未实现的 Windows Provider 能力继续明确拒绝。这个任务不负责删除全部旧 Maven/Java 业务。
 
 ### 阶段 C 的验收记录与交付门槛
 
@@ -745,9 +747,9 @@ N+2 目标版本。兼容窗口关闭须在该稳定版发布说明交代，跳�
 | 无页面的工作区 Provider、执行与测试 | Core、生产 macOS 会话表与真实 Maven 后端已经完成多模块读取、模块编译、精确单方法执行和报告解码；集成测试显式选择开发包与工具，关闭后核对包清单不变。 |
 | Run、原生 Debug 与适配器贡献 | 原生入口、保存配置、Agent 操作身份和类型化准备已经实现；真实 SDK 进程覆盖准备、失败、取消及另一工作区隔离。真实 LLDB 已通过 Provider 编译→Registry 启动→命中断点→读取栈帧→带参数继续执行→退出及清理，插件包保持只读；完整 UI/发行包流程仍需验收，Java/JDT 领域迁移属于任务三。 |
 | 配置快照与跨插件协作 | 协议 6 的只读模型输入公开选定事实，配置/源码/模型/插件/工作区变化撤销旧输入；两个真实 SDK 后端经过 Core 交换公开投影。不能据此声称 Java 已消费 Maven 全部配置。 |
-| 最低 SDK 运行时 | 历史[显式宿主 CI](https://github.com/Lithe-IDEA/lithe-plugin-docs/actions/runs/40531099687) 的 Node 20、Java 8 原生端到端作业通过，宿主固定为 `58ca81cf66c5c6e281c7df73ac67adb3526174f3`。该轮契约漂移检查失败；SDK #4 后续已合并且 main CI 通过，镜像仍需在 #1517 合并后按最终宿主提交同步。 |
+| 最低 SDK 运行时 | 历史[显式宿主 CI](https://github.com/Lithe-IDEA/lithe-plugin-docs/actions/runs/40531099687) 的 Node 20、Java 8 原生端到端作业通过，宿主固定为 `58ca81cf66c5c6e281c7df73ac67adb3526174f3`。该轮契约漂移检查失败；SDK #4 后续已合并且 main CI 通过。该仓库退役后，最低运行时证据要在 Core 仓库用 `node shared/plugins/scripts/sdk-e2e.mjs` 重新取得。 |
 | Maven 最低运行时 | [固定 SDK 提交的开发验证](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/40533306865) 已通过 Java 8 后端及当前/3.6.3 Maven，每组 55 项计时检查（含 3 项打包）；不能代替旧 SDK 锁定下仍失败的正式打包检查。 |
-| 正式合并、契约同步与发行 | SDK #4 已合并；宿主 #1517 已于 2026-10-29 核实合并（preview `659739011`），Maven #7 因正式 SDK 锁定依赖继续保持 Draft。最终契约同步与新版发行尚未完成。使用最终 preview commit 同步契约、发布 SDK，再更新 Maven 的真实版本/URL/SHA-256 和完成正式包验收；不能先填预期校验值。 |
+| 正式合并、契约与发行 | SDK #4 已合并；宿主 #1517 已于 2026-10-29 核实合并（preview `659739011`），Maven #7 因正式 SDK 锁定依赖继续保持 Draft。新版 SDK 发行尚未完成。契约和 SDK 都在 Core 仓库，没有契约同步步骤：先从 Core 仓库发布 SDK，再更新 Maven 的真实版本/URL/SHA-256 和完成正式包验收；不能先填预期校验值。 |
 
 阶段 C 不能仅凭接口存在或本地开发包通过就勾选完成。下面的任务二至四不阻塞通用接口继续评审，但不会代替上表中尚未完成的验收与发行条件。
 

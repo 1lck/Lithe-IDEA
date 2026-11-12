@@ -61,15 +61,15 @@
 ## 验证
 
 - `./scripts/agent-notes/verify-agent-notes.sh`：决策引用、路径和笔记结构。
-- `./scripts/architecture/verify-service-boundaries.sh`：职责边界；不能替代人工审查工具专属分支。
-- `./scripts/architecture/verify-shared-contracts.sh`：正式契约与 fixture 一致性。
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）：职责边界；不能替代人工审查工具专属分支。
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）：正式契约与 fixture 一致性。
 - 审查时用两个语义不同的工具走同一扩展点，检查是否需要新增工具名枚举、宿主解析器或固定调用 ID；运行期验证继续遵循所属能力的验收和矩阵要求。
 
 ## 适用范围
 
 - `.agents/skills/develop-lithe/SKILL.md`
 - `.agents/skills/lithe-code-review/`
-- `shared/contracts/plugins/v1/`
-- `rust/lithe-core/src/plugins/`
-- `macos/Sources/Lithe/Application/Features/`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins)
+- ~~`macos/Sources/Lithe/Application/Features/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/`~~（已随 #1794 移除）

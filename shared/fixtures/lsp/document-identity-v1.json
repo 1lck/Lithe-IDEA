@@ -1,0 +1,258 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "posix-relative",
+      "request": {
+        "workspaceRoot": "/work/app",
+        "input": "src/A.java",
+        "platform": "posix"
+      },
+      "expected": {
+        "document": {
+          "path": "/work/app/src/A.java",
+          "relativePath": "src/A.java"
+        }
+      }
+    },
+    {
+      "name": "posix-absolute",
+      "request": {
+        "workspaceRoot": "/work/app",
+        "input": "/work/app/src/A.java",
+        "platform": "auto"
+      },
+      "expected": {
+        "document": {
+          "path": "/work/app/src/A.java",
+          "relativePath": "src/A.java"
+        }
+      }
+    },
+    {
+      "name": "percent-decoded",
+      "request": {
+        "workspaceRoot": "/work/app",
+        "input": "file:///work/app/src/A%20%E4%B8%AD.java",
+        "platform": "posix"
+      },
+      "expected": {
+        "document": {
+          "path": "/work/app/src/A 中.java",
+          "relativePath": "src/A 中.java"
+        }
+      }
+    },
+    {
+      "name": "localhost",
+      "request": {
+        "workspaceRoot": "/work/app",
+        "input": "file://localhost/work/app/A.java",
+        "platform": "posix"
+      },
+      "expected": {
+        "document": {
+          "path": "/work/app/A.java",
+          "relativePath": "A.java"
+        }
+      }
+    },
+    {
+      "name": "outside",
+      "request": {
+        "workspaceRoot": "/work/app",
+        "input": "file:///elsewhere/A.java",
+        "platform": "posix"
+      },
+      "expected": {
+        "document": null
+      }
+    },
+    {
+      "name": "prefix-boundary",
+      "request": {
+        "workspaceRoot": "/work/app",
+        "input": "/work/application/A.java",
+        "platform": "posix"
+      },
+      "expected": {
+        "document": null
+      }
+    },
+    {
+      "name": "escape-relative",
+      "request": {
+        "workspaceRoot": "/work/app",
+        "input": "../A.java",
+        "platform": "posix"
+      },
+      "expected": {
+        "document": null
+      }
+    },
+    {
+      "name": "root-is-not-document",
+      "request": {
+        "workspaceRoot": "/work/app",
+        "input": ".",
+        "platform": "posix"
+      },
+      "expected": {
+        "document": null
+      }
+    },
+    {
+      "name": "external-uri",
+      "request": {
+        "workspaceRoot": "/work/app",
+        "input": "https://example.invalid/a",
+        "platform": "posix"
+      },
+      "expected": {
+        "document": null
+      }
+    },
+    {
+      "name": "remote-file-posix",
+      "request": {
+        "workspaceRoot": "/server/share",
+        "input": "file://server/share/A.java",
+        "platform": "posix"
+      },
+      "expected": {
+        "document": null
+      }
+    },
+    {
+      "name": "empty",
+      "request": {
+        "workspaceRoot": "/work/app",
+        "input": "",
+        "platform": "posix"
+      },
+      "expected": {
+        "document": null
+      }
+    },
+    {
+      "name": "uri-fragment",
+      "request": {
+        "workspaceRoot": "/work/app",
+        "input": "file:///work/app/A.java#secret",
+        "platform": "posix"
+      },
+      "expected": {
+        "document": null
+      }
+    },
+    {
+      "name": "windows-uri",
+      "request": {
+        "workspaceRoot": "C:\\Work\\App",
+        "input": "file:///C:/Work/App/src/A%20B.java",
+        "platform": "auto"
+      },
+      "expected": {
+        "document": {
+          "path": "C:\\Work\\App\\src\\A B.java",
+          "relativePath": "src/A B.java"
+        }
+      }
+    },
+    {
+      "name": "windows-relative",
+      "request": {
+        "workspaceRoot": "C:\\Work\\App",
+        "input": "src/A.java",
+        "platform": "windows"
+      },
+      "expected": {
+        "document": {
+          "path": "C:\\Work\\App\\src\\A.java",
+          "relativePath": "src/A.java"
+        }
+      }
+    },
+    {
+      "name": "windows-case-alias",
+      "request": {
+        "workspaceRoot": "C:\\Work\\App",
+        "input": "c:\\work\\app\\A.java",
+        "platform": "auto"
+      },
+      "expected": {
+        "document": {
+          "path": "c:\\work\\app\\A.java",
+          "relativePath": "A.java"
+        }
+      }
+    },
+    {
+      "name": "windows-rooted-uri-is-not-relative",
+      "request": {
+        "workspaceRoot": "C:\\Work\\App",
+        "input": "file:///elsewhere/A.java",
+        "platform": "windows"
+      },
+      "expected": {
+        "document": null
+      }
+    },
+    {
+      "name": "windows-drive-relative-is-ambiguous",
+      "request": {
+        "workspaceRoot": "C:\\Work\\App",
+        "input": "C:A.java",
+        "platform": "windows"
+      },
+      "expected": {
+        "document": null
+      }
+    },
+    {
+      "name": "windows-rooted-without-drive",
+      "request": {
+        "workspaceRoot": "C:\\Work\\App",
+        "input": "\\elsewhere\\A.java",
+        "platform": "windows"
+      },
+      "expected": {
+        "document": null
+      }
+    },
+    {
+      "name": "windows-outside",
+      "request": {
+        "workspaceRoot": "C:\\Work\\App",
+        "input": "D:\\Other\\A.java",
+        "platform": "windows"
+      },
+      "expected": {
+        "document": null
+      }
+    },
+    {
+      "name": "unc-uri",
+      "request": {
+        "workspaceRoot": "\\\\server\\share\\app",
+        "input": "file://server/share/app/A%20B.java",
+        "platform": "windows"
+      },
+      "expected": {
+        "document": {
+          "path": "\\\\server\\share\\app\\A B.java",
+          "relativePath": "A B.java"
+        }
+      }
+    },
+    {
+      "name": "invalid-root",
+      "request": {
+        "workspaceRoot": "relative",
+        "input": "A.java",
+        "platform": "posix"
+      },
+      "error": "invalid_request"
+    }
+  ]
+}

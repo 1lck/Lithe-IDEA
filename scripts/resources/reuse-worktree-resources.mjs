@@ -81,9 +81,18 @@ async function readRegistry() {
   // are mutable user state, never download artifacts. Runtime profile import is
   // owned by the platform startup adapters; this build reuse route always rejects
   // both original state and migration snapshots and must not gain a validator.
+  // Core comment-lexer/Rustdoc output uses that same excluded Cargo state.
+  // Plugin preference sources and adjacent configfile temporaries are user-owned,
+  // mutable native state, rejected by the registry before any copying.
+  // Native cgo cache fixtures own and remove temporary archives; the link digest
+  // invalidates Go actions only and does not make Core output reusable.
+  // Viva's Core checkout, Cargo target and staged static libraries have no sealed
+  // cross-worktree identity; marketplace transfer directories are runtime-owned.
+  // Both remain excluded before any source access or copy operation.
   // Build Provider snapshots remain under the excluded per-workspace PluginState
   // owner, including after removing the old macOS Maven tree output allocator.
-  // They are mutable upstream state and must never gain a download validator.
+  // They and Viva per-session Debug scratch directories are mutable runtime state
+  // and must never gain a download validator.
   // User-authored Build preferences, machine-local differences and source-identity migration receipts are never reusable.
   // Private instance defaults, Windows app-data/build-options/<workspace-digest>.json
   // and runtime-preference migration receipts follow that same refusal route; no validator or copy stage.
@@ -399,7 +408,7 @@ async function main() {
 
   const selected = options.resources.length > 0
     ? options.resources.map((identifier) => {
-      // Generated matrix views, runtime snapshots, per-execution Java launch files, Sparkle baseline
+      // Generated Go timing reports and matrix views, runtime snapshots, per-execution Java launch files, Sparkle baseline
       // and AutoBuild staging (including per-tag baselines and local/downloaded publication checkpoints), per-launch
       // CI Rust compilation state, Codex relays and plugin packages take this rejection route, never a download validator.
       // Identical bytes do not establish transferable execution ownership.

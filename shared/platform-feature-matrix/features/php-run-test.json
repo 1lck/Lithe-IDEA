@@ -4,25 +4,47 @@
   "group": "PHP",
   "capability": "PHP 插件运行与 PHPUnit 测试",
   "macos": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "macos/Tests/LitheTests/Fixtures/RetiredOfficialPlugins/PhpSupport/plugin.json",
-      "rust/lithe-core/src/plugins/declarative.rs",
-      "shared/contracts/plugins/v1/fixtures/languages/command-plans.json",
-      "macos/Sources/LitheExecutionModule/Modules/BundledLanguageExecutionModule.swift",
-      "macos/Tests/LitheTests/RealPhpIntegrationTests.swift"
-    ],
-    "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+      "desktop/internal/core/run_start.go",
+      "desktop/internal/core/run_config.go",
+      "desktop/internal/pluginhost/pluginhost.go"
+    ]
   },
   "windows": {
-    "evidence": [
-      "Plugins/win/Official/PhpSupport/plugin.ts",
-      "windows/tauri/src/extensions/run",
-      "windows/tauri/src/extensions/ui/services/ui-extension-worker-runtime.test.ts"
-    ],
     "implementationStatus": "partial",
-    "verificationStatus": "pending"
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/run_start.go",
+      "desktop/internal/core/run_config.go",
+      "desktop/internal/pluginhost/pluginhost.go"
+    ]
   },
   "owner": "PHP Support",
-  "verification": "macOS 安装 Lithe Store 社区 PHP 插件后运行 PHP 文件和单条/整套 PHPUnit（命令由声明式插件模板经 Rust Core 展开，与 shared/contracts/plugins/v1/fixtures/languages/command-plans.json 一致）；Windows 运行字符串/数组 Composer script 和整套 PHPUnit。禁用后菜单消失、运行进程退出，特殊文件名保持原样。Windows 暂不支持单方法发现。"
+  "verification": "macOS 安装 Lithe Store 社区 PHP 插件后运行 PHP 文件和单条/整套 PHPUnit（命令由声明式插件模板经 Rust Core 展开，与 Lithe-core-rust 的 shared/plugins/contract/v1/fixtures/languages/command-plans.json 一致）；Windows 运行字符串/数组 Composer script 和整套 PHPUnit。禁用后菜单消失、运行进程退出，特殊文件名保持原样。Windows 暂不支持单方法发现。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Tests/LitheTests/Fixtures/RetiredOfficialPlugins/PhpSupport/plugin.json",
+        "rust/lithe-core/src/plugins/declarative.rs",
+        "shared/contracts/plugins/v1/fixtures/languages/command-plans.json",
+        "macos/Sources/LitheExecutionModule/Modules/BundledLanguageExecutionModule.swift",
+        "macos/Tests/LitheTests/RealPhpIntegrationTests.swift"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "Plugins/win/Official/PhpSupport/plugin.ts",
+        "windows/tauri/src/extensions/run",
+        "windows/tauri/src/extensions/ui/services/ui-extension-worker-runtime.test.ts"
+      ],
+      "implementationStatus": "partial",
+      "verificationStatus": "pending"
+    }
+  },
+  "notes": "Viva：Core 的插件启动运行（run_start.go）与运行配置（run_config.go）已存在，但 pluginhost.go 未声明 run preparation、tests 与 executionProviders，PHPUnit 测试模型与单条测试发现没有宿主入口。"
 }

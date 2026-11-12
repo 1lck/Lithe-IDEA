@@ -1,0 +1,781 @@
+package workbench
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
+	"maps"
+	"net"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprocess"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/vivaui/viva/ui"
+)
+
+const (
+	// debugHostedPollInterval is how often the wait for a language server to be
+	// ready looks again.
+	debugHostedPollInterval = 50 * time.Millisecond
+	// debugReadChunk is the size of one read from the adapter's TCP stream.
+	debugReadChunk = 32 << 10
+	// debugLoopback is where a tcpLanguageServer adapter listens: the contract
+	// allows loopback endpoints only for language-server-provided ports.
+	debugLoopback = "127.0.0.1"
+)
+
+// debugStart is what one start of a debug session asks for.
+type debugStart struct {
+	adapter debugAdapter
+	// request is the DAP request: "launch" or "attach".
+	request string
+	// target is the connection an attach binds; nil launches the open file.
+	target *core.DebugTargetFacts
+	// confirmed records that the user accepted a non-local endpoint.
+	confirmed bool
+	// configuration is the plugin backend's DAP launch or attach arguments, set
+	// when a backend started the session through debug/start. They apply on top
+	// of the adapter's declared arguments and no file or connection is planned.
+	configuration map[string]any
+	// launchTarget is a plugin run's process that the adapter starts itself
+	// (`debug.target: {kind: "launch"}`); Core binds it through the adapter's
+	// launch targetBindings.
+	launchTarget *core.DebugTargetFacts
+	// ended, when set, receives the debuggee's exit code once the session has been
+	// released, so the run that stands for it can end.
+	ended chan *int
+	// parent and startRequestID mark a child session an adapter started through
+	// startDebugging; its configuration is the adapter's, and parent answers the request.
+	parent         *debugSession
+	startRequestID string
+}
+
+// debugRemotePrompt is an attach to a non-local endpoint waiting for the user.
+type debugRemotePrompt struct {
+	start    debugStart
+	endpoint string
+}
+
+// debugRemoteError stops a start whose endpoint Core classified as remote until
+// the user confirms it. It is not a failure: the panel asks instead.
+type debugRemoteError struct {
+	host string
+	port int
+}
+
+func (e *debugRemoteError) Error() string {
+	return "debug attach to " + net.JoinHostPort(e.host, strconv.Itoa(e.port)) + " needs confirmation"
+}
+
+// debugAttachFields are the host and port the user types for an attach-only
+// adapter.
+type debugAttachFields struct {
+	host, port ui.Field
+}
+
+// debugTransportServed reports whether this client can start the adapter: a
+// process it launches over stdio, or an adapter inside its plugin's language
+// server reached over loopback TCP.
+func debugTransportServed(declaration pluginservice.DebugAdapterDeclaration) bool {
+	switch declaration.Transport {
+	case "stdio":
+		switch declaration.LaunchKind {
+		case pluginhost.LaunchPackaged, pluginhost.LaunchSystemCommand, pluginhost.LaunchRuntime:
+			return true
+		}
+	case "tcpLanguageServer":
+		return declaration.Endpoint.LanguageID != "" && declaration.Endpoint.Command != ""
+	}
+	return false
+}
+
+// startDebug starts the selected adapter: it launches the open file when the
+// adapter serves launch, and otherwise attaches to the host and port the user
+// typed. The Core session owns DAP state; the host owns the process or stream.
+func (a *App) startDebug(p *project) {
+	if p == nil || p.debug.activeSession() != nil || len(p.debug.adapters) == 0 {
+		return
+	}
+	adapter := p.debug.adapters[p.debug.selectedAdapter]
+	p.debug.remote = nil
+	start := debugStart{adapter: adapter, request: "launch"}
+	if !adapter.Declaration.Serves("launch") {
+		target, err := a.attachTargetFromFields()
+		if err != nil {
+			p.debug.failure = a.text.Debug.AttachInvalid
+			return
+		}
+		start.request, start.target = "attach", target
+	}
+	// A debuggee reads the files on disk, so settle pending writes before the
+	// adapter launches; a failed save keeps the session from starting. Nothing to
+	// settle when every document is already on disk, which also keeps the session
+	// from waiting on a save batch that has no work.
+	if !a.projectHasPendingWrites(p) {
+		a.beginDebug(p, start)
+		return
+	}
+	a.saveProjectDocuments(p, func(ok bool) {
+		if ok {
+			a.beginDebug(p, start)
+		}
+	})
+}
+
+// projectHasPendingWrites reports whether some open document has content the debuggee would
+// not see on disk yet.
+func (a *App) projectHasPendingWrites(p *project) bool {
+	for _, d := range p.docs.list {
+		if d.saving || d.dirty() || d.conflicted || d.checkPending || d.checking || d.view.IsComposing() {
+			return true
+		}
+	}
+	return false
+}
+
+// attachTargetFromFields reads the attach form. The host is only checked for
+// being present here; Core validates the endpoint and classifies it as remote.
+func (a *App) attachTargetFromFields() (*core.DebugTargetFacts, error) {
+	host := strings.TrimSpace(a.debugAttach.host.Text())
+	if host == "" {
+		host = debugLoopback
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(a.debugAttach.port.Text()))
+	if err != nil {
+		return nil, err
+	}
+	return &core.DebugTargetFacts{Kind: "connection", Host: host, Port: port}, nil
+}
+
+// confirmRemoteDebug attaches to the endpoint the user accepted.
+func (a *App) confirmRemoteDebug(p *project) {
+	if p == nil || p.debug.remote == nil || p.debug.activeSession() != nil {
+		return
+	}
+	start := p.debug.remote.start
+	p.debug.remote = nil
+	start.confirmed = true
+	a.beginDebug(p, start)
+}
+
+// attachDebugForRun starts a debug session on the adapter a run's configuration
+// type names and attaches it to the debuggee the run started. It runs on a
+// background goroutine, waits for the window thread to create the session and
+// returns its ID. The endpoint is the loopback port of the run's own process, so
+// it needs no confirmation.
+func (a *App) attachDebugForRun(ctx context.Context, request pluginservice.RunDebugRequest) (string, error) {
+	type outcome struct {
+		id  string
+		err error
+	}
+	result := make(chan outcome, 1)
+	a.post(func(a *App) {
+		p := a.project
+		if p == nil || filepath.Clean(p.root) != filepath.Clean(request.WorkspaceRoot) {
+			result <- outcome{err: errors.New("the run's workspace is not open")}
+			return
+		}
+		if !p.debug.loaded {
+			result <- outcome{err: errors.New("the debug adapters are still loading")}
+			return
+		}
+		if p.debug.activeSession() != nil {
+			result <- outcome{err: errors.New("a debug session is already running")}
+			return
+		}
+		for _, adapter := range p.debug.adapters {
+			if adapter.PluginID != request.PluginID || !adapter.Declaration.Serves("attach") || !adapter.Declaration.AcceptsConnection {
+				continue
+			}
+			for _, configurationType := range adapter.Declaration.ConfigurationTypes {
+				if configurationType != request.ConfigurationType {
+					continue
+				}
+				a.beginDebug(p, debugStart{
+					adapter: adapter, request: "attach", confirmed: true,
+					target: &core.DebugTargetFacts{Kind: "connection", Host: request.Host, Port: request.Port},
+				})
+				result <- outcome{id: p.debug.activeSession().id}
+				return
+			}
+		}
+		result <- outcome{err: fmt.Errorf("no debug adapter answers to %q", request.ConfigurationType)}
+	})
+	select {
+	case r := <-result:
+		return r.id, r.err
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+// launchDebugForRun has the adapter a run's configuration type names start the run's
+// process itself, for a run with a launch debug target. It runs on a background
+// goroutine, waits for the window thread to create the session and returns it with
+// the channel that reports its end.
+func (a *App) launchDebugForRun(ctx context.Context, request pluginservice.RunDebugLaunchRequest) (pluginservice.RunDebugSession, error) {
+	type outcome struct {
+		session pluginservice.RunDebugSession
+		err     error
+	}
+	result := make(chan outcome, 1)
+	a.post(func(a *App) {
+		p := a.project
+		if p == nil || filepath.Clean(p.root) != filepath.Clean(request.WorkspaceRoot) {
+			result <- outcome{err: errors.New("the run's workspace is not open")}
+			return
+		}
+		if !p.debug.loaded {
+			result <- outcome{err: errors.New("the debug adapters are still loading")}
+			return
+		}
+		if p.debug.activeSession() != nil {
+			result <- outcome{err: errors.New("a debug session is already running")}
+			return
+		}
+		for _, adapter := range p.debug.adapters {
+			if adapter.PluginID != request.PluginID || !adapter.Declaration.Serves("launch") ||
+				!slices.Contains(adapter.Declaration.ConfigurationTypes, request.ConfigurationType) {
+				continue
+			}
+			ended := make(chan *int, 1)
+			arguments := slices.Clone(request.Arguments)
+			if arguments == nil {
+				arguments = []string{}
+			}
+			environment := maps.Clone(request.Environment)
+			if environment == nil {
+				environment = map[string]string{}
+			}
+			a.beginDebug(p, debugStart{
+				adapter: adapter, request: "launch", ended: ended,
+				launchTarget: &core.DebugTargetFacts{
+					Kind: "executable", Path: request.Executable, Executable: request.Executable,
+					WorkingDirectory: request.WorkingDirectory, Arguments: arguments, Environment: environment,
+				},
+			})
+			if p.debug.activeSession() == nil || p.debug.activeSession().ended != ended {
+				result <- outcome{err: fmt.Errorf("the debug session did not start: %s", p.debug.failure)}
+				return
+			}
+			result <- outcome{session: pluginservice.RunDebugSession{ID: p.debug.activeSession().id, Ended: ended}}
+			return
+		}
+		result <- outcome{err: fmt.Errorf("no debug adapter launches %q", request.ConfigurationType)}
+	})
+	select {
+	case r := <-result:
+		return r.session, r.err
+	case <-ctx.Done():
+		return pluginservice.RunDebugSession{}, ctx.Err()
+	}
+}
+
+// startDebugForBackend starts the plugin's own adapter for a backend's
+// debug/start. It runs on a background goroutine, asks the window thread to
+// create the session and returns its ID. The workspace must be the open project
+// and no other session may run: one project has one Debug session.
+func (a *App) startDebugForBackend(ctx context.Context, request pluginservice.DebugSessionRequest) (string, error) {
+	type outcome struct {
+		id  string
+		err error
+	}
+	result := make(chan outcome, 1)
+	a.post(func(a *App) {
+		p := a.project
+		switch {
+		case p == nil || filepath.Clean(p.root) != filepath.Clean(request.WorkspaceRoot):
+			result <- outcome{err: errors.New("the workspace is not open")}
+			return
+		case !p.debug.loaded:
+			result <- outcome{err: errors.New("the debug adapters are still loading")}
+			return
+		case p.debug.activeSession() != nil:
+			result <- outcome{err: errors.New("a debug session is already running")}
+			return
+		}
+		for _, adapter := range p.debug.adapters {
+			if adapter.PluginID+"/"+adapter.Declaration.ID != request.AdapterID {
+				continue
+			}
+			a.beginDebug(p, debugStart{adapter: adapter, request: request.Request, confirmed: true, configuration: request.Configuration})
+			if p.debug.activeSession() == nil {
+				result <- outcome{err: errors.New("the debug session could not start")}
+				return
+			}
+			result <- outcome{id: p.debug.activeSession().id}
+			return
+		}
+		result <- outcome{err: fmt.Errorf("this client cannot start the debug adapter %q", request.AdapterID)}
+	})
+	select {
+	case r := <-result:
+		return r.id, r.err
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+// stopDebugForBackend ends the session a backend started, when it is still the
+// window's current one.
+func (a *App) stopDebugForBackend(sessionID string) {
+	a.post(func(a *App) {
+		if p := a.project; p != nil && p.debug.activeSession() != nil && p.debug.activeSession().id == sessionID {
+			a.stopDebugByUser(p)
+		}
+	})
+}
+
+// beginDebug creates the session and starts its transport in the background.
+func (a *App) beginDebug(p *project, start debugStart) {
+	if p == nil || (start.parent == nil && p.debug.activeSession() != nil) {
+		return
+	}
+	adapter := start.adapter
+	targetPath := ""
+	if doc := p.selectedDocument(p.docs.group); doc != nil {
+		targetPath = doc.path
+	}
+	pluginRoot := a.plugins.Root
+	targetUnavailable := i18n.Shared(a.language(), "desktop.debug.targetUnavailable")
+	hosted := adapter.Declaration.Transport == "tcpLanguageServer"
+	// Background work reads this copy, never a.text, which the window thread owns.
+	messages := a.text.Debug
+	// A child shares its parent's generation, so the parent's replies stay current.
+	if start.parent == nil {
+		p.debug.generation++
+	}
+	generation := p.debug.generation
+	pending := start
+	// The user's stepping policy goes with the launch; without one Core applies the
+	// adapter's declared defaults. Either decides whether the call stack collapses
+	// the frames it filters.
+	stepping := a.steppingFiltersFor(adapter.Declaration.AdapterID)
+	hideFiltered := false
+	if stepping != nil {
+		hideFiltered = stepping.HideFilteredStackFrames
+	} else if declared, ok := core.DeclaredSteppingFilters(adapter.Declaration.Features, adapter.Declaration.Defaults); ok {
+		hideFiltered = declared.HideFilteredStackFrames
+	}
+	functionBreakpoints := slices.Clone(p.debug.functionBreakpoints)
+	// A data breakpoint whose identity does not persist ends with the session that resolved it.
+	dataBreakpoints := make([]core.DebugDataBreakpoint, 0, len(p.debug.dataBreakpoints))
+	for _, breakpoint := range p.debug.dataBreakpoints {
+		if breakpoint.persist {
+			dataBreakpoints = append(dataBreakpoints, breakpoint.DebugDataBreakpoint)
+		}
+	}
+	breakpoints := make(map[string][]debugBreakpoint, len(p.debug.breakpoints))
+	for path, lines := range p.debug.breakpoints {
+		breakpoints[path] = append([]debugBreakpoint(nil), lines...)
+	}
+	ctx, cancel := context.WithCancel(p.ctx)
+	session := &debugSession{
+		id:             fmt.Sprintf("desktop-debug-%d", debugSessionSequence.Add(1)),
+		adapterID:      adapter.Declaration.AdapterID,
+		project:        p,
+		cancel:         cancel,
+		ctx:            ctx,
+		startupDone:    make(chan struct{}),
+		exitObserved:   make(chan struct{}),
+		generation:     generation,
+		ended:          start.ended,
+		adapter:        adapter,
+		parent:         start.parent,
+		startRequestID: start.startRequestID,
+	}
+	parentSessionID := ""
+	if start.parent != nil {
+		parentSessionID = start.parent.id
+	}
+	stateRoot := filepath.Join(pluginRoot, ".state", adapter.PluginID, adapter.Version)
+	var stdinReader *os.File
+	if !hosted {
+		reader, writer, err := os.Pipe()
+		if err != nil {
+			cancel()
+			a.answerChildStart(p, session, false, err.Error())
+			if start.parent == nil {
+				p.debug.state = "failed"
+				p.debug.failure = err.Error()
+			}
+			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("debug", err))
+			return
+		}
+		stdinReader = reader
+		session.setTransport(writer)
+	}
+	// The session is listed before the window state of the start is written, so the
+	// start writes the new session's view and never the one it interrupts.
+	p.debug.addSession(session)
+	p.debug.pendingRemote = &pending
+	p.debug.failure = ""
+	p.debug.state = "initializing"
+	p.debug.status = a.text.Debug.Starting
+	p.debug.frames = nil
+	p.debug.pausedThread = nil
+	p.debug.output = nil
+	// Instruction addresses are valid for one run of one process: the set is not replayed.
+	p.debug.instructionBreakpoints = nil
+	p.debug.hideFiltered = hideFiltered
+	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "debug.start", "surface": "debug"})
+
+	a.background(p, 0, func(_ context.Context) func(*App) {
+		session.operationMu.Lock()
+		defer session.operationMu.Unlock()
+		defer close(session.startupDone)
+		ctx := session.ctx
+		if stdinReader != nil {
+			defer stdinReader.Close()
+		}
+		// log-exempt: 用户取消：停止或关闭项目已接管会话清理。
+		if err := ctx.Err(); err != nil {
+			return nil
+		}
+		if err := os.MkdirAll(stateRoot, 0o700); err != nil {
+			return func(a *App) { a.finishDebugError(p, session, err) }
+		}
+		stateDirectory, err := os.MkdirTemp(stateRoot, "desktop-debug-")
+		if err != nil {
+			return func(a *App) { a.finishDebugError(p, session, err) }
+		}
+		// Assigned only by startup; cleanup reads it after startupDone closes.
+		session.stateDirectory = stateDirectory
+		preparationContext, cancelPreparation := context.WithTimeout(ctx, debugOperationTimeout)
+		prepared, err := a.prepareDebugLaunch(preparationContext, start, session.stateDirectory, p.root, targetPath, generation, targetUnavailable)
+		cancelPreparation()
+		if err != nil {
+			return func(a *App) { a.finishDebugError(p, session, err) }
+		}
+		prepared.Configuration.SteppingFilters = stepping
+		policy, err := a.kernel.DebugTransportPolicy(ctx)
+		if err != nil {
+			return func(a *App) { a.finishDebugError(p, session, err) }
+		}
+		if hosted {
+			if err := a.openHostedTransport(p, session, adapter, messages); err != nil {
+				return func(a *App) { a.finishDebugError(p, session, err) }
+			}
+		} else if err := a.startAdapterProcess(ctx, p, session, prepared, stdinReader); err != nil {
+			return func(a *App) { a.finishDebugError(p, session, err) }
+		}
+		update, err := a.kernel.CreateDebugSession(ctx, core.DebugCreateSessionRequest{
+			SessionID:                     session.id,
+			AdapterID:                     session.adapterID,
+			RootPath:                      p.root,
+			SupportsStartDebuggingRequest: true,
+			ParentSessionID:               parentSessionID,
+			DisabledCapabilities:          prepared.DisabledCapabilities,
+			Features:                      prepared.Features,
+			Defaults:                      prepared.Defaults,
+		})
+		if err != nil {
+			return func(a *App) { a.finishDebugError(p, session, err) }
+		}
+		session.created = true
+		if session.parent != nil {
+			a.post(func(a *App) { a.answerChildStart(p, session, true, "") })
+		}
+		window := time.Duration(policy.InitializationMilliseconds) * time.Millisecond
+		if hosted {
+			// The session clock starts before discovery here, so it also covers
+			// the language-server start the discovery limit was raised for.
+			window += pluginServerStartTimeout
+		}
+		if override := a.debugInitializeWindow; override > 0 {
+			window = override
+		}
+		a.watchDebugInitialize(p, session, window)
+		if err := session.writeFrames(update.OutboundFrames); err != nil {
+			return func(a *App) { a.finishDebugError(p, session, err) }
+		}
+		a.postDebugUpdate(p, session, update)
+		if len(dataBreakpoints) > 0 {
+			update, err := a.kernel.SetDebugDataBreakpoints(ctx, session.id, dataBreakpoints)
+			if err != nil {
+				return func(a *App) { a.finishDebugError(p, session, err) }
+			}
+			if err := session.writeFrames(update.OutboundFrames); err != nil {
+				return func(a *App) { a.finishDebugError(p, session, err) }
+			}
+			a.postDebugUpdate(p, session, update)
+		}
+		if len(functionBreakpoints) > 0 {
+			update, err := a.kernel.SetDebugFunctionBreakpoints(ctx, session.id, functionBreakpoints)
+			if err != nil {
+				return func(a *App) { a.finishDebugError(p, session, err) }
+			}
+			if err := session.writeFrames(update.OutboundFrames); err != nil {
+				return func(a *App) { a.finishDebugError(p, session, err) }
+			}
+			a.postDebugUpdate(p, session, update)
+		}
+		for path, lines := range breakpoints {
+			update, err := a.kernel.SetDebugBreakpoints(ctx, session.id, path, sourceBreakpoints(lines))
+			if err != nil {
+				return func(a *App) { a.finishDebugError(p, session, err) }
+			}
+			if err := session.writeFrames(update.OutboundFrames); err != nil {
+				return func(a *App) { a.finishDebugError(p, session, err) }
+			}
+			a.postDebugUpdate(p, session, update)
+		}
+		update, err = a.kernel.LaunchDebug(ctx, session.id, fmt.Sprintf("%s-launch", session.id), prepared.Configuration)
+		if err != nil {
+			return func(a *App) { a.finishDebugError(p, session, err) }
+		}
+		if err := session.writeFrames(update.OutboundFrames); err != nil {
+			return func(a *App) { a.finishDebugError(p, session, err) }
+		}
+		a.postDebugUpdate(p, session, update)
+		return nil
+	})
+}
+
+// watchDebugInitialize ends a session whose adapter never answers initialize.
+// Core owns the length of the window (the transport policy's initialization
+// deadline); the host only runs the clock.
+func (a *App) watchDebugInitialize(p *project, session *debugSession, window time.Duration) {
+	timer := time.AfterFunc(window, func() {
+		a.post(func(a *App) {
+			if a.project != p || !p.debug.hasSession(session) {
+				return
+			}
+			restore := p.debug.bindSession(session)
+			initializing := p.debug.state == "initializing"
+			restore()
+			if initializing {
+				a.finishDebugError(p, session, errors.New(a.text.Debug.TimedOut))
+			}
+		})
+	})
+	// The timer must not outlive the session: Stop and shutdown cancel its context.
+	context.AfterFunc(session.ctx, func() { timer.Stop() })
+}
+
+// startAdapterProcess starts a stdio adapter and watches for its exit, so an
+// adapter that dies without a DAP terminated event still ends the session.
+func (a *App) startAdapterProcess(ctx context.Context, p *project, session *debugSession, prepared preparedDebugLaunch, stdin *os.File) error {
+	process, err := buildprocess.Start(ctx, buildprocess.Spec{
+		Kind:             processledger.KindDebug,
+		Executable:       prepared.Executable,
+		Arguments:        prepared.Arguments,
+		Environment:      prepared.Environment,
+		WorkingDirectory: p.root,
+		Stdin:            stdin,
+	}, func(stream buildprocess.Stream, text string) {
+		if stream == buildprocess.Stderr {
+			a.post(func(a *App) { a.appendDebugOutput(p, session, text) })
+			return
+		}
+		a.receiveDebug(p, session, []byte(text))
+	})
+	_ = stdin.Close()
+	if err != nil {
+		return err
+	}
+	session.process.Store(process)
+	// Observe native exit even when the adapter cannot send a DAP terminated event.
+	go func() {
+		defer close(session.exitObserved)
+		err := process.Wait()
+		session.cancel()
+		session.closeTransport()
+		a.debugStreamEnded(p, session, err)
+	}()
+	return nil
+}
+
+// debugStreamEnded finishes a session whose adapter process or stream ended on
+// its own. A clean end is a terminated session; anything else is a failure.
+func (a *App) debugStreamEnded(p *project, session *debugSession, err error) {
+	a.post(func(a *App) {
+		if a.project != p || !p.debug.hasSession(session) {
+			return
+		}
+		if err != nil {
+			a.finishDebugError(p, session, err)
+			return
+		}
+		// The adapter's stream ended on its own: the session leaves the list, and the
+		// window shows the terminated state only when nothing else runs.
+		p.debug.removeSession(session)
+		a.releaseDebugSession(p, session)
+		if p.debug.activeSession() == nil {
+			p.debug.state = "terminated"
+			p.debug.status = a.text.Debug.Terminated
+		}
+	})
+}
+
+// openHostedTransport reaches a tcpLanguageServer adapter. Core's transport
+// lifecycle owns the rules (the discovery, connect and write deadlines as timers
+// it arms, the write queue and its budget, the bounded drain of a user stop);
+// this host keeps the socket and runs the effects Core returns. It only starts
+// the stream: frames written before the socket is ready are queued and flushed
+// by Core's rule, and every failure arrives as a reportFailure effect followed
+// by a termination.
+func (a *App) openHostedTransport(p *project, session *debugSession, adapter debugAdapter, messages i18n.DebugMessages) error {
+	a.post(func(a *App) {
+		if a.project != p || !p.debug.hasSession(session) {
+			return
+		}
+		defer p.debug.bindSession(session)()
+		p.debug.status = a.text.Debug.WaitingServer
+	})
+	discover := func(ctx context.Context) (string, int, error) {
+		var port int
+		var err error
+		if a.debugHostedPort != nil {
+			port, err = a.debugHostedPort(ctx, p, adapter)
+		} else {
+			port, err = a.discoverHostedPort(ctx, p, adapter, messages)
+		}
+		return debugLoopback, port, err
+	}
+	hooks := debugTransportHooks{
+		Discover: discover,
+		Deliver:  func(data []byte) { a.receiveDebug(p, session, data) },
+		Failure: func(reason, message string) {
+			session.recordFailure(debugTransportFailureText(messages, reason, message))
+		},
+		Terminated: func(exitCode int) {
+			if session.stopped.Load() {
+				return
+			}
+			if exitCode == 0 {
+				a.debugStreamEnded(p, session, nil)
+				return
+			}
+			failure := session.recordedFailure()
+			if failure == nil {
+				failure = errors.New(messages.ConnectionClosed)
+			}
+			a.debugStreamEnded(p, session, failure)
+		},
+	}
+	transport := newDebugTransport(a.kernel, session.id+"-transport", hooks)
+	if !session.setTransport(transport) {
+		return context.Canceled
+	}
+	session.hosted = transport
+	// Core's default discovery budget is a cold-start allowance; the language
+	// server's own start budget is the one this host already owns, so it raises
+	// only the discovery limit (an override the contract allows).
+	discovery := int(pluginServerStartTimeout / time.Millisecond)
+	return transport.Start(&core.DebugTransportLimitOverrides{DiscoveryMilliseconds: &discovery})
+}
+
+// debugTransportFailureText turns Core's failure reason into the words shown.
+// The first four reasons are the platform's text; for "host" the message is the
+// host's own upstream diagnostic and is shown unchanged.
+func debugTransportFailureText(messages i18n.DebugMessages, reason, message string) error {
+	switch reason {
+	case "startupTimedOut":
+		return errors.New(messages.TimedOut)
+	case "writeTimedOut":
+		return errors.New(messages.WriteTimedOut)
+	case "bufferLimit":
+		return errors.New(messages.BufferLimit)
+	case "invalidEndpoint":
+		return errors.New(messages.InvalidEndpoint)
+	}
+	return errors.New(message)
+}
+
+// discoverHostedPort asks the adapter's language server for the port of a new
+// debug session.
+func (a *App) discoverHostedPort(ctx context.Context, p *project, adapter debugAdapter, messages i18n.DebugMessages) (int, error) {
+	endpoint := adapter.Declaration.Endpoint
+	posted := make(chan struct{})
+	a.post(func(a *App) {
+		if a.project == p {
+			a.startPluginServer(endpoint.LanguageID)
+		}
+		close(posted)
+	})
+	select {
+	case <-posted:
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	}
+	server, err := a.waitReadyPluginServer(ctx, p, adapter.PluginID, endpoint.LanguageID)
+	if err != nil {
+		return 0, err
+	}
+	// Core's discovery timer bounds the whole wait; the command itself only
+	// needs a ceiling so a stuck server cannot outlive the stream.
+	answer, err := a.plugins.ExecuteLanguageCommand(ctx, server.session, endpoint.Command, nil, pluginServerStartTimeout)
+	if err != nil {
+		return 0, err
+	}
+	port, err := parseDebugPort(answer)
+	if err != nil {
+		return 0, errors.New(messages.NoEndpoint)
+	}
+	return port, nil
+}
+
+// waitReadyPluginServer waits for the plugin's language server of this project to
+// be ready. A start that is not under way and produced no server twice in a row
+// is a failure, not a reason to wait out the whole start timeout.
+func (a *App) waitReadyPluginServer(ctx context.Context, p *project, pluginID, languageID string) (*pluginServer, error) {
+	deadline := time.NewTimer(pluginServerStartTimeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(debugHostedPollInterval)
+	defer ticker.Stop()
+	idle := 0
+	for {
+		a.pluginServerMu.Lock()
+		server := a.pluginServers[pluginID]
+		starting := a.pluginServerStarting[languageID]
+		a.pluginServerMu.Unlock()
+		switch {
+		case server != nil && server.project == p && server.isReady():
+			return server, nil
+		case server == nil && !starting:
+			idle++
+			if idle >= 3 {
+				return nil, fmt.Errorf("the %s language server of %s is not running", languageID, pluginID)
+			}
+		default:
+			idle = 0
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-deadline.C:
+			return nil, errors.New("the language server did not become ready in time")
+		case <-ticker.C:
+		}
+	}
+}
+
+// parseDebugPort reads the loopback port a language server answered: an integer
+// or a numeric string from 1 to 65535, as the contract defines.
+func parseDebugPort(raw json.RawMessage) (int, error) {
+	var number json.Number
+	var text string
+	switch {
+	case json.Unmarshal(raw, &text) == nil:
+		number = json.Number(strings.TrimSpace(text))
+	case json.Unmarshal(raw, &number) == nil:
+	default:
+		return 0, errors.New("the answer is not a port")
+	}
+	port, err := strconv.Atoi(number.String())
+	if err != nil || port < 1 || port > 65535 {
+		return 0, errors.New("the port is outside 1-65535")
+	}
+	return port, nil
+}

@@ -4,31 +4,61 @@
   "group": "插件与主题",
   "capability": "构建 Provider 请求区分首次加载与重新加载，并带上宿主解析好的构建工具：lithe/build/model、lithe/build/dependencies 在用户点 Reload/Retry、网页 build.refresh 或同步文件变化后重新加载时带 refresh: true，首次加载不带；宿主按构建系统 invocation 解析出的可执行文件以 tool.executable 传给 Provider，解析失败时省略而不让加载失败",
   "macos": {
-    "evidence": [
-      "rust/lithe-core/src/build/plans.rs",
-      "shared/contracts/plugins/v1/fixtures/build-systems/build-plans.json",
-      "shared/contracts/plugins/v1/README.md",
-      "macos/Sources/Lithe/Core/Rust/RustBuildSystemOperations.swift",
-      "macos/Sources/LitheCoreContracts/Execution/BuildSystemContracts.swift",
-      "macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift",
-      "macos/Sources/Lithe/Views/Run/BuildSystemToolWindowView.swift",
-      "macos/Sources/Lithe/Application/Features/PluginWebBridge.swift",
-      "macos/Tests/LitheExecutionModuleTests/BuildSystemServiceTests.swift",
-      "macos/Tests/LitheTests/MacBuildProviderSessionsTests.swift",
-      "macos/Tests/LitheTests/PluginWebBridgeTests.swift"
-    ],
     "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+    "verificationStatus": "pending",
+    "evidence": [
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/catalog.go",
+      "desktop/internal/workbench/shell.go",
+      "desktop/internal/workbench/app.go",
+      "desktop/internal/workbench/chrome.go",
+      "desktop/internal/workbench/build.go",
+      "desktop/internal/core/build.go"
+    ]
   },
   "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "rust/lithe-core/src/build/plans.rs",
-      "shared/contracts/plugins/v1/fixtures/build-systems/build-plans.json"
-    ],
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/catalog.go",
+      "desktop/internal/workbench/shell.go",
+      "desktop/internal/workbench/app.go",
+      "desktop/internal/workbench/chrome.go",
+      "desktop/internal/workbench/build.go",
+      "desktop/internal/core/build.go"
+    ]
   },
   "owner": "Extensions",
   "verification": "Core 侧 build.modelPlan、build.dependencyPlan 对 provider 来源接受 refresh 与 tool.executable：只在 refresh 为 true 时写入 params.refresh，只在宿主给出工具时写入 params.tool，tool.executable 不是绝对路径时返回 plugin.build.invalidSelection，command 来源忽略两者；不带参数时计划与之前逐字节一致（build-plans.json 金样）。macOS 宿主先向 Core 要计划，确认是 provider 请求后才用 MacBuildToolResolver 解析工具并带上路径重新计划；工具解析失败只在 Build Output 记一行说明，请求照常发出且不带 tool。工具窗口的刷新按钮、构建文件变化横幅的 Reload、失败后的 Retry、依赖节点的 Reload/Retry 以及插件网页的 build.refresh 都带 refresh；首次点击“Load Project Model”与首次展开依赖不带。Windows 宿主尚未接入插件后端与 build.* 命令。自动化：cargo test -p lithe-core --lib build_systems、scripts/architecture/verify-shared-contracts.sh、./scripts/macos/test/test-macos.sh --filter 'BuildSystemServiceTests|MacBuildProviderSessionsTests|PluginWebBridgeTests'。手动验证：安装带 Provider 的 Maven 插件（lithe-plugin-maven 常驻后端版本），打开项目后首次加载模型，后端日志中 params 无 refresh、tool.executable 为项目 mvnw 或 PATH 中的 mvn；点工具栏刷新或修改 pom.xml 后点 Reload，params.refresh 为 true；临时移除 mvn 与 mvnw 后加载，Build Output 提示由 Provider 自行查找工具且请求仍然发出。",
-  "notes": " Windows 后续基础设施可展示 Core 规范诊断/测试报告及精确模块用例，结果/清单各只保留四份快照，大报告虚拟化且输出不复制报告。Core watch 与执行前指纹核对撤销过期模型，源码编辑撤销发现清单；团队文件变化合并只读检测。外部原生来源文件观察、Run/Java/Agent 与旧数据迁移仍未完成，Build 能力准入保持关闭。 Windows 基础设施复用窗口文档 watcher 观察原生配置来源及链接目标；缺失父目录只观察最近现存祖先，注册不创建用户目录。版本检查只返回路径和一致性，不传 XML；模型发布和执行前检查原生版本，外部变化撤销模型/草稿，自己的保存与回读不误取消。插件撤销等待来源读取排空。Run/Java/Agent 与旧数据迁移和实机验收仍未完成，产品能力准入保持关闭。"
+  "notes": "Viva：构建模型与依赖请求在用户点 Reload/Retry 或同步文件变化后重新加载时带 refresh: true，首次加载不带；宿主把按构建系统 invocation 解析出的可执行文件作为 tool（executable 与环境）传给 Provider，解析失败时省略（workbench/build.go 的计划请求）。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "rust/lithe-core/src/build/plans.rs",
+        "shared/contracts/plugins/v1/fixtures/build-systems/build-plans.json",
+        "shared/contracts/plugins/v1/README.md",
+        "macos/Sources/Lithe/Core/Rust/RustBuildSystemOperations.swift",
+        "macos/Sources/LitheCoreContracts/Execution/BuildSystemContracts.swift",
+        "macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift",
+        "macos/Sources/Lithe/Views/Run/BuildSystemToolWindowView.swift",
+        "macos/Sources/Lithe/Application/Features/PluginWebBridge.swift",
+        "macos/Tests/LitheExecutionModuleTests/BuildSystemServiceTests.swift",
+        "macos/Tests/LitheTests/MacBuildProviderSessionsTests.swift",
+        "macos/Tests/LitheTests/PluginWebBridgeTests.swift"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "rust/lithe-core/src/build/plans.rs",
+        "shared/contracts/plugins/v1/fixtures/build-systems/build-plans.json"
+      ],
+      "implementationStatus": "missing",
+      "verificationStatus": "not-applicable"
+    },
+    "notes": " Windows 后续基础设施可展示 Core 规范诊断/测试报告及精确模块用例，结果/清单各只保留四份快照，大报告虚拟化且输出不复制报告。Core watch 与执行前指纹核对撤销过期模型，源码编辑撤销发现清单；团队文件变化合并只读检测。外部原生来源文件观察、Run/Java/Agent 与旧数据迁移仍未完成，Build 能力准入保持关闭。 Windows 基础设施复用窗口文档 watcher 观察原生配置来源及链接目标；缺失父目录只观察最近现存祖先，注册不创建用户目录。版本检查只返回路径和一致性，不传 XML；模型发布和执行前检查原生版本，外部变化撤销模型/草稿，自己的保存与回读不误取消。插件撤销等待来源读取排空。Run/Java/Agent 与旧数据迁移和实机验收仍未完成，产品能力准入保持关闭。"
+  }
 }

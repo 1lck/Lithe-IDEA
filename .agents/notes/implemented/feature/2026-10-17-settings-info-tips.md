@@ -2,6 +2,10 @@
 
 状态：已实现
 
+> 2026-11-08 Viva 迁移：下文的原生组件、设置页面与截图验收属于迁移前的 macOS
+> 客户端。Viva 的设置窗口已有部分页面和共享文案，但尚未实现本文所述完整的 ⓘ
+> 交互与各功能页面；不能将旧测试或下文旧页面的状态当成 Viva 已完成的证据。
+
 ## 先说结论
 
 设置页不再把每项功能的解释作为常驻小字堆在控件下面。说明文字收进设置标签后面的 ⓘ 图标：默认只显示一个符号，指针停留半秒、点击图标或用键盘打开时才显示解释。行级说明使用 `LitheSettingsLabel` 和 `LitheInfoTip`，分组级说明使用 `LitheSettingsSection` 的 accessory。控件统一靠右对齐，分组间距收紧，编辑器字体页增加实时预览和切换前后的短暂对比。错误、警告、保存结果、空态和动态状态仍然直接显示。用户可修改的配置处于自动、默认或继承状态时，显示“自动（实际生效值）”，不只写“自动”。
@@ -11,6 +15,8 @@
 Issue #1316 的截图里，通用、Git 和 Agent 管理页在几乎每个控件下面都有一段说明。说明本身有价值，但常驻显示让页面看起来密密麻麻，用户只想改一个开关时也要先扫过大量文字。用户提出的目标模式是“默认只有一个符号跟在设置后面，鼠标悬停约半秒再显示具体含义”；进程终止策略页此前已经用 ⓘ 做到了这一点，但其它设置页仍在复制常驻说明。
 
 ## 决策
+
+- Viva 设置窗口（Page 写法）把说明放在 ⓘ 中，用 `ui.Popover` 与 `.Tooltip`：点击或键盘激活固定，再次激活、点击其他位置或按 Escape 关闭。标题和说明用共享文案，弹层不在关闭页面后保留。Viva 目前的悬停提示没有延迟（`components.HoverTooltipDelay` 为 0，且不能按控件设置），所以悬停后立即显示，不是 500 ms；上游提供延迟设置后恢复约 500 ms。
 
 - 纯解释性文案放进 `LitheInfoTip`。它已经有 500 ms 悬停延迟、点击固定、键盘 Space/Return 打开和 VoiceOver 读取 `accessibilityHint` 的能力，不在各页面重复实现。
 - 行内设置标签用 `LitheSettingsLabel(title, info:)`，把标题和 ⓘ 放在同一个 `HStack` 里；分组标题用 `LitheSettingsSection(title:accessory:)`，把说明图标放在分组线左侧。
@@ -74,11 +80,19 @@ Issue 举的是通用、Git 和 Agent 管理三个页面，但同类常驻说明
 
 ## 验证
 
-- `./scripts/macos/test/test-macos.sh --filter ContextMenuCoverageTests`：深浅主题下，已请求打开的弹层先在窗口外创建，再挂载锚点，必须自动显示；移除锚点必须关闭。
+- `scripts/desktop/desktop-go.sh test -race ./internal/settingswindow -run '^TestGeneral' -count=3`：以虚拟时间检查常规设置的悬停延迟、点击固定、Escape 和键盘操作，并检查窄窗口中的系统外观实际值；不证明所有设置页或真实窗口已验收。
+- `node scripts/i18n/verify-app-language-localization.mjs` 与 `node scripts/i18n/generate-i18n.mjs --check`：检查共享界面文案与生成结果。
+- 完整提示交互、各设置页及 macOS / Windows 实际窗口仍需实现并验收。
 
-- `./scripts/macos/test/test-macos.sh --filter GitSettingsPresentationTests` 与 `cargo test --manifest-path rust/Cargo.toml -p lithe-core git::configuration::`（Git 布尔等价写法、无值/空值、原始编辑值不变、远程覆盖以及 prune/all/none/reachable 回显）
-- `./scripts/macos/test/test-macos.sh --filter SettingsSearchVocabularyTests`
-- `./scripts/macos/test/test-macos.sh --filter SettingsSidebarLayoutTests`
+## 迁移前的验证记录
+
+以下测试和手工流程属于迁移前客户端，保留验收要求，不能代表 Viva 已通过。
+
+- ~~./scripts/macos/test/test-macos.sh --filter ContextMenuCoverageTests~~（随旧客户端移除）：深浅主题下，已请求打开的弹层先在窗口外创建，再挂载锚点，必须自动显示；移除锚点必须关闭。
+
+- ~~./scripts/macos/test/test-macos.sh --filter GitSettingsPresentationTests~~（随旧客户端移除） 与 `cargo test --manifest-path rust/Cargo.toml -p lithe-core git::configuration::`（Git 布尔等价写法、无值/空值、原始编辑值不变、远程覆盖以及 prune/all/none/reachable 回显）
+- ~~./scripts/macos/test/test-macos.sh --filter SettingsSearchVocabularyTests~~（随旧客户端移除）
+- ~~./scripts/macos/test/test-macos.sh --filter SettingsSidebarLayoutTests~~（随旧客户端移除）
 - `./scripts/agent-notes/verify-agent-notes.sh`
 - 实机打开设置通用、Git 和 Agents 页：默认只显示标签和 ⓘ；悬停约半秒出现说明，移开关闭；点击图标固定；用 Tab 聚焦后 Space/Return 打开；错误、警告和空态仍然直接可见。
 - 实机打开编辑器页：下拉框和步进器贴内容区右缘；切换字体后旧字体和新字体并列显示约 2.5 秒再淡出；调整字号时预览同步变化。
@@ -91,20 +105,27 @@ Issue 举的是通用、Git 和 Agent 管理三个页面，但同类常驻说明
 - 实机反复在多组 ⓘ 之间移动指针：不出现页面跳动或明显掉帧；悬停约半秒才打开说明。
 - 实机打开插件详情的设置区：说明默认收起为 ⓘ，数值和下拉控件保持可编辑。
 
+## 迁移前的源码范围
+
+以下路径位于[迁移前的 preview 修订](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36)，不代表当前工作树仍有这些实现。
+
+- ~~`macos/Sources/Lithe/Views/Components/LitheInfoTip.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/App/SettingsView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/App/GitExecutionSettingsView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/App/GitFetchSettingsView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/App/PluginSettingsSection.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/App/ContributedSettingsPageView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/App/McpSettingsView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/AgentSetupDiagnostics.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheGitModule/Application/GitRepositorySetupFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Agent/AgentPanelSettingsView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Agent/AgentProviderConfigurationView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Run/RunConfigurationEditorView.swift`~~（已随 #1794 移除）
+- ~~`macos/Resources/en.lproj/Localizable.strings`~~（已随 #1794 移除）
+- ~~`macos/Resources/zh-Hans.lproj/Localizable.strings`~~（已随 #1794 移除）
+
 ## 适用范围
 
-- `macos/Sources/Lithe/Views/Components/LitheInfoTip.swift`
-- `macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift`
-- `macos/Sources/Lithe/Views/App/SettingsView.swift`
-- `macos/Sources/Lithe/Views/App/GitExecutionSettingsView.swift`
-- `macos/Sources/Lithe/Views/App/GitFetchSettingsView.swift`
-- `macos/Sources/Lithe/Views/App/PluginSettingsSection.swift`
-- `macos/Sources/Lithe/Views/App/ContributedSettingsPageView.swift`
-- `macos/Sources/Lithe/Views/App/McpSettingsView.swift`
-- `macos/Sources/Lithe/Application/Features/AgentSetupDiagnostics.swift`
-- `macos/Sources/LitheGitModule/Application/GitRepositorySetupFeatureModel.swift`
-- `macos/Sources/Lithe/Views/Agent/AgentPanelSettingsView.swift`
-- `macos/Sources/Lithe/Views/Agent/AgentProviderConfigurationView.swift`
-- `macos/Sources/Lithe/Views/Run/RunConfigurationEditorView.swift`
-- `macos/Resources/en.lproj/Localizable.strings`
-- `macos/Resources/zh-Hans.lproj/Localizable.strings`
+- `desktop/internal/settingswindow/`
+- `shared/i18n/`

@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态：下文是旧客户端的依赖浏览器及 Provider 边界。当前 Viva 尚未接入依赖侧栏、依赖快照或语言服务器工作流，旧版的索引、导航和平台验收不能当作当前能力。历史实现与测试入口见[迁移前笔记](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-09-18-workspace-dependency-browser.md)。
+
 ## 先说结论
 
 依赖侧栏只显示语言能力明确注册的依赖源，不把运行配置自动复制过来。语言插件从语言服务（LSP）或其上游项目模型取得工作区外的依赖根和虚拟文档，再交给统一的树模型。内置 Java 同样走这条入口：JDT LS 项目准备好后读取其已解析的 classpath；Docker Compose、Node 脚本和 Java 启动项仍在 Run 面板，但仅有运行配置不会进入依赖树。
@@ -50,6 +52,8 @@
 
 ## 验证
 
+以下 Swift 构建和测试是旧客户端的历史验证；Viva 实现依赖浏览器后需重新验证插件快照、索引失效、导航和目标平台行为。
+
 - `swift build --target LitheExecutionModule`
 - `swift build --target Lithe`
 - `swift test --filter DependencyProviderTests`
@@ -58,18 +62,10 @@
 - `swift test --filter 'dependencyBrowserRequiresExplicitLanguageRegistration|runConfigurationsDoNotInjectDependencySources|genericProviderUsesRunServiceIdentityAndPaths|dependencyPathConfigurationDecodesPartialJson'`
 - `swift test --filter DependencyPathSelectionTests`
 - `./scripts/agent-notes/verify-agent-notes.sh`
-- `./scripts/architecture/verify-service-boundaries.sh`
+- 旧版服务边界检查已移除，历史命令见上方迁移前笔记；等价检查恢复前不能记作当前门禁已通过。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 
 ## 适用范围
 
-- `macos/Sources/LitheLanguageIntelligenceModule/Services/LanguageToolingSessionManager.swift`
-- `macos/Sources/LitheLanguageIntelligenceModule/Module/LanguageIntelligenceModule.swift`
-- `macos/Sources/LitheExecutionModule/Dependencies/RunServiceDependencyProvider.swift`
-- `macos/Sources/LitheExecutionModule/Services/RunService.swift`
-- `macos/Sources/LitheExecutionModule/Application/ExecutionFeatureModels.swift`
-- `macos/Sources/Lithe/Views/Workspace/DependencySidebarView.swift`
-- `macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Persistence/MacWorkspaceDependencyStore.swift`
-- `macos/Sources/LitheModuleAPI/Plugins/PluginTypes.swift`
-- `macos/Sources/LitheCoreContracts/Dependencies/DependencyContracts.swift`
+- `desktop/internal/workbench/catalog.go`
+- `shared/platform-feature-matrix/features/dependency-browser.json`

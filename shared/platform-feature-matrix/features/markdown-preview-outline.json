@@ -4,20 +4,40 @@
   "group": "Markdown",
   "capability": "Markdown 预览目录默认展开、全高滚动与标题跳转",
   "macos": {
-    "evidence": [
-      "macos/Sources/Lithe/Resources/MarkdownPreview/preview.js",
-      "macos/Sources/Lithe/Resources/MarkdownPreview/preview.css"
-    ],
     "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/markdown_preview.go",
+      "desktop/internal/workbench/markdown_preview_test.go"
+    ]
   },
   "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "windows/tauri/src/features/editor/markdown/markdown-preview.tsx"
-    ],
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable"
+      "desktop/internal/workbench/markdown_preview.go",
+      "desktop/internal/workbench/markdown_preview_test.go"
+    ]
   },
   "owner": "Editor",
-  "verification": "在 macOS 原生 Lithe 打开含 60 节标题的 Markdown，验证默认展开、全高目录独立滚动、末尾标题跳转后保持展开、按钮与 Escape 收起；分栏中编辑保存及外部刷新保留折叠选择，删除全部标题隐藏目录，恢复标题保留展开偏好；检查短文档与无标题文档、宽预览正文避让和窄预览可收起。Windows 目录入口待实现。 补充无标题时按 Escape 关闭图片后恢复标题的展开偏好验证。"
+  "verification": "在 macOS 原生 Lithe 打开含 60 节标题的 Markdown，验证默认展开、全高目录独立滚动、末尾标题跳转后保持展开、按钮与 Escape 收起；分栏中编辑保存及外部刷新保留折叠选择，删除全部标题隐藏目录，恢复标题保留展开偏好；检查短文档与无标题文档、宽预览正文避让和窄预览可收起。Viva 新桌面端：打开含 40 节标题的 Markdown，点目录选末尾标题后源码与渲染页同时滚到该标题；编辑新增标题后目录更新（scripts/desktop/desktop-go.sh test ./internal/workbench -run TestMarkdown -count=1）。 补充无标题时按 Escape 关闭图片后恢复标题的展开偏好验证。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Resources/MarkdownPreview/preview.js",
+        "macos/Sources/Lithe/Resources/MarkdownPreview/preview.css"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features/editor/markdown/markdown-preview.tsx"
+      ],
+      "implementationStatus": "missing",
+      "verificationStatus": "not-applicable"
+    }
+  },
+  "notes": "Viva：渲染页右上角的“目录”按钮打开标题列表弹窗，标题由源码派生、随编辑更新，按级别缩进，列表最高 400 点、可独立滚动；点击或回车关闭弹窗并把源码与渲染页一起滚到该标题。无标题时不显示按钮。"
 }

@@ -321,12 +321,12 @@ SQL 执行状态栏沿同版 `EditorMarkupModelImpl` 的共享几何：右侧 14
 ## 验证
 
 - `./scripts/agent-notes/verify-agent-notes.sh`
-- `./scripts/architecture/verify-module-boundaries.sh`
-- `./scripts/architecture/verify-service-boundaries.sh`
-- `./scripts/architecture/verify-shared-contracts.sh`
-- `./scripts/macos/test/test-macos.sh`
-- `macos/Tests/LitheApplicationKernelTests/ModuleRuntimeTests.swift`
-- `macos/Tests/LitheTests/DatabaseWorkspaceLifecycleTests.swift`
+- ~~./scripts/architecture/verify-module-boundaries.sh~~（随旧客户端移除）
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
+- ~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除）
+- ~~`macos/Tests/LitheApplicationKernelTests/ModuleRuntimeTests.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/DatabaseWorkspaceLifecycleTests.swift`~~（已随 #1794 移除）
 
 这些检查覆盖禁用模块不调用 factory、依赖顺序、能力冲突、lease 阻塞
 休眠、资源回收、唤醒重建、关闭清理、贡献目录、Safe Mode、隔离恢复和
@@ -334,15 +334,15 @@ SQL 执行状态栏沿同版 `EditorMarkupModelImpl` 的共享几何：右侧 14
 
 ## 适用范围
 
-- `macos/Sources/LitheModuleAPI/`
-- `macos/Sources/LitheApplicationKernel/`
-- `macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`
-- `macos/Sources/LitheApplicationKernel/Registry/ModuleRegistry.swift`
-- `macos/Sources/Lithe/`
-- `macos/Sources/Lithe*Module/`
+- ~~`macos/Sources/LitheModuleAPI/`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheApplicationKernel/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheApplicationKernel/Registry/ModuleRegistry.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe*Module/`~~（已随 #1794 移除）
 - 已迁出：原 `Plugins/mac/Official/`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
-- `macos/Tests/LitheApplicationKernelTests/`
-- `scripts/architecture/verify-module-boundaries.sh`
+- ~~`macos/Tests/LitheApplicationKernelTests/`~~（已随 #1794 移除）
+- ~~`scripts/architecture/verify-module-boundaries.sh`~~（脚本已随旧客户端移除）
 
 Redis Key Browser 的标题栏、DB 标识、SCAN 搜索/刷新与空状态接入现有共享控件；移除红色图标底板、胶囊及局部错误条，错误统一由已有协调器通知，不重复显示。Estimate size 是布尔选项，沿用 Community `c7f91397` 的 `DarculaCheckBoxUI` 复选框语义，macOS 复用原生常规 checkbox 而非另写 Java 绘制器；刷新/搜索沿用同版原始 SVG 和共享 22pt 工具栏按钮。空浏览区填充可用高度，搜索保持顶部，避免空状态固有高度把整列垂直居中。此调整仅覆盖 Redis 截图指定区域，Nacos 和 Redis 有值编辑表单保持现有实现。
 

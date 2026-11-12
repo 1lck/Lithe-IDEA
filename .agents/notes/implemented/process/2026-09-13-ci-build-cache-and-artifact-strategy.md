@@ -2,6 +2,21 @@
 
 状态：已实现
 
+> 2026-11-08 Viva 迁移：下文大部分 Swift/Tauri 工作流、缓存和测试记录是迁移前历史，
+> 不能当作当前分支仍有这些门禁。当前 `desktop-ci.yml` 对 Draft PR 运行 Linux 格式、
+> 脚本和桌面测试，非 Draft 另运行 macOS 与 Windows 测试；Core 的源码和构建缓存按
+> 系统、架构、工具链与构建脚本身份区分。旧资源复用脚本、旧分片和 lane 复用尚未迁移。
+
+Windows 的 Rust 静态库还会依赖 Cargo crate 提供的导入库，不能只传系统库名称给
+Go 链接器。桌面构建入口读取对应 target/profile 的 Cargo 构建输出，把实际使用的
+导入库目录加入链接搜索路径；相同库名对应不同字节时拒绝构建，避免误用旧缓存。
+路径按 Go 的参数解析规则整体引用，包含空格的工作树和 Cargo 目录也可使用。
+
+首次克隆 Core 使用 `--no-checkout`。即使克隆的 HEAD 已经等于固定修订，也必须在
+没有 Git 索引时检出工作树；否则 Cargo 清单不存在。这个恢复不使用 `--force`，
+因此冲突的未跟踪文件会阻止检出。已有索引的工作树如果缺少清单则报错，不静默
+恢复用户删除的文件。
+
 ## 先说结论
 
 CI 缓存的是经过版本和依赖约束的中间构建结果，不缓存最终安装包。普通
@@ -83,7 +98,7 @@ Mac mini Runner，因为离线时没有回退、fork 代码跑在长期存活的
   以及它直接或经由 composite action 间接引用的本地 action、reusable workflow。引用
   关系在规划时从 base 和 head 两个修订读取，不手写清单，新增 action 不用改规则。
   release、取消旧运行等不被引用的 workflow 改动不让任何 PR lane 重跑。
-- `windows/` 下的 Cargo 清单与锁文件、Rust 工具链和前端 `package.json`、
+- ~~`windows/`~~（已随 #1794 移除） 下的 Cargo 清单与锁文件、Rust 工具链和前端 `package.json`、
   `scripts/` 下文件名含 `windows` 的 `.ps1`/`.mjs`/`.ts` 脚本（按用途分目录后可在
   `scripts/windows/`、`scripts/release/windows/` 等多个目录）、`test-stability-windows.ps1`
   只影响 Windows CI。Windows 产品通过
@@ -91,7 +106,7 @@ Mac mini Runner，因为离线时没有回退、fork 代码跑在长期存活的
 - `Package.swift`/`Package.resolved`/`.swift-version`、`test-macos.sh`、Rust Core 构建与
   验证脚本、`test-stability-macos.sh` 同时影响 macOS CI 和插件 CI，因为插件 workflow
   也通过 macOS 工具链 action 和 `test-macos.sh` 构建。
-- `frontend/editor/package.json` 与分类规则一致，影响 macOS 和 Windows。分类脚本、规划
+- ~~`frontend/editor/package.json`~~（已随 #1794 移除） 与分类规则一致，影响 macOS 和 Windows。分类脚本、规划
   与校验脚本、根目录 Bun workspace、其余测试基础设施仍影响全部 workflow。
 
 不要把规则改成“所有基础设施改动都全量重跑”来图省事：同步 `preview` 是最常见的
@@ -157,7 +172,7 @@ Swift 测试 job 同时承担 Rust Core 的 Swift 链接验证：
 job 只运行 `scripts/rust-core/verify-rust-core-crates.sh` 的纯 Rust 检查。此前两个 job
 各自完整编译一次 Swift，同一个 PR 同时改 Swift 和 Rust 时会重复占用一个
 macOS 槽位约十分钟。只改 Rust 时 Swift 测试 job 仍会启动，但只编译并运行
-桥接验证，不跑完整单元测试。本地 `scripts/rust-core/verify-rust-core.sh` 依次运行两半，
+桥接验证，不跑完整单元测试。本地 ~~scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除） 依次运行两半，
 入口不变。
 
 纯 Rust 通道的 Agent Host（Agent 进程和协议宿主）使用计时 runner 默认的
@@ -177,7 +192,7 @@ Agent Host 及 ACP/MCP 协议依赖时，触发了原先的两分钟总限额，
 没有提高测试执行预算，也不把源任务失败或未生成测试报告当成通过。代价是异常
 冷编译最多占用更久的 runner；不能用整个 job 的超时替代单测试的有界等待。
 
-Swift 测试通道使用同样的分离方式。运行 `39943871840` 中，`scripts/macos/test/test-macos.sh list`
+Swift 测试通道使用同样的分离方式。运行 `39943871840` 中，~~scripts/macos/test/test-macos.sh list~~（随旧客户端移除）
 在 20 分钟上限到期时仍停在 1406/1456 个编译任务；被复用的失败任务又使 macOS 门禁
 失败。`swift-tests` 的编译步骤现为 40 分钟、整个 job 80 分钟，与插件通道一致；
 单元、插件和数据库测试仍使用 960 秒执行预算和 17 分钟外层步骤。构建失败时跳过合并
@@ -225,7 +240,7 @@ macOS runner（GitHub 托管的 Mac 构建机）按组织共享，Free 计划同
 但会拖慢所有 PR 的反馈。因此：
 
 - 主 Swift 测试和 Rust Core 桥接检查共用 macOS CI 的 **Swift tests** job，只执行
-  一次 `./scripts/macos/test/test-macos.sh list` 编译，再按分类结果运行各自的过滤测试。
+  一次 ~~./scripts/macos/test/test-macos.sh list~~（随旧客户端移除） 编译，再按分类结果运行各自的过滤测试。
   过去独立的数据库 job 单独编译约 10 分钟，只为运行十几秒测试；数据库改为插件
   后，这条 lane 和 Database CI 已一起删除。
 - 远程工作区的三个 crate（`lithe-remote-*`）走独立的 Remote Workspace CI，只在
@@ -264,7 +279,7 @@ macOS runner（GitHub 托管的 Mac 构建机）按组织共享，Free 计划同
 
 正确做法：新增 Swift 专项测试时，在共用 **Swift tests** job 里加一个按分类
 结果执行的过滤步骤。不要这样做：新建一个 macOS job 再跑一遍
-`./scripts/macos/test/test-macos.sh list`，这会让每次推送多占一个 macOS runner 约
+~~./scripts/macos/test/test-macos.sh list~~（随旧客户端移除），这会让每次推送多占一个 macOS runner 约
 10 分钟。
 
 Git 性能基线和 Git 状态观察属于专项验证。只有 Git 生产代码、对应专项测试或
@@ -467,6 +482,16 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 
 ## 验证
 
+- `make -C desktop check`：当前 macOS 本机的格式、vet 和 Go 测试；它不证明 GitHub Actions 或 Windows 已通过。
+- `scripts/desktop/desktop-go.sh test ./internal/core -run '^TestDesktopGoFindsWindowsCargoImportLibraries$'`：受控 Cargo 输出夹具验证导入库发现、带空格路径和冲突拒绝；Windows 实机仍须编译与链接实际 Core。
+- `scripts/desktop/desktop-go.sh test ./internal/core -run '^TestBuildDesktopCoreChecksOutFreshPinnedRevision$'`：使用本地 Git 仓库和编译器替身验证空工作树检出，并确认不会恢复已有工作树中主动删除的文件。
+- `node --test scripts/ci/cancel-closed-pr-runs/cancel-closed-pr-runs.test.mjs`：当前关闭 PR 后取消运行的离线测试。
+- 真实 Linux、Windows CI 和发布流程需要各自执行验收；旧 Windows 工作流已删除，稳定测试工具的旧工作流自测目前不能通过。
+
+## 迁移前的验证记录
+
+下列命令和测试结果针对迁移前工作流，仅用于追溯，不能证明当前 Viva 工作流具备相同门禁。
+
 2026-11-03 的完整验证还修复两处既有测试夹具问题，不能靠跳过测试或放宽预算
 取得耗时收益。箭头测试的 1× 事件上下文复现与恢复边界见
 [Git 图谱决策](../feature/2026-09-13-macos-git-graph-intellij-layout.md)。本地历史
@@ -479,18 +504,18 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 
 
 - `actionlint .github/workflows/ci-macos.yml .github/workflows/ci-windows.yml .github/workflows/ci-plugins.yml .github/workflows/ci-remote.yml`
-- `./scripts/ci/common/test-classify-ci-changes.sh`：包含 Draft PR 关闭 runner lane、保留 Linux lane，以及 macOS Java 不触发 real-JDT、共享引擎和 Windows Java 仍触发的正反例。
+- ~~./scripts/ci/common/test-classify-ci-changes.sh~~（随旧客户端移除）：包含 Draft PR 关闭 runner lane、保留 Linux lane，以及 macOS Java 不触发 real-JDT、共享引擎和 Windows Java 仍触发的正反例。
 - `node --test scripts/ci/common/ci-workflow-gates.test.mjs scripts/ci/common/plan-ci-lane-reuse.test.mjs scripts/ci/common/verify-reused-ci-jobs.test.mjs`：从实际工作流执行 gate shell，验证取消条件、分类/测试失败、lane 覆盖及复用来源的失败传播。
 - `node --test scripts/ci/cancel-closed-pr-runs/cancel-closed-pr-runs.test.mjs`：用离线 GitHub CLI 替身执行关闭清理，验证分页历史运行、来源隔离、关闭时间、取消竞争和 API 失败传播。
-- `./scripts/ci/common/test-classify-ci-changes.sh` 覆盖 `save-macos-cargo-build-cache` 改动触发全部 macOS lane。
+- ~~./scripts/ci/common/test-classify-ci-changes.sh~~（随旧客户端移除） 覆盖 `save-macos-cargo-build-cache` 改动触发全部 macOS lane。
 - `actionlint .github/workflows/ci-macos.yml .github/workflows/release-preview-macos.yml`
-- `./scripts/macos/test/test-macos.sh`
+- ~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除）
 - `./scripts/macos/perf/test-git-performance-baseline.sh`
-- `./scripts/macos/build/build-macos.sh --configuration debug --triple arm64-apple-macosx`
+- ~~./scripts/macos/build/build-macos.sh --configuration debug --triple arm64-apple-macosx~~（随旧客户端移除）
 - `node --test scripts/macos/build/build-macos.test.mjs scripts/resources/test-reuse-worktree-resources.mjs`：离线工具替身验证 scratch 清理与编译参数一致、按架构失效、旧策略迁移、失败不误记成功、继续编译、默认布局和资源复用拒绝。
-- `./scripts/macos/build/build-macos.sh --configuration debug --triple x86_64-apple-macosx`
-- `./scripts/rust-core/verify-rust-core.sh`
-- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- ~~./scripts/macos/build/build-macos.sh --configuration debug --triple x86_64-apple-macosx~~（随旧客户端移除）
+- ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）
+- ~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）
 - `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory . --max-ms 30000 --report .artifacts/test-stability/windows-dependency-install.json -- scripts/windows/build/windows-frontend-install.test.ts`：Windows 无网络夹具用 IPC 确认子进程占用目录，再让安装失败，验证清理后冷重试成功、永久失败仍报错、成功退出也不留子进程、超时触发本地期限，且不清除有效缓存。
 - `gh run download <run-id> --repo 1lck/Lithe-IDEA --pattern 'Lithe-macos-*'`
 - `gh workflow run release-preview-windows.yml -f source_branch=<branch>`
@@ -498,25 +523,36 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 具体下载方式、工作流入口和历史耗时记录见
 [`docs/ci-builds.md`](../../../../docs/ci-builds.md)。
 
-## 适用范围
+## 迁移前的源码范围
+
+以下旧路径位于[迁移前的 preview 修订](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36)；Core 链接指向当前锁定修订。
 
 - `docs/ci-builds.md`
-- `.github/workflows/ci-macos.yml`
-- `.github/workflows/ci-windows.yml`
+- ~~`.github/workflows/ci-macos.yml`~~（已随 #1794 移除）
+- ~~`.github/workflows/ci-windows.yml`~~（已随 #1794 移除）
 - `.github/workflows/ci-remote.yml`
-- `.github/workflows/ci-plugins.yml`
-- `scripts/ci/common/classify-ci-changes.sh`
-- `scripts/windows/build/install-windows-frontend-dependencies.ps1`
-- `scripts/windows/build/invoke-windows-bun-install.ps1`
-- `scripts/windows/build/windows-frontend-install.test.ts`
-- `scripts/ci/common/test-classify-ci-changes.sh`
-- `scripts/macos/build/build-macos.sh`
+- ~~`.github/workflows/ci-plugins.yml`~~（已随 #1794 移除）
+- ~~`scripts/ci/common/classify-ci-changes.sh`~~（脚本已随旧客户端移除）
+- ~~`scripts/windows/build/install-windows-frontend-dependencies.ps1`~~（脚本已随旧客户端移除）
+- ~~`scripts/windows/build/invoke-windows-bun-install.ps1`~~（脚本已随旧客户端移除）
+- ~~`scripts/windows/build/windows-frontend-install.test.ts`~~（脚本已随旧客户端移除）
+- ~~`scripts/ci/common/test-classify-ci-changes.sh`~~（脚本已随旧客户端移除）
+- ~~scripts/macos/build/build-macos.sh~~（随旧客户端移除）
 - `scripts/macos/build/build-macos.test.mjs`
 - `scripts/resources/worktree-resources.json`
 - `scripts/resources/reuse-worktree-resources.mjs`
 - `scripts/resources/test-reuse-worktree-resources.mjs`
-- `scripts/rust-core/verify-rust-core.sh`
+- ~~scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）
 - `scripts/macos/build/MacOS13SDKCompatibility.h`
-- `rust/`
-- `macos/`
-- `windows/tauri/`
+- Lithe-core-rust 锁定修订：[rust/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust)
+- ~~`macos/`~~（已随 #1794 移除）
+- ~~`windows/tauri/`~~（已随 #1794 移除）
+
+## 适用范围
+
+- `.github/workflows/desktop-ci.yml`
+- `.github/workflows/desktop-release.yml`
+- `scripts/desktop/build-desktop-core.sh`
+- `scripts/desktop/desktop-go.sh`
+- `scripts/ci/cancel-closed-pr-runs/`
+- `docs/ci-builds.md`

@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态：下文的动态原生窗口标题和 Windows 实机验证属于旧客户端。当前 Viva 窗口配置的系统标题是应用名，欢迎页绘制的本地化标题只在应用界面内；项目、文件、同名路径和工具焦点尚未同步到任务栏或 Alt+Tab。旧实现与测试命令见[迁移前笔记](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/feature/2026-10-02-windows-taskbar-project-titles.md)。
+
 ## 先说结论
 
 Windows 工作台把当前项目和活动文件写入原生窗口标题，任务栏预览和 Alt+Tab 因而可以区分项目。展示名称复用项目标签的名称与别名；所有打开项目中出现同名时，附加项目路径。终端、搜索和 Diff 等工具页激活时只显示项目，标题同步不改变项目切换、窗口归属或编辑器状态。
@@ -50,6 +52,8 @@ Tauri 宿主保存内存中的窗口展示投影，借助现有本地项目身�
 
 ## 验证
 
+本节以下是旧客户端的历史验证；Viva 接入系统标题后需要在 Windows 重新验证窗口与焦点切换。
+
 Windows CI 显式运行标题上下文、来源、同步和焦点四组前端回归，每组使用独立 Bun 进程和 60 秒总期限，失败立即退出并上传逐测试 HTML/JUnit 报告。能力记录保存在 `shared/platform-feature-matrix/features/windows-taskbar-project-titles.json`；生成的矩阵视图只保留在 `.artifacts/`，不恢复旧版汇总 JSON 或 CSV。
 
 自动化结果：29 项前端标题测试、16 项宿主标题测试通过；包含相关现有功能的前端计时测试共 64 项，项目与终端适配计时测试分别为 27 项和 37 项，Windows 宿主计时测试共 230 项，均通过。覆盖搜索焦点及工作区切换、失败应答后的 A/B/A 恢复、初始化身份刷新、登记快照复用、路径回退、锁与 UI 应答截止时间、旧请求及窗口销毁。异步测试使用可控事件、Promise 和已到期截止时间，不依赖 sleep 或网络故障。HTML、JUnit 与逐测试计时 JSON 保存在忽略的 `.artifacts/test-stability/`，不提交构建产物或测试报告。
@@ -65,22 +69,14 @@ Windows CI 显式运行标题上下文、来源、同步和焦点四组前端回
 - `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml window_title`。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1`。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend`，以及 WindowsRust 计时测试，检查逐测试 HTML/JUnit 报告。
-- `./scripts/windows/verify/verify-windows-boundaries.ps1`。
 - `node scripts/agent-notes/verify-agent-notes.mjs`。
 - `node scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs --check`。
-- `./scripts/windows/build/build-windows.ps1 -Configuration Release`，然后运行 Windows 宿主的完整 Cargo 测试。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`；本机没有 zsh，原脚本未运行；已使用脚本原有的两条正则做只读扫描，未发现安装目录写入。不修改校验规则或宣称原脚本通过。
+- 旧版 Windows 边界与发行构建脚本的命令见上方迁移前笔记；这些脚本不能用于当前 Viva。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`；本机没有 zsh，原脚本未运行；已使用脚本原有的两条正则做只读扫描，未发现安装目录写入。不修改校验规则或宣称原脚本通过。
 - Windows 实机：打开不同项目与不同目录的同名项目，悬停任务栏并打开 Alt+Tab；切换项目、分屏、文件及工具页；修改别名，关闭项目与窗口，检查其他窗口标题恢复。覆盖独立文件、中文名称、UNC 路径及初始化失败，验收结束清理本次启动的应用。
 
 ## 适用范围
 
-- `windows/tauri/src/features/window/utils/window-title-context.ts`
-- `windows/tauri/src/features/window/services/window-title-sync.ts`
-- `windows/tauri/src/features/window/services/window-title-source.ts`
-- `windows/tauri/src/features/window/services/window-title-focus.ts`
-- `windows/tauri/src/features/window/hooks/use-native-window-title.ts`
-- `windows/tauri/src/workbench-app.tsx`
-- `windows/tauri/src-tauri/src/window_title.rs`
-- `windows/tauri/src-tauri/src/main.rs`
-- `windows/tauri/src-tauri/src/host.rs`
+- `desktop/internal/workbench/app.go`
+- `desktop/internal/workbench/welcome.go`
 - `shared/platform-feature-matrix/features/windows-taskbar-project-titles.json`

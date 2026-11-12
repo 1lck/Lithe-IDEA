@@ -124,12 +124,12 @@ JDT 就绪后才出现，JDT 不可用时这一项没有提示（其他输入照
 ## 验证
 
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
-- `./scripts/windows/verify/verify-windows-boundaries.sh`
-- `./scripts/architecture/verify-shared-contracts.sh`
+- ~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
 - `./scripts/agent-notes/verify-agent-notes.sh`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/run/stores/run-project-load.test.ts`
-- `./scripts/rust-core/verify-rust-core.sh`
-- `./scripts/macos/test/test-macos.sh`
+- ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）
+- ~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除）
 
 回归测试控制校验完成的时机，验证提前显示、超时保留配置、过期提示以及旧结果隔离。
 #507 的测试覆盖：普通源码只按路径、入口源码仍按内容、JDT 比对的新增/删除/模块前缀、
@@ -137,10 +137,10 @@ JDT 就绪后才出现，JDT 不可用时这一项没有提示（其他输入照
 
 ## 适用范围
 
-- `windows/tauri/src/features/run/stores/run.store.ts`
-- `windows/tauri/src/features/run/stores/run-project-load.test.ts`
-- `windows/tauri/src/features/run/api/run-core-api.ts`
-- `rust/lithe-core/src/execution/configuration.rs`
+- ~~`windows/tauri/src/features/run/stores/run.store.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/run/stores/run-project-load.test.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/run/api/run-core-api.ts`~~（已随 #1794 移除）
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/execution/configuration.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/execution/configuration.rs)
 - `shared/contracts/run-configuration-v2.schema.json`
-- `macos/Sources/LitheExecutionModule/Services/RunService.swift`
+- ~~`macos/Sources/LitheExecutionModule/Services/RunService.swift`~~（已随 #1794 移除）
 - 已迁出：原 `macos/Sources/Lithe/Models/AppModel/AppModel+JavaEntrypoints.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。

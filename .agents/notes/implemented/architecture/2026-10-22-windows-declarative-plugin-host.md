@@ -2,6 +2,10 @@
 
 状态：已实现
 
+> 2026-11-08 Viva 迁移：本文记录的是已移除的 Windows Tauri 宿主及其历史验收。
+> 当前 Viva 只有声明校验、启动计划与 Core 后端会话的适配层和受控测试，尚未接入
+> 可信安装、插件发现、授权服务和产品生命周期；旧 Tauri 宿主和 WebView2 验收不能视为 Viva 已完成。
+
 ## 先说结论
 
 Windows 新增一套契约 v1 声明式插件宿主，与现有 Worker 扩展模型长期并行：需要宿主代用户拉起进程的语言与构建插件走契约宿主，宿主内运行 UI 与服务行为的扩展（主题、AI provider 等）留在 Worker 模型。契约引擎不需要新写——`lithe-core` 已经编译进 Windows 宿主，经 `core_execute` 就能调用 `plugins.declarative.*` 与 `plugins.marketplace.*`。M1 已落地：包存储、启动扫描与隔离、语言服务器启动计划解析，以及共享 fixtures 的全量验收；M2 已补磁盘导入安装链、设置内独立管理页和 runtime 启动的 `minimumVersion` 探测；M3 已补声明式设置、运行/测试计划命令与契约版 PHP bundled 包；M4 已补 Web 工具窗口（`lithe-plugin://` scheme、CSP、`window.lithe` 桥 v0）。能力声明开放 `languages:1`、`languageServers:[1,2]`、`serverProcess:1`、`settings:[1,2]`、`ui:[1,2]`，其余能力（`executionProviders`、`buildProviders`、`buildSystems`）仍由 Core 自动拒绝。
@@ -102,6 +106,13 @@ M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁�
 
 ## 验证
 
+- `scripts/desktop/desktop-go.sh test -race ./internal/core -run '^TestPluginBackend' -count=3`：Viva 与 Core 的后端会话及测试进程往返；不包含可信安装或生产宿主服务。
+- Windows 真实插件安装、Web 工具窗口、进程生命周期和发行包不变性均需在 Viva 实现后重新验收。
+
+## 迁移前的验证记录
+
+以下 Tauri 和 WebView2 测试属于迁移前客户端，不代表 Viva 当前通过。
+
 - 多窗口事件投递必须显式指定当前产品窗口的 `Window` target。Tauri 默认 `Any` 监听也接收发给其他 label 的事件，原生 `emit_to(ownerLabel)` 本身不足以隔离接收者；文件请求与生命周期确认均绑定当前窗口，防止其他工作区误处理请求或重复确认。`plugin-lifecycle-listener.test.ts` 检查两类监听的目标。
 - 2026-10-24 Windows Release 实机验收：Playwright/CDP 连接真实 WebView2，测试包安装、ui 1 文本渲染、工作区关闭重开、状态隔离、两个产品窗口归属、主题/语言与重载、过期工作区 openFile 拒绝、双窗口卸载关闭全部插件页均通过；无重复确认异常，外站 HTTP GET 为零，安装包及发行资源哈希不变，应用正常退出。该测试包不替代真实语言服务器的完整安装→启动→即时设置验收，也不覆盖停靠布局。
 - 管理并发回归：`lifecycle.rs` 覆盖原生使用计数排空、禁止晚到获取、逐窗口确认、停止失败、窗口断开和有界超时；`lsp-core-adapter.test.ts` 用可控 Core 响应覆盖停止期间晚到的服务器，断言先停止再拒绝，且 `pluginId` 没有丢失。`plugin-lifecycle-listener.test.ts` 验证收到停用事件立即撤销入口、等待运行和 LSP 两方后才确认。
@@ -114,7 +125,7 @@ M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁�
 - M4 Web 工具窗口：`plugin_host/web.rs` 测试覆盖包路径规范化（`..`、编码分隔符、空段拒绝）、CSP 内容断言（default-src none、无 wasm-unsafe-eval、frame-ancestors none）、桥脚本冻结与作用域、状态键隔离；web-panel fixture 随 `ui:[1,2]` 声明提升转为被宿主接受（能力门控测试同步）。桥 v0 的 build.*/functions.* 返回 `plugin.web.unknownMethod`，等构建系统能力接入。
 
 
-- M3 设置链路：`settings_tests`（`plugin_host/tests.rs`）覆盖项目覆盖往返、其他插件条目保留、损坏 store 报错不重置；能力门控测试随声明提升更新（settings-v2 fixture 被接受）。设置编辑 UI（`declarative-plugin-settings-editor.tsx`）按声明的 scope/effect 渲染并显示值来源徽标。
+- M3 设置链路：`settings_tests`（`plugin_host/tests.rs`）覆盖项目覆盖往返、其他插件条目保留、损坏 store 报错不重置；能力门控测试随声明提升更新（settings fixture 被接受）。设置编辑 UI（`declarative-plugin-settings-editor.tsx`）按声明的 scope/effect 渲染并显示值来源徽标。
 - M3 运行计划：契约 PHP 包端到端测试（`bundled_php_contract_package_expands_plans`）走真实 Core 命令验证 validate、runPlan（`${file}`/`${userArguments}` 展开）、testPlan（workspace scope + 项目标记）、resolveSettings。
 
 
@@ -125,25 +136,34 @@ M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁�
 - 共享 fixtures 全量验收在 Windows 二进制内完成：`invalid-manifests.json` 全部 154 个用例经宿主校验路径断言同一稳定错误码（不带 hostCapabilities 的契约等价模式），合法样例在不带与带 v0 能力声明两种模式下分别断言通过与 `plugin.api.unsupported` 门控。测试入口：`windows/tauri/src-tauri/src/plugin_host/tests.rs`，运行 `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml plugin_host`。
 - 存储与启动的单测覆盖安装记录缺失/损坏隔离、bundled 最高版本选择、版本比较（含 prerelease）、扩展与文件名匹配（大小写与前导点）、packaged 路径逃逸拒绝、runtime 的 `LITHE_<TOOL>_PATH` 导出与 `PATH` 前置。
 - 前端回落链路测试：`windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.test.ts` 断言契约插件启动映射与无归属文件返回 null；启动扫描步骤在 bootstrap 中执行。
-- M1 尚属静态与进程内验证：真实插件包安装→启用→语言服务器拉起的全链路实机验收随 M2/M3 完成，期间矩阵 `verificationStatus` 保持 pending。`./scripts/windows/verify/verify-windows-boundaries.sh`、`./scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh <base> HEAD` 随 PR 通过。
+- M1 尚属静态与进程内验证：真实插件包安装→启用→语言服务器拉起的全链路实机验收随 M2/M3 完成，期间矩阵 `verificationStatus` 保持 pending。~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）、`./scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh <base> HEAD` 随 PR 通过。
+
+## 迁移前的源码范围
+
+以下旧平台路径位于[迁移前的 preview 修订](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36)。
+
+- ~~`windows/tauri/src-tauri/build.rs`~~（已随 #1794 移除）、`capabilities/plugin-web.json` 与 `permissions/declarative-web/bridge.toml`（应用内桥插件及最小来源权限）
+
+- ~~`windows/tauri/src-tauri/src/plugin_host/`~~（已随 #1794 移除）（存储、扫描、启动接线与 fixtures 验收测试）
+- ~~`windows/tauri/src-tauri/src/main.rs`~~（已随 #1794 移除）（模块注册与命令注册）
+- ~~`windows/tauri/src-tauri/src/language_tools.rs`~~（已随 #1794 移除）（复用的系统工具查找）
+- ~~`windows/tauri/src-tauri/src/plugin_host/install.rs`~~（已随 #1794 移除）（磁盘导入、卸载、回滚、启停）
+- ~~`windows/tauri/src-tauri/src/extension_store_placeholder.rs`~~（已随 #1794 移除）（Worker 扩展落盘命令的显式占位）
+- ~~`windows/tauri/src/features/plugins/declarative-plugin-launch.ts`~~（已随 #1794 移除）（前端宿主 API）
+- ~~`windows/tauri/src-tauri/src/plugin_host/settings.rs`~~（已随 #1794 移除）（设置双层存储与命令）
+- ~~`windows/tauri/src-tauri/src/plugin_host/run_plans.rs`~~（已随 #1794 移除）（运行/测试计划命令）
+- ~~`windows/tauri/src/features/plugins/declarative-plugin-settings-editor.tsx`~~（已随 #1794 移除）（设置编辑）
+- ~~`windows/tauri/src/features/plugins/declarative-plugin-run.ts`~~（已随 #1794 移除）（契约插件运行入口）
+- ~~`windows/tauri/src-tauri/src/plugin_host/web.rs`~~（已随 #1794 移除）（Web 工具窗口 scheme、桥与状态）
+- ~~`Plugins/win/Official/PhpSupportContract/`~~（已随 #1794 移除）（契约版 PHP bundled 包）
+- ~~`windows/tauri/src/features/plugins/declarative-plugins-section.tsx`~~（已随 #1794 移除）（设置内管理页）
+- ~~`windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.ts`~~（已随 #1794 移除）（契约插件回落来源）
+- ~~`windows/tauri/src/features/bootstrap/bootstrap-async.ts`~~（已随 #1794 移除）（启动扫描步骤）
+- `shared/platform-feature-matrix/features/declarative-plugin-contract.json`、`plugin-marketplace.json`、`plugin-extension-management.json`、`declarative-plugin-settings.json`、`php-optional-plugin.json`、`plugin-web-tool-windows.json`
 
 ## 适用范围
 
-- `windows/tauri/src-tauri/build.rs`、`capabilities/plugin-web.json` 与 `permissions/declarative-web/bridge.toml`（应用内桥插件及最小来源权限）
-
-- `windows/tauri/src-tauri/src/plugin_host/`（存储、扫描、启动接线与 fixtures 验收测试）
-- `windows/tauri/src-tauri/src/main.rs`（模块注册与命令注册）
-- `windows/tauri/src-tauri/src/language_tools.rs`（复用的系统工具查找）
-- `windows/tauri/src-tauri/src/plugin_host/install.rs`（磁盘导入、卸载、回滚、启停）
-- `windows/tauri/src-tauri/src/extension_store_placeholder.rs`（Worker 扩展落盘命令的显式占位）
-- `windows/tauri/src/features/plugins/declarative-plugin-launch.ts`（前端宿主 API）
-- `windows/tauri/src-tauri/src/plugin_host/settings.rs`（设置双层存储与命令）
-- `windows/tauri/src-tauri/src/plugin_host/run_plans.rs`（运行/测试计划命令）
-- `windows/tauri/src/features/plugins/declarative-plugin-settings-editor.tsx`（设置编辑）
-- `windows/tauri/src/features/plugins/declarative-plugin-run.ts`（契约插件运行入口）
-- `windows/tauri/src-tauri/src/plugin_host/web.rs`（Web 工具窗口 scheme、桥与状态）
-- `Plugins/win/Official/PhpSupportContract/`（契约版 PHP bundled 包）
-- `windows/tauri/src/features/plugins/declarative-plugins-section.tsx`（设置内管理页）
-- `windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.ts`（契约插件回落来源）
-- `windows/tauri/src/features/bootstrap/bootstrap-async.ts`（启动扫描步骤）
-- `shared/platform-feature-matrix/features/declarative-plugin-contract.json`、`plugin-marketplace.json`、`plugin-extension-management.json`、`declarative-plugin-settings.json`、`php-optional-plugin.json`、`plugin-web-tool-windows.json`
+- `desktop/internal/core/plugin_session.go`
+- `desktop/internal/core/plugin_session_test.go`
+- `shared/platform-feature-matrix/features/declarative-plugin-contract.json`
+- `shared/platform-feature-matrix/features/plugin-marketplace.json`

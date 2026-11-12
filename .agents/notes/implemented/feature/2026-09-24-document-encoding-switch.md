@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态：下文的编码选择、转换和旧平台验证尚未迁移。当前编辑器把完整文件交给 Core 的借用字节接口判定；遇到不合法的 UTF-8 或二进制控制字符时拒绝打开并保留原始文件，外部变更无法解码时保留已打开的缓冲区。不同编码的字节可能恰好也是合法 UTF-8，单靠这项校验无法识别其真实编码，因此不能把它当作完整的编码检测。历史实现与验证入口见[迁移前笔记](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/feature/2026-09-24-document-encoding-switch.md)。
+
 关联需求：[Issue #775](https://github.com/1lck/Lithe-IDEA/issues/775)。
 
 ## 先说结论
@@ -30,7 +32,7 @@ macOS 和 Windows 编辑器都在状态栏提供编码入口，并支持“以�
 
 用户明确选择外部编辑器时，解码和大小限制由该编辑器处理，不先要求 Lithe 原生读取成功。Windows 内置编辑器首次打开与会话恢复复用 `loadFileContent`；点击已经在后台加载的标签必须等待该次读取和判定结束。共享 Monaco 层直接注册随 0.55.1 分发的 INI tokenizer，其上游扩展名包含 `.properties`，无需为这个问题新增 tree-sitter 语法或自写高亮器。原有原生编辑器高亮实现不参与 Monaco 路径。
 
-`WorkspaceTextFilePolicy` 的 Swift 入口转发到 Core，不再维护第二份控制字符算法。因此 macOS 测试也必须链接真实 Core；`scripts/macos/test/test-macos.sh` 使用现有构建路径完成链接，不能用弱符号的不可用结果来验证正常文本。
+`WorkspaceTextFilePolicy` 的 Swift 入口转发到 Core，不再维护第二份控制字符算法。因此 macOS 测试也必须链接真实 Core；~~scripts/macos/test/test-macos.sh~~（随旧客户端移除） 使用现有构建路径完成链接，不能用弱符号的不可用结果来验证正常文本。
 
 ## 考虑过的备选方案
 
@@ -50,25 +52,18 @@ macOS 和 Windows 编辑器都在状态栏提供编码入口，并支持“以�
 
 ## 验证
 
-- `./scripts/macos/test/test-macos.sh --filter 'DocumentGuardedSaveTests'`
-- `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml -p lithe-project document_file`
-- `bunx tsc --noEmit -p windows/tauri/tsconfig.json`
-- `./scripts/windows/verify/verify-windows-boundaries.sh`
-- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
-- macOS 和 Windows 实机仍需按矩阵中的验证步骤运行编码读取、转换保存、脏文件选择和外部修改场景。
+旧客户端的编码转换与平台验证命令保留在上方迁移前笔记；Viva 需要在完整迁移后重新验证各编码、脏缓冲和外部修改。
 
-- `./scripts/macos/test/test-macos.sh --filter TextContentPolicyTests`
-- `cargo test --manifest-path rust/Cargo.toml -p lithe-core text_content_tests`
-- `shared/fixtures/editor/text-content-v1.json` 覆盖中文、emoji、NUL、控制字符和旧采样范围之外的内容；Windows 路由测试另外验证首次打开与恢复的共用入口。
+- `scripts/desktop/desktop-go.sh test -race ./internal/core ./internal/workbench -run 'Test(DocumentTextClassificationUsesSharedFixtures|OpenRejectsUnsupportedEncodingWithoutChangingTheFile|ReadDocumentUsesWholeFileClassification|UnsupportedEncodingReasonFollowsLanguage|ExternalUnsupportedEncodingKeepsOpenBufferAndDiskBytes)' -count=3`：覆盖共享 Core fixture、非法字节、正常 UTF-8、提示语言与外部变化，不代表编码转换已实现。
+- 本地热缓存的 16 MiB 中英文混合文件读取微基准：原来只检查前 8 KiB 时约 1.07 ms，接入 Core 完整判定后约 122.43 ms；两者均为 5 次分配、约 16 MiB。测量使用未优化的 Core debug 构建，校验在后台读取线程执行；这不是生产构建、冷磁盘、完整应用启动或 Windows 性能验收。
+- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
+- `shared/fixtures/editor/text-content-v1.json` 是 Core 正文判定夹具；当前判定不包含多编码识别与转换。
 
 ## 适用范围
 
-- `macos/Sources/LitheCoreContracts/Workspace/WorkspaceFileOperations.swift`
-- `macos/Sources/Lithe/Platform/MacOS/FileSystem/MacDocumentEncoding.swift`
-- `macos/Sources/Lithe/Platform/MacOS/FileSystem/MacWorkspaceFileOperations.swift`
-- `macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`
-- `macos/Sources/Lithe/Models/Editor/EditorDocument.swift`
-- `windows/tauri/crates/project/src/document_file.rs`
-- `windows/tauri/src/features/editor/services/document-encoding-workflow.ts`
-- `windows/tauri/src/features/command-palette/components/encoding-picker.tsx`
-- `windows/tauri/src/features/layout/components/footer/footer-editor-status.tsx`
+- `desktop/internal/workbench/documents.go`
+- `desktop/internal/workbench/documents_test.go`
+- `desktop/internal/workbench/document_observation_test.go`
+- `desktop/internal/core/document_text_test.go`
+- `shared/platform-feature-matrix/features/editor-file-encoding-reopen.json`
+- `shared/platform-feature-matrix/features/editor-file-encoding-save.json`

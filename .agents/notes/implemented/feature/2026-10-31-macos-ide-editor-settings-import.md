@@ -105,8 +105,8 @@ IDEA 自定义配色现在有独立的受校验覆盖层 `ImportedEditorTheme`�
 ## 验证
 
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'EditorSettingsImportTests|AppSettingsTests'`：隔离存储/临时目录验证来源只读、版本和 Profile、字段隔离、JSONC、XML 实体拒绝、单位换算、字体缺失、来源/目标冲突、持久化、部分写入失败、重启恢复及撤销保护。
-- `./scripts/architecture/verify-service-boundaries.sh`
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `node scripts/i18n/generate-i18n.mjs --check`
 - `node scripts/i18n/verify-app-language-localization.mjs`
 - `./scripts/agent-notes/verify-agent-notes.sh`
@@ -130,12 +130,12 @@ Cursor/空配置发现修复后，相关测试 60 项通过，包含显式开启
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Platform/MacOS/MacEditorSettingsImportReader.swift`
-- `macos/Sources/Lithe/Application/Features/EditorSettingsImportFeatureModel.swift`
-- `macos/Sources/Lithe/Models/Settings/EditorSettingsImport.swift`
-- `macos/Sources/Lithe/Models/Settings/AppSettings.swift`
-- `macos/Sources/Lithe/Views/App/EditorSettingsImportView.swift`
-- `macos/Tests/LitheTests/EditorSettingsImportTests.swift`
+- ~~`macos/Sources/Lithe/Platform/MacOS/MacEditorSettingsImportReader.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/EditorSettingsImportFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Models/Settings/EditorSettingsImport.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Models/Settings/AppSettings.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/App/EditorSettingsImportView.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/EditorSettingsImportTests.swift`~~（已随 #1794 移除）
 
 同值导入仍重新扫描并验证来源和所选目标基线，成功后反馈结果；无变化时不新建撤销记录、不写设置。已有自定义但与来源相同的字段可默认选择，不将其误当成覆盖冲突。原生回归覆盖同值类别可点击、全同值导入成功且不生成撤销记录，以及预览后目标变化被拒绝。
 
@@ -239,7 +239,7 @@ VS Code 移除规则按上游解析器的两阶段行为处理：只移除指定
 开发者怎么做：
 
 - 修改 VS Code 或 IDEA 的解析、命令映射、参考默认键：在独立插件仓库改，不在本仓库加回解析代码或插件目录。
-- 修改通用的 `keymapImportProviders` 契约、快照、规划或多提供方拒绝：在本仓库改，测试使用契约 fixture `shared/contracts/plugins/v1/fixtures/keymap-import/keymap-import-provider.plugin.json`，并在插件仓库用新 Core 重跑端到端测试。
+- 修改通用的 `keymapImportProviders` 契约、快照、规划或多提供方拒绝：在本仓库改，测试使用契约 fixture `Lithe-core-rust/shared/plugins/contract/v1/fixtures/keymap-import/keymap-import-provider.plugin.json`，并在插件仓库用新 Core 重跑端到端测试。
 - 不要把任何插件 ID 写进宿主信任策略或界面分支。反例：为了让某个插件“看起来是官方的”，在 `trustPolicy(for:)` 里按 ID 返回固定策略。
 
 验证：插件仓库 CI 用真实 Lithe Core 运行插件包，覆盖 VS Code 与 IDEA 导入、失败、`plugins.operation.finished` 与 `plugins.operation.failed` 日志事实不含导入内容，以及插件包在运行前后不变。宿主没有官方插件再带打包后端，`scripts/plugins/verify-official-plugins.sh` 改为在 Java Support 包的临时副本里注入后端声明，继续检查已声明后端可通过、未声明原生代码、缺失后端和越出包目录的路径都会被拒绝。

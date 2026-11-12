@@ -77,20 +77,20 @@
 cargo test --manifest-path rust/Cargo.toml -p lithe-remote --lib
 cargo test --manifest-path rust/Cargo.toml -p lithe-remote --all-features --test server
 cargo test --manifest-path rust/Cargo.toml -p lithe-core remote::
-./scripts/macos/verify/verify-runtime-bundle-immutability.sh
+./scripts/desktop/verify/verify-runtime-bundle-immutability.sh
 ```
 
 `lithe-remote-server` 的 `one_connection_installs_once_and_starts_the_server` 通过本机传输验证“首次上传、再次复用、两次都能建立会话”。`lithe-core` 的远程测试用假 `ssh` 覆盖选项映射、失败分类、平台不支持和主机信息解析。
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Views/Workspace/RemoteConnectionsView.swift`
-- `macos/Sources/Lithe/Application/Features/RemoteConnectionsFeatureModel.swift`
-- `macos/Sources/Lithe/Services/Remote/RemoteConnectionStore.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Remote/`
-- `rust/lithe-core/src/remote/`
-- `rust/lithe-remote/src/client/launch.rs`
-- `scripts/remote/build-remote-servers.sh`
+- ~~`macos/Sources/Lithe/Views/Workspace/RemoteConnectionsView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/RemoteConnectionsFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Services/Remote/RemoteConnectionStore.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Remote/`~~（已随 #1794 移除）
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/remote/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/remote)
+- Lithe-core-rust 锁定修订：[rust/lithe-remote/src/client/launch.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/client/launch.rs)
+- ~~`scripts/remote/build-remote-servers.sh`~~（脚本已随旧客户端移除）
 
 
 ### 远程开发主面板的统一呈现

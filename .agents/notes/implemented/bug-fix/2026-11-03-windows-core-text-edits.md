@@ -51,7 +51,7 @@ UTF-8 字节；自行换算容易在中文、emoji 和 Windows 换行处产生�
 
 ## 适用范围
 
-- `windows/tauri/src/features/editor/lsp/workspace-edit.ts`
-- `windows/tauri/src/features/editor/lsp/lsp-client.ts`
-- `rust/lithe-core/src/lsp/lightweight/edits.rs`
+- ~~`windows/tauri/src/features/editor/lsp/workspace-edit.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/editor/lsp/lsp-client.ts`~~（已随 #1794 移除）
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/lightweight/edits.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/lightweight/edits.rs)
 - `shared/fixtures/lsp/text-edits-v1.json`

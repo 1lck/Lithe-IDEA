@@ -57,9 +57,9 @@ Maven 插件单独使用 [`Lithe-IDEA/lithe-plugin-maven@bfa56dc80914df22ab60967
 | [`backend: 1`][page-backend]及[macOS 会话][page-sessions] | 每插件一个进程，供插件自己的网页函数/设置动作调用；要求网页窗口，不绑定工作区，拒绝 `workspaceStateDir`。 | 无页面时可用、工作区隔离的原生领域入口。不能用空网页绕过限制，也不能把任意私有函数开放为宿主业务 API。 |
 | 现有函数协商与 `BuildSystemService.invokePluginFunction` | 已有协商、调用和构建 Provider 目标定位；不能把它描述为“完全没有函数调用”。 | 调用存在不等于已有公开、类型化的 Run/Test/Debug/Maven 业务契约；权限、版本、参数与生命周期仍须定义。 |
 | 通用 Debug 服务及 [#1210 提案][debug-note] | 已有 #1508 基础调试重构、#1509 macOS 多会话；#1510 已将 API 4/`debugAdapters` 声明及校验纳入[正式契约][debug-contract]。 | DebugAdapter Registry（适配器注册表）与宿主运行时接入仍待完成；新 Core 启动计划和包资源检查尚无生产调用方。复用已发布声明，不能把声明校验通过写成插件调试已可用。 |
-| 插件契约与两个后端 SDK（开发工具包） | 主仓库拥有契约和 Core，`lithe-plugin-docs` 拥有契约副本与 Node/Java SDK。 | 新契约随 Core/fixtures 评审，合并后同步副本；协议实现合并前用两个 SDK 的真实后端跑端到端验证。 |
+| 插件契约与官方后端 SDK（开发工具包） | Core 仓库的 `shared/plugins/` 拥有契约、API 总表、协议更新记录和 Node、Java、Rust 三个官方 SDK；SDK 曾发布在已退役的 lithe-plugin-docs。 | 新契约、API 总表和协议更新记录随 Core/fixtures 在同一个 Core PR 里评审；协议实现合并前在 Core 仓库根运行 `node shared/plugins/scripts/sdk-e2e.mjs`，用真实后端跑端到端验证。 |
 
-新能力必须明确插件 ID/版本、工作区身份与重开代次、配置/工程快照身份、`operationID`、进度、取消、超时和晚到结果。停用、更新、崩溃、切换/关闭工作区及退出，必须撤销能力并结束对应进程/订阅。以上是职责要求，不是已经发布的新字段或方法名；正式协议只在 `shared/contracts/plugins/v1/` 随实现定义。
+新能力必须明确插件 ID/版本、工作区身份与重开代次、配置/工程快照身份、`operationID`、进度、取消、超时和晚到结果。停用、更新、崩溃、切换/关闭工作区及退出，必须撤销能力并结束对应进程/订阅。以上是职责要求，不是已经发布的新字段或方法名；正式协议只在 `Lithe-core-rust/shared/plugins/contract/v1/` 随实现定义。
 
 ### 三、Maven 当前入口、调用链与替换能力
 
@@ -208,22 +208,22 @@ D/E/F 完成须逐行附上真实新路径、删除证据、工具/插件/平台
 
 ```bash
 ./scripts/agent-notes/verify-agent-notes.sh
-./scripts/macos/verify/verify-runtime-bundle-immutability.sh
+./scripts/desktop/verify/verify-runtime-bundle-immutability.sh
 git diff --check
 ```
 
-后续实现按受影响边界运行共享契约、服务边界、Rust Core、macOS/Windows 与测试稳定性检查；修改插件协议时合并前执行 `lithe-plugin-docs` 的 Node/Java SDK 端到端验证，合并后按[契约发布规则][contract-note]同步逐字节副本。平台改动提交前通过实际 PR 基线的矩阵变更门禁。
+后续实现按受影响边界运行共享契约、服务边界、Rust Core、macOS/Windows 与测试稳定性检查；修改插件协议时合并前在 Core 仓库根运行 `node shared/plugins/scripts/sdk-e2e.mjs`，契约、API 总表和协议更新记录在同一个 Core PR 里完成（见[契约发布规则][contract-note]）。平台改动提交前通过实际 PR 基线的矩阵变更门禁。
 
 真实工作流验收必须比较 app/Windows 安装资源与已安装插件版本的文件清单或哈希，证明典型启动/构建/运行/测试/调试后不变。只读静态脚本通过不代替此证据。本次没有启动应用；以后每次验证结束关闭本次启动的所有 Lithe/子进程、listener、订阅和临时资源，确认无残留后交付。
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Application/`、`macos/Sources/Lithe/Models/AppModel/`、`macos/Sources/Lithe/Services/`
-- `macos/Sources/Lithe/Platform/MacOS/`、`macos/Sources/LitheExecutionModule/`、`macos/Sources/LitheLanguageIntelligenceModule/`
-- `rust/lithe-core/src/build/`、`rust/lithe-core/src/project/`、`rust/lithe-core/src/execution/`、`rust/lithe-core/src/lsp/`、`rust/lithe-core/src/debug/`
+- ~~`macos/Sources/Lithe/Application/`~~（已随 #1794 移除）、`macos/Sources/Lithe/Models/AppModel/`、`macos/Sources/Lithe/Services/`
+- ~~`macos/Sources/Lithe/Platform/MacOS/`~~（已随 #1794 移除）、`macos/Sources/LitheExecutionModule/`、`macos/Sources/LitheLanguageIntelligenceModule/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/build/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/build)、`rust/lithe-core/src/project/`、`rust/lithe-core/src/execution/`、`rust/lithe-core/src/lsp/`、`rust/lithe-core/src/debug/`
 - 已迁出：原 `Plugins/mac/Official/JavaSupport/`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - `shared/contracts/`、`shared/fixtures/`、`shared/platform-feature-matrix/features/`
-- `windows/tauri/src/features/`、`windows/tauri/src/platform/`、`windows/tauri/src-tauri/src/`
+- ~~`windows/tauri/src/features/`~~（已随 #1794 移除）、`windows/tauri/src/platform/`、`windows/tauri/src-tauri/src/`
 - 外部 Maven 后端：[`Lithe-IDEA/lithe-plugin-maven`][maven-plugin]
 - 关联决策：[Java 声明式资源插件][java-note]、[通用 LSP Runtime][lsp-note]、[Build System 当前契约][build-note]、[Java 独立分发提案][distribution-note]、[真实配置读写][settings-note]、[#1210 调试提案][debug-note]
 
@@ -262,6 +262,6 @@ git diff --check
 [distribution-note]: 2026-10-24-java-support-independent-distribution.md
 [debug-note]: 2026-10-25-unified-debug-engine-and-adapter-registry.md
 [settings-note]: ../../implemented/architecture/2026-10-25-settings-native-configuration-editing.md
-[contract-note]: ../../implemented/architecture/2026-10-23-plugin-contract-publishing.md
+[contract-note]: ../../implemented/architecture/2026-11-11-plugin-contract-single-source-in-core.md
 [lsp-note]: ../../implemented/architecture/2026-09-13-language-tooling-and-lsp-runtime-ownership.md
-[debug-contract]: https://github.com/1lck/Lithe-IDEA/blob/1a7a95c8ce9d254bb6b8811af73e93d86a7badc1/shared/contracts/plugins/v1/README.md#api-level-4-debug-adapters
+[debug-contract]: https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md#debug-adapters

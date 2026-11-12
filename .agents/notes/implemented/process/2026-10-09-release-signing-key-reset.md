@@ -47,14 +47,14 @@
 - 运行 `./scripts/agent-notes/verify-agent-notes.sh`。
 - 运行 `node --test scripts/release/sparkle/verify-release-signature.test.mjs`，确认篡改文件、错误公钥和截断签名被拒绝。
 - 发布工作流安装到独立临时目录，验证版本、公钥、启动及安装目录 SHA-256 清单不变，并有界终止自身应用进程、卸载或删除临时安装。
-- 发布前运行 `./scripts/macos/verify/verify-macos-package.sh` 和 Windows 更新器对应测试；官方插件包的校验已随插件移出本仓库（#1495），由各插件仓库的发布流程负责。
+- 发布前运行 ~~./scripts/macos/verify/verify-macos-package.sh~~（随旧客户端移除） 和 Windows 更新器对应测试；官方插件包的校验已随插件移出本仓库（#1495），由各插件仓库的发布流程负责。
 - 在真实发布前完成旧版本到新版本的安装、Sparkle 验签、Tauri 更新器验签和官方插件安装验证；普通 CI 成功不能替代这些检查。
 
 ## 适用范围
 
-- `macos/Sources/LithePluginPackageSigning/PluginPackageSignature.swift`
-- `.github/workflows/release-macos.yml`
-- `.github/workflows/release-windows.yml`
+- ~~`macos/Sources/LithePluginPackageSigning/PluginPackageSignature.swift`~~（已随 #1794 移除）
+- ~~`.github/workflows/release-macos.yml`~~（已随 #1794 移除）
+- ~~`.github/workflows/release-windows.yml`~~（已随 #1794 移除）
 - `docs/architecture/macos-updates.md`
 - `docs/releases/windows-updater.md`
-- `Plugins/mac/README.md`
+- ~~`Plugins/mac/README.md`~~（已随 #1794 移除）

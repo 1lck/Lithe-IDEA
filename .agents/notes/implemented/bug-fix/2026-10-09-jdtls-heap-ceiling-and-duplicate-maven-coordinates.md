@@ -110,8 +110,8 @@ Lithe 在两条启动路径上都用 `-Xmx1024m` 启动内置 Java 语言服务 
 
 ## 验证
 
-- `./scripts/rust-core/verify-rust-core-comments.sh`
-- `./scripts/rust-core/verify-rust-core.sh`
+- ~~./scripts/rust-core/verify-rust-core-comments.sh~~（随旧客户端移除）
+- ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）
 - `./scripts/agent-notes/verify-agent-notes.sh`
 - 用例 `java_start_adds_runtime_memory_and_unique_data_arguments` 和
   `java_direct_start_builds_complete_shell_free_arguments_and_is_stable` 固定两条启动
@@ -122,5 +122,5 @@ Lithe 在两条启动路径上都用 `-Xmx1024m` 启动内置 Java 语言服务 
 ## 适用范围
 
 - 已迁出：原 `rust/lithe-core/src/lsp/languages/jdt.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
-- `rust/lithe-core/src/lsp/interface/engine.rs`
-- `third_party/jdtls/manifest.json`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/engine.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/engine.rs)
+- ~~`third_party/jdtls/manifest.json`~~（已随 #1794 移除）

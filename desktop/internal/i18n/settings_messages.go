@@ -1,0 +1,68 @@
+package i18n
+
+// settingsMessages reads settings labels from the generated shared catalog.
+func settingsMessages(language Language) SettingsMessages {
+	return SettingsMessages{
+		Title:              Shared(language, "menu.settings"),
+		Search:             Shared(language, "settings.search"),
+		NoMatches:          Shared(language, "desktop.settings.noMatches"),
+		Categories:         Shared(language, "desktop.settings.categories"),
+		AppearanceBehavior: Shared(language, "settings.groups.appearance"),
+		General:            Shared(language, "settings.tabs.general"),
+		Updates:            Shared(language, "settings.tabs.updates"),
+		Network:            Shared(language, "settings.network.title"),
+		Editor:             Shared(language, "settings.editor.section"),
+		Fonts:              Shared(language, "desktop.settings.fonts"),
+		Keymap:             Shared(language, "settings.tabs.keyboard"),
+		ProcessTermination: Shared(language, "native.processTerminationPolicy"),
+		Plugins:            Shared(language, "settings.tabs.plugins"),
+		VersionControl:     Shared(language, "settings.groups.versionControl"),
+		Build:              Shared(language, "settings.groups.build"),
+		Languages:          Shared(language, "settings.groups.languages"),
+		Tools:              Shared(language, "settings.groups.tools"),
+		AI:                 Shared(language, "native.ai"),
+		AIGeneration:       Shared(language, "desktop.settings.aiGeneration.page"),
+		IDEAPI:             Shared(language, "desktop.ideApi.title"),
+		PageLater:          Shared(language, "desktop.settings.pageLater"),
+		Appearance:         Shared(language, "settings.mac.appearance"),
+		AppearanceHelp:     Shared(language, "desktop.settings.appearanceHelp"),
+		AppearanceMode:     Shared(language, "settings.mac.appearanceMode"),
+		System:             Shared(language, "desktop.settings.system"),
+		Light:              Shared(language, "settings.mac.light"),
+		Dark:               Shared(language, "settings.mac.dark"),
+		Language:           Shared(language, "settings.mac.language"),
+		LanguageHelp:       Shared(language, "desktop.settings.languageHelp"),
+		Workbench:          Shared(language, "keybindings.categories.Workbench"),
+		LayoutHint:         Shared(language, "desktop.settings.layoutHint"),
+		ResetLayout:        Shared(language, "desktop.settings.resetLayout"),
+		About:              Shared(language, "desktop.settings.about"),
+		EditorTabs:         Shared(language, "desktop.settings.editorTabs"),
+		EditorTabsHelp:     Shared(language, "desktop.settings.editorTabsHelp"),
+		EditorSemantic:     Shared(language, "desktop.settings.editorSemantic"),
+		EditorSemanticHelp: Shared(language, "desktop.settings.editorSemanticHelp"),
+		SemanticHighlight:  Shared(language, "desktop.settings.semanticHighlight"),
+		TabsShowIn:         Shared(language, "desktop.settings.tabsShowIn"),
+		TabsOneRow:         Shared(language, "desktop.settings.tabsOneRow"),
+		TabsScroll:         Shared(language, "desktop.settings.tabsScroll"),
+		TabsSqueeze:        Shared(language, "desktop.settings.tabsSqueeze"),
+		TabsMultipleRows:   Shared(language, "desktop.settings.tabsMultipleRows"),
+		Terminal:           Shared(language, "workbench.terminal"),
+		TerminalShell:      Shared(language, "settings.terminal.defaultShell"),
+		TerminalShellHelp:  Shared(language, "desktop.settings.terminalShellHelp"),
+		DetectingShells:    Shared(language, "terminal.detectingShells"),
+		NoShells:           Shared(language, "native.shellNotFound"),
+		RestoreDefaults:    Shared(language, "settings.mac.restoreDefaults"),
+		Cancel:             Shared(language, "ui.cancel"),
+		OK:                 Shared(language, "desktop.settings.ok"),
+		FollowSystem: func(effective string) string {
+			return SharedFormat(language, "desktop.settings.followSystemEffective", map[string]string{"effective": effective})
+		},
+		TerminalShellAuto: func(effective string) string {
+			return SharedFormat(language, "desktop.toolchains.automatic", map[string]string{"value": effective})
+		},
+		ShellWithPath: func(name, path string) string { return terminalShellWithPath(language, name, path) },
+		TerminalShellMissing: func(path string) string {
+			return SharedFormat(language, "desktop.settings.terminalShellMissing", map[string]string{"path": path})
+		},
+	}
+}

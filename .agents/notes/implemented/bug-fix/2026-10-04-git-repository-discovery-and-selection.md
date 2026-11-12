@@ -53,19 +53,19 @@ macOS 点击另一仓库的分支时，先刷新目标仓库，再设置目标�
 
 - `rust/lithe-core/src/tests/git_repository_discovery.rs` 使用真实 Git 和有界 Core 调用，
   覆盖共享可见性 fixture、隐藏根目录、所属父仓库、真实链接工作树、扫描深度和符号链接。
-- `macos/Tests/LitheGitModuleTests/GitModuleTests.swift` 覆盖普通切仓库、直接选目标分支、
+- ~~`macos/Tests/LitheGitModuleTests/GitModuleTests.swift`~~（已随 #1794 移除） 覆盖普通切仓库、直接选目标分支、
   旧游标归属及新历史读取失败后的旧状态清理。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
-- `./scripts/architecture/verify-shared-contracts.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
 - `./scripts/agent-notes/verify-agent-notes.sh`
 
 ## 适用范围
 
-- `rust/lithe-core/src/git/mod.rs`
-- `rust/lithe-core/src/project/files.rs`
-- `macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`
-- `macos/Sources/Lithe/Views/Git/GitLogView.swift`
-- `windows/tauri/src/features/git/api/git-repo-api.ts`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/mod.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/mod.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/project/files.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/project/files.rs)
+- ~~`macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/GitLogView.swift`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/git/api/git-repo-api.ts`~~（已随 #1794 移除）
 - `shared/contracts/rust-core-api.md`
 - `shared/fixtures/workspace/repository-visibility-v1.json`

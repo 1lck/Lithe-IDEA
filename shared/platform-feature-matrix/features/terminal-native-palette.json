@@ -7,17 +7,39 @@
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      "macos/Sources/Lithe/Platform/MacOS/Terminal/MacTerminalTransport.swift",
-      "macos/Tests/LitheTests/TerminalInputFocusTests.swift"
+      "docs/viva-migration.md",
+      "desktop/internal/nativeterm/nativeterm.go",
+      "desktop/internal/nativeterm/nativeterm_darwin.go",
+      "desktop/internal/termview/palette.go",
+      "desktop/internal/workbench/terminal.go"
     ]
   },
   "windows": {
     "implementationStatus": "platform-specific",
     "verificationStatus": "not-applicable",
     "evidence": [
-      "windows/tauri/src/features/terminal"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "Terminal",
-  "verification": "核对 macOS Terminal.app 默认描述文件的普通文字及 16 个 ANSI 颜色：每个 ANSI 颜色分别根据其与 Lithe 编辑器背景的 WCAG 对比度（至少 4.5）决定是否导入；对比度不足或颜色缺失、无效时，仅该项回退到 Lithe 对应 ANSI 默认值，浅色编辑器背景使用高对比度浅色调色板。背景、字体、字号、光标和选区保持原设置，保留 shell 的粗体与显式真彩色语义，不写入 Terminal.app 或 shell 配置。"
+  "verification": "核对 macOS Terminal.app 默认描述文件的普通文字及 16 个 ANSI 颜色：每个 ANSI 颜色分别根据其与 Lithe 编辑器背景的 WCAG 对比度（至少 4.5）决定是否导入；对比度不足或颜色缺失、无效时，仅该项回退到 Lithe 对应 ANSI 默认值，浅色编辑器背景使用高对比度浅色调色板。背景、字体、字号、光标和选区保持原设置，保留 shell 的粗体与显式真彩色语义，不写入 Terminal.app 或 shell 配置。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "macos/Sources/Lithe/Platform/MacOS/Terminal/MacTerminalTransport.swift",
+        "macos/Tests/LitheTests/TerminalInputFocusTests.swift"
+      ]
+    },
+    "windows": {
+      "implementationStatus": "platform-specific",
+      "verificationStatus": "not-applicable",
+      "evidence": [
+        "windows/tauri/src/features/terminal"
+      ]
+    }
+  },
+  "notes": "Viva：nativeterm 读取 Terminal.app 默认描述文件的 16 色 ANSI；termview/palette.go 逐项按 WCAG 2 对比度（至少 4.5）与当前背景比较，通过的用系统终端颜色，不通过的回退 Lithe 自带配色。没有专门的自动化测试。"
 }

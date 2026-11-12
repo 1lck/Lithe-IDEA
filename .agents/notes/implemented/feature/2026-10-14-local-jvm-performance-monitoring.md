@@ -127,7 +127,7 @@ Sparkle 差分更新基线。未来若打包额外工具，必须先更新资源
 - `ProcessTreePerformanceTests`：实际 shell 启动 CPU 工作子进程，验证真实启动 PID、
   根与子进程归属、CPU/RSS 样本和取消清理；超时关闭整组进程。
 - `ExecutionModuleTests`：内置/扩展 PID 转发、重跑拒绝旧事件、停止及关闭清理。
-- `scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`scripts/architecture/verify-service-boundaries.sh`。
+- `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`、~~scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）。
 
 本轮本机显式启用 JDK 21 的88项相关回归通过，真实 JFR 集成检查4.276秒；补充4项
 生命周期检查以及失败启动清理身份的单项回归通过，资源复用脚本14项检查通过。
@@ -140,11 +140,11 @@ Windows 当前没有对应 UI/采集实现，矩阵明确标记缺失。完整�
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Core/Ports/DebugPerformanceSampling.swift`
-- `macos/Sources/Lithe/Application/Features/DebugPerformanceFeatureModel.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Debug/MacDebugPerformanceSampler.swift`
-- `macos/Sources/Lithe/Views/Debug/DebugPerformancePane.swift`
-- `macos/Tests/LitheTests/DebugPerformanceSamplingTests.swift`
+- ~~`macos/Sources/Lithe/Core/Ports/DebugPerformanceSampling.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/DebugPerformanceFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Debug/MacDebugPerformanceSampler.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Debug/DebugPerformancePane.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/DebugPerformanceSamplingTests.swift`~~（已随 #1794 移除）
 - 已迁出：原 `macos/Tests/LitheTests/JVMPerformanceIntegrationTests.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
 
 审核回归增加非 Maven 成功/失败/取消、停止失败后重试、隐藏期间报告成功/失败与录制

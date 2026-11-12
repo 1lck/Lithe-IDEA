@@ -1,0 +1,53 @@
+{
+  "id": "editor-line-operations",
+  "area": "编辑器",
+  "group": "编辑操作",
+  "capability": "行注释、复制、删除与上下移动",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/line_edit.go",
+      "desktop/internal/editorview/lineedit.go",
+      "desktop/internal/editorview/lineedit_test.go",
+      "desktop/internal/workbench/lineedit.go",
+      "desktop/internal/workbench/lineedit_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/line_edit.go",
+      "desktop/internal/editorview/lineedit.go",
+      "desktop/internal/editorview/lineedit_test.go",
+      "desktop/internal/workbench/lineedit.go",
+      "desktop/internal/workbench/lineedit_test.go"
+    ]
+  },
+  "owner": "Editor",
+  "notes": "Viva：Alt+上下移动行，Alt+Shift+上下复制行，Primary+Shift+K 删除行，Primary+/ 切换行注释，右键菜单同样提供；只把选中行及前后各一行交给 Core editor.lineEdit（后台调用，结果按文档 revision 校验后作为一次可撤销编辑应用，过期结果丢弃），注释符号由 editor.lineCommentToken 决定。多行选区、CRLF 与非 BMP 的行为由 Core fixture 保证；整机输入法组合与大文件输入延迟的实机验收仍待完成。",
+  "verification": "两端分别验证单行、多行、空行、选区结束在行首、CRLF、非 BMP 字符、撤销重做、输入法组合和无操作时快捷键归属；覆盖请求期间编辑或关闭文件、过期结果不覆盖新内容，以及小文件和大文件的输入延迟与内存。Core fixture 不替代实际编辑器及平台验收。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "implementationStatus": "unassessed",
+      "verificationStatus": "pending",
+      "evidence": [
+        "macos/Sources/Lithe/Core/Ports/EditorLineEditing.swift",
+        "macos/Sources/Lithe/Core/Rust/RustCoreBridge+EditorLineEditing.swift",
+        "frontend/editor/src/editor-commands.ts",
+        "macos/Experiments/Monaco/workbench.integration.ts"
+      ]
+    },
+    "windows": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "windows/tauri/src/features/editor/utils/comment-toggle.ts",
+        "windows/tauri/src/features/editor/utils/line-operations.ts"
+      ]
+    },
+    "notes": "旧 macOS 有 Core 适配器，也有 Monaco 行操作及其集成测试；源码搜索尚未证明该 Core 适配器连接到产品入口，旧 macOS 的具体使用链路待核实。旧 Windows 的编辑器 API 和菜单使用本地行操作。"
+  }
+}

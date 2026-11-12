@@ -56,14 +56,14 @@ GitHub 特有媒体及 Windows 方言对齐不是本批已交付能力；macOS P
   深浅主题使用生产 Rust bridge 和打包模板，检查公式与可访问数学标记 MathML、图表、脚注和代码，
   并比较运行前后全部预览文件 SHA-256，检查没有远程资源请求。
 - `node --test scripts/resources/test-reuse-worktree-resources.mjs`：拒绝跨工作树复制预览资源。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
 
 原生组件测试不代替完整应用操作验收，Windows 运行时未在本批验证。
 
 ## 适用范围
 
-- `rust/lithe-core/src/project/markdown.rs`
-- `macos/Sources/Lithe/Resources/MarkdownPreview/`
-- `macos/Tests/LitheTests/MarkdownPreviewRichContentTests.swift`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/project/markdown.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/project/markdown.rs)
+- ~~`macos/Sources/Lithe/Resources/MarkdownPreview/`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/MarkdownPreviewRichContentTests.swift`~~（已随 #1794 移除）
 - `shared/fixtures/editor/markdown-rich-content-v1.json`
 - `scripts/resources/worktree-resources.json`

@@ -248,6 +248,9 @@ try {
   const base = gitIn("rev-parse", "HEAD");
   rmSync(path.join(sourceDirectory, "old.rs"));
   writeFileSync(path.join(sourceDirectory, "new.rs"), movedTest);
+  // An unrelated large text diff exceeded the gate's bounded git buffer
+  // before path filtering, even though the Rust move itself is tiny.
+  writeFileSync(path.join(gateRepository, "unrelated.txt"), "x".repeat(65 * 1024 * 1024));
   gitIn("add", "-A");
   gitIn("commit", "-q", "-m", "move");
   const head = gitIn("rev-parse", "HEAD");
@@ -261,6 +264,22 @@ try {
   ]);
   // Revision mode reads committed content, so the dirty working tree is invisible to it.
   assert.deepEqual(runGate({ root: gateRepository, base, head, platform: "all" }), { violations: [], moved: 1 });
+
+  // Every supported language remains visible to the filtered committed diff.
+  writeFileSync(path.join(sourceDirectory, "new.rs"), movedTest);
+  const swiftDirectory = path.join(gateRepository, "macos", "Tests", "LitheTests");
+  const tsDirectory = path.join(gateRepository, "windows", "tests");
+  mkdirSync(swiftDirectory, { recursive: true });
+  mkdirSync(tsDirectory, { recursive: true });
+  writeFileSync(path.join(swiftDirectory, "Example.swift"), "func testWait() {\n gate.wait()\n}\n");
+  writeFileSync(path.join(tsDirectory, "example.test.ts"), 'test("timer", async () => { await new Promise((r) => setTimeout(r, 10)); });\n');
+  writeFileSync(path.join(tsDirectory, "example.spec.tsx"), 'test("timer", async () => { await new Promise((r) => setTimeout(r, 10)); });\n');
+  gitIn("add", "-A");
+  gitIn("commit", "-q", "-m", "add tests");
+  const withTests = runGate({ root: gateRepository, base, head: gitIn("rev-parse", "HEAD"), platform: "all" });
+  assert.deepEqual(withTests.violations.map(({ file }) => file).sort(), [
+    "macos/Tests/LitheTests/Example.swift", "windows/tests/example.spec.tsx", "windows/tests/example.test.ts",
+  ]);
 } finally {
   rmSync(gateRepository, { recursive: true, force: true });
 }
@@ -953,8 +972,10 @@ try {
     .includes('"--test-budget", "tests::git_patch_exchange::shelf_clean_and_retry_restore_preserve_staged_working_and_untracked=60000"'));
   assert.ok(readFileSync(path.join(repositoryRoot, ".agents/skills/write-stable-tests/scripts/test-stability-windows.ps1"), "utf8")
     .includes('"--test-budget", "tests::git_patch_exchange::shelf_restore_conflict_preserves_worktree_and_allows_retry_after_resolution=60000"'));
-  assert.ok(readFileSync(path.join(repositoryRoot, ".github/workflows/ci-windows.yml"), "utf8")
-    .includes("--test-prefix lsp::interface::engine::real_jdt_tests::"));
+  // The Windows lane that passed `--test-prefix lsp::interface::engine::real_jdt_tests::`
+  // belonged to the retired Rust/Tauri client; desktop-ci.yml runs the Go and Rust
+  // suites without a per-prefix stability invocation, so there is nothing left to
+  // assert about it here.
   const report = path.join(budgetFixtureRoot, "budget.json");
   const options = parseRustTimingArguments([
     "--manifest", path.join(budgetFixtureRoot, "Cargo.toml"), "--report", report,

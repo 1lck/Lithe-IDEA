@@ -2,6 +2,11 @@
 
 状态：已实现
 
+> Viva 迁移状态（2026-11-11）：Viva 的 Commit 面板已接入本地 ChangeList，含列表栏（当前列表下拉、新建、重命名、删除、更新父仓库引用）、按列表分组的变更区、右键“移动到更改列表”和弹窗。归属、重命名跟随和提交范围由 Core 的 `git.changelists` reducer 计算，提交请求带 Core `pathScope`；宿主只做保存，并以 `statusGen` 丢弃过期投影。
+> 保存按仓库绝对根分文件，放在应用数据目录（`git-changelists-<根哈希>.json`），不写入发行包。每次写入前都重读并比较，与其他窗口冲突时最多重试三次，不覆盖更新的值；读不出或版本、根不符时整套列表停用，禁止全部暂存、提交和 AI 生成，原文件保持不动。
+> 新建列表不带走已有文件，删除需确认且文件回到默认列表，父仓库引用默认开启。重试提交沿用上次计划的范围，不再传 `pathScope`。
+> 尚未迁移：多选和目录批量移动、Windows 设置页的显示开关，以及差异读取或 AI 生成期间切换列表时丢弃旧结果。旧客户端的说明见下文，不代表 Viva 的行为。
+
 ## 先说结论
 
 本地变更列表（ChangeList）把同一工作区的文件改动分组，例如把仅供本机使用的配置放在单独列表。
@@ -50,39 +55,34 @@ Windows 提供两个独立的 Git 设置：`showGitChangelists` 和 `showGitPare
 
 ## 验证
 
-- `macos/Tests/LitheGitModuleTests/GitLocalChangelistsTests.swift`：共享范围夹具、持久化序列化、重命名保留、仓库隔离与元数据校验。
-- `macos/Tests/LitheGitModuleTests/GitModuleTests.swift`：原生列表管理、当前列表批量暂存、提交范围传递、确认与重试固定范围、存储故障阻止提交。
-- `macos/Tests/LitheTests/MacGitChangelistStorageTests.swift`：偏好持久化、工作区隔离、损坏数据保留和写入失败。
-- `macos/Tests/LitheTests/CommitWorkflowChangelistTests.swift`：用有界测试闸门控制差异读取和 AI 返回，在选择变化后阻止旧说明回填或弹出替换确认。
-- `macos/Tests/LitheTests/GitChangeSectionsCacheTests.swift`：移动文件后缓存重新分组并保留所有列表可见。
-- `./scripts/macos/test/test-macos.sh` 与 macOS 稳定性计时入口需在固定的 Swift 6.3.3 工具链运行。
+- ~~`macos/Tests/LitheGitModuleTests/GitLocalChangelistsTests.swift`~~（已随 #1794 移除）：共享范围夹具、持久化序列化、重命名保留、仓库隔离与元数据校验。
+- ~~`macos/Tests/LitheGitModuleTests/GitModuleTests.swift`~~（已随 #1794 移除）：原生列表管理、当前列表批量暂存、提交范围传递、确认与重试固定范围、存储故障阻止提交。
+- ~~`macos/Tests/LitheTests/MacGitChangelistStorageTests.swift`~~（已随 #1794 移除）：偏好持久化、工作区隔离、损坏数据保留和写入失败。
+- ~~`macos/Tests/LitheTests/CommitWorkflowChangelistTests.swift`~~（已随 #1794 移除）：用有界测试闸门控制差异读取和 AI 返回，在选择变化后阻止旧说明回填或弹出替换确认。
+- ~~`macos/Tests/LitheTests/GitChangeSectionsCacheTests.swift`~~（已随 #1794 移除）：移动文件后缓存重新分组并保留所有列表可见。
+- 旧客户端的 [macOS 测试入口](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/macos/test/test-macos.sh) 和稳定性计时结果不能代替 Viva 验收。
 
-- `windows/tauri/src/features/git/stores/git-changelists.store.test.ts`：两个已初始化实例交错保存后第三个实例重载、旧格式迁移、加载前禁用保护、干净路径保留、工作区/仓库/工作树隔离、重命名、损坏与保存失败、共享范围夹具。
-- `windows/tauri/src/features/git/components/status/git-workspace-status-panel.test.tsx`：批量暂存保护与单分组勾选。
-- `windows/tauri/src/features/git/components/git-commit-panel.test.tsx`：按钮、快捷键与范围传递。
+- ~~`windows/tauri/src/features/git/stores/git-changelists.store.test.ts`~~（已随 #1794 移除）：两个已初始化实例交错保存后第三个实例重载、旧格式迁移、加载前禁用保护、干净路径保留、工作区/仓库/工作树隔离、重命名、损坏与保存失败、共享范围夹具。
+- ~~`windows/tauri/src/features/git/components/status/git-workspace-status-panel.test.tsx`~~（已随 #1794 移除）：批量暂存保护与单分组勾选。
+- ~~`windows/tauri/src/features/git/components/git-commit-panel.test.tsx`~~（已随 #1794 移除）：按钮、快捷键与范围传递。
 - `rust/lithe-core/src/git/workspace_commit/tests.rs`：列表限制、父引用、确认变化、重试和续接校验。
 - `rust/lithe-core/src/tests/git_workspace_commit.rs`：真实 Git 拦截范围外暂存、不改变索引和工作树、保留部分暂存、刷新前重命名。
 - `shared/fixtures/git/changelists-reducer-v1.json`：Core 和两端适配器验证同一归属及范围结果；旧 `local-changelist-scope-v1.json` 保留旧客户端契约。
+- `scripts/desktop/desktop-go.sh test -race ./internal/core -run 'Test(ChangeListsUseSharedMembershipAndScope|WorkspaceCommitScopeProtectsStagedChanges)' -count=3 -timeout=90s`：macOS 使用共享 fixture 和临时 Git 仓库验证 Core 范围、未出现在快照中的已分配文件、准备后暂存变化与 HEAD/索引不变；不是 Viva 界面或 Windows 验收。
+- `scripts/desktop/desktop-go.sh test ./internal/workbench -run TestChangeLists -count=1`：Viva 界面用真实 Git 验证只提交当前列表、其他列表已暂存时拦截并提示、重名被拒后弹窗保持、删除归还默认列表、列表文件损坏时停用且不覆盖；不是 Windows 实机验收。
 - 异步投影、跨窗口锁、过期状态和关闭后结果丢弃有受控回归；真实 Git 测试覆盖投影后新暂存的目录文件及显式默认覆盖。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh --platform all`。
-- `./scripts/windows/verify/verify-windows-boundaries.sh`、`./scripts/architecture/verify-shared-contracts.sh`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`./scripts/agent-notes/verify-agent-notes.sh`、`./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
+- 旧版 [Windows 边界检查](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/windows/verify/verify-windows-boundaries.sh)和 [共享契约检查](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/architecture/verify-shared-contracts.sh)尚无完整 Viva 等价门禁；当前仍需运行 `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`、`./scripts/agent-notes/verify-agent-notes.sh` 和 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
 
 ## 适用范围
 
-- `macos/Sources/LitheGitModule/Models/GitLocalChangelists.swift`
-- `macos/Sources/LitheGitModule/Application/GitFeatureModel+Changelists.swift`
-- `macos/Sources/LitheGitModule/Application/GitFeatureModel+WorkspaceCommit.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Storage/MacGitChangelistStorage.swift`
-- `macos/Sources/Lithe/Views/Git/GitChangelistBar.swift`
-
-- `windows/tauri/src/features/git/api/git-changelist-storage.ts`
-- `windows/tauri/src/features/git/stores/git-changelists.store.ts`
-- `windows/tauri/src/features/git/utils/git-changelists.ts`
-- `windows/tauri/src/features/git/components/git-changelist-bar.tsx`
-- `windows/tauri/src/features/git/components/status/git-status-panel.tsx`
-- `windows/tauri/src/features/git/components/git-commit-panel.tsx`
-- `windows/tauri/src/features/settings/components/tabs/git-settings.tsx`
-- `windows/tauri/src/features/git/components/git-view.tsx`
-- `rust/lithe-core/src/git/workspace_commit/path_scope.rs`
-- `rust/lithe-core/src/git/commit_state.rs`
+- `desktop/internal/workbench/commit.go`
+- `desktop/internal/workbench/changelists.go`
+- `desktop/internal/workbench/changelists_view.go`
+- `desktop/internal/core/gitcommit.go`
+- `desktop/internal/core/changelists.go`
+- `shared/platform-feature-matrix/features/git-local-changelists.json`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/workspace_commit/path_scope.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/workspace_commit/path_scope.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/commit_state.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/commit_state.rs)
 - `shared/contracts/rust-core-api.md`
+- [旧客户端的列表实现与原适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/feature/2026-10-03-local-git-changelists.md)

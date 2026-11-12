@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-macOS 与 Windows 的功能对齐状态由 `shared/platform-feature-matrix/features/<id>.json` 分文件维护，Markdown 表格只是生成结果，不再作为第二份事实源。每个功能都必须分别记录两端的实现状态和运行验证状态；代码入口存在但没有真实跨平台验证时，保留实现程度并将验证状态标为 `pending`。
+macOS 与 Windows 的功能对齐状态由 `shared/platform-feature-matrix/features/<id>.json` 分文件维护，Markdown 表格只是生成结果，不再作为第二份事实源。每个功能都必须分别记录两端的实现状态和运行验证状态；代码入口存在但没有真实跨平台验证时，保留实现程度并将验证状态标为 `pending`。Viva 迁移期间，尚未核对的新客户端能力使用 `unassessed`，不把旧客户端状态当作新客户端的完成证据。
 
 ## 问题
 
@@ -19,10 +19,12 @@ macOS 是当前参考产品，Windows 是独立实现。两端可以共享 Rust 
 - `scripts/platform-feature-matrix/verify-platform-feature-matrix.sh` 只校验源数据及证据路径，适合作为本地和 PR gate。
 - `docs/development/platform-parity.md` 说明矩阵的使用规则；仓库根目录 `AGENTS.md` 只负责把贡献者引到 `develop-lithe` Skill，避免规则正文出现第二份副本。功能 PR 必须更新源数据，不得直接手改生成视图。
 - `.github/workflows/verify-platform-feature-matrix.yml` 在每个 PR、`preview` / `main` 推送和手动运行时执行校验，并上传 JSON、Markdown、CSV 视图，方便在线查看和下载。
-- `scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh` 检查平台实现路径变更是否同时更新矩阵；纯重构可通过 reviewer 添加 `matrix-exempt` label 显式豁免。
+- `scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh` 检查平台实现路径（包括 Viva 的 `desktop/`）变更是否同时更新矩阵；纯重构可通过 reviewer 添加 `matrix-exempt` label 显式豁免。
 - 当前矩阵先按两端代码入口和共享契约完成初版静态盘点；实现状态不是实机验收结论，能力点的 `verificationStatus` 仍需后续跨平台验证推进。
 
-实现状态分为 `implemented`、`partial`、`missing` 和 `platform-specific`，验证状态分为 `verified`、`pending` 和 `not-applicable`。矩阵行按“一个可单独验收的用户能力”拆分，`area` 和 `group` 只用于导航，不作为状态统计单位。只有 `implemented` 与 `verified` 同时成立才表示已经验收，避免把“有文件”误报成“跨平台可用”。
+实现状态由 metadata 定义，包括 `implemented`、`partial`、`missing`、`platform-specific`、`plugin-provided` 和 `unassessed`；验证状态分为 `verified`、`pending` 和 `not-applicable`。矩阵行按“一个可单独验收的用户能力”拆分，`area` 和 `group` 只用于导航，不作为状态统计单位。只有 `implemented` 与 `verified` 同时成立才表示已经验收，避免把“有文件”误报成“跨平台可用”。
+
+Viva 统一客户端替换旧平台源码后，增加 `unassessed`（尚未盘点）状态：它表示尚无足够证据判断，并不等同于未实现或已完成。未盘点项的证据指向本笔记，说明该状态的来源；原始平台状态、证据路径和说明保存在每条记录的 `legacy` 中，归属于迁移前基线 `5a54c41aa37a4e6e6b68918a4b05765b9dd07a36`，不得用来证明 Viva 已接入。逐项核对新客户端代码和验证后，替换为当前的真实状态及证据；不将整批未知项机械标为 `missing`，也不沿用已经删除的旧源码路径冒充当前证据。矩阵门禁仍核验全部路径、状态和能力变更。
 
 同一能力使用稳定 ID 作为文件名，生成器按文件名排序；公共复核日期描述初版盘点，不要求功能 PR 更新。PR 门禁比较能力文件的 JSON 内容，忽略格式、键顺序及顶层 `lastReviewed`；修改其他字段是否满足需求仍由 reviewer 审查。正确做法是 PHP PR 只更新对应 PHP 能力文件；不要靠改公共日期满足门禁，也不要自动选择一边来掩盖同一能力的真实分歧。
 

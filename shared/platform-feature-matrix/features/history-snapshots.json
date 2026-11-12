@@ -4,38 +4,70 @@
   "group": "本地历史",
   "capability": "快照列表与 Diff",
   "macos": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "macos/Sources/Lithe/Views/History",
-      "macos/Sources/Lithe/Services",
-      "macos/Sources/LitheLocalHistoryModule",
-      "macos/Tests/LitheLocalHistoryModuleTests/LocalHistoryModuleTests.swift",
-      "rust/lithe-core/src/project/history.rs",
-      "macos/Sources/Lithe/Views/App/LocalHistorySettingsControl.swift",
-      "macos/Tests/LitheTests/LocalHistoryIgnoreRulesTests.swift",
-      "macos/Sources/Lithe/Application/Features/LocalHistoryStorageSettingsModel.swift",
-      "macos/Tests/LitheTests/LocalHistorySettingsTests.swift",
-      "rust/lithe-core/src/tests/project.rs",
-      "shared/fixtures/history/relocation-v1.json",
-      "macos/Tests/LitheTests/LitheCoreLogicTests.swift",
-      "shared/fixtures/history/event-plan-v1.json",
-      "macos/Sources/Lithe/Core/Rust/RustCoreBridge+HistoryEvents.swift"
-    ],
-    "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/local_history.go",
+      "desktop/internal/workbench/local_history_view.go",
+      "desktop/internal/workbench/local_history_test.go",
+      "desktop/internal/workbench/local_history_settings.go",
+      "desktop/internal/workbench/local_history_settings_test.go",
+      "desktop/internal/settingswindow/local_history_view.go",
+      "desktop/internal/settingswindow/local_history_view_test.go"
+    ]
   },
   "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "windows/tauri/src/features/local-history",
-      "windows/tauri/src/features/local-history/components/project-local-history.tsx",
-      "windows/tauri/src/features/local-history/utils/history-metadata.ts",
-      "shared/fixtures/history/event-plan-v1.json",
-      "rust/lithe-core/src/project/history.rs",
-      "windows/tauri/src/features/local-history/api/local-history-api.test.ts"
-    ],
-    "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/local_history.go",
+      "desktop/internal/workbench/local_history_view.go",
+      "desktop/internal/workbench/local_history_test.go",
+      "desktop/internal/workbench/local_history_settings.go",
+      "desktop/internal/workbench/local_history_settings_test.go",
+      "desktop/internal/settingswindow/local_history_view.go",
+      "desktop/internal/settingswindow/local_history_view_test.go"
+    ]
   },
   "owner": "Local History",
-  "verification": "编辑同一文件多次，比较快照时间、内容 Diff 和文件范围。 macOS 外部变更和目录操作按批记录历史，仅首个成功快照触发全库过期清理；验证跳过文件、连续批次、取消及单文件保存，4000 文件变化后 CPU 回落且历史仍可读取。 编辑同一文件多次，比较快照时间、内容 Diff 和文件范围。存储上限：Rust 测试覆盖基线跳过生成目录与嵌套仓库、保存时清理旧版本留下的排除目录基线、超过 100MB 先淘汰旧基线再淘汰编辑和标签、基线预算 50MB。忽略规则：Rust 测试覆盖通配符与正则忽略新记录但保留已有历史、正则不区分大小写且无效或空正则不匹配、预览报告无效正则行和命中规则（隐藏、通配符含内置文件夹、正则）、拒绝越界路径、占用统计与清空项目历史。内置项可改：Rust 测试覆盖内置文件夹以 `**/名称/` 通配符规则生效、命中时报告该规则、`!**/名称/` 或 `!名称` 关闭内置项后重新记录；隐藏路径的 `!` 条目关闭内置隐藏目录。上限可配：Rust 测试覆盖默认 100MB、配置值生效并限定在 10MB–100GB、基线预算为上限一半。Git 对照：Rust 测试覆盖测试路径在 Git 仓库中返回是否被 .gitignore 忽略、非仓库返回空。 PR #1615 回归：关闭内置隐藏项和历史忽略项后，添加无关通配符仍可预览及记录；清空前取消并等待已有保存和外部变更任务，清空代次拒绝在途批次续写，清空后新保存可记录；隐藏路径变化纳入预览请求身份并重新计算结果。 容量输入仅接受完整非负整数与可选 MB 后缀，指数、负数、字母、溢出等无效输入不改变已保存值；回车和失焦均验证恢复或范围限定。清空失败显示中英错误与需再次确认的重试入口，回读剩余用量；重试成功清除错误并显示新用量。 PR #1597 历史迁移回归：文件与目录已有历史后排除索引，再重命名或移动，按历史元数据迁移精确路径和后代，保留内容、ID及相对后缀，同名前缀兄弟不变；工作区回归使用真实文件操作与空索引候选，不能为迁移历史重新纳入索引。目标平台原生历史界面验收仍待完成。 记录时机统一：两端都按 Core 的 history.planEvent 记录，保存与自动保存先记被替换的文本、写入成功后立即再记保存后的文本，恢复先记当前文本。Windows 重命名或移动文件及目录（含拖放与剪切粘贴）后调用 history.relocate 迁移历史，验证旧路径无残留、新路径沿用原有快照。",
-  "notes": "Windows 新增项目历史聚合入口与路径筛选，可进入既有单文件时间线比较和恢复；存储改按规范化工作区哈希隔离，Core 秒级时间转换为界面毫秒。项目历史入口只对原生本地工作区开放，WSL 与远程 provider 路径不会展示或调用不支持的 Core 查询。旧全局历史不含可靠工作区归属，原样保留但不自动归入新时间线。每个项目的本地历史上限 100MB（按 4KB 分配块计），其中项目基线最多 50MB；node_modules、.venv、target、.claude 等依赖、缓存和构建输出文件夹作为内置通配符忽略规则（`**/名称/`），基线和编辑都不记录；基线另外跳过嵌套 Git 仓库。超限时在下次保存时按基线、普通编辑、带标签条目的顺序从旧到新淘汰，两端共用 Core 行为。macOS 设置 › 通用 › 本地历史可配置只作用于本地历史的忽略规则（通配符或正则，每行一条，应用后生效），项目树仍显示这些文件；测试路径实时显示被哪条规则忽略，无效正则提示行号并跳过；显示本项目占用/上限，可确认后清空本项目历史。通配符忽略规则和隐藏路径都以文本框列出内置项，删掉一行即关闭该内置项（保存为 `!条目`，后续版本新增的内置项仍会生效）；用量按二进制单位显示（100 MB）。每个项目的上限可在「已用」旁用步进器调整（50–5000 MB，默认 100 MB），保存时按新上限淘汰；上限也可直接输入数值；测试路径旁有 ⓘ 说明，结果分两行显示本地历史是否记录、Git 是否忽略（仅作对照，本地历史不跟随 .gitignore）。Windows 暂无忽略规则与上限设置，但 Core 的 history.record 已支持 ignoreRules。"
+  "verification": "Viva：运行 desktop-go.sh test ./internal/workbench/ -run TestLocalHistory，覆盖两份快照的“与上一条比较”（只读 Diff 标签页、两侧以快照时间命名、Core 给出一增一删）、与当前比较时取编辑器未保存文本（关闭自动保存，磁盘不含该修改）、文本相同时只在窗口提示、快照写入客户端数据目录。本地历史设置：desktop-go.sh test ./internal/workbench/ -run TestLocalHistorySettings 用真实 Core 验证已保存的通配符与正则规则让匹配文件不被记录、预览按输入行号报告无效正则与命中规则（通配符、正则、内置文件夹）、越界测试路径返回 invalid_request、占用按 Core 限定后的上限（5MB 取 10MB、默认 100MB）回报、清空后用量归零且快照消失；./internal/settingswindow/ -run TestLocalHistoryCard 覆盖设置页显示占用/上限与内置规则、按原样逐行发送预览、测试路径结论与 Git 对照、上限非整数拒绝应用、应用时去空白去空行并按新上限重新统计、还原、清空先确认、取消不清空、失败提示与重试、无项目提示。旧客户端基线：编辑同一文件多次，比较快照时间、内容 Diff 和文件范围。 macOS 外部变更和目录操作按批记录历史，仅首个成功快照触发全库过期清理；验证跳过文件、连续批次、取消及单文件保存，4000 文件变化后 CPU 回落且历史仍可读取。 编辑同一文件多次，比较快照时间、内容 Diff 和文件范围。存储上限：Rust 测试覆盖基线跳过生成目录与嵌套仓库、保存时清理旧版本留下的排除目录基线、超过 100MB 先淘汰旧基线再淘汰编辑和标签、基线预算 50MB。忽略规则：Rust 测试覆盖通配符与正则忽略新记录但保留已有历史、正则不区分大小写且无效或空正则不匹配、预览报告无效正则行和命中规则（隐藏、通配符含内置文件夹、正则）、拒绝越界路径、占用统计与清空项目历史。内置项可改：Rust 测试覆盖内置文件夹以 `**/名称/` 通配符规则生效、命中时报告该规则、`!**/名称/` 或 `!名称` 关闭内置项后重新记录；隐藏路径的 `!` 条目关闭内置隐藏目录。上限可配：Rust 测试覆盖默认 100MB、配置值生效并限定在 10MB–100GB、基线预算为上限一半。Git 对照：Rust 测试覆盖测试路径在 Git 仓库中返回是否被 .gitignore 忽略、非仓库返回空。 PR #1615 回归：关闭内置隐藏项和历史忽略项后，添加无关通配符仍可预览及记录；清空前取消并等待已有保存和外部变更任务，清空代次拒绝在途批次续写，清空后新保存可记录；隐藏路径变化纳入预览请求身份并重新计算结果。 容量输入仅接受完整非负整数与可选 MB 后缀，指数、负数、字母、溢出等无效输入不改变已保存值；回车和失焦均验证恢复或范围限定。清空失败显示中英错误与需再次确认的重试入口，回读剩余用量；重试成功清除错误并显示新用量。 PR #1597 历史迁移回归：文件与目录已有历史后排除索引，再重命名或移动，按历史元数据迁移精确路径和后代，保留内容、ID及相对后缀，同名前缀兄弟不变；工作区回归使用真实文件操作与空索引候选，不能为迁移历史重新纳入索引。目标平台原生历史界面验收仍待完成。 记录时机统一：两端都按 Core 的 history.planEvent 记录，保存与自动保存先记被替换的文本、写入成功后立即再记保存后的文本，恢复先记当前文本。Windows 重命名或移动文件及目录（含拖放与剪切粘贴）后调用 history.relocate 迁移历史，验证旧路径无残留、新路径沿用原有快照。",
+  "notes": "Viva：本地历史窗口列出文件的快照（时间、事件、标签），选中后预览该快照文本，可恢复、重命名、删除；“与上一条比较”和“与当前比较”打开只读 Diff 标签页，由 Core 的 diff.compareTexts 比较，当前文本取已打开编辑器中的未保存内容，否则读磁盘，文件已删除时按空文本比较，两侧相同时在窗口中提示而不打开标签页。快照存在客户端自己的数据目录（<数据目录>/LocalHistory/<项目路径哈希>，与 Shelf 相同），不写旧版 Lithe 的数据目录。设置 › 通用 › 本地历史：显示本项目占用/上限（二进制单位，上限取 Core 限定后的值）与确认后清空（失败可重试）；每个项目上限以 MB 输入，留空用 Core 默认值；通配符与正则忽略规则每行一条，应用后随每次记录交给 Core；Core 的内置规则只读列在通配符下方，以 `!**/名称/` 一行关闭某个内置项（不像旧 macOS 那样把内置项合并进文本框，避免在 Go 重写 Core 的关闭匹配）；测试路径随输入（200ms 防抖）由 Core history.ignorePreview 判断是否记录及 Git 是否忽略，无效正则按行号提示。Viva 桌面端尚无“隐藏路径”设置，隐藏判断沿用 Core 默认的隐藏目录。未迁移：全项目时间线、手动创建标记条目。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Views/History",
+        "macos/Sources/Lithe/Services",
+        "macos/Sources/LitheLocalHistoryModule",
+        "macos/Tests/LitheLocalHistoryModuleTests/LocalHistoryModuleTests.swift",
+        "rust/lithe-core/src/project/history.rs",
+        "macos/Sources/Lithe/Views/App/LocalHistorySettingsControl.swift",
+        "macos/Tests/LitheTests/LocalHistoryIgnoreRulesTests.swift",
+        "macos/Sources/Lithe/Application/Features/LocalHistoryStorageSettingsModel.swift",
+        "macos/Tests/LitheTests/LocalHistorySettingsTests.swift",
+        "rust/lithe-core/src/tests/project.rs",
+        "shared/fixtures/history/relocation-v1.json",
+        "macos/Tests/LitheTests/LitheCoreLogicTests.swift",
+        "shared/fixtures/history/event-plan-v1.json",
+        "macos/Sources/Lithe/Core/Rust/RustCoreBridge+HistoryEvents.swift"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features/local-history",
+        "windows/tauri/src/features/local-history/components/project-local-history.tsx",
+        "windows/tauri/src/features/local-history/utils/history-metadata.ts",
+        "shared/fixtures/history/event-plan-v1.json",
+        "rust/lithe-core/src/project/history.rs",
+        "windows/tauri/src/features/local-history/api/local-history-api.test.ts"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "notes": "Windows 新增项目历史聚合入口与路径筛选，可进入既有单文件时间线比较和恢复；存储改按规范化工作区哈希隔离，Core 秒级时间转换为界面毫秒。项目历史入口只对原生本地工作区开放，WSL 与远程 provider 路径不会展示或调用不支持的 Core 查询。旧全局历史不含可靠工作区归属，原样保留但不自动归入新时间线。每个项目的本地历史上限 100MB（按 4KB 分配块计），其中项目基线最多 50MB；node_modules、.venv、target、.claude 等依赖、缓存和构建输出文件夹作为内置通配符忽略规则（`**/名称/`），基线和编辑都不记录；基线另外跳过嵌套 Git 仓库。超限时在下次保存时按基线、普通编辑、带标签条目的顺序从旧到新淘汰，两端共用 Core 行为。macOS 设置 › 通用 › 本地历史可配置只作用于本地历史的忽略规则（通配符或正则，每行一条，应用后生效），项目树仍显示这些文件；测试路径实时显示被哪条规则忽略，无效正则提示行号并跳过；显示本项目占用/上限，可确认后清空本项目历史。通配符忽略规则和隐藏路径都以文本框列出内置项，删掉一行即关闭该内置项（保存为 `!条目`，后续版本新增的内置项仍会生效）；用量按二进制单位显示（100 MB）。每个项目的上限可在「已用」旁用步进器调整（50–5000 MB，默认 100 MB），保存时按新上限淘汰；上限也可直接输入数值；测试路径旁有 ⓘ 说明，结果分两行显示本地历史是否记录、Git 是否忽略（仅作对照，本地历史不跟随 .gitignore）。Windows 暂无忽略规则与上限设置，但 Core 的 history.record 已支持 ignoreRules。"
+  }
 }

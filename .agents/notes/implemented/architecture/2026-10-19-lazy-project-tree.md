@@ -10,6 +10,19 @@
 开发者以后要记住两点：`FileNode.children == nil` 的目录表示“还没列过”，不是“空目录”；
 项目树相关的查找和编辑要处理“路径在未加载行下面”这种情况。
 
+### Viva 迁移中的项目树
+
+Viva 客户端在已加载根目录后将根节点作为第 0 层行显示，包括空项目；根节点可选择、
+折叠并用键盘重新展开。子节点从第 1 层开始，目录变化触发异步重列时按含根节点的可见行
+恢复滚动锚点。界面的 24pt 行高、19pt 层级缩进、17pt 展开槽、16pt 图标、12pt 水平留白、
+13pt 文字及圆角选中背景参照迁移前原生实现；展开箭头直接使用原版 IDEA SVG。
+这只覆盖了上述树行和基础交互，不能据此认为包压缩、多选、批量移动、完整菜单或逐像素视觉对照已完成。
+原生窗口失焦时 Viva 的焦点接口目前只提供控件焦点，选中态的窗口失焦表现仍需实机确认。
+当前可见行投影和方向键目标仍在 Go 客户端，违反共享规则归属；已建
+[#1800](https://github.com/1lck/Lithe-IDEA/issues/1800) 跟踪下沉到 Core。原版多选规则
+不在当前 Core 接口中，不能继续把其状态转换新增到界面层；本次临时实现已撤回。
+
+
 ## 问题
 
 - 原来每次快照都把工作区的完整树序列化后交给 Swift，节点数与文件数相同。
@@ -172,16 +185,15 @@ Windows 以后也没法复用。因此生产路径走 Rust，Swift 版本只作�
 
 ## 验证
 
-- `cd rust && cargo test -p lithe-core project`
-- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'LitheCoreLogicTests'`
-- `./scripts/architecture/verify-shared-contracts.sh`
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- Viva 项目树回归：`./scripts/desktop/desktop-go.sh test -race ./internal/workbench -run TestProjectTree`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
-- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'ProjectTreeLoaderTests|LazyProjectTreeInventoryTests|projectTreeLoaderCompactsPackagesLikeTheFullTreeConversion|ProjectTreeSelectionTests'`
+- 旧版 macOS 的 Swift 和 Core 测试及共享契约脚本仅是迁移前的历史验证，不能代替 Viva 验收。
 
 ## 适用范围
 
-- `rust/lithe-core/src/project/files.rs`
-- `macos/Sources/Lithe/Models/Workspace/ProjectTreeLoader.swift`
-- `macos/Sources/LitheCoreContracts/Workspace/FileNodePathLookup.swift`
-- `macos/Sources/LitheWorkspaceModule/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/project/files.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/project/files.rs)
+- `desktop/internal/workbench/filetree.go`
+- `desktop/internal/workbench/filetree_watch.go`
+- `desktop/internal/workbench/filetree_test.go`
+- 原版实现保留为历史参考：[ProjectTreeLoader.swift](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/Lithe/Models/Workspace/ProjectTreeLoader.swift)、[FileNodePathLookup.swift](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/LitheCoreContracts/Workspace/FileNodePathLookup.swift)、[LitheWorkspaceModule](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/LitheWorkspaceModule)。

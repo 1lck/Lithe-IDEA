@@ -26,7 +26,7 @@ Project 树字号对齐 IDEA 的 13pt。欢迎页应用名、导航、普通项�
 语义文字样式先读取原生字号，再使用打包字体。中文等字体不包含的字形由系统
 回退渲染。IDEA SVG 的几何形状和大小保持其资源定义。
 
-`macos/Resources/Fonts` 保存用户提供的 Inter 4.1 包中的 18 个原始静态 OTF（9 个字重及斜体，文件内部版本为 4.001）、许可，以及
+字体源目录（旧客户端为 `macos/Resources/Fonts`，Viva 客户端为 `desktop/internal/bundledfont/fonts`，Git blob 相同）保存用户提供的 Inter 4.1 包中的 18 个原始静态 OTF（9 个字重及斜体，文件内部版本为 4.001）、许可，以及
 JetBrains Mono 2.304 的 16 个原始静态 TTF、OFL 和作者信息。Mono 文件与用户再次提供的归档逐文件核对，16 个文件均字节一致。
 普通 UI 通过明确的字型名称匹配 Regular、Medium、SemiBold、Bold 等真实字重；SwiftUI 不再对已经指定字型的字体重复调用 `.weight`。
 代码默认读取 Mono 字型；`LitheTheme.editorFont` 仍然只表示打包字体。终端按下文
@@ -68,8 +68,36 @@ Nerd Font Mono；常规、粗体、斜体、粗斜体下的圆弧、箭头、Git
 直接来自同一个文字字型，避免系统缺字或不匹配的回退度量。
 设置 `LITHE_TERMINAL_CAPTURE_DIR` 可捕获真实 SwiftTerm 的明暗 CoreGraphics 样图；
 该样图不代替 Metal 实机验收。2026-10-07 在重新构建的预览中确认 Metal 终端的
-Starship 圆弧、箭头、Git/Bun 图标正常，用户随后明确确认已修复。运行 `./scripts/macos/test/test-macos.sh --filter BundledUIFontTests`、
-`node scripts/resources/test-reuse-worktree-resources.mjs` 和 `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`。
+Starship 圆弧、箭头、Git/Bun 图标正常，用户随后明确确认已修复。运行 ~~./scripts/macos/test/test-macos.sh --filter BundledUIFontTests~~（随旧客户端移除）、
+`node scripts/resources/test-reuse-worktree-resources.mjs` 和 `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
+
+### Viva 客户端：字体编译进可执行文件
+
+#1794 删除 SwiftUI 客户端时，字体目录随 `macos/` 一起删除，Viva 客户端的打包也没有复制它，
+发行包实际退回系统字体。#1799 把同一批文件（Git blob 与旧目录逐个一致）放回
+`desktop/internal/bundledfont/fonts`，`NOTICE.txt` 末尾列出全部 38 个字型的 SHA-256，
+`TestTheFontFolderMatchesItsManifest` 按它核对文件、哈希和每个字体族的字型数。
+
+`viva package` 没有向 app bundle 添加资源的步骤，而 Viva 的 `app.RegisterFont` 接收字体字节，
+文档写明是为 `//go:embed` 设计的。因此 `scripts/desktop/package-desktop.sh` 以
+`lithe_bundled_fonts` 构建标签把整个目录（含许可文本）编译进 macOS 可执行文件，做法与
+`lithe_bundled_helper` 嵌入 lithe-mcp 相同。bundle 里没有字体文件，运行时也不读安装目录，
+原来只为字体服务的 `installedpackage.ResourceFolder` 一并删除。注册时 Viva 把每个字型按内容摘要
+暂存到用户缓存目录 `viva/fonts`，再以 process 范围注册到 CoreText；这是平台缓存，不进签名，
+也不影响 Sparkle delta。不带标签的开发、测试和其他平台构建不含字体，回退系统字体；
+需要看打包效果时，构建命令加 `-tags lithe_bundled_fonts`。
+
+终端仍按上文顺序选择：已安装的 MesloLGS 等 Nerd Font Mono 优先，打包的
+JetBrainsMono Nerd Font Mono 视为已安装，都没有时用 JetBrains Mono，最后是系统等宽字体
+（`fonts.go` 的 `firstAvailableFamily`）。
+
+被否方案：在 Viva fork 给 `viva package` 加资源字段，改动框架打包流程，字体仍要在运行时读 bundle；
+`viva package` 之后再往 `.app` 复制，会破坏它已经做好的签名；不加标签、所有构建都嵌入，
+每个测试二进制多链接约 25 MB，测试还会往用户缓存写字体。
+
+代价：macOS 可执行文件增加约 25 MB。启动时注册 38 个字型约 85–120 ms，其中约 75 ms 是当前固定版本的
+Viva 用 FNV-1a 给暂存文件起名；Lithe-IDEA/viva#8（上游 vivaui/viva#233）改为 SHA-256，
+同一批字型约 8 ms，合入 fork 并升级固定版本后生效。
 
 ### 原生 Diff 的编辑器字体与中央行号
 
@@ -231,14 +259,24 @@ Git Log 日期列按实际 UI 字体测量，避免换字体后宽度仍沿用�
 项目徽标的白色字母像素与实际 JetBrains Mono SemiBold 13pt 文字对照，验证共享
 徽标不是 Inter Bold 或合成字重；明暗主题的原生项目菜单捕获也加载实际打包字体。
 
+Viva 客户端：
+
+```bash
+cd desktop
+bash ../scripts/desktop/desktop-go.sh test ./internal/bundledfont/ ./internal/workbench/ -run 'Font|Register' -count=1
+bash ../scripts/desktop/desktop-go.sh test -tags lithe_bundled_fonts ./internal/bundledfont/ -count=1
+```
+
+旧客户端（已删除，仅作记录）：
+
 ```bash
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter BundledUIFontTests
 node scripts/resources/test-reuse-worktree-resources.mjs
-./scripts/macos/verify/verify-runtime-bundle-immutability.sh
+./scripts/desktop/verify/verify-runtime-bundle-immutability.sh
 ./scripts/agent-notes/verify-agent-notes.sh
 ```
 
-完整安装包由 `scripts/macos/verify/verify-macos-package.sh` 检查全部字型及许可信息。
+完整安装包由 ~~scripts/macos/verify/verify-macos-package.sh~~（随旧客户端移除） 检查全部字型及许可信息。
 本次字体注册/字重与明暗弹窗圆角渲染测试通过；按用户要求不启动预览，当前运行界面的视觉验收尚未完成。Windows 原生界面不在本次验证范围内。
 
 此次标题/工具栏修正的主 `LitheTests` 目标报告 1,379 项 / 178 个 suite 成功，
@@ -255,11 +293,15 @@ node scripts/resources/test-reuse-worktree-resources.mjs
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Theme/LitheTheme.swift`
-- `macos/Sources/Lithe/Platform/MacOS/UI/MacBundledFontRegistry.swift`
-- `macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift`
-- `macos/EditorFrontend`
-- `macos/Resources/Fonts`
+- ~~`macos/Sources/Lithe/Theme/LitheTheme.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/UI/MacBundledFontRegistry.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift`~~（已随 #1794 移除）
+- ~~`macos/EditorFrontend`~~（已随 #1794 移除）
+- ~~`macos/Resources/Fonts`~~（已随 #1794 移除）
+- `desktop/internal/bundledfont`
+- `desktop/internal/workbench/fonts.go`
+- `desktop/internal/workbench/fonts_bundled.go`
+- `scripts/desktop/package-desktop.sh`
 - `scripts/resources/worktree-resources.json`
 
 

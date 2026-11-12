@@ -111,6 +111,9 @@ The required `macOS CI gate` still appears for documentation-only PRs. Its
 classifier skips native lanes and the independent Ubuntu tooling tests. Other
 native workflows filter documentation paths. Structured logging checks run on
 Ubuntu; i18n retains macOS's binary-plist packaging test and the other platforms.
+No workflow builds the Go desktop client yet, so changes under `desktop/` and
+`scripts/desktop/` select no macOS or Windows lane and run only the always-on
+checks; the classifier must select a lane for them once a workflow builds them.
 
 ### What runs after a pull request merges
 
@@ -381,6 +384,42 @@ Swift 单元和插件 CI 通道通过 Swatinem/rust-cache 复用裁剪后的 Rus
 
 ### 独立工作树的本地编译
 
+Viva Go 计时结果写入当前工作树的 `.artifacts/test-stability/{macos,windows}-desktop-go.{json,html,junit.xml,log}`
+及 `index.html`。它们只属于这一次运行，受源码修订、平台、架构、Go/Core 工具链、所选用例、预算和机器状态影响；没有可验证的跨树身份 stamp。`desktop-go-timing-reports` 排除路由在任何复制阶段拒绝复用；本地由开发者清理，CI 报告按 artifact 保留策略处理。原始日志可能含测试数据，不进入安装包，也不会改变代码签名或 Sparkle delta。
+
+Viva 编辑器性能基线 `scripts/desktop/perf/editor-bench.sh` 把每次运行的原始输出和 Markdown 预算报告写入当前工作树的 `.artifacts/editor-perf/`（`run-<UTC 时间戳>.txt`、`record-<UTC 时间戳>.txt` 及同名 `.md`，以及开发者用 `--out` 指定在该目录下的文件）。它们只属于这一次运行，受源码修订、机器、CPU、运行时负载、Go 工具链和大文档大小（默认 10 MiB，可用 `LITHE_EDITOR_PERF_LARGE_BYTES` 或 `--large-bytes` 修改）影响；没有可验证的跨树身份 stamp。`editor-perf-reports` 排除路由在任何复制阶段拒绝复用，由开发者在本地清理；该基线不是 CI 必跑项，CI 不运行基准，也没有 artifact。随仓库提交的历史记录 `desktop/benchmarks/history/*.jsonl` 由 Git 跟踪，属于源码而不是下载或生成资源，各工作树从 Git 检出，不经复用脚本复制。这些文件都不进入安装包，也不会改变代码签名或 Sparkle delta。
+
+Viva 的 Core 源码检出、Cargo 目标目录和暂存静态库位于当前工作树的
+`.artifacts/desktop/lithe-core-rust/` 与 `.artifacts/desktop/lithe-core/`。暂存身份记录包含
+修订、目标、profile 与编译器，但尚不是可跨工作树复用的完整密封清单，故资源清单中的
+`viva-core-build-state` 明确拒绝复制；每个工作树独立构建和校验。Core 仓库恢复的 `scripts/rust-core/verify-rust-core-comments.sh` 先用固定词法器检查真实注释，再检查 Rustdoc；调用方应沿用本工作树的 `CARGO_TARGET_DIR`。独立 Core 检出未提供该变量时，输出只进入该检出的 `.artifacts/rust-core-checks/`（桌面默认检出内为 `.artifacts/desktop/lithe-core-rust/source/.artifacts/rust-core-checks/`）。词法器二进制、Cargo 状态与 Rustdoc 受 Core 修订、helper Cargo.lock、目标、编译器及环境约束，和已有 Core build state 一起排除，不注册复用 validator；只在构建/验证阶段生成，不进入安装包，不影响签名或增量更新。下方有关 Swift、Tauri、
+JDTLS 和旧工作流的描述记录迁移前流程，不能当作 Viva 的当前构建或复用能力。
+当前资源复用脚本的自包含回归覆盖路径、身份校验与禁止复制的状态；测试通过不证明本分支已删除的 PlantUML、远程服务、Swift/Tauri 客户端或旧 Windows 工作流仍可构建。preview 的 JDK 缓存历史问题见 [#1797](https://github.com/1lck/Lithe-IDEA/issues/1797)；这些旧产品流程必须单独迁移和验证，不能用资源脚本自测替代。
+
+Viva 的 IDE API 辅助程序 `lithe-mcp` 由 `scripts/desktop/build-desktop-core.sh` 在同一固定 Core 检出上以 `features=mcp` 编到暂存目录的 `bin/`。`package-desktop.sh` 在 `viva package` 前把它复制成 `desktop/internal/idehelp/lithe-mcp.bin`，以 `lithe_bundled_helper` 构建标签嵌入客户端二进制，打包结束或失败时删除该生成文件；文件被 Git 忽略并在资源清单 `desktop-embedded-ide-helper` 中拒绝跨工作树复用。运行期客户端把嵌入的字节原子安装到应用数据目录的 `ide-host/bin/` 再启动，安装包本身不增加可执行文件、不被写入，也不改变签名或 Sparkle 增量更新基线；开发运行由 `desktop-go.sh` 用暂存目录里的辅助程序通过 `LITHE_IDE_HELPER` 提供，不读取安装目录。
+
+Viva 的 `desktop-go.sh` 把暂存 Core 静态库、头文件、原生链接参数和实际选中的 Windows import archive 的 SHA-256 纳入 cgo 编译参数。只改 Rust 或 Core pin 也会使 Go 构建缓存失效；相同字节仍复用 Go 缓存，不清空用户缓存。这个摘要只是本地构建身份，不是跨工作树资源密封清单。`scripts/desktop/desktop-core-cache.test.mjs` 在系统临时目录创建独占的 `lithe core-cache-*` 夹具，只替换 C 静态库来验证真实 Go 编译结果；子进程有本地时限，结束后删除夹具。该目录和 Core 构建状态一起排除复用，不进入安装包；三个原生 CI 车道都运行此回归。
+
+Viva 插件偏好的真实来源是平台偏好目录中的 `plugin-settings.json` 与工作区 `.lithe/plugin-settings.json`。它们是用户可变状态，没有可复用身份；`viva-plugin-preference-sources` 在所有复制阶段拒绝复用。原生保存只在来源同目录创建独占 `.lithe-config-*.tmp`，保留权限及原生元数据后原子发布，成功、失败、取消均清理本次临时文件。打开或读取不创建偏好文件；来源和暂存文件都不进入安装目录，不影响签名和 Sparkle delta。
+
+Viva 文件与项目树图标的 SVG 和生成的 Go 数据由 Git 管理，生成脚本限定 Python 3.9 或 3.11、
+picosvg 与直接依赖以及 Viva 编译器版本，在本工作树重建；没有自动发现受支持的 Python 时可用
+`LITHE_ICON_PYTHON` 指定受支持的解释器，该变量不是缓存路径。临时转换目录退出时删除。它们不是跨工作树的可复制缓存，
+`viva-file-icons` 在资源复用入口拒绝复制。运行期图标只读编译数据，不写入安装包，因而不改变
+代码签名或 Sparkle 增量更新基线。只更新树的展开箭头时，使用生成脚本的 `--tree-only`，
+避免重新生成其他文件类型图标。完整生成器在 SVG 未变时仍可能改变既有曲线，原因和完整
+工具链可重复性由 [#1801](https://github.com/1lck/Lithe-IDEA/issues/1801) 跟踪。固定工具链后，
+macOS 上用 Python 3.9 和 3.11 完整生成的 95 个旧图标向量与提交基线一致，两份生成文件
+逐字节相同；Windows 和其他架构的依赖包已确认可获取，
+但还未在目标机器完成生成比对，不能据此判定跨平台可重复。
+
+Viva 的市场包传输由操作系统提供的临时目录持有，目录形如
+`<file-storage-temp>/lithe-plugin-transfer-<random>/archive.zip`。它是一次下载私有状态，
+不具备平台、架构或工具链可复用身份：下载时逐块限额并对照 Core 校验过的索引 SHA-256，
+失败或取消时清理，成功后由接收者在后续审查结束时清理。摘要仅证明与索引一致，不能代替
+发布者签名和安装审批。它不进入 app bundle、插件包或任何 worktree 复制阶段，不影响签名和
+Sparkle 增量更新基线；`plugin-marketplace-state` 在资源复用入口显式拒绝该状态。
+
 通用工具使用方偏好保存在工作区现有 `.lithe/run/local.json` 的 `toolchain.preferences`，
 生命周期随该工作区本机配置，显式重置或移除后结束；没有增加并行缓存。目录/消费者引用
 每次运行重新解析，运行前 native adapter 读取文档并在探测后核对原始内容，不写应用或
@@ -443,6 +482,23 @@ identity stamp，无法证明与目标工作树的 Rust 源码一致，所有校
 `.artifacts/windows-perf/`，登记为 `windows-perf-state`，所有复用阶段均拒绝复制。这些内容
 跟随所在工作树的源码和机器，没有 identity stamp；工具在本工作树重新构建，不写 app bundle、
 安装目录或 Sparkle delta 基线。
+
+Viva 桌面端（`desktop/`，Go）的构建状态位于 `.artifacts/desktop/`，只由
+`scripts/desktop/build-desktop-core.sh` 和 `scripts/desktop/desktop-go.sh` 写入，登记为
+`desktop-core-build-state`，所有复用阶段均拒绝复制，复用脚本没有为它注册 validator：
+`lithe-core-rust/` 是 Lithe-core-rust 的源码检出和 `CARGO_TARGET_DIR` 指向的 Cargo 编译目录（数 GB），
+`lithe-core/<debug|release>/` 是暂存给 cgo 的 `include/lithe_core.h`、`lib/liblithe_core.a`、
+`native-static-libs.txt` 和 `identity.txt`（单个 profile 约 700 MB），`bin/` 是本工作树构建的桌面端二进制。
+默认从构建脚本中固定的 Lithe-core-rust 提交检出；联调尚未合入的 core 改动时，设置
+`LITHE_CORE_RUST_DIR=/path/to/Lithe-core-rust` 改用本地检出（脚本只读取它，不修改该检出）。
+`desktop-go.sh` 每次运行前都调用构建脚本重新暂存，固定提交变了或本地检出改了都不会继续链接旧库；
+没有变化时 git 和 cargo 都判定为最新，这一步约一秒。`LITHE_DESKTOP_CORE_PROFILE=release` 选择暂存的 profile。
+`identity.txt` 记录 core 提交、`core-worktree`（clean/dirty）、`core-source`（pinned/override）、rustc 版本、
+target、profile 和 macOS deployment target，但它只描述本工作树最近一次构建：override 构建包含未提交的 core 改动，
+提交号无法复现；二进制又随本工作树的 `desktop/` 源码变化。因此它不是可以授权跨工作树复制的封存身份，
+也没有复制阶段，每个工作树自行构建（`.artifacts/` 被 `.gitignore` 忽略，不提交）。
+这些目录只在构建时由上述脚本写入，应用运行时不写，也不进入 app bundle 或安装目录，
+不影响代码签名和 Sparkle delta 基线。
 
 结构化日志目录位于 `shared/logging/`，Swift/Rust 生成源码随 Git 获取。在每个工作树运行
 `node scripts/logging/generate-log-events.mjs --check`；修改目录后本地重新生成再编译。
@@ -543,9 +599,10 @@ Cargo 社区插件在 [独立仓库](https://github.com/Lithe-IDEA/lithe-plugin-
 不跨 worktree 共享，也不进入发布 ZIP。主仓库保留通用插件契约回归，不下载或组装 Cargo 插件。
 插件仓库每次打包校验 `sdk.lock.json` 固定的 SDK 源码提交与文件 SHA-256，
 SDK 复制只发生在打包阶段，安装目录保持只读。
-官方插件 SDK 已移到 [lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs)：
-SDK 的 Maven 构建输出和端到端测试使用的 Lithe 稀疏检出（`.artifacts/lithe`）都属于该仓库，
-主仓库不再构建 SDK，也不把这些目录登记为可复用资源。
+官方插件 SDK 在 Core 仓库的 `shared/plugins/sdk/` 下维护和发布：
+SDK 的构建输出，以及对当前工作树的 Core 运行的端到端测试
+（`node shared/plugins/scripts/sdk-e2e.mjs`）都属于 Core 仓库，
+本仓库不构建 SDK，也不把这些目录登记为可复用资源。
 
 `Lithe-Dev` 的运行时用户状态不属于可复用构建缓存。macOS 用
 `app.lithe.desktop.dev` 隔离偏好和钥匙串，并在系统 Application Support、Caches、
@@ -666,13 +723,16 @@ SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性�
   `Plugins/mac/Official/PhpSupport/language-server.json` 下载并校验的
   Intelephense tarball；它只服务当前工作树的插件打包，不能复制解压结果。
 
-Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono 2.304 的 16 个静态 TTF、OFL 和作者信息位于 Git 跟踪的
-`macos/Resources/Fonts`。同目录增加 Nerd Fonts v3.5.1 的 JetBrains Mono Nerd Font Mono 四个完整 TTF（常规、粗体、斜体、粗斜体）及 OFL 许可，终端可直接选择这些字型而不依赖用户安装；来源、版本和固定 SHA-256 记录于 `NOTICE.txt`。它们与平台架构和工具链无关，随工作树检出，不从另一个
-工作树的产物或已签名 app 复用；注册表将 `bundled-ui-fonts` 排除，复用脚本拒绝
-复制。打包脚本在签名前复制到 `Contents/Resources/Fonts`，资源门禁检查全部字型；
-`BundledUIFontTests` 检查版本、CoreText process 注册、字号/字重、SwiftUI 字体及
-注册前后的文件清单与 SHA-256。运行时仅只读注册和 WebKit 加载，不修改 bundle，
-不影响 Sparkle delta 的发布基线。
+Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono 2.304 的 16 个静态 TTF、OFL 和作者信息，
+以及 Nerd Fonts v3.5.1 的 JetBrains Mono Nerd Font Mono 四个完整 TTF（常规、粗体、斜体、粗斜体）及 OFL 许可，
+位于 Git 跟踪的 `desktop/internal/bundledfont/fonts`；来源、版本和每个字型的固定 SHA-256 记录于 `NOTICE.txt`，
+`TestTheFontFolderMatchesItsManifest` 按它核对目录。它们与平台架构和工具链无关，随工作树检出，不从另一个
+工作树的产物、已签名 app 或运行时缓存复用；注册表将 `bundled-ui-fonts` 排除，复用脚本拒绝复制。
+`scripts/desktop/package-desktop.sh` 以 `lithe_bundled_fonts` 构建标签把整个目录（含许可）编译进 macOS 可执行文件，
+app bundle 中没有字体文件，运行时也不读取安装目录；不带该标签的开发和测试构建不含字体，回退系统字体。
+Viva 的 `app.RegisterFont` 把字型按内容摘要暂存到用户缓存目录 `viva/fonts`，再以 process 范围注册到 CoreText，
+不安装到用户字体库，不修改 bundle，不影响 Sparkle delta 的发布基线。带标签运行
+`desktop-go.sh test -tags lithe_bundled_fonts ./internal/bundledfont/` 核对嵌入内容与真实注册的字体族。
 
 以下目录不应直接复制或跨工作树共享：
 
@@ -936,9 +996,10 @@ Java Support（`dev.lithe.plugin.java-support`）是过渡期唯一随 Lithe.app
   由 `jdt` 宿主集成在启动时发现没有未卸载的插件声明它后删除。两者都是单次安装的
   可变状态，任何阶段都不得复制或跨 worktree 共享。
 
-插件网页的宿主持久状态通过平台存储 adapter 写到
-`<app-support>/Lithe/PluginState/<plugin-id>/web-state/<window-id>/<workspace-digest>.json`，
-每个窗口和工作区最多 64 KiB。它属于当前安装中的插件，卸载时随 `PluginState` 清理；
+插件网页的宿主持久状态（Viva 的 `pluginservice.SetPageState`）写到每用户插件根目录
+（`pluginpkg.DefaultRoot`）下的
+`<plugin-root>/.state/<plugin-id>/pages/workspaces/<workspace-key>/<window-digest>.json`，
+每个窗口和工作区最多 64 KiB。它属于插件，与同目录下插件后端的工作区状态生命周期相同；
 包内网页、脚本和 app bundle 始终只读，因此不改变签名或 Sparkle delta 的源基线。
 这类用户 JSON 没有版本、平台、架构或工具链 identity stamp，工作区摘要只是存储键，
 任何复制阶段都不得复用或共享。`excludedResources.plugin-web-state` 通过复用脚本的
@@ -1003,3 +1064,10 @@ Maven Provider 随每次任务收集的报告快照在宿主提供的 `workspace
 完成后删除，崩溃残留沿用插件工作区状态清理。它不具备构建缓存 identity stamp，
 `maven-operation-report-snapshots` 排除项与脚本拒绝跨 worktree 复制、硬链接和符号链接。
 原始报告仍是上游写入工作区的输出，不可用于替代另一次运行；插件安装包始终只读。
+
+Viva stdio Debug 的临时状态位于可写插件根的
+`.state/<plugin-id>/<version>/desktop-debug-<session>/`。仅在启动时按 Core
+返回的 requiredDirectories 创建，进程退出且启动任务结束后删除；已安装的插件版本目录
+只读，不影响签名或 Sparkle delta。此状态沿用 `official-plugin-packages` 不可复用路由，
+没有 identity stamp，发现、校验和复制阶段均禁止跨工作树共享；复用脚本无 validator，
+其注册与拒绝由 `scripts/resources/test-reuse-worktree-resources.mjs` 验证。

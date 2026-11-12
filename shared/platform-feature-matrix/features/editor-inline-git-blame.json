@@ -4,26 +4,54 @@
   "group": "Git 变更",
   "capability": "Windows 行尾 Git Blame 默认关闭；开启后仅在文件本身或提交历史变化时刷新，刷新期间保留旧注释，不随 .git/index 改写闪烁",
   "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift"
-    ],
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable"
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
+      "desktop/internal/workbench/git_gutter.go",
+      "desktop/internal/editorview/gutter.go",
+      "desktop/internal/workbench/editor_view.go",
+      "desktop/internal/workbench/git_blame_inline.go",
+      "desktop/internal/workbench/git_observation.go"
+    ]
   },
   "windows": {
-    "evidence": [
-      "windows/tauri/src/features/git/stores/git-blame.store.ts",
-      "windows/tauri/src/features/git/hooks/use-git-blame.ts",
-      "windows/tauri/src/features/git/runtime/git-metadata-watch-host.tsx",
-      "windows/tauri/crates/project/src/git_watcher.rs",
-      "windows/tauri/src/features/settings/config/default-settings.ts",
-      "windows/tauri/src/features/git/stores/git-blame.store.test.ts",
-      "windows/tauri/src/features/git/hooks/use-git-blame.test.ts"
-    ],
     "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
+      "desktop/internal/workbench/git_gutter.go",
+      "desktop/internal/editorview/gutter.go",
+      "desktop/internal/workbench/editor_view.go",
+      "desktop/internal/workbench/git_blame_inline.go",
+      "desktop/internal/workbench/git_observation.go"
+    ]
   },
   "owner": "Editor / Git",
   "verification": "Windows：新安装时行尾 Blame 关闭；在设置中开启后打开大型 Maven 项目，导入期间（工具频繁改写 .git/index）行尾注释不闪烁、不重复执行 git blame；保存文件、提交、切换分支后注释更新且更新前保留旧注释。未提交行显示本地化的“未提交的更改”。已保存过开关的老用户保持原值。",
-  "notes": "macOS 没有行尾 Blame，只有行号区菜单入口（见 editor-git-blame-menu）。"
+  "notes": "Viva：设置 › 版本控制中默认关闭；开启后仅给光标所在行设置行尾注释（作者、相对时间、提交主题），未提交行显示本地化文本。注释在保存、HEAD/引用移动时读取，index 改写不触发；读取期间保留旧注释。macOS 与 Windows 共用同一实现。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift"
+      ],
+      "implementationStatus": "missing",
+      "verificationStatus": "not-applicable"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features/git/stores/git-blame.store.ts",
+        "windows/tauri/src/features/git/hooks/use-git-blame.ts",
+        "windows/tauri/src/features/git/runtime/git-metadata-watch-host.tsx",
+        "windows/tauri/crates/project/src/git_watcher.rs",
+        "windows/tauri/src/features/settings/config/default-settings.ts",
+        "windows/tauri/src/features/git/stores/git-blame.store.test.ts",
+        "windows/tauri/src/features/git/hooks/use-git-blame.test.ts"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "notes": "macOS 没有行尾 Blame，只有行号区菜单入口（见 editor-git-blame-menu）。"
+  }
 }

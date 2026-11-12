@@ -7,25 +7,53 @@
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      "macos/Sources/Lithe/Models/Editor/GoToLineInput.swift",
-      "macos/Sources/Lithe/Views/Editor/GoToLineDialog.swift",
-      "macos/Tests/LitheTests/GoToLineInputTests.swift",
-      "macos/Tests/LitheTests/GoToLineDialogValidationTests.swift",
-      "rust/lithe-core/src/editor/navigation_input.rs"
+      "desktop/internal/core/navigation.go",
+      "desktop/internal/editorview/view.go",
+      "desktop/internal/workbench/navigation.go",
+      "desktop/internal/workbench/navigation_test.go",
+      "desktop/internal/workbench/editor_menu.go",
+      "shared/fixtures/editor/navigation-input-v1.json"
     ]
   },
   "windows": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      "windows/tauri/src/features/keymaps/commands/navigation-command-actions.ts",
-      "windows/tauri/src/features/keymaps/commands/navigation-command-actions.goto.test.ts",
-      "windows/tauri/src/features/editor/components/code-editor.tsx",
-      "windows/tauri/src/features/editor/utils/go-to-line.test.ts",
+      "desktop/internal/core/navigation.go",
+      "desktop/internal/editorview/view.go",
+      "desktop/internal/workbench/navigation.go",
+      "desktop/internal/workbench/navigation_test.go",
+      "desktop/internal/workbench/editor_menu.go",
       "shared/fixtures/editor/navigation-input-v1.json"
     ]
   },
   "owner": "Editor",
-  "notes": "双端通过 Core 解析行和列，单独输入行号选中行内容，明确输入列号放置光标；macOS 异步校验并丢弃过期结果。",
-  "verification": "两端打开实际编辑器，分别输入 120、120:35、12abc、空值及超出文档范围的数字；确认整行选择、UTF-16 列位置、无效输入和活动文档不变。快速修改 macOS 输入确认旧校验不能启用确认按钮；共享 fixture、Windows 命令与行选择和 macOS 模态窗口测试覆盖；完整原生界面验收 pending。"
+  "notes": "Viva 已接入 Core 行列解析、状态栏点击、快捷键与编辑器右键菜单入口、整行选择及 UTF-16 列定位；跳转同时记入后退/前进历史。macOS 原生菜单栏入口在 Viva 客户端不适用；原生窗口一致性与 Windows 产品级验收仍待完成。",
+  "verification": "共享 fixture 覆盖有效和无效输入；Viva 无头交互覆盖整行、UTF-16、取消、切换文档和过期校验，待两端完整应用及原生界面验收。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "macos/Sources/Lithe/Models/Editor/GoToLineInput.swift",
+        "macos/Sources/Lithe/Views/Editor/GoToLineDialog.swift",
+        "macos/Tests/LitheTests/GoToLineInputTests.swift",
+        "macos/Tests/LitheTests/GoToLineDialogValidationTests.swift",
+        "rust/lithe-core/src/editor/navigation_input.rs"
+      ]
+    },
+    "windows": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "windows/tauri/src/features/keymaps/commands/navigation-command-actions.ts",
+        "windows/tauri/src/features/keymaps/commands/navigation-command-actions.goto.test.ts",
+        "windows/tauri/src/features/editor/components/code-editor.tsx",
+        "windows/tauri/src/features/editor/utils/go-to-line.test.ts",
+        "shared/fixtures/editor/navigation-input-v1.json"
+      ]
+    },
+    "notes": "双端通过 Core 解析行和列，单独输入行号选中行内容，明确输入列号放置光标；macOS 异步校验并丢弃过期结果。"
+  }
 }

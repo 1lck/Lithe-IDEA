@@ -82,7 +82,7 @@
 
 该 Note 还要求每个导出写明可接受的调用上下文和所需授权，这一项留给 C-IMPORT 在契约里定稿。依赖与导出那篇 Note 继续留在 `proposed/`，由 C-IMPORT 的 PR 落地时更新，本 PR 不移动它。
 
-SDK：三份官方后端 SDK（Node、Java、Rust）各自增加发现、调用和导出的类型化包装，由 `lithe-plugin-docs` 的 SDK 批次交付。
+SDK：三份官方后端 SDK（Node、Java、Rust）各自增加发现、调用和导出的类型化包装，在 Core 仓库的 `shared/plugins/sdk/{node,java,rust}` 里，与对应的 Core PR 一起交付。
 
 ### 三、Java 拆分怎样使用这个中转
 
@@ -149,7 +149,7 @@ SDK：三份官方后端 SDK（Node、Java、Rust）各自增加发现、调用�
 
 | 仓库 | PR | 内容 |
 | --- | --- | --- |
-| lithe-plugin-docs | docs-LS、docs-RUN、docs-EDIT、docs-IMPORT、docs-PROJ | 契约同步，三份 SDK 的类型化包装；C-* 合入前先过 `sdk-e2e` |
+| Lithe-core-rust | core-LS、core-RUN、core-EDIT、core-IMPORT、core-PROJ | 契约、API 总表、协议更新记录和三份 SDK 的类型化包装，与对应的 C-* 同批完成；合入前在 Core 仓库根运行 `node shared/plugins/scripts/sdk-e2e.mjs` |
 | lithe-plugin-java | J0 | 骨架，移植纯逻辑 |
 | | J1 | 启动解析器、`jdt://`、状态目录、准备状态、导入配置消费方 |
 | | J2 | 入口和运行标记、Run、Debug、长类路径 |
@@ -175,14 +175,14 @@ Windows 现在还通过 Core 的命令调用 Maven 和 Java 功能，而 Windows
 
 ### 七、验收闸门脚本
 
-`scripts/architecture/verify-no-host-language-specifics.mjs` 扫描六个目录：`rust/lithe-core/src`、`macos/Sources`、`frontend/editor/src`、`shared/contracts/plugins/v1`、`windows/tauri/src`、`windows/tauri/src-tauri/src`。跳过 `vendor`、`node_modules` 和以点开头的目录。
+~~scripts/architecture/verify-no-host-language-specifics.mjs~~（随旧客户端移除） 扫描六个目录：`rust/lithe-core/src`、`macos/Sources`、`frontend/editor/src`、`shared/contracts/plugins/v1`、`windows/tauri/src`、`windows/tauri/src-tauri/src`。其中 `shared/contracts/plugins/v1` 当时在本仓库，现在是 Core 仓库的 `shared/plugins/contract/v1/`。跳过 `vendor`、`node_modules` 和以点开头的目录。
 
 检查什么：
 
 - **词表**：把标识符和字符串按 camelCase、snake_case、`.`、`/`、`-` 切成词，命中 `java`、`jdt`、`jdtls`、`jvm`、`maven`、`mvn`、`gradle`、`spring`、`mybatis`、`lombok`、`junit`、`testng`、`m2e`、`surefire` 就计数。`JavaScript` 不算。它按整词匹配，所以 `javac`、`javadoc`、`mvnw`、`springframework` 不计入。
 - **名字比较**：Rust、Swift、TypeScript 里把某个值与带词表词的字符串字面量做相等比较，或者写成 `match`、`switch` 的分支，例如 `tool == "java"`、`case "maven":`。
 - **工具名常量表**：Rust 里的 `const`、`static` 字符串数组，内容列出词表词，或 `node`、`go`、`python` 这类工具名，例如 `const X: &[&str] = &["java", ...]`。按条目计数：这类表有几项就记几，所以给已有的表再加一个 `python` 也会让计数上升。
-- **schema 封闭枚举**：`shared/contracts/plugins/v1/` 下的 JSON schema 里，`tool`、`runtime` 属性用 `enum` 或 `const` 把取值写死，`languageImport.kind` 同样写死，以及每一个 `hostIntegration` 属性。按取值计数：`enum` 有几个成员就记几（含 `items`、`oneOf`、`anyOf`、`allOf` 里的），`const` 记 1；`hostIntegration` 记它的集成名个数（对象形式只数 `id` 的取值），至少记 1。这样已有枚举从 `["java", "node"]` 扩成 `["java", "node", "python"]` 也会被棘轮拦下。
+- **schema 封闭枚举**：`Lithe-core-rust/shared/plugins/contract/v1/` 下的 JSON schema 里，`tool`、`runtime` 属性用 `enum` 或 `const` 把取值写死，`languageImport.kind` 同样写死，以及每一个 `hostIntegration` 属性。按取值计数：`enum` 有几个成员就记几（含 `items`、`oneOf`、`anyOf`、`allOf` 里的），`const` 记 1；`hostIntegration` 记它的集成名个数（对象形式只数 `id` 的取值），至少记 1。这样已有枚举从 `["java", "node"]` 扩成 `["java", "node", "python"]` 也会被棘轮拦下。
 - **六个旧 token**：`is_main_method`、`main_declaration_index`、`main_class_exists`、`containsJavaMainMethod`、`java.runConfigurations`、`java.testMethods`，原脚本 `verify-java-semantic-ownership.mjs` 里的规则，在任何模式下都失败，白名单文件里也一样。
 
 三种模式：
@@ -249,7 +249,7 @@ A0 提交时的基线快照（以 baseline 文件为准）：
 - 中转的拒绝路径都有测试，且全部使用第二种工具（例如 Python、Go）的桩：被调方未导出、调用方未声明、任一方未启用、环路、超过深度和并发上限、超时、远程工作区。
 - 旧的 `wrongPlugin` 与 `recursiveCall` 行为有不变的回归测试。
 - 导入配置的完整流程可以复现：打开 Maven 工程 → jdtls 带着 Maven 提供的配置启动 → 修改 Maven 设置 → jdtls 收到新值；提供方超时时 jdtls 用默认配置启动，并显示哪个插件没有提供。
-- 每个 PR 运行 `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`；Windows 的 PR 运行 `cargo check --manifest-path windows/tauri/src-tauri/Cargo.toml`。
+- 每个 PR 运行 `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`；Windows 的 PR 运行 `cargo check --manifest-path windows/tauri/src-tauri/Cargo.toml`。
 
 ## 风险
 
@@ -273,21 +273,22 @@ node scripts/architecture/verify-java-semantic-ownership.mjs
 ./scripts/agent-notes/verify-agent-notes.sh
 ```
 
-后续 PR 按受影响边界运行 `./scripts/architecture/verify-core.sh`、`./scripts/architecture/verify-shared-contracts.sh`、`./scripts/rust-core/verify-rust-core.sh`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh`，修改后端协议时在 `lithe-plugin-docs` 运行 `node scripts/sdk-e2e.mjs`，合并后按[契约发布规则](../../implemented/architecture/2026-10-23-plugin-contract-publishing.md)同步契约副本。
+后续 PR 按受影响边界运行 `./scripts/architecture/verify-core.sh`、~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）、`./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。契约、指南和 SDK 的改动在 Core 仓库根运行 `node shared/plugins/scripts/verify-docs.mjs`；修改后端协议时在同一目录运行 `node shared/plugins/scripts/sdk-e2e.mjs`。契约、`capabilities.rs`、`plugin_function.rs` 的改动与协议更新记录、API 总表的登记在同一个 Core PR 里完成，规则见[契约单一来源规则](../../implemented/architecture/2026-11-11-plugin-contract-single-source-in-core.md)。
 
 ## 适用范围
 
-- `scripts/architecture/verify-no-host-language-specifics.mjs`
-- `scripts/architecture/language-specifics-baseline.json`
-- `scripts/architecture/language-specifics-allowlist.json`
-- `.github/workflows/verify-host-language-specifics.yml`
-- `rust/lithe-core/src/plugins/`
-- `rust/lithe-core/src/lsp/interface/plugin_function.rs`
-- `shared/contracts/plugins/v1/`
-- `macos/Sources/`
-- `frontend/editor/src/`
-- `windows/tauri/src/`
-- `windows/tauri/src-tauri/src/`
+- ~~scripts/architecture/verify-no-host-language-specifics.mjs~~（脚本已随旧客户端移除）
+- ~~`scripts/architecture/language-specifics-baseline.json`~~（脚本已随旧客户端移除）
+- ~~`scripts/architecture/language-specifics-allowlist.json`~~（脚本已随旧客户端移除）
+- ~~`.github/workflows/verify-host-language-specifics.yml`~~（已随 #1794 移除）
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/plugin_function.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/plugin_function.rs)
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
+- ~~`macos/Sources/`~~（已随 #1794 移除）
+- ~~`frontend/editor/src/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src-tauri/src/`~~（已随 #1794 移除）
 - `docs/development/macos-plugin-api-plan.md`
-- 外部仓库：[lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs)、[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)
-- 关联决策：[Maven/Java 领域插件迁移](2026-10-26-maven-java-domain-plugin-migration.md)、[插件依赖与导出](2026-10-25-plugin-dependencies-and-exports.md)、[Java 独立分发](2026-10-24-java-support-independent-distribution.md)、[公共扩展契约](2026-10-13-public-extension-contract-and-provider-api.md)、[编辑器扩展 API](../../implemented/architecture/2026-10-31-plugin-editor-extension-apis.md)、[契约发布](../../implemented/architecture/2026-10-23-plugin-contract-publishing.md)、[真实配置读写](../../implemented/architecture/2026-10-25-settings-native-configuration-editing.md)、[共享契约](../../../../shared/contracts/plugins/v1/README.md)
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins/sdk`
+- 外部仓库：[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)
+- 关联决策：[Maven/Java 领域插件迁移](2026-10-26-maven-java-domain-plugin-migration.md)、[插件依赖与导出](2026-10-25-plugin-dependencies-and-exports.md)、[Java 独立分发](2026-10-24-java-support-independent-distribution.md)、[公共扩展契约](2026-10-13-public-extension-contract-and-provider-api.md)、[编辑器扩展 API](../../implemented/architecture/2026-10-31-plugin-editor-extension-apis.md)、[契约发布](../../implemented/architecture/2026-11-11-plugin-contract-single-source-in-core.md)、[真实配置读写](../../implemented/architecture/2026-10-25-settings-native-configuration-editing.md)、[共享契约](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md)

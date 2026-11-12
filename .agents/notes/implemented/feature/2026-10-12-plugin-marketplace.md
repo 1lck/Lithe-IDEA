@@ -10,7 +10,7 @@ Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安�
 
 “官方”市场条目必须同时满足两点：来自默认源，并且带 Lithe 发布者签名。社区包也可以从磁盘 ZIP 或解包目录安装：先复制到本次操作的私有快照，再让用户确认权限和完整程序声明。市场索引校验值、本地快照摘要和发布者签名各自证明不同的事实，不能互相冒充；本地安装不会因市场出现同 ID 条目而自动变成市场管理的插件。
 
-对日常开发的直接影响：索引格式和校验规则只在 `shared/contracts/plugins/v1/` 与 `rust/lithe-core/src/plugins/marketplace.rs` 定义一次；官方插件不再跟随 Lithe 发版，而是每个插件按自己的标签单独发布。
+对日常开发的直接影响：索引格式和校验规则只在 `Lithe-core-rust/shared/plugins/contract/v1/` 与 `rust/lithe-core/src/plugins/marketplace.rs` 定义一次；官方插件不再跟随 Lithe 发版，而是每个插件按自己的标签单独发布。
 
 ## 问题
 
@@ -72,6 +72,27 @@ Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安�
 传回外层撑宽设置窗口，或因为“已安装”测试通过就认为市场也通过。
 这是原生视图布局修改，没有新增运行时文件、缓存或安装资源写入。
 
+**Viva 迁移中的分栏。** 桌面端目前能从市场读取并展示经 Core 校验的列表和详情；
+列表默认 320pt，允许调整到 200–520pt，并为详情至少保留 160pt。可复用的分栏
+状态以窗口坐标计算拖动，仅在松开或键盘调整时提交用户宽度；窗口暂时变窄时
+只约束显示尺寸，不覆盖之前的偏好。分隔条布局宽 5pt、线宽 2pt、命中区宽 10pt，
+悬停或拖动不增亮。布局偏好保存在用户配置目录，不写入发行资源。无头事件测试
+覆盖中英文、深浅色、拖动、键盘、刷新和缩窗恢复。选中插件的索引只在市场数据
+更新时重建，拖动每帧不扫描全部插件；原版界面截图已用于对照，
+尚未完成逐像素验收。Viva 可分别查看社区 Lithe Store 和官方索引，前者按第三方、
+后者按官方策略交给 Core 校验。官方索引使用当前主仓库 `1lck/Lithe-IDEA`；
+旧组织地址已重定向到临时仓库，见 [#1781](https://github.com/1lck/Lithe-IDEA/issues/1781)，
+当前主仓库索引为空，不能把旧索引中的两个条目当作当前官方发行。切换来源会取消旧请求并丢弃迟到结果；每个窗口最多同时保留两个请求，快速切换时只排队最新来源。选择仅保留
+在本次设置窗口中，尚不支持同时聚合、持久化源管理、离线官方索引或自定义源。
+名称或插件 ID 搜索复用 Core 的 `workspace.rankNames`，仅传索引已列出的名称和 ID；
+输入合并后后台查询，同一窗口最多一个查询在执行，切换输入或来源后旧结果不得覆盖新结果。
+搜索暂不覆盖描述和标签；插件安装和宿主仍未接通，此分栏、来源选择和搜索不能作为这些功能已完成的证据。
+
+**Viva 下载基础。** `ArchiveDownloader` 接收 Core 已选择的市场版本，将响应流写入操作系统的
+临时目录，最多接收 512 MiB；不安全重定向、超限、取消、读取或关闭错误及 SHA-256 不匹配
+都会返回失败并清理临时目录。成功返回的文件由接收者显式销毁；摘要只证明字节与索引一致，
+不能证明发布者身份。它目前没有生产调用者，也没有解压、签名验证、安装审批或安装能力。
+
 正确做法：新增官方插件时登记到 `official-plugins.json`，改插件内容时同时升 `plugin.json` 的版本。
 
 不要这样做：手工改 `index.json` 里的下载地址或 SHA-256，或者把插件包重新挂到 Lithe 的版本 Release 上。
@@ -100,31 +121,50 @@ Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安�
 - Lithe 版本 Release 不再附带 `Lithe-PHP-Support-<版本>-<架构>.zip`。发版时只需要兼容 0.6.1 及之后的客户端，它们从官方索引下载插件；0.6.0 及更早的客户端不再从 Lithe Release 获得 PHP 包。
 - 社区插件的内容摘要只能检测批准后的包内容变化，不能证明作者身份；磁盘每次确认增加一次交互和快照复制成本，确认框必须完整列出程序，不能省略。
 - 磁盘包可以离线安装，但没有仓库更新来源；替换需要用户重新选择包并确认，审批记录不可作为工作树缓存搬运。
-- Windows 在本能力中仍为 `partial`，只共享索引契约与 Rust 校验；尚无插件市场 UI、声明式 ZIP/目录磁盘快照或本地来源审批链，不能用现有 Windows worker 插件导入代替此能力。
+- 迁移前的 Windows 客户端在本能力中为 `partial`；Viva 已有跨平台市场目录界面，但仍没有插件安装和宿主链，不能用旧 Windows worker 插件导入代替此能力。
 
 ## 验证
 
+- `scripts/desktop/desktop-go.sh test ./internal/core ./internal/marketplace ./internal/settingswindow`：市场索引校验、获取、详情与分栏交互。
+- `scripts/desktop/desktop-go.sh test -race ./internal/marketplace -run 'TestArchive|TestFetch' -count=3`：离线验证下载校验、已声明及实际流量超限、重定向、取消后清理与响应关闭失败；不代表插件安装已接通。
+- `node --test --test-name-pattern='Viva Core outputs' scripts/resources/test-reuse-worktree-resources.mjs`：资源复用入口拒绝临时下载和 Viva Core 可变构建状态；旧资源完整测试仍因被移除的源码失败。
+- `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：统一客户端的资源路径静态检查，不能替代正式发行包的运行前后哈希比较。
+- `scripts/desktop/desktop-go.sh test ./internal/core -run '^$' -bench '^BenchmarkRankNamesMarketplace1000$' -benchmem -benchtime=1s -count=3`：在 Apple M4 上用缓存的 debug Core 对 1,000 个合成名称和 ID 查询 `cargo`，测量为每次约 20.5–20.9 ms、371–404 KB Go 分配；工作放在单一后台任务，另有 180 ms 防抖。这只是当前单机场景，不含 Rust 内存、网络或真实窗口的端到端时延，也没有迁移前同口径基线。
+
+## 迁移前的验证记录
+
+以下命令和验收描述针对迁移前的客户端与仓内 Core，保留为历史要求，不能当作
+Viva 插件安装或宿主能力已经接通的证据。
+
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib marketplace_plugins`：索引校验、平台与 API 判断、命名空间、源地址解析、安装审查的标准答案。
-- `./scripts/architecture/verify-shared-contracts.sh`：市场 fixture 与错误码登记。
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）：市场 fixture 与错误码登记。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginMarketplaceLayoutTests|PluginDetailLayoutTests|PluginSettingsLayoutTests'`：市场用内存索引驱动真实页面，覆盖中英文描述、深浅主题、窗口宽高变化、原生分隔条拖动、释放后刷新不移位，以及窄视口横向滚动到正文末端；单独保留“已安装”详情和路径控件回归。可用 `LITHE_MARKETPLACE_LAYOUT_CAPTURES` 导出市场原生视图截图；测试拥有并清理自己的偏好域和窗口。
 - `node --test scripts/plugins/official-plugin-releases.test.mjs`：只为版本变化的插件生成标签，内容变化未升版本时失败；已发布未登记的版本会被重新登记。
 - `node scripts/resources/test-reuse-worktree-resources.mjs`：磁盘快照、安装 staging、版本和审批记录不出现在可复用列表，显式选择时在访问工作树或复制前拒绝。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginMarketplace|PluginDiskInstallation|MacPluginDiskPackageImporter|MacPluginPackageDownloader|PluginManagementPresentation|PluginManager|PluginPackageStore'`：校验和先于解压、下载和展开上限、磁盘快照隔离、源与签名要求、完整程序审查、安装 staging/扫描/回滚摘要复查、来源保留及同 ID 不自动接管。过滤器只是运行入口，必须核对报告确实包含 `MacPluginDiskPackageImporterTests`、`PluginDiskInstallationTests` 和磁盘 FeatureModel 场景，不能以零匹配当作通过。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：静态检查 macOS 与 Windows 资源解析路径；它本身不启动产品，也不替代工作流前后的文件清单/哈希比较。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：静态检查 macOS 与 Windows 资源解析路径；它本身不启动产品，也不替代工作流前后的文件清单/哈希比较。
 
 可复验的产品流程：分别选择社区 ZIP 和解包目录，确认本地提示、文件名、内容摘要及 ZIP 可选归档摘要；取消后无安装及快照残留，再确认安装。继续用相同程序的新版、同版本原包、同版本改过脚本的包逐一替换，每次均应显示全部权限与完整程序并要求确认。审查等待期间改动原输入，安装结果应仍与私有快照一致；改动准备好的快照或已安装/上一版本内容，应分别在安装 staging、扫描或回滚时被拒绝。市场刷新出现同 ID 时，应无市场自动更新/重装接管。导入和待确认期间关闭插件页，确认已有及迟到返回的快照都清理且不会安装。对成功、取消、非法包和资源超限检查临时目录清理，比较前后发行 bundle 清单/哈希并关闭本次应用与子进程。
 
 功能矩阵 `shared/platform-feature-matrix/features/plugin-marketplace.json` 的 macOS 验证保持 `pending`，上述步骤是验收方法，不是已完成证据。静态或 Node 资源测试通过不能证明磁盘每次确认、完整 canonical 程序展开项或实际清理行为。
 
-## 适用范围
+## 迁移前的源码范围
 
-- `shared/contracts/plugins/v1/`
+以下是迁移前的源码位置，不代表当前工作树中仍存在。
+
 - `rust/lithe-core/src/plugins/marketplace.rs`
 - `Plugins/marketplace/`
 - 已迁出：原 `scripts/plugins/official-plugin-releases.mjs`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - 已迁出：原 `.github/workflows/release-official-plugins.yml`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
-- `macos/Sources/LitheCoreContracts/Plugins/PluginMarketplaceContracts.swift`
-- `macos/Sources/Lithe/Application/Features/PluginMarketplace.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/`
-- `macos/Sources/Lithe/Views/App/PluginMarketplaceView.swift`
-- `macos/Sources/Lithe/Views/App/PluginManagementView.swift`
+- ~~`macos/Sources/LitheCoreContracts/Plugins/PluginMarketplaceContracts.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/PluginMarketplace.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/App/PluginMarketplaceView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/App/PluginManagementView.swift`~~（已随 #1794 移除）
+
+## 适用范围
+
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
+- `desktop/internal/core/marketplace.go`
+- `desktop/internal/marketplace/`
+- `desktop/internal/settingswindow/marketplace_view.go`

@@ -70,10 +70,10 @@ macOS 的 PR2 已接入生产 writer，日志窗口与导出只收集 v2，v1 �
 
 ## 验证
 
-- `./scripts/macos/test/test-macos.sh`
-- `./scripts/architecture/verify-service-boundaries.sh`
-- `macos/Tests/LitheTests/MacLogStoreTests.swift`
-- `macos/Tests/LitheTests/AppLocalizationTests.swift`
+- ~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除）
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
+- ~~`macos/Tests/LitheTests/MacLogStoreTests.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/AppLocalizationTests.swift`~~（已随 #1794 移除）
 - `./scripts/agent-notes/verify-agent-notes.sh`
 
 测试覆盖 macOS 默认日志目录、切换目录后的后续写入、设置文案和诊断导出
@@ -81,11 +81,11 @@ macOS 的 PR2 已接入生产 writer，日志窗口与导出只收集 v2，v1 �
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Platform/MacOS/Logging/MacLogDirectoryProvider.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Logging/MacLogStore.swift`
-- `macos/Sources/Lithe/Core/Ports/LogDirectoryProviding.swift`
-- `macos/Sources/Lithe/Models/Settings/AppSettings.swift`
-- `macos/Sources/Lithe/LitheApp.swift`
-- `macos/Sources/Lithe/Views/App/SettingsView.swift`
-- `macos/Tests/LitheTests/MacLogStoreTests.swift`
-- `macos/Tests/LitheTests/AppLocalizationTests.swift`
+- ~~`macos/Sources/Lithe/Platform/MacOS/Logging/MacLogDirectoryProvider.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Logging/MacLogStore.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Core/Ports/LogDirectoryProviding.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Models/Settings/AppSettings.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/LitheApp.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/App/SettingsView.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/MacLogStoreTests.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/AppLocalizationTests.swift`~~（已随 #1794 移除）

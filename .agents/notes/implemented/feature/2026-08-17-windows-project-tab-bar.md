@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-Windows 工作台用独立的项目 Tab Bar 做高频项目切换，项目菜单继续负责打开、创建、克隆和最近项目。Tab 的顺序和活动状态来自统一 store，界面不能自行维护另一份项目列表。
+旧 Windows 工作台用独立的项目 Tab Bar 做高频项目切换，项目菜单负责打开、创建、克隆和最近项目，Tab 状态来自统一 store。下文是迁移前的行为与并发约束；Viva 当前每个工作台只有一个项目，尚未实现项目 Tab Bar、Attach、独立项目窗口的去重与原有目的地选择。
 
 ## 问题
 
@@ -154,30 +154,15 @@ Tab Bar 目前不承载拖拽排序，若未来开放项目排序，必须复用
 
 ## 验证
 
-- `bun test windows/tauri/src/features/window/components/project-tab-bar.test.ts windows/tauri/src/features/window/utils/project-tab-bar-model.test.ts`
-- `bun --cwd windows/tauri run typecheck`
-- `./scripts/windows/verify/verify-windows-boundaries.sh`
-- `./scripts/agent-notes/verify-agent-notes.sh`
-- `bun test windows/tauri/src/features/window/services/project-window-router.test.ts`
-- `bun test windows/tauri/src/features/workspace/services/workspace-lifecycle.test.ts windows/tauri/src/features/file-system/controllers/project-open-destination.test.ts`
-- `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml project_window_registry`
-- Windows 手工验证：项目位于后台标签、窗口最小化、连续重复打开、目录别名、关闭重开及初始化失败重试；替换模式下未保存缓冲确认（保存/放弃/取消）、初始化失败回滚、同路径重复打开不触发拆除。
+旧客户端的测试命令和原生窗口实现保留在[迁移前笔记](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/feature/2026-08-17-windows-project-tab-bar.md)；这些命令不能直接用于 Viva。
 
-测试覆盖可访问角色、项目切换、关闭按钮、异步状态清理、事件冒泡隔离、
+Viva 补齐多项目和窗口归属后，需重新验证项目位于后台标签、窗口最小化、连续重复打开、目录别名、关闭重开及初始化失败重试；替换模式下验证未保存缓冲处理、初始化失败回滚和同路径重复打开。Windows 实机验收仍待完成。
+
+旧测试覆盖可访问角色、项目切换、关闭按钮、异步状态清理、事件冒泡隔离、
 项目顺序保持、单一活动项投影以及无项目/单项目/多项目的显示条件。
 
 ## 适用范围
 
-- `windows/tauri/src/features/layout/components/main-layout.tsx`
-- `windows/tauri/src/features/window/components/project-tab-bar.tsx`
-- `windows/tauri/src/features/window/utils/project-tab-bar-model.ts`
-- `windows/tauri/src/features/window/stores/workspace-tabs.store.ts`
-- `windows/tauri/src/features/window/components/project-tab-bar.test.ts`
-- `windows/tauri/src/features/window/utils/project-tab-bar-model.test.ts`
-- `windows/tauri/src/features/file-system/controllers/project-open-destination.ts`
-- `windows/tauri/src/features/workspace/services/workspace-lifecycle.ts`
-
-- `windows/tauri/src-tauri/src/project_windows.rs`
-- `windows/tauri/src-tauri/src/project_window_registry.rs`
-- `windows/tauri/src/features/window/services/project-window-routing.ts`
-- `windows/tauri/src/features/window/services/project-window-router.ts`
+- `desktop/internal/workbench/app.go`
+- `desktop/internal/workbench/welcome.go`
+- `shared/platform-feature-matrix/features/workspace-open-switch.json`

@@ -79,14 +79,14 @@ cargo test --manifest-path rust/lithe-core/Cargo.toml jdt
 ./scripts/macos/test/test-macos.sh --filter PluginLanguageServerLaunchResolverTests
 ```
 
-契约夹具：`shared/contracts/plugins/v1/fixtures/languages/node-runtime.plugin.json` 声明了三种类型的选项；`command-plans.json` 覆盖默认值、存储值、不合法存储值的回退和布尔类型保持；`invalid-manifests.json` 覆盖选项声明与引用的拒绝情形。
+契约夹具：`Lithe-core-rust/shared/plugins/contract/v1/fixtures/languages/node-runtime.plugin.json` 声明了三种类型的选项；`command-plans.json` 覆盖默认值、存储值、不合法存储值的回退和布尔类型保持；`invalid-manifests.json` 覆盖选项声明与引用的拒绝情形。
 
 ## 适用范围
 
-- `rust/lithe-core/src/plugins/declarative.rs`：声明校验、`effective_settings`、模板代入。
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/declarative.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/declarative.rs)：声明校验、`effective_settings`、模板代入。
 - 已迁出：原 `rust/lithe-core/src/lsp/languages/jdt.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
-- `macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift`：`DeclarativePluginSetting`、`PluginSettingsStoring`。
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginSettingsStore.swift`：保存。
-- `macos/Sources/Lithe/Views/App/PluginSettingsSection.swift`：插件页上的控件。
+- ~~`macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift`~~（已随 #1794 移除）：`DeclarativePluginSetting`、`PluginSettingsStoring`。
+- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginSettingsStore.swift`~~（已随 #1794 移除）：保存。
+- ~~`macos/Sources/Lithe/Views/App/PluginSettingsSection.swift`~~（已随 #1794 移除）：插件页上的控件。
 - 已迁出：原 `Plugins/mac/Official/JavaSupport/plugin.json`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
-- `shared/contracts/plugins/v1/README.md`：对外契约。
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md`：对外契约。

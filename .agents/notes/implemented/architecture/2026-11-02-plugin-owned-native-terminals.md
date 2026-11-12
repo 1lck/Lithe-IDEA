@@ -61,19 +61,19 @@ Docker 插件需要一键进入容器，但公共 API 计划中的 API-24 只有
 
 ## 验证
 
-- `scripts/macos/test/test-macos.sh --filter 'PluginTerminalHostServiceTests|PluginTerminalNativeTests|TerminalModuleTests'`：隔离、未知字段、remote 拒绝、关闭工作区期间的在途创建、退出去重、generation、历史后缀及真实 PTY 输入不重放；后台创建/重开保留已有选择，用户关标签和自然退出按 0/8 字节预算释放原生缓冲区，长参数完整进入原生可选择视口且取消不启动进程。
+- ~~scripts/macos/test/test-macos.sh --filter 'PluginTerminalHostServiceTests|PluginTerminalNativeTests|TerminalModuleTests'~~（随旧客户端移除）：隔离、未知字段、remote 拒绝、关闭工作区期间的在途创建、退出去重、generation、历史后缀及真实 PTY 输入不重放；后台创建/重开保留已有选择，用户关标签和自然退出按 0/8 字节预算释放原生缓冲区，长参数完整进入原生可选择视口且取消不启动进程。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib plugin_function` 和 `--lib terminal_permission`：逐方法授权与旧协议拒绝。
-- `scripts/architecture/verify-service-boundaries.sh`、`scripts/architecture/verify-shared-contracts.sh`、`scripts/macos/verify/verify-runtime-bundle-immutability.sh`。
+- ~~scripts/architecture/verify-service-boundaries.sh~~（脚本已随旧客户端移除）、~~scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、`scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
 - `scripts/agent-notes/verify-agent-notes.sh`、`scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
 
 原生 PTY 集成测试不替代用户在安装插件中的完整点击、滚动、窗口焦点和退出验收；功能矩阵的待验收状态按真实证据维护。
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Application/Features/PluginTerminalHostService.swift`
-- `macos/Sources/Lithe/Models/AppModel/AppModel+PluginTerminal.swift`
-- `macos/Sources/LitheTerminalModule/`
-- `macos/Sources/Lithe/Platform/MacOS/Terminal/MacTerminalTransport.swift`
-- `rust/lithe-core/src/lsp/interface/plugin_function.rs`
-- `shared/contracts/plugins/v1/`
+- ~~`macos/Sources/Lithe/Application/Features/PluginTerminalHostService.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Models/AppModel/AppModel+PluginTerminal.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheTerminalModule/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Terminal/MacTerminalTransport.swift`~~（已随 #1794 移除）
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/plugin_function.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/plugin_function.rs)
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
 - `docs/development/macos-plugin-api-plan.md`

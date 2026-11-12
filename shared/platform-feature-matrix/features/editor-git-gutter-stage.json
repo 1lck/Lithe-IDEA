@@ -7,20 +7,46 @@
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift",
-      "frontend/editor/src/workbench.ts"
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
+      "desktop/internal/workbench/git_gutter.go",
+      "desktop/internal/editorview/gutter.go",
+      "desktop/internal/workbench/editor_view.go",
+      "desktop/internal/core/git_review.go"
     ]
   },
   "windows": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      "windows/tauri/src/features/git/services/git-gutter-actions.ts",
-      "windows/tauri/src/features/git/api/git-diff-block-api.ts",
-      "rust/lithe-core/src/git/diff_blocks.rs",
-      "windows/tauri/src/features/git/utils/git-gutter-changes.test.ts"
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
+      "desktop/internal/workbench/git_gutter.go",
+      "desktop/internal/editorview/gutter.go",
+      "desktop/internal/workbench/editor_view.go",
+      "desktop/internal/core/git_review.go"
     ]
   },
   "owner": "Editor / Git",
-  "verification": "保存含多处增删改的已跟踪文件，单独暂存后一处修改，检查 index 只包含选中修改，邻近与前方未暂存修改保留；未保存或只读时禁用暂存。Windows 与 macOS 均需实机验证。"
+  "verification": "保存含多处增删改的已跟踪文件，单独暂存后一处修改，检查 index 只包含选中修改，邻近与前方未暂存修改保留；未保存或只读时禁用暂存。Windows 与 macOS 均需实机验证。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift",
+        "frontend/editor/src/workbench.ts"
+      ]
+    },
+    "windows": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "windows/tauri/src/features/git/services/git-gutter-actions.ts",
+        "windows/tauri/src/features/git/api/git-diff-block-api.ts",
+        "rust/lithe-core/src/git/diff_blocks.rs",
+        "windows/tauri/src/features/git/utils/git-gutter-changes.test.ts"
+      ]
+    }
+  },
+  "notes": "Viva：标记气泡的“暂存此修改”调用 Core git.stageGutterChange，只暂存该处原始行与修改行；文件有未保存修改时按钮禁用，index 或磁盘文件变化后 Core 以 GIT_GUTTER_CHANGE_STALE 拒绝。"
 }

@@ -4,19 +4,43 @@
   "group": "GitHub",
   "capability": "Review 与评论",
   "macos": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "macos/Sources/Lithe/Views/GitHub"
-    ],
-    "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/github_checks.go",
+      "desktop/internal/workbench/github_checks_view.go",
+      "desktop/internal/workbench/github_prs.go"
+    ]
   },
   "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "windows/tauri/src/features/github"
-    ],
-    "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/github_checks.go",
+      "desktop/internal/workbench/github_checks_view.go",
+      "desktop/internal/workbench/github_prs.go"
+    ]
   },
   "owner": "GitHub",
-  "verification": "创建、查看和回复 Review/评论，确认权限错误和网络失败不会丢失草稿。"
+  "verification": "创建、查看和回复 Review/评论，确认权限错误和网络失败不会丢失草稿。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Views/GitHub"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features/github"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    }
+  },
+  "notes": "Viva：PR 详情显示 head 提交的 check run 与 commit status（未完成的检查在面板打开时定时重读），Review 行评论按文件分组成线程、回复归入根评论，行已不存在的标为过时。新建 Review、评论与回复尚未实现。"
 }

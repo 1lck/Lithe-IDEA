@@ -548,7 +548,16 @@ export function run(options) {
   ];
   diffArguments.push(baseRevision);
   if (headRevision !== null) diffArguments.push(headRevision);
-  diffArguments.push("--");
+  // Diff only languages this gate actually scans. Large unrelated source or
+  // generated-file deletions must not exhaust the bounded git output buffer;
+  // deleted test paths still participate in the moved-code ratchet.
+  diffArguments.push("--",
+    ":(glob)**/*.rs",
+    ":(glob)**/Tests/**/*.swift",
+    ":(glob)**/*.test.ts",
+    ":(glob)**/*.test.tsx",
+    ":(glob)**/*.spec.ts",
+    ":(glob)**/*.spec.tsx");
   const { added, basePaths } = parseDiff(git(root, ...diffArguments));
 
   if (headRevision === null) {

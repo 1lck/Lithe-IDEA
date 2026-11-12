@@ -3,7 +3,14 @@
 新增、迁移或审查日志事件、写入器、诊断采集、界面警告、用户操作入口，以及任何丢弃错误的代码时遵守本页。通用规则见
 [Lithe 开发规范](../SKILL.md)；路径均相对于仓库根目录。
 
-事件声明、字段编码、限额、生成器、Core 事件队列和门禁扫描范围以 `shared/logging/README.md` 为唯一规则来源。本页规定什么必须记录、怎样设计一条日志、执行轨迹怎样接入，以及豁免和审查动作，不另列一套会漂移的语法或参数表。
+事件声明、字段编码、限额和 Core 事件队列以固定修订的 [Lithe-core-rust 日志目录说明](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/shared/logging/README.md) 为规则来源。本页规定什么必须记录、怎样设计一条日志、执行轨迹怎样接入，以及豁免和审查动作，不另列一套会漂移的语法或参数表。
+
+> Viva 迁移状态：本仓库已移除旧 `shared/logging/`、Swift/Tauri 实现和 `scripts/logging/`；
+> 事件目录现在位于固定 Core 仓库，Viva 经 `desktop/internal/core/logging.go` 和
+> `desktop/internal/logstore/` 接线。下文旧客户端与旧脚本名称保留为历史约束，不能直接
+> 作为当前命令或验收证据；等价生成及使用门禁未恢复前，相关检查必须标为未完成，
+> 不得静默跳过。恢复 Viva 类型生成与使用门禁跟踪
+> [#1802](https://github.com/1lck/Lithe-IDEA/issues/1802)。日志事实、隐私、失败处理和目录一致性的要求不变。
 
 判断一次失败是否要记录，只问一个问题：**这次失败有没有丢掉数据、能力或清理结果。** 丢了就记录；什么也没丢、只是目标本来就不在了，就属于第二节的例外。
 
@@ -91,9 +98,9 @@ let _ = stream.shutdown(Shutdown::Both);
 ## 四、只使用目录生成的事件
 
 1. 先调查真实调用和消费者，确定 owner、通道身份与需要保留的事实；没有实际来源不预造事件。
-2. 新增事件先修改 `shared/logging/events/<root>.json`，按共享 README 声明稳定 ID、通道模板、英文消息、级别和字段含义。字段说明必须解释本事件中的来源、语义和单位，不能用按类型的通用短语凑说明。
-3. 运行 `node scripts/logging/generate-log-events.mjs`，审查生成的 Swift 类型和 Rust 静态目录。不得手改 `LogEvents.generated.swift` 或 `catalog_generated.rs`。
-4. 调用生成的事件类型与 span，把类型化输入交给统一日志入口；Rust 使用生成目录和共享边界。不得手写事件 ID、自由消息或字段字典来规避目录声明，不得自行实现序列化或脱敏。
+2. 新增事件先修改固定 Core 仓库中的 `shared/logging/events/<root>.json`，按共享 README 声明稳定 ID、通道模板、英文消息、级别和字段含义。字段说明必须解释本事件中的来源、语义和单位，不能用按类型的通用短语凑说明。
+3. 旧 `scripts/logging/generate-log-events.mjs` 已移除；修改事件目录前须恢复等价生成与校验入口，审查 Rust 静态目录及 Viva 消费者。不得手改生成的目录以绕过声明。
+4. 调用生成的事件类型与 span，把类型化输入交给统一日志入口；Rust 使用生成目录和共享边界。Viva 的等价类型生成及门禁尚待恢复，不能把旧 Swift 生成类型当作 Go 已接入。不得手写事件 ID、自由消息或字段字典来规避目录声明，不得自行实现序列化或脱敏。
 5. 不再有调用点的事件，从目录声明中删除并重新生成，不保留空事件。
 
 生成事件是尚未脱敏的内存输入。落盘必须经过 Core 的目录字段校验、共享脱敏和编码；只通过类型检查或通用编码器不能证明隐私安全。日志路径由平台可写存储适配器提供，不从 bundle、插件安装目录或 Windows 安装目录推导。
@@ -235,12 +242,9 @@ sink.emit(GitFetchNoticeFailed(remote: remote, error: error, operationID: op))
 
 ## 十一、验证
 
-```sh
-node scripts/logging/generate-log-events.mjs --check
-node scripts/logging/verify-log-usage.mjs
-```
-
-修改目录、生成器或门禁本身时，再运行 `node --test --test-timeout=60000 scripts/logging/test-log-events.mjs`（目录、生成器和门禁共用这一个测试脚本），以及直接受影响的 Core、辅助 crate 或宿主测试。只读核验只用 `--check`，不执行会写生成物的命令。
+旧日志生成、使用扫描和对应测试脚本已从本仓库移除，恢复等价门禁后才能将其记为通过。
+修改目录、生成器或门禁本身时，还须运行直接受影响的 Core、辅助 crate 和 Viva 宿主测试；
+当前 Go 桥接和存储测试不能代替缺失的目录生成及使用扫描。只读核验不能改写生成物。
 
 修改执行轨迹时运行对应测试：Core 请求轨迹在 `rust/lithe-core/src/tests/core_request_traces.rs`，Git 进程轨迹、argv 脱敏和 `exit_is_answer` 在 `rust/lithe-core/src/git/command_trace.rs` 的测试模块，宿主侧的入口与来源解析在 `macos/Tests/LitheTests/UserActionTraceTests.swift` 和 `macos/Tests/LitheTests/CoreRequestTraceTests.swift`。
 

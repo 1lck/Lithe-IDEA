@@ -81,7 +81,7 @@ languageID 对应描述元数据已有的 `languageServerLaunch.executableNames`
 本次没有新缓存目录、下载或安装资源写入，运行时只读发行基线不变。
 
 LSP 子进程、stdio、JSON-RPC 状态机、文档版本、请求 deadline、诊断和
-结果归一化统一收归 Rust Core（[`rust/lithe-core/src/lsp/`](../../../../rust/lithe-core/src/lsp/)），
+结果归一化统一收归 Rust Core（`rust/lithe-core/src/lsp/`（已随 #1794 移除）），
 平台 adapter 只负责可执行文件与运行环境发现。Swift 只保留 UI 投影和
 由不透明 operation ID 标识的应用层完成回调，不再持有 LSP 请求 ID、
 原始 JSON、framing 缓冲区、子进程句柄或文档 open 状态的真值。
@@ -167,6 +167,27 @@ JDT 用解析符号链接（symbolic link，指向另一个目录的快捷路径
 再比较两边解析后的真实文件，命中就把诊断改写到该文档自己的 URI 上
 （`diagnostics_addressed_to_open_document`）。平台代码收到的诊断 URI 因此
 始终是它打开文档时用的那个，不需要、也不要各自再做一遍路径折叠。
+
+Viva 的文档同步入口在 `desktop/internal/workbench/pluginsync.go`：文档在编辑器
+打开后由 `pluginlsp.Tracker.Open` 按 Core 解析出的 URI 打开，编辑器每次替换通过
+`editorview.Config.OnEdit` 产生零基行和 UTF-16 列的范围，再由 `Tracker.Change`
+发送；保存和关闭分别调用 `Tracker.Save` 和 `Tracker.Close`。服务器晚于文档启动时，
+宿主在会话注册后补开该语言所有已打开文档。项目关闭、服务器停止或重启会让每个文档
+的 `documentSync.generation` 失效，旧的后台结果不能重新写回新会话；关闭文档还会
+撤下宿主为该文件保存的诊断，因为 Core 在 `didClose` 时已清除自己的副本。macOS
+的真实 clangd 进程端到端用例在
+`desktop/internal/workbench/pluginsync_e2e_test.go`，覆盖打开、增量编辑、诊断到达
+Problems 面板、保存、关闭和项目切换。
+
+Viva 的编辑器语义入口在 `desktop/internal/workbench/pluginsemantics.go`：定义跳转
+（F12、Command/Ctrl+点击、多目标列表）、Hover（F1 和 500 ms 指针停留）与显式补全
+（Control+Space，上下键选择，回车/Tab 接受）都通过 `lsp.request` 提交，只消费 Core
+规范化后的 `requestCompleted` 结果；接受补全时由 Core 的 `lsp.applyTextEdits` 与
+`lsp.plainSnippet` 计算最终文本，宿主不解析原始 LSP Location，也不自行排序或去重候选。
+请求只在文档同步完成且会话 ready 后提交；光标、文档版本、标签页、服务器或项目变化会
+取消旧操作并丢弃迟到结果。无头 Viva 窗口用真实 clangd 隔离插件覆盖这三条路径
+（`pluginsemantics_e2e_test.go`）；自动补全、`isIncomplete` 连续刷新、引用、语义标记、
+格式化与重命名仍未接入。
 
 会话生命周期必须是单一判别状态；capability 协商单独表示为 `unknown`
 或 `known`，不能由 `ready`、`featuresKnown`、`supportsFeature` 等多个
@@ -254,7 +275,7 @@ Git 失败保留日志并允许语言服务继续，沿用底层操作的有界�
 ### Catalog 与工具发现边界
 
 内置 provider catalog 位于
-[`rust/lithe-core/resources/lsp/language-providers.json`](../../../../rust/lithe-core/resources/lsp/language-providers.json)，
+`rust/lithe-core/resources/lsp/language-providers.json`（已随 #1794 移除），
 项目可通过 `.lithe/lsp/language-providers.json` 按 `id` 覆盖字段、
 新增 provider 或用 `disabled: true` 禁用；格式由
 [`docs/reference/language-providers.schema.json`](../../../../docs/reference/language-providers.schema.json)
@@ -353,7 +374,7 @@ capability 为准。
 macOS 状态栏投影、停止/重启的偏好边界、过期激活身份、按服务器过滤与清空由
 `macos/Tests/LitheTests/LanguageServerStatusTests.swift` 覆盖。使用
 `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter LanguageServerStatusTests`
-记录逐项计时，并运行 `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`。
+记录逐项计时，并运行 `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
 这些组件回归不替代真实多语言服务、明暗主题及编辑器标签交互验收。
 
 本次等待策略由 `jdt_progress.rs` 的受控时钟测试和 `engine.rs` 的模拟服务测试
@@ -391,19 +412,21 @@ frame 缓冲区、open-document 集合、pending LSP 请求或语言服务器子
 进程。
 
 真实 gopls 集成验证见
-[`macos/Tests/LitheTests/RealGoplsIntegrationTests.swift`](../../../../macos/Tests/LitheTests/RealGoplsIntegrationTests.swift)
+`macos/Tests/LitheTests/RealGoplsIntegrationTests.swift`（已随 #1794 移除）
 头部注释里的运行方式和所需环境变量。接入新语言服务器的检查清单见
-[`rust/lithe-core/src/lsp/languages/catalog.rs`](../../../../rust/lithe-core/src/lsp/languages/catalog.rs)
+`rust/lithe-core/src/lsp/languages/catalog.rs`（已随 #1794 移除）
 头部注释。
+
+补全接受与当前编辑器增量模型保持一致：窗口只取不可变 rope 快照，后台调用 Core 应用语义编辑并使用既有 rope 差异接口计算变更范围，回到窗口后确认版本再应用该范围。不得把 Core 返回的整篇结果作为整篇编辑重新发送给 LSP。`TestSemanticReplacementKeepsUnchangedTextOutOfEditAndUndo` 覆盖局部通知及撤销/重做；Core 的现有 `lsp.applyTextEdits` 仍接收完整文本，后台跨边界开销尚未改为增量接口。
 
 ## 适用范围
 
-- `rust/lithe-core/src/lsp/`
-- `rust/lithe-core/resources/lsp/language-providers.json`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/resources/lsp/language-providers.json](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/resources/lsp/language-providers.json)
 - `docs/reference/language-providers.schema.json`
-- `macos/Sources/LitheLanguageIntelligenceModule/`
-- `macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift`
-- `macos/Sources/Lithe/Core/Ports/LanguageTooling.swift`
-- `macos/Tests/LitheTests/RealGoplsIntegrationTests.swift`
-- `windows/tauri/src/features/editor/lsp/`
-- `windows/tauri/src/features/workspace/services/workspace-git-bootstrap.ts`
+- ~~`macos/Sources/LitheLanguageIntelligenceModule/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Core/Ports/LanguageTooling.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/RealGoplsIntegrationTests.swift`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/editor/lsp/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/workspace/services/workspace-git-bootstrap.ts`~~（已随 #1794 移除）

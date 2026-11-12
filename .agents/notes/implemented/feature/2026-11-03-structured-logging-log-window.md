@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态：当前桌面端已有日志存储、独立日志窗口、Core 查询和导出接线；语言服务器日志入口尚未接入，旧平台的事件目录与使用检查尚无完整等价门禁（[#1802](https://github.com/1lck/Lithe-IDEA/issues/1802)）。下文的 Swift 实现和旧平台验收不能直接当作 Viva 验收。历史源码与命令见[迁移前笔记](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/feature/2026-11-03-structured-logging-log-window.md)。
+
 ## 先说结论
 
 macOS 的应用日志只在一个地方看：用 ⌘⇧L 打开的独立日志窗口，所有项目共用。语言服务状态里的“查看日志”打开编辑器区的“LSP 日志”标签页，读的是同一份脱敏记录，一次只显示一个服务器的通道，不会改动应用日志窗口的筛选。窗口读取磁盘上已经由 Core 脱敏的 v2 日志，以及写入器的实时广播。过滤语法、重复折叠、事件分布、调用链和复制格式都由 Rust Core 计算，SwiftUI 只负责读文件、订阅和画表格。导出对话框和窗口使用同一套 Core 查询，导出的永远是脱敏版。语言服务原来那份 100 条的内存日志和设置页里的日志时间线已经删除。Windows 仍然使用 v1 日志，没有迁移。
@@ -204,34 +206,32 @@ Swift 只负责读日志文件尾部、订阅 `MacLogStore` 的实时批次、�
 
 代价：Core 的诊断 API 变大，每个新字段都要同步契约、fixture 和 Swift 桥接。实时跟随每个批次都要调用一次 Core 查询，事件分布也由 Core 对有界窗口重新计算；高吞吐下的成本还需要整机测量，如果不可接受，应扩展 Core 的增量摘要接口，而不是在 Swift 里复制统计规则。门禁零额度意味着每个新的 `try?`、空 `catch` 或丢弃结果都必须当场记录或写明例外类别。
 
+## Viva Page 写法
+
+日志窗口用 `ui.NewPage` 和 `func (w *window) view(c ui.C)` 声明，不再持有 `*ui.Frame`，没有窗口级的按键、滚动和指针分发。取舍如下：
+
+- 记录表是 `ui.List`：只声明可见行，多选和键盘导航由列表给出，`RowWidth` 让窄窗口横向滚动，表头是单独一行并用 `ScrollWith` 跟随。列表按记录的稳定 key（`Model.keyBase` 加下标，永不复用）持有选中状态，Model 的 `selection`（按记录 id）仍是详情和复制读取的真源，两边用 `selectionRevision` 区分谁改了选择。
+- 日志查询是页面的 `ui.Effect`，以 `Model.queryKey` 为 key：新的过滤条件取消上一次查询，清屏只让在途结果过期、不重新查询（所以 key 和 `generation` 分开）。实时订阅是推送流，不是一次一个结果的任务，仍走 Model 的邮箱（`post`、`drain`），在 `OnWake` 里应用；查询以外的后台任务（用量、导出暂存、目录选择）同样没有迁。
+- 菜单、时间范围编辑器、确认框、命名框、导出面板分别用 `ui.Menu`、`ui.Popover`、`ui.Modal`；详情的上下分隔用 `ui.Splitter`（比例保持，不再限制最大高度）。直方图是 `ui.Control` 加 `Draw`，调用链是第二个 `ui.List`。
+- 等宽文字：vivaui/viva#187 已合入，Viva 按格子测量、断行和截断等宽文字，所以 `mono()` 不再给非 ASCII 文字补宽，脱敏说明改用 `ui.Wrap(...).Mono()` 断行。详情 JSON 不再按列折行：所在区域是 `ui.Scroll(...).Sideways().Scrollbars()`，长行和 macOS 一样横向滚动，并显示滚动条。
+- 被放弃的做法：把表头做成 `ListState.Header` 的第 0 行（记录下标整体错位，选择和 key 要处处减一）；把整个查询邮箱改成 Effect（实时流没有“一个 key 一个结果”的形状）。
+
 ## 验证
 
-以下是复验入口；真实应用的整机验收（Java 项目、失败的 Git fetch、中英文、深浅色、长列表滚动）记录在平台功能矩阵中，没有完成前保持 pending：
+旧客户端的复验入口保留在上方迁移前笔记。Viva 的 Core 桥接和窗口使用下列桌面测试；真实应用的整机验收（Java 项目、失败的 Git fetch、中英文、深浅色、长列表滚动）没有完成前保持 pending：
 
-- `node scripts/logging/generate-log-events.mjs --check`
-- `node scripts/logging/verify-log-usage.mjs`
-- `node --test --test-timeout=60000 scripts/logging/test-log-events.mjs`
-- `cargo test --manifest-path rust/lithe-core/Cargo.toml diagnostics`
-- `./scripts/macos/test/test-macos.sh --filter 'LitheTests.(DiagnosticsWorkflowTests|LogWindowTests|LogWindowReviewTests)'`
-- `./scripts/macos/probe/probe-macos-logging-ui.sh --skip-build`
-- `./scripts/architecture/verify-service-boundaries.sh`
-- `./scripts/architecture/verify-shared-contracts.sh`
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
-- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- `scripts/desktop/desktop-go.sh test ./internal/core ./internal/logstore ./internal/logwindow`（`page_test.go` 用无头驱动覆盖选择、键盘、菜单、导出面板、直方图和查询取消；`bench_test.go` 的 `go test -bench` 量表格滚动与按键的耗时和分配）
+- `scripts/desktop/desktop-go.sh --exec go run github.com/vivaui/viva/cmd/viva vet ./internal/logwindow/...`
+- `scripts/desktop/desktop-go.sh test -race ./internal/logwindow ./internal/workbench -run 'Test(Log|Welcome)'`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
+- 旧版日志生成、使用检查和共享契约检查已移除；等价门禁恢复前不能记作通过。
 
 ## 适用范围
 
-- `rust/lithe-core/src/diagnostics/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/diagnostics/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/diagnostics)
 - `shared/contracts/rust-core-api.md`
 - `shared/fixtures/diagnostics/logging-v2.json`
-- `scripts/logging/`
-- `shared/logging/`
-- `macos/Sources/Lithe/Views/Diagnostics/`
-- `macos/Sources/Lithe/Views/Language/LanguageServerLogsView.swift`
-- `macos/Sources/Lithe/Application/Features/LanguageServerLogsModel.swift`
-- `macos/Sources/Lithe/Services/Diagnostics/`
-- `macos/Sources/Lithe/Platform/MacOS/Logging/`
-- `macos/Sources/Lithe/Platform/MacOS/Diagnostics/`
-- `macos/Sources/LitheModuleAPI/Logging/`
-- 存量迁移涉及的 Rust Core 与 macOS Swift 处理边界（日志门禁扫描的全部生产代码）
+- `desktop/internal/logstore/`
+- `desktop/internal/logwindow/`
+- `desktop/internal/core/logging.go`

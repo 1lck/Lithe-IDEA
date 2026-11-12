@@ -297,8 +297,8 @@ Swift 侧对应 `PluginOperationAttempt`。差异只在 `plugin_operations.rs` �
 - `diagnostics_resolve_engine_subject_matches_startup_and_rejects_invalid_arguments`：非法段和通用参数错误。
 - `rust/lithe-core/src/tests/core_request_traces.rs`：真实 Git 仓库上的用户命令在操作 op 下记录脱敏后的 argv；失败命令记 WARN，带退出码和 stderr 末尾；后台读取只在详细诊断开启时记录。
 - `command_trace.rs` 和 `request_trace.rs` 的单元测试：argv 脱敏与截断、文档化的回答退出码、结果分类、stderr 末尾、热点方法、来源优先级和取消。
-- `macos/Tests/LitheTests/UserActionTraceTests.swift`：嵌套调用只记录外层、分离任务和主线程延后执行仍携带操作、60 秒后不再声称用户来源。
-- `macos/Tests/LitheTests/CoreRequestTraceTests.swift`：通过真实 Core 确认用户 Git 命令在操作 op 下落盘，后台读取等待详细诊断。
+- ~~`macos/Tests/LitheTests/UserActionTraceTests.swift`~~（已随 #1794 移除）：嵌套调用只记录外层、分离任务和主线程延后执行仍携带操作、60 秒后不再声称用户来源。
+- ~~`macos/Tests/LitheTests/CoreRequestTraceTests.swift`~~（已随 #1794 移除）：通过真实 Core 确认用户 Git 命令在操作 op 下落盘，后台读取等待详细诊断。
 - Swift 的 `TypedLogRecorder` 测试：阶段各发一次、不重复 ready 和 terminated、失败缓存，以及真实 Core 下的 `c++` 通道。
 
 以下是复验入口，不是整机验收通过的声明：
@@ -311,33 +311,33 @@ Swift 侧对应 `PluginOperationAttempt`。差异只在 `plugin_operations.rs` �
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core command_trace`
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --test core_log_waker`
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core plugin_operations`
-- `./scripts/rust-core/verify-rust-core-comments.sh`
-- `./scripts/architecture/verify-shared-contracts.sh`
-- `./scripts/windows/verify/verify-windows-boundaries.sh`
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- ~~./scripts/rust-core/verify-rust-core-comments.sh~~（随旧客户端移除）
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
+- ~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 
 fixture 覆盖往返、转义、非法输入、路径段、轮转与保留、共享旧日志兼容、macOS 排除 v1 与按年龄清理，以及查询的不完整性。`--check` 只读比较生成物，不能用重新生成来掩盖声明或生成器的错误。Windows 边界脚本通过也不能代替 Windows Rust 编译。
 
 ## 适用范围
 
-- `rust/lithe-core/src/diagnostics/`
-- `rust/lithe-core/src/git/command_trace.rs`
-- `rust/lithe-core/src/runtime/dispatcher.rs`
-- `rust/lithe-core/src/tests/core_request_traces.rs`
-- `rust/lithe-core/src/debug/engine.rs`
-- `macos/Sources/LitheModuleAPI/Logging/PluginOperationReporter.swift`
-- `rust/lithe-agent-host/src/failure_log.rs`
-- `rust/lithe-git-host/src/failure_log.rs`
-- `rust/lithe-ide-host/src/failure_log.rs`
-- `rust/lithe-remote/src/failure_log.rs`
-- `shared/logging/`
-- `scripts/logging/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/diagnostics/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/diagnostics)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/command_trace.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/command_trace.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/runtime/dispatcher.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/runtime/dispatcher.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/tests/core_request_traces.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/tests/core_request_traces.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/engine.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug/engine.rs)
+- ~~`macos/Sources/LitheModuleAPI/Logging/PluginOperationReporter.swift`~~（已随 #1794 移除）
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/src/failure_log.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host/src/failure_log.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-git-host/src/failure_log.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-git-host/src/failure_log.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-ide-host/src/failure_log.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-ide-host/src/failure_log.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-remote/src/failure_log.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/failure_log.rs)
+- ~~`shared/logging/`~~（已随 #1794 移除）
+- ~~`scripts/logging/`~~（已随 #1794 移除）
 - `shared/contracts/rust-core-api.md`
 - `shared/fixtures/diagnostics/logging-v2.json`
-- `macos/Sources/LitheModuleAPI/Logging/`
-- `macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Logging/`
-- `macos/Tests/LitheTests/MacLogStoreTests.swift`
-- `macos/Tests/LitheTests/UserActionTraceTests.swift`
-- `macos/Tests/LitheTests/CoreRequestTraceTests.swift`
+- ~~`macos/Sources/LitheModuleAPI/Logging/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Logging/`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/MacLogStoreTests.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/UserActionTraceTests.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/CoreRequestTraceTests.swift`~~（已随 #1794 移除）

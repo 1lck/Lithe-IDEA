@@ -48,8 +48,8 @@ LSP 设置页离开或切换文件快照时，页面应立即结束等待，下�
 
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'LSPProjectUsageTests|AppModelSettingsChangesTests|WorkspaceLanguageServerPreferencesTests'`
-- `./scripts/architecture/verify-service-boundaries.sh`
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - 用有界 gate 暂停并忽略旧扫描取消，验证新请求和旧消费方都能在释放 gate 前结束。
   原生挂载测试保持同一个 LSP 页面，依次应用新增、重命名和删除后的快照。
 - 命令行测试没有持续的 AppKit 原生事件循环；挂载测试用单调时钟限定等待，驱动非阻塞绘制轮次，
@@ -57,8 +57,8 @@ LSP 设置页离开或切换文件快照时，页面应立即结束等待，下�
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Application/Features/LSPProjectUsage.swift`
-- `macos/Sources/Lithe/Application/Features/LanguageToolingFeatureModel.swift`
-- `macos/Sources/Lithe/Views/Language/LSPControlCenterView.swift`
-- `macos/Tests/LitheTests/LSPProjectUsageTests.swift`
-- `macos/Tests/LitheTests/AppModelSettingsChangesTests.swift`
+- ~~`macos/Sources/Lithe/Application/Features/LSPProjectUsage.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/LanguageToolingFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Language/LSPControlCenterView.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/LSPProjectUsageTests.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/AppModelSettingsChangesTests.swift`~~（已随 #1794 移除）

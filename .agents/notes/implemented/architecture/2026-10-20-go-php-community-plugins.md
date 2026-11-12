@@ -2,6 +2,10 @@
 
 状态：已实现
 
+> Viva 迁移状态：旧客户端的插件管理、迁移提示和语言服务器启动尚未接入 Viva。当前桌面端可以读取和校验市场索引，但不能仅凭索引或下载哈希把安装确认、旧包迁移和插件运行视为已完成。旧实现和验收入口保留在[迁移前笔记](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-10-20-go-php-community-plugins.md)。
+
+Viva 延续独立来源：Lithe Store 是社区索引，主仓库 `Plugins/marketplace/index.json` 是客户端官方来源地址对应的公开文件，目前为空。即使删除旧客户端，也要保留该文件，避免发布后官方来源变成 404；不能把社区索引当作官方来源以绕过签名与信任边界。
+
 > 2026-11-07 更新：本文提到的部分文件已不存在。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
 
 ## 先说结论
@@ -58,7 +62,7 @@ LSP 控制中心对已迁移的语言单独给出引导：没装插件时提示�
 
 ### 5. 主仓库的残留
 
-- `Plugins/mac/Official/` 只剩随应用发行的 Java Support。Go/PHP 最后一版官方 `plugin.json` 移到 `macos/Tests/LitheTests/Fixtures/RetiredOfficialPlugins/`，只给宿主测试使用。
+- ~~`Plugins/mac/Official/`~~（已随 #1794 移除） 只剩随应用发行的 Java Support。Go/PHP 最后一版官方 `plugin.json` 移到 `macos/Tests/LitheTests/Fixtures/RetiredOfficialPlugins/`，只给宿主测试使用。
 - `Plugins/marketplace/official-plugins.json` 和 `index.json` 为空。官方插件发布流程（`build-official-plugins.sh`、`official-plugin-releases.mjs`、`release-official-plugins.yml`）保留给以后的官方插件，测试改用合成的样例插件。
 - `scripts/prepare-php-language-server.sh` 和 `php-language-server-downloads` 工作树资源一并删除。
 - Windows 的 `Plugins/win/Official/PhpSupport` 是另一套 Worker 包格式，这次不动。
@@ -83,6 +87,10 @@ Go/PHP 插件可以独立迭代和发布，不占用主仓库 CI，也不需要 
 
 ## 验证
 
+- `scripts/desktop/desktop-go.sh test ./internal/marketplace -run 'TestPublishedOfficialIndexExistsInRepository|TestFetchCurrentOfficialEmptyIndex'`：验证官方来源对应的仓库文件仍存在且是合法索引；社区索引、安装信任和插件运行仍需独立验证。
+
+以下命令记录旧客户端与社区仓库的历史验证；Viva 接入安装和旧包迁移后需要重新验证信任、确认、卸载和语言服务器生命周期。
+
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginMarketplace|PluginManager|PluginManagementPresentation|PluginPackageStore|ApplicationRelauncher'`：已迁移 ID 不出现在官方列表、没有官方来源和更新、可以卸载，旧 ID 仍要求 publisher 签名；旧包未删除前社区版不可安装；启用的旧包卸载、重启后安装替代包会启用，用户关闭过的保持关闭；重启辅助进程的等待有上限且不会多开实例。
 - `node --test scripts/plugins/official-plugin-releases.test.mjs`：官方插件配置为空时发布计划为空，发布流程用合成插件继续可测。
 - `node scripts/plugins/test-official-plugin-distribution.mjs`：应用内置名单只含 Java Support。
@@ -93,15 +101,9 @@ Go/PHP 插件可以独立迭代和发布，不占用主仓库 CI，也不需要 
 
 ## 适用范围
 
-- `macos/Sources/LitheModuleAPI/Catalog/BuiltInModuleCatalog.swift`
-- `macos/Sources/Lithe/Application/Features/PluginMarketplace.swift`
-- `macos/Sources/Lithe/Views/App/PluginManagementView.swift`
-- `macos/Sources/Lithe/Views/Language/LSPControlCenterView.swift`
-- `macos/Sources/Lithe/Views/App/ApplicationRestartAction.swift`
-- `macos/Sources/Lithe/Platform/MacOS/MacApplicationRelauncher.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift`
-- `macos/Tests/LitheTests/Fixtures/RetiredOfficialPlugins/`
-- `Plugins/mac/README.md`
-- `Plugins/marketplace/`
+- `desktop/internal/marketplace/`
+- `Plugins/marketplace/index.json`
+- `desktop/internal/settingswindow/marketplace_view.go`
+- `shared/platform-feature-matrix/features/lsp-completion-hover.json`
 - 已迁出：原 `scripts/plugins/official-plugin-releases.mjs`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - 已迁出：原 `scripts/plugins/build-official-plugins.sh`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。

@@ -1,0 +1,59 @@
+// Sample Gradle build script in Groovy
+plugins {
+    id 'java'
+    id "application"
+}
+
+group = 'org.example'
+version = "1.0.${System.getenv('BUILD') ?: 0}"
+
+repositories {
+    mavenCentral()
+    maven { url 'https://repo.example.org/maven' }
+}
+
+dependencies {
+    implementation 'com.google.guava:guava:33.0.0-jre'
+    testImplementation platform("org.junit:junit-bom:5.10.0")
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+/* A block
+   comment */
+def greeting = "Hello"
+def list = [1, 2, 3].collect { it * 2 }
+def map = [name: 'sample', count: 3, nested: [a: true, b: null]]
+String multi = """
+    Multi-line ${greeting} with $version
+"""
+def slashy = /regex\d+/
+def number = 0x1F + 1_000L + 3.14d + 2e10
+
+class Task extends DefaultTask {
+    @Input String message = 'hi'
+    private static final int LIMIT = 10
+
+    @TaskAction
+    void run() {
+        if (message?.trim()) {
+            println "message: ${message.toUpperCase()}"
+        } else {
+            throw new GradleException('empty')
+        }
+        for (int i = 0; i < LIMIT; i++) { assert i >= 0 }
+        switch (message) {
+            case ~/h.*/: break
+            default: return
+        }
+    }
+}
+
+tasks.register('hello', Task) {
+    message = 'world'
+    doLast { logger.lifecycle("done") }
+}
+
+test {
+    useJUnitPlatform()
+    maxParallelForks = Runtime.runtime.availableProcessors().intdiv(2) ?: 1
+}

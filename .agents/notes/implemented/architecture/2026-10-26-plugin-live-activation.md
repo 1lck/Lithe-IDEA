@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-安装、更新、回退、卸载、启用、停用一个插件时，只有“它的每一项贡献在宿主里都有运行期实现”的插件才免重启生效。判断由宿主后端决定，写在 `PluginDescriptor.canActivateWithoutRestart`，不是 `plugin.json` 里的字段，所以插件契约没有变化，也不需要同步 lithe-plugin-docs。这条规则目前落地了四类：第一阶段的“纯调试适配器插件”（只贡献 `debugAdapters`，以及它声明的语言和设置，没有后端、没有其他模块），第二阶段的“纯语法高亮插件”（只贡献带 `grammar` 或编辑配置的语言，见 [独立插件编辑器 API](2026-10-31-plugin-editor-extension-apis.md)），以及“纯项目生成器插件”和“纯工具定义插件”（见[插件注入的新建项目向导](../feature/2026-10-23-plugin-project-generators.md)的工具字段一节）。这几类也可以出现在同一个插件里。
+安装、更新、回退、卸载、启用、停用一个插件时，只有“它的每一项贡献在宿主里都有运行期实现”的插件才免重启生效。判断由宿主后端决定，写在 `PluginDescriptor.canActivateWithoutRestart`，不是 `plugin.json` 里的字段，所以插件契约没有变化，不需要改 Core 仓库的 `shared/plugins/contract/v1/`。这条规则目前落地了四类：第一阶段的“纯调试适配器插件”（只贡献 `debugAdapters`，以及它声明的语言和设置，没有后端、没有其他模块），第二阶段的“纯语法高亮插件”（只贡献带 `grammar` 或编辑配置的语言，见 [独立插件编辑器 API](2026-10-31-plugin-editor-extension-apis.md)），以及“纯项目生成器插件”和“纯工具定义插件”（见[插件注入的新建项目向导](../feature/2026-10-23-plugin-project-generators.md)的工具字段一节）。这几类也可以出现在同一个插件里。
 
 满足条件的插件不进模块图，而是登记在一个**内存实时注册表**（`MacLivePluginRegistry`）里。注册表用后台线程扫描已安装目录，主线程只读取扫描结果快照。其他插件的路径完全不变：仍然写成 `.updateStaged`，等重启才生效。
 
@@ -75,7 +75,7 @@
 ## 考虑过的备选方案
 
 1. **所有插件默认热激活，插件显式声明才重启**：被否。语言服务器、构建系统、界面贡献等在运行期没有登记和撤回实现，放行等于让用户看到“装上了但没效果”。这个方案要等每类贡献都有运行期实现之后才成立，所以改成逐类放行。
-2. **在 `plugin.json` 里加免重启字段**：被否，理由见决策 1。字段会进入公开契约，还要同步 lithe-plugin-docs，且作者无法判断宿主后端是否支持。
+2. **在 `plugin.json` 里加免重启字段**：被否，理由见决策 1。字段会进入公开契约，要在 Core 仓库的 `shared/plugins/contract/v1/` 里新增并登记协议更新记录，且作者无法判断宿主后端是否支持。
 3. **把热插件登记进 `ModuleRuntime` / `ModuleRegistry`**：被否。模块图和项目窗口的生命周期绑定，每个窗口一套，运行期没有撤回路径；先做模块图的动态登记才能支持语言服务器等贡献，那是后续阶段的工作，不应该让第一类热插件等它。
 4. **启动时清理或改写 bundle 来省去扫描**：被否。已发布的 app bundle 是只读基线，写入会破坏 Sparkle 增量更新校验。
 
@@ -86,7 +86,7 @@
 - 实时注册表的内容完全在内存里，不持久化。每次启动由启动加载器（`MacPluginStartupLoader`）读一次已安装目录得到初始快照，之后只靠扫描维护。
 - 插件包的所有权没有变：安装、卸载、回退仍然只经过 `MacPluginPackageStore`，写入位置是 Application Support 下的插件目录。
 - 扫描是只读的，不创建、不改写任何文件，不从 `Bundle.main.resourceURL` 或安装目录推导可写目标。内置插件包（bundle 里的 `bundledRootURL`）只被读取；“卸载内置插件”仍然记录在 Application Support 的状态里（`setBundledPluginRemoved`）。
-- 对代码签名和 Sparkle 增量更新（delta）没有影响：运行期没有写入 `.app` 或 Windows 安装目录。验证见 `scripts/macos/verify/verify-runtime-bundle-immutability.sh`（`scripts/macos/test/test-macos.sh` 开头会运行）。
+- 对代码签名和 Sparkle 增量更新（delta）没有影响：运行期没有写入 `.app` 或 Windows 安装目录。验证见 `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`（~~scripts/macos/test/test-macos.sh~~（随旧客户端移除） 开头会运行）。
 
 ### 已知边界（有意保留）
 
@@ -103,15 +103,15 @@
 
 ## 验证
 
-- `macos/Tests/LitheTests/PluginLiveActivationTests.swift`：谓词的正反例（含契约 fixture）、debug-only 语言与插件 id 排序无关、注册表的收录/代数/启用/撤回/按 id 取第一个、后台扫描不在主线程、扫描失败保留旧登记、另一窗口的通知触发重扫、管理器的安装/更新/回退/启用/卸载流程。等待事件使用带本地期限的 `ChangeLatch`，不用真实 sleep。
+- ~~`macos/Tests/LitheTests/PluginLiveActivationTests.swift`~~（已随 #1794 移除）：谓词的正反例（含契约 fixture）、debug-only 语言与插件 id 排序无关、注册表的收录/代数/启用/撤回/按 id 取第一个、后台扫描不在主线程、扫描失败保留旧登记、另一窗口的通知触发重扫、管理器的安装/更新/回退/启用/卸载流程。等待事件使用带本地期限的 `ChangeLatch`，不用真实 sleep。
 - `LanguageProviderCatalogSourceTests`（debug-only 声明不抢语言、顺序无关、不触发扩展提示、每次 load 读取实时声明）、`DebugModuleTests`（`providersSource` 每次调用都查）、`LanguageIntelligenceModuleTests`（出现调试器不会停正在运行的语言服务器）。
-- `macos/Tests/LitheTests/PluginEditorLanguagesTests.swift`：纯语法插件满足谓词、带后端的工具插件不满足；实时语法随插件出现和消失。
-- `scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和 `./scripts/agent-notes/verify-agent-notes.sh`。
+- ~~`macos/Tests/LitheTests/PluginEditorLanguagesTests.swift`~~（已随 #1794 移除）：纯语法插件满足谓词、带后端的工具插件不满足；实时语法随插件出现和消失。
+- `scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 和 `./scripts/agent-notes/verify-agent-notes.sh`。
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacLivePluginRegistry.swift`
-- `macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift`（`canActivateWithoutRestart`）
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift`（`appliesLive`、`rescanLivePlugins`）
-- `macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`（组装、启用判断、撤回回调）
-- `macos/Sources/Lithe/Core/Language/PluginLanguageProviderCatalogSource.swift`（语言目录合并实时声明）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/MacLivePluginRegistry.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift`~~（已随 #1794 移除）（`canActivateWithoutRestart`）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift`~~（已随 #1794 移除）（`appliesLive`、`rescanLivePlugins`）
+- ~~`macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`~~（已随 #1794 移除）（组装、启用判断、撤回回调）
+- ~~`macos/Sources/Lithe/Core/Language/PluginLanguageProviderCatalogSource.swift`~~（已随 #1794 移除）（语言目录合并实时声明）

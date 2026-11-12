@@ -35,7 +35,7 @@ Windows 的内容搜索使用 Core 的真实分页游标，并在截断前过滤
 
 ## 适用范围
 
-- `rust/lithe-core/src/project/files.rs`
-- `rust/lithe-core/src/project/search_paging.rs`
-- `windows/tauri/src/features/file-search/lib/file-search-api.ts`
-- `windows/tauri/src/features/global-search/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/project/files.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/project/files.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/project/search_paging.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/project/search_paging.rs)
+- ~~`windows/tauri/src/features/file-search/lib/file-search-api.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/global-search/`~~（已随 #1794 移除）

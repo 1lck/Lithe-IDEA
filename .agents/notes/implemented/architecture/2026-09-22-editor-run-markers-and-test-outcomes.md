@@ -137,22 +137,22 @@ intellij-community 的 `runConfigurations/testState` 图标（Apache 2.0）。
 
 ## 验证
 
-- `./scripts/rust-core/verify-rust-core.sh`：`java_main_methods`、`java_run_markers`、
+- ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）：`java_main_methods`、`java_run_markers`、
   `maven_test_reports` 单元测试，`shared/fixtures/java/run-markers-v1.json` 兼容性
   fixture（同时覆盖旧字段与通用报告字段），以及可选的真实 JDT 冒烟测试（设置 `LITHE_JDTLS_SMOKE_ROOT` 时断言 Java 25
   实例 `main` 有标记、`private main` 没有）。
-- `./scripts/architecture/verify-shared-contracts.sh`
-- `./scripts/windows/verify/verify-windows-boundaries.sh`
-- `./scripts/macos/test/test-macos.sh`：`ExecutionModuleTests`、`BuildSystemServiceTests`、`LanguageTestPresentationTests`、`LanguageIntelligenceModuleTests` 与真实 Maven Provider 回归。
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
+- ~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）
+- ~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除）：`ExecutionModuleTests`、`BuildSystemServiceTests`、`LanguageTestPresentationTests`、`LanguageIntelligenceModuleTests` 与真实 Maven Provider 回归。
 
 ## 适用范围
 
 - 已迁出：原 `rust/lithe-core/src/lsp/languages/java_main_methods.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
 - 已迁出：原 `rust/lithe-core/src/lsp/languages/java_run_markers.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
 - 已迁出：原 `rust/lithe-core/src/project/maven_test_reports.rs`。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）。
-- `windows/tauri/src/features/run/services/java-run-markers.ts`
-- `windows/tauri/src/features/editor/engines/monaco/java-run-markers.ts`
-- `frontend/editor/src/run-markers.ts`
+- ~~`windows/tauri/src/features/run/services/java-run-markers.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/editor/engines/monaco/java-run-markers.ts`~~（已随 #1794 移除）
+- ~~`frontend/editor/src/run-markers.ts`~~（已随 #1794 移除）
 - 已迁出：原 `macos/Sources/Lithe/Models/AppModel/AppModel+JavaRunMarkers.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
-- `macos/Sources/LitheExecutionModule/Services/LanguageTestService.swift`
+- ~~`macos/Sources/LitheExecutionModule/Services/LanguageTestService.swift`~~（已随 #1794 移除）
 - `shared/fixtures/build-provider/test-results-v1.json`

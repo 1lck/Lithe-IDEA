@@ -8,19 +8,43 @@
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      "macos/Sources/Lithe/Core/Rust/RustTextContentPolicy.swift",
-      "macos/Tests/LitheTests/TextContentPolicyTests.swift",
-      "frontend/editor/src/language-contributions.ts"
+      "desktop/internal/core/documents.go",
+      "desktop/internal/workbench/documents.go",
+      "desktop/internal/workbench/documents_test.go",
+      "shared/fixtures/editor/text-content-v1.json"
     ]
   },
   "windows": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      "windows/tauri/src/features/file-system/controllers/workspace-session-restore.ts",
-      "windows/tauri/src/features/file-system/controllers/workspace-session-restore.test.ts",
-      "frontend/editor/src/language-contributions.ts"
+      "desktop/internal/core/documents.go",
+      "desktop/internal/workbench/documents.go",
+      "desktop/internal/workbench/documents_test.go",
+      "shared/fixtures/editor/text-content-v1.json"
     ]
   },
-  "verification": "双端打开高中文比例的 .properties 和未知扩展名 UTF-8 文件，编辑保存后恢复会话并验证内容及编码；验证 properties 高亮、emoji 跨边界、NUL 和控制字符拒绝、读取错误独立报告，并执行 text-content-v1.json 共享规则样例。"
+  "verification": "双端打开高中文比例的 .properties 和未知扩展名 UTF-8 文件，编辑保存后恢复会话并验证内容及编码；验证 properties 高亮、emoji 跨边界、NUL 和控制字符拒绝、读取错误独立报告，并执行 text-content-v1.json 共享规则样例。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "macos/Sources/Lithe/Core/Rust/RustTextContentPolicy.swift",
+        "macos/Tests/LitheTests/TextContentPolicyTests.swift",
+        "frontend/editor/src/language-contributions.ts"
+      ]
+    },
+    "windows": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "windows/tauri/src/features/file-system/controllers/workspace-session-restore.ts",
+        "windows/tauri/src/features/file-system/controllers/workspace-session-restore.test.ts",
+        "frontend/editor/src/language-contributions.ts"
+      ]
+    }
+  },
+  "notes": "Viva 打开、外部变化检查、重命名读取等读取路径都用 Core 整文件分类（ClassifyDocumentText）拒绝 NUL 与控制字符；非 UTF-8 字节交给 Core 编码检测而不再一律拒绝，检测失败时仍以原因报告。整机恢复会话与 properties 高亮验收待完成。"
 }

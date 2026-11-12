@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态：以下完整退出兜底和询问是旧客户端的实现与历史验收，不能视为 Viva 已具备。Viva 已接入的部分见下文“Viva：运行会话与忙碌终端的确认”：关闭项目或退出时询问插件 Run、调试会话和忙碌终端，关闭忙碌终端标签页时单独询问。跨功能统一账本、后台服务选择、异常终止兜底及 Windows 实机行为仍需接入和验证。
+
 ## 先说结论
 
 macOS 上 Lithe 启动的运行、服务、预启动任务、测试、Maven 和插件进程，生命周期都绑定在 Lithe 上：项目会话关闭时由所属模块停掉自己的会话；应用退出前还有一道同步兜底，对所有仍存活的受管进程组先发 SIGTERM、限时后发 SIGKILL。正常退出和更新安装的强制退出两条路径都走这道兜底。
@@ -72,6 +74,16 @@ Windows 原来有五个漏洞，叠在一起导致“关闭 Lithe 后服务还�
 - Windows 在窗口关闭守卫里询问，顺序是未保存文件在前、运行服务在后；更新安装时询问全部窗口的服务。
 - 设置：macOS 在“进程终止策略”页，Windows 在“运行配置”页（不打开项目也显示），默认询问。
 
+### Viva：运行会话与忙碌终端的确认
+
+Viva 客户端（`desktop/internal/workbench/process_exit.go`）把关闭时要问的东西交给同一条 Core 规则，自己只负责“现在有什么”和“它是否在忙”。
+
+- **什么叫忙碌终端。** 终端里的 shell 正在运行别的程序（比如 `npm run dev`），而不是停在提示符。macOS/Linux 读 pty 的前台进程组（`TIOCGPGRP`，内核记录的“当前在前台的那组进程”）：交互式 shell 有作业控制，每条命令自成一组，前台组不是 shell 自己就是忙。Windows 的控制台没有前台组的概念，改看 shell 进程有没有子进程。判断放在 `localshell.Shell.Busy()`，读不出来时一律算空闲。
+- **在哪里问。** 退出用 `quit` 场景；关闭项目时 Viva 的终端会随项目一起结束，不像旧客户端那样留到退出再决定，所以终端记录改按 `closeTerminalTab` 场景交给 Core，运行会话仍按 `closeWorkspace`。两组结果里 `confirmStop`（运行会话）和 `confirm`（忙碌终端）合并成一次“全部结束或取消”的确认；关闭单个忙碌终端标签页时单独问一次。空闲终端 Core 返回 `terminate`，直接关闭。
+- **探测不在窗口线程上跑。** 窗口线程只取出每个终端的探测函数（`termview.View.BusyProbe`），真正的系统调用（Windows 上是一次进程快照）在后台任务里执行，避免关闭时卡界面。
+- **不要这样做：** 不要在工作台里自己判断“忙碌终端要不要问”，也不要把 `confirm` 当成可以忽略的动作；这两件事由 Core 的规则和用户设置决定。也不要把 shell 有输出当作忙碌的依据：提示符本身也是输出。
+- **已知差异。** 旧客户端逐个确认终端并能跳到该终端；Viva 版合并成一次确认。shell 被 `exec` 替换（如 `exec vim`）后进程号不变，会读作空闲；Windows 上 WSL 终端里的程序不是 Windows 进程，始终读作空闲。
+
 ## 考虑过的备选方案
 
 - **只修 `ExecutionFeatureGraph.stop()`。** 能解决 Spring Boot 这一例，但下一个漏停的所有者、以及异步升级被进程退出截断的问题仍在。
@@ -92,35 +104,28 @@ Windows 原来有五个漏洞，叠在一起导致“关闭 Lithe 后服务还�
 
 ## 验证
 
-- `macos/Tests/LitheTests/LitheCoreLogicTests.swift`：验证红色关闭按钮等待全部会话清理后保留欢迎窗口，取消与保存失败保留项目，重复点击不重复清理；同时覆盖 Cmd+W 和独立窗口隔离。
+- Viva：`desktop/internal/localshell/shell_unix_test.go` 的 `TestShellIsBusyWhileAForegroundCommandRuns`（提示符空闲、`sleep` 忙、Ctrl+C 后空闲、结束后不忙）与 Windows 对应的 `TestConPTYShellIsBusyWhileAProgramRuns`；`desktop/internal/workbench/process_exit_test.go` 用真实 Core 验证关闭忙碌标签页先问、取消保留、确认关闭，空闲终端直接关闭，以及关闭项目时只列出忙碌终端。
 
-- `macos/Tests/LitheExecutionModuleTests/ExecutionModuleTests.swift`：`stoppingTheGraphStopsServiceSessions` 启动一个服务会话，确认它不算“当前运行”但让执行图保持活跃，`stop()` 之后进程停止、活跃状态清除。
-- `macos/Tests/LitheTests/MacProcessRunnerTests.swift`：`applicationExitKillsEveryGroupItsOwnersLeftRunning` 启动一个忽略 SIGTERM 的进程和一个带忽略 SIGTERM 后代的进程，所有者丢弃引用后调用兜底，确认两个进程组在 2 秒内消失。
+- ~~`macos/Tests/LitheTests/LitheCoreLogicTests.swift`~~（已随 #1794 移除）：验证红色关闭按钮等待全部会话清理后保留欢迎窗口，取消与保存失败保留项目，重复点击不重复清理；同时覆盖 Cmd+W 和独立窗口隔离。
+
+- ~~`macos/Tests/LitheExecutionModuleTests/ExecutionModuleTests.swift`~~（已随 #1794 移除）：`stoppingTheGraphStopsServiceSessions` 启动一个服务会话，确认它不算“当前运行”但让执行图保持活跃，`stop()` 之后进程停止、活跃状态清除。
+- ~~`macos/Tests/LitheTests/MacProcessRunnerTests.swift`~~（已随 #1794 移除）：`applicationExitKillsEveryGroupItsOwnersLeftRunning` 启动一个忽略 SIGTERM 的进程和一个带忽略 SIGTERM 后代的进程，所有者丢弃引用后调用兜底，确认两个进程组在 2 秒内消失。
 - 实际应用（2026-10-14，macOS）：运行 Spring Boot 配置，Java 进程监听 8080 后从菜单退出 Lithe，1 秒内 Lithe、语言服务器和 Spring Boot 进程全部消失，端口释放。修改前同样的操作会留下 Java 进程。未实测更新安装的强制退出路径。
-- `./scripts/macos/test/test-macos.sh --filter '(MacProcessRunnerTests|ExecutionModule)'`。
+- 旧版 macOS 测试入口已移除，见[历史脚本](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/macos/test/test-macos.sh)，不能把历史结果视为 Viva 验收。
 - `rust/lithe-git-host/tests/process.rs`：`process_tree_terminate_ends_the_root_and_its_descendants` 启动一个会再启动后代的进程，确认 `terminate` 返回时两者都已结束；Windows 上 `dropping_a_process_tree_ends_it_like_a_crashed_host` 只丢弃句柄，确认内核结束整组。
-- `windows/tauri/src-tauri/src/run.rs` 测试（仅 Windows）：关闭一个窗口只结束它自己的进程树、丢弃会话等同 Lithe 崩溃、原生列表按启动顺序包含全部会话。
+- ~~`windows/tauri/src-tauri/src/run.rs`~~（已随 #1794 移除） 测试（仅 Windows）：关闭一个窗口只结束它自己的进程树、丢弃会话等同 Lithe 崩溃、原生列表按启动顺序包含全部会话。
   - Windows CI 39919376382 在关闭窗口和丢弃会话两例中，根进程已退出，但立即读取的 `sysinfo` 快照仍包含后代 PID。测试改为停止前打开后代的只等待句柄，停止后分别在两秒内等待根进程和后代的退出信号；另一窗口的后代用零等待确认仍在运行。依据 [Windows 进程终止语义](https://learn.microsoft.com/en-us/windows/win32/procthread/terminating-a-process)，退出进程的对象可以因尚未关闭的句柄而继续存在，进程退出信号才是结束依据。保留原来的窗口隔离、重复关闭和崩溃清理断言，不改产品停止流程。夹具的首字节就绪信号有两秒期限，失败路径和断言展开时也按所属会话清理进程树、等待退出并释放管道和句柄；不依赖任意睡眠或 PID 重查。
   - Windows CI 41268131032 暴露了另一处夹具身份缺口：Job 已确认清空，但测试从同父 PID 的无序快照中任取第一个进程，无法证明所等句柄属于夹具启动的 `ping.exe`。现在要求父 PID 与进程名同时匹配且候选唯一；没有或有多个匹配时携带候选 PID、名称报错，不跳过断言。`cmd /D` 禁用用户 AutoRun，首字节仍由 ping 提供；确定性回归覆盖快照顺序、名称大小写、缺失及歧义。停止前持有句柄、窗口隔离、崩溃回收与全部等待期限不变；原日志未记录候选身份，不能据此断言误选了哪一个进程。本机不执行 Windows 测试，三个原生生命周期用例及身份选择回归由 Windows CI 验证。
 - `rust/lithe-core/src/lsp/interface/process.rs` 测试（仅 Windows）：结束批处理启动的语言服务器时，脚本启动的子进程一起结束。
 - `shared/fixtures/process-lifecycle/exit-plan-v1.json`、`settle-v1.json`：运行服务在退出、关闭项目、直接停止设置和崩溃恢复下的动作；macOS `ProcessLifecycleFixtureTests` 用 Swift 类型解码同一批 fixture，并覆盖提问顺序、取消和规则失败时仍询问。
-- `windows/tauri/src/features/window/services/run-services-exit.test.ts`：询问、取消、停止失败后重试、直接停止、后台任务不询问、Core 不可用时询问。
+- ~~`windows/tauri/src/features/window/services/run-services-exit.test.ts`~~（已随 #1794 移除）：询问、取消、停止失败后重试、直接停止、后台任务不询问、Core 不可用时询问。
 
 ## 适用范围
 
-- `macos/Sources/LitheExecutionModule/Module/ExecutionFeatureGraph.swift`
-- `macos/Sources/LitheExecutionModule/Services/RunService.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Process/MacManagedProcess.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Process/MacProcessGroup.swift`
-- `macos/Sources/Lithe/LitheApp.swift`
-- `macos/Tests/LitheExecutionModuleTests/ExecutionModuleTests.swift`
-- `macos/Tests/LitheTests/MacProcessRunnerTests.swift`
+- `desktop/internal/core/plugin_session.go`
+- `desktop/internal/core/plugin_session_test.go`
 - `shared/platform-feature-matrix/features/run-processes-end-with-ide.json`
-- `rust/lithe-git-host/src/lib.rs`（`ProcessTree`）
-- `rust/lithe-core/src/process/lifecycle.rs`、`rust/lithe-core/src/lsp/interface/process.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-git-host/src/lib.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-git-host/src/lib.rs)（`ProcessTree`）
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/process/lifecycle.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/process/lifecycle.rs)、[rust/lithe-core/src/lsp/interface/process.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/process.rs)
 - `shared/fixtures/process-lifecycle/`、`shared/contracts/rust-core-api.md`
-- `macos/Sources/Lithe/Application/Features/ProcessExitCoordinator.swift`、`WorkspaceSessionCoordinator.swift`
-- `macos/Sources/Lithe/Views/App/RootView.swift`、`ProcessTerminationSettingsView.swift`
-- `windows/tauri/src-tauri/src/run.rs`、`debug.rs`、`owned_processes.rs`、`main.rs`
-- `windows/tauri/src/features/window/`（关闭守卫、运行服务确认、退出入口）
-- `windows/tauri/src/features/settings/stores/update.store.ts`
+- [旧版退出协调、窗口守卫及测试的原适用范围](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/bug-fix/2026-10-14-child-processes-end-with-the-ide.md)

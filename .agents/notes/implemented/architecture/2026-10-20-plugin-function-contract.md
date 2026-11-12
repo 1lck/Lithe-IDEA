@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-插件后端进程（语言服务器或构建 Provider，插件自己启动、用 JSON-RPC 通信的进程）现在可以提供**插件函数**（Plugin Function）：只属于这个插件、参数和结果都可序列化的动作，例如插件自己窗口里一个按钮背后的步骤。协议名是 `litheFunctions` 版本 1，在 `initialize` 里协商，与 `litheBuild` 互不依赖；契约写在 `shared/contracts/plugins/v1/README.md` 的 “Plugin functions” 一节，标准答案在 `fixtures/backend/function-protocol.json`。
+插件后端进程（语言服务器或构建 Provider，插件自己启动、用 JSON-RPC 通信的进程）现在可以提供**插件函数**（Plugin Function）：只属于这个插件、参数和结果都可序列化的动作，例如插件自己窗口里一个按钮背后的步骤。协议名是 `litheFunctions` 版本 1，在 `initialize` 里协商，与 `litheBuild` 互不依赖；契约写在 `Lithe-core-rust/shared/plugins/contract/v1/README.md` 的 “Plugin functions” 一节，标准答案在 `fixtures/backend/function-protocol.json`。
 
 这次同时定下了能力的三个方向：插件提供**领域能力**（构建模型、依赖树，契约归 Lithe）、插件提供**插件函数**（契约归插件）、插件调用**宿主能力**（契约归宿主）。领域操作仍走类型化的 `lithe/build/*`，插件函数不能代替它；后端也不能请宿主再派发领域操作或函数，避免处理器绕回自己。
 
@@ -185,22 +185,22 @@ Maven 插件窗口的“刷新快照”按钮
 - `cargo test -p lithe-core --lib plugin_function`：`function-protocol.json` 的协商、注册、调用、结果、进度和后端请求全部标准答案，以及消息截断、超大结果和注册上限。
 - `cargo test -p lithe-core --lib lsp::interface::engine`：用脚本化后端覆盖路由与结果、失败与插件错误码、初始函数列表（包括空列表）只靠事件发现、取消/超时/成功/失败/撤回后复用宿主 ID 的迟到进度隔离、函数结束后复用 ID 发构建请求不受旧函数撤回影响、会话停止/失败后清空注册表且迟到注册不能恢复能力、自身超时、只支持 `litheBuild` 的旧后端照常工作、宿主自有会话不提供函数、后端请求回调自己被拒绝。
 - `cargo test -p lithe-core plugins::plugin_functions`、`cargo test -p lithe-core lsp::interface::function_relay`、`cargo test -p lithe-core lsp::interface::engine`：`pluginFunctions` 清单校验，纯逻辑的深度与并发限额，以及用脚本化后端覆盖发现与调用、每一个拒绝码及其顺序、调用链、取消沿链传播、被调方未运行时的启动请求与超时、热激活后的进行中调用、`caller` 字段只在协议 4 出现且伪造被拒、旧后端不受影响。示例用一个 Python 插件调用一个 Go 插件的导出。
-- `scripts/macos/test/test-macos.sh --filter "MacPluginBackendSessionsTests|PluginHostServiceDispatchTests|PluginPublicHostAPITests"`：快照发布、启动被调方后端的 I/O、`functions` 服务授权。
-- `./scripts/architecture/verify-shared-contracts.sh`：`function-protocol.json` 的 schema 版本、协议名、用例名唯一、错误码都在 README 里有文档、不含机器路径。
-- `./scripts/rust-core/verify-rust-core.sh` 与 `./scripts/rust-core/verify-rust-core-comments.sh`：Core 编译、测试和注释规范。
+- ~~scripts/macos/test/test-macos.sh --filter "MacPluginBackendSessionsTests|PluginHostServiceDispatchTests|PluginPublicHostAPITests"~~（随旧客户端移除）：快照发布、启动被调方后端的 I/O、`functions` 服务授权。
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）：`function-protocol.json` 的 schema 版本、协议名、用例名唯一、错误码都在 README 里有文档、不含机器路径。
+- ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除） 与 ~~./scripts/rust-core/verify-rust-core-comments.sh~~（随旧客户端移除）：Core 编译、测试和注释规范。
 
 ## 适用范围
 
-- `rust/lithe-core/src/lsp/interface/plugin_function.rs`
-- `rust/lithe-core/src/lsp/interface/function_relay.rs`
-- `rust/lithe-core/src/lsp/interface/engine_function_relay.rs`
-- `rust/lithe-core/src/plugins/plugin_functions.rs`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginBackendSessions.swift`
-- `rust/lithe-core/src/lsp/interface/client.rs`
-- `rust/lithe-core/src/lsp/interface/engine.rs`
-- `rust/lithe-core/src/protocol/command.rs`
-- `rust/lithe-core/src/runtime/dispatcher.rs`
-- `shared/contracts/plugins/v1/README.md`
-- `shared/contracts/plugins/v1/fixtures/backend/function-protocol.json`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/plugin_function.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/plugin_function.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/function_relay.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/function_relay.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/engine_function_relay.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/engine_function_relay.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/plugin_functions.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/plugin_functions.rs)
+- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginBackendSessions.swift`~~（已随 #1794 移除）
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/client.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/client.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/engine.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/engine.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/protocol/command.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/protocol/command.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/runtime/dispatcher.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/runtime/dispatcher.rs)
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/fixtures/backend/function-protocol.json`
 - `shared/contracts/rust-core-api.md`
-- `scripts/architecture/verify-shared-contracts.sh`
+- ~~scripts/architecture/verify-shared-contracts.sh~~（脚本已随旧客户端移除）

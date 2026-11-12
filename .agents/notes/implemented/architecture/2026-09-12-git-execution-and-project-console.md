@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态（2026-11-08）：下文的原生 Git 控制台及 Swift/Tauri 验证是旧客户端事实。Viva 已提供 Core 请求事件桥，但现有 Git 操作尚未接入事件消费与项目控制台；不能据此宣称命令输出、认证交互或平台验收已经迁移。
+
 ## 先说结论
 
 用户从更改、分支、工作树或 GitHub 入口执行 Git 时，同一项目窗口的控制台
@@ -263,12 +265,7 @@ Fetch 状态回归覆盖无输出等待、阶段切换、认证、并发仓库�
 仍停留在 Git Log、底部进度变化和完成后收起。
 
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
-- `./scripts/rust-core/verify-rust-core-comments.sh`
-- `./scripts/rust-core/verify-rust-core.sh`
-- `./scripts/architecture/verify-core.sh`
-- `./scripts/architecture/verify-service-boundaries.sh`
-- `./scripts/architecture/verify-shared-contracts.sh`
-- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- 旧版 [Core 注释](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/rust-core/verify-rust-core-comments.sh)、[Core 验证](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/rust-core/verify-rust-core.sh)、[Core 边界](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/architecture/verify-core.sh)、[服务边界](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/architecture/verify-service-boundaries.sh)、[共享契约](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/architecture/verify-shared-contracts.sh)与 [Windows 边界](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/windows/verify/verify-windows-boundaries.sh)检查仅记录历史验证；Viva 的等价门禁未全部恢复。
 - `./scripts/agent-notes/verify-agent-notes.sh`
 
 共享 fixture 覆盖命令、事件、生命周期、Fetch、远程查询和完整展示结果。
@@ -276,7 +273,7 @@ Fetch 状态回归覆盖无输出等待、阶段切换、认证、并发仓库�
 启动不能在 Git 请求 deadline 之前引入无界网络等待；回归用例禁止调用
 `socket.getfqdn`，认证、重试与取消场景仍保留原有 15 秒预算。
 
-Rust 与 macOS 测试使用仓库计时工具；`scripts/rust-core/test-git-execution.py` 通过
+旧版 Rust 与 macOS 测试使用仓库计时工具；[Git 执行测试（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/rust-core/test-git-execution.py) 通过
 C ABI 和隔离仓库、本地认证服务验证配置作用域、部分成功、重试、取消及
 包含空格的 AskPass 路径，要求已构建的 Core 和 macOS 应用。
 Windows CI 使用同一计时工具执行生命周期日志回归并保留 HTML/JUnit 报告，
@@ -323,19 +320,14 @@ Windows ARM64 本地对比从 1.799 秒降到 1.362 秒，但这不代表托管 
 
 ## 适用范围
 
-- `rust/lithe-core/src/git/`
-- `rust/lithe-git-host/`
-- `macos/Sources/LitheGitModule/`
-- `macos/Sources/Lithe/Core/Rust/`
-- `macos/Sources/Lithe/Views/Git/`
-- `macos/Sources/Lithe/Platform/MacOS/`
-- `windows/tauri/src/features/git/`
-- `windows/tauri/src/platform/`
-- `windows/tauri/src-tauri/src/platform.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git)
+- Lithe-core-rust 锁定修订：[rust/lithe-git-host/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-git-host)
+- `desktop/internal/core/client.go`
+- `desktop/internal/core/events_bridge.go`
+- `desktop/internal/workbench/`
 - `shared/fixtures/git/`
 - `shared/contracts/rust-core-api.md`
-- `scripts/rust-core/test-git-execution.py`
-- `.github/workflows/ci-windows.yml`
+- [旧客户端执行链、测试及原适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-09-12-git-execution-and-project-console.md)
 
 ### macOS Console 左侧工具栏样式
 

@@ -1,10 +1,10 @@
 {
   "schemaVersion": 4,
-  "lastReviewed": "2026-11-07",
+  "lastReviewed": "2026-11-11",
   "review": {
-    "status": "initial-static-inventory",
-    "method": "根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。",
-    "nextStep": "按能力点补充 macOS/Windows 实机验证记录，并将确认结果写入对应 PR。"
+    "status": "viva-migration-in-progress",
+    "method": "保留迁移前能力清单；每项能力已按 Viva 客户端（desktop/）的代码与接入逐项盘点实现状态，历史状态与证据单独保留在 legacy，不能视为 Viva 证据。迁移文档标为放弃或不纳入的能力记为未实现并在备注说明。",
+    "nextStep": "按各能力的 verification 在 macOS、Windows 实机验证并把验证状态改为 verified；补齐 partial 与 missing 项。"
   },
   "statusDefinitions": {
     "implementation": {
@@ -32,6 +32,11 @@
         "label": "插件提供",
         "icon": "🔌",
         "description": "宿主只保留通用能力入口和契约，该能力由独立插件实现；运行时验证记录归插件仓库。"
+      },
+      "unassessed": {
+        "label": "尚未盘点",
+        "icon": "❔",
+        "description": "Viva 客户端尚未逐项核实，不能推断为已实现或未实现。"
       }
     },
     "verification": {

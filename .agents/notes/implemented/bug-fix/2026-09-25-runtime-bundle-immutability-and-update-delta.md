@@ -68,6 +68,16 @@ Equinox（JDT LS 使用的 OSGi 框架，负责加载插件）会往 `-configura
 
 正确做法：平台交出只读的安装包路径和平台缓存目录，Core 生成可写副本后再拼
 `-configuration`。
+5. **打包的 IDE 辅助程序作为构建输入嵌入客户端二进制，运行时安装到应用数据目录。**
+   Viva 客户端的 IDE API 需要 `lithe-mcp` 可执行文件。它由
+   `scripts/desktop/build-desktop-core.sh` 从固定 Core 检出按 `features=mcp` 构建到暂存目录，
+   `package-desktop.sh` 再把它作为 `desktop/internal/idehelp/lithe-mcp.bin` 以
+   `lithe_bundled_helper` 构建标签嵌入 Go 二进制，打包结束或失败时删除该生成文件。
+   客户端第一次使用连接时把嵌入字节原子写到
+   `<应用数据>/Lithe Desktop/ide-host/bin/`（macOS 为 Application Support，Windows 为应用数据目录），
+   已有文件哈希一致时直接复用。安装包本身不新增可执行文件，运行时也不需要定位自己的可执行文件；
+   开发运行由 `desktop-go.sh` 用 `LITHE_IDE_HELPER` 指向暂存目录里的辅助程序。
+
 
 不要这样做：在 Swift 或 Tauri 里各自复制一份配置目录，或者把缓存目录放进安装包
 里的某个子目录。前者让两个平台分叉，本来就只有 macOS 修了；后者 Core 会直接拒绝。
@@ -98,7 +108,7 @@ Equinox（JDT LS 使用的 OSGi 框架，负责加载插件）会往 `-configura
 - 升级 JDT LS 后会留下一个旧的配置区（几 MB），30 天没被使用就自动删除。
 - 已经被旧版本写过的安装目录：macOS 在这次更新时回退完整 ZIP 一次，替换后的
   bundle 是干净的；Windows 安装目录里的旧状态文件还在，但 JDT LS 不再读写它们。
-- 守护脚本 `scripts/macos/verify/verify-runtime-bundle-immutability.sh` 只保留对 macOS Swift
+- 守护脚本 `scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 只保留对 macOS Swift
   源码的通用写入扫描。JDT LS 的约束由 Core 的行为测试保证，不再用 grep 检查实现
   代码的字面量，也不再检查一段只在 macOS CI 上运行的 Windows 源码。
 
@@ -111,18 +121,20 @@ Equinox（JDT LS 使用的 OSGi 框架，负责加载插件）会往 `-configura
   完成导入、构建、classpath 解析后，断言安装目录的文件清单和大小与启动前一致，
   并且 `org.eclipse.osgi` 出现在缓存配置区。临时恢复旧行为时，这个断言会因为安装包
   配置目录里多出 `org.eclipse.osgi` 等目录而失败。
-- `./scripts/rust-core/verify-rust-core.sh`
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）
+- `cd desktop && ../scripts/desktop/desktop-go.sh test -race ./internal/idehelp/`：辅助程序首次安装、同字节复用、旧版本原子替换、未嵌入时报告缺失。
+- 打包后检查 `.app` 内没有 `lithe-mcp` 文件，且 `desktop/internal/idehelp/lithe-mcp.bin` 已清理。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 
 ## 适用范围
 
 - 已迁出：原 `rust/lithe-core/src/lsp/languages/jdt_configuration.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
-- `rust/lithe-core/src/lsp/interface/engine.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/engine.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/engine.rs)
 - 已迁出：原 `rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
 - `shared/contracts/rust-core-api.md`
-- `scripts/macos/verify/verify-runtime-bundle-immutability.sh`
-- `scripts/macos/verify/verify-macos-app-build-safety.sh`
-- `scripts/macos/test/test-macos.sh`
+- `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
+- ~~`scripts/macos/verify/verify-macos-app-build-safety.sh`~~（已随 #1794 移除）
+- ~~`scripts/macos/test/test-macos.sh`~~（已随 #1794 移除）
 - `.agents/skills/develop-lithe/SKILL.md`
 - `docs/architecture/macos-updates.md`

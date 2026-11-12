@@ -4,20 +4,50 @@
   "group": "编辑模式",
   "capability": "Vim 模式与命令状态",
   "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "macos/Sources/Lithe/Views/Editor"
-    ],
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/vim_mode.go",
+      "desktop/internal/editorview/vim.go",
+      "desktop/internal/editorview/vim_motion.go",
+      "desktop/internal/editorview/vim_op.go",
+      "desktop/internal/editorview/vim_search.go",
+      "desktop/internal/settingswindow/vim_view.go"
+    ]
   },
   "windows": {
-    "evidence": [
-      "windows/tauri/src/features/vim",
-      "windows/tauri/src/features/editor"
-    ],
     "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+    "verificationStatus": "pending",
+    "evidence": [
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/vim_mode.go",
+      "desktop/internal/editorview/vim.go",
+      "desktop/internal/editorview/vim_motion.go",
+      "desktop/internal/editorview/vim_op.go",
+      "desktop/internal/editorview/vim_search.go",
+      "desktop/internal/settingswindow/vim_view.go"
+    ]
   },
   "owner": "Editor",
-  "verification": "Windows 验证 Normal/Insert/Visual 模式、命令执行和设置持久化；macOS 需要确认产品范围。"
+  "verification": "Windows 验证 Normal/Insert/Visual 模式、命令执行和设置持久化；macOS 需要确认产品范围。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Views/Editor"
+      ],
+      "implementationStatus": "missing",
+      "verificationStatus": "not-applicable"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features/vim",
+        "windows/tauri/src/features/editor"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    }
+  },
+  "notes": "Viva：编辑器的 Vim 模式（editorview/vim*.go）有 Normal、Insert、Visual 与 Replace，动作、操作符、文本对象与搜索，每条命令一次撤销、\".\" 重复上次修改；设置页与命令目录可开关（vim_view.go、vim_mode.go），开启时工作台不抢 Vim 按键，状态栏显示当前模式。没有专门的自动化测试，原生窗口验收 pending。"
 }

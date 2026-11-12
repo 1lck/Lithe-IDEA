@@ -58,6 +58,9 @@ for (const feature of features) {
     if (!entry || !Object.hasOwn(implementationDefinitions, entry.implementationStatus) || !Object.hasOwn(verificationDefinitions, entry.verificationStatus) || !Array.isArray(entry.evidence) || entry.evidence.length === 0) {
       throw new Error(`invalid ${platform} entry for ${feature.id}`);
     }
+    if (entry.implementationStatus === "unassessed" && entry.verificationStatus !== "pending") {
+      throw new Error(`unassessed ${platform} entry must remain pending for ${feature.id}`);
+    }
     for (const evidencePath of entry.evidence) {
       if (!existsSync(resolve(root, evidencePath))) throw new Error(`missing evidence path: ${evidencePath}`);
     }

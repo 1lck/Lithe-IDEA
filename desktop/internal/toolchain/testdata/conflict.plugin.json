@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 0,
+  "id": "dev.example.conflicting",
+  "displayName": "Fictional conflicting tool",
+  "version": "1.0.0",
+  "pluginAPIVersion": 0,
+  "requires": {"toolDefinitions": 0},
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Fixture publisher",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [],
+  "toolDefinitions": [
+    {
+      "id": "compiler",
+      "displayName": "Contested compiler",
+      "executableLayouts": [
+        {
+          "path": "bin/cc"
+        }
+      ],
+      "executables": [
+        {
+          "id": "shell",
+          "kind": "command",
+          "command": "fictional-cc"
+        },
+        {
+          "id": "detected",
+          "kind": "toolchain",
+          "scope": "installed"
+        }
+      ],
+      "version": {
+        "arguments": [
+          "--version"
+        ],
+        "pattern": "Compiler (\\d+(?:\\.\\d+)*)"
+      },
+      "commands": [
+        "fictional-cc"
+      ],
+      "launch": [
+        "${executable}",
+        "${arguments}"
+      ]
+    }
+  ]
+}

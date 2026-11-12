@@ -2,6 +2,8 @@
 
 状态：提议中
 
+> Viva 迁移状态（2026-11-08）：下文记录旧 macOS 客户端的已实现能力及当时的后续计划，不代表 Viva 已完成对应宿主功能。当前目标为 macOS 和 Windows 共用 Viva 与 Core；新宿主的能力声明、可信安装及两平台验收以功能矩阵和实际代码为准。
+
 ## 先说结论
 
 PR #37 建立了第一阶段 UI Contribution（插件声明的界面入口）；到 2026-10-30，Mac 已有原生 Tree/List/Form、包内网页和独立后端，不再只是静态文本窗口。下一步先走 macOS 路线，把已有编辑器、文件和命令功能开放成有授权、版本与生命周期的公共 API，再接续领域 Provider（提供业务数据、行为或进程的实现）。不恢复任意第三方 Swift Bundle 动态加载，也不把 WASM 运行时作为补齐 API 的前置条件；任务与公开文档待办见 [macOS 插件 API 实施计划](../../../../docs/development/macos-plugin-api-plan.md)。
@@ -40,7 +42,7 @@ PR #37 建立了第一阶段 UI Contribution（插件声明的界面入口）；
 
 进程隔离与宿主授权不等于操作系统沙盒；原生后端可以拥有自己的系统权限，文档不能承诺代理之外的访问都被限制。WASM（可移植字节码）可在未来用 Wasmtime/WASI 等运行时承载，但仍需同一组 API、权限、取消和预算，且执行不进入应用主进程。它不依赖 Tauri，也不解决公共 API 缺失，因此暂不列为首版条件。
 
-公开文档和 SDK 继续只发布到 lithe-plugin-docs；主仓库计划只列内部任务与验收，不提供第二套开发者手册。新增契约与 Core 一起改、合并后同步副本，SDK 源码、正式发布物、契约锁定版本与 Mac 实际执行能力分别记录，避免“SDK 有方法但宿主不能执行”。
+公开文档和 SDK 发布在 Core 仓库的 `shared/plugins/`（`guides/`、`reference/`、`sdk/`）；本仓库的计划只列内部任务与验收，不提供第二套开发者手册。新增契约、API 总表、协议更新记录和 SDK 与 Core 在同一个 Core PR 里修改；SDK 源码、正式发布物、契约版本与 Mac 实际执行能力分别记录，避免“SDK 有方法但宿主不能执行”。
 
 ### 领域扩展点与宿主调度
 
@@ -103,7 +105,7 @@ Agent 的 Skills、Hooks、MCP 是用户管理的 Codex/Claude 原生配置，�
 - 各样例覆盖安装、授权、启用/禁用、失败/晚到结果、恢复与布局持久化；无窗口 Provider 验证不会生成窗口或污染布局。
 - 已发布 API v2 fixtures 继续通过；新版本 schema、兼容性拒绝和市场能力检查先于平台适配落地。
 - 本轮只要求 Mac 产品验收；共享契约保持平台无关，功能矩阵如实记录各端现状，不把 Windows 适配作为本计划前置条件。
-- SDK、公开文档和样例在 lithe-plugin-docs 随各切片交付；契约副本锁定合并后的 preview commit，源码支持和正式 release 不混写。
+- SDK、公开文档和样例在 Core 仓库的 `shared/plugins/` 随各切片交付；契约与 SDK 源码在同一个 Core 提交里，源码支持和正式 release（Core 仓库的 `sdk-*` 标签）不混写。
 
 ## 风险
 
@@ -111,18 +113,18 @@ Agent 的 Skills、Hooks、MCP 是用户管理的 Codex/Claude 原生配置，�
 
 ## 验证
 
-- 本次计划只校验文档与边界：`./scripts/agent-notes/verify-agent-notes.sh`、`./scripts/architecture/verify-shared-contracts.sh`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
+- 本次计划只校验文档与边界：`./scripts/agent-notes/verify-agent-notes.sh`、Core 仓库的 `node shared/plugins/scripts/verify-docs.mjs`、`./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`、`./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
 - 后续实现按实施计划的三个真实插件验收，包含 SDK 端到端、Mac 实机、越权/取消/失效结果、进程清理与 bundle 哈希不变；本 Note 不将计划中的验收记成已经通过。
 
 ## 适用范围
 
-- `shared/contracts/plugins/v1/`
-- `rust/lithe-core/src/plugins/`
-- `macos/Sources/LitheModuleAPI/`
-- `macos/Sources/LitheApplicationKernel/`
-- `macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`
-- `macos/Sources/Lithe/Views/Workbench/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins)
+- `desktop/internal/core/plugin_session.go`
+- `desktop/internal/workbench/`
+- `desktop/internal/settingswindow/`
 - `docs/development/macos-plugin-api-plan.md`
+- [旧客户端适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md)
 
 ## 跟踪任务
 
@@ -134,4 +136,4 @@ Agent 的 Skills、Hooks、MCP 是用户管理的 Codex/Claude 原生配置，�
 - [通用 ServiceProvider 与资源归属 #42](https://github.com/Lithe-IDEA/Lithe-IDEA/issues/42)。
 - [四个纵向端到端样例 #14](https://github.com/Lithe-IDEA/Lithe-IDEA/issues/14)。
 
-本 Note 保留公共扩展的未完成方向；已落地部分以[第一阶段工作台 UI 贡献](../../implemented/architecture/2026-10-12-workbench-ui-contributions.md)、[原生插件 UI](../../implemented/feature/2026-10-21-declarative-native-plugin-ui.md)及[插件契约](../../../../shared/contracts/plugins/v1/README.md)为准，不能再把第一阶段限制当成全部当前能力。
+本 Note 保留公共扩展的未完成方向；已落地部分以[第一阶段工作台 UI 贡献](../../implemented/architecture/2026-10-12-workbench-ui-contributions.md)、[原生插件 UI](../../implemented/feature/2026-10-21-declarative-native-plugin-ui.md)及[插件契约](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md)为准，不能再把第一阶段限制当成全部当前能力。

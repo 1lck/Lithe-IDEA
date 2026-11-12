@@ -33,17 +33,17 @@ macOS 会话缓存与每个请求分别持有一个会话入口。请求租约�
 
 ## 验证
 
-- `./scripts/macos/test/test-macos.sh --filter 'NetworkProxySettingsTests|MacNetworkSessionProviderTests|MacNetworkProxyTesterTests|MacPluginPackageDownloaderTests|StableRollbackTests'`
+- ~~./scripts/macos/test/test-macos.sh --filter 'NetworkProxySettingsTests|MacNetworkSessionProviderTests|MacNetworkProxyTesterTests|MacPluginPackageDownloaderTests|StableRollbackTests'~~（随旧客户端移除）
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core network::tests`
-- `./scripts/architecture/verify-service-boundaries.sh`
-- `./scripts/architecture/verify-shared-contracts.sh`
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Platform/MacOS/Network/`
-- `macos/Sources/Lithe/Models/Settings/NetworkProxyPreferences.swift`
-- `macos/Sources/Lithe/Views/App/NetworkSettingsView.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Updates/MacStableRollback.swift`
-- `rust/lithe-core/src/network/`
+- ~~`macos/Sources/Lithe/Platform/MacOS/Network/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Models/Settings/NetworkProxyPreferences.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/App/NetworkSettingsView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Updates/MacStableRollback.swift`~~（已随 #1794 移除）
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/network/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/network)
 - `shared/fixtures/network/proxy-policy-v1.json`

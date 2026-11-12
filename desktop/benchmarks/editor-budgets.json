@@ -1,0 +1,181 @@
+{
+  "schema": 1,
+  "referenceMachine": {
+    "label": "m4-mbp",
+    "kind": "physical",
+    "cpu": "Apple M4"
+  },
+  "budgets": [
+    {
+      "pattern": "^BenchmarkEditorViewPaint/",
+      "why": "A 120 Hz frame is 8.3 ms and the editor is only one part of it, so a repaint must stay far below that, must not allocate and must not depend on the document's size.",
+      "nsMax": 1000000,
+      "allocsMax": 0,
+      "bytesMax": 0,
+      "scaleMax": 1.5
+    },
+    {
+      "pattern": "^BenchmarkEditorViewScroll/",
+      "why": "Scrolling repaints the viewport on every frame, so it follows the same limits as a plain repaint: far below a 120 Hz frame, allocation-free and independent of the document's size.",
+      "nsMax": 1000000,
+      "allocsMax": 0,
+      "bytesMax": 0,
+      "scaleMax": 1.5
+    },
+    {
+      "pattern": "^BenchmarkEditorViewCaretMove/",
+      "why": "Moving the caret and repainting must take at most 1 ms, allocate nothing and not grow with the length of the document.",
+      "nsMax": 1000000,
+      "allocsMax": 0,
+      "scaleMax": 1.5
+    },
+    {
+      "pattern": "^BenchmarkEditorViewPageMove/",
+      "why": "Moving by a page and repainting must take at most 1 ms, allocate nothing and not grow with the length of the document.",
+      "nsMax": 1000000,
+      "allocsMax": 0,
+      "scaleMax": 1.5
+    },
+    {
+      "pattern": "^BenchmarkEditorViewType/",
+      "why": "A keystroke and its frame must finish within 1 ms on the reference machine, with bounded allocation and independent of the document's size.",
+      "nsMax": 1000000,
+      "bytesMax": 65536,
+      "scaleMax": 2
+    },
+    {
+      "pattern": "^BenchmarkEditorViewEnter/",
+      "why": "Pressing Enter and drawing the next frame must finish within 1 ms on the reference machine, with bounded allocation and independent of the document's size.",
+      "nsMax": 1000000,
+      "bytesMax": 65536,
+      "scaleMax": 2
+    },
+    {
+      "pattern": "^BenchmarkEditorViewUndoRedo/",
+      "why": "Undoing or redoing an edit and drawing the next frame must finish within 1 ms on the reference machine, with bounded allocation and independent of the document's size.",
+      "nsMax": 1000000,
+      "bytesMax": 65536,
+      "scaleMax": 2
+    },
+    {
+      "pattern": "^BenchmarkEditorViewPaste/",
+      "why": "Pasting 1 MiB and undoing it takes two frames, which must fit within one 60 Hz frame (16 ms) and not depend on the document's size.",
+      "nsMax": 16000000,
+      "scaleMax": 2
+    },
+    {
+      "pattern": "^BenchmarkEditorViewOpen/",
+      "why": "This is the window-thread part of opening a file; building the rope and scanning widths belong on the worker, so it must stay small and grow with the file only slowly.",
+      "nsMax": 2000000,
+      "scaleMax": 4
+    },
+    {
+      "pattern": "^BenchmarkEditorViewPrepareReload/",
+      "why": "Preparing a reload may scan the text once, so its cost is bounded by a small constant plus a linear term in the document's size.",
+      "nsMax": {
+        "constant": 1000000,
+        "perTextByte": 5
+      }
+    },
+    {
+      "pattern": "^BenchmarkEditorViewRewrap/",
+      "why": "Re-wrapping after a width change is one linear pass over the text, so its cost is bounded by a small constant plus 1.5 ns per byte.",
+      "nsMax": {
+        "constant": 1000000,
+        "perTextByte": 1.5
+      }
+    },
+    {
+      "pattern": "^BenchmarkEditorViewMemory/",
+      "why": "An open document may keep one copy of its text plus at most half of it again plus 2 MiB of index and view state alive.",
+      "metricsMax": {
+        "retained-B": {
+          "constant": 2097152,
+          "perTextByte": 1.5
+        }
+      }
+    },
+    {
+      "pattern": "^BenchmarkEditorRopeBuild/",
+      "why": "Building the rope from a document is one linear pass, so its cost is bounded by a small constant plus 1.5 ns per byte.",
+      "nsMax": {
+        "constant": 100000,
+        "perTextByte": 1.5
+      }
+    },
+    {
+      "pattern": "^BenchmarkEditorRopeTypePair/",
+      "why": "Inserting and deleting a character is a local edit, so it must take at most 2 µs, allocate at most 8 KiB and not depend on the document's size.",
+      "nsMax": 2000,
+      "bytesMax": 8192,
+      "scaleMax": 2
+    },
+    {
+      "pattern": "^BenchmarkEditorRopeLineStart/",
+      "why": "Line lookups run for every visible row on every frame, so each must take at most 500 ns, allocate nothing and not depend on the document's size.",
+      "nsMax": 500,
+      "allocsMax": 0,
+      "scaleMax": 2
+    },
+    {
+      "pattern": "^BenchmarkEditorRopeLineOf/",
+      "why": "Mapping an offset to its line runs on every caret and selection update, so it must take at most 500 ns, allocate nothing and not depend on the document's size.",
+      "nsMax": 500,
+      "allocsMax": 0,
+      "scaleMax": 2
+    },
+    {
+      "pattern": "^BenchmarkEditorRopeViewportLines/",
+      "why": "Reading the visible lines happens on every frame, so it must take at most 50 µs, allocate nothing and not depend on the document's size.",
+      "nsMax": 50000,
+      "allocsMax": 0,
+      "scaleMax": 2
+    },
+    {
+      "pattern": "^BenchmarkEditorRopeBytes/",
+      "why": "Informational: this is what any whole-document copy costs, and no per-keystroke path may use it.",
+      "nsMax": {
+        "constant": 10000,
+        "perTextByte": 0.5
+      }
+    },
+    {
+      "pattern": "^BenchmarkEditorSyntaxViewportWarm/",
+      "why": "Reading already computed colors for the viewport happens on every frame, so it must take at most 100 µs, allocate nothing and not depend on the document's size.",
+      "nsMax": 100000,
+      "allocsMax": 0,
+      "scaleMax": 1.5
+    },
+    {
+      "pattern": "^BenchmarkEditorSyntaxViewportCold/",
+      "why": "The first colors after a jump must arrive within one 120 Hz frame (8.3 ms) and not depend on the document's size.",
+      "nsMax": 8300000,
+      "scaleMax": 2
+    },
+    {
+      "pattern": "^BenchmarkEditorSyntaxTypeInLine/",
+      "why": "Re-tokenizing the edited line after a keystroke must take at most 0.5 ms regardless of the document's size.",
+      "nsMax": 500000,
+      "scaleMax": 1.5
+    },
+    {
+      "pattern": "^BenchmarkEditorSyntaxTypeCatchUp/",
+      "why": "Bringing the tokenizer state of the following lines up to date after a keystroke must take at most 2 ms regardless of the document's size.",
+      "nsMax": 2000000,
+      "scaleMax": 1.5
+    },
+    {
+      "pattern": "^BenchmarkEditorSyntaxFullPass/",
+      "why": "The background pass over the whole document must tokenize at least 20 MB/s, which is at most 50 ns per byte.",
+      "nsMax": {
+        "constant": 0,
+        "perTextByte": 50
+      }
+    },
+    {
+      "pattern": "^BenchmarkEditorSyntaxFirstUse/",
+      "why": "The first use of a language, including loading its grammar, must finish within 20 ms.",
+      "nsMax": 20000000
+    }
+  ]
+}

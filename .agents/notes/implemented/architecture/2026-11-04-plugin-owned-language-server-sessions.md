@@ -98,25 +98,25 @@
 ## 验证
 
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib` 按 `plugin_server`、`plugin_function`、`language_server_sessions`、`content_providers`、`declarative` 过滤：会话策略、逐方法授权、启动问题与回答的往返、七类拒绝码、回收判定。
-- `scripts/macos/test/test-macos.sh --filter 'PluginLanguageServerHostServiceTests|PluginBackendLaunchTests|PluginContentProviderTests|MacPluginLanguageServerWorkspaceStateTests'`，以及 `LitheLanguageIntelligenceModuleTests` 中的 `PluginLanguageServerRelayTests`：参数边界、错误码映射、启动流程、代际丢弃、状态随进程结束、回收不触碰打开中的工作区和非目录项。测试用 Metals 与 rust-analyzer 的桩，不含 Java 词汇。
-- `scripts/macos/verify/verify-runtime-bundle-immutability.sh`：启动后包内文件不变。
-- `scripts/architecture/verify-shared-contracts.sh`、`scripts/architecture/verify-service-boundaries.sh`、`scripts/architecture/verify-no-host-language-specifics.mjs`。
+- ~~scripts/macos/test/test-macos.sh --filter 'PluginLanguageServerHostServiceTests|PluginBackendLaunchTests|PluginContentProviderTests|MacPluginLanguageServerWorkspaceStateTests'~~（随旧客户端移除），以及 `LitheLanguageIntelligenceModuleTests` 中的 `PluginLanguageServerRelayTests`：参数边界、错误码映射、启动流程、代际丢弃、状态随进程结束、回收不触碰打开中的工作区和非目录项。测试用 Metals 与 rust-analyzer 的桩，不含 Java 词汇。
+- `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：启动后包内文件不变。
+- ~~scripts/architecture/verify-shared-contracts.sh~~（脚本已随旧客户端移除）、~~scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）、~~scripts/architecture/verify-no-host-language-specifics.mjs~~（随旧客户端移除）。
 - `scripts/agent-notes/verify-agent-notes.sh`、`scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
 
 原生验收（安装示例插件、观察状态栏文字、用 `pgrep` 确认进程不残留）不由单元测试替代，功能矩阵按真实证据维护。
 
 ## 适用范围
 
-- `rust/lithe-core/src/lsp/interface/plugin_server.rs`
-- `rust/lithe-core/src/lsp/interface/plugin_function.rs`
-- `rust/lithe-core/src/plugins/language_server_sessions.rs`
-- `rust/lithe-core/src/plugins/content_providers.rs`
-- `shared/contracts/plugins/v1/README.md`
-- `macos/Sources/Lithe/Application/Features/PluginLanguageServerHostService.swift`
-- `macos/Sources/Lithe/Application/Features/PluginContentProviderHostService.swift`
-- `macos/Sources/Lithe/Models/AppModel/AppModel+PluginLanguageServers.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginBackendLaunchPreparer.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginLanguageServerWorkspaceState.swift`
-- `macos/Sources/LitheLanguageIntelligenceModule/Services/PluginLanguageServerRelay.swift`
-- `macos/Sources/Lithe/Views/Workbench/PluginServerStatusView.swift`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/plugin_server.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/plugin_server.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/plugin_function.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/plugin_function.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/language_server_sessions.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/language_server_sessions.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/content_providers.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/content_providers.rs)
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md`
+- ~~`macos/Sources/Lithe/Application/Features/PluginLanguageServerHostService.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/PluginContentProviderHostService.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Models/AppModel/AppModel+PluginLanguageServers.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginBackendLaunchPreparer.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginLanguageServerWorkspaceState.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheLanguageIntelligenceModule/Services/PluginLanguageServerRelay.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Workbench/PluginServerStatusView.swift`~~（已随 #1794 移除）
 - `docs/development/macos-plugin-api-plan.md`

@@ -2,6 +2,8 @@
 
 状态：提议中
 
+> Viva 迁移状态（2026-11-08）：下文关于 Swift/Tauri 的现状和已完成内容属于旧客户端，不代表 Viva 已实现统一账本、确认或崩溃兜底。Viva 目前有独立的终端管理；2026-11-12 起桌面端不做 Agent 对话，不再启动 Agent 进程；本提案的所有权与用户确认目标仍需结合新架构逐项实现并在两平台验证。
+
 ## 先说结论
 
 用户反馈：退出 Lithe 后，终端里启动的 Spring 服务、运行配置、LSP 和插件
@@ -208,7 +210,7 @@ Agent（经由 ACP 连接的 Claude Code、Codex 等）会用自己的工具在�
 - **断开 Agent 时也要确认**：关闭 Agent 连接、停止对话模块，或取消确认
   超时后停止 Agent 时，如果存在 `agentTask`，同样逐个确认，不能再直接
   `terminate_tree`。落地时需要同步修改
-  [共享 ACP Agent 对话](../../implemented/architecture/2026-09-25-shared-acp-agent-conversation.md)
+  共享 ACP Agent 对话见 `.agents/notes/archived/architecture/2026-09-25-shared-acp-agent-conversation.md`（已归档，仅作历史记录）。
   中“停止该 Agent 的进程树”的描述。
 
 #### 设置：进程终止策略
@@ -336,7 +338,7 @@ Agent（经由 ACP 连接的 Claude Code、Codex 等）会用自己的工具在�
    语言服务器、运行命令都由宿主根据 `plugin.json` 启动（见
    [声明式语言插件](../../implemented/architecture/2026-10-12-declarative-language-plugins.md)）。
    宿主启动时一律经过账本，所以插件进程天然会被登记。
-2. **清单必须声明生命周期**。`shared/contracts/plugins/v1/` 为每个语言服务器、
+2. **清单必须声明生命周期**。`Lithe-core-rust/shared/plugins/contract/v1/` 为每个语言服务器、
    常驻服务和资源提供者增加 `lifecycle` 字段；`plugins.declarative.validate`
    对缺少或非法的字段返回稳定的 `plugin.*` 错误码，插件直接无法安装。
    CI 中的 `ci-plugins.yml` 对所有官方插件跑同一组校验。
@@ -370,7 +372,7 @@ Agent（经由 ACP 连接的 Claude Code、Codex 等）会用自己的工具在�
 }]
 ```
 
-字段名称在实现阶段以 `shared/contracts/plugins/v1/` 的 schema 为准，这里只说明
+字段名称在实现阶段以 `Lithe-core-rust/shared/plugins/contract/v1/` 的 schema 为准，这里只说明
 需要表达的信息。
 
 ### 第二层：操作系统级兜底
@@ -653,7 +655,7 @@ shell 身份和当前可执行文件都吻合时算空闲；同 PID 的 exec 替
   `posix_spawn` 和 `std::process::Command` 启动长期进程，`MacPluginPackageDownloader`
   和 `MacStableRollback` 迁移到统一端口。
 - 测试遵守 `write-stable-tests` 的有界等待、资源清理规则，单测试有计时上限。
-- `scripts/macos/verify/verify-runtime-bundle-immutability.sh` 在启动、运行、退出的完整流程后
+- `scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 在启动、运行、退出的完整流程后
   仍然通过。
 - `shared/platform-feature-matrix/features/` 增加“退出时结束或确认全部子进程”
   能力行，两个平台分别记录实现和验证状态。
@@ -705,23 +707,14 @@ Windows 仍未完成的部分：终端（ConPTY）和 Agent 进程树还没有 J
 
 ## 适用范围
 
-- `macos/Sources/Lithe/LitheApp.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Process/`
-- `macos/Sources/Lithe/Platform/MacOS/Terminal/MacTerminalTransport.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/`
-- `macos/Sources/LitheTerminalModule/`
-- `windows/tauri/src-tauri/src/main.rs`
-- `windows/tauri/src-tauri/src/run.rs`
-- `windows/tauri/crates/terminal/src/`
-- `macos/Sources/Lithe/Views/App/SettingsView.swift`
-- `macos/Sources/Lithe/Views/App/SettingsSearchVocabulary.swift`
-- `windows/tauri/src/ui/`
-- `macos/Sources/LitheAgentConversationModule/`
-- `rust/lithe-agent-host/`
-- `rust/lithe-core/`
+- `desktop/internal/term/`
+- `desktop/internal/localshell/`
+- `desktop/internal/workbench/terminals.go`
+- `desktop/internal/settingswindow/`
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core)
 - `shared/contracts/`
 - `shared/fixtures/process-lifecycle/`
-- `macos/Sources/Lithe/Application/Features/ProcessExitCoordinator.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Agent/MacAgentProcessRegistry.swift`
-- `shared/contracts/plugins/v1/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
+- [旧客户端实现与原适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/proposed/architecture/2026-10-16-unified-child-process-lifecycle.md)
 - 相关决策：[模块运行时边界与生命周期](../../implemented/architecture/2026-09-13-module-runtime-boundaries-and-lifecycle.md)

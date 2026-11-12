@@ -74,13 +74,13 @@ Git Log 与 Project 的滚轮过渡一致，保留分页、图谱布局、选择
 - `.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1`
 - `.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend`
   可用 `-FrontendTestPath` 限定下面两组滚轮测试及 Git Log 组件目录。
-- `windows/tauri/src/ui/wheel-scroll-animation.test.ts` 使用可手动推进的时钟和帧队列，
+- ~~`windows/tauri/src/ui/wheel-scroll-animation.test.ts`~~（已随 #1794 移除） 使用可手动推进的时钟和帧队列，
   检查中间位置、200ms 结束、累计、反向、边界、外部定位和清理。
-- `windows/tauri/src/ui/scroll-container-wheel.integration.test.ts` 检查真实绑定消费事件、
+- ~~`windows/tauri/src/ui/scroll-container-wheel.integration.test.ts`~~（已随 #1794 移除） 检查真实绑定消费事件、
   两方向位移、按键/指针取消、减少动态效果和卸载；覆盖视口外的滚动条区域
   共享动画目标，以及拖动该区域取消惯性。
-- `scripts/windows/build/build-windows.ps1 -Configuration Release`、Windows Tauri Cargo 测试、
-  `scripts/windows/verify/verify-windows-boundaries.ps1`、`scripts/macos/verify/verify-runtime-bundle-immutability.sh`、
+- ~~scripts/windows/build/build-windows.ps1 -Configuration Release~~（脚本已随旧客户端移除）、Windows Tauri Cargo 测试、
+  ~~scripts/windows/verify/verify-windows-boundaries.ps1~~（随旧客户端移除）、`scripts/desktop/verify/verify-runtime-bundle-immutability.sh`、
   `node scripts/agent-notes/verify-agent-notes.mjs`、`node scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs --check`。
 - 产品验收：在分支树、长提交列表、Commit Files 和 Project 文件树中连续向下/向上滚轮，核对过渡、反向、
   顶底边界、分页保持位置、Shift 横向滚动、键盘定位、滑块拖动和关闭工具窗。
@@ -88,11 +88,11 @@ Git Log 与 Project 的滚轮过渡一致，保留分页、图谱布局、选择
 
 ## 适用范围
 
-- `windows/tauri/src/ui/wheel-scroll-animation.ts`
-- `windows/tauri/src/ui/scroll-container-wheel.ts`
-- `windows/tauri/src/features/git/components/log/git-reference-tree.tsx`
-- `windows/tauri/src/features/git/components/log/git-commit-table.tsx`
-- `windows/tauri/src/features/file-explorer/components/file-explorer-viewport.tsx`
+- ~~`windows/tauri/src/ui/wheel-scroll-animation.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/ui/scroll-container-wheel.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/git/components/log/git-reference-tree.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/git/components/log/git-commit-table.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/file-explorer/components/file-explorer-viewport.tsx`~~（已随 #1794 移除）
 
-- `windows/tauri/src/ui/scroll-area.tsx`
-- `windows/tauri/src/features/git/components/log/git-commit-file-tree.tsx`
+- ~~`windows/tauri/src/ui/scroll-area.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/git/components/log/git-commit-file-tree.tsx`~~（已随 #1794 移除）

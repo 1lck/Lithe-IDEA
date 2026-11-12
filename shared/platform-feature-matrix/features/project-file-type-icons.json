@@ -7,23 +7,47 @@
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      "macos/Sources/Lithe/Theme/LitheIcons.swift",
-      "macos/Resources/IDEAIcons/fileTypes",
-      "macos/Tests/LitheTests/LitheCoreLogicTests.swift",
-      "macos/Tests/LitheTests/FileTypeIconResourceTests.swift"
+      "desktop/internal/fileicons/fileicons.go",
+      "desktop/internal/workbench/filetree_view.go",
+      "desktop/internal/workbench/tabstrip.go",
+      "desktop/internal/workbench/search_everywhere_view.go"
     ]
   },
   "windows": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      "windows/tauri/scripts/idea-file-icon-mappings.json",
-      "windows/tauri/scripts/generate-idea-file-icons.ts",
-      "windows/tauri/scripts/lithe-file-icons",
-      "windows/tauri/src/extensions/bundled/icon-themes/idea/extension.json",
-      "windows/tauri/src/extensions/bundled-extension-manifests.test.ts"
+      "desktop/internal/fileicons/fileicons.go",
+      "desktop/internal/workbench/filetree_view.go",
+      "desktop/internal/workbench/tabstrip.go",
+      "desktop/internal/workbench/search_everywhere_view.go"
     ]
   },
   "owner": "Workbench",
-  "verification": "在深浅主题下打开含 go.mod、go.sum、Makefile、.gitignore、.gitattributes、bun.lock、package.json、README.md、LICENSE、NOTICE 的项目，核对项目树、编辑器标签和 Search Everywhere/快速打开中的图标与上述分类一致，不再显示问号或纯文本图标；NOTICE 等未分类文本仍显示文本图标。Windows 使用 IDEA Icons 主题核对同一组文件，PowerShell 文件仍显示原 Windows 四格图标。"
+  "verification": "在深浅主题下打开含 go.mod、go.sum、Makefile、.gitignore、.gitattributes、bun.lock、package.json、README.md、LICENSE、NOTICE 的项目，核对项目树、编辑器标签和 Search Everywhere/快速打开中的图标与上述分类一致，不再显示问号或纯文本图标；NOTICE 等未分类文本仍显示文本图标。Windows 使用 IDEA Icons 主题核对同一组文件，PowerShell 文件仍显示原 Windows 四格图标。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "macos/Sources/Lithe/Theme/LitheIcons.swift",
+        "macos/Resources/IDEAIcons/fileTypes",
+        "macos/Tests/LitheTests/LitheCoreLogicTests.swift",
+        "macos/Tests/LitheTests/FileTypeIconResourceTests.swift"
+      ]
+    },
+    "windows": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "windows/tauri/scripts/idea-file-icon-mappings.json",
+        "windows/tauri/scripts/generate-idea-file-icons.ts",
+        "windows/tauri/scripts/lithe-file-icons",
+        "windows/tauri/src/extensions/bundled/icon-themes/idea/extension.json",
+        "windows/tauri/src/extensions/bundled-extension-manifests.test.ts"
+      ]
+    }
+  },
+  "notes": "Viva：fileicons/fileicons.go 的 fileKind 覆盖 .gitignore/.gitattributes、go.mod/go.sum、Makefile 与 *.mk、package.json、*.lock（含 bun.lock、Cargo.lock）、README、LICENSE；项目树、标签页和 Search Everywhere 调用 ForFile。NOTICE 不在分类中，仍显示文本图标。"
 }

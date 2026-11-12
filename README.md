@@ -11,7 +11,7 @@
     <a href="#product-tour">Product tour</a> ·
     <a href="#download-and-install">Download</a> ·
     <a href="https://github.com/Lithe-IDEA/Lithe-store">Plugin marketplace</a> ·
-    <a href="https://github.com/Lithe-IDEA/lithe-plugin-docs">Plugin development</a> ·
+    <a href="https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins">Plugin development</a> ·
     <a href="https://1lck.github.io/Lithe-IDEA/">Decision board</a> ·
     <a href="#develop-lithe">Develop Lithe</a>
   </p>
@@ -250,15 +250,16 @@ Before submitting a change, run:
 ./scripts/architecture/verify-core.sh
 ./scripts/git-graph/verify-git-graph.sh
 ./scripts/architecture/verify-service-boundaries.sh
-./scripts/architecture/verify-shared-contracts.sh
 ./scripts/windows/verify/verify-windows-boundaries.sh
 ./scripts/rust-core/verify-rust-core.sh
 ```
 
+The plugin contract, guides, and official SDKs live in the Rust Core repository under [`shared/plugins/`](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins). For changes there, run `node shared/plugins/scripts/verify-docs.mjs` (and `node shared/plugins/scripts/sdk-e2e.mjs` for backend protocol changes) from the root of that repository.
+
 `scripts/macos/perf/test-git-performance-baseline.sh` runs deterministic Git graph work gates and
 records an optimized multi-sample timing baseline under `.artifacts/`.
 
-See [Repository ownership and sharing boundaries](./.agents/notes/implemented/architecture/2026-09-13-repository-ownership-and-sharing-boundaries.md) for directory ownership, cross-platform boundaries, sharing rules, and the required Rust Core comment standard. Include your verification steps and known limitations when submitting a change.
+See [Repository ownership and sharing boundaries](./.agents/notes/implemented/architecture/2026-11-08-viva-repository-ownership-and-sharing-boundaries.md) for directory ownership, cross-platform boundaries, sharing rules, and the required Rust Core comment standard. Include your verification steps and known limitations when submitting a change.
 
 </details>
 

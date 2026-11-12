@@ -66,18 +66,18 @@ Agent 的配置入口由同一个目录补齐，移动到任何已有停靠区�
 
 - `WorkbenchContributionHostTests.toolWindowsMenuRestoresHiddenTerminalAtItsSavedDockWithoutToggling` 覆盖隐藏入口恢复、原停靠组、重复 Show 不关闭、模块禁用及旧菜单动作；已安装声明式插件流程补充从同一菜单恢复。`ContextMenuCoverageTests.rightClickOnSubmenuKeepsThePopupAndShowRemainsKeyboardAccessible` 用原生右键事件验证父弹层保持可见，再用方向键和 Return 执行显示；模型回归确认菜单构造不激活模块或创建终端会话。实际产品还需在深浅主题检查左侧“…”、菜单打开/关闭、快捷键与终端已有会话。
 
-- `./scripts/architecture/verify-shared-contracts.sh`
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib declarative_plugins`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginUIIconTests|WorkbenchContributionHostTests|WorkbenchFeatureModelTests|WorkbenchModuleUIRegistryTests|ModuleSessionCoordinatorTests'`
-- `./scripts/architecture/verify-service-boundaries.sh`
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 
 ## 适用范围
 
-- `macos/Sources/LitheModuleAPI/Lifecycle/ModuleTypes.swift`
-- `macos/Sources/LitheApplicationKernel/Plugins/`
-- `macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift`
-- `macos/Sources/Lithe/Views/Workbench/`
-- `macos/Sources/Lithe/Application/Features/WorkbenchFeatureModel.swift`
-- `shared/contracts/plugins/v1/`
+- ~~`macos/Sources/LitheModuleAPI/Lifecycle/ModuleTypes.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheApplicationKernel/Plugins/`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Workbench/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/WorkbenchFeatureModel.swift`~~（已随 #1794 移除）
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`

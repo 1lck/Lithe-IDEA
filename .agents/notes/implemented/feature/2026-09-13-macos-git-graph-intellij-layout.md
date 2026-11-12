@@ -2,6 +2,10 @@
 
 状态：已实现
 
+> 2026-11-08 Viva 迁移：本文的大部分界面实现与测试记录属于迁移前的 Swift 客户端。
+> Viva 已调用 Core 的图投影并绘制历史列表，但本文所述完整交互、参考图和像素级一致性
+> 尚未重新验收；旧客户端通过的测试不能作为 Viva 通过的证据。
+
 关联需求：[Issue #410](https://github.com/1lck/Lithe-IDEA/issues/410)。
 
 ## 先说结论
@@ -26,9 +30,9 @@ master 分支或截图颜色，否则"是否与 IDEA 一致"无法被验证或�
 `GraphElementComparatorByLayoutIndex`、`PrintElementGeneratorImpl`、
 `DottedFilterEdgesGenerator`、`GraphColorManagerImpl` 等）。算法落在
 Rust Core 的 `git.graphProjection`，AppKit/SwiftUI 负责绘制与交互；Rust `git.historyPage`
-（[`rust/lithe-core/src/git/history.rs`](../../../../rust/lithe-core/src/git/history.rs)）
+（[Lithe-core-rust 锁定修订的 `history.rs`](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/history.rs)）
 新增向后兼容的可选 `order` 参数；macOS
-（[`RustGitOperations.swift`](../../../../macos/Sources/Lithe/Core/Rust/RustGitOperations.swift)）
+（[迁移前的 `RustGitOperations.swift`](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/Lithe/Core/Rust/RustGitOperations.swift)）
 和 Windows 均显式请求 `order: "date"`，未提供该参数时默认仍为 `--topo-order`。
 
 关键规则：
@@ -530,6 +534,13 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
 
 ## 验证
 
+- `scripts/desktop/desktop-go.sh test ./internal/core ./internal/workbench`：当前桌面代码的常规测试；它不证明下文列举的历史图逐像素对齐或所有交互已完成。
+- Viva 图投影的共享 fixture、长边交互及 macOS / Windows 真实窗口截图仍需针对当前客户端验收。
+
+## 迁移前的验证记录
+
+下列测试、脚本与验收流程属于迁移前客户端，保留设计依据，不能作为 Viva 当前验证结果。
+
 - `DebugDisassemblyLayoutTests` 验证明暗主题、左右对齐、横向溢出与步进位置，
   `GitGraphInteractionTests` 验证原生视口自动加载、同页去重和追加后的偏移。
 - `DebugModuleTests` 与 `GitModuleTests` 验证无进展、失败、重试及失效请求边界。
@@ -572,9 +583,9 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
 明暗主题下修改文件名的实际像素色、无逐行分隔线，以及可视宽度变化后的滚动范围。
 
 
-- `./scripts/macos/build/build-macos.sh`
+- ~~./scripts/macos/build/build-macos.sh~~（随旧客户端移除）
 - `./scripts/git-graph/verify-git-graph.sh`
-- `./scripts/architecture/verify-service-boundaries.sh`
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
 - `git diff --check`
 
 上游对照 fixture 固定保存在
@@ -582,39 +593,50 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
 （4 个布局 fixture 比较完整 layout index 向量，5 个打印 fixture 比较
 节点列、半边端点、箭头与实/虚线，只排除颜色值）；真实历史回归数据
 冻结在
-[`macos/Tests/LitheTests/Fixtures/GitGraph/`](../../../../macos/Tests/LitheTests/Fixtures/GitGraph/)
+[`macos/Tests/LitheTests/Fixtures/GitGraph/`](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Tests/LitheTests/Fixtures/GitGraph/)
 （只保留拓扑、公开引用和显示所需标题，不含作者个人信息）。对照输出
 由独立 Java oracle 直接调用 IntelliJ IDEA 原始类生成，不使用 Lithe
 生成期望值；生成方法见同目录 README。普通测试只读取冻结文件，不
 依赖安装 IDEA、Java、网络或本地 Git 仓库状态。Apache-2.0 许可证和
 来源说明放在
-[`macos/Resources/GitGraph/`](../../../../macos/Resources/GitGraph/)，
+[`macos/Resources/GitGraph/`](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Resources/GitGraph/)，
 随预览、打包和性能测量应用一起复制。
+
+## 迁移前的源码范围
+
+下列旧平台路径位于[迁移前的 preview 修订](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36)；Core 链接指向当前锁定修订。
+
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/graph.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/graph.rs)
+- ~~`macos/Sources/LitheGitModule/Services/GitGraphLayoutService.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/GitGraphColor.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/GitGraphGeometry.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/GitGraphView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/GitLogView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/GitWorktreesView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/GitWorktreeRowsView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Workbench/WorkbenchToolWindowDock.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Workbench/SplitHandleView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Components/LitheSplitPaneView.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/GitLogReferenceResizeTests.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/SplitHandleHitTestTests.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/DiffScrollSynchronizationTests.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/GitWorktreeAppearanceTests.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/GitCommitFileTreeView.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/GitCommitFileTreeLayoutTests.swift`~~（已随 #1794 移除）
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/history.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/history.rs)
+- ~~`macos/Sources/Lithe/Core/Rust/RustGitOperations.swift`~~（已随 #1794 移除）
+- `shared/fixtures/git/graph-idea/`
+- ~~`macos/Tests/LitheTests/Fixtures/GitGraph/`~~（已随 #1794 移除）
+- ~~`macos/Resources/GitGraph/`~~（已随 #1794 移除）
 
 ## 适用范围
 
-- `rust/lithe-core/src/git/graph.rs`
-- `macos/Sources/LitheGitModule/Services/GitGraphLayoutService.swift`
-- `macos/Sources/Lithe/Views/Git/GitGraphColor.swift`
-- `macos/Sources/Lithe/Views/Git/GitGraphGeometry.swift`
-- `macos/Sources/Lithe/Views/Git/GitGraphView.swift`
-- `macos/Sources/Lithe/Views/Git/GitLogView.swift`
-- `macos/Sources/Lithe/Views/Git/GitWorktreesView.swift`
-- `macos/Sources/Lithe/Views/Git/GitWorktreeRowsView.swift`
-- `macos/Sources/Lithe/Views/Workbench/WorkbenchToolWindowDock.swift`
-- `macos/Sources/Lithe/Views/Workbench/SplitHandleView.swift`
-- `macos/Sources/Lithe/Views/Components/LitheSplitPaneView.swift`
-- `macos/Tests/LitheTests/GitLogReferenceResizeTests.swift`
-- `macos/Tests/LitheTests/SplitHandleHitTestTests.swift`
-- `macos/Tests/LitheTests/DiffScrollSynchronizationTests.swift`
-- `macos/Tests/LitheTests/GitWorktreeAppearanceTests.swift`
-- `macos/Sources/Lithe/Views/Git/GitCommitFileTreeView.swift`
-- `macos/Tests/LitheTests/GitCommitFileTreeLayoutTests.swift`
-- `rust/lithe-core/src/git/history.rs`
-- `macos/Sources/Lithe/Core/Rust/RustGitOperations.swift`
+- `desktop/internal/core/gitlog.go`
+- `desktop/internal/workbench/gitgraph.go`
+- `desktop/internal/workbench/gitlog.go`
+- `desktop/internal/workbench/gitlog_view.go`
 - `shared/fixtures/git/graph-idea/`
-- `macos/Tests/LitheTests/Fixtures/GitGraph/`
-- `macos/Resources/GitGraph/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/graph.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/graph.rs)
 
 ## 后续：布局下沉到 Rust Core（#1662 GIT-18/19）
 

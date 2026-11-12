@@ -4,25 +4,45 @@
   "group": "数据库工作区",
   "capability": "表数据编辑、CRUD 与导出（由社区插件提供）",
   "macos": {
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      "macos/Sources/LitheModuleAPI/Catalog/BuiltInModuleCatalog.swift",
-      "macos/Sources/Lithe/Application/Features/PluginMarketplace.swift",
-      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginBackendSessions.swift",
-      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginCredentialStore.swift",
-      "rust/lithe-core/src/plugins/backend.rs",
-      "macos/Tests/LitheTests/PluginWebBridgeTests.swift",
-      ".agents/notes/implemented/architecture/2026-10-24-database-provider-plugin.md"
-    ],
-    "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+      "desktop/internal/pluginservice/toolwindows.go",
+      "desktop/internal/workbench/pluginpages.go"
+    ]
   },
   "windows": {
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      "shared/contracts/plugins/v1/README.md"
-    ],
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable"
+      "desktop/internal/pluginservice/toolwindows.go",
+      "desktop/internal/workbench/pluginpages.go"
+    ]
   },
   "owner": "Database（社区插件 Lithe-IDEA/lithe-plugin-database，Lithe Store 上架）",
-  "verification": "macOS 从插件市场的 Lithe Store 安装社区插件 io.github.lithe-idea.database，打开 Database 工具窗口：打开表数据，筛选、排序、分页，编辑单元格、新增和删除行后提交与撤销；只读连接和脱敏列不可编辑；生产保护连接上的危险写入弹出确认；通过宿主文件对话框导出 CSV/JSON/SQL、导入 CSV/JSON、备份与恢复 SQL，大结果超过 1 MiB 时提示截断。 Windows：插件宿主和插件市场就绪前不提供数据库功能，主程序不再包含数据库入口。"
+  "verification": "macOS 从插件市场的 Lithe Store 安装社区插件 io.github.lithe-idea.database，打开 Database 工具窗口：打开表数据，筛选、排序、分页，编辑单元格、新增和删除行后提交与撤销；只读连接和脱敏列不可编辑；生产保护连接上的危险写入弹出确认；通过宿主文件对话框导出 CSV/JSON/SQL、导入 CSV/JSON、备份与恢复 SQL，大结果超过 1 MiB 时提示截断。 Windows：插件宿主和插件市场就绪前不提供数据库功能，主程序不再包含数据库入口。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/LitheModuleAPI/Catalog/BuiltInModuleCatalog.swift",
+        "macos/Sources/Lithe/Application/Features/PluginMarketplace.swift",
+        "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginBackendSessions.swift",
+        "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginCredentialStore.swift",
+        "rust/lithe-core/src/plugins/backend.rs",
+        "macos/Tests/LitheTests/PluginWebBridgeTests.swift",
+        ".agents/notes/implemented/architecture/2026-10-24-database-provider-plugin.md"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "shared/contracts/plugins/v1/README.md"
+      ],
+      "implementationStatus": "missing",
+      "verificationStatus": "not-applicable"
+    }
+  },
+  "notes": "Viva：宿主通过 pluginpages.go 的 app.SaveFile 与 OpenFiles 提供文件对话框，工具窗口由 toolwindows.go 承载；表数据编辑、CRUD 与导出逻辑属于社区插件。"
 }

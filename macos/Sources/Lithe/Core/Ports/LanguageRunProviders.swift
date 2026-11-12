@@ -1,8 +1,0 @@
-import LitheCoreContracts
-
-typealias LanguageRunContext = LitheCoreContracts.LanguageRunContext
-typealias RunArgumentParser = LitheCoreContracts.RunArgumentParser
-typealias LanguageRunPlanError = LitheCoreContracts.LanguageRunPlanError
-typealias LanguageRunProvider = LitheCoreContracts.LanguageRunProvider
-typealias StandardLanguageRunProvider = LitheCoreContracts.StandardLanguageRunProvider
-typealias LanguageRunProviderRegistry = LitheCoreContracts.LanguageRunProviderRegistry

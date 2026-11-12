@@ -195,15 +195,15 @@ v1 文档在发布时整体转换字段形状，无关 Java 条目保留原身�
 - `cargo test -p lithe-core --lib run_configuration`
 - `cargo test -p lithe-core --lib detectors`
 - `cd windows/tauri && bun test src/features/run`
-- `./scripts/macos/test/test-macos.sh --filter 'RunConfigurationIntegrationTests|MavenRuntimeTests|RunEntryPointTests'`
+- ~~./scripts/macos/test/test-macos.sh --filter 'RunConfigurationIntegrationTests|MavenRuntimeTests|RunEntryPointTests'~~（随旧客户端移除）
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'MacLegacyMavenRunConfigurationMigrationTests|ExecutionModuleTests|MacNativeBuildProviderIntegrationTests'`
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 
 ## 适用范围
 
-- `rust/lithe-core/src/execution/generated_layer.rs`
-- `rust/lithe-core/src/execution/configuration.rs`
-- `windows/tauri/src/features/run/`
-- `macos/Sources/Lithe/Platform/MacOS/RunConfiguration/MacRunConfigurationStore.swift`
-- `macos/Sources/LitheExecutionModule/Services/RunService.swift`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/execution/generated_layer.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/execution/generated_layer.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/execution/configuration.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/execution/configuration.rs)
+- ~~`windows/tauri/src/features/run/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/RunConfiguration/MacRunConfigurationStore.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheExecutionModule/Services/RunService.swift`~~（已随 #1794 移除）
 - 已迁出：原 `macos/Sources/Lithe/Platform/MacOS/Persistence/MacLegacyMavenRunConfigurationMigration.swift`。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）。

@@ -1,0 +1,16 @@
+Bundled syntax color schemes, as the previous editor shipped them (unmodified files):
+
+- lithe.json: Lithe's own default syntax palette (the previous editor's color-mappings.json).
+- github.json, one.json: Lithe's own GitHub-style and One-style syntax palettes.
+- vscode.json: syntax colors taken from VS Code's default themes; the files they come from, at
+  microsoft/vscode commit b6bfa95ebee8b183d65dee4997c0527eadfe5384, are listed under "sources".
+  MIT: vscode-LICENSE.txt.
+- idea.json: syntax colors taken from IntelliJ IDEA's color schemes; the files they come from,
+  at JetBrains/intellij-community commit 74dbd42b7a8787b0707437cb857c68e78199f611, are listed
+  under "sources". Apache License 2.0: idea-LICENSE.txt, with the notice in idea-NOTICE.txt.
+
+The built-in token rules of Monaco Editor 0.55.1's "vs" and "vs-dark" themes
+(src/vs/editor/standalone/common/themes.ts), which these schemes inherit, are copied into
+monaco_rules.go. MIT: monaco-LICENSE.txt.
+
+The schemes are embedded in the client binary and read only from memory.

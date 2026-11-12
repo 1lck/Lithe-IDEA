@@ -421,8 +421,8 @@ macOS 使用最新构建的可执行及 Swift 资源，组装独立 QA bundle，
 
 ## 适用范围
 
-- `rust/lithe-core/src/project/indexing.rs`
-- `rust/lithe-core/src/project/search_index.rs`
-- `macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift`
-- `windows/tauri/src/features/file-explorer/stores/workspace-indexing.ts`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/project/indexing.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/project/indexing.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/project/search_index.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/project/search_index.rs)
+- ~~`macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/file-explorer/stores/workspace-indexing.ts`~~（已随 #1794 移除）
 - `shared/fixtures/workspace/indexing-policy-v1.json`

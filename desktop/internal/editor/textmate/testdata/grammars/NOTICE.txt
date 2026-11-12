@@ -1,0 +1,10 @@
+Grammars the tests run in addition to the bundled ones in internal/editor/syntax/grammars. They
+are test data only and are not part of the client; their languages get grammars from plugins.
+The files are copied without changes.
+
+- cmake.tmLanguage.json: microsoft/vscode-cmake-tools syntaxes/CMake.tmLanguage.json at commit
+  e0969b894e56d8ea5e6641d48a82e5ba3babcc38. MIT, LICENSE.cmake.txt.
+- groovy.tmLanguage.json: microsoft/vscode extensions/groovy/syntaxes/groovy.tmLanguage.json at
+  commit 498770fb016918e2f34e586fc5b26a7342f450a1. MIT, LICENSE.vscode.txt. Converted from
+  textmate/groovy.tmbundle 85d8f7c97ae473ccb9473f6c8d27e4ec957f4be1 under the Original TextMate
+  License, reproduced in LICENSE.groovy.txt.

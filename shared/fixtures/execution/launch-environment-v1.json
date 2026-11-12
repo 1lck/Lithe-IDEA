@@ -2,73 +2,52 @@
   "schemaVersion": 1,
   "cases": [
     {
-      "name": "maven-project-selection",
+      "name": "explicit-value-replaces-inherited",
       "request": {
-        "toolchain": "project-maven",
-        "javaHome": "jdk17",
-        "mavenJavaHome": "jdk21",
         "inherited": {
-          "JAVA_HOME": "jdk8"
-        },
-        "overrides": {},
-        "caseInsensitive": false
-      },
-      "expected": {
-        "environment": {
-          "JAVA_HOME": "jdk21"
-        }
-      }
-    },
-    {
-      "name": "java-project-selection",
-      "request": {
-        "toolchain": "project-jdk",
-        "javaHome": "jdk17",
-        "mavenJavaHome": "jdk21",
-        "inherited": {
-          "JAVA_HOME": "jdk8"
-        },
-        "overrides": {},
-        "caseInsensitive": false
-      },
-      "expected": {
-        "environment": {
-          "JAVA_HOME": "jdk17"
-        }
-      }
-    },
-    {
-      "name": "explicit-user-selection",
-      "request": {
-        "toolchain": "project-maven",
-        "javaHome": "jdk17",
-        "mavenJavaHome": "jdk21",
-        "inherited": {
-          "JAVA_HOME": "jdk8"
+          "JAVA_HOME": "inherited-jdk",
+          "PATH": "bin"
         },
         "overrides": {
-          "JAVA_HOME": "user-jdk"
+          "JAVA_HOME": "selected-jdk"
         },
         "caseInsensitive": false
       },
       "expected": {
         "environment": {
-          "JAVA_HOME": "user-jdk"
+          "JAVA_HOME": "selected-jdk",
+          "PATH": "bin"
         }
       }
     },
     {
-      "name": "maven-plan-binding",
+      "name": "no-override-keeps-inherited",
       "request": {
-        "toolchain": "project-maven",
-        "javaHome": "jdk17",
-        "mavenJavaHome": "jdk21",
         "inherited": {
-          "JAVA_HOME": "jdk8"
+          "JAVA_HOME": "inherited-jdk"
+        },
+        "overrides": {},
+        "caseInsensitive": false
+      },
+      "expected": {
+        "environment": {
+          "JAVA_HOME": "inherited-jdk"
+        }
+      }
+    },
+    {
+      "name": "unresolved-binding-contributes-nothing",
+      "request": {
+        "inherited": {
+          "JAVA_HOME": "inherited-jdk"
         },
         "overrides": {
           "JAVA_HOME": {
-            "toolchain": "project-maven",
+            "toolchain": "example.toolchain",
+            "property": "home"
+          },
+          "TOOL_HOME": {
+            "toolchain": "example.toolchain",
             "property": "home"
           }
         },
@@ -76,18 +55,16 @@
       },
       "expected": {
         "environment": {
-          "JAVA_HOME": "jdk21"
+          "JAVA_HOME": "inherited-jdk"
         }
       }
     },
     {
-      "name": "windows-key-alias",
+      "name": "windows-keys-are-one-name",
       "request": {
-        "toolchain": "project-maven",
-        "javaHome": "jdk17",
-        "mavenJavaHome": "jdk21",
         "inherited": {
-          "JAVA_HOME": "jdk8"
+          "JAVA_HOME": "inherited-jdk",
+          "Path": "bin"
         },
         "overrides": {
           "java_home": "user-jdk"
@@ -96,48 +73,8 @@
       },
       "expected": {
         "environment": {
-          "JAVA_HOME": "user-jdk"
-        }
-      }
-    },
-    {
-      "name": "non-java-keeps-inherited",
-      "request": {
-        "toolchain": "project-node",
-        "javaHome": "jdk17",
-        "mavenJavaHome": "jdk21",
-        "inherited": {
-          "JAVA_HOME": "jdk8"
-        },
-        "overrides": {},
-        "caseInsensitive": false
-      },
-      "expected": {
-        "environment": {
-          "JAVA_HOME": "jdk8"
-        }
-      }
-    },
-    {
-      "name": "maven-resource-step-inherits-java-application-binding",
-      "request": {
-        "toolchain": "project-maven",
-        "javaHome": "jdk17",
-        "mavenJavaHome": "jdk21",
-        "inherited": {
-          "JAVA_HOME": "jdk8"
-        },
-        "overrides": {
-          "JAVA_HOME": {
-            "toolchain": "project-jdk",
-            "property": "home"
-          }
-        },
-        "caseInsensitive": false
-      },
-      "expected": {
-        "environment": {
-          "JAVA_HOME": "jdk21"
+          "JAVA_HOME": "user-jdk",
+          "PATH": "bin"
         }
       }
     }

@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态：本笔记的实现与下方测试属于旧客户端。当前桌面端已有插件清单、语法和后端会话的 Core 接口，但尚未接入插件安装、语言服务器启动与编辑器完整工作流；不能据此认为 Java 插件已在 Viva 可用。旧源码和测试入口可查[迁移前笔记](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-10-13-java-language-server-as-declarative-plugin.md)。
+
 > 2026-11-07 更新：本文提到的部分文件已不存在。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护；宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
 
 ## 先说结论
@@ -37,7 +39,7 @@ Java 的语言服务器 JDT LS（Eclipse 的 Java 语言服务器，提供补全
 | 插件资源 | 集成要读的文件 | `hostIntegration.resources`，由插件声明包内路径 |
 | 宿主能力 | 仍由宿主内置实现提供的运行、测试、调试 | `hostIntegration.capabilities`，由插件逐项声明 |
 
-字段语义以 `shared/contracts/plugins/v1/README.md` 为准，校验和模板展开只在 `rust/lithe-core/src/plugins/declarative.rs` 实现一次。
+字段语义以 `Lithe-core-rust/shared/plugins/contract/v1/README.md` 为准，校验和模板展开只在 `rust/lithe-core/src/plugins/declarative.rs` 实现一次。
 
 ### 2. 契约 API 2 增加的内容
 
@@ -204,32 +206,26 @@ dev.lithe.plugin.java-support/
 
 ## 验证
 
+以下命令和结论是旧客户端的历史验证，不适用于当前 Viva 工作树；迁移完成后必须重新验证插件资源、会话生命周期、Java 功能以及安装包只读约束。
+
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib plugins`：API 2 的合法与非法清单、启动计划标准答案、运行时版本判定，以及仓库里的官方 `plugin.json`。
 - 官方插件包的组装与校验（原 verify-official-plugins 脚本：组装三个官方包并校验入口、自带运行时、符号链接和原生代码的位置。）已随插件移出本仓库，由各插件仓库的 CI 负责（#1495）。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'Plugin|LanguageExtensionProcessLifecycleTests|LanguageServerToolServiceTests|JavaLanguageServerRuntimeTests|MacJdtWorkspaceStateTests|MacJdtHostIntegrationStateTests|LanguageToolEnvironmentTests'`：按声明定位资源、路径固定在包内、版本过滤、默认启用、移除与恢复；卸载后 JDT 的索引和 Equinox 配置区被删除（扫描失败或插件被拒绝时保留）；运行时启动的服务器 `PATH` 上先找到宿主选中的运行时。
-- `LITHE_RUN_JAVA_DEBUG_INTEGRATION=1 ./scripts/macos/test/test-macos.sh --filter RealJavaDebugIntegrationTests`：从组装好的插件包启动真实的 JDT LS 并完成 Spring Boot 断点调试。迁移初版时它因 `java.project.getClasspaths` 在服务端抛空指针而失败（迁移前的代码同样失败），该问题已随入口发现的修复一并解决，见 [Java 入口由 JDT 判定](2026-09-21-java-entrypoints-owned-by-jdt.md)。这组测试直接组装调试会话，不验证应用里的能力目录。
-- `./scripts/macos/test/test-macos.sh --filter '(LanguageProviderCatalogSourceTests|RunWorkflowCoordinatorTests|RunConfigurationIntegrationTests)'`：用仓库里的官方 Java 清单验证能力目录保留运行、测试、调试；未声明的插件得不到任何宿主能力；注册表只为声明的能力创建内置工具；声明了 `run` 的语言不要求执行模块。
-- `./scripts/macos/verify/verify-macos-package.sh`：打出的应用里 Java Support 的文件齐全，且不存在 `Contents/Resources/LanguageServers`。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：启动与插件工作流不改写安装目录。
+- 旧版 `RealJavaDebugIntegrationTests` 从组装好的插件包启动真实 JDT LS 并完成 Spring Boot 断点调试。迁移初版时它因 `java.project.getClasspaths` 在服务端抛空指针而失败（迁移前的代码同样失败），该问题已随入口发现的修复一并解决，见 [Java 入口由 JDT 判定](2026-09-21-java-entrypoints-owned-by-jdt.md)。这组测试直接组装调试会话，不验证应用里的能力目录。
+- 旧版能力目录测试用官方 Java 清单验证运行、测试、调试声明和未声明能力的隔离；旧版打包检查验证 Java Support 文件齐全，且不存在 `Contents/Resources/LanguageServers`。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：启动与插件工作流不改写安装目录。
 
 生产启动适配的回归使用 `RustLanguageServerLaunchTests`，直接从 `RustCoreBridge.startPluginLanguageServer` 经 C ABI 启动本地标准输入输出协议夹具；不经过协议默认回退。它用函数所属插件校验、credentials 请求与响应、通用插件配置查询、Java 启动参数、缓存配置副本和工作区指纹日志验证实际接线。夹具使用 macOS 开发工具已有的 Python，不依赖真实 JVM 或联网；Core 会话负责子进程，测试始终停止并销毁会话，再移除临时资源。运行命令：`./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter RustLanguageServerLaunchTests`。
 
 ## 适用范围
 
-- `shared/contracts/plugins/v1/`
-- `rust/lithe-core/src/plugins/declarative.rs`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/declarative.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/declarative.rs)
 - 已迁出：原 `Plugins/mac/Official/JavaSupport/`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - 已迁出：原 `scripts/plugins/build-official-plugins.sh`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
-- `scripts/macos/package/package-app.sh`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginLanguageServerLaunchResolver.swift`
 - 已迁出：原 `macos/Sources/Lithe/Platform/MacOS/Plugins/HostIntegrations/`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
-- `macos/Sources/Lithe/Core/Language/PluginLanguageProviderCatalogSource.swift`
-- `macos/Sources/Lithe/Services/Language/LanguagePackRegistry.swift`
-- `macos/Sources/Lithe/Application/Features/RunWorkflowCoordinator.swift`
-- `macos/Sources/LitheModuleAPI/Plugins/PluginTypes.swift`
 - 已迁出：原 `macos/Sources/LitheCoreContracts/Language/LanguageServerHostIntegrationContracts.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift`
-- `macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`
 - 已迁出：原 `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
-- `macos/Sources/LitheLanguageIntelligenceModule/Services/LanguageServerToolService.swift`
-- `macos/Tests/LitheOfficialPluginVerifier/OfficialPluginVerifier.swift`
+- `desktop/internal/core/plugin_session.go`
+- `desktop/internal/core/plugin_session_test.go`
+- `shared/platform-feature-matrix/features/lsp-completion-hover.json`

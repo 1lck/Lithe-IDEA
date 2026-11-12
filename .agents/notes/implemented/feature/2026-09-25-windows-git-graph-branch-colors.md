@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态（2026-11-08）：本文中的 Swift、Tauri、SVG 和旧测试记录属于迁移前客户端。Viva 已调用 Core 的图投影并自行绘制，但旧端的完整交互、Windows 实机和与 macOS 的像素对照不能仅凭这篇笔记视为已完成。
+
 关联：Windows 侧对齐 macOS 的 IDEA 风格图着色，见
 [`2026-09-13-macos-git-graph-intellij-layout.md`](2026-09-13-macos-git-graph-intellij-layout.md)。
 
@@ -269,7 +271,7 @@ ResizeObserver（浏览器按帧合并的尺寸观察器）服务已挂载行，
 - `git-graph-reference-group.test.ts` 直接采用 macOS `GitGraphInteractionTests.referenceGroups` 的独立期望，覆盖 upstream 跟踪、游离 HEAD、只有标签、自然排序和长名缩略；`git-graph-highlights.test.ts` 覆盖合并双亲、上下文、缺失身份、重复及循环边界。
 - `git-commit-table.presentation.test.tsx` 渲染实际表格，验证明暗背景和三个合并文字列、标签完整提示、点击选择与焦点、单一视口观察器、宽窄缩略和卸载清理；结合浏览器中的实际 ThemeRegistry、键盘及 Commit Files 焦点验证选择颜色和主题动态切换。分页回归和长边导航仍通过原入口。
 
-- 既有 macOS 对照基准：`./scripts/git-graph/verify-git-graph.sh`
+- 旧客户端的 [macOS 图基准检查（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/git-graph/verify-git-graph.sh) 不能替代 Viva 图形验收。
 - Windows 前端：`tsc --noEmit`；`bun test src/features/git`
 - Windows 筛选回归计时：`./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/git/utils/git-graph-layout.test.ts,src/features/git/components/log/git-graph-row.test.ts,src/features/git/components/log/git-commit-table.filter.test.tsx`。覆盖隐藏链、合并与直接边优先、缺失父节点传播和分页、5,000 条隐藏边界，以及真实提交表筛选/清空后的 SVG 虚线。
 - 未筛选图读取 `macos/Tests/LitheTests/Fixtures/GitGraph/issue410-history.tsv` 与真实 IDEA 生成的 `issue410-idea.txt`，比较 200 条提交的节点列、上下半边位置、终止及方向标记和完整有符号颜色 ID，不从 Windows 算法生成预期。SVG 回归验证换列边界实际坐标和合流两条入边的独立颜色。
@@ -282,27 +284,16 @@ ResizeObserver（浏览器按帧合并的尺寸观察器）服务已挂载行，
 - `use-git-log-controller.integration.test.tsx` 通过可控异步事件验证首批不等待上下文、切仓库和刷新取消、分页独立、卸载与迟到游标清理以及失败回退；`git-commit-table.navigation.test.tsx` 验证真实行与工具栏、屏幕外双向导航、延迟挂载、选择/焦点及普通 Diff。浏览器再用真实虚拟列表和原生 Enter／空格检查同一序列，不把 viewport mock 当作原生内核证明。
 - 原生验收：在包含交错分支和合并的 Windows Git Log 中，分别使用文本、作者、分支名称筛选，确认跨过隐藏提交的连接为虚线，直接父子为实线，无关分支不误连，清空筛选恢复原图和选择行为。
 - 分页回归：`git-commit-table.navigation.test.tsx` 验证手动滚动后追加页面不定位旧选择，分支头请求仍能定位已选提交一次；`git-commit-inspector.test.tsx` 验证加载中和已加载选择的重绘、单提交/连续范围/离散多选、文件节点与选择保留、显式预览及切仓库的迟到结果。浏览器使用实际表格、IntersectionObserver、虚拟列表和 Inspector，连续由 50 条加载到 150 条，检查滚动偏移与文件读取次数；平台返回值在隔离页面替代，WebView2 实机验收仍 pending。
-- 代码边界和运行时资源：`./scripts/architecture/verify-service-boundaries.sh`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- 运行时资源：`./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`；旧客户端的 [服务边界检查（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/architecture/verify-service-boundaries.sh) 尚无 Viva 等价门禁。
 
 ## 适用范围
 
-- `rust/lithe-core/src/git/graph.rs`
-- `windows/tauri/src/features/git/utils/git-graph-colors.ts`
-- `windows/tauri/src/features/git/utils/git-graph-geometry.ts`
-- `windows/tauri/src/features/git/hooks/use-git-graph-paint.ts`
-- `windows/tauri/src/features/git/hooks/use-git-log-controller.ts`
-- `windows/tauri/src/features/git/api/git-commits-api.ts`
-- `windows/tauri/src/features/git/stores/git-log-preferences.store.ts`
-- `windows/tauri/src/features/git/components/log/git-commit-table.tsx`
-- `windows/tauri/src/features/git/components/log/git-commit-inspector.tsx`
-- `windows/tauri/src/features/git/components/log/git-log-tool-window.tsx`
-- `windows/tauri/src/features/git/components/log/git-graph-reference-label.tsx`
-- `windows/tauri/src/features/git/utils/git-graph-reference-group.ts`
-- `windows/tauri/src/features/git/utils/git-graph-highlights.ts`
-- `windows/tauri/src/features/git/hooks/use-git-graph-reference-metrics.ts`
-- `windows/tauri/src/features/git/components/log/git-graph-row.tsx`
-- `windows/tauri/src/features/git/components/log/git-graph.css`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/graph.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/graph.rs)
+- `desktop/internal/core/gitlog.go`
+- `desktop/internal/workbench/gitgraph.go`
+- `desktop/internal/workbench/gitlog_view.go`
 - `shared/fixtures/git/graph-idea/`
+- [旧客户端图形实现及原适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/feature/2026-09-25-windows-git-graph-branch-colors.md)
 
 ## 后续：布局下沉到 Rust Core（#1662 GIT-18/19）
 

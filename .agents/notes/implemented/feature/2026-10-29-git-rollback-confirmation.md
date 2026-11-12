@@ -74,39 +74,39 @@ macOS 提交面板复用原来的弯箭头按钮，先打开可重新勾选文�
 
 ## 验证
 
-- `macos/Tests/LitheGitModuleTests/GitRollbackSelectionTests.swift`：默认纳入、独立勾选、空集合、同标识删除及目录子项排除。
-- `macos/Tests/LitheGitModuleTests/GitModuleTests.swift`：窗口关闭与异步确认顺序、首错停止、忙时互斥、取消、重置及旧请求隔离；
+- ~~`macos/Tests/LitheGitModuleTests/GitRollbackSelectionTests.swift`~~（已随 #1794 移除）：默认纳入、独立勾选、空集合、同标识删除及目录子项排除。
+- ~~`macos/Tests/LitheGitModuleTests/GitModuleTests.swift`~~（已随 #1794 移除）：窗口关闭与异步确认顺序、首错停止、忙时互斥、取消、重置及旧请求隔离；
   本地状态先于解冻发布、同级仓库无额外扫描、竞争写入按实际完成顺序确认、Worktree 展开及历史窗口保持；
   有界阻塞同级仓库读取时仍能确认回滚，释放旧读取后已消失的行不会恢复。
-- `macos/Tests/LitheTests/LitheCoreLogicTests.swift`：嵌套操作最外层解冻后调度已有刷新，操作不等待项目服务，重置取消后续任务；
+- ~~`macos/Tests/LitheTests/LitheCoreLogicTests.swift`~~（已随 #1794 移除）：嵌套操作最外层解冻后调度已有刷新，操作不等待项目服务，重置取消后续任务；
   阻塞项目重载时普通文件事件与写入后恢复仍独立刷新 Git，取消的读取不吞掉新请求，旧工作区读取不能释放新读取。
 - `rust/lithe-core/src/tests/git.rs` 与 Windows 状态 API、面板测试：真实仓库核对新增文件保留、重命名前后路径和特殊文件名字面匹配，复核过期选择、部分失败通知、暂存队列及实际界面仓库映射。
 - `rust/lithe-core/src/tests/git_untracked_directories.rs`：回滚状态查询限制所选路径、长参数分批、特殊文件名字面匹配、
   重命名源记录正确解析，以及暂存删除与未跟踪副本同路径时优先恢复历史版本；准备阶段拒绝过期状态，未跟踪目录只删除准备时列出的文件。
-- `macos/Tests/LitheTests/GitStatusObservationTests.swift`：真实 Git 经 Core 验证批量恢复暂存区和磁盘、未选文件不变、
+- ~~`macos/Tests/LitheTests/GitStatusObservationTests.swift`~~（已随 #1794 移除）：真实 Git 经 Core 验证批量恢复暂存区和磁盘、未选文件不变、
   新增及意向新增文件保留/删除、复制来源不变、重命名/删除/保留副本以及 linked Worktree 隔离；
   同一个已挂载 Commit 面板通过真实监听接收外部新增、修改、删除，后台只读未结束时原生回滚按钮可点击，
   打开确认后取消不改变真实索引。
-- `macos/Tests/LitheTests/GitRollbackDialogTests.swift`：中英文与深浅主题原生布局、关闭/确认回调、独立重新勾选和空集合禁止确认。
+- ~~`macos/Tests/LitheTests/GitRollbackDialogTests.swift`~~（已随 #1794 移除）：中英文与深浅主题原生布局、关闭/确认回调、独立重新勾选和空集合禁止确认。
   普通 SwiftPM 宿主不携带产品图标和语言包；截图验收用带当前资源的临时签名宿主运行相同用例，
   检查真实中文按钮及复选框资源，不向已安装程序包写入测试资源。
-- `macos/Tests/LitheTests/GitWorktreeAppearanceTests.swift`：没有高亮行时点击工具栏实际打开带标题的审核窗口，
+- ~~`macos/Tests/LitheTests/GitWorktreeAppearanceTests.swift`~~（已随 #1794 移除）：没有高亮行时点击工具栏实际打开带标题的审核窗口，
   通过关闭按钮的 Escape 快捷键及原生关闭控件取消，均不派发命令且允许重开；另检查宽窄布局控件可达。
   独立窗口测试通过无障碍接口直接按关闭按钮；隔离宿主的真实子面板不稳定提供 SwiftUI 无障碍节点，
   因而集成用例验证原生响应链，不把它视为完整产品的辅助功能验收。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh` 与该 Skill 的 macOS 逐项计时入口。
-- `./scripts/macos/test/test-macos.sh`、`./scripts/architecture/verify-service-boundaries.sh`、
-  `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`./scripts/agent-notes/verify-agent-notes.sh`、
+- ~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除）、~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）、
+  `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`、`./scripts/agent-notes/verify-agent-notes.sh`、
   `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`，以及共享 i18n 检查。
 - 原生组件和真实 Git 测试不能替代完整工作台人工验收；平台矩阵保留 pending。
 
 ## 适用范围
 
-- `rust/lithe-core/src/git/rollback.rs`
-- `windows/tauri/src/features/git/api/git-status-api.ts`
-- `windows/tauri/src/features/git/components/status/git-status-panel.tsx`
-- `macos/Sources/LitheGitModule/Models/GitRollbackSelection.swift`
-- `macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`
-- `macos/Sources/Lithe/Views/Git/GitRollbackDialog.swift`
-- `macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift`
-- `macos/Sources/Lithe/Views/Git/GitWorktreeChangesView.swift`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/rollback.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/rollback.rs)
+- ~~`windows/tauri/src/features/git/api/git-status-api.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/git/components/status/git-status-panel.tsx`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheGitModule/Models/GitRollbackSelection.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/GitRollbackDialog.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/GitWorktreeChangesView.swift`~~（已随 #1794 移除）

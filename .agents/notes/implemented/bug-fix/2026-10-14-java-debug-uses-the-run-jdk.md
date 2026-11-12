@@ -42,18 +42,18 @@ macOS 上 Java 调试启动的 JVM 现在就是“运行”会用的那个 JDK�
 
 ## 验证
 
-- `macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift`：
+- ~~`macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift`~~（已随 #1794 移除）：
   - `javaDebugRunsOnTheJDKRunSelectsForTheSameConfiguration`：无配置、Java 主类、Maven 模块（有无 Maven JDK）四种情况请求的运行时与写入的 `javaExec`。
   - `javaDebugFailsLikeRunWhenItsJDKIsUnusable`：JDK 不可用时抛出 `javaRuntimeUnavailable`。
   - `debugJavaRuntimeFollowsTheRunSelectionChain`：调试入口与运行入口返回同一路径。
   - `javaTestDebugLaunchUsesTheSharedRustConfiguration`：调试测试使用 Maven 的 JDK，未注入时不写 `javaExec`。
 - 实际应用（2026-10-14，macOS）：以 `JAVA_HOME` 指向 `/Library/Java/JavaVirtualMachines/jdk-21.jdk` 启动，调试 Spring Boot 配置停在断点时，被调试进程与随后“运行”同一配置的进程都是该 JDK 的 `bin/java`，语言服务器进程仍是插件运行时；改为另一个 JDK 21 重启后调试 Java 主类，JVM 随之变为新的 JDK。未在界面里修改项目 JDK 设置后实测，也未实测无效路径的报错展示。
-- `./scripts/macos/test/test-macos.sh --filter '(RunConfigurationIntegrationTests|JavaTestDebugLaunchServiceTests|MavenRuntimeTests|RunWorkflowCoordinatorTests)'`。
+- ~~./scripts/macos/test/test-macos.sh --filter '(RunConfigurationIntegrationTests|JavaTestDebugLaunchServiceTests|MavenRuntimeTests|RunWorkflowCoordinatorTests)'~~（随旧客户端移除）。
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Services/Debug/DebugLaunchConfigurationResolver.swift`
+- ~~`macos/Sources/Lithe/Services/Debug/DebugLaunchConfigurationResolver.swift`~~（已随 #1794 移除）
 - 已迁出：原 `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
-- `macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`
-- `macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift`
+- ~~`macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift`~~（已随 #1794 移除）
 - `shared/platform-feature-matrix/features/debug-java-runtime.json`

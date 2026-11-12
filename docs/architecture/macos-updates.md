@@ -1,5 +1,12 @@
 # macOS application updates
 
+> This runbook describes the previous Swift macOS client. The Viva desktop client
+> in this branch has a separate prerelease packaging workflow, but in-app updates,
+> signature verification, differential updates, and rollback have not yet been
+> migrated. See the [update capability status](../../shared/platform-feature-matrix/features/updates-check-download.json)
+> and [rollback status](../../shared/platform-feature-matrix/features/updates-failure-rollback.json)
+> before using these instructions for the new client.
+
 Why Sparkle+EdDSA over requiring a Developer ID, why stable/preview stay on
 separate feeds and default-domain suites, why rollback only trusts the
 client-embedded key, and the asset-retention tradeoffs are recorded in

@@ -114,7 +114,7 @@ Core 新增命令 `lsp.hostNotify { sessionId, method, params }`，返回 `{ del
 - Core 的义务：协议 3 会话的请求里出现方法没有定义的字段时，回 `-32018` `plugin.host.unsupportedOption`，`details.option` 写明是哪个字段，后端可以去掉它重试。协议 2 仍回 `invalidParams`，行为不变。参数由服务自己校验的方法（`HostParams::Object`）由服务按同样方式回答。
 - 新服务的权限仍要在清单里声明。不认识该权限的旧宿主在安装时以 `plugin.permission.unknown` 拒绝整个包，不会悄悄授予或忽略权限。
 
-这样改的原因：插件后端调用宿主属于运行时能力，本来就靠协商和发现判断能不能用（[按能力分版本](2026-10-17-plugin-capability-versions.md)：“进程启动后还能做什么，走它自己的协议协商”）。如果每加一批服务都升一次版本，SDK 和插件要同时维护很多个版本分支，而版本号能表达的信息 `getCapabilities` 已经全部给出。用户在 PR #1595 评审时确认了这个取舍。
+这样改的原因：插件后端调用宿主属于运行时能力，本来就靠协商和发现判断能不能用（[按能力分版本](2026-11-11-plugin-contract-single-baseline.md)：“进程启动后还能做什么，走它自己的协议协商”）。如果每加一批服务都升一次版本，SDK 和插件要同时维护很多个版本分支，而版本号能表达的信息 `getCapabilities` 已经全部给出。用户在 PR #1595 评审时确认了这个取舍。
 
 ### 公共服务接线与生命周期补全
 
@@ -222,10 +222,10 @@ contextExpired 必须重新解析原目标，不能换成活动窗口。新协�
   - `host_notifications_follow_the_fixture`、`host_notifications_are_bounded`、`host_notifications_reach_a_version_3_backend`、`host_notifications_skip_a_version_2_backend`
   - `host_failure_details_are_a_bounded_object`、`host_failure_details_reach_a_version_3_backend`
   - 以及 `fixtures/manifest/invalid-manifests.json` 新增的 6 个拒绝用例
-- `./scripts/macos/test/test-macos.sh --filter "PluginHostServiceDispatchTests|MacPluginBackendSessionsTests|PluginWebBridgeTests"`：上下文 generation 与换工作区发新 ID、按插件的 rootID 与密钥文件、`listContexts` 不建目录、授权核验、本地与远程描述、过期与格式错误、订阅的三条释放路径与 sequence、错误码与 details 透传、命令和订阅通知按顺序送达运行中的后端、`backend: 1` 与未运行的后端不收命令。
-- `zsh scripts/architecture/verify-shared-contracts.sh`：契约 schema、fixture 与 README。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：运行时不向发行目录写入。
-- 合入前，在 lithe-plugin-docs 运行 `node scripts/sdk-e2e.mjs --source <本仓库路径> --ref <分支>`，确认 Node 和 Java SDK 的示例后端在协议 3 下仍能跑通。
+- ~~./scripts/macos/test/test-macos.sh --filter "PluginHostServiceDispatchTests|MacPluginBackendSessionsTests|PluginWebBridgeTests"~~（随旧客户端移除）：上下文 generation 与换工作区发新 ID、按插件的 rootID 与密钥文件、`listContexts` 不建目录、授权核验、本地与远程描述、过期与格式错误、订阅的三条释放路径与 sequence、错误码与 details 透传、命令和订阅通知按顺序送达运行中的后端、`backend: 1` 与未运行的后端不收命令。
+- `node shared/plugins/scripts/verify-docs.mjs`（在 Core 仓库根目录运行）：契约 schema 的 `$id` 与文档链接。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：运行时不向发行目录写入。
+- 合入前，在 Core 仓库根目录运行 `node shared/plugins/scripts/sdk-e2e.mjs`（测试当前工作树的 Core），确认 Node 和 Java SDK 的示例后端在协议 3 下仍能跑通。
 
 ## 适用范围
 

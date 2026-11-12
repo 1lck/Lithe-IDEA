@@ -57,17 +57,17 @@ macOS 的普通 TCP 调试连接现在共用一个传输实现：语言服务器
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'TCPDebugAdapterTests|PluginDebugAdapterTests|DebugModuleTests'`：覆盖可控时钟、队列预算、取消与晚到回调、确认顺序、会话选路、外部表单初始化成功/失败/超时与按会话取消、桥接故障的立即清理和重新登记后的旧回调隔离；临时回环监听器验证双向字节以及真实 Core 的 initialize/attach 帧往返，监听服务不随客户端停止；真实连接到已释放的回环端口必须在远小于建连期限的时间内以系统原因结束，发现与建连的两段期限由可控时钟分别断言。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core debug_adapter_endpoint` 和 `cargo test --manifest-path rust/Cargo.toml -p lithe-core dap_endpoint_contract`：共享 fixture 校验及 JSON dispatcher 边界。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core transport_lifecycle`：状态机单元测试，并逐步回放 `shared/fixtures/debug/transport-lifecycle-v1.json` 中的场景（启动与取消、过期代次、只结束一次、各段期限、预算超限、单个在途写入、排空）。新平台实现同一份 fixture 即可证明规则一致；`protocol` 测试覆盖 `debug.transport.*` 命令的 JSON 边界。
-- `./scripts/architecture/verify-shared-contracts.sh`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`./scripts/agent-notes/verify-agent-notes.sh`。
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、`./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`、`./scripts/agent-notes/verify-agent-notes.sh`。
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Platform/MacOS/Debug/`
-- `macos/Sources/LitheDebugModule/Runtime/DebugAdapterSessionManager.swift`
-- `macos/Sources/Lithe/Views/Debug/ExternalDebugAdapterView.swift`
-- `macos/Sources/Lithe/Application/Features/ExternalDebugAdapterConnection.swift`
-- `macos/Sources/Lithe/Core/Rust/RustDebugTransportCore.swift`
-- `rust/lithe-core/src/debug/endpoint.rs`
-- `rust/lithe-core/src/debug/transport_lifecycle.rs`
+- ~~`macos/Sources/Lithe/Platform/MacOS/Debug/`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheDebugModule/Runtime/DebugAdapterSessionManager.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Debug/ExternalDebugAdapterView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/ExternalDebugAdapterConnection.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Core/Rust/RustDebugTransportCore.swift`~~（已随 #1794 移除）
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/endpoint.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug/endpoint.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/transport_lifecycle.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug/transport_lifecycle.rs)
 - `shared/fixtures/debug/adapter-endpoints-v1.json`
 - `shared/fixtures/debug/transport-lifecycle-v1.json`
 - `shared/contracts/rust-core-api.md`

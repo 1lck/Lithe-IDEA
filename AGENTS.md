@@ -8,7 +8,7 @@
 
 如果任务会创建新插件，或为已有插件新增语言服务器、后端、构建、VCS、调试等提供者，开始前还要加载 `.agents/skills/create-lithe-plugin/SKILL.md`。该 Skill 给出当前契约、SDK 和示例的参考地址，规定插件必须完成的日志接线和验收要求。
 
-如果任务会准备、验证或发布 Lithe 稳定版，修改发布说明、版本元数据、标签或发布工作流前，还要加载 `.agents/skills/release-lithe/SKILL.md`。
+如果任务会为 Lithe 应用或插件确定版本号，或者准备、验证、发布 Lithe 稳定版，修改发布说明、版本元数据、标签或发布工作流前，还要加载 `.agents/skills/release-lithe/SKILL.md`。
 
 如果任务会整理问题报告、提出功能建议、准备 Issue 草稿或提交 GitHub Issue，开始前还要加载 `.agents/skills/submit-lithe-issue/SKILL.md`。该 Skill 规定信息追问、诊断采集与脱敏、查重，以及严格遵循仓库 Issue 模板的提交流程；gh 不支持 YAML 表单时按表单字段逐项生成正文提交，不得提交空白或缺字段的正文，不得伪造表单来源标记。
 
@@ -30,7 +30,7 @@
 - 运行时缓存、索引、OSGi/Eclipse 状态、下载物、解压物、插件状态、日志和锁文件，必须通过平台存储/缓存 adapter 放到 Caches、Application Support、临时目录或用户工作区；不得从 `Bundle.main.resourceURL`、`resource_dir()` 或安装目录推导可写目标。
 - 资源解析器可以从 bundle 读取固定输入，但写入前必须证明目标是平台可写目录；不要用“启动前清理 bundle”修复，因为进程崩溃、权限和并发更新都可能留下不同基线。
 - 每个新增资源路径都要在代码或 Agent Note 中说明生命周期、所有权、可写位置、是否会影响代码签名和 Sparkle delta，并为典型启动/工作流增加 bundle 文件清单或哈希不变的验证。
-- 代码审查和测试必须运行 `scripts/macos/verify/verify-runtime-bundle-immutability.sh`；macOS 生产路径和 Windows/Tauri 资源解析路径都要覆盖。发现运行时写入发行目录时，先迁移到平台存储 adapter，再继续功能开发。
+- 代码审查和测试必须运行 `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`；macOS 生产路径和 Windows/Tauri 资源解析路径都要覆盖。发现运行时写入发行目录时，先迁移到平台存储 adapter，再继续功能开发。
 
 ## 界面文案必须走统一 i18n 接口
 
@@ -56,6 +56,30 @@
 - `.agents/notes/implemented/architecture/2026-09-13-resizable-ui-performance-boundaries.md`
 
 入口文件只保留这条提醒；具体决策原因、正确做法、反例和验证要求以 Agent Note 与 Skill 为准，避免三份规则长期漂移。
+
+## 编辑器性能
+
+改动 Viva 编辑器模块（`desktop/internal/editor/**`、`desktop/internal/editorview/**`、`desktop/benchmarks/editor-budgets.json`、`scripts/desktop/perf/**`）前，先阅读
+`.agents/skills/develop-lithe/references/editor-performance.md`。
+
+- 在同一台机器上分别运行改动前和改动后的基线（`scripts/desktop/perf/editor-bench.sh`），把对比写进 PR 说明。基线只在本地运行，不是 CI 必跑项。
+- 超出预算只报告，不阻塞；但改动新引入的超预算结果必须在 PR 说明中逐项解释。
+- 不得上调预算、删除场景或缩小文档规模来让结果变好看。
+- 只在空闲机器上用 `record` 记录历史；运行期间不要编译或运行其他程序。
+
+入口文件只保留这条提醒；规则和数值以 Skill 参考页为准，决策原因见
+`.agents/notes/implemented/testing/2026-11-09-viva-editor-performance-baseline.md`。
+
+## Viva 依赖由 Lithe-IDEA/viva 维护
+
+Viva 由 `desktop/go.mod` 的 `replace` 固定到 [Lithe-IDEA/viva](https://github.com/Lithe-IDEA/viva) `main` 上的一个 commit，发版只认这个 commit。
+
+- Viva 的问题在 fork 修复，合进 fork `main` 后更新 `replace`；同一修复分支必须向上游 [vivaui/viva](https://github.com/vivaui/viva) 提 PR。不要在 Lithe 应用层为 Viva 缺陷写绕过代码。
+- fork `main` 同步上游只用 merge，不 rebase、不 force push，保证已发布版本固定的 commit 始终可取。
+- 脚本不得用 `go run` 或 `go install` 的 `github.com/vivaui/viva/cmd/viva@<版本>`，它会忽略 `replace`。
+
+入口文件只保留这条提醒；分支规则、升级步骤和原因见
+`.agents/notes/implemented/process/2026-11-11-viva-fork-maintenance-and-commit-pin.md`。
 
 ## 设置页分类
 
@@ -105,44 +129,38 @@
 [LSP 插件构建与语言服务器资源归属](.agents/notes/implemented/architecture/2026-09-30-lsp-plugin-build-and-distribution.md)。
 所有 LSP 插件都必须在构建阶段固定来源并校验语言服务器，把完整资源放入插件包后签名；运行时只能从已安装插件发现入口，不能把下载物、解压物或插件状态写入 app bundle、安装目录或跨工作树共享缓存。
 
-## 插件契约的两仓库同步
+## 插件契约只在 Rust Core
 
-插件契约在本仓库的 `shared/contracts/plugins/v1/` 定义，和执行它的 Rust Core 一起修改。
-公开仓库 [Lithe-IDEA/lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs)
-的 `contract/v1/` 保存这个目录的逐字节副本，连同开发指南、教程和三个官方插件后端 SDK（Node、Java、Rust）的
-源码、发版和端到端测试。插件开发者只看 lithe-plugin-docs 就能开发，不需要克隆本仓库，所以两个仓库的契约
-必须保持一致：
+插件契约、插件开发指南与参考、三个官方插件后端 SDK（Node、Java、Rust）和它们的端到端测试只有一份，
+在 Rust Core 仓库 [Lithe-IDEA/Lithe-core-rust](https://github.com/Lithe-IDEA/Lithe-core-rust) 的
+[`shared/plugins/`](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins)，和执行契约的
+Core 代码在同一个仓库、同一个 PR 里修改。本仓库不保存契约、SDK 或插件开发文档的副本；插件开发者只看那个目录就能开发，
+不需要克隆本仓库。
 
-- 修改 `shared/contracts/plugins/v1/` 下任何文件（README、schema、fixture）的 PR 合并后，在
-  lithe-plugin-docs 运行 `node scripts/contract.mjs sync --revision <合并后的 preview commit>`
-  并提交。不要在 lithe-plugin-docs 里直接改副本。
-- 新增或修改插件协议、能力版本或 API 功能的 PR（即改动 `shared/contracts/plugins/v1/`、
-  `rust/lithe-core/src/plugins/capabilities.rs` 或 `rust/lithe-core/src/lsp/interface/plugin_function.rs`
-  的 PR），合并后必须在 lithe-plugin-docs 的
-  [插件协议更新记录](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/reference/protocol-changelog.md)
-  登记：合入日期、PR、修改人（PR 作者）、改了哪个协议或 API；新版本号同时写进该页“按协议查首次出现”的表。
-  只改了后两个文件、契约目录没变时，同样要同步到合并后的 commit 并登记。登记和契约同步放在同一个
-  lithe-plugin-docs PR 里，PR 描述中直接 `@` 每个被登记 PR 的作者，请他们核对自己那一行。具体步骤见该页的“维护”一节。
+- 改契约（`shared/plugins/contract/v1/` 的 README、schema、fixture）、能力版本
+  （`rust/lithe-core/src/plugins/capabilities.rs`）或插件函数协议
+  （`rust/lithe-core/src/lsp/interface/plugin_function.rs`）的 Core PR，在同一个 PR 里更新
+  [插件协议更新记录](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/reference/protocol-changelog.md)：
+  合入日期、PR、修改人（PR 作者）、改了哪个协议或 API；新版本号同时写进该页“按协议查首次出现”的表。
 - 新增或修改宿主方法、宿主通知的 PR，即使只是给已有 API 加一个子方法，也要在 PR 描述里附一张
   “原计划编号 | 方法 | 用途”表，每个方法占一行，格式参照
   [#1653](https://github.com/1lck/Lithe-IDEA/pull/1653) 的描述。原计划编号只用
   [API 实施计划](docs/development/macos-plugin-api-plan.md)里的 API-01–44，不得自编新号；
-  不属于任何编号的方法写 —。合并后登记时，每个方法在 lithe-plugin-docs 两处各加一行：
-  [API 总表](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/reference/api-catalog.md)的中英两张方法表
+  不属于任何编号的方法写 —。同一个 Core PR 里，每个方法在两处各加一行：
+  [API 总表](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/reference/api-catalog.md)的中英两张方法表
   （API、方法、用途、权限、协议），以及更新记录的“宿主方法（按 API 编号）”索引（API、方法、协议、日期、PR）。
-  这个 PR 在时间线上的“API 编号”列也要填上。同一个 API 的方法分几个 PR 加入时，每个方法记自己的 PR。
-- 插件开发者只读 lithe-plugin-docs 就必须能开发对应插件。方法的参数、返回值、错误码、权限、生命周期和平台限制，
-  要写进契约 README，再经同步进入 lithe-plugin-docs 的 `contract/v1/`；面向开发者的用法说明写进
-  lithe-plugin-docs 的功能页。只写在实施计划、Agent Note、契约草案或宿主代码里的行为，不算已公开。
-- 契约 README 里指向该目录以外的链接必须写成绝对 URL；`scripts/architecture/verify-shared-contracts.sh`
-  会拒绝离开该目录的相对链接。
-- 面向插件开发者的新说明写进 lithe-plugin-docs，不写进本仓库或 Lithe Store。
-- 本仓库不保存 SDK。修改插件后端协议（例如 `rust/lithe-core/src/lsp/interface/plugin_function.rs`）时，
-  合并前在 lithe-plugin-docs 运行 `node scripts/sdk-e2e.mjs --source <本仓库路径> --ref <分支>`，确认三个
-  SDK 的示例后端仍能跑通。
+  同一个 API 的方法分几个 PR 加入时，每个方法记自己的 PR。
+- 方法的参数、返回值、错误码、权限、生命周期和平台限制写进契约 README；面向开发者的用法写进
+  `shared/plugins/guides/` 或 `shared/plugins/reference/` 的对应页。只写在实施计划、Agent Note 或宿主代码里的行为，不算已公开。
+  面向插件开发者的新说明不写进本仓库或 Lithe Store。
+- Core 仓库根运行 `node shared/plugins/scripts/verify-docs.mjs`，检查每份 schema 的 `$id` 和文档相对链接；
+  改插件后端协议时运行 `node shared/plugins/scripts/sdk-e2e.mjs`，确认三个 SDK 的示例后端对当前 Core 仍能跑通。
+- 本仓库的桌面端测试通过 `desktop/internal/contractfixture` 读取正在链接的 Core 检出里的契约 fixture，
+  路径由 `scripts/desktop/desktop-go.sh` 导出的 `LITHE_PLUGIN_CONTRACT_DIR` 给出。不要把 fixture 复制回本仓库；
+  改了契约后，把 `scripts/desktop/build-desktop-core.sh` 的 `PINNED_CORE_REVISION` 升到包含该改动的 Core commit。
 
-决策原因、同步工具和被否方案见
-[插件契约、SDK 与开发者资料的发布](.agents/notes/implemented/architecture/2026-10-23-plugin-contract-publishing.md)。
+决策原因和被否方案见
+[插件契约与开发资料只在 Rust Core](.agents/notes/implemented/architecture/2026-11-11-plugin-contract-single-source-in-core.md)。
 
 ## 跨平台功能同步
 

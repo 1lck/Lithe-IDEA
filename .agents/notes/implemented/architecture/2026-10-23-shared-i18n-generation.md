@@ -54,6 +54,12 @@ Windows 只替换一轮占位符，避免把用户传入的 `{name}` 当成另�
 资源，所以不改变代码签名及 Sparkle 增量更新基线。资源复用清单明确拒绝复制这类文件，
 每个工作树根据自己的源版本重新生成。
 
+### Viva 的源码检查必须定位到真实目录
+
+Viva 使用同一共享词条生成 Go 字典。`verify-app-language-localization.mjs` 对真实桌面源码检查未注册 key、错误参数、手写界面文案和包装函数，不能只验证生成文件是否最新。
+
+检查器从模块 URL 定位仓库时必须调用 Node 的 `fileURLToPath`，不能直接用 URL 的 `pathname`。后者在 Windows 带额外的盘符前导斜杠，在空格或中文目录下也会保留 URL 转义；结果可能是找不到源码目录，却返回“检查通过”。回归把夹具移入带空格和中文的目录，写入未注册 key，要求确实扫描并拒绝；Windows 原有四类桌面检查也必须通过，不能靠目录不存在跳过。
+
 ## 考虑过的备选方案
 
 - 两端运行时读取共享 JSON：需要新增原生加载与回退路径，破坏现有 SwiftUI 字符串表
@@ -80,9 +86,9 @@ Windows 只替换一轮占位符，避免把用户传入的 `{name}` 当成另�
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`：稳定性静态规则。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'SharedI18nTests|AppLocalizationTests|LocalizationPackagingTests|GitLocalizationTests'`：原生资源查找、兼容 key、实际参数格式化、切换及原有行为。
 - `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs -- src/i18n/locale.test.ts src/i18n/shared-i18n.test.ts src/features/settings/lib/settings-normalization.test.ts`：Windows 前端资源与设置；宿主平台必须在报告中注明。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：同时检查 macOS 与 Windows 运行时资源路径。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：同时检查 macOS 与 Windows 运行时资源路径。
 - `node --test --test-timeout=15000 scripts/resources/test-reuse-worktree-resources.mjs`：拒绝跨工作树资源复制。
-- `./scripts/architecture/verify-shared-contracts.sh`、`./scripts/windows/verify/verify-windows-boundaries.sh` 和
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除） 和
   `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`：共享边界与能力记录。
 
 生成器测试与原生测试共同消费 `shared/fixtures/i18n/format-v1.json` 和 `native-abi-v1.json`，覆盖32位有符号、64位无符号参数及参数重排、重复、
@@ -100,9 +106,11 @@ Node 22 会把命令行超时同时应用到整份文件。词条增加后，mac
 - `shared/i18n/`
 - `shared/fixtures/i18n/format-v1.json`
 - `scripts/i18n/generate-i18n.mjs`
+- `scripts/i18n/verify-app-language-localization.mjs`
+- `scripts/i18n/test-i18n.mjs`
 - `scripts/macos/package/package-macos-localizations.sh`
-- `windows/tauri/src/i18n/`
-- `macos/Resources/en.lproj/Localizable.strings`
-- `macos/Resources/zh-Hans.lproj/Localizable.strings`
-- `macos/Sources/Lithe/Models/Settings/AppLanguage.generated.swift`
-- `.github/workflows/verify-i18n.yml`
+- ~~`windows/tauri/src/i18n/`~~（已随 #1794 移除）
+- ~~`macos/Resources/en.lproj/Localizable.strings`~~（已随 #1794 移除）
+- ~~`macos/Resources/zh-Hans.lproj/Localizable.strings`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Models/Settings/AppLanguage.generated.swift`~~（已随 #1794 移除）
+- ~~`.github/workflows/verify-i18n.yml`~~（已随 #1794 移除）

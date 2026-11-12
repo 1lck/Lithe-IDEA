@@ -1,0 +1,723 @@
+{
+  "schemaVersion": 0,
+  "plugins": [
+    {
+      "id": "io.github.fxrayhughes.mise",
+      "name": "mise",
+      "author": "FxRayHughes",
+      "repository": "https://github.com/FxRayHughes/lithe-plugin-mise",
+      "homepage": "https://github.com/FxRayHughes/lithe-plugin-mise#readme",
+      "description": "Preview toolchain provider: tells Lithe which JDK, Node.js, Maven, Gradle, Go, Python and pnpm mise installed, and which versions a project's mise.toml or .tool-versions and your global mise config request, so no paths are added by hand. Its backend only runs read-only mise commands (mise ls, mise bin-paths) offline; it never installs or trusts anything. Requires a Lithe preview build with the toolchainProviders capability and mise on your PATH; macOS only.",
+      "localizedDescriptions": {
+        "zh-Hans": "预发布工具链提供方：告诉 Lithe mise 装了哪些 JDK、Node.js、Maven、Gradle、Go、Python 和 pnpm，以及项目的 mise.toml / .tool-versions 和全局 mise 配置要求哪个版本，无需手动添加路径。后端只以离线方式运行只读的 mise 命令（mise ls、mise bin-paths），不会安装或信任任何东西。需要支持 toolchainProviders 能力的 Lithe preview 开发版，以及 PATH 中可用的 mise，仅支持 macOS。"
+      },
+      "tags": [
+        "tool",
+        "toolchain",
+        "mise",
+        "java",
+        "node"
+      ],
+      "license": "Apache-2.0",
+      "icon": "https://raw.githubusercontent.com/FxRayHughes/lithe-plugin-mise/ced89b3dd0a5fe11f9d5e6da73dfaa3e65a350e9/io.github.fxrayhughes.mise/icons/mise.svg",
+      "versions": [
+        {
+          "version": "0.2.1",
+          "pluginAPIVersion": 0,
+          "requires": {
+            "backend": 0,
+            "settings": 0,
+            "toolchainProviders": 0
+          },
+          "releaseDate": "2026-11-02",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/FxRayHughes/lithe-plugin-mise/releases/download/v0.2.1/mise-0.2.1-darwin.zip",
+              "sha256": "635366955e73f64ef6a821e3af9bee043c8c1ac871e6a44ddc3d43aae4823755"
+            }
+          ]
+        },
+        {
+          "version": "0.2.0",
+          "pluginAPIVersion": 0,
+          "requires": {
+            "backend": 0,
+            "settings": 0,
+            "toolchainProviders": 0
+          },
+          "releaseDate": "2026-11-02",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/FxRayHughes/lithe-plugin-mise/releases/download/v0.2.0/mise-0.2.0-darwin.zip",
+              "sha256": "2b088c02aec5707b78e3da4de82ad45a8d22e8c8010a8a01afa26947b8561f82"
+            }
+          ]
+        },
+        {
+          "version": "0.1.0",
+          "pluginAPIVersion": 0,
+          "requires": {
+            "toolchainSources": 0
+          },
+          "releaseDate": "2026-10-29",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/FxRayHughes/lithe-plugin-mise/releases/download/v0.1.0/mise-0.1.0-darwin.zip",
+              "sha256": "e8020787ee45264159c0026717b694d6b64976a5afc951eba20e153128527a1e"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "io.github.lithe-idea.cargo-build",
+      "name": "Cargo",
+      "author": "Lithe Community",
+      "repository": "https://github.com/Lithe-IDEA/lithe-plugin-cargo",
+      "homepage": "https://github.com/Lithe-IDEA/lithe-plugin-cargo#readme",
+      "description": "Preview Cargo build integration: native workspace/package build, check, test, clean and binary/example runs, with Release, Features and Offline. Version 0.1.1 adds a Cargo executable path setting and requires buildSystems 2/settings 2, Cargo 1.70+ and Node.js 20.3+. Older hosts retain 0.1.0. Full native UI acceptance is pending; macOS only.",
+      "localizedDescriptions": {
+        "zh-Hans": "Cargo 构建预发布插件：原生 workspace/包编译、检查、测试、清理及 binary/example 运行，支持 Release、Features 和 Offline。0.1.1 新增 Cargo 可执行文件路径设置，需要 buildSystems 2/settings 2、Cargo 1.70+ 和 Node.js 20.3+；旧宿主保留兼容的 0.1.0。完整原生界面验收待完成，仅支持 macOS。"
+      },
+      "tags": [
+        "build",
+        "cargo",
+        "rust",
+        "testing"
+      ],
+      "license": "Apache-2.0",
+      "icon": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-cargo/8fea6ad38995ce31d657da371420df6b8e8c0e7d/io.github.lithe-idea.cargo-build/icons/cargo.svg",
+      "versions": [
+        {
+          "version": "0.1.1",
+          "pluginAPIVersion": 0,
+          "requires": {
+            "buildProviders": 0,
+            "buildSystems": 0,
+            "settings": 0
+          },
+          "releaseDate": "2026-10-22",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-cargo/releases/download/v0.1.1/cargo-build-0.1.1-darwin.zip",
+              "sha256": "cfcb293bc25aede904ca3d40d699ba22d84a0bcbac446f818aa0eec8549f2a4f"
+            }
+          ]
+        },
+        {
+          "version": "0.1.0",
+          "pluginAPIVersion": 0,
+          "requires": {
+            "buildProviders": 0,
+            "buildSystems": 0
+          },
+          "releaseDate": "2026-10-22",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-cargo/releases/download/v0.1.0/cargo-build-0.1.0-darwin.zip",
+              "sha256": "a6148b3fe931e0b8d51f3a305592d4827ba5b452ec905f921560bb84a3f949a5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "io.github.lithe-idea.database",
+      "name": "Database",
+      "author": "Lithe Community",
+      "repository": "https://github.com/Lithe-IDEA/lithe-plugin-database",
+      "homepage": "https://github.com/Lithe-IDEA/lithe-plugin-database#readme",
+      "description": "Database tool window: connections to MySQL, MariaDB, PostgreSQL, SQLite, SQL Server, MongoDB, Redis and Nacos, with a SQL console, table data and structure editing, CSV/JSON/SQL import and export, SQL history, read-only and production protection, and DBX connection import. Replaces Lithe's former built-in database module, whose saved connections and passwords move in on first start. Requires a Lithe preview with backend 1 and web bridge 2; macOS only.",
+      "localizedDescriptions": {
+        "zh-Hans": "数据库工具窗口：连接 MySQL、MariaDB、PostgreSQL、SQLite、SQL Server、MongoDB、Redis 和 Nacos，提供 SQL 控制台、表数据与结构编辑、CSV/JSON/SQL 导入导出、SQL 历史、只读与生产保护，以及 DBX 连接导入。取代 Lithe 以前内置的数据库模块，首次启动时自动迁入已保存的连接和密码。需要支持 backend 1 和网页桥接第 2 版的 Lithe preview；仅支持 macOS。"
+      },
+      "tags": [
+        "tool",
+        "database",
+        "sql",
+        "mysql",
+        "postgresql",
+        "redis"
+      ],
+      "license": "Apache-2.0",
+      "icon": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-database/bf531b5a40495c404d857aab5fd6a55d3a116921/assets/database.svg",
+      "versions": [
+        {
+          "version": "0.1.1",
+          "pluginAPIVersion": 0,
+          "requires": {
+            "backend": 0,
+            "ui": 0
+          },
+          "releaseDate": "2026-10-24",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-database/releases/download/v0.1.1/database-0.1.1-darwin.zip",
+              "sha256": "8882e0e2f5106286ea16e89f0c21e7d73de9765306966d63b4580e5286d33005"
+            }
+          ]
+        },
+        {
+          "version": "0.1.0",
+          "pluginAPIVersion": 0,
+          "requires": {
+            "backend": 0,
+            "ui": 0
+          },
+          "releaseDate": "2026-10-24",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-database/releases/download/v0.1.0/database-0.1.0-darwin.zip",
+              "sha256": "295fd702dbf6839ca3745e74e17d43ae88ed2f8ecc7981817e658534e4fc03c6"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "io.github.lithe-idea.docker",
+      "name": "Docker",
+      "author": "Lithe Community",
+      "repository": "https://github.com/Lithe-IDEA/lithe-plugin-docker",
+      "homepage": "https://github.com/Lithe-IDEA/lithe-plugin-docker#readme",
+      "description": "Manage local Docker containers, images, volumes and networks in a tool window, with native container terminals, Compose groups and configuration paths, searchable logs and JSON highlighting, live CPU/memory/network/disk charts with adjustable sampling, and regular-file upload/download. Requires a macOS Lithe host with backend 2, Web UI 2, file dialogs and browser.open. Terminals require API-24 support in a local workspace, Docker CLI on the terminal PATH, and the selected /bin/sh, /bin/bash or /bin/ash shell inside the container. Container file browsing needs /bin/sh and stat -c; transfers are limited to regular files up to 256 MiB. Native terminal, file-dialog and Finder drag-in acceptance is pending; macOS only.",
+      "localizedDescriptions": {
+        "zh-Hans": "在工具窗口中管理本机 Docker 容器、镜像、卷和网络，支持容器原生终端、Compose 分组及配置路径、日志搜索与 JSON 高亮、可调采样间隔的 CPU/内存/网络/磁盘实时图，以及普通文件上传下载。需要支持 backend 2、Web UI 2、文件对话框和 browser.open 的 macOS Lithe 宿主。终端需要支持 API-24 的本机工作区、终端 PATH 中可用的 Docker CLI，以及容器内所选的 /bin/sh、/bin/bash 或 /bin/ash。容器文件浏览需要 /bin/sh 和 stat -c；单文件传输上限 256 MiB。原生终端、文件对话框与 Finder 拖入验收待完成，仅支持 macOS。"
+      },
+      "tags": [
+        "tool",
+        "docker",
+        "containers",
+        "compose",
+        "logs",
+        "monitoring"
+      ],
+      "license": "Apache-2.0",
+      "icon": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docker/fb0e6eed5be851e282eb4d38236554f615deab92/icons/docker.svg",
+      "versions": [
+        {
+          "version": "0.1.1",
+          "pluginAPIVersion": 0,
+          "requires": {
+            "backend": 0,
+            "ui": 0
+          },
+          "releaseDate": "2026-11-02",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-docker/releases/download/v0.1.1/docker-0.1.1-darwin.zip",
+              "sha256": "736b9d49f5218caf3e8fd119fc46159b61659842dd2da48d27c73641a2b98c40"
+            }
+          ]
+        },
+        {
+          "version": "0.1.0",
+          "pluginAPIVersion": 0,
+          "requires": {
+            "backend": 0,
+            "ui": 0
+          },
+          "releaseDate": "2026-11-02",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-docker/releases/download/v0.1.0/docker-0.1.0-darwin.zip",
+              "sha256": "ba56adf2caf4899b2c368a683da682a638e8539cfb574facd4b85cc54068d6c9"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "io.github.lithe-idea.go-support",
+      "name": "Go Support",
+      "author": "Lithe Community",
+      "repository": "https://github.com/Lithe-IDEA/lithe-plugin-go",
+      "homepage": "https://github.com/Lithe-IDEA/lithe-plugin-go#readme",
+      "description": "Go code intelligence through your own gopls, plus running main packages and go test (whole module, one file's package, or a single test). Needs Go and gopls (go install golang.org/x/tools/gopls@latest).",
+      "localizedDescriptions": {
+        "zh-Hans": "使用你自己安装的 gopls 提供 Go 补全、跳转定义和错误提示，并支持运行 main 包和 go test（整个模块、单个文件所在的包或单个测试函数）。需要先安装 Go 和 gopls（go install golang.org/x/tools/gopls@latest）。"
+      },
+      "tags": [
+        "language",
+        "go"
+      ],
+      "license": "Apache-2.0",
+      "icon": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-go/14321930779d1b441e1b7d13d2a4a741ef8f305c/io.github.lithe-idea.go-support/icons/go.svg",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "pluginAPIVersion": 0,
+          "releaseDate": "2026-10-20",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-go/releases/download/v0.1.0/go-support-0.1.0-darwin.zip",
+              "sha256": "032ec66b0748fb8d68fa54063a6a735f7b4273e588eb8ecca9db42c1ed06e1df"
+            }
+          ],
+          "requires": {
+            "languages": 0,
+            "languageServers": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "io.github.lithe-idea.gradle-build",
+      "name": "Gradle",
+      "author": "Lithe Community",
+      "repository": "https://github.com/Lithe-IDEA/lithe-plugin-gradle",
+      "homepage": "https://github.com/Lithe-IDEA/lithe-plugin-gradle#readme",
+      "description": "Preview Gradle integration: project and task trees, JavaExec run entries, filtered tests, compiler diagnostics and dependency trees. Requires a Lithe preview build with API 3 buildSystems and native build windows, Gradle 7.6+ and a compatible Java runtime; Gradle is not bundled.",
+      "localizedDescriptions": {
+        "zh-Hans": "预发布 Gradle 集成：项目与任务树、JavaExec 运行入口、筛选测试、编译诊断及依赖树。需要支持 API 3 buildSystems 和原生构建窗口的 Lithe preview 开发版、Gradle 7.6+ 及兼容的 Java；插件不附带 Gradle。"
+      },
+      "tags": [
+        "build",
+        "gradle",
+        "java",
+        "testing"
+      ],
+      "license": "Apache-2.0",
+      "icon": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-gradle/88a86cae73403d715d1385e447d8e4a9273e8f2f/io.github.lithe-idea.gradle-build/icons/gradle.svg",
+      "versions": [
+        {
+          "version": "0.1.1",
+          "pluginAPIVersion": 0,
+          "requires": {
+            "buildSystems": 0
+          },
+          "releaseDate": "2026-10-18",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-gradle/releases/download/v0.1.1/gradle-build-0.1.1-darwin.zip",
+              "sha256": "6d0c49d4c95d9a03afff372d4cad40017a97120bd7b43d903b7dc2d8e82a841f"
+            }
+          ]
+        },
+        {
+          "version": "0.1.0",
+          "pluginAPIVersion": 0,
+          "requires": {
+            "buildSystems": 0
+          },
+          "releaseDate": "2026-10-18",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-gradle/releases/download/v0.1.0/gradle-build-0.1.0-darwin.zip",
+              "sha256": "3c8ac1398b53df1dcb7ffd4a3e93308f39d6796f37f65b9692f4b9327c180215"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "io.github.lithe-idea.http-client",
+      "name": "HTTP Client",
+      "author": "Lithe Community",
+      "repository": "https://github.com/Lithe-IDEA/lithe-plugin-http-client",
+      "homepage": "https://github.com/Lithe-IDEA/lithe-plugin-http-client#readme",
+      "description": "Preview HTTP workbench with request-file loading, syntax highlighting, session history, resizable panes, readable headers, raw response exports and HTML editor previews. Body previews default to 128 KiB, adjustable in 1 KiB steps. macOS only; full native file-dialog and editor-preview acceptance remains pending.",
+      "localizedDescriptions": {
+        "zh-Hans": "HTTP 请求工具预览版：支持打开请求文件、语法高亮、会话历史、可调整分栏、响应头阅读、原始响应保存和编辑区 HTML 预览。正文预览默认 128 KiB，可按 1 KiB 调整。仅支持 macOS；原生文件对话框和编辑区预览的完整验收仍待完成。"
+      },
+      "tags": [
+        "http",
+        "rest",
+        "tool"
+      ],
+      "license": "Apache-2.0",
+      "icon": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-http-client/e3cead6da09ecd07fa6964e66ca903219b374634/assets/http.svg",
+      "versions": [
+        {
+          "version": "0.1.2",
+          "pluginAPIVersion": 0,
+          "requires": {
+            "backend": 0,
+            "ui": 0
+          },
+          "releaseDate": "2026-11-02",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-http-client/releases/download/v0.1.2/http-client-0.1.2-darwin.zip",
+              "sha256": "1a4aecbb8901c3243c213643fd2fc6e4e65655c170173eda005c8f0794e9ad9f"
+            }
+          ]
+        },
+        {
+          "version": "0.1.1",
+          "pluginAPIVersion": 0,
+          "requires": {
+            "backend": 0,
+            "ui": 0
+          },
+          "releaseDate": "2026-11-02",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-http-client/releases/download/v0.1.1/http-client-0.1.1-darwin.zip",
+              "sha256": "7eab10168660a9dd49423916ed3303559fae53e1668f1f32fa61e6ad992cc24c"
+            }
+          ]
+        },
+        {
+          "version": "0.1.0",
+          "pluginAPIVersion": 0,
+          "requires": {
+            "backend": 0,
+            "ui": 0
+          },
+          "releaseDate": "2026-11-02",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-http-client/releases/download/v0.1.0/http-client-0.1.0-darwin.zip",
+              "sha256": "699d04a4ddc69e46c27d79ac6063f214eef6af2ee81edf0b30db7595e9657b74"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "io.github.lithe-idea.lldb-debug",
+      "name": "LLDB Debugger",
+      "author": "Lithe Community",
+      "repository": "https://github.com/Lithe-IDEA/lithe-plugin-lldb",
+      "homepage": "https://github.com/Lithe-IDEA/lithe-plugin-lldb#readme",
+      "description": "Preview LLDB debugger: debug C, C++, Objective-C, Swift and Rust through your own lldb-dap, with breakpoints, stepping, variables and an lldb console with completion. Requires a Lithe preview build with plugin API 4, and lldb-dap from the Xcode Command Line Tools or LLVM.",
+      "localizedDescriptions": {
+        "zh-Hans": "预发布 LLDB 调试器：通过你电脑上的 lldb-dap 调试 C、C++、Objective-C、Swift 和 Rust，支持断点、单步、变量，以及带补全的 lldb 控制台。需要支持插件 API 4 的 Lithe preview 开发版，以及来自 Xcode 命令行工具或 LLVM 的 lldb-dap。"
+      },
+      "tags": [
+        "tool",
+        "debug",
+        "lldb",
+        "cpp",
+        "rust",
+        "swift"
+      ],
+      "license": "Apache-2.0",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "pluginAPIVersion": 0,
+          "requires": {
+            "debugAdapters": 0,
+            "languages": 0,
+            "settings": 0
+          },
+          "releaseDate": "2026-10-26",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-lldb/releases/download/v0.1.0/lldb-debug-0.1.0-darwin.zip",
+              "sha256": "b550668dd9ea3e25098cf3fd32850a51f144865cc109c7164ee1b877e02fe69f"
+            }
+          ]
+        }
+      ],
+      "icon": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-lldb/24ac947b5db12dc49414c1933a7af6057d4b1051/assets/lldb.svg"
+    },
+    {
+      "id": "io.github.lithe-idea.lua-support",
+      "name": "Lua Support",
+      "author": "Lithe Community",
+      "repository": "https://github.com/Lithe-IDEA/lithe-plugin-lua",
+      "homepage": "https://github.com/Lithe-IDEA/lithe-plugin-lua#readme",
+      "description": "Lua code intelligence through the bundled lua-language-server (LuaLS), plus running the current file with your own lua. Nothing else to install for completion, navigation, and diagnostics; running files needs lua (brew install lua).",
+      "localizedDescriptions": {
+        "zh-Hans": "内置 lua-language-server（LuaLS）提供 Lua 补全、跳转定义和错误提示，无需另外安装；“运行当前文件”使用你自己的 lua（brew install lua）。"
+      },
+      "tags": [
+        "language",
+        "lua"
+      ],
+      "license": "Apache-2.0",
+      "icon": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-lua/c5f88bf94e9d5616c7770e58febc53a0d520dd50/io.github.lithe-idea.lua-support/icons/lua.svg",
+      "versions": [
+        {
+          "version": "0.3.1",
+          "pluginAPIVersion": 0,
+          "releaseDate": "2026-11-04",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-lua/releases/download/v0.3.1/lua-support-0.3.1-darwin-arm64.zip",
+              "sha256": "0b9b88f7e02f4190d8ee4d3d982003362f078c94cd4e6690d711b9fe77b12efa"
+            },
+            {
+              "platforms": [
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-lua/releases/download/v0.3.1/lua-support-0.3.1-darwin-x64.zip",
+              "sha256": "a44059ddfa414960c8f05cea9ad25082fafef3298ea0626160b2c25d92a8791b"
+            }
+          ],
+          "requires": {
+            "languages": 0,
+            "languageServers": 0
+          }
+        },
+        {
+          "version": "0.3.0",
+          "pluginAPIVersion": 0,
+          "releaseDate": "2026-10-12",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-lua/releases/download/v0.3.0/lua-support-0.3.0-darwin-arm64.zip",
+              "sha256": "8a01d3ca34bd43217525f0c0304501187ecebb5360a278df1189af7698099924"
+            },
+            {
+              "platforms": [
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-lua/releases/download/v0.3.0/lua-support-0.3.0-darwin-x64.zip",
+              "sha256": "35e6c1c9b80b73770cafd04660070d3b856e690304b5de817fbe59c4d6507ccf"
+            }
+          ],
+          "requires": {
+            "languages": 0,
+            "languageServers": 0
+          }
+        },
+        {
+          "version": "0.2.0",
+          "pluginAPIVersion": 0,
+          "releaseDate": "2026-10-12",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-lua/releases/download/v0.2.0/lua-support-0.2.0-darwin.zip",
+              "sha256": "9d9def8e72e225d9c76121d16641ad87f5b02a220178a06f8cf06dd895d15a14"
+            }
+          ],
+          "requires": {
+            "languages": 0,
+            "languageServers": 0
+          }
+        },
+        {
+          "version": "0.1.0",
+          "pluginAPIVersion": 0,
+          "releaseDate": "2026-10-12",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-lua/releases/download/v0.1.0/lua-support-0.1.0-darwin.zip",
+              "sha256": "7e496eca6f265f2bca13b1c445d30d801fb1aec1d443cc78894b7760ada18dc0"
+            }
+          ],
+          "requires": {
+            "languages": 0,
+            "languageServers": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "io.github.lithe-idea.maven-build",
+      "name": "Maven",
+      "author": "Lithe Community",
+      "repository": "https://github.com/Lithe-IDEA/lithe-plugin-maven",
+      "homepage": "https://github.com/Lithe-IDEA/lithe-plugin-maven#readme",
+      "description": "Preview Maven integration: reactor and goal trees, profiles, filtered tests with JUnit reports, compiler diagnostics and dependency trees. Includes a read-only Maven core extension; requires a Lithe preview build with API 3 buildSystems and native build windows, Maven 3.6.3+ and Java 8+.",
+      "localizedDescriptions": {
+        "zh-Hans": "预发布 Maven 集成：反应堆与目标树、Profiles、带 JUnit 报告的筛选测试、编译诊断及依赖树。附带只读 Maven 核心扩展；需要支持 API 3 buildSystems 和原生构建窗口的 Lithe preview 开发版、Maven 3.6.3+ 与 Java 8+。"
+      },
+      "tags": [
+        "build",
+        "maven",
+        "java",
+        "testing"
+      ],
+      "license": "Apache-2.0",
+      "icon": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-maven/177ee4e9b12b9fe06a07498eb316539f7472d5d8/io.github.lithe-idea.maven-build/icons/maven.svg",
+      "versions": [
+        {
+          "version": "0.1.1",
+          "pluginAPIVersion": 0,
+          "requires": {
+            "buildProviders": 0,
+            "buildSystems": 0
+          },
+          "releaseDate": "2026-10-20",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-maven/releases/download/v0.1.1/maven-build-0.1.1-darwin.zip",
+              "sha256": "5887e3fc661e5c493170510a23f0e349e3d1d3cfb6f0d60960e29eea05cb41fd"
+            }
+          ]
+        },
+        {
+          "version": "0.1.0",
+          "pluginAPIVersion": 0,
+          "requires": {
+            "buildSystems": 0
+          },
+          "releaseDate": "2026-10-18",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-maven/releases/download/v0.1.0/maven-build-0.1.0-darwin.zip",
+              "sha256": "4543ec130cc8c0ffc9a1c6c01b0436547b88a5273987c2c96d6ca110c1e6a655"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "io.github.lithe-idea.php-support",
+      "name": "PHP Support",
+      "author": "Lithe Community",
+      "repository": "https://github.com/Lithe-IDEA/lithe-plugin-php",
+      "homepage": "https://github.com/Lithe-IDEA/lithe-plugin-php#readme",
+      "description": "PHP code intelligence through your own Intelephense, plus running PHP files and PHPUnit tests. Intelephense is not bundled (its licence does not allow redistribution): install it with npm install -g intelephense. Needs Node.js; running needs php and project PHPUnit.",
+      "localizedDescriptions": {
+        "zh-Hans": "使用你自己安装的 Intelephense 提供 PHP 补全、跳转定义和错误提示，并支持运行 PHP 文件和 PHPUnit 测试。插件不内置 Intelephense（其许可证不允许再分发），请用 npm install -g intelephense 安装；需要 Node.js，运行和测试需要 php 与项目内的 PHPUnit。"
+      },
+      "tags": [
+        "language",
+        "php"
+      ],
+      "license": "Apache-2.0",
+      "icon": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-php/a0b5600d2629e7acc72dda5871dbe403ce1922a9/io.github.lithe-idea.php-support/icons/php.svg",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "pluginAPIVersion": 0,
+          "releaseDate": "2026-10-20",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-php/releases/download/v0.1.0/php-support-0.1.0-darwin.zip",
+              "sha256": "a9ae2654a7a24fb897ce73f3fbe6c7269a4f23686e4a7fecae3e7997eb6e2b2d"
+            }
+          ],
+          "requires": {
+            "languages": 0,
+            "languageServers": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "io.github.lithe-idea.svn-support",
+      "name": "Subversion",
+      "author": "Lithe Community",
+      "repository": "https://github.com/Lithe-IDEA/lithe-plugin-svn",
+      "homepage": "https://github.com/Lithe-IDEA/lithe-plugin-svn#readme",
+      "description": "Preview Subversion integration: shows SVN working copy changes in a version control tool window, with check-in, update, rollback, conflict resolution, cleanup, history, annotate and base diff; project tree moves go through svn move. Requires a Lithe preview build with API 3 vcsProviders 1 and serverProcess 1, Subversion 1.8+ and Node.js 20.3+. Full native UI acceptance is pending; macOS only.",
+      "localizedDescriptions": {
+        "zh-Hans": "Subversion 预发布插件：在版本控制工具窗口查看 SVN 工作副本的变更，支持提交、更新、回滚、解决冲突、清理、历史、Annotate 和与基线比较；项目树移动通过 svn move 记录。需要支持 API 3 vcsProviders 1 与 serverProcess 1 的 Lithe preview 开发版、Subversion 1.8+ 和 Node.js 20.3+。完整原生界面验收待完成，仅支持 macOS。"
+      },
+      "tags": [
+        "vcs",
+        "svn",
+        "subversion"
+      ],
+      "license": "Apache-2.0",
+      "icon": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-svn/717d23cd417f796d8487b3b7cbc8150a8356b512/assets/subversion.svg",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "pluginAPIVersion": 0,
+          "requires": {
+            "vcsProviders": 0
+          },
+          "releaseDate": "2026-10-24",
+          "downloads": [
+            {
+              "platforms": [
+                "darwin-arm64",
+                "darwin-x64"
+              ],
+              "downloadURL": "https://github.com/Lithe-IDEA/lithe-plugin-svn/releases/download/v0.1.0/svn-support-0.1.0-darwin.zip",
+              "sha256": "23fb009cf9fc51f1093a77809f1865b52a781565bbde0c49a1ed890a3b0c46fc"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

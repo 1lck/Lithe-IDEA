@@ -92,11 +92,11 @@ JDT LS 自带一个文件系统插件 `org.eclipse.jdt.ls.filesystem`。它根�
 
 ## 验证
 
-- `./scripts/rust-core/verify-rust-core-comments.sh`
-- `./scripts/rust-core/verify-rust-core.sh`
-- `./scripts/architecture/verify-shared-contracts.sh`
+- ~~./scripts/rust-core/verify-rust-core-comments.sh~~（随旧客户端移除）
+- ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
 - `./scripts/agent-notes/verify-agent-notes.sh`
-- `./scripts/macos/test/test-macos.sh`
+- ~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除）
 
 `jdt_project_metadata` 的测试覆盖：多层模块的未跟踪文件被删除且状态目录被重置；Git 跟踪的
 文件和 `.settings` 里的非 prefs 文件保留；嵌套仓库里被内层仓库跟踪的文件保留；非 Git 工作区
@@ -109,7 +109,7 @@ JDT LS 自带一个文件系统插件 `org.eclipse.jdt.ls.filesystem`。它根�
 
 - 已迁出：原 `rust/lithe-core/src/lsp/languages/jdt.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
 - 已迁出：原 `rust/lithe-core/src/lsp/languages/jdt_project_metadata.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
-- `rust/lithe-core/src/lsp/interface/engine.rs`
-- `rust/lithe-core/src/git/mod.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/engine.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/engine.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/mod.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/mod.rs)
 - `shared/contracts/rust-core-api.md`
-- `macos/Sources/Lithe/Views/App/SettingsView.swift`
+- ~~`macos/Sources/Lithe/Views/App/SettingsView.swift`~~（已随 #1794 移除）

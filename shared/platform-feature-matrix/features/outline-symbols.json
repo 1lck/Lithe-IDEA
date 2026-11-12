@@ -4,20 +4,46 @@
   "group": "代码结构",
   "capability": "当前文件 Outline 与符号树",
   "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "macos/Sources/Lithe/Views/Language",
-      "macos/Sources/Lithe/Views/Search"
-    ],
-    "implementationStatus": "partial",
-    "verificationStatus": "pending"
+      "desktop/internal/core/plugin_symbols.go",
+      "desktop/internal/core/plugin_symbols_test.go",
+      "desktop/internal/workbench/outline.go",
+      "desktop/internal/workbench/outline_view.go",
+      "desktop/internal/workbench/outline_test.go"
+    ]
   },
   "windows": {
-    "evidence": [
-      "windows/tauri/src/features/outline"
-    ],
     "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/plugin_symbols.go",
+      "desktop/internal/core/plugin_symbols_test.go",
+      "desktop/internal/workbench/outline.go",
+      "desktop/internal/workbench/outline_view.go",
+      "desktop/internal/workbench/outline_test.go"
+    ]
   },
   "owner": "Language Tooling",
-  "verification": "使用 Java 文件验证符号树、展开折叠、排序和跳转；确认 macOS 是否提供同等独立 Outline 入口。"
+  "verification": "使用 Java 文件验证符号树、展开折叠、排序和跳转；确认 macOS 是否提供同等独立 Outline 入口。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Views/Language",
+        "macos/Sources/Lithe/Views/Search"
+      ],
+      "implementationStatus": "partial",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features/outline"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    }
+  },
+  "notes": "Viva：Structure 工具窗口显示当前文件的 Core documentSymbols 符号树（层级形式与平铺形式统一为树），跟随光标选中最内层符号，点击或回车跳到符号名，可折叠与按名称排序；仅在窗口打开且文档与服务器同步后按文本变化节流请求。服务器未声明 documentSymbols 时说明无法提供。"
 }

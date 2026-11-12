@@ -4,31 +4,51 @@
   "group": "命令与布局",
   "capability": "工具窗口拖动、分组、排序与布局恢复",
   "macos": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "macos/Sources/Lithe/Application/Features/WorkbenchFeatureModel.swift",
-      "macos/Sources/Lithe/Views/Workbench/WorkbenchToolWindowDock.swift",
-      "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift",
-      "macos/Sources/Lithe/Services/Workbench/WorkbenchLayoutStore.swift",
-      "macos/Tests/LitheTests/ToolWindowDockingTests.swift",
-      "macos/Tests/LitheTests/LitheSplitPaneCollapseTests.swift",
-      "macos/Sources/Lithe/Views/Workbench/WorkbenchToolWindowsMenu.swift",
-      "macos/Tests/LitheTests/WorkbenchContributionHostTests.swift"
-    ],
-    "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+      "desktop/internal/workbench/catalog.go",
+      "desktop/internal/workbench/dockdrag.go"
+    ]
   },
   "windows": {
-    "evidence": [
-      "windows/tauri/src/features/layout/components/terminal-dock-layout.tsx",
-      "windows/tauri/src/features/layout/components/sidebar/sidebar-pane-selector.tsx",
-      "windows/tauri/src/features/layout/components/plugin-activity-rail.tsx",
-      "windows/tauri/src/features/layout/components/bottom-pane/bottom-pane.tsx",
-      "windows/tauri/src/features/layout/components/bottom-pane/bottom-pane-terminal-lifecycle.test.tsx",
-      "windows/tauri/src/features/settings/lib/settings-normalization.test.ts"
-    ],
     "implementationStatus": "partial",
-    "verificationStatus": "pending"
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/catalog.go",
+      "desktop/internal/workbench/dockdrag.go"
+    ]
   },
   "owner": "Workbench",
-  "verification": "macOS 将 Project、Database、Terminal、Git Log、Maven 和 Agent 入口拖到左/右主组、第二组及底部左右组，组内拖动排序；核对同组互斥、跨组同时打开、原动作和模块会话保留、标题收起只关闭对应窗口、右键移动和键盘可用性。取消与窗口外释放保持原位置，切换工作区和重启恢复位置/顺序/显隐/尺寸及组内比例，旧布局迁移、损坏与重复标识安全恢复。深浅主题核对 IDEA 资源和落点 token，窄窗口连续调整尺寸不产生负值且仅结束写入设置。Windows 已实现直接拖动活动栏终端图标在左侧、右侧及底部停靠，入口随位置移到对应侧栏，普通点击及键盘激活切换显隐；终端工具栏移动按钮保留，位置及尺寸随应用设置恢复；完整工具分组、排序与各工作区布局仍缺失。实机检查从左下角终端入口拖到左右两侧及底部（包括两侧栏的下角），隐藏时拖动须等有效释放才打开，已有会话需在显示提交后获得输入焦点（取消仍保持编辑器焦点），取消须保留原工具和显隐，落点遮罩与释放位置一致，左侧分隔条向右增加宽度、Esc/失焦/窗口外/切换项目取消、不重复触发点击、窄窗口调整宽高、隐藏后再次展开和重启恢复；确认 PTY、输出、输入、工作目录、终端标签排序及编辑器拖入不变。组件回归保持同一 TerminalContainer 和输入 DOM，不能替代 WebView2 验收。 激活入口的浮动拖动预览显示普通图标和 IDEA 灰色圆角背景/同色 1pt 边框，边角透明，不带源按钮激活或 hover 背景；活动栏自身仍保留正常 hover 提示。 左、右及底部双分组各有独立背景和圆角，组间是工作台间距；核对 Project 与 Terminal 相邻时不连成一个面板，调整比例后仍保留终端输入和其他面板。 分隔器松开到父布局回传期间保持最终尺寸，不回跳；低于10%及高于90%的合法窄面板比例保存后和重启后不被二次夹紧。 将 9 个工具入口放入 280pt 滚动视口，滚动后点击或拖动邻组按钮，验证隐藏入口不截获事件、不进入落点快照；部分可见入口只在可见区域接受按下与释放，隐藏祖先也不能响应。 拖动源不留空槽，相邻按钮即时补位且浮动图标和鼠标生命周期不中断；蓝色插入槽内目标稳定，补位后的按钮使用实时可见边界命中。底部入口平移进入当前底部面板时保持 Bottom Left/Right，进入上方侧面区域才切换侧面停靠；遮罩使用当前面板真实高度，双组使用真实比例而非固定二分，调整面板大小后重新拖动仍一致。侧面空槽只沿编辑区高度预测，未打开底部时按 Community 200pt/四分之一默认值；取消恢复源入口，不修改持久布局。 将组内第二个按钮保持 Y 不变水平拖入内容区，蓝色占位必须保留中间位置，不能跳到列表末尾；上下经过按钮中点后顺序才改变，真正移到所有按钮下方才追加。直接经过侧栏和移入内容区使用相同主轴投影判定。 主工具栏不显示 Workbench Actions 省略号及其 tooltip；验证现有工具窗口和工具栏入口的右键管理动作、注册贡献执行及偏好存储仍正常。 在无背景图且目标区域已显示 Git Log 或终端时，拖入底部左右目标，落点高亮和位置文字应显示在不透明内容上方；明暗主题及带偏移的工作区保持正确坐标，提示不截获鼠标，取消后消失且保留内容宿主不重建（ToolWindowDockingTests.dropPreviewStaysAboveRetainedPane）。 macOS 左侧活动栏在上方工具组之后提供仅含隐藏入口的工具窗口省略号菜单，全部恢复后省略号收起；右键项目“取消隐藏”只恢复原位置图标，不打开面板或激活模块；隐藏 Terminal 或已安装插件入口后，从菜单恢复图标并打开原停靠组，重复选择已打开窗口不收起，保留模块与会话。菜单显示注册图标、当前快捷键和勾选状态，禁用激活中或不可用动作，模块禁用后移除条目且旧菜单动作不能重启它；深浅主题及真实终端已有会话仍待产品验收。Windows 尚未同步此工具窗口恢复菜单。 审查回归：隐藏终端前尚未创建会话时，菜单首次 Show 在显示请求有效后创建一个默认工具会话；重复 Show 复用同一 session，右键取消隐藏保持零会话，取消或同组选择覆盖后不调用显示完成动作。声明式、构建系统及 VCS 插件标题使用注册来源，Terminal 等与宿主词条重名的插件名称在恢复菜单保持原文并按原文排序。 Windows #1703：左右终端侧宽超过 600px 或工作区一半后，松开、原地点击、再次拖动、隐藏恢复及重启均保留合法宽度；保存和加载共用校验，实际布局仍按可用空间保留主内容最小宽度。组件测试接入真实设置校验；Windows WebView2 实机验收仍为 pending。"
+  "verification": "macOS 将 Project、Database、Terminal、Git Log、Maven 和 Agent 入口拖到左/右主组、第二组及底部左右组，组内拖动排序；核对同组互斥、跨组同时打开、原动作和模块会话保留、标题收起只关闭对应窗口、右键移动和键盘可用性。取消与窗口外释放保持原位置，切换工作区和重启恢复位置/顺序/显隐/尺寸及组内比例，旧布局迁移、损坏与重复标识安全恢复。深浅主题核对 IDEA 资源和落点 token，窄窗口连续调整尺寸不产生负值且仅结束写入设置。Windows 已实现直接拖动活动栏终端图标在左侧、右侧及底部停靠，入口随位置移到对应侧栏，普通点击及键盘激活切换显隐；终端工具栏移动按钮保留，位置及尺寸随应用设置恢复；完整工具分组、排序与各工作区布局仍缺失。实机检查从左下角终端入口拖到左右两侧及底部（包括两侧栏的下角），隐藏时拖动须等有效释放才打开，已有会话需在显示提交后获得输入焦点（取消仍保持编辑器焦点），取消须保留原工具和显隐，落点遮罩与释放位置一致，左侧分隔条向右增加宽度、Esc/失焦/窗口外/切换项目取消、不重复触发点击、窄窗口调整宽高、隐藏后再次展开和重启恢复；确认 PTY、输出、输入、工作目录、终端标签排序及编辑器拖入不变。组件回归保持同一 TerminalContainer 和输入 DOM，不能替代 WebView2 验收。 激活入口的浮动拖动预览显示普通图标和 IDEA 灰色圆角背景/同色 1pt 边框，边角透明，不带源按钮激活或 hover 背景；活动栏自身仍保留正常 hover 提示。 左、右及底部双分组各有独立背景和圆角，组间是工作台间距；核对 Project 与 Terminal 相邻时不连成一个面板，调整比例后仍保留终端输入和其他面板。 分隔器松开到父布局回传期间保持最终尺寸，不回跳；低于10%及高于90%的合法窄面板比例保存后和重启后不被二次夹紧。 将 9 个工具入口放入 280pt 滚动视口，滚动后点击或拖动邻组按钮，验证隐藏入口不截获事件、不进入落点快照；部分可见入口只在可见区域接受按下与释放，隐藏祖先也不能响应。 拖动源不留空槽，相邻按钮即时补位且浮动图标和鼠标生命周期不中断；蓝色插入槽内目标稳定，补位后的按钮使用实时可见边界命中。底部入口平移进入当前底部面板时保持 Bottom Left/Right，进入上方侧面区域才切换侧面停靠；遮罩使用当前面板真实高度，双组使用真实比例而非固定二分，调整面板大小后重新拖动仍一致。侧面空槽只沿编辑区高度预测，未打开底部时按 Community 200pt/四分之一默认值；取消恢复源入口，不修改持久布局。 将组内第二个按钮保持 Y 不变水平拖入内容区，蓝色占位必须保留中间位置，不能跳到列表末尾；上下经过按钮中点后顺序才改变，真正移到所有按钮下方才追加。直接经过侧栏和移入内容区使用相同主轴投影判定。 主工具栏不显示 Workbench Actions 省略号及其 tooltip；验证现有工具窗口和工具栏入口的右键管理动作、注册贡献执行及偏好存储仍正常。 在无背景图且目标区域已显示 Git Log 或终端时，拖入底部左右目标，落点高亮和位置文字应显示在不透明内容上方；明暗主题及带偏移的工作区保持正确坐标，提示不截获鼠标，取消后消失且保留内容宿主不重建（ToolWindowDockingTests.dropPreviewStaysAboveRetainedPane）。 macOS 左侧活动栏在上方工具组之后提供仅含隐藏入口的工具窗口省略号菜单，全部恢复后省略号收起；右键项目“取消隐藏”只恢复原位置图标，不打开面板或激活模块；隐藏 Terminal 或已安装插件入口后，从菜单恢复图标并打开原停靠组，重复选择已打开窗口不收起，保留模块与会话。菜单显示注册图标、当前快捷键和勾选状态，禁用激活中或不可用动作，模块禁用后移除条目且旧菜单动作不能重启它；深浅主题及真实终端已有会话仍待产品验收。Windows 尚未同步此工具窗口恢复菜单。 审查回归：隐藏终端前尚未创建会话时，菜单首次 Show 在显示请求有效后创建一个默认工具会话；重复 Show 复用同一 session，右键取消隐藏保持零会话，取消或同组选择覆盖后不调用显示完成动作。声明式、构建系统及 VCS 插件标题使用注册来源，Terminal 等与宿主词条重名的插件名称在恢复菜单保持原文并按原文排序。 Windows #1703：左右终端侧宽超过 600px 或工作区一半后，松开、原地点击、再次拖动、隐藏恢复及重启均保留合法宽度；保存和加载共用校验，实际布局仍按可用空间保留主内容最小宽度。组件测试接入真实设置校验；Windows WebView2 实机验收仍为 pending。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Application/Features/WorkbenchFeatureModel.swift",
+        "macos/Sources/Lithe/Views/Workbench/WorkbenchToolWindowDock.swift",
+        "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift",
+        "macos/Sources/Lithe/Services/Workbench/WorkbenchLayoutStore.swift",
+        "macos/Tests/LitheTests/ToolWindowDockingTests.swift",
+        "macos/Tests/LitheTests/LitheSplitPaneCollapseTests.swift",
+        "macos/Sources/Lithe/Views/Workbench/WorkbenchToolWindowsMenu.swift",
+        "macos/Tests/LitheTests/WorkbenchContributionHostTests.swift"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features/layout/components/terminal-dock-layout.tsx",
+        "windows/tauri/src/features/layout/components/sidebar/sidebar-pane-selector.tsx",
+        "windows/tauri/src/features/layout/components/plugin-activity-rail.tsx",
+        "windows/tauri/src/features/layout/components/bottom-pane/bottom-pane.tsx",
+        "windows/tauri/src/features/layout/components/bottom-pane/bottom-pane-terminal-lifecycle.test.tsx",
+        "windows/tauri/src/features/settings/lib/settings-normalization.test.ts"
+      ],
+      "implementationStatus": "partial",
+      "verificationStatus": "pending"
+    }
+  },
+  "notes": "Viva：catalog.go 定义六个停靠区，dockdrag.go 处理拖动落点与遮罩，布局经 loadChrome 保存；未核到组内排序、右键移动和多工作区布局恢复的完整实现。"
 }

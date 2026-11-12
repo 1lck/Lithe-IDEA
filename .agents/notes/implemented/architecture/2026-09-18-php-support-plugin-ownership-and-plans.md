@@ -73,7 +73,7 @@ Windows 休眠的 Run Actions 宿主不再扫描其他语言的 manifest 或自�
 - Worker 协议测试实际加载 PHP 入口，检查启用、运行计划与停用；本地包测试检查默认禁用、坏包拒绝和源码删除。
 
 - `node scripts/plugins/test-official-plugin-distribution.mjs`：默认分发名单不含 PHP，未知插件不会意外打入主程序。
-- `./scripts/macos/verify/verify-macos-package.sh`：实际组装产物不得含 PHP 插件。
+- ~~./scripts/macos/verify/verify-macos-package.sh~~（随旧客户端移除）：实际组装产物不得含 PHP 插件。
 - 官方插件包的组装与校验（原 verify-official-plugins 脚本：独立包兼容性与签名验证。）已随插件移出本仓库，由各插件仓库的 CI 负责（#1495）。
 - `MacPluginPackageDownloaderTests`：验证 stable/preview 发行资产 URL 按 App 发布版本和架构确定性生成。
 - `LanguageExtensionProcessLifecycleTests.packagedServersArePinnedToTheirOwnPackage`、`LanguageServerToolServiceTests.pinnedExecutableIsTheOnlyCandidate`：验证插件打包的 Intelephense 只从本插件已安装的版本目录启动，不按文件名在 PATH 或其他插件中查找。
@@ -84,14 +84,14 @@ Windows 休眠的 Run Actions 宿主不再扫描其他语言的 manifest 或自�
 
 ## 适用范围
 
-- `macos/Tests/LitheTests/Fixtures/RetiredOfficialPlugins/PhpSupport/`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeToolDiscovery.swift`
-- `Plugins/win/Official/PhpSupport/`
+- ~~`macos/Tests/LitheTests/Fixtures/RetiredOfficialPlugins/PhpSupport/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeToolDiscovery.swift`~~（已随 #1794 移除）
+- ~~`Plugins/win/Official/PhpSupport/`~~（已随 #1794 移除）
 - 已迁出：原 `scripts/plugins/build-official-plugins.sh`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
-- `scripts/macos/package/package-app.sh`
-- `windows/tauri/src/extensions/`
-- `windows/tauri/src/features/run-actions/`
-- `windows/tauri/src-tauri/src/language_tools.rs`
+- ~~`scripts/macos/package/package-app.sh`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/extensions/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/run-actions/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src-tauri/src/language_tools.rs`~~（已随 #1794 移除）
 - `shared/contracts/application-boundary.md`
 - `shared/platform-feature-matrix/features/`

@@ -44,19 +44,19 @@ CI 分类将翻译打包脚本映射到 Swift 回归测试与 macOS 双架构打
 ## 验证
 
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter LocalizationPackagingTests`
-- `./scripts/macos/build/build-macos.sh --configuration debug`
-- `./scripts/macos/build/preview.sh`：确认输出包的翻译文件为二进制，检查四个面板切换与中英文往返切换。
+- ~~./scripts/macos/build/build-macos.sh --configuration debug~~（随旧客户端移除）
+- ~~./scripts/macos/build/preview.sh~~（随旧客户端移除）：确认输出包的翻译文件为二进制，检查四个面板切换与中英文往返切换。
 - `./scripts/agent-notes/verify-agent-notes.sh`
-- `./scripts/ci/common/test-classify-ci-changes.sh`
+- ~~./scripts/ci/common/test-classify-ci-changes.sh~~（随旧客户端移除）
 
 性能对照应固定应用可执行文件、项目、语言和操作序列，仅改变打包后的翻译格式。记录采样窗口和平台，不把样本数量当作精确点击耗时。
 
 ## 适用范围
 
 - `scripts/macos/package/package-macos-localizations.sh`
-- `scripts/macos/package/package-app.sh`
-- `scripts/macos/build/preview.sh`
-- `scripts/macos/perf/measure-macos-performance-baseline.sh`
-- `macos/Tests/LitheTests/LocalizationPackagingTests.swift`
-- `macos/Resources/en.lproj/Localizable.strings`
-- `macos/Resources/zh-Hans.lproj/Localizable.strings`
+- ~~`scripts/macos/package/package-app.sh`~~（已随 #1794 移除）
+- ~~`scripts/macos/build/preview.sh`~~（已随 #1794 移除）
+- ~~`scripts/macos/perf/measure-macos-performance-baseline.sh`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/LocalizationPackagingTests.swift`~~（已随 #1794 移除）
+- ~~`macos/Resources/en.lproj/Localizable.strings`~~（已随 #1794 移除）
+- ~~`macos/Resources/zh-Hans.lproj/Localizable.strings`~~（已随 #1794 移除）

@@ -60,8 +60,8 @@ See [source plan fixtures](../fixtures/keymap/source-plans-v1.json).
 For the provider foundation, `lsp.startServer` optionally accepts
 `keymapImportProviders`, an array of at most eight declared plugin-local IDs.
 Only a plugin-owned session with valid IDs offers
-`experimental.litheKeymapImport: {versions: [1], providers}`. A backend may
-select a non-empty, duplicate-free subset using `{version: 1, providers}`;
+`experimental.litheKeymapImport: {versions: [0], providers}`. A backend may
+select a non-empty, duplicate-free subset using `{version: 0, providers}`;
 Core emits `keymapImportProviders` with `result: {providers}` only for a valid
 selection. Invalid IDs, unknown selections and unsupported versions enable no
 providers. This negotiation alone does not implement the product workflow. See the
@@ -224,9 +224,6 @@ int32_t lithe_core_cancel(const char *operation_id);
 void lithe_core_free_string(char *value);
 void lithe_core_install_log_waker(void (*callback)(void *), void *context);
 int32_t lithe_core_remove_log_waker(void *context);
-void *lithe_agent_open_json(const char *configuration, void (*callback)(const char *, void *), void *context);
-int32_t lithe_agent_send_json(void *handle, const char *command);
-void lithe_agent_close(void *handle);
 ```
 
 The macOS package uses the small C bridge in `macos/Sources/LitheRustCore/`. The
@@ -310,556 +307,12 @@ and remote roots or different bindings in one request remain unsupported.
 Only schema-owned path/URI fields are mapped; opaque argv and user text stay
 unchanged. This is a client/Core projection, not a remote-server wire change.
 
-The ACP Agent calls use an opaque handle for one agent process and connection
-per workspace and agent; one connection carries many conversation sessions.
-`lithe_agent_open_json` accepts `{ "agentId"?: string, "command"?: string,
-"args": string[], "cwd": absolutePath, "dataDirectory"?: absolutePath,
-"authentication"?: "apiKey" | "codexSubscription",
-"provider"?: { "protocol": "responses" | "chatCompletions" | "anthropicMessages",
-"baseUrl": string, "apiKey": string, "name"?: string, "model"?: string,
-"allowInsecureHttp"?: bool } }`. With `agentId`, the host starts the adapter
-installed by `agent.install` under `dataDirectory`. Omitted `authentication`
-defaults to `apiKey`, which requires `provider`. Credentials travel over ACP
-stdio, never in Lithe's adapter launch arguments, environment, or files.
-This guarantee covers Lithe launching the ACP adapter, not the entire child
-process tree. The pinned Claude SDK serializes object-valued `options.settings`
-into the Claude Code CLI's `--settings` argument. Consequently,
-`settings.env.ANTHROPIC_API_KEY` is visible in that child process's arguments;
-SDK debug output may also record those arguments. This route does not eliminate
-that upstream exposure. Moving the key solely to `options.env` requires separate
-validation of precedence against user/project settings to preserve the selected
-provider's credentials.
-Responses providers use `gateway` authentication with `Authorization: Bearer
-<key>`. Claude uses the pinned adapter's public `_meta.claudeCode.options` on
-both `session/new` and `session/load`: its native API-key route is supplied in
-SDK `env` and programmatic `settings.env`, with `apiKeyHelper` and competing
-Bearer/OAuth/custom-header/cloud routes cleared. This avoids the adapter's
-gateway placeholder Bearer token overriding a valid `x-api-key`; it does not
-patch the adapter or change native CLI configuration files. Missing Claude
-credentials fail before session creation instead of falling back to an account.
-The provider model is a new-session default: Claude supplies it only as
-`_meta.claudeCode.options.model` on `session/new`, never as a process-wide
-`ANTHROPIC_MODEL` pin or an `options.model` override on `session/load`. On a
-Claude API-key restore, the Host re-asserts the returned model selector
-(`category: model`) through `session/set_config_option`, even if its value is
-unchanged or outside the picker. Only a matching acknowledgement publishes
-`sessionLoaded`; its complete configuration replaces the load response.
-Rejection, mismatched confirmation or timeout reports a load failure. Both
-requests share the existing 60-second load deadline. Adapters without model
-selectors and other Agent routes retain standard ACP loading; no additional
-model cache, transcript access or global CLI mutation is introduced.
-
-Claude API-key sessions also set `CLAUDE_CODE_MAX_RETRIES=0`,
-`CLAUDE_CODE_RETRY_WATCHDOG=0`, and
-`CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1` in both option tiers. The native
-budget cannot distinguish permanent errors and may honor minutes of Retry-After.
-The Host owns a short interactive recovery budget instead: five total prompt
-attempts, with 0.5/1/2/4-second delays. Only known temporary failures before any
-reply, thought, plan, tool or permission progress can be replayed. Permanent
-credentials/access/request/quota errors fail immediately. Native model resolution
-can still probe a missing model twice; this is not another Host attempt.
-Claude API-key connections negotiate AIR v1 `sessionFailure` alongside
-`recommendedValue`. A terminal AIR failure in a successful `end_turn` response
-is normalized to `requestFailed`; its category/actions determine retryability,
-and title/details retain the actionable error. For generic service failures,
-a fixed CLI `API Error:` HTTP banner can veto retries for permanent statuses;
-text never enables a retry. Legacy categorical JSON-RPC `errorKind` remains
-supported; unknown legacy errors are terminal. The failed idle SDK request is
-interrupted before resubmission to avoid duplicated native HTTP requests.
-Codex API-key sessions use native recovery with `request_max_retries=0` and
-`stream_max_retries=4`, so HTTP and stream retries cannot multiply. The pinned
-ACP adapter replaces the gateway provider table; a first-party stdio relay
-applies those public App Server fields on `thread/start`, `thread/resume` and
-`thread/fork`, and disables `features.unbounded_connection_retries`. Other
-configuration, native history, tools and stream processing remain engine-owned.
-The relay also retains native error information in a JSON `litheCodexFailure`
-envelope inside the AIR failure title, because the adapter otherwise drops
-`codexErrorInfo`, HTTP status and details from retry warnings. Only negotiated
-failure metadata is decoded; assistant/model text never enters this policy.
-Titles presented as errors are decoded to the original actionable message.
-Known permanent native categories or HTTP 4xx (except 408/409/429) stop recovery
-immediately, even when the service supplies a long `Retry-After`. Unknown native
-errors retain their native retry decision. The Host recovery window applies
-only before any work; subsequent native recovery is engine-owned.
-Native HTTP 429 may terminate without stream recovery. Before any reply,
-thought, plan, tool or permission progress, only this typed 429 gap may replay
-the settled prompt with short Host delays. It shares the same five-attempt
-counter with native recovery, rather than adding another budget; recognized
-quota/context/budget exhaustion is permanent. No other Codex terminal failure
-automatically resubmits a prompt. Subscription sessions preserve native login,
-refresh and retry policy; custom ACP commands receive no Codex configuration.
-
-Each Codex launch requiring retry compatibility, history recovery or guarded
-subscription observation owns `<system-temp>/lithe-codex-retry-<UUID>/` until its
-process tree stops. Its script comes from embedded first-party source and holds
-no credential. Preparation/spawn failure, cancellation and completion remove
-the directory. The host does not write installed packages, bundles, CLI settings
-or user configuration; this runtime helper is excluded from worktree reuse.
-The route fixture is `shared/fixtures/agent/acp-events-v1.json`'s
-`upstream.claudeSessionRouting`. The
-user's own CLI is passed as `CODEX_PATH` or `CLAUDE_CODE_EXECUTABLE`, and a
-non-empty Codex `model` as `CODEX_CONFIG`; Claude uses the per-new-session option above. Without `agentId`, `command` runs
-a user-provided agent that must support gateway sign-in with a Responses
-provider. Agents start with the executable's directory and the login shell's
-`PATH` first. API-key mode never falls back to account login. Invalid settings
-and launch failures are reported as a `stopped` event with a message.
-
-`codexSubscription` is accepted only for `agentId: "codex-acp"` with no
-`provider`. It reuses the locally installed Codex CLI and its own account storage
-(including `CODEX_HOME`). The child uses the official `openai` model provider;
-inherited API-key, endpoint, token and gateway overrides are removed for this
-child only. Session configuration also clears `openai_base_url` and selects the
-official `chatgpt_base_url`, preventing saved custom routes from overriding the
-subscription selection. The quota probe always keeps the official account route; optional inference observation never changes login or quota routing. No Lithe HTTP provider, stored API key or configured provider model
-is consulted. Codex owns login, token refresh and session model options.
-The pinned ACP adapter's `_auth/status_update` notification confirms the account.
-An existing account proceeds to `account` then `ready`; otherwise
-`authenticationRequired` waits for the user's `authenticate` command before
-`authenticating` opens the upstream ChatGPT browser login. Login is cancellable
-by closing the handle, with a five-minute deadline. Account loss or email change
-disconnects the connection rather than silently changing its billing identity.
-`account` exposes only nullable `email` and `plan`, never credentials.
-
-`refreshQuota` is ignored outside subscription mode, coalesced while in flight,
-and throttled to one read per connection per 60 seconds. The host uses a bounded
-20-second, short-lived official `codex app-server` process because codex-acp
-1.13.1 does not expose structured rate limits. It only initializes, checks
-`account/read`, reads `account/rateLimits/read`, and checks the account again;
-it never creates a thread or prompt. The process tree is owned by the connection
-and terminated after the query or cancellation. The account email must match
-the active ACP account; missing identity cannot prove a match. This is not a
-workspace/account-ID verification guarantee: the upstream ACP identity provides
-no stable account ID. Lithe reads no credential files for this path.
-
-`quota.snapshot` has `fetchedAt` (Unix seconds) and deterministic `windows` with
-`id`, `name`, `limitSeconds`, nullable `usedPercent` (0–100) and nullable
-`resetsAt` (Unix seconds). Actual window durations are preserved; primary does
-not imply five hours. Unknown usage remains null. `quotaFailed.code` is
-`unavailable`, `timeout`, `unparsable`, `unauthorized`, or `accountChanged`.
-Consumers retain the last snapshot as stale for transient errors, clear it on
-identity failures/disconnect, and never reinterpret unknown as zero. The macOS
-composer refreshes while visible and active, and requests a throttled refresh
-after turns. Hover details include all windows and reset times; API-key
-connections show no quota control.
-macOS keeps a compact icon and text quota summary in the composer top strip,
-preferring the actual five-hour window and falling back to the actual seven-day
-window. Details appear only on hover and show
-separate used percentages, gray-track progress bars and reset times. Known usage
-is green through 60%, yellow above 60% through 90%, and red above 90%; unknown
-or stale data remains gray. Window duration and missing values are never invented.
-
-`lithe_agent_send_json` queues one command: `newSession`, `loadSession`,
-`listSessions`, `setConfigOption`, `applyNextTurnConfiguration`, `prompt`, `steer`, `cancel`, `permission`, `authenticate`,
-or `refreshQuota`. Results arrive as events:
-`ready`, `sessionCreated`, `sessionLoaded`, `sessions`, `update`, `permission`,
-`sessionConfigured`, `nextTurnConfigured`, `modelCall`, `steeringResult`, `turnRetrying`, `turnActivity`, `turnCancelling`, `turnFinished`, `requestFailed`, `stopped`,
-`authenticationRequired`, `authenticating`, `account`, `quota`, and `quotaFailed`. Commands and events, including
-their camel-case field names, are fixed by
-`shared/fixtures/agent/acp-events-v1.json`; `token` values are echoed so a caller
-can correlate concurrent requests. `stopReason` uses ACP wire names such as
-`end_turn` and `cancelled`.
-
-Codex `sessions` and `archivedSessions` use the installed official App Server's
-`thread/list` across all providers, within the selected account's Codex home,
-source-kind and workspace scope. The Host
-normalizes its `recencyAt` (conversation activity) into the existing optional
-ISO 8601 `updatedAt` history field, and sorts upstream pages by `recency_at`.
-`useStateDbOnly: true` avoids rollout-file scans/read-repair for this read-only
-listing. Merely loading a conversation or changing its metadata can advance
-Codex's raw `updatedAt`; that field is never a fallback for activity. Missing or
-invalid `recencyAt` yields `updatedAt: null`, so consumers omit the relative time
-and time-sorted history rows place unknown activity after known timestamps,
-breaking ties by session ID. The switcher's existing current-session pin is unchanged.
-Listing failure retains consumers' existing rows through `requestFailed`; it
-does not fabricate a local timestamp. Other Agents retain standard ACP listing.
-`shared/fixtures/agent/history-activity-v1.json` covers initial state, metadata-only
-viewing, and a new conversation turn. The history UI geometry is unchanged.
-
-History summaries may additionally include `modelProvider`, the opaque provider
-identity reported by upstream history. Missing, null or blank metadata is unknown;
-it is never inferred from the current billing route, model name or local annotation.
-Codex forwards `thread/list.modelProvider`; standard ACP Agents without equivalent
-metadata omit it. Older consumers can ignore this additive field. Presentation
-defaults to all providers and may explicitly filter an exact identity or unknown
-metadata, composing with search, favorites, local removal and archived rows.
-Provider choices come from active and archived snapshots, not the configured
-provider catalog. Filtering is local and read-only: it never changes the current
-route, resumes a thread, rewrites history or starts another list request.
-
-Both native Codex App Server listing and standard ACP listing may emit additive `sessionsPage` events for nonterminal pages with matching rows. Each carries the original `listSessions` token and only that page’s summaries. Consumers merge these rows without pruning cached entries or completing the loading state. The existing terminal `sessions` event still carries the full snapshot; consumers that ignore `sessionsPage` remain compatible. A later `requestFailed` retains cached and already received rows. Ignore pages from superseded, completed, or disconnected requests. Empty filtered pages do not end a scan: follow the Agent’s cursor. Platform history surfaces may reuse successful connection-local snapshots (including empty results) for 30 seconds, with independent active/archive freshness; explicit refresh and post-unarchive reconciliation bypass freshness. Failed scans remain retryable and reconnection invalidates freshness. On macOS, a confirmed `turnFinished` invalidates active-list freshness, including for background sessions, without expiring the archive snapshot. A scan still in flight at that boundary may update displayed rows but cannot renew freshness when it completes; the next history open queries again after that scan finishes. Loading or viewing history alone does not invalidate freshness or synthesize activity timestamps. This adds no persisted history or runtime resource directory.
-
-`prompt` retains `text` and optionally carries ordered `files` entries with `uri`
-(a native `file://` URL) and `name` (the display filename). The host validates up to
-32 references and sends upstream ACP `resource_link` blocks after the text block;
-empty text is allowed when files are present. It never reads, copies, or embeds
-file bytes. These native resource URLs identify user-selected context, not portable
-workspace records; the agent owns reading, permissions, and history. Invalid
-references produce `requestFailed` before reserving a turn. Older text-only callers
-remain compatible by omitting `files`.
-
-The Host appends one standard ACP text block containing the immutable connection
-`cwd` as JSON `openedWorkspaceRoot`, with guidance that "current project" means
-the editor's opened workspace unless the user specifies otherwise. A containing
-repository and inherited `AGENTS.md`/`CLAUDE.md` retain their development-rule
-role, without replacing the subject of project-purpose/structure questions.
-The same builder handles `prompt` and `steer`, retry payloads, and prompts after
-`session/load`; it never reads a README or guesses a Git root. User text stays
-first and file links retain their order. Native slash commands retain their original text and ordered attachment links,
-including leading whitespace and deferred steering commands; no workspace block
-is appended, so adapter command parsing and `/usage` detection keep working.
-No optional prompt capability, private system prompt, new command field, or
-provider-specific path override is required.
-
-Only the exact Host-added workspace text suffix is omitted from
-`user_message_chunk` presentation, including adapters that join adjacent text
-blocks in history. Generated `session_info_update.title` and session-list titles
-also omit a recognized full or truncated, whitespace-normalized Host suffix.
-If the remaining title is empty or whitespace-only, it is represented as `null`
-in the Host event rather than an empty string, preserving downstream provisional
-message, New Chat, untitled-history and export fallbacks.
-Other user content, model output, tools and metadata pass through unchanged.
-Upstream history remains untouched and may retain this
-context as part of its original prompt; it contributes to upstream token usage.
-Workspace selection remains platform-owned, and this context is guidance rather
-than a filesystem sandbox. The `workspaceContext` fixture covers nested roots,
-normal prompts, steering, restored prompts and clean user-message replay.
-
-`ready.canSteer` is true only when the ACP initialize response's top-level
-`_meta.steering.supported` is exactly true; absent capabilities remain false.
-`steer` carries `token`, `sessionId`, `text` and optional `files`, with the same
-validation as `prompt`. The Host uses the existing `_session/steering` extension,
-not a concurrent `session/prompt`. One outstanding supplementary request per
-session preserves ordering. Its `steeringResult` echoes the token and session;
-`outcome` is `injected`, `promptRequired`, or `failed` (with `message`). These
-delivery results never finish or reset the original logical turn. `injected`
-means upstream accepted the input, not proof that a model has already consumed it.
-Only `promptRequired` explicitly leaves the input unconsumed and permits the
-client to submit it once through normal `prompt`, after completion and staged
-configuration. Stop revokes this fallback even while configuration is pending
-and no native turn is active; it leaves the configuration request intact and
-does not send a native cancel for an unstarted continuation.
-Unknown delivery after a thirty-second
-request timeout closes the connection; it never blindly replays the message.
-
-Supplementary input whose first text block starts with `/` (ignoring leading
-whitespace) is left unconsumed by the Host, with `promptRequired`, instead of
-being passed to the steering extension. This also applies when files accompany
-the command. The client waits for the original turn and staged configuration,
-then submits it once via normal `prompt`; the owned ACP response confirms
-completion even when the command never starts a model turn. Command parsing
-remains upstream-owned. Codex ACP 1.13.1 reports `startedNewTurn` for both real
-continuations and completed command-only input, so that outcome alone cannot
-establish a native lifecycle for a command.
-
-The pinned Codex ACP may instead return `startedNewTurn` at the completion
-boundary for ordinary supplementary messages. The Host reports it as accepted
-and retains the same logical turn until Codex's explicit
-`_meta.codex.threadStatus` transitions end the continuation.
-The original idle and the continuation's idle are distinct; duplicate idle
-updates do not complete another turn. Stop and its existing watchdog still apply.
-Original-response usage is omitted for this detached continuation because no
-complete ACP usage response is available. An unknown adapter returning a detached
-continuation closes the connection rather than manufacturing completion. macOS
-displays supplementary input with pending/received/failed delivery; live user
-echoes do not duplicate local input, while history loading still replays messages.
-
-`sessionCreated` and `sessionLoaded` optionally carry the agent's `configOptions`.
-`setConfigOption` carries `token`, `sessionId`, `configId`, and a select-option
-string `value`; the host uses ACP `session/set_config_option`. Its acknowledged
-full option list arrives as `sessionConfigured`. Consumers also accept ACP
-`config_option_update` notifications. Agent-provided IDs, choices and current
-values remain authoritative; unsupported controls are not synthesized.
-Configuration failure echoes the token and does not finish a prompt. Native clients may stage next-turn choices while a
-prompt is active, without sending configuration commands or replacing the
-Agent-confirmed values. Both products keep that intent per session and, after a
-terminal turn event (including a failed turn), send one
-`applyNextTurnConfiguration` command with `token`, `sessionId`, the product's
-latest `catalog` (`id`, optional `category`, `currentValue`, `choices` value
-IDs) and `choices` (`configId`, `value`). The Host owns the order and
-validation: model options first, then the rest in catalog order; each remaining
-choice is revalidated against the latest catalog the Agent returned, skipped
-when already current, and must be confirmed by the Agent's reported value. It
-answers with one `nextTurnConfigured` event (`token`, `sessionId`, optional
-`configOptions` = latest Agent catalog once any request succeeded, optional
-`failure` = `unsupported` | `notConfirmed` | `requestFailed`, and for a failed
-request the upstream `message`). Products localize the failure code, clear the
-remaining intent, keep confirmed settings, and fail a deferred supplement
-instead of sending it; disconnect clears the intent as well. A deferred
-supplement after a failed turn is failed with that turn's error, never replayed.
-The next prompt remains blocked until the command finishes. The Host still
-rejects the command while the session's prompt is running. Shape and cases:
-`shared/fixtures/agent/next-turn-configuration-v1.json`.
-
-For a new session, the host also preserves the adapter's optional legacy model
-catalog while decoding the ACP response and negotiates only the versioned
-`jetbrains.air.recommendedValue` extension. If the configured current model is
-absent from that catalog, the host prefers an upstream recommendation present in
-both the catalog and selector. Without a usable recommendation it selects the
-first catalog model available in the selector, including grouped options. The
-host requests that model before publishing `sessionCreated`; only the
-acknowledged full configuration is exposed, keeping the official choices visible
-after the adapter removes its synthetic unknown model. Both
-requests share the session creation deadline; rejection, timeout, or an
-unconfirmed selection emits `requestFailed`. Valid configured models, loaded
-history, and global CLI files remain unchanged. Missing or malformed optional
-catalog data or an empty catalog/selector intersection leaves standard ACP
-behavior intact. The `upstream`
-scenarios in the agent fixture protect this workflow without changing the
-command/event JSON shape.
-
-A `cancel` answers pending permissions with `cancelled`, sends one
-ACP `session/cancel`, and reports `turnCancelling`. The session remains busy
-until its prompt response arrives. A second prompt and configuration changes
-are rejected while it is busy. If the agent fails to acknowledge within ten
-seconds, the connection fails and its process tree is stopped; clients retain
-the visible transcript and offer reconnect followed by `session/load`. This
-explicit recovery prevents another message from entering a lost cancelled turn.
-Other sessions on the same process are also detached on this failure.
-Normal cancellation does not restart the process.
-
-Normal `prompt` turns have no absolute wall-clock deadline. Silence alone cannot
-prove that model reasoning or a tool has stalled. After five minutes without
-reported reply, thought, plan or tool progress, the host emits advisory
-`turnActivity` with `sessionId` and `quiet: true`, once per quiet interval. Actual
-progress emits `quiet: false` and starts a fresh advisory interval. The threshold
-is fixed in `agent-turn-policy.json`, consumed by the shared Host and the Windows
-frontend monitor. This notice never cancels, releases or replays the prompt.
-Clients offer continue waiting (dismiss only) and stop, preserving busy state,
-transcript, edits and elapsed time. Completion, failure and disconnect clear it.
-Permission and stopping states take precedence over the advisory.
-
-Permission decisions have no timer. The host tracks all pending permissions in
-that turn and suspends the quiet advisory until all are answered, then starts a
-fresh interval. Registration stays ordered under the permission/turn locks;
-waiting and responding run in an SDK-owned task so inbound updates, additional
-permission requests and connection EOF are not blocked. Cancel, terminal prompt
-response and connection shutdown settle every pending request with `cancelled`.
-Child permissions retain both the original requester and the owning root turn.
-Registration holds the ownership lock through insertion into the permission map;
-lock order is ownership, pending permissions, then running turns. A terminal
-child or ancestor settles only that subtree's pending requests with `cancelled`,
-rejects later requests from that subtree, and leaves root and sibling permissions
-and the root prompt running. Settled requests release quiet-period accounting.
-The existing child lifecycle update also removes those prompts from the UI queue
-and refreshes its attention and tool-wait interval; no new wire event is needed.
-Initialization, session/configuration requests, pre-work failure recovery and
-cancellation acknowledgment retain their own bounded deadlines. Tool execution
-and model-request budgets belong to the upstream Agent. This policy does not
-provide a new user-configurable task budget.
-
-The pre-work API-key reconnecting window is twenty seconds from the first temporary
-failure, in addition to the initial request and at most ten seconds to confirm
-cancellation. It does not reset on each retry. Actual progress removes this
-short window and prohibits whole-turn replay; normal turn duration remains unlimited.
-Codex owns later stream recovery after progress. While its public error metadata
-reports `willRetry: true`, the Host retains the same busy turn without a recovery
-deadline or a second attempt limit, and never replays the whole prompt. Native
-`stream_max_retries=4` remains configured; this is not unbounded native retry.
-Permanent errors, explicit terminal failure, process/connection closure and user
-Stop still end the turn through the existing acknowledgment/cleanup paths. A
-terminal error preserves local messages and edits; explicit continuation reuses
-the session, or reloads native history after reconnection, without automatically
-resending the original request. Upstream persistence of unfinished fragments is
-not guaranteed. Pre-work window expiry retains the same busy/cancel/acknowledgment semantics
-above and reports the last provider error. During backoff, user cancellation
-ends the local turn without another prompt. `turnRetrying` carries `sessionId`,
-a unique Host or native `turnId`, and `attempt` (at least 2). Pre-work recovery
-includes `maxAttempts` (5); native recovery after work omits it, because observed
-warnings cannot establish a Host limit for engine-owned requests. It is a
-recovery observation, not actual work or a terminal event. macOS presents
-“Reconnecting 2/5…” with elapsed time; it clears counts on progress or completion
-and ignores retries for retired turns. With no maximum it presents
-“Reconnecting…”. Five minutes after the first post-work recovery warning, the
-Host emits the same quiet advisory; further warnings cannot postpone it. Actual
-progress clears it and starts normal quiet tracking again. macOS shows a recovery
-waiting notice with Continue waiting and Stop; dismissal does not resend or
-release the busy turn. Permission and Stop take priority. No silent timer implies
-thinking or retry.
-Generic ACP support does not imply control of its retry engine. Unadapted agents
-retain their native retry policy without a Host absolute prompt limit; reliable
-counts and a short recovery window require explicit provider recovery events or
-a verified configuration adapter. Lithe never applies blind prompt replay to
-arbitrary agents.
-
-ACP `usage_update` notifications are forwarded unchanged in `update`, with
-`used` (tokens currently in context) and `size` (context window capacity), scoped
-by `sessionId`. Consumers replace the previous snapshot, allowing usage to drop
-after compaction; these values are not cumulative billing tokens. Missing or
-invalid data and a zero capacity represent unknown usage, not an empty window.
-The macOS indicator clears stale capacity on disconnect or confirmed model
-changes; it does not infer limits from model names. A consumer may retain the
-last actual report in its existing workspace/Agent/session-scoped store, bound
-to confirmed raw model option IDs and values. Restore it only after loading
-confirms the same nonempty model selection. Preserve the historical source
-in state; the macOS UI omits source labels and shows only the usage figures.
-A new valid or invalid replay report takes precedence. Model changes
-invalidate stored occupancy; historical messages without a report remain unknown.
-For the pinned Codex adapter, the Host may recover its missing history report
-from the existing native App Server connection during the same load. The relay
-uses an authenticated, bounded, per-launch loopback channel and per-load tickets;
-no second thread writer, prompt or private history parsing is used. The Host
-emits the same `usage_update` shape before `sessionLoaded`, with
-`_meta.lithe.contextUsageSource: "history"` to identify a last-reported snapshot.
-Standard ACP reports take precedence; cancelled/replaced loads cannot publish
-a late native report. Failure or absent native usage never blocks history loading.
-
-`turnFinished` optionally includes the ACP prompt response's `usage` object:
-required unsigned `totalTokens`, `inputTokens`, `outputTokens`, and optional
-`thoughtTokens`, `cachedReadTokens`, `cachedWriteTokens`. The pinned SDK's
-`unstable_end_turn_token_usage` feature preserves these counters; absent, null
-or invalid usage is omitted without preventing completion. Zero is a reported
-value. Counters are Agent-owned: consumers must not infer a per-turn aggregate,
-session delta or billing amount, because the adapters' accounting scopes differ.
-They must not derive these counters from context occupancy or subscription quota.
-`acp-events-v1.json` covers completion both with and without usage.
-
-The launch JSON's optional `observeSubagents` (default `false`) negotiates the
-pinned adapters' AIR v1 `nativeSubagentSessions` capability. macOS and Windows enable it;
-consumers without child-session UI omit it. Native execution and history remain
-upstream-owned. `update` preserves the immediate parent `sessionId` and the
-adapter's `subagent_spawned` payload (`subagentSessionId`, `name`, `task`,
-`capabilities`), or `subagent_state_update` payload (`subagentSessionId`, `state`).
-Ordinary child updates use the child's `sessionId`. Cycles, cross-parent
-reattachment and reuse of a known root ID are rejected. A root history reload
-clears its old child associations before upstream replay announces them again.
-The host's bounded notification shim adds these two adapter variants to the
-pinned SDK; all ordinary updates still use SDK validation. The newer SDK's
-experimental `subagent_update` draft is not wire-compatible with these adapters.
-
-Child permissions retain their original request `sessionId`, while the outer
-`permission.sessionId` identifies the owning root turn. Root cancellation,
-completion or shutdown settles all child permission waits through the existing
-permission lifecycle. Terminal children and their descendants cannot request
-new permissions. Child output and lifecycle count as actual root progress;
-child model failures never trigger a whole-root replay. Child messages and
-thoughts are scoped separately from the root reply; tool IDs are scoped by
-child session, preserving file-review evidence. Only an explicit `completed`
-state counts as success. Failed, cancelled and disconnected children do not;
-a terminal parent leaves any unreported descendant outcome disconnected.
-`acp-events-v1.json` includes nested ownership, output, tools and completion.
-
-The launch JSON's optional `observeModelCalls` (default `false`) asks the host to
-start a loopback proxy for API-key gateways or Codex subscription inference and hand the Agent
-`http://127.0.0.1:<port>/lithe-<token>` instead of the configured endpoint.
-Requests and responses are forwarded unchanged; requests other than generation
-endpoints stream through without buffering, and generation bodies over 32 MiB
-are forwarded without composition. Same-origin `Location` headers are mapped
-back onto the proxy path; cross-origin targets are left unchanged. A proxy that
-fails to start leaves the native route unchanged. Codex subscriptions retain the
-official OpenAI provider and receive a process-only openai_base_url ending in
-/backend-api/codex; Codex owns account credentials, refresh and retries. Each generation request
-(`.../messages`, `.../responses`, `.../chat/completions`) then produces one
-`modelCall` event with `call.api`, optional `model`, HTTP `status` (200 for
-WebSocket completion or an explicit upstream error status), `streaming`,
-optional `firstTokenMs`, `durationMs`, optional provider `usage`
-(`inputTokens` excluding cache reads and writes for every protocol, `cacheReadTokens`, `cacheWriteTokens`,
-`outputTokens`, optional `reasoningTokens`) and optional estimated prompt
-`context` (`systemPromptTokens`, `toolTokens`, `mcpToolTokens`, `messageTokens`,
-`toolCount`, `mcpToolCount`, `scaledToUsage`) and, only when true, `auxiliary`
-(a background request the Agent made for itself, such as Claude Code naming the
-session: its tokens count, but it is not a conversation step). Claude subscription
-connections are observed the same way: the host points `ANTHROPIC_BASE_URL` at the
-loopback proxy, which forwards to `https://api.anthropic.com` byte for byte while
-the CLI keeps sending its own credentials. `sessionId` is present only when
-exactly one non-cancelling prompt was running when the request started; consumers
-drop unattributed calls instead of guessing. The host waits up to two seconds for
-a turn's attributed calls to report before emitting its `turnFinished`, so they
-arrive first. A call still open after that bound carries `afterTurnFinished: true`
-and counts for the session only, never for a later turn. Each `modelCall` also carries
-`statistics`, the Host's accounting contribution of that call (`requests`,
-`steps`, `failedSteps`, `nonStreamingSteps` for successful non-streamed steps
-only, `durationMs`, the four token buckets, optional `reasoningTokens`,
-`callsWithUsage`, `firstTokenMs`/`firstTokenCount` and
-`generationMs`/`generatedTokens` of streamed steps, and optional `context` when
-the call describes the current prompt: auxiliary requests never do, and once a
-session's main requests carry tools, tool-less ones no longer do). Products
-merge contributions in event order (counters add, `reasoningTokens` adds over
-calls that report it, a present `context` replaces the previous one) and never
-reinterpret `call` for accounting. Cases:
-`shared/fixtures/agent/model-call-statistics-v1.json`. The launch accepts `contextLimits` (`windowTokens`, `autoCompactTokens`, both optional;
-zero means unset). Codex receives them as `model_context_window` and
-`model_auto_compact_token_limit` in its session configuration. Claude Code has a single
-switch, so the threshold (else the context length) is exported as
-`CLAUDE_CODE_AUTO_COMPACT_WINDOW`. The Agent's reported `usage_update.size` can differ from
-the configured value and may change within a turn, so consumers cap the displayed
-capacity themselves instead of trusting the report. Redirect (3xx) hops are
-forwarded but are not model calls; only the followed request is reported.
-Responses WebSocket upgrades preserve the original handshake and wire bytes,
-including masking, fragments, compression, control frames and close frames.
-Observation parses copies with a 32 MiB limit for each frame/assembled or
-inflated message, preserving each negotiated deflate dictionary lifetime.
-Each response.create inference has one observation; generate=false prewarm,
-handshakes and control frames never count. previous_response_id inherits only
-verified cached numeric section sizes and completed output sizes. One previous
-response ID (at most 256 bytes) and at most 1024 output item sizes are retained
-per connection. Unknown previous IDs omit composition rather than treating a
-delta as the whole context. Malformed, overlapping or over-budget messages
-stop observation only; forwarding continues. All upgraded sockets and tasks
-are closed with the owning launch. Bodies and credentials are never persisted.
-The existing native relay permits subscription observation only after a current
-account/read confirms workspaceRouting with backendOrigin https://chatgpt.com
-and accountRoutingOverride NO_CONSTRAINT. Missing/failed/managed routing keeps
-the native default inference endpoint. Account/login change notifications revoke
-confirmed routing and pending discovery requests, so a late response cannot
-authorize the new account or workspace even when its email is unchanged. A fresh
-native query is required; an account change also closes an already observed
-connection. Login, workspace discovery and quota routing remain native.
-Old subscription histories retain actual native context occupancy but cannot
-acquire missing request composition retroactively.
-
-Calls without `usage` make session token sums a lower bound, which consumers
-must label as such. Unparsable provider data omits the
-optional fields and never affects forwarding. Without these events, consumers do
-not estimate model-call counts, first-token latency, output speed or prompt
-composition. Decision:
-`.agents/notes/implemented/architecture/2026-10-13-agent-model-call-observation.md`.
-
-macOS keeps local turn statistics in memory. Elapsed time uses a monotonic clock
-from user submission (including queued session creation/loading, tools and
-permission waits) until completion, request failure or disconnect. Cancellation
-continues timing until acknowledged. Each observed turn keeps a frozen footer
-before the next user message; tab switches do not reset it. Replayed history
-does not fabricate timing or token measurements absent from the Agent's records.
-
-Tool updates preserve ACP `kind`, `locations`, `rawInput`, `rawOutput`, and
-`content` (including diffs). Partial updates replace only fields supplied by
-the agent. Permission displays combine already received tool details with the
-permission request, and distinguish allow/reject option kinds.
-
-The Host advertises `clientCapabilities.session.notices: {}` using the pinned
-SDK's `unstable_session_notices` feature. ACP `notice` updates retain their
-`severity`, plain-text `title`, and optional `description` in the existing
-`update` envelope. They are live advisories, not assistant replies or persisted
-history. macOS displays the latest notice per session through its shared Banner,
-allows dismissal, and clears it on the next submitted prompt or disconnect.
-An outstanding permission request takes presentation priority without discarding
-the notice; the notice is displayed after the user answers. Visible text is
-bounded to two title lines and three detail lines, with full text on hover.
-Claude ACP 0.81.2 may defer its initial Auto fallback warning until the first
-prompt: its structured warning title `Auto mode unavailable` is shown only
-while the confirmed mode is `acceptEdits`. A confirmed model change clears a
-warning from before that change, while preserving a new warning emitted between
-an upstream Auto-to-Accept-edits mode transition and its next complete config
-snapshot. This transition is session-local and consumed by one config snapshot;
-it also covers native `/model` changes without a local request token. A later
-model change clears the warning normally. A pending or failed local setting must not clear a still-applicable
-warning. Plain assistant text is never classified or removed by this rule.
-When a configuration request is pending, the matching fallback notice waits for
-that request's result before checking the confirmed mode. This preserves a new
-fallback sent before its `config_option_update` or response, while still dropping
-an obsolete startup notice after a confirmed switch to Plan. A newer applicable
-notice in the same session invalidates the older pending fallback, so a later
-configuration success or failure cannot replay it over the newer notice. In the
-reverse order, the newest fallback still waits for confirmation before replacing
-the earlier notice. Invalid notices and notices for other sessions do not change
-that ordering.
-Windows has no consumer for this shared Host conversation API yet.
-
-The caller must close each handle
-exactly once; closing revokes callbacks and stops the process tree, force
-killing processes that do not exit after a short grace period. The callback
-context must remain valid until close returns. This API is owned by
-`lithe-agent-host` and is separate from the synchronous JSON command envelope.
+The ACP Agent ABI and the `agent.*` commands were removed together with the
+Agent conversation feature. `lithe_agent_open_json`, `lithe_agent_send_json`
+and `lithe_agent_close` no longer exist, and Core starts no adapter, proxies no
+model call and keeps no conversation history. Rust Core keeps only deterministic
+AI configuration parsing (`ai.configuration.*`). The removed ABI text, fixtures
+and the `lithe-agent-host` crate remain available in the Core repository history.
 
 ## Envelope
 
@@ -917,208 +370,14 @@ stable error code and a user-facing message:
 
 ## Commands
 
-### MCP configuration
-
-`mcp.probe` accepts a user-reviewed connection `{transport, command?, args?, env?,
-url?, headers?}` with only those fields. Agent Host uses the pinned official
-rmcp SDK for initialization, session handling and paginated `tools/list`; it
-never sends `tools/call`. Results are `{tools:[{name,description}]}`, sorted by
-name, deduplicated, bounded to 1000 tools/20 pages/2 MiB of metadata. stdio input
-and each HTTP response body are bounded before decoding. A probe has a
-30-second request budget plus bounded cleanup, cancellation is cooperative,
-and stdio children and their process groups are reaped on completion or cancel.
-HTTP accepts HTTPS and loopback HTTP, rejects credential-bearing URLs and
-redirects, preserves TLS verification and explicit headers, and uses no cookie
-store. It does not inherit another Agent's OAuth session or unmapped native
-configuration options. Legacy `sse` remains a configurable transport but this
-SDK probe returns `not_supported` rather than inventing a healthy status.
-The host must require an explicit detection action; launching local code or
-package runners also requires the product's execution confirmation.
-
-`mcp.toolPolicy` is a pure text operation with `{source,content,server,tools,
-owned?,tool?,enabled?}`. `source` is `codex` or `claude`; omission of `tool` and
-`enabled` reads current policy. It returns `{content,changed,owned,tools,
-hasRestrictions}`. The returned tools contain `{name,enabled,editable}`.
-Codex uses entry-local `disabled_tools`, preserving `enabled_tools`; Claude's
-input is its user `settings.json`, editing only `permissions.deny` with exact
-`mcp__<normalized-server>__<normalized-tool>` rules. Unknown settings/formatting
-outside the targeted value survive. Existing unowned denies, broad wildcard
-rules, allow-list exclusions and ambiguous normalized names are not relaxed.
-Hosts retain the exact added tool names by native path/server, validate full
-file snapshots before atomic writes, and never treat a read as ownership.
-Policies describe the user configuration; project/managed settings and live
-Agent sessions may differ. Claude server renames are refused while user MCP
-restrictions exist, to avoid re-enabling tools under a new name.
-
-`mcp.commandLine` accepts `{action:"format",command,args}` to return `{line}`,
-or `{action:"parse",line}` to return `{command,args}`. POSIX shell-style quoting
-is only a lossless text projection: hosts pass argv directly, never evaluate a
-shell, substitutions, pipes or redirects. Blank and embedded-newline arguments
-are preserved; malformed quoting is rejected. These operations and probe
-results use `shared/fixtures/mcp/tools-v1.json` as a synthetic contract fixture.
-
-`mcp.parseRegistry` accepts `{ content: string }` (at most 1 MiB UTF-8) and
-normalizes an official MCP Registry v0.1 response into `{ entries, nextCursor }`.
-Each entry has `id`, `title`, `summary`, `version`, nullable `publisher`,
-`source: "registry"`, nullable HTTPS `website` and
-nullable `draft: McpServer`. At most 100 input entries are accepted. Inactive
-records are skipped, pagination cursors remain opaque, and links containing
-credentials or unresolved variables are not offered. Only static HTTPS remote
-endpoints without header/variable inputs, or versioned npm/PyPI stdio packages
-without additional runtime/package/environment inputs, using the public default
-registry and runner, produce drafts. npm versions must be complete releases;
-mutable tags and major/minor ranges remain documentation-only. Other
-records remain documentation-only. This operation never fetches, installs or
-executes anything. Hosts own cancellable directory requests and require the
-user to review and save a draft before modifying Agent configurations.
-`shared/contracts/mcp-registry-page.json` is a portable synthetic response.
-
-`mcp.featuredRegistry` accepts `{}` and returns the same page shape with
-`source: "featured"` from the Git-owned, compile-time catalog at
-`rust/lithe-core/src/mcp/featured.json`. It performs no network, filesystem,
-package resolution or execution. Catalog package versions are pinned; remote
-requirements remain subject to the publisher's documentation. Hosts show this
-page without contacting the Registry, extend matching entries on explicit
-search, and retain available results when a directory request fails.
-The release catalog includes Context7, Playwright, Chrome DevTools, Microsoft
-Learn, GitHub, DeepWiki, Exa, Filesystem, Fetch and Memory. A featured entry may
-add `setup: "bearer-token" | "allowed-directories"`: its draft is an incomplete
-template, requiring an Authorization bearer value or at least one absolute
-directory argument after the fixed Filesystem package argument. Hosts must
-collect and validate these inputs before saving and must not select Agents by
-default. Public Registry parsing never copies `setup`, even when input uses a
-featured-looking ID. `shared/fixtures/mcp/featured-setup-v1.json` illustrates the
-optional field; ordinary entries omit it. Brand marks are platform-owned,
-read-only bundled assets, selected only for known featured IDs; public entries
-keep the transport fallback. No response can select arbitrary resources or
-cause remote image fetching.
-
-`mcp.parseConfiguration` accepts `{ source: "codex" | "claude", scope:
-"global" | "project", content: string, projectPath?: string }` and returns
-`{ servers: McpServer[] }`. Claude project scope requires `projectPath` and reads
-`projects.<projectPath>.mcpServers`; Codex reads `mcp_servers` in the supplied
-file. Core handles bounded text only; hosts own paths, file I/O, backups and
-atomic writes. Configuration text is limited to 1 MiB UTF-8. Invalid requests or
-configuration return redacted `invalid_request` errors.
-
-A server has `name`, `transport` (`stdio`, `http`, `sse`), optional `command` and
-`url`, `args: string[]`, `env` and `headers` arrays of `{ key, value }`, plus two
-lowercase SHA-256 hashes with separate purposes:
-
-- `definitionHash` keeps the existing library grouping identity: name, transport,
-  and modeled fields used by that transport, with environment/header entries
-  sorted deterministically. Unknown fields do not change this hash.
-- `sourceHash` covers the name and the **complete semantic source entry**,
-  including unknown authentication, timeout, nested and non-string values, as
-  well as fields unused by the active transport. Object/table keys are sorted,
-  array order and value types are preserved, and source formatting/comments are
-  excluded. This hash is source-specific and is not a grouping key. Parsed
-  servers always supply it; request decoding permits an absent/null value for
-  compatibility with older clients and new drafts.
-
-`mcp.planWrite` accepts `{ source, scope, projectPath?, content?: string | null,
-operation: "set" | "remove", server?: McpServer, name?: string,
-previousName?: string, expectedHash?: string, owned?: OwnedEntry[],
-toolFilters?: {enabledTools?: string[], disabledTools?: string[]} }`. `set`
-requires `server`, `remove` requires `name`, and project scope requires
-`projectPath`. `previousName` identifies the original of a rename. Each owned
-entry is `{ name, definitionHash, sourceHash?: string }`; hosts must record the
-hashes returned from the actual write plan rather than hashes from the draft.
-
-Successful Codex removals also return `toolFilters` when native `enabled_tools`
-or `disabled_tools` exists. These lists contain tool names only; an empty
-allow-list stays empty and malformed lists reject removal. Hosts retain them
-by native path/server only after the complete write batch succeeds, separately
-from live source ownership. A later `set` applies retained filters only when
-inserting a new Codex entry; existing/renamed native policy always takes
-precedence. Returned hashes cover the restored policy. Claude's user deny
-rules remain in its separate settings file during server removal.
-
-Automatic replacement/removal, including unchanged set plans used for repeated
-registration, requires an owned record whose name, `definitionHash` and
-`sourceHash` match the current entry. An existing raw entry omitted from discovery
-because it lacks a usable command/URL also conflicts rather than being treated as
-an empty slot. A legacy owned record
-without `sourceHash` does not prove ownership: mutation is refused with
-`externallyModified` when the name is recorded. An unrecorded name returns
-`ownedByUser`. Hosts must not silently upgrade legacy records from the current
-file or append the displayed hash to `owned` to authorize an explicit action.
-
-When supplied, `expectedHash` means the **full `sourceHash` of the original
-entry displayed to the user**, not `definitionHash`. It is checked against the
-current entry before unchanged-definition or ownership early exits; a missing
-entry or different hash returns `externallyModified`, even if a newer ownership
-ledger matches the current file or the desired modeled definition is unchanged.
-An exact match authorizes an explicit edit/remove of that original even when
-it is not owned. For rename, it refers to `previousName`, and cannot authorize
-an unrelated existing destination; destination ownership checks still apply.
-
-The response is `{ content, changed, action, conflict, definitionHash?,
-sourceHash?, toolFilters? }`. Actions are `inserted`, `updated`, `unchanged`, `removed`, `absent`,
-or `conflict`; conflicts leave the input unchanged. Successful set plans return
-both hashes computed by parsing the actual output entry, including preserved
-unknown fields. Unchanged set plans also return the current entry's hashes;
-removal can return the old definition hash for filter retention; absence has no entry hashes. Hashes sent on the draft server
-are never trusted as write output or persisted into Agent configuration.
-
-The MCP server library is planned by three Core commands; hosts only discover
-paths, read and atomically write files, persist the ledger and localize codes.
-Each takes `files: LibraryFile[]` (at most 16, unique `id`), where a file is
-`{ id, source: "codex" | "claude", scope, projectPath?, path, content?: string |
-null, owned: LedgerEntry[] }`. `id` is the host's opaque ledger key and `path`
-the native path that keys retained tool filters. A ledger entry is `{ name,
-definitionHash, sourceHash?, toolFilters?: { <path>: {enabledTools?,
-disabledTools?} } }`; it never contains env/header values.
-
-`mcp.librarySnapshot` accepts `{ files }` and returns `{ rows, failures }`. Rows
-merge every parsed server by `name#definitionHash` (`id`), carry the definition
-from the first source in host file order, `sources: [{ file, definitionHash,
-sourceHash, ownedByLithe }]`, `hasDefinitionConflict` (another global entry
-with the same name has a different definition) and `projectOnly`. A source is
-owned when a ledger entry records its name and complete `sourceHash`. Rows are
-ordered by natural, case-insensitive name (digit runs compare numerically, bytes
-break ties), then global before project-only, then definition hash. A file that
-fails to parse contributes no rows and appears in `failures: [{ file, code,
-message }]` without echoing content; hosts report their own read failures.
-
-`mcp.validateDraft` accepts `{ draft: { name, transport, command, url,
-arguments, env, headers, enabledAgents, setup? } }` and returns `{ issues:
-[{ field, code }], definition }`. Issues are ordered by display priority:
-`name`/`nameRequired` or `nameInvalid` (`^[A-Za-z0-9][A-Za-z0-9._-]*$` after
-trimming), `enabledAgents`/`agentsRequired`, `env` or `headers`/`duplicateKeys`
-(active transport only, blank keys ignored), `command`/`commandRequired`,
-`url`/`urlInvalid` (an absolute URL with a host), then featured setup:
-`headers`/`bearerTokenRequired` (one `Authorization: Bearer <token>` value,
-scheme case-insensitive) or `arguments`/`allowedDirectoriesRequired` (at least
-one POSIX, drive or UNC absolute folder after the two fixed arguments).
-`definition` is the normalized server a save writes — trimmed name, command or
-URL, only the active transport's fields, blank keys dropped, entries sorted by
-key — or `null` while issues remain. Values are never echoed in issues.
-
-`mcp.batchPlan` accepts `{ files, intent }`, with `intent` one of:
-`{ kind: "save", draft, original?: { name, sources: [{ file, sourceHash?,
-ownedByLithe }] } }`, `{ kind: "setAgent", definition: McpServer, agent,
-enabled }` or `{ kind: "delete", name, files: string[] }`. `save` validates the
-draft as above, removes the captured original from every global source whose
-Agent is no longer enabled (requiring the captured `sourceHash` and a ledger
-entry with that exact hash), and sets the definition in every global file whose
-`source` is enabled, passing the captured hash as `expectedHash` and renaming
-from the original name where the original existed. `setAgent` targets the first
-global file of `agent`; `delete` removes the name from the listed files. Each
-file's operations are planned in order with `mcp.planWrite` rules against the
-previous output and the evolving ledger. The response is `{ status: "invalid",
-issues }`, `{ status: "rejected", rejection: { code, name, file } }` with code
-`notOwned`, `externallyModified` or `agentHasNoGlobalConfiguration` (`file` is
-the conflicting file, or `null` for draft-level checks), or `{ status: "ready",
-changes: [{ file, changed, content?, owned, renames: [{ from, to }] }] }` in
-host file order. `content` is present only when changed; `owned` is the file's
-next ledger (unchanged files return their input ledger). Hosts write every
-changed file as one rollback batch and publish ledgers and renames only after
-the whole batch succeeds. `shared/fixtures/mcp/library-v1.json` holds the shared
-cases; its `{{sourceHash:<file>:<name>}}` placeholders are resolved from the
-parsed fixture files.
-
-### Agent adapters
+The MCP configuration and library commands were removed with the agent-facing MCP
+subsystem: `mcp.parseConfiguration`, `mcp.parseRegistry`, `mcp.featuredRegistry`,
+`mcp.planWrite`, `mcp.toolPolicy`, `mcp.commandLine`, `mcp.librarySnapshot`,
+`mcp.validateDraft` and `mcp.batchPlan` no longer exist, together with
+`shared/fixtures/mcp` and `shared/contracts/mcp-registry-page.json`. The IDE-facing
+MCP server (`lithe-mcp` plus `shared/fixtures/ide-api/mcp-protocol.json`) is
+unaffected and stays in Rust Core's `lithe-ide-host`.
+### AI configuration
 
 `ai.configuration.sources` takes `{source, home, environment}` (`source` is
 `codex` or `claude`, `home` an absolute path, `environment` only the directory
@@ -1138,189 +397,6 @@ for editor drafts: it ignores the environment, accepts blank or partial text and
 keeps missing endpoint/model fields empty. The shared cases are in
 `shared/fixtures/ai/cli-configuration-v1.json`. It replaces the former
 `agent.parseProviderConfiguration`.
-
-`agent.edits.reversePlan` takes `{diffs, disk}` (normalized edit evidence plus the
-current file text, or `null` when the file is missing) and returns the rollback
-plan or a conflict; it never touches the file system. Path containment, encoding,
-guarded writes and Trash stay with the platform. Cases are in
-`shared/fixtures/agent/edit-review-v1.json`.
-
-`agent.instructions.read` takes `{agentId}` (`codex-acp` or `claude-acp`) and
-returns `{agentId, path, content, exists, revision}`. It does not create files.
-`agent.instructions.save` takes `{agentId, content, expectedPath, expectedRevision}`.
-The host resolves the native user profile again and rejects a changed effective
-path or byte revision before replacing the file. The result is a fresh effective
-snapshot: clearing a Codex override may return the base `AGENTS.md` instead.
-No prompt injection, account settings, repository files, or native history are
-modified. Files must be regular UTF-8 files at most 1 MiB; terminal symlinks are
-rejected. Read-only files cannot be overwritten. Existing file permissions are
-preserved; Unix new files use `0600` and new directories use `0700`.
-Save staging is a sibling temporary file removed on completion/failure.
-Other Lithe saves are serialized by a non-waiting lock; external writers do not
-share it, so revision checks are optimistic rather than an OS-wide transaction.
-Errors use the existing envelope codes with stable `details` reasons including
-`unsupported_agent`, `file_access`, `unsafe_file`, `file_changed`, `file_too_large`,
-`invalid_utf8`, `profile_missing`, `profile_relative`, and `busy`.
-The fixture is `shared/fixtures/agent/agent-instructions-v1.json`.
-
-`agent.instructions.shared` takes a platform-selected absolute `dataDirectory`
-from the writable application-support adapter plus one tagged action:
-
-- `read`: returns `{file, agents}` without creating files. `file` is the shared
-  `Shared.md` snapshot; each Agent reports `{agentId, file, enabled, needsSync,
-  ownLineCount, issue}`. A native read or marker failure sets `enabled: null` and
-  an actionable issue rather than claiming disabled.
-- `save`: takes `content`, `expectedRevision` for Shared.md and `files` guards
-  (`{agentId,path,revision}`) for targets. It saves the shared source, then updates
-  already-enabled native targets. A failed target retains its bytes and an issue;
-  other targets continue. `needsSync` compares the actual block with the saved source.
-- `setEnabled`: takes `agentId`, `enabled`, the shared `expectedRevision` and one
-  `file` guard. It inserts/replaces or removes only the Lithe-delimited block in the
-  effective native file; it never disables the Agent or removes its own instructions.
-
-Marker tokens are `<!-- LITHE:SHARED-INSTRUCTIONS:BEGIN -->` and
-`<!-- LITHE:SHARED-INSTRUCTIONS:END -->`. The owned range includes its separator
-newlines, so disabling restores the original bytes. Duplicate, incomplete or edited
-markers are rejected; shared content may not contain the marker tokens. Native
-source selection, size, permission, symlink and optimistic revision guards remain
-those of `agent.instructions.save`. A nonblocking OS file lock in `.sync.lock`
-serializes shared writes across app processes. Shared.md uses the same 1 MiB bound,
-private Unix modes and atomic replacement; source/target commits are individually
-atomic and partial success is explicit. Cancellation stops remaining targets and the
-next page read reconciles actual state. None of these files is a build cache or
-installed resource. The fixture is `fixtures/agent/shared-instructions-v1.json`.
-
-`agent.hooks` manages a platform-owned writable Hook library. Requests take
-`dataDirectory` and a strict `action`: `read`, `save`, `remove`, or `sync`.
-Mutations require `expectedRevision` and native `files` guards containing
-`agentId`, `path`, and `revision`. Guard paths never select write destinations:
-Agent Host resolves `CODEX_HOME/hooks.json` and `CLAUDE_CONFIG_DIR/settings.json`
-using native profile defaults when environment overrides are absent.
-
-`save` also takes `hook`: a UUID `id`, unique ASCII `name` (1–80 letters,
-digits, hyphens or underscores), `description` (at most 200 Unicode scalars),
-`event` (`turn-end`, `after-tool`, `before-tool`, `prompt`, `session-start`),
-`matcher` (`all`, `shell`, `edit`), nonempty UTF-8 `command` (at most 32768 bytes),
-nullable `timeoutSeconds` (1–86400, null inherits the native default), selected
-`agents` (`codex-acp`, `claude-acp`), `enabled`, and `pendingRemoval: false`.
-Only tool events accept a non-`all` matcher. `remove` takes `id`; `sync` retries
-the existing desired state. Neither configuration management nor reading the
-library executes commands or grants native trust.
-
-The result contains source `revision`, flattened `hooks` with actual
-`configuredAgents` and `needsSync`, plus `targets` containing `agentId`, nullable
-`file` guard, nullable `issue`, and `disabled` (Claude's `disableAllHooks`).
-Native configuration contents, which can include secrets, are never returned.
-Desired state is committed before target writes; target failures remain visible
-and removal failures retain a `pendingRemoval` row. A nonblocking OS file lock
-coordinates library writers. Each bounded UTF-8 file replacement is guarded and
-atomic; cross-file synchronization is explicitly partial, with write-ahead
-ownership records permitting recovery after interruption. Native duplicate JSON
-keys, malformed JSON, symlinks, nonregular files and changed snapshots are rejected.
-Existing unknown JSON values survive writes, while formatting is normalized.
-
-Only exact recorded placements can be retired. Native groups are cleared to
-`{"hooks":[]}` instead of compacted, preserving Codex's index-based trust keys.
-Unchanged commands keep their original positions; edited commands do not inherit
-trust. A matching user-owned entry is never claimed or duplicated. Codex still
-requires native Hook enablement and approval in `/hooks`; `configuredAgents`
-does not claim execution. Source, ownership journal, lock and temporary siblings
-are user state outside installed resources and cannot be reused across worktrees.
-The shared fixture is `shared/fixtures/agent/hooks-management-v1.json`.
-
-`agent.hooks.validateDraft` validates an unsaved editor draft without reading or
-writing files, using the same rules `save` enforces in Agent Host. The payload is
-`{hook, existingHooks}`: `hook` has `id`, `name`, `description`, `event`, `matcher`,
-`command`, `agents` and the raw `timeoutText` of the timeout field (empty inherits
-the native default; only ASCII digits are integers), and `existingHooks` lists
-library rows as `{id, name}` for the case-insensitive unique-name rule. The result is
-`{valid, issues, timeoutSeconds}`: `issues` holds at most one `{field, code}` per
-field in editor order, and `timeoutSeconds` is the parsed value platforms store when
-saving (null when empty or rejected). Fields and codes: `id` `invalid`; `name`
-`required`, `too_long`, `invalid_characters`, `duplicate`; `description` `too_long`;
-`matcher` `incompatible_event`; `command` `required`, `too_long`, `contains_nul`;
-`timeout` `not_integer`, `out_of_range`; `agents` `required`, `unsupported`,
-`duplicate`. Platforms localize `agent.hooks.draft.<field>.<code>` and enable saving
-only when `valid`. A malformed payload fails with `invalid_request`. The fixture is
-`shared/fixtures/agent/hook-draft-validation-v1.json`.
-
-`agent.status`, `agent.install`, `agent.uninstall`, and `agent.installCli` manage ACP adapters in
-`<dataDirectory>/agents/<agentId>`, using the Node.js and npm the user installed.
-Lithe never installs Node.js or npm; the agents' own command-line tools are installed only through `agent.installCli` on an explicit user action. `agent.status`
-detects Node.js and npm through the login shell's `PATH` and lists every
-supported agent with its pinned version, installed version, provider protocol,
-and blocking issues. Each adapter also reports optional `updateAvailable`: true only when the verified catalog version is strictly newer than the installed version under SemVer precedence, false for equal or newer local versions, and absent for missing or unparseable versions. Build metadata does not affect precedence. This target remains Lithe's verified catalog version, not an unverified latest registry version. Hosts must not derive updates from version-string inequality. Adapters that drive the agent's own CLI (Codex, Claude Code) report the
-CLI found on that `PATH` with its minimum version; they are installed with
-`--omit=optional`, so their bundled CLI copy is not downloaded, and are launched
-with the user's CLI through the adapter's variable (`CODEX_PATH`,
-`CLAUDE_CODE_EXECUTABLE`). A missing or
-too old CLI is an issue for the user to resolve, never installed by Lithe.
-For every catalog CLI, `cli.installation.updateAvailable` is `true` only when the verified
-installation owner reports a newer release, `false` when no newer release is found
-(npm's published version or Homebrew's local index), and absent when the check is
-unavailable. Optional `cli.installation.availableVersion` retains the actual target returned by that same query: npm's published version or the matched Homebrew entry's `current_version`. Hosts display the detected current version and confirmed target together, including in the collapsed CLI row. If Homebrew confirms an outdated package without supplying its target version, hosts show an unknown target rather than inferring one from the installed version. Empty Homebrew outdated results do not provide a latest version. Failed read-only probes include optional `cli.installation.updateCheckError` with a bounded diagnostic reason; unavailable native protocols remain unknown without pretending to have checked the latest version. It does not change `canUpdate`, which only describes whether Lithe can
-safely invoke that owner. npm checks query the verified update target, including
-its explicit `@latest` tag; Homebrew checks query the verified owning package and
-do not refresh the local index automatically. Native installers without a
-read-only version protocol report an absent value; checks never execute an
-updater or substitute a different release channel. New catalog CLIs reuse this
-source-based check without command-name branches.
-`agent.install` runs `npm install` into a staging directory
-and replaces the previous install only after the adapter executable exists; it
-honors `operationId` cancellation and `timeoutMilliseconds`. Failures use
-`runtime_missing` (Node.js or npm unusable), `process_failed` (npm failed, with
-its output tail), `invalid_request`, `cancelled`, or `timed_out`. Payloads and
-results are fixed by `shared/fixtures/agent/agent-management-v1.json`.
-
-`agent.installCli` resolves the current PATH executable and its installation
-owner again on each explicit action. A missing CLI uses npm; an existing npm CLI
-requires the selected npm's global root, package manifest/bin and active link
-to agree before `npm install -g <package>@latest`. Homebrew requires the active
-target to belong to its reported Caskroom/Cellar and an installed package receipt;
-it runs `brew upgrade --cask/--formula <owning-package>`, retaining the installed
-channel. A standard Claude native launcher uses `claude update`. Unknown,
-broken, unrecorded, or mismatched Node/npm installations require manual updating;
-there is no force overwrite, installer migration or automatic npm fallback.
-After completion, the host refreshes the login-shell PATH and requires the CLI
-selected there to meet the adapter's minimum version before returning `cliVersion`.
-The successful response also includes optional `updaterWarning` (null for a clean
-exit, a bounded output tail for a recovered installer failure). A nonzero exit
-can succeed only if the CLI is now present and usable, and its numeric version
-strictly increased compared with the pre-update CLI (or it was previously absent).
-An unchanged, downgraded, missing or still-too-old CLI remains `process_failed`;
-cancellation, timeout and process-start failure never recover through a version
-probe. Hosts show the verified version as success and keep any warning/log separate
-from errors. Older responses without `updaterWarning` decode as a clean result.
-Node.js and npm remain user-managed. Detection is read-only and locally bounded.
-
-`agent.status` includes optional `cli.installation` with `source` (`npm`,
-`homebrew`, `native`, `missing`, `unknown`), `canUpdate`, and display-only
-`updateHint`. Hosts show the source and guidance, and offer automatic update
-only when `canUpdate` is true. The hint is never executable input. Absent fields
-remain backward compatible with older hosts. Windows installer/shim ownership
-has not been verified; unrecognized installations use the manual path.
-The minimum CLI version is a compatibility requirement, not a latest-version
-check. For all CLIs, macOS offers Update only when `canUpdate` and
-`updateAvailable` are both true, including when the preflight row is collapsed.
-A false or absent `updateAvailable` hides that action, even for a CLI below the adapter's minimum version; compatibility warnings and manual guidance remain visible. Hosts show loading and completion on every refresh, retain old detection data on failure with the failure reason, and hide stale update actions until a subsequent successful check.
-After a successful update, users reconnect the Agent to start the updated CLI
-and obtain its model catalog; existing conversations are not interrupted automatically.
-
-`agent.install` and `agent.installCli` publish `agentInstallProgress` through the
-existing synchronous `execute_json_with_events`/C ABI event callback. Each event
-carries the request's `operationId` and a `progress` object: `stage` (`preparing`,
-`downloading`, `installing`, `updating`), `downloadedBytes` (received archive body bytes),
-`bytesPerSecond` (most recent sample), `elapsedMilliseconds`, and
-`idleMilliseconds` (since the last archive bytes). Counters contain no URLs,
-headers, credentials, or paths. npm still owns fetching, proxies, retries, cache,
-and extraction. A built-in Node observer counts bytes without consuming its
-stream and restores inherited `NODE_OPTIONS` before npm starts child scripts.
-No total or overall percentage is supplied: npm can discover additional packages
-and may use cached packages. Events stop before the final response, including
-failure, timeout, and cancellation. Hosts reject stale operation IDs and clear
-live counters at completion. Examples are in `agent-management-v1.json`.
-Homebrew and native updaters emit `updating` with zero transfer counters: their
-package manager owns the download and Lithe does not infer bytes from logs.
 
 | Command | Purpose |
 | --- | --- |
@@ -1358,8 +434,10 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `workspace.replacePreview` | Return deterministic replacement lines and complete replacement text |
 | `workspace.replaceText` | Plan replacement against a host-captured text snapshot without writing |
 | `workspace.searchTextBatch` | Search provider-captured text snapshots using workspace matching rules |
-| `file.read` | Read a UTF-8 file using a workspace-relative path |
-| `file.write` | Write a UTF-8 file using a workspace-relative path |
+| `file.read` | Read a text file using a workspace-relative path; optional `encoding`, see [File encodings](#file-encodings) |
+| `file.write` | Write a text file using a workspace-relative path; optional `encoding` and `bom` |
+| `text.decode` | Decode `{ bytes }` (standard base64 of bytes the host read) like `file.read`, optional `encoding`; returns `{ text, encoding, hasBom, lossy, identity }` with the same 32 MB, plain-text and detection rules |
+| `text.encode` | Encode `{ text }` like `file.write`, optional `encoding` and `bom`; returns `{ bytes, encoding, hasBom, identity }` with `bytes` in standard base64. Nothing is written, and an unmappable character fails with `encoding_unmappable` as `file.write` does |
 | `document.lifecycle` | Reduce a shared document save, external-change, or conflict event without reading text or disk |
 | `document.planSaveBatch` | Select the open documents a Save All or save-before-launch batch writes |
 | `document.reduceSaveBatch` | Reduce save batch member outcomes and live documents into one batch status |
@@ -1376,7 +454,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `diff.compareTexts` | Compare two host-supplied texts line by line into paired side-by-side rows and unified lines |
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.launchPlan` | Produce a deterministic Maven invocation from a versioned project context |
-| `execution.resolveEnvironment` | Merge native `inherited` string values, selected `javaHome`/`mavenJavaHome` for the current `toolchain`, and `overrides` into `{ environment }`. `caseInsensitive: true` canonicalizes Windows keys to uppercase. Maven uses Maven JDK with project-JDK fallback; Java uses project JDK. String overrides win; structured `{ toolchain, property: "home" }` bindings use the current step's home for JAVA_HOME, and the named toolchain for other variables. Unknown bindings are omitted. |
+| `execution.resolveEnvironment` | Merge native `inherited` string values and `overrides` into `{ environment }`; string overrides win. Core names no tool: a runtime home such as `JAVA_HOME` reaches a launch through the selected toolchain installation (`toolchains.*`), which the host applies before this merge, or as a literal override from the plugin that owns the toolchain. A structured `{ toolchain, property }` value the host could not resolve to text has no defined value and contributes nothing. `caseInsensitive: true` canonicalizes Windows keys to uppercase. |
 | `execution.resolveSearchPath` | Preserve existing path precedence, sort platform candidates by priority and identity, and deduplicate using the requested case policy. |
 | `execution.planLaunchCommand` | Move oversized Java path-list options into a JDK argument file |
 | `processLifecycle.resolve` | Decide how each process or resource of one Lithe instance ends |
@@ -1422,6 +500,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.activationPolicy` | Decide whether a language server may start automatically after failures, using a platform monotonic clock |
 | `lsp.problems.query` | Filter, order, and group Problems tool-window diagnostics and count them by severity |
 | `lsp.documentUri` | Convert a native absolute path into a canonical file URI |
+| `lsp.documentIdentity` | Resolve a diagnostic URI or path strictly inside its workspace |
 | `lsp.startServer` | Start one Rust-owned process/session and begin initialization |
 | `lsp.jdtWorkspaceKey` | Derive the deterministic JDT LS workspace-state directory key |
 | `java.workspacePolicy` | Decide Java workspace activation and classify changed paths |
@@ -1568,7 +647,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `diagnostics.configureCoreEvents` | Set the DEBUG admission gate for Core log facts from host detailed-diagnostics state |
 | `diagnostics.redactText` | Redact credentials, tokens, and home-directory paths from diagnostic-bundle text |
 | `diagnostics.buildManifest` | Shape a deterministic diagnostic bundle manifest from host-gathered environment and file facts |
-| `plugins.declarative.validate` | Validate and normalize a declarative plugin manifest (plugin contract v1) |
+| `plugins.declarative.validate` | Validate and normalize a declarative plugin manifest |
 | `plugins.declarative.runPlan` | Expand a declarative plugin's run template for one workspace file |
 | `plugins.declarative.discoverTests` | List a declarative plugin's workspace and file test items |
 | `plugins.declarative.testPlan` | Expand a declarative plugin's test template for a workspace, file, or test case |
@@ -1579,12 +658,18 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `debug.adapters.startArguments` | Check one debug start against a plugin's `debugAdapters[]` entry and return its DAP launch arguments |
 | `debug.adapters.executablePlan` | Say where to look for the program a launch debugs: the user's setting and the adapter's candidate paths |
 | `plugins.declarative.resolveSettings` | Merge a plugin's stored global and project setting layers into effective values with their source |
+| `plugins.installed.select` | Select numeric installed versions from native facts without reading paths |
+| `plugins.declarative.settingsState` | Read complete plugin preference documents into Core-normalized rows, sources, and bounded native read plans |
+| `plugins.declarative.editSettings` | Validate one atomic setting edit batch and return replacement text while preserving unrelated plugins and dormant values |
 | `plugins.declarative.workspaceConfiguration` | Expand a language server's `workspaceConfiguration` with the merged setting values |
-| `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
 | `toolchains.registry` | Revalidate complete enabled plugin manifests, `{plugins:[{manifest}]}`, into a deterministic tool-definition/provider registry; the host supplies no origin evidence. A short tool ID defined by several enabled plugins belongs to none of them: none of those definitions is registered, the rest register as usual, and `conflicts: [{tool, pluginIDs}]` (sorted by tool, `pluginIDs` sorted) reports each contested tool. A repeated plugin ID rejects the batch. No native host capability claim |
 | `toolchains.decodeReply` | Validate an inert toolchain query/reply pair against bound provider identity, generation, declared tools and host-native filesystem evidence; no transport or native I/O |
 | `toolchains.failureReply` | Build the JSON-RPC error reply for a query that missed its deadline or found no backend, so the host passes it to `toolchains.decodeReply` like a provider's own error; cancellation has none |
 | `toolchains.resolvePins` | Validate a captured local document and find the nearest ancestor directory pin, retaining dormant and legacy entries without probing or writing |
+| `toolchains.editPins` | Apply one bounded batch of directory pin edits to a captured local document without writing native files |
+| `toolchains.pinStoragePlan` | Declare bounded workspace-native pin and ignore sources |
+| `toolchains.decodePinDocument` | Validate a complete native source or supply the absent-source default |
+| `toolchains.editPinSources` | Plan deterministic pin and Git ignore source edits without native I/O |
 | `toolchains.resolveConsumerPreferences` | Validate an inert consumer preference document and resolve one tool's explicit Run, consumer, directory or workspace choice while keeping workspace/consumer inheritance symbolic; no native files or launch authority |
 | `toolchains.editConsumerPreferences` | Edit or reset one exact consumer/directory tool preference; return the document and effective input without native writes |
 | `toolchains.resolve` | Resolve the fixed/project/global/automatic layers from one generation-bound snapshot, retaining unmet requirements, unavailable providers with their cause, conflicts and terminal fixed-value failures |
@@ -1592,7 +677,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `toolchains.instantiateLaunch` | Expand an enabled tool definition's `launch` template for a selected executable, entry, runtime arguments and arguments; a part the template cannot carry is `plugin.toolchain.launchMismatch`; performs no I/O |
 | `toolchains.discoveryPlan` | Return platform-filtered definition-owned scan declarations, layouts, probes, PATH entries, login-shell home variables and budgets; never scans native directories |
 | `toolchains.candidates` | List one tool's login-shell homes and host-scanned installations with checked executables, versions or skip reasons, and the automatic-layer choice; never starts a probe |
-| `plugins.declarative.decodeGrammar` | Validate independent static editor resources (`languages` 2) |
+| `plugins.declarative.decodeGrammar` | Validate independent static editor resources |
 | `plugins.editorActions.decode` | Validate independent action registration, collection or click results |
 | `plugins.hostApi.describe` | Describe backend host methods and their required grants from Core's method table |
 | `plugins.hostApi.authorize` | Check a method, service and current session grants using Core's capability rules; the host still checks session and resource ownership |
@@ -1608,7 +693,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `build.checkToolVersion` | Decide whether a build tool's or runtime's version output meets the declared minimum |
 | `build.resolveModelInputs` | Validate enabled producer facts and project a bounded public model snapshot for a declared consumer |
 | `build.resolveOptions` | Check stored build options against the declaration and return effective values, choices, and the fingerprint |
-| `build.configurationPlan` | Plan a read of the provider's non-sensitive native configuration (v7) |
+| `build.configurationPlan` | Plan a read of the provider's non-sensitive native configuration |
 | `build.decodeConfiguration` | Validate native source identities, raw/effective values and XML bindings |
 | `build.configurationEditPlan` | Plans format-independent provider editing into private host staging |
 | `build.decodeConfigurationEdit` | Validates the receipt without native document bytes |
@@ -1619,7 +704,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `build.decodeTestDiscovery` | Validate, deduplicate and order Provider test selectors |
 | `build.prepareRunPlan` | Plan Provider-owned application/service/task preparation from a model target |
 | `build.decodeRunPreparation` | Validate portable launch data before the native Run host starts a process |
-| `build.prepareDebugPlan` | Plan same-plugin native debug preparation (Provider v5) |
+| `build.prepareDebugPlan` | Plan same-plugin native debug preparation |
 | `build.decodeDebugPreparation` | Validate an existing instance-contained native debug program and bounded process facts |
 | `build.dependencyPlan` | Expand the command that prints a project's dependency tree, or the request a build provider answers |
 | `build.decodeModel` | Decode model output or a provider result into projects, targets, tasks, content roots, option values, and run entries |
@@ -1926,8 +1011,9 @@ is active; it does not wait behind a mutex outside its cancellation deadline.
 
 Git requests may include optional envelope metadata `gitExecution`:
 `{ executable?: string | null, interactive?: boolean, useCredentialHelper?: boolean,
-fetchDefaults?: GitFetchOptions, detailedFetch?: boolean, source?: "user" | "background" | "unknown" }`. Defaults are PATH,
-noninteractive, helper enabled, normal Fetch defaults, and legacy Fetch results.
+fetchDefaults?: GitFetchOptions, detailedFetch?: boolean, source?: "user" | "background" | "unknown",
+reportQueries?: boolean }`. Defaults are PATH, noninteractive, helper enabled, normal
+Fetch defaults, legacy Fetch results, and silent internal queries.
 An executable must be an absolute native path to Git 2.31 or newer. Interactive
 commands require an event receiver. These values are request-scoped, including
 nested requests, and never implicitly persist. Both current applications opt
@@ -1962,6 +1048,18 @@ retry selected it. Config commands are exempt so provenance is not obscured.
 Fetch's existing explicit flags remain in the argument vector for compatibility.
 `LC_ALL=C`, pager suppression and no terminal prompting are child-local policy.
 Transfer progress is requested explicitly. No config file is implicitly modified.
+
+Because every Git child runs with `LC_ALL=C` and no terminal prompting, its
+authentication diagnostics are fixed English text whatever the system language.
+A failed `git.write` response (non-zero `exitCode`, or an `operationError` with
+code `process_failed`) whose Git stderr shows the remote refused or lacked
+credentials (`Authentication failed`, `could not read Username/Password`,
+`Permission denied (publickey…)`, HTTP 401/403, GitHub `Permission to … denied
+to …`) reports `operationError.code = "git_authentication_failed"`. When Core
+adds that error to a response that had none, `message` is the first stderr line
+and `details` the combined output; an existing message and details are kept.
+Other failures keep their codes, so hosts must not match stderr themselves.
+Samples: `shared/fixtures/git/authentication-failure-v1.json`.
 
 `git.remoteUrl` accepts `{ root, remote }` and returns `{ url: string | null }`.
 It uses the internal configuration-read path: a missing key is successful and
@@ -2037,7 +1135,7 @@ Each event has `operationId` and `type`:
 | `started` | `invocationId`, `workingDirectory`, `arguments`, nullable resolved `executable`, `temporaryConfig` key/value pairs, `displayArguments`, `globalArguments`, `source` |
 | `output` | `invocationId`, `stream` (`stdout`/`stderr`), `text`, `progress`, `truncated`, optional `progressDetails` (`stage`, nullable `percent`, `completed`, `total`) |
 | `finished` | `invocationId`, nullable `exitCode`, monotonic `durationMilliseconds`, nullable `error`, `expectedExit` |
-| `requestFinished` | nullable `error`, including failures before a child started |
+| `requestFinished` | nullable `error`, including failures before a child started; `unconfirmedInvocations`, the started records without `finished`; `failureRecord`, true when `error` is set, is not a cancellation, and no record of the request failed or is unconfirmed, so the host shows the error as its own record |
 | `authentication` | `requestId`, `prompt`, `secret`, `attempt`, optional `retry`, `workingDirectory` |
 | `remoteResult` | `remote`, `succeeded`, nullable structured `error`, updated/deleted reference lists and counts, `referencesTruncated`, `referencesAvailable` |
 
@@ -2049,7 +1147,8 @@ unknown exit status remains null. A failed start may produce `finished` without
 Native journals track `requestStarted` separately from visible command records.
 The native receiver retains the originating request directory so a failure before
 `started` can be shown as an unconfirmed request with no fabricated arguments or
-exit code. Successfully completed internal queries still produce no history row.
+exit code. Successfully completed internal queries still produce no history row
+unless they were reported through `gitExecution.reportQueries`.
 A request that ends with the `cancelled` error before any command started was
 superseded, not a Git failure, and also produces no row; a cancelled request that
 had started a command keeps that command with the cancellation as its reason.
@@ -2073,9 +1172,19 @@ fold contiguous `-c` pairs at their original positions; other global arguments
 stay visible. Raw `arguments` remain authoritative for copying and diagnostics. Older events without projections retain their legacy display.
 Visible workflow commands and explicit `git.command` requests produce execution
 events. Internal read-only queries remain silent in the console while retaining
-normal workflow capture and result semantics. Missing optional config values retain their
-actual exit 1 with `expectedExit: true`; only the executing workflow can mark that
-normal result. Other nonzero exits and request errors remain failures. The
+normal workflow capture and result semantics, unless the request sets
+`gitExecution.reportQueries`: then each query produces the same `started`, `output`
+and `finished` events as a visible command, so the console records what the
+workbench read. Queries of a request whose provenance is `background` (an
+automatic refresh or watcher, which runs too often to record) stay silent even
+then; provenance is `gitExecution.source`, or the envelope origin when that is
+unknown. Reported queries never authenticate or prompt; a query that needs
+credentials fails as it does when silent. A query whose nonzero exit answers its
+question, such as a missing optional config value, an absent ref or a path outside
+a work tree, retains its actual exit code with `expectedExit: true`; only the
+executing workflow can mark that normal result. Other nonzero exits and request
+errors remain failures. Output records separated by NUL, as `-z` output is, are
+published as separate lines. The
 `remoteResult` event carries the transfer's `invocationId` so later inspection
 queries cannot acquire its summary. Final command response semantics remain unchanged.
 
@@ -2140,7 +1249,7 @@ same status and races after the last check are not an atomic snapshot guarantee.
 `stashApply`, `stashPop`, `stashDrop`, `deleteRemoteBranch`, `operationContinue`,
 `operationAbort`, `operationSkip`, `createTag`, and `deleteTag`. Optional fields are `paths`, `reference`, `referenceKind`,
 `gitReference`, `revision`, `revisions`, `name`, `message`, `lightweight`, `signed`, `remote`, `destination`, `mode`,
-`includeUntracked`, `checkout`, `amend`, `force`, `pushTags`, `expectedPush`, `autoStash`,
+`includeUntracked`, `checkout`, `amend`, `author`, `signOff`, `force`, `pushTags`, `expectedPush`, `autoStash`,
 `worktreeMode`, `noCheckout`, `expectedBranch`, and `expectedState`. The four history actions require the reviewed `expectedState`
 described below; earlier unreviewed history-write callers must migrate.
 
@@ -2177,8 +1286,23 @@ and uses `--detach`. Independent `noCheckout: true` adds `--no-checkout` in
 every mode; its default is false, and legacy `checkout` does not control
 worktree file population. Examples are in
 `shared/fixtures/git/worktree-creation-v1.json`. Worktree mutations re-read Git's
-registered list and reject arbitrary paths. Removal rejects the current,
-primary, or locked worktree; dirty worktrees require an explicit `force` value.
+registered list before invoking Git, and each refusal has its own
+`operationError.code`, so hosts explain it without matching messages:
+
+| Code | Operations | Meaning |
+| --- | --- | --- |
+| `git_worktree_not_registered` | `removeWorktree`, `lockWorktree`, `unlockWorktree` | `destination` is not a registered worktree; the host's list is stale and should be re-read |
+| `git_worktree_primary` | `removeWorktree`, `lockWorktree`, `unlockWorktree` | `destination` is the primary worktree, which Git can neither remove, lock nor unlock; checked before the next two |
+| `git_worktree_current` | `removeWorktree` | `destination` is the worktree the request was made from; another worktree of the repository can remove it |
+| `git_worktree_locked` | `removeWorktree` | the worktree is locked; unlocking it first allows the removal |
+| `git_worktree_has_changes` | `removeWorktree` without `force` | Git refused because the checkout has modified or untracked files; `force: true` removes them with the checkout |
+
+`git_worktree_has_changes` is recognised from Git's fixed C-locale refusal
+(`contains modified or untracked files`) on a failed, unforced removal; its
+`message` is the first stderr line and `details` the combined output. Other Git
+refusals, such as a worktree containing submodules, keep the plain process
+failure. A malformed `destination` (empty, starting with `-`, or containing
+control characters) stays `invalid_request`.
 `repairWorktrees` refreshes administrative links after a repository or worktree
 has moved. `pruneWorktrees` removes registrations whose checkout is already missing and
 does not recursively delete an arbitrary directory.
@@ -2316,7 +1440,16 @@ mode includes staged, unstaged, untracked, deleted, and same-path recreated
 files without reading or mutating the real index and cannot be combined with
 other diff reference modes.
 A `commit` request without `paths` retains
-the legacy behavior of committing the existing index. `ignore` appends root-anchored patterns to the
+the legacy behavior of committing the existing index. `commit` also accepts
+`author`, the commit's author as an exact `Name <email>` (a name without
+surrounding spaces, one space and a nonempty email between angle brackets, with
+no whitespace in the email and no line breaks), passed as `--author`; the
+committer stays the configured identity. Any other value fails with
+`git_commit_author_invalid` before Git runs, because Git would read it as a
+pattern selecting an earlier author. `signOff: true` adds `--signoff`, a
+`Signed-off-by` trailer for the committer. Both apply with or without `paths`
+and with `amend`. Logs show the author as `--author=<author>`; the execution
+events keep the actual argument. `ignore` appends root-anchored patterns to the
 repository's top-level `.gitignore`; `exclude` appends the same patterns to the
 worktree-aware Git metadata path for `info/exclude`. Both ignore operations
 preserve existing content, escape Git pattern characters, de-duplicate rules,
@@ -3726,6 +2859,18 @@ returns deterministically sorted `expiredWorkspaceKeys` older than the fixed
 enumeration, revalidation, deletion, and error logging; Core performs no cache
 filesystem I/O. See `shared/fixtures/lsp/jdt-cache-retention-v1.json`.
 
+`lsp.documentIdentity` accepts `{ workspaceRoot, input, platform }` with the same
+`posix | windows | auto` path syntax. It returns `{ document: { path, relativePath } | null }`.
+`input` may be a file URI, native absolute path, or workspace-relative path.
+Core reuses URI normalization and workspace containment; `path` uses the native
+separator and `relativePath` uses `/`. File URIs decode percent escapes and
+`localhost`; Windows drive/UNC aliases use existing case rules. Empty identities,
+non-file URIs, URI queries/fragments, drive-relative/rooted-without-drive Windows
+paths, the workspace root itself and outside targets return null. Native roots
+must be absolute; invalid requests return `invalid_request`. This is lexical
+placement only: it performs no I/O and grants no symlink or file access permission.
+See `shared/fixtures/lsp/document-identity-v1.json`.
+
 `lsp.documentUri` accepts `{ path, platform }` and returns `{ uri }`. `platform`
 is `posix`, `windows`, or `auto`; `auto` recognizes drive and UNC paths and
 otherwise treats an absolute path as POSIX. Paths must be absolute, contain no
@@ -3805,38 +2950,41 @@ and virtual-location representation as ordinary navigation.
 `lsp.buildRequest` accepts `{ sessionId, operationId?, method, params,
 timeoutMilliseconds? }` and returns `{ operationId }`. `method` and `params`
 are the `provider` field of a `build.modelPlan`, `build.dependencyPlan` or
-provider-sourced `build.taskPlan`/`build.testPlan`, `build.testDiscoveryPlan`, or
-`build.prepareRunPlan` result. Version 1 accepts
-`lithe/build/model` and `lithe/build/dependencies`; version 2 adds
-`lithe/build/execute`, version 3 adds `lithe/build/test` with the same bounded
-execution lifecycle and `lithe/build/discoverTests` with the raw result lifecycle.
-Version 4 adds `lithe/build/prepareRun`, with execution progress but a raw launch
-plan passed to `build.decodeRunPreparation` before native process startup. Version 5 adds `lithe/build/prepareDebug`: raw native executable facts pass through `build.decodeDebugPreparation` and the existing DebugAdapter Registry, not private functions or a second DAP engine.
-Version 10 adds typed `launchOptions` for this run method and host-owned service/task
-preparation. These options require explicit version-10 negotiation before a
-request is written. The decoder accepts a workspace cwd outside the instance
+provider-sourced `build.taskPlan`/`build.testPlan`, `build.testDiscoveryPlan`,
+`build.prepareRunPlan`, `build.prepareDebugPlan`, `build.configurationPlan` or
+`build.configurationEditPlan` result. It accepts `lithe/build/model` and
+`lithe/build/dependencies`; `lithe/build/execute` and `lithe/build/test` with the
+same bounded execution lifecycle; `lithe/build/discoverTests` with the raw result
+lifecycle; `lithe/build/configuration` and `lithe/build/editConfiguration`; and
+`lithe/build/prepareRun`, with execution progress but a raw launch
+plan passed to `build.decodeRunPreparation` before native process startup.
+`lithe/build/prepareDebug` also reports progress: raw native executable facts
+pass through `build.decodeDebugPreparation` and the existing DebugAdapter
+Registry, not private functions or a second DAP engine.
+Typed `launchOptions` belong to the run method alone, together with host-owned
+service/task preparation; any other method carrying them is `invalid_request`.
+The decoder accepts a workspace cwd outside the instance
 only when it matches the same host-validated explicit option. Native debug
-preparation retains its existing application contract.
-Other methods are `invalid_request`; tasks on version 1
-and tests on versions 1/2 or run preparation on versions 1/2/3 are `not_supported`.
+preparation takes no launch options.
+Other methods are `invalid_request`.
 Every session offers
-`capabilities.experimental.litheBuild: { versions: [4, 3, 2, 1] }` in `initialize`; a
-session whose process did not answer one of those versions rejects the request
-with `not_supported`, so a shared provider that does not speak the protocol
-still serves its language. `timeoutMilliseconds` replaces the session's request
+`capabilities.experimental.litheBuild: { versions: [0] }` in `initialize`; a
+session whose process did not answer a version the host offered rejects the
+request with `not_supported`, so a shared provider that does not speak the
+protocol still serves its language. `timeoutMilliseconds` replaces the session's request
 timeout for this request and is capped at one hour. The `requestCompleted`
 event carries the provider's reply unchanged as `result.value`, which the host
 passes to `build.decodeModel` or `build.decodeDependencies` as `result`;
 cancellation and late results follow `lsp.cancelOperation`. Execution replies
 are validated as `{exitCode: Int32, output: string}` and progress is mapped
 from a Core-owned wire request ID to `requestProgress` for the still-pending
-operation. See the [provider execution contract](plugins/v1/README.md#provider-task-execution-buildproviders-2).
+operation. See the [provider execution contract](plugins/v1/README.md#provider-task-execution).
 
 `lsp.toolchainRequest` accepts `{ sessionId, operationId?, params,
 timeoutMilliseconds? }` and returns `{ operationId }`. `lsp.startServer` takes
 `toolchainProviders`, the manifest's provider IDs; only a plugin-owned session
-with some offers `capabilities.experimental.litheToolchains: { versions: [1],
-providers }`. A backend that answers `{ version: 1, providers }` with a non-empty,
+with some offers `capabilities.experimental.litheToolchains: { versions: [0],
+providers }`. A backend that answers `{ version: 0, providers }` with a non-empty,
 duplicate-free subset of the offer emits a `toolchainProviders` runtime event
 with `result: { providers }`; any other answer enables none. A request whose
 `params.providerID` was not negotiated is `not_supported` with details
@@ -3852,7 +3000,7 @@ tool?, arguments?, timeoutMilliseconds? }` and returns `{ operationId }`.
 operation name, never a method; Core checks `arguments`, adds the absolute
 `root` and `tool` paths, and writes the operation's `lithe/vcs/*` request.
 Only plugin-owned sessions offer `capabilities.experimental.litheVcs:
-{ versions: [1] }`; a session whose process did not answer with a VCS ID and
+{ versions: [0] }`; a session whose process did not answer with a VCS ID and
 every required capability, or answered another VCS than `vcs`, refuses the
 request with `not_supported` and details `vcs.provider.unavailable`, and an
 operation whose capability was not negotiated is `not_supported` with details
@@ -3877,8 +3025,8 @@ sessions refuse it with `invalid_request`.
 functionID }, params?, timeoutMilliseconds? }` and returns `{ operationId }`.
 It sends `lithe/function/invoke` to a session started with
 `lsp.startServer.pluginId` equal to `function.pluginID` that negotiated
-`capabilities.experimental.litheFunctions` version 1 or 2 and registered
-the function. `params` must be a JSON object and defaults to `{}`. Refusals are
+`capabilities.experimental.litheFunctions` and registered the function.
+`params` must be a JSON object and defaults to `{}`. Refusals are
 `invalid_request`, `not_supported`, or `permission_denied` with a
 `plugin.function.*` code in `details`, in the order the
 [plugin contract](plugins/v1/README.md#plugin-functions) defines. The
@@ -3902,13 +3050,17 @@ with `result: { functions, removed: [] }` after successful `initialize`
 negotiation, including an empty negotiated registry. Subsequent register and
 unregister requests publish
 `functionsChanged` with `result: { functions, removed }`; the current registry
-is `pluginFunctions` in the session's client state. Sessions without
+is `pluginFunctions` in the session's client state. A plugin-owned session offers
+`capabilities.experimental.litheFunctions: { versions: [0] }`; a reply negotiates
+the protocol only when it names a version the host offered. Sessions without
 `lsp.startServer.pluginId` neither offer nor accept `litheFunctions`, retain no
 registry, and publish no function-discovery events.
 
-A session that negotiated `litheFunctions` version 2 may send the
-[host-service requests](plugins/v1/README.md#host-services-protocol-version-2)
-its `hostServices` grant. Core checks method, grant, and params, then
+A session that negotiated `litheFunctions` may send the
+[host-service requests](plugins/v1/README.md#host-services)
+its `hostServices` grant. A session that did not negotiate it gets no host
+services: its requests are answered `plugin.host.unavailable` (-32601) and its
+notifications are dropped. Core checks method, grant, and params, then
 publishes the runtime event `hostRequest` with `method` and `result: {
 hostRequestID, service, params }`; refusals go back to the backend without an
 event. `lsp.hostResponse` accepts `{ sessionId, hostRequestID, result? }` or
@@ -3916,26 +3068,25 @@ event. `lsp.hostResponse` accepts `{ sessionId, hostRequestID, result? }` or
 `result` (default `null`) or `-32603` with `data.code: "plugin.host.failed"`
 to the backend. An unknown or already answered `hostRequestID` is
 `invalid_request`. At most 16 host requests are unanswered per session; more
-are refused with `plugin.host.failed`. From version 3 the error may also be
+are refused with `plugin.host.failed`. The error may also be
 `{ message, code?, details? }`: a host code reaches the backend with its own
 JSON-RPC number, and `details`, an object of at most 4 KiB, as
 `error.data.details`
-([failure codes](plugins/v1/README.md#workspace-contexts-and-capability-discovery-protocol-version-3)).
+([failure codes](plugins/v1/README.md#workspace-contexts-and-capability-discovery)).
 
-The macOS public document/file/window adapters use method-level grants for new
-permissions. Core intersects grants with its method table for capability discovery;
-macOS first intersects them with actual registered handlers. Legacy `workspace`
+The macOS public document/file/window adapters use method-level grants. Core
+intersects grants with its method table for capability discovery; macOS first
+intersects them with actual registered handlers. The `workspace` service grant
 never authorizes file methods. Host request/result JSON is bounded to 1 MiB;
-oversized v3 results return `plugin.host.limitExceeded`. See the plugin contract's
+oversized results return `plugin.host.limitExceeded`. See the plugin contract's
 public document, file and window method table for exact shapes and cancellation
-semantics. The underlying `PluginFunctionRequest` context and legacy SDK wire
-shapes remain compatible.
+semantics.
 
 `lsp.hostNotify` accepts `{ sessionId, method, params }` for a ready
 plugin-owned session and returns `{ delivered }`. Core sends the
-[host notification](plugins/v1/README.md#host-notifications-protocol-version-3)
-when the session negotiated version 3 and is granted its service, and returns
-`delivered: false` without sending for an older version. Another method, an
+[host notification](plugins/v1/README.md#host-notifications)
+when the session negotiated `litheFunctions` and is granted its service, and
+returns `delivered: false` without sending when it did not. Another method, an
 ungranted service, malformed or oversized params, a session that is not
 plugin-owned, or one that is not ready is `invalid_request` with the
 `plugin.host.*` code in `details`.
@@ -3977,11 +3128,12 @@ with `result: { serverID, method, params? }` for the host to relay as
 `remote: "unsupported"` fails with `not_supported` when the workspace is
 remote, before any process is started.
 
-A session that negotiated `litheFunctions` version 4 and holds the `functions`
+A session that negotiated `litheFunctions` and holds the `functions`
 grant may call another plugin's exported function through the
-[plugin-to-plugin relay](plugins/v1/README.md#cross-plugin-calls-protocol-version-4).
+[plugin-to-plugin relay](plugins/v1/README.md#cross-plugin-calls).
 Core runs the whole relay: it checks the declarations, keeps the call chain,
-writes the forwarded request, and answers the caller. `lsp.configureFunctionRelay`
+writes the forwarded request with the `caller` the callee receives, and answers
+the caller. `lsp.configureFunctionRelay`
 accepts the host's complete view and returns `{}`; every call replaces the
 previous view, and a call in flight that the new view forbids ends with an
 explicit `plugin.function.*` error.
@@ -4017,7 +3169,7 @@ explicit `plugin.function.*` error.
 the operation-specific URI, position, range, diagnostics, item, action, or
 command fields, and returns `{ operationId }`. Supported operations include
 completion and resolve, hover, definition/declaration/type-definition, references,
-implementation, rename, formatting, code actions and resolve, execute command,
+implementation, rename, formatting, range formatting, document symbols, code actions and resolve, execute command,
 inlay hints, full-document semantic tokens, folding ranges, code lens, provider
 virtual documents, `javaEntrypoints`, `javaTestItems`, and `javaMainMethods`.
 For code actions, `diagnostics` contains the original `LspClientDiagnostic`
@@ -4581,7 +3733,7 @@ configuration retains that execution kind when reopened. Process commands, toolc
 bindings and cached debug adapters are refused for `build.provider`. Generic args,
 environment and cwd overrides are user choices forwarded through typed launch options;
 explicit args replace older reference userArguments, including an empty array.
-An implicit selector-root cwd remains omitted from launch options for v4 compatibility. Current model membership is revalidated by the
+An implicit selector-root cwd remains omitted from launch options. Current model membership is revalidated by the
 native build workflow before every preparation. No generated document is needed:
 `runConfig.inspect` recognizes explicit saved team/local references and `runConfig.resolve`
 merges them against an empty generated layer. A workspace without generated data
@@ -4629,7 +3781,7 @@ Other extension namespaces and the selector remain intact. Re-saving the
 same selector preserves its working-directory override and portable choices.
 The production macOS store, Windows editor and preference copies carry the typed snapshot unchanged.
 See `fixtures/run-configuration/build-provider-options.json`; no new Provider RPC or
-SDK protocol version is needed, because preparation reuses accepted v10 launch options. Editor argument text uses quoting/escaping without expansion or execution; empty quoted tokens remain empty argv items. `fixtures/run-configuration/argument-text.json` is shared by Core and both editors.
+SDK protocol change is needed, because preparation reuses the accepted launch options. Editor argument text uses quoting/escaping without expansion or execution; empty quoted tokens remain empty argv items. `fixtures/run-configuration/argument-text.json` is shared by Core and both editors.
 
 `runConfig.providerLaunchInputs` takes `{root,configurationId,providerRoot,localDocument?}`
 and requires a complete `build.provider` selector. Unmigrated tool-specific records are rejected; only an isolated host import may translate their retired format. It resolves the same document layers for one preparation. It returns bounded typed
@@ -5283,9 +4435,12 @@ relevant facts with every call.
 and returns `{ "status": "ok", "plugin": object }` with the normalized
 manifest (names lowercased and sorted, argument order preserved), or
 `{ "status": "rejected", "error": { "code", "message", "field"? } }` with a
-stable `plugin.*` code. When the host sends the capability versions it runs,
-a level 3 manifest that requires another one is `plugin.api.unsupported`;
-levels 1 and 2 are unaffected. See Capability versions in
+stable `plugin.*` code. Every manifest declares `requires`, and a `requires`
+entry the Core build does not know, or whose version it does not support, is
+`plugin.api.unsupported`. When the host sends the capability versions it runs,
+a manifest that requires one the host lacks is `plugin.api.unsupported` too.
+Launches and executable resolution belong to the base contract, not to a
+capability, and are never listed in `requires`. See Capability versions in
 [`plugins/v1`](plugins/v1/README.md).
 
 `plugins.declarative.runPlan`, `plugins.declarative.discoverTests`, and
@@ -5298,14 +4453,16 @@ revalidate the manifest first. Their requests are respectively
 Success returns `plan` (`executable`, `arguments`, `workingDirectory`, plus
 `label` and `frameworkID` for tests) or `items`; refusals use the same
 `rejected` shape. Only a malformed payload is an `invalid_request` failure.
-`shared/contracts/plugins/v1/fixtures/` holds the golden cases.
+`Lithe-core-rust/shared/plugins/contract/v1/fixtures/` holds the golden cases.
 
 `plugins.declarative.languageServerLaunchPlan` accepts
 `{ "manifest": object, "languageID"?: string, "buildSystemID"?: string,
-"request": object }` with exactly one of `languageID` (a language server) and
-`buildSystemID` (a build provider); naming neither or both is an
-`invalid_request` failure. The request is `{ pluginDirectory, stateDirectory,
-workspaceStateDirectory, architecture, settings?, projectSettings? }`. The directories are absolute host paths used only
+"vcsProviderID"?: string, "backend"?: boolean, "debugAdapterID"?: string,
+"request": object }` with exactly one selector: `languageID` (a language server),
+`buildSystemID` (a build provider), `vcsProviderID` (a VCS provider),
+`backend: true` (the plugin backend), or `debugAdapterID` (a debug adapter).
+Naming none or more than one is an `invalid_request` failure. The request is `{ pluginDirectory, stateDirectory,
+workspaceStateDirectory?, logDirectory?, temporaryDirectory?, architecture, settings?, projectSettings? }`. The directories are absolute host paths used only
 as substitution text; the command does not read or create them. `settings` maps
 setting IDs to the values the user stored for every project, and
 `projectSettings` to the open project's overrides; a project value counts only
@@ -5315,7 +4472,7 @@ acceptable value falls back to the next layer and then the declared default. Suc
 `runtimeRequirements`, `requiredDirectories`, `requiredPackagePaths`, and
 `initializationOptions`, `hostIntegration`, `settings` (the effective
 values), and `workspaceConfiguration` (the server's expanded
-`workspaceConfiguration`, `languageServers` 2) when the plugin declares them. A `buildSystemID` plan adds
+`workspaceConfiguration`) when the plugin declares them. A `buildSystemID` plan adds
 `buildProvider: { buildSystemID, executesProjectCode, mayUseNetwork,
 languageServer? }`; with `languageServer` the plan is that language server's
 and the host reuses its session. An unknown
@@ -5324,7 +4481,12 @@ architecture or an empty directory is refused with
 build system, and a build system without a provider with
 `plugin.launch.unavailable`.
 
-A language server declared with `launch.kind: "backend"` (`serverProcess` 3) has
+A backend plan additionally returns `backend.hostServices`. These are the declared grants;
+the host must provide only services it actually implements and must verify the
+package and approved programs before starting the plan. A VCS or debug-adapter
+plan likewise includes its corresponding typed descriptor.
+
+A language server declared with `launch.kind: "backend"` has
 no command line in its manifest; the plugin's backend chooses it. The plan this
 command returns is then only the first step: `launch` is `{ kind: "backend",
 function, timeoutMilliseconds }` (30000 when absent) and `resolveParams` is the
@@ -5333,8 +4495,7 @@ arch }, stateDirectory, workspaceStateDirectory, logDirectory,
 temporaryDirectory, settings }`; the host adds `context` and, when the plugin
 declares tool definitions, `tools`. The request must carry all four of
 `stateDirectory`, `workspaceStateDirectory`, `logDirectory`, and
-`temporaryDirectory`, and the plan lists them in `requiredDirectories`. A server
-below `languageServers` 3 has no `sessionPolicy`; a version 3 plan carries it
+`temporaryDirectory`, and the plan lists them in `requiredDirectories`. Every language-server plan carries a `sessionPolicy`
 (`serverID`, `requestMethods`, `commands`, `serializedCommands`,
 `forwardNotifications`, `remote`, `gates`, `state`) for the engine to enforce.
 
@@ -5351,7 +4512,7 @@ Refusals are `plugin.launch.unavailable` (no such server),
 `plugin.launch.invalidResult`, `plugin.launch.outsidePackage`,
 `plugin.launch.undeclaredTool`, and `plugin.launch.unwritablePath` for the
 answer. The golden cases are
-`shared/contracts/plugins/v1/fixtures/languages/language-server-launch-resolution.json`.
+`Lithe-core-rust/shared/plugins/contract/v1/fixtures/languages/language-server-launch-resolution.json`.
 
 `plugins.languageServers.stateRetention` accepts `{ retention: { maxEntries,
 maxAgeDays }, nowUnixSeconds, entries: [{ name, lastModifiedUnixSeconds }],
@@ -5369,7 +4530,7 @@ function returned for a document of its content scheme, and returns
 than 1 MiB (1,048,576 UTF-8 bytes). The host opens `content` as a read-only
 document and never interprets it.
 
-A `debugAdapterID` selects a `debugAdapters[]` entry with a `serverProcess`
+A `debugAdapterID` selects a `debugAdapters[]` entry with an adapter process
 or a `tcpLanguageServer` transport (naming it together with another selector is
 the same `invalid_request` failure); the plan adds `debugAdapter: { id,
 providerID, displayName, adapterID, requests, selectors, configurationTypes,
@@ -5380,7 +4541,7 @@ plan of the plugin language server that `endpoint.languageID` names, so the
 host starts that server as for editing, then sends `workspace/executeCommand`
 with `endpoint.command` and connects to the loopback port the server answers
 with (an integer or a numeric string from 1 to 65535). When that server's
-launch is resolved by the plugin backend (`serverProcess` 3), the plan names
+launch is resolved by the plugin backend, the plan names
 only `launch: { kind: "backend", function, timeoutMilliseconds }` with empty
 `requiredDirectories` and no `resolveParams`: the server's own session asks
 the backend with the directories of its start, so resolving the adapter needs
@@ -5392,10 +4553,14 @@ process, with `plugin.launch.unsupportedTransport`.
 `debug.adapters.startArguments` accepts `{ manifest, adapterID, request:
 "launch" | "attach", facts: { registration: { generation, currentGeneration },
 runtimeSelection?, target: { kind, path?, processID?, workingDirectory?,
-executable?, host?, port?, pathMappings? } } }`
+executable?, host?, port?, pathMappings? } }, configuration? }`
 and returns `{ status: "ok", arguments, connection? }`: the request's configured
 `arguments` with each `targetBindings` name filled from the target unless the
-configuration already sets it. `program` is filled from `target.path`, or from
+configuration already sets it. `configuration` is a plugin backend's own DAP
+arguments from `lithe/host/debug/start`, as `debug.decodeBackendConfiguration`
+returned them; each of its keys replaces the argument of the same name, so the
+host sends `arguments` to the adapter unchanged. A `noDebug` or `__` key there is
+refused with `plugin.debug.invalidStart` and `field: "configuration.<key>"`. `program` is filled from `target.path`, or from
 `target.executable` (an absolute path the host found) when the configuration
 binds it to `target.executable`. Refusals use the `rejected` shape with
 `debug.provider.stale`, `debug.request.unsupported`, `debug.runtime.stale`, or
@@ -5445,19 +4610,114 @@ the expanded object, or `null` when that server declares none; a language
 without a server of the plugin is refused with `plugin.launch.unavailable`.
 Hosts never merge layers themselves.
 
-`plugins.declarative.checkRuntimeVersion` accepts
-`{ tool, minimumVersion, output }`, where `output` is what the runtime printed
-for the plan's `launch.versionArguments`, and returns
-`{ "status": "ok", "check": { "satisfied": bool, "version"?: string } }`.
-`version` is absent when the output contains none. It takes no manifest.
+`plugins.declarative.settingsState` accepts
+`{ manifest, globalDocument?: string|null, projectDocument?: string|null,
+  owner?: { pluginID, version } }`.
+Send each complete captured UTF-8 document; null or omission means a missing
+file. An existing empty, malformed, oversized, or duplicate-key document is an
+error, not an empty layer. Native adapters must reject undecodable bytes rather
+than replacing them before JSON transport. Storage remains
+`{ pluginID: { settingID: value } }`, including dormant values.
+
+For an installed package, pass its captured registration as `owner`. Core
+rejects a mismatched manifest ID or version with `plugin.settings.ownerChanged`
+before returning editable sources or catalog metadata. This binds native package
+identity; it neither enables capabilities nor grants process execution.
+
+Success returns `{ status: "ok", state }`. The state contains:
+
+- `pluginID`, `actions`, and `rows` in validated declaration order. Each row has
+  `declaration`, normalized `scope` and `effect`, `global` and `effective`
+  `{ id, value, source }`, and `globalStored`/`projectStored` flags. `global` is
+  the value without project overrides; `effective` uses the existing resolver.
+- `metadata`: `{ displayName, version, vendor }` from the validated manifest,
+  for installed-plugin presentation without reinterpreting the manifest in a host.
+- `sections`: `{ title, rows: number[], actions: number[] }[]`, ordered by
+  section title (the empty heading first). References are zero-based indices
+  into `rows` and `actions`; declaration order is retained within each section.
+- `editors`: `{ global, project }`, each an array in exactly `rows` order.
+  Every entry contains `value`, `resetValue`, `source`, `editable`, `overridden`
+  and `invalidStored`, plus `input`/`resetInput` native-control projections.
+  These use `text` for integer/string/path fields, `on` for booleans, `selected`
+  for enum option index, or `checks` in multi-select option order. Core supplies the scope-specific value, inheritance after
+  reset, edit permission and invalid stored-value indication. Global-only rows
+  remain visible but read-only in the project projection. Hosts select a scope
+  and render this projection; they do not recompute grouping or inheritance.
+- `settings` and `projectSettings`: raw stored values for declared IDs only.
+  Pass these to launch planners. Do not replace them with effective values:
+  executable planning must still reject an explicitly invalid stored path.
+- `storage`: `{ globalRelativePath: "plugin-settings.json",
+  projectRelativePath: ".lithe/plugin-settings.json", maximumBytes: 1048576,
+  readRequired: bool }`. `readRequired` is false when the plugin has no setting
+  declarations; no preference document is then needed for that plugin.
+  Resolve these under the native application-preference and workspace roots.
+  A first call with missing documents provides this bounded read plan; publish
+  UI state only after the actual reads and the second checked projection.
+
+`plugins.declarative.editSettings` accepts
+`{ manifest, scope: "global"|"project", document?: string|null,
+  edits: [{ id, value, text?: string|null }] }`. The batch has 1–32 unique declared IDs.
+Null removes only that layer's override. Other values must satisfy the current
+setting declaration; a global-only setting cannot be edited in project scope.
+All edits are validated before any replacement is returned.
+
+Native text fields may supply `text` with `value: null`. Core parses trimmed
+signed decimal integer text for an integer declaration; other kinds receive a
+string and still pass the ordinary declaration validator. A non-null `value`
+and `text` cannot be combined. In this mode null is a transport placeholder,
+not a reset; without `text`, `value: null` keeps its existing reset meaning.
+Malformed integer text, overflow, range violations and unsupported shapes reject
+all edits. Editor text is bounded by the document byte limit. Hosts must not
+validate or clamp declaration limits in a second implementation.
+
+Success returns `{ status: "ok", edit: { document: string, delete: bool,
+changed: bool, effects: string[] } }`. `document` is complete UTF-8 JSON text.
+Unrelated plugin groups and dormant settings survive; an emptied edited group
+is removed. `delete` says the owned document is empty. `changed` compares stored
+values; a semantic no-op returns the captured text unchanged. `effects` lists
+only actually changed settings' declared effects, unique and alphabetically
+ordered. The source and result must each fit the storage byte limit.
+
+The native owner still confirms the scope, checks captured bytes and
+cancellation, preserves native permissions, publishes or deletes the owned
+file, and rereads that same source. A project switch cannot retarget a save.
+Only after publication may the host apply the declared effects. Core performs
+no file I/O, starts no process, and grants no plugin capability through these
+commands. They do not alter the plugin/SDK protocol or justify advertising
+`settings: 2` before its complete UI and effects are implemented.
+
+Invalid documents use `plugin.settings.invalidDocument`; invalid batches,
+values, or edit scopes use `plugin.settings.invalidEdit`, with a safe `field`.
+Malformed envelopes use `invalid_request`; manifest failures retain existing
+rejection codes. Rejection never includes partial replacement text. Rust and
+desktop consumers share `shared/fixtures/plugins/settings-documents.json`.
+
+`plugins.installed.select` accepts `{ entries: [{ pluginID, version, enabled }],
+includeDisabled?: bool }`, with at most 4096 native records. It returns
+`{ selected: number[], rejected: [{ index, code }], maximumEntries: 4096 }`.
+Indices refer to the supplied native array; paths stay in the host. Core reuses
+its existing three-component `PluginVersion` comparator (numeric u32 components)
+and returns one newest valid version per opaque native identity, ordered by ID.
+Equal numeric versions retain the first input record; an exact duplicate version
+is rejected rather than replacing that record. Enablement filters only after the
+newest version is chosen, so a disabled newer version cannot revive an older one.
+`includeDisabled: true` is for settings/inventory, not permission to execute.
+Invalid identity/version records and later exact duplicates use
+`plugin.installed.invalidIdentity`, `plugin.installed.invalidVersion`, and
+`plugin.installed.duplicateVersion` indexed diagnostics. Healthy selections remain
+available; the native owner must report diagnostics and must not abandon a
+successfully started session merely because other plugins failed discovery.
+This is metadata selection, not manifest validation, approval or admission.
+Shared cases are in `shared/fixtures/plugins/installed-versions.json`.
 
 `plugins.declarative.decodeGrammar` accepts `{ manifest, languageID, grammar }`,
 where `grammar` is the text the host read from the language's `grammar.path`
 inside the installed package, and returns `language: { id, fileExtensions,
-fileNames, grammar: { kind, source }, configuration }`. `source` is the
-validated original JSON text, kept opaque through host dictionaries so Monarch's
-ordered `cases` retain their precedence. Only the terminable worker parses and
-compiles it, explicitly using `root` when `start` is absent. A grammar Core
+fileNames, grammar: { kind, scopeName, source }, configuration }`. `kind` is
+`textmate`; `source` is the validated original JSON text, byte for byte, which
+the editor's TextMate engine parses and registers under `scopeName`, the
+grammar's own scope. Hosts run plugin grammars only off the editor UI thread,
+with bounded backtracking and a time budget per line. A grammar Core
 refuses is `plugin.grammar.invalid` with the failing `field`; a language
 without static editor resources is `plugin.grammar.unavailable`. Configuration-only
 languages return `grammar:null` and require no file read. Core reads no files.
@@ -5476,13 +4736,15 @@ parameter, current-session, workspace-context, or resource-ownership checks. Hos
 deny access if the Core call fails.
 Shared cases are in `shared/fixtures/plugins/host-api-v1.json`.
 
-`plugins.editorActions.decode` accepts `{kind:"registration",value}` or
-`{kind:"actions",value,text}` and returns `{registration}` or `{actions}`.
-Core validates literal selectors, one-based UTF-16 ranges and bounded opaque
-function bindings. Version 1 (the default) admits the icons `run` and
-`run-all` and a 128 KiB source. `version: 2` with the host's `icons` and
-`sourceBytes` also admits `alternatives` and `{kind:"invokeResult",value}`,
-which returns `{}` or `{reveal:{locations}}` for a clicked action. Hosts enforce
+`plugins.editorActions.decode` accepts `{version,kind:"registration",value}` or
+`{version,kind:"actions",value,text}` and returns `{registration}` or `{actions}`.
+`version` is required; this Core accepts `0` and rejects any other request
+version. Core validates literal selectors, one-based UTF-16 ranges and bounded opaque
+function bindings. For `kind: "actions"` the request must carry the host's
+`icons` and `sourceBytes`, which bound the icon names and the document size;
+an action may carry `alternatives` that use the same icons.
+`{version,kind:"invokeResult",value}` needs no `icons` or `sourceBytes` and returns `{}` or
+`{reveal:{locations}}` for a clicked action. Hosts enforce
 permission, live document versions and session ownership; HTTP/SQL business
 semantics stay with plugins. See the plugin contract's independent editor
 actions section.
@@ -5522,7 +4784,7 @@ working directory must be a relative path of an existing directory inside
 Core writes nothing, the host writes `temporaryFiles`. A start Core refuses is
 `{ status: "rejected", error }` with `plugin.run.invalidStart` and the failing
 `field`. See the plugin contract's
-[run and debug sessions](plugins/v1/README.md#run-and-debug-sessions-protocol-version-3).
+[run and debug sessions](plugins/v1/README.md#run-and-debug-sessions).
 
 `debug.decodeBackendConfiguration` accepts `{ manifest, params }` with the
 params of `lithe/host/debug/start` and returns `{ status: "ok", start }` with
@@ -5538,15 +4800,15 @@ sources: [{ pluginID, matchers }], lines }` and returns `{ links }`;
 the matchers of each enabled plugin as `plugins.declarative.validate` returned
 them. A request Core cannot accept is `invalid_request`, not a policy outcome.
 See the plugin contract's
-[output link matchers](plugins/v1/README.md#output-link-matchers-outputlinkmatchers-1).
+[output link matchers](plugins/v1/README.md#output-link-matchers).
 
 
 The `plugins.marketplace.*` commands are equally pure: hosts fetch indexes and
 archives and pass the parsed JSON. `validateIndex` accepts
 `{ index, sourceKind: "official" | "thirdParty", platform, hostCapabilities? }`
 and returns `{ status: "ok", index: { plugins, rejected } }` with per-entry
-`availability`; a level 3 version is available only when every capability it
-requires is in `hostCapabilities`; `resolveSource` accepts `{ url }` and returns
+`availability`; a listed version is available only when its `pluginAPIVersion`
+is one Core supports and every capability it requires is in `hostCapabilities`; `resolveSource` accepts `{ url }` and returns
 `{ status: "ok", source: { indexURL, repository, displayName } }`;
 `installReview` accepts `{ manifest, expectedID?, expectedVersion?,
 approvedPrograms?, hostCapabilities? }` and returns `{ status: "ok", review: { id, version,
@@ -5556,19 +4818,20 @@ permissions, programs, newPrograms } }`. Content problems use the same
 
 ### Build systems
 
-The `build.*` commands implement API level 3 `buildSystems` of
+The `build.*` commands implement the `buildSystems` capability of
 [`plugins/v1`](plugins/v1/README.md). Every build tool shares them, so a host
 has one build workflow and never branches on a build-system ID: Core plans
 each process, the host runs it with the discovered executable, and Core
 decodes what it printed or wrote.
 
-A build system with a `provider` requires `buildProviders: 1`, version 2 when
-a task uses `source: "provider"`, version 3 when tests do, or version 4 for
-provider application run preparation, version 5 for native debug preparation, and
-version 6 for optional read-only model inputs. Core validates and plans all six versions;
-a host advertises each only after implementing its lifecycle and requests.
-macOS advertises all six and routes provider tasks, tests and run preparation through
-the existing workspace session. Prepared applications use the existing native Run host. Windows does not yet advertise Provider lifecycle support.
+A build system with a `provider` requires `buildProviders: 0`. That capability
+covers provider tasks, tests, run preparation, native debug preparation,
+optional native configuration, and optional read-only model inputs. Core
+validates and plans every one of them; a host advertises the capability only
+after implementing its lifecycle and requests. macOS advertises it and routes
+provider tasks, tests and run preparation through the existing workspace
+session. Prepared applications use the existing native Run host. Windows does
+not yet advertise Provider lifecycle support.
 
 Except `build.detect`, `build.projectOptions` and `build.resolveStoredOptions`, every command accepts
 `{ manifest, buildSystemID, request }`, revalidates the manifest, and answers
@@ -5583,8 +4846,8 @@ mechanism before platform filtering. A `setting` candidate emits
 `{kind: "setting", settingID, path: absolutePath | null}` in the same `executables`
 list; null skips, invalid stored values reject the plan, and native validation
 failure is terminal. There is no separate `configuredExecutable` result.
-See the plugin contract's **Shared executable candidates** section for ordering,
-capability negotiation and the compatibility adapter for published v2 previews.
+See the plugin contract's **Shared executable candidates** section for ordering
+and strict selection.
 
 Host-managed runtime probes use `java -version` (including Java 8),
 `node --version`, and `go version`. Hosts execute the returned arguments and
@@ -5606,20 +4869,20 @@ and the directories are absolute host paths used only as substitution text.
 | `build.projectOptions` | `{ document }`, host-read persisted v1 Build options, without a manifest | `document`: validated storage with version 1 and systems; options, instance defaults, root values, explicit empty selections and saved custom choices are retained. Missing system fields normalize to empty maps; malformed, unsupported or oversized documents reject with `plugin.build.invalidOptionsDocument`. This pure operation never reads or writes a file and does not replace declared option resolution. |
 | `build.invocationPlan` | `{ root, platform: "macos" \| "linux" \| "windows" }` | `invocation`: `{ buildSystemID, root, executables, environmentInputs, runtimeDependencies, version, minimumVersion }` with project-file paths joined to `root`; every runtime dependency with a known probe, host-managed ones included, carries `version: { arguments }` |
 | `build.checkToolVersion` | `{ runtime?, output }` | `version`: `{ satisfied, version? }`; `runtime` checks that runtime dependency instead of the tool |
-| `build.resolveModelInputs` | `{revision, sources: [{manifest, instances: [{buildSystemID, root, state, model?, options?}]}]}` from installed enabled current-workspace sources | `modelInputs`: version 1 public snapshot with exact optional producer slots, state, normalized projects/targets/content roots, configuration fingerprint and explicitly shared options; no tasks/run/settings/private functions; see the [plugin contract](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/plugins/v1/README.md#optional-read-only-model-inputs-buildmodelinputs-1) |
+| `build.resolveModelInputs` | `{revision, sources: [{manifest, instances: [{buildSystemID, root, state, model?, options?}]}]}` from installed enabled current-workspace sources | `modelInputs`: version 1 public snapshot with exact optional producer slots, state, normalized projects/targets/content roots, configuration fingerprint and explicitly shared options; no tasks/run/settings/private functions; see the [plugin contract](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md#optional-read-only-model-inputs) |
 | `build.resolveOptions` | `{ options, modelValues? }` | `options`: `{ options: [{ id, displayName, kind, scope?, value, source, choices, allowCustom }], dropped, fingerprint }` |
-| `build.configurationPlan` | plan fields and optional host-selected `tool` | `plan.provider` for `lithe/build/configuration` (v7); no mutation, project or output-file parameters |
+| `build.configurationPlan` | plan fields and optional host-selected `tool` | `plan.provider` for `lithe/build/configuration`; no mutation, project or output-file parameters |
 | `build.decodeConfiguration` | `{ result }` | `configuration`: bounded `litheBuildConfiguration` v1 native sources/fields; see the plugin contract |
 | `build.configurationEditPlan` | `{ root, options?, workspaceStateDirectory, outputFile, snapshot, edits: { sourceID, revision, values }, tool? }` | Provider request `lithe/build/editConfiguration`; existing private staging only, no document bytes |
 | `build.decodeConfigurationEdit` | `{ snapshot, edits, result }` | `edit: { sourceID, revision, changed }`; validates bounded receipt and exact draft/source identity; native adapter verifies staged hash and publishes atomically |
 | `build.modelPlan`, `build.dependencyPlan` | plan fields plus `project?` (dependencies), `outputFile?`, and for provider sources `refresh?` (boolean) and `tool?: { executable }` (absolute path) | `plan`: `{ buildSystemID, root, arguments, environment, workingDirectory, execution, optionFingerprint, output, decoder, executesProjectCode, mayUseNetwork }`; for a `provider` source `{ buildSystemID, root, provider: { method, params }, decoder, executesProjectCode, mayUseNetwork, optionFingerprint }`, where `method` is `lithe/build/model` or `lithe/build/dependencies` and `params` is `{ buildSystemID, root, options, optionArguments, environment, project?, refresh?, tool? }`; `refresh` appears only when `true` and `tool` only when the host sent it |
 | `build.taskPlan` | plan fields plus `task`, `project?`, `target?`, `modelTask?`, `userArguments?` | command `plan` with `arguments`, `environment`, `workingDirectory`, `execution`, and `optionFingerprint`; a provider task instead returns `provider: {method: "lithe/build/execute", params}` with effective options, selected task/entities, user arguments and effect metadata |
-| `build.testPlan` | plan fields plus `project?`, `target?`, `suite?`, `case?`, `userArguments?`, `projects?` (the model's project directories) | command plan or `provider: {method: "lithe/build/test", params}` (buildProviders 3), plus `results`: `null`, `{ decoder, reports }` with workspace-relative globs (for the selected project, or for the root and every listed project when none is selected), or command-only `{ decoder: "hostIntegration" }`. Command filters that templates cannot place, such as a case without its suite when the tool only addresses `Suite#case`, are `plugin.build.invalidSelection`; Provider filters remain separate typed values and must be declared supported |
-| `build.testDiscoveryPlan` | common plan fields plus `refresh?`, `tool?`; no project/output file | `plan.provider` for `lithe/build/discoverTests`, only with `test.discovery: true` (Provider v3), using the same effective options and effect metadata |
+| `build.testPlan` | plan fields plus `project?`, `target?`, `suite?`, `case?`, `userArguments?`, `projects?` (the model's project directories) | command plan or `provider: {method: "lithe/build/test", params}`, plus `results`: `null`, `{ decoder, reports }` with workspace-relative globs (for the selected project, or for the root and every listed project when none is selected), or command-only `{ decoder: "hostIntegration" }`. Command filters that templates cannot place, such as a case without its suite when the tool only addresses `Suite#case`, are `plugin.build.invalidSelection`; Provider filters remain separate typed values and must be declared supported |
+| `build.testDiscoveryPlan` | common plan fields plus `refresh?`, `tool?`; no project/output file | `plan.provider` for `lithe/build/discoverTests`, only with `test.discovery: true`, using the same effective options and effect metadata |
 | `build.decodeTestDiscovery` | common plan fields plus canonical `result` | `discovery.tests` with validated `{id, suite, case, project?, target?}` selectors; bounded at 10,000 items/32 MiB, deterministic and exactly runnable; malformed replies reject in full |
-| `build.prepareRunPlan` | common plan fields, `run`, required `project`/`target`, `userArguments?`, `launchOptions?`, `workspaceRoot?` (required for an explicit launch cwd); no output file | `plan.provider` for `lithe/build/prepareRun` (Provider v4), selected declaration/tags/paths/options validated; typed launch options and service/task execution require v10 |
+| `build.prepareRunPlan` | common plan fields, `run`, required `project`/`target`, `userArguments?`, `launchOptions?`, `workspaceRoot?` (required for an explicit launch cwd); no output file | `plan.provider` for `lithe/build/prepareRun`, selected declaration/tags/paths/options validated; typed launch options must match the run's declared execution kind, and a service or task run requires them |
 | `build.decodeRunPreparation` | `workspaceRoot`, instance `root`, raw `result`, same optional `launchOptions` | `launch` with portable `{executable:{kind,value},arguments,workingDirectory,environment}`; bounded strings and workspace directory containment, `plugin.build.invalidOutput` on invalid result |
-| `build.prepareDebugPlan` | same selected fields as `build.prepareRunPlan`; run declares same-plugin `debug.adapter` | `plan.provider` for `lithe/build/prepareDebug` (v5); no cross-package reference |
+| `build.prepareDebugPlan` | same selected fields as `build.prepareRunPlan`; run declares same-plugin `debug.adapter` | `plan.provider` for `lithe/build/prepareDebug`; no cross-package reference, and launch options are refused: they apply only to running a target |
 | `build.decodeDebugPreparation` | `workspaceRoot`, instance `root`, selected `run`, raw `result` | `preparation` with declaration-owned `adapter`, normalized `root`, `program`, `arguments`, `workingDirectory`, `environment`; program is an existing regular file contained in the instance after canonicalization |
 | `build.decodeModel` | `{ workspaceRoot, root, output?, outputFile?, result?, options? }`; `result` is the provider's JSON answer | `model`: `{ projects, targets, tasks, contentRoots, optionValues, run }`; `run` entries carry `buildSystem: { id, root, projectID, targetID?, optionFingerprint }` |
 | `build.decodeTestResults` | `{ workspaceRoot, root, project?, projects?, output, notBeforeMillis?, suite? }`; without `project` the reports of the root and every listed model project are read | `results`: `{ tests: [{ suite, case, status, message?, durationMillis?, path?, line?, invocations }], summary: { total, passed, failed, errors, skipped }, success }`; repeated invocations of one case merge into the most severe status |
@@ -5628,8 +4891,8 @@ and the directories are absolute host paths used only as substitution text.
 | `build.syncFingerprint` | `{ workspaceRoot, root, projects, options? }` | `sync`: `{ fingerprint, watch }` |
 | `build.languageImport` | `{ workspaceRoot, root, options?, executablePath? }` | `languageImport`: `null` without a `languageImport` declaration; `{ kind: "maven", mavenContext: { version, reactorPath, profiles, settingsPath?, localRepositoryPath?, mavenExecutablePath? } }` for `lsp.startServer.mavenContext` and `lsp.updateMavenConfiguration`; or `{ kind: "gradle", javaGradle: { wrapperPresent, offline, userHome? } }` for `lsp.startServer.javaGradle`, where `wrapperPresent` reports `gradle/wrapper/gradle-wrapper.properties` under `root` |
 
-`executableResolution: 2` adds `{ kind: "toolchain", toolchainID, root }` invocation
-candidates. Hosts resolve them through the same canonical project/subproject
+Invocation candidates also include `{ kind: "toolchain", toolchainID, root }`.
+Hosts resolve them through the same canonical project/subproject
 selection used by Run, preserving terminal failure and project-code identity.
 The optional plan hint `tool.environment` is a bounded string map (64 entries,
 valid environment names, 32768 bytes per value, no NUL). It merges into Provider
@@ -5644,12 +4907,12 @@ file refuses a plan without it. Unlike the `plugins.declarative.*` commands,
 `build.detect`, `build.decodeModel`, `build.decodeTestResults`,
 `build.decodeDependencies`, and `build.syncFingerprint` read bounded files
 inside `workspaceRoot` (and the given `outputFile`); none of the commands
-writes anything or starts a process. `shared/contracts/plugins/v1/fixtures/build-systems/build-plans.json`
+writes anything or starts a process. `Lithe-core-rust/shared/plugins/contract/v1/fixtures/build-systems/build-plans.json`
 holds the golden plans and decoded outputs.
 
 ### VCS providers
 
-The `vcs.*` commands implement API level 3 `vcsProviders` of
+The `vcs.*` commands implement the `vcsProviders` capability of
 [`plugins/v1`](plugins/v1/README.md) and the
 [VCS provider contract](vcs-provider-v1.md). Results use the
 `plugins.declarative.*` envelope; a malformed payload, a relative
@@ -5671,12 +4934,12 @@ detection cases, decoded snapshots, and reply validation cases.
 The `project.*` commands back the New Project window. Payloads, results, and
 problem codes are specified in the plugin contract's
 [Project generators](plugins/v1/README.md#project-generators) section, and
-`shared/contracts/plugins/v1/fixtures/project-generators/project-plans.json` holds the golden
+`Lithe-core-rust/shared/plugins/contract/v1/fixtures/project-generators/project-plans.json` holds the golden
 answers. Results use the `plugins.declarative.*` envelope: `catalog`, `form`,
 `plan`, `name`, and `extracted`. Commands that take a manifest revalidate it
 and answer `plugin.project.unavailable` for an undeclared generator.
 
-A `projectGenerators` 2 generator picks tool installations with `tool` fields.
+A project generator picks tool installations with `tool` fields.
 The host lists the installations of each field's tool and sends them as the
 form's `tools`; Core chooses among them, checks `minimumVersion`, expands
 `${field.<id>.executable}`, and returns `toolPins` in the plan. Core lists no
@@ -5833,6 +5096,51 @@ Missing or stale HEAD rejects the amendment before writing; plain Continue,
 Skip and Abort do not require this field. Both products must send the HEAD
 reviewed by the amendment editor. See [Rebase sessions](git-rebase-session.md).
 
+Operation `rangeFormatting` (`textDocument/rangeFormatting`) formats the
+required `range` and is offered when the server declares
+`documentRangeFormattingProvider`, as the `rangeFormatting` feature. Its result,
+like `formatting`, is `{ edits }`. Both formatting operations accept optional
+`formattingOptions`, an object of LSP `FormattingOptions`: `tabSize` (integer
+1-1024), `insertSpaces`, `trimTrailingWhitespace`, `insertFinalNewline`,
+`trimFinalNewlines` (booleans), and other keys whose values are boolean,
+integer or string. Supplied values are merged over the defaults `tabSize: 4`,
+`insertSpaces: true`, `trimTrailingWhitespace: true`, `insertFinalNewline: true`,
+`trimFinalNewlines: true`, so omitting the field keeps the previous behaviour.
+Invalid values fail with `invalid_request`.
+
+The `featuresChanged` event carries `completionOptions:
+{ triggerCharacters: string[], allCommitCharacters: string[] }` whenever the
+`completion` feature is offered: the de-duplicated union of the server's
+`completionProvider` and its dynamic `textDocument/completion` registrations
+(empty arrays when none are declared). The event is re-sent when registrations
+change them. Hosts use it, not a hard-coded list, to send
+`completionContext.triggerKind = 2`.
+
+Operation `documentSymbols` (`textDocument/documentSymbol`) needs only the
+document `uri` and is offered, as the `documentSymbols` feature, when the server
+declares `documentSymbolProvider` (statically or by dynamic registration). Core
+advertises `hierarchicalDocumentSymbolSupport`. The result is
+`{ symbols: DocumentSymbolNode[] }`, always a tree of one shape whichever form
+the server answered with:
+
+```json
+{ "name": "Foo", "detail": null, "kind": 5, "tags": [], "deprecated": false,
+  "range": { "start": { "line": 0, "utf16Column": 0 }, "end": { "line": 9, "utf16Column": 1 } },
+  "selectionRange": { "start": { "line": 0, "utf16Column": 6 }, "end": { "line": 0, "utf16Column": 9 } },
+  "containerName": null, "children": [] }
+```
+
+`kind` is the LSP `SymbolKind` integer. Positions use the same zero-based
+`line` / `utf16Column` coordinates as every other Core result. Conversion rules:
+a hierarchical `DocumentSymbol[]` keeps its tree (`children` normalized
+recursively; a missing `selectionRange` falls back to `range`); a flat
+`SymbolInformation[]` (recognized per item by `location`) becomes childless
+symbols whose `range` and `selectionRange` are both `location.range` and whose
+`containerName` is kept as a hint, since Core does not infer a hierarchy from
+names. `deprecated` is true for the legacy `deprecated` flag or tag `1`. Items
+lacking `name`, `kind` or a range are dropped; a `null` or non-array result
+returns `symbols: []`. Fixture: `shared/fixtures/lsp/document-symbols-v1.json`.
+
 Completion requests accept optional `completionContext` with LSP `triggerKind`
 (`1` invoked, `2` trigger character, `3` incomplete-list refresh) and
 `triggerCharacter` (required and one character for kind `2`). Missing context
@@ -5939,9 +5247,12 @@ subdirectory as a summary, using the same change shape and nested-root
 exclusion as `git.status`.
 
 `git.workspaceCommitPrepare` owns the complete multi-repository policy. It accepts
-`repositories: [{ id, root }]`, `message`, `amend`, `push`,
-`includeParentReferences`, optional `previous` session for retry, and optional
-`reviewed` plan for confirmation. `id` is a workspace-relative path with `/`
+`repositories: [{ id, root }]`, `message`, `amend`, optional `author` and
+`signOff`, `push`, `includeParentReferences`, optional `previous` session for
+retry, and optional `reviewed` plan for confirmation. `author` and `signOff`
+have the `git.write` `commit` meaning, apply to every commit of the plan, and are
+kept in `plan` (omitted when unset), so changing them changes the reviewed plan;
+an invalid `author` fails the preparation with `git_commit_author_invalid`. `id` is a workspace-relative path with `/`
 separators (`..` is allowed for enclosing repositories). Windows manually selected
 roots on another volume use a stable `external/<encoded-volume>/<path>` virtual
 workspace ID. `root` is the native
@@ -6027,6 +5338,59 @@ and real staging checkboxes. The native products must not duplicate planning or 
 See `shared/fixtures/git/workspace-commit-v1.json` for primitive payloads and
 `shared/fixtures/git/workspace-commit-workflow-v1.json` for the complete planning
 and continuation fixture consumed by Rust, Swift, TypeScript and Tauri adapter tests.
+
+### File encodings
+
+`file.read` and `file.write` accept optional encoding fields; payloads without
+them behave as before (plain UTF-8), with the differences noted below. The
+encoding rules are shared by macOS and Windows and mirror the native clients'
+former implementations; codec tables come from `encoding_rs`.
+
+Encoding ids (case-insensitive; aliases in parentheses): `utf-8` (`utf8`),
+`utf-8-bom`, `utf-16le-bom`, `utf-16be-bom`, `utf-16le`, `utf-16be`, `gbk`
+(`cp936`), `gb18030`, `big5` (`cp950`), `shift-jis` (`shift_jis`), `euc-jp`,
+`euc-kr` (`cp949`), `windows-1250`, `windows-1251`, `windows-1252`
+(`cp1252`, `iso-8859-1`, `latin1`; ISO-8859-1 resolves to Windows-1252 as in the
+WHATWG standard) and `koi8-r`. An unknown id returns `invalid_request` listing
+the supported ids. Responses always use the stable id.
+
+`file.read` takes optional `encoding`. Without it Core detects: UTF-8 BOM,
+UTF-16 LE BOM (unless the bytes start with the UTF-32 LE mark `FF FE 00 00`),
+UTF-16 BE BOM, valid UTF-8, then GB18030, reported as `gbk` when the text
+re-encodes to the identical bytes. Detection is strict: bytes valid in none of
+these (or malformed UTF-16, such as a lone surrogate or odd length) return
+`parse_failed`. With an explicit `encoding`, Core decodes through that codec and
+replaces invalid sequences with U+FFFD (`lossy: true`), so a wrong choice is
+visible; this is the "reopen with encoding" path. The result is
+`{ path, text, encoding, hasBom, lossy, identity }`: `hasBom` says a leading BOM
+was present and removed from `text` (plain `utf-8` also strips a UTF-8 BOM);
+`identity` is the SHA-256 hex of the exact bytes read, for external-change
+checks. The existing size limit and plain-text check still apply to the decoded
+text. Compatibility: a UTF-8 BOM file previously returned `text` beginning with
+U+FEFF and files in other encodings failed with `parse_failed`; they now decode
+and report their encoding.
+
+`file.write` takes optional `encoding` (default `utf-8`) and `bom`. The `-bom`
+ids write their BOM; `bom: true|false` overrides that for the Unicode encodings
+(`utf-8`, `utf-16le`, `utf-16be` and the `-bom` ids); `bom: true` with a legacy
+encoding is `invalid_request`. Text is encoded before the file system is
+touched. A character the encoding cannot represent fails with error code
+`encoding_unmappable`, whose `details` read `encoding=<id>; scalarOffset=<n>;
+codePoint=U+XXXX` for the first offending scalar; nothing is written and no
+replacement character is substituted. The result is `{ path, bytesWritten,
+encoding, hasBom, identity }`, where `bytesWritten` is the encoded length
+including any BOM. Fixture: `shared/fixtures/editor/file-encoding-v1.json`.
+
+`text.decode` and `text.encode` are the same rules for a host that reads and
+writes the file itself (for example to guard against a file changing between
+its check and its write). `text.decode` takes `{ bytes, encoding? }`, where
+`bytes` is the standard base64 of the exact bytes, and returns `file.read`'s
+result without `path`; detection, `lossy`, `identity`, the 32 MB limit
+(`parse_failed`) and the plain-text check are identical, and base64 that does not
+decode is `invalid_request`. `text.encode` takes `{ text, encoding?, bom? }`
+and returns `{ bytes, encoding, hasBom, identity }`, with `bytes` the base64 of
+what `file.write` would write; nothing touches the file system, so the host
+needs no temporary file. Both run against the same fixture.
 
 ### Decoded document text classification
 
@@ -6260,10 +5624,53 @@ writes and honor the decoding-loss flag. See
 `shared/fixtures/git/saved-stash-v1.json` and
 `shared/fixtures/git/parsed-diff-v1.json`.
 
+### Plugin web pages
+
+A host that shows a plugin's web tool window keeps the web view, the
+package file reads, page state storage, file dialogs and the calls a page
+makes; Core decides what the page is served and which bridge requests it may
+make, and frames every answer, so all clients behave alike. Pages are
+registered in Core for their lifetime:
+
+- `plugins.web.open` takes `{ manifest, windowID, platform, locale, theme:
+  { theme: "light"|"dark", variables: { "--lithe-*": value } }, buildSystems? }`
+  and returns `{ page, pluginID, windowID, scheme: "lithe-plugin", url,
+  bridgeVersion: 0, fileLimit, stateLimit }`. `url` is
+  `lithe-plugin://<pluginID>/<entry>`. A window that is not one of the
+  manifest's web windows is `invalid_request`. At most 512 pages are open.
+- `plugins.web.close` takes `{ page }` and returns `{ cancelCalls }`, the
+  calls the host still has to cancel. Closing twice is not an error.
+- `plugins.web.resource` takes `{ page, path }`, the decoded URL path, and
+  returns `{ kind: "bootstrap", mime, body }` for `/.lithe-host/bridge.js`
+  (the script that defines `window.lithe` over the web view's `window.viva`
+  channel), `{ kind: "file", segments, mime, document }` for a package file
+  the host reads itself (refusing symbolic links, non-regular files and
+  files over `fileLimit`), or `{ kind: "refused" }`, answered as missing.
+- `plugins.web.document` takes `{ page, html }` for a file with `document`
+  true and returns `{ html }` with the content security policy (a meta
+  element) and the bridge script first in the document.
+- `plugins.web.request` takes `{ page, message }`, the text the page posted
+  (`{ id, method, params }`), and returns `{ reply }` (a refusal to post back
+  at once), `{ action: { id, method, params } }` (checked, normalized
+  parameters for the host to carry out), or `{ ignored }` (no request ID,
+  not JSON, over 1 MiB, or the page is closed). A `functions.invoke` action
+  carries the `call` it holds (page-chosen or host-made) and `progress`,
+  whether progress may reach the page; at most 16 calls are held, and a
+  page-chosen ID is never accepted twice. A dialog action holds the page's
+  only dialog. `build.*` and an `instance` parameter are answered only when
+  the page was opened with `buildSystems`.
+- `plugins.web.reply` takes `{ page, id, method, call?, result? | error?:
+  { code, message, pluginErrorCode? } }`, releases what the action held and
+  returns `{ message }` to post, `null` after the page closed.
+- `plugins.web.event` takes `{ page, event, payload }` for
+  `functions.progress`, `ui.themeChanged`, `build.instancesChanged` or
+  `build.runChanged` and returns `{ message }`, `null` when the page is
+  closed or the progress is for a call that ended or has no page ID.
+
 ### Native plugin UI data
 
 `plugins.nativeUI.validateData` accepts `{ ui, data }`, where `ui` is the
-validated native schema-1 declaration and `data` is a provider's `{ nodes }`
+validated native declaration (`schemaVersion` 0) and `data` is a provider's `{ nodes }`
 reply. It returns `{ status: "ok", nodes }` or
 `{ status: "rejected", error: { code: "plugin.ui.invalidData", message } }`.
 Malformed envelopes remain Core `invalid_request` failures. The operation uses
@@ -6273,82 +5680,8 @@ controls (including search/editor/segmented/stepper), typed scalar defaults, cho
 info, button action references/width policies and onCommit references; form source replies
 require empty nodes. Hosts inject this typed operation into their
 presentation feature; views never call the C ABI. Windows can reuse validation
-when it later adds a native renderer; Core support does not advertise ui 3 on
-that platform.
-
-### Agent skill management
-
-`agent.skills` accepts explicit `action` values `list`, `directories`, `read`,
-`create`, `import`, and `setEnabled`, with `agentId` (`codex-acp` or `claude-acp`) and optional
-absolute `workspace`. These management operations never create an Agent session,
-send a prompt or stop a running conversation. Only an explicit `setEnabled` action changes native visibility settings.
-The shared fixture is `shared/fixtures/agent/skills-management-v1.json`.
-
-`list` returns `skills`, `source`, `issues`, and native `directories` (`user`,
-plus `repo` when a workspace is present). Each row has `name`, `description`,
-absolute `path`, native `scope` (`user`, `repo`, `system`, `admin`), optional
-`enabled` and optional `pluginId`. Paths are transient platform file-operation
-metadata, not portable persisted identifiers. Rows are sorted by lowercased name
-and path. Native Codex discovery uses the installed CLI's official `skills/list`
-with the selected cwd and `forceReload: true`, reusing the bounded App Server
-probe and process-tree cleanup. Unknown enablement remains null. Missing or
-malformed native results fail explicitly; refresh failure retains previous rows
-only within the same workspace and Agent.
-
-Claude `source: directory` is an explicitly partial inventory of
-`CLAUDE_CONFIG_DIR/skills` (default `~/.claude/skills`) and the selected workspace's
-`.claude/skills`. It does not emulate inherited-directory, plugin, policy or
-session discovery. Its `enabled` reports configured visibility: user rows read user settings; repo rows merge user, project shared and project-local settings. Absent overrides mean on, off means false, name-only/user-invocable-only mean true. Invalid or unreadable configuration leaves the affected state null. This is not effective managed policy or evidence of session availability. Codex `source: agent` is native discovery. Platform UI
-uses Global/Project as the main categories and Agent provenance as a filter.
-
-`setEnabled` requires an absolute discovered `source` path and boolean `enabled`; Claude also requires matching `scope`. It returns a fresh listing using the same shape as `list`. Codex validates the path with `skills/list`, calls official `skills/config/write`, then forces native readback and verifies the desired state. Its setting is global by path even for a project skill. Claude merges only the named `skillOverrides` on/off value into user `settings.json` for global skills, or project `.claude/settings.local.json` for project skills; it preserves unrelated JSON values and permissions, refuses malformed, linked or over-1-MiB files, uses a nonblocking cross-process lock and same-directory atomic replacement with a pre-publish snapshot check. Claude settings are by name, so same-named skills share a setting; project/managed settings can override user settings. Plugin skills are not managed through this operation. Existing session contents cannot be withdrawn: clients advise reconnecting, and never automatically interrupt a running conversation. No skill file is renamed or edited by toggling.
-
-`directories` returns only the native destination map and needs no installed
-CLI. `read` takes the selected absolute `source` path to a `SKILL.md`, reads at
-most 128 KiB of regular UTF-8 text and returns `content`. It never interprets or
-executes instructions, scripts or dynamic content in the document.
-
-`create` requires `scope` (`user` or `repo`), portable `name` (1–64 lowercase
-letters/digits separated by single hyphens), `description`, and `instructions`.
-`import` requires `scope` and an absolute, user-selected `source` (`SKILL.md` or
-its package directory). Writes return the resulting `path`. Codex targets
-`~/.agents/skills` or `<workspace>/.agents/skills`; Claude targets its native
-configuration directory or `<workspace>/.claude/skills`. Project writes require
-an opened workspace. Imports preserve package contents and file permissions,
-reject special files and symbolic links, and enforce 2,000 entries, 20 nested
-levels, 128 KiB per SKILL.md, 8 MiB per resource file and 32 MiB total. Hidden staging is removed on failure or
-cancellation; publication atomically refuses an existing target, including an
-empty directory. Existing skills and import sources are never overwritten.
-These are explicit user-owned documents, not downloaded/build/cache resources;
-no app bundle, installation resource or shared worktree cache is writable.
-
-The macOS settings surface offers search, refresh, file details, native open and
-reveal, creation and import. It keeps native loading separate from management
-and rejects stale results after project changes. Windows can use the same Core
-operations; the settings UI and Windows runtime validation remain pending.
-
-
-Team Build options use `shared/contracts/build-project-options-v1.schema.json`
-at `.lithe/build/options.json`. `options` holds workspace-scoped values;
-`instanceDefaults` applies to every detected root's instance-scoped options;
-`instances` overrides those defaults by normalized root. Platform-local values
-then override that root. Storage writes local differences only; passive detection
-never rewrites the shared document. Explicit local reset reveals the shared value.
-Malformed, unsupported, or inaccessible documents fail instead of becoming empty
-options. Source documents stay read-only during resolution; the host only writes
-one through guarded publication for an explicit edit or activation migration.
-`build.detect.instanceDefaults` receives this same team default snapshot before
-static model/run generation; hosts use the same merge in every subsequent plan.
-
-`savedChoices` preserves unselected custom choices. Hosts display them only when
-the resolved option permits custom values; they never change selection or upstream
-model facts. Storage validates bounded documents and preserves invalid originals.
-
-`build.decodeTestResults.request.result` accepts a canonical inline report only
-for `test.results.decoder=provider` (buildProviders 8). Provider replies carry
-`testResults` with the same execution. Core validates bounded case fields and
-workspace-relative paths and aggregates by optional project/suite/case identity;
-the host does not read tool-specific report directories for this decoder.
+when it later adds a native renderer; Core support does not make Windows
+advertise native plugin content.
 
 ### Project JDK supplied to JDT LS
 
@@ -6852,8 +6185,8 @@ discovery deadline fires. `exit` applies only to an adapter that was reached.
 Core refusing the debug session is a host outcome and is not recorded.
 
 A declarative language server is resolved by the host and supervised by Core.
-The host records failures before launch, including plugin API 1 servers that
-launch as host-owned processes. Otherwise it passes
+The host records failures before launch, including servers that launch as
+host-owned processes. Otherwise it passes
 `startupOperation:{pluginId,operationId,elapsedMs}` on `lsp.startServer`. Core
 accepts the handoff only for the language server role, and only when the
 request's `pluginId` is absent or equals the handoff's `pluginId`; it ignores the
@@ -6886,18 +6219,19 @@ Missing, unusable, or relative values fail with `plugin.launch.invalidRequest`
 when needed; `requiredDirectories` adds `log` when used. The host creates the
 provided writable directory before launch, outside all bundles and installation
 resources. Validation probes cannot reference `${logDir}`. See the synchronized
-[plugin contract](plugins/v1/README.md). Existing API 1 literal arguments remain
-literal. Wire examples are exercised by
+[plugin contract](plugins/v1/README.md). Literal arguments that do not use
+`${logDir}` remain literal. Wire examples are exercised by
 `shared/fixtures/diagnostics/engine-logging-v2.json` and Core tests.
 
-Plugin-owned sessions offer `litheLogging` 1 independently of other protocols.
+Plugin-owned sessions offer `litheLogging: { versions: [0] }` independently of
+other protocols; a backend that answers `{ "version": 0 }` negotiates it.
 The negotiated `lithe/log` notification is validated in Core and enters the
 same bounded `diagnostics.drainCoreEvents` queue, with the installed plugin
 identity selecting `plugins/<id>/host`. It never copies notification JSON into
 legacy runtime detail. The four facts map to catalog INFO/ERROR/WARN/WARN,
 and a live wire request ID resolves to its original host `op`; no user content
 or backend-selected channel/level/message is accepted. See the
-[plugin logging contract](plugins/v1/README.md#structured-plugin-diagnostics-logging-protocol-1)
+[plugin logging contract](plugins/v1/README.md#structured-plugin-diagnostics)
 and `plugins/v1/fixtures/backend/plugin-logging.json`. Explicit upstream LSP message
 types retain their severity through separate catalog events; unclassified
 stderr is DEBUG and actual lifecycle failure is ERROR.
@@ -7014,3 +6348,143 @@ rename) before deleting anything. The result is `{delete, keep, seed}`, the firs
 seven days old or of unknown age), `abandoned` and `expired` (deleted). The cache and the
 ledger live in the platform cache directory, never in the app bundle or install directory.
 The fixture is `shared/fixtures/agent/attachment-retention-v1.json`.
+
+### Atomic local toolchain pin editing
+
+`toolchains.editPins` accepts `{document,directory,edits:[{tool,pin}]}` and returns
+`{status:"ok",edit:{document}}`. It uses the v1 local toolchain document and the
+same normalized directory, tool ID, pin and size limits as `resolvePins`.
+A batch contains 1–64 unique tool IDs. `pin:null` removes that directory's explicit
+override (ancestor inheritance remains effective); a pin object replaces it.
+Only emptied containers on the edited path are pruned. Legacy `toolchains`,
+dormant pins and unrelated directories remain intact. Unknown fields, duplicate
+IDs, malformed pins and over-budget documents reject the whole batch with no
+partial document. Rejections use the existing `plugin.toolchain.invalidParams`
+and `plugin.toolchain.limitExceeded` structured error envelope.
+
+The command performs no I/O and grants no execution authority. The host owns
+explicit Save confirmation, byte-baseline conflict detection, cancellation,
+ignore-file preparation, atomic native replacement, and re-reading the source.
+See `shared/fixtures/toolchain-pin-edit.json` for the cross-client vector.
+
+### Native toolchain pin sources
+
+`toolchains.pinStoragePlan` accepts `{}` and returns
+`{status:"ok",storage:{documentRelativePath,ignoreRelativePath,maximumDocumentBytes,maximumIgnoreBytes}}`.
+Paths are workspace-relative: `.lithe/toolchains/local.json` (1 MiB) and
+`.lithe/.gitignore` (64 KiB). Hosts read bounded UTF-8 sources through their
+native storage adapter, without creating directories during reads.
+
+`toolchains.decodePinDocument` accepts `{document:string|null}` and returns
+`{status:"ok",document:<validated v1 document>}`. Null means absent and supplies
+the empty default. Existing empty, malformed, duplicate-key or invalid dormant
+entries reject with `plugin.toolchain.invalidDocument`.
+
+`toolchains.editPinSources` accepts
+`{document:string|null,ignoreDocument:string|null,directory,edits:[{tool,pin}]}`
+and returns `{status:"ok",edit:{document,documentChanged,ignoreDocument,ignoreChanged}}`.
+A semantic no-op preserves both exact sources, including absence. A changed
+pin document is serialized deterministically; the ignore matcher preserves
+an already effective ignore rule or appends `/toolchains/local.json` after any
+negation, preserving existing text and newline convention. Ignore parsing is
+bounded to 4096 lines when preparing a changed pin document; NUL and invalid patterns reject with
+`plugin.toolchain.invalidIgnore`. Input and output budgets reject with
+`plugin.toolchain.limitExceeded`; invalid request shapes use
+`plugin.toolchain.invalidParams`. The matcher never reads files or global rules.
+
+These commands perform no native I/O. Hosts bind captured bytes and native root
+identity, recheck both even for no-op saves, preserve metadata, and publish the
+ignore prerequisite before the pin document. A document already committed
+followed by cleanup/readback failure must invalidate the old draft baseline:
+reload before retrying. User-selected workspace storage never changes an
+installed app or plugin bundle. See `shared/fixtures/toolchain-pin-storage.json`.
+
+### Debug launch response ordering
+
+A debug adapter may emit `stopped` or `terminated` before replying to `launch`
+or `attach`. The acknowledgement completes that operation; it changes state to
+`running` only if the session is still `launching`. It never resumes a paused
+target or resurrects a terminated one. See
+`shared/fixtures/debug/launch-event-order.json`. Hosts serialize each Core update,
+its outbound frames and its UI publication in the order returned by the engine.
+
+### Settings action planning
+
+`plugins.declarative.settingsActionPlan` accepts
+`{manifest,owner:{pluginID,version},actionID,confirmed,workspaceAvailable,enabled}`.
+All fields are required and unknown fields reject. It validates the complete
+manifest and its captured installed identity, then resolves the declared action
+without starting a process or reading preferences. Unknown actions reject with
+`plugin.settings.actionUnavailable`; registration mismatch uses
+`plugin.settings.ownerChanged`, in the ordinary declarative rejection envelope.
+
+The success envelope is `{status:"ok",plan:{kind,pluginID,version,actionID,title,...}}`.
+A disabled plugin returns `kind:"unavailable",reason:"pluginDisabled"`.
+Without an open project, `kind:"unavailable",reason:"projectRequired"` contains
+no function invocation. Otherwise an unconfirmed action whose declaration has
+`confirm:true` returns `kind:"confirmationRequired"`, also without a function.
+Once confirmed (or when the declaration needs no confirmation), `kind:"invoke"`
+adds `function` and `params:{}`. Labels and function identity always come from
+the validated manifest; callers cannot supply a different target or arguments.
+See `shared/fixtures/plugins/settings-actions.json`.
+
+`confirmed` and `workspaceAvailable` are facts from the native owner, not a
+capability grant. The host must capture user confirmation, check the installed
+package and project identity again before invocation, and use that plugin's
+provider session for the open project. Core's existing `lsp.functionRequest`
+continues to enforce runtime function registration, owner and permissions.
+This internal desktop C ABI command does not add a plugin host method or change
+the published plugin function protocol. Progress, cancellation and completion
+use the existing session event stream; settings drafts are not saved implicitly.
+
+### Workspace-bound function provider discovery
+
+Direct and backend-resolved plugin process plans include
+`owner:{pluginID,version}` from the validated manifest. Native session handles
+retain that version without inferring it from a path or mutable settings draft.
+
+`lsp.functionProvider` accepts `{pluginID,version,function,rootUri,candidates}`.
+`rootUri` is the canonical file URI produced by `lsp.documentUri` for the
+requesting workspace. Each native-owned candidate is `{sessionID,version}`;
+at most 64 unique IDs may be supplied. Strings and the root URI are bounded.
+Malformed or duplicate facts reject with `InvalidRequest`.
+
+The result is `{sessionID:string|null}`. Core requires the expected native
+version, the actual runtime plugin owner, the same file workspace URI and a
+ready session with the function currently registered. Candidate order does not
+affect selection: the first matching session ID in lexical order wins. This
+query performs no I/O, starts nothing and does not consume runtime events.
+There is no cross-workspace fallback. An absent match is explicit null; normal
+startup/admission and later function invocation checks remain required.
+The pure selection vector is `shared/fixtures/plugins/settings-function-provider.json`.
+This is an internal desktop command, not a new public plugin host method.
+
+### Dynamic plugin settings surfaces
+
+Internal desktop commands reuse the validated settings manifest. They do not
+add plugin RPCs or admit capabilities. `plugins.settings.catalog` accepts up to
+64 `{manifest, owner: {pluginID, version}, enabled}` records. It validates all
+identities, rejects duplicates and returns deterministic `pages` (up to 512),
+with stable `key`, `kind` (`language` or `buildSystem`), opaque `id`, display
+`title`, and plugin-ID ordered `contributors` (`pluginID`, `version`, `title`,
+`sections`). Sections reference indices in the complete settingsState rows and
+actions. Only enabled contributors create pages; action-only pages are valid.
+Names come from enabled language/build declarations, with opaque ID fallback.
+`settingsState.pages` supplies the same per-plugin placement projections.
+
+`plugins.settings.navigation` accepts at most 576 two-level `items` (512 contributed pages plus 64 host entries) with stable
+`id`, `title`, nullable `parent`, `group`, `expanded`, optional `keywords`, plus
+`query` (at most 1024 bytes). It returns `rows` containing id/title/group/expanded/level.
+Search retains ancestors and expands matching groups; ordering follows input.
+Duplicate IDs, invalid parents and excessive input are rejected.
+
+`plugins.settings.delivery` accepts `scope` (global/project), native equality
+facts `samePreferences`, `sameWorkspace`, `sameVersion`, current `enabled`, and
+at most four declared `effects`. It returns `delivery: {refresh, effects}`.
+Global changes reach matching preference stores and versions; project changes
+additionally require native workspace identity equality. Disabled plugins may
+refresh displayed sources but receive no runtime effects. Effects are sorted
+and deduplicated. No setting values cross windows: receivers read their own
+project layers. Native owners must recheck window/project lifetime on delivery.
+Invalid surface input returns `plugin.settings.invalidSurface`; owner mismatch
+returns `plugin.settings.ownerChanged`. Shared vectors: `shared/fixtures/plugins/settings-surfaces.json`.

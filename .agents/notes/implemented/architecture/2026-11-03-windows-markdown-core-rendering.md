@@ -55,17 +55,17 @@ Windows 的数学公式与图表展示没有因此自动达到 macOS 的能力�
   运行 Markdown 相关用例；原生集成用例通过 `LITHE_CORE_TEST_LIBRARY` 指向 Core 动态库。
   共享输入覆盖列表、代码空白、中文、emoji、CRLF、front matter 和恶意 HTML；
   可控 Promise 验证乱序、卸载、清空、失败与高亮回退。
-- `./scripts/windows/verify/verify-windows-boundaries.sh`。
+- ~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）。
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
 
 自动化组件及动态库测试不替代真实 WebView2（Windows 内嵌浏览器）交互验收，
 功能矩阵保留 pending。
 
 ## 适用范围
 
-- `windows/tauri/src/features/editor/markdown/`
-- `windows/tauri/src/features/github/components/github-markdown.tsx`
-- `rust/lithe-core/src/project/markdown.rs`
+- ~~`windows/tauri/src/features/editor/markdown/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/github/components/github-markdown.tsx`~~（已随 #1794 移除）
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/project/markdown.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/project/markdown.rs)
 - `shared/fixtures/editor/markdown-render-v1.json`
 - `shared/platform-feature-matrix/features/markdown-rendering.json`

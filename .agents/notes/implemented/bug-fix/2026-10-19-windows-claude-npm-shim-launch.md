@@ -69,7 +69,7 @@ Codex 仍可把 `codex.cmd` 交给带 shell 的中继。
 
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-agent-host`
 - `node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs --manifest rust/Cargo.toml --package lithe-agent-host`
-- `windows/tauri`: `bun run typecheck`
+- ~~`windows/tauri`~~（已随 #1794 移除）: `bun run typecheck`
 - `rust/lithe-agent-host/src/tests.rs` 覆盖 `.cmd` 只转发给接受垫片的适配器，
   `.exe` 仍写入 `CLAUDE_CODE_EXECUTABLE`。
 - `rust/lithe-agent-host/src/install.rs` 覆盖 Windows 上 Claude 不省略 optional

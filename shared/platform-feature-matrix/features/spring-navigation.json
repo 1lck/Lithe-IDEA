@@ -4,20 +4,40 @@
   "group": "Spring / MyBatis",
   "capability": "Spring 符号导航与代码关联",
   "macos": {
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      "macos/Sources/Lithe/Application/Features",
-      "macos/Sources/Lithe/Views/Language"
-    ],
-    "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+      "desktop/internal/pluginservice/semantics.go",
+      "desktop/internal/workbench/pluginsemantics.go"
+    ]
   },
   "windows": {
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      "windows/tauri/src/features/spring"
-    ],
-    "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+      "desktop/internal/pluginservice/semantics.go",
+      "desktop/internal/workbench/pluginsemantics.go"
+    ]
   },
   "owner": "Java / Spring",
-  "verification": "从 Bean、配置和 Endpoint 结果跳转到源代码并返回，确认行列号一致。"
+  "verification": "从 Bean、配置和 Endpoint 结果跳转到源代码并返回，确认行列号一致。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Application/Features",
+        "macos/Sources/Lithe/Views/Language"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features/spring"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    }
+  },
+  "notes": "Viva：Spring 符号导航与代码关联由插件的 editor providers 提供；宿主语义通道（pluginservice/semantics.go、workbench/pluginsemantics.go）已存在，desktop/ 中未找到 Spring 专属导航代码。"
 }

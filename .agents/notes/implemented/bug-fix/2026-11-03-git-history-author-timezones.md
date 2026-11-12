@@ -30,14 +30,14 @@ Core 一次处理最多 4,096 条，macOS 在后台分批并丢弃过期结果�
 ## 验证
 
 - `rust/lithe-core/src/tests/git.rs` 与 `shared/fixtures/git/history-date-query-v1.json`：东西时区同一瞬间、边界包含/排除、未知偏移回退、夏令时重复小时。
-- `macos/Tests/LitheTests/GitStatusObservationTests.swift`、`GitLogDatePresetTests.swift` 与 `GitGraphInteractionTests.swift`：真实 Git 时间、功能模型筛选、23/25 小时日和缓存身份。
-- `windows/tauri/src/platform/core-result-adapter.history.test.ts` 与 `windows/tauri/src/features/git/utils/git-log-date.test.ts`：历史首页、分页及日期显示使用 Core 的绝对时间。
-- `./scripts/rust-core/verify-rust-core.sh`、`./scripts/architecture/verify-shared-contracts.sh`、`./scripts/agent-notes/verify-agent-notes.sh` 和 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`；原生工作台与 Windows 系统格式实机验收仍 pending。
+- ~~`macos/Tests/LitheTests/GitStatusObservationTests.swift`~~（已随 #1794 移除）、`GitLogDatePresetTests.swift` 与 `GitGraphInteractionTests.swift`：真实 Git 时间、功能模型筛选、23/25 小时日和缓存身份。
+- ~~`windows/tauri/src/platform/core-result-adapter.history.test.ts`~~（已随 #1794 移除） 与 `windows/tauri/src/features/git/utils/git-log-date.test.ts`：历史首页、分页及日期显示使用 Core 的绝对时间。
+- ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）、~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、`./scripts/agent-notes/verify-agent-notes.sh` 和 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`；原生工作台与 Windows 系统格式实机验收仍 pending。
 
 ## 适用范围
 
-- `rust/lithe-core/src/git/history_query.rs`
-- `macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`
-- `macos/Sources/Lithe/Views/Git/GitGraphView.swift`
-- `windows/tauri/src/features/git/utils/git-log-date.ts`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/history_query.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/history_query.rs)
+- ~~`macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/Git/GitGraphView.swift`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/git/utils/git-log-date.ts`~~（已随 #1794 移除）
 - `shared/contracts/rust-core-api.md`

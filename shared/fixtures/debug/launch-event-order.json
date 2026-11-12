@@ -1,0 +1,25 @@
+{
+  "cases": [
+    {
+      "id": "late-launch-paused",
+      "event": {
+        "type": "event",
+        "event": "stopped",
+        "body": {
+          "reason": "breakpoint",
+          "threadId": 1
+        }
+      },
+      "state": "paused"
+    },
+    {
+      "id": "late-launch-ended",
+      "event": {
+        "type": "event",
+        "event": "terminated",
+        "body": {}
+      },
+      "state": "terminated"
+    }
+  ]
+}

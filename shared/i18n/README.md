@@ -1,6 +1,6 @@
 # 维护共享翻译
 
-应用自有的 macOS 和 Windows 翻译都在这里维护，再生成两端使用的资源。
+共享翻译在这里维护，再生成各客户端使用的资源。Viva 桌面端新增词条标记 `desktop`，由同一生成器输出 Go 字典。
 macOS 的字符串表、Windows 的完整翻译字典，以及原先页面内的中英文文案都已迁入。
 两端继续使用原来的翻译接口，不在运行时读取这里的 JSON，也不下载语言包。
 
@@ -23,7 +23,7 @@ node scripts/i18n/generate-i18n.mjs --coverage
 node --test --test-timeout=60000 scripts/i18n/test-i18n.mjs
 ```
 
-提交共享源文件和生成结果。Windows `shared.generated.ts`、macOS
+提交共享源文件和生成结果。Viva 使用 `desktop/internal/i18n/shared.generated.go` 和 `i18n.Shared`；带参数的词条使用 `i18n.SharedFormat`，以字面量参数表提供词条声明的参数名，参数仅替换一次，传入的内容不会被再次解释。检查器核对固定词条键及参数名。新词条不能手写进 Go 字典。Windows `shared.generated.ts`、macOS
 `AppLanguage.generated.swift` 和各语言的整个 `Localizable.strings` 都是生成物。
 不要手工维护这些文件，不要在 Windows 再添加一份翻译字典，也不要在页面重新判断中英文。
 开发、构建、打包与独立跨平台 CI 会检查结果是否最新；`--check` 只读，不写文件。

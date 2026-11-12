@@ -68,7 +68,7 @@ LSP 控制中心和语言工具发现沿用现有 Rust Core LSP 会话。组合�
 
 ### 6. 跨平台实现保持相同边界
 
-macOS 使用声明式插件包和 publisher Ed25519 包签名；Windows 使用自己的 Tauri 插件包和平台签名、缓存适配器，接入共享契约 `shared/contracts/plugins/v1/` 时复用同一份声明语义。Windows 不得因为跨平台而把 macOS 的目录或构建脚本复制到 Windows。两端都必须满足：插件自有资源、构建时校验、运行时只读安装目录、禁用和卸载可清理自有资源。
+macOS 使用声明式插件包和 publisher Ed25519 包签名；Windows 使用自己的 Tauri 插件包和平台签名、缓存适配器，接入共享契约 `Lithe-core-rust/shared/plugins/contract/v1/` 时复用同一份声明语义。Windows 不得因为跨平台而把 macOS 的目录或构建脚本复制到 Windows。两端都必须满足：插件自有资源、构建时校验、运行时只读安装目录、禁用和卸载可清理自有资源。
 
 ## 考虑过的备选方案
 
@@ -86,7 +86,7 @@ macOS 使用声明式插件包和 publisher Ed25519 包签名；Windows 使用�
 ## 验证
 
 - 官方插件包的组装与校验（原 verify-official-plugins 脚本：检查官方插件组装、语言服务器清单、启动器、包内无原生代码和包签名。）已随插件移出本仓库，由各插件仓库的 CI 负责（#1495）。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：确认典型启动和插件工作流不会改写已安装 bundle。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：确认典型启动和插件工作流不会改写已安装 bundle。
 - `node scripts/resources/test-reuse-worktree-resources.mjs`：确认语言服务器下载和插件包不能跨工作树复用。
 - `./scripts/agent-notes/verify-agent-notes.sh`：确认本笔记格式、路径和验证命令有效。
 - 相关 macOS 测试：`MacPluginPackageDownloaderTests`、`LanguageServerToolServiceTests`、`LanguageExtensionProcessLifecycleTests` 和 `PluginPackageStoreTests`。
@@ -96,10 +96,10 @@ macOS 使用声明式插件包和 publisher Ed25519 包签名；Windows 使用�
 
 - 已迁出：原 `Plugins/mac/Official/`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - 已迁出：原 `scripts/plugins/build-official-plugins.sh`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/`
-- `macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeToolDiscovery.swift`
-- `macos/Sources/LitheLanguageIntelligenceModule/`
-- `windows/tauri/src/extensions/`
-- `windows/tauri/src-tauri/src/language_tools.rs`
+- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeToolDiscovery.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheLanguageIntelligenceModule/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/extensions/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src-tauri/src/language_tools.rs`~~（已随 #1794 移除）
 - `scripts/resources/worktree-resources.json`
 - `docs/ci-builds.md`

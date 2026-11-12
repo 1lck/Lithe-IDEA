@@ -1,12 +1,74 @@
 ---
 name: release-lithe
-description: Prepare and validate stable Lithe release notes and publishing workflows. Use when drafting docs/releases files, cutting a stable version, publishing a GitHub Release, or changing stable release automation.
+description: Choose version numbers for the Lithe app and Lithe plugins, and prepare and validate stable Lithe release notes and publishing workflows. Use when deciding a version number, drafting docs/releases files, cutting a stable version, publishing a GitHub Release, or changing release automation.
 ---
 
 # Release Lithe
 
-Apply this Skill after `develop-lithe` for stable releases. Preview releases
-keep their existing workflow unless the task explicitly includes them.
+Apply this Skill after `develop-lithe`. The version rules in the first section
+apply to every release of the Lithe app and of every Lithe plugin. The other
+sections apply to stable app releases; preview releases keep their existing
+workflow unless the task explicitly includes them.
+
+## Choose the version number
+
+Every release uses a `MAJOR.MINOR.PATCH` version. This covers stable app
+releases, `desktop-v*` desktop prereleases, and plugins, including the
+community plugins in the Lithe-IDEA organization. Compare the release with the
+previous published version of the same artifact, stable or prerelease. Then
+increment the part that matches the most significant change in the release:
+
+| Part | Increment when the release contains | Compatibility | From 1.2.3 |
+| --- | --- | --- | --- |
+| PATCH | Only backward-compatible bug fixes and small improvements | Fully compatible; users upgrade without doing anything | 1.2.4 |
+| MINOR | New features, with every existing feature unchanged | Backward compatible; nothing users rely on changes | 1.3.0 |
+| MAJOR | At least one breaking change | Not compatible with the previous version; users may need to change something | 2.0.0 |
+
+A change is breaking when a user of the previous version cannot upgrade
+without doing something, or loses something they relied on.
+
+For the app, these changes are breaking:
+
+- Removing or renaming a user-visible feature, command, setting, or keyboard
+  shortcut.
+- Dropping a plugin contract or plugin API version that installed plugins use,
+  so that those plugins stop loading.
+- Changing the format of settings, project state, or other stored data without
+  migrating the previous version's data automatically.
+- Raising the minimum supported operating system version, or dropping a
+  platform or CPU architecture.
+
+For a plugin, these changes are breaking:
+
+- Requiring a host or plugin contract version that hosts able to run the
+  previous version do not support, so that those users can no longer install
+  or update the plugin.
+- Removing or renaming a feature, command, task, run entry, setting, or build
+  option that the previous version declared.
+- Changing a setting key or value format, so that values users saved are lost
+  or read differently.
+- Requiring an external program the previous version did not need, or a newer
+  version of one it already ran.
+
+Apply these rules to every version number:
+
+- Versions below 1.0.0 follow the same table. Do not apply the semantic
+  versioning exception for initial development: a breaking change to 0.y.z
+  releases 1.0.0, not 0.(y+1).0.
+- Incrementing MAJOR resets MINOR and PATCH to 0. Incrementing MINOR resets
+  PATCH to 0.
+- The version number does not say whether a release is a prerelease. Publish
+  a release as a prerelease when no stable host can use it yet, whatever its
+  number. Keep the plain number and the plain tag (`v<version>`, or
+  `desktop-v<version>` for the desktop app), with no `-beta` or similar suffix.
+- Never reuse a published version or publish a lower one. A published package
+  is never modified; every change ships as a new version. The only exception
+  is a version reset that the user explicitly requests for one artifact:
+  delete all of its GitHub Releases and tags, remove all of its versions from
+  the Lithe Store index, and publish again from 0.0.1. Never reset a version
+  on your own initiative.
+- A MAJOR release lists every breaking change, together with what users must
+  do, in its upgrade or compatibility notes.
 
 ## Prepare the release notes first
 
@@ -119,8 +181,9 @@ before committing the notes.
 
 ## Validate before publishing
 
-- Confirm the version uses `MAJOR.MINOR.PATCH`, the filename is exactly
-  `docs/releases/v<version>.md`, and the file is non-empty.
+- Confirm that the version follows “Choose the version number” when compared
+  with the previous published version, that the filename is exactly
+  `docs/releases/v<version>.md`, and that the file is non-empty.
 - Check that Chinese and English describe the same release and that download
   filenames match the artifacts produced by both platform workflows.
 - Check the comparison range, current platform requirements, bundled tools,

@@ -7,7 +7,7 @@ const git = (...args) => execFileSync("git", args, { encoding: "utf8", timeout: 
 const base = process.argv[2] || process.env.MATRIX_BASE_SHA;
 const head = process.argv[3] || process.env.MATRIX_HEAD_SHA || "HEAD";
 if (!base) throw new Error("provide <base> <head> or MATRIX_BASE_SHA");
-const platformPaths = ["macos/Sources", "windows/tauri/src", "windows/tauri/src-tauri", "Plugins/mac", "Plugins/win", "frontend/editor", "rust/lithe-core", "shared/contracts"];
+const platformPaths = ["desktop", "macos/Sources", "windows/tauri/src", "windows/tauri/src-tauri", "Plugins/mac", "Plugins/win", "frontend/editor", "rust/lithe-core", "shared/contracts"];
 const changed = (paths) => git("diff", "--name-only", "--no-renames", "-z", base, head, "--", ...paths).split("\0").filter(Boolean);
 if (changed(platformPaths).length === 0) {
   console.log("matrix change gate passed: no platform implementation paths changed");

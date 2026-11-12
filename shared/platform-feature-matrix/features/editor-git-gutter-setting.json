@@ -4,21 +4,49 @@
   "group": "Git 变更",
   "capability": "设置中开关编辑器 Git 变更标记",
   "macos": {
-    "implementationStatus": "platform-specific",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift",
-      "frontend/editor/src/workbench.ts"
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
+      "desktop/internal/workbench/git_gutter.go",
+      "desktop/internal/editorview/gutter.go",
+      "desktop/internal/workbench/editor_view.go",
+      "desktop/internal/settingswindow/version_control_view.go",
+      "desktop/internal/settingswindow/controller.go"
     ]
   },
   "windows": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      "windows/tauri/src/features/settings/components/tabs/git-settings.tsx",
-      "windows/tauri/src/features/settings/config/default-settings.ts"
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
+      "desktop/internal/workbench/git_gutter.go",
+      "desktop/internal/editorview/gutter.go",
+      "desktop/internal/workbench/editor_view.go",
+      "desktop/internal/settingswindow/version_control_view.go",
+      "desktop/internal/settingswindow/controller.go"
     ]
   },
   "owner": "Editor / Git",
-  "verification": "Windows 默认显示 Git 变更标记；在 Git 设置中关闭时清除标记和预览，重新启用后恢复，重启后保留选择。此项记录 Windows 新增的独立开关。"
+  "verification": "Windows 默认显示 Git 变更标记；在 Git 设置中关闭时清除标记和预览，重新启用后恢复，重启后保留选择。此项记录 Windows 新增的独立开关。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "implementationStatus": "platform-specific",
+      "verificationStatus": "not-applicable",
+      "evidence": [
+        "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift",
+        "frontend/editor/src/workbench.ts"
+      ]
+    },
+    "windows": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "windows/tauri/src/features/settings/components/tabs/git-settings.tsx",
+        "windows/tauri/src/features/settings/config/default-settings.ts"
+      ]
+    }
+  },
+  "notes": "Viva：设置 › 版本控制提供“显示 Git 变更标记”开关，默认开；切换立即应用到所有打开文件，选择写入窗口设置并在重启后保留。"
 }

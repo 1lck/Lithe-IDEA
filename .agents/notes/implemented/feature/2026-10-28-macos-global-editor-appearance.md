@@ -130,11 +130,11 @@
 ## 验证
 
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AppSettingsTests|MonacoWorkbenchThemeTests|SettingsSearchVocabularyTests|ContextMenuCoverageTests|EditorFontFamilyTests'`
-- `./scripts/macos/probe/probe-macos-monaco.sh --workbench-tests`：真实 WebKit 验证新旧分栏、字号和行高、
+- ~~./scripts/macos/probe/probe-macos-monaco.sh --workbench-tests~~（随旧客户端移除）：真实 WebKit 验证新旧分栏、字号和行高、
   显示选项、深浅配色、斜体撤销、内容和撤销栈保留；隐藏行号后的断点图标、已有断点与空白行的鼠标点击、恢复相对行号。
 - `node scripts/i18n/generate-i18n.mjs --check`
 - `node scripts/i18n/verify-app-language-localization.mjs`
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `node scripts/architecture/verify-editor-boundaries.mjs`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 
@@ -142,11 +142,11 @@
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Models/Settings/EditorAppearanceSettings.swift`
-- `macos/Sources/Lithe/Models/Settings/AppSettings.swift`
-- `macos/Sources/Lithe/Views/App/SettingsView.swift`
-- `macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift`
-- `frontend/editor/src/theme.ts`
-- `frontend/editor/src/workbench.ts`
-- `frontend/editor/themes/`
-- `windows/tauri/src/extensions/themes/theme-loader.ts`
+- ~~`macos/Sources/Lithe/Models/Settings/EditorAppearanceSettings.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Models/Settings/AppSettings.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Views/App/SettingsView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift`~~（已随 #1794 移除）
+- ~~`frontend/editor/src/theme.ts`~~（已随 #1794 移除）
+- ~~`frontend/editor/src/workbench.ts`~~（已随 #1794 移除）
+- ~~`frontend/editor/themes/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/extensions/themes/theme-loader.ts`~~（已随 #1794 移除）

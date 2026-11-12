@@ -116,7 +116,7 @@ pnpm 在 /opt/homebrew/bin，node 在 fnm 的默认别名目录
   项目 wrapper 不把仓库根放进 PATH、已有目录去重且保持顺序、显式 PATH 保持优先级、
   缺失 PATH 时使用注入的系统默认值、显式空 PATH 不使用默认值、resolver 对
   `.command` 与 `.toolchain("project-node")` 的接线，以及基础进程环境不被改写。
-- `./scripts/architecture/verify-service-boundaries.sh`
+- ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
 - 失败形态的手工复现：`env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/env node --version`
   返回 `env: node: No such file or directory`；把 node 目录加进 `PATH` 后恢复。
   发行包上的 GUI 端到端运行未在本机复验。
@@ -125,5 +125,5 @@ pnpm 在 /opt/homebrew/bin，node 在 fnm 的默认别名目录
 
 - 已迁出：原 `macos/Sources/Lithe/Services/Java/RunLaunchEnvironment.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
 - 已迁出：原 `macos/Sources/Lithe/Services/Java/RunExecutableResolver.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
-- `macos/Tests/LitheTests/RunLaunchEnvironmentTests.swift`
+- ~~`macos/Tests/LitheTests/RunLaunchEnvironmentTests.swift`~~（已随 #1794 移除）
 - 对照实现：`windows/tauri/src-tauri/src/run.rs` 中的 `append_runtime_paths`

@@ -35,15 +35,15 @@ Issue #727 的 Maven 路径只保存在 Maven 面板中，不在系统 PATH 或 
 
 ## 验证
 
-- `windows/tauri/src/features/run/services/resolve-run-project.test.ts`：面板路径、可执行文件、Run 显式优先、无效路径、版本不兼容及非 Maven 项目。
-- `windows/tauri/src/features/run/stores/run-project-load.test.ts`：旧加载结果不能恢复已消除的告警。
-- `windows/tauri/src/features/run/stores/run-maven-context.test.ts`：实际启动等待相同工作区的 Maven 上下文。
+- ~~`windows/tauri/src/features/run/services/resolve-run-project.test.ts`~~（已随 #1794 移除）：面板路径、可执行文件、Run 显式优先、无效路径、版本不兼容及非 Maven 项目。
+- ~~`windows/tauri/src/features/run/stores/run-project-load.test.ts`~~（已随 #1794 移除）：旧加载结果不能恢复已消除的告警。
+- ~~`windows/tauri/src/features/run/stores/run-maven-context.test.ts`~~（已随 #1794 移除）：实际启动等待相同工作区的 Maven 上下文。
 - `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs -- src/features/run/services/resolve-run-project.test.ts src/features/run/stores/run-project-load.test.ts src/features/run/stores/run-maven-context.test.ts`
-- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- ~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）
 - `./scripts/agent-notes/verify-agent-notes.sh`
 
 ## 适用范围
 
-- `windows/tauri/src/features/run/services/resolve-run-project.ts`
-- `windows/tauri/src/features/run/stores/run.store.ts`
-- `windows/tauri/src/features/run/components/run-pane.tsx`
+- ~~`windows/tauri/src/features/run/services/resolve-run-project.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/run/stores/run.store.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/run/components/run-pane.tsx`~~（已随 #1794 移除）

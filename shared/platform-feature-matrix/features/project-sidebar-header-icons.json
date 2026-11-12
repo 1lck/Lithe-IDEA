@@ -4,22 +4,44 @@
   "group": "项目侧边栏",
   "capability": "项目侧边栏标题与项目树行块左缘对齐，只显示右侧 IDEA Community 下拉箭头；定位当前文件与刷新按钮使用 16pt 明暗 SVG",
   "macos": {
-    "implementationStatus": "implemented",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
-      "macos/Resources/IDEAIcons/expui/general/chevronDown.svg",
-      "macos/Resources/IDEAIcons/expui/general/locate.svg",
-      "macos/Resources/IDEAIcons/expui/general/refresh.svg"
+      "desktop/internal/workbench/shell.go",
+      "desktop/internal/workbench/filetree_actions.go",
+      "desktop/internal/workbench/filetree_actions_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "platform-specific",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "windows/tauri/src/features/panes"
+      "desktop/internal/workbench/shell.go",
+      "desktop/internal/workbench/filetree_actions.go",
+      "desktop/internal/workbench/filetree_actions_test.go"
     ]
   },
   "owner": "Workbench",
-  "verification": "macOS 深浅主题下打开项目并核对 Project 文字与下方项目树行块左缘对齐、标题只有右侧下拉箭头；点击 Project 切换视图，确认弹层操作正常；核对两个按钮的 16pt 图标及 22pt 悬停块与 IDEA SVG 一致，鼠标进入标题行时渐显、离开时隐藏，悬停保持箭头光标，定位当前文件和刷新操作正常。 不悬停时 Reveal/Refresh 仍能通过无障碍树访问，键盘或 VoiceOver 焦点进入按钮时显示；hover 不决定无障碍可达性。"
+  "verification": "macOS 深浅主题下打开项目并核对 Project 文字与下方项目树行块左缘对齐、标题只有右侧下拉箭头；点击 Project 切换视图，确认弹层操作正常；核对两个按钮的 16pt 图标及 22pt 悬停块与 IDEA SVG 一致，鼠标进入标题行时渐显、离开时隐藏，悬停保持箭头光标，定位当前文件和刷新操作正常。 不悬停时 Reveal/Refresh 仍能通过无障碍树访问，键盘或 VoiceOver 焦点进入按钮时显示；hover 不决定无障碍可达性。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
+        "macos/Resources/IDEAIcons/expui/general/chevronDown.svg",
+        "macos/Resources/IDEAIcons/expui/general/locate.svg",
+        "macos/Resources/IDEAIcons/expui/general/refresh.svg"
+      ]
+    },
+    "windows": {
+      "implementationStatus": "platform-specific",
+      "verificationStatus": "not-applicable",
+      "evidence": [
+        "windows/tauri/src/features/panes"
+      ]
+    }
+  },
+  "notes": "Viva 的 Project 标题栏在隐藏按钮前显示定位当前文件、刷新、全部展开、全部折叠四个按钮，使用 Lucide 图标和共用的工具栏图标按钮（禁用状态同时写入命中与无障碍树）；按钮常显，尚未实现 IDEA SVG 图标、悬停渐显、标题下拉箭头，也未核对标题与树行左缘对齐。legacy 是迁移前基线，不代表当前实现。"
 }

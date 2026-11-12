@@ -22,7 +22,7 @@
 
 - **输入行归宿主，补全内容归适配器和插件。** `DebugConsolePane`（`macos/Sources/Lithe/Views/Debug/DebugConsolePromptView.swift`）画输入行和弹层，不认识任何具体调试器。候选来自 `GenericDebugFeatureModel.requestConsoleCompletions`，只在会话处于 `paused` 时发请求，否则返回空列表。
 - **补全请求走 Rust Core。** `debug.inspect` 的 `completions` 类型由 Core 校验并转成 DAP `completions`：适配器没有协商 `supportsCompletionsRequest` 时直接拒绝；`text` 不能为空；`column` 是 1 起算的 UTF-16 单位，越界会被拒绝。Swift 侧的光标是 0 起算，由 `CoreDebugAdapterProtocolSession` 统一加 1，其他地方不要再换算。
-- **插件声明命令用 `debugAdapters[].console.commands[]`。** 每项只有 `name` 和可选 `description`，按名称排序、不重复、数量和长度有上限，违反时安装校验直接拒绝（`shared/contracts/plugins/v1/fixtures/debug-adapters/debug-adapter-rejections.json` 有对应用例）。清单按“整行前缀”匹配，已经完整输入的命令不再提示。适配器会实时补全时（如 lldb-dap）清单只用来补它没覆盖的命令，同名候选只显示一次，适配器的顺序在前。
+- **插件声明命令用 `debugAdapters[].console.commands[]`。** 每项只有 `name` 和可选 `description`，按名称排序、不重复、数量和长度有上限，违反时安装校验直接拒绝（`Lithe-core-rust/shared/plugins/contract/v1/fixtures/debug-adapters/debug-adapter-rejections.json` 有对应用例）。清单按“整行前缀”匹配，已经完整输入的命令不再提示。适配器会实时补全时（如 lldb-dap）清单只用来补它没覆盖的命令，同名候选只显示一次，适配器的顺序在前。
 - **候选替换哪一段，规则固定。** 适配器给了 `start` / `length` 就照它的；没给（lldb-dap 就不给）时，替换“输入末尾与候选开头重合的最长一段”，忽略大小写；一点都不重合则在光标处插入。这条规则在 `DebugConsoleCompletion.swift`，有 10 条测试固定。改它要同时改 `DebugConsoleCompletionTests.swift`。
 - **插件可以声明命令前缀，宿主只搬运不理解。** lldb-dap 在行首会把 C++ 关键字和类型（`long`、`int16_t`、`const`）和命令混在一起，这些词一执行就是 `evaluate` 失败；在行首加反引号它才只返回命令。这个差异属于适配器，所以由插件在 `debugAdapters[].console.commandPrefix` 里声明（1–8 个字符，不含空白和控制字符，可以和 `commands` 同时出现，两者至少有一个）。宿主只在发补全请求时把前缀拼到整行前面（行首已有就不拼），光标按前缀的 UTF-16 长度后移，适配器回来的 `start` / `length` 再减回去（`DebugConsoleCompletion.adapterRequest` / `restoring`）。用户看到和执行的行永远不带前缀。代价是行首位置拿不到变量名补全，`p to` 这类带命令的输入不受影响。
 - **候选说明只取第一行。** lldb-dap 把整段帮助文字拼进标签，弹层一行放不下；`DebugConsoleCompletion` 取第一个非空行作为说明，完整文字不进弹层。
@@ -32,7 +32,7 @@
 
 ### 不要这样做
 
-- **不要在宿主里按适配器名添加命令表。** lldb 的命令清单属于 lldb 插件的 `plugin.json`；宿主里出现 `if adapter == "lldb"` 这类分支，换一个调试器就要改宿主；宿主只认声明的数据，能力版本规则见[插件能力版本](../architecture/2026-10-17-plugin-capability-versions.md)。
+- **不要在宿主里按适配器名添加命令表。** lldb 的命令清单属于 lldb 插件的 `plugin.json`；宿主里出现 `if adapter == "lldb"` 这类分支，换一个调试器就要改宿主；宿主只认声明的数据，能力版本规则见[插件能力版本](../architecture/2026-11-11-plugin-contract-single-baseline.md)。
 - **不要在宿主里把某个适配器的怪癖写成分支。** “行首先加反引号”是 lldb-dap 的行为，写在宿主里换一个适配器就是错的；它只能是插件声明的数据（`commandPrefix`），宿主不检查前缀内容的含义。
 - **不要把补全请求发给没协商能力的适配器。** DAP 规定客户端只能发送适配器声明支持的请求，所以由 Core 在发送前按能力门控，而不是发出去等错误。
 - **不要用行内 stdin 输入承载调试器命令。** 行内输入只属于被调试程序的标准输入，用户在这里输入的内容会进程序，不会进调试器。
@@ -63,25 +63,25 @@
 ## 后果
 
 - 收益：调试器命令和程序输入在界面上分开；插件只写数据就能让用户得到命令补全；Windows 以后复用同一个 Core 请求，只需要实现自己的输入行。
-- 代价：契约多了 `console.commands[]` 和 `console.commandPrefix`，`shared/contracts/plugins/v1/` 合并后要在 lithe-plugin-docs 运行 `node scripts/contract.mjs sync` 同步副本；弹层是叠加在 AppKit 输出视图上的 SwiftUI 视图，绘制顺序依赖当前的叠加方式。
+- 代价：契约多了 `console.commands[]` 和 `console.commandPrefix`，要落在 Core 仓库的 `shared/plugins/contract/v1/`，并在同一个 Core PR 里登记协议更新记录；弹层是叠加在 AppKit 输出视图上的 SwiftUI 视图，绘制顺序依赖当前的叠加方式。
 - 需要重新评估的触发条件：Windows 端要做同样的输入行；适配器开始返回带 `start` / `length` 的补全并和宿主规则冲突；候选数量超过 60 条仍需要滚动浏览。
 
 ## 验证
 
-- `./scripts/macos/test/test-macos.sh --filter LitheDebugModuleTests`
-- `./scripts/macos/test/test-macos.sh --filter 'DeclarativeDebugAdapterConsoleTests'`
+- ~~./scripts/macos/test/test-macos.sh --filter LitheDebugModuleTests~~（随旧客户端移除）
+- ~~./scripts/macos/test/test-macos.sh --filter 'DeclarativeDebugAdapterConsoleTests'~~（随旧客户端移除）
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml console_completions`
-- `./scripts/architecture/verify-shared-contracts.sh`
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
 - `node scripts/i18n/generate-i18n.mjs --check`
 - `node scripts/i18n/verify-app-language-localization.mjs`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Views/Debug/DebugConsolePromptView.swift`
-- `macos/Sources/LitheDebugModule/Application/DebugConsoleCompletion.swift`
-- `macos/Sources/LitheDebugModule/Application/DebugConsolePromptModel.swift`
-- `macos/Sources/LitheDebugModule/Application/GenericDebugFeatureModel.swift`
-- `macos/Sources/LitheDebugModule/Runtime/CoreDebugAdapterProtocolSession.swift`
-- `rust/lithe-core/src/debug/engine.rs`
-- `shared/contracts/plugins/v1/`
+- ~~`macos/Sources/Lithe/Views/Debug/DebugConsolePromptView.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheDebugModule/Application/DebugConsoleCompletion.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheDebugModule/Application/DebugConsolePromptModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheDebugModule/Application/GenericDebugFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheDebugModule/Runtime/CoreDebugAdapterProtocolSession.swift`~~（已随 #1794 移除）
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/engine.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug/engine.rs)
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`

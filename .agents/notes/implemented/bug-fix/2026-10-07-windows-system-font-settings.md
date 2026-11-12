@@ -31,6 +31,6 @@ Windows字体信息交给系统DirectWrite接口，后台枚举后展示规范�
 
 ## 适用范围
 
-- `windows/tauri/src/features/settings/components/settings-panels.tsx`
-- `windows/tauri/src-tauri/src/fonts.rs`
-- `windows/tauri/src/features/settings/lib/editor-font-size.ts`
+- ~~`windows/tauri/src/features/settings/components/settings-panels.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src-tauri/src/fonts.rs`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/settings/lib/editor-font-size.ts`~~（已随 #1794 移除）

@@ -1,0 +1,559 @@
+{
+  "schemaVersion": 1,
+  "manifest": {
+    "schemaVersion": 0,
+    "id": "dev.example.settings",
+    "displayName": "Settings Fixture",
+    "version": "1.0.0",
+    "pluginAPIVersion": 0,
+    "requires": {
+      "settings": 0,
+      "languages": 0,
+      "languageServers": 0
+    },
+    "vendor": {
+      "id": "dev.example",
+      "displayName": "Example",
+      "signatureRequirement": "none"
+    },
+    "permissions": [
+      "languageServer.launch"
+    ],
+    "activationEvents": [
+      "onLanguage:fixture"
+    ],
+    "languages": [
+      {
+        "id": "fixture",
+        "displayName": "Fixture",
+        "fileExtensions": [
+          "fixture"
+        ]
+      }
+    ],
+    "settings": [
+      {
+        "id": "flag",
+        "type": "boolean",
+        "title": "Flag",
+        "default": true,
+        "scope": "project"
+      },
+      {
+        "id": "count",
+        "type": "integer",
+        "title": "Count",
+        "default": 3,
+        "minimum": 1,
+        "maximum": 10
+      },
+      {
+        "id": "format",
+        "type": "enum",
+        "title": "Format",
+        "default": "plain",
+        "options": [
+          {
+            "value": "plain",
+            "title": "Plain"
+          },
+          {
+            "value": "rich",
+            "title": "Rich"
+          }
+        ],
+        "scope": "project"
+      },
+      {
+        "id": "checks",
+        "type": "multiSelect",
+        "title": "Checks",
+        "default": [],
+        "options": [
+          {
+            "value": "lint",
+            "title": "Lint"
+          },
+          {
+            "value": "test",
+            "title": "Test"
+          }
+        ],
+        "scope": "project",
+        "effect": "nextRun"
+      },
+      {
+        "id": "label",
+        "type": "text",
+        "title": "Label",
+        "default": "base",
+        "pattern": "[a-z]+",
+        "maxLength": 4,
+        "scope": "project"
+      },
+      {
+        "id": "program",
+        "type": "file",
+        "title": "Program",
+        "default": "",
+        "scope": "project"
+      },
+      {
+        "id": "folder",
+        "type": "directory",
+        "title": "Folder",
+        "default": "",
+        "scope": "project"
+      }
+    ],
+    "languageServers": [
+      {
+        "languageID": "fixture",
+        "launch": {
+          "kind": "systemCommand",
+          "commands": [
+            "fixture-server"
+          ]
+        },
+        "arguments": []
+      }
+    ]
+  },
+  "editCases": [
+    {
+      "name": "all-types-and-sibling",
+      "scope": "global",
+      "document": "{\"dev.other\":{\"keep\":{\"nested\":[\"unchanged\"]}},\"dev.example.settings\":{\"dormant\":17}}",
+      "edits": [
+        {
+          "id": "flag",
+          "value": false
+        },
+        {
+          "id": "count",
+          "value": 6
+        },
+        {
+          "id": "format",
+          "value": "rich"
+        },
+        {
+          "id": "checks",
+          "value": [
+            "lint",
+            "test"
+          ]
+        },
+        {
+          "id": "label",
+          "value": "fast"
+        },
+        {
+          "id": "program",
+          "value": "/fixture/app"
+        },
+        {
+          "id": "folder",
+          "value": "C:\\fixture tools"
+        }
+      ],
+      "expected": {
+        "dev.other": {
+          "keep": {
+            "nested": [
+              "unchanged"
+            ]
+          }
+        },
+        "dev.example.settings": {
+          "dormant": 17,
+          "flag": false,
+          "count": 6,
+          "format": "rich",
+          "checks": [
+            "lint",
+            "test"
+          ],
+          "label": "fast",
+          "program": "/fixture/app",
+          "folder": "C:\\fixture tools"
+        }
+      },
+      "effects": [
+        "nextRun",
+        "restart"
+      ]
+    },
+    {
+      "name": "remove-one-retains-sibling",
+      "scope": "project",
+      "document": "{\"dev.example.settings\":{\"flag\":false,\"label\":\"fast\"}}",
+      "edits": [
+        {
+          "id": "flag",
+          "value": null
+        }
+      ],
+      "expected": {
+        "dev.example.settings": {
+          "label": "fast"
+        }
+      },
+      "effects": [
+        "restart"
+      ]
+    },
+    {
+      "name": "empty-layer-delete",
+      "scope": "project",
+      "document": "{\"dev.example.settings\":{\"flag\":false}}",
+      "edits": [
+        {
+          "id": "flag",
+          "value": null
+        }
+      ],
+      "expected": {},
+      "delete": true,
+      "effects": [
+        "restart"
+      ]
+    },
+    {
+      "name": "unchanged-preserves-source-text",
+      "scope": "global",
+      "document": "{  \"dev.example.settings\": {\"flag\":false} }\n",
+      "edits": [
+        {
+          "id": "flag",
+          "value": false
+        }
+      ],
+      "expected": {
+        "dev.example.settings": {
+          "flag": false
+        }
+      },
+      "unchanged": true,
+      "effects": []
+    },
+    {
+      "name": "unknown-id",
+      "scope": "global",
+      "document": null,
+      "edits": [
+        {
+          "id": "missing",
+          "value": true
+        }
+      ],
+      "errorCode": "plugin.settings.invalidEdit"
+    },
+    {
+      "name": "global-setting-in-project",
+      "scope": "project",
+      "document": null,
+      "edits": [
+        {
+          "id": "count",
+          "value": 6
+        }
+      ],
+      "errorCode": "plugin.settings.invalidEdit"
+    },
+    {
+      "name": "invalid-batch-is-not-partial",
+      "scope": "global",
+      "document": "{\"dev.example.settings\":{\"flag\":true}}",
+      "edits": [
+        {
+          "id": "flag",
+          "value": false
+        },
+        {
+          "id": "count",
+          "value": 11
+        }
+      ],
+      "errorCode": "plugin.settings.invalidEdit"
+    },
+    {
+      "name": "duplicate-edit",
+      "scope": "global",
+      "document": null,
+      "edits": [
+        {
+          "id": "flag",
+          "value": false
+        },
+        {
+          "id": "flag",
+          "value": true
+        }
+      ],
+      "errorCode": "plugin.settings.invalidEdit"
+    },
+    {
+      "name": "bad-document",
+      "scope": "global",
+      "document": "not json",
+      "edits": [
+        {
+          "id": "flag",
+          "value": true
+        }
+      ],
+      "errorCode": "plugin.settings.invalidDocument"
+    },
+    {
+      "name": "duplicate-plugin-key",
+      "scope": "global",
+      "document": "{\"dev.other\":{},\"dev.other\":{}}",
+      "edits": [
+        {
+          "id": "flag",
+          "value": true
+        }
+      ],
+      "errorCode": "plugin.settings.invalidDocument"
+    },
+    {
+      "name": "duplicate-setting-key",
+      "scope": "global",
+      "document": "{\"dev.example.settings\":{\"flag\":false,\"flag\":true}}",
+      "edits": [
+        {
+          "id": "flag",
+          "value": true
+        }
+      ],
+      "errorCode": "plugin.settings.invalidDocument"
+    },
+    {
+      "name": "invalid-group",
+      "scope": "global",
+      "document": "{\"dev.other\":[]}",
+      "edits": [
+        {
+          "id": "flag",
+          "value": true
+        }
+      ],
+      "errorCode": "plugin.settings.invalidDocument"
+    },
+    {
+      "name": "empty-batch",
+      "scope": "global",
+      "document": null,
+      "edits": [],
+      "errorCode": "plugin.settings.invalidEdit"
+    },
+    {
+      "name": "wrong-boolean",
+      "scope": "global",
+      "document": null,
+      "edits": [
+        {
+          "id": "flag",
+          "value": "false"
+        }
+      ],
+      "errorCode": "plugin.settings.invalidEdit"
+    },
+    {
+      "name": "fractional-integer",
+      "scope": "global",
+      "document": null,
+      "edits": [
+        {
+          "id": "count",
+          "value": 1.5
+        }
+      ],
+      "errorCode": "plugin.settings.invalidEdit"
+    },
+    {
+      "name": "unknown-enum",
+      "scope": "global",
+      "document": null,
+      "edits": [
+        {
+          "id": "format",
+          "value": "unknown"
+        }
+      ],
+      "errorCode": "plugin.settings.invalidEdit"
+    },
+    {
+      "name": "duplicate-option",
+      "scope": "global",
+      "document": null,
+      "edits": [
+        {
+          "id": "checks",
+          "value": [
+            "lint",
+            "lint"
+          ]
+        }
+      ],
+      "errorCode": "plugin.settings.invalidEdit"
+    },
+    {
+      "name": "unsafe-text",
+      "scope": "global",
+      "document": null,
+      "edits": [
+        {
+          "id": "label",
+          "value": "-x"
+        }
+      ],
+      "errorCode": "plugin.settings.invalidEdit"
+    },
+    {
+      "name": "long-text",
+      "scope": "global",
+      "document": null,
+      "edits": [
+        {
+          "id": "label",
+          "value": "abcde"
+        }
+      ],
+      "errorCode": "plugin.settings.invalidEdit"
+    },
+    {
+      "name": "relative-file",
+      "scope": "global",
+      "document": null,
+      "edits": [
+        {
+          "id": "program",
+          "value": "app"
+        }
+      ],
+      "errorCode": "plugin.settings.invalidEdit"
+    },
+    {
+      "name": "relative-directory",
+      "scope": "global",
+      "document": null,
+      "edits": [
+        {
+          "id": "folder",
+          "value": "tools"
+        }
+      ],
+      "errorCode": "plugin.settings.invalidEdit"
+    },
+    {
+      "name": "duplicate-nested-dormant-value",
+      "scope": "global",
+      "document": "{\"dev.other\":{\"dormant\":{\"key\":1,\"key\":2}}}",
+      "edits": [
+        {
+          "id": "flag",
+          "value": false
+        }
+      ],
+      "errorCode": "plugin.settings.invalidDocument"
+    },
+    {
+      "name": "integer-editor-text",
+      "scope": "global",
+      "document": null,
+      "edits": [
+        {
+          "id": "count",
+          "value": null,
+          "text": " 6 "
+        }
+      ],
+      "expected": {
+        "dev.example.settings": {
+          "count": 6
+        }
+      },
+      "effects": [
+        "restart"
+      ]
+    },
+    {
+      "name": "file-editor-text",
+      "scope": "global",
+      "document": null,
+      "edits": [
+        {
+          "id": "program",
+          "value": null,
+          "text": "/fixture tools/app"
+        }
+      ],
+      "expected": {
+        "dev.example.settings": {
+          "program": "/fixture tools/app"
+        }
+      },
+      "effects": [
+        "restart"
+      ]
+    },
+    {
+      "name": "integer-editor-text-rejects-fraction",
+      "scope": "global",
+      "document": null,
+      "edits": [
+        {
+          "id": "count",
+          "value": null,
+          "text": "3.5"
+        }
+      ],
+      "errorCode": "plugin.settings.invalidEdit"
+    },
+    {
+      "name": "integer-editor-text-enforces-bounds",
+      "scope": "global",
+      "document": null,
+      "edits": [
+        {
+          "id": "count",
+          "value": null,
+          "text": "11"
+        }
+      ],
+      "errorCode": "plugin.settings.invalidEdit"
+    },
+    {
+      "name": "editor-text-and-value-are-exclusive",
+      "scope": "global",
+      "document": null,
+      "edits": [
+        {
+          "id": "count",
+          "value": 4,
+          "text": "6"
+        }
+      ],
+      "errorCode": "plugin.settings.invalidEdit"
+    },
+    {
+      "name": "editor-text-rejection-is-atomic",
+      "scope": "global",
+      "document": "{\"dev.other\":{\"keep\":true}}",
+      "edits": [
+        {
+          "id": "flag",
+          "value": false
+        },
+        {
+          "id": "count",
+          "value": null,
+          "text": "not a number"
+        }
+      ],
+      "errorCode": "plugin.settings.invalidEdit"
+    }
+  ]
+}

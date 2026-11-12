@@ -129,15 +129,15 @@
 - `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory windows/tauri -- src/features/spring/hooks/use-spring-index.test.tsx`
   覆盖持续编辑只产生一次在途加一次补充刷新、卸载取消在途请求、主动取消不写失败
   状态、非本 hook 发起的取消不会停在 `loading`。
-- `./scripts/rust-core/verify-rust-core.sh`
-- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）
+- ~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 
 ## 适用范围
 
 - 已迁出：原 `rust/lithe-core/src/languages/spring.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
-- `windows/tauri/src/features/spring/hooks/use-spring-index.ts`
-- `windows/tauri/src/features/spring/hooks/use-spring-index.test.tsx`
-- `windows/tauri/src/features/spring/api/spring-index-api.ts`
-- `windows/tauri/src/features/spring/utils/spring-index-error.ts`
+- ~~`windows/tauri/src/features/spring/hooks/use-spring-index.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/spring/hooks/use-spring-index.test.tsx`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/spring/api/spring-index-api.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/spring/utils/spring-index-error.ts`~~（已随 #1794 移除）
 - `shared/platform-feature-matrix/features/spring-index.json`

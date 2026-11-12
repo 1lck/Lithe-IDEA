@@ -1,8 +1,8 @@
-# VCS provider contract v1
+# VCS provider contract
 
 > **Status: Core implemented; macOS hosts providers.** Core accepts the
 > `vcsProviders` manifest capability and the commands below. macOS advertises
-> `vcsProviders` 1 and starts providers for the roots it detects. Windows does
+> `vcsProviders` 0 and starts providers for the roots it detects. Windows does
 > not advertise the capability.
 > The decision record is
 > [Unified VCS model and providers](../../.agents/notes/proposed/architecture/2026-10-22-unified-vcs-provider-model.md);
@@ -35,12 +35,13 @@ not modeled here.
   fragment before they leave it.
 - Secrets never appear in arguments, results, console events, or logs.
 
-## Manifest (plugin API level 3)
+## Manifest
 
 ```json
 {
-  "pluginAPIVersion": 3,
-  "requires": { "serverProcess": 1, "vcsProviders": 1 },
+  "pluginAPIVersion": 0,
+  "requires": { "vcsProviders": 0 },
+  "requiresTools": ["node"],
   "permissions": ["languageServer.launch", "process.vcs"],
   "activationEvents": ["onVcsRoot:svn"],
   "vcsProviders": [
@@ -65,14 +66,15 @@ not modeled here.
 | `detection.markers` | 1-8 entries directly inside a root; `type` is `directory` or `file`. |
 | `metadataPaths` | Up to 16 root-relative paths the host watches to refresh status. |
 | `tool` | Optional. Bare command names the host resolves like a `systemCommand` launch, and an optional probe. |
-| `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | The shared server-process fields. |
+| `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | The process-start fields every plugin process shares; see the base contract. |
 | `mayUseNetwork` | Shown in the install review. |
 
 A plugin declares at most 8 providers. A non-empty `vcsProviders` requires the
 `languageServer.launch` and `process.vcs` permissions, the activation event
-`onVcsRoot:<id>` for every provider, and `requires.vcsProviders` and
-`requires.serverProcess`. Capabilities are not declared in the manifest: they
-belong to the running process and are negotiated.
+`onVcsRoot:<id>` for every provider, and `requires.vcsProviders`. Starting the
+process follows the base contract's process rules, which are not a capability
+and are never listed in `requires`. VCS capabilities are not declared in the
+manifest: they belong to the running process and are negotiated.
 
 The install review lists one program per provider, of kind
 `packagedVcsProvider`, `systemVcsProvider`, or `runtimeVcsProvider`, with
@@ -220,7 +222,7 @@ The provider receives, for example:
 ### `vcs.decodeReply`
 
 ```json
-{ "operation": "status", "capabilities": { "status": 1, "…": 1 }, "request": { }, "reply": { } }
+{ "operation": "status", "capabilities": { "status": 0, "…": 0 }, "request": { }, "reply": { } }
 ```
 
 `capabilities` is what the session reported in its `vcsProvider` event,
@@ -230,16 +232,18 @@ completed request. The result is `{ status: "ok", result }` or
 
 ## Negotiation
 
-The host offers `capabilities.experimental.litheVcs: { "versions": [1] }` in
-`initialize`, to plugin-owned sessions only. The provider answers:
+The host offers `capabilities.experimental.litheVcs: { "versions": [0] }` in
+`initialize`, to plugin-owned sessions only. The protocol version is the
+`vcsProviders` capability version. The provider answers:
 
 ```json
-{ "litheVcs": { "version": 1, "vcs": "svn", "capabilities": { "status": 1, "baseContent": 1, "checkin": 1, "rollback": 1, "update": 1 } } }
+{ "litheVcs": { "version": 0, "vcs": "svn", "capabilities": { "status": 0, "baseContent": 0, "checkin": 0, "rollback": 0, "update": 0 } } }
 ```
 
 A session is a provider only when the answer names an offered version, a valid
-VCS ID, and every required capability. Unknown capabilities, and known ones at
-another version, are ignored. Core then publishes a runtime event of kind
+VCS ID, and every required capability. Every capability is named at version 0;
+an unknown capability, or a known one named at any other version, is ignored.
+Core then publishes a runtime event of kind
 `vcsProvider` with `result: { vcs, capabilities }`; the host compares `vcs`
 with the manifest entry it launched and stops a session that answered another
 one. A session without a valid answer receives no `lithe/vcs/*` request.
@@ -262,9 +266,9 @@ one. A session without a valid answer receives no `lithe/vcs/*` request.
 
 UI behavior is chosen from capabilities only, never from `vcs`. A provider
 without `push` commits directly to the server; the host labels the action
-accordingly and does not offer "Commit and Push". Version 1 has no operation
-for `push`: a provider that negotiates it tells the host the VCS has a
-publishing step, which a later version will model.
+accordingly and does not offer "Commit and Push". The contract has no operation
+for `push`: a provider that negotiates it only tells the host the VCS has a
+publishing step.
 
 ## Replies
 
@@ -296,8 +300,9 @@ without telling the VCS), `renamed`, `copied`, `replaced`, `typeChanged`,
 Only `renamed` and `copied` may name an `oldPath`.
 
 `flags` refine a status: `external`, `locked`, `lockedByOther`,
-`propertiesModified`, `submodule`, `treeConflict`. Core drops unknown flags so
-a newer provider can add optional data within version 1, and sorts the rest.
+`propertiesModified`, `submodule`, `treeConflict`. Core drops unknown flags, so
+a provider can add optional data without breaking a host that does not know it,
+and sorts the rest.
 
 A provider that negotiated `staging` gives every change
 `staging: "staged" | "unstaged" | "partial"`; any other provider gives none.
@@ -323,7 +328,7 @@ missing required field, or a size limit exceeded makes the reply invalid.
 
 ## Provider messages
 
-| Direction | Method | Version 1 behavior |
+| Direction | Method | Behavior |
 | --- | --- | --- |
 | provider → host | `lithe/vcs/execution` | Notification of a command the provider ran: `{ command: [executable, ...arguments], exitCode: number \| null, durationMilliseconds, stderr }`, with `stderr` cut to 16 KiB and no stdout. Core passes it on as a session `log` event (`message` is the method, `detail` the params as JSON); routing it to the project console is host work (P3). Arguments are shown as sent, so a provider never puts a credential in them. |
 | provider → host | `lithe/vcs/authenticate` | Not accepted yet: Core answers `-32601`. A provider runs its client non-interactively and fails with `vcs.authentication.failed`. |

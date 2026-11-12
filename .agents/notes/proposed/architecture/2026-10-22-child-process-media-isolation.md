@@ -2,6 +2,8 @@
 
 状态：提议中
 
+> Viva 迁移状态：本文的网页拒绝门和 Swift 子进程入口均描述旧客户端，不能视为 Viva 已实现。Viva 尚无内嵌 HTML 预览；未来增加网页媒体采集时，必须重新审查 Go、Core 与插件的全部进程入口，保持下述默认拒绝和隔离验收要求。
+
 ## 先说结论
 
 一旦 Lithe 补上摄像头 / 麦克风的用途说明，使用者在网页弹窗里点一次“Allow”，系统记下的就是“Lithe 可以用摄像头”。Lithe 启动的子孙进程（插件后端、语言服务器、内置终端里的命令、Agent 的 shell 工具）会沿着责任进程规则继承这份授权，不经过任何弹窗，而网页那道默认拒绝门 `WebMediaCapture.decide` 管不到它们。提案是在所有启动子进程的入口统一套一份只禁摄像头 / 麦克风的沙盒 deny 策略，让用途说明和这层隔离在同一个 PR 里上线，并且隔离自检失败时网页门一律拒绝。
@@ -123,7 +125,7 @@ HTML 预览和插件页已经有统一的默认拒绝门，但它只管网页。
 - 行为不回归：被包装进程的 pid 与登记的一致，进程组、会话、信号转发和退出码不变；终端里登录 shell 的 `argv[0]`、shell integration、前台作业识别不变；项目在 Documents 下时 `git`、`java`、`node`、`mvn` 仍能用 Lithe 已有的文件夹授权；终端里 `afplay` 仍能出声。
 - 终端里 `ffmpeg` 一类的采集命令失败（今天本来也失败，不算回归）。
 - 豁免的三个进程（`MacProcessSupervisor`、`MacApplicationRelauncher`、`MacStableRollback`）不套策略，并且在源码扫描里有登记。
-- 运行时只读边界：包装用到的任何随包文件都在构建阶段生成，`./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 通过。
+- 运行时只读边界：包装用到的任何随包文件都在构建阶段生成，`./scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 通过。
 - 用途说明和隔离在同一个 PR 里；补用途说明前先告知维护者并等确认；功能矩阵标明仅 macOS。
 
 ## 风险
@@ -137,13 +139,9 @@ HTML 预览和插件页已经有统一的默认拒绝门，但它只管网页。
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Platform/MacOS/Process/MacManagedProcess.swift`（唯一的 `posix_spawn` 入口，Swift 侧的包装点）
-- `macos/Sources/Lithe/Platform/MacOS/Process/MacProcessLifecycle.swift`（`MacProcessSupervisor`，必须豁免）
-- `macos/Sources/Lithe/Platform/MacOS/MacApplicationRelauncher.swift`（必须豁免）
-- `macos/Sources/Lithe/Platform/MacOS/Updates/MacStableRollback.swift`（必须豁免）
-- `macos/Sources/Lithe/Platform/MacOS/Terminal/MacTerminalTransport.swift`（内置终端的启动入口）
-- `macos/Sources/Lithe/Platform/MacOS/WebMediaCapture.swift`（网页门，隔离自检的联动点）
-- `macos/Tests/LitheTests/WebMediaCaptureTests.swift`（源码扫描测试所在位置）
-- `macos/Resources/Info.plist`（用途说明，最后一步才补）
-- `rust/lithe-core/src/lsp/interface/process.rs`（插件后端和语言服务器的启动入口）
-- `rust/lithe-agent-host/`
+- [旧版进程启动和生命周期实现](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/Lithe/Platform/MacOS)
+- [旧版网页媒体权限入口](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/Lithe/Platform/MacOS/WebMediaCapture.swift)、[源码扫描测试](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Tests/LitheTests/WebMediaCaptureTests.swift)和[旧版用途说明](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Resources/Info.plist)
+- `desktop/internal/term/`
+- `desktop/internal/core/plugin_session.go`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/process.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/process.rs)（插件后端和语言服务器的启动入口）
+- Lithe-core-rust 锁定修订：[rust/lithe-agent-host/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host)

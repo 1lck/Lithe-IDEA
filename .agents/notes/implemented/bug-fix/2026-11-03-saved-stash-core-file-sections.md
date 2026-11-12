@@ -30,16 +30,16 @@ macOS 和 Windows 的 Stash、Shelf 及 Windows 普通 Git 差异使用 Rust Cor
 ## 验证
 
 - `rust/lithe-core/src/tests/git_patch_exchange.rs`：真实临时仓库覆盖重命名、中文名称、未跟踪文件、二进制、Git 前缀配置以及错误的请求模式。
-- `macos/Tests/LitheTests/GitStatusObservationTests.swift`：真实 Swift 桥接、Core 和 Git 验证已跟踪、未跟踪与二进制 Stash 文件及展示行。
-- `./scripts/rust-core/verify-rust-core.sh`、`./scripts/architecture/verify-shared-contracts.sh`、`./scripts/agent-notes/verify-agent-notes.sh` 和 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
+- ~~`macos/Tests/LitheTests/GitStatusObservationTests.swift`~~（已随 #1794 移除）：真实 Swift 桥接、Core 和 Git 验证已跟踪、未跟踪与二进制 Stash 文件及展示行。
+- ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）、~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、`./scripts/agent-notes/verify-agent-notes.sh` 和 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
 - 大补丁解析与 UI 跨进程加载需分别测量；真实 Windows 原生界面和平台矩阵验收保持待验证。
 
 ## 适用范围
 
-- `rust/lithe-core/src/git/mod.rs`
-- `rust/lithe-core/src/git/patch_exchange.rs`
-- `macos/Sources/LitheGitModule/Services/GitService.swift`
-- `macos/Sources/Lithe/Core/Rust/RustGitOperations.swift`
-- `windows/tauri/src/platform/core-result-adapter.ts`
-- `windows/tauri/src/features/git/api/git-shelf-api.ts`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/mod.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/mod.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/patch_exchange.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/patch_exchange.rs)
+- ~~`macos/Sources/LitheGitModule/Services/GitService.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Core/Rust/RustGitOperations.swift`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/platform/core-result-adapter.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/git/api/git-shelf-api.ts`~~（已随 #1794 移除）
 - `shared/contracts/rust-core-api.md`

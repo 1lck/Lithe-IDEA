@@ -4,35 +4,59 @@
   "group": "Markdown",
   "capability": "Markdown 预览与富文本渲染；macOS 离线数学公式、mhchem 化学方程式与物理单位、Mermaid、脚注及上下标；内嵌 HTML 的徽章图片保持行内排版，并保留容器、段落与标题的安全对齐属性；PlantUML 代码块可离线显示时序图与类图",
   "macos": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "macos/Sources/Lithe/Views/Editor/MarkdownPreviewView.swift",
-      "macos/Sources/Lithe/Core/Ports/MarkdownRendering.swift",
-      "macos/Sources/Lithe/Resources/MarkdownPreview/index.html",
-      "macos/Tests/LitheTests/MarkdownPreviewRichContentTests.swift",
-      "rust/lithe-core/src/project/markdown.rs",
-      "shared/fixtures/editor/markdown-rich-content-v1.json",
-      "macos/Sources/Lithe/Resources/MarkdownPreview/preview.css",
-      "macos/Tests/LitheTests/MarkdownPreviewHTMLTests.swift",
-      "shared/fixtures/editor/markdown-html-v1.json",
-      "macos/Sources/Lithe/Platform/MacOS/MarkdownPlantUMLRenderer.swift",
-      "macos/Tests/LitheTests/MarkdownPlantUMLTests.swift"
-    ],
-    "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+      "desktop/internal/workbench/markdown_preview.go",
+      "desktop/internal/workbench/markdown_preview_test.go",
+      "desktop/internal/core/markdown.go",
+      "desktop/internal/core/markdown_test.go"
+    ]
   },
   "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "windows/tauri/src/features/editor/markdown",
-      "windows/tauri/src/features/editor/markdown/use-highlighted-markdown.test.tsx",
-      "windows/tauri/src/features/editor/markdown/render.ts",
-      "windows/tauri/src/features/editor/markdown/render.native.integration.test.ts",
-      "shared/fixtures/editor/markdown-render-v1.json",
-      "rust/lithe-core/src/project/markdown.rs"
-    ],
-    "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+      "desktop/internal/workbench/markdown_preview.go",
+      "desktop/internal/workbench/markdown_preview_test.go",
+      "desktop/internal/core/markdown.go",
+      "desktop/internal/core/markdown_test.go"
+    ]
   },
   "owner": "Editor",
   "verification": "Windows 使用 markdown-render-v1.json 验证嵌套列表、任务列表、代码空白、中文、emoji、CRLF、front matter 隐藏及危险 HTML 过滤；修改、清空及关闭预览时不得被旧异步结果覆盖，失败显示提示且后续编辑可恢复。使用代码高亮、表格、Mermaid、链接和相对路径 fixture 对比渲染结果。打开含上千个代码块的大型 Markdown 预览，渲染不卡住，编辑时预览不会先闪成未高亮的代码；代码里的 `$&`、`$1` 按原文显示。macOS 在深浅主题运行 markdown-rich-content-v1.json：行内数学、块级化学反应、物理单位均生成可访问 MathML，没有 katex-error；Mermaid 生成真实 SVG，脚注链接及回链存在；H~2~O 与 x^2^ 正确，双波浪线仍是删除线，代码内语法保持原文。运行前后逐文件比较预览资源哈希，确认无网络脚本和远程资源请求、bundle 不变。macOS 使用 markdown-html-v1.json 及仓库 README 验证：宽预览中同一段内多个徽章同行居中，窄分栏按可用宽度自然折行；div/p/h1 的 align 生效，显式 br 和普通段落保留，正文行内图片不拆行，相对图片与点击放大仍可用。深浅主题均检查，脚本、事件处理器、危险 URL 和任意 style 仍被剥离。 macOS PlantUML：在深浅主题打开时序图和类图 fenced block，离线生成可放大的 SVG 图片，不能在文档 DOM 执行 SVG；多个代码块顺序执行，切换文档拒绝旧结果；本地 include 被拒绝且保留源码与本地化提示，超大输入立即失败，关闭和取消释放渲染器；运行前后比较预览资源 SHA-256。 GitHub 预览保留 Core 的硬换行与代码空白；Notebook 共享队列最多同时执行两个渲染，关闭和替换内容会取消未开始请求。",
-  "notes": "Windows 预览中屏幕外的段落、标题、列表和代码块使用 content-visibility: auto 跳过排版（表格除外，避免溢出被裁切）；8.6 万行文档打开预览的最长主线程任务由约 10 秒降到约 1.3 秒，滚动最长任务由约 3.8 秒降到约 0.23 秒。2026-11-01 #1623：macOS 图片不再全局 display:block，Core 保留 div/p/h1-h6 的 align，但不开放 style；新增共享输入和真实 WKWebView 回归。2026-11-01 #706 增强第一批：macOS 加载与 KaTeX 0.16.0 匹配的离线 mhchem 3.3.0 扩展，Core 开启 Comrak 下标，并增加真实 WKWebView 的数学、化学、Mermaid、脚注和上下标回归。2026-11-03 LSP-07：Windows 文档预览、Notebook、发布说明和 GitHub 内容统一调用 markdown.render，移除自写解析器及 YAML 属性卡片；解析和 HTML 过滤复用 Core，保留代码高亮与源码位置，丢弃过期异步结果。新增原生 DLL 集成与生命周期回归。Windows 数学及图表展示仍未与 macOS 对齐，不能宣称 #706 已整体完成。完整产品和 Windows 真机验收保持 pending。 2026-11-01 PlantUML：仅 macOS 接入官方 MIT @plantuml/core 1.2026.9，使用内置 Smetana；独立非持久 WebView、固定资源白名单、256KiB 源码/4MiB SVG/4096px/八秒预算，输出为被动 SVG 图片。无在线服务器、Java、Graphviz、WASM 或跨文件 include；可选主题和扩展库不打包，Windows 未修改。"
+  "notes": "Viva：Markdown 文件以双栏编辑器打开，左侧源码、右侧用 Viva 的 Markdown 组件渲染编辑器文本，随编辑更新，超过 1 MiB 不渲染；标签栏末尾三态切换“编辑 / 编辑与预览 / 预览”，默认编辑与预览，两侧按源码行双向同步滚动，切换时保持位置；不再提供右侧 Markdown 预览工具窗口。标题、列表、引用、代码块、表格与链接按 Viva 能力呈现。Core markdown.render 已封装并通过共享 fixture，但 Viva 不渲染 HTML，数学公式、Mermaid、PlantUML、脚注与内嵌 HTML 等富内容尚未支持。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Views/Editor/MarkdownPreviewView.swift",
+        "macos/Sources/Lithe/Core/Ports/MarkdownRendering.swift",
+        "macos/Sources/Lithe/Resources/MarkdownPreview/index.html",
+        "macos/Tests/LitheTests/MarkdownPreviewRichContentTests.swift",
+        "rust/lithe-core/src/project/markdown.rs",
+        "shared/fixtures/editor/markdown-rich-content-v1.json",
+        "macos/Sources/Lithe/Resources/MarkdownPreview/preview.css",
+        "macos/Tests/LitheTests/MarkdownPreviewHTMLTests.swift",
+        "shared/fixtures/editor/markdown-html-v1.json",
+        "macos/Sources/Lithe/Platform/MacOS/MarkdownPlantUMLRenderer.swift",
+        "macos/Tests/LitheTests/MarkdownPlantUMLTests.swift"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features/editor/markdown",
+        "windows/tauri/src/features/editor/markdown/use-highlighted-markdown.test.tsx",
+        "windows/tauri/src/features/editor/markdown/render.ts",
+        "windows/tauri/src/features/editor/markdown/render.native.integration.test.ts",
+        "shared/fixtures/editor/markdown-render-v1.json",
+        "rust/lithe-core/src/project/markdown.rs"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "notes": "Windows 预览中屏幕外的段落、标题、列表和代码块使用 content-visibility: auto 跳过排版（表格除外，避免溢出被裁切）；8.6 万行文档打开预览的最长主线程任务由约 10 秒降到约 1.3 秒，滚动最长任务由约 3.8 秒降到约 0.23 秒。2026-11-01 #1623：macOS 图片不再全局 display:block，Core 保留 div/p/h1-h6 的 align，但不开放 style；新增共享输入和真实 WKWebView 回归。2026-11-01 #706 增强第一批：macOS 加载与 KaTeX 0.16.0 匹配的离线 mhchem 3.3.0 扩展，Core 开启 Comrak 下标，并增加真实 WKWebView 的数学、化学、Mermaid、脚注和上下标回归。2026-11-03 LSP-07：Windows 文档预览、Notebook、发布说明和 GitHub 内容统一调用 markdown.render，移除自写解析器及 YAML 属性卡片；解析和 HTML 过滤复用 Core，保留代码高亮与源码位置，丢弃过期异步结果。新增原生 DLL 集成与生命周期回归。Windows 数学及图表展示仍未与 macOS 对齐，不能宣称 #706 已整体完成。完整产品和 Windows 真机验收保持 pending。 2026-11-01 PlantUML：仅 macOS 接入官方 MIT @plantuml/core 1.2026.9，使用内置 Smetana；独立非持久 WebView、固定资源白名单、256KiB 源码/4MiB SVG/4096px/八秒预算，输出为被动 SVG 图片。无在线服务器、Java、Graphviz、WASM 或跨文件 include；可选主题和扩展库不打包，Windows 未修改。"
+  }
 }

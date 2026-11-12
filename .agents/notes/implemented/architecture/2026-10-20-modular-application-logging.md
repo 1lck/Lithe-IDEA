@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态：旧平台的日志适配器和截图验证属于历史实现。Viva 已有日志存储、窗口及部分 Core 桥接；事件目录与使用检查的等价门禁尚未完整恢复，跟踪 [#1802](https://github.com/1lck/Lithe-IDEA/issues/1802)。历史源码、命令和验收范围见[迁移前笔记](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-10-20-modular-application-logging.md)。
+
 ## 先说结论
 
 macOS 和 Windows 使用同一组模块分类、脱敏和筛选规则，文件写入仍由各自平台负责。
@@ -121,18 +123,15 @@ Windows 预览只保存已经脱敏的内存快照，最多四份、五分钟有
 
 ## 验证
 
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
-- `./scripts/rust-core/verify-rust-core-comments.sh`
-- `./scripts/architecture/verify-shared-contracts.sh`
-- `./scripts/architecture/verify-service-boundaries.sh`
-- `./scripts/windows/verify/verify-windows-boundaries.sh`
+旧客户端的验证不能直接代表 Viva 已通过；当前需运行桌面日志测试、发行包只读检查，并在恢复等价日志门禁和目标平台验收后再确认完整覆盖。
+
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'MacApplicationLogWriterTests|DiagnosticsExportServiceTests|StableRollbackTests'`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope WindowsRust`
 - `node scripts/resources/test-reuse-worktree-resources.mjs`
-- `./scripts/macos/test/test-macos.sh --filter DiagnosticsWorkflowTests`
-- `./scripts/macos/probe/probe-macos-logging-ui.sh --skip-build`
+- 旧版 Core、平台边界、诊断工作流及截图探针的命令见上方迁移前笔记；这些旧脚本已移除，不能记作当前检查已通过。
 
 本地原生截图通过临时宿主加载产品字符串表。SwiftPM 默认 runner 不包含产品翻译，
 不能把它输出的英文截图当成中文渲染证据。探针只复制当前 Xcode 的 runner 和构建时
@@ -142,13 +141,10 @@ Windows 预览只保存已经脱敏的内存快照，最多四份、五分钟有
 
 ## 适用范围
 
-- `rust/lithe-core/src/diagnostics/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/diagnostics/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/diagnostics)
 - `shared/contracts/rust-core-api.md`
 - `shared/fixtures/diagnostics/logging-v1.json`
-- `macos/Sources/Lithe/Platform/MacOS/Logging/`
-- `macos/Sources/Lithe/Services/Diagnostics/`
-- `macos/Sources/Lithe/Views/Diagnostics/`
-- `windows/tauri/src-tauri/src/logging.rs`
-- `windows/tauri/src-tauri/src/diagnostics.rs`
-- `windows/tauri/src/features/settings/components/log-settings-panel.tsx`
+- `desktop/internal/logstore/`
+- `desktop/internal/logwindow/`
+- `desktop/internal/core/logging.go`
 - `scripts/resources/worktree-resources.json`

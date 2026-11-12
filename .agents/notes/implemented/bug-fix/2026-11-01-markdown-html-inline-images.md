@@ -48,15 +48,15 @@ Issue #1623 中 README 徽章纵向堆叠、标题丢失居中，看起来像是
   直接测试生产解析与过滤，保留对齐和尺寸，同时剥离脚本、事件、样式和危险 URL。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter MarkdownPreviewHTMLTests`：
   深浅主题实际测量徽章同行、居中、窄视口折行，检查段落、显式换行、相对资源和图片放大。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
 
 原生组件回归不替代完整应用手动验收，Windows 运行时未在本次验证。
 
 ## 适用范围
 
-- `rust/lithe-core/src/project/markdown.rs`
-- `macos/Sources/Lithe/Resources/MarkdownPreview/preview.css`
-- `macos/Tests/LitheTests/MarkdownPreviewHTMLTests.swift`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/project/markdown.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/project/markdown.rs)
+- ~~`macos/Sources/Lithe/Resources/MarkdownPreview/preview.css`~~（已随 #1794 移除）
+- ~~`macos/Tests/LitheTests/MarkdownPreviewHTMLTests.swift`~~（已随 #1794 移除）
 - `shared/fixtures/editor/markdown-html-v1.json`
 - `shared/platform-feature-matrix/features/markdown-rendering.json`

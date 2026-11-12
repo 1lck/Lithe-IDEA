@@ -4,22 +4,46 @@
   "group": "GitHub",
   "capability": "GitHub 拉取请求安全检出",
   "macos": {
-    "evidence": [
-      "macos/Sources/Lithe/Platform/MacOS/GitHub/MacGitHubGitOperations.swift",
-      "shared/fixtures/github/pr-checkout-plan-v1.json"
-    ],
     "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+    "verificationStatus": "pending",
+    "evidence": [
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/github_prs.go",
+      "desktop/internal/workbench/github_prs_view.go",
+      "desktop/internal/core/github_checkout.go"
+    ]
   },
   "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "windows/tauri/src/config/backend-capabilities.ts",
-      "shared/contracts/github.md"
-    ],
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/github_prs.go",
+      "desktop/internal/workbench/github_prs_view.go",
+      "desktop/internal/core/github_checkout.go"
+    ]
   },
   "owner": "GitHub",
   "verification": "在临时本地仓库验证同名分支不被重置、过期预览被拒绝和确认后的新分支检出；真实 GitHub 远程认证仍需实机验收。",
-  "notes": "Windows 的 GitHub 后端能力当前关闭；不得把共享 Core 命令误记为 Windows 产品入口。"
+  "notes": "Viva：PR 检出先由 Core 生成不改动仓库的预览（分支、冲突与动作，origin URL 只留指纹），用户确认后 Core 在仓库写租约下重新核对预览再 fetch 并建分支，过期预览与同名分支冲突被拒绝。没有专门的自动化测试。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Platform/MacOS/GitHub/MacGitHubGitOperations.swift",
+        "shared/fixtures/github/pr-checkout-plan-v1.json"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/config/backend-capabilities.ts",
+        "shared/contracts/github.md"
+      ],
+      "implementationStatus": "missing",
+      "verificationStatus": "not-applicable"
+    },
+    "notes": "Windows 的 GitHub 后端能力当前关闭；不得把共享 Core 命令误记为 Windows 产品入口。"
+  }
 }

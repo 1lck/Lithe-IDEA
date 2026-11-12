@@ -2,6 +2,10 @@
 
 状态：已实现
 
+> 2026-11-08 Viva 迁移：数据库插件仍由组织仓库和市场提供，但本文的旧客户端宿主、
+> 安装、网页桥和数据迁移验收不能证明 Viva 已支持它。Viva 的可信安装及完整插件宿主
+> 尚未接通；迁移时需重新验证插件实际支持的平台和功能，不得把市场索引存在视为可用。
+
 ## 先说结论
 
 数据库连接功能已经从 Lithe 主仓库和主安装包中移出，成为组织仓库 `Lithe-IDEA/lithe-plugin-database` 中的社区插件 `io.github.lithe-idea.database`，在 Lithe Store 上架。只装 IDE 时没有任何数据库入口；从插件市场安装后才能使用。插件的界面是包内网页，后端用 Rust 编写，macOS 和 Windows 将共用同一份代码。
@@ -77,7 +81,7 @@
 | 主仓库 | 只保留通用能力：契约、Rust Core 校验、两端宿主实现、Rust 后端 SDK 的契约测试 |
 | 主仓库最终删除 | `macos/Sources/LitheDatabaseModule/`、`macos/Sources/Lithe/Views/Database/`、`rust/lithe-db-sidecar/`、`rust/lithe-db-mcp/`、`windows/tauri/src/features/database/` 及打包脚本中的数据库部分 |
 
-插件仓库只依赖公开契约：`lithe-plugin-docs` 中锁定的契约副本加官方 SDK，和 Cargo、SVN 插件的做法相同。主仓库不再按“数据库”写任何分支。
+插件仓库只依赖公开契约：Core 仓库 `shared/plugins/contract/v1/` 的契约加官方 SDK（同在 Core 仓库的 `shared/plugins/sdk/`），和 Cargo、SVN 插件的做法相同。主仓库不再按“数据库”写任何分支。
 
 ### 三、插件身份与分发
 
@@ -100,7 +104,7 @@
 2. **宿主凭据存储（插件函数协议 v2，已在契约中实现）。** v2 是第一个提供宿主服务的协议版本：`lithe/host/credentials/{get,set,delete}`，需要 `credentials.store` 权限（没有后端时声明即无效）。Core 在宿主看到请求前校验协议版本、授权和参数（key 只允许 `[A-Za-z0-9._:-]` 且不超过 128 字节，secret 不超过 16 KiB，拒绝未知字段以便后续版本扩展），通过 `hostRequest` 事件交给宿主，宿主用 `lsp.hostResponse` 应答；每个会话最多 16 个未应答请求。macOS 使用 Keychain，按插件 ID 划分命名空间；插件读不到别的插件或宿主自身的凭据。生命周期：停用和更新时保留，卸载时与 `${stateDir}` 一起删除。
 3. **Agent 工具经由 `lithe` MCP（后续）。** 不新增“插件声明 MCP 服务”的契约，也不保留独立的 `lithe-db-mcp` 进程。之后由插件以插件函数的形式提供 Agent 工具，IDE 宿主把它们登记进现有 `lithe` MCP 的能力目录，沿用其项目授权；插件停用时工具随之消失。这一项在数据库插件上线后单独设计，不阻塞第 1 到第 5 期。
 4. **按平台的可执行文件：不改契约。** 每个平台单独出下载包，可执行文件放在包内固定路径（例如 `bin/backend`），macOS 包可以是 universal 二进制。`${arch}` 本来就不能用于 `packaged` 路径，这样也不需要。Windows 的 `.exe` 等 Windows 宿主就绪时再定。
-5. **Rust 后端 SDK。** 在 `lithe-plugin-docs` 中新增 `sdk/rust`，实现插件函数协议和宿主能力，并补端到端样例，和 Node、Java SDK 对齐。
+5. **Rust 后端 SDK。** 新增 `sdk/rust`，实现插件函数协议和宿主能力，并补端到端样例，和 Node、Java SDK 对齐。它当时放在 lithe-plugin-docs，现在和另外两个 SDK 一起在 Core 仓库的 `shared/plugins/sdk/rust`。
 
 ### 五、规则只保留一份
 
@@ -130,7 +134,7 @@
 | --- | --- | --- |
 | 1 | Windows 矩阵、`.db` 拦截、README 修正；修复 `WHERE` 误判，让 sidecar 与界面使用一致的词法判断，并让 macOS 处理 `confirmation_required` | 无 |
 | 2 | 契约：插件后端、函数协议 v2 凭据宿主服务；Rust Core 校验与样例 | 无 |
-| 3 | macOS 宿主实现第 2 期能力；`lithe-plugin-docs` 新增 Rust SDK | 第 2 期 |
+| 3 | macOS 宿主实现第 2 期能力；新增 Rust SDK（`sdk/rust`） | 第 2 期 |
 | 4 | 新建 `lithe-plugin-database`：Rust 后端、网页界面、样例；先在 macOS 上以本地开发包验证 | 第 3 期 |
 | 5 | macOS 发布插件，加入迁移提示，从主仓库删除数据库代码 | 第 4 期 |
 | 6 | Windows 插件宿主和插件市场就绪后，按当时的宿主能力小幅调整插件，补 Windows 构建后发布 | Windows 插件市场 |
@@ -182,10 +186,10 @@
 
 ## 验证
 
-- `./scripts/macos/test/test-macos.sh --filter "MacDatabasePluginMigrationTests|MacPluginBackendSessionsTests|WorkbenchNotificationTests"`：迁移的内容、格式、只执行一次、不覆盖插件自有状态、密码迁移失败的处理；磁盘安装、其他来源和其他仓库地址的同 ID 包得不到旧数据，之后从 Lithe Store 安装仍会迁移；迁移先于后端启动并拿到安装记录；带动作的通知和一次性安装提示。
-- `./scripts/architecture/verify-module-boundaries.sh` 与 `./scripts/architecture/verify-shared-contracts.sh`：内置模块列表和共享模块样例中不再有数据库模块。
+- ~~./scripts/macos/test/test-macos.sh --filter "MacDatabasePluginMigrationTests|MacPluginBackendSessionsTests|WorkbenchNotificationTests"~~（随旧客户端移除）：迁移的内容、格式、只执行一次、不覆盖插件自有状态、密码迁移失败的处理；磁盘安装、其他来源和其他仓库地址的同 ID 包得不到旧数据，之后从 Lithe Store 安装仍会迁移；迁移先于后端启动并拿到安装记录；带动作的通知和一次性安装提示。
+- ~~./scripts/architecture/verify-module-boundaries.sh~~（随旧客户端移除） 与 ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）：内置模块列表和共享模块样例中不再有数据库模块。
 - `bash scripts/ci/common/test-classify-ci-changes.sh` 与 `node --test scripts/ci/common/ci-workflow-gates.test.mjs`：CI 分流不再有数据库通道。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：运行时不向发行目录写入。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：运行时不向发行目录写入。
 - 2026-10-24 手工验收（macOS 开发版身份 `app.lithe.desktop.dev`，与正式版偏好和 Keychain 隔离）：写入旧模块的连接、文件夹、历史和密码后启动，出现一次性通知，经“打开插件市场”从 Lithe Store 安装 Database 0.1.0，重启后打开工具窗口，连接全部可见；插件状态与凭据按“六、老用户迁移”的规则落地。验收数据随后全部清除。
 - 插件仓库的 `node scripts/e2e.mjs`：用 Lithe 的 Rust Core 启动打包好的插件后端，回答凭据请求，走完 SQLite 连接的全部页面函数，并确认安装包未被改写、状态目录只有 `connections.json` 和 `sql-history.json`。
 
@@ -219,15 +223,15 @@
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacDatabasePluginMigration.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginBackendSessions.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginCredentialStore.swift`
-- `macos/Sources/Lithe/Application/Features/DatabasePluginTransition.swift`
-- `macos/Sources/Lithe/Application/Features/PluginHostServices.swift`
-- `macos/Sources/Lithe/Models/AppModel/AppModel+DatabasePlugin.swift`
-- `shared/contracts/plugins/v1/`
-- `rust/lithe-core/src/plugins/backend.rs`
-- `rust/lithe-core/src/lsp/interface/plugin_function.rs`
+- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/MacDatabasePluginMigration.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginBackendSessions.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginCredentialStore.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/DatabasePluginTransition.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/PluginHostServices.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Models/AppModel/AppModel+DatabasePlugin.swift`~~（已随 #1794 移除）
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/backend.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/backend.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/plugin_function.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/plugin_function.rs)
 - `shared/platform-feature-matrix/features/`
 
-相关 Note：[统一 VCS 模型与 Provider 接入](../../proposed/architecture/2026-10-22-unified-vcs-provider-model.md)（同类 provider 做法）、[模块运行时抽取路线](../../proposed/architecture/2026-09-13-module-runtime-extraction-roadmap.md)（数据库被列为适合插件化）、[插件自带网页界面](2026-10-18-plugin-web-content-in-host-windows.md)、[插件市场](../feature/2026-10-12-plugin-marketplace.md)。
+相关 Note：[统一 VCS 模型与 Provider 接入](../../proposed/architecture/2026-10-22-unified-vcs-provider-model.md)（同类 provider 做法）、[旧模块运行时抽取路线](../../rejected/architecture/2026-09-13-module-runtime-extraction-roadmap.md)（当时将数据库列为适合插件化；Swift 抽取路线已被 Viva 迁移取代）、[插件自带网页界面](2026-10-18-plugin-web-content-in-host-windows.md)、[插件市场](../feature/2026-10-12-plugin-marketplace.md)。

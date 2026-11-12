@@ -51,23 +51,23 @@ Gradle 与 Maven 在导入设置上结构对称，行为可预期、可扩展。
 ## 验证
 
 - `rust/lithe-core` 单测覆盖：初始化选项在导入前即携带 Gradle 设置、无 wrapper 描述文件时省略 wrapper 字段、无 Gradle 上下文时不下发 `java.import`、按 section 查询返回对应 Gradle 取值、叶子合并保留调用方已声明的 `offline` 与 `version`。
-- `windows/tauri/src-tauri/src/lsp.rs` 单测覆盖：工作区指纹识别 Gradle 设置文件与 wrapper 描述文件且忽略 `gradle.properties`、编辑构建文件不改变观测结果、wrapper 版本（含转义写法）被读出且版本变化会改变指纹、根目录缺少构建文件时不判为 Gradle、仅有 `gradlew` 脚本时不认为存在 wrapper、Maven 工作区不产生 Gradle 上下文。
+- ~~`windows/tauri/src-tauri/src/lsp.rs`~~（已随 #1794 移除） 单测覆盖：工作区指纹识别 Gradle 设置文件与 wrapper 描述文件且忽略 `gradle.properties`、编辑构建文件不改变观测结果、wrapper 版本（含转义写法）被读出且版本变化会改变指纹、根目录缺少构建文件时不判为 Gradle、仅有 `gradlew` 脚本时不认为存在 wrapper、Maven 工作区不产生 Gradle 上下文。
 - 共享 fixture `shared/fixtures/lsp/jdt-workspace-fingerprint-v1.json` 由 `rust/lithe-core` 的 `jdt_workspace_fingerprint_matches_the_shared_compatibility_fixture` 校验，含带 wrapper 版本的用例；macOS 的 `MacJdtWorkspaceStateTests` 校验编辑 `pom.xml` 后观测结果不变。
-- `windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.test.ts` 与 `windows/tauri/src/platform/lsp-core-adapter.test.ts` 覆盖 TS 透传：有 Gradle 上下文时原样转发，无上下文时为 `null`。
-- `scripts/rust-core/verify-rust-core.sh`、`scripts/rust-core/verify-rust-core-comments.sh`、`scripts/rust-core/verify-rust-core-layout.sh` 校验 Rust 核心的格式、注释与包布局。
+- ~~`windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.test.ts`~~（已随 #1794 移除） 与 `windows/tauri/src/platform/lsp-core-adapter.test.ts` 覆盖 TS 透传：有 Gradle 上下文时原样转发，无上下文时为 `null`。
+- ~~scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）、~~scripts/rust-core/verify-rust-core-comments.sh~~（随旧客户端移除）、~~scripts/rust-core/verify-rust-core-layout.sh~~（随旧客户端移除） 校验 Rust 核心的格式、注释与包布局。
 - `scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`、`scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh` 与 `scripts/agent-notes/verify-agent-notes.sh` 校验功能矩阵与 Note 记录。
 - 真实运行验证：在 Windows 打开一个带 Gradle wrapper 的工程，确认 JDT LS 通过 Buildship 完成导入与依赖解析，源码可跳转、补全并能高亮 Gradle 依赖中的类型。此项待实机确认，故功能矩阵验证状态仍为待验证。
 
 ## 适用范围
 
 - 已迁出：原 `rust/lithe-core/src/lsp/languages/jdt.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
-- `rust/lithe-core/src/lsp/interface/engine.rs`
-- `windows/tauri/src-tauri/src/lsp.rs`
-- `windows/tauri/src-tauri/src/lsp/jdt_workspace.rs`
-- `windows/tauri/src/features/editor/lsp/java-lsp-host-api.ts`
-- `windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.ts`
-- `windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.test.ts`
-- `windows/tauri/src/features/editor/lsp/lsp-client.ts`
-- `windows/tauri/src/platform/lsp-core-adapter.ts`
-- `windows/tauri/src/platform/lsp-core-adapter.test.ts`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/engine.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/engine.rs)
+- ~~`windows/tauri/src-tauri/src/lsp.rs`~~（已随 #1794 移除）
+- ~~`windows/tauri/src-tauri/src/lsp/jdt_workspace.rs`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/editor/lsp/java-lsp-host-api.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.test.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/editor/lsp/lsp-client.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/platform/lsp-core-adapter.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/platform/lsp-core-adapter.test.ts`~~（已随 #1794 移除）
 - `shared/platform-feature-matrix/features/java-gradle-project-import.json`

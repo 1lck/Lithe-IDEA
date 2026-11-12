@@ -4,25 +4,53 @@
   "group": "搜索与导航",
   "capability": "项目替换与取消",
   "macos": {
-    "evidence": [
-      "macos/Sources/Lithe/Views/Search",
-      "macos/Sources/Lithe/Services/Language",
-      "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
-      "macos/Sources/Lithe/Models/AppModel/AppModel+SearchModule.swift"
-    ],
     "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+    "verificationStatus": "pending",
+    "evidence": [
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/search.go",
+      ".agents/notes/implemented/feature/2026-11-08-viva-project-search.md",
+      "desktop/internal/workbench/search_replace.go",
+      "desktop/internal/workbench/search_replace_view.go",
+      "desktop/internal/workbench/search_replace_menu_test.go"
+    ]
   },
   "windows": {
-    "evidence": [
-      "windows/tauri/src/features/file-search",
-      "rust/lithe-core/src/project/files.rs",
-      "windows/tauri/src/features/global-search/utils/source-replace.ts",
-      "windows/tauri/src/features/editor/stores/editor-app.store.test.ts"
-    ],
     "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+    "verificationStatus": "pending",
+    "evidence": [
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/search.go",
+      ".agents/notes/implemented/feature/2026-11-08-viva-project-search.md",
+      "desktop/internal/workbench/search_replace.go",
+      "desktop/internal/workbench/search_replace_view.go",
+      "desktop/internal/workbench/search_replace_menu_test.go"
+    ]
   },
   "owner": "Search",
-  "verification": "执行替换预览、确认替换和取消操作，确认未保存文件与异常文件不会被静默覆盖。 macOS 项目树文件、目录、项目根和多选右键菜单均显示 Replace in Files，打开已有项目范围替换面板；验证查询预填、预览、确认与取消流程，菜单点击本身不写入文件。该菜单入口沿用整个项目范围。 Windows 替换与内容搜索共享逐行匹配，覆盖整词、正则捕获、Unicode、缓冲区和磁盘身份冲突；WSL 写入前复查原文但尚无原子条件写。"
+  "verification": "执行替换预览、确认替换和取消操作，确认未保存文件与异常文件不会被静默覆盖。 macOS 项目树文件、目录、项目根和多选右键菜单均显示 Replace in Files，打开已有项目范围替换面板；验证查询预填、预览、确认与取消流程，菜单点击本身不写入文件。该菜单入口沿用整个项目范围。 Windows 替换与内容搜索共享逐行匹配，覆盖整词、正则捕获、Unicode、缓冲区和磁盘身份冲突；WSL 写入前复查原文但尚无原子条件写。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Views/Search",
+        "macos/Sources/Lithe/Services/Language",
+        "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
+        "macos/Sources/Lithe/Models/AppModel/AppModel+SearchModule.swift"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features/file-search",
+        "rust/lithe-core/src/project/files.rs",
+        "windows/tauri/src/features/global-search/utils/source-replace.ts",
+        "windows/tauri/src/features/editor/stores/editor-app.store.test.ts"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    }
+  },
+  "notes": "Viva：Replace in Files 由 Core 根据文件和打开文档的未保存文本规划替换（workspace.replacePreview），用户确认预览后宿主应用；打开的文档在编辑器里作为一次可撤销编辑、由用户保存，关闭的文件重新读取、由 Core 替换（workspace.replaceText），仅在内容未变时写回；预览可取消。search_replace_menu_test.go 覆盖入口与预览。"
 }

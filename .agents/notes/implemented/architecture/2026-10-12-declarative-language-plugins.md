@@ -8,7 +8,7 @@
 
 官方语言插件（Go、PHP）不再是"在 Lithe 进程里加载的 Swift Bundle"，而是声明式插件包：包里只有 `plugin.json` 和它声明的资源（例如打包好的 Intelephense）。Lithe 读取声明，由 Rust Core 校验并展开运行/测试命令，再由宿主自己启动语言服务器和运行进程。插件不在宿主进程内执行任何代码，所以插件包不再依赖宿主二进制，Lithe 每次发版也不用重新编译插件，之后可以把插件拆到独立仓库维护。Go 和 PHP 后来确实拆成了 Lithe Store 社区插件，见 [Go 与 PHP 改为 Lithe Store 社区插件](2026-10-20-go-php-community-plugins.md)。
 
-对日常开发的直接影响：新增语言插件时写 `plugin.json`，不要写 Swift 入口类；声明格式和语义以 `shared/contracts/plugins/v1/` 为准，校验与命令模板展开只在 `rust/lithe-core/src/plugins/declarative.rs` 实现一次。
+对日常开发的直接影响：新增语言插件时写 `plugin.json`，不要写 Swift 入口类；声明格式和语义以 `Lithe-core-rust/shared/plugins/contract/v1/` 为准，校验与命令模板展开只在 `rust/lithe-core/src/plugins/declarative.rs` 实现一次。
 
 通用工作台 UI 已通过 API level 2 扩展，见 [宿主管理的工作台 UI 贡献](2026-10-12-workbench-ui-contributions.md)。语言插件的 API level 1 和进程归属保持兼容。
 
@@ -24,8 +24,8 @@
 
 ### 1. 契约放在 shared，执行放在 Rust Core
 
-- `shared/contracts/plugins/v1/` 定义 `plugin.json`（`schemaVersion: 2`）的字段、权限、激活事件、命令模板变量、错误码和状态语义，并提供合法样例、非法样例（附期望错误码）和命令展开的标准答案。schema 1 是已退役的 macOS 原生清单。
-- 兼容性只看 `pluginAPIVersion`（声明式插件 API 级别），不再用写死的 `BuiltInPluginCatalog.hostVersion = 0.3.0` 冒充宿主版本。级别 3 起清单还按能力分版本，见[声明式插件按能力分版本](2026-10-17-plugin-capability-versions.md)。
+- `Lithe-core-rust/shared/plugins/contract/v1/` 定义 `plugin.json`（`schemaVersion: 2`）的字段、权限、激活事件、命令模板变量、错误码和状态语义，并提供合法样例、非法样例（附期望错误码）和命令展开的标准答案。schema 1 是已退役的 macOS 原生清单。
+- 兼容性只看 `pluginAPIVersion`（声明式插件 API 级别），不再用写死的 `BuiltInPluginCatalog.hostVersion = 0.3.0` 冒充宿主版本。级别 3 起清单还按能力分版本，见[插件契约从统一基线 0 开始](2026-11-11-plugin-contract-single-baseline.md)。
 - 校验和模板展开是两端共享的确定性逻辑，按仓库规则放进 Rust Core，通过 `plugins.declarative.validate`、`runPlan`、`discoverTests`、`testPlan` 四个命令暴露。命令是纯函数：宿主每次把清单和请求传进去，Core 不读包、不读工作区。清单内容问题以 `{status: "rejected", error: {code}}` 返回稳定的 `plugin.*` 错误码；只有请求格式错误才是 Core 失败。
 - Windows 现有扩展清单暂未改造，契约 README 给出字段对照；Windows 接入时必须通过同一组 fixture。
 
@@ -99,24 +99,24 @@ gopls 把 `fmt.Println` 的定义指向 `GOROOT/src/fmt/print.go`，Intelephense
 ## 验证
 
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib declarative_plugins`：合法样例、非法样例错误码、命令展开标准答案，以及仓库里的官方 `plugin.json`。
-- `./scripts/architecture/verify-shared-contracts.sh`：契约目录自洽（schema、fixture 引用、错误码均已在 README 中登记）。
+- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）：契约目录自洽（schema、fixture 引用、错误码均已在 README 中登记）。
 - 官方插件包的组装与校验（原 verify-official-plugins 脚本：组装官方包并用 `LitheOfficialPluginVerifier` 检查信任策略、打包入口和"包内无 Mach-O"。）已随插件移出本仓库，由各插件仓库的 CI 负责（#1495）。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'Plugin|LanguageExtensionProcessLifecycleTests|LanguageServerToolServiceTests|LanguageNavigationCoordinatorTests|ExternalNavigationTests'`：包校验、旧包过渡、签名、启停与进程清理、打包入口固定、跨工作区跳转边界。
 - `LITHE_RUN_PHP_INTEGRATION=1 ./scripts/macos/test/test-macos.sh --filter RealPhpIntegrationTests`：真实 Intelephense 与 PHPUnit。
 - `node scripts/resources/test-reuse-worktree-resources.mjs`：磁盘快照、安装状态和审批记录禁止跨工作树复制。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：静态检查两端发行资源写入边界；磁盘安装、取消、失败、扫描与回滚的产品验收还需比较前后 bundle 文件清单/哈希，不能用静态通过替代真实验证。磁盘每次确认与两入口完整程序展示的行为验收见插件市场 Note；功能矩阵继续保持 `pending`。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：静态检查两端发行资源写入边界；磁盘安装、取消、失败、扫描与回滚的产品验收还需比较前后 bundle 文件清单/哈希，不能用静态通过替代真实验证。磁盘每次确认与两入口完整程序展示的行为验收见插件市场 Note；功能矩阵继续保持 `pending`。
 
 ## 适用范围
 
-- `shared/contracts/plugins/v1/`
-- `rust/lithe-core/src/plugins/declarative.rs`
-- `macos/Sources/Lithe/Core/Rust/RustDeclarativePluginOperations.swift`
-- `macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/`
-- `macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`
-- `macos/Sources/Lithe/Application/Features/LanguageNavigationCoordinator.swift`
-- `macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`
-- `macos/Sources/LitheExecutionModule/Modules/BundledLanguageExecutionModule.swift`
-- `macos/Sources/LitheLanguageIntelligenceModule/Modules/BundledLanguageServerModule.swift`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/declarative.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/declarative.rs)
+- ~~`macos/Sources/Lithe/Core/Rust/RustDeclarativePluginOperations.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/LanguageNavigationCoordinator.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheExecutionModule/Modules/BundledLanguageExecutionModule.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheLanguageIntelligenceModule/Modules/BundledLanguageServerModule.swift`~~（已随 #1794 移除）
 - 已迁出：原 `Plugins/mac/Official/`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - 已迁出：原 `scripts/plugins/build-official-plugins.sh`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。

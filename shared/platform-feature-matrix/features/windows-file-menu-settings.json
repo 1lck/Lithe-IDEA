@@ -4,21 +4,40 @@
   "group": "命令与布局",
   "capability": "Windows 文件菜单在“关闭标签页”上方提供带齿轮图标的“设置”入口，点击打开设置对话框",
   "macos": {
-    "evidence": [
-      "macos/Sources/Lithe/LitheApp.swift"
-    ],
     "implementationStatus": "platform-specific",
-    "verificationStatus": "not-applicable"
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "docs/viva-migration.md"
+    ]
   },
   "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      "windows/tauri/src/features/window/components/window-menu-bar.tsx",
-      "windows/tauri/src/features/window/components/window-menu-bar.test.ts",
-      "shared/i18n/messages.json"
-    ],
-    "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+      "desktop/internal/workbench/compact_menu.go",
+      "desktop/internal/workbench/commands.go"
+    ]
   },
   "owner": "Workbench",
-  "verification": "在 Windows 工作台点击标题栏左端菜单（紧凑模式先点汉堡按钮展开“文件”菜单），确认“文件”菜单中“关闭标签页”上方有齿轮图标加“设置”文字的入口，上下以分隔线与相邻分组隔开，并显示 Ctrl+, 快捷键提示；点击后打开设置对话框，菜单收起；切换中英文确认文字为“设置”/“Settings”。macOS 使用系统菜单栏的设置入口，不适用。"
+  "verification": "在 Windows 工作台点击标题栏左端菜单（紧凑模式先点汉堡按钮展开“文件”菜单），确认“文件”菜单中“关闭标签页”上方有齿轮图标加“设置”文字的入口，上下以分隔线与相邻分组隔开，并显示 Ctrl+, 快捷键提示；点击后打开设置对话框，菜单收起；切换中英文确认文字为“设置”/“Settings”。macOS 使用系统菜单栏的设置入口，不适用。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/LitheApp.swift"
+      ],
+      "implementationStatus": "platform-specific",
+      "verificationStatus": "not-applicable"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features/window/components/window-menu-bar.tsx",
+        "windows/tauri/src/features/window/components/window-menu-bar.test.ts",
+        "shared/i18n/messages.json"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    }
+  },
+  "notes": "Viva：标题栏只有项目菜单、运行、调试、搜索和设置按钮（catalog.go 的 zoneTitle），desktop/ 中没有“文件”菜单，也没有“关闭标签页”上方的设置项。 2026-11-12：紧凑菜单的各命令分组之间加了分隔线，File 子菜单首位的设置项补上齿轮图标与 Primary+, 快捷键提示。未做：菜单里还没有“关闭标签页”项（关闭仍走标签右键与标签按钮），因此“设置位于关闭标签页上方”的顺序仍无从满足。"
 }

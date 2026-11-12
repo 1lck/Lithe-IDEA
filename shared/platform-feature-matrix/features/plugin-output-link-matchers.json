@@ -4,33 +4,61 @@
   "group": "插件与主题",
   "capability": "插件声明输出链接匹配器：outputLinkMatchers 在 manifest 里声明正则（限 Run 或测试控制台，可选），共享 Core 在已启用插件的显示行上匹配并决定链接指向；不带 resolve 的匹配器直接捕获 path、可选 line 与 column，目标文件存在才成为链接；带 resolve 的匹配器在点击时调用插件后端函数取得位置。只声明匹配器的插件无需后端，启用与停用免重启",
   "macos": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "shared/contracts/plugins/v1/README.md",
-      "shared/contracts/plugins/v1/fixtures/run/output-link-matchers.json",
-      "rust/lithe-core/src/plugins/output_links.rs",
-      "rust/lithe-core/src/tests/plugin_run_debug.rs",
-      "macos/Sources/Lithe/Core/Ports/PluginRunDecoding.swift",
-      "macos/Sources/Lithe/Core/Rust/RustPluginRunOperations.swift",
-      "macos/Sources/Lithe/Application/Features/PluginOutputLinkService.swift",
-      "macos/Sources/Lithe/Models/AppModel/AppModel+PluginOutputLinks.swift",
-      "macos/Sources/Lithe/Views/Workbench/OutputTextView+PluginLinks.swift",
-      "macos/Sources/Lithe/Views/Workbench/OutputTextView.swift",
-      "macos/Sources/Lithe/Views/Run/RunView.swift",
-      "macos/Sources/Lithe/Views/Language/LanguageTestsView.swift",
-      "macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift",
-      "macos/Tests/LitheTests/PluginOutputLinkTests.swift"
-    ],
-    "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+      "desktop/internal/core/output_links.go",
+      "desktop/internal/core/output_links_test.go",
+      "desktop/internal/pluginservice/outputlinks.go",
+      "desktop/internal/workbench/outputlinks.go",
+      "desktop/internal/workbench/outputlinks_test.go",
+      ".agents/notes/implemented/architecture/2026-11-10-viva-java-admission-run-debug-output-links.md"
+    ]
   },
   "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "shared/contracts/plugins/v1/README.md"
-    ],
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable"
+      "desktop/internal/core/output_links.go",
+      "desktop/internal/core/output_links_test.go",
+      "desktop/internal/pluginservice/outputlinks.go",
+      "desktop/internal/workbench/outputlinks.go",
+      "desktop/internal/workbench/outputlinks_test.go",
+      ".agents/notes/implemented/architecture/2026-11-10-viva-java-admission-run-debug-output-links.md"
+    ]
   },
   "owner": "Extensions / Run",
   "verification": "macOS：安装只声明 outputLinkMatchers 的测试插件（不带后端），在 Run 控制台输出匹配的堆栈行，确认匹配片段成为带下划线的链接，点击打开存在的文件并定位到行与列；目标文件不存在时不显示链接。在测试控制台重复，确认 scope 为 run 的匹配器不作用于测试控制台，不写 scope 的匹配器两处都生效。安装带 resolve 的匹配器（需要后端 2），点击后调用插件函数并打开其返回的位置，函数失败或没有结果时提示“插件找不到这个链接对应的文件”。禁用插件后链接立即消失，再启用恢复，均无需重启；没有任何匹配器时控制台不做额外匹配。超长行只匹配前 4096 字节，每行最多 8 个链接。Windows：尚未接入输出链接匹配器，Core 校验通过不代表 Windows 控制台能显示插件链接。",
-  "notes": "链接按每次渲染的文本块匹配；完整替换输出时重新扫描全部输出，没有行数上限。插件的 ask 链接不参与上一处/下一处堆栈导航。热激活依赖 MacPluginBackendSessions.register 在插件稍后安装时被调用，目前只在启动时调用。"
+  "notes": "Viva 的运行视图、Build 输出和 Test 输出按已启用插件声明的 outputLinkMatchers 显示可点击范围：匹配、UTF-16 范围、工作区根约束由 Core 的 outputLinks.match 决定，点击后打开文件并定位到行列；带 resolve 的匹配器在点击时调用插件后端函数，答复由 outputLinks.decodeResolution 校验。Build 输出只在检测到构建系统后显示。原生产品验收仍 pending。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "shared/contracts/plugins/v1/README.md",
+        "shared/contracts/plugins/v1/fixtures/run/output-link-matchers.json",
+        "rust/lithe-core/src/plugins/output_links.rs",
+        "rust/lithe-core/src/tests/plugin_run_debug.rs",
+        "macos/Sources/Lithe/Core/Ports/PluginRunDecoding.swift",
+        "macos/Sources/Lithe/Core/Rust/RustPluginRunOperations.swift",
+        "macos/Sources/Lithe/Application/Features/PluginOutputLinkService.swift",
+        "macos/Sources/Lithe/Models/AppModel/AppModel+PluginOutputLinks.swift",
+        "macos/Sources/Lithe/Views/Workbench/OutputTextView+PluginLinks.swift",
+        "macos/Sources/Lithe/Views/Workbench/OutputTextView.swift",
+        "macos/Sources/Lithe/Views/Run/RunView.swift",
+        "macos/Sources/Lithe/Views/Language/LanguageTestsView.swift",
+        "macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift",
+        "macos/Tests/LitheTests/PluginOutputLinkTests.swift"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "shared/contracts/plugins/v1/README.md"
+      ],
+      "implementationStatus": "missing",
+      "verificationStatus": "not-applicable"
+    },
+    "notes": "链接按每次渲染的文本块匹配；完整替换输出时重新扫描全部输出，没有行数上限。插件的 ask 链接不参与上一处/下一处堆栈导航。热激活依赖 MacPluginBackendSessions.register 在插件稍后安装时被调用，目前只在启动时调用。"
+  }
 }

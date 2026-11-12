@@ -70,7 +70,7 @@ WebKit 预览，证明原生模态验证没有污染后续用例。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'DesktopIsolationTests|AgentActivityPresentationTests|ContextMenuCoverageTests|SettingsSelectPopupGeometryTests|SettingsAppearanceContainerTests|EditorTabOrderFeatureModelTests|DiffScrollSynchronizationTests'`。
 - `LITHE_TEST_WINDOW_MODE=visible ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter DesktopIsolationTests`。
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和 `./scripts/agent-notes/verify-agent-notes.sh`。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 和 `./scripts/agent-notes/verify-agent-notes.sh`。
 
 隔离回归测试检查真实 WindowServer 透明度、原生视图绘制、鼠标事件传递、关闭，
 以及隔离进程不能替换前台应用。现有 Agent 卡片、弹窗、比较视图与拖拽测试用于
@@ -85,5 +85,5 @@ WebKit 预览，证明原生模态验证没有污染后续用例。
 
 ## 适用范围
 
-`Package.swift`、`scripts/macos/test/test-macos.sh`、`macos/Tests/LitheTestDesktopIsolation/`、
+`Package.swift`、~~scripts/macos/test/test-macos.sh~~（随旧客户端移除）、`macos/Tests/LitheTestDesktopIsolation/`、
 `macos/Tests/LitheTestDesktopIsolationTests/` 和 `macos/Tests/LitheTests/`。

@@ -5,23 +5,47 @@
   "id": "editor-file-encoding-reopen",
   "capability": "按指定编码重新打开文本文件",
   "macos": {
-    "evidence": [
-      "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift",
-      "macos/Sources/Lithe/Views/Editor/StandaloneEditorView.swift",
-      "macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift",
-      "macos/Sources/Lithe/Platform/MacOS/FileSystem/MacDocumentEncoding.swift"
-    ],
     "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/file_encoding.go",
+      "desktop/internal/core/file_encoding_test.go",
+      "desktop/internal/workbench/encoding.go",
+      "desktop/internal/workbench/documents_test.go"
+    ]
   },
   "windows": {
-    "evidence": [
-      "windows/tauri/src/features/command-palette/components/encoding-picker.tsx",
-      "windows/tauri/src/features/editor/services/document-encoding-workflow.ts",
-      "windows/tauri/crates/project/src/document_file.rs"
-    ],
     "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/file_encoding.go",
+      "desktop/internal/core/file_encoding_test.go",
+      "desktop/internal/workbench/encoding.go",
+      "desktop/internal/workbench/documents_test.go"
+    ]
   },
-  "verification": "在 macOS 和 Windows 实机验证 UTF-8、UTF-8 BOM、UTF-16 LE/BE BOM 与 GBK/GB18030 的自动识别，并分别验证 UTF-16 LE/BE（无 BOM）、Big5、Shift JIS、EUC-JP、EUC-KR、Windows-1250/1251/1252、KOI8-R 的指定编码重新打开、编码转换保存、脏文件选择和外部修改保护。"
+  "verification": "在 macOS 和 Windows 实机验证 UTF-8、UTF-8 BOM、UTF-16 LE/BE BOM 与 GBK/GB18030 的自动识别，并分别验证 UTF-16 LE/BE（无 BOM）、Big5、Shift JIS、EUC-JP、EUC-KR、Windows-1250/1251/1252、KOI8-R 的指定编码重新打开、编码转换保存、脏文件选择和外部修改保护。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift",
+        "macos/Sources/Lithe/Views/Editor/StandaloneEditorView.swift",
+        "macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift",
+        "macos/Sources/Lithe/Platform/MacOS/FileSystem/MacDocumentEncoding.swift"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features/command-palette/components/encoding-picker.tsx",
+        "windows/tauri/src/features/editor/services/document-encoding-workflow.ts",
+        "windows/tauri/crates/project/src/document_file.rs"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    }
+  },
+  "notes": "Viva：打开文件时 UTF-8 BOM、UTF-16 与 GBK 等经 Core file.read 自动识别并显示在状态栏，状态栏菜单“按编码重新打开”列出 Core 的 16 种编码，错误选择以替换字符可见并提示；有未保存修改时拒绝重新打开（需先保存或放弃），与旧客户端的选择对话框不同。外部修改检查、冲突与保存仍按文件原字节比较。"
 }

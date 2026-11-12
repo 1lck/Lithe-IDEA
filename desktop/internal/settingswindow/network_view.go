@@ -1,0 +1,314 @@
+package settingswindow
+
+import (
+	"context"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/vivaui/viva/ui"
+)
+
+// NetworkSettings are the stored proxy settings of the application's own HTTP traffic.
+// Mode is "" (the system's proxies), "direct" or "custom"; ProxyType "" (HTTP) or
+// "socks5". The password is not here: it lives in the platform secret store, with
+// PasswordIdentity naming the endpoint and account it was saved for.
+type NetworkSettings struct {
+	Mode             string                     `json:"mode,omitempty"`
+	ProxyType        string                     `json:"proxyType,omitempty"`
+	Host             string                     `json:"host,omitempty"`
+	Port             int                        `json:"port,omitempty"`
+	Username         string                     `json:"username,omitempty"`
+	Exclusions       []string                   `json:"exclusions,omitempty"`
+	PasswordIdentity *core.NetworkProxyIdentity `json:"passwordIdentity,omitempty"`
+	// HasPassword says a password is stored, so the page can say so without reading it.
+	HasPassword bool `json:"hasPassword,omitempty"`
+}
+
+var (
+	networkModes = []string{"", "direct", "custom"}
+	proxyTypes   = []string{"", "socks5"}
+)
+
+// NetworkCheck is the outcome of the Network page's connection check. Incomplete says the
+// draft names no complete custom server, so nothing was sent. Otherwise Err says why no
+// answer came, or Status is the HTTP status of the answer, which came after Elapsed.
+type NetworkCheck struct {
+	Incomplete bool
+	Status     int
+	Elapsed    time.Duration
+	Err        error
+}
+
+// networkCheckTimeout bounds a connection check, Core's reading of the draft included.
+const networkCheckTimeout = 10 * time.Second
+
+// networkCheckState is the Network page's connection check. It runs off the window thread
+// and the page reads its outcome under the lock. A new check or a reload of the draft makes
+// the run in flight stale, so its outcome is dropped.
+type networkCheckState struct {
+	mu      sync.Mutex
+	running bool
+	run     int
+	outcome *NetworkCheck
+}
+
+// begin starts a run and returns its number.
+func (s *networkCheckState) begin() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.run++
+	s.running, s.outcome = true, nil
+	return s.run
+}
+
+// finish keeps the outcome of run, unless a later run or a reset made it stale.
+func (s *networkCheckState) finish(run int, outcome NetworkCheck) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if run == s.run {
+		s.running, s.outcome = false, &outcome
+	}
+}
+
+// reset forgets the outcome and makes the run in flight stale.
+func (s *networkCheckState) reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.run++
+	s.running, s.outcome = false, nil
+}
+
+// state is whether a run is in flight and the last outcome.
+func (s *networkCheckState) state() (bool, *NetworkCheck) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.running, s.outcome
+}
+
+// networkDraft is the Network page's unsaved edit. The page fills it from the stored
+// settings when it is first shown and after each apply; Apply hands it to the owner.
+type networkDraft struct {
+	loaded               bool
+	mode, proxyType      string
+	host, port, username ui.Field
+	password, exclusions ui.Field
+	clearPassword        bool
+	failure              string
+	check                networkCheckState
+}
+
+// load puts the stored settings in the draft. The password field starts empty: a stored
+// password is never shown, and an empty field keeps it.
+func (d *networkDraft) load(stored NetworkSettings) {
+	d.loaded = true
+	d.mode, d.proxyType = stored.Mode, stored.ProxyType
+	d.host.SetText(stored.Host)
+	port := ""
+	if stored.Port > 0 {
+		port = strconv.Itoa(stored.Port)
+	}
+	d.port.SetText(port)
+	d.username.SetText(stored.Username)
+	d.password.SetText("")
+	d.exclusions.SetText(strings.Join(stored.Exclusions, ", "))
+	d.clearPassword, d.failure = false, ""
+	d.check.reset()
+}
+
+// settings is what the draft would store, and the password to save: nil keeps the
+// stored one, an empty string removes it.
+func (d *networkDraft) settings(stored NetworkSettings) (NetworkSettings, *string, bool) {
+	out := NetworkSettings{Mode: d.mode, ProxyType: d.proxyType, PasswordIdentity: stored.PasswordIdentity, HasPassword: stored.HasPassword}
+	out.Host = strings.TrimSpace(d.host.Text())
+	if text := strings.TrimSpace(d.port.Text()); text != "" {
+		port, err := strconv.Atoi(text)
+		if err != nil || port < 1 || port > 65535 {
+			return out, nil, false
+		}
+		out.Port = port
+	}
+	out.Username = strings.TrimSpace(d.username.Text())
+	for _, entry := range strings.FieldsFunc(d.exclusions.Text(), func(r rune) bool { return r == ',' || r == ';' || r == '\n' }) {
+		if entry = strings.TrimSpace(entry); entry != "" && !slices.Contains(out.Exclusions, entry) {
+			out.Exclusions = append(out.Exclusions, entry)
+		}
+	}
+	var password *string
+	switch {
+	case d.clearPassword:
+		empty := ""
+		password = &empty
+	case d.password.Text() != "":
+		text := d.password.Text()
+		password = &text
+	}
+	return out, password, true
+}
+
+// networkPage is the Network page: whether the application's own requests use the
+// system's proxies, go direct or go through a server the user names, with its account
+// and the hosts reached directly. It shows the stored values; nothing is written until
+// Apply, and a stored password is never shown.
+func (w *window) networkPage(c ui.C) {
+	language := w.marketLanguage()
+	d := &w.network
+	stored := w.sess.values.Network
+	if !d.loaded {
+		d.load(stored)
+	}
+	modeLabel := func(mode string) string {
+		switch mode {
+		case "direct":
+			return i18n.Shared(language, "desktop.settings.network.direct")
+		case "custom":
+			return i18n.Shared(language, "desktop.settings.network.custom")
+		}
+		return i18n.Shared(language, "desktop.settings.network.system")
+	}
+	typeLabel := func(kind string) string {
+		if kind == "socks5" {
+			return "SOCKS5"
+		}
+		return "HTTP"
+	}
+	row := func(name string, body func()) {
+		ui.Row(c).FillWidth().Height(28).Items(ui.Center).Gap(12).Children(func() {
+			ui.Row(c).WidthPercent(34).Shrink(1).MinWidth(0).Items(ui.Center).Children(func() {
+				ui.Text(c, name).FontSize(12).Color(w.pal.text).Ellipsis()
+			})
+			body()
+		})
+	}
+	w.pageScroll(c, pageNetwork, func() {
+		w.card(c, i18n.Shared(language, "desktop.settings.network.proxy"), i18n.Shared(language, "desktop.settings.network.proxyHelp"), func() {
+			ui.Column(c).FillWidth().Gap(8).Children(func() {
+				row(i18n.Shared(language, "desktop.settings.network.mode"), func() {
+					ui.Select(c.Part("mode"), &d.mode, networkModes, modeLabel).Width(selectWidth).Label(i18n.Shared(language, "desktop.settings.network.mode"))
+				})
+				if d.mode != "custom" {
+					return
+				}
+				row(i18n.Shared(language, "desktop.settings.network.type"), func() {
+					ui.Select(c.Part("type"), &d.proxyType, proxyTypes, typeLabel).Width(selectWidth).Label(i18n.Shared(language, "desktop.settings.network.type"))
+				})
+				row(i18n.Shared(language, "desktop.settings.network.host"), func() {
+					ui.TextField(c.Part("host"), &d.host, i18n.Shared(language, "desktop.settings.network.host"), "proxy.example.com").Grow(1).MinWidth(0)
+				})
+				row(i18n.Shared(language, "desktop.settings.network.port"), func() {
+					ui.TextField(c.Part("port"), &d.port, i18n.Shared(language, "desktop.settings.network.port"), "8080").Width(100)
+				})
+				row(i18n.Shared(language, "desktop.settings.network.username"), func() {
+					ui.TextField(c.Part("username"), &d.username, i18n.Shared(language, "desktop.settings.network.username"), "").Grow(1).MinWidth(0)
+				})
+				row(i18n.Shared(language, "desktop.settings.network.password"), func() {
+					placeholder := ""
+					if stored.HasPassword && !d.clearPassword {
+						placeholder = i18n.Shared(language, "desktop.settings.network.passwordStored")
+					}
+					ui.TextField(c.Part("password"), &d.password, i18n.Shared(language, "desktop.settings.network.password"), placeholder).Secure().Grow(1).MinWidth(0)
+					if stored.HasPassword && !d.clearPassword {
+						if ui.Button(c.Part("clear-password"), i18n.Shared(language, "desktop.settings.network.clearPassword")).Ghost().Small().Clicked() {
+							d.clearPassword = true
+							d.password.SetText("")
+						}
+					}
+				})
+				ui.Column(c).FillWidth().Gap(4).Children(func() {
+					ui.Text(c, i18n.Shared(language, "desktop.settings.network.exclusions")).FontSize(12).Color(w.pal.text)
+					ui.TextField(c.Part("exclusions"), &d.exclusions, i18n.Shared(language, "desktop.settings.network.exclusions"), "localhost, *.internal, 10.0.0.0/8").FillWidth()
+					ui.Wrap(c, i18n.Shared(language, "desktop.settings.network.exclusionsHelp")).FontSize(12).Color(w.pal.muted)
+				})
+			})
+		})
+		if d.failure != "" {
+			ui.Wrap(c, d.failure).FontSize(12).Color(w.pal.danger)
+		}
+		checking, outcome := d.check.state()
+		checkable := d.mode == "custom" && w.ctrl.opts.CheckNetwork != nil
+		if checkable && outcome != nil {
+			text, succeeded := networkCheckText(language, *outcome)
+			color := w.pal.danger
+			if succeeded {
+				color = w.pal.muted
+			}
+			ui.Wrap(c, text).FontSize(12).Color(color)
+		}
+		ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
+			if checkable {
+				label := i18n.Shared(language, "settings.network.testConnection")
+				if checking {
+					label = i18n.Shared(language, "settings.network.testing")
+				}
+				if ui.Button(c.Part("check"), label).Outline().Disabled(checking).Clicked() {
+					w.checkNetwork()
+				}
+			}
+			ui.Spacer(c)
+			if ui.Button(c.Part("revert"), i18n.Shared(language, "desktop.settings.network.revert")).Outline().Clicked() {
+				d.load(stored)
+			}
+			if ui.Button(c.Part("apply"), i18n.Shared(language, "desktop.settings.network.apply")).Clicked() {
+				w.applyNetwork(language)
+			}
+		})
+	})
+}
+
+// applyNetwork hands the draft to the settings owner, which saves it, stores or removes
+// the password and applies the new policy; the draft is then shown as stored.
+func (w *window) applyNetwork(language i18n.Language) {
+	d := &w.network
+	next, password, ok := d.settings(w.sess.values.Network)
+	if !ok {
+		d.failure = i18n.Shared(language, "desktop.settings.network.invalidPort")
+		return
+	}
+	if password != nil {
+		next.HasPassword = *password != ""
+	}
+	w.sess.values.Network = next
+	if w.ctrl.opts.SetNetwork != nil {
+		w.ctrl.opts.SetNetwork(next, password)
+	}
+	d.load(next)
+}
+
+// checkNetwork sends one request through the draft, unsaved, off the window thread. A draft
+// without a server address or a valid port is answered at once, as Core would fall back to
+// the system's proxies for it and the check would prove nothing about the server.
+func (w *window) checkNetwork() {
+	d := &w.network
+	draft, password, ok := d.settings(w.sess.values.Network)
+	run := d.check.begin()
+	if !ok || draft.Host == "" || draft.Port == 0 {
+		d.check.finish(run, NetworkCheck{Incomplete: true})
+		return
+	}
+	check, inv := w.ctrl.opts.CheckNetwork, &w.inv
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), networkCheckTimeout)
+		defer cancel()
+		d.check.finish(run, check(ctx, draft, password))
+		inv.Invalidate()
+	}()
+}
+
+// networkCheckText says what a check found, and whether the server carried the request: any
+// answer from 200 to 399 does, since a redirect also came through it.
+func networkCheckText(language i18n.Language, outcome NetworkCheck) (string, bool) {
+	switch {
+	case outcome.Incomplete:
+		return i18n.Shared(language, "settings.network.enterAddressAndPort"), false
+	case outcome.Err != nil:
+		return i18n.Shared(language, "settings.network.checkFailed") + " " + outcome.Err.Error(), false
+	case outcome.Status >= 200 && outcome.Status < 400:
+		milliseconds := strconv.FormatInt(outcome.Elapsed.Milliseconds(), 10)
+		return i18n.SharedFormat(language, "settings.network.connectionSucceeded", map[string]string{"arg1": milliseconds}), true
+	}
+	return i18n.SharedFormat(language, "settings.network.proxyAnsweredWithHTTP", map[string]string{"arg1": strconv.Itoa(outcome.Status)}), false
+}

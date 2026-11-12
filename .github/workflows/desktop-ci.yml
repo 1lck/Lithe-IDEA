@@ -1,0 +1,276 @@
+name: Desktop CI
+
+on:
+  pull_request:
+    # ready_for_review runs the macOS lane that drafts defer.
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches:
+      - preview
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Every main commit gets its own group; a PR push cancels the run it replaces.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  pins:
+    name: Verify pins
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: desktop/go.mod
+          cache: false
+
+      # A pin that was rewritten, mistyped or left behind a force-push fails here in a minute,
+      # instead of inside a cold core build in each platform lane.
+      - name: Verify the viva and core pins
+        run: node scripts/desktop/validate-pins.mjs
+
+  linux:
+    name: Format and script tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: desktop/go.mod
+          cache: false
+
+      - name: Check gofmt
+        working-directory: desktop
+        run: make fmt-check
+
+      - name: Install shell check tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck zsh
+
+      - name: Check shell script syntax
+        run: |
+          bash -n scripts/desktop/check.sh
+          bash -n scripts/desktop/build-desktop-core.sh
+          bash -n scripts/desktop/desktop-go.sh
+          bash -n scripts/desktop/package-desktop.sh
+          bash -n scripts/desktop/perf/editor-bench.sh
+          bash -n scripts/ci/desktop-release/package-release.sh
+          bash -n scripts/ci/desktop-release/resolve-release-version.sh
+          zsh -n scripts/desktop/generate-desktop-icons.sh
+          zsh -n scripts/desktop/generate-desktop-file-icons.sh
+
+      - name: Run ShellCheck
+        run: |
+          shellcheck -S warning \
+            scripts/desktop/check.sh \
+            scripts/desktop/build-desktop-core.sh \
+            scripts/desktop/desktop-go.sh \
+            scripts/desktop/package-desktop.sh \
+            scripts/desktop/perf/editor-bench.sh \
+            scripts/ci/desktop-release/package-release.sh \
+            scripts/ci/desktop-release/resolve-release-version.sh
+
+      - name: Verify shared localization
+        run: |
+          node scripts/i18n/verify-app-language-localization.mjs
+          node scripts/i18n/generate-i18n.mjs --check
+          node --test --test-timeout=60000 scripts/i18n/test-i18n.mjs
+
+      - name: Check installed resource paths
+        run: |
+          ./scripts/desktop/verify/verify-runtime-bundle-immutability.sh
+          node --test scripts/desktop/verify/test-runtime-bundle-immutability.mjs
+
+      - name: Run script tests
+        run: |
+          node --test \
+            scripts/release/notes/test-validate-stable-release-notes.mjs \
+            scripts/desktop/perf/editor-perf-report.test.mjs \
+            scripts/ci/cancel-closed-pr-runs/cancel-closed-pr-runs.test.mjs
+
+  linux-test:
+    name: Vet and test on Linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: desktop/go.sum
+
+      - name: Set up Rust
+        id: rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore the core build
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            .artifacts/desktop/lithe-core-rust
+          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-x86_64-unknown-linux-gnu-debug-${{ hashFiles('scripts/desktop/build-desktop-core.sh') }}
+          restore-keys: |
+            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-x86_64-unknown-linux-gnu-debug-
+
+      - name: Verify Core cgo cache invalidation
+        run: |
+          mkdir -p .artifacts/test-stability
+          node --test --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/core-cache.junit.xml scripts/desktop/desktop-core-cache.test.mjs
+
+      - name: Vet and test
+        run: ./scripts/desktop/check.sh
+
+      - name: Upload native cache regression report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: core-cache-${{ runner.os }}-${{ runner.arch }}
+          path: .artifacts/test-stability/core-cache.junit.xml
+          if-no-files-found: warn
+          retention-days: 14
+
+  macos:
+    name: Vet and test on macOS
+    # Draft PRs run only the Linux lane; marking the PR ready runs this one.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: macos-26
+    # A cold build of the pinned core takes most of this.
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: desktop/go.sum
+
+      - name: Set up Rust
+        id: rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore the core build
+        uses: actions/cache@v6
+        with:
+          # The pinned revision lives in build-desktop-core.sh, so its hash keys the checkout and
+          # target directory; cargo rebuilds whatever a different toolchain invalidates.
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            .artifacts/desktop/lithe-core-rust
+          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-debug-${{ hashFiles('scripts/desktop/build-desktop-core.sh') }}
+          restore-keys: |
+            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-debug-
+
+      - name: Verify Core cgo cache invalidation
+        run: |
+          mkdir -p .artifacts/test-stability
+          node --test --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/core-cache.junit.xml scripts/desktop/desktop-core-cache.test.mjs
+
+      - name: Vet and test
+        run: ./scripts/desktop/check.sh
+
+      - name: Upload native cache regression report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: core-cache-${{ runner.os }}-${{ runner.arch }}
+          path: .artifacts/test-stability/core-cache.junit.xml
+          if-no-files-found: warn
+          retention-days: 14
+
+  windows:
+    name: Vet and test on Windows
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: desktop/go.sum
+
+      - name: Set up Rust
+        id: rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Ensure MinGW-w64
+        run: |
+          if ! command -v gcc >/dev/null 2>&1; then
+            choco install mingw -y
+            gcc_path="$(find /c/ProgramData/chocolatey/lib/mingw /c/tools/mingw64 /c/mingw64 \
+              -type f -name gcc.exe -print -quit 2>/dev/null || true)"
+            if [[ -z "$gcc_path" ]]; then
+              printf '%s\n' 'MinGW-w64 installation did not provide gcc.exe.' >&2
+              exit 1
+            fi
+            mingw_bin="$(dirname "$gcc_path")"
+            export PATH="$mingw_bin:$PATH"
+            printf '%s\n' "$(cygpath -m "$mingw_bin")" >> "$GITHUB_PATH"
+          fi
+          gcc --version
+
+      - name: Restore the core build
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            .artifacts/desktop/lithe-core-rust
+          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-x86_64-pc-windows-gnu-debug-${{ hashFiles('scripts/desktop/build-desktop-core.sh') }}
+          restore-keys: |
+            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-x86_64-pc-windows-gnu-debug-
+
+      - name: Verify Core cgo cache invalidation
+        run: |
+          mkdir -p .artifacts/test-stability
+          node --test --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/core-cache.junit.xml scripts/desktop/desktop-core-cache.test.mjs
+
+      - name: Vet and test
+        run: ./scripts/desktop/check.sh
+
+      - name: Upload native cache regression report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: core-cache-${{ runner.os }}-${{ runner.arch }}
+          path: .artifacts/test-stability/core-cache.junit.xml
+          if-no-files-found: warn
+          retention-days: 14

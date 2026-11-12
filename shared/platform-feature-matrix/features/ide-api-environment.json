@@ -4,25 +4,49 @@
   "group": "IDE MCP",
   "capability": "插件与 MCP 查询和修改项目 Java/Maven 默认环境，并返回实际选择结果",
   "macos": {
-    "implementationStatus": "implemented",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      "macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift",
-      "macos/Sources/Lithe/Views/App/McpSettingsView.swift",
-      "macos/Tests/LitheTests/IdeCapabilitiesTests.swift",
-      "rust/lithe-ide-host/src/lib.rs"
+      "desktop/internal/workbench/ide_api_dispatch.go",
+      "desktop/internal/workbench/settings_ide_api.go",
+      "desktop/internal/workbench/settings_toolchains.go",
+      "desktop/internal/toolchain/toolchain.go"
     ]
   },
   "windows": {
-    "implementationStatus": "implemented",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      "windows/tauri/src/features/host-api/ide-capabilities.ts",
-      "windows/tauri/src/features/host-api/mcp-settings.tsx",
-      "windows/tauri/src/features/host-api/ide-capabilities.test.ts",
-      "rust/lithe-ide-host/src/lib.rs"
+      "desktop/internal/workbench/ide_api_dispatch.go",
+      "desktop/internal/workbench/settings_ide_api.go",
+      "desktop/internal/workbench/settings_toolchains.go",
+      "desktop/internal/toolchain/toolchain.go"
     ]
   },
   "owner": "Agent",
-  "verification": "读取环境、修改一个默认值，检查其他字段保留；对照设置页与实际启动路径，验证保存失败及项目切换。 运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。"
+  "verification": "读取环境、修改一个默认值，检查其他字段保留；对照设置页与实际启动路径，验证保存失败及项目切换。 运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift",
+        "macos/Sources/Lithe/Views/App/McpSettingsView.swift",
+        "macos/Tests/LitheTests/IdeCapabilitiesTests.swift",
+        "rust/lithe-ide-host/src/lib.rs"
+      ]
+    },
+    "windows": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "windows/tauri/src/features/host-api/ide-capabilities.ts",
+        "windows/tauri/src/features/host-api/mcp-settings.tsx",
+        "windows/tauri/src/features/host-api/ide-capabilities.test.ts",
+        "rust/lithe-ide-host/src/lib.rs"
+      ]
+    }
+  },
+  "notes": "Viva：IDE API 桥只暴露 ideAPIServedTools 中的 lithe_project_inspect、lithe_build_*、lithe_operation* 与 lithe_run_* 工具；lithe_environment_* 按契约不由本客户端提供、不发布，没有查询或修改项目 Java/Maven 默认环境的工具；通用工具链读取与保存已存在（settings_toolchains.go 的 Load/Save，toolchain/ 包），但未接入 IDE API，也未找到“返回实际选择结果”的协议。"
 }

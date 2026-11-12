@@ -7,7 +7,7 @@
 本轮已将原有三组宿主内部服务注册为协议 3 的公共方法；`ui:4` 提供不打开
 工具窗口的命令。逐方法授权、上下文 lease、编辑器返回 documentID/version、
 真实 HTML 呈现模式、后端初始化/退出/通知背压也已接入。正式参数和限制以
-`shared/contracts/plugins/v1/README.md` 为准，历史盘点表不是当前能力表。
+`Lithe-core-rust/shared/plugins/contract/v1/README.md` 为准，历史盘点表不是当前能力表。
 
 尚未交付的部分包括：官方 SDK 新 API 的类型封装与发布、通用原生 Tree 后端
 数据源、精确全文搜索匹配范围、文件修改/保存事务、可替换预览标签和 Windows
@@ -90,13 +90,13 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 嵌入语言在该 worker 适配器中按普通文本处理。Windows 接入、SDK 新能力封装与发布、
 打包后安装真实插件的完整验收仍未完成，功能矩阵保持 partial/pending。
 决策边界见[独立插件编辑器 API](../../.agents/notes/implemented/architecture/2026-10-31-plugin-editor-extension-apis.md)，
-正式资源契约见[语法与编辑配置](../../shared/contracts/plugins/v1/README.md#grammars-and-editor-configuration-languages-2)。
+正式资源契约见[语法与编辑配置](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md#grammars-and-editor-configuration)。
 
 ### 当前公共调用面汇总
 
 所有宿主请求以 `lithe/host/` 为前缀；这里的点号是阅读简写，正式方法使用 `/`。
 精确参数、返回、权限、预算及失败语义见
-[契约公共方法表](../../shared/contracts/plugins/v1/README.md#public-document-file-and-window-methods-protocol-version-3)。
+[契约公共方法表](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md#public-document-file-and-window-methods)。
 
 | 分组 | 已开放请求 | 权限 |
 | --- | --- | --- |
@@ -122,16 +122,16 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 
 本轮只规划 macOS。没有 Windows 实现任务、时间表或双端验收前置条件；共享数据协议仍不嵌入 SwiftUI/AppKit 类型。本 PR 不实现 API、不修改 schema/SDK，也不把未来能力记成已实现。
 
-这是**主仓库内部执行计划和文档待办**，不是可直接使用的开发者 API 参考。下文所有“候选”方法、事件及文档路径都需要后续契约 PR 定义；不能直接写进现有 `plugin.json`。公开指南、API 参考、SDK 和示例最终交付到 [lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs)，不在本仓库维护第二套开发者手册。
+这是**主仓库内部执行计划和文档待办**，不是可直接使用的开发者 API 参考。下文所有“候选”方法、事件及文档路径都需要后续契约 PR 定义；不能直接写进现有 `plugin.json`。公开指南、API 参考、SDK 和示例最终交付到 Core 仓库的 [`shared/plugins/`](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins)，不在本仓库维护第二套开发者手册。
 
-架构选择由[公共扩展契约提案](../../.agents/notes/proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md)持有；本文件负责能力盘点、任务拆分和验收。契约发布遵循[两仓库同步决策](../../.agents/notes/implemented/architecture/2026-10-23-plugin-contract-publishing.md)。
+架构选择由[公共扩展契约提案](../../.agents/notes/proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md)持有；本文件负责能力盘点、任务拆分和验收。契约、指南和 SDK 的发布遵循[契约单一来源决策](../../.agents/notes/implemented/architecture/2026-11-11-plugin-contract-single-source-in-core.md)。
 
 ### 盘点基线
 
 | 对象 | 固定版本与证据 | 使用限制 |
 | --- | --- | --- |
 | Lithe | [preview `e8c4e9fc933a`](https://github.com/1lck/Lithe-IDEA/tree/e8c4e9fc933a85f789d603371e77efd219214452) | 本文件的本地源码路径均相对此版本，已包含下面两个合并的 PR；源码存在不代表本次做过实机验收 |
-| 插件文档/SDK | [main `be779d2000e3`](https://github.com/Lithe-IDEA/lithe-plugin-docs/tree/be779d2000e38415ea047fc2e2b2b7973e7d8e07) | 2026-10-30 复核仍是该 commit。`contract.lock.json` 锁定主仓库 `32021a86f0c6c4ad2964dbbe3c2bb7854d84ad67`，不能与本次 preview 基线混用；该锁之后 `shared/contracts/plugins/v1` 又有 4 个提交（含 #1517），副本尚未同步 |
+| 插件文档/SDK（已退役的 lithe-plugin-docs） | [main `be779d2000e3`](https://github.com/Lithe-IDEA/lithe-plugin-docs/tree/be779d2000e38415ea047fc2e2b2b7973e7d8e07) | 2026-10-30 复核仍是该 commit。`contract.lock.json` 锁定主仓库 `32021a86f0c6c4ad2964dbbe3c2bb7854d84ad67`，不能与本次 preview 基线混用；该锁之后 `shared/contracts/plugins/v1` 又有 4 个提交（含 #1517）。该仓库已退役，契约、指南和 SDK 现在在 Core 仓库的 `shared/plugins/`，不再有副本同步 |
 | OpenIDEA | [`8ff8f229407d`](https://github.com/l0ng-ai/openidea/tree/8ff8f229407df73e722d0a933f8e0aebd48f516c) | 比较其公开源码，不推断全量功能成熟度或产品安全结论 |
 | 原生 Provider 工作流 | [PR #1517](https://github.com/1lck/Lithe-IDEA/pull/1517)，合并提交 `659739011591`（2026-10-28 已合并） | 已在上面的 preview 中；Mac 已声明 `buildProviders:1–6`、`buildModelInputs:1`、`debugAdapters:1/2`，见 2.1 |
 | 远程工作区适配 | [PR #1515](https://github.com/1lck/Lithe-IDEA/pull/1515)，合并提交 `823fe428384d`（2026-10-29 已合并，关联 #1507） | 已在上面的 preview 中，但 PR 自述为阶段性实现，功能矩阵保持 partial / pending；不得据此认定远程工作区已完整可用，范围与缺口见 API-40 |
@@ -302,11 +302,11 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 
 ### 5.1 先消除“源码支持 = 已发版 = 宿主可用”的误解
 
-以下是固定 SDK commit 的源码盘点，不是本次运行 SDK 测试的结果。
+以下是固定 SDK commit 的源码盘点，不是本次运行 SDK 测试的结果。这个 commit 属于已退役的 lithe-plugin-docs；SDK 现在在 Core 仓库的 `shared/plugins/sdk/{node,java,rust}`，从 Core 仓库按标签发布（例如 `sdk-node-v0.5.0`）。
 
 | SDK | 源码已见能力 | 仍需核对/补齐 | 已核实发布物 |
 | --- | --- | --- | --- |
-| [Node 源码](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/be779d2000e38415ea047fc2e2b2b7973e7d8e07/sdk/node/src/backend.mjs) | Build、私有 Functions v1、VCS；开发中 Build 2–6 的执行、测试、发现、Run/Debug 准备、模型输入 | 通用 host API、Functions v2/credentials 等不能因 Rust SDK 有就宣称 Node 也有；宿主侧 Build 2–6 已随 #1517 合入 preview，但文档仓库的契约副本早于该合并，需先同步契约再对齐 SDK 与 fixtures | [sdk-node-v0.1.0](https://github.com/Lithe-IDEA/lithe-plugin-docs/releases/tag/sdk-node-v0.1.0)，2026-10-23；源码新功能不等于已在此包发布 |
+| [Node 源码](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/be779d2000e38415ea047fc2e2b2b7973e7d8e07/sdk/node/src/backend.mjs) | Build、私有 Functions v1、VCS；开发中 Build 2–6 的执行、测试、发现、Run/Debug 准备、模型输入 | 通用 host API、Functions v2/credentials 等不能因 Rust SDK 有就宣称 Node 也有；宿主侧 Build 2–6 已随 #1517 合入 preview，但该快照里的契约副本早于该合并；SDK 现与契约同在 Core 仓库，按当前契约对齐 SDK 与 fixtures | [sdk-node-v0.1.0](https://github.com/Lithe-IDEA/lithe-plugin-docs/releases/tag/sdk-node-v0.1.0)，2026-10-23；源码新功能不等于已在此包发布 |
 | [Java 源码](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/be779d2000e38415ea047fc2e2b2b7973e7d8e07/sdk/java/plugin-sdk/src/main/java/io/github/litheidea/plugin/sdk/Backend.java) | Build、私有 Functions v1；开发中 Build 2–6 | 本次源码未见 VCS/credentials 实现，不能写成与 Node/Rust 全量对等 | [历史 sdk-java-v0.1.0](https://github.com/1lck/Lithe-IDEA/releases/tag/sdk-java-v0.1.0)，2026-10-20，JAR 与 SHA-256 |
 | [Rust 说明](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/be779d2000e38415ea047fc2e2b2b7973e7d8e07/sdk/rust/README.md) | Functions v1/v2、credentials，独立后端示例 | 明确尚不实现 Build/VCS；文档描述 release 方案不等于该 tag 已发布 | 本次未核实到 Rust SDK 正式 release，不提供可用发布承诺 |
 
@@ -314,7 +314,7 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 
 ### 5.2 需要编写或更新的文档
 
-路径均相对 **lithe-plugin-docs**，是后续交付目标，不是本 PR 新建文件。已有指南优先更新，不重复写第二份。每个 API 任务完成时同步补相应文档与可运行示例，不等全部 API 完成后才写教程。
+路径均相对 Core 仓库的 `shared/plugins/`，是后续交付目标，不是本 PR 新建文件。已有指南优先更新，不重复写第二份。每个 API 任务完成时同步补相应文档与可运行示例，不等全部 API 完成后才写教程。
 
 | 文档 ID | 拟交付页面/更新位置 | 必须讲清楚什么 | 对应任务/阶段 |
 | --- | --- | --- | --- |
@@ -340,13 +340,13 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 
 每个正式 API 页统一包含：稳定 ID/方法签名，调用方向，参数/结果/示例，最低宿主能力与 SDK 发布版本，权限与授权方式，窗口/工作区/插件作用域，dirty/路径/编码/位置语义，取消与截止时间，事件/释放，限制/分页，稳定错误，安全注意事项，以及成功、拒绝、旧版本和失效结果的测试链接。没有实现与发布证据的候选名不得出现在“可用 API”导航中。
 
-### 5.3 两仓库交付顺序
+### 5.3 Core 仓库的交付顺序
 
-1. 主仓库同一实现 PR 修改 Core、`shared/contracts/plugins/v1/`、Mac adapter、fixtures 和真实能力表。API 计划文档不代替 schema/契约，也不先放开未实现字段。
-2. 涉及后端协议变更，合并前在 lithe-plugin-docs 运行 `node scripts/sdk-e2e.mjs --source <本仓库路径> --ref <实现分支>`；覆盖 Node/Java 既有示例，修改 Rust SDK 时也覆盖 Rust 后端场景。
-3. 主仓库合并后，在 lithe-plugin-docs 运行 `node scripts/contract.mjs sync --revision <合并后的 preview commit>`，提交逐字节副本与 lock；不手改 `contract/v1/`。
-4. SDK、指南、示例和兼容性矩阵在文档仓库配套提交，锁定实际已支持宿主；正式 release 与哈希校验成功后再把该能力标成“已发布”。不能把正在开发的 main 当稳定 SDK 下载入口。
-5. 主仓库不重新保存 SDK、不让 CI 隐式依赖文档仓库浮动 main。本次纯计划未改契约/协议，因此不触发契约副本同步或 SDK 发版。
+1. 同一个 Core PR 修改 Core、`Lithe-core-rust/shared/plugins/contract/v1/`、fixtures 和真实能力表；宿主适配器（Mac adapter）在本仓库另提 PR，固定到该 Core PR 合入后的 commit。API 计划文档不代替 schema/契约，也不先放开未实现字段。
+2. 涉及后端协议变更，合并前在 Core 仓库根运行 `node shared/plugins/scripts/sdk-e2e.mjs`（测试当前工作树的 Core）；覆盖 Node/Java 既有示例，修改 Rust SDK 时也覆盖 Rust 后端场景。
+3. 契约、`capabilities.rs`、`plugin_function.rs` 的改动，和[协议更新记录](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/reference/protocol-changelog.md)、[API 总表](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/reference/api-catalog.md)的登记，在同一个 Core PR 里完成；没有合并后的同步步骤。
+4. SDK、指南、示例和兼容性矩阵在同一个 Core PR 里配套提交，锁定实际已支持宿主；正式 release（Core 仓库的 `sdk-*` 标签）与哈希校验成功后再把该能力标成“已发布”。不能把正在开发的 main 当稳定 SDK 下载入口。
+5. 本仓库不保存 SDK；桌面端测试读取正在链接的那个 Core 检出里的契约（`desktop/internal/contractfixture`），CI 不隐式依赖浮动 main。本次纯计划未改契约/协议，因此不触发 Core PR 登记或 SDK 发版。
 
 ## 6. 分阶段 PR 与交付门槛
 
@@ -391,7 +391,7 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 
 | 索引 | 所有者与证据 |
 | --- | --- |
-| S1 | [插件契约](../../shared/contracts/plugins/v1/README.md)、[Core 能力](../../rust/lithe-core/src/plugins/capabilities.rs)、[清单校验与激活事件](../../rust/lithe-core/src/plugins/declarative.rs)、[清单 schema](../../shared/contracts/plugins/v1/plugin-manifest.schema.json)、[Mac 能力表](../../macos/Sources/LitheModuleAPI/Plugins/PluginTypes.swift) |
+| S1 | [插件契约](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md)、[Core 能力](../../rust/lithe-core/src/plugins/capabilities.rs)、[清单校验与激活事件](../../rust/lithe-core/src/plugins/declarative.rs)、[清单 schema](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/plugin-manifest.schema.json)、[Mac 能力表](../../macos/Sources/LitheModuleAPI/Plugins/PluginTypes.swift) |
 | S2 | [backend 1](../../rust/lithe-core/src/plugins/backend.rs)、[函数协议](../../rust/lithe-core/src/lsp/interface/plugin_function.rs)、[Mac 后端会话](../../macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginBackendSessions.swift)、[宿主凭据服务](../../macos/Sources/Lithe/Application/Features/PluginHostServices.swift) |
 | S3 | [原生 UI 功能](../../macos/Sources/Lithe/Application/Features/PluginNativeUIFeature.swift)、[Core UI 校验](../../rust/lithe-core/src/plugins/native_ui.rs)、[已实现原生 UI Note](../../.agents/notes/implemented/feature/2026-10-21-declarative-native-plugin-ui.md) |
 | S4 | [Web bridge](../../macos/Sources/Lithe/Application/Features/PluginWebBridge.swift)、[包内内容](../../macos/Sources/Lithe/Platform/MacOS/Plugins/Web/MacPluginWebContent.swift)、[页面生命周期](../../macos/Sources/Lithe/Application/Features/PluginWebPageLifecycle.swift)、[状态存储](../../macos/Sources/Lithe/Platform/MacOS/Plugins/Web/MacPluginWebStateStore.swift) |
@@ -412,4 +412,4 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 | S19 | [应用语言](../../macos/Sources/LitheModuleAPI/Localization/InterfaceLanguage.swift)、[GitHub HTTP adapter](../../macos/Sources/Lithe/Platform/MacOS/GitHub/MacGitHubHTTPTransport.swift)、[GitHub 服务](../../macos/Sources/Lithe/Services/GitHub/GitHubService.swift)、[Agent 登录端口](../../macos/Sources/Lithe/Core/Ports/AgentAccountSignIn.swift) |
 | S20 | [远程工作区路由 Note](../../.agents/notes/implemented/architecture/2026-10-24-remote-workspace-routing.md)、[占位根](../../macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteWorkspaceRoots.swift)、[绑定与路由](../../macos/Sources/Lithe/Services/Remote/RemoteWorkspaceRouting.swift)、[远程插件启动](../../macos/Sources/Lithe/Platform/MacOS/Remote/MacRemotePluginLaunchPreparer.swift)、[远程主机提案](../../.agents/notes/proposed/architecture/2026-10-24-remote-development-workspace-host.md)、[SSH 调试提案](../../.agents/notes/proposed/architecture/2026-10-27-remote-debug-adapter-over-ssh.md) |
 | S21 | [Git 功能](../../macos/Sources/LitheGitModule/Application/GitFeatureModel.swift)、[Git 服务端口](../../macos/Sources/LitheGitModule/Services/GitService.swift)、[统一 VCS 提案](../../.agents/notes/proposed/architecture/2026-10-22-unified-vcs-provider-model.md) |
-| S22 | [Skills](../../macos/Sources/Lithe/Application/Features/AgentSkillsFeatureModel.swift)、[Hooks](../../macos/Sources/Lithe/Application/Features/AgentHooksFeatureModel.swift)、[MCP 注册](../../macos/Sources/Lithe/Application/Features/McpRegistryFeatureModel.swift)、[MCP 服务器库](../../macos/Sources/Lithe/Application/Features/McpServerLibraryFeatureModel.swift)、[Skill 管理 Note](../../.agents/notes/implemented/feature/2026-10-20-agent-skill-management.md)、[Hooks Note](../../.agents/notes/implemented/feature/2026-10-24-agent-hooks.md)、[MCP 服务器库 Note](../../.agents/notes/implemented/feature/2026-10-17-mcp-server-library.md) |
+| S22 | [Skills](../../macos/Sources/Lithe/Application/Features/AgentSkillsFeatureModel.swift)、[Hooks](../../macos/Sources/Lithe/Application/Features/AgentHooksFeatureModel.swift)、[MCP 注册](../../macos/Sources/Lithe/Application/Features/McpRegistryFeatureModel.swift)、[MCP 服务器库](../../macos/Sources/Lithe/Application/Features/McpServerLibraryFeatureModel.swift)、[Skill 管理 Note](../../.agents/notes/archived/feature/2026-10-20-agent-skill-management.md)、[Hooks Note](../../.agents/notes/archived/feature/2026-10-24-agent-hooks.md)、[MCP 服务器库 Note](../../.agents/notes/archived/feature/2026-10-17-mcp-server-library.md) |

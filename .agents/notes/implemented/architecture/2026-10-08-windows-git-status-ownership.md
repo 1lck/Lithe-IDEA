@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态：下文描述旧 Windows 客户端的仓库状态表与监听。Viva 当前只展示当前项目的 Git 状态，并在打开项目和部分 Git 操作后读取；尚无等价的多仓库状态表与全局 Git 元数据监听，同一项目内读取乱序风险跟踪 [#1809](https://github.com/1lck/Lithe-IDEA/issues/1809)，不能把旧客户端的刷新保证当作已迁移。旧实现和测试入口见[迁移前笔记](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-10-08-windows-git-status-ownership.md)。
+
 ## 先说结论
 
 Windows 的顶部、Commit 面板和 Project 文件树使用同一个工作区内的仓库状态表。
@@ -87,6 +89,8 @@ worktree 列表；macOS 的既有状态读取仍会附带 stash 等查询。合�
 
 ## 验证
 
+以下是旧客户端的历史验证，Viva 接入监听与多仓库后需要重新验证乱序、关闭面板和外部 Git 操作。
+
 - 状态存储回归覆盖外部 checkout 的原子发布、启动／Commit 迟到读取、多仓库路径、
   工作区重置、提交草稿保留和相同快照不通知。另有交错回归：完整读取先开始、纯状态发布先
   完成，随后释放的操作状态（冲突解除或新增冲突）仍被发布，且旧文件快照不回退。
@@ -95,23 +99,16 @@ worktree 列表；macOS 的既有状态读取仍会附带 stash 等查询。合�
   无关仓库不查询、卸载清理；使用可手动推进的计时器。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend`
-- `./scripts/windows/verify/verify-windows-boundaries.ps1`
-- `./scripts/windows/build/build-windows.ps1 -Configuration Release`
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- 旧版 Windows 边界及发行构建脚本已随旧客户端移除，历史命令见上方迁移前笔记。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - 真实 Windows 产品中关闭 Commit，外部 pull、checkout、暂存，再核对顶部、文件树和
   重开 Commit；测试多仓库、工作树与快速切项目。原生交互验收继续为 pending。
 
 ## 适用范围
 
-- `rust/lithe-core/src/git/metadata_watch.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/metadata_watch.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/metadata_watch.rs)
 - `shared/fixtures/git/metadata-classification-v1.json`
-- `windows/tauri/crates/project/src/git_watcher.rs`
-- `macos/Sources/Lithe/Platform/MacOS/FileWatching/MacDirectoryWatcher.swift`
-- `macos/Sources/Lithe/Services/Remote/RemoteDirectoryObservation.swift`
-- `macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift`
-- `windows/tauri/src/features/git/stores/git.store.ts`
-- `windows/tauri/src/features/git/runtime/git-status-refresh-host.tsx`
-- `windows/tauri/src/features/git/runtime/git-metadata-watch-host.tsx`
-- `windows/tauri/src/features/git/hooks/use-git-data-controller.ts`
-- `windows/tauri/src/features/workspace/services/workspace-git-bootstrap.ts`
-- `windows/tauri/src/features/layout/components/footer/footer-git-branch-item.tsx`
+- `desktop/internal/workbench/git.go`
+- `desktop/internal/workbench/commit.go`
+- `desktop/internal/workbench/filetree_watch.go`
+- `shared/platform-feature-matrix/features/git-status-commit.json`

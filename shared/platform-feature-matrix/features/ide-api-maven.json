@@ -4,31 +4,59 @@
   "group": "IDE MCP",
   "capability": "插件与 MCP 按已接通工作流发现工具；macOS 使用通用 Build 查询、配置和执行；Windows 接通 Build 查询、重载、执行与原生有界输出/停止，保留仍有消费者的 Maven 入口，通用配置写入与产品准入未完成",
   "macos": {
-    "implementationStatus": "implemented",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      "macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift",
-      "macos/Sources/Lithe/Views/App/McpSettingsView.swift",
-      "macos/Tests/LitheTests/IdeCapabilitiesTests.swift",
-      "rust/lithe-ide-host/src/lib.rs",
-      "macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift",
-      "macos/Tests/LitheExecutionModuleTests/BuildSystemServiceTests.swift",
-      "shared/contracts/ide-api/v1.md",
-      "shared/fixtures/ide-api/host-tool-exposure.json",
-      "rust/lithe-ide-host/src/catalog.rs",
-      "macos/Sources/Lithe/Application/Features/RuntimeSettingsFeatureModel.swift"
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
+      "desktop/internal/workbench/ide_api_dispatch.go",
+      "desktop/internal/workbench/ide_api.go",
+      "desktop/internal/workbench/build.go",
+      "desktop/internal/workbench/ide_api_dispatch_test.go",
+      "desktop/internal/workbench/ide_api_operation_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "implemented",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      "windows/tauri/src/features/host-api/ide-capabilities.ts",
-      "windows/tauri/src/features/host-api/mcp-settings.tsx",
-      "windows/tauri/src/features/host-api/ide-capabilities.test.ts",
-      "rust/lithe-ide-host/src/lib.rs"
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md",
+      "desktop/internal/workbench/ide_api_dispatch.go",
+      "desktop/internal/workbench/ide_api.go",
+      "desktop/internal/workbench/build.go",
+      "desktop/internal/workbench/ide_api_dispatch_test.go",
+      "desktop/internal/workbench/ide_api_operation_test.go"
     ]
   },
   "owner": "Agent",
-  "verification": "macOS 用 lithe_build_inspect/reload 查询 Maven 插件实例及模型，执行 goal 任务并以独立参数数组传 clean verify；核对 UI/Agent 使用同一生效配置、最终退出码、完成后输出、取消、旧 ID 失效和同路径重开。确认旧 MavenService 任务执行和专属进程已删除。Windows 尚未接 Provider，新入口明确 NOT_AVAILABLE，现有 Maven 执行继续验证。配置、项目加载、依赖、Run/Java 协作完整迁移及真实安装包/Windows 流程仍待阶段 D 验收。 通用 Build 选项入口已通过真实 Maven Agent compile 场景、非法布尔值不落盘、Core 类型/大小/权限边界及实例多选清空/重置回归；Windows 的新入口明确不可用单元测试通过，实机仍 pending。 原生工具选择 fixture 覆盖 macOS 11 项、Windows 17 项，Rust 拒绝未知工具、扩大参数、移除必填项和权限越权；真实 stdio 的三种协议会话验证发现清单，macOS 不再提供 lithe_environment_* 与 lithe_maven_* 工具（工具链与构建工具由插件经通用 Build 入口暴露），认证 HTTP 在入队前拒绝未公布的工具并以通用 Build 配置校验参数收窄。macOS 旧入口在模块激活前拒绝；Windows 原生验证仍 pending。 Windows Agent 后续接通三项通用 Build 工具，使用现有工作区 controller、模型、原生工具准备和 Provider 所有者；只读 inspect 不探测工具或启动后端。共享权限/曝光 fixture、授权撤销期间的迟到检测、异步 inspect 模型撤销、精确项目/目标/模型任务和模板拒绝、argv、忙碌、输出、旧 ID/取消回归已有本机证据。模型任务不接 target，目标从当前模型二次核对；Core 最终校验。配置写入未暴露，产品 Build 准入关闭；必须在对应提交的 Windows CI 与正式产品流程验证后再记 verified。"
+  "verification": "Viva 本地验证（2026-11-12）：bash scripts/desktop/desktop-go.sh test ./internal/workbench/ -run TestIDE；变异检查（不判旧 ID 失效、读输出不传游标、停止不结束准备、不用 Core 读回值、启动不预留构建窗口）各让对应测试失败。原生实机待验证。旧客户端基线：macOS 用 lithe_build_inspect/reload 查询 Maven 插件实例及模型，执行 goal 任务并以独立参数数组传 clean verify；核对 UI/Agent 使用同一生效配置、最终退出码、完成后输出、取消、旧 ID 失效和同路径重开。确认旧 MavenService 任务执行和专属进程已删除。Windows 尚未接 Provider，新入口明确 NOT_AVAILABLE，现有 Maven 执行继续验证。配置、项目加载、依赖、Run/Java 协作完整迁移及真实安装包/Windows 流程仍待阶段 D 验收。 通用 Build 选项入口已通过真实 Maven Agent compile 场景、非法布尔值不落盘、Core 类型/大小/权限边界及实例多选清空/重置回归；Windows 的新入口明确不可用单元测试通过，实机仍 pending。 原生工具选择 fixture 覆盖 macOS 11 项、Windows 17 项，Rust 拒绝未知工具、扩大参数、移除必填项和权限越权；真实 stdio 的三种协议会话验证发现清单，macOS 不再提供 lithe_environment_* 与 lithe_maven_* 工具（工具链与构建工具由插件经通用 Build 入口暴露），认证 HTTP 在入队前拒绝未公布的工具并以通用 Build 配置校验参数收窄。macOS 旧入口在模块激活前拒绝；Windows 原生验证仍 pending。 Windows Agent 后续接通三项通用 Build 工具，使用现有工作区 controller、模型、原生工具准备和 Provider 所有者；只读 inspect 不探测工具或启动后端。共享权限/曝光 fixture、授权撤销期间的迟到检测、异步 inspect 模型撤销、精确项目/目标/模型任务和模板拒绝、argv、忙碌、输出、旧 ID/取消回归已有本机证据。模型任务不接 target，目标从当前模型二次核对；Core 最终校验。配置写入未暴露，产品 Build 准入关闭；必须在对应提交的 Windows CI 与正式产品流程验证后再记 verified。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift",
+        "macos/Sources/Lithe/Views/App/McpSettingsView.swift",
+        "macos/Tests/LitheTests/IdeCapabilitiesTests.swift",
+        "rust/lithe-ide-host/src/lib.rs",
+        "macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift",
+        "macos/Tests/LitheExecutionModuleTests/BuildSystemServiceTests.swift",
+        "shared/contracts/ide-api/v1.md",
+        "shared/fixtures/ide-api/host-tool-exposure.json",
+        "rust/lithe-ide-host/src/catalog.rs",
+        "macos/Sources/Lithe/Application/Features/RuntimeSettingsFeatureModel.swift"
+      ]
+    },
+    "windows": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "windows/tauri/src/features/host-api/ide-capabilities.ts",
+        "windows/tauri/src/features/host-api/mcp-settings.tsx",
+        "windows/tauri/src/features/host-api/ide-capabilities.test.ts",
+        "rust/lithe-ide-host/src/lib.rs"
+      ]
+    }
+  },
+  "notes": "Viva：连接发布 project_inspect、build_inspect/reload/configure/execute 与 operations_*；build 查询返回插件实例、模型项目/目标/任务与当前选择，reload 重新解码模型，execute 先选中实例再走 Build 窗口原有 runBuildTask（支持声明任务与已加载的模型任务、userArguments），拒绝时按契约返回 NOT_FOUND、BUSY、NOT_READY 或 INVALID_ARGUMENTS。build_configure 与 Build 选项对话框走同一条 Core build.editStoredOption 写本地文档：Core 检查值并读回，答复读回的值与来源（user/default/unset），Core 拒绝的值返回 INVALID_ARGUMENTS 且不落盘，null 删除本地覆盖；执行中、模型加载中或对话框打开时返回 BUSY。Maven 专属工具（lithe_maven_*）按契约不由本客户端提供、不发布：Maven 由插件经通用 Build 入口暴露。自动化测试：workbench/ide_api_operation_test.go 用契约 fixture build-instance-options 与真实 Core 覆盖读回、拒绝、清除与 BUSY。"
 }

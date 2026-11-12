@@ -280,10 +280,17 @@ Run 控件，也不在 `java-run-launch` 或平台 adapter 再做一次 `blocksR
 ### 每一步使用自己的工具链环境（#1216）
 
 Windows 曾先填入自动发现的 JAVA_HOME，再用“仅为空时插入”应用 Maven JDK，
-导致用户选的 Maven JDK 永远无法覆盖先填的 Java 值。两个宿主现在调用 Core 的
-execution.resolveEnvironment：继承环境低于当前步骤选定的工具链，用户显式
-字符串最高。Maven 资源处理步骤即使继承主程序的 Java 绑定，也选择 Maven JDK；
-后续 JVM 保持项目 JDK。Windows 环境键按不区分大小写处理。
+导致用户选的 Maven JDK 永远无法覆盖先填的 Java 值。当时的修法是让 Core 的
+execution.resolveEnvironment 按 `toolchain`/`javaHome`/`mavenJavaHome` 选 JDK。
+
+#1791 把 Java 专属逻辑移出 Core 之后，这条规则改由工具链完成：每一步使用的
+JDK 是插件声明、用户选定的工具链安装（`toolchains.*`），宿主在启动前把它的
+环境（例如 JAVA_HOME）和 PATH 前缀加进去（Viva 中是
+`desktop/internal/workbench/toolchains.go` 的 `applyToolchainSelection`）。
+execution.resolveEnvironment 只剩“继承环境低于显式值”的合并，不认识任何工具；
+契约和 `shared/fixtures/execution/launch-environment-v1.json` 已在
+Lithe-core-rust#10 改成这个语义并由 Core 测试执行。Windows 环境键按不区分
+大小写处理。
 
 平台仍负责定位可执行文件与 JDK home，Core 不探测机器、不执行 Maven，也不
 复制上游构建模型。不要在 Windows 调换两次 insert 就结束：这会让后续前置
@@ -363,7 +370,7 @@ Maven JDK、显式覆盖及资源步骤；#1133 的 Maven 原生资源步骤保�
   `serviceSessionRunsItsPreLaunchStepFromTheReactorBeforeLaunching`、
   `serviceSessionPreLaunchFailureLeavesTheServiceFailed`、
   `stoppingAServiceCancelsItsRunningPreLaunchStep` 与
-  `servicePreLaunchDeadlineFailsTheSessionAndNamesTheDeadline`；运行 `./scripts/macos/test/test-macos.sh`。
+  `servicePreLaunchDeadlineFailsTheSessionAndNamesTheDeadline`；运行 ~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除）。
 - Windows 前置进程的失败、期限和窗口关闭：`cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml run::tests::prelaunch`。
 - Windows Run 的顺序与取消：`run-prelaunch.test.ts`、`run-host-api.test.ts`；用 Windows Frontend 稳定性计时入口运行。
 
@@ -371,7 +378,7 @@ Maven JDK、显式覆盖及资源步骤；#1133 的 Maven 原生资源步骤保�
   覆盖门禁、串行、合并、取消和超时阶段；engine 测试
   `java_builds_wait_for_project_updates_and_never_overlap`、
   `a_timed_out_java_build_keeps_its_slot_until_jdt_answers` 用脚本化 JDT 验证
-  线上顺序。完整校验运行 `./scripts/rust-core/verify-rust-core.sh`。
+  线上顺序。完整校验运行 ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）。
 - Rust：Java Main 与已解析入口的 Spring Boot 服务启动计划必须是 `project-jdk`，
   参数不含 `-am`、Exec 插件或 Maven goal，并保留 JDT 返回的
   classpath/module-path。

@@ -1,0 +1,61 @@
+Fonts bundled with the macOS client. Every face is an unmodified upstream file; the SHA-256 list at
+the end is the manifest desktop/internal/bundledfont tests the folder against.
+
+Inter 4.1 — https://github.com/rsms/inter/releases/tag/v4.1
+The Inter-*.otf files are unmodified static fonts from extras/otf in Inter-4.1.zip.
+Copyright and redistribution terms: Inter-LICENSE.txt.
+
+JetBrains Mono 2.304 — https://github.com/JetBrains/JetBrainsMono/tree/v2.304
+The JetBrainsMono-*.ttf files are unmodified static fonts from the 2.304 distribution.
+Copyright and redistribution terms: OFL.txt and AUTHORS.txt.
+
+JetBrains Mono Nerd Font Mono — Nerd Fonts v3.5.1 (JetBrains Mono 2.304).
+https://github.com/ryanoasis/nerd-fonts/tree/v3.5.1/patched-fonts/JetBrainsMono/Ligatures
+Four unmodified upstream TTF faces; redistribution: JetBrainsMonoNerdFont-OFL.txt.
+These complete patched terminal faces include cell-aligned prompt symbols.
+
+The packaged macOS build compiles this folder, licenses included, into the executable under the
+lithe_bundled_fonts build tag (scripts/desktop/package-desktop.sh). The client registers each face
+with CoreText at process scope; nothing is installed in the user's font library, and nothing is
+read from or written to the app bundle for them, so the signed bundle and the baseline Sparkle
+differential updates are built against stay unchanged.
+
+SHA-256:
+da79284ab25b9630e62d967d84fe1c3a1766fa2d7eb39314849ceb3b0759c362  Inter-Black.otf
+54302c38cf020111ea06deaa137ba0c17b703d0f8acf0a5cd37f054c09f11c51  Inter-BlackItalic.otf
+9fc6261e817d0b1b2bf1953d8799bb1c837d11aeebbf83ae352e7b4d6de6425d  Inter-Bold.otf
+84e07cd77951a855c668f71e63af261f42d019dc80e963326b4c560b1fca8dcd  Inter-BoldItalic.otf
+db2643a54b9c2492e99cd70f73702906d1677aedde969f63bffd4cbc3789ad6d  Inter-ExtraBold.otf
+8ca47cd667caebb133732d7f4d50022385d9d27c23a272b9520afc841ae75c70  Inter-ExtraBoldItalic.otf
+09c80155d69174316313b9b81eabacea453aa76817f8fd4be9c3c263034b67f9  Inter-ExtraLight.otf
+192a8080af58199aa5954ccf254ed44ffd8b09944807d8f2010b9b36f4343818  Inter-ExtraLightItalic.otf
+3bdf49f72ad2f2959a2619ceef700784504f6d17f502e2e2bc6edce5d43ca631  Inter-Italic.otf
+0817fd071377740a8e1cba673baf2c726ef5e5c4e6e0962c6e5bdc096329586d  Inter-Light.otf
+8a82ddbbea502c53257e021de334990f3db64b4d78b03abbb713e405603188d0  Inter-LightItalic.otf
+6c222ed2c3660524dd0c14fb745e00fee65c5361ab28f60fba6730bf4e648763  Inter-Medium.otf
+e19606d43736c84eae63cd4934d9d877e36bc615a8e0bcfc98d87fb037b9826f  Inter-MediumItalic.otf
+d4f2b9e148059a15f014cb0f0b8fea8cd11bfa447dd483bedf1b0adc0e2ba799  Inter-Regular.otf
+0a4d30778fa2dc239368d90fd854b88b27e7ede737450da72686a90eca66f02c  Inter-SemiBold.otf
+a350102650a86612efa66e0291315dba24be43e1f3716359c17d365376bea11e  Inter-SemiBoldItalic.otf
+cac20f7a0c98f45770b098f3eea4bbf5ca020f91602ae119342198dfca14107c  Inter-Thin.otf
+d33dd9cdf84781e35accad58086a13b494cfac33f35d2eca697579a11a86b6f5  Inter-ThinItalic.otf
+5590990c82e097397517f275f430af4546e1c45cff408bde4255dad142479dcb  JetBrainsMono-Bold.ttf
+4039d5ce0ed225bf9c8b2c8c6436290ae2f356b7e90d70fa666227238324aa3b  JetBrainsMono-BoldItalic.ttf
+8e501d3a6a883e83ea4f7852804fb0894cebdd67751bb1006b37a476cef34cd6  JetBrainsMono-ExtraBold.ttf
+ec3a860fa87d0a3b1451277d1c2f3072f5ba19d2367aec54f7169d5710872610  JetBrainsMono-ExtraBoldItalic.ttf
+8391e7ec13e8ba758c1838f56bccd973228ccf4dc74aa5bffe9525b9147b12f8  JetBrainsMono-ExtraLight.ttf
+3c7fee57538f18b61cc5f0784a8133fe5ee95feb41f633e8f6f7ef609e6207ec  JetBrainsMono-ExtraLightItalic.ttf
+9d0a1f7a708e6af183f1193b7e81d40da294f5c67682c085d8401c60aac8ded4  JetBrainsMono-Italic.ttf
+60c18d7dd58d81b3bbd12e8ce32744a8771bfe2b5280574082b0eaed46c60d24  JetBrainsMono-Light.ttf
+18ffadb91fa711b45feae027ddfd561e7f97ace805ec4baf9905046cf450befb  JetBrainsMono-LightItalic.ttf
+31c92d01a8a08528b718a43addf0ad3df0af2ca4b7b3290a452f70f358e14d3d  JetBrainsMono-Medium.ttf
+4477fda6bd472ef96b11bc1083370f7fc3ff427bdc807e682ced5819e3dee9df  JetBrainsMono-MediumItalic.ttf
+a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f  JetBrainsMono-Regular.ttf
+1b3bfa1ed5665a4ce3f9feb68d2d4e40e70bf8b4b7d9a3edd418f321b4e166a0  JetBrainsMono-SemiBold.ttf
+3b3000507a7285872395ddbb4e53a28f07910dbf494fb0d5e1421dd60b5d8436  JetBrainsMono-SemiBoldItalic.ttf
+0756e8e8cf1d65fa7519776764479b3973efb15af4f419d5d7274dc27ae1b702  JetBrainsMono-Thin.ttf
+ebcdd13119b6beb7457e2f76b31094cb8cf1108e567030f8402b24dde018e76a  JetBrainsMono-ThinItalic.ttf
+bfcf9a917276ffc058867d87cbc8a5b2f1ab0f4b710e9170dc02763ccb80bd4b  JetBrainsMonoNerdFontMono-Bold.ttf
+9dba502e00e35209f6ed2a151c7376c051657b067cdebbc6e52d06cb9002cf31  JetBrainsMonoNerdFontMono-BoldItalic.ttf
+31efd6ead98746f5b0afa1ee6dba60267ad48db36428360bee327bec10621f97  JetBrainsMonoNerdFontMono-Italic.ttf
+f2a5ea6cfab397445ffab00c0370927b66d61e560a05db5db271b42006381c1a  JetBrainsMonoNerdFontMono-Regular.ttf

@@ -2,6 +2,8 @@
 
 状态：提议中
 
+> Viva 迁移状态：本提案的基线、内置包与旧平台路径描述的是迁移前客户端。Java 插件源码和 Store 在独立组织仓库；Viva 当前尚未完成插件安装、语言服务器和 Java 运行调试接入，不能把旧客户端或插件仓库的能力直接视为已接通。历史提案与验收入口见[迁移前笔记](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/proposed/architecture/2026-10-24-java-support-independent-distribution.md)。
+
 > 2026-11-07 更新：本文提到的部分文件已不存在。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护；宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
 
 ## 先说结论
@@ -75,7 +77,7 @@ Java Support 已经是声明式插件，JDT LS、JDK、Lombok 和调试、测试
 - 旧内置包只能在宿主自身签名封装的 bundle 内按旧策略读取；用户目录里的旧 ID 包不能因此获得旧信任，新 ID 也不继承旧 ID 的任何信任。
 - 实测下载包里的 JDK 可执行文件及动态库的签名、解压后的执行权限、隔离属性和系统启动限制；沿用或调整原生签名、公证方式的选择由这轮证据确定，不能靠启动时改写包或移除系统保护来通过。
 - 发布前确定版本不匹配的拒绝方案；不为旧宿主补业务兼容路径。当前索引没有可直接填写的最低宿主版本字段，不能虚构字段，也不能仅凭 `pluginAPIVersion: 3` 判定可安装。若现有能力表不足以表达信任边界变化，先通过通用契约变更补齐拒绝机制，再上架新包。
-- 如需新增兼容或信任能力，契约在主仓库随 Core 修改，合并后按[两仓库同步规则](../../implemented/architecture/2026-10-23-plugin-contract-publishing.md)发布到 `lithe-plugin-docs`；未来独立插件仓库不能直接修改契约副本。
+- 如需新增兼容或信任能力，契约在 Core 仓库随 Core 修改，协议更新记录和 API 总表在同一个 Core PR 里登记（见[契约单一来源规则](../../implemented/architecture/2026-11-11-plugin-contract-single-source-in-core.md)）；独立插件仓库不能直接修改契约。
 
 改为普通插件后，独立仓库的发布流程不需要私钥，也就不存在跨仓库私钥分发的问题。
 
@@ -188,10 +190,10 @@ git diff --check
 后续实现按改动选择以下现有入口，并按 `write-stable-tests` Skill 编写和运行有界测试；下面是计划要求，不表示本次已经执行：
 
 ```bash
-./scripts/architecture/verify-shared-contracts.sh
+node shared/plugins/scripts/verify-docs.mjs  # 在 Core 仓库根运行
 ./scripts/plugins/verify-official-plugins.sh
 ./scripts/macos/verify/verify-macos-package.sh
-./scripts/macos/verify/verify-runtime-bundle-immutability.sh
+./scripts/desktop/verify/verify-runtime-bundle-immutability.sh
 node scripts/resources/test-reuse-worktree-resources.mjs
 node scripts/architecture/verify-java-semantic-ownership.mjs
 ./scripts/architecture/verify-service-boundaries.sh
@@ -213,22 +215,14 @@ node scripts/architecture/verify-java-semantic-ownership.mjs
 ## 适用范围
 
 - 已迁出：原 `Plugins/mac/Official/JavaSupport/`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
-- `Plugins/marketplace/`
+- `desktop/internal/marketplace/`
+- `desktop/internal/core/plugin_session.go`
 - 已迁出：原 `scripts/plugins/build-official-plugins.sh`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - 已迁出：原 `scripts/plugins/official-plugin-releases.mjs`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
-- `scripts/macos/package/package-app.sh`
-- `scripts/macos/verify/verify-macos-package.sh`
 - `scripts/resources/worktree-resources.json`
 - `scripts/resources/reuse-worktree-resources.mjs`
 - `docs/ci-builds.md`
-- `third_party/jdtls/manifest.json`
-- `third_party/jdk/manifest.json`
-- `macos/Sources/LitheModuleAPI/Catalog/BuiltInModuleCatalog.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/`
 - 已迁出：原 `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
-- `macos/Sources/LithePluginPackageSigning/`
-- `rust/lithe-core/src/lsp/languages/`
-- `shared/contracts/plugins/v1/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/languages/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/languages)
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
 - `shared/platform-feature-matrix/features/java-support-plugin.json`
-- `windows/tauri/src/extensions/`
-- `windows/tauri/src-tauri/src/language_tools.rs`

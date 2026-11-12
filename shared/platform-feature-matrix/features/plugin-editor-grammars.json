@@ -7,21 +7,43 @@
     "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      "rust/lithe-core/src/plugins/grammar.rs",
-      "frontend/editor/src/plugin-languages.ts",
-      "frontend/editor/src/plugin-grammar-tokenizer.ts",
-      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginEditorLanguages.swift",
-      "macos/Tests/LitheTests/PluginEditorLanguagesTests.swift"
+      "desktop/internal/core/plugin_session_test.go",
+      "desktop/internal/core/plugin_session.go",
+      "desktop/internal/editor/textmate/grammar.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "shared/contracts/plugins/v1/README.md"
+      "desktop/internal/core/plugin_session_test.go",
+      "desktop/internal/core/plugin_session.go",
+      "desktop/internal/editor/textmate/grammar.go"
     ]
   },
   "owner": "Extensions",
-  "verification": "安装纯语法插件后打开 .http；验证即时出现、停用撤回、配置独立应用、病态语法不阻塞输入和保存；安装目录哈希不变。语法源文本经 Core/Swift/worker 往返保持 cases 顺序并显式默认 root；properties 等仅配置别名保留高亮、撤回不销毁基础 tokenizer；模块状态观察回调不持有运行时。",
-  "notes": "当前仅 macOS 接线，只接受清单与包内 JSON 静态资源，grammar.kind 仅支持 monarch；没有运行期传 JSON 注册/替换/释放高亮 Provider 的公共方法，补全、悬浮、跳转等语言功能的普通函数绑定见 plugin-editor-providers，它们补充语言服务器而不替代 grammar。静态插件生命周期即时更新不等于动态注册 API。高亮超过 128 Ki UTF-16 单位或 10,000 行时保持普通文本，嵌入语言按普通文本处理；SDK 新能力封装/发布和真实插件完整安装验收仍待完成。共享校验通过不代表 Windows 已实现。"
+  "verification": "当前 macOS Core 桥接测试验证 languages 3 TextMate 声明、原文和 scope 解码、编辑器解析、无效语法拒绝及仅配置声明，并确认撤回的 languages 2 被拒绝；Windows 待执行。完成宿主后安装纯语法插件并打开 .http，验证启用、禁用、配置独立应用、病态语法不阻塞输入和保存以及安装目录哈希不变；两平台的原生窗口与完整插件生命周期均待验收。",
+  "notes": "固定 Core 已支持 TextMate languages 3 并拒绝 Monarch languages 2；Viva 内置 TextMate 引擎已有测试，但插件发现、可信安装、语法注册与撤回尚未接入，不能把 Core 能力当作插件已可用。公开插件文档在本 PR 合并后按规则同步。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "implementationStatus": "partial",
+      "verificationStatus": "pending",
+      "evidence": [
+        "rust/lithe-core/src/plugins/grammar.rs",
+        "frontend/editor/src/plugin-languages.ts",
+        "frontend/editor/src/plugin-grammar-tokenizer.ts",
+        "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginEditorLanguages.swift",
+        "macos/Tests/LitheTests/PluginEditorLanguagesTests.swift"
+      ]
+    },
+    "windows": {
+      "implementationStatus": "missing",
+      "verificationStatus": "not-applicable",
+      "evidence": [
+        "shared/contracts/plugins/v1/README.md"
+      ]
+    },
+    "notes": "当前仅 macOS 接线，只接受清单与包内 JSON 静态资源，grammar.kind 仅支持 monarch；没有运行期传 JSON 注册/替换/释放高亮 Provider 的公共方法，补全、悬浮、跳转等语言功能的普通函数绑定见 plugin-editor-providers，它们补充语言服务器而不替代 grammar。静态插件生命周期即时更新不等于动态注册 API。高亮超过 128 Ki UTF-16 单位或 10,000 行时保持普通文本，嵌入语言按普通文本处理；SDK 新能力封装/发布和真实插件完整安装验收仍待完成。共享校验通过不代表 Windows 已实现。"
+  }
 }

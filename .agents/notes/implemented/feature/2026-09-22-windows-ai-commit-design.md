@@ -82,7 +82,7 @@ Codex/Claude 的 OAuth 登录不等同于可用 API 密钥，本次不实现 CLI
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1`：测试稳定性静态检查。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend`：前端行为和单测试计时。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope SharedRust`：共享 Rust 的计时验证。
-- `./scripts/windows/build/build-windows.ps1 -Configuration Release`：Windows 完整构建。
+- ~~./scripts/windows/build/build-windows.ps1 -Configuration Release~~（随旧客户端移除）：Windows 完整构建。
 - `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml`：宿主适配器回归。
 - `node scripts/agent-notes/verify-agent-notes.mjs`：设计笔记格式和链接。
 
@@ -90,11 +90,11 @@ Codex/Claude 的 OAuth 登录不等同于可用 API 密钥，本次不实现 CLI
 
 ## 适用范围
 
-- `rust/lithe-core/src/ai/`
-- `macos/Sources/Lithe/Core/Rust/RustAICommitPlanning.swift`
-- `macos/Sources/LitheAIAssistanceModule/Services/CommitMessageGenerationService.swift`
-- `windows/tauri/src-tauri/src/ai_commit.rs`
-- `windows/tauri/src/features/git/`
-- `windows/tauri/src/features/settings/components/ai-commit-settings-panel.tsx`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/ai/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/ai)
+- ~~`macos/Sources/Lithe/Core/Rust/RustAICommitPlanning.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheAIAssistanceModule/Services/CommitMessageGenerationService.swift`~~（已随 #1794 移除）
+- ~~`windows/tauri/src-tauri/src/ai_commit.rs`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/git/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/settings/components/ai-commit-settings-panel.tsx`~~（已随 #1794 移除）
 - `shared/contracts/ai-commit.md`
 - `shared/fixtures/ai/commit-generation-v1.json`

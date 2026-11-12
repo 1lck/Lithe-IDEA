@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态（2026-11-08）：本文记录旧 macOS 的字体设置和验证。Viva 当前编辑器使用固定 13pt 等宽绘制，尚未接入字体族和字号设置；旧客户端的默认字体和回退行为不代表 Viva 已实现，像素一致性仍需实际验证。
+
 ## 先说结论
 
 代码编辑器的编程字体族现在是用户设置：设置 → 编辑器 → 显示 → Font。默认值仍是随安装包
@@ -210,9 +212,9 @@ IDEA 的编辑器字体组合框确实有这个开关，功能上更完整。本
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter SettingsSearchVocabularyTests`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter SearchableSettingsSelectTests`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter AgentActivityPresentationTests`
-- `./scripts/macos/test/test-macos.sh`
+- 旧版 [macOS 测试入口](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/macos/test/test-macos.sh) 及上面的 Swift 测试不能替代 Viva 字体选择验收。
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 
 关于缺字回退与提示，`EditorFontFamilyTests` 覆盖：网页字体栈把打包字族放在所选字族之后且以
@@ -222,19 +224,7 @@ IDEA 的编辑器字体组合框确实有这个开关，功能上更完整。本
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Models/Settings/EditorFontDefaults.swift`
-- `macos/Sources/Lithe/Models/Settings/EditorFontCoverage.swift`
-- `macos/Sources/Lithe/Models/Settings/AppSettings.swift`
-- `macos/Sources/Lithe/Platform/MacOS/UI/MacEditorFontCatalog.swift`
-- `macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift`
-- `macos/Sources/Lithe/Views/App/SettingsView.swift`
-- `macos/Sources/Lithe/Views/App/SettingsSearchVocabulary.swift`
-- `macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift`
-- `macos/Sources/Lithe/Views/Diff/`
-- `macos/Sources/Lithe/Views/History/`
-- `macos/Sources/Lithe/Views/Git/BranchComparisonView.swift`
-- `macos/Sources/Lithe/Views/Agent/AgentFileDiffView.swift`
-- `macos/Tests/LitheTests/EditorFontFamilyTests.swift`
-- `macos/Tests/LitheTests/SettingsSearchVocabularyTests.swift`
-- `macos/Tests/LitheTests/SearchableSettingsSelectTests.swift`
+- `desktop/internal/editorview/`
+- `desktop/internal/settingswindow/`
 - `shared/platform-feature-matrix/features/editor-font-family.json`
+- [旧客户端字体实现与原适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/feature/2026-10-07-macos-editor-programming-font-family.md)

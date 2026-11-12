@@ -4,27 +4,49 @@
   "group": "语言服务",
   "capability": "设置“打开 Java 项目时导入”：自动、询问（通知中可选导入或先配置 Maven）、手动（打开 Java 文件、运行或重新加载 Maven 时再导入）",
   "macos": {
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      "rust/lithe-core/src/lsp/host_policy/activation.rs"
-    ],
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable"
+      "desktop/internal/pluginservice/settings_editor.go",
+      "desktop/internal/pluginservice/backends.go",
+      "desktop/internal/workbench/plugin_settings.go"
+    ]
   },
   "windows": {
+    "implementationStatus": "plugin-provided",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      "windows/tauri/src/features/editor/lsp/java-import-on-open.ts",
-      "windows/tauri/src/features/file-system/stores/file-system.store.ts",
-      "windows/tauri/src/features/editor/lsp/java-workspace-language-server.ts",
-      "windows/tauri/src/features/settings/components/settings-panels.tsx",
-      "windows/tauri/src/features/settings/lib/settings-normalization.ts",
-      "windows/tauri/src/features/editor/lsp/java-import-on-open.test.ts",
-      "windows/tauri/src/features/run/services/java-entrypoint-discovery.ts",
-      "windows/tauri/src/features/run/stores/run.store.ts",
-      "windows/tauri/src/features/run/stores/run.store.java-discovery.test.ts"
-    ],
-    "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+      "desktop/internal/pluginservice/settings_editor.go",
+      "desktop/internal/pluginservice/backends.go",
+      "desktop/internal/workbench/plugin_settings.go"
+    ]
   },
   "owner": "Language Tooling",
-  "verification": "Windows：在“语言服务”设置中分别选择三种策略后打开 Maven 工程。自动：立即开始导入。询问：出现通知，点“导入”开始导入，点“先配置”打开 Maven 设置且不导入；在导入过程中切换项目标签再切回不重复询问。手动：打开项目不导入，打开 Java 文件或运行时开始导入。打开项目时运行列表自动生成运行配置，在询问和手动模式下不得因此开始导入，导入开始后运行列表自动补全 Java 入口；在运行面板手动点击生成仍会导入。未知的已保存值回退为自动。"
+  "verification": "Windows：在“语言服务”设置中分别选择三种策略后打开 Maven 工程。自动：立即开始导入。询问：出现通知，点“导入”开始导入，点“先配置”打开 Maven 设置且不导入；在导入过程中切换项目标签再切回不重复询问。手动：打开项目不导入，打开 Java 文件或运行时开始导入。打开项目时运行列表自动生成运行配置，在询问和手动模式下不得因此开始导入，导入开始后运行列表自动补全 Java 入口；在运行面板手动点击生成仍会导入。未知的已保存值回退为自动。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "rust/lithe-core/src/lsp/host_policy/activation.rs"
+      ],
+      "implementationStatus": "missing",
+      "verificationStatus": "not-applicable"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features/editor/lsp/java-import-on-open.ts",
+        "windows/tauri/src/features/file-system/stores/file-system.store.ts",
+        "windows/tauri/src/features/editor/lsp/java-workspace-language-server.ts",
+        "windows/tauri/src/features/settings/components/settings-panels.tsx",
+        "windows/tauri/src/features/settings/lib/settings-normalization.ts",
+        "windows/tauri/src/features/editor/lsp/java-import-on-open.test.ts",
+        "windows/tauri/src/features/run/services/java-entrypoint-discovery.ts",
+        "windows/tauri/src/features/run/stores/run.store.ts",
+        "windows/tauri/src/features/run/stores/run.store.java-discovery.test.ts"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    }
+  },
+  "notes": "Viva：导入策略由 Java 插件经 settings2 声明，宿主通过 pluginservice/settings_editor.go 与 workbench/plugin_settings.go 渲染设置，并在 pluginservice/backends.go 中激活后端；desktop/ 中未找到自动、询问、手动三种导入策略的宿主代码，属于插件实现范围。"
 }

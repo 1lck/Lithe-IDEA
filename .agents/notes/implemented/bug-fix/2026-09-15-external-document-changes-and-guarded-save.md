@@ -65,6 +65,41 @@ exFAT 等可写卷会无法另存新文件。macOS 保留自身的原生创建�
 硬链接拒绝策略；macOS 硬链接读取与保存选择见下一节，不能把读取放开误当作
 允许无条件替换或删除。
 
+### Viva 桌面端迁移中的保存边界
+
+Viva 编辑器保留最后成功写入的文本快照。保存时原生适配器在后台比较磁盘字节，
+写入同目录临时文件并在替换前再次比较字节和文件身份。macOS 复制原文件元数据，
+Windows 使用 `ReplaceFileW`；尚未完成平台实机验收。避免把打开文件时的修改时间或
+长度当作内容基线。写入失败、外部修改或文件消失时保留编辑内容，并阻止关闭或切换项目。
+同一文档的异步写入按顺序执行；关闭等待最新编辑写入，输入法组合未提交时不关闭。
+Viva 在打开文本时使用不跟随最终符号链接的原生句柄；Unix 使用非阻塞打开并检查
+实际对象类型，Windows 检查句柄类型和 reparse point，硬链接仍可读取。读取同时
+限制实际字节数，避免文件在大小检查后增长造成无界分配。命名管道回归测试用带
+截止时间的子进程确认拒绝，不让失败用例本身挂住测试运行器。
+
+Viva 为打开文档的父目录共享 Viva 原生目录监听；注册后会再次检查文档，覆盖
+首次读取与监听建立之间的变化。变更按文件名筛选，通知洪峰或系统丢失事件时
+重新检查该目录的打开文档；每窗口最多并行检查四份，保存中延后检查。比较磁盘
+字节和生成重载快照在后台进行，Core 决定干净文档重载还是保留冲突文本。
+重载保留撤销记录；读取期间基线变化时丢弃旧结果并重试。文件被删除后即使
+编辑器原本干净，也不得因关闭标签或项目丢弃仅存内容；磁盘恢复到原基线后
+解除冲突并收起对应提示。关闭标签和项目时还会在后台主动复核磁盘，不能假定
+监听事件已经送达；复核期间发生的新输入会进入后续保存或冲突检查。关闭文档、
+项目或晚到的监听注册都会释放监听。文件内容冲突时在所属编辑器显示操作：保留
+编辑器只认可当次观察到的磁盘快照，之后的写入仍重新比较；加载磁盘版本在后台
+读取，期间发生的新输入或更新的冲突会使结果失效，替换前正文可通过撤销恢复。
+保存校验发现冲突后也主动排队核对，不依赖监听通知及时到达。用户明确允许重建
+已删除文件后，保存使用同目录暂存文件和平台原生的不覆盖提交；如果新目录项
+先出现，则保留双方内容并重新提示冲突。原权限已无法可靠恢复，Unix 重建文件
+使用私有权限，Windows 继承目录 ACL；Windows 原生文件读写组件已在真实
+Windows 文件系统验证，完整工作台流程仍待实机验证。
+
+Viva 当前对硬链接采取保守拒绝，尚未接入下节所述的单次确认；应用激活时重新检查
+尚未完成，不能声称与旧 macOS 客户端等价。监听建立失败
+会提示并记录日志，保存前仍独立核对。文件系统没有跨进程的通用比较并替换操作，
+最终校验与替换之间仍有短暂竞态。Viva 的 Windows 原生监听组件已实测；
+与文档界面的完整接线尚未实机验证。
+
 ### macOS 硬链接打开与单次保存确认（#1419）
 
 硬链接是同一个底层文件的多个路径名字，不是编码或二进制格式。`pom.xml`
@@ -220,16 +255,34 @@ Windows 是独立前端实现，写入进行中到期的那次延迟自动保存
 
 ## 验证
 
-共享 fixture 位于 `shared/fixtures/documents/lifecycle-v1.json`。
-运行 `./scripts/architecture/verify-shared-contracts.sh`、`./scripts/rust-core/verify-rust-core.sh`、
-`./scripts/architecture/verify-core.sh` 和 `./scripts/rust-core/verify-rust-core-comments.sh`。
+共享 fixture 位于 `shared/fixtures/documents/lifecycle-v1.json`。运行
+`scripts/desktop/desktop-go.sh test ./internal/documentio ./internal/workbench` 和
+`scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
 
-macOS 使用 `./scripts/macos/test/test-macos.sh` 及
+Viva 适配器的 `desktop/internal/documentio` 测试已在 Windows Server 2022 上
+执行交叉编译后的测试二进制：受保护写入、冲突、缺失文件和普通读写通过；两项
+符号链接测试因服务器缺少创建链接权限而跳过。这不是 Windows 完整产品验收。
+`TestInstalledResourcesStayUnchanged` 把工作台测试程序放进隔离的程序包目录，
+在包外使用临时工作区和偏好，执行打开、编辑、保存、项目搜索和全局搜索，再比较包内文件清单
+与 SHA-256；静态门禁同时检查统一客户端的 macOS/Windows 源码。当前 macOS
+夹具已运行，Windows 完整工作台与正式签名发行包仍须分别运行相同场景和哈希验收，
+不能把测试夹具当成 Sparkle 差分更新的最终验收。
+
+## 迁移前的验证记录
+
+以下命令和测试针对迁移前的 Swift、Tauri 和仓内 Rust 源码，保留为历史记录，
+不能当作当前 Viva 产品的运行验证。
+
+共享 fixture 位于 `shared/fixtures/documents/lifecycle-v1.json`。
+运行 ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）、
+`./scripts/architecture/verify-core.sh` 和 ~~./scripts/rust-core/verify-rust-core-comments.sh~~（随旧客户端移除）。
+
+macOS 使用 ~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除） 及
 `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh`，验证等长同时间
 修改、缺失重建、过期基线、Unicode 字节差异、异步保存期间输入及关闭流程。
 `DocumentSaveBatchTests` 验证跨工作区保存后的新输入和新增会话；
 `MacDocumentObservationTests` 验证普通事件路径筛选、目录替换和丢失事件恢复。
-Windows 使用 `./scripts/windows/build/build-windows.ps1 -Configuration Release`，以及
+Windows 使用 ~~./scripts/windows/build/build-windows.ps1 -Configuration Release~~（随旧客户端移除），以及
 `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1`；原生测试覆盖
 替换通知、多窗口释放、提交前变化与暂存清理，前端测试覆盖注册代次、保存延后
 核对和冲突选择。连续打断后的调度、保存等待和关闭取消使用手动调度器验证，
@@ -250,21 +303,30 @@ WindowsRust 范围单独运行 `lithe-project`；只运行宿主不会执行依�
 `RemoteWorkspaceRoutingTests` 覆盖生产路由转发本地两种保存授权和拒绝远程使用本地授权；
 计时报告不替代真实弹窗操作验收。
 
-边界和笔记分别使用 `./scripts/architecture/verify-service-boundaries.sh`、
-`./scripts/windows/verify/verify-windows-boundaries.sh`、`./scripts/agent-notes/verify-agent-notes.sh`。
+边界和笔记分别使用 ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）、
+~~./scripts/windows/verify/verify-windows-boundaries.sh~~（随旧客户端移除）、`./scripts/agent-notes/verify-agent-notes.sh`。
 实际运行结果和未通过的既有测试写入交付说明；单元测试不冒充完整产品界面验收。
+
+## 迁移前的源码范围
+
+以下路径属于迁移前基线，不代表当前工作树中仍存在这些文件。
+
+- ~~`windows/tauri/crates/project/src/document_file.rs`~~（已随 #1794 移除）
+- ~~`windows/tauri/crates/project/src/document_watcher.rs`~~（已随 #1794 移除）
+- ~~`windows/tauri/crates/project/src/lib.rs`~~（已随 #1794 移除）
+- ~~`windows/tauri/src-tauri/src/document.rs`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/editor/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/file-system/services/file-watcher-listener.ts`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/features/file-system/stores/file-watcher.store.ts`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/FileWatching/MacDocumentObservation.swift`~~（已随 #1794 移除）
+- ~~`macos/Sources/Lithe/Platform/MacOS/FileSystem/MacWorkspaceFileOperations.swift`~~（已随 #1794 移除）
+- `rust/lithe-core/src/project/document_lifecycle.rs`
 
 ## 适用范围
 
-- `windows/tauri/crates/project/src/document_file.rs`
-- `windows/tauri/crates/project/src/document_watcher.rs`
-- `windows/tauri/crates/project/src/lib.rs`
-- `windows/tauri/src-tauri/src/document.rs`
-- `windows/tauri/src/features/editor/`
-- `windows/tauri/src/features/file-system/services/file-watcher-listener.ts`
-- `windows/tauri/src/features/file-system/stores/file-watcher.store.ts`
-- `macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`
-- `macos/Sources/Lithe/Platform/MacOS/FileWatching/MacDocumentObservation.swift`
-- `macos/Sources/Lithe/Platform/MacOS/FileSystem/MacWorkspaceFileOperations.swift`
-- `rust/lithe-core/src/project/document_lifecycle.rs`
+- `desktop/internal/documentio/`
+- `desktop/internal/workbench/documents.go`
+- `desktop/internal/workbench/document_observation.go`
+- `desktop/internal/editorview/view.go`
 - `shared/contracts/application-boundary.md`

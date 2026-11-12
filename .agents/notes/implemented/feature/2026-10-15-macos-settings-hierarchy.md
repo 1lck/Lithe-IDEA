@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> Viva 迁移状态（2026-11-08）：本文的分类规则继续作为目标，旧客户端的页面和实现细节不代表 Viva 已迁移。当前 Viva 设置侧栏的部分分组仍是占位；页面可用性以跨平台功能矩阵为准，新增页面仍按本规则归类。
+
 ## 先说结论
 
 macOS 设置侧栏现在只有七个一级入口：外观与行为、插件、版本控制、构建/执行/部署、语言与框架、工具、AI。每个设置页必须属于其中一个分组，分组与页面的对应关系只写在 `SettingsGroup` 一处，侧栏、面包屑和“打开设置时展开所属分组”都从它推导。新增设置页前先按下面的归属规则选分组，不要再加一级入口。
@@ -78,14 +80,12 @@ Issue 希望“构建工具 → Maven”“服务运行”“框架支持”也�
 
 - `SettingsSidebarLayoutTests` 保证每个页面恰好属于一个分组或是一级页面，并固定本表的分组内容与 AI 页面顺序。
 - `SettingsSearchVocabularyTests` 保证每个页面仍能被检索到。
-- `./scripts/macos/test/test-macos.sh --filter SettingsSidebarLayoutTests`。
+- 旧客户端的 [macOS 测试入口（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/macos/test/test-macos.sh) 曾运行 `SettingsSidebarLayoutTests`；该检查不能证明 Viva 设置页已经对齐。
+- `scripts/desktop/desktop-go.sh test ./internal/settingswindow` 验证当前 Viva 已实现的侧栏和设置窗口行为，不能替代尚未迁移页面的验收。
 - 实机查看设置窗口的侧栏、面包屑、搜索展开和从其他入口跳转到某一页时展开所属分组。
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Models/AppModel/AppModelSupportTypes.swift`
-- `macos/Sources/Lithe/Views/App/SettingsView.swift`
-- `macos/Sources/Lithe/Views/App/SettingsSearchVocabulary.swift`
-- `macos/Sources/Lithe/Application/Features/PluginSettingsRegistry.swift`
-- `macos/Tests/LitheTests/SettingsSidebarLayoutTests.swift`
-- `windows/tauri/src/features/settings/lib/settings-navigation.ts`（Windows 同步）
+- `desktop/internal/settingswindow/`
+- `shared/platform-feature-matrix/`
+- [旧客户端的分类实现和适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/feature/2026-10-15-macos-settings-hierarchy.md)
