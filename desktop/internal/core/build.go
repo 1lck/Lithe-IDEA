@@ -419,7 +419,35 @@ func (c *Client) DecodeBuildModel(ctx context.Context, manifest json.RawMessage,
 	return *result.Model, nil
 }
 
-// DecodeBuildRun validates the portable launch plan a provider returned.
+// BuildDecodeDebugRequest validates the raw result of a provider's debug preparation. Native
+// debug preparation takes no launch options, so the request carries none.
+type BuildDecodeDebugRequest struct {
+	WorkspaceRoot string          `json:"workspaceRoot"`
+	Root          string          `json:"root"`
+	Result        json.RawMessage `json:"result"`
+}
+
+// DecodeBuildDebug validates the native debug program a provider prepared, with the process
+// facts the host starts it from. It answers the same launch shape as DecodeBuildRun, which the
+// Debug host already knows how to start.
+func (c *Client) DecodeBuildDebug(ctx context.Context, manifest json.RawMessage, buildSystemID string, request BuildDecodeDebugRequest) (BuildLaunch, error) {
+	const command = "build.decodeDebugPreparation"
+	var result buildOutcome
+	if err := c.Execute(ctx, command, struct {
+		Manifest      json.RawMessage         `json:"manifest"`
+		BuildSystemID string                  `json:"buildSystemID"`
+		Request       BuildDecodeDebugRequest `json:"request"`
+	}{manifest, buildSystemID, request}, &result); err != nil {
+		return BuildLaunch{}, err
+	}
+	if err := result.failure(command); err != nil {
+		return BuildLaunch{}, err
+	}
+	if result.Launch == nil {
+		return BuildLaunch{}, newParseError(command, "build debug preparation returned no launch", "")
+	}
+	return *result.Launch, nil
+}
 func (c *Client) DecodeBuildRun(ctx context.Context, manifest json.RawMessage, buildSystemID string, request BuildDecodeRunRequest) (BuildLaunch, error) {
 	const command = "build.decodeRunPreparation"
 	var result buildOutcome
