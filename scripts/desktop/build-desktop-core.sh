@@ -33,7 +33,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13 (execution.planLaunchCommand), #8, #7, #6 and #4.
-PINNED_CORE_REVISION="16fc903a2ebb2aa14defba12e20db3c0009f8381"
+PINNED_CORE_REVISION="47c9859d2f4346a516dca17274d312384518a01e"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
