@@ -8,9 +8,15 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/appicon"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/windowcontrols"
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
+
+// workbenchBars is the geometry every scroll area of the window draws its bars with: IDEA's
+// eleven point track and five point thumb, so one scrollbar looks the same in every panel,
+// from the project tree to the Git log.
+var workbenchBars = components.ScrollBarStyle{Size: 11, HoverSize: 5, Inset: 1, MinThumb: 20}
 
 // The window is one Page. Its function declares the welcome screen while no project is open,
 // and with a project the title bar over the stripes and the main column over the status bar
@@ -74,6 +80,9 @@ func (a *App) sessionConfig() app.Config {
 	a.root = ui.NewPage(ui.PageConfig{
 		View: a.page, Tree: &tree, Root: "workbench",
 		Theme: &a.theme, Background: &background, Invalidator: a.invalidator.invalidator,
+		// One scrollbar geometry for the whole window: every list, tree and area of the
+		// page inherits it, so the project tree and the Git log measure their bars alike.
+		BarStyle: workbenchBars,
 	})
 	config := a.root.Config(base)
 	wheel := config.OnScroll
