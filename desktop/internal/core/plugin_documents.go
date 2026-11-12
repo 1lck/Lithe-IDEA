@@ -116,6 +116,9 @@ type PluginSemanticRequest struct {
 	Command json.RawMessage
 	// Query is the workspaceSymbols operation's search text; the URI is empty for it.
 	Query string
+	// IncludeDeclaration is the references operation's LSP includeDeclaration; nil keeps Core's
+	// default, true. The usages shown from a declaration set it to false.
+	IncludeDeclaration *bool
 }
 
 // FormattingOptions is the LSP FormattingOptions Core accepts on formatting and
@@ -149,17 +152,18 @@ func (c *Client) PluginDocumentURI(ctx context.Context, path, platform string) (
 
 // pluginSemanticBody is the lsp.request payload.
 type pluginSemanticBody struct {
-	SessionID         string                  `json:"sessionId"`
-	Operation         string                  `json:"operation"`
-	URI               string                  `json:"uri,omitempty"`
-	Position          *PluginDocumentPosition `json:"position,omitempty"`
-	CompletionContext json.RawMessage         `json:"completionContext,omitempty"`
-	NewName           string                  `json:"newName,omitempty"`
-	Range             *PluginDocumentRange    `json:"range,omitempty"`
-	FormattingOptions *FormattingOptions      `json:"formattingOptions,omitempty"`
-	OperationID       string                  `json:"operationId,omitempty"`
-	Command           json.RawMessage         `json:"command,omitempty"`
-	Query             string                  `json:"query,omitempty"`
+	SessionID          string                  `json:"sessionId"`
+	Operation          string                  `json:"operation"`
+	URI                string                  `json:"uri,omitempty"`
+	Position           *PluginDocumentPosition `json:"position,omitempty"`
+	CompletionContext  json.RawMessage         `json:"completionContext,omitempty"`
+	NewName            string                  `json:"newName,omitempty"`
+	Range              *PluginDocumentRange    `json:"range,omitempty"`
+	FormattingOptions  *FormattingOptions      `json:"formattingOptions,omitempty"`
+	OperationID        string                  `json:"operationId,omitempty"`
+	Command            json.RawMessage         `json:"command,omitempty"`
+	Query              string                  `json:"query,omitempty"`
+	IncludeDeclaration *bool                   `json:"includeDeclaration,omitempty"`
 }
 
 // RequestPluginSemantics submits a semantic request and returns Core's opaque
@@ -170,6 +174,7 @@ func (c *Client) RequestPluginSemantics(ctx context.Context, request PluginSeman
 		Position: request.Position, CompletionContext: request.CompletionContext, NewName: request.NewName,
 		Range: request.Range, FormattingOptions: request.FormattingOptions,
 		OperationID: request.OperationID, Command: request.Command, Query: request.Query,
+		IncludeDeclaration: request.IncludeDeclaration,
 	}
 	var response struct {
 		OperationID string `json:"operationId"`

@@ -27,6 +27,7 @@ type editorKernel interface {
 	DecodeFileBytes(context.Context, []byte, string) (core.DecodedFile, error)
 	EncodeFileText(context.Context, string, string, *bool) (core.EncodedText, error)
 	ReduceNavigationHistory(context.Context, core.NavigationHistory, core.NavigationHistoryEvent) (core.NavigationHistory, *core.NavigationLocation, error)
+	DeclarationOrUsages(context.Context, string, core.PluginDocumentPosition, []core.PluginSemanticLocation) (bool, error)
 }
 
 // lineOperationFor maps a chord to its line operation. Alt-Up and Alt-Down move, adding Shift
