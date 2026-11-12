@@ -204,7 +204,31 @@ type BuildModel struct {
 	Tasks        []BuildTask         `json:"tasks"`
 	ContentRoots []json.RawMessage   `json:"contentRoots"`
 	OptionValues map[string][]string `json:"optionValues"`
-	Run          []json.RawMessage   `json:"run"`
+	Run          []BuildRunEntry     `json:"run"`
+}
+
+// BuildRunEntry is a command Run entry Core derived from a decoded model: one
+// command run declaration applied to a model target or task, with its command
+// line expanded at the options the model was read with. Provider runs have no
+// entry; they are prepared on demand.
+type BuildRunEntry struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Execution string `json:"execution"`
+	// Arguments follow the build tool, which the host resolves as for a task.
+	Arguments []string `json:"args"`
+	// WorkingDirectory is relative to the workspace root, like a plan's.
+	WorkingDirectory string               `json:"cwd"`
+	Environment      map[string]string    `json:"env"`
+	BuildSystem      BuildRunEntryBinding `json:"buildSystem"`
+}
+
+// BuildRunEntryBinding names the model item a Run entry was derived from:
+// a target or a model task of the project.
+type BuildRunEntryBinding struct {
+	ProjectID string `json:"projectID"`
+	TargetID  string `json:"targetID,omitempty"`
+	TaskID    string `json:"taskID,omitempty"`
 }
 
 // BuildExecutable is a validated launch executable reference: either a bare

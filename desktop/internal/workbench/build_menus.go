@@ -52,6 +52,16 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 					})
 				}
 			}
+			for _, entry := range buildTargetRunEntries(instance, spec.id) {
+				entryID := entry.ID
+				if menu.Item(a.text.Build.RunTarget(entry.Name)).Disabled(b.operation != nil || instance.modelLoading).Clicked() {
+					c.After(func() {
+						a.performed("build.target.run", surfaceMenu)
+						b.projectID, b.targetID = spec.project, spec.id
+						a.runBuildEntry(p, entryID)
+					})
+				}
+			}
 			if buildTargetTestable(instance, *spec.target) {
 				if menu.Item(i18n.Shared(lang, "native.runTests")).Disabled(p.tests.running || instance.modelLoading).Clicked() {
 					c.After(func() {

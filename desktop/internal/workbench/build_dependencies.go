@@ -108,8 +108,12 @@ func (a *App) buildDependencyTree(ctx context.Context, p *project, instance buil
 	if err != nil {
 		return core.BuildDependencyTree{}, err
 	}
-	request := core.BuildPlanRequest{Root: instance.Root, Options: instance.Options, WorkspaceRoot: p.root, Project: selection}
-	decode := core.BuildDecodeDependenciesRequest{WorkspaceRoot: p.root, Root: instance.Root, Project: selection}
+	// The package directory expands ${pluginDir} in a dependency command.
+	request := core.BuildPlanRequest{Root: instance.Root, Options: instance.Options, PluginDirectory: instance.PackageDirectory, WorkspaceRoot: p.root, Project: selection}
+	decode := core.BuildDecodeDependenciesRequest{WorkspaceRoot: p.root, Root: instance.Root}
+	if selection != nil {
+		decode.Project = selection.Path
+	}
 	if instance.System.Provider {
 		if execution.Executable != "" {
 			request.Tool = &core.BuildTool{Executable: execution.Executable, Environment: execution.Environment}

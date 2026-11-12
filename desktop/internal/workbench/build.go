@@ -531,7 +531,8 @@ func (a *App) finishBuildDetection(p *project, generation uint64, instances []bu
 	a.loadBuildModel(p, p.build.selected)
 }
 
-// loadBuildModel loads the selected provider-backed instance once.
+// loadBuildModel loads the model of an instance whose detection did not carry one (a
+// command or provider model) once.
 func (a *App) loadBuildModel(p *project, index int) {
 	a.loadBuildModelWith(p, index, false)
 }
@@ -551,7 +552,14 @@ func (a *App) loadBuildModelWith(p *project, index int, refresh bool) {
 	captured := *instance
 	kernel := a.kernel
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
-		model, err := a.providerModel(ctx, p, captured, kernel, refresh)
+		var model core.BuildModel
+		var err error
+		// Core names where the model comes from; a static model arrived with detection.
+		if captured.ModelSource == "command" {
+			model, err = a.commandModel(ctx, p, captured, kernel, a.text.Build)
+		} else {
+			model, err = a.providerModel(ctx, p, captured, kernel, refresh)
+		}
 		return func(a *App) { a.finishBuildModel(p, captured.ID, model, err) }
 	})
 }
@@ -586,11 +594,16 @@ func (a *App) commandModel(ctx context.Context, p *project, instance buildInstan
 	_ = file.Close()
 	_ = os.Remove(outputFile)
 	defer os.Remove(outputFile)
+	// The package directory expands ${pluginDir}, which a model command uses to load a
+	// plugin-shipped script or extension into the build tool.
+	// ${workspaceStateDir} is the same writable directory, outside the read-only package.
 	plan, err := kernel.PlanBuildModel(ctx, instance.Manifest, instance.BuildSystemID, core.BuildPlanRequest{
-		Root:          instance.Root,
-		Options:       instance.Options,
-		WorkspaceRoot: p.root,
-		OutputFile:    outputFile,
+		Root:                    instance.Root,
+		Options:                 instance.Options,
+		PluginDirectory:         instance.PackageDirectory,
+		WorkspaceStateDirectory: state,
+		WorkspaceRoot:           p.root,
+		OutputFile:              outputFile,
 	})
 	if err != nil {
 		return core.BuildModel{}, err
@@ -969,7 +982,59 @@ func buildPlatform() string {
 	}
 }
 
-// runBuildTarget prepares and starts one provider application target of the selected instance.
+// buildTargetRunEntries returns the command Run entries Core derived for targetID, in Core's
+// order. Provider runs are not among them; the Build window lists those from the declarations.
+func buildTargetRunEntries(instance *buildInstance, targetID string) []core.BuildRunEntry {
+	var entries []core.BuildRunEntry
+	for _, entry := range instance.Model.Run {
+		if entry.BuildSystem.TargetID == targetID {
+			entries = append(entries, entry)
+		}
+	}
+	return entries
+}
+
+// runBuildEntry runs one command Run entry of the selected instance, such as `go run` of a
+// main package. The build tool resolves as for a task and runs the command line Core expanded
+// when it decoded the model; a changed option detects the instances again, so the entry is
+// never older than the options.
+func (a *App) runBuildEntry(p *project, entryID string) {
+	instance := p.selectedBuildInstance()
+	if instance == nil || p.build.operation != nil {
+		return
+	}
+	var entry *core.BuildRunEntry
+	for index := range instance.Model.Run {
+		if instance.Model.Run[index].ID == entryID {
+			entry = &instance.Model.Run[index]
+			break
+		}
+	}
+	if entry == nil {
+		a.notifyError(a.text.Build.TargetMissing)
+		return
+	}
+	plan := core.BuildPlan{
+		Arguments:        append([]string(nil), entry.Arguments...),
+		WorkingDirectory: entry.WorkingDirectory,
+		Environment:      entry.Environment,
+	}
+	captured := *instance
+	messages := a.text.Build
+	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "build.runEntry", "surface": "build"})
+	op := a.beginBuildOperation(p, "run", entry.Name, "")
+	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+		prepare, release := op.bind(ctx)
+		defer release()
+		if err := a.runCommandTask(ctx, prepare, p, op, captured, plan, messages); err != nil {
+			return func(a *App) { a.finishBuildError(p, op, err) }
+		}
+		return nil
+	})
+}
+
+// runBuildTarget runs one target of the selected instance through the provider's run
+// declaration runID, under the project the target belongs to.
 func (a *App) runBuildTarget(p *project, targetID, runID string) {
 	instance := p.selectedBuildInstance()
 	if instance == nil || p.build.operation != nil {
@@ -981,7 +1046,7 @@ func (a *App) runBuildTarget(p *project, targetID, runID string) {
 		return
 	}
 	op := a.beginBuildOperation(p, "run", target.Name, "")
-	a.runBuildTargetWith(p, op, instance, p.build.projectID, targetID, runID, nil)
+	a.runBuildTargetWith(p, op, instance, target.ProjectID, targetID, runID, nil)
 }
 
 // debugBuildTarget prepares one provider application target for debugging and starts the
@@ -1084,7 +1149,9 @@ func (a *App) startProviderDebug(p *project, pluginID string, launch core.BuildL
 
 // runBuildTargetWith runs one target of instance through the provider's run declaration runID
 // as the reserved operation op. options are the run configuration's launch choices, nil for a
-// launch without any. A project or target the model no longer has ends op as failed.
+// launch without any. A project or target the model no longer has ends op as failed. Command
+// run declarations do not come here: Core expands them into the model's Run entries, which
+// runBuildEntry runs.
 func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *buildInstance, projectID, targetID, runID string, options *core.RunLaunchOptions) {
 	project, ok := buildProjectByID(instance.Model, projectID)
 	if !ok {

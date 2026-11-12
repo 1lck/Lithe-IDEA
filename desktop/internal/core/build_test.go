@@ -106,6 +106,72 @@ func TestBuildDecodeModelKeepsTargetsAndModelTasks(t *testing.T) {
 	}
 }
 
+// TestBuildDecodeModelDerivesCommandRunEntries decodes a `go list -json` stream with the
+// shared Go fixture: its command run declaration becomes one Run entry per main package,
+// bound to the package's target, with `go run <import path>` expanded and the module as the
+// working directory. The Build window runs these entries; a library package has none.
+func TestBuildDecodeModelDerivesCommandRunEntries(t *testing.T) {
+	client, ctx := NewClient(), testContext(t)
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, directory := range []string{"cmd/hello", "lib"} {
+		if err := os.MkdirAll(filepath.Join(root, directory), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifest, err := os.ReadFile(contractfixture.Path("fixtures/build-systems/build-command-stdout.plugin.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	module := map[string]string{"Path": "example.com/m", "Dir": root, "GoVersion": "1.21"}
+	var output []byte
+	for _, pkg := range []map[string]any{
+		{"Dir": filepath.Join(root, "cmd", "hello"), "ImportPath": "example.com/m/cmd/hello", "Name": "main", "Module": module},
+		{"Dir": filepath.Join(root, "lib"), "ImportPath": "example.com/m/lib", "Name": "lib", "Module": module},
+	} {
+		line, err := json.Marshal(pkg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		output = append(append(output, line...), '\n')
+	}
+	model, err := client.DecodeBuildModel(ctx, manifest, "go", BuildDecodeModelRequest{
+		WorkspaceRoot: root,
+		Root:          ".",
+		Output:        string(output),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var application *BuildTarget
+	for index := range model.Targets {
+		if model.Targets[index].Name == "example.com/m/cmd/hello" {
+			application = &model.Targets[index]
+		}
+	}
+	if application == nil {
+		t.Fatalf("targets = %+v", model.Targets)
+	}
+	if len(model.Run) != 1 {
+		t.Fatalf("run entries = %+v, want one for the main package", model.Run)
+	}
+	entry := model.Run[0]
+	if entry.Name != "hello" || entry.ID == "" || entry.Execution != "application" {
+		t.Fatalf("entry = %+v", entry)
+	}
+	if len(entry.Arguments) != 2 || entry.Arguments[0] != "run" || entry.Arguments[1] != "example.com/m/cmd/hello" {
+		t.Fatalf("arguments = %q, want go run of the import path", entry.Arguments)
+	}
+	if entry.WorkingDirectory != "." {
+		t.Fatalf("working directory = %q, want the module", entry.WorkingDirectory)
+	}
+	if entry.BuildSystem.TargetID != application.ID || entry.BuildSystem.ProjectID != application.ProjectID || entry.BuildSystem.TaskID != "" {
+		t.Fatalf("binding = %+v, want target %s of project %s", entry.BuildSystem, application.ID, application.ProjectID)
+	}
+}
+
 func TestBuildDecodeRunKeepsValidatedExecutable(t *testing.T) {
 	client, ctx := NewClient(), testContext(t)
 	root := t.TempDir()

@@ -322,6 +322,15 @@ func (a *App) buildChoiceRow(row ui.ListRow, p *project, instance *buildInstance
 				a.runBuildTarget(p, spec.id, run.ID)
 			}
 		}
+		for _, entry := range buildTargetRunEntries(instance, spec.id) {
+			button := ui.Button(c.Key("entry:"+entry.ID), t.RunTarget(entry.Name)).Ghost().Small()
+			if b.operation != nil || instance.modelLoading {
+				button.Disabled(true)
+			}
+			if button.Clicked() {
+				a.runBuildEntry(p, entry.ID)
+			}
+		}
 	}
 	if element.Clicked() {
 		c.After(func() {

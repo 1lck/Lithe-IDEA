@@ -26,12 +26,14 @@ type BuildDependencyTree struct {
 // BuildDecodeDependenciesRequest decodes the output of a dependency command, or the result a
 // provider answered for lithe/build/dependencies.
 type BuildDecodeDependenciesRequest struct {
-	WorkspaceRoot string          `json:"workspaceRoot"`
-	Root          string          `json:"root"`
-	Project       *BuildSelection `json:"project,omitempty"`
-	Output        string          `json:"output,omitempty"`
-	OutputFile    string          `json:"outputFile,omitempty"`
-	Result        json.RawMessage `json:"result,omitempty"`
+	WorkspaceRoot string `json:"workspaceRoot"`
+	Root          string `json:"root"`
+	// Project is the workspace-relative directory of the project the plan selected; empty
+	// decodes for the instance root.
+	Project    string          `json:"project,omitempty"`
+	Output     string          `json:"output,omitempty"`
+	OutputFile string          `json:"outputFile,omitempty"`
+	Result     json.RawMessage `json:"result,omitempty"`
 }
 
 // PlanBuildDependencies plans the command that prints a project's dependency tree, or the
