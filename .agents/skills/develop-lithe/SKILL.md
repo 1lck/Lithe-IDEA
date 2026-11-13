@@ -14,9 +14,9 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 | 必须、不得 | 没有例外。无法满足时停下来告知用户，不得自行放宽。 |
 | 默认 | 除非满足该条写明的例外条件，否则照做。采用例外时在 PR 说明中写明理由。 |
 | 可以 | 允许，但不要求。 |
-| Core | Lithe-core-rust 仓库的 `rust/lithe-core/`，由桌面构建脚本固定修订。 |
+| Core | Lithe-core-rust 仓库 `rust/crates/` 下的 crate，C ABI 入口是 `rust/crates/core/`；修订由桌面构建脚本固定。 |
 | 平台层 | `desktop/` 中的 Viva 呈现、系统适配和桥接。 |
-| 原生适配器 | 直接调用操作系统 API 的桌面适配器，以及 Lithe-core-rust 的 `rust/lithe-git-host/` 等进程执行 crate。 |
+| 原生适配器 | 直接调用操作系统 API 的桌面适配器，以及 Lithe-core-rust 的 `rust/crates/git-host/` 等进程执行 crate。 |
 | 共享契约 | Lithe-core-rust 仓库 `rust/contracts/` 下的接口文档与 schema，以及 `rust/fixtures/` 下的 fixture。这是唯一的一份，本仓库不保存副本；桌面测试通过 `contractfixture.CoreFixture` 读取所链接的 Core 检出。 |
 | 主线程 | Viva 窗口的 UI 线程，以及平台原生窗口要求使用的线程。 |
 
@@ -66,8 +66,8 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 
 | 路径 | 职责 |
 | --- | --- |
-| Lithe-core-rust 的 `rust/lithe-core/` | 共享确定性逻辑：命令、模型、解析、校验、状态规则和 C ABI；修订由 `scripts/desktop/build-desktop-core.sh` 固定 |
-| Lithe-core-rust 的 `rust/lithe-git-host/` | 原生子进程执行、管道、临时输入、进程树归属与有界清理 |
+| Lithe-core-rust 的 `rust/crates/core/` 及 `core-rules/`、`ai/` 等同级 crate | 共享确定性逻辑：命令、模型、解析、校验、状态规则和 C ABI；修订由 `scripts/desktop/build-desktop-core.sh` 固定 |
+| Lithe-core-rust 的 `rust/crates/git-host/` | 原生子进程执行、管道、临时输入、进程树归属与有界清理 |
 | `desktop/` | Viva（Go）统一客户端：窗口、工作台呈现、平台适配和 Core C ABI 调用。功能仍在迁移，不能因代码存在就视为已验收 |
 | Lithe-IDEA 组织的插件仓库 | 插件源码、工具专属知识和插件包；不要在本仓库维护第二份 SDK 或插件业务 |
 | `shared/` | i18n 词条（`shared/i18n/`）和跨平台功能矩阵（`shared/platform-feature-matrix/`）；不放编译实现。应用契约与 fixture 只在 Lithe-core-rust 的 `rust/contracts/`、`rust/fixtures/`，本仓库不保存副本 |
@@ -314,7 +314,7 @@ Viva 在 macOS、Windows 和 Linux 使用 `desktop/internal/i18n/` 的接口及�
 
 #### Rust Core 注释规范
 
-只适用于 `rust/lithe-core/` 中的第一方代码，不适用于其他 helper crate、Windows/Tauri 的 Rust crate、生成代码和第三方源码。
+适用于 Lithe-core-rust `rust/crates/` 下每个 crate 的第一方代码，不适用于生成代码和第三方源码。Core 仓库的 `scripts/rust-core/verify-rust-core-comments.sh` 逐个检查这些 crate。
 
 - 注释使用英文，并随行为更新。
 - 每个生产模块以简短的 `//!` 说明职责或架构边界开头。
@@ -345,7 +345,7 @@ Viva 在 macOS、Windows 和 Linux 使用 `desktop/internal/i18n/` 的接口及�
 macOS app bundle 和 Windows 安装目录是发行基线。Sparkle 增量更新按发布包的精确字节生成；运行时写入会改变基线，导致下次增量校验失败、回退到完整下载。
 
 - 缓存、索引、Eclipse/OSGi 状态、下载物、解压物、日志和锁文件，通过平台存储适配器放到缓存目录、Application Support、临时目录或用户工作区。不得从 `Bundle.main.resourceURL`、`resource_dir()` 或安装目录推导写入位置。
-- Equinox 等会向自身所在目录写入的工具，必须在可写的缓存目录中使用输入副本；`-configuration` 的做法见 `rust/lithe-core/src/lsp/languages/jdt_configuration.rs`。
+- Equinox 等会向自身所在目录写入的工具，必须在可写的缓存目录中使用输入副本，例如把 JDT LS 的 `-configuration` 指向缓存目录里的副本，不指向安装包内的原目录。
 - 新的打包运行时必须增加“典型流程前后比较安装目录文件清单”的测试，并保持 `./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 通过。
 - 不得用“启动前清理 bundle”来修复运行时写入问题。
 

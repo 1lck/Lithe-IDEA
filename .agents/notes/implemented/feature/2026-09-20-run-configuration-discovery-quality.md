@@ -31,7 +31,7 @@ category 分组展示。
 
 ### 1. 配置分「项目」和「基础设施」两类
 
-`RunCategory`（`rust/lithe-core/src/execution/types.rs`）取值 `project` 或
+`RunCategory`（`rust/crates/core/src/execution/types.rs`）取值 `project` 或
 `infrastructure`，默认 `project`，序列化时省略默认值，所以已有的
 `generated.json` 内容不变。docker-compose 探测出来的服务和整栈条目标记为
 `infrastructure`。
@@ -180,10 +180,10 @@ Swift、PHP 等已有明确 provider 的配置可归类，但这不代表增加�
 
 ## 适用范围
 
-- Rust Core：`rust/lithe-core/src/execution/types.rs`、
-  `rust/lithe-core/src/execution/detectors/mod.rs`、
-  `rust/lithe-core/src/execution/detectors/compose.rs`、
-  `rust/lithe-core/src/execution/configuration.rs`、
+- Rust Core：`rust/crates/core/src/execution/types.rs`、
+  `rust/crates/core/src/execution/detectors/mod.rs`、
+  `rust/crates/core/src/execution/detectors/compose.rs`、
+  `rust/crates/core/src/execution/configuration.rs`、
   `rust/lithe-core/src/languages/java.rs`、
   `rust/lithe-core/src/languages/java_syntax.rs`
 - Windows：`windows/tauri/src/features/run/utils/run-configuration.ts`、

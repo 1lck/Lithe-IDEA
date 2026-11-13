@@ -297,4 +297,4 @@ ResizeObserver（浏览器按帧合并的尺寸观察器）服务已挂载行，
 
 ## 后续：布局下沉到 Rust Core（#1662 GIT-18/19）
 
-本文描述的 DFS、head 排序、定色、过滤后的虚线拓扑和 missing parents 算法已搬进 `rust/lithe-core/src/git/graph.rs`，由 `git.graphProjection` 统一提供，规则以 `Lithe-core-rust/rust/fixtures/git/graph-projection-v1.json` 为准。文中提到的 Swift/TS 实现文件已删除；两端只保留绘制、像素和颜色 ID 到主题色的映射。
+本文描述的 DFS、head 排序、定色、过滤后的虚线拓扑和 missing parents 算法已搬进 `rust/crates/core/src/git/graph.rs`，由 `git.graphProjection` 统一提供，规则以 `Lithe-core-rust/rust/fixtures/git/graph-projection-v1.json` 为准。文中提到的 Swift/TS 实现文件已删除；两端只保留绘制、像素和颜色 ID 到主题色的映射。

@@ -325,8 +325,8 @@
 
 | id | 能力 | 分类 | 基线 mac/win | Viva 现状 | 缺口 / 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `community-auth` | 社区认证与请求失败处理 | 不纳入 | 缺/缺 | — | 两端基线均缺失 |
-| `community-feed` | 主题列表与详情 | 不纳入 | 缺/缺 | — | 两端基线均缺失 |
+| `community-auth` | 社区认证与请求失败处理 | 不纳入 | 缺/缺 | — | 两端基线均缺失；2026-11-13 决定不做，见“不做：社区论坛” |
+| `community-feed` | 主题列表与详情 | 不纳入 | 缺/缺 | — | 两端基线均缺失；2026-11-13 决定不做，见“不做：社区论坛” |
 
 ### 编辑器（32）
 
@@ -453,6 +453,10 @@
 MCP 管理随 Agent 对话失去消费者后，本轮整块删除，后续重新设计。Rust Core 删除 `mcp` 模块与 `mcp.parseConfiguration`、`mcp.parseRegistry`、`mcp.featuredRegistry`、`mcp.planWrite`、`mcp.toolPolicy`、`mcp.commandLine`、`mcp.librarySnapshot`、`mcp.validateDraft`、`mcp.batchPlan` 九个命令，以及 `rust/fixtures/mcp` 与 `rust/contracts/mcp-registry-page.json`。本仓库删除 `shared/fixtures/mcp`、`shared/contracts/mcp-registry-page.json`、67 条仅旧客户端使用的 MCP 词条与两个能力记录（`mcp-registry-discovery`、`mcp-server-library`），服务器库 Note 移入 `.agents/notes/archived/`。
 
 保留 `ide-mcp-connection`：Lithe 对外提供的 IDE API MCP 服务端（`lithe-mcp`、`Lithe-core-rust/rust/fixtures/ide-api/mcp-protocol.json`）不依赖被删的配置管理能力。
+
+## 不做：社区论坛（2026-11-13 用户决定）
+
+用户决定 Viva 不做社区论坛，两项“不纳入”能力不再保留重新引入的入口。旧 macOS 的 LINUX DO 插件早已退役，两端客户端都没有社区入口，只剩 Rust Core 里没有消费者的 Discourse 实现。Lithe-core-rust#26 删除了 `community` 模块、`community.discourse.*` 七个命令（`auth.begin`、`auth.complete`、`auth.revoke`、`topics`、`topic`、`categories`、`search`）、`rust/fixtures/community`，以及只为它引入的依赖 `reqwest`（blocking、rustls-tls）、`rsa`、`sha1`；`lithe-ide-host` 自带的 `reqwest` 依赖不受影响。本仓库删除两个能力记录（`community-auth`、`community-feed`），主表两行保留作为冻结基线。README 中对 LINUX DO 的致谢与此无关，保留。
 
 ## 放弃：Agent 对话（38 项，2026-11-12 用户决定）
 

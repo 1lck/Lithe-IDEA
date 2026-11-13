@@ -70,7 +70,7 @@
 
 - ~~./scripts/macos/test/test-macos.sh --filter LitheDebugModuleTests~~（随旧客户端移除）
 - ~~./scripts/macos/test/test-macos.sh --filter 'DeclarativeDebugAdapterConsoleTests'~~（随旧客户端移除）
-- `cargo test --manifest-path rust/lithe-core/Cargo.toml console_completions`
+- `cargo test --manifest-path rust/crates/core/Cargo.toml console_completions`
 - ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
 - `node scripts/i18n/generate-i18n.mjs --check`
 - `node scripts/i18n/verify-app-language-localization.mjs`

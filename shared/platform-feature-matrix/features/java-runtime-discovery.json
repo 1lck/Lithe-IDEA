@@ -38,7 +38,7 @@
         "shared/fixtures/execution/maven-runtime-versions.json",
         ".agents/notes/implemented/architecture/2026-09-21-maven-settings-reach-the-language-server.md",
         ".agents/notes/implemented/bug-fix/2026-10-30-login-shell-environment-and-jdk-selection.md",
-        "rust/lithe-core/src/toolchain",
+        "rust/crates/core/src/toolchain",
         "macos/Tests/LitheTests/MacToolchainDiscoveryTests.swift",
         "shared/contracts/plugins/v1/README.md"
       ],

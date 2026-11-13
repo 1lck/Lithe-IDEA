@@ -36,7 +36,7 @@
       "implementationStatus": "partial",
       "verificationStatus": "pending",
       "evidence": [
-        "rust/lithe-core/src/plugins/editor_actions.rs",
+        "rust/crates/core/src/plugins/editor_actions.rs",
         "macos/Sources/Lithe/Application/Features/PluginEditorActionHostService.swift",
         "macos/Sources/Lithe/Platform/MacOS/Plugins/PluginEditorHostOptions+macOS.swift",
         "frontend/editor/src/plugin-editor-actions.ts",

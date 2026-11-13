@@ -39,7 +39,7 @@ Java 的语言服务器 JDT LS（Eclipse 的 Java 语言服务器，提供补全
 | 插件资源 | 集成要读的文件 | `hostIntegration.resources`，由插件声明包内路径 |
 | 宿主能力 | 仍由宿主内置实现提供的运行、测试、调试 | `hostIntegration.capabilities`，由插件逐项声明 |
 
-字段语义以 `Lithe-core-rust/shared/plugins/contract/v1/README.md` 为准，校验和模板展开只在 `rust/lithe-core/src/plugins/declarative.rs` 实现一次。
+字段语义以 `Lithe-core-rust/shared/plugins/contract/v1/README.md` 为准，校验和模板展开只在 `rust/crates/core/src/plugins/declarative.rs` 实现一次。
 
 ### 2. 契约 API 2 增加的内容
 
@@ -208,7 +208,7 @@ dev.lithe.plugin.java-support/
 
 以下命令和结论是旧客户端的历史验证，不适用于当前 Viva 工作树；迁移完成后必须重新验证插件资源、会话生命周期、Java 功能以及安装包只读约束。
 
-- `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib plugins`：API 2 的合法与非法清单、启动计划标准答案、运行时版本判定，以及仓库里的官方 `plugin.json`。
+- `cargo test --manifest-path rust/crates/core/Cargo.toml --lib plugins`：API 2 的合法与非法清单、启动计划标准答案、运行时版本判定，以及仓库里的官方 `plugin.json`。
 - 官方插件包的组装与校验（原 verify-official-plugins 脚本：组装三个官方包并校验入口、自带运行时、符号链接和原生代码的位置。）已随插件移出本仓库，由各插件仓库的 CI 负责（#1495）。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'Plugin|LanguageExtensionProcessLifecycleTests|LanguageServerToolServiceTests|JavaLanguageServerRuntimeTests|MacJdtWorkspaceStateTests|MacJdtHostIntegrationStateTests|LanguageToolEnvironmentTests'`：按声明定位资源、路径固定在包内、版本过滤、默认启用、移除与恢复；卸载后 JDT 的索引和 Equinox 配置区被删除（扫描失败或插件被拒绝时保留）；运行时启动的服务器 `PATH` 上先找到宿主选中的运行时。
 - 旧版 `RealJavaDebugIntegrationTests` 从组装好的插件包启动真实 JDT LS 并完成 Spring Boot 断点调试。迁移初版时它因 `java.project.getClasspaths` 在服务端抛空指针而失败（迁移前的代码同样失败），该问题已随入口发现的修复一并解决，见 [Java 入口由 JDT 判定](2026-09-21-java-entrypoints-owned-by-jdt.md)。这组测试直接组装调试会话，不验证应用里的能力目录。

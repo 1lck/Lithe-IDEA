@@ -175,7 +175,7 @@ Windows 现在还通过 Core 的命令调用 Maven 和 Java 功能，而 Windows
 
 ### 七、验收闸门脚本
 
-~~scripts/architecture/verify-no-host-language-specifics.mjs~~（随旧客户端移除） 扫描六个目录：`rust/lithe-core/src`、`macos/Sources`、`frontend/editor/src`、`shared/contracts/plugins/v1`、`windows/tauri/src`、`windows/tauri/src-tauri/src`。其中 `shared/contracts/plugins/v1` 当时在本仓库，现在是 Core 仓库的 `shared/plugins/contract/v1/`。跳过 `vendor`、`node_modules` 和以点开头的目录。
+~~scripts/architecture/verify-no-host-language-specifics.mjs~~（随旧客户端移除） 扫描六个目录：`rust/crates/core/src`、`macos/Sources`、`frontend/editor/src`、`shared/contracts/plugins/v1`、`windows/tauri/src`、`windows/tauri/src-tauri/src`。其中 `shared/contracts/plugins/v1` 当时在本仓库，现在是 Core 仓库的 `shared/plugins/contract/v1/`。跳过 `vendor`、`node_modules` 和以点开头的目录。
 
 检查什么：
 
@@ -201,7 +201,7 @@ A0 提交时的基线快照（以 baseline 文件为准）：
 
 | 目录 | 词表命中 | 文件数 |
 | --- | --- | --- |
-| `rust/lithe-core/src` | 8755 | 114 |
+| `rust/crates/core/src` | 8755 | 114 |
 | `macos/Sources` | 4972 | 185 |
 | `frontend/editor/src` | 99 | 2 |
 | `shared/contracts/plugins/v1` | 1045 | 44 |

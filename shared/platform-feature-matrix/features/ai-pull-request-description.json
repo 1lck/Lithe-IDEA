@@ -30,7 +30,7 @@
       "implementationStatus": "implemented",
       "verificationStatus": "pending",
       "evidence": [
-        "rust/lithe-core/src/ai/pull_request.rs",
+        "rust/crates/ai/src/pull_request.rs",
         "shared/contracts/ai-generation-requests.md",
         "shared/fixtures/ai/pull-request-description-v1.json",
         "macos/Sources/Lithe/Core/Rust/RustAICommitPlanning.swift",

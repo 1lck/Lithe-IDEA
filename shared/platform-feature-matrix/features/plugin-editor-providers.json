@@ -42,7 +42,7 @@
       "implementationStatus": "partial",
       "verificationStatus": "pending",
       "evidence": [
-        "rust/lithe-core/src/plugins/editor_providers.rs",
+        "rust/crates/core/src/plugins/editor_providers.rs",
         "macos/Sources/Lithe/Application/Features/PluginEditorProviderHostService.swift",
         "macos/Sources/Lithe/Models/AppModel/AppModel+PluginDefinitions.swift",
         "macos/Sources/Lithe/Platform/MacOS/MonacoPluginEditorProviders.swift",

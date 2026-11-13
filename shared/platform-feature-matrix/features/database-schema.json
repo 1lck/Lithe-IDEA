@@ -31,7 +31,7 @@
         "macos/Sources/Lithe/Application/Features/PluginMarketplace.swift",
         "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginBackendSessions.swift",
         "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginCredentialStore.swift",
-        "rust/lithe-core/src/plugins/backend.rs",
+        "rust/crates/core/src/plugins/backend.rs",
         "macos/Tests/LitheTests/PluginWebBridgeTests.swift",
         ".agents/notes/implemented/architecture/2026-10-24-database-provider-plugin.md"
       ],

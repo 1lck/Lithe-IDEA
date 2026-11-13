@@ -38,8 +38,8 @@
       "implementationStatus": "partial",
       "verificationStatus": "verified",
       "evidence": [
-        "rust/lithe-core/src/lsp/interface/plugin_function.rs",
-        "rust/lithe-core/src/lsp/interface/engine.rs",
+        "rust/crates/core/src/lsp/interface/plugin_function.rs",
+        "rust/crates/core/src/lsp/interface/engine.rs",
         "shared/contracts/plugins/v1/fixtures/backend/function-protocol.json",
         "macos/Sources/Lithe/Application/Features/PluginWebBridge.swift",
         "macos/Sources/Lithe/Platform/MacOS/Build/MacBuildProviderSessions.swift",
@@ -52,8 +52,8 @@
       "implementationStatus": "partial",
       "verificationStatus": "pending",
       "evidence": [
-        "rust/lithe-core/src/lsp/interface/plugin_function.rs",
-        "rust/lithe-core/src/lsp/interface/engine.rs",
+        "rust/crates/core/src/lsp/interface/plugin_function.rs",
+        "rust/crates/core/src/lsp/interface/engine.rs",
         "shared/contracts/plugins/v1/README.md"
       ]
     },

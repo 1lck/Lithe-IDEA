@@ -43,7 +43,7 @@
 
 宿主扫描没有自己的工具表；没有定义时不扫描、不导出变量、不生成工具行。
 
-工具链是独立领域，Core 代码放在 `rust/lithe-core/src/toolchain/`，不能因为事实由插件贡献就把解析、固定和选择模型放进 `plugins/`。插件清单模块只负责贡献准入，调用工具链领域校验；公开契约仍在插件契约目录中描述贡献接口，不改变工具链本身的含义。
+工具链是独立领域，Core 代码放在 `rust/crates/core/src/toolchain/`，不能因为事实由插件贡献就把解析、固定和选择模型放进 `plugins/`。插件清单模块只负责贡献准入，调用工具链领域校验；公开契约仍在插件契约目录中描述贡献接口，不改变工具链本身的含义。
 
 正确做法：Java 支持插件贡献工具定义，mise 插件调用 mise 自己的机器可读接口回答选中了哪份安装，宿主展示来源并执行通用校验。不要这样做：把 `miseToml` 改名成 `tomlTools` 后继续在 Core 解释它，或用 `if tool == "java"` 把返回目录当作特殊的 JDK home。
 
@@ -159,7 +159,7 @@ macOS 的声明式路线由 `MacToolchainDiscovery` 执行，宿主不认识任�
 
 阶段 3 清理 `ProjectRuntimeService` 的专属选择链和 `project-jdk`、`project-maven` 等被替代引用前，须按 [Java/Maven 迁移清单](2026-10-26-maven-java-domain-plugin-migration.md)核对真实消费者和数据迁移。Node、Go、Python 等在其插件声明定义之前保持当前实现，不新增特判；不能在本次提案删除仍在生产使用的代码，或用永久兼容别名伪装迁移完成。
 
-阶段 1 的契约草案 `Lithe-core-rust/shared/plugins/contract/v1/toolchains/proposal/` 及其 fixture 已于 2026-11-05 删除。草案把已实现和未实现的行为写在一起，插件开发者读到的是整个契约目录，分不清哪些能用。其中已经实现的后端协商 `litheToolchains`、稳定失败码和错误回复规则已写进正式契约 `Lithe-core-rust/shared/plugins/contract/v1/toolchains/README.md`；Core 测试改用 `rust/lithe-core/src/tests/toolchain_vectors.rs` 里的内联数据。消费者迁移、查询生命周期与缓存、固定值保存和版本管理器插件等未实现部分只在本笔记跟踪，实现时再写进正式契约；旧 `local-v1` schema 与 Run 配置读写路径保持不变，新 Core 固定解析入口只处理调用方传入的 JSON，不打开文件或保存忽略规则。契约、API 总表和协议更新记录在同一个 Core PR 里完成；实际插件后端协议接入时在同一个 Core PR 里更新 Node、Java、Rust SDK，并在合并前于 Core 仓库根运行 `node shared/plugins/scripts/sdk-e2e.mjs`。每阶段的功能矩阵只记录实际实现和目标平台运行证据，不把本提案或 Core 单元测试当作 Windows 已完成。
+阶段 1 的契约草案 `Lithe-core-rust/shared/plugins/contract/v1/toolchains/proposal/` 及其 fixture 已于 2026-11-05 删除。草案把已实现和未实现的行为写在一起，插件开发者读到的是整个契约目录，分不清哪些能用。其中已经实现的后端协商 `litheToolchains`、稳定失败码和错误回复规则已写进正式契约 `Lithe-core-rust/shared/plugins/contract/v1/toolchains/README.md`；Core 测试改用 `rust/crates/core/src/tests/toolchain_vectors.rs` 里的内联数据。消费者迁移、查询生命周期与缓存、固定值保存和版本管理器插件等未实现部分只在本笔记跟踪，实现时再写进正式契约；旧 `local-v1` schema 与 Run 配置读写路径保持不变，新 Core 固定解析入口只处理调用方传入的 JSON，不打开文件或保存忽略规则。契约、API 总表和协议更新记录在同一个 Core PR 里完成；实际插件后端协议接入时在同一个 Core PR 里更新 Node、Java、Rust SDK，并在合并前于 Core 仓库根运行 `node shared/plugins/scripts/sdk-e2e.mjs`。每阶段的功能矩阵只记录实际实现和目标平台运行证据，不把本提案或 Core 单元测试当作 Windows 已完成。
 
 ## 风险
 

@@ -36,7 +36,7 @@
         "macos/Sources/Lithe/Platform/MacOS/Debug/MacDebugPortAvailabilityChecker.swift",
         "macos/Tests/LitheExecutionModuleTests/ExecutionModuleTests.swift",
         "shared/contracts/plugins/v1/fixtures/build-providers/build-connection-debug-options.json",
-        "rust/lithe-core/src/tests/build_systems.rs",
+        "rust/crates/core/src/tests/build_systems.rs",
         "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
         "macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift",
         "macos/Sources/LitheLanguageIntelligenceModule/Services/LanguageToolingSessionManager.swift",
@@ -51,7 +51,7 @@
     "windows": {
       "evidence": [
         "shared/contracts/plugins/v1/fixtures/build-providers/build-connection-debug-options.json",
-        "rust/lithe-core/src/tests/build_systems.rs"
+        "rust/crates/core/src/tests/build_systems.rs"
       ],
       "implementationStatus": "missing",
       "verificationStatus": "not-applicable"

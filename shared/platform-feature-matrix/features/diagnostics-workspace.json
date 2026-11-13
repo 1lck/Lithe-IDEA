@@ -31,7 +31,7 @@
         "macos/Experiments/Monaco/workbench.integration.ts",
         "macos/Sources/Lithe/Platform/MacOS/ProblemsDemo.swift",
         "macos/Sources/Lithe/Models/Editor/ProblemsQuery.swift",
-        "rust/lithe-core/src/lsp/host_policy/problems.rs",
+        "rust/crates/core/src/lsp/host_policy/problems.rs",
         "shared/fixtures/lsp/problems-query-v1.json",
         "macos/Sources/Lithe/Views/Language/ProblemsView.swift"
       ],
@@ -45,7 +45,7 @@
         "windows/tauri/src/ui/dialog.tsx",
         "windows/tauri/src/features/diagnostics/utils/problems-query.ts",
         "windows/tauri/src/features/diagnostics/utils/problems-query.test.ts",
-        "rust/lithe-core/src/lsp/host_policy/problems.rs",
+        "rust/crates/core/src/lsp/host_policy/problems.rs",
         "shared/fixtures/lsp/problems-query-v1.json"
       ],
       "implementationStatus": "implemented",

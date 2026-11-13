@@ -52,7 +52,7 @@
         "macos/Sources/Lithe/Application/Features/McpServerLibraryFeatureModel.swift",
         "macos/Sources/Lithe/Views/App/McpSettingsView.swift",
         "macos/Tests/LitheTests/IdeCapabilitiesTests.swift",
-        "rust/lithe-ide-host/src/lib.rs",
+        "rust/crates/ide-host/src/lib.rs",
         "macos/Sources/Lithe/Views/App/SettingsView.swift",
         "scripts/ide-mcp/test-ide-mcp.mjs"
       ]
@@ -64,7 +64,7 @@
         "windows/tauri/src/features/host-api/ide-capabilities.ts",
         "windows/tauri/src/features/host-api/mcp-settings.tsx",
         "windows/tauri/src/features/host-api/ide-capabilities.test.ts",
-        "rust/lithe-ide-host/src/lib.rs",
+        "rust/crates/ide-host/src/lib.rs",
         "windows/tauri/src/features/settings/components/mcp-configuration-settings.tsx",
         "windows/tauri/src-tauri/src/platform.rs",
         "windows/tauri/src/features/host-api/mcp-lifecycle.test.ts",

@@ -39,9 +39,9 @@ Lithe 要支持“完整的远程开发”：项目放在 SSH 主机、Docker �
 
 | 模块 | 负责什么 | 不负责什么 |
 | --- | --- | --- |
-| `rust/lithe-remote/src/protocol` | 帧格式、消息信封、方法名、参数类型、错误码 | 不做任何 I/O 决策 |
-| `rust/lithe-remote/src/server` | 远端的全部能力和 Linux/macOS 适配器 | 不知道自己是被 SSH 还是 Docker 启动的 |
-| `rust/lithe-remote/src/client` | 传输链拼命令、远端安装校验、会话收发 | 不实现文件或进程语义 |
+| `rust/crates/remote/src/protocol` | 帧格式、消息信封、方法名、参数类型、错误码 | 不做任何 I/O 决策 |
+| `rust/crates/remote/src/server` | 远端的全部能力和 Linux/macOS 适配器 | 不知道自己是被 SSH 还是 Docker 启动的 |
+| `rust/crates/remote/src/client` | 传输链拼命令、远端安装校验、会话收发 | 不实现文件或进程语义 |
 
 ### 传输链只做“执行一条命令”
 
@@ -116,7 +116,7 @@ Linux 静态版用 Rust 自带的 `rust-lld` 链接，在 macOS 和 Linux 上都
 
 ### 平台适配器（Linux / macOS）
 
-所有平台差异都放在 `rust/lithe-remote/src/server/platform/` 里，并通过能力描述告诉客户端：
+所有平台差异都放在 `rust/crates/remote/src/server/platform/` 里，并通过能力描述告诉客户端：
 
 | 差异 | Linux | macOS | 客户端看到的能力 |
 | --- | --- | --- | --- |

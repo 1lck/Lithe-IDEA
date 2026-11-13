@@ -33,7 +33,7 @@
         "macos/Sources/Lithe/Services/Diagnostics",
         "shared/fixtures/lsp/java-launch-preparation-v1.json",
         "shared/fixtures/lsp/document-save-v1.json",
-        "rust/lithe-core/src/build/outputs.rs"
+        "rust/crates/core/src/build/outputs.rs"
       ],
       "implementationStatus": "implemented",
       "verificationStatus": "pending"
@@ -48,7 +48,7 @@
         "windows/tauri/src/features/editor/stores/editor-app.store.test.ts",
         "shared/fixtures/lsp/java-launch-preparation-v1.json",
         "shared/fixtures/lsp/document-save-v1.json",
-        "rust/lithe-core/src/build/outputs.rs"
+        "rust/crates/core/src/build/outputs.rs"
       ],
       "implementationStatus": "implemented",
       "verificationStatus": "pending"

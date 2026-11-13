@@ -89,7 +89,7 @@ submodule 内部文件、远端变化但本地未 fetch、自动 fetch 或网络
 
 ### Rust Core 契约
 
-Rust Core（`rust/lithe-core/src/git/`（已随 #1794 移除））
+Rust Core（`rust/crates/core/src/git/`（已随 #1794 移除））
 新增只负责路径解析的 `GitWatchContext`（`repositoryRoot` /
 `gitDirectory` / `gitCommonDirectory`），使用绝对路径、对存在的路径
 规范化、无仓库时返回空 context、不把 `.git` 是文件还是目录的判断

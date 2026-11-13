@@ -28,9 +28,12 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
-# Lithe-core-rust #25 (the ai.* commands moved into the lithe-ai crate; command names, JSON and
-# error codes unchanged) on top of #24 (rust/contracts and rust/fixtures are the only copy of the
-# application contracts and fixtures, which desktop tests read through LITHE_CORE_FIXTURE_DIR) and
+# Lithe-core-rust #26 (community.discourse.* commands and the wasm build removed, every crate moved
+# to rust/crates/<name without the lithe- prefix>/, the C header now at
+# rust/crates/core/include/lithe_core.h), squash-merged into main, on top of #25 (the ai.*
+# commands moved into the lithe-ai crate; command names, JSON and error codes unchanged), #24
+# (rust/contracts and rust/fixtures are the only copy of the application contracts and fixtures,
+# which desktop tests read through LITHE_CORE_FIXTURE_DIR) and
 # #23 (Java, Maven and JDT special cases removed, execution.planLaunchCommand among them;
 # run/start temporaryFiles may carry base64 bytes), squash-merged into main, on top of #22 (IDE find/replace,
 # recovery, preferences, navigation, keymaps and Scratch lifecycle), squash-merged into main, on top of #21 (debug.setBreakpointsMuted, debug.planMemoryWindow and
@@ -41,7 +44,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="f113e9e9f81a30fa9feb61307e4118af111df936"
+PINNED_CORE_REVISION="439f42fd152dc531396d7be9cdf393b4d86f0940"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -142,7 +145,7 @@ if [[ ! -s "$NATIVE_LIBS_FILE" ]]; then
 fi
 
 install -m 0644 "$LIBRARY_DIR/liblithe_core.a" "$STAGE_DIR/lib/liblithe_core.a"
-install -m 0644 "$CORE_DIR/rust/lithe-core/include/lithe_core.h" "$STAGE_DIR/include/lithe_core.h"
+install -m 0644 "$CORE_DIR/rust/crates/core/include/lithe_core.h" "$STAGE_DIR/include/lithe_core.h"
 
 # The IDE API helper is the lithe-ide-host crate's lithe-mcp binary from the same pinned
 # checkout. It is staged here so packaging can embed it; nothing at runtime reads this

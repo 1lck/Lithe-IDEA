@@ -54,7 +54,7 @@
         "macos/Tests/LitheTests/NetworkProxySettingsTests.swift",
         "macos/Tests/LitheTests/MacNetworkSessionProviderTests.swift",
         "macos/Tests/LitheTests/MacNetworkProxyTesterTests.swift",
-        "rust/lithe-core/src/network/tests.rs"
+        "rust/crates/core/src/network/tests.rs"
       ]
     },
     "windows": {

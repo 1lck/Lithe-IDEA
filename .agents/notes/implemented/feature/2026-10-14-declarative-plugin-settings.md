@@ -72,8 +72,8 @@ settings v2 仍复用 v1 的启动模板展开，但新增设置注册页、项�
 ## 验证
 
 ```bash
-cargo test --manifest-path rust/lithe-core/Cargo.toml declarative
-cargo test --manifest-path rust/lithe-core/Cargo.toml jdt
+cargo test --manifest-path rust/crates/core/Cargo.toml declarative
+cargo test --manifest-path rust/crates/core/Cargo.toml jdt
 ./scripts/architecture/verify-shared-contracts.sh
 ./scripts/macos/test/test-macos.sh --filter PluginSettingsTests
 ./scripts/macos/test/test-macos.sh --filter PluginLanguageServerLaunchResolverTests

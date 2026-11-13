@@ -31,7 +31,7 @@
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
       "evidence": [
-        "rust/lithe-core/src/git/mod.rs",
+        "rust/crates/core/src/git/mod.rs",
         "shared/contracts/rust-core-api.md"
       ],
       "implementationStatus": "missing",
@@ -46,7 +46,7 @@
         "windows/tauri/src/features/git/utils/line-history-selection.test.ts",
         "windows/tauri/src/features/editor/context-menu/editor-context-menu-items.tsx",
         "windows/tauri/src/features/editor/components/monaco-editor.tsx",
-        "rust/lithe-core/src/tests/git.rs"
+        "rust/crates/core/src/tests/git.rs"
       ],
       "implementationStatus": "implemented",
       "verificationStatus": "pending"

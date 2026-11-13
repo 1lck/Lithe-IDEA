@@ -110,7 +110,7 @@ Agent 侧：
 账本是现有 `ModuleResourceScope` 的下层实现，不另起一套模块生命周期：模块
 仍然通过资源 scope 登记资源，资源 scope 再向平台进程端口申请进程。账本的
 记录结构、分类规则、停止阶段和结果报告是两个平台共享的确定性语义，放进
-`rust/lithe-core/`，并在 `Lithe-core-rust/rust/contracts/` 增加契约与 fixture；发信号、
+`rust/crates/core/`，并在 `Lithe-core-rust/rust/contracts/` 增加契约与 fixture；发信号、
 Job Object、监护进程等平台能力留在各自的 adapter。
 
 #### 四种退出策略
@@ -246,7 +246,7 @@ Agent（经由 ACP 连接的 Claude Code、Codex 等）会用自己的工具在�
 
 设置保存在用户设置存储中（Application Support / `%LOCALAPPDATA%`），不写入
 安装目录。根据设置和账本记录算出最终策略属于确定性逻辑，放进
-`rust/lithe-core/`：设置作为输入，两端用同一组 fixture 验证。页面关键词要
+`rust/crates/core/`：设置作为输入，两端用同一组 fixture 验证。页面关键词要
 加入 `SettingsSearchVocabulary`，搜索“进程”“终止”“终端”“Agent”“守护进程”
 都能找到这个页面。
 
@@ -522,7 +522,7 @@ Windows 尚未实现，所以本笔记仍放在 `proposed/`。macOS 首批已落
 ### 规则在 Rust Core，平台只采集事实、执行结果
 
 为了让 Windows 迁移时只需写平台 adapter，所有确定性规则都放在
-`rust/lithe-core`，两端共用同一套 fixture：
+`rust/crates/core`，两端共用同一套 fixture：
 
 | 命令 | 负责什么 | fixture |
 | --- | --- | --- |
