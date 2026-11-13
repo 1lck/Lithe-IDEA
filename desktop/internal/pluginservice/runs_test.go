@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -293,6 +294,47 @@ func TestRunStopEndsTheRunAndOnlyForItsOwner(t *testing.T) {
 	}
 }
 
+type controlledStopProcess struct {
+	stopping chan struct{}
+	kills    atomic.Int32
+}
+
+func (p *controlledStopProcess) Wait() error { return nil }
+func (p *controlledStopProcess) Stop()       { close(p.stopping) }
+func (p *controlledStopProcess) Kill()       { p.kills.Add(1) }
+
+func TestRunAutomaticStopsPreserveGraceAndUserCanForce(t *testing.T) {
+	process := &controlledStopProcess{stopping: make(chan struct{})}
+	done := make(chan struct{})
+	run := &hostRun{id: "owned", workspace: WorkspaceContext{Path: t.TempDir()}, process: process, cancel: func() {}, done: done}
+	runs := &Runs{runs: map[string]*hostRun{run.id: run}}
+	stopped := make(chan struct{})
+	go func() { runs.StopWorkspace(run.workspace.Path); close(stopped) }()
+	defer func() {
+		close(done)
+		select {
+		case <-stopped:
+		case <-time.After(5 * time.Second):
+			t.Error("the first automatic stop did not finish")
+		}
+	}()
+	select {
+	case <-process.stopping:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the automatic stop did not start")
+	}
+	// Closing a project and releasing its debug session can both request cleanup.
+	// Repetition by owners must preserve grace; an explicit second user Stop kills.
+	runs.StopWorkspace(run.workspace.Path)
+	if got := process.kills.Load(); got != 0 {
+		t.Fatalf("automatic cleanup forced %d kills before grace ended", got)
+	}
+	runs.Stop(run.id)
+	if got := process.kills.Load(); got != 1 {
+		t.Fatalf("a user Stop did not force the stopping process: %d kills", got)
+	}
+}
+
 func TestRunStartRefusals(t *testing.T) {
 	h := newRunHarness(t)
 
@@ -409,6 +451,11 @@ func TestRunStartAttachesTheDebuggerOnceThePortOpens(t *testing.T) {
 		if request.Port != port || request.Host != "127.0.0.1" || request.ConfigurationType != "script" || request.PluginID != runFixturePlugin {
 			t.Fatalf("attach request = %+v", request)
 		}
+		if request.StopRun == nil {
+			t.Fatal("the debug session cannot release its owned run")
+		}
+		request.StopRun()
+		h.await(t, "the attached run to stop with its session", func(events []RunEvent) bool { return exitedEvent(events) != nil })
 	case <-time.After(20 * time.Second):
 		t.Fatal("the debugger was never attached")
 	}

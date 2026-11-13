@@ -86,6 +86,10 @@ type RunDebugRequest struct {
 	ConfigurationType string
 	Host              string
 	Port              int
+	// StopRun ends the host-owned process when its attached debug session is
+	// released. It requests bounded cleanup off the UI thread; another owner
+	// already stopping the run keeps its grace and remains responsible for waiting.
+	StopRun func()
 }
 
 // RunDebugAttacher starts a debug session on the adapter a configuration type
@@ -235,15 +239,18 @@ func (r *Runs) Stop(runID string) {
 	if run == nil {
 		return
 	}
-	r.stopRun(run)
+	r.stopRun(run, true)
 }
 
 // stopRun stops a run and waits, bounded, for its process tree. The tree first gets the
 // stop time to end on its own (buildprocess.StopGrace). Stopping a run that is already
-// stopping kills it at once and returns: the first stop is the one still waiting.
-func (r *Runs) stopRun(run *hostRun) {
+// stopping kills it only for a repeated explicit request; automatic cleanup is
+// idempotent, so closing a workspace and its debug session preserve the grace.
+func (r *Runs) stopRun(run *hostRun, forceIfStopping bool) {
 	if run.stopped.Swap(true) {
-		run.process.Kill()
+		if forceIfStopping {
+			run.process.Kill()
+		}
 		return
 	}
 	run.cancel()
@@ -265,7 +272,7 @@ func (r *Runs) StopWorkspace(path string) {
 	}
 	r.mu.Unlock()
 	for _, run := range stopping {
-		r.stopRun(run)
+		r.stopRun(run, false)
 	}
 }
 
@@ -279,7 +286,7 @@ func (r *Runs) StopAll() {
 	}
 	r.mu.Unlock()
 	for _, run := range stopping {
-		r.stopRun(run)
+		r.stopRun(run, false)
 	}
 	r.wait.Wait()
 }
@@ -568,7 +575,7 @@ func (r *Runs) attachDebugger(ctx context.Context, run *hostRun) {
 	fail := func(err error) {
 		if ctx.Err() == nil {
 			r.emit(RunEvent{Type: RunOutput, RunID: run.id, PluginID: run.pluginID, Text: err.Error() + "\n"})
-			r.stopRun(run)
+			r.stopRun(run, false)
 		}
 	}
 	if err := waitForPort(ctx, port, run.done, runDebugConnectTimeout); err != nil {
@@ -582,6 +589,7 @@ func (r *Runs) attachDebugger(ctx context.Context, run *hostRun) {
 	session, err := r.Debug(ctx, RunDebugRequest{
 		PluginID: run.pluginID, WorkspaceRoot: run.workspace.Path, Label: run.start.Label,
 		ConfigurationType: run.start.Debug.ConfigurationType, Host: "127.0.0.1", Port: port,
+		StopRun: func() { r.stopRun(run, false) },
 	})
 	if err != nil {
 		fail(err)
@@ -651,7 +659,7 @@ func (r *Runs) handleStop(ctx context.Context, params json.RawMessage) (json.Raw
 	}
 	r.mu.Unlock()
 	if target != nil {
-		r.stopRun(target)
+		r.stopRun(target, true)
 	} else if request.SessionID != "" {
 		r.stopDebugSession(caller.PluginID, request.SessionID)
 	}

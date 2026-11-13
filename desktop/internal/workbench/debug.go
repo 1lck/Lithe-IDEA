@@ -270,6 +270,8 @@ type debugSession struct {
 	// adapter reported one. ended, when set, receives it once the session is released.
 	exitCode atomic.Pointer[int]
 	ended    chan *int
+	// stopRun reaps an attached process owned by Run after the adapter disconnects.
+	stopRun func()
 	// hosted is the lifecycle-driven stream of a tcpLanguageServer adapter; nil
 	// for a stdio adapter. It is also the session's transport.
 	hosted *debugTransport
@@ -805,6 +807,7 @@ func (a *App) stopDebugByUser(p *project) {
 
 // releaseDebugSession closes transport immediately and destroys Core state only
 // after startup returned, so cancellation cannot race a late session creation.
+// Note: Run 进程所有权见 .agents/notes/implemented/bug-fix/2026-11-13-viva-plugin-run-debug-lifecycle.md。
 func (a *App) releaseDebugSession(p *project, session *debugSession) {
 	session.cleanupOnce.Do(func() {
 		// A child that ends before its start was answered fails the parent's request.
@@ -845,6 +848,11 @@ func (a *App) releaseDebugSession(p *project, session *debugSession) {
 			}
 			if session.created && !session.coreGone {
 				destroyed, cleanupErr = a.kernel.DestroyDebugSession(ctx, session.id)
+			}
+			// The owned run can use the user's full exit grace. Finish Core
+			// destruction first so that wait cannot consume its deadline.
+			if session.stopRun != nil {
+				session.stopRun()
 			}
 			process := session.process.Load()
 			if process != nil {

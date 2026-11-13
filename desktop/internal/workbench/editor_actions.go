@@ -40,6 +40,7 @@ func (a *App) scheduleEditorActions(p *project, d *document) {
 
 // clearEditorActions forgets the document's actions and their annotations.
 func (a *App) clearEditorActions(d *document) {
+	d.actionCollection++
 	d.actionPanel = editorActionPanel{}
 	d.pluginLinks = nil
 	d.serverLinks = documentServerLinks{revision: d.serverLinks.revision, seen: d.serverLinks.seen, changedAt: d.serverLinks.changedAt}
@@ -64,8 +65,10 @@ func (a *App) collectEditorActions(p *project, d *document) {
 		return
 	}
 	data, _ := d.view.Text()
+	d.actionCollection++
 	text, version, id, path, root, language := string(data), d.view.Revision(), strconv.Itoa(d.id), d.path, p.root, d.languageID
 	plugins := a.plugins
+	snapshot := editorActionSnapshot{documentID: d.id, version: version, collection: d.actionCollection}
 	a.background(p, 15*time.Second, func(ctx context.Context) func(*App) {
 		actions, err := plugins.CollectEditorActions(ctx, root, path, id, version, text)
 		// Code lenses come from the provider of the same document, as actions do, and join them.
@@ -74,19 +77,30 @@ func (a *App) collectEditorActions(p *project, d *document) {
 		// Document links come from the same document's providers and are shown on hover.
 		links, linkErr := plugins.PluginDocumentLinks(ctx, root, path, language, id, version)
 		err = errors.Join(err, lensErr, linkErr)
-		return func(a *App) {
-			if p.docs.find(d.id) != d || d.view.Revision() != version {
-				return
-			}
-			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_actions", err))
-			}
-			d.actions = actions
-			a.annotateEditorActions(d)
-			d.pluginLinks = links
-			a.refreshDocumentLinks(d)
-		}
+		return func(a *App) { a.presentEditorActions(p, snapshot, actions, links, err) }
 	})
+}
+
+// editorActionSnapshot identifies the presentation request, including model
+// refreshes that leave the document text at the same revision.
+type editorActionSnapshot struct {
+	documentID int
+	version    int
+	collection uint64
+}
+
+func (a *App) presentEditorActions(p *project, snapshot editorActionSnapshot, actions []pluginservice.EditorAction, links []pluginservice.EditorLink, err error) {
+	d := p.docs.find(snapshot.documentID)
+	if a.project != p || d == nil || d.view.Revision() != snapshot.version || d.actionCollection != snapshot.collection {
+		return
+	}
+	if err != nil {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_actions", err))
+	}
+	d.actions = actions
+	a.annotateEditorActions(d)
+	d.pluginLinks = links
+	a.refreshDocumentLinks(d)
 }
 
 // annotateEditorActions puts icons in the gutter. The icon area has one slot per lane in use, left to
