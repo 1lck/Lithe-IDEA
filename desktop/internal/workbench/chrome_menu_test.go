@@ -66,3 +66,15 @@ func TestToolWindowHeaderMenuHidesTheToolWindow(t *testing.T) {
 		t.Fatal("Hide Tool Window left the Problems tool window open")
 	}
 }
+
+func TestToolWindowMoveSubmenuUsesCoreLayout(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.open(t.TempDir())
+	h.rightClickAt(h.button(itemProject))
+	h.clickNamed(h.shared("desktop.tools.moveTo"))
+	h.clickNamed(stripeZoneMoveText(h.app.language(), zoneRightTop))
+	h.settleChain()
+	if got := h.app.chrome.zoneOf(catalogIndex[itemProject]); got != zoneRightTop {
+		t.Fatalf("move submenu left Project in zone %v", got)
+	}
+}

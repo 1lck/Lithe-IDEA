@@ -16,26 +16,26 @@ import (
 
 // The metrics of the window, after the macOS client's settings window and the log window.
 const (
-	windowWidth, windowHeight = 1040, 720
-	windowMinWidth            = 760
-	windowMinHeight           = 520
+	windowWidth, windowHeight = 900, 700
+	windowMinWidth            = 900
+	windowMinHeight           = 668
 
 	// titleHeight is the height of the title bar, which the system's window buttons sit in.
-	titleHeight = 28
+	titleHeight = 32
 	// sidebarWidth is the width of the column of pages.
-	sidebarWidth = 236
+	sidebarWidth = 234
 	// searchHeight is the height of the search field.
 	searchHeight = 28
 
 	// rowHeight is the height of a row of the sidebar.
-	rowHeight = 28
+	rowHeight = 24
 	// chevronSlot is the room a group's chevron takes in front of a row, which the rows that
 	// are not groups keep empty so every tile lines up.
 	chevronSlot  = 24
 	chevronGlyph = 12
 	// tileSize is the rounded square in front of a top-level row, tileGlyph the white glyph
 	// in it.
-	tileSize   = 18
+	tileSize   = 20
 	tileRadius = 4
 	tileGlyph  = 12
 	// childIndent is what a row inside a group is indented by, so its title lines up with
@@ -43,21 +43,18 @@ const (
 	childIndent = chevronSlot + tileSize + 8
 
 	// contentPad is the margin of the page at its sides.
-	contentPad = 24
+	contentPad = 26
 	// The cards of a page.
-	cardRadius = 8
+	cardRadius = 10
 	cardPad    = 14
 	cardGap    = 12
 	// selectWidth is the width of the language list.
 	selectWidth = 190
 	// radioHeight is the height of one option of a radio group, radioSize the circle in
 	// front of its words and radioDot the dot that fills the circle of the chosen one.
-	// radioIndent is how far an option that refines another is set in, so its circle sits
-	// under the words of the option it refines.
 	radioHeight = 24
 	radioSize   = 14
 	radioDot    = 6
-	radioIndent = radioSize + 8
 	// emptyWidth is the width the sentence of a page that is not available yet wraps at.
 	emptyWidth = 360
 	// footerHeight is the height of the bar with the buttons.

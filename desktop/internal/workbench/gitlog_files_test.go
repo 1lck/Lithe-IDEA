@@ -41,6 +41,8 @@ func (h *harness) openLogFilesWith(t *testing.T, names ...string) (*project, str
 	head := gitRun(t, dir, "rev-parse", "HEAD")
 	h.app.delays = logDelays{}
 	h.open(dir)
+	h.app.reduceChrome(core.SetChromeOpen(itemGit, true))
+	h.settleChain()
 	p := h.app.project
 	if p == nil || !p.git.isRepository() {
 		t.Fatalf("the project is not a loaded repository: %+v", p)

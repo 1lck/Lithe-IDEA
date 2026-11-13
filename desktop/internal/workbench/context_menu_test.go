@@ -100,3 +100,17 @@ func TestRunConsoleMenuCopiesTheChosenLineAndTheWholeOutput(t *testing.T) {
 		t.Fatalf("Copy Output put %q on the clipboard, want the whole output", got)
 	}
 }
+
+func TestEditorCopyPathSubmenuKeepsAbsoluteAndRelativeActions(t *testing.T) {
+	h := newHarness(t, gitKernel{core.NewClient()})
+	root := newTestRepository(t)
+	p := h.openTree(t, root)
+	h.app.openFile(p, filepath.Join(root, "changed.txt"))
+	h.settleChain()
+	h.rightClickAt(h.tabHit("changed.txt"))
+	h.clickNamed(h.shared("native.copyPathReference"))
+	h.clickNamed(h.shared("native.copyRelativePath"))
+	if got := h.driver.Clipboard(); got != "changed.txt" {
+		t.Fatalf("copied relative path %q", got)
+	}
+}

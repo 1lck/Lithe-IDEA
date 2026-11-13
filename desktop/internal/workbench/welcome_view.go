@@ -96,7 +96,7 @@ func (a *App) welcomeContent(c ui.C) {
 			ui.TextField(c, &w.search, a.text.Welcome.SearchLabel, a.text.Welcome.SearchPlaceholder).
 				Icon(icons.Search).Width(214).MinWidth(0).Shrink(1)
 			ui.Spacer(c)
-			if ui.Button(c, a.text.Welcome.NewProject).MinWidth(72).Clicked() {
+			if ui.Button(c, a.text.Welcome.NewProject).Outline().MinWidth(72).Clicked() {
 				c.After(func() { a.openNewProject(surfaceButton) })
 			}
 			if ui.Button(c, a.text.Welcome.Open).Outline().MinWidth(72).Clicked() {
@@ -125,8 +125,9 @@ func (a *App) welcomeProjects(c ui.C) {
 	w := &a.welcome
 	if len(a.recent) == 0 {
 		w.menuPath, w.menuOpen = "", false
-		ui.Column(c).Grow(1).Center().Gap(4).Children(func() {
-			ui.Text(c, a.text.Welcome.EmptyTitle).Bold()
+		ui.Column(c).Grow(1).Center().Gap(10).Children(func() {
+			ui.Icon(c, icons.FolderOpen).Size(40, 40).Color(a.colors.Subtle)
+			ui.Text(c, a.text.Welcome.EmptyTitle).FontSize(14).Weight(gfx.WeightMedium)
 			ui.Text(c, a.text.Welcome.EmptyHint).Muted()
 		})
 		return

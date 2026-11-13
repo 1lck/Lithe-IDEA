@@ -84,11 +84,14 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 	tool := a.chrome.catalog[index]
 	p := a.project
 	tabbed := tool.id == itemGit
-	header := float32(panelHeaderHeight)
+	header := float32(toolTitleHeight)
+	if tabbed || tool.id == itemTerminal || tool.id == itemCommit {
+		header = panelHeaderHeight
+	}
 	if tool.id == itemFind && p != nil {
 		header = 39
 	}
-	return ui.Column(c.KeyInt(int(s))).Background(a.colors.Panel).Clip().Children(func() {
+	return ui.Column(c.KeyInt(int(s))).Background(a.colors.Panel).Radius(workbenchPanelRadius).Clip().Children(func() {
 		// The header is a target of its own so a right-click on it offers to hide the tool
 		// window, as the earlier client's tool window headers did.
 		hk := c.KeyInt(int(s)).Part("header")
@@ -101,7 +104,7 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 			if tool.id == itemCommit && p != nil {
 				a.commitTabs(c)
 			} else {
-				ui.Text(c, tool.label(a.text)).Color(a.colors.Text).Weight(gfx.WeightMedium).Ellipsis()
+				ui.Text(c, tool.label(a.text)).Color(a.colors.Text).Weight(gfx.WeightBold).Ellipsis()
 			}
 			if tabbed {
 				a.gitTabs(c)
@@ -270,7 +273,7 @@ func (a *App) toolTabsWith(c ui.C, selected int, labels []string, choose func(in
 				}).
 				Pressed(ui.Look{}.Background(a.colors.Active))
 			if on {
-				chip = chip.Background(a.colors.Active)
+				chip = chip.Background(a.colors.TabIdle).Stroke(1, a.colors.TabIdleBorder).Radius(6)
 			} else {
 				chip = chip.Hover(ui.Look{}.Background(a.colors.Hover))
 			}
@@ -300,12 +303,10 @@ func (a *App) editorArea(c ui.C) {
 		return
 	}
 	hints := [...]struct{ label, keys string }{
-		{a.text.Editor.SearchEverywhere, "⇧⇧"},
-		{a.text.Editor.GoToFile, "⇧⌘O"},
+		{a.text.Editor.SearchEverywhere, "⇧⇧  ⇧⌘O"},
 		{a.text.Editor.FindInFiles, "⇧⌘F"},
-		{a.text.Editor.RecentFiles, "⌘E"},
 	}
-	editor := ui.Column(c).Fill().Clip().Center().Pad(shellContentPad).Background(a.colors.Editor).Children(func() {
+	editor := ui.Column(c).Fill().Clip().Center().Pad(shellContentPad).Background(a.colors.Editor).Radius(workbenchPanelRadius).Children(func() {
 		ui.Column(c).FillWidth().MaxWidth(shellHintWidth).Children(func() {
 			// Labels end and shortcuts start at one line down the middle, so the two read as
 			// columns however long the words are.
@@ -315,9 +316,6 @@ func (a *App) editorArea(c ui.C) {
 					ui.Text(c, hint.keys).Color(a.colors.Text).FillWidth()
 				})
 			}
-			ui.Row(c).Height(rowHeight).Items(ui.Center).Children(func() {
-				ui.Text(c, a.text.Editor.DropFiles).Color(a.colors.Subtle).TextCenter().Ellipsis().FillWidth()
-			})
 		})
 	})
 	a.term.emptyHook(editor)

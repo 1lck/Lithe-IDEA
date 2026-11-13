@@ -157,15 +157,15 @@ func (a *App) workbench(c ui.C) {
 	// the stripes and the status bar are declared with the same state as the panels.
 	hidden := slotCount
 	root := c.Part("workbench")
-	ui.Column(root).Fill().
+	ui.Column(root).Fill().Draw(func(d *ui.DrawContext) {
+		// Draw before the children: absolute children are painted above the islands.
+		a.paintProjectGradient(d.Canvas, d.Rect)
+	}).
 		HitWith(ui.ID(root), a.text.App.Name, gfx.HitOptions{SkipFocus: true}).
 		DropTarget(&a.dnd.tool, a.toolAccept, a.toolDrop).
 		DropTarget(&a.dnd.tab, a.tabAccept, a.tabDrop).
 		Children(func() {
-			// The project's color lies under the chrome, which leaves its own fill out.
-			ui.Row(c).Absolute().Left(0).Top(0).Fill().Draw(func(d *ui.DrawContext) {
-				a.paintProjectGradient(d.Canvas, d.Rect)
-			})
+
 			a.titleBar(c)
 			ui.Row(c).Fill().Children(func() {
 				a.stripe(c, true)

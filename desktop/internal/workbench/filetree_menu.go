@@ -165,12 +165,14 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 					a.showRepositoryChangesOf(p, filepath.Join(p.root, filepath.FromSlash(n.path)))
 				})
 			}
-			if menu.Item(i18n.Shared(language, "desktop.files.newFile")).Clicked() {
-				c.After(func() { a.openTreePrompt(p, treePromptNewFile, n) })
-			}
-			if menu.Item(i18n.Shared(language, "desktop.files.newDirectory")).Clicked() {
-				c.After(func() { a.openTreePrompt(p, treePromptNewDirectory, n) })
-			}
+			menu.Sub(i18n.Shared(language, "native.new"), func(sub *ui.MenuItems) {
+				if sub.Item(i18n.Shared(language, "desktop.files.newFile")).Clicked() {
+					c.After(func() { a.openTreePrompt(p, treePromptNewFile, n) })
+				}
+				if sub.Item(i18n.Shared(language, "desktop.files.newDirectory")).Clicked() {
+					c.After(func() { a.openTreePrompt(p, treePromptNewDirectory, n) })
+				}
+			})
 		}
 		if !root {
 			if menu.Item(i18n.Shared(language, "desktop.files.cut")).Clicked() {

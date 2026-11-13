@@ -79,6 +79,17 @@ func newHarnessWithLanguages(t testing.TB, kernel Kernel, languages []string) *h
 // the store and plugin root; the options' Now is replaced with the driver's
 // virtual clock so frame counters stay deterministic.
 func newHarnessWithOptions(t testing.TB, options Options) *harness {
+	return newHarnessWithDriver(t, options, func(config app.Config) (*app.Driver, func(), error) {
+		driver, err := app.NewDriver(config, nil)
+		if err != nil {
+			return nil, nil, err
+		}
+		return driver, driver.Close, nil
+	})
+}
+
+// newHarnessWithDriver gives visual tests the same lifecycle as behavioral tests.
+func newHarnessWithDriver(t testing.TB, options Options, open func(app.Config) (*app.Driver, func(), error)) *harness {
 	t.Helper()
 	h := &harness{t: t, store: options.Store}
 	start := time.Unix(1_700_000_000, 0)
@@ -90,7 +101,7 @@ func newHarnessWithOptions(t testing.TB, options Options) *harness {
 	}
 	h.app = New(options)
 	h.config = h.app.Config()
-	driver, err := app.NewDriver(h.config, nil)
+	driver, closeDriver, err := open(h.config)
 	if err != nil {
 		t.Fatalf("NewDriver: %v", err)
 	}
@@ -124,7 +135,7 @@ func newHarnessWithOptions(t testing.TB, options Options) *harness {
 			h.app.project = nil
 		}
 		h.app.wait()
-		driver.Close()
+		closeDriver()
 	})
 	return h
 }
@@ -243,9 +254,11 @@ func TestWorkbenchDefaultLayout(t *testing.T) {
 			}
 		}
 	}
-	if !h.app.chrome.isOpen(catalogIndex[itemProject]) || !h.app.chrome.isOpen(catalogIndex[itemGit]) {
-		t.Errorf("open tool windows = %v, want the project and Git windows", h.app.chrome.open)
+	if !h.app.chrome.isOpen(catalogIndex[itemProject]) || h.app.chrome.isOpen(catalogIndex[itemGit]) {
+		t.Errorf("open tool windows = %v, want only Project before a tool is requested", h.app.chrome.open)
 	}
+	h.click(center(h.button(itemGit)))
+	h.settleChain()
 	for _, text := range []string{"preview", "2 个更改", "LSP 未启动", "日志", "工作树", "控制台"} {
 		if !h.shows(text) {
 			t.Errorf("the workbench does not show %q", text)
@@ -466,6 +479,9 @@ func TestDetachedStripeDragTargetsDockAreasAndOtherStripeButtons(t *testing.T) {
 			kernel := &testKernel{Client: core.NewClient()}
 			h := newHarness(t, kernel)
 			h.open(t.TempDir())
+			// This geometry case exercises the bottom dock with Git explicitly open.
+			h.app.reduceChrome(core.SetChromeOpen(itemGit, true))
+			h.settleChain()
 			kernel.chromeActions = nil
 
 			from := center(h.button(itemNotifications))

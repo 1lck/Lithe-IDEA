@@ -36,6 +36,8 @@ type palette struct {
 	// SelectionIdle is that same row while another window has the keyboard: the row stays
 	// marked, greyed, as IDEA dims the selection of an unfocused tree.
 	SelectionIdle gfx.Color
+	// Tab colors follow the original LitheToolWindowTabStyle, including window focus.
+	Tab, TabBorder, TabIdle, TabIdleBorder gfx.Color
 	// Text is ordinary text; Subtle is secondary text and inactive icons.
 	Text   gfx.Color
 	Subtle gfx.Color
@@ -101,8 +103,9 @@ func (a *App) applySelectionFocus() {
 func lightLook() (gfx.Theme, palette) {
 	accent := gfx.RGB24(0x3574F0)
 	p := palette{
-		Chrome:        gfx.RGB24(0xF7F8FA),
-		Panel:         gfx.RGB24(0xF7F8FA),
+		Tab: gfx.RGB24(0xE3EBFE), TabBorder: gfx.RGB24(0xA7C5FF), TabIdle: gfx.RGB24(0xE9EAEE), TabIdleBorder: gfx.RGB24(0xD1D3D9),
+		Chrome:        gfx.RGB24(0xE8EBEF),
+		Panel:         gfx.RGB24(0xFFFFFF),
 		Editor:        gfx.RGB24(0xFFFFFF),
 		Line:          gfx.RGB24(0xEBECF0),
 		Hover:         gfx.RGB24(0xEBECF0),
@@ -129,6 +132,7 @@ func lightLook() (gfx.Theme, palette) {
 	theme := gfx.LightTheme()
 	theme.Background = p.Editor
 	theme.Foreground = p.Text
+	theme.Card = p.Panel
 	theme.CardForeground = p.Text
 	theme.PopoverForeground = p.Text
 	theme.MutedForeground = p.Subtle
@@ -142,6 +146,7 @@ func lightLook() (gfx.Theme, palette) {
 	theme.Success = p.Success
 	theme.Metrics = theme.Metrics.WithDensity(gfx.DensityCompact)
 	theme.Metrics.FontSizeS = 12
+	theme.Transition.Duration = 0
 	// Hover tips keep IDEA's own surface: a four point corner, a one point border and the
 	// two theme colors, instead of the inverted body the shared default draws.
 	theme.Tooltip = gfx.TooltipStyle{
@@ -155,10 +160,11 @@ func lightLook() (gfx.Theme, palette) {
 func darkLook() (gfx.Theme, palette) {
 	accent := gfx.RGB24(0x3574F0)
 	p := palette{
-		Chrome:        gfx.RGB24(0x2B2D30),
-		Panel:         gfx.RGB24(0x2B2D30),
-		Editor:        gfx.RGB24(0x1E1F22),
-		Line:          gfx.RGB24(0x1E1F22),
+		Tab: gfx.RGB24(0x233558), TabBorder: gfx.RGB24(0x2E4D89), TabIdle: gfx.RGB24(0x26282C), TabIdleBorder: gfx.RGB24(0x40434A),
+		Chrome:        gfx.RGB24(0x28292C),
+		Panel:         gfx.RGB24(0x191A1C),
+		Editor:        gfx.RGB24(0x191A1C),
+		Line:          gfx.RGB24(0x2E3036),
 		Hover:         gfx.RGB24(0x393B40),
 		Active:        gfx.RGB24(0x43454A),
 		Selection:     gfx.RGB24(0x2E436E),
@@ -186,7 +192,7 @@ func darkLook() (gfx.Theme, palette) {
 	theme.Foreground = p.Text
 	theme.Card = p.Panel
 	theme.CardForeground = p.Text
-	theme.Popover = gfx.RGB24(0x2B2D30)
+	theme.Popover = gfx.RGB24(0x28292C)
 	theme.PopoverForeground = p.Text
 	theme.MutedForeground = p.Subtle
 	theme.Border = gfx.RGB24(0x393B40)
@@ -199,6 +205,7 @@ func darkLook() (gfx.Theme, palette) {
 	theme.Success = p.Success
 	theme.Metrics = theme.Metrics.WithDensity(gfx.DensityCompact)
 	theme.Metrics.FontSizeS = 12
+	theme.Transition.Duration = 0
 	theme.Tooltip = gfx.TooltipStyle{
 		Radius: 4, PadX: 12, PadY: 8, FontSize: 13,
 		Background: gfx.RGB24(0x33353B), Text: gfx.RGB24(0xD1D3D9),

@@ -39,9 +39,11 @@ func (w *window) updatesPage(c ui.C) {
 	opts := &w.ctrl.opts
 	status := opts.UpdateStatus()
 	w.pageScroll(c, pageUpdates, func() {
+		w.card(c, i18n.Shared(language, "native.currentVersion"), "", func() {
+			ui.Text(c, opts.Version).FontSize(13).Color(w.pal.text)
+		})
 		w.card(c, i18n.Shared(language, "desktop.settings.updates.title"), i18n.Shared(language, "desktop.settings.updates.help"), func() {
 			ui.Column(c).FillWidth().Gap(8).Children(func() {
-				ui.Text(c, w.text.App.Version(opts.Version)).FontSize(13).Color(w.pal.text)
 				if !status.Configured {
 					ui.Wrap(c, i18n.Shared(language, "desktop.settings.updates.notConfigured")).FontSize(12).Color(w.pal.muted)
 					return

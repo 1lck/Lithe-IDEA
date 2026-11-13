@@ -201,6 +201,8 @@ func TestSyncProgressKeepsOnlyTheLatestPhaseOfTheRunningOperation(t *testing.T) 
 
 func TestLogUpdateSelectedBranchFastForwardsWithoutCheckingItOut(t *testing.T) {
 	h, p, dir, other := syncFixture(t)
+	h.app.reduceChrome(core.SetChromeOpen(itemGit, true))
+	h.settleChain()
 	gitRun(t, dir, "branch", "--track", "side", "origin/main")
 	publishCommit(t, other, "side.txt")
 	h.app.loadLog(p)
@@ -228,6 +230,8 @@ func TestLogUpdateSelectedBranchFastForwardsWithoutCheckingItOut(t *testing.T) {
 
 func TestLogNewAndDeleteBranchFromTheBranchesPane(t *testing.T) {
 	h, p, dir, _ := syncFixture(t)
+	h.app.reduceChrome(core.SetChromeOpen(itemGit, true))
+	h.settleChain()
 	h.clickNamed(h.app.text.Git.NewBranch)
 	h.settle()
 	b := &h.app.branch

@@ -326,10 +326,10 @@ func TestMarketplaceDividerDragResizeAndRestore(t *testing.T) {
 				if err := d.driver.Resize(760, 680); err != nil {
 					t.Fatal(err)
 				}
-				// The window leaves 523 pixels beside the sidebar: less the divider and the
-				// room the detail keeps.
-				if w.marketApplied != 355 {
-					t.Fatalf("narrow size = %v, want 355", w.marketApplied)
+				// The 234-point baseline sidebar leaves 525 pixels: less the divider
+				// and the room the detail keeps.
+				if w.marketApplied != 357 {
+					t.Fatalf("narrow size = %v, want 357", w.marketApplied)
 				}
 				checkDetail()
 				// A click or outward drag at the temporary boundary must not erase the wider

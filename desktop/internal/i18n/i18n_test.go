@@ -64,7 +64,7 @@ func TestWelcomeLabelsUseSharedLanguage(t *testing.T) {
 		empty    string
 	}{
 		{English, "Projects", "Open", "No recent projects"},
-		{Chinese, "项目", "打开", "还没有最近项目"},
+		{Chinese, "项目", "打开", "没有最近项目"},
 	} {
 		welcome := For(test.language).Welcome
 		if welcome.Projects != test.projects || welcome.Open != test.open || welcome.EmptyTitle != test.empty {

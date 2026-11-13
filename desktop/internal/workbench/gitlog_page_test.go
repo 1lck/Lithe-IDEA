@@ -18,7 +18,7 @@ func (h *harness) openLog(t *testing.T, dir string) *project {
 	}
 	h.app.layout.gitTab = gitTabLog
 	h.settle()
-	if !p.log.started {
+	if !h.app.chrome.isOpen(catalogIndex[itemGit]) {
 		h.click(center(h.button(itemGit)))
 		h.settle()
 	}

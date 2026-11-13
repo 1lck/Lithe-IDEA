@@ -44773,7 +44773,8 @@
       "id": "native.closeDiff",
       "description": "Native UI: Close diff",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Close diff",
@@ -45069,7 +45070,8 @@
       "id": "native.closingATerminalTab",
       "description": "Native UI: Closing a terminal tab",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Closing a terminal tab",
@@ -47390,7 +47392,8 @@
       "id": "native.copyPathReference",
       "description": "Native UI: Copy Path / Reference",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Copy Path / Reference",
@@ -50163,7 +50166,8 @@
       "id": "native.diffSettings",
       "description": "Native UI: Diff settings",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Diff settings",
@@ -64917,7 +64921,8 @@
       "id": "native.new",
       "description": "Native UI: New",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "New",
@@ -91216,7 +91221,8 @@
       "id": "native.whenQuittingLithe",
       "description": "Native UI: When quitting Lithe",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "When quitting Lithe",
@@ -104837,6 +104843,20 @@
         "key": "Other…",
         "arguments": []
       }
+    },
+    {
+      "id": "desktop.diff.keepWhitespace",
+      "description": "Diff settings menu: compare whitespace instead of ignoring it.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.tools.moveTo",
+      "description": "Parent submenu for moving a tool window to a docking zone.",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

@@ -32,13 +32,15 @@ func TestTerminalShellChoiceWritesOnlyWhenChosen(t *testing.T) {
 		t.Fatalf("opening the page wrote %v", changed)
 	}
 	auto := settings.TerminalShellAuto("zsh")
-	if hit := d.hit(auto); !hit.Checked {
+	if hit := d.hit(settings.TerminalShell); hit.Value != auto {
 		t.Fatalf("automatic is not chosen: %+v", hit)
 	}
+	d.click(settings.TerminalShell)
 	d.click("bash")
 	if !slices.Equal(changed, []string{"/bin/bash"}) {
 		t.Fatalf("bash: %v", changed)
 	}
+	d.click(settings.TerminalShell)
 	d.click(auto)
 	if !slices.Equal(changed, []string{"/bin/bash", ""}) {
 		t.Fatalf("automatic: %v", changed)
@@ -52,7 +54,7 @@ func TestTerminalStoredShellThatIsGoneStaysChosen(t *testing.T) {
 	var changed []string
 	w, d := terminalWindow(t, "/opt/gone/fish", &changed)
 	missing := w.text.Settings.TerminalShellMissing("/opt/gone/fish")
-	if hit := d.hit(missing); !hit.Checked {
+	if hit := d.hit(w.text.Settings.TerminalShell); hit.Value != missing {
 		t.Fatalf("the stored shell is not chosen: %+v", hit)
 	}
 	if len(changed) != 0 {

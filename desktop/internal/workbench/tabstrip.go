@@ -410,7 +410,11 @@ func (a *App) stripTab(c ui.C, place *groupPlace, t shownTab, current string, i 
 	label, icon := a.tabLabel(t), a.tabIcon(t)
 	chip = chip.HitWith(id, label, options).Pressed(ui.Look{}.Background(a.colors.Active))
 	if selected {
-		chip = chip.Background(a.colors.Active)
+		fill, border := a.colors.TabIdle, a.colors.TabIdleBorder
+		if !a.windowInactive && a.project.terms.bench.FocusedGroup == place.id {
+			fill, border = a.colors.Tab, a.colors.TabBorder
+		}
+		chip = chip.Background(fill).Stroke(1, border).Radius(6)
 	} else {
 		chip = chip.Hover(ui.Look{}.Background(a.colors.Hover))
 	}
