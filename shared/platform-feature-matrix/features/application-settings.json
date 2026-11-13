@@ -41,7 +41,7 @@
   },
   "owner": "Settings",
   "notes": "Viva 设置窗口的每个侧栏页都已接入：外观、常规、更新、网络、编辑器、字体、快捷键、进程终止、插件、版本控制、构建与工具链、语言（插件贡献的动态页）、终端、AI 生成与 IDE API；外观与语言选择后立即应用。尚未完成原版界面像素级对照或跨平台实机验收。 本次按 main-macos-live-baseline（源提交 a824bd5c）校准 900×700 初始窗口、234pt 侧栏、24pt 导航行、深浅色页面/卡片/下拉层级和页边距；已检查 macOS 原生通用页及语言下拉，仍不代表所有设置页逐像素验收。 本轮全页对照将自动保存入口移回通用页，终端 Shell 改为共享下拉并保留检测/缺失/自动生效值，退出策略按原版合并同行，更新页拆开版本与操作。 编辑器标签的滚动、压缩和多行布局统一为共享下拉，选择多行时保留先前单行溢出偏好。TestVisualSettings 以离线事实采集深浅色页面和菜单；工具真实来源与未实现设置项仍按既有状态记录，不能把截图覆盖当原生验收。",
-  "verification": "无头窗口覆盖说明悬停延迟、点击固定、Escape、键盘操作、窄窗口实际值，外观和语言即时应用、恢复默认、关闭不回滚，以及日志窗口重绘和跟随系统外观；分别生成常规设置截图、与原版 macOS 布局对照。完整设置页、真实窗口与真实配置读写仍待验收，Windows 尚未运行本次测试。运行 scripts/desktop/desktop-go.sh test -race ./internal/logwindow ./internal/settingswindow ./internal/workbench -run 'TestOpenWindowRepaintsWhenLanguageAndAppearanceChange|TestGeneral|TestSettingsChangesUpdateSharedStateAndPersist|TestSystemAppearanceChangesSharedStateWhenFollowingSystem' -count=3。",
+  "verification": "无头窗口覆盖说明悬停延迟、点击固定、Escape、键盘操作，以及 ⓘ 悬停提示和点击固定的说明都显示在图标右侧（右侧放不下时换到左侧）、窄窗口实际值，外观和语言即时应用、恢复默认、关闭不回滚，以及日志窗口重绘和跟随系统外观；分别生成常规设置截图、与原版 macOS 布局对照。完整设置页、真实窗口与真实配置读写仍待验收，Windows 尚未运行本次测试。运行 scripts/desktop/desktop-go.sh test -race ./internal/logwindow ./internal/settingswindow ./internal/workbench -run 'TestOpenWindowRepaintsWhenLanguageAndAppearanceChange|TestGeneral|TestSettingsChangesUpdateSharedStateAndPersist|TestSystemAppearanceChangesSharedStateWhenFollowingSystem' -count=3。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

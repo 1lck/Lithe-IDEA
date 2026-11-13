@@ -33,6 +33,24 @@ func (d *windowDriver) showsHelp(help string) bool {
 	return false
 }
 
+// helpBeside fails unless the first line of help shows to the right of trigger, starting
+// no higher than trigger's top and no lower than its bottom: the info tip and its pinned
+// popover open beside the glyph, not over the rows under it.
+func (d *windowDriver) helpBeside(help string, trigger gfx.Rect, what string) {
+	d.t.Helper()
+	for _, text := range d.driver.Snapshot().Texts {
+		if len(text.Value) < 8 || !strings.HasPrefix(help, text.Value) {
+			continue
+		}
+		if text.Bounds.X < trigger.X+trigger.Width || text.Bounds.Y > trigger.Y+trigger.Height ||
+			text.Bounds.Y+text.Bounds.Height < trigger.Y {
+			d.t.Fatalf("%s: the help %v is not to the right of its glyph %v", what, text.Bounds, trigger)
+		}
+		return
+	}
+	d.t.Fatalf("%s: the help is not shown", what)
+}
+
 func TestGeneralAppearanceAppliesBeforeCloseAndRestore(t *testing.T) {
 	var themes, languages []string
 	w := newWindow(NewController(Options{
@@ -119,6 +137,7 @@ func TestGeneralInfoHoverClickAndKeyboard(t *testing.T) {
 	if !d.showsHelp(help) {
 		t.Fatal("hover did not display the help")
 	}
+	d.helpBeside(help, trigger.Bounds, "hover")
 	if err := d.driver.Click(x, y); err != nil {
 		t.Fatal(err)
 	}
@@ -128,6 +147,7 @@ func TestGeneralInfoHoverClickAndKeyboard(t *testing.T) {
 	if !d.showsHelp(help) {
 		t.Fatal("moving away dismissed pinned help")
 	}
+	d.helpBeside(help, trigger.Bounds, "pinned")
 	d.key(gfx.KeyEscape)
 	if d.showsHelp(help) || w.sess.finished.Load() {
 		t.Fatal("Escape did not close help without closing settings")
