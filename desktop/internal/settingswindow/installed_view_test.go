@@ -2,11 +2,13 @@ package settingswindow
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
 	"github.com/vivaui/viva/app"
 )
 
@@ -206,4 +208,37 @@ func TestRepositoriesDialogAddsAndRemovesAnIndex(t *testing.T) {
 	if w.repositoriesOpen {
 		t.Fatal("Done did not close the dialog")
 	}
+}
+
+// A plugin's Settings tab grows its form to the height under the tab bar, so the settings list
+// fills it and shows its last row whole, rather than sitting at a fixed height in the scroll.
+func TestInstalledSettingsTabListFillsTheDetail(t *testing.T) {
+	const count = 30
+	manifest := flagsManifest(t, count)
+	facts := []PluginFacts{{ID: "dev.example.settings", Name: "Settings", Vendor: "Example", Version: "1.0.0", Source: PluginSourceDisk, Settings: count}}
+	fits := map[int]settingsListFit{}
+	for _, height := range settingsListHeights {
+		client := core.NewClient()
+		source := settingsFormSource{store: pluginsettings.New(client, t.TempDir()), manifest: manifest, workspace: t.TempDir()}
+		w := newWindow(NewController(Options{
+			Language: func() i18n.Language { return i18n.English },
+			Marketplace: func(context.Context) (marketplace.Snapshot, error) {
+				return marketplace.Snapshot{}, nil
+			},
+			InstalledPlugins: func() []PluginFacts { return facts },
+			PluginState: func(string) PluginState {
+				return PluginState{Installed: true, Version: "1.0.0", Enabled: true}
+			},
+			PluginSettings: source,
+		}), Values{})
+		w.sess.page = pagePlugins
+		d := openWindow(t, w, func(config *app.Config) { config.Width, config.Height = 1100, height })
+		d.until("the marketplace index", func() bool { return w.market.status == marketReady })
+		w.installed.tab = installedSettings
+		d.until("the form", func() bool { return w.pluginSettings != nil && w.pluginSettings.loaded && !w.pluginSettings.running })
+		w.inv.Invalidate()
+		d.pump()
+		fits[height] = measureSettingsList(t, d, w, fmt.Sprintf("Flag %02d", count-1))
+	}
+	checkSettingsListFills(t, fits)
 }

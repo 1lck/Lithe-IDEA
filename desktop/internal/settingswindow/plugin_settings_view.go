@@ -13,6 +13,11 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
+// settingsListMinHeight is the least height of a form's settings list: a window too short to
+// give it that scrolls the page instead of squeezing the list. It still fits whole under an
+// installed plugin's header and tabs in the smallest window.
+const settingsListMinHeight = 160
+
 // scopeChoices are the two scopes a plugin's settings are edited in: global, then project.
 var scopeChoices = []int{0, 1}
 
@@ -27,6 +32,12 @@ func (w *window) scopeLabel(scope int) string {
 // pluginSettingsPanel is the form of the plugin id: the toolbar that reloads or saves it,
 // what the last request said, the scope and then Core's rows in Core's order. The drafts
 // live in the form, so the panel can come and go without losing them.
+//
+// The panel grows into the height its parent leaves under what sits above it, and the rows'
+// list fills what the panel's header leaves, so the last row ends at the bottom of the page
+// and not at a fixed height above blank space. The list keeps settingsListMinHeight, so the
+// parent must be a scroll that grows its content to the viewport: a short window scrolls
+// the page rather than cutting the list's last rows off under the window's buttons.
 func (w *window) pluginSettingsPanel(c ui.C, id string) {
 	if !w.selectPluginForm(id) {
 		ui.Wrap(c, i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.draftLimit")).Color(w.pal.danger)
@@ -44,7 +55,7 @@ func (w *window) pluginSettingsPanel(c ui.C, id string) {
 		p.load(id)
 	}
 	language := w.marketLanguage()
-	ui.Column(c).FillWidth().Gap(10).Children(func() {
+	ui.Column(c).FillWidth().Grow(1).Gap(10).Children(func() {
 		ui.Row(c).FillWidth().Height(1).Background(w.pal.line)
 		ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
 			ui.Text(c, i18n.Shared(language, "desktop.pluginSettings.title")).FontSize(14).Weight(gfx.WeightSemibold).Color(w.pal.text)
@@ -135,7 +146,7 @@ func (w *window) pluginSettingsPanel(c ui.C, id string) {
 		// regrouping them; the list declares only the rows in its viewport.
 		ui.List(c, &p.rows, len(p.layout), func(row ui.ListRow) {
 			w.pluginSettingsListRow(row, p, source != "")
-		}).FillWidth().Height(360).Shrink(0).Label(i18n.Shared(language, "desktop.pluginSettings.title"))
+		}).FillWidth().Grow(1).MinHeight(settingsListMinHeight).Label(i18n.Shared(language, "desktop.pluginSettings.title"))
 	})
 }
 

@@ -460,7 +460,8 @@ func installedSubtitle(fact PluginFacts) string {
 }
 
 // installedDetail is the chosen plugin: its header with the actions, the notices, the tab
-// bar and the open tab, which scrolls under the header.
+// bar and the open tab, which scrolls under the header. The tab grows to the scroll's height,
+// so the settings form's list can fill what the tab bar leaves.
 func (w *window) installedDetail(c ui.C, language i18n.Language, fact PluginFacts) {
 	s := &w.installed
 	ui.Column(c).FillWidth().Grow(1).Shrink(1).MinHeight(0).Children(func() {
@@ -469,7 +470,7 @@ func (w *window) installedDetail(c ui.C, language i18n.Language, fact PluginFact
 		w.installedTabs(c, language, fact)
 		ui.Row(c).FillWidth().Height(1).Shrink(0).Background(w.pal.line)
 		ui.Scroll(c.Part("installed-detail")).FillWidth().Grow(1).Shrink(1).MinHeight(0).Children(func() {
-			ui.Column(c).FillWidth().Shrink(0).MinWidth(0).Pad(22).Gap(16).Children(func() {
+			ui.Column(c).FillWidth().Grow(1).Shrink(0).MinWidth(0).Pad(22).Gap(16).Children(func() {
 				switch s.tab {
 				case installedFeatures:
 					w.installedFeatures(c, language, fact)

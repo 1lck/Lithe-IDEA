@@ -3,6 +3,7 @@ package settingswindow
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"sync/atomic"
 	"testing"
@@ -12,6 +13,8 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/ui"
 )
 
 func TestSettingsDynamicPagesShareDraftsFilterActionsAndRefreshCleanForms(t *testing.T) {
@@ -162,4 +165,130 @@ func (s dynamicFormsSource) Load(ctx context.Context, id string) (pluginservice.
 	}
 	snapshot, err := s.store.Load(ctx, manifest, s.workspace)
 	return pluginservice.SettingsEditor{Snapshot: snapshot}, err
+}
+
+// flagsManifest is the settings fixture's manifest with count boolean settings, all placed on
+// the elixir language page, and no actions.
+func flagsManifest(t *testing.T, count int) json.RawMessage {
+	t.Helper()
+	data, err := os.ReadFile("../../../shared/fixtures/plugins/settings-documents.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct{ Manifest map[string]any }
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	settings := make([]any, 0, count)
+	for index := range count {
+		settings = append(settings, map[string]any{"id": fmt.Sprintf("flag%02d", index), "type": "boolean", "title": fmt.Sprintf("Flag %02d", index), "default": true, "page": map[string]string{"languageID": "elixir"}})
+	}
+	fixture.Manifest["settings"] = settings
+	delete(fixture.Manifest, "settingActions")
+	manifest, err := json.Marshal(fixture.Manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return manifest
+}
+
+// settingsListFit is where a form's settings list sits in the window once the page is
+// scrolled to its end: its visible height and the distance from its bottom to the top of the
+// window's OK button.
+type settingsListFit struct{ height, gap float32 }
+
+// settingsListHits are the open form's settings list, as much of it as is visible, and the
+// window's OK button.
+func settingsListHits(t *testing.T, d *windowDriver, w *window) (list, ok gfx.Hit) {
+	t.Helper()
+	for _, hit := range d.driver.Snapshot().Hits {
+		switch {
+		case hit.Role == gfx.RoleListBox && hit.Label == i18n.Shared(i18n.English, "desktop.pluginSettings.title"):
+			list = hit
+		case hit.Role == gfx.RoleButton && hit.Label == w.text.Settings.OK:
+			ok = hit
+		}
+	}
+	if list.Bounds.Height == 0 || ok.Bounds.Height == 0 {
+		t.Fatal("no settings list or no OK button")
+	}
+	return list, ok
+}
+
+// measureSettingsList scrolls the page to its end, measures the open form's list, then
+// scrolls the list to its last row and fails unless that row is drawn whole inside it.
+func measureSettingsList(t *testing.T, d *windowDriver, w *window, last string) settingsListFit {
+	t.Helper()
+	list, _ := settingsListHits(t, d, w)
+	// The wheel turns just above the list, so it scrolls the page and not the list's rows.
+	if err := d.driver.Scroll(gfx.ScrollEvent{X: list.Bounds.X + list.Bounds.Width/2, Y: list.Bounds.Y - 4, DeltaY: 10000, Precise: true}); err != nil {
+		t.Fatal(err)
+	}
+	d.pump()
+	list, ok := settingsListHits(t, d, w)
+	bottom := list.Bounds.Y + list.Bounds.Height
+	w.pluginSettings.rows.ScrollTo(len(w.pluginSettings.layout)-1, ui.ListEnd)
+	w.inv.Invalidate()
+	d.pump()
+	d.pump()
+	found := false
+	for _, label := range d.driver.Snapshot().Labels {
+		if label.Value != last {
+			continue
+		}
+		found = true
+		if label.Bounds.Y < list.Bounds.Y || label.Bounds.Y+label.Bounds.Height > bottom {
+			t.Fatalf("the last row %+v is cut by the list %+v", label.Bounds, list.Bounds)
+		}
+	}
+	if !found {
+		t.Fatalf("the last row %q is not drawn", last)
+	}
+	return settingsListFit{height: list.Bounds.Height, gap: ok.Bounds.Y - bottom}
+}
+
+// settingsListHeights are the window heights the list is measured in: the smallest window,
+// which scrolls the page to show the list's least height, and two that it fills.
+var settingsListHeights = [3]int{windowMinHeight, 800, 1000}
+
+// checkSettingsListFills fails unless, in the two taller windows, the list grew by exactly what
+// the window grew and ends the same short distance above the window's buttons, and, in the
+// smallest, the page scrolls to the whole of the list's least height above the buttons.
+func checkSettingsListFills(t *testing.T, fits map[int]settingsListFit) {
+	t.Helper()
+	small, mid, tall := fits[settingsListHeights[0]], fits[settingsListHeights[1]], fits[settingsListHeights[2]]
+	grown := float32(settingsListHeights[2] - settingsListHeights[1])
+	if delta := tall.height - mid.height; delta < grown-1 || delta > grown+1 {
+		t.Fatalf("the list grew %v for a window %v taller: %+v, %+v", delta, grown, mid, tall)
+	}
+	if tall.gap-mid.gap > 1 || mid.gap-tall.gap > 1 || mid.gap < 0 || tall.gap > 3*contentPad {
+		t.Fatalf("the list does not end at the page's bottom: %+v, %+v", mid, tall)
+	}
+	if small.height < settingsListMinHeight-1 || small.gap < 0 {
+		t.Fatalf("the smallest window shows %+v of the list", small)
+	}
+}
+
+// A language page's settings list fills the page under the form's header, so the last row ends
+// at the page's bottom instead of being cut off at a fixed height above blank space, and a
+// window too short for the list scrolls the page.
+func TestSettingsDynamicPageListFillsThePageAndShowsItsLastRowWhole(t *testing.T) {
+	const count = 30
+	manifest := flagsManifest(t, count)
+	fits := map[int]settingsListFit{}
+	for _, height := range settingsListHeights {
+		client := core.NewClient()
+		source := settingsFormSource{store: pluginsettings.New(client, t.TempDir()), manifest: manifest, workspace: t.TempDir()}
+		w := newWindow(NewController(Options{PluginSettings: source, Text: func() *i18n.Messages { return i18n.For(i18n.English) }, SettingsNavigation: client.SettingsNavigation, SettingsPages: func(ctx context.Context) ([]core.SettingsPage, error) {
+			return client.SettingsPages(ctx, []core.SettingsContribution{{Manifest: manifest, Owner: core.PluginSettingsOwner{PluginID: "dev.example.settings", Version: "1.0.0"}, Enabled: true}})
+		}}), Values{Theme: "dark"})
+		d := openWindow(t, w, func(config *app.Config) { config.Height = height })
+		d.until("the language page", func() bool { return len(w.dynamic.pages) == 1 })
+		w.selectSettingsPage(pageLanguages, w.dynamic.pages[0].Key)
+		d.until("the form", func() bool { return w.pluginSettings != nil && w.pluginSettings.loaded && !w.pluginSettings.running })
+		w.inv.Invalidate()
+		d.pump()
+		fits[height] = measureSettingsList(t, d, w, fmt.Sprintf("Flag %02d", count-1))
+	}
+	checkSettingsListFills(t, fits)
 }
