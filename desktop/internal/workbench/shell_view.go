@@ -118,7 +118,8 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 			if tabbed && p != nil {
 				a.drawGitActions(c, p)
 			}
-			hide := ui.Button(c, a.text.Panel.Hide).Icon(icons.Minus).IconOnly().Ghost().Size(shellHideSize, shellHideSize).Shrink(0)
+			hide := ui.Button(c, a.text.Panel.Hide).Icon(icons.Minus).IconOnly().Ghost().Size(shellHideSize, shellHideSize).Shrink(0).
+				Tooltip(a.text.Panel.Hide)
 			if hide.Clicked() {
 				*hidden = s
 			}

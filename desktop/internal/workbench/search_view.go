@@ -41,7 +41,7 @@ func (a *App) searchPanel(c ui.C) {
 			a.searchReplaceToggle(c)
 			a.searchOptions(c, language)
 			refresh := ui.Button(c, i18n.Shared(language, "ui.refresh")).Icon(icons.RefreshCw).IconOnly().Ghost().
-				Disabled(strings.TrimSpace(p.search.want.text) == "")
+				Disabled(strings.TrimSpace(p.search.want.text) == "").Tooltip(i18n.Shared(language, "ui.refresh"))
 			if refresh.Clicked() {
 				a.performed("workspace.search.refresh", surfaceButton)
 				c.After(func() { a.refreshProjectSearch(p) })
@@ -81,7 +81,8 @@ func (a *App) searchPanel(c ui.C) {
 // expression switches.
 func (a *App) searchOptions(c ui.C, language i18n.Language) {
 	v := &a.searchView
-	button := ui.Button(c, i18n.Shared(language, "native.searchOptions")).Icon(icons.Settings).IconOnly().Ghost()
+	button := ui.Button(c, i18n.Shared(language, "native.searchOptions")).Icon(icons.Settings).IconOnly().Ghost().
+		Tooltip(i18n.Shared(language, "native.searchOptions"))
 	if button.Clicked() {
 		v.optionsOpen = !v.optionsOpen
 	}

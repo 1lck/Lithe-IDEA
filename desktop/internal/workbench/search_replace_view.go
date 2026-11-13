@@ -18,7 +18,7 @@ var searchReplaceID = tree.ID(shellPage, "project-search-replace")
 func (a *App) searchReplaceToggle(c ui.C) {
 	v := &a.searchView
 	t := a.text.Search
-	button := ui.Button(c.Key("replace-toggle"), t.ReplaceToggle).Icon(icons.ArrowLeftRight).IconOnly()
+	button := ui.Button(c.Key("replace-toggle"), t.ReplaceToggle).Icon(icons.ArrowLeftRight).IconOnly().Tooltip(t.ReplaceToggle)
 	if !v.replaceOpen {
 		button = button.Ghost()
 	}

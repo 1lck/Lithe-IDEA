@@ -125,6 +125,41 @@ func TestDebugAdapterPickerSitsInTheToolbar(t *testing.T) {
 	}
 }
 
+// Every icon of the toolbar names its action in the tip that shows while the pointer rests on
+// it, and while a session runs the adapter picker stays on the toolbar, switchable for the next
+// session, with the status beside it naming the session only when the picker shows another
+// adapter.
+func TestDebugToolbarNamesItsIconsAndKeepsTheAdapterSwitchable(t *testing.T) {
+	h, p := pausedDebugSession(t)
+	defer releaseLaunchedDebug(h, p)
+	d, words := &p.debug, h.app.text.Debug
+	for _, name := range []string{
+		h.shared("native.rerun"), words.Stop, words.Continue, words.Pause, words.StepOver, words.StepInto, words.StepOut,
+		h.shared("native.viewBreakpoints"), h.shared("native.muteBreakpoints"), h.shared("native.moreActions"),
+	} {
+		if hint := h.pageHit(name).Hint; hint != name {
+			t.Errorf("the %q icon shows the tip %q", name, hint)
+		}
+	}
+	picker := h.pageHit(h.shared("desktop.debug.adapter"))
+	stop := h.pageHit(words.Stop).Bounds
+	if abs32(center(picker.Bounds).Y-center(stop).Y) > 2 || picker.Bounds.X <= stop.X {
+		t.Fatalf("picker %+v is not on the toolbar row of Stop %+v", picker.Bounds, stop)
+	}
+	named := h.app.debugSessionLabel(d.activeSession()) + " · " + words.Paused
+	if !h.shows(words.Paused) || h.shows(named) {
+		t.Fatal("the status repeats the adapter the picker shows")
+	}
+	// A session the picker no longer shows is named by the status again.
+	d.adapters = append(d.adapters, debugAdapter{PluginID: "dev.lithe.test.other", Declaration: d.adapters[0].Declaration})
+	d.selectedAdapter = len(d.adapters) - 1
+	h.app.invalidator.Invalidate()
+	h.settle()
+	if !h.shows(named) {
+		t.Fatal("the status does not name the running session after the picker switched away from it")
+	}
+}
+
 func abs32(v float32) float32 {
 	if v < 0 {
 		return -v
@@ -167,6 +202,42 @@ func TestDebugDisassemblyStepsByInstructionAndTogglesItsGutterDot(t *testing.T) 
 	})
 	if d.failure != "" {
 		t.Fatalf("the step failed: %s", d.failure)
+	}
+}
+
+// The Disassembly tab keeps the call stack on its left, as Threads & Variables does, and choosing
+// another frame there shows that frame's code, not the code of the frame chosen before.
+func TestDebugDisassemblyShowsTheStackBesideTheChosenFramesCode(t *testing.T) {
+	h, p := pausedDebugSession(t)
+	defer releaseLaunchedDebug(h, p)
+	d := &p.debug
+	d.section = debugSectionDisassembly
+	h.app.invalidator.Invalidate()
+	awaitStateWithin(t, h, 20*time.Second, "the instruction window", func() bool {
+		return !d.disassembly.loading && len(d.disassembly.rows) > 0
+	})
+	// The list centres the current instruction in the frames it asks for; virtual time runs them.
+	if err := h.driver.Advance(200 * time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	frame, code := h.pageHit("worker").Bounds, h.labelBounds("0x1000")
+	if code.Width == 0 || frame.X+frame.Width > code.X {
+		t.Fatalf("frame %+v is not on the left of the code %+v", frame, code)
+	}
+
+	// The fixture's second frame has no instruction pointer, so its tab has no code.
+	h.click(center(frame))
+	awaitStateWithin(t, h, 10*time.Second, "the second frame", func() bool { return d.vars.frame == 1 })
+	h.settle()
+	if len(d.disassembly.rows) != 0 || !h.shows(h.app.text.Debug.NoDisassembly) {
+		t.Fatalf("the second frame shows %d rows of the first frame's code", len(d.disassembly.rows))
+	}
+	h.clickNamed("main")
+	awaitStateWithin(t, h, 20*time.Second, "the first frame's code again", func() bool {
+		return d.vars.frame == 0 && !d.disassembly.loading && len(d.disassembly.rows) > 0
+	})
+	if d.disassembly.anchor != "0x1000" {
+		t.Fatalf("the window opened at %q, want the first frame's instruction pointer", d.disassembly.anchor)
 	}
 }
 

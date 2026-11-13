@@ -23,8 +23,8 @@ const (
 	debugSectionMemory      = "memory"
 )
 
-// Minimum widths of the two panes of Threads & Variables, and the share of the call stack
-// before the user moves the divider.
+// Minimum widths of the call stack and of the pane beside it in Threads & Variables and
+// Disassembly, and the share of the call stack before the user moves the divider.
 const (
 	debugFramesMinWidth    = 160
 	debugVariablesMinWidth = 220
@@ -64,18 +64,26 @@ func (a *App) debugSections(c ui.C, p *project) {
 // debugThreadsAndVariables declares the Threads & Variables tab: the call stack on the left and,
 // past a divider the user moves, the variables of the selected frame.
 func (a *App) debugThreadsAndVariables(c ui.C, p *project) {
+	a.debugBesideFrames(c, p, "variables", func() { a.debugVariablesView(c, p) })
+}
+
+// debugBesideFrames declares the thread picker and call stack on the left of a tab, as IntelliJ
+// IDEA keeps them beside the variables and the disassembly, and the tab's own pane past a
+// divider the user moves. The tabs share the divider, so the stack keeps its width as the user
+// moves between them.
+func (a *App) debugBesideFrames(c ui.C, p *project, part string, pane func()) {
 	split := &p.panels.debugSplit
 	if split.Ratio <= 0 {
 		split.Ratio = debugFramesRatio
 	}
-	var frames, variables ui.Box
+	var frames, beside ui.Box
 	ui.Row(c).Fill().Clip().Children(func() {
 		frames = ui.Column(c.Part("frames")).Children(func() { a.debugFrames(c, p) })
 		ui.Splitter(c, split).Mins(debugFramesMinWidth, debugVariablesMinWidth).Label(a.text.Panel.Resize)
-		variables = ui.Column(c.Part("variables")).Children(func() { a.debugVariablesView(c, p) })
+		beside = ui.Column(c.Part(part)).Children(pane)
 	})
 	frames.FillHeight().MinWidth(debugFramesMinWidth).Shrink(1)
-	variables.Fill().MinWidth(debugVariablesMinWidth)
+	beside.Fill().MinWidth(debugVariablesMinWidth)
 }
 
 // debugVariableLabel is the text assistive technology reads for one row.
@@ -284,12 +292,19 @@ func (a *App) debugExceptionsView(c ui.C, p *project) {
 	})
 }
 
-// debugDisassemblyView declares the instruction window of the selected frame as IntelliJ IDEA
-// shows it: no actions of its own. The toolbar's steps take one instruction while this tab is
+// debugDisassemblyView declares the Disassembly tab: the call stack on the left, as in Threads &
+// Variables, and the instructions of the selected frame beside it. Choosing another frame
+// shows that frame's code.
+func (a *App) debugDisassemblyView(c ui.C, p *project) {
+	a.debugBesideFrames(c, p, "disassembly", func() { a.debugInstructions(c, p) })
+}
+
+// debugInstructions declares the instruction window of the selected frame as IntelliJ IDEA
+// shows it: no actions of its own. The toolbar's steps take one instruction while the tab is
 // shown (see debugStepGranularity), the toolbar's More menu goes back to the current
 // instruction, scrolling to either end loads more code, and a click in the gutter sets or
 // removes an instruction breakpoint, drawn as the editor draws a line breakpoint.
-func (a *App) debugDisassemblyView(c ui.C, p *project) {
+func (a *App) debugInstructions(c ui.C, p *project) {
 	t, d := a.text.Debug, &p.debug
 	w := &d.disassembly
 	if !canDisassemble(d) {

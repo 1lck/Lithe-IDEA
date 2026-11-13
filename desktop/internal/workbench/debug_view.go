@@ -65,8 +65,8 @@ func (a *App) debugView(c ui.C, p *project) {
 // debugToolbar declares the Debug window's actions as IntelliJ IDEA groups them: rerun and
 // stop the session; resume, pause and the steps of the paused thread; the breakpoints dialog
 // and the switch that mutes every breakpoint; then the More menu. Start stands in for Stop
-// while no session runs. The status of the shown session closes the row, and while no session
-// runs the compact adapter picker follows it.
+// while no session runs. Each icon names its action when the pointer rests on it. The status
+// of the shown session and the compact adapter picker close the row.
 func (a *App) debugToolbar(c ui.C, p *project) {
 	t, d := a.text.Debug, &p.debug
 	lang := a.language()
@@ -127,16 +127,25 @@ func (a *App) debugToolbar(c ui.C, p *project) {
 		ui.Spacer(c)
 		if d.status != "" {
 			status := d.status
-			if session != nil {
+			// The picker names the session's adapter while it shows that adapter; a child
+			// session, or a session whose adapter the user switched away from, is named here.
+			if session != nil && !d.pickerShows(session) {
 				status = a.debugSessionLabel(session) + " · " + status
 			}
 			ui.Text(c, status).Shrink(1).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
 		}
-		// The adapter is chosen before a session starts; while one runs, its label says which.
-		if session == nil {
-			a.debugAdapterPicker(c.Part("adapter"), p)
-		}
+		a.debugAdapterPicker(c.Part("adapter"), p)
 	})
+}
+
+// pickerShows reports whether the toolbar's adapter picker shows the adapter session runs: a
+// session the user started from it, not one another session started.
+func (d *debugState) pickerShows(session *debugSession) bool {
+	if session.parent != nil || len(d.adapters) == 0 {
+		return false
+	}
+	picked := d.adapters[d.selectedAdapter]
+	return picked.PluginID == session.adapter.PluginID && picked.Declaration.ID == session.adapter.Declaration.ID
 }
 
 // debugStepGranularity is the unit the toolbar's steps take: one instruction while the
@@ -192,9 +201,9 @@ func (a *App) debugMoreMenu(c ui.C, anchor ui.Box, p *project) {
 	}
 }
 
-// debugAdapterPicker declares the compact adapter picker at the end of the toolbar. It is
-// shown only while no session runs: a running session's adapter is fixed and the status
-// already names it.
+// debugAdapterPicker declares the compact adapter picker at the end of the toolbar. It stays
+// switchable while a session runs, as IntelliJ IDEA's run configuration does: a running
+// session keeps its adapter, and the choice is the one Start and the next session use.
 func (a *App) debugAdapterPicker(c ui.C, p *project) {
 	d := &p.debug
 	if len(d.adapters) == 0 {

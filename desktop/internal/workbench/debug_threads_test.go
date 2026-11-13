@@ -3,6 +3,7 @@ package workbench
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -238,4 +239,67 @@ func TestDebugThreadResumesAloneAndWatchEditsInPlace(t *testing.T) {
 	awaitStateWithin(t, h, 20*time.Second, "the continued session", func() bool {
 		return p.debug.state == "running" && p.debug.resumedThreads == nil
 	})
+}
+
+// TestDebugEvaluateAndWatchShowTheirWholeReason checks that a reason the debugger gives for not
+// evaluating an expression wraps to be read whole, in the evaluate field's result and in a
+// watch, while a watch with a value keeps its row one line tall.
+func TestDebugEvaluateAndWatchShowTheirWholeReason(t *testing.T) {
+	h, p := pausedDebugSession(t)
+	defer releaseLaunchedDebug(h, p)
+	if err := h.driver.Resize(1280, 900); err != nil {
+		t.Fatal(err)
+	}
+	reason := func(marker string) string {
+		return "Expression evaluation in pure C not supported. Ran expression as 'ISO C++'. " +
+			strings.Repeat("error: use of undeclared identifier in the selected frame of the stopped thread; ", 4) + marker
+	}
+	w := &p.debug.watch
+	w.evaluated = &debugWatchEntry{expression: "evaluated", failure: reason("EVALUATED_END")}
+	w.entries = []debugWatchEntry{
+		{expression: "refused", failure: reason("WATCH_END")},
+		{expression: "kept", value: "42", typeName: "int"},
+	}
+	p.debug.section = debugSectionThreads
+	h.app.invalidator.Invalidate()
+	h.settle()
+
+	for _, entry := range []debugWatchEntry{*w.evaluated, w.entries[0]} {
+		if !h.showsWrapped(entry.failure) {
+			t.Fatalf("the reason for %q is not shown whole", entry.expression)
+		}
+	}
+	line := func(part string) gfx.Rect {
+		t.Helper()
+		for _, label := range h.driver.Snapshot().Labels {
+			if strings.Contains(label.Value, part) {
+				if strings.Contains(label.Value, "…") {
+					t.Fatalf("the reason was cut: %q", label.Value)
+				}
+				return label.Bounds
+			}
+		}
+		t.Fatalf("no line shows %q", part)
+		return gfx.Rect{}
+	}
+	expression := line("evaluated")
+	first, last := line("pure C"), line("EVALUATED_END")
+	if last.Y <= first.Y {
+		t.Fatalf("the evaluated reason did not wrap: first line %v, last line %v", first, last)
+	}
+	// The reason's first line sits beside the expression, as a one-line row places both.
+	if first.Y != expression.Y {
+		t.Fatalf("the reason starts at %v beside the expression at %v", first, expression)
+	}
+	refused, ok := h.findPageHit("refused")
+	if !ok || refused.Bounds.Height <= debugRowHeight {
+		t.Fatalf("the refused watch row did not grow for its reason: %+v", refused.Bounds)
+	}
+	if end := line("WATCH_END"); end.Y+end.Height > refused.Bounds.Y+refused.Bounds.Height {
+		t.Fatalf("the watch reason ends at %v below its row %v", end, refused.Bounds)
+	}
+	kept, ok := h.findPageHit("kept")
+	if !ok || kept.Bounds.Height != debugRowHeight {
+		t.Fatalf("the watch with a value is not one row tall: %+v", kept.Bounds)
+	}
 }

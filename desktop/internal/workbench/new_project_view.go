@@ -271,7 +271,8 @@ func (a *App) newProjectFields(c ui.C, language i18n.Language, choice *projectCh
 		if locked {
 			field.Disabled(true)
 		}
-		if ui.Button(c, i18n.Shared(language, "desktop.newProject.choose")).Icon(icons.Folder).IconOnly().Ghost().Disabled(locked).Clicked() {
+		if ui.Button(c, i18n.Shared(language, "desktop.newProject.choose")).Icon(icons.Folder).IconOnly().Ghost().Disabled(locked).
+			Tooltip(i18n.Shared(language, "desktop.newProject.choose")).Clicked() {
 			a.chooseNewProjectParent()
 		}
 	})

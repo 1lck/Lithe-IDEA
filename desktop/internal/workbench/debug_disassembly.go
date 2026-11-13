@@ -41,9 +41,13 @@ type debugDisassembly struct {
 	// pending holds the instructions of the reply being reduced; Core answers
 	// with indexes into them.
 	pending []core.DebugInstruction
+	// epoch counts the windows: a reply that arrives after its window was dropped (another
+	// frame or thread was selected, or the debuggee moved) belongs to an older epoch and is
+	// dropped too, so it cannot fill the window of the frame shown now.
+	epoch int
 }
 
-func (d *debugDisassembly) reset() { *d = debugDisassembly{} }
+func (d *debugDisassembly) reset() { *d = debugDisassembly{epoch: d.epoch + 1} }
 
 // canDisassemble reports whether the selected frame can be shown as code: the
 // adapter advertised disassemble, the session is paused and the frame carries
@@ -108,7 +112,7 @@ func (a *App) loadDisassemblyAtEdges(p *project) {
 // planDisassembly asks Core for the first request of a window, then follows
 // Core's steps until it answers with a page or a failure.
 func (a *App) planDisassembly(p *project, direction, reference string, count, before uint32) {
-	session := p.debug.activeSession()
+	session, epoch := p.debug.activeSession(), p.debug.disassembly.epoch
 	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
 		fetch, err := a.kernel.PlanDebugDisassemblyWindow(ctx, direction, reference, count, before)
 		return func(a *App) {
@@ -116,6 +120,9 @@ func (a *App) planDisassembly(p *project, direction, reference string, count, be
 				return
 			}
 			defer p.debug.bindSession(session)()
+			if p.debug.disassembly.epoch != epoch {
+				return
+			}
 			if err != nil {
 				p.debug.disassembly.loading, p.debug.disassembly.failure = false, err.Error()
 				return
@@ -129,13 +136,21 @@ func (a *App) planDisassembly(p *project, direction, reference string, count, be
 func (a *App) fetchDisassembly(p *project, fetch core.DebugDisassemblyFetch) {
 	request := fetch.Request
 	offset, count := request.InstructionOffset, int64(request.InstructionCount)
-	reduce := func(a *App, reply core.DebugDisassemblyReply) { a.reduceDisassembly(p, fetch, reply) }
+	epoch := p.debug.disassembly.epoch
+	reduce := func(a *App, reply core.DebugDisassemblyReply) {
+		if p.debug.disassembly.epoch == epoch {
+			a.reduceDisassembly(p, fetch, reply)
+		}
+	}
 	a.debugOperation(p, "disassemble", func(ctx context.Context, session *debugSession, operationID string) (core.DebugUpdate, error) {
 		return a.kernel.InspectDebug(ctx, core.DebugInspectRequest{
 			SessionID: session.id, OperationID: operationID, Kind: "disassemble",
 			MemoryReference: request.MemoryReference, InstructionOffset: &offset, InstructionCount: &count,
 		})
 	}, debugOperationHandlers{done: func(a *App, result core.DebugOperationResult) {
+		if p.debug.disassembly.epoch != epoch {
+			return
+		}
 		reply := core.DebugDisassemblyReply{Kind: "instructions"}
 		for _, instruction := range result.Instructions {
 			reply.Instructions = append(reply.Instructions, core.DebugDisassemblyReplyInstruction{
@@ -159,7 +174,7 @@ func (a *App) fetchDisassembly(p *project, fetch core.DebugDisassemblyFetch) {
 
 // reduceDisassembly applies Core's decision for one reply.
 func (a *App) reduceDisassembly(p *project, fetch core.DebugDisassemblyFetch, reply core.DebugDisassemblyReply) {
-	session := p.debug.activeSession()
+	session, epoch := p.debug.activeSession(), p.debug.disassembly.epoch
 	known := make([]string, 0, len(p.debug.disassembly.rows))
 	for _, row := range p.debug.disassembly.rows {
 		known = append(known, row.Address)
@@ -169,11 +184,14 @@ func (a *App) reduceDisassembly(p *project, fetch core.DebugDisassemblyFetch, re
 	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
 		step, err := a.kernel.ReduceDebugDisassemblyPage(ctx, fetch, reply, known)
 		return func(a *App) {
-			d := &p.debug.disassembly
 			if a.project != p || !p.debug.hasSession(session) {
 				return
 			}
 			defer p.debug.bindSession(session)()
+			d := &p.debug.disassembly
+			if d.epoch != epoch {
+				return
+			}
 			if err != nil {
 				d.loading, d.failure = false, err.Error()
 				return

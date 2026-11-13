@@ -256,9 +256,11 @@ func (a *App) debugEvaluateField(c ui.C, p *project) {
 		}
 	})
 	if entry := w.evaluated; entry != nil {
-		ui.Row(c.Key("evaluated")).FillWidth().Height(debugRowHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(10).Children(func() {
-			ui.Icon(c, icons.Variable).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Accent)
-			a.debugWatchText(c, *entry)
+		// The result is read once, so it is shown whole: a long value or reason, such as the
+		// debugger saying it ran the expression in another language, wraps over more lines.
+		ui.Row(c.Key("evaluated")).FillWidth().MinHeight(debugRowHeight).Shrink(0).Items(ui.Start).Gap(6).PadX(10).Children(func() {
+			ui.Icon(c, icons.Variable).Size(treelist.Icon, treelist.Icon).Shrink(0).MarginTop(debugIconInset).Color(a.colors.Accent)
+			a.debugWatchText(c, *entry, true)
 		})
 	}
 }
@@ -277,19 +279,39 @@ func isDebugAddWatch(event gfx.KeyEvent) bool {
 		chord.Modifiers&(gfx.ModifierShift|gfx.ModifierControl|gfx.ModifierAlt|gfx.ModifierMeta) == debugAddWatchChord.Modifiers
 }
 
+// A watch row starts its items at the top so a reason or value that wraps grows it down, and
+// places them where a one-line row of debugRowHeight centres them: the icon debugIconInset
+// down, and each line of text debugTextLeading tall, debugTextInset down.
+const (
+	debugTextLeading = 18
+	debugTextInset   = (debugRowHeight - debugTextLeading) / 2
+	debugIconInset   = (debugRowHeight - treelist.Icon) / 2
+)
+
+// debugRowText sets a text of a watch row on the lines debugTextLeading lays out.
+func debugRowText(text ui.Box) ui.Box {
+	return text.FontSize(12.5).LineHeight(debugTextLeading).MarginY(debugTextInset)
+}
+
 // debugWatchText declares an expression with its result as IntelliJ IDEA writes it,
-// "expression = {type} value", or with the reason it has none.
-func (a *App) debugWatchText(c ui.C, entry debugWatchEntry) {
-	ui.Text(c, entry.expression).Shrink(0).FontSize(12.5).Color(treelist.Text(a.colors.Dark)).Weight(gfx.WeightMedium)
+// "expression = {type} value", or with the reason it has none. The reason always wraps to be
+// read whole; whole wraps the value too, where watches keep theirs to one line as IntelliJ
+// IDEA does.
+func (a *App) debugWatchText(c ui.C, entry debugWatchEntry, whole bool) {
+	debugRowText(ui.Text(c, entry.expression)).Shrink(0).Color(treelist.Text(a.colors.Dark)).Weight(gfx.WeightMedium)
 	switch {
 	case entry.failure != "":
-		ui.Text(c, entry.failure).Shrink(1).FontSize(12.5).Color(a.theme.Danger).Ellipsis()
+		debugRowText(ui.Wrap(c, entry.failure)).Grow(1).Shrink(1).Color(a.theme.Danger)
 	case entry.value != "" || entry.typeName != "":
-		ui.Text(c, "=").Shrink(0).FontSize(12.5).Color(a.colors.Subtle)
+		debugRowText(ui.Text(c, "=")).Shrink(0).Color(a.colors.Subtle)
 		if entry.typeName != "" {
-			ui.Text(c, "{"+entry.typeName+"}").Shrink(0).FontSize(12.5).Color(a.colors.Subtle)
+			debugRowText(ui.Text(c, "{"+entry.typeName+"}")).Shrink(0).Color(a.colors.Subtle)
 		}
-		ui.Text(c, entry.value).Shrink(1).FontSize(12.5).Color(a.colors.Text).Ellipsis().Mono()
+		if whole {
+			debugRowText(ui.Wrap(c, entry.value)).Grow(1).Shrink(1).Color(a.colors.Text).Mono()
+			return
+		}
+		debugRowText(ui.Text(c, entry.value)).Shrink(1).Color(a.colors.Text).Ellipsis().Mono()
 	}
 }
 
@@ -314,12 +336,12 @@ func (a *App) debugWatchView(c ui.C, p *project) {
 			}
 			entry := w.entries[index]
 			k := c.Part("watch").KeyInt(index)
-			row := ui.Row(k).FillWidth().Height(debugRowHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(10).
+			row := ui.Row(k).FillWidth().MinHeight(debugRowHeight).Shrink(0).Items(ui.Start).Gap(6).PadX(10).
 				Hover(ui.Look{}.Background(a.colors.Hover)).
 				HitWith(ui.ID(k), entry.expression, gfx.HitOptions{SkipFocus: true})
 			row.Children(func() {
-				ui.Icon(k, icons.Eye).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
-				a.debugWatchText(k, entry)
+				ui.Icon(k, icons.Eye).Size(treelist.Icon, treelist.Icon).Shrink(0).MarginTop(debugIconInset).Color(a.colors.Subtle)
+				a.debugWatchText(k, entry, false)
 				ui.Spacer(k)
 				i := index
 				if _, clicked := a.toolIconButton(k.Key("remove"), t.RemoveWatch, icons.X, false, false); clicked {
