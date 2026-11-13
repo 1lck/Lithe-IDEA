@@ -270,6 +270,8 @@ type debugSession struct {
 	// adapter reported one. ended, when set, receives it once the session is released.
 	exitCode atomic.Pointer[int]
 	ended    chan *int
+	// stopRun reaps an attached process owned by Run after the adapter disconnects.
+	stopRun func()
 	// hosted is the lifecycle-driven stream of a tcpLanguageServer adapter; nil
 	// for a stdio adapter. It is also the session's transport.
 	hosted *debugTransport
@@ -842,6 +844,9 @@ func (a *App) releaseDebugSession(p *project, session *debugSession) {
 				// Stop is a no-op once the drain finished; it also covers a
 				// session that never got to send a disconnect.
 				_ = session.hosted.Close()
+			}
+			if session.stopRun != nil {
+				session.stopRun()
 			}
 			if session.created && !session.coreGone {
 				destroyed, cleanupErr = a.kernel.DestroyDebugSession(ctx, session.id)

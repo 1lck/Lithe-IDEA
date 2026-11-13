@@ -86,6 +86,9 @@ type RunDebugRequest struct {
 	ConfigurationType string
 	Host              string
 	Port              int
+	// StopRun ends the host-owned process when its attached debug session is
+	// released. It blocks until bounded cleanup finishes; call off the UI thread.
+	StopRun func()
 }
 
 // RunDebugAttacher starts a debug session on the adapter a configuration type
@@ -582,6 +585,7 @@ func (r *Runs) attachDebugger(ctx context.Context, run *hostRun) {
 	session, err := r.Debug(ctx, RunDebugRequest{
 		PluginID: run.pluginID, WorkspaceRoot: run.workspace.Path, Label: run.start.Label,
 		ConfigurationType: run.start.Debug.ConfigurationType, Host: "127.0.0.1", Port: port,
+		StopRun: func() { r.stopRun(run) },
 	})
 	if err != nil {
 		fail(err)

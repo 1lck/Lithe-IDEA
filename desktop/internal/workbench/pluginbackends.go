@@ -249,6 +249,11 @@ func (a *App) servePluginServer(server *pluginServer, ctx context.Context) {
 					a.post(func(a *App) {
 						if a.isCurrentPluginServer(server.session.PluginID, server) {
 							a.resumeDeferredSemantics()
+							if p := a.project; p != nil && p == server.project {
+								for _, d := range p.docs.list {
+									a.scheduleEditorActions(p, d)
+								}
+							}
 						}
 					})
 				}

@@ -409,6 +409,11 @@ func TestRunStartAttachesTheDebuggerOnceThePortOpens(t *testing.T) {
 		if request.Port != port || request.Host != "127.0.0.1" || request.ConfigurationType != "script" || request.PluginID != runFixturePlugin {
 			t.Fatalf("attach request = %+v", request)
 		}
+		if request.StopRun == nil {
+			t.Fatal("the debug session cannot release its owned run")
+		}
+		request.StopRun()
+		h.await(t, "the attached run to stop with its session", func(events []RunEvent) bool { return exitedEvent(events) != nil })
 	case <-time.After(20 * time.Second):
 		t.Fatal("the debugger was never attached")
 	}

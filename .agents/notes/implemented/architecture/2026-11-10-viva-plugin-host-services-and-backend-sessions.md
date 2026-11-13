@@ -20,6 +20,18 @@ Viva 客户端现在由 `pluginservice.BackendHost` 为每个插件保持至多�
 - **上下文**：`WorkspaceContexts` 每个打开的项目一个 context，项目关闭即失效，重新打开得到新 ID；`listContexts` 不创建目录，只有 `getContext` 创建并返回状态目录。变化时发送 `didChangeContexts` 并向 Core 重新配置跨插件调用快照。
 - **语言服务器会话**：`LanguageSession` 记录 context 与每次启动递增的 generation；`ServeLanguageSession` 在窗口观察者之前处理 `requestCompleted`（唤醒转发请求）、`stateChanged`（映射为 `didChangeState`）和 `pluginServerNotification`（转为 `didReceiveNotification`）。服务器停止时仍在等待的请求以 `languageServerUnavailable` 结束。
 
+### 2026-11-13：编辑器注册与首次调试的时序
+
+插件注册编辑器动作或语言功能时，`context` 是宿主定位工作区的路由信息，不属于交给 Core 的动作/Provider 声明。宿主先检查调用方与工作区，再移除这层路由信息；不得放宽 Core 对未知字段的检查。回归必须经过真实 Core 解码，只有假宿主通过会漏掉这个问题。
+
+动作注册和撤回后，窗口重新收集当前打开文档的动作；语言服务器就绪时同样刷新。窗口只排队刷新，不在注册请求里同步调用插件，否则注册应答和动作收集可能互相等待。正确做法是注册完成后发窗口事件；不要要求用户编辑一下文件才出现 Run/Debug 标记。
+
+插件通过 `run/start` 发起调试时，适配器目录由宿主按需读取，完成后再进入既有启动或附加流程，并检查原请求是否已取消。不要要求用户先打开 Debug 工具窗口来触发目录加载。这些都是宿主的通用接线；JDT（Java 语言服务器）、Java 编译、classpath（运行时类路径）和 JDWP（Java 调试连接协议）的知识仍留在 Java 插件。
+
+Run 自己启动的进程还必须随附加的调试会话释放。单独发送 DAP disconnect 只断开连接，上游可能把仍暂停的进程留下；因此原生 Run 适配器向调试会话传入有界停止回调，在后台关闭调试连接后回收所拥有的进程。手动附加到用户外部进程时没有该回调，不改变外部进程所有权。这个内部生命周期接线不增加插件 API，也不由插件猜测或杀死宿主进程。
+
+真实 ZIP 集成测试覆盖含第三方依赖的 Maven 编译、补全、运行、断点变量、继续退出、再次调试后停止及编译错误拒绝旧 class；同时核对 Core 操作日志与包哈希不变。这是 macOS arm64 无头工作台的证据，原生窗口与其他平台仍需分别验收。
+
 ## 考虑过的备选方案
 
 - 在 `Handler` 签名里加调用方参数：改动所有处理器；用 context 携带身份同样隐含在 Core 的会话归属里，改动更小。
@@ -37,6 +49,9 @@ Viva 客户端现在由 `pluginservice.BackendHost` 为每个插件保持至多�
 - 远程工作区、语言服务器状态保留清理（`stateRetention`）、run/debug 处理器尚未实现；其余宿主服务见“第二批宿主服务”。
 
 ## 验证
+
+- `scripts/desktop/desktop-go.sh test ./internal/pluginservice -run 'TestEditorActionRegistrationRefreshesOpenDocuments|TestEditorProviderRegistrationBindsEveryRoutedFunction' -count=1`：经过真实 Core 校验动作和 Provider 注册，并验证动作注册/撤回会刷新窗口。
+- `scripts/desktop/desktop-go.sh test ./internal/workbench -run 'TestRunAttachLoadsAdaptersWithoutOpeningDebugPanel|TestRunLaunchTargetBindsTheRunsProcessIntoTheLaunch' -count=1`：不打开调试面板也能加载目录；适配器启动与参数绑定保持原有流程。
 
 - `scripts/desktop/desktop-go.sh test ./internal/pluginservice/... ./internal/pluginbackend/... ./internal/pluginhost/... -race -count=1`。
 - 设置 `LITHE_JAVA_PLUGIN_MANIFEST` 指向 Java Support 的 `plugin.json` 时，`TestJavaSupportManifestOnlyLacksOtherLanesCapabilities` 用 Core 验证清单仅缺上述其他车道的能力。

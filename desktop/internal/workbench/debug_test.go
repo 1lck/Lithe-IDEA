@@ -538,7 +538,8 @@ func TestRunLaunchTargetBindsTheRunsProcessIntoTheLaunch(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "debug.marker"), []byte("debug\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	p := openDebugPanel(t, h, root)
+	h.open(root)
+	p := h.app.project
 	gate := &captureDebugLaunch{Kernel: h.app.kernel, configurations: make(chan core.DebugLaunchConfiguration, 1)}
 	h.app.kernel = gate
 	program := filepath.Join(root, "app")
@@ -587,4 +588,22 @@ func TestRunLaunchTargetBindsTheRunsProcessIntoTheLaunch(t *testing.T) {
 			return false
 		}
 	})
+}
+
+func TestRunAttachLoadsAdaptersWithoutOpeningDebugPanel(t *testing.T) {
+	h := debugHarness(t)
+	root := t.TempDir()
+	h.open(root)
+	p := h.app.project
+	done := make(chan error, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	go func() {
+		_, err := h.app.attachDebugForRun(ctx, pluginservice.RunDebugRequest{PluginID: "dev.lithe.test.debug-adapter", WorkspaceRoot: root, ConfigurationType: "missing"})
+		done <- err
+	}()
+	err := awaitValueWithin(t, h, 10*time.Second, done, "attach to resolve adapters")
+	if !p.debug.loaded || err == nil || !strings.Contains(err.Error(), "no debug adapter") {
+		t.Fatalf("adapter discovery loaded=%v error=%v", p.debug.loaded, err)
+	}
 }

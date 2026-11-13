@@ -133,7 +133,11 @@ func (s *Service) handleRegisterEditorActions(ctx context.Context, params json.R
 		return nil, failure(CodePreconditionFailed, "The function is not registered on this session.")
 	}
 	if decoder, ok := s.kernel.(editorActionDecoder); ok {
-		if _, err := decoder.DecodeEditorActions(ctx, map[string]any{"kind": "registration", "value": json.RawMessage(params), "version": core.EditorActionDecodeVersion, "icons": core.EditorHost.ActionIcons, "sourceBytes": core.EditorHost.ActionSourceBytes}); err != nil {
+		value, err := editorRegistrationValue(params)
+		if err != nil {
+			return nil, invalidParams(err)
+		}
+		if _, err := decoder.DecodeEditorActions(ctx, map[string]any{"kind": "registration", "value": value, "version": core.EditorActionDecodeVersion, "icons": core.EditorHost.ActionIcons, "sourceBytes": core.EditorHost.ActionSourceBytes}); err != nil {
 			return nil, failure(codeInvalidParams, err.Error())
 		}
 	}
@@ -167,10 +171,31 @@ func (s *Service) handleRegisterEditorActions(ctx context.Context, params json.R
 	s.actions.mu.Unlock()
 	id := s.resources.add(caller, workspace.ContextID, func() {
 		s.actions.mu.Lock()
-		defer s.actions.mu.Unlock()
 		s.actions.list = removeBinding(s.actions.list, binding)
+		s.actions.mu.Unlock()
+		s.editorActionsChanged(workspace.Path)
 	})
+	s.editorActionsChanged(workspace.Path)
 	return marshalResult(map[string]string{"subscriptionID": id})
+}
+
+// editorRegistrationValue separates the host routing envelope from the Core declaration.
+// Context has already been checked by workspaceRequest; Core validates only the declaration.
+func editorRegistrationValue(params json.RawMessage) (map[string]json.RawMessage, error) {
+	var value map[string]json.RawMessage
+	if err := json.Unmarshal(params, &value); err != nil {
+		return nil, err
+	}
+	delete(value, "context")
+	return value, nil
+}
+
+// editorActionsChanged invalidates the window's presentation after a binding changes.
+// The window queues work; it must not call the backend synchronously from this handler.
+func (s *Service) editorActionsChanged(root string) {
+	if window, ok := s.workbench.(interface{ EditorActionsChanged(string) }); ok {
+		window.EditorActionsChanged(root)
+	}
 }
 
 func removeBinding(list []*editorActionBinding, target *editorActionBinding) []*editorActionBinding {
