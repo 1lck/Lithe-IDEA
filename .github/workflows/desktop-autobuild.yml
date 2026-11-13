@@ -1,0 +1,214 @@
+name: Desktop AutoBuild
+
+# Builds the Viva desktop client (desktop/) from the preview branch every day and publishes it to
+# the rolling prerelease desktop-AutoBuild: macOS arm64, Windows x64, and Linux x64 and arm64.
+# AutoBuild only builds and publishes. It runs no tests and does not inspect the packages, unlike
+# Desktop Release. Its tag is separate from the AutoBuild tag that the SwiftUI and Tauri clients'
+# updaters read, and the release is never marked latest.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      source_branch:
+        description: "Branch to build"
+        required: true
+        type: string
+        default: preview
+
+permissions:
+  contents: read
+
+# One publication at a time; a run that starts while another publishes waits for it.
+concurrency:
+  group: desktop-autobuild
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: desktop-AutoBuild
+  SOURCE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || 'preview' }}
+
+jobs:
+  prepare:
+    name: Pin the source and build identity
+    if: >-
+      github.event_name == 'schedule' ||
+      github.actor == github.repository_owner ||
+      contains(format(',{0},', vars.LITHE_RELEASE_ACTOR), format(',{0},', github.actor))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      sha: ${{ steps.identity.outputs.sha }}
+      version: ${{ steps.identity.outputs.version }}
+      build: ${{ steps.identity.outputs.build }}
+      timestamp: ${{ steps.identity.outputs.timestamp }}
+      skip: ${{ steps.identity.outputs.skip }}
+
+    steps:
+      - name: Check out the source branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.SOURCE_BRANCH }}
+
+      # Every build job checks out this commit, so a push during the run cannot mix two sources.
+      # A scheduled run whose commit is already published builds nothing.
+      - name: Record the source commit and build identity
+        id: identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha="$(git rev-parse HEAD)"
+          version="$(sed -n 's/^version = "\([0-9.]*\)"$/\1/p' desktop/viva.toml)"
+          if [[ -z "$version" ]]; then
+            printf '%s\n' 'desktop/viva.toml has no [app] version.' >&2
+            exit 1
+          fi
+          read -r build timestamp < <(date -u '+%Y%m%d.%H%M%S %Y-%m-%dT%H:%M:%SZ')
+          skip=false
+          if [[ "$GITHUB_EVENT_NAME" == schedule ]]; then
+            published="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq .object.sha 2>/dev/null || true)"
+            if [[ "$published" == "$sha" ]]; then
+              skip=true
+              printf '%s\n' "$RELEASE_TAG already holds $SOURCE_BRANCH at $sha; nothing to build." | tee -a "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          {
+            printf 'sha=%s\n' "$sha"
+            printf 'version=%s\n' "$version"
+            printf 'build=%s\n' "$build"
+            printf 'timestamp=%s\n' "$timestamp"
+            printf 'skip=%s\n' "$skip"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Package ${{ matrix.os }} ${{ matrix.arch }}
+    needs: prepare
+    if: needs.prepare.outputs.skip != 'true'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: darwin
+            arch: arm64
+            runner: macos-26
+            rust-target: aarch64-apple-darwin
+          - os: windows
+            arch: amd64
+            runner: windows-2022
+            rust-target: x86_64-pc-windows-gnu
+          - os: linux
+            arch: amd64
+            runner: ubuntu-22.04
+            rust-target: x86_64-unknown-linux-gnu
+          - os: linux
+            arch: arm64
+            runner: ubuntu-22.04-arm
+            rust-target: aarch64-unknown-linux-gnu
+
+    steps:
+      - name: Check out the pinned source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: desktop/go.sum
+
+      - name: Set up Rust
+        id: rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - name: Ensure Windows build tools
+        if: matrix.os == 'windows'
+        uses: ./.github/actions/setup-desktop-windows-build-tools
+
+      # The same key as Desktop Release, so the two workflows share one release build of the core.
+      - name: Restore the core build
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            .artifacts/desktop/lithe-core-rust
+          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-${{ matrix.rust-target }}-${{ hashFiles('scripts/desktop/build-desktop-core.sh') }}
+          restore-keys: |
+            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-${{ matrix.rust-target }}-
+
+      # Each platform receives only its own signing secrets.
+      - name: Package
+        env:
+          APPLE_CERTIFICATE: ${{ matrix.os == 'darwin' && secrets.MACOS_SIGNING_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ matrix.os == 'darwin' && secrets.MACOS_SIGNING_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ matrix.os == 'darwin' && vars.MACOS_SIGNING_IDENTITY || '' }}
+          WINDOWS_CERTIFICATE: ${{ matrix.os == 'windows' && secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 || '' }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ matrix.os == 'windows' && secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD || '' }}
+          WINDOWS_TIMESTAMP_URL: ${{ matrix.os == 'windows' && secrets.WINDOWS_TIMESTAMP_SERVER || '' }}
+          DESKTOP_ARCH: ${{ matrix.arch }}
+        run: bash scripts/ci/desktop-autobuild/package-autobuild.sh "$DESKTOP_ARCH"
+
+      - name: Upload the packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-autobuild-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/autobuild/
+          if-no-files-found: error
+          # The packages are already compressed, and the release keeps the copy users download.
+          compression-level: 0
+          retention-days: 3
+
+  publish:
+    name: Publish the AutoBuild
+    needs:
+      - prepare
+      - build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+      # The publication script comes from the workflow's own commit, not from the branch being built.
+      - name: Check out the publication script
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+
+      - name: Download the packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-autobuild-*
+          merge-multiple: true
+          path: dist/autobuild
+
+      - name: Publish to the rolling prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.sha }}
+          DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
+          BUILD_NUMBER: ${{ needs.prepare.outputs.build }}
+          BUILD_TIMESTAMP: ${{ needs.prepare.outputs.timestamp }}
+          # The same conditions under which package-autobuild.sh signs; a partial pair fails the build.
+          MACOS_SIGNED: ${{ secrets.MACOS_SIGNING_CERTIFICATE != '' }}
+          WINDOWS_SIGNED: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 != '' && secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD != '' }}
+        run: bash scripts/ci/desktop-autobuild/publish-autobuild.sh dist/autobuild
+
+      - name: Add the release link
+        env:
+          SOURCE_SHA: ${{ needs.prepare.outputs.sha }}
+          BUILD_NUMBER: ${{ needs.prepare.outputs.build }}
+        run: |
+          {
+            printf '%s\n' "Published $SOURCE_BRANCH at \`$SOURCE_SHA\` as build $BUILD_NUMBER."
+            printf '%s\n' "[Download this build]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG)"
+          } >> "$GITHUB_STEP_SUMMARY"
