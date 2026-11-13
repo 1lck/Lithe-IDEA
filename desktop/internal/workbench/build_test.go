@@ -18,7 +18,7 @@ func TestBuildPanelWithoutBuildPluginsSaysSo(t *testing.T) {
 	}
 	h.app.plugins = service
 	h.open(t.TempDir())
-	h.app.reduceChrome(core.ToggleChrome(itemRun))
+	h.app.reduceChrome(core.ToggleChrome(itemBuild))
 	h.settle()
 	h.settle()
 	if !h.shows("没有检测到由提供者驱动的构建系统。") {
@@ -133,12 +133,12 @@ func TestBuildWindowPresentsDeclaredScopesRootsAndCommandTasks(t *testing.T) {
 	if _, ok := buildDependencyProject(instance, "root"); ok {
 		t.Fatal("a build declaring no dependencies was asked for them")
 	}
-	if label := buildInstanceLabel(instance); label != "Go Modules" {
-		t.Fatalf("workspace root label = %q", label)
+	if name, root := buildSystemName(instance), buildRootDetail(instance); name != "Go Modules" || root != "" {
+		t.Fatalf("workspace root group = %q, %q", name, root)
 	}
 	instance.Root = ".claude/worktrees/x/desktop"
-	if label := buildInstanceLabel(instance); label != "Go Modules · .claude/worktrees/x/desktop" {
-		t.Fatalf("nested root label = %q", label)
+	if name, root := buildSystemName(instance), buildRootDetail(instance); name != "Go Modules" || root != ".claude/worktrees/x/desktop" {
+		t.Fatalf("nested root group = %q, %q", name, root)
 	}
 	tasks := declaredTasks(instance)
 	if len(tasks) != 2 || tasks[0].ID != "build" || tasks[1].ID != "goal" {

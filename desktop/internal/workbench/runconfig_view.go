@@ -38,14 +38,17 @@ func (a *App) runConfigList(c ui.C, p *project) {
 		b.scope = ""
 	}
 	title := i18n.Shared(language, "native.runConfigurations")
-	ui.Column(c.Part("run-configs")).FillWidth().Height(b.split.Pos).Shrink(0).Clip().Children(func() {
-		ui.Row(c).Height(panelHeaderHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(8).PadX(8).Children(func() {
-			ui.Text(c, title).FontSize(small).Weight(gfx.WeightSemibold).Color(a.colors.Subtle).Shrink(0)
-			ui.Select(c.Part("scope"), &b.scope, scopes, func(scope string) string { return a.runScopeLabel(s, scope) }).
+	// The list shares the Build window with the build tree, so its rows are keyed under a part
+	// of their own.
+	k := c.Part("run-configs")
+	ui.Column(k).FillWidth().Height(b.split.Pos).Shrink(0).Clip().Children(func() {
+		ui.Row(k).Height(panelHeaderHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(8).PadX(8).Children(func() {
+			ui.Text(k, title).FontSize(small).Weight(gfx.WeightSemibold).Color(a.colors.Subtle).Shrink(0)
+			ui.Select(k.Part("scope"), &b.scope, scopes, func(scope string) string { return a.runScopeLabel(s, scope) }).
 				Label(title).Shrink(1).MinWidth(0).MaxWidth(240)
-			ui.Spacer(c)
+			ui.Spacer(k)
 		})
-		a.drawRunConfigRows(c, p, title)
+		a.drawRunConfigRows(k, p, title)
 	})
 	ui.Splitter(c, &b.split).Mins(runConfigListMin, runConfigRestMin).Label(a.text.Panel.Resize)
 }

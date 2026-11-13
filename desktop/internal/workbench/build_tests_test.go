@@ -99,8 +99,8 @@ func TestBuildWindowRunsProjectTargetAndDiscoveredTests(t *testing.T) {
 	}
 	showBuild := func() {
 		t.Helper()
-		if !h.app.chrome.isOpen(catalogIndex[itemRun]) {
-			h.app.reduceChrome(core.ToggleChrome(itemRun))
+		if !h.app.chrome.isOpen(catalogIndex[itemBuild]) {
+			h.app.reduceChrome(core.ToggleChrome(itemBuild))
 		}
 		h.app.invalidator.Invalidate()
 		h.settle()

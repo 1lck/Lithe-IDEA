@@ -13,6 +13,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/treelist"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -300,62 +301,53 @@ func buildMarkers(manifest json.RawMessage, buildSystemID string) []string {
 	return nil
 }
 
-// buildDependencyRows are the Dependencies section of the choices list: a heading, then the
-// tree, or a line saying it loads, failed or is empty.
-func (a *App) buildDependencyRows(p *project, instance *buildInstance) []buildRow {
-	if !instance.modelLoaded {
-		return nil
-	}
-	projectID, ok := buildDependencyProject(instance, p.build.projectID)
-	if !ok {
-		return nil
-	}
+// buildDependencyRows are the rows of a Dependencies section of the build tree, at level, for
+// projectID of the instance at index: the tree, or a line saying it loads, failed or is empty.
+// Asking for them starts the load of a tree not loaded yet.
+func (a *App) buildDependencyRows(p *project, index int, projectID string, level int) []buildRow {
+	instance := &p.build.instances[index]
 	language := a.language()
-	rows := []buildRow{{kind: buildRowSection, label: i18n.Shared(language, "native.dependencies")}}
 	deps := a.dependenciesOf(p, instance, projectID)
+	status := buildRow{kind: buildRowEmpty, dependencies: true, project: projectID, instance: index, level: level}
 	switch {
 	case deps.loading:
-		return append(rows, buildRow{kind: buildRowEmpty, dependencies: true, project: projectID, label: i18n.Shared(language, "native.loadingDependencies.variant2")})
+		status.label, status.loading = i18n.Shared(language, "native.loadingDependencies.variant2"), true
+		return []buildRow{status}
 	case deps.failed != "":
-		return append(rows, buildRow{kind: buildRowEmpty, dependencies: true, project: projectID, label: i18n.Shared(language, "native.couldNotLoadDependencies") + ": " + deps.failed})
+		status.label, status.warning = i18n.Shared(language, "native.couldNotLoadDependencies")+": "+deps.failed, true
+		return []buildRow{status}
 	case len(deps.tree.Dependencies) == 0:
-		return append(rows, buildRow{kind: buildRowEmpty, dependencies: true, project: projectID, label: i18n.Shared(language, "native.noDependencies")})
+		status.label = i18n.Shared(language, "native.noDependencies")
+		return []buildRow{status}
 	}
-	for _, shown := range deps.shownRows() {
+	shown := deps.shownRows()
+	rows := make([]buildRow, 0, len(shown))
+	for _, row := range shown {
 		rows = append(rows, buildRow{
-			kind: buildRowDependency, label: dependencyLabel(shown.node), detail: shown.node.Scope,
-			depth: shown.depth, path: shown.path, leaf: len(shown.node.Children) == 0, project: projectID,
+			kind: buildRowDependency, label: dependencyLabel(row.node), detail: row.node.Scope, instance: index,
+			level: level + row.depth, path: row.path, leaf: len(row.node.Children) == 0, project: projectID,
 		})
 	}
 	return rows
 }
 
-// buildDependencyRow declares one dependency: its opener, name and scope. A click opens or
+// buildDependencyRow declares one dependency: its arrow, icon, name and scope. A click opens or
 // closes its children; a double click opens the project's build file.
 func (a *App) buildDependencyRow(row ui.ListRow, p *project, instance *buildInstance, spec buildRow) {
 	c := row.C
 	deps := a.dependenciesOf(p, instance, spec.project)
-	element := row.Element.Height(buildRowHeight).Items(ui.Center).Gap(4).
-		PadSides(0, 8, 0, 8+float32(spec.depth)*14).Hover(ui.Look{}.Background(a.colors.Hover))
-	open := deps.open[spec.path]
-	if spec.leaf {
-		ui.Row(c).Size(14, 14).Shrink(0)
-	} else {
-		icon := icons.ChevronRight
-		if open {
-			icon = icons.ChevronDown
-		}
-		ui.Icon(c, icon).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
-	}
-	ui.Text(c, spec.label).Color(a.colors.Text).Ellipsis().Shrink(1)
+	element := a.buildTreeRowElement(row, spec)
+	toggled := a.buildArrow(c, spec.label, !spec.leaf, deps.open[spec.path])
+	ui.Icon(c, icons.Archive).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
+	ui.Text(c, spec.label).FontSize(treeFontSize).Color(treelist.Text(a.colors.Dark)).Ellipsis().Shrink(1).MinWidth(0)
 	if spec.detail != "" {
-		ui.Text(c, spec.detail).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
+		ui.Text(c, spec.detail).FontSize(treeFontSize - 1).Color(a.colors.Subtle).Shrink(0)
 	}
 	ui.Spacer(c)
 	switch {
 	case element.DoubleClicked():
 		c.After(func() { a.openBuildFile(p, instance, spec.project) })
-	case element.Clicked() && !spec.leaf:
+	case !spec.leaf && (toggled || element.Clicked()):
 		path := spec.path
 		c.After(func() { deps.open[path] = !deps.open[path] })
 	}
