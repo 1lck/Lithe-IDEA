@@ -1,5 +1,5 @@
-github.com/Lithe-IDEA/viva v0.6.1-0.20261112052310-204654f85f56 h1:52LrAfzlGS9uYnCrBDkTVAqgCpltEtBA8rnXI+Tffn0=
-github.com/Lithe-IDEA/viva v0.6.1-0.20261112052310-204654f85f56/go.mod h1:3X7mQon1gqeDxgbqqMkxHrrEZ4ekZ7yUNV2hm3foq9g=
+github.com/Lithe-IDEA/viva v0.6.3-0.20261113132820-1300441ba921 h1:TrU18jDypbLDxKMk19TYv/ZeWhXuLYtNG6iK6WQ74Ik=
+github.com/Lithe-IDEA/viva v0.6.3-0.20261113132820-1300441ba921/go.mod h1:3X7mQon1gqeDxgbqqMkxHrrEZ4ekZ7yUNV2hm3foq9g=
 github.com/creack/pty v1.1.24 h1:bJrF4RRfyJnbTJqzRLHzcGaZK1NeM5kTC9jGgovnR1s=
 github.com/creack/pty v1.1.24/go.mod h1:08sCNb52WyoAwi2QDyzUCTgcvVFhUzewun7wtTfvcwE=
 github.com/danieljoos/wincred v1.2.3 h1:v7dZC2x32Ut3nEfRH+vhoZGvN72+dQ/snVXo/vMFLdQ=
