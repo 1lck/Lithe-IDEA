@@ -15,21 +15,19 @@ import (
 // every changed file at once (onFocusLost). Saving before a run and before closing goes on
 // as before.
 
-// autoSaveDelay is how long after the last edit a changed file is saved.
-const autoSaveDelay = 1500 * time.Millisecond
-
-// scheduleAutoSave saves d once no edit came for autoSaveDelay.
+// scheduleAutoSave keeps one owned timer for the actual delay resolved by Core.
 func (a *App) scheduleAutoSave(p *project, d *document) {
-	if a.settings.DisableAutoSave || d.virtual {
+	if a.settings.DisableAutoSave || d.virtual || d.scratch {
 		return
 	}
-	d.autoSave++
+	d.cancelAutoSave()
 	generation := d.autoSave
-	time.AfterFunc(autoSaveDelay, func() {
+	d.autoSaveTimer = time.AfterFunc(time.Duration(a.editorPreferences.AutoSaveDelayMilliseconds)*time.Millisecond, func() {
 		a.post(func(a *App) {
 			if a.project != p || d.autoSave != generation || p.docs.find(d.id) != d || a.settings.DisableAutoSave {
 				return
 			}
+			d.autoSaveTimer = nil
 			if d.view.IsComposing() {
 				// An input method is still composing: try again once it may be done.
 				a.scheduleAutoSave(p, d)
@@ -49,10 +47,10 @@ func (a *App) onFocusLost() gfx.EventResult {
 		return gfx.EventResult{}
 	}
 	for _, d := range p.docs.list {
-		if d.virtual || !d.dirty() || d.view.IsComposing() {
+		if d.scratch || d.virtual || !d.dirty() || d.view.IsComposing() {
 			continue
 		}
-		d.autoSave++
+		d.cancelAutoSave()
 		a.saveDocumentMode(p, d.id, true)
 	}
 	return gfx.EventResult{Repaint: true}
@@ -78,8 +76,8 @@ func (a *App) noteEditorFocus(focused gfx.ID) {
 	if left == 0 || left == current || a.settings.DisableAutoSave {
 		return
 	}
-	if d := p.docs.find(left); d != nil && !d.virtual && d.dirty() && !d.view.IsComposing() {
-		d.autoSave++
+	if d := p.docs.find(left); d != nil && !d.virtual && !d.scratch && d.dirty() && !d.view.IsComposing() {
+		d.cancelAutoSave()
 		a.post(func(a *App) {
 			if a.project == p && p.docs.find(d.id) == d {
 				a.saveDocumentMode(p, d.id, true)
@@ -128,4 +126,12 @@ func (a *App) hardLinkSaveRequired(p *project, d *document, identity string, aut
 			a.saveDocument(p, d.id)
 		},
 	})
+}
+
+func (d *document) cancelAutoSave() {
+	d.autoSave++
+	if d.autoSaveTimer != nil {
+		d.autoSaveTimer.Stop()
+		d.autoSaveTimer = nil
+	}
 }

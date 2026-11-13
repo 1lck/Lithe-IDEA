@@ -31,6 +31,7 @@ const (
 // view's hits, so the view takes the pointer and the keyboard where it was painted.
 func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	v.clock = canvas.Now()
+	v.whitespaceColor = look.Subtle
 	font := v.font
 	cellW, cellH := canvas.MonoCellSize(font.Size, font.Face)
 	if cellW <= 0 || cellH <= 0 || area.Width <= 0 || area.Height <= 0 {
@@ -57,6 +58,9 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	digits := v.gutterDigits(lines)
 	// The gutter is the numbers with their padding, then the icon column, then the fold arrows.
 	numbersEnd := float32(digits)*cellW + 2*gutterPad
+	if v.presentation.HideLineNumbers && !v.decor.labelled {
+		numbersEnd = 2 * gutterPad
+	}
 	gutter := numbersEnd + v.lineIconColumn() + v.foldColumn()
 	v.iconX = area.X + numbersEnd + lineIconInset
 	v.numbersRight = area.X + numbersEnd
@@ -173,6 +177,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 				end = wraps[k+1].at
 			}
 			p := v.part(l, row, end, from, to)
+			v.paintSearchMatches(canvas, l, p, from, to, shift, y, look.Selection)
 			if line == caretLine && k == composeRow && composeCells > 0 {
 				// The input method draws the text being composed at the caret, over the
 				// editor. The rest of the row moves right to make room for it, so no glyph
@@ -190,7 +195,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 		}
 		top += float32(len(wraps)) * v.lineH
 	}
-	if v.focused && !v.preedit.Composing && (v.vimBlock() || v.blinkOn(canvas)) {
+	if v.focused && !v.preedit.Composing && (v.vimBlock() || v.presentation.DisableCursorBlink || v.blinkOn(canvas)) {
 		if len(v.extra) > 0 {
 			v.paintExtraCarets(canvas, look)
 		}
@@ -202,7 +207,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 			block.Alpha *= 0.6
 			canvas.Fill(gfx.Rect{X: float32(math.Round(float64(x))), Y: y, Width: v.cellW, Height: v.lineH}, block)
 		} else {
-			canvas.Fill(gfx.Rect{X: float32(math.Round(float64(x))), Y: y, Width: 2, Height: v.lineH}, look.Caret)
+			v.paintConfiguredCaret(canvas, x, y, look.Caret)
 		}
 	}
 	canvas.Unclip()
@@ -231,6 +236,9 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 		}
 		if point < len(points) && points[point].Line == number.line {
 			v.paintBreakpoint(canvas, look, points[point], area.X+gutterBarX+gutterBarWidth, area.X+numbersEnd, number.y)
+			continue
+		}
+		if v.presentation.HideLineNumbers && !v.decor.labelled {
 			continue
 		}
 		label := v.lineLabel(number.line)
@@ -440,6 +448,7 @@ func (v *View) paintRow(canvas *gfx.Canvas, text string, base int, row wrapRow, 
 		if cells >= to {
 			break
 		}
+		v.paintWhitespace(canvas, r, cells, width, shift, y)
 		if r == '\t' || r < 0x20 {
 			v.paintLabel(canvas, text[labelAt-base:labelTo-base], label, labelEnd, shift, y, textStyle)
 			label = -1

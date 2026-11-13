@@ -66,8 +66,12 @@ const (
 // window is one open settings window and the model of its Page. Everything in it runs on
 // its window thread, but for the fields that say so.
 type window struct {
-	ctrl *Controller
-	sess *session
+	editorDelay      ui.Field
+	editorDelayReady bool
+	editorPrefsError string
+	scheme           schemeDraft
+	ctrl             *Controller
+	sess             *session
 
 	// win, stopWatch and gone are guarded by ctrl.mu: Controller.Open fills them in from the
 	// thread that opened the window, and the window's own thread reads and clears them.

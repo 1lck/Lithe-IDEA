@@ -1071,3 +1071,16 @@ Viva stdio Debug 的临时状态位于可写插件根的
 只读，不影响签名或 Sparkle delta。此状态沿用 `official-plugin-packages` 不可复用路由，
 没有 identity stamp，发现、校验和复制阶段均禁止跨工作树共享；复用脚本无 validator，
 其注册与拒绝由 `scripts/resources/test-reuse-worktree-resources.mjs` 验证。
+
+
+### Viva 编辑器的用户数据
+
+`store.Open` 选择平台用户配置目录，`Lithe Desktop/EditorRecovery/<document-digest>.draft`
+保存编辑器恢复副本及 Scratch。小型 JSON 头与原始 UTF-8 内容在同一临时文件
+`.checkpoint-*` 中流式写入、同步后原子替换，避免把整篇内容序列化成 JSON。
+普通文件保存成功后移除副本；Scratch 关闭标签后仍保留，直到另存为或明确丢弃。
+Core 定义单文档、总磁盘和条数限制，原生适配器负责执行配额、私有权限和序列化写入。
+`editor-recent-<workspace-digest>.json` 保存最近文件和位置；`settings.json` 保存编辑器显示偏好
+与快捷键方案。它们没有可用于版本、平台、架构或工具链验证的构建身份，资源清单
+`viva-editor-user-state` 在所有复制阶段拒绝共享或复用。测试使用各自临时配置目录。
+这些数据不进入安装包或签名输入，运行时也不修改安装资源，不影响 Sparkle delta。

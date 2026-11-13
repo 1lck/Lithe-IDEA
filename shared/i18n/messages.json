@@ -104857,6 +104857,422 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.editorFind.find",
+      "description": "IDE editor essentials: editorFind.find",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorFind.replace",
+      "description": "IDE editor essentials: editorFind.replace",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorFind.replaceOne",
+      "description": "IDE editor essentials: editorFind.replaceOne",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorFind.replaceAll",
+      "description": "IDE editor essentials: editorFind.replaceAll",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorFind.case",
+      "description": "IDE editor essentials: editorFind.case",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorFind.word",
+      "description": "IDE editor essentials: editorFind.word",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorFind.regex",
+      "description": "IDE editor essentials: editorFind.regex",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorFind.selection",
+      "description": "IDE editor essentials: editorFind.selection",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorFind.previous",
+      "description": "IDE editor essentials: editorFind.previous",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorFind.next",
+      "description": "IDE editor essentials: editorFind.next",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorFind.close",
+      "description": "IDE editor essentials: editorFind.close",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorFind.loading",
+      "description": "IDE editor essentials: editorFind.loading",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorFind.invalidPattern",
+      "description": "IDE editor essentials: editorFind.invalidPattern",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorFind.tooLarge",
+      "description": "IDE editor essentials: editorFind.tooLarge",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorFind.tooMany",
+      "description": "IDE editor essentials: editorFind.tooMany",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorFind.replacementTooLarge",
+      "description": "IDE editor essentials: editorFind.replacementTooLarge",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorFind.stale",
+      "description": "IDE editor essentials: editorFind.stale",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorFind.failed",
+      "description": "IDE editor essentials: editorFind.failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.title",
+      "description": "IDE editor essentials: editorPrefs.title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.lineNumbers",
+      "description": "IDE editor essentials: editorPrefs.lineNumbers",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.whitespace",
+      "description": "IDE editor essentials: editorPrefs.whitespace",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.cursorStyle",
+      "description": "IDE editor essentials: editorPrefs.cursorStyle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.cursorBlink",
+      "description": "IDE editor essentials: editorPrefs.cursorBlink",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.line",
+      "description": "IDE editor essentials: editorPrefs.line",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.block",
+      "description": "IDE editor essentials: editorPrefs.block",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.underline",
+      "description": "IDE editor essentials: editorPrefs.underline",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.saveDelay",
+      "description": "IDE editor essentials: editorPrefs.saveDelay",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.saveDelayHelp",
+      "description": "IDE editor essentials: editorPrefs.saveDelayHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.failed",
+      "description": "IDE editor essentials: editorPrefs.failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.recentFiles.title",
+      "description": "IDE editor essentials: recentFiles.title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.recentFiles.edited",
+      "description": "IDE editor essentials: recentFiles.edited",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.recentFiles.query",
+      "description": "IDE editor essentials: recentFiles.query",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.recentFiles.empty",
+      "description": "IDE editor essentials: recentFiles.empty",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.recentFiles.failed",
+      "description": "IDE editor essentials: recentFiles.failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.drafts.new",
+      "description": "IDE editor essentials: drafts.new",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.drafts.saveAs",
+      "description": "IDE editor essentials: drafts.saveAs",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.drafts.recovered",
+      "description": "IDE editor essentials: drafts.recovered",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.drafts.conflict",
+      "description": "IDE editor essentials: drafts.conflict",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.drafts.failed",
+      "description": "IDE editor essentials: drafts.failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.drafts.discard",
+      "description": "IDE editor essentials: drafts.discard",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.drafts.list",
+      "description": "IDE editor essentials: drafts.list",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.drafts.empty",
+      "description": "IDE editor essentials: drafts.empty",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.drafts.saved",
+      "description": "IDE editor essentials: drafts.saved",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapSchemes.scheme",
+      "description": "IDE editor essentials: keymapSchemes.scheme",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapSchemes.default",
+      "description": "IDE editor essentials: keymapSchemes.default",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapSchemes.saveAs",
+      "description": "IDE editor essentials: keymapSchemes.saveAs",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapSchemes.rename",
+      "description": "IDE editor essentials: keymapSchemes.rename",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapSchemes.delete",
+      "description": "IDE editor essentials: keymapSchemes.delete",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapSchemes.name",
+      "description": "IDE editor essentials: keymapSchemes.name",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapSchemes.newTitle",
+      "description": "IDE editor essentials: keymapSchemes.newTitle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapSchemes.renameTitle",
+      "description": "IDE editor essentials: keymapSchemes.renameTitle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapSchemes.invalidName",
+      "description": "IDE editor essentials: keymapSchemes.invalidName",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapSchemes.duplicateName",
+      "description": "IDE editor essentials: keymapSchemes.duplicateName",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapSchemes.limit",
+      "description": "IDE editor essentials: keymapSchemes.limit",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapSchemes.failed",
+      "description": "IDE editor essentials: keymapSchemes.failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorFind.count",
+      "description": "IDE editor essentials: editorFind.count",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "current": "integer",
+        "total": "integer"
+      }
+    },
+    {
+      "id": "desktop.editorFind.replaced",
+      "description": "IDE editor essentials: editorFind.replaced",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.drafts.untitled",
+      "description": "IDE editor essentials: drafts.untitled",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "number": "integer"
+      }
     }
   ]
 }

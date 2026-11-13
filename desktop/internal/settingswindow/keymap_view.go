@@ -38,6 +38,7 @@ func (w *window) keymapPage(c ui.C) {
 	k := &w.keymap
 	keys := w.sess.values.Keymap
 	w.pageScroll(c, pageKeymap, func() {
+		w.keymapSchemeCard(c)
 		ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
 			ui.TextField(c.Part("keymap-search"), &k.query, t.Search, t.SearchPlaceholder).Icon(icons.Search).Grow(1).MinWidth(0)
 			if ui.Button(c.Part("keymap-reset-all"), t.ResetAll).Outline().Small().Disabled(len(keys) == 0).Clicked() {
@@ -229,6 +230,9 @@ func (w *window) setKeymap(value shortcuts.Overrides) {
 	}
 	if len(value) == 0 {
 		value = nil
+	}
+	if !w.updateKeymapScheme(value) {
+		return
 	}
 	w.sess.values.Keymap = value
 	if w.ctrl.opts.SetKeymap != nil {

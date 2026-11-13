@@ -241,6 +241,7 @@ func (a *App) scheduleDocumentChecks(p *project) {
 
 func (a *App) clearDocumentConflict(d *document) {
 	d.conflicted = false
+	d.recoveredConflict = false
 	d.conflictMissing = false
 	d.conflictContent = editorview.Content{}
 	d.conflictBytes = nil
@@ -262,7 +263,11 @@ func (a *App) applyDocumentCheck(p *project, d *document, baseline rope.Rope, co
 		return
 	}
 	if err == nil && !changed {
-		a.clearDocumentConflict(d)
+		// A recovered conflict was decided against the pre-crash hash. This watcher
+		// compares with the newly observed disk baseline and cannot acknowledge it.
+		if !d.recoveredConflict {
+			a.clearDocumentConflict(d)
+		}
 		return
 	}
 	revision := uint64(d.view.Revision())

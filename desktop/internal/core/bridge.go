@@ -45,6 +45,21 @@ func executeJSON(request []byte) []byte {
 	return C.GoBytes(unsafe.Pointer(response), C.int(C.strlen(response)))
 }
 
+// executeDocumentJSON borrows immutable source bytes for the synchronous Core call.
+// Only the small request and bounded result are copied across the C ABI. Core never
+// retains the Go pointer, and the slice contains no Go pointers.
+func executeDocumentJSON(request, source []byte) []byte {
+	cRequest := C.CString(string(request))
+	defer C.free(unsafe.Pointer(cRequest))
+	response := C.lithe_core_execute_document_json(cRequest, (*C.uint8_t)(unsafe.Pointer(unsafe.SliceData(source))), C.size_t(len(source)))
+	runtime.KeepAlive(source)
+	if response == nil {
+		return nil
+	}
+	defer C.lithe_core_free_string(response)
+	return C.GoBytes(unsafe.Pointer(response), C.int(C.strlen(response)))
+}
+
 // cancelOperation asks the kernel to cancel the in-flight request whose operationId is
 // operationID. It reports whether the kernel found an active operation with that id: the C
 // function returns 1 when it did and 0 when it did not (the operation already finished, has not

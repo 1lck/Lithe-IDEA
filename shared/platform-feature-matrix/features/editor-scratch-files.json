@@ -1,0 +1,29 @@
+{
+  "id": "editor-scratch-files",
+  "area": "编辑器",
+  "group": "文档编辑",
+  "capability": "无需先选择路径的 Scratch 文档、持久草稿列表、另存为和丢弃",
+  "owner": "Editor / Core",
+  "notes": "Viva 共享实现；匹配、顺序和恢复决策在外部 Rust Core。macOS 无头流程与截图已覆盖；macOS 原生窗口和 Windows 原生验收未执行。",
+  "verification": "项目内创建 Scratch，写入中文 emoji 后关闭标签；从列表恢复，另存为后打开真实文件并删除草稿；丢弃后不得重新出现。 自动化：editor_essentials_test.go 与 editor_essentials_visual_test.go。",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/scratch_files.go",
+      "desktop/internal/draftstore/store.go",
+      "desktop/internal/workbench/editor_essentials_test.go",
+      "desktop/internal/workbench/editor_essentials_visual_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/scratch_files.go",
+      "desktop/internal/draftstore/store.go",
+      "desktop/internal/workbench/editor_essentials_test.go",
+      "desktop/internal/workbench/editor_essentials_visual_test.go"
+    ]
+  }
+}

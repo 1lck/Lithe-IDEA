@@ -572,3 +572,18 @@ MCP 管理随 Agent 对话失去消费者后，本轮整块删除，后续重新
 | Windows 安装与更新 | — | Tauri 打包 `nsis`、`msi`（`tauri.conf.json` `bundle.targets`）；Tauri updater 插件，`tauri.conf.json` 中 `pubkey` 为空串、`endpoints` 为空；稳定版发布工作流 `release-windows.yml` 用 secret `TAURI_SIGNING_PRIVATE_KEY` 与变量 `TAURI_UPDATER_PUBLIC_KEY` 签名，产出 `Lithe-<版本>-windows-x64-updater.exe` | `viva.toml [windows]`：`scope = "user"`、`publisher = "Lithe contributors"`；`package-desktop.sh` Windows 默认格式 `nsis,zip`；更新机制未找到 | 部分。同为 NSIS；没有 MSI、更新器与签名公钥配置 |
 | 发布工作流 | `release-macos.yml`、`release-preview-macos.yml` | `release-windows.yml`、`release-preview-windows.yml` | `.github/workflows/desktop-release.yml`，标签 `desktop-v*.*.*`，作为 prerelease 发布，避免旧客户端的更新器读到；`.github/workflows/desktop-autobuild.yml` 每天从 `preview` 构建并滚动发布到 prerelease `desktop-AutoBuild`（macOS arm64、Windows x64、Linux x64/arm64 的 deb 与 tar.gz，不跑测试），标签与旧客户端的 `AutoBuild` 分开 | 独立 |
 | 运行时只读边界 | 发行 bundle 运行期不可写（AGENTS.md） | 安装目录只读 | `package-desktop.sh` 注释声明运行时写入不落在 app 或安装目录；`runtime-package-integrity` 仅 macOS 夹具验证 | 一致于规则；Windows/最终包验证未完成 |
+
+
+### 编辑器基础能力补齐（2026-11-13）
+
+Viva 编辑器新增文件内查找替换（Unicode、正则捕获组、选区、匹配高亮、批量替换单步撤销），
+独立恢复检查点与外部磁盘冲突保护，显示行号/空白字符/光标样式与闪烁、实际自动保存延迟，
+最近文件/最近编辑列表，独立命名快捷键方案，以及项目内 Scratch、持久草稿列表、另存为和丢弃。
+默认入口为主修饰键（macOS Command，其他平台 Control）加 F/R、E/Shift-E、N、Shift-S；
+命令菜单同样提供入口并使用实际方案绑定。共享规则由固定版本的 Rust Core 提供，
+原生编辑器与存储适配器执行结果。第三方快捷键导入仍由插件提供。
+
+`editor-in-file-find-replace`、`editor-unsaved-recovery`、`editor-recent-files`、`editor-scratch-files`
+记录独立能力；已有显示偏好与快捷键矩阵补充新范围。实际 Page 的无头截图见
+[测试截图](assets/ide-essentials/README.md)，覆盖深色中文与浅色英文。
+原生 macOS 窗口和 Windows 的运行时验收仍为 pending。

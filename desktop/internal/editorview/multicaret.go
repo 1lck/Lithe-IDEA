@@ -371,7 +371,7 @@ func (v *View) paintExtraCarets(canvas *gfx.Canvas, look Look) {
 	for _, s := range v.extra {
 		v.caret = s.caret
 		x, y := v.caretPoint()
-		canvas.Fill(gfx.Rect{X: float32(int(x + 0.5)), Y: y, Width: 2, Height: v.lineH}, look.Caret)
+		v.paintConfiguredCaret(canvas, x, y, look.Caret)
 	}
 	v.caret = primary
 }

@@ -275,6 +275,8 @@ func (a *App) runShortcut(id string, view *editorview.View) {
 // earlier client's plugin secrets, the Git dialogs and the New Project dialog. Each dialog's
 // state stays with its own file; the toasts are declared last, over all of them.
 func (a *App) overlays(c ui.C) {
+	a.scratchPopup(c)
+	a.recentFilesPopup(c)
 	a.cloneView(c)
 	if a.project != nil {
 		a.everywherePopup(c)

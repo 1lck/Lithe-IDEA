@@ -49,6 +49,11 @@ var (
 
 // document is a file open in a tab of the editor area.
 type document struct {
+	find              editorFind
+	scratch           bool
+	recoveredConflict bool
+	recoveryTimer     *time.Timer
+	autoSaveTimer     *time.Timer
 	// folds is the document's code folding requests (folding.go).
 	folds documentFolds
 	// serverLinks are the links the language server reported for the text, and pluginLinks the
@@ -260,6 +265,10 @@ func (a *App) openFile(p *project, path string) {
 	kernel, _ := a.kernel.(editorKernel)
 	a.background(p, 0, func(ctx context.Context) func(*App) {
 		read, err := readDocumentEncoded(ctx, kernel, path)
+		restored := a.prepareRecoveredDocument(ctx, p, path, read.text, err)
+		if restored.found && restored.missing {
+			err = nil
+		}
 		data := read.text
 		var content editorview.Content
 		var grammar *syntax.Syntax
@@ -267,7 +276,11 @@ func (a *App) openFile(p *project, path string) {
 		if err == nil {
 			// The rope and the measure of the lines take time in proportion to the file, so
 			// they are made here and the window thread only shows them.
-			content = editorview.Prepare(data)
+			if restored.found {
+				content = restored.disk
+			} else {
+				content = editorview.Prepare(data)
+			}
 			grammar = registry.SyntaxForPath(path)
 			if language, ok := registry.ForPath(path); ok {
 				languageID = language.ID
@@ -294,6 +307,7 @@ func (a *App) openFile(p *project, path string) {
 			a.placeDocument(p, path, name, content, grammar, languageID)
 			if d := p.docs.byPath(path); d != nil {
 				d.encoding, d.hasBOM, d.diskBytes = read.encoding, read.hasBOM, read.disk
+				a.applyRecoveredDocument(p, d, restored)
 			}
 			// A plugin that serves this language starts its server the first time a
 			// file of it is opened, not when the project opens: a workspace of Go
@@ -509,6 +523,9 @@ func (a *App) placeDocumentAs(p *project, path, name string, content editorview.
 		a.scheduleEditorActions(p, d)
 	}
 	a.enforceTabLimit(p, d)
+	if !virtual {
+		a.noteRecentFile(p, d, "opened")
+	}
 }
 
 // documentGroup is the editor group a file opens in: the one a document was last shown in,
@@ -548,6 +565,9 @@ func (a *App) selectDocument(p *project, id int) {
 	p.docs.group = g.ID
 	a.focusDocument(id)
 	p.touchDocument(id)
+	if d := p.docs.find(id); d != nil {
+		a.noteRecentFile(p, d, "opened")
+	}
 }
 
 // focusDocument asks for the keyboard to go to document id as soon as it is painted.
@@ -562,6 +582,18 @@ func (a *App) saveDocument(p *project, id int) { a.saveDocumentMode(p, id, false
 func (a *App) saveDocumentMode(p *project, id int, auto bool) {
 	d := p.docs.find(id)
 	if d == nil || d.virtual {
+		return
+	}
+	if d.recoveredConflict {
+		if !auto {
+			a.saveFailed(d.id, d.view.Revision(), d.name, documentio.ErrConflict)
+		}
+		return
+	}
+	if d.scratch {
+		if !auto {
+			a.saveScratchAs(p, d)
+		}
 		return
 	}
 	if auto && (d.conflicted || d.recreateMissing || d.linkedAutoSaveOff) {
@@ -635,6 +667,7 @@ func (a *App) saveDocumentMode(p *project, id int, auto bool) {
 				return
 			}
 			d.view.MarkSaved(text)
+			a.flushCheckpoint(p, d, false)
 			a.reloadDiffsOfPath(p, path)
 			a.recordLocalHistory(p, path, "save", historyTexts{before: before, after: data})
 			d.encodingChanged, d.previousEncoding = false, nil
@@ -679,9 +712,22 @@ func (a *App) saveDocumentMode(p *project, id int, auto bool) {
 
 // saveBeforeClose waits asynchronously for any in-flight save and the latest edits.
 func (a *App) saveBeforeClose(p *project, d *document, done func(bool)) {
+	if d.recoveredConflict {
+		done(false)
+		return
+	}
 	if d.view.IsComposing() {
 		a.saveFailed(d.id, d.view.Revision(), d.name, errComposing)
 		done(false)
+		return
+	}
+	if d.scratch {
+		if d.saving {
+			d.closeWaiters = append(d.closeWaiters, done)
+			return
+		}
+		a.flushCheckpoint(p, d, false)
+		done(true)
 		return
 	}
 	if !d.saving && !d.dirty() {
@@ -765,6 +811,9 @@ func (a *App) closeDocument(p *project, id int) {
 // removeDocument takes a tab away without asking about its text. The caller has saved it or
 // decided that it is going away: deleting its file, for one.
 func (a *App) removeDocument(p *project, d *document) {
+	d.find.dispose()
+	d.cancelAutoSave()
+	a.flushCheckpoint(p, d, false)
 	member := documentMember(d.id)
 	g := p.terms.bench.GroupOf(member)
 	if g == nil {
@@ -809,7 +858,7 @@ func (a *App) saveProjectPass(p *project, verified map[int]int, done func(bool))
 	}
 	documents := make([]core.SaveBatchDocument, 0, len(p.docs.list))
 	for _, d := range p.docs.list {
-		documents = append(documents, core.SaveBatchDocument{ID: documentMember(d.id), Dirty: d.dirty() || d.conflicted, ContentSynchronized: !d.view.IsComposing()})
+		documents = append(documents, core.SaveBatchDocument{ID: documentMember(d.id), Dirty: !d.scratch && (d.dirty() || d.conflicted), ContentSynchronized: !d.view.IsComposing()})
 	}
 	ctx, cancel := context.WithTimeout(p.ctx, kernelCallTimeout)
 	plan, err := a.kernel.PlanDocumentSaveBatch(ctx, documents)
@@ -865,6 +914,9 @@ func (a *App) closeDocuments(p *project) {
 		watch.close()
 	}
 	for _, d := range p.docs.list {
+		a.flushCheckpoint(p, d, false)
+		d.find.dispose()
+		d.cancelAutoSave()
 		d.view.Close()
 	}
 	p.docs = documentSet{}

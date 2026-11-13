@@ -624,6 +624,18 @@
       ],
       "identity": "Mutable user-owned plugin preference layers and one native publication, bound to captured root identity and exact source bytes. No build, platform, architecture or toolchain identity makes these reusable.",
       "reason": "Core supplies relative source names and a 1 MiB byte budget; native storage reads without creating files and publishes only after explicit save. Same-directory exclusive temporary files preserve native metadata and are removed after publication, failure or cancellation. Never copy, share, package or validate these as download resources at any worktree reuse stage. Preferences remain outside installed resources and do not alter code signatures or Sparkle delta baselines."
+    },
+    {
+      "id": "viva-editor-user-state",
+      "reusable": false,
+      "locations": [
+        "<platform-preferences>/EditorRecovery/<document-digest>.draft",
+        "<platform-preferences>/EditorRecovery/.checkpoint-*",
+        "<platform-preferences>/editor-recent-<workspace-digest>.json",
+        "<platform-preferences>/settings.json (editor preferences and keymap schemes)"
+      ],
+      "identity": "Mutable user-authored source snapshots, caret/history and personal keymap settings. Owned by the preference installation and document, with no reusable version/platform/architecture/toolchain stamp.",
+      "reason": "Native adapters read only when an editor or list needs them, and atomically replace private files after edits or explicit settings changes. Core owns limits and recovery conflict decisions; saved/discarded normal documents remove recovery copies, scratch files persist until Save As or discard. Never share, copy, package or run a build resource validator at any worktree reuse stage. These paths are outside installed resources and cannot affect code signatures or Sparkle delta baselines."
     }
   ]
 }

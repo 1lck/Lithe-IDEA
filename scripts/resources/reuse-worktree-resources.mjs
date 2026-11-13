@@ -114,6 +114,8 @@ async function readRegistry() {
   // Offline Markdown libraries, including PlantUML, are pinned Git inputs.
   // Rebuild the target checkout's template/vendor resources before signing.
   // Generated bundles and live render state are never reusable resources.
+  // viva-editor-user-state: recovery source, recent files and keymap schemes are
+  // private mutable user data. Reject them before every source/copy/validator stage.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
   for (const resource of excludedResources) {

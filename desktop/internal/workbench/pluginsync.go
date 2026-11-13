@@ -78,6 +78,11 @@ func (a *App) documentSyncServer(d *document) (*pluginServer, string) {
 func (a *App) documentEdited(p *project, d *document, edit editorview.Edit) {
 	a.relocateDocumentBreakpoints(p, d, edit)
 	a.scheduleEditorActions(p, d)
+	a.checkpointDocument(p, d)
+	a.markRecentlyEdited(p, d)
+	if d.scratch {
+		return
+	}
 	a.scheduleAutoSave(p, d)
 	if a.plugins == nil || a.project != p || p.docs.byPath(d.path) != d {
 		return
