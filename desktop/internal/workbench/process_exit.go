@@ -3,7 +3,6 @@ package workbench
 import (
 	"context"
 	"encoding/json"
-	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -238,27 +237,20 @@ func (a *App) setProcessTermination(value settingswindow.ProcessTermination) {
 // hands it to the processes Lithe stops (buildprocess.SetStopGrace). Until Core answers,
 // processes keep the time they had: at start-up that is none, so one stopped before the
 // answer is killed at once. An answer for settings that changed since is dropped, because the
-// refresh of the newer ones is on its way. The first refresh also reads Core's rule for the
-// stop time, which the Process Termination page shows.
+// refresh of the newer ones is on its way. The answer also carries Core's rule for the stop
+// time, which the Process Termination page shows.
 func (a *App) refreshStopGrace() {
 	if a.kernel == nil {
 		return
 	}
 	a.stopGraceRequest++
 	request, settings := a.stopGraceRequest, terminationSettings(a.settings.ProcessTermination)
-	readRule := a.stopTime.Load() == nil
 	a.background(nil, debugOperationTimeout, func(ctx context.Context) func(*App) {
-		grace, err := resolveStopTime(ctx, a.kernel, settings)
-		var rule *settingswindow.StopTime
-		if err == nil && readRule {
-			var read settingswindow.StopTime
-			if read, err = stopTimeRule(ctx, a.kernel); err == nil {
-				rule = &read
-			}
-		}
+		plan, err := a.kernel.ResolveProcessLifecycle(ctx, exitContextQuit, settings, nil)
 		return func(a *App) {
-			if rule != nil {
-				a.stopTime.Store(rule)
+			if err == nil {
+				rule := plan.GracefulStopRule
+				a.stopTime.Store(&settingswindow.StopTime{Default: rule.DefaultSeconds, Min: rule.MinSeconds, Max: rule.MaxSeconds})
 			}
 			if request != a.stopGraceRequest {
 				return
@@ -267,37 +259,12 @@ func (a *App) refreshStopGrace() {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("process_stop_grace", err))
 				return
 			}
-			buildprocess.SetStopGrace(grace)
+			buildprocess.SetStopGrace(time.Duration(plan.GracefulStopMilliseconds) * time.Millisecond)
 			if a.settingsWindow != nil {
 				a.settingsWindow.Invalidate()
 			}
 		}
 	})
-}
-
-// resolveStopTime is the stop time Core gives settings.
-func resolveStopTime(ctx context.Context, kernel processExitKernel, settings json.RawMessage) (time.Duration, error) {
-	plan, err := kernel.ResolveProcessLifecycle(ctx, exitContextQuit, settings, nil)
-	if err != nil {
-		return 0, err
-	}
-	return time.Duration(plan.GracefulStopMilliseconds) * time.Millisecond, nil
-}
-
-// stopTimeRule reads Core's rule for the stop time: the time it gives no stored time, the
-// smallest stored time and the largest. Core does not publish its limits, so they are the
-// times it resolves for the smallest and the largest number a setting can hold; #1830 has Core
-// publish them instead.
-func stopTimeRule(ctx context.Context, kernel processExitKernel) (settingswindow.StopTime, error) {
-	var seconds [3]int
-	for i, stored := range []*uint32{nil, new(uint32), new(uint32(math.MaxUint32))} {
-		grace, err := resolveStopTime(ctx, kernel, terminationSettings(settingswindow.ProcessTermination{GracefulStopSeconds: stored}))
-		if err != nil {
-			return settingswindow.StopTime{}, err
-		}
-		seconds[i] = int(grace / time.Second)
-	}
-	return settingswindow.StopTime{Default: seconds[0], Min: seconds[1], Max: seconds[2]}, nil
 }
 
 // stopTimeOption is how the Process Termination page reads Core's rule for the stop time once

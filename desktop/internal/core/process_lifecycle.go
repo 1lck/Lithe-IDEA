@@ -32,11 +32,22 @@ type ProcessDecision struct {
 	Reason string `json:"reason"`
 }
 
-// ProcessPlan is Core's exit plan: one decision per record in request order and
-// how long an ordinary process gets to stop gracefully.
+// ProcessPlan is Core's exit plan: one decision per record in request order,
+// how long an ordinary process gets to stop gracefully, and the rule that time
+// follows.
 type ProcessPlan struct {
 	GracefulStopMilliseconds int               `json:"gracefulStopMilliseconds"`
+	GracefulStopRule         GracefulStopRule  `json:"gracefulStopRule"`
 	Decisions                []ProcessDecision `json:"decisions"`
+}
+
+// GracefulStopRule is Core's rule for the gracefulStopSeconds setting, in
+// seconds: the time settings without one get, and the limits a stored time is
+// kept within.
+type GracefulStopRule struct {
+	DefaultSeconds int `json:"defaultSeconds"`
+	MinSeconds     int `json:"minSeconds"`
+	MaxSeconds     int `json:"maxSeconds"`
 }
 
 // ResolveProcessLifecycle decides how each record ends in one context (quit,
