@@ -558,7 +558,7 @@ JDK 和未知偏好；非空值成为本机 Build 默认值，空值继续表示
 - 项目环境与运行配置设置入口：
   - Rust Core：`rust/lithe-core/src/execution/configuration.rs`（`runConfig.inspect`、
     `runConfig.updateOptions` 工具链分支）
-  - 共享契约：`shared/contracts/rust-core-api.md`、
+  - 共享契约：`Lithe-core-rust/rust/contracts/rust-core-api.md`、
     `shared/fixtures/run-configuration/project-environment.json`
   - macOS：`macos/Sources/Lithe/Views/App/RunConfigurationSettingsView.swift`、
     `macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift`、

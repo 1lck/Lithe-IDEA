@@ -5,10 +5,12 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 func TestRenderMarkdownSharedFixture(t *testing.T) {
-	data, err := os.ReadFile("../../../shared/fixtures/editor/markdown-render-v1.json")
+	data, err := os.ReadFile(contractfixture.CoreFixture("editor/markdown-render-v1.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

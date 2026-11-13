@@ -69,7 +69,7 @@ IntelliJ 把 `.venv` 登记成外部库：保留补全和跳转，但不算项�
 - `desktop/internal/core/workspace.go`
 - `desktop/internal/core/workspace_tree_test.go`
 - `desktop/internal/workbench/filetree.go`
-- `shared/contracts/rust-core-api.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md`
 
 ## 迁移前的实现与验证记录
 

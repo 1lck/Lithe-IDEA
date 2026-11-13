@@ -3,12 +3,13 @@ package core
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 func TestDocumentTextClassificationUsesSharedFixtures(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "shared", "fixtures", "editor", "text-content-v1.json"))
+	data, err := os.ReadFile(contractfixture.CoreFixture("editor/text-content-v1.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

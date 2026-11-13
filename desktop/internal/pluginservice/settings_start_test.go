@@ -51,7 +51,7 @@ func TestLanguageServerReadsActualPluginPreferenceLayersBeforePlanning(t *testin
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			data, err := os.ReadFile("../../../shared/fixtures/plugins/settings-documents.json")
+			data, err := os.ReadFile(contractfixture.CoreFixture("plugins/settings-documents.json"))
 			if err != nil {
 				t.Fatal(err)
 			}

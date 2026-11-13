@@ -3,15 +3,16 @@ package core
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
-// readSharedJSON decodes a fixture under the repository shared directory.
-func readSharedJSON(t *testing.T, path string, value any) {
+// readCoreFixtureJSON decodes a fixture under rust/fixtures of the linked Core checkout.
+func readCoreFixtureJSON(t *testing.T, path string, value any) {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(append([]string{"..", "..", "..", "shared"}, filepath.SplitList(path)...)...))
+	data, err := os.ReadFile(contractfixture.CoreFixture(path))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +32,7 @@ func TestAICommitFixture(t *testing.T) {
 		} `json:"responses"`
 		ExpectedMessage string `json:"expectedMessage"`
 	}
-	readSharedJSON(t, "fixtures/ai/commit-generation-v1.json", &fixture)
+	readCoreFixtureJSON(t, "ai/commit-generation-v1.json", &fixture)
 	client := NewClient()
 	for i := range fixture.Files {
 		n := len([]rune(fixture.Files[i].Diff))
@@ -73,7 +74,7 @@ func TestAIInlineEditFixture(t *testing.T) {
 			} `json:"expected"`
 		} `json:"plans"`
 	}
-	readSharedJSON(t, "fixtures/ai/inline-edit-v1.json", &fixture)
+	readCoreFixtureJSON(t, "ai/inline-edit-v1.json", &fixture)
 	client := NewClient()
 	checked := 0
 	for _, item := range fixture.Plans {

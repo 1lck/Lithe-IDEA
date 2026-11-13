@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 )
 
-// This file wraps Rust Core's GitHub planning commands (shared/contracts/github.md). Core plans
+// This file wraps Rust Core's GitHub planning commands (Lithe-core-rust rust/contracts/github.md). Core plans
 // every request and normalizes every response; the host performs the HTTPS calls itself (see
 // internal/githubapi) and never builds a path or a body of its own.
 

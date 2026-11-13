@@ -136,7 +136,7 @@ const markdown = [
   "1. 功能开发或修复的 PR 必须更新对应能力点的实现状态、验证状态、证据路径和验证方式；如果一项功能包含多个独立用户动作，应拆成多行。",
   "2. `implementationStatus` 和 `verificationStatus` 分别表达实现程度和运行验证结果；只有实现状态为 `implemented` 且验证状态为 `verified` 才能表示已完成验收。",
   "3. 代码入口存在但没有真实运行验证时，保留实现状态并将验证状态设为 `pending`；不要把静态盘点写成 `verified`。",
-  "4. 新的共享行为先更新 `shared/contracts/` 和 fixture，再按验证方式完成两端验证后将验证状态推进到 `verified`。",
+  "4. 新的共享行为先在 Rust Core 仓库的 `rust/contracts/` 和 `rust/fixtures/` 更新契约与 fixture，再按验证方式完成两端验证后将验证状态推进到 `verified`。",
   "5. 功能 PR 必须同时包含源数据变更；纯重构如确实没有用户可观察变化，可由 reviewer 添加 `matrix-exempt` label 作为显式例外。",
 ].join("\n") + "\n";
 

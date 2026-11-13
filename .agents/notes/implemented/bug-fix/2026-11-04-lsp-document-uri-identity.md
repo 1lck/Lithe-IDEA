@@ -37,7 +37,7 @@ Core 比较文档身份时规范化百分号转义的写法与 Windows 盘符，
 
 ## 验证
 
-- `shared/fixtures/lsp/document-uri-v1.json` 覆盖保留字符、Unicode、盘符、UNC 和诊断身份。
+- `Lithe-core-rust/rust/fixtures/lsp/document-uri-v1.json` 覆盖保留字符、Unicode、盘符、UNC 和诊断身份。
 - Core 模拟服务器检查真正发送的 `didOpen` URI；macOS 真实桥接与启动测试覆盖目录斜杠和 `#`。
 - Windows 适配器测试覆盖现有请求内传路径、虚拟 URI 与旧附着结果；云服务器运行对应前端与 Core 测试。
 - 两端真实产品中的语言服务器、远程工作区及 UNC 路径人工验收仍待完成。

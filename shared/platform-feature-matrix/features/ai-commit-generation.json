@@ -14,9 +14,6 @@
       "desktop/internal/core/ai_generation.go",
       "desktop/internal/core/ai_generation_test.go",
       "desktop/internal/i18n/ai_messages.go",
-      "shared/contracts/ai-commit.md",
-      "shared/fixtures/ai/commit-generation-v1.json",
-      "shared/fixtures/git/commit-message-context-v1.json",
       "desktop/internal/workbench/ai_provider.go",
       "desktop/internal/workbench/ai_provider_test.go",
       "desktop/internal/settingswindow/ai_generation_view.go"
@@ -33,9 +30,6 @@
       "desktop/internal/core/ai_generation.go",
       "desktop/internal/core/ai_generation_test.go",
       "desktop/internal/i18n/ai_messages.go",
-      "shared/contracts/ai-commit.md",
-      "shared/fixtures/ai/commit-generation-v1.json",
-      "shared/fixtures/git/commit-message-context-v1.json",
       "desktop/internal/workbench/ai_provider.go",
       "desktop/internal/workbench/ai_provider_test.go",
       "desktop/internal/settingswindow/ai_generation_view.go"

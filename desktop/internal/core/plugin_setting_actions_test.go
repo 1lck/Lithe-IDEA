@@ -13,7 +13,7 @@ import (
 )
 
 func TestPluginSettingActionPlansMatchSharedFixture(t *testing.T) {
-	data, err := os.ReadFile("../../../shared/fixtures/plugins/settings-actions.json")
+	data, err := os.ReadFile(contractfixture.CoreFixture("plugins/settings-actions.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

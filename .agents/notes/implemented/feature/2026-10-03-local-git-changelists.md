@@ -67,7 +67,7 @@ Windows 提供两个独立的 Git 设置：`showGitChangelists` 和 `showGitPare
 - ~~`windows/tauri/src/features/git/components/git-commit-panel.test.tsx`~~（已随 #1794 移除）：按钮、快捷键与范围传递。
 - `rust/lithe-core/src/git/workspace_commit/tests.rs`：列表限制、父引用、确认变化、重试和续接校验。
 - `rust/lithe-core/src/tests/git_workspace_commit.rs`：真实 Git 拦截范围外暂存、不改变索引和工作树、保留部分暂存、刷新前重命名。
-- `shared/fixtures/git/changelists-reducer-v1.json`：Core 和两端适配器验证同一归属及范围结果；旧 `local-changelist-scope-v1.json` 保留旧客户端契约。
+- `Lithe-core-rust/rust/fixtures/git/changelists-reducer-v1.json`：Core 和两端适配器验证同一归属及范围结果；旧 `local-changelist-scope-v1.json` 保留旧客户端契约。
 - `scripts/desktop/desktop-go.sh test -race ./internal/core -run 'Test(ChangeListsUseSharedMembershipAndScope|WorkspaceCommitScopeProtectsStagedChanges)' -count=3 -timeout=90s`：macOS 使用共享 fixture 和临时 Git 仓库验证 Core 范围、未出现在快照中的已分配文件、准备后暂存变化与 HEAD/索引不变；不是 Viva 界面或 Windows 验收。
 - `scripts/desktop/desktop-go.sh test ./internal/workbench -run TestChangeLists -count=1`：Viva 界面用真实 Git 验证只提交当前列表、其他列表已暂存时拦截并提示、重名被拒后弹窗保持、删除归还默认列表、列表文件损坏时停用且不覆盖；不是 Windows 实机验收。
 - 异步投影、跨窗口锁、过期状态和关闭后结果丢弃有受控回归；真实 Git 测试覆盖投影后新暂存的目录文件及显式默认覆盖。
@@ -84,5 +84,5 @@ Windows 提供两个独立的 Git 设置：`showGitChangelists` 和 `showGitPare
 - `shared/platform-feature-matrix/features/git-local-changelists.json`
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/workspace_commit/path_scope.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/workspace_commit/path_scope.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/commit_state.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/commit_state.rs)
-- `shared/contracts/rust-core-api.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md`
 - [旧客户端的列表实现与原适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/feature/2026-10-03-local-git-changelists.md)

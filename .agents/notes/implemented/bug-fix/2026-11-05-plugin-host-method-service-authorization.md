@@ -26,7 +26,7 @@ Core 的宿主方法表是方法和服务关系的真源。macOS 在分发前调
 
 ## 验证
 
-`PluginPublicHostAPITests.aMethodCannotBeDispatchedUnderADifferentService` 在旧分发器上失败、修复后通过。`shared/fixtures/plugins/host-api-v1.json` 覆盖旧版聚合授权、独立方法授权、未知方法和服务不匹配。
+`PluginPublicHostAPITests.aMethodCannotBeDispatchedUnderADifferentService` 在旧分发器上失败、修复后通过。`Lithe-core-rust/rust/fixtures/plugins/host-api-v1.json` 覆盖旧版聚合授权、独立方法授权、未知方法和服务不匹配。
 
 ## 适用范围
 

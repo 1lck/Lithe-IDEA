@@ -9,9 +9,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
-// consoleLifecycleFixture is shared/fixtures/git/console-lifecycle-v1.json, which every host's
+// consoleLifecycleFixture is Lithe-core-rust rust/fixtures/git/console-lifecycle-v1.json, which every host's
 // journal replays.
 type consoleLifecycleFixture struct {
 	Version int `json:"version"`
@@ -36,7 +38,7 @@ func newTestConsole() *GitConsole {
 }
 
 func TestGitConsoleReplaysTheSharedLifecycleFixture(t *testing.T) {
-	data, err := os.ReadFile("../../../shared/fixtures/git/console-lifecycle-v1.json")
+	data, err := os.ReadFile(contractfixture.CoreFixture("git/console-lifecycle-v1.json"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}

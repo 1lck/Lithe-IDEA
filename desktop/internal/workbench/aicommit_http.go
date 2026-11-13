@@ -10,7 +10,7 @@ import (
 )
 
 // AI provider requests are made here, by the platform: Core only plans the request and
-// decodes the answer. The limits follow shared/contracts/ai-commit.md: a 45-second
+// decodes the answer. The limits follow Lithe-core-rust rust/contracts/ai-commit.md: a 45-second
 // deadline, no redirects, no cookies, and a 2 MiB cap on the answer.
 const (
 	aiRequestTimeout = 45 * time.Second

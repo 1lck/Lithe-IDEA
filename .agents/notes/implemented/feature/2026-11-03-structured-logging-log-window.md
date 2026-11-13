@@ -230,8 +230,8 @@ Swift 只负责读日志文件尾部、订阅 `MacLogStore` 的实时批次、�
 ## 适用范围
 
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/diagnostics/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/diagnostics)
-- `shared/contracts/rust-core-api.md`
-- `shared/fixtures/diagnostics/logging-v2.json`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/diagnostics/logging-v2.json`
 - `desktop/internal/logstore/`
 - `desktop/internal/logwindow/`
 - `desktop/internal/core/logging.go`

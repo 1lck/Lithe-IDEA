@@ -46,7 +46,7 @@ Core 契约，也还没有在真实 Windows 机器上跑过完整回归。继续
   的行为，因此改为"没有共享实现就显式失败"而不是伪造成功。
 - **不等 Rust 实现 Windows 专属的进程/调试/更新/安全存储，先用
   Tauri/Node 生态的第三方库垫上**：能更快让功能可用。但会绕开
-  `shared/contracts/` 的错误码、取消、超时和陈旧结果语义，且这些
+  `Lithe-core-rust/rust/contracts/` 的错误码、取消、超时和陈旧结果语义，且这些
   库的行为很难和 macOS 对应能力保持一致，因此仍然要求这些流程落在
   Rust 里、复用共享契约的语义。
 - **在真实 Windows 机器上的回归推迟到功能全部迁移完成后再一次性
@@ -66,7 +66,7 @@ Core 契约，也还没有在真实 Windows 机器上跑过完整回归。继续
 - Windows CI 能构建出真实可执行文件，并同时测试 `lithe-core` 和
   Tauri host。
 - 产品工作流按
-  [`shared/contracts/application-boundary.md`](../../../../shared/contracts/application-boundary.md)
+  [`Lithe-core-rust/rust/contracts/application-boundary.md`](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/application-boundary.md)
   的要求暴露错误、取消、超时和陈旧结果处理。
 - 上述"提案"里的 5 项工作全部完成，且在真实 Windows 机器上跑过一轮
   完整回归。
@@ -87,6 +87,6 @@ Core 契约，也还没有在真实 Windows 机器上跑过完整回归。继续
 ## 适用范围
 
 - `desktop/`
-- `shared/contracts/application-boundary.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/application-boundary.md`
 - `shared/platform-feature-matrix/`
 - [旧 Windows 客户端（历史版本）](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/windows/tauri)

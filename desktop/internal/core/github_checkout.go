@@ -2,7 +2,7 @@ package core
 
 import "context"
 
-// This file wraps the pull-request checkout commands (shared/contracts/github.md): a preview that
+// This file wraps the pull-request checkout commands (Lithe-core-rust rust/contracts/github.md): a preview that
 // inspects the checkout without changing it, and the checkout that rechecks the reviewed preview
 // under the repository's write lease before it fetches and creates the branch.
 

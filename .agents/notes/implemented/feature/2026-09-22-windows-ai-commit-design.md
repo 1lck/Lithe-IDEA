@@ -96,5 +96,5 @@ Codex/Claude 的 OAuth 登录不等同于可用 API 密钥，本次不实现 CLI
 - ~~`windows/tauri/src-tauri/src/ai_commit.rs`~~（已随 #1794 移除）
 - ~~`windows/tauri/src/features/git/`~~（已随 #1794 移除）
 - ~~`windows/tauri/src/features/settings/components/ai-commit-settings-panel.tsx`~~（已随 #1794 移除）
-- `shared/contracts/ai-commit.md`
-- `shared/fixtures/ai/commit-generation-v1.json`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/ai-commit.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/ai/commit-generation-v1.json`

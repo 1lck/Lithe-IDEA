@@ -13,7 +13,7 @@ Viva 桌面客户端使用同一套 Go 界面代码适配 macOS、Windows 和 Li
 ## 决策
 
 - `desktop/` 持有 Viva 界面、桌面组合和平台适配器；`desktop/internal/core/` 是调用 Core 的类型化桥接。具体功能的完成度以 `shared/platform-feature-matrix/` 和实际验证为准。
-- Rust Core 位于 [Lithe-core-rust](https://github.com/Lithe-IDEA/Lithe-core-rust)，桌面构建脚本固定源码修订并链接其 C ABI。Core 命令的共享契约和夹具位于 `shared/`。插件源码和插件市场由对应的 Lithe-IDEA 组织仓库持有，不因为客户端重构而在本仓库重新维护一份。
+- Rust Core 位于 [Lithe-core-rust](https://github.com/Lithe-IDEA/Lithe-core-rust)，桌面构建脚本固定源码修订并链接其 C ABI。Core 命令的契约和 fixture 只在 Core 仓库的 `rust/contracts/` 与 `rust/fixtures/` 维护，本仓库不留副本，桌面测试读取所链接的 Core 检出，见 [应用契约与 fixture 只在 Rust Core](2026-11-14-core-app-contracts-single-source.md)。插件源码和插件市场由对应的 Lithe-IDEA 组织仓库持有，不因为客户端重构而在本仓库重新维护一份。
 - 调用操作系统、Viva 或文件监听 API 的代码留在平台适配器；视图可以持有焦点、悬停、滚动偏移等短暂呈现状态。其余可共享规则，包括解析、过滤、排序、树和列表投影、选择规则及业务状态转换，放在 Rust Core。具体判断和 Rust Core 注释要求以 `develop-lithe` Skill 为准。
 - 欢迎页最近项目菜单捕获项目路径而非列表位置；移除只调用 Core 的最近项目归约并保存结果，不删除用户目录。保存成功后才替换显示的列表；保存失败时保留旧列表并报告错误。定位文件夹由平台接口执行。菜单的悬停、键盘焦点、Tab 循环和 Esc 后的焦点恢复属于短暂界面状态，不能用它们重建最近项目的排序或持久化规则。
 - 欢迎页显示分支时，平台在后台读取最多 4 KiB 的 `.git` 指针和 `HEAD`，由 Core 解释分支与 worktree 指针；非 Git 目录不显示分支。只允许一个读取任务，最近列表变化时取消旧任务并丢弃旧结果，避免退出或移除项目后出现过期分支。普通文件适配器拒绝最终符号链接、设备和超限文件；文件系统调用本身仍可能被底层网络挂载延迟，不能声称它拥有硬实时退出保证。工作台项目切换菜单目前仍通过完整 Git 状态获取分支，跟踪 [#1808](https://github.com/1lck/Lithe-IDEA/issues/1808)。
@@ -55,7 +55,7 @@ Viva 桌面客户端使用同一套 Go 界面代码适配 macOS、Windows 和 Li
 
 - `desktop/internal/workbench/`
 - `desktop/internal/core/`
-- `shared/contracts/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/contracts/`
 - `shared/platform-feature-matrix/`
 - `scripts/desktop/`
 - [Lithe-core-rust 固定修订](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust)

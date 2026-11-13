@@ -6,10 +6,12 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 func TestChangeListsUseSharedMembershipAndScope(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "shared", "fixtures", "git", "changelists-reducer-v1.json"))
+	data, err := os.ReadFile(contractfixture.CoreFixture("git/changelists-reducer-v1.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -255,7 +255,7 @@ Windows 是独立前端实现，写入进行中到期的那次延迟自动保存
 
 ## 验证
 
-共享 fixture 位于 `shared/fixtures/documents/lifecycle-v1.json`。运行
+共享 fixture 位于 `Lithe-core-rust/rust/fixtures/documents/lifecycle-v1.json`。运行
 `scripts/desktop/desktop-go.sh test ./internal/documentio ./internal/workbench` 和
 `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
 
@@ -273,7 +273,7 @@ Viva 适配器的 `desktop/internal/documentio` 测试已在 Windows Server 2022
 以下命令和测试针对迁移前的 Swift、Tauri 和仓内 Rust 源码，保留为历史记录，
 不能当作当前 Viva 产品的运行验证。
 
-共享 fixture 位于 `shared/fixtures/documents/lifecycle-v1.json`。
+共享 fixture 位于 `Lithe-core-rust/rust/fixtures/documents/lifecycle-v1.json`。
 运行 ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）、
 `./scripts/architecture/verify-core.sh` 和 ~~./scripts/rust-core/verify-rust-core-comments.sh~~（随旧客户端移除）。
 
@@ -329,4 +329,4 @@ WindowsRust 范围单独运行 `lithe-project`；只运行宿主不会执行依�
 - `desktop/internal/workbench/documents.go`
 - `desktop/internal/workbench/document_observation.go`
 - `desktop/internal/editorview/view.go`
-- `shared/contracts/application-boundary.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/application-boundary.md`

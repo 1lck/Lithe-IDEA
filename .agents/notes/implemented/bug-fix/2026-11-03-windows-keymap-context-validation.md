@@ -69,7 +69,7 @@ Windows 每个窗口最多缓存 256 条条件，最多同时保留 16 个原生
 ## 适用范围
 
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/keymap/mod.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/keymap/mod.rs)
-- `shared/fixtures/keymap/context-v1.json`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/keymap/context-v1.json`
 - ~~`windows/tauri/src/features/keymaps/utils/context.ts`~~（已随 #1794 移除）
 - ~~`windows/tauri/src/features/keymaps/utils/keybinding-import-export.ts`~~（已随 #1794 移除）
 - ~~`windows/tauri/src/features/keymaps/stores/keymaps.store.ts`~~（已随 #1794 移除）

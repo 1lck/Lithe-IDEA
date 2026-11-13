@@ -13,7 +13,9 @@ reasonix.toml
 # Top-level directories of the in-repository Rust kernel and the SwiftUI and Tauri clients,
 # which this tree no longer has. Checkouts that switch here from an older branch keep their
 # ignored build state (cargo targets, SwiftPM and node_modules directories) on disk; these
-# entries keep it out of git status. Shared contracts, fixtures and i18n remain tracked.
+# entries keep it out of git status. Only shared/i18n and shared/platform-feature-matrix remain
+# tracked: application contracts and fixtures live in Lithe-core-rust (rust/contracts,
+# rust/fixtures), so a copy left under shared/ stays out of git.
 /rust/
 /macos/
 /windows/
@@ -22,8 +24,6 @@ reasonix.toml
 /third_party/
 /shared/*
 !/shared/i18n/
-!/shared/contracts/
-!/shared/fixtures/
 !/shared/platform-feature-matrix/
 /node_modules/
 /.build/

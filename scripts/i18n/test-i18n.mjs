@@ -183,7 +183,7 @@ test(
   { timeout: 1000 },
   async () => {
     const fixture = JSON.parse(
-      await readFile(path.join(ROOT, "shared/fixtures/i18n/format-v1.json"), "utf8"),
+      await readFile(path.join(ROOT, "shared/i18n/fixtures/format-v1.json"), "utf8"),
     );
     for (const item of fixture.cases)
       assert.equal(nativeTemplate(item.template, fixture, fixture.arguments), item.nativeTemplate);
@@ -459,7 +459,7 @@ test(
   { timeout: 1000 },
   async () => {
     const fixture = JSON.parse(
-      await readFile(path.join(ROOT, "shared/fixtures/i18n/native-abi-v1.json"), "utf8"),
+      await readFile(path.join(ROOT, "shared/i18n/fixtures/native-abi-v1.json"), "utf8"),
     );
     assert.equal(
       nativeTemplate(fixture.template, fixture, fixture.arguments),

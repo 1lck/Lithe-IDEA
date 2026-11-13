@@ -589,7 +589,7 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
 - `git diff --check`
 
 上游对照 fixture 固定保存在
-[`shared/fixtures/git/graph-idea/`](../../../../shared/fixtures/git/graph-idea/)
+[`Lithe-core-rust/rust/fixtures/git/graph-idea/`](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/fixtures/git/graph-idea/)
 （4 个布局 fixture 比较完整 layout index 向量，5 个打印 fixture 比较
 节点列、半边端点、箭头与实/虚线，只排除颜色值）；真实历史回归数据
 冻结在
@@ -625,7 +625,7 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
 - ~~`macos/Tests/LitheTests/GitCommitFileTreeLayoutTests.swift`~~（已随 #1794 移除）
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/history.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/history.rs)
 - ~~`macos/Sources/Lithe/Core/Rust/RustGitOperations.swift`~~（已随 #1794 移除）
-- `shared/fixtures/git/graph-idea/`
+- `Lithe-core-rust/rust/fixtures/git/graph-idea/`
 - ~~`macos/Tests/LitheTests/Fixtures/GitGraph/`~~（已随 #1794 移除）
 - ~~`macos/Resources/GitGraph/`~~（已随 #1794 移除）
 
@@ -635,9 +635,9 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
 - `desktop/internal/workbench/gitgraph.go`
 - `desktop/internal/workbench/gitlog.go`
 - `desktop/internal/workbench/gitlog_view.go`
-- `shared/fixtures/git/graph-idea/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/fixtures/git/graph-idea/`
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/graph.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/graph.rs)
 
 ## 后续：布局下沉到 Rust Core（#1662 GIT-18/19）
 
-本文描述的 DFS、head 排序、定色、过滤后的虚线拓扑和 missing parents 算法已搬进 `rust/lithe-core/src/git/graph.rs`，由 `git.graphProjection` 统一提供，规则以 `shared/fixtures/git/graph-projection-v1.json` 为准。文中提到的 Swift/TS 实现文件已删除；两端只保留绘制、像素和颜色 ID 到主题色的映射。
+本文描述的 DFS、head 排序、定色、过滤后的虚线拓扑和 missing parents 算法已搬进 `rust/lithe-core/src/git/graph.rs`，由 `git.graphProjection` 统一提供，规则以 `Lithe-core-rust/rust/fixtures/git/graph-projection-v1.json` 为准。文中提到的 Swift/TS 实现文件已删除；两端只保留绘制、像素和颜色 ID 到主题色的映射。

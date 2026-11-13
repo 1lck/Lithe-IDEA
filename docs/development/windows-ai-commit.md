@@ -2,7 +2,7 @@
 
 Windows 现已提供独立的“AI 与提交”配置，可手动管理多个服务商，也可识别本机 Codex 和 Claude 的 API 配置。生成结果先写入提交框，检查后再执行提交。
 
-架构取舍见[设计文档](../../.agents/notes/implemented/feature/2026-09-22-windows-ai-commit-design.md)，字段与接口见[共享契约](../../shared/contracts/ai-commit.md)。本篇记录代码接线、使用方式和验证方法，不复制架构决策。
+架构取舍见[设计文档](../../.agents/notes/implemented/feature/2026-09-22-windows-ai-commit-design.md)，字段与接口见[共享契约](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/ai-commit.md)。本篇记录代码接线、使用方式和验证方法，不复制架构决策。
 
 ## 如何使用
 

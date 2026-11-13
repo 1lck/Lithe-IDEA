@@ -226,7 +226,7 @@ func (c *Client) CommitMessageContextIsCurrent(ctx context.Context, mode string,
 
 // IDEHostControl sends one ideHost.control action to the local capability
 // broker and returns the raw result. Actions are open, close, closeOwner, poll,
-// claim, respond, catalog, validate and output; see shared/contracts/ide-api/v1.md.
+// claim, respond, catalog, validate and output; see Lithe-core-rust rust/contracts/ide-api/v1.md.
 func (c *Client) IDEHostControl(ctx context.Context, action string, arguments any) (json.RawMessage, error) {
 	var result json.RawMessage
 	err := c.Execute(ctx, "ideHost.control", struct {

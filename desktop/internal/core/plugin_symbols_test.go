@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"os"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 func TestPluginDocumentSymbolsSharedFixtures(t *testing.T) {
-	data, err := os.ReadFile("../../../shared/fixtures/lsp/document-symbols-v1.json")
+	data, err := os.ReadFile(contractfixture.CoreFixture("lsp/document-symbols-v1.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +50,7 @@ func TestPluginDocumentSymbolsSharedFixtures(t *testing.T) {
 }
 
 func TestPluginSemanticTokensSharedFixture(t *testing.T) {
-	data, err := os.ReadFile("../../../shared/fixtures/lsp/semantic-tokens-v1.json")
+	data, err := os.ReadFile(contractfixture.CoreFixture("lsp/semantic-tokens-v1.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

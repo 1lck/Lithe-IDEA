@@ -12,9 +12,7 @@
       "desktop/internal/workbench/inlinediff.go",
       "desktop/internal/workbench/inlinediff_test.go",
       "desktop/internal/core/ai_generation.go",
-      "desktop/internal/core/ai_generation_test.go",
-      "shared/contracts/ai-generation-requests.md",
-      "shared/fixtures/ai/inline-edit-v1.json"
+      "desktop/internal/core/ai_generation_test.go"
     ]
   },
   "windows": {
@@ -26,9 +24,7 @@
       "desktop/internal/workbench/inlinediff.go",
       "desktop/internal/workbench/inlinediff_test.go",
       "desktop/internal/core/ai_generation.go",
-      "desktop/internal/core/ai_generation_test.go",
-      "shared/contracts/ai-generation-requests.md",
-      "shared/fixtures/ai/inline-edit-v1.json"
+      "desktop/internal/core/ai_generation_test.go"
     ]
   },
   "owner": "AI",

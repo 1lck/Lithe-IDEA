@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
@@ -18,7 +19,7 @@ import (
 )
 
 func TestSettingsDynamicPagesShareDraftsFilterActionsAndRefreshCleanForms(t *testing.T) {
-	data, err := os.ReadFile("../../../shared/fixtures/plugins/settings-documents.json")
+	data, err := os.ReadFile(contractfixture.CoreFixture("plugins/settings-documents.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +172,7 @@ func (s dynamicFormsSource) Load(ctx context.Context, id string) (pluginservice.
 // the elixir language page, and no actions.
 func flagsManifest(t *testing.T, count int) json.RawMessage {
 	t.Helper()
-	data, err := os.ReadFile("../../../shared/fixtures/plugins/settings-documents.json")
+	data, err := os.ReadFile(contractfixture.CoreFixture("plugins/settings-documents.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

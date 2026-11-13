@@ -45,7 +45,7 @@ func DecodeUser(raw json.RawMessage) (User, error) {
 	return user, err
 }
 
-// The normalized shapes Rust Core returns (shared/contracts/github.md). They are decoded from the
+// The normalized shapes Rust Core returns (Lithe-core-rust rust/contracts/github.md). They are decoded from the
 // normalized JSON; the host reads them and never reshapes them.
 
 // User is a GitHub account.

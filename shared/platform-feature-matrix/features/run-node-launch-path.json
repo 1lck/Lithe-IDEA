@@ -10,8 +10,7 @@
       "desktop/internal/workbench/toolchains.go",
       "desktop/internal/workbench/toolchains_test.go",
       "desktop/internal/core/run_discovery.go",
-      "desktop/internal/core/run_discovery_test.go",
-      "shared/fixtures/execution/search-path-v1.json"
+      "desktop/internal/core/run_discovery_test.go"
     ]
   },
   "windows": {
@@ -21,8 +20,7 @@
       "desktop/internal/workbench/toolchains.go",
       "desktop/internal/workbench/toolchains_test.go",
       "desktop/internal/core/run_discovery.go",
-      "desktop/internal/core/run_discovery_test.go",
-      "shared/fixtures/execution/search-path-v1.json"
+      "desktop/internal/core/run_discovery_test.go"
     ]
   },
   "owner": "Run",

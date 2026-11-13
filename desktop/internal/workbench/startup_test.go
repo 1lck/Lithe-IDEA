@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
@@ -16,7 +17,7 @@ import (
 func TestDesktopStartupMakesInstalledPluginSettingsReachable(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	data, err := os.ReadFile("../../../shared/fixtures/plugins/settings-documents.json")
+	data, err := os.ReadFile(contractfixture.CoreFixture("plugins/settings-documents.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
