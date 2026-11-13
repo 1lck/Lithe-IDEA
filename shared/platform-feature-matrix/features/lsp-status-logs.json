@@ -10,7 +10,9 @@
       "desktop/internal/workbench/lsp_status.go",
       "desktop/internal/workbench/lsp_status_test.go",
       "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/chrome.go"
+      "desktop/internal/workbench/chrome.go",
+      "desktop/internal/workbench/tabstrip.go",
+      "desktop/internal/workbench/editor_view.go"
     ]
   },
   "windows": {
@@ -20,7 +22,9 @@
       "desktop/internal/workbench/lsp_status.go",
       "desktop/internal/workbench/lsp_status_test.go",
       "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/chrome.go"
+      "desktop/internal/workbench/chrome.go",
+      "desktop/internal/workbench/tabstrip.go",
+      "desktop/internal/workbench/editor_view.go"
     ]
   },
   "owner": "Language Tooling",
@@ -78,5 +82,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：状态栏显示选中文件的语言服务器状态（启动中、就绪、出错、已停止）或问题数；点击打开“语言服务器日志”窗口，按服务器选择并显示 Core 日志事件的有界尾部（500 行）。本轮补上日志文本筛选（大小写不敏感，无匹配有提示）以及窗口内的停止/重启按钮：停止走已有会话回收，重启复用设置页的重启流程（抑制旧会话、等待回收后按语言重新启动）。尚未接入按级别筛选和统一日志窗口的通道定位。"
+  "notes": "Viva：状态栏显示选中文件的语言服务器状态（启动中、就绪、出错、已停止）或问题数，选中“LSP 日志”页签时显示该页签所示服务器的状态。点击状态栏打开或聚焦编辑器区唯一的“LSP 日志”普通页签（与旧 macOS 客户端一致，不再是单独的弹窗），可像文件页签一样切换、拖动、分屏和关闭，关闭后再打开仍显示已收到的日志。页签一次显示一个服务器（下拉选择），显示 Core 日志事件的有界尾部（500 行）：停在末尾时新日志自动跟随，向上滚动后不打断；错误、警告、调试行按事件级别着色；日志文本筛选（大小写不敏感，无匹配有提示）；“清空视图”只清空当前服务器的显示行；停止/重启按钮：停止走已有会话回收，重启复用设置页的重启流程（抑制旧会话、等待回收后按语言重新启动）。尚未接入按级别筛选和统一日志窗口的通道定位。"
 }

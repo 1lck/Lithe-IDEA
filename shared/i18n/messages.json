@@ -12012,13 +12012,6 @@
       ]
     },
     {
-      "id": "desktop.lsp.logTitle",
-      "description": "Title of the window that shows the log of each language server",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.lsp.noFilteredLog",
       "description": "Shown when the language server log filter matches no line.",
       "platforms": [
@@ -35835,7 +35828,8 @@
       "id": "logs.language.tabTitle",
       "description": "Editor tab title for the language server logs view",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "LSP Logs",
@@ -44526,7 +44520,8 @@
       "id": "native.clearLogView",
       "description": "Native LSP status and log viewer",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Clear View",

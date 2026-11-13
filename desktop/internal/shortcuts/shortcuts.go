@@ -123,11 +123,23 @@ func fullscreenDefault() keymap.Chord {
 	return chord(0, "f11")
 }
 
+// closeTabDefaults is Close Tab: Command-W on macOS. Other platforms give it no chord; a user
+// binds one on the Keymap page.
+func closeTabDefaults() []keymap.Chord {
+	if runtime.GOOS == "darwin" {
+		return chords(chord(keymap.Primary, "w"))
+	}
+	return nil
+}
+
 // IDs of the actions the window treats specially when their keys are pressed.
 const (
 	FindAction = "search.findAction"
 	InlineEdit = "editor.inlineEdit"
 	GoToLine   = "navigate.gotoLine"
+	// CloseTab closes the selected tab where the keys are: the focused terminal's, else the one
+	// the editor group shows.
+	CloseTab = "tab.close"
 	// OpenSelected opens the selected entry of the project tree or the search results. Those
 	// lists bind it on their own elements, so it acts only while the focus is in one of them.
 	OpenSelected = "workspace.openSelected"
@@ -149,6 +161,7 @@ var Catalog = []Action{
 	{ID: "project.new", Group: GroupProject, Title: func(m *i18n.Messages) string { return m.Commands.NewProject }},
 	{ID: "project.clone", Group: GroupProject, Title: func(m *i18n.Messages) string { return m.Commands.Clone }},
 	{ID: "project.close", Group: GroupProject, Title: func(m *i18n.Messages) string { return m.Commands.CloseProject }},
+	{ID: CloseTab, Group: GroupProject, Title: func(m *i18n.Messages) string { return m.Editor.CloseTab }, Defaults: closeTabDefaults()},
 	{ID: "documents.saveAll", Group: GroupProject, Title: func(m *i18n.Messages) string { return m.Commands.SaveAll }},
 	{ID: OpenSelected, Group: GroupProject, Title: func(m *i18n.Messages) string { return m.Keymap.OpenSelected }, Defaults: chords(chord(0, "f4"))},
 	{ID: "localHistory.show", Group: GroupProject, Title: func(m *i18n.Messages) string { return m.History.Show }},

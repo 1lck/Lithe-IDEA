@@ -1193,7 +1193,6 @@
     "desktop.logs.savedTo": "已保存到 {path}",
     "desktop.logs.sourceLine": "第 {line} 行",
     "desktop.logs.writeFailures": "写入失败 {count}",
-    "desktop.lsp.logTitle": "语言服务器日志",
     "desktop.lsp.noLog": "此服务器暂无日志。",
     "desktop.lsp.noServers": "没有正在运行的语言服务器。",
     "desktop.lsp.state": "状态：{state}",

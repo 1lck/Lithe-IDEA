@@ -129,23 +129,12 @@ func (a *App) openViewer(p *project, path string, kind viewerKind) {
 		a.selectViewer(p, t.id)
 		return
 	}
-	set := &p.terms
-	state := set.bench
-	group, added := a.documentGroup(p), ""
-	if group == "" {
-		added = editorGroupID(set.nextGroup + 1)
-		state.Groups = append(slices.Clone(state.Groups), core.EditorGroup{ID: added})
-		group = added
-	}
 	id := p.viewers.next + 1
-	if !a.reduceTerminals(p, state, core.OpenEditor(group, viewerMember(id), true)) {
+	group, ok := a.placeEditorMember(p, viewerMember(id))
+	if !ok {
 		return
 	}
 	p.viewers.next = id
-	if added != "" {
-		set.nextGroup++
-		set.layout = newLeaf(added)
-	}
 	t := &viewerTab{id: id, path: path, name: filepath.Base(path), kind: kind, loading: kind != viewerExternal}
 	if info, err := os.Stat(path); err == nil {
 		t.size = info.Size()

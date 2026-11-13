@@ -187,7 +187,7 @@ func (a *App) workbench(c ui.C) {
 // on its effective keys (shortcuts.Catalog with the user's changes), which run the same
 // command Find Action runs. Go to Line and the inline edit only act where they apply:
 // Go to Line not in a terminal, and outside macOS only in an editor; the inline edit only
-// in an editor.
+// in an editor. Close Tab closes the focused terminal's tab, else the editor group's.
 func (a *App) windowShortcuts(c ui.C) {
 	fired := ""
 	for _, action := range shortcuts.All() {
@@ -203,8 +203,9 @@ func (a *App) windowShortcuts(c ui.C) {
 	if fired == "" {
 		return
 	}
-	view := a.focusedDocument(c.Canvas().Focused())
-	c.After(func() { a.runShortcut(fired, view) })
+	focused := c.Canvas().Focused()
+	view, term := a.focusedDocument(focused), a.focusedTerminalTab(focused)
+	c.After(func() { a.runShortcut(fired, view, term) })
 }
 
 // elementShortcut reports whether one of the catalog action's effective chords was pressed while
@@ -238,10 +239,16 @@ func (a *App) shortcutApplies(c ui.C, id string) bool {
 }
 
 // runShortcut runs the action a chord was pressed for. view is the editor that had the
-// focus, for the inline edit.
-func (a *App) runShortcut(id string, view *editorview.View) {
+// focus, for the inline edit, and term the terminal that had it, whose tab Close Tab closes.
+func (a *App) runShortcut(id string, view *editorview.View, term *terminal) {
 	p := a.project
 	switch id {
+	case shortcuts.CloseTab:
+		if p != nil && term != nil && p.terms.find(term.id) == term {
+			a.performed("command."+id, surfaceShortcut)
+			a.closeTab(shownTab{term: term})
+			return
+		}
 	case shortcuts.FindAction:
 		if p != nil {
 			a.performed("workspace.findAction.open", surfaceShortcut)
@@ -282,7 +289,6 @@ func (a *App) overlays(c ui.C) {
 		a.everywherePopup(c)
 		a.navigationPopup(c)
 		a.semanticPopups(c)
-		a.lspLogPopup(c)
 	}
 	a.pluginReviewView(c)
 	a.pluginPromptView(c)
