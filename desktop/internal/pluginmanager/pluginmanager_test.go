@@ -166,3 +166,72 @@ func TestSetEnabledAndEnabledRoundTrip(t *testing.T) {
 		t.Fatalf("enabled = %v, err = %v", enabled, err)
 	}
 }
+
+// Uninstalling removes what the plugin's programs wrote below the plugin root,
+// so nothing of an uninstalled plugin stays on disk; the state of other plugins
+// and the host's own files there are kept.
+func TestUninstallRemovesThePluginState(t *testing.T) {
+	manager, _, _, root := newManager(t)
+	install(t, root, "example", "1.0.0")
+	install(t, root, "other", "1.0.0")
+	stateRoot := filepath.Join(root, pluginpkg.StateDirectory)
+	for _, file := range []string{
+		filepath.Join("example", "1.0.0", "jdk-sources", "String.java"),
+		filepath.Join("example", "pages", "workspaces", "w", "page.json"),
+		filepath.Join("other", "1.0.0", "cache"),
+		"host-secret",
+	} {
+		path := filepath.Join(stateRoot, file)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := manager.Uninstall("example"); err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateRoot, "example")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the plugin's state survived: %v", err)
+	}
+	for _, kept := range []string{filepath.Join("other", "1.0.0", "cache"), "host-secret"} {
+		if _, err := os.Stat(filepath.Join(stateRoot, kept)); err != nil {
+			t.Fatalf("%s was removed with the plugin: %v", kept, err)
+		}
+	}
+}
+
+// Confirming an installation enables a plugin the user made no choice for, and
+// keeps a choice the user made, such as disabling it before an update.
+func TestEnableInstalledKeepsAnExplicitChoice(t *testing.T) {
+	manager, _, state, root := newManager(t)
+	install(t, root, "fresh", "1.0.0")
+	install(t, root, "disabled", "1.0.0")
+	if err := manager.SetEnabled("disabled", false); err != nil {
+		t.Fatal(err)
+	}
+	install(t, root, "disabled", "1.1.0")
+	for _, c := range []struct {
+		id   string
+		want bool
+	}{{"fresh", true}, {"disabled", false}} {
+		if _, err := manager.EnableInstalled(c.id); err != nil {
+			t.Fatalf("enable %s: %v", c.id, err)
+		}
+		if enabled, err := state.Enabled(c.id); err != nil || enabled != c.want {
+			t.Fatalf("%s: enabled = %v, err = %v, want %v", c.id, enabled, err, c.want)
+		}
+	}
+	if _, err := manager.EnableInstalled("absent"); !errors.Is(err, ErrUnknownPlugin) {
+		t.Fatalf("enabling a plugin that is not installed: %v", err)
+	}
+	// After an uninstall the choice is forgotten, so installing again enables it.
+	if err := manager.Uninstall("disabled"); err != nil {
+		t.Fatal(err)
+	}
+	install(t, root, "disabled", "1.1.0")
+	if enabled, err := manager.EnableInstalled("disabled"); err != nil || !enabled {
+		t.Fatalf("reinstall after uninstall: enabled = %v, err = %v", enabled, err)
+	}
+}

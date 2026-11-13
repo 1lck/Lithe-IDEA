@@ -4,9 +4,10 @@
 // silently turn a plugin back on, and uninstalling one version must not reset a
 // choice the user made for another.
 //
-// A plugin with no record is disabled. A package the user downloaded is not
-// enabled until they say so, which keeps a fresh installation from contributing
-// tool windows, languages or commands before the user asked for them.
+// A plugin with no record is disabled. Confirming an installation is the user
+// saying they want the plugin, so it records the plugin as enabled unless the
+// user already made a choice for it (EnableUnlessChosen): a plugin the user
+// disabled stays disabled when a new version is installed.
 package pluginstate
 
 import (
@@ -81,8 +82,28 @@ func (s *Store) SetEnabled(id string, enabled bool) error {
 	return s.save(contents)
 }
 
-// Forget drops a choice, so a later installation starts disabled again. It is
-// called when the last installed version of a plugin is removed.
+// EnableUnlessChosen records the plugin as enabled when the user has made no
+// choice for it, and reports whether it did. An explicit choice is kept.
+func (s *Store) EnableUnlessChosen(id string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := checkID(id); err != nil {
+		return false, err
+	}
+	contents, err := s.load()
+	if err != nil {
+		return false, err
+	}
+	if _, chosen := contents.Plugins[id]; chosen {
+		return false, nil
+	}
+	contents.Plugins[id] = Entry{PluginID: id, Enabled: true}
+	return true, s.save(contents)
+}
+
+// Forget drops a choice, so a later installation starts from no choice again
+// and is enabled when the user confirms it. It is called when the last
+// installed version of a plugin is removed.
 func (s *Store) Forget(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

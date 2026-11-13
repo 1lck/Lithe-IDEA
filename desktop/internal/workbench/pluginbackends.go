@@ -318,6 +318,14 @@ func (a *App) pluginServerExited(pluginID string, server *pluginServer) {
 // withdraws the diagnostics it published whether or not the process is still
 // tracked.
 func (a *App) stopPluginServer(pluginID string) {
+	a.stopPluginSession(a.detachPluginServer(pluginID))
+}
+
+// detachPluginServer takes a plugin's server out of the workbench, so no request
+// reaches it and no start registers it again, and returns its session for the
+// caller to stop; nil when none runs.
+func (a *App) detachPluginServer(pluginID string) *pluginservice.LanguageSession {
+	var session *pluginservice.LanguageSession
 	a.pluginServerMu.Lock()
 	delete(a.pluginServerRestarting, pluginID)
 	a.pluginSettingsRestart.Delete(pluginID)
@@ -334,11 +342,12 @@ func (a *App) stopPluginServer(pluginID string) {
 			}
 		}
 		server.cancel()
-		a.stopPluginSession(server.session)
+		session = server.session
 	}
 	a.pluginServerMu.Unlock()
 	a.clearPluginDiagnostics(pluginID)
 	a.releasePluginDocuments(pluginID)
+	return session
 }
 
 // activatePluginWorkspace opens the workspace's context for plugin backends and

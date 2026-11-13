@@ -16,6 +16,9 @@ const (
 	// plugin, which is also why a plugin ID may not start with one.
 	stagingDirectory = ".staging"
 	trashDirectory   = ".trash"
+	// StateDirectory is where the programs of installed plugins keep their
+	// writable state, one directory per plugin ID; see RemoveState.
+	StateDirectory = ".state"
 )
 
 // Installed is one plugin package version present in the root.
@@ -110,9 +113,8 @@ func Install(root, id, version, staging string) (Installed, error) {
 	return Installed{ID: id, Version: version, Path: target}, nil
 }
 
-// Uninstall removes one installed plugin version from root. The plugin's private
-// state directory is not part of the root and is left untouched, so reinstalling
-// the same version keeps the user's settings.
+// Uninstall removes one installed plugin version from root. The plugin's state
+// directory is left untouched; RemoveState removes it when the whole plugin goes.
 //
 // The version directory is renamed into the trash area before it is deleted, so
 // a failed delete never leaves a half-removed package that still looks installed.
@@ -154,6 +156,48 @@ func Uninstall(root, id, version string) error {
 	// instead of leaving an empty one behind. It only succeeds when it is empty.
 	_ = os.Remove(filepath.Join(root, id))
 	return removeErr
+}
+
+// RemoveState removes the state directory of plugin id below root, which its
+// programs wrote while it was installed. The user's plugin settings live in the
+// application preferences, not here. A missing directory is not an error.
+//
+// Like Uninstall, it renames the directory into the trash area before deleting
+// it, so a failed delete never leaves half the state where a later installation
+// of the plugin would read it.
+func RemoveState(root, id string) error {
+	if err := checkRoot(root); err != nil {
+		return err
+	}
+	if err := checkIdentity("plugin ID", id); err != nil {
+		return err
+	}
+	target := filepath.Join(root, StateDirectory, id)
+	switch info, err := os.Lstat(target); {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil
+	case err != nil:
+		return err
+	case !info.IsDir():
+		// Only a plugin's directory is its state; anything else below the state
+		// root belongs to the host.
+		return fmt.Errorf("plugin state %s is not a directory", target)
+	}
+	trash := filepath.Join(root, trashDirectory)
+	if err := os.MkdirAll(trash, 0o700); err != nil {
+		return err
+	}
+	scratch, err := os.MkdirTemp(trash, "state-")
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(scratch); err != nil {
+		return err
+	}
+	if err := os.Rename(target, scratch); err != nil {
+		return fmt.Errorf("remove the state of %s: %w", id, err)
+	}
+	return os.RemoveAll(scratch)
 }
 
 // List reports every installed plugin version, ordered by ID then version.

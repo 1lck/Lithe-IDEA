@@ -19,6 +19,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugininstall"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugintrust"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/vivaui/viva/ui"
@@ -186,11 +187,21 @@ func (a *App) confirmPluginInstall() {
 	}
 	a.background(nil, pluginInstallTimeout, func(context.Context) func(*App) {
 		_, err := a.plugins.Installer.Commit(plan)
+		var approval *plugininstall.ApprovalError
+		var enableErr error
+		if err == nil || errors.As(err, &approval) {
+			// Confirming the install is the user choosing to use the plugin, so it
+			// works at once; a choice the user already made, such as disabling
+			// the plugin before this update, is kept.
+			_, enableErr = a.plugins.Manager.EnableInstalled(plan.ID)
+		}
 		return func(a *App) {
 			installed := err == nil
+			if enableErr != nil {
+				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_enable", enableErr))
+			}
 			if err != nil {
-				var approval *plugininstall.ApprovalError
-				if errors.As(err, &approval) {
+				if approval != nil {
 					installed = true
 					// The package is on disk; only its approval record failed, so the
 					// user is not told the installation failed. The next installation
@@ -205,8 +216,9 @@ func (a *App) confirmPluginInstall() {
 				}
 			}
 			if installed && plan.ID != "" {
-				// A fresh installation is enabled unless the user disables it, so a
-				// disable tombstone from a previous version must not block its server.
+				// The installation was just enabled, unless the user had disabled the
+				// plugin, so a disable tombstone from a previous version must not
+				// block its server.
 				a.pluginServerMu.Lock()
 				delete(a.pluginServerSuppressed, plan.ID)
 				a.pluginServerMu.Unlock()
@@ -238,16 +250,24 @@ func (a *App) setPluginEnabled(id string, enabled bool) {
 	if a.plugins == nil {
 		return
 	}
-	a.background(nil, pluginStateTimeout, func(context.Context) func(*App) {
-		err := a.plugins.Manager.SetEnabled(id, enabled)
+	// A disabled plugin keeps no process and no session: its server leaves the
+	// workbench now, and Disable stops it and the plugin's backend.
+	var server *pluginservice.LanguageSession
+	if !enabled {
+		server = a.detachPluginServer(id)
+	}
+	a.background(nil, pluginStateTimeout+pluginServerStopTimeout, func(ctx context.Context) func(*App) {
+		var err error
+		if enabled {
+			err = a.plugins.Manager.SetEnabled(id, true)
+		} else {
+			err = a.plugins.Disable(ctx, id, server)
+		}
 		return func(a *App) {
 			if err != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_enable", err))
 			}
-			if !enabled {
-				// A disabled plugin keeps no process and no session.
-				a.stopPluginServer(id)
-			} else {
+			if enabled {
 				// An enable clears the tombstone a disable left for an in-flight start.
 				a.pluginServerMu.Lock()
 				delete(a.pluginServerSuppressed, id)
@@ -273,14 +293,15 @@ func (a *App) uninstallPlugin(id string) {
 	if state := (*states)[id]; !state.Installed {
 		return
 	}
-	a.background(nil, pluginInstallTimeout, func(context.Context) func(*App) {
-		err := a.plugins.Manager.Uninstall(id)
+	// The server leaves the workbench now; Uninstall stops it and the plugin's
+	// backend before it removes the package and the state.
+	server := a.detachPluginServer(id)
+	a.background(nil, pluginInstallTimeout, func(ctx context.Context) func(*App) {
+		err := a.plugins.Uninstall(ctx, id, server)
 		return func(a *App) {
 			if err != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_uninstall", err))
 			}
-			// The package is gone, so its server cannot outlive it.
-			a.stopPluginServer(id)
 			a.invalidateBuild(a.project)
 			a.refreshPluginState()
 			a.reloadPluginLanguages()
