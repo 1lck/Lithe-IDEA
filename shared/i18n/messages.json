@@ -6583,6 +6583,13 @@
       ]
     },
     {
+      "id": "desktop.build.chooseTaskScope",
+      "description": "Shown when a build task runs on a project or target but none it accepts is chosen or can be inferred.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.build.commandUnsupported",
       "description": "This build system answered with a command plan; provider-backed tasks are required here.",
       "platforms": [

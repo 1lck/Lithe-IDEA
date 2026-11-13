@@ -275,6 +275,10 @@ func (a *App) appendBuildGroup(rows []buildRow, p *project, index int, query str
 		}
 	}
 	for _, task := range model.Tasks {
+		// A model task belongs to its project, so the project scope narrows tasks as it does targets.
+		if scope != "" && task.ProjectID != scope {
+			continue
+		}
 		name := task.DisplayName
 		if name == "" {
 			name = task.Name

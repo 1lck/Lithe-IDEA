@@ -12,6 +12,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -311,5 +312,122 @@ func TestBuildTreeRowsChooseTheirBuildSystem(t *testing.T) {
 	h.click(center(h.pageHit(collapse + " Engine").Bounds))
 	if p.buildGroupOpen(0) || !absent("Main") || absent("Beta Main") {
 		t.Fatal("the arrow did not close the group alone")
+	}
+}
+
+// A declared task runs on the project or target its scopes accept, fitted from the window's
+// selection: Core refuses a request whose scope the task does not declare.
+func TestBuildTaskSelectionFitsDeclaredScopes(t *testing.T) {
+	rooted := core.BuildModel{
+		Projects: []core.BuildProject{{ID: "root", Path: "."}, {ID: "server", Path: "server"}, {ID: "web", Path: "web"}},
+		Targets: []core.BuildTarget{
+			{ID: "main", ProjectID: "server", Tags: []string{"app"}},
+			{ID: "lib", ProjectID: "server", Tags: []string{"library"}},
+			{ID: "site", ProjectID: "web", Tags: []string{"app"}},
+		},
+	}
+	flat := core.BuildModel{Projects: []core.BuildProject{{ID: "server", Path: "server"}, {ID: "web", Path: "web"}}}
+	single := runConfigInstance("app").Model
+	for _, test := range []struct {
+		name                    string
+		model                   core.BuildModel
+		scopes, tags            []string
+		project, target         string
+		wantProject, wantTarget string
+		ok                      bool
+	}{
+		{name: "a project task runs on the only project", model: single, scopes: []string{"project"}, wantProject: "server", ok: true},
+		{name: "a project task runs on the root project", model: rooted, scopes: []string{"project"}, wantProject: "root", ok: true},
+		{name: "a project task runs on the chosen project", model: rooted, scopes: []string{"project"}, project: "web", wantProject: "web", ok: true},
+		{name: "a project task runs on the chosen target's project", model: rooted, scopes: []string{"project"}, target: "main", wantProject: "server", ok: true},
+		{name: "a project task cannot pick among projects", model: flat, scopes: []string{"project"}},
+		{name: "a target task runs on the chosen target", model: rooted, scopes: []string{"target"}, tags: []string{"app"}, target: "main", wantProject: "server", wantTarget: "main", ok: true},
+		{name: "a target task refuses a target without its tags", model: rooted, scopes: []string{"target"}, tags: []string{"app"}, target: "lib"},
+		{name: "a target task cannot pick among targets", model: rooted, scopes: []string{"target"}, tags: []string{"app"}},
+		{name: "a target task runs on the only target of the chosen project", model: rooted, scopes: []string{"target"}, tags: []string{"app"}, project: "web", wantProject: "web", wantTarget: "site", ok: true},
+		{name: "a target task runs on the only target it applies to", model: rooted, scopes: []string{"target"}, tags: []string{"library"}, wantProject: "server", wantTarget: "lib", ok: true},
+		{name: "a target or project task falls back to the target's project", model: rooted, scopes: []string{"target", "project"}, tags: []string{"app"}, target: "lib", wantProject: "server", ok: true},
+		{name: "a workspace task drops the chosen project", model: rooted, scopes: []string{"workspace"}, project: "web", ok: true},
+		{name: "a workspace or project task keeps the chosen project", model: rooted, scopes: []string{"workspace", "project"}, project: "web", wantProject: "web", ok: true},
+		{name: "a workspace or project task runs on the workspace", model: rooted, scopes: []string{"workspace", "project"}, ok: true},
+		{name: "a target the model lost is kept for its report", model: rooted, scopes: []string{"project"}, project: "web", target: "gone", wantProject: "web", wantTarget: "gone", ok: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			instance := &buildInstance{Model: test.model}
+			task := &pluginservice.BuildTaskDeclaration{ID: "task", Scopes: test.scopes, TargetTags: test.tags}
+			project, target, ok := buildTaskSelection(instance, task, test.project, test.target)
+			if ok != test.ok || project != test.wantProject || target != test.wantTarget {
+				t.Fatalf("selection = %q, %q, %v, want %q, %q, %v", project, target, ok, test.wantProject, test.wantTarget, test.ok)
+			}
+		})
+	}
+}
+
+// captureBuildTask records the task plans the window asks Core for and refuses each, so no
+// task runs.
+type captureBuildTask struct {
+	Kernel
+	requests chan core.BuildPlanRequest
+}
+
+func (k *captureBuildTask) PlanBuildTask(_ context.Context, _ json.RawMessage, _ string, request core.BuildPlanRequest) (core.BuildPlan, error) {
+	k.requests <- request
+	return core.BuildPlan{}, errors.New("captured")
+}
+
+// A task row of the tree carries no project, so the run fits the selection to the task: a
+// project task runs on the build system's only project instead of the workspace, a model task
+// on its own project, and a project task with no project to infer asks for one.
+func TestBuildTreeTasksRunOnTheScopeTheyDeclare(t *testing.T) {
+	instance := runConfigInstance("app")
+	instance.System.Tasks = []pluginservice.BuildTaskDeclaration{{ID: "vet", DisplayName: "Vet verification", Scopes: []string{"project"}, Source: "provider"}}
+	instance.Model.Tasks = []core.BuildTask{{ID: "server:check", ProjectID: "server", Name: "check", Template: "check", Execution: "task"}}
+	kernel := &captureBuildTask{Kernel: &testKernel{Client: core.NewClient()}, requests: make(chan core.BuildPlanRequest, 1)}
+	h, p := openBuildTree(t, kernel, []buildInstance{instance})
+	h.app.reduceChrome(core.SetChromeOpen(itemBuild, true))
+	if err := h.driver.Resize(1280, 1400); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	h.settle()
+	run := func(row string) core.BuildPlanRequest {
+		t.Helper()
+		h.click(center(h.labelBounds(row)))
+		label, start, ok := h.app.buildChosenAction(p)
+		if !ok || label != h.app.text.Build.RunSelected {
+			t.Fatalf("the %q row runs as %q, %v", row, label, ok)
+		}
+		h.app.post(func(*App) { start() })
+		awaitStateWithin(t, h, 10*time.Second, "the task plan request of "+row, func() bool { return len(kernel.requests) == 1 })
+		request := <-kernel.requests
+		awaitStateWithin(t, h, 10*time.Second, "the refused plan of "+row, func() bool { return p.build.operation == nil })
+		return request
+	}
+
+	if request := run("Vet verification"); request.Task != "vet" || request.Project == nil || request.Project.Path != "server" || request.Target != nil {
+		t.Fatalf("the project task asked for %+v", request)
+	}
+	if request := run("check"); request.Task != "check" || request.ModelTask == nil || request.Project == nil || request.Project.Path != "server" || request.Target != nil {
+		t.Fatalf("the model task asked for %+v", request)
+	}
+
+	// Another project with neither at the build root leaves nothing to infer.
+	h.app.post(func(*App) {
+		p.build.instances[0].Model.Projects = append(p.build.instances[0].Model.Projects, core.BuildProject{ID: "web", Path: "web", Name: "web"})
+		p.build.projectID, p.build.targetID, p.build.taskID = "", "", "vet"
+	})
+	h.settle()
+	h.app.post(func(a *App) { a.runSelectedBuildTask(p) })
+	h.settle()
+	if h.app.notice != h.app.text.Build.ChooseTaskScope || len(kernel.requests) != 0 || p.build.operation != nil {
+		t.Fatalf("notice %q, %d requests, operation %v", h.app.notice, len(kernel.requests), p.build.operation)
+	}
+
+	// The chosen project narrows the model tasks to its own.
+	h.app.post(func(*App) { p.build.projectID, p.build.taskID = "web", "" })
+	h.settle()
+	h.settle()
+	if h.labelBounds("check") != (gfx.Rect{}) || h.labelBounds("Vet verification") == (gfx.Rect{}) {
+		t.Fatal("another project's model task stayed in the tree")
 	}
 }

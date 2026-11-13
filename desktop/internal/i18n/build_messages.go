@@ -7,6 +7,8 @@ type BuildMessages struct {
 	PluginsUnavailable string
 	NoBuildSystems     string
 	ChooseTask         string
+	// ChooseTaskScope asks for a project or target when a task runs on one and none is inferred.
+	ChooseTaskScope    string
 	ProjectMissing     string
 	TargetMissing      string
 	ArgumentsRequired  string
@@ -44,6 +46,7 @@ func buildMessages(language Language) BuildMessages {
 		PluginsUnavailable: Shared(language, "desktop.build.pluginsUnavailable"),
 		NoBuildSystems:     Shared(language, "desktop.build.noBuildSystems"),
 		ChooseTask:         Shared(language, "desktop.build.chooseTask"),
+		ChooseTaskScope:    Shared(language, "desktop.build.chooseTaskScope"),
 		ProjectMissing:     Shared(language, "desktop.build.projectMissing"),
 		TargetMissing:      Shared(language, "desktop.build.targetMissing"),
 		ArgumentsRequired:  Shared(language, "desktop.build.argumentsRequired"),
