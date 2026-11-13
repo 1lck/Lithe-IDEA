@@ -1,6 +1,11 @@
 {
   "schemaVersion": 1,
   "messages": [
+    {"id": "javaImport.timeout", "description": "Java import timeout preference: timeout", "platforms": ["windows"]},
+    {"id": "javaImport.timeoutInfo", "description": "Java import timeout preference: timeoutInfo", "platforms": ["windows"]},
+    {"id": "javaImport.timeoutSave", "description": "Java import timeout preference: timeoutSave", "platforms": ["windows"]},
+    {"id": "javaImport.timeoutReset", "description": "Java import timeout preference: timeoutReset", "platforms": ["windows"]},
+    {"id": "javaImport.timeoutError", "description": "Java import timeout preference: timeoutError", "platforms": ["windows"]},
     {
       "id": "aiCommit.outputTokenField",
       "description": "Lithe Chat Completions output budget field",

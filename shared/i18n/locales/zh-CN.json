@@ -1,5 +1,10 @@
 {
   "messages": {
+    "javaImport.timeout": "Java 项目导入超时（分钟）",
+    "javaImport.timeoutInfo": "Lithe 应用设置，对所有 Java 工作区生效。允许 1–120 分钟，默认 10 分钟。下次启动 Java 服务时生效；已打开的项目需重启 Java 服务。初始化和构建超时单独计算。",
+    "javaImport.timeoutSave": "保存",
+    "javaImport.timeoutReset": "恢复默认",
+    "javaImport.timeoutError": "无法读取或保存超时设置。请输入 1–120 的整数后重试，或恢复默认。",
     "aiCommit.outputTokenField": "输出额度字段",
     "aiCommit.outputTokenFieldInfo": "Lithe 使用此字段发送提交信息请求。旧网关请选择 max_tokens。",
     "native.keymapImportAmbiguous": "多个插件都可以从此来源导入快捷键。请停用重复的提供方后重新扫描。",

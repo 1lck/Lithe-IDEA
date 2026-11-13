@@ -74,6 +74,8 @@ export interface Settings {
   codeLens: boolean;
   semanticTokens: boolean;
   javaProjectImportOnOpen: JavaProjectImportOnOpen;
+  /** App-wide Java import deadline; omission uses the shared Core default. */
+  javaImportTimeoutMinutes?: number;
   breadcrumbShowSymbols: boolean;
   // Terminal
   terminalFontFamily: string;

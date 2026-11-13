@@ -1,0 +1,24 @@
+{
+  "id": "java-import-timeout",
+  "area": "Java",
+  "group": "语言服务",
+  "capability": "设置 Java 项目导入总超时（1–120 分钟，默认 10 分钟），下次启动服务生效",
+  "macos": {
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "rust/lithe-core/src/lsp/interface/readiness_timeout.rs"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/settings/components/java-import-timeout-settings.tsx",
+      "windows/tauri/src/platform/lsp-core-adapter.ts",
+      "windows/tauri/src/platform/lsp-core-adapter.test.ts"
+    ]
+  },
+  "owner": "Language Tooling",
+  "verification": "在语言服务设置读取默认 10 分钟，编辑为 60 后不保存并重开应仍为 10；保存 60 后重开应为 60；重启 Java 服务并确认日志 absolute_timeout_milliseconds=3600000。恢复默认后重启服务应为 600000。初始化和构建超时保持不变。组件与 Core 测试不替代整机导入验收；macOS 尚无设置入口。"
+}

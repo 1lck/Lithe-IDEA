@@ -1,4 +1,5 @@
 import { getProjectPreparation } from "@/features/run/stores/project-preparation.store";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import type { JavaRunLaunchPreparation } from "@/features/run/services/java-run-launch";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -30,6 +31,7 @@ const TauriEvent = {
 const frontendTrace = mock(() => undefined);
 const cancelCoreOperation = mock(async () => false);
 const commands: string[] = [];
+let previousImportTimeout: number | undefined;
 let scenario:
   | "held-plugin-start"
   | "poll-failure"
@@ -114,6 +116,10 @@ function readyEvents(sessionId: string) {
 const executeCore = mock(
   async (request: { id: string; command: string; payload?: Record<string, unknown> }) => {
     commands.push(request.command);
+    if (request.command === "lsp.readinessTimeoutPolicy") {
+      return { id: request.id, ok: true as const, data: { minutes: request.payload?.minutes ?? 10,
+        milliseconds: Number(request.payload?.minutes ?? 10) * 60_000, minimumMinutes: 1, maximumMinutes: 120 } };
+    }
     if (request.command === "lsp.startServer") {
       startCount += 1;
       startPayload = request.payload;
@@ -456,6 +462,8 @@ function installSessionStorage() {
 describe("Rust Core LSP adapter failures", () => {
   beforeEach(() => {
     scenario = "failure";
+    previousImportTimeout = useSettingsStore.getState().settings.javaImportTimeoutMinutes;
+    useSettingsStore.setState((state) => ({ settings: { ...state.settings, javaImportTimeoutMinutes: undefined } }));
     commands.length = 0;
     startPayload = undefined;
     requestPayload = undefined;
@@ -481,12 +489,23 @@ describe("Rust Core LSP adapter failures", () => {
   });
 
   afterEach(async () => {
+    useSettingsStore.setState((state) => ({ settings: { ...state.settings, javaImportTimeoutMinutes: previousImportTimeout } }));
     releaseSemanticResult?.();
     releaseInitialization?.();
     releaseRuntimeReady?.();
     await invokeLsp("lsp_stop", { workspacePath: "C:/work/project" });
     await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  });
+
+  test("applies a persisted 60 minute Java import preference without changing other deadlines", async () => {
+    useSettingsStore.setState((state) => ({ settings: { ...state.settings, javaImportTimeoutMinutes: 60 } }));
+    scenario = "capabilities";
+    await invokeLsp("lsp_start_for_file", { workspacePath: "C:/work", filePath: "C:/work/Main.java",
+      languageId: "java", providerId: "java", serverPath: "C:/Lithe/jdtls.bat" });
+    expect(startPayload?.serviceReadyAbsoluteTimeoutMilliseconds).toBe(3_600_000);
+    expect(startPayload?.initializeTimeoutMilliseconds).toBe(30_000);
+    expect(startPayload?.javaBuildTimeoutMilliseconds).toBe(600_000);
   });
 
   test("logs Core output, preserves failure details, and destroys the session", async () => {
@@ -517,6 +536,7 @@ describe("Rust Core LSP adapter failures", () => {
     );
     expect(failure?.code).toBe("serverExited");
     expect(failure?.details).toBe("JVM startup failed; exit code 13");
+    expect(startPayload?.serviceReadyAbsoluteTimeoutMilliseconds).toBe(600_000);
     expect(startPayload?.initializeTimeoutMilliseconds).toBe(30_000);
     // Core owns both deadlines; Java builds get the long project-build bound.
     expect(startPayload?.requestTimeoutMilliseconds).toBe(30_000);
@@ -536,6 +556,7 @@ describe("Rust Core LSP adapter failures", () => {
     );
     expect(emit).toHaveBeenCalledWith("lsp://server-crashed", {});
     expect(commands).toEqual([
+      "lsp.readinessTimeoutPolicy",
       "lsp.startServer",
       "lsp.waitEvents",
       "lsp.stopServer",

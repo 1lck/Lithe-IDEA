@@ -1,3 +1,4 @@
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { assertPluginActive } from "@/features/plugins/declarative-plugin-lifecycle";
 import {
   getProjectPreparation,
@@ -855,6 +856,11 @@ async function createSession(args: JsonRecord, key: string, generation: number):
   };
   let started: { sessionId: string; state?: CoreLspSessionState };
   try {
+    const importTimeout = languageId === "java"
+      ? await core<{ milliseconds: number }>("lsp.readinessTimeoutPolicy", {
+          minutes: useSettingsStore.getState().settings.javaImportTimeoutMinutes,
+        }, operationId)
+      : undefined;
     started = await core<{ sessionId: string; state?: CoreLspSessionState }>(
       "lsp.startServer",
       {
@@ -874,6 +880,7 @@ async function createSession(args: JsonRecord, key: string, generation: number):
         mavenContext: args.mavenContext ?? null,
         javaRuntimes: args.javaRuntimes ?? [],
         javaGradle: args.javaGradle ?? null,
+        serviceReadyAbsoluteTimeoutMilliseconds: importTimeout?.milliseconds,
         initializeTimeoutMilliseconds: INITIALIZE_TIMEOUT_MS,
         requestTimeoutMilliseconds: LSP_REQUEST_TIMEOUT_MS,
         javaBuildTimeoutMilliseconds: JAVA_BUILD_TIMEOUT_MS,

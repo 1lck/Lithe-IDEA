@@ -1,0 +1,29 @@
+{
+  "cases": [
+    {
+      "request": {},
+      "milliseconds": 600000
+    },
+    {
+      "request": {
+        "minutes": 60
+      },
+      "milliseconds": 3600000
+    },
+    {
+      "request": {
+        "minutes": 120
+      },
+      "milliseconds": 7200000
+    }
+  ],
+  "invalidMinutes": [
+    0,
+    -1,
+    121,
+    1.5,
+    "60",
+    true,
+    {}
+  ]
+}

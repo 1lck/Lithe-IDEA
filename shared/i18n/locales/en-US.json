@@ -1,5 +1,10 @@
 {
   "messages": {
+    "javaImport.timeout": "Java project import timeout (minutes)",
+    "javaImport.timeoutInfo": "Lithe application preference for all Java workspaces. Allows 1–120 minutes; the default is 10. Applies when the Java service next starts. Restart the service to use it for an open project. Initialization and build deadlines are separate.",
+    "javaImport.timeoutSave": "Save",
+    "javaImport.timeoutReset": "Restore default",
+    "javaImport.timeoutError": "Could not load or save the timeout. Enter a whole number from 1 to 120, retry, or restore the default.",
     "aiCommit.outputTokenField": "Output token field",
     "aiCommit.outputTokenFieldInfo": "Lithe uses this field for commit requests. Choose max_tokens for older gateways.",
     "native.keymapImportAmbiguous": "More than one plugin can import shortcuts from this source. Disable duplicate providers and scan again.",

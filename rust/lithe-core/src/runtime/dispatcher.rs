@@ -1764,6 +1764,24 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspReadinessTimeoutPolicy => {
+            match serde_json::from_value::<crate::lsp::ReadinessTimeoutRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid import timeout preference",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::resolve_readiness_timeout)
+            {
+                Ok(policy) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(policy).expect("readiness timeout policy should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspStartServer => {
             match serde_json::from_value::<crate::lsp::StartServerRequest>(parsed.payload)
                 .map_err(|error| {

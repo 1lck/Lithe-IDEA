@@ -5544,3 +5544,22 @@ Core directory traversal and scratch cleanup reuse PR1's
 stable category without absolute paths, scratch names or remote addresses.
 Remote process/upload cleanup uses ClientError categories timeout, closed,
 transport, spawn, protocol, or remote_<protocol_code>; peer prose is excluded.
+
+### `lsp.readinessTimeoutPolicy`
+
+Resolves the app-owned Java project import timeout preference before starting a
+language server. Payload: `{ "minutes": 60 }`. Omission or `null` uses the
+existing 10-minute default. Only whole numbers from 1 through 120 are accepted;
+other values return `invalidRequest` without starting a process.
+
+Response: `{ "minutes": 60, "milliseconds": 3600000,
+"minimumMinutes": 1, "maximumMinutes": 120 }`.
+Pass `milliseconds` to `lsp.startServer.serviceReadyAbsoluteTimeoutMilliseconds`.
+Settings use the same response for the effective value and input bounds. Changing
+this app preference affects the next Java service start, not a running session,
+the LSP initialize handshake, individual requests or Java builds. The existing
+startServer millisecond field remains backward compatible (including shorter
+explicit deadlines used by other hosts and tests). Windows exposes this setting;
+macOS continues using its existing default.
+
+Fixture: `shared/fixtures/lsp/readiness-timeout-policy-v1.json`.

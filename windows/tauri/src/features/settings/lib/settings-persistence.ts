@@ -139,6 +139,27 @@ export async function loadSettingsFromStore(): Promise<Settings> {
   return loadedSettings;
 }
 
+/** Commits the explicit import-timeout save before the UI publishes its new value.
+ * Unlike general autosaved preferences, failures must reach the Save button.
+ */
+export async function saveJavaImportTimeoutPreference(minutes: number | undefined) {
+  const store = await getSettingsStore();
+  const key = "javaImportTimeoutMinutes";
+  const previous = await store.get<number>(key);
+  try {
+    if (minutes === undefined) await store.delete(key);
+    else await store.set(key, minutes);
+    await store.save();
+    initialStoreEntries = null;
+  } catch (error) {
+    // Restore the plugin store's in-memory value so a later autosave cannot
+    // silently commit the value whose explicit Save failed.
+    if (previous === undefined || previous === null) await store.delete(key);
+    else await store.set(key, previous);
+    throw error;
+  }
+}
+
 export async function saveSettingsToStore(settings: Partial<Settings>) {
   try {
     const store = await getSettingsStore();

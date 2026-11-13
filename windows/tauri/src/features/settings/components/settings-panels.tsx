@@ -1,4 +1,5 @@
 import { LANGUAGE_OPTIONS, type DisplayLanguage } from "@/i18n/locale";
+import { JavaImportTimeoutSettings } from "./java-import-timeout-settings";
 import { UpdateChannelSelector } from "./update-channel-selector";
 import { getInstalledVersionLabel } from "../lib/update-channel";
 import SettingsSelect from "@/ui/settings-select";
@@ -520,6 +521,7 @@ function LspPanel() {
           />
         </SettingsRow>
       </SettingsGroup>
+      <JavaImportTimeoutSettings />
       <SettingsGroup title={t("settings.mac.detectedServers")}>
         <p className="ui-text-sm leading-relaxed text-subtle-foreground">
           {t("settings.mac.detectedServersDescription")}

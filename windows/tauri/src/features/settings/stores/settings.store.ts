@@ -16,6 +16,7 @@ import { normalizeSettingValue } from "@/features/settings/lib/settings-normaliz
 import {
   debouncedSaveSettingsToStore,
   saveSettingsToStore,
+  saveJavaImportTimeoutPreference,
   commitAgentPanelSettings,
   observeAgentPanelSettings,
   type AgentCredentialChange,
@@ -133,6 +134,12 @@ const useSettingsStoreBase = create(
             const previousAgentPanel = get().settings.agentPanel;
             const normalizedValue = normalizeSettingValue(key, value);
             const savePatch: Partial<Settings> = { [key]: normalizedValue };
+            if (key === "javaImportTimeoutMinutes") {
+              await saveJavaImportTimeoutPreference(normalizedValue as number | undefined);
+              set((state) => { state.settings.javaImportTimeoutMinutes = normalizedValue as number | undefined; });
+              return;
+            }
+
 
             set((state) => {
               state.settings[key] = normalizedValue;

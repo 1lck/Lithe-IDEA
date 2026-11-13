@@ -359,6 +359,8 @@ pub enum CoreCommand {
     LspBuiltinNavigation,
     /// Starts and initializes a managed language server (`lsp.startServer`).
     LspStartServer,
+    /// Resolves the user-selected import deadline (`lsp.readinessTimeoutPolicy`).
+    LspReadinessTimeoutPolicy,
     /// Derives the durable JDT LS workspace directory key (`lsp.jdtWorkspaceKey`).
     LspJdtWorkspaceKey,
     /// Plans Java workspace activation and change handling (`java.workspacePolicy`).
@@ -796,6 +798,7 @@ impl CoreCommand {
             "lsp.builtinHover" => Some(Self::LspBuiltinHover),
             "lsp.builtinNavigation" => Some(Self::LspBuiltinNavigation),
             "lsp.startServer" => Some(Self::LspStartServer),
+            "lsp.readinessTimeoutPolicy" => Some(Self::LspReadinessTimeoutPolicy),
             "lsp.jdtWorkspaceKey" => Some(Self::LspJdtWorkspaceKey),
             "java.workspacePolicy" => Some(Self::JavaWorkspacePolicy),
             "java.runMarkers" => Some(Self::JavaRunMarkers),
@@ -940,6 +943,7 @@ mod tests {
     fn parses_semantic_lsp_runtime_commands() {
         for command in [
             "lsp.startServer",
+            "lsp.readinessTimeoutPolicy",
             "lsp.jdtWorkspaceKey",
             "lsp.stopServer",
             "lsp.updateMavenConfiguration",

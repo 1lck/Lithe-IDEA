@@ -60,7 +60,7 @@ use std::time::{Duration, Instant};
 
 const DEFAULT_INITIALIZE_TIMEOUT_MS: u64 = 10_000;
 const DEFAULT_SERVICE_READY_IDLE_TIMEOUT_MS: u64 = 45_000;
-const DEFAULT_SERVICE_READY_ABSOLUTE_TIMEOUT_MS: u64 = 10 * 60_000;
+const DEFAULT_SERVICE_READY_ABSOLUTE_TIMEOUT_MS: u64 = super::readiness_timeout::DEFAULT_TIMEOUT_MS;
 const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS: u64 = 2_000;
 /// Upper bound of one build-provider request. A model request can load a

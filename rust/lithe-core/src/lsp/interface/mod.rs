@@ -7,6 +7,7 @@ mod engine_logging;
 mod keymap_provider;
 pub(crate) mod plugin_function;
 pub(crate) mod process;
+mod readiness_timeout;
 pub(crate) mod remote_process;
 #[cfg(test)]
 mod scripted;
@@ -18,5 +19,6 @@ mod vcs_provider;
 pub(crate) use client::*;
 pub(crate) use engine::*;
 pub(crate) use engine_logging::{resolve_engine_log_subject, ResolveEngineLogSubjectRequest};
+pub(crate) use readiness_timeout::*;
 pub(crate) use transport::*;
 pub(crate) use types::*;

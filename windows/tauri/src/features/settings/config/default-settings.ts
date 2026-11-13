@@ -73,6 +73,7 @@ export const defaultSettings: Settings = {
   codeLens: true,
   semanticTokens: true,
   javaProjectImportOnOpen: "automatic",
+  javaImportTimeoutMinutes: undefined,
   breadcrumbShowSymbols: true,
   // Terminal
   terminalFontFamily: DEFAULT_MONO_FONT_FAMILY,
