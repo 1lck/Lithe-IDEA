@@ -32,8 +32,8 @@
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
       "evidence": [
-        "rust/lithe-core/src/git/untracked_directories.rs",
-        "rust/lithe-core/src/tests/git_untracked_directories.rs",
+        "rust/crates/core/src/git/untracked_directories.rs",
+        "rust/crates/core/src/tests/git_untracked_directories.rs",
         "macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift",
         "macos/Sources/Lithe/Views/Git/GitChangeSectionsCache.swift",
         "macos/Sources/LitheGitModule/Application/GitFeatureModel.swift",
@@ -41,14 +41,14 @@
         "macos/Tests/LitheTests/GitChangeSectionsCacheTests.swift",
         "macos/Tests/LitheGitModuleTests/GitModuleTests.swift",
         ".agents/notes/implemented/bug-fix/2026-10-21-git-large-untracked-directories.md",
-        "rust/lithe-core/src/git/mod.rs"
+        "rust/crates/core/src/git/mod.rs"
       ],
       "implementationStatus": "implemented",
       "verificationStatus": "pending"
     },
     "windows": {
       "evidence": [
-        "rust/lithe-core/src/git/untracked_directories.rs",
+        "rust/crates/core/src/git/untracked_directories.rs",
         "windows/tauri/src/features/git/api/git-status-api.ts",
         "windows/tauri/src/features/git/services/git-untracked-directory-expansions.ts",
         "windows/tauri/src/features/git/utils/git-untracked-directories.ts",
@@ -58,8 +58,8 @@
         "windows/tauri/src/features/file-explorer/lib/file-tree-git-status.ts",
         "windows/tauri/src/features/git/utils/git-untracked-directories.test.ts",
         "windows/tauri/src/features/git/components/status/git-workspace-status-panel.test.tsx",
-        "rust/lithe-core/src/git/mod.rs",
-        "rust/lithe-core/src/tests/git_untracked_directories.rs"
+        "rust/crates/core/src/git/mod.rs",
+        "rust/crates/core/src/tests/git_untracked_directories.rs"
       ],
       "implementationStatus": "implemented",
       "verificationStatus": "pending"

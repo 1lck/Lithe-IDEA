@@ -50,15 +50,15 @@ macOS 的界面（推送弹窗与提交并推送审阅单）已接入，但**尚
 
 ## 验证
 
-- `rust/lithe-core/tests/git_push.rs` 覆盖：新建分支无 upstream、检出远端分支仍建立跟踪、本地起点不产生 upstream、异名未确认被拒、确认 `publish` 与 `upstream` 各自的落点、旧调用方省略 `targetKind` 仍可推送、`targetKind` 给错仍被拒、无 upstream 分支的预览仍列出自身提交；以及按选择预览的目标分支、跟踪 OID 与 `createsRemoteBranch`、确认后 upstream 被改指另一分支时已审阅的推送被判过期、选择与预览不一致被判过期、`--force-with-lease` 作用在所选 upstream 分支及其 OID 上、对非异名分支忽略 `pushTarget`。
-- `rust/lithe-core/src/tests/git_workspace_commit.rs` 覆盖：异名分支在提交前被询问且不产生提交、确认值随计划传递并在 `/` 分隔的 upstream 上保持原配置、多仓库逐个提问与确认、重试时恢复并重新校验确认值、upstream 在确认后移动会再次提问。
+- `rust/crates/core/tests/git_push.rs` 覆盖：新建分支无 upstream、检出远端分支仍建立跟踪、本地起点不产生 upstream、异名未确认被拒、确认 `publish` 与 `upstream` 各自的落点、旧调用方省略 `targetKind` 仍可推送、`targetKind` 给错仍被拒、无 upstream 分支的预览仍列出自身提交；以及按选择预览的目标分支、跟踪 OID 与 `createsRemoteBranch`、确认后 upstream 被改指另一分支时已审阅的推送被判过期、选择与预览不一致被判过期、`--force-with-lease` 作用在所选 upstream 分支及其 OID 上、对非异名分支忽略 `pushTarget`。
+- `rust/crates/core/src/tests/git_workspace_commit.rs` 覆盖：异名分支在提交前被询问且不产生提交、确认值随计划传递并在 `/` 分隔的 upstream 上保持原配置、多仓库逐个提问与确认、重试时恢复并重新校验确认值、upstream 在确认后移动会再次提问。
 - ~~`windows/tauri`~~（已随 #1794 移除） 的 `git-push-api.test.ts`、`git-push-target-prompt.test.tsx`、`git-workspace-commit-workflow.test.ts`、`git-commit-panel.test.tsx`、`git-commit-panel-push-target.test.tsx` 覆盖：预览携带 `pushTarget`、普通“提交并推送”直接到达工作流、提问先于审阅与提交、答案累加与取消、逐仓库回答并绑定远端分支。
 - `Lithe-core-rust/rust/contracts/rust-core-api.md` 记录 `targetKind`、`createsRemoteBranch`、预览与推送的 `pushTarget`、`pushTargetQuestions` 与 `pushTargets`。
 - ~~`macos/Tests/LitheTests/GitPushReviewBridgeTests.swift`~~（已随 #1794 移除） 用真实 Core 和本地裸远端覆盖：异名上游的预览为 `divergent`；选 `publish` 后目的地是同名远端分支并创建它、远端 `main` 不变；选 `upstream` 只更新异名分支；预览之后仓库又有新提交时推送被拒绝并带 Core 的“预览已过期”信息（Core 把拒绝放在 `operationError` 而不是退出码里，原生层必须检查它）；“提交并推送”先返回问题、带 `pushTargets` 重新 prepare 后问题消失，逐步执行后只更新所选分支。
 - ~~`macos/Tests/LitheTests/GitPushDialogPresentationTests.swift`~~（已随 #1794 移除） 覆盖弹窗状态：异名上游在选择前不可推送、选择绑定到看到的目的地并在目的地变化时作废、推送发出的恰是审阅的预览与选择、被拒绝后重新加载并显示原因、没有新提交的发布分支仍可推送、无内容时不可推送、选中提交会加载其改动文件。
 - ~~`macos/Tests/LitheGitModuleTests/GitModuleTests.swift`~~（已随 #1794 移除） 覆盖：预览与审阅后的推送经服务层透传，推送失败显示原因并清除忙碌状态；“提交并推送”在 Core 不要求确认时也先停在审阅单、不执行任何步骤；异名问题阻止继续、答案随请求与后续确认一起发给 Core、问题被再次提出时旧答案作废；`pushTargets` 与 `pushTargetQuestions` 的线格式往返。
 - `AppLocalizationTests.pushDestinationUsesTheRequestedLanguage` 覆盖弹窗新增文案的中英文。
-- 运行 `scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`、`scripts/agent-notes/verify-agent-notes.sh`、`cargo test --manifest-path rust/lithe-core/Cargo.toml --test git_push` 与 `--lib git`。macOS 通过 ~~scripts/macos/test/test-macos.sh --no-parallel --filter~~（随旧客户端移除） 运行了上述相关套件（Rust Core 已链接）；完整套件在本机并行运行时有与本变更无关的超时类用例失败，未作为通过依据。Windows 真机界面未在本次变更中运行。
+- 运行 `scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`、`scripts/agent-notes/verify-agent-notes.sh`、`cargo test --manifest-path rust/crates/core/Cargo.toml --test git_push` 与 `--lib git`。macOS 通过 ~~scripts/macos/test/test-macos.sh --no-parallel --filter~~（随旧客户端移除） 运行了上述相关套件（Rust Core 已链接）；完整套件在本机并行运行时有与本变更无关的超时类用例失败，未作为通过依据。Windows 真机界面未在本次变更中运行。
 
 ## 适用范围
 

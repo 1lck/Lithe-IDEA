@@ -326,7 +326,7 @@ func (a *App) chromeStatusItem(c ui.C, i int) bool {
 		case itemMemory:
 			a.memoryStatusItem(k)
 		case itemLSP:
-			ui.Row(k).Size(chromeDot, chromeDot).Shrink(0).Radius(chromeDot / 2).Background(a.colors.Subtle)
+			ui.Row(k).Size(chromeDot, chromeDot).Shrink(0).Radius(chromeDot / 2).Background(a.lspStatusColor())
 			a.chromeStatusLabel(k, text)
 		default:
 			a.chromeStatusLabel(k, text)
@@ -337,6 +337,8 @@ func (a *App) chromeStatusItem(c ui.C, i int) bool {
 		a.encodingMenu(c, box)
 	case itemMemory:
 		a.memoryDetails(c, box)
+	case itemLSP:
+		a.lspStatusMenu(c, box)
 	}
 	return box.Clicked()
 }

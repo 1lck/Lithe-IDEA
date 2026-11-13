@@ -106,8 +106,8 @@ func (a *App) paintTabDrag(canvas *gfx.Canvas) {
 	}, style)
 }
 
-// tabLook is the title and the icon of the tab of group member, a terminal's, a file's or a
-// diff's, and false for a member that is no longer open.
+// tabLook is the title and the icon of the tab of group member, a terminal's, a file's, a
+// diff's, a viewer's or the LSP Logs tab's, and false for a member that is no longer open.
 func (a *App) tabLook(member string) (string, gfx.Icon, bool) {
 	p := a.project
 	if p == nil {
@@ -131,8 +131,13 @@ func (a *App) tabLook(member string) (string, gfx.Icon, bool) {
 	}
 	if id, ok := memberViewer(member); ok {
 		if t := p.viewers.find(id); t != nil {
-			return t.name, icons.Image, true
+			tab := shownTab{view: t}
+			return a.tabLabel(tab), a.tabIcon(tab), true
 		}
+	}
+	if member == lspLogMember {
+		tab := shownTab{lsp: true}
+		return a.tabLabel(tab), a.tabIcon(tab), true
 	}
 	return "", gfx.Icon{}, false
 }

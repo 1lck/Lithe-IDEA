@@ -38,7 +38,7 @@
         "macos/Sources/Lithe/Views/Editor/GoToLineDialog.swift",
         "macos/Tests/LitheTests/GoToLineInputTests.swift",
         "macos/Tests/LitheTests/GoToLineDialogValidationTests.swift",
-        "rust/lithe-core/src/editor/navigation_input.rs"
+        "rust/crates/core/src/editor/navigation_input.rs"
       ]
     },
     "windows": {

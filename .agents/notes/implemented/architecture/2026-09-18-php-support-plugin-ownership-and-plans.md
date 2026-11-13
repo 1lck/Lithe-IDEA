@@ -78,7 +78,7 @@ Windows 休眠的 Run Actions 宿主不再扫描其他语言的 manifest 或自�
 - `MacPluginPackageDownloaderTests`：验证 stable/preview 发行资产 URL 按 App 发布版本和架构确定性生成。
 - `LanguageExtensionProcessLifecycleTests.packagedServersArePinnedToTheirOwnPackage`、`LanguageServerToolServiceTests.pinnedExecutableIsTheOnlyCandidate`：验证插件打包的 Intelephense 只从本插件已安装的版本目录启动，不按文件名在 PATH 或其他插件中查找。
 - `PluginPackageStoreTests/reinstallCanReplaceTheActiveVersionOnlyAfterValidation`：验证重装不会绕过签名校验，并在校验完成后替换当前版本。
-- `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib declarative_plugins`：PHP 运行、PHPUnit 整套/单文件/单方法命令展开与路径保护。
+- `cargo test --manifest-path rust/crates/core/Cargo.toml --lib declarative_plugins`：PHP 运行、PHPUnit 整套/单文件/单方法命令展开与路径保护。
 - `LITHE_RUN_PHP_INTEGRATION=1 ./scripts/macos/test/test-macos.sh --filter RealPhpIntegrationTests`：真实工具测试；先在 `shared/fixtures/phpunit-project` 执行 `composer install`，并提供 Node.js 与插件组装出的 Intelephense launcher。
 - Windows 前端测试包含禁用时不扫描、Composer 数组、下载取消、在途启动后禁用及跨工作区进程隔离。Windows native 测试与实际应用启动必须在 Windows 环境执行；Linux 交叉编译不等于运行验收。
 

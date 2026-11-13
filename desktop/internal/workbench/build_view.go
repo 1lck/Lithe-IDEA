@@ -5,7 +5,6 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -14,20 +13,13 @@ import (
 const (
 	buildRowHeight     = 24
 	buildOutputVisible = 200
-	// buildOutputHeight is the height of the build console under the choices,
-	// header included.
-	buildOutputHeight = 110
 )
 
-// runView declares the provider-backed Run tool window: detected build systems,
-// their projects, targets and tasks, bounded task output, and the runs plugins
-// started.
+// runView declares the Run tool window, which shows only what runs print: the console of what
+// the Build window runs, beside the runs plugins started. The build systems, with their
+// projects, targets and tasks, and the run configurations are the Build window's
+// (build_tree_view.go).
 func (a *App) runView(c ui.C, p *project) {
-	b := &p.build
-	if !b.loaded && !b.loading {
-		a.loadBuildSystems(p)
-	}
-	t := a.text.Build
 	ui.Column(c).Fill().Background(a.colors.Editor).Children(func() {
 		a.runHeader(c, p)
 		ui.Divider(c)
@@ -35,40 +27,18 @@ func (a *App) runView(c ui.C, p *project) {
 			a.runConsole(c, p, run)
 			return
 		}
-		if b.loading || !b.loaded {
-			a.panelMessage(c, t.LoadingModel, a.colors.Subtle)
-			return
-		}
-		if b.failed != "" {
-			a.panelMessage(c, b.failed, a.colors.Warning)
-			return
-		}
-		if len(b.instances) == 0 {
-			a.panelMessage(c, t.NoBuildSystems, a.colors.Subtle)
-			return
-		}
-		// The panes of the build systems are one, so the splitter under the run
-		// configurations sizes the list against all of them.
-		a.runConfigList(c, p)
-		ui.Column(c).FillWidth().Grow(1).Shrink(1).MinHeight(0).Children(func() {
-			a.buildInstances(c, p)
-			ui.Divider(c)
-			a.buildChoices(c, p)
-			// The console takes room only once a task printed something.
-			if len(p.build.output) != 0 {
-				ui.Divider(c)
-				a.buildOutput(c, p)
-			}
-		})
+		a.buildOutput(c, p)
 	})
 }
 
-// runHeader declares the title row: the switcher between the build console and
-// the runs plugins started, then stop and refresh.
+// runHeader declares the title row: the switcher between the build console and the runs
+// plugins started, else the console's name, then the stop of the running build operation.
 func (a *App) runHeader(c ui.C, p *project) {
 	b, t := &p.build, a.text.Build
 	ui.Row(c).Height(panelHeaderHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
-		ui.Text(c, t.Systems).Color(a.colors.Text).Weight(gfx.WeightMedium).Ellipsis().Shrink(1)
+		if len(b.runs) == 0 {
+			ui.Text(c, a.text.Run.Build).Color(a.colors.Text).Weight(gfx.WeightMedium).Ellipsis().Shrink(1)
+		}
 		a.runViews(c, p)
 		ui.Spacer(c)
 		if b.operation != nil {
@@ -79,20 +49,6 @@ func (a *App) runHeader(c ui.C, p *project) {
 			if ui.Button(c, label).Outline().Clicked() {
 				a.stopBuildOperation(p)
 			}
-		}
-		refresh := ui.Button(c, t.Refresh).Ghost().IconOnly().Icon(icons.RefreshCw).Tooltip(t.Refresh)
-		if b.loading {
-			refresh.Disabled(true)
-		}
-		if refresh.Clicked() {
-			c.After(func() {
-				b.generation++
-				b.loading = false
-				b.instances = nil
-				b.loaded = false
-				b.selected = 0
-				a.loadBuildSystems(p)
-			})
 		}
 	})
 }
@@ -120,33 +76,19 @@ func (a *App) runViews(c ui.C, p *project) {
 	}).Shrink(0)
 }
 
-// buildInstances declares the build systems the workspace uses, one tab each.
-func (a *App) buildInstances(c ui.C, p *project) {
-	b := &p.build
-	panels := &p.panels
-	ui.Row(c).FillWidth().Height(buildRowHeight + 8).Shrink(0).Items(ui.Center).Gap(4).PadX(8).Children(func() {
-		indexes := make([]int, len(b.instances))
-		for index := range indexes {
-			indexes[index] = index
-		}
-		panels.instance = b.selected
-		if len(b.instances) > 0 && ui.Button(c.Key("build-options"), i18n.Shared(a.language(), "desktop.build.options")).Ghost().Small().Clicked() {
-			c.After(func() { a.openBuildOptions(p) })
-		}
-		ui.Tabs(c, &panels.instance, indexes, func(index int) string {
-			return buildInstanceLabel(&b.instances[index])
-		}).Shrink(1)
-		if panels.instance != b.selected {
-			a.selectBuildInstance(p, panels.instance)
-		}
-	})
+// showBuildConsole brings the Run window's build console forward, for an action of the Build
+// window that prints there. A run a plugin starts switches to its own tab when it starts.
+func (a *App) showBuildConsole(p *project) {
+	p.build.view = ""
+	a.openToolWindow(itemRun)
 }
 
-// buildRowKind says what a row of the choices list is.
+// buildRowKind says what a row of the build tree is.
 type buildRowKind uint8
 
 const (
-	buildRowSection buildRowKind = iota
+	buildRowGroup buildRowKind = iota
+	buildRowSection
 	buildRowEmpty
 	buildRowProject
 	buildRowTarget
@@ -155,20 +97,30 @@ const (
 	buildRowTest
 )
 
-// buildRow is one row of the choices list: a section heading, a note that the
-// section is empty, or something to choose.
+// buildRow is one row of the build tree (build_tree.go): a build system's group, a section
+// of it, a note that a section is empty or still loading, or something to choose or run.
 type buildRow struct {
 	kind     buildRowKind
 	label    string
 	detail   string
 	selected bool
+	// instance is the index of the build system the row belongs to, level its indentation in
+	// the tree, and section the section a section row heads.
+	instance int
+	level    int
+	section  string
+	// count is what a section row shows beside its name, -1 for not known yet; open says a
+	// group or a section shows its rows, and fixed that a filter keeps it open.
+	count       int
+	open, fixed bool
+	// warning marks a row that tells of a failure, loading one of a model still loading.
+	warning, loading bool
 	// id is the project, target or task the row chooses; project is the project a
 	// target belongs to.
 	id, project string
 	target      *core.BuildTarget
-	// depth, path and leaf place a dependency row in its tree (build_dependencies.go);
-	// dependencies marks the line that stands for a tree still loading, failed or empty.
-	depth        int
+	// path and leaf place a dependency row in its tree (build_dependencies.go); dependencies
+	// marks the line that stands for a tree still loading, failed or empty.
 	path         string
 	leaf         bool
 	dependencies bool
@@ -179,183 +131,23 @@ type buildRow struct {
 	test     *core.BuildDiscoveredTest
 }
 
-// buildChoiceRows lists the sections of the selected build system with what is
-// chosen in each, in the order the list shows them.
-func (a *App) buildChoiceRows(p *project, instance *buildInstance) []buildRow {
-	b, t := &p.build, a.text.Build
-	model := &instance.Model
-	rows := []buildRow{{kind: buildRowSection, label: t.Projects}}
-	if len(model.Projects) == 0 {
-		rows = append(rows, buildRow{kind: buildRowEmpty, label: t.NoProjects})
-	}
-	for _, project := range model.Projects {
-		name := project.DisplayName
-		if name == "" {
-			name = project.Name
-		}
-		rows = append(rows, buildRow{kind: buildRowProject, label: name, detail: project.Path, id: project.ID, selected: b.projectID == project.ID})
-	}
-	rows = append(rows, a.buildDependencyRows(p, instance)...)
-	rows = append(rows, buildRow{kind: buildRowSection, label: t.Targets})
-	for index := range model.Targets {
-		target := &model.Targets[index]
-		if b.projectID != "" && target.ProjectID != b.projectID {
-			continue
-		}
-		rows = append(rows, buildRow{kind: buildRowTarget, label: target.Name, detail: target.Path, id: target.ID, project: target.ProjectID, selected: b.targetID == target.ID, target: target})
-	}
-	rows = append(rows, buildRow{kind: buildRowSection, label: t.Tasks})
-	declared := declaredTasks(instance)
-	if len(declared) == 0 && len(model.Tasks) == 0 {
-		rows = append(rows, buildRow{kind: buildRowEmpty, label: t.NoTasks})
-	}
-	for _, task := range declared {
-		rows = append(rows, buildRow{kind: buildRowTask, label: buildTaskName(&task), detail: buildTaskDetail(&task), id: task.ID, selected: b.taskID == task.ID})
-	}
-	for _, task := range model.Tasks {
-		name := task.DisplayName
-		if name == "" {
-			name = task.Name
-		}
-		rows = append(rows, buildRow{kind: buildRowTask, label: name, detail: strings.Join(task.Category, " / "), id: task.ID, selected: b.taskID == task.ID})
-	}
-	return append(rows, a.buildTestRows(p, instance)...)
-}
-
-// buildChoices declares the projects, targets and tasks of the selected build
-// system and the button that runs the chosen task.
-func (a *App) buildChoices(c ui.C, p *project) {
-	b, t := &p.build, a.text.Build
-	instance := p.selectedBuildInstance()
-	ui.Column(c).FillWidth().Grow(1).Shrink(1).MinHeight(0).Clip().Children(func() {
-		if instance == nil {
-			return
-		}
-		if instance.modelLoading && !instance.modelLoaded {
-			a.panelMessage(c, t.LoadingModel, a.colors.Subtle)
-			return
-		}
-		if instance.modelError != "" {
-			a.panelMessage(c, t.ModelFailed(instance.modelError), a.colors.Warning)
-			return
-		}
-		rows := a.buildChoiceRows(p, instance)
-		list := &p.panels.choices
-		list.Header = func(i int) bool { return rows[i].kind == buildRowSection }
-		list.Label = func(i int) string { return rows[i].label }
-		ui.List(c, list, len(rows), func(row ui.ListRow) {
-			a.buildChoiceRow(row, p, instance, rows[row.Index])
-		}).Label(t.Systems).FillWidth().Grow(1).PadY(4)
-		ui.Divider(c)
-		ui.Row(c).FillWidth().Height(36).Shrink(0).Items(ui.Center).Gap(8).PadX(8).Children(func() {
-			if b.status != "" {
-				ui.Text(c, b.status).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Grow(1)
-			} else {
-				ui.Spacer(c)
-			}
-			button := ui.Button(c, t.RunSelected)
-			if b.operation != nil || b.taskID == "" {
-				button.Disabled(true)
-			}
-			if button.Clicked() {
-				a.runSelectedBuildTask(p)
-			}
-		})
-	})
-}
-
-// buildChoiceRow declares one row of the choices list. Choosing a row changes
-// which rows the list holds, so the change is made after the paint.
-func (a *App) buildChoiceRow(row ui.ListRow, p *project, instance *buildInstance, spec buildRow) {
-	c, b, t := row.C, &p.build, a.text.Build
-	small := a.theme.Metrics.FontSizeS
-	if spec.kind == buildRowSection {
-		row.Element.Height(buildRowHeight).PadX(8).Items(ui.Center).Background(a.colors.Editor)
-		ui.Text(c, spec.label).FontSize(small).Weight(gfx.WeightSemibold).Color(a.colors.Subtle)
-		return
-	}
-	if spec.kind == buildRowEmpty && spec.tests {
-		a.buildTestStatusRow(row, p, instance, spec)
-		return
-	}
-	if spec.kind == buildRowTest {
-		a.buildTestRow(row, p, instance, spec)
-		return
-	}
-	if spec.kind == buildRowEmpty {
-		row.Element.Height(buildRowHeight).PadX(16).Items(ui.Center)
-		ui.Text(c, spec.label).FontSize(small).Color(a.colors.Subtle).Ellipsis()
-		if spec.dependencies {
-			a.buildDependencyMenu(c, row.Element, p, instance, spec.project)
-		}
-		return
-	}
-	if spec.kind == buildRowDependency {
-		a.buildDependencyRow(row, p, instance, spec)
-		return
-	}
-	element := row.Element.Height(buildRowHeight).Items(ui.Center).Gap(6).PadX(8)
-	if spec.selected {
-		element.Background(a.colors.Active)
-	} else {
-		element.Hover(ui.Look{}.Background(a.colors.Hover))
-	}
-	// The name shows whole; the detail beside it gives up its room first.
-	ui.Text(c, spec.label).Color(a.colors.Text).Shrink(0)
-	if spec.detail != "" {
-		ui.Text(c, spec.detail).FontSize(small).Color(a.colors.Subtle).Ellipsis().Shrink(1).Grow(1)
-	} else {
-		ui.Spacer(c)
-	}
-	if spec.kind == buildRowTarget {
-		for _, run := range instance.System.Runs {
-			if !buildRunApplies(run, *spec.target) {
-				continue
-			}
-			button := ui.Button(c.Key(run.ID), t.RunTarget(run.Name)).Ghost().Small()
-			if b.operation != nil || instance.modelLoading {
-				button.Disabled(true)
-			}
-			if button.Clicked() {
-				a.runBuildTarget(p, spec.id, run.ID)
-			}
-		}
-		for _, entry := range buildTargetRunEntries(instance, spec.id) {
-			button := ui.Button(c.Key("entry:"+entry.ID), t.RunTarget(entry.Name)).Ghost().Small()
-			if b.operation != nil || instance.modelLoading {
-				button.Disabled(true)
-			}
-			if button.Clicked() {
-				a.runBuildEntry(p, entry.ID)
-			}
-		}
-	}
-	if element.Clicked() {
-		c.After(func() {
-			switch spec.kind {
-			case buildRowProject:
-				b.projectID, b.targetID, b.taskID = spec.id, "", ""
-			case buildRowTarget:
-				b.projectID, b.targetID = spec.project, spec.id
-			case buildRowTask:
-				b.taskID = spec.id
-			}
-		})
-	}
-	a.buildRowMenu(c, element, p, instance, spec)
-}
-
-// buildOutput declares the console of the build system under its choices.
+// buildOutput declares the console of the build tasks: its header with the status of the last
+// operation, then its lines.
 func (a *App) buildOutput(c ui.C, p *project) {
 	t := a.text.Build
-	ui.Column(c).FillWidth().Height(buildOutputHeight).Shrink(0).Clip().Children(func() {
-		ui.Row(c).FillWidth().Height(buildRowHeight).Shrink(0).Items(ui.Center).PadX(8).Children(func() {
-			ui.Text(c, t.Output).FontSize(a.theme.Metrics.FontSizeS).Weight(gfx.WeightSemibold).Color(a.colors.Subtle)
+	small := a.theme.Metrics.FontSizeS
+	ui.Column(c).FillWidth().Grow(1).Shrink(1).MinHeight(0).Clip().Children(func() {
+		ui.Row(c).FillWidth().Height(buildRowHeight).Shrink(0).Items(ui.Center).Gap(8).PadX(8).Children(func() {
+			ui.Text(c, t.Output).FontSize(small).Weight(gfx.WeightSemibold).Color(a.colors.Subtle).Shrink(0)
+			ui.Spacer(c)
+			if status := p.build.status; status != "" {
+				ui.Text(c, status).FontSize(small).Color(a.colors.Subtle).Ellipsis().Shrink(1)
+			}
 		})
 		lines := buildVisibleOutput(p.build.output)
 		if len(lines) == 0 {
 			ui.Row(c).FillWidth().Grow(1).Items(ui.Center).PadX(shellContentPad).Children(func() {
-				ui.Text(c, t.EmptyOutput).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
+				ui.Text(c, t.EmptyOutput).FontSize(small).Color(a.colors.Subtle).Ellipsis()
 			})
 			return
 		}
@@ -364,6 +156,7 @@ func (a *App) buildOutput(c ui.C, p *project) {
 	})
 }
 
+// buildVisibleOutput splits what was printed into lines and keeps the last buildOutputVisible.
 func buildVisibleOutput(chunks []string) []string {
 	joined := strings.Join(chunks, "")
 	if joined == "" {
@@ -397,19 +190,6 @@ func buildTaskDetail(task *pluginservice.BuildTaskDeclaration) string {
 		return strings.Join(task.Category, " / ")
 	}
 	return task.Group
-}
-
-// buildInstanceLabel names a build system tab. Two instances of one system (a nested checkout)
-// differ only by their root, so a root other than the workspace's is shown after the name.
-func buildInstanceLabel(instance *buildInstance) string {
-	name := instance.System.DisplayName
-	if name == "" {
-		name = instance.BuildSystemID
-	}
-	if root := instance.Root; root != "" && root != "." {
-		return name + " · " + root
-	}
-	return name
 }
 
 func buildTaskName(task *pluginservice.BuildTaskDeclaration) string {

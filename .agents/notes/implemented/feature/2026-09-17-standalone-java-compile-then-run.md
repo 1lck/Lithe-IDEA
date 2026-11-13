@@ -89,7 +89,7 @@
 - ~~./scripts/macos/test/test-macos.sh~~（随旧客户端移除）；Windows 在 Parallels VM 上
   ~~./scripts/windows/build/build-windows.ps1 -Configuration Release~~（随旧客户端移除） 与
   `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml`
-- Rust 用例：`rust/lithe-core/src/tests/run_configuration.rs` 的
+- Rust 用例：`rust/crates/core/src/tests/run_configuration.rs` 的
   `plain_java_main_uses_the_jdk_without_maven`、
   `nested_maven_generation_keeps_standalone_java_on_the_jdk`、
   `current_file_compiles_then_launches_by_derived_class_name`、
@@ -101,7 +101,7 @@
 
 ## 适用范围
 
-- Rust 核心：`rust/lithe-core/src/execution/configuration.rs`（`create_launch_plan`）、
+- Rust 核心：`rust/crates/core/src/execution/configuration.rs`（`create_launch_plan`）、
   `rust/lithe-core/src/languages/java.rs`（`standalone_launch_class`）
 - 契约：`Lithe-core-rust/rust/contracts/rust-core-api.md`（createLaunchPlan 段）
 - macOS 宿主：`RunService`、`RustCoreBridge`、`ProjectRuntimeService`、

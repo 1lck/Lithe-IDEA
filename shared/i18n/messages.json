@@ -6583,6 +6583,13 @@
       ]
     },
     {
+      "id": "desktop.build.chooseTaskScope",
+      "description": "Shown when a build task runs on a project or target but none it accepts is chosen or can be inferred.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.build.commandUnsupported",
       "description": "This build system answered with a command plan; provider-backed tasks are required here.",
       "platforms": [
@@ -6592,6 +6599,20 @@
     {
       "id": "desktop.build.debugTarget",
       "description": "Start the selected build target's application under the plugin's own debug adapter",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.filter",
+      "description": "Label and placeholder of the Build window's filter field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.noMatches",
+      "description": "Build tool window text when no build system, project, target, task or test matches the filter",
       "platforms": [
         "desktop"
       ]
@@ -11998,8 +12019,8 @@
       ]
     },
     {
-      "id": "desktop.lsp.logTitle",
-      "description": "Title of the window that shows the log of each language server",
+      "id": "desktop.lsp.managePlugins",
+      "description": "Item of the status bar's language server menu that opens the plugin page of the settings window.",
       "platforms": [
         "desktop"
       ]
@@ -12809,6 +12830,73 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.outline.starting",
+      "description": "Structure tool window text while the file's language server starts",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.outline.serverDown",
+      "description": "Structure tool window text when the file's language server failed or stopped",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.outline.serverDownHint",
+      "description": "Hint below the Structure window's stopped-server text that points to the status bar",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.outline.noServerHint",
+      "description": "Hint below the Structure window's no-server text that says what a plugin would show",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.outline.unsupported",
+      "description": "Structure tool window text when the file's language server does not offer document symbols",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.outline.failed",
+      "description": "Structure tool window text when the document symbols request failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.outline.filter",
+      "description": "Label and placeholder of the Structure window's filter field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.outline.follow",
+      "description": "Toggle that keeps the Structure selection on the symbol at the caret",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.outline.matches",
+      "description": "Count of the symbols matching the Structure filter",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "matches": "string",
+        "total": "string"
+      }
     },
     {
       "id": "desktop.panel.header",
@@ -35754,7 +35842,8 @@
       "id": "logs.language.tabTitle",
       "description": "Editor tab title for the language server logs view",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "LSP Logs",
@@ -44447,7 +44536,8 @@
       "id": "native.clearLogView",
       "description": "Native LSP status and log viewer",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Clear View",
@@ -57979,7 +58069,8 @@
       "id": "native.inline.viewLogs",
       "description": "Presentation copy: macos/Sources/Lithe/Views/Workbench/ProjectPreparationStatusView.swift",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ]
     },
     {
@@ -66693,7 +66784,8 @@
       "id": "native.noRegisteredLanguageServers",
       "description": "LSP entry remains available before any server has started",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "No registered language servers",
@@ -74659,7 +74751,8 @@
       "id": "native.restartAllServers",
       "description": "Native LSP status and log viewer",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Restart All Servers",
@@ -79478,7 +79571,8 @@
       "id": "native.softWraps",
       "description": "Native UI: Soft Wraps",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Soft Wraps",
@@ -80561,7 +80655,8 @@
       "id": "native.stopAllServers",
       "description": "Native LSP status and log viewer",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Stop All Servers",
@@ -92794,7 +92889,8 @@
       "id": "outline.collapseAll",
       "description": "Windows UI: outline.collapseAll",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -92922,7 +93018,8 @@
       "id": "outline.noSymbolsFound",
       "description": "Windows UI: outline.noSymbolsFound",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {

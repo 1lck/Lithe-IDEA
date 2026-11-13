@@ -366,6 +366,50 @@ func TestDebugStopBeforeCreateReturnsDestroysLateSession(t *testing.T) {
 	}
 }
 
+type debugDestroyOrderKernel struct {
+	Kernel
+	destroyed chan struct{}
+}
+
+func (k *debugDestroyOrderKernel) DestroyDebugSession(ctx context.Context, _ string) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	close(k.destroyed)
+	return nil, nil
+}
+
+func TestDebugReleasesCoreBeforeWaitingForOwnedRun(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.open(t.TempDir())
+	p := h.app.project
+	kernel := &debugDestroyOrderKernel{Kernel: h.app.kernel, destroyed: make(chan struct{})}
+	h.app.kernel = kernel
+	startupDone := make(chan struct{})
+	close(startupDone)
+	ordered := make(chan bool, 1)
+	session := &debugSession{id: "owned-run", created: true, startupDone: startupDone, cancel: func() {}, stopRun: func() {
+		// No wall-clock delay: reaching the potentially slow process wait must
+		// already imply Core destruction, which owns its own bounded budget.
+		select {
+		case <-kernel.destroyed:
+			ordered <- true
+		default:
+			ordered <- false
+		}
+	}}
+	h.app.releaseDebugSession(p, session)
+	h.settle()
+	select {
+	case ok := <-ordered:
+		if !ok {
+			t.Fatal("the owned process wait can consume Core destruction's deadline")
+		}
+	default:
+		t.Fatal("the owned run was not released")
+	}
+}
+
 func TestDebugBlockedWriteEndsOnCancellation(t *testing.T) {
 	reader, writer, err := os.Pipe()
 	if err != nil {
@@ -538,7 +582,8 @@ func TestRunLaunchTargetBindsTheRunsProcessIntoTheLaunch(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "debug.marker"), []byte("debug\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	p := openDebugPanel(t, h, root)
+	h.open(root)
+	p := h.app.project
 	gate := &captureDebugLaunch{Kernel: h.app.kernel, configurations: make(chan core.DebugLaunchConfiguration, 1)}
 	h.app.kernel = gate
 	program := filepath.Join(root, "app")
@@ -587,4 +632,22 @@ func TestRunLaunchTargetBindsTheRunsProcessIntoTheLaunch(t *testing.T) {
 			return false
 		}
 	})
+}
+
+func TestRunAttachLoadsAdaptersWithoutOpeningDebugPanel(t *testing.T) {
+	h := debugHarness(t)
+	root := t.TempDir()
+	h.open(root)
+	p := h.app.project
+	done := make(chan error, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	go func() {
+		_, err := h.app.attachDebugForRun(ctx, pluginservice.RunDebugRequest{PluginID: "dev.lithe.test.debug-adapter", WorkspaceRoot: root, ConfigurationType: "missing"})
+		done <- err
+	}()
+	err := awaitValueWithin(t, h, 10*time.Second, done, "attach to resolve adapters")
+	if !p.debug.loaded || err == nil || !strings.Contains(err.Error(), "no debug adapter") {
+		t.Fatalf("adapter discovery loaded=%v error=%v", p.debug.loaded, err)
+	}
 }

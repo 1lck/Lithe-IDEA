@@ -43,7 +43,7 @@
       "evidence": [
         "windows/tauri/crates/project/src/git_watcher.rs",
         "windows/tauri/src/features/git/runtime/git-metadata-watch-host.tsx",
-        "rust/lithe-core/src/git/metadata_watch.rs",
+        "rust/crates/core/src/git/metadata_watch.rs",
         "shared/fixtures/git/metadata-classification-v1.json"
       ]
     },

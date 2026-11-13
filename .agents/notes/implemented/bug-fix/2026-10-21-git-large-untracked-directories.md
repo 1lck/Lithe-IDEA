@@ -15,7 +15,7 @@
 
 ## 决策
 
-**Core 的汇总规则**（`rust/lithe-core/src/git/untracked_directories.rs`）：
+**Core 的汇总规则**（`rust/crates/core/src/git/untracked_directories.rs`）：
 
 - `git.status` 新增可选参数 `summarizeUntrackedDirectories`。打开后改用 Git 的 `--untracked-files=normal` 视图，Git 在每个整体未跟踪的目录处停下，只报告 `dir/`。
 - 对这些目录，Core 用一次 `git ls-files --others --exclude-standard` 拿到其中的文件，再逐个决定：超过 100 个文件就报告成一条汇总（`path` 以 `/` 结尾并带 `untrackedFileCount`）；不超过 100 个文件仍按文件逐条报告，所以新建的小源码目录照常显示。

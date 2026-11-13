@@ -205,7 +205,7 @@ Windows 目前仍使用 v1 日志，Windows 改动沿用现有写法，并在此
 
 <!-- 触发：新增或修改运行时资源、缓存、下载物、解压物、日志或锁文件，或任何下载、解压、生成资源的构建步骤。 -->
 
-- [ ] 运行时不向已安装的 app bundle 或 Windows 安装目录写入；新增的资源路径已说明生命周期、所有权和可写位置，并运行 `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- [ ] 运行时不向已安装的 app bundle 或 Windows 安装目录写入；新增的资源路径已说明生命周期、所有权和可写位置，并运行 `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - [ ] 新增或修改下载、解压、生成或缓存资源的，已同步 `scripts/resources/worktree-resources.json`、`scripts/resources/reuse-worktree-resources.mjs` 的校验路由、对应测试和 `docs/ci-builds.md`“独立工作树的本地编译”一节
 
 ### 无用代码与重构 / Dead code and refactoring

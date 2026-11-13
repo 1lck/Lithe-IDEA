@@ -25,7 +25,7 @@ func runBrowserInstances() []buildInstance {
 	return []buildInstance{engine, alpha}
 }
 
-// The Run tool window lists the run configurations under the build system that provides them,
+// The Build tool window lists the run configurations under the build system that provides them,
 // in a scope of every configuration, the pinned ones or one execution kind, each scope with its
 // count. A pin is written into the client's store, outside the project, and read back with the
 // list; a group closes and opens; a double click runs a configuration through its provider; and
@@ -48,8 +48,8 @@ func TestRunConfigurationListScopesGroupsPinsAndRuns(t *testing.T) {
 	h.app.post(func(a *App) {
 		p.build.instances, p.build.loaded = runBrowserInstances(), true
 		a.refreshRunConfigurations(p)
-		if !a.chrome.isOpen(catalogIndex[itemRun]) {
-			a.reduceChrome(core.SetChromeOpen(itemRun, true))
+		if !a.chrome.isOpen(catalogIndex[itemBuild]) {
+			a.reduceChrome(core.SetChromeOpen(itemBuild, true))
 		}
 	})
 	s := &p.runConfigs
@@ -72,7 +72,7 @@ func TestRunConfigurationListScopesGroupsPinsAndRuns(t *testing.T) {
 		t.Fatalf("scopes %q, want every, pinned, then the service and application kinds", got)
 	}
 	if !h.shows(i18n.Shared(lang, "native.runConfigurations")) || !h.shows(h.app.runScopeLabel(s, "")) {
-		t.Fatal("the Run tool window does not show the configurations under the scope of all of them")
+		t.Fatal("the Build tool window does not show the configurations under the scope of all of them")
 	}
 	if h.app.runScopeLabel(s, "") != "All configurations (3)" || h.app.runScopeLabel(s, "application") != "Applications (2)" {
 		t.Fatalf("scope labels %q and %q", h.app.runScopeLabel(s, ""), h.app.runScopeLabel(s, "application"))
@@ -120,13 +120,25 @@ func TestRunConfigurationListScopesGroupsPinsAndRuns(t *testing.T) {
 		t.Fatalf("pinned rows %q", got)
 	}
 
-	// A group closes over its configurations and opens again.
-	h.clickNamed(i18n.Shared(lang, "native.collapseSection") + " Engine")
+	// A group closes over its configurations and opens again. The build tree under the list
+	// has an Engine group of the same name, so the arrow clicked is the first one declared,
+	// the list's.
+	clickListed := func(name string) {
+		t.Helper()
+		for _, hit := range h.driver.Snapshot().Hits {
+			if hit.Label == name && !hit.IsLabel && !hit.ID.IsZero() {
+				h.click(center(hit.Bounds))
+				return
+			}
+		}
+		t.Fatalf("no control named %q", name)
+	}
+	clickListed(i18n.Shared(lang, "native.collapseSection") + " Engine")
 	h.settle()
 	if got := rows(); !slices.Equal(got, []string{"[Engine]"}) {
 		t.Fatalf("rows of the closed group %q", got)
 	}
-	h.clickNamed(i18n.Shared(lang, "native.expandSection") + " Engine")
+	clickListed(i18n.Shared(lang, "native.expandSection") + " Engine")
 	h.settle()
 	if got := rows(); !slices.Equal(got, []string{"[Engine]", "Serve Main"}) {
 		t.Fatalf("rows of the opened group %q", got)

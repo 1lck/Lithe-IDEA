@@ -42,7 +42,7 @@ Issue #1662 的 LSP-01 / BUG-3 指出 `severity`（诊断等级）从整数变�
 - `Lithe-core-rust/rust/fixtures/lsp/diagnostic-code-actions-v1.json` 同时供 Rust 与 Windows 回归测试使用，覆盖 1～4 级和空等级、未知标签、关联位置。
 - ~~`windows/tauri/src/features/editor/lsp/lsp-client-code-actions.test.ts`~~（已随 #1794 移除） 覆盖批次接收、store 与请求数据。
 - ~~`windows/tauri/src/platform/lsp-core-adapter.test.ts`~~（已随 #1794 移除） 覆盖 Core 事件与请求边界。
-- `rust/lithe-core/src/lsp/tests.rs` 的 `client_diagnostic_code_action_fixture_preserves_core_fields` 验证 Core 反序列化以及协议往返。
+- `rust/crates/core/src/lsp/tests.rs` 的 `client_diagnostic_code_action_fixture_preserves_core_fields` 验证 Core 反序列化以及协议往返。
 - 在真实项目中分别通过问题面板右键、灯泡和快捷键执行快速修复；自动化通过不代表真机工作流已验收。
 - 运行 `./scripts/agent-notes/verify-agent-notes.sh`。
 

@@ -66,9 +66,9 @@ lldb 社区插件把 `program` 写成 `/Users/.../lldb-demo/main`：
 
 ## 验证
 
-- `cargo test --manifest-path rust/lithe-core/Cargo.toml debug_executable_plan`
-- `cargo test --manifest-path rust/lithe-core/Cargo.toml debug_start_arguments`
-- `cargo test --manifest-path rust/lithe-core/Cargo.toml debug_adapter`
+- `cargo test --manifest-path rust/crates/core/Cargo.toml debug_executable_plan`
+- `cargo test --manifest-path rust/crates/core/Cargo.toml debug_start_arguments`
+- `cargo test --manifest-path rust/crates/core/Cargo.toml debug_adapter`
 - ~~./scripts/macos/test/test-macos.sh --filter DebugExecutableResolverTests~~（随旧客户端移除）
 - ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
 - `node scripts/i18n/generate-i18n.mjs --check`
@@ -78,7 +78,7 @@ lldb 社区插件把 `program` 写成 `/Users/.../lldb-demo/main`：
 ## 适用范围
 
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`（README、schema、`debug-adapter*.json` 夹具）
-- Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/adapters.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug/adapters.rs)、`rust/lithe-core/src/plugins/declarative.rs`、`rust/lithe-core/src/plugins/settings.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/adapters.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug/adapters.rs)、`rust/crates/core/src/plugins/declarative.rs`、`rust/crates/core/src/plugins/settings.rs`
 - ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginDebugExecutableResolver.swift`~~（已随 #1794 移除）
 - ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift`~~（已随 #1794 移除）
 - ~~`macos/Sources/Lithe/Views/App/PluginSettingsSection.swift`~~（已随 #1794 移除）

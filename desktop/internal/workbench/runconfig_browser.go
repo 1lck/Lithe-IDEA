@@ -15,7 +15,7 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// This file holds the Run tool window's list of run configurations: the scope it shows (every
+// This file holds the Build tool window's list of run configurations: the scope it shows (every
 // configuration, the pinned ones, or those of one execution kind), the configurations of the
 // scope under the build system that provides them, and what a row does. Drawing is in
 // runconfig_view.go.
@@ -48,12 +48,12 @@ func runExecutionTitle(language i18n.Language, execution string) string {
 	return ""
 }
 
-// Heights of the list: as it first shows, and the least of it and of the Build window's panes
-// under it.
+// Heights of the list in the Build window: as it first shows, and the least of it and of the
+// build tree under it, its filter field and a few rows.
 const (
 	runConfigListHeight = 168
 	runConfigListMin    = 72
-	runConfigRestMin    = buildRowHeight + 8 + buildOutputHeight + 96
+	runConfigRestMin    = buildRowHeight + 96
 )
 
 // runConfigBrowser is the state of the list of run configurations. Only the window thread

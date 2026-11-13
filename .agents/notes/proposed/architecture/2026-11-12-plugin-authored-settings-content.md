@@ -97,7 +97,7 @@
 - 自绘页面的内容不会画出框外。滚动设置页、打开下拉弹层、切换标签页时，页面位置和遮挡关系都正确。
 - 后端超时、后端崩溃、页面加载失败时，框里显示错误并回退到声明式行，窗口其他区域可以继续操作。
 - 停用、更新、卸载插件或关闭设置窗口后，没有残留的后端调用和网页进程。
-- 运行 `scripts/macos/verify/verify-runtime-bundle-immutability.sh`，确认插件包和应用包在整个流程中没有被写入。
+- 运行 `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`，确认插件包和应用包在整个流程中没有被写入。
 - `native-ui.schema.json` 不再出现在 Core 契约里，工具窗口改用新 schema 后行为不变。
 
 ## 风险

@@ -51,8 +51,8 @@ Windows 按勾选文件的工作区内容生成，包括该文件尚未暂存的
 
 | 代码 | 职责 |
 | --- | --- |
-| `rust/lithe-core/src/ai/configuration.rs` | Codex TOML / Claude JSON 解析，凭据不序列化 |
-| `rust/lithe-core/src/ai/generation.rs` | 配置校验、提示词、字符预算、三种协议请求与响应 |
+| `rust/crates/ai/src/configuration.rs` | Codex TOML / Claude JSON 解析，凭据不序列化 |
+| `rust/crates/ai/src/generation.rs` | 配置校验、提示词、字符预算、三种协议请求与响应 |
 | `windows/tauri/src-tauri/src/ai_commit.rs` | 有界文件读取、凭据管理器、HTTP、超时与取消 |
 | `windows/tauri/src-tauri/src/platform.rs` | 统一前后端命令入口 |
 | `windows/tauri/src/features/git/types/ai-commit.ts` | 设置类型、默认值、持久化字段白名单 |
@@ -77,7 +77,7 @@ Windows 验证需要仓库锁定的 Bun 版本（由 `windows/tauri/package.json
 ```powershell
 ./.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1
 ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/settings/components/ai-settings-routing.test.tsx,src/features/git/services/ai-commit-workflow.test.ts,src/features/git/services/ai-commit-context.test.ts,src/features/git/types/ai-commit.test.ts,src/features/settings/lib/settings-normalization.test.ts
-cargo test --manifest-path rust/lithe-core/Cargo.toml ai::tests --lib
+cargo test --manifest-path rust/Cargo.toml -p lithe-ai --lib
 ./scripts/windows/build/build-windows.ps1 -Configuration Release
 cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml
 node scripts/agent-notes/verify-agent-notes.mjs

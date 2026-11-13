@@ -43,7 +43,7 @@
         "macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift",
         "macos/Tests/LitheTests/LanguageServerSyncBridgeTests.swift",
         "macos/Tests/LitheTests/RustLanguageServerLaunchTests.swift",
-        "rust/lithe-core/src/lsp/interface/document_uri.rs"
+        "rust/crates/core/src/lsp/interface/document_uri.rs"
       ]
     },
     "windows": {
@@ -52,9 +52,9 @@
       "evidence": [
         "windows/tauri/src/platform/lsp-core-adapter.ts",
         "windows/tauri/src/platform/lsp-core-adapter.test.ts",
-        "rust/lithe-core/src/lsp/tests.rs",
+        "rust/crates/core/src/lsp/tests.rs",
         "shared/fixtures/lsp/document-uri-v1.json",
-        "rust/lithe-core/src/lsp/interface/document_uri.rs"
+        "rust/crates/core/src/lsp/interface/document_uri.rs"
       ]
     },
     "notes": "两端在原有语言服务器请求中传递本机路径，Core 转换为 URI 并区分编码后的保留字符与分隔符；虚拟 URI 保持原样。 导航命令在各自协议边界解析路径，通用 URI 转换器不依赖具体语言。"

@@ -134,6 +134,9 @@ type document struct {
 	// actions are the plugin editor actions the last collection answered for this text, and
 	// actionTimer the pending collection after an edit (editor_actions.go).
 	actions []pluginservice.EditorAction
+	// actionCollection invalidates pending presentation results when bindings
+	// change without changing this document's text revision.
+	actionCollection uint64
 	// links are the document links of the current text, from the plugin providers, indexed by
 	// the ID the view reports them with.
 	links       []pluginservice.EditorLink

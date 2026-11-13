@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/vivaui/viva/gfx"
@@ -88,6 +89,8 @@ type shownTab struct {
 	diff *diffTab
 	// view is a viewer tab (viewer.go).
 	view *viewerTab
+	// lsp is the LSP Logs tab (lsp_status.go).
+	lsp bool
 }
 
 // member is the name the group lists the tab's terminal, file or diff under.
@@ -99,6 +102,8 @@ func (s shownTab) member() string {
 		return diffMember(s.diff.id)
 	case s.view != nil:
 		return viewerMember(s.view.id)
+	case s.lsp:
+		return lspLogMember
 	}
 	return terminalMember(s.term.id)
 }
@@ -173,7 +178,7 @@ func (u *terminalUI) stripOf(group string) *tabStrip {
 }
 
 // groupTabs lists the tabs group shows, in its order, and the member that is selected: each
-// member whose terminal, file or diff is still open.
+// member whose terminal, file, diff or viewer is still open, and the LSP Logs tab.
 func (a *App) groupTabs(group string) ([]shownTab, string) {
 	p := a.project
 	g := p.terms.bench.Group(group)
@@ -198,6 +203,8 @@ func (a *App) groupTabs(group string) ([]shownTab, string) {
 			if t := p.viewers.find(id); t != nil {
 				shown = append(shown, shownTab{view: t})
 			}
+		} else if member == lspLogMember {
+			shown = append(shown, shownTab{lsp: true})
 		}
 	}
 	return shown, g.Selected
@@ -219,6 +226,9 @@ func (a *App) tabWidth(canvas *gfx.Canvas, s shownTab) float32 {
 	}
 	if s.view != nil {
 		return tabChrome + canvas.TextWidth(s.view.name, size)
+	}
+	if s.lsp {
+		return tabChrome + canvas.TextWidth(a.tabLabel(s), size)
 	}
 	width := tabChrome + canvas.TextWidth(a.terminalTitle(s.term), size)
 	return min(max(width, terminalChipMinWidth), terminalChipMaxWidth)
@@ -475,6 +485,8 @@ func (a *App) selectTab(t shownTab) {
 		a.selectDiff(a.project, t.diff.id)
 	case t.view != nil:
 		a.selectViewer(a.project, t.view.id)
+	case t.lsp:
+		a.selectLSPLog(a.project)
 	default:
 		a.selectTerminal(a.project, t.term.id)
 	}
@@ -489,6 +501,8 @@ func (a *App) closeTab(t shownTab) {
 		a.closeDiffTab(a.project, t.diff.id)
 	case t.view != nil:
 		a.closeViewer(a.project, t.view.id)
+	case t.lsp:
+		a.closeLSPLog(a.project)
 	default:
 		a.requestCloseTerminal(a.project, t.term.id)
 	}
@@ -593,6 +607,8 @@ func (a *App) tabLabel(t shownTab) string {
 		return t.diff.name()
 	case t.view != nil:
 		return t.view.name
+	case t.lsp:
+		return i18n.Shared(a.language(), "logs.language.tabTitle")
 	}
 	return a.terminalTitle(t.term)
 }
@@ -608,6 +624,8 @@ func (a *App) tabIcon(t shownTab) gfx.Icon {
 			return icons.Image
 		}
 		return icons.File
+	case t.lsp:
+		return icons.FileText
 	}
 	return icons.SquareTerminal
 }

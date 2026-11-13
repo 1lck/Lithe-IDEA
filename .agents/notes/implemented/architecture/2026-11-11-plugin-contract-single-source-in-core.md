@@ -45,7 +45,7 @@ Core 的 `shared/` 下只保留 `plugins/`。本仓库和 Lithe Store 都不再�
 
 ### 2. 同一个 Core PR 完成全部登记
 
-改 `shared/plugins/contract/v1/`、`rust/lithe-core/src/plugins/capabilities.rs` 或 `rust/lithe-core/src/lsp/interface/plugin_function.rs` 的 Core PR，同时完成这些事：
+改 `shared/plugins/contract/v1/`、`rust/crates/core/src/plugins/capabilities.rs` 或 `rust/crates/core/src/lsp/interface/plugin_function.rs` 的 Core PR，同时完成这些事：
 
 - 更新 [插件协议更新记录](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/reference/protocol-changelog.md)，写明合入日期、PR、修改人和改了哪个协议或 API。
 - 新增宿主方法时，在 [API 总表](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/reference/api-catalog.md) 的中英方法表和更新记录的“宿主方法（按 API 编号）”索引里各加一行。

@@ -64,7 +64,7 @@
         "macos/Tests/LitheTests/TerminalPlacementFeatureModelTests.swift",
         "macos/Sources/Lithe/Views/Workbench/OutputTextView.swift",
         "macos/Sources/LitheDebugModule/Runtime/DebugAdapterSessionManager.swift",
-        "rust/lithe-core/src/debug/variable_paging.rs",
+        "rust/crates/core/src/debug/variable_paging.rs",
         "macos/Sources/LitheCoreContracts/Debug/DebugPagingContracts.swift",
         "macos/Sources/Lithe/Core/Rust/RustRunDebugReducers.swift",
         "shared/fixtures/debug/variable-page-plan-v1.json"
@@ -79,7 +79,7 @@
         "windows/tauri/src/features/debugger/services/debug-session-actions.test.ts",
         "windows/tauri/src/features/debugger/services/monaco-debug-decorations.test.ts",
         "windows/tauri/src/features/maven/services/maven-module-debug.test.ts",
-        "rust/lithe-core/src/debug/variable_paging.rs",
+        "rust/crates/core/src/debug/variable_paging.rs",
         "shared/fixtures/debug/variable-page-plan-v1.json",
         "windows/tauri/src/features/debugger/api/variable-paging-api.ts",
         "windows/tauri/src/features/debugger/services/debug-variable-paging.ts",

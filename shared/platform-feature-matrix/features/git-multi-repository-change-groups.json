@@ -31,7 +31,7 @@
         "macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift",
         "macos/Sources/Lithe/Views/Git/GitChangeSectionsCache.swift",
         "macos/Sources/LitheGitModule/Models/GitModels.swift",
-        "rust/lithe-core/src/git/mod.rs"
+        "rust/crates/core/src/git/mod.rs"
       ],
       "implementationStatus": "implemented",
       "verificationStatus": "pending"

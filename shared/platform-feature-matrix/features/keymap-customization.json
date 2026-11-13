@@ -44,7 +44,7 @@
         "macos/Tests/LitheTests/SearchEverywhereQueryModeTests.swift",
         "macos/Sources/Lithe/Core/Rust/RustKeymapConflicts.swift",
         "macos/Sources/Lithe/Core/Rust/RustDoubleShiftGesture.swift",
-        "rust/lithe-core-rules/src/keymap/modifier_gesture.rs",
+        "rust/crates/core-rules/src/keymap/modifier_gesture.rs",
         "macos/Tests/LitheTests/KeymapTerminalCoreFixtureTests.swift",
         "shared/fixtures/keymap/binding-conflicts-v1.json",
         "shared/fixtures/keymap/modifier-gesture-v1.json"
@@ -58,10 +58,10 @@
         "windows/tauri/src/features/settings/components/settings-panels.tsx",
         "windows/tauri/src/features/settings/components/tabs/keyboard-settings.tsx",
         "windows/tauri/src/features/settings/components/keyboard-settings-routing.test.tsx",
-        "rust/lithe-core/src/keymap/mod.rs",
+        "rust/crates/core-rules/src/keymap/context.rs",
         "shared/fixtures/keymap/context-v1.json",
         "windows/tauri/src/features/keymaps/utils/context.native.integration.test.ts",
-        "rust/lithe-core/src/keymap/bindings.rs",
+        "rust/crates/core-rules/src/keymap/bindings.rs",
         "shared/fixtures/keymap/binding-conflicts-v1.json",
         "windows/tauri/src/features/keymaps/utils/binding-conflicts.ts",
         "windows/tauri/src/features/keymaps/utils/save-keybinding.ts",
@@ -69,11 +69,11 @@
         "shared/fixtures/keymap/modifier-gesture-v1.json",
         "windows/tauri/src/features/keymaps/utils/double-shift-recognizer.test.ts",
         "windows/tauri/src/core/core-rules.ts",
-        "rust/lithe-core-rules/src/keymap/modifier_gesture.rs"
+        "rust/crates/core-rules/src/keymap/modifier_gesture.rs"
       ],
       "implementationStatus": "implemented",
       "verificationStatus": "pending"
     },
-    "notes": "Windows 已接入现有快捷键编辑器，修复 #718 的占位入口；WS-09 / BUG-2 的 when 解析、校验和布尔结果由 Core 生成，导入/保存先校验，按键时只查预编译结果。验证导入 @、单个 &/|/=、未闭合引号/括号、缺少操作数和超预算条件时拒绝且保留原配置；检查坏历史条件不阻塞后续按键，并检查有效条件随焦点切换。原生 ABI 与 DOM 测试不替代真实 Windows WebView2、文件对话框及整机快捷键验收。 WS-08：快捷键冲突由 Core 的 keymap.analyzeConflicts 按最终生效绑定（默认、预设、用户逐层覆盖）判定，修饰键顺序、大小写与别名不同的等价绑定视为同一个；两端保存冲突绑定都会被拒绝，Windows 导入同样先整体校验。验证：Windows 把一个命令改绑成另一个命令的默认键（含不同修饰键顺序）应被拒绝并提示冲突命令，行内冲突提示覆盖默认和预设绑定；导入含冲突的文件时不改预设也不写入。WS-17：双击 Shift 手势状态机由 Core 的 keymap.modifierGestureStep（rust/lithe-core-rules）提供，macOS 通过 FFI 同步调用，Windows 启动时异步加载同一份源码编译的 wasm 后同步调用；两端只把原生事件转成输入、把输出变成动作，由 shared/fixtures/keymap/modifier-gesture-v1.json 经 Rust 与 wasm 逐步验证。"
+    "notes": "Windows 已接入现有快捷键编辑器，修复 #718 的占位入口；WS-09 / BUG-2 的 when 解析、校验和布尔结果由 Core 生成，导入/保存先校验，按键时只查预编译结果。验证导入 @、单个 &/|/=、未闭合引号/括号、缺少操作数和超预算条件时拒绝且保留原配置；检查坏历史条件不阻塞后续按键，并检查有效条件随焦点切换。原生 ABI 与 DOM 测试不替代真实 Windows WebView2、文件对话框及整机快捷键验收。 WS-08：快捷键冲突由 Core 的 keymap.analyzeConflicts 按最终生效绑定（默认、预设、用户逐层覆盖）判定，修饰键顺序、大小写与别名不同的等价绑定视为同一个；两端保存冲突绑定都会被拒绝，Windows 导入同样先整体校验。验证：Windows 把一个命令改绑成另一个命令的默认键（含不同修饰键顺序）应被拒绝并提示冲突命令，行内冲突提示覆盖默认和预设绑定；导入含冲突的文件时不改预设也不写入。WS-17：双击 Shift 手势状态机由 Core 的 keymap.modifierGestureStep（rust/crates/core-rules）提供，macOS 通过 FFI 同步调用，Windows 启动时异步加载同一份源码编译的 wasm 后同步调用；两端只把原生事件转成输入、把输出变成动作，由 shared/fixtures/keymap/modifier-gesture-v1.json 经 Rust 与 wasm 逐步验证。"
   }
 }

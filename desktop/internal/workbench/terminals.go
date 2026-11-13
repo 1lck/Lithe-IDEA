@@ -458,7 +458,7 @@ func (a *App) selectTerminal(p *project, id int) {
 }
 
 // dropTab does what dropping the tab of group member on target asks for, and shows the
-// terminal, the file or the diff with the keyboard if it was done: a tab dropped on a strip or
+// terminal, the file, the diff, the viewer or the LSP Logs tab with the keyboard if it was done: a tab dropped on a strip or
 // on the middle of a group joins it, one dropped near the edge of a group splits it, and one
 // dropped on an empty editor opens the first group. A target that is no place does nothing.
 func (a *App) dropTab(member string, target dropTarget) {
@@ -486,6 +486,8 @@ func (a *App) dropTab(member string, target dropTarget) {
 		a.selectDiff(p, id)
 	} else if id, ok := memberViewer(member); ok {
 		a.selectViewer(p, id)
+	} else if member == lspLogMember {
+		a.selectLSPLog(p)
 	}
 }
 

@@ -12,7 +12,7 @@
 
 ## 决策
 
-- **远程实现只保留一个 crate**：`rust/lithe-remote/` 内部分为 `client`、`protocol`、`server` 三个模块，共用一个版本和依赖入口。协议类型始终可用，Cargo feature（构建时选择哪些代码和依赖）默认只启用 `client`；Core 的正常依赖明确只选客户端，Linux/macOS 的真实服务测试额外启用 `server`。打包必须用 `--no-default-features --features server --bin lithe-remote-server`，不能让工作区其他包的 feature 合并把客户端带入远端发布物。可执行文件仍叫 `lithe-remote-server`，安装路径、握手和协议版本不变；协议单独构建不需要 SHA-256 或主机适配依赖，客户端不引入 `trash` 或服务端平台代码。
+- **远程实现只保留一个 crate**：`rust/crates/remote/` 内部分为 `client`、`protocol`、`server` 三个模块，共用一个版本和依赖入口。协议类型始终可用，Cargo feature（构建时选择哪些代码和依赖）默认只启用 `client`；Core 的正常依赖明确只选客户端，Linux/macOS 的真实服务测试额外启用 `server`。打包必须用 `--no-default-features --features server --bin lithe-remote-server`，不能让工作区其他包的 feature 合并把客户端带入远端发布物。可执行文件仍叫 `lithe-remote-server`，安装路径、握手和协议版本不变；协议单独构建不需要 SHA-256 或主机适配依赖，客户端不引入 `trash` 或服务端平台代码。
 - **守护进程启动必须有确定结果**：并发连接可能各自启动候选进程。代理必须等自己启动的候选已经写入会话锁的 PID，或已退出，才连接 socket；不能因为别的候选已发布 socket 就提前握手，否则显式关闭后，迟到的候选还会接管锁并留下新进程。复用已有锁文件和子进程退出状态，不增加协议、目录或长期监听；等待沿用启动期限，失败时终止并回收本次启动的候选，成功的守护进程继续跨断线保留。
 - **占位根目录**：`MacRemoteWorkspaceRoots` 在 `Application Support/Lithe/RemoteWorkspaces/<连接 id>/<远程路径哈希>/<文件夹名>` 创建一个空目录，用它作为工作区根。目录名是远程文件夹名，所以项目名显示正确。它不在 app bundle 里，不影响签名和 Sparkle 增量包；里面没有用户数据，跨启动保留，让按根目录保存的项目状态得以延续。
 - **注册表**：`RemoteWorkspaceRegistry` 记录每个占位根对应的连接、远程路径和 Core 会话 id。打开远程项目时登记，同一个根再次打开时，旧会话会被替换并断开。

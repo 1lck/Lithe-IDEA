@@ -30,12 +30,14 @@ func TestProviderFunctionFieldsMatchRoutedTypes(t *testing.T) {
 }
 
 func TestEditorProviderRegistrationBindsEveryRoutedFunction(t *testing.T) {
-	service, _, workspace, _ := openWorkbenchService(t)
+	service, workspace := openDecodedEditorService(t, &fakeWorkbench{})
+	service.Host.mu.Lock()
 	service.Host.sessions["a"] = &BackendSession{
 		host: service.Host, PluginID: "a", Session: pluginbackend.Session{ID: "session-a"},
 		functions: map[string]bool{"keys.lens": true, "keys.tokens": true, "keys.complete": true},
 		waiters:   map[string]chan core.BackendEvent{}, done: make(chan struct{}), changed: make(chan struct{}), ready: true,
 	}
+	service.Host.mu.Unlock()
 	selector := `"selector":{"fileExtensions":["properties"]}`
 	if _, refusal := respond(t, service, "a", "editor/registerProviders", `{`+contextJSONOf(workspace)+`,"id":"fold",`+selector+`,"providers":{"foldingRange":{"function":"keys.lens"}}}`); refusal == nil || refusal.Code != codeInvalidParams {
 		t.Fatalf("unrouted type = %+v", refusal)

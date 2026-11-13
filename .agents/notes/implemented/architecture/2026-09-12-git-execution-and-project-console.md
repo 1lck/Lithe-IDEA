@@ -32,7 +32,7 @@ IntelliJ Community 固定版本
 ### 实际执行由共享入口记录
 
 Rust Core 负责 Git 参数策略、事件解码、脱敏和结果模型。
-`rust/lithe-git-host/` 负责原生子进程、管道、临时输入文件和限时清理。
+`rust/crates/git-host/` 负责原生子进程、管道、临时输入文件和限时清理。
 已有 Core 捕获入口调用该适配器，保留旧 JSON 和 C ABI（C 语言调用边界）
 兼容性；其他旧的 Git 检查辅助函数尚未全部迁移。
 

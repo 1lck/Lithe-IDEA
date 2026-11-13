@@ -312,7 +312,7 @@ macOS 本次不修改，双端功能矩阵保持目标产品运行验收待验�
 
 - #1123 回归：`commit-diff-blocks.integration.test.ts` 用真实 Git 在已有文件的三个不相邻位置修改，
   检查普通工作区、快照和暂存区补丁均只有一个完整 hunk；左右源行恰好出现一次，保持单调行号和三个可操作块。
-- 旧版 Git 配置回归：`rust/lithe-core/src/tests/git.rs` 在临时仓库设置非零 `diff.interHunkContext`，
+- 旧版 Git 配置回归：`rust/crates/core/src/tests/git.rs` 在临时仓库设置非零 `diff.interHunkContext`，
   通过 Core 的三种完整文件读取路径检查仍只返回一个 hunk、48 行单调且用户配置保持不变。
 
 - 2026-10-05 审核修复回归：Git 与 Core 结果适配前端计时组 626 项通过。四个真实 Git EOF/CRLF 场景精确比较
@@ -328,7 +328,7 @@ macOS 本次不修改，双端功能矩阵保持目标产品运行验收待验�
 卸载后恢复原型属性，不修改产品行为。Windows Rust 214 项通过；Core/Git 快照、提交及监视上下文
 专项与完整上下文/回退专项通过，保留各测试计时报告。
 
-- `rust/lithe-core/src/tests/git.rs` 的真实仓库快照回归检查 HEAD 到磁盘的完整补丁、
+- `rust/crates/core/src/tests/git.rs` 的真实仓库快照回归检查 HEAD 到磁盘的完整补丁、
   读取前后 `.git` 目录修改时间不变，以及真实索引逐字节不变。原生 Commit 文件点击时核对读取完成后
   块控件出现且空闲期间不持续重复刷新；浏览器可控 IPC 测试不能替代这个原生监听路径。
   2026-10-05 使用独立配置的完整 Windows WebView2 开发版和真实临时仓库验证：Commit 文件列表点击后
@@ -386,4 +386,4 @@ macOS 本次不修改，双端功能矩阵保持目标产品运行验收待验�
 `windows/tauri/src/features/git/components/diff/commit-file-diff-preview.tsx`、
 `commit-file-diff-toolbar.tsx`、`independent-commit-diff.tsx`、`independent-commit-diff-surface.ts`，以及
 Git 模块的预览构造、文件导航、标签格式和异步预览 hook。
-共享只读工作区快照的临时 Git 管理目录位于 `rust/lithe-core/src/git/mod.rs`。
+共享只读工作区快照的临时 Git 管理目录位于 `rust/crates/core/src/git/mod.rs`。

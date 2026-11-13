@@ -52,8 +52,8 @@
     },
     "windows": {
       "evidence": [
-        "rust/lithe-core/src/debug/endpoint.rs",
-        "rust/lithe-core/src/debug/transport_lifecycle.rs",
+        "rust/crates/core/src/debug/endpoint.rs",
+        "rust/crates/core/src/debug/transport_lifecycle.rs",
         "shared/fixtures/debug/adapter-endpoints-v1.json",
         "shared/fixtures/debug/transport-lifecycle-v1.json"
       ],

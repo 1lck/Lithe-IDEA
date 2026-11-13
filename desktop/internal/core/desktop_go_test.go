@@ -125,7 +125,7 @@ func TestBuildDesktopCoreChecksOutFreshPinnedRevision(t *testing.T) {
 	}
 	runGit(t, source, "init", "-q")
 	write(filepath.Join(source, "rust/Cargo.toml"), "fixture manifest\n", 0o600)
-	write(filepath.Join(source, "rust/lithe-core/include/lithe_core.h"), "fixture header\n", 0o600)
+	write(filepath.Join(source, "rust/crates/core/include/lithe_core.h"), "fixture header\n", 0o600)
 	runGit(t, source, "add", ".")
 	runGit(t, source, "commit", "-qm", "fixture")
 	revision := runGit(t, source, "rev-parse", "HEAD")

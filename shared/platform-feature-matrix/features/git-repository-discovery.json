@@ -32,8 +32,8 @@
       "implementationStatus": "implemented",
       "verificationStatus": "pending",
       "evidence": [
-        "rust/lithe-core/src/git/mod.rs",
-        "rust/lithe-core/src/tests/git_repository_discovery.rs",
+        "rust/crates/core/src/git/mod.rs",
+        "rust/crates/core/src/tests/git_repository_discovery.rs",
         "macos/Sources/Lithe/Core/Rust/RustGitOperations.swift"
       ]
     },
@@ -41,8 +41,8 @@
       "implementationStatus": "implemented",
       "verificationStatus": "pending",
       "evidence": [
-        "rust/lithe-core/src/git/mod.rs",
-        "rust/lithe-core/src/tests/git_repository_discovery.rs",
+        "rust/crates/core/src/git/mod.rs",
+        "rust/crates/core/src/tests/git_repository_discovery.rs",
         "windows/tauri/src-tauri/src/platform.rs",
         "windows/tauri/src/features/git/api/git-repo-api.ts"
       ]

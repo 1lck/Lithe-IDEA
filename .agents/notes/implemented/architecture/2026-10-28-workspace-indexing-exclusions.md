@@ -305,7 +305,7 @@ Git 状态观察的 CI 入口使用同一逐项计时工具生成 HTML/JUnit，�
 不能给已为 `nil` 的可观察决策属性重复写入 `nil`，否则普通库存更新会刷新设置根。
 已有请求仍须清除，已有等待续体仍须恢复，不能通过关闭项目服务来让通知断言通过。
 
-`cargo test --manifest-path rust/lithe-core/Cargo.toml --lib project::indexing::tests`
+`cargo test --manifest-path rust/crates/core/Cargo.toml --lib project::indexing::tests`
 验证真实目录访问剪枝、树浏览、旧版本拒绝、保存回填防护、已跟踪文件保护及例外优先级。
 其中嵌套根回归通过真实库存、内容搜索、文件名搜索、预热及替换入口，验证手动与
 Git 排除、父根遍历剪枝、缓存切换和保存/watcher 回填防护。Java 导入排除测试的

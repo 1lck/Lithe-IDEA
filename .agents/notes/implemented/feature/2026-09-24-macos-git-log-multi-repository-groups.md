@@ -157,7 +157,7 @@ rename / delete）都只针对一个活动仓库，闭包直接从活动 `gitRep
 先显示当前上游和一个“Stop Tracking Branch”清除项，没有远程分支时显示禁用的占位项。
 
 写操作复用 Rust Core 已经支持的 `setUpstream` / `unsetUpstream`（见
-`rust/lithe-core/src/git/mod.rs`，Windows 端 `git-branches-api.ts` 已在用），macOS 侧只补
+`rust/crates/core/src/git/mod.rs`，Windows 端 `git-branches-api.ts` 已在用），macOS 侧只补
 接线：`GitOperations` 协议 + `RustGitOperations` 实现（`setUpstream(branch:to:)` 把上游
 引用和分支名传给 Core），`GitService`、`GitFeatureModel.setUpstream` /
 `unsetUpstream` 依次透传。**没有改动 Rust Core**，也没有新增 Core 命令。
@@ -255,7 +255,7 @@ body 都会重建，比较它会让所有行每帧都重建）。现在把它从
 - ~~`macos/Tests/LitheTests/AppLocalizationTests.swift`~~（已随 #1794 移除） 的英 / 中对照校验扩展到新增的
   Copy Branch Name、Tracking Branch、Stop Tracking Branch、No Remote Branches 与
   soft / mixed / hard 三档重置的标题和确认文案。
-- 上游写操作复用 Core 已有的 `setUpstream` / `unsetUpstream`（`rust/lithe-core` 内已有测试
+- 上游写操作复用 Core 已有的 `setUpstream` / `unsetUpstream`（`rust/crates/core` 内已有测试
   `git_write` 覆盖），macOS 侧只做接线，不新增 Rust 改动。
 - git 控件本地化词条（含新增的两个开关文案）纳入
   `macos/Tests/LitheTests/AppLocalizationTests.swift` 的英 / 中对照校验。
@@ -276,7 +276,7 @@ body 都会重建，比较它会让所有行每帧都重建）。现在把它从
 - `shared/platform-feature-matrix/features/git-multi-repository-references.json`
 - [旧客户端实现和原适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/feature/2026-09-24-macos-git-log-multi-repository-groups.md)
 
-上游写操作复用 `rust/lithe-core/src/git/mod.rs` 已有的 `setUpstream` / `unsetUpstream`，
+上游写操作复用 `rust/crates/core/src/git/mod.rs` 已有的 `setUpstream` / `unsetUpstream`，
 本笔记不改变这些命令的入参或契约。
 
 不改变 `git.references`、`git.historyPage`、`workspace.repositories` 的 JSON 契约；不改提交图，

@@ -36,7 +36,7 @@
       "implementationStatus": "implemented",
       "verificationStatus": "pending",
       "evidence": [
-        "rust/lithe-core/src/build/configuration.rs",
+        "rust/crates/core/src/build/configuration.rs",
         "shared/contracts/plugins/v1/fixtures/build-providers/build-configuration.json",
         "macos/Sources/LitheExecutionModule/Services/BuildNativeConfigurationCoordinator.swift",
         "macos/Sources/Lithe/Platform/MacOS/Build/MacBuildNativeConfigurationStore.swift",
@@ -48,7 +48,7 @@
     },
     "windows": {
       "evidence": [
-        "rust/lithe-core/src/build/configuration.rs"
+        "rust/crates/core/src/build/configuration.rs"
       ],
       "implementationStatus": "missing",
       "verificationStatus": "not-applicable"

@@ -54,6 +54,8 @@ type debugStart struct {
 	// ended, when set, receives the debuggee's exit code once the session has been
 	// released, so the run that stands for it can end.
 	ended chan *int
+	// stopRun owns only a process started by Run, never a user's external attach target.
+	stopRun func()
 	// parent and startRequestID mark a child session an adapter started through
 	// startDebugging; its configuration is the adapter's, and parent answers the request.
 	parent         *debugSession
@@ -219,31 +221,34 @@ func (a *App) attachDebugForRun(ctx context.Context, request pluginservice.RunDe
 			result <- outcome{err: errors.New("the run's workspace is not open")}
 			return
 		}
-		if !p.debug.loaded {
-			result <- outcome{err: errors.New("the debug adapters are still loading")}
-			return
-		}
-		if p.debug.activeSession() != nil {
-			result <- outcome{err: errors.New("a debug session is already running")}
-			return
-		}
-		for _, adapter := range p.debug.adapters {
-			if adapter.PluginID != request.PluginID || !adapter.Declaration.Serves("attach") || !adapter.Declaration.AcceptsConnection {
-				continue
-			}
-			for _, configurationType := range adapter.Declaration.ConfigurationTypes {
-				if configurationType != request.ConfigurationType {
-					continue
-				}
-				a.beginDebug(p, debugStart{
-					adapter: adapter, request: "attach", confirmed: true,
-					target: &core.DebugTargetFacts{Kind: "connection", Host: request.Host, Port: request.Port},
-				})
-				result <- outcome{id: p.debug.activeSession().id}
+		a.whenDebugAdaptersLoaded(p, func() {
+			if err := ctx.Err(); err != nil {
+				result <- outcome{err: err}
 				return
 			}
-		}
-		result <- outcome{err: fmt.Errorf("no debug adapter answers to %q", request.ConfigurationType)}
+			if p.debug.activeSession() != nil {
+				result <- outcome{err: errors.New("a debug session is already running")}
+				return
+			}
+			for _, adapter := range p.debug.adapters {
+				if adapter.PluginID != request.PluginID || !adapter.Declaration.Serves("attach") || !adapter.Declaration.AcceptsConnection {
+					continue
+				}
+				for _, configurationType := range adapter.Declaration.ConfigurationTypes {
+					if configurationType != request.ConfigurationType {
+						continue
+					}
+					a.beginDebug(p, debugStart{
+						adapter: adapter, request: "attach", confirmed: true,
+						target:  &core.DebugTargetFacts{Kind: "connection", Host: request.Host, Port: request.Port},
+						stopRun: request.StopRun,
+					})
+					result <- outcome{id: p.debug.activeSession().id}
+					return
+				}
+			}
+			result <- outcome{err: fmt.Errorf("no debug adapter answers to %q", request.ConfigurationType)}
+		})
 	})
 	select {
 	case r := <-result:
@@ -269,43 +274,45 @@ func (a *App) launchDebugForRun(ctx context.Context, request pluginservice.RunDe
 			result <- outcome{err: errors.New("the run's workspace is not open")}
 			return
 		}
-		if !p.debug.loaded {
-			result <- outcome{err: errors.New("the debug adapters are still loading")}
-			return
-		}
-		if p.debug.activeSession() != nil {
-			result <- outcome{err: errors.New("a debug session is already running")}
-			return
-		}
-		for _, adapter := range p.debug.adapters {
-			if adapter.PluginID != request.PluginID || !adapter.Declaration.Serves("launch") ||
-				!slices.Contains(adapter.Declaration.ConfigurationTypes, request.ConfigurationType) {
-				continue
-			}
-			ended := make(chan *int, 1)
-			arguments := slices.Clone(request.Arguments)
-			if arguments == nil {
-				arguments = []string{}
-			}
-			environment := maps.Clone(request.Environment)
-			if environment == nil {
-				environment = map[string]string{}
-			}
-			a.beginDebug(p, debugStart{
-				adapter: adapter, request: "launch", ended: ended,
-				launchTarget: &core.DebugTargetFacts{
-					Kind: "executable", Path: request.Executable, Executable: request.Executable,
-					WorkingDirectory: request.WorkingDirectory, Arguments: arguments, Environment: environment,
-				},
-			})
-			if p.debug.activeSession() == nil || p.debug.activeSession().ended != ended {
-				result <- outcome{err: fmt.Errorf("the debug session did not start: %s", p.debug.failure)}
+		a.whenDebugAdaptersLoaded(p, func() {
+			if err := ctx.Err(); err != nil {
+				result <- outcome{err: err}
 				return
 			}
-			result <- outcome{session: pluginservice.RunDebugSession{ID: p.debug.activeSession().id, Ended: ended}}
-			return
-		}
-		result <- outcome{err: fmt.Errorf("no debug adapter launches %q", request.ConfigurationType)}
+			if p.debug.activeSession() != nil {
+				result <- outcome{err: errors.New("a debug session is already running")}
+				return
+			}
+			for _, adapter := range p.debug.adapters {
+				if adapter.PluginID != request.PluginID || !adapter.Declaration.Serves("launch") ||
+					!slices.Contains(adapter.Declaration.ConfigurationTypes, request.ConfigurationType) {
+					continue
+				}
+				ended := make(chan *int, 1)
+				arguments := slices.Clone(request.Arguments)
+				if arguments == nil {
+					arguments = []string{}
+				}
+				environment := maps.Clone(request.Environment)
+				if environment == nil {
+					environment = map[string]string{}
+				}
+				a.beginDebug(p, debugStart{
+					adapter: adapter, request: "launch", ended: ended,
+					launchTarget: &core.DebugTargetFacts{
+						Kind: "executable", Path: request.Executable, Executable: request.Executable,
+						WorkingDirectory: request.WorkingDirectory, Arguments: arguments, Environment: environment,
+					},
+				})
+				if p.debug.activeSession() == nil || p.debug.activeSession().ended != ended {
+					result <- outcome{err: fmt.Errorf("the debug session did not start: %s", p.debug.failure)}
+					return
+				}
+				result <- outcome{session: pluginservice.RunDebugSession{ID: p.debug.activeSession().id, Ended: ended}}
+				return
+			}
+			result <- outcome{err: fmt.Errorf("no debug adapter launches %q", request.ConfigurationType)}
+		})
 	})
 	select {
 	case r := <-result:
@@ -426,6 +433,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 		exitObserved:   make(chan struct{}),
 		generation:     generation,
 		ended:          start.ended,
+		stopRun:        start.stopRun,
 		adapter:        adapter,
 		parent:         start.parent,
 		startRequestID: start.startRequestID,

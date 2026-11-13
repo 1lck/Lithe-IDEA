@@ -38,7 +38,7 @@
         "shared/contracts/plugins/v1/fixtures/debug-adapters/debug-adapter-language-server.plugin.json",
         "shared/contracts/plugins/v1/fixtures/debug-adapters/debug-adapter-remote-attach.plugin.json",
         "shared/contracts/plugins/v1/fixtures/debug-adapters/debug-adapter-rejections.json",
-        "rust/lithe-core/src/debug/adapters.rs",
+        "rust/crates/core/src/debug/adapters.rs",
         "macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift",
         "macos/Sources/Lithe/Platform/MacOS/Plugins/MacLivePluginRegistry.swift",
         "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginLanguageServerLaunchResolver.swift",
@@ -58,11 +58,11 @@
         "shared/fixtures/debug/adapter-selection-v1.json",
         "macos/Sources/LitheCoreContracts/Debug/DebugAdapterContracts.swift",
         "macos/Sources/LitheCoreContracts/Debug/DebugProviderDescriptor.swift",
-        "rust/lithe-core/src/build/debug_preparation.rs",
+        "rust/crates/core/src/build/debug_preparation.rs",
         "macos/Sources/Lithe/Platform/MacOS/Debug/MacBuildDebugLaunchResolver.swift",
         "macos/Tests/LitheLanguageIntelligenceModuleTests/LanguageIntelligenceModuleTests.swift",
         "macos/Tests/LitheTests/MacNativeProviderDebugIntegrationTests.swift",
-        "rust/lithe-core/src/debug/engine.rs",
+        "rust/crates/core/src/debug/engine.rs",
         "shared/logging/events/debug.json"
       ],
       "implementationStatus": "implemented",
@@ -70,7 +70,7 @@
     },
     "windows": {
       "evidence": [
-        "rust/lithe-core/src/debug/adapters.rs",
+        "rust/crates/core/src/debug/adapters.rs",
         "shared/contracts/plugins/v1/fixtures/debug-adapters/debug-adapter.plugin.json",
         "shared/contracts/plugins/v1/fixtures/debug-adapters/debug-adapter-language-server.plugin.json",
         "shared/contracts/plugins/v1/fixtures/debug-adapters/debug-adapter-remote-attach.plugin.json"

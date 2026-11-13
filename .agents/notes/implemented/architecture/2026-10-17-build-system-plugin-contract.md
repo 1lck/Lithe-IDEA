@@ -91,7 +91,7 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 
 - 每次调用都重新校验清单。清单有问题时返回 `{ status: "rejected" }`；只有请求本身格式错误才是 `invalid_request`。
 - Core 不启动进程、不写文件。只有 `build.detect`、各 `decode*` 和 `build.syncFingerprint` 会在工作区内有界地读取文件，以及读取宿主分配的 `outputFile`。
-- 代码在 `rust/lithe-core/src/build/`，在 `lib.rs` 里用私有的 `mod build;` 引入，没有新增 crate 根的 `pub` 项。模板解析与 `plugins::declarative` 共用 `parse_template_with`，不另写一份。
+- 代码在 `rust/crates/core/src/build/`，在 `lib.rs` 里用私有的 `mod build;` 引入，没有新增 crate 根的 `pub` 项。模板解析与 `plugins::declarative` 共用 `parse_template_with`，不另写一份。
 
 ### 3. 对社区插件开放什么，封闭什么
 

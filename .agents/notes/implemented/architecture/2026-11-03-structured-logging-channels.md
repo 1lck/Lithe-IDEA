@@ -194,7 +194,7 @@ agent-host、git-host、ide-host 和 lithe-remote 的客户端链接进 Core。C
 
 Core 的目录遍历和 scratch 清理使用 `app.search.directory_skipped`、`app.workspace.directory_skipped` 和 `app.workspace.scratch_cleanup_failed`；error 只含固定消息、稳定类别和固定 domain，不含绝对路径、scratch 名或远程地址。远程进程和上传按 `ClientError` 的变体映射为 timeout、closed、transport、spawn、protocol 或 `remote_<协议码>`，不保留正文。
 
-日志门禁覆盖这四个 crate。运行在远端主机上的 `lithe-remote-server`（`rust/lithe-remote/src/server/`、`src/bin/`）和 ide-host 的独立可执行文件不链接进本机 Core，没有可注入的 sink，暂时排除在门禁外；远端服务端日志回传和 Monaco 控制台转发在 Issue #1680 中跟踪。
+日志门禁覆盖这四个 crate。运行在远端主机上的 `lithe-remote-server`（`rust/crates/remote/src/server/`、`src/bin/`）和 ide-host 的独立可执行文件不链接进本机 Core，没有可注入的 sink，暂时排除在门禁外；远端服务端日志回传和 Monaco 控制台转发在 Issue #1680 中跟踪。
 
 ### DAP：记录状态与失败，保留程序内容边界
 
@@ -295,7 +295,7 @@ Swift 侧对应 `PluginOperationAttempt`。差异只在 `plugin_operations.rs` �
 
 - `lifecycle_catalog_identity_preserves_v1_event_without_extra_log`：五种角色的身份正确，v1 wire 字段不变，没有额外的 log 行。
 - `diagnostics_resolve_engine_subject_matches_startup_and_rejects_invalid_arguments`：非法段和通用参数错误。
-- `rust/lithe-core/src/tests/core_request_traces.rs`：真实 Git 仓库上的用户命令在操作 op 下记录脱敏后的 argv；失败命令记 WARN，带退出码和 stderr 末尾；后台读取只在详细诊断开启时记录。
+- `rust/crates/core/src/tests/core_request_traces.rs`：真实 Git 仓库上的用户命令在操作 op 下记录脱敏后的 argv；失败命令记 WARN，带退出码和 stderr 末尾；后台读取只在详细诊断开启时记录。
 - `command_trace.rs` 和 `request_trace.rs` 的单元测试：argv 脱敏与截断、文档化的回答退出码、结果分类、stderr 末尾、热点方法、来源优先级和取消。
 - ~~`macos/Tests/LitheTests/UserActionTraceTests.swift`~~（已随 #1794 移除）：嵌套调用只记录外层、分离任务和主线程延后执行仍携带操作、60 秒后不再声称用户来源。
 - ~~`macos/Tests/LitheTests/CoreRequestTraceTests.swift`~~（已随 #1794 移除）：通过真实 Core 确认用户 Git 命令在操作 op 下落盘，后台读取等待详细诊断。

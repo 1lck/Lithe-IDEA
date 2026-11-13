@@ -12,7 +12,12 @@
       "desktop/internal/pluginservice/hostcodelens.go",
       "desktop/internal/workbench/editor_actions.go",
       "desktop/internal/core/editor_actions.go",
-      "desktop/internal/core/workbench_test.go"
+      "desktop/internal/core/workbench_test.go",
+      "desktop/internal/pluginservice/hostactions_refresh_test.go",
+      "desktop/internal/workbench/pluginworkbench.go",
+      "desktop/internal/workbench/java_plugin_e2e_test.go",
+      "desktop/internal/workbench/java_legacy_e2e_test.go",
+      "desktop/internal/workbench/editoractions_test.go"
     ]
   },
   "windows": {
@@ -24,19 +29,24 @@
       "desktop/internal/pluginservice/hostcodelens.go",
       "desktop/internal/workbench/editor_actions.go",
       "desktop/internal/core/editor_actions.go",
-      "desktop/internal/core/workbench_test.go"
+      "desktop/internal/core/workbench_test.go",
+      "desktop/internal/pluginservice/hostactions_refresh_test.go",
+      "desktop/internal/workbench/pluginworkbench.go",
+      "desktop/internal/workbench/java_plugin_e2e_test.go",
+      "desktop/internal/workbench/java_legacy_e2e_test.go",
+      "desktop/internal/workbench/editoractions_test.go"
     ]
   },
   "owner": "Extensions",
   "verification": "用 HTTP 与 SQL 两种解析函数注册动作；验证当前脏文档版本、同一行多动作、明确点击执行、编辑取消旧解析、撤回/关闭/会话替换清理，不自动重试副作用。慢收集保持未完成时刷新立即确认，仍能输入并完成保存屏障；整批只使用八秒预算。版本 2：同一行运行车道与导航车道各自排列且折叠箭头随之让位；备选项各自调用自己的函数；点击后返回的 reveal 位置由宿主展示，插件自己的返回成员不被解释；宿主图标表之外的图标名被 Core 拒绝，且与网页图标键一致。",
-  "notes": "Viva：工具插件经 editor/registerActions 为所选文件注册动作，停止输入后宿主调用收集函数取得当前文档的动作，文本一变即丢弃；动作显示为行首图标（运行、调试、测试、导航各一条通道，同一行多图标并排、点击打开该通道的菜单或直接运行唯一选项）并进入该行的编辑器菜单，点击再次调用插件；CodeLens 作为无图标的动作显示。消息全部由 Core 校验（editor_actions.go）。",
+  "notes": "Viva：工具插件经 editor/registerActions 为所选文件注册动作，停止输入后宿主调用收集函数取得当前文档的动作，文本一变即丢弃；动作显示为行首图标（运行、调试、测试、导航各一条通道，同一行多图标并排、点击打开该通道的菜单或直接运行唯一选项）并进入该行的编辑器菜单，点击再次调用插件；CodeLens 作为无图标的动作显示。消息全部由 Core 校验（editor_actions.go）。 2026-11-13：宿主先检查工作区 context，再只把动作声明交给 Core；注册与撤回动作会通知窗口重新收集已打开文档，语言服务器 ready 后也会刷新动作。回归使用真实 Core 解码，避免测试替身漏掉 context 被当作未知字段的问题。 同一文本版本的模型刷新使用文档本地呈现代际隔离旧收集结果；旧空结果或错误不能覆盖后到的当前动作。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
       "implementationStatus": "partial",
       "verificationStatus": "pending",
       "evidence": [
-        "rust/lithe-core/src/plugins/editor_actions.rs",
+        "rust/crates/core/src/plugins/editor_actions.rs",
         "macos/Sources/Lithe/Application/Features/PluginEditorActionHostService.swift",
         "macos/Sources/Lithe/Platform/MacOS/Plugins/PluginEditorHostOptions+macOS.swift",
         "frontend/editor/src/plugin-editor-actions.ts",

@@ -32,7 +32,7 @@
       "implementationStatus": "partial",
       "verificationStatus": "pending",
       "evidence": [
-        "rust/lithe-core/src/plugins/grammar.rs",
+        "rust/crates/core/src/plugins/grammar.rs",
         "frontend/editor/src/plugin-languages.ts",
         "frontend/editor/src/plugin-grammar-tokenizer.ts",
         "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginEditorLanguages.swift",
