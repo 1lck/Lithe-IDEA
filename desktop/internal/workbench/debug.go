@@ -846,11 +846,13 @@ func (a *App) releaseDebugSession(p *project, session *debugSession) {
 				// session that never got to send a disconnect.
 				_ = session.hosted.Close()
 			}
-			if session.stopRun != nil {
-				session.stopRun()
-			}
 			if session.created && !session.coreGone {
 				destroyed, cleanupErr = a.kernel.DestroyDebugSession(ctx, session.id)
+			}
+			// The owned run can use the user's full exit grace. Finish Core
+			// destruction first so that wait cannot consume its deadline.
+			if session.stopRun != nil {
+				session.stopRun()
 			}
 			process := session.process.Load()
 			if process != nil {

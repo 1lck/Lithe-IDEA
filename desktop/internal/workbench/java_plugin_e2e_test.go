@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +24,12 @@ func TestJavaPluginMavenWorkflow(t *testing.T) {
 	runJavaPluginWorkflow(t, standardJavaFixture())
 }
 
+func TestJavaPluginCleanupWhilePaused(t *testing.T) {
+	fixture := standardJavaFixture()
+	fixture.cleanupWhilePaused = true
+	runJavaPluginWorkflow(t, fixture)
+}
+
 type javaWorkflowFixture struct {
 	files              map[string]string
 	mainPath           string
@@ -34,6 +41,7 @@ type javaWorkflowFixture struct {
 	projectRoot        string
 	expectBuildRefused bool
 	testGoal           bool
+	cleanupWhilePaused bool
 }
 
 func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
@@ -62,6 +70,32 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	service := h.app.plugins
+	t.Cleanup(func() {
+		// Assertions can abort while a Run is paused or a document is dirty.
+		// This fixture owns the project: bypass interactive save/exit prompts.
+		var sessionID string
+		if p := h.app.project; p != nil {
+			if session := p.debug.activeSession(); session != nil {
+				sessionID = session.id
+			}
+			h.app.finishCloseProject(p, nil)
+		}
+		h.settle()
+		service.Runs.StopAll()
+		if active := service.Runs.Active(); len(active) != 0 {
+			t.Errorf("fixture cleanup left runs: %v", active)
+		}
+		if sessionID != "" {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_, err := kernel.ReceiveDebug(ctx, sessionID, nil)
+			var failure *core.Error
+			if !errors.As(err, &failure) || failure.Code != core.CodeInvalidRequest || failure.Message != "Debug session was not found." {
+				t.Errorf("fixture cleanup did not remove its Core debug session: %v", err)
+			}
+			t.Log("unconditional cleanup: no active runs; Core debug session removed")
+		}
+	})
 	plan, err := service.Installer.Prepare(ctx, plugininstall.Request{ArchivePath: archive, Root: service.Root, Source: plugintrust.Disk})
 	if err != nil {
 		t.Fatal(err)
@@ -293,6 +327,15 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 		return false
 	})
 	t.Log("Java local variable answer=41")
+	if fixture.cleanupWhilePaused {
+		// Return without the success-path closeAndVerify, just as an assertion
+		// failure would. t.Cleanup must stop the paused JVM and destroy Core state.
+		if p.debug.activeSession() == nil || len(service.Runs.Active()) == 0 {
+			t.Fatal("cleanup probe has no active debug session and owned run")
+		}
+		t.Log("leaving the paused workflow to its unconditional fixture cleanup")
+		return
+	}
 	h.app.executeDebug(p, "continue")
 	awaitStateWithin(t, h, 30*time.Second, "debuggee exit", func() bool { return p.debug.activeSession() == nil })
 	awaitStateWithin(t, h, 15*time.Second, "run exit notifications", func() bool {
