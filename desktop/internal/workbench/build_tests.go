@@ -9,6 +9,8 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/treelist"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -255,34 +257,17 @@ func discoveredTestLabel(test core.BuildDiscoveredTest) string {
 	return strings.Join(parts, " · ")
 }
 
-// buildTestRows are the Discovered Tests section of the choices list: a heading, then the tests
-// of the chosen project (of every project when none is chosen), or a line that discovers them,
-// says discovery runs, failed or found nothing.
-func (a *App) buildTestRows(p *project, instance *buildInstance) []buildRow {
-	if !instance.modelLoaded || instance.System.Test == nil || !instance.System.Test.Discovery {
-		return nil
-	}
-	language := a.language()
-	rows := []buildRow{{kind: buildRowSection, label: i18n.Shared(language, "native.discoveredTests")}}
-	tests := p.discoveredTestsView(instance)
-	switch {
-	case tests.loading:
-		return append(rows, buildRow{kind: buildRowEmpty, tests: true, label: i18n.Shared(language, "native.discovering")})
-	case tests.failed != "":
-		return append(rows,
-			buildRow{kind: buildRowEmpty, tests: true, label: a.text.Build.TestDiscoveryFailed(tests.failed)},
-			buildRow{kind: buildRowEmpty, tests: true, discover: true, label: i18n.Shared(language, "native.discoverTests")})
-	case !tests.loaded:
-		return append(rows, buildRow{kind: buildRowEmpty, tests: true, discover: true, label: i18n.Shared(language, "native.discoverTests")})
-	case len(tests.tests) == 0:
-		return append(rows, buildRow{kind: buildRowEmpty, tests: true, label: i18n.Shared(language, "native.noTestsDiscovered")})
-	}
+// buildScopedTests are the discovered tests of the project scope of instance (every test when
+// scope is empty) whose name or project holds query, already lower case (every test when it is
+// empty).
+func buildScopedTests(instance *buildInstance, tests []core.BuildDiscoveredTest, scope, query string) []*core.BuildDiscoveredTest {
 	chosen := ""
-	if project, ok := buildProjectByID(instance.Model, p.build.projectID); ok {
+	if project, ok := buildProjectByID(instance.Model, scope); ok {
 		chosen = project.Path
 	}
-	for index := range tests.tests {
-		test := &tests.tests[index]
+	var scoped []*core.BuildDiscoveredTest
+	for index := range tests {
+		test := &tests[index]
 		detail := ""
 		if test.Project != nil {
 			if chosen != "" && test.Project.Path != chosen {
@@ -290,7 +275,51 @@ func (a *App) buildTestRows(p *project, instance *buildInstance) []buildRow {
 			}
 			detail = test.Project.Path
 		}
-		rows = append(rows, buildRow{kind: buildRowTest, label: discoveredTestLabel(*test), detail: detail, id: test.ID, test: test})
+		if query == "" || buildMatches(query, discoveredTestLabel(*test), detail) {
+			scoped = append(scoped, test)
+		}
+	}
+	return scoped
+}
+
+// buildTestRows are the rows of a Discovered Tests section of the build tree, at level, for the
+// instance at index: the tests of scope (of every project when it is empty), or a line that
+// discovers them, says discovery runs, failed or found nothing. With a query, only the tests
+// already discovered that match it, and no line.
+func (a *App) buildTestRows(p *project, index int, scope, query string, level int) []buildRow {
+	instance := &p.build.instances[index]
+	language := a.language()
+	tests := p.discoveredTestsView(instance)
+	status := func(label string, discover, warning bool) buildRow {
+		return buildRow{kind: buildRowEmpty, tests: true, discover: discover, warning: warning, instance: index, level: level, label: label}
+	}
+	switch {
+	case query != "" && (tests.loading || !tests.loaded):
+		return nil
+	case tests.loading:
+		return []buildRow{status(i18n.Shared(language, "native.discovering"), false, false)}
+	case tests.failed != "":
+		return []buildRow{
+			status(a.text.Build.TestDiscoveryFailed(tests.failed), false, true),
+			status(i18n.Shared(language, "native.discoverTests"), true, false),
+		}
+	case !tests.loaded:
+		return []buildRow{status(i18n.Shared(language, "native.discoverTests"), true, false)}
+	}
+	scoped := buildScopedTests(instance, tests.tests, scope, query)
+	if len(scoped) == 0 {
+		if query != "" {
+			return nil
+		}
+		return []buildRow{status(i18n.Shared(language, "native.noTestsDiscovered"), false, false)}
+	}
+	rows := make([]buildRow, 0, len(scoped))
+	for _, test := range scoped {
+		detail := ""
+		if test.Project != nil {
+			detail = test.Project.Path
+		}
+		rows = append(rows, buildRow{kind: buildRowTest, instance: index, level: level, label: discoveredTestLabel(*test), detail: detail, id: test.ID, test: test})
 	}
 	return rows
 }
@@ -299,11 +328,15 @@ func (a *App) buildTestRows(p *project, instance *buildInstance) []buildRow {
 // line that offers discovery starts it when clicked.
 func (a *App) buildTestStatusRow(row ui.ListRow, p *project, instance *buildInstance, spec buildRow) {
 	c := row.C
-	element := row.Element.Height(buildRowHeight).PadX(16).Items(ui.Center)
+	element := a.buildTreeRowElement(row, spec)
+	ui.Row(c.Part("arrow")).Size(treelist.Disclosure, treelist.Icon).Shrink(0)
 	color := a.colors.Subtle
-	if spec.discover {
+	switch {
+	case spec.warning:
+		color = a.colors.Warning
+	case spec.discover:
 		color = a.colors.Accent
-		element.Hover(ui.Look{}.Background(a.colors.Hover))
+		ui.Icon(c, icons.Search).Size(14, 14).Shrink(0).Color(color)
 		if element.Clicked() {
 			c.After(func() {
 				a.performed("build.tests.discover", surfaceButton)
@@ -311,24 +344,25 @@ func (a *App) buildTestStatusRow(row ui.ListRow, p *project, instance *buildInst
 			})
 		}
 	}
-	ui.Text(c, spec.label).FontSize(a.theme.Metrics.FontSizeS).Color(color).Ellipsis()
+	ui.Text(c, spec.label).FontSize(treeFontSize - 1).Color(color).Ellipsis().Shrink(1).MinWidth(0)
 	a.buildTestsMenu(c, element, p, instance)
 }
 
-// buildTestRow declares one discovered test. A double click or its button runs it alone.
+// buildTestRow declares one discovered test: its icon, name and project, and the button that
+// runs it alone. A double click runs it too.
 func (a *App) buildTestRow(row ui.ListRow, p *project, instance *buildInstance, spec buildRow) {
 	c := row.C
-	small := a.theme.Metrics.FontSizeS
-	element := row.Element.Height(buildRowHeight).Items(ui.Center).Gap(6).PadX(16).Hover(ui.Look{}.Background(a.colors.Hover))
-	ui.Text(c, spec.label).Color(a.colors.Text).Ellipsis().Shrink(1)
+	element := a.buildTreeRowElement(row, spec)
+	ui.Row(c.Part("arrow")).Size(treelist.Disclosure, treelist.Icon).Shrink(0)
+	ui.Icon(c, icons.CircleCheck).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
+	ui.Text(c, spec.label).FontSize(treeFontSize).Color(treelist.Text(a.colors.Dark)).Ellipsis().Shrink(1).MinWidth(0)
 	if spec.detail != "" {
-		ui.Text(c, spec.detail).FontSize(small).Color(a.colors.Subtle).Ellipsis().Grow(1)
-	} else {
-		ui.Spacer(c)
+		ui.Text(c, spec.detail).FontSize(treeFontSize - 1).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
 	}
+	ui.Spacer(c)
 	test := *spec.test
-	button := ui.Button(c, i18n.Shared(a.language(), "native.runTests")).Ghost().Small().Disabled(p.tests.running)
-	if button.Clicked() || (element.DoubleClicked() && !p.tests.running) {
+	label := i18n.Shared(a.language(), "native.runTests")
+	if a.gitIconButton(c.Part("run"), label, icons.Play, false, p.tests.running) || (element.DoubleClicked() && !p.tests.running) {
 		c.After(func() {
 			a.performed("build.tests.runCase", surfaceButton)
 			a.runDiscoveredTest(p, instance, test)
@@ -336,7 +370,7 @@ func (a *App) buildTestRow(row ui.ListRow, p *project, instance *buildInstance, 
 	}
 	ui.ContextMenu(c, element, func(menu *ui.MenuItems) {
 		menu.WidthRange(180, 280)
-		if menu.Item(i18n.Shared(a.language(), "native.runTests")).Disabled(p.tests.running).Clicked() {
+		if menu.Item(label).Disabled(p.tests.running).Clicked() {
 			c.After(func() {
 				a.performed("build.tests.runCase", surfaceMenu)
 				a.runDiscoveredTest(p, instance, test)

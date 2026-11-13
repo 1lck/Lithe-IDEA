@@ -6,11 +6,13 @@ import "github.com/vivaui/viva/ui"
 // model they show (build, tests, debug) stays in the project, so this holds only what the
 // user is doing to them: which list is scrolled where and which popup is open.
 type runPanels struct {
-	// instance is the build system tab the Run tool window shows, kept in step with
-	// the project's selected instance.
-	instance int
-	// choices is the list of projects, targets and tasks of the selected build
-	// system, and output the console under it.
+	// buildOpen holds the groups and sections of the build tree the user opened or closed, by
+	// buildOpenKey; one not in it shows as it does by default (build_tree.go). buildFilter is
+	// the text the tree's filter field edits in place.
+	buildOpen   map[string]bool
+	buildFilter string
+	// choices is the Build window's tree of every build system, and output the Run window's
+	// console of what the Build window runs.
 	choices, output ui.ListState
 	// testResults is the grouped result list, testOutput the console of a run that
 	// failed before reporting results.

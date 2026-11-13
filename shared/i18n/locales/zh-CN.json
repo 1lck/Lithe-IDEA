@@ -10998,6 +10998,8 @@
     "desktop.settings.fontsEditHelp": "在上方列表勾选要调整的位置，可以多选。这里的修改点“保存”后才生效，勾选的位置随后使用同一套设置；“还原”放弃未保存的修改。运行输出包括运行、构建、测试的输出和 Git 控制台。",
     "desktop.terminal.runSelection": "在终端运行选中内容",
     "desktop.build.debugTarget": "调试",
+    "desktop.build.filter": "筛选构建系统、任务与目标",
+    "desktop.build.noMatches": "没有匹配的构建项",
     "desktop.build.noDebugAdapter": "该构建插件所属的插件没有声明可以启动已准备程序的调试适配器。",
     "desktop.debug.consoleEmpty": "调试会话的输出会显示在这里。",
     "desktop.debug.evaluatePlaceholder": "对表达式求值({evaluate})或添加监视({watch})",

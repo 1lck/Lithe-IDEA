@@ -121,6 +121,9 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 			if tool.id == itemStructure && p != nil {
 				a.outlineActions(c, p)
 			}
+			if tool.id == itemBuild && p != nil {
+				a.buildToolActions(c, p)
+			}
 			if tabbed && p != nil {
 				a.drawGitActions(c, p)
 			}
@@ -183,6 +186,8 @@ func (a *App) toolBody(c ui.C, tool item, p *project) {
 			a.outlinePanel(c, p)
 		case itemProblems:
 			a.problemsPanel(c, p)
+		case itemBuild:
+			a.buildToolView(c, p)
 		case itemRun:
 			a.runView(c, p)
 		case itemTests:

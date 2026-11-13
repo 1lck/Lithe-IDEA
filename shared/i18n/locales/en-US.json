@@ -10998,6 +10998,8 @@
     "desktop.settings.fontsEditHelp": "Check the places to change in the list above, one or more. Changes here take effect when you click Save, and the checked places then share them; Revert drops unsaved changes. Run output includes the output of runs, builds and tests and the Git console.",
     "desktop.terminal.runSelection": "Run Selection in Terminal",
     "desktop.build.debugTarget": "Debug",
+    "desktop.build.filter": "Filter build systems, tasks and targets",
+    "desktop.build.noMatches": "No matching build items",
     "desktop.build.noDebugAdapter": "The build provider's own plugin declares no debug adapter that can start a prepared program.",
     "desktop.debug.consoleEmpty": "The debug session's output appears here.",
     "desktop.debug.evaluatePlaceholder": "Evaluate expression ({evaluate}) or add a watch ({watch})",

@@ -48,12 +48,12 @@ func runExecutionTitle(language i18n.Language, execution string) string {
 	return ""
 }
 
-// Heights of the list: as it first shows, and the least of it and of the Build window's panes
-// under it.
+// Heights of the list: as it first shows, and the least of it and of the build console under
+// it, its header and a few lines.
 const (
 	runConfigListHeight = 168
 	runConfigListMin    = 72
-	runConfigRestMin    = buildRowHeight + 8 + buildOutputHeight + 96
+	runConfigRestMin    = buildRowHeight + 96
 )
 
 // runConfigBrowser is the state of the list of run configurations. Only the window thread
