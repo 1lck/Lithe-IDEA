@@ -45,7 +45,7 @@
     "macos": {
       "evidence": [
         "shared/contracts/plugins/v1",
-        "rust/crates/core/src/plugins/declarative.rs",
+        "rust/crates/plugin-manifest/src/validation.rs",
         "macos/Sources/Lithe/Core/Rust/RustDeclarativePluginOperations.swift",
         "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift",
         "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginStartupLoader.swift",

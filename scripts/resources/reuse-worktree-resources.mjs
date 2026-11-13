@@ -433,8 +433,6 @@ async function main() {
       // Includes mcp-tool-probe-state: SDK sessions, native tool exclusions and
       // retained Codex tool lists and in-memory snapshots belong to one user
       // profile/page, never build reuse (including after server removal).
-      // Includes mcp-registry-metadata: responses have no copy stage; featured.json
-      // and McpIcons follow Git source, never a downloaded/generated resource validator.
       // Includes plugin-web-state: per-window/workspace user JSON has no build identity or copy stage.
       // Includes build-native-configuration-state: Windows private prepare tokens
       // and document-module temporary siblings are operation-owned, never reusable.

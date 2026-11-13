@@ -386,4 +386,4 @@ macOS 本次不修改，双端功能矩阵保持目标产品运行验收待验�
 `windows/tauri/src/features/git/components/diff/commit-file-diff-preview.tsx`、
 `commit-file-diff-toolbar.tsx`、`independent-commit-diff.tsx`、`independent-commit-diff-surface.ts`，以及
 Git 模块的预览构造、文件导航、标签格式和异步预览 hook。
-共享只读工作区快照的临时 Git 管理目录位于 `rust/crates/core/src/git/mod.rs`。
+共享只读工作区快照的临时 Git 管理目录位于 `rust/crates/git/src/commits.rs`。

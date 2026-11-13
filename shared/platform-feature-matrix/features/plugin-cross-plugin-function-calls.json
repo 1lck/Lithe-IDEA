@@ -30,9 +30,9 @@
       "implementationStatus": "partial",
       "verificationStatus": "pending",
       "evidence": [
-        "rust/crates/core/src/lsp/interface/function_relay.rs",
-        "rust/crates/core/src/lsp/interface/engine_function_relay.rs",
-        "rust/crates/core/src/plugins/plugin_functions.rs",
+        "rust/crates/plugin-function-relay/src/lib.rs",
+        "rust/crates/lsp-engine/src/relay_hub.rs",
+        "rust/crates/plugin-functions/src/lib.rs",
         "shared/contracts/plugins/v1/README.md",
         "shared/contracts/plugins/v1/fixtures/backend/function-protocol.json",
         "shared/contracts/plugins/v1/fixtures/backend/plugin-functions-exporter.plugin.json",

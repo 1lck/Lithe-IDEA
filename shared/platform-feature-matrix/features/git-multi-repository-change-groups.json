@@ -31,7 +31,7 @@
         "macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift",
         "macos/Sources/Lithe/Views/Git/GitChangeSectionsCache.swift",
         "macos/Sources/LitheGitModule/Models/GitModels.swift",
-        "rust/crates/core/src/git/mod.rs"
+        "rust/crates/git/src/workspace_status.rs"
       ],
       "implementationStatus": "implemented",
       "verificationStatus": "pending"

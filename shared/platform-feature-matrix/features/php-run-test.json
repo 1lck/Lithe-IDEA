@@ -28,7 +28,7 @@
     "macos": {
       "evidence": [
         "macos/Tests/LitheTests/Fixtures/RetiredOfficialPlugins/PhpSupport/plugin.json",
-        "rust/crates/core/src/plugins/declarative.rs",
+        "rust/crates/plugin-manifest/src/run_plans.rs",
         "shared/contracts/plugins/v1/fixtures/languages/command-plans.json",
         "macos/Sources/LitheExecutionModule/Modules/BundledLanguageExecutionModule.swift",
         "macos/Tests/LitheTests/RealPhpIntegrationTests.swift"

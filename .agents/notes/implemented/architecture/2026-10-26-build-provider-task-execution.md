@@ -577,7 +577,7 @@ SDK 端到端直接测试 Core 当前工作树，不生成源码快照。构建�
 
 ## 适用范围
 
-- Lithe-core-rust 锁定修订：[rust/lithe-core/src/build/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/build)、`rust/crates/core/src/lsp/interface/`、`rust/crates/core/src/plugins/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/build/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/build)、`rust/crates/lsp-client/`、`rust/crates/plugin-manifest/`
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/execution/configuration.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/execution/configuration.rs)
 - `desktop/internal/core/plugin_session.go`
 - `desktop/internal/workbench/`

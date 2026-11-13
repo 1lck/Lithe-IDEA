@@ -118,8 +118,8 @@ let _ = stream.shutdown(Shutdown::Both);
 | 没有服务容器的用户操作入口（AppKit 菜单、通知动作） | `UserActionTrace.applicationSink`，启动时安装一次；测试传入自己的 sink |
 | Swift 侧的 Rust Core 桥接 | `RustCoreBridge.coreLogSink` |
 | Rust Core 的请求处理 | 请求事件流携带的目录事件 |
-| Rust Core 的执行轨迹和没有请求上下文的代码（析构、后台清理） | `diagnostics::core_events` 进程级有界队列；宿主在写入批次、flush 和退出时排空，Core 唤醒回调再安排一次排空 |
-| 链接进 Core 的辅助 crate（agent-host、git-host、ide-host、lithe-remote 客户端） | 本 crate 的 `failure_log` 模块；sink 由 Core 的 `diagnostics::helper_failures::install()` 注入 |
+| Rust Core 的执行轨迹和没有请求上下文的代码（析构、后台清理） | `lithe_diagnostics::core_events` 进程级有界队列；宿主在写入批次、flush 和退出时排空，Core 唤醒回调再安排一次排空 |
+| 链接进 Core 的辅助 crate（git-host、ide-host、lithe-remote 客户端） | 本 crate 的 `failure_log` 模块；sink 由 Core 的 `runtime::helper_failures::install()` 注入 |
 
 规则：
 
@@ -149,7 +149,7 @@ macOS 的日志窗口和诊断包只读取 v2 会话文件；v1 文件只进入�
 | --- | --- | --- | --- |
 | 用户操作 | `app.action.performed`（通道 `app`） | 最外层 UI 入口的 `UserActionTrace` | INFO |
 | Core 请求 | `app.core.request.finished` / `.traced` / `.failed`（通道 `app/core`） | Core 请求分发处 `rust/crates/core/src/runtime/dispatcher.rs`，实现在 `diagnostics/request_trace.rs` | 用户来源的成功或取消为 `finished`（INFO）；后台或未知来源的成功或取消为 `traced`（DEBUG）；失败为 `failed`（WARN） |
-| 外部进程 | `vcs.git.command.finished` / `.traced` / `.failed`（通道 `vcs/git`） | Core 的 Git 进程执行点 `rust/crates/core/src/git/command_trace.rs`，本地和远程工作区都经过这里 | 来源为用户的可见命令（定义见 7.4），成功或取消为 `finished`（INFO）；其余成功或取消为 `traced`（DEBUG）；失败为 `failed`（WARN） |
+| 外部进程 | `vcs.git.command.finished` / `.traced` / `.failed`（通道 `vcs/git`） | Core 的 Git 进程执行点 `rust/crates/git/src/command_trace.rs`，本地和远程工作区都经过这里 | 来源为用户的可见命令（定义见 7.4），成功或取消为 `finished`（INFO）；其余成功或取消为 `traced`（DEBUG）；失败为 `failed`（WARN） |
 
 ### 7.1 用户操作入口
 
@@ -246,7 +246,7 @@ sink.emit(GitFetchNoticeFailed(remote: remote, error: error, operationID: op))
 修改目录、生成器或门禁本身时，还须运行直接受影响的 Core、辅助 crate 和 Viva 宿主测试；
 当前 Go 桥接和存储测试不能代替缺失的目录生成及使用扫描。只读核验不能改写生成物。
 
-修改执行轨迹时运行对应测试：Core 请求轨迹在 `rust/crates/core/src/tests/core_request_traces.rs`，Git 进程轨迹、argv 脱敏和 `exit_is_answer` 在 `rust/crates/core/src/git/command_trace.rs` 的测试模块，宿主侧的入口与来源解析在 `macos/Tests/LitheTests/UserActionTraceTests.swift` 和 `macos/Tests/LitheTests/CoreRequestTraceTests.swift`。
+修改执行轨迹时运行对应测试：Core 请求轨迹在 `rust/crates/core/src/tests/core_request_traces.rs`，Git 进程轨迹、argv 脱敏和 `exit_is_answer` 在 `rust/crates/git/src/command_trace.rs` 的测试模块，宿主侧的入口与来源解析在 `macos/Tests/LitheTests/UserActionTraceTests.swift` 和 `macos/Tests/LitheTests/CoreRequestTraceTests.swift`。
 
 按错误类别过滤的辅助函数必须有测试：对象已经不在的类别（例如 `NotConnected`、`BrokenPipe`）不发事件，意外类别（例如 `PermissionDenied`）发事件。
 

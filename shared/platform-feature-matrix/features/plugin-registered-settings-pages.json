@@ -29,8 +29,8 @@
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
       "evidence": [
-        "rust/crates/core/src/plugins/settings.rs",
-        "rust/crates/core/src/plugins/declarative.rs",
+        "rust/crates/plugin-model/src/settings.rs",
+        "rust/crates/plugin-manifest/src/settings_surfaces.rs",
         "macos/Sources/Lithe/Application/Features/PluginSettingsRegistry.swift",
         "macos/Sources/Lithe/Models/AppModel/AppModel+PluginSettings.swift",
         "macos/Sources/Lithe/Views/App/ContributedSettingsPageView.swift",

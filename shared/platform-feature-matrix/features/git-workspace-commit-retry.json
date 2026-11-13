@@ -31,10 +31,10 @@
         "macos/Sources/LitheGitModule/Application/GitFeatureModel+WorkspaceCommit.swift",
         "macos/Sources/Lithe/Views/Git/CommitAreaView.swift",
         "macos/Tests/LitheGitModuleTests/GitModuleTests.swift",
-        "rust/crates/core/src/git/commit_state.rs",
+        "rust/crates/git/src/commit_state.rs",
         "rust/crates/core/src/tests/git_workspace_commit.rs",
-        "rust/crates/core/src/git/workspace_commit.rs",
-        "rust/crates/core/src/git/workspace_commit/tests.rs",
+        "rust/crates/git/src/workspace_commit.rs",
+        "rust/crates/git/src/workspace_commit/tests.rs",
         "shared/fixtures/git/workspace-commit-workflow-v1.json"
       ]
     },

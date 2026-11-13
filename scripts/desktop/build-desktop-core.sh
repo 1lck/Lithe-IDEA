@@ -28,7 +28,12 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
-# Lithe-core-rust #27 (protocol, network, terminal, process, diff and github split into their own
+# The head of Lithe-core-rust #28, not yet merged; replace it with the merge commit once #28 is
+# in main. #28 splits 34 more crates out of lithe-core (46 in the workspace); command names,
+# JSON, error codes and the C header are unchanged, except that a build system's
+# source:"hostIntegration" is now refused as plugin.manifest.invalid. It is on top of #29 (cold
+# managed runtimes may finish LSP initialization), squash-merged into main, on top of
+# #27 (protocol, network, terminal, process, diff and github split into their own
 # crates, keymap and action search moved into lithe-core-rules; command names, JSON, error codes
 # and the C header unchanged), squash-merged into main, on top of #26 (community.discourse.*
 # commands and the wasm build removed, every crate moved to rust/crates/<name without the lithe-
@@ -46,7 +51,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="c0201c11e0c7c9ea304c42a346b86e6bb9f61358"
+PINNED_CORE_REVISION="d235401fa2d6a492f27beb45e0679be846d1b0a5"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

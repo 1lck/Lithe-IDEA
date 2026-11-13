@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> 2026-11-14 更新：下文第 8 节的 `hostIntegration: maven` 已不存在。Core #23 删除了 Maven 集成，`hostIntegration` 只剩保留字段，写任何值都以 `plugin.integration.unsupported` 拒绝；Core #28 起清单 schema 也删掉了 `model`、`test.results`、`dependencies` 里的 `source: "hostIntegration"`，这样写按未知来源以 `plugin.manifest.invalid` 拒绝。Maven 改由 [lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven) 用声明和 Provider 提供。下文保留当时的决策与理由。
+
 ## 先说结论
 
 Lithe 现在用一套统一的构建模型描述所有项目级构建工具（Build Tool，例如 Maven、Gradle、Cargo、Go）。插件在 `plugin.json` 的 `buildSystems`（插件 API 级别 3）里用纯 JSON 声明：怎样认出工程、用哪个可执行文件、有哪些选项、任务、运行入口和测试，以及怎样读工具的输出。思路与 LSP 插件化相同：插件只提供数据，通用逻辑只在 Rust Core 实现一次。
@@ -91,7 +93,7 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 
 - 每次调用都重新校验清单。清单有问题时返回 `{ status: "rejected" }`；只有请求本身格式错误才是 `invalid_request`。
 - Core 不启动进程、不写文件。只有 `build.detect`、各 `decode*` 和 `build.syncFingerprint` 会在工作区内有界地读取文件，以及读取宿主分配的 `outputFile`。
-- 代码在 `rust/crates/core/src/build/`，在 `lib.rs` 里用私有的 `mod build;` 引入，没有新增 crate 根的 `pub` 项。模板解析与 `plugins::declarative` 共用 `parse_template_with`，不另写一份。
+- 代码在 `rust/crates/build/src/`，在 `lib.rs` 里用私有的 `mod build;` 引入，没有新增 crate 根的 `pub` 项。模板解析与 `plugins::declarative` 共用 `parse_template_with`，不另写一份。
 
 ### 3. 对社区插件开放什么，封闭什么
 

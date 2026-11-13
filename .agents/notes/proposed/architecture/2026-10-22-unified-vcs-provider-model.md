@@ -20,7 +20,7 @@ Lithe 现在只认识 Git：Rust Core、macOS 和 Windows 的变更列表、提�
 
 | 位置 | 现在做什么 | 问题 |
 | --- | --- | --- |
-| `rust/crates/core/src/git/`、`rust/crates/git-host/` | 约 1.85 万行 Git 参数策略、解析、执行事件和原生进程适配，暴露 47 个 `git.*` 命令 | 质量高，但所有结果类型都是 Git 专属，第二种 VCS 无法复用 |
+| `rust/crates/git/src/`、`rust/crates/git-host/` | 约 1.85 万行 Git 参数策略、解析、执行事件和原生进程适配，暴露 47 个 `git.*` 命令 | 质量高，但所有结果类型都是 Git 专属，第二种 VCS 无法复用 |
 | `macos/Sources/LitheGitModule/` | `GitOperations` 端口、`GitFeatureModel`、Changelist、Shelve | Changelist 和 Shelve 在 IDEA 里属于平台层，与具体 VCS 无关；在 Lithe 里绑在 Git 模块上 |
 | `macos/Sources/Lithe/Views/`（项目树、编辑器、Diff） | 直接引用 `GitChange`、`GitChangeKind`、`GitSnapshot` | 文件颜色和 gutter 这类通用展示被 Git 类型锁死 |
 | `windows/tauri/src/features/git/` | 约 6 万行 React/TS，状态表、提交面板、Log | 同样只认 Git |
@@ -38,7 +38,7 @@ Lithe 现在只认识 Git：Rust Core、macOS 和 Windows 的变更列表、提�
 
 | 层 | 位置（计划） | 负责 | 不负责 |
 | --- | --- | --- | --- |
-| Rust Core 的 `vcs` 模块 | `rust/crates/core/src/vcs/`（新） | 统一模型、`vcs.*` 命令、根目录识别、请求计划、插件回复的解码和校验 | 启动进程、弹窗、存储 |
+| Rust Core 的 `vcs` 模块 | `rust/crates/vcs/src/`（新） | 统一模型、`vcs.*` 命令、根目录识别、请求计划、插件回复的解码和校验 | 启动进程、弹窗、存储 |
 | 宿主 | macOS 新的 VCS 工作区模块；Windows 的 VCS 状态 store | 根映射与用户覆盖、文件监听触发刷新、凭据交互、Provider 进程生命周期、项目控制台 | 解析任何 VCS 的输出 |
 | Provider | 插件进程（第一期只有 SVN）；Git 暂不接入 | 回答状态、基线内容、历史、Annotate、提交、回滚、更新等事实 | 界面和跨根聚合 |
 

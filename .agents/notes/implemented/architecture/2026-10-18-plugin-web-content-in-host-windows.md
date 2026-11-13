@@ -68,7 +68,7 @@
 
 规则放在 Core，I/O 放在桌面端。这是 develop-lithe“可共享逻辑进 Core”的要求：三个平台共用同一份判断，桌面端不再各写一套。
 
-- **Core（`rust/crates/core/src/plugins/web_content.rs`）**：`plugins.web.open` 为一个已声明的 web 窗口登记页面，返回私有源 URL 和限额；`resource` 判断一个请求路径能不能读、读包里的哪几段路径（拒绝 `..`、空段、编码分隔符和保留的 `.lithe-host/`）；`document` 在 HTML 文档最前面注入 CSP meta 和桥接脚本；`request` 校验页面发来的每条消息，要么直接给出拒绝回复，要么交回一个已规范化的动作；`reply` 和 `event` 把结果、进度和主题变化封装成发给页面的消息。调用 ID 不可复用、同时最多 16 个调用、一次只开一个对话框，这些计数也都在 Core 里。
+- **Core（`rust/crates/plugin-web-content/src/lib.rs`）**：`plugins.web.open` 为一个已声明的 web 窗口登记页面，返回私有源 URL 和限额；`resource` 判断一个请求路径能不能读、读包里的哪几段路径（拒绝 `..`、空段、编码分隔符和保留的 `.lithe-host/`）；`document` 在 HTML 文档最前面注入 CSP meta 和桥接脚本；`request` 校验页面发来的每条消息，要么直接给出拒绝回复，要么交回一个已规范化的动作；`reply` 和 `event` 把结果、进度和主题变化封装成发给页面的消息。调用 ID 不可复用、同时最多 16 个调用、一次只开一个对话框，这些计数也都在 Core 里。
 - **`desktop/internal/pluginweb`**：一个 `Page` 对应一个页面。它按 Core 给出的路径段逐级 `Lstat` 读取包文件，不跟随任何符号链接，并且限制大小；把 Core 交回的动作交给 `Host` 执行（状态读写、后端调用和进度、文件对话框、在编辑器里打开文件），再把 Core 封装好的回复投递给页面。等待、读写文件和弹对话框都在窗口线程之外进行。页面关闭时取消它的全部调用，之后的结果不再投递。
 - **`desktop/internal/workbench`**：插件工具窗口加进每个窗口自己的 chrome 目录，由 Core 统一排列。停用插件期间，保存的布局仍保留它的位置，重新启用后回到原处。网页窗口用 `app.WebHost` 打开 Web 视图，并用 `NativeView` 填满窗口正文。一帧没有声明某个页面，这个页面就在 `endPaint` 里关闭。所以隐藏或移动窗口、关闭项目、停用或更新插件，都走同一条关闭路径。
 - **状态（`pluginservice.SetPageState`）**：写到每用户插件根目录下的 `.state/<plugin>/pages/workspaces/<工作区键>/<窗口摘要>.json`，与插件后端的工作区状态放在一起，按窗口和工作区隔离，写入时先写临时文件再改名。它不在插件包或应用 bundle 里，所以不改变签名或增量更新的基线；`plugin-web-state` 仍然禁止跨工作树复用。
@@ -133,7 +133,7 @@ Viva 的 Web 视图目前有四处达不到契约，已记录为上游缺口，�
 ## 适用范围
 
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
-- Lithe-core-rust：`rust/crates/core/src/plugins/web_content.rs`（Lithe-IDEA/Lithe-core-rust#9）
+- Lithe-core-rust：`rust/crates/plugin-web-content/src/lib.rs`（Lithe-IDEA/Lithe-core-rust#9）
 - `desktop/internal/pluginweb/`
 - `desktop/internal/workbench/pluginpages.go`、`desktop/internal/workbench/plugintools.go`
 - `desktop/internal/pluginservice/pages.go`、`desktop/internal/pluginservice/toolwindows.go`

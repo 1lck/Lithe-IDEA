@@ -62,7 +62,7 @@
         "macos/Tests/LitheTests/PluginPublicHostAPITests.swift",
         "macos/Experiments/Monaco/workbench.integration.ts",
         "macos/Tests/LitheTests/PluginHostProcessIntegrationTests.swift",
-        "rust/crates/core/src/editor/text_edit_plan.rs",
+        "rust/crates/editor/src/text_edit_plan.rs",
         "shared/fixtures/editor/text-edit-plan-v1.json"
       ]
     },

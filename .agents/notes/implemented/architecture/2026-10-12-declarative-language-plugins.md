@@ -8,7 +8,7 @@
 
 官方语言插件（Go、PHP）不再是"在 Lithe 进程里加载的 Swift Bundle"，而是声明式插件包：包里只有 `plugin.json` 和它声明的资源（例如打包好的 Intelephense）。Lithe 读取声明，由 Rust Core 校验并展开运行/测试命令，再由宿主自己启动语言服务器和运行进程。插件不在宿主进程内执行任何代码，所以插件包不再依赖宿主二进制，Lithe 每次发版也不用重新编译插件，之后可以把插件拆到独立仓库维护。Go 和 PHP 后来确实拆成了 Lithe Store 社区插件，见 [Go 与 PHP 改为 Lithe Store 社区插件](2026-10-20-go-php-community-plugins.md)。
 
-对日常开发的直接影响：新增语言插件时写 `plugin.json`，不要写 Swift 入口类；声明格式和语义以 `Lithe-core-rust/shared/plugins/contract/v1/` 为准，校验与命令模板展开只在 `rust/crates/core/src/plugins/declarative.rs` 实现一次。
+对日常开发的直接影响：新增语言插件时写 `plugin.json`，不要写 Swift 入口类；声明格式和语义以 `Lithe-core-rust/shared/plugins/contract/v1/` 为准，校验与命令模板展开只在 `rust/crates/plugin-manifest/` 实现一次。
 
 通用工作台 UI 已通过 API level 2 扩展，见 [宿主管理的工作台 UI 贡献](2026-10-12-workbench-ui-contributions.md)。语言插件的 API level 1 和进程归属保持兼容。
 

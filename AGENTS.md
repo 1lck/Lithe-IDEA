@@ -138,8 +138,8 @@ Core 代码在同一个仓库、同一个 PR 里修改。本仓库不保存契�
 不需要克隆本仓库。
 
 - 改契约（`shared/plugins/contract/v1/` 的 README、schema、fixture）、能力版本
-  （`rust/crates/core/src/plugins/capabilities.rs`）或插件函数协议
-  （`rust/crates/core/src/lsp/interface/plugin_function.rs`）的 Core PR，在同一个 PR 里更新
+  （`rust/crates/plugin-model/src/capabilities.rs`）或插件函数协议
+  （`rust/crates/plugin-rpc/src/`）的 Core PR，在同一个 PR 里更新
   [插件协议更新记录](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/reference/protocol-changelog.md)：
   合入日期、PR、修改人（PR 作者）、改了哪个协议或 API；新版本号同时写进该页“按协议查首次出现”的表。
 - 新增或修改宿主方法、宿主通知的 PR，即使只是给已有 API 加一个子方法，也要在 PR 描述里附一张

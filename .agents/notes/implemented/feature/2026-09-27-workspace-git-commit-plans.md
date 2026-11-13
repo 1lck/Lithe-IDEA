@@ -72,7 +72,7 @@ Git 的多个仓库没有跨仓库原子事务，已成功的提交不会因后�
   `macos/Tests/LitheTests/GitStatusObservationTests.swift` 的 `realGitCommitFiles` 用例通过真实 Git 验证最终索引路径、
   已暂存块保留、未跟踪目录展开和复制来源隔离；`CommitDraftFeatureModelTests` 验证焦点请求保留说明与修订选项。
 - 同文件暂存删除和未跟踪记录的回归用例覆盖两种返回顺序、首次与重复状态刷新，以及暂存和取消暂存都要等待全部记录确认；`macos/Tests/LitheTests/GitStatusObservationTests.swift` 通过真实 Git → Rust Core → Swift 状态刷新验证打开仓库时不闪退，实际执行暂存或取消暂存后，干净状态正确结束待确认操作。旧快照用例继续保护单记录场景。多仓库回归覆盖 A 读取成功且已干净、B 返回 nil、B 随后返回旧状态、最后成功读取干净状态的顺序，验证暂存和取消暂存期间 B 的乐观状态与提交等待保护都不提前解除。
-- `rust/crates/core/src/git/workspace_commit/tests.rs` 覆盖干净祖先联动、关闭联动、独立嵌套仓库、过期计划、失败依赖阻塞、仅重推和外部推进后再次推送。
+- `rust/crates/git/src/workspace_commit/tests.rs` 覆盖干净祖先联动、关闭联动、独立嵌套仓库、过期计划、失败依赖阻塞、仅重推和外部推进后再次推送。
 - `rust/crates/core/src/tests/git_workspace_commit.rs` 使用真实 Git 验证过期索引拒绝、子模块状态、只更新引用且不带入父文件、首次提交前取消暂存保留后续编辑，暂存后在工作树删除的文件仍可见、子仓库元数据被删除后拒绝回退父仓库，以及共享夹具序列化。真实 Git 还验证共享计划执行、推送失败后的重试、过期步骤重放拒绝、取消与成功提交返回竞争。
 - 使用 `write-stable-tests` 的 Rust 逐例计时入口生成 HTML/JUnit；macOS 使用该 Skill 的 macOS 计时入口。
 - Windows CI 39914734587 中，逐仓库推送确认用例在未出现断言失败时达到 15.233 秒进程截止；该用例创建两份分叉仓库及远端，执行三轮准备校验和独立提交/推送。SharedRust 与真实 JDT 两个入口只给这一用例 30 秒预算，默认用例和整套截止不变，真实 Git 进程仍按原有界规则清理，不跳过确认或推送断言。

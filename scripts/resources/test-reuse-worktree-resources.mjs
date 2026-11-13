@@ -194,7 +194,7 @@ try {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "shared-logging");
     assert.equal(resource.reusable, false);
-    assert.ok(resource.locations.includes("rust/crates/core/src/diagnostics/catalog_generated.rs"));
+    assert.ok(resource.locations.includes("rust/crates/diagnostics/src/catalog_generated.rs"));
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
     assert.ok(!listed.stdout.includes(resource.id));
@@ -446,7 +446,7 @@ try {
     assert.ok(pluginState.locations.includes("<windows-local-app-data>/<app-id>/plugin-state/<plugin-id>/debug-adapters/<adapter-id>/<workspace-digest>/"));
     assert.ok(pluginState.locations.includes("<writable-plugin-root>/.state/<plugin-id>/<version>/desktop-debug-<session>/"));
     assert.equal(pluginState.reusable, false);
-    for (const id of ["consumer-tool-preferences", "official-plugin-packages", "plugin-marketplace-state", "plugin-host-runtime-state", "mcp-registry-metadata", "mcp-tool-probe-state", "agent-instruction-library-state", "agent-hook-library-state"]) {
+    for (const id of ["consumer-tool-preferences", "official-plugin-packages", "plugin-marketplace-state", "plugin-host-runtime-state", "mcp-tool-probe-state", "agent-instruction-library-state", "agent-hook-library-state"]) {
       assert.ok(!listed.stdout.includes(id));
       const refused = reuse(["--resource", id]);
       assert.notEqual(refused.status, 0);
@@ -464,15 +464,6 @@ try {
       assert.notEqual(refused.status, 0);
       assert.match(diagnostics(refused), new RegExp(`${resource.id}.*cannot be reused`));
     }
-  });
-  await test("featured catalog and bundled MCP marks follow Git source instead of resource reuse", { timeout: 15000 }, async () => {
-    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
-    const row = registry.excludedResources.find(item => item.id === "mcp-registry-metadata");
-    assert.ok(row.locations.includes("macos/Sources/Lithe/Resources/McpIcons"));
-    assert.ok(row.locations.includes("rust/lithe-core/src/mcp/featured.json"));
-    const refused = reuse(["--resource", row.id]);
-    assert.notEqual(refused.status, 0);
-    assert.match(diagnostics(refused), /mcp-registry-metadata.*cannot be reused/);
   });
   await test("local disk snapshots and approvals are rejected before any worktree access", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));

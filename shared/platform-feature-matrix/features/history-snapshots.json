@@ -42,7 +42,7 @@
         "macos/Sources/Lithe/Services",
         "macos/Sources/LitheLocalHistoryModule",
         "macos/Tests/LitheLocalHistoryModuleTests/LocalHistoryModuleTests.swift",
-        "rust/crates/core/src/project/history.rs",
+        "rust/crates/project/src/history.rs",
         "macos/Sources/Lithe/Views/App/LocalHistorySettingsControl.swift",
         "macos/Tests/LitheTests/LocalHistoryIgnoreRulesTests.swift",
         "macos/Sources/Lithe/Application/Features/LocalHistoryStorageSettingsModel.swift",
@@ -62,7 +62,7 @@
         "windows/tauri/src/features/local-history/components/project-local-history.tsx",
         "windows/tauri/src/features/local-history/utils/history-metadata.ts",
         "shared/fixtures/history/event-plan-v1.json",
-        "rust/crates/core/src/project/history.rs",
+        "rust/crates/project/src/history.rs",
         "windows/tauri/src/features/local-history/api/local-history-api.test.ts"
       ],
       "implementationStatus": "implemented",

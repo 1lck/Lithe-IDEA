@@ -101,8 +101,8 @@
 
 ## 适用范围
 
-- Rust 核心：`rust/crates/core/src/execution/configuration.rs`（`create_launch_plan`）、
-  `rust/lithe-core/src/languages/java.rs`（`standalone_launch_class`）
+- Rust 核心：`rust/crates/execution/src/configuration/launch.rs`（`create_launch_plan`）
+- 已迁出：原 `rust/lithe-core/src/languages/java.rs`（`standalone_launch_class`）。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）。
 - 契约：`Lithe-core-rust/rust/contracts/rust-core-api.md`（createLaunchPlan 段）
 - macOS 宿主：`RunService`、`RustCoreBridge`、`ProjectRuntimeService`、
   `RunExecutableResolver`、`RunToolchainProviders`、`MacRunConfigurationStore`

@@ -52,10 +52,10 @@
       "evidence": [
         "macos/Sources/Lithe/Views/Git",
         "macos/Sources/LitheGitModule/Models/GitSavedChangesSnapshot.swift",
-        "rust/crates/core/src/git/rebase_session.rs",
+        "rust/crates/git/src/rebase_session.rs",
         "rust/crates/protocol/src/cancellation.rs",
         "rust/crates/core/src/tests/git_history_rewrite.rs",
-        "rust/crates/core/src/git/shelf.rs",
+        "rust/crates/git/src/shelf.rs",
         "shared/fixtures/git/shelf-v1.json"
       ],
       "implementationStatus": "implemented",
@@ -64,7 +64,7 @@
     "windows": {
       "evidence": [
         "windows/tauri/src/features/git",
-        "rust/crates/core/src/git/rebase_session.rs",
+        "rust/crates/git/src/rebase_session.rs",
         "rust/crates/protocol/src/cancellation.rs",
         "rust/crates/core/src/tests/git_history_rewrite.rs",
         "windows/tauri/src/features/git/components/stash/git-saved-changes.tsx",
@@ -76,11 +76,11 @@
         "windows/tauri/src/features/git/services/git-shelf-workflow.test.ts",
         "windows/tauri/src/features/git/api/git-patch-api.test.ts",
         "windows/tauri/src-tauri/src/shelf_storage.rs",
-        "rust/crates/core/src/git/patch_exchange.rs",
+        "rust/crates/git/src/patch_exchange.rs",
         "rust/crates/core/src/tests/git_patch_exchange.rs",
         "windows/tauri/src/features/git/api/git-shelf-api.test.ts",
         "windows/tauri/src/platform/core-result-adapter.diff.test.ts",
-        "rust/crates/core/src/git/shelf.rs",
+        "rust/crates/git/src/shelf.rs",
         "shared/fixtures/git/shelf-v1.json"
       ],
       "implementationStatus": "implemented",

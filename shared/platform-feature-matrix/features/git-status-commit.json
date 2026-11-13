@@ -50,7 +50,7 @@
         ".agents/notes/implemented/feature/2026-10-29-commit-file-context-actions.md",
         "macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift",
         "macos/Tests/LitheTests/LitheCoreLogicTests.swift",
-        "rust/crates/core/src/git/workspace_status.rs",
+        "rust/crates/git/src/workspace_status.rs",
         "macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift"
       ],
       "implementationStatus": "implemented",
@@ -82,7 +82,7 @@
         "windows/tauri/src/features/git/components/git-commit-panel.css",
         "windows/tauri/src/features/git/components/git-changelist-bar.tsx",
         "windows/tauri/src/features/git/components/git-changelist-bar.test.tsx",
-        "rust/crates/core/src/git/workspace_status.rs",
+        "rust/crates/git/src/workspace_status.rs",
         "windows/tauri/src/features/git/api/git-status-api.test.ts"
       ],
       "implementationStatus": "implemented",

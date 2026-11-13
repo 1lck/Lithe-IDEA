@@ -81,7 +81,7 @@ languageID 对应描述元数据已有的 `languageServerLaunch.executableNames`
 本次没有新缓存目录、下载或安装资源写入，运行时只读发行基线不变。
 
 LSP 子进程、stdio、JSON-RPC 状态机、文档版本、请求 deadline、诊断和
-结果归一化统一收归 Rust Core（`rust/crates/core/src/lsp/`（已随 #1794 移除）），
+结果归一化统一收归 Rust Core（`rust/crates/lsp-transport/`、`rust/crates/lsp-client/`、`rust/crates/lsp-engine/`、`rust/crates/lsp-policy/`），
 平台 adapter 只负责可执行文件与运行环境发现。Swift 只保留 UI 投影和
 由不透明 operation ID 标识的应用层完成回调，不再持有 LSP 请求 ID、
 原始 JSON、framing 缓冲区、子进程句柄或文档 open 状态的真值。

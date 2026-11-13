@@ -30,9 +30,9 @@
       "evidence": [
         "macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift",
         "macos/Sources/Lithe/Views/App/WorkspaceIndexingSettingsView.swift",
-        "rust/crates/core/src/project/indexing.rs",
+        "rust/crates/project/src/indexing.rs",
         "shared/fixtures/workspace/indexing-policy-v1.json",
-        "rust/crates/core/src/lsp/languages/indexing.rs",
+        "rust/crates/lsp-engine/src/scan_settings.rs",
         "macos/Tests/LitheTests/RemoteConnectionsTests.swift",
         "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
         "macos/Sources/Lithe/Views/App/GitExecutionSettingsView.swift",
@@ -43,7 +43,7 @@
         "macos/Tests/LitheTests/GitStatusObservationTests.swift",
         "shared/fixtures/workspace/directory-actions-v1.json",
         "macos/Sources/Lithe/Models/AppModel/AppModel+LanguageServerRuntime.swift",
-        "rust/crates/core/src/project/directory_actions.rs",
+        "rust/crates/project/src/directory_actions.rs",
         "shared/fixtures/workspace/directory-rules-v1.json"
       ]
     },
@@ -53,9 +53,9 @@
       "evidence": [
         "windows/tauri/src/features/file-explorer/stores/workspace-indexing.ts",
         "windows/tauri/src/features/settings/components/workspace-indexing-settings.tsx",
-        "rust/crates/core/src/project/indexing.rs",
+        "rust/crates/project/src/indexing.rs",
         "shared/fixtures/workspace/indexing-policy-v1.json",
-        "rust/crates/core/src/lsp/languages/indexing.rs",
+        "rust/crates/lsp-engine/src/scan_settings.rs",
         "windows/tauri/src/features/file-explorer/hooks/use-file-explorer-context-menu.tsx",
         "windows/tauri/src/features/settings/components/git-execution-settings.tsx",
         "windows/tauri/src/features/settings/components/git-indexing-settings.test.tsx",
@@ -77,7 +77,7 @@
         "windows/tauri/crates/project/src/git_watcher.rs",
         "windows/tauri/src/features/git/runtime/git-metadata-watch-host.tsx",
         "windows/tauri/src/features/editor/lsp/mounted-lsp-documents.ts",
-        "rust/crates/core/src/project/directory_actions.rs",
+        "rust/crates/project/src/directory_actions.rs",
         "shared/fixtures/workspace/directory-rules-v1.json"
       ]
     },

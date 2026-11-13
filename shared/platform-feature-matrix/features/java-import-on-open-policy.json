@@ -27,7 +27,7 @@
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
       "evidence": [
-        "rust/crates/core/src/lsp/host_policy/activation.rs"
+        "rust/crates/lsp-policy/src/activation.rs"
       ],
       "implementationStatus": "missing",
       "verificationStatus": "not-applicable"

@@ -541,10 +541,9 @@ JDK 和未知偏好；非空值成为本机 Build 默认值，空值继续表示
 
 ## 适用范围
 
-- Rust Core Maven 域：`rust/lithe-core/src/project/maven.rs`
-- Rust Core JDT 适配：`rust/lithe-core/src/lsp/languages/jdt.rs`
-- Rust Core 语言服务引擎：`rust/crates/core/src/lsp/interface/engine.rs`
-- Rust Core 设置副本：`rust/lithe-core/src/lsp/languages/jdt_maven_settings.rs`
+- Rust Core 语言服务引擎：`rust/crates/lsp-engine/src/lib.rs`
+- 已迁出：原 `rust/lithe-core/src/project/maven.rs`。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）。
+- 已迁出：原 `rust/lithe-core/src/lsp/languages/jdt.rs`、`rust/lithe-core/src/lsp/languages/jdt_maven_settings.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）。
 - Windows 实时同步与问题展示：`windows/tauri/src/features/maven/services/java-maven-configuration.ts`、
   `windows/tauri/src/features/maven/services/reload-maven-workspace.ts`、
   `windows/tauri/src/features/maven/utils/maven-resolution-problems.ts`
@@ -556,7 +555,7 @@ JDK 和未知偏好；非空值成为本机 Build 默认值，空值继续表示
 - Windows 宿主：`windows/tauri/src-tauri/src/run.rs`（`maven_resolve_installation`）
 - macOS：`macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift`
 - 项目环境与运行配置设置入口：
-  - Rust Core：`rust/crates/core/src/execution/configuration.rs`（`runConfig.inspect`、
+  - Rust Core：`rust/crates/execution/src/configuration.rs`（`runConfig.inspect`、
     `runConfig.updateOptions` 工具链分支）
   - 共享契约：`Lithe-core-rust/rust/contracts/rust-core-api.md`、
     `shared/fixtures/run-configuration/project-environment.json`

@@ -32,7 +32,7 @@ HTML 预览和插件页已经有统一的默认拒绝门，但它只管网页。
 | --- | --- | --- |
 | 运行、构建、测试、调试采样、插件包解压、调试适配器 | Swift `MacManagedProcess.spawn`（唯一的 `posix_spawn` 入口） | 在这一处包装，一处覆盖全部 |
 | 内置终端 | `MacTerminalTransport.startProcess`，经 SwiftTerm 启动 | SwiftTerm 自己创建伪终端并 `posix_spawn`，Lithe 拿不到 spawn 属性，只能改被启动的可执行文件 |
-| 插件后端、所有语言服务器 | Rust Core 的 `SystemProcessLauncher`（`rust/crates/core/src/lsp/interface/process.rs`） | Rust 侧一个公共函数；Swift 的语言服务器会话只是调用 Core 并登记 pid，不是它启动的 |
+| 插件后端、所有语言服务器 | Rust Core 的 `SystemProcessLauncher`（`rust/crates/lsp-transport/src/process.rs`） | Rust 侧一个公共函数；Swift 的语言服务器会话只是调用 Core 并登记 pid，不是它启动的 |
 | Agent CLI 及其 shell 工具 | `rust/lithe-agent-host` | 同一个公共函数；模型自己决定跑什么命令，被提示注入时和“插件偷听”是同一类风险 |
 | 其它固定二进制 | `lithe-git-host`、`lithe-db-sidecar`、`lithe-db-mcp`、`lithe-ide-host` 等 | 实现时重新盘点（`lithe-ide-host` 这次评估没有查），覆盖或登记豁免 |
 | 必须豁免 | `MacProcessSupervisor`、`MacApplicationRelauncher`、`MacStableRollback` | 它们就是 Lithe 自己，要保持原来的责任进程 |

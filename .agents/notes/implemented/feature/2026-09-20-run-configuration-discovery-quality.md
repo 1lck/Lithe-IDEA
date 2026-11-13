@@ -31,7 +31,7 @@ category 分组展示。
 
 ### 1. 配置分「项目」和「基础设施」两类
 
-`RunCategory`（`rust/crates/core/src/execution/types.rs`）取值 `project` 或
+`RunCategory`（`rust/crates/execution/src/types.rs`）取值 `project` 或
 `infrastructure`，默认 `project`，序列化时省略默认值，所以已有的
 `generated.json` 内容不变。docker-compose 探测出来的服务和整栈条目标记为
 `infrastructure`。
@@ -180,12 +180,11 @@ Swift、PHP 等已有明确 provider 的配置可归类，但这不代表增加�
 
 ## 适用范围
 
-- Rust Core：`rust/crates/core/src/execution/types.rs`、
-  `rust/crates/core/src/execution/detectors/mod.rs`、
-  `rust/crates/core/src/execution/detectors/compose.rs`、
-  `rust/crates/core/src/execution/configuration.rs`、
-  `rust/lithe-core/src/languages/java.rs`、
-  `rust/lithe-core/src/languages/java_syntax.rs`
+- Rust Core：`rust/crates/execution/src/types.rs`、
+  `rust/crates/execution/src/detectors/mod.rs`、
+  `rust/crates/execution/src/detectors/compose.rs`、
+  `rust/crates/execution/src/configuration.rs`
+- 已迁出：原 `rust/lithe-core/src/languages/java.rs`、`rust/lithe-core/src/languages/java_syntax.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）。
 - Windows：`windows/tauri/src/features/run/utils/run-configuration.ts`、
   `windows/tauri/src/features/run/components/run-pane.tsx`、
   `windows/tauri/src/features/run/components/run-configuration-browser.tsx`、

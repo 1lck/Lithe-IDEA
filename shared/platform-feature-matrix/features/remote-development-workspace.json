@@ -32,8 +32,8 @@
         "macos/Tests/LitheTests/RemoteShellDiscoveryTests.swift",
         "macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteTerminalTransport.swift",
         "macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteRuntimeLocator.swift",
-        "rust/crates/core/src/remote/sessions_integration_tests.rs",
-        "rust/crates/core/src/remote",
+        "rust/crates/core/src/tests/remote_sessions.rs",
+        "rust/crates/workspace/src",
         "rust/crates/remote/src/client/launch.rs",
         "rust/crates/remote",
         "shared/contracts/remote-workspace-protocol-v1.md",
@@ -55,7 +55,7 @@
         "rust/crates/remote/tests/run_directories.rs",
         "rust/crates/remote/src/server/upload/tests.rs",
         "macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift",
-        "rust/crates/core/src/execution/workspace_scan.rs"
+        "rust/crates/execution/src/workspace_scan.rs"
       ],
       "implementationStatus": "partial",
       "verificationStatus": "pending"

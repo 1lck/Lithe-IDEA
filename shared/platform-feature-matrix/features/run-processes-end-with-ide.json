@@ -62,7 +62,7 @@
         "windows/tauri/src-tauri/src/owned_processes.rs",
         "rust/crates/git-host/src/lib.rs",
         "rust/crates/git-host/tests/process.rs",
-        "rust/crates/core/src/lsp/interface/process.rs",
+        "rust/crates/lsp-transport/src/process.rs",
         "rust/crates/process/src/lifecycle.rs",
         "windows/tauri/src/features/window/components/window-close-guard.tsx",
         "windows/tauri/src/features/window/services/run-services-exit.ts",

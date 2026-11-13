@@ -34,7 +34,7 @@
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
       "evidence": [
-        "rust/crates/core/src/build/model_inputs.rs",
+        "rust/crates/build/src/model_inputs.rs",
         "rust/crates/core/src/tests/build_systems.rs",
         "shared/contracts/plugins/v1/fixtures/build-systems/build-model-producer.plugin.json",
         "shared/contracts/plugins/v1/fixtures/build-systems/build-model-consumer.plugin.json",
@@ -48,7 +48,7 @@
     },
     "windows": {
       "evidence": [
-        "rust/crates/core/src/build/model_inputs.rs",
+        "rust/crates/build/src/model_inputs.rs",
         "shared/contracts/plugins/v1/plugin-manifest.schema.json"
       ],
       "implementationStatus": "missing",

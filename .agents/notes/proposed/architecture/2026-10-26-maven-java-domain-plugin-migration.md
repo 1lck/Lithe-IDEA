@@ -220,7 +220,7 @@ git diff --check
 
 - ~~`macos/Sources/Lithe/Application/`~~（已随 #1794 移除）、`macos/Sources/Lithe/Models/AppModel/`、`macos/Sources/Lithe/Services/`
 - ~~`macos/Sources/Lithe/Platform/MacOS/`~~（已随 #1794 移除）、`macos/Sources/LitheExecutionModule/`、`macos/Sources/LitheLanguageIntelligenceModule/`
-- Lithe-core-rust 锁定修订：[rust/lithe-core/src/build/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/build)、`rust/crates/core/src/project/`、`rust/crates/core/src/execution/`、`rust/crates/core/src/lsp/`、`rust/crates/core/src/debug/`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/build/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/build)、`rust/crates/project/src/`、`rust/crates/execution/src/`、`rust/crates/lsp-engine/src/`、`rust/crates/debug/src/`
 - 已迁出：原 `Plugins/mac/Official/JavaSupport/`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/contracts/`、`Lithe-core-rust/rust/fixtures/`、`shared/platform-feature-matrix/features/`
 - ~~`windows/tauri/src/features/`~~（已随 #1794 移除）、`windows/tauri/src/platform/`、`windows/tauri/src-tauri/src/`
@@ -233,8 +233,8 @@ git diff --check
 [maven-backend]: https://github.com/Lithe-IDEA/lithe-plugin-maven/blob/bfa56dc80914df22ab60967ec859f8932870b494/backend/src/main/java/io/github/litheidea/maven/backend/MavenBackend.java
 [build-service]: https://github.com/1lck/Lithe-IDEA/blob/1a7a95c8ce9d254bb6b8811af73e93d86a7badc1/macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift
 [build-sessions]: https://github.com/1lck/Lithe-IDEA/blob/1a7a95c8ce9d254bb6b8811af73e93d86a7badc1/macos/Sources/Lithe/Platform/MacOS/Build/MacBuildProviderSessions.swift
-[build-protocol]: https://github.com/1lck/Lithe-IDEA/blob/1a7a95c8ce9d254bb6b8811af73e93d86a7badc1/rust/lithe-core/src/lsp/interface/build_provider.rs
-[page-backend]: https://github.com/1lck/Lithe-IDEA/blob/1a7a95c8ce9d254bb6b8811af73e93d86a7badc1/rust/lithe-core/src/plugins/backend.rs
+[build-protocol]: https://github.com/1lck/Lithe-IDEA/blob/1a7a95c8ce9d254bb6b8811af73e93d86a7badc1/rust/crates/lsp-client/src/build_provider.rs
+[page-backend]: https://github.com/1lck/Lithe-IDEA/blob/1a7a95c8ce9d254bb6b8811af73e93d86a7badc1/rust/crates/plugin-backend/src/lib.rs
 [page-sessions]: https://github.com/1lck/Lithe-IDEA/blob/1a7a95c8ce9d254bb6b8811af73e93d86a7badc1/macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginBackendSessions.swift
 [maven-service]: https://github.com/1lck/Lithe-IDEA/blob/1a7a95c8ce9d254bb6b8811af73e93d86a7badc1/macos/Sources/LitheExecutionModule/Services/MavenService.swift
 [agent]: https://github.com/1lck/Lithe-IDEA/blob/1a7a95c8ce9d254bb6b8811af73e93d86a7badc1/macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift

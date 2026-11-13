@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-一个没被忽略的构建目录（例如 `rust/lithe-core/target/`）曾让 Commit 面板出现 5,000 多条变更，帧率掉到 2 FPS（Issue #1385）。现在 Core 只把"整个目录都未跟踪、且里面没有嵌套仓库"的大目录报告成一条带文件数的目录汇总，用户展开时再一层一层列出。macOS 和 Windows 都接入了这个汇总。macOS 变更列表的每个标题和每一行都直接交给 `LazyVStack`（SwiftUI 的懒加载栈，只为屏幕上可见的行创建视图），变更再多也只构建可见行；Windows 的列表本来就是虚拟列表。
+一个没被忽略的构建目录（例如 `rust/target/`）曾让 Commit 面板出现 5,000 多条变更，帧率掉到 2 FPS（Issue #1385）。现在 Core 只把"整个目录都未跟踪、且里面没有嵌套仓库"的大目录报告成一条带文件数的目录汇总，用户展开时再一层一层列出。macOS 和 Windows 都接入了这个汇总。macOS 变更列表的每个标题和每一行都直接交给 `LazyVStack`（SwiftUI 的懒加载栈，只为屏幕上可见的行创建视图），变更再多也只构建可见行；Windows 的列表本来就是虚拟列表。
 
 ## 问题
 
@@ -15,7 +15,7 @@
 
 ## 决策
 
-**Core 的汇总规则**（`rust/crates/core/src/git/untracked_directories.rs`）：
+**Core 的汇总规则**（`rust/crates/git/src/untracked_directories.rs`）：
 
 - `git.status` 新增可选参数 `summarizeUntrackedDirectories`。打开后改用 Git 的 `--untracked-files=normal` 视图，Git 在每个整体未跟踪的目录处停下，只报告 `dir/`。
 - 对这些目录，Core 用一次 `git ls-files --others --exclude-standard` 拿到其中的文件，再逐个决定：超过 100 个文件就报告成一条汇总（`path` 以 `/` 结尾并带 `untrackedFileCount`）；不超过 100 个文件仍按文件逐条报告，所以新建的小源码目录照常显示。

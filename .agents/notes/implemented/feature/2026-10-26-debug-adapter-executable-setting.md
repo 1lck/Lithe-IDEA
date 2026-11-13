@@ -78,7 +78,7 @@ lldb 社区插件把 `program` 写成 `/Users/.../lldb-demo/main`：
 ## 适用范围
 
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`（README、schema、`debug-adapter*.json` 夹具）
-- Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/adapters.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug/adapters.rs)、`rust/crates/core/src/plugins/declarative.rs`、`rust/crates/core/src/plugins/settings.rs`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/adapters.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug/adapters.rs)、`rust/crates/plugin-manifest/src/`、`rust/crates/plugin-model/src/settings.rs`
 - ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginDebugExecutableResolver.swift`~~（已随 #1794 移除）
 - ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift`~~（已随 #1794 移除）
 - ~~`macos/Sources/Lithe/Views/App/PluginSettingsSection.swift`~~（已随 #1794 移除）

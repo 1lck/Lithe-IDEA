@@ -39,7 +39,7 @@
         "macos/Sources/Lithe/Views/Components/LitheActionButtonStyle.swift",
         "macos/Sources/Lithe/Views/Workspace/OpenProjectPanel.swift",
         "macos/Sources/Lithe/Models/AppModel/AppModel+LocalFolders.swift",
-        "rust/crates/core/src/project/recent_projects.rs",
+        "rust/crates/project/src/recent_projects.rs",
         "shared/fixtures/workspace/recent-projects-v1.json",
         "macos/Tests/LitheTests/RecentProjectsStoreTests.swift"
       ],
