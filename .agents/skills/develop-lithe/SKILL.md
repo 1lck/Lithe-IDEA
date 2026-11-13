@@ -346,7 +346,7 @@ macOS app bundle 和 Windows 安装目录是发行基线。Sparkle 增量更新�
 
 - 缓存、索引、Eclipse/OSGi 状态、下载物、解压物、日志和锁文件，通过平台存储适配器放到缓存目录、Application Support、临时目录或用户工作区。不得从 `Bundle.main.resourceURL`、`resource_dir()` 或安装目录推导写入位置。
 - Equinox 等会向自身所在目录写入的工具，必须在可写的缓存目录中使用输入副本；`-configuration` 的做法见 `rust/lithe-core/src/lsp/languages/jdt_configuration.rs`。
-- 新的打包运行时必须增加“典型流程前后比较安装目录文件清单”的测试，并保持 `./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 通过。
+- 新的打包运行时必须增加“典型流程前后比较安装目录文件清单”的测试，并保持 `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 通过。
 - 不得用“启动前清理 bundle”来修复运行时写入问题。
 
 决策和完整生命周期规则见 `.agents/notes/implemented/bug-fix/2026-09-25-runtime-bundle-immutability-and-update-delta.md` 和 `AGENTS.md`。
@@ -441,7 +441,7 @@ git diff --name-only origin/preview...HEAD
 | 共享应用行为或 JSON fixture | 在 Core 仓库运行受影响的测试；升级 `PINNED_CORE_REVISION`（或用 `LITHE_CORE_RUST_DIR` 指向本地 Core 检出）后，用 `./scripts/desktop/desktop-go.sh test` 运行读取该 fixture 的桌面测试；旧 `verify-shared-contracts.sh` 已移除，等价边界检查恢复前标记门禁未完成 |
 | Rust Core、JSON C ABI 或桌面桥接 | 先完成 Core 注释与契约检查，再运行受影响 crate、桥接和目标平台消费者测试；旧 Core 验证脚本移除后不得把缺失检查记为通过 |
 | Core 功能或 Git graph 行为 | 运行所属 Core crate 和桌面消费者的相关测试；旧 `verify-core.sh`、`verify-git-graph.sh` 移除后，等价边界验证恢复前标记门禁未完成 |
-| 运行时资源或发行目录只读边界 | `./scripts/macos/verify/verify-runtime-bundle-immutability.sh` |
+| 运行时资源或发行目录只读边界 | `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh` |
 | Core 的公开 Rust 类型或函数签名 | 搜索 `desktop/` 中的调用方并检查 C ABI、共享契约及两个平台的桥接消费者；不能只在一个平台编译 |
 | 在 Windows 上验证 Windows 实现 | 在 Windows 运行受影响桌面测试及原生工作流，涉及安装、ConPTY、签名或更新时分别验证；旧 Tauri 边界和构建脚本已移除，等价检查恢复前标记门禁未完成 |
 
