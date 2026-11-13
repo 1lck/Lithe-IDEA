@@ -29,7 +29,8 @@ ICONS=(
     trash-2 cloud-download locate tag cloud ellipsis-vertical panel-right eye eye-off clock
     arrow-up-down arrow-down-to-line circle-x loader-circle wrap-text info copy square wrench
     eraser undo-2 pencil arrow-up arrow-down git-compare fold-vertical unfold-vertical archive
-    columns-2
+    columns-2 pause redo-dot arrow-down-to-dot arrow-up-from-dot circle-dot circle-slash braces
+    variable rotate-ccw
 )
 
 RAW_URL="https://raw.githubusercontent.com/lucide-icons/lucide/$LUCIDE_VERSION"

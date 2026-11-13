@@ -15,8 +15,13 @@ type runPanels struct {
 	// testResults is the grouped result list, testOutput the console of a run that
 	// failed before reporting results.
 	testResults, testOutput ui.ListState
-	// breakpoints and frames are the Debug tool window's lists.
-	breakpoints, frames ui.ListState
-	// remoteOpen shows the confirmation of an attach to a non-local endpoint.
-	remoteOpen bool
+	// breakpoints, frames and console are the Debug tool window's lists, debugSplit the
+	// divider between its call stack and its variables, and consoleSeen the output additions
+	// the console has shown (see debugSessionView.outputCount).
+	breakpoints, frames, console ui.ListState
+	debugSplit                   ui.SplitterState
+	consoleSeen                  int
+	// remoteOpen shows the confirmation of an attach to a non-local endpoint, breakpointsOpen
+	// the dialog of every breakpoint, and debugMoreOpen the Debug toolbar's More menu.
+	remoteOpen, breakpointsOpen, debugMoreOpen bool
 }

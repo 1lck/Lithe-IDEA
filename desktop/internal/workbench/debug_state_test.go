@@ -110,7 +110,8 @@ func TestDebugVariablesPageAndEditThroughCore(t *testing.T) {
 	awaitStateWithin(t, h, 20*time.Second, "the stopped session", func() bool { return p.debug.activeSession() == nil })
 	if len(v.scopes) != 0 {
 		// Stop leaves the stop's variables to the next reset; they are never
-		// shown without a session.
+		// shown without a session. The window paints the stop before it is looked at.
+		h.settle()
 		if h.shows("count") {
 			t.Fatal("variables are shown without a session")
 		}

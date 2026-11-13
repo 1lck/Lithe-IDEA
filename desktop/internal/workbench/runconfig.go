@@ -25,6 +25,14 @@ type runConfigState struct {
 	editor runConfigEditor
 	// browser is the list that shows the configurations by scope and build system.
 	browser runConfigBrowser
+	// currentFile says the user chose Current File in the title bar, so its Run and Debug act
+	// on the open file instead of the selected configuration (title_run.go).
+	currentFile bool
+	// pending is the title bar's Run or Debug waiting for the configurations to be read.
+	pending titleAction
+	// wanted says the title bar asked for the configurations, so every detected instance
+	// loads its model and not only the one the Build window shows.
+	wanted bool
 }
 
 // configuration is the listed configuration id, or nil.
@@ -115,6 +123,7 @@ func (a *App) finishRunConfigurations(p *project, generation uint64, resolved co
 		return
 	}
 	s.loading = false
+	defer a.settleTitleAction(p)
 	a.loadRunConfigPins(p)
 	if err != nil {
 		s.failure = err.Error()

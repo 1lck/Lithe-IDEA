@@ -217,9 +217,7 @@ func TestDebugTCPLanguageServerAdapterBreakpointPauseContinueStop(t *testing.T) 
 	}
 	h.app.openFileAtPosition(p, source, 2, 0)
 	h.settle()
-	h.showDebugSection(h.app.text.Debug.Breakpoints)
-	h.clickNamed(h.app.text.Debug.ToggleBreakpoint)
-	h.showDebugSection(h.app.text.Debug.Frames)
+	toggleBreakpointInDialog(h)
 
 	h.clickNamed(h.app.text.Debug.Start)
 	awaitStateWithin(t, h, 30*time.Second, "the paused hosted session", func() bool {

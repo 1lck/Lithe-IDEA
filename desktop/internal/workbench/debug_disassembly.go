@@ -2,6 +2,8 @@ package workbench
 
 import (
 	"context"
+	"slices"
+	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/vivaui/viva/ui"
@@ -29,7 +31,11 @@ type debugDisassembly struct {
 	// beforeDone and afterDone record that Core found the end of the code in
 	// that direction.
 	beforeDone, afterDone bool
-	list                  ui.ListState
+	// opening is set while the first window is laid out for the first time. That layout
+	// takes the rows at an estimated height and the window's height for the list's, so the
+	// rows it reports say nothing about where the user scrolled.
+	opening bool
+	list    ui.ListState
 	// frame is the stack frame the window belongs to.
 	frame int
 	// pending holds the instructions of the reply being reduced; Core answers
@@ -73,6 +79,30 @@ func (a *App) loadDisassemblyEdge(p *project, direction string) {
 	}
 	d.loading = true
 	a.planDisassembly(p, direction, reference, debugDisassemblyEdge, 0)
+}
+
+// loadDisassemblyAtEdges extends the window when the last paint showed its first or last row,
+// as IntelliJ IDEA's disassembly loads more code while it is scrolled. A window the list shows
+// whole is not extended: nothing was scrolled, and every extension would show whole again.
+func (a *App) loadDisassemblyAtEdges(p *project) {
+	w := &p.debug.disassembly
+	first, last := w.list.Visible()
+	if w.loading || last < first {
+		return
+	}
+	if w.opening {
+		// The first layout is the one this paint reports; the next reports one at the real
+		// heights, centred where the window opened.
+		w.opening = false
+		return
+	}
+	end := len(w.rows) - 1
+	switch {
+	case first == 0 && last < end && !w.beforeDone:
+		a.loadDisassemblyEdge(p, "before")
+	case last >= end && first > 0 && !w.afterDone:
+		a.loadDisassemblyEdge(p, "after")
+	}
 }
 
 // planDisassembly asks Core for the first request of a window, then follows
@@ -167,13 +197,26 @@ func (a *App) reduceDisassembly(p *project, fetch core.DebugDisassemblyFetch, re
 				}
 				switch fetch.Direction {
 				case "before":
+					// The rows shown stay where they were as the earlier ones go in above.
+					// Visible counts the rows laid out past both edges too, so the middle of
+					// that range, not its first row, is what stays in place.
+					first, last := d.list.Visible()
 					d.rows = append(kept, d.rows...)
 					d.beforeDone = step.Exhausted
+					if len(kept) > 0 && last >= first {
+						d.list.ScrollTo((first+last)/2+len(kept), ui.ListCenter)
+					}
 				case "after":
 					d.rows = append(d.rows, kept...)
 					d.afterDone = step.Exhausted
 				default:
-					d.rows = kept
+					// The first window opens on the current instruction.
+					d.rows, d.opening = kept, true
+					if index := slices.IndexFunc(kept, func(row core.DebugInstruction) bool {
+						return strings.EqualFold(strings.TrimSpace(row.Address), strings.TrimSpace(d.anchor))
+					}); index >= 0 {
+						d.list.ScrollTo(index, ui.ListCenter)
+					}
 				}
 			default:
 				d.loading, d.failure = false, step.Message

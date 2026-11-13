@@ -1,0 +1,47 @@
+{
+  "id": "viva-debug-tool-window-layout",
+  "area": "运行与调试",
+  "group": "调试器",
+  "capability": "调试工具窗口按 IntelliJ IDEA 布局：图标工具栏（重新运行、停止 | 继续、暂停、单步跳过、单步进入、单步跳出 | 查看断点、静音断点 | 更多）；“线程和变量”“控制台”标签；左栏线程下拉与“函数 (文件:行)”栈帧，过滤帧淡色；右栏“对表达式求值(⏎)或添加监视(⇧⌘⏎)”输入框、监视行和带类型图标的“名称 = {类型} 值”变量树；“反汇编”标签无自带按钮，工具栏单步按指令执行，行首红点设置或移除指令断点，滚动到两端加载更多代码；“内存”标签可输入地址跳转（十六进制或十进制）、切换每行 8/16/32/64 字节与十六/十/八/二进制，并高亮目标字节；断点和异常断点在“查看断点”对话框中管理",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/debug_view.go",
+      "desktop/internal/workbench/debug_sections_view.go",
+      "desktop/internal/workbench/debug_watch.go",
+      "desktop/internal/workbench/debug_mute.go",
+      "desktop/internal/workbench/debug_threads.go",
+      "desktop/internal/workbench/debug_menus.go",
+      "desktop/internal/workbench/debug_start.go",
+      "desktop/internal/workbench/debug_toolbar_test.go",
+      "desktop/internal/workbench/debug_threads_test.go",
+      "desktop/internal/workbench/debug_menus_test.go",
+      "desktop/internal/workbench/debug_disassembly.go",
+      "desktop/internal/workbench/debug_memory.go",
+      "desktop/internal/workbench/debug_memory_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/debug_view.go",
+      "desktop/internal/workbench/debug_sections_view.go",
+      "desktop/internal/workbench/debug_watch.go",
+      "desktop/internal/workbench/debug_mute.go",
+      "desktop/internal/workbench/debug_threads.go",
+      "desktop/internal/workbench/debug_menus.go",
+      "desktop/internal/workbench/debug_start.go",
+      "desktop/internal/workbench/debug_toolbar_test.go",
+      "desktop/internal/workbench/debug_threads_test.go",
+      "desktop/internal/workbench/debug_menus_test.go",
+      "desktop/internal/workbench/debug_disassembly.go",
+      "desktop/internal/workbench/debug_memory.go",
+      "desktop/internal/workbench/debug_memory_test.go"
+    ]
+  },
+  "owner": "Debug",
+  "verification": "用 fixture 调试适配器暂停目标：工具栏各按钮按会话状态启用；重新运行停止当前会话并按首次启动方式重启；静音后断点保留并以禁用状态发送，取消静音按原样重发；更多菜单在树与 JSON 间切换并开关折叠过滤帧；回车求值保留输入，⇧⌘⏎（其他平台 Ctrl+Shift+Enter）加为监视并清空输入；栈帧右键菜单末尾可复制线程名、单独恢复线程；控制台显示适配器输出并在位于末尾时跟随新行；查看断点对话框可增删、启用禁用断点并选择异常断点；反汇编打开时以当前指令居中，点击行首红点增删指令断点，单步按指令执行；内存输入 8208 跳到 0x2010 并高亮该字节，切换每行 32 字节和二进制后版式保持，回到当前指令时保留版式。原生窗口视觉与真实 Go/LLDB 适配器验收 pending。",
+  "notes": "线程下拉在只有一个线程时也显示。树与 JSON 的切换从变量区移到工具栏“更多”菜单。暂无布局切换按钮、异步栈、包名列（DebugStackFrame 无包字段）；监视以独立行显示，尚未并入变量树。 内存暂不支持表达式输入（变量未携带 memoryReference）；进制提供 16/10/8/2，未提供 4 进制。反汇编向前加载时以可见范围（含 2 行预排）中点保持位置，属近似。"
+}

@@ -7,7 +7,11 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/treelist"
 	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/keymap"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -23,10 +27,14 @@ type debugWatchEntry struct {
 	failure    string
 }
 
-// debugWatch is the Variables section's watch list and its editor.
+// debugWatch is the Variables pane's evaluate field, the result it evaluated last, and the
+// watch list with its editor.
 type debugWatch struct {
 	entries []debugWatchEntry
 	input   string
+	// evaluated is the expression Enter evaluated in the field and its result; nil before one,
+	// and its value is dropped with the stop it belongs to.
+	evaluated *debugWatchEntry
 	// history is the expressions evaluated in this session, oldest first and without repeats, and
 	// pick is what the recent-expressions picker chose last.
 	history []string
@@ -73,20 +81,46 @@ func (w *debugWatch) valuesCleared() {
 	for index := range w.entries {
 		w.entries[index].value, w.entries[index].typeName, w.entries[index].failure = "", "", ""
 	}
+	w.evaluated = nil
 }
 
-// addDebugWatch adds the typed expression and evaluates it at the current frame.
+// addDebugWatch adds the typed expression as a watch and, while the debuggee is paused,
+// evaluates it at the current frame; a watch added while it runs is evaluated at the next stop.
 func (a *App) addDebugWatch(p *project) {
 	d := &p.debug
 	expression := strings.TrimSpace(d.watch.input)
-	if expression == "" || d.activeSession() == nil || d.state != "paused" {
+	if expression == "" {
 		return
 	}
+	a.performed("debug.watch.add", surfaceButton)
 	d.watch.entries = append(d.watch.entries, debugWatchEntry{expression: expression})
 	d.watch.rememberExpression(expression)
 	d.watch.input = ""
-	index := len(d.watch.entries) - 1
-	a.evaluateDebugWatch(p, index)
+	if d.activeSession() != nil && d.state == "paused" {
+		a.evaluateDebugWatch(p, len(d.watch.entries)-1)
+	}
+}
+
+// evaluateDebugInput evaluates the typed expression once at the selected frame with the DAP
+// "repl" context, the way IntelliJ IDEA's Evaluate field does, and keeps the expression in the
+// field so it can be changed and evaluated again.
+func (a *App) evaluateDebugInput(p *project) {
+	d := &p.debug
+	w := &d.watch
+	expression := strings.TrimSpace(w.input)
+	if expression == "" || d.activeSession() == nil || d.state != "paused" || len(d.frames) == 0 {
+		return
+	}
+	a.performed("debug.evaluate", surfaceButton)
+	w.rememberExpression(expression)
+	entry := &debugWatchEntry{expression: expression}
+	w.evaluated = entry
+	a.evaluateDebugExpression(p, expression, "repl", func(value, typeName, failure string) {
+		if w.evaluated != entry {
+			return
+		}
+		entry.value, entry.typeName, entry.failure = value, typeName, failure
+	})
 }
 
 // removeDebugWatch drops one expression.
@@ -139,12 +173,29 @@ func (a *App) refreshDebugWatches(p *project) {
 	}
 }
 
-// evaluateDebugWatch asks Core for one expression's value with the DAP "watch" context at
-// the selected frame. A result that arrives after another stop is dropped by the generation
-// check in debugOperation's completion path.
+// evaluateDebugWatch evaluates one watch with the DAP "watch" context at the selected frame.
 func (a *App) evaluateDebugWatch(p *project, index int) {
 	d := &p.debug
-	if index < 0 || index >= len(d.watch.entries) || d.activeSession() == nil || len(d.frames) == 0 {
+	if index < 0 || index >= len(d.watch.entries) {
+		return
+	}
+	expression := d.watch.entries[index].expression
+	a.evaluateDebugExpression(p, expression, "watch", func(value, typeName, failure string) {
+		if index >= len(d.watch.entries) || d.watch.entries[index].expression != expression {
+			return
+		}
+		entry := &d.watch.entries[index]
+		entry.value, entry.typeName, entry.failure = value, typeName, failure
+	})
+}
+
+// evaluateDebugExpression asks Core for one expression's value in dapContext, the DAP context, at the
+// selected frame, and hands done the value and its type, or the reason there is none. A result
+// that arrives after another stop is dropped by the generation check in debugOperation's
+// completion path.
+func (a *App) evaluateDebugExpression(p *project, expression, dapContext string, done func(value, typeName, failure string)) {
+	d := &p.debug
+	if d.activeSession() == nil || len(d.frames) == 0 {
 		return
 	}
 	frameIndex := d.vars.frame
@@ -152,7 +203,6 @@ func (a *App) evaluateDebugWatch(p *project, index int) {
 		frameIndex = 0
 	}
 	frameID := d.frames[frameIndex].ID
-	expression := d.watch.entries[index].expression
 	a.debugOperation(p, "evaluate", func(ctx context.Context, session *debugSession, operationID string) (core.DebugUpdate, error) {
 		return a.kernel.InspectDebug(ctx, core.DebugInspectRequest{
 			SessionID:   session.id,
@@ -160,80 +210,119 @@ func (a *App) evaluateDebugWatch(p *project, index int) {
 			Kind:        "evaluate",
 			FrameID:     &frameID,
 			Expression:  expression,
-			Context:     "watch",
+			Context:     dapContext,
 		})
 	}, debugOperationHandlers{done: func(a *App, result core.DebugOperationResult) {
-		if index >= len(d.watch.entries) || d.watch.entries[index].expression != expression {
-			return
-		}
-		entry := &d.watch.entries[index]
 		if result.Kind != "evaluate" || result.Variable == nil {
-			entry.failure = a.text.Debug.EvaluateFailed
-			entry.value, entry.typeName = "", ""
+			done("", "", a.text.Debug.EvaluateFailed)
 			return
 		}
-		entry.value, entry.typeName, entry.failure = result.Variable.Value, result.Variable.Type, ""
-	}, failed: func(a *App, message string, _ bool) {
-		if index < len(d.watch.entries) {
-			d.watch.entries[index].failure = message
-			d.watch.entries[index].value, d.watch.entries[index].typeName = "", ""
-		}
+		done(result.Variable.Value, result.Variable.Type, "")
+	}, failed: func(_ *App, message string, _ bool) {
+		done("", "", message)
 	}})
 }
 
-// debugWatchView declares the watch editor and the values of the current stop.
-func (a *App) debugWatchView(c ui.C, p *project) {
-	t, d := a.text.Debug, &p.debug
-	w := &d.watch
-	if d.activeSession() == nil || d.state != "paused" {
-		w.endEdit()
-		return
-	}
-	ui.Column(c).FillWidth().Shrink(0).Gap(4).PadX(8).PadY(4).Children(func() {
-		ui.Row(c).FillWidth().Items(ui.Center).Gap(6).Children(func() {
-			ui.Text(c, t.Watches).FontSize(12).Color(a.colors.Subtle)
-			ui.Spacer(c)
-			if len(w.entries) > 0 && ui.Button(c.Key("watchReload"), t.Reload).Ghost().Clicked() {
-				c.After(func() { a.refreshDebugWatches(p) })
+// debugEvaluateField declares the field over the variables, IntelliJ IDEA's: Enter evaluates
+// the expression at the selected frame and Primary+Shift+Enter adds it as a watch. The
+// expressions of this session are offered beside it, and the last result is shown under it.
+func (a *App) debugEvaluateField(c ui.C, p *project) {
+	w := &p.debug.watch
+	evaluate, watch := shortcuts.Keycaps(debugEvaluateChord), shortcuts.Keycaps(debugAddWatchChord)
+	placeholder := i18n.SharedFormat(a.language(), "desktop.debug.evaluatePlaceholder", map[string]string{
+		"evaluate": evaluate,
+		"watch":    watch,
+	})
+	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
+		field := ui.TextField(c.Key("watchInput"), &w.input, placeholder, placeholder).Grow(1)
+		field.OnKey(func(event gfx.KeyEvent) gfx.EventResult {
+			if event.Release || !isDebugAddWatch(event) {
+				return gfx.EventResult{}
 			}
+			a.addDebugWatch(p)
+			return gfx.EventResult{Handled: true, Repaint: true}
 		})
+		if field.Submitted() {
+			c.After(func() { a.evaluateDebugInput(p) })
+		}
 		if len(w.history) > 0 {
-			// The recent expressions of this session: choosing one fills the field, to be evaluated as typed.
-			ui.Select(c.Key("watchHistory"), &w.pick, w.history, func(expression string) string { return expression }).FillWidth()
+			// The recent expressions of this session: choosing one fills the field, to be
+			// evaluated as typed.
+			ui.Select(c.Key("watchHistory"), &w.pick, w.history, func(expression string) string { return expression }).
+				Label(a.text.Debug.Watches).Width(140).Shrink(0)
 			if w.pick != "" {
 				w.input, w.pick = w.pick, ""
 			}
 		}
-		submitted := ui.TextField(c.Key("watchInput"), &w.input, t.WatchPlaceholder, t.WatchPlaceholder).FillWidth().Submitted()
-		if submitted || ui.Button(c.Key("watchAdd"), t.AddWatch).Outline().Disabled(strings.TrimSpace(w.input) == "").Clicked() {
-			c.After(func() { a.addDebugWatch(p) })
+	})
+	if entry := w.evaluated; entry != nil {
+		ui.Row(c.Key("evaluated")).FillWidth().Height(debugRowHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(10).Children(func() {
+			ui.Icon(c, icons.Variable).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Accent)
+			a.debugWatchText(c, *entry)
+		})
+	}
+}
+
+// debugEvaluateChord evaluates the expression in the field once.
+var debugEvaluateChord = keymap.Chord{Key: gfx.KeyEnter}
+
+// debugAddWatchChord adds the evaluate field's expression as a watch: ⇧⌘↵ on macOS, as in
+// IntelliJ IDEA, and Ctrl+Shift+Enter elsewhere.
+var debugAddWatchChord = keymap.Chord{Modifiers: keymap.Primary | gfx.ModifierShift, Key: gfx.KeyEnter}
+
+// isDebugAddWatch reports whether event presses debugAddWatchChord.
+func isDebugAddWatch(event gfx.KeyEvent) bool {
+	chord, ok := keymap.FromEvent(event)
+	return ok && chord.Key == gfx.KeyEnter &&
+		chord.Modifiers&(gfx.ModifierShift|gfx.ModifierControl|gfx.ModifierAlt|gfx.ModifierMeta) == debugAddWatchChord.Modifiers
+}
+
+// debugWatchText declares an expression with its result as IntelliJ IDEA writes it,
+// "expression = {type} value", or with the reason it has none.
+func (a *App) debugWatchText(c ui.C, entry debugWatchEntry) {
+	ui.Text(c, entry.expression).Shrink(0).FontSize(12.5).Color(treelist.Text(a.colors.Dark)).Weight(gfx.WeightMedium)
+	switch {
+	case entry.failure != "":
+		ui.Text(c, entry.failure).Shrink(1).FontSize(12.5).Color(a.theme.Danger).Ellipsis()
+	case entry.value != "" || entry.typeName != "":
+		ui.Text(c, "=").Shrink(0).FontSize(12.5).Color(a.colors.Subtle)
+		if entry.typeName != "" {
+			ui.Text(c, "{"+entry.typeName+"}").Shrink(0).FontSize(12.5).Color(a.colors.Subtle)
 		}
+		ui.Text(c, entry.value).Shrink(1).FontSize(12.5).Color(a.colors.Text).Ellipsis().Mono()
+	}
+}
+
+// debugWatchView declares the watches over the variables, each with its value at the current
+// stop: a double click edits one in place and its button removes it.
+func (a *App) debugWatchView(c ui.C, p *project) {
+	t, d := a.text.Debug, &p.debug
+	w := &d.watch
+	if d.activeSession() == nil {
+		w.endEdit()
+	}
+	if len(w.entries) == 0 {
+		return
+	}
+	ui.Column(c).FillWidth().Shrink(0).Children(func() {
 		for index := range w.entries {
 			if w.editOpen && w.editIndex == index {
-				a.debugWatchEditField(c, p)
+				ui.Row(c.Key("watchEditRow")).FillWidth().Height(debugRowHeight + 4).Shrink(0).Items(ui.Center).PadX(8).Children(func() {
+					a.debugWatchEditField(c, p)
+				})
 				continue
 			}
 			entry := w.entries[index]
-			k := c.Key("watch/" + entry.expression)
-			row := ui.Row(k).FillWidth().Items(ui.Center).Gap(6).HitWith(ui.ID(k), entry.expression, gfx.HitOptions{SkipFocus: true})
+			k := c.Part("watch").KeyInt(index)
+			row := ui.Row(k).FillWidth().Height(debugRowHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(10).
+				Hover(ui.Look{}.Background(a.colors.Hover)).
+				HitWith(ui.ID(k), entry.expression, gfx.HitOptions{SkipFocus: true})
 			row.Children(func() {
-				text := entry.expression
-				if entry.value != "" {
-					text += " = " + entry.value
-				}
-				if entry.typeName != "" {
-					text += " (" + entry.typeName + ")"
-				}
-				if entry.failure != "" {
-					text += " — " + entry.failure
-				}
-				color := a.colors.Text
-				if entry.failure != "" {
-					color = a.theme.Danger
-				}
-				ui.Text(c, text).Grow(1).Shrink(1).FontSize(12.5).Color(color).Ellipsis()
+				ui.Icon(k, icons.Eye).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
+				a.debugWatchText(k, entry)
+				ui.Spacer(k)
 				i := index
-				if ui.Button(c.KeyInt(i).Key("remove"), t.RemoveWatch).Ghost().Clicked() {
+				if _, clicked := a.toolIconButton(k.Key("remove"), t.RemoveWatch, icons.X, false, false); clicked {
 					c.After(func() { a.removeDebugWatch(p, i) })
 				}
 			})
@@ -247,6 +336,7 @@ func (a *App) debugWatchView(c ui.C, p *project) {
 			a.debugWatchMenu(k, row, p, index)
 		}
 	})
+	ui.Divider(c)
 }
 
 // debugWatchEditField declares the field that edits one watch in place: Enter or moving the

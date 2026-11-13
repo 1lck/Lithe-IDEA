@@ -1,0 +1,35 @@
+{
+  "id": "viva-title-run-debug",
+  "area": "运行与调试",
+  "group": "运行配置",
+  "capability": "标题栏右上角的运行配置下拉、运行和调试按钮：下拉列出构建提供者检测到的运行配置并可选择“当前文件”，运行按所选配置交给提供者启动并打开运行窗口，调试让提供者准备该运行声明的调试适配器后在调试窗口启动会话；配置尚未读出时按下会等读出后再执行",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/title_run.go",
+      "desktop/internal/workbench/title_run_view.go",
+      "desktop/internal/workbench/title_run_test.go",
+      "desktop/internal/workbench/runconfig.go",
+      "desktop/internal/workbench/build.go",
+      "desktop/internal/pluginservice/builds.go",
+      "desktop/internal/core/build.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/title_run.go",
+      "desktop/internal/workbench/title_run_view.go",
+      "desktop/internal/workbench/title_run_test.go",
+      "desktop/internal/workbench/runconfig.go",
+      "desktop/internal/workbench/build.go",
+      "desktop/internal/pluginservice/builds.go",
+      "desktop/internal/core/build.go"
+    ]
+  },
+  "owner": "Run",
+  "verification": "打开带构建提供者（如 Maven、Go）的项目：标题栏下拉列出检测到的运行配置并记住所选项；运行按钮启动所选配置并打开运行窗口；调试按钮对声明了调试适配器的运行准备并启动调试会话、打开调试窗口，未声明时提示该配置不能调试；准备失败时结束“准备中”并显示原因；选择“当前文件”时提示需要运行配置。单元测试覆盖等待配置读出后运行、当前文件提示、无适配器提示、提供者准备请求、按名称选择适配器和拒绝插件未安装的适配器。",
+  "notes": "Viva 标题栏按钮此前只有外观。运行忙碌时仅提示，不排队；当前文件运行尚未实现，只提示需要配置；提供者调试暂不携带运行配置的启动选项。macOS、Windows 原生窗口验收 pending。"
+}

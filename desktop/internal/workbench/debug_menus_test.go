@@ -4,8 +4,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	"github.com/vivaui/viva/gfx"
 )
 
 // The Debug tool window's context menus copy what a stack frame, an instruction and a variable
@@ -22,16 +20,10 @@ func TestDebugMenusCopyFramesAndVariablesAndToggleBreakpoints(t *testing.T) {
 	}
 	h.settle()
 
-	// The row of the thread picker copies the selected thread's name.
+	// A stack frame's menu ends with its thread's items, which copy the thread's name.
 	awaitStateWithin(t, h, 20*time.Second, "the adapter's threads", func() bool { return len(d.threads) == 2 })
 	h.settle()
-	var threads gfx.Rect
-	for _, hit := range h.driver.Snapshot().Hits {
-		if hit.Label == h.app.text.Debug.Threads && !hit.IsLabel && hit.Bounds.Width > threads.Width {
-			threads = hit.Bounds
-		}
-	}
-	h.rightClickAt(gfx.Rect{X: threads.X + threads.Width - 40, Y: threads.Y, Width: 20, Height: threads.Height})
+	h.rightClickNamed("main")
 	h.click(center(h.popupHit(h.shared("native.copyThreadName"))))
 	if got := h.driver.Clipboard(); got != "main" {
 		t.Fatalf("the clipboard holds %q, want the stopped thread's name", got)
@@ -62,7 +54,20 @@ func TestDebugMenusCopyFramesAndVariablesAndToggleBreakpoints(t *testing.T) {
 	// An instruction copies its address and has the memory at that address read.
 	awaitStateWithin(t, h, 20*time.Second, "the instruction window", func() bool { return !d.disassembly.loading && len(d.disassembly.rows) > 1 })
 	h.settle()
-	address := d.disassembly.rows[1].Address
+	// The window opens centred on the current instruction: the one after it is in view, the
+	// first row of the window is scrolled away above, and nothing more was loaded for it.
+	address := "0x1004"
+	// The list measures its rows in the frames it asks for after the first layout; virtual
+	// time runs them.
+	if err := h.driver.Advance(200 * time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if !h.shows(address) || h.shows("0xfa0") {
+		t.Fatalf("the window did not open centred on the current instruction")
+	}
+	if rows := len(d.disassembly.rows); rows != 96 {
+		t.Fatalf("the window holds %d instructions after it opened, want the 96 of the first window", rows)
+	}
 	h.rightClickAt(h.labelBounds(address))
 	h.click(center(h.popupHit(h.shared("debugger.disassembly.copyAddress"))))
 	if got := h.driver.Clipboard(); got != address {
@@ -76,7 +81,7 @@ func TestDebugMenusCopyFramesAndVariablesAndToggleBreakpoints(t *testing.T) {
 	awaitStateWithin(t, h, 20*time.Second, "the memory read", func() bool { return !d.memory.loading && len(d.memory.bytes) > 0 })
 
 	// A variable copies its value and its name, and Set Value shows the field for it.
-	h.clickNamed(h.app.text.Debug.Variables)
+	h.showDebugSection(h.shared("debugger.threadsAndVariables"))
 	h.rightClickNamed("count = 1")
 	h.click(center(h.popupHit(h.shared("native.copyValue"))))
 	if got := h.driver.Clipboard(); got != "1" {
@@ -93,11 +98,11 @@ func TestDebugMenusCopyFramesAndVariablesAndToggleBreakpoints(t *testing.T) {
 		t.Fatalf("Set Value selected %+v, want count", selected)
 	}
 
-	// The Breakpoints section lists the line breakpoints; one is removed with the others.
+	// The Breakpoints dialog lists the line breakpoints; one is removed with the others.
 	source := d.frames[0].SourcePath
 	d.breakpoints = map[string][]debugBreakpoint{source: {{line: 3}, {line: 5}}}
 	h.app.sendDebugBreakpoints(p, source)
-	h.showDebugSection(h.app.text.Debug.Breakpoints)
+	h.clickNamed(h.shared("native.viewBreakpoints"))
 	// A line breakpoint is disabled and enabled again; a disabled one keeps its line and is
 	// sent as disabled, so Core leaves it out of what the adapter gets.
 	h.rightClickNamed(filepath.Base(source) + ":3")

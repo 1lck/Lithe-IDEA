@@ -13,8 +13,8 @@ import (
 )
 
 // The context menus of the Debug tool window, with the items the earlier client's debugger
-// had: the thread picker copies the thread's name; a stack frame copies its method name, its
-// instruction address and its source location, and shows its disassembly; an instruction of
+// had: a stack frame copies its method name, its instruction address and its source location,
+// shows its disassembly, and copies, resumes or pauses its thread; an instruction of
 // the disassembly takes or loses a breakpoint, has the memory at its address read and copies
 // its address or its text; a variable is given
 // a new value, watched or copied; a watch is evaluated again, copied or removed; a line
@@ -37,37 +37,35 @@ func (a *App) copyDebugText(action, text string) {
 	_ = app.SetClipboardText(text)
 }
 
-// debugThreadMenu is the menu of the row of the thread picker: it copies the selected thread's
-// name.
-func (a *App) debugThreadMenu(c ui.C, picker ui.Box, p *project) {
-	ui.ContextMenu(c, picker, func(menu *ui.MenuItems) {
-		menu.WidthRange(160, 240)
-		thread := threadIndexOf(p.debug.threads, p.debug.selectedThread)
-		if thread >= len(p.debug.threads) {
-			return
+// debugThreadItems are the selected thread's items at the end of a stack frame's menu: the
+// picker above the stack fills its row, so the thread is reached through its frames. They copy
+// the thread's name and, when the adapter supports it, resume or pause that thread alone.
+func (a *App) debugThreadItems(c ui.C, menu *ui.MenuItems, p *project) {
+	thread := threadIndexOf(p.debug.threads, p.debug.selectedThread)
+	if thread >= len(p.debug.threads) {
+		return
+	}
+	lang := a.language()
+	name, id := p.debug.threads[thread].Name, p.debug.threads[thread].ID
+	menu.Separator()
+	if menu.Item(i18n.Shared(lang, "native.copyThreadName")).Disabled(name == "").Clicked() {
+		c.After(func() { a.copyDebugText("debug.thread.copyName", name) })
+	}
+	if command, enabled := canExecuteDebugThread(&p.debug, id); command != "" {
+		label := i18n.Shared(lang, "native.resumeThread")
+		if command == "pause" {
+			label = i18n.Shared(lang, "native.pauseThread")
 		}
-		lang := a.language()
-		name, id := p.debug.threads[thread].Name, p.debug.threads[thread].ID
-		if menu.Item(i18n.Shared(lang, "native.copyThreadName")).Disabled(name == "").Clicked() {
-			c.After(func() { a.copyDebugText("debug.thread.copyName", name) })
+		if menu.Item(label).Disabled(!enabled).Clicked() {
+			c.After(func() {
+				a.performed("debug.thread."+command, surfaceMenu)
+				a.executeDebugThread(p, id)
+			})
 		}
-		// Resuming or pausing one thread alone is offered only when the adapter supports it.
-		if command, enabled := canExecuteDebugThread(&p.debug, id); command != "" {
-			label := i18n.Shared(lang, "native.resumeThread")
-			if command == "pause" {
-				label = i18n.Shared(lang, "native.pauseThread")
-			}
-			if menu.Item(label).Disabled(!enabled).Clicked() {
-				c.After(func() {
-					a.performed("debug.thread."+command, surfaceMenu)
-					a.executeDebugThread(p, id)
-				})
-			}
-		}
-	})
+	}
 }
 
-// debugFrameMenu is the menu of the stack frame at index.
+// debugFrameMenu is the menu of the stack frame at index, followed by its thread's items.
 func (a *App) debugFrameMenu(c ui.C, row ui.Box, p *project, index int) {
 	ui.ContextMenu(c, row, func(menu *ui.MenuItems) {
 		d := &p.debug
@@ -89,19 +87,19 @@ func (a *App) debugFrameMenu(c ui.C, row ui.Box, p *project, index int) {
 				c.After(func() { a.showFrameDisassembly(p, index) })
 			}
 		}
-		if frame.SourcePath == "" {
-			return
+		if frame.SourcePath != "" {
+			line, column := strconv.FormatInt(frame.Line, 10), strconv.FormatInt(frame.Column, 10)
+			menu.Separator()
+			if menu.Item(i18n.Shared(lang, "native.copySourceLocation")).Clicked() {
+				location := frame.SourcePath + ":" + line + ":" + column
+				c.After(func() { a.copyDebugText("debug.frame.copyLocation", location) })
+			}
+			if menu.Item(i18n.Shared(lang, "native.copyRelativeLocation")).Clicked() {
+				location := filepath.Base(frame.SourcePath) + ":" + line + ":" + column
+				c.After(func() { a.copyDebugText("debug.frame.copyRelativeLocation", location) })
+			}
 		}
-		line, column := strconv.FormatInt(frame.Line, 10), strconv.FormatInt(frame.Column, 10)
-		menu.Separator()
-		if menu.Item(i18n.Shared(lang, "native.copySourceLocation")).Clicked() {
-			location := frame.SourcePath + ":" + line + ":" + column
-			c.After(func() { a.copyDebugText("debug.frame.copyLocation", location) })
-		}
-		if menu.Item(i18n.Shared(lang, "native.copyRelativeLocation")).Clicked() {
-			location := filepath.Base(frame.SourcePath) + ":" + line + ":" + column
-			c.After(func() { a.copyDebugText("debug.frame.copyRelativeLocation", location) })
-		}
+		a.debugThreadItems(c, menu, p)
 	})
 }
 
@@ -236,7 +234,7 @@ func (a *App) debugWatchMenu(c ui.C, row ui.Box, p *project, index int) {
 		lang := a.language()
 		entry := w.entries[index]
 		menu.WidthRange(160, 240)
-		if menu.Item(t.Reload).Clicked() {
+		if menu.Item(i18n.Shared(lang, "native.refreshWatches")).Clicked() {
 			c.After(func() {
 				a.performed("debug.watch.refresh", surfaceMenu)
 				a.refreshDebugWatches(p)

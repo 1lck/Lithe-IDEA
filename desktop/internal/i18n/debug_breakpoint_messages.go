@@ -3,14 +3,12 @@ package i18n
 // DebugBreakpointMessages are the words of the breakpoint editor: the condition,
 // hit count and log message a source breakpoint may carry.
 type DebugBreakpointMessages struct {
-	Edit                string
-	FunctionName        string
-	FunctionPlaceholder string
-	AddFunction         string
-	FunctionRow         func(name string) string
-	RemoveFunction      string
-	// Instruction labels the button that toggles a machine-instruction breakpoint on a row.
-	Instruction             string
+	Edit                    string
+	FunctionName            string
+	FunctionPlaceholder     string
+	AddFunction             string
+	FunctionRow             func(name string) string
+	RemoveFunction          string
 	BreakOnChange           string
 	DataRow                 func(label string) string
 	RemoveData              string
@@ -39,7 +37,6 @@ func debugBreakpointMessages(language Language) DebugBreakpointMessages {
 			return SharedFormat(language, "desktop.debug.breakpoint.functionRow", map[string]string{"name": name})
 		},
 		RemoveFunction: Shared(language, "desktop.debug.breakpoint.removeFunction"),
-		Instruction:    Shared(language, "desktop.debug.breakpoint.instruction"),
 		BreakOnChange:  Shared(language, "desktop.debug.breakpoint.breakOnChange"),
 		DataRow: func(label string) string {
 			return SharedFormat(language, "desktop.debug.breakpoint.dataRow", map[string]string{"label": label})

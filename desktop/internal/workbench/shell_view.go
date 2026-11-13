@@ -251,10 +251,16 @@ const (
 // of the selected tab, and a click selects another. The row may shrink, the labels cut, in a
 // narrow panel.
 func (a *App) toolTabs(c ui.C, selected *int, labels []string) {
+	a.toolTabsWith(c, *selected, labels, func(index int) { *selected = index })
+}
+
+// toolTabsWith is toolTabs for a selection the caller keeps its own way: selected is the
+// index of the selected tab, and choose takes the index of a clicked one after the frame.
+func (a *App) toolTabsWith(c ui.C, selected int, labels []string, choose func(int)) {
 	ui.Row(c).Shrink(1).MinWidth(0).Height(panelHeaderHeight).Items(ui.Center).Gap(2).Clip().Children(func() {
 		for i, label := range labels {
 			k := c.KeyInt(i)
-			on := i == *selected
+			on := i == selected
 			chip := ui.Row(k).Height(rowHeight).Shrink(1).MinWidth(0).Items(ui.Center).PadX(toolTabPad).
 				Radius(a.theme.Metrics.RadiusItem()).
 				HitWith(ui.ID(k), label, gfx.HitOptions{
@@ -277,7 +283,7 @@ func (a *App) toolTabs(c ui.C, selected *int, labels []string) {
 			})
 			if chip.Clicked() {
 				index := i
-				c.After(func() { *selected = index })
+				c.After(func() { choose(index) })
 			}
 		}
 	})

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -77,18 +79,43 @@ func TestDebugThreadsSelectAndRestartWatchesOnEachStop(t *testing.T) {
 		return p.debug.state == "paused" && len(p.debug.threads) == 2 &&
 			len(p.debug.watch.entries) == 2 && p.debug.watch.entries[0].value == "42"
 	})
-	// The watch editor sits over the variables tree; a window as tall as a laptop screen leaves
-	// the bottom panel room for both under the breakpoints.
+	// The evaluate field and the watches sit over the variables tree; a window as tall as a
+	// laptop screen leaves the bottom panel room for them.
 	if err := h.driver.Resize(1280, 900); err != nil {
 		t.Fatal(err)
 	}
-	p.debug.section = debugSectionVariables
-	h.settle()
-	p.debug.section = debugSectionVariables
+	p.debug.section = debugSectionThreads
 	h.app.invalidator.Invalidate()
 	h.settle()
-	if !h.shows("监视") || !h.shows("求值表达式") {
-		t.Fatal("the Debug panel does not show the watch editor")
+	evaluate := i18n.SharedFormat(h.app.language(), "desktop.debug.evaluatePlaceholder", map[string]string{
+		"evaluate": shortcuts.Keycaps(debugEvaluateChord),
+		"watch":    shortcuts.Keycaps(debugAddWatchChord),
+	})
+	if _, ok := h.findPageHit("missing"); !ok || !h.shows(evaluate) {
+		t.Fatal("the Debug panel does not show the evaluate field and the watches")
+	}
+	// Enter evaluates the typed expression once and keeps it in the field; Primary+Shift+Enter
+	// adds it as a watch.
+	h.typeInto(evaluate, func() { p.debug.watch.input = "" }, "count")
+	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
+		t.Fatal(err)
+	}
+	awaitStateWithin(t, h, 20*time.Second, "the evaluated expression", func() bool {
+		e := p.debug.watch.evaluated
+		return e != nil && e.expression == "count" && e.value == "42" && e.typeName == "int"
+	})
+	if p.debug.watch.input != "count" || len(p.debug.watch.entries) != 2 {
+		t.Fatalf("Enter left the field %q and %d watches", p.debug.watch.input, len(p.debug.watch.entries))
+	}
+	if err := h.driver.Key(gfx.KeyEnter, debugAddWatchChord.Modifiers); err != nil {
+		t.Fatal(err)
+	}
+	awaitStateWithin(t, h, 20*time.Second, "the added watch", func() bool {
+		entries := p.debug.watch.entries
+		return len(entries) == 3 && entries[2].expression == "count" && entries[2].value == "42"
+	})
+	if p.debug.watch.input != "" {
+		t.Fatalf("adding the watch left %q in the field", p.debug.watch.input)
 	}
 
 	h.clickNamed(h.app.text.Debug.Stop)
@@ -122,13 +149,7 @@ func TestDebugThreadResumesAloneAndWatchEditsInPlace(t *testing.T) {
 		t.Fatalf("thread 8 offers %q enabled=%v; want continue", command, enabled)
 	}
 	h.settle()
-	var picker gfx.Rect
-	for _, hit := range h.driver.Snapshot().Hits {
-		if hit.Label == h.app.text.Debug.Threads && !hit.IsLabel && hit.Bounds.Width > picker.Width {
-			picker = hit.Bounds
-		}
-	}
-	h.rightClickAt(gfx.Rect{X: picker.X + picker.Width - 40, Y: picker.Y, Width: 20, Height: picker.Height})
+	h.rightClickNamed(p.debug.frames[0].Name)
 	h.click(center(h.popupHit(h.shared("native.resumeThread"))))
 	awaitStateWithin(t, h, 20*time.Second, "the worker resumed alone", func() bool {
 		return p.debug.resumedThreads[8] && len(p.debug.frames) == 0
@@ -155,7 +176,7 @@ func TestDebugThreadResumesAloneAndWatchEditsInPlace(t *testing.T) {
 
 	// Double-clicking a watch turns it into a field; Enter keeps the new expression and
 	// evaluates it.
-	p.debug.section = debugSectionVariables
+	p.debug.section = debugSectionThreads
 	h.app.invalidator.Invalidate()
 	h.settle()
 	editWatch := func(expression string) {

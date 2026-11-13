@@ -99,8 +99,6 @@ type TitleMessages struct {
 	Debug            string
 	Search           string
 	Settings         string
-	// RunLater explains that running needs a build provider that is not connected yet.
-	RunLater string
 	// The settings button's menu.
 	Preferences        string
 	Plugins            string

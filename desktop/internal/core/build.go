@@ -256,15 +256,17 @@ type BuildDecodeRunRequest struct {
 }
 
 type buildOutcome struct {
-	Status     string                `json:"status"`
-	Error      *MarketplaceRejection `json:"error"`
-	Detection  *BuildDetection       `json:"detection"`
-	Plan       *BuildPlan            `json:"plan"`
-	Model      *BuildModel           `json:"model"`
-	Launch     *BuildLaunch          `json:"launch"`
-	Results    *BuildTestResults     `json:"results"`
-	Invocation *BuildInvocation      `json:"invocation"`
-	Version    *BuildToolVersion     `json:"version"`
+	Status    string                `json:"status"`
+	Error     *MarketplaceRejection `json:"error"`
+	Detection *BuildDetection       `json:"detection"`
+	Plan      *BuildPlan            `json:"plan"`
+	Model     *BuildModel           `json:"model"`
+	Launch    *BuildLaunch          `json:"launch"`
+	// Preparation answers build.decodeDebugPreparation.
+	Preparation *BuildDebugPreparation `json:"preparation"`
+	Results     *BuildTestResults      `json:"results"`
+	Invocation  *BuildInvocation       `json:"invocation"`
+	Version     *BuildToolVersion      `json:"version"`
 	// Dependencies is the answer of build.decodeDependencies.
 	Dependencies *BuildDependencyTree `json:"dependencies"`
 	// Storage and Edit answer build.resolveStoredOptions and build.editStoredOption.
@@ -443,18 +445,31 @@ func (c *Client) DecodeBuildModel(ctx context.Context, manifest json.RawMessage,
 	return *result.Model, nil
 }
 
-// BuildDecodeDebugRequest validates the raw result of a provider's debug preparation. Native
-// debug preparation takes no launch options, so the request carries none.
+// BuildDecodeDebugRequest validates the raw result of a provider's debug preparation. Run is
+// the run declaration the preparation was planned for, whose `debug.adapter` Core answers.
+// Native debug preparation takes no launch options, so the request carries none.
 type BuildDecodeDebugRequest struct {
 	WorkspaceRoot string          `json:"workspaceRoot"`
 	Root          string          `json:"root"`
+	Run           string          `json:"run"`
 	Result        json.RawMessage `json:"result"`
 }
 
-// DecodeBuildDebug validates the native debug program a provider prepared, with the process
-// facts the host starts it from. It answers the same launch shape as DecodeBuildRun, which the
-// Debug host already knows how to start.
-func (c *Client) DecodeBuildDebug(ctx context.Context, manifest json.RawMessage, buildSystemID string, request BuildDecodeDebugRequest) (BuildLaunch, error) {
+// BuildDebugPreparation is the native debug program a provider prepared, as Core validated it:
+// the local ID of the plugin's own adapter the run declares, and the program with its process
+// facts. Program and WorkingDirectory are relative to the workspace root.
+type BuildDebugPreparation struct {
+	Adapter          string            `json:"adapter"`
+	Root             string            `json:"root"`
+	Program          string            `json:"program"`
+	Arguments        []string          `json:"arguments"`
+	WorkingDirectory string            `json:"workingDirectory"`
+	Environment      map[string]string `json:"environment"`
+}
+
+// DecodeBuildDebug validates the native debug program a provider prepared
+// (`build.decodeDebugPreparation`).
+func (c *Client) DecodeBuildDebug(ctx context.Context, manifest json.RawMessage, buildSystemID string, request BuildDecodeDebugRequest) (BuildDebugPreparation, error) {
 	const command = "build.decodeDebugPreparation"
 	var result buildOutcome
 	if err := c.Execute(ctx, command, struct {
@@ -462,15 +477,15 @@ func (c *Client) DecodeBuildDebug(ctx context.Context, manifest json.RawMessage,
 		BuildSystemID string                  `json:"buildSystemID"`
 		Request       BuildDecodeDebugRequest `json:"request"`
 	}{manifest, buildSystemID, request}, &result); err != nil {
-		return BuildLaunch{}, err
+		return BuildDebugPreparation{}, err
 	}
 	if err := result.failure(command); err != nil {
-		return BuildLaunch{}, err
+		return BuildDebugPreparation{}, err
 	}
-	if result.Launch == nil {
-		return BuildLaunch{}, newParseError(command, "build debug preparation returned no launch", "")
+	if result.Preparation == nil {
+		return BuildDebugPreparation{}, newParseError(command, "build debug preparation returned no preparation", "")
 	}
-	return *result.Launch, nil
+	return *result.Preparation, nil
 }
 func (c *Client) DecodeBuildRun(ctx context.Context, manifest json.RawMessage, buildSystemID string, request BuildDecodeRunRequest) (BuildLaunch, error) {
 	const command = "build.decodeRunPreparation"

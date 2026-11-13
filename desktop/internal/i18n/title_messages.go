@@ -14,7 +14,6 @@ func titleMessages(language Language) TitleMessages {
 		Debug:              Shared(language, "native.debug"),
 		Search:             Shared(language, "workbench.search"),
 		Settings:           Shared(language, "menu.settings"),
-		RunLater:           Shared(language, "desktop.title.runLater"),
 		Preferences:        Shared(language, "native.settings"),
 		Plugins:            Shared(language, "native.plugins"),
 		LogsAndDiagnostics: Shared(language, "logs.window.logsAndDiagnostics"),

@@ -6,67 +6,76 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/treelist"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
-// The sections of the Debug tool window under its toolbar. The breakpoints are one of them, so
-// the call stack and the variables keep the window's height while the debuggee is paused.
+// The tabs of the Debug tool window under its toolbar, as IntelliJ IDEA names them: the threads
+// and variables of the shown session and its console, then the disassembly and, for an adapter
+// that reads memory, the memory. The breakpoints are the toolbar's View Breakpoints dialog.
 const (
-	debugSectionFrames      = "frames"
-	debugSectionVariables   = "variables"
-	debugSectionBreakpoints = "breakpoints"
-	debugSectionExceptions  = "exceptions"
+	debugSectionThreads     = "threads"
+	debugSectionConsole     = "console"
 	debugSectionDisassembly = "disassembly"
 	debugSectionMemory      = "memory"
 )
 
-// debugSections declares the section switch and the chosen section.
+// Minimum widths of the two panes of Threads & Variables, and the share of the call stack
+// before the user moves the divider.
+const (
+	debugFramesMinWidth    = 160
+	debugVariablesMinWidth = 220
+	debugFramesRatio       = 0.4
+)
+
+// debugSections declares the tabs and the chosen tab.
 func (a *App) debugSections(c ui.C, p *project) {
 	t, d := a.text.Debug, &p.debug
-	if d.section == "" {
-		d.section = debugSectionFrames
-	}
-	sections := []string{debugSectionFrames, debugSectionVariables, debugSectionBreakpoints, debugSectionExceptions, debugSectionDisassembly}
+	lang := a.language()
+	sections := []string{debugSectionThreads, debugSectionConsole, debugSectionDisassembly}
+	labels := []string{i18n.Shared(lang, "debugger.threadsAndVariables"), i18n.Shared(lang, "debugger.console"), t.Disassembly}
 	if d.capabilities != nil && d.capabilities.SupportsReadMemoryRequest {
 		sections = append(sections, debugSectionMemory)
+		labels = append(labels, t.Memory)
 	}
-	if !slices.Contains(sections, d.section) {
-		d.section = debugSectionFrames
+	selected := slices.Index(sections, d.section)
+	if selected < 0 {
+		selected, d.section = 0, debugSectionThreads
 	}
-	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).PadX(8).Children(func() {
-		ui.Tabs(c, &d.section, sections, func(section string) string {
-			switch section {
-			case debugSectionVariables:
-				return t.Variables
-			case debugSectionBreakpoints:
-				return t.Breakpoints
-			case debugSectionExceptions:
-				return t.Exceptions
-			case debugSectionDisassembly:
-				return t.Disassembly
-			case debugSectionMemory:
-				return t.Memory
-			}
-			return t.Frames
-		})
+	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).PadX(6).Children(func() {
+		a.toolTabsWith(c.Part("debug-tabs"), selected, labels, func(index int) { d.section = sections[index] })
 	})
+	ui.Divider(c)
 	switch d.section {
-	case debugSectionVariables:
-		a.debugVariablesView(c, p)
-	case debugSectionBreakpoints:
-		a.debugBreakpoints(c, p)
-	case debugSectionExceptions:
-		a.debugExceptionsView(c, p)
+	case debugSectionConsole:
+		a.debugConsole(c, p)
 	case debugSectionDisassembly:
 		a.debugDisassemblyView(c, p)
 	case debugSectionMemory:
 		a.debugMemoryView(c, p)
 	default:
-		a.debugFrames(c, p)
+		a.debugThreadsAndVariables(c, p)
 	}
+}
+
+// debugThreadsAndVariables declares the Threads & Variables tab: the call stack on the left and,
+// past a divider the user moves, the variables of the selected frame.
+func (a *App) debugThreadsAndVariables(c ui.C, p *project) {
+	split := &p.panels.debugSplit
+	if split.Ratio <= 0 {
+		split.Ratio = debugFramesRatio
+	}
+	var frames, variables ui.Box
+	ui.Row(c).Fill().Clip().Children(func() {
+		frames = ui.Column(c.Part("frames")).Children(func() { a.debugFrames(c, p) })
+		ui.Splitter(c, split).Mins(debugFramesMinWidth, debugVariablesMinWidth).Label(a.text.Panel.Resize)
+		variables = ui.Column(c.Part("variables")).Children(func() { a.debugVariablesView(c, p) })
+	})
+	frames.FillHeight().MinWidth(debugFramesMinWidth).Shrink(1)
+	variables.Fill().MinWidth(debugVariablesMinWidth)
 }
 
 // debugVariableLabel is the text assistive technology reads for one row.
@@ -97,29 +106,23 @@ func (v *debugVariables) key(i int) int {
 
 func (v *debugVariables) label(i int) string { return debugVariableLabel(v.rows[i]) }
 
-// debugVariablesView declares the Variables section: the tree or the JSON text
-// of the loaded variables and the field that edits the selected one.
+// debugVariablesView declares the right pane of Threads & Variables: the field that evaluates an
+// expression or adds it as a watch, the watches, and the tree or the JSON text of the selected
+// frame's variables with the field that edits the selected one.
 func (a *App) debugVariablesView(c ui.C, p *project) {
 	t, d := a.text.Debug, &p.debug
 	v := &d.vars
+	a.debugEvaluateField(c, p)
+	a.debugExceptionInfo(c, p)
 	a.debugWatchView(c, p)
-	mode := "tree"
-	if v.json {
-		mode = "json"
-	}
-	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
-		a.debugRegistersTabs(c, p)
-		ui.Tabs(c, &mode, []string{"tree", "json"}, func(m string) string {
-			if m == "json" {
-				return t.ViewJSON
+	if v.registersScope() != nil || v.failure != "" {
+		ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
+			a.debugRegistersTabs(c, p)
+			if v.failure != "" {
+				ui.Text(c, v.failure).Shrink(1).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger).Ellipsis()
 			}
-			return t.ViewTree
 		})
-		if v.failure != "" {
-			ui.Text(c, v.failure).Shrink(1).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger).Ellipsis()
-		}
-	})
-	v.json = mode == "json"
+	}
 	switch {
 	case d.activeSession() == nil || len(v.scopes) == 0:
 		message := t.NoVariables
@@ -152,16 +155,7 @@ func (a *App) debugVariablesTree(c ui.C, p *project) {
 			a.debugVariableStatusRow(c, node, t.LoadingVariables, t.LoadMore)
 			return
 		}
-		if node.ref > 0 {
-			ui.Icon(c, icons.Folder).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
-		}
-		ui.Text(c, node.name).Shrink(0).FontSize(12.5).Color(treelist.Text(a.colors.Dark)).Weight(gfx.WeightMedium)
-		if node.value != "" {
-			ui.Text(c, "= "+node.value).Shrink(1).FontSize(12.5).Color(a.colors.Text).Ellipsis().Mono()
-		}
-		if node.typeName != "" {
-			ui.Text(c, node.typeName).Shrink(0).FontSize(11.5).Color(a.colors.Subtle)
-		}
+		a.debugVariableRow(c, node)
 	}).Grow(1).FillWidth()
 	a.debugVariableMenu(c, p)
 	if i, ok := v.tree.Toggled(); ok && i < len(rows) {
@@ -177,6 +171,30 @@ func (a *App) debugVariablesTree(c ui.C, p *project) {
 	if i, ok := v.tree.Chosen(); ok && i < len(rows) {
 		node := rows[i]
 		c.After(func() { a.chooseDebugVariable(p, node) })
+	}
+}
+
+// debugVariableRow declares one variable as IntelliJ IDEA writes it, "name = {type} value", after
+// an icon that tells a value with children from a plain one. A scope is its name alone.
+func (a *App) debugVariableRow(c ui.C, node *debugVarNode) {
+	icon := icons.Variable
+	switch {
+	case node.scope:
+		icon = icons.Folder
+	case node.ref > 0:
+		icon = icons.Braces
+	}
+	ui.Icon(c, icon).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
+	ui.Text(c, node.name).Shrink(0).FontSize(12.5).Color(treelist.Text(a.colors.Dark)).Weight(gfx.WeightMedium)
+	if node.scope || (node.value == "" && node.typeName == "") {
+		return
+	}
+	ui.Text(c, "=").Shrink(0).FontSize(12.5).Color(a.colors.Subtle)
+	if node.typeName != "" {
+		ui.Text(c, "{"+node.typeName+"}").Shrink(0).FontSize(12.5).Color(a.colors.Subtle)
+	}
+	if node.value != "" {
+		ui.Text(c, node.value).Shrink(1).FontSize(12.5).Color(a.colors.Text).Ellipsis().Mono()
 	}
 }
 
@@ -246,16 +264,16 @@ func (a *App) debugVariableEdit(c ui.C, p *project) {
 	})
 }
 
-// debugExceptionsView declares one checkbox per exception filter the adapter
-// offers. The choice is the user's and outlives the session.
+// debugExceptionsView declares the breakpoints dialog's exception breakpoints: one checkbox per
+// filter the adapter offers. The choice is the user's and outlives the session.
 func (a *App) debugExceptionsView(c ui.C, p *project) {
 	t, d := a.text.Debug, &p.debug
+	ui.Text(c, t.Exceptions).Color(a.colors.Text).Weight(gfx.WeightMedium)
 	if d.capabilities == nil || len(d.capabilities.ExceptionBreakpointFilters) == 0 {
-		a.panelMessage(c, t.NoExceptionFilters, a.colors.Subtle)
+		ui.Text(c, t.NoExceptionFilters).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 		return
 	}
-	a.debugExceptionInfo(c, p)
-	ui.Column(c).FillWidth().Grow(1).Pad(8).Gap(4).Children(func() {
+	ui.Column(c).FillWidth().Gap(4).PadX(8).Children(func() {
 		for _, filter := range d.capabilities.ExceptionBreakpointFilters {
 			enabled := d.exceptions.exceptionEnabled(filter)
 			if ui.Checkbox(c.Key(filter.Filter), &enabled, filter.Label).Clicked() {
@@ -266,7 +284,11 @@ func (a *App) debugExceptionsView(c ui.C, p *project) {
 	})
 }
 
-// debugDisassemblyView declares the instruction window of the selected frame.
+// debugDisassemblyView declares the instruction window of the selected frame as IntelliJ IDEA
+// shows it: no actions of its own. The toolbar's steps take one instruction while this tab is
+// shown (see debugStepGranularity), the toolbar's More menu goes back to the current
+// instruction, scrolling to either end loads more code, and a click in the gutter sets or
+// removes an instruction breakpoint, drawn as the editor draws a line breakpoint.
 func (a *App) debugDisassemblyView(c ui.C, p *project) {
 	t, d := a.text.Debug, &p.debug
 	w := &d.disassembly
@@ -280,59 +302,34 @@ func (a *App) debugDisassemblyView(c ui.C, p *project) {
 		// of an ordinary paint is dropped. The load marks itself loading before it returns.
 		a.loadDisassembly(p)
 	}
-	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
-		if ui.Button(c, t.LoadBefore).Outline().Disabled(w.loading || w.beforeDone || len(w.rows) == 0).Clicked() {
-			c.After(func() { a.loadDisassemblyEdge(p, "before") })
-		}
-		if ui.Button(c, t.LoadAfter).Outline().Disabled(w.loading || w.afterDone || len(w.rows) == 0).Clicked() {
-			c.After(func() { a.loadDisassemblyEdge(p, "after") })
-		}
-		if ui.Button(c, t.Reload).Outline().Disabled(w.loading).Clicked() {
-			c.After(func() { a.loadDisassembly(p) })
-		}
-		// A disassembly view steps one instruction at a time; Core forwards the
-		// granularity only when the adapter advertised it.
-		if d.capabilities.SupportsSteppingGranularity {
-			if ui.Button(c, t.StepInto).Outline().Clicked() {
-				c.After(func() { a.executeDebugWithGranularity(p, "stepIn", "instruction") })
-			}
-			if ui.Button(c, t.StepOver).Outline().Clicked() {
-				c.After(func() { a.executeDebugWithGranularity(p, "next", "instruction") })
-			}
-			if ui.Button(c, t.StepOut).Outline().Clicked() {
-				c.After(func() { a.executeDebugWithGranularity(p, "stepOut", "instruction") })
-			}
-		}
-		ui.Spacer(c)
-		switch {
-		case w.failure != "":
+	if w.failure != "" {
+		ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).PadX(10).Children(func() {
 			ui.Text(c, w.failure).Shrink(1).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger).Ellipsis()
-		case w.loading:
-			ui.Text(c, t.LoadingVariables).Shrink(1).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
-		case w.beforeDone && w.afterDone:
-			ui.Text(c, t.EndOfCode).Shrink(1).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+		})
+	}
+	if len(w.rows) == 0 {
+		if w.loading {
+			a.panelMessage(c, t.LoadingVariables, a.colors.Subtle)
 		}
-	})
+		return
+	}
+	// The last paint's rows say whether the user scrolled to an end; asked on this paint for
+	// the same reason as the first window.
+	a.loadDisassemblyAtEdges(p)
 	rows := w.rows
+	breakpoints := d.capabilities.SupportsInstructionBreakpoints
+	execution := a.colors.Accent
+	execution.Alpha *= debugExecutionAlpha
 	w.list.Label = func(i int) string { return rows[i].Address + " " + rows[i].Instruction }
 	ui.List(c, &w.list, len(rows), func(row ui.ListRow) {
 		instruction := rows[row.Index]
 		current := strings.EqualFold(strings.TrimSpace(instruction.Address), strings.TrimSpace(w.anchor))
-		element := row.Element.Height(debugRowHeight).PadX(10).Items(ui.Center).Gap(10)
+		element := row.Element.Height(debugRowHeight).PadSides(0, 10, 0, 4).Items(ui.Center).Gap(10)
 		if current {
-			element.Background(a.colors.Hover)
+			element.Background(execution)
 		}
-		if d.capabilities.SupportsInstructionBreakpoints {
-			marked := slices.ContainsFunc(d.instructionBreakpoints, func(b core.DebugInstructionBreakpoint) bool {
-				return b.InstructionReference == instruction.Address
-			})
-			mark := ui.Button(row.C.Key("insn-bp"), t.Breakpoint.Instruction).Small()
-			if !marked {
-				mark = mark.Outline()
-			}
-			if mark.Clicked() {
-				row.C.After(func() { a.toggleInstructionBreakpoint(p, instruction.Address) })
-			}
+		if breakpoints {
+			a.debugInstructionGutter(row.C, p, instruction.Address)
 		}
 		ui.Text(row.C, instruction.Address).Shrink(0).FontSize(12).Color(a.colors.Subtle).Mono()
 		if instruction.Symbol != "" {
@@ -344,4 +341,43 @@ func (a *App) debugDisassemblyView(c ui.C, p *project) {
 		}
 		a.debugInstructionMenu(row.C, row.Element, p, instruction)
 	}).Label(t.Disassembly).FillWidth().Grow(1)
+}
+
+// debugInstructionGutter declares the breakpoint mark at the start of one instruction's row,
+// the dot the editor's gutter draws for a line breakpoint: filled while the instruction has a
+// breakpoint, an outline while the breakpoints are muted, and a faint dot under the pointer
+// where a click would set one. A click sets or removes the breakpoint.
+func (a *App) debugInstructionGutter(c ui.C, p *project, address string) {
+	d := &p.debug
+	lang := a.language()
+	index := slices.IndexFunc(d.instructionBreakpoints, func(b core.DebugInstructionBreakpoint) bool {
+		return b.InstructionReference == address
+	})
+	label := i18n.Shared(lang, "debugger.disassembly.setBreakpoint")
+	if index >= 0 {
+		label = i18n.Shared(lang, "debugger.disassembly.removeBreakpoint")
+	}
+	k := c.Part("insn-bp")
+	// The dot is the target; its pointer region reaches the whole gutter cell of the row.
+	reach := float32(debugRowHeight-debugGutterDot) / 2
+	dot := ui.Column(k).Width(debugGutterDot).Height(debugGutterDot).Shrink(0).Radius(debugGutterDot/2).
+		HitWith(ui.ID(k), label, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}).
+		HitOutset(reach, 4, reach, 4)
+	color := a.theme.Danger
+	switch {
+	case index < 0:
+		faint := color
+		faint.Alpha *= debugGutterHintAlpha
+		dot.Hover(ui.Look{}.Background(faint))
+	case d.muted || !d.instructionBreakpoints[index].Enabled:
+		dot.Border(debugGutterRing, color)
+	default:
+		dot.Background(color)
+	}
+	if dot.Clicked() {
+		c.After(func() {
+			a.performed("debug.instruction.toggleBreakpoint", surfaceButton)
+			a.toggleInstructionBreakpoint(p, address)
+		})
+	}
 }

@@ -447,7 +447,7 @@ func dockMoveTitle(messages *i18n.Messages, z zone) string {
 // other buttons are icons only.
 func (a *App) dragGhostText(item int) string {
 	if a.chrome.catalog[item].id == itemRunConfig {
-		return a.text.Title.CurrentFile
+		return a.titleRunLabel()
 	}
 	return a.chromeStatusText(item)
 }
