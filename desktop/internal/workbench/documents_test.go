@@ -11,6 +11,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/documentio"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
@@ -538,5 +539,36 @@ func (a *App) insertForTest(d *document, text string) {
 	end := d.view.TextSnapshot().Len()
 	if err := d.view.ApplyEdits([]editorview.TextEdit{{Range: editorview.Range{Start: end, End: end}, Text: text}}); err != nil {
 		panic(err)
+	}
+}
+
+// A C file a plugin's grammarless language claims, as a debugger plugin's C-family language,
+// opens under that language for its servers and still shows the bundled C colors.
+func TestOpenFileOfGrammarlessPluginLanguageKeepsBundledColors(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	root := t.TempDir()
+	path := filepath.Join(root, "main.c")
+	if err := os.WriteFile(path, []byte("int main(void) { return 0; }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.app.syntaxRegistry().SetPluginLanguages([]syntax.PluginLanguage{{ID: "clangd", Extensions: []string{"c", "h", "cpp"}}})
+	h.open(root)
+	h.app.openFile(h.app.project, path)
+	h.settle()
+	doc := h.app.project.docs.byPath(path)
+	if doc == nil {
+		t.Fatalf("main.c was not opened: %q", h.app.notice)
+	}
+	if doc.languageID != "clangd" {
+		t.Fatalf("language = %q, want the plugin's clangd", doc.languageID)
+	}
+	colored := false
+	for _, token := range doc.view.SyntaxLine(nil, 0) {
+		if strings.HasPrefix(token.Name.String(), "keyword") {
+			colored = true
+		}
+	}
+	if !colored {
+		t.Fatalf("main.c shows no C keyword colors: %v", doc.view.SyntaxLine(nil, 0))
 	}
 }

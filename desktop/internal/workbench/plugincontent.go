@@ -64,10 +64,7 @@ func (w pluginWorkbench) OpenVirtualDocument(ctx context.Context, root string, d
 			return struct{}{}, nil
 		}
 		registry := a.syntaxRegistry()
-		var grammar = registry.Syntax("")
-		if language, ok := registry.ForPath(document.Name); ok {
-			grammar = registry.Syntax(language.ID)
-		}
+		grammar := registry.SyntaxForPath(document.Name)
 		a.placeDocumentAs(p, document.URI, document.Name, content, grammar, "", true)
 		if d := p.docs.byPath(document.URI); d != nil {
 			d.view.GoToNavigation(document.Line, document.Column, false)

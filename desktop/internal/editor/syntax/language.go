@@ -259,7 +259,7 @@ type extensionEntry struct {
 // then the bundled ones, by exact name or name prefix in table order and then by longest
 // extension.
 func (r *Registry) ForPath(path string) (*Language, bool) {
-	name := strings.ToLower(path[strings.LastIndexAny(path, `/\`)+1:])
+	name := fileName(path)
 	if name == "" {
 		return nil, false
 	}
@@ -268,23 +268,58 @@ func (r *Registry) ForPath(path string) (*Language, bool) {
 	if language := r.pluginForName(name); language != nil {
 		return language, true
 	}
+	if language := bundledForName(name); language != nil {
+		return r.resolveBundledLocked(language), true
+	}
+	return nil, false
+}
+
+// SyntaxForPath returns the Syntax that colors a file by its name, as ForPath names it: the
+// grammar of the language ForPath gives the file, or nil when there is none.
+//
+// A plugin language that brings no grammar and is no bundled language by its ID, as a debug
+// plugin's "clangd" for C, C++ and Objective-C files, only names the files its servers and
+// debuggers take; each of them keeps the colors of the bundled language its name selects,
+// so declaring such a language never leaves its files uncolored.
+func (r *Registry) SyntaxForPath(path string) *Syntax {
+	language, ok := r.ForPath(path)
+	if !ok {
+		return nil
+	}
+	if language.Scope != "" {
+		return r.Syntax(language.ID)
+	}
+	if bundled := bundledForName(fileName(path)); bundled != nil {
+		return r.Syntax(bundled.ID)
+	}
+	return nil
+}
+
+// fileName returns the lowercased last element of a path with "/" or "\" as separators.
+func fileName(path string) string {
+	return strings.ToLower(path[strings.LastIndexAny(path, `/\`)+1:])
+}
+
+// bundledForName returns the bundled language of a lowercased file name, by exact name or
+// name prefix in table order and then by longest extension, or nil.
+func bundledForName(name string) *Language {
 	for i := range bundledLanguages {
 		language := &bundledLanguages[i]
 		if slices.Contains(language.FileNames, name) {
-			return r.resolveBundledLocked(language), true
+			return language
 		}
 		for _, prefix := range language.FilePrefixes {
 			if strings.HasPrefix(name, prefix) {
-				return r.resolveBundledLocked(language), true
+				return language
 			}
 		}
 	}
 	for _, entry := range bundledExtensions() {
 		if strings.HasSuffix(name, entry.extension) {
-			return r.resolveBundledLocked(&bundledLanguages[entry.language]), true
+			return &bundledLanguages[entry.language]
 		}
 	}
-	return nil, false
+	return nil
 }
 
 // resolveBundledLocked returns the plugin language that replaces a bundled one, or the

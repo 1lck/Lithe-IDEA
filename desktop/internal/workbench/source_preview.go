@@ -76,9 +76,7 @@ func (a *App) showSourcePreview(p *project, sp *sourcePreview, path string, line
 		var grammar *syntax.Syntax
 		if err == nil {
 			content = editorview.Prepare(data)
-			if language, ok := registry.ForPath(path); ok {
-				grammar = registry.Syntax(language.ID)
-			}
+			grammar = registry.SyntaxForPath(path)
 		}
 		return func(a *App) {
 			if sp.generation != generation || a.project != p || !alive(a) {
