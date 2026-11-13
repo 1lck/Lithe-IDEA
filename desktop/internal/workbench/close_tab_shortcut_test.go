@@ -80,10 +80,10 @@ func TestCloseTabShortcutClosesTheSelectedEditorTab(t *testing.T) {
 	if lspLogTabs(f.p) != 0 || f.p.selectedDocument(group) != f.d {
 		t.Fatalf("after the chord: %d log tabs, the file selected %v", lspLogTabs(f.p), f.p.selectedDocument(group) == f.d)
 	}
+	// A file closes once its disk check comes back from a background goroutine, so one settle
+	// does not see it go on a busy machine.
 	pressCloseTab(t, f.h, chord)
-	if f.p.docs.find(f.d.id) != nil {
-		t.Fatal("the chord did not close the file's tab")
-	}
+	awaitDocumentState(t, f.h, func() bool { return f.p.docs.find(f.d.id) == nil })
 }
 
 // With a terminal focused the chord closes the terminal's tab, not the file's tab in the editor.
