@@ -807,6 +807,7 @@ func (a *App) stopDebugByUser(p *project) {
 
 // releaseDebugSession closes transport immediately and destroys Core state only
 // after startup returned, so cancellation cannot race a late session creation.
+// Note: Run 进程所有权见 .agents/notes/implemented/bug-fix/2026-11-13-viva-plugin-run-debug-lifecycle.md。
 func (a *App) releaseDebugSession(p *project, session *debugSession) {
 	session.cleanupOnce.Do(func() {
 		// A child that ends before its start was answered fails the parent's request.
