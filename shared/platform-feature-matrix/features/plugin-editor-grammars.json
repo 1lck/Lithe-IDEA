@@ -9,7 +9,8 @@
     "evidence": [
       "desktop/internal/core/plugin_session_test.go",
       "desktop/internal/core/plugin_session.go",
-      "desktop/internal/editor/textmate/grammar.go"
+      "desktop/internal/editor/textmate/grammar.go",
+      "desktop/internal/editor/syntax/language.go"
     ]
   },
   "windows": {
@@ -18,12 +19,13 @@
     "evidence": [
       "desktop/internal/core/plugin_session_test.go",
       "desktop/internal/core/plugin_session.go",
-      "desktop/internal/editor/textmate/grammar.go"
+      "desktop/internal/editor/textmate/grammar.go",
+      "desktop/internal/editor/syntax/language.go"
     ]
   },
   "owner": "Extensions",
-  "verification": "当前 macOS Core 桥接测试验证 languages 3 TextMate 声明、原文和 scope 解码、编辑器解析、无效语法拒绝及仅配置声明，并确认撤回的 languages 2 被拒绝；Windows 待执行。完成宿主后安装纯语法插件并打开 .http，验证启用、禁用、配置独立应用、病态语法不阻塞输入和保存以及安装目录哈希不变；两平台的原生窗口与完整插件生命周期均待验收。",
-  "notes": "固定 Core 已支持 TextMate languages 3 并拒绝 Monarch languages 2；Viva 内置 TextMate 引擎已有测试，但插件发现、可信安装、语法注册与撤回尚未接入，不能把 Core 能力当作插件已可用。公开插件文档在本 PR 合并后按规则同步。",
+  "verification": "当前 macOS Core 桥接测试验证 languages 3 TextMate 声明、原文和 scope 解码、编辑器解析、无效语法拒绝及仅配置声明，并确认撤回的 languages 2 被拒绝；Windows 待执行。完成宿主后安装纯语法插件并打开 .http，验证启用、禁用、配置独立应用、病态语法不阻塞输入和保存以及安装目录哈希不变；两平台的原生窗口与完整插件生命周期均待验收。插件声明的语言没有 grammar 且 ID 不是内置语言时（如调试插件用 clangd 声明 .c/.h/.cpp），打开 main.c 仍显示内置 C 语法颜色，文档语言 ID 仍为插件声明的 ID。",
+  "notes": "固定 Core 已支持 TextMate languages 3 并拒绝 Monarch languages 2；Viva 内置 TextMate 引擎已有测试，但插件发现、可信安装、语法注册与撤回尚未接入，不能把 Core 能力当作插件已可用。公开插件文档在本 PR 合并后按规则同步。插件语言没有自带 grammar、ID 也不是内置语言时只用于给插件的语言服务器和调试器路由文件，syntax.Registry.SyntaxForPath 让这些文件按文件名使用内置语言的语法着色，不再整片无高亮。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

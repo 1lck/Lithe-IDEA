@@ -353,3 +353,44 @@ func TestIncludedGrammarsLoadWhenReached(t *testing.T) {
 		t.Fatalf("a go fence loaded %v", loaded)
 	}
 }
+
+// A plugin language without a grammar that no bundled language has the ID of, as a debugger
+// plugin declares for the C family, names the files for its servers while each file keeps the
+// colors of the bundled language its name selects.
+func TestPluginLanguageWithoutGrammarKeepsBundledColors(t *testing.T) {
+	r := NewRegistry()
+	family := PluginLanguage{ID: "clangd", Extensions: []string{"c", "h", "cpp", "m", "unknownext"}}
+	if failed, _ := r.SetPluginLanguages([]PluginLanguage{family}); len(failed) != 0 {
+		t.Fatalf("failed %v", failed)
+	}
+	for path, want := range map[string]string{"src/main.c": "c", `inc\Util.H`: "c", "app.cpp": "cpp"} {
+		language, ok := r.ForPath(path)
+		if !ok || language.ID != "clangd" {
+			t.Fatalf("ForPath(%q) = %+v, %v, want the plugin's clangd", path, language, ok)
+		}
+		s := r.SyntaxForPath(path)
+		if s == nil || s.Language().ID != want {
+			t.Fatalf("SyntaxForPath(%q) = %v, want the bundled %s grammar", path, s, want)
+		}
+	}
+	h := testHighlighter(r.SyntaxForPath("main.c"), rope.FromString("int main(void) { return 0; }"), 0, nil)
+	if got := h.Line(nil, 0); len(got) == 0 || got[0].Name == 0 {
+		t.Fatalf("main.c under the plugin language is not colored: tokens %v", got)
+	}
+	// Neither a bundled language without a grammar nor a name no bundled language takes is
+	// colored.
+	for _, path := range []string{"view.m", "file.unknownext"} {
+		if s := r.SyntaxForPath(path); s != nil {
+			t.Fatalf("SyntaxForPath(%q) = %v, want none", path, s)
+		}
+	}
+	// A plugin language with its own grammar keeps it.
+	demo := PluginLanguage{ID: "demo", Extensions: []string{"c"}, Grammar: []byte(demoGrammar)}
+	r.SetPluginLanguages([]PluginLanguage{demo})
+	if s := r.SyntaxForPath("main.c"); s == nil || s.Language().ID != "demo" {
+		t.Fatalf("SyntaxForPath(main.c) = %v, want the plugin's demo grammar", s)
+	}
+	if s := r.SyntaxForPath(""); s != nil {
+		t.Fatalf("SyntaxForPath of an empty path = %v", s)
+	}
+}

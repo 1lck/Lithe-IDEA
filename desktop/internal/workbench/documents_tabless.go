@@ -51,8 +51,8 @@ func (a *App) openTablessDocument(p *project, path string) {
 		languageID := ""
 		if err == nil {
 			content = editorview.Prepare(read.text)
+			grammar = registry.SyntaxForPath(path)
 			if language, ok := registry.ForPath(path); ok {
-				grammar = registry.Syntax(language.ID)
 				languageID = language.ID
 			}
 		}
