@@ -968,8 +968,7 @@ func (a *App) activate(index int) {
 		}
 	case it.id == itemLSP:
 		if a.project != nil {
-			a.performed("lsp.log.open", surfaceButton)
-			a.openLSPLog(a.project)
+			a.editor.lsp.menu = !a.editor.lsp.menu
 		}
 	case it.id == itemMemory:
 		a.memory.open = !a.memory.open

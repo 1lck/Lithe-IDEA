@@ -65,8 +65,7 @@ func pressCloseTab(t *testing.T, h *harness, chord keymap.Chord) {
 func TestCloseTabShortcutClosesTheSelectedEditorTab(t *testing.T) {
 	f := newSemanticFixture(t)
 	a := f.h.app
-	f.h.click(center(f.h.button(itemLSP)))
-	f.h.settle()
+	openLSPLogFromStatus(f.h)
 	group := f.p.terms.bench.GroupOf(lspLogMember).ID
 	if runtime.GOOS != "darwin" {
 		// Without a binding of the user's, Control-W leaves the tab open.
