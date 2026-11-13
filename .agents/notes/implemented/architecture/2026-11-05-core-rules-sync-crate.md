@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-Core 仓库里有一个单独的纯 Rust crate（Rust 的编译单元）`rust/crates/core-rules`。它只放少数小而确定、处在同步热路径上的规则，例如双击 Shift 手势：每次按键都要立刻出结果。
+Core 仓库里有一个单独的纯 Rust crate（Rust 的编译单元）`rust/crates/core-rules`。它只放小而确定、不做 I/O 的规则，例如双击 Shift 手势：每次按键都要立刻出结果。
 `lithe-core` 依赖它，并把这些规则当作普通 Core 命令分发。桌面端和调用其他 Core 命令一样，通过 C ABI（C 语言调用接口）同步调用这些规则。
 这个 crate 原来还会编译成 wasm（WebAssembly，浏览器里能运行的二进制格式），供 Windows 前端同步调用。Windows 前端已经删除，所以从 2026-11-13 起，这个 crate 不再产出 wasm，也不再提供自己的 JSON 请求入口。
 
@@ -27,7 +27,7 @@ macOS 通过 FFI 同步调用 Core，没有这个限制。结果是这几条规�
 
 ## 决策
 
-- **保留单独的 crate**：它只依赖 serde 和 serde_json，不访问文件系统、进程、线程和时钟，时间由调用方传入。规则都写成“状态 + 事件 + 时间戳 → 新状态 + 结果”的纯函数，状态由宿主保存。
+- **保留单独的 crate**：它只依赖 serde、serde_json 和 unicode-normalization（动作搜索做 NFC 规范化），不访问文件系统、进程、线程和时钟，时间由调用方传入。规则都写成“状态 + 事件 + 时间戳 → 新状态 + 结果”的纯函数，状态由宿主保存。
   - 保留它的理由不再是 wasm，而是依赖边界由编译器保证：规则代码引用不到 `lithe-core` 的 I/O 和全局状态。
   - 拆分 Core crate 时，它也正好属于最底层的基础层。
 - **命令仍是 Core 命令**：
@@ -41,6 +41,8 @@ macOS 通过 FFI 同步调用 Core，没有这个限制。结果是这几条规�
     - 布局树、拆分方向和比例不进 Core，宿主只按返回的 `removedGroupIds` 修剪自己的布局。
   - `workspace.classifyVisibility` 和 `workspace.visibilityDefaults`：隐藏路径规则（WS-04）。内置默认列表和 glob 匹配只写在 `visibility.rs` 里，`lithe-core` 的 `project/files.rs` 直接复用这份代码。
   - `workbench.chromeLayout.reduce`：工作台外框上可拖动按钮的位置，覆盖两侧工具条、标题栏末端和状态栏末端。
+  - `keymap.parseContext`、`keymap.evaluateContext`、`keymap.analyzeConflicts`、`keymap.schemes.reduce`：快捷键上下文表达式的解析与求值、冲突分析、快捷键方案的合并。2026-11-13 随 Core #27 从 `lithe-core` 的 `keymap/` 移入，命令名和 JSON 不变。
+  - `search.actions`：动作搜索的匹配与排序。2026-11-13 随 Core #27 从 `lithe-core` 的 `action_search/` 移入，命令名和 JSON 不变。
 - **2026-11-13 删除 wasm 构建**：
   - Core 里删除 `wasm.rs`、`cdylib`、`execute_json`、`is_rule_command` 和 `RuleError` 的序列化，fixture 测试改为直接调用 `execute`。
   - `lithe-core` 自己的 `cdylib` 同时删除，它也没有使用方。
@@ -48,7 +50,7 @@ macOS 通过 FFI 同步调用 Core，没有这个限制。结果是这几条规�
 
 ## 边界
 
-这个 crate 只放纯计算、体量小、处在同步热路径上的规则。涉及 I/O、进程、文件、网络、耗时长或数据量大的逻辑，放在 `lithe-core`。
+这个 crate 只放纯计算、体量小的规则。涉及 I/O、进程、文件、网络、耗时长或数据量大的逻辑，放在 `lithe-core` 或对应的基础层 crate。
 
 判断方法：如果规则要读文件、调用外部程序，或者要用 `lithe-core` 的其他模块，就不要放进这个 crate。
 
@@ -76,6 +78,7 @@ macOS 通过 FFI 同步调用 Core，没有这个限制。结果是这几条规�
 
 - Core 仓库：`cargo test -p lithe-core-rules` 直接调用 `execute`，`cargo test -p lithe-core --lib protocol` 经过 JSON 信封，两者跑同一份 fixture。
 - Core 仓库：`git grep -n -i wasm -- rust/crates/core-rules` 没有结果。
+- Core 仓库：`cargo tree --manifest-path rust/Cargo.toml -p lithe-core-rules --edges normal --depth 1` 只列出 serde、serde_json 和 unicode-normalization。
 - 桌面端：`scripts/desktop/desktop-go.sh test ./internal/core/...` 通过真实的 Core 调用 `workbench.chromeLayout.reduce` 等规则命令。
 - 本仓库：`node scripts/resources/test-reuse-worktree-resources.mjs` 通过，资源登记里没有 `core-rules-wasm`。
 
@@ -86,3 +89,4 @@ macOS 通过 FFI 同步调用 Core，没有这个限制。结果是这几条规�
 - `desktop/internal/core/keymap_gesture.go`
 - `desktop/internal/core/workbench.go`
 - `desktop/internal/core/chrome.go`
+- `desktop/internal/core/editor_essentials.go`（`keymap.schemes.reduce`）

@@ -53,7 +53,7 @@
         "macos/Sources/Lithe/Views/Git",
         "macos/Sources/LitheGitModule/Models/GitSavedChangesSnapshot.swift",
         "rust/crates/core/src/git/rebase_session.rs",
-        "rust/crates/core/src/protocol/cancellation.rs",
+        "rust/crates/protocol/src/cancellation.rs",
         "rust/crates/core/src/tests/git_history_rewrite.rs",
         "rust/crates/core/src/git/shelf.rs",
         "shared/fixtures/git/shelf-v1.json"
@@ -65,7 +65,7 @@
       "evidence": [
         "windows/tauri/src/features/git",
         "rust/crates/core/src/git/rebase_session.rs",
-        "rust/crates/core/src/protocol/cancellation.rs",
+        "rust/crates/protocol/src/cancellation.rs",
         "rust/crates/core/src/tests/git_history_rewrite.rs",
         "windows/tauri/src/features/git/components/stash/git-saved-changes.tsx",
         "windows/tauri/src/features/git/components/stash/git-saved-changes.test.tsx",

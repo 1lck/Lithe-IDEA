@@ -67,7 +67,7 @@
         ".agents/notes/implemented/simplification/2026-10-08-windows-terminal-direct-web-links.md",
         "windows/tauri/src/features/terminal/utils/terminal-keyboard.ts",
         "windows/tauri/src/features/terminal/utils/terminal-keyboard.test.ts",
-        "rust/crates/core/src/terminal/link.rs",
+        "rust/crates/terminal/src/link.rs",
         "shared/fixtures/terminal/link-target-v1.json",
         "windows/tauri/src/features/terminal/utils/terminal-file-links.ts",
         "windows/tauri/src/features/terminal/utils/terminal-file-links.test.ts"

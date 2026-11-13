@@ -52,7 +52,7 @@
         "macos/Sources/Lithe/Platform/MacOS/Agent/MacAgentProcessRegistry.swift",
         "macos/Sources/Lithe/Views/App/ProcessTerminationSettingsView.swift",
         "macos/Sources/Lithe/Views/Components/LitheInfoTip.swift",
-        "rust/crates/core/src/process/lifecycle.rs",
+        "rust/crates/process/src/lifecycle.rs",
         "shared/fixtures/process-lifecycle/exit-plan-v1.json",
         "shared/fixtures/process-lifecycle/settle-v1.json",
         "macos/Tests/LitheTests/ProcessLifecycleFixtureTests.swift",
@@ -73,8 +73,8 @@
     },
     "windows": {
       "evidence": [
-        "rust/crates/core/src/process/lifecycle.rs",
-        "rust/crates/core/src/process/inventory.rs"
+        "rust/crates/process/src/lifecycle.rs",
+        "rust/crates/process/src/inventory.rs"
       ],
       "implementationStatus": "missing",
       "verificationStatus": "not-applicable"

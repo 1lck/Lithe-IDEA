@@ -50,7 +50,7 @@
         "rust/crates/core/src/project/search_paging.rs",
         "macos/Sources/Lithe/Views/Components/LitheScrollLoadTrigger.swift",
         "macos/Sources/Lithe/Core/Rust/RustCoreBridge+ActionSearch.swift",
-        "rust/crates/core/src/action_search/mod.rs",
+        "rust/crates/core-rules/src/action_search.rs",
         "shared/fixtures/search/actions-v1.json",
         "macos/Tests/LitheTests/WorkbenchContributionHostTests.swift"
       ],

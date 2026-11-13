@@ -30,4 +30,4 @@ GitHub 设备授权的下一步、退避间隔和过期判定由 Core 计算，�
 
 ## 适用范围
 
-`rust/crates/core/src/github/mod.rs`、`macos/Sources/Lithe/Services/GitHub/GitHubService.swift` 和未来接入设备授权的 Windows 适配器。
+`rust/crates/github/src/lib.rs`、`macos/Sources/Lithe/Services/GitHub/GitHubService.swift` 和未来接入设备授权的 Windows 适配器。

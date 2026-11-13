@@ -28,9 +28,11 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
-# Lithe-core-rust #26 (community.discourse.* commands and the wasm build removed, every crate moved
-# to rust/crates/<name without the lithe- prefix>/, the C header now at
-# rust/crates/core/include/lithe_core.h), squash-merged into main, on top of #25 (the ai.*
+# Lithe-core-rust #27 (protocol, network, terminal, process, diff and github split into their own
+# crates, keymap and action search moved into lithe-core-rules; command names, JSON, error codes
+# and the C header unchanged), squash-merged into main, on top of #26 (community.discourse.*
+# commands and the wasm build removed, every crate moved to rust/crates/<name without the lithe-
+# prefix>/, the C header now at rust/crates/core/include/lithe_core.h), on top of #25 (the ai.*
 # commands moved into the lithe-ai crate; command names, JSON and error codes unchanged), #24
 # (rust/contracts and rust/fixtures are the only copy of the application contracts and fixtures,
 # which desktop tests read through LITHE_CORE_FIXTURE_DIR) and
@@ -44,7 +46,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="439f42fd152dc531396d7be9cdf393b4d86f0940"
+PINNED_CORE_REVISION="0be1d34f8926fc284a23874a4f6a57a14e339de8"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
