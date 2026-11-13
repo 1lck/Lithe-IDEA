@@ -15,16 +15,11 @@ const (
 	buildOutputVisible = 200
 )
 
-// runView declares the Run tool window: the run configurations, and under them the console of
-// what the Build window runs, beside the runs plugins started. The build systems themselves,
-// with their projects, targets and tasks, are the Build window's (build_tree_view.go); this
-// window shows what they print.
+// runView declares the Run tool window, which shows only what runs print: the console of what
+// the Build window runs, beside the runs plugins started. The build systems, with their
+// projects, targets and tasks, and the run configurations are the Build window's
+// (build_tree_view.go).
 func (a *App) runView(c ui.C, p *project) {
-	b := &p.build
-	if !b.loaded && !b.loading {
-		a.loadBuildSystems(p)
-	}
-	t := a.text.Build
 	ui.Column(c).Fill().Background(a.colors.Editor).Children(func() {
 		a.runHeader(c, p)
 		ui.Divider(c)
@@ -32,22 +27,6 @@ func (a *App) runView(c ui.C, p *project) {
 			a.runConsole(c, p, run)
 			return
 		}
-		// Until a task printed something, the console says why the window is empty: the build
-		// systems still loading, failing or absent. Output stays shown while they reload.
-		if len(b.output) == 0 {
-			switch {
-			case b.loading || !b.loaded:
-				a.panelMessage(c, t.LoadingModel, a.colors.Subtle)
-				return
-			case b.failed != "":
-				a.panelMessage(c, b.failed, a.colors.Warning)
-				return
-			case len(b.instances) == 0:
-				a.panelMessage(c, t.NoBuildSystems, a.colors.Subtle)
-				return
-			}
-		}
-		a.runConfigList(c, p)
 		a.buildOutput(c, p)
 	})
 }
@@ -152,8 +131,8 @@ type buildRow struct {
 	test     *core.BuildDiscoveredTest
 }
 
-// buildOutput declares the console of the build tasks, under the run configurations: its
-// header with the status of the last operation, then its lines.
+// buildOutput declares the console of the build tasks: its header with the status of the last
+// operation, then its lines.
 func (a *App) buildOutput(c ui.C, p *project) {
 	t := a.text.Build
 	small := a.theme.Metrics.FontSizeS

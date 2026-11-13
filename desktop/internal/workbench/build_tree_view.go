@@ -63,8 +63,8 @@ func (a *App) buildToolActions(c ui.C, p *project) {
 	})
 }
 
-// buildToolView declares the Build tool window: the tree of the build systems under a filter
-// field, or why there is none. The models of the groups the tree shows open are loaded after
+// buildToolView declares the Build tool window: the run configurations, and under them the
+// tree of the build systems under a filter field, or why there is none. The models of the groups the tree shows open are loaded after
 // it is declared, a few at a time.
 func (a *App) buildToolView(c ui.C, p *project) {
 	b, t, language := &p.build, a.text.Build, a.language()
@@ -99,26 +99,31 @@ func (a *App) buildToolView(c ui.C, p *project) {
 		return
 	}
 	ui.Column(c).Fill().Children(func() {
-		a.buildFilter(c, p)
-		// The rows are listed after the filter field took this frame's typing, so the tree
-		// already shows what was typed.
-		rows := a.buildTreeRows(p)
-		if len(rows) == 0 {
-			a.buildNotice(c, i18n.Shared(language, "desktop.build.noMatches"), "", nil)
-			return
-		}
-		list := &p.panels.choices
-		// Groups and sections open and close by a click, so none of them is a pinned header.
-		list.Header = nil
-		list.Label = func(i int) string {
-			if i >= 0 && i < len(rows) {
-				return rows[i].label
+		a.runConfigList(c, p)
+		// The filter field and the tree are one pane, the second of the splitter under the run
+		// configurations, so the splitter's limits count the whole tree and not the field alone.
+		ui.Column(c).FillWidth().Grow(1).Shrink(1).MinHeight(0).Children(func() {
+			a.buildFilter(c, p)
+			// The rows are listed after the filter field took this frame's typing, so the tree
+			// already shows what was typed.
+			rows := a.buildTreeRows(p)
+			if len(rows) == 0 {
+				a.buildNotice(c, i18n.Shared(language, "desktop.build.noMatches"), "", nil)
+				return
 			}
-			return ""
-		}
-		ui.List(c, list, len(rows), func(row ui.ListRow) {
-			a.buildTreeRow(row, p, rows[row.Index])
-		}).Label(t.Systems).FillWidth().Grow(1).MinHeight(0).PadY(treelist.PadY)
+			list := &p.panels.choices
+			// Groups and sections open and close by a click, so none of them is a pinned header.
+			list.Header = nil
+			list.Label = func(i int) string {
+				if i >= 0 && i < len(rows) {
+					return rows[i].label
+				}
+				return ""
+			}
+			ui.List(c, list, len(rows), func(row ui.ListRow) {
+				a.buildTreeRow(row, p, rows[row.Index])
+			}).Label(t.Systems).FillWidth().Grow(1).MinHeight(0).PadY(treelist.PadY)
+		})
 	})
 	a.loadOpenBuildModels(p)
 }

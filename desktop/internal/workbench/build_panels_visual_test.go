@@ -59,8 +59,9 @@ func visualBuildSystems() []buildInstance {
 	}
 }
 
-// TestVisualBuildPanels captures the aggregated Build window on the right beside the Run window
-// at the bottom showing the build console, and the Build window filtered.
+// TestVisualBuildPanels captures the Build window on the right, with the run configurations
+// above the aggregated build tree, beside the Run window at the bottom showing only the build
+// console, and the Build window filtered.
 func TestVisualBuildPanels(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
