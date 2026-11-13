@@ -7986,6 +7986,13 @@
       ]
     },
     {
+      "id": "desktop.debug.disassemblyRetry",
+      "description": "Disassembly: button beside a failed load that asks for the same instructions again",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.debug.editValue",
       "description": "Placeholder and label of the field that holds a variable's new value",
       "platforms": [
@@ -8162,6 +8169,13 @@
     {
       "id": "desktop.debug.memoryRadixHex",
       "description": "Memory window base choice: each byte in hexadecimal",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.memoryTypeAddress",
+      "description": "Memory window: shown when the selected stack frame has no instruction address to read at, so the user types one",
       "platforms": [
         "desktop"
       ]
@@ -16561,6 +16575,16 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.title.configurationNotStartable",
+      "description": "Desktop title bar: Run or Debug pressed on a run configuration that does not start through a build provider, so nothing can start it",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
     },
     {
       "id": "desktop.title.currentFileNotRunnable",

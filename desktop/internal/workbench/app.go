@@ -93,6 +93,7 @@ type Kernel interface {
 	NormalizeSteppingFilters(ctx context.Context, adapterID string, filters core.DebugSteppingFilters) (core.DebugSteppingFilters, error)
 	GenerateRunConfigurations(ctx context.Context, root, cacheDirectory string, providerRuns json.RawMessage) (core.RunConfigGeneration, error)
 	ResolveRunConfigurations(ctx context.Context, root string) (core.RunConfigResolution, error)
+	DecideTitleAction(ctx context.Context, facts core.TitleActionFacts) (string, error)
 	ProviderLaunchInputs(ctx context.Context, root, configurationID, providerRoot string) (core.RunProviderLaunchInputs, error)
 	UpdateRunConfigurationOptions(ctx context.Context, edit core.RunOptionsEdit) (string, error)
 	RunArgumentText(ctx context.Context, lists [][]string) ([]string, error)

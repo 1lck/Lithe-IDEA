@@ -11,6 +11,7 @@
       "desktop/internal/workbench/debug_sections_view.go",
       "desktop/internal/workbench/debug_watch.go",
       "desktop/internal/workbench/debug_mute.go",
+      "desktop/internal/core/debug_state.go",
       "desktop/internal/workbench/debug_threads.go",
       "desktop/internal/workbench/debug_menus.go",
       "desktop/internal/workbench/debug_start.go",
@@ -30,6 +31,7 @@
       "desktop/internal/workbench/debug_sections_view.go",
       "desktop/internal/workbench/debug_watch.go",
       "desktop/internal/workbench/debug_mute.go",
+      "desktop/internal/core/debug_state.go",
       "desktop/internal/workbench/debug_threads.go",
       "desktop/internal/workbench/debug_menus.go",
       "desktop/internal/workbench/debug_start.go",
@@ -42,6 +44,6 @@
     ]
   },
   "owner": "Debug",
-  "verification": "用 fixture 调试适配器暂停目标：工具栏各按钮按会话状态启用，每个图标的提示为其操作名；会话中适配器下拉仍在工具栏，状态只在下拉显示的不是该会话适配器时带上会话名；重新运行停止当前会话并按首次启动方式重启；静音后断点保留并以禁用状态发送，取消静音按原样重发；更多菜单在树与 JSON 间切换并开关折叠过滤帧；回车求值保留输入，求值和监视的长失败原因折行完整显示、不加省略号，有值的监视仍为单行；⇧⌘⏎（其他平台 Ctrl+Shift+Enter）加为监视并清空输入；栈帧右键菜单末尾可复制线程名、单独恢复线程；控制台显示适配器输出并在位于末尾时跟随新行；查看断点对话框可增删、启用禁用断点并选择异常断点；反汇编左侧显示栈帧、右侧显示指令，打开时以当前指令居中，选中无指令指针的栈帧显示无反汇编，选回后按该帧指令指针重新打开，点击行首红点增删指令断点，单步按指令执行；内存输入 8208 跳到 0x2010 并高亮该字节，切换每行 32 字节和二进制后版式保持，回到当前指令时保留版式。原生窗口视觉与真实 Go/LLDB 适配器验收 pending。",
+  "verification": "用 fixture 调试适配器暂停目标：工具栏各按钮按会话状态启用，每个图标的提示为其操作名；会话中适配器下拉仍在工具栏，状态只在下拉显示的不是该会话适配器时带上会话名；重新运行停止当前会话并按首次启动方式重启；静音后每个会话的源码、异常、函数、指令和数据断点都由 Core 以空集发送、本地仍保留，静音期间启动的会话以静音状态启动，取消静音按原样重发；更多菜单在树与 JSON 间切换并开关折叠过滤帧；回车求值保留输入，求值和监视的长失败原因折行完整显示、不加省略号，有值的监视仍为单行；⇧⌘⏎（其他平台 Ctrl+Shift+Enter）加为监视并清空输入；栈帧右键菜单末尾可复制线程名、单独恢复线程；控制台显示适配器输出并在位于末尾时跟随新行；查看断点对话框可增删、启用禁用断点并选择异常断点；反汇编左侧显示栈帧、右侧显示指令，打开时以当前指令居中，选中无指令指针的栈帧显示无反汇编，选回后按该帧指令指针重新打开，点击行首红点增删指令断点，单步按指令执行；反汇编某一端加载失败后不再随每次绘制重复请求，点“重试”再加载一次；内存输入 8208 跳到 0x2010 并高亮该字节（读取窗口和高亮位置由 Core 计算），没有指令指针的栈帧也能输入地址读取，切换每行 32 字节和二进制后版式保持，回到当前指令时保留版式。原生窗口视觉与真实 Go/LLDB 适配器验收 pending。",
   "notes": "线程下拉在只有一个线程时也显示。树与 JSON 的切换从变量区移到工具栏“更多”菜单。暂无布局切换按钮、异步栈、包名列（DebugStackFrame 无包字段）；监视以独立行显示，尚未并入变量树。 内存暂不支持表达式输入（变量未携带 memoryReference）；进制提供 16/10/8/2，未提供 4 进制。反汇编向前加载时以可见范围（含 2 行预排）中点保持位置，属近似。"
 }

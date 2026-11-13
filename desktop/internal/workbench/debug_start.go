@@ -403,9 +403,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 	} else if declared, ok := core.DeclaredSteppingFilters(adapter.Declaration.Features, adapter.Declaration.Defaults); ok {
 		hideFiltered = declared.HideFilteredStackFrames
 	}
-	// Muted breakpoints are kept but not sent, so the new session stops on none of them.
-	muted := p.debug.muted
-	functionBreakpoints := unlessMuted(slices.Clone(p.debug.functionBreakpoints), muted)
+	functionBreakpoints := slices.Clone(p.debug.functionBreakpoints)
 	// A data breakpoint whose identity does not persist ends with the session that resolved it.
 	dataBreakpoints := make([]core.DebugDataBreakpoint, 0, len(p.debug.dataBreakpoints))
 	for _, breakpoint := range p.debug.dataBreakpoints {
@@ -413,7 +411,6 @@ func (a *App) beginDebug(p *project, start debugStart) {
 			dataBreakpoints = append(dataBreakpoints, breakpoint.DebugDataBreakpoint)
 		}
 	}
-	dataBreakpoints = unlessMuted(dataBreakpoints, muted)
 	breakpoints := make(map[string][]debugBreakpoint, len(p.debug.breakpoints))
 	for path, lines := range p.debug.breakpoints {
 		breakpoints[path] = append([]debugBreakpoint(nil), lines...)
@@ -433,6 +430,8 @@ func (a *App) beginDebug(p *project, start debugStart) {
 		parent:         start.parent,
 		startRequestID: start.startRequestID,
 	}
+	// A session started while the breakpoints are muted starts muted.
+	session.muted.Store(p.debug.muted)
 	parentSessionID := ""
 	if start.parent != nil {
 		parentSessionID = start.parent.id
@@ -539,6 +538,18 @@ func (a *App) beginDebug(p *project, start debugStart) {
 			return func(a *App) { a.finishDebugError(p, session, err) }
 		}
 		a.postDebugUpdate(p, session, update)
+		// Muting comes before the first breakpoint set, so a muted session never stops on
+		// one; a later toggle is applied once this startup is done.
+		if session.muted.Load() {
+			update, err := a.kernel.SetDebugBreakpointsMuted(ctx, session.id, true)
+			if err != nil {
+				return func(a *App) { a.finishDebugError(p, session, err) }
+			}
+			if err := session.writeFrames(update.OutboundFrames); err != nil {
+				return func(a *App) { a.finishDebugError(p, session, err) }
+			}
+			a.postDebugUpdate(p, session, update)
+		}
 		if len(dataBreakpoints) > 0 {
 			update, err := a.kernel.SetDebugDataBreakpoints(ctx, session.id, dataBreakpoints)
 			if err != nil {
@@ -560,7 +571,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 			a.postDebugUpdate(p, session, update)
 		}
 		for path, lines := range breakpoints {
-			update, err := a.kernel.SetDebugBreakpoints(ctx, session.id, path, sessionSourceBreakpoints(lines, muted))
+			update, err := a.kernel.SetDebugBreakpoints(ctx, session.id, path, sourceBreakpoints(lines))
 			if err != nil {
 				return func(a *App) { a.finishDebugError(p, session, err) }
 			}

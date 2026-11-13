@@ -1,0 +1,217 @@
+{
+  "version": 1,
+  "expected": { "providerNeutral": true, "failedModelLoadsAgainOnlyOnPress": true },
+  "description": "runConfig.decideTitleAction: what a press on the title bar's Run or Debug button does, from the facts the host reports. The host keeps a press answered wait or loadModel and asks again with trigger settled once the configurations or the model arrive.",
+  "cases": [
+    {
+      "name": "current file chosen acts at once, even before the configurations are read",
+      "request": {
+        "action": "debug",
+        "trigger": "press",
+        "currentFileChosen": true,
+        "settled": false
+      },
+      "expected": {
+        "kind": "currentFile"
+      }
+    },
+    {
+      "name": "a press before the configurations are read waits",
+      "request": {
+        "action": "run",
+        "trigger": "press",
+        "currentFileChosen": false,
+        "settled": false,
+        "configuration": {
+          "kind": "modelLoaded",
+          "debuggable": true
+        }
+      },
+      "expected": {
+        "kind": "wait"
+      }
+    },
+    {
+      "name": "an answer that leaves the configurations unread keeps waiting",
+      "request": {
+        "action": "run",
+        "trigger": "settled",
+        "currentFileChosen": false,
+        "settled": false
+      },
+      "expected": {
+        "kind": "wait"
+      }
+    },
+    {
+      "name": "a project without configurations acts on the current file",
+      "request": {
+        "action": "run",
+        "trigger": "press",
+        "currentFileChosen": false,
+        "settled": true
+      },
+      "expected": {
+        "kind": "currentFile"
+      }
+    },
+    {
+      "name": "a configuration that does not start through a build provider",
+      "request": {
+        "action": "run",
+        "trigger": "press",
+        "currentFileChosen": false,
+        "settled": true,
+        "configuration": {
+          "kind": "unsupported"
+        }
+      },
+      "expected": {
+        "kind": "unsupported"
+      }
+    },
+    {
+      "name": "an undetected build instance",
+      "request": {
+        "action": "run",
+        "trigger": "press",
+        "currentFileChosen": false,
+        "settled": true,
+        "configuration": {
+          "kind": "instanceMissing"
+        }
+      },
+      "expected": {
+        "kind": "targetMissing"
+      }
+    },
+    {
+      "name": "an unloaded model is loaded first",
+      "request": {
+        "action": "run",
+        "trigger": "press",
+        "currentFileChosen": false,
+        "settled": true,
+        "configuration": {
+          "kind": "modelNotLoaded",
+          "failed": false
+        }
+      },
+      "expected": {
+        "kind": "loadModel"
+      }
+    },
+    {
+      "name": "a press loads a model that failed before once more",
+      "request": {
+        "action": "run",
+        "trigger": "press",
+        "currentFileChosen": false,
+        "settled": true,
+        "configuration": {
+          "kind": "modelNotLoaded",
+          "failed": true
+        }
+      },
+      "expected": {
+        "kind": "loadModel"
+      }
+    },
+    {
+      "name": "a model that fails again ends the waiting press",
+      "request": {
+        "action": "run",
+        "trigger": "settled",
+        "currentFileChosen": false,
+        "settled": true,
+        "configuration": {
+          "kind": "modelNotLoaded",
+          "failed": true
+        }
+      },
+      "expected": {
+        "kind": "modelFailed"
+      }
+    },
+    {
+      "name": "a model that has not loaded yet after an answer is loaded",
+      "request": {
+        "action": "run",
+        "trigger": "settled",
+        "currentFileChosen": false,
+        "settled": true,
+        "configuration": {
+          "kind": "modelNotLoaded",
+          "failed": false
+        }
+      },
+      "expected": {
+        "kind": "loadModel"
+      }
+    },
+    {
+      "name": "run with a loaded model",
+      "request": {
+        "action": "run",
+        "trigger": "press",
+        "currentFileChosen": false,
+        "settled": true,
+        "configuration": {
+          "kind": "modelLoaded",
+          "debuggable": false
+        }
+      },
+      "expected": {
+        "kind": "run"
+      }
+    },
+    {
+      "name": "run once the waited model arrives",
+      "request": {
+        "action": "run",
+        "trigger": "settled",
+        "currentFileChosen": false,
+        "settled": true,
+        "configuration": {
+          "kind": "modelLoaded",
+          "debuggable": true
+        }
+      },
+      "expected": {
+        "kind": "run"
+      }
+    },
+    {
+      "name": "debug a run that declares a debug adapter",
+      "request": {
+        "action": "debug",
+        "trigger": "press",
+        "currentFileChosen": false,
+        "settled": true,
+        "configuration": {
+          "kind": "modelLoaded",
+          "debuggable": true
+        }
+      },
+      "expected": {
+        "kind": "debug"
+      }
+    },
+    {
+      "name": "debug a run that declares no debug adapter",
+      "request": {
+        "action": "debug",
+        "trigger": "press",
+        "currentFileChosen": false,
+        "settled": true,
+        "configuration": {
+          "kind": "modelLoaded",
+          "debuggable": false
+        }
+      },
+      "expected": {
+        "kind": "notDebuggable"
+      }
+    }
+  ]
+}

@@ -100,3 +100,36 @@ func TestRunConfigurationOptionsRoundTrip(t *testing.T) {
 		t.Fatalf("argument text = %q, %v", texts, err)
 	}
 }
+
+// TestTitleActionsFollowTheContractFixture replays every title bar case through the typed
+// wrapper.
+func TestTitleActionsFollowTheContractFixture(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "shared", "fixtures", "run-configuration", "title-action-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Cases []struct {
+			Name     string           `json:"name"`
+			Request  TitleActionFacts `json:"request"`
+			Expected struct {
+				Kind string `json:"kind"`
+			} `json:"expected"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	client := NewClient()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for _, testCase := range fixture.Cases {
+		got, err := client.DecideTitleAction(ctx, testCase.Request)
+		if err != nil {
+			t.Fatalf("%s: %v", testCase.Name, err)
+		}
+		if got != testCase.Expected.Kind {
+			t.Fatalf("%s: decision = %q, want %q", testCase.Name, got, testCase.Expected.Kind)
+		}
+	}
+}

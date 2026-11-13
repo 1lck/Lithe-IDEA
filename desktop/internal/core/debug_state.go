@@ -353,3 +353,68 @@ func (c *Client) SetDebugDataBreakpoints(ctx context.Context, sessionID string, 
 	}
 	return update, nil
 }
+
+// SetDebugBreakpointsMuted mutes or unmutes every breakpoint kind of a session. Core keeps the
+// stored sets and sends each kind empty while muted; a child session starts muted when its
+// parent is.
+func (c *Client) SetDebugBreakpointsMuted(ctx context.Context, sessionID string, muted bool) (DebugUpdate, error) {
+	var update DebugUpdate
+	if err := c.Execute(ctx, "debug.setBreakpointsMuted", struct {
+		SessionID string `json:"sessionId"`
+		Muted     bool   `json:"muted"`
+	}{sessionID, muted}, &update); err != nil {
+		return DebugUpdate{}, err
+	}
+	return update, nil
+}
+
+// DebugReadMemoryArguments are the exact DAP readMemory arguments of a memory window.
+type DebugReadMemoryArguments struct {
+	MemoryReference string `json:"memoryReference"`
+	Offset          int64  `json:"offset"`
+	Count           uint32 `json:"count"`
+}
+
+// DebugMemoryWindow is one planned readMemory window. The host keeps it and passes it back
+// with the adapter's reply.
+type DebugMemoryWindow struct {
+	// Address is what the address field shows: a number in lowercase 0x hexadecimal, any
+	// other reference as given.
+	Address string                   `json:"address"`
+	Request DebugReadMemoryArguments `json:"request"`
+}
+
+// DebugMemoryLocation is where one reply's bytes sit.
+type DebugMemoryLocation struct {
+	// Base is the first returned byte's address in lowercase 0x hexadecimal; empty when
+	// neither the reply nor the window gives a number.
+	Base string `json:"base,omitempty"`
+	// Mark is the index of the byte at the address read; nil when the reply does not hold it.
+	Mark *uint32 `json:"mark,omitempty"`
+}
+
+// PlanDebugMemoryWindow places the memory view's readMemory window at an address the user
+// typed or at a frame's instruction pointer.
+func (c *Client) PlanDebugMemoryWindow(ctx context.Context, address string) (DebugMemoryWindow, error) {
+	var window DebugMemoryWindow
+	if err := c.Execute(ctx, "debug.planMemoryWindow", struct {
+		Address string `json:"address"`
+	}{address}, &window); err != nil {
+		return DebugMemoryWindow{}, err
+	}
+	return window, nil
+}
+
+// LocateDebugMemoryWindow finds where a reply's bytes start and which of them is at the
+// window's address. start is the reply's address, empty when the adapter gave none.
+func (c *Client) LocateDebugMemoryWindow(ctx context.Context, window DebugMemoryWindow, start string, length uint32) (DebugMemoryLocation, error) {
+	var location DebugMemoryLocation
+	if err := c.Execute(ctx, "debug.locateMemoryWindow", struct {
+		Window DebugMemoryWindow `json:"window"`
+		Start  string            `json:"start,omitempty"`
+		Length uint32            `json:"length"`
+	}{window, start, length}, &location); err != nil {
+		return DebugMemoryLocation{}, err
+	}
+	return location, nil
+}

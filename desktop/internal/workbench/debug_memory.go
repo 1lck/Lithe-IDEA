@@ -14,11 +14,6 @@ import (
 )
 
 const (
-	// debugMemoryBytes is one readMemory window. The host never asks for more than one window.
-	debugMemoryBytes = 1024
-	// debugMemoryAlign is the multiple a window starts on when the address read at is a number,
-	// so the rows of every bytes-per-row choice start on a multiple of their width.
-	debugMemoryAlign = 64
 	// debugMemoryDefaultColumns is how many bytes one row shows until the user chooses.
 	debugMemoryDefaultColumns = 16
 	// debugMemoryAddressWidth is the width of the address field and debugMemoryPickerWidth
@@ -36,12 +31,17 @@ var (
 	debugMemoryRadixChoices  = []int{16, 10, 8, 2}
 )
 
-// debugMemory is the read-only memory window of the selected frame. Core owns
-// the readMemory request and capability checks; the host decodes the base64
-// bytes and lays them out.
+// debugMemory is the read-only memory window of the selected frame. Core places the window,
+// owns the readMemory request and capability checks, and finds where the reply's bytes start
+// and which of them is at the address read; the host decodes the base64 bytes and lays them out.
 type debugMemory struct {
-	bytes   []byte
-	address string
+	bytes []byte
+	// window is the readMemory window Core placed at the address read, echoed back to it with
+	// the reply.
+	window core.DebugMemoryWindow
+	// base is the first byte's address as Core writes it, lowercase 0x hexadecimal; empty when
+	// no number gives it, and rows are labelled with their offset in the window.
+	base string
 	// at is the address the user asked to read, typed in the field or from the disassembly's
 	// menu; empty reads at the selected frame's instruction pointer. Like every reference of
 	// the adapter it holds only until the debuggee runs again.
@@ -80,19 +80,26 @@ func (m *debugMemory) layout() (columns, radix int) {
 	return columns, radix
 }
 
-// canReadDebugMemory reports whether the paused frame has an address the adapter
-// can read. It mirrors Core's checks so the section never asks for a refusal.
+// canReadDebugMemory reports whether the memory window can read at all: the session is paused
+// on an adapter that reads memory. It mirrors Core's checks so the section never asks for a
+// refusal. Where it reads is debugMemoryReference; a frame without an instruction pointer still
+// reads at an address the user types.
 func canReadDebugMemory(d *debugState) bool {
-	return d.activeSession() != nil && d.state == "paused" && d.capabilities != nil && d.capabilities.SupportsReadMemoryRequest &&
-		debugMemoryReference(d) != ""
+	return d.activeSession() != nil && d.state == "paused" && d.capabilities != nil && d.capabilities.SupportsReadMemoryRequest
 }
 
 // debugMemoryReference is the address the memory window reads: the one asked for, or else
-// the selected frame's instruction pointer.
+// the selected frame's instruction pointer. Empty when neither is known.
 func debugMemoryReference(d *debugState) string {
 	if d.memory.at != "" {
 		return d.memory.at
 	}
+	return debugFrameInstruction(d)
+}
+
+// debugFrameInstruction is the selected frame's instruction pointer, empty for a frame the
+// adapter gave none.
+func debugFrameInstruction(d *debugState) string {
 	if d.vars.frame >= 0 && d.vars.frame < len(d.frames) {
 		return d.frames[d.vars.frame].InstructionPointerReference
 	}
@@ -109,41 +116,46 @@ func (a *App) readDebugMemoryAt(p *project, address string) {
 	}
 	d.memory.reset()
 	d.memory.at = strings.TrimSpace(address)
-	if value, ok := parseDebugAddress(d.memory.at); ok {
-		// A number is sent as the protocol writes addresses, so a decimal one reads as typed.
-		d.memory.at = fmt.Sprintf("0x%x", value)
-	}
 	d.section = debugSectionMemory
 	a.loadDebugMemory(p)
 }
 
-// loadDebugMemory reads one bounded window at the address asked for. When that address is a
-// number the window starts a little before it, on a multiple of debugMemoryAlign, so the
-// address sits in its row as it would in a full dump; an opaque reference is read from where
-// it points. Core rejects a request the adapter cannot serve; the failure stays in the section.
+// loadDebugMemory reads one bounded window at the address asked for, placed by Core: a number
+// is read from a little before it so the address sits in its row as it would in a full dump,
+// an opaque reference from where it points. Core rejects an address or a request the adapter
+// cannot serve; the failure stays in the section.
 func (a *App) loadDebugMemory(p *project) {
 	d := &p.debug
 	if d.memory.loading {
 		return
 	}
-	if !canReadDebugMemory(d) {
+	reference := debugMemoryReference(d)
+	if !canReadDebugMemory(d) || reference == "" {
 		// The frame changed between the paint that asked and this call; let the
 		// next paint ask again instead of leaving the section waiting forever.
 		d.memory.requested = false
 		return
 	}
-	reference := debugMemoryReference(d)
-	target, numeric := parseDebugAddress(reference)
-	lead := int64(0)
-	if numeric {
-		lead = int64(target % debugMemoryAlign)
+	m := &d.memory
+	m.requested = false
+	ctx, cancel := context.WithTimeout(p.ctx, kernelCallTimeout)
+	window, err := a.kernel.PlanDebugMemoryWindow(ctx, reference)
+	cancel()
+	if err != nil {
+		m.failure = err.Error()
+		return
 	}
-	d.memory.loading, d.memory.requested, d.memory.failure = true, false, ""
-	offset, count := -lead, int64(debugMemoryBytes)
+	if m.at != "" {
+		// A typed number is shown and read as Core writes it, so a decimal one reads as typed.
+		m.at = window.Address
+	}
+	m.window, m.loading, m.failure = window, true, ""
+	request := window.Request
+	offset, count := request.Offset, int64(request.Count)
 	a.debugOperation(p, "readMemory", func(ctx context.Context, session *debugSession, operationID string) (core.DebugUpdate, error) {
 		return a.kernel.InspectDebug(ctx, core.DebugInspectRequest{
 			SessionID: session.id, OperationID: operationID, Kind: "readMemory",
-			MemoryReference: reference, Offset: &offset, Count: &count,
+			MemoryReference: request.MemoryReference, Offset: &offset, Count: &count,
 		})
 	}, debugOperationHandlers{done: func(a *App, result core.DebugOperationResult) {
 		m := &p.debug.memory
@@ -157,25 +169,20 @@ func (a *App) loadDebugMemory(p *project) {
 			m.failure = err.Error()
 			return
 		}
+		ctx, cancel := context.WithTimeout(p.ctx, kernelCallTimeout)
+		location, err := a.kernel.LocateDebugMemoryWindow(ctx, window, result.Address, uint32(len(data)))
+		cancel()
+		if err != nil {
+			m.failure = err.Error()
+			return
+		}
 		m.bytes, m.unreadable, m.failure = data, result.UnreadableBytes, ""
-		m.address = result.Address
-		if m.address == "" {
-			m.address = reference
-		}
-		// The adapter says where the bytes start; without a number for it, the bytes start
-		// where they were asked from.
-		m.mark = int(lead)
-		if base, ok := parseDebugAddress(result.Address); ok && numeric {
-			m.mark = -1
-			if target >= base && target-base < uint64(len(data)) {
-				m.mark = int(target - base)
-			}
-		}
-		if m.mark >= len(data) {
-			m.mark = -1
+		m.base, m.mark = location.Base, -1
+		if location.Mark != nil {
+			m.mark = int(*location.Mark)
 		}
 		if m.input == "" {
-			m.input = reference
+			m.input = window.Address
 		}
 		m.version++
 		if m.mark >= 0 {
@@ -188,15 +195,14 @@ func (a *App) loadDebugMemory(p *project) {
 	}})
 }
 
-// parseDebugAddress reads an address as the Debug Adapter Protocol writes one: hexadecimal
-// after 0x, decimal otherwise. Anything else is an opaque reference and reports false.
-func parseDebugAddress(text string) (uint64, bool) {
-	text = strings.TrimSpace(text)
-	base := 10
-	if len(text) > 2 && (text[:2] == "0x" || text[:2] == "0X") {
-		text, base = text[2:], 16
+// debugMemoryBase reads the first byte's address Core gave, lowercase 0x hexadecimal, for the
+// row labels; false when Core gave none.
+func debugMemoryBase(base string) (uint64, bool) {
+	digits, ok := strings.CutPrefix(base, "0x")
+	if !ok {
+		return 0, false
 	}
-	value, err := strconv.ParseUint(text, base, 64)
+	value, err := strconv.ParseUint(digits, 16, 64)
 	return value, err == nil
 }
 
@@ -282,16 +288,22 @@ func (a *App) debugMemoryView(c ui.C, p *project) {
 		a.panelMessage(c, t.NoMemory, a.colors.Subtle)
 		return
 	}
-	if len(m.bytes) == 0 && !m.loading && !m.requested && m.failure == "" {
+	reference := debugMemoryReference(d)
+	if len(m.bytes) == 0 && !m.loading && !m.requested && m.failure == "" && reference != "" {
 		// Ask on this paint: the answer is a background operation, and a deferred
 		// callback can be dropped when the next update repaints the section first.
 		m.requested = true
 		a.loadDebugMemory(p)
 	}
 	a.debugMemoryToolbar(c, p)
+	if reference == "" {
+		// The frame has no instruction pointer to start from; the address field reads anywhere.
+		a.panelMessage(c, i18n.Shared(a.language(), "desktop.debug.memoryTypeAddress"), a.colors.Subtle)
+		return
+	}
 	columns, radix := m.layout()
 	if m.shown != m.version {
-		base, absolute := parseDebugAddress(m.address)
+		base, absolute := debugMemoryBase(m.base)
 		m.lines = debugMemoryLines(m.bytes, base, absolute, columns, radix, m.mark)
 		m.shown = m.version
 	}
@@ -350,7 +362,8 @@ func (a *App) debugMemoryToolbar(c ui.C, p *project) {
 				p.debug.memory.input = p.debug.memory.at
 			})
 		}
-		if _, clicked := a.toolIconButton(c.Part("memoryCurrent"), t.Reload, icons.Locate, false, m.loading); clicked {
+		// Going back to the current instruction needs a frame that has one.
+		if _, clicked := a.toolIconButton(c.Part("memoryCurrent"), t.Reload, icons.Locate, false, m.loading || debugFrameInstruction(d) == ""); clicked {
 			c.After(func() {
 				a.performed("debug.memory.currentInstruction", surfaceButton)
 				a.readDebugMemoryAt(p, "")

@@ -180,7 +180,7 @@ func (a *App) sendFunctionBreakpoints(p *project) {
 		return
 	}
 	session := p.debug.activeSession()
-	breakpoints := unlessMuted(slices.Clone(p.debug.functionBreakpoints), p.debug.muted)
+	breakpoints := slices.Clone(p.debug.functionBreakpoints)
 	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
 		session.operationMu.Lock()
 		defer session.operationMu.Unlock()
@@ -247,7 +247,7 @@ func (a *App) sendInstructionBreakpoints(p *project) {
 		return
 	}
 	session := p.debug.activeSession()
-	breakpoints := unlessMuted(slices.Clone(p.debug.instructionBreakpoints), p.debug.muted)
+	breakpoints := slices.Clone(p.debug.instructionBreakpoints)
 	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
 		session.operationMu.Lock()
 		defer session.operationMu.Unlock()
@@ -339,7 +339,6 @@ func (a *App) sendDataBreakpoints(p *project) {
 	for _, breakpoint := range p.debug.dataBreakpoints {
 		breakpoints = append(breakpoints, breakpoint.DebugDataBreakpoint)
 	}
-	breakpoints = unlessMuted(breakpoints, p.debug.muted)
 	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
 		session.operationMu.Lock()
 		defer session.operationMu.Unlock()

@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"context"
 	"errors"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -136,75 +137,104 @@ func (a *App) titleDebug(p *project) {
 	a.titleStart(p, titleActionDebug)
 }
 
-// titleStart performs action now when the configurations are read, and otherwise reads them
-// and performs it once they are. A later press replaces the waiting one.
+// titleStart is a press on Run or Debug. Unless the user chose Current File, the press waits
+// while the configurations are read, and an answer that settles them while they are asked for
+// performs it; otherwise Core decides what the press does now.
 func (a *App) titleStart(p *project, action titleAction) {
-	if p.runConfigs.currentFile {
-		a.performTitleAction(p, action, true)
-		return
-	}
-	p.runConfigs.pending = action
-	a.loadTitleRunConfigs(p)
-	if p.runConfigs.pending == action && p.runConfigsSettled() {
-		p.runConfigs.pending = titleActionNone
-		a.performTitleAction(p, action, true)
-	}
-}
-
-// settleTitleAction performs the press that waited for the configurations once they are read.
-// It runs after every answer that can settle them: detection, a model and the configurations.
-func (a *App) settleTitleAction(p *project) {
-	if p == nil || a.project != p || p.runConfigs.pending == titleActionNone || !p.runConfigsSettled() {
-		return
-	}
-	action := p.runConfigs.pending
-	p.runConfigs.pending = titleActionNone
-	a.performTitleAction(p, action, false)
-}
-
-// performTitleAction starts action on the title bar's choice. A configuration whose model has
-// not loaded loads it first and waits again; retry says a model that failed before is loaded
-// once more, which only a press asks for, so an answer that fails again does not loop.
-func (a *App) performTitleAction(p *project, action titleAction, retry bool) {
-	configuration := p.titleConfiguration()
-	if configuration == nil {
-		a.performCurrentFileAction(p, action)
-		return
-	}
-	reference, ok := configuration.BuildReference()
-	if !ok {
-		return
-	}
-	index := p.buildInstanceIndex(reference)
-	if index < 0 {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("title_run", errors.New("the configuration's build instance was not detected")))
-		a.notifyError(a.text.Build.TargetMissing)
-		return
-	}
-	instance := &p.build.instances[index]
-	if !instance.modelLoaded {
-		if instance.modelError != "" && !retry {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("title_run", errors.New(instance.modelError)))
-			a.notifyError(instance.modelError)
+	if !p.runConfigs.currentFile {
+		p.runConfigs.pending = action
+		a.loadTitleRunConfigs(p)
+		if p.runConfigs.pending != action {
 			return
 		}
-		p.runConfigs.pending = action
-		a.loadBuildModel(p, index)
+	}
+	a.decideTitleAction(p, action, "press")
+}
+
+// settleTitleAction asks again for the press that waited, after every answer that can settle
+// the configurations: detection, a model and the configurations.
+func (a *App) settleTitleAction(p *project) {
+	if p == nil || a.project != p || p.runConfigs.pending == titleActionNone {
 		return
 	}
-	switch action {
-	case titleActionRun:
+	a.decideTitleAction(p, p.runConfigs.pending, "settled")
+}
+
+// decideTitleAction reports the facts a press depends on to Core and does what Core decides:
+// keep the press until the configurations are read, load the configuration's model first, start
+// it, or end with a notice. A model that failed before is loaded again only on a press, so an
+// answer that fails again ends instead of looping.
+func (a *App) decideTitleAction(p *project, action titleAction, trigger string) {
+	facts := core.TitleActionFacts{
+		Action: "run", Trigger: trigger,
+		CurrentFileChosen: p.runConfigs.currentFile, Settled: p.runConfigsSettled(),
+	}
+	if action == titleActionDebug {
+		facts.Action = "debug"
+	}
+	configuration := p.titleConfiguration()
+	var reference core.RunProviderReference
+	index := -1
+	if configuration != nil {
+		facts.Configuration = &core.TitleConfiguration{Kind: "unsupported"}
+		var ok bool
+		if reference, ok = configuration.BuildReference(); ok {
+			index = p.buildInstanceIndex(reference)
+			facts.Configuration = p.titleConfigurationFacts(index, reference)
+		}
+	}
+	ctx, cancel := context.WithTimeout(p.ctx, kernelCallTimeout)
+	decision, err := a.kernel.DecideTitleAction(ctx, facts)
+	cancel()
+	p.runConfigs.pending = titleActionNone
+	if err != nil {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("title_run", err))
+		a.notifyError(err.Error())
+		return
+	}
+	switch decision {
+	case "wait":
+		p.runConfigs.pending = action
+	case "loadModel":
+		p.runConfigs.pending = action
+		a.loadBuildModel(p, index)
+	case "currentFile":
+		a.performCurrentFileAction(p, action)
+	case "unsupported":
+		a.notifyInfo(i18n.SharedFormat(a.language(), "desktop.title.configurationNotStartable", map[string]string{"name": configuration.Name}))
+	case "targetMissing":
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("title_run", errors.New("the configuration's build instance was not detected")))
+		a.notifyError(a.text.Build.TargetMissing)
+	case "modelFailed":
+		failure := p.build.instances[index].modelError
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("title_run", errors.New(failure)))
+		a.notifyError(failure)
+	case "run":
 		if _, err := a.startRunConfiguration(p, configuration.ID); errors.Is(err, errBuildBusy) {
 			a.notifyInfo(i18n.Shared(a.language(), "desktop.title.runBusy"))
 		}
-	case titleActionDebug:
-		run, ok := buildRunDeclaration(instance.System, reference.Run)
-		if !ok || run.DebugAdapter == "" {
-			a.notifyInfo(i18n.SharedFormat(a.language(), "desktop.title.notDebuggable", map[string]string{"name": configuration.Name}))
-			return
-		}
+	case "debug":
 		a.debugProviderTarget(p, index, reference.ProjectID, reference.TargetID, reference.Run)
+	case "notDebuggable":
+		a.notifyInfo(i18n.SharedFormat(a.language(), "desktop.title.notDebuggable", map[string]string{"name": configuration.Name}))
 	}
+}
+
+// titleConfigurationFacts describes a build provider configuration for Core's decision: whether
+// its instance was detected, and whether that instance's model is loaded, failed its last load,
+// or declares a debug adapter for the configuration's run.
+func (p *project) titleConfigurationFacts(index int, reference core.RunProviderReference) *core.TitleConfiguration {
+	if index < 0 {
+		return &core.TitleConfiguration{Kind: "instanceMissing"}
+	}
+	instance := &p.build.instances[index]
+	if !instance.modelLoaded {
+		failed := instance.modelError != ""
+		return &core.TitleConfiguration{Kind: "modelNotLoaded", Failed: &failed}
+	}
+	run, ok := buildRunDeclaration(instance.System, reference.Run)
+	debuggable := ok && run.DebugAdapter != ""
+	return &core.TitleConfiguration{Kind: "modelLoaded", Debuggable: &debuggable}
 }
 
 // performCurrentFileAction is Run or Debug on Current File. The Debug window starts the open

@@ -2,8 +2,11 @@ package workbench
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -11,44 +14,121 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/ui"
 )
 
-// sentBreakpoints is one file's line breakpoints as a session was sent them.
-type sentBreakpoints struct {
-	path   string
-	points []core.DebugSourceBreakpoint
+// debugCall is one breakpoint call the host made for a session and the DAP requests Core wrote
+// for it.
+type debugCall struct {
+	session  string
+	kind     string // "muted", "unmuted" or "breakpoints"
+	requests []dapRequest
 }
 
-// captureSetBreakpoints records each file's line breakpoints before Core sends them.
-type captureSetBreakpoints struct {
+// dapRequest is one DAP request as Core framed it for the adapter.
+type dapRequest struct {
+	command   string
+	arguments map[string]any
+}
+
+// request is the first request of the call named command, or nil.
+func (c debugCall) request(command string) *dapRequest {
+	for index := range c.requests {
+		if c.requests[index].command == command {
+			return &c.requests[index]
+		}
+	}
+	return nil
+}
+
+// captureBreakpointCalls records each mute and source breakpoint call with what Core sent.
+type captureBreakpointCalls struct {
 	Kernel
-	sent chan sentBreakpoints
+	calls chan debugCall
 }
 
-func (k *captureSetBreakpoints) SetDebugBreakpoints(ctx context.Context, sessionID, sourcePath string, breakpoints []core.DebugSourceBreakpoint) (core.DebugUpdate, error) {
+func (k *captureBreakpointCalls) record(ctx context.Context, call debugCall, update core.DebugUpdate, err error) (core.DebugUpdate, error) {
+	if err != nil {
+		return update, err
+	}
+	for _, frame := range update.OutboundFrames {
+		data, decodeErr := base64.StdEncoding.DecodeString(frame)
+		if decodeErr != nil {
+			return core.DebugUpdate{}, decodeErr
+		}
+		_, body, _ := strings.Cut(string(data), "\r\n\r\n")
+		var message struct {
+			Type      string         `json:"type"`
+			Command   string         `json:"command"`
+			Arguments map[string]any `json:"arguments"`
+		}
+		if json.Unmarshal([]byte(body), &message) == nil && message.Type == "request" {
+			call.requests = append(call.requests, dapRequest{command: message.Command, arguments: message.Arguments})
+		}
+	}
 	select {
-	case k.sent <- sentBreakpoints{path: sourcePath, points: breakpoints}:
+	case k.calls <- call:
 	case <-ctx.Done():
 		return core.DebugUpdate{}, ctx.Err()
 	}
-	return k.Kernel.SetDebugBreakpoints(ctx, sessionID, sourcePath, breakpoints)
+	return update, nil
 }
 
-// Mute keeps the breakpoints but sends every line as disabled; Unmute sends them as stored.
-func TestDebugMuteKeepsTheBreakpointsAndSendsThemDisabled(t *testing.T) {
+func (k *captureBreakpointCalls) SetDebugBreakpointsMuted(ctx context.Context, sessionID string, muted bool) (core.DebugUpdate, error) {
+	update, err := k.Kernel.SetDebugBreakpointsMuted(ctx, sessionID, muted)
+	kind := "unmuted"
+	if muted {
+		kind = "muted"
+	}
+	return k.record(ctx, debugCall{session: sessionID, kind: kind}, update, err)
+}
+
+func (k *captureBreakpointCalls) SetDebugBreakpoints(ctx context.Context, sessionID, sourcePath string, breakpoints []core.DebugSourceBreakpoint) (core.DebugUpdate, error) {
+	update, err := k.Kernel.SetDebugBreakpoints(ctx, sessionID, sourcePath, breakpoints)
+	return k.record(ctx, debugCall{session: sessionID, kind: "breakpoints"}, update, err)
+}
+
+// sentLines is the lines of a setBreakpoints request.
+func sentLines(request *dapRequest) []float64 {
+	var lines []float64
+	points, _ := request.arguments["breakpoints"].([]any)
+	for _, point := range points {
+		if entry, ok := point.(map[string]any); ok {
+			line, _ := entry["line"].(float64)
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+// sentFilters is the filters of a setExceptionBreakpoints request.
+func sentFilters(request *dapRequest) []any {
+	filters, _ := request.arguments["filters"].([]any)
+	return filters
+}
+
+// Mute keeps the breakpoints but has Core send every kind empty, the adapter's default exception
+// filter included; Unmute has Core send them as stored.
+func TestDebugMuteSendsEveryKindEmptyAndUnmuteRestoresThem(t *testing.T) {
 	h, p := pausedDebugSession(t)
 	defer releaseLaunchedDebug(h, p)
 	d := &p.debug
 	source := d.frames[0].SourcePath
-	d.breakpoints = map[string][]debugBreakpoint{source: {{line: 3}}}
-	gate := &captureSetBreakpoints{Kernel: h.app.kernel, sent: make(chan sentBreakpoints, 1)}
+	gate := &captureBreakpointCalls{Kernel: h.app.kernel, calls: make(chan debugCall, 4)}
 	h.app.kernel = gate
+	d.breakpoints = map[string][]debugBreakpoint{source: {{line: 3}}}
+	h.app.sendDebugBreakpoints(p, source)
+	stored := awaitValueWithin(t, h, 10*time.Second, gate.calls, "the stored breakpoint")
+	if request := stored.request("setBreakpoints"); request == nil || !slices.Equal(sentLines(request), []float64{3}) {
+		t.Fatalf("stored %+v, want line 3 sent", stored)
+	}
 	h.settle()
 
 	h.clickNamed(h.shared("native.muteBreakpoints"))
-	sent := awaitValueWithin(t, h, 10*time.Second, gate.sent, "the muted breakpoints")
-	if !d.muted || sent.path != source || len(sent.points) != 1 || sent.points[0].Enabled {
-		t.Fatalf("muted %v sent %+v, want line 3 disabled", d.muted, sent)
+	muted := awaitValueWithin(t, h, 10*time.Second, gate.calls, "the muted breakpoints")
+	exceptions, lines := muted.request("setExceptionBreakpoints"), muted.request("setBreakpoints")
+	if !d.muted || muted.kind != "muted" || exceptions == nil || len(sentFilters(exceptions)) != 0 || lines == nil || len(sentLines(lines)) != 0 {
+		t.Fatalf("muted %v sent %+v, want every kind empty", d.muted, muted)
 	}
 	if lines := d.breakpoints[source]; len(lines) != 1 || lines[0].disabled {
 		t.Fatalf("muting changed the stored breakpoints: %+v", lines)
@@ -56,9 +136,57 @@ func TestDebugMuteKeepsTheBreakpointsAndSendsThemDisabled(t *testing.T) {
 
 	h.settle()
 	h.clickNamed(h.shared("desktop.debug.unmuteBreakpoints"))
-	sent = awaitValueWithin(t, h, 10*time.Second, gate.sent, "the unmuted breakpoints")
-	if d.muted || len(sent.points) != 1 || !sent.points[0].Enabled {
-		t.Fatalf("muted %v sent %+v, want line 3 enabled", d.muted, sent)
+	unmuted := awaitValueWithin(t, h, 10*time.Second, gate.calls, "the unmuted breakpoints")
+	exceptions, lines = unmuted.request("setExceptionBreakpoints"), unmuted.request("setBreakpoints")
+	if d.muted || unmuted.kind != "unmuted" || exceptions == nil || !slices.Equal(sentFilters(exceptions), []any{"uncaught"}) ||
+		lines == nil || !slices.Equal(sentLines(lines), []float64{3}) {
+		t.Fatalf("muted %v sent %+v, want the default filter and line 3", d.muted, unmuted)
+	}
+}
+
+// A session started while the breakpoints are muted is muted before its first breakpoint set,
+// so it never stops on one; unmuting it sends the stored breakpoints.
+func TestDebugSessionStartedWhileMutedStartsMuted(t *testing.T) {
+	h := debugHarness(t)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "debug.marker"), []byte("debug\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(root, "tests", "debug_source.go")
+	if err := os.MkdirAll(filepath.Dir(source), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, []byte("package tests\n\nfunc main() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := openDebugPanel(t, h, root)
+	gate := &captureBreakpointCalls{Kernel: h.app.kernel, calls: make(chan debugCall, 4)}
+	h.app.kernel = gate
+	p.debug.breakpoints = map[string][]debugBreakpoint{source: {{line: 3}}}
+	h.clickNamed(h.shared("native.muteBreakpoints"))
+	if !p.debug.muted {
+		t.Fatal("the breakpoints were not muted before the start")
+	}
+	h.clickNamed(h.app.text.Debug.Start)
+	defer releaseLaunchedDebug(h, p)
+	first := awaitValueWithin(t, h, 30*time.Second, gate.calls, "the new session's first breakpoint call")
+	if first.kind != "muted" {
+		t.Fatalf("first call %+v, want the session muted before its breakpoints", first)
+	}
+	if next := awaitValueWithin(t, h, 10*time.Second, gate.calls, "the new session's breakpoints"); next.kind != "breakpoints" || next.session != first.session {
+		t.Fatalf("second call %+v, want the stored breakpoints", next)
+	}
+	awaitStateWithin(t, h, 30*time.Second, "the paused debuggee", func() bool {
+		if p.debug.failure != "" {
+			t.Fatalf("debug start failed: %s", p.debug.failure)
+		}
+		return p.debug.state == "paused"
+	})
+
+	h.clickNamed(h.shared("desktop.debug.unmuteBreakpoints"))
+	unmuted := awaitValueWithin(t, h, 10*time.Second, gate.calls, "the unmuted breakpoints")
+	if lines := unmuted.request("setBreakpoints"); unmuted.kind != "unmuted" || lines == nil || !slices.Equal(sentLines(lines), []float64{3}) {
+		t.Fatalf("unmuting sent %+v, want line 3", unmuted)
 	}
 }
 
@@ -260,7 +388,7 @@ func TestDebugMemoryGoesToAnAddressAndChangesItsLayout(t *testing.T) {
 	}
 	// 8208 is 0x2010: the window starts on the 64-byte boundary before it.
 	awaitStateWithin(t, h, 20*time.Second, "the memory at the typed address", func() bool {
-		return !m.loading && m.address == "0x2000" && len(m.bytes) == debugMemoryBytes
+		return !m.loading && m.base == "0x2000" && len(m.bytes) == int(m.window.Request.Count)
 	})
 	if m.at != "0x2010" || m.input != "0x2010" || m.mark != 0x10 || m.bytes[m.mark] != 0x10 {
 		t.Fatalf("at %q input %q mark %d, want 0x2010 highlighted", m.at, m.input, m.mark)
@@ -273,7 +401,7 @@ func TestDebugMemoryGoesToAnAddressAndChangesItsLayout(t *testing.T) {
 	h.clickNamed(h.shared("desktop.debug.memoryBytesPerRow"))
 	h.click(center(h.popupHit(i18n.SharedFormat(h.app.language(), "desktop.debug.memoryRowBytes", map[string]string{"bytes": "32"}))))
 	h.settle()
-	if line := m.lines[0]; m.columns != 32 || len(m.lines) != debugMemoryBytes/32 || line.text[line.cell[0]:line.cell[1]] != "10" {
+	if line := m.lines[0]; m.columns != 32 || len(m.lines) != len(m.bytes)/32 || line.text[line.cell[0]:line.cell[1]] != "10" {
 		t.Fatalf("columns %d, %d rows, first row marks %v", m.columns, len(m.lines), line.cell)
 	}
 	h.clickNamed(h.shared("desktop.debug.memoryRadix"))
@@ -285,9 +413,90 @@ func TestDebugMemoryGoesToAnAddressAndChangesItsLayout(t *testing.T) {
 
 	h.clickNamed(h.app.text.Debug.Reload)
 	awaitStateWithin(t, h, 20*time.Second, "the memory back at the instruction pointer", func() bool {
-		return !m.loading && m.address == "0x1000" && m.input == "0x1000" && len(m.bytes) == 4
+		return !m.loading && m.base == "0x1000" && m.input == "0x1000" && len(m.bytes) == 4
 	})
 	if m.at != "" || m.mark != 0 || m.columns != 32 || m.radix != 2 {
 		t.Fatalf("at %q mark %d layout %d/%d, want the instruction pointer in the kept layout", m.at, m.mark, m.columns, m.radix)
+	}
+}
+
+// A frame the adapter gave no instruction pointer still reads memory at a typed address: the
+// address field shows, only the way back to the current instruction is unavailable.
+func TestDebugMemoryReadsAtATypedAddressOnAFrameWithoutAnInstructionPointer(t *testing.T) {
+	h, p := pausedDebugSession(t)
+	defer releaseLaunchedDebug(h, p)
+	m := &p.debug.memory
+	// The fixture's second frame has no instruction pointer.
+	h.app.selectDebugFrame(p, 1)
+	p.debug.section = debugSectionMemory
+	h.app.invalidator.Invalidate()
+	h.settle()
+	if m.loading || len(m.bytes) != 0 || !h.shows(h.shared("desktop.debug.memoryTypeAddress")) {
+		t.Fatalf("loading %v with %d bytes; the frame without an address asks for one", m.loading, len(m.bytes))
+	}
+	if current, ok := h.findPageHit(h.app.text.Debug.Reload); !ok || !current.Disabled {
+		t.Fatalf("the current-instruction button %+v is not disabled on a frame that has none", current)
+	}
+
+	h.typeInto(h.shared("desktop.debug.memoryAddress"), func() { m.input = "" }, "0x2010")
+	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
+		t.Fatal(err)
+	}
+	awaitStateWithin(t, h, 20*time.Second, "the memory at the typed address", func() bool {
+		return !m.loading && m.base == "0x2000" && len(m.bytes) == int(m.window.Request.Count)
+	})
+	if m.failure != "" || m.bytes[m.mark] != 0x10 {
+		t.Fatalf("failure %q, mark %d", m.failure, m.mark)
+	}
+}
+
+// An edge of the disassembly whose load failed is not loaded again by every paint that shows
+// it, as it would be by a request that times out each time; Retry asks once more.
+func TestDebugDisassemblyEdgeFailureWaitsForRetry(t *testing.T) {
+	h, p := pausedDebugSession(t)
+	defer releaseLaunchedDebug(h, p)
+	d := &p.debug
+	w := &d.disassembly
+	d.section = debugSectionDisassembly
+	h.app.invalidator.Invalidate()
+	awaitStateWithin(t, h, 20*time.Second, "the instruction window", func() bool {
+		return !w.loading && len(w.rows) > 0
+	})
+	if err := h.driver.Advance(200 * time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	rows := len(w.rows)
+
+	// The earlier page fails as a request without an answer does.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	fetch, err := h.app.kernel.PlanDebugDisassemblyWindow(ctx, "before", w.rows[0].Address, debugDisassemblyEdge, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.loading = true
+	h.app.reduceDisassembly(p, fetch, core.DebugDisassemblyReply{Kind: "failed", Message: "timed out"})
+	awaitStateWithin(t, h, 10*time.Second, "the failed page", func() bool { return !w.loading && w.failure != "" })
+	if w.failedEdge != "before" {
+		t.Fatalf("failed edge %q, want before", w.failedEdge)
+	}
+
+	// The list is at its first row, where every paint would load the earlier page.
+	w.list.ScrollTo(0, ui.ListStart)
+	for range 5 {
+		h.app.invalidator.Invalidate()
+		h.settle()
+		if w.loading {
+			t.Fatal("a paint at the failed edge asked for it again")
+		}
+	}
+	if len(w.rows) != rows || !h.shows("timed out") {
+		t.Fatalf("%d rows, want %d with the failure shown", len(w.rows), rows)
+	}
+
+	h.clickNamed(h.shared("desktop.debug.disassemblyRetry"))
+	awaitStateWithin(t, h, 20*time.Second, "the retried page", func() bool { return !w.loading && len(w.rows) > rows })
+	if w.failure != "" || w.failedEdge != "" {
+		t.Fatalf("failure %q edge %q after a page arrived", w.failure, w.failedEdge)
 	}
 }

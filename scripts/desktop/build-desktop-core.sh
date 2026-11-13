@@ -28,14 +28,16 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
-# Lithe-core-rust main at #20 (lsp.declarationOrUsages and the references operation's
-# includeDeclaration, for Go to Declaration or Usages), on top of #19 (MCP configuration and
-# library commands removed) and #17: the plugin contract is one baseline with pluginAPIVersion and every
-# capability, protocol and document version at 0, and the contract, plugin guides, reference and
-# SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
+# Lithe-core-rust #21 (debug.setBreakpointsMuted, debug.planMemoryWindow and
+# debug.locateMemoryWindow, runConfig.decideTitleAction), its branch head on top of main at #20
+# (lsp.declarationOrUsages and the references operation's includeDeclaration, for Go to
+# Declaration or Usages); a squash merge of #21 moves this pin to the merged commit. On top of
+# #19 (MCP configuration and library commands removed) and #17: the plugin contract is one
+# baseline with pluginAPIVersion and every capability, protocol and document version at 0, and
+# the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13 (execution.planLaunchCommand), #8, #7, #6 and #4.
-PINNED_CORE_REVISION="74d5aacac4fad9bbaf847128c7fd545ffd8b8374"
+PINNED_CORE_REVISION="3350dd71088f1a08c369129164e306373672e076"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

@@ -31,6 +31,10 @@ type debugDisassembly struct {
 	// beforeDone and afterDone record that Core found the end of the code in
 	// that direction.
 	beforeDone, afterDone bool
+	// failedEdge is the direction, "before" or "after", whose last load failed. Scrolling to
+	// that edge no longer loads it, so a request that keeps failing is not sent again on every
+	// paint; the Retry button beside the failure asks once more.
+	failedEdge string
 	// opening is set while the first window is laid out for the first time. That layout
 	// takes the rows at an estimated height and the window's height for the list's, so the
 	// rows it reports say nothing about where the user scrolled.
@@ -102,10 +106,32 @@ func (a *App) loadDisassemblyAtEdges(p *project) {
 	}
 	end := len(w.rows) - 1
 	switch {
-	case first == 0 && last < end && !w.beforeDone:
+	case first == 0 && last < end && !w.beforeDone && w.failedEdge != "before":
 		a.loadDisassemblyEdge(p, "before")
-	case last >= end && first > 0 && !w.afterDone:
+	case last >= end && first > 0 && !w.afterDone && w.failedEdge != "after":
 		a.loadDisassemblyEdge(p, "after")
+	}
+}
+
+// retryDisassembly asks again for what failed last: the edge whose load failed, or the first
+// window when no rows arrived.
+func (a *App) retryDisassembly(p *project) {
+	w := &p.debug.disassembly
+	edge := w.failedEdge
+	w.failure, w.failedEdge = "", ""
+	if edge == "" || len(w.rows) == 0 {
+		a.loadDisassembly(p)
+		return
+	}
+	a.loadDisassemblyEdge(p, edge)
+}
+
+// fail ends a load with the adapter's or Core's message. A failed edge stops loading
+// by itself until the user retries it.
+func (w *debugDisassembly) fail(direction, message string) {
+	w.loading, w.failure = false, message
+	if direction == "before" || direction == "after" {
+		w.failedEdge = direction
 	}
 }
 
@@ -124,7 +150,7 @@ func (a *App) planDisassembly(p *project, direction, reference string, count, be
 				return
 			}
 			if err != nil {
-				p.debug.disassembly.loading, p.debug.disassembly.failure = false, err.Error()
+				p.debug.disassembly.fail(direction, err.Error())
 				return
 			}
 			a.fetchDisassembly(p, fetch)
@@ -193,7 +219,7 @@ func (a *App) reduceDisassembly(p *project, fetch core.DebugDisassemblyFetch, re
 				return
 			}
 			if err != nil {
-				d.loading, d.failure = false, err.Error()
+				d.fail(fetch.Direction, err.Error())
 				return
 			}
 			switch step.Kind {
@@ -204,7 +230,12 @@ func (a *App) reduceDisassembly(p *project, fetch core.DebugDisassemblyFetch, re
 				}
 				d.loading = false
 			case "page":
-				d.loading, d.failure = false, ""
+				d.loading = false
+				// A page clears the failure it answers; a failure of the other edge stays
+				// shown, and that edge stays paused, until it is retried.
+				if d.failedEdge == "" || d.failedEdge == fetch.Direction {
+					d.failure, d.failedEdge = "", ""
+				}
 				kept := make([]core.DebugInstruction, 0, len(step.Keep))
 				// keep indexes the reply as sent: padding stays in the array, and Core
 				// only leaves its indexes out of keep.
@@ -237,7 +268,7 @@ func (a *App) reduceDisassembly(p *project, fetch core.DebugDisassemblyFetch, re
 					}
 				}
 			default:
-				d.loading, d.failure = false, step.Message
+				d.fail(fetch.Direction, step.Message)
 			}
 		}
 	})

@@ -189,3 +189,22 @@ func TestStaticModelDetectionResolvesRunConfigurations(t *testing.T) {
 		t.Fatalf("configurations = %+v failure %q", p.runConfigs.list, p.runConfigs.failure)
 	}
 }
+
+// A configuration no build provider starts cannot start from the title bar either: Run names it
+// and plans nothing, where the press did nothing before.
+func TestTitleRunOnAConfigurationNoProviderStartsSaysSo(t *testing.T) {
+	gate := &captureBuildPlan{Kernel: &testKernel{Client: core.NewClient()}, requests: make(chan core.BuildPlanRequest, 1)}
+	h, p := titleRunHarness(t, gate, pluginservice.BuildRunDeclaration{ID: "application", Name: "Run", Tags: []string{"app"}})
+	h.app.post(func(a *App) {
+		p.runConfigs.list[0].Provider = "process"
+		a.titleRun(p)
+	})
+	h.settle()
+	want := i18n.SharedFormat(h.app.language(), "desktop.title.configurationNotStartable", map[string]string{"name": "Run Main"})
+	if got := lastNotice(h); got != want {
+		t.Fatalf("notice = %q, want %q", got, want)
+	}
+	if len(gate.requests) != 0 || p.runConfigs.pending != titleActionNone {
+		t.Fatalf("%d run requests, pending %v", len(gate.requests), p.runConfigs.pending)
+	}
+}

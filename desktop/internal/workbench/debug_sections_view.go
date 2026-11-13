@@ -318,8 +318,15 @@ func (a *App) debugInstructions(c ui.C, p *project) {
 		a.loadDisassembly(p)
 	}
 	if w.failure != "" {
-		ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).PadX(10).Children(func() {
+		ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(8).PadX(10).Children(func() {
 			ui.Text(c, w.failure).Shrink(1).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger).Ellipsis()
+			// A failed load is not asked again by itself; this asks once more.
+			if ui.Button(c.Part("disassembly-retry"), i18n.Shared(a.language(), "desktop.debug.disassemblyRetry")).Small().Outline().Disabled(w.loading).Clicked() {
+				c.After(func() {
+					a.performed("debug.disassembly.retry", surfaceButton)
+					a.retryDisassembly(p)
+				})
+			}
 		})
 	}
 	if len(w.rows) == 0 {

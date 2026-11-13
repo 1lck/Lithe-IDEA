@@ -263,6 +263,9 @@ type debugSession struct {
 	cancel         context.CancelFunc
 	// stopped is set when Stop or project close already took the session apart.
 	stopped atomic.Bool
+	// muted is the project's mute switch as this session should have it; written on the
+	// window thread, read by the operations that tell Core (see debug_mute.go).
+	muted atomic.Bool
 	// exitCode is the debuggee's exit code from the terminated event, when the
 	// adapter reported one. ended, when set, receives it once the session is released.
 	exitCode atomic.Pointer[int]
@@ -733,7 +736,7 @@ func (a *App) sendSessionBreakpoints(p *project, session *debugSession, path str
 	if session == nil || session.stopped.Load() {
 		return
 	}
-	points := sessionSourceBreakpoints(p.debug.breakpoints[path], p.debug.muted)
+	points := sourceBreakpoints(p.debug.breakpoints[path])
 	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
 		// A session still starting takes the change once Core has it; one that never
 		// got that far has no breakpoints to replace.

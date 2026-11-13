@@ -79,6 +79,41 @@ func (c *Client) ResolveRunConfigurations(ctx context.Context, root string) (Run
 	return result, err
 }
 
+// TitleConfiguration describes the configuration the title bar shows, as far as starting it
+// depends on. Kind is "unsupported", "instanceMissing", "modelNotLoaded" (with Failed) or
+// "modelLoaded" (with Debuggable).
+type TitleConfiguration struct {
+	Kind       string `json:"kind"`
+	Failed     *bool  `json:"failed,omitempty"`
+	Debuggable *bool  `json:"debuggable,omitempty"`
+}
+
+// TitleActionFacts are the facts one title bar Run or Debug decision depends on.
+type TitleActionFacts struct {
+	// Action is "run" or "debug".
+	Action string `json:"action"`
+	// Trigger is "press", or "settled" when the host asks again for a press it kept.
+	Trigger           string `json:"trigger"`
+	CurrentFileChosen bool   `json:"currentFileChosen"`
+	// Settled says detection answered, no model is loading and the configurations were
+	// resolved since.
+	Settled       bool                `json:"settled"`
+	Configuration *TitleConfiguration `json:"configuration,omitempty"`
+}
+
+// DecideTitleAction asks Core what a title bar press does. The answer is "currentFile",
+// "wait", "loadModel", "unsupported", "targetMissing", "modelFailed", "run", "debug" or
+// "notDebuggable".
+func (c *Client) DecideTitleAction(ctx context.Context, facts TitleActionFacts) (string, error) {
+	var decision struct {
+		Kind string `json:"kind"`
+	}
+	if err := c.Execute(ctx, "runConfig.decideTitleAction", facts, &decision); err != nil {
+		return "", err
+	}
+	return decision.Kind, nil
+}
+
 // RunLaunchOptions are the typed launch options of a build provider run
 // (buildProviders 10): the user's resolved choices, passed to the provider's
 // prepareRun and to the decoder of its answer.

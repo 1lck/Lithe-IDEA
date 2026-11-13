@@ -58,15 +58,17 @@ func TestDebugMemoryLinesFormatOffsetsRadixAndText(t *testing.T) {
 	}
 }
 
-func TestParseDebugAddressReadsHexAndDecimal(t *testing.T) {
-	for text, want := range map[string]uint64{"0x1000": 0x1000, " 0X1f ": 0x1f, "4096": 4096} {
-		if got, ok := parseDebugAddress(text); !ok || got != want {
-			t.Fatalf("parse %q = %d %v, want %d", text, got, ok, want)
+// Core writes the first byte's address in lowercase 0x hexadecimal; anything else labels the
+// rows with their offsets.
+func TestDebugMemoryBaseReadsCoreAddresses(t *testing.T) {
+	for text, want := range map[string]uint64{"0x1000": 0x1000, "0x0": 0, "0xffffffffffffffc0": 0xffffffffffffffc0} {
+		if got, ok := debugMemoryBase(text); !ok || got != want {
+			t.Fatalf("base %q = %d %v, want %d", text, got, ok, want)
 		}
 	}
-	for _, text := range []string{"", "0x", "frame:1", "-4"} {
-		if _, ok := parseDebugAddress(text); ok {
-			t.Fatalf("parse %q succeeded; an opaque reference is not a number", text)
+	for _, text := range []string{"", "0x", "frame:1"} {
+		if _, ok := debugMemoryBase(text); ok {
+			t.Fatalf("base %q gave a number; rows are labelled with offsets", text)
 		}
 	}
 }
@@ -94,7 +96,7 @@ func TestDebugMemoryReadsWithoutComputedAddresses(t *testing.T) {
 
 	h.app.loadDebugMemory(p)
 	awaitStateWithin(t, h, 20*time.Second, "the memory window", func() bool {
-		return len(p.debug.memory.bytes) == 4 && p.debug.memory.address == "0x1000"
+		return len(p.debug.memory.bytes) == 4 && p.debug.memory.base == "0x1000"
 	})
 	if p.debug.memory.unreadable != 2 {
 		t.Fatalf("unreadable bytes = %d, want 2", p.debug.memory.unreadable)
