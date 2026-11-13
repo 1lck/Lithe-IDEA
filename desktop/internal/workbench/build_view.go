@@ -54,8 +54,11 @@ func (a *App) runView(c ui.C, p *project) {
 			a.buildInstances(c, p)
 			ui.Divider(c)
 			a.buildChoices(c, p)
-			ui.Divider(c)
-			a.buildOutput(c, p)
+			// The console takes room only once a task printed something.
+			if len(p.build.output) != 0 {
+				ui.Divider(c)
+				a.buildOutput(c, p)
+			}
 		})
 	})
 }
@@ -119,7 +122,7 @@ func (a *App) runViews(c ui.C, p *project) {
 
 // buildInstances declares the build systems the workspace uses, one tab each.
 func (a *App) buildInstances(c ui.C, p *project) {
-	b, t := &p.build, a.text.Build
+	b := &p.build
 	panels := &p.panels
 	ui.Row(c).FillWidth().Height(buildRowHeight + 8).Shrink(0).Items(ui.Center).Gap(4).PadX(8).Children(func() {
 		indexes := make([]int, len(b.instances))
@@ -131,17 +134,11 @@ func (a *App) buildInstances(c ui.C, p *project) {
 			c.After(func() { a.openBuildOptions(p) })
 		}
 		ui.Tabs(c, &panels.instance, indexes, func(index int) string {
-			instance := &b.instances[index]
-			if instance.System.DisplayName != "" {
-				return instance.System.DisplayName
-			}
-			return instance.BuildSystemID
+			return buildInstanceLabel(&b.instances[index])
 		}).Shrink(1)
 		if panels.instance != b.selected {
 			a.selectBuildInstance(p, panels.instance)
 		}
-		ui.Spacer(c)
-		ui.Text(c, t.Projects).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
 	})
 }
 
@@ -208,12 +205,12 @@ func (a *App) buildChoiceRows(p *project, instance *buildInstance) []buildRow {
 		rows = append(rows, buildRow{kind: buildRowTarget, label: target.Name, detail: target.Path, id: target.ID, project: target.ProjectID, selected: b.targetID == target.ID, target: target})
 	}
 	rows = append(rows, buildRow{kind: buildRowSection, label: t.Tasks})
-	declared := providerTasks(instance)
+	declared := declaredTasks(instance)
 	if len(declared) == 0 && len(model.Tasks) == 0 {
 		rows = append(rows, buildRow{kind: buildRowEmpty, label: t.NoTasks})
 	}
 	for _, task := range declared {
-		rows = append(rows, buildRow{kind: buildRowTask, label: buildTaskName(&task), detail: task.Group, id: task.ID, selected: b.taskID == task.ID})
+		rows = append(rows, buildRow{kind: buildRowTask, label: buildTaskName(&task), detail: buildTaskDetail(&task), id: task.ID, selected: b.taskID == task.ID})
 	}
 	for _, task := range model.Tasks {
 		name := task.DisplayName
@@ -289,7 +286,7 @@ func (a *App) buildChoiceRow(row ui.ListRow, p *project, instance *buildInstance
 		row.Element.Height(buildRowHeight).PadX(16).Items(ui.Center)
 		ui.Text(c, spec.label).FontSize(small).Color(a.colors.Subtle).Ellipsis()
 		if spec.dependencies {
-			a.buildDependencyMenu(c, row.Element, p, instance)
+			a.buildDependencyMenu(c, row.Element, p, instance, spec.project)
 		}
 		return
 	}
@@ -303,9 +300,10 @@ func (a *App) buildChoiceRow(row ui.ListRow, p *project, instance *buildInstance
 	} else {
 		element.Hover(ui.Look{}.Background(a.colors.Hover))
 	}
-	ui.Text(c, spec.label).Color(a.colors.Text).Ellipsis().Shrink(1).MaxWidth(240)
+	// The name shows whole; the detail beside it gives up its room first.
+	ui.Text(c, spec.label).Color(a.colors.Text).Shrink(0)
 	if spec.detail != "" {
-		ui.Text(c, spec.detail).FontSize(small).Color(a.colors.Subtle).Ellipsis().Grow(1)
+		ui.Text(c, spec.detail).FontSize(small).Color(a.colors.Subtle).Ellipsis().Shrink(1).Grow(1)
 	} else {
 		ui.Spacer(c)
 	}
@@ -378,17 +376,40 @@ func buildVisibleOutput(chunks []string) []string {
 	return lines
 }
 
-func providerTasks(instance *buildInstance) []pluginservice.BuildTaskDeclaration {
+// declaredTasks are the tasks the manifest names itself, command and provider alike; a fromModel
+// template is listed through the model tasks it stands for.
+func declaredTasks(instance *buildInstance) []pluginservice.BuildTaskDeclaration {
 	if instance == nil {
 		return nil
 	}
 	tasks := make([]pluginservice.BuildTaskDeclaration, 0, len(instance.System.Tasks))
 	for _, task := range instance.System.Tasks {
-		if task.Source == "provider" && !task.FromModel {
+		if !task.FromModel {
 			tasks = append(tasks, task)
 		}
 	}
 	return tasks
+}
+
+// buildTaskDetail is what a task row shows beside its name: its category path, else its group.
+func buildTaskDetail(task *pluginservice.BuildTaskDeclaration) string {
+	if len(task.Category) != 0 {
+		return strings.Join(task.Category, " / ")
+	}
+	return task.Group
+}
+
+// buildInstanceLabel names a build system tab. Two instances of one system (a nested checkout)
+// differ only by their root, so a root other than the workspace's is shown after the name.
+func buildInstanceLabel(instance *buildInstance) string {
+	name := instance.System.DisplayName
+	if name == "" {
+		name = instance.BuildSystemID
+	}
+	if root := instance.Root; root != "" && root != "." {
+		return name + " · " + root
+	}
+	return name
 }
 
 func buildTaskName(task *pluginservice.BuildTaskDeclaration) string {
