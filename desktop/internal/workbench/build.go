@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -740,9 +741,86 @@ func (p *project) selectedBuildInstance() *buildInstance {
 	return &p.build.instances[p.build.selected]
 }
 
-// runSelectedBuildTask runs the selected declared or model task.
+// runSelectedBuildTask runs the selected declared or model task. The tree lists tasks under
+// their build system, not under a project, so the window's project and target are only a hint:
+// a model task runs on the project it belongs to, and a declared task on what
+// buildTaskSelection makes of the selection for the scopes it declares.
 func (a *App) runSelectedBuildTask(p *project) {
-	_, _ = a.runBuildTask(p, p.build.projectID, p.build.targetID, p.build.taskID, nil)
+	projectID, targetID := p.build.projectID, p.build.targetID
+	if instance := p.selectedBuildInstance(); instance != nil && p.build.operation == nil {
+		switch task, modelTask := buildTaskByID(instance, p.build.taskID); {
+		case modelTask != nil:
+			projectID, targetID = modelTask.ProjectID, ""
+		case task != nil:
+			var ok bool
+			if projectID, targetID, ok = buildTaskSelection(instance, task, projectID, targetID); !ok {
+				a.notify(a.text.Build.ChooseTaskScope)
+				return
+			}
+		}
+	}
+	_, _ = a.runBuildTask(p, projectID, targetID, p.build.taskID, nil)
+}
+
+// buildTaskSelection is the project and target a declared task runs on from the window's
+// selection, and false when the task accepts none that can be told. Core takes the scope from
+// what a request carries (a target, else a project, else the workspace) and refuses one the
+// task does not declare (plugin.build.invalidSelection), so the selection is fitted to the
+// declared scopes, in this order:
+//   - the chosen target, when the task runs on targets with one of the target's tags;
+//   - the chosen project, or the chosen target's, when the task runs on projects;
+//   - the workspace, when the task runs on it;
+//   - with no project chosen, the project at the build root, else the only project;
+//   - with no target chosen, the only target the task applies to, in the chosen project if any.
+//
+// A chosen target the model no longer has is kept for runBuildTask to report.
+func buildTaskSelection(instance *buildInstance, task *pluginservice.BuildTaskDeclaration, projectID, targetID string) (string, string, bool) {
+	declares := func(scope string) bool { return slices.Contains(task.Scopes, scope) }
+	applies := func(target core.BuildTarget) bool {
+		return len(task.TargetTags) == 0 || slices.ContainsFunc(target.Tags, func(tag string) bool { return slices.Contains(task.TargetTags, tag) })
+	}
+	model := &instance.Model
+	if targetID != "" {
+		target, ok := buildTargetByID(*model, targetID)
+		if !ok {
+			return projectID, targetID, true
+		}
+		if declares("target") && applies(target) {
+			return target.ProjectID, target.ID, true
+		}
+		projectID = target.ProjectID
+	}
+	if projectID != "" && declares("project") {
+		return projectID, "", true
+	}
+	if declares("workspace") {
+		return "", "", true
+	}
+	if projectID == "" && declares("project") {
+		for _, project := range model.Projects {
+			if project.Path == "." {
+				return project.ID, "", true
+			}
+		}
+		if len(model.Projects) == 1 {
+			return model.Projects[0].ID, "", true
+		}
+	}
+	if targetID == "" && declares("target") {
+		var only *core.BuildTarget
+		for index := range model.Targets {
+			if target := model.Targets[index]; applies(target) && (projectID == "" || target.ProjectID == projectID) {
+				if only != nil {
+					return "", "", false
+				}
+				only = &model.Targets[index]
+			}
+		}
+		if only != nil {
+			return only.ProjectID, only.ID, true
+		}
+	}
+	return "", "", false
 }
 
 // runBuildTask runs one declared or model task of the selected instance. The Build window

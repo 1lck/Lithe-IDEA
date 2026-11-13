@@ -117,7 +117,11 @@ func (s *Service) handleRegisterEditorProviders(ctx context.Context, params json
 		return nil, failure(codeInvalidParams, "The selector needs one to 32 entries.")
 	}
 	if decoder, ok := s.kernel.(editorProviderDecoder); ok {
-		if _, err := decoder.DecodeEditorProviders(ctx, map[string]any{"kind": "registration", "value": json.RawMessage(params), "types": routedProviderTypes}); err != nil {
+		value, err := editorRegistrationValue(params)
+		if err != nil {
+			return nil, invalidParams(err)
+		}
+		if _, err := decoder.DecodeEditorProviders(ctx, map[string]any{"kind": "registration", "value": value, "types": routedProviderTypes}); err != nil {
 			return nil, failure(codeInvalidParams, err.Error())
 		}
 	}

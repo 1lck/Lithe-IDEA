@@ -6583,6 +6583,13 @@
       ]
     },
     {
+      "id": "desktop.build.chooseTaskScope",
+      "description": "Shown when a build task runs on a project or target but none it accepts is chosen or can be inferred.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.build.commandUnsupported",
       "description": "This build system answered with a command plan; provider-backed tasks are required here.",
       "platforms": [
@@ -12007,13 +12014,6 @@
     {
       "id": "desktop.lsp.filterPlaceholder",
       "description": "Placeholder and label of the language server log filter field.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.lsp.logTitle",
-      "description": "Title of the window that shows the log of each language server",
       "platforms": [
         "desktop"
       ]
@@ -35835,7 +35835,8 @@
       "id": "logs.language.tabTitle",
       "description": "Editor tab title for the language server logs view",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "LSP Logs",
@@ -44526,7 +44527,8 @@
       "id": "native.clearLogView",
       "description": "Native LSP status and log viewer",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Clear View",

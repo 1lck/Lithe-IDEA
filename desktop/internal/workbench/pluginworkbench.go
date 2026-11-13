@@ -23,6 +23,20 @@ type pluginWorkbench struct{ app *App }
 
 var _ pluginservice.Workbench = pluginWorkbench{}
 
+// EditorActionsChanged recollects annotations when a plugin registers or withdraws actions,
+// including registrations made after a language server finishes importing a project.
+func (w pluginWorkbench) EditorActionsChanged(root string) {
+	w.app.post(func(a *App) {
+		p, err := a.projectAt(root)
+		if err != nil {
+			return // The window moved on; the old context has no visible documents.
+		}
+		for _, d := range p.docs.list {
+			a.scheduleEditorActions(p, d)
+		}
+	})
+}
+
 // onWindow runs fn on the window thread and waits for its result.
 func onWindow[T any](a *App, ctx context.Context, fn func(*App) (T, error)) (T, error) {
 	type outcome struct {

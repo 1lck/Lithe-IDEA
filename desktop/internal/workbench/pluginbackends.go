@@ -41,10 +41,12 @@ type pluginServer struct {
 	// features are the features the server offers, from Core's featuresChanged event
 	// (documentSymbols, semanticTokens and so on). Only the window thread reads or writes it.
 	features map[string]bool
-	// state is the last state Core reported (starting, ready, failed, stopped) and logs the
-	// newest log lines of the session; only the window thread reads or writes them.
-	state string
-	logs  []string
+	// state is the last state Core reported (starting, ready, failed, stopped), logs the
+	// newest log lines of the session and logsAdded how many lines it has added in all, which
+	// clearing the lines shown does not reset; only the window thread reads or writes them.
+	state     string
+	logs      []lspLogLine
+	logsAdded uint64
 	// sharedState is state again for other windows: the settings window's plugin page asks
 	// whether the plugin is running from its own thread, so it reads this copy, which the
 	// window thread writes whenever it writes state.
@@ -249,6 +251,11 @@ func (a *App) servePluginServer(server *pluginServer, ctx context.Context) {
 					a.post(func(a *App) {
 						if a.isCurrentPluginServer(server.session.PluginID, server) {
 							a.resumeDeferredSemantics()
+							if p := a.project; p != nil && p == server.project {
+								for _, d := range p.docs.list {
+									a.scheduleEditorActions(p, d)
+								}
+							}
 						}
 					})
 				}
