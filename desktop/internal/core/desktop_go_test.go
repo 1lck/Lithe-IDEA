@@ -154,17 +154,39 @@ func TestBuildDesktopCoreChecksOutFreshPinnedRevision(t *testing.T) {
 	script := filepath.Join(fixture, "scripts/desktop/build-desktop-core.sh")
 	write(script, strings.Replace(string(build), pinPrefix+pin+`"`, pinPrefix+revision+`"`, 1), 0o700)
 	write(filepath.Join(fixture, "bin/rustc"), "#!/usr/bin/env bash\nif [[ \"$1\" == -vV ]]; then echo 'host: x86_64-unknown-linux-gnu'; else echo 'rustc fixture'; fi\n", 0o700)
-	write(filepath.Join(fixture, "bin/cargo"), "#!/usr/bin/env bash\nif [[ \"$1\" == clean ]]; then exit 0; fi\nmkdir -p \"$CARGO_TARGET_DIR/debug\"\nprintf fixture > \"$CARGO_TARGET_DIR/debug/liblithe_core.a\"\nprintf helper > \"$CARGO_TARGET_DIR/debug/lithe-mcp\"\nfor arg in \"$@\"; do case \"$arg\" in native-static-libs=*) printf '%s\\n' '-lm' > \"${arg#native-static-libs=}\";; esac; done\n", 0o700)
+	write(filepath.Join(fixture, "bin/cargo"), `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == clean ]]; then exit 0; fi
+out="$CARGO_TARGET_DIR/debug"
+helper=lithe-mcp
+libs=-lm
+for ((i=1; i<=$#; i++)); do
+    if [[ "${!i}" == --target ]]; then
+        j=$((i+1))
+        out="$CARGO_TARGET_DIR/${!j}/debug"
+        if [[ "${!j}" == *-windows-gnu ]]; then
+            [[ "${WINAPI_NO_BUNDLED_LIBRARIES:-}" == 1 ]] || { echo 'winapi still requires Cargo-private import libraries' >&2; exit 1; }
+            helper=lithe-mcp.exe
+            libs=-lkernel32
+        fi
+    fi
+done
+mkdir -p "$out"
+printf fixture > "$out/liblithe_core.a"
+printf helper > "$out/$helper"
+for arg in "$@"; do case "$arg" in native-static-libs=*) printf '%s\n' "$libs" > "${arg#native-static-libs=}";; esac; done
+`, 0o700)
+	target := "x86_64-unknown-linux-gnu"
 	runBuild := func() ([]byte, error) {
 		t.Helper()
 		cmd := exec.CommandContext(testContext(t), bash, script)
 		for _, entry := range os.Environ() {
 			upper := strings.ToUpper(entry)
-			if !strings.HasPrefix(upper, "PATH=") && !strings.HasPrefix(upper, "LITHE_CORE_RUST_DIR=") && !strings.HasPrefix(upper, "LITHE_CORE_TARGET=") {
+			if !strings.HasPrefix(upper, "PATH=") && !strings.HasPrefix(upper, "LITHE_CORE_RUST_DIR=") && !strings.HasPrefix(upper, "LITHE_CORE_TARGET=") && !strings.HasPrefix(upper, "WINAPI_NO_BUNDLED_LIBRARIES=") {
 				cmd.Env = append(cmd.Env, entry)
 			}
 		}
-		cmd.Env = append(cmd.Env, "PATH="+filepath.Join(fixture, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
+		cmd.Env = append(cmd.Env, "PATH="+filepath.Join(fixture, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"), "LITHE_CORE_TARGET="+target)
 		return cmd.CombinedOutput()
 	}
 	// A no-index directory may still contain untracked user files. Recovery
@@ -188,6 +210,21 @@ func TestBuildDesktopCoreChecksOutFreshPinnedRevision(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(checkout, "rust/Cargo.toml")); err != nil {
 		t.Fatalf("pinned worktree was not checked out: %v", err)
 	}
+	// The GNU cgo lane must ask winapi to use MinGW's system import libraries,
+	// not private libwinapi_* archives from a transient Cargo registry path.
+	target = "x86_64-pc-windows-gnu"
+	output, err = runBuild()
+	if err != nil {
+		t.Fatalf("building Windows Core with system import libraries: %v\n%s", err, output)
+	}
+	stage := filepath.Join(fixture, ".artifacts/desktop/lithe-core", target, "debug")
+	if libs, err := os.ReadFile(filepath.Join(stage, "native-static-libs.txt")); err != nil || string(libs) != "-lkernel32\n" {
+		t.Fatalf("unexpected Windows linker inputs: %q, %v", libs, err)
+	}
+	if identity, err := os.ReadFile(filepath.Join(stage, "identity.txt")); err != nil || !strings.Contains(string(identity), "winapi-import-libraries=mingw-system\n") {
+		t.Fatalf("Windows import library identity missing: %q, %v", identity, err)
+	}
+	target = "x86_64-unknown-linux-gnu"
 	// Once a worktree has an index, a deliberate deletion must not be repaired
 	// by checkout behind the user's back, even if the build cannot proceed.
 	if err := os.Remove(manifest); err != nil {

@@ -240,6 +240,8 @@ const logsShortcut = "⇧⌘L"
 
 // settings are the user's choices, kept in settingsFile.
 type settings struct {
+	EditorPreferences core.EditorStoredPreferences `json:"editorPreferences,omitzero"`
+	KeymapSchemes     core.KeymapSchemes           `json:"keymapSchemes,omitzero"`
 	// Language is a stored i18n code; empty follows the system.
 	Language         string      `json:"language,omitempty"`
 	Theme            themeChoice `json:"theme,omitempty"`
@@ -408,6 +410,11 @@ type project struct {
 
 // App is the state of the window.
 type App struct {
+	chooseScratchPath func(string, string) (string, error)
+	recovery          *recoveryWriter
+	recentFiles       recentFileState
+	drafts            draftListState
+	editorPreferences core.EditorPreferences
 	// debugAttach are the host and port fields of the Debug panel's attach form.
 	debugAttach debugAttachFields
 	// root is the window's page; dnd are its drag and drop gestures and focus the control
@@ -664,6 +671,8 @@ func New(options Options) *App {
 		a.settings = settings{}
 	}
 	a.settings.Keymap = shortcuts.Normalize(a.settings.Keymap)
+	a.loadEditorEssentials()
+	a.initRecovery()
 	a.applyNetwork()
 	bundledInterfaceFamily()
 	a.applyFonts()
@@ -1077,6 +1086,7 @@ func (a *App) openProjectHere(path string) {
 		a.loadLog(p)
 		a.activatePluginWorkspace(root)
 		a.restoreEditorSession(p)
+		a.restoreCheckpoints(p)
 		a.restoreNativePanels(p)
 		a.openPendingFiles(p)
 	})
@@ -1123,6 +1133,15 @@ func (a *App) finishCloseProject(p *project, after func()) {
 		a.saveNativePanels(p)
 		a.releaseIndexing(p)
 		a.closeEverywhere(p)
+		a.recentFiles.open = false
+		a.recentFiles.generation++
+		a.recentFiles.lastEdited = 0
+		a.recentFiles.list = nil
+		a.recentFiles.listState = ui.ListState{}
+		a.drafts.open, a.drafts.loading = false, false
+		a.drafts.generation++
+		a.drafts.entries = nil
+		a.drafts.list = ui.ListState{}
 		if a.navigation.open && a.navigation.project == p {
 			a.closeNavigation()
 		}

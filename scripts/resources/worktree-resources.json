@@ -74,7 +74,7 @@
         ".artifacts/desktop/lithe-core-rust/source/.artifacts/rust-core-checks/",
         "<system-temp>/lithe core-cache-*/"
       ],
-      "identity": "The Core source checkout is pinned by build-desktop-core.sh, while Cargo target output and staged libraries depend on source revision, target, profile, compiler, environment and native linker inputs. The current staged identity is not a sealed reusable-resource manifest.",
+      "identity": "The Core source checkout is pinned by build-desktop-core.sh, while Cargo target output and staged libraries depend on source revision, target, profile, compiler, environment and native linker inputs. Windows GNU builds set WINAPI_NO_BUNDLED_LIBRARIES=1 and record winapi-import-libraries=mingw-system, using the installed MinGW system import libraries. The current staged identity is not a sealed reusable-resource manifest.",
       "reason": "Never copy or share these mutable build outputs or the checkout through worktree reuse. Each worktree builds or validates its own Core artifacts. They are build-time resources outside an installed application and do not modify a signed bundle or Sparkle baseline. Restored Core comment verification and its pinned lexer helper use the caller Cargo target, or a checkout-local .artifacts/rust-core-checks fallback; Rustdoc, helper binaries and build state remain excluded at every reuse stage. The native cgo cache regression owns one temporary fixture checkout and static archive, removes it after bounded compiler processes terminate, and never reuses it across worktrees. The Go cache identity includes staged Core/header/native-linker bytes and selected Windows import archives; this action hash is not a reusable-resource seal."
     },
     {
@@ -624,6 +624,18 @@
       ],
       "identity": "Mutable user-owned plugin preference layers and one native publication, bound to captured root identity and exact source bytes. No build, platform, architecture or toolchain identity makes these reusable.",
       "reason": "Core supplies relative source names and a 1 MiB byte budget; native storage reads without creating files and publishes only after explicit save. Same-directory exclusive temporary files preserve native metadata and are removed after publication, failure or cancellation. Never copy, share, package or validate these as download resources at any worktree reuse stage. Preferences remain outside installed resources and do not alter code signatures or Sparkle delta baselines."
+    },
+    {
+      "id": "viva-editor-user-state",
+      "reusable": false,
+      "locations": [
+        "<platform-preferences>/EditorRecovery/<document-digest>.draft",
+        "<platform-preferences>/EditorRecovery/.checkpoint-*",
+        "<platform-preferences>/editor-recent-<workspace-digest>.json",
+        "<platform-preferences>/settings.json (editor preferences and keymap schemes)"
+      ],
+      "identity": "Mutable user-authored source snapshots, caret/history and personal keymap settings. Owned by the preference installation and document, with no reusable version/platform/architecture/toolchain stamp.",
+      "reason": "Native adapters read only when an editor or list needs them, and atomically replace private files after edits or explicit settings changes. Core owns limits and recovery conflict decisions; saved/discarded normal documents remove recovery copies, scratch files persist until Save As or discard. Never share, copy, package or run a build resource validator at any worktree reuse stage. These paths are outside installed resources and cannot affect code signatures or Sparkle delta baselines."
     }
   ]
 }

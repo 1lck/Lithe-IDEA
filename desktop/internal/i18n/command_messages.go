@@ -2,6 +2,7 @@ package i18n
 
 // CommandMessages name the actions of the command catalog (Find Action).
 type CommandMessages struct {
+	Find, Replace, RecentFiles, RecentEdits, NewScratch, ScratchFiles, SaveAs                                                                                                                                                                                                                                                                                                                                                                                                                                                         string
 	AddNextOccurrence, UnselectOccurrence, SelectAllOccurrences, CloneCaretAbove, CloneCaretBelow                                                                                                                                                                                                                                                                                                                                                                                                                                     string
 	GroupEditor, GroupApp, GroupView, GroupProject, GroupToolWindows, GroupSearch, GroupGit, GroupRun, GroupTerminal, Settings, Plugins, Logs, ImportLegacy, ThemeSystem, ThemeLight, ThemeDark, LanguageEnglish, LanguageChinese, OpenProject, NewProject, Clone, CloseProject, SaveAll, SearchEverywhere, FindInFiles, ReplaceInFiles, Commit, CommitAndPush, Branches, GitConsole, Run, Debug, ToggleBreakpoint, NewTerminal, NoActions, FindAction, GitNextChange, GitPreviousChange, Fold, Unfold, FoldAll, UnfoldAll, ToggleVim string
 	// ShowTool is the action that shows a tool window by its name.
@@ -10,6 +11,7 @@ type CommandMessages struct {
 
 func commandMessages(language Language) CommandMessages {
 	return CommandMessages{
+		Find: Shared(language, "desktop.editorFind.find"), Replace: Shared(language, "desktop.editorFind.replace"), RecentFiles: Shared(language, "desktop.recentFiles.title"), RecentEdits: Shared(language, "desktop.recentFiles.edited"), NewScratch: Shared(language, "desktop.drafts.new"), ScratchFiles: Shared(language, "desktop.drafts.list"), SaveAs: Shared(language, "desktop.drafts.saveAs"),
 		GroupApp:             Shared(language, "desktop.command.groupApp"),
 		GroupView:            Shared(language, "desktop.command.groupView"),
 		GroupEditor:          Shared(language, "desktop.command.groupEditor"),

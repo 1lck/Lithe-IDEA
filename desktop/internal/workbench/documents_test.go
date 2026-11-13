@@ -333,6 +333,9 @@ func TestCloseDocumentSerializesInFlightSave(t *testing.T) {
 
 func TestWindowCloseWaitsForSuccessfulSave(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	// This test drives close-triggered saves explicitly. A real-time auto-save
+	// must not start an independent write while the test replaces the writer.
+	h.app.settings.DisableAutoSave = true
 	root := t.TempDir()
 	path := filepath.Join(root, "note.txt")
 	if err := os.WriteFile(path, []byte("initial"), 0o600); err != nil {
@@ -346,16 +349,20 @@ func TestWindowCloseWaitsForSuccessfulSave(t *testing.T) {
 	if _, err := input.OnEvent(app.TextEvent{Kind: app.TextInsert, Text: "change"}); err != nil {
 		t.Fatal(err)
 	}
+	want := d.view.TextSnapshot().String()
 	var allowed bool
 	h.app.documentWriter = func(string, []byte, []byte) error { return os.ErrPermission }
 	h.app.Config().OnCloseRequest(func() { allowed = true })
-	h.settle()
+	h.await("the first close to finish its failed save", func() bool { return !h.app.closingProject && !d.saving })
 	if allowed || h.app.project == nil || !d.view.Dirty() {
 		t.Fatal("window close lost unsaved changes after a failed write")
 	}
 	h.app.documentWriter = documentio.WriteGuarded
 	h.app.Config().OnCloseRequest(func() { allowed = true })
-	awaitDocumentState(t, h, func() bool { return allowed && h.app.project == nil })
+	h.await("the successful save to finish closing the window", func() bool { return allowed && h.app.project == nil })
+	if data, err := os.ReadFile(path); err != nil || string(data) != want {
+		t.Fatalf("closed window with disk = %q, want %q, error = %v", data, want, err)
+	}
 }
 
 // An external edit after opening must not be overwritten by a later editor save.

@@ -1,0 +1,29 @@
+{
+  "id": "editor-in-file-find-replace",
+  "area": "编辑器",
+  "group": "文档编辑",
+  "capability": "文件内查找替换，支持正则、匹配选项、选区、定位、高亮和单步撤销批量替换",
+  "owner": "Editor / Core",
+  "notes": "Viva 共享实现；匹配、顺序和恢复决策在外部 Rust Core。macOS 无头流程与截图已覆盖；macOS 原生窗口和 Windows 原生验收未执行。",
+  "verification": "查找 Unicode/emoji、正则捕获组、零宽匹配、选区与批量替换；编辑后旧结果不能修改新版本，关闭后释放定时器。 自动化：editor_essentials_test.go 与 editor_essentials_visual_test.go。",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/editor_find.go",
+      "desktop/internal/editorview/prepared_edit.go",
+      "desktop/internal/workbench/editor_essentials_test.go",
+      "desktop/internal/workbench/editor_essentials_visual_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/editor_find.go",
+      "desktop/internal/editorview/prepared_edit.go",
+      "desktop/internal/workbench/editor_essentials_test.go",
+      "desktop/internal/workbench/editor_essentials_visual_test.go"
+    ]
+  }
+}

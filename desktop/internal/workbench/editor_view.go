@@ -89,6 +89,9 @@ func (a *App) editorGroup(c ui.C, id string) ui.Box {
 		if doc != nil && doc.conflicted {
 			a.documentConflict(c, doc)
 		}
+		if doc != nil {
+			a.editorFindBar(c, p, doc)
+		}
 		ui.Column(c).Fill().Draw(place.bodyHook).Children(func() {
 			a.groupBody(c, id, doc)
 		})
@@ -182,6 +185,8 @@ func (a *App) documentInput(p *project, d *document) {
 	}
 	d.draw = func(dc *ui.DrawContext) {
 		v := d.view
+		prefs := a.editorPreferences
+		v.SetPresentation(editorview.Presentation{HideLineNumbers: !prefs.LineNumbers, ShowWhitespace: prefs.Whitespace, CursorStyle: prefs.CursorStyle, DisableCursorBlink: !prefs.CursorBlink})
 		v.Bind(d.hit, d.input.Parts())
 		// The minimap's button was declared by the last paint; its click turns the minimap of
 		// every view off or on, so the views painted after it in this paint follow too.

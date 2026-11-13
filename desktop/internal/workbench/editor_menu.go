@@ -18,6 +18,13 @@ func (a *App) editorMenuItems(c ui.C, p *project, d *document) func(*ui.MenuItem
 		menu.WidthRange(240, 280)
 		a.editorActionMenuItems(c, p, d, menu)
 		readOnly := d.view.ReadOnly()
+		if menu.Item(a.text.Commands.Find).Clicked() {
+			c.After(func() { a.selectDocument(p, d.id); a.openEditorFind(false) })
+		}
+		if menu.Item(a.text.Commands.Replace).Disabled(readOnly).Clicked() {
+			c.After(func() { a.selectDocument(p, d.id); a.openEditorFind(true) })
+		}
+		menu.Separator()
 		if menu.Item(i18n.Shared(language, "desktop.editorMenu.goToDefinition")).Keys(primary, "b").Clicked() {
 			c.After(func() {
 				line, column := d.view.CaretUTF16()

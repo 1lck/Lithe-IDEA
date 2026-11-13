@@ -45,6 +45,9 @@ type PluginRuntimeState struct {
 // Values are the settings the window edits. A field is the value that is stored, so the
 // empty string is the one that follows the system.
 type Values struct {
+	EditorPreferences       core.EditorPreferences
+	EditorStoredPreferences core.EditorStoredPreferences
+	KeymapSchemes           core.KeymapSchemes
 	// MarketplaceQuery is the text the marketplace search starts with when the window opens on
 	// the plugin page; empty leaves it as it is.
 	MarketplaceQuery string
@@ -306,7 +309,9 @@ type Options struct {
 	// behind; false hides the setting for them.
 	SweepsLeftovers bool
 	// SetKeymap hands a change of Values.Keymap to the settings owner, like SetTabRows.
-	SetKeymap func(shortcuts.Overrides)
+	SetKeymap            func(shortcuts.Overrides)
+	SetEditorPreferences func(core.EditorStoredPreferences, core.EditorPreferences)
+	SetKeymapSchemes     func(core.KeymapSchemeResult)
 	// SetNetwork hands the Network page's applied settings to the settings owner, with the
 	// password to store: nil keeps the stored one and an empty string removes it. Nil
 	// leaves the page unavailable.

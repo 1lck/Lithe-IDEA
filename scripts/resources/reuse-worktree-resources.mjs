@@ -87,7 +87,9 @@ async function readRegistry() {
   // Native cgo cache fixtures own and remove temporary archives; the link digest
   // invalidates Go actions only and does not make Core output reusable.
   // Viva's Core checkout, Cargo target and staged static libraries have no sealed
-  // cross-worktree identity; marketplace transfer directories are runtime-owned.
+  // cross-worktree identity, including Windows GNU winapi-import-libraries=mingw-system.
+  // WINAPI_NO_BUNDLED_LIBRARIES selects installed MinGW inputs, not reusable downloads.
+  // Marketplace transfer directories are runtime-owned.
   // Both remain excluded before any source access or copy operation.
   // Build Provider snapshots remain under the excluded per-workspace PluginState
   // owner, including after removing the old macOS Maven tree output allocator.
@@ -114,6 +116,8 @@ async function readRegistry() {
   // Offline Markdown libraries, including PlantUML, are pinned Git inputs.
   // Rebuild the target checkout's template/vendor resources before signing.
   // Generated bundles and live render state are never reusable resources.
+  // viva-editor-user-state: recovery source, recent files and keymap schemes are
+  // private mutable user data. Reject them before every source/copy/validator stage.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
   for (const resource of excludedResources) {

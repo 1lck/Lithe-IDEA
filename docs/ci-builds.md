@@ -391,7 +391,10 @@ Viva 编辑器性能基线 `scripts/desktop/perf/editor-bench.sh` 把每次运�
 
 Viva 的 Core 源码检出、Cargo 目标目录和暂存静态库位于当前工作树的
 `.artifacts/desktop/lithe-core-rust/` 与 `.artifacts/desktop/lithe-core/`。暂存身份记录包含
-修订、目标、profile 与编译器，但尚不是可跨工作树复用的完整密封清单，故资源清单中的
+修订、目标、profile 与编译器；Windows GNU 构建还固定设置上游 winapi 的
+`WINAPI_NO_BUNDLED_LIBRARIES=1`，直接链接已安装 MinGW 的系统导入库，并记录
+`winapi-import-libraries=mingw-system`。这避免 cgo 依赖 Cargo 私有路径中的
+`libwinapi_*` 归档；不增加下载、缓存目录或运行期资源。该身份尚不是可跨工作树复用的完整密封清单，故资源清单中的
 `viva-core-build-state` 明确拒绝复制；每个工作树独立构建和校验。Core 仓库恢复的 `scripts/rust-core/verify-rust-core-comments.sh` 先用固定词法器检查真实注释，再检查 Rustdoc；调用方应沿用本工作树的 `CARGO_TARGET_DIR`。独立 Core 检出未提供该变量时，输出只进入该检出的 `.artifacts/rust-core-checks/`（桌面默认检出内为 `.artifacts/desktop/lithe-core-rust/source/.artifacts/rust-core-checks/`）。词法器二进制、Cargo 状态与 Rustdoc 受 Core 修订、helper Cargo.lock、目标、编译器及环境约束，和已有 Core build state 一起排除，不注册复用 validator；只在构建/验证阶段生成，不进入安装包，不影响签名或增量更新。下方有关 Swift、Tauri、
 JDTLS 和旧工作流的描述记录迁移前流程，不能当作 Viva 的当前构建或复用能力。
 当前资源复用脚本的自包含回归覆盖路径、身份校验与禁止复制的状态；测试通过不证明本分支已删除的 PlantUML、远程服务、Swift/Tauri 客户端或旧 Windows 工作流仍可构建。preview 的 JDK 缓存历史问题见 [#1797](https://github.com/1lck/Lithe-IDEA/issues/1797)；这些旧产品流程必须单独迁移和验证，不能用资源脚本自测替代。
@@ -1071,3 +1074,16 @@ Viva stdio Debug 的临时状态位于可写插件根的
 只读，不影响签名或 Sparkle delta。此状态沿用 `official-plugin-packages` 不可复用路由，
 没有 identity stamp，发现、校验和复制阶段均禁止跨工作树共享；复用脚本无 validator，
 其注册与拒绝由 `scripts/resources/test-reuse-worktree-resources.mjs` 验证。
+
+
+### Viva 编辑器的用户数据
+
+`store.Open` 选择平台用户配置目录，`Lithe Desktop/EditorRecovery/<document-digest>.draft`
+保存编辑器恢复副本及 Scratch。小型 JSON 头与原始 UTF-8 内容在同一临时文件
+`.checkpoint-*` 中流式写入、同步后原子替换，避免把整篇内容序列化成 JSON。
+普通文件保存成功后移除副本；Scratch 关闭标签后仍保留，直到另存为或明确丢弃。
+Core 定义单文档、总磁盘和条数限制，原生适配器负责执行配额、私有权限和序列化写入。
+`editor-recent-<workspace-digest>.json` 保存最近文件和位置；`settings.json` 保存编辑器显示偏好
+与快捷键方案。它们没有可用于版本、平台、架构或工具链验证的构建身份，资源清单
+`viva-editor-user-state` 在所有复制阶段拒绝共享或复用。测试使用各自临时配置目录。
+这些数据不进入安装包或签名输入，运行时也不修改安装资源，不影响 Sparkle delta。

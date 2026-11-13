@@ -467,6 +467,7 @@ func (w *window) editorPage(c ui.C) {
 				}
 			})
 		})
+		w.editorPresentationCard(c)
 		w.tabLimitCard(c)
 		semantic := !values.DisableSemanticHighlight
 		w.card(c, settings.EditorSemantic, settings.EditorSemanticHelp, func() {
@@ -498,6 +499,7 @@ func (w *window) footer(c ui.C) {
 			w.setTabOverflow("", true)
 			w.setDisableSemanticHighlight(false, true)
 			w.setVimMode(false, true)
+			w.resetEditorPresentation()
 			w.setProcessTermination(ProcessTermination{}, true)
 			w.resetSteppingFilters()
 			w.setTerminalShell("", true)

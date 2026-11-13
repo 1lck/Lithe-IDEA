@@ -62,12 +62,20 @@ func (a *App) commands() []command {
 	if p == nil {
 		return sortCommands(list)
 	}
+	add("editor.newScratch", t.GroupEditor, a.text.Commands.NewScratch, "", true, func() { a.newScratch(p) })
+	add("editor.scratchFiles", t.GroupEditor, a.text.Commands.ScratchFiles, "", true, a.openScratchList)
+	add("editor.recentFiles", t.GroupEditor, a.text.Commands.RecentFiles, "", true, func() { a.openRecentFiles(false) })
+	add("editor.recentEdits", t.GroupEditor, a.text.Commands.RecentEdits, "", true, func() { a.openRecentFiles(true) })
 	add("project.close", t.GroupProject, t.CloseProject, "", true, a.closeProject)
 	add("documents.saveAll", t.GroupProject, t.SaveAll, "", true, func() { a.saveProjectDocuments(p, func(bool) {}) })
 	// The File menu closes the selected tab above its separator and Settings above it, as the
 	// old Windows menu bar ordered them.
 	if d := p.selectedDocument(p.docs.group); d != nil {
 		id := d.id
+		if d.scratch {
+			add("editor.saveAs", t.GroupEditor, a.text.Commands.SaveAs, "", !d.saving, func() { a.saveScratchAs(p, d) })
+			add("editor.discardScratch", t.GroupEditor, i18n.Shared(a.language(), "desktop.drafts.discard"), "", !d.saving, func() { a.discardScratch(p, d) })
+		}
 		add("tab.close", t.GroupProject, a.text.Editor.CloseTab, "", true, func() { a.closeDocument(p, id) })
 	}
 	// The Terminal menu runs the editor's selection as one command through the long-command
@@ -89,6 +97,8 @@ func (a *App) commands() []command {
 	}
 	// Code folding of the selected document.
 	if d := p.selectedDocument(p.docs.group); d != nil {
+		add("editor.find", t.GroupEditor, i18n.Shared(a.language(), "desktop.editorFind.find"), "", true, func() { a.openEditorFind(false) })
+		add("editor.replace", t.GroupEditor, i18n.Shared(a.language(), "desktop.editorFind.replace"), "", !d.virtual, func() { a.openEditorFind(true) })
 		add("editor.fold", t.GroupEditor, t.Fold, "", true, func() { a.foldCommand(d, func(v *editorview.View) { v.FoldAtCaret() }) })
 		add("editor.unfold", t.GroupEditor, t.Unfold, "", true, func() { a.foldCommand(d, func(v *editorview.View) { v.UnfoldAtCaret() }) })
 		add("editor.foldAll", t.GroupEditor, t.FoldAll, "", true, func() { a.foldCommand(d, (*editorview.View).FoldAll) })

@@ -270,6 +270,22 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			})
 		},
 		LocalHistory: a.localHistorySettingsSource(),
+		SetEditorPreferences: func(stored core.EditorStoredPreferences, resolved core.EditorPreferences) {
+			a.post(func(a *App) {
+				a.settings.EditorPreferences = stored
+				a.editorPreferences = resolved
+				a.saveSettings()
+				a.invalidator.Invalidate()
+			})
+		},
+		SetKeymapSchemes: func(value core.KeymapSchemeResult) {
+			a.post(func(a *App) {
+				a.settings.KeymapSchemes = value.State
+				a.settings.Keymap = shortcuts.Overrides(value.Bindings)
+				a.saveSettings()
+				a.invalidator.Invalidate()
+			})
+		},
 		SetKeymap: func(value shortcuts.Overrides) {
 			value = shortcuts.Normalize(value)
 			a.post(func(a *App) {
@@ -391,9 +407,10 @@ func (a *App) openSettingsPageWith(surface string, page settingsPage, query stri
 			SteppingFilters:          maps.Clone(a.settings.DebugSteppingFilters),
 			Fonts:                    fontprefs.Normalize(a.settings.Fonts),
 			Keymap:                   maps.Clone(a.settings.Keymap),
-			Network:                  a.settings.Network,
-			LocalHistory:             a.settings.LocalHistory,
-			AutoCheckUpdates:         a.autoCheckUpdates(),
+			EditorPreferences:        a.editorPreferences, EditorStoredPreferences: a.settings.EditorPreferences, KeymapSchemes: a.settings.KeymapSchemes,
+			Network:          a.settings.Network,
+			LocalHistory:     a.settings.LocalHistory,
+			AutoCheckUpdates: a.autoCheckUpdates(),
 		}
 		var err error
 		switch page {

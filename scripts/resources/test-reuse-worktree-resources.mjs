@@ -100,6 +100,8 @@ try {
     const transfer = registry.excludedResources.find(item => item.id === "plugin-marketplace-state");
     const icons = registry.excludedResources.find(item => item.id === "viva-file-icons");
     assert.equal(core.reusable, false);
+    assert.match(core.identity, /WINAPI_NO_BUNDLED_LIBRARIES=1/);
+    assert.match(core.identity, /winapi-import-libraries=mingw-system/);
     assert.ok(core.locations.includes(".artifacts/desktop/lithe-core-rust/target/"));
     assert.ok(core.locations.includes(".artifacts/desktop/lithe-core/"));
     assert.equal(transfer.reusable, false);
@@ -604,7 +606,7 @@ try {
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /language-tools is isolated/);
 
-  for (const id of ["windows-worker-plugins", "installed-worker-plugins"]) {
+  for (const id of ["windows-worker-plugins", "installed-worker-plugins", "viva-editor-user-state"]) {
     const result = run(process.execPath, [reuseScript, "--source", sourceRoot, "--resource", id]);
     assert.notEqual(result.status, 0);
     assert.match(diagnostics(result), /isolated/);

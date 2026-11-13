@@ -1,0 +1,29 @@
+{
+  "id": "editor-unsaved-recovery",
+  "area": "编辑器",
+  "group": "文档编辑",
+  "capability": "独立于自动保存的未保存内容恢复；磁盘改变或缺失时保留冲突并等待明确选择",
+  "owner": "Editor / Core",
+  "notes": "Viva 共享实现；匹配、顺序和恢复决策在外部 Rust Core。macOS 无头流程与截图已覆盖；macOS 原生窗口和 Windows 原生验收未执行。",
+  "verification": "编辑后持久化检查点，重新打开项目自动恢复；初次文件监听和手动/自动保存均不能绕过恢复冲突；明确保留编辑器后保存并清理副本。 自动化：editor_essentials_test.go 与 editor_essentials_visual_test.go。",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/editor_recovery.go",
+      "desktop/internal/draftstore/store.go",
+      "desktop/internal/workbench/editor_essentials_test.go",
+      "desktop/internal/workbench/editor_essentials_visual_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/editor_recovery.go",
+      "desktop/internal/draftstore/store.go",
+      "desktop/internal/workbench/editor_essentials_test.go",
+      "desktop/internal/workbench/editor_essentials_visual_test.go"
+    ]
+  }
+}
