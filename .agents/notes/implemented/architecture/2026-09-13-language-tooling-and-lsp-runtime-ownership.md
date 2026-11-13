@@ -275,7 +275,7 @@ Git 失败保留日志并允许语言服务继续，沿用底层操作的有界�
 ### Catalog 与工具发现边界
 
 内置 provider catalog 位于
-`rust/lithe-core/resources/lsp/language-providers.json`（已随 #1794 移除），
+`rust/lithe-core/resources/lsp/language-providers.json`（已随 Core #23 移除），
 项目可通过 `.lithe/lsp/language-providers.json` 按 `id` 覆盖字段、
 新增 provider 或用 `disabled: true` 禁用；格式由
 [`docs/reference/language-providers.schema.json`](../../../../docs/reference/language-providers.schema.json)
@@ -414,7 +414,7 @@ frame 缓冲区、open-document 集合、pending LSP 请求或语言服务器子
 真实 gopls 集成验证见
 `macos/Tests/LitheTests/RealGoplsIntegrationTests.swift`（已随 #1794 移除）
 头部注释里的运行方式和所需环境变量。接入新语言服务器的检查清单见
-`rust/lithe-core/src/lsp/languages/catalog.rs`（已随 #1794 移除）
+`rust/lithe-core/src/lsp/languages/catalog.rs`（已随 Core #23 移除）
 头部注释。
 
 补全接受与当前编辑器增量模型保持一致：窗口只取不可变 rope 快照，后台调用 Core 应用语义编辑并使用既有 rope 差异接口计算变更范围，回到窗口后确认版本再应用该范围。不得把 Core 返回的整篇结果作为整篇编辑重新发送给 LSP。`TestSemanticReplacementKeepsUnchangedTextOutOfEditAndUndo` 覆盖局部通知及撤销/重做；Core 的现有 `lsp.applyTextEdits` 仍接收完整文本，后台跨边界开销尚未改为增量接口。
