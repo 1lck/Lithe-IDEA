@@ -11,6 +11,7 @@
       "desktop/internal/workbench/lsp_status_test.go",
       "desktop/internal/workbench/catalog.go",
       "desktop/internal/workbench/chrome.go",
+      "desktop/internal/workbench/chrome_view.go",
       "desktop/internal/workbench/tabstrip.go",
       "desktop/internal/workbench/editor_view.go"
     ]
@@ -23,6 +24,7 @@
       "desktop/internal/workbench/lsp_status_test.go",
       "desktop/internal/workbench/catalog.go",
       "desktop/internal/workbench/chrome.go",
+      "desktop/internal/workbench/chrome_view.go",
       "desktop/internal/workbench/tabstrip.go",
       "desktop/internal/workbench/editor_view.go"
     ]
@@ -82,5 +84,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：状态栏显示选中文件的语言服务器状态（启动中、就绪、出错、已停止）或问题数，选中“LSP 日志”页签时显示该页签所示服务器的状态。点击状态栏打开或聚焦编辑器区唯一的“LSP 日志”普通页签（与旧 macOS 客户端一致，不再是单独的弹窗），可像文件页签一样切换、拖动、分屏和关闭，关闭后再打开仍显示已收到的日志。页签一次显示一个服务器（下拉选择），显示 Core 日志事件的有界尾部（500 行）：停在末尾时新日志自动跟随，向上滚动后不打断；错误、警告、调试行按事件级别着色；日志文本筛选（大小写不敏感，无匹配有提示）；“清空视图”只清空当前服务器的显示行；停止/重启按钮：停止走已有会话回收，重启复用设置页的重启流程（抑制旧会话、等待回收后按语言重新启动）。尚未接入按级别筛选和统一日志窗口的通道定位。"
+  "notes": "Viva：状态栏显示选中文件的语言服务器状态（启动中、就绪、出错、已停止）或问题数，选中“LSP 日志”页签时显示该页签所示服务器的状态，圆点按状态着色（就绪绿、出错红、已停止灰、启动中黄）。点击状态栏在其上方打开“语言服务”菜单（与旧 macOS 客户端一致）：每个运行中的服务器一行，图标形状表示状态，附状态与版本，子菜单提供查看日志、重启、停止；其后是查看日志、重启所有服务器、停止所有服务器和“管理语言服务器插件…”（打开设置窗口的插件页）；没有服务器时显示“未注册语言服务器”。“查看日志”打开或聚焦编辑器区唯一的“LSP 日志”普通页签，可像文件页签一样切换、拖动、分屏和关闭（macOS 默认 ⌘W），关闭后再打开仍显示已收到的日志。页签一次显示一个服务器（下拉选择），显示 Core 日志事件的有界尾部（500 行）：多行事件拆成多行，制表符展开为 4 个空格，单行超过 4096 字节按字符边界截断并加“…”；停在末尾时新日志自动跟随，向上滚动后不打断；方括号级别前缀单独着色（信息用强调色，错误红、警告黄、调试与跟踪灰），错误、警告、调试行的正文也按级别着色；“自动换行”开关：关闭时长行保持单行并可横向滚动（触控板或 Shift+滚轮，Viva 列表暂不绘制横向滚动条），开启时按页签宽度换行；日志文本筛选（大小写不敏感，无匹配有提示）；“清空视图”只清空当前服务器的显示行；停止/重启按钮：停止走已有会话回收，重启复用设置页的重启流程（抑制旧会话、等待回收后按语言重新启动）。尚未接入按级别筛选和统一日志窗口的通道定位（#1869）。"
 }

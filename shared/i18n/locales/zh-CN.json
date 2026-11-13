@@ -10465,6 +10465,7 @@
     "desktop.lsp.filterPlaceholder": "筛选日志",
     "desktop.lsp.stopServer": "停止服务器",
     "desktop.lsp.restartServer": "重启服务器",
+    "desktop.lsp.managePlugins": "管理语言服务器插件…",
     "desktop.lsp.noFilteredLog": "没有匹配筛选条件的日志。",
     "desktop.settings.fonts": "字体",
     "desktop.settings.fontsLigaturesHelp": "把 ->、!= 等字符组合画成一个字形。需要所选字体本身支持连字；运行输出暂不显示连字。",

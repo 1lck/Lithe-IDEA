@@ -10465,6 +10465,7 @@
     "desktop.lsp.filterPlaceholder": "Filter log messages",
     "desktop.lsp.stopServer": "Stop Server",
     "desktop.lsp.restartServer": "Restart Server",
+    "desktop.lsp.managePlugins": "Manage Language Server Plugins…",
     "desktop.lsp.noFilteredLog": "No log line matches the filter.",
     "desktop.settings.fonts": "Fonts",
     "desktop.settings.fontsLigaturesHelp": "Draws character groups such as -> and != as one glyph. The font must support ligatures; run output does not show them yet.",

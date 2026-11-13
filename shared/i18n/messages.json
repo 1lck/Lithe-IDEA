@@ -12019,6 +12019,13 @@
       ]
     },
     {
+      "id": "desktop.lsp.managePlugins",
+      "description": "Item of the status bar's language server menu that opens the plugin page of the settings window.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.lsp.noFilteredLog",
       "description": "Shown when the language server log filter matches no line.",
       "platforms": [
@@ -58060,7 +58067,8 @@
       "id": "native.inline.viewLogs",
       "description": "Presentation copy: macos/Sources/Lithe/Views/Workbench/ProjectPreparationStatusView.swift",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ]
     },
     {
@@ -66773,7 +66781,8 @@
       "id": "native.noRegisteredLanguageServers",
       "description": "LSP entry remains available before any server has started",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "No registered language servers",
@@ -74739,7 +74748,8 @@
       "id": "native.restartAllServers",
       "description": "Native LSP status and log viewer",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Restart All Servers",
@@ -79558,7 +79568,8 @@
       "id": "native.softWraps",
       "description": "Native UI: Soft Wraps",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Soft Wraps",
@@ -80641,7 +80652,8 @@
       "id": "native.stopAllServers",
       "description": "Native LSP status and log viewer",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Stop All Servers",
