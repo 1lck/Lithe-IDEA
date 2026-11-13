@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -17,19 +18,27 @@ import (
 // keeps a generated folder out, a line "(" is not a regular expression, and a path starting
 // with ".." is outside the project.
 type fakeLocalHistory struct {
-	mu       sync.Mutex
-	previews []core.HistoryIgnoreRules
-	paths    []string
-	limits   []int
-	usage    core.HistoryUsage
-	open     bool
-	clears   int
-	clearErr error
+	mu          sync.Mutex
+	previews    []core.HistoryIgnoreRules
+	paths       []string
+	limits      []int
+	usage       core.HistoryUsage
+	open        bool
+	clears      int
+	clearErr    error
+	previewGate <-chan struct{}
 }
 
 var fakeBuiltIns = []string{"**/node_modules/", "**/target/"}
 
-func (f *fakeLocalHistory) Preview(_ context.Context, rules core.HistoryIgnoreRules, path string) (core.HistoryIgnorePreview, error) {
+func (f *fakeLocalHistory) Preview(ctx context.Context, rules core.HistoryIgnoreRules, path string) (core.HistoryIgnorePreview, error) {
+	if f.previewGate != nil {
+		select {
+		case <-f.previewGate:
+		case <-ctx.Done():
+			return core.HistoryIgnorePreview{}, ctx.Err()
+		}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.previews, f.paths = append(f.previews, rules), append(f.paths, path)
@@ -137,11 +146,37 @@ func TestLocalHistoryCardChecksTheRulesAsTheyAreTyped(t *testing.T) {
 // number of megabytes, stores each rule trimmed without blank lines, measures again under the
 // new limit, and Revert brings the stored rules back.
 func TestLocalHistoryCardAppliesTrimmedRulesAndTheLimit(t *testing.T) {
-	source := &fakeLocalHistory{usage: core.HistoryUsage{UsedBytes: 1 << 20, LimitBytes: 100 << 20}, open: true}
+	previewGate := make(chan struct{})
+	var release sync.Once
+	defer release.Do(func() { close(previewGate) })
+	source := &fakeLocalHistory{usage: core.HistoryUsage{UsedBytes: 1 << 20, LimitBytes: 100 << 20}, open: true, previewGate: previewGate}
 	var applied []LocalHistorySettings
 	w, d := openLocalHistoryCard(t, source, LocalHistorySettings{}, func(next LocalHistorySettings) { applied = append(applied, next) })
 	text := func(id string) string { return i18n.Shared(i18n.English, id) }
 	d.until("the project's history size", func() bool { return d.text("1 MB / 100 MB") })
+
+	// Deliver the initial preview after the usage frame, but before the click.
+	// Its built-in rules add a row and move Apply. This ordering must not leave
+	// the click using coordinates from the frame that had only usage data.
+	release.Do(func() { close(previewGate) })
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	for {
+		w.localHistory.async.mu.Lock()
+		ready := w.localHistory.async.preview != nil
+		w.localHistory.async.mu.Unlock()
+		if ready {
+			break
+		}
+		select {
+		case <-d.driver.Wakes():
+		case <-deadline.C:
+			t.Fatal("initial local history preview did not complete")
+		}
+	}
+
+	builtIns := i18n.SharedFormat(i18n.English, "desktop.settings.localHistory.builtIns", map[string]string{"patterns": strings.Join(fakeBuiltIns, "  ")})
+	d.until("the initial preview row to be rendered before locating Apply", func() bool { return d.showsHelp(builtIns) })
 
 	w.localHistory.patterns.SetText("  *.log \n\n**/gen/\n")
 	w.localHistory.regexes.SetText("\n^build/ ")
