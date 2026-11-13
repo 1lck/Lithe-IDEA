@@ -149,13 +149,21 @@ func (a *App) chromeTitleButton(c ui.C, i int) bool {
 	switch a.chrome.catalog[i].id {
 	case itemRunConfig:
 		k := c.KeyInt(i)
-		box := a.chromeBox(ui.Row(k).Height(chromeIconButton).Shrink(0).Items(ui.Center).Gap(chromeGap).PadX(chromeEdge), ui.ID(k), i, false, "")
+		wasOpen := a.title.runConfigOpen
+		box := a.chromeBox(ui.Row(k).Height(chromeIconButton).Shrink(0).Items(ui.Center).Gap(chromeGap).PadX(chromeEdge), ui.ID(k), i, wasOpen, "")
 		box.Children(func() {
 			ui.Icon(k, *a.chrome.catalog[i].icon).Size(chromeIconSize, chromeIconSize).Color(a.colors.Subtle)
-			ui.Text(k, a.text.Title.CurrentFile).Color(a.colors.Text).LineHeight(chromeLineHeight)
+			ui.Text(k, a.titleRunLabel()).Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis().MaxWidth(chromeProjectMax)
 			ui.Icon(k, icons.ChevronDown).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
 		})
-		return box.Clicked()
+		clicked := box.Clicked()
+		if wasOpen {
+			a.titleRunConfigMenu(c, box)
+		}
+		if clicked && !wasOpen {
+			c.After(a.openRunConfigMenu)
+		}
+		return false
 	case itemTitleRun:
 		// Run is the one button that keeps its color at rest: green says what it does.
 		_, clicked := a.chromeGlyph(c, i, chromeIconButton, a.colors.Success, a.colors.Success, false)
@@ -168,7 +176,7 @@ func (a *App) chromeTitleButton(c ui.C, i int) bool {
 		}
 		if clicked && !wasOpen {
 			a.title.gearOpen = true
-			a.title.projectOpen = false
+			a.title.projectOpen, a.title.runConfigOpen = false, false
 			c.After(a.closeBranches)
 		}
 		return false

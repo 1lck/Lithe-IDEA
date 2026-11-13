@@ -58,6 +58,12 @@ type debugStart struct {
 	// startDebugging; its configuration is the adapter's, and parent answers the request.
 	parent         *debugSession
 	startRequestID string
+	// targetPath is the file a launch of the open file debugs; empty means the file selected
+	// when the session begins. A rerun keeps the file the first start debugged.
+	targetPath string
+	// rerun starts this session again the way it was first started, for the Debug window's
+	// Rerun; nil for a start the window cannot repeat.
+	rerun func()
 }
 
 // debugRemotePrompt is an attach to a non-local endpoint waiting for the user.
@@ -117,10 +123,18 @@ func (a *App) startDebug(p *project) {
 		}
 		start.request, start.target = "attach", target
 	}
-	// A debuggee reads the files on disk, so settle pending writes before the
-	// adapter launches; a failed save keeps the session from starting. Nothing to
-	// settle when every document is already on disk, which also keeps the session
-	// from waiting on a save batch that has no work.
+	if doc := p.selectedDocument(p.docs.group); doc != nil {
+		start.targetPath = doc.path
+	}
+	start.rerun = func() { a.saveAndBeginDebug(p, start) }
+	a.saveAndBeginDebug(p, start)
+}
+
+// saveAndBeginDebug begins start once the open documents are on disk. A debuggee reads the
+// files on disk, so pending writes settle before the adapter launches; a failed save keeps the
+// session from starting. Nothing to settle when every document is already on disk, which also
+// keeps the session from waiting on a save batch that has no work.
+func (a *App) saveAndBeginDebug(p *project, start debugStart) {
 	if !a.projectHasPendingWrites(p) {
 		a.beginDebug(p, start)
 		return
@@ -130,6 +144,26 @@ func (a *App) startDebug(p *project) {
 			a.beginDebug(p, start)
 		}
 	})
+}
+
+// rerunDebug is the Debug window's Rerun: it stops the sessions the project runs, the one the
+// window shows and the children it started, and starts the shown one again the way it was
+// first started. A provider's program is prepared again, so the rerun debugs a fresh build.
+func (a *App) rerunDebug(p *project) {
+	if p == nil || p.debug.rerun == nil || p.debug.preparing {
+		return
+	}
+	a.performed("debug.rerun", surfaceButton)
+	rerun := p.debug.rerun
+	// Each stop removes one session; the bound keeps a session that will not leave from
+	// holding the window thread.
+	for range len(p.debug.sessions) {
+		if p.debug.activeSession() == nil {
+			break
+		}
+		a.stopDebugByUser(p)
+	}
+	rerun()
 }
 
 // projectHasPendingWrites reports whether some open document has content the debuggee would
@@ -342,8 +376,8 @@ func (a *App) beginDebug(p *project, start debugStart) {
 		return
 	}
 	adapter := start.adapter
-	targetPath := ""
-	if doc := p.selectedDocument(p.docs.group); doc != nil {
+	targetPath := start.targetPath
+	if doc := p.selectedDocument(p.docs.group); targetPath == "" && doc != nil {
 		targetPath = doc.path
 	}
 	pluginRoot := a.plugins.Root
@@ -354,6 +388,8 @@ func (a *App) beginDebug(p *project, start debugStart) {
 	// A child shares its parent's generation, so the parent's replies stay current.
 	if start.parent == nil {
 		p.debug.generation++
+		// Rerun repeats the session the window shows; a start it cannot repeat leaves it off.
+		p.debug.rerun = start.rerun
 	}
 	generation := p.debug.generation
 	pending := start
@@ -394,6 +430,8 @@ func (a *App) beginDebug(p *project, start debugStart) {
 		parent:         start.parent,
 		startRequestID: start.startRequestID,
 	}
+	// A session started while the breakpoints are muted starts muted.
+	session.muted.Store(p.debug.muted)
 	parentSessionID := ""
 	if start.parent != nil {
 		parentSessionID = start.parent.id
@@ -500,6 +538,18 @@ func (a *App) beginDebug(p *project, start debugStart) {
 			return func(a *App) { a.finishDebugError(p, session, err) }
 		}
 		a.postDebugUpdate(p, session, update)
+		// Muting comes before the first breakpoint set, so a muted session never stops on
+		// one; a later toggle is applied once this startup is done.
+		if session.muted.Load() {
+			update, err := a.kernel.SetDebugBreakpointsMuted(ctx, session.id, true)
+			if err != nil {
+				return func(a *App) { a.finishDebugError(p, session, err) }
+			}
+			if err := session.writeFrames(update.OutboundFrames); err != nil {
+				return func(a *App) { a.finishDebugError(p, session, err) }
+			}
+			a.postDebugUpdate(p, session, update)
+		}
 		if len(dataBreakpoints) > 0 {
 			update, err := a.kernel.SetDebugDataBreakpoints(ctx, session.id, dataBreakpoints)
 			if err != nil {

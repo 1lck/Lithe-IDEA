@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -168,10 +167,11 @@ func (a *App) debugThreadResumed(p *project, threadID int64) {
 	d.watch.valuesCleared()
 }
 
-// debugThreadPicker is the thread selector above the call stack. One thread needs no picker.
+// debugThreadPicker is the thread selector above the call stack. It shows a single thread
+// too, as IntelliJ IDEA does, so the stack always says whose it is.
 func (a *App) debugThreadPicker(c ui.C, p *project) {
 	d := &p.debug
-	if len(d.threads) <= 1 {
+	if len(d.threads) == 0 {
 		return
 	}
 	t := a.text.Debug
@@ -183,10 +183,8 @@ func (a *App) debugThreadPicker(c ui.C, p *project) {
 			selected = index
 		}
 	}
-	k := c.Key("debugThreads")
-	row := ui.Row(k).FillWidth().Height(panelHeaderHeight).Shrink(0).PadX(8).Items(ui.Center).
-		HitWith(ui.ID(k), t.Threads, gfx.HitOptions{SkipFocus: true})
-	row.Children(func() {
+	// The picker fills its row; the thread's own items are at the end of each frame's menu.
+	ui.Row(c.Key("debugThreads")).FillWidth().Height(panelHeaderHeight).Shrink(0).PadX(8).Items(ui.Center).Children(func() {
 		ui.Select(c.Key("debugThread"), &selected, indexes, func(index int) string {
 			name := d.threads[index].Name
 			if name == "" {
@@ -196,13 +194,12 @@ func (a *App) debugThreadPicker(c ui.C, p *project) {
 				name = t.ThreadRunning(name)
 			}
 			return name
-		}).Label(t.Threads).Width(240).Height(24)
+		}).Label(t.Threads).FillWidth().Height(24)
 		if selected != threadIndexOf(d.threads, d.selectedThread) {
 			id := d.threads[selected].ID
 			c.After(func() { a.selectDebugThread(p, id) })
 		}
 	})
-	a.debugThreadMenu(k, row, p)
 }
 
 // threadIndexOf reports the position of one thread in the list, or 0 when it is absent.

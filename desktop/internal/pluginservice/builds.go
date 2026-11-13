@@ -67,6 +67,9 @@ type BuildRunDeclaration struct {
 	Name      string
 	Execution string
 	Tags      []string
+	// DebugAdapter is the local ID of the plugin's own adapter the run declares for native
+	// debug preparation (`debug.adapter`), empty when the run cannot be debugged.
+	DebugAdapter string
 }
 
 // BuildPlugins reads the newest enabled version of every plugin that declares
@@ -125,6 +128,9 @@ type rawBuildManifest struct {
 			FromTargets *struct {
 				Tags []string `json:"tags"`
 			} `json:"fromTargets"`
+			Debug *struct {
+				Adapter string `json:"adapter"`
+			} `json:"debug"`
 		} `json:"run"`
 		Test *struct {
 			Scopes     []string `json:"scopes"`
@@ -172,12 +178,16 @@ func parseBuildSystems(manifest json.RawMessage) (map[string]BuildSystemDeclarat
 			if name == "" {
 				name = run.ID
 			}
-			system.Runs = append(system.Runs, BuildRunDeclaration{
+			declaration := BuildRunDeclaration{
 				ID:        run.ID,
 				Name:      name,
 				Execution: run.Execution,
 				Tags:      append([]string(nil), run.FromTargets.Tags...),
-			})
+			}
+			if run.Debug != nil {
+				declaration.DebugAdapter = run.Debug.Adapter
+			}
+			system.Runs = append(system.Runs, declaration)
 		}
 		if raw.Test != nil {
 			system.Test = &BuildTestDeclaration{

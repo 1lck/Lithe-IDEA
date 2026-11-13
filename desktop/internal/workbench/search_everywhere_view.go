@@ -119,7 +119,8 @@ func (a *App) everywhereScopes(c ui.C, p *project, language i18n.Language) {
 			}
 		}
 		ui.Spacer(c).Grow(1)
-		preview := ui.Button(c.Key("everywherePreview"), i18n.Shared(language, "native.showPreview")).Icon(icons.Eye).IconOnly().Ghost()
+		preview := ui.Button(c.Key("everywherePreview"), i18n.Shared(language, "native.showPreview")).Icon(icons.Eye).IconOnly().Ghost().
+			Tooltip(i18n.Shared(language, "native.showPreview"))
 		if v.preview {
 			preview.Secondary()
 		}
@@ -145,7 +146,7 @@ func (a *App) everywhereFilter(c ui.C, p *project, language i18n.Language) {
 	if v.scope == 5 {
 		label = i18n.Shared(language, "native.searchOptions")
 	}
-	button := ui.Button(c.Key("everywhereFilter"), label).Icon(icons.Settings).IconOnly().Ghost()
+	button := ui.Button(c.Key("everywhereFilter"), label).Icon(icons.Settings).IconOnly().Ghost().Tooltip(label)
 	if v.filtered() {
 		button.Secondary()
 	}

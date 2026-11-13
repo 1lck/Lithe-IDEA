@@ -5198,7 +5198,8 @@
       "id": "debugger.console",
       "description": "Windows UI: debugger.console",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -5946,7 +5947,8 @@
       "id": "debugger.stackEmpty",
       "description": "Windows UI: debugger.stackEmpty",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -6060,7 +6062,8 @@
       "description": "Windows UI: debugger.threadsAndVariables",
       "platforms": [
         "windows",
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Threads & Variables",
@@ -7853,13 +7856,6 @@
       ]
     },
     {
-      "id": "desktop.debug.breakpoint.instruction",
-      "description": "Button on a disassembly row that toggles a machine-instruction breakpoint there",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.debug.breakpoint.logMessage",
       "description": "Label of the log message field of a log point",
       "platforms": [
@@ -7969,6 +7965,13 @@
       ]
     },
     {
+      "id": "desktop.debug.consoleEmpty",
+      "description": "Shown in the Debug window's Console tab before the debug session wrote any output",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.debug.continue",
       "description": "Continue",
       "platforms": [
@@ -7983,15 +7986,15 @@
       ]
     },
     {
-      "id": "desktop.debug.editValue",
-      "description": "Placeholder and label of the field that holds a variable's new value",
+      "id": "desktop.debug.disassemblyRetry",
+      "description": "Disassembly: button beside a failed load that asks for the same instructions again",
       "platforms": [
         "desktop"
       ]
     },
     {
-      "id": "desktop.debug.endOfCode",
-      "description": "Disassembly note that no more instructions exist in that direction",
+      "id": "desktop.debug.editValue",
+      "description": "Placeholder and label of the field that holds a variable's new value",
       "platforms": [
         "desktop"
       ]
@@ -8002,6 +8005,17 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.debug.evaluatePlaceholder",
+      "description": "Placeholder and accessible name of the Debug window's expression field. {evaluate} and {watch} are the keyboard shortcuts that evaluate the expression once and add it as a watch",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "evaluate": "string",
+        "watch": "string"
+      }
     },
     {
       "id": "desktop.debug.exceptionInfo",
@@ -8056,20 +8070,6 @@
       ]
     },
     {
-      "id": "desktop.debug.loadAfter",
-      "description": "Disassembly button that lists instructions after the last one shown",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.debug.loadBefore",
-      "description": "Disassembly button that lists instructions before the first one shown",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.debug.loadMore",
       "description": "Row that requests the next page of a large variable container",
       "platforms": [
@@ -8099,6 +8099,86 @@
       "parameters": {
         "bytes": "string"
       }
+    },
+    {
+      "id": "desktop.debug.memoryAddress",
+      "description": "Accessible label of the memory window's address field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.memoryAddressPlaceholder",
+      "description": "Placeholder of the memory window's address field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.memoryGoToAddress",
+      "description": "Memory window button that reads the memory at the address typed in the field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.memoryBytesPerRow",
+      "description": "Accessible label of the memory window's bytes-per-row picker",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.memoryRowBytes",
+      "description": "One choice of the memory window's bytes-per-row picker. {bytes} is the count.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "bytes": "string"
+      }
+    },
+    {
+      "id": "desktop.debug.memoryRadix",
+      "description": "Accessible label of the memory window's picker for the base each byte is written in",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.memoryRadixBinary",
+      "description": "Memory window base choice: each byte in binary",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.memoryRadixOctal",
+      "description": "Memory window base choice: each byte in octal",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.memoryRadixDecimal",
+      "description": "Memory window base choice: each byte in decimal",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.memoryRadixHex",
+      "description": "Memory window base choice: each byte in hexadecimal",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.memoryTypeAddress",
+      "description": "Memory window: shown when the selected stack frame has no instruction address to read at, so the user types one",
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.debug.noAdapters",
@@ -8200,7 +8280,7 @@
     },
     {
       "id": "desktop.debug.reload",
-      "description": "Disassembly button that rebuilds the window around the current instruction",
+      "description": "Goes back to the current instruction: rebuilds the disassembly around it, or reads the memory at it",
       "platforms": [
         "desktop"
       ]
@@ -8371,6 +8451,13 @@
     {
       "id": "desktop.debug.toggleBreakpoint",
       "description": "Toggle breakpoint at caret",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.unmuteBreakpoints",
+      "description": "Debug toolbar toggle, shown while the breakpoints are muted: lets the debuggee stop on them again",
       "platforms": [
         "desktop"
       ]
@@ -16490,6 +16577,23 @@
       ]
     },
     {
+      "id": "desktop.title.configurationNotStartable",
+      "description": "Desktop title bar: Run or Debug pressed on a run configuration that does not start through a build provider, so nothing can start it",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.title.currentFileNotRunnable",
+      "description": "Desktop title bar: Run pressed while Current File is chosen; nothing runs a file outside a run configuration",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.title.keymapLater",
       "description": "Desktop title bar: KeymapLater",
       "platforms": [
@@ -16518,6 +16622,23 @@
       ]
     },
     {
+      "id": "desktop.title.noRunConfigurations",
+      "description": "Desktop title bar: the run configuration menu when the project has no run configuration",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.title.notDebuggable",
+      "description": "Desktop title bar: Debug pressed on a run configuration whose plugin declares no debug adapter for its run",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
       "id": "desktop.title.pluginsLater",
       "description": "Desktop title bar: PluginsLater",
       "platforms": [
@@ -16532,8 +16653,8 @@
       ]
     },
     {
-      "id": "desktop.title.runLater",
-      "description": "Desktop title bar: RunLater",
+      "id": "desktop.title.runBusy",
+      "description": "Desktop title bar: Run pressed while the Run window is still running another operation",
       "platforms": [
         "desktop"
       ]
@@ -45279,7 +45400,8 @@
       "id": "native.collapseFilteredFrames",
       "description": "Native UI: Collapse filtered frames",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Collapse filtered frames",
@@ -60070,7 +60192,8 @@
       "id": "native.lineBreakpoints",
       "description": "Native UI: Line Breakpoints",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Line Breakpoints",
@@ -64379,7 +64502,8 @@
       "id": "native.muteBreakpoints",
       "description": "Native UI: Mute breakpoints",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Mute breakpoints",
@@ -72540,7 +72664,8 @@
       "id": "native.refreshWatches",
       "description": "Native UI: Refresh watches",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Refresh watches",
@@ -74101,7 +74226,8 @@
       "id": "native.rerun",
       "description": "Native UI: Rerun",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Rerun",
@@ -90550,7 +90676,8 @@
       "id": "native.viewBreakpoints",
       "description": "Native UI: View Breakpoints",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "View Breakpoints",

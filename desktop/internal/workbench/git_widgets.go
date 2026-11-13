@@ -18,7 +18,7 @@ func (a *App) gitIconButton(c ui.C, label string, icon gfx.Icon, on, disabled bo
 // gitToolButton is gitIconButton that also returns the button, for a popover or a menu that
 // hangs off it.
 func (a *App) gitToolButton(c ui.C, label string, icon gfx.Icon, on, disabled bool) (ui.Box, bool) {
-	button := ui.Button(c, label).Icon(icon).IconOnly().Ghost().Size(shellHideSize, shellHideSize).Disabled(disabled)
+	button := ui.Button(c, label).Icon(icon).IconOnly().Ghost().Size(shellHideSize, shellHideSize).Disabled(disabled).Tooltip(label)
 	if on {
 		button = button.Background(a.colors.Active)
 	}

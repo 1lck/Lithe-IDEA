@@ -47,7 +47,7 @@ func (a *App) applyDebugGutter(p *project, d *document) {
 	for _, point := range p.debug.breakpoints[d.path] {
 		g.next = append(g.next, editorview.Breakpoint{
 			Line:        int(point.line - 1),
-			Disabled:    point.disabled,
+			Disabled:    point.disabled || p.debug.muted,
 			Conditional: point.condition != "" || point.hitCondition != "",
 			Log:         point.logMessage != "",
 		})

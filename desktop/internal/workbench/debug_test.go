@@ -113,8 +113,8 @@ func openDebugPanel(t *testing.T, h *harness, root string) *project {
 	return p
 }
 
-// showDebugSection clicks the Debug tool window's tab named label. The section's own header and
-// list carry the same name and come after it, so the tab is the first control so named.
+// showDebugSection clicks the Debug tool window's tab named label. A list or a header inside
+// the tab may carry the same name and comes after it, so the tab is the first control so named.
 func (h *harness) showDebugSection(label string) {
 	h.t.Helper()
 	for _, hit := range h.driver.Snapshot().Hits {
@@ -125,6 +125,18 @@ func (h *harness) showDebugSection(label string) {
 		}
 	}
 	h.t.Fatalf("no Debug section named %q", label)
+}
+
+// toggleBreakpointInDialog toggles the breakpoint on the caret's line from the toolbar's
+// Breakpoints dialog and closes the dialog again.
+func toggleBreakpointInDialog(h *harness) {
+	h.t.Helper()
+	h.clickNamed(h.shared("native.viewBreakpoints"))
+	h.clickNamed(h.app.text.Debug.ToggleBreakpoint)
+	h.clickNamed(h.shared("ui.done"))
+	if p := h.app.project; p != nil && p.panels.breakpointsOpen {
+		h.t.Fatal("Done left the Breakpoints dialog open")
+	}
 }
 
 func TestDebugPanelBreakpointPauseContinueFrames(t *testing.T) {
@@ -144,12 +156,10 @@ func TestDebugPanelBreakpointPauseContinueFrames(t *testing.T) {
 	h.app.openFileAtPosition(p, source, 2, 0)
 	h.settle()
 
-	h.showDebugSection(h.app.text.Debug.Breakpoints)
-	h.clickNamed(h.app.text.Debug.ToggleBreakpoint)
+	toggleBreakpointInDialog(h)
 	if lines := p.debug.breakpoints[source]; len(lines) != 1 || lines[0].line != 3 {
 		t.Fatalf("breakpoints = %+v, want line 3 of %s", p.debug.breakpoints, source)
 	}
-	h.showDebugSection(h.app.text.Debug.Frames)
 
 	h.clickNamed(h.app.text.Debug.Start)
 	awaitStateWithin(t, h, 30*time.Second, "the paused debuggee and its stack", func() bool {

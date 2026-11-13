@@ -15,57 +15,40 @@ const (
 	// debugDisabledOpacity is the opacity of a disabled breakpoint's row, the fade the earlier
 	// client gave it.
 	debugDisabledOpacity = 0.55
+	// debugAdapterPickerWidth fits an adapter's display name such as "Go (Delve)" without
+	// taking the toolbar's free space.
+	debugAdapterPickerWidth = 160
+	// debugGutterDot is the side of an instruction breakpoint's dot, the editor gutter's
+	// breakpoint size; debugGutterRing is the outline of a muted one and debugGutterHintAlpha
+	// how strongly the dot a click would set shows under the pointer.
+	debugGutterDot       = 12
+	debugGutterRing      = 1.5
+	debugGutterHintAlpha = 0.35
 )
 
-// debugView declares the Debug tool window: one adapter session, its pause/continue controls
-// and its sections, the paused call stack first and the breakpoints among them.
+// debugView declares the Debug tool window the way IntelliJ IDEA lays it out: one row of icon
+// actions for the session that ends with the adapter picker, the session picker, then the
+// tabs of the shown session (see debugSections): its threads and variables, its console, and
+// the disassembly and memory where the adapter serves them.
 func (a *App) debugView(c ui.C, p *project) {
 	t, d := a.text.Debug, &p.debug
 	if !d.loaded && !d.loading {
 		a.loadDebugAdapters(p)
 	}
 	ui.Column(c).Fill().Background(a.colors.Editor).Children(func() {
-		a.debugSessionRow(c, p)
-		a.debugAdapterRow(c, p)
-		if len(d.adapters) > 0 && d.activeSession() == nil && debugAttachOnly(d.adapters[d.selectedAdapter]) {
+		a.debugToolbar(c, p)
+		ui.Divider(c)
+		if len(d.sessions) > 1 {
+			a.debugSessionRow(c, p)
+		}
+		if d.activeSession() == nil && len(d.adapters) > 0 && debugAttachOnly(d.adapters[d.selectedAdapter]) {
 			a.debugAttachForm(c)
 		}
 		a.debugRemotePrompt(c, p)
+		// The breakpoint editor is declared after the breakpoints dialog it opens from, so it
+		// stacks above that dialog.
+		a.debugBreakpointsDialog(c, p)
 		a.debugBreakpointEditor(c, p)
-		ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
-			if ui.Button(c, t.Start).Disabled(d.activeSession() != nil || len(d.adapters) == 0).Clicked() {
-				a.startDebug(p)
-			}
-			if d.activeSession() != nil {
-				if ui.Button(c, t.Stop).Outline().Clicked() {
-					a.stopDebugByUser(p)
-				}
-			}
-			if ui.Button(c, t.Continue).Outline().Disabled(d.activeSession() == nil || d.state != "paused").Clicked() {
-				a.continueDebug(p)
-			}
-			if ui.Button(c, t.Pause).Outline().Disabled(d.activeSession() == nil || d.state != "running").Clicked() {
-				a.pauseDebug(p)
-			}
-			// Steps need a stopped debuggee and a stopped thread to step; the adapter decides
-			// which commands it serves and Core rejects the rest with a visible failure.
-			stepDisabled := d.activeSession() == nil || d.state != "paused" ||
-				(d.pausedThread != nil && d.resumedThreads[*d.pausedThread])
-			if ui.Button(c, t.StepInto).Outline().Disabled(stepDisabled).Clicked() {
-				a.executeDebug(p, "stepIn")
-			}
-			if ui.Button(c, t.StepOver).Outline().Disabled(stepDisabled).Clicked() {
-				a.executeDebug(p, "next")
-			}
-			if ui.Button(c, t.StepOut).Outline().Disabled(stepDisabled).Clicked() {
-				a.executeDebug(p, "stepOut")
-			}
-			ui.Spacer(c)
-			if d.status != "" {
-				ui.Text(c, d.status).Shrink(1).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
-			}
-		})
-		ui.Divider(c)
 		if d.failure != "" {
 			ui.Column(c).FillWidth().Shrink(0).PadX(shellContentPad).PadY(6).Children(func() {
 				ui.Paragraph(c, d.failure, 3).Color(a.theme.Danger)
@@ -73,16 +56,155 @@ func (a *App) debugView(c ui.C, p *project) {
 		}
 		if len(d.adapters) == 0 && !d.loading {
 			a.panelMessage(c, t.NoAdapters, a.colors.Subtle)
-			a.debugOutput(c, p)
 			return
 		}
 		a.debugSections(c, p)
 	})
 }
 
-// debugAdapterRow declares the adapter picker. While a session runs the adapter
-// is fixed, so the picker gives way to its name.
-func (a *App) debugAdapterRow(c ui.C, p *project) {
+// debugToolbar declares the Debug window's actions as IntelliJ IDEA groups them: rerun and
+// stop the session; resume, pause and the steps of the paused thread; the breakpoints dialog
+// and the switch that mutes every breakpoint; then the More menu. Start stands in for Stop
+// while no session runs. Each icon names its action when the pointer rests on it. The status
+// of the shown session and the compact adapter picker close the row.
+func (a *App) debugToolbar(c ui.C, p *project) {
+	t, d := a.text.Debug, &p.debug
+	lang := a.language()
+	session := d.activeSession()
+	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(2).PadX(6).Children(func() {
+		if _, clicked := a.toolIconButton(c.Part("rerun"), i18n.Shared(lang, "native.rerun"), icons.RotateCcw, false, d.rerun == nil || d.preparing); clicked {
+			c.After(func() { a.rerunDebug(p) })
+		}
+		if session == nil {
+			if _, clicked := a.toolIconButton(c.Part("start"), t.Start, icons.Bug, false, len(d.adapters) == 0 || d.preparing); clicked {
+				c.After(func() { a.startDebug(p) })
+			}
+		} else if _, clicked := a.toolIconButton(c.Part("stop"), t.Stop, icons.Square, false, false); clicked {
+			c.After(func() { a.stopDebugByUser(p) })
+		}
+		a.debugToolbarDivider(c)
+		paused := session != nil && d.state == "paused"
+		if _, clicked := a.toolIconButton(c.Part("continue"), t.Continue, icons.Play, false, !paused); clicked {
+			c.After(func() { a.continueDebug(p) })
+		}
+		if _, clicked := a.toolIconButton(c.Part("pause"), t.Pause, icons.Pause, false, session == nil || d.state != "running"); clicked {
+			c.After(func() { a.pauseDebug(p) })
+		}
+		// Steps need a stopped debuggee and a stopped thread to step; the adapter decides
+		// which commands it serves and Core rejects the rest with a visible failure.
+		stepDisabled := !paused || (d.pausedThread != nil && d.resumedThreads[*d.pausedThread])
+		granularity := debugStepGranularity(d)
+		if _, clicked := a.toolIconButton(c.Part("step-over"), t.StepOver, icons.RedoDot, false, stepDisabled); clicked {
+			c.After(func() { a.executeDebugWithGranularity(p, "next", granularity) })
+		}
+		if _, clicked := a.toolIconButton(c.Part("step-into"), t.StepInto, icons.ArrowDownToDot, false, stepDisabled); clicked {
+			c.After(func() { a.executeDebugWithGranularity(p, "stepIn", granularity) })
+		}
+		if _, clicked := a.toolIconButton(c.Part("step-out"), t.StepOut, icons.ArrowUpFromDot, false, stepDisabled); clicked {
+			c.After(func() { a.executeDebugWithGranularity(p, "stepOut", granularity) })
+		}
+		a.debugToolbarDivider(c)
+		if _, clicked := a.toolIconButton(c.Part("view-breakpoints"), i18n.Shared(lang, "native.viewBreakpoints"), icons.CircleDot, p.panels.breakpointsOpen, false); clicked {
+			c.After(func() {
+				a.performed("debug.viewBreakpoints", surfaceButton)
+				p.panels.breakpointsOpen = true
+			})
+		}
+		mute := i18n.Shared(lang, "native.muteBreakpoints")
+		if d.muted {
+			mute = i18n.Shared(lang, "desktop.debug.unmuteBreakpoints")
+		}
+		if _, clicked := a.toolIconButton(c.Part("mute"), mute, icons.CircleSlash, d.muted, false); clicked {
+			c.After(func() { a.toggleMuteBreakpoints(p) })
+		}
+		more, clicked := a.toolIconButton(c.Part("more"), i18n.Shared(lang, "native.moreActions"), icons.EllipsisVertical, p.panels.debugMoreOpen, false)
+		if clicked {
+			c.After(func() { p.panels.debugMoreOpen = !p.panels.debugMoreOpen })
+		}
+		if p.panels.debugMoreOpen {
+			a.debugMoreMenu(c, more, p)
+		}
+		ui.Spacer(c)
+		if d.status != "" {
+			status := d.status
+			// The picker names the session's adapter while it shows that adapter; a child
+			// session, or a session whose adapter the user switched away from, is named here.
+			if session != nil && !d.pickerShows(session) {
+				status = a.debugSessionLabel(session) + " · " + status
+			}
+			ui.Text(c, status).Shrink(1).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
+		}
+		a.debugAdapterPicker(c.Part("adapter"), p)
+	})
+}
+
+// pickerShows reports whether the toolbar's adapter picker shows the adapter session runs: a
+// session the user started from it, not one another session started.
+func (d *debugState) pickerShows(session *debugSession) bool {
+	if session.parent != nil || len(d.adapters) == 0 {
+		return false
+	}
+	picked := d.adapters[d.selectedAdapter]
+	return picked.PluginID == session.adapter.PluginID && picked.Declaration.ID == session.adapter.Declaration.ID
+}
+
+// debugStepGranularity is the unit the toolbar's steps take: one instruction while the
+// Disassembly tab is shown and the adapter accepts a granularity, as IntelliJ IDEA steps in its
+// disassembly view, and the adapter's own unit otherwise. Core forwards the granularity only
+// when the adapter advertised it.
+func debugStepGranularity(d *debugState) string {
+	if d.section == debugSectionDisassembly && d.capabilities != nil && d.capabilities.SupportsSteppingGranularity {
+		return "instruction"
+	}
+	return ""
+}
+
+// debugToolbarDivider is the thin rule between two groups of the toolbar's actions.
+func (a *App) debugToolbarDivider(c ui.C) {
+	ui.Row(c).Height(16).Shrink(0).PadX(4).Children(func() {
+		ui.Column(c).Width(1).FillHeight().Background(a.colors.Line)
+	})
+}
+
+// debugMoreMenu declares the Debug toolbar's More menu: how the variables are shown, whether
+// the stack folds the frames the stepping filters match, and, while the Disassembly tab is
+// shown, the way back to the current instruction.
+func (a *App) debugMoreMenu(c ui.C, anchor ui.Box, p *project) {
+	t, d := a.text.Debug, &p.debug
+	open := true
+	ui.Menu(c, anchor, &open, func(menu *ui.MenuItems) {
+		if menu.Item(t.ViewTree).Chosen(!d.vars.json).Clicked() {
+			c.After(func() { d.vars.json = false })
+		}
+		if menu.Item(t.ViewJSON).Chosen(d.vars.json).Clicked() {
+			c.After(func() { d.vars.json = true })
+		}
+		menu.Separator()
+		if menu.Item(i18n.Shared(a.language(), "native.collapseFilteredFrames")).Checked(d.hideFiltered).Clicked() {
+			c.After(func() {
+				a.performed("debug.collapseFilteredFrames", surfaceMenu)
+				d.hideFiltered, d.framesExpanded = !d.hideFiltered, false
+			})
+		}
+		if d.section == debugSectionDisassembly {
+			menu.Separator()
+			if menu.Item(t.Reload).Disabled(!canDisassemble(d) || d.disassembly.loading).Clicked() {
+				c.After(func() {
+					a.performed("debug.disassembly.currentInstruction", surfaceMenu)
+					a.loadDisassembly(p)
+				})
+			}
+		}
+	})
+	if !open {
+		p.panels.debugMoreOpen = false
+	}
+}
+
+// debugAdapterPicker declares the compact adapter picker at the end of the toolbar. It stays
+// switchable while a session runs, as IntelliJ IDEA's run configuration does: a running
+// session keeps its adapter, and the choice is the one Start and the next session use.
+func (a *App) debugAdapterPicker(c ui.C, p *project) {
 	d := &p.debug
 	if len(d.adapters) == 0 {
 		return
@@ -91,16 +213,9 @@ func (a *App) debugAdapterRow(c ui.C, p *project) {
 	for index := range indexes {
 		indexes[index] = index
 	}
-	label := i18n.Shared(a.language(), "desktop.debug.adapter")
-	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).PadX(8).Items(ui.Center).Children(func() {
-		if d.activeSession() != nil {
-			ui.Text(c, d.adapters[d.selectedAdapter].Declaration.DisplayName).Color(a.colors.Text).Ellipsis().Grow(1).Label(label)
-			return
-		}
-		ui.Select(c, &d.selectedAdapter, indexes, func(index int) string {
-			return d.adapters[index].Declaration.DisplayName
-		}).Label(label).Grow(1)
-	})
+	ui.Select(c, &d.selectedAdapter, indexes, func(index int) string {
+		return d.adapters[index].Declaration.DisplayName
+	}).Label(i18n.Shared(a.language(), "desktop.debug.adapter")).Width(debugAdapterPickerWidth).Height(24).Shrink(1)
 }
 
 // debugAttachOnly is true for an adapter that has no launch: the target is a
@@ -166,48 +281,78 @@ func debugBreakpointList(d *debugState) []debugBreakpointRow {
 	return rows
 }
 
-// debugBreakpoints declares the toggle action and the stored breakpoint lines.
-// A line row removes that breakpoint when clicked.
-func (a *App) debugBreakpoints(c ui.C, p *project) {
-	t, d := a.text.Debug, &p.debug
-	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
-		ui.Text(c, t.Breakpoints).Color(a.colors.Text).Weight(gfx.WeightMedium).Shrink(0)
-		ui.Spacer(c)
-		if ui.Button(c, t.ToggleBreakpoint).Outline().Clicked() {
-			a.toggleBreakpoint(p)
-		}
-	})
-	a.debugFunctionBreakpoints(c, p)
-	rows := debugBreakpointList(d)
-	if len(rows) == 0 {
-		ui.Row(c).FillWidth().Height(debugRowHeight).Shrink(0).PadX(10).Items(ui.Center).Children(func() {
-			ui.Text(c, t.NoBreakpoints).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
-		})
+// debugBreakpointsHeight is the height of the breakpoints dialog's list of lines.
+const debugBreakpointsHeight = 220
+
+// debugBreakpointsDialog declares the dialog the toolbar's View Breakpoints opens, IntelliJ
+// IDEA's Breakpoints dialog: the action that toggles a breakpoint on the caret's line, the
+// method breakpoints, the line breakpoints and the exception filters the adapter offers.
+func (a *App) debugBreakpointsDialog(c ui.C, p *project) {
+	open := &p.panels.breakpointsOpen
+	if !*open {
 		return
 	}
-	list := &p.panels.breakpoints
-	list.Label = func(i int) string {
-		return debugFileName(rows[i].path) + ":" + strconv.FormatInt(rows[i].breakpoint.line, 10)
+	t := a.text.Debug
+	k := c.Part("breakpoints-dialog")
+	closed := ui.ModalWith(k, open, t.Breakpoints, ui.ModalSpec{Width: 560}, func() {
+		ui.Column(k).FillWidth().Gap(6).Children(func() {
+			a.debugBreakpoints(k, p)
+			a.debugExceptionsView(k, p)
+		})
+	}, func() {
+		if ui.Button(k, i18n.Shared(a.language(), "ui.done")).Clicked() {
+			*open = false
+		}
+	})
+	if closed {
+		*open = false
 	}
-	ui.List(c, list, len(rows), func(row ui.ListRow) {
-		spec := rows[row.Index]
-		row.Element.Height(debugRowHeight).PadX(10).Items(ui.Center).Gap(6).Tooltip(t.RemoveBreakpoint).
-			Hover(ui.Look{}.Background(a.colors.Hover))
-		// A disabled breakpoint is shown faded, as the earlier client's list showed it.
-		if spec.breakpoint.disabled {
-			row.Element.Opacity(debugDisabledOpacity)
+}
+
+// debugBreakpoints declares the toggle action and the stored breakpoints: the method names,
+// then the lines. A line row removes that breakpoint when clicked.
+func (a *App) debugBreakpoints(c ui.C, p *project) {
+	t, d := a.text.Debug, &p.debug
+	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).Children(func() {
+		ui.Text(c, i18n.Shared(a.language(), "native.lineBreakpoints")).Color(a.colors.Text).Weight(gfx.WeightMedium).Shrink(0)
+		ui.Spacer(c)
+		if ui.Button(c, t.ToggleBreakpoint).Outline().Clicked() {
+			c.After(func() { a.toggleBreakpoint(p) })
 		}
-		ui.Icon(row.C, icons.CircleX).Size(12, 12).Shrink(0).Color(a.theme.Danger)
-		ui.Text(row.C, debugFileName(spec.path)).Shrink(1).FontSize(12.5).Color(a.colors.Text).Ellipsis()
-		ui.Text(row.C, ":"+strconv.FormatInt(spec.breakpoint.line, 10)).Shrink(0).FontSize(11.5).Color(a.colors.Subtle)
-		if marker := breakpointMarker(spec.breakpoint, t.Breakpoint.Conditional, t.Breakpoint.LogPoint); marker != "" {
-			ui.Text(row.C, marker).Shrink(0).FontSize(11.5).Color(a.colors.Accent).Ellipsis()
+	})
+	rows := debugBreakpointList(d)
+	ui.Column(c).FillWidth().Height(debugBreakpointsHeight).Shrink(0).Border(1, a.colors.Line).Clip().Children(func() {
+		if len(rows) == 0 {
+			a.panelMessage(c, t.NoBreakpoints, a.colors.Subtle)
+			return
 		}
-		a.debugBreakpointMenu(row.C, row.Element, p, spec.path, spec.breakpoint.line, spec.breakpoint.disabled)
-		if row.Element.Clicked() {
-			row.C.After(func() { a.removeBreakpoint(p, spec.path, spec.breakpoint.line) })
+		list := &p.panels.breakpoints
+		list.Label = func(i int) string {
+			return debugFileName(rows[i].path) + ":" + strconv.FormatInt(rows[i].breakpoint.line, 10)
 		}
-	}).Label(t.Breakpoints).FillWidth().Grow(1)
+		ui.List(c, list, len(rows), func(row ui.ListRow) {
+			spec := rows[row.Index]
+			row.Element.Height(debugRowHeight).PadX(10).Items(ui.Center).Gap(6).Tooltip(t.RemoveBreakpoint).
+				Hover(ui.Look{}.Background(a.colors.Hover))
+			// A disabled breakpoint is shown faded, as the earlier client's list showed it, and
+			// so is every breakpoint while they are muted.
+			if spec.breakpoint.disabled || d.muted {
+				row.Element.Opacity(debugDisabledOpacity)
+			}
+			ui.Icon(row.C, icons.CircleX).Size(12, 12).Shrink(0).Color(a.theme.Danger)
+			ui.Text(row.C, debugFileName(spec.path)).Shrink(1).FontSize(12.5).Color(a.colors.Text).Ellipsis()
+			ui.Text(row.C, ":"+strconv.FormatInt(spec.breakpoint.line, 10)).Shrink(0).FontSize(11.5).Color(a.colors.Subtle)
+			if marker := breakpointMarker(spec.breakpoint, t.Breakpoint.Conditional, t.Breakpoint.LogPoint); marker != "" {
+				ui.Text(row.C, marker).Shrink(0).FontSize(11.5).Color(a.colors.Accent).Ellipsis()
+			}
+			a.debugBreakpointMenu(row.C, row.Element, p, spec.path, spec.breakpoint.line, spec.breakpoint.disabled)
+			if row.Element.Clicked() {
+				row.C.After(func() { a.removeBreakpoint(p, spec.path, spec.breakpoint.line) })
+			}
+		}).Label(t.Breakpoints).Fill()
+	})
+	ui.Text(c, t.Breakpoint.FunctionName).Color(a.colors.Text).Weight(gfx.WeightMedium)
+	a.debugFunctionBreakpoints(c, p)
 }
 
 // removeBreakpoint drops one stored line and tells the active adapter.
@@ -228,18 +373,18 @@ func (a *App) removeBreakpoint(p *project, path string, line int64) {
 	}
 }
 
-// debugFrames declares the paused call stack. A frame with a source path opens
-// that location.
+// debugFrames declares the left pane of Threads & Variables: the thread picker and the paused
+// thread's call stack, each frame written "name (file:line)" as IntelliJ IDEA writes it and
+// faded when the stepping filters match it. A click selects the frame and opens its source.
 func (a *App) debugFrames(c ui.C, p *project) {
 	t, d := a.text.Debug, &p.debug
 	a.debugThreadPicker(c, p)
-	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).PadX(8).Children(func() {
-		ui.Text(c, t.Frames).Color(a.colors.Text).Weight(gfx.WeightMedium).Ellipsis()
-	})
 	if len(d.frames) == 0 {
-		ui.Row(c).FillWidth().Shrink(0).Height(debugRowHeight).PadX(10).Items(ui.Center).Children(func() {
-			ui.Text(c, t.NoFrames).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
-		})
+		message := i18n.Shared(a.language(), "debugger.stackEmpty")
+		if d.activeSession() != nil {
+			message = t.NoFrames
+		}
+		a.panelMessage(c, message, a.colors.Subtle)
 		return
 	}
 	list := &p.panels.frames
@@ -257,7 +402,7 @@ func (a *App) debugFrames(c ui.C, p *project) {
 	}
 	ui.List(c, list, len(rows), func(row ui.ListRow) {
 		r := rows[row.Index]
-		element := row.Element.Height(debugRowHeight).PadX(10).Items(ui.Center).Gap(6).Hover(ui.Look{}.Background(a.colors.Hover))
+		element := row.Element.Height(debugRowHeight).PadX(10).Items(ui.Center).Gap(4).Hover(ui.Look{}.Background(a.colors.Hover))
 		if r.hidden > 0 {
 			// A run of frames the stepping filters match: a click shows them all again.
 			ui.Text(row.C, hiddenLabel(r.hidden)).Grow(1).Shrink(1).FontSize(12).Color(a.colors.Subtle).Ellipsis()
@@ -267,12 +412,20 @@ func (a *App) debugFrames(c ui.C, p *project) {
 			return
 		}
 		frame := d.frames[r.frame]
-		color := a.colors.Text
+		index := r.frame
+		if index == d.vars.frame {
+			element.Background(a.colors.Active)
+		}
+		color, place := a.colors.Text, a.colors.Subtle
 		if frame.IsFiltered {
 			color = a.colors.Subtle
 		}
-		ui.Text(row.C, frame.Name).Grow(1).Shrink(1).FontSize(12.5).Color(color).Ellipsis()
-		index := r.frame
+		ui.Text(row.C, frame.Name).Shrink(1).FontSize(12.5).Color(color).Ellipsis()
+		if frame.SourcePath != "" {
+			position := "(" + debugFileName(frame.SourcePath) + ":" + strconv.FormatInt(frame.Line, 10) + ")"
+			ui.Text(row.C, position).Shrink(0).FontSize(12.5).Color(place)
+		}
+		ui.Spacer(row.C)
 		a.debugFrameMenu(row.C, element, p, index)
 		if element.Clicked() && index != d.vars.frame {
 			// The selected frame decides which scopes and variables are shown.
@@ -282,8 +435,6 @@ func (a *App) debugFrames(c ui.C, p *project) {
 			return
 		}
 		element.Tooltip(t.OpenFrame)
-		position := debugFileName(frame.SourcePath) + ":" + strconv.FormatInt(frame.Line, 10)
-		ui.Text(row.C, position).Shrink(0).FontSize(11.5).Color(a.colors.Subtle)
 		if element.Clicked() {
 			line := int(frame.Line)
 			if line > 0 {
@@ -291,29 +442,28 @@ func (a *App) debugFrames(c ui.C, p *project) {
 			}
 			row.C.After(func() { a.openFileAtPosition(p, frame.SourcePath, line, 0) })
 		}
-	}).Label(t.Frames).FillWidth().Grow(1)
+	}).Label(t.Frames).Fill()
 }
 
-// debugOutput shows the adapter's bounded diagnostics when something failed or no
-// adapter was found.
-func (a *App) debugOutput(c ui.C, p *project) {
-	if len(p.debug.output) == 0 {
+// debugConsole declares the Console tab: the output the adapter reported for the session, in
+// a list that follows new lines while it shows its end.
+func (a *App) debugConsole(c ui.C, p *project) {
+	d, panels := &p.debug, &p.panels
+	if len(d.output) == 0 {
+		a.panelMessage(c, i18n.Shared(a.language(), "desktop.debug.consoleEmpty"), a.colors.Subtle)
 		return
 	}
-	lines := p.debug.output
-	if len(lines) > 8 {
-		lines = lines[len(lines)-8:]
+	list := &panels.console
+	if panels.consoleSeen != d.outputCount {
+		if panels.consoleSeen == 0 || list.AtEnd() {
+			list.ScrollToEnd()
+		}
+		panels.consoleSeen = d.outputCount
 	}
-	ui.Divider(c)
-	ui.Column(c).FillWidth().Height(120).Shrink(0).Clip().Pad(8).Children(func() {
-		ui.Paragraph(c, joinLines(lines), 6).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
-	})
-}
-
-func joinLines(lines []string) string {
-	text := ""
-	for _, line := range lines {
-		text += line + "\n"
-	}
-	return text
+	lines := d.output
+	list.Label = func(i int) string { return lines[i] }
+	ui.List(c, list, len(lines), func(row ui.ListRow) {
+		row.Element.Height(debugRowHeight - 4).PadX(10).Items(ui.Center)
+		ui.Text(row.C, lines[row.Index]).FontSize(12.5).Color(a.colors.Text).Mono()
+	}).Label(i18n.Shared(a.language(), "debugger.console")).Fill()
 }

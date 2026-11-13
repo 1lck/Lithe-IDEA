@@ -313,7 +313,8 @@ func (a *App) terminalTabs(c ui.C) {
 	u.tool, u.toolDrawn = place, true
 	ui.Row(c).Grow(1).Shrink(1).MinWidth(0).Height(panelHeaderHeight).Items(ui.Center).Gap(chromeGap).Clip().Draw(place.stripHook).Children(func() {
 		a.tabBar(c, place, tabsScroll, func() {
-			if ui.Button(c.Part("new"), a.text.Terminal.NewTab).Icon(icons.Plus).IconOnly().Ghost().Size(shellHideSize, shellHideSize).Shrink(0).Clicked() {
+			if ui.Button(c.Part("new"), a.text.Terminal.NewTab).Icon(icons.Plus).IconOnly().Ghost().Size(shellHideSize, shellHideSize).Shrink(0).
+				Tooltip(a.text.Terminal.NewTab).Clicked() {
 				c.After(func() { a.openToolTerminal("") })
 			}
 			a.shellMenuButton(c)
@@ -433,6 +434,11 @@ func (a *App) splitterKey(event gfx.KeyEvent) gfx.EventResult {
 	}
 	if p := a.project; p != nil && p.terms.layout != nil {
 		if r := p.terms.layout.key(event); r.Handled {
+			return r
+		}
+	}
+	if p := a.project; p != nil {
+		if r := p.panels.debugSplit.Key(event); r.Handled {
 			return r
 		}
 	}

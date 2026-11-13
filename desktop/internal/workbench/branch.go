@@ -104,6 +104,7 @@ func (a *App) openBranches() {
 	}
 	a.title.projectOpen = false
 	a.title.gearOpen = false
+	a.title.runConfigOpen = false
 	b := &a.branch
 	b.open, b.menu, b.dialog = true, "", branchDialogNone
 	b.repo, b.repoOpen = p.logBranchRepo(), false

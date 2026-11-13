@@ -192,3 +192,48 @@ func TestDebugStartOrContinueFollowsCore(t *testing.T) {
 		}
 	}
 }
+
+// TestDebugMemoryWindowFollowsTheContractFixture plans each scenario's window and locates
+// each reply through the typed wrappers.
+func TestDebugMemoryWindowFollowsTheContractFixture(t *testing.T) {
+	var fixture struct {
+		Scenarios []struct {
+			Name    string            `json:"name"`
+			Address string            `json:"address"`
+			Window  DebugMemoryWindow `json:"window"`
+			Replies []struct {
+				Start    string              `json:"start"`
+				Length   uint32              `json:"length"`
+				Expected DebugMemoryLocation `json:"expected"`
+			} `json:"replies"`
+		} `json:"scenarios"`
+	}
+	if err := json.Unmarshal(readDebugFixture(t, "memory-window-v1.json"), &fixture); err != nil {
+		t.Fatal(err)
+	}
+	ctx := debugContext(t)
+	client := NewClient()
+	for _, scenario := range fixture.Scenarios {
+		t.Run(scenario.Name, func(t *testing.T) {
+			window, err := client.PlanDebugMemoryWindow(ctx, scenario.Address)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if window != scenario.Window {
+				t.Fatalf("window = %+v, want %+v", window, scenario.Window)
+			}
+			for index, reply := range scenario.Replies {
+				got, err := client.LocateDebugMemoryWindow(ctx, window, reply.Start, reply.Length)
+				if err != nil {
+					t.Fatalf("reply %d: %v", index, err)
+				}
+				if !reflect.DeepEqual(got, reply.Expected) {
+					t.Fatalf("reply %d: got %+v, want %+v", index, got, reply.Expected)
+				}
+			}
+		})
+	}
+	if _, err := client.PlanDebugMemoryWindow(ctx, "  "); err == nil {
+		t.Fatal("a blank address was planned")
+	}
+}

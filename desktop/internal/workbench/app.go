@@ -93,6 +93,7 @@ type Kernel interface {
 	NormalizeSteppingFilters(ctx context.Context, adapterID string, filters core.DebugSteppingFilters) (core.DebugSteppingFilters, error)
 	GenerateRunConfigurations(ctx context.Context, root, cacheDirectory string, providerRuns json.RawMessage) (core.RunConfigGeneration, error)
 	ResolveRunConfigurations(ctx context.Context, root string) (core.RunConfigResolution, error)
+	DecideTitleAction(ctx context.Context, facts core.TitleActionFacts) (string, error)
 	ProviderLaunchInputs(ctx context.Context, root, configurationID, providerRoot string) (core.RunProviderLaunchInputs, error)
 	UpdateRunConfigurationOptions(ctx context.Context, edit core.RunOptionsEdit) (string, error)
 	RunArgumentText(ctx context.Context, lists [][]string) ([]string, error)
@@ -105,9 +106,10 @@ type Kernel interface {
 	DestroyDebugSession(ctx context.Context, sessionID string) ([]string, error)
 	PlanBuildRun(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildPlanRequest) (core.BuildPlan, error)
 	// PlanBuildDebug plans the native debug program a provider owns for one target, and
-	// DecodeBuildDebug validates it into the launch the Debug host starts.
+	// DecodeBuildDebug validates the answer into the preparation the run's declared adapter
+	// starts: the adapter's local ID and workspace-relative program, arguments and directory.
 	PlanBuildDebug(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildPlanRequest) (core.BuildPlan, error)
-	DecodeBuildDebug(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeDebugRequest) (core.BuildLaunch, error)
+	DecodeBuildDebug(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeDebugRequest) (core.BuildDebugPreparation, error)
 	DecodeBuildModel(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeModelRequest) (core.BuildModel, error)
 	DecodeBuildRun(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeRunRequest) (core.BuildLaunch, error)
 	ToolchainRegistryOf(ctx context.Context, manifests []json.RawMessage) (core.ToolchainRegistry, error)
@@ -933,19 +935,18 @@ func (a *App) activate(index int) {
 		}
 	case it.id == itemTitleSettings:
 		a.title.gearOpen = !a.title.gearOpen
-		a.title.projectOpen = false
+		a.title.projectOpen, a.title.runConfigOpen = false, false
 		a.closeBranches()
-	case it.id == itemTitleRun:
-		if a.project != nil {
-			if !a.chrome.isOpen(catalogIndex[itemRun]) {
-				a.reduceChrome(core.ToggleChrome(itemRun))
-			}
-			a.runSelectedBuildTask(a.project)
-			return
+	case it.id == itemRunConfig:
+		if a.title.runConfigOpen {
+			a.title.runConfigOpen = false
+		} else if a.project != nil {
+			a.openRunConfigMenu()
 		}
-		a.notifyInfo(a.text.Title.RunLater)
-	case it.id == itemRunConfig || it.id == itemTitleDebug:
-		a.notifyInfo(a.text.Title.RunLater)
+	case it.id == itemTitleRun:
+		a.titleRun(a.project)
+	case it.id == itemTitleDebug:
+		a.titleDebug(a.project)
 	case it.id == itemTitleSearch:
 		if a.project != nil {
 			a.performed("workspace.searchEverywhere.open", surfaceButton)

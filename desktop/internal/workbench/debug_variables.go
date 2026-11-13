@@ -275,6 +275,9 @@ func (a *App) selectDebugFrame(p *project, index int) {
 		return
 	}
 	d.vars.reset()
+	// The disassembly and memory belong to the frame shown before; the tab that shows them
+	// loads them again for this one.
+	d.disassembly.reset()
 	d.memory.reset()
 	d.vars.frame = index
 	d.vars.loading = true

@@ -216,3 +216,40 @@ func TestBuildProviderRequestNeedsAnOpenSession(t *testing.T) {
 		t.Fatal("a build request to a missing session succeeded")
 	}
 }
+
+// A native debug preparation decodes with the run it was planned for: Core answers the adapter
+// that run declares and the workspace-relative program the provider prepared.
+func TestBuildDecodeDebugAnswersTheDeclaredAdapter(t *testing.T) {
+	client, ctx := NewClient(), testContext(t)
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "app", "bin"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "app", "bin", "sample"), []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifest := readBuildFixture(t, "build-provider-debug-preparation.plugin.json")
+	raw, err := os.ReadFile(contractfixture.Path("fixtures/build-providers/build-debug-preparation.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Result json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	preparation, err := client.DecodeBuildDebug(ctx, manifest, "gradle", BuildDecodeDebugRequest{
+		WorkspaceRoot: root,
+		Root:          ".",
+		Run:           "application",
+		Result:        fixture.Result,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preparation.Adapter != "native" || preparation.Program != "app/bin/sample" || preparation.WorkingDirectory != "app" ||
+		len(preparation.Arguments) != 2 || preparation.Environment["SAMPLE"] != "debug" {
+		t.Fatalf("preparation = %+v", preparation)
+	}
+}

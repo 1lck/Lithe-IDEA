@@ -79,6 +79,8 @@ type titleState struct {
 	projectOpen bool
 	// gearOpen says the settings button's menu is open.
 	gearOpen bool
+	// runConfigOpen says the run configuration menu is open (title_run.go).
+	runConfigOpen bool
 	// menuOpen says the compact menu of the title bar is open (compact_menu.go).
 	menuOpen bool
 	// branches is the branch of each recent project the project menu has read, by path. The
@@ -167,6 +169,7 @@ func (a *App) selectedEditorDocument() *document {
 // while the menu is shut; the ones read before are shown until the new answer arrives.
 func (a *App) openProjectMenu() {
 	a.title.projectOpen = true
+	a.title.runConfigOpen = false
 	a.closeBranches()
 	var buf [chromeMenuRecents]int
 	for _, i := range a.menuRecents(&buf) {

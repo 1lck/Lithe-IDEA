@@ -42,9 +42,9 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 						a.runBuildTarget(p, spec.id, runID)
 					})
 				}
-				// The same target under the debugger: the provider prepares the native debug
-				// program and its own plugin's adapter starts it.
-				if menu.Item(i18n.Shared(lang, "desktop.build.debugTarget")).Disabled(b.operation != nil || instance.modelLoading).Clicked() {
+				// The same target under the debugger, when the run names an adapter of its own
+				// plugin: the provider prepares the native debug program and that adapter starts it.
+				if run.DebugAdapter != "" && menu.Item(i18n.Shared(lang, "desktop.build.debugTarget")).Disabled(b.operation != nil || instance.modelLoading || p.debug.preparing).Clicked() {
 					c.After(func() {
 						a.performed("build.target.debug", surfaceMenu)
 						b.projectID, b.targetID = spec.project, spec.id

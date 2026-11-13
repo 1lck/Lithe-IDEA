@@ -75,13 +75,15 @@ func (a *App) terminalFindBar(c ui.C, t *terminal) {
 		if f.query != "" {
 			ui.Text(c, label).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
 		}
-		if ui.Button(c.Key("previous"), words.FindPrevious).Icon(icons.ChevronUp).IconOnly().Ghost().Disabled(f.count == 0).Clicked() {
+		if ui.Button(c.Key("previous"), words.FindPrevious).Icon(icons.ChevronUp).IconOnly().Ghost().Disabled(f.count == 0).
+			Tooltip(words.FindPrevious).Clicked() {
 			f.count, f.current = t.view.FindStep(-1)
 		}
-		if ui.Button(c.Key("next"), words.FindNext).Icon(icons.ChevronDown).IconOnly().Ghost().Disabled(f.count == 0).Clicked() {
+		if ui.Button(c.Key("next"), words.FindNext).Icon(icons.ChevronDown).IconOnly().Ghost().Disabled(f.count == 0).
+			Tooltip(words.FindNext).Clicked() {
 			f.count, f.current = t.view.FindStep(1)
 		}
-		if ui.Button(c.Key("close"), words.FindClose).Icon(icons.X).IconOnly().Ghost().Clicked() {
+		if ui.Button(c.Key("close"), words.FindClose).Icon(icons.X).IconOnly().Ghost().Tooltip(words.FindClose).Clicked() {
 			c.After(func() { a.closeTerminalFind(t) })
 		}
 	})

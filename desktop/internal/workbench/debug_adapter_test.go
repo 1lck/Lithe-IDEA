@@ -102,6 +102,7 @@ func serveFixtureAdapter(input io.Reader, output io.Writer, workspace string) in
 				"supportsSteppingGranularity":           true,
 				"supportsReadMemoryRequest":             true,
 				"supportsSingleThreadExecutionRequests": true,
+				"supportsInstructionBreakpoints":        true,
 				"exceptionBreakpointFilters": []any{
 					map[string]any{"filter": "uncaught", "label": "Uncaught Exceptions", "default": true},
 					map[string]any{"filter": "caught", "label": "Caught Exceptions", "default": false},
@@ -116,6 +117,16 @@ func serveFixtureAdapter(input io.Reader, output io.Writer, workspace string) in
 			if request.Command == "disconnect" {
 				return 0
 			}
+		case "setInstructionBreakpoints":
+			var arguments struct {
+				Breakpoints []any `json:"breakpoints"`
+			}
+			_ = json.Unmarshal(request.Body, &arguments)
+			verified := make([]any, len(arguments.Breakpoints))
+			for index := range verified {
+				verified[index] = map[string]any{"verified": true}
+			}
+			respond(map[string]any{"breakpoints": verified})
 		case "setBreakpoints":
 			respond(map[string]any{"breakpoints": []any{map[string]any{"verified": true, "line": 3}}})
 		case "stackTrace":
@@ -181,10 +192,36 @@ func serveFixtureAdapter(input io.Reader, output io.Writer, workspace string) in
 				map[string]any{"id": 8, "name": "worker"},
 			}})
 		case "readMemory":
+			var arguments struct {
+				Reference string `json:"memoryReference"`
+				Offset    int64  `json:"offset"`
+				Count     int    `json:"count"`
+			}
+			_ = json.Unmarshal(request.Body, &arguments)
+			if arguments.Reference == "0x1000" && arguments.Offset == 0 {
+				// The instruction pointer: four readable bytes, then two that are not.
+				respond(map[string]any{
+					"address":         "0x1000",
+					"unreadableBytes": 2,
+					"data":            base64.StdEncoding.EncodeToString([]byte{0x48, 0x8b, 0x05, 0x10}),
+				})
+				continue
+			}
+			// Any other numeric address reads as bytes that are the low byte of their address.
+			start, err := strconv.ParseUint(strings.TrimPrefix(arguments.Reference, "0x"), 16, 64)
+			if err != nil {
+				write(map[string]any{"type": "response", "request_seq": request.Seq, "success": false,
+					"command": request.Command, "message": "unknown memory reference"})
+				continue
+			}
+			start = uint64(int64(start) + arguments.Offset)
+			data := make([]byte, arguments.Count)
+			for index := range data {
+				data[index] = byte(start + uint64(index))
+			}
 			respond(map[string]any{
-				"address":         "0x1000",
-				"unreadableBytes": 2,
-				"data":            base64.StdEncoding.EncodeToString([]byte{0x48, 0x8b, 0x05, 0x10}),
+				"address": fmt.Sprintf("0x%x", start),
+				"data":    base64.StdEncoding.EncodeToString(data),
 			})
 		case "next", "stepIn", "stepOut":
 			var arguments struct {

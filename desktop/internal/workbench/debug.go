@@ -53,6 +53,10 @@ type debugState struct {
 	loading         bool
 	adapters        []debugAdapter
 	selectedAdapter int
+	// afterLoad are the starts waiting for the installed adapters, run once they are read.
+	afterLoad []func()
+	// preparing is set while a build provider prepares a program for debugging.
+	preparing bool
 	// breakpoints maps an absolute source path to its breakpoints, sorted by line, and
 	// breakpointEdit is the open editor of one of them (debug_breakpoints.go).
 	breakpoints    map[string][]debugBreakpoint
@@ -75,6 +79,11 @@ type debugState struct {
 	// pendingRemote is the start in flight, kept so a remote endpoint can be
 	// confirmed and the same start repeated.
 	pendingRemote *debugStart
+	// muted keeps the breakpoints but sends the sessions none of them (debug_mute.go), and
+	// rerun starts the shown session again the way it was first started; nil before a start
+	// the window can repeat.
+	muted bool
+	rerun func()
 	// debugSessionView is what the window shows for the current session.
 	debugSessionView
 }
@@ -85,10 +94,12 @@ type debugSessionView struct {
 	state   string
 	status  string
 	failure string
-	// output is the adapter's bounded stderr and console text.
-	output    []string
-	exception *core.DebugExceptionInfo
-	frames    []core.DebugStackFrame
+	// output is the adapter's bounded stderr and console text, and outputCount the additions
+	// to it, which tell the console new lines from a list that only dropped its oldest ones.
+	output      []string
+	outputCount int
+	exception   *core.DebugExceptionInfo
+	frames      []core.DebugStackFrame
 	// hideFiltered collapses the frames the session's stepping filters match into one
 	// row per run; framesExpanded shows them again until the next stack arrives.
 	hideFiltered   bool
@@ -252,6 +263,9 @@ type debugSession struct {
 	cancel         context.CancelFunc
 	// stopped is set when Stop or project close already took the session apart.
 	stopped atomic.Bool
+	// muted is the project's mute switch as this session should have it; written on the
+	// window thread, read by the operations that tell Core (see debug_mute.go).
+	muted atomic.Bool
 	// exitCode is the debuggee's exit code from the terminated event, when the
 	// adapter reported one. ended, when set, receives it once the session is released.
 	exitCode atomic.Pointer[int]
@@ -360,6 +374,15 @@ func (s *debugSession) closeTransport() {
 	}
 }
 
+// addOutput appends text to the bounded output and counts the addition.
+func (v *debugSessionView) addOutput(text string) {
+	if text == "" {
+		return
+	}
+	v.output = appendDebugOutput(v.output, text)
+	v.outputCount++
+}
+
 // appendDebugOutput keeps the adapter's diagnostics bounded and whole-line.
 func appendDebugOutput(lines []string, text string) []string {
 	if text == "" {
@@ -419,6 +442,30 @@ func (a *App) finishDebugAdapters(p *project, adapters []debugAdapter, err error
 	p.debug.adapters = adapters
 	if err != nil && len(adapters) == 0 {
 		p.debug.failure = err.Error()
+	}
+	a.flushDebugAdapterWaiters(p)
+}
+
+// whenDebugAdaptersLoaded runs start on the window thread once the installed adapters are
+// read: now when they are, or after loadDebugAdapters answers. A project that closes before
+// the answer drops start with it.
+func (a *App) whenDebugAdaptersLoaded(p *project, start func()) {
+	if p == nil {
+		return
+	}
+	p.debug.afterLoad = append(p.debug.afterLoad, start)
+	a.loadDebugAdapters(p)
+	if p.debug.loaded && !p.debug.loading {
+		a.flushDebugAdapterWaiters(p)
+	}
+}
+
+// flushDebugAdapterWaiters runs the starts that waited for the installed adapters.
+func (a *App) flushDebugAdapterWaiters(p *project) {
+	waiting := p.debug.afterLoad
+	p.debug.afterLoad = nil
+	for _, start := range waiting {
+		start()
 	}
 }
 
@@ -563,7 +610,7 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 			// Opening the child changes the sessions, so it runs after this update.
 			a.post(func(a *App) { a.startChildDebug(p, session, event) })
 		case "output":
-			p.debug.output = appendDebugOutput(p.debug.output, event.Output)
+			p.debug.addOutput(event.Output)
 		}
 	}
 }
@@ -905,7 +952,7 @@ func (a *App) appendDebugOutput(p *project, session *debugSession, text string) 
 		return
 	}
 	defer p.debug.bindSession(session)()
-	p.debug.output = appendDebugOutput(p.debug.output, text)
+	p.debug.addOutput(text)
 }
 
 // debugFileName is the label of a breakpoint row.

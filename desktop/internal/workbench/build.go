@@ -512,6 +512,8 @@ func (a *App) finishBuildDetection(p *project, generation uint64, instances []bu
 	if p.build.reloadPending {
 		p.build.reloadPending = false
 		defer a.loadBuildSystems(p)
+	} else {
+		defer a.settleTitleAction(p)
 	}
 	p.build.loaded = true
 	p.build.instances = instances
@@ -529,6 +531,14 @@ func (a *App) finishBuildDetection(p *project, generation uint64, instances []bu
 		return
 	}
 	a.loadBuildModel(p, p.build.selected)
+	if p.runConfigs.wanted {
+		a.loadTitleRunConfigs(p)
+	}
+	// A model that came with detection is loaded already, so no model answer turns its runs
+	// into configurations; they are resolved here instead.
+	if _, loaded := providerRuns(p.build.instances); loaded {
+		a.refreshRunConfigurations(p)
+	}
 }
 
 // loadBuildModel loads the model of an instance whose detection did not carry one (a
@@ -691,14 +701,16 @@ func (a *App) finishBuildModel(p *project, id string, model core.BuildModel, err
 			if err != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_model_superseded", err))
 			}
-			if index == p.build.selected {
+			if index == p.build.selected || p.runConfigs.wanted {
 				a.loadBuildModel(p, index)
 			}
+			a.settleTitleAction(p)
 			return
 		}
 		if err != nil {
 			p.build.instances[index].modelError = err.Error()
 			p.build.status = err.Error()
+			a.settleTitleAction(p)
 			return
 		}
 		p.build.instances[index].Model = model
@@ -1049,15 +1061,28 @@ func (a *App) runBuildTarget(p *project, targetID, runID string) {
 	a.runBuildTargetWith(p, op, instance, target.ProjectID, targetID, runID, nil)
 }
 
-// debugBuildTarget prepares one provider application target for debugging and starts the
-// plugin's own debug adapter on the program the provider prepared. The adapter comes from the
-// same plugin as the build system: the first one that serves launch.
+// debugBuildTarget debugs one target of the Build window's selected instance and project
+// through the provider's run declaration runID.
 func (a *App) debugBuildTarget(p *project, targetID, runID string) {
-	instance := p.selectedBuildInstance()
-	if instance == nil || p.build.operation != nil {
+	a.debugProviderTarget(p, p.build.selected, p.build.projectID, targetID, runID)
+}
+
+// debugProviderTarget prepares one target of the instance at index for debugging through the
+// run declaration runID and starts the adapter that run names on the program the provider
+// prepared. Unsaved documents are saved first, since the provider builds the files on disk. A
+// run that declares no adapter, or a preparation already in flight, starts nothing.
+func (a *App) debugProviderTarget(p *project, index int, projectID, targetID, runID string) {
+	if p == nil || index < 0 || index >= len(p.build.instances) || p.debug.preparing {
 		return
 	}
-	project, ok := buildProjectByID(instance.Model, p.build.projectID)
+	instance := &p.build.instances[index]
+	run, ok := buildRunDeclaration(instance.System, runID)
+	if !ok || run.DebugAdapter == "" {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("build_debug_prepare", errors.New("the run declares no debug adapter")))
+		a.notifyError(i18n.Shared(a.language(), "desktop.build.noDebugAdapter"))
+		return
+	}
+	project, ok := buildProjectByID(instance.Model, projectID)
 	if !ok {
 		a.notifyError(a.text.Build.ProjectMissing)
 		return
@@ -1070,81 +1095,124 @@ func (a *App) debugBuildTarget(p *project, targetID, runID string) {
 	captured := *instance
 	kernel := a.kernel
 	messages := a.text.Build
+	// Rerun prepares the same target again, through the instance detection names the same way,
+	// so it debugs the program built from the files as they are then.
+	reference := core.RunProviderReference{PluginID: captured.PluginID, BuildSystemID: captured.BuildSystemID, Root: captured.Root}
+	rerun := func() { a.redebugProviderTarget(p, reference, projectID, targetID, runID) }
+	request := core.BuildPlanRequest{
+		Root:          captured.Root,
+		Options:       captured.Options,
+		WorkspaceRoot: p.root,
+		Run:           runID,
+		Project:       &core.BuildSelection{Name: project.Name, Path: project.Path, Properties: project.Properties},
+		Target:        &core.BuildSelection{Name: target.Name, Path: target.Path, Tags: target.Tags, Properties: target.Properties},
+	}
 	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "build.debugTarget", "surface": "build"})
-	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
-		plan, err := kernel.PlanBuildDebug(ctx, captured.Manifest, captured.BuildSystemID, core.BuildPlanRequest{
-			Root:          captured.Root,
-			Options:       captured.Options,
-			WorkspaceRoot: p.root,
-			Run:           runID,
-			Project:       &core.BuildSelection{Name: project.Name, Path: project.Path, Properties: project.Properties},
-			Target:        &core.BuildSelection{Name: target.Name, Path: target.Path, Tags: target.Tags, Properties: target.Properties},
+	p.debug.preparing = true
+	fail := func(err error) func(*App) {
+		return func(a *App) {
+			p.debug.preparing = false
+			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("build_debug_prepare", err))
+			a.notifyError(err.Error())
+		}
+	}
+	a.saveProjectDocuments(p, func(saved bool) {
+		if !saved {
+			p.debug.preparing = false
+			return
+		}
+		a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+			plan, err := kernel.PlanBuildDebug(ctx, captured.Manifest, captured.BuildSystemID, request)
+			if err != nil {
+				return fail(err)
+			}
+			if plan.Provider == nil {
+				return fail(errors.New(messages.CommandUnsupported))
+			}
+			client, err := a.buildProvider(ctx, p, captured)
+			if err != nil {
+				return fail(err)
+			}
+			operation, err := client.Execute(ctx, plan.Provider.Method, plan.Provider.Params, int(buildRequestTimeout/time.Millisecond))
+			if err != nil {
+				return fail(err)
+			}
+			result, err := operation.Wait(ctx)
+			if err != nil {
+				return fail(err)
+			}
+			preparation, err := kernel.DecodeBuildDebug(ctx, captured.Manifest, captured.BuildSystemID, core.BuildDecodeDebugRequest{
+				WorkspaceRoot: p.root,
+				Root:          captured.Root,
+				Run:           runID,
+				Result:        result,
+			})
+			if err != nil {
+				return fail(err)
+			}
+			return func(a *App) {
+				p.debug.preparing = false
+				a.startProviderDebug(p, captured.PluginID, preparation, rerun)
+			}
 		})
-		if err != nil {
-			return func(a *App) { a.notifyError(err.Error()) }
-		}
-		if plan.Provider == nil {
-			return func(a *App) { a.notifyError(messages.CommandUnsupported) }
-		}
-		client, err := a.buildProvider(ctx, p, captured)
-		if err != nil {
-			return func(a *App) { a.notifyError(err.Error()) }
-		}
-		operation, err := client.Execute(ctx, plan.Provider.Method, plan.Provider.Params, int(buildRequestTimeout/time.Millisecond))
-		if err != nil {
-			return func(a *App) { a.notifyError(err.Error()) }
-		}
-		result, err := operation.Wait(ctx)
-		if err != nil {
-			return func(a *App) { a.notifyError(err.Error()) }
-		}
-		launch, err := kernel.DecodeBuildDebug(ctx, captured.Manifest, captured.BuildSystemID, core.BuildDecodeDebugRequest{
-			WorkspaceRoot: p.root,
-			Root:          captured.Root,
-			Result:        result,
-		})
-		if err != nil {
-			return func(a *App) { a.notifyError(err.Error()) }
-		}
-		return func(a *App) { a.startProviderDebug(p, captured.PluginID, launch) }
 	})
 }
 
-// startProviderDebug starts the prepared program under the first adapter its own plugin
-// declares for launch, and reports it when the plugin declares none.
-func (a *App) startProviderDebug(p *project, pluginID string, launch core.BuildLaunch) {
-	if launch.Executable.Value == "" {
+// redebugProviderTarget prepares a provider's target for debugging again. The instance is found
+// again by its plugin, build system and root, since detection may have run since; an instance
+// that is gone says so.
+func (a *App) redebugProviderTarget(p *project, reference core.RunProviderReference, projectID, targetID, runID string) {
+	index := p.buildInstanceIndex(reference)
+	if index < 0 {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("debug_rerun", errors.New("the debugged build instance is no longer detected")))
+		a.notifyError(a.text.Build.TargetMissing)
 		return
 	}
-	for _, adapter := range p.debug.adapters {
-		if adapter.PluginID != pluginID || !adapter.Declaration.Serves("launch") {
-			continue
+	a.debugProviderTarget(p, index, projectID, targetID, runID)
+}
+
+// buildRunDeclaration is the run declaration id of system.
+func buildRunDeclaration(system pluginservice.BuildSystemDeclaration, id string) (pluginservice.BuildRunDeclaration, bool) {
+	for _, run := range system.Runs {
+		if run.ID == id {
+			return run, true
 		}
-		executable := launch.Executable.Value
-		if launch.Executable.Kind == "command" {
-			if resolved, err := exec.LookPath(executable); err == nil {
-				executable = resolved
+	}
+	return pluginservice.BuildRunDeclaration{}, false
+}
+
+// startProviderDebug starts the prepared program under the adapter the preparation names, which
+// Core checked belongs to the same plugin. The installed adapters are read first when the Debug
+// window has not read them yet. Core answers workspace-relative paths; the adapter gets them
+// absolute. rerun prepares the program again for the Debug window's Rerun.
+func (a *App) startProviderDebug(p *project, pluginID string, preparation core.BuildDebugPreparation, rerun func()) {
+	a.whenDebugAdaptersLoaded(p, func() {
+		for _, adapter := range p.debug.adapters {
+			if adapter.PluginID != pluginID || adapter.Declaration.ID != preparation.Adapter || !adapter.Declaration.Serves("launch") {
+				continue
 			}
+			program := filepath.Join(p.root, filepath.FromSlash(preparation.Program))
+			arguments := preparation.Arguments
+			if arguments == nil {
+				arguments = []string{}
+			}
+			environment := preparation.Environment
+			if environment == nil {
+				environment = map[string]string{}
+			}
+			a.beginDebug(p, debugStart{
+				adapter: adapter, request: "launch", ended: make(chan *int, 1), rerun: rerun,
+				launchTarget: &core.DebugTargetFacts{
+					Kind: "executable", Path: program, Executable: program,
+					WorkingDirectory: filepath.Join(p.root, filepath.FromSlash(preparation.WorkingDirectory)),
+					Arguments:        arguments, Environment: environment,
+				},
+			})
+			return
 		}
-		arguments := launch.Arguments
-		if arguments == nil {
-			arguments = []string{}
-		}
-		environment := launch.Environment
-		if environment == nil {
-			environment = map[string]string{}
-		}
-		a.beginDebug(p, debugStart{
-			adapter: adapter, request: "launch", ended: make(chan *int, 1),
-			launchTarget: &core.DebugTargetFacts{
-				Kind: "executable", Path: executable, Executable: executable,
-				WorkingDirectory: filepath.Join(p.root, filepath.FromSlash(launch.WorkingDirectory)),
-				Arguments:        arguments, Environment: environment,
-			},
-		})
-		return
-	}
-	a.notifyError(i18n.Shared(a.language(), "desktop.build.noDebugAdapter"))
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("build_debug_start", errors.New("the plugin does not install the adapter its run names")))
+		a.notifyError(i18n.Shared(a.language(), "desktop.build.noDebugAdapter"))
+	})
 }
 
 // runBuildTargetWith runs one target of instance through the provider's run declaration runID

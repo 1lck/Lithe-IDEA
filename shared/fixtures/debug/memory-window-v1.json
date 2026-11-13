@@ -1,0 +1,78 @@
+{
+  "description": "debug.planMemoryWindow places the memory view's readMemory window at an address; debug.locateMemoryWindow finds where each reply's bytes start and which of them is at the address read. A number (0x hexadecimal or decimal) is read from the multiple of 64 at or below it; any other reference is opaque and read from where it points. Addresses are strings because a 64-bit address can exceed the JavaScript safe integer range.",
+  "scenarios": [
+    {
+      "name": "hexadecimal address inside an aligned row",
+      "address": "0x2010",
+      "window": {
+        "address": "0x2010",
+        "request": { "memoryReference": "0x2010", "offset": -16, "count": 1024 }
+      },
+      "replies": [
+        { "start": "0x2000", "length": 1024, "expected": { "base": "0x2000", "mark": 16 } },
+        { "length": 1024, "expected": { "base": "0x2000", "mark": 16 } },
+        { "start": "0x2008", "length": 1024, "expected": { "base": "0x2008", "mark": 8 } },
+        { "start": "0x2000", "length": 8, "expected": { "base": "0x2000" } },
+        { "start": "0x2020", "length": 1024, "expected": { "base": "0x2020" } }
+      ]
+    },
+    {
+      "name": "decimal address and decimal reply start",
+      "address": "8208",
+      "window": {
+        "address": "0x2010",
+        "request": { "memoryReference": "0x2010", "offset": -16, "count": 1024 }
+      },
+      "replies": [
+        { "start": "8192", "length": 1024, "expected": { "base": "0x2000", "mark": 16 } }
+      ]
+    },
+    {
+      "name": "uppercase prefix, padding and surrounding spaces",
+      "address": " 0X0000ABCD ",
+      "window": {
+        "address": "0xabcd",
+        "request": { "memoryReference": "0xabcd", "offset": -13, "count": 1024 }
+      },
+      "replies": [
+        { "start": "0x000000000000ABC0", "length": 1024, "expected": { "base": "0xabc0", "mark": 13 } }
+      ]
+    },
+    {
+      "name": "opaque reference is read from where it points",
+      "address": "frame:3:ip",
+      "window": {
+        "address": "frame:3:ip",
+        "request": { "memoryReference": "frame:3:ip", "offset": 0, "count": 1024 }
+      },
+      "replies": [
+        { "start": "0x7ff0", "length": 1024, "expected": { "base": "0x7ff0", "mark": 0 } },
+        { "length": 1024, "expected": { "mark": 0 } },
+        { "length": 0, "expected": {} }
+      ]
+    },
+    {
+      "name": "address zero",
+      "address": "0",
+      "window": {
+        "address": "0x0",
+        "request": { "memoryReference": "0x0", "offset": 0, "count": 1024 }
+      },
+      "replies": [
+        { "length": 0, "expected": { "base": "0x0" } },
+        { "length": 1024, "expected": { "base": "0x0", "mark": 0 } }
+      ]
+    },
+    {
+      "name": "highest 64-bit address",
+      "address": "0xffffffffffffffff",
+      "window": {
+        "address": "0xffffffffffffffff",
+        "request": { "memoryReference": "0xffffffffffffffff", "offset": -63, "count": 1024 }
+      },
+      "replies": [
+        { "start": "0xffffffffffffffc0", "length": 64, "expected": { "base": "0xffffffffffffffc0", "mark": 63 } }
+      ]
+    }
+  ]
+}

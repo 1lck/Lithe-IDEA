@@ -52,10 +52,7 @@ type DebugMessages struct {
 	SetValue           string
 	NoExceptionFilters string
 	NoDisassembly      string
-	LoadBefore         string
-	LoadAfter          string
 	Reload             string
-	EndOfCode          string
 	BufferLimit        string
 	InvalidEndpoint    string
 	// RemotePrompt asks whether to attach to a debuggee that is not local.
@@ -131,10 +128,7 @@ func debugMessages(language Language) DebugMessages {
 		SetValue:           Shared(language, "desktop.debug.setValue"),
 		NoExceptionFilters: Shared(language, "desktop.debug.noExceptionFilters"),
 		NoDisassembly:      Shared(language, "desktop.debug.noDisassembly"),
-		LoadBefore:         Shared(language, "desktop.debug.loadBefore"),
-		LoadAfter:          Shared(language, "desktop.debug.loadAfter"),
 		Reload:             Shared(language, "desktop.debug.reload"),
-		EndOfCode:          Shared(language, "desktop.debug.endOfCode"),
 		BufferLimit:        Shared(language, "desktop.debug.bufferLimit"),
 		InvalidEndpoint:    Shared(language, "desktop.debug.invalidEndpoint"),
 		RemotePrompt: func(endpoint string) string {
