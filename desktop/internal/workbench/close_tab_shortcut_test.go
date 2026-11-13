@@ -40,8 +40,14 @@ func closeTabChord(t *testing.T, a *App) keymap.Chord {
 		return chord
 	}
 	chord := controlW(t)
-	a.settings.Keymap = a.settings.Keymap.With(shortcuts.CloseTab, []keymap.Chord{chord})
+	bindCloseTab(a, chord)
 	return chord
+}
+
+func bindCloseTab(a *App, chord keymap.Chord) {
+	a.settings.Keymap = a.settings.Keymap.With(shortcuts.CloseTab, []keymap.Chord{chord})
+	// Match SetKeymap: Pump paints only after an explicit invalidation.
+	a.invalidator.Invalidate()
 }
 
 func controlW(t *testing.T) keymap.Chord {
@@ -83,6 +89,23 @@ func TestCloseTabShortcutClosesTheSelectedEditorTab(t *testing.T) {
 	// does not see it go on a busy machine.
 	pressCloseTab(t, f.h, chord)
 	awaitDocumentState(t, f.h, func() bool { return f.p.docs.find(f.d.id) == nil })
+}
+
+// User bindings are installed after the log tab's frame on every platform,
+// including macOS where the default Command-W would hide a missing refresh.
+func TestCloseTabUserBindingClosesTheSelectedEditorTab(t *testing.T) {
+	f := newSemanticFixture(t)
+	openLSPLogFromStatus(f.h)
+	group := f.p.terms.bench.GroupOf(lspLogMember).ID
+	chord := controlW(t)
+	// Consume any pending paint before changing the binding; a background wake
+	// must not accidentally make the test's direct settings mutation visible.
+	pressCloseTab(t, f.h, chord)
+	bindCloseTab(f.h.app, chord)
+	pressCloseTab(t, f.h, chord)
+	if lspLogTabs(f.p) != 0 || f.p.selectedDocument(group) != f.d {
+		t.Fatalf("after the user chord: %d log tabs, the file selected %v", lspLogTabs(f.p), f.p.selectedDocument(group) == f.d)
+	}
 }
 
 // With a terminal focused the chord closes the terminal's tab, not the file's tab in the editor.
