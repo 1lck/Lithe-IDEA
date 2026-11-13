@@ -21,6 +21,7 @@ type checkpoint struct {
 	text, base rope.Rope
 	remove     bool
 	caret      int
+	after      func(*App)
 }
 
 // A single native worker drains coalesced immutable snapshots. Its queue and storage share
@@ -86,6 +87,9 @@ func (a *App) enqueueCheckpoint(job checkpoint) {
 	if _, exists := writer.pending[key]; !exists && len(writer.pending) >= writer.limit {
 		writer.mu.Unlock()
 		a.recoveryFailed(context.DeadlineExceeded)
+		if job.after != nil {
+			job.after(a)
+		}
 		return
 	}
 	writer.pending[key] = job
@@ -129,6 +133,9 @@ func (a *App) enqueueCheckpoint(job checkpoint) {
 			}
 			if err != nil {
 				a.post(func(a *App) { a.recoveryFailed(err) })
+			}
+			if next.after != nil {
+				a.post(next.after)
 			}
 		}
 	})

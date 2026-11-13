@@ -171,11 +171,21 @@ func (a *App) scratchPopup(c ui.C) {
 			row, index := item.C, item.Index
 			entry := v.entries[index]
 			ui.Row(row).FillWidth().Items(ui.Center).Gap(8).Children(func() {
-				if ui.Button(row, entry.Name).Ghost().Grow(1).Clicked() {
+				if ui.Button(row, entry.Name).Ghost().Grow(1).Disabled(v.loading).Clicked() {
 					c.After(func() { v.open = false; a.openScratch(p, entry.Path) })
 				}
-				if ui.Button(row, i18n.Shared(a.language(), "desktop.drafts.discard")).Outline().Small().Clicked() {
-					c.After(func() { a.enqueueCheckpoint(checkpoint{entry: entry, remove: true}); a.openScratchList() })
+				if ui.Button(row, i18n.Shared(a.language(), "desktop.drafts.discard")).Outline().Small().Disabled(v.loading).Clicked() {
+					c.After(func() {
+						v.loading = true
+						if d := p.docs.byPath(entry.Path); d != nil && d.scratch {
+							a.removeDocument(p, d)
+						}
+						a.enqueueCheckpoint(checkpoint{entry: entry, remove: true, after: func(a *App) {
+							if a.project == p && v.open {
+								a.openScratchList()
+							}
+						}})
+					})
 				}
 			})
 		}).Height(300)

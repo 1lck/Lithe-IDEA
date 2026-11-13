@@ -286,3 +286,25 @@ func TestEditorEssentialsClosingProjectDropsDialogsAndStartsNewEditVisit(t *test
 	}
 	h.app.recentFiles.open = false
 }
+
+func TestEditorEssentialsDiscardFromListWaitsForStorageAndClosesOpenScratch(t *testing.T) {
+	h, p, _ := essentialsDocument(t, "base")
+	h.app.newScratch(p)
+	d := p.selectedDocument(p.docs.group)
+	path := d.path
+	h.app.insertForTest(d, "private draft")
+	h.app.flushCheckpoint(p, d, false)
+	h.settleChain()
+	h.app.openScratchList()
+	h.settleChain()
+	h.clickNamed(h.shared("desktop.drafts.discard"))
+	h.await("discard committed and list refreshed", func() bool { return !h.app.drafts.loading && len(h.app.drafts.entries) == 0 })
+	if p.docs.byPath(path) != nil {
+		t.Fatal("discard left the editable scratch open")
+	}
+	entries, err := h.app.recovery.store.List("", true)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("discard checkpoint remains: %+v %v", entries, err)
+	}
+	h.app.drafts.open = false
+}
