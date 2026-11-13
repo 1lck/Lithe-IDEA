@@ -102,6 +102,9 @@ type Service struct {
 	resources *hostResources
 	// Runs owns the processes backends start through run/start.
 	Runs *Runs
+	// LanguageTool resolves an optional installation for a backend-resolved
+	// language server. A nil installation means the tool is unavailable.
+	LanguageTool func(context.Context, string, string) (*core.ToolchainSelection, error)
 	// kernel reads what only Core can validate, such as a plugin's grammar.
 	kernel Kernel
 	// lsMu guards the running plugin-owned language servers backends reach.

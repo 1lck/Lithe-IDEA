@@ -72,7 +72,10 @@ func (s *Service) resolveBackendLaunch(ctx context.Context, pluginID, version st
 	}
 	// The function's params are the plan's resolveParams themselves, as the
 	// contract says: serverID, platform, the four directories and the settings.
-	params := plan.ResolveParams
+	params, err := s.languageLaunchParams(ctx, workspace.Path, manifest, plan.ResolveParams)
+	if err != nil {
+		return fail(err)
+	}
 	reference, err := json.Marshal(workspace.ContextRef)
 	if err != nil {
 		return fail(err)
@@ -98,4 +101,47 @@ func (s *Service) resolveBackendLaunch(ctx context.Context, pluginID, version st
 		}
 	}
 	return backendLaunch{plan: &decoded, directories: directories}, nil
+}
+
+// languageLaunchParams supplies native installation facts, without interpreting
+// any tool's version or configuration. Core already validated requiresTools;
+// the resolver uses the same user choices and discovery as Build and Run.
+func (s *Service) languageLaunchParams(ctx context.Context, root string, manifest, params json.RawMessage) (json.RawMessage, error) {
+	if s.LanguageTool == nil {
+		return params, nil
+	}
+	var declaration struct {
+		RequiresTools []string `json:"requiresTools"`
+	}
+	if err := json.Unmarshal(manifest, &declaration); err != nil {
+		return nil, err
+	}
+	type installation struct {
+		Executable string  `json:"executable"`
+		Home       *string `json:"home,omitempty"`
+		Version    string  `json:"version,omitempty"`
+	}
+	tools := make(map[string]installation)
+	for _, tool := range declaration.RequiresTools {
+		selected, err := s.LanguageTool(ctx, root, tool)
+		if err != nil {
+			return nil, err
+		}
+		if selected != nil && !selected.ProjectCode {
+			tools[tool] = installation{selected.Executable, selected.Home, selected.Version}
+		}
+	}
+	if len(tools) == 0 {
+		return params, nil
+	}
+	var value map[string]json.RawMessage
+	if err := json.Unmarshal(params, &value); err != nil {
+		return nil, err
+	}
+	encoded, err := json.Marshal(tools)
+	if err != nil {
+		return nil, err
+	}
+	value["tools"] = encoded
+	return json.Marshal(value)
 }
