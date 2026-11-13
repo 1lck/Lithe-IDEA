@@ -123,7 +123,7 @@
 
 ## 验证
 
-- `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib spring`
+- `cargo test --manifest-path rust/crates/core/Cargo.toml --lib spring`
   覆盖并发读者共享一次扫描、刷新只接受到达之后开始的扫描、扫描途中到达的刷新
   会重扫、取消等待和取消扫描。并发用例在等待者确实持有槽位之后才放行扫描者。
 - `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory windows/tauri -- src/features/spring/hooks/use-spring-index.test.tsx`

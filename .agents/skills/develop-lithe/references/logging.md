@@ -148,8 +148,8 @@ macOS 的日志窗口和诊断包只读取 v2 会话文件；v1 文件只进入�
 | 层 | 事件 | 由谁记录 | 级别 |
 | --- | --- | --- | --- |
 | 用户操作 | `app.action.performed`（通道 `app`） | 最外层 UI 入口的 `UserActionTrace` | INFO |
-| Core 请求 | `app.core.request.finished` / `.traced` / `.failed`（通道 `app/core`） | Core 请求分发处 `rust/lithe-core/src/runtime/dispatcher.rs`，实现在 `diagnostics/request_trace.rs` | 用户来源的成功或取消为 `finished`（INFO）；后台或未知来源的成功或取消为 `traced`（DEBUG）；失败为 `failed`（WARN） |
-| 外部进程 | `vcs.git.command.finished` / `.traced` / `.failed`（通道 `vcs/git`） | Core 的 Git 进程执行点 `rust/lithe-core/src/git/command_trace.rs`，本地和远程工作区都经过这里 | 来源为用户的可见命令（定义见 7.4），成功或取消为 `finished`（INFO）；其余成功或取消为 `traced`（DEBUG）；失败为 `failed`（WARN） |
+| Core 请求 | `app.core.request.finished` / `.traced` / `.failed`（通道 `app/core`） | Core 请求分发处 `rust/crates/core/src/runtime/dispatcher.rs`，实现在 `diagnostics/request_trace.rs` | 用户来源的成功或取消为 `finished`（INFO）；后台或未知来源的成功或取消为 `traced`（DEBUG）；失败为 `failed`（WARN） |
+| 外部进程 | `vcs.git.command.finished` / `.traced` / `.failed`（通道 `vcs/git`） | Core 的 Git 进程执行点 `rust/crates/core/src/git/command_trace.rs`，本地和远程工作区都经过这里 | 来源为用户的可见命令（定义见 7.4），成功或取消为 `finished`（INFO）；其余成功或取消为 `traced`（DEBUG）；失败为 `failed`（WARN） |
 
 ### 7.1 用户操作入口
 
@@ -246,7 +246,7 @@ sink.emit(GitFetchNoticeFailed(remote: remote, error: error, operationID: op))
 修改目录、生成器或门禁本身时，还须运行直接受影响的 Core、辅助 crate 和 Viva 宿主测试；
 当前 Go 桥接和存储测试不能代替缺失的目录生成及使用扫描。只读核验不能改写生成物。
 
-修改执行轨迹时运行对应测试：Core 请求轨迹在 `rust/lithe-core/src/tests/core_request_traces.rs`，Git 进程轨迹、argv 脱敏和 `exit_is_answer` 在 `rust/lithe-core/src/git/command_trace.rs` 的测试模块，宿主侧的入口与来源解析在 `macos/Tests/LitheTests/UserActionTraceTests.swift` 和 `macos/Tests/LitheTests/CoreRequestTraceTests.swift`。
+修改执行轨迹时运行对应测试：Core 请求轨迹在 `rust/crates/core/src/tests/core_request_traces.rs`，Git 进程轨迹、argv 脱敏和 `exit_is_answer` 在 `rust/crates/core/src/git/command_trace.rs` 的测试模块，宿主侧的入口与来源解析在 `macos/Tests/LitheTests/UserActionTraceTests.swift` 和 `macos/Tests/LitheTests/CoreRequestTraceTests.swift`。
 
 按错误类别过滤的辅助函数必须有测试：对象已经不在的类别（例如 `NotConnected`、`BrokenPipe`）不发事件，意外类别（例如 `PermissionDenied`）发事件。
 

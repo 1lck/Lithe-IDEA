@@ -51,7 +51,7 @@ macOS 点击另一仓库的分支时，先刷新目标仓库，再设置目标�
 
 ## 验证
 
-- `rust/lithe-core/src/tests/git_repository_discovery.rs` 使用真实 Git 和有界 Core 调用，
+- `rust/crates/core/src/tests/git_repository_discovery.rs` 使用真实 Git 和有界 Core 调用，
   覆盖共享可见性 fixture、隐藏根目录、所属父仓库、真实链接工作树、扫描深度和符号链接。
 - ~~`macos/Tests/LitheGitModuleTests/GitModuleTests.swift`~~（已随 #1794 移除） 覆盖普通切仓库、直接选目标分支、
   旧游标归属及新历史读取失败后的旧状态清理。

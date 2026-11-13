@@ -124,7 +124,7 @@ m2e 内嵌的 Maven，而不是用户配置的 Maven 或 mvnd，违反“依赖�
 
 ## 验证
 
-- Rust Core：`cargo test --manifest-path rust/lithe-core/Cargo.toml maven_depend`
+- Rust Core：`cargo test --manifest-path rust/crates/core/Cargo.toml maven_depend`
   覆盖计划参数（含 `-N` 与 `outputFile` 校验）、共享 fixture
   `shared/fixtures/maven/dependency-tree-v2.json`（LF 与 CRLF）、6,000 与
   10,000 节点的大树、字节/节点/行长/深度上限、格式漂移与缺失文件。完整校验运行

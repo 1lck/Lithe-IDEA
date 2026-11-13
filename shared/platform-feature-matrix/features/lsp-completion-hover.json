@@ -33,11 +33,11 @@
     "macos": {
       "evidence": [
         "macos/Sources/Lithe/Core/Language",
-        "rust/lithe-core/src/lsp/interface/engine.rs",
+        "rust/crates/core/src/lsp/interface/engine.rs",
         "shared/fixtures/lsp/java-completion-v1.json",
         "shared/fixtures/lsp",
         "shared/fixtures/lsp/completion-refresh-v1.json",
-        "rust/lithe-core/src/lsp/host_policy/completion_merge.rs",
+        "rust/crates/core/src/lsp/host_policy/completion_merge.rs",
         "shared/fixtures/lsp/completion-merge-v1.json",
         "macos/Tests/LitheTests/LanguageFeatureProviderTests.swift"
       ],
@@ -47,11 +47,11 @@
     "windows": {
       "evidence": [
         "windows/tauri/src/features",
-        "rust/lithe-core/src/lsp/interface/engine.rs",
+        "rust/crates/core/src/lsp/interface/engine.rs",
         "shared/fixtures/lsp/java-completion-v1.json",
         "shared/fixtures/lsp",
         "shared/fixtures/lsp/completion-refresh-v1.json",
-        "rust/lithe-core/src/lsp/host_policy/completion_merge.rs",
+        "rust/crates/core/src/lsp/host_policy/completion_merge.rs",
         "shared/fixtures/lsp/completion-merge-v1.json"
       ],
       "implementationStatus": "implemented",

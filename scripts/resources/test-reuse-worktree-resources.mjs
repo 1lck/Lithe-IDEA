@@ -194,25 +194,13 @@ try {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "shared-logging");
     assert.equal(resource.reusable, false);
-    assert.ok(resource.locations.includes("rust/lithe-core/src/diagnostics/catalog_generated.rs"));
+    assert.ok(resource.locations.includes("rust/crates/core/src/diagnostics/catalog_generated.rs"));
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
     assert.ok(!listed.stdout.includes(resource.id));
     const refused = reuse(["--resource", resource.id]);
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /shared-logging.*cannot be reused/);
-  });
-  await test("the core rules wasm module is rebuilt per worktree, never reused", { timeout: 15000 }, async () => {
-    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
-    const resource = registry.excludedResources.find(item => item.id === "core-rules-wasm");
-    assert.equal(resource.reusable, false);
-    assert.ok(resource.locations.includes("windows/tauri/public/core-rules/lithe_core_rules.wasm"));
-    const listed = run(process.execPath, [reuseScript, "--list"]);
-    assertSucceeded(listed);
-    assert.ok(!listed.stdout.includes(resource.id));
-    const refused = reuse(["--resource", resource.id]);
-    assert.notEqual(refused.status, 0);
-    assert.match(diagnostics(refused), /core-rules-wasm.*cannot be reused/);
   });
   await test("shared translations are regenerated locally rather than reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));

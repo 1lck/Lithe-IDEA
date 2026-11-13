@@ -29,7 +29,7 @@ macOS 和 Windows 的 Stash、Shelf 及 Windows 普通 Git 差异使用 Rust Cor
 
 ## 验证
 
-- `rust/lithe-core/src/tests/git_patch_exchange.rs`：真实临时仓库覆盖重命名、中文名称、未跟踪文件、二进制、Git 前缀配置以及错误的请求模式。
+- `rust/crates/core/src/tests/git_patch_exchange.rs`：真实临时仓库覆盖重命名、中文名称、未跟踪文件、二进制、Git 前缀配置以及错误的请求模式。
 - ~~`macos/Tests/LitheTests/GitStatusObservationTests.swift`~~（已随 #1794 移除）：真实 Swift 桥接、Core 和 Git 验证已跟踪、未跟踪与二进制 Stash 文件及展示行。
 - ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除）、~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、`./scripts/agent-notes/verify-agent-notes.sh` 和 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
 - 大补丁解析与 UI 跨进程加载需分别测量；真实 Windows 原生界面和平台矩阵验收保持待验证。

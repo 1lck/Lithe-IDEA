@@ -38,12 +38,12 @@
         "macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift",
         "macos/Sources/Lithe/Views/App/McpSettingsView.swift",
         "macos/Tests/LitheTests/IdeCapabilitiesTests.swift",
-        "rust/lithe-ide-host/src/lib.rs",
+        "rust/crates/ide-host/src/lib.rs",
         "macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift",
         "macos/Tests/LitheExecutionModuleTests/BuildSystemServiceTests.swift",
         "shared/contracts/ide-api/v1.md",
         "shared/fixtures/ide-api/host-tool-exposure.json",
-        "rust/lithe-ide-host/src/catalog.rs",
+        "rust/crates/ide-host/src/catalog.rs",
         "macos/Sources/Lithe/Application/Features/RuntimeSettingsFeatureModel.swift"
       ]
     },
@@ -54,7 +54,7 @@
         "windows/tauri/src/features/host-api/ide-capabilities.ts",
         "windows/tauri/src/features/host-api/mcp-settings.tsx",
         "windows/tauri/src/features/host-api/ide-capabilities.test.ts",
-        "rust/lithe-ide-host/src/lib.rs"
+        "rust/crates/ide-host/src/lib.rs"
       ]
     }
   },

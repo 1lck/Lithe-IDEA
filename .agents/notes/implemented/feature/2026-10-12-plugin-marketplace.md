@@ -10,7 +10,7 @@ Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安�
 
 “官方”市场条目必须同时满足两点：来自默认源，并且带 Lithe 发布者签名。社区包也可以从磁盘 ZIP 或解包目录安装：先复制到本次操作的私有快照，再让用户确认权限和完整程序声明。市场索引校验值、本地快照摘要和发布者签名各自证明不同的事实，不能互相冒充；本地安装不会因市场出现同 ID 条目而自动变成市场管理的插件。
 
-对日常开发的直接影响：索引格式和校验规则只在 `Lithe-core-rust/shared/plugins/contract/v1/` 与 `rust/lithe-core/src/plugins/marketplace.rs` 定义一次；官方插件不再跟随 Lithe 发版，而是每个插件按自己的标签单独发布。
+对日常开发的直接影响：索引格式和校验规则只在 `Lithe-core-rust/shared/plugins/contract/v1/` 与 `rust/crates/core/src/plugins/marketplace.rs` 定义一次；官方插件不再跟随 Lithe 发版，而是每个插件按自己的标签单独发布。
 
 ## 问题
 
@@ -136,7 +136,7 @@ Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安�
 以下命令和验收描述针对迁移前的客户端与仓内 Core，保留为历史要求，不能当作
 Viva 插件安装或宿主能力已经接通的证据。
 
-- `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib marketplace_plugins`：索引校验、平台与 API 判断、命名空间、源地址解析、安装审查的标准答案。
+- `cargo test --manifest-path rust/crates/core/Cargo.toml --lib marketplace_plugins`：索引校验、平台与 API 判断、命名空间、源地址解析、安装审查的标准答案。
 - ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）：市场 fixture 与错误码登记。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginMarketplaceLayoutTests|PluginDetailLayoutTests|PluginSettingsLayoutTests'`：市场用内存索引驱动真实页面，覆盖中英文描述、深浅主题、窗口宽高变化、原生分隔条拖动、释放后刷新不移位，以及窄视口横向滚动到正文末端；单独保留“已安装”详情和路径控件回归。可用 `LITHE_MARKETPLACE_LAYOUT_CAPTURES` 导出市场原生视图截图；测试拥有并清理自己的偏好域和窗口。
 - `node --test scripts/plugins/official-plugin-releases.test.mjs`：只为版本变化的插件生成标签，内容变化未升版本时失败；已发布未登记的版本会被重新登记。
@@ -152,7 +152,7 @@ Viva 插件安装或宿主能力已经接通的证据。
 
 以下是迁移前的源码位置，不代表当前工作树中仍存在。
 
-- `rust/lithe-core/src/plugins/marketplace.rs`
+- `rust/crates/core/src/plugins/marketplace.rs`
 - `Plugins/marketplace/`
 - 已迁出：原 `scripts/plugins/official-plugin-releases.mjs`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - 已迁出：原 `.github/workflows/release-official-plugins.yml`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。

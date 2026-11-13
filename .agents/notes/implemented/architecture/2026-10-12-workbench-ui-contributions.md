@@ -62,12 +62,12 @@ Agent 的配置入口由同一个目录补齐，移动到任何已有停靠区�
 
 ## 验证
 
-- `WorkbenchContributionHostTests.chineseActionSearchFindsAndRestoresHiddenTerminal` 使用实际中英资源验证中文标题、中文说明和英文别名，执行后恢复终端入口，切换回英文后不再沿用旧语言；修复前中文查询确认为空。Core 的 `Lithe-core-rust/rust/fixtures/search/actions-v1.json` 验证排序、Unicode、插件原文和输入预算。 动作匹配实现位于 `rust/lithe-core/src/action_search/mod.rs`，遵循 Core 根目录仅保留 `lib.rs` 的既有布局规则；模块路径和 `search.actions` 协议不变。
+- `WorkbenchContributionHostTests.chineseActionSearchFindsAndRestoresHiddenTerminal` 使用实际中英资源验证中文标题、中文说明和英文别名，执行后恢复终端入口，切换回英文后不再沿用旧语言；修复前中文查询确认为空。Core 的 `Lithe-core-rust/rust/fixtures/search/actions-v1.json` 验证排序、Unicode、插件原文和输入预算。 动作匹配实现位于 `rust/crates/core-rules/src/action_search.rs`，遵循 Core 根目录仅保留 `lib.rs` 的既有布局规则；模块路径和 `search.actions` 协议不变。
 
 - `WorkbenchContributionHostTests.toolWindowsMenuRestoresHiddenTerminalAtItsSavedDockWithoutToggling` 覆盖隐藏入口恢复、原停靠组、重复 Show 不关闭、模块禁用及旧菜单动作；已安装声明式插件流程补充从同一菜单恢复。`ContextMenuCoverageTests.rightClickOnSubmenuKeepsThePopupAndShowRemainsKeyboardAccessible` 用原生右键事件验证父弹层保持可见，再用方向键和 Return 执行显示；模型回归确认菜单构造不激活模块或创建终端会话。实际产品还需在深浅主题检查左侧“…”、菜单打开/关闭、快捷键与终端已有会话。
 
 - ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）
-- `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib declarative_plugins`
+- `cargo test --manifest-path rust/crates/core/Cargo.toml --lib declarative_plugins`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginUIIconTests|WorkbenchContributionHostTests|WorkbenchFeatureModelTests|WorkbenchModuleUIRegistryTests|ModuleSessionCoordinatorTests'`
 - ~~./scripts/architecture/verify-service-boundaries.sh~~（随旧客户端移除）
 - `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`

@@ -424,7 +424,7 @@ Lithe 不自己判断“要不要重解析”，而是按 JDT LS 上游（vscode
 更新会重新解析所有 Maven 项目，大工程上比“什么都不做”慢，但这正是用户点重新加载
 时要的结果。
 
-**验证。** Rust Core `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib`
+**验证。** Rust Core `cargo test --manifest-path rust/crates/core/Cargo.toml --lib`
 覆盖内容寻址（内容变路径变、相同内容复用、旧副本保留、临时文件所有权、默认用户设置、读不到时降级），
 以及 `update_maven_configuration` 的四条路径（设置变化、强制更新、握手前更新、
 profile 变化、失败或超时期间变更补跑、握手前无设置变化的强制重载）。Windows `bun test src/platform src/features/maven`
@@ -455,7 +455,7 @@ CARGO_TARGET_DIR="$PWD/rust/target/macos" CARGO_BUILD_JOBS=2 node --input-type=m
 import { run, parseArguments } from './.agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs';
 import { runProcess } from './.agents/skills/write-stable-tests/scripts/test-timing-lib.mjs';
 await run(parseArguments([
-  '--manifest', 'rust/lithe-core/Cargo.toml', '--package', 'lithe-core', '--keep-going',
+  '--manifest', 'rust/crates/core/Cargo.toml', '--package', 'lithe-core', '--keep-going',
   '--report', '.artifacts/test-stability/core-mvnd/core-mvnd-languages.json',
 ]), { runProcessImpl: request => runProcess({
   ...request,
@@ -474,7 +474,7 @@ macOS 使用 `MacRuntimeDiscoveryTests`、`MacRuntimeProbeCacheTests` 和
 本次拥有的 daemon 状态目录，验证构建与 JDT 全局设置，并在有界结束后清理进程。
 单元测试或跨平台编译不能替代这一步，功能矩阵在原生验收完成前保持待验证。
 
-- Rust Core：`cargo test --manifest-path rust/lithe-core/Cargo.toml`
+- Rust Core：`cargo test --manifest-path rust/crates/core/Cargo.toml`
   覆盖主目录、bin 目录与启动器写法都能推出正确的全局设置、Wrapper 与无 `conf`
   的安装正确返回空、`initializationOptions` 注入且不吃掉扩展目录的键、
   Profile 指纹随安装变化，以及生成文档保留镜像/注释、插入缺失节点、展开空元素、
@@ -501,7 +501,7 @@ macOS 使用 `MacRuntimeDiscoveryTests`、`MacRuntimeProbeCacheTests` 和
   过期结果不覆盖新结果与输入防抖。macOS `MavenRuntimeTests` 覆盖来源判断、检测未完成
   不同步探测、Maven JDK 回退与 Maven 选择链，`WorkbenchFeatureModelTests` 覆盖重复
   分类请求。
-- 项目环境设置入口：`cargo test --manifest-path rust/lithe-core/Cargo.toml
+- 项目环境设置入口：`cargo test --manifest-path rust/crates/core/Cargo.toml
   project_environment_saves_before_generation` 用共享 fixture
   `shared/fixtures/run-configuration/project-environment.json` 覆盖未生成配置时保存
   默认值、保留服务覆盖以及 `checkFingerprint` 的两种行为。Windows 运行
@@ -543,7 +543,7 @@ JDK 和未知偏好；非空值成为本机 Build 默认值，空值继续表示
 
 - Rust Core Maven 域：`rust/lithe-core/src/project/maven.rs`
 - Rust Core JDT 适配：`rust/lithe-core/src/lsp/languages/jdt.rs`
-- Rust Core 语言服务引擎：`rust/lithe-core/src/lsp/interface/engine.rs`
+- Rust Core 语言服务引擎：`rust/crates/core/src/lsp/interface/engine.rs`
 - Rust Core 设置副本：`rust/lithe-core/src/lsp/languages/jdt_maven_settings.rs`
 - Windows 实时同步与问题展示：`windows/tauri/src/features/maven/services/java-maven-configuration.ts`、
   `windows/tauri/src/features/maven/services/reload-maven-workspace.ts`、
@@ -556,7 +556,7 @@ JDK 和未知偏好；非空值成为本机 Build 默认值，空值继续表示
 - Windows 宿主：`windows/tauri/src-tauri/src/run.rs`（`maven_resolve_installation`）
 - macOS：`macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift`
 - 项目环境与运行配置设置入口：
-  - Rust Core：`rust/lithe-core/src/execution/configuration.rs`（`runConfig.inspect`、
+  - Rust Core：`rust/crates/core/src/execution/configuration.rs`（`runConfig.inspect`、
     `runConfig.updateOptions` 工具链分支）
   - 共享契约：`Lithe-core-rust/rust/contracts/rust-core-api.md`、
     `shared/fixtures/run-configuration/project-environment.json`

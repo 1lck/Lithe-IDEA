@@ -78,7 +78,7 @@ Codex/Claude 的 OAuth 登录不等同于可用 API 密钥，本次不实现 CLI
 
 ## 验证
 
-- `cargo test --manifest-path rust/lithe-core/Cargo.toml ai::tests --lib`：配置解析、凭据不序列化、协议映射、截断和错误边界。
+- `cargo test --manifest-path rust/crates/core/Cargo.toml ai::tests --lib`：配置解析、凭据不序列化、协议映射、截断和错误边界。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1`：测试稳定性静态检查。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend`：前端行为和单测试计时。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope SharedRust`：共享 Rust 的计时验证。

@@ -43,7 +43,7 @@
       "implementationStatus": "implemented",
       "verificationStatus": "pending",
       "evidence": [
-        "rust/lithe-core/src/ai/inline_edit.rs",
+        "rust/crates/ai/src/inline_edit.rs",
         "shared/fixtures/ai/inline-edit-v1.json",
         "windows/tauri/src/features/editor/services/editor-inline-edit-service.ts",
         "windows/tauri/src/features/editor/inline-edit/use-inline-edit.ts",

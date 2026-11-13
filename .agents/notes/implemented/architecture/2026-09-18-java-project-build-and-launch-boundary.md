@@ -357,7 +357,7 @@ Maven JDK、显式覆盖及资源步骤；#1133 的 Maven 原生资源步骤保�
   `LITHE_JDTLS_SMOKE_MAVEN`。不设置包路径时普通单元车道不启动外部工具；
   明确设置后缺少工具或包必须失败，不能降级跳过。
   通过 Rust 计时入口运行，真实工具场景沿用专属的 600 秒总预算：
-  `node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs --manifest rust/lithe-core/Cargo.toml --test-budget lsp::interface::engine::real_jdt_tests::=600000 --report .artifacts/test-stability/stage-d-real-jdt-core.json`。
+  `node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs --manifest rust/crates/core/Cargo.toml --test-budget lsp::interface::engine::real_jdt_tests::=600000 --report .artifacts/test-stability/stage-d-real-jdt-core.json`。
   本机 1395 项通过，其中新增集成 35.983 秒，另两项真实 JDT 为 14.897/11.520 秒。
   最后把临时目录所有权提前到首个 fixture 写入前；该场景再次逐项计时通过，含进程清理为 27.751 秒。
 - 原生工程归属、链接路径及取消回归：
@@ -392,9 +392,9 @@ Maven JDK、显式覆盖及资源步骤；#1133 的 Maven 原生资源步骤保�
 
 ## 适用范围
 
-- Rust Core：`rust/lithe-core/src/execution/configuration.rs`
+- Rust Core：`rust/crates/core/src/execution/configuration.rs`
 - Rust Core 构建协调：`rust/lithe-core/src/lsp/languages/jdt_build.rs`、
-  `rust/lithe-core/src/lsp/interface/engine.rs`
+  `rust/crates/core/src/lsp/interface/engine.rs`
 - macOS：`LanguageToolingSessionManager`、`AppModel+RunConfiguration`、`RunService`
 - Windows：`java-run-launch.ts`、`lsp-core-adapter.ts`、`run.store.ts`
 - 相关笔记：

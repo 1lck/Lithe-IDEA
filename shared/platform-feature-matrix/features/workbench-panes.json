@@ -58,7 +58,7 @@
       ],
       "implementationStatus": "implemented",
       "verificationStatus": "pending",
-      "notes": "macOS 无已保存布局的工作区侧栏默认 360pt，上半区默认高度比例 0.72，使中文修订提交保持一行、底部工具窗初始更矮；主布局及停靠预览共用常量，已有布局和手动拖动尺寸优先，不提高最小宽高。LSP-16：编辑器分组的标签归属、选中项收敛、空组移除和移动后的状态由 Core 的 editor.workbenchState.reduce（rust/lithe-core-rules）提供，EditorTabOrderFeatureModel 只把 items、placements 和 groupSelections 转成规范状态并写回，EditorGroupLayout 只保留树结构；macOS 没有 MRU、固定和预览标签，这三项始终传空值，选中项离开分组时回落到第一个标签（selectionFallback first）。"
+      "notes": "macOS 无已保存布局的工作区侧栏默认 360pt，上半区默认高度比例 0.72，使中文修订提交保持一行、底部工具窗初始更矮；主布局及停靠预览共用常量，已有布局和手动拖动尺寸优先，不提高最小宽高。LSP-16：编辑器分组的标签归属、选中项收敛、空组移除和移动后的状态由 Core 的 editor.workbenchState.reduce（rust/crates/core-rules）提供，EditorTabOrderFeatureModel 只把 items、placements 和 groupSelections 转成规范状态并写回，EditorGroupLayout 只保留树结构；macOS 没有 MRU、固定和预览标签，这三项始终传空值，选中项离开分组时回落到第一个标签（selectionFallback first）。"
     },
     "windows": {
       "evidence": [

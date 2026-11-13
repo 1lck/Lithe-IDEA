@@ -80,8 +80,8 @@ macOS 提交面板复用原来的弯箭头按钮，先打开可重新勾选文�
   有界阻塞同级仓库读取时仍能确认回滚，释放旧读取后已消失的行不会恢复。
 - ~~`macos/Tests/LitheTests/LitheCoreLogicTests.swift`~~（已随 #1794 移除）：嵌套操作最外层解冻后调度已有刷新，操作不等待项目服务，重置取消后续任务；
   阻塞项目重载时普通文件事件与写入后恢复仍独立刷新 Git，取消的读取不吞掉新请求，旧工作区读取不能释放新读取。
-- `rust/lithe-core/src/tests/git.rs` 与 Windows 状态 API、面板测试：真实仓库核对新增文件保留、重命名前后路径和特殊文件名字面匹配，复核过期选择、部分失败通知、暂存队列及实际界面仓库映射。
-- `rust/lithe-core/src/tests/git_untracked_directories.rs`：回滚状态查询限制所选路径、长参数分批、特殊文件名字面匹配、
+- `rust/crates/core/src/tests/git.rs` 与 Windows 状态 API、面板测试：真实仓库核对新增文件保留、重命名前后路径和特殊文件名字面匹配，复核过期选择、部分失败通知、暂存队列及实际界面仓库映射。
+- `rust/crates/core/src/tests/git_untracked_directories.rs`：回滚状态查询限制所选路径、长参数分批、特殊文件名字面匹配、
   重命名源记录正确解析，以及暂存删除与未跟踪副本同路径时优先恢复历史版本；准备阶段拒绝过期状态，未跟踪目录只删除准备时列出的文件。
 - ~~`macos/Tests/LitheTests/GitStatusObservationTests.swift`~~（已随 #1794 移除）：真实 Git 经 Core 验证批量恢复暂存区和磁盘、未选文件不变、
   新增及意向新增文件保留/删除、复制来源不变、重命名/删除/保留副本以及 linked Worktree 隔离；

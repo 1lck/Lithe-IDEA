@@ -40,7 +40,7 @@
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
       "evidence": [
-        "rust/lithe-core/src/project_generators/",
+        "rust/crates/core/src/project_generators/",
         "shared/contracts/plugins/v1/fixtures/project-generators/project-generator.plugin.json",
         "shared/contracts/plugins/v1/fixtures/project-generators/project-plans.json",
         "shared/contracts/plugins/v1/fixtures/project-generators/project-generator-tool-field.plugin.json",
@@ -52,7 +52,7 @@
         "macos/Sources/Lithe/Platform/MacOS/ProjectGeneration/MacProjectToolPins.swift",
         "macos/Tests/LitheTests/ProjectGenerationTests.swift",
         "macos/Tests/LitheTests/ProjectToolAdaptersTests.swift",
-        "rust/lithe-core/src/project_generators/archive.rs",
+        "rust/crates/core/src/project_generators/archive.rs",
         "macos/Sources/Lithe/Models/ProjectGeneration/ProjectGenerationModels.swift"
       ],
       "implementationStatus": "implemented",

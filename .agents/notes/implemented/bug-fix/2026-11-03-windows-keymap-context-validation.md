@@ -57,7 +57,7 @@ Windows 每个窗口最多缓存 256 条条件，最多同时保留 16 个原生
 ## 验证
 
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend`
-- `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib context_`
+- `cargo test --manifest-path rust/crates/core/Cargo.toml --lib context_`
 - `node scripts/i18n/generate-i18n.mjs --check`
 - `node scripts/agent-notes/verify-agent-notes.mjs`
 
