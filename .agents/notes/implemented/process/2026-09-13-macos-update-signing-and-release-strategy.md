@@ -2,7 +2,7 @@
 
 状态：已实现
 
-> Viva 迁移状态：本文的 Sparkle、AutoBuild、插件签名和回滚实现及验收记录属于旧客户端。Viva 当前有独立预发布打包工作流，但应用内更新页面仍是占位，尚不能据此宣称渠道、签名验证、差分更新或回滚已接入；这些安全要求必须在迁移时重新落实和验证。
+> Viva 迁移状态：本文的 Sparkle、AutoBuild、插件签名和回滚实现及验收记录属于旧客户端。Viva 当前有独立预发布打包工作流 `desktop-release.yml`，以及每天从 `preview` 滚动发布到 prerelease `desktop-AutoBuild` 的 `desktop-autobuild.yml`。后者只构建和发布，沿用正式包的应用身份 `app.lithe.viva`，没有独立的开发版身份、更新渠道和构建时间身份；两条工作流都不传公证凭据，macOS 包不会公证。应用内更新页面仍是占位，尚不能据此宣称渠道、签名验证、差分更新或回滚已接入；这些安全要求必须在迁移时重新落实和验证。
 
 ## 先说结论
 
@@ -445,6 +445,8 @@ Sparkle 版本间升级、缺失/损坏的 delta、下载中断、权限不足�
 - `scripts/resources/worktree-resources.json`
 - `scripts/resources/reuse-worktree-resources.mjs`
 - `.github/workflows/desktop-release.yml`
+- `.github/workflows/desktop-autobuild.yml`
+- `scripts/ci/desktop-autobuild/publish-autobuild.sh`
 - `desktop/internal/settingswindow/window.go`
 - `shared/platform-feature-matrix/features/updates-check-download.json`
 - `shared/platform-feature-matrix/features/updates-failure-rollback.json`
