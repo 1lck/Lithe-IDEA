@@ -19,4 +19,4 @@ require (
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 )
 
-replace github.com/vivaui/viva => github.com/Lithe-IDEA/viva v0.6.3-0.20261113132820-1300441ba921
+replace github.com/vivaui/viva => github.com/Lithe-IDEA/viva v0.6.3-0.20261113134816-96a5af59bc30
