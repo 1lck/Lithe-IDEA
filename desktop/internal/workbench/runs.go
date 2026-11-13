@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -88,6 +90,22 @@ func (a *App) resolveBackendTool(ctx context.Context, _, workingDirectory, tool 
 		return pluginbackend.ToolExecutable{}, err
 	}
 	return pluginbackend.ToolExecutable{Path: resolved.Path, Environment: resolved.Environment}, nil
+}
+
+// resolveLanguageTool supplies the complete installation selected by Core.
+// An unavailable optional tool leaves the language server's configuration alone;
+// actual I/O failures propagate to the existing server-start failure boundary.
+func (a *App) resolveLanguageTool(ctx context.Context, root, tool string) (*core.ToolchainSelection, error) {
+	selection, err := a.resolveToolchainSelection(ctx, root, ".", tool, "")
+	var unavailable *toolchain.UnavailableError
+	if errors.As(err, &unavailable) {
+		// log-exempt: 预期的缺失：可选安装不存在时，不覆盖语言服务器已有配置。
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &selection, nil
 }
 
 // applyRunEvent shows one run event. Events of a workspace that is not open are

@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -24,13 +25,27 @@ func TestJavaPluginHistoricalProject(t *testing.T) {
 	}
 	probe := os.Getenv("LITHE_TEST_JAVA_HISTORICAL_PROBE")
 	java8 := os.Getenv("LITHE_TEST_JAVA8_HOME")
-	if probe == "" || java8 == "" {
-		t.Fatal("historical project requires a Java 8 home and a Java expression probing its API")
+	javaHome, vmVersion := java8, "1.8"
+	if selected := os.Getenv("LITHE_TEST_JAVA_HISTORICAL_HOME"); selected != "" {
+		javaHome, vmVersion = selected, os.Getenv("LITHE_TEST_JAVA_HISTORICAL_VM")
+	}
+	if probe == "" || javaHome == "" || vmVersion == "" {
+		t.Fatal("historical project requires a JDK home, expected VM version and a Java API probe")
 	}
 	fixture := standardJavaFixture()
 	fixture.files = map[string]string{fixture.mainPath: strings.Replace(javaWorkflowMain, `org.apache.commons.lang3.StringUtils.reverse("avaj")`, `"java"`, 1)}
 	fixture.files[fixture.mainPath] = strings.Replace(fixture.files[fixture.mainPath], `System.getProperty("java.specification.version")`, `System.getProperty("java.specification.version") + ";probe=" + (`+probe+`)`, 1)
-	fixture.projectRoot, fixture.javaHome, fixture.vmVersion = root, java8, "1.8"
+	// A probe may call an upstream API with a checked exception. This changes
+	// only the injected entry point; the historical project stays untouched.
+	fixture.files[fixture.mainPath] = strings.Replace(fixture.files[fixture.mainPath], "main(String[] args) {", "main(String[] args) throws Exception {", 1)
+	fixture.projectRoot, fixture.javaHome, fixture.vmVersion = root, javaHome, vmVersion
+	if major := os.Getenv("LITHE_TEST_JAVA_HISTORICAL_CLASS_MAJOR"); major != "" {
+		value, err := strconv.ParseUint(major, 10, 8)
+		if err != nil || value < 45 {
+			t.Fatalf("invalid expected class version: %s", major)
+		}
+		fixture.classVersion = byte(value)
+	}
 	fixture.expectBuildRefused = os.Getenv("LITHE_TEST_JAVA_EXPECT_BUILD_REFUSAL") == "1"
 	if level := os.Getenv("LITHE_TEST_JAVA_HISTORICAL_SOURCE"); level != "" {
 		if level != "1.8" {

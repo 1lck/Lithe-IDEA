@@ -24,6 +24,16 @@ Run 的首次调试复用既有适配器加载入口，完成后检查原调用�
 
 真实插件测试在创建工作台后就登记无交互清理，不依赖成功路径的关闭动作。即使断言在断点暂停或文档未保存时中止，也直接关闭测试拥有的项目，等待后台任务、停止剩余运行，并验证 Core 调试会话已移除；不能把需要用户确认的关闭弹窗当作失败清理。
 
+## 项目 JDK 与语言服务器的编译目标
+
+普通源码目录没有 Maven 的目标版本约束时，Viva 曾只把项目选择的 JDK 交给 Run，没有在后端解析语言服务器启动时传入契约已有的可选 `tools`。JDT 因而按随包 Java 21 编译，Run 却使用用户选择的 Java 8，生成的 major 65 class 会被 Java 8 拒绝。只检查 Maven 构建的 class 无法发现这个问题，必须也检查 JDT 的运行前构建。
+
+宿主现在复用 Build/Run 的工具选择，将清单声明工具的 executable、home、version 作为原生安装事实交给后端。可选安装不存在时不覆盖服务器已有配置；读取失败继续返回失败，项目脚本不作为安装事实，环境与凭据不跨这个边界。Java 插件根据这些事实配置 JDT，宿主不解释 Java 版本或 POM。
+
+例如选择 Java 8 的普通源码项目，应在 JDT 编译后仍生成 major 52，并实际用 Java 8 运行、暂停和停止；不能仅让 Maven 的 source/target 掩盖默认 JDK 接线缺失。回归同时覆盖普通目录、外部 JAR、Ant 源码布局和 Eclipse 多源码根；Ant 布局的通过不等于支持执行 Ant target。
+
+冷启动还受到共享握手期限约束。Windows 虚拟机中的真实 JDT 握手实测约 15.4 秒，超过原 Core 默认的 10 秒。Core 的通用默认期限改为 60 秒，显式期限仍优先，取消、超时终止和进程树回收保持原行为；不按 Java 名称分支，也不增加重试。注入时间的回归验证 15 秒时仍可初始化、61 秒时失败并终止，不让测试真实等待一分钟。目标平台完整工作流必须另行运行，单项 Core 回归不代表 Windows 已验收。
+
 ## 考虑过的备选方案
 
 - 放宽 Core 声明解码：掩盖宿主把路由信息当成声明的错误，也允许其他无效字段通过。
@@ -50,5 +60,6 @@ Run 的首次调试复用既有适配器加载入口，完成后检查原调用�
 
 - `desktop/internal/pluginservice/hostactions.go`、`hostproviders.go`、`runs.go`
 - `desktop/internal/workbench/debug_start.go`、`debug.go`、`pluginworkbench.go`、`pluginbackends.go`
-- `desktop/internal/workbench/java_plugin_e2e_test.go`、`java_legacy_e2e_test.go`
+- `desktop/internal/workbench/java_plugin_e2e_test.go`、`java_legacy_e2e_test.go`、`java_unmanaged_e2e_test.go`
+- `desktop/internal/pluginservice/backendlaunch.go`、`backendlaunch_test.go`；Core 的语言服务器引擎握手期限
 - 通用职责边界见 [插件后端会话与宿主服务](../architecture/2026-11-10-viva-plugin-host-services-and-backend-sessions.md)。

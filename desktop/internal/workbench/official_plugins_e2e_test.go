@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -68,13 +69,26 @@ func packageDigest(t *testing.T, root string) map[string]string {
 		if err != nil || entry.IsDir() {
 			return err
 		}
-		data, err := os.ReadFile(path)
+		file, err := os.Open(path)
 		if err != nil {
 			return err
 		}
-		sum := sha256.Sum256(data)
-		relative, _ := filepath.Rel(root, path)
-		digest[relative] = hex.EncodeToString(sum[:])
+		// JDK module images are large; stream the unchanged-package proof so
+		// test buffers do not inflate the headless host's memory observations.
+		sum := sha256.New()
+		_, readErr := io.Copy(sum, file)
+		closeErr := file.Close()
+		if readErr != nil {
+			return readErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		digest[relative] = hex.EncodeToString(sum.Sum(nil))
 		return nil
 	})
 	if err != nil {

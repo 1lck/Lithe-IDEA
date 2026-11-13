@@ -3,8 +3,10 @@ package workbench
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -41,7 +43,15 @@ type javaWorkflowFixture struct {
 	projectRoot        string
 	expectBuildRefused bool
 	testGoal           bool
+	packageGoal        bool
 	cleanupWhilePaused bool
+	documentProbe      *javaDocumentProbe
+	buildArchive       string
+	buildSystem        string
+	buildProject       string
+	buildTask          string
+	executablePaths    []string
+	temporaryClasspath bool
 }
 
 func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
@@ -58,6 +68,7 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 	if mavenArchive == "" {
 		t.Skip("set LITHE_TEST_MAVEN_PLUGIN_ARCHIVE to the compatible Maven plugin zip")
 	}
+	performance := newJavaPerformanceProbe(t, archive)
 	preferences := store.At(t.TempDir())
 	if err := os.WriteFile(filepath.Join(preferences.Dir(), settingsFile), []byte(`{"theme":"dark","autoSave":false}`), 0600); err != nil {
 		t.Fatal(err)
@@ -121,6 +132,23 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 		t.Fatal(err)
 	}
 	mavenBefore := packageDigest(t, mavenInstalled.Path)
+	var extraPath string
+	var extraBefore map[string]string
+	if fixture.buildArchive != "" {
+		extraPlan, err := service.Installer.Prepare(ctx, plugininstall.Request{ArchivePath: fixture.buildArchive, Root: service.Root, Source: plugintrust.Disk})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = service.Installer.Discard(extraPlan) })
+		extra, err := service.Installer.Commit(extraPlan)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := service.Manager.SetEnabled(extraPlan.ID, true); err != nil {
+			t.Fatal(err)
+		}
+		extraPath, extraBefore = extra.Path, packageDigest(t, extra.Path)
+	}
 	before := packageDigest(t, installed.Path)
 	closeAndVerify := func() {
 		h.app.closeProject()
@@ -128,6 +156,9 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 		h.settle()
 		assertPackageUnchanged(t, installed.Path, before)
 		assertPackageUnchanged(t, mavenInstalled.Path, mavenBefore)
+		if extraPath != "" {
+			assertPackageUnchanged(t, extraPath, extraBefore)
+		}
 	}
 	logger := &treeRecordingLog{}
 	h.app.logSink = logger
@@ -150,9 +181,37 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 		copyHistoricalJavaProject(t, fixture.projectRoot, root)
 	}
 	writeFixture(t, root, fixture.files)
+	for _, name := range fixture.executablePaths {
+		if err := os.Chmod(filepath.Join(root, name), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
 	gitRun(t, root, "init")
 	h.open(root)
 	p := h.app.project
+	if fixture.buildSystem != "" {
+		h.app.loadBuildSystems(p)
+		instance := awaitBuildModel(t, h, p, fixture.buildSystem, 120*time.Second)
+		project := modelProjectNamed(instance.Model, fixture.buildProject)
+		if project == nil {
+			t.Fatalf("missing project %s: %+v", fixture.buildProject, instance.Model.Projects)
+		}
+		var taskID string
+		for _, task := range instance.Model.Tasks {
+			if task.ProjectID == project.ID && task.Name == fixture.buildTask {
+				taskID = task.ID
+				break
+			}
+		}
+		if taskID == "" {
+			t.Fatalf("missing task %s", fixture.buildTask)
+		}
+		output := runBuildTaskToEnd(t, h, p, project.ID, taskID, 90*time.Second)
+		if !strings.Contains(output, "BUILD SUCCESSFUL") {
+			t.Fatalf("Gradle compile: %s", output)
+		}
+		t.Log("Gradle multi-project model and compile succeeded")
+	}
 	if !fixture.noMaven {
 		h.app.loadBuildSystems(p)
 		awaitBuildModel(t, h, p, "maven", 90*time.Second)
@@ -168,18 +227,23 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 			}
 			t.Log("legacy test framework: Maven test goal passed one test")
 		}
-		if fixture.classVersion != 0 {
-			compiled, err := os.ReadFile(filepath.Join(root, fixture.classPath))
-			if err != nil || len(compiled) < 8 || compiled[7] != fixture.classVersion {
-				t.Fatalf("Maven class target: header=%x err=%v, expected major %d", compiled[:min(len(compiled), 8)], err, fixture.classVersion)
+		if fixture.packageGoal {
+			output := runBuildTaskToEnd(t, h, p, "", "package", 120*time.Second)
+			if !strings.Contains(output, "BUILD SUCCESS") {
+				t.Fatalf("WAR package failed: %s", output)
 			}
 		}
+		if fixture.classVersion != 0 {
+			assertJavaClassVersion(t, filepath.Join(root, fixture.classPath), fixture.classVersion)
+		}
 	}
+	openedJava := time.Now()
 	h.app.openFile(p, filepath.Join(root, fixture.mainPath))
 	awaitStateWithin(t, h, 30*time.Second, "Java document", func() bool { return documentNamed(p, "Main.java") != nil })
 	d := documentNamed(p, "Main.java")
 	defer func() {
 		if t.Failed() {
+			retainJavaFailureLogs(t, service.Root, plan.ID)
 			t.Logf("document language=%s actions=%d ", d.languageID, len(d.actions))
 			t.Logf("notice=%s debug state=%s failure=%s", h.app.notice, p.debug.state, p.debug.failure)
 			t.Logf("JDT problems: %v", problemMessages(h.app))
@@ -195,6 +259,14 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 			}
 			for id, server := range h.app.pluginServers {
 				t.Logf("server %s ready=%v", id, server.isReady())
+				t.Logf("document sync: %+v", d.sync)
+				for _, line := range server.logs[max(0, len(server.logs)-20):] {
+					t.Logf("server log %s: %s", line.level, line.text)
+				}
+				probeContext, probeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				methods, probeErr := service.ExecuteLanguageCommand(probeContext, server.session, "vscode.java.resolveMainMethod", []any{d.sync.uri}, 5*time.Second)
+				probeCancel()
+				t.Logf("late main methods: %s err=%v", methods, probeErr)
 			}
 		}
 	}()
@@ -202,12 +274,17 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 		server, _ := h.app.documentSyncServer(d)
 		return server != nil && server.isReady()
 	})
-	awaitStateWithin(t, h, 15*time.Second, "JDT editor actions", func() bool {
+	// LSP initialize can finish before the Java import's ServiceReady gate.
+	// Wait for real editor actions through that bounded import, including cold
+	// Gradle on Windows, rather than imposing a 15-second second startup budget.
+	awaitStateWithin(t, h, 120*time.Second, "JDT editor actions", func() bool {
 		if len(d.actions) > 0 {
 			return true
 		}
 		return false
 	})
+	performance.elapsed("javaOpenToActions", openedJava)
+	performance.sample(t, h, d, "ready")
 	t.Logf("Run/Debug action ready: %s", d.actions[0].Title)
 	if server, _ := h.app.documentSyncServer(d); server != nil {
 		sampleContext, cancelSample := context.WithTimeout(context.Background(), 5*time.Second)
@@ -217,11 +294,19 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 			t.Logf("JDT process tree RSS after import: %.1f MiB", float64(sample.MemoryBytes)/(1024*1024))
 		}
 	}
-	if !d.view.GoToNavigation(5, 13, false) {
+	// Real build plugins may prepend license headers. Locate the probes in the
+	// document actually opened after the build, rather than stale fixture lines.
+	openedContent, _ := d.view.Text()
+	content = string(openedContent)
+	completionLine, completionColumn := javaFixturePosition(t, content, "System.out.", true)
+	breakpointLine, breakpointColumn := javaFixturePosition(t, content, "answer += 1;", false)
+	if !d.view.GoToNavigation(completionLine, completionColumn, false) {
 		t.Fatal("completion caret")
 	}
-	h.app.startPluginCompletion(p, d, 5, 13)
+	completionStarted := time.Now()
+	h.app.startPluginCompletion(p, d, completionLine, completionColumn)
 	awaitStateWithin(t, h, 30*time.Second, "JDT completion", func() bool { return len(h.app.semantics.completion.items) > 0 })
+	performance.elapsed("firstCompletion", completionStarted)
 	found := false
 	for _, item := range h.app.semantics.completion.items {
 		if strings.Contains(item.Label, "println") {
@@ -233,7 +318,12 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 	}
 	t.Logf("JDT completion: %d candidates including println", len(h.app.semantics.completion.items))
 	h.app.closeSemanticCompletion()
+	performance.completions(t, h, p, d, completionLine, completionColumn)
+	if fixture.documentProbe != nil {
+		fixture.documentProbe.prepare(t, h, p, d)
+	}
 	noticeBeforeRun := h.app.notice
+	runStarted := time.Now()
 	h.app.runEditorAction(p, d, d.actions[0], -1)
 	if fixture.expectBuildRefused {
 		// This is an explicit compatibility-boundary test, not a passing full
@@ -269,7 +359,10 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 			t.Fatalf("Java run refused: %s", h.app.notice)
 		}
 		for _, r := range p.build.runs {
-			if !r.running && strings.Contains(strings.Join(r.output, ""), "java-result=42") {
+			if !r.running {
+				if !strings.Contains(strings.Join(r.output, ""), "java-result=42") {
+					t.Fatalf("Java run exited without the expected result: %s %s", r.summary, strings.Join(r.output, ""))
+				}
 				if fixture.vmVersion != "" && !strings.Contains(strings.Join(r.output, ""), "vm="+fixture.vmVersion) {
 					t.Fatalf("wrong project JVM: %s", strings.Join(r.output, ""))
 				}
@@ -278,11 +371,35 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 		}
 		return false
 	})
-	if _, err := os.Stat(filepath.Join(root, fixture.classPath)); err != nil {
-		t.Fatalf("compiled class: %v", err)
+	performance.elapsed("buildAndRun", runStarted)
+	if fixture.temporaryClasspath {
+		data, err := os.ReadFile(filepath.Join(root, "run-classpath.txt"))
+		if err != nil || len(data) > 4096 {
+			t.Fatalf("shortened classpath evidence: bytes=%d err=%v", len(data), err)
+		}
+		path := strings.TrimSpace(string(data))
+		if filepath.Base(path) != "classpath.jar" {
+			t.Fatalf("Windows launch did not use a manifest JAR: %s", path)
+		}
+		awaitStateWithin(t, h, 5*time.Second, "temporary classpath cleanup", func() bool {
+			_, err := os.Stat(path)
+			if err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+			return os.IsNotExist(err)
+		})
+		t.Log("Windows long classpath used a temporary manifest JAR and removed it after exit")
+	}
+	if fixture.classPath != "" {
+		if _, err := os.Stat(filepath.Join(root, fixture.classPath)); err != nil {
+			t.Fatalf("compiled class: %v", err)
+		}
+		if fixture.classVersion != 0 {
+			assertJavaClassVersion(t, filepath.Join(root, fixture.classPath), fixture.classVersion)
+		}
 	}
 	t.Log("compiled Main.class and ran java-result=42")
-	if !d.view.GoToNavigation(4, 2, false) {
+	if !d.view.GoToNavigation(breakpointLine, breakpointColumn, false) {
 		t.Fatal("breakpoint caret")
 	}
 	h.app.toggleBreakpoint(p)
@@ -290,6 +407,7 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 	logger.events = nil
 	logger.mu.Unlock()
 	t.Log("starting Java breakpoint session")
+	debugStarted := time.Now()
 	h.app.runEditorAction(p, d, d.actions[0], 0)
 	awaitStateWithin(t, h, 90*time.Second, "Java breakpoint", func() bool {
 		if len(p.build.runs) > 1 {
@@ -312,7 +430,7 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 		}
 		return p.debug.state == "paused" && len(p.debug.frames) > 0
 	})
-	if frame := p.debug.frames[0]; !strings.Contains(frame.Name, "Main.main") || frame.Line != 5 {
+	if frame := p.debug.frames[0]; !strings.Contains(frame.Name, "Main.main") || frame.Line != int64(breakpointLine+1) {
 		t.Fatalf("wrong breakpoint: %+v", frame)
 	}
 	t.Logf("Java paused in %s at line %d", p.debug.frames[0].Name, p.debug.frames[0].Line)
@@ -327,6 +445,7 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 		return false
 	})
 	t.Log("Java local variable answer=41")
+	performance.elapsed("debugToLocals", debugStarted)
 	if fixture.cleanupWhilePaused {
 		// Return without the success-path closeAndVerify, just as an assertion
 		// failure would. t.Cleanup must stop the paused JVM and destroy Core state.
@@ -337,6 +456,10 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 		return
 	}
 	h.app.executeDebug(p, "continue")
+	if fixture.documentProbe != nil {
+		fixture.documentProbe.awaitBreakpoint(t, h, p)
+		h.app.executeDebug(p, "continue")
+	}
 	awaitStateWithin(t, h, 30*time.Second, "debuggee exit", func() bool { return p.debug.activeSession() == nil })
 	awaitStateWithin(t, h, 15*time.Second, "run exit notifications", func() bool {
 		for _, r := range p.build.runs {
@@ -353,6 +476,11 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 	awaitStateWithin(t, h, 90*time.Second, "second Java breakpoint", func() bool {
 		return p.debug.activeSession() != nil && p.debug.state == "paused"
 	})
+	if fixture.documentProbe != nil {
+		h.app.executeDebug(p, "continue")
+		fixture.documentProbe.awaitBreakpoint(t, h, p)
+	}
+	stopStarted := time.Now()
 	h.app.stopDebugByUser(p)
 	awaitStateWithin(t, h, 30*time.Second, "cancelled Java debuggee", func() bool {
 		if p.debug.activeSession() != nil {
@@ -365,6 +493,7 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 		}
 		return true
 	})
+	performance.elapsed("debugStop", stopStarted)
 	t.Log("Java debug cancellation stopped the run")
 
 	// A failed compilation must never execute the successful build's old class.
@@ -425,7 +554,84 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 		t.Fatalf("run terminal diagnostics: successes=%d failures=%d; events=%+v", successes, failures, events)
 	}
 	t.Log("compiler errors blocked stale class; Core logging success/failure and collection suppression verified")
+	performance.sample(t, h, d, "workflowEnd")
 	closeAndVerify()
+}
+
+// javaFixturePosition returns zero-based editor coordinates for a controlled
+// ASCII probe in the current document; headers added by build tools are retained.
+func javaFixturePosition(t *testing.T, text, probe string, after bool) (int, int) {
+	t.Helper()
+	offset := strings.Index(text, probe)
+	if offset < 0 {
+		t.Fatalf("fixture probe missing: %s", probe)
+	}
+	if after {
+		offset += len(probe)
+	}
+	prefix := text[:offset]
+	return strings.Count(prefix, "\n"), len(prefix) - strings.LastIndex(prefix, "\n") - 1
+}
+
+// Opt-in local evidence for public integration fixtures. Read only the known
+// JDT log locations, at most 32 workspace entries and 1 MiB from each log.
+func retainJavaFailureLogs(t *testing.T, pluginRoot, pluginID string) {
+	t.Helper()
+	output := os.Getenv("LITHE_TEST_JAVA_DIAGNOSTICS_DIR")
+	if output == "" {
+		return
+	}
+	if err := os.MkdirAll(output, 0700); err != nil {
+		t.Logf("diagnostic directory: %v", err)
+		return
+	}
+	base := filepath.Join(pluginRoot, ".state", pluginID)
+	paths := []string{filepath.Join(base, "logs", "jdt.log")}
+	entries, err := os.ReadDir(filepath.Join(base, "servers", "java", "workspaces"))
+	if err != nil && !os.IsNotExist(err) {
+		t.Logf("diagnostic workspace list: %v", err)
+	}
+	for _, entry := range entries[:min(len(entries), 32)] {
+		if entry.IsDir() {
+			paths = append(paths, filepath.Join(base, "servers", "java", "workspaces", entry.Name(), "data", ".metadata", ".log"))
+		}
+	}
+	for index, path := range paths {
+		file, err := os.Open(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			t.Logf("diagnostic log: %v", err)
+			continue
+		}
+		data, readErr := io.ReadAll(io.LimitReader(file, 1<<20))
+		closeErr := file.Close()
+		if readErr != nil || closeErr != nil {
+			t.Logf("diagnostic read=%v close=%v", readErr, closeErr)
+			continue
+		}
+		name := strings.ReplaceAll(t.Name(), "/", "_") + "-" + strconv.Itoa(index) + ".log"
+		if err := os.WriteFile(filepath.Join(output, name), data, 0600); err != nil {
+			t.Logf("diagnostic write: %v", err)
+		}
+	}
+}
+
+// Check the emitted target after both the build tool and JDT's pre-run build.
+// The read is fixed-size even when an upstream tool emits a large class file.
+func assertJavaClassVersion(t *testing.T, path string, expected byte) {
+	t.Helper()
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var header [8]byte
+	_, readErr := io.ReadFull(file, header[:])
+	closeErr := file.Close()
+	if readErr != nil || closeErr != nil || [4]byte(header[:4]) != [4]byte{0xca, 0xfe, 0xba, 0xbe} || header[6] != 0 || header[7] != expected {
+		t.Fatalf("class target: header=%x read=%v close=%v expected major=%d", header, readErr, closeErr, expected)
+	}
 }
 
 func TestJavaPluginCurrentManifestContract(t *testing.T) {
