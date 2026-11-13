@@ -32,7 +32,7 @@ func TestBuildRowMenusRunTargetsAndOpenTheBuildFile(t *testing.T) {
 	instance.Manifest = []byte(`{"buildSystems":[{"id":"engine","detection":{"markers":["engine.build"]}}]}`)
 	h.app.post(func(a *App) {
 		p.build.instances, p.build.loaded = []buildInstance{instance}, true
-		a.reduceChrome(core.ToggleChrome(itemRun))
+		a.reduceChrome(core.ToggleChrome(itemBuild))
 	})
 	// The choices list holds the projects, dependencies, targets and tasks; a tall window
 	// shows every section.
@@ -51,6 +51,11 @@ func TestBuildRowMenusRunTargetsAndOpenTheBuildFile(t *testing.T) {
 	}
 	if p.build.targetID != "main" {
 		t.Fatalf("the menu ran target %q without choosing it", p.build.targetID)
+	}
+	// What it prints shows in the Run window's build console, beside the Build window.
+	if !h.app.chrome.isOpen(h.app.chrome.index[itemRun]) || !h.app.chrome.isOpen(h.app.chrome.index[itemBuild]) || p.build.view != "" {
+		t.Fatalf("after a run the Run window is open %v, the Build window %v, and the Run window shows %q",
+			h.app.chrome.isOpen(h.app.chrome.index[itemRun]), h.app.chrome.isOpen(h.app.chrome.index[itemBuild]), p.build.view)
 	}
 	awaitStateWithin(t, h, 10*time.Second, "the refused run to end", func() bool { return p.build.operation == nil })
 

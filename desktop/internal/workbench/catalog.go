@@ -156,6 +156,7 @@ const (
 	itemProblems      = "problems"
 	itemReferences    = "references"
 	itemRun           = "run"
+	itemBuild         = "build"
 	itemTests         = "tests"
 	itemSecurity      = "security"
 	itemDebug         = "debug"
@@ -214,11 +215,12 @@ var catalog = []item{
 	{id: itemTerminal, zone: zoneBottomLeft, icon: &icons.SquareTerminal, label: func(m *i18n.Messages) string { return m.Tools.Terminal }, panel: true},
 	{id: itemProblems, zone: zoneBottomLeft, icon: &icons.CircleAlert, label: func(m *i18n.Messages) string { return m.Tools.Problems }, panel: true},
 	{id: itemReferences, zone: zoneBottomLeft, icon: &icons.Locate, label: func(m *i18n.Messages) string { return m.Tools.References }, panel: true},
-	{id: itemRun, zone: zoneBottomLeft, icon: &icons.Play, label: func(m *i18n.Messages) string { return m.Tools.Build }, panel: true},
+	{id: itemRun, zone: zoneBottomLeft, icon: &icons.Play, label: func(m *i18n.Messages) string { return m.Tools.Run }, panel: true},
 	{id: itemTests, zone: zoneBottomLeft, icon: &icons.CircleCheck, label: func(m *i18n.Messages) string { return m.Tools.Tests }, panel: true},
 	{id: itemSecurity, zone: zoneBottomLeft, icon: &icons.ShieldCheck, label: func(m *i18n.Messages) string { return m.Tools.Security }, panel: true},
 	{id: itemDebug, zone: zoneBottomLeft, icon: &icons.Bug, label: func(m *i18n.Messages) string { return m.Tools.Debug }, panel: true},
 
+	{id: itemBuild, zone: zoneRightTop, icon: &icons.Wrench, label: func(m *i18n.Messages) string { return m.Tools.Build }, panel: true},
 	{id: itemNotifications, zone: zoneRightTop, icon: &icons.Bell, label: func(m *i18n.Messages) string { return m.Tools.Notifications }, panel: true},
 
 	{id: itemUpdates, zone: zoneBottomRight, icon: &icons.RefreshCw, label: func(m *i18n.Messages) string { return m.Tools.Updates }, panel: true},

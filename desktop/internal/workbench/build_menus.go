@@ -13,9 +13,11 @@ import (
 // build system declares that test scope runs its tests in the Tests tool window; the
 // dependency tree is loaded again and opens the build file it came from. Each item acts
 // through the action the window's own controls run, so a menu item and its button are refused
-// in the same states.
+// in the same states. An item of a row of another build system's group selects that build
+// system first, as a click on the row does, and what a task or a run prints shows in the Run
+// window's build console.
 
-// buildRowMenu is the menu of one project, target or task row of the choices list.
+// buildRowMenu is the menu of one project, target or task row of the build tree.
 func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstance, spec buildRow) {
 	ui.ContextMenu(c, row, func(menu *ui.MenuItems) {
 		b, lang := &p.build, a.language()
@@ -25,8 +27,10 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 			if menu.Item(i18n.Shared(lang, "desktop.runConfig.run")).Disabled(b.operation != nil).Clicked() {
 				c.After(func() {
 					a.performed("build.task.run", surfaceMenu)
+					a.chooseBuildInstance(p, spec.instance)
 					b.taskID = spec.id
 					a.runSelectedBuildTask(p)
+					a.showBuildConsole(p)
 				})
 			}
 		case buildRowTarget:
@@ -38,8 +42,10 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 				if menu.Item(a.text.Build.RunTarget(run.Name)).Disabled(b.operation != nil || instance.modelLoading).Clicked() {
 					c.After(func() {
 						a.performed("build.target.run", surfaceMenu)
+						a.chooseBuildInstance(p, spec.instance)
 						b.projectID, b.targetID = spec.project, spec.id
 						a.runBuildTarget(p, spec.id, runID)
+						a.showBuildConsole(p)
 					})
 				}
 				// The same target under the debugger, when the run names an adapter of its own
@@ -47,6 +53,7 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 				if run.DebugAdapter != "" && menu.Item(i18n.Shared(lang, "desktop.build.debugTarget")).Disabled(b.operation != nil || instance.modelLoading || p.debug.preparing).Clicked() {
 					c.After(func() {
 						a.performed("build.target.debug", surfaceMenu)
+						a.chooseBuildInstance(p, spec.instance)
 						b.projectID, b.targetID = spec.project, spec.id
 						a.debugBuildTarget(p, spec.id, runID)
 					})
@@ -57,8 +64,10 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 				if menu.Item(a.text.Build.RunTarget(entry.Name)).Disabled(b.operation != nil || instance.modelLoading).Clicked() {
 					c.After(func() {
 						a.performed("build.target.run", surfaceMenu)
+						a.chooseBuildInstance(p, spec.instance)
 						b.projectID, b.targetID = spec.project, spec.id
 						a.runBuildEntry(p, entryID)
+						a.showBuildConsole(p)
 					})
 				}
 			}
@@ -66,6 +75,7 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 				if menu.Item(i18n.Shared(lang, "native.runTests")).Disabled(p.tests.running || instance.modelLoading).Clicked() {
 					c.After(func() {
 						a.performed("build.target.test", surfaceMenu)
+						a.chooseBuildInstance(p, spec.instance)
 						b.projectID, b.targetID = spec.project, spec.id
 						a.runBuildTargetTests(p, instance, spec.id)
 					})
@@ -76,6 +86,7 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 				if menu.Item(i18n.Shared(lang, "native.runTests")).Disabled(p.tests.running || instance.modelLoading).Clicked() {
 					c.After(func() {
 						a.performed("build.project.test", surfaceMenu)
+						a.chooseBuildInstance(p, spec.instance)
 						a.runBuildProjectTests(p, instance, spec.id)
 					})
 				}
@@ -89,7 +100,7 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 					})
 				}
 			}
-			index := b.selected
+			index := spec.instance
 			if menu.Item(i18n.Shared(lang, "native.reload")).Disabled(instance.modelLoading || b.operation != nil).Clicked() {
 				c.After(func() {
 					a.performed("build.model.reload", surfaceMenu)

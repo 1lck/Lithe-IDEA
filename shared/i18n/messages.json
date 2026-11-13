@@ -6597,6 +6597,20 @@
       ]
     },
     {
+      "id": "desktop.build.filter",
+      "description": "Label and placeholder of the Build window's filter field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.noMatches",
+      "description": "Build tool window text when no build system, project, target, task or test matches the filter",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.build.emptyOutput",
       "description": "Run a build task to see output.",
       "platforms": [
@@ -12802,6 +12816,73 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.outline.starting",
+      "description": "Structure tool window text while the file's language server starts",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.outline.serverDown",
+      "description": "Structure tool window text when the file's language server failed or stopped",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.outline.serverDownHint",
+      "description": "Hint below the Structure window's stopped-server text that points to the status bar",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.outline.noServerHint",
+      "description": "Hint below the Structure window's no-server text that says what a plugin would show",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.outline.unsupported",
+      "description": "Structure tool window text when the file's language server does not offer document symbols",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.outline.failed",
+      "description": "Structure tool window text when the document symbols request failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.outline.filter",
+      "description": "Label and placeholder of the Structure window's filter field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.outline.follow",
+      "description": "Toggle that keeps the Structure selection on the symbol at the caret",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.outline.matches",
+      "description": "Count of the symbols matching the Structure filter",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "matches": "string",
+        "total": "string"
+      }
     },
     {
       "id": "desktop.panel.header",
@@ -92785,7 +92866,8 @@
       "id": "outline.collapseAll",
       "description": "Windows UI: outline.collapseAll",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -92913,7 +92995,8 @@
       "id": "outline.noSymbolsFound",
       "description": "Windows UI: outline.noSymbolsFound",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
