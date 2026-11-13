@@ -1193,7 +1193,6 @@
     "desktop.logs.savedTo": "Saved to {path}",
     "desktop.logs.sourceLine": "line {line}",
     "desktop.logs.writeFailures": "write failures {count}",
-    "desktop.lsp.logTitle": "Language Server Log",
     "desktop.lsp.noLog": "This server has reported nothing yet.",
     "desktop.lsp.noServers": "No language server is running.",
     "desktop.lsp.state": "State: {state}",

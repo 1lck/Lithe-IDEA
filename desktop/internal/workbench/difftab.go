@@ -329,7 +329,7 @@ func (a *App) showDiff(p *project, root, commit string, change core.GitChange, f
 	t := s.showing(root, commit, change.Path)
 	if t == nil {
 		t = &diffTab{id: s.next + 1, root: root, commit: commit, split: s.split, whole: s.whole, ignoreSpace: s.ignoreSpace, current: -1}
-		if !a.placeDiff(p, t.id) {
+		if _, ok := a.placeEditorMember(p, diffMember(t.id)); !ok {
 			return nil
 		}
 		s.next = t.id
@@ -342,9 +342,10 @@ func (a *App) showDiff(p *project, root, commit string, change core.GitChange, f
 	return t
 }
 
-// placeDiff opens the member of Diff tab id in the group a file opens in, made first when the
-// editor has no group, and reports whether the kernel accepted it.
-func (a *App) placeDiff(p *project, id int) bool {
+// placeEditorMember opens member, a Diff tab's, a viewer tab's or the LSP Logs tab's, in the
+// group a file opens in, made first when the editor has no group. It returns that group and
+// whether the kernel accepted the member.
+func (a *App) placeEditorMember(p *project, member string) (string, bool) {
 	set := &p.terms
 	state := set.bench
 	group, added := a.documentGroup(p), ""
@@ -353,14 +354,14 @@ func (a *App) placeDiff(p *project, id int) bool {
 		state.Groups = append(slices.Clone(state.Groups), core.EditorGroup{ID: added})
 		group = added
 	}
-	if !a.reduceTerminals(p, state, core.OpenEditor(group, diffMember(id), true)) {
-		return false
+	if !a.reduceTerminals(p, state, core.OpenEditor(group, member, true)) {
+		return "", false
 	}
 	if added != "" {
 		set.nextGroup++
 		set.layout = newLeaf(added)
 	}
-	return true
+	return group, true
 }
 
 // show makes the tab show change of its checkout or commit, forgetting what it read before.

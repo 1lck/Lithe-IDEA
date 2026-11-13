@@ -68,15 +68,18 @@ func (a *App) commands() []command {
 	add("editor.recentEdits", t.GroupEditor, a.text.Commands.RecentEdits, "", true, func() { a.openRecentFiles(true) })
 	add("project.close", t.GroupProject, t.CloseProject, "", true, a.closeProject)
 	add("documents.saveAll", t.GroupProject, t.SaveAll, "", true, func() { a.saveProjectDocuments(p, func(bool) {}) })
+	if d := p.selectedDocument(p.docs.group); d != nil && d.scratch {
+		add("editor.saveAs", t.GroupEditor, a.text.Commands.SaveAs, "", !d.saving, func() { a.saveScratchAs(p, d) })
+		add("editor.discardScratch", t.GroupEditor, i18n.Shared(a.language(), "desktop.drafts.discard"), "", !d.saving, func() { a.discardScratch(p, d) })
+	}
 	// The File menu closes the selected tab above its separator and Settings above it, as the
-	// old Windows menu bar ordered them.
-	if d := p.selectedDocument(p.docs.group); d != nil {
-		id := d.id
-		if d.scratch {
-			add("editor.saveAs", t.GroupEditor, a.text.Commands.SaveAs, "", !d.saving, func() { a.saveScratchAs(p, d) })
-			add("editor.discardScratch", t.GroupEditor, i18n.Shared(a.language(), "desktop.drafts.discard"), "", !d.saving, func() { a.discardScratch(p, d) })
+	// old Windows menu bar ordered them. The tab is the one the editor group shows, whether a
+	// file, a Diff, a viewer or the LSP Logs tab, as its close button would close it.
+	if tabs, current := a.groupTabs(p.docs.group); current != "" {
+		if i := slices.IndexFunc(tabs, func(s shownTab) bool { return s.member() == current }); i >= 0 {
+			tab := tabs[i]
+			add("tab.close", t.GroupProject, a.text.Editor.CloseTab, "", true, func() { a.closeTab(tab) })
 		}
-		add("tab.close", t.GroupProject, a.text.Editor.CloseTab, "", true, func() { a.closeDocument(p, id) })
 	}
 	// The Terminal menu runs the editor's selection as one command through the long-command
 	// path, so a cmd.exe or PowerShell line over its limit runs from a one-off script instead

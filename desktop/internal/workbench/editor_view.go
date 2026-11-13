@@ -99,7 +99,8 @@ func (a *App) editorGroup(c ui.C, id string) ui.Box {
 }
 
 // groupBody declares the body of group id: the control of the file it shows (a Markdown file
-// with its rendered page), of the Diff tab, or of the terminal.
+// with its rendered page), of the Diff tab, of the viewer tab, the LSP Logs tab or the
+// terminal.
 func (a *App) groupBody(c ui.C, id string, doc *document) {
 	if isMarkdownDocument(doc) {
 		a.markdownDocument(c, a.project, id, doc)
@@ -115,6 +116,10 @@ func (a *App) groupBody(c ui.C, id string, doc *document) {
 	}
 	if t := a.project.selectedViewer(id); t != nil {
 		a.viewerView(c, t)
+		return
+	}
+	if a.project.selectedLSPLog(id) {
+		a.lspLogView(c)
 		return
 	}
 	if t := a.project.terms.selected(id); t != nil {

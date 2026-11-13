@@ -152,7 +152,7 @@ func TestGitGutterStepsThroughChangesAndWraps(t *testing.T) {
 	caretLine := func() int { line, _ := d.view.CaretUTF16(); return line }
 	step := func(id string, want int) {
 		t.Helper()
-		h.app.runShortcut(id, nil)
+		h.app.runShortcut(id, nil, nil)
 		if got := caretLine(); got != want {
 			t.Fatalf("%s moved the caret to line %d, want %d", id, got, want)
 		}
@@ -168,7 +168,7 @@ func TestGitGutterStepsThroughChangesAndWraps(t *testing.T) {
 	step("git.gutter.previous", 8)
 
 	d.gutter.hunks, d.gutter.peek, d.gutter.peekOpen = nil, nil, false
-	h.app.runShortcut("git.gutter.next", nil)
+	h.app.runShortcut("git.gutter.next", nil, nil)
 	if d.gutter.peekOpen || caretLine() != 8 {
 		t.Fatalf("a file without changes moved to line %d, peek open %v", caretLine(), d.gutter.peekOpen)
 	}
