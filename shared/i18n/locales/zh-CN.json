@@ -780,6 +780,7 @@
     "desktop.build.cancelled": "构建已取消",
     "desktop.build.stopping": "正在停止…",
     "desktop.build.chooseTask": "请先选择一个构建任务。",
+    "desktop.build.chooseTaskScope": "请先选择此任务可以运行的项目或目标。",
     "desktop.build.commandUnsupported": "此构建系统返回了命令计划；当前接入需要提供者驱动的任务。",
     "desktop.build.emptyOutput": "运行构建任务以查看输出。",
     "desktop.build.executableMissing": "未找到此构建系统可用的构建程序。",
