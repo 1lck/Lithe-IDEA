@@ -341,7 +341,11 @@ func (r *Runs) handleStart(ctx context.Context, params json.RawMessage) (json.Ra
 		return nil, refusal
 	}
 	for _, file := range start.TemporaryFiles {
-		if err := os.WriteFile(file.Path, []byte(file.Contents), 0o600); err != nil {
+		data, err := file.Bytes()
+		if err == nil {
+			err = os.WriteFile(file.Path, data, 0o600)
+		}
+		if err != nil {
 			cleanup()
 			return nil, failure(pluginhost.CodeHostFailure, "a temporary file cannot be written")
 		}
@@ -393,35 +397,12 @@ func (r *Runs) handleStart(ctx context.Context, params json.RawMessage) (json.Ra
 			}
 		}}
 	} else {
-		// A JDK launch whose class path would overflow the command line starts with an
-		// argument file in the run's temporary directory, removed when the run ends. Core
-		// plans it; a kernel that cannot leaves the launch as it is.
-		arguments := start.Arguments
-		if planner, ok := r.service.kernel.(launchPlanner); ok {
-			plan, err := planLaunch(runCtx, planner, executable, start.Arguments)
-			if err != nil {
-				cancel()
-				cleanup()
-				return nil, failure(pluginhost.CodeHostFailure, err.Error())
-			}
-			if plan.ArgumentFile != nil && temporary == "" {
-				temporary, err = os.MkdirTemp("", "lithe-run-")
-				if err != nil {
-					cancel()
-					cleanup()
-					return nil, failure(pluginhost.CodeHostFailure, "the run's temporary directory cannot be created")
-				}
-			}
-			arguments, err = launchArguments(plan, temporary)
-			if err != nil {
-				cancel()
-				cleanup()
-				return nil, failure(pluginhost.CodeHostFailure, "the run's argument file cannot be written: "+err.Error())
-			}
-		}
+		// The command line is the plugin's, started as it is. A launch that would
+		// overflow the system limit is the plugin's to shorten, for example with an
+		// argument file passed in temporaryFiles.
 		spawned, err := buildprocess.Start(runCtx, buildprocess.Spec{
 			Executable:       executable,
-			Arguments:        arguments,
+			Arguments:        start.Arguments,
 			WorkingDirectory: workingDirectory,
 			Environment:      environment,
 		}, func(_ buildprocess.Stream, text string) {

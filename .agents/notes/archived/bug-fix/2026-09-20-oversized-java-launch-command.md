@@ -2,6 +2,10 @@
 
 状态：已实现
 
+归档日期：2026-11-13
+
+> 已被[超长启动命令由插件缩短，宿主只按字节写临时文件](../../implemented/architecture/2026-11-13-plugin-owned-long-command-lines.md)取代。Core 的 `execution.planLaunchCommand` 和桌面端的参数文件写入已删除，下文描述的是旧客户端时期的做法。
+
 ## 先说结论
 
 Java 项目现在由项目 JDK 直接启动，JDT 解析出的运行时 classpath 会原样出现在命令行上。

@@ -2,6 +2,7 @@ package pluginservice
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
@@ -54,6 +55,16 @@ func TestRunHelperProcess(t *testing.T) {
 		os.Exit(3)
 	case "sleep":
 		time.Sleep(time.Minute)
+		os.Exit(0)
+	case "files":
+		// Prints each file named in LITHE_RUN_FILES as hex, one line per file.
+		for _, path := range strings.Split(os.Getenv("LITHE_RUN_FILES"), string(os.PathListSeparator)) {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				os.Exit(2)
+			}
+			fmt.Printf("file %x\n", data)
+		}
 		os.Exit(0)
 	case "listen":
 		listener, err := net.Listen("tcp", "127.0.0.1:"+os.Getenv("LITHE_RUN_PORT"))
@@ -205,6 +216,49 @@ func TestRunStartReportsOutputAndTheExitCode(t *testing.T) {
 	}
 	if active := h.service.Runs.Active(); len(active) != 0 {
 		t.Fatalf("active runs after exit = %v", active)
+	}
+}
+
+// TestRunStartWritesTemporaryFilesAsGiven checks that the process finds each
+// temporary file with exactly the plugin's contents: text as UTF-8, and base64
+// bytes unchanged, including bytes that are not UTF-8.
+func TestRunStartWritesTemporaryFilesAsGiven(t *testing.T) {
+	h := newRunHarness(t)
+	bytes := []byte{0x2d, 0x63, 0x70, 0x20, 0x95, 0x5c, 0x5c, 0x00, 0xff, 0x0a}
+	params := h.params(t, "files", map[string]any{
+		"temporaryFiles": []map[string]string{
+			{"name": "text", "contents": "-cp \"é\"\n"},
+			{"name": "bytes", "base64": base64.StdEncoding.EncodeToString(bytes)},
+			{"name": "empty", "base64": ""},
+		},
+	})
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(params), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	process := decoded["process"].(map[string]any)
+	process["environment"].(map[string]any)["LITHE_RUN_FILES"] = strings.Join([]string{
+		"${temporaryFile:text}", "${temporaryFile:bytes}", "${temporaryFile:empty}",
+	}, string(os.PathListSeparator))
+	data, err := json.Marshal(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, refusal := respond(t, h.service, runFixturePlugin, "run/start", string(data))
+	startedRunID(t, result, refusal)
+	events := h.await(t, "the run to exit", func(events []RunEvent) bool { return exitedEvent(events) != nil })
+	var output strings.Builder
+	for _, event := range events {
+		if event.Type == RunOutput {
+			output.WriteString(event.Text)
+		}
+	}
+	want := fmt.Sprintf("file %x\nfile %x\nfile \n", []byte("-cp \"é\"\n"), bytes)
+	if got := strings.ReplaceAll(output.String(), "\r\n", "\n"); !strings.Contains(got, want) {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+	if exited := exitedEvent(events); exited.ExitCode == nil || *exited.ExitCode != 0 {
+		t.Fatalf("exit = %+v, want code 0", exited)
 	}
 }
 

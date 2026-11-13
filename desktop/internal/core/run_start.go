@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 )
 
@@ -14,9 +15,23 @@ type RunStartExecutable struct {
 }
 
 // RunStartFile is a temporary file the host writes before the process starts.
+// Core gives exactly one of Contents (UTF-8 text) and Base64 (standard padded
+// base64 of bytes the plugin encoded itself, such as a JDK argument file in the
+// Windows ANSI code page); an empty file has an empty Contents.
 type RunStartFile struct {
 	Path     string `json:"path"`
 	Contents string `json:"contents"`
+	Base64   string `json:"base64,omitempty"`
+}
+
+// Bytes returns the bytes to write: the decoded Base64 when Core gave bytes,
+// otherwise Contents unchanged. Core has already checked the encoding and the
+// size limit, so an error means Core and the host disagree on the contract.
+func (f RunStartFile) Bytes() ([]byte, error) {
+	if f.Base64 != "" {
+		return base64.StdEncoding.DecodeString(f.Base64)
+	}
+	return []byte(f.Contents), nil
 }
 
 // RunStartDebug makes a run a debug session. Target.Kind is "connection" (the

@@ -828,13 +828,14 @@ Viva 的 `app.RegisterFont` 把字型按内容摘要暂存到用户缓存目录 
   `excludedResources.sparkle-baseline-staging` 经排除路由直接拒绝，任何复制阶段
   都不得跨工作树复用；每次发布仍从选定的 GitHub Release 下载基线。
 
-- Java 启动临时文件：`<system-temp>/lithe-run/launch-<pid>-<counter>.argfile`
-  和同目录的 `.classpath.jar` 由平台启动 adapter 为单次执行独占创建，包含该次
-  执行的绝对类路径、工作目录、JDK 版本及编码语义，没有可复用的版本、平台、架构
-  或工具链 identity stamp。准备失败、准备完成前已取消、启动失败或进程退出后由
-  所有者删除；系统临时目录由平台解析，不写安装包或 JDK，不影响签名或增量更新。
-  `excludedResources.java-launch-temporaries` 经复用脚本的排除路由直接拒绝，任何
-  复制阶段都不得共享；内容哈希相同也不能转移进程所有权。
+- 插件运行的临时文件：`<system-temp>/lithe-run-<random>/`。插件在 `run/start` 的
+  `temporaryFiles` 里给出文件时，桌面端运行服务为这次运行单独创建这个目录，按插件给的
+  文本或字节写入文件，例如 Java 插件生成的 JDK 参数文件或 classpath JAR。文件内容是该次
+  运行的类路径、工作目录和插件选定的编码，没有可复用的版本、平台、架构或工具链
+  identity stamp。Core 拒绝启动、进程无法启动或运行结束后，运行服务删除整个目录；
+  系统临时目录由平台解析，不写安装包或工具链目录，不影响签名或增量更新。
+  `excludedResources.run-temporary-files` 经复用脚本的排除路由直接拒绝，任何复制阶段
+  都不得共享；内容哈希相同也不能转移进程所有权。
 
 - Agent CLI 的用户级安装与下载缓存：npm 的 global prefix/cache、Homebrew 的
   Cellar/Caskroom/cache、用户目录下 `.local/share/claude/versions`。它们由运行时
