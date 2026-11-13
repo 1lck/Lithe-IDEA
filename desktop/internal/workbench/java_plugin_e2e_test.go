@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -67,6 +68,15 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 	mavenArchive := os.Getenv("LITHE_TEST_MAVEN_PLUGIN_ARCHIVE")
 	if mavenArchive == "" {
 		t.Skip("set LITHE_TEST_MAVEN_PLUGIN_ARCHIVE to the compatible Maven plugin zip")
+	}
+	// Core's diagnostic queue is process-wide. These fixtures run serially;
+	// scope terminal-fact assertions to this workflow rather than counting
+	// a preceding cleanup-only fixture's successful runs as ours.
+	drainContext, drainCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	_, drainErr := core.NewClient().DrainCoreEvents(drainContext)
+	drainCancel()
+	if drainErr != nil {
+		t.Fatal(drainErr)
 	}
 	performance := newJavaPerformanceProbe(t, archive)
 	preferences := store.At(t.TempDir())
@@ -267,6 +277,10 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 				methods, probeErr := service.ExecuteLanguageCommand(probeContext, server.session, "vscode.java.resolveMainMethod", []any{d.sync.uri}, 5*time.Second)
 				probeCancel()
 				t.Logf("late main methods: %s err=%v", methods, probeErr)
+				testContext, testCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				tests, testErr := service.ExecuteLanguageCommand(testContext, server.session, "vscode.java.test.findTestTypesAndMethods", []any{d.sync.uri}, 5*time.Second)
+				testCancel()
+				t.Logf("late test items: %s err=%v", tests, testErr)
 			}
 		}
 	}()
@@ -514,6 +528,36 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 		t.Fatal("compiler errors launched stale bytecode")
 	}
 
+	if fixture.buildSystem == "gradle" {
+		workspace, exists := service.Contexts.ByPath(root)
+		if !exists {
+			t.Fatal("Gradle workspace context was lost")
+		}
+		params, err := json.Marshal(map[string]string{"workspaceRoot": root})
+		if err != nil {
+			t.Fatal(err)
+		}
+		reference, err := json.Marshal(workspace.ContextRef)
+		if err != nil {
+			t.Fatal(err)
+		}
+		settingsContext, settingsCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		answer, err := service.Host.Call(settingsContext, "io.github.lithe-idea.gradle-build", "languageImport.settings", params, reference, 10*time.Second)
+		settingsCancel()
+		if err != nil {
+			t.Fatalf("real Gradle import settings: %v", err)
+		}
+		var settings struct {
+			Settings map[string]string `json:"settings"`
+		}
+		if err := json.Unmarshal(answer, &settings); err != nil {
+			t.Fatal(err)
+		}
+		if settings.Settings["java.import.gradle.user.home"] != os.Getenv("GRADLE_USER_HOME") || settings.Settings["java.import.gradle.java.home"] != strings.ReplaceAll(fixture.javaHome, "\\", "/") {
+			t.Fatalf("Gradle source-backed import settings differ: %s", answer)
+		}
+	}
+
 	// Inspect the real Core facts before a log-store writer consumes them. Collection
 	// is high frequency and must not add success INFO; user runs own one terminal fact.
 	logCtx, cancelLogs := context.WithTimeout(context.Background(), 5*time.Second)
@@ -526,6 +570,9 @@ func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
 	for _, event := range events.Events {
 		if event.Channel != "plugins/"+plan.ID+"/host" {
 			continue
+		}
+		if fixture.buildSystem == "gradle" && event.Fields["code"] == "relay.provider_timed_out" {
+			t.Fatal("cold Gradle settings relay timed out; a fallback is not full import verification")
 		}
 		operation, _ := event.Fields["operation"].(string)
 		if event.Event == "plugins.operation.finished" && operation == "java.collectActions" {

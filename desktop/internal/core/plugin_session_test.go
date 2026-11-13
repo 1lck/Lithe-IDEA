@@ -437,3 +437,18 @@ func TestPluginLaunchArchitectureAcceptsOnlyTheContractSpelling(t *testing.T) {
 		}
 	}
 }
+
+func TestRuntimeToolPlanKeepsAnEntryForNativeInstantiation(t *testing.T) {
+	manifest, err := os.ReadFile(contractfixture.Path("fixtures/run/tool-reference-launch.plugin.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	plan, err := NewClient().PlanPluginLanguageServer(testContext(t), manifest, "script", PluginBackendDirectories{PluginDirectory: root, StateDirectory: t.TempDir(), Architecture: PluginArchitecture()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Launch.Kind != "tool" || plan.Launch.Entry == "" {
+		t.Fatalf("runtime lost its entry: %+v", plan.Launch)
+	}
+}

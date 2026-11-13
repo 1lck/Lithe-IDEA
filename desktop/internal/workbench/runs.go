@@ -92,6 +92,36 @@ func (a *App) resolveBackendTool(ctx context.Context, _, workingDirectory, tool 
 	return pluginbackend.ToolExecutable{Path: resolved.Path, Environment: resolved.Environment}, nil
 }
 
+// resolveBackendToolEntry supplies native installation facts and the verified
+// entry to Core. The definition, not the host, decides how a tool loads it.
+func (a *App) resolveBackendToolEntry(ctx context.Context, _ string, workingDirectory string, input pluginbackend.ToolEntryLaunch) (pluginbackend.ToolExecutable, error) {
+	selection := core.ToolchainSelection{Executable: input.Executable}
+	if selection.Executable == "" {
+		var err error
+		selection, err = a.resolveToolchainSelection(ctx, workingDirectory, ".", input.Tool, input.MinimumVersion)
+		if err != nil {
+			return pluginbackend.ToolExecutable{}, err
+		}
+	}
+	manifests, err := a.toolchainManifests(ctx)
+	if err != nil {
+		return pluginbackend.ToolExecutable{}, err
+	}
+	registry, err := toolchain.RegistryInput(manifests)
+	if err != nil {
+		return pluginbackend.ToolExecutable{}, err
+	}
+	home := ""
+	if selection.Home != nil {
+		home = *selection.Home
+	}
+	launch, err := a.kernel.InstantiateToolchainLaunch(ctx, registry, input.Tool, selection.Executable, home, input.Entry, input.RuntimeArguments, input.Arguments)
+	if err != nil {
+		return pluginbackend.ToolExecutable{}, err
+	}
+	return pluginbackend.ToolExecutable{Path: launch.Executable, Arguments: launch.Arguments, Environment: applyToolchainSelection(nil, selection)}, nil
+}
+
 // resolveLanguageTool supplies the complete installation selected by Core.
 // An unavailable optional tool leaves the language server's configuration alone;
 // actual I/O failures propagate to the existing server-start failure boundary.

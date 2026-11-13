@@ -2,6 +2,7 @@ package pluginhost
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -115,15 +116,21 @@ func VerifyLaunch(packageDirectory string, launch Launch) (Resolved, error) {
 		}
 		return Resolved{Required: required}, nil
 	case LaunchTool:
-		// The tool is resolved by the host's toolchain registry, not from the package.
+		// Current Core plans represent runtime entries as tools. Apply the same
+		// native path verification as a legacy runtime before Core instantiates
+		// the tool's entry template; a bare tool has no entry to verify.
 		if launch.Tool == "" {
 			return Resolved{}, fmt.Errorf("%w: a tool launch names no tool", ErrPackagePath)
 		}
-		required, err := ResolvePackagePaths(packageDirectory, launch.Required)
+		entry, err := plannedPackagePath(packageDirectory, launch.Entry)
 		if err != nil {
 			return Resolved{}, err
 		}
-		return Resolved{Required: required}, nil
+		runtime, err := plannedPackagePath(packageDirectory, launch.PackagedRuntime)
+		if err != nil {
+			return Resolved{}, err
+		}
+		return VerifyLaunch(packageDirectory, Launch{Kind: LaunchRuntime, Tool: launch.Tool, Entry: entry, PackagedRuntime: runtime, Required: launch.Required})
 	default:
 		return Resolved{}, fmt.Errorf("%w: unknown launch kind %q", ErrPackagePath, launch.Kind)
 	}
@@ -178,4 +185,18 @@ func GrantServices(requested []string, services *Services) []string {
 		return nil
 	}
 	return granted
+}
+
+// Core expands tool entry paths to absolute native paths. Relativizing them
+// preserves ResolvePackagePath's segment-by-segment no-symlink verification;
+// traversal, other volumes and files outside the package remain refusals.
+func plannedPackagePath(root, path string) (string, error) {
+	if !filepath.IsAbs(path) {
+		return path, nil
+	}
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrPackagePath, err)
+	}
+	return filepath.ToSlash(relative), nil
 }

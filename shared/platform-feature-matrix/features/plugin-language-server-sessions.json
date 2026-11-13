@@ -2,7 +2,7 @@
   "id": "plugin-language-server-sessions",
   "area": "扩展",
   "group": "插件与主题",
-  "capability": "插件自有语言服务器会话与后端决定启动方式：声明 languageServers 0 的插件，其后端经 lithe/host/languageServer/request|notify|setStatus 向自己的服务器发请求、通知并上报准备状态（preparing/ready/degraded/failed，随进程结束），收到 didChangeState 与 didReceiveNotification；会话策略（请求白名单、门控、串行命令、超时与排队上限、远程不支持）由 Rust Core 执行；launch.kind:backend 由后端函数在每次启动时给出可执行文件（包内文件或声明的工具）、参数、环境与初始化选项，Core 校验后宿主才启动；documents.contentProvider 让插件为自定义 scheme 提供只读文档（如 jar 内源码）；宿主按 state.retention 在后台回收每个工作区的服务器状态目录；状态栏显示插件自己上报的准备状态；宿主在 resolveParams.tools 中提供声明工具的所选安装事实，使语言服务器与 Build/Run 使用同一项目工具链",
+  "capability": "插件自有语言服务器会话与后端决定启动方式：声明 languageServers 0 的插件，其后端经 lithe/host/languageServer/request|notify|setStatus 向自己的服务器发请求、通知并上报准备状态（preparing/ready/degraded/failed，随进程结束），收到 didChangeState 与 didReceiveNotification；会话策略（请求白名单、门控、串行命令、超时与排队上限、远程不支持）由 Rust Core 执行；launch.kind:backend 由后端函数在每次启动时给出可执行文件（包内文件或声明的工具）、参数、环境与初始化选项，Core 校验后宿主才启动；documents.contentProvider 让插件为自定义 scheme 提供只读文档（如 jar 内源码）；宿主按 state.retention 在后台回收每个工作区的服务器状态目录；状态栏显示插件自己上报的准备状态；宿主在 resolveParams.tools 中提供声明工具的所选安装事实，使语言服务器与 Build/Run 使用同一项目工具链；工具入口计划经原生路径校验后复用 Core 的工具模板实例化，保留包入口、运行时参数与工具定义的参数顺序",
   "macos": {
     "implementationStatus": "partial",
     "verificationStatus": "pending",
@@ -13,7 +13,11 @@
       "desktop/internal/pluginservice/hostmethods_test.go",
       ".agents/notes/implemented/architecture/2026-11-10-viva-plugin-host-services-and-backend-sessions.md",
       "desktop/internal/pluginservice/backendlaunch_test.go",
-      "desktop/internal/workbench/java_unmanaged_e2e_test.go"
+      "desktop/internal/workbench/java_unmanaged_e2e_test.go",
+      "desktop/internal/pluginbackend/pluginbackend.go",
+      "desktop/internal/pluginbackend/pluginbackend_test.go",
+      "desktop/internal/pluginhost/launch.go",
+      "desktop/internal/pluginhost/launch_test.go"
     ]
   },
   "windows": {
@@ -26,11 +30,15 @@
       "desktop/internal/pluginservice/hostmethods_test.go",
       ".agents/notes/implemented/architecture/2026-11-10-viva-plugin-host-services-and-backend-sessions.md",
       "desktop/internal/pluginservice/backendlaunch_test.go",
-      "desktop/internal/workbench/java_unmanaged_e2e_test.go"
+      "desktop/internal/workbench/java_unmanaged_e2e_test.go",
+      "desktop/internal/pluginbackend/pluginbackend.go",
+      "desktop/internal/pluginbackend/pluginbackend_test.go",
+      "desktop/internal/pluginhost/launch.go",
+      "desktop/internal/pluginhost/launch_test.go"
     ]
   },
   "owner": "Extensions",
-  "verification": "Viva：scripts/desktop/desktop-go.sh test ./internal/pluginservice -run TestLanguageLaunch -count=1，验证所选安装、可选缺失、项目脚本排除与实际错误传播。显式真实插件集成 TestJavaPluginUnmanagedProjects 验证运行前编译与项目 JVM 一致，需独立插件 ZIP/JDK 输入。两平台另行验证原生窗口中的后端启动、请求/通知、准备状态、只读虚拟文档、关闭项目后的进程释放；远程工作区与状态保留清理未实现，不视为已验收。scripts/desktop/verify/verify-runtime-bundle-immutability.sh 检查资源只读边界。",
+  "verification": "Viva：scripts/desktop/desktop-go.sh test ./internal/pluginservice -run TestLanguageLaunch -count=1，验证所选安装、可选缺失、项目脚本排除与实际错误传播。显式真实插件集成 TestJavaPluginUnmanagedProjects 验证运行前编译与项目 JVM 一致，需独立插件 ZIP/JDK 输入。两平台另行验证原生窗口中的后端启动、请求/通知、准备状态、只读虚拟文档、关闭项目后的进程释放；远程工作区与状态保留清理未实现，不视为已验收。scripts/desktop/verify/verify-runtime-bundle-immutability.sh 检查资源只读边界。 TestToolEntryUsesCoreInstantiationAfterNativeVerification 读取链接 Core 的非 Java 工具 fixture，验证通用入口模板；TestToolEntryIsVerifiedInsideThePackage 拒绝越界入口。Gradle 的真实设置回读与无中转超时由 TestJavaPluginGradleLegacyReactor 断言。",
   "notes": "Viva 通过后端函数解析语言服务器启动，Core 校验计划与会话权限，宿主提供所选工具的 executable/home/version，不传环境或凭据，也不把项目脚本当作本地安装。可选工具缺失时保留服务器自己的配置，实际读取失败交给既有启动失败边界。通用逻辑不识别 Java 或其他工具名。远程工作区、状态保留清理及完整原生窗口验收仍有缺口；无头测试不能据此标记全部平台验证完成。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",

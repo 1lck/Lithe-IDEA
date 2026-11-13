@@ -223,3 +223,14 @@ func TestVerifyLaunchAcceptsHostRuntimeWithPackagedEntry(t *testing.T) {
 		t.Fatalf("resolved = %+v", resolved)
 	}
 }
+
+func TestToolEntryIsVerifiedInsideThePackage(t *testing.T) {
+	root := launchPackage(t)
+	resolved, err := VerifyLaunch(root, Launch{Kind: LaunchTool, Tool: "interpreter", Entry: filepath.Join(root, "lib/main.js")})
+	if err != nil || resolved.Entry != filepath.Join(root, "lib/main.js") {
+		t.Fatalf("tool entry was not verified: %+v %v", resolved, err)
+	}
+	if _, err := VerifyLaunch(root, Launch{Kind: LaunchTool, Tool: "interpreter", Entry: "../outside.js"}); err == nil {
+		t.Fatal("tool entry escaped the installed package")
+	}
+}

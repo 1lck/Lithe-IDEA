@@ -26,9 +26,9 @@ func (e *UnavailableError) Error() string {
 	return fmt.Sprintf("toolchain %s is unavailable: %s", e.Tool, e.Code)
 }
 
-// rawRegistry is the request shape every registry input expects. Core treats it
+// RegistryInput is the request shape every registry input expects. Core treats it
 // as inert data and revalidates the complete manifests.
-func rawRegistry(manifests []json.RawMessage) (json.RawMessage, error) {
+func RegistryInput(manifests []json.RawMessage) (json.RawMessage, error) {
 	type plugin struct {
 		Manifest json.RawMessage `json:"manifest"`
 	}
@@ -56,7 +56,7 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 	if err != nil {
 		return Snapshot{}, err
 	}
-	registryRequest, err := rawRegistry(manifests)
+	registryRequest, err := RegistryInput(manifests)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -141,7 +141,7 @@ func Resolve(ctx context.Context, kernel Kernel, root, directory, tool, minimumV
 	if err != nil {
 		return Selection{}, err
 	}
-	registryRequest, err := rawRegistry(manifests)
+	registryRequest, err := RegistryInput(manifests)
 	if err != nil {
 		return Selection{}, err
 	}

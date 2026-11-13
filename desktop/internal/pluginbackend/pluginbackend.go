@@ -156,7 +156,8 @@ type Runner struct {
 	lookup func(name string) (string, error)
 	// tools resolves a plan's {kind: "tool"} launch to an executable. Nil refuses
 	// such a launch rather than guessing a program.
-	tools ToolResolver
+	tools       ToolResolver
+	toolEntries ToolEntryResolver
 	// initializeTimeout is the startup-handshake deadline applied to a request
 	// that does not carry its own. Zero keeps Core's default.
 	initializeTimeout time.Duration
@@ -174,7 +175,22 @@ func (r *Runner) SetInitializeTimeout(timeout time.Duration) { r.initializeTimeo
 type ToolExecutable struct {
 	Path        string
 	Environment map[string]string
+	// Arguments are the complete vector Core instantiated for a package entry.
+	Arguments []string
 }
+
+// ToolEntryLaunch contains verified native paths and the opaque inputs to
+// Core's tool template. No host code interprets a tool's entry grammar.
+type ToolEntryLaunch struct {
+	Tool, Executable, Entry, MinimumVersion string
+	RuntimeArguments, Arguments             []string
+}
+
+// ToolEntryResolver applies a Core-owned tool template to verified native facts.
+type ToolEntryResolver func(context.Context, string, string, ToolEntryLaunch) (ToolExecutable, error)
+
+// SetToolEntryResolver installs the entry planner before any backend starts.
+func (r *Runner) SetToolEntryResolver(resolver ToolEntryResolver) { r.toolEntries = resolver }
 
 // ToolResolver resolves the tool definition a plugin launch names to the
 // executable the host runs, using the host's toolchain layers for the workspace
@@ -278,9 +294,24 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 			return Session{}, err
 		}
 	}
-	// A tool launch runs the installation the toolchain layers select; the plan's
-	// own environment wins over what the selection declares.
+	arguments := Arguments(plan, resolved.Entry)
+	// A tool entry is instantiated by Core using its declaring plugin's
+	// template after native path verification. This also covers packaged tools.
 	var toolEnvironment map[string]string
+	if plan.Launch.Kind == pluginhost.LaunchTool && resolved.Entry != "" {
+		if r.toolEntries == nil {
+			return Session{}, fmt.Errorf("%w: this host cannot instantiate tool entries", ErrRequest)
+		}
+		tool, err := r.toolEntries(ctx, request.PluginID, request.WorkingDirectory, ToolEntryLaunch{
+			Tool: plan.Launch.Tool, Executable: executable, Entry: resolved.Entry,
+			MinimumVersion: plan.Launch.MinimumVersion, RuntimeArguments: plan.Launch.RuntimeArguments, Arguments: plan.Arguments,
+		})
+		if err != nil {
+			return Session{}, err
+		}
+		executable, toolEnvironment, arguments = tool.Path, tool.Environment, tool.Arguments
+	}
+	// A bare tool launch uses the selected installation and the opaque args.
 	if executable == "" && plan.Launch.Kind == pluginhost.LaunchTool {
 		if r.tools == nil {
 			return Session{}, fmt.Errorf("%w: this host cannot resolve tool launches", ErrRequest)
@@ -303,7 +334,7 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 		PluginID:               request.PluginID,
 		Role:                   role,
 		ExecutablePath:         executable,
-		Arguments:              Arguments(plan, resolved.Entry),
+		Arguments:              arguments,
 		Environment:            mergeEnvironment(mergeEnvironment(toolEnvironment, plan.Environment), request.Environment),
 		SessionPolicy:          plan.SessionPolicy,
 		RootURI:                request.RootURI,

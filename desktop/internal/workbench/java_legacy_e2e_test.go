@@ -33,7 +33,26 @@ func TestJavaPluginHistoricalProject(t *testing.T) {
 		t.Fatal("historical project requires a JDK home, expected VM version and a Java API probe")
 	}
 	fixture := standardJavaFixture()
-	fixture.files = map[string]string{fixture.mainPath: strings.Replace(javaWorkflowMain, `org.apache.commons.lang3.StringUtils.reverse("avaj")`, `"java"`, 1)}
+	// Historical builds can check licenses before compilation. The injected
+	// test entry point carries this repository's Apache license, without
+	// disabling an upstream check or changing any upstream source file.
+	const probeLicense = `/*
+ * Copyright 2026 Lithe contributors.
+ *
+ * Licensed under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+`
+	fixture.files = map[string]string{fixture.mainPath: probeLicense + strings.Replace(javaWorkflowMain, `org.apache.commons.lang3.StringUtils.reverse("avaj")`, `"java"`, 1)}
 	fixture.files[fixture.mainPath] = strings.Replace(fixture.files[fixture.mainPath], `System.getProperty("java.specification.version")`, `System.getProperty("java.specification.version") + ";probe=" + (`+probe+`)`, 1)
 	// A probe may call an upstream API with a checked exception. This changes
 	// only the injected entry point; the historical project stays untouched.

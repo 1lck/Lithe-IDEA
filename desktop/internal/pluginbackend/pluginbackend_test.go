@@ -10,9 +10,12 @@ import (
 	"sort"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 )
 
 // fakeKernel records what the runner asked Core to do.
@@ -633,5 +636,52 @@ func TestStartResolvesAToolThroughTheHostToolchain(t *testing.T) {
 	// The plan's environment wins over the selection's; the rest of the selection is kept.
 	if env := kernel.started_.Environment; env["JAVA_HOME"] != "/plan/jdk" || env["PATH"] != "/opt/jdk/bin" {
 		t.Fatalf("environment = %v", env)
+	}
+}
+
+func TestToolEntryUsesCoreInstantiationAfterNativeVerification(t *testing.T) {
+	root := backendPackage(t)
+	entry := filepath.Join(root, "入口 with 空格.script")
+	if err := os.WriteFile(entry, []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := core.PluginBackendPlan{}
+	plan.Launch.Kind, plan.Launch.Tool = pluginhost.LaunchTool, "interpreter"
+	plan.Launch.Entry = entry
+	plan.Launch.RuntimeArguments = []string{"--runtime-option"}
+	plan.Arguments = []string{"--stdio"}
+	kernel := &fakeKernel{plan: plan, started: core.PluginBackendStarted{SessionID: "entry-session"}}
+	runner := New(kernel, echoServices(t))
+	if _, err := runner.Start(context.Background(), startRequest(root)); !errors.Is(err, ErrRequest) {
+		t.Fatalf("missing template resolver: %v", err)
+	}
+	manifest, err := os.ReadFile(contractfixture.Path("fixtures/run/tool-reference-launch.plugin.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := toolchain.RegistryInput([]json.RawMessage{manifest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	runner.SetToolEntryResolver(func(_ context.Context, _, _ string, input ToolEntryLaunch) (ToolExecutable, error) {
+		if input.Entry != entry || input.Tool != "interpreter" || len(input.RuntimeArguments) != 1 || input.RuntimeArguments[0] != "--runtime-option" || len(input.Arguments) != 1 || input.Arguments[0] != "--stdio" {
+			t.Fatalf("wrong verified facts for Core: %+v", input)
+		}
+		// Use the linked Core and its shared non-Java contract fixture. Native
+		// adapters only supply facts; Core owns the tool's argument grammar.
+		launch, err := core.NewClient().InstantiateToolchainLaunch(ctx, registry, input.Tool, executable, "", input.Entry, input.RuntimeArguments, input.Arguments)
+		return ToolExecutable{Path: launch.Executable, Arguments: launch.Arguments}, err
+	})
+	if _, err := runner.Start(context.Background(), startRequest(root)); err != nil {
+		t.Fatal(err)
+	}
+	if got := kernel.started_.Arguments; len(got) != 3 || got[0] != "--runtime-option" || got[1] != plan.Launch.Entry {
+		t.Fatalf("Core arguments lost: %v", got)
 	}
 }
