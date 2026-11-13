@@ -249,10 +249,12 @@ func (w *window) selectPluginForm(id string) bool {
 }
 
 // dynamicSettingsPage is the settings page a plugin contributes to a language or a build
-// system: the contributors' chooser above the selected contributor's form.
+// system: the contributors' chooser above the selected contributor's form. It scrolls, named
+// by the page so it starts at its top each time the page is opened, and the form grows to
+// the scroll's height.
 func (w *window) dynamicSettingsPage(c ui.C) {
 	page := w.dynamic.selected(w.dynamicPage)
-	ui.Column(c).FillWidth().Grow(1).MinHeight(0).Pad(contentPad).Gap(10).Children(func() {
+	ui.Scroll(c.Key(w.dynamicPage)).FillWidth().Grow(1).Shrink(1).MinHeight(0).Pad(contentPad).Gap(10).Children(func() {
 		if w.dynamic.failed != nil {
 			ui.Wrap(c, i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.failed")).Color(w.pal.danger)
 		}
