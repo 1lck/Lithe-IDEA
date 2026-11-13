@@ -118,6 +118,9 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 			if tool.id == itemProject && p != nil {
 				a.projectTreeActions(c, p)
 			}
+			if tool.id == itemStructure && p != nil {
+				a.outlineActions(c, p)
+			}
 			if tabbed && p != nil {
 				a.drawGitActions(c, p)
 			}
