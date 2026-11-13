@@ -1,0 +1,49 @@
+name: Set up desktop Windows build tools
+description: >-
+  Puts MinGW-w64 gcc (for the cgo core link) and NSIS makensis (for the installer) on PATH.
+  Shared by the release and AutoBuild workflows so both package Windows with the same tools.
+
+runs:
+  using: composite
+  steps:
+    - name: Ensure MinGW-w64 and NSIS
+      shell: bash
+      run: |
+        if ! command -v gcc >/dev/null 2>&1; then
+          choco install mingw -y
+          gcc_path="$(find /c/ProgramData/chocolatey/lib/mingw /c/tools/mingw64 /c/mingw64 \
+            -type f -name gcc.exe -print -quit 2>/dev/null || true)"
+          if [[ -z "$gcc_path" ]]; then
+            printf '%s\n' 'MinGW-w64 installation did not provide gcc.exe.' >&2
+            exit 1
+          fi
+          mingw_bin="$(dirname "$gcc_path")"
+          export PATH="$mingw_bin:$PATH"
+          printf '%s\n' "$(cygpath -m "$mingw_bin")" >> "$GITHUB_PATH"
+        fi
+        gcc --version
+        nsis_x86='/c/Program Files (x86)/NSIS'
+        nsis_x64='/c/Program Files/NSIS'
+        if ! command -v makensis >/dev/null 2>&1 && \
+            [[ ! -f "$nsis_x86/makensis.exe" && ! -f "$nsis_x64/makensis.exe" ]]; then
+          choco install nsis -y
+        fi
+        if ! command -v makensis >/dev/null 2>&1; then
+          for nsis_dir in "$nsis_x86" "$nsis_x64"; do
+            if [[ -f "$nsis_dir/makensis.exe" ]]; then
+              export PATH="$nsis_dir:$PATH"
+              printf '%s\n' "$(cygpath -m "$nsis_dir")" >> "$GITHUB_PATH"
+              break
+            fi
+          done
+        fi
+        if command -v makensis >/dev/null 2>&1; then
+          makensis /VERSION
+        elif [[ -f "$nsis_x86/makensis.exe" ]]; then
+          "$nsis_x86/makensis.exe" /VERSION
+        elif [[ -f "$nsis_x64/makensis.exe" ]]; then
+          "$nsis_x64/makensis.exe" /VERSION
+        else
+          printf '%s\n' 'NSIS installation did not provide makensis.' >&2
+          exit 1
+        fi

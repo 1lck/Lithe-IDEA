@@ -6,6 +6,10 @@
 > 不能当作当前分支仍有这些门禁。当前 `desktop-ci.yml` 对 Draft PR 运行 Linux 格式、
 > 脚本和桌面测试，非 Draft 另运行 macOS 与 Windows 测试；Core 的源码和构建缓存按
 > 系统、架构、工具链与构建脚本身份区分。旧资源复用脚本、旧分片和 lane 复用尚未迁移。
+> `desktop-autobuild.yml` 与 `desktop-release.yml` 使用同一个 release 档 Core 缓存键，并共用
+> `.github/actions/setup-desktop-windows-build-tools` 安装 MinGW 和 NSIS。AutoBuild 由 `main`
+> 上的定时任务运行，GitHub 允许其它分支和 tag 读取默认分支保存的缓存，所以发布时多半能直接
+> 复用前一晚编好的 Core；只在 tag 上保存的缓存，其它分支读不到。
 
 Windows 的 Rust 静态库还会依赖 Cargo crate 提供的导入库，不能只传系统库名称给
 Go 链接器。桌面构建入口读取对应 target/profile 的 Cargo 构建输出，把实际使用的
@@ -552,6 +556,8 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 
 - `.github/workflows/desktop-ci.yml`
 - `.github/workflows/desktop-release.yml`
+- `.github/workflows/desktop-autobuild.yml`
+- `.github/actions/setup-desktop-windows-build-tools/action.yml`
 - `scripts/desktop/build-desktop-core.sh`
 - `scripts/desktop/desktop-go.sh`
 - `scripts/ci/cancel-closed-pr-runs/`

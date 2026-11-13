@@ -72,6 +72,8 @@ jobs:
           bash -n scripts/desktop/perf/editor-bench.sh
           bash -n scripts/ci/desktop-release/package-release.sh
           bash -n scripts/ci/desktop-release/resolve-release-version.sh
+          bash -n scripts/ci/desktop-autobuild/package-autobuild.sh
+          bash -n scripts/ci/desktop-autobuild/publish-autobuild.sh
           zsh -n scripts/desktop/generate-desktop-icons.sh
           zsh -n scripts/desktop/generate-desktop-file-icons.sh
 
@@ -84,7 +86,9 @@ jobs:
             scripts/desktop/package-desktop.sh \
             scripts/desktop/perf/editor-bench.sh \
             scripts/ci/desktop-release/package-release.sh \
-            scripts/ci/desktop-release/resolve-release-version.sh
+            scripts/ci/desktop-release/resolve-release-version.sh \
+            scripts/ci/desktop-autobuild/package-autobuild.sh \
+            scripts/ci/desktop-autobuild/publish-autobuild.sh
 
       - name: Verify shared localization
         run: |

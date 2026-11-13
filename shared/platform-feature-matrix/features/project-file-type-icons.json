@@ -2,7 +2,7 @@
   "id": "project-file-type-icons",
   "area": "工作台",
   "group": "项目侧边栏",
-  "capability": "项目树、标签页和搜索结果为常见项目文件显示专用图标：.gitignore/.gitattributes 用 Git 图标，go.mod/go.sum 用 Go 图标，Makefile 与 *.mk 用 Makefile 图标，package.json 用 Node.js 图标，bun.lock、Cargo.lock、package-lock.json 等锁文件用锁图标，README 用信息图标，LICENSE/COPYING 用许可证图标",
+  "capability": "项目树、标签页和搜索结果为常见项目文件显示专用图标：.gitignore/.gitattributes 用 Git 图标，go.mod/go.sum 用 Go 图标，Makefile 与 *.mk 用 Makefile 图标，package.json 用 Node.js 图标，bun.lock、Cargo.lock、package-lock.json 等锁文件用锁图标，README 用信息图标，*.java 用 Java 图标，LICENSE/COPYING 用许可证图标",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
@@ -24,7 +24,7 @@
     ]
   },
   "owner": "Workbench",
-  "verification": "在深浅主题下打开含 go.mod、go.sum、Makefile、.gitignore、.gitattributes、bun.lock、package.json、README.md、LICENSE、NOTICE 的项目，核对项目树、编辑器标签和 Search Everywhere/快速打开中的图标与上述分类一致，不再显示问号或纯文本图标；NOTICE 等未分类文本仍显示文本图标。Windows 使用 IDEA Icons 主题核对同一组文件，PowerShell 文件仍显示原 Windows 四格图标。",
+  "verification": "在深浅主题下打开含 go.mod、go.sum、Makefile、.gitignore、.gitattributes、bun.lock、package.json、README.md、LICENSE、NOTICE、Main.java 的项目，核对项目树、编辑器标签和 Search Everywhere/快速打开中的图标与上述分类一致，不再显示问号或纯文本图标；NOTICE 等未分类文本仍显示文本图标。Windows 使用 IDEA Icons 主题核对同一组文件，PowerShell 文件仍显示原 Windows 四格图标。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -49,5 +49,5 @@
       ]
     }
   },
-  "notes": "Viva：fileicons/fileicons.go 的 fileKind 覆盖 .gitignore/.gitattributes、go.mod/go.sum、Makefile 与 *.mk、package.json、*.lock（含 bun.lock、Cargo.lock）、README、LICENSE；项目树、标签页和 Search Everywhere 调用 ForFile。NOTICE 不在分类中，仍显示文本图标。"
+  "notes": "Viva：fileicons/fileicons.go 的 fileKind 覆盖 .gitignore/.gitattributes、go.mod/go.sum、Makefile 与 *.mk、package.json、*.lock（含 bun.lock、Cargo.lock）、README、LICENSE、*.java（svg/java.svg 与 java_dark.svg 取自旧版 macOS 客户端 IDEAIcons/expui/fileTypes）；项目树、标签页和 Search Everywhere 调用 ForFile。NOTICE 不在分类中，仍显示文本图标。"
 }

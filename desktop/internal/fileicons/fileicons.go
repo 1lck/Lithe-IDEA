@@ -23,6 +23,8 @@ const (
 	kindExcludedFolder
 	// kindSwift identifies a Swift file.
 	kindSwift
+	// kindJava identifies a Java source file.
+	kindJava
 	// kindKotlin identifies a Kotlin file.
 	kindKotlin
 	// kindRust identifies a Rust file.
@@ -121,6 +123,7 @@ var kindIcons = [kindCount][2]*gfx.Icon{
 	kindFolder:         {&Folder, &FolderDark},
 	kindExcludedFolder: {&ExcludeRoot, &ExcludeRootDark},
 	kindSwift:          {&SwiftLang, &SwiftLangDark},
+	kindJava:           {&Java, &JavaDark},
 	kindKotlin:         {&Kotlin, nil},
 	kindRust:           {&Rust, nil},
 	kindGoSource:       {&Go, nil},
@@ -317,6 +320,8 @@ func fileKind(name string) kind {
 		return kindMakefile
 	case "swift":
 		return kindSwift
+	case "java":
+		return kindJava
 	case "kt", "kts":
 		return kindKotlin
 	case "rs":

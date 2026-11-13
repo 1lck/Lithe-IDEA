@@ -268,8 +268,8 @@ func (a *App) openFile(p *project, path string) {
 			// The rope and the measure of the lines take time in proportion to the file, so
 			// they are made here and the window thread only shows them.
 			content = editorview.Prepare(data)
+			grammar = registry.SyntaxForPath(path)
 			if language, ok := registry.ForPath(path); ok {
-				grammar = registry.Syntax(language.ID)
 				languageID = language.ID
 			}
 		}
