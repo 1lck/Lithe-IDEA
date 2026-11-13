@@ -37,11 +37,14 @@ var (
 // NetworkCheck is the outcome of the Network page's connection check. Incomplete says the
 // draft names no complete custom server, so nothing was sent. Otherwise Err says why no
 // answer came, or Status is the HTTP status of the answer, which came after Elapsed.
+// IgnoredExclusions are the draft's exclusion entries Core could not read, which send no
+// host direct.
 type NetworkCheck struct {
-	Incomplete bool
-	Status     int
-	Elapsed    time.Duration
-	Err        error
+	Incomplete        bool
+	Status            int
+	Elapsed           time.Duration
+	Err               error
+	IgnoredExclusions []string
 }
 
 // networkCheckTimeout bounds a connection check, Core's reading of the draft included.
@@ -299,8 +302,19 @@ func (w *window) checkNetwork() {
 }
 
 // networkCheckText says what a check found, and whether the server carried the request: any
-// answer from 200 to 399 does, since a redirect also came through it.
+// answer from 200 to 399 does, since a redirect also came through it. Exclusion entries Core
+// ignored follow the result.
 func networkCheckText(language i18n.Language, outcome NetworkCheck) (string, bool) {
+	text, succeeded := networkCheckResult(language, outcome)
+	if len(outcome.IgnoredExclusions) > 0 {
+		text += " " + i18n.SharedFormat(language, "desktop.settings.network.ignoredExclusions",
+			map[string]string{"entries": strings.Join(outcome.IgnoredExclusions, ", ")})
+	}
+	return text, succeeded
+}
+
+// networkCheckResult says what the request of a check found.
+func networkCheckResult(language i18n.Language, outcome NetworkCheck) (string, bool) {
 	switch {
 	case outcome.Incomplete:
 		return i18n.Shared(language, "settings.network.enterAddressAndPort"), false

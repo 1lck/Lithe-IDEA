@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"sync"
 	"testing"
@@ -29,6 +30,7 @@ func (s savedSecret) Get(_ context.Context, namespace, key string) (string, bool
 // check against Core's reading of the draft: a typed password goes with the draft, the saved
 // one only while the draft still names the endpoint it was saved for, a cleared one not at all
 // (the account still goes, with an empty password), and a draft without a server sends nothing.
+// Exclusion entries Core cannot read are reported with the outcome.
 func TestNetworkCheckSendsTheDraftsAccountOnlyToItsEndpoint(t *testing.T) {
 	var mu sync.Mutex
 	var auth []string
@@ -69,6 +71,15 @@ func TestNetworkCheckSendsTheDraftsAccountOnlyToItsEndpoint(t *testing.T) {
 
 	typed := "typed"
 	check("a typed password", draft, "", &typed, basic("typed"))
+
+	withInvalid := draft
+	withInvalid.Exclusions = []string{"*", "intranet"}
+	invalidCtx, invalidCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	outcome := checkNetwork(invalidCtx, kernel, savedSecret(""), "http://lithe-check.invalid/", withInvalid, &typed)
+	invalidCancel()
+	if outcome.Status != http.StatusNoContent || !reflect.DeepEqual(outcome.IgnoredExclusions, []string{"*"}) {
+		t.Fatalf("a draft with an unsupported exclusion = %+v, want the request sent and the entry reported", outcome)
+	}
 
 	saved := draft
 	saved.HasPassword = true

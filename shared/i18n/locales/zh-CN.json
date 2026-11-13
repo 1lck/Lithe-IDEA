@@ -10908,6 +10908,7 @@
     "desktop.settings.network.revert": "还原",
     "desktop.settings.network.apply": "应用",
     "desktop.settings.network.invalidPort": "端口必须是 1 到 65535 之间的数字。",
+    "desktop.settings.network.ignoredExclusions": "以下排除项不是支持的格式，已忽略：{entries}",
     "desktop.settings.localHistory.help": "本地历史在你保存和编辑项目文件时保留各个版本，存放在 Lithe 自己的数据目录中。忽略规则只让文件不进入本地历史，项目树仍然显示它们。",
     "desktop.settings.localHistory.wildcardHelp": "每行一条规则，按项目内的路径匹配，例如 `*.log` 或 `**/generated/`。",
     "desktop.settings.localHistory.builtIns": "同时生效的内置规则：{patterns}。添加一行例如 `!**/target/`，可以重新记录其中的某个目录。",

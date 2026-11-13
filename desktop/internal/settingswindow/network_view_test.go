@@ -12,7 +12,8 @@ import (
 
 // TestNetworkPageChecksTheDraftAndSaysWhatItFound walks the Network page's connection check:
 // it sends the unsaved draft off the window thread and says so while it runs, then shows the
-// time an answer took, the status of an answer that is not one, or why none came. A draft
+// time an answer took, the status of an answer that is not one, or why none came, followed by
+// the exclusion entries Core ignored. A draft
 // without a server is answered at once without a request, Revert forgets the outcome, and only
 // a custom server offers the check.
 func TestNetworkPageChecksTheDraftAndSaysWhatItFound(t *testing.T) {
@@ -69,6 +70,11 @@ func TestNetworkPageChecksTheDraftAndSaysWhatItFound(t *testing.T) {
 	set(NetworkCheck{Status: 407, Elapsed: time.Millisecond})
 	d.click(text("settings.network.testConnection"))
 	d.until("the proxy's status", func() bool { return d.text(format("settings.network.proxyAnsweredWithHTTP", "407")) })
+
+	set(NetworkCheck{Status: 204, Elapsed: 42 * time.Millisecond, IgnoredExclusions: []string{"*", "a..b"}})
+	d.click(text("settings.network.testConnection"))
+	ignored := succeeded + " " + i18n.SharedFormat(i18n.English, "desktop.settings.network.ignoredExclusions", map[string]string{"entries": "*, a..b"})
+	d.until("the ignored exclusions", func() bool { return d.text(ignored) })
 
 	set(NetworkCheck{Err: errors.New("connection refused")})
 	d.click(text("settings.network.testConnection"))
