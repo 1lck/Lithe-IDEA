@@ -8,8 +8,8 @@ import (
 )
 
 // TestEditorTabPlacementAppliesAndRestores walks the choices of the editor page's tab card:
-// each one reaches its setter at once, the two choices for one row are inert while several
-// rows are chosen, and Restore Defaults clears both settings.
+// each choice reaches its setter, multiple rows retain overflow, and Restore Defaults
+// clears both settings.
 func TestEditorTabPlacementAppliesAndRestores(t *testing.T) {
 	var rows, overflow []string
 	w := newWindow(NewController(Options{
@@ -20,30 +20,23 @@ func TestEditorTabPlacementAppliesAndRestores(t *testing.T) {
 	d := openWindow(t, w)
 	settings := w.text.Settings
 
-	if hit := d.hit(settings.TabsScroll); hit.Role != gfx.RoleRadio || !hit.Checked {
-		t.Fatalf("an unknown stored overflow does not show scrolling: %+v", hit)
+	if hit := d.hit(settings.TabsShowIn); hit.Role != gfx.RoleCombobox || hit.Value != settings.TabsScroll {
+		t.Fatalf("unknown layout did not show scrolling: %+v", hit)
 	}
+	d.click(settings.TabsShowIn)
 	d.click(settings.TabsSqueeze)
 	if !slices.Equal(overflow, []string{TabOverflowSqueeze}) || len(rows) != 0 {
-		t.Fatalf("squeeze: rows=%v overflow=%v", rows, overflow)
+		t.Fatalf("squeeze rows=%v overflow=%v", rows, overflow)
 	}
+	d.click(settings.TabsShowIn)
 	d.click(settings.TabsMultipleRows)
-	if !slices.Equal(rows, []string{TabRowsMultiple}) {
-		t.Fatalf("multiple rows: rows=%v", rows)
+	if !slices.Equal(rows, []string{TabRowsMultiple}) || !slices.Equal(overflow, []string{TabOverflowSqueeze}) {
+		t.Fatalf("multiple rows changed the retained overflow: rows=%v overflow=%v", rows, overflow)
 	}
-	if hit := d.hit(settings.TabsScroll); !hit.Disabled {
-		t.Fatalf("one-row choice is not disabled under several rows: %+v", hit)
-	}
-	d.click(settings.TabsScroll)
-	if !slices.Equal(overflow, []string{TabOverflowSqueeze}) {
-		t.Fatalf("a disabled choice applied: overflow=%v", overflow)
-	}
-	d.click(settings.TabsOneRow)
-	if !slices.Equal(rows, []string{TabRowsMultiple, ""}) {
-		t.Fatalf("one row: rows=%v", rows)
-	}
-	if hit := d.hit(settings.TabsSqueeze); hit.Disabled || !hit.Checked {
-		t.Fatalf("one row lost the squeeze choice: %+v", hit)
+	d.click(settings.TabsShowIn)
+	d.click(settings.TabsSqueeze)
+	if !slices.Equal(rows, []string{TabRowsMultiple, ""}) || d.hit(settings.TabsShowIn).Value != settings.TabsSqueeze {
+		t.Fatalf("returning to one row lost squeezing: rows=%v", rows)
 	}
 	d.click("Restore Defaults")
 	if !slices.Equal(rows, []string{TabRowsMultiple, "", ""}) || !slices.Equal(overflow, []string{TabOverflowSqueeze, ""}) {

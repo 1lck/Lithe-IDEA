@@ -17,6 +17,12 @@ const (
 	rowHeight         = 24
 )
 
+// The native baseline uses 10-point islands and 41-point plain tool headers.
+const (
+	workbenchPanelRadius = 10
+	toolTitleHeight      = 41
+)
+
 // Sizes only the shell needs.
 const (
 	// shellSplitter is the thickness Viva gives a Splitter; the panels beside it are

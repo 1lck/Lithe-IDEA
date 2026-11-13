@@ -75,7 +75,7 @@ func (w *window) sidebar(c ui.C) {
 	p := &w.pal
 	settings := &w.text.Settings
 	ui.Column(c).Width(sidebarWidth).FillHeight().Shrink(0).Background(p.sidebar).Clip().Children(func() {
-		ui.Row(c).FillWidth().Shrink(0).PadSides(10, 12, 8, 12).Children(func() {
+		ui.Row(c).FillWidth().Shrink(0).PadSides(10, 10, 8, 10).Children(func() {
 			search := ui.TextFieldID(c, searchID, &w.searchField, settings.Search, settings.Search).Icon(icons.Search).FillWidth().Height(searchHeight)
 			if w.searchField.Text() != "" {
 				search = search.Action(icons.X, i18n.Shared(w.marketLanguage(), "desktop.logs.clearSearch"))
@@ -101,7 +101,7 @@ func (w *window) sidebar(c ui.C) {
 			})
 			return
 		}
-		ui.Tree(c, &w.nav, len(w.rows), w.navLabel, func(i int) { w.navContent(c, i) }).Grow(1).Shrink(1).MinHeight(0).Label(settings.Categories)
+		ui.Tree(c, &w.nav, len(w.rows), w.navLabel, func(i int) { w.navContent(c, i) }).Grow(1).Shrink(1).MinHeight(0).PadSides(12, 12, 0, 12).Label(settings.Categories)
 		if i, ok := w.nav.Toggled(); ok && i < len(w.rows) {
 			w.toggleRow(w.rows[i])
 		}
@@ -231,7 +231,7 @@ func (w *window) breadcrumb(c ui.C) {
 	if page := w.dynamic.selected(w.dynamicPage); page != nil {
 		w.crumbs = append(w.crumbs, page.Title)
 	}
-	ui.Row(c).FillWidth().Height(46).Shrink(0).PadX(contentPad).Gap(6).Items(ui.Center).Background(p.card).Children(func() {
+	ui.Row(c).FillWidth().Height(46).Shrink(0).PadX(18).Gap(6).Items(ui.Center).Background(p.card).Children(func() {
 		for i, crumb := range w.crumbs {
 			if i > 0 {
 				ui.Icon(c, icons.ChevronRight).Size(chevronGlyph, chevronGlyph).Color(p.subtle).Shrink(0)
@@ -259,7 +259,7 @@ func (w *window) unavailablePage(c ui.C) {
 // pageScroll is the scroll area of one page. It is named by the page, so it starts at its
 // top each time the page is opened.
 func (w *window) pageScroll(c ui.C, page pageID, body func()) {
-	ui.Scroll(c.KeyInt(int(page))).Grow(1).Shrink(1).MinHeight(0).PadSides(18, contentPad, contentPad, contentPad).Gap(cardGap).Children(body)
+	ui.Scroll(c.KeyInt(int(page))).Grow(1).Shrink(1).MinHeight(0).PadSides(20, contentPad, 36, contentPad).Gap(cardGap).Children(body)
 }
 
 // card puts the section label outside its bounded settings rows, as in the native client.
@@ -273,7 +273,20 @@ func (w *window) card(c ui.C, title, help string, body func()) {
 			}
 		})
 		ui.Column(c).FillWidth().Shrink(0).MinWidth(0).PadX(cardPad).PadY(7).Radius(cardRadius).
-			Background(p.card).Stroke(1, p.line).Children(body)
+			Background(p.card).Stroke(0.5, p.line).Children(body)
+	})
+}
+
+// settingsRow keeps compact forms on the same label/control columns in every page.
+func (w *window) settingsRow(c ui.C, title, help string, body func()) {
+	ui.Row(c).FillWidth().Height(28).Items(ui.Center).Gap(12).Children(func() {
+		ui.Row(c).WidthPercent(40).Shrink(1).MinWidth(0).Items(ui.Center).Gap(6).Children(func() {
+			ui.Text(c, title).FontSize(12).Color(w.pal.text).Ellipsis().Shrink(1)
+			if help != "" {
+				w.infoButton(c, help)
+			}
+		})
+		ui.Row(c).Grow(1).Shrink(1).MinWidth(0).Items(ui.Center).Children(body)
 	})
 }
 
@@ -338,7 +351,7 @@ func (w *window) generalPage(c ui.C) {
 			choice := func() {
 				ui.Choice(c, &w.themePick, themeValues[:], w.themeLabel).Width(420).Shrink(1).MinWidth(0).Label(settings.AppearanceMode)
 			}
-			if w.extent-2*contentPad-2*cardPad < 590 {
+			if w.extent-2*contentPad-2*cardPad < 460 {
 				ui.Column(c).FillWidth().Gap(8).Children(func() {
 					ui.Text(c, settings.AppearanceMode).FontSize(12).Color(p.text)
 					choice()
@@ -364,13 +377,15 @@ func (w *window) generalPage(c ui.C) {
 		w.card(c, settings.Workbench, settings.LayoutHint, func() {
 			language := w.marketLanguage()
 			colors := !w.sess.values.HideProjectColors
-			if ui.Switch(c.Part("project-colors"), &colors, i18n.Shared(language, "desktop.settings.projectColors")).Changed() {
-				w.sess.values.HideProjectColors = !colors
-				if w.ctrl.opts.SetHideProjectColors != nil {
-					w.ctrl.opts.SetHideProjectColors(!colors)
+			ui.Row(c).FillWidth().Height(28).Items(ui.Center).Gap(6).Children(func() {
+				if ui.Switch(c.Part("project-colors"), &colors, i18n.Shared(language, "desktop.settings.projectColors")).Changed() {
+					w.sess.values.HideProjectColors = !colors
+					if w.ctrl.opts.SetHideProjectColors != nil {
+						w.ctrl.opts.SetHideProjectColors(!colors)
+					}
 				}
-			}
-			ui.Wrap(c, i18n.Shared(language, "desktop.settings.projectColorsHelp")).FontSize(12).Color(p.muted)
+				w.infoButton(c, i18n.Shared(language, "desktop.settings.projectColorsHelp"))
+			})
 			ui.Row(c).FillWidth().Height(28).Items(ui.Center).Gap(12).Children(func() {
 				label := i18n.Shared(language, "desktop.settings.projectOpen")
 				ui.Row(c).WidthPercent(34).Shrink(1).MinWidth(0).Items(ui.Center).Children(func() {
@@ -395,6 +410,7 @@ func (w *window) generalPage(c ui.C) {
 				}
 			})
 		})
+		w.autoSaveCard(c)
 		if w.ctrl.opts.SetLocalHistory != nil {
 			w.localHistoryCard(c)
 		}
@@ -425,27 +441,30 @@ func (w *window) languageLabel(code string) string {
 
 // editorPage is the editor page. Its card says where an editor group's tabs go when they
 // do not all fit, as the IDE's setting does: one row that scrolls, one row whose tabs are
-// squeezed, or as many rows as they need. The two choices for one row refine the first
-// option and are set in under it; they are dimmed while several rows are chosen, which
-// keeps what was picked for one row for when the user goes back to it.
+// squeezed, or as many rows as they need. One shared selector presents the three layouts;
+// choosing several rows retains the user's last overflow setting.
 func (w *window) editorPage(c ui.C) {
-	p := &w.pal
 	settings := &w.text.Settings
 	values := &w.sess.values
 	w.tabRowsPick, w.tabOverflowPick = values.EditorTabRows, values.EditorTabOverflow
 	w.pageScroll(c, pageEditor, func() {
 		w.card(c, settings.EditorTabs, settings.EditorTabsHelp, func() {
-			ui.Column(c).FillWidth().Gap(2).Children(func() {
-				ui.Row(c).FillWidth().Height(radioHeight).Items(ui.Center).Children(func() {
-					ui.Text(c, settings.TabsShowIn).FontSize(12).Color(p.text).Ellipsis()
-				})
-				multiple := values.EditorTabRows == TabRowsMultiple
-				w.radio(c.Part("one-row"), &w.tabRowsPick, "", settings.TabsOneRow, false)
-				ui.Column(c).FillWidth().PadSides(0, 0, 0, radioIndent).Gap(2).Children(func() {
-					w.radio(c.Part("scroll"), &w.tabOverflowPick, "", settings.TabsScroll, multiple)
-					w.radio(c.Part("squeeze"), &w.tabOverflowPick, TabOverflowSqueeze, settings.TabsSqueeze, multiple)
-				})
-				w.radio(c.Part("several-rows"), &w.tabRowsPick, TabRowsMultiple, settings.TabsMultipleRows, false)
+			type placement struct{ rows, overflow string }
+			pick := placement{w.tabRowsPick, w.tabOverflowPick}
+			options := []placement{{"", ""}, {"", TabOverflowSqueeze}, {TabRowsMultiple, w.tabOverflowPick}}
+			label := func(option placement) string {
+				if option.rows == TabRowsMultiple {
+					return settings.TabsMultipleRows
+				}
+				if option.overflow == TabOverflowSqueeze {
+					return settings.TabsSqueeze
+				}
+				return settings.TabsScroll
+			}
+			w.settingsRow(c, settings.TabsShowIn, "", func() {
+				if ui.Select(c.Part("tab-layout"), &pick, options, label).Width(selectWidth).Label(settings.TabsShowIn).Changed() {
+					w.tabRowsPick, w.tabOverflowPick = pick.rows, pick.overflow
+				}
 			})
 		})
 		w.tabLimitCard(c)
@@ -455,7 +474,6 @@ func (w *window) editorPage(c ui.C) {
 				w.setDisableSemanticHighlight(!semantic, false)
 			}
 		})
-		w.autoSaveCard(c)
 		w.vimCard(c)
 	})
 	if w.tabRowsPick != values.EditorTabRows {
@@ -470,7 +488,7 @@ func (w *window) editorPage(c ui.C) {
 // at the trailing one.
 func (w *window) footer(c ui.C) {
 	settings := &w.text.Settings
-	ui.Row(c).FillWidth().Height(footerHeight).Shrink(0).PadX(footerPad).Gap(8).Items(ui.Center).Children(func() {
+	ui.Row(c).FillWidth().Height(footerHeight).Shrink(0).Background(w.pal.card).PadX(footerPad).Gap(8).Items(ui.Center).Children(func() {
 		if ui.Button(c, settings.RestoreDefaults).Outline().Clicked() {
 			// Reset is explicit even when an unknown stored value is displayed as the
 			// system default. Forward it so the owner's real setting is cleared.

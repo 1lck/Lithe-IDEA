@@ -116,15 +116,35 @@ func (a *App) diffToolbar(c ui.C, p *project, t *diffTab) {
 			}
 			ui.Text(c, count).FontSize(size).Color(a.colors.Subtle).Shrink(0)
 		}
-		if a.gitIconButton(c, i18n.Shared(lang, "git.diff.ignoreWhitespace"), icons.Eraser, t.ignoreSpace, t.saved != nil) {
-			c.After(func() { a.setDiffWhitespace(p, t, !t.ignoreSpace) })
-		}
+
 		ui.Row(c).Shrink(0).Items(ui.Center).Gap(2).Label(i18n.Shared(lang, "desktop.gitReview.diffTab")).Children(func() {
 			if a.gitIconButton(c, i18n.Shared(lang, "git.diff.split"), icons.Columns2, t.split, false) && !t.split {
 				c.After(func() { a.setDiffMode(p, t, true, t.whole) })
 			}
 			if a.gitIconButton(c, i18n.Shared(lang, "git.diff.unified"), icons.Square, !t.split, false) && t.split {
 				c.After(func() { a.setDiffMode(p, t, false, t.whole) })
+			}
+		})
+		label := i18n.Shared(lang, "native.diffSettings")
+		gear, clicked := a.toolIconButton(c.Part("diff-settings"), label, icons.Settings, t.settingsOpen, false)
+		if clicked {
+			t.settingsOpen = !t.settingsOpen
+		}
+		ui.Menu(c.Part("diff-settings-menu"), gear, &t.settingsOpen, func(menu *ui.MenuItems) {
+			menu.WidthRange(180, 260)
+			if menu.Item(i18n.Shared(lang, "desktop.diff.keepWhitespace")).Checked(!t.ignoreSpace).Disabled(t.saved != nil).Clicked() {
+				c.After(func() { a.setDiffWhitespace(p, t, false) })
+			}
+			if menu.Item(i18n.Shared(lang, "git.diff.ignoreWhitespace")).Checked(t.ignoreSpace).Disabled(t.saved != nil).Clicked() {
+				c.After(func() { a.setDiffWhitespace(p, t, true) })
+			}
+			menu.Separator()
+			if menu.Item(i18n.Shared(lang, "native.collapseUnchangedFragments")).Checked(!t.whole).Clicked() {
+				c.After(func() { a.setDiffMode(p, t, t.split, !t.whole) })
+			}
+			menu.Separator()
+			if menu.Item(i18n.Shared(lang, "native.closeDiff")).Clicked() {
+				c.After(func() { a.closeDiffTab(p, t.id) })
 			}
 		})
 	})

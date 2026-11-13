@@ -75,12 +75,14 @@ func (a *App) tabMenuItems(c ui.C, group string, t shownTab, tabs []shownTab) fu
 		}
 		menu.Separator()
 		path := d.path
-		if menu.Item(i18n.Shared(language, "native.copyPath")).Clicked() {
-			c.After(func() { a.copyTreePath(path, false) })
-		}
-		if menu.Item(i18n.Shared(language, "native.copyRelativePath")).Clicked() {
-			c.After(func() { a.copyTreePath(path, true) })
-		}
+		menu.Sub(i18n.Shared(language, "native.copyPathReference"), func(sub *ui.MenuItems) {
+			if sub.Item(i18n.Shared(language, "native.copyPath")).Clicked() {
+				c.After(func() { a.copyTreePath(path, false) })
+			}
+			if sub.Item(i18n.Shared(language, "native.copyRelativePath")).Clicked() {
+				c.After(func() { a.copyTreePath(path, true) })
+			}
+		})
 		if menu.Item(revealLabel(language)).Clicked() {
 			c.After(func() {
 				a.performed("editor.tabs.reveal", surfaceMenu)

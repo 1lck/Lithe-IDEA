@@ -8,7 +8,10 @@
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/dockdrag.go"
+      "desktop/internal/workbench/dockdrag.go",
+      "desktop/internal/workbench/visual_capture_test.go",
+      "desktop/internal/workbench/root.go",
+      "desktop/internal/workbench/tabstrip.go"
     ]
   },
   "windows": {
@@ -16,7 +19,10 @@
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/workbench/catalog.go",
-      "desktop/internal/workbench/dockdrag.go"
+      "desktop/internal/workbench/dockdrag.go",
+      "desktop/internal/workbench/visual_capture_test.go",
+      "desktop/internal/workbench/root.go",
+      "desktop/internal/workbench/tabstrip.go"
     ]
   },
   "owner": "Workbench",
@@ -50,5 +56,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：catalog.go 定义六个停靠区，dockdrag.go 处理拖动落点与遮罩，布局经 loadChrome 保存；未核到组内排序、右键移动和多工作区布局恢复的完整实现。"
+  "notes": "Viva：catalog.go 定义六个停靠区，dockdrag.go 处理拖动落点与遮罩，布局经 loadChrome 保存；未核到组内排序、右键移动和多工作区布局恢复的完整实现。 全页对照恢复活动侧栏蓝色与焦点相关的标签边框；项目渐变由根容器在子元素前绘制，不覆盖不透明工具面板。首次打开仅展开 Project，Git 按需打开，已有保存布局保持优先。像素回归 TestVisualWorkbenchGradientStaysBehindPanels 证明修复前失败、修复后通过；Windows 原生验收仍待执行。"
 }

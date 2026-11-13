@@ -37,9 +37,9 @@ type palette struct {
 
 func lightPalette() palette {
 	return palette{
-		window: gfx.RGB24(0xffffff), sidebar: gfx.RGB24(0xececee), titleBar: gfx.RGB24(0xe8ebef),
-		card: gfx.RGB24(0xf7f8fa),
-		line: gfx.RGB24(0xd8dae0), border: gfx.RGB24(0xc9ccd6),
+		window: gfx.RGB24(0xf5f5f7), sidebar: gfx.RGB24(0xececee), titleBar: gfx.RGB24(0xffffff),
+		card: gfx.RGB24(0xffffff),
+		line: gfx.RGB24(0xededf0), border: gfx.RGB24(0xc9ccd6),
 		hover:     gfx.RGB24(0xf2f3f5),
 		highlight: gfx.RGB24(0xddf4ff),
 		selection: gfx.RGB24(0xD0DFFE), selectionIdle: gfx.RGB24(0xE9EAEE),
@@ -52,9 +52,9 @@ func lightPalette() palette {
 
 func darkPalette() palette {
 	return palette{
-		window: gfx.RGB24(0x191a1c), sidebar: gfx.RGB24(0x232427), titleBar: gfx.RGB24(0x28292c),
+		window: gfx.RGB24(0x1c1d20), sidebar: gfx.RGB24(0x232427), titleBar: gfx.RGB24(0x191a1c),
 		card: gfx.RGB24(0x2b2d30),
-		line: gfx.RGB24(0x2e3036), border: gfx.RGB24(0x4e5157),
+		line: gfx.RGB24(0x34363a), border: gfx.RGB24(0x4e5157),
 		hover:     gfx.RGB24(0x303136),
 		highlight: gfx.RGB24(0x1f2a3a),
 		selection: gfx.RGB24(0x2A4371), selectionIdle: gfx.RGB24(0x33353B),
@@ -84,7 +84,7 @@ func windowTheme(dark bool, p palette) gfx.Theme {
 	theme.Metrics = theme.Metrics.WithDensity(gfx.DensityCompact)
 	theme.Background, theme.Foreground = p.window, p.text
 	theme.Card, theme.CardForeground, theme.CardElevated = p.card, p.text, p.window
-	theme.Popover, theme.PopoverForeground = p.window, p.text
+	theme.Popover, theme.PopoverForeground = p.card, p.text
 	theme.Muted, theme.MutedForeground = p.hover, p.muted
 	theme.Border, theme.Input, theme.Hover = p.line, p.border, p.hover
 	theme.Primary, theme.PrimaryForeground = p.accent, p.white

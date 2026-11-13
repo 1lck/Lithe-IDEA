@@ -1574,7 +1574,7 @@
     "desktop.tools.background": "Background",
     "desktop.tools.dragHint": "Drag to move elsewhere",
     "desktop.tools.structure": "Structure",
-    "desktop.welcome.emptyHint": "Open a folder to get started",
+    "desktop.welcome.emptyHint": "Open a local folder to start working.",
     "desktop.welcome.emptyTitle": "No recent projects",
     "desktop.welcome.menuPin": "Pin to Top",
     "desktop.welcome.menuReveal": "Show in Finder",
@@ -10998,7 +10998,9 @@
     "desktop.title.currentFileNotRunnable": "The current file cannot run on its own. Choose a project run configuration from the run configuration menu.",
     "desktop.title.noRunConfigurations": "No run configurations",
     "desktop.title.notDebuggable": "{name} cannot be debugged: its plugin declares no debug adapter for this run.",
-    "desktop.title.runBusy": "The Run window is still running another operation. Wait for it to finish or stop it first."
+    "desktop.title.runBusy": "The Run window is still running another operation. Wait for it to finish or stop it first.",
+    "desktop.diff.keepWhitespace": "Do not ignore whitespace",
+    "desktop.tools.moveTo": "Move to"
   },
   "overrides": {
     "windows": {

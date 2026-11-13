@@ -33,34 +33,35 @@ func (w *window) processTerminationPage(c ui.C) {
 	runServices, terminals := value.RunServicesOnExit, value.TerminalOnQuit
 	confirmTab := value.ConfirmTerminalTabClose == nil || *value.ConfirmTerminalTabClose
 	w.pageScroll(c, pageProcessTermination, func() {
-		w.card(c, i18n.Shared(language, "desktop.settings.processTermination.runServices"), i18n.Shared(language, "desktop.settings.processTermination.runServicesHelp"), func() {
-			label := func(choice string) string {
-				if choice == RunServicesTerminate {
-					return i18n.Shared(language, "desktop.settings.processTermination.stopWithoutAsking")
+		w.card(c, i18n.Shared(language, "native.whenQuittingLithe"), "", func() {
+			runTitle := i18n.Shared(language, "desktop.settings.processTermination.runServices")
+			w.settingsRow(c.Part("run-row"), runTitle, i18n.Shared(language, "desktop.settings.processTermination.runServicesHelp"), func() {
+				label := func(choice string) string {
+					if choice == RunServicesTerminate {
+						return i18n.Shared(language, "desktop.settings.processTermination.stopWithoutAsking")
+					}
+					return i18n.Shared(language, "desktop.settings.processTermination.askBeforeStopping")
 				}
-				return i18n.Shared(language, "desktop.settings.processTermination.askBeforeStopping")
-			}
-			if ui.Select(c.Part("run"), &runServices, runServiceChoices, label).Width(selectWidth).
-				Label(i18n.Shared(language, "desktop.settings.processTermination.runServices")).Changed() {
-				value.RunServicesOnExit = runServices
-				w.setProcessTermination(value, false)
-			}
-		})
-		w.card(c, i18n.Shared(language, "desktop.settings.processTermination.terminals"), i18n.Shared(language, "desktop.settings.processTermination.terminalsHelp"), func() {
-			label := func(choice string) string {
-				if choice == TerminalsTerminate {
-					return i18n.Shared(language, "desktop.settings.processTermination.endWithoutAsking")
+				if ui.Select(c.Part("run"), &runServices, runServiceChoices, label).Width(selectWidth).Label(runTitle).Changed() {
+					value.RunServicesOnExit = runServices
+					w.setProcessTermination(value, false)
 				}
-				return i18n.Shared(language, "desktop.settings.processTermination.askBeforeEnding")
-			}
-			ui.Row(c).FillWidth().Height(28).Items(ui.Center).Gap(12).Children(func() {
-				ui.Text(c, i18n.Shared(language, "desktop.settings.processTermination.onQuit")).FontSize(12).Color(w.pal.text).Grow(1).MinWidth(0).Ellipsis()
-				if ui.Select(c.Part("quit"), &terminals, terminalChoices, label).Width(selectWidth).
-					Label(i18n.Shared(language, "desktop.settings.processTermination.onQuit")).Changed() {
+			})
+			terminalTitle := i18n.Shared(language, "desktop.settings.processTermination.onQuit")
+			w.settingsRow(c.Part("terminal-row"), terminalTitle, i18n.Shared(language, "desktop.settings.processTermination.terminalsHelp"), func() {
+				label := func(choice string) string {
+					if choice == TerminalsTerminate {
+						return i18n.Shared(language, "desktop.settings.processTermination.endWithoutAsking")
+					}
+					return i18n.Shared(language, "desktop.settings.processTermination.askBeforeEnding")
+				}
+				if ui.Select(c.Part("quit"), &terminals, terminalChoices, label).Width(selectWidth).Label(terminalTitle).Changed() {
 					value.TerminalOnQuit = terminals
 					w.setProcessTermination(value, false)
 				}
 			})
+		})
+		w.card(c, i18n.Shared(language, "native.closingATerminalTab"), "", func() {
 			if ui.Switch(c.Part("tab"), &confirmTab, i18n.Shared(language, "desktop.settings.processTermination.confirmTabClose")).Changed() {
 				if confirmTab {
 					value.ConfirmTerminalTabClose = nil

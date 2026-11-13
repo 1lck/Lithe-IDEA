@@ -134,6 +134,8 @@ type diffTab struct {
 	split, whole bool
 	// ignoreSpace reads the diff ignoring all whitespace (see setDiffWhitespace).
 	ignoreSpace bool
+	// settingsOpen belongs to this tab, so closing it releases its menu.
+	settingsOpen bool
 	// expanded are the folds the user opened, by the unified index of the first unchanged line
 	// of the run they hide, which is the same in both modes.
 	expanded map[int]diffReveal

@@ -68,7 +68,7 @@ func (a *App) editorGroup(c ui.C, id string) ui.Box {
 	u.groups = append(u.groups, place)
 	p := a.project
 	doc := p.selectedDocument(id)
-	return ui.Column(c.Key(id)).Background(a.colors.Editor).Clip().Children(func() {
+	return ui.Column(c.Key(id)).Background(a.colors.Editor).Radius(workbenchPanelRadius).Clip().Children(func() {
 		layout := a.tabLayout()
 		strip := ui.Row(c).FillWidth().Shrink(0).Items(ui.Start).Gap(chromeGap).PadX(chromeGap).Background(a.colors.Panel).Clip()
 		if layout != tabsRows {

@@ -138,31 +138,37 @@ func (w *window) terminalPage(c ui.C) {
 		}
 	}
 	w.pageScroll(c, pageTerminal, func() {
-		w.scrollbackCard(c)
 		w.card(c, settings.TerminalShell, settings.TerminalShellHelp, func() {
-			ui.Column(c).FillWidth().Gap(2).Children(func() {
-				loading := !state.loaded
-				w.radio(c.Part("automatic"), &w.shellPick, "", settings.TerminalShellAuto(state.effective(settings)), loading)
-				if loading {
-					// Whether a stored shell is installed is not known yet. It stays chosen,
-					// named by its path, and cannot be clicked until the list is here.
-					if stored != "" {
-						w.radio(c.Part("missing"), &w.shellPick, stored, stored, true)
+			choices := make([]string, 1, len(state.shells)+2)
+			labels := state.shellLabels(settings)
+			known := stored == ""
+			for _, choice := range state.shells {
+				choices = append(choices, choice.Path)
+				known = known || (stored != "" && sameShell(choice.Path, stored))
+			}
+			if !known {
+				choices = append(choices, stored)
+			}
+			label := func(path string) string {
+				if path == "" {
+					return settings.TerminalShellAuto(state.effective(settings))
+				}
+				for i, choice := range state.shells {
+					if path == choice.Path {
+						return labels[i]
 					}
-					return
 				}
-				labels := state.shellLabels(settings)
-				known := stored == ""
-				for index, choice := range state.shells {
-					known = known || (stored != "" && sameShell(choice.Path, stored))
-					w.radio(c.Key(choice.Path), &w.shellPick, choice.Path, labels[index], false)
+				if !state.loaded {
+					return path
 				}
-				if !known {
-					// Already chosen, so a click on it changes nothing.
-					w.radio(c.Part("missing"), &w.shellPick, stored, settings.TerminalShellMissing(stored), false)
-				}
+				return settings.TerminalShellMissing(path)
+			}
+			ui.Row(c).FillWidth().Height(28).Items(ui.Center).Gap(12).Children(func() {
+				ui.Text(c, settings.TerminalShell).FontSize(12).Color(w.pal.text).Grow(1).MinWidth(0).Ellipsis()
+				ui.Select(c.Part("shell"), &w.shellPick, choices, label).Width(selectWidth).Label(settings.TerminalShell).Disabled(!state.loaded)
 			})
 		})
+		w.scrollbackCard(c)
 	})
 	if w.shellPick != stored && !(stored != "" && sameShell(w.shellPick, stored)) {
 		w.setTerminalShell(w.shellPick, false)

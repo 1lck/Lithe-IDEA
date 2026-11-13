@@ -393,3 +393,25 @@ func TestDiffTabFindsIgnoresWhitespaceAndEditsTheWorkingCopy(t *testing.T) {
 		t.Fatalf("the document did not get the side's edit: %q", text[:min(len(text), 30)])
 	}
 }
+
+func TestDiffSettingsMenuUsesExistingWhitespaceAndCloseActions(t *testing.T) {
+	root := newTestRepository(t)
+	h := newHarness(t, gitKernel{core.NewClient()})
+	p := h.openCommit(root)
+	tab := openDiffTab(t, h, p, "changed.txt")
+	h.clickNamed(h.shared("native.diffSettings"))
+	if !tab.settingsOpen {
+		t.Fatal("the settings menu did not open")
+	}
+	h.clickNamed(h.shared("git.diff.ignoreWhitespace"))
+	h.await("whitespace diff", func() bool { return !tab.loading && tab.ignoreSpace })
+	h.clickNamed(h.shared("native.diffSettings"))
+	h.clickNamed(h.shared("desktop.diff.keepWhitespace"))
+	h.await("whitespace restored", func() bool { return !tab.loading && !tab.ignoreSpace })
+	h.clickNamed(h.shared("native.diffSettings"))
+	h.clickNamed(h.shared("native.closeDiff"))
+	h.settleChain()
+	if len(p.diffs.list) != 0 {
+		t.Fatal("Close diff kept the tab alive")
+	}
+}

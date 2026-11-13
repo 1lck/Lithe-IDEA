@@ -1574,8 +1574,8 @@
     "desktop.tools.background": "背景",
     "desktop.tools.dragHint": "可拖动到其他位置",
     "desktop.tools.structure": "结构",
-    "desktop.welcome.emptyHint": "打开一个文件夹开始工作",
-    "desktop.welcome.emptyTitle": "还没有最近项目",
+    "desktop.welcome.emptyHint": "打开本地文件夹开始工作。",
+    "desktop.welcome.emptyTitle": "没有最近项目",
     "desktop.welcome.menuPin": "固定到顶部",
     "desktop.welcome.menuReveal": "在访达中显示",
     "desktop.welcome.menuRevealOther": "在文件管理器中显示",
@@ -10998,7 +10998,9 @@
     "desktop.title.currentFileNotRunnable": "当前文件不能单独运行。请在运行配置菜单里选择一个项目运行配置。",
     "desktop.title.noRunConfigurations": "没有运行配置",
     "desktop.title.notDebuggable": "无法调试 {name}：它所属的插件没有为这个运行声明调试适配器。",
-    "desktop.title.runBusy": "运行窗口还在执行其他操作。请等它结束，或者先停止它。"
+    "desktop.title.runBusy": "运行窗口还在执行其他操作。请等它结束，或者先停止它。",
+    "desktop.diff.keepWhitespace": "不忽略空白",
+    "desktop.tools.moveTo": "移动到"
   },
   "overrides": {
     "macos": {

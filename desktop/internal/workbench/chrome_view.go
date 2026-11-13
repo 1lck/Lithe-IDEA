@@ -38,7 +38,11 @@ func (a *App) chromeBox(row ui.Box, id gfx.ID, i int, open bool, value string) u
 		HitWith(id, label, options).
 		Pressed(ui.Look{}.Background(a.colors.Active))
 	if open {
-		row = row.Background(a.colors.Active)
+		fill := a.colors.Active
+		if it.zone.surface() == surfaceStripes {
+			fill = a.theme.Primary
+		}
+		row = row.Background(fill)
 	} else {
 		row = row.Hover(ui.Look{}.Background(a.colors.Hover))
 	}
@@ -242,9 +246,13 @@ func (a *App) stripeZone(c ui.C, z zone, dragging bool) int {
 			open := a.chrome.isOpen(i)
 			rest := a.colors.Subtle
 			if open {
-				rest = a.colors.Text
+				rest = a.theme.PrimaryForeground
 			}
-			box, hit := a.chromeGlyph(c, i, chromeToolButton, rest, a.colors.Text, open)
+			hover := a.colors.Text
+			if open {
+				hover = a.theme.PrimaryForeground
+			}
+			box, hit := a.chromeGlyph(c, i, chromeToolButton, rest, hover, open)
 			if hit {
 				clicked = i
 			}
@@ -576,18 +584,20 @@ func (a *App) stripeButtonMenu(c ui.C, i int, at zone) func(*ui.MenuItems) {
 			}
 			menu.Separator()
 		}
-		for z := zoneLeftTop; z <= zoneBottomRight; z++ {
-			if z == at {
-				continue
+		menu.Sub(i18n.Shared(language, "desktop.tools.moveTo"), func(sub *ui.MenuItems) {
+			for z := zoneLeftTop; z <= zoneBottomRight; z++ {
+				if z == at {
+					continue
+				}
+				target := zoneNames[z]
+				if sub.Item(stripeZoneMoveText(language, z)).Clicked() {
+					c.After(func() {
+						a.performed("workbench.toolWindow.move", surfaceMenu)
+						a.reduceChrome(core.MoveChrome(id, target, ""))
+					})
+				}
 			}
-			target := zoneNames[z]
-			if menu.Item(stripeZoneMoveText(language, z)).Clicked() {
-				c.After(func() {
-					a.performed("workbench.toolWindow.move", surfaceMenu)
-					a.reduceChrome(core.MoveChrome(id, target, ""))
-				})
-			}
-		}
+		})
 		// Move Earlier and Move Later swap the button with its neighbour in its own zone: the
 		// button goes in front of the one before it, or in front of the one after the next.
 		items := a.chrome.items[at]

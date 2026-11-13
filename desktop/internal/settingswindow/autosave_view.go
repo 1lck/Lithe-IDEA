@@ -5,7 +5,7 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// autoSaveCard declares the auto-save switch of the Editor page: changed files are saved a
+// autoSaveCard declares the auto-save switch of the General page: changed files are saved a
 // moment after typing stops, on by default. The switch hands its change to the settings
 // owner at once.
 func (w *window) autoSaveCard(c ui.C) {

@@ -210,7 +210,7 @@ var catalog = []item{
 	{id: itemStructure, zone: zoneLeftTop, icon: &icons.ListTree, label: func(m *i18n.Messages) string { return m.Tools.Structure }, panel: true},
 	{id: itemFind, zone: zoneLeftTop, icon: &icons.Search, label: func(m *i18n.Messages) string { return m.Tools.Find }, panel: true},
 
-	{id: itemGit, zone: zoneBottomLeft, icon: &icons.GitBranch, label: func(m *i18n.Messages) string { return m.Tools.Git }, panel: true, open: true},
+	{id: itemGit, zone: zoneBottomLeft, icon: &icons.GitBranch, label: func(m *i18n.Messages) string { return m.Tools.Git }, panel: true},
 	{id: itemTerminal, zone: zoneBottomLeft, icon: &icons.SquareTerminal, label: func(m *i18n.Messages) string { return m.Tools.Terminal }, panel: true},
 	{id: itemProblems, zone: zoneBottomLeft, icon: &icons.CircleAlert, label: func(m *i18n.Messages) string { return m.Tools.Problems }, panel: true},
 	{id: itemReferences, zone: zoneBottomLeft, icon: &icons.Locate, label: func(m *i18n.Messages) string { return m.Tools.References }, panel: true},
