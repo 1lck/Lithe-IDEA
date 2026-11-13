@@ -6,9 +6,11 @@ package workbench
 //
 // The chosen file is copied into the client's data folder (store.WriteFile), so moving or
 // deleting the original leaves the background as it was, and the installed client is never
-// written to. The settings keep only the copied file's original name and the strength; the copy
-// is decoded off the window thread and scaled down to backgroundMaxEdge once, so a large photo
-// costs one bitmap of at most 2560 pixels a side.
+// written to. The settings keep only the copied file's original name and the strength. Reading,
+// checking and decoding the image, and writing or deleting its copy, all run off the window
+// thread; the image is scaled down to backgroundMaxEdge once, so a large photo costs one bitmap
+// of at most 2560 pixels a side. A new choice replaces the shown image only once its copy is
+// written, so a choice that fails at any step leaves the background as it was.
 //
 // While an image shows, the window's ground is painted over it with the strength's opacity (the
 // veil), and the surfaces that would hide it (the page fill, the chrome, the editor and the
@@ -22,6 +24,7 @@ import (
 	"image"
 	_ "image/jpeg" // the decoders the picker's filter lets through
 	_ "image/png"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -122,9 +125,10 @@ type savedBackground struct {
 	Strength string `json:"strength,omitempty"`
 }
 
-// workbenchBackground is the window's background image, shared by its project tabs. The mutex
-// guards it against the settings window, which reads it from its own thread; the window thread
-// is the only writer.
+// workbenchBackground is the window's background image, shared by its project tabs. mu guards
+// the state against the settings window, which reads it from its own thread; the window thread
+// is the only writer. files orders the writes and deletes of the copy, which run off the window
+// thread, so the copy on disk is that of the latest choice or removal.
 type workbenchBackground struct {
 	mu sync.Mutex
 	// set is whether an image is chosen; pix stays nil until its copy is decoded.
@@ -137,9 +141,33 @@ type workbenchBackground struct {
 	id       uint64
 	// failure is why the last image chosen or restored cannot be shown, until the next choice.
 	failure error
-	// serial numbers the choices, so a decode that finishes after the image was replaced or
-	// removed is dropped.
+	// serial numbers the choices, removals and restores, so a decode or a write of the copy that
+	// finishes after a later one was made is dropped.
 	serial uint64
+
+	files sync.Mutex
+}
+
+// changeCopy runs change, a write or a delete of the copy, unless a later choice, removal or
+// restore than the one serial numbers was made. The check and the change both hold files, so one
+// made while change runs changes the copy after it.
+func (b *workbenchBackground) changeCopy(serial uint64, change func() error) error {
+	b.files.Lock()
+	defer b.files.Unlock()
+	b.mu.Lock()
+	current := b.serial == serial
+	b.mu.Unlock()
+	if !current {
+		return nil
+	}
+	return change()
+}
+
+// chosenBackground is a file checked and decoded as a background, before its copy is written.
+type chosenBackground struct {
+	name          string
+	data, pix     []byte
+	width, height int
 }
 
 // backdropShown reports whether this paint shows the image: only behind an open project's
@@ -163,8 +191,8 @@ func (a *App) backdropOpacity() float32 {
 }
 
 // restoreBackground shows the image the settings name, from the copy kept in the data folder.
-// A copy that is missing leaves no image; one that cannot be decoded is removed and the
-// background switched off, with the reason told once.
+// The copy is read off the window thread: one that is missing leaves no image; one that cannot
+// be decoded is deleted and the background switched off, with the reason told once.
 func (a *App) restoreBackground() {
 	saved := a.settings.WorkbenchBackground
 	b := a.backdrop
@@ -172,50 +200,51 @@ func (a *App) restoreBackground() {
 	b.serial++
 	serial := b.serial
 	b.set, b.name, b.strength, b.pix, b.width, b.height, b.failure = false, "", bgMedium, nil, 0, 0, nil
-	b.mu.Unlock()
-	if saved.Name == "" || a.store == nil {
-		return
+	if saved.Name != "" && a.store != nil {
+		b.set, b.name, b.strength = true, saved.Name, backgroundStrengthFromString(saved.Strength)
 	}
-	if _, err := os.Stat(a.store.Path(backgroundFile)); err != nil {
-		return
-	}
-	b.mu.Lock()
-	b.set, b.name, b.strength = true, saved.Name, backgroundStrengthFromString(saved.Strength)
+	set := b.set
 	b.mu.Unlock()
-	a.decodeBackground(serial)
+	if set {
+		a.loadBackgroundCopy(serial)
+	}
 }
 
-// decodeBackground decodes the copy in the data folder off the window thread and shows it, unless
-// another choice came first.
-func (a *App) decodeBackground(serial uint64) {
+// loadBackgroundCopy decodes the copy in the data folder off the window thread and shows it,
+// unless another choice, removal or restore came first.
+func (a *App) loadBackgroundCopy(serial uint64) {
 	path := a.store.Path(backgroundFile)
 	a.background(nil, 0, func(context.Context) func(*App) {
 		pix, width, height, err := loadBackgroundImage(path)
-		return func(a *App) {
-			b := a.backdrop
-			b.mu.Lock()
-			if b.serial != serial {
-				b.mu.Unlock()
-				return
-			}
-			if err != nil {
-				b.set, b.pix, b.failure = false, nil, err
-				b.mu.Unlock()
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workbench_background", documentLogError(err)))
-				if removeErr := a.store.Remove(backgroundFile); removeErr != nil {
-					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workbench_background_remove", documentLogError(removeErr)))
-				}
-				a.saveSettings()
-				a.notifyError(backgroundFailureText(a.language(), err))
-				a.invalidateBackdrop()
-				return
-			}
-			b.pix, b.width, b.height = pix, width, height
-			b.id = 1<<62 | backgroundImages.Add(1)
-			b.mu.Unlock()
-			a.invalidateBackdrop()
-		}
+		return func(a *App) { a.restoredBackground(serial, pix, width, height, err) }
 	})
+}
+
+// restoredBackground shows the decoded copy, or switches the background off when there is no
+// copy or it cannot be used.
+func (a *App) restoredBackground(serial uint64, pix []byte, width, height int, err error) {
+	b := a.backdrop
+	b.mu.Lock()
+	if b.serial != serial {
+		b.mu.Unlock()
+		return
+	}
+	switch {
+	case err == nil:
+		b.pix, b.width, b.height = pix, width, height
+		b.id = 1<<62 | backgroundImages.Add(1)
+	case errors.Is(err, fs.ErrNotExist):
+		// log-exempt: 数据目录里没有副本，按未选择背景处理，不打扰用户。
+		b.set, b.name = false, ""
+	default:
+		b.mu.Unlock()
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workbench_background", documentLogError(err)))
+		a.notifyError(backgroundFailureText(a.language(), err))
+		a.dropBackground(err)
+		return
+	}
+	b.mu.Unlock()
+	a.invalidateBackdrop()
 }
 
 // backgroundFailureText says, in language, why an image cannot be used.
@@ -232,9 +261,9 @@ func backgroundFailureText(language i18n.Language, err error) string {
 	return i18n.SharedFormat(language, "desktop.workbenchBackground.failed", map[string]string{"reason": reason})
 }
 
-// chooseBackground asks for an image and makes it the background. The picker and the checks
-// run off the window thread; a file that cannot be used is told and leaves the background as
-// it was.
+// chooseBackground asks for an image and makes it the background. The picker, the checks and
+// the decode run off the window thread; a file that cannot be used is told and leaves the
+// background as it was.
 func (a *App) chooseBackground() {
 	a.performed("workspace.background.choose", surfaceButton)
 	language := a.language()
@@ -263,7 +292,12 @@ func (a *App) chooseBackground() {
 		if err != nil {
 			return func(a *App) { a.backgroundChoiceFailed(err) }
 		}
-		return func(a *App) { a.useBackground(filepath.Base(path), data) }
+		pix, width, height, err := decodeBackgroundData(data)
+		if err != nil {
+			return func(a *App) { a.backgroundChoiceFailed(err) }
+		}
+		chosen := chosenBackground{name: filepath.Base(path), data: data, pix: pix, width: width, height: height}
+		return func(a *App) { a.useBackground(chosen) }
 	})
 }
 
@@ -307,21 +341,51 @@ func (a *App) backgroundChoiceFailed(err error) {
 	a.notifyError(backgroundFailureText(a.language(), err))
 }
 
-// useBackground keeps data, the checked bytes of the file named name, as the background: its
-// copy replaces the last one, and it shows once decoded. The strength is kept.
-func (a *App) useBackground(name string, data []byte) {
-	if err := a.store.WriteFile(backgroundFile, data); err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workbench_background_save", documentLogError(err)))
-		a.notifyError(a.text.Errors.SaveFailed(err.Error()))
-		return
-	}
-	b := a.backdrop
+// useBackground writes the copy of chosen off the window thread and, once it is written, shows
+// chosen in place of the last image. The strength is kept. A client without a data folder has
+// nowhere to keep the copy and shows chosen until it quits.
+func (a *App) useBackground(chosen chosenBackground) {
+	b, files := a.backdrop, a.store
 	b.mu.Lock()
 	b.serial++
 	serial := b.serial
-	b.set, b.name, b.pix, b.width, b.height, b.failure = true, name, nil, 0, 0, nil
 	b.mu.Unlock()
-	a.decodeBackground(serial)
+	if files == nil {
+		a.backgroundCopied(serial, chosen, nil)
+		return
+	}
+	a.background(nil, 0, func(context.Context) func(*App) {
+		err := b.changeCopy(serial, func() error { return files.WriteFile(backgroundFile, chosen.data) })
+		return func(a *App) { a.backgroundCopied(serial, chosen, err) }
+	})
+}
+
+// backgroundCopied shows chosen once its copy is written. A copy that cannot be written is told
+// and leaves the background as it was: the last copy is still in place, and is decoded again if
+// it was still loading; with no image chosen, a copy a skipped removal left behind is deleted.
+func (a *App) backgroundCopied(serial uint64, chosen chosenBackground, err error) {
+	b := a.backdrop
+	b.mu.Lock()
+	if b.serial != serial {
+		b.mu.Unlock()
+		return
+	}
+	if err != nil {
+		set, decoded := b.set, b.pix != nil
+		b.mu.Unlock()
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workbench_background_save", documentLogError(err)))
+		a.notifyError(a.text.Errors.SaveFailed(err.Error()))
+		switch {
+		case !set:
+			a.deleteBackgroundCopy(serial)
+		case !decoded:
+			a.loadBackgroundCopy(serial)
+		}
+		return
+	}
+	b.set, b.name, b.pix, b.width, b.height, b.failure = true, chosen.name, chosen.pix, chosen.width, chosen.height, nil
+	b.id = 1<<62 | backgroundImages.Add(1)
+	b.mu.Unlock()
 	a.saveSettings()
 	a.invalidateBackdrop()
 }
@@ -329,16 +393,38 @@ func (a *App) useBackground(name string, data []byte) {
 // removeBackground takes the image away and deletes its copy. The strength stays for the next.
 func (a *App) removeBackground() {
 	a.performed("workspace.background.remove", surfaceButton)
+	a.dropBackground(nil)
+}
+
+// dropBackground switches the background off and deletes its copy; failure is why, or nil when
+// the user removed it. The strength stays for the next image.
+func (a *App) dropBackground(failure error) {
 	b := a.backdrop
 	b.mu.Lock()
 	b.serial++
-	b.set, b.name, b.pix, b.width, b.height, b.failure = false, "", nil, 0, 0, nil
+	serial := b.serial
+	b.set, b.name, b.pix, b.width, b.height, b.failure = false, "", nil, 0, 0, failure
 	b.mu.Unlock()
-	if err := a.store.Remove(backgroundFile); err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workbench_background_remove", documentLogError(err)))
-	}
 	a.saveSettings()
 	a.invalidateBackdrop()
+	a.deleteBackgroundCopy(serial)
+}
+
+// deleteBackgroundCopy deletes the copy off the window thread, unless a later choice came first.
+func (a *App) deleteBackgroundCopy(serial uint64) {
+	b, files := a.backdrop, a.store
+	if files == nil {
+		return
+	}
+	a.background(nil, 0, func(context.Context) func(*App) {
+		err := b.changeCopy(serial, func() error { return files.Remove(backgroundFile) })
+		if err == nil {
+			return nil
+		}
+		return func(a *App) {
+			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workbench_background_remove", documentLogError(err)))
+		}
+	})
 }
 
 // setBackgroundStrength changes how much of the chosen image shows.
@@ -401,13 +487,19 @@ func (a *App) paintBackdrop(canvas *gfx.Canvas, size gfx.Size) {
 	canvas.DrawBackdrop(gfx.Bitmap{Pix: pix, Width: width, Height: height, Stride: width * 4, ID: id}, settingswindow.CoverRegion(width, height, area), area)
 }
 
-// loadBackgroundImage decodes the image file at path into premultiplied BGRA, scaled down so
-// its longer side is at most backgroundMaxEdge. The limits are checked before the pixels are.
+// loadBackgroundImage reads, checks and decodes the image file at path; see decodeBackgroundData.
+// The limits are checked before the pixels are.
 func loadBackgroundImage(path string) (pix []byte, width, height int, err error) {
 	data, err := readBackgroundFile(path)
 	if err != nil {
 		return nil, 0, 0, err
 	}
+	return decodeBackgroundData(data)
+}
+
+// decodeBackgroundData decodes checked image bytes into premultiplied BGRA, scaled down so its
+// longer side is at most backgroundMaxEdge.
+func decodeBackgroundData(data []byte) (pix []byte, width, height int, err error) {
 	source, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, 0, 0, err

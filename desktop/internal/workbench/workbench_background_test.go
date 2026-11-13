@@ -76,8 +76,9 @@ func newBackgroundHarness(t *testing.T, dir string) *harness {
 	})
 }
 
-// chooseBackground makes the picker answer path and lets the choice be checked, copied and
-// decoded: one settle runs the picker and starts the decode, the next shows its result.
+// chooseBackground makes the picker answer path and lets the choice be checked, decoded and
+// copied: one settle runs the picker and the decode and starts writing the copy, the next shows
+// the image once the copy is written.
 func (h *harness) chooseBackground(path string) {
 	h.t.Helper()
 	h.app.chooseBackgroundImage = func(app.OpenFileOptions) ([]string, error) { return []string{path}, nil }
@@ -317,6 +318,8 @@ func TestDamagedBackgroundCopyIsSwitchedOff(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := newBackgroundHarness(t, dir)
+	// One settle decodes the copy and switches the background off, the next deletes the copy.
+	h.settle()
 	h.settle()
 	shown := h.app.backgroundSnapshot(h.app.language())
 	if shown.Set || shown.Failure == "" {
@@ -344,6 +347,79 @@ func TestMissingBackgroundCopyShowsNoImageQuietly(t *testing.T) {
 	shown := h.app.backgroundSnapshot(h.app.language())
 	if shown.Set || shown.Failure != "" || h.app.notice != "" {
 		t.Fatalf("background without its copy = %+v, notice %q; want none and nothing told", shown, h.app.notice)
+	}
+}
+
+// A choice whose copy cannot be written is told and leaves the last image shown and kept: the
+// shown image is replaced only once its copy is written.
+func TestBackgroundWhoseCopyCannotBeWrittenLeavesTheLastImage(t *testing.T) {
+	h := newBackgroundHarness(t, t.TempDir())
+	kept, _ := writeBackgroundPNG(t, t.TempDir(), "kept.png", 32, 32)
+	h.chooseBackground(kept)
+	h.open(t.TempDir())
+	before, painted := h.backdropLabel()
+	if !painted {
+		t.Fatal("the chosen background is not painted")
+	}
+	// A folder with a file in it where the copy goes cannot be replaced by the next copy.
+	copyPath := h.store.Path(backgroundFile)
+	if err := os.Remove(copyPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(copyPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(copyPath, "occupied"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.app.notice = ""
+
+	other, _ := writeBackgroundPNG(t, t.TempDir(), "other.png", 64, 16)
+	h.chooseBackground(other)
+	shown := h.app.backgroundSnapshot(h.app.language())
+	if !shown.Set || shown.Name != "kept.png" || shown.Width != 32 || shown.Loading || shown.Failure != "" {
+		t.Fatalf("background after a copy that could not be written = %+v, want kept.png", shown)
+	}
+	if h.app.notice == "" {
+		t.Fatal("a copy that could not be written was not told")
+	}
+	if after, painted := h.backdropLabel(); !painted || after.BitmapID != before.BitmapID {
+		t.Fatalf("painted background %d (painted %v), want kept.png's %d", after.BitmapID, painted, before.BitmapID)
+	}
+	if saved := h.savedBackgroundSetting(); saved != (savedBackground{Name: "kept.png"}) {
+		t.Fatalf("saved background = %+v, want kept.png", saved)
+	}
+}
+
+// A removal made while the chosen image's copy is being written wins, whichever finishes first:
+// the image never shows and no copy is left behind.
+func TestBackgroundRemovedWhileItsCopyIsWrittenStaysRemoved(t *testing.T) {
+	h := newBackgroundHarness(t, t.TempDir())
+	h.open(t.TempDir())
+	path, _ := writeBackgroundPNG(t, t.TempDir(), "late.png", 32, 32)
+	h.app.chooseBackgroundImage = func(app.OpenFileOptions) ([]string, error) { return []string{path}, nil }
+	h.app.chooseBackground()
+	// This settle runs the picker and the decode and starts writing the copy; the removal comes
+	// before the written copy is applied.
+	h.settle()
+	h.app.removeBackground()
+	h.settle()
+	h.settle()
+
+	if shown := h.app.backgroundSnapshot(h.app.language()); shown.Set || shown.Failure != "" {
+		t.Fatalf("background removed while its copy was written = %+v, want none", shown)
+	}
+	if _, painted := h.backdropLabel(); painted {
+		t.Fatal("the removed background is painted")
+	}
+	if alpha := h.veilAlpha(); alpha != -1 {
+		t.Fatalf("veil alpha = %v, want the opaque page", alpha)
+	}
+	if _, err := os.Stat(h.store.Path(backgroundFile)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("copy after removing: %v, want none left behind", err)
+	}
+	if saved := h.savedBackgroundSetting(); saved != (savedBackground{}) {
+		t.Fatalf("saved background = %+v, want none", saved)
 	}
 }
 
