@@ -20,6 +20,28 @@ import (
 // Opt-in integration: install the actual Java archive, then drive the same editor,
 // run and DAP paths as the native window. All Java knowledge lives in the archive.
 func TestJavaPluginMavenWorkflow(t *testing.T) {
+	runJavaPluginWorkflow(t, standardJavaFixture())
+}
+
+type javaWorkflowFixture struct {
+	files              map[string]string
+	mainPath           string
+	classPath          string
+	javaHome           string
+	vmVersion          string
+	classVersion       byte
+	noMaven            bool
+	projectRoot        string
+	expectBuildRefused bool
+	testGoal           bool
+}
+
+func runJavaPluginWorkflow(t *testing.T, fixture javaWorkflowFixture) {
+	t.Helper()
+	if fixture.javaHome != "" {
+		t.Setenv("JAVA_HOME", fixture.javaHome)
+	}
+
 	archive := os.Getenv("LITHE_TEST_JAVA_PLUGIN_ARCHIVE")
 	if archive == "" {
 		t.Skip("set LITHE_TEST_JAVA_PLUGIN_ARCHIVE to the built Java plugin zip")
@@ -66,6 +88,13 @@ func TestJavaPluginMavenWorkflow(t *testing.T) {
 	}
 	mavenBefore := packageDigest(t, mavenInstalled.Path)
 	before := packageDigest(t, installed.Path)
+	closeAndVerify := func() {
+		h.app.closeProject()
+		awaitStateWithin(t, h, 30*time.Second, "closed project", func() bool { return h.app.project == nil })
+		h.settle()
+		assertPackageUnchanged(t, installed.Path, before)
+		assertPackageUnchanged(t, mavenInstalled.Path, mavenBefore)
+	}
 	logger := &treeRecordingLog{}
 	h.app.logSink = logger
 	t.Cleanup(func() {
@@ -82,27 +111,47 @@ func TestJavaPluginMavenWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	content := "package demo;\npublic class Main {\n public static void main(String[] args) {\n  int answer = 41;\n  answer += 1;\n  System.out.println(org.apache.commons.lang3.StringUtils.reverse(\"avaj\") + \"-result=\" + answer);\n }\n}\n"
-	writeFixture(t, root, map[string]string{
-		"pom.xml":                      `<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>demo</groupId><artifactId>java-pilot</artifactId><version>1.0</version><properties><maven.compiler.release>17</maven.compiler.release><maven.compiler.source>17</maven.compiler.source><maven.compiler.target>17</maven.compiler.target><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties><dependencies><dependency><groupId>org.apache.commons</groupId><artifactId>commons-lang3</artifactId><version>3.17.0</version></dependency></dependencies></project>`,
-		"src/main/java/demo/Main.java": content,
-	})
+	content := fixture.files[fixture.mainPath]
+	if fixture.projectRoot != "" {
+		copyHistoricalJavaProject(t, fixture.projectRoot, root)
+	}
+	writeFixture(t, root, fixture.files)
 	gitRun(t, root, "init")
 	h.open(root)
 	p := h.app.project
-	h.app.loadBuildSystems(p)
-	awaitBuildModel(t, h, p, "maven", 90*time.Second)
-	output := runBuildTaskToEnd(t, h, p, "", "compile", 90*time.Second)
-	if !strings.Contains(output, "BUILD SUCCESS") {
-		t.Fatalf("Maven compile: %s", output)
+	if !fixture.noMaven {
+		h.app.loadBuildSystems(p)
+		awaitBuildModel(t, h, p, "maven", 90*time.Second)
+		output := runBuildTaskToEnd(t, h, p, "", "compile", 90*time.Second)
+		if !strings.Contains(output, "BUILD SUCCESS") {
+			t.Fatalf("Maven compile: %s", output)
+		}
+		t.Log("Maven compile succeeded")
+		if fixture.testGoal {
+			output := runBuildTaskToEnd(t, h, p, "", "test", 90*time.Second)
+			if !strings.Contains(output, "BUILD SUCCESS") || !strings.Contains(output, "Tests run: 1") {
+				t.Fatalf("legacy Maven test goal: %s", output)
+			}
+			t.Log("legacy test framework: Maven test goal passed one test")
+		}
+		if fixture.classVersion != 0 {
+			compiled, err := os.ReadFile(filepath.Join(root, fixture.classPath))
+			if err != nil || len(compiled) < 8 || compiled[7] != fixture.classVersion {
+				t.Fatalf("Maven class target: header=%x err=%v, expected major %d", compiled[:min(len(compiled), 8)], err, fixture.classVersion)
+			}
+		}
 	}
-	t.Log("Maven compile succeeded")
-	h.app.openFile(p, filepath.Join(root, "src/main/java/demo/Main.java"))
+	h.app.openFile(p, filepath.Join(root, fixture.mainPath))
 	awaitStateWithin(t, h, 30*time.Second, "Java document", func() bool { return documentNamed(p, "Main.java") != nil })
 	d := documentNamed(p, "Main.java")
 	defer func() {
 		if t.Failed() {
 			t.Logf("document language=%s actions=%d ", d.languageID, len(d.actions))
+			t.Logf("notice=%s debug state=%s failure=%s", h.app.notice, p.debug.state, p.debug.failure)
+			t.Logf("JDT problems: %v", problemMessages(h.app))
+			for _, run := range p.build.runs {
+				t.Logf("run: running=%v summary=%s output=%s", run.running, run.summary, strings.Join(run.output, ""))
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
 			events, err := core.NewClient().DrainCoreEvents(ctx)
@@ -150,16 +199,52 @@ func TestJavaPluginMavenWorkflow(t *testing.T) {
 	}
 	t.Logf("JDT completion: %d candidates including println", len(h.app.semantics.completion.items))
 	h.app.closeSemanticCompletion()
+	noticeBeforeRun := h.app.notice
 	h.app.runEditorAction(p, d, d.actions[0], -1)
+	if fixture.expectBuildRefused {
+		// This is an explicit compatibility-boundary test, not a passing full
+		// workflow: the current bundled ECJ rejects source levels below Java 8.
+		awaitStateWithin(t, h, 30*time.Second, "legacy build refusal", func() bool { return h.app.notice != noticeBeforeRun })
+		if len(p.build.runs) != 0 {
+			t.Fatal("unsupported build launched a process")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		events, err := core.NewClient().DrainCoreEvents(ctx)
+		cancel()
+		if err != nil {
+			t.Fatal(err)
+		}
+		failures := 0
+		for _, event := range events.Events {
+			if event.Channel == "plugins/"+plan.ID+"/host" && event.Fields["operation"] == "java.runAction" {
+				if event.Event != "plugins.operation.failed" || event.Fields["code"] != "run.build_failed" || event.Level != core.LevelError {
+					t.Fatalf("unexpected legacy build result: %+v", event)
+				}
+				failures++
+			}
+		}
+		if failures != 1 {
+			t.Fatalf("legacy build refusal count: %d", failures)
+		}
+		t.Log("COMPATIBILITY BOUNDARY: Maven compile and completion work; Run/Debug remain unsupported at this source level")
+		closeAndVerify()
+		return
+	}
 	awaitStateWithin(t, h, 90*time.Second, "Java run", func() bool {
+		if h.app.notice != noticeBeforeRun {
+			t.Fatalf("Java run refused: %s", h.app.notice)
+		}
 		for _, r := range p.build.runs {
 			if !r.running && strings.Contains(strings.Join(r.output, ""), "java-result=42") {
+				if fixture.vmVersion != "" && !strings.Contains(strings.Join(r.output, ""), "vm="+fixture.vmVersion) {
+					t.Fatalf("wrong project JVM: %s", strings.Join(r.output, ""))
+				}
 				return true
 			}
 		}
 		return false
 	})
-	if _, err := os.Stat(filepath.Join(root, "target/classes/demo/Main.class")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, fixture.classPath)); err != nil {
 		t.Fatalf("compiled class: %v", err)
 	}
 	t.Log("compiled Main.class and ran java-result=42")
@@ -297,11 +382,7 @@ func TestJavaPluginMavenWorkflow(t *testing.T) {
 		t.Fatalf("run terminal diagnostics: successes=%d failures=%d; events=%+v", successes, failures, events)
 	}
 	t.Log("compiler errors blocked stale class; Core logging success/failure and collection suppression verified")
-	h.app.closeProject()
-	awaitStateWithin(t, h, 30*time.Second, "closed project", func() bool { return h.app.project == nil })
-	h.settle()
-	assertPackageUnchanged(t, installed.Path, before)
-	assertPackageUnchanged(t, mavenInstalled.Path, mavenBefore)
+	closeAndVerify()
 }
 
 func TestJavaPluginCurrentManifestContract(t *testing.T) {

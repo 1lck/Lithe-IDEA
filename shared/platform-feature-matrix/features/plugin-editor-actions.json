@@ -15,7 +15,8 @@
       "desktop/internal/core/workbench_test.go",
       "desktop/internal/pluginservice/hostactions_refresh_test.go",
       "desktop/internal/workbench/pluginworkbench.go",
-      "desktop/internal/workbench/java_plugin_e2e_test.go"
+      "desktop/internal/workbench/java_plugin_e2e_test.go",
+      "desktop/internal/workbench/java_legacy_e2e_test.go"
     ]
   },
   "windows": {
@@ -30,7 +31,8 @@
       "desktop/internal/core/workbench_test.go",
       "desktop/internal/pluginservice/hostactions_refresh_test.go",
       "desktop/internal/workbench/pluginworkbench.go",
-      "desktop/internal/workbench/java_plugin_e2e_test.go"
+      "desktop/internal/workbench/java_plugin_e2e_test.go",
+      "desktop/internal/workbench/java_legacy_e2e_test.go"
     ]
   },
   "owner": "Extensions",

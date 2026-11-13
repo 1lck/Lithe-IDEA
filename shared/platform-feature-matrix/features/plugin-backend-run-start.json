@@ -17,7 +17,8 @@
       "desktop/internal/workbench/debug_start.go",
       "desktop/internal/workbench/debug_test.go",
       "desktop/internal/workbench/java_plugin_e2e_test.go",
-      "desktop/internal/workbench/debug.go"
+      "desktop/internal/workbench/debug.go",
+      "desktop/internal/workbench/java_legacy_e2e_test.go"
     ]
   },
   "windows": {
@@ -34,12 +35,13 @@
       "desktop/internal/workbench/debug_start.go",
       "desktop/internal/workbench/debug_test.go",
       "desktop/internal/workbench/java_plugin_e2e_test.go",
-      "desktop/internal/workbench/debug.go"
+      "desktop/internal/workbench/debug.go",
+      "desktop/internal/workbench/java_legacy_e2e_test.go"
     ]
   },
   "owner": "Extensions / Run",
   "verification": "macOS：用声明 requires.serverProcess 4 与 permissions run.start 的测试插件，让后端依次发起（1）工具 ID 运行：Run 窗口出现以 label 命名的条目，进程使用用户在设置里选中的安装，参数、工作目录和环境符合请求，插件显式给出的环境变量覆盖工具导出；（2）插件包内可执行文件运行，路径逃出包目录、文件不存在或不可执行时返回 plugin.host.notFound；（3）带 temporaryFiles 的运行，进程内能读到文件内容，结束后临时目录被删除；（4）带 debug.target connection 的运行，进程监听后调试器附加并命中断点，声明 target launch 时宿主不启动进程，由适配器按 targetBindings 启动程序并命中断点，Run 窗口停止该运行会结束调试会话，会话结束后运行条目以退出码结束；（5）带 rerun 的运行，在 Run 窗口点击再次运行会调用插件函数，函数失败时用户看到提示；（6）run/stop 只停止调用方插件的运行，用户点击停止后后端收到不带 exitCode 的 lithe/host/run/didExit，进程自然退出时收到 exitCode。工具未安装时返回 plugin.host.toolUnresolved，details.reason 为 notFound，所选安装不可运行时为 unusable，两种情况都不启动进程。禁用插件或后端退出后，已启动的进程继续运行，后端不再收到通知。远程工作区返回 plugin.host.authorityUnsupported。启动后 app bundle 文件清单不变（scripts/desktop/verify/verify-runtime-bundle-immutability.sh）。Windows：宿主尚未接入 run/start，Core 校验通过不代表 Windows 能运行插件请求的进程。",
-  "notes": "Viva 注册 run/start、run/stop 并在进程结束时发送 run/didExit（只发给发起它的那次后端会话）；Core 的 run.decodeStart 校验参数，宿主解析工具或包内可执行文件、写入临时文件、启动进程并把输出放进 Build 面板里的运行视图，支持停止与再次运行。debug.target 为 connection 时等待端口打开再附加适配器；target 为 launch 时宿主不启动进程，而是按 configurationType 找到本插件能 launch 的适配器，把解析好的程序、参数、绝对工作目录与环境作为 executable 目标事实交给 Core，经适配器的 launch targetBindings 绑定后启动调试会话；运行条目代表该会话，停止运行即停止会话，会话释放后运行以 terminated 事件的退出码结束（适配器未报时不带 exitCode），进程输出在调试控制台。没有调试能力的宿主仍返回 plugin.host.unavailable。debug/start 已实现（见 plugin-debug-start-and-adapter-features）。原生产品验收仍 pending。 2026-11-13：插件 run/start 的调试附加与启动会按需读取适配器目录，不要求用户先打开 Debug 工具窗口；目录返回后检查调用取消，关闭项目不会启动旧请求。 Run 持有的进程在附加调试会话释放后由后台有界回收，Debug 工具栏停止不再留下暂停的 Run 进程；手动附加的外部进程保持原有所有权。",
+  "notes": "Viva 注册 run/start、run/stop 并在进程结束时发送 run/didExit（只发给发起它的那次后端会话）；Core 的 run.decodeStart 校验参数，宿主解析工具或包内可执行文件、写入临时文件、启动进程并把输出放进 Build 面板里的运行视图，支持停止与再次运行。debug.target 为 connection 时等待端口打开再附加适配器；target 为 launch 时宿主不启动进程，而是按 configurationType 找到本插件能 launch 的适配器，把解析好的程序、参数、绝对工作目录与环境作为 executable 目标事实交给 Core，经适配器的 launch targetBindings 绑定后启动调试会话；运行条目代表该会话，停止运行即停止会话，会话释放后运行以 terminated 事件的退出码结束（适配器未报时不带 exitCode），进程输出在调试控制台。没有调试能力的宿主仍返回 plugin.host.unavailable。debug/start 已实现（见 plugin-debug-start-and-adapter-features）。原生产品验收仍 pending。 2026-11-13：插件 run/start 的调试附加与启动会按需读取适配器目录，不要求用户先打开 Debug 工具窗口；目录返回后检查调用取消，关闭项目不会启动旧请求。 Run 持有的进程在附加调试会话释放后由后台有界回收，Debug 工具栏停止不再留下暂停的 Run 进程；手动附加的外部进程保持原有所有权。 无头旧项目验证区分实际 JDK 与源码级别：Java 8+ 工作流与 Java 5/7 的 ECJ 构建拒绝分别记录，安全拒绝测试不代表旧源码级别可运行；正常关闭的既有重试日志债务见 #1860。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

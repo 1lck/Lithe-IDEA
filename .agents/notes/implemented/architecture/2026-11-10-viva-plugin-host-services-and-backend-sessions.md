@@ -32,6 +32,10 @@ Run 自己启动的进程还必须随附加的调试会话释放。单独发送 
 
 真实 ZIP 集成测试覆盖含第三方依赖的 Maven 编译、补全、运行、断点变量、继续退出、再次调试后停止及编译错误拒绝旧 class；同时核对 Core 操作日志与包哈希不变。这是 macOS arm64 无头工作台的证据，原生窗口与其他平台仍需分别验收。
 
+旧项目的实际运行时与源码级别必须分别验证。JDK 8 可以为 Java 5/7 源码生成旧 class，当前 ECJ（Eclipse 的 Java 编译器）却只接受 Java 8 及以上，运行前 JDT 构建因此失败。`TestJavaPluginLegacySourceBoundaries` 验证的是安全拒绝，不能当成 Java 5/7 Run/Debug 验收。不得恢复“编译失败也运行旧产物”，也不得由宿主改写用户 POM 升级源码级别；历史项目的临时 POM 改动只能发生在测试副本，并单独报告。
+
+多工作区关闭还暴露既有 `pluginbackend.Runner.Stop` 通过销毁失败循环等待终态的问题：进程最终退出，但正常关闭产生 Core WARN。它属于本次之前已有的共享状态职责债务，独立记录为 [#1860](https://github.com/1lck/Lithe-IDEA/issues/1860)，不混入 Java 接入修复。
+
 ## 考虑过的备选方案
 
 - 在 `Handler` 签名里加调用方参数：改动所有处理器；用 context 携带身份同样隐含在 Core 的会话归属里，改动更小。

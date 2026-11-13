@@ -15,7 +15,8 @@
       "desktop/internal/pluginservice/hostdocumentlinks.go",
       "desktop/internal/pluginservice/hostproviders_routes_test.go",
       "desktop/internal/workbench/editor_actions.go",
-      "desktop/internal/core/editor_providers_test.go"
+      "desktop/internal/core/editor_providers_test.go",
+      "desktop/internal/workbench/java_legacy_e2e_test.go"
     ]
   },
   "windows": {
@@ -30,7 +31,8 @@
       "desktop/internal/pluginservice/hostdocumentlinks.go",
       "desktop/internal/pluginservice/hostproviders_routes_test.go",
       "desktop/internal/workbench/editor_actions.go",
-      "desktop/internal/core/editor_providers_test.go"
+      "desktop/internal/core/editor_providers_test.go",
+      "desktop/internal/workbench/java_legacy_e2e_test.go"
     ]
   },
   "owner": "Extensions",
