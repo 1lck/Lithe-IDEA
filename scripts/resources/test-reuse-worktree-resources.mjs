@@ -318,13 +318,13 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /frontend-install-state.*node_modules.*bun-tmp.*cannot be reused/);
   });
-  await test("Java launch files are never listed or copied between worktrees", { timeout: 15000 }, () => {
+  await test("run temporary files are never listed or copied between worktrees", { timeout: 15000 }, () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
-    assert.ok(!listed.stdout.includes("java-launch-temporaries"));
-    const refused = reuse(["--resource", "java-launch-temporaries"]);
+    assert.ok(!listed.stdout.includes("run-temporary-files"));
+    const refused = reuse(["--resource", "run-temporary-files"]);
     assert.notEqual(refused.status, 0);
-    assert.match(diagnostics(refused), /java-launch-temporaries.*classpath\.jar.*cannot be reused/);
+    assert.match(diagnostics(refused), /run-temporary-files.*lithe-run-.*cannot be reused/);
   });
   await test("IDE MCP credentials and helpers cannot cross worktrees", { timeout: 15000 }, () => {
     const refused = reuse(["--resource", "ide-mcp"]);

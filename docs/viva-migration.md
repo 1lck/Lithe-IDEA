@@ -409,7 +409,7 @@
 | `run-output-snapshot` | 运行输出快照 | 必须迁移 | 缺/实现 | 完成 | `workbench/runs.go` |
 | `login-shell-environment` | 从 Finder / Dock 启动时继承登录 shell 的环境 | 平台专属 | 实现/专属 | 完成 | `loginenv/loginenv_unix.go`、`cmd/lithe/main.go` |
 | `run-discovery` | 入口点与运行配置发现 | 必须迁移 | 实现/实现 | 部分 | `core/run_discovery.go` |
-| `run-java-long-classpath` | 超长 Java 类路径自动缩短 | 插件提供 | 插件/实现 | 未开始 | 扩展点：executablePlan/argfile；无 desktop/ 证据 |
+| `run-java-long-classpath` | 超长 Java 类路径自动缩短 | 插件提供 | 插件/实现 | 未开始 | 扩展点：`run/start` 的 `temporaryFiles`（文本或 base64 字节）；插件接线见 Lithe-IDEA/lithe-plugin-java#7 |
 | `run-java-test` | Java main 与测试运行 | 插件提供 | 实现/实现 | 未开始 | 扩展点：executionProviders、test 模型；无 desktop/ 证据 |
 | `run-node-launch-path` | Node 生态运行脚本的启动 PATH | 必须迁移 | 实现/实现 | 部分 | `workbench/toolchains.go` |
 | `run-save-toolchain` | 保存前同步与工具链解析 | 必须迁移 | 实现/实现 | 部分 | `workbench/toolchains.go` |
