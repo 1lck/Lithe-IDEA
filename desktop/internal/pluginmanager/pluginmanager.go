@@ -59,8 +59,9 @@ func (m *Manager) Installed() ([]Entry, error) {
 	return entries, nil
 }
 
-// Uninstall removes every installed version of a plugin, drops their approvals and
-// the enablement choice, so a later installation starts disabled.
+// Uninstall removes every installed version of a plugin, drops their approvals,
+// the enablement choice and the plugin's state directory, so a later
+// installation starts as a first one.
 //
 // Every version goes: installing does not remove an earlier one, and the plugin
 // page shows one row per plugin, so leaving an older version behind would keep the
@@ -97,6 +98,12 @@ func (m *Manager) Uninstall(id string) error {
 	if err := m.state.Forget(id); err != nil {
 		failures = append(failures, fmt.Errorf("forget the enablement of %s: %w", id, err))
 	}
+	// What the plugin's programs wrote goes with it: an uninstalled plugin
+	// leaves nothing behind, and a later installation starts clean. The
+	// caller stops those programs first, or they could write it again.
+	if err := pluginpkg.RemoveState(m.root, id); err != nil {
+		failures = append(failures, fmt.Errorf("remove the state of %s: %w", id, err))
+	}
 	return errors.Join(failures...)
 }
 
@@ -112,6 +119,20 @@ func (m *Manager) SetEnabled(id string, enabled bool) error {
 		return fmt.Errorf("%w: %s", ErrUnknownPlugin, id)
 	}
 	return m.state.SetEnabled(id, enabled)
+}
+
+// EnableInstalled enables a plugin the user just confirmed installing, unless
+// the user already chose to enable or disable it, and reports whether it
+// changed the choice. The plugin must be installed.
+func (m *Manager) EnableInstalled(id string) (bool, error) {
+	installed, err := pluginpkg.List(m.root)
+	if err != nil {
+		return false, err
+	}
+	if !installsID(installed, id) {
+		return false, fmt.Errorf("%w: %s", ErrUnknownPlugin, id)
+	}
+	return m.state.EnableUnlessChosen(id)
 }
 
 // Enabled reports whether a plugin is enabled.

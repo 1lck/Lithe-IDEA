@@ -170,8 +170,8 @@ func (s *Service) StopLanguageServer(ctx context.Context, session *LanguageSessi
 
 // pluginStateDirectory is the reserved directory below the plugin root where
 // running servers keep their state. It starts with a dot, so List never reads it
-// as an installed plugin.
-const pluginStateDirectory = ".state"
+// as an installed plugin; uninstalling a plugin removes its part of it.
+const pluginStateDirectory = pluginpkg.StateDirectory
 
 type languageServerDeclaration struct {
 	LanguageServers []struct {

@@ -363,7 +363,11 @@ func TestContentProviderRegistrationRules(t *testing.T) {
 		functions: map[string]bool{"documents.read": true}, waiters: map[string]chan core.BackendEvent{},
 		done: make(chan struct{}), changed: make(chan struct{}), ready: true,
 	}
+	// Opening the workspace notifies the backends from a goroutine, so the
+	// session goes in under the host's lock.
+	service.Host.mu.Lock()
 	service.Host.sessions["a"] = session
+	service.Host.mu.Unlock()
 	result, refusal := respond(t, service, "a", "documents/registerContentProvider", `{`+contextJSONOf(workspace)+`,"scheme":"jdt","function":"documents.read"}`)
 	if refusal != nil {
 		t.Fatalf("register: %+v", refusal)

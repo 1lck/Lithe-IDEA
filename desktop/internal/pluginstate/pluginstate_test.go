@@ -108,3 +108,25 @@ func TestRefusesEmptyID(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestEnableUnlessChosenRecordsOnlyAFirstChoice(t *testing.T) {
+	state := New(store.At(t.TempDir()))
+	if changed, err := state.EnableUnlessChosen("fresh"); err != nil || !changed {
+		t.Fatalf("fresh: changed = %v, err = %v", changed, err)
+	}
+	if enabled, err := state.Enabled("fresh"); err != nil || !enabled {
+		t.Fatalf("fresh: enabled = %v, err = %v", enabled, err)
+	}
+	if err := state.SetEnabled("chosen", false); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := state.EnableUnlessChosen("chosen"); err != nil || changed {
+		t.Fatalf("chosen: changed = %v, err = %v", changed, err)
+	}
+	if enabled, err := state.Enabled("chosen"); err != nil || enabled {
+		t.Fatalf("an explicit disable was overridden: enabled = %v, err = %v", enabled, err)
+	}
+	if _, err := state.EnableUnlessChosen(""); !errors.Is(err, ErrInvalidPlugin) {
+		t.Fatalf("empty ID: %v", err)
+	}
+}

@@ -12,11 +12,11 @@ Viva 客户端现在由 `pluginservice.BackendHost` 为每个插件保持至多�
 
 ## 决策
 
-- **激活**：后端在三种情况下启动：项目打开时清单声明了 `onWorkspaceOpen`（窗口显示后在后台逐个启动，失败不阻塞项目）；语言服务器需要启动答案；Core 发出 `functionProviderStartRequired`。项目关闭、插件停用或卸载时，会话先从 `BackendHost` 摘除（`Detach`），再有界停止，保证后台停止不会杀掉下一个项目启动的后端。
+- **激活**：后端在三种情况下启动：项目打开时清单声明了 `onWorkspaceOpen`（窗口显示后在后台逐个启动，失败不阻塞项目）；语言服务器需要启动答案；Core 发出 `functionProviderStartRequired`。项目关闭、插件停用或卸载时，会话先从 `BackendHost` 摘除（`Detach`），再有界停止，保证后台停止不会杀掉下一个项目启动的后端。停用和卸载走 `pluginservice.Service.Disable` / `Service.Uninstall`：卸载先停语言服务器和后端，再删包和状态目录（2026-11-13 前停用、卸载并不停后端，见[确认安装即启用与卸载清理](../bug-fix/2026-11-13-viva-plugin-install-enables-and-uninstall-cleans-state.md)）。
 - **宿主服务注册**：`Services.Register` 注册方法，`GrantService` 注册服务级授权名（`workspace`、`functions`）。启动请求只授予计划列表与已注册项的交集，`getCapabilities` 因此只列真正有处理器的方法。后续 run、debug、terminal、editor、documents、credentials 在 `registerHostServices` 里按同样方式追加一行。处理器通过 `pluginhost.CallerFrom(ctx)` 取得调用方插件，不需要第二套按插件分隔的注册表。
 - **并发应答**：`Runner.Serve` 对每个宿主请求开独立 goroutine（Core 已限制每会话 16 个未决请求），并响应 `hostRequestCancelled`。原因：`languageServer/request` 可能等待服务器很久，而后端自己的函数调用完成事件走同一个事件循环，串行应答会让它们互相阻塞。`languageServer/request` 用 `RegisterUserChoice` 注册，避免被 30 秒机器请求期限截断，期限由请求的 `timeoutMilliseconds` 与 Core 控制。
 - **backend 解析的启动**：Core 规划第一步（`launch.kind: "backend"`）→ 宿主调用后端 `launch.function`（带 `resolveParams` 与工作区 context）→ Core `decodeLaunch` 校验 → 宿主按普通计划启动，计划里的 `sessionPolicy` 原样传给 `lsp.startServer`。
-- **可写位置与只读边界**：状态目录 `<插件根>/.state/<id>/<版本>`、工作区状态 `<插件根>/.state/<id>/servers/<语言>/workspaces/<摘要>`、日志 `<插件根>/.state/<id>/logs`、上下文状态 `<插件根>/.state/<id>/backend/workspaces/<摘要>`，均在插件存储（Application Support 一类的用户目录）下，不在 app bundle、安装包目录或 `resource_dir()` 下，不影响代码签名和 Sparkle 增量；单次启动的临时目录在系统临时目录，服务器进程结束时删除。`host-secret` 保存在 `.state` 下，用于生成按插件隔离的 rootID。
+- **可写位置与只读边界**：状态目录 `<插件根>/.state/<id>/<版本>`、工作区状态 `<插件根>/.state/<id>/servers/<语言>/workspaces/<摘要>`、日志 `<插件根>/.state/<id>/logs`、上下文状态 `<插件根>/.state/<id>/backend/workspaces/<摘要>`，均在插件存储（Application Support 一类的用户目录）下，卸载插件时整个 `.state/<id>` 随之删除（`pluginpkg.RemoveState`），不在 app bundle、安装包目录或 `resource_dir()` 下，不影响代码签名和 Sparkle 增量；单次启动的临时目录在系统临时目录，服务器进程结束时删除。`host-secret` 保存在 `.state` 下，用于生成按插件隔离的 rootID。
 - **上下文**：`WorkspaceContexts` 每个打开的项目一个 context，项目关闭即失效，重新打开得到新 ID；`listContexts` 不创建目录，只有 `getContext` 创建并返回状态目录。变化时发送 `didChangeContexts` 并向 Core 重新配置跨插件调用快照。
 - **语言服务器会话**：`LanguageSession` 记录 context 与每次启动递增的 generation；`ServeLanguageSession` 在窗口观察者之前处理 `requestCompleted`（唤醒转发请求）、`stateChanged`（映射为 `didChangeState`）和 `pluginServerNotification`（转为 `didReceiveNotification`）。服务器停止时仍在等待的请求以 `languageServerUnavailable` 结束。
 
