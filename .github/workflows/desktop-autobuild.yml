@@ -7,7 +7,8 @@ name: Desktop AutoBuild
 # updaters read, and the release is never marked latest.
 on:
   schedule:
-    - cron: "17 3 * * *"
+    # 10:00 UTC, which is 18:00 in China (UTC+8).
+    - cron: "0 10 * * *"
   workflow_dispatch:
     inputs:
       source_branch:
