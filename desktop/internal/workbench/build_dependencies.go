@@ -42,20 +42,48 @@ type buildDependencies struct {
 // buildDependencyKey names the tree of project (empty for the whole build) of instance.
 func buildDependencyKey(instance, project string) string { return instance + "\x00" + project }
 
-// dependenciesOf is the tree of the chosen project of the selected instance, loading it the
-// first time it is asked for.
-func (a *App) dependenciesOf(p *project, instance *buildInstance) *buildDependencies {
+// dependenciesOf is the tree of projectID (the whole build when empty) of instance, loading it
+// the first time it is asked for.
+func (a *App) dependenciesOf(p *project, instance *buildInstance, projectID string) *buildDependencies {
 	if p.build.dependencies == nil {
 		p.build.dependencies = map[string]*buildDependencies{}
 	}
-	key := buildDependencyKey(instance.ID, p.build.projectID)
+	key := buildDependencyKey(instance.ID, projectID)
 	deps := p.build.dependencies[key]
 	if deps == nil {
 		deps = &buildDependencies{open: map[string]bool{}}
 		p.build.dependencies[key] = deps
-		a.loadBuildDependencies(p, instance, p.build.projectID, deps, false)
+		a.loadBuildDependencies(p, instance, projectID, deps, false)
 	}
 	return deps
+}
+
+// buildDependencyProject is the project whose dependencies the window lists, and whether it lists
+// any: the chosen project, or the whole build when none is chosen. Core refuses a scope the build
+// system does not declare (plugin.build.invalidSelection), so an undeclared scope lists nothing;
+// with no project chosen and only the project scope declared, a model of one project lists its own.
+func buildDependencyProject(instance *buildInstance, chosen string) (string, bool) {
+	declared := instance.System.Dependencies
+	if declared == nil {
+		return "", false
+	}
+	declares := func(scope string) bool {
+		for _, s := range declared.Scopes {
+			if s == scope {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case chosen != "" && declares("project"):
+		return chosen, true
+	case chosen == "" && declares("workspace"):
+		return "", true
+	case chosen == "" && declares("project") && len(instance.Model.Projects) == 1:
+		return instance.Model.Projects[0].ID, true
+	}
+	return "", false
 }
 
 // reloadBuildDependencies forgets every loaded tree, for a reloaded model.
@@ -218,10 +246,9 @@ func dependencyLabel(d *core.BuildDependency) string {
 	return strings.Join(parts, ":")
 }
 
-// openBuildFile opens the build file of the chosen project (of the instance's root when
-// none is chosen).
-func (a *App) openBuildFile(p *project, instance *buildInstance) {
-	if path := buildFileOf(p, instance, p.build.projectID); path != "" {
+// openBuildFile opens the build file of projectID (of the instance's root when it is empty).
+func (a *App) openBuildFile(p *project, instance *buildInstance, projectID string) {
+	if path := buildFileOf(p, instance, projectID); path != "" {
 		a.performed("build.dependencies.openBuildFile", surfaceButton)
 		a.openFile(p, path)
 	}
@@ -279,21 +306,25 @@ func (a *App) buildDependencyRows(p *project, instance *buildInstance) []buildRo
 	if !instance.modelLoaded {
 		return nil
 	}
+	projectID, ok := buildDependencyProject(instance, p.build.projectID)
+	if !ok {
+		return nil
+	}
 	language := a.language()
 	rows := []buildRow{{kind: buildRowSection, label: i18n.Shared(language, "native.dependencies")}}
-	deps := a.dependenciesOf(p, instance)
+	deps := a.dependenciesOf(p, instance, projectID)
 	switch {
 	case deps.loading:
-		return append(rows, buildRow{kind: buildRowEmpty, dependencies: true, label: i18n.Shared(language, "native.loadingDependencies.variant2")})
+		return append(rows, buildRow{kind: buildRowEmpty, dependencies: true, project: projectID, label: i18n.Shared(language, "native.loadingDependencies.variant2")})
 	case deps.failed != "":
-		return append(rows, buildRow{kind: buildRowEmpty, dependencies: true, label: i18n.Shared(language, "native.couldNotLoadDependencies") + ": " + deps.failed})
+		return append(rows, buildRow{kind: buildRowEmpty, dependencies: true, project: projectID, label: i18n.Shared(language, "native.couldNotLoadDependencies") + ": " + deps.failed})
 	case len(deps.tree.Dependencies) == 0:
-		return append(rows, buildRow{kind: buildRowEmpty, dependencies: true, label: i18n.Shared(language, "native.noDependencies")})
+		return append(rows, buildRow{kind: buildRowEmpty, dependencies: true, project: projectID, label: i18n.Shared(language, "native.noDependencies")})
 	}
 	for _, shown := range deps.shownRows() {
 		rows = append(rows, buildRow{
 			kind: buildRowDependency, label: dependencyLabel(shown.node), detail: shown.node.Scope,
-			depth: shown.depth, path: shown.path, leaf: len(shown.node.Children) == 0,
+			depth: shown.depth, path: shown.path, leaf: len(shown.node.Children) == 0, project: projectID,
 		})
 	}
 	return rows
@@ -303,7 +334,7 @@ func (a *App) buildDependencyRows(p *project, instance *buildInstance) []buildRo
 // closes its children; a double click opens the project's build file.
 func (a *App) buildDependencyRow(row ui.ListRow, p *project, instance *buildInstance, spec buildRow) {
 	c := row.C
-	deps := a.dependenciesOf(p, instance)
+	deps := a.dependenciesOf(p, instance, spec.project)
 	element := row.Element.Height(buildRowHeight).Items(ui.Center).Gap(4).
 		PadSides(0, 8, 0, 8+float32(spec.depth)*14).Hover(ui.Look{}.Background(a.colors.Hover))
 	open := deps.open[spec.path]
@@ -323,10 +354,10 @@ func (a *App) buildDependencyRow(row ui.ListRow, p *project, instance *buildInst
 	ui.Spacer(c)
 	switch {
 	case element.DoubleClicked():
-		c.After(func() { a.openBuildFile(p, instance) })
+		c.After(func() { a.openBuildFile(p, instance, spec.project) })
 	case element.Clicked() && !spec.leaf:
 		path := spec.path
 		c.After(func() { deps.open[path] = !deps.open[path] })
 	}
-	a.buildDependencyMenu(c, element, p, instance)
+	a.buildDependencyMenu(c, element, p, instance, spec.project)
 }

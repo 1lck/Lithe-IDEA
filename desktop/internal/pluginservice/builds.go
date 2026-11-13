@@ -36,6 +36,16 @@ type BuildSystemDeclaration struct {
 	// still owns whether a selection can run; the window only needs to know
 	// that the system offers tests and on which scopes.
 	Test *BuildTestDeclaration
+	// Dependencies is the declared dependency request, nil when the system lists none the
+	// window can show (none declared, or a host integration that owns them).
+	Dependencies *BuildDependenciesDeclaration
+}
+
+// BuildDependenciesDeclaration is the presentation part of a dependency declaration: the
+// scopes Core plans a request for. Core refuses any other scope
+// (plugin.build.invalidSelection), so the window offers the tree only where it is declared.
+type BuildDependenciesDeclaration struct {
+	Scopes []string
 }
 
 // BuildTestDeclaration is one build system's declared test entry.
@@ -52,10 +62,17 @@ type BuildTestDeclaration struct {
 
 // BuildTaskDeclaration is one task the Build window may offer.
 type BuildTaskDeclaration struct {
-	ID                    string
-	DisplayName           string
-	Group                 string
-	Scopes                []string
+	ID          string
+	DisplayName string
+	Description string
+	Group       string
+	// Category lists the headings, outermost first, the window files the task under; empty
+	// files it by Group. On a fromModel template it is the default of the tasks the model lists.
+	Category []string
+	Scopes   []string
+	// TargetTags are the tags a target must carry for a target-scope run; none accept every
+	// target.
+	TargetTags            []string
 	RequiresUserArguments bool
 	FromModel             bool
 	Source                string
@@ -114,8 +131,11 @@ type rawBuildManifest struct {
 		Tasks       []struct {
 			ID                    string   `json:"id"`
 			DisplayName           string   `json:"displayName"`
+			Description           string   `json:"description"`
 			Group                 string   `json:"group"`
+			Category              []string `json:"category"`
 			Scopes                []string `json:"scopes"`
+			TargetTags            []string `json:"targetTags"`
 			RequiresUserArguments bool     `json:"requiresUserArguments"`
 			FromModel             bool     `json:"fromModel"`
 			Source                string   `json:"source"`
@@ -138,6 +158,10 @@ type rawBuildManifest struct {
 			Source     string   `json:"source"`
 			Discovery  bool     `json:"discovery"`
 		} `json:"test"`
+		Dependencies *struct {
+			Source string   `json:"source"`
+			Scopes []string `json:"scopes"`
+		} `json:"dependencies"`
 	} `json:"buildSystems"`
 }
 
@@ -163,8 +187,11 @@ func parseBuildSystems(manifest json.RawMessage) (map[string]BuildSystemDeclarat
 			system.Tasks = append(system.Tasks, BuildTaskDeclaration{
 				ID:                    task.ID,
 				DisplayName:           task.DisplayName,
+				Description:           task.Description,
 				Group:                 task.Group,
+				Category:              append([]string(nil), task.Category...),
 				Scopes:                append([]string(nil), task.Scopes...),
+				TargetTags:            append([]string(nil), task.TargetTags...),
 				RequiresUserArguments: task.RequiresUserArguments,
 				FromModel:             task.FromModel,
 				Source:                task.Source,
@@ -196,6 +223,10 @@ func parseBuildSystems(manifest json.RawMessage) (map[string]BuildSystemDeclarat
 				Source:     raw.Test.Source,
 				Discovery:  raw.Test.Discovery,
 			}
+		}
+		// A host integration owns its dependencies, so the window plans no request for it.
+		if deps := raw.Dependencies; deps != nil && deps.Source != "hostIntegration" && len(deps.Scopes) > 0 {
+			system.Dependencies = &BuildDependenciesDeclaration{Scopes: append([]string(nil), deps.Scopes...)}
 		}
 		systems[raw.ID] = system
 	}

@@ -132,3 +132,54 @@ func TestBuildPluginsSkipsDisabledPlugins(t *testing.T) {
 
 // Ensure the manifest stays valid JSON if a future fixture carries a comment.
 var _ = json.Valid
+
+// The Build window shows what a build system declares: command tasks with their categories and
+// target tags, and the scopes its dependency request accepts. A system declaring only project
+// dependencies (the Go modules plugin) must not be asked for those of the whole workspace,
+// which Core refuses (plugin.build.invalidSelection), and a host integration lists none.
+func TestParseBuildSystemsKeepsTaskPresentationAndDependencyScopes(t *testing.T) {
+	systems, err := parseBuildSystems(json.RawMessage(`{"buildSystems": [
+		{
+			"id": "go",
+			"displayName": "Go Modules",
+			"model": {"source": "command"},
+			"dependencies": {"source": "command", "scopes": ["project"], "arguments": []},
+			"tasks": [
+				{"id": "build", "displayName": "Build", "group": "build", "scopes": ["project"], "arguments": []},
+				{"id": "vet", "displayName": "Vet", "description": "Report suspicious code", "group": "verification",
+				 "category": ["Checks", "Static"], "scopes": ["project", "target"], "targetTags": ["application"], "arguments": []}
+			]
+		},
+		{"id": "hosted", "dependencies": {"source": "hostIntegration"}},
+		{"id": "plain"}
+	]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	goModules := systems["go"]
+	if goModules.Provider {
+		t.Fatal("a command model reads as a provider")
+	}
+	if goModules.Dependencies == nil || len(goModules.Dependencies.Scopes) != 1 || goModules.Dependencies.Scopes[0] != "project" {
+		t.Fatalf("dependencies = %+v", goModules.Dependencies)
+	}
+	if len(goModules.Tasks) != 2 {
+		t.Fatalf("tasks = %+v", goModules.Tasks)
+	}
+	if build := goModules.Tasks[0]; build.ID != "build" || build.Source != "" || build.Group != "build" || len(build.Category) != 0 {
+		t.Fatalf("build task = %+v", build)
+	}
+	vet := goModules.Tasks[1]
+	if vet.Description != "Report suspicious code" || len(vet.Category) != 2 || vet.Category[0] != "Checks" || vet.Category[1] != "Static" {
+		t.Fatalf("vet presentation = %+v", vet)
+	}
+	if len(vet.Scopes) != 2 || vet.Scopes[1] != "target" || len(vet.TargetTags) != 1 || vet.TargetTags[0] != "application" {
+		t.Fatalf("vet scopes = %+v", vet)
+	}
+	if systems["hosted"].Dependencies != nil {
+		t.Fatal("a host integration's dependencies are offered as a request")
+	}
+	if systems["plain"].Dependencies != nil {
+		t.Fatal("a system without dependencies offers them")
+	}
+}

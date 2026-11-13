@@ -101,3 +101,50 @@ func TestBuildLoadKeepsWorkingWhenDetectionReportsAnInvalidManifest(t *testing.T
 		t.Fatalf("instances = %+v", p.build.instances)
 	}
 }
+
+// The window asks only for dependencies of a scope the build system declares (Core refuses any
+// other with plugin.build.invalidSelection), names two instances of one system by their roots, and
+// lists command tasks beside provider ones.
+func TestBuildWindowPresentsDeclaredScopesRootsAndCommandTasks(t *testing.T) {
+	instance := &buildInstance{
+		BuildInstance: core.BuildInstance{BuildSystemID: "go", Root: "."},
+		System: pluginservice.BuildSystemDeclaration{
+			DisplayName:  "Go Modules",
+			Dependencies: &pluginservice.BuildDependenciesDeclaration{Scopes: []string{"project"}},
+			Tasks: []pluginservice.BuildTaskDeclaration{
+				{ID: "build", Source: "command", Category: []string{"Build"}},
+				{ID: "goal", Source: "provider", Group: "other"},
+				{ID: "model", FromModel: true},
+			},
+		},
+		Model: core.BuildModel{Projects: []core.BuildProject{{ID: "root", Path: "."}, {ID: "lib", Path: "lib"}}},
+	}
+	if _, ok := buildDependencyProject(instance, ""); ok {
+		t.Fatal("a build declaring only the project scope was asked for workspace dependencies")
+	}
+	if project, ok := buildDependencyProject(instance, "lib"); !ok || project != "lib" {
+		t.Fatalf("chosen project = %q, %v", project, ok)
+	}
+	instance.Model.Projects = instance.Model.Projects[:1]
+	if project, ok := buildDependencyProject(instance, ""); !ok || project != "root" {
+		t.Fatalf("the only project = %q, %v", project, ok)
+	}
+	instance.System.Dependencies = nil
+	if _, ok := buildDependencyProject(instance, "root"); ok {
+		t.Fatal("a build declaring no dependencies was asked for them")
+	}
+	if label := buildInstanceLabel(instance); label != "Go Modules" {
+		t.Fatalf("workspace root label = %q", label)
+	}
+	instance.Root = ".claude/worktrees/x/desktop"
+	if label := buildInstanceLabel(instance); label != "Go Modules · .claude/worktrees/x/desktop" {
+		t.Fatalf("nested root label = %q", label)
+	}
+	tasks := declaredTasks(instance)
+	if len(tasks) != 2 || tasks[0].ID != "build" || tasks[1].ID != "goal" {
+		t.Fatalf("declared tasks = %+v", tasks)
+	}
+	if detail := buildTaskDetail(&tasks[0]); detail != "Build" {
+		t.Fatalf("category detail = %q", detail)
+	}
+}

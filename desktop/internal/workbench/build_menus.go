@@ -102,12 +102,11 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 
 // buildDependencyMenu is the menu of the dependency tree of the chosen project: of one of its
 // rows, or of the line that stands for it while it loads, after it failed or when it is empty.
-func (a *App) buildDependencyMenu(c ui.C, row ui.Box, p *project, instance *buildInstance) {
+func (a *App) buildDependencyMenu(c ui.C, row ui.Box, p *project, instance *buildInstance, projectID string) {
 	ui.ContextMenu(c, row, func(menu *ui.MenuItems) {
 		lang := a.language()
 		menu.WidthRange(180, 280)
-		deps := a.dependenciesOf(p, instance)
-		projectID := p.build.projectID
+		deps := a.dependenciesOf(p, instance, projectID)
 		if menu.Item(i18n.Shared(lang, "native.reload")).Disabled(deps.loading).Clicked() {
 			c.After(func() {
 				a.performed("build.dependencies.reload", surfaceMenu)

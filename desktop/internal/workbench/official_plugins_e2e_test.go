@@ -423,7 +423,7 @@ func TestOfficialMavenPluginBuildsAReactor(t *testing.T) {
 	}
 
 	p.build.projectID = application.ID
-	deps := h.app.dependenciesOf(p, instance)
+	deps := h.app.dependenciesOf(p, instance, application.ID)
 	awaitStateWithin(t, h, 3*time.Minute, "the app dependency tree", func() bool { return !deps.loading })
 	if deps.failed != "" {
 		t.Fatalf("the app dependencies failed: %s", deps.failed)
