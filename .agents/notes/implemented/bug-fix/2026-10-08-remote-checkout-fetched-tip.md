@@ -36,7 +36,7 @@ IntelliJ Community `fb72b4df43aba102479eb0502d20b03586b9c5b8` 的 `GitRemoteBran
 
 ## 验证
 
-- 共享场景 `shared/fixtures/git/remote-checkout-v1.json` 由真实 Git 集成测试驱动，覆盖当前／其他分支、缺失本地分支、工作区／暂存区／未跟踪文件、Force、Smart Checkout、本地独有提交和其他工作树占用。
+- 共享场景 `Lithe-core-rust/rust/fixtures/git/remote-checkout-v1.json` 由真实 Git 集成测试驱动，覆盖当前／其他分支、缺失本地分支、工作区／暂存区／未跟踪文件、Force、Smart Checkout、本地独有提交和其他工作树占用。
 - `rust/lithe-core/src/tests/git_remote_checkout.rs` 验证真实 Fetch 后 HEAD、本地引用、跟踪关系与文件内容一致，并验证失败保留引用、文件、暂存区和 stash；另覆盖旧请求格式、普通本地 Checkout 与 Checkout and Rebase。
 - ~~`windows/tauri/src/features/git/components/log/git-log-branch-actions.test.tsx`~~（已随 #1794 移除） 使用实际 API 的空成功 `message`，验证本地／远程 Checkout 在中英文下仍显示完整成功文案与所选引用名称，并刷新 Git Log。
 - 运行 `.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1` 和共享 Rust 的单测试计时工具；运行 ~~scripts/rust-core/verify-rust-core-comments.sh~~（随旧客户端移除）、`scripts/agent-notes/verify-agent-notes.sh`、`scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`、`scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
@@ -46,8 +46,8 @@ IntelliJ Community `fb72b4df43aba102479eb0502d20b03586b9c5b8` 的 `GitRemoteBran
 
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/mod.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/mod.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/tests/git_remote_checkout.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/tests/git_remote_checkout.rs)
-- `shared/contracts/rust-core-api.md`
-- `shared/fixtures/git/remote-checkout-v1.json`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/git/remote-checkout-v1.json`
 - ~~`windows/tauri/src/features/git/api/git-branches-api.ts`~~（已随 #1794 移除）
 - ~~`windows/tauri/src/features/git/components/log/git-log-tool-window.tsx`~~（已随 #1794 移除）
 - ~~`macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`~~（已随 #1794 移除）

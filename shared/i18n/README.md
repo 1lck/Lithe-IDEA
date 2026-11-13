@@ -13,6 +13,8 @@ macOS 的字符串表、Windows 的完整翻译字典，以及原先页面内的
   显式兼容，原生英文旧 key 通过 `macos.key` 显式兼容。
 - `locales/<locale>.json` 保存对应语言的 `messages`。平台措辞确实不同时，使用
   `overrides.macos` 或 `overrides.windows`，同时填写 `value` 和 `reason`。
+- `fixtures/` 保存生成器测试读取的格式样例（`format-v1.json`、`native-abi-v1.json`），
+  只给 `scripts/i18n/test-i18n.mjs` 使用。Rust Core 不读取它们，所以放在这里，不放进 Core 的 `rust/fixtures/`。
 
 修改后运行：
 

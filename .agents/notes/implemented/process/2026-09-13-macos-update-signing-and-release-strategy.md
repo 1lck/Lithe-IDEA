@@ -327,8 +327,8 @@ GitHub 固定 tag 的多文件替换不是原子操作，失败可能留下部�
 Stable 和组织插件 release 不受清理影响。release 风险说明使用中英双语，明确
 普通用户应使用 Stable，自动构建可能包含缺陷或造成数据丢失。
 
-共享场景位于 `shared/fixtures/updates/channel-selection-v1.json` 和
-`shared/fixtures/updates/build-time-v1.json`，两个客户端分别验证渠道路径和严格时间格式。
+共享场景位于 `Lithe-core-rust/rust/fixtures/updates/channel-selection-v1.json` 和
+`Lithe-core-rust/rust/fixtures/updates/build-time-v1.json`，两个客户端分别验证渠道路径和严格时间格式。
 
 ### 从 Preview 回到 Stable 只走全量、且不信任下载来源的 key
 

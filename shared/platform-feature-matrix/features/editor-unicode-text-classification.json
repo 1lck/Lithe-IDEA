@@ -10,8 +10,7 @@
     "evidence": [
       "desktop/internal/core/documents.go",
       "desktop/internal/workbench/documents.go",
-      "desktop/internal/workbench/documents_test.go",
-      "shared/fixtures/editor/text-content-v1.json"
+      "desktop/internal/workbench/documents_test.go"
     ]
   },
   "windows": {
@@ -20,8 +19,7 @@
     "evidence": [
       "desktop/internal/core/documents.go",
       "desktop/internal/workbench/documents.go",
-      "desktop/internal/workbench/documents_test.go",
-      "shared/fixtures/editor/text-content-v1.json"
+      "desktop/internal/workbench/documents_test.go"
     ]
   },
   "verification": "双端打开高中文比例的 .properties 和未知扩展名 UTF-8 文件，编辑保存后恢复会话并验证内容及编码；验证 properties 高亮、emoji 跨边界、NUL 和控制字符拒绝、读取错误独立报告，并执行 text-content-v1.json 共享规则样例。",

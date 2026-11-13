@@ -9,10 +9,12 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 func TestEverywhereSearchPagesUseCoreRankingAndContext(t *testing.T) {
-	data, err := os.ReadFile("../../../shared/fixtures/search/search-everywhere-context-v1.json")
+	data, err := os.ReadFile(contractfixture.CoreFixture("search/search-everywhere-context-v1.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

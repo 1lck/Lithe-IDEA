@@ -279,7 +279,7 @@ ResizeObserver（浏览器按帧合并的尺寸观察器）服务已挂载行，
 - HEAD 回归在 `git-graph-geometry.test.ts` 固定五种 DPI 的外径、圈宽与实点尺寸；`git-graph-row.test.ts` 检查真实 SVG 的同心结构、边裁剪和普通节点不受影响。浏览器需核对圈内没有穿线，明暗主题的普通、当前分支、悬停和焦点／失焦选中背景自然透出；浏览器结果不代替 WebView2 原生截图验收。
 - `git-commit-table.navigation.test.tsx` 在 5,000 条线性历史的四行视口验证首部、中部、尾部及返回后的节点、路径数量和 SVG 高度有界；单行视口检查换列分叉在滚动边界的完整拼接，空范围等待挂载后恢复。HEAD 裁剪在非零全局偏移下仍使用窗口内坐标。可控视口验证资源数量与几何，不作为真实滚动帧率或 WebView2 验收结论。
 - 外观回归计时使用同一 Windows Frontend harness，加入 `src/features/git/utils/git-graph-colors.test.ts`、`src/features/git/utils/git-graph-geometry.test.ts` 和 `src/features/git/hooks/use-git-graph-paint.test.tsx`。浏览器验证使用真实行组件和测量 hook，检查明暗主题、五种 DPI 和用户字号；平台调用在独立页面中替代，不视为原生产品验收。
-- 仓库上下文读取现有 `issue410-context-idea.txt` 和 `issue410-date-idea.txt`，比较真实 IDEA 的 200 条拓扑页与 300 条日期页，不用 Windows 输出生成预期。API 测试复用 `shared/fixtures/git/history-page-date-request-v1.json`，确认首批与后续页都传相同顺序。
+- 仓库上下文读取现有 `issue410-context-idea.txt` 和 `issue410-date-idea.txt`，比较真实 IDEA 的 200 条拓扑页与 300 条日期页，不用 Windows 输出生成预期。API 测试复用 `Lithe-core-rust/rust/fixtures/git/history-page-date-request-v1.json`，确认首批与后续页都传相同顺序。
 - 上述两份 IDEA 输出的 `Width` 也参与建议宽度回归；几何与真实行组件检查单线、建议基线六列上限、斜边中点、超过六列的密集行与后续简单行、筛选重算和标签呈现。浏览器用真实表格与虚拟滚动核对文字按行避让图形；目标 WebView2 设备验收仍单独记录。
 - `use-git-log-controller.integration.test.tsx` 通过可控异步事件验证首批不等待上下文、切仓库和刷新取消、分页独立、卸载与迟到游标清理以及失败回退；`git-commit-table.navigation.test.tsx` 验证真实行与工具栏、屏幕外双向导航、延迟挂载、选择/焦点及普通 Diff。浏览器再用真实虚拟列表和原生 Enter／空格检查同一序列，不把 viewport mock 当作原生内核证明。
 - 原生验收：在包含交错分支和合并的 Windows Git Log 中，分别使用文本、作者、分支名称筛选，确认跨过隐藏提交的连接为虚线，直接父子为实线，无关分支不误连，清空筛选恢复原图和选择行为。
@@ -292,9 +292,9 @@ ResizeObserver（浏览器按帧合并的尺寸观察器）服务已挂载行，
 - `desktop/internal/core/gitlog.go`
 - `desktop/internal/workbench/gitgraph.go`
 - `desktop/internal/workbench/gitlog_view.go`
-- `shared/fixtures/git/graph-idea/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/fixtures/git/graph-idea/`
 - [旧客户端图形实现及原适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/feature/2026-09-25-windows-git-graph-branch-colors.md)
 
 ## 后续：布局下沉到 Rust Core（#1662 GIT-18/19）
 
-本文描述的 DFS、head 排序、定色、过滤后的虚线拓扑和 missing parents 算法已搬进 `rust/lithe-core/src/git/graph.rs`，由 `git.graphProjection` 统一提供，规则以 `shared/fixtures/git/graph-projection-v1.json` 为准。文中提到的 Swift/TS 实现文件已删除；两端只保留绘制、像素和颜色 ID 到主题色的映射。
+本文描述的 DFS、head 排序、定色、过滤后的虚线拓扑和 missing parents 算法已搬进 `rust/lithe-core/src/git/graph.rs`，由 `git.graphProjection` 统一提供，规则以 `Lithe-core-rust/rust/fixtures/git/graph-projection-v1.json` 为准。文中提到的 Swift/TS 实现文件已删除；两端只保留绘制、像素和颜色 ID 到主题色的映射。

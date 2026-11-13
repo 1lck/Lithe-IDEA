@@ -14,6 +14,8 @@ Rust Core 的 Agent 宿主（`lithe-agent-host` 和 C ABI 里的 Agent 入口）
 
 后续清理又删掉了 Core 侧全部 Agent 代码（Lithe-core-rust#18）。`shared/fixtures/mcp` 与 `shared/contracts/mcp-registry-page.json` 随后随 MCP 管理整块删除一起移除（Lithe-core-rust#19），历史决策见 `.agents/notes/archived/feature/2026-10-17-mcp-server-library.md`。
 
+本仓库剩下的 `shared/fixtures/agent/` 与 `shared/contracts/agent-turn-policy.json` 已没有读者，在 #1853 删除整个 `shared/contracts`、`shared/fixtures` 副本时一并删除，原因见 [应用契约与 fixture 只在 Rust Core](../architecture/2026-11-14-core-app-contracts-single-source.md)。
+
 ## 问题
 
 Agent 对话是迁移中剩余最大的一块：旧客户端的历史、订阅登录、附件、工具卡片、计划、用量和 MCP 管理都还没迁，Viva 又没有 WebView，回复只能用简化的 Markdown 视图。半成品面板会让用户以为功能可用，还要维护 ACP 适配器子进程的启动、退出清理和凭据传递。
@@ -72,5 +74,5 @@ Agent 对话是迁移中剩余最大的一块：旧客户端的历史、订阅�
 - `shared/platform-feature-matrix/features/`
 - `.agents/notes/archived/`
 - `docs/viva-migration.md`
-- `shared/fixtures/ai/cli-configuration-v1.json`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/ai/cli-configuration-v1.json`
 - [删除前的桌面端 Agent 实现（历史版本）](https://github.com/1lck/Lithe-IDEA/tree/e2737bf7b48285a59191943d8af926ab5aa4df4a/desktop/internal/workbench)

@@ -66,7 +66,7 @@ GDB、LLDB 可以调试 C、C++、Rust 和汇编，但二进制不一定有源�
 
 寄存器、反汇编、只读内存、指令步进与指令断点按上面的顺序一次落地，`writeMemory` 保持关闭。边界如下：
 
-- **内核**：`debug.inspect` 新增 `disassemble`、`readMemory` 两个 kind；`debug.execute` 新增可选 `granularity`；新增命令 `debug.setInstructionBreakpoints`。四项适配器能力 `supportsDisassembleRequest`、`supportsReadMemoryRequest`、`supportsSteppingGranularity`、`supportsInstructionBreakpoints` 都已注册为扩展，所以 `initialize` 现在声明 `supportsMemoryReferences`；能力快照里 `supported = 适配器 ∧ 已注册 ∧ 已授权` 不变。栈帧新增 `instructionPointerReference`，没有 `source` 也没有 `sourceReference` 的帧行号为 0，不再补成第 1 行。两个新 kind 都是引用型请求，受 `stopGeneration` 约束，继续执行后到达的旧回复按 `StaleReference` 丢弃。字段细节见 `shared/contracts/rust-core-api.md`。
+- **内核**：`debug.inspect` 新增 `disassemble`、`readMemory` 两个 kind；`debug.execute` 新增可选 `granularity`；新增命令 `debug.setInstructionBreakpoints`。四项适配器能力 `supportsDisassembleRequest`、`supportsReadMemoryRequest`、`supportsSteppingGranularity`、`supportsInstructionBreakpoints` 都已注册为扩展，所以 `initialize` 现在声明 `supportsMemoryReferences`；能力快照里 `supported = 适配器 ∧ 已注册 ∧ 已授权` 不变。栈帧新增 `instructionPointerReference`，没有 `source` 也没有 `sourceReference` 的帧行号为 0，不再补成第 1 行。两个新 kind 都是引用型请求，受 `stopGeneration` 约束，继续执行后到达的旧回复按 `StaleReference` 丢弃。字段细节见 `Lithe-core-rust/rust/contracts/rust-core-api.md`。
 - **地址不透明**：宿主任何一层都不把地址解析成整数，也不做加减。反汇编向前后翻页用 `instructionOffset` 加上当前首尾指令的地址；内存分页用相对 `memoryReference` 的字节偏移，行首标签显示偏移而不是算出的地址。判断两个地址写法是否同一个地址，只做文本规范化（小写、去 `0x`、去前导零），所以 `0x0000000100003f50` 与 `0x100003f50` 视为同一个地址，超过 2^53 的地址不会被舍入。
 - **界面**：只有 `supportsDisassembleRequest` 为真才出现“反汇编”标签。选中的栈帧没有源码时标签自动打开，选中有源码的帧时自动关闭；用户自己打开的反汇编不会被自动关闭。标签下方是辅助区：变量、寄存器（只在适配器给出 `presentationHint: "registers"` 的 scope 时出现）、内存（只在 `supportsReadMemoryRequest` 为真时出现）。无源码栈帧的行内显示等宽的指令地址，右键菜单可复制地址、打开反汇编；变量右键可以按其值读取内存。
 - **指令步进**：反汇编标签打开期间，单步（步过）和步入带 `granularity: "instruction"`；工具栏按钮的悬停提示同步变为“按指令单步跳过 / 按指令单步进入”，反汇编头部显示“按指令单步”，当前行随单步最小幅度滚动，不整列表跳动。步出仍按适配器默认处理，因为“跑完当前函数”没有指令粒度的含义。关闭标签后回到适配器默认的按行单步。适配器没有声明 `supportsSteppingGranularity` 时不带该字段，头部改为明确提示“该适配器不支持按指令单步，单步仍按源码行前进”：静默回退会让用户以为是反汇编视图的缺陷。
@@ -122,12 +122,12 @@ GDB、LLDB 可以调试 C、C++、Rust 和汇编，但二进制不一定有源�
 
 ## 验证
 
-本次只修改文档，运行 `./scripts/agent-notes/verify-agent-notes.sh`，不提供运行时证据。实施时加载 `write-stable-tests`，增加 `shared/fixtures/debug/*-v2.json`，运行 ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除） 和对应平台测试；更新功能矩阵，真实调试流程结束后清理本次启动的进程和资源。
+本次只修改文档，运行 `./scripts/agent-notes/verify-agent-notes.sh`，不提供运行时证据。实施时加载 `write-stable-tests`，增加 `Lithe-core-rust/rust/fixtures/debug/*-v2.json`，运行 ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除） 和对应平台测试；更新功能矩阵，真实调试流程结束后清理本次启动的进程和资源。
 
 ## 适用范围
 
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug)
-- `shared/fixtures/debug/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/fixtures/debug/`
 - ~~`macos/Sources/LitheCoreContracts/Debug/`~~（已随 #1794 移除）
 - ~~`macos/Sources/LitheDebugModule/`~~（已随 #1794 移除）
 - ~~`windows/tauri/src/features/debugger/`~~（已随 #1794 移除）

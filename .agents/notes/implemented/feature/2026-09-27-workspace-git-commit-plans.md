@@ -88,5 +88,5 @@ Git 的多个仓库没有跨仓库原子事务，已成功的提交不会因后�
 - `desktop/internal/core/repository_discovery_test.go`
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/commit_state.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/commit_state.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/workspace_commit.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/workspace_commit.rs)
-- `shared/contracts/rust-core-api.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md`
 - `shared/platform-feature-matrix/features/git-submodule-commit-plan.json`

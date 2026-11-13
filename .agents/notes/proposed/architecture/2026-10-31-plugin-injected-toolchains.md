@@ -188,7 +188,7 @@ macOS 的声明式路线由 `MacToolchainDiscovery` 执行，宿主不认识任�
 ## 适用范围
 
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
-- `shared/contracts/toolchain-local-v1.schema.json`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/toolchain-local-v1.schema.json`
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/execution/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/execution)
 - 已迁出：原 `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。

@@ -145,7 +145,7 @@ Maven 插件单独使用 [`Lithe-IDEA/lithe-plugin-maven@bfa56dc80914df22ab60967
 | `debug.javaTestLaunch`；`debug.steppingFilters` 中的 Java 默认值 | `RustDebugProtocolCore`、Debug resolver | 本次未检出这两个命令的 Windows 直接字面量调用；Windows debugger 仍有平台会话/调试端口 API | 随 J7 迁移 Java 专属默认值/启动配置；保留通用调试协议、端口与会话管理，删除前复核间接调用。 |
 | 通用 `build.*` / `lsp.*` / `debug.*` | 两类服务与通用调试 | 依据各端当前接入情况；本基线 Windows 构建窗口并未等同于 macOS Provider 接入 | 保留通用能力，移除其中 Maven/Java 专属策略；任何新第二平台行为先补 shared fixture。 |
 
-`shared/contracts/application-boundary.md`、`rust-core-api.md` 中的当前 Java/Maven Core 归属描述仍反映旧实现；随对应命令/路径真正迁移而更新，不能在阶段 A 把现存契约直接改成未来事实。
+`Lithe-core-rust/rust/contracts/application-boundary.md`、`rust-core-api.md` 中的当前 Java/Maven Core 归属描述仍反映旧实现；随对应命令/路径真正迁移而更新，不能在阶段 A 把现存契约直接改成未来事实。
 
 ### 七、上游复用与未决选型
 
@@ -222,7 +222,7 @@ git diff --check
 - ~~`macos/Sources/Lithe/Platform/MacOS/`~~（已随 #1794 移除）、`macos/Sources/LitheExecutionModule/`、`macos/Sources/LitheLanguageIntelligenceModule/`
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/build/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/build)、`rust/lithe-core/src/project/`、`rust/lithe-core/src/execution/`、`rust/lithe-core/src/lsp/`、`rust/lithe-core/src/debug/`
 - 已迁出：原 `Plugins/mac/Official/JavaSupport/`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
-- `shared/contracts/`、`shared/fixtures/`、`shared/platform-feature-matrix/features/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/contracts/`、`Lithe-core-rust/rust/fixtures/`、`shared/platform-feature-matrix/features/`
 - ~~`windows/tauri/src/features/`~~（已随 #1794 移除）、`windows/tauri/src/platform/`、`windows/tauri/src-tauri/src/`
 - 外部 Maven 后端：[`Lithe-IDEA/lithe-plugin-maven`][maven-plugin]
 - 关联决策：[Java 声明式资源插件][java-note]、[通用 LSP Runtime][lsp-note]、[Build System 当前契约][build-note]、[Java 独立分发提案][distribution-note]、[真实配置读写][settings-note]、[#1210 调试提案][debug-note]

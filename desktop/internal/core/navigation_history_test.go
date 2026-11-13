@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"os"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 func TestReduceNavigationHistorySharedFixtures(t *testing.T) {
-	data, err := os.ReadFile("../../../shared/fixtures/editor/navigation-history-v1.json")
+	data, err := os.ReadFile(contractfixture.CoreFixture("editor/navigation-history-v1.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

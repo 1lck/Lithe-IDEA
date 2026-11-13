@@ -34,7 +34,7 @@ Lithe 把“如何解码当前编辑器文本”和“下一次写入磁盘使�
 2. 在 macOS `MacDocumentEncoding.codec(_:)` 中添加 Foundation/CoreFoundation 映射。
 3. 在 Windows `DocumentEncoding::codec` 和 `parse` 中添加 `encoding_rs` 映射及别名。
 4. 按能力过滤读取和保存菜单；只读或只写编码不能出现在不支持的操作中。
-5. 增加原始字节 fixture（见 `shared/fixtures/documents/encoding-explicit-reopen-v1.json`），覆盖显式错码读取、保存后字节、BOM 和不可表示字符错误。
+5. 增加原始字节 fixture（见 `Lithe-core-rust/rust/fixtures/documents/encoding-explicit-reopen-v1.json`），覆盖显式错码读取、保存后字节、BOM 和不可表示字符错误。
 6. 增加 macOS、Windows 的目录一致性测试，并更新 `shared/platform-feature-matrix/features/` 中对应能力的验证场景。
 7. 如果编码会进入工作区会话，保持新旧字段的解码兼容；不要把读写状态重新合并成一个字段。
 

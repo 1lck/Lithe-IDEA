@@ -155,4 +155,4 @@ intellij-community 的 `runConfigurations/testState` 图标（Apache 2.0）。
 - ~~`frontend/editor/src/run-markers.ts`~~（已随 #1794 移除）
 - 已迁出：原 `macos/Sources/Lithe/Models/AppModel/AppModel+JavaRunMarkers.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
 - ~~`macos/Sources/LitheExecutionModule/Services/LanguageTestService.swift`~~（已随 #1794 移除）
-- `shared/fixtures/build-provider/test-results-v1.json`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/build-provider/test-results-v1.json`

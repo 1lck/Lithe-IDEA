@@ -44,4 +44,4 @@ Core 校验后的语言、原始语法与配置，不读取插件文件、认证
 
 - `desktop/internal/core/plugin_session.go`
 - `desktop/internal/core/plugin_session_test.go`
-- `shared/contracts/rust-core-api.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md`

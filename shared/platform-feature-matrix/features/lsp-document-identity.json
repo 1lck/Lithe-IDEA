@@ -14,9 +14,7 @@
       "desktop/internal/core/plugin_documents.go",
       "desktop/internal/core/plugin_documents_test.go",
       "desktop/internal/workbench/plugindiagnostics.go",
-      "desktop/internal/workbench/plugindiagnostics_test.go",
-      "shared/fixtures/lsp/document-identity-v1.json",
-      "shared/contracts/rust-core-api.md"
+      "desktop/internal/workbench/plugindiagnostics_test.go"
     ]
   },
   "windows": {
@@ -30,9 +28,7 @@
       "desktop/internal/core/plugin_documents.go",
       "desktop/internal/core/plugin_documents_test.go",
       "desktop/internal/workbench/plugindiagnostics.go",
-      "desktop/internal/workbench/plugindiagnostics_test.go",
-      "shared/fixtures/lsp/document-identity-v1.json",
-      "shared/contracts/rust-core-api.md"
+      "desktop/internal/workbench/plugindiagnostics_test.go"
     ]
   },
   "owner": "Language Intelligence",

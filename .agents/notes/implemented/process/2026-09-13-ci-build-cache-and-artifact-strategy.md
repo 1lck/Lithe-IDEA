@@ -263,8 +263,8 @@ macOS runner（GitHub 托管的 Mac 构建机）按组织共享，Free 计划同
   Platform Feature Matrix 工作流单独校验。几乎每个功能 PR 都要更新它；过去它
   落入 `shared/*` 规则，只改 macOS 界面的 PR 也会触发 Windows CI 和 macOS 上
   17 分钟的 Rust Core 测试。现在矩阵文件和 Markdown 一样走文本流程：只做
-  `git diff --check` 和矩阵自身校验，不选择任何 runner lane。`shared/contracts/`
-  下的 JSON schema 与 `shared/fixtures/` 会被各平台代码和测试读取，仍按共享
+  `git diff --check` 和矩阵自身校验，不选择任何 runner lane。`Lithe-core-rust/rust/contracts/`
+  下的 JSON schema 与 `Lithe-core-rust/rust/fixtures/` 会被各平台代码和测试读取，仍按共享
   契约选择 Swift、Rust Core 和 Windows lane。
 - 高频改动路径按真实消费方选择 lane，不落入“未知路径全量验证”的兜底分支：
   `frontend/editor/` 与根目录 `package.json`、`bun.lock` 只被 macOS 打包 lane

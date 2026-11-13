@@ -107,7 +107,7 @@ worktree 列表；macOS 的既有状态读取仍会附带 stash 等查询。合�
 ## 适用范围
 
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/metadata_watch.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/metadata_watch.rs)
-- `shared/fixtures/git/metadata-classification-v1.json`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/git/metadata-classification-v1.json`
 - `desktop/internal/workbench/git.go`
 - `desktop/internal/workbench/commit.go`
 - `desktop/internal/workbench/filetree_watch.go`

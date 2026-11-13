@@ -26,7 +26,7 @@ GitHub 设备授权的下一步、退避间隔和过期判定由 Core 计算，�
 
 ## 验证
 
-`shared/fixtures/github/device-authorization-transition-v1.json` 由 Core 和 Swift 桥接测试共同验证。`GitHubServiceTests/deviceFlowSlowDown`、`deviceFlowDeadline` 和 `deviceFlowDisplayedTooLong` 用可控时钟检查完整服务流程，无需真实等待或网络。
+`Lithe-core-rust/rust/fixtures/github/device-authorization-transition-v1.json` 由 Core 和 Swift 桥接测试共同验证。`GitHubServiceTests/deviceFlowSlowDown`、`deviceFlowDeadline` 和 `deviceFlowDisplayedTooLong` 用可控时钟检查完整服务流程，无需真实等待或网络。
 
 ## 适用范围
 

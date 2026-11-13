@@ -176,7 +176,7 @@ Swift、PHP 等已有明确 provider 的配置可归类，但这不代表增加�
   拖动折叠与展开、阈值附近防抖、保存宽度及窄栏键盘恢复、窗口变窄与卸载清理，
   以及输出会话隔离。
 - 共享契约：~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除），契约文本与
-  `shared/contracts/run-configuration-v2.schema.json` 同步更新。
+  `Lithe-core-rust/rust/contracts/run-configuration-v2.schema.json` 同步更新。
 
 ## 适用范围
 

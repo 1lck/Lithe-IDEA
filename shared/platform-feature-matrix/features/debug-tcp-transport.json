@@ -12,8 +12,7 @@
       "desktop/internal/workbench/debug_start.go",
       "desktop/internal/workbench/debug_tcp_test.go",
       "desktop/internal/core/debug_transport.go",
-      "desktop/internal/core/debug_state_test.go",
-      "shared/fixtures/debug/transport-lifecycle-v1.json"
+      "desktop/internal/core/debug_state_test.go"
     ]
   },
   "windows": {
@@ -25,8 +24,7 @@
       "desktop/internal/workbench/debug_start.go",
       "desktop/internal/workbench/debug_tcp_test.go",
       "desktop/internal/core/debug_transport.go",
-      "desktop/internal/core/debug_state_test.go",
-      "shared/fixtures/debug/transport-lifecycle-v1.json"
+      "desktop/internal/core/debug_state_test.go"
     ]
   },
   "owner": "Debug",

@@ -103,7 +103,7 @@
 
 - Rust 核心：`rust/lithe-core/src/execution/configuration.rs`（`create_launch_plan`）、
   `rust/lithe-core/src/languages/java.rs`（`standalone_launch_class`）
-- 契约：`shared/contracts/rust-core-api.md`（createLaunchPlan 段）
+- 契约：`Lithe-core-rust/rust/contracts/rust-core-api.md`（createLaunchPlan 段）
 - macOS 宿主：`RunService`、`RustCoreBridge`、`ProjectRuntimeService`、
   `RunExecutableResolver`、`RunToolchainProviders`、`MacRunConfigurationStore`
 - Windows 宿主：`windows/tauri/src-tauri/src/run.rs`、

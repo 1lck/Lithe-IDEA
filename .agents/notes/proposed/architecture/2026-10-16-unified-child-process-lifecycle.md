@@ -110,7 +110,7 @@ Agent 侧：
 账本是现有 `ModuleResourceScope` 的下层实现，不另起一套模块生命周期：模块
 仍然通过资源 scope 登记资源，资源 scope 再向平台进程端口申请进程。账本的
 记录结构、分类规则、停止阶段和结果报告是两个平台共享的确定性语义，放进
-`rust/lithe-core/`，并在 `shared/contracts/` 增加契约与 fixture；发信号、
+`rust/lithe-core/`，并在 `Lithe-core-rust/rust/contracts/` 增加契约与 fixture；发信号、
 Job Object、监护进程等平台能力留在各自的 adapter。
 
 #### 四种退出策略
@@ -713,8 +713,8 @@ Windows 仍未完成的部分：终端（ConPTY）和 Agent 进程树还没有 J
 - `desktop/internal/settingswindow/`
 - Lithe-core-rust 锁定修订：[rust/lithe-agent-host/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-agent-host)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core)
-- `shared/contracts/`
-- `shared/fixtures/process-lifecycle/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/contracts/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/fixtures/process-lifecycle/`
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
 - [旧客户端实现与原适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/proposed/architecture/2026-10-16-unified-child-process-lifecycle.md)
 - 相关决策：[模块运行时边界与生命周期](../../implemented/architecture/2026-09-13-module-runtime-boundaries-and-lifecycle.md)

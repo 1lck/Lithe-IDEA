@@ -79,7 +79,7 @@ node scripts/i18n/generate-i18n.mjs --check
 ./scripts/agent-notes/verify-agent-notes.sh
 ```
 
-`desktop/internal/toolchain/toolchain_test.go` 用真实 Core 和两个语义不同的虚构工具验证声明式发现、版本探测、生效环境、项目/子目录 pin、争用、保存冲突、未知顶层字段拒绝、页面批量保存；另外用可控 kernel 阻塞校验后取消，断言 `local.json` 与 `.gitignore` 字节均不变、无临时文件，并覆盖 ignore 写失败时文档不变。新增可控 kernel 在 Core 编辑期间写入外部修改，回归先失败、补齐二次基线检查后通过；Core 与 Go 桥接共同消费 `shared/fixtures/toolchain-pin-edit.json`。`settingswindow/toolchains_view_test.go` 验证草稿、显式保存和取消不写；`workbench/toolchains_test.go` 验证 Build 使用解析结果并在工具链不可用时按 Core 顺序回退。这些是组件与真实 Core 证据；Windows 相关组件也已在 Lithe-dev 逐项计时通过，不代替完整 GUI 或发行包验收。
+`desktop/internal/toolchain/toolchain_test.go` 用真实 Core 和两个语义不同的虚构工具验证声明式发现、版本探测、生效环境、项目/子目录 pin、争用、保存冲突、未知顶层字段拒绝、页面批量保存；另外用可控 kernel 阻塞校验后取消，断言 `local.json` 与 `.gitignore` 字节均不变、无临时文件，并覆盖 ignore 写失败时文档不变。新增可控 kernel 在 Core 编辑期间写入外部修改，回归先失败、补齐二次基线检查后通过；Core 与 Go 桥接共同消费 `Lithe-core-rust/rust/fixtures/toolchain-pin-edit.json`。`settingswindow/toolchains_view_test.go` 验证草稿、显式保存和取消不写；`workbench/toolchains_test.go` 验证 Build 使用解析结果并在工具链不可用时按 Core 顺序回退。这些是组件与真实 Core 证据；Windows 相关组件也已在 Lithe-dev 逐项计时通过，不代替完整 GUI 或发行包验收。
 
 `settings_toolchains_test.go` 的三个行为回归在修复前失败：切换项目写入错误来源、关闭项目误报成功、保存中切换后的回读来源错误；修复后与设置页冲突草稿保留用例通过逐项计时。
 
@@ -92,4 +92,4 @@ node scripts/i18n/generate-i18n.mjs --check
 - `desktop/internal/pluginservice/toolchains.go`
 - `shared/platform-feature-matrix/features/plugin-injected-toolchains.json`
 
-原生存储回归位于 `toolchain/storage_test.go` 与 `configfile/configfile_test.go`：先复现外部链接写入和空重置创建状态，再验证有界读取、重复键/未知字段的 dormant 来源拒绝、后续否定规则、权限保留、私有基线与原生根身份。`core/toolchain_sources_test.go` 与 Core 同用 `shared/fixtures/toolchain-pin-storage.json`；设置页另外先复现保存后回读失败仍可重试，再验证草稿保留和强制 Reload。组件证据不等于原生 GUI 或发行包验收。
+原生存储回归位于 `toolchain/storage_test.go` 与 `configfile/configfile_test.go`：先复现外部链接写入和空重置创建状态，再验证有界读取、重复键/未知字段的 dormant 来源拒绝、后续否定规则、权限保留、私有基线与原生根身份。`core/toolchain_sources_test.go` 与 Core 同用 `Lithe-core-rust/rust/fixtures/toolchain-pin-storage.json`；设置页另外先复现保存后回读失败仍可重试，再验证草稿保留和强制 Reload。组件证据不等于原生 GUI 或发行包验收。

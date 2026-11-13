@@ -54,7 +54,7 @@ func TestDecodePluginDiagnostics(t *testing.T) {
 }
 
 func TestDisplaySeverityMatchesTheFixture(t *testing.T) {
-	// shared/fixtures/lsp/diagnostic-code-actions-v1.json lists these cases.
+	// Lithe-core-rust rust/fixtures/lsp/diagnostic-code-actions-v1.json lists these cases.
 	cases := []struct {
 		severity *int
 		want     string

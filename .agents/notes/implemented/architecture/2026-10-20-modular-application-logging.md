@@ -66,7 +66,7 @@ macOS 已删除这个设置页，改用独立日志窗口，见[结构化日志�
 清理影响有效目录中所有模块和会话的托管文件，不受查看筛选限制；确认文案必须
 明确这点。目录切换成功后才保存 macOS 偏好，切换与清理后刷新时间线。失败保持
 可重试状态，不让过期结果覆盖新筛选条件，也不让按钮一直停留在忙碌状态。
-共享界面验收数据见 `shared/fixtures/diagnostics/logging-ui-v1.json`。
+共享界面验收数据见 `Lithe-core-rust/rust/fixtures/diagnostics/logging-ui-v1.json`。
 
 ### 先脱敏，再序列化
 
@@ -142,8 +142,8 @@ Windows 预览只保存已经脱敏的内存快照，最多四份、五分钟有
 ## 适用范围
 
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/diagnostics/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/diagnostics)
-- `shared/contracts/rust-core-api.md`
-- `shared/fixtures/diagnostics/logging-v1.json`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/diagnostics/logging-v1.json`
 - `desktop/internal/logstore/`
 - `desktop/internal/logwindow/`
 - `desktop/internal/core/logging.go`

@@ -583,9 +583,9 @@ SDK 端到端直接测试 Core 当前工作树，不生成源码快照。构建�
 - `desktop/internal/workbench/`
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
 - `shared/platform-feature-matrix/features/build-system-plugins.json`
-- `shared/contracts/run-configuration-v2.schema.json`
-- `shared/fixtures/run-configuration/build-provider.json`
-- `shared/fixtures/debug/adapter-selection-v1.json`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/run-configuration-v2.schema.json`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/run-configuration/build-provider.json`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/debug/adapter-selection-v1.json`
 - [旧客户端执行链与原适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-10-26-build-provider-task-execution.md)
 
 

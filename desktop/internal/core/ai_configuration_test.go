@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 func TestAIConfigurationSourcesUsesCorePaths(t *testing.T) {
@@ -109,7 +111,7 @@ func TestAIConfigurationRejectsUnknownSource(t *testing.T) {
 }
 
 func TestAIConfigurationParseMatchesSharedFixture(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "shared", "fixtures", "ai", "cli-configuration-v1.json"))
+	data, err := os.ReadFile(contractfixture.CoreFixture("ai/cli-configuration-v1.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

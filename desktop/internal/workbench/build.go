@@ -171,7 +171,7 @@ type buildRefusal struct {
 
 func (r *buildRefusal) Error() string { return r.message }
 
-// The IDE API failure codes a refused start maps to (shared/contracts/ide-api/v1.md).
+// The IDE API failure codes a refused start maps to (Lithe-core-rust rust/contracts/ide-api/v1.md).
 const (
 	refusalInvalid      = "INVALID_ARGUMENTS"
 	refusalNotFound     = "NOT_FOUND"

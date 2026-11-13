@@ -145,8 +145,8 @@ m2e 内嵌的 Maven，而不是用户配置的 Maven 或 mvnd，违反“依赖�
 
 - 已迁出：原 `rust/lithe-core/src/project/maven_dependency_tree.rs`。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）。
 - 已迁出：原 `rust/lithe-core/src/project/maven.rs`。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）。
-- `shared/contracts/rust-core-api.md`
-- `shared/fixtures/maven/dependency-tree-v2.json`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/65cf82343c5e315aae2e335b2e8f0217b703e89a/rust/fixtures/maven/dependency-tree-v2.json`
 - ~~`windows/tauri/src-tauri/src/maven.rs`~~（已随 #1794 移除）
 - ~~`windows/tauri/src/features/maven/`~~（已随 #1794 移除）
 - ~~`macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift`~~（已随 #1794 移除）

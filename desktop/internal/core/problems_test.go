@@ -5,13 +5,15 @@ import (
 	"os"
 	"reflect"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 // The shared fixture is the contract between Core and every host. Running it
 // through the real kernel catches a bridge type that drifted from the JSON the
 // kernel actually emits.
 func TestQueryProblemsSharedFixture(t *testing.T) {
-	data, err := os.ReadFile("../../../shared/fixtures/lsp/problems-query-v1.json")
+	data, err := os.ReadFile(contractfixture.CoreFixture("lsp/problems-query-v1.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

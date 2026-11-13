@@ -346,7 +346,7 @@ Core 契约部分的验收已在已实现的 Note 里完成。剩下的工作按
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/execution/configuration.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/execution/configuration.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/engine.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/engine.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/runtime/dispatcher.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/runtime/dispatcher.rs)
-- `shared/contracts/rust-core-api.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md`
 - 已迁出：原 `macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeDiscovery.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
 - 已迁出：原 `macos/Sources/Lithe/Platform/MacOS/Persistence/MacLegacyMavenConfigurationMigration.swift`。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）。
 - [旧版 macOS 构建服务与测试 Provider](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/LitheExecutionModule/Services)

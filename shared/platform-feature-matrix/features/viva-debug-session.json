@@ -20,7 +20,6 @@
       "desktop/internal/workbench/debug_native_e2e_test.go",
       "desktop/internal/workbench/debug_lookup_darwin.go",
       "desktop/internal/workbench/debug_lookup_other.go",
-      "shared/fixtures/debug/launch-event-order.json",
       "desktop/internal/pluginhost/executable_windows.go",
       "desktop/internal/pluginhost/executable_other.go",
       "desktop/internal/pluginhost/executable_windows_test.go"
@@ -43,7 +42,6 @@
       "desktop/internal/workbench/debug_native_e2e_test.go",
       "desktop/internal/workbench/debug_lookup_darwin.go",
       "desktop/internal/workbench/debug_lookup_other.go",
-      "shared/fixtures/debug/launch-event-order.json",
       "desktop/internal/pluginhost/executable_windows.go",
       "desktop/internal/pluginhost/executable_other.go",
       "desktop/internal/pluginhost/executable_windows_test.go"

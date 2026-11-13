@@ -42,4 +42,4 @@ macOS 和 Windows 的 Stash、Shelf 及 Windows 普通 Git 差异使用 Rust Cor
 - ~~`macos/Sources/Lithe/Core/Rust/RustGitOperations.swift`~~（已随 #1794 移除）
 - ~~`windows/tauri/src/platform/core-result-adapter.ts`~~（已随 #1794 移除）
 - ~~`windows/tauri/src/features/git/api/git-shelf-api.ts`~~（已随 #1794 移除）
-- `shared/contracts/rust-core-api.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md`

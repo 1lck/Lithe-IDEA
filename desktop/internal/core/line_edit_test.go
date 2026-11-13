@@ -4,14 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 func TestLineEditsUseCoreFixtures(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "shared", "fixtures", "editor", "line-edit-v1.json"))
+	data, err := os.ReadFile(contractfixture.CoreFixture("editor/line-edit-v1.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

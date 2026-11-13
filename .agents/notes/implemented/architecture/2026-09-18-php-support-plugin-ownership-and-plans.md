@@ -93,5 +93,5 @@ Windows 休眠的 Run Actions 宿主不再扫描其他语言的 manifest 或自�
 - ~~`windows/tauri/src/extensions/`~~（已随 #1794 移除）
 - ~~`windows/tauri/src/features/run-actions/`~~（已随 #1794 移除）
 - ~~`windows/tauri/src-tauri/src/language_tools.rs`~~（已随 #1794 移除）
-- `shared/contracts/application-boundary.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/application-boundary.md`
 - `shared/platform-feature-matrix/features/`

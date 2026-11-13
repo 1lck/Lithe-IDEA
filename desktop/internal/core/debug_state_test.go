@@ -4,15 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 func readDebugFixture(t *testing.T, name string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "shared", "fixtures", "debug", name))
+	data, err := os.ReadFile(contractfixture.CoreFixture("debug/" + name))
 	if err != nil {
 		t.Fatal(err)
 	}

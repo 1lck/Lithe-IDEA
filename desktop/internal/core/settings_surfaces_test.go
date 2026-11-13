@@ -7,10 +7,12 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 func TestSettingsSurfacesSharedVectors(t *testing.T) {
-	bytes, err := os.ReadFile("../../../shared/fixtures/plugins/settings-surfaces.json")
+	bytes, err := os.ReadFile(contractfixture.CoreFixture("plugins/settings-surfaces.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

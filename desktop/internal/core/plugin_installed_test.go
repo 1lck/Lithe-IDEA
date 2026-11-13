@@ -7,10 +7,12 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 func TestInstalledPluginVersionSelectionMatchesSharedCoreFixture(t *testing.T) {
-	data, err := os.ReadFile("../../../shared/fixtures/plugins/installed-versions.json")
+	data, err := os.ReadFile(contractfixture.CoreFixture("plugins/installed-versions.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

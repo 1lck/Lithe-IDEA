@@ -57,7 +57,7 @@ macOS 和 Windows 编辑器都在状态栏提供编码入口，并支持“以�
 - `scripts/desktop/desktop-go.sh test -race ./internal/core ./internal/workbench -run 'Test(DocumentTextClassificationUsesSharedFixtures|OpenRejectsUnsupportedEncodingWithoutChangingTheFile|ReadDocumentUsesWholeFileClassification|UnsupportedEncodingReasonFollowsLanguage|ExternalUnsupportedEncodingKeepsOpenBufferAndDiskBytes)' -count=3`：覆盖共享 Core fixture、非法字节、正常 UTF-8、提示语言与外部变化，不代表编码转换已实现。
 - 本地热缓存的 16 MiB 中英文混合文件读取微基准：原来只检查前 8 KiB 时约 1.07 ms，接入 Core 完整判定后约 122.43 ms；两者均为 5 次分配、约 16 MiB。测量使用未优化的 Core debug 构建，校验在后台读取线程执行；这不是生产构建、冷磁盘、完整应用启动或 Windows 性能验收。
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
-- `shared/fixtures/editor/text-content-v1.json` 是 Core 正文判定夹具；当前判定不包含多编码识别与转换。
+- `Lithe-core-rust/rust/fixtures/editor/text-content-v1.json` 是 Core 正文判定夹具；当前判定不包含多编码识别与转换。
 
 ## 适用范围
 

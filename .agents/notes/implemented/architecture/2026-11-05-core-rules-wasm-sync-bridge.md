@@ -36,7 +36,7 @@ Issue #1662 要求把两端重复的确定性逻辑下沉到 Core。Windows 前�
   返回新状态和 `removedGroupIds`。macOS 把 `items`、`placements`、`groupSelections` 转成规范状态（MRU、固定、预览传空值），
   Windows 把每个 `PaneGroup` 转成规范组，两端旧规则已删除；布局树、拆分方向和比例仍在各自平台，只按 `removedGroupIds` 修剪。
   两端在“选中项离开分组”时的既有行为不同（macOS 回落到第一个标签，Windows 选中相邻标签），用请求里的 `selectionFallback`
-  （`first` / `adjacent`）保留，不改用户可见行为。fixture 为 `shared/fixtures/editor/workbench-state-v1.json`。
+  （`first` / `adjacent`）保留，不改用户可见行为。fixture 为 `Lithe-core-rust/rust/fixtures/editor/workbench-state-v1.json`。
 - **WS-04 隐藏路径规则**（已迁移规则）：内置默认列表、glob 匹配和“目录名/文件”的区别只在
   `rust/lithe-core-rules/src/visibility.rs`。Core 的 `files.rs` 直接复用这份代码，不再有第二份；macOS 经
   `workspace.classifyVisibility`（按一批路径一次调用）和 `workspace.visibilityDefaults` 同步 FFI 调用，Windows 同样经 wasm。
@@ -45,7 +45,7 @@ Issue #1662 要求把两端重复的确定性逻辑下沉到 Core。Windows 前�
   用户只保存自己的条目，内置规则由 Core 补上；`!` 条目关闭内置规则。结果里的 `watchedDespiteHiding` 表示
   `.lithe` 配置目录“树里隐藏、事件仍要监听”。Windows 文件树按目录批量分类，结果按“目录 + 规则版本”缓存。
   `workspace.classifyVisibility` 和 `workspace.visibilityDefaults` 不进请求追踪。
-  共享 fixture：`shared/fixtures/workspace/visibility-v1.json`。
+  共享 fixture：`Lithe-core-rust/rust/fixtures/workspace/visibility-v1.json`。
 
 ## 边界
 
@@ -85,7 +85,7 @@ Issue #1662 要求把两端重复的确定性逻辑下沉到 Core。Windows 前�
 - `cargo test -p lithe-core-rules` 与 `cargo test -p lithe-core --lib protocol`：同一份 fixture 经 JSON envelope 逐步驱动。
 - `cargo build -p lithe-core-rules --target wasm32-unknown-unknown --release` 成功，且产物经 bun 测试真实加载。
 - `bun` 测试 `double-shift-recognizer.test.ts` 与 `core-rules.test.ts` 通过 wasm 跑同一份
-  `shared/fixtures/keymap/modifier-gesture-v1.json`；macOS `KeymapTerminalCoreFixtureTests` 通过真实 FFI 跑它。
+  `Lithe-core-rust/rust/fixtures/keymap/modifier-gesture-v1.json`；macOS `KeymapTerminalCoreFixtureTests` 通过真实 FFI 跑它。
 - `bun run build` 产物中包含 `core-rules/lithe_core_rules.wasm`。真实 Windows WebView2 加载需在 Windows 机器上确认。
 
 ## 适用范围

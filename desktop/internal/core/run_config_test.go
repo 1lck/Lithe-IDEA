@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 // A provider run snapshot becomes one effective build.provider configuration whose
@@ -104,7 +106,7 @@ func TestRunConfigurationOptionsRoundTrip(t *testing.T) {
 // TestTitleActionsFollowTheContractFixture replays every title bar case through the typed
 // wrapper.
 func TestTitleActionsFollowTheContractFixture(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "shared", "fixtures", "run-configuration", "title-action-v1.json"))
+	data, err := os.ReadFile(contractfixture.CoreFixture("run-configuration/title-action-v1.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

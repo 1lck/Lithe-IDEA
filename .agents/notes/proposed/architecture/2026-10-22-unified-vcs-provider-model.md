@@ -94,7 +94,7 @@ Git Log 图、Rebase、Worktree、Stash、Push 和 Fetch 对话框、历史改�
 - 进程启动后，宿主在 `initialize` 里通过 `capabilities.experimental.litheVcs` 协商版本，Provider 在回复里给出自己的能力集。能力集描述的是运行中的进程，所以不写进清单，这遵守[插件契约从统一基线 0 开始](../../implemented/architecture/2026-11-11-plugin-contract-single-baseline.md)第 4 节的规则。
 - 请求方法统一以 `lithe/vcs/` 开头。宿主不按 Provider ID 写分支；进程按“插件 ID + VCS ID + 工作区”隔离，生命周期规则与构建 Provider 相同。
 
-字段和方法见 [VCS Provider 契约](../../../../shared/contracts/vcs-provider-v1.md)，示例数据见 [`shared/fixtures/vcs/model-v1.json`](../../../../shared/fixtures/vcs/model-v1.json)。Core 已按契约实现（见第 9 节的进度），但还没有宿主声明 `vcsProviders`，所以插件市场不会列出这类插件；宿主接入前契约仍可以修改，改动要同时更新 fixtures 和 Core 测试。
+字段和方法见 [VCS Provider 契约](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/vcs-provider-v1.md)，示例数据见 [`Lithe-core-rust/rust/fixtures/vcs/model-v1.json`](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/vcs/model-v1.json)。Core 已按契约实现（见第 9 节的进度），但还没有宿主声明 `vcsProviders`，所以插件市场不会列出这类插件；宿主接入前契约仍可以修改，改动要同时更新 fixtures 和 Core 测试。
 
 ### 7. SVN 作为社区插件
 
@@ -237,5 +237,5 @@ P2 的第一版就是这样：插件放在 `Plugins/mac/Official/SvnSupport/`，
 - `desktop/internal/workbench/`
 - `desktop/internal/core/plugin_session.go`
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
-- `shared/contracts/vcs-provider-v1.md`
-- `shared/fixtures/vcs/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/vcs-provider-v1.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/fixtures/vcs/`

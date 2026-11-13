@@ -76,7 +76,7 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 | Rust Core | 校验声明；识别实例；读取静态模型；展开模板得到 argv 计划；解码模型、测试、诊断和依赖输出；计算指纹 | 启动进程；写文件；保存用户选择 |
 | 宿主 | 选定可执行文件并探测版本；启动进程并负责取消、期限和输出上限；分配输出文件；监听文件；保存选项；信任确认 | 生态知识；拼 argv；按构建系统名写分支 |
 
-宿主通过 13 个命令使用 Core，请求和结果形状见 `shared/contracts/rust-core-api.md` 的 “Build systems” 一节：
+宿主通过 13 个命令使用 Core，请求和结果形状见 `Lithe-core-rust/rust/contracts/rust-core-api.md` 的 “Build systems” 一节：
 
 | 用途 | 命令 |
 | --- | --- |
@@ -396,7 +396,7 @@ macOS 接入规则（2026-10-18）：
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/runtime/dispatcher.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/runtime/dispatcher.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/tests/build_systems.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/tests/build_systems.rs)
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
-- `shared/contracts/rust-core-api.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md`
 - ~~scripts/architecture/verify-shared-contracts.sh~~（脚本已随旧客户端移除）
 
 

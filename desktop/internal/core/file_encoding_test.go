@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"os"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 func TestFileEncodingSharedFixtures(t *testing.T) {
-	data, err := os.ReadFile("../../../shared/fixtures/editor/file-encoding-v1.json")
+	data, err := os.ReadFile(contractfixture.CoreFixture("editor/file-encoding-v1.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

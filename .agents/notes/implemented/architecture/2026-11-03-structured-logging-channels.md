@@ -136,7 +136,7 @@ Core 在队列旁保留一个唤醒回调槽位。drain 之后的第一条事实
 
 时间统一为 UTC 毫秒。级别封闭为 DEBUG、INFO、WARN、ERROR。字段顺序为时间、级别、`seq`、`event`、可选的 `op`、`msg`，其余字段按键排序。`seq` 是宿主分配的会话内单调序号，不补零；无状态的编码器无法证明跨批次单调。`op` 是操作关联身份，不是事件字段，也不是路径段。
 
-编码器和查询复用结构化字段脱敏：先检查完整字段名（包括 `client_secret`、`auth_token` 这类前缀形式），再处理文本。不能把字段拼成字符串后，只依赖文本正则的单词边界。编码器负责转义和 8 KiB 的单行预算，换行只作为转义值出现。超长时先缩短上下文字段，再缩短消息，并标记 `truncated=1`；身份和键的开销仍放不下时返回错误，不能悄悄删键。重复聚合和队列丢弃使用普通的 `log.repeated`、`log.dropped` 事件。精确语法、错误码和边界由 `shared/contracts/rust-core-api.md` 和 `shared/fixtures/diagnostics/logging-v2.json` 持有，本 Note 不另建字段手册。
+编码器和查询复用结构化字段脱敏：先检查完整字段名（包括 `client_secret`、`auth_token` 这类前缀形式），再处理文本。不能把字段拼成字符串后，只依赖文本正则的单词边界。编码器负责转义和 8 KiB 的单行预算，换行只作为转义值出现。超长时先缩短上下文字段，再缩短消息，并标记 `truncated=1`；身份和键的开销仍放不下时返回错误，不能悄悄删键。重复聚合和队列丢弃使用普通的 `log.repeated`、`log.dropped` 事件。精确语法、错误码和边界由 `Lithe-core-rust/rust/contracts/rust-core-api.md` 和 `Lithe-core-rust/rust/fixtures/diagnostics/logging-v2.json` 持有，本 Note 不另建字段手册。
 
 ### 事件目录与生成类型约束接入
 
@@ -333,8 +333,8 @@ fixture 覆盖往返、转义、非法输入、路径段、轮转与保留、共
 - Lithe-core-rust 锁定修订：[rust/lithe-remote/src/failure_log.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/failure_log.rs)
 - ~~`shared/logging/`~~（已随 #1794 移除）
 - ~~`scripts/logging/`~~（已随 #1794 移除）
-- `shared/contracts/rust-core-api.md`
-- `shared/fixtures/diagnostics/logging-v2.json`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/diagnostics/logging-v2.json`
 - ~~`macos/Sources/LitheModuleAPI/Logging/`~~（已随 #1794 移除）
 - ~~`macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift`~~（已随 #1794 移除）
 - ~~`macos/Sources/Lithe/Platform/MacOS/Logging/`~~（已随 #1794 移除）
