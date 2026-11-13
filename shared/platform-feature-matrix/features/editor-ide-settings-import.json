@@ -7,16 +7,14 @@
     "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/pluginhost/pluginhost.go",
-      "shared/contracts/rust-core-api.md"
+      "desktop/internal/pluginhost/pluginhost.go"
     ]
   },
   "windows": {
     "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/pluginhost/pluginhost.go",
-      "shared/contracts/rust-core-api.md"
+      "desktop/internal/pluginhost/pluginhost.go"
     ]
   },
   "owner": "Editor / Settings",

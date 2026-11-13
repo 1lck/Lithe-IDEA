@@ -26,7 +26,7 @@ IDEA 的项目视图用 `AlphaComparator` 比较同级节点，而它调用的�
 - Rust Core 在 `rust/lithe-core/src/project/file_name_order.rs` 提供 `FileNameKey`，`visible_children` 在 `ChildOrder::Tree` 下用 `sort_by_cached_key` 排序；每个名字只转换一次，大目录排序不会按比较次数分配内存。
 - `visible_children` 必须由调用方说明要哪种顺序（`ChildOrder`）：只有 `workspace.listDirectories` 使用 `Tree`；快照（`scan_node`、`collect_snapshot_files`）和搜索索引使用 `Traversal`，仍按小写名字排序。
 - Swift 在 `NaturalNameOrder`（`LitheCoreContracts`）里持有算法。兜底扫描用 `sortedAsProjectTreeSiblings`，插入文件用 `compareFileNames`；Git 的分支名排序（`GitGraphHeadOrdering.naturalCompare`，不带 `likeFileNames`）也委托给它，不再保留第二份拷贝。
-- 新增或调整规则时先改 `shared/fixtures/workspace/file-name-order-v1.json`，再让 Rust 和 Swift 测试一起通过。
+- 新增或调整规则时先改 `Lithe-core-rust/rust/fixtures/workspace/file-name-order-v1.json`，再让 Rust 和 Swift 测试一起通过。
 
 ### 树行顺序与遍历顺序分开
 
@@ -68,7 +68,7 @@ macOS 项目树的主路径是 Rust Core 的目录列表，兜底扫描只在 Co
 - `desktop/internal/core/workspace.go`
 - `desktop/internal/core/workspace_tree_test.go`
 - `desktop/internal/workbench/filetree.go`
-- `shared/fixtures/workspace/file-name-order-v1.json`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/workspace/file-name-order-v1.json`
 
 ## 迁移前的实现与验证记录
 

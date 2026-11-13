@@ -17,7 +17,7 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 | Core | Lithe-core-rust 仓库的 `rust/lithe-core/`，由桌面构建脚本固定修订。 |
 | 平台层 | `desktop/` 中的 Viva 呈现、系统适配和桥接。 |
 | 原生适配器 | 直接调用操作系统 API 的桌面适配器，以及 Lithe-core-rust 的 `rust/lithe-git-host/` 等进程执行 crate。 |
-| 共享契约 | `shared/contracts/` 下的接口文档与 schema，以及 `shared/fixtures/` 下的 fixture。 |
+| 共享契约 | Lithe-core-rust 仓库 `rust/contracts/` 下的接口文档与 schema，以及 `rust/fixtures/` 下的 fixture。这是唯一的一份，本仓库不保存副本；桌面测试通过 `contractfixture.CoreFixture` 读取所链接的 Core 检出。 |
 | 主线程 | Viva 窗口的 UI 线程，以及平台原生窗口要求使用的线程。 |
 
 路径除特别说明外都相对于仓库根目录；本文件中的 Markdown 链接相对于本文件。
@@ -41,7 +41,7 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 | 任务 | 必须读取 |
 | --- | --- |
 | 调整模块归属、依赖方向或架构边界 | `.agents/notes/implemented/architecture/` 中与该模块相关的 Note |
-| 跨平台行为或共享接口 | `shared/contracts/application-boundary.md`、`shared/contracts/rust-core-api.md` 和相关 fixture |
+| 跨平台行为或共享接口 | Lithe-core-rust 仓库的 `rust/contracts/application-boundary.md`、`rust/contracts/rust-core-api.md` 和 `rust/fixtures/` 下的相关 fixture |
 | 新增插件 API，或把内置工具迁移为插件 | `.agents/notes/implemented/architecture/2026-10-31-plugin-capability-and-domain-boundaries.md` |
 | 创建插件，或为已有插件新增提供者 | `.agents/skills/create-lithe-plugin/SKILL.md` |
 | macOS 界面、控件或视觉交互 | [macOS 共享控件规范](references/macos-ui.md)，以及其中与本次改动相关的 Note |
@@ -70,7 +70,7 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 | Lithe-core-rust 的 `rust/lithe-git-host/` | 原生子进程执行、管道、临时输入、进程树归属与有界清理 |
 | `desktop/` | Viva（Go）统一客户端：窗口、工作台呈现、平台适配和 Core C ABI 调用。功能仍在迁移，不能因代码存在就视为已验收 |
 | Lithe-IDEA 组织的插件仓库 | 插件源码、工具专属知识和插件包；不要在本仓库维护第二份 SDK 或插件业务 |
-| `shared/` | 共享契约、fixture 和 i18n 词条；不放编译实现 |
+| `shared/` | i18n 词条（`shared/i18n/`）和跨平台功能矩阵（`shared/platform-feature-matrix/`）；不放编译实现。应用契约与 fixture 只在 Lithe-core-rust 的 `rust/contracts/`、`rust/fixtures/`，本仓库不保存副本 |
 | `scripts/`、`.github/` | 仓库级脚本和 CI 工作流；脚本按[脚本放置与分类](references/scripts.md)放置 |
 
 macOS 旧客户端是视觉与行为对照基线；新客户端共用 Viva 界面，macOS、Windows 和 Linux 的系统适配仍需分别验证。旧 Swift、React/Tauri 和 Monaco 目录已经从本分支移除，历史决策不能当作当前代码位置。
@@ -151,7 +151,7 @@ Lithe 自己负责的是：有界生命周期、取消、过期结果隔离、�
 - 失败返回稳定的错误码和面向用户的消息；平台专属细节放在契约的 `details` 字段。
 - 新增 API 的每个数值错误码（例如 JSON-RPC 的 `error.code`）只对应一种错误，调用方只凭数值码就能分支。方法不存在、参数错误、取消等标准语义使用 JSON-RPC/LSP 标准码；其余错误各自占用服务端自定义区间内的独立码，并在契约文档和 fixture 中列出映射。已发布协议版本中的旧码保持不变，从新版本起区分。
 - 进程型功能保留 `operationID`、取消、超时和过期结果丢弃语义。
-- 新的 Core 命令或字段接入任一平台之前，必须先补充或更新共享 fixture。
+- 新的 Core 命令或字段接入任一平台之前，必须先在 Core 仓库的 `rust/fixtures/` 补充或更新 fixture，与命令在同一个 Core PR 里合入；桌面端再把 `PINNED_CORE_REVISION` 升到包含它的 commit。
 - 以下内容是兼容面，修改时必须同步更新契约文档和所有消费者：命令名、JSON 字段、错误码、C ABI 符号，以及 Core 的公开 Rust 类型、结构体字段和函数签名。除 Viva 桥接外还要检查 Core 仓库及插件等真实消费者；只改 Core 也必须修正受影响调用点。
 
 ## 四、性能与内存
@@ -438,7 +438,7 @@ git diff --name-only origin/preview...HEAD
 | 日志事件、日志调用、界面警告或错误、会丢弃错误的代码 | 按共享日志契约检查目录与使用；旧日志生成和使用校验脚本已移除，等价检查恢复前标记门禁未完成 |
 | 测试代码或测试基础设施 | `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`，再运行该 Skill 中对应平台的逐项计时入口 |
 | Viva 桌面代码 | `./scripts/desktop/desktop-go.sh test ./...`、受影响包的竞态测试，以及目标平台相应原生验证 |
-| 共享应用行为或 JSON fixture | 运行受影响的 Core 与桌面契约测试；旧 `verify-shared-contracts.sh` 已移除，等价边界检查恢复前标记门禁未完成 |
+| 共享应用行为或 JSON fixture | 在 Core 仓库运行受影响的测试；升级 `PINNED_CORE_REVISION`（或用 `LITHE_CORE_RUST_DIR` 指向本地 Core 检出）后，用 `./scripts/desktop/desktop-go.sh test` 运行读取该 fixture 的桌面测试；旧 `verify-shared-contracts.sh` 已移除，等价边界检查恢复前标记门禁未完成 |
 | Rust Core、JSON C ABI 或桌面桥接 | 先完成 Core 注释与契约检查，再运行受影响 crate、桥接和目标平台消费者测试；旧 Core 验证脚本移除后不得把缺失检查记为通过 |
 | Core 功能或 Git graph 行为 | 运行所属 Core crate 和桌面消费者的相关测试；旧 `verify-core.sh`、`verify-git-graph.sh` 移除后，等价边界验证恢复前标记门禁未完成 |
 | 运行时资源或发行目录只读边界 | `./scripts/macos/verify/verify-runtime-bundle-immutability.sh` |

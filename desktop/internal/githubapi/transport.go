@@ -1,5 +1,5 @@
 // Package githubapi performs GitHub HTTPS requests for the desktop client. Rust Core plans every
-// request and normalizes every response (shared/contracts/github.md); this package only sends the
+// request and normalizes every response (Lithe-core-rust rust/contracts/github.md); this package only sends the
 // planned request on the trusted hosts, attaches the account's token when the plan asks for one,
 // and bounds the response. A token is never put in an error or a log.
 package githubapi

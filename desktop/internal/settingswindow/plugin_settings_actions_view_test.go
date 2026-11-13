@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
@@ -28,7 +29,7 @@ func (s headlessActionSource) Action(ctx context.Context, editor pluginservice.S
 }
 
 func TestSettingsActionButtonsConfirmDismissAndPreserveUnsavedInput(t *testing.T) {
-	data, err := os.ReadFile("../../../shared/fixtures/plugins/settings-documents.json")
+	data, err := os.ReadFile(contractfixture.CoreFixture("plugins/settings-documents.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

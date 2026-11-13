@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 )
 
-// This file wraps the AI pull-request description commands (shared/contracts/ai-generation-requests.md).
+// This file wraps the AI pull-request description commands (Lithe-core-rust rust/contracts/ai-generation-requests.md).
 // Core shapes the prompt, applies the sensitive-path policy and the diff budget, and decodes the
 // model's answer; the host sends the planned request with the provider's credentials.
 

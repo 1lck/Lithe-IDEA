@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
@@ -17,7 +18,7 @@ import (
 func TestPluginSettingsDraftPreservesSevenDeclaredControlTypes(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	data, err := os.ReadFile("../../../shared/fixtures/plugins/settings-documents.json")
+	data, err := os.ReadFile(contractfixture.CoreFixture("plugins/settings-documents.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +99,7 @@ func TestPluginSettingsDraftPreservesSevenDeclaredControlTypes(t *testing.T) {
 func TestPluginSettingsInvalidIntegerDraftStaysUnparsedUntilCoreRejectsSave(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	data, err := os.ReadFile("../../../shared/fixtures/plugins/settings-documents.json")
+	data, err := os.ReadFile(contractfixture.CoreFixture("plugins/settings-documents.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

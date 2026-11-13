@@ -362,5 +362,5 @@ M2 接入“打开远程文件夹”时，SSH 连接的配置界面参考用户�
 - Lithe-core-rust 锁定修订：[rust/lithe-remote/src/protocol/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/protocol)
 - Lithe-core-rust 锁定修订：[rust/lithe-remote/src/server/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/server)
 - Lithe-core-rust 锁定修订：[rust/lithe-remote/src/client/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/client)
-- `shared/contracts/remote-workspace-protocol-v1.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/remote-workspace-protocol-v1.md`
 - [旧版远程持续集成工作流](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.github/workflows/ci-remote.yml)；Viva 的对应远端构建与验收仍需重建。

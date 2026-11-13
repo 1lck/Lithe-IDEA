@@ -386,7 +386,7 @@ Linux 的模拟验证不能代替 Windows WebView2 或报告者项目的实机�
 
 Windows 语义颜色使用 `lsp-core-adapter.test.ts` 和
 `semantic-token-provider.test.ts` 消费同一份
-`shared/fixtures/lsp/semantic-tokens-v1.json`，覆盖命令路由、图例转换、刷新通知、
+`Lithe-core-rust/rust/fixtures/lsp/semantic-tokens-v1.json`，覆盖命令路由、图例转换、刷新通知、
 取消、归属替换、同步先后顺序及过期模型。Linux 可运行这些确定性前端测试；
 真实 JDTLS 与 WebView2 上色、大文件降级仍需 Windows 验收。
 

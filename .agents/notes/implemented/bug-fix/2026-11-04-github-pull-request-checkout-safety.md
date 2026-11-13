@@ -26,7 +26,7 @@ Core 生成安全的本地名称并检查同名、父级及子级引用；预览
 
 ## 验证
 
-`GitHubServiceTests/checkoutDoesNotResetExistingBranch` 在临时仓库复现旧实现重置分支，并检查冲突、过期预览和正常检出。Core 的 `github_pr_checkout` 测试还验证 origin 变更和地址脱敏。`shared/fixtures/github/pr-checkout-plan-v1.json` 由 Core 和 Swift 桥接测试共同验证。
+`GitHubServiceTests/checkoutDoesNotResetExistingBranch` 在临时仓库复现旧实现重置分支，并检查冲突、过期预览和正常检出。Core 的 `github_pr_checkout` 测试还验证 origin 变更和地址脱敏。`Lithe-core-rust/rust/fixtures/github/pr-checkout-plan-v1.json` 由 Core 和 Swift 桥接测试共同验证。
 
 ## 适用范围
 

@@ -6,13 +6,15 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 // The desktop tree displays Core's order directly on both platforms. The
 // release-notes fixture avoids case-only names, which cannot coexist on the
 // default Windows and macOS filesystems.
 func TestWorkspaceDirectoryTreeUsesCoreNaturalOrder(t *testing.T) {
-	data, err := os.ReadFile("../../../shared/fixtures/workspace/file-name-order-v1.json")
+	data, err := os.ReadFile(contractfixture.CoreFixture("workspace/file-name-order-v1.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

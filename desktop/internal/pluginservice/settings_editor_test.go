@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/configfile"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
@@ -20,7 +21,7 @@ func TestInstalledSettingsEditorPublishesAndRejectsChangedOwners(t *testing.T) {
 		t.Run(change, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			data, err := os.ReadFile("../../../shared/fixtures/plugins/settings-documents.json")
+			data, err := os.ReadFile(contractfixture.CoreFixture("plugins/settings-documents.json"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -114,7 +115,7 @@ func TestInstalledSettingsRejectsManifestForAnotherRegistration(t *testing.T) {
 		t.Run(field, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			data, err := os.ReadFile("../../../shared/fixtures/plugins/settings-documents.json")
+			data, err := os.ReadFile(contractfixture.CoreFixture("plugins/settings-documents.json"))
 			if err != nil {
 				t.Fatal(err)
 			}

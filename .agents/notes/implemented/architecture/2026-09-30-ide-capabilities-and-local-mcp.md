@@ -194,7 +194,7 @@ Agent 的查询先执行只读目录检测，返回已准入清单、Core 校验
 ## 适用范围
 
 - Lithe-core-rust 锁定修订：[rust/lithe-ide-host/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-ide-host)
-- `shared/contracts/ide-api/v1.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/ide-api/v1.md`
 - ~~`macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift`~~（已随 #1794 移除）
 - ~~`macos/Sources/LitheModuleAPI/Plugins/IDECapabilities.swift`~~（已随 #1794 移除）
 - ~~`windows/tauri/src/features/host-api/`~~（已随 #1794 移除）

@@ -38,7 +38,7 @@ macOS 确认按钮暂不可用；已过期的校验结果不会覆盖新输入�
 
 ## 验证
 
-- `shared/fixtures/editor/navigation-input-v1.json` 覆盖行列、空格、零、负数、
+- `Lithe-core-rust/rust/fixtures/editor/navigation-input-v1.json` 覆盖行列、空格、零、负数、
   尾随字符和溢出；Core 与 Windows 命令回归消费同一 fixture。
 - `GoToLineInputTests` 和 `GoToLineDialogValidationTests` 覆盖原生桥接、迟到结果和
   原生模态循环；Windows 的导航命令和行选择测试覆盖列号、CRLF 与 UTF-16 列。

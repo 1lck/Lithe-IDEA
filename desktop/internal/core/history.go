@@ -4,7 +4,7 @@ import "context"
 
 // Local history: Core stores versioned snapshots of workspace files under a
 // host-chosen storage root and decides, per editing event, which snapshots are
-// taken (shared/contracts/rust-core-api.md, history.*).
+// taken (Lithe-core-rust rust/contracts/rust-core-api.md, history.*).
 
 // HistoryEntry is one stored snapshot of a file.
 type HistoryEntry struct {

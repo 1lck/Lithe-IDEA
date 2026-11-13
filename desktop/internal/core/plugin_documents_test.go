@@ -6,6 +6,8 @@ import (
 	"os"
 	"reflect"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 func TestPluginDocumentSyncDecodesCoreResponse(t *testing.T) {
@@ -57,7 +59,7 @@ func TestPluginDocumentSyncRequestKeepsTextOptional(t *testing.T) {
 }
 
 func TestPluginDocumentURIUsesCoreFixture(t *testing.T) {
-	data, err := os.ReadFile("../../../shared/fixtures/lsp/document-uri-v1.json")
+	data, err := os.ReadFile(contractfixture.CoreFixture("lsp/document-uri-v1.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +95,7 @@ func TestPluginDocumentURIUsesCoreFixture(t *testing.T) {
 }
 
 func TestPluginDocumentIdentityUsesCoreFixture(t *testing.T) {
-	data, err := os.ReadFile("../../../shared/fixtures/lsp/document-identity-v1.json")
+	data, err := os.ReadFile(contractfixture.CoreFixture("lsp/document-identity-v1.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

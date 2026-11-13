@@ -257,7 +257,7 @@ M4 开始就建立唯一构建操作入口，供原生按钮和插件网页共�
 
 交付内容：
 
-- 按 [VCS Provider 契约](../../shared/contracts/vcs-provider-v1.md) 使用 `vcs.detectRoots/ownerOf`、`lsp.vcsRequest`、`vcs.decodeReply`，共用 Core 会话和现有进程树管理，不复制 SVN 命令与输出解析。
+- 按 [VCS Provider 契约](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/vcs-provider-v1.md) 使用 `vcs.detectRoots/ownerOf`、`lsp.vcsRequest`、`vcs.decodeReply`，共用 Core 会话和现有进程树管理，不复制 SVN 命令与输出解析。
 - 对齐冻结版本 macOS 已接入的根识别、状态、基线比较、选中提交、更新、回滚、解决/清理、历史及文件操作跟踪；入口按 Provider 协商能力显示，不按 svn ID 分支。
 - 保留 Git 专属提交、分支、Log、Worktree 等流程；嵌套根按最深归属处理，跨根移动不得误交给单个 Provider。
 - 识别工作副本可先进行无进程检测；识别后读取状态的启动时机遵循 VCS 契约和安装授权，不能套用“所有 Provider 只能点击后启动”的构建规则。
@@ -377,7 +377,7 @@ macOS/具备 zsh 的正式验证环境按相应 Skill 执行 `scripts/rust-core/
 ## 8. 开始实施前的阅读入口
 
 - [跨平台功能同步规则](platform-parity.md)。
-- [应用边界](../../shared/contracts/application-boundary.md)与 [Rust Core API](../../shared/contracts/rust-core-api.md)。
+- [应用边界](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/application-boundary.md)与 [Rust Core API](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md)。
 - [插件契约与 fixtures](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md)。
 - [插件市场与来源](../../.agents/notes/implemented/feature/2026-10-12-plugin-marketplace.md)。
 - [构建系统契约](../../.agents/notes/implemented/architecture/2026-10-17-build-system-plugin-contract.md)。

@@ -59,7 +59,7 @@ CSV 方便筛选，Excel 对非开发者更友好，但二进制 Excel 不利于
 
 ### 把所有差异都强行抽到 Rust Core
 
-这会把 UI 和原生平台行为错误地塞进共享层。矩阵只记录产品行为和验证边界，不改变 `shared/contracts/`、Rust Core、macOS adapter 或 Windows Tauri 的现有所有权。
+这会把 UI 和原生平台行为错误地塞进共享层。矩阵只记录产品行为和验证边界，不改变 `Lithe-core-rust/rust/contracts/`、Rust Core、macOS adapter 或 Windows Tauri 的现有所有权。
 
 ## 收益和代价
 

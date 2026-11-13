@@ -291,4 +291,4 @@ separate git-dir 均通过验收；Git-only 事件不触发项目树/编辑器/�
 - ~~`macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift`~~（已随 #1794 移除）
 - ~~`macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`~~（已随 #1794 移除）
 - ~~`macos/Sources/LitheCoreContracts/Workspace/FileVisibilityRules.swift`~~（已随 #1794 移除）
-- `shared/contracts/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/contracts/`

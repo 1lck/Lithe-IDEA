@@ -79,4 +79,4 @@ Shelf 存储在平台 `app_data_dir()/git-shelves/<规范化根路径哈希>`，
 - ~~`windows/tauri/src-tauri/src/shelf_storage.rs`~~（已随 #1794 移除）
 - ~~`windows/tauri/src-tauri/src/file_publication.rs`~~（已随 #1794 移除）
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/patch_exchange.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/patch_exchange.rs)
-- `shared/contracts/rust-core-api.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md`

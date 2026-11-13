@@ -90,4 +90,4 @@ Windows Quick Open（双击 Shift）也复用同一份索引：在默认搜索�
 - ~~`windows/tauri/src/features/quick-open/`~~（已随 #1794 移除）
 - ~~`windows/tauri/src/features/file-system/services/file-watcher-listener.ts`~~（已随 #1794 移除）
 - ~~`windows/tauri/src/features/layout/components/bottom-pane/bottom-pane.tsx`~~（已随 #1794 移除）
-- `shared/contracts/rust-core-api.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md`

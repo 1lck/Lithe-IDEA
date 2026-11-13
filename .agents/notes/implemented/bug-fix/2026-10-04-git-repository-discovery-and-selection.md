@@ -67,5 +67,5 @@ macOS 点击另一仓库的分支时，先刷新目标仓库，再设置目标�
 - ~~`macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`~~（已随 #1794 移除）
 - ~~`macos/Sources/Lithe/Views/Git/GitLogView.swift`~~（已随 #1794 移除）
 - ~~`windows/tauri/src/features/git/api/git-repo-api.ts`~~（已随 #1794 移除）
-- `shared/contracts/rust-core-api.md`
-- `shared/fixtures/workspace/repository-visibility-v1.json`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/workspace/repository-visibility-v1.json`

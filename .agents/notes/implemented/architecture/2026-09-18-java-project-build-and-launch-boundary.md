@@ -179,7 +179,7 @@ JDT LS 1.61 的 `BaseDocumentLifeCycleHandler.handleSaved` 会刷新并重建工
 重新读取缓冲区；例如等待 A 文件时用户保存了 B，就发送 B 的新内容，不能把遍历开始时
 捕获的旧文本重新同步。已关闭或变脏的文件跳过通知，未保存修改仍阻止启动。
 共享保存夹具为
-`shared/fixtures/lsp/document-save-v1.json`。这不保证未打开文件的外部修改立即
+`Lithe-core-rust/rust/fixtures/lsp/document-save-v1.json`。这不保证未打开文件的外部修改立即
 完成 JDT watcher 同步；真实测试仍观察到这种情况下运行旧输出，不能将本次修复
 宣称为所有外部文件变更的同步屏障。
 
@@ -288,7 +288,7 @@ JDK 是插件声明、用户选定的工具链安装（`toolchains.*`），宿�
 环境（例如 JAVA_HOME）和 PATH 前缀加进去（Viva 中是
 `desktop/internal/workbench/toolchains.go` 的 `applyToolchainSelection`）。
 execution.resolveEnvironment 只剩“继承环境低于显式值”的合并，不认识任何工具；
-契约和 `shared/fixtures/execution/launch-environment-v1.json` 已在
+契约和 `Lithe-core-rust/rust/fixtures/execution/launch-environment-v1.json` 已在
 Lithe-core-rust#10 改成这个语义并由 Core 测试执行。Windows 环境键按不区分
 大小写处理。
 
@@ -386,8 +386,8 @@ Maven JDK、显式覆盖及资源步骤；#1133 的 Maven 原生资源步骤保�
   终态测试覆盖同一次启动继续、按工作区记忆选择和索引恢复。
 - Windows：Run Store 把准备结果传入 Core，并分别用 `;` 拼 classpath/module-path；
   Run/Debug 共用的 Store 测试覆盖同一次启动继续、取消、记忆选择和索引恢复。
-- 共享契约：`shared/contracts/rust-core-api.md` 与
-  `shared/contracts/application-boundary.md`，跨平台样例为
+- 共享契约：`Lithe-core-rust/rust/contracts/rust-core-api.md` 与
+  `Lithe-core-rust/rust/contracts/application-boundary.md`，跨平台样例为
   `shared/fixtures/lsp/java-build-report-v1.json`。
 
 ## 适用范围

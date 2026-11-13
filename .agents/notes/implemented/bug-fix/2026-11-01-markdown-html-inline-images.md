@@ -58,5 +58,5 @@ Issue #1623 中 README 徽章纵向堆叠、标题丢失居中，看起来像是
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/project/markdown.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/project/markdown.rs)
 - ~~`macos/Sources/Lithe/Resources/MarkdownPreview/preview.css`~~（已随 #1794 移除）
 - ~~`macos/Tests/LitheTests/MarkdownPreviewHTMLTests.swift`~~（已随 #1794 移除）
-- `shared/fixtures/editor/markdown-html-v1.json`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/editor/markdown-html-v1.json`
 - `shared/platform-feature-matrix/features/markdown-rendering.json`

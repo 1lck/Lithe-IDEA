@@ -30,15 +30,12 @@
       "desktop/internal/workbench/settings_plugin_actions.go",
       "desktop/internal/workbench/settings_plugin_actions_test.go",
       "desktop/internal/pluginservice/settings_actions_test.go",
-      "shared/fixtures/plugins/settings-actions.json",
-      "shared/fixtures/plugins/settings-function-provider.json",
       "desktop/internal/core/settings_surfaces.go",
       "desktop/internal/core/settings_surfaces_test.go",
       "desktop/internal/settingswindow/settings_surfaces.go",
       "desktop/internal/settingswindow/settings_surfaces_test.go",
       "desktop/internal/workbench/settings_publication.go",
       "desktop/internal/workbench/settings_publication_test.go",
-      "shared/fixtures/plugins/settings-surfaces.json",
       "desktop/internal/settingswindow/installed_view.go",
       "desktop/internal/settingswindow/installed_view_test.go"
     ]
@@ -70,15 +67,12 @@
       "desktop/internal/workbench/settings_plugin_actions.go",
       "desktop/internal/workbench/settings_plugin_actions_test.go",
       "desktop/internal/pluginservice/settings_actions_test.go",
-      "shared/fixtures/plugins/settings-actions.json",
-      "shared/fixtures/plugins/settings-function-provider.json",
       "desktop/internal/core/settings_surfaces.go",
       "desktop/internal/core/settings_surfaces_test.go",
       "desktop/internal/settingswindow/settings_surfaces.go",
       "desktop/internal/settingswindow/settings_surfaces_test.go",
       "desktop/internal/workbench/settings_publication.go",
       "desktop/internal/workbench/settings_publication_test.go",
-      "shared/fixtures/plugins/settings-surfaces.json",
       "desktop/internal/settingswindow/installed_view.go",
       "desktop/internal/settingswindow/installed_view_test.go"
     ]

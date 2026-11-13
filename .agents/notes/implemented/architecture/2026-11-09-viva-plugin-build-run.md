@@ -80,4 +80,4 @@ Windows 没有运行本切片；真实执行证据是 macOS 上用未修改的�
 - `desktop/internal/plugininstall/`
 - `desktop/internal/workbench/official_cargo_test.go`
 
-共享协议和 Rust Core 的构建模型仍以 `shared/contracts/` 和固定 Core 修订为准；本笔记不定义新的插件协议。
+共享协议和 Rust Core 的构建模型仍以 `Lithe-core-rust/rust/contracts/` 和固定 Core 修订为准；本笔记不定义新的插件协议。

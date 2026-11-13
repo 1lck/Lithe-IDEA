@@ -26,7 +26,7 @@
 
 ## 验证
 
-`cancellingSaveAllDuringRemoteDrainDoesNotWrite` 覆盖正常保存、取消和重置；`shared/fixtures/documents/save-batch-v1.json` 覆盖 Core 对未同步文档的选择。全量测试暴露了修复前不会进入同步回调的问题。
+`cancellingSaveAllDuringRemoteDrainDoesNotWrite` 覆盖正常保存、取消和重置；`Lithe-core-rust/rust/fixtures/documents/save-batch-v1.json` 覆盖 Core 对未同步文档的选择。全量测试暴露了修复前不会进入同步回调的问题。
 
 ## 适用范围
 

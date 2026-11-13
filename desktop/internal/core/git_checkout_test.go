@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 func TestCheckoutMetadataUsesSharedFixture(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "shared", "fixtures", "git", "checkout-metadata-v1.json"))
+	data, err := os.ReadFile(contractfixture.CoreFixture("git/checkout-metadata-v1.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

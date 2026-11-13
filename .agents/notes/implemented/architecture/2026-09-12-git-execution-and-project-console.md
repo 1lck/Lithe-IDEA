@@ -160,7 +160,7 @@ prune、仓库覆盖关闭时，重置提示应为开启；子模块只有选择
 删除远程没有的本地标签。部分或排除型标签 refspec 显示为自定义，不猜测完整
 结果。无可用远程或 Git 拒绝的布尔配置显示不可确定，原始配置仍可编辑。
 例如，`--no-tags --no-prune` 配合 `fetch.pruneTags=true` 时显示“获取全部”，
-不要只回显 Lithe 选中的“不获取”。`shared/fixtures/git/fetch-behavior-v1.json`
+不要只回显 Lithe 选中的“不获取”。`Lithe-core-rust/rust/fixtures/git/fetch-behavior-v1.json`
 覆盖来源和多远程规则，Core 的真实 Git 测试对照标签 refspec、无效布尔值与实际 Fetch。
 
 普通 Fetch 仍是一项直接操作，可选的设置预览留在现有 Git 菜单中。控制台
@@ -227,7 +227,7 @@ stdout/stderr 分开，复制原始输出时不混入提示。没有完整变化
 可以展开恢复。向上滚动暂停跟随，回到底部恢复；macOS 在控制台容器内处理
 滚动状态，避免每个指针事件重建 Git 页面。控制台历史只存在于有界内存，
 不定义磁盘保存和长期保留策略。字段和容量的正式契约见
-[Rust Core API](../../../../shared/contracts/rust-core-api.md)。
+[Rust Core API](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md)。
 
 ## 考虑过的备选方案
 
@@ -325,8 +325,8 @@ Windows ARM64 本地对比从 1.799 秒降到 1.362 秒，但这不代表托管 
 - `desktop/internal/core/client.go`
 - `desktop/internal/core/events_bridge.go`
 - `desktop/internal/workbench/`
-- `shared/fixtures/git/`
-- `shared/contracts/rust-core-api.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/fixtures/git/`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md`
 - [旧客户端执行链、测试及原适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/architecture/2026-09-12-git-execution-and-project-console.md)
 
 ### macOS Console 左侧工具栏样式

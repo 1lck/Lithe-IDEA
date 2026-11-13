@@ -47,4 +47,4 @@ macOS 切到结构化日志后，不能继续用文件名倒序分配读取预�
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/diagnostics/channel.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/diagnostics/channel.rs)
 - ~~`macos/Sources/Lithe/Platform/MacOS/Logging/MacLogStore.swift`~~（已随 #1794 移除）
 - ~~`macos/Sources/Lithe/Application/Features/PluginEditorLanguages.swift`~~（已随 #1794 移除）
-- `shared/fixtures/diagnostics/logging-v2.json`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/diagnostics/logging-v2.json`

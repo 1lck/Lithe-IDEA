@@ -452,11 +452,11 @@
 
 MCP 管理随 Agent 对话失去消费者后，本轮整块删除，后续重新设计。Rust Core 删除 `mcp` 模块与 `mcp.parseConfiguration`、`mcp.parseRegistry`、`mcp.featuredRegistry`、`mcp.planWrite`、`mcp.toolPolicy`、`mcp.commandLine`、`mcp.librarySnapshot`、`mcp.validateDraft`、`mcp.batchPlan` 九个命令，以及 `rust/fixtures/mcp` 与 `rust/contracts/mcp-registry-page.json`。本仓库删除 `shared/fixtures/mcp`、`shared/contracts/mcp-registry-page.json`、67 条仅旧客户端使用的 MCP 词条与两个能力记录（`mcp-registry-discovery`、`mcp-server-library`），服务器库 Note 移入 `.agents/notes/archived/`。
 
-保留 `ide-mcp-connection`：Lithe 对外提供的 IDE API MCP 服务端（`lithe-mcp`、`shared/fixtures/ide-api/mcp-protocol.json`）不依赖被删的配置管理能力。
+保留 `ide-mcp-connection`：Lithe 对外提供的 IDE API MCP 服务端（`lithe-mcp`、`Lithe-core-rust/rust/fixtures/ide-api/mcp-protocol.json`）不依赖被删的配置管理能力。
 
 ## 放弃：Agent 对话（38 项，2026-11-12 用户决定）
 
-用户决定 Viva 桌面端不做 Agent 对话。#1799 删除了助手面板、会话与历史、卡片、Agent 安装与管理、自定义 Agent，以及 AI 设置下的 Agents、Instructions、Skills、Hooks、MCP 配置页。保留 AI 生成提交信息（`ai-commit-generation`）、编辑器内联 AI 编辑（`ai-inline-edit`）和 IDE 连接（`ide-mcp-connection`），它们读取用户 Codex/Claude 配置的服务商发现移到 `desktop/internal/workbench/ai_provider.go`。Rust Core 中的 Agent 代码与 `shared/fixtures/agent`、`shared/fixtures/mcp` 契约当时暂留，随后已分别由 Lithe-core-rust#18 与 #19 删除。
+用户决定 Viva 桌面端不做 Agent 对话。#1799 删除了助手面板、会话与历史、卡片、Agent 安装与管理、自定义 Agent，以及 AI 设置下的 Agents、Instructions、Skills、Hooks、MCP 配置页。保留 AI 生成提交信息（`ai-commit-generation`）、编辑器内联 AI 编辑（`ai-inline-edit`）和 IDE 连接（`ide-mcp-connection`），它们读取用户 Codex/Claude 配置的服务商发现移到 `desktop/internal/workbench/ai_provider.go`。Rust Core 中的 Agent 代码与 `shared/fixtures/agent`、`shared/fixtures/mcp` 契约当时暂留，随后 Agent 代码由 Lithe-core-rust#18 删除，MCP 契约由 #19 删除；本仓库的 `shared/fixtures/agent` 与 `shared/contracts/agent-turn-policy.json` 在 #1853 删除整个 `shared/contracts`、`shared/fixtures` 副本时一并删除。
 
 第二轮清理删掉了只描述放弃能力的记录：`shared/i18n/` 里 593 条含 `agent` 的词条（唯一还被引用的 `agent.state.cancel` 改用通用 `ui.cancel`）、功能矩阵的 36 个 `agent-*.json` 条目（矩阵从 255 条降到 219 条），以及旧客户端 Agent 对话的 15 篇 Note（移入 `.agents/notes/archived/`）。下表保留为放弃清单，不再对应矩阵文件。
 

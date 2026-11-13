@@ -19,7 +19,7 @@
 
 - 根目录 `AGENTS.md` 和适用的局部规则。
 - `.agents/notes/implemented/` 中相关架构决策。
-- `shared/contracts/` 中受影响的共享契约。
+- Lithe-core-rust 仓库 `rust/contracts/` 中受影响的共享契约。
 - 受影响模块附近的测试和 fixture。
 - 测试代码变更对应的 `write-stable-tests` 规则。
 

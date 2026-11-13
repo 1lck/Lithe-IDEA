@@ -7,10 +7,12 @@ import (
 	"os"
 	"reflect"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 func TestRankNamesSharedFixture(t *testing.T) {
-	data, err := os.ReadFile("../../../shared/fixtures/search/rank-names-v1.json")
+	data, err := os.ReadFile(contractfixture.CoreFixture("search/rank-names-v1.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

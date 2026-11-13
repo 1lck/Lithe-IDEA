@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
@@ -34,7 +35,7 @@ func (s settingsFormSource) Save(ctx context.Context, editor pluginservice.Setti
 func TestPluginSettingsFormEditsOnlyOnExplicitSaveAndPreservesConflictDraft(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	data, err := os.ReadFile("../../../shared/fixtures/plugins/settings-documents.json")
+	data, err := os.ReadFile(contractfixture.CoreFixture("plugins/settings-documents.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

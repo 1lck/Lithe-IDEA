@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
@@ -56,7 +57,7 @@ func TestPluginSettingsRestartWaitsForTeardownAndHonorsRevocation(t *testing.T) 
 			h.open(t.TempDir())
 			p := h.app.project
 			preferences, plugins := t.TempDir(), t.TempDir()
-			raw, err := os.ReadFile("../../../shared/fixtures/plugins/settings-documents.json")
+			raw, err := os.ReadFile(contractfixture.CoreFixture("plugins/settings-documents.json"))
 			if err != nil {
 				t.Fatal(err)
 			}

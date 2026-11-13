@@ -46,4 +46,4 @@ macOS 会话缓存与每个请求分别持有一个会话入口。请求租约�
 - ~~`macos/Sources/Lithe/Views/App/NetworkSettingsView.swift`~~（已随 #1794 移除）
 - ~~`macos/Sources/Lithe/Platform/MacOS/Updates/MacStableRollback.swift`~~（已随 #1794 移除）
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/network/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/network)
-- `shared/fixtures/network/proxy-policy-v1.json`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/network/proxy-policy-v1.json`

@@ -22,7 +22,6 @@
       "desktop/internal/core/toolchain_sources.go",
       "desktop/internal/toolchain/storage_test.go",
       "desktop/internal/configfile/",
-      "shared/fixtures/toolchain-pin-storage.json",
       "desktop/internal/settingswindow/toolchains_view_test.go"
     ]
   },
@@ -39,7 +38,6 @@
       "desktop/internal/core/toolchain_sources.go",
       "desktop/internal/toolchain/storage_test.go",
       "desktop/internal/configfile/",
-      "shared/fixtures/toolchain-pin-storage.json",
       "desktop/internal/settingswindow/toolchains_view_test.go"
     ]
   },

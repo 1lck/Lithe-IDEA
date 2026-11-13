@@ -27,7 +27,7 @@
 
 原生进程句柄原子发布，停止可以发生在后台进程创建之前。启动任务、接收、断点和检查操作各自串行完成 Core 调用、发送帧和发布界面结果，避免不同 goroutine（并发任务）重排同一会话的传输。启动完成后，清理只销毁真正创建过的 Core 会话，再等待原生退出并删除本次会话独占的可写状态目录。目录由原生 `MkdirTemp` 分配，位于插件可写根 `.state/<plugin-id>/<version>/desktop-debug-<session>/`，不会与另一应用进程的会话计数器碰撞；包和应用安装资源只读，不影响签名或增量更新。
 
-真实 LLDB 可以先发送暂停或结束事件，再确认启动请求。Core 的确认只能把仍处于 launching 的状态改为 running，不能覆盖更新的 paused/terminated；成功确认仍报告操作完成。正确做法是保留用户已经看到的暂停状态，不要用稍后收到的确认把目标显示成运行中。共享 fixture `shared/fixtures/debug/launch-event-order.json` 固定这条边界。
+真实 LLDB 可以先发送暂停或结束事件，再确认启动请求。Core 的确认只能把仍处于 launching 的状态改为 running，不能覆盖更新的 paused/terminated；成功确认仍报告操作完成。正确做法是保留用户已经看到的暂停状态，不要用稍后收到的确认把目标显示成运行中。共享 fixture `Lithe-core-rust/rust/fixtures/debug/launch-event-order.json` 固定这条边界。
 
 ## 考虑过的备选方案
 

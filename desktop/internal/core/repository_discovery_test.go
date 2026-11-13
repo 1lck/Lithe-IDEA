@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 func TestWorkspaceRepositoryDiscoveryUsesCoreRules(t *testing.T) {
@@ -42,7 +44,7 @@ func TestWorkspaceRepositoryDiscoveryUsesCoreRules(t *testing.T) {
 }
 
 func TestRepositoryColorAssignmentsUseCoreFixtures(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "shared", "fixtures", "git", "repository-colors-v1.json"))
+	data, err := os.ReadFile(contractfixture.CoreFixture("git/repository-colors-v1.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

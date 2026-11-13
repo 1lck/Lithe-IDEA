@@ -6,11 +6,13 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 func readExecutionFixture(t *testing.T, name string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "shared", "fixtures", "execution", name))
+	data, err := os.ReadFile(contractfixture.CoreFixture("execution/" + name))
 	if err != nil {
 		t.Fatal(err)
 	}

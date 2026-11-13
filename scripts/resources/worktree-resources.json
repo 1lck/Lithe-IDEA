@@ -261,16 +261,6 @@
       "reason": "Never copy, symlink, bundle or share local disk snapshots, installation staging, installed versions or active/previous approval records at any worktree reuse stage; content hashes do not transfer user approval or establish marketplace provenance. The importer removes failed/cancelled partial snapshots; ZIP preflight bounds unique explicit entries plus implicit parent directories and cumulative normalized UTF-8 path bytes before extraction, without making snapshots reusable. The service then owns discard on review cancellation, install success or failure. The package store owns install staging cleanup and persistent version/record lifecycle, revalidates staged, scanned and rollback bytes, and keeps PluginDiskProvenance separate from marketplace provenance. All writable roots come from platform storage outside distribution resources; installed bundles stay read-only with no code-signature or Sparkle delta impact. This is a macOS runtime boundary, not a claim of Windows implementation."
     },
     {
-      "id": "phpunit-fixture",
-      "path": "shared/fixtures/phpunit-project/vendor",
-      "reusable": false,
-      "locations": [
-        "shared/fixtures/phpunit-project/vendor"
-      ],
-      "identity": "Composer dependencies depend on the test worktree PHP version and dependency resolution without a reliable identity stamp",
-      "reason": "Install PHPUnit dependencies independently in each worktree; do not copy vendor directories."
-    },
-    {
       "id": "windows-worker-plugins",
       "path": ".artifacts/windows-plugins",
       "reusable": false,

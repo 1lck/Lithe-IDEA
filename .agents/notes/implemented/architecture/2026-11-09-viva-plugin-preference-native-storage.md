@@ -104,7 +104,7 @@ scripts/desktop/desktop-go.sh test -p=1 -count=1 -timeout=90s ./internal/workben
 scripts/desktop/desktop-go.sh test -p=1 -count=1 -timeout=45s ./internal/pluginservice ./internal/pluginbackend ./internal/core -run 'TestLanguageServerReads|TestSavedProjectSetting|TestLanguageServerStartPreserves|TestPluginWorkspaceConfiguration'
 ```
 
-Core 和 C ABI 共享同一份 `shared/fixtures/plugins/settings-documents.json`，覆盖类型、作用范围、整批拒绝、重复键、重置、其他插件保留和原字节不变。macOS 原生测试验证真实 ACL、扩展属性及空属性；Lithe-dev 已验证完整 Windows 安全描述符保持不变。项目显式调试路径用例修复前因忽略真实来源而失败，修复后通过。平台计时与后续完整生效链路以对应运行报告为准。
+Core 和 C ABI 共享同一份 `Lithe-core-rust/rust/fixtures/plugins/settings-documents.json`，覆盖类型、作用范围、整批拒绝、重复键、重置、其他插件保留和原字节不变。macOS 原生测试验证真实 ACL、扩展属性及空属性；Lithe-dev 已验证完整 Windows 安全描述符保持不变。项目显式调试路径用例修复前因忽略真实来源而失败，修复后通过。平台计时与后续完整生效链路以对应运行报告为准。
 
 ## 适用范围
 
@@ -122,15 +122,15 @@ Core 和 C ABI 共享同一份 `shared/fixtures/plugins/settings-documents.json`
 - `desktop/internal/workbench/startup.go`
 - `desktop/cmd/lithe/main.go`
 - `desktop/internal/pluginservice/backends.go`
-- `shared/contracts/rust-core-api.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md`
 
 本节点的动作入口与证据还包括 `desktop/internal/core/plugin_setting_actions.go`、
 `desktop/internal/workbench/settings_plugin_actions.go`、`desktop/internal/settingswindow/plugin_settings_actions_view.go`，
 以及对应 `*_test.go`。共享动作和会话选择向量分别为
-`shared/fixtures/plugins/settings-actions.json` 与 `settings-function-provider.json`。
+`Lithe-core-rust/rust/fixtures/plugins/settings-actions.json` 与 `settings-function-provider.json`。
 真实 Core/提供方回归覆盖确认不调用、调用复用原进程、取消终态、关闭提供方后不可用，以及显示元数据不能覆盖私有安装版本；后者先失败后修复。macOS 在本地 Core 覆盖模式下，全量消费者 2544 项通过、8 项条件跳过；该源码随后提交为 Core `737e62b`，Core 插件 57 项与会话选择 1 项通过。Windows Lithe-dev 固定该提交、Core 干净且无覆盖的全量消费者通过；完整清单和结果随节点归档。固定提交后的 macOS 复验还遇到脚本入口和测试程序自身停在系统 `_dyld_start`，因此不把这些复验记作通过。原生隔离应用两次启动后窗口读取均返回 `cgWindowNotFound`；没有把这次启动当作按钮流程验收。竞态整包遇到提供方停在系统 `_dyld_start` 的启动失败，保留失败、采样与复验报告，不声称根因已修复。
 
-动态页面与通知的共享向量为 `shared/fixtures/plugins/settings-surfaces.json`；
+动态页面与通知的共享向量为 `Lithe-core-rust/rust/fixtures/plugins/settings-surfaces.json`；
 桌面桥接、界面和工作台回归分别在 `desktop/internal/core/settings_surfaces_test.go`、
 `desktop/internal/settingswindow/settings_surfaces_test.go` 和
 `desktop/internal/workbench/settings_publication_test.go`。

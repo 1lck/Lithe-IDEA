@@ -11,8 +11,7 @@
       "desktop/internal/editorview/view.go",
       "desktop/internal/workbench/navigation.go",
       "desktop/internal/workbench/navigation_test.go",
-      "desktop/internal/workbench/editor_menu.go",
-      "shared/fixtures/editor/navigation-input-v1.json"
+      "desktop/internal/workbench/editor_menu.go"
     ]
   },
   "windows": {
@@ -23,8 +22,7 @@
       "desktop/internal/editorview/view.go",
       "desktop/internal/workbench/navigation.go",
       "desktop/internal/workbench/navigation_test.go",
-      "desktop/internal/workbench/editor_menu.go",
-      "shared/fixtures/editor/navigation-input-v1.json"
+      "desktop/internal/workbench/editor_menu.go"
     ]
   },
   "owner": "Editor",

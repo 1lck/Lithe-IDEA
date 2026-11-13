@@ -35,6 +35,6 @@ Viva 的 Core 适配层可以取得语言的行注释符号，并调用共享的
 
 - `desktop/internal/core/line_edit.go`
 - `desktop/internal/core/line_edit_test.go`
-- `shared/fixtures/editor/line-edit-v1.json`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/editor/line-edit-v1.json`
 - `shared/platform-feature-matrix/features/editor-line-operations.json`
 - [固定 Core 的行变换实现](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/editor/line_edit.rs)
