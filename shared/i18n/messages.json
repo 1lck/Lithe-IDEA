@@ -43838,7 +43838,8 @@
       "id": "native.chooseImage",
       "description": "Native UI: Choose Image…",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Choose Image…",
@@ -44135,7 +44136,8 @@
       "id": "native.chooseWorkbenchBackground",
       "description": "Native UI: Choose Workbench Background",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Choose Workbench Background",
@@ -65421,7 +65423,8 @@
       "id": "native.noBackgroundImageSelected",
       "description": "Native UI: No background image selected",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "No background image selected",
@@ -91452,7 +91455,8 @@
       "id": "native.workbenchBackground",
       "description": "Native UI: Workbench background",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Workbench background",
@@ -105273,6 +105277,112 @@
       "parameters": {
         "number": "integer"
       }
+    },
+    {
+      "id": "desktop.workbenchBackground.help",
+      "description": "Workbench background: what the setting does",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.workbenchBackground.remove",
+      "description": "Workbench background: button that removes the image",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.workbenchBackground.close",
+      "description": "Workbench background popover: close button accessibility label",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.workbenchBackground.visibility",
+      "description": "Workbench background: how much of the image shows through",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.workbenchBackground.subtle",
+      "description": "Workbench background visibility: the image barely shows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.workbenchBackground.medium",
+      "description": "Workbench background visibility: the default",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.workbenchBackground.strong",
+      "description": "Workbench background visibility: the image shows clearly",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.workbenchBackground.loading",
+      "description": "Workbench background: the image is being decoded",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.workbenchBackground.status",
+      "description": "Workbench background: the image in use, with its size in pixels",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "width": "integer",
+        "height": "integer"
+      }
+    },
+    {
+      "id": "desktop.workbenchBackground.failed",
+      "description": "Workbench background: the chosen or saved image cannot be used",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.workbenchBackground.tooLarge",
+      "description": "Workbench background failure reason: the file is too large",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.workbenchBackground.tooManyPixels",
+      "description": "Workbench background failure reason: the image has too many pixels",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.workbenchBackground.unsupported",
+      "description": "Workbench background failure reason: the format is not PNG or JPEG",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.workbenchBackground.imageFilter",
+      "description": "Workbench background file picker: the file type filter",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

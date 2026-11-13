@@ -23,8 +23,13 @@ type palette struct {
 	Chrome gfx.Color
 	// Panel is the background of a tool window and of the start screen's sidebar.
 	Panel gfx.Color
-	// Editor is the editor area and the start screen's content.
+	// Editor is the editor area and the start screen's content. Panel and Editor are clear while
+	// a workbench background image shows, so the image shows through them.
 	Editor gfx.Color
+	// Ground is the opaque editor color, which stays opaque under a background image: what
+	// floats over the workbench, such as a dragged tab or a menu-like strip, the veil over the
+	// image, and the terminal's own color.
+	Ground gfx.Color
 	// Line separates the chrome, panels and editor.
 	Line gfx.Color
 	// Hover is a quiet button or row under the pointer.
@@ -87,6 +92,11 @@ func look(choice themeChoice) (gfx.Theme, palette) {
 // focus calls for, so every paint and every look change agree on it.
 func (a *App) applyLook(choice themeChoice) {
 	a.theme, a.colors = look(choice)
+	if a.backdropShown() {
+		// The panels and the editor area let the background image through. The theme keeps its
+		// opaque surfaces: Viva's popovers, menus and cards paint them over the workbench.
+		a.colors.Panel, a.colors.Editor = gfx.Color{}, gfx.Color{}
+	}
 	a.applySelectionFocus()
 }
 
@@ -107,6 +117,7 @@ func lightLook() (gfx.Theme, palette) {
 		Chrome:        gfx.RGB24(0xE8EBEF),
 		Panel:         gfx.RGB24(0xFFFFFF),
 		Editor:        gfx.RGB24(0xFFFFFF),
+		Ground:        gfx.RGB24(0xFFFFFF),
 		Line:          gfx.RGB24(0xEBECF0),
 		Hover:         gfx.RGB24(0xEBECF0),
 		Active:        gfx.RGB24(0xDFE1E5),
@@ -164,6 +175,7 @@ func darkLook() (gfx.Theme, palette) {
 		Chrome:        gfx.RGB24(0x28292C),
 		Panel:         gfx.RGB24(0x191A1C),
 		Editor:        gfx.RGB24(0x191A1C),
+		Ground:        gfx.RGB24(0x191A1C),
 		Line:          gfx.RGB24(0x2E3036),
 		Hover:         gfx.RGB24(0x393B40),
 		Active:        gfx.RGB24(0x43454A),

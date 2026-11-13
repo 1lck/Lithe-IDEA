@@ -313,6 +313,9 @@ type settings struct {
 	// LocalHistory is which files local history leaves out and how much of it a project keeps
 	// (local_history_settings.go).
 	LocalHistory settingswindow.LocalHistorySettings `json:"localHistory,omitzero"`
+	// WorkbenchBackground is the image chosen to show behind the workbench and how much of it
+	// shows; the image itself is a copy in the data folder (workbench_background.go).
+	WorkbenchBackground savedBackground `json:"workbenchBackground,omitzero"`
 }
 
 const (
@@ -411,10 +414,13 @@ type project struct {
 // App is the state of the window.
 type App struct {
 	chooseScratchPath func(string, string) (string, error)
-	recovery          *recoveryWriter
-	recentFiles       recentFileState
-	drafts            draftListState
-	editorPreferences core.EditorPreferences
+	// chooseBackgroundImage replaces the system's file picker for the workbench background in
+	// tests; nil is the system's.
+	chooseBackgroundImage func(app.OpenFileOptions) ([]string, error)
+	recovery              *recoveryWriter
+	recentFiles           recentFileState
+	drafts                draftListState
+	editorPreferences     core.EditorPreferences
 	// debugAttach are the host and port fields of the Debug panel's attach form.
 	debugAttach debugAttachFields
 	// root is the window's page; dnd are its drag and drop gestures and focus the control
@@ -457,6 +463,10 @@ type App struct {
 	windowInactive bool
 	// memory is the memory monitor's last reading (memory_monitor.go).
 	memory memoryState
+	// backdrop is the window's background image, shared by its project tabs, and backdropOpen
+	// is whether this workbench's stripe shows its popover (workbench_background.go).
+	backdrop     *workbenchBackground
+	backdropOpen bool
 	// shownTitle is the system title last given to the window (window_title.go).
 	shownTitle string
 	// updates is the update check, download and install (updates.go).
@@ -679,6 +689,11 @@ func New(options Options) *App {
 	a.searchView.delay = -1
 	a.everywhereView.delay = -1
 	a.version = options.Version
+	if options.first != nil {
+		a.backdrop = options.first.backdrop
+	} else {
+		a.backdrop = &workbenchBackground{}
+	}
 	a.text = i18n.For(a.language())
 	a.applyLook(a.settings.Theme)
 	a.shared.text.Store(a.text)
@@ -720,6 +735,9 @@ func New(options Options) *App {
 	a.settingsWindow = a.newSettingsWindow()
 	a.loadRecent()
 	a.loadChrome()
+	if options.first == nil && a.store != nil {
+		a.restoreBackground()
+	}
 	return a
 }
 
@@ -922,6 +940,8 @@ func (a *App) setTheme(choice themeChoice) {
 }
 
 func (a *App) saveSettings() {
+	// The background is the window's, which another tab may have changed since this one loaded.
+	a.settings.WorkbenchBackground = a.savedBackgroundState()
 	if err := a.store.Save(settingsFile, a.settings); err != nil {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("settings_save", documentLogError(err)))
 		a.notifyError(a.text.Errors.SaveFailed(err.Error()))

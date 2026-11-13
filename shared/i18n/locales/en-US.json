@@ -11058,7 +11058,21 @@
     "desktop.keymapSchemes.failed": "Could not update keymap schemes. The original scheme is preserved.",
     "desktop.editorFind.count": "{current}/{total}",
     "desktop.editorFind.replaced": "Replaced {count} occurrences.",
-    "desktop.drafts.untitled": "Untitled {number}"
+    "desktop.drafts.untitled": "Untitled {number}",
+    "desktop.workbenchBackground.help": "An image of your own shown behind the whole workbench. Lithe keeps a copy in its own data folder, so moving or deleting the original does not change the background.",
+    "desktop.workbenchBackground.remove": "Remove",
+    "desktop.workbenchBackground.close": "Close",
+    "desktop.workbenchBackground.visibility": "Image visibility",
+    "desktop.workbenchBackground.subtle": "Subtle",
+    "desktop.workbenchBackground.medium": "Medium",
+    "desktop.workbenchBackground.strong": "Strong",
+    "desktop.workbenchBackground.loading": "Loading the background image…",
+    "desktop.workbenchBackground.status": "{name}, {width}×{height}",
+    "desktop.workbenchBackground.failed": "Could not use that image: {reason}",
+    "desktop.workbenchBackground.tooLarge": "The image file is larger than 30 MB.",
+    "desktop.workbenchBackground.tooManyPixels": "The image has more than 64 million pixels.",
+    "desktop.workbenchBackground.unsupported": "Only PNG and JPEG images are supported.",
+    "desktop.workbenchBackground.imageFilter": "PNG and JPEG images"
   },
   "overrides": {
     "windows": {

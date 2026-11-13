@@ -90,8 +90,14 @@ func (a *App) sessionConfig() app.Config {
 	paint := config.Paint
 	config.Paint = func(canvas *gfx.Canvas, size gfx.Size) {
 		a.beginPaint(canvas)
-		// The page fills the window with the look of this paint's chrome.
+		// The page fills the window with the look of this paint's chrome. Behind a background
+		// image the fill is the veil over it, the ground at the strength's opacity, and the image
+		// is drawn under everything the page paints (workbench_background.go).
 		background = a.colors.Chrome
+		if a.backdropShown() {
+			background = a.colors.Ground.WithAlpha(a.backdropOpacity())
+			a.paintBackdrop(canvas, size)
+		}
 		paint(canvas, size)
 		a.endPaint()
 	}
@@ -102,7 +108,7 @@ func (a *App) sessionConfig() app.Config {
 // paint declared that this one declares afresh.
 func (a *App) beginPaint(canvas *gfx.Canvas) {
 	a.applyLook(a.settings.Theme)
-	a.rememberWindowBackground(a.colors.Editor)
+	a.rememberWindowBackground(a.colors.Ground)
 	a.shared.text.Store(a.text)
 	a.shared.dark.Store(a.colors.Dark)
 	a.status.frame(canvas, a.now())

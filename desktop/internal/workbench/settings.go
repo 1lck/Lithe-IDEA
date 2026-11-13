@@ -240,6 +240,14 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 				}
 			})
 		},
+		// The image is the window's and its snapshot is read under its lock, so the settings
+		// window reads it from its own thread; the changes run on the workbench's.
+		WorkbenchBackground:       a.backgroundSnapshot,
+		ChooseWorkbenchBackground: func() { a.post(func(a *App) { a.chooseBackground() }) },
+		RemoveWorkbenchBackground: func() { a.post(func(a *App) { a.removeBackground() }) },
+		SetWorkbenchBackgroundStrength: func(value string) {
+			a.post(func(a *App) { a.setBackgroundStrength(backgroundStrengthFromString(value)) })
+		},
 		SetProjectOpenDestination: func(destination string) {
 			a.post(func(a *App) {
 				if a.settings.ProjectOpenDestination != destination {

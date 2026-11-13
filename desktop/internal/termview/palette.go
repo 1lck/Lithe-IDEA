@@ -36,10 +36,14 @@ func newPalette(look Look, epoch uint32) palette {
 	pal := palette{
 		dark:      look.Dark,
 		terminal:  look.Background,
+		ground:    look.Background,
 		termFG:    look.Foreground,
 		cursor:    look.Cursor,
 		selection: look.Selection,
 		epoch:     epoch,
+	}
+	if look.Solid != (gfx.Color{}) {
+		pal.terminal = look.Solid
 	}
 	if look.Dark {
 		pal.ansi = darkANSI
@@ -47,7 +51,7 @@ func newPalette(look Look, epoch uint32) palette {
 		pal.ansi = lightANSI
 	}
 	if look.Native != nil {
-		background := rgb8(look.Background)
+		background := rgb8(pal.terminal)
 		for index, native := range look.Native {
 			if native.Set && contrastRatio(native.RGB, background) >= nativeContrast {
 				pal.ansi[index] = native.RGB
@@ -128,6 +132,6 @@ func (v *View) applyLook(look Look) {
 		return
 	}
 	v.pal = newPalette(look, v.pal.epoch+1)
-	v.screen.SetDefaultColors(rgb8(look.Foreground), rgb8(look.Background))
+	v.screen.SetDefaultColors(rgb8(look.Foreground), rgb8(v.pal.terminal))
 	v.look, v.hasLook = look, true
 }

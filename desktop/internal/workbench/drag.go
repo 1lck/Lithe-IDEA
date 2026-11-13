@@ -319,7 +319,7 @@ func (a *App) paintSnappedToolGhost(canvas *gfx.Canvas, d *dragState) {
 		gfx.Point{X: d.x, Y: d.y}, d.grab, column,
 		gfx.Rect{Width: d.viewport.Width, Height: d.viewport.Height},
 	)
-	canvas.RoundedBorder(ghost, dragGhostRadius, dragGhostBorderWidth, a.colors.Accent, a.colors.Editor)
+	canvas.RoundedBorder(ghost, dragGhostRadius, dragGhostBorderWidth, a.colors.Accent, a.colors.Ground)
 	if icon := a.chrome.catalog[d.item].icon; icon != nil {
 		canvas.DrawIcon(*icon, ghost.Inset(gfx.All(dragSnappedGhostIconInset)), a.colors.Text)
 	}
@@ -377,7 +377,7 @@ func (a *App) paintDetachedDropPreview(canvas *gfx.Canvas, target dragTarget) {
 		Y:     target.preview.Y + (target.preview.Height-labelHeight)/2,
 		Width: labelWidth, Height: labelHeight,
 	}
-	canvas.Rounded(label, dragPreviewLabelRadius, a.colors.Editor)
+	canvas.Rounded(label, dragPreviewLabelRadius, a.colors.Ground)
 	canvas.LabelCenter(title, label, gfx.TextStyle{
 		Size: dragPreviewLabelFontSize, Weight: gfx.WeightRegular, Color: a.colors.Text,
 	})
@@ -397,7 +397,7 @@ func (a *App) paintLegacyDragGhost(canvas *gfx.Canvas, d *dragState) {
 		ghost.X = max(min(ghost.X, d.viewport.Width-ghost.Width-dragGhostMargin), 0)
 		ghost.Y = max(min(ghost.Y, d.viewport.Height-ghost.Height-dragGhostMargin), 0)
 	}
-	canvas.RoundedBorder(ghost, dragGhostRadius, dragGhostBorderWidth, a.colors.Accent, a.colors.Editor)
+	canvas.RoundedBorder(ghost, dragGhostRadius, dragGhostBorderWidth, a.colors.Accent, a.colors.Ground)
 
 	style := gfx.TextStyle{Size: a.theme.Metrics.FontSizeS, Weight: gfx.WeightRegular, Color: a.colors.Text}
 	switch {

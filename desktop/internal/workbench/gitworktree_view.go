@@ -668,7 +668,7 @@ func (a *App) paintWorktreeCommit(canvas *gfx.Canvas, rect gfx.Rect, index int) 
 		}
 		width := min(column, icon+textWidth+8)
 		end -= width
-		a.paintLabels(canvas, gfx.Rect{X: rect.X + end, Y: rect.Y, Width: width, Height: rect.Height}, group, text, a.colors.Editor)
+		a.paintLabels(canvas, gfx.Rect{X: rect.X + end, Y: rect.Y, Width: width, Height: rect.Height}, group, text, a.colors.Ground)
 	}
 	a.paintText(canvas, commit.Subject, gfx.Rect{X: rect.X + start, Y: rect.Y, Width: max(0, end-start), Height: rect.Height}, logFontSize, foreground, gfx.AlignStart)
 	a.paintText(canvas, commit.AuthorName, gfx.Rect{X: rect.X + authorX, Y: rect.Y, Width: max(0, dateX-authorX-logDatePad), Height: rect.Height}, logMetaSize, a.colors.Subtle, gfx.AlignStart)

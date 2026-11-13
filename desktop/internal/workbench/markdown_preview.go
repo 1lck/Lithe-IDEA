@@ -292,7 +292,7 @@ func (a *App) markdownPage(c ui.C, p *project, d *document) {
 			s.contentsOpen = false
 			return
 		}
-		ui.Row(c).Absolute().Top(markdownPadding / 2).Right(markdownPadding).Background(a.colors.Panel).
+		ui.Row(c).Absolute().Top(markdownPadding / 2).Right(markdownPadding).Background(a.colors.Ground).
 			Radius(a.theme.Metrics.RadiusItem()).Children(func() {
 			button := ui.Button(c.Part("contents"), title).Icon(icons.ListTree).IconOnly().Ghost().
 				Size(shellHideSize, shellHideSize).Shrink(0).Tooltip(title)

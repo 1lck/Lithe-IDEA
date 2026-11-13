@@ -82,13 +82,19 @@ type Messages struct {
 // Look is the terminal's colors, taken from the workbench theme each frame. A change starts
 // a new palette epoch, so every cached row is prepared again in the new colors.
 type Look struct {
-	Dark       bool
+	Dark bool
+	// Background is what the grid is painted on. It may be translucent or clear, so the
+	// window behind the terminal shows through, such as the workbench background image.
 	Background gfx.Color
+	// Solid is the terminal's own opaque color: the ink of inverse cells and of the text
+	// under the cursor, the clear under an input method's composition, and what native ANSI
+	// colors are measured against. The zero value takes Background.
+	Solid      gfx.Color
 	Foreground gfx.Color
 	Cursor     gfx.Color
 	Selection  gfx.Color
 	// Native is the system terminal's ANSI colors, nil for none: an entry it sets replaces the
-	// built-in one when it stands out enough from Background (see nativeContrast).
+	// built-in one when it stands out enough from Solid (see nativeContrast).
 	Native *[16]NativeColor
 }
 
@@ -188,7 +194,8 @@ type geometry struct {
 // prepared in older colors is never reused.
 type palette struct {
 	dark      bool
-	terminal  gfx.Color // the ground the grid is painted on
+	terminal  gfx.Color // the terminal's own opaque color, see Look.Solid
+	ground    gfx.Color // the ground the grid is painted on, see Look.Background
 	termFG    gfx.Color // the default ink
 	cursor    gfx.Color
 	selection gfx.Color

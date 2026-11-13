@@ -339,6 +339,15 @@ type Options struct {
 	// SetHideProjectColors hands a change of Values.HideProjectColors to the settings
 	// owner, like SetHideGitGutter.
 	SetHideProjectColors func(bool)
+	// WorkbenchBackground reads the workbench's background image for the Appearance card, in
+	// the window's language, from the window's thread; nil leaves the rows out.
+	// ChooseWorkbenchBackground has the workbench ask for an image, RemoveWorkbenchBackground
+	// clears it, and SetWorkbenchBackgroundStrength hands a WorkbenchBackground.Strength value
+	// to the workbench. The workbench invalidates the window when the image changes.
+	WorkbenchBackground            func(i18n.Language) WorkbenchBackground
+	ChooseWorkbenchBackground      func()
+	RemoveWorkbenchBackground      func()
+	SetWorkbenchBackgroundStrength func(string)
 	// SetProjectOpenDestination hands a change of Values.ProjectOpenDestination to the
 	// settings owner.
 	SetProjectOpenDestination func(string)
