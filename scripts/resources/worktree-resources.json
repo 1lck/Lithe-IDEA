@@ -74,7 +74,7 @@
         ".artifacts/desktop/lithe-core-rust/source/.artifacts/rust-core-checks/",
         "<system-temp>/lithe core-cache-*/"
       ],
-      "identity": "The Core source checkout is pinned by build-desktop-core.sh, while Cargo target output and staged libraries depend on source revision, target, profile, compiler, environment and native linker inputs. The current staged identity is not a sealed reusable-resource manifest.",
+      "identity": "The Core source checkout is pinned by build-desktop-core.sh, while Cargo target output and staged libraries depend on source revision, target, profile, compiler, environment and native linker inputs. Windows GNU builds set WINAPI_NO_BUNDLED_LIBRARIES=1 and record winapi-import-libraries=mingw-system, using the installed MinGW system import libraries. The current staged identity is not a sealed reusable-resource manifest.",
       "reason": "Never copy or share these mutable build outputs or the checkout through worktree reuse. Each worktree builds or validates its own Core artifacts. They are build-time resources outside an installed application and do not modify a signed bundle or Sparkle baseline. Restored Core comment verification and its pinned lexer helper use the caller Cargo target, or a checkout-local .artifacts/rust-core-checks fallback; Rustdoc, helper binaries and build state remain excluded at every reuse stage. The native cgo cache regression owns one temporary fixture checkout and static archive, removes it after bounded compiler processes terminate, and never reuses it across worktrees. The Go cache identity includes staged Core/header/native-linker bytes and selected Windows import archives; this action hash is not a reusable-resource seal."
     },
     {

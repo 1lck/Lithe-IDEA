@@ -28,7 +28,8 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
-# Lithe-core-rust #21 (debug.setBreakpointsMuted, debug.planMemoryWindow and
+# Lithe-core-rust #22 (IDE find/replace, recovery, preferences, navigation, keymaps and
+# Scratch lifecycle), squash-merged into main, on top of #21 (debug.setBreakpointsMuted, debug.planMemoryWindow and
 # debug.locateMemoryWindow, runConfig.decideTitleAction), squash-merged into main, on top of #20
 # (lsp.declarationOrUsages and the references operation's includeDeclaration, for Go to
 # Declaration or Usages), #19 (MCP configuration and library commands removed) and #17: the plugin contract is one
@@ -36,7 +37,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13 (execution.planLaunchCommand), #8, #7, #6 and #4.
-PINNED_CORE_REVISION="eebee75f0b213f4404e54b1d4a3056be04a882c1"
+PINNED_CORE_REVISION="65cf82343c5e315aae2e335b2e8f0217b703e89a"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -51,6 +52,13 @@ RUST_TARGET="${LITHE_CORE_TARGET:-$HOST_TARGET}"
 if [[ "$RUST_TARGET" == *-windows-msvc ]]; then
     printf '%s\n' "cgo cannot link the MSVC .lib archive for $RUST_TARGET; use x86_64-pc-windows-gnu for Windows." >&2
     exit 2
+fi
+
+# cgo's external MinGW linker already supplies the Windows system import libraries.
+# winapi's supported switch avoids depending on libwinapi_* archives under a
+# Cargo registry/build-script directory that is not part of the staged Core.
+if [[ "$RUST_TARGET" == *-windows-gnu ]]; then
+    export WINAPI_NO_BUNDLED_LIBRARIES=1
 fi
 
 ARTIFACTS_DIR="$ROOT_DIR/.artifacts/desktop"
@@ -155,6 +163,9 @@ install -m 0755 "$HELPER" "$STAGE_DIR/bin/lithe-mcp$HELPER_EXE"
     printf 'rustc=%s\n' "$(rustc -V)"
     printf 'target=%s\n' "$RUST_TARGET"
     printf 'profile=%s\n' "$PROFILE"
+    if [[ "$RUST_TARGET" == *-windows-gnu ]]; then
+        printf 'winapi-import-libraries=mingw-system\n'
+    fi
     if [[ "$RUST_TARGET" == *-apple-darwin ]]; then
         printf 'macos-deployment-target=%s\n' "$MACOSX_DEPLOYMENT_TARGET"
     fi
