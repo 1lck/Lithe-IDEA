@@ -481,7 +481,7 @@ func TestBuildTreeRunMarksRunTheirRowsAtOnce(t *testing.T) {
 
 	// While a build operation runs, no triangle takes a click.
 	var operation *buildOperation
-	h.app.post(func(a *App) { operation = a.beginBuildOperation(p, "build", "vet", "") })
+	h.app.post(func(a *App) { operation = a.beginBuildOperation(p, "build", "vet", "", nil) })
 	h.settle()
 	if len(controls(text.RunTarget("Vet verification"))) != 0 || len(controls(text.RunTarget("Run"))) != 0 {
 		t.Fatal("a triangle took clicks while a build operation ran")

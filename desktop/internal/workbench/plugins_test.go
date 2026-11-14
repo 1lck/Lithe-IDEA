@@ -2,123 +2,151 @@ package workbench
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprovider"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/plugininstall"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/plugintrust"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 )
 
-func TestCompactProgramFitsOneLine(t *testing.T) {
-	program := json.RawMessage("{\n  \"kind\": \"runtime\",\n  \"command\": \"java\"\n}")
-	if got := compactProgram(program); got != `{"kind":"runtime","command":"java"}` {
-		t.Fatalf("compact = %q", got)
-	}
-	// Invalid JSON is shown as it arrived rather than dropped: the review exists to
-	// show exactly what the package declared.
-	if got := compactProgram(json.RawMessage("{broken")); got != "{broken" {
-		t.Fatalf("compact = %q", got)
-	}
-}
+type pluginArchiveTransport func(*http.Request) (*http.Response, error)
 
-func TestInstallPluginWithoutStackDoesNothing(t *testing.T) {
-	h := newHarness(t, &testKernel{Client: core.NewClient()})
-	h.app.installPlugin(core.MarketplacePlugin{ID: "example"})
-	if h.app.pluginInstall.busy || h.app.pluginInstall.open {
-		t.Fatalf("state = %+v", h.app.pluginInstall)
-	}
-	if h.app.pluginInstall.generation != 0 {
-		t.Fatalf("generation = %d", h.app.pluginInstall.generation)
-	}
-}
+func (f pluginArchiveTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-func TestBusyInstallKeepsItsOwnedTransfer(t *testing.T) {
+func TestMarketplaceRetryReusesBytesAndStillRejectsTampering(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	service, err := pluginservice.Open(core.NewClient(), h.store, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	h.app.plugins = service
-	h.app.pluginInstall.busy = true
-	h.app.pluginInstall.generation = 7
-	h.app.installPluginFromFile(filepath.Join(t.TempDir(), "not-started.zip"))
-	if h.app.pluginInstall.generation != 7 {
-		t.Fatal("a repeated install replaced the active transfer")
+	var body bytes.Buffer
+	writer := zip.NewWriter(&body)
+	entry, err := writer.Create("io.github.example.output-links/plugin.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := entry.Write([]byte(installablePluginManifest)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(body.Bytes())
+	plugin := core.MarketplacePlugin{ID: "io.github.example.output-links", Availability: core.MarketplaceAvailability{
+		Status: "available", DownloadURL: "https://plugins.example.test/archive.zip", Version: "1.0.0", SHA256: hex.EncodeToString(digest[:]),
+	}}
+	requests := 0
+	client := &http.Client{Transport: pluginArchiveTransport(func(request *http.Request) (*http.Response, error) {
+		requests++
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(body.Bytes())), ContentLength: int64(body.Len()), Request: request}, nil
+	})}
+	downloads := marketplace.NewArchiveSession(marketplace.NewArchiveDownloader(client))
+	h.app.pluginDownloads = downloads
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	t.Cleanup(func() {
+		if err := downloads.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	reviews, failures, preparing := 0, 0, 0
+	feedback := settingswindow.PluginInstallFeedback{
+		Context:   ctx,
+		Preparing: func() { preparing++ },
+		Review:    func(string, plugintrust.Review, bool) bool { reviews++; return false },
+		Finish: func(failed bool) {
+			if failed {
+				failures++
+			}
+		},
+	}
+	for range 2 {
+		h.app.installPlugin(plugin, feedback)
+		h.app.wait()
+	}
+	if requests != 1 || reviews != 2 || preparing != 2 || failures != 0 {
+		t.Fatalf("cancel/retry requests=%d reviews=%d preparing=%d failures=%d", requests, reviews, preparing, failures)
+	}
+	installed, err := pluginpkg.List(service.Root)
+	if err != nil || len(installed) != 0 {
+		t.Fatalf("declined review left installed packages: %v, error = %v", installed, err)
+	}
+	if _, found, err := plugintrust.New(h.store).Record(plugin.ID, plugin.Availability.Version); err != nil || found {
+		t.Fatalf("declined review recorded approval: found = %v, error = %v", found, err)
+	}
+	archive, err := downloads.Download(ctx, plugin.Availability, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := archive.Discard(); err != nil {
+			t.Error(err)
+		}
+	})
+	path := archive.Path()
+	if err := os.WriteFile(path, []byte("changed after download"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := archive.Discard(); err != nil {
+		t.Fatal(err)
+	}
+	h.app.installPlugin(plugin, feedback)
+	h.app.wait()
+	if reviews != 2 || failures != 1 {
+		t.Fatalf("tampered cache reached review: reviews=%d failures=%d", reviews, failures)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed preparation retained bad bytes: %v", err)
+	}
+	h.app.installPlugin(plugin, feedback)
+	h.app.wait()
+	if requests != 2 || reviews != 3 {
+		t.Fatalf("retry did not fetch clean bytes: requests=%d reviews=%d", requests, reviews)
+	}
+	archive, err = downloads.Download(ctx, plugin.Availability, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path = archive.Path()
+	if err := archive.Discard(); err != nil {
+		t.Fatal(err)
+	}
+	h.app.closePluginDownloads()
+	h.app.wait()
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("settings close retained the archive: %v", err)
 	}
 }
 
-func TestFinishPluginInstallOpensTheReview(t *testing.T) {
-	h := newHarness(t, &testKernel{Client: core.NewClient()})
-	h.app.pluginInstall.generation = 7
-	h.app.pluginInstall.busy = true
-	plan := plugininstall.Plan{ID: "example", Version: "1.0.0"}
-	h.app.finishPluginInstall(7, plan, nil)
-	if !h.app.pluginInstall.open {
-		t.Fatal("the review did not open")
-	}
-	if h.app.pluginInstall.busy {
-		t.Fatal("the install is still marked busy")
-	}
-	if h.app.pluginInstall.plan.Version != "1.0.0" {
-		t.Fatalf("plan = %+v", h.app.pluginInstall.plan)
-	}
-}
-
-func TestFinishPluginInstallDropsAStaleResult(t *testing.T) {
-	h := newHarness(t, &testKernel{Client: core.NewClient()})
-	h.app.pluginInstall.generation = 7
-	h.app.pluginInstall.busy = true
-	// A result from the install the user replaced.
-	h.app.finishPluginInstall(6, plugininstall.Plan{ID: "old", Version: "0.9.0"}, nil)
-	if h.app.pluginInstall.open {
-		t.Fatal("a stale result opened the review")
-	}
-	if h.app.pluginInstall.plan.Version != "" {
-		t.Fatalf("plan = %+v", h.app.pluginInstall.plan)
-	}
-	if !h.app.pluginInstall.busy {
-		t.Fatal("a stale result cleared the current install's busy state")
-	}
-}
-
-func TestFinishPluginInstallReportsFailure(t *testing.T) {
-	h := newHarness(t, &testKernel{Client: core.NewClient()})
-	h.app.pluginInstall.generation = 1
-	h.app.pluginInstall.busy = true
-	h.app.finishPluginInstall(1, plugininstall.Plan{}, plugininstall.ErrArchiveDigest)
-	if h.app.pluginInstall.open {
-		t.Fatal("a failed install opened the review")
-	}
-	if h.app.pluginInstall.busy {
-		t.Fatal("the install is still marked busy")
-	}
-	if h.app.notice == "" {
-		t.Fatal("a failed install said nothing")
-	}
-}
-
-func TestCancelPluginInstallClearsTheState(t *testing.T) {
-	h := newHarness(t, &testKernel{Client: core.NewClient()})
-	h.app.pluginInstall.open = true
-	h.app.pluginInstall.generation = 3
-	h.app.pluginInstall.plan = plugininstall.Plan{ID: "example", Version: "1.0.0"}
-	h.app.cancelPluginInstall()
-	if h.app.pluginInstall.open || h.app.pluginInstall.plan.Version != "" {
-		t.Fatalf("state = %+v", h.app.pluginInstall)
-	}
-	if h.app.pluginInstall.generation != 4 {
-		t.Fatalf("generation = %d", h.app.pluginInstall.generation)
+func approvingPluginInstall(t *testing.T) settingswindow.PluginInstallFeedback {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	return settingswindow.PluginInstallFeedback{
+		Context: ctx,
+		Review:  func(string, plugintrust.Review, bool) bool { return true },
+		Finish: func(failed bool) {
+			if failed {
+				t.Error("plugin installation failed")
+			}
+		},
 	}
 }
 
@@ -180,9 +208,28 @@ func TestConfirmedInstallIsEnabledAndUninstallRemovesItsState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h.app.installPluginFromFile(archive)
-	awaitStateWithin(t, h, 30*time.Second, "the install review", func() bool { return h.app.pluginInstall.open })
-	h.app.confirmPluginInstall()
+	feedback := approvingPluginInstall(t)
+	reviewing := make(chan struct{})
+	approve := make(chan struct{})
+	feedback.Review = func(string, plugintrust.Review, bool) bool {
+		close(reviewing)
+		select {
+		case <-approve:
+			return true
+		case <-time.After(5 * time.Second):
+			return false
+		}
+	}
+	h.app.installPluginFromFile(archive, feedback)
+	select {
+	case <-reviewing:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the package did not reach review")
+	}
+	if h.shows(i18n.Shared(h.app.language(), "desktop.marketplace.reviewTitle")) {
+		t.Fatal("the review is drawn on the workbench behind Settings")
+	}
+	close(approve)
 	state := func() settingswindow.PluginState {
 		states := h.app.pluginState.Load()
 		if states == nil {
@@ -457,38 +504,4 @@ func TestEnableReopensVcsAfterCatalogRefresh(t *testing.T) {
 		}
 	})
 	h.settle()
-}
-
-func TestCancelPluginInstallStopsTransferAndRejectsLateReview(t *testing.T) {
-	h := newHarness(t, &testKernel{Client: core.NewClient()})
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	h.app.pluginInstall = pluginInstallState{busy: true, generation: 4, cancel: cancel, phase: "download"}
-	h.app.cancelPluginInstall()
-	if !errors.Is(ctx.Err(), context.Canceled) {
-		t.Fatal("cancel left the transfer running")
-	}
-	h.app.finishPluginInstall(4, plugininstall.Plan{ID: "dev.lithe.test.late", Version: "1.0.0"}, nil)
-	if status := h.app.installPresentation(); status.Busy || status.Review || status.Failed {
-		t.Fatalf("late review replaced cancellation: %+v", status)
-	}
-}
-
-func TestPluginInstallFailureSnapshotDoesNotExposeNativeError(t *testing.T) {
-	h := newHarness(t, &testKernel{Client: core.NewClient()})
-	h.app.pluginInstall.generation = 19
-	h.app.finishPluginInstall(19, plugininstall.Plan{}, errors.New("https://private.invalid/?token=secret"))
-	status := h.app.installPresentation()
-	if !status.Failed || status.Failure == "" || strings.Contains(status.Failure, "secret") {
-		t.Fatalf("unsafe failure feedback: %+v", status)
-	}
-	h.app.retryPluginInstall(18)
-	if h.app.pluginInstall.generation != 19 {
-		t.Fatal("stale retry affected the current operation")
-	}
-	h.app.cancelPluginInstall()
-	status = h.app.installPresentation()
-	if status.Failed || status.Completed || status.Failure != "" {
-		t.Fatalf("dismissed result is still active: %+v", status)
-	}
 }

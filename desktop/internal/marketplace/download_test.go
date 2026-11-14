@@ -210,38 +210,3 @@ func TestArchiveDownloadCancellationRemovesPartialFile(t *testing.T) {
 	}
 	assertArchiveRootEmpty(t, root)
 }
-
-func TestArchiveDownloadProgressAndCancellation(t *testing.T) {
-	for _, length := range []int64{5, -1} {
-		root := t.TempDir()
-		d := newArchiveDownloader(archiveClient("bytes", length), root)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		var received []int64
-		archive, err := d.DownloadWithProgress(ctx, archiveSelection("bytes"), func(n, total int64) {
-			if total != length {
-				t.Errorf("response length = %d", total)
-			}
-			received = append(received, n)
-		})
-		cancel()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := archive.Discard(); err != nil {
-			t.Fatal(err)
-		}
-		if len(received) < 2 || received[0] != 0 || received[len(received)-1] != 5 {
-			t.Fatalf("progress = %v", received)
-		}
-		assertArchiveRootEmpty(t, root)
-	}
-	root := t.TempDir()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	d := newArchiveDownloader(archiveClient("bytes", 5), root)
-	archive, err := d.DownloadWithProgress(ctx, archiveSelection("bytes"), func(int64, int64) { cancel() })
-	if archive != nil || !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancel: archive=%v error=%v", archive, err)
-	}
-	assertArchiveRootEmpty(t, root)
-}

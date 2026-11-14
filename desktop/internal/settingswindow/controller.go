@@ -200,14 +200,8 @@ type PluginSettingsActionLoader interface {
 
 // Options configure the settings window.
 type Options struct {
-	// PluginInstall reads an immutable presentation snapshot; callbacks queue work to its owner.
-	PluginInstall        func() PluginInstallStatus
-	ConfirmPluginInstall func(uint64)
-	CancelPluginInstall  func(uint64)
-	RetryPluginInstall   func(uint64)
-	// Closed wakes the owner when a dialog must return to the main window.
-	Closed func()
-
+	// PluginInstallsClosed releases downloads retained by the settings session.
+	PluginInstallsClosed func()
 	// GitHub is the account the Version Control page shows and drives; nil hides the card.
 	GitHub *GitHubAccount
 	// SettingsError logs a failure of the window, with the operation that failed as the log
@@ -243,7 +237,7 @@ type Options struct {
 	PluginState func(id string) PluginState
 	// InstallPlugin starts an installation for the selected plugin. It runs on the
 	// settings window's thread and must hand the work to its owner.
-	InstallPlugin func(plugin core.MarketplacePlugin)
+	InstallPlugin func(plugin core.MarketplacePlugin, feedback PluginInstallFeedback)
 	// SetPluginEnabled turns an installed plugin on or off.
 	SetPluginEnabled func(id string, enabled bool)
 	// InstalledPlugins reports every installed plugin in name order: what its manifest declares
@@ -257,7 +251,7 @@ type Options struct {
 	UninstallPlugin func(id string)
 	// InstallPluginFromFile installs a plugin package the user picked on disk. The
 	// package is reviewed like a marketplace one before anything is written.
-	InstallPluginFromFile func(path string)
+	InstallPluginFromFile func(path string, feedback PluginInstallFeedback)
 	Language              func() i18n.Language
 	// Text is the interface language the window paints; nil is English. It is read at
 	// every paint, so the window changes language when the language does.
@@ -639,10 +633,3 @@ const (
 
 // projectOpenDestinations are the choices of the setting, asking first.
 var projectOpenDestinations = []string{"", ProjectOpenThisWindow, ProjectOpenNewWindow}
-
-// IsOpen reports whether this controller currently owns a native settings window.
-func (c *Controller) IsOpen() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.current != nil
-}

@@ -55,12 +55,24 @@ func newArchiveDownloader(client *http.Client, temporaryRoot string) *ArchiveDow
 // validation to the bytes it actually reads and guard against replacement.
 type DownloadedArchive struct {
 	mu        sync.Mutex
-	directory string
-	path      string
+	file      *archiveFile
 	discarded bool
 }
 
-func (a *DownloadedArchive) Path() string { return a.path }
+type archiveFile struct {
+	mu              sync.Mutex
+	directory, path string
+	owners          int
+}
+
+func (a *DownloadedArchive) Path() string { return a.file.path }
+
+func (a *DownloadedArchive) retain() *DownloadedArchive {
+	a.file.mu.Lock()
+	defer a.file.mu.Unlock()
+	a.file.owners++
+	return &DownloadedArchive{file: a.file}
+}
 
 // Discard is idempotent after success and permits retrying a failed cleanup.
 func (a *DownloadedArchive) Discard() error {
@@ -69,9 +81,14 @@ func (a *DownloadedArchive) Discard() error {
 	if a.discarded {
 		return nil
 	}
-	if err := os.RemoveAll(a.directory); err != nil {
-		return err
+	a.file.mu.Lock()
+	defer a.file.mu.Unlock()
+	if a.file.owners == 1 {
+		if err := os.RemoveAll(a.file.directory); err != nil {
+			return err
+		}
 	}
+	a.file.owners--
 	a.discarded = true
 	return nil
 }
@@ -79,14 +96,17 @@ func (a *DownloadedArchive) Discard() error {
 // Download streams the Core-selected archive into a private temporary folder,
 // refuses oversized responses while reading, and checks the index digest before
 // returning the file. No archive contents are opened or executed here.
-func (d *ArchiveDownloader) Download(ctx context.Context, selection core.MarketplaceAvailability) (*DownloadedArchive, error) {
+func (d *ArchiveDownloader) Download(ctx context.Context, selection core.MarketplaceAvailability) (archive *DownloadedArchive, err error) {
 	return d.DownloadWithProgress(ctx, selection, nil)
 }
 
-// DownloadWithProgress reports native transfer byte counts, at most ten times a second.
-// Total is negative when the server did not declare a response length. Callbacks run
-// on the transfer goroutine; consumers must marshal them to their window thread.
-func (d *ArchiveDownloader) DownloadWithProgress(ctx context.Context, selection core.MarketplaceAvailability, progress func(received, total int64)) (archive *DownloadedArchive, err error) {
+// ArchiveProgress reports transport bytes, not installation completion.
+// Total is negative when the server does not provide a content length.
+type ArchiveProgress struct{ Received, Total int64 }
+
+// DownloadWithProgress coalesces notifications on the transfer worker, with no
+// polling task. The callback must not block; it may publish a UI snapshot.
+func (d *ArchiveDownloader) DownloadWithProgress(ctx context.Context, selection core.MarketplaceAvailability, progress func(ArchiveProgress)) (archive *DownloadedArchive, err error) {
 	if selection.Status != "available" || selection.DownloadURL == "" || d.maximumBytes <= 0 {
 		return nil, ErrArchiveSelection
 	}
@@ -138,14 +158,10 @@ func (d *ArchiveDownloader) DownloadWithProgress(ctx context.Context, selection 
 	hash := sha256.New()
 	buffer := make([]byte, 32*1024)
 	var received int64
-	lastProgress := time.Time{}
-	report := func(force bool) {
-		if progress != nil && (force || time.Since(lastProgress) >= 100*time.Millisecond) {
-			lastProgress = time.Now()
-			progress(received, response.ContentLength)
-		}
+	lastProgress := time.Now()
+	if progress != nil {
+		progress(ArchiveProgress{Total: response.ContentLength})
 	}
-	report(true)
 	emptyReads := 0
 	for {
 		if err = ctx.Err(); err != nil {
@@ -166,7 +182,10 @@ func (d *ArchiveDownloader) DownloadWithProgress(ctx context.Context, selection 
 			}
 			hash.Write(buffer[:count]) // hash.Hash.Write never returns an error.
 			received += int64(count)
-			report(false)
+			if progress != nil && time.Since(lastProgress) >= 100*time.Millisecond {
+				progress(ArchiveProgress{received, response.ContentLength})
+				lastProgress = time.Now()
+			}
 		} else if readErr == nil {
 			emptyReads++
 			if emptyReads >= 100 {
@@ -186,6 +205,8 @@ func (d *ArchiveDownloader) DownloadWithProgress(ctx context.Context, selection 
 	if subtle.ConstantTimeCompare(hash.Sum(nil), want) != 1 {
 		return nil, ErrArchiveChecksum
 	}
-	report(true)
-	return &DownloadedArchive{directory: directory, path: path}, nil
+	if progress != nil {
+		progress(ArchiveProgress{received, response.ContentLength})
+	}
+	return &DownloadedArchive{file: &archiveFile{directory: directory, path: path, owners: 1}}, nil
 }

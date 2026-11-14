@@ -34,6 +34,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugindiag"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
@@ -89,6 +90,7 @@ type Kernel interface {
 	processExitKernel
 	processMemoryKernel
 	MatchOutputLinks(context.Context, core.OutputLinkRequest) ([]core.OutputLink, error)
+	DecodeOutputStyle(ctx context.Context, text string, state json.RawMessage) (core.OutputStyleDecoding, error)
 	CreateDebugSession(ctx context.Context, request core.DebugCreateSessionRequest) (core.DebugUpdate, error)
 	LaunchDebug(ctx context.Context, sessionID, operationID string, configuration core.DebugLaunchConfiguration) (core.DebugUpdate, error)
 	NormalizeSteppingFilters(ctx context.Context, adapterID string, filters core.DebugSteppingFilters) (core.DebugSteppingFilters, error)
@@ -523,6 +525,8 @@ type App struct {
 	// plugins is the plugin stack, nil when the window was built without a plugin
 	// kernel or without a writable plugin root.
 	plugins *pluginservice.Service
+	// pluginDownloads holds native temporary file leases for the open settings window.
+	pluginDownloads *marketplace.ArchiveSession
 	// prompts are the questions plugins ask the user, one sheet at a time.
 	prompts pluginPrompts
 	// web opens the pages of plugin web tool windows; webReady is set once it can.
@@ -534,10 +538,6 @@ type App struct {
 	previews previewPages
 	// checker is the checkerboard the native image viewers draw images over (viewer_image.go).
 	checker checker
-	// pluginInstall is the install the user started.
-	pluginInstall       pluginInstallState
-	pluginInstallStatus atomic.Pointer[settingswindow.PluginInstallStatus]
-	pluginInstallDialog settingswindow.PluginInstallDialogState
 	// credentialImport is the import of an earlier client's plugin secrets the user asked
 	// for from the settings menu (credentials_import.go).
 	credentialImport credentialImportState
@@ -838,6 +838,9 @@ func (a *App) Run() error {
 		session.unsubscribeSettings()
 		session.closeProject()
 		session.wait()
+		if session.pluginDownloads != nil {
+			session.recordPluginInstallCleanup(session.pluginDownloads.Close())
+		}
 		if session.plugins != nil && session.plugins.Runs != nil {
 			// Runs of the closed project are already stopped; this ends any the
 			// project close did not own and refuses new ones during shutdown.
@@ -868,7 +871,6 @@ func (a *App) systemAppearanceChanged() {
 // closed runs when the window has closed: the project closes, and so does the log window,
 // which would otherwise keep the application running without the window it belongs to.
 func (a *App) closed() {
-	a.cancelPluginInstall()
 	a.unsubscribeSettings()
 	a.closeClone()
 	a.closeNewProject()

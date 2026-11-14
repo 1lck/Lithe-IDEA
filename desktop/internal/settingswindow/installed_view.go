@@ -554,8 +554,7 @@ func (w *window) serverRunning(id string) bool {
 	return true
 }
 
-// installedActions are the header's buttons: turning the plugin on or off, updating or
-// reinstalling it from the marketplace, and removing it.
+// installedActions shows the available controls to enable, disable, update, or remove a plugin.
 func (w *window) installedActions(c ui.C, language i18n.Language, fact PluginFacts) {
 	opts := w.ctrl.opts
 	if opts.SetPluginEnabled != nil {
@@ -568,16 +567,10 @@ func (w *window) installedActions(c ui.C, language i18n.Language, fact PluginFac
 		}
 	}
 	if opts.InstallPlugin != nil {
-		entry, listed := w.marketEntry(fact.ID)
-		switch {
-		case listed && newerOffered(entry, fact.Version):
+		if entry, available := w.installedUpdate(fact); available {
 			label := i18n.SharedFormat(language, "native.updateTo.variant2", map[string]string{"arg1": offeredVersion(entry)})
 			if ui.Button(c, label).Small().Clicked() {
-				opts.InstallPlugin(entry)
-			}
-		case listed && fact.Source == PluginSourceMarketplace && entry.Availability.Status == "available":
-			if ui.Button(c, i18n.Shared(language, "extensions.reinstall")).Small().Outline().Clicked() {
-				opts.InstallPlugin(entry)
+				w.startMarketplaceInstall(entry)
 			}
 		}
 	}
@@ -914,15 +907,6 @@ func capabilityDetail(language i18n.Language, capability PluginCapability) strin
 // that shows only its name.
 func permissionDescription(language i18n.Language, permission string) string {
 	switch permission {
-	case "process.build":
-		return i18n.Shared(language, "desktop.marketplace.permissionBuild")
-	case "project.generate":
-		return i18n.Shared(language, "desktop.marketplace.permissionGenerate")
-	case "backend.launch":
-		return i18n.Shared(language, "desktop.marketplace.permissionBackend")
-	case "debug.launch":
-		return i18n.Shared(language, "desktop.marketplace.permissionDebug")
-
 	case "languageServer.launch":
 		return i18n.Shared(language, "native.startALanguageServerWhenYouOpenFilesOfItsLanguage")
 	case "process.run":

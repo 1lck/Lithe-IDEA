@@ -72,8 +72,9 @@ func TestRunConsoleDeclaresOnlyTheRowsOnScreen(t *testing.T) {
 	root := t.TempDir()
 	h.open(root)
 	h.app.reduceChrome(core.ToggleChrome(itemRun))
+	const lines = 200
 	var text strings.Builder
-	for line := range buildOutputVisible {
+	for line := range lines {
 		text.WriteString("line " + strconv.Itoa(line) + "\n")
 	}
 	h.startRunConsole(root, text.String())
@@ -86,12 +87,11 @@ func TestRunConsoleDeclaresOnlyTheRowsOnScreen(t *testing.T) {
 			rows++
 		}
 	}
-	if rows == 0 || rows >= buildOutputVisible/2 {
-		t.Fatalf("the console declared %d rows for %d lines, want only the ones on screen", rows, buildOutputVisible)
+	if rows == 0 || rows >= lines/2 {
+		t.Fatalf("the console declared %d rows for %d lines, want only the ones on screen", rows, lines)
 	}
-	// The console keeps the last buildOutputVisible lines of the text, which end
-	// in a newline, so the oldest of ours is the first it drops.
-	if !h.shows("line 1") {
-		t.Fatal("the console does not show the start of its output")
+	// The console follows its output, so it opens on the newest line.
+	if !h.shows("line 199") || h.shows("line 0") {
+		t.Fatal("the console does not keep to the end of its output")
 	}
 }

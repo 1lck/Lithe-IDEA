@@ -166,61 +166,6 @@ func (a *App) flushOutputLinks(p *project) {
 	})
 }
 
-// splitUTF16 cuts line at UTF-16 code unit offsets: the text from from up to the
-// link, and the link's own text. ok is false for a range the line does not hold.
-func splitUTF16(line string, from, start, length int) (before, linked string, ok bool) {
-	if from < 0 || start < from || length <= 0 {
-		return "", "", false
-	}
-	units, begin, end := 0, -1, -1
-	fromByte := -1
-	for offset, r := range line {
-		if units == from {
-			fromByte = offset
-		}
-		if units == start {
-			begin = offset
-		}
-		if units == start+length {
-			end = offset
-		}
-		if r >= 0x10000 {
-			units += 2
-		} else {
-			units++
-		}
-	}
-	if units == from {
-		fromByte = len(line)
-	}
-	if units == start {
-		begin = len(line)
-	}
-	if units == start+length {
-		end = len(line)
-	}
-	if fromByte < 0 || begin < 0 || end < 0 || end <= begin {
-		return "", "", false
-	}
-	return line[fromByte:begin], line[begin:end], true
-}
-
-// utf16Tail is the text from a UTF-16 offset to the end of the line.
-func utf16Tail(line string, from int) string {
-	units := 0
-	for offset, r := range line {
-		if units >= from {
-			return line[offset:]
-		}
-		if r >= 0x10000 {
-			units += 2
-		} else {
-			units++
-		}
-	}
-	return ""
-}
-
 // openOutputLink opens what a clicked link points at. A location names candidate
 // files and opens the first that exists; a link that needs its plugin asks the
 // plugin's backend first. Both run off the window thread, and a file that does

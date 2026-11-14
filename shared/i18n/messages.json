@@ -12279,13 +12279,6 @@
       ]
     },
     {
-      "id": "desktop.marketplace.reviewReused",
-      "description": "Shown when an earlier approval covers this exact package.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.marketplace.reviewTitle",
       "description": "Title of the sheet that shows what a plugin asks for before it is installed.",
       "platforms": [
@@ -12338,6 +12331,34 @@
       ]
     },
     {
+      "id": "desktop.memory.columnCPU",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.memory.columnCompressed",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.memory.columnGPU",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.memory.columnInMemory",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.memory.gigabytes",
       "description": "Memory monitor in the status bar.",
       "platforms": [
@@ -12349,6 +12370,13 @@
     },
     {
       "id": "desktop.memory.help",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.memory.helpFigures",
       "description": "Memory monitor in the status bar.",
       "platforms": [
         "desktop"
@@ -12429,6 +12457,16 @@
       }
     },
     {
+      "id": "desktop.memory.percent",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
+    },
+    {
       "id": "desktop.memory.processCount",
       "description": "Memory monitor in the status bar.",
       "platforms": [
@@ -12454,6 +12492,53 @@
     },
     {
       "id": "desktop.memory.services",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.memory.statCPU",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.memory.statCompressed",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.memory.statGPU",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.memory.statGPUMemory",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.memory.statSeparator",
       "description": "Memory monitor in the status bar.",
       "platforms": [
         "desktop"
@@ -13997,8 +14082,58 @@
       }
     },
     {
-      "id": "desktop.run.build",
-      "description": "Name of the build output in the run output switcher",
+      "id": "desktop.run.closeSession",
+      "description": "Close button of a finished execution's tab in the Run tool window",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.durationHours",
+      "description": "How long an execution took, at least an hour. {hours} and {minutes} are whole numbers.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "hours": "string",
+        "minutes": "string"
+      }
+    },
+    {
+      "id": "desktop.run.durationMilliseconds",
+      "description": "How long an execution took, under a second. {milliseconds} is a whole number.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "milliseconds": "string"
+      }
+    },
+    {
+      "id": "desktop.run.durationMinutes",
+      "description": "How long an execution took, at least a minute. {minutes} and {seconds} are whole numbers.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "minutes": "string",
+        "seconds": "string"
+      }
+    },
+    {
+      "id": "desktop.run.durationSeconds",
+      "description": "How long an execution took, at least a second. {seconds} and {milliseconds} are whole numbers.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "seconds": "string",
+        "milliseconds": "string"
+      }
+    },
+    {
+      "id": "desktop.run.empty",
+      "description": "Run tool window before anything ran",
       "platforms": [
         "desktop"
       ]
@@ -14087,6 +14222,44 @@
       "parameters": {
         "label": "string"
       }
+    },
+    {
+      "id": "desktop.run.startedAt",
+      "description": "Follows an execution's name in the Run tool window's tree. {time} is the date and time it started.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "time": "string"
+      }
+    },
+    {
+      "id": "desktop.run.statusFailed",
+      "description": "Status of an execution that failed or exited with a non-zero code",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.statusRunning",
+      "description": "Status of an execution that is still running",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.statusStopped",
+      "description": "Status of an execution the user stopped",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.statusSucceeded",
+      "description": "Status of an execution that finished successfully",
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.runConfig.arguments",
@@ -20607,8 +20780,7 @@
       "description": "Windows UI: extensions.reinstall",
       "platforms": [
         "macos",
-        "windows",
-        "desktop"
+        "windows"
       ],
       "macos": {
         "key": "Reinstall",
@@ -22857,7 +23029,8 @@
       "id": "git.console.clear",
       "description": "Windows UI: git.console.clear",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -51446,7 +51619,8 @@
       "id": "native.download",
       "description": "Native UI: Download",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Download",
@@ -51580,7 +51754,8 @@
       "id": "native.downloadingAndVerifyingPlugin",
       "description": "Plugin marketplace installation preparation progress",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Downloading and verifying plugin…",
@@ -98516,7 +98691,8 @@
       "id": "settings.general.installing",
       "description": "Windows UI: settings.general.installing",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -106157,29 +106333,8 @@
       ]
     },
     {
-      "id": "desktop.marketplace.downloading",
-      "description": "Plugin installation progress or review presentation.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.preparing",
-      "description": "Plugin installation progress or review presentation.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.installing",
-      "description": "Plugin installation progress or review presentation.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.downloadBytes",
-      "description": "Plugin installation progress or review presentation.",
+      "id": "desktop.marketplace.downloadProgress",
+      "description": "Plugin archive transfer progress with known size",
       "platforms": [
         "desktop"
       ],
@@ -106190,7 +106345,7 @@
     },
     {
       "id": "desktop.marketplace.downloadReceived",
-      "description": "Plugin installation progress or review presentation.",
+      "description": "Plugin archive transfer progress with unknown size",
       "platforms": [
         "desktop"
       ],
@@ -106199,123 +106354,22 @@
       }
     },
     {
-      "id": "desktop.marketplace.reviewConsent",
-      "description": "Plugin installation progress or review presentation.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.programDetails",
-      "description": "Plugin installation progress or review presentation.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "desktop.marketplace.permissionBuild",
-      "description": "Plugin installation progress or review presentation.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.permissionGenerate",
-      "description": "Plugin installation progress or review presentation.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.permissionBackend",
-      "description": "Plugin installation progress or review presentation.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.permissionDebug",
-      "description": "Plugin installation progress or review presentation.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.connecting",
-      "description": "Plugin download stage and installation confirmation guidance.",
+      "id": "desktop.marketplace.verifying",
+      "description": "Local extraction and verification before plugin review",
       "platforms": [
         "desktop"
       ]
     },
     {
       "id": "desktop.marketplace.downloadTitle",
-      "description": "Plugin download stage and installation confirmation guidance.",
+      "description": "Plugin download confirmation title",
       "platforms": [
         "desktop"
       ]
     },
     {
-      "id": "desktop.marketplace.installTitle",
-      "description": "Plugin download stage and installation confirmation guidance.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.installHelp",
-      "description": "Plugin download stage and installation confirmation guidance.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.installComplete",
-      "description": "Plugin installation result and recovery guidance.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.installCompleteHelp",
-      "description": "Plugin installation result and recovery guidance.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.failureTimeout",
-      "description": "Plugin installation result and recovery guidance.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.failureChecksum",
-      "description": "Plugin installation result and recovery guidance.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.failureNetwork",
-      "description": "Plugin installation result and recovery guidance.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.failurePermission",
-      "description": "Plugin installation result and recovery guidance.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.marketplace.failureHelp",
-      "description": "Plugin installation result and recovery guidance.",
+      "id": "desktop.marketplace.downloadPrompt",
+      "description": "Explain download confirmation and when the verified plugin needs install approval",
       "platforms": [
         "desktop"
       ]

@@ -11,9 +11,11 @@ type runPanels struct {
 	// the text the tree's filter field edits in place.
 	buildOpen   map[string]bool
 	buildFilter string
-	// choices is the Build window's tree of every build system, and output the Run window's
-	// console of what the Build window runs.
-	choices, output ui.ListState
+	// choices is the Build window's tree of every build system. runSplit is the Run window's
+	// divider between its execution tree and the selected execution's console; each
+	// execution keeps its own console list (runEntry.list).
+	choices  ui.ListState
+	runSplit ui.SplitterState
 	// testResults is the grouped result list, testOutput the console of a run that
 	// failed before reporting results.
 	testResults, testOutput ui.ListState

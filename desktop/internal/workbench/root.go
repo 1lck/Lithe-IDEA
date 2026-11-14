@@ -291,7 +291,7 @@ func (a *App) runShortcut(id string, view *editorview.View, term *terminal) {
 }
 
 // overlays declares everything the window shows over the workbench: the dialogs, the search
-// and navigation popups, the language popups, the plugin review and prompts, the import of an
+// and navigation popups, the language popups, the plugin prompts, the import of an
 // earlier client's plugin secrets, the Git dialogs and the New Project dialog. Each dialog's
 // state stays with its own file; the toasts are declared last, over all of them.
 func (a *App) overlays(c ui.C) {
@@ -303,7 +303,6 @@ func (a *App) overlays(c ui.C) {
 		a.navigationPopup(c)
 		a.semanticPopups(c)
 	}
-	a.pluginReviewView(c)
 	a.pluginPromptView(c)
 	a.credentialImportView(c)
 	a.legacyImportView(c)
