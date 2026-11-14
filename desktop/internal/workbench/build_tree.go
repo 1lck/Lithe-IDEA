@@ -259,8 +259,9 @@ func (a *App) appendBuildGroup(rows []buildRow, p *project, index int, query str
 		if scope != "" && target.ProjectID != scope || !keep(target.Name, target.Path) {
 			continue
 		}
+		label, detail, tooltip := buildTargetLabel(target)
 		targets = append(targets, buildRow{
-			kind: buildRowTarget, instance: index, level: 2, label: target.Name, detail: target.Path,
+			kind: buildRowTarget, instance: index, level: 2, label: label, detail: detail, tooltip: tooltip,
 			id: target.ID, project: target.ProjectID, selected: selected && b.targetID == target.ID, target: target,
 		})
 	}
@@ -386,4 +387,20 @@ func buildSystemFamily(buildSystemID string) symbolFamily {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(buildSystemID))
 	return symbolFamily(1 + h.Sum32()%uint32(familyModule))
+}
+
+// buildTargetLabel is what the row of target shows: its name with its path beside it, or the
+// path alone when the name already ends with it, as a Go import path ends with the folder of
+// its package; the full name then shows while the pointer rests on the row. The filter still
+// matches the name and the path.
+func buildTargetLabel(target *core.BuildTarget) (label, detail, tooltip string) {
+	name, at := target.Name, strings.Trim(target.Path, "/")
+	switch {
+	case at == "" || at == ".":
+	case name == at:
+		return at, "", ""
+	case strings.HasSuffix(name, "/"+at):
+		return at, "", name
+	}
+	return name, target.Path, ""
 }

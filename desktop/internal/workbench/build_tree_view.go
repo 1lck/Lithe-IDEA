@@ -413,6 +413,9 @@ var buildItemIcons = map[buildRowKind]*gfx.Icon{
 func (a *App) buildItemRow(row ui.ListRow, p *project, instance *buildInstance, spec buildRow) {
 	c, b := row.C, &p.build
 	element := a.buildTreeRowElement(row, spec)
+	if spec.tooltip != "" {
+		element = element.Tooltip(spec.tooltip)
+	}
 	ui.Row(c.Part("arrow")).Size(treelist.Disclosure, treelist.Icon).Shrink(0)
 	if icon := buildItemIcons[spec.kind]; icon != nil {
 		ui.Icon(c, *icon).Size(14, 14).Shrink(0).Color(a.colors.Subtle)

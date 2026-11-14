@@ -104,6 +104,9 @@ type buildRow struct {
 	label    string
 	detail   string
 	selected bool
+	// tooltip is what the row shows while the pointer rests on it: the full name of a target
+	// whose label is its path alone (buildTargetLabel); empty for none.
+	tooltip string
 	// instance is the index of the build system the row belongs to, level its indentation in
 	// the tree, and section the section a section row heads.
 	instance int
