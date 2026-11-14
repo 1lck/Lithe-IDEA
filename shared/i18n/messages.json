@@ -16936,6 +16936,17 @@
       ]
     },
     {
+      "id": "desktop.tools.withShortcut",
+      "description": "Tooltip of a tool stripe or title bar icon button: the button's name, then the keys of its shortcut",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "keys": "string"
+      }
+    },
+    {
       "id": "desktop.tools.structure",
       "description": "Desktop tools: Structure",
       "platforms": [

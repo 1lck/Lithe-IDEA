@@ -40,5 +40,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：chrome_view.go 的 stripe 以 stripeWidth 贴窗口左右边缘绘制，按钮在内部 Pad(chromeGap)；六区布局定义在 catalog.go。"
+  "notes": "Viva：chrome_view.go 的 stripe 以 stripeWidth（40pt）贴窗口左右边缘绘制，按 IDEA New UI 工具窗口栏布局：30pt 按钮由 Pad(chromeToolInset)=5pt 居中，按钮间距 chromeToolGap=10pt，图标 20pt；六区布局定义在 catalog.go。"
 }

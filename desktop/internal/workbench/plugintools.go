@@ -11,6 +11,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/toolicons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -39,37 +40,39 @@ func placementZone(placement string) zone {
 }
 
 // pluginToolIcon is the host icon a window declared by ID, or the generic tool window icon for
-// an ID the host does not map. The IDs are the public ones the manifest contract lists.
+// an ID the host does not map. The IDs are the public ones the manifest contract lists. As for
+// the built-in windows, an ID IntelliJ has a tool window icon for shows that icon, and the
+// others a Lucide icon at its weight.
 func pluginToolIcon(host string) *gfx.Icon {
 	switch host {
 	case "database", "services":
-		return &icons.Server
+		return &toolicons.Services
 	case "terminal":
-		return &icons.SquareTerminal
+		return &toolicons.Terminal
 	case "search":
-		return &icons.Search
+		return &toolicons.Find
 	case "refresh":
-		return &icons.RefreshCw
+		return stripeLucide(icons.RefreshCw)
 	case "reset":
-		return &icons.Undo2
+		return stripeLucide(icons.Undo2)
 	case "run":
-		return &icons.Play
+		return &toolicons.Run
 	case "debug":
-		return &icons.Bug
+		return &toolicons.Debug
 	case "settings":
-		return &icons.Settings
+		return stripeLucide(icons.Settings)
 	case "add":
-		return &icons.Plus
+		return stripeLucide(icons.Plus)
 	case "remove":
-		return &icons.Minus
+		return stripeLucide(icons.Minus)
 	case "git":
-		return &icons.GitBranch
+		return &toolicons.Vcs
 	case "problems":
-		return &icons.CircleAlert
+		return &toolicons.Problems
 	case "plugin":
-		return &icons.Sparkles
+		return stripeLucide(icons.Sparkles)
 	}
-	return &icons.LayoutGrid
+	return stripeLucide(icons.LayoutGrid)
 }
 
 // pluginItems is the built-in catalog followed by an item for each plugin tool window, then
@@ -89,7 +92,7 @@ func pluginItems(windows []pluginservice.ToolWindow, vcs []vcsWindow) []item {
 		window := &vcs[i]
 		title := window.DisplayName
 		items = append(items, item{
-			id: vcsItemID(window), zone: zoneBottomLeft, icon: &icons.GitBranch,
+			id: vcsItemID(window), zone: zoneBottomLeft, icon: &toolicons.Vcs,
 			label: func(*i18n.Messages) string { return title }, panel: true, vcs: window,
 		})
 	}

@@ -13,12 +13,18 @@ const gearMenuWidth = 224
 
 const (
 	// chromeIconButton is the side of a title bar icon button and the height of the
-	// other title bar controls; chromeToolButton is the side of a stripe button. Both
-	// are even and fit their bar with a whole pixel above and below, so nothing is
-	// laid out on a half pixel.
+	// other title bar controls. It is even and fits its bar with a whole pixel above and
+	// below, so nothing is laid out on a half pixel.
 	chromeIconButton = 28
-	chromeToolButton = 32
 	chromeIconSize   = 16
+	// A tool stripe button is laid out as in IntelliJ's New UI: a chromeToolButton square
+	// highlight around a chromeToolIcon icon, chromeToolInset from the stripe's sides, and
+	// chromeToolGap between two buttons, so a button follows every 40 points. The sizes are
+	// even and the inset whole, so the icon too stands on whole pixels.
+	chromeToolButton = 30
+	chromeToolIcon   = 20
+	chromeToolInset  = (stripeWidth - chromeToolButton) / 2
+	chromeToolGap    = 10
 	// chromeMarkSize is the size of a chevron or a status glyph.
 	chromeMarkSize = 12
 	chromeGap      = 4

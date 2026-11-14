@@ -21,8 +21,9 @@ import (
 // its drag source, and returns it for its content to be declared in. A container is used
 // instead of a Button because these buttons carry icons, take their colors from the palette
 // and report their state to assistive technology. value is the reading of a status item,
-// empty for the other buttons.
-func (a *App) chromeBox(row ui.Box, id gfx.ID, i int, open bool, value string) ui.Box {
+// empty for the other buttons. A button that is only an icon (iconOnly) shows its name in a
+// tooltip, since nothing else on it says what it is.
+func (a *App) chromeBox(row ui.Box, id gfx.ID, i int, open bool, value string, iconOnly bool) ui.Box {
 	it := a.chrome.catalog[i]
 	label := it.label(a.text)
 	if it.id == itemChanges {
@@ -30,6 +31,11 @@ func (a *App) chromeBox(row ui.Box, id gfx.ID, i int, open bool, value string) u
 		label = value
 	}
 	options := gfx.HitOptions{Role: gfx.RoleButton, Hint: a.text.Tools.DragHint, Selected: open, Value: value}
+	if iconOnly {
+		// Viva hands a tooltip to assistive technology as the hint, so the drag hint, which
+		// that would replace, is announced as the description instead.
+		options.Hint, options.Description = "", a.text.Tools.DragHint
+	}
 	if it.zone.surface() != surfaceStatus {
 		// The status items only show a reading, so they do not offer a click.
 		options.Cursor = gfx.PointerCursorHand
@@ -37,6 +43,9 @@ func (a *App) chromeBox(row ui.Box, id gfx.ID, i int, open bool, value string) u
 	row = row.Radius(a.theme.Metrics.RadiusItem()).
 		HitWith(id, label, options).
 		Pressed(ui.Look{}.Background(a.colors.Active))
+	if iconOnly {
+		row = row.Tooltip(a.chromeTooltip(i, label))
+	}
 	if open {
 		fill := a.colors.Active
 		if it.zone.surface() == surfaceStripes {
@@ -53,14 +62,49 @@ func (a *App) chromeBox(row ui.Box, id gfx.ID, i int, open bool, value string) u
 	return a.chrome.place(i, row.DragSource(&a.dnd.tool))
 }
 
-// chromeGlyph declares a square button that shows the icon of catalog item i and reports a
-// click on it. The icon is rest while the pointer is away and hover while it is over the
-// button.
-func (a *App) chromeGlyph(c ui.C, i int, side float32, rest, hover gfx.Color, open bool) (ui.Box, bool) {
+// chromeTooltip is the tooltip of the icon button of catalog item i named label: the name,
+// followed by the keys of the item's shortcut when it has one and they are bound.
+func (a *App) chromeTooltip(i int, label string) string {
+	id := a.chrome.catalog[i].shortcut
+	if id == "" {
+		return label
+	}
+	keys := a.settings.Keymap.Label(id)
+	if keys == "" {
+		return label
+	}
+	return i18n.SharedFormat(a.language(), "desktop.tools.withShortcut", map[string]string{"name": label, "keys": keys})
+}
+
+// glyphLayout is how a row of chrome icon buttons lays out each button: the side of the
+// square, the side of its icon and the side of the button its tooltip opens on.
+type glyphLayout struct {
+	side, icon float32
+	tooltip    ui.TooltipSide
+}
+
+// titleGlyph lays out a title bar button. Its tooltip opens below it, into the window.
+var titleGlyph = glyphLayout{side: chromeIconButton, icon: chromeIconSize, tooltip: ui.TooltipBottom}
+
+// stripeGlyph lays out a button of the left or the right tool stripe. Its tooltip opens on
+// the stripe's inner side, over the workbench rather than off the window's edge.
+func stripeGlyph(left bool) glyphLayout {
+	tooltip := ui.TooltipLeft
+	if left {
+		tooltip = ui.TooltipRight
+	}
+	return glyphLayout{side: chromeToolButton, icon: chromeToolIcon, tooltip: tooltip}
+}
+
+// chromeGlyph declares a square button that shows the icon of catalog item i, laid out by
+// layout, and reports a click on it. The icon is rest while the pointer is away and hover
+// while it is over the button; the item's name shows in a tooltip.
+func (a *App) chromeGlyph(c ui.C, i int, layout glyphLayout, rest, hover gfx.Color, open bool) (ui.Box, bool) {
 	k := c.KeyInt(i)
-	box := a.chromeBox(ui.Row(k).Size(side, side).Shrink(0).Center(), ui.ID(k), i, open, "")
+	box := a.chromeBox(ui.Row(k).Size(layout.side, layout.side).Shrink(0).Center(), ui.ID(k), i, open, "", true).
+		TooltipOn(layout.tooltip)
 	box.Children(func() {
-		ui.Icon(k, *a.chrome.catalog[i].icon).Size(chromeIconSize, chromeIconSize).Color(rest).
+		ui.Icon(k, *a.chrome.catalog[i].icon).Size(layout.icon, layout.icon).Color(rest).
 			StateFrom(box).Hover(ui.Look{}.Color(hover))
 	})
 	return box, box.Clicked()
@@ -154,7 +198,7 @@ func (a *App) chromeTitleButton(c ui.C, i int) bool {
 	case itemRunConfig:
 		k := c.KeyInt(i)
 		wasOpen := a.title.runConfigOpen
-		box := a.chromeBox(ui.Row(k).Height(chromeIconButton).Shrink(0).Items(ui.Center).Gap(chromeGap).PadX(chromeEdge), ui.ID(k), i, wasOpen, "")
+		box := a.chromeBox(ui.Row(k).Height(chromeIconButton).Shrink(0).Items(ui.Center).Gap(chromeGap).PadX(chromeEdge), ui.ID(k), i, wasOpen, "", false)
 		box.Children(func() {
 			ui.Icon(k, *a.chrome.catalog[i].icon).Size(chromeIconSize, chromeIconSize).Color(a.colors.Subtle)
 			ui.Text(k, a.titleRunLabel()).Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis().MaxWidth(chromeProjectMax)
@@ -170,10 +214,10 @@ func (a *App) chromeTitleButton(c ui.C, i int) bool {
 		return false
 	case itemTitleRun:
 		// Run is the one button that keeps its color at rest: green says what it does.
-		_, clicked := a.chromeGlyph(c, i, chromeIconButton, a.colors.Success, a.colors.Success, false)
+		_, clicked := a.chromeGlyph(c, i, titleGlyph, a.colors.Success, a.colors.Success, false)
 		return clicked
 	case itemTitleSettings:
-		box, clicked := a.chromeGlyph(c, i, chromeIconButton, a.colors.Text, a.colors.Text, a.title.gearOpen)
+		box, clicked := a.chromeGlyph(c, i, titleGlyph, a.colors.Text, a.colors.Text, a.title.gearOpen)
 		wasOpen := a.title.gearOpen
 		if wasOpen {
 			a.gearMenu(c, box)
@@ -185,7 +229,7 @@ func (a *App) chromeTitleButton(c ui.C, i int) bool {
 		}
 		return false
 	}
-	_, clicked := a.chromeGlyph(c, i, chromeIconButton, a.colors.Text, a.colors.Text, false)
+	_, clicked := a.chromeGlyph(c, i, titleGlyph, a.colors.Text, a.colors.Text, false)
 	return clicked
 }
 
@@ -206,15 +250,15 @@ func (a *App) stripe(c ui.C, left bool) {
 	dragging := a.draggingToolButton()
 	// As in the title bar, a click is acted on once the stripe is declared.
 	clicked := -1
-	ui.Column(c).Width(stripeWidth).FillHeight().Shrink(0).Background(a.chromeFill()).Pad(chromeGap).Children(func() {
-		if i := a.stripeZone(c, top, dragging); i >= 0 {
+	ui.Column(c).Width(stripeWidth).FillHeight().Shrink(0).Background(a.chromeFill()).Pad(chromeToolInset).Children(func() {
+		if i := a.stripeZone(c, top, left, dragging); i >= 0 {
 			clicked = i
 		}
 		ui.Spacer(c)
-		if i := a.stripeZone(c, split, dragging); i >= 0 {
+		if i := a.stripeZone(c, split, left, dragging); i >= 0 {
 			clicked = i
 		}
-		if i := a.stripeZone(c, end, dragging); i >= 0 {
+		if i := a.stripeZone(c, end, left, dragging); i >= 0 {
 			clicked = i
 		}
 		// The line on the editor's side is out of the flow, so the buttons sit in the middle
@@ -231,13 +275,15 @@ func (a *App) stripe(c ui.C, left bool) {
 	}
 }
 
-// stripeZone declares one zone of a stripe and returns the catalog index of the button
-// clicked in it, or -1. Each zone is as high as its buttons; the spacer in stripe pushes the
+// stripeZone declares one zone of the left stripe (left) or the right one and returns the
+// catalog index of the button clicked in it, or -1. Each zone is as high as its buttons; the
+// spacer in stripe pushes the
 // split and bottom groups to the stripe's end. While a tool button is dragged, every zone is
 // at least one button high, which makes an empty zone a place the button can be dropped.
-func (a *App) stripeZone(c ui.C, z zone, dragging bool) int {
+func (a *App) stripeZone(c ui.C, z zone, left, dragging bool) int {
 	clicked := -1
-	column := ui.Column(c).Gap(chromeGap)
+	layout := stripeGlyph(left)
+	column := ui.Column(c).Gap(chromeToolGap)
 	if dragging {
 		column = column.MinHeight(chromeToolButton)
 	}
@@ -257,7 +303,7 @@ func (a *App) stripeZone(c ui.C, z zone, dragging bool) int {
 			if open {
 				hover = a.theme.PrimaryForeground
 			}
-			box, hit := a.chromeGlyph(c, i, chromeToolButton, rest, hover, open)
+			box, hit := a.chromeGlyph(c, i, layout, rest, hover, open)
 			switch {
 			case background:
 				// As the title bar's gear: the press on the button that dismisses the open
@@ -312,7 +358,7 @@ func (a *App) statusBar(c ui.C) {
 func (a *App) chromeStatusItem(c ui.C, i int) bool {
 	text := a.chromeStatusText(i)
 	k := c.KeyInt(i)
-	box := a.chromeBox(ui.Row(k).Height(chromeStatusItem).Shrink(0).Items(ui.Center).Gap(chromeGap).PadX(chromeEdge), ui.ID(k), i, false, text)
+	box := a.chromeBox(ui.Row(k).Height(chromeStatusItem).Shrink(0).Items(ui.Center).Gap(chromeGap).PadX(chromeEdge), ui.ID(k), i, false, text, false)
 	box.Children(func() {
 		switch a.chrome.catalog[i].id {
 		case itemLock:

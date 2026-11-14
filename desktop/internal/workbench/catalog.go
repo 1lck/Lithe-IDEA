@@ -8,6 +8,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/toolicons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -189,9 +190,12 @@ type item struct {
 	zone zone // the default zone; its surface is the only one the item may sit in
 	// icon is the glyph of the button; nil for a status item that is text only.
 	icon *gfx.Icon
-	// label is the button's name, shown as its tooltip and read by assistive
-	// technology.
+	// label is the button's name, read by assistive technology and, on a button that is only
+	// an icon, shown as its tooltip.
 	label func(*i18n.Messages) string
+	// shortcut is the shortcut catalog action (shortcuts.Catalog) that does what a click on
+	// the button does, whose keys the tooltip shows after the name; empty for none.
+	shortcut string
 	// panel reports that the button opens a tool window in its zone's slot.
 	panel bool
 	// open reports that the tool window is open in the default layout.
@@ -203,33 +207,47 @@ type item struct {
 	vcs *vcsWindow
 }
 
+// stripeLucideStroke is the stroke, in Lucide's 24 unit view box, of a Lucide icon drawn in a
+// tool stripe: at the stripe's 20 point icon size it is the 1.5 points the IntelliJ tool window
+// icons draw with, where Lucide's own 2 units would be 1.67.
+const stripeLucideStroke = 1.8
+
+// stripeLucide is a Lucide icon at the weight of the IntelliJ tool window icons, for a stripe
+// button IntelliJ has no icon for.
+func stripeLucide(icon gfx.Icon) *gfx.Icon {
+	icon.Stroke = stripeLucideStroke
+	return &icon
+}
+
 // catalog is every rearrangeable button, in the default order of each zone. The
-// kernel owns the layout rules; this is only the host's list of what exists.
+// kernel owns the layout rules; this is only the host's list of what exists. A tool
+// stripe button shows the IntelliJ New UI icon of its window (toolicons), or a Lucide icon
+// at the same weight when IntelliJ has none.
 var catalog = []item{
-	{id: itemProject, zone: zoneLeftTop, icon: &icons.Folder, label: func(m *i18n.Messages) string { return m.Tools.Project }, panel: true, open: true},
-	{id: itemCommit, zone: zoneLeftTop, icon: &icons.GitCommitHorizontal, label: func(m *i18n.Messages) string { return m.Tools.Commit }, panel: true},
-	{id: itemStructure, zone: zoneLeftTop, icon: &icons.ListTree, label: func(m *i18n.Messages) string { return m.Tools.Structure }, panel: true},
-	{id: itemFind, zone: zoneLeftTop, icon: &icons.Search, label: func(m *i18n.Messages) string { return m.Tools.Find }, panel: true},
+	{id: itemProject, zone: zoneLeftTop, icon: &toolicons.Project, label: func(m *i18n.Messages) string { return m.Tools.Project }, panel: true, open: true},
+	{id: itemCommit, zone: zoneLeftTop, icon: &toolicons.Commit, label: func(m *i18n.Messages) string { return m.Tools.Commit }, panel: true},
+	{id: itemStructure, zone: zoneLeftTop, icon: &toolicons.Structure, label: func(m *i18n.Messages) string { return m.Tools.Structure }, panel: true},
+	{id: itemFind, zone: zoneLeftTop, icon: &toolicons.Find, label: func(m *i18n.Messages) string { return m.Tools.Find }, panel: true},
 
-	{id: itemGit, zone: zoneBottomLeft, icon: &icons.GitBranch, label: func(m *i18n.Messages) string { return m.Tools.Git }, panel: true},
-	{id: itemTerminal, zone: zoneBottomLeft, icon: &icons.SquareTerminal, label: func(m *i18n.Messages) string { return m.Tools.Terminal }, panel: true},
-	{id: itemProblems, zone: zoneBottomLeft, icon: &icons.CircleAlert, label: func(m *i18n.Messages) string { return m.Tools.Problems }, panel: true},
-	{id: itemReferences, zone: zoneBottomLeft, icon: &icons.Locate, label: func(m *i18n.Messages) string { return m.Tools.References }, panel: true},
-	{id: itemRun, zone: zoneBottomLeft, icon: &icons.Play, label: func(m *i18n.Messages) string { return m.Tools.Run }, panel: true},
-	{id: itemTests, zone: zoneBottomLeft, icon: &icons.CircleCheck, label: func(m *i18n.Messages) string { return m.Tools.Tests }, panel: true},
-	{id: itemSecurity, zone: zoneBottomLeft, icon: &icons.ShieldCheck, label: func(m *i18n.Messages) string { return m.Tools.Security }, panel: true},
-	{id: itemDebug, zone: zoneBottomLeft, icon: &icons.Bug, label: func(m *i18n.Messages) string { return m.Tools.Debug }, panel: true},
+	{id: itemGit, zone: zoneBottomLeft, icon: &toolicons.Vcs, label: func(m *i18n.Messages) string { return m.Tools.Git }, panel: true},
+	{id: itemTerminal, zone: zoneBottomLeft, icon: &toolicons.Terminal, label: func(m *i18n.Messages) string { return m.Tools.Terminal }, panel: true},
+	{id: itemProblems, zone: zoneBottomLeft, icon: &toolicons.Problems, label: func(m *i18n.Messages) string { return m.Tools.Problems }, panel: true},
+	{id: itemReferences, zone: zoneBottomLeft, icon: stripeLucide(icons.Locate), label: func(m *i18n.Messages) string { return m.Tools.References }, panel: true},
+	{id: itemRun, zone: zoneBottomLeft, icon: &toolicons.Run, label: func(m *i18n.Messages) string { return m.Tools.Run }, panel: true},
+	{id: itemTests, zone: zoneBottomLeft, icon: stripeLucide(icons.CircleCheck), label: func(m *i18n.Messages) string { return m.Tools.Tests }, panel: true},
+	{id: itemSecurity, zone: zoneBottomLeft, icon: stripeLucide(icons.ShieldCheck), label: func(m *i18n.Messages) string { return m.Tools.Security }, panel: true},
+	{id: itemDebug, zone: zoneBottomLeft, icon: &toolicons.Debug, label: func(m *i18n.Messages) string { return m.Tools.Debug }, panel: true},
 
-	{id: itemBuild, zone: zoneRightTop, icon: &icons.Wrench, label: func(m *i18n.Messages) string { return m.Tools.Build }, panel: true},
-	{id: itemNotifications, zone: zoneRightTop, icon: &icons.Bell, label: func(m *i18n.Messages) string { return m.Tools.Notifications }, panel: true},
+	{id: itemBuild, zone: zoneRightTop, icon: &toolicons.Build, label: func(m *i18n.Messages) string { return m.Tools.Build }, panel: true},
+	{id: itemNotifications, zone: zoneRightTop, icon: &toolicons.Notifications, label: func(m *i18n.Messages) string { return m.Tools.Notifications }, panel: true},
 
-	{id: itemUpdates, zone: zoneBottomRight, icon: &icons.RefreshCw, label: func(m *i18n.Messages) string { return m.Tools.Updates }, panel: true},
-	{id: itemBackground, zone: zoneBottomRight, icon: &icons.Image, label: func(m *i18n.Messages) string { return m.Tools.Background }},
+	{id: itemUpdates, zone: zoneBottomRight, icon: stripeLucide(icons.RefreshCw), label: func(m *i18n.Messages) string { return m.Tools.Updates }, panel: true},
+	{id: itemBackground, zone: zoneBottomRight, icon: stripeLucide(icons.Image), label: func(m *i18n.Messages) string { return m.Tools.Background }},
 
 	{id: itemRunConfig, zone: zoneTitle, icon: &icons.FileCode, label: func(m *i18n.Messages) string { return m.Title.RunConfiguration }},
 	{id: itemTitleRun, zone: zoneTitle, icon: &icons.Play, label: func(m *i18n.Messages) string { return m.Title.Run }},
 	{id: itemTitleDebug, zone: zoneTitle, icon: &icons.Bug, label: func(m *i18n.Messages) string { return m.Title.Debug }},
-	{id: itemTitleSearch, zone: zoneTitle, icon: &icons.Search, label: func(m *i18n.Messages) string { return m.Title.Search }},
+	{id: itemTitleSearch, zone: zoneTitle, icon: &icons.Search, label: func(m *i18n.Messages) string { return m.Title.Search }, shortcut: "search.everywhere"},
 	{id: itemTitleSettings, zone: zoneTitle, icon: &icons.Settings, label: func(m *i18n.Messages) string { return m.Title.Settings }},
 
 	{id: itemCaret, zone: zoneStatus, label: func(m *i18n.Messages) string { return m.Status.Caret }},
