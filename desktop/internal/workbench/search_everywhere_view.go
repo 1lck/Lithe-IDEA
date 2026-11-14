@@ -441,14 +441,7 @@ func (a *App) searchResultMenu(c ui.C, target ui.Box, p *project, result core.Wo
 			})
 		}
 		menu.Separator()
-		if menu.Item(i18n.Shared(language, "desktop.files.copyPath")).Clicked() {
-			a.performed(surface+".copyPath", surfaceMenu)
-			a.copyTreePath(full, false)
-		}
-		if menu.Item(i18n.Shared(language, "desktop.files.copyRelativePath")).Clicked() {
-			a.performed(surface+".copyRelativePath", surfaceMenu)
-			a.copyTreePath(full, true)
-		}
+		a.copyPathMenu(c, menu, full, true, surface)
 	})
 }
 

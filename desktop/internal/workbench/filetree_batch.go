@@ -16,16 +16,24 @@ import (
 
 // This file is the batch side of the project tree (matrix id workspace-tree-batch-files): a
 // Ctrl or Cmd click adds a row to the marked set, a Shift click marks the rows between the anchor
-// and the clicked row, and the context menu of a marked row applies to every marked row: move to
-// the trash, delete after a confirmation, or move the changed files among them to a change list.
-// A folder marked with a file inside it stands for its own contents, so the file is left out of
-// the batch. Single-row behaviour is in filetree_menu.go and filetree_actions.go.
+// and the clicked row, and the context menu of a marked row applies to every marked row: delete
+// them, or move the changed files among them to a change list. A folder marked with a file inside
+// it stands for its own contents, so the file is left out of the batch. Single-row behaviour is in
+// filetree_menu.go and filetree_actions.go.
+//
+// Delete is one menu item for one item or many, as in the IDE: it opens a dialog that moves the
+// items to the system trash, which is the default and can be undone, or deletes them for good.
 
-// treeBatchDelete is the batch delete dialog: open while the user confirms, paths the batch holds.
-type treeBatchDelete struct {
+// treeRemoval is the Delete dialog: open while the user chooses, paths the project-relative
+// paths it removes. The project tree and the Git review both open it.
+type treeRemoval struct {
 	open  bool
 	paths []string
 }
+
+// treeMoveToTrash moves a file or folder to the system trash; tests replace it, since the trash
+// of the machine running them is not theirs to fill.
+var treeMoveToTrash = moveToTrash
 
 // treeModifiedClick applies a Ctrl, Cmd or Shift click on the row of n to the marked set, as
 // Core says (filetree_rows.go).
@@ -61,15 +69,12 @@ func (t *fileTree) batchTargets() []*treeNode {
 func (a *App) treeBatchMenu(c ui.C, p *project, menu *ui.MenuItems, nodes []*treeNode) {
 	lang := a.language()
 	count := strconv.Itoa(len(nodes))
-	if menu.Item(i18n.SharedFormat(lang, "desktop.files.batchTrash", map[string]string{"count": count})).Clicked() {
-		c.After(func() { a.trashTreeItems(p, nodes) })
-	}
-	if menu.Item(i18n.SharedFormat(lang, "desktop.files.batchDelete", map[string]string{"count": count})).Destructive().Clicked() {
+	if menu.Item(i18n.SharedFormat(lang, "desktop.files.batchDelete", map[string]string{"count": count})).Clicked() {
 		paths := make([]string, 0, len(nodes))
 		for _, n := range nodes {
 			paths = append(paths, n.path)
 		}
-		c.After(func() { p.tree.batch = treeBatchDelete{open: true, paths: paths} })
+		c.After(func() { a.openTreeRemoval(p, paths) })
 	}
 	changes := changesUnderNodes(p, nodes)
 	if len(changes) > 0 {
@@ -99,11 +104,12 @@ func changesUnderNodes(p *project, nodes []*treeNode) []core.GitChange {
 	return out
 }
 
-// batchPaths are the full paths of nodes and the open documents below any of them.
-func (a *App) batchPaths(p *project, nodes []*treeNode) (full []string, docs []*document) {
+// removalPaths are the full paths of the project-relative paths and the open documents at or
+// below any of them.
+func (a *App) removalPaths(p *project, paths []string) (full []string, docs []*document) {
 	seen := map[*document]bool{}
-	for _, n := range nodes {
-		f := filepath.Join(p.root, filepath.FromSlash(n.path))
+	for _, at := range paths {
+		f := filepath.Join(p.root, filepath.FromSlash(at))
 		full = append(full, f)
 		for _, d := range a.documentsUnder(p, f) {
 			if !seen[d] {
@@ -115,46 +121,45 @@ func (a *App) batchPaths(p *project, nodes []*treeNode) (full []string, docs []*
 	return full, docs
 }
 
-// trashTreeItems moves every node to the system trash after the open files below them are saved
-// and their tabs closed, as a single trash does.
-func (a *App) trashTreeItems(p *project, nodes []*treeNode) {
-	full, docs := a.batchPaths(p, nodes)
-	parents := treeParents(nodes)
-	a.saveDocumentsThen(p, docs, func() {
-		a.closeOpenDocuments(p, docs)
-		failed := 0
-		var reason error
-		for _, f := range full {
-			if err := moveToTrash(f); err != nil {
-				failed++
-				reason = err
-			}
-		}
-		a.finishBatch(p, parents, "workspace.file.trashBatch", failed, reason, trashFailedText)
-	})
-}
-
-// deleteTreeItems removes every node after the open files below them are saved and closed.
-func (a *App) deleteTreeItems(p *project, paths []string) {
-	nodes := make([]*treeNode, 0, len(paths))
+// openTreeRemoval opens the Delete dialog for the project-relative paths. The project root is
+// never removed, so a path that names it is left out.
+func (a *App) openTreeRemoval(p *project, paths []string) {
+	var kept []string
 	for _, at := range paths {
-		if n := p.tree.byPath[at]; n != nil {
-			nodes = append(nodes, n)
+		if at != "" && at != "." && !slices.Contains(kept, at) {
+			kept = append(kept, at)
 		}
 	}
-	full, docs := a.batchPaths(p, nodes)
-	parents := treeParents(nodes)
+	if len(kept) == 0 {
+		return
+	}
+	p.tree.removal = treeRemoval{open: true, paths: kept}
+}
+
+// removeTreeItems moves the project-relative paths to the system trash or, when permanent,
+// deletes them from disk. The open files at or below them are saved and their tabs closed first,
+// so neither loses an edit.
+func (a *App) removeTreeItems(p *project, paths []string, permanent bool) {
+	full, docs := a.removalPaths(p, paths)
+	parents := treeParents(paths)
+	remove, performed, failure := treeMoveToTrash, "workspace.file.trash", trashFailedText
+	if permanent {
+		remove, performed, failure = os.RemoveAll, "workspace.file.delete", deleteFailedText
+	}
+	if len(paths) > 1 {
+		performed += "Batch"
+	}
 	a.saveDocumentsThen(p, docs, func() {
 		a.closeOpenDocuments(p, docs)
 		failed := 0
 		var reason error
 		for _, f := range full {
-			if err := os.RemoveAll(f); err != nil {
+			if err := remove(f); err != nil {
 				failed++
 				reason = err
 			}
 		}
-		a.finishBatch(p, parents, "workspace.file.deleteBatch", failed, reason, deleteFailedText)
+		a.finishRemoval(p, parents, performed, failed, reason, failure)
 	})
 }
 
@@ -167,11 +172,12 @@ func (a *App) closeOpenDocuments(p *project, docs []*document) {
 	}
 }
 
-// treeParents are the directories the nodes sit in, each once, as the tree lists them again.
-func treeParents(nodes []*treeNode) []string {
+// treeParents are the directories the project-relative paths sit in, each once, as the tree
+// lists them again.
+func treeParents(paths []string) []string {
 	var out []string
-	for _, n := range nodes {
-		dir := path.Dir(n.path)
+	for _, at := range paths {
+		dir := path.Dir(at)
 		if !slices.Contains(out, dir) {
 			out = append(out, dir)
 		}
@@ -179,9 +185,10 @@ func treeParents(nodes []*treeNode) []string {
 	return out
 }
 
-// finishBatch clears the marks, lists the directories again and reads the status. A failure is
-// reported once, with the last reason, since the rest of the batch still ran; failure words it.
-func (a *App) finishBatch(p *project, parents []string, performed string, failed int, reason error, failure func(i18n.Language, string) string) {
+// finishRemoval clears the marks, which may name removed rows, lists the directories again and
+// reads the status. A failure is reported once, with the last reason, since the rest of a batch
+// still ran; failure words it.
+func (a *App) finishRemoval(p *project, parents []string, performed string, failed int, reason error, failure func(i18n.Language, string) string) {
 	p.tree.marked, p.tree.anchor, p.tree.targets = nil, "", nil
 	if failed > 0 && reason != nil {
 		a.notifyError(failure(a.language(), treeErrorReason(reason)))
@@ -193,40 +200,51 @@ func (a *App) finishBatch(p *project, parents []string, performed string, failed
 	a.loadGit(p)
 }
 
-// treeBatchDialog declares the confirmation of a batch delete: how many items it removes, and
-// the delete button that runs it.
-func (a *App) treeBatchDialog(c ui.C, p *project) {
-	b := &p.tree.batch
-	if !b.open {
+// treeRemovalDialog declares the open Delete dialog: what it removes, Cancel, Delete Permanently,
+// and Move to Trash, the default, since the trash can give the items back.
+func (a *App) treeRemovalDialog(c ui.C, p *project) {
+	r := &p.tree.removal
+	if !r.open || len(r.paths) == 0 {
 		return
 	}
 	lang := a.language()
 	open := true
-	description := i18n.SharedFormat(lang, "desktop.files.batchDeletePrompt", map[string]string{"count": strconv.Itoa(len(b.paths))})
-	closed := ui.ModalWith(c, &open, i18n.Shared(lang, "desktop.files.batchDeleteTitle"), ui.ModalSpec{Description: description, Width: 420}, nil, func() {
-		if ui.Button(c, i18n.Shared(lang, "desktop.gitReview.cancel")).Outline().Clicked() {
+	title := i18n.Shared(lang, "desktop.files.deleteTitle")
+	description := i18n.SharedFormat(lang, "desktop.files.deleteMessage", map[string]string{"name": path.Base(r.paths[0])})
+	if len(r.paths) > 1 {
+		title = i18n.Shared(lang, "desktop.files.batchDeleteTitle")
+		description = i18n.SharedFormat(lang, "desktop.files.batchDeletePrompt", map[string]string{"count": strconv.Itoa(len(r.paths))})
+	}
+	run := func(permanent bool) {
+		paths := r.paths
+		c.After(func() {
+			p.tree.removal = treeRemoval{}
+			a.removeTreeItems(p, paths, permanent)
+		})
+		open = false
+	}
+	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Description: description, Width: 440}, nil, func() {
+		if ui.Button(c, i18n.Shared(lang, "desktop.files.cancel")).Outline().Clicked() {
 			open = false
 		}
-		if ui.Button(c, i18n.Shared(lang, "desktop.files.batchDeleteConfirm")).Destructive().Clicked() {
-			paths := b.paths
-			c.After(func() {
-				p.tree.batch = treeBatchDelete{}
-				a.deleteTreeItems(p, paths)
-			})
-			open = false
+		if ui.Button(c, i18n.Shared(lang, "desktop.files.deletePermanently")).Destructive().Clicked() {
+			run(true)
+		}
+		if ui.Button(c, i18n.Shared(lang, "desktop.files.moveToTrash")).Clicked() {
+			run(false)
 		}
 	})
 	if closed || !open {
-		c.After(func() { p.tree.batch = treeBatchDelete{} })
+		c.After(func() { p.tree.removal = treeRemoval{} })
 	}
 }
 
-// trashFailedText is the message of a batch trash an item of failed for reason.
+// trashFailedText is the message of a trash an item of failed for reason.
 func trashFailedText(lang i18n.Language, reason string) string {
 	return i18n.SharedFormat(lang, "desktop.files.trashFailed", map[string]string{"reason": reason})
 }
 
-// deleteFailedText is the message of a batch delete an item of failed for reason.
+// deleteFailedText is the message of a delete an item of failed for reason.
 func deleteFailedText(lang i18n.Language, reason string) string {
 	return i18n.SharedFormat(lang, "desktop.files.deleteFailed", map[string]string{"reason": reason})
 }

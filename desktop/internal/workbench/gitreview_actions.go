@@ -1,7 +1,6 @@
 package workbench
 
 import (
-	"path"
 	"path/filepath"
 	"strings"
 
@@ -78,10 +77,8 @@ func (a *App) changeMenuItems(c ui.C, p *project, change core.GitChange) func(*u
 			c.After(func() { a.openRollback(p, []core.GitChange{change}) })
 		}
 		rel, inside := projectRelative(p.root, full)
-		if !deleted && inside && rel != "" && menu.Item(i18n.Shared(lang, "desktop.files.moveToTrash")).Clicked() {
-			c.After(func() {
-				a.trashTreeItem(p, &treeNode{path: rel, name: path.Base(rel), dir: folder})
-			})
+		if !deleted && inside && rel != "" && menu.Item(i18n.Shared(lang, "desktop.files.delete")).Clicked() {
+			c.After(func() { a.openTreeRemoval(p, []string{rel}) })
 		}
 		menu.Separator()
 		if !deleted && menu.Item(revealLabel(lang)).Clicked() {
@@ -90,11 +87,6 @@ func (a *App) changeMenuItems(c ui.C, p *project, change core.GitChange) func(*u
 				a.revealPath(full)
 			})
 		}
-		if menu.Item(i18n.Shared(lang, "native.copyPath")).Clicked() {
-			c.After(func() { a.copyTreePath(full, false) })
-		}
-		if menu.Item(i18n.Shared(lang, "native.copyRelativePath")).Clicked() {
-			c.After(func() { a.copyTreePath(full, true) })
-		}
+		a.copyPathMenu(c, menu, full, true, "git.change")
 	}
 }

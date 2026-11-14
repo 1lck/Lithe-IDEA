@@ -8,7 +8,8 @@
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/workbench/filetree_menu.go",
-      "desktop/internal/workbench/filetree.go"
+      "desktop/internal/workbench/filetree.go",
+      "desktop/internal/workbench/filetree_batch.go"
     ]
   },
   "windows": {
@@ -16,7 +17,8 @@
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/workbench/filetree_menu.go",
-      "desktop/internal/workbench/filetree.go"
+      "desktop/internal/workbench/filetree.go",
+      "desktop/internal/workbench/filetree_batch.go"
     ]
   },
   "owner": "Workspace",
@@ -46,5 +48,5 @@
       ]
     }
   },
-  "notes": "Viva：项目树支持单项新建、重命名与删除（filetree_menu.go，删除为 os.RemoveAll）；未找到独立多选、范围选择、批量拖动移动、复制、重复或移到废纸篓的实现，filetree.go 的选择模型为单项。"
+  "notes": "Viva：项目树支持 Ctrl/Cmd 点击增减与 Shift 范围多选，选择由 Core 计算（filetree_batch.go、filetree_rows.go）；多选右键可“删除 {count} 项…”和把其中的变更移到变更列表。“删除…”对单项和多选共用一个对话框，默认按钮“移到废纸篓”，旁边是“永久删除”，Git 提交窗口的变更右键也打开同一对话框。拖动只移动被拖的那一项，批量拖动、批量复制和批量重复尚未实现。"
 }

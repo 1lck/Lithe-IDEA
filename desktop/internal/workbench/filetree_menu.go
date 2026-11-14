@@ -36,11 +36,11 @@ const (
 	treePromptNewFile
 	treePromptNewDirectory
 	treePromptRename
-	treePromptDelete
 )
 
-// treePrompt is the New File, New Directory, Rename or Delete dialog of one row. name is the
-// text field of the first three; err is a name the dialog rejected and shows under the field.
+// treePrompt is the New File, New Directory or Rename dialog of one row. name is its text
+// field; err is a name the dialog rejected and shows under the field. Delete has its own dialog
+// (treeRemovalDialog in filetree_batch.go).
 type treePrompt struct {
 	kind treePromptKind
 	open bool
@@ -189,32 +189,16 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 			if menu.Item(i18n.Shared(language, "desktop.files.duplicate")).Clicked() {
 				c.After(func() { a.duplicateTreeItem(p, n) })
 			}
-			if menu.Item(i18n.Shared(language, "desktop.files.moveToTrash")).Clicked() {
-				c.After(func() { a.trashTreeItem(p, n) })
-			}
 			if menu.Item(i18n.Shared(language, "desktop.files.rename")).Clicked() {
 				c.After(func() { a.openTreePrompt(p, treePromptRename, n) })
 			}
-			if menu.Item(i18n.Shared(language, "desktop.files.delete")).Destructive().Clicked() {
-				c.After(func() { a.openTreePrompt(p, treePromptDelete, n) })
+			if menu.Item(i18n.Shared(language, "desktop.files.delete")).Clicked() {
+				c.After(func() { a.openTreeRemoval(p, []string{n.path}) })
 			}
 		}
 		menu.Separator()
 		full := filepath.Join(p.root, filepath.FromSlash(n.path))
-		if menu.Item(i18n.Shared(language, "desktop.files.copyPath")).Clicked() {
-			c.After(func() {
-				a.performed("workspace.tree.copyPath", surfaceMenu)
-				a.copyTreePath(full, false)
-			})
-		}
-		if !root {
-			if menu.Item(i18n.Shared(language, "desktop.files.copyRelativePath")).Clicked() {
-				c.After(func() {
-					a.performed("workspace.tree.copyRelativePath", surfaceMenu)
-					a.copyTreePath(full, true)
-				})
-			}
-		}
+		a.copyPathMenu(c, menu, full, !root, "workspace.tree")
 		if menu.Item(revealLabel(language)).Clicked() {
 			c.After(func() {
 				a.performed("workspace.tree.reveal", surfaceMenu)
@@ -246,6 +230,32 @@ func (a *App) revealPath(full string) {
 	}
 }
 
+// copyPathMenu declares the Copy Path / Reference submenu of a file or folder at full: its
+// absolute path and, when relative is set, its path relative to the project. Every menu that
+// copies a path uses it, so the two items sit in one submenu everywhere, as in the IDE. surface
+// prefixes the performed actions; an empty surface logs none.
+func (a *App) copyPathMenu(c ui.C, menu *ui.MenuItems, full string, relative bool, surface string) {
+	language := a.language()
+	menu.Sub(i18n.Shared(language, "native.copyPathReference"), func(sub *ui.MenuItems) {
+		if sub.Item(i18n.Shared(language, "native.copyPath")).Clicked() {
+			c.After(func() {
+				if surface != "" {
+					a.performed(surface+".copyPath", surfaceMenu)
+				}
+				a.copyTreePath(full, false)
+			})
+		}
+		if relative && sub.Item(i18n.Shared(language, "native.copyRelativePath")).Clicked() {
+			c.After(func() {
+				if surface != "" {
+					a.performed(surface+".copyRelativePath", surfaceMenu)
+				}
+				a.copyTreePath(full, true)
+			})
+		}
+	})
+}
+
 // copyTreePath copies a path to the clipboard, relative to the project when relative is set.
 func (a *App) copyTreePath(full string, relative bool) {
 	text := full
@@ -269,9 +279,9 @@ func (a *App) openTreePrompt(p *project, kind treePromptKind, n *treeNode) {
 	}
 }
 
-// treePromptDialog declares the open New File, New Directory, Rename or Delete dialog. It
-// applies nothing on its own: Enter, Create, Rename or Delete runs the action once the text is
-// known, and closing the dialog cancels.
+// treePromptDialog declares the open New File, New Directory or Rename dialog. It applies
+// nothing on its own: Enter, Create or Rename runs the action once the text is known, and
+// closing the dialog cancels.
 func (a *App) treePromptDialog(c ui.C, p *project) {
 	pr := &p.tree.prompt
 	if !pr.open || pr.node == nil {
@@ -286,35 +296,23 @@ func (a *App) treePromptDialog(c ui.C, p *project) {
 		title, confirm = i18n.Shared(language, "desktop.files.newDirectoryTitle"), i18n.Shared(language, "desktop.files.create")
 	case treePromptRename:
 		title, confirm = i18n.Shared(language, "desktop.files.renameTitle"), i18n.Shared(language, "desktop.files.renameAction")
-	case treePromptDelete:
-		title, confirm = i18n.Shared(language, "desktop.files.deleteTitle"), i18n.Shared(language, "desktop.files.deleteAction")
 	default:
 		pr.open = false
 		return
 	}
-	node := pr.node
 	closed := ui.Modal(c, &pr.open, title, func() {
-		switch pr.kind {
-		case treePromptDelete:
-			ui.Paragraph(c, i18n.SharedFormat(language, "desktop.files.deleteMessage", map[string]string{"name": node.name}), 4).Color(a.colors.Subtle)
-		default:
-			submitted := ui.TextField(c, &pr.name, i18n.Shared(language, "desktop.files.name"), i18n.Shared(language, "desktop.files.name")).FillWidth().Submitted()
-			if pr.err != "" {
-				ui.Text(c, pr.err).FontSize(12).Color(a.colors.Deleted)
-			}
-			if submitted {
-				c.After(func() { a.submitTreePrompt(p) })
-			}
+		submitted := ui.TextField(c, &pr.name, i18n.Shared(language, "desktop.files.name"), i18n.Shared(language, "desktop.files.name")).FillWidth().Submitted()
+		if pr.err != "" {
+			ui.Text(c, pr.err).FontSize(12).Color(a.colors.Deleted)
+		}
+		if submitted {
+			c.After(func() { a.submitTreePrompt(p) })
 		}
 	}, func() {
 		if ui.Button(c, i18n.Shared(language, "desktop.files.cancel")).Outline().Clicked() {
 			pr.open = false
 		}
-		button := ui.Button(c, confirm).Clicked()
-		if pr.kind == treePromptDelete {
-			button = ui.Button(c, confirm).Destructive().Clicked()
-		}
-		if button {
+		if ui.Button(c, confirm).Clicked() {
 			c.After(func() { a.submitTreePrompt(p) })
 		}
 	})
@@ -335,8 +333,6 @@ func (a *App) submitTreePrompt(p *project) {
 		a.createTreeItem(p)
 	case treePromptRename:
 		a.renameTreeItem(p)
-	case treePromptDelete:
-		a.deleteTreeItem(p)
 	}
 }
 
@@ -428,37 +424,6 @@ func (a *App) renameTreeItem(p *project) {
 		a.performed("workspace.file.rename", surfaceMenu)
 		a.moveOpenDocuments(p, oldFull, newFull)
 		a.listTree(p, path.Dir(oldRel))
-		a.loadGit(p)
-	})
-}
-
-// deleteTreeItem deletes the row's file or folder after the dialog. The open files below it
-// are saved and their tabs closed; deleting the working copies after the dialog is what the
-// user confirmed.
-func (a *App) deleteTreeItem(p *project) {
-	pr := &p.tree.prompt
-	language := a.language()
-	node := pr.node
-	if node == nil || node == p.tree.root {
-		pr.open = false
-		return
-	}
-	full := filepath.Join(p.root, filepath.FromSlash(node.path))
-	parent := path.Dir(node.path)
-	docs := a.documentsUnder(p, full)
-	pr.open = false
-	a.saveDocumentsThen(p, docs, func() {
-		for _, d := range docs {
-			if a.project == p && p.docs.find(d.id) == d {
-				a.removeDocument(p, d)
-			}
-		}
-		if err := os.RemoveAll(full); err != nil {
-			a.notifyError(i18n.SharedFormat(language, "desktop.files.deleteFailed", map[string]string{"reason": treeErrorReason(err)}))
-			return
-		}
-		a.performed("workspace.file.delete", surfaceMenu)
-		a.listTree(p, parent)
 		a.loadGit(p)
 	})
 }
