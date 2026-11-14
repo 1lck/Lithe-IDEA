@@ -12204,6 +12204,18 @@
       ]
     },
     {
+      "id": "desktop.marketplace.languageServerDisplaced",
+      "description": "Notification that enabling or installing a plugin turned off another plugin, because both provide a language server for the same languages and only one plugin may serve a language.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "disabled": "string",
+        "enabled": "string",
+        "languages": "string"
+      }
+    },
+    {
       "id": "desktop.marketplace.installFromFile",
       "description": "Button in the plugin page that installs a plugin package picked on disk; also the file dialog title",
       "platforms": [

@@ -28,7 +28,12 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
-# Lithe-core-rust #37, squash-merged into main: markdown.resolveReference decides what a link or
+# Lithe-core-rust #39, squash-merged into main: plugins.installed.lifecycle keeps one enabled
+# plugin per language server language; installed versions carry languageServers, and enabling or
+# confirming the installation of a plugin returns displacePlugin for every enabled plugin that
+# serves one of the same languages. It is on top of #38 (the logging event catalog generator is
+# back, with update.delta.fallback_selected), squash-merged into main, on top of
+# #37, squash-merged into main: markdown.resolveReference decides what a link or
 # an image of a rendered Markdown document points at, for the web view previews. It is on top of
 # #36, squash-merged into main: plugin settings read translations a package ships in
 # l10n/<language>.json. It is on top of #35, squash-merged into main: build.detect skips the
@@ -70,7 +75,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="2c1fed18906528c6c499ea95e5ca413af6c8c286"
+PINNED_CORE_REVISION="a320d16ca8ed2722b15027eb5fcc8f2cb134d2f4"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

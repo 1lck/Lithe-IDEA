@@ -2,9 +2,11 @@ package pluginmanager
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -62,11 +64,32 @@ func recorded(t *testing.T, state *pluginstate.Store, id string) bool {
 // install puts one plugin version into the root.
 func install(t *testing.T, root, id, version string) pluginpkg.Installed {
 	t.Helper()
+	return installManifest(t, root, id, version, "{}")
+}
+
+// installServing installs one plugin version whose manifest declares a language
+// server for each of languages.
+func installServing(t *testing.T, root, id, version string, languages ...string) pluginpkg.Installed {
+	t.Helper()
+	servers := make([]map[string]string, len(languages))
+	for i, language := range languages {
+		servers[i] = map[string]string{"languageID": language}
+	}
+	manifest, err := json.Marshal(map[string]any{"languageServers": servers})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return installManifest(t, root, id, version, string(manifest))
+}
+
+// installManifest installs one plugin version that carries manifest.
+func installManifest(t *testing.T, root, id, version, manifest string) pluginpkg.Installed {
+	t.Helper()
 	staging, err := pluginpkg.NewStaging(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(staging, pluginpkg.ManifestFile), []byte("{}"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(staging, pluginpkg.ManifestFile), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	installed, err := pluginpkg.Install(root, id, version, staging)
@@ -269,7 +292,107 @@ func TestEnableInstalledKeepsAnExplicitChoice(t *testing.T) {
 		t.Fatal(err)
 	}
 	install(t, root, "disabled", "1.1.0")
-	if changed, err := manager.EnableInstalled("disabled"); err != nil || !changed {
-		t.Fatalf("reinstall after uninstall: changed = %v, err = %v", changed, err)
+	if outcome, err := manager.EnableInstalled("disabled"); err != nil || !outcome.Changed {
+		t.Fatalf("reinstall after uninstall: changed = %v, err = %v", outcome.Changed, err)
+	}
+}
+
+// Enabling a plugin turns off every enabled plugin that serves one of its
+// languages, records that, and reports it so the caller stops their programs;
+// plugins that serve other languages, or none, stay enabled.
+func TestEnableTurnsOffPluginsServingTheSameLanguage(t *testing.T) {
+	manager, _, state, root := newManager(t)
+	installServing(t, root, "complete", "1.2.0", "java", "jsp")
+	installServing(t, root, "lightweight", "0.0.2", "java")
+	installServing(t, root, "unrelated", "0.1.0", "go")
+	install(t, root, "plain", "1.0.0")
+	for _, id := range []string{"lightweight", "unrelated", "plain"} {
+		if err := manager.SetEnabled(id, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	displaced, err := manager.Enable("complete")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Displaced{{PluginID: "lightweight", LanguageIDs: []string{"java"}}}
+	if !reflect.DeepEqual(displaced, want) {
+		t.Fatalf("displaced = %+v, want %+v", displaced, want)
+	}
+	for id, want := range map[string]bool{"complete": true, "lightweight": false, "unrelated": true, "plain": true} {
+		if got := enabled(t, manager, id); got != want {
+			t.Fatalf("%s: enabled = %v, want %v", id, got, want)
+		}
+	}
+	choices, err := state.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, choice := range choices {
+		if choice.PluginID == "lightweight" && choice.Enabled {
+			t.Fatal("the displaced plugin's choice is still enabled")
+		}
+	}
+}
+
+// Confirming the installation of a plugin that serves a language an enabled plugin
+// serves turns that plugin off.
+func TestEnableInstalledTurnsOffPluginsServingTheSameLanguage(t *testing.T) {
+	manager, _, _, root := newManager(t)
+	installServing(t, root, "lightweight", "0.0.2", "java")
+	if err := manager.SetEnabled("lightweight", true); err != nil {
+		t.Fatal(err)
+	}
+	installServing(t, root, "complete", "1.2.0", "java")
+	outcome, err := manager.EnableInstalled("complete")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Outcome{Changed: true, Displaced: []Displaced{{PluginID: "lightweight", LanguageIDs: []string{"java"}}}}
+	if !reflect.DeepEqual(outcome, want) {
+		t.Fatalf("outcome = %+v, want %+v", outcome, want)
+	}
+	if enabled(t, manager, "lightweight") {
+		t.Fatal("the installed plugin left the other Java server enabled")
+	}
+}
+
+// Choices made before the rule can enable two plugins serving one language; only
+// the first by ID reports enabled, and disabling it lets the other take over.
+func TestEarlierChoicesEnableOnePluginPerLanguage(t *testing.T) {
+	manager, _, state, root := newManager(t)
+	installServing(t, root, "complete", "1.2.0", "java")
+	installServing(t, root, "lightweight", "0.0.2", "java")
+	for _, id := range []string{"complete", "lightweight"} {
+		if err := state.SetEnabled(id, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !enabled(t, manager, "complete") || enabled(t, manager, "lightweight") {
+		t.Fatal("two plugins serving Java are both enabled")
+	}
+	if err := manager.SetEnabled("complete", false); err != nil {
+		t.Fatal(err)
+	}
+	if !enabled(t, manager, "lightweight") {
+		t.Fatal("disabling the plugin that served Java did not let the other take over")
+	}
+}
+
+// A manifest that cannot be decoded declares no language server, so it neither
+// displaces nor is displaced, and it does not break the other plugins' plan.
+func TestUnreadableManifestServesNothing(t *testing.T) {
+	manager, _, _, root := newManager(t)
+	installManifest(t, root, "broken", "1.0.0", "{")
+	installServing(t, root, "complete", "1.2.0", "java")
+	if err := manager.SetEnabled("broken", true); err != nil {
+		t.Fatal(err)
+	}
+	displaced, err := manager.Enable("complete")
+	if err != nil || len(displaced) != 0 {
+		t.Fatalf("displaced = %+v, err = %v", displaced, err)
+	}
+	if !enabled(t, manager, "broken") || !enabled(t, manager, "complete") {
+		t.Fatal("an unreadable manifest changed another plugin's enablement")
 	}
 }
