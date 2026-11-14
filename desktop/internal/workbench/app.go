@@ -127,7 +127,8 @@ type Kernel interface {
 	GitReferenceTree(ctx context.Context, names []string, prioritized map[string]bool) ([]core.ReferenceTreeNode, error)
 	GitChangedFileGroups(ctx context.Context, paths []string) ([]core.GitChangedFolder, error)
 	GitHistoryDates(ctx context.Context, entries []core.HistoryDateEntry, after, before *int64) ([]string, error)
-	ReduceEditorWorkbench(ctx context.Context, state core.EditorWorkbench, action core.EditorAction) (core.EditorWorkbench, []string, error)
+	ReduceEditorLayout(ctx context.Context, state core.EditorWorkbench, layout *core.EditorLayout, action core.EditorAction) (core.EditorLayoutResult, error)
+	EditorDropTargets(ctx context.Context, query core.EditorDropQuery) (core.EditorDropRules, error)
 	GitStage(ctx context.Context, root string, paths []string) error
 	GitClone(ctx context.Context, root, source, destination string) error
 	CheckProjectName(context.Context, string) (core.ProjectNameProblem, error)

@@ -188,8 +188,7 @@ func (a *App) restoreEditorSession(p *project) {
 	ids := map[string]string{}
 	if set.layout == nil {
 		// The saved groups are made empty, laid out as they were; the files then join them.
-		state := set.bench
-		state.Groups = slices.Clone(state.Groups)
+		var made []string
 		for _, g := range session.Groups {
 			if _, dup := ids[g.ID]; dup {
 				continue
@@ -197,22 +196,28 @@ func (a *App) restoreEditorSession(p *project) {
 			set.nextGroup++
 			id := editorGroupID(set.nextGroup)
 			ids[g.ID] = id
-			r.groups = append(r.groups, id)
-			state.Groups = append(state.Groups, core.EditorGroup{ID: id})
+			made = append(made, id)
 		}
 		layout := restoredSplit(set, session.Layout, ids)
 		if layout == nil {
 			return
 		}
-		set.bench = state
-		set.layout = layout
-		// A group the layout left out is not kept.
+		// A group the layout left out is not made.
+		state := set.bench
+		state.Groups = slices.Clone(state.Groups)
+		for _, id := range made {
+			if layout.contains(id) {
+				r.groups = append(r.groups, id)
+				state.Groups = append(state.Groups, core.EditorGroup{ID: id})
+			}
+		}
 		for saved, id := range ids {
 			if !layout.contains(id) {
 				delete(ids, saved)
-				a.dropRestoredGroup(p, id)
 			}
 		}
+		set.bench = state
+		set.layout = layout
 	}
 	for _, g := range session.Groups {
 		group := ids[g.ID]
@@ -314,16 +319,16 @@ func (a *App) finishEditorRestore(p *project, r *editorRestore) {
 	}
 	for _, id := range r.groups {
 		g := p.terms.bench.Group(id)
-		if g == nil {
-			continue
-		}
-		if len(g.Members) == 0 {
-			a.dropRestoredGroup(p, id)
+		if g == nil || len(g.Members) == 0 {
 			continue
 		}
 		if d := p.docs.byPath(r.selected[id]); d != nil && slices.Contains(g.Members, documentMember(d.id)) {
 			a.reduceTerminals(p, p.terms.bench, core.ActivateEditor(id, documentMember(d.id)))
 		}
+	}
+	if len(r.groups) > 0 {
+		// The kernel removes the groups no file reached, with their leaves.
+		a.reduceTerminals(p, p.terms.bench, core.RemoveEmptyEditorGroups(r.groups))
 	}
 	focused := r.focused
 	if p.terms.bench.Group(focused) == nil {
@@ -334,11 +339,4 @@ func (a *App) finishEditorRestore(p *project, r *editorRestore) {
 			a.selectDocument(p, id)
 		}
 	}
-}
-
-// dropRestoredGroup removes a group made for the session that no file reached.
-func (a *App) dropRestoredGroup(p *project, id string) {
-	set := &p.terms
-	set.bench.Groups = slices.DeleteFunc(slices.Clone(set.bench.Groups), func(g core.EditorGroup) bool { return g.ID == id })
-	set.layout = removeLeaf(set.layout, id)
 }

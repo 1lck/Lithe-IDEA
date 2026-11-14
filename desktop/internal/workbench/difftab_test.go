@@ -180,9 +180,7 @@ func TestDiffTabIsAnEditorTab(t *testing.T) {
 	h.await("the diff read again", func() bool { return !d.loading })
 
 	first := g.ID
-	if !h.app.splitTab(p, member, first, edgeRight) {
-		t.Fatal("the Diff tab did not split off")
-	}
+	h.app.dropTab(member, dropTarget{kind: dropSplit, group: first, edge: edgeRight})
 	h.settle()
 	g = p.terms.bench.GroupOf(member)
 	if g == nil || g.ID == first || editorGroups(p) != 2 {

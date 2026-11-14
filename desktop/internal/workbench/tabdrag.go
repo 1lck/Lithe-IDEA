@@ -1,6 +1,9 @@
 package workbench
 
 import (
+	"context"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
@@ -19,6 +22,9 @@ type tabDrag struct {
 	viewport gfx.Size
 	// target is where the tab would land if it were dropped now.
 	target dropTarget
+	// rules is where the kernel lets the tab land, asked once as the drag starts; nil when
+	// the kernel could not say, and then the tab lands nowhere.
+	rules *core.EditorDropRules
 }
 
 // tabAccept is the tab target's accept callback: it follows the pointer of the drag of a
@@ -29,10 +35,33 @@ func (a *App) tabAccept(source, _ gfx.ID) bool {
 		return false
 	}
 	d := &a.term.drag
+	if !d.active || d.member != member {
+		d.rules = a.tabDropRules(member)
+	}
 	point := a.dnd.tab.At()
 	d.active, d.member, d.x, d.y, d.viewport = true, member, point.X, point.Y, a.viewport()
-	d.target = a.tabDragLocate(member, point.X, point.Y, d.viewport)
+	d.target = a.tabDragLocate(member, d.rules, point.X, point.Y, d.viewport)
 	return d.target.kind != dropNone
+}
+
+// tabDropRules asks the kernel where the tab of group member may land in the project's
+// groups; nil, with the reason on the notice banner, when it cannot say.
+func (a *App) tabDropRules(member string) *core.EditorDropRules {
+	p := a.project
+	if p == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
+	defer cancel()
+	rules, err := a.kernel.EditorDropTargets(ctx, core.EditorDropQuery{
+		State: p.terms.bench, Layout: layoutShape(p.terms.layout), Member: member,
+		Docked: dockedGroups, Dockable: dockable(member),
+	})
+	if err != nil {
+		a.notifyError(a.text.Errors.Core(err.Error()))
+		return nil
+	}
+	return &rules
 }
 
 // tabDrop does what dropping the dragged tab where tabAccept last aimed it asks for.
@@ -45,13 +74,13 @@ func (a *App) tabDrop(_, _ gfx.ID) {
 }
 
 // tabDragLocate finds where dropping the tab of group member at (x, y) would put it, from
-// where the last frame laid the groups out. Outside the window there is no place. viewport
-// is the window's size.
-func (a *App) tabDragLocate(member string, x, y float32, viewport gfx.Size) dropTarget {
+// where the last frame laid the groups out and the places rules accepts. Outside the window
+// there is no place. viewport is the window's size.
+func (a *App) tabDragLocate(member string, rules *core.EditorDropRules, x, y float32, viewport gfx.Size) dropTarget {
 	if x < 0 || y < 0 || x >= viewport.Width || y >= viewport.Height {
 		return dropTarget{}
 	}
-	return dropAt(a.term.places(), a.term.emptyRect, member, x, y)
+	return dropAt(a.term.places(), rules, a.term.emptyRect, member, x, y)
 }
 
 // paintTabDrag paints the gesture on top of the frame, in the manner of paintDrag: the area

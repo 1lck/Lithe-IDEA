@@ -342,28 +342,6 @@ func (a *App) showDiff(p *project, root, commit string, change core.GitChange, f
 	return t
 }
 
-// placeEditorMember opens member, a Diff tab's, a viewer tab's or the LSP Logs tab's, in the
-// group a file opens in, made first when the editor has no group. It returns that group and
-// whether the kernel accepted the member.
-func (a *App) placeEditorMember(p *project, member string) (string, bool) {
-	set := &p.terms
-	state := set.bench
-	group, added := a.documentGroup(p), ""
-	if group == "" {
-		added = editorGroupID(set.nextGroup + 1)
-		state.Groups = append(slices.Clone(state.Groups), core.EditorGroup{ID: added})
-		group = added
-	}
-	if !a.reduceTerminals(p, state, core.OpenEditor(group, member, true)) {
-		return "", false
-	}
-	if added != "" {
-		set.nextGroup++
-		set.layout = newLeaf(added)
-	}
-	return group, true
-}
-
 // show makes the tab show change of its checkout or commit, forgetting what it read before.
 // Another file gets editors of its own, made for its language and scrolled to its top.
 func (t *diffTab) show(change core.GitChange) {

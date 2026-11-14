@@ -3,9 +3,7 @@ package workbench
 import (
 	"context"
 	"path/filepath"
-	"slices"
 
-	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 )
@@ -100,20 +98,9 @@ func (a *App) newTablessDocument(p *project, id int, path, name string, content 
 // attachDocumentTab gives the tabless document d a tab in the editor, in the group a new file would
 // open in, and reports whether the tab was made.
 func (a *App) attachDocumentTab(p *project, d *document) bool {
-	set := &p.terms
-	state := set.bench
-	group, added := a.documentGroup(p), ""
-	if group == "" {
-		added = editorGroupID(set.nextGroup + 1)
-		state.Groups = append(slices.Clone(state.Groups), core.EditorGroup{ID: added})
-		group = added
-	}
-	if !a.reduceTerminals(p, state, core.OpenEditor(group, documentMember(d.id), true)) {
+	group, ok := a.placeEditorMember(p, documentMember(d.id))
+	if !ok {
 		return false
-	}
-	if added != "" {
-		set.nextGroup++
-		set.layout = newLeaf(added)
 	}
 	d.tabless = false
 	p.docs.group = group
