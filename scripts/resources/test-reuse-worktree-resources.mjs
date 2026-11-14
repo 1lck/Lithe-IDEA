@@ -110,8 +110,7 @@ try {
     assert.match(transfer.identity, /512 MiB/);
     assert.match(transfer.reason, /closing Settings or application shutdown/);
     assert.match(transfer.reason, /same open handle/);
-    assert.match(transfer.reason, /without a second review prompt/);
-    assert.match(transfer.reason, /cancellation before validation ends revokes it/);
+    assert.match(transfer.reason, /Reusing archive bytes does not grant install approval/);
     assert.equal(icons.reusable, false);
     assert.match(icons.identity, /Python 3\.9/);
     assert.match(icons.identity, /3\.11/);

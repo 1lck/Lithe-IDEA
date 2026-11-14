@@ -51438,7 +51438,8 @@
       "id": "native.download",
       "description": "Native UI: Download",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Download",
@@ -51465,8 +51466,7 @@
       "id": "native.downloadAndInstall",
       "description": "Native UI: Download and Install",
       "platforms": [
-        "macos",
-        "desktop"
+        "macos"
       ],
       "macos": {
         "key": "Download and Install",
@@ -106188,7 +106188,7 @@
     },
     {
       "id": "desktop.marketplace.downloadPrompt",
-      "description": "Confirm download, verification, installation and approval of the selected plugin package in one action",
+      "description": "Explain download confirmation and when the verified plugin needs install approval",
       "platforms": [
         "desktop"
       ]

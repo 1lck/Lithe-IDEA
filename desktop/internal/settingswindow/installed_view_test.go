@@ -84,7 +84,7 @@ func TestInstalledTabGroupsPluginsAndActsOnTheChosenOne(t *testing.T) {
 	// The marketplace offers 2.0.0 over the installed 1.0.0, so the header offers the update.
 	update := i18n.SharedFormat(i18n.English, "native.updateTo.variant2", map[string]string{"arg1": "2.0.0"})
 	d.click(update)
-	d.click(words("native.downloadAndInstall"))
+	d.click(words("native.download"))
 	if len(f.installs) != 1 || f.installs[0] != "dev.example.go" {
 		t.Fatalf("update installed %v", f.installs)
 	}

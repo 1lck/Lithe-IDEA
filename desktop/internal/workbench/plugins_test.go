@@ -85,6 +85,13 @@ func TestMarketplaceRetryReusesBytesAndStillRejectsTampering(t *testing.T) {
 	if requests != 1 || reviews != 2 || preparing != 2 || failures != 0 {
 		t.Fatalf("cancel/retry requests=%d reviews=%d preparing=%d failures=%d", requests, reviews, preparing, failures)
 	}
+	installed, err := pluginpkg.List(service.Root)
+	if err != nil || len(installed) != 0 {
+		t.Fatalf("declined review left installed packages: %v, error = %v", installed, err)
+	}
+	if _, found, err := plugintrust.New(h.store).Record(plugin.ID, plugin.Availability.Version); err != nil || found {
+		t.Fatalf("declined review recorded approval: found = %v, error = %v", found, err)
+	}
 	archive, err := downloads.Download(ctx, plugin.Availability, nil)
 	if err != nil {
 		t.Fatal(err)

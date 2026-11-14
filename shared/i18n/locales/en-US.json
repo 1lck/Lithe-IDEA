@@ -11175,8 +11175,8 @@
     "desktop.marketplace.downloadProgress": "Downloading plugin… {received} / {total} MiB",
     "desktop.marketplace.downloadReceived": "Downloading plugin… {received} MiB",
     "desktop.marketplace.verifying": "Extracting and verifying plugin…",
-    "desktop.marketplace.downloadTitle": "Download and install plugin",
-    "desktop.marketplace.downloadPrompt": "Download and install this plugin? After download and verification, it will be installed automatically, approving its declared permissions and programs."
+    "desktop.marketplace.downloadTitle": "Download plugin",
+    "desktop.marketplace.downloadPrompt": "Download this plugin? After verification, you can review its permissions and programs before installing. If a previous approval still covers this package, installation continues automatically."
   },
   "overrides": {
     "windows": {

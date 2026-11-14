@@ -18,8 +18,8 @@ type PluginInstallFeedback struct {
 	// Progress and Preparing publish transport progress and the local I/O stage.
 	Progress  func(marketplace.ArchiveProgress)
 	Preparing func()
-	// Review consumes the marketplace's initial install consent, or publishes
-	// a local package's review and waits for the user's decision.
+	// Review accepts a verified reusable approval, or publishes the complete
+	// review and waits for the user's decision.
 	Review func(version string, review plugintrust.Review, reused bool) bool
 	// Finish publishes the outcome after preparation or installation.
 	Finish func(failed bool)
@@ -54,7 +54,6 @@ type pluginInstallDialog struct {
 	open        bool
 	cancel      context.CancelFunc
 	approved    chan struct{}
-	consent     atomic.Bool
 	review      atomic.Pointer[pluginInstallReview]
 	progress    atomic.Pointer[pluginInstallProgress]
 	outcome     atomic.Uint32
@@ -64,11 +63,7 @@ type pluginInstallDialog struct {
 func (w *window) startMarketplaceInstall(plugin core.MarketplacePlugin) {
 	feedback := w.startPluginInstall(plugin.Name, true)
 	w.install.version = plugin.Availability.Version
-	dialog := w.install
-	w.install.download = func() {
-		dialog.consent.Store(true)
-		w.ctrl.opts.InstallPlugin(plugin, feedback)
-	}
+	w.install.download = func() { w.ctrl.opts.InstallPlugin(plugin, feedback) }
 }
 
 func (w *window) startPluginInstall(name string, fromMarketplace bool) PluginInstallFeedback {
@@ -88,11 +83,11 @@ func (w *window) startPluginInstall(name string, fromMarketplace bool) PluginIns
 			dialog.progress.Store(&pluginInstallProgress{preparing: true})
 			w.inv.Invalidate()
 		},
-		Review: func(version string, review plugintrust.Review, _ bool) bool {
-			if dialog.consent.Load() {
-				if ctx.Err() != nil {
-					return false
-				}
+		Review: func(version string, review plugintrust.Review, reused bool) bool {
+			if ctx.Err() != nil {
+				return false
+			}
+			if fromMarketplace && reused {
 				close(dialog.approved)
 				w.inv.Invalidate()
 				return true
@@ -162,7 +157,7 @@ func (w *window) pluginInstallModal(c ui.C) {
 	}
 	confirmed, cancelled, downloadConfirmed := false, false, false
 	title := i18n.Shared(language, "desktop.marketplace.reviewTitle")
-	if dialog.download != nil || dialog.consent.Load() {
+	if dialog.marketplace && review == nil && !committing && outcome != pluginInstallFailed {
 		title = i18n.Shared(language, "desktop.marketplace.downloadTitle")
 	}
 	closed := ui.ModalWith(c, &dialog.open, title,
@@ -217,7 +212,7 @@ func (w *window) pluginInstallModal(c ui.C) {
 			}
 			cancelled = ui.Button(c, i18n.Shared(language, "desktop.marketplace.cancel")).Outline().Clicked()
 			if dialog.download != nil {
-				downloadConfirmed = ui.Button(c, i18n.Shared(language, "native.downloadAndInstall")).AutoFocus().Clicked()
+				downloadConfirmed = ui.Button(c, i18n.Shared(language, "native.download")).AutoFocus().Clicked()
 			} else if review != nil {
 				confirmed = ui.Button(c, i18n.Shared(language, "desktop.marketplace.confirmInstall")).AutoFocus().Clicked()
 			}

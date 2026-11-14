@@ -11175,8 +11175,8 @@
     "desktop.marketplace.downloadProgress": "正在下载插件… {received} / {total} MiB",
     "desktop.marketplace.downloadReceived": "正在下载插件… {received} MiB",
     "desktop.marketplace.verifying": "正在解压并校验插件…",
-    "desktop.marketplace.downloadTitle": "下载并安装插件",
-    "desktop.marketplace.downloadPrompt": "是否下载并安装此插件？下载并校验完成后，将自动安装，同时批准插件声明的权限和程序。"
+    "desktop.marketplace.downloadTitle": "下载插件",
+    "desktop.marketplace.downloadPrompt": "是否下载此插件？校验完成后，你可以查看权限和程序并确认安装。如果已有批准仍适用于此插件包，安装会自动继续。"
   },
   "overrides": {
     "macos": {

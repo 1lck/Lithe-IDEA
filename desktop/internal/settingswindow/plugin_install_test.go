@@ -2,6 +2,7 @@ package settingswindow
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -14,17 +15,61 @@ import (
 	"github.com/vivaui/viva/gfx"
 )
 
-func TestMarketplaceInitialConfirmationApprovesInstallation(t *testing.T) {
+func TestMarketplaceRequiresApprovalOfVerifiedDeclarations(t *testing.T) {
+	for _, action := range []string{"install", "cancel", "escape", "close"} {
+		t.Run(action, func(t *testing.T) {
+			var feedback PluginInstallFeedback
+			w := newWindow(NewController(Options{InstallPlugin: func(_ core.MarketplacePlugin, value PluginInstallFeedback) { feedback = value }}), Values{})
+			w.startMarketplaceInstall(core.MarketplacePlugin{Name: "Example", Availability: core.MarketplaceAvailability{Status: "available", Version: "2.0.0"}})
+			d := openWindow(t, w)
+			d.click(i18n.Shared(i18n.English, "native.download"))
+
+			const program = `{"kind":"packagedBackend","path":"bin/example","arguments":["--serve"]}`
+			review := plugintrust.Review{
+				Permissions: []string{"example.read", "example.write"},
+				Programs:    []json.RawMessage{json.RawMessage(program)},
+			}
+			decision := pluginReviewDecision(t, w, feedback, review, false)
+			d.until("verified permissions and complete program declaration", func() bool {
+				select {
+				case accepted := <-decision:
+					t.Fatalf("review returned %v before showing the declarations", accepted)
+				default:
+				}
+				return d.text("example.read") && d.text("example.write") && d.text(program)
+			})
+			switch action {
+			case "install":
+				d.click(i18n.Shared(i18n.English, "desktop.marketplace.confirmInstall"))
+			case "cancel":
+				d.click(i18n.Shared(i18n.English, "desktop.marketplace.cancel"))
+			case "escape":
+				d.key(gfx.KeyEscape)
+			case "close":
+				d.driver.Close()
+			}
+			expectPluginDecision(t, decision, action == "install")
+			if action == "install" {
+				d.pump()
+				if !d.text(i18n.Shared(i18n.English, "settings.general.installing")) {
+					t.Fatal("confirmed review did not enter installation")
+				}
+			}
+		})
+	}
+}
+
+func TestMarketplaceReusesVerifiedApproval(t *testing.T) {
 	var feedback PluginInstallFeedback
 	w := newWindow(NewController(Options{InstallPlugin: func(_ core.MarketplacePlugin, value PluginInstallFeedback) { feedback = value }}), Values{})
 	w.startMarketplaceInstall(core.MarketplacePlugin{Name: "Example", Availability: core.MarketplaceAvailability{Status: "available", Version: "1.0.0"}})
 	d := openWindow(t, w)
-	d.click(i18n.Shared(i18n.English, "native.downloadAndInstall"))
+	d.click(i18n.Shared(i18n.English, "native.download"))
 	decision := make(chan bool, 1)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		decision <- feedback.Review("1.0.0", plugintrust.Review{Permissions: []string{"example.read"}}, false)
+		decision <- feedback.Review("1.0.0", plugintrust.Review{Permissions: []string{"example.read"}}, true)
 	}()
 	t.Cleanup(func() {
 		w.dismissPluginInstall()
@@ -37,10 +82,10 @@ func TestMarketplaceInitialConfirmationApprovesInstallation(t *testing.T) {
 	select {
 	case approved := <-decision:
 		if !approved {
-			t.Fatal("the initial confirmation did not authorize installation")
+			t.Fatal("the verified prior approval did not authorize installation")
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("the installation requested a second confirmation")
+		t.Fatal("the installation asked again despite matching approval")
 	}
 	d.pump()
 	if d.text("example.read") || !d.text(i18n.Shared(i18n.English, "settings.general.installing")) {
@@ -60,7 +105,7 @@ func TestMarketplaceCancelBeforeVerificationDoesNotInstall(t *testing.T) {
 			w := newWindow(NewController(Options{InstallPlugin: func(_ core.MarketplacePlugin, value PluginInstallFeedback) { feedback = value }}), Values{})
 			w.startMarketplaceInstall(core.MarketplacePlugin{Name: "Example", Availability: core.MarketplaceAvailability{Status: "available", Version: "1.0.0"}})
 			d := openWindow(t, w)
-			d.click(i18n.Shared(i18n.English, "native.downloadAndInstall"))
+			d.click(i18n.Shared(i18n.English, "native.download"))
 			switch action {
 			case "cancel":
 				d.click(i18n.Shared(i18n.English, "desktop.marketplace.cancel"))
@@ -70,9 +115,7 @@ func TestMarketplaceCancelBeforeVerificationDoesNotInstall(t *testing.T) {
 				d.driver.Close()
 			}
 			d.pump()
-			if feedback.Review("1.0.0", plugintrust.Review{}, false) {
-				t.Fatal("a cancelled installation consumed the earlier consent")
-			}
+			expectPluginDecision(t, pluginReviewDecision(t, w, feedback, plugintrust.Review{}, action == "close"), false)
 		})
 	}
 }
@@ -126,6 +169,37 @@ func TestLocalPackageStillWaitsForInstallConfirmation(t *testing.T) {
 	}
 }
 
+func pluginReviewDecision(t *testing.T, w *window, feedback PluginInstallFeedback, review plugintrust.Review, reused bool) <-chan bool {
+	t.Helper()
+	decision := make(chan bool, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		decision <- feedback.Review("2.0.0", review, reused)
+	}()
+	t.Cleanup(func() {
+		w.dismissPluginInstall()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("review worker did not finish after cancellation")
+		}
+	})
+	return decision
+}
+
+func expectPluginDecision(t *testing.T, decision <-chan bool, want bool) {
+	t.Helper()
+	select {
+	case approved := <-decision:
+		if approved != want {
+			t.Fatalf("approval = %v, want %v", approved, want)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("review did not receive the decision")
+	}
+}
+
 func TestMarketplaceAsksBeforeDownloading(t *testing.T) {
 	for _, action := range []string{"download", "cancel", "escape", "close"} {
 		t.Run(action, func(t *testing.T) {
@@ -141,7 +215,7 @@ func TestMarketplaceAsksBeforeDownloading(t *testing.T) {
 			}
 			switch action {
 			case "download":
-				d.click(i18n.Shared(i18n.English, "native.downloadAndInstall"))
+				d.click(i18n.Shared(i18n.English, "native.download"))
 			case "cancel":
 				d.click(i18n.Shared(i18n.English, "desktop.marketplace.cancel"))
 			case "escape":
@@ -230,7 +304,7 @@ func TestPluginInstallReviewScrollsLongDetails(t *testing.T) {
 	}
 }
 
-func TestMarketplaceInstallCompletesAfterInitialConfirmation(t *testing.T) {
+func TestMarketplaceInstallEntryPointsShowProgressAndReview(t *testing.T) {
 	words := func(key string) string { return i18n.Shared(i18n.English, key) }
 	for _, name := range []string{"install from list", "update from list", "update from details", "close settings", "download failure"} {
 		t.Run(name, func(t *testing.T) {
@@ -281,7 +355,7 @@ func TestMarketplaceInstallCompletesAfterInitialConfirmation(t *testing.T) {
 			if feedback.Context != nil {
 				t.Fatal("the package started downloading before confirmation")
 			}
-			d.click(words("native.downloadAndInstall"))
+			d.click(words("native.download"))
 			d.pump()
 			if feedback.Context == nil || !d.text(words("native.downloadingAndVerifyingPlugin")) {
 				t.Fatal("Settings did not show download progress")
@@ -297,24 +371,19 @@ func TestMarketplaceInstallCompletesAfterInitialConfirmation(t *testing.T) {
 
 			if name == "close settings" {
 				d.driver.Close()
-			}
-			approved := feedback.Review("2.0.0", plugintrust.Review{Permissions: []string{"example.read"}}, false)
-			if approved != (name != "close settings") {
-				t.Fatalf("approval after initial confirmation = %v", approved)
-			}
-			if name == "close settings" {
+				expectPluginDecision(t, pluginReviewDecision(t, w, feedback, plugintrust.Review{}, false), false)
 				return
 			}
+			decision := pluginReviewDecision(t, w, feedback, plugintrust.Review{Permissions: []string{"example.read"}}, false)
+			d.until("marketplace permissions", func() bool { return d.text("example.read") })
+			d.click(words("desktop.marketplace.confirmInstall"))
+			expectPluginDecision(t, decision, true)
 			d.pump()
-			if d.text("example.read") || !d.text(words("settings.general.installing")) {
-				t.Fatal("Settings requested another install confirmation")
-			}
 			feedback.Finish(false)
 			d.pump()
 			if w.install != nil {
 				t.Fatal("successful installation did not close the progress dialog")
 			}
-
 		})
 	}
 }

@@ -30,13 +30,11 @@ Viva 客户端从插件市场装好插件后，插件默认是禁用的，用户
 
 ### 安装审查跟随设置窗口
 
-设置窗口的市场列表、详情和已安装页的更新入口先询问是否「下载并安装」。确认页明确说明：下载并校验完成后自动安装，同时批准所选插件声明的权限和程序。此时不启动后台下载；用户确认后才传输、校验和安装，不再出现下载后的第二次权限确认。取消、Escape 或关闭窗口都不会启动下载。本地包入口直接准备用户选定的文件，之后仍展示完整权限和程序并等待安装确认。旧实现把弹窗绘制在主窗口，设置窗口会挡住它，用户重复点击又会重新下载。
+设置窗口的市场列表、详情和已安装页的更新入口先询问是否下载。确认后只授权传输。旧审查弹窗绘制在主窗口，会被设置窗口挡住。下载、进度、准备后的权限审查和安装结果现在都在发起操作的设置窗口显示。
 
-权限和程序声明较多时，详情区最多占 300 个逻辑像素，使用 Viva 的虚拟列表滚动查看。标题和确认按钮留在详情区外，程序声明在准备完成时转换为可读文本。
+工作台仍先校验归档 SHA-256，再用 Core 校验清单、身份、版本、能力和程序声明。对首次安装或历史批准不覆盖的包，设置窗口展示本次校验得到的完整权限和程序，用户点击「安装」后才提交并记录批准。市场包只有现有信任判定确认历史批准覆盖当前包时才直接进入安装。本地包始终展示完整声明并等待确认。
 
-设置窗口记录用户对具体所选插件的包级安装同意。该同意只属于当前弹窗和当前请求，不能由旧批准记录或另一个插件的操作代替。工作台仍先执行归档 SHA-256 校验、Core 清单/身份/版本/能力与程序声明检查，全部成功后才由当前弹窗消费初始同意并提交安装、记录完整规范程序。初始同意不代表发布者身份认证，也不绕过 Core 或包校验。
-
-在校验完成前取消、按 Escape 或关闭设置窗口，会撤销当前同意，迟到的准备结果只能被清理。进入提交阶段后，安装继续完成。本地包的决定来自下载后展示的审查页，不能用市场的初始同意代替。后台任务负责清理下载和暂存目录。
+权限和程序声明较多时，详情区最多占 300 个逻辑像素，使用 Viva 的虚拟列表滚动查看。标题和确认按钮留在详情区外，程序声明保留完整的 JSON 内容。进入提交前取消、按 Escape 或关闭设置窗口会中止当前操作。后台任务丢弃迟到的准备结果并清理暂存目录。
 
 下载时显示已接收和总 MiB，以及确定的字节进度。服务器没有提供大小时只显示已接收量；下载完成后切换为解压校验，避免把网络等待都称为校验。通知在传输线程合并，最多每 100 毫秒发送一次，开始和结束时另发一次；没有空闲轮询。
 
@@ -85,15 +83,15 @@ Viva 客户端从插件市场装好插件后，插件默认是禁用的，用户
 - #1843 的自动回归使用虚构清单及复制的测试程序，不依赖任何具体插件：`TestUninstallWaitsForTheDebugAdapter`、`TestUninstallStopsProviderSessionsBeforeDeletingFiles` 检查进程先退出/销毁再删包；`TestUninstallWaitsForAProviderStillStartingInHiddenTab` 用受控事件检查取消、等待迟到启动、隐藏标签和卸载后的启动阻断；`TestUninstallPreservesFilesWhenProgramsCannotStop` 检查停止失败时包、批准和状态保留。macOS 已验证，Windows 文件锁场景仍需原生验证。
 - 2026-11-13 在 macOS 上用 `-tags vivahead` 构建的无头客户端（真实渲染，临时用户目录）从线上 Lithe Store 安装 Java Navigation 0.0.1：确认后显示“已启用”，F12 跳到项目内定义和 JDK `String.trim`，卸载后插件包、进程和 `.state/<插件 ID>` 都不存在，再按 F12 不跳转、不重新拉起进程，退出后无残留进程。Windows 共用同一份 Go 代码，尚未在 Windows 上验证。
 
-- `TestMarketplaceInstallCompletesAfterInitialConfirmation` 驱动市场列表、详情和更新按钮，验证确认前不下载、一次确认后进入安装、关闭设置时拒绝迟到结果，以及下载失败。`TestMarketplaceInitialConfirmationApprovesInstallation` 在旧实现中等待第二次确认而失败，修复后无需再次点击即可进入安装并结束弹窗。
-- `TestMarketplaceCancelBeforeVerificationDoesNotInstall` 验证取消、Escape 和关闭窗口都会撤销初始同意；`TestLocalPackageStillWaitsForInstallConfirmation` 验证本地包继续显示权限并等待明确安装确认。
+- `TestMarketplaceInstallEntryPointsShowProgressAndReview` 覆盖市场列表与详情入口、更新、进度、下载失败和迟到结果。
+- `TestMarketplaceRequiresApprovalOfVerifiedDeclarations` 在修复前因未展示完整声明就批准安装而失败。修复后覆盖权限与完整程序展示、明确安装确认、取消、Escape 和关闭窗口。
+- `TestMarketplaceReusesVerifiedApproval` 验证匹配的历史批准可以省去重复安装确认。`TestMarketplaceCancelBeforeVerificationDoesNotInstall` 覆盖下载取消，包括历史批准可复用但窗口已关闭的情况。`TestLocalPackageStillWaitsForInstallConfirmation` 验证本地包仍需主动确认。
 - `TestPluginInstallReviewScrollsLongDetails` 验证长权限列表滚动到最后一条程序声明时，底部按钮保持可见且位置固定。
 - `TestArchiveSessionReusesTheLastVerifiedTransfer` 覆盖重试不重新请求、摘要变化、替换/关闭时活跃借用不被删除，以及最终临时目录清空。
-- `TestMarketplaceRetryReusesBytesAndStillRejectsTampering` 通过真实安装准备链验证重复审查只下载一次、保留文件被篡改后不进入审查、错误后重新下载，以及设置关闭后的清理。
+- `TestMarketplaceRetryReusesBytesAndStillRejectsTampering` 通过真实安装准备链验证重复审查只下载一次、拒绝审查后没有安装包或批准记录、被篡改的归档不进入审查，以及设置关闭后的清理。
 - `TestPluginInstallShowsTransferBytesAndLocalVerification` 覆盖已知大小、未知大小与解压校验阶段的界面回显。
 - `TestMarketplaceAsksBeforeDownloading` 在旧实现中因提前启动下载而失败；修复后覆盖确认、取消、Escape 和关闭窗口。市场列表、详情与已安装更新测试同时验证确认后才调用安装准备入口。
-- 下载会话测试也覆盖旧包的准备错误迟到时，不会清掉较新的保留文件。单次确认回归命令为 `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --package ./internal/settingswindow --package ./internal/workbench -- --filter 'TestMarketplace|TestPluginInstall|TestLocalPackage|TestInstalledTab|TestConfirmedInstallIsEnabledAndUninstallRemovesItsState'`，记录 50 项通过，全部低于 1 秒。HTML/JUnit 位于 `.artifacts/test-stability/`，产物不提交。
-- 同次运行 `scripts/desktop/desktop-go.sh test ./... -p=4 -count=1 -timeout=300s` 全量通过，受影响两个包的相关 `-race` 检查通过，i18n 41 项和资源复用 35 项检查通过。Windows 与新的 macOS 原生单次确认窗口仍未做整机验收。
+- 下载会话测试也覆盖旧包的准备错误迟到时，不会清掉较新的保留文件。macOS 与 Windows 的真实安装流程验收仍待完成。
 
 ## 适用范围
 

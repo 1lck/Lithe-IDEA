@@ -91,7 +91,6 @@ async function readRegistry() {
   // WINAPI_NO_BUNDLED_LIBRARIES selects installed MinGW inputs, not reusable downloads.
   // Marketplace transfer directories and the settings session's last verified
   // archive lease are runtime-owned; neither has a build reuse validator.
-  // One marketplace download-and-install consent never grants build reuse or disk approval.
   // Both remain excluded before any source access or copy operation.
   // Build Provider snapshots remain under the excluded per-workspace PluginState owner.
   // They and Viva per-session Debug scratch directories are mutable runtime state
