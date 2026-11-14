@@ -141,7 +141,7 @@ SVG 和 PDF 可以在编辑区直接查看；页面能读到什么完全由宿�
   渲染与双向滚动、隐藏页面上限、web view 打不开时回落原生、图片查看器的工具栏与缩放、PDF 查看器、
   SVG 跟随编辑与失败保留，以及没有 web 引擎时的 Go 画布。HTML 预览由 `TestSite*`（请求按 Core 回答、
   主框架留在站内、窗口节流、编辑后重新加载并滚回原处、只接受滚动位置消息）、
-  `TestHTMLPreviewSiteAndRequestsFromCore`（Core 命令）和 `TestHTMLFile*`（两栏、跟随编辑、工具栏、站外链接、
+  `TestHTMLPreviewSharedFixture`（Core 命令按共享 fixture `editor/html-preview-v1.json` 回答）和 `TestHTMLFile*`（两栏、跟随编辑、工具栏、站外链接、
   打不开时只关 HTML 预览）覆盖。
 - `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：确认打开预览不会改写发行目录。
 - `TestMarkdownWebPageRendersCoreHTMLAndScrollsWithTheSource` 覆盖目录按钮与页面之间的 `outline` 消息，
