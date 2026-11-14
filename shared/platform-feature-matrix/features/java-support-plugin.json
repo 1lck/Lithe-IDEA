@@ -2,7 +2,7 @@
   "id": "java-support-plugin",
   "area": "语言支持",
   "group": "Java",
-  "capability": "Java 语言支持由独立插件 io.github.lithe-idea.java-support 提供：JDT LS、调试适配器、测试与运行入口由插件包和插件后端拥有，可安装、卸载和更新；宿主只提供通用的语言服务器、构建、工具链、调试适配器与插件函数中转契约，不内置任何 Java 逻辑",
+  "capability": "Java 语言支持由独立插件 io.github.lithe-idea.java-support 提供：JDT LS、调试适配器、测试与运行入口由插件包和插件后端拥有，可安装、卸载和更新；宿主只提供通用的语言服务器、构建、工具链、调试适配器与插件函数中转契约，不内置任何 Java 逻辑；二进制类只读源码和类间导航由插件内容提供者接入，宿主按通用语言注册表同步虚拟文档",
   "macos": {
     "implementationStatus": "partial",
     "verificationStatus": "pending",
@@ -12,6 +12,7 @@
       "desktop/internal/workbench/java_unmanaged_e2e_test.go",
       "desktop/internal/workbench/java_web_e2e_test.go",
       "desktop/internal/workbench/java_gradle_e2e_test.go",
+      "desktop/internal/workbench/java_binary_e2e_test.go",
       ".agents/notes/implemented/bug-fix/2026-11-13-viva-plugin-run-debug-lifecycle.md"
     ]
   },
@@ -24,11 +25,12 @@
       "desktop/internal/workbench/java_unmanaged_e2e_test.go",
       "desktop/internal/workbench/java_web_e2e_test.go",
       "desktop/internal/workbench/java_gradle_e2e_test.go",
+      "desktop/internal/workbench/java_binary_e2e_test.go",
       ".agents/notes/implemented/bug-fix/2026-11-13-viva-plugin-run-debug-lifecycle.md"
     ]
   },
   "owner": "Java Support",
-  "verification": "Viva 显式无头集成使用真实独立插件 ZIP、隔离用户存储、JDT 与 java-debug，覆盖普通 Maven、Java 8 旧布局、多模块/Profile、外部 JAR、普通源码、Eclipse/Ant 源码布局、Gradle Wrapper reactor，以及 WAR/Tomcat 的 JSP HTTP 请求和 Servlet 断点；核对编译版本、补全、运行结果、变量、继续/停止、错误编译拒绝旧 class、关闭后进程清理与安装目录哈希。Ant 布局不等于执行 Ant target，JSP 请求/Servlet 调试不等于 JSP 源码断点或补全验收。需逐平台执行这些用例，并另验收原生窗口、导航/虚拟源码、行内测试、失败/取消和日志 UI。历史 Java 5/7 源码级别当前被 ECJ 拒绝，不能以安全拒绝测试表示支持。",
+  "verification": "Viva 显式无头集成使用真实独立插件 ZIP、隔离用户存储、JDT 与 java-debug，覆盖普通 Maven、Java 8 旧布局、多模块/Profile、外部 JAR、普通源码、Eclipse/Ant 源码布局、Gradle Wrapper reactor，以及 WAR/Tomcat 的 JSP HTTP 请求和 Servlet 断点；核对编译版本、补全、运行结果、变量、继续/停止、错误编译拒绝旧 class、关闭后进程清理与安装目录哈希。Ant 布局不等于执行 Ant target，JSP 请求/Servlet 调试不等于 JSP 源码断点或补全验收。需逐平台执行这些用例，并另验收原生窗口、导航/虚拟源码、行内测试、失败/取消和日志 UI。历史 Java 5/7 源码级别当前被 ECJ 拒绝，不能以安全拒绝测试表示支持。 二进制回归使用自建无源码 JAR，覆盖类型/方法落点、虚拟类间继续跳转、缺少内部类的外部类、过期导航取消及安装目录哈希不变；私有文件仅本地诊断，不进入 fixture 或公开产物。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

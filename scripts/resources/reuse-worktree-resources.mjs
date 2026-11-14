@@ -428,6 +428,8 @@ async function main() {
       // official-plugin-packages also rejects dist/packages, dist/verify, per-architecture
       // release ZIPs, synthetic published-index.fixture.json and java-plugin-distribution probes;
       // origin trust and build-index ownership are not transferable.
+      // This also rejects independent Java plugin patched package staging and
+      // lithe-jdt-decompiler-* compiler scratch; only original locked downloads reuse.
       // Includes agent-hook-library-state: user commands, native ownership journals and locks have no copy stage.
       // Includes agent-instruction-library-state: user text and sync locks have no build identity or copy stage.
       // Includes mcp-tool-probe-state: SDK sessions, native tool exclusions and

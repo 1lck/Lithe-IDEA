@@ -427,6 +427,11 @@ try {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const packages = registry.excludedResources.find(item => item.id === "official-plugin-packages");
     assert.ok(packages.locations.includes("dist/packages/<arch>/<plugin-id>/"));
+    assert.ok(packages.locations.includes("<java-plugin-worktree>/.artifacts/package/<arch>/<plugin-id>/"));
+    assert.ok(packages.locations.includes("<java-plugin-worktree>/.artifacts/windows-package-<pid>/"));
+    assert.ok(packages.locations.includes("<os-temp>/lithe-jdt-decompiler-*/"));
+    assert.match(packages.identity, /compiler version\/platform\/archive hash/);
+    assert.match(packages.reason, /read-only inputs/);
     assert.ok(packages.locations.includes("dist/verify/<arch>/<plugin-id>/"));
     assert.ok(packages.locations.includes(".artifacts/java-plugin-distribution/"));
     assert.ok(packages.locations.includes("<test-temp>/lithe-package-verification.*/published-index.fixture.json"));

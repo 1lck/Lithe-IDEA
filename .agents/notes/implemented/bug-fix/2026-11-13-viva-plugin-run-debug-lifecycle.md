@@ -44,8 +44,37 @@ SDK 的通知回调可能由并发工作线程执行，插件加锁的顺序不�
 
 Core 保留标准 LSP 进度的所有权；插件不申请转发宿主保留的方法。JDT 自己选择扩展通道，进度通知会跨现有插件通道转发，但普通进度报告只做常量级检查，不会逐条触发动作查询。延迟、恢复和预算耗尽分别进入 SDK 结构化诊断；这不修改宿主 API。Windows 长 classpath 另由插件复用 manifest JAR 规划，JAR 字节交给宿主临时文件接口，运行结束由宿主删除，不写安装目录。长 module-path 仍不属于已完成范围。
 
+## 无源码依赖的类内容与导航
+
+语言服务器能返回目标地址，不代表编辑器能打开它。Java 插件之前只声明支持类内容，
+没有注册 `jdt:` 内容提供者；Viva 也没有给只读虚拟文档设置语言标识，并把其地址当作
+磁盘路径重新编码。现在 Java 插件在返回有效服务器启动方案前注册已有内容扩展点，
+调用 JDT 的 `java/classFileContents`；宿主只按通用语法注册表选择语言，保留原始 URI，
+因此打开后的依赖类仍能继续发起导航。提供者按工作区代际持有订阅，不缓存源码或创建临时源码文件；
+内容最多 1 MiB，请求有界，空响应按失败处理。卸载、工作区关闭和代际变化沿用既有清理。
+
+原生界面还必须让读取属于发起时可见的文档和光标。用户换标签、移动光标、编辑、关闭文档或
+发起另一次导航后，取消未结束的内容读取；提交只读标签前再次验证归属。否则慢响应会在用户
+已经离开后抢走焦点。该临时光标快照只属于窗口，不作为插件协议或 Java 语义模型。
+准备文本和加载语法在后台完成，窗口线程只提交呈现状态；不为每次导航保留第二份全文。
+
+真实残缺类文件另外触发了 JDT 1.61 的上游缺陷：外部类列出但未提供的内部类使
+`FernFlowerDecompiler.scanClassFiles` 抛出 Java Model 异常，整个外部类内容为空。
+JDT 的 `java.decompile` 使用相同内容管理器，换命令不能绕过问题；当时核对的上游 main
+也保留相同行为。插件对锁定的开源集成增加“类文件不存在则跳过”的小补丁，反编译、源码附加、
+语义模型与行号映射仍由 JDT/FernFlower 完整子系统负责；不虚构缺失内部类的实现。
+正确做法是显示已有外部类并保留真实行号，不要生成占位类或修改反编译文本来凑落点。
+
+补丁只在独立 Java 插件构建阶段执行：校验原始源码和 JAR、修改源码、固定编译器与完整
+class 集合，只修改新组装目录，单次操作的编译临时目录总会删除。修改过的 JDT core JAR
+不能保留失效的 Eclipse 签名，因此移除签名及条目摘要、保留 OSGi 主清单，随包提供修改的
+EPL-2.0 源码、补丁身份和生成物哈希。它不再声称由 Eclipse 签名；原生 JVM 签名不变。
+下载缓存、已安装包和 app bundle 都只读，编译输出与组装包不跨 worktree 复用。
+这些是打包补丁的维护成本；上游修复后须先用同一残缺内部类回归验证，再移除补丁。
+
 ## 考虑过的备选方案
 
+- 自建反编译器或在宿主识别 `jdt:`：重复成熟上游语义且破坏插件边界；只补上游对残缺输入的遍历，不引入第二套 Java 模型。
 - 放宽 Core 声明解码：掩盖宿主把路由信息当成声明的错误，也允许其他无效字段通过。
 - 固定增大等待或对所有进度报告重查：前者已在真实冷导入中证明不能恢复丢失的动作，后者会在正常索引时反复触发昂贵查询。只在失败后的工作完成边界重查。
 - 要求用户编辑文件或先打开 Debug 面板：把接线时序变成操作前提，不能修复首次使用。
@@ -67,10 +96,13 @@ Core 保留标准 LSP 进度的所有权；插件不申请转发宿主保留的�
 - `TestJavaPluginCleanupWhilePaused` 在真实 Java 断点暂停后直接返回，跳过成功路径关闭，由始终执行的清理收回运行并确认 Core 返回会话不存在。
 - `scripts/desktop/desktop-go.sh test ./...` 与受影响包的 `-race`；本机证据来自 macOS arm64 无头工作台，原生窗口与其他平台未据此标记已验收。
 
+- `TestJavaPluginBinaryNavigation` 使用自行编译的无源码 JAR，覆盖类型/方法落点、类间连续跳转、缺失内部类和迟到结果不能抢焦点；回归通过前不得据此发布。私有输入只在本地诊断，不进入公开测试或构建产物。
+
 ## 适用范围
 
 - `desktop/internal/pluginservice/hostactions.go`、`hostproviders.go`、`runs.go`
 - `desktop/internal/workbench/debug_start.go`、`debug.go`、`pluginworkbench.go`、`pluginbackends.go`
 - `desktop/internal/workbench/java_plugin_e2e_test.go`、`java_legacy_e2e_test.go`、`java_unmanaged_e2e_test.go`
 - `desktop/internal/pluginservice/backendlaunch.go`、`backendlaunch_test.go`；Core 的语言服务器引擎握手期限
+- `desktop/internal/workbench/plugincontent.go`、`pluginsync.go`、`pluginsemantics.go`、`java_binary_e2e_test.go`；独立 Java 插件的内容提供者与构建期 JDT 补丁
 - 通用职责边界见 [插件后端会话与宿主服务](../architecture/2026-11-10-viva-plugin-host-services-and-backend-sessions.md)。

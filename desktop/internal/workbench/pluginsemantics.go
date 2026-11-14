@@ -534,6 +534,7 @@ func (a *App) startPluginUsages(p *project, d *document, line, column int, requi
 // startPluginLocations asks for a location list (definition or references); usages marks the
 // references of a declaration a go-to-declaration gesture was made on.
 func (a *App) startPluginLocations(kind semanticKind, p *project, d *document, line, column int, requireCaret, usages bool) {
+	a.cancelContentOpen()
 	if a.plugins == nil || p == nil || d == nil || a.project != p {
 		return
 	}
@@ -1491,6 +1492,9 @@ func (a *App) pointPluginHover(p *project, d *document, line, column int, anchor
 // request belongs to the caret it was opened at; moving the caret makes it
 // stale and closes it.
 func (a *App) pluginSemanticsCaretSync() {
+	if a.contentOpen != nil && !a.contentOpen.current(a) {
+		a.cancelContentOpen()
+	}
 	state := &a.semantics
 	if state.project == nil || a.project != state.project {
 		return
@@ -1549,6 +1553,9 @@ func (a *App) pluginSemanticsEdited(d *document) {
 
 // pluginSemanticsDocumentClosed drops state that belonged to a closed tab.
 func (a *App) pluginSemanticsDocumentClosed(d *document) {
+	if a.contentOpen != nil && a.contentOpen.source == d {
+		a.cancelContentOpen()
+	}
 	if d == nil || a.semantics.documentID != d.id {
 		return
 	}
@@ -1570,6 +1577,7 @@ func (a *App) pluginSemanticsReset() {
 }
 
 func (a *App) closePluginSemantics() {
+	a.cancelContentOpen()
 	a.closeSemanticCompletion()
 	a.closeSemanticDefinition()
 	a.closeSemanticHover()
