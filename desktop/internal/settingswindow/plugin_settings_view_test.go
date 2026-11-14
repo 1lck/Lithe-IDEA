@@ -16,6 +16,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/gfx"
 )
 
 type settingsFormSource struct {
@@ -89,6 +90,25 @@ func TestPluginSettingsFormEditsOnlyOnExplicitSaveAndPreservesConflictDraft(t *t
 		})
 	}
 	wait(func() bool { return w.pluginSettings.loaded })
+	// Each row is its title line and its control. The switch has no caption repeating the
+	// title, only the accessibility name; no row carries a standing note about inheritance;
+	// the scope help waits behind an info glyph.
+	flags := 0
+	for _, label := range d.driver.Snapshot().Labels {
+		if label.Value == "Flag" {
+			flags++
+		}
+	}
+	if flag := d.hit("Flag"); flags != 1 || flag.Role != gfx.RoleSwitch {
+		t.Fatalf("the boolean row shows its title %d times, its control is %v", flags, flag.Role)
+	}
+	if d.textContaining("no override is stored") {
+		t.Fatal("rows still carry the standing inheritance note")
+	}
+	if d.showsHelp(words("scopeHelp")) {
+		t.Fatal("the scope help stands on the page instead of waiting behind its info glyph")
+	}
+	d.hintHit(words("scopeHelp"))
 	path := filepath.Join(preferences, "plugin-settings.json")
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("opening wrote settings: %v", err)

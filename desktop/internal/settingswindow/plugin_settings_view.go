@@ -126,7 +126,7 @@ func (w *window) pluginSettingsPanel(c ui.C, id string) {
 				p.saved = false
 				p.failed = nil
 			}
-			ui.Text(c, i18n.Shared(language, "desktop.pluginSettings.scopeHelp")).FontSize(11).Color(w.pal.muted).Grow(1).Shrink(1).MinWidth(0).Ellipsis()
+			w.infoButton(c, i18n.Shared(language, "desktop.pluginSettings.scopeHelp"))
 		})
 		source := p.editor.Snapshot.GlobalPath()
 		if p.scope == 1 {
@@ -207,7 +207,9 @@ func (w *window) pluginSettingRow(c ui.C, index int, hasSource bool) {
 		})
 		switch declaration.Kind {
 		case "boolean":
-			if ui.Switch(c, &control.input.On, declaration.Title).Disabled(disabled).Changed() {
+			// The title row above names the switch, so the switch carries the title for
+			// assistive technology only and shows no caption of its own.
+			if ui.Switch(c, &control.input.On, "").Label(declaration.Title).Disabled(disabled).Changed() {
 				control.reset = false
 			}
 		case "enum":
@@ -251,8 +253,6 @@ func (w *window) pluginSettingRow(c ui.C, index int, hasSource bool) {
 			ui.Text(c, i18n.Shared(language, "desktop.pluginSettings.invalidStored")).FontSize(11).Color(w.pal.danger)
 		} else if !editor.Editable {
 			ui.Text(c, i18n.Shared(language, "desktop.pluginSettings.globalOnly")).FontSize(11).Color(w.pal.muted)
-		} else if !editor.Overridden {
-			ui.Text(c, i18n.Shared(language, "desktop.pluginSettings.inherited")).FontSize(11).Color(w.pal.muted)
 		}
 	})
 }

@@ -13081,13 +13081,6 @@
       ]
     },
     {
-      "id": "desktop.pluginSettings.inherited",
-      "description": "Installed plugin settings editor: inherited",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.pluginSettings.invalidDocument",
       "description": "Installed plugin settings: invalidDocument",
       "platforms": [

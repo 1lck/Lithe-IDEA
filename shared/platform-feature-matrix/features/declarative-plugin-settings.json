@@ -110,5 +110,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "partial 包含原生双层存储、运行消费、离线目录、七类控件、声明动作、动态页面及同一应用内跨窗口通知。语言状态卡、完整 settings v2、独立进程同步及原生产品验收仍 pending；宿主现已声明 settings 2。"
+  "notes": "partial 包含原生双层存储、运行消费、离线目录、七类控件、声明动作、动态页面及同一应用内跨窗口通知。语言状态卡、完整 settings v2、独立进程同步及原生产品验收仍 pending；宿主现已声明 settings 2。 Viva 2026-11-14：设置页每项是标题行（标题、ⓘ 说明、重置）加控件行，开关不再重复标题，标题只作无障碍名称；去掉每行常驻的“继承值”说明，作用范围的说明收进范围选择旁的 ⓘ；无效值和仅全局可改两条状态提示保留；自动化：TestPluginSettingsFormEditsOnlyOnExplicitSaveAndPreservesConflictDraft，截图场景 TestVisualPluginSettingsForm。"
 }
