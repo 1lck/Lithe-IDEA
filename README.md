@@ -359,25 +359,6 @@ Validate plugin contract and SDK changes in the Rust Core repository, and plugin
   </tr>
 </table>
 
-### ☕ Support Lithe
-
-If Lithe is useful to you, you are welcome to buy the project a cup of coffee. Every contribution will be put back into Lithe's continued development and maintenance.
-
-<div align="center">
-<table>
-  <tr>
-    <td align="center">
-      <img src="./docs/assets/donation/wechat.png" width="280" alt="WeChat donation QR code"><br>
-      <strong>WeChat</strong>
-    </td>
-    <td align="center">
-      <img src="./docs/assets/donation/alipay.png" width="280" alt="Alipay donation QR code"><br>
-      <strong>Alipay</strong>
-    </td>
-  </tr>
-</table>
-</div>
-
 ### ⭐ Special thanks
 
 <p align="center">
