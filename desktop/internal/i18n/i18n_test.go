@@ -43,14 +43,13 @@ func TestSharedTemplateFormatsOnceAndPreservesUnknownPlaceholders(t *testing.T) 
 func TestApplicationVersionUsesSharedLanguage(t *testing.T) {
 	for _, test := range []struct {
 		language Language
-		version  string
-		core     string
+		preview  string
 	}{
-		{English, "Version 1.2.3", "Core 1.2.3"},
-		{Chinese, "版本 1.2.3", "内核 1.2.3"},
+		{English, "1.2.3 Preview"},
+		{Chinese, "1.2.3 预览版"},
 	} {
 		messages := For(test.language).App
-		if messages.Name != "Lithe" || messages.DevBadge != "Dev" || messages.Version("1.2.3") != test.version || messages.Core("1.2.3") != test.core {
+		if messages.Name != "Lithe" || messages.DevBadge != "Dev" || messages.Version("1.2.3", false) != test.preview || messages.Version("1.2.3", true) != "1.2.3" {
 			t.Fatalf("language %s: application messages do not match the expected wording", test.language.Code())
 		}
 	}
@@ -327,6 +326,9 @@ func checkComplete(t *testing.T, path string, value reflect.Value) {
 				args[index] = reflect.ValueOf("x")
 			case reflect.Int:
 				args[index] = reflect.ValueOf(2)
+			case reflect.Bool:
+				// false is the side a translation is made for, as Version's preview label.
+				args[index] = reflect.ValueOf(false)
 			default:
 				t.Fatalf("%s takes an unsupported parameter type", path)
 			}

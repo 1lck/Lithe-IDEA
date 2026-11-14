@@ -52,7 +52,6 @@ import (
 // test chooses.
 type Kernel interface {
 	SelectPluginFunctionProvider(context.Context, string, string, string, string, []core.PluginFunctionProviderCandidate) (string, error)
-	Version() string
 	ReduceRecentProjects(ctx context.Context, entries []core.RecentProject, action core.RecentAction, capacity int) (core.RecentProjectsResult, error)
 	GitCheckoutBranch(ctx context.Context, text string) (string, error)
 	GitDirectoryPointer(ctx context.Context, text string) (string, error)
@@ -311,8 +310,9 @@ type settings struct {
 	// settingswindow.ProjectOpenThisWindow, ProjectOpenNewWindow, or empty to ask
 	// (project_open_destination.go).
 	ProjectOpenDestination string `json:"projectOpenDestination,omitempty"`
-	// UpdatesManual stops the daily check at startup; UpdatesCheckedAt is the last check
-	// that read the feed (updates.go).
+	// UpdatesManual turns off the automatic update check, which otherwise runs shortly
+	// after launch and then hourly; UpdatesCheckedAt is the last check that read the feed.
+	// Both are the window's (updater.store, updates.go).
 	UpdatesManual    bool      `json:"updatesManual,omitempty"`
 	UpdatesCheckedAt time.Time `json:"updatesCheckedAt,omitzero"`
 	// Network is the proxy settings of the application's own HTTP traffic (network.go).
@@ -476,8 +476,9 @@ type App struct {
 	backdropOpen bool
 	// shownTitle is the system title last given to the window (window_title.go).
 	shownTitle string
-	// updates is the update check, download and install (updates.go).
-	updates updater
+	// updates is the update check, download and install, which every tab of the window
+	// shares (updates.go).
+	updates *updater
 	tasks   taskQueue
 	// languages are the languages the editor knows, made when the first file is opened.
 	languages *syntax.Registry
@@ -711,8 +712,10 @@ func New(options Options) *App {
 		a.invalidator = first.invalidator
 		a.application, a.window, a.fullscreen = first.application, first.window, first.fullscreen
 		a.logSink, a.logs = first.logSink, first.logs
+		a.updates = first.updates
 	} else {
 		a.sessions = newWindowSessions(a, options)
+		a.updates = newUpdater(a.settings)
 		a.invalidator = windowWake{invalidator: new(app.Invalidator)}
 	}
 	if options.Logs != nil && options.first == nil {
@@ -860,6 +863,7 @@ func (a *App) closed() {
 	a.closeNewProject()
 	a.closeProject()
 	a.settingsWindow.Close()
+	a.stopUpdates()
 }
 
 // openLogs shows the log window. The window is opened from the queue drained in OnWake,
@@ -950,6 +954,7 @@ func (a *App) setTheme(choice themeChoice) {
 func (a *App) saveSettings() {
 	// The background is the window's, which another tab may have changed since this one loaded.
 	a.settings.WorkbenchBackground = a.savedBackgroundState()
+	a.updates.store(&a.settings)
 	if err := a.store.Save(settingsFile, a.settings); err != nil {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("settings_save", documentLogError(err)))
 		a.notifyError(a.text.Errors.SaveFailed(err.Error()))

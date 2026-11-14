@@ -61,6 +61,14 @@ Apply these rules to every version number:
   a release as a prerelease when no stable host can use it yet, whatever its
   number. Keep the plain number and the plain tag (`v<version>`, or
   `desktop-v<version>` for the desktop app), with no `-beta` or similar suffix.
+- The desktop app shows its version without the preview label only when the
+  Desktop Release built it for the commit of its `desktop-v<version>` tag:
+  `scripts/ci/desktop-release/package-release.sh` packages with
+  `package-desktop.sh --stable`, which adds the `lithe_stable` build tag, and
+  fails when a packaged program lacks it. Every other build, including the
+  daily `desktop-AutoBuild` and local packages, shows the version with the
+  preview label. This label is independent of the GitHub prerelease flag. Pass
+  `--stable` nowhere else.
 - Never reuse a published version or publish a lower one. A published package
   is never modified; every change ships as a new version. The only exception
   is a version reset that the user explicitly requests for one artifact:

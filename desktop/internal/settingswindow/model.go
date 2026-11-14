@@ -40,6 +40,9 @@ const (
 	pageAI
 	pageAIGeneration
 	pageIDEAPI
+	// pageAbout is the last entry of the top level: the application itself, its version,
+	// its updates and where its community is, rather than a setting of a tool.
+	pageAbout
 	// pageCount is how many entries there are. As a parent it means "none": the parent
 	// of an entry on the top level.
 	pageCount
@@ -66,6 +69,7 @@ var parents = [pageCount]pageID{
 	pageAI:                 noPage,
 	pageAIGeneration:       pageAI,
 	pageIDEAPI:             pageAI,
+	pageAbout:              noPage,
 }
 
 // initialPage is the page a new window opens on: the one page the new client offers.
@@ -126,6 +130,8 @@ func titleOf(messages *i18n.SettingsMessages, id pageID) string {
 		return messages.AIGeneration
 	case pageIDEAPI:
 		return messages.IDEAPI
+	case pageAbout:
+		return messages.About
 	}
 	return ""
 }

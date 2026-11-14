@@ -127,6 +127,11 @@ func (s *windowSessions) config() app.Config {
 			a.applySelectionFocus()
 			a.invalidator.Invalidate()
 		}
+		// An automatic update check that came due while the window was in the background
+		// runs now.
+		if s.active != nil {
+			s.active.resumeUpdateCheck()
+		}
 	}
 	window.OnFullscreen = func(fullscreen bool) {
 		for _, a := range s.list {

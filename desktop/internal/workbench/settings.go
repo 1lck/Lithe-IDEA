@@ -6,6 +6,7 @@ import (
 	"maps"
 	"runtime"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -32,7 +33,7 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 	}
 	return settingswindow.NewController(settingswindow.Options{
 		GitHub:             a.githubSettings(),
-		SettingsError:      func(err error) { (settingsToolchains{app: a}).recordFailure("plugin_settings_surface", err) },
+		SettingsError:      func(operation string, err error) { (settingsToolchains{app: a}).recordFailure(operation, err) },
 		SettingsNavigation: navigation,
 		SettingsPages: func(ctx context.Context) ([]core.SettingsPage, error) {
 			if a.plugins == nil {
@@ -151,6 +152,7 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SystemDark:     func() bool { return app.SystemAppearance() == app.AppearanceDark },
 		SystemLanguage: a.systemLanguage,
 		Version:        a.version,
+		Stable:         buildinfo.Stable,
 		SetLanguage: func(language string) {
 			a.post(func(a *App) { a.setLanguage(language) })
 		},
@@ -256,17 +258,12 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 				}
 			})
 		},
-		UpdateStatus:    a.updateStatus,
-		CheckForUpdates: func() { a.post(func(a *App) { a.checkForUpdates(true) }) },
-		DownloadUpdate:  func() { a.post(func(a *App) { a.downloadUpdate() }) },
-		InstallUpdate:   func() { a.post(func(a *App) { a.installUpdate() }) },
-		SetAutoCheckUpdates: func(on bool) {
-			a.post(func(a *App) {
-				a.settings.UpdatesManual = !on
-				a.saveSettings()
-			})
-		},
-		OpenURL: func(address string) { _ = openURL(address) },
+		UpdateStatus:        a.updateStatus,
+		CheckForUpdates:     func() { a.post(func(a *App) { a.checkForUpdates(true) }) },
+		UpdateNow:           func() { a.post(func(a *App) { a.updateNow() }) },
+		CancelUpdate:        func() { a.post(func(a *App) { a.cancelUpdate() }) },
+		SetAutoCheckUpdates: func(on bool) { a.post(func(a *App) { a.setAutoCheckUpdates(on) }) },
+		OpenURL:             func(address string) { a.post(func(a *App) { a.openSettingsLink(address) }) },
 		SetNetwork: func(next settingswindow.NetworkSettings, password *string) {
 			a.post(func(a *App) { a.setNetwork(next, password) })
 		},
@@ -441,4 +438,15 @@ func (a *App) openSettingsPageWith(surface string, page settingsPage, query stri
 			a.notifyError(a.text.Errors.SettingsFailed(err.Error()))
 		}
 	})
+}
+
+// openSettingsLink opens a link of the settings window, such as the About page's, in the
+// browser. When the system cannot, the window says so and the log records why.
+func (a *App) openSettingsLink(address string) {
+	if err := openURL(address); err != nil {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("settings_open_link", err))
+		a.notifyError(i18n.SharedFormat(a.language(), "desktop.terminal.openLinkFailed", map[string]string{"reason": err.Error()}))
+		return
+	}
+	a.performed("settings.openLink", surfaceButton)
 }

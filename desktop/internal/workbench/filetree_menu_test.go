@@ -121,9 +121,17 @@ func TestProjectTreeCreatesRenamesAndDeletes(t *testing.T) {
 
 	// Delete Permanently in the Delete dialog saves and closes the tab below the folder and
 	// removes the folder from disk.
+	// Opening the dialog only changes state, so ask for a frame and wait until the dialog is
+	// in it: a frame drawn before then has no Delete Permanently button to click.
 	h.app.openTreeRemoval(p, []string{"a"})
+	h.app.invalidator.Invalidate()
 	h.settle()
-	h.clickNamed(h.shared("desktop.files.deletePermanently"))
+	deletePermanently := h.shared("desktop.files.deletePermanently")
+	h.await("the Delete dialog", func() bool {
+		_, ok := h.findPageHit(deletePermanently)
+		return ok
+	})
+	h.clickNamed(deletePermanently)
 	h.await("the deleted folder", func() bool {
 		_, err := os.Stat(filepath.Join(root, "a"))
 		return os.IsNotExist(err)

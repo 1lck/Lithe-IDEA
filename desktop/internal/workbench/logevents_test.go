@@ -67,6 +67,17 @@ func TestLogEventsMatchCatalog(t *testing.T) {
 		{core.LevelInfo, "app.action.performed", map[string]any{"action": "workspace.background.choose", "surface": surfaceButton}},
 		{core.LevelInfo, "app.action.performed", map[string]any{"action": "workspace.background.remove", "surface": surfaceButton}},
 		{core.LevelInfo, "app.action.performed", map[string]any{"action": "workspace.background.strength", "surface": surfaceButton}},
+		{operationFailedLevel, operationFailedEvent, operationFailedFields("update_check", failure)},
+		{operationFailedLevel, operationFailedEvent, operationFailedFields("update", failure)},
+		{core.LevelInfo, "app.action.performed", map[string]any{"action": "updates.check", "surface": surfaceButton}},
+		{core.LevelInfo, "app.action.performed", map[string]any{"action": "updates.update", "surface": surfaceButton}},
+		{core.LevelInfo, "app.action.performed", map[string]any{"action": "updates.cancel", "surface": surfaceButton}},
+		{operationFailedLevel, operationFailedEvent, operationFailedFields("settings_about_copy", failure)},
+		{operationFailedLevel, operationFailedEvent, operationFailedFields("settings_open_link", failure)},
+		{operationFailedLevel, operationFailedEvent, operationFailedFields("editor_preferences", failure)},
+		{operationFailedLevel, operationFailedEvent, operationFailedFields("keymap_schemes", failure)},
+		{operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_settings_surface", failure)},
+		{core.LevelInfo, "app.action.performed", map[string]any{"action": "settings.openLink", "surface": surfaceButton}},
 	}
 	events := make([]core.LogEvent, len(cases))
 	for i, c := range cases {
