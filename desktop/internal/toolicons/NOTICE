@@ -1,0 +1,16 @@
+Tool window stripe icons of the Lithe desktop client.
+
+The SVGs in svg/ are IntelliJ Platform Community New UI tool window icons, downloaded byte for
+byte from the JetBrains IntelliJ Platform Community repository
+(https://github.com/JetBrains/intellij-community) at revision
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade. Copyright 2000-2025 JetBrains s.r.o. and contributors;
+distributed under the Apache License 2.0, see ../fileicons/LICENSE-APACHE-2.0.txt.
+
+- build, commit, debug, find, notifications, problems, project, run, services, structure and
+  vcs @20x20.svg: platform/icons/src/expui/toolwindows/.
+- terminal@20x20.svg: plugins/terminal/resources/icons/expui/toolwindow/.
+
+Only the light variants are kept: each @20x20_dark.svg draws the same shapes in another color,
+and Lithe tints these icons itself. scripts/desktop/generate-desktop-file-icons.sh turns their
+strokes into fills, unions the shapes of each icon into one path and drops the color, so the
+compiled icons keep the geometry only.

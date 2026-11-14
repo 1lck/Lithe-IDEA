@@ -1579,6 +1579,7 @@
     "desktop.toolchains.unavailable": "Unavailable: {reason}",
     "desktop.tools.background": "Background",
     "desktop.tools.dragHint": "Drag to move elsewhere",
+    "desktop.tools.withShortcut": "{name} {keys}",
     "desktop.tools.structure": "Structure",
     "desktop.welcome.emptyHint": "Open a local folder to start working.",
     "desktop.welcome.emptyTitle": "No recent projects",

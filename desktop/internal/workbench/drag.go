@@ -36,14 +36,14 @@ const (
 	// column without leaving its stripe.
 	dragSnappedGhostSize = chromeToolButton
 	// dragSnappedGhostIconInset centers the usual stripe icon inside its snapped button.
-	dragSnappedGhostIconInset = (dragSnappedGhostSize - chromeIconSize) / 2
+	dragSnappedGhostIconInset = (dragSnappedGhostSize - chromeToolIcon) / 2
 	// dragFloatingGhostSize, dragFloatingGhostRadius, and dragFloatingGhostBorderWidth size
 	// the detached image to match the previous client's floating tool button.
 	dragFloatingGhostSize        = 30
 	dragFloatingGhostRadius      = 6
 	dragFloatingGhostBorderWidth = 1
 	// dragFloatingGhostIconInset centers the usual stripe icon inside the detached image.
-	dragFloatingGhostIconInset = (dragFloatingGhostSize - chromeIconSize) / 2
+	dragFloatingGhostIconInset = (dragFloatingGhostSize - chromeToolIcon) / 2
 	// dragFloatingGhostOpacity is applied to the detached image's surface and icon.
 	dragFloatingGhostOpacity = 0.85
 	// These are the rounded square's border and fill colors in the two workbench themes.
@@ -236,8 +236,10 @@ func (a *App) dragInsertion(item int, z zone, x, y float32) (string, gfx.Rect) {
 	vertical := z.vertical()
 	zr := a.chrome.zoneRects[z]
 	// position is where the line starts along the zone; before is the button it precedes.
-	position, before := zr.X+dragMarkLead, ""
+	// gap is the space between two buttons of the zone, which the line stands in the middle of.
+	position, before, gap := zr.X+dragMarkLead, "", float32(chromeGap)
 	if vertical {
+		gap = chromeToolGap
 		position = zr.Y + dragMarkLead
 		if z == zoneBottomLeft || z == zoneBottomRight {
 			// The empty bottom group sits at the stripe's end, so its mark belongs there.
@@ -255,10 +257,10 @@ func (a *App) dragInsertion(item int, z zone, x, y float32) (string, gfx.Rect) {
 		}
 		if pointer < start+extent/2 {
 			// The line sits in the middle of the gap in front of the button.
-			position, before = start-(chromeGap+dragMark)/2, a.chrome.catalog[other].id
+			position, before = start-(gap+dragMark)/2, a.chrome.catalog[other].id
 			break
 		}
-		position = start + extent + (chromeGap-dragMark)/2
+		position = start + extent + (gap-dragMark)/2
 	}
 	if vertical {
 		position = min(max(position, zr.Y), zr.Y+zr.Height-dragMark)

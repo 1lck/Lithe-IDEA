@@ -1579,6 +1579,7 @@
     "desktop.toolchains.unavailable": "不可用：{reason}",
     "desktop.tools.background": "背景",
     "desktop.tools.dragHint": "可拖动到其他位置",
+    "desktop.tools.withShortcut": "{name} {keys}",
     "desktop.tools.structure": "结构",
     "desktop.welcome.emptyHint": "打开本地文件夹开始工作。",
     "desktop.welcome.emptyTitle": "没有最近项目",
