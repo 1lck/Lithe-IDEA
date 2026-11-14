@@ -17,6 +17,17 @@ Viva 客户端的测试是 Go 测试。macOS 和 Windows 的桌面计时入口�
 - 正确做法：指定真实 Go 包和测试名，检查报告包含目标用例，再结合竞态测试和对应平台的原生验收。不要用零匹配报告、单独的无头测试或旧 Swift/Tauri 报告证明现有 Viva 工作流已通过。
 - 静态稳定性扫描器当前仍只分析 Rust、Swift 和 TypeScript 测试，**尚不分析 Go**。Go 测试需要人工检查有界等待、同步和资源清理；计时报表不能替代静态扫描或正确性测试。
 
+### 界面测试必须明确触发重绘
+
+Viva 无头驱动的 `Pump()` 只消费已经请求的重绘，不会因测试修改了模型就主动绘制。
+测试直接调用 `reduceChrome` 后再 `settle()`，可能只改了面板状态而没有声明面板内容。
+终端输出等后台通知又可能碰巧请求一帧，令同一个测试有时通过、有时失败（#1907）。
+
+验证用户交互时，应点击真实控件，让驱动走与原生窗口相同的输入和重绘路径；只需准备
+布局时，使用已有的 `h.chromeAction`，它明确请求重绘。不要给每次 `settle()` 强制加一帧，
+那会掩盖生产代码漏通知的问题，也不能用延时等待后台通知替测试完成刷新。
+终端菜单用例先消费输出的待绘制帧，再点击终端侧栏按钮；其进程仍由测试清理流程关闭。
+
 ## 考虑过的备选方案
 
 - 将整包耗时平均分给测试：不能反映真实慢用例，也无法区分包编译和运行时间。
@@ -32,6 +43,7 @@ Viva 客户端的测试是 Go 测试。macOS 和 Windows 的桌面计时入口�
 - `node --test --test-timeout=15000 .agents/skills/write-stable-tests/scripts/test-go-timing.mjs`：通过、失败、零匹配、损坏输出、超预算、超时和清理失败；Windows 额外覆盖 `taskkill` 失败。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --package ./internal/core --package ./internal/workbench -- --filter 'TestCoreAgentKeepsGoChildSignalStack|TestSignalGuardLeavesOtherSignalActionsUnchanged|TestGitCloneUsesCoreAndPreservesExistingDestination|TestWelcomeClonesRepositoryThroughRealCore|TestClone|TestClosingWindowCancelsClone|TestWelcomeMoreMenuClosesOnEscape'`：macOS 已生成 12 项真实结果及 HTML/JUnit。
 - Windows 云主机在含空格的隔离路径运行了计时器自检和真实 `documentio` 文件读取测试；夹具的轻量桌面包装器直接调用 Go，未编译或验证 Core，也不代表 Windows 工作台验收。
+- `TestTerminalMenuSelectsAllAndCopies` 在排空后台重绘后，旧的直接状态调用连续 5 次失败；改为真实按钮点击后连续 20 次通过。该证据是 macOS 无头交互，不代替原生窗口验收。
 
 ## 适用范围
 
