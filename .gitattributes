@@ -9,7 +9,7 @@ Plugins/mac/Official/JavaSupport/templates/** -text
 
 # Structured logging generated sources must compare byte-for-byte on Windows.
 macos/Sources/LitheModuleAPI/Logging/*.swift text eol=lf
-rust/lithe-core/src/diagnostics/catalog_generated.rs text eol=lf
+rust/crates/diagnostics/src/catalog_generated.rs text eol=lf
 
 # Generated Go localization must match byte-for-byte on all platforms.
 desktop/internal/i18n/shared.generated.go text eol=lf

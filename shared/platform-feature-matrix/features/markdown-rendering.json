@@ -34,7 +34,7 @@
         "macos/Sources/Lithe/Core/Ports/MarkdownRendering.swift",
         "macos/Sources/Lithe/Resources/MarkdownPreview/index.html",
         "macos/Tests/LitheTests/MarkdownPreviewRichContentTests.swift",
-        "rust/crates/core/src/project/markdown.rs",
+        "rust/crates/project/src/markdown.rs",
         "shared/fixtures/editor/markdown-rich-content-v1.json",
         "macos/Sources/Lithe/Resources/MarkdownPreview/preview.css",
         "macos/Tests/LitheTests/MarkdownPreviewHTMLTests.swift",
@@ -52,7 +52,7 @@
         "windows/tauri/src/features/editor/markdown/render.ts",
         "windows/tauri/src/features/editor/markdown/render.native.integration.test.ts",
         "shared/fixtures/editor/markdown-render-v1.json",
-        "rust/crates/core/src/project/markdown.rs"
+        "rust/crates/project/src/markdown.rs"
       ],
       "implementationStatus": "implemented",
       "verificationStatus": "pending"

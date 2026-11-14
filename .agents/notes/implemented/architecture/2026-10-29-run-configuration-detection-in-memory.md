@@ -26,7 +26,7 @@
 
 ### 检测层归 Core 内存所有
 
-`rust/crates/core/src/execution/generated_layer.rs` 按规范化后的工作区路径保存最近一次
+`rust/crates/execution/src/generated_layer.rs` 按规范化后的工作区路径保存最近一次
 `runConfig.generate` 的结果（运行配置文档和工具链需求）。`inspect`、`resolve`、
 创建用户配置时的 id 冲突检查、`toolchain_diagnostics` 都从这里读。宿主不再写任何检测文件：
 Windows 删除了 `run_write_generated` 命令，macOS 删除了 `MacRunConfigurationStore.writeGenerated`。

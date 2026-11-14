@@ -40,7 +40,7 @@
         "rust/crates/remote/src/server/upload/tests.rs",
         "rust/crates/remote/src/server/daemon.rs",
         "rust/crates/remote/tests/persistence.rs",
-        "rust/crates/core/src/remote/sessions_integration_tests.rs",
+        "rust/crates/core/src/tests/remote_sessions.rs",
         "macos/Sources/Lithe/Core/Rust/RustWorkspaceOperations.swift"
       ],
       "implementationStatus": "partial",

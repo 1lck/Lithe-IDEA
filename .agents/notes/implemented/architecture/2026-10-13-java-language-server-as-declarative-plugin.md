@@ -6,6 +6,8 @@
 
 > 2026-11-07 更新：本文提到的部分文件已不存在。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护；宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
 
+> 2026-11-14 更新：`hostIntegration: jdt` 已不存在。Core #23 删除了 JDT 宿主集成，`hostIntegration` 只剩保留字段，写任何值都以 `plugin.integration.unsupported` 拒绝；Core #28 起清单 schema 也删掉了它下面的 `capabilities`、`resources`。Java 语言服务器改由插件后端以 `launch.kind:"backend"` 启动，见[插件自有语言服务器会话与后端决定启动方式](2026-11-04-plugin-owned-language-server-sessions.md)。
+
 ## 先说结论
 
 Java 的语言服务器 JDT LS（Eclipse 的 Java 语言服务器，提供补全、诊断和跳转）不再是 Lithe.app 里写死的一部分，而是官方插件 Java Support（`dev.lithe.plugin.java-support`）。插件包拥有 JDT LS、Lombok、调试和测试扩展，以及它运行所用的 JDK；`plugin.json` 声明这些文件在包内的位置和启动方式。过渡期随应用发行、默认启用，用户可以卸载和恢复；完整双架构官方下载上架后默认应用省去资源，迁移与安装引导由[后续分发决策](2026-10-25-java-plugin-distribution-foundation.md)规定。
@@ -39,7 +41,7 @@ Java 的语言服务器 JDT LS（Eclipse 的 Java 语言服务器，提供补全
 | 插件资源 | 集成要读的文件 | `hostIntegration.resources`，由插件声明包内路径 |
 | 宿主能力 | 仍由宿主内置实现提供的运行、测试、调试 | `hostIntegration.capabilities`，由插件逐项声明 |
 
-字段语义以 `Lithe-core-rust/shared/plugins/contract/v1/README.md` 为准，校验和模板展开只在 `rust/crates/core/src/plugins/declarative.rs` 实现一次。
+字段语义以 `Lithe-core-rust/shared/plugins/contract/v1/README.md` 为准，校验和模板展开只在 `rust/crates/plugin-manifest/` 实现一次。
 
 ### 2. 契约 API 2 增加的内容
 

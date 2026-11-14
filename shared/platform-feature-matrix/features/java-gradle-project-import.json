@@ -27,7 +27,7 @@
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
       "evidence": [
-        "rust/crates/core/src/lsp/interface/engine.rs",
+        "rust/crates/lsp-engine/src/lib.rs",
         "macos/Sources/Lithe/Models/AppModel/AppModel+BuildSystems.swift",
         "macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift",
         "macos/Sources/Lithe/Core/Rust/RustLanguageServerRuntimeAdapter.swift",
@@ -40,7 +40,7 @@
     },
     "windows": {
       "evidence": [
-        "rust/crates/core/src/lsp/interface/engine.rs",
+        "rust/crates/lsp-engine/src/lib.rs",
         "windows/tauri/src-tauri/src/lsp.rs",
         "windows/tauri/src-tauri/src/lsp/jdt_workspace.rs",
         "windows/tauri/src/features/editor/lsp/java-lsp-host-api.ts",

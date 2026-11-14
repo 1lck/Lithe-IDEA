@@ -10,7 +10,7 @@ Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安�
 
 “官方”市场条目必须同时满足两点：来自默认源，并且带 Lithe 发布者签名。社区包也可以从磁盘 ZIP 或解包目录安装：先复制到本次操作的私有快照，再让用户确认权限和完整程序声明。市场索引校验值、本地快照摘要和发布者签名各自证明不同的事实，不能互相冒充；本地安装不会因市场出现同 ID 条目而自动变成市场管理的插件。
 
-对日常开发的直接影响：索引格式和校验规则只在 `Lithe-core-rust/shared/plugins/contract/v1/` 与 `rust/crates/core/src/plugins/marketplace.rs` 定义一次；官方插件不再跟随 Lithe 发版，而是每个插件按自己的标签单独发布。
+对日常开发的直接影响：索引格式和校验规则只在 `Lithe-core-rust/shared/plugins/contract/v1/` 与 `rust/crates/plugin-marketplace/src/lib.rs` 定义一次；官方插件不再跟随 Lithe 发版，而是每个插件按自己的标签单独发布。
 
 ## 问题
 
@@ -152,7 +152,7 @@ Viva 插件安装或宿主能力已经接通的证据。
 
 以下是迁移前的源码位置，不代表当前工作树中仍存在。
 
-- `rust/crates/core/src/plugins/marketplace.rs`
+- `rust/crates/plugin-marketplace/src/lib.rs`
 - `Plugins/marketplace/`
 - 已迁出：原 `scripts/plugins/official-plugin-releases.mjs`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - 已迁出：原 `.github/workflows/release-official-plugins.yml`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。

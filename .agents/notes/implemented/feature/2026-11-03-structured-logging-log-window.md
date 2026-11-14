@@ -72,7 +72,7 @@ macOS 的应用日志只在一个地方看：用 ⌘⇧L 打开的独立日志�
 
 ### Core 计算，宿主只做 I/O
 
-日志窗口和导出需要的通用逻辑全部在 `rust/crates/core/src/diagnostics/`：
+日志窗口和导出需要的通用逻辑全部在 `rust/crates/diagnostics/src/`：
 
 | 能力 | Core 入口 |
 | --- | --- |

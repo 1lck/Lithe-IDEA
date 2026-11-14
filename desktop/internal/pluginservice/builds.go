@@ -36,8 +36,8 @@ type BuildSystemDeclaration struct {
 	// still owns whether a selection can run; the window only needs to know
 	// that the system offers tests and on which scopes.
 	Test *BuildTestDeclaration
-	// Dependencies is the declared dependency request, nil when the system lists none the
-	// window can show (none declared, or a host integration that owns them).
+	// Dependencies is the declared dependency request, nil when the system declares no
+	// dependency scopes.
 	Dependencies *BuildDependenciesDeclaration
 }
 
@@ -159,7 +159,6 @@ type rawBuildManifest struct {
 			Discovery  bool     `json:"discovery"`
 		} `json:"test"`
 		Dependencies *struct {
-			Source string   `json:"source"`
 			Scopes []string `json:"scopes"`
 		} `json:"dependencies"`
 	} `json:"buildSystems"`
@@ -224,8 +223,7 @@ func parseBuildSystems(manifest json.RawMessage) (map[string]BuildSystemDeclarat
 				Discovery:  raw.Test.Discovery,
 			}
 		}
-		// A host integration owns its dependencies, so the window plans no request for it.
-		if deps := raw.Dependencies; deps != nil && deps.Source != "hostIntegration" && len(deps.Scopes) > 0 {
+		if deps := raw.Dependencies; deps != nil && len(deps.Scopes) > 0 {
 			system.Dependencies = &BuildDependenciesDeclaration{Scopes: append([]string(nil), deps.Scopes...)}
 		}
 		systems[raw.ID] = system

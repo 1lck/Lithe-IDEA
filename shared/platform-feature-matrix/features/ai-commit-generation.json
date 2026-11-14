@@ -44,7 +44,7 @@
       "evidence": [
         "macos/Sources/Lithe/Application/Features/CommitWorkflowCoordinator.swift",
         "macos/Sources/Lithe/Platform/MacOS/AI",
-        "rust/crates/core/src/git/commit_message_context.rs",
+        "rust/crates/git/src/commit_message_context.rs",
         "shared/fixtures/git/commit-message-context-v1.json"
       ],
       "implementationStatus": "implemented",
@@ -54,7 +54,7 @@
       "evidence": [
         "windows/tauri/src/features/git/services/ai-commit-service.ts",
         "shared/contracts/ai-commit.md",
-        "rust/crates/core/src/git/commit_message_context.rs",
+        "rust/crates/git/src/commit_message_context.rs",
         "shared/fixtures/git/commit-message-context-v1.json"
       ],
       "implementationStatus": "implemented",

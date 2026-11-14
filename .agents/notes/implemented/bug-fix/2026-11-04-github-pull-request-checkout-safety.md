@@ -30,4 +30,4 @@ Core 生成安全的本地名称并检查同名、父级及子级引用；预览
 
 ## 适用范围
 
-`rust/crates/core/src/git/github_checkout.rs`、`rust/crates/github/src/lib.rs`、`macos/Sources/Lithe/Platform/MacOS/GitHub/MacGitHubGitOperations.swift` 和 GitHub 拉取请求界面。Windows GitHub 产品入口尚未启用；启用时也应使用同一计划和安全执行入口。
+`rust/crates/git/src/github_checkout.rs`、`rust/crates/github/src/lib.rs`、`macos/Sources/Lithe/Platform/MacOS/GitHub/MacGitHubGitOperations.swift` 和 GitHub 拉取请求界面。Windows GitHub 产品入口尚未启用；启用时也应使用同一计划和安全执行入口。

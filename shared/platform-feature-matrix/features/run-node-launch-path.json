@@ -42,7 +42,7 @@
     "windows": {
       "evidence": [
         "windows/tauri/src-tauri/src/run.rs",
-        "rust/crates/core/src/execution/environment.rs"
+        "rust/crates/execution/src/environment.rs"
       ],
       "implementationStatus": "implemented",
       "verificationStatus": "pending"

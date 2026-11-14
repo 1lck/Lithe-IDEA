@@ -345,7 +345,7 @@ Viva 在 macOS、Windows 和 Linux 使用 `desktop/internal/i18n/` 的接口及�
 macOS app bundle 和 Windows 安装目录是发行基线。Sparkle 增量更新按发布包的精确字节生成；运行时写入会改变基线，导致下次增量校验失败、回退到完整下载。
 
 - 缓存、索引、Eclipse/OSGi 状态、下载物、解压物、日志和锁文件，通过平台存储适配器放到缓存目录、Application Support、临时目录或用户工作区。不得从 `Bundle.main.resourceURL`、`resource_dir()` 或安装目录推导写入位置。
-- Equinox 等会向自身所在目录写入的工具，必须在可写的缓存目录中使用输入副本；`-configuration` 的做法见 `rust/lithe-core/src/lsp/languages/jdt_configuration.rs`。
+- Equinox 等会向自身所在目录写入的工具，必须在可写的缓存目录中使用输入副本；`-configuration` 的做法见 Java 插件的 [`crates/java-domain/src/lsp/languages/jdt_configuration.rs`](https://github.com/Lithe-IDEA/lithe-plugin-java/blob/main/crates/java-domain/src/lsp/languages/jdt_configuration.rs)。
 - 新的打包运行时必须增加“典型流程前后比较安装目录文件清单”的测试，并保持 `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 通过。
 - 不得用“启动前清理 bundle”来修复运行时写入问题。
 

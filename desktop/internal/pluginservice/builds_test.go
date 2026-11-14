@@ -136,7 +136,7 @@ var _ = json.Valid
 // The Build window shows what a build system declares: command tasks with their categories and
 // target tags, and the scopes its dependency request accepts. A system declaring only project
 // dependencies (the Go modules plugin) must not be asked for those of the whole workspace,
-// which Core refuses (plugin.build.invalidSelection), and a host integration lists none.
+// which Core refuses (plugin.build.invalidSelection).
 func TestParseBuildSystemsKeepsTaskPresentationAndDependencyScopes(t *testing.T) {
 	systems, err := parseBuildSystems(json.RawMessage(`{"buildSystems": [
 		{
@@ -150,7 +150,6 @@ func TestParseBuildSystemsKeepsTaskPresentationAndDependencyScopes(t *testing.T)
 				 "category": ["Checks", "Static"], "scopes": ["project", "target"], "targetTags": ["application"], "arguments": []}
 			]
 		},
-		{"id": "hosted", "dependencies": {"source": "hostIntegration"}},
 		{"id": "plain"}
 	]}`))
 	if err != nil {
@@ -175,9 +174,6 @@ func TestParseBuildSystemsKeepsTaskPresentationAndDependencyScopes(t *testing.T)
 	}
 	if len(vet.Scopes) != 2 || vet.Scopes[1] != "target" || len(vet.TargetTags) != 1 || vet.TargetTags[0] != "application" {
 		t.Fatalf("vet scopes = %+v", vet)
-	}
-	if systems["hosted"].Dependencies != nil {
-		t.Fatal("a host integration's dependencies are offered as a request")
 	}
 	if systems["plain"].Dependencies != nil {
 		t.Fatal("a system without dependencies offers them")

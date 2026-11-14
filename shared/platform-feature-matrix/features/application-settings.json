@@ -59,7 +59,7 @@
         "macos/Sources/Lithe/Views/App/GitExecutionSettingsView.swift",
         "macos/Sources/LitheGitModule/Models/GitConfigurationFallback.swift",
         "macos/Tests/LitheGitModuleTests/GitSettingsPresentationTests.swift",
-        "rust/crates/core/src/git/configuration.rs",
+        "rust/crates/git/src/configuration.rs",
         "macos/Sources/LitheGitModule/Application/GitExecutionSettingsFeatureModel.swift",
         "macos/Sources/Lithe/Views/App/McpSettingsView.swift",
         "macos/Sources/Lithe/Application/Features/AgentSetupDiagnostics.swift",

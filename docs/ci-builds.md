@@ -277,12 +277,6 @@ Intel DMG、ZIP、delta 和 `appcast-preview-x86_64.xml`。任何下载、哈希
 稳定版 release、组织插件 release 和 canonical marketplace 索引都不受清理影响。
 这些命令只应由正式工作流执行；本地验证使用 mock，不运行远程发布。
 
-Git 路径往返集成测试 `rust/lithe-core/tests/git_path_roundtrip.rs` 需要 Git 和
-Node.js 22.6+（用于直接加载实际前端 TypeScript 路径规范化函数），不需要安装
-Bun 或前端依赖。CI 复用计时脚本已使用的 runner Node.js，本地运行时需满足
-上述最低版本；该测试随 SharedRust 计时测试执行，结果写入现有
-`.artifacts/test-stability/` 报告。
-
 ## Build time and caches
 
 The September 12, 2026 investigation found two separate sources of delay:
@@ -567,20 +561,6 @@ MCP 编辑器、工具面板和指令页的原生验收截图分别输出到
 不读取桌面或真实用户配置；按 `agent-ui-test-evidence` 排除于所有工作树资源复制阶段，
 本地随报告保留，CI 按 artifact retention 回收，不进入发行包。
 
-MCP 发现页读取的官方 Registry 在线响应登记为 `mcp-registry-metadata`，仅在当前进程内存中保存。
-响应最多 1 MiB，由 Rust Core 校验；按搜索、分页和取消请求管理生命周期，没有持久缓存、
-平台/架构/工具链身份或允许复制的阶段。资源复用脚本明确拒绝该项，不下载服务器包或图片，
-也不写入 app bundle 或 Windows 安装目录，因此不改变签名和 Sparkle delta 基线。
-内置精选 `rust/lithe-core/src/mcp/featured.json` 属于 Git 跟踪的编译输入，随本工作树
-源码编译进 Core，运行时只读；不从缓存或其他工作树复制，不登记为下载/生成资源。
-查询路由默认使用系统代理，显式直连只改变当前页面的内存请求，不产生可复用状态。
-
-精选品牌图标 `macos/Sources/Lithe/Resources/McpIcons` 也是 Git 跟踪的固定输入，
-`NOTICE.json` 记录每个来源与 SHA-256，随 SwiftPM 资源 bundle 在构建时打包。
-该目录与精选 JSON 一起归入 `mcp-registry-metadata` 的不可复用说明：没有下载缓存、
-生成 identity stamp 或跨工作树复制阶段；版本由当前 Git 源码和清单哈希决定，
-不从其他工作树或已安装应用提取。运行时只读并在内存缓存解码结果，不访问图标网络，
-不改写签名包或 Sparkle delta 基线；Windows 未消费此 macOS 资源目录。
 Cargo 社区插件在 [独立仓库](https://github.com/Lithe-IDEA/lithe-plugin-cargo) 中构建，
 最终 ZIP、摘要、vendored Node SDK 和集成测试产物由该仓库的 `dist/`、`.artifacts/` 持有，
 不作为 Lithe 主仓库的下载缓存或可复用资源。Cargo 专属清单、模型金样与兼容性测试也由

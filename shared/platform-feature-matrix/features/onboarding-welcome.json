@@ -54,7 +54,7 @@
         "macos/Sources/Lithe/Platform/MacOS/RecentProjectBranchReader.swift",
         "macos/Tests/LitheTests/RecentProjectBranchMetadataTests.swift",
         "shared/fixtures/git/checkout-metadata-v1.json",
-        "rust/crates/core/src/git/catalog.rs"
+        "rust/crates/git/src/catalog.rs"
       ],
       "implementationStatus": "implemented",
       "verificationStatus": "pending"

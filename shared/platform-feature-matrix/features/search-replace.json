@@ -44,7 +44,7 @@
     "windows": {
       "evidence": [
         "windows/tauri/src/features/file-search",
-        "rust/crates/core/src/project/files.rs",
+        "rust/crates/project/src/files/replace.rs",
         "windows/tauri/src/features/global-search/utils/source-replace.ts",
         "windows/tauri/src/features/editor/stores/editor-app.store.test.ts"
       ],

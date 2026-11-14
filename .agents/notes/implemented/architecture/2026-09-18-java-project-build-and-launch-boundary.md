@@ -392,9 +392,9 @@ Maven JDK、显式覆盖及资源步骤；#1133 的 Maven 原生资源步骤保�
 
 ## 适用范围
 
-- Rust Core：`rust/crates/core/src/execution/configuration.rs`
-- Rust Core 构建协调：`rust/lithe-core/src/lsp/languages/jdt_build.rs`、
-  `rust/crates/core/src/lsp/interface/engine.rs`
+- Rust Core：`rust/crates/execution/src/configuration.rs`
+- Rust Core 构建协调：`rust/crates/lsp-engine/src/lib.rs`
+- 已迁出：原 `rust/lithe-core/src/lsp/languages/jdt_build.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）。
 - macOS：`LanguageToolingSessionManager`、`AppModel+RunConfiguration`、`RunService`
 - Windows：`java-run-launch.ts`、`lsp-core-adapter.ts`、`run.store.ts`
 - 相关笔记：

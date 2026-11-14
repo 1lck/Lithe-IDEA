@@ -19,7 +19,7 @@ Rust Core 的默认工作区规则排除 `.venv`、`venv`、`__pycache__` 和 `*
 
 ### 正确做法
 
-- `rust/crates/core/src/project/files.rs` 的 `BUILT_IN_HIDDEN_DIRECTORIES` 增加 `.venv`、`venv`、`__pycache__`，`BUILT_IN_HIDDEN_FILE_PATTERNS` 增加 `*.pyc`。
+- `rust/crates/core-rules/src/visibility.rs` 的 `BUILT_IN_HIDDEN_DIRECTORIES` 增加 `.venv`、`venv`、`__pycache__`，`BUILT_IN_HIDDEN_FILE_PATTERNS` 增加 `*.pyc`。
   这份名单同时决定快照、目录列举、搜索索引、文件监听事件是否相关，以及 Git 仓库发现要不要进入某个目录，所以改一处就覆盖这些入口。
 - macOS 的 `FileVisibilityRules.swift` 保留自己的一份内置名单（设置页会把它显示出来），同步增加同样的四项，避免页面显示和实际规则不一致。
 - 只需要文件清单的调用方请求 `workspace.snapshot` 时带 `includeTree: false`。Windows 的 `fffListFiles`（Quick Open、全局搜索、Spring/MyBatis/Maven 索引经由它取文件）和 Lombok 导航都已这样做。

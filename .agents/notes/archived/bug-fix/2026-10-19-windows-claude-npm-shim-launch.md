@@ -1,6 +1,11 @@
 # Agent 笔记：Windows Claude 适配器不能直接启动 npm 命令垫片
 
 状态：已实现
+归档日期：2026-11-14
+
+## 归档原因
+
+Core #18 删除了 `rust/lithe-agent-host`，本文描述的 Windows Claude 适配器启动代码在 Core 和本仓库中都已不存在；Viva 桌面端也不做 Agent 对话，见[Viva 桌面端不做 Agent 对话，只保留 AI 生成](../../implemented/feature/2026-11-12-viva-agent-conversation-removed.md)。本文保留为历史决策记录。
 
 ## 先说结论
 

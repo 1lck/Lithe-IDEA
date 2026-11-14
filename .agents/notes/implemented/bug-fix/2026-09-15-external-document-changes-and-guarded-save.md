@@ -321,7 +321,7 @@ WindowsRust 范围单独运行 `lithe-project`；只运行宿主不会执行依�
 - ~~`macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`~~（已随 #1794 移除）
 - ~~`macos/Sources/Lithe/Platform/MacOS/FileWatching/MacDocumentObservation.swift`~~（已随 #1794 移除）
 - ~~`macos/Sources/Lithe/Platform/MacOS/FileSystem/MacWorkspaceFileOperations.swift`~~（已随 #1794 移除）
-- `rust/crates/core/src/project/document_lifecycle.rs`
+- `rust/crates/project/src/document_lifecycle.rs`
 
 ## 适用范围
 

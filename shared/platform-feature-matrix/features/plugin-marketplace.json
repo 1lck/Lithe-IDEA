@@ -88,7 +88,7 @@
         "scripts/resources/reuse-worktree-resources.mjs",
         "scripts/resources/test-reuse-worktree-resources.mjs",
         "scripts/desktop/verify/verify-runtime-bundle-immutability.sh",
-        "rust/crates/core/src/plugins/marketplace.rs",
+        "rust/crates/plugin-marketplace/src/lib.rs",
         "Plugins/marketplace/index.json",
         "macos/Sources/Lithe/Views/App/ApplicationRestartAction.swift",
         "macos/Sources/Lithe/Platform/MacOS/MacApplicationRelauncher.swift",
@@ -104,7 +104,7 @@
         "windows/tauri/src-tauri/src/plugin_host/install_tests.rs",
         "windows/tauri/src/features/plugins/declarative-plugin-launch.ts",
         "windows/tauri/src/features/plugins/declarative-plugins-section.tsx",
-        "rust/crates/core/src/plugins/marketplace.rs",
+        "rust/crates/plugin-marketplace/src/lib.rs",
         "shared/contracts/plugins/v1/fixtures/marketplace"
       ],
       "implementationStatus": "partial",

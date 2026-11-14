@@ -389,17 +389,6 @@
       "reason": "Native adapters create module logs in user log storage, expire at 30 days and enforce disk budgets. macOS owns one cache staging directory until export/cancel; Windows keeps at most four five-minute previews only in memory and atomically publishes a destination-owned temporary ZIP. Never reuse, copy or share at any worktree stage, and never write into signed packages or installed resources. PR3 macOS creates session plugin files with mode 0700 using Core plugin_files_path and descriptor-relative no-follow traversal. Files belong to that log session and expire under the existing retention plan; they are not build/download inputs, and no version, platform, architecture or toolchain combination makes them reusable."
     },
     {
-      "id": "mcp-registry-metadata",
-      "reusable": false,
-      "locations": [
-        "<process-memory>/MCPRegistry/search-results",
-        "rust/lithe-core/src/mcp/featured.json",
-        "macos/Sources/Lithe/Resources/McpIcons"
-      ],
-      "identity": "Fetched public directory responses are bounded to 1 MiB, normalized by Rust Core and owned by one cancellable search; there is no persistent cache or build identity stamp. The separate featured.json catalog is Git-owned compile-time source, not a reusable generated or downloaded resource. Bundled McpIcons are Git source assets with reviewed source URLs and SHA-256 in NOTICE.json, not generated cache entries; they have no reusable version/platform/architecture/toolchain stamp.",
-      "reason": "The macOS ephemeral URLSessions keep fetched directory metadata in memory only. Never copy, bundle or share fetched search responses between worktrees; query, pagination and the explicitly selected system/direct route belong to the current page. The static rust/lithe-core/src/mcp/featured.json catalog follows the source checkout and is compiled read-only into Core; never copy it from a runtime cache. McpIcons are copied from the same checkout only during SwiftPM packaging, read-only at runtime, and never extracted from another worktree or installed app. No server packages or images are downloaded at runtime, and no runtime writes touch the installed bundle or Sparkle delta baseline."
-    },
-    {
       "id": "agent-instruction-library-state",
       "reusable": false,
       "locations": [
@@ -588,7 +577,7 @@
       "locations": [
         "shared/logging/",
         "macos/Sources/LitheModuleAPI/Logging/LogEvents.generated.swift",
-        "rust/crates/core/src/diagnostics/catalog_generated.rs"
+        "rust/crates/diagnostics/src/catalog_generated.rs"
       ],
       "identity": "Git-owned event catalog and checked-in generated source bytes from the current revision. No sealed version/platform/architecture/toolchain reuse identity stamp.",
       "reason": "Generate and check with scripts/logging/generate-log-events.mjs in each target worktree before compilation. Every validation and copy stage rejects cross-worktree reuse. No download or cache; compiled metadata and Swift event values perform no runtime I/O and never change code signatures or Sparkle delta baselines."

@@ -36,7 +36,7 @@
       "evidence": [
         "shared/contracts/plugins/v1/README.md",
         "shared/contracts/plugins/v1/fixtures/run/output-link-matchers.json",
-        "rust/crates/core/src/plugins/output_links.rs",
+        "rust/crates/plugin-output-links/src/lib.rs",
         "rust/crates/core/src/tests/plugin_run_debug.rs",
         "macos/Sources/Lithe/Core/Ports/PluginRunDecoding.swift",
         "macos/Sources/Lithe/Core/Rust/RustPluginRunOperations.swift",

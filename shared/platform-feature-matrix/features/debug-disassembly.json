@@ -35,9 +35,9 @@
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
       "evidence": [
-        "rust/crates/core/src/debug/types.rs",
-        "rust/crates/core/src/debug/capabilities.rs",
-        "rust/crates/core/src/debug/engine.rs",
+        "rust/crates/debug/src/types.rs",
+        "rust/crates/debug/src/capabilities.rs",
+        "rust/crates/debug/src/engine/inspection.rs",
         "rust/crates/core/src/protocol/command.rs",
         "rust/crates/core/src/runtime/dispatcher.rs",
         "macos/Sources/LitheCoreContracts/Debug/DebugAdapterContracts.swift",
@@ -56,7 +56,7 @@
         "macos/Tests/LitheTests/DebugJSONSyntaxTests.swift",
         "shared/fixtures/debug/projection-v2-examples.json",
         "macos/Tests/LitheTests/DebugDisassemblyLayoutTests.swift",
-        "rust/crates/core/src/debug/disassembly_paging.rs",
+        "rust/crates/debug/src/disassembly_paging.rs",
         "macos/Sources/LitheCoreContracts/Debug/DebugPagingContracts.swift",
         "macos/Sources/Lithe/Core/Rust/RustRunDebugReducers.swift",
         "macos/Tests/LitheDebugModuleTests/LinkedCoreDebugPaging.swift",
@@ -67,9 +67,9 @@
     },
     "windows": {
       "evidence": [
-        "rust/crates/core/src/debug/engine.rs",
-        "rust/crates/core/src/debug/capabilities.rs",
-        "rust/crates/core/src/debug/disassembly_paging.rs",
+        "rust/crates/debug/src/engine/inspection.rs",
+        "rust/crates/debug/src/capabilities.rs",
+        "rust/crates/debug/src/disassembly_paging.rs",
         "shared/fixtures/debug/disassembly-paging-v1.json"
       ],
       "implementationStatus": "missing",

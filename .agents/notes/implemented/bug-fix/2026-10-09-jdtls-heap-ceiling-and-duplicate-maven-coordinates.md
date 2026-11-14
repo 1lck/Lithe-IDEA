@@ -50,7 +50,7 @@ Lithe 在两条启动路径上都用 `-Xmx1024m` 启动内置 Java 语言服务 
    `java_start_keeps_the_heap_above_the_jdtls_constrained_memory_threshold`，从两条
    启动路径的实际参数里取出 `-Xmx`，断言它严格大于 1536 MiB，防止以后为了省内存把
    上限调回会触发分批导入的区间。
-4. 两端共用同一个引擎（`rust/crates/core/src/lsp/interface/engine.rs` 的
+4. 两端共用同一个引擎（`rust/crates/lsp-engine/src/lib.rs` 的
    `start_server`），macOS 和 Windows 同时生效，平台代码不需要改。
 
 5. （2026-10-29 补充）堆上限抬到 2 GB 之后，JVM 默认的 G1 会长期持有接近上限的堆，

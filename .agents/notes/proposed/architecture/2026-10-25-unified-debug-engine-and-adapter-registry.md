@@ -18,10 +18,10 @@
 
 | 现状 | 位置 | 带来的问题 |
 | --- | --- | --- |
-| Rust Core `debug.*` 内核：DAP 分帧、请求序列、断点、变量分页、取消、`runInTerminal`、Java 热替换 | `rust/crates/core/src/debug/` | Windows 的全部调试和 macOS 的 Java 走这里 |
+| Rust Core `debug.*` 内核：DAP 分帧、请求序列、断点、变量分页、取消、`runInTerminal`、Java 热替换 | `rust/crates/debug/src/` | Windows 的全部调试和 macOS 的 Java 走这里 |
 | Swift `DebugAdapterProtocolSession`：通用 stdio、Go、Node（含子会话） | `macos/Sources/LitheDebugModule/Runtime/` | 同一个功能要在 Swift 和 Rust 各写一遍，两边行为容易分叉 |
 | 按语言装配的工厂 | `MacServiceContainer.swift`（内置 Python、Rust stdio 调试器和 `DebugAdapterRuntimeFactory` 已移除，只保留 Java，其余由语言插件提供） | 每接一种调试器都要改组合根（Composition Root，负责组装依赖的地方） |
-| 以源码为中心的投影 | `rust/crates/core/src/debug/types.rs`：`DebugStackFrame.line/column` 是必填 `i64`，`DebugScope` 没有 `presentationHint`；initialize 固定声明 `supportsMemoryReferences: false` | 无源码栈帧、寄存器、内存都没有地方表达；以后再放宽必填字段，就是 Rust、Swift、TypeScript 三端同时的破坏性变更 |
+| 以源码为中心的投影 | `rust/crates/debug/src/types.rs`：`DebugStackFrame.line/column` 是必填 `i64`，`DebugScope` 没有 `presentationHint`；initialize 固定声明 `supportsMemoryReferences: false` | 无源码栈帧、寄存器、内存都没有地方表达；以后再放宽必填字段，就是 Rust、Swift、TypeScript 三端同时的破坏性变更 |
 
 ### 为什么重写，而不是继续扩展
 
@@ -49,7 +49,7 @@
 
 ### 2. 会话模型 v2：第一版就为扩展留位置
 
-会话投影版本 2 已在 Rust Core 落地，类型与校验见 `projection_v2.rs`（已随 #1794 移除），共享回归样例见 [`projection-v2-examples.json`](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/debug/projection-v2-examples.json)。实现与共享 fixture 是当前真源，不再维护独立的评审 schema。与 v1 相比：
+会话投影版本 2 已在 Rust Core 落地，类型与校验见 `rust/crates/debug/src/projection_v2.rs`，共享回归样例见 [`projection-v2-examples.json`](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/debug/projection-v2-examples.json)。实现与共享 fixture 是当前真源，不再维护独立的评审 schema。与 v1 相比：
 
 | 预留 | 规则 | 为什么第一版就要定 |
 | --- | --- | --- |

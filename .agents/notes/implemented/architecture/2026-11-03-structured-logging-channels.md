@@ -76,7 +76,7 @@ Core 轨迹的失败固定为 WARN，因为 Core 不知道宿主会重试、降�
 
 ### Core 事件队列、DEBUG 门与排空
 
-现有的请求事件流只覆盖单个请求，覆盖不到执行轨迹、析构、后台清理和辅助 crate 的失败。因此 Core 有一个独立的有界交接队列 `diagnostics::core_events`（交给宿主写入的内存队列）：
+现有的请求事件流只覆盖单个请求，覆盖不到执行轨迹、析构、后台清理和辅助 crate 的失败。因此 Core 有一个独立的有界交接队列 `lithe_diagnostics::core_events`（交给宿主写入的内存队列）：
 
 - 只接纳 owner 为 `lithe-core` 的目录事实，入队前完成规范化和脱敏，最多 256 条。
 - 队列满时，新事实只计入丢弃数。同一批次里事件、通道、字段和 op 都相同的事实只保留一条。
@@ -186,9 +186,9 @@ Core 只接纳协商成功、字段符合封闭契约的事实，每个进程会
 
 ### 辅助 crate 经注入的函数指针进入 Core 队列
 
-agent-host、git-host、ide-host 和 lithe-remote 的客户端链接进 Core。Core 依赖它们，它们不能反过来依赖 `core_events`，否则形成循环依赖。因此每个辅助 crate 只带一个 `failure_log` 模块：公开本 crate 用到的事件 ID 列表和一个安装函数，内部只保存一个先装先得的函数指针，调用点只交出事件 ID 和标量字段。Core 的 `diagnostics::helper_failures::install()` 用一次性初始化把四个指针都指向同一个转换函数，转换函数把字段交给 `core_events::record`，失败时计入丢弃。这些事件在共享目录里以 `lithe-core` 为 owner 声明，校验、脱敏和通道推导与 Core 自己的事件完全相同。
+git-host、ide-host 和 lithe-remote 的客户端链接进 Core。Core 依赖它们，它们不能反过来依赖 `core_events`，否则形成循环依赖。因此每个辅助 crate 只带一个 `failure_log` 模块：公开本 crate 用到的事件 ID 列表和一个安装函数，内部只保存一个先装先得的函数指针，调用点只交出事件 ID 和标量字段。Core 的 `runtime::helper_failures::install()` 用一次性初始化把三个指针都指向同一个转换函数，转换函数把字段交给 `core_events::record`，失败时计入丢弃。这些事件在共享目录里以 `lithe-core` 为 owner 声明，校验、脱敏和通道推导与 Core 自己的事件完全相同。
 
-安装点是所有会进入辅助 crate 的 Core 入口：请求分发、Agent 打开的 FFI、IDE 请求分发器挂接和 Git askpass 的独立入口。新增这类入口时必须同时调用 `install()`。未安装时辅助 crate 只累加未注入计数，不回退到 stderr：askpass 等入口的标准输出和错误输出本身是协议或用户可见输出，回退会污染它们，也会重新引入门禁禁止的直接打印。
+安装点是所有会进入辅助 crate 的 Core 入口：请求分发、IDE 请求分发器挂接和 Git askpass 的独立入口。新增这类入口时必须同时调用 `install()`。未安装时辅助 crate 只累加未注入计数，不回退到 stderr：askpass 等入口的标准输出和错误输出本身是协议或用户可见输出，回退会污染它们，也会重新引入门禁禁止的直接打印。
 
 收尾失败按错误类别区分。对端已断开、进程已退出、连接已关闭这类“对象已经不在”的情况属于预期的缺失，不记录。权限不足、超时后进程仍在运行、清理目录失败（目录不存在除外）等真正留下残留的情况记录 WARN。端口转发的接受和连接失败可能逐连接发生，`client/forward.rs` 在发送侧让每一族失败在进程内每 5 秒最多记录一条，与目录的 rate=12 一致。处理凭据的 askpass 写回失败只记录阶段和错误类别，写入后把凭据字节清零，测试证明凭据不出现在事件字段里。
 

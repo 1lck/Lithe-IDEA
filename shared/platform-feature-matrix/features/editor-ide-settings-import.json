@@ -35,7 +35,7 @@
         "macos/Tests/LitheTests/EditorSettingsImportTests.swift",
         "macos/Sources/Lithe/Platform/MacOS/Plugins/MacEditorKeymapImportService.swift",
         "shared/contracts/plugins/v1/fixtures/keymap-import/keymap-import-provider.plugin.json",
-        "rust/crates/core/src/plugins/keymap_import.rs",
+        "rust/crates/plugin-keymap-import/src/lib.rs",
         "frontend/editor/src/workbench.ts",
         "macos/Sources/Lithe/Models/Settings/ImportedEditorTheme.swift",
         "macos/Sources/Lithe/Platform/MacOS/MacImportedIDEATheme.swift",

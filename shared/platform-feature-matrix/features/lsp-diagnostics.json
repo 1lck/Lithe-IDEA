@@ -55,7 +55,7 @@
       "evidence": [
         "macos/Sources/Lithe/Core/Language",
         "macos/Sources/Lithe/Services/Diagnostics",
-        "rust/crates/core/src/lsp/interface/engine.rs"
+        "rust/crates/lsp-engine/src/server_messages.rs"
       ],
       "implementationStatus": "implemented",
       "verificationStatus": "pending"
@@ -64,7 +64,7 @@
       "evidence": [
         "windows/tauri/src/features/diagnostics",
         "shared/fixtures/lsp",
-        "rust/crates/core/src/lsp/interface/engine.rs",
+        "rust/crates/lsp-engine/src/server_messages.rs",
         "windows/tauri/src/features/editor/lsp/lsp-client-diagnostics-batch.test.ts",
         "windows/tauri/src/features/editor/lsp/lsp-client-code-actions.test.ts",
         "windows/tauri/src/core/lsp-diagnostic.ts",
