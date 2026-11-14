@@ -29,18 +29,20 @@ const (
 
 	// rowHeight is the height of a row of the sidebar.
 	rowHeight = 24
-	// chevronSlot is the room a group's chevron takes in front of a row, which the rows that
-	// are not groups keep empty so every tile lines up.
+	// chevronSlot is the room a group's chevron takes in front of a row, which is the column
+	// Viva's Tree gives its own chevrons; the rows that are not groups keep it empty so every
+	// tile lines up.
 	chevronSlot  = 24
 	chevronGlyph = 12
 	// tileSize is the rounded square in front of a top-level row, tileGlyph the white glyph
-	// in it.
+	// in it, and tileGap the space between the tile and the title.
 	tileSize   = 20
 	tileRadius = 4
 	tileGlyph  = 12
+	tileGap    = 8
 	// childIndent is what a row inside a group is indented by, so its title lines up with
 	// the title of the group.
-	childIndent = chevronSlot + tileSize + 8
+	childIndent = chevronSlot + tileSize + tileGap
 
 	// contentPad is the margin of the page at its sides.
 	contentPad = 26
