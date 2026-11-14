@@ -22,6 +22,11 @@ import (
 // the editor scrolls, each without echoing the other's move. Links come back to the host, which
 // follows them as Core resolves them (followMarkdownLink), and the page's images are served as
 // Core resolves them. The source is rendered again after each change, one rendering at a time.
+//
+// The page draws its contents itself, as an outline of its headings at its top right. The
+// Contents button in the tab strip tells the page to show or hide it; the page tells the host
+// when the user closed it there, and leads the source to a heading chosen in it as it does when
+// the user scrolls it.
 
 // markdownRenderTimeout bounds Core's rendering of one revision.
 const markdownRenderTimeout = 10 * time.Second
@@ -56,6 +61,10 @@ type (
 	markdownPageScroll struct {
 		Type string  `json:"type"`
 		Line float64 `json:"line"`
+	}
+	markdownPageOutline struct {
+		Type string `json:"type"`
+		Open bool   `json:"open"`
 	}
 )
 
@@ -185,6 +194,7 @@ func (a *App) markdownWebMessage(p *project, d *document, s *markdownPreviewStat
 			_, s.editorScroll = d.view.ScrollOffset()
 		}
 		w.entry.view.Send(markdownPageScroll{Type: "scroll", Line: w.line})
+		w.entry.view.Send(markdownPageOutline{Type: "outline", Open: s.contentsOpen})
 	case "rendered":
 		s.headings = s.headings[:0]
 		for _, heading := range message.Headings {
@@ -195,6 +205,9 @@ func (a *App) markdownWebMessage(p *project, d *document, s *markdownPreviewStat
 		s.leadEditor(d)
 	case "link":
 		a.followMarkdownLink(p, d, s, message.Href)
+	case "outline":
+		// The page shows or hides the outline itself; it is not told again.
+		s.contentsOpen = message.Open
 	}
 	a.invalidator.Invalidate()
 }
@@ -210,6 +223,7 @@ func (a *App) markdownWebSetup(w *markdownWeb) {
 		"mermaidFailed": i18n.Shared(language, "desktop.markdown.mermaidFailed"),
 		"markmap":       i18n.Shared(language, "desktop.markdown.markmap"),
 		"markmapFailed": i18n.Shared(language, "desktop.markdown.markmapFailed"),
+		"outline":       i18n.Shared(language, "desktop.markdown.contents"),
 	}})
 }
 

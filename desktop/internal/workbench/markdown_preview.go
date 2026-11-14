@@ -40,6 +40,10 @@ const (
 	// markdownContentsMax is the most the heading list grows to before it scrolls.
 	markdownContentsMax   = 400
 	markdownContentsWidth = 280
+	// markdownContentsInset is the space at each end of a row of the heading list, and
+	// markdownContentsIndent how much further in each deeper level starts.
+	markdownContentsInset  = 8
+	markdownContentsIndent = 12
 )
 
 // pageMode is how the tab of a file with a page shows it, a Markdown file or an SVG file
@@ -308,8 +312,12 @@ func (a *App) markdownPage(c ui.C, p *project, d *document) {
 }
 
 // markdownContentsButton declares, in the tab strip before the mode switch, the Contents button
-// of d's page and, while it is open, the list of headings under it. It is not shown with the
-// source alone or while the page has no headings.
+// of d's page, which looks pressed while the contents are shown. It is not shown with the source
+// alone or while the page has no headings.
+//
+// A web page draws its contents itself, as an outline over its top right that stays while the
+// user goes from heading to heading (markdown.js); the button turns it on and off. The page Viva
+// draws shows them as a list under the button, which closes once a heading is chosen.
 func (a *App) markdownContentsButton(c ui.C, p *project, d *document) {
 	if d.pageMode == pageSource {
 		return
@@ -320,22 +328,46 @@ func (a *App) markdownContentsButton(c ui.C, p *project, d *document) {
 		s.sync(d)
 	}
 	if s.too || len(s.headings) == 0 {
-		s.contentsOpen = false
+		s.showContents(false)
 		return
 	}
 	title := i18n.Shared(a.language(), "desktop.markdown.contents")
-	jump := -1
-	button := ui.Button(c.Part("contents"), title).Icon(icons.ListTree).IconOnly().Ghost().
-		Size(shellHideSize, shellHideSize).Shrink(0).Tooltip(title)
+	on := s.contentsOpen
+	k := c.Part("contents")
+	button := ui.Row(k).Size(shellHideSize, shellHideSize).Shrink(0).Center().Radius(a.theme.Metrics.RadiusItem()).
+		HitWith(ui.ID(k), title, gfx.HitOptions{Role: gfx.RoleButton, Expandable: true, Expanded: on, Cursor: gfx.PointerCursorHand}).
+		Pressed(ui.Look{}.Background(a.colors.Active))
+	icon := a.colors.Subtle
+	if on {
+		button = button.Background(a.colors.Active)
+		icon = a.colors.Text
+	} else {
+		button = button.Hover(ui.Look{}.Background(a.colors.Hover))
+	}
+	button.Tooltip(title).Children(func() {
+		ui.Icon(k, icons.ListTree).Size(shellIconSize, shellIconSize).Color(icon).
+			StateFrom(button).Hover(ui.Look{}.Color(a.colors.Text))
+	})
 	if button.Clicked() {
-		s.contentsOpen = !s.contentsOpen
+		s.showContents(!on)
+	}
+	if s.web != nil {
+		return
+	}
+	jump := -1
+	// Each heading is indented by how much deeper it is than the shallowest heading, so a page
+	// whose headings start at the second level is not indented throughout.
+	top := s.headings[0].level
+	for _, h := range s.headings {
+		top = min(top, h.level)
 	}
 	spec := ui.PopoverSpec{Align: ui.End, Width: markdownContentsWidth, ConsumeOutsidePress: true, Title: title}
 	ui.PopoverWith(c, button, spec, &s.contentsOpen, func() {
 		height := min(float32(len(s.headings))*markdownContentsRow, markdownContentsMax)
 		ui.List(c, &s.contents, len(s.headings), func(row ui.ListRow) {
 			h := s.headings[row.Index]
-			row.Element.FillWidth().Height(markdownContentsRow).PadSides(8+float32(max(h.level-1, 0))*12, 0, 8, 0).Items(ui.Center).
+			indent := markdownContentsInset + float32(h.level-top)*markdownContentsIndent
+			row.Element.FillWidth().Height(markdownContentsRow).PadSides(0, markdownContentsInset, 0, indent).Items(ui.Center).
 				Radius(a.theme.Metrics.RadiusItem()).Hover(ui.Look{}.Background(a.colors.Hover)).Children(func() {
 				ui.Text(row.C, h.text).FontSize(12.5).Color(a.colors.Text).Ellipsis().Shrink(1)
 			})
@@ -350,6 +382,17 @@ func (a *App) markdownContentsButton(c ui.C, p *project, d *document) {
 	if jump >= 0 && jump < len(s.headings) {
 		s.contentsOpen = false
 		s.jump(d, jump)
+	}
+}
+
+// showContents shows or hides the page's contents, telling a web page, which draws them.
+func (s *markdownPreviewState) showContents(open bool) {
+	if s.contentsOpen == open {
+		return
+	}
+	s.contentsOpen = open
+	if w := s.web; w != nil {
+		w.entry.view.Send(markdownPageOutline{Type: "outline", Open: open})
 	}
 }
 

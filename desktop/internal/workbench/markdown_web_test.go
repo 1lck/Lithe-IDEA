@@ -85,10 +85,10 @@ func longMarkdownHeadings() []webpreview.Heading {
 }
 
 // TestMarkdownWebPageRendersCoreHTMLAndScrollsWithTheSource: a Markdown file's page is a web page
-// given Core's HTML once it loads, with the line at the editor's top; the Contents list jumps to a
-// heading the page reported, the source and the page lead each other without either echoing the
-// other, an edit is rendered again, and the page coming back after the source was shown alone
-// takes up the source's line.
+// given Core's HTML once it loads, with the line at the editor's top; the Contents button turns
+// the page's own outline on and off, a heading chosen there leads the source, the source and the
+// page lead each other without either echoing the other, an edit is rendered again, and the page
+// coming back after the source was shown alone takes up the source's line.
 func TestMarkdownWebPageRendersCoreHTMLAndScrollsWithTheSource(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	pages := fakePreviews(h)
@@ -117,26 +117,39 @@ func TestMarkdownWebPageRendersCoreHTMLAndScrollsWithTheSource(t *testing.T) {
 		t.Fatalf("the loaded page was scrolled %+v, want to line 1", scrolls)
 	}
 
+	if outlines := sentOf[markdownPageOutline](page); len(outlines) != 1 || outlines[0].Open {
+		t.Fatalf("the loaded page was told its outline is %+v, want closed", outlines)
+	}
+
+	// The page draws its contents itself: the button turns its outline on, and the host draws no
+	// list of its own.
 	page.config.OnMessage(webpreview.Message{Type: "rendered", Revision: d.view.Revision(), Headings: longMarkdownHeadings()})
 	h.settle()
 	h.click(center(h.hitLabeled(i18n.Shared(h.app.language(), "desktop.markdown.contents"))))
-	var entry gfx.Rect
+	h.settle()
+	if outlines := sentOf[markdownPageOutline](page); !s.contentsOpen || len(outlines) != 2 || !outlines[1].Open {
+		t.Fatalf("Contents told the page %+v, want its outline shown", outlines)
+	}
 	for _, label := range h.driver.Snapshot().Labels {
-		if label.Value == "Part 12" && label.FontSize == 12.5 {
-			entry = label.Bounds
+		if label.Value == "Part 12" {
+			t.Fatalf("the host drew the headings over the web page at %v", label.Bounds)
 		}
 	}
-	if !s.contentsOpen || entry.Width == 0 {
-		t.Fatalf("Contents does not list the page's headings: %v", h.driver.Snapshot().Labels)
-	}
-	h.click(center(entry))
+	// Part 12 chosen in the outline, the page scrolls itself there and leads the source.
+	page.config.OnMessage(webpreview.Message{Type: "scrolled", Line: 56})
 	h.settle()
-	scrolls := sentOf[markdownPageScroll](page)
-	if s.contentsOpen || len(scrolls) != 2 || scrolls[1].Line != 56 {
-		t.Fatalf("choosing Part 12 scrolled the page %+v, want once more to line 56", scrolls)
-	}
 	if line := editorTopLine(d); line != 55 {
 		t.Fatalf("the source's top line is %d, want the heading's line 55", line)
+	}
+	if scrolls := sentOf[markdownPageScroll](page); len(scrolls) != 1 {
+		t.Fatalf("the page was scrolled back after a heading was chosen in it: %+v", scrolls)
+	}
+	// Closed in the page, the outline is not shown when the button is drawn again, and the page
+	// is not told what it did itself.
+	page.config.OnMessage(webpreview.Message{Type: "outline", Open: false})
+	h.settle()
+	if outlines := sentOf[markdownPageOutline](page); s.contentsOpen || len(outlines) != 2 {
+		t.Fatalf("the page closed its outline, the host has it open %v and told the page %+v", s.contentsOpen, outlines)
 	}
 
 	source := editorRect(h, d)
@@ -145,8 +158,8 @@ func TestMarkdownWebPageRendersCoreHTMLAndScrollsWithTheSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.settle()
-	scrolls = sentOf[markdownPageScroll](page)
-	if editorTopLine(d) != 95 || len(scrolls) != 3 || math.Abs(scrolls[2].Line-96) > 0.01 {
+	scrolls := sentOf[markdownPageScroll](page)
+	if editorTopLine(d) != 95 || len(scrolls) != 2 || math.Abs(scrolls[1].Line-96) > 0.01 {
 		t.Fatalf("the source at line %d scrolled the page %+v, want to line 96", editorTopLine(d), scrolls)
 	}
 
@@ -156,7 +169,7 @@ func TestMarkdownWebPageRendersCoreHTMLAndScrollsWithTheSource(t *testing.T) {
 	if line := editorTopLine(d); line != 45 {
 		t.Fatalf("the source's top line is %d after the page scrolled, want 45", line)
 	}
-	if got := len(sentOf[markdownPageScroll](page)); got != 3 {
+	if got := len(sentOf[markdownPageScroll](page)); got != 2 {
 		t.Fatalf("the page was scrolled back after it led the source: %d scrolls", got)
 	}
 
