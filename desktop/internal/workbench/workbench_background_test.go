@@ -208,6 +208,26 @@ func TestChosenBackgroundIsCopiedAndPaintedBehindTheOpenProject(t *testing.T) {
 	}
 }
 
+// A page is clear over the background image, but what floats over the page's own text, such
+// as the Markdown preview's outline in a narrow pane, is drawn on the opaque ground.
+func TestPagePopupColorStaysOpaqueOverTheBackground(t *testing.T) {
+	h := newBackgroundHarness(t, t.TempDir())
+	path, _ := writeBackgroundPNG(t, t.TempDir(), "sunset.png", 400, 200)
+	h.chooseBackground(path)
+	h.open(t.TempDir())
+	if !h.app.backdropShown() {
+		t.Fatal("the open project does not show the background image")
+	}
+	variables := h.app.pluginPageTheme().Variables
+	if surface := variables["--lithe-surface"]; surface != "rgba(0, 0, 0, 0)" {
+		t.Fatalf("page surface over the background = %q, want clear", surface)
+	}
+	ground := h.app.colors.Ground
+	if popup := variables["--lithe-popup-background"]; ground.Alpha < 1 || popup != cssColor(ground) {
+		t.Fatalf("popup color over the background = %q, want the opaque ground %q", popup, cssColor(ground))
+	}
+}
+
 func TestBackgroundIsRestoredAfterRestartAndRemovedWithItsCopy(t *testing.T) {
 	dir := t.TempDir()
 	first := newBackgroundHarness(t, dir)

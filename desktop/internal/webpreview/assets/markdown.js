@@ -540,10 +540,17 @@
   }
 
   // showOutline shows the outline while it is open and the page has headings, its rows laid out
-  // again. Opened, it scrolls to the section.
+  // again. Opened, it scrolls to the section. Shown or hidden, the text narrows or widens where
+  // the page is wide (markdown.css) and the line at the top stays there.
   function showOutline() {
     const hidden = !outlineOpen || entries.length === 0;
     const opening = outline.hidden && !hidden;
+    if (document.body.classList.contains('outline-open') === hidden) {
+      if (points && expectedY === null) topLine = lineOfY(window.scrollY + margin);
+      document.body.classList.toggle('outline-open', !hidden);
+      points = null;
+      placeLine(topLine);
+    }
     outline.hidden = hidden;
     layoutOutline();
     if (opening) reveal(sectionRow());
