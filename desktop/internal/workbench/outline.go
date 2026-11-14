@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"context"
 	"hash/fnv"
 	"sort"
 	"strconv"
@@ -23,6 +24,9 @@ import (
 // or lacks document symbols is read from the session state on every frame and shown as a final
 // state; none of those states asks for frames, because each way out of them (a server's state
 // event, the end of its start, the end of the document's synchronization) wakes the window.
+//
+// A Markdown file needs no server: Core outlines its headings in the dialect the preview renders,
+// so the window lists the headings the preview's outline lists, whatever plugins are installed.
 
 const (
 	// outlineDelay is how long after the last request the next one waits, so typing in a
@@ -47,7 +51,21 @@ const (
 	outlineServerDown
 	// outlineUnsupported is a server that does not offer document symbols.
 	outlineUnsupported
+	// outlineMarkdown is a Markdown file: ask Core for the outline of its headings.
+	outlineMarkdown
 )
+
+// markdownOutlineKernel is what the Structure window asks Core for a Markdown file: its headings
+// as a symbol tree.
+type markdownOutlineKernel interface {
+	MarkdownOutline(ctx context.Context, source string) ([]core.DocumentSymbol, error)
+}
+
+// outlineMarkdownRequest is one request for a Markdown file's headings; the state holds the one
+// under way, so an answer to any other is stale.
+type outlineMarkdownRequest struct {
+	revision int
+}
 
 // outlineRow is one visible row of the tree.
 type outlineRow struct {
@@ -70,8 +88,12 @@ type outlineState struct {
 	requested, revision int
 	requestedAt         time.Time
 	pending             *semanticPending
-	// loaded says symbols holds an answer; failed says the last request failed.
-	loaded, failed bool
+	// outlining is the request for a Markdown file's headings under way, nil for none.
+	outlining *outlineMarkdownRequest
+	// loaded says symbols holds an answer; failed says the last request failed; tooLarge says
+	// the Markdown file is over markdownPreviewMaxBytes and is not outlined, as it is not
+	// previewed.
+	loaded, failed, tooLarge bool
 	// availability is what the last sync found about the file's server.
 	availability outlineAvailability
 	symbols      []core.DocumentSymbol
@@ -113,8 +135,12 @@ func (a *App) outlineReset(p *project, documentID int) {
 	}
 }
 
-// outlineAvailabilityOf classifies the server of the selected document.
+// outlineAvailabilityOf classifies the server of the selected document. A Markdown file is
+// Core's to outline.
 func (a *App) outlineAvailabilityOf(d *document) outlineAvailability {
+	if _, ok := a.kernel.(markdownOutlineKernel); ok && isMarkdownDocument(d) {
+		return outlineMarkdown
+	}
 	if a.plugins == nil || d.virtual || d.languageID == "" {
 		return outlineNoServer
 	}
@@ -152,6 +178,9 @@ func (a *App) outlineSync(p *project, d *document, now time.Time) (retryIn time.
 		s.pending = nil
 	}
 	s.availability = a.outlineAvailabilityOf(d)
+	if s.availability == outlineMarkdown {
+		return a.outlineMarkdownSync(p, d, revision, now)
+	}
 	if s.pending != nil || s.requested == revision || s.availability != outlineAsk {
 		return 0
 	}
@@ -165,6 +194,52 @@ func (a *App) outlineSync(p *project, d *document, now time.Time) (retryIn time.
 	s.requested, s.requestedAt, s.failed = revision, now, false
 	s.pending = a.submitEditorRequest(pluginSemanticDocumentSymbols, p, d, server, core.PluginSemanticRequest{})
 	return 0
+}
+
+// outlineMarkdownSync asks Core for the headings of a Markdown document when its text changed
+// since the last request and no request is under way, spaced like a server's requests. A file
+// over markdownPreviewMaxBytes is not sent.
+func (a *App) outlineMarkdownSync(p *project, d *document, revision int, now time.Time) (retryIn time.Duration) {
+	s := &a.editor.outline
+	kernel, ok := a.kernel.(markdownOutlineKernel)
+	if !ok || s.outlining != nil || s.requested == revision {
+		return 0
+	}
+	if wait := s.requestedAt.Add(outlineDelay).Sub(now); wait > 0 {
+		return wait
+	}
+	s.requested, s.requestedAt, s.failed = revision, now, false
+	text := d.view.TextSnapshot()
+	if s.tooLarge = text.Len() > markdownPreviewMaxBytes; s.tooLarge {
+		s.symbols, s.loaded, s.total, s.rowsDirty = nil, false, 0, true
+		return 0
+	}
+	request := &outlineMarkdownRequest{revision: revision}
+	s.outlining = request
+	source := text.String()
+	a.background(p, markdownRenderTimeout, func(ctx context.Context) func(*App) {
+		symbols, err := kernel.MarkdownOutline(ctx, source)
+		return func(a *App) { a.applyMarkdownOutline(request, symbols, err) }
+	})
+	return 0
+}
+
+// applyMarkdownOutline takes Core's outline of a Markdown document. The answer to a request that
+// is no longer under way, because another document was selected since, is dropped.
+func (a *App) applyMarkdownOutline(request *outlineMarkdownRequest, symbols []core.DocumentSymbol, err error) {
+	s := &a.editor.outline
+	if s.outlining != request {
+		return
+	}
+	s.outlining = nil
+	if err != nil {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("markdown_outline", err))
+		s.failed = true
+		return
+	}
+	s.symbols, s.revision, s.loaded, s.failed = symbols, request.revision, true, false
+	s.total = countSymbols(symbols)
+	s.rowsDirty, s.follow = true, true
 }
 
 // retry asks again for the symbols of the same text after a request failed, at once: the

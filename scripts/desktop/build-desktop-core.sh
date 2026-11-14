@@ -28,7 +28,9 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
-# Lithe-core-rust #40, squash-merged into main: the update.delta.cleanup_failed event, which the
+# Lithe-core-rust #41 (branch feat/markdown-outline, not yet merged): markdown.outline outlines
+# the headings of Markdown source as a document-symbol tree for the Structure tool window. It is
+# on top of #40, squash-merged into main: the update.delta.cleanup_failed event, which the
 # desktop logs when it cannot remove the application a delta update rebuilt in the temporary
 # directory. It is on top of #39, squash-merged into main: plugins.installed.lifecycle keeps one
 # enabled plugin per language server language; installed versions carry languageServers, and
@@ -77,7 +79,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="c1df34b4d61f22390f674cfd0f963bf6090f496e"
+PINNED_CORE_REVISION="b0e19d5d03e6ff438c4476ceb2bbfb238e782bb3"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

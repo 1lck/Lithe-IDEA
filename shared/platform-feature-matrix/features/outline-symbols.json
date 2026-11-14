@@ -11,7 +11,11 @@
       "desktop/internal/core/plugin_symbols_test.go",
       "desktop/internal/workbench/outline.go",
       "desktop/internal/workbench/outline_view.go",
-      "desktop/internal/workbench/outline_test.go"
+      "desktop/internal/workbench/outline_test.go",
+      "desktop/internal/core/markdown.go",
+      "desktop/internal/core/markdown_test.go",
+      "desktop/internal/workbench/markdown_preview.go",
+      "desktop/internal/workbench/outline_markdown_test.go"
     ]
   },
   "windows": {
@@ -22,11 +26,15 @@
       "desktop/internal/core/plugin_symbols_test.go",
       "desktop/internal/workbench/outline.go",
       "desktop/internal/workbench/outline_view.go",
-      "desktop/internal/workbench/outline_test.go"
+      "desktop/internal/workbench/outline_test.go",
+      "desktop/internal/core/markdown.go",
+      "desktop/internal/core/markdown_test.go",
+      "desktop/internal/workbench/markdown_preview.go",
+      "desktop/internal/workbench/outline_markdown_test.go"
     ]
   },
   "owner": "Language Tooling",
-  "verification": "用测试内联的合成语言服务器插件服务的文件验证符号树、展开折叠、排序和跳转；确认 macOS 是否提供同等独立 Outline 入口。 无头回归覆盖：只请求一次并跟随光标、排序与折叠、筛选保留祖先和数量、选中项跟随符号、全部折叠/展开、无服务器/启动中/不支持/请求失败与重试的说明；运行 scripts/desktop/desktop-go.sh test ./internal/workbench -run 'TestOutline' -count=1。真实语言服务器与 Windows 实机仍待验收。",
+  "verification": "用测试内联的合成语言服务器插件服务的文件验证符号树、展开折叠、排序和跳转；确认 macOS 是否提供同等独立 Outline 入口。 无头回归覆盖：只请求一次并跟随光标、排序与折叠、筛选保留祖先和数量、选中项跟随符号、全部折叠/展开、无服务器/启动中/不支持/请求失败与重试的说明；Markdown 文件不依赖语言服务器，由 Core markdown.outline 提供标题大纲，回归覆盖标题层级、跟随光标、编辑后延迟刷新、没有标题、文件过大、失败重试、切换文件丢弃过期结果、仅预览模式点击标题滚动页面；运行 scripts/desktop/desktop-go.sh test ./internal/workbench -run 'TestOutline|TestMarkdownOutline' -count=1，以及 scripts/desktop/desktop-go.sh test ./internal/core -run TestMarkdownOutlineSharedFixture -count=1。真实语言服务器与 Windows 实机仍待验收。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -45,5 +53,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：Structure 工具窗口显示当前文件的 Core documentSymbols 符号树（层级形式与平铺形式统一为树），跟随光标选中最内层符号，点击或回车跳到符号名，可折叠与按名称排序；仅在窗口打开且文档与服务器同步后按文本变化节流请求。服务器未声明 documentSymbols 时说明无法提供。 2026-11-14：结构窗口按语言服务器状态说明为什么没有符号（没有服务器、启动中、已停止、不支持 documentSymbols、请求失败时可重试），工具栏可按名称筛选（保留匹配项的祖先并显示数量）、切换排序、全部折叠/展开，选中项跟随光标所在符号。"
+  "notes": "Viva：Structure 工具窗口显示当前文件的 Core documentSymbols 符号树（层级形式与平铺形式统一为树），跟随光标选中最内层符号，点击或回车跳到符号名，可折叠与按名称排序；仅在窗口打开且文档与服务器同步后按文本变化节流请求。服务器未声明 documentSymbols 时说明无法提供。 2026-11-14：结构窗口按语言服务器状态说明为什么没有符号（没有服务器、启动中、已停止、不支持 documentSymbols、请求失败时可重试），工具栏可按名称筛选（保留匹配项的祖先并显示数量）、切换排序、全部折叠/展开，选中项跟随光标所在符号。 2026-11-14：Markdown 文件的结构窗口不再提示“没有语言服务器”，改由 Core markdown.outline 按预览同一方言列出标题树（一级、二级标题等逐级嵌套，与预览浮动目录一致），点击标题跳到源码；仅预览模式下点击标题滚动预览页面；没有标题、文件超过预览大小上限、请求失败时分别说明，失败可重试。"
 }
