@@ -1,9 +1,9 @@
 <div align="center">
-  <img src="./macos/Resources/AppIcon.png" width="112" alt="Lithe app icon">
+  <img src="./desktop/assets/icon.png" width="112" alt="Lithe app icon">
 
   <h1>Lithe</h1>
 
-  <p><strong>A low-memory IntelliJ IDEA alternative for Java development and AI collaboration</strong></p>
+  <p><strong>A lightweight, general-purpose, cross-platform IDE, flexibly configured with plugins</strong></p>
 
   <p>
     <a href="./README.zh-CN.md"><strong>简体中文</strong></a> ·
@@ -59,7 +59,7 @@ Codex, Claude Code, and other AI coding tools can now handle much of the impleme
 
 ## Meet Lithe
 
-Lithe is a lightweight IntelliJ IDEA alternative built first for Java and Spring Boot developers. It keeps the core workflows for browsing, editing, navigation, search, Maven, run and debug, Git diff review, local history, and databases.
+Lithe is a lightweight, low-memory IntelliJ IDEA alternative. It keeps the core workflows for browsing, editing, navigation, search, Maven, run and debug, Git diff review, local history, and databases.
 
 The Lithe application typically uses about **300–400 MB of baseline memory** after opening a regular project. Language servers, terminals, build tools, and debuggers start on demand. Actual usage varies with the project and active services.
 

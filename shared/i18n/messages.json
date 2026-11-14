@@ -14482,7 +14482,7 @@
     },
     {
       "id": "desktop.settings.about.tagline",
-      "description": "Desktop settings About page: version facts, community and project links.",
+      "description": "Desktop settings About page: one-line product tagline under the app name: lightweight, general-purpose, cross-platform, configured through plugins.",
       "platforms": [
         "desktop"
       ]

@@ -1,9 +1,9 @@
 <div align="center">
-  <img src="./macos/Resources/AppIcon.png" width="112" alt="Lithe 应用图标">
+  <img src="./desktop/assets/icon.png" width="112" alt="Lithe 应用图标">
 
   <h1>Lithe</h1>
 
-  <p><strong>面向 Java 开发与 AI 协作的低内存占用 IntelliJ IDEA 替代品</strong></p>
+  <p><strong>轻量、通用、跨平台的插件化 IDE，按需灵活配置</strong></p>
 
   <p>
     <a href="./README.md"><strong>English</strong></a> ·
@@ -59,7 +59,7 @@ Codex、Claude Code 等 AI 编程工具已经可以承担大量编码工作，�
 
 ## Lithe 是什么
 
-Lithe 是一款主要面向 Java 和 Spring Boot 开发者的轻量级 IDEA 替代品，保留项目浏览、代码编辑与导航、搜索、Maven、运行调试、Git Diff、本地历史和数据库等核心工作流。
+Lithe 是一款低内存占用的轻量级 IntelliJ IDEA 替代品，保留项目浏览、代码编辑与导航、搜索、Maven、运行调试、Git Diff、本地历史和数据库等核心工作流。
 
 打开普通项目后，Lithe 应用本身的基础内存占用通常约为 **300～400 MB**。语言服务器、终端、构建工具和调试器均按需启动；实际占用会随项目和启用的服务变化。
 
