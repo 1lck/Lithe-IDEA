@@ -15,13 +15,11 @@ an installer; Windows installers come from preview and stable release workflows.
   (`arm64`) DMG only. Intel (`x86_64`) compilation, linking, and packaging are
   verified after merge by the universal package on `preview`; run **macOS CI**
   manually on a branch when an Intel build is needed before merge.
-- macOS pushes to `preview` and manual runs verify the default universal package,
-  then assemble a universal DMG with the real Java tools using the same compiled
-  outputs. The packaging smoke test's temporary Java fixtures are never uploaded.
+- macOS pushes to `preview` and manual runs verify the default universal package.
 - Windows preview and stable releases produce an NSIS `.exe` installer.
   Packaging performs the Release build and frontend type check once; there is
   no preceding `--no-bundle` build.
-- Each package includes a SHA-256 checksum and the bundled Java tools. macOS
+- Each package includes a SHA-256 checksum. macOS
   apps are ad-hoc signed; Windows release workflows use Authenticode when a
   certificate is configured.
 - Artifact links require GitHub sign-in and expire after 14 days. Downloading
@@ -47,7 +45,7 @@ for that caller.
 A new push to a pull request does not rerun every lane. In **macOS CI**,
 **Windows CI** (and the manually dispatched **macOS Plugin CI**), the classify job runs
 `scripts/ci/common/plan-ci-lane-reuse.mjs`, which decides per lane (Swift tests, Rust Core
-tests, packaging, plugin tests, Windows frontend, Windows Rust, real JDT):
+tests, packaging, plugin tests, Windows frontend, Windows Rust):
 
 - It finds the latest earlier run of the same pull request that actually ran
   the lane. If that job completed successfully, and none of the pull
@@ -90,17 +88,9 @@ Cancellation is not a passing validation: the replacement run still checks all
 selected lanes. An active run fails its gate when classification, a selected
 job, or a reused source fails; a cancelled reused source also fails the gate.
 
-The real-JDT lane runs on Windows and is selected by shared Java/JDT engine
-changes, bundled JDK/JDT resources, preparation scripts, and Windows Java
-consumers. Swift Java adapters and tests are covered by the Swift lane; a
-macOS path containing `Java` alone does not select Windows real-JDT. Shared Core
-and contract changes still select the relevant cross-platform checks.
-
 Windows Core tests run on two machines with stable name-based sharding; Windows
 host tests and shared Git/Agent/IDE host adapters run independently. The gate verifies that the Core reports contain
-the same discovered inventory and execute every case exactly once. Real-JDT
-runs only its native integration prefix, keeping its JDKs and deadlines. The
-ordinary Core suite is covered by the shards instead of repeated in that job.
+the same discovered inventory and execute every case exactly once.
 
 Plugin-focused Swift tests and official plugin package verification share the
 main Swift compilation, selected independently by `plugins`. Plugin-only changes
@@ -148,8 +138,8 @@ been retired. The reasons and the lessons for any future attempt are in
 
 **Rust Core tests** run only the Rust checks in
 `scripts/rust-core/verify-rust-core-crates.sh`. The Swift-linked checks (C ABI probe, Core
-symbols in the linked app, Git execution integration, and the Git console and
-Maven bridge tests) run in **Swift tests** through
+symbols in the linked app, Git execution integration, and the Git console
+bridge tests) run in **Swift tests** through
 `scripts/rust-core/verify-rust-core-swift-bridge.sh --skip-build`, reusing that job's test
 build. A Rust-only change therefore starts **Swift tests** to build and run the
 bridge checks, without the full Swift unit suites. Locally,
@@ -389,9 +379,9 @@ Viva 的 Core 源码检出、Cargo 目标目录和暂存静态库位于当前工
 `WINAPI_NO_BUNDLED_LIBRARIES=1`，直接链接已安装 MinGW 的系统导入库，并记录
 `winapi-import-libraries=mingw-system`。这避免 cgo 依赖 Cargo 私有路径中的
 `libwinapi_*` 归档；不增加下载、缓存目录或运行期资源。该身份尚不是可跨工作树复用的完整密封清单，故资源清单中的
-`viva-core-build-state` 明确拒绝复制；每个工作树独立构建和校验。Core 仓库恢复的 `scripts/rust-core/verify-rust-core-comments.sh` 先用固定词法器检查真实注释，再检查 Rustdoc；调用方应沿用本工作树的 `CARGO_TARGET_DIR`。独立 Core 检出未提供该变量时，输出只进入该检出的 `.artifacts/rust-core-checks/`（桌面默认检出内为 `.artifacts/desktop/lithe-core-rust/source/.artifacts/rust-core-checks/`）。词法器二进制、Cargo 状态与 Rustdoc 受 Core 修订、helper Cargo.lock、目标、编译器及环境约束，和已有 Core build state 一起排除，不注册复用 validator；只在构建/验证阶段生成，不进入安装包，不影响签名或增量更新。下方有关 Swift、Tauri、
-JDTLS 和旧工作流的描述记录迁移前流程，不能当作 Viva 的当前构建或复用能力。
-当前资源复用脚本的自包含回归覆盖路径、身份校验与禁止复制的状态；测试通过不证明本分支已删除的 PlantUML、远程服务、Swift/Tauri 客户端或旧 Windows 工作流仍可构建。preview 的 JDK 缓存历史问题见 [#1797](https://github.com/1lck/Lithe-IDEA/issues/1797)；这些旧产品流程必须单独迁移和验证，不能用资源脚本自测替代。
+`viva-core-build-state` 明确拒绝复制；每个工作树独立构建和校验。Core 仓库恢复的 `scripts/rust-core/verify-rust-core-comments.sh` 先用固定词法器检查真实注释，再检查 Rustdoc；调用方应沿用本工作树的 `CARGO_TARGET_DIR`。独立 Core 检出未提供该变量时，输出只进入该检出的 `.artifacts/rust-core-checks/`（桌面默认检出内为 `.artifacts/desktop/lithe-core-rust/source/.artifacts/rust-core-checks/`）。词法器二进制、Cargo 状态与 Rustdoc 受 Core 修订、helper Cargo.lock、目标、编译器及环境约束，和已有 Core build state 一起排除，不注册复用 validator；只在构建/验证阶段生成，不进入安装包，不影响签名或增量更新。下方有关 Swift、Tauri
+和旧工作流的描述记录迁移前流程，不能当作 Viva 的当前构建或复用能力。
+当前资源复用脚本的自包含回归覆盖路径、身份校验与禁止复制的状态；测试通过不证明本分支已删除的 PlantUML、远程服务、Swift/Tauri 客户端或旧 Windows 工作流仍可构建。这些旧产品流程必须单独迁移和验证，不能用资源脚本自测替代。
 
 Viva 的 IDE API 辅助程序 `lithe-mcp` 由 `scripts/desktop/build-desktop-core.sh` 在同一固定 Core 检出上以 `features=mcp` 编到暂存目录的 `bin/`。`package-desktop.sh` 在 `viva package` 前把它复制成 `desktop/internal/idehelp/lithe-mcp.bin`，以 `lithe_bundled_helper` 构建标签嵌入客户端二进制，打包结束或失败时删除该生成文件；文件被 Git 忽略并在资源清单 `desktop-embedded-ide-helper` 中拒绝跨工作树复用。运行期客户端把嵌入的字节原子安装到应用数据目录的 `ide-host/bin/` 再启动，安装包本身不增加可执行文件、不被写入，也不改变签名或 Sparkle 增量更新基线；开发运行由 `desktop-go.sh` 用暂存目录里的辅助程序通过 `LITHE_IDE_HELPER` 提供，不读取安装目录。
 
@@ -428,15 +418,6 @@ macOS Build 偏好编辑复用同一文档，只在明确 Save/Reset 后条件�
 也可重开。持续修改最多重试一次，关闭释放观察，不新增下载、持久缓存或可复用资源。
 
 
-独立 Java 插件的反编译补丁只在插件仓库构建时执行：原始 JDT/JDK 下载仍为只读、按锁校验的输入，
-`<java-plugin-worktree>/.artifacts/package/<arch>/<plugin-id>/` 与
-`.artifacts/windows-package-<pid>/` 是每次组装的输出；`<os-temp>/lithe-jdt-decompiler-*/`
-由单次编译拥有并在成功或失败时删除。补丁验证上游源码/JAR、修改源码、编译器版本/平台/归档哈希、
-生成 class 集合与各项哈希；这些不构成可复用 worktree identity，三类输出均经
-`official-plugin-packages` 拒绝路由，任何阶段都不复制或共享。修改后的 JDT core JAR
-移除已失效的 Eclipse JAR 签名，随包提供修改后的 EPL 源码和补丁清单；原生 JVM 签名不变。
-运行时只读取安装包，索引和配置继续走平台可写状态目录，不影响应用签名或 Sparkle delta。
-
 Windows 注册表 stdio 调试器状态位于
 `<windows-local-app-data>/<app-id>/plugin-state/<plugin-id>/debug-adapters/<adapter-id>/<workspace-digest>/`。
 由当前插件/适配器/工作区拥有；停止会话关闭进程，卸载插件清理其状态。语言服务器托管适配器
@@ -454,7 +435,7 @@ Windows Build 本机选项位于平台 app-data 的 `build-options/<canonical-wo
 
 CI 的 `Swatinem/rust-cache` 只复用 Cargo 依赖编译输出，按 OS、架构、rustc、
 Cargo 清单/锁文件、编译环境和 target 布局区分；Swift/plugin 共享一份 macOS Rust
-缓存，Windows Core 分片只有一个写者，host 另用一份，JDT 只读 Core 缓存。
+缓存，Windows Core 分片只有一个写者，host 另用一份。
 这是 GitHub CI 专用缓存，不是本地跨工作树复用的身份凭证。注册表
 `ci-rust-compilation-state` 明确禁止复制 `rust/target/`、`rust/target/macos/`
 与 `windows/tauri/src-tauri/target/`；复用脚本在任何复制前拒绝它们。
@@ -570,16 +551,8 @@ MCP 编辑器、工具面板和指令页的原生验收截图分别输出到
 不读取桌面或真实用户配置；按 `agent-ui-test-evidence` 排除于所有工作树资源复制阶段，
 本地随报告保留，CI 按 artifact retention 回收，不进入发行包。
 
-Cargo 社区插件在 [独立仓库](https://github.com/Lithe-IDEA/lithe-plugin-cargo) 中构建，
-最终 ZIP、摘要、vendored Node SDK 和集成测试产物由该仓库的 `dist/`、`.artifacts/` 持有，
-不作为 Lithe 主仓库的下载缓存或可复用资源。Cargo 专属清单、模型金样与兼容性测试也由
-插件仓库持有：其 CI 按 `sdk.lock.json` 固定的宿主提交检出独立的 `.artifacts/lithe-core`，
-用公开 JSON API 验证清单、安装审查、识别、解码与任务计划，并实际执行 Core 生成的 Cargo 命令。
-宿主依赖按其 Cargo.lock 下载，测试工程的 Cargo 命令使用离线模式；固定基线不代表持续验证未来 preview。
-`.artifacts/core-target` 是插件 checkout 私有可变编译状态，不进入主仓库资源复用清单，
-不跨 worktree 共享，也不进入发布 ZIP。主仓库保留通用插件契约回归，不下载或组装 Cargo 插件。
-插件仓库每次打包校验 `sdk.lock.json` 固定的 SDK 源码提交与文件 SHA-256，
-SDK 复制只发生在打包阶段，安装目录保持只读。
+插件仓库自己的构建输出、发布包、测试夹具和 CI 状态（例如插件仓库的 `dist/`、`.artifacts/`）
+归插件仓库所有，不登记到本仓库的资源复用清单，本仓库也不下载、组装或测试任何具体插件。
 官方插件 SDK 在 Core 仓库的 `shared/plugins/sdk/` 下维护和发布：
 SDK 的构建输出，以及对当前工作树的 Core 运行的端到端测试
 （`node shared/plugins/scripts/sdk-e2e.mjs`）都属于 Core 仓库，
@@ -597,7 +570,7 @@ macOS 的 Application Support 临时快照 `.lithe-dev-profile-import-<transacti
 开发版根内 `.stable-profile-import-v1.plist`，以及 Windows Local AppData 开发版根内
 `.stable-profile-import-v1` / `.stable-profile-import-v1-staging/` 都是用户运行状态，
 不进入资源复用清单的可复制项。Windows 只复制关闭后的 localStorage 数据库和
-原生设置/Maven JSON，必须在创建 WebView 之前完成；占用或复制失败不写成功标记，
+原生设置 JSON，必须在创建 WebView 之前完成；占用或复制失败不写成功标记，
 中断后重试。渠道、跳过版本、旧日志位置、浏览器缓存、索引和锁不迁移。
 系统凭据不批量导出，相关登录可能需要重新认证；之后两版各自写自己的存储。
 偏好、插件状态、恢复文件和日志由所属发行身份持有，临时文件与缓存可由系统清理；
@@ -661,8 +634,7 @@ node scripts/resources/reuse-worktree-resources.mjs --source /path/to/existing-w
 node scripts/resources/reuse-worktree-resources.mjs \
   --source /path/to/existing-worktree \
   --resource cargo \
-  --resource jdtls \
-  --resource jdk
+  --resource conpty
 ```
 
 `node scripts/resources/reuse-worktree-resources.mjs --list` 可以查看当前注册资源。脚本只允许
@@ -671,10 +643,8 @@ node scripts/resources/reuse-worktree-resources.mjs \
 再原子替换目标目录并进行第二次校验。目标已有不少于源缓存的有效文件时会保留
 目标，不重复复制；校验失败的文件不会发布到目标缓存。
 
-JDTLS 和 JDK 使用
-[`third_party/jdtls/manifest.json`](../third_party/jdtls/manifest.json) 与
-[`third_party/jdk/manifest.json`](../third_party/jdk/manifest.json) 中的
-SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性清单。当前
+Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性清单；ConPTY 使用
+`third_party/conpty/manifest.json` 固定的版本与 SHA-256。当前
 自动复用的资源由 [`scripts/resources/worktree-resources.json`](../scripts/resources/worktree-resources.json)
 统一注册：
 
@@ -691,8 +661,6 @@ SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性�
   文件锁释放有 10 秒本地期限。`node_modules`、两个 workspace 的依赖目录和
   `.artifacts/bun-tmp` 是安装过程的可变状态，不跨 worktree 复制；进程句柄只在
   worker 内存中存活，不增加下载目录，不写发行资源，也不影响签名或增量更新。
-- `.artifacts/jdtls-downloads/`：JDTLS、Lombok、Java Debug/Test 和 license。
-- `.artifacts/jdk-downloads/`：各平台与架构的 bundled JDK 下载归档。
 - `.artifacts/conpty-downloads/`：Windows Terminal 发布的
   `Microsoft.Windows.Console.ConPTY` NuGet 包，按
   `third_party/conpty/manifest.json` 固定版本与 SHA-256。包内 x64/arm64 的
@@ -808,8 +776,7 @@ Viva 的 `app.RegisterFont` 把字型按内容摘要暂存到用户缓存目录 
 
 - 插件运行的临时文件：`<system-temp>/lithe-run-<random>/`。插件在 `run/start` 的
   `temporaryFiles` 里给出文件时，桌面端运行服务为这次运行单独创建这个目录，按插件给的
-  文本或字节写入文件，例如 Java 插件生成的 JDK 参数文件或 classpath JAR。文件内容是该次
-  运行的类路径、工作目录和插件选定的编码，没有可复用的版本、平台、架构或工具链
+  文本或字节写入文件。文件内容和编码都由插件决定，只属于该次运行，没有可复用的版本、平台、架构或工具链
   identity stamp。Core 拒绝启动、进程无法启动或运行结束后，运行服务删除整个目录；
   系统临时目录由平台解析，不写安装包或工具链目录，不影响签名或增量更新。
   `excludedResources.run-temporary-files` 经复用脚本的排除路由直接拒绝，任何复制阶段
@@ -831,17 +798,11 @@ Viva 的 `app.RegisterFont` 把字型按内容摘要暂存到用户缓存目录 
   的排除路由。订阅连接也复用同一 helper 获取原生历史用量，但不改重试策略；单次连接的回环监听器、随机访问令牌及每次加载票据只存在内存中，随连接关闭，不进入复制阶段。helper 不修改已安装适配器、用户配置、app bundle 或 Windows 安装
   目录，因此不改变代码签名和 Sparkle delta 的发布基线。
 
-- 测试 JFR 录制：`<system-temp>/lithe-jfr-<recording-uuid>/recording.jfr` 属于单次运行和
-  精确工作 JVM（PID 加启动身份），由该 JDK 写入，最大64MiB、最长120秒。关闭/替换
-  运行或销毁监控 Feature 时停止命名录制并删除目录；它没有版本/平台/架构/工具链构建
-  stamp，任何复制阶段都不共享。`excludedResources.test-jfr-recordings` 通过复用脚本的
-  通用排除路由拒绝，应用 bundle、插件包、签名及 Sparkle 增量基线保持只读。
 - Agent 历史注释：平台偏好设置键 `lithe.agent-history.v1.<workspace-agent-digest>` 保存收藏、自定义标题和隐藏状态，按标准化工作区与 Agent ID 隔离。它是用户可变状态，不受版本、平台、架构或工具链构建身份约束，不存在可验证的构建 stamp；Markdown 导出写到用户选择的位置。两者都禁止在任何复制阶段跨工作树复用，`excludedResources.agent-history-metadata` 由资源脚本显式拒绝。
 
 - Agent 粘贴图片保存在 `<platform-app-cache>/agent/pasted-images/pasted-<UUID>.<扩展名>`；放弃的批次立即删除自身文件，已接受的附件保留供历史会话引用。撤销新建文件时，原生文件 adapter 先移动到同目录 `.lithe-agent-recovery-<pid>-<sequence>-<filename>` 再回收，失败则恢复；若原路径被重新创建，保留恢复文件并向用户报告位置。两类资源均是用户运行时可变状态，没有版本、平台、架构、工具链 identity stamp，任何复制阶段都禁止共享。清单 `agent-edit-and-paste-state` 和复用脚本的排除路由直接拒绝；应用安装资源保持只读，不影响签名和更新基线。
 
 - `.artifacts/bun-tmp/`、下载或解压过程中的临时目录；
-- `.artifacts/jdtls/`、`.artifacts/jdk-*` 等可以由已验证下载重新生成的解压输出；
 - `.artifacts/editor/macos/`、Monaco probe/workbench 资源与其中的主题许可证、NOTICE，
   由 `editor-theme-assets` 排除路由拒绝复用。它们与当前源码、上游色表固定提交、Monaco/Bun
   版本绑定，没有可靠构建身份 stamp；各工作树构建时一起生成 JS 并复制许可证，不在任何阶段
@@ -860,15 +821,9 @@ Viva 的 `app.RegisterFont` 把字型按内容摘要暂存到用户缓存目录 
   不允许任何阶段跨 worktree 复用。`excludedResources.agent-ui-test-evidence` 通过已有
   排除路由拒绝；截图归测试与 CI artifact 保留策略所有，不打包、不写发行 bundle，
   不影响代码签名或 Sparkle delta。
-- 平台缓存中 JDT `-data/.lithe/maven/` 的 settings 副本：按工作区隔离，可能含凭据，
-  在缓存过期或重建索引时清理；文件内容哈希不是版本、平台、架构或工具链构建
-  identity stamp，任何复制阶段都禁止共享。资源清单 `jdt-maven-settings` 显式排除，
-  复用脚本直接拒绝该资源，不进入下载或生成物校验路由。
 
 Build Provider 原生配置探针的 `configuration-*/configuration.json`、模型读取时的
-`run-*/configuration.json` 及 Maven v2 模型缓存中的实际来源 URI/哈希，均属于当前
-插件/构建系统/工作区的可变状态。只读配置探针在 Maven 的完整执行请求发布后，记录上游生效事实，再把探针自己的仓库管理器改到
-`configuration-*/repository`，随后在读取工程前退出，不能因此创建实际选择的用户仓库目录。
+`run-*/configuration.json`，均属于当前插件/构建系统/工作区的可变状态。
 探针与模型读取的临时目录在调用结束后删除；模型缓存
 由 Provider 管理，并在原生来源变化时失效。源哈希不是构建 identity stamp，不能跨工作树
 复制。宿主发布原生配置时在目标旁准备的 `.<filename>.lithe-<uuid>` 可能含凭据，
@@ -891,10 +846,10 @@ Windows 原生配置写回复用文档模块的 `.lithe-document-<pid>-<sequence
 identity stamp，不允许任何阶段复用；沿用 `build-native-configuration-state` 的拒绝路由。
 它们不会写入应用或插件安装目录，因而不改变代码签名及 Sparkle delta 基线。
 
-可下载的官方插件包是声明式插件包（只含 `plugin.json` 和它声明的资源，不含宿主加载的代码，与架构无关；自带运行时的 Java Support 见下文），在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立组装，`--triple` 只决定输出目录和签名工具的构建布局；组装后通过 `LitheOfficialPluginVerifier` 验证声明、打包的可执行文件和“Mach-O 原生代码只出现在清单声明的运行时目录内”；发布配置还要求 repository secret `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`，由 `LithePluginPackageSigner` 对完整包生成 `lithe-plugin-signature.json`，客户端按宿主内置官方插件策略和 publisher 公钥验证后才允许安装。该 secret 的值是与客户端内置公钥匹配的 base64 编码 32 字节 Ed25519 私钥，可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 配置；私钥文件和 shell 历史都不得进入仓库或日志。没有该 key 时，普通 debug 全量构建会跳过 publisher 签名包，指定其中一个包 ID 的构建会失败，不会留下缺少签名文档的目录。本地调试插件时可以显式传入 `--development-unsigned`（仅 debug 配置可用），生成不含签名文档的开发包，只能由 debug 构建的 Lithe 从磁盘安装；这类开发包同样不跨工作树复用。无可靠 identity stamp，不跨工作树复制。插件安装后打包的语言服务器位于
-`<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/language-server`，由插件版本目录拥有，运行时只读，重装、回滚和卸载随插件一起处理，不是工作树构建缓存。Go Support 和 PHP Support 已迁移为 Lithe Store 社区插件（`Lithe-IDEA/lithe-plugin-go`、`Lithe-IDEA/lithe-plugin-php`），不再由本仓库构建。以上项目在资源清单 `excludedResources` 中明确排除，复用脚本会拒绝显式复制请求。
+可下载的官方插件包是声明式插件包（只含 `plugin.json` 和它声明的资源，不含宿主加载的代码，与架构无关），在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立组装，`--triple` 只决定输出目录和签名工具的构建布局；组装后通过 `LitheOfficialPluginVerifier` 验证声明、打包的可执行文件和“Mach-O 原生代码只出现在清单声明的运行时目录内”；发布配置还要求 repository secret `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`，由 `LithePluginPackageSigner` 对完整包生成 `lithe-plugin-signature.json`，客户端按宿主内置官方插件策略和 publisher 公钥验证后才允许安装。该 secret 的值是与客户端内置公钥匹配的 base64 编码 32 字节 Ed25519 私钥，可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 配置；私钥文件和 shell 历史都不得进入仓库或日志。没有该 key 时，普通 debug 全量构建会跳过 publisher 签名包，指定其中一个包 ID 的构建会失败，不会留下缺少签名文档的目录。本地调试插件时可以显式传入 `--development-unsigned`（仅 debug 配置可用），生成不含签名文档的开发包，只能由 debug 构建的 Lithe 从磁盘安装；这类开发包同样不跨工作树复用。无可靠 identity stamp，不跨工作树复制。插件安装后打包的语言服务器位于
+`<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/language-server`，由插件版本目录拥有，运行时只读，重装、回滚和卸载随插件一起处理，不是工作树构建缓存。以上项目在资源清单 `excludedResources` 中明确排除，复用脚本会拒绝显式复制请求。
 
-Maven 模型与依赖快照继续位于现有
+Build Provider 的模型与依赖快照位于
 `<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/`。
 Windows Build Provider 的对应位置为
 `<windows-local-app-data>/<app-id>/plugin-state/<plugin-id>/build-systems/<build-system-id>/<workspace-digest>/`，
@@ -907,76 +862,8 @@ Windows 工具查询后端使用同一平台 adapter 下独立的
 一个 Build 准备操作可以复用同插件的后端；并发操作使用独占创建的不同目录，结束前停止
 全部进程并删除自身状态。失败保留仍受进程使用的目录，插件卸载清理遗留状态。它没有版本/平台/架构/工具链构建印记，任何阶段均不得跨工作树
 复制。查询参数、文件证据和执行许可只存在于当前操作的内存中；安装包和插件资源只读。
-#1495 阶段 D 已删除 macOS 旧 Maven 依赖树临时文件 adapter；不再创建该专属目录，
-也不能把旧树文本当作新的 Provider 缓存或从其坐标推导 JAR 路径。
 Provider 状态经平台 adapter 写 Application Support；插件安装目录和发行 bundle 只读，
 不改变代码签名或 Sparkle delta 的源基线。
-
-### Java Support 独立下载安装与迁移
-
-Java Support 当前仍随应用发行，独立下载的构建配置已登记，但
-`Plugins/marketplace/official-plugins.json` 中的 `releaseEnabled: false` 暂停自动发布。
-等支持 `packageTrust: 1` 的宿主发行、迁移验收和真实下载包验证完成后，再单独启用发布；
-不要在基础设施 PR 中提前上架旧宿主无法安装的包。
-
-`bundledUntilPublishedVersion: 1.1.0` 控制过渡副本的退出条件：只有仓库官方索引
-包含达到门槛且 API/能力匹配的完整双架构版本，应用才跳过 JDT/JDK 准备及 Java 插件组装。
-空索引或缺少某个架构仍内置；损坏索引会中止构建，不能静默省去插件。安装使用同一 ID，
-启用、禁用、旧卸载标记及设置保留；打开 Java 文件/项目或新建项目时有明确安装入口，
-离线可使用可信磁盘包。当前无线上发布，默认构建仍保留过渡包。
-
-构建输入 `LITHE_OFFICIAL_PLUGIN_INDEX` 默认为 `Plugins/marketplace/index.json`，只读，
-同时决定内置分发和应用内嵌索引；传给 `scripts/plugins/build-official-plugins.sh --marketplace-index`。
-没有下载或缓存步骤，不允许从其他工作树的生成索引或用户运行时索引复用。
-`scripts/macos/verify/verify-macos-package.sh --slim` 在本次临时目录生成双架构索引 fixture，并验证在缺少
-JDT/JDK 输入时仍能生成不含 Java 资源的 universal app 和 DMG；fixture 不是可发布索引，
-随测试目录清理，不影响签名或 Sparkle 发行基线。
-
-同一份清单要求下载版的 `publisherPackage` 签名，并声明内置副本的
-`bundledSignatureRequirement: sameTeamAsHost`。应用组装必须显式用 `--bundled-only`，
-由 app 自身签名封住完整包；普通单插件构建在正式配置中始终要求发布者私钥。
-本地开发只能用 debug + `--development-unsigned`，不能把开发包用于正式发布。
-原生 JDK 使用构建时固定、校验过的上游签名，包内最终字节完成后再生成 Ed25519 签名。
-
-发布计划包含 `darwin-arm64` 和 `darwin-x64` 两个 ZIP，各自一个 SHA-256；
-源码和资源输入变化后需要新的插件版本。重试索引发布时，从对应 tag 读取
-配置、清单和 API/`requires`，下载并计算全部资产哈希后一次写入版本，不能读取
-当前工作树的清单来描述历史包。目录如下：
-
-- `dist/packages/<arch>/<plugin-id>/`：本次发布组装的最终签名包。
-- `dist/verify/<arch>/<plugin-id>/`：归档解压后的签名验证副本。
-- `dist/Lithe-Java-Support-<version>-darwin-<arch>.zip`：按架构的发布归档。
-- `.artifacts/java-plugin-distribution/`：本地真实资源组装、归档、签名和启动检查输出。
-
-这些输出和 `.build/.../OfficialPlugins` 一样没有可跨工作树转移的 identity stamp，
-全部进入 `official-plugin-packages` 排除路由；不允许复制或共享。需要复用的只有
-经既有 `jdtls` / `jdk` 路由核验的下载缓存，再在目标工作树重新组装。
-临时验证副本由本次验证清理，发布 runner 的 `dist` 随 job 结束回收；持久安装的
-版本包由宿主包管理器负责，运行时保持只读。它们不改变应用签名或 Sparkle 源基线。
-
-Java Support（`dev.lithe.plugin.java-support`）是过渡期唯一随 Lithe.app 发行的官方插件包，
-也是唯一自带运行时的包，因此它与架构有关：
-
-- **资源路径**：组装结果在 `.build/<triple>/<configuration>/OfficialPlugins/dev.lithe.plugin.java-support/`，
-  打包后位于 `Lithe.app/Contents/Resources/OfficialPlugins/` 下。包内 `language-server/` 是固定版本的
-  JDT LS 及 Lombok、Java Debug、Java Test 扩展，`runtime/<arch>/` 是它运行所用的 JDK。
-  `icons/` 和 `templates/` 是新建项目窗口里 Java、Maven Archetype、Spring Boot 条目的图标和模板，
-  从源码目录直接复制，不下载、与架构无关；模板只读，新项目先写进用户所选目录下的临时目录，
-  完成后整体移动到位，不写 app bundle 或插件包，不影响代码签名和 Sparkle delta。
-- **组装入口**：`Plugins/mac/Official/JavaSupport/assemble-package.sh`，由
-  `scripts/plugins/build-official-plugins.sh` 调用，`--arch arm64|x86_64|universal` 决定带哪些架构的 JDK
-  和 Equinox 配置。应用本身不再包含 `Contents/Resources/LanguageServers`。
-- **是否允许跨 worktree 复用**：组装后的包不允许复用。它由 `jdtls` 和 `jdk` 两个可复用的下载缓存
-  生成，新工作树应复用这两个缓存后在本地重新组装。
-- **身份约束与校验来源**：JDT LS 的版本、下载地址和校验值来自 `third_party/jdtls/manifest.json`，
-  JDK 来自 `third_party/jdk/manifest.json`；`plugin.json` 精确写出入口 jar 的文件名，升级 JDT LS
-  后文件名不一致会在组装时失败。组装结果由 `LitheOfficialPluginVerifier` 校验：入口和各架构的
-  `bin/java` 存在，包内没有符号链接，Mach-O 只出现在清单声明的 `runtime/` 目录内。Rust Core 测试
-  `project_generators` 用源码目录里的模板生成每个生成器的计划。
-- **运行时状态**：语言服务器的可写状态在 `<app-support>/Lithe/PluginState/<plugin-id>/`，
-  JDT LS 的工作区索引和 Equinox 配置区仍在 `<cache>/Lithe/language-servers/`（`jdtls/`、`jdtls-configuration/`），
-  由 `jdt` 宿主集成在启动时发现没有未卸载的插件声明它后删除。两者都是单次安装的
-  可变状态，任何阶段都不得复制或跨 worktree 共享。
 
 插件网页的宿主持久状态（Viva 的 `pluginservice.SetPageState`）写到每用户插件根目录
 （`pluginpkg.DefaultRoot`）下的
@@ -1001,13 +888,6 @@ The artifact behavior and compression setting follow
 [actions/upload-artifact](https://github.com/actions/upload-artifact), and cache
 reuse follows GitHub's
 [branch access restrictions](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching).
-
-Windows PHP Worker 插件使用 `bun scripts/windows/build/build-windows-php-plugin.ts` 单独构建到
-`.artifacts/windows-plugins/`，通过 `node scripts/windows/verify/verify-windows-plugin-isolation.mjs`
-检查入口独立性。它绑定包格式、宿主 SDK 和当前 Bun 构建版本，没有 identity stamp，
-在资源清单中注册为不可复用；不随 Windows 应用构建复制。用户导入后的源码与状态
-位于 WebView 用户配置的 `lithe.worker-package:<id>`，也禁止跨 worktree 复用。
-CI 在 Windows frontend lane 构建并上传独立包，同时运行包、Worker 协议和生命周期测试。
 
 ### Agent Hook 用户状态
 
@@ -1034,18 +914,6 @@ CI 在 Windows frontend lane 构建并上传独立包，同时运行包、Worker
 资源清单 `build-project-preferences` 与复用脚本直接拒绝它们。只有明确编辑或带原字节
 检查的一次性激活迁移可以写共享文件，普通检测和设置页读取不创建文件；不写 app 或插件
 安装目录，不改变签名与 Sparkle 增量基线。
-
-Maven 配置切换使用本机偏好的 `BuildSystems.Migrations.Maven.<workspace-digest>` 及 `.Runtime` 保存待迁移
-源文件的指纹。它只服务当前工作区的一次性恢复：目标全部读回、旧源按原字节移除后清理，
-部分写入后旧源被外部修改则停止自动删除。这个标记不保存原生 settings 文档，不可跨
-worktree 复用；由 `build-project-preferences` 排除项覆盖，不得作为下载缓存增加校验路由。
-
-Maven Provider 随每次任务收集的报告快照在宿主提供的 `workspaceStateDir/execution-*`，
-没有状态目录时在系统临时目录 `lithe-maven-execution-*`。已配置的 Surefire/Failsafe
-实例提供报告位置，私有目录只保留本次新报告、索引和字节哈希；操作返回、失败或取消
-完成后删除，崩溃残留沿用插件工作区状态清理。它不具备构建缓存 identity stamp，
-`maven-operation-report-snapshots` 排除项与脚本拒绝跨 worktree 复制、硬链接和符号链接。
-原始报告仍是上游写入工作区的输出，不可用于替代另一次运行；插件安装包始终只读。
 
 Viva stdio Debug 的临时状态位于可写插件根的
 `.state/<plugin-id>/<version>/desktop-debug-<session>/`。仅在启动时按 Core

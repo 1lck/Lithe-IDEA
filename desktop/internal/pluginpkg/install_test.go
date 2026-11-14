@@ -28,12 +28,12 @@ func newStaging(t *testing.T, root string) string {
 func TestInstallMovesStagingIntoRoot(t *testing.T) {
 	root := t.TempDir()
 	staging := newStaging(t, root)
-	installed, err := Install(root, "io.github.lithe-idea.java-support", "1.2.3", staging)
+	installed, err := Install(root, "dev.lithe.test.sample", "1.2.3", staging)
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	want := filepath.Join(root, "io.github.lithe-idea.java-support", "1.2.3")
-	if installed.Path != want || installed.ID != "io.github.lithe-idea.java-support" || installed.Version != "1.2.3" {
+	want := filepath.Join(root, "dev.lithe.test.sample", "1.2.3")
+	if installed.Path != want || installed.ID != "dev.lithe.test.sample" || installed.Version != "1.2.3" {
 		t.Fatalf("installed = %+v", installed)
 	}
 	if _, err := os.Stat(filepath.Join(want, ManifestFile)); err != nil {

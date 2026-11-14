@@ -16,14 +16,14 @@ func approvedRequest() Request {
 		ContentDigest: "bb22",
 		Review: Review{
 			Permissions: []string{"workspace.read"},
-			Programs:    []json.RawMessage{json.RawMessage(`{"kind":"runtime","command":"java"}`)},
+			Programs:    []json.RawMessage{json.RawMessage(`{"kind":"runtime","command":"sample-runtime"}`)},
 		},
 	}
 }
 
 // storedRecord is the record an approval of approvedRequest would store.
 func storedRecord() Record {
-	return RecordFor("io.github.lithe-idea.java-support", "1.0.0", approvedRequest())
+	return RecordFor("dev.lithe.test.sample", "1.0.0", approvedRequest())
 }
 
 func TestDecideReusesUnchangedMarketplaceApproval(t *testing.T) {
@@ -54,7 +54,7 @@ func TestDecideRefusesEveryChange(t *testing.T) {
 			req.Review.Permissions = []string{"workspace.read", "workspace.write"}
 		},
 		"changed program": func(req *Request) {
-			req.Review.Programs = []json.RawMessage{json.RawMessage(`{"kind":"runtime","command":"javaw"}`)}
+			req.Review.Programs = []json.RawMessage{json.RawMessage(`{"kind":"runtime","command":"sample-runtime-2"}`)}
 		},
 	}
 	for name, mutate := range cases {
@@ -82,7 +82,7 @@ func TestDecideRefusesMissingRecord(t *testing.T) {
 func TestDecideRefusesApprovalGivenForDisk(t *testing.T) {
 	disk := approvedRequest()
 	disk.Source = Disk
-	record := RecordFor("io.github.lithe-idea.java-support", "1.0.0", disk)
+	record := RecordFor("dev.lithe.test.sample", "1.0.0", disk)
 	decision := Decide(record, true, approvedRequest())
 	if decision.Reuse {
 		t.Fatalf("decision = %+v", decision)
@@ -91,9 +91,9 @@ func TestDecideRefusesApprovalGivenForDisk(t *testing.T) {
 
 func TestDecideIgnoresProgramKeyOrder(t *testing.T) {
 	record := storedRecord()
-	record.ApprovedPrograms = []json.RawMessage{json.RawMessage(`{"kind":"runtime","command":"java"}`)}
+	record.ApprovedPrograms = []json.RawMessage{json.RawMessage(`{"kind":"runtime","command":"sample-runtime"}`)}
 	req := approvedRequest()
-	req.Review.Programs = []json.RawMessage{json.RawMessage(`{"command":"java","kind":"runtime"}`)}
+	req.Review.Programs = []json.RawMessage{json.RawMessage(`{"command":"sample-runtime","kind":"runtime"}`)}
 	if decision := Decide(record, true, req); !decision.Reuse {
 		t.Fatalf("decision = %+v", decision)
 	}
@@ -117,7 +117,7 @@ func TestRecordForCopiesTheRequest(t *testing.T) {
 	if record.Permissions[0] != "workspace.read" {
 		t.Fatalf("permissions = %v", record.Permissions)
 	}
-	if string(record.ApprovedPrograms[0]) != `{"kind":"runtime","command":"java"}` {
+	if string(record.ApprovedPrograms[0]) != `{"kind":"runtime","command":"sample-runtime"}` {
 		t.Fatalf("programs = %s", record.ApprovedPrograms[0])
 	}
 }
@@ -201,10 +201,10 @@ func TestStoreForget(t *testing.T) {
 	if err := approvals.Approve(storedRecord()); err != nil {
 		t.Fatal(err)
 	}
-	if err := approvals.Forget("io.github.lithe-idea.java-support", "1.0.0"); err != nil {
+	if err := approvals.Forget("dev.lithe.test.sample", "1.0.0"); err != nil {
 		t.Fatalf("forget: %v", err)
 	}
-	if _, found, err := approvals.Record("io.github.lithe-idea.java-support", "1.0.0"); err != nil || found {
+	if _, found, err := approvals.Record("dev.lithe.test.sample", "1.0.0"); err != nil || found {
 		t.Fatalf("found = %v, err = %v", found, err)
 	}
 	// Forgetting a version that was never approved is not an error.

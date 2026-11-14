@@ -1,6 +1,6 @@
 ---
 name: write-stable-tests
-description: Write and review deterministic, bounded Lithe tests and test infrastructure, including Viva desktop Go and shared Rust. Use especially for concurrency, timers, polling, subprocess, watcher, lifecycle, or cancellation tests that could hang CI.
+description: Write and review deterministic, bounded Lithe tests and test infrastructure, including Viva desktop Go and shared Rust, and keep host tests free of any dependency on a concrete plugin. Use especially for concurrency, timers, polling, subprocess, watcher, lifecycle, or cancellation tests that could hang CI, and for any test that touches plugins.
 ---
 
 # Write Stable Tests
@@ -58,6 +58,28 @@ fail locally with a useful diagnostic instead of waiting for a CI job timeout.
   dependencies in an explicitly identified integration test.
 - Assert observable behavior. Do not weaken production behavior, expose private
   state solely for a test, or delete a test to satisfy the stability gate.
+
+## Plugins in host tests
+
+Tests in this repository and in the Core repository have zero dependency on any
+concrete plugin. The definitions, the allowed inputs and the self-check command
+are in `develop-lithe`, section 三, “插件归属与宿主零依赖”; this section only
+states what that means for writing a test.
+
+- A host test never reads a concrete plugin's package, repository checkout,
+  build output or manifest, whether through an environment variable, a fixed
+  path, a download or a Git submodule. It never uses a real plugin ID and never
+  asserts what a concrete plugin does.
+- To exercise a generic extension point, write a synthetic manifest inline in
+  the test with an obviously fictional ID such as `dev.lithe.test.<name>`, and
+  back it with a test double you control. Core contract fixtures (through
+  `LITHE_PLUGIN_CONTRACT_DIR`) and the marketplace index snapshot are the only
+  other plugin inputs; assertions on the snapshot apply a rule to every entry,
+  never to one entry by ID.
+- A test that needs a real plugin is a plugin test. It lives in that plugin's
+  repository and runs in that repository's CI against a pinned host or Core
+  version. Skipping it when the plugin is absent does not make it acceptable in
+  the host: it keeps plugin knowledge in the host and never runs in CI.
 
 ## Required workflow
 

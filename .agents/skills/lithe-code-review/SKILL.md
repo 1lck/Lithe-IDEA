@@ -1,6 +1,6 @@
 ---
 name: lithe-code-review
-description: 在提交 Pull Request 前审查 Lithe 当前工作区、当前分支或指定提交范围时使用。检查需求完成度、回归风险、安全性、性能与内存、并发与资源清理、成熟上游能力复用、跨平台架构边界与 Rust Core 归属、测试、契约和文档完整性。用户明确要求 review、代码审查、提交前自检或判断改动是否适合提 PR 时触发；实现功能、修复问题、解释代码或单独运行测试时不触发。
+description: 在提交 Pull Request 前审查 Lithe 当前工作区、当前分支或指定提交范围时使用。检查需求完成度、回归风险、安全性、性能与内存、并发与资源清理、成熟上游能力复用、跨平台架构边界与 Rust Core 归属、插件归属与宿主零依赖（插件测试、功能矩阵、翻译和资源说明不得进入宿主）、测试、契约和文档完整性。用户明确要求 review、代码审查、提交前自检或判断改动是否适合提 PR 时触发；实现功能、修复问题、解释代码或单独运行测试时不触发。
 ---
 
 # Lithe 提交前代码审查
@@ -62,7 +62,9 @@ GitHub Actions 中的最终 PR 审查。它只在用户明确要求审查时触�
 读取并遵循：
 
 - [本地审查流程](references/local-review.md)
-- [统一审查政策](references/review-policy.md)（含“界面文案与 i18n”：用户可见文案必须走 `shared/i18n` 与 `L10n`，硬编码即问题）
+- [统一审查政策](references/review-policy.md)（含“插件归属与宿主零依赖”：插件的测试、功能矩阵条目、
+  翻译和资源说明进入宿主，或宿主测试依赖具体插件，按 P1 阻塞；含“界面文案与 i18n”：用户可见
+  文案必须走 `shared/i18n` 与 `L10n`，硬编码即问题）
 - [严重程度与证据规则](references/finding-severity.md)
 - [输出格式](references/output-template.md)
 

@@ -22,7 +22,7 @@
     ]
   },
   "owner": "Run",
-  "verification": "macOS：在 ~/.zshrc 里通过 mise 或 SDKMAN 提供 mvn、java 并导出 JAVA_HOME，不设置 MAVEN_HOME。删除 Caches 下的 login-path 后从 Finder 启动 Lithe，打开 Maven 项目：Maven 工具窗口和项目设置能自动检测到 mise/SDKMAN 的 Maven 与 JDK，运行 Maven 目标和 package.json 脚本不再报找不到命令；login-path 只含 PATH。再次启动时立即使用缓存，修改 rc 后第二次重启生效。rc 中加入 sleep 10 时首次启动在 3 秒内继续。设置 LITHE_SKIP_SHELL_ENV=1 从终端 open 时不读取 shell。Windows GUI 程序从注册表继承完整用户环境，没有这个问题。",
+  "verification": "macOS：在 ~/.zshrc 里通过 mise 等版本管理器把工具加入 PATH 并导出它们需要的环境变量。删除 Caches 下的 login-path 后从 Finder 启动 Lithe，打开项目：运行 package.json 脚本和终端命令能找到 login shell 提供的工具，不再报找不到命令；login-path 只含 PATH。再次启动时立即使用缓存，修改 rc 后第二次重启生效。rc 中加入 sleep 10 时首次启动在 3 秒内继续。设置 LITHE_SKIP_SHELL_ENV=1 从终端 open 时不读取 shell。Windows GUI 程序从注册表继承完整用户环境，没有这个问题。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

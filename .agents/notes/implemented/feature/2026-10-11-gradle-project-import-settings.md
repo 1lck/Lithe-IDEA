@@ -70,4 +70,4 @@ Gradle 与 Maven 在导入设置上结构对称，行为可预期、可扩展。
 - ~~`windows/tauri/src/features/editor/lsp/lsp-client.ts`~~（已随 #1794 移除）
 - ~~`windows/tauri/src/platform/lsp-core-adapter.ts`~~（已随 #1794 移除）
 - ~~`windows/tauri/src/platform/lsp-core-adapter.test.ts`~~（已随 #1794 移除）
-- `shared/platform-feature-matrix/features/java-gradle-project-import.json`
+- ~~`shared/platform-feature-matrix/features/java-gradle-project-import.json`~~（已随插件归属规则移出宿主，见 [插件的测试、功能矩阵和翻译只在插件仓库](../architecture/2026-11-14-plugin-owned-tests-matrix-i18n.md)）

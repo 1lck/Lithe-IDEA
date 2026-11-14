@@ -1107,7 +1107,7 @@
     "desktop.gitReview.untrackedMenu": "Show Untracked Files…",
     "desktop.gitReview.untrackedTitle": "Untracked files in {path}",
     "desktop.ideApi.allowConfigure": "Allow configuration",
-    "desktop.ideApi.allowConfigureHelp": "Lets the client read and change the project's Java, Maven and build options.",
+    "desktop.ideApi.allowConfigureHelp": "Lets the client change the project's build options.",
     "desktop.ideApi.allowExecute": "Allow execution",
     "desktop.ideApi.allowExecuteHelp": "Lets the client start and stop builds and runs. Dependency downloads and plugin execution can happen.",
     "desktop.ideApi.copyConfiguration": "Copy stdio client configuration",

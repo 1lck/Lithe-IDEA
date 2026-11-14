@@ -56,4 +56,4 @@ macOS 上 Java 调试启动的 JVM 现在就是“运行”会用的那个 JDK�
 - 已迁出：原 `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
 - ~~`macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`~~（已随 #1794 移除）
 - ~~`macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift`~~（已随 #1794 移除）
-- `shared/platform-feature-matrix/features/debug-java-runtime.json`
+- ~~`shared/platform-feature-matrix/features/debug-java-runtime.json`~~（已随插件归属规则移出宿主，见 [插件的测试、功能矩阵和翻译只在插件仓库](../architecture/2026-11-14-plugin-owned-tests-matrix-i18n.md)）

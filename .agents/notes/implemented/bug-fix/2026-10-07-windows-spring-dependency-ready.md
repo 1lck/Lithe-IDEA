@@ -32,4 +32,4 @@ Spring订阅接受serviceReady与历史fullyReady，只在非就绪到就绪的�
 - ~~`windows/tauri/src/features/spring/hooks/use-spring-index.ts`~~（已随 #1794 移除）
 - ~~`windows/tauri/src/features/spring/hooks/use-spring-index.test.tsx`~~（已随 #1794 移除）
 - ~~`.github/workflows/ci-windows.yml`~~（已随 #1794 移除）
-- `shared/platform-feature-matrix/features/spring-index.json`
+- ~~`shared/platform-feature-matrix/features/spring-index.json`~~（已随插件归属规则移出宿主，见 [插件的测试、功能矩阵和翻译只在插件仓库](../architecture/2026-11-14-plugin-owned-tests-matrix-i18n.md)）

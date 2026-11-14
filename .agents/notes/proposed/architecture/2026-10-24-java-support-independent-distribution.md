@@ -225,4 +225,4 @@ node scripts/architecture/verify-java-semantic-ownership.mjs
 - 已迁出：原 `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/languages/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/languages)
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
-- `shared/platform-feature-matrix/features/java-support-plugin.json`
+- ~~`shared/platform-feature-matrix/features/java-support-plugin.json`~~（已随插件归属规则移出宿主，见 [插件的测试、功能矩阵和翻译只在插件仓库](../../implemented/architecture/2026-11-14-plugin-owned-tests-matrix-i18n.md)）

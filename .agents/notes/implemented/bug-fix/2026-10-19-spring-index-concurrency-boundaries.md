@@ -140,4 +140,4 @@
 - ~~`windows/tauri/src/features/spring/hooks/use-spring-index.test.tsx`~~（已随 #1794 移除）
 - ~~`windows/tauri/src/features/spring/api/spring-index-api.ts`~~（已随 #1794 移除）
 - ~~`windows/tauri/src/features/spring/utils/spring-index-error.ts`~~（已随 #1794 移除）
-- `shared/platform-feature-matrix/features/spring-index.json`
+- ~~`shared/platform-feature-matrix/features/spring-index.json`~~（已随插件归属规则移出宿主，见 [插件的测试、功能矩阵和翻译只在插件仓库](../architecture/2026-11-14-plugin-owned-tests-matrix-i18n.md)）

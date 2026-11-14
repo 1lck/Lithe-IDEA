@@ -91,18 +91,18 @@ EPL-2.0 源码、补丁身份和生成物哈希。它不再声称由 Eclipse 签
 - 真实 Core 解码回归：动作/Provider 注册在修复前报 `plugin.host.invalidParams`，修复后接受并刷新；拒绝重复注册不触发刷新。
 - 同文本版本下倒序送达两次收集结果：修复前旧空结果覆盖新动作，修复后保留新动作；测试直接控制送达顺序，无时间竞争。
 - 未打开 Debug 面板的 attach/launch 回归：修复前返回适配器仍在加载，修复后按需加载并进入既有调试流程。
-- `TestJavaPluginMavenWorkflow` 与旧布局矩阵：真实 ZIP、Maven、JDT 和调试器，验证断点变量、继续退出、再次调试后停止，以及安装目录哈希不变；停止回收回归在修复前超时，修复后退出。
+- `TestJavaPluginMavenWorkflow` 与旧布局矩阵：真实 ZIP、Maven、JDT 和调试器，验证断点变量、继续退出、再次调试后停止，以及安装目录哈希不变；停止回收回归在修复前超时，修复后退出（该测试已随插件归属规则从宿主删除，同类验证归插件仓库，见 [插件的测试、功能矩阵和翻译只在插件仓库](../architecture/2026-11-14-plugin-owned-tests-matrix-i18n.md)）。
 - 自动停止重复到达和销毁顺序用事件控制：修复前分别提前强制终止、先等待进程再销毁 Core；修复后保留宽限，且进程等待开始前已销毁 Core。用户再次停止的强制结束行为仍保留。
-- `TestJavaPluginCleanupWhilePaused` 在真实 Java 断点暂停后直接返回，跳过成功路径关闭，由始终执行的清理收回运行并确认 Core 返回会话不存在。
+- `TestJavaPluginCleanupWhilePaused` 在真实 Java 断点暂停后直接返回，跳过成功路径关闭，由始终执行的清理收回运行并确认 Core 返回会话不存在（该测试已随插件归属规则从宿主删除，同类验证归插件仓库，见 [插件的测试、功能矩阵和翻译只在插件仓库](../architecture/2026-11-14-plugin-owned-tests-matrix-i18n.md)）。
 - `scripts/desktop/desktop-go.sh test ./...` 与受影响包的 `-race`；本机证据来自 macOS arm64 无头工作台，原生窗口与其他平台未据此标记已验收。
 
-- `TestJavaPluginBinaryNavigation` 使用自行编译的无源码 JAR，覆盖类型/方法落点、类间连续跳转、缺失内部类和迟到结果不能抢焦点；回归通过前不得据此发布。私有输入只在本地诊断，不进入公开测试或构建产物。
+- `TestJavaPluginBinaryNavigation` 使用自行编译的无源码 JAR，覆盖类型/方法落点、类间连续跳转、缺失内部类和迟到结果不能抢焦点；回归通过前不得据此发布。私有输入只在本地诊断，不进入公开测试或构建产物（该测试已随插件归属规则从宿主删除，同类验证归插件仓库，见 [插件的测试、功能矩阵和翻译只在插件仓库](../architecture/2026-11-14-plugin-owned-tests-matrix-i18n.md)）。
 
 ## 适用范围
 
 - `desktop/internal/pluginservice/hostactions.go`、`hostproviders.go`、`runs.go`
 - `desktop/internal/workbench/debug_start.go`、`debug.go`、`pluginworkbench.go`、`pluginbackends.go`
-- `desktop/internal/workbench/java_plugin_e2e_test.go`、`java_legacy_e2e_test.go`、`java_unmanaged_e2e_test.go`
+- ~~`desktop/internal/workbench/java_plugin_e2e_test.go`、`java_legacy_e2e_test.go`、`java_unmanaged_e2e_test.go`~~（已随插件归属规则移出宿主，见 [插件的测试、功能矩阵和翻译只在插件仓库](../architecture/2026-11-14-plugin-owned-tests-matrix-i18n.md)）
 - `desktop/internal/pluginservice/backendlaunch.go`、`backendlaunch_test.go`；Core 的语言服务器引擎握手期限
-- `desktop/internal/workbench/plugincontent.go`、`pluginsync.go`、`pluginsemantics.go`、`java_binary_e2e_test.go`；独立 Java 插件的内容提供者与构建期 JDT 补丁
+- `desktop/internal/workbench/plugincontent.go`、`pluginsync.go`、`pluginsemantics.go`；~~`java_binary_e2e_test.go`~~（已随插件归属规则移出宿主，见 [插件的测试、功能矩阵和翻译只在插件仓库](../architecture/2026-11-14-plugin-owned-tests-matrix-i18n.md)）；独立 Java 插件的内容提供者与构建期 JDT 补丁
 - 通用职责边界见 [插件后端会话与宿主服务](../architecture/2026-11-10-viva-plugin-host-services-and-backend-sessions.md)。

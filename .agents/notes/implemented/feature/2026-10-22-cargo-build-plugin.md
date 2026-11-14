@@ -65,4 +65,4 @@ SDK 复制只发生在打包阶段，staging 在成功或失败后清理；发�
 - [Cargo 插件仓库](https://github.com/Lithe-IDEA/lithe-plugin-cargo) 的 `test/`、`scripts/`、`sdk.lock.json` 与 `.github/workflows/`
 - ~~`Plugins/mac/README.md`~~（已随 #1794 移除）
 - `docs/ci-builds.md`
-- `shared/platform-feature-matrix/features/cargo-build-plugin.json`
+- ~~`shared/platform-feature-matrix/features/cargo-build-plugin.json`~~（已随插件归属规则移出宿主，见 [插件的测试、功能矩阵和翻译只在插件仓库](../architecture/2026-11-14-plugin-owned-tests-matrix-i18n.md)）

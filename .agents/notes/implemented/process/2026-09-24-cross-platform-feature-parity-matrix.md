@@ -22,7 +22,7 @@ macOS 是当前参考产品，Windows 是独立实现。两端可以共享 Rust 
 - `scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh` 检查平台实现路径（包括 Viva 的 `desktop/`）变更是否同时更新矩阵；纯重构可通过 reviewer 添加 `matrix-exempt` label 显式豁免。
 - 当前矩阵先按两端代码入口和共享契约完成初版静态盘点；实现状态不是实机验收结论，能力点的 `verificationStatus` 仍需后续跨平台验证推进。
 
-实现状态由 metadata 定义，包括 `implemented`、`partial`、`missing`、`platform-specific`、`plugin-provided` 和 `unassessed`；验证状态分为 `verified`、`pending` 和 `not-applicable`。矩阵行按“一个可单独验收的用户能力”拆分，`area` 和 `group` 只用于导航，不作为状态统计单位。只有 `implemented` 与 `verified` 同时成立才表示已经验收，避免把“有文件”误报成“跨平台可用”。
+实现状态由 metadata 定义，包括 `implemented`、`partial`、`missing`、`platform-specific` 和 `unassessed`。原有的 `plugin-provided` 状态已删除：具体插件提供的能力不进宿主矩阵，由插件仓库维护自己的矩阵，见 [插件的测试、功能矩阵和翻译只在插件仓库](../architecture/2026-11-14-plugin-owned-tests-matrix-i18n.md)。验证状态分为 `verified`、`pending` 和 `not-applicable`。矩阵行按“一个可单独验收的用户能力”拆分，`area` 和 `group` 只用于导航，不作为状态统计单位。只有 `implemented` 与 `verified` 同时成立才表示已经验收，避免把“有文件”误报成“跨平台可用”。
 
 Viva 统一客户端替换旧平台源码后，增加 `unassessed`（尚未盘点）状态：它表示尚无足够证据判断，并不等同于未实现或已完成。未盘点项的证据指向本笔记，说明该状态的来源；原始平台状态、证据路径和说明保存在每条记录的 `legacy` 中，归属于迁移前基线 `5a54c41aa37a4e6e6b68918a4b05765b9dd07a36`，不得用来证明 Viva 已接入。逐项核对新客户端代码和验证后，替换为当前的真实状态及证据；不将整批未知项机械标为 `missing`，也不沿用已经删除的旧源码路径冒充当前证据。矩阵门禁仍核验全部路径、状态和能力变更。
 

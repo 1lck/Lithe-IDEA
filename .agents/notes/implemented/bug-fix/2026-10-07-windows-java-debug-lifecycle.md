@@ -32,7 +32,7 @@ DAP请求参数与宿主信封不匹配、断点入队晚于启动、继续和�
 
 ## 适用范围
 
-- `shared/platform-feature-matrix/features/debug-java-runtime.json`
+- ~~`shared/platform-feature-matrix/features/debug-java-runtime.json`~~（已随插件归属规则移出宿主，见 [插件的测试、功能矩阵和翻译只在插件仓库](../architecture/2026-11-14-plugin-owned-tests-matrix-i18n.md)）
 - `shared/platform-feature-matrix/features/debug-state.json`
 - `shared/platform-feature-matrix/features/debug-breakpoints.json`
 - [旧 Windows 客户端的实现和原适用范围（历史版本）](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.agents/notes/implemented/bug-fix/2026-10-07-windows-java-debug-lifecycle.md)

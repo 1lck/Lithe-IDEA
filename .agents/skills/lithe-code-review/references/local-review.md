@@ -22,6 +22,7 @@
 - Lithe-core-rust 仓库 `rust/contracts/` 中受影响的共享契约。
 - 受影响模块附近的测试和 fixture。
 - 测试代码变更对应的 `write-stable-tests` 规则。
+- `develop-lithe` 第三节“插件归属与宿主零依赖”。每次审查都读取，不论改动是否提到插件。
 
 不要启动时全文读取所有 Agent Notes。只读取能解释当前改动边界和决策依据的
 Note。
@@ -60,16 +61,15 @@ Note。
 需要执行验证时，先说明原因和范围，并只运行与当前问题直接相关的验证。不要
 为了 Review 自动启动完整产品、跨平台虚拟机或长时间构建。
 
-改动触及下列路径时，运行对应的边界检查并把结果写进 Verification。这些是静态、
-只读的边界检查，不属于上面的完整测试；不通过按 Finding 报告，不得以“另行处理”
-或“便于合并”搁置：
+以下静态、只读的检查每次审查都运行，并把结果写进 Verification。它们不属于上面的完整测试；
+不通过按 Finding 报告，不得以“另行处理”或“便于合并”搁置：
 
-- `macos/Sources/Lithe/` 的 Core、Services、Views 或依赖组装 →
-  `./scripts/architecture/verify-service-boundaries.sh`
-- 共享契约、fixture 或 Core 命令的兼容面 →
-  `./scripts/architecture/verify-shared-contracts.sh`
-- `windows/tauri/` 的平台边界 →
-  `./scripts/windows/verify/verify-windows-boundaries.sh`
+- `develop-lithe` 第三节“插件归属与宿主零依赖”的自查命令。有命中按
+  `review-policy.md` 的“插件归属与宿主零依赖”报告；结果为空时，仍逐个检查本次新增或修改的
+  测试的输入。
+
+改动触及其他边界时，按 `develop-lithe` 第十一节验证表选择对应的检查。表中写明已移除、尚未
+恢复的边界检查，在 Verification 里写“门禁未完成”，不得记为通过。
 
 ## 5. 交付结论
 

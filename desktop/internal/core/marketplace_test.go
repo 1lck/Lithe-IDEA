@@ -128,9 +128,11 @@ func TestMarketplaceValidatesCommunityStore(t *testing.T) {
 	if len(result.Rejected) != 0 || len(result.Plugins) != 12 {
 		t.Fatalf("plugins = %d, rejected = %#v", len(result.Plugins), result.Rejected)
 	}
+	// Every snapshot entry requires host capabilities and the host here
+	// declares none, so none of them may be offered as installable.
 	for _, entry := range result.Plugins {
-		if entry.ID == "io.github.lithe-idea.maven-build" && entry.Availability.Status != "unsupported" {
-			t.Fatalf("Maven must not be offered without its host: %#v", entry.Availability)
+		if entry.Availability.Status != "unsupported" {
+			t.Fatalf("%s must not be offered without the host capabilities it requires: %#v", entry.ID, entry.Availability)
 		}
 	}
 }

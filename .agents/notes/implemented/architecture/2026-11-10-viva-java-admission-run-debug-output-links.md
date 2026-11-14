@@ -43,7 +43,7 @@ Java Support 的插件清单要求宿主提供 `settings` 2、`outputLinkMatcher
 - `desktop/internal/pluginservice/runs_test.go`：真实 Core 校验、真实进程、停止、拒绝、端口等待与附加。
 - `desktop/internal/workbench/debug_tcp_test.go`：同一个夹具 DAP 适配器经回环 TCP 运行断点、暂停、继续、停止，覆盖对端关闭、不可达端点、端点命令失败、initialize 超时、等待端点时取消、关闭项目、远程确认。
 - `desktop/internal/workbench/outputlinks_test.go`：点击链接打开文件并定位，缺失文件只提示。
-- 设置 `LITHE_JAVA_PLUGIN_MANIFEST` 后 `TestJavaSupportManifestOnlyLacksOtherLanesCapabilities` 只剩 `projectGenerators 1`。
+- ~~设置 `LITHE_JAVA_PLUGIN_MANIFEST` 后 `TestJavaSupportManifestOnlyLacksOtherLanesCapabilities` 只剩 `projectGenerators 1`。~~（该测试已随插件归属规则从宿主删除，同类验证归插件仓库，见 [插件的测试、功能矩阵和翻译只在插件仓库](2026-11-14-plugin-owned-tests-matrix-i18n.md)）
 
 ## 适用范围
 
