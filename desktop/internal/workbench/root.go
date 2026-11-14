@@ -319,6 +319,10 @@ func (a *App) overlays(c ui.C) {
 		a.drawCommitReviews(c, p)
 		a.inlineEditView(c, p)
 		a.reviewOverlays(c, p)
+		// The tree's dialogs sit here rather than in the Project tool window, since the Git
+		// review opens Delete too, when the Project window may be closed.
+		a.treePromptDialog(c, p)
+		a.treeRemovalDialog(c, p)
 	}
 	a.newProjectModal(c)
 }

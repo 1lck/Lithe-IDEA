@@ -40,8 +40,6 @@ func (t *fileTree) describe(i int) ui.TreeNode {
 func (a *App) projectTree(c ui.C, p *project) {
 	t := &p.tree
 	t.rowRefs = map[gfx.ID]treeRowRef{}
-	a.treePromptDialog(c, p)
-	a.treeBatchDialog(c, p)
 	if t.wake == nil {
 		t.wake = a.invalidator.Invalidate
 		t.view.Node = t.describe

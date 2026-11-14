@@ -3,11 +3,77 @@ package workbench
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
+
+// stubTreeTrash replaces the system trash for one test and returns the paths moved to it, so a
+// test never fills the trash of the machine running it. The stub removes what it is given, as
+// the trash takes it out of the folder.
+func stubTreeTrash(t *testing.T) *[]string {
+	t.Helper()
+	var trashed []string
+	var mu sync.Mutex
+	previous := treeMoveToTrash
+	treeMoveToTrash = func(full string) error {
+		mu.Lock()
+		trashed = append(trashed, full)
+		mu.Unlock()
+		return os.RemoveAll(full)
+	}
+	t.Cleanup(func() { treeMoveToTrash = previous })
+	return &trashed
+}
+
+// Delete is one menu item; its dialog moves the item to the trash by default and offers
+// Delete Permanently beside it, as the IDE does.
+func TestProjectTreeDeleteMovesToTheTrashByDefault(t *testing.T) {
+	root := t.TempDir()
+	writeTreeFiles(t, root, "a/keep.txt", "b.txt")
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	p := h.openTree(t, root)
+	trashed := stubTreeTrash(t)
+
+	h.rightClickNamed("b.txt")
+	if h.hasPopupItem(h.shared("desktop.files.moveToTrash")) {
+		t.Fatal("the menu still lists Move to Trash beside Delete")
+	}
+	h.click(center(h.popupHit(h.shared("desktop.files.delete"))))
+	h.settle()
+	if !p.tree.removal.open || !slices.Equal(p.tree.removal.paths, []string{"b.txt"}) {
+		t.Fatalf("Delete opened %+v, want the dialog for b.txt", p.tree.removal)
+	}
+	h.clickNamed(h.shared("desktop.files.moveToTrash"))
+	h.await("the trashed row", func() bool { return p.tree.find("b.txt") == nil })
+	if want := []string{filepath.Join(root, "b.txt")}; !slices.Equal(*trashed, want) {
+		t.Fatalf("trashed %v, want %v", *trashed, want)
+	}
+	if p.tree.removal.open {
+		t.Fatal("the Delete dialog stayed open")
+	}
+}
+
+// Copy Path and Copy Relative Path sit in one submenu of the tree row, as in the tab menu.
+func TestProjectTreeCopyPathSubmenu(t *testing.T) {
+	root := t.TempDir()
+	writeTreeFiles(t, root, "a/keep.txt")
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.openTree(t, root)
+
+	h.rightClickNamed("a")
+	if h.hasPopupItem(h.shared("native.copyRelativePath")) {
+		t.Fatal("Copy Relative Path is still a top-level item")
+	}
+	h.clickNamed(h.shared("native.copyPathReference"))
+	h.clickNamed(h.shared("native.copyRelativePath"))
+	if got := h.driver.Clipboard(); got != "a" {
+		t.Fatalf("copied relative path %q, want a", got)
+	}
+}
 
 // treePromptFor opens one row's dialog in the test without a click: the dialog itself is
 // declared by the next frame, and the action is what the test drives.
@@ -53,10 +119,11 @@ func TestProjectTreeCreatesRenamesAndDeletes(t *testing.T) {
 		return d != nil && d.name == "renamed.txt"
 	})
 
-	// Deleting the folder saves and closes the tab below it and removes the file.
-	folder = p.tree.find("a")
-	treePromptFor(h, p, treePromptDelete, folder, "")
-	h.app.submitTreePrompt(p)
+	// Delete Permanently in the Delete dialog saves and closes the tab below the folder and
+	// removes the folder from disk.
+	h.app.openTreeRemoval(p, []string{"a"})
+	h.settle()
+	h.clickNamed(h.shared("desktop.files.deletePermanently"))
 	h.await("the deleted folder", func() bool {
 		_, err := os.Stat(filepath.Join(root, "a"))
 		return os.IsNotExist(err)

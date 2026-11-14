@@ -530,7 +530,8 @@ func TestProjectSearchResultMenuCopiesThePathAndOpens(t *testing.T) {
 	label := searchMatchLabel(p.search.matches[0])
 
 	h.rightClickNamed(label)
-	h.click(center(h.popupHit(h.shared("desktop.files.copyRelativePath"))))
+	h.clickNamed(h.shared("native.copyPathReference"))
+	h.clickNamed(h.shared("native.copyRelativePath"))
 	if got := h.driver.Clipboard(); got != "example.go" {
 		t.Fatalf("the clipboard holds %q, want the path relative to the project", got)
 	}

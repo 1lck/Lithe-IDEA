@@ -486,7 +486,8 @@ func TestProjectTreeBatchSelectionFollowsCore(t *testing.T) {
 		t.Fatalf("without marks the batch is %v, want the selected row", got)
 	}
 	h.app.treeModifiedClick(p, p.tree.find("b.txt"), ui.Primary)
-	h.app.finishBatch(p, nil, "workspace.file.trashBatch", 0, nil, nil)
+	stubTreeTrash(t)
+	h.app.removeTreeItems(p, paths(p.tree.batchTargets()), false)
 	if len(p.tree.marked) != 0 || len(p.tree.targets) != 0 {
 		t.Fatalf("the end of a batch left marks %v targets %v", p.tree.marked, p.tree.targets)
 	}

@@ -17,8 +17,8 @@ import (
 
 // This file holds the file operations of the project tree that the menu runs without a dialog
 // (matrix id workspace-files): Duplicate copies a file or folder beside itself under a free
-// "copy" name, and Move to Trash sends it to the system's trash, so it can be restored. Both
-// are single-item operations; the tree has no multi-selection yet (see workspace-tree-batch-files).
+// "copy" name. It also holds moveToTrash, which the Delete dialog uses to send items to the
+// system's trash, so they can be restored (filetree_batch.go).
 
 // duplicateTreeItem copies the row's file or folder next to it as "<name> copy", "<name> copy 2"
 // and so on, and shows the copy in the tree.
@@ -101,32 +101,6 @@ func copyTreeFile(source, dest string, perm fs.FileMode) error {
 		return err
 	}
 	return out.Close()
-}
-
-// trashTreeItem moves the row's file or folder to the system trash. The open files below it are
-// saved and their tabs closed first, as a delete does.
-func (a *App) trashTreeItem(p *project, n *treeNode) {
-	language := a.language()
-	if n == nil || n == p.tree.root {
-		return
-	}
-	full := filepath.Join(p.root, filepath.FromSlash(n.path))
-	parent := path.Dir(n.path)
-	docs := a.documentsUnder(p, full)
-	a.saveDocumentsThen(p, docs, func() {
-		for _, d := range docs {
-			if a.project == p && p.docs.find(d.id) == d {
-				a.removeDocument(p, d)
-			}
-		}
-		if err := moveToTrash(full); err != nil {
-			a.notifyError(i18n.SharedFormat(language, "desktop.files.trashFailed", map[string]string{"reason": treeErrorReason(err)}))
-			return
-		}
-		a.performed("workspace.file.trash", surfaceMenu)
-		a.listTree(p, parent)
-		a.loadGit(p)
-	})
 }
 
 // moveToTrash sends the file or folder at full to the system trash with the platform's own

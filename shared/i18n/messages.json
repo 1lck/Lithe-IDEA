@@ -9165,7 +9165,7 @@
     },
     {
       "id": "desktop.files.batchDelete",
-      "description": "Project tree batch menu: delete the marked items",
+      "description": "Project tree batch menu: open the Delete dialog for the marked items",
       "platforms": [
         "desktop"
       ],
@@ -9174,15 +9174,8 @@
       }
     },
     {
-      "id": "desktop.files.batchDeleteConfirm",
-      "description": "Button that confirms the batch delete",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.files.batchDeletePrompt",
-      "description": "Prompt of the batch delete confirmation",
+      "description": "Delete dialog text for several items. {count} is how many.",
       "platforms": [
         "desktop"
       ],
@@ -9192,20 +9185,10 @@
     },
     {
       "id": "desktop.files.batchDeleteTitle",
-      "description": "Title of the batch delete confirmation",
+      "description": "Title of the Delete dialog for several items.",
       "platforms": [
         "desktop"
       ]
-    },
-    {
-      "id": "desktop.files.batchTrash",
-      "description": "Project tree batch menu: move the marked items to the trash",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "count": "string"
-      }
     },
     {
       "id": "desktop.files.cancel",
@@ -9239,20 +9222,6 @@
       }
     },
     {
-      "id": "desktop.files.copyPath",
-      "description": "Copy the absolute path of the row.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.copyRelativePath",
-      "description": "Copy the path of the row relative to the project.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.files.create",
       "description": "Create button of the New File and New Directory dialogs.",
       "platforms": [
@@ -9278,14 +9247,7 @@
     },
     {
       "id": "desktop.files.delete",
-      "description": "Delete menu item; asks for confirmation.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.files.deleteAction",
-      "description": "Delete button of the Delete confirmation dialog.",
+      "description": "Delete… menu item of a file or folder; opens a dialog that moves it to the trash or deletes it permanently.",
       "platforms": [
         "desktop"
       ]
@@ -9302,7 +9264,7 @@
     },
     {
       "id": "desktop.files.deleteMessage",
-      "description": "Confirmation of deleting a file or folder. {name} is the item's name.",
+      "description": "Delete dialog text for one file or folder. {name} is the item's name.",
       "platforms": [
         "desktop"
       ],
@@ -9312,7 +9274,7 @@
     },
     {
       "id": "desktop.files.deleteTitle",
-      "description": "Title of the Delete confirmation dialog.",
+      "description": "Title of the Delete dialog for one item.",
       "platforms": [
         "desktop"
       ]
@@ -9377,7 +9339,14 @@
     },
     {
       "id": "desktop.files.moveToTrash",
-      "description": "Project tree context menu item: move the file or folder to the system trash",
+      "description": "Delete dialog: the default button, which moves the items to the system trash",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.deletePermanently",
+      "description": "Delete dialog: the button that removes the items from disk; it cannot be undone",
       "platforms": [
         "desktop"
       ]

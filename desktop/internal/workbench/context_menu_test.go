@@ -28,7 +28,8 @@ func TestCommitChangeMenuStagesAndCopiesThePath(t *testing.T) {
 	p := h.openCommit(dir)
 
 	h.rightClickNamed("changed.txt")
-	h.click(center(h.popupHit(h.shared("native.copyPath"))))
+	h.clickNamed(h.shared("native.copyPathReference"))
+	h.clickNamed(h.shared("native.copyPath"))
 	want := filepath.Join(p.git.repositoryRoot(p.root), "changed.txt")
 	if got := h.driver.Clipboard(); got != want {
 		t.Fatalf("the clipboard holds %q, want %q", got, want)

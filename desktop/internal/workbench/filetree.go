@@ -45,8 +45,9 @@ type fileTree struct {
 	marked  map[string]bool
 	anchor  string
 	targets []string
-	// batch is the batch delete dialog, open while the user confirms it.
-	batch treeBatchDelete
+	// removal is the Delete dialog, open while the user chooses between the trash and deleting
+	// for good (filetree_batch.go).
+	removal treeRemoval
 	// rowRefs maps the hit identity of each row the last paint declared to its node, so a drag
 	// or drop finds the paths it names (filetree_dnd.go); clip is the cut or copied items.
 	rowRefs map[gfx.ID]treeRowRef
@@ -101,7 +102,7 @@ type fileTree struct {
 	expandingAll bool
 	expandSeen   map[int]bool
 	refreshing   bool
-	// prompt is the open New File, New Directory, Rename or Delete dialog of a row
+	// prompt is the open New File, New Directory or Rename dialog of a row
 	// (see filetree_menu.go).
 	prompt treePrompt
 }
