@@ -89,6 +89,7 @@ type Kernel interface {
 	processExitKernel
 	processMemoryKernel
 	MatchOutputLinks(context.Context, core.OutputLinkRequest) ([]core.OutputLink, error)
+	DecodeOutputStyle(ctx context.Context, text string, state json.RawMessage) (core.OutputStyleDecoding, error)
 	CreateDebugSession(ctx context.Context, request core.DebugCreateSessionRequest) (core.DebugUpdate, error)
 	LaunchDebug(ctx context.Context, sessionID, operationID string, configuration core.DebugLaunchConfiguration) (core.DebugUpdate, error)
 	NormalizeSteppingFilters(ctx context.Context, adapterID string, filters core.DebugSteppingFilters) (core.DebugSteppingFilters, error)

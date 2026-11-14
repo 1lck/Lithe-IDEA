@@ -168,13 +168,12 @@ func TestIDEBuildExecuteReservesTheWindowUntilItsExecutionEnds(t *testing.T) {
 func TestIDEOperationOutputIsPagedByCore(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	p, conn := ideAPIProject(t, h)
-	op := h.app.beginBuildOperation(p, "build", "Cargo: build", "")
+	op := h.app.beginBuildOperation(p, "build", "Cargo: build", "", nil)
 	var want strings.Builder
 	for i := 0; i < 2000; i++ {
-		line := fmt.Sprintf("%04d 编译 %s\n", i, strings.Repeat("é", 20))
-		want.WriteString(line)
-		h.app.appendBuildOutput(p, op, line)
+		want.WriteString(fmt.Sprintf("%04d 编译 %s\n", i, strings.Repeat("é", 20)))
 	}
+	feedBuildOutput(h.app, p, op, want.String())
 	read := func(cursor string) map[string]any {
 		t.Helper()
 		arguments := map[string]any{"operationID": op.ide.ID}
@@ -213,14 +212,12 @@ func TestIDEOperationOutputIsPagedByCore(t *testing.T) {
 	if end := read(cursor); end["output"] != "" || end["hasMore"] != false || end["nextCursor"] != cursor {
 		t.Fatalf("a read at the end answered %#v", end)
 	}
-	h.app.appendBuildOutput(p, op, "tail\n")
+	feedBuildOutput(h.app, p, op, "tail\n")
 	if tail := read(cursor); tail["output"] != "tail\n" || tail["reset"] != false {
 		t.Fatalf("the read after new output answered %#v", tail)
 	}
 
-	for i := 0; i < buildOutputMaxLines; i++ {
-		h.app.appendBuildOutput(p, op, "x\n")
-	}
+	feedBuildOutput(h.app, p, op, strings.Repeat("x\n", buildOutputMaxLines))
 	trimmed := read(firstCursor)
 	if text, _ := trimmed["output"].(string); trimmed["reset"] != true || !strings.HasPrefix(text, "x\n") {
 		t.Fatalf("a cursor into dropped output answered reset %v with %.20q", trimmed["reset"], text)

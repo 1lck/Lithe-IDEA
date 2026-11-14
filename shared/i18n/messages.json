@@ -13997,8 +13997,58 @@
       }
     },
     {
-      "id": "desktop.run.build",
-      "description": "Name of the build output in the run output switcher",
+      "id": "desktop.run.closeSession",
+      "description": "Close button of a finished execution's tab in the Run tool window",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.durationHours",
+      "description": "How long an execution took, at least an hour. {hours} and {minutes} are whole numbers.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "hours": "string",
+        "minutes": "string"
+      }
+    },
+    {
+      "id": "desktop.run.durationMilliseconds",
+      "description": "How long an execution took, under a second. {milliseconds} is a whole number.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "milliseconds": "string"
+      }
+    },
+    {
+      "id": "desktop.run.durationMinutes",
+      "description": "How long an execution took, at least a minute. {minutes} and {seconds} are whole numbers.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "minutes": "string",
+        "seconds": "string"
+      }
+    },
+    {
+      "id": "desktop.run.durationSeconds",
+      "description": "How long an execution took, at least a second. {seconds} and {milliseconds} are whole numbers.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "seconds": "string",
+        "milliseconds": "string"
+      }
+    },
+    {
+      "id": "desktop.run.empty",
+      "description": "Run tool window before anything ran",
       "platforms": [
         "desktop"
       ]
@@ -14087,6 +14137,44 @@
       "parameters": {
         "label": "string"
       }
+    },
+    {
+      "id": "desktop.run.startedAt",
+      "description": "Follows an execution's name in the Run tool window's tree. {time} is the date and time it started.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "time": "string"
+      }
+    },
+    {
+      "id": "desktop.run.statusFailed",
+      "description": "Status of an execution that failed or exited with a non-zero code",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.statusRunning",
+      "description": "Status of an execution that is still running",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.statusStopped",
+      "description": "Status of an execution the user stopped",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.statusSucceeded",
+      "description": "Status of an execution that finished successfully",
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.runConfig.arguments",
@@ -22857,7 +22945,8 @@
       "id": "git.console.clear",
       "description": "Windows UI: git.console.clear",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {

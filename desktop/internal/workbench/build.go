@@ -11,10 +11,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprocess"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprovider"
@@ -30,7 +30,6 @@ const (
 	buildRequestTimeout = 30 * time.Minute
 	buildStopTimeout    = 15 * time.Second
 	buildOutputMaxLines = 4000
-	buildOutputLineSize = 16 << 10
 	buildOutputBytes    = 4 << 20
 )
 
@@ -47,16 +46,8 @@ type buildState struct {
 	// reloadPending says a stored option changed while a detection was running, so the instances are
 	// detected again when that detection ends.
 	reloadPending bool
-	// status is the last result line under the output.
+	// status is the last result line of the current or latest execution.
 	status string
-	// output is bounded and stores whole lines; the oldest lines go first.
-	output []string
-	// outputBytes is the current size of output, so trimming stays cheap.
-	outputBytes int
-	// outputStart is the sequence number of output[0] and outputSequence counts the
-	// lines ever appended. An IDE operation reads from the sequence it started at, so a
-	// trimmed console reports a reset instead of silently skipping lines.
-	outputStart, outputSequence int
 
 	instances []buildInstance
 	selected  int
@@ -65,10 +56,12 @@ type buildState struct {
 	taskID    string
 
 	operation *buildOperation
-	// runs are the plugin-started runs the panel keeps beside the build console,
-	// and view is the one it shows: "" for the build console, else a run's ID.
-	runs []*runEntry
-	view string
+	// runs are the Run window's sessions, oldest first: the host's executions and the
+	// runs plugins started. view is the ID of the one it shows, and sessions numbers the
+	// host's executions.
+	runs     []*runEntry
+	view     string
+	sessions int
 	// generation rejects a detection or model load that a newer one replaced.
 	generation uint64
 	// dependencies are the loaded dependency trees by instance and project
@@ -113,18 +106,44 @@ type buildOperation struct {
 	stopped chan struct{}
 	// ide is the execution's IDE API identity and state (ide_api_dispatch.go).
 	ide *ideAPIOperation
+	// session is the execution's tab in the Run window, which holds its console.
+	session *runEntry
+	// decoder decodes the execution's output on the goroutines that read it.
+	decoder *outputDecoder
 }
 
 // beginBuildOperation makes a new operation the window's current one and gives it the IDE
 // identity of the execution. kind is "build" for a task and "run" for an application run;
-// label names it in the operations list. Every path that follows ends it with
-// finishBuildTask, finishBuildRun or finishBuildError for this operation.
-func (a *App) beginBuildOperation(p *project, kind, label, configuration string) *buildOperation {
-	operation := &buildOperation{configuration: configuration, stopped: make(chan struct{})}
+// label names it in the operations list and on its Run window tab, and restart starts it again
+// from that tab. Every path that follows ends it with finishBuildTask, finishBuildRun or
+// finishBuildError for this operation.
+func (a *App) beginBuildOperation(p *project, kind, label, configuration string, restart func(*App, *project)) *buildOperation {
+	operation := &buildOperation{configuration: configuration, stopped: make(chan struct{}), decoder: newOutputDecoder(a.kernel)}
+	p.build.sessions++
+	operation.session = &runEntry{
+		id: "build-" + strconv.Itoa(p.build.sessions), label: label, restart: restart, operation: operation,
+		running: true, started: a.now(), output: newOutputBuffer(buildOutputMaxLines, buildOutputBytes),
+	}
+	a.addRunSession(p, operation.session)
 	operation.ide = p.recordIDEOperation(kind, label, configuration)
+	operation.ide.output = &operation.session.output
 	p.build.operation = operation
 	p.build.status = a.text.Build.Preparing
 	return operation
+}
+
+// restartWithInstance is a session's restart that selects the build instance it ran under
+// again, by ID, before start runs it; an instance that is gone starts nothing.
+func restartWithInstance(instanceID string, start func(a *App, p *project)) func(*App, *project) {
+	return func(a *App, p *project) {
+		index := slices.IndexFunc(p.build.instances, func(instance buildInstance) bool { return instance.ID == instanceID })
+		if index < 0 {
+			a.notifyError(a.text.Build.TargetMissing)
+			return
+		}
+		p.build.selected = index
+		start(a, p)
+	}
 }
 
 // bind returns ctx ending also when the operation is stopped, so the kernel and provider calls
@@ -889,7 +908,10 @@ func (a *App) runBuildTask(p *project, projectID, targetID, taskID string, userA
 	captured := *instance
 	kernel := a.kernel
 	messages := a.text.Build
-	op := a.beginBuildOperation(p, "build", ideAPIBuildLabel(instance, taskID), "")
+	userArguments = append([]string(nil), userArguments...)
+	op := a.beginBuildOperation(p, "build", ideAPIBuildLabel(instance, taskID), "", restartWithInstance(instance.ID, func(a *App, p *project) {
+		_, _ = a.runBuildTask(p, projectID, targetID, taskID, userArguments)
+	}))
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		prepare, release := op.bind(ctx)
 		defer release()
@@ -929,7 +951,7 @@ func (a *App) runCommandTask(ctx, prepare context.Context, p *project, op *build
 		WorkingDirectory: workingDirectory,
 		Environment:      applyToolchainSelection(plan.Environment, execution.selection()),
 	}, func(_ buildprocess.Stream, text string) {
-		a.post(func(a *App) { a.appendBuildOutput(p, op, text) })
+		a.streamBuildOutput(p, op, text)
 	})
 	if err != nil {
 		return err
@@ -1123,7 +1145,9 @@ func (a *App) runBuildEntry(p *project, entryID string) {
 	captured := *instance
 	messages := a.text.Build
 	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "build.runEntry", "surface": "build"})
-	op := a.beginBuildOperation(p, "run", entry.Name, "")
+	op := a.beginBuildOperation(p, "run", entry.Name, "", restartWithInstance(instance.ID, func(a *App, p *project) {
+		a.runBuildEntry(p, entryID)
+	}))
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		prepare, release := op.bind(ctx)
 		defer release()
@@ -1146,7 +1170,9 @@ func (a *App) runBuildTarget(p *project, targetID, runID string) {
 		a.notifyError(a.text.Build.TargetMissing)
 		return
 	}
-	op := a.beginBuildOperation(p, "run", target.Name, "")
+	op := a.beginBuildOperation(p, "run", target.Name, "", restartWithInstance(instance.ID, func(a *App, p *project) {
+		a.runBuildTarget(p, targetID, runID)
+	}))
 	a.runBuildTargetWith(p, op, instance, target.ProjectID, targetID, runID, nil)
 }
 
@@ -1398,7 +1424,7 @@ func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *build
 			WorkingDirectory: workingDirectory,
 			Environment:      applyToolchainSelection(launch.Environment, execution.selection()),
 		}, func(_ buildprocess.Stream, text string) {
-			a.post(func(a *App) { a.appendBuildOutput(p, op, text) })
+			a.streamBuildOutput(p, op, text)
 		})
 		if err != nil {
 			return func(a *App) { a.finishBuildError(p, op, err) }
@@ -1447,7 +1473,7 @@ func (a *App) runProviderOperation(ctx, prepare context.Context, p *project, op 
 			}
 			if progress.Output != "" {
 				sawProgress = true
-				a.post(func(a *App) { a.appendBuildOutput(p, op, progress.Output) })
+				a.streamBuildOutput(p, op, progress.Output)
 			}
 			if progress.Message != "" {
 				a.post(func(a *App) {
@@ -1472,22 +1498,44 @@ done:
 			Output string `json:"output"`
 		}
 		if json.Unmarshal(result, &execution) == nil && execution.Output != "" {
-			a.post(func(a *App) { a.appendBuildOutput(p, op, execution.Output) })
+			a.streamBuildOutput(p, op, execution.Output)
 		}
 	}
 	a.post(func(a *App) { a.finishBuildTask(p, op, result) })
 }
 
-// endBuildOperation clears op as the window's operation and settles its IDE state. It reports
-// false when op is no longer the window's operation: a closed project or a plugin change already
-// detached and settled it, and its late terminal event changes nothing.
-func (a *App) endBuildOperation(p *project, op *buildOperation, state string, exitCode *int, failure string) bool {
+// endBuildOperation clears op as the window's operation, records how it ended in its session and
+// settles its IDE state; status is the window's last line about it. It reports false when op is
+// no longer the window's operation: a closed project or a plugin change already detached and
+// settled it, and its late terminal event changes nothing.
+func (a *App) endBuildOperation(p *project, op *buildOperation, state string, exitCode *int, failure, status string) bool {
 	if a.project != p || p.build.operation != op {
 		return false
 	}
 	p.build.operation = nil
-	op.ide.settle(state, exitCode, p.build.outputSequence, failure)
+	p.build.status = status
+	a.endBuildSession(op, state, status)
+	op.ide.settle(state, exitCode, op.session.output.sequence, failure)
 	return true
+}
+
+// endBuildSession records in op's session that the execution ended in state, the IDE API's
+// "completed", "failed" or "cancelled", with status as its summary.
+func (a *App) endBuildSession(op *buildOperation, state, status string) {
+	session := op.session
+	if session == nil || !session.running {
+		return
+	}
+	session.output.seal()
+	session.running, session.operation, session.ended, session.summary = false, nil, a.now(), status
+	switch state {
+	case "completed":
+		session.outcome = runSucceeded
+	case "cancelled":
+		session.outcome = runStopped
+	default:
+		session.outcome = runFailed
+	}
 }
 
 // finishBuildTask ends a provider task with its result. A stopped task is cancelled whatever
@@ -1500,17 +1548,11 @@ func (a *App) finishBuildTask(p *project, op *buildOperation, result json.RawMes
 	code := execution.ExitCode
 	switch {
 	case op.cancelled:
-		if a.endBuildOperation(p, op, "cancelled", code, "") {
-			p.build.status = a.text.Build.Cancelled
-		}
+		a.endBuildOperation(p, op, "cancelled", code, "", a.text.Build.Cancelled)
 	case code != nil && *code != 0:
-		if a.endBuildOperation(p, op, "failed", code, "") {
-			p.build.status = a.text.Build.Exited(*code)
-		}
+		a.endBuildOperation(p, op, "failed", code, "", a.text.Build.Exited(*code))
 	default:
-		if a.endBuildOperation(p, op, "completed", code, "") {
-			p.build.status = a.text.Build.Succeeded
-		}
+		a.endBuildOperation(p, op, "completed", code, "", a.text.Build.Succeeded)
 	}
 }
 
@@ -1520,23 +1562,15 @@ func (a *App) finishBuildRun(p *project, op *buildOperation, err error) {
 	var exit *exec.ExitError
 	switch {
 	case op.cancelled:
-		if a.endBuildOperation(p, op, "cancelled", nil, "") {
-			p.build.status = a.text.Build.Cancelled
-		}
+		a.endBuildOperation(p, op, "cancelled", nil, "", a.text.Build.Cancelled)
 	case errors.As(err, &exit) && exit.ExitCode() > 0:
 		code := exit.ExitCode()
-		if a.endBuildOperation(p, op, "failed", &code, "") {
-			p.build.status = a.text.Build.Exited(code)
-		}
+		a.endBuildOperation(p, op, "failed", &code, "", a.text.Build.Exited(code))
 	case err != nil:
-		if a.endBuildOperation(p, op, "failed", nil, "") {
-			p.build.status = a.text.Build.ProcessFailed(err.Error())
-		}
+		a.endBuildOperation(p, op, "failed", nil, "", a.text.Build.ProcessFailed(err.Error()))
 	default:
 		code := 0
-		if a.endBuildOperation(p, op, "completed", &code, "") {
-			p.build.status = a.text.Build.Succeeded
-		}
+		a.endBuildOperation(p, op, "completed", &code, "", a.text.Build.Succeeded)
 	}
 }
 
@@ -1547,17 +1581,14 @@ func (a *App) finishBuildError(p *project, op *buildOperation, err error) {
 		return
 	}
 	if op.cancelled || errors.Is(err, context.Canceled) {
-		if a.endBuildOperation(p, op, "cancelled", nil, "") {
-			p.build.status = a.text.Build.Cancelled
-		}
+		a.endBuildOperation(p, op, "cancelled", nil, "", a.text.Build.Cancelled)
 		return
 	}
 	failure := ""
 	if op.ide != nil && op.ide.State == "preparing" {
 		failure = err.Error()
 	}
-	if a.endBuildOperation(p, op, "failed", nil, failure) {
-		p.build.status = err.Error()
+	if a.endBuildOperation(p, op, "failed", nil, failure, err.Error()) {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("build", err))
 	}
 }
@@ -1606,7 +1637,8 @@ func (a *App) stopBuildSessions(p *project, closing bool) {
 	if operation != nil {
 		// Its terminal event finds the operation detached, so it settles here.
 		operation.stop()
-		operation.ide.settle("cancelled", nil, p.build.outputSequence, "")
+		a.endBuildSession(operation, "cancelled", a.text.Build.Cancelled)
+		operation.ide.settle("cancelled", nil, operation.session.output.sequence, "")
 	}
 	clients := p.buildSessions.detach(closing)
 	a.tasks.running.Add(1)
@@ -1631,47 +1663,32 @@ func (a *App) invalidateBuild(p *project) {
 	}
 	a.stopTestsForProject(p)
 	a.stopBuildSessions(p, false)
-	// The output is gone, but its sequence keeps counting: an IDE operation's cursor then
-	// reports the discontinuity instead of reading lines written after it.
-	sequence := p.build.outputSequence
-	p.build = buildState{outputStart: sequence, outputSequence: sequence}
+	// The Run window's sessions are what ran, not the models, so they stay.
+	runs, view, sessions := p.build.runs, p.build.view, p.build.sessions
+	p.build = buildState{runs: runs, view: view, sessions: sessions}
 }
 
-// appendBuildOutput adds text op wrote to the bounded output, splitting it into lines. Output
-// of an operation the window no longer runs is dropped, so it never lands in the next
-// execution's output.
-func (a *App) appendBuildOutput(p *project, op *buildOperation, text string) {
-	if p == nil || a.project != p || p.build.operation != op || text == "" {
+// streamBuildOutput decodes text op wrote, on the goroutine that read it, and posts the decoded
+// lines to the window thread. It never runs on the window thread.
+func (a *App) streamBuildOutput(p *project, op *buildOperation, text string) {
+	if text == "" {
 		return
 	}
-	for len(text) > 0 {
-		line := text
-		if index := strings.IndexByte(line, '\n'); index >= 0 {
-			line = text[:index+1]
-			text = text[index+1:]
-		} else {
-			text = ""
-		}
-		if len(line) > buildOutputLineSize {
-			// Cut at a character boundary, so the kept text stays valid UTF-8 for the IDE output pages.
-			cut := buildOutputLineSize
-			for cut > 0 && !utf8.RuneStart(line[cut]) {
-				cut--
-			}
-			line = line[:cut] + "\n"
-		}
-		p.build.output = append(p.build.output, line)
-		p.build.outputBytes += len(line)
-		p.build.outputSequence++
+	op.decoder.deliver(text, func(chunk outputChunk, failure error) {
+		a.post(func(a *App) {
+			a.reportOutputStyleFailure(failure)
+			a.applyBuildOutput(p, op, chunk)
+		})
+	})
+}
+
+// applyBuildOutput adds decoded output to op's console. Output of an operation the window no
+// longer runs is dropped, so it never lands in a later execution's console.
+func (a *App) applyBuildOutput(p *project, op *buildOperation, chunk outputChunk) {
+	if p == nil || a.project != p || p.build.operation != op {
+		return
 	}
-	for len(p.build.output) > buildOutputMaxLines || p.build.outputBytes > buildOutputBytes {
-		if len(p.build.output) == 0 {
-			break
-		}
-		p.build.outputBytes -= len(p.build.output[0])
-		p.build.output = p.build.output[1:]
-		p.build.outputStart++
-	}
+	op.session.output.apply(chunk)
 }
 
 func buildProjectByID(model core.BuildModel, id string) (core.BuildProject, bool) {

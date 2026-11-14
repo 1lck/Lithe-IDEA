@@ -4,84 +4,11 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
-	"github.com/vivaui/viva/gfx"
-	"github.com/vivaui/viva/ui"
 )
 
-const (
-	buildRowHeight     = 24
-	buildOutputVisible = 200
-)
-
-// runView declares the Run tool window, which shows only what runs print: the console of what
-// the Build window runs, beside the runs plugins started. The build systems, with their
-// projects, targets and tasks, and the run configurations are the Build window's
-// (build_tree_view.go).
-func (a *App) runView(c ui.C, p *project) {
-	ui.Column(c).Fill().Background(a.colors.Editor).Children(func() {
-		a.runHeader(c, p)
-		ui.Divider(c)
-		if run := p.activeRun(); run != nil {
-			a.runConsole(c, p, run)
-			return
-		}
-		a.buildOutput(c, p)
-	})
-}
-
-// runHeader declares the title row: the switcher between the build console and the runs
-// plugins started, else the console's name, then the stop of the running build operation.
-func (a *App) runHeader(c ui.C, p *project) {
-	b, t := &p.build, a.text.Build
-	ui.Row(c).Height(panelHeaderHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
-		if len(b.runs) == 0 {
-			ui.Text(c, a.text.Run.Build).Color(a.colors.Text).Weight(gfx.WeightMedium).Ellipsis().Shrink(1)
-		}
-		a.runViews(c, p)
-		ui.Spacer(c)
-		if b.operation != nil {
-			label := t.Stop
-			if b.operation.cancelled {
-				label = i18n.Shared(a.language(), "desktop.process.forceStop")
-			}
-			if ui.Button(c, label).Outline().Clicked() {
-				a.stopBuildOperation(p)
-			}
-		}
-	})
-}
-
-// runViews declares the switcher between the build console and the runs plugins
-// started. It is empty until the first run.
-func (a *App) runViews(c ui.C, p *project) {
-	b := &p.build
-	if len(b.runs) == 0 {
-		return
-	}
-	views := make([]string, 0, len(b.runs)+1)
-	views = append(views, "")
-	for _, run := range b.runs {
-		views = append(views, run.id)
-	}
-	if p.runEntry(b.view) == nil {
-		b.view = ""
-	}
-	ui.Tabs(c, &b.view, views, func(id string) string {
-		if id == "" {
-			return a.text.Run.Build
-		}
-		return p.runEntry(id).label
-	}).Shrink(0)
-}
-
-// showBuildConsole brings the Run window's build console forward, for an action of the Build
-// window that prints there. A run a plugin starts switches to its own tab when it starts.
-func (a *App) showBuildConsole(p *project) {
-	p.build.view = ""
-	a.openToolWindow(itemRun)
-}
+// buildRowHeight is the height of a row of the build tree and of the Run window's tree.
+const buildRowHeight = 24
 
 // buildRowKind says what a row of the build tree is.
 type buildRowKind uint8
@@ -134,44 +61,6 @@ type buildRow struct {
 	test     *core.BuildDiscoveredTest
 }
 
-// buildOutput declares the console of the build tasks: its header with the status of the last
-// operation, then its lines.
-func (a *App) buildOutput(c ui.C, p *project) {
-	t := a.text.Build
-	small := a.theme.Metrics.FontSizeS
-	ui.Column(c).FillWidth().Grow(1).Shrink(1).MinHeight(0).Clip().Children(func() {
-		ui.Row(c).FillWidth().Height(buildRowHeight).Shrink(0).Items(ui.Center).Gap(8).PadX(8).Children(func() {
-			ui.Text(c, t.Output).FontSize(small).Weight(gfx.WeightSemibold).Color(a.colors.Subtle).Shrink(0)
-			ui.Spacer(c)
-			if status := p.build.status; status != "" {
-				ui.Text(c, status).FontSize(small).Color(a.colors.Subtle).Ellipsis().Shrink(1)
-			}
-		})
-		lines := buildVisibleOutput(p.build.output)
-		if len(lines) == 0 {
-			ui.Row(c).FillWidth().Grow(1).Items(ui.Center).PadX(shellContentPad).Children(func() {
-				ui.Text(c, t.EmptyOutput).FontSize(small).Color(a.colors.Subtle).Ellipsis()
-			})
-			return
-		}
-		menu := &outputMenu{key: "buildoutput", all: func() string { return strings.Join(p.build.output, "") }}
-		a.outputList(c, p, &p.panels.output, outputScopeRun, t.Output, lines, menu).Grow(1)
-	})
-}
-
-// buildVisibleOutput splits what was printed into lines and keeps the last buildOutputVisible.
-func buildVisibleOutput(chunks []string) []string {
-	joined := strings.Join(chunks, "")
-	if joined == "" {
-		return nil
-	}
-	lines := strings.Split(joined, "\n")
-	if len(lines) > buildOutputVisible {
-		lines = lines[len(lines)-buildOutputVisible:]
-	}
-	return lines
-}
-
 // declaredTasks are the tasks the manifest names itself, command and provider alike; a fromModel
 // template is listed through the model tasks it stands for.
 func declaredTasks(instance *buildInstance) []pluginservice.BuildTaskDeclaration {
@@ -214,50 +103,4 @@ func buildRunApplies(run pluginservice.BuildRunDeclaration, target core.BuildTar
 		}
 	}
 	return false
-}
-
-// runConsole declares one run: its controls, its output with the links the
-// plugin's matchers found, and how it ended.
-func (a *App) runConsole(c ui.C, p *project, run *runEntry) {
-	t := a.text.Build
-	ui.Column(c).Fill().Clip().Children(func() {
-		ui.Row(c).FillWidth().Height(buildRowHeight + 8).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
-			ui.Text(c, run.label).Color(a.colors.Text).Ellipsis().Shrink(1)
-			ui.Spacer(c)
-			if run.running {
-				if ui.Button(c, t.Stop).Outline().Clicked() {
-					a.stopRun(p, run)
-				}
-			} else if run.rerun != nil {
-				if ui.Button(c, a.text.Run.Rerun).Outline().Clicked() {
-					a.rerunRun(p, run)
-				}
-			}
-		})
-		ui.Divider(c)
-		a.runPerformanceChart(c, run)
-		lines := buildVisibleOutput(run.output)
-		if len(lines) == 0 {
-			ui.Row(c).FillWidth().Grow(1).Items(ui.Center).PadX(shellContentPad).Children(func() {
-				ui.Text(c, t.EmptyOutput).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
-			})
-		} else {
-			menu := &outputMenu{
-				key: "runsnapshot/" + run.id,
-				all: func() string { return strings.Join(run.output, "") },
-				extra: func(menu *ui.MenuItems) {
-					if menu.Item(a.text.Run.Snapshot.Menu).Clicked() {
-						c.After(func() { a.snapshotRunOutput(p, run) })
-					}
-				},
-			}
-			a.outputList(c, p, &run.list, outputScopeRun, t.Output, lines, menu).Grow(1)
-		}
-		if run.summary != "" {
-			ui.Divider(c)
-			ui.Row(c).FillWidth().Height(28).Shrink(0).Items(ui.Center).PadX(8).Children(func() {
-				ui.Text(c, run.summary).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
-			})
-		}
-	})
 }

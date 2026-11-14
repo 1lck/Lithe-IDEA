@@ -3,7 +3,6 @@ package workbench
 import (
 	"path/filepath"
 	"strconv"
-	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
@@ -191,14 +190,11 @@ func (a *App) testStatusMark(status string) (gfx.Icon, gfx.Color) {
 // testOutput shows the tail of a run that failed before reporting results,
 // bounded to the same console budget the run kept.
 func (a *App) testOutput(c ui.C, p *project) {
-	if len(p.tests.output) == 0 {
+	output := &p.tests.output
+	if output.empty() {
 		return
 	}
-	lines := p.tests.output
-	if len(lines) > 12 {
-		lines = lines[len(lines)-12:]
-	}
 	ui.Divider(c)
-	menu := &outputMenu{key: "testoutput", all: func() string { return strings.Join(p.tests.output, "\n") }}
-	a.outputList(c, p, &p.panels.testOutput, outputScopeTest, a.text.Build.Output, lines, menu).Height(140).Shrink(0)
+	menu := &outputMenu{key: "testoutput", all: output.all}
+	a.outputList(c, p, &p.panels.testOutput, outputScopeTest, a.text.Build.Output, output, output.count()-12, menu).Height(140).Shrink(0)
 }

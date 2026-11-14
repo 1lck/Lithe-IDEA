@@ -61,6 +61,12 @@ func newPalette(look Look, epoch uint32) palette {
 	return pal
 }
 
+// ANSI is the 16 ANSI colors the terminal draws with in look, for consoles outside the terminal
+// view that color their output the same way.
+func (look Look) ANSI() [16][3]uint8 {
+	return newPalette(look, 0).ansi
+}
+
 // nativeContrast is the least contrast, by WCAG 2's ratio, a color of the system terminal's
 // profile needs against the background to replace the built-in one: the AA level for text.
 const nativeContrast = 4.5

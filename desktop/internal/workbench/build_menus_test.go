@@ -52,8 +52,8 @@ func TestBuildRowMenusRunTargetsAndOpenTheBuildFile(t *testing.T) {
 	if p.build.targetID != "main" {
 		t.Fatalf("the menu ran target %q without choosing it", p.build.targetID)
 	}
-	// What it prints shows in the Run window's build console, beside the Build window.
-	if !h.app.chrome.isOpen(h.app.chrome.index[itemRun]) || !h.app.chrome.isOpen(h.app.chrome.index[itemBuild]) || p.build.view != "" {
+	// What it prints shows in the Run window's tab for this execution, beside the Build window.
+	if run := p.activeRun(); !h.app.chrome.isOpen(h.app.chrome.index[itemRun]) || !h.app.chrome.isOpen(h.app.chrome.index[itemBuild]) || run == nil || run.pluginID != "" {
 		t.Fatalf("after a run the Run window is open %v, the Build window %v, and the Run window shows %q",
 			h.app.chrome.isOpen(h.app.chrome.index[itemRun]), h.app.chrome.isOpen(h.app.chrome.index[itemBuild]), p.build.view)
 	}

@@ -28,7 +28,6 @@ const (
 	// The result console and the failure detail are bounded like build output so
 	// a chatty test tool cannot grow the window without limit.
 	testOutputMaxLines = 2000
-	testOutputLineSize = 16 << 10
 	testOutputBytes    = 2 << 20
 	// testMaxRows bounds the flattened result tree. Core already caps decoded
 	// cases at 10 000; the tree keeps the same ceiling so a future Core change
@@ -46,9 +45,8 @@ type testState struct {
 	failed string
 	// status is the last progress line under the toolbar.
 	status string
-	// output is the bounded console, oldest lines first.
-	output      []string
-	outputBytes int
+	// output is the bounded console, decoded from the run's ANSI escapes.
+	output outputBuffer
 
 	results    core.BuildTestResults
 	verdict    core.BuildTestVerdict
@@ -212,8 +210,7 @@ func (a *App) startTests(p *project, selection testSelection) {
 	p.tests.results = core.BuildTestResults{}
 	p.tests.verdict = core.BuildTestVerdict{}
 	p.tests.rows = nil
-	p.tests.output = nil
-	p.tests.outputBytes = 0
+	p.tests.output = newOutputBuffer(testOutputMaxLines, testOutputBytes)
 	p.tests.status = a.text.Tests.Preparing
 	last := selection
 	p.tests.last = &last
@@ -256,6 +253,7 @@ func (a *App) executeTestCommand(ctx context.Context, p *project, instance build
 		return func(a *App) { a.finishTestError(p, generation, err) }
 	}
 	output := &testOutput{}
+	decoder := newOutputDecoder(a.kernel)
 	operation := &testOperation{}
 	workingDirectory := filepath.Join(p.root, filepath.FromSlash(plan.WorkingDirectory))
 	process, err := buildprocess.Start(ctx, buildprocess.Spec{
@@ -266,7 +264,7 @@ func (a *App) executeTestCommand(ctx context.Context, p *project, instance build
 		Environment:      applyToolchainSelection(plan.Environment, executable.selection()),
 	}, func(_ buildprocess.Stream, text string) {
 		output.append(text)
-		a.post(func(a *App) { a.appendTestOutput(p, generation, text) })
+		a.streamTestOutput(p, generation, decoder, text)
 	})
 	if err != nil {
 		return func(a *App) { a.finishTestError(p, generation, err) }
@@ -312,6 +310,7 @@ func (a *App) executeTestProvider(ctx context.Context, p *project, instance buil
 		p.tests.status = a.text.Tests.Running
 	})
 	output := &testOutput{}
+	decoder := newOutputDecoder(a.kernel)
 	var providerResult json.RawMessage
 	for {
 		select {
@@ -321,7 +320,7 @@ func (a *App) executeTestProvider(ctx context.Context, p *project, instance buil
 			}
 			if progress.Output != "" {
 				output.append(progress.Output)
-				a.post(func(a *App) { a.appendTestOutput(p, generation, progress.Output) })
+				a.streamTestOutput(p, generation, decoder, progress.Output)
 			}
 			if progress.Message != "" {
 				message := progress.Message
@@ -357,7 +356,7 @@ completed:
 	}
 	if execution.Output != "" && output.len() == 0 {
 		output.append(execution.Output)
-		a.post(func(a *App) { a.appendTestOutput(p, generation, execution.Output) })
+		a.streamTestOutput(p, generation, decoder, execution.Output)
 	}
 	providerResult = execution.TestResults
 	request := testResultsRequest(p, instance, selection, output.text(), providerResult, startedMillis)
@@ -436,6 +435,7 @@ func (a *App) finishTestRun(p *project, generation uint64, selection testSelecti
 		a.finishTestError(p, generation, err)
 		return
 	}
+	p.tests.output.seal()
 	p.tests.operation = nil
 	p.tests.running = false
 	p.tests.stopping = false
@@ -457,6 +457,7 @@ func (a *App) finishTestInterrupted(p *project, generation uint64, selection tes
 		a.finishTestError(p, generation, err)
 		return
 	}
+	p.tests.output.seal()
 	p.tests.operation = nil
 	p.tests.running = false
 	p.tests.stopping = false
@@ -477,6 +478,7 @@ func (a *App) finishTestError(p *project, generation uint64, err error) {
 	if a.project != p || p.tests.generation != generation {
 		return
 	}
+	p.tests.output.seal()
 	p.tests.operation = nil
 	p.tests.running = false
 	p.tests.stopping = false
@@ -565,29 +567,20 @@ func flattenTestRows(results core.BuildTestResults) []testRow {
 	return rows
 }
 
-// appendTestOutput adds one chunk to the bounded console, keeping whole lines
-// where possible as the Build window does.
-func (a *App) appendTestOutput(p *project, generation uint64, text string) {
-	if p == nil || a.project != p || p.tests.generation != generation || text == "" {
+// streamTestOutput decodes text the test run of generation wrote, on the goroutine that read
+// it, and posts the decoded lines to the window thread. It never runs on the window thread.
+func (a *App) streamTestOutput(p *project, generation uint64, decoder *outputDecoder, text string) {
+	if text == "" {
 		return
 	}
-	for len(text) > 0 {
-		line := text
-		if newline := strings.IndexByte(text, '\n'); newline >= 0 {
-			line, text = text[:newline+1], text[newline+1:]
-		} else {
-			text = ""
-		}
-		if len(line) > testOutputLineSize {
-			line = line[:testOutputLineSize]
-		}
-		p.tests.output = append(p.tests.output, line)
-		p.tests.outputBytes += len(line)
-	}
-	for len(p.tests.output) > testOutputMaxLines || (p.tests.outputBytes > testOutputBytes && len(p.tests.output) > 1) {
-		p.tests.outputBytes -= len(p.tests.output[0])
-		p.tests.output = p.tests.output[1:]
-	}
+	decoder.deliver(text, func(chunk outputChunk, failure error) {
+		a.post(func(a *App) {
+			a.reportOutputStyleFailure(failure)
+			if p != nil && a.project == p && p.tests.generation == generation {
+				p.tests.output.apply(chunk)
+			}
+		})
+	})
 }
 
 // formatTestDuration renders a decoded duration without inventing precision.

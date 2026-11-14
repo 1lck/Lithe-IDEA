@@ -83,8 +83,12 @@ func TestRunConsoleMenuCopiesTheChosenLineAndTheWholeOutput(t *testing.T) {
 	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
 	h.open(t.TempDir())
 	p := h.app.project
-	run := &runEntry{id: "run-1", label: "Serve"}
-	run.append("first line\nsecond line\n")
+	run := &runEntry{id: "run-1", label: "Serve", output: newOutputBuffer(runOutputMaxLines, runOutputBytes)}
+	chunk, err := newOutputDecoder(h.app.kernel).decode("first line\nsecond line\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.output.apply(chunk)
 	p.build.runs = append(p.build.runs, run)
 	p.build.view = run.id
 	if !h.app.chrome.isOpen(catalogIndex[itemRun]) {
