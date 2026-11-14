@@ -377,6 +377,33 @@ func TestMissingBackgroundCopyShowsNoImageQuietly(t *testing.T) {
 	}
 }
 
+// The restore New starts can post its result before the window binds its wake, which the
+// window then never gets: the first paint asks for one, so the result is applied all the same.
+func TestBackgroundRestoredBeforeTheWindowOpensIsApplied(t *testing.T) {
+	dir := t.TempDir()
+	saved := `{"theme":"dark","workbenchBackground":{"name":"gone.png"}}`
+	if err := os.WriteFile(filepath.Join(dir, settingsFile), []byte(saved), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := New(Options{Kernel: &testKernel{Client: core.NewClient()}, Store: store.At(dir), Languages: []string{"zh-Hans"}})
+	// The restore has posted before any window exists, so the wake it asked for was dropped.
+	a.wait()
+	driver, err := app.NewDriver(a.Config(), nil)
+	if err != nil {
+		t.Fatalf("NewDriver: %v", err)
+	}
+	t.Cleanup(func() {
+		a.wait()
+		driver.Close()
+	})
+	if err := driver.Pump(); err != nil {
+		t.Fatalf("Pump: %v", err)
+	}
+	if shown := a.backgroundSnapshot(a.language()); shown.Set || shown.Loading {
+		t.Fatalf("background restored before the window opened = %+v, want it applied and switched off", shown)
+	}
+}
+
 // A choice whose copy cannot be written is told and leaves the last image shown and kept: the
 // shown image is replaced only once its copy is written.
 func TestBackgroundWhoseCopyCannotBeWrittenLeavesTheLastImage(t *testing.T) {

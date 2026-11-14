@@ -327,7 +327,6 @@ var chinese = Messages{
 		Encoding:       Shared(Chinese, "desktop.status.encoding"),
 		Problems:       func(count int) string { return statusProblems(Chinese, count) },
 		Memory:         Shared(Chinese, "desktop.status.memory"),
-		MemoryValue:    func(megabytes int) string { return statusMemory(Chinese, megabytes) },
 		FPS:            Shared(Chinese, "desktop.status.fPS"),
 		FPSValue:       func(fps int) string { return statusFPS(Chinese, fps) },
 		NoChanges:      Shared(Chinese, "desktop.status.noChanges"),

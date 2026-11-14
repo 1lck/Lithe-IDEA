@@ -1,7 +1,8 @@
-// Package sysinfo reads the facts about the machine a diagnostic bundle's manifest records:
-// the operating system, the processor count, how much memory the process holds and how much
-// room is left on the disk of the log directory. A fact the system does not give is zero or
-// empty rather than an error, so a bundle can always be made.
+// Package sysinfo reads facts about the machine: what a diagnostic bundle's manifest records
+// (the operating system, the processor count, how much memory the process holds and how much
+// room is left on the disk of the log directory), and the process table the status bar's
+// memory readout is summed from. A fact the system does not give is zero or empty rather than
+// an error, so a bundle can always be made; only a table that cannot be listed at all fails.
 package sysinfo
 
 import "runtime"
@@ -36,6 +37,3 @@ func Current(volume string) Snapshot {
 		DiskFreeBytes: diskFree(volume),
 	}
 }
-
-// Resident is the memory the process holds in RAM now, in bytes; zero when the system does not say.
-func Resident() uint64 { return residentBytes() }

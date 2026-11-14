@@ -12324,18 +12324,74 @@
       ]
     },
     {
-      "id": "desktop.memory.kindServer",
+      "id": "desktop.memory.belowMegabyte",
       "description": "Memory monitor in the status bar.",
       "platforms": [
         "desktop"
       ]
     },
     {
-      "id": "desktop.memory.kindService",
+      "id": "desktop.memory.childProcesses",
       "description": "Memory monitor in the status bar.",
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.memory.gigabytes",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.memory.help",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.memory.helpLinux",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.memory.helpMacOS",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.memory.helpWindows",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.memory.host",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.memory.languageServer",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "plugin": "string",
+        "language": "string"
+      }
     },
     {
       "id": "desktop.memory.languageServers",
@@ -12345,14 +12401,52 @@
       ]
     },
     {
-      "id": "desktop.memory.lithe",
+      "id": "desktop.memory.megabytes",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.memory.noOtherProcesses",
       "description": "Memory monitor in the status bar.",
       "platforms": [
         "desktop"
       ]
     },
     {
-      "id": "desktop.memory.noProcesses",
+      "id": "desktop.memory.omitted",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string",
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.memory.processCount",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.memory.processes",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.memory.reading",
       "description": "Memory monitor in the status bar.",
       "platforms": [
         "desktop"
@@ -12377,6 +12471,13 @@
       }
     },
     {
+      "id": "desktop.memory.systemHelpers",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.memory.title",
       "description": "Memory monitor in the status bar.",
       "platforms": [
@@ -12391,27 +12492,15 @@
       ],
       "parameters": {
         "total": "string",
-        "lithe": "string",
-        "lsp": "string",
-        "services": "string"
+        "lithe": "string"
       }
     },
     {
-      "id": "desktop.memory.total",
+      "id": "desktop.memory.unavailable",
       "description": "Memory monitor in the status bar.",
       "platforms": [
         "desktop"
       ]
-    },
-    {
-      "id": "desktop.memory.value",
-      "description": "Memory monitor in the status bar.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "value": "string"
-      }
     },
     {
       "id": "desktop.menu.open",
@@ -16036,16 +16125,6 @@
       "platforms": [
         "desktop"
       ]
-    },
-    {
-      "id": "desktop.status.memoryValue",
-      "description": "Desktop terminal or status value.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "value": "integer"
-      }
     },
     {
       "id": "desktop.status.noChanges",
