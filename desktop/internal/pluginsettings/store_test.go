@@ -177,11 +177,11 @@ type readbackFailureKernel struct {
 	failure error
 }
 
-func (k *readbackFailureKernel) ReadPluginSettingsState(ctx context.Context, manifest json.RawMessage, global, project *string) (core.PluginSettingsState, error) {
+func (k *readbackFailureKernel) ReadPluginSettingsState(ctx context.Context, manifest json.RawMessage, global, project *string, localization *core.PluginSettingsLocalizationRequest) (core.PluginSettingsState, error) {
 	if global != nil {
 		return core.PluginSettingsState{}, k.failure
 	}
-	return k.Client.ReadPluginSettingsState(ctx, manifest, global, project)
+	return k.Client.ReadPluginSettingsState(ctx, manifest, global, project, localization)
 }
 
 func TestPluginSettingsCommittedReadbackFailureCannotRetryOldBaseline(t *testing.T) {

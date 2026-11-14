@@ -34,8 +34,8 @@ func (k *settingsPlanningKernel) PlanPluginLanguageServer(_ context.Context, _ j
 	return core.PluginBackendPlan{}, errSettingsPlanCaptured
 }
 
-func (k *settingsPlanningKernel) ReadPluginSettingsState(ctx context.Context, manifest json.RawMessage, global, project *string) (core.PluginSettingsState, error) {
-	return k.client.ReadPluginSettingsState(ctx, manifest, global, project)
+func (k *settingsPlanningKernel) ReadPluginSettingsState(ctx context.Context, manifest json.RawMessage, global, project *string, localization *core.PluginSettingsLocalizationRequest) (core.PluginSettingsState, error) {
+	return k.client.ReadPluginSettingsState(ctx, manifest, global, project, localization)
 }
 
 func (k *settingsPlanningKernel) EditPluginSettings(ctx context.Context, manifest json.RawMessage, scope string, document *string, edits []core.PluginSettingEdit) (core.PluginSettingsEditPlan, error) {

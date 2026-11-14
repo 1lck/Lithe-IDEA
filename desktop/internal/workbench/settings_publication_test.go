@@ -10,6 +10,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
@@ -71,7 +72,7 @@ func TestSettingsPublicationReachesMatchingWindowsAndKeepsProjectLayers(t *testi
 		t.Fatal(err)
 	}
 	source := pluginSettingsSources{app: windows[0].app}
-	editor, err := source.Load(ctx, id)
+	editor, err := source.Load(ctx, id, i18n.English)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +89,7 @@ func TestSettingsPublicationReachesMatchingWindowsAndKeepsProjectLayers(t *testi
 			t.Errorf("global window %d loaded=%v", index, got)
 		}
 	}
-	b, err := windows[2].app.plugins.LoadSettingsEditor(ctx, id, rootB)
+	b, err := windows[2].app.plugins.LoadSettingsEditor(ctx, id, rootB, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +99,7 @@ func TestSettingsPublicationReachesMatchingWindowsAndKeepsProjectLayers(t *testi
 	for _, h := range windows {
 		h.app.project.build.instances[0].modelLoaded = true
 	}
-	editor, err = source.Load(ctx, id)
+	editor, err = source.Load(ctx, id, i18n.English)
 	if err != nil {
 		t.Fatal(err)
 	}

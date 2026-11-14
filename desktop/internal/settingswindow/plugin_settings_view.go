@@ -51,10 +51,12 @@ func (w *window) pluginSettingsPanel(c ui.C, id string) {
 	if p.loader == nil {
 		return
 	}
+	language := w.marketLanguage()
 	if p.id != id {
+		p.language = language
 		p.load(id)
 	}
-	language := w.marketLanguage()
+	p.follow(language)
 	ui.Column(c).FillWidth().Grow(1).Gap(10).Children(func() {
 		ui.Row(c).FillWidth().Height(1).Background(w.pal.line)
 		ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {

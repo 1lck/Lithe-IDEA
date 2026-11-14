@@ -22,7 +22,7 @@ func (k *invocationKernel) PlanBuildInvocation(context.Context, json.RawMessage,
 }
 
 // These candidate-execution tests inject the invocation independently of a manifest.
-func (k *invocationKernel) ReadPluginSettingsState(context.Context, json.RawMessage, *string, *string) (core.PluginSettingsState, error) {
+func (k *invocationKernel) ReadPluginSettingsState(context.Context, json.RawMessage, *string, *string, *core.PluginSettingsLocalizationRequest) (core.PluginSettingsState, error) {
 	return core.PluginSettingsState{}, nil
 }
 

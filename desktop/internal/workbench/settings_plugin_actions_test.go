@@ -55,7 +55,7 @@ func TestSettingsActionConfirmsInvokesExistingProviderWithoutSaving(t *testing.T
 	p := openTestsPanel(t, h, root)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	editor, err := h.app.plugins.LoadSettingsEditor(ctx, "dev.lithe.test.provider-tests", root)
+	editor, err := h.app.plugins.LoadSettingsEditor(ctx, "dev.lithe.test.provider-tests", root, "")
 	if err != nil {
 		t.Fatal(err)
 	}

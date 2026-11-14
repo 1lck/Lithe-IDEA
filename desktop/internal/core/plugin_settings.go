@@ -127,6 +127,33 @@ type PluginSettingsState struct {
 	Settings        map[string]json.RawMessage `json:"settings"`
 	ProjectSettings map[string]json.RawMessage `json:"projectSettings"`
 	Storage         PluginSettingsStorage      `json:"storage"`
+	// Localization is present whenever the request named a language.
+	Localization *PluginSettingsLocalization `json:"localization,omitempty"`
+}
+
+// PluginSettingsLocalizationRequest names the interface language and, on the
+// second read, the candidate files found in the installed package. Nil Files
+// asks Core which candidates to read; a non-nil empty map reports none found.
+type PluginSettingsLocalizationRequest struct {
+	Language string
+	Files    map[string]string
+}
+
+// PluginSettingsLocalization reports which package translation Core applied.
+// The host reads Candidates only when ReadRequired; Core never reads files.
+type PluginSettingsLocalization struct {
+	Language     string                                `json:"language"`
+	Candidates   []string                              `json:"candidates"`
+	MaximumBytes int64                                 `json:"maximumBytes"`
+	ReadRequired bool                                  `json:"readRequired"`
+	Applied      *string                               `json:"applied"`
+	Rejected     []PluginSettingsLocalizationRejection `json:"rejected"`
+}
+
+// PluginSettingsLocalizationRejection is one supplied file Core refused whole.
+type PluginSettingsLocalizationRejection struct {
+	Path  string               `json:"path"`
+	Error MarketplaceRejection `json:"error"`
 }
 
 // PluginSettingEdit supplies a typed override or unparsed editor Text.
@@ -148,8 +175,9 @@ type PluginSettingsEditPlan struct {
 
 // ReadPluginSettingsState asks Core to decode whole documents. Nil identifies a
 // missing file; an existing empty file must be passed as a non-nil empty string.
-func (c *Client) ReadPluginSettingsState(ctx context.Context, manifest json.RawMessage, global, project *string) (PluginSettingsState, error) {
-	return c.readPluginSettingsState(ctx, manifest, global, project, nil)
+// A nil localization keeps manifest text and omits State.Localization.
+func (c *Client) ReadPluginSettingsState(ctx context.Context, manifest json.RawMessage, global, project *string, localization *PluginSettingsLocalizationRequest) (PluginSettingsState, error) {
+	return c.readPluginSettingsState(ctx, manifest, global, project, nil, localization)
 }
 
 // ReadInstalledPluginSettingsState binds declaration metadata to native package
@@ -158,22 +186,34 @@ func (c *Client) ReadInstalledPluginSettingsState(ctx context.Context, manifest 
 	return c.readPluginSettingsState(ctx, manifest, nil, nil, &struct {
 		PluginID string `json:"pluginID"`
 		Version  string `json:"version"`
-	}{id, version})
+	}{id, version}, nil)
 }
 
-func (c *Client) readPluginSettingsState(ctx context.Context, manifest json.RawMessage, global, project *string, owner any) (PluginSettingsState, error) {
+func (c *Client) readPluginSettingsState(ctx context.Context, manifest json.RawMessage, global, project *string, owner any, localization *PluginSettingsLocalizationRequest) (PluginSettingsState, error) {
 	const command = "plugins.declarative.settingsState"
 	var result struct {
 		Status string                `json:"status"`
 		Error  *MarketplaceRejection `json:"error"`
 		State  *PluginSettingsState  `json:"state"`
 	}
+	var language *string
+	var files *map[string]string
+	if localization != nil {
+		language = &localization.Language
+		if localization.Files != nil {
+			files = &localization.Files
+		}
+	}
+	// The pointer keeps an empty map on the wire: "read, none found" differs
+	// from "not read yet", which Core answers with readRequired.
 	if err := c.Execute(ctx, command, struct {
-		Manifest json.RawMessage `json:"manifest"`
-		Owner    any             `json:"owner,omitempty"`
-		Global   *string         `json:"globalDocument"`
-		Project  *string         `json:"projectDocument"`
-	}{manifest, owner, global, project}, &result); err != nil {
+		Manifest      json.RawMessage    `json:"manifest"`
+		Owner         any                `json:"owner,omitempty"`
+		Global        *string            `json:"globalDocument"`
+		Project       *string            `json:"projectDocument"`
+		Language      *string            `json:"language,omitempty"`
+		Localizations *map[string]string `json:"localizations,omitempty"`
+	}{manifest, owner, global, project, language, files}, &result); err != nil {
 		return PluginSettingsState{}, err
 	}
 	if result.Status == "rejected" && result.Error != nil {
@@ -185,6 +225,9 @@ func (c *Client) readPluginSettingsState(ctx context.Context, manifest json.RawM
 	state := result.State
 	if state.Metadata.DisplayName == "" || state.Metadata.Version == "" || len(state.Editors.Global) != len(state.Rows) || len(state.Editors.Project) != len(state.Rows) {
 		return PluginSettingsState{}, newParseError(command, "invalid editor projection", "")
+	}
+	if localization != nil && (state.Localization == nil || state.Localization.MaximumBytes <= 0) {
+		return PluginSettingsState{}, newParseError(command, "invalid localization report", "")
 	}
 	sections := append([]PluginSettingsSection(nil), state.Sections...)
 	for _, page := range state.Pages {

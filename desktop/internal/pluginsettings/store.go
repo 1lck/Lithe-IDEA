@@ -16,7 +16,7 @@ var ErrNoProject = errors.New("plugin project settings have no workspace source"
 
 // Kernel owns document validation, inheritance, edit rules, and effect planning.
 type Kernel interface {
-	ReadPluginSettingsState(context.Context, json.RawMessage, *string, *string) (core.PluginSettingsState, error)
+	ReadPluginSettingsState(context.Context, json.RawMessage, *string, *string, *core.PluginSettingsLocalizationRequest) (core.PluginSettingsState, error)
 	EditPluginSettings(context.Context, json.RawMessage, string, *string, []core.PluginSettingEdit) (core.PluginSettingsEditPlan, error)
 }
 
@@ -30,18 +30,42 @@ func New(kernel Kernel, preferenceDirectory string) *Store {
 	return &Store{kernel: kernel, globalRoot: preferenceDirectory}
 }
 
+// Presentation selects the interface language of a settings view. Package is
+// the installed plugin directory; translations are only read from it, never
+// written, so the installed package stays byte-identical.
+type Presentation struct {
+	Language string
+	Package  string
+}
+
+// LocalizationReadFailure is a candidate translation that exists but could not
+// be read. The adapter skips it, so Core falls back to the next candidate or to
+// manifest text; the caller owns logging it.
+type LocalizationReadFailure struct {
+	Path string
+	Err  error
+}
+
 // Snapshot exposes only Core's projection and source locations. Whole documents
 // and baselines stay private, separate from editable view state.
 type Snapshot struct {
-	State      core.PluginSettingsState
-	workspace  string
-	globalRoot string
-	manifest   json.RawMessage
-	global     configfile.Snapshot
-	project    configfile.Snapshot
+	State        core.PluginSettingsState
+	workspace    string
+	globalRoot   string
+	manifest     json.RawMessage
+	presentation *Presentation
+	global       configfile.Snapshot
+	project      configfile.Snapshot
+	unreadable   []LocalizationReadFailure
 }
 
 func (s Snapshot) Workspace() string { return s.workspace }
+
+// LocalizationReadFailures lists candidates skipped by this load. Files Core
+// refused are in State.Localization.Rejected instead.
+func (s Snapshot) LocalizationReadFailures() []LocalizationReadFailure {
+	return append([]LocalizationReadFailure(nil), s.unreadable...)
+}
 
 // PreferenceDirectory is the private native storage owner, not view metadata.
 func (s Snapshot) PreferenceDirectory() string { return s.globalRoot }
@@ -67,14 +91,43 @@ type SaveResult struct {
 
 // Load reads actual sources after asking Core what to read and how much. A
 // missing project is explicit; malformed or unreadable files never become empty.
+// Text stays as written in the manifest; use LoadPresented for a settings view.
 func (s *Store) Load(ctx context.Context, manifest json.RawMessage, workspace string) (Snapshot, error) {
-	policy, err := s.kernel.ReadPluginSettingsState(ctx, manifest, nil, nil)
+	return s.load(ctx, manifest, workspace, nil)
+}
+
+// LoadPresented also applies the package translation Core selects for the
+// language. Save readback keeps the same presentation.
+func (s *Store) LoadPresented(ctx context.Context, manifest json.RawMessage, workspace string, presentation Presentation) (Snapshot, error) {
+	return s.load(ctx, manifest, workspace, &presentation)
+}
+
+func (s *Store) load(ctx context.Context, manifest json.RawMessage, workspace string, presentation *Presentation) (Snapshot, error) {
+	var localization *core.PluginSettingsLocalizationRequest
+	if presentation != nil {
+		localization = &core.PluginSettingsLocalizationRequest{Language: presentation.Language}
+	}
+	policy, err := s.kernel.ReadPluginSettingsState(ctx, manifest, nil, nil, localization)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	snapshot := Snapshot{workspace: workspace, globalRoot: s.globalRoot, manifest: append(json.RawMessage(nil), manifest...)}
-	if !policy.Storage.ReadRequired {
+	snapshot := Snapshot{workspace: workspace, globalRoot: s.globalRoot, manifest: append(json.RawMessage(nil), manifest...), presentation: presentation}
+	translate := policy.Localization != nil && policy.Localization.ReadRequired
+	if !policy.Storage.ReadRequired && !translate {
 		snapshot.State = policy
+		return snapshot, nil
+	}
+	if translate {
+		localization.Files, snapshot.unreadable, err = readTranslations(ctx, presentation.Package, *policy.Localization)
+		if err != nil {
+			return Snapshot{}, err
+		}
+	}
+	if !policy.Storage.ReadRequired {
+		snapshot.State, err = s.kernel.ReadPluginSettingsState(ctx, manifest, nil, nil, localization)
+		if err != nil {
+			return Snapshot{}, err
+		}
 		return snapshot, nil
 	}
 	snapshot.global, err = configfile.Capture(ctx, s.globalRoot, policy.Storage.GlobalRelativePath, policy.Storage.MaximumBytes)
@@ -103,11 +156,36 @@ func (s *Store) Load(ctx context.Context, manifest json.RawMessage, workspace st
 			return Snapshot{}, err
 		}
 	}
-	snapshot.State, err = s.kernel.ReadPluginSettingsState(ctx, manifest, global, project)
+	snapshot.State, err = s.kernel.ReadPluginSettingsState(ctx, manifest, global, project, localization)
 	if err != nil {
 		return Snapshot{}, err
 	}
 	return snapshot, nil
+}
+
+// readTranslations returns every candidate present in the package. A missing
+// candidate is the normal case; any other failure skips only that file.
+func readTranslations(ctx context.Context, packageDirectory string, plan core.PluginSettingsLocalization) (map[string]string, []LocalizationReadFailure, error) {
+	files := map[string]string{}
+	var unreadable []LocalizationReadFailure
+	for _, candidate := range plan.Candidates {
+		source, err := configfile.Capture(ctx, packageDirectory, candidate, plan.MaximumBytes)
+		var text *string
+		if err == nil {
+			text, err = source.Text()
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, nil, ctxErr
+		}
+		if err != nil {
+			unreadable = append(unreadable, LocalizationReadFailure{Path: candidate, Err: err})
+			continue
+		}
+		if text != nil {
+			files[candidate] = *text
+		}
+	}
+	return files, unreadable, nil
 }
 
 // Save changes one captured layer only. check binds the plugin registration and
@@ -150,7 +228,7 @@ func (s *Store) Save(ctx context.Context, snapshot Snapshot, scope string, edits
 	}
 	// Effects belong to the validated edit, but must not run before publication.
 	result.Effects = plan.Effects
-	readback, readErr := New(s.kernel, snapshot.globalRoot).Load(ctx, snapshot.manifest, snapshot.workspace)
+	readback, readErr := New(s.kernel, snapshot.globalRoot).load(ctx, snapshot.manifest, snapshot.workspace, snapshot.presentation)
 	if readErr == nil {
 		result.Readback = &readback
 	}

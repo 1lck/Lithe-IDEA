@@ -25,7 +25,7 @@ type settingsFormSource struct {
 	workspace string
 }
 
-func (s settingsFormSource) Load(ctx context.Context, _ string) (pluginservice.SettingsEditor, error) {
+func (s settingsFormSource) Load(ctx context.Context, _ string, _ i18n.Language) (pluginservice.SettingsEditor, error) {
 	snapshot, err := s.store.Load(ctx, s.manifest, s.workspace)
 	return pluginservice.SettingsEditor{Snapshot: snapshot}, err
 }
@@ -127,7 +127,7 @@ func TestPluginSettingsFormEditsOnlyOnExplicitSaveAndPreservesConflictDraft(t *t
 	if w.pluginSettings.failed != nil {
 		t.Fatal(w.pluginSettings.failed)
 	}
-	actual, err := source.Load(ctx, "")
+	actual, err := source.Load(ctx, "", i18n.English)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -52,7 +52,7 @@ func TestInstalledSettingsEditorPublishesAndRejectsChangedOwners(t *testing.T) {
 			if err != nil || len(catalog) != 1 || catalog[0].ID != "dev.example.settings" {
 				t.Fatalf("local catalog=%+v error=%v", catalog, err)
 			}
-			editor, err := service.LoadSettingsEditor(ctx, "dev.example.settings", "")
+			editor, err := service.LoadSettingsEditor(ctx, "dev.example.settings", "", "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -94,7 +94,7 @@ func TestInstalledSettingsEditorPublishesAndRejectsChangedOwners(t *testing.T) {
 			if err != nil || !result.Committed || result.Readback == nil {
 				t.Fatalf("save=%+v error=%v", result, err)
 			}
-			reopened, err := service.LoadSettingsEditor(ctx, "dev.example.settings", "")
+			reopened, err := service.LoadSettingsEditor(ctx, "dev.example.settings", "", "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -155,9 +155,88 @@ func TestInstalledSettingsRejectsManifestForAnotherRegistration(t *testing.T) {
 			if err == nil || len(catalog) != 0 {
 				t.Fatalf("mismatched package entered settings catalog: %+v %v", catalog, err)
 			}
-			if _, err := service.LoadSettingsEditor(ctx, "dev.example.settings", ""); err == nil {
+			if _, err := service.LoadSettingsEditor(ctx, "dev.example.settings", "", ""); err == nil {
 				t.Fatal("mismatched package acquired an editable source")
 			}
 		})
+	}
+}
+
+func TestInstalledSettingsEditorTranslatesFromThePackageWithoutWritingIt(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	source := contractfixture.Path("fixtures/settings")
+	preferences, plugins := t.TempDir(), t.TempDir()
+	packageRoot := filepath.Join(plugins, "dev.lithe.fixture.settings", "0.1.0")
+	files := map[string][]byte{}
+	for name, from := range map[string]string{pluginpkg.ManifestFile: "settings.plugin.json", "l10n/zh-Hans.json": "l10n/zh-Hans.json"} {
+		data, err := os.ReadFile(filepath.Join(source, filepath.FromSlash(from)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(packageRoot, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(target, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		files[name] = data
+	}
+	kernel := &settingsPlanningKernel{fakeKernel: &fakeKernel{}, client: core.NewClient()}
+	service, err := Open(kernel, store.At(preferences), plugins)
+	if err != nil {
+		t.Fatal(err)
+	}
+	title := func(state core.PluginSettingsState) string {
+		for _, row := range state.Rows {
+			if row.Declaration.ID == "checks" {
+				return row.Declaration.Title
+			}
+		}
+		t.Fatalf("no checks row: %+v", state.Rows)
+		return ""
+	}
+	plain, err := service.LoadSettingsEditor(ctx, "dev.lithe.fixture.settings", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if title(plain.Snapshot.State) != "Checks" || plain.Snapshot.State.Localization != nil {
+		t.Fatalf("no language translated: %+v", plain.Snapshot.State.Localization)
+	}
+	editor, err := service.LoadSettingsEditor(ctx, "dev.lithe.fixture.settings", "", "zh-Hans")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if title(editor.Snapshot.State) != "检查项" {
+		t.Fatalf("package translation not applied: %+v", editor.Snapshot.State.Localization)
+	}
+	result, err := service.SaveSettingsEditor(ctx, editor, "global", []core.PluginSettingEdit{{ID: "checks", Value: json.RawMessage(`["credo"]`)}}, nil)
+	if err != nil || !result.Committed || result.Readback == nil {
+		t.Fatalf("save=%+v error=%v", result, err)
+	}
+	if title(result.Readback.State) != "检查项" {
+		t.Fatal("readback dropped the translation")
+	}
+	// The installed package is an exact input: reading its translation writes nothing into it.
+	var names []string
+	if err := filepath.WalkDir(packageRoot, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		name, err := filepath.Rel(packageRoot, path)
+		names = append(names, filepath.ToSlash(name))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != len(files) {
+		t.Fatalf("package files changed: %v", names)
+	}
+	for name, want := range files {
+		actual, err := os.ReadFile(filepath.Join(packageRoot, filepath.FromSlash(name)))
+		if err != nil || string(actual) != string(want) {
+			t.Fatalf("installed %s changed: %v", name, err)
+		}
 	}
 }
