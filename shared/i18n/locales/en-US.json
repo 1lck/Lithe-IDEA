@@ -1377,7 +1377,7 @@
     "desktop.semantics.renameTitle": "Rename Symbol",
     "desktop.semantics.targetUnavailable": "The target is not a local file and cannot be opened yet.",
     "desktop.settings.about": "About",
-    "desktop.settings.about.tagline": "A low-memory IntelliJ IDEA alternative for Java development and AI collaboration",
+    "desktop.settings.about.tagline": "A lightweight, low-memory IntelliJ IDEA alternative",
     "desktop.settings.about.copy": "Copy",
     "desktop.settings.about.copied": "Copied",
     "desktop.settings.about.copyHelp": "Copies the version, platform, build and runtime, ready to paste into an issue.",

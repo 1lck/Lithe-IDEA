@@ -1377,7 +1377,7 @@
     "desktop.semantics.renameTitle": "重命名符号",
     "desktop.semantics.targetUnavailable": "目标不是本地文件，暂时无法打开。",
     "desktop.settings.about": "关于",
-    "desktop.settings.about.tagline": "面向 Java 开发与 AI 协作的低内存占用 IntelliJ IDEA 替代品",
+    "desktop.settings.about.tagline": "低内存占用的轻量级 IntelliJ IDEA 替代品",
     "desktop.settings.about.copy": "复制",
     "desktop.settings.about.copied": "已复制",
     "desktop.settings.about.copyHelp": "复制版本、平台、构建和运行时，可直接粘贴到问题反馈里。",

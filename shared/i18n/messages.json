@@ -14440,7 +14440,7 @@
     },
     {
       "id": "desktop.settings.about.tagline",
-      "description": "Desktop settings About page: version facts, community and project links.",
+      "description": "Desktop settings About page: one-line product tagline under the app name, stressing low memory use and a light footprint.",
       "platforms": [
         "desktop"
       ]
