@@ -249,6 +249,95 @@ audio { width: min(100%, 520px); }
 .diagram-error { margin: 0 0 0.75em; color: var(--alert-caution); font-size: 0.84em; }
 .diagram-source-fallback { margin-top: 0.75em; }
 
+/* The outline floats at the page's top right, over the margin where the window is wide enough.
+   Its rows are a fixed height: the script lays out only those in view (markdown.js). */
+.outline {
+  position: fixed;
+  z-index: 50;
+  top: 10px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  width: min(280px, calc(100vw - 24px));
+  max-height: calc(100vh - 20px);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--page);
+  color: var(--text);
+  box-shadow: 0 8px 28px rgba(15, 18, 24, 0.14), 0 1px 3px rgba(15, 18, 24, 0.08);
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+:root[data-theme="dark"] .outline {
+  background: color-mix(in srgb, var(--lithe-foreground, #dfe1e5) 3%, var(--page));
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.42), 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.outline[hidden] { display: none; }
+
+.outline-title {
+  flex: none;
+  margin: 0 14px;
+  padding: 11px 2px 9px;
+  border-bottom: 1px solid var(--border);
+  font-size: 15px;
+  font-weight: 600;
+  user-select: none;
+}
+
+.outline-tree {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 6px;
+  outline: none;
+  overscroll-behavior: contain;
+}
+
+.outline-rows { position: relative; }
+
+.outline-item {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding-right: 8px;
+  border-radius: 5px;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.outline-item:hover { background: var(--surface); }
+.outline-item.active { background: var(--accent-soft); color: var(--accent); }
+.outline-tree:focus-visible .outline-item.focused { box-shadow: inset 0 0 0 1.5px var(--accent); }
+
+.outline-toggle {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 2px;
+  border-radius: 4px;
+  color: var(--muted);
+}
+
+.outline-toggle:hover { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
+.outline-toggle svg { width: 10px; height: 10px; transition: transform 0.12s ease; }
+.outline-item[aria-expanded="true"] .outline-toggle svg { transform: rotate(90deg); }
+
+.outline-text {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
 .image-viewer {
   position: fixed;
   z-index: 100;

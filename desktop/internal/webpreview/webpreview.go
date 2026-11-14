@@ -86,6 +86,8 @@ type Heading struct {
 //   - "rendered" (Markdown): Revision was laid out, with its Headings.
 //   - "scrolled" (Markdown): the user scrolled the page to source Line, fractional.
 //   - "link" (Markdown): the user followed Href, which is not an anchor of the page.
+//   - "outline" (Markdown): the user opened or closed the page's outline in the page, as Open
+//     says.
 //   - "scale" (image): the image is shown at Scale, Fit is its fitted scale and Width and Height
 //     its own size.
 //   - "failed" (image): the image could not be loaded.
@@ -95,6 +97,7 @@ type Message struct {
 	Headings []Heading `json:"headings"`
 	Line     float64   `json:"line"`
 	Href     string    `json:"href"`
+	Open     bool      `json:"open"`
 	Scale    float64   `json:"scale"`
 	Fit      float64   `json:"fit"`
 	Width    int       `json:"width"`

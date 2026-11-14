@@ -157,6 +157,55 @@ func TestMarkdownContentsJumpsToHeading(t *testing.T) {
 	}
 }
 
+// TestMarkdownContentsIndentsHeadingsByLevel: the Contents list of the page Viva draws shows each
+// heading on a row of its own, indented by how much deeper it is than the shallowest heading.
+func TestMarkdownContentsIndentsHeadingsByLevel(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	openMarkdown(t, h, "## Intro\n\nText.\n\n### Setup\n\n#### Keys\n\n## Usage\n")
+	title := i18n.Shared(h.app.language(), "desktop.markdown.contents")
+	h.click(center(h.hitLabeled(title)))
+	rows := map[string]gfx.Rect{}
+	expanded := false
+	for _, label := range h.driver.Snapshot().Labels {
+		if label.FontSize == 12.5 {
+			rows[label.Value] = label.Bounds
+		}
+	}
+	var list gfx.Rect
+	for _, hit := range h.driver.Snapshot().Hits {
+		switch {
+		case hit.Label != title || hit.IsLabel:
+		case hit.Role == gfx.RoleButton:
+			expanded = hit.Expanded
+		case hit.Role == gfx.RoleListBox:
+			list = hit.Bounds
+		}
+	}
+	order := []string{"Intro", "Setup", "Keys", "Usage"}
+	for _, name := range order {
+		if rows[name].Width == 0 {
+			t.Fatalf("the list does not show %q: %v", name, rows)
+		}
+	}
+	if !expanded {
+		t.Fatal("the Contents button does not say the list is open")
+	}
+	for i := 1; i < len(order); i++ {
+		above, below := rows[order[i-1]], rows[order[i]]
+		if below.Y < above.Y+above.Height {
+			t.Fatalf("%q at %v overlaps %q at %v", order[i], below, order[i-1], above)
+		}
+	}
+	intro, setup, keys, usage := rows["Intro"].X, rows["Setup"].X, rows["Keys"].X, rows["Usage"].X
+	if setup-intro != markdownContentsIndent || keys-setup != markdownContentsIndent || usage != intro {
+		t.Fatalf("the headings start at %v, %v, %v and %v, want each level %d further in", intro, setup, keys, usage, markdownContentsIndent)
+	}
+	// The shallowest headings are not indented: the page's headings start at the second level.
+	if list.Width == 0 || intro-list.X != markdownContentsInset {
+		t.Fatalf("the shallowest heading starts at %v in the list at %v, want %d in", intro, list, markdownContentsInset)
+	}
+}
+
 // editorTopLine is the line most of whose first row is at the top of d's editor.
 func editorTopLine(d *document) int {
 	v := d.view
