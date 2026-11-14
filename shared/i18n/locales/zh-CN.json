@@ -1276,6 +1276,8 @@
     "desktop.outline.noServerHint": "安装支持此语言的插件后，这里会显示文件里的类、函数和字段。",
     "desktop.outline.unsupported": "此文件的语言服务器不提供结构。",
     "desktop.outline.failed": "无法获取此文件的结构。",
+    "desktop.outline.noHeadings": "此文件没有标题。",
+    "desktop.outline.tooLarge": "此文件过大，无法显示结构。",
     "desktop.outline.filter": "筛选符号",
     "desktop.outline.follow": "选中光标所在的符号",
     "desktop.outline.matches": "匹配：{matches}/{total}",

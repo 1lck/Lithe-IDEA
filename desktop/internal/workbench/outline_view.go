@@ -142,7 +142,11 @@ func (a *App) outlinePanel(c ui.C, p *project) {
 		return
 	}
 	if len(s.symbols) == 0 {
-		a.outlineNotice(c, i18n.Shared(language, "desktop.outline.empty"), "", nil)
+		empty := i18n.Shared(language, "desktop.outline.empty")
+		if s.availability == outlineMarkdown {
+			empty = i18n.Shared(language, "desktop.outline.noHeadings")
+		}
+		a.outlineNotice(c, empty, "", nil)
 		return
 	}
 	if s.view.Node == nil {
@@ -187,12 +191,14 @@ func (a *App) outlinePanel(c ui.C, p *project) {
 }
 
 // outlineStatus declares why the symbols are not shown yet: no server serves the file, it is
-// starting or not running, it lacks document symbols, the request failed, or the answer is on
-// its way.
+// starting or not running, it lacks document symbols, a Markdown file is too large, the request
+// failed, or the answer is on its way.
 func (a *App) outlineStatus(c ui.C, s *outlineState) {
 	language := a.language()
 	switch {
-	case s.failed && s.availability == outlineAsk:
+	case s.availability == outlineMarkdown && s.tooLarge:
+		a.outlineNotice(c, i18n.Shared(language, "desktop.outline.tooLarge"), "", nil)
+	case s.failed && (s.availability == outlineAsk || s.availability == outlineMarkdown):
 		a.outlineNotice(c, i18n.Shared(language, "desktop.outline.failed"), "", func() {
 			if ui.Button(c, i18n.Shared(language, "ui.retry")).Outline().Small().Clicked() {
 				c.After(func() {
@@ -297,11 +303,16 @@ func (a *App) followOutlineCaret(c ui.C, d *document) {
 	}
 }
 
-// outlineGo puts the caret on a symbol's name and gives the keyboard back to the editor.
+// outlineGo puts the caret on a symbol's name and gives the keyboard back to the editor; a
+// Markdown page shown alone also scrolls the heading to its top.
 func (a *App) outlineGo(p *project, d *document, symbol *core.DocumentSymbol) {
 	start := symbol.SelectionRange.Start
 	a.openFileAtPosition(p, d.path, start.Line, start.UTF16Column)
 	a.focusDocument(d.id)
+	// The editor of a page shown alone is hidden, so the page is what has to move.
+	if s := d.markdown; s != nil && d.pageMode == pageOnly {
+		s.showLine(d, start.Line)
+	}
 }
 
 // outlineRowContent declares what a row shows after its chevron: the kind's badge, the name and

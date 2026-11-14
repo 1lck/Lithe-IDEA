@@ -12956,6 +12956,20 @@
       ]
     },
     {
+      "id": "desktop.outline.noHeadings",
+      "description": "Structure tool window text when a Markdown file has no headings",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.outline.tooLarge",
+      "description": "Structure tool window text when a Markdown file is too large to outline",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.outline.filter",
       "description": "Label and placeholder of the Structure window's filter field",
       "platforms": [

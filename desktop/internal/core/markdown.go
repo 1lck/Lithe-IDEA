@@ -15,6 +15,21 @@ func (c *Client) RenderMarkdown(ctx context.Context, source string) (string, err
 	return response.HTML, err
 }
 
+// MarkdownOutline outlines the headings of Markdown source in Core's shared dialect, as the
+// symbol tree a language server's document symbols are normalized into: a heading is a child
+// of the nearest heading before it of a lower level, its selection range is the heading and its
+// range the section up to the next heading of the same or a higher level. The headings are the
+// ones the preview's outline lists; front matter, code and raw HTML headings are not headings.
+func (c *Client) MarkdownOutline(ctx context.Context, source string) ([]DocumentSymbol, error) {
+	var response struct {
+		Symbols []DocumentSymbol `json:"symbols"`
+	}
+	err := c.Execute(ctx, "markdown.outline", struct {
+		Source string `json:"source"`
+	}{source}, &response)
+	return response.Symbols, err
+}
+
 // MarkdownReferencePurpose says whether a reference is a clicked link or an image the page loads.
 type MarkdownReferencePurpose string
 

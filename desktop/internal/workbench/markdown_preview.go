@@ -408,6 +408,17 @@ func (s *markdownPreviewState) jump(d *document, index int) {
 	s.scrollTo(d, heading.start)
 }
 
+// showLine puts source line (from 0) at the top of d's page, for a place chosen outside the page
+// while the page is shown alone, its editor hidden.
+func (s *markdownPreviewState) showLine(d *document, line int) {
+	if w := s.web; w != nil {
+		w.line = float64(line + 1)
+		w.entry.view.Send(markdownPageScroll{Type: "scroll", Line: w.line})
+		return
+	}
+	s.scrollTo(d, d.view.TextSnapshot().LineStart(line))
+}
+
 // paintMarkdown lays the page out for the width it has and draws it scrolled. Beside the source
 // it first follows the editor when the editor scrolled or the page was laid out again.
 func (a *App) paintMarkdown(dc *ui.DrawContext, d *document, s *markdownPreviewState) {
