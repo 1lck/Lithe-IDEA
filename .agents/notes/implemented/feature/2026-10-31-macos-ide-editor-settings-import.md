@@ -222,7 +222,9 @@ VS Code 移除规则按上游解析器的两阶段行为处理：只移除指定
 
 最终重打包复验：隔离开发版从本机 VS Code 和 IDEA 2025.3 实际导入快捷键，分别验证 VS Code `Ctrl+G`、IDEA `Command+L` 与 `Command+F8`；隔离 VS Code 配置验证用户自定义跳行、重启持久化、撤销、`F9` 断点、`F12` 跳转定义，以及不相关命令和条件移除规则不会误删 `Command+S`。隔离旧版 IDEA 方案预览确认上述常用键，实际验证 `Ctrl+F` 查找和 `Ctrl+F8` 断点。终端先执行测试命令确认焦点，再验证 Control 加反引号关闭和 `Ctrl+D` 结束 shell。修改来源后应用旧预览被拒绝，日志实际记录 `editor.settings_import.failed`、`stage=apply` 和 `changed`，未记录来源内容；本次核对的是日志文件，未完成日志窗口中的逐项查看。验收前后签名有效，1,433 个普通包文件的 SHA-256 清单逐项一致；应用、插件及语言服务退出，隔离偏好已恢复。前文要求再次复验 VS Code 移除边界的状态由本段更新。
 
-## 快捷键来源插件独立发布
+## 快捷键来源插件独立发布（历史决策）
+
+2026-11-14 更新：当前 Viva 客户端按用户要求改为 Go 内置快捷键导入，见 [Viva 内置快捷键导入](2026-11-14-viva-builtin-shortcut-import.md)。本节及下方开发规则记录旧客户端的插件设计，不适用于当前内置入口；旧插件仓库和已发布协议未在本次删除。
 
 2026-11-04 起，快捷键来源插件不再随 Lithe 内置，也不再由本仓库构建。它改为社区插件 `io.github.lithe-idea.editor-keymap-import`，在独立仓库 [Lithe-IDEA/lithe-plugin-keymap-import](https://github.com/Lithe-IDEA/lithe-plugin-keymap-import) 维护和发布，用户从磁盘安装，稳定版具备该插件需要的能力后再收录到 Lithe Store。宿主的导入服务、Core 导入规划、短期只读快照和冲突保护都不变。没有安装提供方时，导入预览不显示快捷键分组，外观、代码设置和编辑器偏好照常导入。
 

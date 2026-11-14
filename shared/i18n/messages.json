@@ -105885,6 +105885,200 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.keymapImport.apply",
+      "description": "Built-in shortcut import: apply",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapImport.changed",
+      "description": "Built-in shortcut import: changed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapImport.chooseFile",
+      "description": "Built-in shortcut import: chooseFile",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapImport.conflictWith",
+      "description": "Built-in shortcut import: conflictWith",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "key": "string",
+        "owner": "string"
+      }
+    },
+    {
+      "id": "desktop.keymapImport.conflicts",
+      "description": "Built-in shortcut import: conflicts",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapImport.displaced",
+      "description": "Built-in shortcut import: displaced",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "keys": "string"
+      }
+    },
+    {
+      "id": "desktop.keymapImport.empty",
+      "description": "Built-in shortcut import: empty",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapImport.failed",
+      "description": "Built-in shortcut import: failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapImport.fileFilter",
+      "description": "Built-in shortcut import: fileFilter",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapImport.help",
+      "description": "Built-in shortcut import: help",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapImport.idea",
+      "description": "Built-in shortcut import: idea",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapImport.inherited",
+      "description": "Built-in shortcut import: inherited",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapImport.name",
+      "description": "Built-in shortcut import: name",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapImport.preview",
+      "description": "Built-in shortcut import: preview",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapImport.skipArguments",
+      "description": "Built-in shortcut import: skipArguments",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapImport.skipConditional",
+      "description": "Built-in shortcut import: skipConditional",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapImport.skipKey",
+      "description": "Built-in shortcut import: skipKey",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapImport.skipRemoval",
+      "description": "Built-in shortcut import: skipRemoval",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapImport.skipSequence",
+      "description": "Built-in shortcut import: skipSequence",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapImport.skipUnmapped",
+      "description": "Built-in shortcut import: skipUnmapped",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapImport.source",
+      "description": "Built-in shortcut import: source",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapImport.summary",
+      "description": "Built-in shortcut import: summary",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "imported": "string",
+        "skipped": "string",
+        "conflicts": "string"
+      }
+    },
+    {
+      "id": "desktop.keymapImport.title",
+      "description": "Built-in shortcut import: title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapImport.unbound",
+      "description": "Built-in shortcut import: unbound",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapImport.vscode",
+      "description": "Built-in shortcut import: vscode",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.keymapImport.working",
+      "description": "Built-in shortcut import: working",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

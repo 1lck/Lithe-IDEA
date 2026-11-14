@@ -31,6 +31,7 @@ func (w *window) view(c ui.C) {
 		ui.Row(c).FillWidth().Height(1).Shrink(0).Background(w.pal.line)
 		w.footer(c)
 	})
+	w.keymapImportDialog(c)
 	w.declareWork(c)
 }
 
