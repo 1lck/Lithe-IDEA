@@ -176,7 +176,9 @@ func (a *App) startRunConfiguration(p *project, id string) (*buildOperation, err
 		return nil, refuseBuild(refusalNotReady, a.text.Build.TargetMissing)
 	}
 	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "run.configuration", "surface": "build"})
-	op := a.beginBuildOperation(p, "run", configuration.Name, id)
+	op := a.beginBuildOperation(p, "run", configuration.Name, id, func(a *App, p *project) {
+		a.runConfiguration(p, id)
+	})
 	// The run starts a process on the files on disk, so unsaved documents are saved first,
 	// as a rerun does; a failed save keeps the run from starting. The save reports its own
 	// failure, so the window's status only drops the preparation.
@@ -186,9 +188,7 @@ func (a *App) startRunConfiguration(p *project, id string) (*buildOperation, err
 			return
 		}
 		if !ok {
-			if a.endBuildOperation(p, op, "failed", nil, "unsaved documents could not be saved") {
-				p.build.status = ""
-			}
+			a.endBuildOperation(p, op, "failed", nil, "unsaved documents could not be saved", "")
 			return
 		}
 		root, kernel := p.root, a.kernel

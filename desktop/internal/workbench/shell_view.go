@@ -85,7 +85,7 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 	p := a.project
 	tabbed := tool.id == itemGit
 	header := float32(toolTitleHeight)
-	if tabbed || tool.id == itemTerminal || tool.id == itemCommit {
+	if tabbed || tool.id == itemTerminal || tool.id == itemCommit || tool.id == itemRun {
 		header = panelHeaderHeight
 	}
 	if tool.id == itemFind && p != nil {
@@ -109,10 +109,14 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 			if tabbed {
 				a.gitTabs(c)
 			}
-			if tool.id == itemTerminal && p != nil {
+			switch {
+			case tool.id == itemTerminal && p != nil:
 				// The tabs of the open project's terminals take the room a spacer would.
 				a.terminalTabs(c)
-			} else {
+			case tool.id == itemRun && p != nil:
+				// So do the tabs of the Run window's executions.
+				a.runSessionTabs(c, p)
+			default:
 				ui.Spacer(c)
 			}
 			if tool.id == itemProject && p != nil {

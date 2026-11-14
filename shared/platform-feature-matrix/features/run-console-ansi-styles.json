@@ -1,0 +1,47 @@
+{
+  "id": "run-console-ansi-styles",
+  "area": "运行与调试",
+  "group": "运行输出",
+  "capability": "运行、构建和测试控制台按 ANSI SGR 转义着色：Rust Core 的 outputStyle.decode 把输出解码为去掉转义的纯文本行和样式区间（16 色、256 色、真彩色、粗体、暗淡、斜体、下划线、反显、隐藏、删除线），桌面端按终端同一套 16 色配色绘制",
+  "owner": "Run",
+  "notes": "Viva 共享实现。通用解码在 Rust Core（outputStyle.decode，跨块携带状态，单块不超过 1 MiB），桌面端在读取输出的 goroutine 上按 256 KiB 分片调用，不占界面线程；纯文本供复制、搜索、输出链接、快照和 IDE API 读取，样式只用于绘制。0–15 号颜色取 termview 的终端配色（含 Terminal.app 描述文件导入与对比度回退），粗体前景色按终端规则提亮。Core 解码失败时记一次日志，该控制台其余输出按原样分行显示。宿主不针对任何构建工具做特判：工具是否输出颜色，由提供该工具的插件在自己的命令参数里决定。",
+  "verification": "运行会输出彩色日志的程序或构建任务（例如用 printf 输出 ESC[1;32mOK ESC[m，或强制彩色输出的构建工具），确认 Run 窗口控制台显示对应颜色和粗体且没有残留的转义字符；复制、搜索、点击文件链接、快照当前输出得到的都是不含转义的文字；测试窗口的输出同样着色；切换浅色/深色主题后颜色跟随终端配色。自动化：core/output_style_test.go、outputlinks_test.go、build_test.go、tests_test.go、context_menu_test.go、build_panels_visual_test.go 的 build-and-run 场景截图（合成的彩色构建输出）。",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/output_style.go",
+      "desktop/internal/core/output_style_test.go",
+      "desktop/internal/workbench/output_style.go",
+      "desktop/internal/workbench/outputlinks_view.go",
+      "desktop/internal/workbench/outputlinks.go",
+      "desktop/internal/termview/palette.go",
+      "desktop/internal/workbench/runs.go",
+      "desktop/internal/workbench/build.go",
+      "desktop/internal/workbench/tests.go",
+      "desktop/internal/workbench/outputlinks_test.go",
+      "desktop/internal/workbench/build_test.go",
+      "desktop/internal/workbench/tests_test.go",
+      "desktop/internal/workbench/build_panels_visual_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/output_style.go",
+      "desktop/internal/core/output_style_test.go",
+      "desktop/internal/workbench/output_style.go",
+      "desktop/internal/workbench/outputlinks_view.go",
+      "desktop/internal/workbench/outputlinks.go",
+      "desktop/internal/termview/palette.go",
+      "desktop/internal/workbench/runs.go",
+      "desktop/internal/workbench/build.go",
+      "desktop/internal/workbench/tests.go",
+      "desktop/internal/workbench/outputlinks_test.go",
+      "desktop/internal/workbench/build_test.go",
+      "desktop/internal/workbench/tests_test.go",
+      "desktop/internal/workbench/build_panels_visual_test.go"
+    ]
+  }
+}

@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strconv"
-	"strings"
+	"sync"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -17,12 +18,11 @@ import (
 )
 
 const (
-	// runOutputMaxLines, runOutputLineSize and runOutputBytes bound one run's
-	// console like the build console: whole lines, oldest dropped first.
+	// runOutputMaxLines and runOutputBytes bound one run's console like the build
+	// console: whole lines, oldest dropped first.
 	runOutputMaxLines = 4000
-	runOutputLineSize = 16 << 10
 	runOutputBytes    = 4 << 20
-	// maxRunEntries bounds the finished runs the panel keeps.
+	// maxRunEntries bounds the sessions the Run window keeps; the oldest finished go first.
 	maxRunEntries = 8
 	// runStopWait bounds the background stop of the runs of a closing project.
 	runStopWait = 30 * time.Second
@@ -30,19 +30,38 @@ const (
 	runRerunTimeout = 90 * time.Second
 )
 
-// runEntry is one plugin-started run the host presents: its console, whether it is
-// still going, and how it ended. The process itself belongs to the plugin
-// service, which also owns stopping it.
+// runOutcome is where a session's execution stands, which its status icon shows.
+type runOutcome uint8
+
+const (
+	runActive runOutcome = iota
+	runSucceeded
+	runFailed
+	runStopped
+)
+
+// runEntry is one session of the Run window: an execution the Build window, a run
+// configuration or the IDE API started (operation, while it runs), or a run a plugin
+// started (pluginID). It keeps the execution's console, when it started and ended, and
+// how. A plugin's process belongs to the plugin service, which also owns stopping it.
 type runEntry struct {
-	id       string
+	id string
+	// pluginID is the plugin that started the run, "" for an execution of the host.
 	pluginID string
 	label    string
 	rerun    *pluginservice.RunRerun
-	// output holds whole lines, oldest first; outputBytes is their size.
-	output      []string
-	outputBytes int
-	running     bool
-	// summary is how the run ended, shown under the console.
+	// restart starts the host's execution again; nil for a plugin's run.
+	restart func(*App, *project)
+	// operation is the host's execution writing the session, nil once it ended.
+	operation *buildOperation
+	// output is the console, decoded from the execution's ANSI escapes.
+	output  outputBuffer
+	running bool
+	outcome runOutcome
+	// stopping is set when the user stopped a plugin's run, so its end reads as stopped.
+	stopping       bool
+	started, ended time.Time
+	// summary is how the execution ended, shown under the console.
 	summary string
 	// list is the console's scroll state.
 	list ui.ListState
@@ -66,9 +85,54 @@ func (a *App) wirePluginRuns() {
 	runs.LaunchDebug = a.launchDebugForRun
 	runs.StartDebugSession = a.startDebugForBackend
 	runs.StopDebugSession = a.stopDebugForBackend
+	decoders := &runDecoders{byID: map[string]*outputDecoder{}}
 	runs.SetObserver(func(event pluginservice.RunEvent) {
+		// Output is decoded here, on the goroutine that read it, so the window thread
+		// only adds the decoded lines.
+		switch event.Type {
+		case pluginservice.RunStarted:
+			decoders.start(event.RunID, newOutputDecoder(a.kernel))
+		case pluginservice.RunOutput:
+			if decoder := decoders.get(event.RunID); decoder != nil {
+				id := event.RunID
+				decoder.deliver(event.Text, func(chunk outputChunk, failure error) {
+					a.post(func(a *App) {
+						a.reportOutputStyleFailure(failure)
+						a.applyRunOutput(id, chunk)
+					})
+				})
+				return
+			}
+		case pluginservice.RunExited:
+			decoders.end(event.RunID)
+		}
 		a.post(func(a *App) { a.applyRunEvent(event) })
 	})
+}
+
+// runDecoders are the output decoders of the plugin runs that are going, by run ID. The
+// plugin service's goroutines use them; the window thread never does.
+type runDecoders struct {
+	mu   sync.Mutex
+	byID map[string]*outputDecoder
+}
+
+func (d *runDecoders) start(id string, decoder *outputDecoder) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.byID[id] = decoder
+}
+
+func (d *runDecoders) get(id string) *outputDecoder {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.byID[id]
+}
+
+func (d *runDecoders) end(id string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.byID, id)
 }
 
 // resolveRunTool resolves a tool a run needs through the same toolchain layers
@@ -151,38 +215,22 @@ func (a *App) applyRunEvent(event pluginservice.RunEvent) {
 			return
 		}
 		p.links.loaded, p.links.sources = false, nil
-		entry := &runEntry{id: event.RunID, pluginID: event.PluginID, label: event.Label, rerun: event.Rerun, running: true}
-		p.build.runs = append(p.build.runs, entry)
+		entry := &runEntry{
+			id: event.RunID, pluginID: event.PluginID, label: event.Label, rerun: event.Rerun, running: true,
+			started: a.now(), output: newOutputBuffer(runOutputMaxLines, runOutputBytes),
+		}
+		a.addRunSession(p, entry)
 		if event.PID > 0 {
 			a.startRunSampling(entry, event.PID)
 		}
-		for len(p.build.runs) > maxRunEntries {
-			dropped := false
-			for index, candidate := range p.build.runs {
-				if !candidate.running {
-					p.build.runs = append(p.build.runs[:index], p.build.runs[index+1:]...)
-					dropped = true
-					break
-				}
-			}
-			if !dropped {
-				break
-			}
-		}
-		p.build.view = entry.id
-		if !a.chrome.isOpen(catalogIndex[itemRun]) {
-			a.reduceChrome(core.ToggleChrome(itemRun))
-		}
-	case pluginservice.RunOutput:
-		if entry := p.runEntry(event.RunID); entry != nil {
-			entry.append(event.Text)
-		}
+		a.openToolWindow(itemRun)
 	case pluginservice.RunExited:
 		entry := p.runEntry(event.RunID)
-		if entry == nil {
+		if entry == nil || !entry.running {
 			return
 		}
-		entry.running = false
+		entry.output.seal()
+		entry.running, entry.ended = false, a.now()
 		if entry.stopSampling != nil {
 			entry.stopSampling()
 			entry.stopSampling = nil
@@ -196,6 +244,66 @@ func (a *App) applyRunEvent(event pluginservice.RunEvent) {
 		default:
 			entry.summary = messages.Ended
 		}
+		switch {
+		case entry.stopping:
+			entry.outcome = runStopped
+		case event.ExitCode != nil && *event.ExitCode != 0 || event.Signal != "":
+			entry.outcome = runFailed
+		default:
+			entry.outcome = runSucceeded
+		}
+	}
+}
+
+// applyRunOutput adds decoded output to the console of a plugin's run. Output of a run
+// the window does not show is dropped.
+func (a *App) applyRunOutput(id string, chunk outputChunk) {
+	if p := a.project; p != nil {
+		if entry := p.runEntry(id); entry != nil && entry.running {
+			entry.output.apply(chunk)
+		}
+	}
+}
+
+// addRunSession shows a new session in the Run window and selects it. A finished session
+// with the same label gives its tab to the new one, as running something again replaces the
+// tab of what it repeats; past maxRunEntries the oldest finished sessions go.
+func (a *App) addRunSession(p *project, entry *runEntry) {
+	b := &p.build
+	replaced := false
+	for index, candidate := range b.runs {
+		if !candidate.running && candidate.label == entry.label {
+			b.runs[index], replaced = entry, true
+			break
+		}
+	}
+	if !replaced {
+		b.runs = append(b.runs, entry)
+	}
+	for len(b.runs) > maxRunEntries {
+		index := slices.IndexFunc(b.runs, func(candidate *runEntry) bool { return !candidate.running })
+		if index < 0 {
+			break
+		}
+		b.runs = slices.Delete(b.runs, index, index+1)
+	}
+	b.view = entry.id
+}
+
+// closeRunSession removes a finished session from the Run window; a session still running
+// stays. The neighbour that takes its place is selected when it was the one shown.
+func (p *project) closeRunSession(id string) {
+	b := &p.build
+	index := slices.IndexFunc(b.runs, func(candidate *runEntry) bool { return candidate.id == id })
+	if index < 0 || b.runs[index].running {
+		return
+	}
+	b.runs = slices.Delete(b.runs, index, index+1)
+	if b.view == id {
+		b.view = ""
+		if len(b.runs) > 0 {
+			b.view = b.runs[min(index, len(b.runs)-1)].id
+		}
 	}
 }
 
@@ -208,37 +316,16 @@ func (p *project) runEntry(id string) *runEntry {
 	return nil
 }
 
-// activeRun is the run whose console the panel shows, or nil for the build console.
+// activeRun is the session the Run window shows: the selected one, else the newest, or
+// nil when it has none.
 func (p *project) activeRun() *runEntry {
-	if p.build.view == "" {
-		return nil
+	if entry := p.runEntry(p.build.view); entry != nil {
+		return entry
 	}
-	return p.runEntry(p.build.view)
-}
-
-// append adds console text as whole lines, trimming the oldest when over budget.
-func (r *runEntry) append(text string) {
-	for len(text) > 0 {
-		line := text
-		if index := strings.IndexByte(line, '\n'); index >= 0 {
-			line = text[:index+1]
-			text = text[index+1:]
-		} else {
-			text = ""
-		}
-		if len(line) > runOutputLineSize {
-			line = line[:runOutputLineSize] + "\n"
-		}
-		r.output = append(r.output, line)
-		r.outputBytes += len(line)
+	if len(p.build.runs) > 0 {
+		return p.build.runs[len(p.build.runs)-1]
 	}
-	for len(r.output) > runOutputMaxLines || r.outputBytes > runOutputBytes {
-		if len(r.output) == 0 {
-			break
-		}
-		r.outputBytes -= len(r.output[0])
-		r.output = r.output[1:]
-	}
+	return nil
 }
 
 // snapshotRunOutput freezes the output the console holds now into a read-only tab. The
@@ -246,10 +333,10 @@ func (r *runEntry) append(text string) {
 // tab unchanged; the tab is virtual, so it is never saved or watched and nothing closes it
 // on its own.
 func (a *App) snapshotRunOutput(p *project, entry *runEntry) {
-	if p == nil || entry == nil || len(entry.output) == 0 {
+	if p == nil || entry == nil || entry.output.empty() {
 		return
 	}
-	text := strings.Join(entry.output, "")
+	text := entry.output.all()
 	entry.snapshots++
 	uri := "lithe-run-snapshot:" + entry.id + "/" + strconv.Itoa(entry.snapshots)
 	content := editorview.Prepare([]byte(text))
@@ -261,12 +348,23 @@ func (a *App) snapshotRunOutput(p *project, entry *runEntry) {
 	}
 }
 
-// stopRun asks the plugin service to end a run. The process tree is stopped and
-// reaped on a background goroutine, so the window never waits for it.
+// stopRun ends a session: the host's execution through the Build window's stop, a
+// plugin's run through the plugin service, which stops and reaps the process tree on a
+// background goroutine, so the window never waits for it.
 func (a *App) stopRun(p *project, entry *runEntry) {
-	if a.plugins == nil || entry == nil || !entry.running {
+	if entry == nil || !entry.running {
 		return
 	}
+	if entry.pluginID == "" {
+		if entry.operation != nil && p.build.operation == entry.operation {
+			a.stopBuildOperation(p)
+		}
+		return
+	}
+	if a.plugins == nil {
+		return
+	}
+	entry.stopping = true
 	runs, id := a.plugins.Runs, entry.id
 	a.background(p, runStopWait, func(context.Context) func(*App) {
 		runs.Stop(id)
@@ -274,10 +372,18 @@ func (a *App) stopRun(p *project, entry *runEntry) {
 	})
 }
 
-// rerunRun asks the plugin to start the run again. The plugin answers with a new
-// run/start, which arrives as a new entry.
+// rerunRun starts a finished session again: the host's execution through what started it,
+// a plugin's run by asking the plugin, which answers with a new run/start that arrives as
+// a new session in the old one's tab.
 func (a *App) rerunRun(p *project, entry *runEntry) {
-	if a.plugins == nil || entry == nil || entry.running || entry.rerun == nil {
+	if entry == nil || entry.running {
+		return
+	}
+	if entry.restart != nil {
+		entry.restart(a, p)
+		return
+	}
+	if a.plugins == nil || entry.rerun == nil {
 		return
 	}
 	runs, rerun := a.plugins.Runs, *entry.rerun

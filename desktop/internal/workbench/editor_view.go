@@ -463,6 +463,9 @@ func (a *App) splitterKey(event gfx.KeyEvent) gfx.EventResult {
 		if r := p.panels.debugSplit.Key(event); r.Handled {
 			return r
 		}
+		if r := p.panels.runSplit.Key(event); r.Handled {
+			return r
+		}
 	}
 	return gfx.EventResult{}
 }

@@ -9,7 +9,7 @@
     "evidence": [
       "docs/viva-migration.md",
       "desktop/internal/workbench/runs.go",
-      "desktop/internal/workbench/build_view.go"
+      "desktop/internal/workbench/run_view.go"
     ]
   },
   "windows": {
@@ -18,7 +18,7 @@
     "evidence": [
       "docs/viva-migration.md",
       "desktop/internal/workbench/runs.go",
-      "desktop/internal/workbench/build_view.go"
+      "desktop/internal/workbench/run_view.go"
     ]
   },
   "owner": "Run",
