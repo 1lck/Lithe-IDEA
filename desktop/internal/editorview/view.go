@@ -414,6 +414,13 @@ type Content struct {
 	text   rope.Rope
 	indent string
 	widest int
+	// base is the text the change was measured against, when it was prepared with one. change
+	// is the replacement that turns base into text, as OnEdit reports it; changed is false when
+	// the two are the same bytes.
+	base    rope.Rope
+	change  Edit
+	changed bool
+	hasBase bool
 }
 
 // Prepare makes the content of data, the bytes of a file as they were read. It takes time in
@@ -421,6 +428,25 @@ type Content struct {
 func Prepare(data []byte) Content {
 	text := rope.New(data)
 	return Content{text: text, indent: indentUnit(text), widest: widestLine(text, 0, text.LineCount()-1)}
+}
+
+// PrepareAgainst is Prepare for bytes that replace base, the text the view holds: it also finds
+// the bytes that differ from base, so that applying the content on the window thread reports the
+// change without reading the document. It runs on a worker with the snapshot base, which is
+// immutable, so the view may move on meanwhile; the content then only applies to base's text.
+func PrepareAgainst(base rope.Rope, data []byte) Content {
+	c := Prepare(data)
+	start, baseEnd, end := rope.Diff(base, c.text)
+	c.base, c.hasBase = base, true
+	if start == baseEnd && start == end {
+		return c
+	}
+	c.changed = true
+	inserted, _ := c.text.Substring(start, end)
+	c.change.Text = strings.Clone(inserted)
+	c.change.StartLine, c.change.StartColumn = SnapshotUTF16(base, start)
+	c.change.EndLine, c.change.EndColumn = SnapshotUTF16(base, baseEnd)
+	return c
 }
 
 // SavedSnapshot returns an immutable baseline for background comparison.
@@ -449,11 +475,31 @@ func (v *View) ResolveWithDisk(content Content) bool {
 // Snapshot returns the immutable disk contents that were prepared on a worker.
 func (c Content) Snapshot() rope.Rope { return c.text }
 
+// diskEdit is the change OnEdit hears for replacing the view's text with content, and whether
+// there is one. A content prepared against the view's text, or against a text with the same
+// bytes, carries it. Any other content is measured here: rope.Diff passes over the nodes two
+// texts share, so only a content that shares none of the view's text reads all of it.
+func (v *View) diskEdit(content Content) (Edit, bool) {
+	if content.hasBase && (content.base.Same(v.text) || !v.dirty && v.saved.Same(content.base)) {
+		return content.change, content.changed
+	}
+	start, viewEnd, end := rope.Diff(v.text, content.text)
+	if start == viewEnd && start == end {
+		return Edit{}, false
+	}
+	inserted, _ := content.text.Substring(start, end)
+	change := Edit{Text: strings.Clone(inserted)}
+	change.StartLine, change.StartColumn = SnapshotUTF16(v.text, start)
+	change.EndLine, change.EndColumn = SnapshotUTF16(v.text, viewEnd)
+	return change, true
+}
+
 func (v *View) replaceFromDisk(content Content) bool {
 	v.extra = nil
 	var change Edit
+	changed := false
 	if v.cfg.OnEdit != nil {
-		change = v.wholeDocumentEdit(content.text)
+		change, changed = v.diskEdit(content)
 	}
 	v.undo = append(v.undo, v.snapshot())
 	if len(v.undo) > undoLimit {
@@ -482,7 +528,9 @@ func (v *View) replaceFromDisk(content Content) bool {
 	v.lastKind, v.goal = editOther, -1
 	v.dirty = false
 	v.blinkFrom = v.clock
-	v.reportEdit(change)
+	if changed {
+		v.reportEdit(change)
+	}
 	return true
 }
 
@@ -914,16 +962,6 @@ func (v *View) positionAt(offset int) (line, column int) {
 		}
 	}
 	return line, v.utf16Units(lineStart, offset)
-}
-
-// wholeDocumentEdit is the Edit that makes replacement the view's whole text.
-func (v *View) wholeDocumentEdit(replacement rope.Rope) Edit {
-	last := v.text.LineCount() - 1
-	return Edit{
-		EndLine:   last,
-		EndColumn: v.utf16Units(v.text.LineStart(last), v.text.LineEnd(last)),
-		Text:      replacement.String(),
-	}
 }
 
 // reportEdit gives edit to OnEdit, when the window set one.

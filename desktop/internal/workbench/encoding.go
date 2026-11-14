@@ -177,11 +177,14 @@ func (a *App) reopenWithEncoding(p *project, d *document, encoding string) {
 	}
 	a.performed("editor.encoding.reopen", surfaceMenu)
 	revision := d.view.Revision()
+	// Unchanged until the apply below, which checks the revision: the content is measured
+	// against this text on the worker.
+	base := d.view.TextSnapshot()
 	a.background(p, 0, func(ctx context.Context) func(*App) {
 		read, lossy, err := readDocumentAs(ctx, kernel, d.path, encoding)
 		var content editorview.Content
 		if err == nil {
-			content = editorview.Prepare(read.text)
+			content = editorview.PrepareAgainst(base, read.text)
 		}
 		return func(a *App) {
 			if err != nil {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 )
 
 // Semantic highlighting: the language server's colors laid over the syntax colors.
@@ -131,14 +132,9 @@ func (a *App) requestProviderTokens(p *project, d *document, revision int) {
 	id, path, language, root, plugins := strconv.Itoa(d.id), d.path, d.languageID, p.root, a.plugins
 	a.background(p, 20*time.Second, func(ctx context.Context) func(*App) {
 		tokens, err := plugins.PluginSemanticTokens(ctx, root, path, language, id, revision)
-		return func(a *App) {
-			if p.docs.find(d.id) != d || view.Revision() != revision {
-				return
-			}
-			if err != nil {
-				a.backgroundFailed("plugin_semantic_tokens", err)
-				return
-			}
+		// The tokens are converted here, on the worker, so the window thread only applies them.
+		var prepared syntax.PreparedSemantic
+		if err == nil {
 			legend := syntax.NewSemanticLegend(tokens.Types, tokens.Modifiers)
 			spans := make([]syntax.SemanticToken, 0, len(tokens.Tokens))
 			for _, token := range tokens.Tokens {
@@ -147,7 +143,17 @@ func (a *App) requestProviderTokens(p *project, d *document, revision int) {
 					Type: uint32(token.Type), Modifiers: token.Modifiers,
 				})
 			}
-			view.SetSemantic(text, legend, spans)
+			prepared = editorview.PrepareSemantic(text, legend, spans)
+		}
+		return func(a *App) {
+			if p.docs.find(d.id) != d || view.Revision() != revision {
+				return
+			}
+			if err != nil {
+				a.backgroundFailed("plugin_semantic_tokens", err)
+				return
+			}
+			view.SetPreparedSemantic(prepared)
 		}
 	})
 }

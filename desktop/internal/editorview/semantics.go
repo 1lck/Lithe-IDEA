@@ -132,6 +132,19 @@ func (v *View) SetSemantic(text rope.Rope, legend *syntax.SemanticLegend, tokens
 	return v.hl.SetSemantic(text, legend, tokens)
 }
 
+// PrepareSemantic converts tokens for text on a worker, for SetPreparedSemantic to apply on the
+// window thread.
+func PrepareSemantic(text rope.Rope, legend *syntax.SemanticLegend, tokens []syntax.SemanticToken) syntax.PreparedSemantic {
+	return syntax.PrepareSemantic(text, legend, tokens)
+}
+
+// SetPreparedSemantic applies tokens prepared by PrepareSemantic. It takes no time in proportion
+// to the tokens, and reports false, laying nothing, when the view's text is no longer the text
+// they were prepared for.
+func (v *View) SetPreparedSemantic(prepared syntax.PreparedSemantic) bool {
+	return v.hl.SetPreparedSemantic(prepared)
+}
+
 // ClearSemantic drops the semantic colors, as when the language server stops.
 func (v *View) ClearSemantic() { v.hl.ClearSemantic() }
 

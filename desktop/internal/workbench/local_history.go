@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/rope"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/vivaui/viva/ui"
 )
@@ -48,9 +49,24 @@ func (a *App) localHistoryDirectory(root string) (string, bool) {
 	return filepath.Join(a.store.Dir(), "LocalHistory", hex.EncodeToString(sum[:8])), true
 }
 
-// historyTexts is the text an event supplies for each snapshot source.
+// historyTexts is the text an event supplies for each snapshot source. afterText and
+// bufferText are immutable texts a window-thread caller hands over without copying them; the
+// background job copies them into after and buffer when it runs (see resolved).
 type historyTexts struct {
 	before, after, buffer []byte
+	afterText, bufferText rope.Rope
+}
+
+// resolved is t with the bytes of afterText and bufferText copied in, where the caller gave a
+// text rather than bytes. It copies, so it belongs on a background job.
+func (t historyTexts) resolved() historyTexts {
+	if t.after == nil && t.afterText.Len() > 0 {
+		t.after = t.afterText.Bytes()
+	}
+	if t.buffer == nil && t.bufferText.Len() > 0 {
+		t.buffer = t.bufferText.Bytes()
+	}
+	return t
 }
 
 // recordLocalHistory records the snapshots Core plans for event on the file at path,
@@ -62,7 +78,7 @@ func (a *App) recordLocalHistory(p *project, path, event string, texts historyTe
 		if !inside {
 			return nil
 		}
-		return recordPlannedHistory(ctx, kernel, root, storage, rel, event, texts, policy)
+		return recordPlannedHistory(ctx, kernel, root, storage, rel, event, texts.resolved(), policy)
 	})
 }
 

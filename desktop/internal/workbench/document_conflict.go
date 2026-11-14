@@ -115,6 +115,9 @@ func (a *App) loadDocumentDisk(p *project, d *document) {
 	read := a.documentReader
 	kernel, _ := a.kernel.(editorKernel)
 	encoding, hasBOM, coded := d.encoding, d.hasBOM, d.needsCodec()
+	// The view's text is unchanged until the apply below, which checks the revision: the content
+	// is measured against it on the worker.
+	base := d.view.TextSnapshot()
 	var observed, diskText []byte
 	a.background(p, 0, func(ctx context.Context) func(*App) {
 		var data []byte
@@ -129,7 +132,7 @@ func (a *App) loadDocumentDisk(p *project, d *document) {
 		if err == nil {
 			var text []byte
 			if text, err = decodeExternal(ctx, kernel, data, encoding, hasBOM, coded); err == nil {
-				content = editorview.Prepare(text)
+				content = editorview.PrepareAgainst(base, text)
 				diskText = text
 			}
 		}
@@ -147,10 +150,9 @@ func (a *App) loadDocumentDisk(p *project, d *document) {
 				}
 				return
 			}
-			buffer, _ := d.view.Text()
-			buffer = append([]byte(nil), buffer...)
+			buffer := d.view.TextSnapshot()
 			if d.view.ResolveWithDisk(content) {
-				a.recordLocalHistory(p, d.path, "unsavedDiscard", historyTexts{buffer: buffer})
+				a.recordLocalHistory(p, d.path, "unsavedDiscard", historyTexts{bufferText: buffer})
 				a.recordLocalHistory(p, d.path, "externalChange", historyTexts{after: diskText})
 				if d.needsCodec() {
 					d.diskBytes = observed

@@ -37,6 +37,13 @@
       "scaleMax": 1.5
     },
     {
+      "pattern": "^BenchmarkEditorViewReload/",
+      "why": "Reloading a clean view takes the change from the content prepared on a worker, so the window thread does a constant amount of work whatever the size of the document: no copy of the text and no scan of it. The budget is 1 ms, the same as a keystroke.",
+      "nsMax": 1000000,
+      "bytesMax": 65536,
+      "scaleMax": 2
+    },
+    {
       "pattern": "^BenchmarkEditorViewType/",
       "why": "A keystroke and its frame must finish within 1 ms on the reference machine, with bounded allocation and independent of the document's size.",
       "nsMax": 1000000,
@@ -75,6 +82,14 @@
       "nsMax": {
         "constant": 1000000,
         "perTextByte": 5
+      }
+    },
+    {
+      "pattern": "^BenchmarkEditorSyntaxSemanticBuild/",
+      "why": "Converting a server's semantic tokens to byte positions is one pass over the text, a line read once and only when it has tokens, so its cost is bounded by a small constant plus 1.5 ns per byte. It runs on a worker, and the window thread only applies the result.",
+      "nsMax": {
+        "constant": 100000,
+        "perTextByte": 1.5
       }
     },
     {
