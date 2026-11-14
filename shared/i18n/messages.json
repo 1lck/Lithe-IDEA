@@ -15636,6 +15636,16 @@
       }
     },
     {
+      "id": "desktop.settings.updates.applying",
+      "description": "Updates settings page and update notices.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string"
+      }
+    },
+    {
       "id": "desktop.settings.updates.auto",
       "description": "Updates settings page and update notices.",
       "platforms": [
@@ -15650,6 +15660,18 @@
       ],
       "parameters": {
         "version": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.availableDelta",
+      "description": "Updates settings page and update notices.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string",
+        "size": "string",
+        "full": "string"
       }
     },
     {
@@ -15668,6 +15690,28 @@
     },
     {
       "id": "desktop.settings.updates.downloading",
+      "description": "Updates settings page and update notices.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string",
+        "percent": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.downloadingDelta",
+      "description": "Updates settings page and update notices.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string",
+        "percent": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.downloadingFull",
       "description": "Updates settings page and update notices.",
       "platforms": [
         "desktop"

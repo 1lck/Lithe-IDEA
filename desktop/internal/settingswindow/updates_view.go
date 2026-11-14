@@ -19,11 +19,21 @@ type UpdateStatus struct {
 	Available string
 	NotesURL  string
 	// UpToDate says the last check found nothing newer.
-	UpToDate    bool
+	UpToDate bool
+	// Delta says Update downloads the patch from the running version, DeltaSize bytes,
+	// instead of the full archive, FullSize bytes.
+	Delta               bool
+	DeltaSize, FullSize int64
+	// Downloading lasts from the start of the download until the update is ready, through
+	// Applying, the rebuilding of the new application from the patch, which cannot be
+	// cancelled. FellBack says the patch could not be used and the full archive is coming.
 	Downloading bool
+	Applying    bool
+	FellBack    bool
 	// Progress is the share of the download done, 0 to 1.
 	Progress float32
-	// Ready says the verified download is waiting to be installed.
+	// Ready says the verified download or the rebuilt application is waiting to be
+	// installed.
 	Ready      bool
 	Installing bool
 	Failure    string
@@ -45,8 +55,9 @@ func (w *window) updatesPage(c ui.C) {
 
 // updateCard is the update controls, as Motty lays them out: a switch for the automatic
 // check, and one row that says what the last check found, with Check Now beside the one
-// button that updates. Update downloads and verifies the new version, then installs it
-// and restarts; while it downloads, the same place cancels it.
+// button that updates. Update downloads and verifies the new version, the delta update when
+// the feed has one, then installs it and restarts; while it downloads, the same place cancels
+// it.
 func (w *window) updateCard(c ui.C) {
 	language := w.marketLanguage()
 	opts := &w.ctrl.opts
@@ -79,7 +90,7 @@ func (w *window) updateCard(c ui.C) {
 			})
 			w.updateButtons(c, language, status)
 		})
-		if status.Downloading {
+		if status.Downloading && !status.Applying {
 			ui.Progress(c, status.Progress).FillWidth().MarginSides(2, 0, 4, 0)
 		}
 		if status.Failure != "" {
@@ -95,7 +106,8 @@ func (w *window) updateCard(c ui.C) {
 }
 
 // updateButtons are the actions of the update row: Check Now, then Update once a version
-// is available, which turns into Cancel while it downloads, then Release Notes.
+// is available, which turns into Cancel while it downloads, then Release Notes. Applying a
+// patch cannot be stopped, so it shows no Cancel.
 func (w *window) updateButtons(c ui.C, language i18n.Language, status UpdateStatus) {
 	opts := &w.ctrl.opts
 	busy := status.Checking || status.Downloading || status.Installing
@@ -110,6 +122,8 @@ func (w *window) updateButtons(c ui.C, language i18n.Language, status UpdateStat
 			opts.CheckForUpdates()
 		}
 		switch {
+		case status.Applying:
+			// Nothing to offer: the rebuilt application installs as soon as it is done.
 		case status.Downloading:
 			if ui.Button(c.Part("cancel"), w.text.Settings.Cancel).Outline().Clicked() && opts.CancelUpdate != nil {
 				opts.CancelUpdate()
@@ -125,19 +139,35 @@ func (w *window) updateButtons(c ui.C, language i18n.Language, status UpdateStat
 
 // updateLine is what the update row says under its title: the step under way, what the last
 // check found, or what the check does when nothing has happened yet. current is the running
-// version as the pages show it, with its preview label.
+// version as the pages show it, with its preview label. A delta update says so, with its
+// size next to the full archive's while it is only available.
 func updateLine(language i18n.Language, status UpdateStatus, current string) string {
+	percent := strconv.Itoa(int(status.Progress * 100))
 	switch {
 	case status.Installing:
 		return i18n.Shared(language, "desktop.settings.updates.installing")
+	case status.Applying:
+		return i18n.SharedFormat(language, "desktop.settings.updates.applying", map[string]string{"version": status.Available})
+	case status.Downloading && status.Delta:
+		return i18n.SharedFormat(language, "desktop.settings.updates.downloadingDelta", map[string]string{
+			"version": status.Available, "percent": percent,
+		})
+	case status.Downloading && status.FellBack:
+		return i18n.SharedFormat(language, "desktop.settings.updates.downloadingFull", map[string]string{
+			"version": status.Available, "percent": percent,
+		})
 	case status.Downloading:
 		return i18n.SharedFormat(language, "desktop.settings.updates.downloading", map[string]string{
-			"version": status.Available, "percent": strconv.Itoa(int(status.Progress * 100)),
+			"version": status.Available, "percent": percent,
 		})
 	case status.Checking:
 		return i18n.Shared(language, "desktop.settings.updates.checking")
 	case status.Ready:
 		return i18n.SharedFormat(language, "desktop.settings.updates.ready", map[string]string{"version": status.Available})
+	case status.Available != "" && status.Delta && status.DeltaSize > 0 && status.FullSize > 0:
+		return i18n.SharedFormat(language, "desktop.settings.updates.availableDelta", map[string]string{
+			"version": status.Available, "size": byteSize(uint64(status.DeltaSize)), "full": byteSize(uint64(status.FullSize)),
+		})
 	case status.Available != "":
 		return i18n.SharedFormat(language, "desktop.settings.updates.available", map[string]string{"version": status.Available})
 	case status.UpToDate:

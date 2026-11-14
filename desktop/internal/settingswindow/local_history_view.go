@@ -182,7 +182,7 @@ func (w *window) localHistoryCard(c ui.C) {
 				case !storage.open:
 					ui.Wrap(c, i18n.Shared(language, "native.openAProjectToSeeHowMuchSpaceItsHistoryUses")).FontSize(12).Color(w.pal.muted).Grow(1).MinWidth(0)
 				default:
-					ui.Text(c, historySize(storage.usage.UsedBytes)+" / "+historySize(storage.usage.LimitBytes)).FontSize(12).Color(w.pal.text).Grow(1).MinWidth(0).Ellipsis()
+					ui.Text(c, byteSize(storage.usage.UsedBytes)+" / "+byteSize(storage.usage.LimitBytes)).FontSize(12).Color(w.pal.text).Grow(1).MinWidth(0).Ellipsis()
 					text := i18n.Shared(language, "native.clearProjectHistory")
 					if storage.clearing {
 						text = i18n.Shared(language, "native.clearing")
@@ -334,10 +334,10 @@ func localHistoryVerdict(language i18n.Language, preview *core.HistoryIgnorePrev
 	return lines
 }
 
-// historySize is a size in the binary units Core's limit is set in, so the default limit
+// byteSize is a size in binary units, the ones Core sets the history limit in, so its default
 // reads 100 MB: whole kilobytes below a megabyte, then megabytes and gigabytes with one
 // decimal unless they are whole.
-func historySize(bytes uint64) string {
+func byteSize(bytes uint64) string {
 	unit := func(value float64, suffix string) string {
 		if value == float64(int64(value)) {
 			return strconv.FormatInt(int64(value), 10) + " " + suffix
