@@ -28,15 +28,15 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
-# The head of Lithe-core-rust #30, not yet merged, stacked on #28, not yet merged either; replace
-# it with the merge commit once both are in main. #30 adds the host rules the desktop no longer
-# keeps itself (processLifecycle gracefulStopRule, network.proxyPolicy exclusionRules,
+# Lithe-core-rust #31, squash-merged into main. It re-lands #30, which was merged into the branch
+# of #28 after #28 itself had gone into main, and adds the host rules the desktop no longer keeps
+# itself (processLifecycle gracefulStopRule, network.proxyPolicy exclusionRules,
 # git.changedFileGroups, git.worktrees states and git.worktreeCreationPreview,
 # plugins.installed.lifecycle, editor.groupLayout.*, workspace.rowSelection.reduce and
-# workspace.projectTree.rows) in four new rule crates (50 in the workspace). #28 splits 34
-# more crates out of lithe-core (46 in the workspace); command names, JSON, error codes and the
-# C header are unchanged, except that a build system's
-# source:"hostIntegration" is now refused as plugin.manifest.invalid. It is on top of #29 (cold
+# workspace.projectTree.rows) in four new rule crates (50 in the workspace). It is on top of #28
+# (34 more crates split out of lithe-core, 46 in the workspace; command names, JSON, error codes
+# and the C header unchanged, except that a build system's source:"hostIntegration" is now
+# refused as plugin.manifest.invalid), squash-merged into main, on top of #29 (cold
 # managed runtimes may finish LSP initialization), squash-merged into main, on top of
 # #27 (protocol, network, terminal, process, diff and github split into their own
 # crates, keymap and action search moved into lithe-core-rules; command names, JSON, error codes
@@ -56,7 +56,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="5efe90b4c6adfb831c13c38059aab0c77c5b5263"
+PINNED_CORE_REVISION="62b8a08fe41cd3d67f0f32d72653392410e6aa37"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
