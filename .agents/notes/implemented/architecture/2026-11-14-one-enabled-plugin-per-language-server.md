@@ -43,7 +43,8 @@ Java 现在有两个插件：Java Support（JDT LS，补全、诊断、运行、
 ## 验证
 
 - Core 仓库 `cargo test -p lithe-core --lib shared_plugin_lifecycle_fixture`：`rust/fixtures/plugins/installed-lifecycle.json` 覆盖启用、确认安装、更新后新增语言、禁用插件的更新、只看最新版本、旧状态、反向启用和停用接手。
-- `scripts/desktop/desktop-go.sh test ./internal/pluginmanager -run 'TestEnable|TestEarlierChoices|TestUnreadableManifest' -count=1`（需要链接包含 Lithe-core-rust#39 的 Core）：顶替记录与报告、确认安装顶替、旧状态只启用一个且停用后接手、清单损坏不影响其他插件。
+- `scripts/desktop/desktop-go.sh test ./internal/pluginmanager -run 'TestEnable|TestEarlierChoices|TestUnreadableManifest' -count=1`：顶替记录与报告、确认安装顶替、旧状态只启用一个且停用后接手、清单损坏不影响其他插件。
+- `scripts/desktop/desktop-go.sh test ./internal/workbench -run TestInstallingAPluginTurnsOffTheOneServingTheSameLanguage -count=1`：从磁盘先后安装两个都服务同一语言的插件，第一个被停用并出现提示；再启用第一个，第二个被停用。去掉工作台的 `stopDisplaced` 调用后此测试失败。
 
 ## 适用范围
 
