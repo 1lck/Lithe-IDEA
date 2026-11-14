@@ -3,6 +3,7 @@ package workbench
 import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -309,14 +310,15 @@ func (a *App) toolTabsWith(c ui.C, selected int, labels []string, choose func(in
 // opened, it is the groups of tabs those are in (see editorGroups). Until then there is no
 // editor, so it shows what an empty one shows: the commands that open something and where to
 // drop files, which is also where a dragged tab opens the first group. The shortcuts are key
-// symbols, not words, and so are not translated.
+// symbols, not words, and so are not translated. They come from the keymap, so each platform
+// shows its own defaults and a user's changes, the same as the menus.
 func (a *App) editorArea(c ui.C) {
 	if a.editorGroups(c) {
 		return
 	}
 	hints := [...]struct{ label, keys string }{
-		{a.text.Editor.SearchEverywhere, "⇧⇧  ⇧⌘O"},
-		{a.text.Editor.FindInFiles, "⇧⌘F"},
+		{a.text.Editor.SearchEverywhere, shortcuts.DoubleShiftLabel() + "  " + a.settings.Keymap.Label("search.everywhere")},
+		{a.text.Editor.FindInFiles, a.settings.Keymap.Label("search.files")},
 	}
 	editor := ui.Column(c).Fill().Clip().Center().Pad(shellContentPad).Background(a.colors.Editor).Radius(workbenchPanelRadius).Children(func() {
 		ui.Column(c).FillWidth().MaxWidth(shellHintWidth).Children(func() {

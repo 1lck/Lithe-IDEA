@@ -397,6 +397,20 @@ func Keycaps(c keymap.Chord) string {
 	return strings.Join(caps, "+")
 }
 
+// DoubleShiftLabel is the Double Shift gesture, which opens Search Everywhere. It is a
+// gesture rather than a chord, so Label cannot produce it: "⇧⇧" on macOS, "Shift+Shift"
+// elsewhere, matching the "+" join Keycaps uses off macOS.
+func DoubleShiftLabel() string {
+	return doubleShiftFor(runtime.GOOS == "darwin")
+}
+
+func doubleShiftFor(darwin bool) string {
+	if darwin {
+		return "⇧⇧"
+	}
+	return "Shift+Shift"
+}
+
 // Label is an action's keys as Find Action and the Keymap page show them: each chord's
 // keycaps, separated by commas; empty when the action has none.
 func (o Overrides) Label(id string) string {
