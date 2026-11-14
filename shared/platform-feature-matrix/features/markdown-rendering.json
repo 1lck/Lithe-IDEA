@@ -8,8 +8,16 @@
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/workbench/markdown_preview.go",
-      "desktop/internal/workbench/markdown_preview_test.go",
+      "desktop/internal/workbench/markdown_web.go",
+      "desktop/internal/workbench/preview_pages.go",
+      "desktop/internal/webpreview/webpreview.go",
+      "desktop/internal/webpreview/assets/markdown.js",
+      "desktop/internal/webpreview/assets/markdown.css",
+      "desktop/internal/webpreview/assets/THIRD_PARTY_NOTICES.md",
       "desktop/internal/core/markdown.go",
+      "desktop/internal/workbench/markdown_preview_test.go",
+      "desktop/internal/workbench/markdown_web_test.go",
+      "desktop/internal/webpreview/webpreview_test.go",
       "desktop/internal/core/markdown_test.go"
     ]
   },
@@ -18,14 +26,22 @@
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/workbench/markdown_preview.go",
-      "desktop/internal/workbench/markdown_preview_test.go",
+      "desktop/internal/workbench/markdown_web.go",
+      "desktop/internal/workbench/preview_pages.go",
+      "desktop/internal/webpreview/webpreview.go",
+      "desktop/internal/webpreview/assets/markdown.js",
+      "desktop/internal/webpreview/assets/markdown.css",
+      "desktop/internal/webpreview/assets/THIRD_PARTY_NOTICES.md",
       "desktop/internal/core/markdown.go",
+      "desktop/internal/workbench/markdown_preview_test.go",
+      "desktop/internal/workbench/markdown_web_test.go",
+      "desktop/internal/webpreview/webpreview_test.go",
       "desktop/internal/core/markdown_test.go"
     ]
   },
   "owner": "Editor",
-  "verification": "Windows 使用 markdown-render-v1.json 验证嵌套列表、任务列表、代码空白、中文、emoji、CRLF、front matter 隐藏及危险 HTML 过滤；修改、清空及关闭预览时不得被旧异步结果覆盖，失败显示提示且后续编辑可恢复。使用代码高亮、表格、Mermaid、链接和相对路径 fixture 对比渲染结果。打开含上千个代码块的大型 Markdown 预览，渲染不卡住，编辑时预览不会先闪成未高亮的代码；代码里的 `$&`、`$1` 按原文显示。macOS 在深浅主题运行 markdown-rich-content-v1.json：行内数学、块级化学反应、物理单位均生成可访问 MathML，没有 katex-error；Mermaid 生成真实 SVG，脚注链接及回链存在；H~2~O 与 x^2^ 正确，双波浪线仍是删除线，代码内语法保持原文。运行前后逐文件比较预览资源哈希，确认无网络脚本和远程资源请求、bundle 不变。macOS 使用 markdown-html-v1.json 及仓库 README 验证：宽预览中同一段内多个徽章同行居中，窄分栏按可用宽度自然折行；div/p/h1 的 align 生效，显式 br 和普通段落保留，正文行内图片不拆行，相对图片与点击放大仍可用。深浅主题均检查，脚本、事件处理器、危险 URL 和任意 style 仍被剥离。 macOS PlantUML：在深浅主题打开时序图和类图 fenced block，离线生成可放大的 SVG 图片，不能在文档 DOM 执行 SVG；多个代码块顺序执行，切换文档拒绝旧结果；本地 include 被拒绝且保留源码与本地化提示，超大输入立即失败，关闭和取消释放渲染器；运行前后比较预览资源 SHA-256。 GitHub 预览保留 Core 的硬换行与代码空白；Notebook 共享队列最多同时执行两个渲染，关闭和替换内容会取消未开始请求。",
-  "notes": "Viva：Markdown 文件以双栏编辑器打开，左侧源码、右侧用 Viva 的 Markdown 组件渲染编辑器文本，随编辑更新，超过 1 MiB 不渲染；标签栏末尾三态切换“编辑 / 编辑与预览 / 预览”，默认编辑与预览，两侧按源码行双向同步滚动，切换时保持位置；不再提供右侧 Markdown 预览工具窗口。标题、列表、引用、代码块、表格与链接按 Viva 能力呈现。Core markdown.render 已封装并通过共享 fixture，但 Viva 不渲染 HTML，数学公式、Mermaid、PlantUML、脚注与内嵌 HTML 等富内容尚未支持。",
+  "verification": "Windows 使用 markdown-render-v1.json 验证嵌套列表、任务列表、代码空白、中文、emoji、CRLF、front matter 隐藏及危险 HTML 过滤；修改、清空及关闭预览时不得被旧异步结果覆盖，失败显示提示且后续编辑可恢复。使用代码高亮、表格、Mermaid、链接和相对路径 fixture 对比渲染结果。打开含上千个代码块的大型 Markdown 预览，渲染不卡住，编辑时预览不会先闪成未高亮的代码；代码里的 `$&`、`$1` 按原文显示。macOS 在深浅主题运行 markdown-rich-content-v1.json：行内数学、块级化学反应、物理单位均生成可访问 MathML，没有 katex-error；Mermaid 生成真实 SVG，脚注链接及回链存在；H~2~O 与 x^2^ 正确，双波浪线仍是删除线，代码内语法保持原文。运行前后逐文件比较预览资源哈希，确认无网络脚本和远程资源请求、bundle 不变。macOS 使用 markdown-html-v1.json 及仓库 README 验证：宽预览中同一段内多个徽章同行居中，窄分栏按可用宽度自然折行；div/p/h1 的 align 生效，显式 br 和普通段落保留，正文行内图片不拆行，相对图片与点击放大仍可用。深浅主题均检查，脚本、事件处理器、危险 URL 和任意 style 仍被剥离。 macOS PlantUML：在深浅主题打开时序图和类图 fenced block，离线生成可放大的 SVG 图片，不能在文档 DOM 执行 SVG；多个代码块顺序执行，切换文档拒绝旧结果；本地 include 被拒绝且保留源码与本地化提示，超大输入立即失败，关闭和取消释放渲染器；运行前后比较预览资源 SHA-256。 GitHub 预览保留 Core 的硬换行与代码空白；Notebook 共享队列最多同时执行两个渲染，关闭和替换内容会取消未开始请求。 Viva 新桌面端：在深浅主题打开仓库 README 与 markdown-html-v1.json、markdown-rich-content-v1.json 的输入，确认内嵌 HTML（徽章同行、align、details、br）、内嵌 SVG、KaTeX 数学与 mhchem、Mermaid、markmap、代码高亮、脚注和上下标都显示在 web view 页里，脚本、事件处理器、危险 URL 和任意 style 仍被 Core 剥离；页面只能访问自身 lithe-preview 源，所有脚本与字体随应用内嵌，无网络请求；源码与页面按源码行双向同步滚动，切换模式保持位置；超过 1 MiB 显示过大提示。Linux 无 web 引擎时回落到 Viva 原生渲染。自动回归：scripts/desktop/desktop-go.sh test ./internal/workbench ./internal/webpreview -run 'Markdown|Preview|Serves|EveryPage' -count=1。",
+  "notes": "Viva：有系统 web 引擎（macOS WKWebView、Windows WebView2）时，Markdown 页显示在 web view 中：Core markdown.render 生成过滤后的 HTML（放行内嵌 SVG 白名单），页面用内嵌的 KaTeX 0.16.0 与 mhchem、Highlight.js、Mermaid 11、markmap 渲染富内容，只在文档用到时加载；链接交回宿主按 Core 的解析结果跳转，图片按 Core 解析结果提供。每次编辑后重新渲染，同一时间只有一次渲染。Linux 没有 web 引擎，仍用 Viva 的 Markdown 组件渲染（不支持 HTML 和富内容）。标签栏末尾三态切换“编辑 / 编辑与预览 / 预览”，默认编辑与预览，超过 1 MiB 不渲染。PlantUML 尚未接入。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

@@ -9,27 +9,28 @@ import (
 	"image/draw"
 	"io"
 	"net/http"
-	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/webpreview"
 	"github.com/vivaui/viva/gfx"
 )
 
-// The Markdown preview shows the images a file links (![alt](destination)): a path relative to
-// the file, or an http or https address fetched through the application's proxy. Viva lays an
-// image out from the bitmap the preview hands it (MarkdownStyle.Image) and shows the alt text
-// until it is loaded or when it cannot be: a missing file, a format the standard decoders do not
-// read (SVG among them), an image over the size limits or a failed download. Images are loaded
-// off the window thread, kept for the document shown, and the page is laid out again as each
-// arrives.
+// The Markdown page Viva draws shows the images a file links (![alt](destination)) as Core
+// resolves them (markdown.resolveReference): an image file inside the workspace, or an http or
+// https address fetched through the application's proxy, the same images a web page of the file
+// shows. Viva lays an image out from the bitmap the preview hands it (MarkdownStyle.Image) and
+// shows the alt text until it is loaded or when it cannot be: a reference Core does not load, a
+// format the standard decoders do not read (SVG among them), an image over the size limits or a
+// failed download. Images are loaded off the window thread, kept for the document shown, and the
+// page is laid out again as each arrives. Downloads are shared with the web pages and kept for
+// all of them (webpreview.Remote).
 
 const (
 	// markdownImageTimeout bounds one download.
 	markdownImageTimeout = 15 * time.Second
-	// markdownImageBytes bounds what one image may take to read or download.
+	// markdownImageBytes bounds what one image may take to download.
 	markdownImageBytes = 16 << 20
 )
 
@@ -41,49 +42,31 @@ type markdownImage struct {
 	failed  bool
 }
 
-// markdownImageSource is where an image's destination points: a file or an address. Other
-// schemes are not read.
-func markdownImageSource(documentPath, destination string) (key string, remote bool, ok bool) {
-	destination = strings.TrimSpace(destination)
-	if destination == "" || strings.HasPrefix(destination, "#") {
-		return "", false, false
-	}
-	if parsed, err := url.Parse(destination); err == nil && parsed.Scheme != "" && len(parsed.Scheme) > 1 {
-		switch strings.ToLower(parsed.Scheme) {
-		case "http", "https":
-			return destination, true, true
-		case "file":
-			return filepath.Clean(parsed.Path), false, true
-		}
-		return "", false, false
-	}
-	target := markdownLinkTargetOf(documentPath, destination)
-	if target.path == "" {
-		return "", false, false
-	}
-	return target.path, false, true
-}
-
 // markdownImageBitmap answers the page's question for one destination of d: the bitmap when it is
 // loaded, and otherwise false after starting its load.
-func (a *App) markdownImageBitmap(d *document, s *markdownPreviewState, destination string) (gfx.Bitmap, bool) {
-	key, remote, ok := markdownImageSource(s.path, destination)
-	if !ok {
+func (a *App) markdownImageBitmap(p *project, d *document, s *markdownPreviewState, destination string) (gfx.Bitmap, bool) {
+	destination = strings.TrimSpace(destination)
+	if destination == "" {
 		return gfx.Bitmap{}, false
 	}
 	if s.images == nil {
 		s.images = map[string]*markdownImage{}
 	}
-	if image := s.images[key]; image != nil {
+	if image := s.images[destination]; image != nil {
 		return image.bitmap, !image.loading && !image.failed
 	}
+	kernel, ok := a.kernel.(markdownKernel)
+	if !ok {
+		return gfx.Bitmap{}, false
+	}
 	image := &markdownImage{loading: true}
-	s.images[key] = image
-	go func() {
-		bitmap, err := loadMarkdownImage(key, remote)
-		a.post(func(a *App) {
+	s.images[destination] = image
+	path, root, remote := s.path, p.root, a.previewRemote()
+	a.background(p, markdownImageTimeout, func(ctx context.Context) func(*App) {
+		bitmap, err := loadMarkdownImage(ctx, kernel, path, root, destination, remote)
+		return func(a *App) {
 			// The file may have been renamed or closed while the image loaded.
-			if d.markdown != s || s.images[key] != image {
+			if d.markdown != s || s.images[destination] != image {
 				return
 			}
 			image.loading = false
@@ -94,32 +77,31 @@ func (a *App) markdownImageBitmap(d *document, s *markdownPreviewState, destinat
 			image.bitmap = bitmap
 			// The page makes room for the image the next time it is laid out.
 			s.laidRevision = -1
-		})
-	}()
+		}
+	})
 	return gfx.Bitmap{}, false
 }
 
-// loadMarkdownImage reads or downloads one image and decodes it.
-func loadMarkdownImage(key string, remote bool) (gfx.Bitmap, error) {
-	var data []byte
-	var err error
-	if remote {
-		data, err = downloadMarkdownImage(key)
-	} else {
-		data, err = readBounded(key, markdownImageBytes)
+// loadMarkdownImage resolves one image of a document through Core, reads or downloads it and
+// decodes it.
+func loadMarkdownImage(ctx context.Context, kernel markdownKernel, documentPath, workspaceRoot, destination string, remote *webpreview.Remote) (gfx.Bitmap, error) {
+	resolved, err := kernel.ResolveMarkdownReference(ctx, documentPath, workspaceRoot, destination, core.MarkdownResource)
+	if err != nil {
+		return gfx.Bitmap{}, err
 	}
+	data, _, err := webpreview.LoadResource(ctx, resolved, remote)
 	if err != nil {
 		return gfx.Bitmap{}, err
 	}
 	hash := fnv.New64a()
-	_, _ = hash.Write([]byte(key))
+	_, _ = hash.Write([]byte(resolved.Path + "\x00" + resolved.URL))
 	return decodeImageData(data, hash.Sum64()&0x00ffffffffffffff|0x4d00000000000000)
 }
 
-// downloadMarkdownImage fetches an image address; the default transport follows the
-// application's proxy policy (netproxy).
-func downloadMarkdownImage(address string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), markdownImageTimeout)
+// downloadMarkdownImage fetches an image address for webpreview.Remote, which asks without a
+// deadline; the default transport follows the application's proxy policy (netproxy).
+func downloadMarkdownImage(ctx context.Context, address string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, markdownImageTimeout)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
 	if err != nil {
@@ -138,23 +120,6 @@ func downloadMarkdownImage(address string) ([]byte, error) {
 		return nil, err
 	}
 	if len(data) > markdownImageBytes {
-		return nil, errors.New("image is too large")
-	}
-	return data, nil
-}
-
-// readBounded reads a file of at most limit bytes.
-func readBounded(path string, limit int64) ([]byte, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, limit+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(data)) > limit {
 		return nil, errors.New("image is too large")
 	}
 	return data, nil

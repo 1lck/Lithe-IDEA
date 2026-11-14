@@ -28,7 +28,12 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
-# Lithe-core-rust #34, squash-merged into main: workbench.chromeLayout.reduce setHidden hides a
+# Lithe-core-rust #37, squash-merged into main: markdown.resolveReference decides what a link or
+# an image of a rendered Markdown document points at, for the web view previews. It is on top of
+# #36, squash-merged into main: plugin settings read translations a package ships in
+# l10n/<language>.json. It is on top of #35, squash-merged into main:
+# build.detect skips the workspace's ignored paths and every directory starting with a dot. It
+# is on top of #34, squash-merged into main: workbench.chromeLayout.reduce setHidden hides a
 # stripe entry and the layout keeps it in hidden. It is on top of #33, squash-merged into
 # main: build.detect and automatic run discovery skip
 # directories Git ignores (the .gitignore files inside the workspace and the info/exclude of each
@@ -63,7 +68,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="1d4556b09d156ad93724368750cddd32a49ca09f"
+PINNED_CORE_REVISION="2c1fed18906528c6c499ea95e5ca413af6c8c286"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

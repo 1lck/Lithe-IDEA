@@ -10937,8 +10937,6 @@
     "desktop.settings.editor.tabPolicy": "When the limit is reached, close",
     "desktop.settings.editor.tabPolicyRecent": "The least recently used tab",
     "desktop.settings.editor.tabPolicyOldest": "The tab opened first",
-    "desktop.viewer.actualSize": "Actual Size",
-    "desktop.viewer.fit": "Fit to Window",
     "desktop.viewer.openExternally": "Open in Default App",
     "desktop.viewer.openFailed": "Could not open the file: {reason}",
     "desktop.viewer.failed": "Could not show this file: {reason}",
@@ -11103,7 +11101,22 @@
     "desktop.workbenchBackground.tooLarge": "The image file is larger than 30 MB.",
     "desktop.workbenchBackground.tooManyPixels": "The image has more than 64 million pixels.",
     "desktop.workbenchBackground.unsupported": "Only PNG and JPEG images are supported.",
-    "desktop.workbenchBackground.imageFilter": "PNG and JPEG images"
+    "desktop.workbenchBackground.imageFilter": "PNG and JPEG images",
+    "desktop.markdown.closeImage": "Close image",
+    "desktop.markdown.empty": "Nothing to preview",
+    "desktop.markdown.imagePreview": "Image preview",
+    "desktop.markdown.markmap": "Mind map",
+    "desktop.markdown.markmapFailed": "Could not draw this mind map.",
+    "desktop.markdown.mermaidFailed": "Could not draw this Mermaid diagram.",
+    "desktop.viewer.zoomOut": "Zoom out",
+    "desktop.viewer.zoomIn": "Zoom in",
+    "desktop.viewer.zoom": "Image zoom",
+    "desktop.viewer.resetZoom": "Reset to actual size (100%)",
+    "desktop.viewer.resetZoomHint": "Reset to actual size",
+    "desktop.viewer.imageFailed": "Could not load this image",
+    "desktop.viewer.close": "Close",
+    "desktop.viewer.tooLarge": "This file is too large to show here. Open it in the system's default application.",
+    "desktop.svg.tooLarge": "This SVG file is too large to preview."
   },
   "overrides": {
     "windows": {

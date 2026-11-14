@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	_ "image/gif"  // GIF images open in a viewer tab.
-	_ "image/jpeg" // JPEG images open in a viewer tab.
-	_ "image/png"  // PNG images open in a viewer tab.
+	_ "image/gif"  // Viva draws GIF images where no web page shows them.
+	_ "image/jpeg" // Viva draws JPEG images where no web page shows them.
+	_ "image/png"  // Viva draws PNG images where no web page shows them.
 	"os"
 	"path/filepath"
 	"slices"
@@ -19,16 +19,19 @@ import (
 )
 
 // Viewer tabs show a file that is not text in the editor area, as a tab that is selected,
-// moved and closed like a file's: its member in a tab group is "view:<id>". An image is
-// drawn, fitted to the tab or at its own size; a PDF, audio or video file offers to open
-// in the system's application; any other binary file shows its leading bytes in hex,
-// read only.
+// moved and closed like a file's: its member in a tab group is "view:<id>". An image is shown
+// in the image viewer (viewer_image.go), a PDF in the web engine's own viewer (viewer_web.go);
+// an audio or video file, or a PDF where there is no web engine, offers to open in the system's
+// application; any other binary file shows its leading bytes in hex, read only.
 
 const (
 	viewerMemberPrefix = "view:"
-	// viewerImageBytes and viewerImagePixels bound the images a tab decodes.
+	// viewerImageBytes bounds the images a tab shows, and viewerImagePixels the ones Viva
+	// decodes where no web page shows them.
 	viewerImageBytes  = 64 << 20
 	viewerImagePixels = 64 << 20
+	// viewerPDFBytes bounds the PDF files a tab shows.
+	viewerPDFBytes = 256 << 20
 	// viewerHexBytes is how much of a binary file the hex view shows.
 	viewerHexBytes = 64 << 10
 )
@@ -39,13 +42,20 @@ type viewerKind int
 const (
 	viewerHex viewerKind = iota
 	viewerImage
+	viewerPDF
 	viewerExternal
 )
 
+// The images are the formats the macOS viewer showed; the web engine decodes them, and Viva,
+// where there is none, decodes PNG, JPEG and GIF.
 var (
-	viewerImageExtensions    = []string{".png", ".jpg", ".jpeg", ".gif"}
-	viewerExternalExtensions = []string{".pdf", ".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv", ".webp", ".heic", ".tif", ".tiff", ".bmp", ".ico", ".icns", ".psd"}
+	viewerImageExtensions    = []string{".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif"}
+	viewerExternalExtensions = []string{".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv", ".ico", ".icns", ".psd"}
 )
+
+// errViewerImageTooLarge is an image Viva does not decode, past viewerImageBytes or
+// viewerImagePixels.
+var errViewerImageTooLarge = errors.New("viewer: image is too large to decode")
 
 // viewerKindOf is the viewer a path opens in by its extension; false for a file the
 // editor opens as text first.
@@ -54,6 +64,8 @@ func viewerKindOf(path string) (viewerKind, bool) {
 	switch {
 	case slices.Contains(viewerImageExtensions, ext):
 		return viewerImage, true
+	case ext == ".pdf":
+		return viewerPDF, true
 	case slices.Contains(viewerExternalExtensions, ext):
 		return viewerExternal, true
 	}
@@ -112,12 +124,21 @@ type viewerTab struct {
 	id         int
 	path, name string
 	kind       viewerKind
-	loading    bool
-	failure    string
-	size       int64
-	// bitmap is the decoded image; actual shows it at its own size instead of fitted.
-	bitmap gfx.Bitmap
-	actual bool
+	// loading says the file's size, and the bytes of a hex tab, are being read; failure is why
+	// they could not be.
+	loading bool
+	failure string
+	size    int64
+	// tooLarge says the file is past what its viewer shows.
+	tooLarge bool
+	// web is the page that shows an image or a PDF; webFailed says the image page could not
+	// show the image.
+	web       *previewPage
+	webFailed bool
+	// zoom is the image's zoom as its page reported it; canvas is the image Viva draws where no
+	// page shows it, decoded the first time it is drawn.
+	zoom   imageZoom
+	canvas *imageCanvas
 	// hex are the hex view's lines; truncated says the file is longer than they show.
 	hex       []string
 	truncated bool
@@ -135,25 +156,17 @@ func (a *App) openViewer(p *project, path string, kind viewerKind) {
 		return
 	}
 	p.viewers.next = id
-	t := &viewerTab{id: id, path: path, name: filepath.Base(path), kind: kind, loading: kind != viewerExternal}
-	if info, err := os.Stat(path); err == nil {
-		t.size = info.Size()
-	}
+	t := &viewerTab{id: id, path: path, name: filepath.Base(path), kind: kind, loading: true}
 	p.viewers.list = append(p.viewers.list, t)
 	p.docs.group = group
 	a.focus = focusTarget{}
 	a.performed("editor.viewer.open", surfaceMenu)
-	if kind == viewerExternal {
-		return
-	}
+	// The file is read off the window's thread, which a slow disk would hold up.
 	a.background(p, 0, func(ctx context.Context) func(*App) {
-		var bitmap gfx.Bitmap
+		info, err := os.Stat(path)
 		var lines []string
 		var truncated bool
-		var err error
-		if kind == viewerImage {
-			bitmap, err = decodeViewerImage(path, uint64(id))
-		} else {
+		if err == nil && kind == viewerHex {
 			lines, truncated, err = readViewerHex(path)
 		}
 		return func(a *App) {
@@ -165,9 +178,38 @@ func (a *App) openViewer(p *project, path string, kind viewerKind) {
 				t.failure = err.Error()
 				return
 			}
-			t.bitmap, t.hex, t.truncated = bitmap, lines, truncated
+			t.size = info.Size()
+			t.tooLarge = kind == viewerImage && t.size > viewerImageBytes || kind == viewerPDF && t.size > viewerPDFBytes
+			t.hex, t.truncated = lines, truncated
 		}
 	})
+}
+
+// viewerCanvas is the image of t that Viva draws, decoded off the window's thread the first time
+// it is asked for.
+func (a *App) viewerCanvas(p *project, t *viewerTab) *imageCanvas {
+	if t.canvas != nil {
+		return t.canvas
+	}
+	n := &imageCanvas{state: canvasDecoding}
+	a.makeImageCanvas(n)
+	t.canvas = n
+	path, id := t.path, uint64(t.id)
+	a.background(p, 0, func(ctx context.Context) func(*App) {
+		bitmap, err := decodeViewerImage(path, id)
+		return func(a *App) {
+			if t.canvas != n || p.viewers.find(t.id) != t {
+				return
+			}
+			if err != nil {
+				n.state = canvasFailed
+				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("viewer_decode", err))
+				return
+			}
+			n.bitmap, n.state = bitmap, canvasReady
+		}
+	})
+	return n
 }
 
 // selectViewer shows viewer tab id in its group.
@@ -200,7 +242,7 @@ func (a *App) closeViewer(p *project, id int) {
 	p.viewers.list = slices.DeleteFunc(p.viewers.list, func(x *viewerTab) bool { return x == t })
 }
 
-// decodeViewerImage reads and decodes an image into premultiplied BGRA.
+// decodeViewerImage reads and decodes a PNG, JPEG or GIF image into premultiplied BGRA.
 func decodeViewerImage(path string, id uint64) (gfx.Bitmap, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -208,14 +250,14 @@ func decodeViewerImage(path string, id uint64) (gfx.Bitmap, error) {
 	}
 	defer file.Close()
 	if info, err := file.Stat(); err == nil && info.Size() > viewerImageBytes {
-		return gfx.Bitmap{}, errors.New("image is too large to preview")
+		return gfx.Bitmap{}, errViewerImageTooLarge
 	}
 	config, _, err := image.DecodeConfig(file)
 	if err != nil {
 		return gfx.Bitmap{}, err
 	}
 	if config.Width <= 0 || config.Height <= 0 || config.Width*config.Height > viewerImagePixels {
-		return gfx.Bitmap{}, errors.New("image is too large to preview")
+		return gfx.Bitmap{}, errViewerImageTooLarge
 	}
 	if _, err := file.Seek(0, 0); err != nil {
 		return gfx.Bitmap{}, err

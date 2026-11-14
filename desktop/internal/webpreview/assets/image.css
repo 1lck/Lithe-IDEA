@@ -1,0 +1,51 @@
+/* The image viewer, as the macOS viewer drew it: the image at its scale, centered with 24px around
+   it, over a 16px checkerboard that stays in place while the image scrolls. */
+:root {
+  color-scheme: light;
+  --page: var(--lithe-surface, #ffffff);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: var(--lithe-surface, #1e1f22);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--page);
+}
+
+.viewport {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  background-color: var(--page);
+  background-image: repeating-conic-gradient(rgba(0, 0, 0, 0.07) 0 25%, rgba(255, 255, 255, 0.07) 0 50%);
+  background-size: 32px 32px;
+  overscroll-behavior: none;
+}
+
+.viewport.pannable { cursor: grab; }
+.viewport.panning { cursor: grabbing; }
+
+.stage {
+  display: grid;
+  place-items: center;
+  width: max-content;
+  min-width: 100%;
+  min-height: 100%;
+  padding: 24px;
+}
+
+.stage img {
+  display: block;
+  max-width: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+}

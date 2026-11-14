@@ -10937,8 +10937,6 @@
     "desktop.settings.editor.tabPolicy": "达到上限时关闭",
     "desktop.settings.editor.tabPolicyRecent": "最久未使用的标签",
     "desktop.settings.editor.tabPolicyOldest": "最早打开的标签",
-    "desktop.viewer.actualSize": "实际大小",
-    "desktop.viewer.fit": "适应窗口",
     "desktop.viewer.openExternally": "用默认应用打开",
     "desktop.viewer.openFailed": "无法打开文件：{reason}",
     "desktop.viewer.failed": "无法显示此文件：{reason}",
@@ -11103,7 +11101,22 @@
     "desktop.workbenchBackground.tooLarge": "图片文件超过 30 MB。",
     "desktop.workbenchBackground.tooManyPixels": "图片像素超过 6400 万。",
     "desktop.workbenchBackground.unsupported": "只支持 PNG 和 JPEG 图片。",
-    "desktop.workbenchBackground.imageFilter": "PNG 和 JPEG 图片"
+    "desktop.workbenchBackground.imageFilter": "PNG 和 JPEG 图片",
+    "desktop.markdown.closeImage": "关闭图片",
+    "desktop.markdown.empty": "没有可预览的内容",
+    "desktop.markdown.imagePreview": "图片预览",
+    "desktop.markdown.markmap": "思维导图",
+    "desktop.markdown.markmapFailed": "无法绘制此思维导图。",
+    "desktop.markdown.mermaidFailed": "无法绘制此 Mermaid 图表。",
+    "desktop.viewer.zoomOut": "缩小",
+    "desktop.viewer.zoomIn": "放大",
+    "desktop.viewer.zoom": "图片缩放",
+    "desktop.viewer.resetZoom": "重置为实际大小（100%）",
+    "desktop.viewer.resetZoomHint": "重置为实际大小",
+    "desktop.viewer.imageFailed": "无法载入此图片",
+    "desktop.viewer.close": "关闭",
+    "desktop.viewer.tooLarge": "此文件过大，无法在此显示，请用系统默认应用打开。",
+    "desktop.svg.tooLarge": "此 SVG 文件过大，无法预览。"
   },
   "overrides": {
     "macos": {
