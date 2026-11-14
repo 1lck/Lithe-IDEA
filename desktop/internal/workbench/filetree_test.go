@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -389,27 +390,137 @@ func TestProjectTreeDiscardsListingSupersededByChange(t *testing.T) {
 }
 
 func TestProjectTreeRefreshPreservesSurvivingState(t *testing.T) {
-	tree := fileTree{root: &treeNode{dir: true, expanded: true}}
-	tree.replaceChildren(tree.root, []core.WorkspaceNode{{Path: "src", Name: "src", IsDirectory: true}})
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	p := &project{}
+	tree := &p.tree
+	tree.root = &treeNode{dir: true, expanded: true}
+	// replace lists a folder again and lays the rows out as Core says, as a listing does.
+	replace := func(n *treeNode, nodes []core.WorkspaceNode) {
+		t.Helper()
+		tree.replaceChildren(n, nodes)
+		if !tree.rowsDirty {
+			t.Fatal("a listing left the rows as they were")
+		}
+		h.app.refreshTreeRows(p, nil)
+	}
+	replace(tree.root, []core.WorkspaceNode{{Path: "src", Name: "src", IsDirectory: true}})
 	folder := tree.root.children[0]
 	folder.expanded, folder.listed = true, true
-	tree.replaceChildren(folder, []core.WorkspaceNode{{Path: "src/a.go", Name: "a.go"}})
+	replace(folder, []core.WorkspaceNode{{Path: "src/a.go", Name: "a.go"}})
 	file := folder.children[0]
 	tree.selected = file
-	tree.replaceChildren(tree.root, []core.WorkspaceNode{
+	replace(tree.root, []core.WorkspaceNode{
 		{Path: "src", Name: "src", IsDirectory: true},
 		{Path: "new", Name: "new"},
 	})
 	if tree.root.children[0] != folder || !folder.expanded || !folder.listed || tree.selected != file {
 		t.Fatal("refresh lost a surviving folder or its selected descendant")
 	}
-	tree.replaceChildren(folder, nil)
+	replace(folder, nil)
 	if tree.selected != folder {
 		t.Fatal("removing the selected file did not move selection to its parent")
 	}
-	tree.replaceChildren(tree.root, []core.WorkspaceNode{{Path: "src", Name: "src"}})
-	if tree.root.children[0] == folder || tree.selected != nil {
-		t.Fatal("replacing a directory with a file retained the old subtree")
+	// The selection is a path: a file in place of the selected folder is the selected row now.
+	replace(tree.root, []core.WorkspaceNode{{Path: "src", Name: "src"}})
+	if replaced := tree.root.children[0]; replaced == folder || tree.selected != replaced || len(tree.rows) != 2 {
+		t.Fatalf("replacing a directory with a file left %+v selected and %d rows", tree.selected, len(tree.rows))
+	}
+	replace(tree.root, nil)
+	if tree.selected != tree.root {
+		t.Fatalf("removing the selected file selected %+v, want the root", tree.selected)
+	}
+}
+
+func TestProjectTreeBatchSelectionFollowsCore(t *testing.T) {
+	root := t.TempDir()
+	writeTreeFiles(t, root, "a/x.go", "b.txt", "c.txt")
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	p := h.openTree(t, root)
+	folder := p.tree.find("a")
+	h.app.toggleFolder(p, folder)
+	awaitDocumentState(t, h, func() bool { return folder.listed && p.tree.find("a/x.go") != nil })
+	h.settle()
+	if len(p.tree.rows) != 5 {
+		t.Fatalf("the open folder shows %d rows, want the root, a, a/x.go, b.txt and c.txt", len(p.tree.rows))
+	}
+	paths := func(nodes []*treeNode) []string {
+		out := make([]string, len(nodes))
+		for i, n := range nodes {
+			out[i] = n.path
+		}
+		return out
+	}
+
+	h.app.treeModifiedClick(p, p.tree.root, ui.Primary)
+	if len(p.tree.marked) != 0 {
+		t.Fatal("a Cmd click marked the root")
+	}
+	h.app.treeModifiedClick(p, folder, ui.Primary)
+	h.app.treeModifiedClick(p, p.tree.find("b.txt"), gfx.ModifierShift)
+	if got := paths(p.tree.batchTargets()); !slices.Equal(got, []string{"a", "b.txt"}) {
+		t.Fatalf("batch targets = %v, want the marked folder standing for a/x.go, and b.txt", got)
+	}
+	if p.tree.selected != p.tree.find("b.txt") || p.tree.anchor != "a" || !p.tree.marked["a/x.go"] {
+		t.Fatalf("selection = %v marked %v anchor %q", p.tree.selected, p.tree.marked, p.tree.anchor)
+	}
+
+	// Closing the folder keeps the marks inside it; the batch is what it was.
+	h.app.toggleFolder(p, folder)
+	h.app.invalidator.Invalidate()
+	h.settle()
+	if !p.tree.marked["a/x.go"] || len(p.tree.rows) != 4 {
+		t.Fatalf("closing the folder left marks %v and %d rows", p.tree.marked, len(p.tree.rows))
+	}
+	h.app.treeModifiedClick(p, folder, ui.Primary)
+	if got := paths(p.tree.batchTargets()); !slices.Equal(got, []string{"a/x.go", "b.txt"}) {
+		t.Fatalf("unmarking the folder left targets %v", got)
+	}
+
+	// A plain click drops the marks, and a batch that ends drops them too.
+	hit := h.treeRowHit("c.txt")
+	h.click(center(hit.Bounds))
+	if len(p.tree.marked) != 0 || p.tree.anchor != "" || p.tree.selected != p.tree.find("c.txt") {
+		t.Fatalf("a plain click left marks %v anchor %q selected %v", p.tree.marked, p.tree.anchor, p.tree.selected)
+	}
+	if got := paths(p.tree.batchTargets()); !slices.Equal(got, []string{"c.txt"}) {
+		t.Fatalf("without marks the batch is %v, want the selected row", got)
+	}
+	h.app.treeModifiedClick(p, p.tree.find("b.txt"), ui.Primary)
+	h.app.finishBatch(p, nil, "workspace.file.trashBatch", 0, nil, nil)
+	if len(p.tree.marked) != 0 || len(p.tree.targets) != 0 {
+		t.Fatalf("the end of a batch left marks %v targets %v", p.tree.marked, p.tree.targets)
+	}
+}
+
+func TestChangeListRowSelectionFollowsCore(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	p := &project{}
+	p.git.status.Changes = []core.GitChange{{Path: "a.go"}, {Path: "b.go"}, {Path: "c.go"}, {Path: "new/"}}
+	click := func(at int, mods gfx.Modifiers) { h.app.clickChangeRow(p, p.git.status.Changes[at], mods) }
+	selected := func() []string {
+		var out []string
+		for _, change := range p.selectedChanges() {
+			out = append(out, change.Path)
+		}
+		return out
+	}
+
+	click(2, gfx.ModifierShift)
+	if got := selected(); !slices.Equal(got, []string{"c.go"}) || p.lists.anchor != "" {
+		t.Fatalf("a Shift click without an anchor selected %v anchor %q, want c.go alone", got, p.lists.anchor)
+	}
+	click(0, ui.Primary)
+	click(3, gfx.ModifierShift)
+	if got := selected(); !slices.Equal(got, []string{"a.go", "b.go", "c.go", "new/"}) || p.lists.anchor != "a.go" {
+		t.Fatalf("a Shift click from a.go selected %v anchor %q", got, p.lists.anchor)
+	}
+	click(1, ui.Primary)
+	if got := selected(); !slices.Equal(got, []string{"a.go", "c.go", "new/"}) || p.lists.anchor != "b.go" {
+		t.Fatalf("a Cmd click on a selected change left %v anchor %q", got, p.lists.anchor)
+	}
+	click(0, 0)
+	if len(p.lists.selected) != 0 || p.lists.anchor != "" {
+		t.Fatalf("a plain click left %v anchor %q", p.lists.selected, p.lists.anchor)
 	}
 }
 

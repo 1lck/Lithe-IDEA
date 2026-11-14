@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
@@ -51,7 +52,7 @@ func (a *App) projectTree(c ui.C, p *project) {
 	}
 	if t.root == nil {
 		t.root = &treeNode{name: p.name, dir: true, expanded: true}
-		t.measureDirty = true
+		t.rowsDirty = true
 		a.listTree(p, "")
 	}
 	switch {
@@ -67,19 +68,12 @@ func (a *App) projectTree(c ui.C, p *project) {
 		a.panelMessage(c, a.text.Project.Loading, a.colors.Subtle)
 		return
 	}
-	// Flatten the already loaded rows; the Tree declares only the viewport and a little
-	// beyond it. Expanding a folder never enumerates its unexpanded descendants.
-	t.rows = t.rows[:0]
-	var collect func([]*treeNode)
-	collect = func(nodes []*treeNode) {
-		for _, n := range nodes {
-			t.rows = append(t.rows, n)
-			if n.dir && n.expanded {
-				collect(n.children)
-			}
-		}
+	// Core lays the loaded rows out again only after the shape of the tree changed; the Tree
+	// declares only the viewport and a little beyond it, and opening a folder never enumerates
+	// what is under it.
+	if t.rowsDirty {
+		a.refreshTreeRows(p, nil)
 	}
-	collect([]*treeNode{t.root})
 	a.syncTreeSelection(c.Canvas(), t)
 	t.view.RowWidth = a.measureTree(c.Canvas(), t)
 	// Names are never cut short: the rows are as wide as the widest one, and the tree
@@ -131,9 +125,10 @@ func (a *App) projectTree(c ui.C, p *project) {
 			c.After(func() { a.treeModifiedClick(p, n, mods) })
 		} else {
 			c.After(func() {
-				t.selected = n
-				if clicked {
-					t.marked, t.anchor = nil, ""
+				if !clicked {
+					t.selected = n
+				} else if !a.reduceTreeSelection(p, core.ChooseRow(n.path)) {
+					return
 				}
 				switch {
 				case !n.dir:

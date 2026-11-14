@@ -129,6 +129,8 @@ type Kernel interface {
 	GitHistoryDates(ctx context.Context, entries []core.HistoryDateEntry, after, before *int64) ([]string, error)
 	ReduceEditorLayout(ctx context.Context, state core.EditorWorkbench, layout *core.EditorLayout, action core.EditorAction) (core.EditorLayoutResult, error)
 	EditorDropTargets(ctx context.Context, query core.EditorDropQuery) (core.EditorDropRules, error)
+	ReduceRowSelection(ctx context.Context, rows []string, selection core.RowSelection, action core.RowAction) (core.RowSelectionResult, error)
+	ProjectTreeRows(ctx context.Context, query core.ProjectTreeQuery) (core.ProjectTreeRows, error)
 	GitStage(ctx context.Context, root string, paths []string) error
 	GitClone(ctx context.Context, root, source, destination string) error
 	CheckProjectName(context.Context, string) (core.ProjectNameProblem, error)

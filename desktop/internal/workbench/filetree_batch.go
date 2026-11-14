@@ -27,67 +27,26 @@ type treeBatchDelete struct {
 	paths []string
 }
 
-// treeModifiedClick applies a Ctrl, Cmd or Shift click on the row of n to the marked set.
+// treeModifiedClick applies a Ctrl, Cmd or Shift click on the row of n to the marked set, as
+// Core says (filetree_rows.go).
 func (a *App) treeModifiedClick(p *project, n *treeNode, mods gfx.Modifiers) {
-	t := &p.tree
-	if n == nil || n == t.root {
+	if n == nil {
 		return
 	}
-	if t.marked == nil {
-		t.marked = map[string]bool{}
+	action := core.ExtendRow(n.path)
+	if mods&ui.Primary != 0 {
+		action = core.ToggleRow(n.path)
 	}
-	switch {
-	case mods&ui.Primary != 0:
-		if t.marked[n.path] {
-			delete(t.marked, n.path)
-		} else {
-			t.marked[n.path] = true
-		}
-		t.anchor = n.path
-	case mods&gfx.ModifierShift != 0:
-		from := t.anchor
-		if from == "" && t.selected != nil {
-			from = t.selected.path
-		}
-		lo, hi := treeRowIndex(t.rows, from), treeRowIndex(t.rows, n.path)
-		if lo < 0 || hi < 0 {
-			lo, hi = treeRowIndex(t.rows, n.path), treeRowIndex(t.rows, n.path)
-		}
-		if lo > hi {
-			lo, hi = hi, lo
-		}
-		for i := lo; i <= hi && i >= 0 && i < len(t.rows); i++ {
-			t.marked[t.rows[i].path] = true
-		}
-	}
-	t.selected = n
-}
-
-// treeRowIndex is the index of the row whose path is at, -1 when no visible row has it.
-func treeRowIndex(rows []*treeNode, at string) int {
-	for i, n := range rows {
-		if n.path == at {
-			return i
-		}
-	}
-	return -1
+	a.reduceTreeSelection(p, action)
 }
 
 // batchTargets are the nodes a batch operation acts on: the marked rows, without those inside
-// another marked folder, in path order. Without marks it is the selected row alone.
+// another marked folder, in path order, as Core said. Without marks it is the selected row
+// alone.
 func (t *fileTree) batchTargets() []*treeNode {
 	var nodes []*treeNode
-	if len(t.marked) > 0 {
-		paths := make([]string, 0, len(t.marked))
-		for at := range t.marked {
-			paths = append(paths, at)
-		}
-		slices.Sort(paths)
-		for _, at := range paths {
-			n := t.byPath[at]
-			if n == nil || n == t.root || t.insideMarked(at) {
-				continue
-			}
+	for _, at := range t.targets {
+		if n := t.byPath[at]; n != nil && n != t.root {
 			nodes = append(nodes, n)
 		}
 	}
@@ -95,16 +54,6 @@ func (t *fileTree) batchTargets() []*treeNode {
 		nodes = []*treeNode{t.selected}
 	}
 	return nodes
-}
-
-// insideMarked reports that a folder above at is marked, so at is part of the batch already.
-func (t *fileTree) insideMarked(at string) bool {
-	for m := range t.marked {
-		if m != at && strings.HasPrefix(at, m+"/") {
-			return true
-		}
-	}
-	return false
 }
 
 // treeBatchMenu declares the batch items of the context menu of a marked row: how many rows the
@@ -233,7 +182,7 @@ func treeParents(nodes []*treeNode) []string {
 // finishBatch clears the marks, lists the directories again and reads the status. A failure is
 // reported once, with the last reason, since the rest of the batch still ran; failure words it.
 func (a *App) finishBatch(p *project, parents []string, performed string, failed int, reason error, failure func(i18n.Language, string) string) {
-	p.tree.marked, p.tree.anchor = nil, ""
+	p.tree.marked, p.tree.anchor, p.tree.targets = nil, "", nil
 	if failed > 0 && reason != nil {
 		a.notifyError(failure(a.language(), treeErrorReason(reason)))
 	}
