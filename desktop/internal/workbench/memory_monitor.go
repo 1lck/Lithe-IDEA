@@ -25,6 +25,12 @@ import (
 // on macOS it is only a chip icon, as the earlier client had, with the figures in its tooltip.
 // A click opens the details, which are read more often while they are shown. Reading runs in
 // the background and a failure only leaves the figures out: it never holds up the window.
+//
+// Every platform reports memory the same way: what is in memory, and apart from it what the
+// system compressed or wrote out to disk. The processor and graphics use are the change of
+// the processes' counters since the previous reading, which Core keeps in the baseline it
+// returns and the next request sends back. Graphics use is read only while the details are
+// shown, for the processes of the last baseline, as reading it costs more than the table.
 
 const (
 	// memorySampleInterval is how often the processes are read while the details are shut,
@@ -34,7 +40,7 @@ const (
 	memoryDetailInterval = 2 * time.Second
 	memorySampleTimeout  = 5 * time.Second
 
-	memoryPanelWidth = 340
+	memoryPanelWidth = 540
 	memoryListHeight = 220
 	memoryBarHeight  = 6
 	memoryBarGap     = 2
@@ -42,7 +48,17 @@ const (
 	memoryRowHeight  = 22
 	memoryHeaderGap  = 6
 	memorySectionGap = 10
+	// memoryPercentWidth and memorySizeWidth are the widths of the figure columns, which line
+	// the legend and the list up under their headings; with them the panel leaves a part's name
+	// and process count, as "Language servers 2 processes", room to show in full.
+	memoryPercentWidth = 44
+	memorySizeWidth    = 80
+	memoryColumnGap    = 6
 )
+
+// memoryEpoch starts the clock the readings are timed by, which only moves forward, so a
+// change of the wall clock does not skew a percentage.
+var memoryEpoch = time.Now()
 
 // processMemoryKernel is the Core command the memory monitor asks.
 type processMemoryKernel interface {
@@ -153,13 +169,36 @@ func (a *App) sampleMemory(now time.Time) {
 		return
 	}
 	m.sampling, m.sampledAt = true, now
-	roles := a.memoryRoles()
-	host := int64(os.Getpid())
+	reading := memoryReading{host: int64(os.Getpid()), roles: a.memoryRoles(), previous: m.summary.Baseline}
+	if m.open {
+		reading.gpu = map[int]bool{int(reading.host): true}
+		if reading.previous != nil {
+			for _, process := range reading.previous.Processes {
+				reading.gpu[int(process.ProcessID)] = true
+			}
+		}
+	}
+	if runtime.GOOS == "windows" {
+		// Task Manager shows a process's processor use as a share of every logical processor.
+		reading.logicalProcessors = runtime.NumCPU()
+	}
 	kernel := a.kernel
 	a.background(nil, memorySampleTimeout, func(ctx context.Context) func(*App) {
-		summary, err := readProcessMemory(ctx, kernel, host, roles)
+		summary, err := readProcessMemory(ctx, kernel, reading)
 		return func(a *App) { a.memorySampled(summary, err) }
 	})
+}
+
+// memoryReading is what one reading sends Core besides the table: the host, the roles of the
+// processes the window started, the baseline of the last reading, the processes whose
+// graphics use is read, and the logical processors a processor percentage is a share of, or
+// zero for one processor.
+type memoryReading struct {
+	host              int64
+	roles             []core.MemoryRole
+	previous          *core.MemoryBaseline
+	gpu               map[int]bool
+	logicalProcessors int
 }
 
 // memorySampled keeps a reading. Only the first failure after a reading is logged, so a
@@ -177,12 +216,16 @@ func (a *App) memorySampled(summary core.MemorySummary, err error) {
 	m.summary, m.read, m.failed = summary, true, false
 }
 
-// readProcessMemory reads the process table and has Core sum what the instance of host holds.
-func readProcessMemory(ctx context.Context, kernel processMemoryKernel, host int64, roles []core.MemoryRole) (core.MemorySummary, error) {
-	table, err := sysinfo.Processes()
+// readProcessMemory reads the process table and has Core sum what the instance of the host
+// holds and how much it used since the previous reading.
+func readProcessMemory(ctx context.Context, kernel processMemoryKernel, reading memoryReading) (core.MemorySummary, error) {
+	before := time.Since(memoryEpoch)
+	table, err := sysinfo.Processes(sysinfo.Options{GPU: reading.gpu})
 	if err != nil {
 		return core.MemorySummary{}, err
 	}
+	// The table is timed by the middle of its reading, which takes some milliseconds.
+	sampledAt := uint64((before + (time.Since(memoryEpoch)-before)/2) / time.Microsecond)
 	processes := make([]core.MemoryProcess, 0, len(table))
 	for _, row := range table {
 		process := core.MemoryProcess{
@@ -190,6 +233,12 @@ func readProcessMemory(ctx context.Context, kernel processMemoryKernel, host int
 			ParentProcessID: int64(row.ParentPID),
 			Name:            row.Name,
 			Bytes:           row.MemoryBytes,
+			CompressedBytes: row.CompressedBytes,
+			GPUMemoryBytes:  row.GPUMemoryBytes,
+			CPUTime:         row.CPUTime,
+		}
+		for _, engine := range row.GPUEngines {
+			process.GPUEngines = append(process.GPUEngines, core.GPUEngineTime{Engine: engine.Name, BusyTime: engine.BusyTime})
 		}
 		// A zero is a fact the system did not give, which the request leaves out.
 		if row.ResponsiblePID != 0 {
@@ -202,7 +251,17 @@ func readProcessMemory(ctx context.Context, kernel processMemoryKernel, host int
 		}
 		processes = append(processes, process)
 	}
-	return kernel.SummarizeProcessMemory(ctx, core.MemoryRequest{HostProcessID: host, Processes: processes, Roles: roles})
+	request := core.MemoryRequest{
+		HostProcessID: reading.host,
+		Processes:     processes,
+		Roles:         reading.roles,
+		SampledAt:     &sampledAt,
+		Previous:      reading.previous,
+	}
+	if reading.logicalProcessors > 0 {
+		request.LogicalProcessors = &reading.logicalProcessors
+	}
+	return kernel.SummarizeProcessMemory(ctx, request)
 }
 
 // memoryRoles names the processes this window started: each language server and each plugin
@@ -339,7 +398,7 @@ func (a *App) memoryColor(kind string) gfx.Color {
 // memoryHelp is the explanation behind the details' ⓘ: what is counted, and which figure the
 // system gives for each process.
 func memoryHelp(language i18n.Language) string {
-	help := i18n.Shared(language, "desktop.memory.help")
+	help := i18n.Shared(language, "desktop.memory.help") + "\n\n" + i18n.Shared(language, "desktop.memory.helpFigures")
 	switch runtime.GOOS {
 	case "darwin":
 		help += "\n\n" + i18n.Shared(language, "desktop.memory.helpMacOS")
@@ -384,10 +443,12 @@ func (a *App) memoryDetails(c ui.C, anchor ui.Box) {
 				ui.Text(c, i18n.Shared(language, "desktop.memory.reading")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 			default:
 				parts := m.parts()
+				columns := m.columns()
+				a.memoryStats(c.Part("stats"), language)
 				a.memoryBar(c.Part("bar"), parts)
-				a.memoryLegend(c.Part("legend"), language, parts)
+				a.memoryLegend(c.Part("legend"), language, parts, columns)
 				ui.Divider(c)
-				a.memoryEntries(c.Part("entries"), language)
+				a.memoryEntries(c.Part("entries"), language, columns)
 			}
 		})
 	})
@@ -421,18 +482,88 @@ func (a *App) memoryBar(c ui.C, parts []core.MemoryCategory) {
 	})
 }
 
-// memoryLegend declares one row per part: its color, name, process count and sum.
-func (a *App) memoryLegend(c ui.C, language i18n.Language, parts []core.MemoryCategory) {
+// memoryColumns are the figure columns the legend and the list show besides what is in
+// memory. Core gives a figure for every part and entry or for none, so one summary decides.
+type memoryColumns struct {
+	cpu, gpu, compressed bool
+}
+
+// columns are the columns of the last reading's figures.
+func (m *memoryState) columns() memoryColumns {
+	usage := m.summary.MemoryUsage
+	return memoryColumns{cpu: usage.CPUPercent != nil, gpu: usage.GPUPercent != nil, compressed: usage.CompressedBytes != nil}
+}
+
+// memoryPercent writes a use with its tenth, as Activity Monitor and Task Manager show it.
+func memoryPercent(language i18n.Language, value *float64) string {
+	if value == nil {
+		return ""
+	}
+	return i18n.SharedFormat(language, "desktop.memory.percent", map[string]string{"value": strconv.FormatFloat(*value, 'f', 1, 64)})
+}
+
+// memoryStats declares the instance's figures beyond what is in memory, the total of which the
+// header shows: what is compressed or swapped out, graphics memory, and the processor and
+// graphics use. A figure the reading does not have is left out, and the line with all of them.
+func (a *App) memoryStats(c ui.C, language i18n.Language) {
+	usage := a.memory.summary.MemoryUsage
+	var stats []string
+	if usage.CompressedBytes != nil {
+		stats = append(stats, i18n.SharedFormat(language, "desktop.memory.statCompressed", map[string]string{"value": memorySize(language, *usage.CompressedBytes)}))
+	}
+	if usage.GPUMemoryBytes != nil && *usage.GPUMemoryBytes > 0 {
+		stats = append(stats, i18n.SharedFormat(language, "desktop.memory.statGPUMemory", map[string]string{"value": memorySize(language, *usage.GPUMemoryBytes)}))
+	}
+	if usage.CPUPercent != nil {
+		stats = append(stats, i18n.SharedFormat(language, "desktop.memory.statCPU", map[string]string{"value": memoryPercent(language, usage.CPUPercent)}))
+	}
+	if usage.GPUPercent != nil {
+		stats = append(stats, i18n.SharedFormat(language, "desktop.memory.statGPU", map[string]string{"value": memoryPercent(language, usage.GPUPercent)}))
+	}
+	if len(stats) == 0 {
+		return
+	}
+	ui.Text(c, strings.Join(stats, i18n.Shared(language, "desktop.memory.statSeparator"))).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().FillWidth()
+}
+
+// memoryHeadings declares the names of the figure columns above the legend, right-aligned over
+// the figures they name.
+func (a *App) memoryHeadings(c ui.C, language i18n.Language, columns memoryColumns) {
+	small := a.theme.Metrics.FontSizeS
+	heading := func(text string, width float32) {
+		ui.Text(c, text).FontSize(small).Color(a.colors.Subtle).Width(width).Shrink(0).TextEnd().Ellipsis()
+	}
+	ui.Row(c).FillWidth().Height(memoryRowHeight).Shrink(0).Items(ui.Center).Gap(memoryColumnGap).Children(func() {
+		ui.Row(c).Grow(1)
+		if columns.cpu {
+			heading(i18n.Shared(language, "desktop.memory.columnCPU"), memoryPercentWidth)
+		}
+		if columns.gpu {
+			heading(i18n.Shared(language, "desktop.memory.columnGPU"), memoryPercentWidth)
+		}
+		heading(i18n.Shared(language, "desktop.memory.columnInMemory"), memorySizeWidth)
+		if columns.compressed {
+			heading(i18n.Shared(language, "desktop.memory.columnCompressed"), memorySizeWidth)
+		}
+	})
+}
+
+// memoryLegend declares the column headings, then one row per part: its color, name, process
+// count and figures.
+func (a *App) memoryLegend(c ui.C, language i18n.Language, parts []core.MemoryCategory, columns memoryColumns) {
 	ui.Column(c).FillWidth().Children(func() {
+		a.memoryHeadings(c.Part("headings"), language, columns)
 		for i, part := range parts {
-			a.memoryRow(c.KeyInt(i), language, part.Kind, memoryKindLabel(language, part.Kind), part.ProcessCount, part.Bytes)
+			a.memoryRow(c.KeyInt(i), language, memoryLine{
+				kind: part.Kind, name: memoryKindLabel(language, part.Kind), processes: part.ProcessCount, bytes: part.Bytes, usage: part.MemoryUsage,
+			}, columns)
 		}
 	})
 }
 
 // memoryEntries declares the largest processes of the instance other than the main one, each
 // with what Core counts under it, and the sum of the ones past the list.
-func (a *App) memoryEntries(c ui.C, language i18n.Language) {
+func (a *App) memoryEntries(c ui.C, language i18n.Language, columns memoryColumns) {
 	summary := &a.memory.summary
 	ui.Text(c, i18n.Shared(language, "desktop.memory.processes")).FontSize(a.theme.Metrics.FontSizeS).Weight(gfx.WeightSemibold).Color(a.colors.Subtle)
 	if len(summary.Entries) == 0 {
@@ -441,7 +572,9 @@ func (a *App) memoryEntries(c ui.C, language i18n.Language) {
 	}
 	ui.Scroll(c.Part("list")).FillWidth().MaxHeight(memoryListHeight).Children(func() {
 		for i, entry := range summary.Entries {
-			a.memoryRow(c.KeyInt(i), language, entry.Kind, entry.Name, entry.ProcessCount, entry.Bytes)
+			a.memoryRow(c.KeyInt(i), language, memoryLine{
+				kind: entry.Kind, name: entry.Name, processes: entry.ProcessCount, bytes: entry.Bytes, usage: entry.MemoryUsage,
+			}, columns)
 		}
 	})
 	if summary.Omitted.Count > 0 {
@@ -451,18 +584,43 @@ func (a *App) memoryEntries(c ui.C, language i18n.Language) {
 	}
 }
 
+// memoryLine is what a row of the legend or the list shows.
+type memoryLine struct {
+	kind, name string
+	processes  int
+	bytes      uint64
+	usage      core.MemoryUsage
+}
+
 // memoryRow declares a row of the legend or the list: the part's dot, the name, how many
-// processes it sums when more than one, and the size at the end.
-func (a *App) memoryRow(k ui.C, language i18n.Language, kind, name string, processes int, bytes uint64) {
+// processes it sums when more than one, then the figures of the columns, right-aligned.
+func (a *App) memoryRow(k ui.C, language i18n.Language, line memoryLine, columns memoryColumns) {
 	small := a.theme.Metrics.FontSizeS
-	ui.Row(k).FillWidth().Height(memoryRowHeight).Shrink(0).Items(ui.Center).Gap(8).Children(func() {
-		ui.Row(k).Size(memoryDotSize, memoryDotSize).Shrink(0).Radius(memoryDotSize / 2).Background(a.memoryColor(kind))
-		ui.Text(k, name).FontSize(small).Shrink(1).MinWidth(0).Ellipsis()
-		if processes > 1 {
-			ui.Text(k, i18n.SharedFormat(language, "desktop.memory.processCount", map[string]string{"count": strconv.Itoa(processes)})).
-				FontSize(small).Color(a.colors.Subtle).Shrink(0)
+	figure := func(text string, width float32) {
+		ui.Text(k, text).FontSize(small).Width(width).Shrink(0).TextEnd()
+	}
+	ui.Row(k).FillWidth().Height(memoryRowHeight).Shrink(0).Items(ui.Center).Gap(memoryColumnGap).Children(func() {
+		ui.Row(k).Grow(1).MinWidth(0).Items(ui.Center).Gap(8).Children(func() {
+			ui.Row(k).Size(memoryDotSize, memoryDotSize).Shrink(0).Radius(memoryDotSize / 2).Background(a.memoryColor(line.kind))
+			ui.Text(k, line.name).FontSize(small).Shrink(1).MinWidth(0).Ellipsis()
+			if line.processes > 1 {
+				ui.Text(k, i18n.SharedFormat(language, "desktop.memory.processCount", map[string]string{"count": strconv.Itoa(line.processes)})).
+					FontSize(small).Color(a.colors.Subtle).Shrink(0)
+			}
+		})
+		if columns.cpu {
+			figure(memoryPercent(language, line.usage.CPUPercent), memoryPercentWidth)
 		}
-		ui.Row(k).Grow(1)
-		ui.Text(k, memorySize(language, bytes)).FontSize(small).Shrink(0)
+		if columns.gpu {
+			figure(memoryPercent(language, line.usage.GPUPercent), memoryPercentWidth)
+		}
+		figure(memorySize(language, line.bytes), memorySizeWidth)
+		if columns.compressed {
+			compressed := ""
+			if line.usage.CompressedBytes != nil {
+				compressed = memorySize(language, *line.usage.CompressedBytes)
+			}
+			figure(compressed, memorySizeWidth)
+		}
 	})
 }

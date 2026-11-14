@@ -12331,6 +12331,34 @@
       ]
     },
     {
+      "id": "desktop.memory.columnCPU",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.memory.columnCompressed",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.memory.columnGPU",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.memory.columnInMemory",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.memory.gigabytes",
       "description": "Memory monitor in the status bar.",
       "platforms": [
@@ -12342,6 +12370,13 @@
     },
     {
       "id": "desktop.memory.help",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.memory.helpFigures",
       "description": "Memory monitor in the status bar.",
       "platforms": [
         "desktop"
@@ -12422,6 +12457,16 @@
       }
     },
     {
+      "id": "desktop.memory.percent",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
+    },
+    {
       "id": "desktop.memory.processCount",
       "description": "Memory monitor in the status bar.",
       "platforms": [
@@ -12447,6 +12492,53 @@
     },
     {
       "id": "desktop.memory.services",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.memory.statCPU",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.memory.statCompressed",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.memory.statGPU",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.memory.statGPUMemory",
+      "description": "Memory monitor in the status bar.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.memory.statSeparator",
       "description": "Memory monitor in the status bar.",
       "platforms": [
         "desktop"

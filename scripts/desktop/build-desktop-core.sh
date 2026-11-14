@@ -28,10 +28,12 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
-# Lithe-core-rust #44 (branch feat/console-ansi-style, not yet merged): outputStyle.decode turns
-# console output with ANSI escapes into plain lines and styled ranges, carrying each console's
-# state from chunk to chunk, for the colors of the Run, Build and Test consoles. It is on top of
-# #43, squash-merged into main: processMemory.summarize
+# Lithe-core-rust #45, squash-merged into main: processMemory.summarize also sums the memory the
+# system compressed or swapped out, graphics memory, and the processor and graphics use between
+# two tables, which the host sends back as a baseline. It is on top of #44, squash-merged into
+# main: outputStyle.decode turns console output with ANSI escapes into plain lines and styled
+# ranges, carrying each console's state from chunk to chunk, for the colors of the Run, Build and
+# Test consoles. It is on top of #43, squash-merged into main: processMemory.summarize
 # sorts the native process table into the parts of a Lithe instance (main process, language
 # servers, plugin services, their child processes and the system helpers macOS holds the main
 # process responsible for) for the memory details of the status bar. It is on top of #42,
@@ -88,7 +90,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="cdc025851e0b291f00415d9d4e43ce9079e1e83e"
+PINNED_CORE_REVISION="40711b146dc387fa6148ad2d0a4b758fc8e89909"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

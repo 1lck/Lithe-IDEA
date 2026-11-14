@@ -22,7 +22,8 @@ func TestProcessHelper(t *testing.T) {
 }
 
 // TestProcessesListsThisProcessAndItsChild checks that the table has this process under its
-// parent, with a name and memory, and a child it started under it.
+// parent, with a name, memory, compressed memory and processor time, and a child it started
+// under it, whose graphics use is not read because the options do not name it.
 func TestProcessesListsThisProcessAndItsChild(t *testing.T) {
 	switch runtime.GOOS {
 	case "darwin", "linux", "windows":
@@ -51,7 +52,7 @@ func TestProcessesListsThisProcessAndItsChild(t *testing.T) {
 		}
 	})
 
-	table, err := Processes()
+	table, err := Processes(Options{GPU: map[int]bool{os.Getpid(): true}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,12 +70,18 @@ func TestProcessesListsThisProcessAndItsChild(t *testing.T) {
 	if self.ParentPID != os.Getppid() || self.Name == "" || self.MemoryBytes == 0 {
 		t.Fatalf("this process = %+v, want parent %d, a name and memory", self, os.Getppid())
 	}
+	if self.CPUTime == nil || self.CompressedBytes == nil {
+		t.Fatalf("this process = %+v, want its processor time and compressed memory", self)
+	}
 	started, ok := rows[child.Process.Pid]
 	if !ok {
 		t.Fatalf("the child %d is not in the table", child.Process.Pid)
 	}
 	if started.ParentPID != os.Getpid() {
 		t.Fatalf("the child = %+v, want parent %d", started, os.Getpid())
+	}
+	if started.GPUMemoryBytes != nil || len(started.GPUEngines) != 0 {
+		t.Fatalf("the child = %+v, want no graphics use read", started)
 	}
 	if self.StartTime != 0 && started.StartTime != 0 && started.StartTime < self.StartTime {
 		t.Fatalf("the child started at %d, before this process at %d", started.StartTime, self.StartTime)

@@ -16,4 +16,4 @@ func residentBytes() uint64 { return 0 }
 
 func diskFree(string) uint64 { return 0 }
 
-func processes() ([]Process, error) { return nil, errors.ErrUnsupported }
+func processes(Options) ([]Process, error) { return nil, errors.ErrUnsupported }
