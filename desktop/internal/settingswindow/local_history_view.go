@@ -3,6 +3,7 @@ package settingswindow
 import (
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -53,6 +54,22 @@ const localHistoryPreviewDelay = 200 * time.Millisecond
 // localHistoryTimeout bounds one call to the project's history.
 const localHistoryTimeout = 10 * time.Second
 
+// defaultLimitMegabytes is Core's default history limit, which the stepper starts from when
+// neither the field nor the measured limit gives one.
+const defaultLimitMegabytes = 100
+
+// limitStepMegabytes is how far one press of the limit stepper moves the limit.
+const limitStepMegabytes = 10
+
+// modeButton is one choice of the wildcard and regular expression switch: filled when it is
+// the list shown, outlined otherwise. It reports whether this paint delivers a click.
+func modeButton(c ui.C, part, label string, selected bool) bool {
+	if selected {
+		return ui.Button(c.Part(part), label).Small().Clicked()
+	}
+	return ui.Button(c.Part(part), label).Outline().Small().Clicked()
+}
+
 // localHistoryPreviewKey is what one preview checks: the drafts' raw lines, so the line numbers
 // of errors and matches are the lines the user sees, and the test path.
 type localHistoryPreviewKey struct {
@@ -92,13 +109,21 @@ type localHistoryDraft struct {
 	path                      ui.Field
 	failure                   string
 	confirmClear, wantedUsage bool
-	async                     localHistoryAsync
+	// regexMode shows the regular expression list instead of the wildcard list.
+	regexMode bool
+	// builtIns are Core's built-in wildcard rules as the last preview reported them. shown are
+	// the ones the wildcard list displays, and loadedPatterns the text it was loaded with: a
+	// list nobody has edited yet picks up the built-in rules when they first arrive.
+	builtIns, shown []string
+	loadedPatterns  string
+	async           localHistoryAsync
 }
 
-// load puts the stored settings in the draft.
-func (d *localHistoryDraft) load(stored LocalHistorySettings) {
+// load puts the stored settings in the draft, with the built-in rules builtIns shown in the
+// wildcard list.
+func (d *localHistoryDraft) load(stored LocalHistorySettings, builtIns []string) {
 	d.loaded = true
-	d.patterns.SetText(strings.Join(stored.IgnorePatterns, "\n"))
+	d.loadPatterns(stored, builtIns)
 	d.regexes.SetText(strings.Join(stored.IgnoreRegexes, "\n"))
 	limit := ""
 	if stored.LimitMegabytes > 0 {
@@ -108,10 +133,22 @@ func (d *localHistoryDraft) load(stored LocalHistorySettings) {
 	d.failure = ""
 }
 
+// loadPatterns puts the wildcard list in the draft: each built-in rule as a line, "!" where the
+// stored rules turn it off, then the stored rules that are not such a switch.
+func (d *localHistoryDraft) loadPatterns(stored LocalHistorySettings, builtIns []string) {
+	d.shown = builtIns
+	d.loadedPatterns = strings.Join(wildcardLines(stored.IgnorePatterns, builtIns), "\n")
+	d.patterns.SetText(d.loadedPatterns)
+}
+
 // settings is what the draft would store: each field's lines trimmed, without blank ones.
-// ok is false when the limit is not a positive whole number.
-func (d *localHistoryDraft) settings() (LocalHistorySettings, bool) {
-	out := LocalHistorySettings{IgnorePatterns: ruleEntries(d.patterns.Text()), IgnoreRegexes: ruleEntries(d.regexes.Text())}
+// The wildcard list turns a built-in rule off when its line was deleted, and back on when its
+// "!" line was. ok is false when the limit is not a positive whole number.
+func (d *localHistoryDraft) settings(stored LocalHistorySettings) (LocalHistorySettings, bool) {
+	out := LocalHistorySettings{
+		IgnorePatterns: wildcardRules(ruleEntries(d.patterns.Text()), stored.IgnorePatterns, d.shown),
+		IgnoreRegexes:  ruleEntries(d.regexes.Text()),
+	}
 	if text := strings.TrimSpace(d.limit.Text()); text != "" {
 		megabytes, err := strconv.Atoi(text)
 		if err != nil || megabytes < 1 {
@@ -127,6 +164,77 @@ func ruleEntries(text string) []string {
 	var out []string
 	for _, line := range strings.Split(text, "\n") {
 		if line = strings.TrimSpace(line); line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+// disablesBuiltIn reports whether entry is a "!" rule that turns builtIn (a "**/name/" glob)
+// off. Core also reads the bare name, so "!name" counts too.
+func disablesBuiltIn(entry, builtIn string) bool {
+	rest, ok := strings.CutPrefix(strings.TrimSpace(entry), "!")
+	if !ok {
+		return false
+	}
+	rest = strings.TrimSpace(rest)
+	name := strings.TrimSuffix(strings.TrimPrefix(builtIn, "**/"), "/")
+	return strings.EqualFold(rest, builtIn) || strings.EqualFold(rest, name)
+}
+
+// switchedOff is the stored rule that turns builtIn off, or false when none does.
+func switchedOff(stored []string, builtIn string) bool {
+	return slices.ContainsFunc(stored, func(entry string) bool { return disablesBuiltIn(entry, builtIn) })
+}
+
+// wildcardLines is the wildcard list as the card shows it: each built-in rule as its glob, or
+// as a "!" line where stored turns it off, then the stored rules that are not those switches.
+func wildcardLines(stored, builtIns []string) []string {
+	var out []string
+	for _, builtIn := range builtIns {
+		if switchedOff(stored, builtIn) {
+			out = append(out, "!"+builtIn)
+		} else {
+			out = append(out, builtIn)
+		}
+	}
+	for _, entry := range stored {
+		if !slices.ContainsFunc(builtIns, func(builtIn string) bool { return disablesBuiltIn(entry, builtIn) }) {
+			out = append(out, entry)
+		}
+	}
+	return out
+}
+
+// wildcardRules is what the wildcard list stores, given its lines, the stored rules and the
+// built-in rules the list showed. A built-in line left out turns its rule off, a "!" line keeps
+// it off, and a "!" line removed turns it back on. Lines that are not built-in rules are kept
+// in order after those switches.
+func wildcardRules(lines, stored, shown []string) []string {
+	if len(shown) == 0 {
+		return lines
+	}
+	used := make([]bool, len(lines))
+	var out []string
+	for _, builtIn := range shown {
+		on, off := false, false
+		for i, line := range lines {
+			switch {
+			case strings.EqualFold(line, builtIn):
+				used[i], on = true, true
+			case disablesBuiltIn(line, builtIn):
+				used[i], off = true, true
+			}
+		}
+		switch {
+		case off:
+			out = append(out, "!"+builtIn)
+		case !on && !switchedOff(stored, builtIn):
+			out = append(out, "!"+builtIn)
+		}
+	}
+	for i, line := range lines {
+		if !used[i] {
 			out = append(out, line)
 		}
 	}
@@ -155,18 +263,25 @@ func (w *window) localHistoryCard(c ui.C) {
 	d := &w.localHistory
 	stored := w.sess.values.LocalHistory
 	if !d.loaded {
-		d.load(stored)
+		d.load(stored, d.builtIns)
 		d.wantedUsage = true
 	}
 	if d.wantedUsage {
 		d.wantedUsage = false
 		w.measureLocalHistory()
 	}
-	key := localHistoryPreviewKey{patterns: d.patterns.Text(), regexes: d.regexes.Text(), path: strings.TrimSpace(d.path.Text())}
-	w.previewLocalHistory(key)
 	d.async.mu.Lock()
 	storage, preview, shown, previewErr := d.async.storage, d.async.preview, d.async.shown, d.async.previewErr
 	d.async.mu.Unlock()
+	// The built-in rules arrive with the first preview. A list nobody has edited yet shows them.
+	if preview != nil && len(preview.BuiltInIgnorePatterns) > 0 {
+		d.builtIns = preview.BuiltInIgnorePatterns
+		if len(d.shown) == 0 && d.patterns.Text() == d.loadedPatterns {
+			d.loadPatterns(stored, d.builtIns)
+		}
+	}
+	key := localHistoryPreviewKey{patterns: strings.Join(wildcardRules(ruleEntries(d.patterns.Text()), stored.IgnorePatterns, d.shown), "\n"), regexes: d.regexes.Text(), path: strings.TrimSpace(d.path.Text())}
+	w.previewLocalHistory(key)
 
 	label := func(text string) {
 		ui.Row(c).WidthPercent(34).Shrink(1).MinWidth(0).Items(ui.Center).Children(func() {
@@ -213,18 +328,46 @@ func (w *window) localHistoryCard(c ui.C) {
 				}
 				ui.TextField(c.Part("limit"), &d.limit, i18n.Shared(language, "native.localHistoryLimitPerProject"), placeholder).Width(80)
 				ui.Text(c, "MB").FontSize(12).Color(w.pal.text).Shrink(0)
+				// The stepper starts from the limit shown, or from Core's default when the field is empty.
+				stepLimit := func(delta int) {
+					current, err := strconv.Atoi(strings.TrimSpace(d.limit.Text()))
+					if err != nil {
+						current = defaultLimitMegabytes
+						if shownDefault, parseErr := strconv.Atoi(placeholder); parseErr == nil {
+							current = shownDefault
+						}
+					}
+					d.limit.SetText(strconv.Itoa(max(1, current+delta*limitStepMegabytes)))
+				}
+				if ui.Button(c.Part("limit-down"), "−").Outline().Small().Clicked() {
+					stepLimit(-1)
+				}
+				if ui.Button(c.Part("limit-up"), "+").Outline().Small().Clicked() {
+					stepLimit(1)
+				}
 				ui.Spacer(c)
 			})
-			ui.Text(c, i18n.Shared(language, "native.wildcard")).FontSize(12).Color(w.pal.text)
-			ui.TextArea(c.Part("patterns"), &d.patterns, i18n.Shared(language, "native.wildcardIgnoreRules"), "**/generated/").FillWidth().Height(72)
-			ui.Wrap(c, i18n.Shared(language, "desktop.settings.localHistory.wildcardHelp")).FontSize(12).Color(w.pal.muted)
-			if preview != nil && len(preview.BuiltInIgnorePatterns) > 0 {
-				ui.Wrap(c, i18n.SharedFormat(language, "desktop.settings.localHistory.builtIns", map[string]string{"patterns": strings.Join(preview.BuiltInIgnorePatterns, "  ")})).FontSize(12).Color(w.pal.muted)
+			ui.Row(c).FillWidth().Height(28).Items(ui.Center).Gap(8).Children(func() {
+				// One list at a time, as IDEA's wildcard and regular expression switch.
+				if modeButton(c, "mode-wildcard", i18n.Shared(language, "native.wildcard"), !d.regexMode) {
+					d.regexMode = false
+				}
+				if modeButton(c, "mode-regex", i18n.Shared(language, "native.regularExpression.variant2"), d.regexMode) {
+					d.regexMode = true
+				}
+				ui.Spacer(c)
+				if d.regexMode {
+					w.infoButton(c, i18n.Shared(language, "desktop.settings.localHistory.regexHelp"))
+				} else {
+					w.infoButton(c, i18n.Shared(language, "desktop.settings.localHistory.wildcardHelp")+" "+i18n.Shared(language, "desktop.settings.localHistory.builtInsHelp"))
+				}
+			})
+			if d.regexMode {
+				ui.TextArea(c.Part("regexes"), &d.regexes, i18n.Shared(language, "native.regularExpressionIgnoreRules"), "(test|spec)/").FillWidth().Height(96)
+			} else {
+				ui.TextArea(c.Part("patterns"), &d.patterns, i18n.Shared(language, "native.wildcardIgnoreRules"), "**/generated/").FillWidth().Height(120)
 			}
-			ui.Text(c, i18n.Shared(language, "native.regularExpression.variant2")).FontSize(12).Color(w.pal.text)
-			ui.TextArea(c.Part("regexes"), &d.regexes, i18n.Shared(language, "native.regularExpressionIgnoreRules"), "(test|spec)/").FillWidth().Height(56)
-			ui.Wrap(c, i18n.Shared(language, "desktop.settings.localHistory.regexHelp")).FontSize(12).Color(w.pal.muted)
-			if preview != nil && shown.regexes == key.regexes {
+			if d.regexMode && preview != nil && shown.regexes == key.regexes {
 				for _, failure := range preview.RegexErrors {
 					text := i18n.SharedFormat(language, "native.lineLldIsNotAValidRegularExpressionAndIsSkipped", map[string]string{"arg1": strconv.Itoa(failure.Index + 1)})
 					ui.Wrap(c, text+" "+failure.Message).FontSize(12).Color(w.pal.danger)
@@ -248,7 +391,7 @@ func (w *window) localHistoryCard(c ui.C) {
 			ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
 				ui.Spacer(c)
 				if ui.Button(c.Part("revert"), i18n.Shared(language, "desktop.settings.network.revert")).Outline().Clicked() {
-					d.load(stored)
+					d.load(stored, d.builtIns)
 				}
 				if ui.Button(c.Part("apply"), i18n.Shared(language, "desktop.settings.network.apply")).Clicked() {
 					w.applyLocalHistory(language)
@@ -357,7 +500,7 @@ func byteSize(bytes uint64) string {
 // history is measured again under the new limit.
 func (w *window) applyLocalHistory(language i18n.Language) {
 	d := &w.localHistory
-	next, ok := d.settings()
+	next, ok := d.settings(w.sess.values.LocalHistory)
 	if !ok {
 		d.failure = i18n.Shared(language, "desktop.settings.localHistory.invalidLimit")
 		return
@@ -366,7 +509,7 @@ func (w *window) applyLocalHistory(language i18n.Language) {
 	if w.ctrl.opts.SetLocalHistory != nil {
 		w.ctrl.opts.SetLocalHistory(next)
 	}
-	d.load(next)
+	d.load(next, d.builtIns)
 	w.measureLocalHistory()
 }
 
