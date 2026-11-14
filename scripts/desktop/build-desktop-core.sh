@@ -182,6 +182,21 @@ if [[ ! -s "$NATIVE_LIBS_FILE" ]]; then
     cargo clean --manifest-path "$MANIFEST_NATIVE" -p lithe-core \
         "${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"}" >&2
 fi
+# The pinned checkout and a LITHE_CORE_RUST_DIR override share this target directory, and Cargo
+# hashes a workspace member by its path inside the workspace, not by where the checkout is: both
+# checkouts build every member, such as the event catalog in lithe-diagnostics, to the same
+# files with the same fingerprint. Freshness is judged by modification times, so after the other
+# checkout overwrote them, the files still look up to date and the staged library would carry
+# the other checkout's code under this checkout's identity. The checkout that built the members
+# last is recorded per target and profile; a different one cleans the workspace members, which
+# are then built from it, while registry dependencies stay cached.
+BUILT_FROM_FILE="$CARGO_TARGET_DIR_BASH/lithe-core-built-from-$RUST_TARGET-$PROFILE.txt"
+if [[ "$(cat "$BUILT_FROM_FILE" 2>/dev/null || true)" != "$CORE_DIR" ]]; then
+    cargo clean --manifest-path "$MANIFEST_NATIVE" --workspace \
+        "${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"}" >&2
+    mkdir -p "$CARGO_TARGET_DIR_BASH"
+    printf '%s\n' "$CORE_DIR" > "$BUILT_FROM_FILE"
+fi
 cargo rustc --manifest-path "$MANIFEST_NATIVE" -p lithe-core --lib --crate-type staticlib \
     "${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"}" \
     -- --print "native-static-libs=$NATIVE_LIBS_FILE_NATIVE" >&2

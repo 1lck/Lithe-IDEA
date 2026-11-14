@@ -475,7 +475,12 @@ Viva 桌面端（`desktop/`，Go）的构建状态位于 `.artifacts/desktop/`�
 默认从构建脚本中固定的 Lithe-core-rust 提交检出；联调尚未合入的 core 改动时，设置
 `LITHE_CORE_RUST_DIR=/path/to/Lithe-core-rust` 改用本地检出（脚本只读取它，不修改该检出）。
 `desktop-go.sh` 每次运行前都调用构建脚本重新暂存，固定提交变了或本地检出改了都不会继续链接旧库；
-没有变化时 git 和 cargo 都判定为最新，这一步约一秒。`LITHE_DESKTOP_CORE_PROFILE=release` 选择暂存的 profile。
+没有变化时 git 和 cargo 都判定为最新，这一步约一秒。固定检出和 `LITHE_CORE_RUST_DIR` 共用同一个 Cargo 编译目录，
+而 cargo 按成员在工作区内的相对路径计算哈希，不看检出所在位置：两个检出把每个工作区成员（例如事件目录所在的
+`lithe-diagnostics`）编译到同一组文件、同一份指纹，新旧只按修改时间判断，切回原检出时会把另一个检出的代码当作
+本检出暂存。构建脚本因此按 target 和 profile 在编译目录里记录上次编译工作区成员的检出
+（`lithe-core-built-from-<target>-<profile>.txt`），换了检出就先 `cargo clean --workspace`，只重新编译工作区成员，
+registry 依赖仍然命中缓存。`LITHE_DESKTOP_CORE_PROFILE=release` 选择暂存的 profile。
 `identity.txt` 记录 core 提交、`core-worktree`（clean/dirty）、`core-source`（pinned/override）、rustc 版本、
 target、profile 和 macOS deployment target，但它只描述本工作树最近一次构建：override 构建包含未提交的 core 改动，
 提交号无法复现；二进制又随本工作树的 `desktop/` 源码变化。因此它不是可以授权跨工作树复制的封存身份，
