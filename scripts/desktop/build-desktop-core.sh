@@ -28,7 +28,13 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
-# Lithe-core-rust #45, squash-merged into main: processMemory.summarize also sums the memory the
+# Lithe-core-rust #46 (feat/logging-viva-adoption, not merged yet): the logging event catalog
+# declares the events the desktop records (terminal.session.start_failed, vcs.provider.skipped,
+# app.background.operation_failed, app.startup.leftovers_resolved, editor.recovery.applied and the
+# drag_drop surface) and drops the 90 events only the macOS client used; a failure of
+# diagnostics.encodeLogBatch carries the index of the refused input. Once #46 is merged, this pin
+# moves to the main commit. It is on top of #45, squash-merged into main: processMemory.summarize
+# also sums the memory the
 # system compressed or swapped out, graphics memory, and the processor and graphics use between
 # two tables, which the host sends back as a baseline. It is on top of #44, squash-merged into
 # main: outputStyle.decode turns console output with ANSI escapes into plain lines and styled
@@ -90,7 +96,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="40711b146dc387fa6148ad2d0a4b758fc8e89909"
+PINNED_CORE_REVISION="6f2d1853a3c1fa9101b57a79d1298bd081484440"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

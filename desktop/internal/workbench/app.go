@@ -1060,8 +1060,8 @@ const (
 	surfaceDragDrop actionSurface = "drag_drop"
 )
 
-// performed logs that the user started the action with the stable id from surface, as the
-// macOS client does; the id is never a localized title. It starts the action's operation
+// performed logs that the user started the action with the stable id from surface; the id is
+// never a localized title. It starts the action's operation
 // (operation.go): what the action records and the Core requests it sends share its op.
 func (a *App) performed(action string, surface actionSurface) {
 	a.op = operation{id: core.NewOperation(), trigger: action}

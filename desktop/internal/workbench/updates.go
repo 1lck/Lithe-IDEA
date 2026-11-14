@@ -610,7 +610,7 @@ func (a *App) updateDownloaded(feed *appupdate.Feed, artifact, payload string, e
 	a.removeUpdatePayload(stale)
 	switch {
 	case errors.Is(err, context.Canceled):
-		// log-exempt: 用户取消下载或窗口关闭，不是失败。
+		// log-exempt: 用户取消：用户取消下载或关闭窗口，不是失败。
 		a.changeUpdate(func(s *settingswindow.UpdateStatus) {
 			s.Downloading, s.Applying, s.FellBack, s.Progress = false, false, false, 0
 		})

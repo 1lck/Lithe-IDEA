@@ -287,7 +287,7 @@ func (a *App) pumpTreeListings(p *project) {
 						a.operationFailed("project_tree_list", errors.New("workspace root unavailable"))
 						t.failed = i18n.Shared(a.language(), "desktop.project.rootUnavailable")
 					} else {
-						// log-exempt: 目标已消失：目录可能已被外部删除或隐藏。
+						// log-exempt: 预期的缺失：Core 的列表里没有这个目录，它已被外部删除或隐藏。
 						n.expanded, t.rowsDirty = false, true
 					}
 				}

@@ -234,7 +234,7 @@ func (a *App) restoredBackground(serial uint64, pix []byte, width, height int, e
 		b.pix, b.width, b.height = pix, width, height
 		b.id = 1<<62 | backgroundImages.Add(1)
 	case errors.Is(err, fs.ErrNotExist):
-		// log-exempt: 数据目录里没有副本，按未选择背景处理，不打扰用户。
+		// log-exempt: 预期的缺失：数据目录里没有背景图副本，按未选择背景处理。
 		b.set, b.name = false, ""
 	default:
 		b.mu.Unlock()
@@ -281,7 +281,7 @@ func (a *App) chooseBackground() {
 	a.background(nil, 0, func(context.Context) func(*App) {
 		paths, err := choose(options)
 		if errors.Is(err, app.ErrCanceled) || err == nil && len(paths) == 0 {
-			// log-exempt: 用户取消了选择，背景保持不变。
+			// log-exempt: 用户取消：关闭选择器或没有选文件，背景保持不变。
 			return nil
 		}
 		if err != nil {

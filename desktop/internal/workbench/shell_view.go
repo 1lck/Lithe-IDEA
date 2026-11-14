@@ -316,18 +316,28 @@ func (a *App) editorArea(c ui.C) {
 	if a.editorGroups(c) {
 		return
 	}
-	hints := [...]struct{ label, keys string }{
-		{a.text.Editor.SearchEverywhere, shortcuts.DoubleShiftLabel() + "  " + a.settings.Keymap.Label("search.everywhere")},
-		{a.text.Editor.FindInFiles, a.settings.Keymap.Label("search.files")},
+	hints := [...]struct {
+		label string
+		// gesture is a gesture the keymap does not bind, shown before the command's bindings.
+		gesture string
+		// command is the keymap command whose bindings are shown.
+		command string
+	}{
+		{a.text.Editor.SearchEverywhere, shortcuts.DoubleShiftLabel(), "search.everywhere"},
+		{a.text.Editor.FindInFiles, "", "search.files"},
 	}
 	editor := ui.Column(c).Fill().Clip().Center().Pad(shellContentPad).Background(a.colors.Editor).Radius(workbenchPanelRadius).Children(func() {
 		ui.Column(c).FillWidth().MaxWidth(shellHintWidth).Children(func() {
 			// Labels end and shortcuts start at one line down the middle, so the two read as
 			// columns however long the words are.
 			for _, hint := range hints {
+				keys := a.settings.Keymap.Label(hint.command)
+				if hint.gesture != "" {
+					keys = hint.gesture + "  " + keys
+				}
 				ui.Row(c).Height(rowHeight).Items(ui.Center).Gap(12).Children(func() {
 					ui.Text(c, hint.label).Color(a.colors.Subtle).TextEnd().Ellipsis().FillWidth()
-					ui.Text(c, hint.keys).Color(a.colors.Text).FillWidth()
+					ui.Text(c, keys).Color(a.colors.Text).FillWidth()
 				})
 			}
 		})

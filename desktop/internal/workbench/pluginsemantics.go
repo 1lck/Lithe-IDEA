@@ -1657,7 +1657,7 @@ func (a *App) cancelSemanticOperation(pending *semanticPending, operation string
 	}
 	session := pending.server.session
 	a.background(pending.project, semanticCancelTimeout, func(ctx context.Context) func(*App) {
-		// log-exempt: 取消：过期结果已被 generation 丢弃，取消失败不影响界面状态。
+		// log-exempt: 预期的缺失：取消只在会话已经结束时失败；过期结果已由 generation 丢弃。
 		_ = a.plugins.CancelLanguageOperation(ctx, session, operation)
 		return nil
 	})

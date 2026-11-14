@@ -89,7 +89,7 @@ func (a *App) publishSettings(editor pluginservice.SettingsEditor, scope string,
 		case sub.notices <- notice:
 			target.invalidator.Invalidate()
 		case <-sub.done:
-			// log-exempt: 生命周期清理：接收窗口已经关闭，不再持有运行时或设置视图。
+			// log-exempt: 预期的缺失：接收窗口已经关闭，不再需要这条刷新通知。
 		case <-ctx.Done():
 			failures = append(failures, ctx.Err())
 		}
