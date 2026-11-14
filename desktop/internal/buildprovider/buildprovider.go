@@ -177,7 +177,9 @@ func Start(ctx context.Context, runner *pluginbackend.Runner, request pluginback
 		// it instead of leaving an unusable process behind.
 		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		_ = client.Close(stopCtx)
+		if stopErr := client.Close(stopCtx); stopErr != nil {
+			return nil, errors.Join(err, stopErr)
+		}
 		return nil, err
 	}
 	return client, nil

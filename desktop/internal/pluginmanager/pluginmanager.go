@@ -105,9 +105,9 @@ func (m *Manager) Installed() ([]Entry, error) {
 // changed the user's choice for the plugin. stop stops what the plugin runs and
 // returns once it ended; nil means the caller runs nothing of the plugin.
 //
-// Steps run in Core's order and a failed one does not stop the rest, so a failure
-// to clean up one record never leaves a half-removed package that still looks
-// installed; every failure is returned for the caller to log. An approval is only
+// Steps run in Core's order. A process that could not stop prevents any file
+// removal: its executable may be locked, and it may still write state. Other
+// cleanup failures are collected for the caller to log. An approval is only
 // forgotten once its version is gone, so the next installation of a version that
 // could not be removed asks the user again.
 func (m *Manager) Apply(ctx context.Context, action core.PluginLifecycleAction, id string, stop func() error) (Outcome, error) {
@@ -136,7 +136,7 @@ func (m *Manager) Apply(ctx context.Context, action core.PluginLifecycleAction, 
 		case core.PluginStopPrograms:
 			if stop != nil {
 				if err := stop(); err != nil {
-					failures = append(failures, err)
+					return outcome, errors.Join(append(failures, err)...)
 				}
 			}
 		case core.PluginRemoveVersion:

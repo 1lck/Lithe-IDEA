@@ -2,13 +2,16 @@ package workbench
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprovider"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugininstall"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
@@ -190,4 +193,252 @@ func TestConfirmedInstallIsEnabledAndUninstallRemovesItsState(t *testing.T) {
 			t.Fatalf("%s survived the uninstall: %v", gone, err)
 		}
 	}
+}
+
+// Removing an adapter's package must wait for the native process, not just the
+// plugin backend: on Windows the executable cannot be removed while it runs.
+func TestUninstallWaitsForTheDebugAdapter(t *testing.T) {
+	h := debugHarness(t)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "debug.marker"), []byte("debug"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := openDebugPanel(t, h, root)
+	h.app.startDebug(p)
+	session := p.debug.activeSession()
+	awaitStateWithin(t, h, debugAdapterExitWait, "the adapter's ready event", func() bool { return p.debug.state == "paused" })
+	h.app.refreshPluginState()
+	h.settle()
+	h.app.uninstallPlugin(session.adapter.PluginID)
+	awaitStateWithin(t, h, debugAdapterExitWait, "the adapter package's removal", func() bool {
+		_, err := os.Stat(session.adapter.Directory)
+		return errors.Is(err, os.ErrNotExist)
+	})
+	select {
+	case <-session.exitObserved:
+	default:
+		t.Fatal("the package was removed before its adapter exited")
+	}
+	if p.debug.hasSession(session) {
+		t.Fatal("the uninstalled adapter's session is still in the panel")
+	}
+}
+
+type uninstallOrderKernel struct {
+	*testKernel
+	directory string
+	destroyed chan bool
+}
+
+func (k *uninstallOrderKernel) DestroyPluginBackend(ctx context.Context, id string) error {
+	_, statErr := os.Stat(k.directory)
+	err := k.Client.DestroyPluginBackend(ctx, id)
+	if err == nil {
+		k.destroyed <- statErr == nil
+	}
+	return err
+}
+
+func TestUninstallStopsProviderSessionsBeforeDeletingFiles(t *testing.T) {
+	for _, role := range []string{"build", "vcs"} {
+		t.Run(role, func(t *testing.T) {
+			manifest := providerTestsManifest
+			if role == "vcs" {
+				manifest = vcsFixtureManifest
+			}
+			kernel := &uninstallOrderKernel{testKernel: &testKernel{Client: core.NewClient()}, destroyed: make(chan bool, 16)}
+			h := providerTestsHarnessWith(t, manifest, kernel)
+			const id = "dev.lithe.test.provider-tests"
+			directory := filepath.Join(h.app.plugins.Root, id, "1.0.0")
+			kernel.directory = directory
+			root := t.TempDir()
+			if err := os.WriteFile(filepath.Join(root, "fixture.marker"), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(filepath.Join(root, ".fakevcs"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			h.open(root)
+			p := h.app.project
+			var client *buildprovider.Client
+			runtime := p.vcs.runtime()
+			h.app.background(p, 30*time.Second, func(ctx context.Context) func(*App) {
+				uri, err := h.app.kernel.PluginDocumentURI(ctx, root, "auto")
+				var started *buildprovider.Client
+				if err == nil && role == "build" {
+					started, err = h.app.buildProvider(ctx, p, buildInstance{
+						BuildInstance: core.BuildInstance{BuildSystemID: "fixture-provider-tests"},
+						PluginID:      id, Version: "1.0.0", PackageDirectory: directory, Manifest: json.RawMessage(manifest),
+					})
+				} else if err == nil {
+					started, err = runtime.session(ctx, h.app.plugins.Backend, h.app.plugins.Root, root, uri,
+						vcsWindow{PluginID: id, Version: "1.0.0", Directory: directory, Manifest: json.RawMessage(manifest), Vcs: "fakevcs"}, core.PluginSettingsState{})
+				}
+				return func(*App) {
+					if err != nil {
+						t.Fatalf("start %s: %v", role, err)
+					}
+					client = started
+				}
+			})
+			h.settle()
+			if client == nil {
+				t.Fatal("the provider did not start")
+			}
+			h.app.refreshPluginState()
+			h.settle()
+			h.app.uninstallPlugin(id)
+			awaitStateWithin(t, h, 30*time.Second, "the provider package's removal", func() bool {
+				_, err := os.Stat(directory)
+				return errors.Is(err, os.ErrNotExist)
+			})
+			if !client.Closed() {
+				t.Fatal("the provider was still live when its files were removed")
+			}
+			h.settle()
+			select {
+			case present := <-kernel.destroyed:
+				if !present {
+					t.Fatal("the provider process was destroyed after its package was removed")
+				}
+			default:
+				t.Fatal("the provider process was never destroyed")
+			}
+			state := filepath.Join(h.app.plugins.Root, pluginpkg.StateDirectory, id)
+			if _, err := os.Stat(state); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("the provider's state survived: %v", err)
+			}
+			if role == "vcs" {
+				// Even a refresh already queued before uninstall must retain the
+				// launch barrier when it replaces the VCS runtime.
+				h.app.invalidateVcs(p)
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+				_, err := p.vcs.runtime().session(ctx, h.app.plugins.Backend, h.app.plugins.Root, root, "",
+					vcsWindow{PluginID: id, Version: "1.0.0"}, core.PluginSettingsState{})
+				if !errors.Is(err, buildprovider.ErrClosed) {
+					t.Fatalf("catalog refresh reopened a removed plugin: %v", err)
+				}
+				if _, err := os.Stat(state); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("a stale VCS request recreated state: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// Hold a native start inside Core's launch plan after it has created its state
+// directory. Uninstall must cancel it and wait even if that call returns late.
+type uninstallStartKernel struct {
+	*testKernel
+	entered, cancelled, release chan struct{}
+	once                        sync.Once
+}
+
+func (k *uninstallStartKernel) PlanPluginBuildProvider(ctx context.Context, _ json.RawMessage, _ string, _ core.PluginBackendDirectories) (core.PluginBackendPlan, error) {
+	k.once.Do(func() { close(k.entered) })
+	select {
+	case <-ctx.Done():
+		close(k.cancelled)
+	case <-time.After(30 * time.Second):
+		return core.PluginBackendPlan{}, errors.New("the start was never cancelled")
+	}
+	select {
+	case <-k.release:
+		return core.PluginBackendPlan{}, ctx.Err()
+	case <-time.After(30 * time.Second):
+		return core.PluginBackendPlan{}, errors.New("the test never released the start")
+	}
+}
+
+func TestUninstallWaitsForAProviderStillStartingInHiddenTab(t *testing.T) {
+	kernel := &uninstallStartKernel{testKernel: &testKernel{Client: core.NewClient()}, entered: make(chan struct{}), cancelled: make(chan struct{}), release: make(chan struct{})}
+	h := providerTestsHarness(t, kernel)
+	hidden := newHarness(t, &testKernel{Client: core.NewClient()})
+	service, err := pluginservice.OpenAnother(kernel, h.app.store, h.app.plugins.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hidden.app.plugins = service
+	hidden.open(t.TempDir())
+	h.app.sessions = &windowSessions{list: []*App{h.app, hidden.app}, active: h.app}
+	h.app.refreshPluginState()
+	h.settle()
+	const id = "dev.lithe.test.provider-tests"
+	directory := filepath.Join(service.Root, id, "1.0.0")
+	var release sync.Once
+	t.Cleanup(func() { release.Do(func() { close(kernel.release) }) })
+	hidden.app.background(hidden.app.project, 30*time.Second, func(ctx context.Context) func(*App) {
+		_, err := hidden.app.buildProvider(ctx, hidden.app.project, buildInstance{
+			BuildInstance: core.BuildInstance{BuildSystemID: "fixture-provider-tests"}, PluginID: id,
+			Version: "1.0.0", PackageDirectory: directory, Manifest: json.RawMessage(providerTestsManifest),
+		})
+		return func(*App) {
+			if !errors.Is(err, context.Canceled) {
+				t.Errorf("the cancelled start returned %v", err)
+			}
+		}
+	})
+	select {
+	case <-kernel.entered:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the provider never reached its launch plan")
+	}
+	h.app.uninstallPlugin(id)
+	select {
+	case <-kernel.cancelled:
+	case <-time.After(30 * time.Second):
+		t.Fatal("uninstall did not cancel the hidden tab's start")
+	}
+	if _, err := os.Stat(directory); err != nil {
+		t.Fatalf("uninstall removed the package while its start was still in flight: %v", err)
+	}
+	release.Do(func() { close(kernel.release) })
+	h.settle()
+	hidden.settle()
+	for _, gone := range []string{directory, filepath.Join(service.Root, pluginpkg.StateDirectory, id)} {
+		if _, err := os.Stat(gone); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("the cancelled start left %s: %v", gone, err)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err = hidden.app.buildProvider(ctx, hidden.app.project, buildInstance{PluginID: id})
+	if !errors.Is(err, buildprovider.ErrClosed) {
+		t.Fatalf("a stale request could start the uninstalled plugin: %v", err)
+	}
+}
+
+func TestEnableReopensVcsAfterCatalogRefresh(t *testing.T) {
+	h := providerTestsHarnessWith(t, vcsFixtureManifest)
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".fakevcs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	h.open(root)
+	p := h.app.project
+	const id = "dev.lithe.test.provider-tests"
+	stop := p.vcs.runtime().detachPlugin(id)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := stop(ctx); err != nil {
+		t.Fatal(err)
+	}
+	h.app.invalidateVcs(p)
+	h.app.setPluginEnabled(id, true)
+	h.settle()
+	sessions := p.vcs.runtime()
+	h.app.background(p, 30*time.Second, func(ctx context.Context) func(*App) {
+		uri, err := h.app.kernel.PluginDocumentURI(ctx, root, "auto")
+		if err == nil {
+			_, err = sessions.session(ctx, h.app.plugins.Backend, h.app.plugins.Root, root, uri,
+				vcsWindow{PluginID: id, Version: "1.0.0", Directory: filepath.Join(h.app.plugins.Root, id, "1.0.0"), Manifest: json.RawMessage(vcsFixtureManifest), Vcs: "fakevcs"}, core.PluginSettingsState{})
+		}
+		return func(*App) {
+			if err != nil {
+				t.Errorf("the enabled VCS provider could not start after a catalog refresh: %v", err)
+			}
+		}
+	})
+	h.settle()
 }
