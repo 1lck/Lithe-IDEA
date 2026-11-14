@@ -61,6 +61,21 @@ const defaultLimitMegabytes = 100
 // limitStepMegabytes is how far one press of the limit stepper moves the limit.
 const limitStepMegabytes = 10
 
+// localHistoryListHeight sizes a rule list to show every line of text. Viva's text area does not
+// take the mouse wheel, so a list that scrolls inside itself could not be reached; the settings
+// page scrolls instead. The list never gets shorter than localHistoryListMinHeight.
+func localHistoryListHeight(text string) float32 {
+	lines := strings.Count(text, "\n") + 1
+	return max(localHistoryListMinHeight, float32(lines)*localHistoryLineHeight+localHistoryListPadding)
+}
+
+// The list's rows are 18 points apart at the card's 12-point text, with padding above and below.
+const (
+	localHistoryLineHeight    = 18
+	localHistoryListPadding   = 16
+	localHistoryListMinHeight = 120
+)
+
 // modeButton is one choice of the wildcard and regular expression switch: filled when it is
 // the list shown, outlined otherwise. It reports whether this paint delivers a click.
 func modeButton(c ui.C, part, label string, selected bool) bool {
@@ -363,9 +378,9 @@ func (w *window) localHistoryCard(c ui.C) {
 				}
 			})
 			if d.regexMode {
-				ui.TextArea(c.Part("regexes"), &d.regexes, i18n.Shared(language, "native.regularExpressionIgnoreRules"), "(test|spec)/").FillWidth().Height(96)
+				ui.TextArea(c.Part("regexes"), &d.regexes, i18n.Shared(language, "native.regularExpressionIgnoreRules"), "(test|spec)/").FillWidth().Height(localHistoryListHeight(d.regexes.Text()))
 			} else {
-				ui.TextArea(c.Part("patterns"), &d.patterns, i18n.Shared(language, "native.wildcardIgnoreRules"), "**/generated/").FillWidth().Height(120)
+				ui.TextArea(c.Part("patterns"), &d.patterns, i18n.Shared(language, "native.wildcardIgnoreRules"), "**/generated/").FillWidth().Height(localHistoryListHeight(d.patterns.Text()))
 			}
 			if d.regexMode && preview != nil && shown.regexes == key.regexes {
 				for _, failure := range preview.RegexErrors {
