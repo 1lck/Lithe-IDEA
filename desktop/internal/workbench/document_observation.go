@@ -192,14 +192,16 @@ func (a *App) scheduleDocumentChecks(p *project) {
 		encoding, hasBOM, disk := d.encoding, d.hasBOM, d.diskBytes
 		a.background(p, 0, func(ctx context.Context) func(*App) {
 			data, err := read(d.path)
-			expected := baseline.Bytes()
+			// The baseline is compared in place: copying it would double the memory a check
+			// needs for a large document.
+			same := func() bool { return baseline.EqualBytes(data) }
 			if disk != nil {
 				// The file is not plain UTF-8: it is compared as bytes and decoded as it was
 				// opened. Its bytes may even be invalid UTF-8, which the reader refuses.
 				data, err = readRawDocument(d.path)
-				expected = disk
+				same = func() bool { return bytes.Equal(data, disk) }
 			}
-			changed := err == nil && (missing || !bytes.Equal(data, expected))
+			changed := err == nil && (missing || !same())
 			var content editorview.Content
 			prepared := changed
 			if prepared {
@@ -207,7 +209,7 @@ func (a *App) scheduleDocumentChecks(p *project) {
 				if decodeErr != nil {
 					err, changed, prepared = decodeErr, false, false
 				} else {
-					content = editorview.Prepare(text)
+					content = editorview.PrepareAgainst(baseline, text)
 				}
 			}
 			return func(a *App) {
@@ -304,9 +306,7 @@ func (a *App) applyDocumentCheck(p *project, d *document, baseline rope.Rope, co
 			}
 			d.savedRevision = d.view.Revision()
 			a.clearDocumentConflict(d)
-			if text, _ := d.view.Text(); text != nil {
-				a.recordLocalHistory(p, d.path, "externalChange", historyTexts{after: append([]byte(nil), text...)})
-			}
+			a.recordLocalHistory(p, d.path, "externalChange", historyTexts{afterText: d.view.TextSnapshot()})
 		} else {
 			d.checkFailed = true
 			fields := documentOpenFields(errors.New("document reload was not accepted"))

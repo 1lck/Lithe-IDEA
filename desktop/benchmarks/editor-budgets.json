@@ -37,6 +37,13 @@
       "scaleMax": 1.5
     },
     {
+      "pattern": "^BenchmarkEditorViewReload/",
+      "why": "Reloading a clean view takes the change from the content prepared on a worker, so the window thread does a constant amount of work whatever the size of the document: no copy of the text and no scan of it. The budget is 1 ms, the same as a keystroke.",
+      "nsMax": 1000000,
+      "bytesMax": 65536,
+      "scaleMax": 2
+    },
+    {
       "pattern": "^BenchmarkEditorViewType/",
       "why": "A keystroke and its frame must finish within 1 ms on the reference machine, with bounded allocation and independent of the document's size.",
       "nsMax": 1000000,

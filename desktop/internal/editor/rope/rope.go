@@ -94,6 +94,25 @@ func (r Rope) Equal(other Rope) bool {
 	return common(r, other, false, r.Len()) == r.Len()
 }
 
+// EqualBytes reports whether r holds the bytes of b. It compares a leaf at a time, so it never
+// copies r: a check against the bytes of a file costs no memory beyond the file's own.
+func (r Rope) EqualBytes(b []byte) bool {
+	if r.Len() != len(b) {
+		return false
+	}
+	equal := true
+	offset := 0
+	r.Chunks(0, r.Len(), func(chunk string) bool {
+		if string(b[offset:offset+len(chunk)]) != chunk {
+			equal = false
+			return false
+		}
+		offset += len(chunk)
+		return true
+	})
+	return equal
+}
+
 // Diff returns where a and b differ: b is a with the bytes from start to aEnd replaced by those
 // of b from start to bEnd, and the bytes before start and after the two ends are the same. As
 // Equal does, it passes over a node both texts share without reading it, from the start and
