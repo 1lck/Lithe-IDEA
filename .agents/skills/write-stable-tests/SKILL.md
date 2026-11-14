@@ -15,28 +15,26 @@ fail locally with a useful diagnostic instead of waiting for a CI job timeout.
   existing matching Core build instead of repeatedly performing cold builds.
 - The old Swift and Tauri clients are absent on this branch. Their legacy timing
   scripts and historical reports do not prove Viva behavior or current CI coverage.
-- Windows Rust scopes use Node.js plus Cargo. Windows `Frontend` additionally
-  uses the repository's Bun toolchain because the product tests run under Bun;
-  this dependency is isolated to that scope.
-
-## Swift CI compatibility
-
-- Compile tests with the same Swift toolchain as CI before handing them off. A
-  local compiler that is newer or older can accept or reject syntax differently.
-- A `weak` reference is mutable storage because the runtime may clear it;
-  declare it as `weak var`.
-- When a CI compile fails before tests start, inspect the CI compiler diagnostic
-  first and reproduce the compile lane before diagnosing test timing or
-  concurrency behavior.
+- Local Windows verification uses the local VM under
+  [debug-windows-on-parallels](../debug-windows-on-parallels/SKILL.md). The former
+  standalone cloud server is retired; existing GitHub Actions Windows CI stays.
+- `DesktopGo` is the current Windows desktop timing scope. Legacy `Frontend`,
+  `WindowsRust`, `SharedRust*` and `All` paths can refer to removed client or
+  in-repository Core directories; do not use them as current validation.
+  Run Rust checks in the linked external Core checkout under its own rules.
 
 ## Read the platform guidance
 
-- For Swift or macOS tests, read [references/macos-swift.md](references/macos-swift.md).
-- For TypeScript, Tauri Rust, or shared Rust tests exercised by Windows, read
+- For current Windows desktop Go and Core Rust tests, read
   [references/windows-and-rust.md](references/windows-and-rust.md).
-- Read both references when a shared contract or cross-platform behavior changes.
+- Current macOS desktop Go uses the workflow below. Load
+  [references/macos-swift.md](references/macos-swift.md) only when explicitly
+  investigating the retired Swift client's history.
 - For HTML/JUnit output, performance budgets, or CI artifacts, read
   [references/test-reporting.md](references/test-reporting.md).
+- For UI changes, follow `develop-lithe` section 五: execute headless scenarios,
+  inspect the generated screenshots and attach them to the PR. Test timing
+  reports alone are not UI evidence.
 
 ## Preserve these invariants
 

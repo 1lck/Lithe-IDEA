@@ -27,7 +27,7 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 以下八条适用于所有改动，完整规则在括号内的章节。
 
 1. **性能好、内存少**是产品的首要要求。多个方案都能满足功能时，选择常驻内存更少、主线程工作更少的方案。（第四节）
-2. **可共享的逻辑必须放进 Rust Core。** 不依赖操作系统或界面框架 API 的逻辑一律在 Core 实现；平台层只做原生 I/O 和呈现。（第三节“逻辑归属”）
+2. **可共享的宿主逻辑必须放进 Rust Core。** 先按第三节区分通用规则、工具专属知识和平台 API；通用规则在 Core 实现，工具专属知识在插件，平台层只做原生 I/O 和呈现。（第三节“逻辑归属”）
 3. **修复缺陷不得引入回归。** 先复现、定位根因、写出修复前失败的回归测试，再修改代码。（第八节）
 4. **难以理解的配置和功能必须用 ⓘ 解释。**（第五节“用 ⓘ 解释”）
 5. **用户可修改的配置不得只显示“自动”**，必须显示为“自动（实际生效值）”。（第五节“显示实际生效值”）
@@ -107,7 +107,7 @@ macOS 旧客户端是视觉与行为对照基线；新客户端共用 Viva 界�
 
 强制要求：
 
-- 新功能的可共享逻辑必须先在 Core 实现，并补齐共享契约和 fixture，再接入平台层。即使功能只在一个平台上线，也不得先写在 Swift 或 TypeScript 中“以后再迁移”。
+- 新功能的可共享逻辑必须先在 Core 实现，并补齐共享契约和 fixture，再接入平台层。即使功能只在一个平台上线，也不得先写在 Go、Swift 或 TypeScript 中“以后再迁移”。
 - 修改平台层中已有的可共享逻辑时，必须把被修改的部分迁入 Core。确有理由本次不迁移（例如紧急修复）时，在 PR 说明中写明理由并提交 `refactor` Issue（第九节）；不得在平台层继续扩大这段逻辑。
 - 经过 Core 处理大数据时，跨边界传输按第四节只传增量、分页或可见窗口。
 
@@ -132,6 +132,8 @@ macOS 旧客户端是视觉与行为对照基线；新客户端共用 Viva 界�
 Lithe 自己负责的是：有界生命周期、取消、过期结果隔离、资源预算、跨平台契约、界面呈现和端到端流程。
 
 ### 插件能力
+
+新增能力先判断是否能通过公共扩展点由独立插件提供。语言、构建工具、运行时、VCS、调试器及其他可独立分发的工具集成，优先在插件仓库实现；宿主与 Core 只补通用扩展点。不得把工具专属逻辑改写为 Rust 后就放进 Core，或为省去插件接入而在宿主增加专属实现。
 
 新增插件 API 或把内置工具迁移为插件前，先读第二节列出的插件能力 Note。
 
@@ -228,7 +230,7 @@ rg -n -i 'io\.github\.lithe-idea\.|lithe-idea/lithe-plugin-|PLUGIN_(ARCHIVE|MANI
 
 8. 同一份大数据（文件内容、搜索结果、日志、Git 历史、项目树）只由一层持有完整副本；其他层只持有可见窗口、摘要或标识。
 9. 跨 C ABI、Tauri IPC 和 WebView 消息边界时，只传输增量、分页结果或可见窗口，不得传输全量数据。
-10. 主线程不得执行文件读写、目录遍历、进程启动或探测，以及与数据总量成正比的解析、扫描和排序。这些工作在后台执行，必须可以取消，过期结果必须丢弃。Windows 的写法见第六节“Windows、React 与 Tauri”。
+10. 主线程不得执行文件读写、目录遍历、进程启动或探测，以及与数据总量成正比的解析、扫描和排序。这些工作在后台执行，必须可以取消，过期结果必须丢弃。Windows 适配见第六节“Windows 平台适配”。
 11. 诊断、进度、日志、文件变化等高频事件在发送端按批合并：每批只跨边界发送一次，接收端每批只更新一次状态。
 
 **热路径与呈现**
@@ -260,6 +262,14 @@ rg -n -i 'io\.github\.lithe-idea\.|lithe-idea/lithe-plugin-|PLUGIN_(ARCHIVE|MANI
 ### 共享控件
 
 界面改动前必须读 [macOS 共享控件规范](references/macos-ui.md) 作为原版视觉和交互基线。Viva 业务视图只提供内容和动作，复用现有共享控件；Windows 也使用同一 Viva 界面，不再引用旧 Tauri 组件路径。
+
+### UI 改动必须提供无头截图证据
+
+任何 UI 改动（布局、控件、样式、文案、菜单、弹窗和可见交互状态）都必须运行受影响场景的 Viva 无头测试，实际生成并检查 PNG 截图，并把截图附到 PR。PR 内可直接嵌图，或链接到该 PR 可访问、已上传的截图 artifact；本机路径、测试通过日志或一句“已截图”不算提交截图。
+
+- 截图对应本次最终实现，标明场景、主题、语言、尺寸、测试命令与提交；覆盖受影响状态，布局和视觉变化提供改动前后对照，按影响范围覆盖明暗主题与中英文。
+- 复用已有无头用例；没有覆盖时在 UI 所属仓库增加有界、可清理的场景。真实插件界面的用例和截图留在插件仓库，遵守第三节的零依赖边界。现有工作台采集入口见 `desktop/internal/workbench/visual_capture_test.go`；使用前读取其 build tags、环境变量和 fixture 要求，不把跳过的测试当作已采集。
+- 无法生成或上传时，明确标记 UI 验证未完成及原因，补齐后再标记 PR 可评审；不得用旧截图或其他实现的截图替代。无头截图不替代目标平台的原生窗口与系统交互验证。
 
 ### 用 ⓘ 解释难以理解的配置和功能
 
@@ -344,7 +354,7 @@ Viva 在 macOS、Windows 和 Linux 使用 `desktop/internal/i18n/` 的接口及�
   - Viva 本身的缺陷或能力缺口在 fork 修复，不在 Lithe 应用层写绕过代码。修复从上游 `main` 切分支，合进 fork `main` 后更新 `replace`，同一分支向 vivaui/viva 提 PR。
   - fork `main` 同步上游只用 merge，不 rebase、不 force push；`replace` 只指向已在 fork `main` 上的 commit，不提交本地路径替换。
   - 脚本需要 Viva 命令行工具时，从 `desktop/go.mod` 解析出的源码目录构建，或在 `desktop/` 模块内用不带版本的 `go run github.com/vivaui/viva/cmd/viva`。不得使用 `go run`、`go install` 的 `@<版本>` 写法，它会忽略 `replace`。
-- 可交互界面使用 Viva 无头驱动验证，视觉改动与旧 macOS 客户端截图对照；无头截图不能代替目标平台的原生窗口验收。后台任务、文件监听和测试进程必须有界退出并清理。
+- 可交互界面按第五节“UI 改动必须提供无头截图证据”验证并在 PR 附图；旧 macOS 截图只作外观基线。后台任务、文件监听和测试进程必须有界退出并清理。
 - 界面用 Viva 的 Page 写法（`func (m *model) page(c ui.C)`、`ui.NewPage`），不再新写基于 `*ui.Frame` 的界面；上游会把 Frame 收为底层引擎，应用层不再直接使用。写法以上游 `docs/skills/building-with-viva/SKILL.md` 为准：
   - 列表、树、菜单、弹窗、提示、表单优先用 `ui.List`、`ui.Tree`、`ui.Menu`/`ui.ContextMenu`、`ui.Modal`/`ui.Drawer`、`ui.Toasts` 和 `ui.TextField` 等，不再自造同类组件。
   - 属于页面的后台工作用 `ui.Effect`，不再手写“锁 + `Invalidate` + `OnWake`”。
@@ -373,6 +383,8 @@ Viva 在 macOS、Windows 和 Linux 使用 `desktop/internal/i18n/` 的接口及�
 - 注释检查脚本在 Rust Core 仓库：Core 改动先在 Core 仓库根运行 `scripts/rust-core/verify-rust-core-comments.sh`，通过后再运行较慢的 Core 检查。检查覆盖模块说明、导出项 Rustdoc、英文注释和 `unsafe` 安全说明，内部类型的语义仍须人工检查。
 
 ### Windows 平台适配
+
+- 本地 Windows 构建、调试和交互验收默认使用本机虚拟机；macOS 上按 [debug-windows-on-parallels](../debug-windows-on-parallels/SKILL.md) 操作。原独立 Windows 云服务器已到期，不再作为测试入口，不复用旧连接或凭据、不自行续费或新建替代云主机。已有 GitHub Actions Windows 检查照常保留。
 
 - Windows 与其他平台共用 Viva 界面；文件监听、进程、ConPTY、路径、窗口和安装等系统差异由平台适配器处理。
 - 文件、目录、进程探测和其他可能阻塞的工作必须离开 UI 线程；高频事件应有界合并，避免每条事件触发一次全量界面更新。
@@ -479,6 +491,7 @@ git diff --name-only origin/preview...HEAD
 | 改动 | 最低验证 |
 | --- | --- |
 | 用户可见文案 | `node scripts/i18n/verify-app-language-localization.mjs`、`node scripts/i18n/generate-i18n.mjs --check`、`node --test --test-timeout=60000 scripts/i18n/test-i18n.mjs` |
+| UI 改动 | 第五节规定的受影响场景无头测试、实际截图和 PR 附图证据；需要原生验证的仍在目标平台完成 |
 | 缺陷修复 | 第八节的回归测试（修复前失败、修复后通过），以及下面对应行的检查 |
 | 启动、打开项目、输入、滚动、大文件、长输出或搜索 | 第四节“验证”中对应平台的性能基线，改动前后对比 |
 | 编辑器模块 | 改动前后各运行一次 `scripts/desktop/perf/editor-bench.sh run --count 6`，用 `editor-bench.sh compare` 对比，把报告写进 PR 说明；见[编辑器性能基线](references/editor-performance.md) |
@@ -492,7 +505,7 @@ git diff --name-only origin/preview...HEAD
 | Core 功能或 Git graph 行为 | 运行所属 Core crate 和桌面消费者的相关测试；旧 `verify-core.sh`、`verify-git-graph.sh` 移除后，等价边界验证恢复前标记门禁未完成 |
 | 运行时资源或发行目录只读边界 | `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh` |
 | Core 的公开 Rust 类型或函数签名 | 搜索 `desktop/` 中的调用方并检查 C ABI、共享契约及两个平台的桥接消费者；不能只在一个平台编译 |
-| 在 Windows 上验证 Windows 实现 | 在 Windows 运行受影响桌面测试及原生工作流，涉及安装、ConPTY、签名或更新时分别验证；旧 Tauri 边界和构建脚本已移除，等价检查恢复前标记门禁未完成 |
+| 在 Windows 上验证 Windows 实现 | 在本机 Windows 虚拟机运行受影响桌面测试及原生工作流；按 `debug-windows-on-parallels` 记录来宾/产物架构、仿真情况与清理结果。安装、ConPTY、签名或更新分别验收；缺失的门禁如实标记未完成 |
 
 同时运行直接受影响的 crate 或 target 的测试。当前机器无法执行的平台检查必须明确报告；不得声称未执行的检查已经通过。
 

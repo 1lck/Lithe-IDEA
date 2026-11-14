@@ -1,218 +1,129 @@
 ---
 name: debug-windows-on-parallels
-description: Build, run, and diagnose the Windows Tauri product from a macOS host through a Parallels Windows VM. Use when a task requires building windows/, reproducing Windows-only behavior, reading Windows application or JDTLS logs, or transferring files into the Windows VM.
+description: Build, test, run, and diagnose the Viva Windows desktop client from macOS through a local Parallels Windows VM. Use for Windows native verification, guest toolchain and log diagnosis, or transferring validation inputs to the VM; not for host-only source inspection.
 ---
 
-# Debug Windows on Parallels
+# Validate Windows in the local Parallels VM
 
-The Windows product cannot be built or exercised on macOS directly. This Skill
-covers the host-to-guest workflow: what channel to use, which failures are
-environmental rather than code defects, and where Windows-side diagnostics live.
+Apply `develop-lithe` first. Windows local builds, debugging, tests and native
+interaction checks use the local VM. The former standalone Windows cloud server
+has expired and is retired: do not reuse its connection details or credentials,
+renew it, or provision another cloud host as a fallback. Existing GitHub Actions
+Windows checks remain part of CI.
 
-Only load this Skill when the task actually reaches into the VM. Editing
-`windows/` source and running `verify-windows-boundaries.sh` on macOS needs
-nothing from here.
+The current product is Viva desktop Go/cgo linked to Rust Core. The old
+`windows/tauri/` client, Bun frontend, WebView2/CDP debugging and its build/log
+paths are not current validation entry points. Host-only edits and static checks
+do not require starting the VM.
 
-## Own the VM lifecycle and shut it down after validation
+## Discover the guest and build architecture
 
-A running VM consumes substantial host CPU and memory even after a build or
-test process exits. Closing its window or stopping Cargo is not VM cleanup.
-
-- Before starting or resuming the VM, record its name and initial state with
-  `prlctl list -a`. Keep it stopped during host-only coding and inspection.
-- If this task starts or resumes the VM, shut it down when the Windows
-  validation session ends, fails, is cancelled, or is paused to resume coding.
-  Do not leave it running until the overall development task is complete or
-  merely because another Windows check may be needed later. The exception is
-  an explicit user request to keep it running, such as for manual testing.
-- First stop task-owned builds, tests, Lithe instances, JDTLS, and helper
-  processes, and collect needed logs. Then request a normal guest shutdown:
-
-  ```bash
-  prlctl stop "<vm-name>"
-  prlctl list -a
-  ```
-
-- Wait for the shutdown operation and confirm the VM reports `stopped` before
-  reporting cleanup complete. Use bounded observation; if shutdown fails or
-  stalls, inspect and report the remaining state. Do not silently claim success
-  or force-kill the VM and risk guest data loss.
-- If the VM was already running for the user before this task, clean up only
-  task-owned processes and preserve that initial state unless the user asks
-  for shutdown. Record any VM intentionally left running and why.
-
-## Reach the VM through prlctl, not SSH
-
-`prlctl` is the only reliable channel. SSH into the guest requires an
-interactive password and cannot be scripted.
+Before starting or resuming a guest, record its name and initial state:
 
 ```bash
-prlctl list                                        # names and run state
-prlctl exec "<vm-name>" cmd /c "..."
-prlctl exec "<vm-name>" powershell -Command "..."
+prlctl list -a
 ```
 
-`prlctl exec` defaults to `NT AUTHORITY\\SYSTEM`. That context does not have
-the interactive user's PATH, Rustup home, Bun installation, Git config, or
-mapped drives. For product builds and user-session diagnostics, use the
-interactive Windows account instead:
+Use `prlctl exec` for guest commands. Run builds, tests, Git operations and log
+queries as the interactive user with `--current-user`; the default SYSTEM
+context has different PATH, ownership and user data directories.
 
 ```bash
-prlctl exec "<vm-name>" --current-user cmd /c "..."
-prlctl exec "<vm-name>" --current-user powershell -Command "..."
+prlctl exec "<vm-name>" --current-user powershell.exe -NoProfile -Command 'whoami; Get-Command go,rustc,node,git; go env GOHOSTOS GOHOSTARCH GOOS GOARCH; rustc -vV'
 ```
 
-Verify the context before running a build:
+- Record the guest OS/architecture, Go executable architecture, output target,
+  toolchain and source revision. Discover paths; do not assume a username or VM
+  name from a previous session.
+- `scripts/desktop/desktop-go.sh` currently maps Windows `amd64` to
+  `x86_64-pc-windows-gnu` and rejects Windows `arm64`. An ARM64 Windows guest on
+  Apple Silicon must build and run the supported x64 client through Windows
+  emulation; do not select ARM64/MSVC merely because the guest is ARM64.
+- Verify x64 MinGW-w64 GCC with `gcc -dumpmachine`, the GNU Rust target, Go,
+  Node.js and Git for Windows. Installer checks also need NSIS. Current build
+  setup is documented by `.github/actions/setup-desktop-windows-build-tools/action.yml`
+  and `.github/workflows/desktop-ci.yml`; inspect them before changing tools.
+- An emulated x64 run verifies that configuration, not native AMD64 performance
+  or native Windows ARM64 support. State the limit in the validation report.
+- Use SYSTEM only for inspection that actually requires machine context. Do not
+  globally relax Git ownership checks or change execution policy to conceal a
+  wrong user context. SSH/WinRM and old cloud-server scripts are not the default
+  transport for this workflow.
+
+The desktop target mapping above does not constrain plugin backends. For a
+plugin task, reuse the guest transport and lifecycle rules, and use the plugin
+repository's own toolchain, targets and tests.
+
+## Transfer a source snapshot and use guest-local build storage
+
+Use an existing Parallels shared folder, commonly `\\psf\Home`, to transfer a
+bounded source snapshot or archive into a guest-owned local checkout. Confirm
+that the share exists; do not assume a different alias works in SYSTEM context.
+
+- Keep the source revision and any uncommitted task changes identifiable.
+  Preserve guest work; do not overwrite an unrelated checkout or running app.
+- Run builds and tests on the guest's local filesystem. Keep Windows caches and
+  mutable Core build state separate from macOS and other worktrees; follow the
+  repository resource-reuse rules where applicable.
+- Never transfer files as repeated base64 chunks through guest shell calls.
+  If shared transfer is unavailable, report the missing route and use another
+  existing supported transfer method rather than spawning an unbounded loop.
+
+## Use the current desktop build and timing entries
+
+In the guest checkout, establish the interactive user's toolchain PATH and use
+Git for Windows Bash, not a WSL `bash.exe`. Set `GOARCH=amd64` and select the
+verified x64 MinGW compiler for cgo. From the repository root:
+
+```powershell
+$env:GOARCH = 'amd64'
+$env:CC = 'gcc'
+& '<Git for Windows>\bin\bash.exe' ./scripts/desktop/desktop-go.sh build -o ../.artifacts/desktop/bin/lithe.exe ./cmd/lithe
+& ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope DesktopGo -GoPackages ./internal/core -GoTestPattern '<focused-test>'
+```
+
+Use `scripts/desktop/package-desktop.sh --arch amd64` through the same Git Bash
+when the task needs a packaged client. Read its current options and inputs
+before running it. Do not use removed Tauri build scripts or enable legacy test
+scopes that still point to deleted directories. Run affected Rust tests inside
+the actual linked Core checkout under that repository's current instructions.
+
+For long commands, capture output and exit status in a task-owned log with a
+suite deadline and process-tree cleanup. A detached `.cmd` wrapper must have an
+owner, a completion/exit-code record and a bounded wait. Stop task-owned instances
+before replacing their executable; do not terminate every matching app process.
+
+## Collect evidence from the running client
+
+- Current default Windows application logs come from
+  `desktop/internal/logstore/dir_windows.go`: `%LOCALAPPDATA%\Lithe Desktop\Logs`.
+  Respect a user-configured log location and collect the task session's records
+  as the same user that ran Lithe. Follow the linked Core logging contract;
+  do not import Tauri's former truncation, severity or flush assumptions.
+- Plugin process logs and state come from that session's launch-provided
+  writable directories and the plugin's own documentation. Do not guess a
+  retired host-managed language-server cache path.
+- UI changes require the headless screenshots attached to the PR under
+  `develop-lithe` section 五. Native Windows window, ConPTY, installer and update
+  checks still run in the guest when relevant; headless output is not a
+  substitute for them.
+- Report source revision, commands, exit codes, per-test HTML/JUnit reports,
+  screenshots, architectures/emulation and any unverified behavior. Separate a
+  guest environment or staging failure from a product defect using evidence.
+
+## Restore the initial VM lifecycle
+
+Keep the VM stopped during host-only coding. If this task started or resumed it,
+stop task-owned Lithe, tests, language servers and helpers, collect their logs,
+then request normal guest shutdown at the end of the Windows validation session,
+on failure/cancellation, or when returning to host-only coding:
 
 ```bash
-prlctl exec "<vm-name>" --current-user cmd /c "whoami & where rustup & where bun"
+prlctl stop "<vm-name>"
+prlctl list -a
 ```
 
-Use the default SYSTEM form only for machine-level inspection or actions that
-do not depend on the logged-in user's tools and configuration. The
-`--current-user` form is required for Windows builds, Git behavior, and logs
-produced by the active Lithe session.
-
-`prlctl exec` runs as `NT AUTHORITY\SYSTEM`, not the logged-in user. Three
-consequences follow, and all three look like "the tool is not installed":
-
-- The user `PATH` is invisible. `bun`, `cargo`, `rustup`, and `node` all appear
-  missing. Invoke them by absolute path, or set `PATH` inside a `.cmd` wrapper.
-- `git` reports `detected dubious ownership` because the checkout belongs to the
-  interactive user. Pass `-c safe.directory=<path>` or configure it globally in
-  the guest once.
-- `winget` is unavailable. Install guest tooling interactively instead.
-
-PowerShell in the guest emits localized text that arrives as mojibake on the
-macOS side. Match on timestamps, severities, and English identifiers; do not try
-to read localized error prose.
-
-## Transfer files over the Parallels shared folder
-
-The macOS home directory is mounted in the guest at `\\psf\Home`. Copy through
-it in a single call:
-
-```bash
-prlctl exec "<vm-name>" powershell -Command "
-Copy-Item '\\\\psf\\Home\\<path-under-home>' 'C:\<guest-path>' -Force
-"
-```
-
-Use `\\psf\Home`, not `\\Mac\Home`; the latter is not resolvable from the
-`SYSTEM` context.
-
-Never chunk file contents through repeated `prlctl exec` calls (for example
-base64 in a shell loop). Every call spawns a guest PowerShell process; a handful
-of files is enough to exhaust guest resources, stall the host, and generate
-large amounts of disk writes. If a shared folder is genuinely unavailable, stop
-and ask rather than looping.
-
-## Build through a guest .cmd wrapper
-
-Write a `.cmd` file in the guest that establishes the environment, then run it
-detached with output redirected to a log:
-
-```cmd
-@echo off
-set "PATH=C:\Program Files\LLVM\bin;C:\Users\<user>\.cargo\bin;C:\Users\<user>\.bun\bin;%PATH%"
-set "CARGO_HOME=C:\Users\<user>\.cargo"
-set "RUSTUP_HOME=C:\Users\<user>\.rustup"
-cd /d C:\<repo>
-powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\windows\build\build-windows.ps1" -Configuration Debug -RustTarget aarch64-pc-windows-msvc
-echo === exit: %ERRORLEVEL% ===
-```
-
-```bash
-prlctl exec "<vm-name>" cmd /c "start /min cmd /c \"C:\\<build>.cmd > C:\\<build>.log 2>&1\""
-```
-
-Driving the build from `cmd` with `cmd`-level redirection is deliberate.
-`build-windows.ps1` sets `$ErrorActionPreference = "Stop"`, and `rustup` and
-`bun` write progress to stderr; under PowerShell redirection those become
-terminating `NativeCommandError`s and the build fails while the underlying
-command succeeded. A build that dies immediately after a tool prints a normal
-informational line is this, not a real failure — check the tool standalone
-before treating it as a code defect.
-
-Other environmental failures worth recognizing:
-
-- **Wrong target.** On Apple Silicon the guest is ARM64, so pass
-  `-RustTarget aarch64-pc-windows-msvc`. The script's default is x86_64.
-- **Script execution blocked.** First run needs
-  `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned -Force` in the guest.
-- **`Access is denied` removing the exe.** The app is still running. Stop it
-  first: `Get-Process -Name '<product>' -ErrorAction SilentlyContinue | Stop-Process -Force`.
-- **Missing native toolchain.** Some crates require `clang`; the guest may have
-  LLVM installed without it being on the `SYSTEM` `PATH`. Add
-  `C:\Program Files\LLVM\bin` to the wrapper's `PATH`.
-- **Shared crate edits not picked up.** Cargo compares mtimes, and a file
-  written through the shared folder can keep an older timestamp. Touch it:
-  `(Get-Item <path>).LastWriteTime = Get-Date`. Confirm the intended crate
-  actually recompiled by grepping the build log for its `Compiling` line.
-- **Debug builds omit bundled language servers.** `build-windows.ps1` stages
-  them only for Release. Mirror them into the Debug profile when a Debug build
-  must exercise language features:
-  `robocopy <target>\release\LanguageServers <target>\debug\LanguageServers /E /NFL /NDL /NJH /NP`.
-
-## Read Windows-side diagnostics
-
-Application logs live under the product's `LOCALAPPDATA` directory; the most
-recently written file is the current session.
-
-```bash
-prlctl exec "<vm-name>" powershell -Command "
-\$f = Get-ChildItem 'C:\Users\<user>\AppData\Local\<bundle-id>\logs\' |
-  Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
-Select-String -Path \$f -Pattern 'error' | Select-Object -Last 20 | ForEach-Object { \$_.Line }
-"
-```
-
-Know what the log will and will not show before concluding a feature is broken.
-Per `windows/tauri/src-tauri/src/logging.rs`:
-
-- `Debug`-level records are dropped unless diagnostic logging is enabled for the
-  session (Settings → Logs). Enable it *before* reproducing, or the most useful
-  records will not exist.
-- The sanitizer rewrites absolute paths to `<redacted_path>` and redacts field
-  values whose key looks credential-like. Keys containing `token` are caught by
-  this, so some benign fields read as `<redacted>`.
-- Lines are truncated at 4 KB, which cuts the tail off long React component
-  stacks.
-- Only `Warn` and above are flushed synchronously, so a hard crash can lose the
-  last few `Info` records.
-
-Frontend stack traces from a production build are minified. Inline source maps
-do **not** fix this: V8 does not apply source maps when building
-`Error.stack` — that is devtools-only behavior. Readable frames require devtools,
-which needs the `devtools` feature on the `tauri` crate; a `--debug` build alone
-does not enable it.
-
-Language-server internals are not in the application log. JDTLS keeps its own
-log at
-`<LOCALAPPDATA>\<bundle-id>\language-servers\jdtls\<hash>\.metadata\.log`.
-Maven import results, classpath resolution, and index read/write failures appear
-only there. A `ProjectRegistryRefreshJob finished` time in single-digit
-milliseconds means no build system was actually imported.
-
-## Match the diagnosis to the layer
-
-Before changing product code, place the symptom:
-
-- **Guest environment** — missing `PATH`, ownership, execution policy, target
-  triple, locked exe. Fix the harness, not the product.
-- **Build staging** — a resource the Debug profile never received. Check what
-  `build-windows.ps1` stages per configuration.
-- **Durable language-server state** — JDTLS keeps per-workspace state that it
-  never invalidates itself. A workspace whose structure changed can keep
-  resolving against a stale project model, which presents as navigation and
-  highlighting working for some files and not others.
-- **Product defect** — only after the three above are excluded.
-
-State which layer the evidence supports. When a check could not run on the
-current machine, say so rather than implying it passed.
-
-## Search tools in this environment
-
-`grep` is proxied and does not behave like GNU grep for absolute paths or `\|`
-alternation. Prefer `rg -n "a|b"` with an unescaped pipe, or run separate
-patterns.
+Confirm `stopped` with bounded observation. If shutdown stalls, report the
+remaining state and attempt bounded cleanup; do not force power-off and risk
+user data. Preserve a VM that was already running for the user, or an explicit
+request to keep it running, while cleaning up only this task's processes.
