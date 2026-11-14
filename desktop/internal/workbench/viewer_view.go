@@ -114,7 +114,7 @@ func (a *App) viewerExternalHint(c ui.C, t *viewerTab) {
 // viewerHex lists the hex lines, and says when the file goes on past them.
 func (a *App) viewerHex(c ui.C, t *viewerTab) {
 	language := a.language()
-	ui.Scroll(c.Part("hex")).Fill().PadX(12).PadY(8).Children(func() {
+	ui.Scroll(c.Part("hex")).Scrollbars().Fill().PadX(12).PadY(8).Children(func() {
 		ui.Text(c, i18n.Shared(language, "desktop.viewer.binaryHint")).FontSize(12).Color(a.colors.Subtle)
 		for i, line := range t.hex {
 			ui.Text(c.KeyInt(i), line).Mono().FontSize(12).Color(a.colors.Text)

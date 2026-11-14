@@ -96,7 +96,7 @@ func (a *App) drawShelfList(c ui.C, p *project) ui.Box {
 		if !s.shelves.Changed() && s.shelves.Selected() != selected {
 			s.shelves.Select(selected)
 		}
-		ui.List(c, &s.shelves, len(s.list), func(row ui.ListRow) { a.drawShelfRow(p, row, row.Index == selected) }).Grow(1).FillWidth()
+		ui.List(c, &s.shelves, len(s.list), func(row ui.ListRow) { a.drawShelfRow(p, row, row.Index == selected) }).Scrollbars().Grow(1).FillWidth()
 		if s.shelves.Changed() {
 			if i := s.shelves.Selected(); i >= 0 && i < len(s.list) {
 				id := s.list[i].ID

@@ -101,7 +101,7 @@ func (w *window) repositoriesModal(c ui.C, language i18n.Language) {
 			if w.marketSourceNotice != "" {
 				ui.Wrap(c, w.marketSourceNotice).FontSize(12).Color(w.pal.warning)
 			}
-			ui.Scroll(c.Part("repositories")).FillWidth().MaxHeight(320).Radius(8).Stroke(1, w.pal.line).Background(w.pal.card).Children(func() {
+			ui.Scroll(c.Part("repositories")).Scrollbars().FillWidth().MaxHeight(320).Radius(8).Stroke(1, w.pal.line).Background(w.pal.card).Children(func() {
 				ui.Column(c).FillWidth().Shrink(0).Children(func() {
 					for position, source := range m.sourceChoices() {
 						if source == m.aggregateSource() || source == 2 {

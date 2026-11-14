@@ -597,7 +597,7 @@ func (a *App) projectMenu(c ui.C, anchor ui.Box) {
 	spec := ui.PopoverSpec{Align: ui.Start, Offset: chromeMenuOffset, Width: chromeMenuWidth, ConsumeOutsidePress: true}
 	open := true
 	ui.PopoverWith(c, anchor, spec, &open, func() {
-		ui.Scroll(c).FillWidth().MaxHeight(chromeMenuMaxHeight).Gap(chromeMenuItems).Children(func() {
+		ui.Scroll(c).Scrollbars().FillWidth().MaxHeight(chromeMenuMaxHeight).Gap(chromeMenuItems).Children(func() {
 			created = a.menuAction(c.Part("new"), icons.Plus, a.text.Title.NewProjectItem)
 			chosen = a.menuAction(c.Part("open"), icons.FolderOpen, a.text.Title.OpenItem)
 			cloned = a.menuAction(c.Part("clone"), icons.Download, a.text.Title.CloneItem)

@@ -265,7 +265,7 @@ func (a *App) everywhereResults(c ui.C, p *project, language i18n.Language) {
 		case !v.preview && row.Element.Clicked():
 			opened = row.Index
 		}
-	}).Label(i18n.Shared(language, "desktop.everywhere.title")).Grow(1).MinHeight(0)
+	}).Scrollbars().Label(i18n.Shared(language, "desktop.everywhere.title")).Grow(1).MinHeight(0)
 	if opened >= 0 {
 		s.selected = opened
 		result := s.matches[opened]

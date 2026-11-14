@@ -128,7 +128,7 @@ func (a *App) buildToolView(c ui.C, p *project) {
 			}
 			ui.List(c, list, len(rows), func(row ui.ListRow) {
 				a.buildTreeRow(row, p, rows[row.Index])
-			}).Label(t.Systems).FillWidth().Grow(1).MinHeight(0).PadY(treelist.PadY)
+			}).Scrollbars().Label(t.Systems).FillWidth().Grow(1).MinHeight(0).PadY(treelist.PadY)
 		})
 	})
 	a.loadOpenBuildModels(p)

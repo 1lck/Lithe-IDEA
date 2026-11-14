@@ -570,7 +570,7 @@ func (a *App) memoryEntries(c ui.C, language i18n.Language, columns memoryColumn
 		ui.Text(c, i18n.Shared(language, "desktop.memory.noOtherProcesses")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 		return
 	}
-	ui.Scroll(c.Part("list")).FillWidth().MaxHeight(memoryListHeight).Children(func() {
+	ui.Scroll(c.Part("list")).Scrollbars().FillWidth().MaxHeight(memoryListHeight).Children(func() {
 		for i, entry := range summary.Entries {
 			a.memoryRow(c.KeyInt(i), language, memoryLine{
 				kind: entry.Kind, name: entry.Name, processes: entry.ProcessCount, bytes: entry.Bytes, usage: entry.MemoryUsage,

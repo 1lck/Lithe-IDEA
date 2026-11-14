@@ -255,7 +255,7 @@ func (w *window) selectPluginForm(id string) bool {
 // the scroll's height.
 func (w *window) dynamicSettingsPage(c ui.C) {
 	page := w.dynamic.selected(w.dynamicPage)
-	ui.Scroll(c.Key(w.dynamicPage)).FillWidth().Grow(1).Shrink(1).MinHeight(0).Pad(contentPad).Gap(10).Children(func() {
+	ui.Scroll(c.Key(w.dynamicPage)).Scrollbars().FillWidth().Grow(1).Shrink(1).MinHeight(0).Pad(contentPad).Gap(10).Children(func() {
 		if w.dynamic.failed != nil {
 			ui.Wrap(c, i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.failed")).Color(w.pal.danger)
 		}

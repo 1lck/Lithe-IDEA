@@ -118,7 +118,7 @@ func (a *App) pluginPromptView(c ui.C) {
 	// is a new dialog; it is raised again for each paint the prompt is first.
 	prompt.open = true
 	dismissed := ui.ModalWith(c, &prompt.open, prompt.title, ui.ModalSpec{Width: 520, Height: 320}, func() {
-		ui.Scroll(c).Grow(1).FillWidth().Children(func() {
+		ui.Scroll(c).Scrollbars().Grow(1).FillWidth().Children(func() {
 			text := ui.Wrap(c, prompt.text).FontSize(13)
 			if prompt.mono {
 				text.Mono()

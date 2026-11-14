@@ -161,7 +161,7 @@ func (a *App) setPluginTools(windows []pluginservice.ToolWindow, vcs []vcsWindow
 
 // pluginTextBody declares the literal text of a plugin text window.
 func (a *App) pluginTextBody(c ui.C, tool *pluginservice.ToolWindow) {
-	ui.Scroll(c).Fill().Children(func() {
+	ui.Scroll(c).Scrollbars().Fill().Children(func() {
 		ui.Column(c).FillWidth().Pad(shellContentPad).Children(func() {
 			ui.Wrap(c, tool.Text).Color(a.colors.Text)
 		})

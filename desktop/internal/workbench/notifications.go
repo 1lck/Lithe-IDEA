@@ -186,7 +186,7 @@ func (a *App) notificationPanel(c ui.C, anchor ui.Box) {
 			ui.Text(c, i18n.Shared(language, "desktop.notifications.empty")).Color(a.colors.Subtle)
 			return
 		}
-		ui.Scroll(c.Part("list")).FillWidth().MaxHeight(notificationPanelHeight).Gap(8).Children(func() {
+		ui.Scroll(c.Part("list")).Scrollbars().FillWidth().MaxHeight(notificationPanelHeight).Gap(8).Children(func() {
 			for i, entry := range center.list {
 				k := c.KeyInt(i)
 				ui.Row(k).FillWidth().Shrink(0).Gap(8).Items(ui.Start).Children(func() {

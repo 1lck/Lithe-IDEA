@@ -223,7 +223,7 @@ func (w *window) sidebarPanel(c ui.C) {
 	}
 	ui.List(c, &s.list, len(rows), func(row ui.ListRow) {
 		w.sidebarRow(row, rows[row.Index])
-	}).Label(w.text.Logs.Channel).Grow(1).Shrink(1).MinHeight(0)
+	}).Scrollbars().Label(w.text.Logs.Channel).Grow(1).Shrink(1).MinHeight(0)
 	if s.list.Changed() {
 		w.sidebarApply(rows)
 	}

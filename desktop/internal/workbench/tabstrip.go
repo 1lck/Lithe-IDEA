@@ -522,7 +522,7 @@ func (a *App) hiddenTabsButton(c ui.C, place *groupPlace, s *tabStrip, tabs []sh
 	if s.menu {
 		spec := ui.PopoverSpec{Align: ui.End, Offset: chromeMenuOffset, Width: tabMenuWidth, ConsumeOutsidePress: true}
 		ui.PopoverWith(c, button, spec, &s.menu, func() {
-			ui.Scroll(c.Part("hidden")).FillWidth().MaxHeight(tabMenuMaxHeight).Gap(chromeMenuItems).Children(func() {
+			ui.Scroll(c.Part("hidden")).Scrollbars().FillWidth().MaxHeight(tabMenuMaxHeight).Gap(chromeMenuItems).Children(func() {
 				for _, member := range s.hidden {
 					i := slices.IndexFunc(tabs, func(t shownTab) bool { return t.member() == member })
 					if i < 0 {

@@ -328,7 +328,7 @@ func pluginInstallReviewBody(c ui.C, language i18n.Language, details *ui.ListSta
 					ui.Wrap(row.C, label).FontSize(11).Mono().Muted().FillWidth()
 				}
 			})
-		}).Label(i18n.Shared(language, "desktop.marketplace.reviewTitle")).FillWidth().MaxHeight(pluginReviewMaxDetailsHeight)
+		}).Scrollbars().Label(i18n.Shared(language, "desktop.marketplace.reviewTitle")).FillWidth().MaxHeight(pluginReviewMaxDetailsHeight)
 	})
 }
 

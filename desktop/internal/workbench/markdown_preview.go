@@ -374,7 +374,7 @@ func (a *App) markdownContentsButton(c ui.C, p *project, d *document) {
 			if row.Element.Clicked() {
 				jump = row.Index
 			}
-		}).Label(title).FillWidth().Height(height)
+		}).Scrollbars().Label(title).FillWidth().Height(height)
 		if row, ok := s.contents.Submitted(); ok {
 			jump = row
 		}

@@ -337,7 +337,7 @@ func (w *window) detailTrace(c ui.C, record core.LogRecord, selected bool) {
 		}
 		ui.List(c, &d.traceList, len(records), func(row ui.ListRow) {
 			w.detailTraceRow(row, summary)
-		}).Label(m.CallChain).FillWidth().Grow(1).Shrink(1).MinHeight(0)
+		}).Scrollbars().Label(m.CallChain).FillWidth().Grow(1).Shrink(1).MinHeight(0)
 		if d.traceList.Changed() {
 			if i := d.traceList.Selected(); i >= 0 && i < len(records) {
 				w.model.jump(records[i].EpochMs)
@@ -404,7 +404,7 @@ func (w *window) detailActions(c ui.C, record core.LogRecord, selected bool) {
 		button := w.button(c, name, symbol, title, buttonOptions{fullWidth: true, height: detailsButtonHeight, disabled: disabled})
 		return !disabled && button.Clicked()
 	}
-	ui.Scroll(c).Width(detailsActionsWidth).FillHeight().Shrink(0).
+	ui.Scroll(c).Scrollbars().Width(detailsActionsWidth).FillHeight().Shrink(0).
 		Pad(detailsActionsPad).Gap(detailsActionsGap).Children(func() {
 		if action("copy-json", "⧉", m.CopyJSON, !selected) {
 			w.model.copyFormatted(w.model.selectedRecords(), "json")

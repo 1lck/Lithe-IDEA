@@ -88,7 +88,7 @@ func (a *App) projectTree(c ui.C, p *project) {
 		if a.drawTreeContent(c, p, t.rows[i]) {
 			named = i
 		}
-	}).Grow(1).FillWidth().PadY(treelist.PadY)
+	}).Scrollbars().Grow(1).FillWidth().PadY(treelist.PadY)
 	if a.elementShortcut(tree, shortcuts.OpenSelected) {
 		c.After(func() { a.openSelectedTreeFile(p) })
 	}

@@ -329,8 +329,9 @@ Viva 在 macOS、Windows 和 Linux 使用 `desktop/internal/i18n/` 的接口及�
 ### 滚动内容与连续列表
 
 - 滚动内容默认虚拟化，规则见第四节第 14 条。
+- 每个滚动区域（`ui.List`、`ui.Tree`、`ui.Scroll`、`ui.ScrollAt`）必须调用 `.Scrollbars()` 显示滚动条。Viva 默认不画滚动条，漏掉时没有触控板的用户无法浏览内容。
 - Git 历史、反汇编等连续浏览的分页列表，在滚动接近视口边缘时自动加载下一页，不得要求用户反复点击“加载更多”。内存查看器等离散页面仍可显式翻页。
-- 两条的细则、例外和验证要求见[滚动内容与连续列表](references/scrolling-content.md)。
+- 以上条目的细则、例外和验证要求见[滚动内容与连续列表](references/scrolling-content.md)。
 
 ## 六、语言与编码约定
 

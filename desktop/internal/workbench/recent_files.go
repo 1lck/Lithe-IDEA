@@ -186,7 +186,7 @@ func (a *App) recentFilesPopup(c ui.C) {
 			}).Clicked() {
 				c.After(func() { open(entry) })
 			}
-		}).Height(336)
+		}).Scrollbars().Height(336)
 		if index, ok := v.listState.Submitted(); ok && index >= 0 && index < len(v.list) {
 			entry := v.list[index]
 			c.After(func() { open(entry) })

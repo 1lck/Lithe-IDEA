@@ -349,7 +349,7 @@ func (a *App) debugBreakpoints(c ui.C, p *project) {
 			if row.Element.Clicked() {
 				row.C.After(func() { a.removeBreakpoint(p, spec.path, spec.breakpoint.line) })
 			}
-		}).Label(t.Breakpoints).Fill()
+		}).Scrollbars().Label(t.Breakpoints).Fill()
 	})
 	ui.Text(c, t.Breakpoint.FunctionName).Color(a.colors.Text).Weight(gfx.WeightMedium)
 	a.debugFunctionBreakpoints(c, p)
@@ -442,7 +442,7 @@ func (a *App) debugFrames(c ui.C, p *project) {
 			}
 			row.C.After(func() { a.openFileAtPosition(p, frame.SourcePath, line, 0) })
 		}
-	}).Label(t.Frames).Fill()
+	}).Scrollbars().Label(t.Frames).Fill()
 }
 
 // debugConsole declares the Console tab: the output the adapter reported for the session, in
@@ -465,5 +465,5 @@ func (a *App) debugConsole(c ui.C, p *project) {
 	ui.List(c, list, len(lines), func(row ui.ListRow) {
 		row.Element.Height(debugRowHeight - 4).PadX(10).Items(ui.Center)
 		ui.Text(row.C, lines[row.Index]).FontSize(12.5).Color(a.colors.Text).Mono()
-	}).Label(i18n.Shared(a.language(), "debugger.console")).Fill()
+	}).Scrollbars().Label(i18n.Shared(a.language(), "debugger.console")).Fill()
 }

@@ -84,7 +84,7 @@ func (a *App) drawRunConfigRows(c ui.C, p *project, title string) {
 	if !b.view.Changed() && b.view.Selected() != selected {
 		b.view.Select(selected)
 	}
-	ui.List(c, &b.view, len(b.rows), func(row ui.ListRow) { a.drawRunConfigRow(p, row, row.Index == selected) }).Label(title).Grow(1).FillWidth()
+	ui.List(c, &b.view, len(b.rows), func(row ui.ListRow) { a.drawRunConfigRow(p, row, row.Index == selected) }).Scrollbars().Label(title).Grow(1).FillWidth()
 	if b.view.Changed() {
 		if i := b.view.Selected(); i >= 0 && i < len(b.rows) {
 			if row := b.rows[i]; row.configuration >= 0 {

@@ -115,7 +115,7 @@ func (a *App) drawConsoleList(c ui.C) {
 	v.font = a.outputFont()
 	v.cellW, _ = c.Canvas().MonoCellSize(v.font.Size, v.font.face)
 	v.lineH = v.font.lineHeight(c.Canvas())
-	area := ui.List(c, &v.list, len(v.rows), v.drawRow).Label(a.text.Git.Console).Grow(1).FillWidth().Follow(true)
+	area := ui.List(c, &v.list, len(v.rows), v.drawRow).Scrollbars().Label(a.text.Git.Console).Grow(1).FillWidth().Follow(true)
 	if v.detach {
 		v.detach = false
 		s := area.ScrollState()

@@ -183,7 +183,7 @@ func (a *App) drawLogReferences(c ui.C, p *project) ui.Box {
 		ui.Tree(c, &v.refs, len(v.refItems), v.refLabel, func(i int) {
 			a.logRefPointer(c, p, i)
 			a.drawLogRefContent(c, v.refItems[i])
-		}).Grow(1).PadY(4)
+		}).Scrollbars().Grow(1).PadY(4)
 		a.drawLogRefMenu(c, p)
 		if i, ok := v.refs.Toggled(); ok {
 			c.After(func() { a.toggleLogRef(p, v.refItems[i], query) })
@@ -542,7 +542,7 @@ func (a *App) drawLogList(c ui.C, p *project) {
 	if l.hasMore || l.loadingMore {
 		total++
 	}
-	area := ui.List(c, &v.commits, total, func(row ui.ListRow) { a.drawLogRow(c, p, rows, row) }).Grow(1).FillWidth()
+	area := ui.List(c, &v.commits, total, func(row ui.ListRow) { a.drawLogRow(c, p, rows, row) }).Scrollbars().Grow(1).FillWidth()
 	if v.commits.Changed() {
 		if i := v.commits.Selected(); i >= 0 && i < n {
 			a.selectCommit(p, rows[i].CommitHash)

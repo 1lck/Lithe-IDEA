@@ -417,7 +417,7 @@ func (w *window) installedList(c ui.C, language i18n.Language, facts []PluginFac
 			}
 			w.enabledMark(row.C, w.pluginState(fact.ID).Enabled)
 		})
-	}).FillWidth().Grow(1).Shrink(1).MinHeight(0).Label(i18n.Shared(language, "native.installed"))
+	}).Scrollbars().FillWidth().Grow(1).Shrink(1).MinHeight(0).Label(i18n.Shared(language, "native.installed"))
 	if s.list.Changed() {
 		if index := s.list.Selected(); index >= 0 && index < len(s.rows) && s.rows[index].heading == "" {
 			s.selected = s.rows[index].id
@@ -469,7 +469,7 @@ func (w *window) installedDetail(c ui.C, language i18n.Language, fact PluginFact
 		w.installedNotices(c, language, fact)
 		w.installedTabs(c, language, fact)
 		ui.Row(c).FillWidth().Height(1).Shrink(0).Background(w.pal.line)
-		ui.Scroll(c.Part("installed-detail")).FillWidth().Grow(1).Shrink(1).MinHeight(0).Children(func() {
+		ui.Scroll(c.Part("installed-detail")).Scrollbars().FillWidth().Grow(1).Shrink(1).MinHeight(0).Children(func() {
 			ui.Column(c).FillWidth().Grow(1).Shrink(0).MinWidth(0).Pad(22).Gap(16).Children(func() {
 				switch s.tab {
 				case installedFeatures:

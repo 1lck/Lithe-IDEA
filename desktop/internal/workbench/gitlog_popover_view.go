@@ -119,7 +119,7 @@ func (a *App) drawBranchSettingsMenu(c ui.C, p *project, button ui.Box) {
 // drawLogBranchFilter declares the references the log can walk.
 func (a *App) drawLogBranchFilter(c ui.C, p *project) {
 	l := &p.log
-	ui.Scroll(c).FillWidth().MaxHeight(logListMaxHeight).Children(func() {
+	ui.Scroll(c).Scrollbars().FillWidth().MaxHeight(logListMaxHeight).Children(func() {
 		if a.logMenuItem(c, "all", a.text.Git.AllReferences, l.reference == "", false) {
 			c.After(func() {
 				l.popover, l.refSelected = logPopoverNone, ""
@@ -151,7 +151,7 @@ func (a *App) drawLogUserFilter(c ui.C, p *project) {
 	ui.Row(c).PadY(4).PadX(4).Children(func() {
 		ui.TextFieldID(c, logUserSearchID, &v.userSearch, g.SearchUsers, g.SearchUsers).Grow(1)
 	})
-	ui.Scroll(c).FillWidth().MaxHeight(logListMaxHeight).Children(func() {
+	ui.Scroll(c).Scrollbars().FillWidth().MaxHeight(logListMaxHeight).Children(func() {
 		if l.user != "" {
 			if a.logMenuItem(c, "clear", g.ClearFilter, false, false) {
 				c.After(func() { a.setLogUser(p, "") })

@@ -372,7 +372,7 @@ func (w *window) marketList(c ui.C, language i18n.Language, plugins []core.Marke
 			})
 			w.marketRowAction(row.C, language, plugin)
 		})
-	}).FillWidth().Grow(1).Shrink(1).MinHeight(0).Label(i18n.Shared(language, "native.marketplace"))
+	}).Scrollbars().FillWidth().Grow(1).Shrink(1).MinHeight(0).Label(i18n.Shared(language, "native.marketplace"))
 	if m.list.Changed() {
 		if row := m.list.Selected(); row >= 0 && row < len(rows) {
 			m.selected = plugins[rows[row]].ID
@@ -470,7 +470,7 @@ func (w *window) marketDetail(c ui.C, language i18n.Language) {
 		return
 	}
 	selected := m.snapshot.Index.Plugins[index]
-	ui.Scroll(c.Part("market-detail")).Grow(1).Shrink(1).FillHeight().MinWidth(0).Children(func() {
+	ui.Scroll(c.Part("market-detail")).Scrollbars().Grow(1).Shrink(1).FillHeight().MinWidth(0).Children(func() {
 		ui.Column(c).FillWidth().Shrink(0).MinWidth(0).Pad(24).Gap(18).Children(func() {
 			ui.Row(c).FillWidth().Gap(14).Items(ui.Start).Children(func() {
 				w.marketAvatar(c, selected.ID, selected.Name, 48)

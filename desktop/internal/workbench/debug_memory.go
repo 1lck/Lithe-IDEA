@@ -336,7 +336,7 @@ func (a *App) debugMemoryView(c ui.C, p *project) {
 		segment(line.text[line.cell[1]:line.char[0]], false)
 		segment(line.text[line.char[0]:line.char[1]], true)
 		ui.Text(row.C, line.text[line.char[1]:]).Shrink(1).FontSize(12.5).Color(a.colors.Text).Mono().Ellipsis()
-	}).Label(t.Memory).FillWidth().Grow(1)
+	}).Scrollbars().Label(t.Memory).FillWidth().Grow(1)
 }
 
 // debugMemoryToolbar declares the memory window's controls. Enter in the address field or the

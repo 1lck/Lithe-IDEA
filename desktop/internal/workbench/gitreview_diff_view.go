@@ -97,7 +97,7 @@ func (a *App) drawBlameDialog(c ui.C, p *project) {
 					ui.Text(row.C, strconv.Itoa(line.Line)).Mono().FontSize(size).Color(a.colors.Subtle).Width(40).Shrink(0).TextEnd()
 					ui.Text(row.C, text).Mono().FontSize(size).Ellipsis().Grow(1)
 				})
-			}).Grow(1).FillWidth().Background(a.colors.Editor)
+			}).Scrollbars().Grow(1).FillWidth().Background(a.colors.Editor)
 		}
 	}, func() {
 		if ui.Button(c, i18n.Shared(a.language(), "desktop.gitReview.close")).Outline().Clicked() {
@@ -147,7 +147,7 @@ func (a *App) drawUntrackedDialog(c ui.C, p *project) {
 				if folder && row.Element.Clicked() {
 					c.After(func() { a.enterUntracked(p, change.Path) })
 				}
-			}).Grow(1).FillWidth()
+			}).Scrollbars().Grow(1).FillWidth()
 		}
 	}, func() {
 		if len(u.trail) > 1 && ui.Button(c, "..").Outline().Clicked() {

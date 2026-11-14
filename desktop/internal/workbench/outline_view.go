@@ -175,7 +175,7 @@ func (a *App) outlinePanel(c ui.C, p *project) {
 		ui.Tree(c, &s.view, len(s.rows),
 			func(i int) string { return s.rows[i].symbol.Name },
 			func(i int) { a.outlineRowContent(c, s.rows[i]) },
-		).Label(a.text.Tools.Structure).Grow(1).FillWidth().PadY(treelist.PadY)
+		).Scrollbars().Label(a.text.Tools.Structure).Grow(1).FillWidth().PadY(treelist.PadY)
 	})
 	if i, ok := s.view.Toggled(); ok && i < len(s.rows) {
 		key := s.rows[i].key

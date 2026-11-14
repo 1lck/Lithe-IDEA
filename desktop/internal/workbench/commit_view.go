@@ -150,7 +150,7 @@ func (a *App) drawCommitChange(c ui.C, p *project, change core.GitChange) {
 // drawChangeRows declares the rows of a change list in a scroll: the checkbox that stages or
 // unstages them all, with the list's title and size, over a row per change.
 func (a *App) drawChangeRows(c ui.C, title, size string, changes []core.GitChange, busy bool, toggleAll func(), row func(core.GitChange)) {
-	ui.Scroll(c).Grow(1).FillWidth().PadY(4).Children(func() {
+	ui.Scroll(c).Scrollbars().Grow(1).FillWidth().PadY(4).Children(func() {
 		a.drawChangeListHeader(c, title, size, changes, busy, toggleAll)
 		for _, change := range changes {
 			row(change)
@@ -521,7 +521,7 @@ func (a *App) drawCommitReview(c ui.C, p *project, target commitTarget) {
 			if session.SignOff {
 				ui.Text(c, t.SignOffNote)
 			}
-			ui.Scroll(c).FillWidth().MaxHeight(commitReviewHeight).Children(func() {
+			ui.Scroll(c).Scrollbars().FillWidth().MaxHeight(commitReviewHeight).Children(func() {
 				ui.Column(c).FillWidth().Gap(10).Children(func() {
 					for n, id := range session.OrderedIDs {
 						index, asked := questions[id]

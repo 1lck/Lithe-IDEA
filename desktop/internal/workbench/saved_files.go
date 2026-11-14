@@ -182,7 +182,7 @@ func (a *App) drawSavedFileList(c ui.C, f *savedFiles, open func(file savedPath)
 	if !f.list.Changed() && f.list.Selected() != f.selected {
 		f.list.Select(f.selected)
 	}
-	ui.List(c, &f.list, len(f.rows), func(row ui.ListRow) { a.drawSavedFileRow(f, row) }).Grow(1).FillWidth()
+	ui.List(c, &f.list, len(f.rows), func(row ui.ListRow) { a.drawSavedFileRow(f, row) }).Scrollbars().Grow(1).FillWidth()
 	if f.list.Changed() {
 		if i := f.list.Selected(); i >= 0 && i < len(f.rows) {
 			if r := f.rows[i]; r.file >= 0 {

@@ -277,7 +277,7 @@ func (a *App) drawVcsChangeList(c ui.C, p *project, t vcsTarget) ui.Box {
 		case len(state.rows) == 0:
 			a.gitEmpty(c, i18n.Shared(lang, "native.noLocalChanges"))
 		default:
-			ui.Scroll(c).Grow(1).FillWidth().PadY(4).Children(func() {
+			ui.Scroll(c).Scrollbars().Grow(1).FillWidth().PadY(4).Children(func() {
 				for _, row := range state.rows {
 					if row.change < 0 {
 						a.drawVcsSection(c, state, row.section)
@@ -503,7 +503,7 @@ func (a *App) drawVcsHistory(c ui.C, p *project, t vcsTarget) {
 	ui.Column(c.Part("vcs-history")).FillWidth().Height(view.split.Pos).Shrink(0).Clip().Children(func() {
 		ui.List(c, &view.revisions, len(state.history), func(row ui.ListRow) {
 			a.drawVcsRevisionRow(row, &state.history[row.Index], row.Index == state.revision)
-		}).Label(i18n.Shared(lang, "native.history")).Grow(1).FillWidth()
+		}).Scrollbars().Label(i18n.Shared(lang, "native.history")).Grow(1).FillWidth()
 		if view.revisions.Changed() {
 			if index := view.revisions.Selected(); index >= 0 && index < len(state.history) {
 				c.After(func() { state.revision = index })
@@ -524,7 +524,7 @@ func (a *App) drawVcsHistory(c ui.C, p *project, t vcsTarget) {
 		}
 	})
 	ui.Splitter(c, &view.split).Mins(vcsListMin, vcsListMin).Label(a.text.Panel.Resize)
-	ui.Scroll(c.Part("vcs-revision")).Grow(1).FillWidth().Children(func() {
+	ui.Scroll(c.Part("vcs-revision")).Scrollbars().Grow(1).FillWidth().Children(func() {
 		if state.revision < 0 || state.revision >= len(state.history) {
 			return
 		}

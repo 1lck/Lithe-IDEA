@@ -94,7 +94,7 @@ func (a *App) drawStashList(c ui.C, p *project) ui.Box {
 		if !s.stashes.Changed() && s.stashes.Selected() != selected {
 			s.stashes.Select(selected)
 		}
-		ui.List(c, &s.stashes, len(s.list), func(row ui.ListRow) { a.drawStashRow(p, row, row.Index == selected) }).Grow(1).FillWidth()
+		ui.List(c, &s.stashes, len(s.list), func(row ui.ListRow) { a.drawStashRow(p, row, row.Index == selected) }).Scrollbars().Grow(1).FillWidth()
 		if s.stashes.Changed() {
 			if i := s.stashes.Selected(); i >= 0 && i < len(s.list) {
 				oid := s.list[i].OID

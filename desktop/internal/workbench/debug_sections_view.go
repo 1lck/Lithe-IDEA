@@ -164,7 +164,7 @@ func (a *App) debugVariablesTree(c ui.C, p *project) {
 			return
 		}
 		a.debugVariableRow(c, node)
-	}).Grow(1).FillWidth()
+	}).Scrollbars().Grow(1).FillWidth()
 	a.debugVariableMenu(c, p)
 	if i, ok := v.tree.Toggled(); ok && i < len(rows) {
 		node := rows[i]
@@ -246,7 +246,7 @@ func (a *App) debugVariablesJSON(c ui.C, p *project) {
 	ui.List(c, &v.jsonList, len(lines), func(row ui.ListRow) {
 		row.Element.Height(debugRowHeight).PadX(10).Items(ui.Center)
 		ui.Text(row.C, lines[row.Index]).FontSize(12.5).Color(a.colors.Text).Mono()
-	}).Label(a.text.Debug.ViewJSON).FillWidth().Grow(1)
+	}).Scrollbars().Label(a.text.Debug.ViewJSON).FillWidth().Grow(1)
 }
 
 // debugVariableEdit declares the field that gives the selected variable a new
@@ -362,7 +362,7 @@ func (a *App) debugInstructions(c ui.C, p *project) {
 			ui.Text(row.C, debugFileName(instruction.SourcePath)+":"+strconv.FormatInt(*instruction.Line, 10)).Shrink(0).FontSize(11.5).Color(a.colors.Subtle)
 		}
 		a.debugInstructionMenu(row.C, row.Element, p, instruction)
-	}).Label(t.Disassembly).FillWidth().Grow(1)
+	}).Scrollbars().Label(t.Disassembly).FillWidth().Grow(1)
 }
 
 // debugInstructionGutter declares the breakpoint mark at the start of one instruction's row,

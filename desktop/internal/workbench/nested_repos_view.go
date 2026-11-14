@@ -23,7 +23,7 @@ func (a *App) drawRepositoryChanges(c ui.C, p *project) {
 		})
 		return
 	}
-	ui.Scroll(c).Grow(1).FillWidth().PadY(4).Children(func() {
+	ui.Scroll(c).Scrollbars().Grow(1).FillWidth().PadY(4).Children(func() {
 		a.drawChangeListHeader(c, t.ChangeList, t.Files(fileCount(all)), all, p.commit.busy, func() { a.stageAllAcrossRepositories(p) })
 		if len(changes) > 0 {
 			a.drawRepositoryGroup(c, p, ownRepositoryGroup(p), true)

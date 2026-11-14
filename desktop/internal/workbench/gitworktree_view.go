@@ -117,7 +117,7 @@ func (a *App) drawWorktreeList(c ui.C, p *project) ui.Box {
 		if cur := v.list.Selected(); !v.list.Changed() && cur != at {
 			v.list.Select(at)
 		}
-		ui.List(c, &v.list, len(shown), func(row ui.ListRow) { a.drawWorktreeRow(p, shown, row) }).Label(a.text.Git.Worktrees).Grow(1).FillWidth()
+		ui.List(c, &v.list, len(shown), func(row ui.ListRow) { a.drawWorktreeRow(p, shown, row) }).Scrollbars().Label(a.text.Git.Worktrees).Grow(1).FillWidth()
 		if v.list.Changed() {
 			if i := v.list.Selected(); i >= 0 && i < len(shown) {
 				selected := shown[i].Path
@@ -306,7 +306,7 @@ func (a *App) drawWorktreeDetails(c ui.C, p *project) ui.Box {
 func (a *App) drawWorktreeOverview(c ui.C, p *project, w core.GitWorktree) {
 	ws, t := &p.worktrees, &a.text.Worktrees
 	status := ws.statusOf(w)
-	ui.Scroll(c).Grow(1).FillWidth().Pad(shellContentPad).Gap(12).Children(func() {
+	ui.Scroll(c).Scrollbars().Grow(1).FillWidth().Pad(shellContentPad).Gap(12).Children(func() {
 		a.worktreeCard(c, t.BasicInformation, func() {
 			a.worktreeField(c, t.Path, w.Path)
 			a.worktreeField(c, t.Branch, a.worktreeBranchText(w))
@@ -574,7 +574,7 @@ func (a *App) drawWorktreeHistory(c ui.C, p *project, w core.GitWorktree) {
 	if more {
 		total++
 	}
-	area := ui.List(c, &v.commits, total, func(row ui.ListRow) { a.drawWorktreeCommit(p, commits, row) }).Label(t.History).Grow(1).FillWidth()
+	area := ui.List(c, &v.commits, total, func(row ui.ListRow) { a.drawWorktreeCommit(p, commits, row) }).Scrollbars().Label(t.History).Grow(1).FillWidth()
 	if s := area.ScrollState(); h.cursor != "" && s.Content > 0 && s.Offset+s.Viewport >= s.Content-worktreeLoadMoreMargin {
 		a.loadMoreWorktreeHistory(p)
 	}

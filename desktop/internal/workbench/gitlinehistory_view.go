@@ -79,5 +79,5 @@ func (a *App) drawLineHistoryRows(c ui.C, p *project, h *lineHistoryState) {
 		if row.Element.Clicked() {
 			c.After(func() { a.openLineHistoryCommit(p, commit) })
 		}
-	})
+	}).Scrollbars()
 }
