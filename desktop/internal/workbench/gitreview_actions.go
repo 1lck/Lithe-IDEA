@@ -10,13 +10,13 @@ import (
 )
 
 // openChange opens what a double click on a change of the Commit window shows: the Diff of a
-// file, or the listing of a summarized untracked directory.
-func (a *App) openChange(p *project, change core.GitChange) {
+// file, or the listing of a summarized untracked directory. surface is where the user asked.
+func (a *App) openChange(p *project, change core.GitChange, surface actionSurface) {
 	if strings.HasSuffix(change.Path, "/") {
 		a.openUntracked(p, change.Path)
 		return
 	}
-	a.openDiff(p, change)
+	a.openDiff(p, change, surface)
 }
 
 // changeMenuItems are the Git actions of one change of the Commit window. They apply to the
@@ -38,7 +38,7 @@ func (a *App) changeMenuItems(c ui.C, p *project, change core.GitChange) func(*u
 		deleted := strings.ContainsRune(change.Status, 'D')
 		if !folder && !deleted && menu.Item(i18n.Shared(lang, "desktop.files.open")).Clicked() {
 			c.After(func() {
-				a.performed("git.change.open", surfaceMenu)
+				a.performed("git.change.open", surfaceContextMenu)
 				a.openFile(p, full)
 			})
 		}
@@ -47,7 +47,7 @@ func (a *App) changeMenuItems(c ui.C, p *project, change core.GitChange) func(*u
 				c.After(func() { a.openUntracked(p, change.Path) })
 			}
 		} else if menu.Item(i18n.Shared(lang, "git.showDiff")).Clicked() {
-			c.After(func() { a.openDiff(p, change) })
+			c.After(func() { a.openDiff(p, change, surfaceContextMenu) })
 		}
 		tracked := !change.Untracked && change.Status != "??" && !strings.HasSuffix(change.Status, "A") && !strings.HasPrefix(change.Status, "A")
 		if !folder && tracked && menu.Item(i18n.Shared(lang, "git.blame.annotate")).Clicked() {
@@ -83,7 +83,7 @@ func (a *App) changeMenuItems(c ui.C, p *project, change core.GitChange) func(*u
 		menu.Separator()
 		if !deleted && menu.Item(revealLabel(lang)).Clicked() {
 			c.After(func() {
-				a.performed("git.change.reveal", surfaceMenu)
+				a.performed("git.change.reveal", surfaceContextMenu)
 				a.revealPath(full)
 			})
 		}

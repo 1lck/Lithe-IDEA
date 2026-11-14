@@ -151,7 +151,7 @@ func newExportFixture(t testing.TB) *exportFixture {
 		source: &exportSource{dir: logs, export: logstore.Export{
 			Files: []logstore.ExportFile{
 				{RelativePath: exportLogPath, Data: []byte("{\"event\":\"app.session.started\"}\n")},
-				{RelativePath: "collection-status.txt", Data: []byte("truncated=false dropped_events=0 write_failures=0 skipped_invalid_lines=0\n")},
+				{RelativePath: "collection-status.txt", Data: []byte("truncated=false dropped_events=0 write_failures=0 rejected_events=0 skipped_invalid_lines=0\n")},
 			},
 			Directory:      logs,
 			EstimatedBytes: 4096,
@@ -526,5 +526,46 @@ func TestBundlePathStaysInsideTheFolder(t *testing.T) {
 		if path, err := bundlePath(content, relative); err == nil {
 			t.Fatalf("bundlePath(%q) = %q, want an error", relative, path)
 		}
+	}
+}
+
+// TestFailuresAreLoggedByWhoStartedThem checks that a failure the user caused is an operation
+// failure and one of the window's own reads a background failure, each naming its operation.
+func TestFailuresAreLoggedByWhoStartedThem(t *testing.T) {
+	fx := newExportFixture(t)
+	fx.model.opts.Clipboard = func(string) error { return errors.New("pasteboard busy") }
+	fx.model.copyText("record")
+	fx.model.queryFailed(fx.model.generation, errors.New("index unreadable"))
+	// A cancelled read is the window's own doing and is not a failure.
+	fx.model.queryFailed(fx.model.generation, context.Canceled)
+
+	events := fx.source.emittedEvents()
+	if len(events) != 2 {
+		t.Fatalf("emitted %+v, want two failures", events)
+	}
+	if e := events[0]; e.event != operationFailed || e.level != core.LevelError || e.fields["operation"] != opCopy || e.fields["error"] != "pasteboard busy" {
+		t.Fatalf("copy failure = %+v", e)
+	}
+	if e := events[1]; e.event != backgroundFailed || e.level != core.LevelWarn || e.fields["operation"] != opQuery {
+		t.Fatalf("query failure = %+v", e)
+	}
+	if !fx.model.failed {
+		t.Fatal("the error line is not shown")
+	}
+}
+
+// TestStatusNamesTheLatestRejection checks that the status bar keeps the newest refused event.
+func TestStatusNamesTheLatestRejection(t *testing.T) {
+	fx := newExportFixture(t)
+	fx.model.setRejections(3, []logstore.Rejection{
+		{Event: "app.old.failed", Code: -32055, Count: 1},
+		{Event: "app.new.failed", Code: -32056, Count: 2},
+	})
+	if fx.model.rejected != 3 || fx.model.latestRejection.Event != "app.new.failed" || fx.model.latestRejection.Code != -32056 {
+		t.Fatalf("rejected = %d, latest = %+v", fx.model.rejected, fx.model.latestRejection)
+	}
+	fx.model.setRejections(0, nil)
+	if fx.model.rejected != 0 || fx.model.latestRejection != (logstore.Rejection{}) {
+		t.Fatalf("after clearing: rejected = %d, latest = %+v", fx.model.rejected, fx.model.latestRejection)
 	}
 }

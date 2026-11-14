@@ -150,7 +150,7 @@ func (a *App) requestProviderTokens(p *project, d *document, revision int) {
 				return
 			}
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_semantic_tokens", err))
+				a.backgroundFailed("plugin_semantic_tokens", err)
 				return
 			}
 			view.SetPreparedSemantic(prepared)
@@ -177,7 +177,7 @@ func (a *App) applySemanticTokens(pending *semanticPending, event core.BackendEv
 	}
 	tokens, err := core.PluginSemanticTokens(event)
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_semantic_tokens", err))
+		a.backgroundFailed("plugin_semantic_tokens", err)
 		return
 	}
 	view := d.view

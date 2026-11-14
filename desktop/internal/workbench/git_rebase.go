@@ -97,7 +97,7 @@ func (a *App) beginRebaseFromHere(p *project, base, subject string) {
 	root := p.logRepositoryRoot()
 	*r = rebaseState{open: true, gen: gen, busy: true, base: base, subject: subject, session: r.session, root: root}
 	kernel := a.kernel.(rebaseKernel)
-	a.performed("git.rebase.fromHere", surfaceMenu)
+	a.performed("git.rebase.fromHere", surfaceContextMenu)
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		preview, err := kernel.GitRebasePreview(ctx, root, base)
 		return func(a *App) {
@@ -108,7 +108,7 @@ func (a *App) beginRebaseFromHere(p *project, base, subject string) {
 			r.busy = false
 			if err != nil {
 				r.err = reviewReason(err)
-				a.gitOperationFailed("git_rebase_preview", err)
+				a.operationFailed("git_rebase_preview", err)
 				return
 			}
 			r.preview = preview
@@ -166,7 +166,7 @@ func (a *App) startRebase(p *project) {
 			r.busy = false
 			if err != nil {
 				r.err = reviewReason(err)
-				a.gitOperationFailed("git_rebase_start", err)
+				a.operationFailed("git_rebase_start", err)
 				return
 			}
 			r.open = false
@@ -204,7 +204,7 @@ func (a *App) controlRebaseWith(p *project, action, message string) {
 			r.busy = false
 			if err != nil {
 				a.notifyError(i18n.SharedFormat(a.language(), "desktop.rebase.controlFailed", map[string]string{"reason": reviewReason(err)}))
-				a.gitOperationFailed("git_rebase_control", err)
+				a.operationFailed("git_rebase_control", err)
 				a.loadRebaseSession(p)
 				return
 			}

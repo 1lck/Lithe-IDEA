@@ -45,10 +45,11 @@ func (a *App) duplicateTreeItem(p *project, n *treeNode) {
 		}
 	}
 	if err := copyTreeEntry(source, target); err != nil {
+		a.operationFailed("project_tree_duplicate", documentLogError(err))
 		a.notifyError(i18n.SharedFormat(language, "desktop.files.duplicateFailed", map[string]string{"reason": treeErrorReason(err)}))
 		return
 	}
-	a.performed("workspace.file.duplicate", surfaceMenu)
+	a.performed("workspace.file.duplicate", surfaceContextMenu)
 	rel, _ := filepath.Rel(p.root, dir)
 	a.listTree(p, path.Clean(filepath.ToSlash(rel)))
 	a.loadGit(p)

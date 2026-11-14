@@ -365,7 +365,7 @@ func (a *App) loadWorktrees(p *project) {
 			w.loading, w.loaded, w.err = false, true, err
 			if err != nil {
 				w.list = nil
-				a.gitOperationFailed("git_worktrees", err)
+				a.operationFailed("git_worktrees", err)
 				return
 			}
 			w.list = list
@@ -647,7 +647,7 @@ func (a *App) readWorktreeHistory(p *project, cursor string) {
 				} else {
 					h.failed = true
 				}
-				a.gitOperationFailed("git_worktree_history", err)
+				a.operationFailed("git_worktree_history", err)
 				return
 			}
 			h.loaded = true
@@ -656,7 +656,7 @@ func (a *App) readWorktreeHistory(p *project, cursor string) {
 			h.remotes, h.current, h.graph = remotes, current, graph
 			if graphErr != nil {
 				// The commits still show, without their lanes.
-				a.gitOperationFailed("git_worktree_graph", graphErr)
+				a.backgroundFailed("git_worktree_graph", graphErr)
 			}
 		}
 	})
@@ -700,7 +700,7 @@ func (a *App) runWorktreeWrite(p *project, operation string, removing bool,
 				}
 				w.dialog = worktreeDialogNone
 				a.notifyError(worktreeFailureText(&a.text.Worktrees, removing, err))
-				a.gitOperationFailed(operation, err)
+				a.operationFailed(operation, err)
 				if worktreeErrorCode(err) == core.CodeGitWorktreeNotRegistered {
 					a.loadWorktrees(p)
 				}
@@ -787,7 +787,7 @@ func (a *App) revealWorktree(path string) {
 		err := app.RevealPath(path)
 		return func(a *App) {
 			if err != nil {
-				a.gitOperationFailed("git_worktree_reveal", err)
+				a.operationFailed("git_worktree_reveal", err)
 				a.notifyError(a.text.Worktrees.Failed(err.Error()))
 			}
 		}
@@ -798,6 +798,7 @@ func (a *App) revealWorktree(path string) {
 func (a *App) copyWorktreePath(path string) {
 	a.performed("git.worktree.copyPath", surfaceButton)
 	if err := app.SetClipboardText(path); err != nil {
+		a.operationFailed("clipboard_copy", err)
 		a.notifyError(a.text.Worktrees.Failed(err.Error()))
 	}
 }
@@ -840,7 +841,7 @@ func (a *App) beginCreateWorktree(p *project) {
 			}
 			cr.refs, cr.refsErr, cr.refsLoaded = refs, err, true
 			if err != nil {
-				a.gitOperationFailed("git_worktree_references", err)
+				a.operationFailed("git_worktree_references", err)
 			}
 			a.syncWorktreeCreation(p)
 		}
@@ -863,7 +864,7 @@ func (a *App) syncWorktreeCreation(p *project) {
 func (a *App) previewWorktreeCreation(p *project, require bool) bool {
 	w := &p.worktrees
 	cr := &w.create
-	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
+	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), kernelCallTimeout)
 	defer cancel()
 	result, err := a.kernel.GitWorktreeCreationPreview(ctx, core.GitWorktreeCreationInput{
 		Root: p.git.repositoryRoot(p.root), Mode: cr.mode, Kind: cr.kind, Reference: cr.reference,
@@ -872,7 +873,7 @@ func (a *App) previewWorktreeCreation(p *project, require bool) bool {
 		References: cr.refs.References, CheckedOutBranches: checkedOutBranches(w.list),
 	})
 	if err != nil {
-		a.gitOperationFailed("git_worktree_creation_preview", err)
+		a.operationFailed("git_worktree_creation_preview", err)
 		cr.result.Ready = false
 		cr.key = cr.inputs(w.gen)
 		return false

@@ -589,6 +589,57 @@ func TestDiagnosticsGateDebugEventsAndExpire(t *testing.T) {
 	}
 }
 
+// TestDiagnosticsWatchersFollowTheGate checks that a watcher learns the current state as it
+// joins and then every change of the switch, including expiry and the store stopping, that a
+// repeated choice is not told again, and that a watcher that left is not told any more.
+func TestDiagnosticsWatchersFollowTheGate(t *testing.T) {
+	s, clock, _ := openStore(t, nil)
+	var mu sync.Mutex
+	var seen, late []bool
+	record := func(into *[]bool) func(bool) {
+		return func(on bool) {
+			mu.Lock()
+			*into = append(*into, on)
+			mu.Unlock()
+		}
+	}
+	told := func(from *[]bool) []bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(*from)
+	}
+
+	stop := s.WatchDiagnostics(record(&seen))
+	if got := told(&seen); !slices.Equal(got, []bool{false}) {
+		t.Fatalf("a watcher joining while diagnostics are off was told %v, want [false]", got)
+	}
+	s.ConfigureDiagnostics(true)
+	s.ConfigureDiagnostics(true)
+	if got := told(&seen); !slices.Equal(got, []bool{false, true}) {
+		t.Fatalf("turning diagnostics on twice told %v, want one true", got)
+	}
+	stopLate := s.WatchDiagnostics(record(&late))
+	if got := told(&late); !slices.Equal(got, []bool{true}) {
+		t.Fatalf("a watcher joining while diagnostics are on was told %v, want [true]", got)
+	}
+	stopLate()
+
+	clock.Advance(16 * time.Minute)
+	flush(t, s)
+	if got := told(&seen); !slices.Equal(got, []bool{false, true, false}) {
+		t.Fatalf("the window expiring told %v, want a final false", got)
+	}
+	s.ConfigureDiagnostics(true)
+	s.Close()
+	if got := told(&seen); !slices.Equal(got, []bool{false, true, false, true, false}) {
+		t.Fatalf("closing the store with diagnostics on told %v, want a final false", got)
+	}
+	if got := told(&late); !slices.Equal(got, []bool{true}) {
+		t.Fatalf("a watcher that left was told %v after leaving", got)
+	}
+	stop()
+}
+
 func TestStartupRetentionRemovesExpiredSessionsOnly(t *testing.T) {
 	dir := t.TempDir()
 	const stale, recent = "2026-09-01T00-00-00_deadbeef", "2026-11-01T00-00-00_cafebabe"
@@ -643,6 +694,57 @@ func TestClearLogsRemovesFilesAndWritingContinues(t *testing.T) {
 	}
 	if got := fieldValues(window(t, s, Query{Session: "current"}).Records, "app.action.performed", "action"); !slices.Equal(got, []string{"after_clear"}) {
 		t.Fatalf("actions after clearing = %v", got)
+	}
+}
+
+// A plugin's ${logDir} is a directory of the current session, so the retention plan counts
+// what the plugin writes there and Clear Logs removes it.
+func TestPluginFilesDirectoryIsASessionDirectory(t *testing.T) {
+	s, _, dir := openStore(t, nil)
+	ctx := context.Background()
+	got, err := s.PluginFilesDirectory(ctx, "io.example.plugin")
+	if err != nil {
+		t.Fatalf("PluginFilesDirectory: %v", err)
+	}
+	want := filepath.Join(dir, filepath.FromSlash(s.SessionPath()), "plugins", "io.example.plugin", "files")
+	if got != want {
+		t.Fatalf("PluginFilesDirectory = %q, want %q", got, want)
+	}
+	info, err := os.Stat(got)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("the directory was not made: %v", err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o700 {
+		t.Fatalf("the directory has mode %v, want 0700", info.Mode().Perm())
+	}
+	plugin := filepath.Join(got, "server.log")
+	if err := os.WriteFile(plugin, []byte("plugin output\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if files, err := inventory(dir); err != nil || !slices.ContainsFunc(files, func(f diskFile) bool { return f.path == plugin }) {
+		t.Fatalf("the inventory does not list the plugin's file: %v", err)
+	}
+	if err := s.ClearLogs(); err != nil {
+		t.Fatalf("ClearLogs: %v", err)
+	}
+	if _, err := os.Lstat(plugin); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("Clear Logs left the plugin's file: %v", err)
+	}
+	if again, err := s.PluginFilesDirectory(ctx, "io.example.plugin"); err != nil || again != got {
+		t.Fatalf("PluginFilesDirectory after clearing = %q, %v", again, err)
+	}
+
+	if _, err := s.PluginFilesDirectory(ctx, "../escape"); err == nil {
+		t.Fatal("an id that is not a plugin identity was given a directory")
+	}
+	if runtime.GOOS != "windows" {
+		plugins := filepath.Join(dir, filepath.FromSlash(s.SessionPath()), "plugins")
+		if err := os.Symlink(t.TempDir(), filepath.Join(plugins, "io.example.linked")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.PluginFilesDirectory(ctx, "io.example.linked"); !errors.Is(err, errUnsafePath) {
+			t.Fatalf("PluginFilesDirectory through a symbolic link = %v, want errUnsafePath", err)
+		}
 	}
 }
 

@@ -77,7 +77,7 @@ func (a *App) failChildDebug(p *project, child *debugSession, err error) {
 	if a.project != p || !p.debug.hasSession(child) {
 		return
 	}
-	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("debug", err))
+	a.operationFailed("debug", err)
 	a.endDebugSession(p, child)
 	p.debug.failure = message
 	if p.debug.activeSession() != nil {

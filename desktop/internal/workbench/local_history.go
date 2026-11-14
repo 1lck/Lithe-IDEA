@@ -118,7 +118,7 @@ func (a *App) localHistoryJob(p *project, work func(ctx context.Context, kernel 
 		err := work(ctx, kernel, root, storage, policy)
 		return func(a *App) {
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("local_history_record", err))
+				a.backgroundFailed("local_history_record", err)
 			}
 		}
 	})
@@ -219,7 +219,6 @@ func (a *App) openLocalHistory(p *project, path string) {
 			}
 		}
 	})
-	a.performed("localHistory.open", surfaceMenu)
 }
 
 // selectLocalHistory selects one snapshot and reads its text for the preview.
@@ -271,6 +270,7 @@ func (a *App) restoreLocalHistory(p *project) {
 		data, _ := d.view.Text()
 		a.recordLocalHistory(p, path, "restore", historyTexts{before: append([]byte(nil), data...)})
 		if err := d.view.ApplyEdits([]editorview.TextEdit{{Range: editorview.Range{Start: 0, End: len(data)}, Text: text}}); err != nil {
+			a.operationFailed("local_history_restore", err)
 			a.notifyError(a.text.History.Failed(err.Error()))
 			return
 		}
@@ -410,7 +410,7 @@ func (a *App) compareLocalHistory(p *project, previous bool) {
 				h.busy = false
 			}
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("local_history_compare", err))
+				a.operationFailed("local_history_compare", err)
 				if same {
 					h.failure = a.text.History.Failed(err.Error())
 				}

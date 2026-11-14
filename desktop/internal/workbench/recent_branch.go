@@ -54,7 +54,7 @@ func (a *App) collectWelcomeBranches(c ui.C) {
 	if read, err, ok := w.branchesFx.take(); ok && err == nil {
 		w.branches = read.branches
 		for _, failure := range read.failures {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_recent_branch", documentLogError(failure)))
+			a.backgroundFailed("workspace_recent_branch", documentLogError(failure))
 		}
 	}
 }

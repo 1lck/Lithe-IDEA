@@ -95,7 +95,7 @@ func (a *App) pluginPage(it item, p *project) *pluginPage {
 	a.pluginPages[it.id] = page
 	if err := a.openPluginPage(page); err != nil {
 		page.failure = err.Error()
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_web_open", err))
+		a.operationFailed("plugin_web_open", err)
 	}
 	return page
 }
@@ -106,7 +106,7 @@ func (a *App) openPluginPage(page *pluginPage) error {
 		return errors.ErrUnsupported
 	}
 	host := &pluginPageHost{a: a, plugins: a.plugins, tool: page.tool, project: page.project, language: a.language()}
-	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
+	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), kernelCallTimeout)
 	defer cancel()
 	opened, err := pluginweb.Open(ctx, pluginweb.Config{
 		Kernel:  kernel,
@@ -119,7 +119,7 @@ func (a *App) openPluginPage(page *pluginPage) error {
 		Post: func(fn func()) { a.post(func(*App) { fn() }) },
 		Log: func(stage string, err error) {
 			a.post(func(a *App) {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_web_"+stage, err))
+				a.backgroundFailed("plugin_web_"+stage, err)
 			})
 		},
 	})

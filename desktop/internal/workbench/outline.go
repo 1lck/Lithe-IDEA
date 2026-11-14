@@ -233,7 +233,7 @@ func (a *App) applyMarkdownOutline(request *outlineMarkdownRequest, symbols []co
 	}
 	s.outlining = nil
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("markdown_outline", err))
+		a.backgroundFailed("markdown_outline", err)
 		s.failed = true
 		return
 	}
@@ -266,7 +266,7 @@ func (a *App) applyOutline(pending *semanticPending, event core.BackendEvent, fa
 	}
 	symbols, err := core.PluginDocumentSymbols(event)
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_document_symbols", err))
+		a.backgroundFailed("plugin_document_symbols", err)
 		s.failed = true
 		return
 	}

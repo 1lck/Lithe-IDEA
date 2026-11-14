@@ -134,12 +134,13 @@ func (a *App) startGitHubSignIn() {
 	if g.cancel != nil {
 		g.cancel()
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	// The sign-in's requests run under its own context, which carries the action.
+	a.performed("github.signIn", surfaceButton)
+	ctx, cancel := context.WithCancel(a.operationContext(context.Background()))
 	g.gen++
 	gen := g.gen
 	g.cancel, g.phase, g.err, g.code = cancel, githubStarting, "", githubapi.DeviceCode{}
 	g.mu.Unlock()
-	a.performed("github.signIn", surfaceButton)
 	started := time.Now()
 	a.background(nil, 0, func(context.Context) func(*App) {
 		startCtx, stop := context.WithTimeout(ctx, githubAccountTimeout)
@@ -233,6 +234,7 @@ func (a *App) signOutGitHub() {
 		err := credentials.Default().Delete(ctx, githubCredentialPlugin, githubCredentialKey)
 		return func(a *App) {
 			if err != nil {
+				a.operationFailed("github_sign_out", err)
 				a.notifyError(i18n.SharedFormat(a.language(), "desktop.github.signOutFailed", map[string]string{"reason": err.Error()}))
 			}
 		}

@@ -35,11 +35,11 @@ type recoveryWriter struct {
 }
 
 func (a *App) initRecovery() {
-	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
+	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), kernelCallTimeout)
 	defer cancel()
 	limits, err := core.NewClient().DecideEditorRecovery(ctx, core.EditorRecoveryRequest{})
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_recovery", err))
+		a.operationFailed("editor_recovery", err)
 		return
 	}
 	a.recovery = &recoveryWriter{pending: map[string]checkpoint{}, store: draftstore.New(a.store.Dir(), limits), limit: limits.MaxDocuments}
@@ -141,7 +141,7 @@ func (a *App) enqueueCheckpoint(job checkpoint) {
 	})
 }
 func (a *App) recoveryFailed(err error) {
-	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_recovery", documentLogError(err)))
+	a.operationFailed("editor_recovery", documentLogError(err))
 	a.notifyError(i18n.Shared(a.language(), "desktop.drafts.failed"))
 }
 
@@ -209,7 +209,7 @@ func (a *App) applyRecoveredDocument(p *project, d *document, restored recovered
 	if restored.conflict {
 		message = i18n.Shared(a.language(), "desktop.drafts.conflict")
 	}
-	a.performed("editor.recovery.restored", surfaceMenu)
+	a.emit(core.LevelInfo, "editor.recovery.applied", map[string]any{"conflict": restored.conflict})
 	a.notifyInfo(message)
 }
 func (a *App) restoreCheckpoints(p *project) {

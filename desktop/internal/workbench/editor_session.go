@@ -80,7 +80,7 @@ type editorRestoreItem struct {
 func (a *App) saveEditorSession(p *project) {
 	all := map[string]savedEditorSession{}
 	if _, err := a.store.Load(editorSessionFile, &all); err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_session_load", documentLogError(err)))
+		a.backgroundFailed("editor_session_load", documentLogError(err))
 		all = map[string]savedEditorSession{}
 	}
 	if session, ok := captureEditorSession(p); ok {
@@ -100,7 +100,7 @@ func (a *App) saveEditorSession(p *project) {
 		}
 	}
 	if err := a.store.Save(editorSessionFile, all); err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_session_save", documentLogError(err)))
+		a.backgroundFailed("editor_session_save", documentLogError(err))
 	}
 }
 
@@ -175,7 +175,7 @@ func (a *App) restoreEditorSession(p *project) {
 	all := map[string]savedEditorSession{}
 	if found, err := a.store.Load(editorSessionFile, &all); err != nil || !found {
 		if err != nil {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_session_load", documentLogError(err)))
+			a.backgroundFailed("editor_session_load", documentLogError(err))
 		}
 		return
 	}

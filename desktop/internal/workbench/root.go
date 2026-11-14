@@ -108,7 +108,7 @@ func (a *App) sessionConfig() app.Config {
 		paint(canvas, size)
 		a.endPaint()
 	}
-	return config
+	return a.operating(config)
 }
 
 // beginPaint settles the look of the paint about to be declared and forgets what the last
@@ -150,6 +150,7 @@ func (a *App) page(c ui.C) {
 		a.noteEditorFocus(c.Canvas().Focused())
 		a.overlays(c)
 		ui.Toasts(c, &a.overlay.toaster)
+		a.notificationActed(c)
 	})
 }
 
@@ -281,9 +282,8 @@ func (a *App) runShortcut(id string, view *editorview.View, term *terminal) {
 	}
 	for _, command := range a.commands() {
 		if command.id == id {
-			if command.enabled && command.run != nil {
-				a.performed("command."+id, surfaceShortcut)
-				command.run()
+			if command.runnable() {
+				a.startCommand(command, surfaceShortcut)
 			}
 			return
 		}

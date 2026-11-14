@@ -605,7 +605,7 @@ func (a *App) followDocumentLink(p *project, path, destination string, anchor fu
 		target, err := kernel.ResolveMarkdownReference(ctx, path, root, destination, core.MarkdownLink)
 		if err != nil {
 			return func(a *App) {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("preview_link", err))
+				a.operationFailed("preview_link", err)
 			}
 		}
 		if target.Kind == "file" {
@@ -617,7 +617,7 @@ func (a *App) followDocumentLink(p *project, path, destination string, anchor fu
 			switch target.Kind {
 			case "external":
 				if err := openURL(target.URL); err != nil {
-					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("preview_link", err))
+					a.operationFailed("preview_link", err)
 				}
 			case "anchor":
 				if anchor != nil {

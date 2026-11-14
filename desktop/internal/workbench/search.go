@@ -29,6 +29,16 @@ const (
 	searchUpdateLimit  = 512
 )
 
+// The two ways a directory watch stops keeping the project tree or a search index up to date
+// change by change: the watcher fell behind and dropped events, or more changes arrived than
+// searchEventLimit lets the window apply one by one. Either way the window rebuilds from a
+// fresh listing without telling the user, so the log records it as background work it fell
+// back from (backgroundFailed).
+var (
+	errWatchEventsLost = errors.New("directory watch lost events")
+	errWatchEventLimit = errors.New("directory watch changes exceeded the incremental update limit")
+)
+
 type searchQuery struct {
 	text, mask                   string
 	matchCase, wholeWords, regex bool
@@ -127,7 +137,7 @@ func (a *App) drainProjectSearchWatch(p *project, slot *documentWatch) {
 	if ready {
 		s.watchReady, s.watchAvailable, s.fullResync = true, watch != nil, true
 		if err != nil && s.watchAttached {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_search_watch", err))
+			a.operationFailed("workspace_search_watch", err)
 			a.notifyError(i18n.Shared(a.language(), "desktop.search.watchUnavailable"))
 		}
 	}
@@ -140,7 +150,7 @@ func (a *App) drainProjectSearchWatch(p *project, slot *documentWatch) {
 			if !s.watchAttached && !p.everywhere.watchAttached && p.tree.recursiveWatch {
 				operation = "project_tree_watch"
 			}
-			a.emit(core.LevelWarn, "app.notification.operation_rejected", map[string]any{"operation": operation, "reason": "watch_events_lost"})
+			a.backgroundFailed(operation, errWatchEventsLost)
 			// The root may have been replaced, so install a fresh watch before
 			// rebuilding. The new watch covers changes during the rebuild.
 			slot.close()
@@ -151,7 +161,7 @@ func (a *App) drainProjectSearchWatch(p *project, slot *documentWatch) {
 			changed = true
 		} else if len(events.Names) > 0 {
 			if len(s.pending)+len(events.Names) > searchEventLimit {
-				a.emit(core.LevelWarn, "app.notification.operation_rejected", map[string]any{"operation": "workspace_search_incremental_update", "reason": "event_limit_exceeded"})
+				a.backgroundFailed("workspace_search_incremental_update", errWatchEventLimit)
 				s.pending = nil
 				s.fullResync = true
 			} else if !s.fullResync {
@@ -204,7 +214,7 @@ func (a *App) updateProjectSearch(p *project, query searchQuery) {
 	if !wasAttached && s.watchReady && !s.watchAvailable && s.watch != nil {
 		_, _, err := s.watch.state()
 		if err != nil {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_search_watch", err))
+			a.operationFailed("workspace_search_watch", err)
 		}
 		a.notifyError(i18n.Shared(a.language(), "desktop.search.watchUnavailable"))
 	}
@@ -313,7 +323,7 @@ func (a *App) releaseProjectSearch(p *project) {
 			err = kernel.InvalidateWorkspaceSearch(ctx, root)
 		}
 		if err != nil && !errors.Is(err, context.Canceled) && sink != nil {
-			sink.Emit(operationFailedLevel, operationFailedEvent, "", operationFailedFields("workspace_search_cleanup", err))
+			sink.Emit(backgroundFailedLevel, backgroundFailedEvent, "", operationFailedFields("workspace_search_cleanup", err))
 		}
 		return nil
 	})
@@ -327,7 +337,7 @@ func (a *App) finishProjectSearch(p *project, generation uint64, matches []core.
 	}
 	if generation != s.generation {
 		if err != nil && !errors.Is(err, context.Canceled) {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_search", err))
+			a.backgroundFailed("workspace_search", err)
 		}
 		if s.watchReady && strings.TrimSpace(s.want.text) != "" {
 			a.runProjectSearch(p)
@@ -340,7 +350,7 @@ func (a *App) finishProjectSearch(p *project, generation uint64, matches []core.
 			return
 		}
 		s.failed = true
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_search", err))
+		a.operationFailed("workspace_search", err)
 		return
 	}
 	s.matches = matches
@@ -350,13 +360,13 @@ func (a *App) openSearchResult(p *project, result core.WorkspaceSearchMatch) {
 	// Defend the adapter boundary even though Core returns workspace-relative paths.
 	relative := filepath.FromSlash(result.Path)
 	if relative == "" || filepath.IsAbs(relative) {
-		a.emit(core.LevelWarn, "app.notification.operation_rejected", map[string]any{"operation": "workspace_search", "reason": "invalid_result_path"})
+		a.operationRejected("workspace_search", "invalid_result_path")
 		return
 	}
 	path := filepath.Join(p.root, relative)
 	rel, err := filepath.Rel(p.root, path)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		a.emit(core.LevelWarn, "app.notification.operation_rejected", map[string]any{"operation": "workspace_search", "reason": "invalid_result_path"})
+		a.operationRejected("workspace_search", "invalid_result_path")
 		return
 	}
 	if result.Line != nil && len(result.ContentMatchRanges) > 0 {

@@ -144,7 +144,7 @@ func (a *App) drawBranchActions(c ui.C, p *project, current core.GitReference, q
 		if a.drawBranchAction(c, "fetch", icons.Download, g.Fetch, busy) {
 			c.After(func() {
 				a.closeBranches()
-				a.fetchAllAt(p, root)
+				a.fetchAllAt(p, root, surfaceButton)
 			})
 		}
 	}
@@ -153,7 +153,7 @@ func (a *App) drawBranchActions(c ui.C, p *project, current core.GitReference, q
 		if a.drawBranchAction(c, "update", icons.ArrowDownLeft, g.UpdateBranch, busy || !onBranch) {
 			c.After(func() {
 				a.closeBranches()
-				a.updateCurrentBranchAt(p, root, current.ShortName)
+				a.updateCurrentBranchAt(p, root, current.ShortName, surfaceButton)
 			})
 		}
 	}
@@ -161,6 +161,7 @@ func (a *App) drawBranchActions(c ui.C, p *project, current core.GitReference, q
 		shown++
 		if a.drawBranchAction(c, "commit", icons.GitCommitHorizontal, commit, false) {
 			c.After(func() {
+				a.performed("git.showChanges", surfaceButton)
 				a.closeBranches()
 				a.layout.commitTab = commitTabChanges
 				a.showChanges()
@@ -172,7 +173,7 @@ func (a *App) drawBranchActions(c ui.C, p *project, current core.GitReference, q
 		if a.drawBranchAction(c, "push", icons.ArrowUp, push, busy || !onBranch) {
 			c.After(func() {
 				a.closeBranches()
-				a.openPushOf(p, root, core.GitReference{})
+				a.openPushOf(p, root, core.GitReference{}, surfaceButton)
 			})
 		}
 	}
@@ -453,7 +454,7 @@ func (a *App) drawBranchRowMenu(c ui.C, menu *ui.MenuItems, p *project, r core.G
 	if !current {
 		menu.Separator()
 		if menu.Item(t.Checkout).Disabled(busy).Clicked() {
-			c.After(func() { a.checkoutBranch(p, r) })
+			c.After(func() { a.checkoutBranch(p, r, surfaceMenu) })
 		}
 	}
 	if r.Kind == "local" {
@@ -462,13 +463,13 @@ func (a *App) drawBranchRowMenu(c ui.C, menu *ui.MenuItems, p *project, r core.G
 		if menu.Item(i18n.Shared(lang, "git.log.updateBranch")).Disabled(busy || !current && r.UpstreamShortName == "").Clicked() {
 			c.After(func() {
 				a.closeBranches()
-				a.updateBranchAt(p, root, r)
+				a.updateBranchAt(p, root, r, surfaceMenu)
 			})
 		}
 		if menu.Item(i18n.Shared(lang, "git.contextMenu.push")).Disabled(busy).Clicked() {
 			c.After(func() {
 				a.closeBranches()
-				a.openPushOf(p, root, r)
+				a.openPushOf(p, root, r, surfaceMenu)
 			})
 		}
 		if menu.Item(t.Rename).Disabled(busy).Clicked() {

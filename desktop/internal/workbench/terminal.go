@@ -2,7 +2,6 @@ package workbench
 
 import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/nativeterm"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/termview"
 	"github.com/vivaui/viva/gfx"
@@ -31,7 +30,7 @@ func (a *App) terminalFailed(f termview.Failure) {
 	}
 	fields := map[string]any{}
 	if f.Err != nil {
-		fields = logwindow.ErrorFields(f.Err)
+		fields = core.LogErrorFields(f.Err)
 	}
 	if f.Stage != "" {
 		fields["stage"] = f.Stage

@@ -122,7 +122,7 @@ func (a *App) loadBuildDependencies(p *project, instance *buildInstance, project
 			}
 			deps.loading = false
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("build_dependencies", err))
+				a.operationFailed("build_dependencies", err)
 				deps.failed = err.Error()
 				return
 			}
@@ -131,11 +131,23 @@ func (a *App) loadBuildDependencies(p *project, instance *buildInstance, project
 	})
 }
 
-// buildDependencyTree plans, runs and decodes one dependency request.
+// buildDependencyTree plans, runs and decodes one dependency request. A command plan has no
+// plugin process to log it, so the host records it as the plugin's lithe/build/dependencies
+// operation, at the stages buildCommandStage describes; a provider request is the plugin's own
+// to log, and so is a provider system's failure before its plan says it is a command.
 func (a *App) buildDependencyTree(ctx context.Context, p *project, instance buildInstance, kernel buildDependencyKernel, selection *core.BuildSelection, refresh bool) (core.BuildDependencyTree, error) {
+	attempt := core.StartPluginAttempt(instance.PluginID, core.OperationBuildDependencies, core.OriginOf(ctx).Operation)
+	defer attempt.Abandon()
+	fail := func(stage core.PluginStage, err error) (core.BuildDependencyTree, error) {
+		a.plugins.EndAttempt(ctx, attempt, stage, err)
+		return core.BuildDependencyTree{}, err
+	}
 	execution, err := a.resolveBuildExecutable(ctx, p, instance, a.text.Build)
 	if err != nil {
-		return core.BuildDependencyTree{}, err
+		if instance.System.Provider {
+			return core.BuildDependencyTree{}, err
+		}
+		return fail(core.StageResolve, err)
 	}
 	// The package directory expands ${pluginDir} in a dependency command.
 	request := core.BuildPlanRequest{Root: instance.Root, Options: instance.Options, PluginDirectory: instance.PackageDirectory, WorkspaceRoot: p.root, Project: selection}
@@ -153,7 +165,7 @@ func (a *App) buildDependencyTree(ctx context.Context, p *project, instance buil
 			return core.BuildDependencyTree{}, err
 		}
 		if plan.Provider == nil {
-			return a.commandDependencies(ctx, p, instance, kernel, plan, execution, decode, "")
+			return a.commandDependencies(ctx, p, instance, kernel, attempt, plan, execution, decode, "")
 		}
 		client, err := a.buildProvider(ctx, p, instance)
 		if err != nil {
@@ -173,11 +185,11 @@ func (a *App) buildDependencyTree(ctx context.Context, p *project, instance buil
 	// A command may write its tree to a file the host allocates in the plugin's state.
 	state := buildStateDirectory(a.plugins.Root, p.root, instance)
 	if err := os.MkdirAll(state, 0o700); err != nil {
-		return core.BuildDependencyTree{}, err
+		return fail(core.StagePlan, err)
 	}
 	file, err := os.CreateTemp(state, "dependencies-*.json")
 	if err != nil {
-		return core.BuildDependencyTree{}, err
+		return fail(core.StagePlan, err)
 	}
 	outputFile := file.Name()
 	_ = file.Close()
@@ -186,16 +198,17 @@ func (a *App) buildDependencyTree(ctx context.Context, p *project, instance buil
 	request.OutputFile = outputFile
 	plan, err := kernel.PlanBuildDependencies(ctx, instance.Manifest, instance.BuildSystemID, request)
 	if err != nil {
-		return core.BuildDependencyTree{}, err
+		return fail(core.StagePlan, err)
 	}
 	if plan.Provider != nil {
-		return core.BuildDependencyTree{}, errors.New("the build system answered with a provider request")
+		return fail(core.StagePlan, errors.New("the build system answered with a provider request"))
 	}
-	return a.commandDependencies(ctx, p, instance, kernel, plan, execution, decode, outputFile)
+	return a.commandDependencies(ctx, p, instance, kernel, attempt, plan, execution, decode, outputFile)
 }
 
-// commandDependencies runs a command plan and decodes what it printed or wrote.
-func (a *App) commandDependencies(ctx context.Context, p *project, instance buildInstance, kernel buildDependencyKernel, plan core.BuildPlan, execution buildExecution, decode core.BuildDecodeDependenciesRequest, outputFile string) (core.BuildDependencyTree, error) {
+// commandDependencies runs a command plan and decodes what it printed or wrote, and ends the
+// command's attempt with the result.
+func (a *App) commandDependencies(ctx context.Context, p *project, instance buildInstance, kernel buildDependencyKernel, attempt *core.PluginAttempt, plan core.BuildPlan, execution buildExecution, decode core.BuildDecodeDependenciesRequest, outputFile string) (core.BuildDependencyTree, error) {
 	workingDirectory := filepath.Join(p.root, filepath.FromSlash(plan.WorkingDirectory))
 	output, runErr := captureBuildProcess(ctx, execution.Executable, plan.Arguments, workingDirectory, applyToolchainSelection(plan.Environment, execution.selection()))
 	if plan.Output == "outputFile" && outputFile != "" {
@@ -205,8 +218,11 @@ func (a *App) commandDependencies(ctx context.Context, p *project, instance buil
 	}
 	tree, err := kernel.DecodeBuildDependencies(ctx, instance.Manifest, instance.BuildSystemID, decode)
 	if err != nil {
-		return core.BuildDependencyTree{}, errors.Join(runErr, err)
+		err = errors.Join(runErr, err)
+		a.plugins.EndAttempt(ctx, attempt, buildCommandStage(runErr), err)
+		return core.BuildDependencyTree{}, err
 	}
+	a.plugins.EndAttempt(ctx, attempt, buildCommandStage(runErr), runErr)
 	return tree, runErr
 }
 

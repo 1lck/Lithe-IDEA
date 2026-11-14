@@ -108,14 +108,14 @@ func (a *App) syncNavigation(p *project) {
 			v := &a.navigation
 			if !v.open || v.project != p || v.generation != gen || v.input.Text() != value {
 				if err != nil && !errors.Is(err, context.Canceled) {
-					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_parse_navigation", err))
+					a.backgroundFailed("editor_parse_navigation", err)
 				}
 				// log-exempt: 用户取消：旧输入的结果已被替换或对话框已关闭。
 				return
 			}
 			v.cancel = nil
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_parse_navigation", err))
+				a.operationFailed("editor_parse_navigation", err)
 				return
 			}
 			v.target = target

@@ -74,7 +74,7 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 		if !n.dir {
 			if menu.Item(i18n.Shared(language, "desktop.files.open")).Clicked() {
 				c.After(func() {
-					a.performed("workspace.tree.open", surfaceMenu)
+					a.performed("workspace.tree.open", surfaceContextMenu)
 					a.activateTreeNode(p, n)
 				})
 			}
@@ -91,10 +91,7 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 				}
 				opened = true
 				if menu.Item(i18n.Shared(language, "desktop.files.showDiff")).Clicked() {
-					c.After(func() {
-						a.performed("git.diff.open", surfaceMenu)
-						a.openDiff(p, change)
-					})
+					c.After(func() { a.openDiff(p, change, surfaceContextMenu) })
 				}
 				if change.CanToggleStaging {
 					stage := !change.Staged || change.Worktree
@@ -104,13 +101,13 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 					}
 					if menu.Item(item).Clicked() {
 						c.After(func() {
-							a.performed("git.contextMenu.stage", surfaceMenu)
+							a.performed("git.contextMenu.stage", surfaceContextMenu)
 							a.stageChange(p, change)
 						})
 					}
 					if stage && menu.Item(i18n.Shared(language, "desktop.files.stageAndCommit")).Clicked() {
 						c.After(func() {
-							a.performed("git.contextMenu.stageAndCommit", surfaceMenu)
+							a.performed("git.contextMenu.stageAndCommit", surfaceContextMenu)
 							a.stageChangeAndShowCommit(p, change)
 						})
 					}
@@ -122,7 +119,7 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 			if _, ok := a.kernel.(localHistoryKernel); ok && menu.Item(i18n.Shared(language, "desktop.history.show")).Clicked() {
 				file := filepath.Join(p.root, filepath.FromSlash(n.path))
 				c.After(func() {
-					a.performed("localHistory.show", surfaceMenu)
+					a.performed("localHistory.show", surfaceContextMenu)
 					a.openLocalHistory(p, file)
 				})
 			}
@@ -134,13 +131,13 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 		// Find in Files searches the whole project from any row, as the IDE's entry does.
 		if menu.Item(i18n.Shared(language, "native.findInFiles")).Clicked() {
 			c.After(func() {
-				a.performed("workspace.search.open", surfaceMenu)
+				a.performed("workspace.search.open", surfaceContextMenu)
 				a.openFindInFiles(p, false)
 			})
 		}
 		if menu.Item(i18n.Shared(language, "desktop.command.replaceInFiles")).Clicked() {
 			c.After(func() {
-				a.performed("workspace.replace.open", surfaceMenu)
+				a.performed("workspace.replace.open", surfaceContextMenu)
 				a.openFindInFiles(p, true)
 			})
 		}
@@ -161,7 +158,7 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 		if n.dir {
 			if p.git.isRepository() && menu.Item(i18n.Shared(language, "desktop.files.showRepositoryChanges")).Clicked() {
 				c.After(func() {
-					a.performed("git.contextMenu.showRepositoryChanges", surfaceMenu)
+					a.performed("git.contextMenu.showRepositoryChanges", surfaceContextMenu)
 					a.showRepositoryChangesOf(p, filepath.Join(p.root, filepath.FromSlash(n.path)))
 				})
 			}
@@ -201,14 +198,14 @@ func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
 		a.copyPathMenu(c, menu, full, !root, "workspace.tree")
 		if menu.Item(revealLabel(language)).Clicked() {
 			c.After(func() {
-				a.performed("workspace.tree.reveal", surfaceMenu)
+				a.performed("workspace.tree.reveal", surfaceContextMenu)
 				a.revealPath(full)
 			})
 		}
 		menu.Separator()
 		if menu.Item(i18n.Shared(language, "desktop.files.refresh")).Clicked() {
 			c.After(func() {
-				a.performed("workspace.tree.refresh", surfaceMenu)
+				a.performed("workspace.tree.refresh", surfaceContextMenu)
 				a.refreshProjectTree(p)
 			})
 		}
@@ -226,6 +223,7 @@ func revealLabel(language i18n.Language) string {
 // revealPath shows full in the platform's file manager and says why when it cannot.
 func (a *App) revealPath(full string) {
 	if err := treeRevealPath(full); err != nil {
+		a.operationFailed("project_tree_reveal", documentLogError(err))
 		a.notifyError(i18n.SharedFormat(a.language(), "desktop.files.revealFailed", map[string]string{"reason": treeErrorReason(err)}))
 	}
 }
@@ -240,7 +238,7 @@ func (a *App) copyPathMenu(c ui.C, menu *ui.MenuItems, full string, relative boo
 		if sub.Item(i18n.Shared(language, "native.copyPath")).Clicked() {
 			c.After(func() {
 				if surface != "" {
-					a.performed(surface+".copyPath", surfaceMenu)
+					a.performed(surface+".copyPath", surfaceContextMenu)
 				}
 				a.copyTreePath(full, false)
 			})
@@ -248,7 +246,7 @@ func (a *App) copyPathMenu(c ui.C, menu *ui.MenuItems, full string, relative boo
 		if relative && sub.Item(i18n.Shared(language, "native.copyRelativePath")).Clicked() {
 			c.After(func() {
 				if surface != "" {
-					a.performed(surface+".copyRelativePath", surfaceMenu)
+					a.performed(surface+".copyRelativePath", surfaceContextMenu)
 				}
 				a.copyTreePath(full, true)
 			})
@@ -267,6 +265,7 @@ func (a *App) copyTreePath(full string, relative bool) {
 		}
 	}
 	if err := treeCopyText(text); err != nil {
+		a.operationFailed("clipboard_copy", err)
 		a.notifyError(i18n.SharedFormat(a.language(), "desktop.files.copyFailed", map[string]string{"reason": treeErrorReason(err)}))
 	}
 }
@@ -371,13 +370,14 @@ func (a *App) createTreeItem(p *project) {
 		err = os.Mkdir(full, 0o755)
 	}
 	if err != nil {
+		a.operationFailed("project_tree_create", documentLogError(err))
 		a.notifyError(i18n.SharedFormat(language, "desktop.files.createFailed", map[string]string{"reason": treeErrorReason(err)}))
 		return
 	}
 	created := pr.kind == treePromptNewFile
 	parent := pr.node.path
 	pr.open, pr.kind, pr.node, pr.err, pr.name = false, treePromptNone, nil, "", ""
-	a.performed("workspace.file.create", surfaceMenu)
+	a.performed("workspace.file.create", surfaceButton)
 	a.listTree(p, parent)
 	if created {
 		a.openFile(p, full)
@@ -413,15 +413,17 @@ func (a *App) renameTreeItem(p *project) {
 	a.saveDocumentsThen(p, docs, func() {
 		before := readForLocalHistory(oldFull)
 		if err := wslpath.CheckMove(oldFull, newFull); err != nil {
-			a.notifyError(err.Error())
+			a.operationRejected("project_tree_rename", "cross_wsl_boundary")
+			a.notifyError(i18n.Shared(language, "desktop.files.crossBoundaryMove"))
 			return
 		}
 		if err := os.Rename(oldFull, newFull); err != nil {
+			a.operationFailed("project_tree_rename", documentLogError(err))
 			a.notifyError(i18n.SharedFormat(language, "desktop.files.renameFailed", map[string]string{"reason": treeErrorReason(err)}))
 			return
 		}
 		a.renamedLocalHistory(p, oldFull, newFull, before)
-		a.performed("workspace.file.rename", surfaceMenu)
+		a.performed("workspace.file.rename", surfaceButton)
 		a.moveOpenDocuments(p, oldFull, newFull)
 		a.listTree(p, path.Dir(oldRel))
 		a.loadGit(p)

@@ -120,6 +120,7 @@ type Failure struct {
 const (
 	eventStartFailed = "terminal.session.start_failed"
 	eventInputFailed = "terminal.input.failed"
+	stageSpawn       = "spawn"
 	stageSend        = "send"
 )
 

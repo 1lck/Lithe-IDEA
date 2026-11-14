@@ -271,6 +271,7 @@ func (s *windowSessions) leave(a *App) {
 		s.activate(s.list[min(at, len(s.list)-1)])
 	}
 	a.unsubscribeSettings()
+	a.stopWatchingDiagnostics()
 	a.closeClone()
 	a.closeNewProject()
 	a.settingsWindow.Close()
@@ -372,7 +373,8 @@ func (a *App) projectTab(c ui.C, tab *App, i, size int) {
 		c.After(func() {
 			a.performed("workspace.tab.close", surfaceButton)
 			a.sessions.activate(tab)
-			tab.closeProject()
+			// The tab closes as part of the action, whichever workbench shows the bar.
+			tab.within(a.op, (*App).closeProject)
 		})
 	case chip.Clicked():
 		c.After(func() {

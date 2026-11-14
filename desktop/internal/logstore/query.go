@@ -51,8 +51,11 @@ type Collection struct {
 	CurrentSessionPath string
 	// Dropped and WriteFailures are the totals reported by Stats.
 	Dropped, WriteFailures int
-	DiagnosticCategory     string
-	DiagnosticRemaining    time.Duration
+	// Rejected and Rejections are what Rejections reports.
+	Rejected            int
+	Rejections          []Rejection
+	DiagnosticCategory  string
+	DiagnosticRemaining time.Duration
 }
 
 // LiveSummary is the histogram of the records the window currently holds, plus the writer's
@@ -60,6 +63,8 @@ type Collection struct {
 type LiveSummary struct {
 	Histogram              *core.LogHistogram
 	Dropped, WriteFailures int
+	Rejected               int
+	Rejections             []Rejection
 	DiagnosticCategory     string
 	DiagnosticRemaining    time.Duration
 }
@@ -123,6 +128,7 @@ func (s *Store) QueryWindow(ctx context.Context, q Query) (Collection, error) {
 		return Collection{}, err
 	}
 	dropped, failures := s.Stats()
+	rejected, rejections := s.Rejections()
 	category, remaining, _ := s.Diagnostics()
 	return Collection{
 		Result:              result,
@@ -130,6 +136,8 @@ func (s *Store) QueryWindow(ctx context.Context, q Query) (Collection, error) {
 		CurrentSessionPath:  session,
 		Dropped:             dropped,
 		WriteFailures:       failures,
+		Rejected:            rejected,
+		Rejections:          rejections,
 		DiagnosticCategory:  category,
 		DiagnosticRemaining: remaining,
 	}, nil
@@ -181,11 +189,14 @@ func (s *Store) LiveSummary(ctx context.Context, records []core.LogRecord) (Live
 		return LiveSummary{}, err
 	}
 	dropped, failures := s.Stats()
+	rejected, rejections := s.Rejections()
 	category, remaining, _ := s.Diagnostics()
 	return LiveSummary{
 		Histogram:           result.Histogram,
 		Dropped:             dropped,
 		WriteFailures:       failures,
+		Rejected:            rejected,
+		Rejections:          rejections,
 		DiagnosticCategory:  category,
 		DiagnosticRemaining: remaining,
 	}, nil

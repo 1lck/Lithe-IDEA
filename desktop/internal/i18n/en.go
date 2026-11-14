@@ -458,6 +458,9 @@ var english = Messages{
 		WriteFailures: func(count int) string {
 			return SharedFormat(English, "desktop.logs.writeFailures", map[string]string{"count": strconv.Itoa(count)})
 		},
+		Rejected: func(count int, event string, code int) string {
+			return SharedFormat(English, "desktop.logs.rejected", map[string]string{"count": strconv.Itoa(count), "event": event, "code": strconv.Itoa(code)})
+		},
 		Time:    Shared(English, "logs.window.time"),
 		Level:   Shared(English, "logs.window.level"),
 		Channel: Shared(English, "logs.window.channel"),

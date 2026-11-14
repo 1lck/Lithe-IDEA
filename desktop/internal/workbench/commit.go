@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
 )
@@ -225,12 +224,12 @@ func (c *commitState) retryable() bool {
 
 // startCommit plans a commit of the project's staged changes and runs it, through the review
 // when the plan or a push asks for one. surface is where the user asked.
-func (a *App) startCommit(p *project, push bool, surface string) {
+func (a *App) startCommit(p *project, push bool, surface actionSurface) {
 	a.startCommitIn(p, p.projectCommit(), push, surface)
 }
 
 // startCommitIn is startCommit in the checkout of t.
-func (a *App) startCommitIn(p *project, t commitTarget, push bool, surface string) {
+func (a *App) startCommitIn(p *project, t commitTarget, push bool, surface actionSurface) {
 	c := t.state
 	if c.busy || c.review != nil {
 		return
@@ -383,7 +382,7 @@ func (a *App) commitFinished(c *commitState, session core.WorkspaceCommitSession
 		a.notifySuccess(a.text.Commit.Done)
 	default:
 		a.notify(a.text.Commit.NeedsAttention)
-		a.gitOperationFailed("git_commit", incompleteRun(session))
+		a.operationFailed("git_commit", incompleteRun(session))
 	}
 	if session.Succeeded {
 		c.resetMessage()
@@ -423,25 +422,93 @@ func (a *App) commitFailed(err error) {
 	} else {
 		a.notifyError(a.text.Commit.Failed(err.Error()))
 	}
-	a.gitOperationFailed("git_commit", err)
+	a.operationFailed("git_commit", err)
 }
 
-// The log event of a Git operation that failed, and the level the kernel's event catalog
-// declares for it.
+// The log event of a failure that leaves the user without what they asked for, or without a
+// feature they rely on, and the level the kernel's event catalog declares for it. The window
+// shows the failure: a notice, an error in the dialog or panel, or a failed state.
 const (
 	operationFailedEvent = "app.notification.operation_failed"
 	operationFailedLevel = core.LevelError
 )
 
-// gitOperationFailed logs a Git operation that failed.
-func (a *App) gitOperationFailed(operation string, err error) {
+// The log event of a failure of work the window runs on its own and falls back from: a stale
+// or superseded answer, a decoration or preview it skips, cleanup after the work is done. It
+// has the same fields as app.notification.operation_failed.
+const (
+	backgroundFailedEvent = "app.background.operation_failed"
+	backgroundFailedLevel = core.LevelWarn
+)
+
+// operationFailed logs, on the window thread, an operation the user asked for or a feature
+// they rely on that did not complete. Off the window thread, operationFailedIn logs it.
+func (a *App) operationFailed(operation string, err error) {
 	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields(operation, err))
 }
 
-// operationFailedFields are the fields of app.notification.operation_failed.
+// operationFailedIn logs the same failure from any goroutine, under the user action ctx
+// belongs to: the settings window and other workers that never touch the window thread's
+// state use it.
+func (a *App) operationFailedIn(ctx context.Context, operation string, err error) {
+	a.emitIn(ctx, operationFailedLevel, operationFailedEvent, operationFailedFields(operation, err))
+}
+
+// backgroundFailed logs, on the window thread, a failure of work the window runs on its own
+// and falls back from.
+func (a *App) backgroundFailed(operation string, err error) {
+	a.emit(backgroundFailedLevel, backgroundFailedEvent, operationFailedFields(operation, err))
+}
+
+// backgroundFailedIn logs the same failure from any goroutine, under the user action ctx
+// belongs to.
+func (a *App) backgroundFailedIn(ctx context.Context, operation string, err error) {
+	a.emitIn(ctx, backgroundFailedLevel, backgroundFailedEvent, operationFailedFields(operation, err))
+}
+
+// operationFailedFields are the fields of app.notification.operation_failed and
+// app.background.operation_failed.
 func operationFailedFields(operation string, err error) map[string]any {
-	fields := logwindow.ErrorFields(err)
+	fields := core.LogErrorFields(err)
 	fields["operation"] = operation
+	return fields
+}
+
+// The log event of an operation the window refused before it ran, telling the user why: what
+// it acts on is gone from the model or the file system, the answer it waited for is stale, or
+// the action is not supported there. reason is a fixed token, never the notice or user input.
+const (
+	operationRejectedEvent = "app.notification.operation_rejected"
+	operationRejectedLevel = core.LevelWarn
+)
+
+// operationRejected logs, on the window thread, an operation the window refused.
+func (a *App) operationRejected(operation, reason string) {
+	a.emit(operationRejectedLevel, operationRejectedEvent, operationRejectedFields(operation, reason))
+}
+
+// operationRejectedIn logs the same refusal from any goroutine, under the user action ctx
+// belongs to.
+func (a *App) operationRejectedIn(ctx context.Context, operation, reason string) {
+	a.emitIn(ctx, operationRejectedLevel, operationRejectedEvent, operationRejectedFields(operation, reason))
+}
+
+// operationRejectedFields are the fields of app.notification.operation_rejected.
+func operationRejectedFields(operation, reason string) map[string]any {
+	return map[string]any{"operation": operation, "reason": reason}
+}
+
+// storedStateFailed logs, on the window thread, saved settings or window state that could not
+// be read, which the window replaced with its defaults. stage names what was replaced. The
+// error loses its path: the store's files are under the platform's application data folder.
+func (a *App) storedStateFailed(stage string, err error) {
+	a.emit(core.LevelWarn, "app.settings.decode_failed", storedStateFields(stage, err))
+}
+
+// storedStateFields are the fields of app.settings.decode_failed.
+func storedStateFields(stage string, err error) map[string]any {
+	fields := core.LogErrorFields(documentLogError(err))
+	fields["stage"] = stage
 	return fields
 }
 
@@ -486,7 +553,7 @@ func allStaged(changes []core.GitChange) bool {
 // stageAll stages every change of the active ChangeList, or unstages every staged one when
 // everything is staged already, as the checkbox of the change list does. While only the
 // default list exists that is every change of the repository.
-func (a *App) stageAll(p *project, surface string) {
+func (a *App) stageAll(p *project, surface actionSurface) {
 	if p.commit.busy || !p.listsReady() {
 		return
 	}
@@ -509,7 +576,7 @@ func (a *App) stageAll(p *project, surface string) {
 
 // stageChanges stages every one of changes, or unstages them all when they are all staged,
 // as the checkbox of a ChangeList section does.
-func (a *App) stageChanges(p *project, changes []core.GitChange, surface string) {
+func (a *App) stageChanges(p *project, changes []core.GitChange, surface actionSurface) {
 	if p.commit.busy || !p.listsReady() {
 		return
 	}
@@ -534,7 +601,7 @@ func (a *App) stageChanges(p *project, changes []core.GitChange, surface string)
 }
 
 // unstageAll unstages every staged change.
-func (a *App) unstageAll(p *project, surface string) {
+func (a *App) unstageAll(p *project, surface actionSurface) {
 	if p.commit.busy {
 		return
 	}
@@ -585,11 +652,11 @@ func (a *App) stagingDone(p *project, stage bool, err error) {
 func (a *App) stagingFailed(stage bool, err error) {
 	if stage {
 		a.notifyError(a.text.Commit.StageFailed(err.Error()))
-		a.gitOperationFailed("git_stage", err)
+		a.operationFailed("git_stage", err)
 		return
 	}
 	a.notifyError(a.text.Commit.UnstageFailed(err.Error()))
-	a.gitOperationFailed("git_unstage", err)
+	a.operationFailed("git_unstage", err)
 }
 
 // refreshChanges reads the project's status again.

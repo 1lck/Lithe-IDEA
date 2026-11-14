@@ -64,19 +64,19 @@ type legacyImportItem struct {
 // disabled while the earlier preferences are read.
 func (a *App) legacyImportMenuItem(c ui.C, menu *ui.MenuItems) {
 	if menu.Item(i18n.Shared(a.language(), "desktop.legacyImport.menu")).Disabled(a.legacyImport.reading).Clicked() {
-		c.After(a.readLegacyImport)
+		c.After(func() { a.readLegacyImport(surfaceMenu) })
 	}
 }
 
 // readLegacyImport reads what the earlier client stored, off the window thread, and opens
-// the dialog that lists it.
-func (a *App) readLegacyImport() {
+// the dialog that lists it. surface is where the user started the import.
+func (a *App) readLegacyImport(surface actionSurface) {
 	s := &a.legacyImport
 	if s.reading || s.open {
 		return
 	}
 	s.reading = true
-	a.performed("settings.import_legacy", surfaceMenu)
+	a.performed("settings.import_legacy", surface)
 	read := s.read
 	if read == nil {
 		read = legacyimport.Read
@@ -96,7 +96,7 @@ func (a *App) showLegacyImport(found legacyimport.Found, err error) {
 		a.notifyInfo(i18n.Shared(language, "desktop.legacyImport.none"))
 		return
 	case err != nil:
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("settings_import_legacy_read", err))
+		a.operationFailed("settings_import_legacy_read", err)
 		a.notifyError(i18n.SharedFormat(language, "desktop.legacyImport.readFailed", map[string]string{"error": err.Error()}))
 		return
 	}
@@ -315,7 +315,7 @@ func (a *App) applyLegacyImport() {
 	a.saveSettings()
 	language := a.language()
 	if err := a.verifySettingsSaved(); err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("settings_import_legacy_apply", err))
+		a.operationFailed("settings_import_legacy_apply", err)
 		a.notifyError(i18n.SharedFormat(language, "desktop.legacyImport.failed", map[string]string{"error": err.Error()}))
 		return
 	}
@@ -328,7 +328,7 @@ func (a *App) applyLegacyImport() {
 		before := len(a.recent)
 		a.reduceRecent(entries, core.NormalizeRecent(), true)
 		if err := a.verifyRecentSaved(); err != nil {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("settings_import_legacy_recent", err))
+			a.operationFailed("settings_import_legacy_recent", err)
 			a.notifyError(i18n.SharedFormat(language, "desktop.legacyImport.failed", map[string]string{"error": err.Error()}))
 			return
 		}

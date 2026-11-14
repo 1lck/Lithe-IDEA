@@ -85,7 +85,9 @@ func TestProjectTreeBatchFailureLogsOnce(t *testing.T) {
 	awaitDocumentState(t, h, func() bool { return !p.tree.reading && !p.tree.find("a").loading && !p.tree.find("b").loading })
 	logger.mu.Lock()
 	defer logger.mu.Unlock()
-	if len(logger.events) != 1 || logger.events[0].Event != operationFailedEvent || logger.events[0].Fields["operation"] != "project_tree_list" {
+	// Folders that cannot be listed just close again, which the window shows by no notice: the
+	// failure is background work, recorded once for the batch.
+	if len(logger.events) != 1 || logger.events[0].Event != backgroundFailedEvent || logger.events[0].Fields["operation"] != "project_tree_list" {
 		t.Fatalf("batch failure logs = %+v", logger.events)
 	}
 }

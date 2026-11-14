@@ -19,10 +19,10 @@ func (a *App) editorMenuItems(c ui.C, p *project, d *document) func(*ui.MenuItem
 		a.editorActionMenuItems(c, p, d, menu)
 		readOnly := d.view.ReadOnly()
 		if menu.Item(a.text.Commands.Find).Clicked() {
-			c.After(func() { a.selectDocument(p, d.id); a.openEditorFind(false) })
+			c.After(func() { a.selectDocument(p, d.id); a.openEditorFind(false, surfaceContextMenu) })
 		}
 		if menu.Item(a.text.Commands.Replace).Disabled(readOnly).Clicked() {
-			c.After(func() { a.selectDocument(p, d.id); a.openEditorFind(true) })
+			c.After(func() { a.selectDocument(p, d.id); a.openEditorFind(true, surfaceContextMenu) })
 		}
 		menu.Separator()
 		if menu.Item(i18n.Shared(language, "desktop.editorMenu.goToDefinition")).Keys(primary, "b").Clicked() {
@@ -45,7 +45,7 @@ func (a *App) editorMenuItems(c ui.C, p *project, d *document) func(*ui.MenuItem
 		}
 		if browserPreviewable(d) {
 			if menu.Item(i18n.Shared(language, "desktop.editorMenu.openInBrowser")).Clicked() {
-				c.After(func() { a.openInBrowser(p, d) })
+				c.After(func() { a.openInBrowser(p, d, surfaceContextMenu) })
 			}
 		}
 		menu.Separator()
@@ -66,7 +66,7 @@ func (a *App) editorMenuItems(c ui.C, p *project, d *document) func(*ui.MenuItem
 		}
 		menu.Separator()
 		if p.git.isRepository() && menu.Item(i18n.Shared(language, "desktop.editorMenu.lineHistory")).Clicked() {
-			c.After(func() { a.startLineHistory(p, d) })
+			c.After(func() { a.startLineHistory(p, d, surfaceContextMenu) })
 		}
 		if menu.Item(i18n.Shared(language, "desktop.editorMenu.goToLine")).Clicked() {
 			c.After(func() { a.openNavigation(p) })

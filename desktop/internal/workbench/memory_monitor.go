@@ -149,7 +149,7 @@ func (a *App) readMemoryNames() {
 		names := memoryNamesOf(installedPluginFacts(entries, nil))
 		return func(a *App) {
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("memory_plugin_names", err))
+				a.backgroundFailed("memory_plugin_names", err)
 			}
 			a.memory.names = names
 			a.memory.sampledAt = time.Time{}
@@ -208,7 +208,7 @@ func (a *App) memorySampled(summary core.MemorySummary, err error) {
 	m.sampling = false
 	if err != nil {
 		if !m.failed {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("memory_sample", err))
+			a.backgroundFailed("memory_sample", err)
 		}
 		m.failed = true
 		return

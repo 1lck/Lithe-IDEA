@@ -791,14 +791,14 @@ func (a *App) stripeButtonMenu(c ui.C, i int, at zone) func(*ui.MenuItems) {
 			label := a.chrome.catalog[i].label(a.text)
 			if menu.Item(i18n.SharedFormat(language, "native.hideToolWindow", map[string]string{"arg1": label})).Clicked() {
 				c.After(func() {
-					a.performed("workbench.toolWindow.hide", surfaceMenu)
+					a.performed("workbench.toolWindow.hide", surfaceContextMenu)
 					a.reduceChrome(core.SetChromeOpen(id, false))
 				})
 			}
 		}
 		if menu.Item(i18n.Shared(language, "native.hideEntry")).Clicked() {
 			c.After(func() {
-				a.performed("workbench.toolWindow.hideEntry", surfaceMenu)
+				a.performed("workbench.toolWindow.hideEntry", surfaceContextMenu)
 				a.hideEntry(i)
 			})
 		}
@@ -811,7 +811,7 @@ func (a *App) stripeButtonMenu(c ui.C, i int, at zone) func(*ui.MenuItems) {
 				target := zoneNames[z]
 				if sub.Item(stripeZoneMoveText(language, z)).Clicked() {
 					c.After(func() {
-						a.performed("workbench.toolWindow.move", surfaceMenu)
+						a.performed("workbench.toolWindow.move", surfaceContextMenu)
 						a.reduceChrome(core.MoveChrome(id, target, ""))
 					})
 				}
@@ -828,7 +828,7 @@ func (a *App) stripeButtonMenu(c ui.C, i int, at zone) func(*ui.MenuItems) {
 		if menu.Item(i18n.Shared(language, "native.moveEarlier")).Disabled(position == 0).Clicked() {
 			before := a.chrome.catalog[items[max(position-1, 0)]].id
 			c.After(func() {
-				a.performed("workbench.toolWindow.moveEarlier", surfaceMenu)
+				a.performed("workbench.toolWindow.moveEarlier", surfaceContextMenu)
 				a.reduceChrome(core.MoveChrome(id, zoneNames[at], before))
 			})
 		}
@@ -838,7 +838,7 @@ func (a *App) stripeButtonMenu(c ui.C, i int, at zone) func(*ui.MenuItems) {
 				before = a.chrome.catalog[items[position+2]].id
 			}
 			c.After(func() {
-				a.performed("workbench.toolWindow.moveLater", surfaceMenu)
+				a.performed("workbench.toolWindow.moveLater", surfaceContextMenu)
 				a.reduceChrome(core.MoveChrome(id, zoneNames[at], before))
 			})
 		}

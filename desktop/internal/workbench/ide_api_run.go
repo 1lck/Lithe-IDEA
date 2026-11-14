@@ -24,6 +24,7 @@ func ideAPIRunList(p *project) any {
 // ideAPIRunStart starts a run configuration through the Run window and returns the execution
 // it reserved. A refused start reserves nothing and is answered with the refusal's code.
 func (a *App) ideAPIRunStart(p *project, configurationID string) (*ideAPIOperation, any) {
+	a.performed("run.configuration.run", surfacePlugin)
 	operation, err := a.startRunConfiguration(p, configurationID)
 	if err != nil {
 		return nil, ideAPIRefusal(err)

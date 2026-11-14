@@ -37,7 +37,7 @@ func (a *App) relocateDocumentBreakpoints(p *project, d *document, edit editorvi
 	}, sourceBreakpoints(lines))
 	cancel()
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("debug_relocate", err))
+		a.backgroundFailed("debug_relocate", err)
 		return
 	}
 	next := make([]debugBreakpoint, 0, len(moved))

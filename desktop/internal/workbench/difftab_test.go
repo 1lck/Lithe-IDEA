@@ -17,7 +17,7 @@ import (
 // what it reads.
 func openDiffTab(t *testing.T, h *harness, p *project, path string) *diffTab {
 	t.Helper()
-	d := h.app.openDiff(p, changeOf(t, p, path))
+	d := h.app.openDiff(p, changeOf(t, p, path), surfaceButton)
 	if d == nil {
 		t.Fatalf("no Diff tab opened for %s", path)
 	}
@@ -174,7 +174,7 @@ func TestDiffTabIsAnEditorTab(t *testing.T) {
 	if h.app.focus != (focusTarget{diff: d.id}) {
 		t.Fatalf("focus %+v, want the Diff tab", h.app.focus)
 	}
-	if again := h.app.openDiff(p, changeOf(t, p, "changed.txt")); again != d || len(p.diffs.list) != 1 {
+	if again := h.app.openDiff(p, changeOf(t, p, "changed.txt"), surfaceButton); again != d || len(p.diffs.list) != 1 {
 		t.Fatalf("opening the change again made another tab: %d tabs", len(p.diffs.list))
 	}
 	h.await("the diff read again", func() bool { return !d.loading })

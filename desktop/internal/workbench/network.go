@@ -51,7 +51,7 @@ func (a *App) applyNetwork() {
 		policy, err := kernel.ProxyPolicy(ctx, networkProxyRequest(stored, password))
 		if err != nil {
 			a.post(func(a *App) {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("network_proxy_policy", err))
+				a.backgroundFailed("network_proxy_policy", err)
 			})
 			return
 		}
@@ -92,6 +92,7 @@ func (a *App) setNetwork(next settingswindow.NetworkSettings, password *string) 
 		}
 		a.post(func(a *App) {
 			if err != nil {
+				a.operationFailed("network_credentials_save", err)
 				a.notifyError(a.text.Errors.SaveFailed(err.Error()))
 			}
 			a.applyNetwork()

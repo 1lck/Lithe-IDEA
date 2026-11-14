@@ -486,7 +486,7 @@ func (a *App) followHoverLink(destination string) {
 				err = openURL(target.URL)
 			}
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_semantics", err))
+				a.operationFailed("plugin_semantics", err)
 				return
 			}
 			a.closeSemanticHover()

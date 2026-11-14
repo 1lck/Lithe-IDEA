@@ -227,7 +227,7 @@ func (a *App) loadPullRequests(p *project) {
 			if err != nil {
 				pr.err = githubFailure(a.language(), err)
 				pr.items = nil
-				a.gitOperationFailed("github_pull_requests", err)
+				a.operationFailed("github_pull_requests", err)
 				return
 			}
 			pr.items = items
@@ -301,6 +301,7 @@ func (a *App) openPullRequestInBrowser(url string) {
 	}
 	a.performed("github.pullRequest.openBrowser", surfaceButton)
 	if err := app.OpenURL(url); err != nil {
+		a.operationFailed("open_url", err)
 		a.notifyError(i18n.SharedFormat(a.language(), "desktop.github.openFailed", map[string]string{"reason": err.Error()}))
 	}
 }
@@ -358,7 +359,7 @@ func (a *App) checkoutPullRequest(p *project) {
 			pr.preview = nil
 			if err != nil {
 				pr.detailErr = githubFailure(a.language(), err)
-				a.gitOperationFailed("github_pull_request_checkout", err)
+				a.operationFailed("github_pull_request_checkout", err)
 				return
 			}
 			pr.checkoutOK = true

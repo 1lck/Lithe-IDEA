@@ -427,7 +427,7 @@ func (a *App) searchResultMenu(c ui.C, target ui.Box, p *project, result core.Wo
 	ui.ContextMenu(c, target, func(menu *ui.MenuItems) {
 		if menu.Item(i18n.Shared(language, "desktop.files.open")).Clicked() {
 			c.After(func() {
-				a.performed(surface+".openResult", surfaceMenu)
+				a.performed(surface+".openResult", surfaceContextMenu)
 				if leave != nil {
 					leave()
 				}
@@ -436,7 +436,7 @@ func (a *App) searchResultMenu(c ui.C, target ui.Box, p *project, result core.Wo
 		}
 		if menu.Item(revealLabel(language)).Clicked() {
 			c.After(func() {
-				a.performed(surface+".reveal", surfaceMenu)
+				a.performed(surface+".reveal", surfaceContextMenu)
 				a.revealPath(full)
 			})
 		}

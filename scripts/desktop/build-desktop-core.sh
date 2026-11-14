@@ -28,7 +28,13 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
-# Lithe-core-rust #45, squash-merged into main: processMemory.summarize also sums the memory the
+# Lithe-core-rust #46, squash-merged into main: the logging event catalog declares the events the
+# desktop records (terminal.session.start_failed, vcs.provider.skipped,
+# app.background.operation_failed, app.startup.leftovers_resolved, editor.recovery.applied and the
+# drag_drop surface) and drops the 90 events only the macOS client used; a failure of
+# diagnostics.encodeLogBatch carries the index of the refused input. It is on top of #45,
+# squash-merged into main: processMemory.summarize
+# also sums the memory the
 # system compressed or swapped out, graphics memory, and the processor and graphics use between
 # two tables, which the host sends back as a baseline. It is on top of #44, squash-merged into
 # main: outputStyle.decode turns console output with ANSI escapes into plain lines and styled
@@ -90,7 +96,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="40711b146dc387fa6148ad2d0a4b758fc8e89909"
+PINNED_CORE_REVISION="e81106827b3f0e5c8178742b6ef61a7a8a225f57"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -181,6 +187,21 @@ fi
 if [[ ! -s "$NATIVE_LIBS_FILE" ]]; then
     cargo clean --manifest-path "$MANIFEST_NATIVE" -p lithe-core \
         "${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"}" >&2
+fi
+# The pinned checkout and a LITHE_CORE_RUST_DIR override share this target directory, and Cargo
+# hashes a workspace member by its path inside the workspace, not by where the checkout is: both
+# checkouts build every member, such as the event catalog in lithe-diagnostics, to the same
+# files with the same fingerprint. Freshness is judged by modification times, so after the other
+# checkout overwrote them, the files still look up to date and the staged library would carry
+# the other checkout's code under this checkout's identity. The checkout that built the members
+# last is recorded per target and profile; a different one cleans the workspace members, which
+# are then built from it, while registry dependencies stay cached.
+BUILT_FROM_FILE="$CARGO_TARGET_DIR_BASH/lithe-core-built-from-$RUST_TARGET-$PROFILE.txt"
+if [[ "$(cat "$BUILT_FROM_FILE" 2>/dev/null || true)" != "$CORE_DIR" ]]; then
+    cargo clean --manifest-path "$MANIFEST_NATIVE" --workspace \
+        "${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"}" >&2
+    mkdir -p "$CARGO_TARGET_DIR_BASH"
+    printf '%s\n' "$CORE_DIR" > "$BUILT_FROM_FILE"
 fi
 cargo rustc --manifest-path "$MANIFEST_NATIVE" -p lithe-core --lib --crate-type staticlib \
     "${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"}" \

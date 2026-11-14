@@ -307,7 +307,7 @@ func (a *App) applyChangeLists(p *project, root string, statusGen int, job chang
 	if err != nil {
 		if job.action == nil {
 			l.failed, l.members, l.scope = err, nil, nil
-			a.gitOperationFailed("git_changelists", err)
+			a.operationFailed("git_changelists", err)
 		}
 		return
 	}
@@ -444,7 +444,7 @@ func (a *App) changeListAction(p *project, operation string, action core.ChangeL
 // changeListFailed tells the user that a list action failed and logs it.
 func (a *App) changeListFailed(err error) {
 	a.notifyError(a.text.Commit.Failed(err.Error()))
-	a.gitOperationFailed("git_changelists", err)
+	a.operationFailed("git_changelists", err)
 }
 
 // activateChangeList makes the list id the one stage all and commit take.
@@ -504,7 +504,7 @@ func (a *App) submitChangeListName(p *project) {
 			l.nameError = i18n.Shared(a.language(), "git.changelists.invalidName")
 		default:
 			l.nameError = err.Error()
-			a.gitOperationFailed("git_changelists", err)
+			a.operationFailed("git_changelists", err)
 		}
 	}
 	if l.dialog == changeListRename {

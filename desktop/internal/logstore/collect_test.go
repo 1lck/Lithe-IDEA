@@ -51,7 +51,7 @@ func TestCollectGroupsTheRecordsByFile(t *testing.T) {
 		t.Fatalf("log file holds the wrong records: %q", text)
 	}
 	if status.RelativePath != "collection-status.txt" ||
-		string(status.Data) != "truncated=false dropped_events=0 write_failures=0 skipped_invalid_lines=0\n" {
+		string(status.Data) != "truncated=false dropped_events=0 write_failures=0 rejected_events=0 skipped_invalid_lines=0\n" {
 		t.Fatalf("status file = %q: %q", status.RelativePath, status.Data)
 	}
 }

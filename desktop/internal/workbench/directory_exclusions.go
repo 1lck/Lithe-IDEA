@@ -87,7 +87,7 @@ func (a *App) installIndexing(p *project, refresh bool) {
 				return
 			}
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_indexing", err))
+				a.operationFailed("workspace_indexing", err)
 				a.notifyError(i18n.Shared(a.language(), "indexing.configureFailed"))
 				return
 			}
@@ -111,11 +111,12 @@ func (a *App) releaseIndexing(p *project) {
 	}
 	ix.generation++
 	root, owner, revision := p.root, ix.owner, ix.status.Revision
+	parent := a.operationContext(context.Background())
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
+		ctx, cancel := context.WithTimeout(parent, kernelCallTimeout)
 		defer cancel()
 		if _, err := kernel.ReleaseIndexing(ctx, root, owner, revision); err != nil {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_indexing_release", err))
+			a.emitIn(ctx, backgroundFailedLevel, backgroundFailedEvent, operationFailedFields("workspace_indexing_release", err))
 		}
 	}()
 }
@@ -142,9 +143,9 @@ func (a *App) excludeFromSearch(p *project, rel string, cancel bool) {
 		return
 	}
 	if cancel {
-		a.performed("workspace.tree.cancelExclusion", surfaceMenu)
+		a.performed("workspace.tree.cancelExclusion", surfaceContextMenu)
 	} else {
-		a.performed("workspace.tree.excludeFromSearch", surfaceMenu)
+		a.performed("workspace.tree.excludeFromSearch", surfaceContextMenu)
 	}
 	a.changeIndexingRules(p, func(ctx context.Context, rules json.RawMessage) (bool, json.RawMessage, error) {
 		if cancel {
@@ -159,7 +160,7 @@ func (a *App) setGitIgnoreIndexing(p *project, on bool) {
 	if !p.indexing.loaded || p.indexing.gitIgnore == on {
 		return
 	}
-	a.performed("workspace.indexing.gitIgnore", surfaceMenu)
+	a.performed("workspace.indexing.gitIgnore", surfaceContextMenu)
 	a.changeIndexingRules(p, func(context.Context, json.RawMessage) (bool, json.RawMessage, error) {
 		return true, p.indexing.rules, nil
 	}, on)
@@ -181,7 +182,7 @@ func (a *App) changeIndexingRules(p *project, reduce func(context.Context, json.
 		return func(a *App) {
 			if err != nil {
 				a.notifyError(i18n.SharedFormat(a.language(), "desktop.files.excludeFailed", map[string]string{"reason": reviewReason(err)}))
-				a.gitOperationFailed("workspace_exclude", err)
+				a.operationFailed("workspace_exclude", err)
 				return
 			}
 			if !changed {

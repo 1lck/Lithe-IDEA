@@ -591,6 +591,7 @@ func (a *App) ideAPIBuildExecute(p *project, args ideAPIBuildExecuteArguments) (
 	// Make the requested instance the Build window's selection so the shared run path
 	// prepares that plugin's model and tool, not whatever the window selected before.
 	a.selectBuildInstance(p, index)
+	a.performed("build.task.run", surfacePlugin)
 	operation, err := a.runBuildTask(p, args.ProjectID, args.TargetID, taskID, args.UserArguments)
 	if err != nil {
 		return nil, ideAPIRefusal(err)

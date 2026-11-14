@@ -87,7 +87,7 @@ func (a *App) compactMenu(c ui.C, anchor ui.Box) {
 					}
 					if item.Clicked() {
 						run := cmd
-						c.After(func() { a.runCommand(run) })
+						c.After(func() { a.runCommand(run, surfaceMenu) })
 						a.title.menuOpen = false
 					}
 				}

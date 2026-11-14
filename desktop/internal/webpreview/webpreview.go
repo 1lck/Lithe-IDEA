@@ -25,7 +25,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
-	"log/slog"
 	"net/url"
 	"path"
 	"path/filepath"
@@ -143,7 +142,8 @@ type Config struct {
 	// Request answers what a request of the site page serves, from its decoded path from the
 	// root (core.Client.ResolveHTMLPreviewRequest); nil serves the file alone.
 	Request func(ctx context.Context, path string) (core.HTMLPreviewResource, error)
-	// Log reports a failure of the page's resources; nil logs to slog.
+	// Log reports a failure of the page's resources to the client's log. Only tests leave it
+	// nil, and then a failure is not recorded: the page never writes logs of its own.
 	Log func(stage string, err error)
 }
 
@@ -403,9 +403,7 @@ func LoadResource(ctx context.Context, resolved core.MarkdownReference, remote *
 func (p *Page) log(stage string, err error) {
 	if p.config.Log != nil {
 		p.config.Log(stage, err)
-		return
 	}
-	slog.Warn("web preview resource failed", "page", p.config.Page, "stage", stage, "error", err)
 }
 
 // decodeReference is the src a resource route carries.

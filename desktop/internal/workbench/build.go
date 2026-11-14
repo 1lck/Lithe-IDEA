@@ -237,8 +237,9 @@ type buildRuntime struct {
 
 // provider is the running provider of instance, started when there is none. The process starts
 // outside the lock, so detaching on the window thread never waits for a start; a start that lost
-// to another one or to a detach is stopped again.
-func (r *buildRuntime) provider(ctx context.Context, runner *pluginbackend.Runner, pluginRoot, root, rootURI string, instance buildInstance, settings core.PluginSettingsState) (*buildprovider.Client, error) {
+// to another one or to a detach is stopped again. logDirectory gives the process's ${logDir}, and
+// is asked only when a process starts.
+func (r *buildRuntime) provider(ctx context.Context, runner *pluginbackend.Runner, pluginRoot, root, rootURI string, instance buildInstance, settings core.PluginSettingsState, logDirectory func(context.Context, string) string) (*buildprovider.Client, error) {
 	key := instance.PluginID + "\x00" + instance.BuildSystemID
 	errClosing := buildprovider.ErrClosed
 	r.mu.Lock()
@@ -255,9 +256,8 @@ func (r *buildRuntime) provider(ctx context.Context, runner *pluginbackend.Runne
 		return nil, err
 	}
 	workspaceState := filepath.Join(state, "workspace")
-	logDirectory := filepath.Join(state, "log")
 	temporaryDirectory := filepath.Join(state, "tmp")
-	for _, directory := range []string{workspaceState, logDirectory, temporaryDirectory} {
+	for _, directory := range []string{workspaceState, temporaryDirectory} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			return nil, err
 		}
@@ -271,7 +271,7 @@ func (r *buildRuntime) provider(ctx context.Context, runner *pluginbackend.Runne
 		Role:                    "build",
 		StateDirectory:          state,
 		WorkspaceStateDirectory: workspaceState,
-		LogDirectory:            logDirectory,
+		LogDirectory:            logDirectory(ctx, instance.PluginID),
 		TemporaryDirectory:      temporaryDirectory,
 		Architecture:            core.PluginArchitecture(),
 		Settings:                settings.Settings,
@@ -352,7 +352,7 @@ func (a *App) buildProvider(ctx context.Context, p *project, instance buildInsta
 	if err != nil {
 		return nil, err
 	}
-	client, err = p.buildSessions.provider(ctx, a.plugins.Backend, a.plugins.Root, p.root, rootURI, instance, settings.State)
+	client, err = p.buildSessions.provider(ctx, a.plugins.Backend, a.plugins.Root, p.root, rootURI, instance, settings.State, a.pluginLogDirectory)
 	var shared *pluginbackend.SharedProviderError
 	if !errors.As(err, &shared) {
 		return client, err
@@ -400,7 +400,7 @@ func (a *App) sharedBuildProvider(ctx context.Context, p *project, instance buil
 		return nil, errors.New("no enabled plugin serves the shared provider language")
 	}
 	if session.Warnings != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_server_selection", session.Warnings))
+		a.emitIn(ctx, backgroundFailedLevel, backgroundFailedEvent, operationFailedFields("plugin_server_selection", session.Warnings))
 	}
 	server := &pluginServer{session: session, project: p, done: make(chan struct{})}
 	serveCtx, serveCancel := context.WithCancel(context.Background())
@@ -487,7 +487,7 @@ func (a *App) loadBuildSystems(p *project) {
 	kernel := a.kernel
 	// The team and local option documents are read here, on the window thread, and resolved and detected
 	// with the instances below; a document that cannot be read fails the detection instead of emptying it.
-	docs, docsErr := a.readBuildOptionDocuments(context.Background(), p.root)
+	docs, docsErr := a.readBuildOptionDocuments(a.operationContext(context.Background()), p.root)
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		entries, err := a.plugins.Manager.Installed()
 		if err != nil {
@@ -621,15 +621,22 @@ func (a *App) reloadBuildModel(p *project, index int) {
 
 // commandModel runs a command-sourced model plan and decodes its output. The
 // output file, when the plan uses one, is host-allocated under the plugin's
-// writable state and removed after decoding.
+// writable state and removed after decoding. No plugin process runs the command, so the
+// host records the load as the plugin's lithe/build/model operation, at the stage
+// buildCommandStage describes.
 func (a *App) commandModel(ctx context.Context, p *project, instance buildInstance, kernel Kernel, messages i18n.BuildMessages) (core.BuildModel, error) {
+	attempt := core.StartPluginAttempt(instance.PluginID, core.OperationBuildModel, core.OriginOf(ctx).Operation)
+	fail := func(stage core.PluginStage, err error) (core.BuildModel, error) {
+		a.plugins.EndAttempt(ctx, attempt, stage, err)
+		return core.BuildModel{}, err
+	}
 	state := buildStateDirectory(a.plugins.Root, p.root, instance)
 	if err := os.MkdirAll(state, 0o700); err != nil {
-		return core.BuildModel{}, err
+		return fail(core.StagePlan, err)
 	}
 	file, createErr := os.CreateTemp(state, "model-*.json")
 	if createErr != nil {
-		return core.BuildModel{}, createErr
+		return fail(core.StagePlan, createErr)
 	}
 	outputFile := file.Name()
 	_ = file.Close()
@@ -647,14 +654,14 @@ func (a *App) commandModel(ctx context.Context, p *project, instance buildInstan
 		OutputFile:              outputFile,
 	})
 	if err != nil {
-		return core.BuildModel{}, err
+		return fail(core.StagePlan, err)
 	}
 	if plan.Provider != nil {
-		return core.BuildModel{}, errors.New("the build system answered with a provider model")
+		return fail(core.StagePlan, errors.New("the build system answered with a provider model"))
 	}
 	execution, err := a.resolveBuildExecutable(ctx, p, instance, messages)
 	if err != nil {
-		return core.BuildModel{}, err
+		return fail(core.StageResolve, err)
 	}
 	workingDirectory := filepath.Join(p.root, filepath.FromSlash(plan.WorkingDirectory))
 	output, runErr := captureBuildProcess(ctx, execution.Executable, plan.Arguments, workingDirectory, applyToolchainSelection(plan.Environment, execution.selection()))
@@ -666,10 +673,38 @@ func (a *App) commandModel(ctx context.Context, p *project, instance buildInstan
 	}
 	model, decodeErr := kernel.DecodeBuildModel(ctx, instance.Manifest, instance.BuildSystemID, request)
 	if decodeErr != nil {
-		return core.BuildModel{}, errors.Join(runErr, decodeErr)
+		return fail(buildCommandStage(runErr), errors.Join(runErr, decodeErr))
 	}
+	a.plugins.EndAttempt(ctx, attempt, buildCommandStage(runErr), runErr)
 	return model, runErr
 }
+
+// buildCommandStage is the stage at which a build command source that ran ends, given how its
+// process ended: one that did not start is a launch failure, and one that failed is an exit,
+// which also explains output that does not decode. Only a command that succeeded can end at
+// decode, when its output is not a valid document.
+//
+// Preparing the plan and its output file is the plan stage and finding the build tool is the
+// resolve stage; a deadline is a timeout at any stage, and a load the project's close cancels
+// records nothing. A provider request is the plugin's own to log, so it is never recorded here.
+func buildCommandStage(runErr error) core.PluginStage {
+	var launch *buildLaunchError
+	switch {
+	case errors.As(runErr, &launch):
+		return core.StageLaunch
+	case runErr != nil:
+		return core.StageExit
+	default:
+		return core.StageDecode
+	}
+}
+
+// buildLaunchError is a build command whose process did not start, as opposed to one that ran
+// and failed. Its text is the start's own.
+type buildLaunchError struct{ cause error }
+
+func (e *buildLaunchError) Error() string { return e.cause.Error() }
+func (e *buildLaunchError) Unwrap() error { return e.cause }
 
 func (a *App) providerModel(ctx context.Context, p *project, instance buildInstance, kernel Kernel, refresh bool) (core.BuildModel, error) {
 	// The host resolves the build tool the provider runs with, so the provider never searches
@@ -730,7 +765,7 @@ func (a *App) finishBuildModel(p *project, id string, model core.BuildModel, err
 			instance.modelReloadPending = false
 			instance.modelLoaded = false
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_model_superseded", err))
+				a.backgroundFailed("plugin_model_superseded", err)
 			}
 			if index == p.build.selected || p.runConfigs.wanted {
 				a.loadBuildModel(p, index)
@@ -879,6 +914,7 @@ func (a *App) runBuildTask(p *project, projectID, targetID, taskID string, userA
 	if projectID != "" {
 		project, ok := buildProjectByID(instance.Model, projectID)
 		if !ok {
+			a.operationRejected("build_task", "project_missing")
 			a.notifyError(a.text.Build.ProjectMissing)
 			return nil, refuseBuild(refusalNotFound, "unknown build project")
 		}
@@ -887,6 +923,7 @@ func (a *App) runBuildTask(p *project, projectID, targetID, taskID string, userA
 	if targetID != "" {
 		target, ok := buildTargetByID(instance.Model, targetID)
 		if !ok {
+			a.operationRejected("build_task", "target_missing")
 			a.notifyError(a.text.Build.TargetMissing)
 			return nil, refuseBuild(refusalNotFound, "unknown build target")
 		}
@@ -904,7 +941,6 @@ func (a *App) runBuildTask(p *project, projectID, targetID, taskID string, userA
 			return nil, refuseBuild(refusalInvalid, "this task requires user arguments")
 		}
 	}
-	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "build.runTask", "surface": "build"})
 	captured := *instance
 	kernel := a.kernel
 	messages := a.text.Build
@@ -1086,7 +1122,7 @@ func captureBuildProcess(ctx context.Context, executable string, arguments []str
 		outputMu.Unlock()
 	})
 	if err != nil {
-		return "", err
+		return "", &buildLaunchError{cause: err}
 	}
 	waitErr := process.Wait()
 	outputMu.Lock()
@@ -1134,6 +1170,7 @@ func (a *App) runBuildEntry(p *project, entryID string) {
 		}
 	}
 	if entry == nil {
+		a.operationRejected("build_run_entry", "target_missing")
 		a.notifyError(a.text.Build.TargetMissing)
 		return
 	}
@@ -1144,7 +1181,6 @@ func (a *App) runBuildEntry(p *project, entryID string) {
 	}
 	captured := *instance
 	messages := a.text.Build
-	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "build.runEntry", "surface": "build"})
 	op := a.beginBuildOperation(p, "run", entry.Name, "", restartWithInstance(instance.ID, func(a *App, p *project) {
 		a.runBuildEntry(p, entryID)
 	}))
@@ -1167,6 +1203,7 @@ func (a *App) runBuildTarget(p *project, targetID, runID string) {
 	}
 	target, ok := buildTargetByID(instance.Model, targetID)
 	if !ok {
+		a.operationRejected("build_run_target", "target_missing")
 		a.notifyError(a.text.Build.TargetMissing)
 		return
 	}
@@ -1193,17 +1230,19 @@ func (a *App) debugProviderTarget(p *project, index int, projectID, targetID, ru
 	instance := &p.build.instances[index]
 	run, ok := buildRunDeclaration(instance.System, runID)
 	if !ok || run.DebugAdapter == "" {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("build_debug_prepare", errors.New("the run declares no debug adapter")))
+		a.operationFailed("build_debug_prepare", errors.New("the run declares no debug adapter"))
 		a.notifyError(i18n.Shared(a.language(), "desktop.build.noDebugAdapter"))
 		return
 	}
 	project, ok := buildProjectByID(instance.Model, projectID)
 	if !ok {
+		a.operationRejected("build_debug_target", "project_missing")
 		a.notifyError(a.text.Build.ProjectMissing)
 		return
 	}
 	target, ok := buildTargetByID(instance.Model, targetID)
 	if !ok {
+		a.operationRejected("build_debug_target", "target_missing")
 		a.notifyError(a.text.Build.TargetMissing)
 		return
 	}
@@ -1222,12 +1261,11 @@ func (a *App) debugProviderTarget(p *project, index int, projectID, targetID, ru
 		Project:       &core.BuildSelection{Name: project.Name, Path: project.Path, Properties: project.Properties},
 		Target:        &core.BuildSelection{Name: target.Name, Path: target.Path, Tags: target.Tags, Properties: target.Properties},
 	}
-	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "build.debugTarget", "surface": "build"})
 	p.debug.preparing = true
 	fail := func(err error) func(*App) {
 		return func(a *App) {
 			p.debug.preparing = false
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("build_debug_prepare", err))
+			a.operationFailed("build_debug_prepare", err)
 			a.notifyError(err.Error())
 		}
 	}
@@ -1279,7 +1317,7 @@ func (a *App) debugProviderTarget(p *project, index int, projectID, targetID, ru
 func (a *App) redebugProviderTarget(p *project, reference core.RunProviderReference, projectID, targetID, runID string) {
 	index := p.buildInstanceIndex(reference)
 	if index < 0 {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("debug_rerun", errors.New("the debugged build instance is no longer detected")))
+		a.operationFailed("debug_rerun", errors.New("the debugged build instance is no longer detected"))
 		a.notifyError(a.text.Build.TargetMissing)
 		return
 	}
@@ -1325,7 +1363,7 @@ func (a *App) startProviderDebug(p *project, pluginID string, preparation core.B
 			})
 			return
 		}
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("build_debug_start", errors.New("the plugin does not install the adapter its run names")))
+		a.operationFailed("build_debug_start", errors.New("the plugin does not install the adapter its run names"))
 		a.notifyError(i18n.Shared(a.language(), "desktop.build.noDebugAdapter"))
 	})
 }
@@ -1351,7 +1389,6 @@ func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *build
 	captured := *instance
 	kernel := a.kernel
 	messages := a.text.Build
-	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "build.runTarget", "surface": "build"})
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		prepare, release := op.bind(ctx)
 		defer release()
@@ -1589,7 +1626,7 @@ func (a *App) finishBuildError(p *project, op *buildOperation, err error) {
 		failure = err.Error()
 	}
 	if a.endBuildOperation(p, op, "failed", nil, failure, err.Error()) {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("build", err))
+		a.operationFailed("build", err)
 	}
 }
 

@@ -32,7 +32,7 @@ func (a *App) tabMenuItems(c ui.C, group string, t shownTab, tabs []shownTab) fu
 				}
 			}
 			c.After(func() {
-				a.performed(action, surfaceMenu)
+				a.performed(action, surfaceContextMenu)
 				a.closeMembers(p, members)
 			})
 		}
@@ -78,20 +78,20 @@ func (a *App) tabMenuItems(c ui.C, group string, t shownTab, tabs []shownTab) fu
 		a.copyPathMenu(c, menu, path, true, "editor.tabs")
 		if menu.Item(revealLabel(language)).Clicked() {
 			c.After(func() {
-				a.performed("editor.tabs.reveal", surfaceMenu)
+				a.performed("editor.tabs.reveal", surfaceContextMenu)
 				a.revealPath(path)
 			})
 		}
 		_, inside := projectRelative(p.root, path)
 		if _, ok := a.kernel.(localHistoryKernel); ok && inside && menu.Item(i18n.Shared(language, "desktop.history.show")).Clicked() {
 			c.After(func() {
-				a.performed("localHistory.show", surfaceMenu)
+				a.performed("localHistory.show", surfaceContextMenu)
 				a.openLocalHistory(p, path)
 			})
 		}
 		if inside && menu.Item(i18n.Shared(language, "desktop.tab.selectInProject")).Clicked() {
 			c.After(func() {
-				a.performed("editor.tabs.selectInProject", surfaceMenu)
+				a.performed("editor.tabs.selectInProject", surfaceContextMenu)
 				a.selectDocument(p, d.id)
 				a.reduceChrome(core.SetChromeOpen(itemProject, true))
 				a.revealActiveFile(p)
@@ -131,7 +131,7 @@ func (a *App) setTabPinned(p *project, group string, d *document, pinned bool) {
 	if pinned {
 		action = "editor.tabs.pin"
 	}
-	a.performed(action, surfaceMenu)
+	a.performed(action, surfaceContextMenu)
 	member := documentMember(d.id)
 	if !a.reduceTerminals(p, p.terms.bench, core.PinEditor(group, member, pinned)) {
 		return

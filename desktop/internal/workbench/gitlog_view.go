@@ -114,7 +114,7 @@ func (a *App) drawLogStripe(c ui.C, p *project) {
 			})
 		}
 		if a.gitIconButton(c, g.UpdateBranch, icons.ArrowDownLeft, false, !updatable || l.sync.busy) {
-			c.After(func() { a.updateBranch(p, target) })
+			c.After(func() { a.updateBranch(p, target, surfaceButton) })
 		}
 		if a.gitIconButton(c, g.DeleteBranch, icons.Trash2, false, !deletable) {
 			c.After(func() {
@@ -129,7 +129,7 @@ func (a *App) drawLogStripe(c ui.C, p *project) {
 			a.logView.focus = logRefSearchID
 		}
 		if a.gitIconButton(c, g.Fetch, icons.CloudDownload, false, l.sync.busy) {
-			c.After(func() { a.fetchAll(p) })
+			c.After(func() { a.fetchAll(p, surfaceButton) })
 		}
 		if a.gitIconButton(c, g.LocateBranch, icons.Locate, false, !hasSelected && l.current == "") {
 			short := l.current

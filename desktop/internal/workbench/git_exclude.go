@@ -43,7 +43,7 @@ func (a *App) excludeLocally(p *project, change core.GitChange) {
 	if !ok {
 		return
 	}
-	a.performed("git.excludeLocally", surfaceMenu)
+	a.performed("git.excludeLocally", surfaceContextMenu)
 	root := p.git.repositoryRoot(p.root)
 	pattern := excludeLocallyPattern(change.Path)
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
@@ -57,7 +57,7 @@ func (a *App) excludeLocally(p *project, change core.GitChange) {
 		return func(a *App) {
 			if err != nil {
 				a.notifyError(i18n.SharedFormat(a.language(), "desktop.git.excludeFailed", map[string]string{"reason": reviewReason(err)}))
-				a.gitOperationFailed("git_exclude", err)
+				a.operationFailed("git_exclude", err)
 			}
 			a.loadGit(p)
 		}

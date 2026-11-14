@@ -242,6 +242,7 @@ func (a *App) reportProjectReplace(outcomes []replaceOutcome) {
 		if errors.Is(reason, documentio.ErrConflict) {
 			message = t.ReplaceConflict
 		}
+		a.operationFailed("project_replace", documentLogError(reason))
 		a.notifyError(t.ReplacePartlyFailed(strconv.Itoa(changed), strconv.Itoa(failed), message))
 		return
 	}

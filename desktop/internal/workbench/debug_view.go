@@ -77,7 +77,10 @@ func (a *App) debugToolbar(c ui.C, p *project) {
 		}
 		if session == nil {
 			if _, clicked := a.toolIconButton(c.Part("start"), t.Start, icons.Bug, false, len(d.adapters) == 0 || d.preparing); clicked {
-				c.After(func() { a.startDebug(p) })
+				c.After(func() {
+					a.performed("debug.start", surfaceButton)
+					a.startDebug(p)
+				})
 			}
 		} else if _, clicked := a.toolIconButton(c.Part("stop"), t.Stop, icons.Square, false, false); clicked {
 			c.After(func() { a.stopDebugByUser(p) })
@@ -251,7 +254,10 @@ func (a *App) debugRemotePrompt(c ui.C, p *project) {
 			*open = false
 		}
 		if ui.Button(c, t.RemoteAttach).Clicked() {
-			c.After(func() { a.confirmRemoteDebug(p) })
+			c.After(func() {
+				a.performed("debug.remote.attach", surfaceButton)
+				a.confirmRemoteDebug(p)
+			})
 		}
 	})
 	if closed || !*open {
@@ -317,7 +323,10 @@ func (a *App) debugBreakpoints(c ui.C, p *project) {
 		ui.Text(c, i18n.Shared(a.language(), "native.lineBreakpoints")).Color(a.colors.Text).Weight(gfx.WeightMedium).Shrink(0)
 		ui.Spacer(c)
 		if ui.Button(c, t.ToggleBreakpoint).Outline().Clicked() {
-			c.After(func() { a.toggleBreakpoint(p) })
+			c.After(func() {
+				a.performed("debug.toggleBreakpoint", surfaceButton)
+				a.toggleBreakpoint(p)
+			})
 		}
 	})
 	rows := debugBreakpointList(d)

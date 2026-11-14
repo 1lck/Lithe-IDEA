@@ -351,7 +351,7 @@ func (a *App) debugWatchView(c ui.C, p *project) {
 			if row.DoubleClicked() {
 				i := index
 				c.After(func() {
-					a.performed("debug.watch.edit", "debug")
+					a.performed("debug.watch.edit", surfaceButton)
 					w.beginEdit(i)
 				})
 			}

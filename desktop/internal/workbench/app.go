@@ -244,6 +244,19 @@ type LogSink interface {
 	Emit(level core.LogLevel, event, op string, fields map[string]any)
 }
 
+// pluginFileSink is the part of the client's log that gives a plugin process the directory
+// it writes its own files to. *logstore.Store implements it; a sink without it gives none.
+type pluginFileSink interface {
+	PluginFilesDirectory(ctx context.Context, pluginID string) (string, error)
+}
+
+// diagnosticsWatchSink is the part of the client's log that tells when detailed diagnostics
+// turn on and off, so the upstream trace of plugin sessions follows the same switch.
+// *logstore.Store implements it; with a sink without it the trace stays off.
+type diagnosticsWatchSink interface {
+	WatchDiagnostics(watch func(on bool)) (stop func())
+}
+
 // logsShortcut opens the log window, as on macOS.
 const logsShortcut = "⇧⌘L"
 
@@ -654,6 +667,14 @@ type App struct {
 	// when the window was made without a log.
 	logSink LogSink
 	logs    *logwindow.Controller
+	// unwatchDiagnostics stops the detailed-diagnostics switch reaching this workbench's plugin
+	// sessions; it is nil when nothing watches it.
+	unwatchDiagnostics func()
+	// logWindowOpen replaces how the log window opens, for tests, which have no application.
+	logWindowOpen func(op string) error
+	// op is the user action the window thread is running (operation.go); only the window
+	// thread reads or sets it.
+	op operation
 	// version is Options.Version.
 	version string
 	// shared is what the log window reads from its own thread: the language and the look
@@ -694,7 +715,10 @@ func New(options Options) *App {
 		listShells:           localshell.InstalledShells,
 	}
 	a.gitConsole = core.NewGitConsole(a.gitConsoleChanged)
-	if _, err := a.store.Load(settingsFile, &a.settings); err != nil {
+	// The settings are read before the log sink is in place; a failure is recorded below, once
+	// it is.
+	_, settingsErr := a.store.Load(settingsFile, &a.settings)
+	if settingsErr != nil {
 		a.settings = settings{}
 	}
 	a.settings.Keymap = shortcuts.Normalize(a.settings.Keymap)
@@ -750,6 +774,9 @@ func New(options Options) *App {
 		// Processes started from now on are recorded in the preferences' ledger (startup_sweep.go).
 		processledger.Activate(a.store.Dir())
 	}
+	if settingsErr != nil {
+		a.storedStateFailed("settings", settingsErr)
+	}
 	a.openPlugins(options)
 	a.settingsWindow = a.newSettingsWindow()
 	a.loadRecent()
@@ -774,7 +801,7 @@ func (a *App) openPlugins(options Options) {
 	if root == "" {
 		resolved, err := pluginpkg.DefaultRoot()
 		if err != nil {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_root", err))
+			a.operationFailed("plugin_root", err)
 			return
 		}
 		root = resolved
@@ -785,16 +812,21 @@ func (a *App) openPlugins(options Options) {
 	}
 	service, err := open(options.PluginKernel, a.store, root)
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_open", err))
+		a.operationFailed("plugin_open", err)
 		return
 	}
 	a.plugins = service
 	service.Backend.SetInitializeTimeout(options.PluginInitializeTimeout)
 	service.Backend.SetToolResolver(a.resolveBackendTool)
 	service.Backend.SetToolEntryResolver(a.resolveBackendToolEntry)
+	service.Backend.SetLogFacts(a.recordEngineFact)
+	service.Backend.SetTraceFailed(a.traceFailed)
+	a.watchDiagnostics()
 	service.LanguageTool = a.resolveLanguageTool
+	service.LogDirectory = a.pluginLogDirectory
+	service.RecordFailed = a.pluginOperationRecordFailed
 	if err := service.AttachWorkbench(pluginWorkbench{app: a}); err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_host_services", err))
+		a.operationFailed("plugin_host_services", err)
 	}
 	a.wirePluginRuns()
 }
@@ -836,10 +868,11 @@ func (a *App) Run() error {
 	})
 	for _, session := range a.sessions.everyOne() {
 		session.unsubscribeSettings()
+		session.stopWatchingDiagnostics()
 		session.closeProject()
 		session.wait()
 		if session.pluginDownloads != nil {
-			session.recordPluginInstallCleanup(session.pluginDownloads.Close())
+			session.recordPluginInstallCleanup(context.Background(), session.pluginDownloads.Close())
 		}
 		if session.plugins != nil && session.plugins.Runs != nil {
 			// Runs of the closed project are already stopped; this ends any the
@@ -879,42 +912,170 @@ func (a *App) closed() {
 	a.stopUpdates()
 }
 
-// openLogs shows the log window. The window is opened from the queue drained in OnWake,
-// not from the paint or the event that asked for it, because opening a window while this
-// one is painting is not allowed.
-func (a *App) openLogs() {
+// openLogs shows the log window.
+func (a *App) openLogs() { a.showLogs("") }
+
+// showLogs shows the log window, narrowed to the records of op when op is not empty. The
+// window is opened from the queue drained in OnWake, not from the paint or the event that
+// asked for it, because opening a window while this one is painting is not allowed.
+func (a *App) showLogs(op string) {
 	if a.logs == nil {
+		// The client runs without a log writer, so there is nowhere to record this: a failure
+		// of the writer itself is never written through the writer.
 		a.notifyError(a.text.Title.LogsUnavailable)
 		return
 	}
 	a.post(func(a *App) {
-		if a.application == nil {
-			return
-		}
-		if err := a.logs.Open(a.application); err != nil {
+		if err := a.openLogWindow(op); err != nil {
+			a.operationFailed("log_window_open", err)
 			a.notifyError(a.text.Errors.LogsFailed(err.Error()))
 		}
 	})
 }
 
-// emit writes one of the window's own events to the client's log, when there is one.
+// openLogWindow opens the log window in the application, on the records of op when op is not
+// empty. It runs on the window thread.
+func (a *App) openLogWindow(op string) error {
+	if a.logWindowOpen != nil {
+		return a.logWindowOpen(op)
+	}
+	if a.application == nil {
+		return nil
+	}
+	if op == "" {
+		return a.logs.Open(a.application)
+	}
+	return a.logs.OpenOperation(a.application, op)
+}
+
+// emit writes one of the window's own events to the client's log, when there is one, under the
+// user action in progress. It reads the window thread's state: a goroutine records with emitIn.
 func (a *App) emit(level core.LogLevel, event string, fields map[string]any) {
+	a.emitAs(a.op.id, level, event, fields)
+}
+
+// emitIn writes one of the window's own events from any goroutine, under the user action ctx
+// belongs to (core.OriginOf), for work that runs off the window thread.
+func (a *App) emitIn(ctx context.Context, level core.LogLevel, event string, fields map[string]any) {
+	a.emitAs(core.OriginOf(ctx).Operation, level, event, fields)
+}
+
+// emitAs writes one event under op; empty op means the event belongs to no action.
+func (a *App) emitAs(op string, level core.LogLevel, event string, fields map[string]any) {
 	if a.logSink != nil {
-		a.logSink.Emit(level, event, "", fields)
+		a.logSink.Emit(level, event, op, fields)
 	}
 }
 
-// Surfaces a user action can be started from, written as the catalog's tokens.
+// recordEngineFact writes a catalog fact Core attached to a plugin session's runtime event:
+// a language server's stderr line or logMessage, a provider's lifecycle, a session's exit.
+// Core chose the event and already checked and redacted its fields against the catalog, so
+// the window adds nothing; the writer checks it again on the way out. Engine facts belong to
+// no user action. It is safe from any goroutine.
+func (a *App) recordEngineFact(level core.LogLevel, event string, fields map[string]any) {
+	a.emitAs("", level, event, fields)
+}
+
+// traceFailed records that Core refused to switch the upstream trace of a plugin session the
+// way detailed diagnostics were last turned. The runner reports one refusal per choice, so a
+// broken kernel cannot flood the log. It is safe from any goroutine.
+func (a *App) traceFailed(err error) {
+	a.emitAs("", core.LevelWarn, "app.logging.diagnostics_failed", core.LogErrorFields(err))
+}
+
+// watchDiagnostics makes the upstream trace of this workbench's plugin sessions follow the
+// detailed-diagnostics switch of the client's log: the sessions running when it turns, and
+// those started while it is on, as Core's logging contract asks. Without a log that tells
+// the switch, or without plugins, the trace stays off.
+func (a *App) watchDiagnostics() {
+	a.stopWatchingDiagnostics()
+	sink, ok := a.logSink.(diagnosticsWatchSink)
+	if !ok || a.plugins == nil {
+		return
+	}
+	a.unwatchDiagnostics = sink.WatchDiagnostics(a.plugins.Backend.SetDetailedDiagnostics)
+}
+
+// stopWatchingDiagnostics stops the plugin sessions of this workbench following the
+// detailed-diagnostics switch; it runs once the workbench is done with them.
+func (a *App) stopWatchingDiagnostics() {
+	if a.unwatchDiagnostics != nil {
+		a.unwatchDiagnostics()
+		a.unwatchDiagnostics = nil
+	}
+}
+
+// pluginLogDirectory is the ${logDir} of a process started for pluginID: this log session's
+// plugins/<id>/files directory, whose files retention and Clear Logs treat like the
+// session's own. It is empty when the client runs without a log store, and when the
+// directory cannot be made, which is recorded; the process then starts without one. It is
+// safe from any goroutine.
+func (a *App) pluginLogDirectory(ctx context.Context, pluginID string) string {
+	sink, ok := a.logSink.(pluginFileSink)
+	if !ok {
+		return ""
+	}
+	directory, err := sink.PluginFilesDirectory(ctx, pluginID)
+	if err != nil {
+		a.backgroundFailedIn(ctx, "plugin_log_directory", documentLogError(err))
+		return ""
+	}
+	return directory
+}
+
+// pluginOperationRecordFailed records that Core refused, or could not queue, the result of a
+// declarative plugin contribution the window ran. It is safe from any goroutine.
+func (a *App) pluginOperationRecordFailed(ctx context.Context, err error) {
+	a.backgroundFailedIn(ctx, "plugin_operation_record", err)
+}
+
+// actionSurface is the part of the window a user action was started from. The set is closed:
+// it is the list the catalog gives for the surface field of app.action.performed, and the
+// test that checks every logging call against the kernel rejects a value outside it.
+type actionSurface string
+
+// The surfaces, written as the catalog's tokens. Each one is typed, so performed cannot be
+// handed a bare string.
 const (
-	surfaceButton   = "button"
-	surfaceMenu     = "menu"
-	surfaceShortcut = "shortcut"
+	// surfaceMenu is a menu bar menu, the compact menu, or a drop-down opened from a menu
+	// button.
+	surfaceMenu actionSurface = "menu"
+	// surfaceShortcut is a key binding.
+	surfaceShortcut actionSurface = "shortcut"
+	// surfacePalette is a command picked in Search Everywhere.
+	surfacePalette actionSurface = "palette"
+	// surfaceToolbar is a control on the title bar.
+	surfaceToolbar actionSurface = "toolbar"
+	// surfaceButton is a control clicked in a panel, tool window, sheet or dialog: a button, a
+	// link, a list row or a gutter mark.
+	surfaceButton actionSurface = "button"
+	// surfaceContextMenu is a menu opened with a secondary click or from a "more" button on
+	// an item.
+	surfaceContextMenu actionSurface = "context_menu"
+	// surfaceNotification is a button on a notification.
+	surfaceNotification actionSurface = "notification"
+	// surfacePlugin is a plugin backend asking the host to do the action.
+	surfacePlugin actionSurface = "plugin"
+	// surfaceDragDrop is a drop of a dragged file, tab or tree item.
+	surfaceDragDrop actionSurface = "drag_drop"
 )
 
-// performed logs that the user started the action with the stable id from surface, as the
-// macOS client does; the id is never a localized title.
-func (a *App) performed(action, surface string) {
-	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": action, "surface": surface})
+// performed logs that the user started the action with the stable id from surface; the id is
+// never a localized title. It starts the action's operation
+// (operation.go): what the action records and the Core requests it sends share its op.
+func (a *App) performed(action string, surface actionSurface) {
+	a.op = operation{id: core.NewOperation(), trigger: action}
+	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": action, "surface": string(surface)})
+}
+
+// performedIn logs an action the user started in a window other than this one, such as the
+// settings window, from the goroutine that runs it. It never touches the window thread's
+// operation: the action's operation travels in the returned context, under which the work
+// records its events (emitIn) and sends its Core requests.
+func (a *App) performedIn(ctx context.Context, action string, surface actionSurface) context.Context {
+	id := core.NewOperation()
+	a.emitAs(id, core.LevelInfo, "app.action.performed", map[string]any{"action": action, "surface": string(surface)})
+	return core.WithOrigin(ctx, core.Origin{Operation: id, Trigger: action})
 }
 
 // titleBarHeight is the height of the title bar on both screens; the system's window
@@ -969,7 +1130,7 @@ func (a *App) saveSettings() {
 	a.settings.WorkbenchBackground = a.savedBackgroundState()
 	a.updates.store(&a.settings)
 	if err := a.store.Save(settingsFile, a.settings); err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("settings_save", documentLogError(err)))
+		a.operationFailed("settings_save", documentLogError(err))
 		a.notifyError(a.text.Errors.SaveFailed(err.Error()))
 	}
 }
@@ -1034,7 +1195,7 @@ func (a *App) activate(index int) {
 		a.titleDebug(a.project)
 	case it.id == itemTitleSearch:
 		if a.project != nil {
-			a.performed("workspace.searchEverywhere.open", surfaceButton)
+			a.performed("workspace.searchEverywhere.open", surfaceToolbar)
 			a.openEverywhere(a.project)
 		}
 	case it.id == itemCaret:
@@ -1071,6 +1232,7 @@ func (a *App) hidePanel(s slot) {
 func (a *App) loadRecent() {
 	var entries []core.RecentProject
 	if _, err := a.store.Load(recentFile, &entries); err != nil {
+		a.storedStateFailed("recent_projects", err)
 		a.notifyError(a.text.Errors.Core(err.Error()))
 		entries = nil
 	}
@@ -1080,17 +1242,17 @@ func (a *App) loadRecent() {
 // reduceRecent sends one change of the recent project list to the kernel and keeps
 // the result, saving it when save is set.
 func (a *App) reduceRecent(entries []core.RecentProject, action core.RecentAction, save bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
+	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), kernelCallTimeout)
 	defer cancel()
 	result, err := a.kernel.ReduceRecentProjects(ctx, entries, action, 0)
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_recent_reduce", documentLogError(err)))
+		a.operationFailed("workspace_recent_reduce", documentLogError(err))
 		a.notifyError(a.text.Errors.Core(err.Error()))
 		return
 	}
 	if save {
 		if err := a.store.Save(recentFile, result.Entries); err != nil {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_recent_save", documentLogError(err)))
+			a.operationFailed("workspace_recent_save", documentLogError(err))
 			a.notifyError(a.text.Errors.SaveFailed(err.Error()))
 			return
 		}
@@ -1107,7 +1269,7 @@ func (a *App) reduceRecent(entries []core.RecentProject, action core.RecentActio
 
 // chooseProject asks for a project folder and opens it; surface is where the user asked.
 // The system dialog runs off the window thread so the window keeps painting behind it.
-func (a *App) chooseProject(surface string) {
+func (a *App) chooseProject(surface actionSurface) {
 	title := a.text.Welcome.OpenDialogTitle
 	a.background(nil, 0, func(context.Context) func(*App) {
 		path, err := app.OpenDirectory(app.OpenDirectoryOptions{Title: title})
@@ -1115,6 +1277,7 @@ func (a *App) chooseProject(surface string) {
 			switch {
 			case errors.Is(err, app.ErrCanceled):
 			case err != nil:
+				a.operationFailed("project_open_dialog", err)
 				a.notifyError(a.text.Errors.OpenFailed(err.Error()))
 			default:
 				a.performed("workspace.open", surface)
@@ -1129,7 +1292,7 @@ func (a *App) chooseProject(surface string) {
 func (a *App) openProjectHere(path string) {
 	root, err := filepath.Abs(wslpath.ToNative(path))
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_open", documentLogError(err)))
+		a.operationFailed("workspace_open", documentLogError(err))
 		a.notifyError(a.text.Errors.OpenFailed(err.Error()))
 		return
 	}
@@ -1137,7 +1300,7 @@ func (a *App) openProjectHere(path string) {
 		if err == nil {
 			err = errors.New("not a directory")
 		}
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_open", documentLogError(err)))
+		a.operationFailed("workspace_open", documentLogError(err))
 		a.notifyError(a.text.Errors.FolderMissing(root))
 		return
 	}

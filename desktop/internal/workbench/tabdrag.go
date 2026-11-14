@@ -51,13 +51,14 @@ func (a *App) tabDropRules(member string) *core.EditorDropRules {
 	if p == nil {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
+	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), kernelCallTimeout)
 	defer cancel()
 	rules, err := a.kernel.EditorDropTargets(ctx, core.EditorDropQuery{
 		State: p.terms.bench, Layout: layoutShape(p.terms.layout), Member: member,
 		Docked: dockedGroups, Dockable: dockable(member),
 	})
 	if err != nil {
+		a.operationFailed("editor_tab_drop", err)
 		a.notifyError(a.text.Errors.Core(err.Error()))
 		return nil
 	}

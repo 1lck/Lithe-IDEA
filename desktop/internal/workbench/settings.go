@@ -11,7 +11,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
@@ -35,8 +34,11 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		PluginInstallsClosed: func() {
 			a.post(func(a *App) { a.closePluginDownloads() })
 		},
-		GitHub:             a.githubSettings(),
-		SettingsError:      func(operation string, err error) { (settingsToolchains{app: a}).recordFailure(operation, err) },
+		GitHub: a.githubSettings(),
+		// The settings window reports from its own jobs, which run no action of this window.
+		SettingsError: func(operation string, err error) {
+			(settingsToolchains{app: a}).recordFailure(context.Background(), operation, err)
+		},
 		SettingsNavigation: navigation,
 		SettingsPages: func(ctx context.Context) ([]core.SettingsPage, error) {
 			if a.plugins == nil {
@@ -55,11 +57,7 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 				if plugins == nil {
 					return marketplace.Snapshot{}, err
 				}
-				a.post(func(a *App) {
-					fields := logwindow.ErrorFields(err)
-					fields["operation"] = "plugin_settings_catalog"
-					a.emit(core.LevelError, "app.notification.operation_failed", fields)
-				})
+				a.operationFailedIn(ctx, "plugin_settings_catalog", err)
 			}
 			return marketplace.Snapshot{Index: core.MarketplaceIndex{Plugins: plugins}}, nil
 		},
@@ -79,19 +77,14 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			}
 			return service.Fetch(ctx, marketplace.OfficialIndexURL, core.MarketplaceOfficial, runtime.GOOS+"-"+arch, pluginhost.Declared().Clone())
 		},
+		// The plugin page reports from the settings window's own jobs. They run no action of
+		// this window, so the events are written straight from that goroutine, under no
+		// operation, rather than posted to the window thread under whatever it was doing.
 		MarketplaceError: func(err error) {
-			a.post(func(a *App) {
-				fields := logwindow.ErrorFields(err)
-				fields["operation"] = "plugin_marketplace"
-				a.emit(core.LevelError, "app.notification.operation_failed", fields)
-			})
+			a.operationFailedIn(context.Background(), "plugin_marketplace", err)
 		},
 		MarketplaceRejected: func(_ int) {
-			a.post(func(a *App) {
-				a.emit(core.LevelWarn, "app.notification.operation_rejected", map[string]any{
-					"operation": "plugin_marketplace", "reason": "invalid_index_entries",
-				})
-			})
+			a.operationRejectedIn(context.Background(), "plugin_marketplace", "invalid_index_entries")
 		},
 		MarketplaceResized: func(width float32) {
 			a.post(func(a *App) { a.setMarketplaceWidth(width) })
@@ -340,28 +333,28 @@ func (a *App) invalidateSettingsWindow() {
 // The window is opened from a queued task because the toolkit only opens a window from a
 // window thread, which the task runs on. The settings in force are read there, at the
 // moment the window opens, so a window that has to be made starts from the latest ones.
-func (a *App) openSettings(surface string) {
+func (a *App) openSettings(surface actionSurface) {
 	a.openSettingsPage(surface, settingsHome)
 }
 
 // openPluginSettings shows the settings window on its plugin page.
-func (a *App) openPluginSettings(surface string) {
+func (a *App) openPluginSettings(surface actionSurface) {
 	a.openSettingsPage(surface, settingsPlugins)
 }
 
 // openPluginSettingsSearch shows the plugin page with the marketplace search set to query.
-func (a *App) openPluginSettingsSearch(surface, query string) {
+func (a *App) openPluginSettingsSearch(surface actionSurface, query string) {
 	a.openSettingsPageWith(surface, settingsPlugins, query)
 }
 
 // openTerminalSettings shows the settings window on its Terminal page, where the shell new
 // terminals run is picked.
-func (a *App) openTerminalSettings(surface string) {
+func (a *App) openTerminalSettings(surface actionSurface) {
 	a.openSettingsPage(surface, settingsTerminal)
 }
 
 // openKeymapSettings shows the settings window on its Keymap page.
-func (a *App) openKeymapSettings(surface string) {
+func (a *App) openKeymapSettings(surface actionSurface) {
 	a.openSettingsPage(surface, settingsKeymap)
 }
 
@@ -380,12 +373,12 @@ const (
 	settingsKeymap
 )
 
-func (a *App) openSettingsPage(surface string, page settingsPage) {
+func (a *App) openSettingsPage(surface actionSurface, page settingsPage) {
 	a.openSettingsPageWith(surface, page, "")
 }
 
 // openSettingsPageWith is openSettingsPage with the marketplace search text the plugin page starts with.
-func (a *App) openSettingsPageWith(surface string, page settingsPage, query string) {
+func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, query string) {
 	a.performed("settings.open", surface)
 	// Users can enter Plugins from any settings page. Publish native installed
 	// state when the window opens, including its general-settings entry point.
@@ -438,6 +431,7 @@ func (a *App) openSettingsPageWith(surface string, page settingsPage, query stri
 			err = a.settingsWindow.Open(a.application, current)
 		}
 		if err != nil {
+			a.operationFailed("settings_open", err)
 			a.notifyError(a.text.Errors.SettingsFailed(err.Error()))
 		}
 	})
@@ -447,7 +441,7 @@ func (a *App) openSettingsPageWith(surface string, page settingsPage, query stri
 // browser. When the system cannot, the window says so and the log records why.
 func (a *App) openSettingsLink(address string) {
 	if err := openURL(address); err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("settings_open_link", err))
+		a.operationFailed("settings_open_link", err)
 		a.notifyError(i18n.SharedFormat(a.language(), "desktop.terminal.openLinkFailed", map[string]string{"reason": err.Error()}))
 		return
 	}

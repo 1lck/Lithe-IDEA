@@ -183,7 +183,7 @@ func (a *App) applyServerDocumentLinks(pending *semanticPending, event core.Back
 	}
 	links, err := core.PluginServerDocumentLinks(event)
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("server_document_links", err))
+		a.backgroundFailed("server_document_links", err)
 		return
 	}
 	converted := make([]pluginservice.EditorLink, 0, len(links))

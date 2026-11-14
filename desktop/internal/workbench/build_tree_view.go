@@ -306,13 +306,13 @@ func (a *App) buildGroupRow(row ui.ListRow, p *project, instance *buildInstance,
 		menu.WidthRange(180, 280)
 		if menu.Item(i18n.Shared(language, "native.reload")).Disabled(instance.modelLoading || b.operation != nil).Clicked() {
 			c.After(func() {
-				a.performed("build.model.reload", surfaceMenu)
+				a.performed("build.model.reload", surfaceContextMenu)
 				a.reloadBuildModel(p, index)
 			})
 		}
 		if options && menu.Item(i18n.Shared(language, "desktop.build.options")).Clicked() {
 			c.After(func() {
-				a.performed("build.options.open", surfaceMenu)
+				a.performed("build.options.open", surfaceContextMenu)
 				a.chooseBuildInstance(p, index)
 				a.openBuildOptions(p, p.selectedBuildInstance())
 			})
@@ -404,7 +404,7 @@ func (a *App) buildNoteRow(row ui.ListRow, p *project, instance *buildInstance, 
 			menu.WidthRange(180, 280)
 			if menu.Item(i18n.Shared(a.language(), "native.reload")).Disabled(instance.modelLoading || p.build.operation != nil).Clicked() {
 				c.After(func() {
-					a.performed("build.model.reload", surfaceMenu)
+					a.performed("build.model.reload", surfaceContextMenu)
 					a.reloadBuildModel(p, index)
 				})
 			}

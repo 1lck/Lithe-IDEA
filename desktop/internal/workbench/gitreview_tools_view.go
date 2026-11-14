@@ -28,7 +28,7 @@ func (a *App) drawGitReviewMenu(c ui.C, p *project) {
 	ui.Menu(c, button, &r.open, func(menu *ui.MenuItems) {
 		menu.WidthRange(240, 320)
 		if menu.Item(i18n.Shared(a.language(), "git.contextMenu.push")).Clicked() {
-			c.After(func() { a.openPush(p) })
+			c.After(func() { a.openPush(p, surfaceMenu) })
 		}
 		if menu.Item(i18n.Shared(a.language(), "git.saved.stashes")).Clicked() {
 			c.After(a.showStashes)

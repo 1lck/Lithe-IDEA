@@ -38,17 +38,20 @@ type pushState struct {
 }
 
 // openPush opens the Push dialog on the branch checked out in the repository the log walks.
-func (a *App) openPush(p *project) { a.openPushOf(p, p.logRepositoryRoot(), core.GitReference{}) }
+func (a *App) openPush(p *project, surface actionSurface) {
+	a.openPushOf(p, p.logRepositoryRoot(), core.GitReference{}, surface)
+}
 
 // openPushOf opens the Push dialog on the local branch of the repository at root, the
-// checked-out one when branch is empty, and reads Core's preview.
-func (a *App) openPushOf(p *project, root string, branch core.GitReference) {
+// checked-out one when branch is empty, and reads Core's preview. surface is where the user
+// asked.
+func (a *App) openPushOf(p *project, root string, branch core.GitReference, surface actionSurface) {
 	if _, ok := a.reviewKernel(); !ok || !p.git.isRepository() {
 		return
 	}
 	s := &p.review.push
 	*s = pushState{open: true, gen: s.gen + 1, root: root, branch: branch}
-	a.performed("git.push.open", surfaceMenu)
+	a.performed("git.push.open", surface)
 	a.loadPush(p)
 }
 
@@ -81,7 +84,7 @@ func (a *App) loadPush(p *project) {
 			s.loading = false
 			if err != nil {
 				s.err, s.hasPrev = i18n.Shared(a.language(), "git.pushDialog.previewFailed")+" "+reviewReason(err), false
-				a.gitOperationFailed("git_push_preview", err)
+				a.operationFailed("git_push_preview", err)
 				return
 			}
 			s.preview, s.hasPrev = preview, true
@@ -188,7 +191,7 @@ func (a *App) loadTools(p *project) {
 			t.loading, t.repositories = false, repos
 			if err != nil {
 				t.err = reviewReason(err)
-				a.gitOperationFailed("git_repositories", err)
+				a.operationFailed("git_repositories", err)
 				return
 			}
 			t.err = ""

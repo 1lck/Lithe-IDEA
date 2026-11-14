@@ -33,6 +33,10 @@ type notification struct {
 	unread bool
 	// toast is the toast that shows it, which may have gone by itself already.
 	toast ui.ToastID
+	// op is the user action the failure was last reported under, empty when it never came
+	// during one. The toast and the history offer View Logs for it, which opens the log window
+	// on that action's records.
+	op string
 }
 
 // notificationCenter is the history, newest first, and whether its panel is open.
@@ -82,7 +86,8 @@ func (a *App) notificationColor(kind ui.ToastKind) gfx.Color {
 
 // notifyKind shows message as a toast of kind and records it. The same message of the same
 // kind again is not a second entry: its entry counts it, moves to the top, is unread again
-// and its toast shows the count, replacing the toast it had.
+// and its toast shows the count, replacing the toast it had. A failure reported during a user
+// action refers to the action's records: its toast has a View Logs button.
 func (a *App) notifyKind(message string, kind ui.ToastKind) {
 	a.notice = message
 	center := &a.notifications
@@ -101,11 +106,47 @@ func (a *App) notifyKind(message string, kind ui.ToastKind) {
 	entry.count++
 	entry.at = a.now()
 	entry.unread = !center.open
+	if kind == ui.ToastError && a.op.id != "" {
+		entry.op = a.op.id
+	}
 	center.list = append([]*notification{entry}, center.list...)
 	if len(center.list) > notificationHistoryLimit {
 		center.list = center.list[:notificationHistoryLimit]
 	}
-	entry.toast = a.overlay.toaster.Show(a.notificationText(entry), "", kind)
+	action := ""
+	if a.viewsLogs(entry) {
+		action = i18n.Shared(a.language(), "desktop.notifications.viewLogs")
+	}
+	entry.toast = a.overlay.toaster.ShowAction(a.notificationText(entry), "", kind, action)
+}
+
+// viewsLogs says the notice offers View Logs: it refers to an action's records and there is a
+// log window to show them in.
+func (a *App) viewsLogs(entry *notification) bool {
+	return entry.op != "" && a.logs != nil
+}
+
+// notificationActed opens the records of the notice whose toast's View Logs this paint
+// delivered a press on. Call it after ui.Toasts.
+func (a *App) notificationActed(c ui.C) {
+	id, ok := a.overlay.toaster.Acted()
+	if !ok {
+		return
+	}
+	for _, entry := range a.notifications.list {
+		if entry.toast == id && entry.op != "" {
+			op := entry.op
+			c.After(func() { a.viewNotificationLogs(op) })
+			return
+		}
+	}
+}
+
+// viewNotificationLogs is View Logs on a notice: the log window on the records of op, the
+// action the notice reported a failure of.
+func (a *App) viewNotificationLogs(op string) {
+	a.performed("logs.openOperation", surfaceNotification)
+	a.showLogs(op)
 }
 
 // notificationText is a notice's words, with how often it came when that is more than once.
@@ -203,12 +244,20 @@ func (a *App) notificationPanel(c ui.C, anchor ui.Box) {
 	}
 }
 
-// notificationEntry declares a notice of the history: its words, when it came last and how often.
+// notificationEntry declares a notice of the history: its words, when it came last and how
+// often, and View Logs when it refers to an action's records.
 func (a *App) notificationEntry(k ui.C, entry *notification) {
+	language := a.language()
 	ui.Wrap(k, entry.text).FontSize(a.theme.Metrics.FontSizeS)
 	meta := entry.at.Format("15:04:05")
 	if entry.count > 1 {
-		meta = i18n.SharedFormat(a.language(), "desktop.notifications.meta", map[string]string{"time": meta, "count": strconv.Itoa(entry.count)})
+		meta = i18n.SharedFormat(language, "desktop.notifications.meta", map[string]string{"time": meta, "count": strconv.Itoa(entry.count)})
 	}
-	ui.Text(k, meta).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+	ui.Row(k).FillWidth().Items(ui.Center).Gap(8).Children(func() {
+		ui.Text(k, meta).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Grow(1).Ellipsis()
+		if a.viewsLogs(entry) && ui.Button(k.Part("logs"), i18n.Shared(language, "desktop.notifications.viewLogs")).Ghost().Small().Clicked() {
+			op := entry.op
+			k.After(func() { a.viewNotificationLogs(op) })
+		}
+	})
 }

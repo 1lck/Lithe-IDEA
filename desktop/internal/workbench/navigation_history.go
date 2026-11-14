@@ -55,12 +55,12 @@ func (a *App) recordNavigationJump(p *project, path string, line, column int) {
 		return
 	}
 	s := a.navigationHistoryOf(p)
-	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
+	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), kernelCallTimeout)
 	defer cancel()
 	destination := core.NavigationLocation{Document: path, Line: line, Column: column}
 	next, _, err := kernel.ReduceNavigationHistory(ctx, s.history, core.NavigationHistoryRecord(departure, &destination))
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_navigation_history", err))
+		a.backgroundFailed("editor_navigation_history", err)
 		return
 	}
 	s.history = next
@@ -81,11 +81,11 @@ func (a *App) stepNavigation(p *project, forward bool) {
 	if forward {
 		event = core.NavigationHistoryForward(current)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
+	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), kernelCallTimeout)
 	defer cancel()
 	next, destination, err := kernel.ReduceNavigationHistory(ctx, s.history, event)
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_navigation_history", err))
+		a.operationFailed("editor_navigation_history", err)
 		return
 	}
 	if destination == nil {
@@ -94,6 +94,7 @@ func (a *App) stepNavigation(p *project, forward bool) {
 	}
 	// A destination that no longer exists keeps the history as it was, so the entry is not lost.
 	if _, err := os.Stat(destination.Document); err != nil {
+		a.operationRejected("editor_navigation_history", "destination_unavailable")
 		a.notifyError(i18n.Shared(a.language(), "desktop.navigation.historyUnavailable"))
 		return
 	}

@@ -60,7 +60,7 @@ func (a *App) markRecentlyEdited(p *project, d *document) {
 	}
 }
 func (a *App) recentFailed(err error) {
-	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_recent", documentLogError(err)))
+	a.operationFailed("editor_recent", documentLogError(err))
 	a.notifyError(i18n.Shared(a.language(), "desktop.recentFiles.failed"))
 }
 func (a *App) openRecentFiles(edited bool) {
@@ -133,7 +133,7 @@ func (a *App) enqueueRecent(request recentRequest) {
 			recentFilesIO.Unlock()
 			a.post(func(a *App) {
 				if err != nil {
-					// log-exempt: 生命周期清理：关闭项目取消所属的历史读取，结果不再投递。
+					// log-exempt: 用户取消：关闭项目取消了所属的历史读取，结果不再投递。
 					if !errors.Is(err, context.Canceled) {
 						a.recentFailed(err)
 					}

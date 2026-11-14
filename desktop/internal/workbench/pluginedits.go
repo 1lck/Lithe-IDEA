@@ -134,12 +134,13 @@ func (a *App) startPluginFormattingAtSelection(p *project, d *document) {
 // semanticOperationFailed tells the user a document-changing request failed;
 // the stable error code is already in the log.
 func (a *App) semanticOperationFailed(kind semanticKind) {
-	switch kind {
-	case pluginSemanticFormatting, pluginSemanticRangeFormatting, pluginSemanticRename:
-		a.notifyError(i18n.Shared(a.language(), "desktop.semantics.operationFailed"))
-		if kind == pluginSemanticRename {
-			a.renameAborted()
-		}
+	if !kind.toldToUser() {
+		return
+	}
+	// The callers record the failure (plugin_semantics); this only tells the user.
+	a.notifyError(i18n.Shared(a.language(), "desktop.semantics.operationFailed"))
+	if kind == pluginSemanticRename {
+		a.renameAborted()
 	}
 }
 
@@ -150,7 +151,7 @@ func (a *App) applySemanticFormatting(pending *semanticPending, event core.Backe
 	}
 	edits, err := core.PluginSemanticTextEdits(event)
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_format", err))
+		a.operationFailed("plugin_format", err)
 		a.notifyError(i18n.Shared(a.language(), "desktop.semantics.formatFailed"))
 		return
 	}
@@ -178,7 +179,7 @@ func (a *App) applyEditsToDocument(p *project, d *document, edits []core.PluginT
 		return func(a *App) {
 			current, document := a.currentSemanticDocument(documentID)
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields(operation, err))
+				a.operationFailed(operation, err)
 				a.notifyError(i18n.Shared(a.language(), "desktop.semantics.formatFailed"))
 				return
 			}

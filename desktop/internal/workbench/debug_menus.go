@@ -33,7 +33,7 @@ type debugVarMenu struct {
 
 // copyDebugText puts one value the debugger shows on the clipboard.
 func (a *App) copyDebugText(action, text string) {
-	a.performed(action, surfaceMenu)
+	a.performed(action, surfaceContextMenu)
 	_ = app.SetClipboardText(text)
 }
 
@@ -58,7 +58,7 @@ func (a *App) debugThreadItems(c ui.C, menu *ui.MenuItems, p *project) {
 		}
 		if menu.Item(label).Disabled(!enabled).Clicked() {
 			c.After(func() {
-				a.performed("debug.thread."+command, surfaceMenu)
+				a.performed("debug.thread."+command, surfaceContextMenu)
 				a.executeDebugThread(p, id)
 			})
 		}
@@ -106,7 +106,7 @@ func (a *App) debugFrameMenu(c ui.C, row ui.Box, p *project, index int) {
 // showFrameDisassembly makes the frame at index current and shows the Disassembly section,
 // which loads the code around that frame's instruction pointer.
 func (a *App) showFrameDisassembly(p *project, index int) {
-	a.performed("debug.frame.showDisassembly", surfaceMenu)
+	a.performed("debug.frame.showDisassembly", surfaceContextMenu)
 	if index != p.debug.vars.frame {
 		a.selectDebugFrame(p, index)
 	}
@@ -127,7 +127,7 @@ func (a *App) debugInstructionMenu(c ui.C, row ui.Box, p *project, instruction c
 			}
 			if menu.Item(label).Clicked() {
 				c.After(func() {
-					a.performed("debug.instruction.toggleBreakpoint", surfaceMenu)
+					a.performed("debug.instruction.toggleBreakpoint", surfaceContextMenu)
 					a.toggleInstructionBreakpoint(p, address)
 				})
 			}
@@ -136,7 +136,7 @@ func (a *App) debugInstructionMenu(c ui.C, row ui.Box, p *project, instruction c
 		if d.capabilities != nil && d.capabilities.SupportsReadMemoryRequest &&
 			menu.Item(i18n.Shared(lang, "debugger.disassembly.readMemoryAtAddress")).Disabled(d.state != "paused" || d.memory.loading).Clicked() {
 			c.After(func() {
-				a.performed("debug.instruction.readMemory", surfaceMenu)
+				a.performed("debug.instruction.readMemory", surfaceContextMenu)
 				a.readDebugMemoryAt(p, address)
 			})
 		}
@@ -181,7 +181,7 @@ func (a *App) debugVariableMenu(c ui.C, p *project) {
 		edits := canEditDebugVariable(d, node)
 		if edits && menu.Item(i18n.Shared(lang, "native.setValue")).Clicked() {
 			c.After(func() {
-				a.performed("debug.variable.setValue", surfaceMenu)
+				a.performed("debug.variable.setValue", surfaceContextMenu)
 				v.json, v.selected = false, node
 			})
 		}
@@ -189,7 +189,7 @@ func (a *App) debugVariableMenu(c ui.C, p *project) {
 			menu.Item(i18n.Shared(lang, "native.breakOnFieldAccess")).Clicked() {
 			name, parent := node.name, node.parentRef
 			c.After(func() {
-				a.performed("debug.variable.breakOnAccess", surfaceMenu)
+				a.performed("debug.variable.breakOnAccess", surfaceContextMenu)
 				a.requestDataBreakpoint(p, name, parent)
 			})
 		}
@@ -215,7 +215,7 @@ func (a *App) debugVariableMenu(c ui.C, p *project) {
 			menu.Separator()
 			if menu.Item(i18n.Shared(lang, "native.addToWatches")).Disabled(d.state != "paused").Clicked() {
 				c.After(func() {
-					a.performed("debug.variable.addWatch", surfaceMenu)
+					a.performed("debug.variable.addWatch", surfaceContextMenu)
 					d.watch.input = watched
 					a.addDebugWatch(p)
 				})
@@ -236,13 +236,13 @@ func (a *App) debugWatchMenu(c ui.C, row ui.Box, p *project, index int) {
 		menu.WidthRange(160, 240)
 		if menu.Item(i18n.Shared(lang, "native.refreshWatches")).Clicked() {
 			c.After(func() {
-				a.performed("debug.watch.refresh", surfaceMenu)
+				a.performed("debug.watch.refresh", surfaceContextMenu)
 				a.refreshDebugWatches(p)
 			})
 		}
 		if menu.Item(i18n.Shared(lang, "native.editWatch")).Clicked() {
 			c.After(func() {
-				a.performed("debug.watch.edit", surfaceMenu)
+				a.performed("debug.watch.edit", surfaceContextMenu)
 				w.beginEdit(index)
 			})
 		}
@@ -256,7 +256,7 @@ func (a *App) debugWatchMenu(c ui.C, row ui.Box, p *project, index int) {
 		menu.Separator()
 		if menu.Item(t.RemoveWatch).Clicked() {
 			c.After(func() {
-				a.performed("debug.watch.remove", surfaceMenu)
+				a.performed("debug.watch.remove", surfaceContextMenu)
 				a.removeDebugWatch(p, index)
 			})
 		}
@@ -278,26 +278,26 @@ func (a *App) debugBreakpointMenu(c ui.C, row ui.Box, p *project, path string, l
 		}
 		if menu.Item(toggle).Clicked() {
 			c.After(func() {
-				a.performed(action, surfaceMenu)
+				a.performed(action, surfaceContextMenu)
 				a.setBreakpointEnabled(p, path, line, disabled)
 			})
 		}
 		if menu.Item(i18n.Shared(lang, "git.jumpToSource")).Clicked() {
 			c.After(func() {
-				a.performed("debug.breakpoint.jumpToSource", surfaceMenu)
+				a.performed("debug.breakpoint.jumpToSource", surfaceContextMenu)
 				a.openFileAtPosition(p, path, int(max(line-1, 0)), 0)
 			})
 		}
 		menu.Separator()
 		if menu.Item(i18n.Shared(lang, "debugger.removeBreakpoint")).Clicked() {
 			c.After(func() {
-				a.performed("debug.breakpoint.remove", surfaceMenu)
+				a.performed("debug.breakpoint.remove", surfaceContextMenu)
 				a.removeBreakpoint(p, path, line)
 			})
 		}
 		if menu.Item(i18n.Shared(lang, "native.removeAll")).Clicked() {
 			c.After(func() {
-				a.performed("debug.breakpoint.removeAll", surfaceMenu)
+				a.performed("debug.breakpoint.removeAll", surfaceContextMenu)
 				a.removeAllBreakpoints(p)
 			})
 		}

@@ -27,7 +27,7 @@ func (a *App) openSelectedTreeFile(p *project) {
 // nothing; a failure is shown to the user.
 func (a *App) openTreeFileWith(file string) {
 	lang := a.language()
-	a.performed("workspace.tree.openWith", surfaceMenu)
+	a.performed("workspace.tree.openWith", surfaceContextMenu)
 	paths, err := app.OpenFiles(app.OpenFileOptions{Title: i18n.Shared(lang, "desktop.files.openWithTitle")})
 	if errors.Is(err, app.ErrCanceled) || (err == nil && len(paths) == 0) {
 		return
@@ -36,6 +36,7 @@ func (a *App) openTreeFileWith(file string) {
 		err = app.OpenWith(paths[0], filepath.Clean(file))
 	}
 	if err != nil {
+		a.operationFailed("project_tree_open_with", documentLogError(err))
 		a.notifyError(i18n.SharedFormat(lang, "desktop.files.openWithFailed", map[string]string{"reason": treeErrorReason(err)}))
 	}
 }

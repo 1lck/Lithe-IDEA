@@ -32,6 +32,8 @@ type requestEnvelope struct {
 	Payload     any    `json:"payload"`
 	// GitExecution is the request's Git policy, nil for Core's defaults.
 	GitExecution *gitExecution `json:"gitExecution,omitempty"`
+	// Origin is the user action the request belongs to, nil for none (see Origin).
+	Origin *requestOrigin `json:"origin,omitempty"`
 }
 
 // gitExecution is the part of a request's Git policy the client sets (GitExecutionOptions in
@@ -105,6 +107,7 @@ func (c *Client) execute(ctx context.Context, command string, payload, result an
 		Command:      command,
 		Payload:      payload,
 		GitExecution: gitExecutionOf(ctx, command),
+		Origin:       requestOriginOf(ctx),
 	})
 	if err != nil {
 		return nil, &Error{

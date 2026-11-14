@@ -103,7 +103,7 @@ func (a *App) openPreviewPage(config webpreview.Config, alive func() bool) *prev
 	config.Host = &a.web
 	config.Log = func(stage string, err error) {
 		a.post(func(a *App) {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("web_preview_"+stage, err))
+			a.backgroundFailed("web_preview_"+stage, err)
 		})
 	}
 	open := a.previews.open
@@ -117,7 +117,7 @@ func (a *App) openPreviewPage(config webpreview.Config, alive func() bool) *prev
 		} else {
 			a.previews.failed = true
 		}
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("web_preview_open", err))
+		a.operationFailed("web_preview_open", err)
 		return nil
 	}
 	entry := &previewPage{view: view, shown: a.previews.frame, alive: alive}
