@@ -119,7 +119,7 @@ func (a *App) startDocumentSync(p *project, d *document) {
 		return
 	}
 	if !s.opened || s.pluginID != pluginID {
-		path, languageID := d.path, d.languageID
+		path, languageID, virtual := d.path, d.languageID, d.virtual
 		text, _ := d.view.Text()
 		revision, generation := d.view.Revision(), s.generation
 		// Bind ownership before Open returns so disabling the plugin also
@@ -127,7 +127,13 @@ func (a *App) startDocumentSync(p *project, d *document) {
 		s.pluginID = pluginID
 		s.running = true
 		a.background(p, documentSyncTimeout, func(ctx context.Context) func(*App) {
-			uri, err := a.kernel.PluginDocumentURI(ctx, path, "auto")
+			// Provider documents already carry a URI; only disk-backed views
+			// need a native-path conversion. Core validates both at Open.
+			uri := path
+			var err error
+			if !virtual {
+				uri, err = a.kernel.PluginDocumentURI(ctx, path, "auto")
+			}
 			if err == nil {
 				var identity string
 				identity, err = server.session.Documents.Open(ctx, pluginlsp.Document{

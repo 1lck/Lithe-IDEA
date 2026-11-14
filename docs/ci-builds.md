@@ -428,6 +428,15 @@ macOS Build 偏好编辑复用同一文档，只在明确 Save/Reset 后条件�
 也可重开。持续修改最多重试一次，关闭释放观察，不新增下载、持久缓存或可复用资源。
 
 
+独立 Java 插件的反编译补丁只在插件仓库构建时执行：原始 JDT/JDK 下载仍为只读、按锁校验的输入，
+`<java-plugin-worktree>/.artifacts/package/<arch>/<plugin-id>/` 与
+`.artifacts/windows-package-<pid>/` 是每次组装的输出；`<os-temp>/lithe-jdt-decompiler-*/`
+由单次编译拥有并在成功或失败时删除。补丁验证上游源码/JAR、修改源码、编译器版本/平台/归档哈希、
+生成 class 集合与各项哈希；这些不构成可复用 worktree identity，三类输出均经
+`official-plugin-packages` 拒绝路由，任何阶段都不复制或共享。修改后的 JDT core JAR
+移除已失效的 Eclipse JAR 签名，随包提供修改后的 EPL 源码和补丁清单；原生 JVM 签名不变。
+运行时只读取安装包，索引和配置继续走平台可写状态目录，不影响应用签名或 Sparkle delta。
+
 Windows 注册表 stdio 调试器状态位于
 `<windows-local-app-data>/<app-id>/plugin-state/<plugin-id>/debug-adapters/<adapter-id>/<workspace-digest>/`。
 由当前插件/适配器/工作区拥有；停止会话关闭进程，卸载插件清理其状态。语言服务器托管适配器

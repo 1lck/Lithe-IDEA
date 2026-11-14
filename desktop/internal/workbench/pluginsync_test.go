@@ -2,9 +2,11 @@ package workbench
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginlsp"
@@ -141,4 +143,57 @@ func TestReleasePluginInvalidatesOpeningDocument(t *testing.T) {
 	if d.sync.opened || d.sync.running {
 		t.Fatal("a late Open restored synchronization for the released plugin")
 	}
+}
+
+// Providers may serve any language. Preserve the document's URI verbatim so
+// subsequent definitions refer to the same identity that supplied its text.
+func TestVirtualDocumentPreservesLanguageAndSyncURI(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	root, _ := openNote(t, h, "x")
+	uri := "dependency-source://library/Widget.go?revision=one%2Ftwo"
+	_, err := callOnWindow(h, "virtual language document", func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, (pluginWorkbench{app: h.app}).OpenVirtualDocument(ctx, root, pluginservice.VirtualDocument{URI: uri, Name: "Widget.go", Text: "package dependency\ntype Widget struct{}\n"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := h.app.project
+	d := p.docs.byPath(uri)
+	if d == nil || d.languageID != "go" {
+		t.Fatal("virtual source did not retain its Go language")
+	}
+	capture := &virtualSyncKernel{request: make(chan core.PluginDocumentSyncRequest, 1)}
+	tracker := pluginlsp.New(capture, "virtual-session")
+	original := h.app.plugins
+	h.app.plugins = &pluginservice.Service{}
+	h.app.pluginServers = map[string]*pluginServer{"dependency": {session: &pluginservice.LanguageSession{PluginID: "dependency", Documents: tracker}, cancel: func() {}}}
+	h.app.pluginServerLanguages = map[string]string{"go": "dependency"}
+	defer func() { h.app.plugins = original; h.app.pluginServers = nil; h.app.pluginServerLanguages = nil }()
+	h.app.startDocumentSync(p, d)
+	awaitStateWithin(t, h, 3*time.Second, "virtual synchronization", func() bool { return !d.sync.running })
+	if !d.sync.opened || d.sync.uri != uri {
+		t.Fatalf("virtual sync lost identity: %+v", d.sync)
+	}
+	select {
+	case got := <-capture.request:
+		if got.URI != uri || got.LanguageID != "go" {
+			t.Fatalf("sync request = %+v", got)
+		}
+	default:
+		t.Fatal("virtual source was not synchronized")
+	}
+}
+
+type virtualSyncKernel struct {
+	closeRecordKernel
+	request chan core.PluginDocumentSyncRequest
+}
+
+func (k *virtualSyncKernel) SyncPluginDocument(_ context.Context, r core.PluginDocumentSyncRequest) (core.PluginDocumentSync, error) {
+	select {
+	case k.request <- r:
+	default:
+		return core.PluginDocumentSync{}, errors.New("unexpected duplicate virtual sync")
+	}
+	return core.PluginDocumentSync{URI: r.URI, DocumentVersion: 1, Changed: true}, nil
 }
