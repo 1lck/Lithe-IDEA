@@ -10,7 +10,9 @@
 //     {operationId, command, payload}, decodes {id, ok, data, error}, turns failures into a
 //     typed *Error, and forwards context cancellation to the kernel through lithe_core_cancel.
 //  3. Typed commands (recent.go, git.go, chrome.go): small methods on *Client
-//     with Go request and response types, so the UI never builds JSON by hand.
+//     with Go request and response types, so the UI never builds JSON by hand. A feature that
+//     is maintained on its own wraps its commands in its own package on top of Client.Execute:
+//     the ai.* commands and git.commitMessageContext live in internal/ai, not here.
 //
 // Every call is synchronous and blocks the calling goroutine until the kernel answers. GitStatus
 // runs Git and can take anything from milliseconds to seconds, so it must be called from a

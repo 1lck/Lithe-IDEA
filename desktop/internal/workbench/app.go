@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/ai"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/documentio"
@@ -220,10 +221,10 @@ type Options struct {
 	// PluginRoot is the directory installed plugin packages live in. Empty asks
 	// pluginpkg.DefaultRoot, which is the platform's own data directory.
 	PluginRoot string
-	// AIKernel discovers the providers of commit message generation and inline edits from
-	// the user's Codex and Claude configuration. nil leaves AI generation unavailable
-	// instead of refusing to start.
-	AIKernel AIKernel
+	// AIKernel runs AI generation (the ai package): the commit message, the inline edit and
+	// the pull request description, with the providers of the user's Codex and Claude
+	// configuration. nil leaves AI generation unavailable instead of refusing to start.
+	AIKernel ai.Kernel
 	// PluginInitializeTimeout bounds every plugin backend's startup handshake.
 	// Zero keeps Core's default. Host tests whose fixture is a copy of the large
 	// instrumented test binary raise it so scheduler load cannot masquerade as
@@ -530,9 +531,8 @@ type App struct {
 	// pluginServerMu guards the language-server maps because a build provider
 	// may attach to a shared session from a background model load.
 	pluginServerMu sync.Mutex
-	// aiKernel discovers AI generation providers (ai_provider.go), nil when the window was
-	// built without one.
-	aiKernel AIKernel
+	// aiKernel runs AI generation (ai_generation.go), nil when the window was built without one.
+	aiKernel ai.Kernel
 	// inline is the editor's AI inline edit dialog (inlineedit.go).
 	inline inlineEditState
 	// ideAPIBridgeState lets the IDE Connection settings page reach the open project (settings_ide_api.go).

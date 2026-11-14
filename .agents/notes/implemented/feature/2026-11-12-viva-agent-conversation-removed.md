@@ -8,7 +8,7 @@
 
 第二轮清理把当时只标为“放弃”的记录也删掉了：功能矩阵里对应的 36 个条目、`shared/i18n/` 里全部 593 条含 `agent` 的词条，以及旧客户端 Agent 对话的 15 篇 Note。原因是旧 SwiftUI 与 Tauri 客户端目录已经在本分支整体删除，那些词条、能力和笔记不再有任何消费者；留在 `implemented/` 和矩阵里会让后来的人以为功能仍存在。
 
-保留 AI 提交信息生成、编辑器行内 AI 编辑和创建 PR 时的 AI 描述。三者共用的 Codex/Claude provider 发现搬到 `desktop/internal/workbench/ai_provider.go`，只调用 Core 的 `ai.configuration.sources` 和 `ai.configuration.parse`，不再经过 Agent 状态。设置窗口的 AI 分组只剩“生成”和“IDE 连接”两页。
+保留 AI 提交信息生成、编辑器行内 AI 编辑和创建 PR 时的 AI 描述。三者共用的 Codex/Claude provider 发现只调用 Core 的 `ai.configuration.sources` 和 `ai.configuration.parse`，不再经过 Agent 状态。2026-11-14 起，provider 发现、Core AI 命令的封装、HTTP 请求和三条生成流程都放在独立的 Go 包 `desktop/internal/ai`，与 Core 的 `lithe-ai` crate 对应，以后由用户团队单独维护；`desktop/internal/core` 不再含 AI 代码，`desktop/internal/workbench` 只保留界面状态和本地化的错误文案。设置窗口的 AI 分组只剩“生成”和“IDE 连接”两页。
 
 Rust Core 的 Agent 宿主（`lithe-agent-host` 和 C ABI 里的 Agent 入口）以及 `shared/fixtures/agent/`、`shared/contracts/agent-turn-policy.json` 保持不变：它们属于 Core 的兼容面，删除要单独的 Core PR 并提升 `PINNED_CORE_REVISION`。桌面端不再调用它们。
 
@@ -25,7 +25,7 @@ Agent 对话是迁移中剩余最大的一块：旧客户端的历史、订阅�
 ## 决策
 
 - **删除范围。** 桌面端删除 `desktop/internal/workbench/agent*.go`、`settings_mcp.go`、`desktop/internal/core/agent*.go`、`mcp.go`、`desktop/internal/agentbrand/`、`desktop/internal/mcpconfig/`、`desktop/internal/settingswindow/` 里的 Agent/MCP/技能/Hooks 页面，以及 `desktop/internal/i18n/` 中只给这些界面用的消息。快捷键表删除“新建 Agent 对话”和 Agent 分组。工具窗口布局里原来放助手的位置不再有占位。
-- **保留的 provider 发现只走 Core 的配置解析。** `discoverAIProviders` 先向 Core 要该来源的本机配置文件，再把文件文本交给 Core 解析；Go 只按 Core 返回的凭据定位器读取同一份 JSON 文本或进程环境。Key 只在内存里，不写设置、日志或错误信息。Codex `config.toml` 的内联 `experimental_bearer_token` 需要 TOML 路径解析，仍报“不支持”，不为这一条路径在 Go 里再写一份配置解析器。
+- **保留的 provider 发现只走 Core 的配置解析。** `ai.Discover` 先向 Core 要该来源的本机配置文件，再把文件文本交给 Core 解析；Go 只按 Core 返回的凭据定位器读取同一份 JSON 文本或进程环境。Key 只在内存里，不写设置、日志或错误信息。Codex `config.toml` 的内联 `experimental_bearer_token` 需要 TOML 路径解析，仍报“不支持”，不为这一条路径在 Go 里再写一份配置解析器。
 - **生成选项归 AI 分组的“生成”页。** 原 Agent 设置里的生成来源、输出语言和自定义指令移到 `pageAIGeneration`（`desktop/internal/settingswindow/ai_generation*.go`）；设置文件里的 `aiGeneration` 字段不变，已保存的选择继续生效。设置文件中原有的 `agentContextLimits`、`customAgents` 等 Agent 字段读取时忽略。AI 分组在 `desktop/internal/settingswindow/model.go` 的 `parents` 表里只声明“生成”和“IDE 连接”；以后新增 AI 页面仍只加进这个分组。
 - **文案最终全删。** 第一轮只删掉被桌面端 Agent 界面用到的 474 条词条，剩下的 490 条因为与旧客户端共享，只去掉 `desktop` 平台并留给“旧客户端历史代码和其他平台”。旧客户端目录随后在本分支整体删除，这条理由不再成立，第二轮把两批合成一回：`shared/i18n/` 里 593 条含 `agent` 的词条全部删除。`native.sSHAgent` 与 `native.automaticTriesYourSSHAgentAndKeysFirst…` 属于 SSH agent，不是 Agent 对话，保留。
 - **唯一还在用的文案改用通用词条。** `agent.state.cancel` 一直被 Git 提交、分支、日志窗口和设置窗口当作通用的“取消”按钮文案使用，第二轮把它换成 `ui.cancel`，并给 `ui.cancel` 补上 `desktop` 平台；此后桌面端没有任何 `agent.*` 词条引用。
@@ -52,7 +52,7 @@ Agent 对话是迁移中剩余最大的一块：旧客户端的历史、订阅�
 ## 验证
 
 - `scripts/desktop/desktop-go.sh build ./...`、`scripts/desktop/desktop-go.sh vet ./internal/... ./cmd/...`：删除后桌面端编译、静态检查通过（在 `desktop/` 下运行）。
-- `scripts/desktop/desktop-go.sh test ./internal/workbench/ ./internal/settingswindow/ ./internal/core/ ./internal/shortcuts/ ./internal/i18n/ -count=1`：provider 发现用真实 Core 解析写入的配置文件、凭据定位器、AI 生成选项页、设置侧栏分组与搜索、工具窗口拖放和信号处理回归。
+- `scripts/desktop/desktop-go.sh test ./internal/ai/ ./internal/workbench/ ./internal/settingswindow/ ./internal/core/ ./internal/shortcuts/ ./internal/i18n/ -count=1`：provider 发现用真实 Core 解析写入的配置文件、凭据定位器、AI 生成选项页、设置侧栏分组与搜索、工具窗口拖放和信号处理回归。
 - `node scripts/i18n/generate-i18n.mjs --check`、`node scripts/i18n/verify-app-language-localization.mjs`、`node --test --test-timeout=60000 scripts/i18n/test-i18n.mjs`：删到 11 067 条词条后生成结果一致、中英覆盖完整、界面文案仍全部走 i18n。
 - `scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`：删除 36 个条目后 219 条能力校验通过。
 - `scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh <PR head> <改动后快照>`：能力记录确有实质变更，门禁不要求 `matrix-exempt`。
@@ -60,13 +60,11 @@ Agent 对话是迁移中剩余最大的一块：旧客户端的历史、订阅�
 
 ## 适用范围
 
-- `desktop/internal/workbench/ai_provider.go`
-- `desktop/internal/workbench/ai_provider_test.go`
+- `desktop/internal/ai/`
 - `desktop/internal/workbench/ai_generation.go`
 - `desktop/internal/settingswindow/ai_generation.go`
 - `desktop/internal/settingswindow/ai_generation_view.go`
 - `desktop/internal/settingswindow/model.go`
-- `desktop/internal/core/ai_configuration.go`
 - `desktop/internal/core/signal_guard_darwin_test.go`
 - `desktop/internal/i18n/`
 - `shared/i18n/messages.json`

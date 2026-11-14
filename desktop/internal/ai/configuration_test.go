@@ -1,4 +1,4 @@
-package core
+package ai
 
 import (
 	"encoding/json"
@@ -8,11 +8,12 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
 
-func TestAIConfigurationSourcesUsesCorePaths(t *testing.T) {
+func TestConfigurationSourcesUsesCorePaths(t *testing.T) {
 	home := t.TempDir()
-	files, err := NewClient().AIConfigurationSources(testContext(t), "codex", home, nil)
+	files, err := testClient().ConfigurationSources(testContext(t), "codex", home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +25,7 @@ func TestAIConfigurationSourcesUsesCorePaths(t *testing.T) {
 	}
 
 	override := t.TempDir()
-	files, err = NewClient().AIConfigurationSources(testContext(t), "codex", home, map[string]string{"CODEX_HOME": override})
+	files, err = testClient().ConfigurationSources(testContext(t), "codex", home, map[string]string{"CODEX_HOME": override})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +33,7 @@ func TestAIConfigurationSourcesUsesCorePaths(t *testing.T) {
 		t.Fatalf("CODEX_HOME path = %q", files[0].Path)
 	}
 
-	files, err = NewClient().AIConfigurationSources(testContext(t), "claude", home, map[string]string{"CLAUDE_CONFIG_DIR": override})
+	files, err = testClient().ConfigurationSources(testContext(t), "claude", home, map[string]string{"CLAUDE_CONFIG_DIR": override})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,10 +44,10 @@ func TestAIConfigurationSourcesUsesCorePaths(t *testing.T) {
 	}
 }
 
-func TestAIConfigurationParseReturnsMetadataAndLocatorOnly(t *testing.T) {
+func TestConfigurationParseReturnsMetadataAndLocatorOnly(t *testing.T) {
 	const secret = "fixture-secret-key"
-	client := NewClient()
-	configuration, err := client.ParseAIConfiguration(testContext(t), AIConfigurationParseRequest{
+	client := testClient()
+	configuration, err := client.ParseConfiguration(testContext(t), ConfigurationParseRequest{
 		Source: "codex",
 		Files: map[string]string{
 			"config": "model = 'fixture-model'\nmodel_provider = 'gateway'\n[model_providers.gateway]\nbase_url = 'https://example.test/v1'\nrequires_openai_auth = true\n",
@@ -75,7 +76,7 @@ func TestAIConfigurationParseReturnsMetadataAndLocatorOnly(t *testing.T) {
 		t.Fatal("parse result contains the credential value")
 	}
 
-	configuration, err = client.ParseAIConfiguration(testContext(t), AIConfigurationParseRequest{
+	configuration, err = client.ParseConfiguration(testContext(t), ConfigurationParseRequest{
 		Source: "claude",
 		Files: map[string]string{
 			"settings": `{"env":{"ANTHROPIC_BASE_URL":"https://example.test/v1","ANTHROPIC_API_KEY":"` + secret + `"}}`,
@@ -92,8 +93,8 @@ func TestAIConfigurationParseReturnsMetadataAndLocatorOnly(t *testing.T) {
 	}
 }
 
-func TestAIConfigurationParseReportsNothingConfigured(t *testing.T) {
-	configuration, err := NewClient().ParseAIConfiguration(testContext(t), AIConfigurationParseRequest{
+func TestConfigurationParseReportsNothingConfigured(t *testing.T) {
+	configuration, err := testClient().ParseConfiguration(testContext(t), ConfigurationParseRequest{
 		Source: "codex",
 		Files:  map[string]string{"config": " \n"},
 	})
@@ -105,12 +106,12 @@ func TestAIConfigurationParseReportsNothingConfigured(t *testing.T) {
 	}
 }
 
-func TestAIConfigurationRejectsUnknownSource(t *testing.T) {
-	_, err := NewClient().ParseAIConfiguration(testContext(t), AIConfigurationParseRequest{Source: "unknown"})
-	requireCode(t, err, CodeInvalidRequest)
+func TestConfigurationRejectsUnknownSource(t *testing.T) {
+	_, err := testClient().ParseConfiguration(testContext(t), ConfigurationParseRequest{Source: "unknown"})
+	requireCode(t, err, core.CodeInvalidRequest)
 }
 
-func TestAIConfigurationParseMatchesSharedFixture(t *testing.T) {
+func TestConfigurationParseMatchesSharedFixture(t *testing.T) {
 	data, err := os.ReadFile(contractfixture.CoreFixture("ai/cli-configuration-v1.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +133,7 @@ func TestAIConfigurationParseMatchesSharedFixture(t *testing.T) {
 		if test.Expected == nil {
 			continue
 		}
-		configuration, err := NewClient().ParseAIConfiguration(testContext(t), AIConfigurationParseRequest{
+		configuration, err := testClient().ParseConfiguration(testContext(t), ConfigurationParseRequest{
 			Source:      test.Source,
 			Files:       test.Files,
 			Environment: test.Environment,
