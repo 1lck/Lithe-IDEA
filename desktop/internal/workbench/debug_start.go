@@ -383,6 +383,12 @@ func (a *App) beginDebug(p *project, start debugStart) {
 		return
 	}
 	adapter := start.adapter
+	a.pluginServerMu.Lock()
+	suppressed := a.pluginServerSuppressed[adapter.PluginID]
+	a.pluginServerMu.Unlock()
+	if suppressed {
+		return
+	}
 	targetPath := start.targetPath
 	if doc := p.selectedDocument(p.docs.group); targetPath == "" && doc != nil {
 		targetPath = doc.path

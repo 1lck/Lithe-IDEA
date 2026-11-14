@@ -133,6 +133,30 @@ func TestInstalledReportsVersionsAndEnablement(t *testing.T) {
 	}
 }
 
+func TestUninstallPreservesFilesWhenProgramsCannotStop(t *testing.T) {
+	manager, approvals, _, root := newManager(t)
+	const id = "dev.lithe.test.blocked-stop"
+	installed := install(t, root, id, "1.0.0")
+	approve(t, approvals, id, "1.0.0")
+	state := filepath.Join(root, pluginpkg.StateDirectory, id, "cache")
+	if err := os.MkdirAll(state, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stopErr := errors.New("the native process has not exited")
+	_, err := manager.Apply(context.Background(), core.PluginUninstall, id, func() error { return stopErr })
+	if !errors.Is(err, stopErr) {
+		t.Fatalf("uninstall = %v, want the stop failure", err)
+	}
+	for _, path := range []string{installed.Path, state} {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("files were removed despite a live process: %s: %v", path, err)
+		}
+	}
+	if _, ok, err := manager.Approval(id, "1.0.0"); err != nil || !ok {
+		t.Fatalf("approval was lost: %v, %v", ok, err)
+	}
+}
+
 func TestInstalledIsEmptyWithoutRoot(t *testing.T) {
 	manager, _, _, _ := newManager(t)
 	entries, err := manager.Installed()

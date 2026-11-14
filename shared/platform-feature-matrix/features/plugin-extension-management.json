@@ -19,7 +19,10 @@
       "desktop/internal/workbench/plugins.go",
       "desktop/internal/workbench/plugin_displace.go",
       "desktop/internal/pluginmanager/pluginmanager_test.go",
-      "desktop/internal/workbench/plugin_displace_test.go"
+      "desktop/internal/workbench/plugin_displace_test.go",
+      "desktop/internal/workbench/plugin_programs.go",
+      "desktop/internal/workbench/plugins_test.go",
+      ".agents/notes/implemented/bug-fix/2026-11-13-viva-plugin-install-enables-and-uninstall-cleans-state.md"
     ]
   },
   "windows": {
@@ -38,7 +41,10 @@
       "desktop/internal/workbench/plugins.go",
       "desktop/internal/workbench/plugin_displace.go",
       "desktop/internal/pluginmanager/pluginmanager_test.go",
-      "desktop/internal/workbench/plugin_displace_test.go"
+      "desktop/internal/workbench/plugin_displace_test.go",
+      "desktop/internal/workbench/plugin_programs.go",
+      "desktop/internal/workbench/plugins_test.go",
+      ".agents/notes/implemented/bug-fix/2026-11-13-viva-plugin-install-enables-and-uninstall-cleans-state.md"
     ]
   },
   "owner": "Extensions",
@@ -72,5 +78,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：市场标签提供安装；已安装标签提供启用、禁用、更新与卸载（卸载前确认）；从磁盘安装在插件页齿轮菜单的“从磁盘安装插件…”；plugininstall 负责校验与提交，pluginstate 保存启用状态。版本回退尚未实现。确认安装即启用（用户此前明确禁用过的，更新时保持禁用；卸载会清除选择）；卸载和禁用先停止插件的语言服务器与后端，卸载再删除插件包和插件状态目录 `.state/<插件 ID>`。Windows 共用同一份 Go 代码，尚未在 Windows 上验证。 2026-11-14：Core 的 plugins.installed.lifecycle 按清单 languageServers 保证同一语言只有一个已启用插件（Lithe-core-rust#39），宿主执行 displacePlugin：记为停用、停止进程、提示用户，并为已打开的共享语言文档启动新插件的服务器；尚未在原生窗口和 Windows 上验证。"
+  "notes": "Viva：市场标签提供安装；已安装标签提供启用、禁用、更新与卸载（卸载前确认）；从磁盘安装在插件页齿轮菜单的“从磁盘安装插件…”；plugininstall 负责校验与提交，pluginstate 保存启用状态。版本回退尚未实现。确认安装即启用（用户此前明确禁用过的，更新时保持禁用；卸载会清除选择）；卸载和禁用先停止插件的语言服务器与后端，卸载再删除插件包和插件状态目录 `.state/<插件 ID>`。Windows 共用同一份 Go 代码，尚未在 Windows 上验证。 2026-11-14：Core 的 plugins.installed.lifecycle 按清单 languageServers 保证同一语言只有一个已启用插件（Lithe-core-rust#39），宿主执行 displacePlugin：记为停用、停止进程、提示用户，并为已打开的共享语言文档启动新插件的服务器；尚未在原生窗口和 Windows 上验证。 #1843：Viva 卸载前等待所有项目标签的构建提供者、版本控制提供者及调试适配器退出；取消并等待尚未完成的启动，列表刷新仍保留启动阻断。停止失败时保留插件文件、批准及状态。macOS 已用虚构清单和受控原生进程完成回归，Windows 文件锁工作流尚待原生验证。"
 }

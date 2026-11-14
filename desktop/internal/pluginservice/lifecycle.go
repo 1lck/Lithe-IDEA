@@ -2,6 +2,7 @@ package pluginservice
 
 import (
 	"context"
+	"errors"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
@@ -14,9 +15,18 @@ import (
 //
 // The programs stop first, and Uninstall waits for them (bounded): one still
 // running could write its state again after the removal, and Windows cannot
-// move the directory of a program that runs.
-func (s *Service) Uninstall(ctx context.Context, id string, server *LanguageSession) error {
-	_, err := s.Manager.Apply(ctx, core.PluginUninstall, id, func() error { return s.stopPlugin(ctx, id, server) })
+// move the directory of a program that runs. stopNative waits for the window's
+// other native owners, including other project tabs, before stopping the language
+// server and backend. A failed stop preserves the package and state for retry.
+func (s *Service) Uninstall(ctx context.Context, id string, server *LanguageSession, stopNative ...func(context.Context) error) error {
+	_, err := s.Manager.Apply(ctx, core.PluginUninstall, id, func() error {
+		var failures []error
+		for _, stop := range stopNative {
+			failures = append(failures, stop(ctx))
+		}
+		failures = append(failures, s.stopPlugin(ctx, id, server))
+		return errors.Join(failures...)
+	})
 	return err
 }
 
