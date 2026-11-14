@@ -40,6 +40,7 @@ type shelfKernel interface {
 	GitShelfClean(ctx context.Context, root, layer string, snapshot core.GitShelfSnapshot) error
 	GitShelfRestore(ctx context.Context, root, layer string, snapshot core.GitShelfSnapshot) error
 	GitParsePatch(ctx context.Context, root, patch string) ([]core.GitDiffFile, error)
+	changedFileGrouper
 }
 
 // shelfFormat is the version of the shelf files this client reads and writes; a file of
@@ -286,6 +287,10 @@ func (a *App) selectShelf(p *project, id string) {
 			}
 			kinds, files = append(kinds, layer.kind), append(files, parsed)
 		}
+		layers := make([]savedLayer, len(files))
+		for i := 0; err == nil && i < len(files); i++ {
+			layers[i], err = newSavedLayer(ctx, kernel, "", files[i])
+		}
 		return func(a *App) {
 			s := &p.shelf
 			if s.filesGen != gen || s.selected != id {
@@ -297,9 +302,8 @@ func (a *App) selectShelf(p *project, id string) {
 				a.gitOperationFailed("git_shelf_diff", err)
 				return
 			}
-			layers := make([]savedLayer, len(kinds))
 			for i, kind := range kinds {
-				layers[i] = newSavedLayer(a.shelfLayerLabel(kind), files[i])
+				layers[i].label = a.shelfLayerLabel(kind)
 			}
 			s.layers = kinds
 			s.tree.reset(layers...)

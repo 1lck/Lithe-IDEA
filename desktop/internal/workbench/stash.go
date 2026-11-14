@@ -138,6 +138,10 @@ func (a *App) selectStash(p *project, oid string) {
 	gen, root := s.filesGen, p.git.repositoryRoot(p.root)
 	a.background(p, reviewTimeout, func(ctx context.Context) func(*App) {
 		files, err := kernel.GitStashDiff(ctx, root, stash)
+		var layer savedLayer
+		if err == nil {
+			layer, err = newSavedLayer(ctx, kernel, "", files)
+		}
 		return func(a *App) {
 			s := &p.stash
 			if s.filesGen != gen || s.selected != oid {
@@ -150,7 +154,7 @@ func (a *App) selectStash(p *project, oid string) {
 				return
 			}
 			s.files = files
-			s.tree.reset(newSavedLayer("", files))
+			s.tree.reset(layer)
 		}
 	})
 }
@@ -163,15 +167,6 @@ func stashDate(stash core.GitStash) string {
 		return stash.Date
 	}
 	return t.Local().Format(logDateFormat)
-}
-
-// stashCommitFiles are a stash's files as the Log tab's grouping takes a commit's.
-func stashCommitFiles(files []core.GitDiffFile) []core.GitCommitFile {
-	out := make([]core.GitCommitFile, len(files))
-	for i, f := range files {
-		out[i] = core.GitCommitFile{Path: f.Path, Status: f.Status}
-	}
-	return out
 }
 
 // openStashFile opens the Diff tab of the file at path the selected stash saved.

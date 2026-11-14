@@ -125,6 +125,7 @@ type Kernel interface {
 	GitCommit(ctx context.Context, root, commit string) (core.GitCommitDetail, error)
 	GitGraph(ctx context.Context, request core.GraphRequest) (core.Graph, error)
 	GitReferenceTree(ctx context.Context, names []string, prioritized map[string]bool) ([]core.ReferenceTreeNode, error)
+	GitChangedFileGroups(ctx context.Context, paths []string) ([]core.GitChangedFolder, error)
 	GitHistoryDates(ctx context.Context, entries []core.HistoryDateEntry, after, before *int64) ([]string, error)
 	ReduceEditorWorkbench(ctx context.Context, state core.EditorWorkbench, action core.EditorAction) (core.EditorWorkbench, []string, error)
 	GitStage(ctx context.Context, root string, paths []string) error

@@ -319,6 +319,36 @@ func (c *Client) GitReferenceTree(ctx context.Context, names []string, prioritiz
 	return nonNil(response.Nodes), nil
 }
 
+// GitChangedFolder is one folder of changed files (git.changedFileGroups): Path from the top
+// of the repository, "" for the top itself, and Files, indices into the grouped paths of the
+// files directly in it, in name order.
+type GitChangedFolder struct {
+	Path  string `json:"path"`
+	Files []int  `json:"files"`
+}
+
+type changedFileGroupsRequest struct {
+	Paths []string `json:"paths"`
+}
+
+type changedFileGroupsResponse struct {
+	Folders []GitChangedFolder `json:"folders"`
+}
+
+// GitChangedFileGroups groups repository-relative paths by folder, folders and files in the
+// project tree's natural order. It runs no process.
+func (c *Client) GitChangedFileGroups(ctx context.Context, paths []string) ([]GitChangedFolder, error) {
+	request := changedFileGroupsRequest{Paths: nonNil(paths)}
+	var response changedFileGroupsResponse
+	if err := c.Execute(ctx, "git.changedFileGroups", request, &response); err != nil {
+		return nil, err
+	}
+	for i := range response.Folders {
+		response.Folders[i].Files = nonNil(response.Folders[i].Files)
+	}
+	return nonNil(response.Folders), nil
+}
+
 // HistoryDateEntry is one commit a date filter is asked about.
 type HistoryDateEntry struct {
 	ID                  string `json:"id"`

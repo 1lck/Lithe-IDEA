@@ -138,7 +138,7 @@ func (a *App) collectLogFiles(p *project) {
 	v.fileRows, v.fileSelected = v.fileRows[:0], -1
 	for g, folder := range l.folders {
 		depth := 0
-		if folder.dir != "." {
+		if folder.dir != "" {
 			open := !l.closedFolders[folder.dir]
 			if v.folder == folder.dir {
 				v.fileSelected = len(v.fileRows)
@@ -306,7 +306,7 @@ func (a *App) toggleLogFolder(p *project, g int) {
 		l.closedFolders = map[string]bool{}
 	}
 	l.closedFolders[dir] = true
-	if v.file != "" && path.Dir(v.file) == dir {
+	if v.file != "" && l.folders[g].holds(v.file, func(i int) string { return l.files[i].Path }) {
 		v.file, v.folder = "", dir
 	}
 }

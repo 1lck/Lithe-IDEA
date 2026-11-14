@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -156,22 +157,26 @@ func TestLogChangedFilesFoldersCollapse(t *testing.T) {
 	}
 }
 
-func TestGroupLogFilesSortsFoldersAndKeepsGitOrder(t *testing.T) {
-	files := []core.GitCommitFile{{Path: "b/x.go"}, {Path: "a.go"}, {Path: "b/c/y.go"}, {Path: "b/a.go"}}
-	got := groupLogFiles(files)
-	want := []logFolder{{dir: ".", files: []int{1}}, {dir: "b", files: []int{0, 3}}, {dir: "b/c", files: []int{2}}}
-	if len(got) != len(want) {
-		t.Fatalf("folders %+v", got)
+// The changed-file lists group through Core: the top first, as "", then each folder before
+// its subfolders, folders and files in the project tree's natural order.
+func TestGroupLogFilesUsesCoreNaturalOrder(t *testing.T) {
+	paths := []string{"b/x.go", "a.go", "b/c/y.go", "b/a.go", "v0.1.12/n", "v0.1.4/n", "file10.go", "file2.go"}
+	got, err := groupLogFiles(context.Background(), core.NewClient(), paths)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for i := range want {
-		if got[i].dir != want[i].dir || len(got[i].files) != len(want[i].files) {
-			t.Fatalf("folder %d is %+v, want %+v", i, got[i], want[i])
-		}
-		for j := range want[i].files {
-			if got[i].files[j] != want[i].files[j] {
-				t.Fatalf("folder %d is %+v, want %+v", i, got[i], want[i])
-			}
-		}
+	want := []logFolder{
+		{dir: "", files: []int{1, 7, 6}},
+		{dir: "b", files: []int{3, 0}},
+		{dir: "b/c", files: []int{2}},
+		{dir: "v0.1.4", files: []int{5}},
+		{dir: "v0.1.12", files: []int{4}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("folders %+v, want %+v", got, want)
+	}
+	if !got[1].holds("b/a.go", func(i int) string { return paths[i] }) || got[1].holds("b/c/y.go", func(i int) string { return paths[i] }) {
+		t.Fatalf("folder b holds %v", got[1].files)
 	}
 }
 
