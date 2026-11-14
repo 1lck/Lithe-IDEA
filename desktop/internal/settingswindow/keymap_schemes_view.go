@@ -19,7 +19,9 @@ type schemeDraft struct {
 	failure       string
 }
 
-func (w *window) reportEssentialsFailure(_ string, err error) { reportSettingsError(w.ctrl.opts, err) }
+func (w *window) reportEssentialsFailure(operation string, err error) {
+	reportSettingsError(w.ctrl.opts, operation, err)
+}
 
 func (w *window) reduceScheme(request core.KeymapSchemeRequest) bool {
 	request.State = w.sess.values.KeymapSchemes

@@ -6231,16 +6231,6 @@
       ]
     },
     {
-      "id": "desktop.app.coreVersion",
-      "description": "Core version shown in application information.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "version": "string"
-      }
-    },
-    {
       "id": "desktop.app.devBadge",
       "description": "Development build badge on the application icon.",
       "platforms": [
@@ -6248,8 +6238,8 @@
       ]
     },
     {
-      "id": "desktop.app.version",
-      "description": "Application version displayed on the welcome and settings screens.",
+      "id": "desktop.app.previewVersion",
+      "description": "The version of a build that was not packaged from its desktop-v release tag, on the start screen and in Settings > About and Updates. A release build shows the plain version.",
       "platforms": [
         "desktop"
       ],
@@ -14387,6 +14377,159 @@
       ]
     },
     {
+      "id": "desktop.settings.about.tagline",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.copy",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.copied",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.copyHelp",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.copyFailed",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.about.info",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.version",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.platform",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.build",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.buildUnknown",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.runtime",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.community",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.qq",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.qqHelp",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "number": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.about.wechat",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.wechatHelp",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.project",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.repo",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.repoHelp",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.issues",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.issuesHelp",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.aiGeneration.help",
       "description": "AI settings page: generation options help",
       "platforms": [
@@ -15408,19 +15551,13 @@
       ]
     },
     {
-      "id": "desktop.settings.updates.download",
-      "description": "Updates settings page and update notices.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.settings.updates.downloading",
       "description": "Updates settings page and update notices.",
       "platforms": [
         "desktop"
       ],
       "parameters": {
+        "version": "string",
         "percent": "string"
       }
     },
@@ -15436,13 +15573,6 @@
     },
     {
       "id": "desktop.settings.updates.help",
-      "description": "Updates settings page and update notices.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.settings.updates.install",
       "description": "Updates settings page and update notices.",
       "platforms": [
         "desktop"
@@ -15498,6 +15628,30 @@
     },
     {
       "id": "desktop.settings.updates.upToDate",
+      "description": "Updates settings page and update notices.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.row",
+      "description": "Updates settings page and update notices.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.autoHelp",
+      "description": "Updates settings page and update notices.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.update",
       "description": "Updates settings page and update notices.",
       "platforms": [
         "desktop"

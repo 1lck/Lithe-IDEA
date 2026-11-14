@@ -139,6 +139,10 @@ type window struct {
 	// localHistory is the General page's unsaved local history settings and the open
 	// project's history size (local_history_view.go).
 	localHistory localHistoryDraft
+	// about is the About page's copy result, and aboutFacts the build facts it shows, read
+	// on its first paint (about_view.go).
+	about      aboutState
+	aboutFacts *aboutFacts
 	// keymap is the Keymap page's filter and recording.
 	keymap keymapState
 
@@ -230,7 +234,7 @@ func newWindow(c *Controller, current Values) *window {
 	w.settingsNotices = make(chan string, 64)
 	w.dynamic = newSettingsSurfaces(c.opts)
 	w.dynamic.bind()
-	w.pluginSettings.report = func(err error) { reportSettingsError(c.opts, err) }
+	w.pluginSettings.report = func(err error) { reportSettingsError(c.opts, pluginSettingsOperation, err) }
 	w.toolchains = newToolchainState(c.opts.Toolchains)
 	w.stepping = newSteppingState(c.opts.SteppingAdapters, c.opts.NormalizeSteppingFilters)
 	w.terminal = newTerminalShellState(c.opts.TerminalShells)

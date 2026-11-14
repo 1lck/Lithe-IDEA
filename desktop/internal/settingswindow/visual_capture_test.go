@@ -48,13 +48,14 @@ func TestVisualSettings(t *testing.T) {
 		{"m35-editor-tab-layout", pageEditor}, {"m25-project-open-mode", pageGeneral}, {"m29-editor-font-menu", pageFonts}, {"m38-plugin-management-menu", pagePlugins},
 		{"m39-proxy-mode-menu", pageNetwork}, {"m40-process-run-policy", pageProcessTermination},
 		{"m41-process-terminal-policy", pageProcessTermination}, {"m43-process-orphan-policy", pageProcessTermination},
+		{"36-settings-about", pageAbout},
 	}
 	for _, theme := range []string{"dark", "light"} {
 		for _, scenario := range pages {
 			t.Run(scenario.id+"-"+theme, func(t *testing.T) {
 				opts := Options{
 					Text: func() *i18n.Messages { return i18n.For(language) }, Language: func() i18n.Language { return language },
-					SystemLanguage: language, Version: "0.1.0",
+					SystemLanguage: language, Version: "0.7.0",
 					InstalledPlugins: func() []PluginFacts {
 						return []PluginFacts{
 							{ID: "dev.lithe.editor-shortcut-import", Name: "Editor Shortcut Import", Vendor: "Lithe", Version: "1.0.0", Source: PluginSourceMarketplace},

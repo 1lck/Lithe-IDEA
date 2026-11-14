@@ -13,7 +13,10 @@
       ".github/workflows/desktop-release.yml",
       "desktop/internal/workbench/updates.go",
       "desktop/internal/settingswindow/updates_view.go",
-      "desktop/internal/buildinfo/update.go"
+      "desktop/internal/buildinfo/update.go",
+      "desktop/internal/workbench/updates_test.go",
+      "desktop/internal/settingswindow/about_view.go",
+      "desktop/internal/settingswindow/about_view_test.go"
     ]
   },
   "windows": {
@@ -26,13 +29,16 @@
       ".github/workflows/desktop-release.yml",
       "desktop/internal/workbench/updates.go",
       "desktop/internal/settingswindow/updates_view.go",
-      "desktop/internal/buildinfo/update.go"
+      "desktop/internal/buildinfo/update.go",
+      "desktop/internal/workbench/updates_test.go",
+      "desktop/internal/settingswindow/about_view.go",
+      "desktop/internal/settingswindow/about_view_test.go"
     ]
   },
   "owner": "Release",
   "releaseSource": "Viva 桌面构建使用独立 desktop-v 标签和预发布包，另由 desktop-autobuild.yml 每天从 preview 滚动发布到 desktop-AutoBuild 预发布（不注入更新源，也没有独立的开发版身份）；应用内更新渠道和签名验证尚未接入。",
-  "verification": "Viva 需要分别在 macOS 和 Windows 验证更新渠道、签名、下载、安装、取消和数据保护；当前尚无对应实机验收。",
-  "notes": "Viva：设置 › 更新页可检查、下载并安装：Viva 的更新包校验 latest.json 的 Ed25519 签名，按平台下载并校验大小与 SHA-256，下载放在用户缓存目录，安装后重启到新版本；启动时最多每天自动检查一次且只提示。更新源、公钥和渠道在链接时注入（buildinfo/update.go），打包与发布流程尚未注入也未发布签名 feed，所以发行构建目前不检查更新。没有专门的自动化测试。",
+  "verification": "Viva 需要分别在 macOS 和 Windows 验证更新渠道、签名、下载、安装、取消和数据保护；当前尚无对应实机验收。workbench 的 updates_test.go 用假的更新源覆盖：后台到点的检查推迟、回到前台后执行并只通知一次、保存检查时间并排下一次检查；自动检查失败不显示、手动检查显示原因；下载进度、下载目录在用户缓存、取消后恢复可更新且无失败；关闭自动检查后保存并撤销定时，重新打开后排上第一次检查。运行 scripts/desktop/desktop-go.sh test -race ./internal/workbench -run 'TestAutomaticUpdateCheck|TestUpdateCheckFailure|TestCancelledUpdateDownload|TestTurningOffTheAutomaticCheck'。",
+  "notes": "Viva：设置 › 更新页和关于页共用同一张更新卡片，可“立即检查”，有新版本时“更新”一键下载、校验、安装并重启；下载中可取消，取消后恢复为可更新且不报错。Viva 的更新包校验 latest.json 的 Ed25519 签名，按平台下载并校验大小与 SHA-256，下载放在用户缓存目录（Lithe/Updates/<版本>）。自动检查参照 Motty：启动 5 秒后第一次检查，之后每小时一次；窗口在后台时到点的检查推迟到窗口回到前台再补；同一版本只通知一次；自动检查失败不在页面显示，只有用户点“立即检查”才显示原因；自动检查开关与上次检查时间随设置保存，项目标签页共用一份状态。更新源、公钥和渠道在链接时注入（buildinfo/update.go），打包与发布流程尚未注入也未发布签名 feed，所以发行构建目前不检查更新。预览版与正式版按语义化版本比较，同号的预览版不会把正式版认作更新。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

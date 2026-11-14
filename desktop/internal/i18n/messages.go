@@ -39,10 +39,9 @@ type Messages struct {
 // AppMessages names the application.
 type AppMessages struct {
 	Name string
-	// Version is the version line under the name, for example "Version 0.1.0".
-	Version func(version string) string
-	// Core is the core library line in the settings, for example "Core 0.1.0".
-	Core func(version string) string
+	// Version is the version as Lithe shows it: the plain version for a stable build, which
+	// was packaged from its desktop-v release tag, and "0.7.0 Preview" for any other.
+	Version func(version string, stable bool) string
 	// DevBadge is the mark a development build puts on the application's Dock icon.
 	DevBadge string
 }

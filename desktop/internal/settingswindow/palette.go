@@ -114,4 +114,5 @@ var tiles = [pageCount]tile{
 	pageLanguages:      {color: gfx.RGB24(0x2f81f7), icon: icons.FileCode},
 	pageTools:          {color: gfx.RGB24(0x6e7681), icon: icons.Settings},
 	pageAI:             {color: gfx.RGB24(0x8957e5), icon: icons.Sparkles},
+	pageAbout:          {color: gfx.RGB24(0x1b7c83), icon: icons.Info},
 }

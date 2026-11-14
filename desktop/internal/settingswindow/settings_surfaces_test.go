@@ -49,7 +49,7 @@ func TestSettingsDynamicPagesShareDraftsFilterActionsAndRefreshCleanForms(t *tes
 	secondEnabled := true
 	enabled := true
 	var warnings atomic.Int32
-	w := newWindow(NewController(Options{SettingsError: func(error) { warnings.Add(1) }, PluginSettings: source, Text: func() *i18n.Messages { return i18n.For(i18n.English) }, SettingsNavigation: client.SettingsNavigation, SettingsPages: func(ctx context.Context) ([]core.SettingsPage, error) {
+	w := newWindow(NewController(Options{SettingsError: func(string, error) { warnings.Add(1) }, PluginSettings: source, Text: func() *i18n.Messages { return i18n.For(i18n.English) }, SettingsNavigation: client.SettingsNavigation, SettingsPages: func(ctx context.Context) ([]core.SettingsPage, error) {
 		return client.SettingsPages(ctx, []core.SettingsContribution{{Manifest: manifest, Owner: core.PluginSettingsOwner{PluginID: "dev.example.settings", Version: "1.0.0"}, Enabled: enabled}, {Manifest: otherManifest, Owner: core.PluginSettingsOwner{PluginID: "dev.example.settings-other", Version: "1.0.0"}, Enabled: secondEnabled}})
 	}}), Values{Theme: "dark"})
 	d := openWindow(t, w, func(config *app.Config) { config.Height = 1100 })
