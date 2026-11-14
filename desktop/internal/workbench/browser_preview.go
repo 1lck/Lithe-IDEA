@@ -31,14 +31,15 @@ func (a *App) openInBrowser(p *project, d *document) {
 	}
 	open := func() {
 		path := d.path
-		a.performed("editor.openInBrowser", surfaceMenu)
 		a.background(nil, 0, func(context.Context) func(*App) {
 			err := app.OpenPathInBrowser(path)
 			return func(a *App) {
 				if err != nil {
 					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_open_in_browser", documentLogError(err)))
 					a.notifyError(i18n.SharedFormat(a.language(), "desktop.editorMenu.openInBrowserFailed", map[string]string{"reason": err.Error()}))
+					return
 				}
+				a.performed("editor.openInBrowser", surfaceMenu)
 			}
 		})
 	}
